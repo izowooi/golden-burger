@@ -1,9 +1,10 @@
 from __future__ import annotations
 from datetime import date, timedelta
-from typing import Iterable
+from typing import Iterable, Literal
 from .config import Config
 from .db import SupaDB
 from .yf_client import fetch_daily_ohlc, FetchRange
+from .fdr_client import fetch_daily_ohlc_kr
 
 
 def _daterange_missing(last: date | None) -> tuple[date, date | None]:
@@ -23,13 +24,25 @@ def _daterange_missing(last: date | None) -> tuple[date, date | None]:
     return (next_date, yesterday)
 
 
-def ingest_missing(conf: Config, only: Iterable[str] | None = None) -> None:
+def ingest_missing(
+    conf: Config,
+    only: Iterable[str] | None = None,
+    market: Literal["us", "kr"] = "us"
+) -> None:
     key = conf.supabase_service_role_key or conf.supabase_anon_key
     if not conf.supabase_url or not key:
         raise RuntimeError("Supabase URL/Key 설정이 필요합니다 (.env).")
 
     db = SupaDB(conf.supabase_url, key)
-    tickers = tuple(only) if only else conf.tickers
+
+    # market에 따라 ticker 목록 및 fetch 함수 선택
+    if market == "kr":
+        tickers = tuple(only) if only else conf.kr_tickers
+        fetch_func = fetch_daily_ohlc_kr
+    else:
+        tickers = tuple(only) if only else conf.tickers
+        fetch_func = fetch_daily_ohlc
+
     db.ensure_tickers(tickers)
 
     for sym in tickers:
@@ -45,7 +58,7 @@ def ingest_missing(conf: Config, only: Iterable[str] | None = None) -> None:
 
         # FetchRange 생성 시 end가 None인 경우 처리
         fetch_end = end if end is None else end
-        rows = fetch_daily_ohlc(sym, FetchRange(start=start, end=fetch_end))
+        rows = fetch_func(sym, FetchRange(start=start, end=fetch_end))
 
         if rows:
             db.upsert_ohlc(rows)

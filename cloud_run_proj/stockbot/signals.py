@@ -1,7 +1,7 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from datetime import date
-from typing import Iterable, List
+from typing import Iterable, List, Literal
 from .config import Config
 from .db import SupaDB
 from .indicators import compute_sma_cross
@@ -38,13 +38,24 @@ SMA60  : {self.sma60:.2f}
 """
         return subject, body
 
-def run_signal_detection(conf: Config, only: Iterable[str] | None = None, dry_run: bool = False, debug_mode: bool = False) -> List[SignalMessage]:
+def run_signal_detection(
+    conf: Config,
+    only: Iterable[str] | None = None,
+    dry_run: bool = False,
+    debug_mode: bool = False,
+    market: Literal["us", "kr"] = "us"
+) -> List[SignalMessage]:
     key = conf.supabase_service_role_key or conf.supabase_anon_key
     if not conf.supabase_url or not key:
         raise RuntimeError("Supabase URL/Key 설정이 필요합니다 (.env).")
 
     db = SupaDB(conf.supabase_url, key)
-    tickers = tuple(only) if only else conf.tickers
+
+    # market에 따라 ticker 목록 선택
+    if market == "kr":
+        tickers = tuple(only) if only else conf.kr_tickers
+    else:
+        tickers = tuple(only) if only else conf.tickers
 
     found: List[SignalMessage] = []
     for sym in tickers:
