@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(find:*)",
+      "Bash(gcloud config:*)",
+      "Bash(gcloud run:*)",
+      "Bash(gcloud functions:*)",
+      "Bash(gcloud app services list:*)",
+      "Bash(gcloud compute instances list:*)",
+      "Bash(gcloud storage buckets list:*)",
+      "Bash(gcloud scheduler jobs list:*)",
+      "Bash(gcloud projects list:*)",
+      "Bash(python scripts/test_fdr.py:*)",
+      "Bash(pip install:*)",
+      "Bash(python main.py:*)",
+      "Bash(pytest:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
