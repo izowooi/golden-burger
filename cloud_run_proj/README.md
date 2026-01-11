@@ -1,13 +1,14 @@
-# 🚀📈 StockBot: 나스닥 이동 평균선 신호 알리미
+# 🚀📈 StockBot: 나스닥 & 한국 ETF 이동 평균선 신호 알리미
 
 <div align="center">
 
 ![Python](https://img.shields.io/badge/Python-3.12+-blue.svg)
 ![Supabase](https://img.shields.io/badge/Supabase-2.18+-green.svg)
 ![Yahoo Finance](https://img.shields.io/badge/Yahoo%20Finance-API-orange.svg)
+![FinanceDataReader](https://img.shields.io/badge/FinanceDataReader-KRX-red.svg)
 ![Telegram](https://img.shields.io/badge/Telegram-Bot-blue.svg)
 
-**나스닥 주식의 5일/60일 이동 평균선 교차를 감지하여 실시간으로 알려주는 스마트 알림 봇!** 💰📊
+**나스닥 주식 및 한국 ETF의 5일/60일 이동 평균선 교차를 감지하여 실시간으로 알려주는 스마트 알림 봇!** 💰📊
 
 [📖 기능 소개](#-프로젝트-소개) • [⚡ 빠른 시작](#-빠른-시작) • [🔧 설치 및 설정](#-설치-및-설정) • [📋 사용법](#-사용법) • [🗂️ 데이터베이스 스키마](#️-데이터베이스-스키마)
 
@@ -17,22 +18,24 @@
 
 ## 🎯 프로젝트 소개
 
-**StockBot**은 나스닥 주식들의 **5일 이동 평균선**과 **60일 이동 평균선**이 교차하는 순간을 감지하여, **텔레그램**과 **이메일**로 알림을 보내주는 프로그램입니다! 🤖💹
+**StockBot**은 나스닥 주식 및 **한국 ETF**의 **5일 이동 평균선**과 **60일 이동 평균선**이 교차하는 순간을 감지하여, **텔레그램**과 **이메일**로 알림을 보내주는 프로그램입니다! 🤖💹
 
 ### ✨ 주요 특징
 
 - 🟢 **골든 크로스 감지**: 5일선이 60일선 위로 올라갈 때 (매수 신호!)
 - 🔴 **데드 크로스 감지**: 5일선이 60일선 아래로 떨어질 때 (매도 신호!)
+- 🇺🇸 **나스닥 주식 지원**: Yahoo Finance API로 미국 주식 데이터 수집
+- 🇰🇷 **한국 ETF 지원**: FinanceDataReader로 KRX ETF 데이터 수집 (연금저축계좌 매수 가능 ETF 포함)
 - 📡 **실시간 알림**: 텔레그램 봇 + 이메일로 알림
 - 🗄️ **Supabase 연동**: 데이터 저장
-- 📊 **Yahoo Finance 연동**: 주가 데이터 수집
 - 🧪 **테스트 모드**: `--dry-run`으로 실제 알림 없이 테스트 가능
 
 ### 🏗️ 아키텍처 개요
 
 ```mermaid
 graph TB
-    A[📊 Yahoo Finance] --> B[📥 Data Ingestion]
+    A1[📊 Yahoo Finance<br/>US 주식] --> B[📥 Data Ingestion]
+    A2[📊 FinanceDataReader<br/>KR ETF] --> B
     B --> C[(🗄️ Supabase DB)]
     C --> D[🧠 Signal Detection]
     D --> E{신호 발생?}
@@ -40,7 +43,8 @@ graph TB
     E -->|예| G[📧 Email Service]
     E -->|아니오| H[⏳ 대기]
 
-    style A fill:#e1f5fe
+    style A1 fill:#e1f5fe
+    style A2 fill:#ffebee
     style C fill:#f3e5f5
     style F fill:#e8f5e8
     style G fill:#e8f5e8
@@ -161,8 +165,15 @@ SUPABASE_SERVICE_ROLE_KEY=your-service-role-key-here
 # 또는 익명 키 사용 (읽기 전용)
 SUPABASE_ANON_KEY=your-anon-key-here
 
-# 기본 티커 목록 (선택사항)
+# 기본 티커 목록 - 미국 주식 (선택사항)
 TICKERS=AAPL,GOOGL,MSFT,AMZN,NFLX
+
+# 기본 티커 목록 - 한국 ETF (선택사항)
+# 연금저축계좌 매수 가능 ETF 예시
+KR_TICKERS=360750,133690,379800
+# 360750: TIGER 미국S&P500
+# 133690: TIGER 미국나스닥100
+# 379800: KODEX 미국S&P500TR
 ```
 
 #### 텔레그램 알림 설정 (선택사항) 📱
@@ -257,6 +268,8 @@ create policy signals_read
 ### 🎯 기본 명령어
 
 #### 1. 데이터 수집 (Ingestion) 📥
+
+**🇺🇸 미국 주식 (기본)**
 ```bash
 # 기본 티커들로 데이터 수집
 python main.py ingest
@@ -268,7 +281,18 @@ python main.py ingest --tickers AAPL,GOOGL,MSFT,AMZN
 python main.py ingest --tickers NFLX,TSLA,META
 ```
 
+**🇰🇷 한국 ETF**
+```bash
+# 한국 ETF 데이터 수집 (--market kr 필수)
+python main.py ingest --tickers 360750,133690 --market kr
+
+# 환경변수 KR_TICKERS 사용
+python main.py ingest --market kr
+```
+
 #### 2. 신호 감지 및 알림 (Signals) 🚨
+
+**🇺🇸 미국 주식 (기본)**
 ```bash
 # 모든 티커에 대해 신호 감지
 python main.py signals
@@ -278,6 +302,15 @@ python main.py signals --tickers AAPL,GOOGL
 
 # 테스트 모드 (알림 보내지 않음)
 python main.py signals --dry-run
+```
+
+**🇰🇷 한국 ETF**
+```bash
+# 한국 ETF 신호 감지
+python main.py signals --tickers 360750,133690 --market kr
+
+# 테스트 모드
+python main.py signals --market kr --dry-run
 ```
 
 ### 🔍 신호 감지 로직
@@ -369,11 +402,12 @@ cloud_run_proj/
 │   ├── 📄 __init__.py
 │   ├── 📄 config.py           # 환경변수 설정 🔧
 │   ├── 📄 db.py               # Supabase 연동 🗄️
+│   ├── 📄 fdr_client.py       # FinanceDataReader 클라이언트 (한국 ETF) 🇰🇷
 │   ├── 📄 indicators.py       # 기술적 지표 계산 📊
 │   ├── 📄 ingest.py           # 데이터 수집 📥
 │   ├── 📄 notifiers.py        # 알림 기능 📱📧
 │   ├── 📄 signals.py          # 신호 감지 및 알림 🚨
-│   └── 📄 yf_client.py        # Yahoo Finance 클라이언트 📊
+│   └── 📄 yf_client.py        # Yahoo Finance 클라이언트 (미국 주식) 🇺🇸
 └── 📁 scripts/                # 유틸리티 스크립트 🛠️
     └── 📄 supabase_smoke_test.py  # 연결 테스트 ✅
 ```
@@ -384,11 +418,12 @@ cloud_run_proj/
 |------|------|--------|
 | `config.py` | 환경변수 로드 및 설정 | 🔧 |
 | `db.py` | Supabase 데이터베이스 연동 | 🗄️ |
+| `fdr_client.py` | FinanceDataReader 래퍼 (한국 ETF) | 🇰🇷 |
 | `indicators.py` | 이동 평균선 계산 및 교차 감지 | 📊 |
-| `ingest.py` | Yahoo Finance에서 데이터 수집 | 📥 |
+| `ingest.py` | 데이터 수집 (US/KR 통합) | 📥 |
 | `signals.py` | 신호 감지 및 알림 발송 | 🚨 |
 | `notifiers.py` | 텔레그램/이메일 알림 | 📱📧 |
-| `yf_client.py` | Yahoo Finance API 래퍼 | 📊 |
+| `yf_client.py` | Yahoo Finance API 래퍼 (미국 주식) | 🇺🇸 |
 
 ---
 
@@ -452,6 +487,19 @@ A: 60일 데이터가 필요합니다. 신규 티커는 최소 60일간 데이�
 
 ### Q: Cloud Run에 배포하고 싶어요
 A: `cloud_run_proj` 이름에서 알 수 있듯이 Google Cloud Run에 최적화되어 있습니다! 🚀
+
+### Q: 한국 ETF 종목코드는 어디서 찾나요?
+A: 네이버 금융, 증권사 앱에서 ETF 검색 시 6자리 숫자 코드를 확인할 수 있습니다. 예: TIGER 미국S&P500 → 360750
+
+### Q: 연금저축계좌에서 매수 가능한 ETF인지 어떻게 알 수 있나요?
+A: 증권사 앱에서 종목코드로 검색 후 "연금저축" 매수 가능 여부를 확인하세요. 일반적으로 국내 상장 해외지수 추종 ETF는 대부분 가능합니다.
+
+### Q: 미국 주식과 한국 ETF를 동시에 모니터링할 수 있나요?
+A: 네! 별도의 명령어로 각각 실행하면 됩니다:
+```bash
+python main.py ingest --tickers AAPL,GOOGL          # 미국
+python main.py ingest --tickers 360750 --market kr  # 한국
+```
 
 ---
 
