@@ -161,3 +161,4 @@ cython_debug/
 /legacy/.idea
 /streamlit_proj/.idea
 streamlit_proj/.streamlit/secrets.toml
+/cloud_run_proj/.idea
