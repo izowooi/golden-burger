@@ -111,6 +111,15 @@ graph TB
    - **Working directory**: 프로젝트 루트 경로 📁
    - **Environment variables**: `SUPABASE_URL`, `SUPABASE_ANON_KEY` 🔑
 
+## 📊 지원 ETF 종목
+
+| ETF명 | 종목코드 |
+|-------|----------|
+| TIGER 미국S&P500 | 360750 |
+| KODEX 미국나스닥100TR | 379810 |
+| TIGER 미국테크TOP10 INDXX | 381170 |
+| KODEX 200 | 069500 |
+
 ## 📊 데이터베이스 스키마
 
 ```mermaid
