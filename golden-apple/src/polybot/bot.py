@@ -84,6 +84,7 @@ class PolymarketBot:
             for candidate in candidates:
                 # Skip if already traded
                 if repo.is_already_traded(candidate["condition_id"]):
+                    logger.info(f"이미 거래한 시장 skip: {candidate['condition_id']}")
                     continue
 
                 if trader.execute_buy(candidate):

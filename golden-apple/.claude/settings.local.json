@@ -9,7 +9,8 @@
       "Bash(.venv/bin/python:*)",
       "Bash(pip show:*)",
       "Bash(python:*)",
-      "Bash(uv pip install:*)"
+      "Bash(uv pip install:*)",
+      "Bash(ls:*)"
     ]
   }
 }

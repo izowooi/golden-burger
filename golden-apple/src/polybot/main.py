@@ -77,17 +77,17 @@ Examples:
     log_level = logging.DEBUG if getattr(args, "verbose", False) else logging.INFO
 
     if args.command == "run":
-        # Load config
+        # Load config (pass simulation flag to use correct DB)
         try:
-            config = load_config(args.config, args.job)
+            config = load_config(
+                args.config,
+                args.job,
+                simulation_mode=args.simulate if args.simulate else None,
+            )
         except ValueError as e:
             print(f"Configuration error: {e}")
             print("Make sure POLYMARKET_PRIVATE_KEY and POLYMARKET_FUNDER_ADDRESS are set in .env")
             sys.exit(1)
-
-        # Override simulation mode if specified
-        if args.simulate:
-            config.simulation_mode = True
 
         # Setup logging with job name
         setup_logger(config.job_name, log_level)

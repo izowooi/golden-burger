@@ -44,6 +44,7 @@ def load_config(
     config_path: str = "config.yaml",
     job_name: str = "default",
     env_path: Optional[str] = None,
+    simulation_mode: Optional[bool] = None,
 ) -> BotConfig:
     """Load configuration from YAML file and environment variables.
 
@@ -51,6 +52,7 @@ def load_config(
         config_path: Path to config.yaml file
         job_name: Jenkins job name (used for DB path separation)
         env_path: Optional path to .env file
+        simulation_mode: Override simulation mode (CLI --simulate flag)
 
     Returns:
         BotConfig instance with all settings
@@ -104,13 +106,17 @@ def load_config(
         funder_address=funder_address,
     )
 
-    # Set up database path (per job)
+    # Simulation mode (CLI flag overrides config file)
+    if simulation_mode is None:
+        simulation_mode = cfg.get("simulation_mode", False)
+
+    # Set up database path (per job, separate for simulation)
     db_dir = Path("data") / job_name
     db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = db_dir / "trades.db"
-
-    # Simulation mode
-    simulation_mode = cfg.get("simulation_mode", False)
+    if simulation_mode:
+        db_path = db_dir / "trades_sim.db"
+    else:
+        db_path = db_dir / "trades.db"
 
     return BotConfig(
         trading=trading,
