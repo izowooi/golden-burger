@@ -11,7 +11,7 @@ trading:
   sell_threshold: 0.90
 
   # 한 번 매수할 금액 (USDC)
-  buy_amount_usdc: 10.0
+  buy_amount_usdc: 5.0
 
   # 최소 유동성 ($)
   # 이 금액 미만의 시장은 제외
