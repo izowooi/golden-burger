@@ -1,10 +1,35 @@
 """Configuration management for the trading bot."""
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Union
 import os
 import yaml
 from dotenv import load_dotenv
+
+
+def _get_config_value(
+    env_key: str,
+    yaml_value,
+    default,
+    value_type: type = float
+) -> Union[float, int]:
+    """환경변수 > yaml > 기본값 순서로 설정값 로드.
+
+    Args:
+        env_key: 환경변수 이름
+        yaml_value: config.yaml에서 읽은 값
+        default: 기본값
+        value_type: 변환할 타입 (float 또는 int)
+
+    Returns:
+        우선순위에 따른 설정값
+    """
+    env_val = os.getenv(env_key)
+    if env_val is not None:
+        return value_type(env_val)
+    if yaml_value is not None:
+        return value_type(yaml_value)
+    return default
 
 
 @dataclass
@@ -74,14 +99,39 @@ def load_config(
     else:
         cfg = {}
 
-    # Parse trading config
+    # Parse trading config (환경변수 > yaml > 기본값)
     trading_cfg = cfg.get("trading", {})
     trading = TradingConfig(
-        buy_threshold=trading_cfg.get("buy_threshold", 0.80),
-        sell_threshold=trading_cfg.get("sell_threshold", 0.90),
-        buy_amount_usdc=trading_cfg.get("buy_amount_usdc", 10.0),
-        min_liquidity=trading_cfg.get("min_liquidity", 100000.0),
-        max_positions=trading_cfg.get("max_positions", -1),
+        buy_threshold=_get_config_value(
+            "POLYBOT_BUY_THRESHOLD",
+            trading_cfg.get("buy_threshold"),
+            0.80,
+            float
+        ),
+        sell_threshold=_get_config_value(
+            "POLYBOT_SELL_THRESHOLD",
+            trading_cfg.get("sell_threshold"),
+            0.90,
+            float
+        ),
+        buy_amount_usdc=_get_config_value(
+            "POLYBOT_BUY_AMOUNT",
+            trading_cfg.get("buy_amount_usdc"),
+            10.0,
+            float
+        ),
+        min_liquidity=_get_config_value(
+            "POLYBOT_MIN_LIQUIDITY",
+            trading_cfg.get("min_liquidity"),
+            100000.0,
+            float
+        ),
+        max_positions=_get_config_value(
+            "POLYBOT_MAX_POSITIONS",
+            trading_cfg.get("max_positions"),
+            -1,
+            int
+        ),
         excluded_categories=trading_cfg.get("excluded_categories", [
             "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
             "Soccer", "Football", "Basketball", "Baseball"
