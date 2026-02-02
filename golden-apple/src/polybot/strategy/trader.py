@@ -54,28 +54,28 @@ class Trader:
 
         # Check: Already traded?
         if self.repo.is_already_traded(condition_id):
-            logger.info(f"Already traded: {condition_id}")
+            logger.info(f"이미 거래한 시장: {condition_id}")
             return None
 
         # Check: Max positions limit
         if self.config.max_positions > 0:
             current_positions = self.repo.get_position_count()
             if current_positions >= self.config.max_positions:
-                logger.info(f"Max positions ({self.config.max_positions}) reached")
+                logger.info(f"최대 포지션 수 ({self.config.max_positions}) 도달")
                 return None
 
         # Get current price (re-verify before buying)
         try:
             current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
-            logger.error(f"Failed to get price for {condition_id}: {e}")
+            logger.error(f"가격 조회 실패 - condition: {condition_id}: {e}")
             return None
 
         # Check: Price jumped above sell threshold?
         if current_price >= self.config.sell_threshold:
             logger.info(
-                f"Rapid jump detected - skipping: {condition_id} "
-                f"(price: {current_price:.1%} >= {self.config.sell_threshold:.1%})"
+                f"급등 감지 - 매수 skip: {condition_id} "
+                f"(가격: {current_price:.1%} >= 매도 기준 {self.config.sell_threshold:.1%})"
             )
             self.repo.mark_as_skipped(condition_id, "rapid_jump")
             return None
@@ -83,8 +83,8 @@ class Trader:
         # Check: Price dropped below buy threshold?
         if current_price < self.config.buy_threshold:
             logger.info(
-                f"Price dropped below threshold: {condition_id} "
-                f"(price: {current_price:.1%} < {self.config.buy_threshold:.1%})"
+                f"가격 하락으로 매수 조건 미충족: {condition_id} "
+                f"(가격: {current_price:.1%} < 매수 기준 {self.config.buy_threshold:.1%})"
             )
             return None
 
@@ -95,15 +95,15 @@ class Trader:
         # Check minimum order size (Polymarket requires at least 5 shares)
         if buy_shares < MIN_ORDER_SIZE:
             logger.warning(
-                f"Order size {buy_shares:.2f} < minimum {MIN_ORDER_SIZE} for {condition_id}. "
-                f"Consider increasing buy_amount_usdc or buying at lower price."
+                f"주문 수량 {buy_shares:.2f}주 < 최소 {MIN_ORDER_SIZE}주 - {condition_id}. "
+                f"buy_amount_usdc를 늘리거나 낮은 가격에서 매수하세요."
             )
             return None
 
         # Place order
         logger.info(
-            f"Buying: {candidate['outcome']} for '{candidate['question'][:50]}...' "
-            f"@ {current_price:.2%} ({buy_shares:.2f} shares for ${self.config.buy_amount_usdc})"
+            f"매수: {candidate['outcome']} - '{candidate['question'][:50]}...' "
+            f"@ {current_price:.2%} ({buy_shares:.2f}주, ${self.config.buy_amount_usdc})"
         )
 
         result = self.clob.place_limit_order(
@@ -132,10 +132,10 @@ class Trader:
                 status=TradeStatus.HOLDING,
             )
 
-            logger.info(f"Buy order placed: Trade #{trade.id}, Order: {result.get('orderID')}")
+            logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
             return trade.id
         else:
-            logger.error(f"Buy order failed: {result}")
+            logger.error(f"매수 주문 실패: {result}")
             return None
 
     def execute_sell(self, trade) -> bool:
@@ -153,21 +153,21 @@ class Trader:
         try:
             current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
-            logger.error(f"Failed to get price for {trade.condition_id}: {e}")
+            logger.error(f"가격 조회 실패 - condition: {trade.condition_id}: {e}")
             return False
 
         # Check sell condition
         if current_price < self.config.sell_threshold:
             logger.debug(
-                f"Hold: {trade.condition_id} "
-                f"(price: {current_price:.1%} < {self.config.sell_threshold:.1%})"
+                f"보유 유지: {trade.condition_id} "
+                f"(가격: {current_price:.1%} < 매도 기준 {self.config.sell_threshold:.1%})"
             )
             return False
 
         # Execute sell
         logger.info(
-            f"Selling: {trade.outcome} for '{trade.question[:50]}...' "
-            f"@ {current_price:.2%} ({trade.buy_shares:.2f} shares)"
+            f"매도: {trade.outcome} - '{trade.question[:50]}...' "
+            f"@ {current_price:.2%} ({trade.buy_shares:.2f}주)"
         )
 
         result = self.clob.place_limit_order(
@@ -197,12 +197,12 @@ class Trader:
             )
 
             logger.info(
-                f"Sell order placed: Trade #{trade.id}, "
+                f"매도 주문 완료: Trade #{trade.id}, "
                 f"P&L: ${realized_pnl:.4f} ({(current_price/trade.buy_price - 1)*100:.1f}%)"
             )
             return True
         else:
-            logger.error(f"Sell order failed: {result}")
+            logger.error(f"매도 주문 실패: {result}")
             return False
 
     def check_and_sell_holdings(self) -> int:
@@ -214,7 +214,7 @@ class Trader:
         holdings = self.repo.get_holding_trades()
         sold_count = 0
 
-        logger.info(f"Checking {len(holdings)} holding positions")
+        logger.info(f"보유 포지션 {len(holdings)}개 확인 중")
 
         for trade in holdings:
             if self.execute_sell(trade):

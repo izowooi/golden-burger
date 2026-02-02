@@ -35,7 +35,7 @@ class GammaClient:
                 try:
                     market[field] = json.loads(market[field])
                 except json.JSONDecodeError:
-                    logger.warning(f"Failed to parse {field} for market {market.get('conditionId')}")
+                    logger.warning(f"{field} 파싱 실패 - market: {market.get('conditionId')}")
         return market
 
     @rate_limit_handler(max_retries=3)
@@ -105,10 +105,10 @@ class GammaClient:
 
             # Safety limit to prevent infinite loops
             if offset >= 5000:
-                logger.warning("Reached maximum pagination limit")
+                logger.warning("최대 페이지네이션 한도 도달")
                 break
 
-        logger.info(f"Retrieved {len(all_markets)} markets with liquidity >= ${min_liquidity:,.0f}")
+        logger.info(f"시장 {len(all_markets)}개 조회 완료 (유동성 >= ${min_liquidity:,.0f})")
         return all_markets
 
     @rate_limit_handler(max_retries=3)
@@ -132,7 +132,7 @@ class GammaClient:
                 return self._parse_market(markets[0])
             return None
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get market {condition_id}: {e}")
+            logger.error(f"시장 조회 실패 - condition: {condition_id}: {e}")
             return None
 
     @rate_limit_handler(max_retries=3)
@@ -150,7 +150,7 @@ class GammaClient:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to get event {event_id}: {e}")
+            logger.error(f"이벤트 조회 실패 - event: {event_id}: {e}")
             return None
 
     def get_market_tags(self, market: Dict) -> List[str]:

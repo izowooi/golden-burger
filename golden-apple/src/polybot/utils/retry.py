@@ -43,8 +43,8 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                         wait_time = retry_after + jitter
 
                         logger.warning(
-                            f"Rate limit hit (attempt {attempt + 1}/{max_retries}), "
-                            f"waiting {wait_time:.1f}s..."
+                            f"Rate limit 도달 (시도 {attempt + 1}/{max_retries}), "
+                            f"{wait_time:.1f}초 대기..."
                         )
                         time.sleep(wait_time)
 
@@ -53,8 +53,8 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                         wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
 
                         logger.warning(
-                            f"Server error {status_code} (attempt {attempt + 1}/{max_retries}), "
-                            f"waiting {wait_time:.1f}s..."
+                            f"Server error {status_code} (시도 {attempt + 1}/{max_retries}), "
+                            f"{wait_time:.1f}초 대기..."
                         )
                         time.sleep(wait_time)
 
@@ -67,8 +67,8 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                     wait_time = base_delay * (2 ** attempt) + random.uniform(0, 1)
 
                     logger.warning(
-                        f"Connection error (attempt {attempt + 1}/{max_retries}), "
-                        f"waiting {wait_time:.1f}s..."
+                        f"Connection error (시도 {attempt + 1}/{max_retries}), "
+                        f"{wait_time:.1f}초 대기..."
                     )
                     time.sleep(wait_time)
 
@@ -77,13 +77,13 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                     wait_time = base_delay * (2 ** attempt)
 
                     logger.warning(
-                        f"Timeout (attempt {attempt + 1}/{max_retries}), "
-                        f"waiting {wait_time:.1f}s..."
+                        f"Timeout (시도 {attempt + 1}/{max_retries}), "
+                        f"{wait_time:.1f}초 대기..."
                     )
                     time.sleep(wait_time)
 
             # All retries exhausted
-            logger.error(f"Max retries ({max_retries}) exceeded")
+            logger.error(f"최대 재시도 횟수 ({max_retries}) 초과")
             raise last_exception or Exception(f"Failed after {max_retries} retries")
 
         return wrapper

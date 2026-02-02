@@ -41,7 +41,7 @@ class MarketScanner:
         markets = self.gamma.get_all_tradable_markets(
             min_liquidity=self.config.min_liquidity
         )
-        logger.info(f"Scanning {len(markets)} markets")
+        logger.info(f"시장 {len(markets)}개 스캔 시작")
 
         candidates = []
 
@@ -52,7 +52,7 @@ class MarketScanner:
 
             # Filter: Excluded categories (sports)
             if is_sports_market(market, self.config.excluded_categories):
-                logger.debug(f"Skipping sports market: {condition_id}")
+                logger.debug(f"스포츠 시장 제외: {condition_id}")
                 continue
 
             # Filter: Liquidity (double check)
@@ -86,11 +86,11 @@ class MarketScanner:
             }
             candidates.append(candidate)
             logger.debug(
-                f"Buy candidate: {candidate['question'][:50]}... "
+                f"매수 후보: {candidate['question'][:50]}... "
                 f"({candidate['outcome']} @ {probability:.1%})"
             )
 
-        logger.info(f"Found {len(candidates)} buy candidates")
+        logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates
 
     def check_current_price(self, token_id: str, clob_client) -> float:
@@ -106,5 +106,5 @@ class MarketScanner:
         try:
             return clob_client.get_midpoint(token_id)
         except Exception as e:
-            logger.error(f"Failed to get price for {token_id}: {e}")
+            logger.error(f"가격 조회 실패 - token: {token_id}: {e}")
             return 0.0

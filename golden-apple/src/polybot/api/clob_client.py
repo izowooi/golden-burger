@@ -52,10 +52,10 @@ class ClobClientWrapper:
             api_creds = self._client.create_or_derive_api_creds()
             self._client.set_api_creds(api_creds)
             self._initialized = True
-            logger.info("CLOB client initialized successfully")
+            logger.info("CLOB client 초기화 완료")
 
         except Exception as e:
-            logger.error(f"Failed to initialize CLOB client: {e}")
+            logger.error(f"CLOB client 초기화 실패: {e}")
             raise
 
     @property
@@ -101,7 +101,7 @@ class ClobClientWrapper:
                 price = result
             return float(price) if price else 0.0
         except Exception as e:
-            logger.error(f"Failed to get midpoint for {token_id}: {e}")
+            logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -117,7 +117,7 @@ class ClobClientWrapper:
         try:
             return float(self.client.get_price(token_id, side="BUY"))
         except Exception as e:
-            logger.error(f"Failed to get best bid for {token_id}: {e}")
+            logger.error(f"best bid 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -133,7 +133,7 @@ class ClobClientWrapper:
         try:
             return float(self.client.get_price(token_id, side="SELL"))
         except Exception as e:
-            logger.error(f"Failed to get best ask for {token_id}: {e}")
+            logger.error(f"best ask 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -152,7 +152,7 @@ class ClobClientWrapper:
             Order result dictionary
         """
         if self.simulation_mode:
-            logger.info(f"[SIM] Market BUY {token_id} for ${amount_usdc}")
+            logger.info(f"[SIM] Market BUY - token: {token_id}, 금액: ${amount_usdc}")
             return {
                 "success": True,
                 "orderID": f"SIM_BUY_{token_id[:8]}",
@@ -168,11 +168,11 @@ class ClobClientWrapper:
                 amount=amount_usdc,
             )
             response = self.client.create_and_post_market_order(order_args, BUY)
-            logger.info(f"Market BUY order placed: {response}")
+            logger.info(f"Market BUY 주문 완료: {response}")
             return response
 
         except Exception as e:
-            logger.error(f"Failed to place market buy: {e}")
+            logger.error(f"Market BUY 주문 실패: {e}")
             return {"success": False, "error": str(e)}
 
     @rate_limit_handler(max_retries=3)
@@ -198,7 +198,7 @@ class ClobClientWrapper:
         rounded_price = self._round_to_tick(price)
 
         if self.simulation_mode:
-            logger.info(f"[SIM] Limit {side} {size:.2f} shares of {token_id} @ {rounded_price:.2f}")
+            logger.info(f"[SIM] Limit {side} - {size:.2f}주 @ {rounded_price:.2f}, token: {token_id}")
             return {
                 "success": True,
                 "orderID": f"SIM_{side}_{token_id[:8]}",
@@ -222,11 +222,11 @@ class ClobClientWrapper:
             signed_order = self.client.create_order(order_args)
             response = self.client.post_order(signed_order, OrderType.GTC)
 
-            logger.info(f"Limit {side} order placed @ {rounded_price:.2f}: {response}")
+            logger.info(f"Limit {side} 주문 완료 @ {rounded_price:.2f}: {response}")
             return response
 
         except Exception as e:
-            logger.error(f"Failed to place limit order: {e}")
+            logger.error(f"Limit 주문 실패: {e}")
             return {"success": False, "error": str(e)}
 
     @rate_limit_handler(max_retries=3)
@@ -239,7 +239,7 @@ class ClobClientWrapper:
         try:
             return self.client.get_orders()
         except Exception as e:
-            logger.error(f"Failed to get open orders: {e}")
+            logger.error(f"미체결 주문 조회 실패: {e}")
             return []
 
     @rate_limit_handler(max_retries=3)
@@ -253,15 +253,15 @@ class ClobClientWrapper:
             Cancellation result
         """
         if self.simulation_mode:
-            logger.info(f"[SIM] Cancel order {order_id}")
+            logger.info(f"[SIM] 주문 취소 - order: {order_id}")
             return {"success": True, "simulated": True}
 
         try:
             result = self.client.cancel(order_id=order_id)
-            logger.info(f"Order cancelled: {order_id}")
+            logger.info(f"주문 취소 완료: {order_id}")
             return result
         except Exception as e:
-            logger.error(f"Failed to cancel order {order_id}: {e}")
+            logger.error(f"주문 취소 실패 - order: {order_id}: {e}")
             return {"success": False, "error": str(e)}
 
     def test_connection(self) -> bool:
@@ -276,5 +276,5 @@ class ClobClientWrapper:
             self.client.get_orders()
             return True
         except Exception as e:
-            logger.error(f"Connection test failed: {e}")
+            logger.error(f"연결 테스트 실패: {e}")
             return False

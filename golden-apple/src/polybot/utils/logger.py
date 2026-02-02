@@ -49,4 +49,4 @@ def setup_logger(job_name: str = "default", level: int = logging.INFO):
     logging.getLogger("urllib3").setLevel(logging.WARNING)
     logging.getLogger("requests").setLevel(logging.WARNING)
 
-    logging.info(f"Logging initialized - Job: {job_name}, Log file: {log_file}")
+    logging.info(f"로깅 초기화 완료 - Job: {job_name}, Log file: {log_file}")

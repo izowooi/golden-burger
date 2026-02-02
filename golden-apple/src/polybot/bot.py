@@ -39,7 +39,7 @@ class PolymarketBot:
         self.scanner = MarketScanner(self.gamma, config.trading)
 
         logger.info(
-            f"Bot initialized - Job: {config.job_name}, "
+            f"Bot 초기화 완료 - Job: {config.job_name}, "
             f"Simulation: {config.simulation_mode}"
         )
 
@@ -66,7 +66,7 @@ class PolymarketBot:
 
         try:
             # Phase 1: Check and sell holdings
-            logger.info("=== Phase 1: Checking holdings for sell ===")
+            logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
             holdings = repo.get_holding_trades()
             stats["checked_holdings"] = len(holdings)
 
@@ -75,12 +75,12 @@ class PolymarketBot:
                     stats["sold"] += 1
 
             # Phase 2: Scan for buy candidates
-            logger.info("=== Phase 2: Scanning for buy candidates ===")
+            logger.info("=== Phase 2: 매수 후보 스캔 ===")
             candidates = self.scanner.scan_buy_candidates()
             stats["buy_candidates"] = len(candidates)
 
             # Phase 3: Execute buys
-            logger.info("=== Phase 3: Executing buys ===")
+            logger.info("=== Phase 3: 매수 실행 ===")
             for candidate in candidates:
                 # Skip if already traded
                 if repo.is_already_traded(candidate["condition_id"]):
@@ -91,13 +91,13 @@ class PolymarketBot:
 
             # Log statistics
             db_stats = repo.get_stats()
-            logger.info(f"=== Cycle Complete ===")
-            logger.info(f"Holdings checked: {stats['checked_holdings']}")
-            logger.info(f"Sold: {stats['sold']}")
-            logger.info(f"Buy candidates: {stats['buy_candidates']}")
-            logger.info(f"Bought: {stats['bought']}")
-            logger.info(f"Total positions: {db_stats['holding']}")
-            logger.info(f"Total P&L: ${db_stats['total_pnl']:.4f}")
+            logger.info(f"=== 사이클 완료 ===")
+            logger.info(f"보유 포지션 확인: {stats['checked_holdings']}개")
+            logger.info(f"매도: {stats['sold']}건")
+            logger.info(f"매수 후보: {stats['buy_candidates']}개")
+            logger.info(f"매수: {stats['bought']}건")
+            logger.info(f"총 포지션: {db_stats['holding']}개")
+            logger.info(f"총 P&L: ${db_stats['total_pnl']:.4f}")
 
             return stats
 
@@ -106,13 +106,13 @@ class PolymarketBot:
 
     def run(self):
         """Run a single trading cycle (for Jenkins)."""
-        logger.info(f"Starting trading cycle - {self.config.job_name}")
+        logger.info(f"트레이딩 사이클 시작 - {self.config.job_name}")
 
         try:
             stats = self.run_cycle()
-            logger.info(f"Cycle completed successfully: {stats}")
+            logger.info(f"사이클 성공적으로 완료: {stats}")
         except Exception as e:
-            logger.exception(f"Cycle failed: {e}")
+            logger.exception(f"사이클 실패: {e}")
             raise
 
     def get_status(self) -> dict:

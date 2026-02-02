@@ -97,10 +97,10 @@ Examples:
         try:
             bot.run()
         except KeyboardInterrupt:
-            print("\nInterrupted by user")
+            print("\n사용자에 의해 중단됨")
             sys.exit(0)
         except Exception as e:
-            logging.exception(f"Bot failed: {e}")
+            logging.exception(f"Bot 실패: {e}")
             sys.exit(1)
 
     elif args.command == "status":
