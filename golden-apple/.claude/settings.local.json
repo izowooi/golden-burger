@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python scripts/test_api_key.py:*)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(pip show:*)",
+      "Bash(python:*)",
+      "Bash(uv pip install:*)"
+    ]
+  }
+}
