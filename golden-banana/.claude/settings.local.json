@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "Bash(source:*)",
+      "Bash(pip install:*)",
+      "Bash(python scripts/test_api_key.py:*)",
+      "Bash(.venv/bin/pip install:*)",
+      "Bash(.venv/bin/python:*)",
+      "Bash(pip show:*)",
+      "Bash(python:*)",
+      "Bash(uv pip install:*)",
+      "Bash(ls:*)",
+      "Bash(POLYBOT_BUY_THRESHOLD=0.85 POLYBOT_SELL_THRESHOLD=0.95 python:*)",
+      "Bash(tree:*)",
+      "Bash(uv run python:*)",
+      "Bash(uv sync:*)",
+      "Bash(pip uninstall:*)",
+      "Bash(echo:*)",
+      "Bash(PYTHONPATH=\"/Users/izowooi/git/t1/golden-banana/src\" /Users/izowooi/anaconda3/bin/python:*)"
+    ]
+  }
+}
