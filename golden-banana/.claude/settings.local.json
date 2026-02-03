@@ -17,7 +17,8 @@
       "Bash(uv sync:*)",
       "Bash(pip uninstall:*)",
       "Bash(echo:*)",
-      "Bash(PYTHONPATH=\"/Users/izowooi/git/t1/golden-banana/src\" /Users/izowooi/anaconda3/bin/python:*)"
+      "Bash(PYTHONPATH=\"/Users/izowooi/git/t1/golden-banana/src\" /Users/izowooi/anaconda3/bin/python:*)",
+      "Bash(sqlite3:*)"
     ]
   }
 }

@@ -1,0 +1,59 @@
+# Polymarket Trading Bot Configuration (Golden Banana)
+# 모멘텀 기반 전략 - 85-97% 확률 구간
+
+trading:
+  # 매수 임계값 (0.0 ~ 1.0)
+  # 확률이 이 값 이상일 때 매수 고려
+  buy_threshold: 0.85
+
+  # 매도 임계값 (0.0 ~ 1.0)
+  # 확률이 이 값 이상일 때 매도
+  sell_threshold: 0.97
+
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  # 이 금액 미만의 시장은 제외
+  min_liquidity: 50000
+
+  # 이익실현 (진입가 대비 +7%)
+  take_profit_percent: 0.07
+
+  # 손절 (진입가 대비 -10%)
+  stop_loss_percent: -0.10
+
+  # 최대 동시 포지션 수
+  # -1: 무제한
+  max_positions: -1
+
+  # 모멘텀 설정
+  momentum:
+    # 모멘텀 기반 진입/청산 활성화
+    enabled: true
+    # 단기 모멘텀 윈도우 (15분 = 3 스냅샷 * 5분 주기)
+    short_window: 3
+    # 장기 모멘텀 윈도우 (6시간 = 72 스냅샷 * 5분 주기)
+    long_window: 72
+    # 골든크로스 임계값 (단기-장기 >= 2%)
+    golden_cross_threshold: 0.02
+    # 데드크로스 임계값 (단기-장기 <= -2%)
+    dead_cross_threshold: -0.02
+
+  # 제외할 카테고리 (스포츠 등)
+  excluded_categories:
+    - Sports
+    - sports
+    - NFL
+    - NBA
+    - MLB
+    - NHL
+    - Soccer
+    - Football
+    - Basketball
+    - Baseball
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false
