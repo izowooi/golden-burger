@@ -40,6 +40,51 @@ class MarketScanner:
         if config.momentum.enabled:
             self.momentum_calc = MomentumCalculator(config.momentum)
 
+    def _log_momentum_summary(self, analysis: List[Dict]):
+        """모멘텀 분석 요약 출력.
+
+        Args:
+            analysis: 모멘텀 분석 결과 리스트
+        """
+        if not analysis:
+            logger.info("모멘텀 분석 대상 시장 없음 (확률 조건 충족 시장 없음)")
+            return
+
+        logger.info("=" * 70)
+        logger.info("모멘텀 분석 요약")
+        logger.info("=" * 70)
+
+        if self.momentum_calc:
+            logger.info(
+                f"설정: 골든크로스 >= {self.config.momentum.golden_cross_threshold}, "
+                f"단기={self.config.momentum.short_window}, 장기={self.config.momentum.long_window}"
+            )
+        else:
+            logger.info("설정: 모멘텀 비활성화 (확률 조건만 사용)")
+
+        logger.info("-" * 70)
+
+        entry_count = 0
+        for item in analysis:
+            status = "✓ 진입" if item["entry_signal"] else "✗ 제외"
+            if item["entry_signal"]:
+                entry_count += 1
+
+            short = f"{item['short_momentum']:.6f}" if item['short_momentum'] is not None else "N/A"
+            long_m = f"{item['long_momentum']:.6f}" if item['long_momentum'] is not None else "N/A"
+            diff = f"{item['diff']:+.6f}" if item['diff'] is not None else "N/A"
+
+            logger.info(
+                f"{status} | {item['outcome']} @ {item['probability']:.1%} | "
+                f"단기: {short} | 장기: {long_m} | 차이: {diff} | "
+                f"사유: {item['reason']}"
+            )
+            logger.info(f"       {item['question']}...")
+
+        logger.info("-" * 70)
+        logger.info(f"요약: 총 {len(analysis)}개 시장 중 {entry_count}개 진입 가능")
+        logger.info("=" * 70)
+
     def scan_buy_candidates(self) -> List[Dict]:
         """Scan for markets meeting buy criteria.
 
@@ -59,6 +104,7 @@ class MarketScanner:
         logger.info(f"시장 {len(markets)}개 스캔 시작")
 
         candidates = []
+        momentum_analysis = []  # 모멘텀 분석 결과 저장
 
         for market in markets:
             condition_id = market.get("conditionId")
@@ -92,6 +138,8 @@ class MarketScanner:
             # Filter: Momentum signal (if enabled)
             entry_signal = True
             entry_reason = "momentum_disabled"
+            short_momentum = None
+            long_momentum = None
 
             if self.momentum_calc and self.repo:
                 # Get snapshots for momentum calculation
@@ -102,6 +150,24 @@ class MarketScanner:
                 entry_signal, entry_reason = self.momentum_calc.get_entry_signal(
                     snapshots, probability
                 )
+                # 모멘텀 정보 수집
+                short_momentum, long_momentum = self.momentum_calc.get_momentum_info(snapshots)
+
+            # 모멘텀 분석 결과 저장 (진입 여부와 관계없이)
+            diff = None
+            if short_momentum is not None and long_momentum is not None:
+                diff = short_momentum - long_momentum
+
+            momentum_analysis.append({
+                "question": market.get("question", "")[:50],
+                "outcome": outcome_info["outcome"],
+                "probability": probability,
+                "short_momentum": short_momentum,
+                "long_momentum": long_momentum,
+                "diff": diff,
+                "entry_signal": entry_signal,
+                "reason": entry_reason,
+            })
 
             if not entry_signal:
                 logger.debug(
@@ -125,6 +191,9 @@ class MarketScanner:
                 f"매수 후보: {candidate['question'][:50]}... "
                 f"({candidate['outcome']} @ {probability:.1%}, 사유: {entry_reason})"
             )
+
+        # 모멘텀 분석 요약 출력
+        self._log_momentum_summary(momentum_analysis)
 
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates

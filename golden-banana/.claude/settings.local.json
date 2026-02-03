@@ -18,7 +18,10 @@
       "Bash(pip uninstall:*)",
       "Bash(echo:*)",
       "Bash(PYTHONPATH=\"/Users/izowooi/git/t1/golden-banana/src\" /Users/izowooi/anaconda3/bin/python:*)",
-      "Bash(sqlite3:*)"
+      "Bash(sqlite3:*)",
+      "Bash(polybot run:*)",
+      "Bash(find:*)",
+      "Bash(cat:*)"
     ]
   }
 }

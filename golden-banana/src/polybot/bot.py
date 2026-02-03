@@ -70,6 +70,18 @@ class PolymarketBot:
         }
 
         try:
+            # Log momentum configuration at cycle start
+            if self.config.trading.momentum.enabled:
+                logger.info(
+                    f"모멘텀 설정 - 활성화: True, "
+                    f"골든크로스: {self.config.trading.momentum.golden_cross_threshold}, "
+                    f"데드크로스: {self.config.trading.momentum.dead_cross_threshold}, "
+                    f"단기윈도우: {self.config.trading.momentum.short_window}, "
+                    f"장기윈도우: {self.config.trading.momentum.long_window}"
+                )
+            else:
+                logger.info("모멘텀 설정 - 활성화: False (확률 조건만 사용)")
+
             # Phase 0: Save market snapshots (for momentum calculation)
             logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots()
