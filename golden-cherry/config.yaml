@@ -16,7 +16,7 @@ trading:
 
   # 최소 유동성 ($)
   # 이 금액 미만의 시장은 제외
-  min_liquidity: 100
+  min_liquidity: 10000
 
   # 이익실현 (진입가 대비 +15%)
   take_profit_percent: 0.15
@@ -47,17 +47,7 @@ trading:
     exit_hours: 4
 
   # 제외할 카테고리 (스포츠 등)
-  excluded_categories:
-    - Sports
-    - sports
-    - NFL
-    - NBA
-    - MLB
-    - NHL
-    - Soccer
-    - Football
-    - Basketball
-    - Baseball
+  excluded_categories: []
 
 # 시뮬레이션 모드
 # true: 실제 주문 없이 로그만 기록

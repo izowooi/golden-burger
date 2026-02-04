@@ -37,6 +37,10 @@ def is_sports_market(market: Dict, excluded_categories: List[str]) -> bool:
     Returns:
         True if market should be excluded (is sports-related)
     """
+    # excluded_categories가 비어있으면 필터링 없음 (모든 시장 스캔)
+    if not excluded_categories:
+        return False
+
     # Check tags first
     tags = market.get("tags", [])
     if tags and is_sports_category(tags, excluded_categories):
