@@ -1,0 +1,65 @@
+# Polymarket Trading Bot Configuration (Golden Cherry)
+# Resolution Momentum Strategy - 해결 직전 모멘텀 전략
+# 75-92% 확률 구간 + 해결 24시간 이내 진입
+
+trading:
+  # 매수 임계값 (0.0 ~ 1.0)
+  # 확률이 이 값 이상일 때 매수 고려
+  buy_threshold: 0.75
+
+  # 매도 임계값 (0.0 ~ 1.0)
+  # 확률이 이 값 이하일 때만 매수 (상한)
+  sell_threshold: 0.92
+
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  # 이 금액 미만의 시장은 제외
+  min_liquidity: 100
+
+  # 이익실현 (진입가 대비 +15%)
+  take_profit_percent: 0.15
+
+  # 손절 (진입가 대비 -8%)
+  stop_loss_percent: -0.08
+
+  # 최대 동시 포지션 수
+  # -1: 무제한
+  max_positions: -1
+
+  # 트레일링 스탑 설정
+  trailing_stop:
+    # 트레일링 스탑 활성화
+    enabled: true
+    # 최고점 대비 하락율 (5%)
+    percent: 0.05
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 시간 기반 필터 활성화
+    enabled: true
+    # 진입 조건: 해결까지 최대 시간 (24시간)
+    entry_hours_max: 24
+    # 진입 조건: 해결까지 최소 시간 (4시간)
+    entry_hours_min: 4
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (4시간)
+    exit_hours: 4
+
+  # 제외할 카테고리 (스포츠 등)
+  excluded_categories:
+    - Sports
+    - sports
+    - NFL
+    - NBA
+    - MLB
+    - NHL
+    - Soccer
+    - Football
+    - Basketball
+    - Baseball
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

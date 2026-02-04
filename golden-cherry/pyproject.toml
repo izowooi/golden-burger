@@ -1,0 +1,25 @@
+[project]
+name = "golden-cherry"
+version = "0.2.0"
+description = "Polymarket automated trading bot - momentum-based strategy with 85-97% probability range"
+requires-python = ">=3.11"
+dependencies = [
+    "py-clob-client>=0.15.0",
+    "python-dotenv>=1.0.0",
+    "requests>=2.31.0",
+    "SQLAlchemy>=2.0.0",
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+polybot = "polybot.main:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
