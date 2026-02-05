@@ -74,9 +74,10 @@ class MarketScanner:
             long_m = f"{item['long_momentum']:.6f}" if item['long_momentum'] is not None else "N/A"
             diff = f"{item['diff']:+.6f}" if item['diff'] is not None else "N/A"
 
+            snapshot_cnt = item.get('snapshot_count', 0)
             logger.info(
                 f"{status} | {item['outcome']} @ {item['probability']:.1%} | "
-                f"단기: {short} | 장기: {long_m} | 차이: {diff} | "
+                f"스냅샷: {snapshot_cnt}개 | 단기: {short} | 장기: {long_m} | 차이: {diff} | "
                 f"사유: {item['reason']}"
             )
             logger.info(f"       {item['question']}...")
@@ -141,12 +142,14 @@ class MarketScanner:
             short_momentum = None
             long_momentum = None
 
+            snapshot_count = 0
             if self.momentum_calc and self.repo:
                 # Get snapshots for momentum calculation
                 snapshots = self.repo.get_snapshots_for_condition(
                     condition_id,
                     limit=self.config.momentum.long_window + 10
                 )
+                snapshot_count = len(snapshots)
                 entry_signal, entry_reason = self.momentum_calc.get_entry_signal(
                     snapshots, probability
                 )
@@ -167,6 +170,7 @@ class MarketScanner:
                 "diff": diff,
                 "entry_signal": entry_signal,
                 "reason": entry_reason,
+                "snapshot_count": snapshot_count,
             })
 
             if not entry_signal:
