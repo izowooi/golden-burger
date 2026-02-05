@@ -37,6 +37,14 @@ class PolymarketBot:
         self.gamma = GammaClient()
         self.clob = ClobClientWrapper(config.api, config.simulation_mode)
 
+        # DB 절대 경로 로깅
+        import os
+        db_absolute_path = os.path.abspath(config.db_path)
+        cwd = os.getcwd()
+        logger.info(f"[DB경로] CWD: {cwd}")
+        logger.info(f"[DB경로] 상대경로: {config.db_path}")
+        logger.info(f"[DB경로] 절대경로: {db_absolute_path}")
+
         logger.info(
             f"Bot 초기화 완료 - Job: {config.job_name}, "
             f"Simulation: {config.simulation_mode}, "
