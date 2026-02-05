@@ -150,6 +150,20 @@ class MarketScanner:
                     limit=self.config.momentum.long_window + 10
                 )
                 snapshot_count = len(snapshots)
+
+                # 디버깅: 스냅샷 확률 값 확인
+                if snapshots and len(snapshots) >= 2:
+                    oldest_prob = snapshots[0].probability
+                    newest_prob = snapshots[-1].probability
+                    oldest_time = snapshots[0].timestamp
+                    newest_time = snapshots[-1].timestamp
+                    logger.info(
+                        f"[SNAPSHOT] {condition_id[:16]}... | "
+                        f"oldest: {oldest_prob:.6f} ({oldest_time}) | "
+                        f"newest: {newest_prob:.6f} ({newest_time}) | "
+                        f"diff: {newest_prob - oldest_prob:.6f}"
+                    )
+
                 entry_signal, entry_reason = self.momentum_calc.get_entry_signal(
                     snapshots, probability
                 )
