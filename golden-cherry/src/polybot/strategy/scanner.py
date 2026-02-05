@@ -48,6 +48,9 @@ def get_hours_until_resolution(end_date: Optional[datetime]) -> Optional[float]:
     if not end_date:
         return None
     now = datetime.now(timezone.utc)
+    # DB에서 가져온 datetime이 timezone-naive일 수 있음 -> UTC로 처리
+    if end_date.tzinfo is None:
+        end_date = end_date.replace(tzinfo=timezone.utc)
     delta = end_date - now
     return delta.total_seconds() / 3600
 

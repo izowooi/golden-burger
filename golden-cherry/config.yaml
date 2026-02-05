@@ -1,6 +1,6 @@
 # Polymarket Trading Bot Configuration (Golden Cherry)
 # Resolution Momentum Strategy - 해결 직전 모멘텀 전략
-# 75-92% 확률 구간 + 해결 24시간 이내 진입
+# 75-92% 확률 구간 + 해결 1-30일 이내 진입
 
 trading:
   # 매수 임계값 (0.0 ~ 1.0)
@@ -39,12 +39,12 @@ trading:
   time_based:
     # 시간 기반 필터 활성화
     enabled: true
-    # 진입 조건: 해결까지 최대 시간 (24시간)
-    entry_hours_max: 24
-    # 진입 조건: 해결까지 최소 시간 (4시간)
-    entry_hours_min: 4
-    # 청산 조건: 해결까지 이 시간 이내면 청산 (4시간)
-    exit_hours: 4
+    # 진입 조건: 해결까지 최대 시간 (30일 = 720시간)
+    entry_hours_max: 720
+    # 진입 조건: 해결까지 최소 시간 (1일 = 24시간)
+    entry_hours_min: 24
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (12시간)
+    exit_hours: 12
 
   # 제외할 카테고리 (스포츠 등)
   excluded_categories: []
