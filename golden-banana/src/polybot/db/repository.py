@@ -117,7 +117,7 @@ class TradeRepository:
         condition_id: str,
         limit: int = 100
     ) -> List[MarketSnapshot]:
-        """특정 마켓의 스냅샷 조회 (시간순 정렬).
+        """특정 마켓의 최근 스냅샷 조회 (시간순 정렬).
 
         Args:
             condition_id: 마켓 condition ID
@@ -126,11 +126,15 @@ class TradeRepository:
         Returns:
             시간순 정렬된 스냅샷 리스트 (오래된 것 먼저)
         """
-        return self.session.query(MarketSnapshot).filter(
+        # 최근 limit개를 가져오기 위해 desc로 정렬 후 limit, 다시 asc로 정렬
+        snapshots = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.condition_id == condition_id
         ).order_by(
-            MarketSnapshot.timestamp.asc()
+            MarketSnapshot.timestamp.desc()  # 최신 것 먼저
         ).limit(limit).all()
+
+        # 시간순 정렬 (오래된 것 먼저)로 반환
+        return list(reversed(snapshots))
 
     def get_latest_snapshot(
         self,
