@@ -180,6 +180,13 @@ class MomentumCalculator:
 
         # 골든크로스 확인
         if self.detect_golden_cross(short_mom, long_mom):
+            # 장기 모멘텀 양수 필수 조건 확인
+            if self.config.require_positive_long_momentum and long_mom <= 0:
+                logger.debug(
+                    f"골든크로스 감지되었으나 장기 모멘텀 음수로 진입 거부 - "
+                    f"단기: {short_mom:.6f}, 장기: {long_mom:.6f}"
+                )
+                return False, "long_momentum_negative"
             logger.debug(
                 f"골든크로스 감지 - 단기: {short_mom:.6f}, 장기: {long_mom:.6f}, "
                 f"차이: {short_mom - long_mom:.6f}"

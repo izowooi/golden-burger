@@ -54,6 +54,7 @@ class MomentumConfig:
     long_window: int = 72      # 6시간 = 72 스냅샷 (5분 주기)
     golden_cross_threshold: float = 0.02   # 골든크로스 임계값 (2%)
     dead_cross_threshold: float = -0.02    # 데드크로스 임계값 (-2%)
+    require_positive_long_momentum: bool = True  # 장기 모멘텀 양수 필수
 
 
 @dataclass
@@ -160,6 +161,11 @@ def load_config(
             momentum_cfg.get("dead_cross_threshold"),
             -0.02,
             float
+        ),
+        require_positive_long_momentum=_get_bool_config_value(
+            "POLYBOT_REQUIRE_POSITIVE_LONG_MOMENTUM",
+            momentum_cfg.get("require_positive_long_momentum"),
+            True
         ),
     )
 

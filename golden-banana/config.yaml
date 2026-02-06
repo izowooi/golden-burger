@@ -39,6 +39,8 @@ trading:
     golden_cross_threshold: 0.02
     # 데드크로스 임계값 (단기-장기 <= -2%)
     dead_cross_threshold: -0.02
+    # 장기 모멘텀 양수 필수 (하락 추세에서 골든크로스 진입 방지)
+    require_positive_long_momentum: true
 
   # 제외할 카테고리 (스포츠 등)
   excluded_categories:
