@@ -151,6 +151,7 @@ class PolymarketBot:
                     "sell_threshold": self.config.trading.sell_threshold,
                     "buy_amount_usdc": self.config.trading.buy_amount_usdc,
                     "min_liquidity": self.config.trading.min_liquidity,
+                    "min_volume": self.config.trading.min_volume,
                     "max_positions": self.config.trading.max_positions,
                 },
             }

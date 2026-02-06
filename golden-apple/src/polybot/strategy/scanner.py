@@ -6,6 +6,7 @@ from ..config import TradingConfig
 from .filters import (
     is_sports_market,
     passes_liquidity_filter,
+    passes_volume_filter,
     get_high_probability_outcome,
     is_valid_buy_candidate,
 )
@@ -37,9 +38,10 @@ class MarketScanner:
         Returns:
             List of candidate dictionaries with market info
         """
-        # Get all markets with minimum liquidity
+        # Get all markets with minimum liquidity and volume
         markets = self.gamma.get_all_tradable_markets(
-            min_liquidity=self.config.min_liquidity
+            min_liquidity=self.config.min_liquidity,
+            min_volume=self.config.min_volume,
         )
         logger.info(f"시장 {len(markets)}개 스캔 시작")
 
@@ -57,6 +59,10 @@ class MarketScanner:
 
             # Filter: Liquidity (double check)
             if not passes_liquidity_filter(market, self.config.min_liquidity):
+                continue
+
+            # Filter: Volume (double check)
+            if not passes_volume_filter(market, self.config.min_volume):
                 continue
 
             # Get high probability outcome
@@ -83,6 +89,7 @@ class MarketScanner:
                 "probability": probability,
                 "token_id": outcome_info["token_id"],
                 "liquidity": float(market.get("liquidity") or 0),
+                "volume": float(market.get("volume") or 0),
             }
             candidates.append(candidate)
             logger.debug(

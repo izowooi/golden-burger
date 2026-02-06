@@ -39,6 +39,7 @@ class TradingConfig:
     sell_threshold: float = 0.90
     buy_amount_usdc: float = 10.0
     min_liquidity: float = 100000.0
+    min_volume: float = 0.0  # 0 means disabled
     max_positions: int = -1  # -1 means unlimited
     excluded_categories: List[str] = field(default_factory=lambda: [
         "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
@@ -124,6 +125,12 @@ def load_config(
             "POLYBOT_MIN_LIQUIDITY",
             trading_cfg.get("min_liquidity"),
             100000.0,
+            float
+        ),
+        min_volume=_get_config_value(
+            "POLYBOT_MIN_VOLUME",
+            trading_cfg.get("min_volume"),
+            0.0,
             float
         ),
         max_positions=_get_config_value(

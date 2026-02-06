@@ -134,6 +134,7 @@ Examples:
         print(f"Sell Threshold: {config.trading.sell_threshold:.0%}")
         print(f"Buy Amount: ${config.trading.buy_amount_usdc} USDC")
         print(f"Min Liquidity: ${config.trading.min_liquidity:,.0f}")
+        print(f"Min Volume: ${config.trading.min_volume:,.0f}")
         print(f"Max Positions: {config.trading.max_positions if config.trading.max_positions > 0 else 'Unlimited'}")
         print()
         print("=== Excluded Categories ===")

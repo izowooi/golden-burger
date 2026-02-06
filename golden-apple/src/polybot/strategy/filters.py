@@ -105,6 +105,22 @@ def passes_liquidity_filter(market: Dict, min_liquidity: float) -> bool:
     return liquidity >= min_liquidity
 
 
+def passes_volume_filter(market: Dict, min_volume: float) -> bool:
+    """Check if market has sufficient cumulative trading volume.
+
+    Args:
+        market: Market dictionary
+        min_volume: Minimum required volume in USD (0 = skip check)
+
+    Returns:
+        True if market has sufficient volume or filter is disabled
+    """
+    if min_volume <= 0:
+        return True
+    volume = float(market.get("volume") or 0)
+    return volume >= min_volume
+
+
 def get_high_probability_outcome(market: Dict) -> Dict:
     """Extract the high-probability outcome from market.
 

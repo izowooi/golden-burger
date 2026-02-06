@@ -39,6 +39,33 @@ class GammaClient:
         return market
 
     @rate_limit_handler(max_retries=3)
+    def _fetch_markets_page(
+        self,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> List[Dict]:
+        """Fetch a single page of active markets from the Gamma API.
+
+        Args:
+            limit: Maximum number of markets to return (max 100)
+            offset: Pagination offset
+
+        Returns:
+            List of raw market dictionaries from API
+        """
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": min(limit, 100),
+            "offset": offset,
+        }
+
+        response = self.session.get(f"{self.BASE_URL}/markets", params=params)
+        response.raise_for_status()
+
+        markets = response.json()
+        return [self._parse_market(m) for m in markets]
+
     def get_active_markets(
         self,
         limit: int = 100,
@@ -53,20 +80,9 @@ class GammaClient:
             min_liquidity: Minimum liquidity filter
 
         Returns:
-            List of market dictionaries
+            List of market dictionaries passing the liquidity filter
         """
-        params = {
-            "active": "true",
-            "closed": "false",
-            "limit": min(limit, 100),
-            "offset": offset,
-        }
-
-        response = self.session.get(f"{self.BASE_URL}/markets", params=params)
-        response.raise_for_status()
-
-        markets = response.json()
-        parsed = [self._parse_market(m) for m in markets]
+        parsed = self._fetch_markets_page(limit=limit, offset=offset)
 
         # Filter by liquidity
         if min_liquidity > 0:
@@ -77,11 +93,16 @@ class GammaClient:
 
         return parsed
 
-    def get_all_tradable_markets(self, min_liquidity: float = 0) -> List[Dict]:
+    def get_all_tradable_markets(
+        self,
+        min_liquidity: float = 0,
+        min_volume: float = 0,
+    ) -> List[Dict]:
         """Get all tradeable markets with pagination.
 
         Args:
             min_liquidity: Minimum liquidity filter
+            min_volume: Minimum cumulative volume filter (0 = disabled)
 
         Returns:
             List of all active markets meeting criteria
@@ -91,24 +112,45 @@ class GammaClient:
         limit = 100
 
         while True:
-            markets = self.get_active_markets(
-                limit=limit,
-                offset=offset,
-                min_liquidity=min_liquidity,
-            )
+            # Fetch raw page for accurate pagination decision
+            raw_markets = self._fetch_markets_page(limit=limit, offset=offset)
 
-            if not markets:
+            if not raw_markets:
                 break
 
-            all_markets.extend(markets)
+            # Apply client-side filters
+            filtered = raw_markets
+            if min_liquidity > 0:
+                filtered = [
+                    m for m in filtered
+                    if float(m.get("liquidity") or 0) >= min_liquidity
+                ]
+            if min_volume > 0:
+                filtered = [
+                    m for m in filtered
+                    if float(m.get("volume") or 0) >= min_volume
+                ]
+
+            logger.debug(
+                f"페이지 offset={offset}: API {len(raw_markets)}개 -> 필터 통과 {len(filtered)}개"
+            )
+
+            all_markets.extend(filtered)
             offset += limit
+
+            # If API returned fewer than requested, this is the last page
+            if len(raw_markets) < limit:
+                break
 
             # Safety limit to prevent infinite loops
             if offset >= 5000:
                 logger.warning("최대 페이지네이션 한도 도달")
                 break
 
-        logger.info(f"시장 {len(all_markets)}개 조회 완료 (유동성 >= ${min_liquidity:,.0f})")
+        logger.info(
+            f"시장 {len(all_markets)}개 조회 완료 "
+            f"(유동성 >= ${min_liquidity:,.0f}, 거래량 >= ${min_volume:,.0f})"
+        )
         return all_markets
 
     @rate_limit_handler(max_retries=3)
