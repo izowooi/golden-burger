@@ -29,6 +29,7 @@ Environment Variables:
 import sys
 import os
 import logging
+from collections import Counter
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
@@ -63,6 +64,7 @@ class AccountConfig:
         """
         self.name = name
         self.address = address
+        self.display_name = name  # 중복 시 load_account_configs에서 재설정
 
     def __repr__(self):
         return f"AccountConfig(name={self.name}, address={self.address[:10]}...)"
@@ -99,6 +101,15 @@ def load_account_configs() -> List[AccountConfig]:
     if not accounts:
         logger.error("환경변수에서 계좌 설정을 찾을 수 없습니다")
         logger.error("ACCOUNT_1_NAME, ACCOUNT_1_ADDRESS 등을 설정하세요")
+        return accounts
+
+    # 중복 이름 감지 및 display_name 할당
+    name_counts = Counter(acc.name for acc in accounts)
+    name_indices: Dict[str, int] = {}
+    for acc in accounts:
+        if name_counts[acc.name] > 1:
+            name_indices[acc.name] = name_indices.get(acc.name, 0) + 1
+            acc.display_name = f"{acc.name} ({name_indices[acc.name]})"
 
     return accounts
 
@@ -116,19 +127,19 @@ def fetch_portfolio_report(
     Returns:
         Portfolio summary dictionary
     """
-    logger.info(f"포트폴리오 리포트 생성 중: {account.name}")
+    logger.info(f"포트폴리오 리포트 생성 중: {account.display_name}")
 
     try:
         summary = client.get_portfolio_summary(account.address)
         logger.info(
-            f"{account.name} 리포트 완료 - "
+            f"{account.display_name} 리포트 완료 - "
             f"포지션: {summary['num_positions']}개, "
             f"가치: ${summary['total_value']:.2f}, "
             f"7d P&L: ${summary['pnl_7d']['total_pnl']:+.2f}"
         )
         return summary
     except Exception as e:
-        logger.error(f"{account.name} 리포트 생성 실패: {e}", exc_info=True)
+        logger.error(f"{account.display_name} 리포트 생성 실패: {e}", exc_info=True)
         return {
             "address": account.address,
             "positions": [],
@@ -167,12 +178,12 @@ def main():
     for account in accounts:
         try:
             summary = fetch_portfolio_report(data_client, account)
-            reports[account.name] = summary
+            reports[account.display_name] = summary
 
             if "error" in summary:
-                errors.append(f"{account.name}: {summary['error']}")
+                errors.append(f"{account.display_name}: {summary['error']}")
         except Exception as e:
-            error_msg = f"{account.name} 처리 중 예외 발생: {e}"
+            error_msg = f"{account.display_name} 처리 중 예외 발생: {e}"
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
 
