@@ -145,27 +145,15 @@ class DataAPIClient:
             - total_pnl: Sum of realized + unrealized
             - num_trades: Number of trades in period
         """
-        cutoff_timestamp = int((datetime.now() - timedelta(days=days_ago)).timestamp())
-
-        # Get trades in the period
-        trades = self.get_trades_by_address(address, after_timestamp=cutoff_timestamp)
-
-        # Calculate realized P&L from trades
-        realized_pnl = 0.0
-        for trade in trades:
-            # Trade P&L calculation (simplified - actual may be more complex)
-            side = trade.get("side", "")
-            price = float(trade.get("price", 0))
-            size = float(trade.get("size", 0))
-
-            if side.upper() == "SELL":
-                realized_pnl += price * size
-            elif side.upper() == "BUY":
-                realized_pnl -= price * size
-
-        # Get current positions for unrealized P&L
+        # Get current positions - API provides P&L fields directly
         positions = self.get_positions(address)
-        unrealized_pnl = sum(float(pos.get("pnl", 0)) for pos in positions)
+
+        realized_pnl = sum(float(pos.get("realizedPnl", 0)) for pos in positions)
+        unrealized_pnl = sum(float(pos.get("cashPnl", 0)) for pos in positions)
+
+        # Get trade count for the period
+        cutoff_timestamp = int((datetime.now() - timedelta(days=days_ago)).timestamp())
+        trades = self.get_trades_by_address(address, after_timestamp=cutoff_timestamp)
 
         return {
             "realized_pnl": realized_pnl,
@@ -192,7 +180,7 @@ class DataAPIClient:
         logger.info(f"포트폴리오 요약 생성 중 - address: {address[:10]}...")
 
         positions = self.get_positions(address)
-        total_value = sum(float(pos.get("value", 0)) for pos in positions)
+        total_value = sum(float(pos.get("currentValue", 0)) for pos in positions)
 
         pnl_7d = self.calculate_pnl_for_period(address, days_ago=7)
         pnl_30d = self.calculate_pnl_for_period(address, days_ago=30)
