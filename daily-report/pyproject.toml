@@ -3,7 +3,7 @@ name = "polymarket-daily-reporter"
 version = "0.1.0"
 description = "Daily portfolio report system for multiple Polymarket trading accounts"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.9.10"
 license = {text = "MIT"}
 authors = [
     {name = "izowooi", email = "izowooi@test.com"}

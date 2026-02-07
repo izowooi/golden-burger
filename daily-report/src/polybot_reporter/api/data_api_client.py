@@ -43,7 +43,7 @@ class DataAPIClient:
             - pnl: Unrealized profit/loss
         """
         try:
-            params = {"address": address.lower()}
+            params = {"user": address.lower()}
             response = self.session.get(f"{self.BASE_URL}/positions", params=params)
             response.raise_for_status()
             positions = response.json()

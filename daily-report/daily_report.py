@@ -32,13 +32,12 @@ import logging
 from pathlib import Path
 from typing import Dict, List
 from datetime import datetime
+from dotenv import load_dotenv
 
-# Add src directory to Python path to import polybot modules
-project_root = Path(__file__).parent / "golden-apple"
-sys.path.insert(0, str(project_root / "src"))
+load_dotenv(Path(__file__).parent / ".env")
 
-from polybot.api.data_api_client import DataAPIClient
-from polybot.notifications.slack_notifier import SlackNotifier
+from polybot_reporter.api.data_api_client import DataAPIClient
+from polybot_reporter.notifications.slack_notifier import SlackNotifier
 
 # Configure logging
 logging.basicConfig(

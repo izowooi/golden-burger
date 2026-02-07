@@ -1,0 +1,38 @@
+{
+  "_metadata": {
+    "major_version": 1,
+    "minor_version": 1
+  },
+  "display_information": {
+    "name": "Polymarket Reporter",
+    "description": "Daily portfolio reports for Polymarket trading accounts",
+    "background_color": "#1a1d29",
+    "long_description": "Polymarket Daily Reporter는 여러 Polymarket 매매 계좌의 포트폴리오를 매일 자동으로 분석하여 Slack으로 리포트를 전송합니다.\n\n주요 기능:\n- 다중 계좌 포트폴리오 모니터링\n- 7일/30일 손익 계산\n- 현재 포지션 및 총 가치 추적\n- Jenkins를 통한 자동화"
+  },
+  "features": {
+    "bot_user": {
+      "display_name": "Polymarket Reporter",
+      "always_online": true
+    },
+    "incoming_webhooks": {
+      "enabled": true,
+      "request_url_domains": [
+        "hooks.slack.com"
+      ]
+    }
+  },
+  "oauth_config": {
+    "scopes": {
+      "bot": [
+        "incoming-webhook",
+        "chat:write",
+        "chat:write.public"
+      ]
+    }
+  },
+  "settings": {
+    "org_deploy_enabled": false,
+    "socket_mode_enabled": false,
+    "token_rotation_enabled": false
+  }
+}

@@ -13,12 +13,13 @@ import os
 from pathlib import Path
 from datetime import datetime
 
-# Add golden-apple src to path
-project_root = Path(__file__).parent / "golden-apple"
-sys.path.insert(0, str(project_root / "src"))
+from dotenv import load_dotenv
 
-from polybot.api.data_api_client import DataAPIClient
-from polybot.notifications.slack_notifier import SlackNotifier
+# .env 파일 로드 (daily-report 디렉토리의 .env)
+load_dotenv(Path(__file__).parent / ".env")
+
+from polybot_reporter.api.data_api_client import DataAPIClient
+from polybot_reporter.notifications.slack_notifier import SlackNotifier
 
 
 def test_data_api_client():
