@@ -202,6 +202,8 @@ def main():
     logger.info("리포트 요약")
     logger.info("-" * 60)
 
+    total_position_value = sum(r.get("position_value", 0) for r in reports.values())
+    total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
     total_value = sum(r.get("total_value", 0) for r in reports.values())
     total_positions = sum(r.get("num_positions", 0) for r in reports.values())
     total_pnl_7d = sum(
@@ -211,7 +213,7 @@ def main():
         r.get("pnl_30d", {}).get("total_pnl", 0) for r in reports.values()
     )
 
-    logger.info(f"총 포트폴리오 가치: ${total_value:.2f}")
+    logger.info(f"총 포트폴리오 가치: ${total_value:.2f} (포지션: ${total_position_value:.2f} + Cash: ${total_cash:.2f})")
     logger.info(f"총 포지션 수: {total_positions}개")
     logger.info(f"7일 P&L: ${total_pnl_7d:+.2f}")
     logger.info(f"30일 P&L: ${total_pnl_30d:+.2f}")
@@ -219,7 +221,9 @@ def main():
     for account_name, summary in reports.items():
         logger.info(
             f"  • {account_name}: ${summary.get('total_value', 0):.2f} "
-            f"(7d: ${summary.get('pnl_7d', {}).get('total_pnl', 0):+.2f})"
+            f"(포지션: ${summary.get('position_value', 0):.2f}, "
+            f"Cash: ${summary.get('cash_balance', 0):.2f}, "
+            f"7d: ${summary.get('pnl_7d', {}).get('total_pnl', 0):+.2f})"
         )
 
     logger.info("=" * 60)

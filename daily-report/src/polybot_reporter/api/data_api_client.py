@@ -1,5 +1,8 @@
 """Data API client for user positions and portfolio data."""
+import csv
+import io
 import logging
+import zipfile
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
 import requests
@@ -52,6 +55,44 @@ class DataAPIClient:
         except requests.exceptions.RequestException as e:
             logger.error(f"포지션 조회 실패 - address: {address}: {e}")
             return []
+
+    @rate_limit_handler(max_retries=3)
+    def get_cash_balance(self, address: str) -> float:
+        """Get USDC cash balance for a wallet address.
+
+        Uses the accounting snapshot endpoint which returns a ZIP
+        containing equity.csv with the cashBalance field.
+
+        Args:
+            address: Wallet address
+
+        Returns:
+            USDC cash balance as float
+        """
+        try:
+            params = {"user": address.lower()}
+            response = self.session.get(
+                f"{self.BASE_URL}/v1/accounting/snapshot",
+                params=params
+            )
+            response.raise_for_status()
+
+            with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
+                for name in zf.namelist():
+                    if "equity" in name.lower():
+                        with zf.open(name) as f:
+                            reader = csv.DictReader(io.TextIOWrapper(f))
+                            for row in reader:
+                                cash = float(row.get("cashBalance", 0))
+                                logger.info(f"Cash 잔액 조회 완료: ${cash:.2f}")
+                                return cash
+            return 0.0
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Cash 잔액 조회 실패 - address: {address}: {e}")
+            return 0.0
+        except (zipfile.BadZipFile, KeyError, ValueError) as e:
+            logger.error(f"Cash 잔액 파싱 실패: {e}")
+            return 0.0
 
     @rate_limit_handler(max_retries=3)
     def get_activity(
@@ -180,7 +221,9 @@ class DataAPIClient:
         logger.info(f"포트폴리오 요약 생성 중 - address: {address[:10]}...")
 
         positions = self.get_positions(address)
-        total_value = sum(float(pos.get("currentValue", 0)) for pos in positions)
+        position_value = sum(float(pos.get("currentValue", 0)) for pos in positions)
+        cash_balance = self.get_cash_balance(address)
+        total_value = position_value + cash_balance
 
         pnl_7d = self.calculate_pnl_for_period(address, days_ago=7)
         pnl_30d = self.calculate_pnl_for_period(address, days_ago=30)
@@ -188,6 +231,8 @@ class DataAPIClient:
         summary = {
             "address": address,
             "positions": positions,
+            "position_value": position_value,
+            "cash_balance": cash_balance,
             "total_value": total_value,
             "num_positions": len(positions),
             "pnl_7d": pnl_7d,
@@ -197,6 +242,7 @@ class DataAPIClient:
 
         logger.info(
             f"포트폴리오 요약 완료 - 포지션: {len(positions)}개, "
+            f"포지션 가치: ${position_value:.2f}, Cash: ${cash_balance:.2f}, "
             f"총 가치: ${total_value:.2f}, 7d P&L: ${pnl_7d['total_pnl']:.2f}"
         )
 
