@@ -1,0 +1,153 @@
+[project]
+name = "polymarket-daily-reporter"
+version = "0.1.0"
+description = "Daily portfolio report system for multiple Polymarket trading accounts"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+authors = [
+    {name = "izowooi", email = "izowooi@test.com"}
+]
+keywords = ["polymarket", "trading", "portfolio", "reporting"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# 의존성 패키지
+dependencies = [
+    "py-clob-client>=0.22.3",  # Polymarket CLOB API client
+    "requests>=2.31.0",         # HTTP 요청
+    "python-dotenv>=1.0.0",     # 환경변수 관리
+    "pyyaml>=6.0.1",            # YAML 설정 파일 파싱
+]
+
+# 선택적 의존성 (개발용)
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",            # 테스트 프레임워크
+    "pytest-cov>=4.1.0",        # 테스트 커버리지
+    "black>=23.7.0",            # 코드 포매터
+    "ruff>=0.0.285",            # 린터
+    "mypy>=1.5.0",              # 타입 체커
+]
+
+# 프로젝트 URL
+[project.urls]
+Homepage = "https://github.com/yourusername/polymarket-daily-reporter"
+Documentation = "https://github.com/yourusername/polymarket-daily-reporter/blob/main/README.md"
+Repository = "https://github.com/yourusername/polymarket-daily-reporter"
+Issues = "https://github.com/yourusername/polymarket-daily-reporter/issues"
+
+# 실행 스크립트 정의
+[project.scripts]
+daily-report = "polybot_reporter.cli:main"
+test-report = "polybot_reporter.test_cli:main"
+
+# Build system (uv 호환)
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# Hatchling 빌드 설정
+[tool.hatchling.build.targets.wheel]
+packages = ["src/polybot_reporter"]
+
+# Black 코드 포매터 설정
+[tool.black]
+line-length = 100
+target-version = ['py39', 'py310', 'py311']
+include = '\.pyi?$'
+extend-exclude = '''
+/(
+  # 제외할 디렉토리
+  \.eggs
+  | \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+# Ruff 린터 설정
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+    "E",   # pycodestyle errors
+    "W",   # pycodestyle warnings
+    "F",   # pyflakes
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (Black이 처리)
+    "B008",  # do not perform function calls in argument defaults
+    "C901",  # too complex
+]
+
+[tool.ruff.per-file-ignores]
+"__init__.py" = ["F401"]  # unused imports in __init__.py
+
+# pytest 설정
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py", "*_test.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "--verbose",
+    "--strict-markers",
+    "--cov=polybot_reporter",
+    "--cov-report=term-missing",
+    "--cov-report=html",
+]
+
+# mypy 타입 체커 설정
+[tool.mypy]
+python_version = "3.9"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+check_untyped_defs = true
+no_implicit_optional = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+warn_no_return = true
+strict_equality = true
+
+[[tool.mypy.overrides]]
+module = "py_clob_client.*"
+ignore_missing_imports = true
+
+# Coverage 설정
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "*/tests/*",
+    "*/test_*.py",
+]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if TYPE_CHECKING:",
+]

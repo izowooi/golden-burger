@@ -1,0 +1,111 @@
+// Jenkinsfile for Polymarket Daily Portfolio Report
+// This pipeline runs daily to generate portfolio reports for all accounts
+
+pipeline {
+    agent any
+
+    // Schedule: Run daily at 9:00 AM (adjust timezone as needed)
+    triggers {
+        cron('0 9 * * *')
+    }
+
+    // Environment variables
+    environment {
+        // Python environment
+        PYTHONUNBUFFERED = '1'
+
+        // Account 1 - golden-apple
+        ACCOUNT_1_NAME = 'golden-apple'
+        ACCOUNT_1_ADDRESS = credentials('polymarket-golden-apple-address')
+
+        // Account 2 - golden-banana
+        ACCOUNT_2_NAME = 'golden-banana'
+        ACCOUNT_2_ADDRESS = credentials('polymarket-golden-banana-address')
+
+        // Account 3 - golden-cherry
+        ACCOUNT_3_NAME = 'golden-cherry'
+        ACCOUNT_3_ADDRESS = credentials('polymarket-golden-cherry-address')
+
+        // Slack webhook URL
+        SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
+    }
+
+    options {
+        // Keep only last 30 builds
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+
+        // Timeout after 10 minutes
+        timeout(time: 10, unit: 'MINUTES')
+
+        // Don't allow concurrent builds
+        disableConcurrentBuilds()
+    }
+
+    stages {
+        stage('Setup') {
+            steps {
+                script {
+                    echo "==================================================="
+                    echo "Polymarket Daily Portfolio Report"
+                    echo "Build: ${env.BUILD_NUMBER}"
+                    echo "Time: ${new Date()}"
+                    echo "==================================================="
+                }
+
+                // Check Python version
+                sh 'python3 --version'
+
+                // Install dependencies if not already installed
+                sh '''
+                    cd golden-apple
+                    python3 -m pip install --user py-clob-client requests pyyaml python-dotenv
+                '''
+            }
+        }
+
+        stage('Generate Report') {
+            steps {
+                script {
+                    echo "Generating portfolio report for all accounts..."
+
+                    // Run the daily report script
+                    sh 'python3 daily_report.py'
+                }
+            }
+        }
+
+        stage('Archive Logs') {
+            steps {
+                // Archive the daily report log
+                archiveArtifacts artifacts: 'daily_report_*.log', allowEmptyArchive: true
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "✅ Daily report completed successfully"
+        }
+
+        failure {
+            echo "❌ Daily report failed"
+
+            // Send failure notification to Slack
+            script {
+                def slackWebhook = env.SLACK_WEBHOOK_URL
+                if (slackWebhook) {
+                    sh """
+                        curl -X POST -H 'Content-type: application/json' \\
+                        --data '{"text":"⚠️ Polymarket Daily Report FAILED\\nBuild: ${env.BUILD_NUMBER}\\nTime: ${new Date()}"}' \\
+                        ${slackWebhook}
+                    """
+                }
+            }
+        }
+
+        always {
+            // Clean up workspace (optional)
+            // cleanWs()
+        }
+    }
+}
