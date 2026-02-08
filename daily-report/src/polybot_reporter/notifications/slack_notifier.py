@@ -195,33 +195,35 @@ class SlackNotifier:
 
         # Main summary attachment
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total_position_value = sum(r.get("position_value", 0) for r in reports.values())
+        total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
         summary_attachment = {
             "color": "good" if total_pnl_7d >= 0 else "danger",
-            "title": "📊 Polymarket Portfolio - All Accounts",
-            "text": f"Consolidated daily report as of {timestamp}",
+            "title": "📊 Polymarket 전체 포트폴리오",
+            "text": f"일일 통합 리포트 - {timestamp} 기준",
             "fields": [
                 {
-                    "title": "💰 Total Portfolio Value",
-                    "value": f"${total_value:.2f}",
-                    "short": True
+                    "title": "💰 총 자산",
+                    "value": f"${total_value:.2f} (Position: ${total_position_value:.2f}, Cash: ${total_cash:.2f})",
+                    "short": False
                 },
                 {
-                    "title": "📈 Total Positions",
+                    "title": "📈 총 포지션 수",
                     "value": f"{total_positions} open",
                     "short": True
                 },
                 {
-                    "title": "📅 7-Day P&L",
+                    "title": "📅 7d P&L",
                     "value": f"${total_pnl_7d:+.2f}",
                     "short": True
                 },
                 {
-                    "title": "📆 30-Day P&L",
+                    "title": "📆 30d P&L",
                     "value": f"${total_pnl_30d:+.2f}",
                     "short": True
                 }
             ],
-            "footer": "Polymarket Bot • Multi-Account Summary"
+            "footer": "Polymarket Bot • 전체 계좌 요약"
         }
 
         # Individual account attachments
@@ -230,25 +232,28 @@ class SlackNotifier:
             pnl_7d = summary.get("pnl_7d", {})
             total_pnl = pnl_7d.get("total_pnl", 0)
 
+            position_value = summary.get("position_value", 0)
+            cash_balance = summary.get("cash_balance", 0)
+            account_total = summary.get("total_value", 0)
+
             account_attachments.append({
                 "color": "#36a64f" if total_pnl >= 0 else "#ff0000",
                 "author_name": account_name.upper(),
                 "fields": [
                     {
-                        "title": "Value",
-                        "value": f"${summary.get('total_value', 0):.2f}",
-                        "short": True
+                        "title": "자산 가치",
+                        "value": f"${account_total:.2f} (Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})",
+                        "short": False
                     },
                     {
-                        "title": "7d P&L",
+                        "title": "7d 손익",
                         "value": f"${total_pnl:+.2f}",
                         "short": True
                     }
                 ]
             })
-
         return self.send_message(
-            text=f"Daily Report - Total: ${total_value:.2f} (7d: ${total_pnl_7d:+.2f})",
+            text=f"일일 리포트 - 총 자산: ${total_value:.2f} (7d: ${total_pnl_7d:+.2f})",
             attachments=[summary_attachment] + account_attachments
         )
 
