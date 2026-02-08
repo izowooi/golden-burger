@@ -14,6 +14,36 @@ Polymarket 일일 리포트 시스템을 빠르게 설정하고 실행하는 방
 6. "Add New Webhook to Workspace" 클릭
 7. 채널 선택 (예: `#polymarket-reports`)
 8. Webhook URL 복사 (`https://hooks.slack.com/services/...`)
+```json
+{
+    "display_information": {
+        "name": "Polymarket Reporter",
+        "description": "Daily portfolio reports for Polymarket trading accounts",
+        "background_color": "#1a1d29"
+    },
+    "features": {
+        "bot_user": {
+            "display_name": "Polymarket Reporter",
+            "always_online": true
+        }
+    },
+    "oauth_config": {
+        "scopes": {
+            "bot": [
+                "incoming-webhook",
+                "chat:write",
+                "chat:write.public"
+            ]
+        }
+    },
+    "settings": {
+        "org_deploy_enabled": false,
+        "socket_mode_enabled": false,
+        "token_rotation_enabled": false
+    }
+}
+```
+
 
 ### 2단계: 로컬 테스트 (2분)
 
