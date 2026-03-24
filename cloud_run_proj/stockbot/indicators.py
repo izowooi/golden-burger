@@ -22,6 +22,7 @@ def compute_sma_cross(ohlc: Iterable[OHLC], debug_mode: bool = False) -> Optiona
     """
     rows = list(ohlc)
     if len(rows) < 61:  # need at least 60 for SMA60 plus a previous day
+        print(f"[indicator] insufficient rows: {len(rows)} < 61")
         return None
 
     df = pd.DataFrame({
@@ -40,6 +41,9 @@ def compute_sma_cross(ohlc: Iterable[OHLC], debug_mode: bool = False) -> Optiona
     prev, curr = valid.iloc[-2], valid.iloc[-1]
     diff_prev = float(prev["sma5"] - prev["sma60"])
     diff_curr = float(curr["sma5"] - curr["sma60"])
+    print(f"[indicator] {valid.index[-1]}: "
+          f"prev(sma5={float(prev['sma5']):.2f}, sma60={float(prev['sma60']):.2f}, diff={diff_prev:.4f}) "
+          f"curr(sma5={float(curr['sma5']):.2f}, sma60={float(curr['sma60']):.2f}, diff={diff_curr:.4f})")
 
     # Debug mode: 강제로 테스트용 신호 생성
     if debug_mode:

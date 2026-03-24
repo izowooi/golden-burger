@@ -57,15 +57,18 @@ def run_signal_detection(
     else:
         tickers = tuple(only) if only else conf.tickers
 
+    print(f"[signal] tickers to scan: {list(tickers)}")
     found: List[SignalMessage] = []
     for sym in tickers:
         print(f"[signal] {sym}")
         rows = db.fetch_last_n(sym, 65)
         res = compute_sma_cross(rows, debug_mode=debug_mode)
         if not res:
+            print(f"[signal] {sym}: skipped (insufficient data, need 61 rows, got {len(rows)})")
             continue
         df, cross = res
         if not cross:
+            print(f"[signal] {sym}: no cross detected")
             continue
 
         d = df.dropna().index[-1]  # last valid day
