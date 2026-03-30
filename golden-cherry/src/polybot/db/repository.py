@@ -1,6 +1,8 @@
 """Repository pattern for database operations."""
+import csv
 import logging
 from datetime import datetime, date, timedelta
+from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
@@ -192,3 +194,52 @@ class TradeRepository:
         return self.session.query(func.count(Trade.id)).filter(
             Trade.status == TradeStatus.HOLDING
         ).scalar() or 0
+
+    def append_trade_to_csv(self, trade: Trade, db_dir) -> None:
+        """완료된 거래를 월별 CSV 파일에 추가.
+
+        파일: data/{job_name}/trades_YYYY-MM.csv
+        파일이 없으면 헤더 포함 생성, 있으면 행 추가.
+
+        Args:
+            trade: 완료된 Trade 객체
+            db_dir: DB 파일이 있는 디렉토리 (Path 또는 str)
+        """
+        sell_ts = trade.sell_timestamp or datetime.utcnow()
+        month_str = sell_ts.strftime("%Y-%m")
+        csv_path = Path(db_dir) / f"trades_{month_str}.csv"
+
+        headers = [
+            "id", "question", "outcome", "market_slug",
+            "buy_price", "sell_price", "realized_pnl",
+            "buy_timestamp", "sell_timestamp",
+            "exit_reason", "entry_reason",
+            "hours_until_resolution_at_buy",
+            "buy_probability", "sell_probability",
+        ]
+
+        row = {
+            "id": trade.id,
+            "question": trade.question,
+            "outcome": trade.outcome,
+            "market_slug": trade.market_slug or "",
+            "buy_price": trade.buy_price,
+            "sell_price": trade.sell_price or "",
+            "realized_pnl": round(trade.realized_pnl, 6) if trade.realized_pnl is not None else "",
+            "buy_timestamp": trade.buy_timestamp.isoformat() if trade.buy_timestamp else "",
+            "sell_timestamp": trade.sell_timestamp.isoformat() if trade.sell_timestamp else "",
+            "exit_reason": trade.exit_reason or "",
+            "entry_reason": trade.entry_reason or "",
+            "hours_until_resolution_at_buy": trade.hours_until_resolution_at_buy or "",
+            "buy_probability": trade.buy_probability or "",
+            "sell_probability": trade.sell_probability or "",
+        }
+
+        file_exists = csv_path.exists()
+        with open(csv_path, "a", newline="", encoding="utf-8") as f:
+            writer = csv.DictWriter(f, fieldnames=headers)
+            if not file_exists:
+                writer.writeheader()
+            writer.writerow(row)
+
+        logger.info(f"거래 이력 CSV 저장: {csv_path}")
