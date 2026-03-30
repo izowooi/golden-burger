@@ -56,6 +56,11 @@ Examples:
         action="store_true",
         help="Enable verbose logging"
     )
+    run_parser.add_argument(
+        "--yes-only",
+        action="store_true",
+        help="YES-Only 모드: 1위 후보(Yes) 포지션만 매수, No 포지션 제외"
+    )
 
     # Status command
     status_parser = subparsers.add_parser("status", help="Show bot status")
@@ -83,6 +88,7 @@ Examples:
                 args.config,
                 args.job,
                 simulation_mode=args.simulate if args.simulate else None,
+                yes_only_mode=True if args.yes_only else None,
             )
         except ValueError as e:
             print(f"Configuration error: {e}")
@@ -132,6 +138,7 @@ Examples:
         print("=== Trading Config ===")
         print(f"Buy Threshold: {config.trading.buy_threshold:.0%}")
         print(f"Sell Threshold: {config.trading.sell_threshold:.0%}")
+        print(f"YES-Only Mode: {config.trading.yes_only_mode}")
         print(f"Buy Amount: ${config.trading.buy_amount_usdc} USDC")
         print(f"Min Liquidity: ${config.trading.min_liquidity:,.0f}")
         print(f"Max Positions: {config.trading.max_positions if config.trading.max_positions > 0 else 'Unlimited'}")

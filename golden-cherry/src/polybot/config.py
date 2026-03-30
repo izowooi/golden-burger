@@ -78,6 +78,7 @@ class TradingConfig:
         "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
         "Soccer", "Football", "Basketball", "Baseball"
     ])
+    yes_only_mode: bool = False           # True: Yes(1위) 포지션만 매수, No 제외
 
 
 @dataclass
@@ -104,6 +105,7 @@ def load_config(
     job_name: str = "default",
     env_path: Optional[str] = None,
     simulation_mode: Optional[bool] = None,
+    yes_only_mode: Optional[bool] = None,
 ) -> BotConfig:
     """Load configuration from YAML file and environment variables.
 
@@ -229,6 +231,11 @@ def load_config(
             "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
             "Soccer", "Football", "Basketball", "Baseball"
         ]),
+        yes_only_mode=yes_only_mode if yes_only_mode is not None else _get_bool_config_value(
+            "POLYBOT_YES_ONLY",
+            trading_cfg.get("yes_only_mode"),
+            False
+        ),
     )
 
     # Parse API config from environment variables

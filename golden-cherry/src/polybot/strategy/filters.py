@@ -109,11 +109,12 @@ def passes_liquidity_filter(market: Dict, min_liquidity: float) -> bool:
     return liquidity >= min_liquidity
 
 
-def get_high_probability_outcome(market: Dict) -> Dict:
+def get_high_probability_outcome(market: Dict, yes_only: bool = False) -> Dict:
     """Extract the high-probability outcome from market.
 
     Args:
         market: Market dictionary with outcomePrices and clobTokenIds
+        yes_only: If True, only consider index 0 (Yes/1위 후보). Never return No.
 
     Returns:
         Dictionary with:
@@ -130,6 +131,16 @@ def get_high_probability_outcome(market: Dict) -> Dict:
         return {}
 
     yes_prob = float(outcome_prices[0])
+
+    # YES-Only 모드: 항상 index 0(Yes/1위 후보)만 평가
+    if yes_only:
+        return {
+            "outcome": outcomes[0] if outcomes else "Yes",
+            "probability": yes_prob,
+            "token_id": token_ids[0] if token_ids else None,
+            "token_index": 0,
+        }
+
     no_prob = float(outcome_prices[1])
 
     # Determine which outcome has higher probability

@@ -182,7 +182,7 @@ class MarketScanner:
                 continue
 
             # Get high probability outcome
-            outcome_info = get_high_probability_outcome(market)
+            outcome_info = get_high_probability_outcome(market, yes_only=self.config.yes_only_mode)
             if not outcome_info or not outcome_info.get("token_id"):
                 continue
 

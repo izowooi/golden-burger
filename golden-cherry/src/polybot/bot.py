@@ -38,7 +38,8 @@ class PolymarketBot:
         logger.info(
             f"Bot 초기화 완료 - Job: {config.job_name}, "
             f"Simulation: {config.simulation_mode}, "
-            f"Time-based: {config.trading.time_based.enabled}"
+            f"Time-based: {config.trading.time_based.enabled}, "
+            f"YES-Only: {config.trading.yes_only_mode}"
         )
 
     def run_cycle(self) -> dict:
@@ -91,6 +92,9 @@ class PolymarketBot:
             for trade in holdings:
                 if trader.execute_sell(trade):
                     stats["sold"] += 1
+                    updated_trade = repo.get_by_id(trade.id)
+                    if updated_trade:
+                        repo.append_trade_to_csv(updated_trade, self.config.db_path.parent)
 
             # Phase 2: Scan for buy candidates
             logger.info("=== Phase 2: 매수 후보 스캔 ===")
