@@ -173,7 +173,8 @@ class SlackNotifier:
 
     def send_multi_account_report(
         self,
-        reports: Dict[str, Dict]
+        reports: Dict[str, Dict],
+        is_monthly: bool = False
     ) -> bool:
         """Send a consolidated report for multiple accounts.
 
@@ -199,8 +200,8 @@ class SlackNotifier:
         total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
         summary_attachment = {
             "color": "good" if total_pnl_7d >= 0 else "danger",
-            "title": "📊 Polymarket 전체 포트폴리오",
-            "text": f"일일 통합 리포트 - {timestamp} 기준",
+            "title": "📊 Polymarket 전체 포트폴리오" + (" (월간 리포트 포함)" if is_monthly else ""),
+            "text": f"일일 통합 리포트 - {timestamp} 기준" + (" 🗓️ 월간 리포트 포함" if is_monthly else ""),
             "fields": [
                 {
                     "title": "💰 총 자산",
@@ -236,21 +237,29 @@ class SlackNotifier:
             cash_balance = summary.get("cash_balance", 0)
             account_total = summary.get("total_value", 0)
 
+            fields = [
+                {
+                    "title": "자산 가치",
+                    "value": f"${account_total:.2f} (Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})",
+                    "short": False
+                },
+                {
+                    "title": "7d 손익",
+                    "value": f"${total_pnl:+.2f}",
+                    "short": True
+                }
+            ]
+            if is_monthly:
+                pnl_30d_acc = summary.get("pnl_30d", {})
+                fields.append({
+                    "title": "30d 손익",
+                    "value": f"${pnl_30d_acc.get('total_pnl', 0):+.2f}",
+                    "short": True
+                })
             account_attachments.append({
                 "color": "#36a64f" if total_pnl >= 0 else "#ff0000",
                 "author_name": account_name.upper(),
-                "fields": [
-                    {
-                        "title": "자산 가치",
-                        "value": f"${account_total:.2f} (Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})",
-                        "short": False
-                    },
-                    {
-                        "title": "7d 손익",
-                        "value": f"${total_pnl:+.2f}",
-                        "short": True
-                    }
-                ]
+                "fields": fields
             })
         return self.send_message(
             text=f"일일 리포트 - 총 자산: ${total_value:.2f} (7d: ${total_pnl_7d:+.2f})",

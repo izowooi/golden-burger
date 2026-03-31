@@ -191,7 +191,8 @@ def main():
     if reports:
         logger.info("Slack 리포트 전송 중...")
         try:
-            success = slack.send_multi_account_report(reports)
+            is_monthly = datetime.now().day == 1
+            success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
             if success:
                 logger.info("✅ Slack 리포트 전송 성공")
             else:
