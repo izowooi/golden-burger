@@ -307,6 +307,40 @@ golden-apple/
 | 90% 달성 못하고 만료 | 보유 유지 |
 | 이미 거래한 시장 | 재거래 금지 |
 
+## 데이터 분석
+
+DB 파일 위치: `data/{job_name}/trades.db`
+
+```bash
+# SQLite 접속
+sqlite3 data/{job_name}/trades.db
+```
+
+### 카테고리별 손익 분석
+
+```sql
+-- 카테고리별 거래 수 및 실현 손익
+SELECT
+    market_tags,
+    COUNT(*) AS trades,
+    ROUND(SUM(realized_pnl), 4) AS total_pnl,
+    ROUND(AVG(realized_pnl), 4) AS avg_pnl
+FROM trades
+WHERE status = 'completed'
+GROUP BY market_tags
+ORDER BY total_pnl DESC;
+```
+
+### 기타 유용한 쿼리
+
+```sql
+-- 전체 실현 손익 합계
+SELECT ROUND(SUM(realized_pnl), 4) AS total_pnl FROM trades WHERE status = 'completed';
+
+-- 현재 보유 포지션
+SELECT question, outcome, buy_price, market_tags FROM trades WHERE status = 'holding';
+```
+
 ## 주의사항
 
 - **보안**: `.env` 파일은 절대 git에 커밋하지 마세요
