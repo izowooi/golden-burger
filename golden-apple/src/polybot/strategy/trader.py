@@ -129,6 +129,7 @@ class Trader:
                 buy_timestamp=datetime.utcnow(),
                 buy_probability=current_price,
                 liquidity_at_buy=candidate["liquidity"],
+                market_tags=candidate.get("market_tags", ""),
                 status=TradeStatus.HOLDING,
             )
 

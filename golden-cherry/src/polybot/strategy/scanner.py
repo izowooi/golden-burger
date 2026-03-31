@@ -227,6 +227,11 @@ class MarketScanner:
                 continue
 
             # Valid candidate
+            tags = market.get("tags") or []
+            market_tags = ", ".join(
+                t.get("label") or t.get("slug", "")
+                for t in tags if isinstance(t, dict)
+            )
             candidate = {
                 "condition_id": condition_id,
                 "market_slug": market.get("slug", ""),
@@ -238,6 +243,7 @@ class MarketScanner:
                 "entry_reason": entry_reason,
                 "end_date": end_date,
                 "hours_until_resolution": hours_left,
+                "market_tags": market_tags,
             }
             candidates.append(candidate)
             logger.debug(

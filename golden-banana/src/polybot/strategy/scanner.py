@@ -194,6 +194,11 @@ class MarketScanner:
                 continue
 
             # Valid candidate
+            tags = market.get("tags") or []
+            market_tags = ", ".join(
+                t.get("label") or t.get("slug", "")
+                for t in tags if isinstance(t, dict)
+            )
             candidate = {
                 "condition_id": condition_id,
                 "market_slug": market.get("slug", ""),
@@ -203,6 +208,7 @@ class MarketScanner:
                 "token_id": outcome_info["token_id"],
                 "liquidity": float(market.get("liquidity") or 0),
                 "entry_reason": entry_reason,  # 진입 사유 추가
+                "market_tags": market_tags,
             }
             candidates.append(candidate)
             logger.debug(

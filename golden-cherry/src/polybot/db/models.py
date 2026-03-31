@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Boolean, Enum, create_engine
+    Column, Integer, String, Float, DateTime, Boolean, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -65,6 +65,7 @@ class Trade(Base):
 
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
+    market_tags = Column(String, nullable=True)  # Gamma API tags, e.g. "Politics, US Elections"
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -111,4 +112,10 @@ def init_database(db_path: str) -> sessionmaker:
     """
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
+    with engine.connect() as conn:
+        try:
+            conn.execute(text("ALTER TABLE trades ADD COLUMN market_tags TEXT"))
+            conn.commit()
+        except Exception:
+            pass  # Column already exists
     return sessionmaker(bind=engine)

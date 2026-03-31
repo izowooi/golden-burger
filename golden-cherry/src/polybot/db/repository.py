@@ -216,6 +216,7 @@ class TradeRepository:
             "exit_reason", "entry_reason",
             "hours_until_resolution_at_buy",
             "buy_probability", "sell_probability",
+            "market_tags",
         ]
 
         row = {
@@ -233,6 +234,7 @@ class TradeRepository:
             "hours_until_resolution_at_buy": trade.hours_until_resolution_at_buy or "",
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
+            "market_tags": trade.market_tags or "",
         }
 
         file_exists = csv_path.exists()
