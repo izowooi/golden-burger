@@ -9,6 +9,7 @@ This script:
 
 Usage:
     python daily_report.py
+    python daily_report.py --monthly   # 날짜와 무관하게 월간 리포트 강제 실행
 
 Environment Variables:
     # Account 1 (golden-apple)
@@ -28,6 +29,7 @@ Environment Variables:
 """
 import sys
 import os
+import argparse
 import logging
 from collections import Counter
 from pathlib import Path
@@ -151,8 +153,23 @@ def fetch_portfolio_report(
         }
 
 
+def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments."""
+    parser = argparse.ArgumentParser(
+        description="Polymarket Daily Portfolio Reporter"
+    )
+    parser.add_argument(
+        "--monthly",
+        action="store_true",
+        help="날짜와 무관하게 월간 리포트(30일 P&L 포함)를 강제 실행합니다",
+    )
+    return parser.parse_args()
+
+
 def main():
     """Main execution function."""
+    args = parse_args()
+
     logger.info("=" * 60)
     logger.info("Polymarket Daily Portfolio Report")
     logger.info(f"실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
@@ -191,7 +208,9 @@ def main():
     if reports:
         logger.info("Slack 리포트 전송 중...")
         try:
-            is_monthly = datetime.now().day == 1
+            is_monthly = args.monthly or datetime.now().day == 1
+            if args.monthly:
+                logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
             success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
             if success:
                 logger.info("✅ Slack 리포트 전송 성공")

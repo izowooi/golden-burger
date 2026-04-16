@@ -36,8 +36,11 @@ nano .env  # 또는 원하는 에디터 사용
 # 테스트 실행
 python test_report.py
 
-# 실제 리포트 생성
+# 실제 리포트 생성 (일간 리포트)
 python daily_report.py
+
+# 월간 리포트 강제 실행 (날짜 무관)
+python daily_report.py --monthly
 ```
 
 ## 📦 프로젝트 구조
@@ -138,6 +141,21 @@ mypy src/
 - ✅ Jenkins 자동화
 - ✅ 에러 핸들링 및 재시도
 - ✅ 상세 로깅
+- ✅ 월간 리포트 강제 실행 (`--monthly` 플래그)
+
+## 📅 월간 리포트
+
+매월 1일에 자동으로 월간 리포트가 실행되며, 30일 P&L 데이터가 추가로 포함됩니다.
+
+날짜와 무관하게 월간 리포트를 받고 싶을 때는 `--monthly` 플래그를 사용하세요.
+
+```bash
+python daily_report.py --monthly
+```
+
+**일간 리포트와 차이점:**
+- Slack 메시지 헤더에 "월간 리포트 포함" 표시
+- 각 계정별 30일 P&L 데이터 추가 표시
 
 ## 🔐 보안
 
