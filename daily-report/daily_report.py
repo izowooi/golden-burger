@@ -163,6 +163,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="날짜와 무관하게 월간 리포트(30일 P&L 포함)를 강제 실행합니다",
     )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        help="실행 명령어 (예: run) — 하위 호환용, 무시됨",
+    )
     return parser.parse_args()
 
 
