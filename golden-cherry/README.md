@@ -324,6 +324,137 @@ golden-cherry/
 | 해결 24시간 초과 | 대기 (매수 안함) |
 | 이미 거래한 시장 | 재거래 금지 |
 
+---
+
+## 전략 파라미터 레퍼런스
+
+### 설정 우선순위
+
+```
+환경변수 > config.yaml > 코드 기본값
+```
+
+---
+
+### 매수/매도 임계값
+
+| 파라미터 | 환경변수 | config.yaml 키 | 코드 기본값 | 현재 config.yaml 값 | 설명 |
+|---------|---------|--------------|-----------|-------------------|------|
+| 매수 하한 확률 | `POLYBOT_BUY_THRESHOLD` | `trading.buy_threshold` | 0.75 | 0.75 | 이 확률 이상일 때 매수 고려 |
+| 매수 상한 확률 | `POLYBOT_SELL_THRESHOLD` | `trading.sell_threshold` | 0.92 | 0.92 | 이 확률 이하일 때만 매수 (상한) |
+| 매수 금액 (USDC) | `POLYBOT_BUY_AMOUNT` | `trading.buy_amount_usdc` | 5.0 | 5.0 | 건당 매수 금액 |
+| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | `trading.min_liquidity` | 50000 | 10000 | 이 금액 미만 시장 제외 |
+| 최대 동시 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | -1 (무제한) | -1 | -1이면 무제한 |
+
+### 익절/손절
+
+| 파라미터 | 환경변수 | config.yaml 키 | 코드 기본값 | 현재 config.yaml 값 | 설명 |
+|---------|---------|--------------|-----------|-------------------|------|
+| 익절 | `POLYBOT_TAKE_PROFIT` | `trading.take_profit_percent` | 0.15 | 0.15 | 진입가 대비 +15% 시 매도 |
+| 손절 | `POLYBOT_STOP_LOSS` | `trading.stop_loss_percent` | -0.08 | -0.08 | 진입가 대비 -8% 시 매도 |
+| 트레일링 스탑 비율 | `POLYBOT_TRAILING_STOP_PERCENT` | `trading.trailing_stop.percent` | 0.05 | 0.05 | 최고점 대비 -5% 시 매도 |
+
+### 시간 기반 진입/청산
+
+| 파라미터 | 환경변수 | config.yaml 키 | 코드 기본값 | 현재 config.yaml 값 | 설명 |
+|---------|---------|--------------|-----------|-------------------|------|
+| 진입 최대 잔여 시간 | `POLYBOT_ENTRY_HOURS_MAX` | `trading.time_based.entry_hours_max` | 24h | **720h (30일)** | 해결까지 이 시간 이내 진입 |
+| 진입 최소 잔여 시간 | `POLYBOT_ENTRY_HOURS_MIN` | `trading.time_based.entry_hours_min` | 4h | **24h** | 해결까지 이 시간 이상 남아야 진입 |
+| 청산 기준 잔여 시간 | `POLYBOT_EXIT_HOURS` | `trading.time_based.exit_hours` | 4h | **12h** | 해결까지 이 시간 미만이면 청산 |
+
+> **주의**: 코드 기본값(4~24시간 단기)과 현재 config.yaml(24~720시간, 최대 30일)이 크게 다릅니다.
+
+---
+
+### 온/오프 가능한 모드 (Feature Flags)
+
+| 모드 | 환경변수 | config.yaml 키 | CLI 플래그 | 현재값 | 설명 |
+|-----|---------|--------------|----------|-------|------|
+| 시뮬레이션 모드 | - | `simulation_mode` | `--simulate` | false | true면 실제 주문 없이 로그만 기록 |
+| YES-Only 모드 | `POLYBOT_YES_ONLY` | `trading.yes_only_mode` | `--yes-only` | false | true면 index 0(Yes/1위 후보)만 매수, No 포지션 제외 |
+| 트레일링 스탑 | `POLYBOT_TRAILING_STOP_ENABLED` | `trading.trailing_stop.enabled` | - | true | false면 트레일링 스탑 비활성화 |
+| 시간 기반 필터 | `POLYBOT_TIME_BASED_ENABLED` | `trading.time_based.enabled` | - | true | false면 진입/청산 시간 조건 무시 |
+
+---
+
+### 스포츠 시장 제외 필터
+
+**동작 방식** (`src/polybot/strategy/filters.py`):
+
+`excluded_categories` 리스트가 비어있으면 필터링이 완전히 비활성화됩니다 (SPORTS_KEYWORDS 체크도 스킵).
+
+비어있지 않으면 아래 3단계를 순서대로 체크합니다:
+
+1. **태그 매칭**: 시장의 tags가 `excluded_categories`에 포함되면 제외
+2. **텍스트 매칭**: 시장 question/slug에 `excluded_categories` 키워드가 포함되면 제외
+3. **하드코딩 키워드 매칭**: `SPORTS_KEYWORDS` 목록에 포함되면 제외
+
+```python
+# SPORTS_KEYWORDS 목록 (filters.py 하드코딩)
+리그: nba, nfl, mlb, nhl, mls, fifa, uefa, atp, wta, premier league, ...
+종목: basketball, football, soccer, baseball, hockey, tennis, golf, boxing, ufc, ...
+팀:   lakers, celtics, warriors, yankees, cowboys, real madrid, barcelona, ...
+용어: playoff, finals, championship, tournament, match, game, win the, beat, ...
+```
+
+**현재 설정 상태**:
+
+```yaml
+# config.yaml
+excluded_categories: []  # ← 빈 배열 = 스포츠 필터 완전 비활성화
+```
+
+> **⚠ 주의**: 현재 `excluded_categories: []`이므로 스포츠 시장이 필터링되지 않습니다.
+> 스포츠 제외를 원하면 아래처럼 설정하세요:
+>
+> ```yaml
+> excluded_categories:
+>   - Sports
+>   - sports
+>   - NFL
+>   - NBA
+>   - MLB
+>   - NHL
+>   - Soccer
+>   - Football
+>   - Basketball
+>   - Baseball
+> ```
+
+---
+
+### 환경변수 전체 목록
+
+```bash
+# 필수 (API 인증)
+POLYMARKET_PRIVATE_KEY=0xYourPrivateKey
+POLYMARKET_FUNDER_ADDRESS=0xYourWalletAddress
+
+# 매수/매도 임계값 (선택)
+POLYBOT_BUY_THRESHOLD=0.75
+POLYBOT_SELL_THRESHOLD=0.92
+POLYBOT_BUY_AMOUNT=5.0
+POLYBOT_MIN_LIQUIDITY=50000
+POLYBOT_MAX_POSITIONS=-1
+
+# 익절/손절 (선택)
+POLYBOT_TAKE_PROFIT=0.15
+POLYBOT_STOP_LOSS=-0.08
+
+# 트레일링 스탑 (선택)
+POLYBOT_TRAILING_STOP_ENABLED=true
+POLYBOT_TRAILING_STOP_PERCENT=0.05
+
+# 시간 기반 필터 (선택)
+POLYBOT_TIME_BASED_ENABLED=true
+POLYBOT_ENTRY_HOURS_MAX=720
+POLYBOT_ENTRY_HOURS_MIN=24
+POLYBOT_EXIT_HOURS=12
+
+# 모드 플래그 (선택)
+POLYBOT_YES_ONLY=false
+```
+
 ## 데이터 분석
 
 DB 파일 위치: `data/{job_name}/trades.db`
