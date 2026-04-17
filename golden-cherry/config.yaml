@@ -18,8 +18,8 @@ trading:
   # 이 금액 미만의 시장은 제외
   min_liquidity: 10000
 
-  # 이익실현 (진입가 대비 +15%)
-  take_profit_percent: 0.15
+  # 이익실현 (진입가 대비 +10%)
+  take_profit_percent: 0.10
 
   # 손절 (진입가 대비 -8%)
   stop_loss_percent: -0.08
@@ -47,17 +47,7 @@ trading:
     exit_hours: 12
 
   # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
-  excluded_categories:
-    - Sports
-    - sports
-    - NFL
-    - NBA
-    - MLB
-    - NHL
-    - Soccer
-    - Football
-    - Basketball
-    - Baseball
+  excluded_categories: []
 
 # 시뮬레이션 모드
 # true: 실제 주문 없이 로그만 기록

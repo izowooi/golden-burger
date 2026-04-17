@@ -5,7 +5,7 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 해결 
 ## 개요
 
 - **매수 조건**: 75% ≤ 확률 ≤ 92% + 해결까지 4~24시간
-- **매도 조건**: 익절 +15%, 손절 -8%, 트레일링 스탑 -5%, 해결 4시간 전
+- **매도 조건**: 익절 +10%, 손절 -8%, 트레일링 스탑 -5%, 해결 4시간 전
 - **리스크 관리**: 손절, 이익실현, 트레일링 스탑, 시간 기반 청산
 
 ## 아키텍처
@@ -52,7 +52,7 @@ stateDiagram-v2
 
     Holding --> SellCheck: 매 사이클
     SellCheck --> Holding: 청산 조건 미충족
-    SellCheck --> Sell: +15% or -8% or 트레일링 -5% or 해결 4h 전
+    SellCheck --> Sell: +10% or -8% or 트레일링 -5% or 해결 4h 전
 
     Sell --> Completed: 매도 완료
 
@@ -317,7 +317,7 @@ golden-cherry/
 | 상황 | 동작 |
 |------|------|
 | 75% ≤ 확률 ≤ 92% + 해결 4~24시간 | 매수 |
-| 진입가 대비 +15% 이상 | 이익실현 매도 |
+| 진입가 대비 +10% 이상 | 이익실현 매도 |
 | 진입가 대비 -8% 이하 | 손절 매도 |
 | 최고점 대비 -5% 하락 | 트레일링 스탑 매도 |
 | 해결까지 4시간 미만 | 시간 기반 청산 |
@@ -350,7 +350,7 @@ golden-cherry/
 
 | 파라미터 | 환경변수 | config.yaml 키 | 코드 기본값 | 현재 config.yaml 값 | 설명 |
 |---------|---------|--------------|-----------|-------------------|------|
-| 익절 | `POLYBOT_TAKE_PROFIT` | `trading.take_profit_percent` | 0.15 | 0.15 | 진입가 대비 +15% 시 매도 |
+| 익절 | `POLYBOT_TAKE_PROFIT` | `trading.take_profit_percent` | 0.15 | **0.10** | 진입가 대비 +10% 시 매도 |
 | 손절 | `POLYBOT_STOP_LOSS` | `trading.stop_loss_percent` | -0.08 | -0.08 | 진입가 대비 -8% 시 매도 |
 | 트레일링 스탑 비율 | `POLYBOT_TRAILING_STOP_PERCENT` | `trading.trailing_stop.percent` | 0.05 | 0.05 | 최고점 대비 -5% 시 매도 |
 
