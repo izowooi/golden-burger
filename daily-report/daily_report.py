@@ -164,6 +164,11 @@ def parse_args() -> argparse.Namespace:
         help="날짜와 무관하게 월간 리포트(30일 P&L 포함)를 강제 실행합니다",
     )
     parser.add_argument(
+        "--simulate",
+        action="store_true",
+        help="슬랙 전송 없이 로직만 실행 (시뮬레이션 모드)",
+    )
+    parser.add_argument(
         "command",
         nargs="?",
         help="실행 명령어 (예: run) — 하위 호환용, 무시됨",
@@ -211,27 +216,31 @@ def main():
 
     # Send consolidated Slack report
     if reports:
-        logger.info("Slack 리포트 전송 중...")
-        try:
-            is_monthly = args.monthly or datetime.now().day == 1
-            if args.monthly:
-                logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
-            success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
-            if success:
-                logger.info("✅ Slack 리포트 전송 성공")
-            else:
-                logger.warning("⚠️ Slack 리포트 전송 실패 (웹훅 설정 확인 필요)")
-        except Exception as e:
-            logger.error(f"Slack 전송 중 오류: {e}", exc_info=True)
+        if args.simulate:
+            logger.info("🔕 [SIMULATE] Slack 리포트 전송 생략")
+        else:
+            logger.info("Slack 리포트 전송 중...")
+            try:
+                is_monthly = args.monthly or datetime.now().day == 1
+                if args.monthly:
+                    logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
+                success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
+                if success:
+                    logger.info("✅ Slack 리포트 전송 성공")
+                else:
+                    logger.warning("⚠️ Slack 리포트 전송 실패 (웹훅 설정 확인 필요)")
+            except Exception as e:
+                logger.error(f"Slack 전송 중 오류: {e}", exc_info=True)
 
     # Send error notifications if any
     if errors:
         logger.warning(f"⚠️ 총 {len(errors)}개의 오류 발생")
-        for error in errors:
-            try:
-                slack.send_error_notification("Daily Report", error)
-            except Exception as e:
-                logger.error(f"에러 알림 전송 실패: {e}")
+        if not args.simulate:
+            for error in errors:
+                try:
+                    slack.send_error_notification("Daily Report", error)
+                except Exception as e:
+                    logger.error(f"에러 알림 전송 실패: {e}")
 
     # Print summary
     logger.info("=" * 60)
