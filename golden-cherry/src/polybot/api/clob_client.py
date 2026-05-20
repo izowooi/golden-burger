@@ -1,4 +1,9 @@
-"""CLOB API client wrapper for order execution."""
+"""CLOB API client wrapper for order execution.
+
+Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈은
+`py-clob-client-v2` (import: `py_clob_client_v2`) 를 사용한다.
+구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
+"""
 import logging
 from typing import Optional, Dict, Any
 from ..config import ApiConfig
@@ -8,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ClobClientWrapper:
-    """Wrapper for Polymarket CLOB API client.
+    """Wrapper for Polymarket CLOB v2 API client.
 
     Handles:
     - Authentication with L1 (wallet) and L2 (API key) credentials
@@ -38,7 +43,7 @@ class ClobClientWrapper:
             return
 
         try:
-            from py_clob_client.client import ClobClient
+            from py_clob_client_v2 import ClobClient
 
             self._client = ClobClient(
                 host=self.HOST,
@@ -48,11 +53,11 @@ class ClobClientWrapper:
                 funder=self.config.funder_address,
             )
 
-            # Create or derive API credentials
-            api_creds = self._client.create_or_derive_api_creds()
+            # Create or derive API credentials (v2: create_or_derive_api_key)
+            api_creds = self._client.create_or_derive_api_key()
             self._client.set_api_creds(api_creds)
             self._initialized = True
-            logger.info("CLOB client 초기화 완료")
+            logger.info("CLOB client 초기화 완료 (v2)")
 
         except Exception as e:
             logger.error(f"CLOB client 초기화 실패: {e}")
@@ -160,14 +165,18 @@ class ClobClientWrapper:
             }
 
         try:
-            from py_clob_client.clob_types import MarketOrderArgs
-            from py_clob_client.order_builder.constants import BUY
+            from py_clob_client_v2 import MarketOrderArgs, OrderType
 
+            # v2: side는 MarketOrderArgs 안의 필드로 들어감 (v1 에서는 별도 인자였음)
             order_args = MarketOrderArgs(
                 token_id=token_id,
                 amount=amount_usdc,
+                side="BUY",
             )
-            response = self.client.create_and_post_market_order(order_args, BUY)
+            response = self.client.create_and_post_market_order(
+                order_args,
+                order_type=OrderType.FOK,
+            )
             logger.info(f"Market BUY 주문 완료: {response}")
             return response
 
@@ -207,10 +216,9 @@ class ClobClientWrapper:
             }
 
         try:
-            from py_clob_client.clob_types import OrderArgs, OrderType
-            from py_clob_client.order_builder.constants import BUY, SELL
+            from py_clob_client_v2 import OrderArgs, OrderType
 
-            order_side = BUY if side.upper() == "BUY" else SELL
+            order_side = "BUY" if side.upper() == "BUY" else "SELL"
 
             order_args = OrderArgs(
                 token_id=token_id,
@@ -219,6 +227,7 @@ class ClobClientWrapper:
                 side=order_side,
             )
 
+            # v2: create_order + post_order 두 단계 유지 (v1과 동일 패턴)
             signed_order = self.client.create_order(order_args)
             response = self.client.post_order(signed_order, OrderType.GTC)
 
@@ -237,7 +246,8 @@ class ClobClientWrapper:
             List of open orders
         """
         try:
-            return self.client.get_orders()
+            # v2: get_orders() 제거됨 → get_open_orders() 사용
+            return self.client.get_open_orders()
         except Exception as e:
             logger.error(f"미체결 주문 조회 실패: {e}")
             return []
@@ -247,7 +257,7 @@ class ClobClientWrapper:
         """Cancel an order.
 
         Args:
-            order_id: Order ID to cancel
+            order_id: Order ID (hash) to cancel
 
         Returns:
             Cancellation result
@@ -257,7 +267,8 @@ class ClobClientWrapper:
             return {"success": True, "simulated": True}
 
         try:
-            result = self.client.cancel(order_id=order_id)
+            # v2: cancel(order_id=...) → cancel_orders([hash, ...])
+            result = self.client.cancel_orders([order_id])
             logger.info(f"주문 취소 완료: {order_id}")
             return result
         except Exception as e:
@@ -272,8 +283,8 @@ class ClobClientWrapper:
         """
         try:
             self._ensure_initialized()
-            # Try to get orders as a connection test
-            self.client.get_orders()
+            # v2: 연결 확인용으로 get_open_orders() 사용
+            self.client.get_open_orders()
             return True
         except Exception as e:
             logger.error(f"연결 테스트 실패: {e}")

@@ -22,7 +22,7 @@ classifiers = [
 
 # 의존성 패키지
 dependencies = [
-    "py-clob-client>=0.22.3",  # Polymarket CLOB API client
+    "py-clob-client-v2>=1.0.1",  # Polymarket CLOB API v2 client (구버전은 v2 마이그레이션 이후 order_version_mismatch 발생)
     "requests>=2.31.0",         # HTTP 요청
     "python-dotenv>=1.0.0",     # 환경변수 관리
     "pyyaml>=6.0.1",            # YAML 설정 파일 파싱
@@ -131,7 +131,7 @@ warn_no_return = true
 strict_equality = true
 
 [[tool.mypy.overrides]]
-module = "py_clob_client.*"
+module = "py_clob_client_v2.*"
 ignore_missing_imports = true
 
 # Coverage 설정

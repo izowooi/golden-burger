@@ -96,7 +96,7 @@ def test_api_connection() -> bool:
     print("[3] Testing CLOB API authentication...")
 
     try:
-        from py_clob_client.client import ClobClient
+        from py_clob_client_v2 import ClobClient
 
         # Remove 0x prefix if present
         key = private_key[2:] if private_key.startswith("0x") else private_key
@@ -109,8 +109,8 @@ def test_api_connection() -> bool:
             funder=funder_address,
         )
 
-        # Create/derive API credentials
-        api_creds = client.create_or_derive_api_creds()
+        # Create/derive API credentials (v2: create_or_derive_api_key)
+        api_creds = client.create_or_derive_api_key()
         print_result(True, f"API Key derived: {api_creds.api_key[:20]}...")
 
         # Set credentials
@@ -118,8 +118,8 @@ def test_api_connection() -> bool:
         print_result(True, "Credentials set successfully")
 
     except ImportError:
-        print_result(False, "py-clob-client not installed")
-        print("\n    Install with: pip install py-clob-client")
+        print_result(False, "py-clob-client-v2 not installed")
+        print("\n    Install with: pip install py-clob-client-v2")
         all_passed = False
     except Exception as e:
         print_result(False, f"CLOB authentication error: {e}")
@@ -132,7 +132,8 @@ def test_api_connection() -> bool:
         print("[4] Testing order query...")
 
         try:
-            orders = client.get_orders()
+            # v2: get_orders() 제거 → get_open_orders()
+            orders = client.get_open_orders()
             print_result(True, f"Open orders: {len(orders)}")
 
         except Exception as e:

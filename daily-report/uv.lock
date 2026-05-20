@@ -1,9 +1,6 @@
 version = 1
 revision = 1
 requires-python = ">=3.10"
-resolution-markers = [
-    "python_version < '0'",
-]
 
 [[package]]
 name = "annotated-types"
@@ -1051,7 +1048,7 @@ name = "polymarket-daily-reporter"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "py-clob-client" },
+    { name = "py-clob-client-v2" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
     { name = "requests" },
@@ -1070,7 +1067,7 @@ dev = [
 requires-dist = [
     { name = "black", marker = "extra == 'dev'", specifier = ">=23.7.0" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.5.0" },
-    { name = "py-clob-client", specifier = ">=0.22.3" },
+    { name = "py-clob-client-v2", specifier = ">=1.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=7.4.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
@@ -1081,34 +1078,20 @@ requires-dist = [
 provides-extras = ["dev"]
 
 [[package]]
-name = "py-builder-signing-sdk"
-version = "0.0.2"
+name = "py-clob-client-v2"
+version = "1.0.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
-    { name = "python-dotenv" },
-    { name = "requests" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/18/e3/fab3253021a4d766345f491f00e40d89c7c5640bf6d20d9f5a3182b482de/py_builder_signing_sdk-0.0.2.tar.gz", hash = "sha256:27fa4401944220c51809f549a263c6e53b5cd981fca98eda7ef6f21944e6bf94", size = 6411 }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/57/fb/23c68c8f6356a50f959e2df2ae80e8344c3ff8ccca92943848a57a495928/py_builder_signing_sdk-0.0.2-py3-none-any.whl", hash = "sha256:114b9d57bec228177d759ce15c475589f47db2252ed1fd67cac3c9b0640abe76", size = 9082 },
-]
-
-[[package]]
-name = "py-clob-client"
-version = "0.34.5"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
+    { name = "eth-abi" },
     { name = "eth-account" },
     { name = "eth-utils" },
     { name = "httpx", extra = ["http2"] },
     { name = "poly-eip712-structs" },
-    { name = "py-builder-signing-sdk" },
     { name = "py-order-utils" },
-    { name = "python-dotenv" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/fa/a4/64f81cd2ba674f575cb53a46be3fb14adc2ba92dd229ac0eb2c4a0456662/py_clob_client-0.34.5.tar.gz", hash = "sha256:fdc3907e3dae8e2e8bcc93a7c97780493a8d97e0e40247c84d2291ccb2d4e026", size = 38164 }
+sdist = { url = "https://files.pythonhosted.org/packages/d9/cf/3b0761a5e1715b52f927b0fbc7c8e545736e8c53811065ee2da7a8b51779/py_clob_client_v2-1.0.1.tar.gz", hash = "sha256:4d2e4bf6873719d3f9c8bcdc1f1590ec5e9597d6859d93f53d24dd3521c6fb2d", size = 45436 }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/85/64/1d5a1ecc0a95f1552da62ebd01d4b6bae63505c6ccba36632250d313445e/py_clob_client-0.34.5-py3-none-any.whl", hash = "sha256:31b7b57d522164f3eeab6bfdd78c42d8b313ff3d4469e0966fa2296121fbfb12", size = 43788 },
+    { url = "https://files.pythonhosted.org/packages/85/7b/04c1d94e71a0c2ef0b228f2b3e98e2815d1e9f92fb291ec6b2321fab27b5/py_clob_client_v2-1.0.1-py3-none-any.whl", hash = "sha256:6f288f8078878779d7a30cdcf0ecd196b57c94627fa0bfabf24ed8ab787b8b1d", size = 49042 },
 ]
 
 [[package]]
