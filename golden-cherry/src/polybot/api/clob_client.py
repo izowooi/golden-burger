@@ -85,7 +85,10 @@ class ClobClientWrapper:
         if tick_size is None:
             tick_size = self.DEFAULT_TICK_SIZE
         # Round to avoid floating point precision issues
-        return round(round(price / tick_size) * tick_size, 2)
+        rounded = round(round(price / tick_size) * tick_size, 2)
+        # Clamp to tick-aligned bounds. Polymarket rejects prices outside
+        # [tick_size, 1 - tick_size] with "invalid price (1.0)" / "(0.0)".
+        return min(max(rounded, tick_size), round(1 - tick_size, 2))
 
     @rate_limit_handler(max_retries=3)
     def get_midpoint(self, token_id: str) -> float:
@@ -106,7 +109,11 @@ class ClobClientWrapper:
                 price = result
             return float(price) if price else 0.0
         except Exception as e:
-            logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
+            # 해결/비유동 시장은 orderbook이 없어 404가 흔하다. 정상 흐름이므로 debug로 낮춘다.
+            if "No orderbook" in str(e):
+                logger.debug(f"orderbook 없음 - token: {token_id}: {e}")
+            else:
+                logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -122,7 +129,10 @@ class ClobClientWrapper:
         try:
             return float(self.client.get_price(token_id, side="BUY"))
         except Exception as e:
-            logger.error(f"best bid 조회 실패 - token: {token_id}: {e}")
+            if "No orderbook" in str(e):
+                logger.debug(f"orderbook 없음 - token: {token_id}: {e}")
+            else:
+                logger.error(f"best bid 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -138,7 +148,10 @@ class ClobClientWrapper:
         try:
             return float(self.client.get_price(token_id, side="SELL"))
         except Exception as e:
-            logger.error(f"best ask 조회 실패 - token: {token_id}: {e}")
+            if "No orderbook" in str(e):
+                logger.debug(f"orderbook 없음 - token: {token_id}: {e}")
+            else:
+                logger.error(f"best ask 조회 실패 - token: {token_id}: {e}")
             raise
 
     @rate_limit_handler(max_retries=3)

@@ -91,11 +91,21 @@ class GammaClient:
         limit = 100
 
         while True:
-            markets = self.get_active_markets(
-                limit=limit,
-                offset=offset,
-                min_liquidity=min_liquidity,
-            )
+            try:
+                markets = self.get_active_markets(
+                    limit=limit,
+                    offset=offset,
+                    min_liquidity=min_liquidity,
+                )
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                # Gamma API는 offset이 전체 시장 수를 넘으면 422를 반환한다.
+                # offset>0의 422는 마지막 페이지를 지난 것이므로 정상 종료로 처리한다.
+                # 단, 첫 페이지(offset==0)의 422는 실제 API 장애이므로 그대로 올린다.
+                if status == 422 and offset > 0:
+                    logger.info(f"페이지네이션 종료 - offset={offset} (HTTP 422)")
+                    break
+                raise
 
             if not markets:
                 break

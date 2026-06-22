@@ -68,7 +68,7 @@ class Trader:
         try:
             current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
-            logger.error(f"가격 조회 실패 - condition: {condition_id}: {e}")
+            logger.warning(f"가격 조회 실패 - condition: {condition_id}: {e}")
             return None
 
         # Check: Price jumped above sell threshold?
@@ -154,7 +154,7 @@ class Trader:
         try:
             current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
-            logger.error(f"가격 조회 실패 - condition: {trade.condition_id}: {e}")
+            logger.warning(f"가격 조회 실패 - condition: {trade.condition_id}: {e}")
             return False
 
         # Check sell condition
