@@ -121,12 +121,21 @@ celerybeat.pid
 
 # Environments
 .env
+.env.*
+!.env.example
+!.env.sample
 .venv
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Secrets and private keys
+*.key
+*.pem
+id_rsa
+id_ed25519
 
 # Spyder project settings
 .spyderproject
