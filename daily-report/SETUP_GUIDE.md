@@ -1,5 +1,7 @@
 # PyCharm + uv 프로젝트 설정 가이드
 
+> Supabase 일일 적재와 최신 Jenkins 설정은 [README.md](README.md)를 기준으로 합니다.
+
 이 문서는 `daily-report` 프로젝트를 PyCharm에서 uv를 사용하여 설정하는 방법을 설명합니다.
 
 ## 📋 생성된 파일 설명

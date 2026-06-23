@@ -1,6 +1,8 @@
 # Polymarket Daily Portfolio Report System
 
-3개의 Polymarket 매매봇 계좌(golden-apple, golden-banana, golden-cherry)에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack으로 전송하는 시스템입니다.
+> Supabase 일일 적재와 최신 Jenkins 설정은 [README.md](README.md)를 기준으로 합니다.
+
+4개의 Polymarket 매매봇 계좌에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack 및 Supabase로 전송하는 시스템입니다.
 
 ## 📋 기능
 
@@ -215,7 +217,7 @@ slack.send_error_notification("golden-apple", "API 호출 실패")
 
 ```bash
 # 환경변수 추가
-ACCOUNT_4_NAME=golden-dragonfruit
+ACCOUNT_4_NAME=golden-apple
 ACCOUNT_4_ADDRESS=0x...
 ```
 

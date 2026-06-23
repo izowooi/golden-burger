@@ -16,7 +16,7 @@ pipeline {
 
         // Account 1 - golden-apple
         ACCOUNT_1_NAME = 'golden-apple'
-        ACCOUNT_1_ADDRESS = credentials('polymarket-golden-apple-address')
+        ACCOUNT_1_ADDRESS = credentials('polymarket-golden-apple-1-address')
 
         // Account 2 - golden-banana
         ACCOUNT_2_NAME = 'golden-banana'
@@ -26,8 +26,17 @@ pipeline {
         ACCOUNT_3_NAME = 'golden-cherry'
         ACCOUNT_3_ADDRESS = credentials('polymarket-golden-cherry-address')
 
+        // Account 4 - second golden-apple
+        ACCOUNT_4_NAME = 'golden-apple'
+        ACCOUNT_4_ADDRESS = credentials('polymarket-golden-apple-2-address')
+
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
+
+        // Supabase server-only configuration
+        SUPABASE_URL = 'https://elufbvcnhitoksoofbir.supabase.co'
+        SUPABASE_SECRET_KEY = credentials('polymarket-supabase-secret-key')
+        REPORT_TIMEZONE = 'Asia/Seoul'
     }
 
     options {
@@ -55,11 +64,10 @@ pipeline {
                 // Check Python version
                 sh 'python3 --version'
 
-                // Install dependencies if not already installed
-                sh '''
-                    cd golden-apple
-                    python3 -m pip install --user py-clob-client requests pyyaml python-dotenv
-                '''
+                // Reproducible dependency install from uv.lock
+                dir('daily-report') {
+                    sh 'uv sync --frozen'
+                }
             }
         }
 
@@ -69,7 +77,9 @@ pipeline {
                     echo "Generating portfolio report for all accounts..."
 
                     // Run the daily report script
-                    sh 'python3 daily_report.py'
+                    dir('daily-report') {
+                        sh 'uv run python ./daily_report.py run'
+                    }
                 }
             }
         }
@@ -77,7 +87,7 @@ pipeline {
         stage('Archive Logs') {
             steps {
                 // Archive the daily report log
-                archiveArtifacts artifacts: 'daily_report_*.log', allowEmptyArchive: true
+                archiveArtifacts artifacts: 'daily-report/daily_report_*.log', allowEmptyArchive: true
             }
         }
     }

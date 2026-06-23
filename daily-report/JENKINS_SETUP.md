@@ -10,10 +10,12 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 
 | ID | Type | Description | 예시 값 |
 |----|------|-------------|---------|
-| `polymarket-golden-apple-address` | Secret text | golden-apple 계좌의 funder address | `0x1234...abcd` |
+| `polymarket-golden-apple-1-address` | Secret text | 첫 번째 golden-apple 계좌의 funder address | `0x1234...abcd` |
 | `polymarket-golden-banana-address` | Secret text | golden-banana 계좌의 funder address | `0x5678...efgh` |
 | `polymarket-golden-cherry-address` | Secret text | golden-cherry 계좌의 funder address | `0x9abc...ijkl` |
+| `polymarket-golden-apple-2-address` | Secret text | 두 번째 golden-apple 계좌의 funder address | `0xdef0...mnop` |
 | `polymarket-slack-webhook` | Secret text | Slack Webhook URL | `https://hooks.slack.com/services/...` |
+| `polymarket-supabase-secret-key` | Secret text | Supabase 서버 전용 Secret key | `sb_secret_...` |
 
 ### Credential 추가 방법
 
@@ -117,8 +119,16 @@ ACCOUNT_2_ADDRESS=0xabcdefabcdefabcdefabcdefabcdefabcdefabcd
 ACCOUNT_3_NAME=golden-cherry
 ACCOUNT_3_ADDRESS=0x9876543210fedcba9876543210fedcba98765432
 
+ACCOUNT_4_NAME=golden-apple
+ACCOUNT_4_ADDRESS=0x1111111111111111111111111111111111111111
+
 # Slack webhook
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
+
+# Supabase (Project Settings → API Keys)
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_replace_with_server_only_key
+REPORT_TIMEZONE=Asia/Seoul
 ```
 
 ### 로컬 실행

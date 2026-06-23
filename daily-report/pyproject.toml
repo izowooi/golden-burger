@@ -14,7 +14,6 @@ classifiers = [
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.9",
     "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
@@ -26,6 +25,7 @@ dependencies = [
     "requests>=2.31.0",         # HTTP 요청
     "python-dotenv>=1.0.0",     # 환경변수 관리
     "pyyaml>=6.0.1",            # YAML 설정 파일 파싱
+    "supabase==2.31.0",
 ]
 
 # 선택적 의존성 (개발용)
@@ -84,6 +84,8 @@ extend-exclude = '''
 [tool.ruff]
 line-length = 100
 target-version = "py39"
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -99,7 +101,7 @@ ignore = [
     "C901",  # too complex
 ]
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "__init__.py" = ["F401"]  # unused imports in __init__.py
 
 # pytest 설정

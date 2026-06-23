@@ -1,11 +1,14 @@
 """Data API client for user positions and portfolio data."""
+
 import csv
 import io
 import logging
 import zipfile
-from typing import List, Dict, Optional
 from datetime import datetime, timedelta
+from typing import Optional
+
 import requests
+
 from ..retry import rate_limit_handler
 
 logger = logging.getLogger(__name__)
@@ -25,13 +28,12 @@ class DataAPIClient:
 
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update({
-            "Accept": "application/json",
-            "User-Agent": "GoldenApple-PolyBot/1.0"
-        })
+        self.session.headers.update(
+            {"Accept": "application/json", "User-Agent": "GoldenApple-PolyBot/1.0"}
+        )
 
     @rate_limit_handler(max_retries=3)
-    def get_positions(self, address: str) -> List[Dict]:
+    def get_positions(self, address: str) -> list[dict]:
         """Get current positions for a wallet address.
 
         Args:
@@ -54,7 +56,7 @@ class DataAPIClient:
             return positions
         except requests.exceptions.RequestException as e:
             logger.error(f"포지션 조회 실패 - address: {address}: {e}")
-            return []
+            raise
 
     @rate_limit_handler(max_retries=3)
     def get_cash_balance(self, address: str) -> float:
@@ -71,10 +73,7 @@ class DataAPIClient:
         """
         try:
             params = {"user": address.lower()}
-            response = self.session.get(
-                f"{self.BASE_URL}/v1/accounting/snapshot",
-                params=params
-            )
+            response = self.session.get(f"{self.BASE_URL}/v1/accounting/snapshot", params=params)
             response.raise_for_status()
 
             with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
@@ -86,21 +85,18 @@ class DataAPIClient:
                                 cash = float(row.get("cashBalance", 0))
                                 logger.info(f"Cash 잔액 조회 완료: ${cash:.2f}")
                                 return cash
-            return 0.0
+            raise ValueError("accounting snapshot에서 equity cashBalance를 찾지 못했습니다")
         except requests.exceptions.RequestException as e:
             logger.error(f"Cash 잔액 조회 실패 - address: {address}: {e}")
-            return 0.0
+            raise
         except (zipfile.BadZipFile, KeyError, ValueError) as e:
             logger.error(f"Cash 잔액 파싱 실패: {e}")
-            return 0.0
+            raise
 
     @rate_limit_handler(max_retries=3)
     def get_activity(
-        self,
-        address: str,
-        limit: int = 100,
-        condition_id: Optional[str] = None
-    ) -> List[Dict]:
+        self, address: str, limit: int = 100, condition_id: Optional[str] = None
+    ) -> list[dict]:
         """Get user activity history (trades, deposits, withdrawals).
 
         Args:
@@ -112,10 +108,7 @@ class DataAPIClient:
             List of activity dictionaries sorted by timestamp (newest first)
         """
         try:
-            params = {
-                "address": address.lower(),
-                "limit": limit
-            }
+            params = {"address": address.lower(), "limit": limit}
             if condition_id:
                 params["market"] = condition_id
 
@@ -130,11 +123,8 @@ class DataAPIClient:
 
     @rate_limit_handler(max_retries=3)
     def get_trades_by_address(
-        self,
-        address: str,
-        limit: int = 1000,
-        after_timestamp: Optional[int] = None
-    ) -> List[Dict]:
+        self, address: str, limit: int = 1000, after_timestamp: Optional[int] = None
+    ) -> list[dict]:
         """Get trade history for an address.
 
         Args:
@@ -146,10 +136,7 @@ class DataAPIClient:
             List of trade dictionaries with price, size, timestamp, etc.
         """
         try:
-            params = {
-                "maker_address": address.lower(),
-                "limit": limit
-            }
+            params = {"maker_address": address.lower(), "limit": limit}
 
             response = self.session.get(f"{self.BASE_URL}/trades", params=params)
             response.raise_for_status()
@@ -157,22 +144,15 @@ class DataAPIClient:
 
             # Filter by timestamp if specified
             if after_timestamp:
-                trades = [
-                    t for t in trades
-                    if t.get("timestamp", 0) >= after_timestamp
-                ]
+                trades = [t for t in trades if t.get("timestamp", 0) >= after_timestamp]
 
             logger.info(f"거래 내역 {len(trades)}개 조회 완료")
             return trades
         except requests.exceptions.RequestException as e:
             logger.error(f"거래 내역 조회 실패: {e}")
-            return []
+            raise
 
-    def calculate_pnl_for_period(
-        self,
-        address: str,
-        days_ago: int = 7
-    ) -> Dict:
+    def calculate_pnl_for_period(self, address: str, days_ago: int = 7) -> dict:
         """Calculate profit/loss for a time period.
 
         Args:
@@ -201,10 +181,10 @@ class DataAPIClient:
             "unrealized_pnl": unrealized_pnl,
             "total_pnl": realized_pnl + unrealized_pnl,
             "num_trades": len(trades),
-            "period_days": days_ago
+            "period_days": days_ago,
         }
 
-    def get_portfolio_summary(self, address: str) -> Dict:
+    def get_portfolio_summary(self, address: str) -> dict:
         """Get complete portfolio summary for an address.
 
         Args:
@@ -237,7 +217,7 @@ class DataAPIClient:
             "num_positions": len(positions),
             "pnl_7d": pnl_7d,
             "pnl_30d": pnl_30d,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
         logger.info(

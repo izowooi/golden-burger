@@ -6,6 +6,7 @@ This script:
 2. Fetches portfolio data for each account using Polymarket Data API
 3. Calculates P&L for 7-day and 30-day periods
 4. Sends consolidated report to Slack
+5. Upserts the same daily snapshot to Supabase
 
 Usage:
     python daily_report.py
@@ -26,30 +27,36 @@ Environment Variables:
 
     # Slack notification
     SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+    # Supabase server-side credentials
+    SUPABASE_URL=https://your-project-ref.supabase.co
+    SUPABASE_SECRET_KEY=sb_secret_...
 """
-import sys
-import os
+
 import argparse
 import logging
+import os
+import sys
 from collections import Counter
-from pathlib import Path
-from typing import Dict, List
 from datetime import datetime
-from dotenv import load_dotenv
+from pathlib import Path
 
-load_dotenv(Path(__file__).parent / ".env")
+from dotenv import load_dotenv
 
 from polybot_reporter.api.data_api_client import DataAPIClient
 from polybot_reporter.notifications.slack_notifier import SlackNotifier
+from polybot_reporter.storage.supabase_writer import SupabasePortfolioWriter
+
+load_dotenv(Path(__file__).parent / ".env")
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(f'daily_report_{datetime.now().strftime("%Y%m%d")}.log')
-    ]
+        logging.FileHandler(f"daily_report_{datetime.now().strftime('%Y%m%d')}.log"),
+    ],
 )
 logger = logging.getLogger(__name__)
 
@@ -72,13 +79,14 @@ class AccountConfig:
         return f"AccountConfig(name={self.name}, address={self.address[:10]}...)"
 
 
-def load_account_configs() -> List[AccountConfig]:
+def load_account_configs() -> list[AccountConfig]:
     """Load account configurations from environment variables.
 
     Expects environment variables in format:
     - ACCOUNT_1_NAME, ACCOUNT_1_ADDRESS
     - ACCOUNT_2_NAME, ACCOUNT_2_ADDRESS
     - ACCOUNT_3_NAME, ACCOUNT_3_ADDRESS
+    - ACCOUNT_4_NAME, ACCOUNT_4_ADDRESS
 
     Returns:
         List of AccountConfig objects
@@ -96,9 +104,7 @@ def load_account_configs() -> List[AccountConfig]:
             accounts.append(AccountConfig(name=name, address=address))
             logger.info(f"계좌 {i} 로드 완료: {name} ({address[:10]}...)")
         elif name or address:
-            logger.warning(
-                f"계좌 {i} 설정 불완전 - NAME: {bool(name)}, ADDRESS: {bool(address)}"
-            )
+            logger.warning(f"계좌 {i} 설정 불완전 - NAME: {bool(name)}, ADDRESS: {bool(address)}")
 
     if not accounts:
         logger.error("환경변수에서 계좌 설정을 찾을 수 없습니다")
@@ -107,7 +113,7 @@ def load_account_configs() -> List[AccountConfig]:
 
     # 중복 이름 감지 및 display_name 할당
     name_counts = Counter(acc.name for acc in accounts)
-    name_indices: Dict[str, int] = {}
+    name_indices: dict[str, int] = {}
     for acc in accounts:
         if name_counts[acc.name] > 1:
             name_indices[acc.name] = name_indices.get(acc.name, 0) + 1
@@ -116,10 +122,7 @@ def load_account_configs() -> List[AccountConfig]:
     return accounts
 
 
-def fetch_portfolio_report(
-    client: DataAPIClient,
-    account: AccountConfig
-) -> Dict:
+def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dict:
     """Fetch portfolio report for a single account.
 
     Args:
@@ -149,15 +152,13 @@ def fetch_portfolio_report(
             "num_positions": 0,
             "pnl_7d": {"total_pnl": 0, "num_trades": 0},
             "pnl_30d": {"total_pnl": 0, "num_trades": 0},
-            "error": str(e)
+            "error": str(e),
         }
 
 
 def parse_args() -> argparse.Namespace:
     """Parse command-line arguments."""
-    parser = argparse.ArgumentParser(
-        description="Polymarket Daily Portfolio Reporter"
-    )
+    parser = argparse.ArgumentParser(description="Polymarket Daily Portfolio Reporter")
     parser.add_argument(
         "--monthly",
         action="store_true",
@@ -166,7 +167,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--simulate",
         action="store_true",
-        help="슬랙 전송 없이 로직만 실행 (시뮬레이션 모드)",
+        help="Slack 전송과 Supabase 적재 없이 로직만 실행합니다",
     )
     parser.add_argument(
         "command",
@@ -214,14 +215,15 @@ def main():
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
 
-    # Send consolidated Slack report
+    is_monthly = args.monthly or datetime.now().day == 1
+
+    # Send consolidated Slack report. Monthly mode only changes Slack formatting.
     if reports:
         if args.simulate:
             logger.info("🔕 [SIMULATE] Slack 리포트 전송 생략")
         else:
             logger.info("Slack 리포트 전송 중...")
             try:
-                is_monthly = args.monthly or datetime.now().day == 1
                 if args.monthly:
                     logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
                 success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
@@ -231,6 +233,28 @@ def main():
                     logger.warning("⚠️ Slack 리포트 전송 실패 (웹훅 설정 확인 필요)")
             except Exception as e:
                 logger.error(f"Slack 전송 중 오류: {e}", exc_info=True)
+
+    # Persist only complete snapshots. This runs after the Slack attempt and is
+    # independent of monthly Slack formatting.
+    if reports:
+        if args.simulate:
+            logger.info("🔕 [SIMULATE] Supabase 일일 스냅샷 적재 생략")
+        elif errors:
+            logger.error("수집 오류가 있어 기존 DB 데이터를 보호하기 위해 적재를 생략합니다")
+        else:
+            logger.info("Supabase 일일 스냅샷 upsert 중...")
+            try:
+                result = SupabasePortfolioWriter().write_daily_snapshot(reports)
+                logger.info(
+                    "✅ Supabase 적재 성공 - 날짜: %s, 계정: %d개, 총 자산: $%.2f",
+                    result.report_date,
+                    result.account_count,
+                    result.total_value,
+                )
+            except Exception as e:
+                error_msg = f"Supabase DB 적재 실패: {e}"
+                logger.error(error_msg, exc_info=True)
+                errors.append(error_msg)
 
     # Send error notifications if any
     if errors:
@@ -251,14 +275,12 @@ def main():
     total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
     total_value = sum(r.get("total_value", 0) for r in reports.values())
     total_positions = sum(r.get("num_positions", 0) for r in reports.values())
-    total_pnl_7d = sum(
-        r.get("pnl_7d", {}).get("total_pnl", 0) for r in reports.values()
-    )
-    total_pnl_30d = sum(
-        r.get("pnl_30d", {}).get("total_pnl", 0) for r in reports.values()
-    )
+    total_pnl_7d = sum(r.get("pnl_7d", {}).get("total_pnl", 0) for r in reports.values())
+    total_pnl_30d = sum(r.get("pnl_30d", {}).get("total_pnl", 0) for r in reports.values())
 
-    logger.info(f"총 포트폴리오 가치: ${total_value:.2f} (포지션: ${total_position_value:.2f} + Cash: ${total_cash:.2f})")
+    logger.info(
+        f"총 포트폴리오 가치: ${total_value:.2f} (포지션: ${total_position_value:.2f} + Cash: ${total_cash:.2f})"
+    )
     logger.info(f"총 포지션 수: {total_positions}개")
     logger.info(f"7일 P&L: ${total_pnl_7d:+.2f}")
     logger.info(f"30일 P&L: ${total_pnl_30d:+.2f}")

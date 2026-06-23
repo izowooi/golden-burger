@@ -1,5 +1,7 @@
 # 빠른 시작 가이드
 
+> Supabase 일일 적재와 최신 Jenkins 설정은 [README.md](README.md)를 기준으로 합니다.
+
 Polymarket 일일 리포트 시스템을 빠르게 설정하고 실행하는 방법입니다.
 
 ## ⚡ 5분 안에 시작하기
@@ -62,11 +64,15 @@ python3 test_report.py
 ### 3단계: 실제 리포트 실행 (1분)
 
 ```bash
-# 3개 계좌 모두 설정
+# 4개 계좌 모두 설정
 export ACCOUNT_2_NAME=golden-banana
 export ACCOUNT_2_ADDRESS=<WALLET_ADDRESS_2>
 export ACCOUNT_3_NAME=golden-cherry
 export ACCOUNT_3_ADDRESS=<WALLET_ADDRESS_3>
+export ACCOUNT_4_NAME=golden-apple
+export ACCOUNT_4_ADDRESS=<WALLET_ADDRESS_4>
+export SUPABASE_URL=https://your-project-ref.supabase.co
+export SUPABASE_SECRET_KEY=<JENKINS_SECRET_KEY>
 
 # 리포트 생성
 python3 daily_report.py
@@ -77,15 +83,16 @@ python3 daily_report.py
 ### 필수 사전 준비
 
 - Jenkins 서버 접근 권한
-- Wallet Address 3개 (각 계좌의 funder address)
+- Wallet Address 4개 (각 계좌의 funder address)
 - Slack Webhook URL
+- Supabase Project URL과 Secret key
 
 ### Jenkins 설정 (5분)
 
 1. **Credentials 등록** (Jenkins 관리 → Credentials)
 
    ```
-   ID: polymarket-golden-apple-address
+   ID: polymarket-golden-apple-1-address
    Secret: 0x1234567890abcdef1234567890abcdef12345678
 
    ID: polymarket-golden-banana-address
@@ -94,8 +101,14 @@ python3 daily_report.py
    ID: polymarket-golden-cherry-address
    Secret: 0x9876543210fedcba9876543210fedcba98765432
 
+   ID: polymarket-golden-apple-2-address
+   Secret: 0x1111111111111111111111111111111111111111
+
    ID: polymarket-slack-webhook
    Secret: https://hooks.slack.com/services/...
+
+   ID: polymarket-supabase-secret-key
+   Secret: sb_secret_...
    ```
 
 2. **Jenkins Job 생성**
@@ -120,7 +133,7 @@ python3 daily_report.py
 설정이 올바른지 확인하세요:
 
 - [ ] Slack Webhook URL을 생성했고, 테스트 메시지가 전송됨
-- [ ] 3개 계좌의 Wallet Address를 확보함
+- [ ] 4개 계좌의 Wallet Address를 확보함
 - [ ] `test_report.py` 실행이 성공함
 - [ ] Jenkins Credentials를 모두 등록함
 - [ ] Jenkins Job이 생성되고 첫 빌드가 성공함
@@ -148,7 +161,7 @@ cron('0 9,18 * * *')  // 매일 오전 9시, 오후 6시 (2회)
 환경 변수 또는 Jenkins Credentials에 추가:
 
 ```bash
-ACCOUNT_4_NAME=golden-dragonfruit
+ACCOUNT_4_NAME=golden-apple
 ACCOUNT_4_ADDRESS=0x...
 ```
 

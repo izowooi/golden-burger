@@ -1,219 +1,179 @@
-# Polymarket Daily Portfolio Reporter
+# Polymarket Daily Reporter
 
-[![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
-[![uv](https://img.shields.io/badge/managed%20by-uv-green.svg)](https://github.com/astral-sh/uv)
-[![Code style: black](https://img.shields.io/badge/code%20style-black-000000.svg)](https://github.com/psf/black)
+네 개 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다.
 
-3개의 Polymarket 매매봇 계좌(golden-apple, golden-banana, golden-cherry)에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack으로 전송하는 시스템입니다.
+## 실행 순서
 
-## 🚀 빠른 시작
+```text
+Polymarket Data API 조회
+  → 네 계정의 완전한 스냅샷 검증
+  → Slack 일간/월간 메시지 전송
+  → Supabase 날짜 기준 upsert
+```
 
-### 1. 프로젝트 클론 및 설정
+- 같은 날짜가 이미 있으면 최신 실행 값으로 덮어씁니다.
+- 월간 모드는 Slack 메시지에 30일 P&L을 추가할 뿐, DB에는 동일한 일일 잔고를 한 번 저장합니다.
+- 계정 하나라도 수집에 실패하거나 DB 계정 카탈로그와 매핑되지 않으면 기존 값을 0이나 부분 데이터로 덮지 않고 DB 적재를 중단합니다.
+- DB 실패는 Jenkins 종료 코드 `1`로 전달되고 Slack 오류 알림 대상에 포함됩니다.
+- Slack 전송 실패와 DB 적재는 독립적입니다. Slack webhook 장애가 있어도 정상 수집 데이터는 DB에 저장을 시도합니다.
+
+## 저장 테이블
+
+| 테이블 | 용도 | 충돌 키 |
+|---|---|---|
+| `pb_algorithm_accounts` | Jenkins 이름과 안정적인 account ID 매핑 | `account_id` |
+| `pb_daily_algorithm_balances` | 날짜·계정별 총액, 포지션, 현금 | `report_date, account_id` |
+| `pb_daily_portfolio_totals` | 날짜별 전체 합계 | `report_date` |
+
+현재 매핑은 다음과 같습니다.
+
+| Jenkins 표시 이름 | account ID |
+|---|---|
+| `GOLDEN-APPLE (1)` | `golden-apple-1` |
+| `GOLDEN-BANANA` | `golden-banana` |
+| `GOLDEN-CHERRY` | `golden-cherry` |
+| `GOLDEN-APPLE (2)` | `golden-apple-2` |
+
+## 설치
+
+Python 3.10 이상과 [uv](https://docs.astral.sh/uv/)가 필요합니다.
 
 ```bash
-# 프로젝트 디렉토리로 이동
 cd daily-report
-
-# uv로 가상환경 생성 및 의존성 설치
-uv venv
-source .venv/bin/activate  # Windows: .venv\Scripts\activate
-uv pip install -e .
+uv sync --frozen
 ```
 
-### 2. 환경 변수 설정
+`supabase==2.31.0`을 정확한 버전으로 고정했으며 `uv.lock`도 함께 관리합니다.
+
+## 환경변수
 
 ```bash
-# .env 파일 생성
 cp .env.example .env
-
-# .env 파일 수정하여 실제 값 입력
-nano .env  # 또는 원하는 에디터 사용
+chmod 600 .env
 ```
 
-### 3. 실행
+필수 변수는 다음과 같습니다.
+
+```dotenv
+ACCOUNT_1_NAME=golden-apple
+ACCOUNT_1_ADDRESS=0x...
+ACCOUNT_2_NAME=golden-banana
+ACCOUNT_2_ADDRESS=0x...
+ACCOUNT_3_NAME=golden-cherry
+ACCOUNT_3_ADDRESS=0x...
+ACCOUNT_4_NAME=golden-apple
+ACCOUNT_4_ADDRESS=0x...
+
+SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
+
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_your_server_only_key
+REPORT_TIMEZONE=Asia/Seoul
+```
+
+`daily_report.py`는 실행 파일과 같은 폴더의 `.env`를 자동으로 읽습니다. 이미 Jenkins 환경변수로 주입했다면 `.env`는 필요하지 않습니다.
+
+### Supabase URL과 Secret key 얻기
+
+이 작업에는 anon key, publishable key, legacy service role JWT가 필요하지 않습니다.
+
+1. [Supabase Dashboard](https://supabase.com/dashboard)에서 프로젝트를 선택합니다.
+2. **Project Settings → API Keys**로 이동합니다.
+3. Project URL을 `SUPABASE_URL`로 사용합니다.
+4. **Secret keys**에서 `sb_secret_...` 형식의 키를 생성하거나 복사해 `SUPABASE_SECRET_KEY`로 사용합니다.
+
+Secret key는 RLS를 우회할 수 있는 서버 전용 키입니다. `NEXT_PUBLIC_` 같은 공개 변수에 넣거나 Git, Jenkinsfile, 빌드 로그에 기록하면 안 됩니다. 자세한 키 설명은 [Supabase API key 문서](https://supabase.com/docs/guides/api/api-keys)를 참고하세요.
+
+## Jenkins 권장 설정
+
+### Credentials 등록
+
+**Manage Jenkins → Credentials → System → Global credentials → Add Credentials**에서 다음 Secret text를 등록합니다.
+
+| Credential ID | 내용 |
+|---|---|
+| `polymarket-slack-webhook` | Slack Incoming Webhook URL |
+| `polymarket-supabase-secret-key` | `sb_secret_...` 형식의 Supabase Secret key |
+| `polymarket-golden-apple-1-address` | 첫 번째 golden-apple 주소 |
+| `polymarket-golden-banana-address` | golden-banana 주소 |
+| `polymarket-golden-cherry-address` | golden-cherry 주소 |
+| `polymarket-golden-apple-2-address` | 두 번째 golden-apple 주소 |
+
+Freestyle job이라면 Credentials Binding에서 위 값을 각각 `SLACK_WEBHOOK_URL`, `SUPABASE_SECRET_KEY`, `ACCOUNT_*_ADDRESS` 환경변수에 연결합니다. Project URL은 비밀값이 아니므로 job 환경변수에 직접 설정할 수 있습니다.
 
 ```bash
-# 테스트 실행
-python test_report.py
-
-# 실제 리포트 생성 (일간 리포트)
-python daily_report.py
-
-# 월간 리포트 강제 실행 (날짜 무관)
-python daily_report.py --monthly
+export SUPABASE_URL=https://your-project-ref.supabase.co
+export REPORT_TIMEZONE=Asia/Seoul
 ```
 
-## 📦 프로젝트 구조
-
-```
-daily-report/
-├── pyproject.toml              # 프로젝트 메타데이터 및 의존성
-├── .python-version             # Python 버전 지정
-├── .env.example                # 환경변수 템플릿
-├── .gitignore                  # Git 제외 파일
-├── README.md                   # 프로젝트 문서 (이 파일)
-├── QUICK_START.md              # 빠른 시작 가이드
-├── JENKINS_SETUP.md            # Jenkins 설정 가이드
-├── daily_report.py             # 메인 실행 스크립트
-├── test_report.py              # 테스트 스크립트
-├── Jenkinsfile                 # Jenkins 파이프라인
-└── src/
-    └── polybot_reporter/
-        ├── __init__.py
-        ├── api/
-        │   ├── __init__.py
-        │   ├── data_api_client.py    # Data API 클라이언트
-        │   └── gamma_client.py        # Gamma API 클라이언트
-        ├── notifications/
-        │   ├── __init__.py
-        │   └── slack_notifier.py      # Slack 알림
-        └── utils/
-            ├── __init__.py
-            └── logger.py              # 로깅 유틸리티
-```
-
-## 🔧 개발 환경 설정
-
-### PyCharm 설정
-
-1. **프로젝트 열기**: `daily-report` 폴더를 PyCharm으로 열기
-2. **Python Interpreter 설정**:
-   - `Settings` → `Project: daily-report` → `Python Interpreter`
-   - `Add Interpreter` → `Add Local Interpreter`
-   - Existing environment: `.venv/bin/python` 선택
-3. **실행 구성**:
-   - `Run` → `Edit Configurations`
-   - `+` 클릭 → `Python`
-   - Script path: `daily_report.py` 선택
-   - Environment variables에 `.env` 파일 내용 입력
-
-### uv 명령어
+그 다음 기존 실행 명령을 그대로 사용합니다.
 
 ```bash
-# 의존성 설치
-uv pip install -e .
-
-# 개발 의존성 포함 설치
-uv pip install -e ".[dev]"
-
-# 특정 패키지 추가
-uv pip install requests
-
-# 의존성 업데이트
-uv pip install --upgrade -e .
-
-# 가상환경 활성화
-source .venv/bin/activate  # Linux/Mac
-.venv\Scripts\activate     # Windows
+cd ./daily-report
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run python ./daily_report.py run
 ```
 
-## 🧪 테스트
+Pipeline job은 저장소의 `Jenkinsfile` 예시를 사용할 수 있습니다. Secret 값은 Jenkins Credentials에서만 주입됩니다.
+
+### `.env` 파일을 Jenkins 서버에 복사하는 방식
+
+Credentials Binding을 사용할 수 없다면 Jenkins 계정만 읽을 수 있는 `.env`를 `daily-report/.env`에 둡니다.
 
 ```bash
-# 모든 테스트 실행
-pytest
-
-# 커버리지와 함께 실행
-pytest --cov=polybot_reporter --cov-report=html
-
-# 특정 테스트만 실행
-pytest tests/test_data_api.py
+chmod 600 daily-report/.env
 ```
 
-## 🎨 코드 품질
+`.env`는 `.gitignore` 대상입니다. Workspace 정리나 새 checkout 때 삭제될 수 있으므로 Jenkins 외부의 제한된 경로에서 실행 시 복사하는 방식이 안전합니다.
+
+## 실행 명령
 
 ```bash
-# 코드 포맷팅 (Black)
-black src/ tests/
+# 실제 Slack 전송 + Supabase 적재
+uv run python daily_report.py run
 
-# 린팅 (Ruff)
-ruff check src/ tests/
+# 월간 형식 강제: Slack 형식만 달라지고 DB 적재는 동일
+uv run python daily_report.py --monthly run
 
-# 타입 체킹 (mypy)
-mypy src/
+# 외부 전송 없이 API 조회와 계산만 확인
+uv run python daily_report.py --simulate run
 ```
 
-## 📋 주요 기능
+매월 1일에는 별도 플래그가 없어도 월간 Slack 형식을 사용합니다. 같은 날 작업이 두 번 실행되면 DB는 뒤에 실행된 값으로 upsert됩니다.
 
-- ✅ 다중 계좌 지원 (최대 9개)
-- ✅ 7일/30일 P&L 자동 계산
-- ✅ Slack 자동 알림
-- ✅ Jenkins 자동화
-- ✅ 에러 핸들링 및 재시도
-- ✅ 상세 로깅
-- ✅ 월간 리포트 강제 실행 (`--monthly` 플래그)
-
-## 📅 월간 리포트
-
-매월 1일에 자동으로 월간 리포트가 실행되며, 30일 P&L 데이터가 추가로 포함됩니다.
-
-날짜와 무관하게 월간 리포트를 받고 싶을 때는 `--monthly` 플래그를 사용하세요.
+## 검증
 
 ```bash
-python daily_report.py --monthly
+uv run --extra dev pytest tests
+uv run --extra dev ruff check daily_report.py src/polybot_reporter/storage tests
 ```
 
-**일간 리포트와 차이점:**
-- Slack 메시지 헤더에 "월간 리포트 포함" 표시
-- 각 계정별 30일 P&L 데이터 추가 표시
+Supabase SQL Editor에서는 최근 적재 결과를 다음과 같이 확인할 수 있습니다.
 
-## 🔐 보안
+```sql
+select *
+from public.pb_daily_portfolio_totals
+order by report_date desc
+limit 7;
 
-⚠️ **중요**: Private Key는 필요하지 않습니다!
-
-- 이 시스템은 읽기 전용입니다
-- Wallet Address (funder address)만 필요
-- `.env` 파일은 절대 Git에 커밋하지 마세요
-
-## 📚 문서
-
-- [빠른 시작 가이드](QUICK_START.md)
-- [Jenkins 설정 가이드](JENKINS_SETUP.md)
-- [전체 문서](DAILY_REPORT_README.md)
-- [Polymarket API 문서](https://docs.polymarket.com/)
-
-## 🐛 트러블슈팅
-
-### "Module not found" 오류
-
-```bash
-# 가상환경 활성화 확인
-which python  # .venv/bin/python 이어야 함
-
-# 재설치
-uv pip install -e .
+select *
+from public.pb_daily_algorithm_balances
+order by report_date desc, account_id
+limit 28;
 ```
 
-### Slack 메시지가 오지 않음
+## 보안 체크리스트
 
-```bash
-# Webhook 테스트
-curl -X POST -H 'Content-type: application/json' \
-  --data '{"text":"Test"}' $SLACK_WEBHOOK_URL
-```
+- `.env`, Secret key, service role key, Slack webhook을 커밋하지 않습니다.
+- Jenkins Console Output에서 `env`, `printenv`, `set -x`를 사용하지 않습니다.
+- Secret key는 Jenkins Secret text 또는 권한 `600`인 `.env`로만 제공합니다.
+- Secret이 노출되면 Supabase Dashboard에서 새 키를 만든 뒤 기존 키를 폐기합니다.
+- `--simulate`는 Slack과 Supabase 쓰기를 모두 생략합니다.
 
-## 🤝 기여
+## 문제 해결
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
-
-## 📝 라이선스
-
-MIT License - 자세한 내용은 [LICENSE](LICENSE) 파일을 참고하세요.
-
-## 👤 작성자
-
-**jongwoo**
-- Email: izowooi@hotmail.com
-
-## 🙏 감사의 말
-
-- [Polymarket](https://polymarket.com/) - API 제공
-- [uv](https://github.com/astral-sh/uv) - 빠른 Python 패키지 관리
-
----
-
-**Last Updated**: 2026-02-07
+- **필수 Supabase 환경변수가 없습니다**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` 주입 여부를 확인합니다.
+- **일부 DB 계정의 리포트가 없습니다**: 네 개 `ACCOUNT_*` 설정과 DB 카탈로그를 확인합니다.
+- **Jenkins 이름을 찾지 못했습니다**: 중복 `golden-apple` 계정의 순서가 1번과 4번인지 확인합니다.
+- **DB 적재 실패 후 일부 행만 갱신됨**: 작업을 다시 실행하면 같은 날짜 키로 idempotent upsert되어 복구됩니다.
+- **월간 실행에서 중복 행이 생김**: 날짜가 기본키이므로 중복 행은 생성되지 않습니다. 최신 값으로 갱신됩니다.

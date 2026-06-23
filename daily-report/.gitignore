@@ -44,6 +44,8 @@ ENV/
 .env.local
 .env.*.local
 keys.env
+*.key
+*.pem
 
 # Testing
 .pytest_cache/
