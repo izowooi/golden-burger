@@ -9,6 +9,11 @@ from typing import Any
 from slack_data_collector.client import SlackApiError, SlackWebClient
 from slack_data_collector.collector import SlackChannelCollector
 from slack_data_collector.config import ConfigurationError, Settings
+from slack_data_collector.portfolio import (
+    PortfolioParseError,
+    transform_portfolio_reports,
+)
+from slack_data_collector.portfolio_sql import export_upsert_sql
 from slack_data_collector.storage import store_collection
 from slack_data_collector.time_range import TimeRange, TimeRangeError
 
@@ -58,6 +63,23 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="기간 안의 부모 글만 검사합니다. 빠르지만 오래된 글의 기간 내 답글이 누락될 수 있습니다.",
     )
+
+    portfolio_parser = subparsers.add_parser(
+        "portfolio", help="Slack 원본 JSONL에서 날짜별 포트폴리오 잔고를 추출합니다."
+    )
+    portfolio_parser.add_argument(
+        "--input", type=Path, required=True, help="raw/messages.jsonl 경로"
+    )
+    portfolio_parser.add_argument(
+        "--output-dir",
+        type=Path,
+        help="출력 디렉터리 (기본값: 실행 디렉터리/portfolio)",
+    )
+    portfolio_parser.add_argument(
+        "--export-sql",
+        action="store_true",
+        help="Supabase upsert SQL을 배치 파일로 생성합니다.",
+    )
     return parser
 
 
@@ -66,12 +88,21 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     try:
+        if args.command == "portfolio":
+            return _portfolio(args)
         settings = Settings.from_environment(args.env_file)
         client = SlackWebClient(settings.bot_token)
         if args.command == "check":
             return _check(client, settings)
         return _collect(client, settings, args)
-    except (ConfigurationError, TimeRangeError, SlackApiError, OSError) as exc:
+    except (
+        ConfigurationError,
+        TimeRangeError,
+        SlackApiError,
+        PortfolioParseError,
+        OSError,
+        ValueError,
+    ) as exc:
         print(f"오류: {exc}", file=sys.stderr)
         return 1
 
@@ -130,6 +161,17 @@ def _collect(
         "run_directory": str(stored.run_directory),
     }
     print(json.dumps(output, ensure_ascii=False, indent=2))
+    return 0
+
+
+def _portfolio(args: argparse.Namespace) -> int:
+    output_directory = args.output_dir or args.input.parent.parent / "portfolio"
+    result = transform_portfolio_reports(args.input, output_directory)
+    output = result.summary()
+    if args.export_sql:
+        sql_paths = export_upsert_sql(output_directory, output_directory / "sql")
+        output["sql_files"] = [str(path) for path in sql_paths]
+    print(json.dumps({"ok": True, **output}, ensure_ascii=False, indent=2))
     return 0
 
 

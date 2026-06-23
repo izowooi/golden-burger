@@ -8,7 +8,8 @@
 - 기간별 Slack 메시지와 스레드를 수집하는 Python CLI가 구현되어 있습니다.
 - 원본 JSONL과 정규화 JSONL을 로컬 `data/`에 저장합니다.
 - 실제 워크스페이스의 Bot Token, 채널 접근 및 메시지 조회를 검증했습니다.
-- Supabase 스키마와 DB 적재는 아직 구현하지 않았습니다.
+- 포트폴리오 잔고 파서와 Supabase upsert SQL 생성기가 구현되어 있습니다.
+- `pb_` Supabase 스키마 생성과 전체 이력 초기 적재를 완료했습니다.
 - 기존 `daily-report` 프로젝트의 전송 책임과 이 프로젝트의 수집 책임을 분리합니다.
 
 ## 수집 범위
@@ -17,7 +18,7 @@
 2. 스레드가 있으면 `conversations.replies`로 답글까지 수집합니다.
 3. Slack 원본 JSON을 보존하고, 분석용 필드를 별도로 정규화합니다.
 4. Slack의 `ts`를 고유 기준으로 사용해 재실행 시 중복 적재를 방지합니다.
-5. 마지막 수집 시점을 저장해 초기 전체 수집 이후에는 증분 수집합니다.
+5. 초기 전체 수집 이후에는 `--start`로 필요한 날짜부터 증분 수집할 수 있습니다.
 
 Slack API가 반환할 수 있는 이력만 수집할 수 있습니다. 워크스페이스의 메시지 보존
 정책에 따라 이미 삭제되었거나 접근 기간이 지난 메시지는 API로 복구할 수 없습니다.
@@ -109,7 +110,56 @@ data/
 
 `data/`에는 실제 Slack 내용이 들어가므로 디렉터리 전체가 Git ignore 대상입니다.
 
-### 6. 테스트 실행
+### 6. 포트폴리오 잔고 추출
+
+수집 결과의 원본 JSONL에서 전체 잔고와 알고리즘별 잔고를 추출합니다.
+
+```bash
+uv run slack-data-collector portfolio \
+  --input data/<run-id>/raw/messages.jsonl \
+  --export-sql
+```
+
+동일한 `report_date`에 리포트가 여러 개 있으면 Slack `ts`가 가장 큰, 즉 가장 나중에
+전송된 메시지만 선택합니다. SQL upsert도 기존 행보다 `source_message_ts`가 크거나
+같을 때만 갱신하므로 과거 메시지가 최신 데이터를 덮어쓰지 못합니다.
+
+```text
+data/<run-id>/portfolio/
+├── algorithm_accounts.json
+├── algorithm_balances.jsonl
+├── portfolio_totals.jsonl
+├── manifest.json
+└── sql/
+    ├── 10_algorithm_accounts.sql
+    ├── 20_portfolio_totals_001.sql
+    └── 30_algorithm_balances_*.sql
+```
+
+### 7. Supabase 테이블
+
+`pb_`는 Polymarket Bot 데이터임을 나타내는 접두어입니다. 재현 가능한 스키마 SQL은
+[`sql/pb_portfolio_schema.sql`](sql/pb_portfolio_schema.sql)에 있습니다.
+
+| 테이블 | 역할 | 기본키 |
+|---|---|---|
+| `pb_algorithm_accounts` | Jenkins 이름과 안정적인 계정 ID 매핑 | `account_id` |
+| `pb_daily_portfolio_totals` | 날짜별 전체 total/position/cash | `report_date` |
+| `pb_daily_algorithm_balances` | 날짜·계정별 total/position/cash | `(report_date, account_id)` |
+
+Jenkins 이름은 원문 그대로 보존하고 DB 관계에는 안정적인 소문자 ID를 사용합니다.
+
+| `account_id` | `jenkins_name` | `algorithm_code` | `instance_no` |
+|---|---|---|---:|
+| `golden-apple-1` | `GOLDEN-APPLE (1)` | `golden-apple` | 1 |
+| `golden-banana` | `GOLDEN-BANANA` | `golden-banana` | - |
+| `golden-cherry` | `GOLDEN-CHERRY` | `golden-cherry` | - |
+| `golden-apple-2` | `GOLDEN-APPLE (2)` | `golden-apple` | 2 |
+
+세 테이블은 RLS가 활성화되어 있고 `anon`과 `authenticated`에는 권한과 정책이
+없습니다. 현재는 Supabase MCP 또는 서버 측 관리 권한으로만 접근합니다.
+
+### 8. 테스트 실행
 
 ```bash
 uv run python -m unittest discover -s tests -v
@@ -322,7 +372,7 @@ curl --silent --show-error --get \
 - HTTP 429 응답에서는 `Retry-After` 값을 준수합니다.
 - Slack 원본 JSON을 먼저 보존한 후 분석용 구조로 변환합니다.
 - `(channel_id, ts)`를 고유 키로 사용해 중복 적재를 방지합니다.
-- 초기 전체 백필 이후에는 마지막 수집 시점을 기준으로 증분 수집합니다.
+- 초기 전체 백필 이후에는 필요한 시작일을 지정해 증분 수집합니다.
 - 파일 자체를 내려받아야 할 경우에만 `files:read` 권한을 추가합니다.
 
 내부 워크스페이스용 Custom App의 `conversations.history`와
@@ -331,8 +381,8 @@ curl --silent --show-error --get \
 
 ## 다음 구현 단계
 
-- 실제 `daily-report` 메시지 형식 분석 후 정규화 규칙 정의
-- Supabase 테이블, 인덱스, RLS 및 upsert 구현
+- 정기 실행 스케줄과 증분 적재 자동화
+- 필요 시 읽기 전용 API 역할과 RLS 정책 추가
 
 ## 참고 문서
 
