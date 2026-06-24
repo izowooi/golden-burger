@@ -67,6 +67,7 @@ pipeline {
                 // Reproducible dependency install from uv.lock
                 dir('daily-report') {
                     sh 'uv sync --frozen'
+                    sh 'uv run python ./daily_report.py check-supabase'
                 }
             }
         }

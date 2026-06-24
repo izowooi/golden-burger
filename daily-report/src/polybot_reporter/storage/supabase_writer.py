@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import math
 import os
 from collections.abc import Mapping
@@ -70,7 +72,12 @@ class SupabasePortfolioWriter:
                 f"필수 Supabase 환경변수가 없습니다: {', '.join(missing)}"
             )
 
-        self.client = create_client(resolved_url, resolved_key)
+        validated_key = self._validate_server_key(resolved_key)
+        self.client = create_client(resolved_url, validated_key)
+
+    def check_connection(self) -> int:
+        """Verify server credentials by reading the account catalog."""
+        return len(self._load_account_catalog())
 
     def write_daily_snapshot(
         self,
@@ -204,6 +211,12 @@ class SupabasePortfolioWriter:
                 self.client.table(self.ACCOUNT_TABLE).select("account_id,jenkins_name").execute()
             )
         except Exception as exc:
+            if self._api_error_code(exc) == "42501":
+                raise SupabaseWriteError(
+                    "pb_algorithm_accounts 조회 권한이 없습니다. Jenkins의 "
+                    "SUPABASE_SECRET_KEY에 sb_secret_... 형식의 서버 전용 Secret key를 "
+                    "설정하세요. sb_publishable_... 또는 anon key에 DB 권한을 추가하면 안 됩니다."
+                ) from exc
             raise SupabaseWriteError(f"Supabase 계정 카탈로그 조회 실패: {exc}") from exc
 
         rows = response.data or []
@@ -234,6 +247,58 @@ class SupabasePortfolioWriter:
     @staticmethod
     def _normalize_jenkins_name(value: str) -> str:
         return " ".join(value.strip().upper().split())
+
+    @classmethod
+    def _validate_server_key(cls, value: str) -> str:
+        key = value.strip()
+        if key.startswith("sb_publishable_"):
+            raise SupabaseConfigurationError(
+                "SUPABASE_SECRET_KEY에 sb_publishable_... 키가 설정되었습니다. "
+                "Jenkins DB 적재에는 Supabase Dashboard의 Settings → API Keys → "
+                "Secret keys에서 발급한 sb_secret_... 서버 전용 키가 필요합니다."
+            )
+        if key.startswith("sb_secret_"):
+            if "replace_with" in key or "your_server" in key:
+                raise SupabaseConfigurationError(
+                    "SUPABASE_SECRET_KEY가 예제 placeholder입니다. 실제 sb_secret_... 키를 설정하세요."
+                )
+            return key
+
+        legacy_role = cls._legacy_jwt_role(key)
+        if legacy_role == "service_role":
+            return key
+        if legacy_role == "anon":
+            raise SupabaseConfigurationError(
+                "SUPABASE_SECRET_KEY에 legacy anon key가 설정되었습니다. "
+                "sb_secret_... 서버 전용 Secret key를 설정하세요."
+            )
+        raise SupabaseConfigurationError(
+            "SUPABASE_SECRET_KEY가 서버 전용 키 형식이 아닙니다. "
+            "sb_secret_... Secret key를 설정하세요."
+        )
+
+    @staticmethod
+    def _legacy_jwt_role(value: str) -> str | None:
+        parts = value.split(".")
+        if len(parts) != 3:
+            return None
+        try:
+            padding = "=" * (-len(parts[1]) % 4)
+            payload = json.loads(base64.urlsafe_b64decode(parts[1] + padding))
+        except (ValueError, json.JSONDecodeError, UnicodeDecodeError):
+            return None
+        role = payload.get("role")
+        return role if isinstance(role, str) else None
+
+    @staticmethod
+    def _api_error_code(exc: Exception) -> str | None:
+        code = getattr(exc, "code", None)
+        if isinstance(code, str):
+            return code
+        if exc.args and isinstance(exc.args[0], dict):
+            value = exc.args[0].get("code")
+            return value if isinstance(value, str) else None
+        return None
 
     @staticmethod
     def _decimal_value(value: Any, account_name: str, field_name: str) -> Decimal:

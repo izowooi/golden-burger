@@ -75,7 +75,8 @@ export SUPABASE_URL=https://your-project-ref.supabase.co
 export SUPABASE_SECRET_KEY=<JENKINS_SECRET_KEY>
 
 # 리포트 생성
-python3 daily_report.py
+python3 daily_report.py check-supabase
+python3 daily_report.py run
 ```
 
 ## 🚀 Jenkins 자동화 설정

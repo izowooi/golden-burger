@@ -1,5 +1,7 @@
 """Tests for Supabase daily snapshot persistence."""
 
+import base64
+import json
 from datetime import date, datetime
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
@@ -7,6 +9,7 @@ from zoneinfo import ZoneInfo
 import pytest
 
 from polybot_reporter.storage.supabase_writer import (
+    SupabaseConfigurationError,
     SupabasePortfolioWriter,
     SupabaseWriteError,
 )
@@ -74,6 +77,65 @@ class FakeClient:
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
+
+
+class PermissionDeniedQuery:
+    def select(self, _columns):
+        return self
+
+    def execute(self):
+        raise Exception({"message": "permission denied", "code": "42501"})
+
+
+class PermissionDeniedClient:
+    def table(self, _table_name):
+        return PermissionDeniedQuery()
+
+
+def legacy_key(role):
+    def encode(payload):
+        value = json.dumps(payload, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(value).decode().rstrip("=")
+
+    return f"{encode({'alg': 'HS256', 'typ': 'JWT'})}.{encode({'role': role})}.signature"
+
+
+def test_rejects_publishable_key_before_creating_client():
+    with pytest.raises(SupabaseConfigurationError, match="sb_publishable"):
+        SupabasePortfolioWriter(
+            url="https://example.supabase.co",
+            secret_key="sb_publishable_example_key",
+        )
+
+
+def test_rejects_legacy_anon_key():
+    with pytest.raises(SupabaseConfigurationError, match="legacy anon"):
+        SupabasePortfolioWriter(
+            url="https://example.supabase.co",
+            secret_key=legacy_key("anon"),
+        )
+
+
+def test_accepts_server_secret_key(monkeypatch):
+    client = FakeClient()
+    monkeypatch.setattr(
+        "polybot_reporter.storage.supabase_writer.create_client",
+        lambda _url, _key: client,
+    )
+
+    writer = SupabasePortfolioWriter(
+        url="https://example.supabase.co",
+        secret_key="sb_secret_example_server_key",
+    )
+
+    assert writer.check_connection() == 4
+
+
+def test_permission_error_explains_required_key_type():
+    writer = SupabasePortfolioWriter(client=PermissionDeniedClient())
+
+    with pytest.raises(SupabaseWriteError, match="sb_secret"):
+        writer.check_connection()
 
 
 def test_upserts_complete_snapshot_with_date_conflicts():

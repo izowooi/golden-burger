@@ -45,7 +45,10 @@ from dotenv import load_dotenv
 
 from polybot_reporter.api.data_api_client import DataAPIClient
 from polybot_reporter.notifications.slack_notifier import SlackNotifier
-from polybot_reporter.storage.supabase_writer import SupabasePortfolioWriter
+from polybot_reporter.storage.supabase_writer import (
+    SupabaseConfigurationError,
+    SupabasePortfolioWriter,
+)
 
 load_dotenv(Path(__file__).parent / ".env")
 
@@ -172,7 +175,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "command",
         nargs="?",
-        help="실행 명령어 (예: run) — 하위 호환용, 무시됨",
+        choices=["run", "check-supabase"],
+        help="실행 명령어: run 또는 check-supabase",
     )
     return parser.parse_args()
 
@@ -185,6 +189,24 @@ def main():
     logger.info("Polymarket Daily Portfolio Report")
     logger.info(f"실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 60)
+
+    if args.command == "check-supabase":
+        try:
+            account_count = SupabasePortfolioWriter().check_connection()
+            logger.info("✅ Supabase 연결 성공 - 계정 카탈로그: %d개", account_count)
+            return
+        except Exception as e:
+            logger.error("Supabase 연결 점검 실패: %s", e)
+            sys.exit(1)
+
+    supabase_writer = None
+    if not args.simulate:
+        try:
+            # Validate the key type before fetching data or sending Slack messages.
+            supabase_writer = SupabasePortfolioWriter()
+        except SupabaseConfigurationError as e:
+            logger.error("Supabase 설정 오류: %s", e)
+            sys.exit(1)
 
     # Load account configurations
     accounts = load_account_configs()
@@ -244,7 +266,9 @@ def main():
         else:
             logger.info("Supabase 일일 스냅샷 upsert 중...")
             try:
-                result = SupabasePortfolioWriter().write_daily_snapshot(reports)
+                if supabase_writer is None:
+                    raise RuntimeError("Supabase writer가 초기화되지 않았습니다")
+                result = supabase_writer.write_daily_snapshot(reports)
                 logger.info(
                     "✅ Supabase 적재 성공 - 날짜: %s, 계정: %d개, 총 자산: $%.2f",
                     result.report_date,

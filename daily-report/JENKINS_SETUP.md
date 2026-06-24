@@ -17,6 +17,8 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 | `polymarket-slack-webhook` | Secret text | Slack Webhook URL | `https://hooks.slack.com/services/...` |
 | `polymarket-supabase-secret-key` | Secret text | Supabase 서버 전용 Secret key | `sb_secret_...` |
 
+`polymarket-supabase-secret-key`에는 `sb_publishable_...`가 아니라 반드시 `sb_secret_...` 값을 저장합니다. publishable key는 anon 권한이므로 `pb_*` 테이블을 읽거나 쓸 수 없습니다.
+
 ### Credential 추가 방법
 
 1. **Kind**: Secret text 선택
@@ -138,8 +140,11 @@ REPORT_TIMEZONE=Asia/Seoul
 source .env  # 또는 export 명령어로 각각 설정
 
 # 스크립트 실행
-python3 daily_report.py
+python3 daily_report.py check-supabase
+python3 daily_report.py run
 ```
+
+`check-supabase`는 계정 카탈로그 읽기만 수행하며 Slack 전송과 DB 수정은 하지 않습니다.
 
 ## 6. Cron 스케줄 예시
 
