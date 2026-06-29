@@ -40,6 +40,8 @@ const METRICS: { value: BalanceMetric; label: string }[] = [
   { value: "cash_value", label: "현금" },
 ];
 
+const DEFAULT_RANGE_DAYS = 30;
+
 const amount = new Intl.NumberFormat("en-US", {
   style: "decimal",
   minimumFractionDigits: 2,
@@ -59,7 +61,7 @@ const shortDate = new Intl.DateTimeFormat("ko-KR", {
 });
 
 const COIN_EMOJIS = ["💎", "🟡", "⭐"];
-const DEFAULT_COIN_EMOJI = "💎";
+const DEFAULT_COIN_EMOJI = "🟡";
 const COIN_STORAGE_KEY = "pb-coin-emoji";
 const CoinEmojiContext = createContext(DEFAULT_COIN_EMOJI);
 
@@ -115,7 +117,7 @@ export function Dashboard() {
       setData(payload);
       setSelectedAccountIds(payload.accounts.map((account) => account.account_id));
       const { minDate, maxDate } = getDateBounds(payload.totals);
-      setStartDate(minDate);
+      setStartDate(defaultStartDate(minDate, maxDate));
       setEndDate(maxDate);
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "알 수 없는 오류가 발생했습니다.");
@@ -131,7 +133,7 @@ export function Dashboard() {
         setData(payload);
         setSelectedAccountIds(payload.accounts.map((account) => account.account_id));
         const { minDate, maxDate } = getDateBounds(payload.totals);
-        setStartDate(minDate);
+        setStartDate(defaultStartDate(minDate, maxDate));
         setEndDate(maxDate);
       })
       .catch((caught) => {
@@ -677,6 +679,11 @@ function formatTimestamp(value: string) {
 
 function maxDate(left: string, right: string) {
   return left > right ? left : right;
+}
+
+function defaultStartDate(minDate: string, maxDateValue: string) {
+  if (!minDate || !maxDateValue) return minDate;
+  return maxDate(minDate, subtractDays(maxDateValue, DEFAULT_RANGE_DAYS - 1));
 }
 
 async function fetchPortfolio(signal?: AbortSignal) {
