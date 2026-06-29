@@ -58,8 +58,8 @@ const shortDate = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "UTC",
 });
 
-const COIN_EMOJIS = ["🪙", "💎", "🥇", "🟡", "🟠", "🔶", "⭐"];
-const DEFAULT_COIN_EMOJI = "🪙";
+const COIN_EMOJIS = ["💎", "🟡", "⭐"];
+const DEFAULT_COIN_EMOJI = "💎";
 const COIN_STORAGE_KEY = "pb-coin-emoji";
 const CoinEmojiContext = createContext(DEFAULT_COIN_EMOJI);
 
@@ -76,7 +76,8 @@ function subscribeCoinEmoji(listener: () => void) {
 
 function getCoinEmojiSnapshot() {
   try {
-    return window.localStorage.getItem(COIN_STORAGE_KEY) ?? DEFAULT_COIN_EMOJI;
+    const stored = window.localStorage.getItem(COIN_STORAGE_KEY);
+    return stored && COIN_EMOJIS.includes(stored) ? stored : DEFAULT_COIN_EMOJI;
   } catch {
     return DEFAULT_COIN_EMOJI;
   }
