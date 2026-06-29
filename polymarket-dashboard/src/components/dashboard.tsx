@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   CartesianGrid,
   Line,
@@ -26,7 +26,6 @@ import type {
   PerformanceSummary,
   PortfolioResponse,
 } from "@/lib/types";
-import { CoinIcon } from "./coin-icon";
 
 const ACCOUNT_COLORS: Record<string, string> = {
   "golden-apple-1": "#f7b955",
@@ -59,6 +58,39 @@ const shortDate = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "UTC",
 });
 
+const COIN_EMOJIS = ["🪙", "💎", "🥇", "🟡", "🟠", "🔶", "⭐"];
+const DEFAULT_COIN_EMOJI = "🪙";
+const COIN_STORAGE_KEY = "pb-coin-emoji";
+const CoinEmojiContext = createContext(DEFAULT_COIN_EMOJI);
+
+const coinEmojiListeners = new Set<() => void>();
+
+function subscribeCoinEmoji(listener: () => void) {
+  coinEmojiListeners.add(listener);
+  window.addEventListener("storage", listener);
+  return () => {
+    coinEmojiListeners.delete(listener);
+    window.removeEventListener("storage", listener);
+  };
+}
+
+function getCoinEmojiSnapshot() {
+  try {
+    return window.localStorage.getItem(COIN_STORAGE_KEY) ?? DEFAULT_COIN_EMOJI;
+  } catch {
+    return DEFAULT_COIN_EMOJI;
+  }
+}
+
+function setStoredCoinEmoji(emoji: string) {
+  try {
+    window.localStorage.setItem(COIN_STORAGE_KEY, emoji);
+  } catch {
+    // localStorage 사용 불가(시크릿 모드 등) — 캐싱은 생략한다
+  }
+  coinEmojiListeners.forEach((listener) => listener());
+}
+
 export function Dashboard() {
   const [data, setData] = useState<PortfolioResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -68,6 +100,11 @@ export function Dashboard() {
   const [endDate, setEndDate] = useState("");
   const [metric, setMetric] = useState<BalanceMetric>("total_value");
   const [chartMode, setChartMode] = useState<ChartMode>("balance");
+  const coinEmoji = useSyncExternalStore(
+    subscribeCoinEmoji,
+    getCoinEmojiSnapshot,
+    () => DEFAULT_COIN_EMOJI,
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -170,6 +207,7 @@ export function Dashboard() {
   const rangeIsValid = Boolean(startDate && endDate && startDate <= endDate);
 
   return (
+    <CoinEmojiContext.Provider value={coinEmoji}>
     <main className="dashboard-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
@@ -188,6 +226,7 @@ export function Dashboard() {
           <span className="status-dot" />
           <span>Supabase live</span>
           {bounds.maxDate && <span className="status-date">최근 {formatDate(bounds.maxDate)}</span>}
+          <CoinPicker value={coinEmoji} onChange={setStoredCoinEmoji} />
           <button className="refresh-button" type="button" onClick={() => void loadData()}>
             새로고침
           </button>
@@ -477,6 +516,7 @@ export function Dashboard() {
         </>
       )}
     </main>
+    </CoinEmojiContext.Provider>
   );
 }
 
@@ -563,15 +603,38 @@ function displayName(account: AlgorithmAccount) {
 }
 
 function Money({ value, signed = false }: { value?: number | null; signed?: boolean }) {
+  const coinEmoji = useContext(CoinEmojiContext);
   if (value == null || Number.isNaN(value)) return <>—</>;
   const sign = signed ? (value > 0 ? "+" : value < 0 ? "-" : "") : "";
   const magnitude = signed ? amount.format(Math.abs(value)) : amount.format(value);
   return (
     <span className="coin-amount">
       {sign}
-      <CoinIcon />
+      <span className="coin-emoji" aria-hidden="true">
+        {coinEmoji}
+      </span>
       {magnitude}
     </span>
+  );
+}
+
+function CoinPicker({ value, onChange }: { value: string; onChange: (emoji: string) => void }) {
+  return (
+    <div className="coin-picker" role="radiogroup" aria-label="통화 표시 아이콘">
+      {COIN_EMOJIS.map((emoji) => (
+        <button
+          key={emoji}
+          type="button"
+          role="radio"
+          aria-checked={value === emoji}
+          aria-label={`통화 아이콘 ${emoji}`}
+          className={value === emoji ? "coin-option selected" : "coin-option"}
+          onClick={() => onChange(emoji)}
+        >
+          {emoji}
+        </button>
+      ))}
+    </div>
   );
 }
 
