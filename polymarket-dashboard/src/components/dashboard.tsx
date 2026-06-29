@@ -26,6 +26,7 @@ import type {
   PerformanceSummary,
   PortfolioResponse,
 } from "@/lib/types";
+import { CoinIcon } from "./coin-icon";
 
 const ACCOUNT_COLORS: Record<string, string> = {
   "golden-apple-1": "#f7b955",
@@ -40,16 +41,14 @@ const METRICS: { value: BalanceMetric; label: string }[] = [
   { value: "cash_value", label: "현금" },
 ];
 
-const currency = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
+const amount = new Intl.NumberFormat("en-US", {
+  style: "decimal",
   minimumFractionDigits: 2,
   maximumFractionDigits: 2,
 });
 
-const compactCurrency = new Intl.NumberFormat("en-US", {
-  style: "currency",
-  currency: "USD",
+const compactAmount = new Intl.NumberFormat("en-US", {
+  style: "decimal",
   notation: "compact",
   maximumFractionDigits: 1,
 });
@@ -279,12 +278,12 @@ export function Dashboard() {
           <section className="kpi-grid" aria-label="포트폴리오 요약">
             <KpiCard
               label="현재 전체 자산"
-              value={formatCurrency(portfolioPerformance?.last.total_value)}
+              value={<Money value={portfolioPerformance?.last.total_value} />}
               detail={portfolioPerformance ? formatDate(portfolioPerformance.last.report_date) : "-"}
             />
             <KpiCard
               label="기간 손익"
-              value={formatSignedCurrency(portfolioPerformance?.changeValue)}
+              value={<Money value={portfolioPerformance?.changeValue} signed />}
               detail={dateSpan(portfolioPerformance?.first.report_date, portfolioPerformance?.last.report_date)}
               tone={tone(portfolioPerformance?.changeValue)}
             />
@@ -360,7 +359,7 @@ export function Dashboard() {
                       axisLine={false}
                       width={76}
                       tickFormatter={(value) =>
-                        chartMode === "return" ? `${Number(value).toFixed(0)}%` : compactCurrency.format(Number(value))
+                        chartMode === "return" ? `${Number(value).toFixed(0)}%` : compactAmount.format(Number(value))
                       }
                     />
                     {chartMode === "return" && <ReferenceLine y={0} stroke="#55706a" />}
@@ -376,7 +375,7 @@ export function Dashboard() {
                       formatter={(value, name) => [
                         chartMode === "return"
                           ? formatPercent(Number(value))
-                          : formatCurrency(Number(value)),
+                          : <Money value={Number(value)} />,
                         accountMap.get(String(name))?.jenkins_name ?? String(name),
                       ]}
                     />
@@ -457,12 +456,12 @@ export function Dashboard() {
                           />
                           <strong>{displayName(account)}</strong>
                         </td>
-                        <td>{formatCurrency(item?.startValue)}</td>
-                        <td>{formatCurrency(item?.endValue)}</td>
-                        <td className={tone(item?.changeValue)}>{formatSignedCurrency(item?.changeValue)}</td>
+                        <td><Money value={item?.startValue} /></td>
+                        <td><Money value={item?.endValue} /></td>
+                        <td className={tone(item?.changeValue)}><Money value={item?.changeValue} signed /></td>
                         <td className={tone(item?.returnRate)}>{formatPercent(item?.returnRate)}</td>
-                        <td>{formatCurrency(item?.latestPosition)}</td>
-                        <td>{formatCurrency(item?.latestCash)}</td>
+                        <td><Money value={item?.latestPosition} /></td>
+                        <td><Money value={item?.latestCash} /></td>
                       </tr>
                     );
                   })}
@@ -488,7 +487,7 @@ function KpiCard({
   tone: valueTone = "",
 }: {
   label: string;
-  value: string;
+  value: React.ReactNode;
   detail: string;
   tone?: string;
 }) {
@@ -523,17 +522,17 @@ function PerformanceCard({
         <span>기간 수익률</span>
       </div>
       <div className="performance-values">
-        <div><span>종료 잔고</span><strong>{formatCurrency(performance?.endValue)}</strong></div>
-        <div><span>기간 손익</span><strong className={tone(performance?.changeValue)}>{formatSignedCurrency(performance?.changeValue)}</strong></div>
+        <div><span>종료 잔고</span><strong><Money value={performance?.endValue} /></strong></div>
+        <div><span>기간 손익</span><strong className={tone(performance?.changeValue)}><Money value={performance?.changeValue} signed /></strong></div>
       </div>
       <div className="balance-split">
         <div>
           <span>POSITION</span>
-          <strong>{formatCurrency(performance?.latestPosition)}</strong>
+          <strong><Money value={performance?.latestPosition} /></strong>
         </div>
         <div>
           <span>CASH</span>
-          <strong>{formatCurrency(performance?.latestCash)}</strong>
+          <strong><Money value={performance?.latestCash} /></strong>
         </div>
       </div>
     </article>
@@ -563,13 +562,17 @@ function displayName(account: AlgorithmAccount) {
   return account.jenkins_name.replace("GOLDEN-", "");
 }
 
-function formatCurrency(value?: number | null) {
-  return value == null || Number.isNaN(value) ? "—" : currency.format(value);
-}
-
-function formatSignedCurrency(value?: number | null) {
-  if (value == null || Number.isNaN(value)) return "—";
-  return `${value > 0 ? "+" : ""}${currency.format(value)}`;
+function Money({ value, signed = false }: { value?: number | null; signed?: boolean }) {
+  if (value == null || Number.isNaN(value)) return <>—</>;
+  const sign = signed ? (value > 0 ? "+" : value < 0 ? "-" : "") : "";
+  const magnitude = signed ? amount.format(Math.abs(value)) : amount.format(value);
+  return (
+    <span className="coin-amount">
+      {sign}
+      <CoinIcon />
+      {magnitude}
+    </span>
+  );
 }
 
 function formatPercent(value?: number | null) {

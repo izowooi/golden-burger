@@ -327,6 +327,20 @@ tbody tr:last-child td { border-bottom: 0; }
 .negative { color: var(--negative) !important; }
 .neutral { color: var(--text); }
 
+.coin-amount {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.26em;
+  white-space: nowrap;
+}
+.coin-icon {
+  flex: none;
+  width: 0.82em;
+  height: 0.82em;
+  position: relative;
+  top: 0.03em;
+}
+
 .loading-state, .error-state {
   display: grid;
   place-items: center;
