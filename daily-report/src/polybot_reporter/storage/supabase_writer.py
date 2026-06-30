@@ -6,9 +6,9 @@ import base64
 import json
 import math
 import os
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 from zoneinfo import ZoneInfo
@@ -204,6 +204,107 @@ class SupabasePortfolioWriter:
             position_value=position_value,
             cash_value=cash_value,
         )
+
+    def get_period_pnl(
+        self,
+        reports: Mapping[str, Mapping[str, Any]],
+        *,
+        windows: Sequence[int] = (7, 30),
+        as_of: date | None = None,
+    ) -> dict[str, dict[int, float | None]]:
+        """Period P&L per account = current total_value − baseline total_value.
+
+        ``baseline(window)`` is the total_value of the earliest stored snapshot
+        with ``(as_of - (window - 1)) <= report_date < as_of`` for that account.
+        This mirrors the dashboard definition (change of total between the first
+        and last day of the window) so both surfaces agree. Deposits/withdrawals
+        are not adjusted, same as the dashboard.
+
+        Returns ``{report_name: {window: pnl_or_None}}``; ``None`` means there is
+        no snapshot old enough to anchor that window.
+        """
+        if not reports or not windows:
+            return {}
+        resolved_as_of = as_of or datetime.now(self.timezone).date()
+
+        catalog_by_name = {
+            self._normalize_jenkins_name(row["jenkins_name"]): row["account_id"]
+            for row in self._load_account_catalog()
+        }
+
+        name_to_account: dict[str, str] = {}
+        current_totals: dict[str, float] = {}
+        for report_name, report in reports.items():
+            if report.get("error"):
+                continue
+            account_id = catalog_by_name.get(self._normalize_jenkins_name(report_name))
+            if not account_id:
+                continue
+            try:
+                current_totals[account_id] = float(report.get("total_value"))
+            except (TypeError, ValueError):
+                continue
+            name_to_account[report_name] = account_id
+
+        if not current_totals:
+            return {}
+
+        since = (resolved_as_of - timedelta(days=max(windows) - 1)).isoformat()
+        try:
+            response = (
+                self.client.table(self.BALANCE_TABLE)
+                .select("report_date,account_id,total_value")
+                .in_("account_id", list(current_totals.keys()))
+                .gte("report_date", since)
+                .lt("report_date", resolved_as_of.isoformat())
+                .execute()
+            )
+        except Exception as exc:
+            raise SupabaseWriteError(f"기간 손익용 과거 스냅샷 조회 실패: {exc}") from exc
+
+        by_account = self._compute_period_pnl(
+            current_totals, response.data or [], resolved_as_of, windows
+        )
+        return {
+            report_name: by_account.get(account_id, {})
+            for report_name, account_id in name_to_account.items()
+        }
+
+    @staticmethod
+    def _compute_period_pnl(
+        current_totals: Mapping[str, float],
+        history_rows: Sequence[Mapping[str, Any]],
+        as_of: date,
+        windows: Sequence[int],
+    ) -> dict[str, dict[int, float | None]]:
+        """Pure period-P&L logic; see :meth:`get_period_pnl`.
+
+        Rows on or after ``as_of`` are ignored so the live in-memory total is the
+        only "current" value. For each window the baseline is the earliest row
+        within ``[as_of - (window - 1), as_of)``.
+        """
+        as_of_text = as_of.isoformat()
+        by_account: dict[str, list[tuple[str, float]]] = {}
+        for row in history_rows:
+            report_date = str(row.get("report_date"))
+            if report_date >= as_of_text:
+                continue
+            try:
+                total = float(row.get("total_value"))
+            except (TypeError, ValueError):
+                continue
+            by_account.setdefault(str(row.get("account_id")), []).append((report_date, total))
+
+        result: dict[str, dict[int, float | None]] = {}
+        for account_id, current_total in current_totals.items():
+            rows = sorted(by_account.get(account_id, []))
+            per_window: dict[int, float | None] = {}
+            for window in windows:
+                floor = (as_of - timedelta(days=window - 1)).isoformat()
+                baseline = next((total for report_date, total in rows if report_date >= floor), None)
+                per_window[window] = None if baseline is None else round(current_total - baseline, 6)
+            result[account_id] = per_window
+        return result
 
     def _load_account_catalog(self) -> list[dict[str, str]]:
         try:

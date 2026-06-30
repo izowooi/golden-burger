@@ -8,6 +8,11 @@ from datetime import datetime
 logger = logging.getLogger(__name__)
 
 
+def _format_pnl_usd(value: Optional[float]) -> str:
+    """Format a signed P&L value, or "N/A" when it could not be computed."""
+    return "N/A" if value is None else f"${value:+.2f}"
+
+
 class SlackNotifier:
     """Send formatted messages to Slack via Webhook.
 
@@ -188,10 +193,10 @@ class SlackNotifier:
         total_value = sum(r.get("total_value", 0) for r in reports.values())
         total_positions = sum(r.get("num_positions", 0) for r in reports.values())
         total_pnl_7d = sum(
-            r.get("pnl_7d", {}).get("total_pnl", 0) for r in reports.values()
+            (r.get("pnl_7d") or {}).get("total_pnl") or 0 for r in reports.values()
         )
         total_pnl_30d = sum(
-            r.get("pnl_30d", {}).get("total_pnl", 0) for r in reports.values()
+            (r.get("pnl_30d") or {}).get("total_pnl") or 0 for r in reports.values()
         )
 
         # Main summary attachment
@@ -230,8 +235,8 @@ class SlackNotifier:
         # Individual account attachments
         account_attachments = []
         for account_name, summary in reports.items():
-            pnl_7d = summary.get("pnl_7d", {})
-            total_pnl = pnl_7d.get("total_pnl", 0)
+            pnl_7d = summary.get("pnl_7d") or {}
+            total_pnl = pnl_7d.get("total_pnl")
 
             position_value = summary.get("position_value", 0)
             cash_balance = summary.get("cash_balance", 0)
@@ -245,19 +250,19 @@ class SlackNotifier:
                 },
                 {
                     "title": "7d 손익",
-                    "value": f"${total_pnl:+.2f}",
+                    "value": _format_pnl_usd(total_pnl),
                     "short": True
                 }
             ]
             if is_monthly:
-                pnl_30d_acc = summary.get("pnl_30d", {})
+                pnl_30d_acc = summary.get("pnl_30d") or {}
                 fields.append({
                     "title": "30d 손익",
-                    "value": f"${pnl_30d_acc.get('total_pnl', 0):+.2f}",
+                    "value": _format_pnl_usd(pnl_30d_acc.get("total_pnl")),
                     "short": True
                 })
             account_attachments.append({
-                "color": "#36a64f" if total_pnl >= 0 else "#ff0000",
+                "color": "#36a64f" if (total_pnl or 0) >= 0 else "#ff0000",
                 "author_name": account_name.upper(),
                 "fields": fields
             })

@@ -47,6 +47,7 @@ class FakeQuery:
         self.table_name = table_name
         self.payload = None
         self.on_conflict = None
+        self.filtered = False
 
     def select(self, _columns):
         return self
@@ -56,8 +57,22 @@ class FakeQuery:
         self.on_conflict = on_conflict
         return self
 
+    def in_(self, _column, _values):
+        self.filtered = True
+        return self
+
+    def gte(self, _column, _value):
+        self.filtered = True
+        return self
+
+    def lt(self, _column, _value):
+        self.filtered = True
+        return self
+
     def execute(self):
         if self.payload is None:
+            if self.table_name == SupabasePortfolioWriter.BALANCE_TABLE and self.filtered:
+                return SimpleNamespace(data=self.client.history)
             return SimpleNamespace(data=self.client.catalog)
         self.client.operations.append(
             {
@@ -71,8 +86,9 @@ class FakeQuery:
 
 
 class FakeClient:
-    def __init__(self, catalog=None):
+    def __init__(self, catalog=None, history=None):
         self.catalog = catalog or CATALOG
+        self.history = history or []
         self.operations = []
 
     def table(self, table_name):
@@ -186,3 +202,44 @@ def test_rejects_incomplete_snapshot_without_writing():
         SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
 
     assert client.operations == []
+
+
+def test_compute_period_pnl_picks_earliest_in_window_and_handles_missing():
+    history = [
+        {"report_date": "2026-06-20", "account_id": "a", "total_value": 100.0},
+        {"report_date": "2026-06-28", "account_id": "a", "total_value": 130.0},
+        # report_date == as_of is ignored so the live in-memory total is "current".
+        {"report_date": "2026-06-30", "account_id": "a", "total_value": 999.0},
+    ]
+    out = SupabasePortfolioWriter._compute_period_pnl(
+        {"a": 150.0, "b": 50.0}, history, date(2026, 6, 30), (7, 30)
+    )
+    # 7d floor = 6/24 -> earliest >= 6/24 is 6/28 (130) -> 150 - 130
+    assert out["a"][7] == 20.0
+    # 30d floor = 6/1 -> earliest is 6/20 (100) -> 150 - 100
+    assert out["a"][30] == 50.0
+    # account "b" has no history -> undefined for every window
+    assert out["b"][7] is None
+    assert out["b"][30] is None
+
+
+def test_get_period_pnl_uses_total_change_from_history():
+    history = [
+        {"report_date": "2026-06-23", "account_id": "golden-cherry", "total_value": 3578.21},
+        {"report_date": "2026-06-29", "account_id": "golden-cherry", "total_value": 4222.59},
+        # apple-2 only has a row older than the 7d window floor (6/24)
+        {"report_date": "2026-06-23", "account_id": "golden-apple-2", "total_value": 12783.08},
+    ]
+    writer = SupabasePortfolioWriter(client=FakeClient(history=history))
+    reports = {
+        "golden-cherry": {"total_value": 4245.11},
+        "golden-apple (2)": {"total_value": 13144.75},
+    }
+
+    pnl = writer.get_period_pnl(reports, windows=(7, 30), as_of=date(2026, 6, 30))
+
+    assert pnl["golden-cherry"][7] == round(4245.11 - 4222.59, 6)
+    assert pnl["golden-cherry"][30] == round(4245.11 - 3578.21, 6)
+    # no snapshot on/after the 7d floor -> 7d undefined; 30d anchors on 6/23
+    assert pnl["golden-apple (2)"][7] is None
+    assert pnl["golden-apple (2)"][30] == round(13144.75 - 12783.08, 6)

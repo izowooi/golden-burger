@@ -235,9 +235,11 @@ class DataAPIClient:
         # snapshot's own equity because positionsValue + cashBalance == equity.
         total_value = position_value + cash_balance
 
-        pnl_7d = self.calculate_pnl_for_period(address, days_ago=7)
-        pnl_30d = self.calculate_pnl_for_period(address, days_ago=30)
-
+        # 7d/30d P&L is the change in total_value over the window. That needs
+        # historical snapshots, which this single-point-in-time client does not
+        # have, so the caller fills it from the stored daily snapshots. (Summing
+        # per-position realizedPnl+cashPnl is NOT a period figure — it ignores the
+        # window entirely and only reflects the currently-held positions.)
         summary = {
             "address": address,
             "positions": positions,
@@ -245,15 +247,15 @@ class DataAPIClient:
             "cash_balance": cash_balance,
             "total_value": total_value,
             "num_positions": len(positions),
-            "pnl_7d": pnl_7d,
-            "pnl_30d": pnl_30d,
+            "pnl_7d": {"total_pnl": None},
+            "pnl_30d": {"total_pnl": None},
             "timestamp": datetime.now().isoformat(),
         }
 
         logger.info(
             f"포트폴리오 요약 완료 - 포지션: {len(positions)}개, "
             f"포지션 가치: ${position_value:.2f}, Cash: ${cash_balance:.2f}, "
-            f"총 가치: ${total_value:.2f}, 7d P&L: ${pnl_7d['total_pnl']:.2f}"
+            f"총 가치: ${total_value:.2f}"
         )
 
         return summary

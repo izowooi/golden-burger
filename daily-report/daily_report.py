@@ -142,8 +142,7 @@ def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dic
         logger.info(
             f"{account.display_name} 리포트 완료 - "
             f"포지션: {summary['num_positions']}개, "
-            f"가치: ${summary['total_value']:.2f}, "
-            f"7d P&L: ${summary['pnl_7d']['total_pnl']:+.2f}"
+            f"가치: ${summary['total_value']:.2f}"
         )
         return summary
     except Exception as e:
@@ -237,6 +236,21 @@ def main():
             logger.error(error_msg, exc_info=True)
             errors.append(error_msg)
 
+    # Fill in 7d/30d P&L as the change in total_value over the window, read from
+    # the stored daily snapshots. This matches the dashboard's definition so both
+    # surfaces agree. Non-critical: a failure here must not block Slack/DB.
+    if reports and supabase_writer is not None:
+        try:
+            period_pnl = supabase_writer.get_period_pnl(reports)
+            for name, summary in reports.items():
+                if summary.get("error"):
+                    continue
+                windows = period_pnl.get(name, {})
+                for days, key in ((7, "pnl_7d"), (30, "pnl_30d")):
+                    summary.setdefault(key, {})["total_pnl"] = windows.get(days)
+        except Exception as e:
+            logger.warning("기간 손익 계산 실패(과거 스냅샷 조회): %s", e)
+
     is_monthly = args.monthly or datetime.now().day == 1
 
     # Send consolidated Slack report. Monthly mode only changes Slack formatting.
@@ -299,8 +313,8 @@ def main():
     total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
     total_value = sum(r.get("total_value", 0) for r in reports.values())
     total_positions = sum(r.get("num_positions", 0) for r in reports.values())
-    total_pnl_7d = sum(r.get("pnl_7d", {}).get("total_pnl", 0) for r in reports.values())
-    total_pnl_30d = sum(r.get("pnl_30d", {}).get("total_pnl", 0) for r in reports.values())
+    total_pnl_7d = sum((r.get("pnl_7d") or {}).get("total_pnl") or 0 for r in reports.values())
+    total_pnl_30d = sum((r.get("pnl_30d") or {}).get("total_pnl") or 0 for r in reports.values())
 
     logger.info(
         f"총 포트폴리오 가치: ${total_value:.2f} (포지션: ${total_position_value:.2f} + Cash: ${total_cash:.2f})"
@@ -310,11 +324,13 @@ def main():
     logger.info(f"30일 P&L: ${total_pnl_30d:+.2f}")
 
     for account_name, summary in reports.items():
+        pnl_7d_value = (summary.get("pnl_7d") or {}).get("total_pnl")
+        pnl_7d_text = "N/A" if pnl_7d_value is None else f"${pnl_7d_value:+.2f}"
         logger.info(
             f"  • {account_name}: ${summary.get('total_value', 0):.2f} "
             f"(포지션: ${summary.get('position_value', 0):.2f}, "
             f"Cash: ${summary.get('cash_balance', 0):.2f}, "
-            f"7d: ${summary.get('pnl_7d', {}).get('total_pnl', 0):+.2f})"
+            f"7d: {pnl_7d_text})"
         )
 
     logger.info("=" * 60)
