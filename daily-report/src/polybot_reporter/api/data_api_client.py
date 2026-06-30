@@ -59,17 +59,21 @@ class DataAPIClient:
             raise
 
     @rate_limit_handler(max_retries=3)
-    def get_cash_balance(self, address: str) -> float:
-        """Get USDC cash balance for a wallet address.
+    def get_equity_snapshot(self, address: str) -> dict:
+        """Get the authoritative equity snapshot for a wallet address.
 
-        Uses the accounting snapshot endpoint which returns a ZIP
-        containing equity.csv with the cashBalance field.
+        Uses the accounting snapshot endpoint, which returns a ZIP containing
+        equity.csv with ``cashBalance``, ``positionsValue`` and ``equity``. This
+        is the same source Polymarket uses for the account's Portfolio value, so
+        the reporter always agrees with Polymarket — including resolved positions
+        that are not yet redeemed, which the /positions endpoint can report with a
+        ``currentValue`` of 0.
 
         Args:
             address: Wallet address
 
         Returns:
-            USDC cash balance as float
+            Dict with ``cash_balance``, ``position_value`` and ``total_value`` (USDC).
         """
         try:
             params = {"user": address.lower()}
@@ -83,15 +87,32 @@ class DataAPIClient:
                             reader = csv.DictReader(io.TextIOWrapper(f))
                             for row in reader:
                                 cash = float(row.get("cashBalance", 0))
-                                logger.info(f"Cash 잔액 조회 완료: ${cash:.2f}")
-                                return cash
-            raise ValueError("accounting snapshot에서 equity cashBalance를 찾지 못했습니다")
+                                position = float(row.get("positionsValue", 0))
+                                equity = float(row.get("equity", cash + position))
+                                logger.info(
+                                    f"Equity 스냅샷 조회 완료 - Position: ${position:.2f}, "
+                                    f"Cash: ${cash:.2f}, Equity: ${equity:.2f}"
+                                )
+                                return {
+                                    "cash_balance": cash,
+                                    "position_value": position,
+                                    "total_value": equity,
+                                }
+            raise ValueError("accounting snapshot에서 equity 행을 찾지 못했습니다")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Cash 잔액 조회 실패 - address: {address}: {e}")
+            logger.error(f"Equity 스냅샷 조회 실패 - address: {address}: {e}")
             raise
         except (zipfile.BadZipFile, KeyError, ValueError) as e:
-            logger.error(f"Cash 잔액 파싱 실패: {e}")
+            logger.error(f"Equity 스냅샷 파싱 실패: {e}")
             raise
+
+    def get_cash_balance(self, address: str) -> float:
+        """Get USDC cash balance for a wallet address.
+
+        Thin wrapper over :meth:`get_equity_snapshot`, kept for callers that only
+        need cash.
+        """
+        return self.get_equity_snapshot(address)["cash_balance"]
 
     @rate_limit_handler(max_retries=3)
     def get_activity(
@@ -201,8 +222,17 @@ class DataAPIClient:
         logger.info(f"포트폴리오 요약 생성 중 - address: {address[:10]}...")
 
         positions = self.get_positions(address)
-        position_value = sum(float(pos.get("currentValue", 0)) for pos in positions)
-        cash_balance = self.get_cash_balance(address)
+
+        # Value the portfolio from the accounting snapshot — the same authoritative
+        # source Polymarket uses for the Portfolio figure. Summing /positions
+        # currentValue undercounts resolved-but-unredeemed winners (currentValue=0),
+        # which the resolution-momentum strategy accumulates near market resolution.
+        equity = self.get_equity_snapshot(address)
+        position_value = equity["position_value"]
+        cash_balance = equity["cash_balance"]
+        # Keep total = position + cash so the Supabase writer's consistency guard
+        # (|total - position - cash| <= 0.02) always holds; this equals the
+        # snapshot's own equity because positionsValue + cashBalance == equity.
         total_value = position_value + cash_balance
 
         pnl_7d = self.calculate_pnl_for_period(address, days_ago=7)
