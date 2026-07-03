@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
 
+# 봇 식별 상수 (trades.strategy_name — 교차 봇 UNION 쿼리용)
+STRATEGY_NAME = "date"
+
 # 해결 후 이 시간이 지나도록 midpoint 조회가 안 되면 EXPIRED 처리 (§3.4)
 RESOLVED_UNREDEEMED_GRACE_HOURS = 24.0
 
@@ -26,6 +29,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        simulation_mode: bool = False,
     ):
         """Initialize trader.
 
@@ -33,10 +37,12 @@ class Trader:
             repo: Trade repository for DB operations
             clob_client: CLOB client for order execution
             config: Trading configuration
+            simulation_mode: config.simulation_mode (trades.mode 기록용)
         """
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.mode = "sim" if simulation_mode else "live"
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -170,6 +176,11 @@ class Trader:
                 max_price=current_price,  # Initialize max_price with buy price
                 market_end_date=end_date,
                 hours_until_resolution_at_buy=hours_left,
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
+                volume_24h_at_buy=candidate.get("volume_24h"),
+                ladder_band_at_buy=candidate.get("ladder_band"),
+                momentum_at_buy=candidate.get("momentum_change"),
             )
 
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")

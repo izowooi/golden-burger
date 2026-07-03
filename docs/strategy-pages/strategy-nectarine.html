@@ -1,0 +1,137 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-nectarine — Bottom Fisher</title>
+<style>
+:root{
+  --accent:#e0653a;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍑</div>
+  <h1>golden-nectarine <span class="en">— Bottom Fisher</span></h1>
+  <p class="tagline">장기(30일+) tail~중간 구간 시장에서 YES 가격이 20일 롤링 최저가 이하로 떨어지면 매수하고, 보유 120시간(5일)이 지나면 손익과 무관하게 무조건 청산한다.</p>
+  <div class="badges"><span>유형 <b>역행 (평균 회귀)</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>손실 회피 (loss aversion)</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">진입 ⇔ p &lt;= min( YES 가격, 지난 20일 중 최근 24h 제외 구간 )   # 롤링 최저가, 동률 허용
+       AND p ∈ [0.03, 0.50]  AND  hours_left &gt;= 720h (30일)
+청산 ⇔ 보유 120h(5일) 경과 → 손익 무관 무조건 청산 (calendar exit)</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>이 전략은 감이 아니라 <strong>공개된 계량 백테스트의 직접 복제</strong>다. QuantPedia (2026-04), <em>"Exploiting Mean-Reversion in Decentralized Prediction Markets"</em>: Polymarket 바이너리 계약 전수 데이터에서 "X일 롤링 최저가에서 매수 → Y일 후 청산" 규칙을 그리드 서치한 결과, <strong>X=20 / Y=5 조합이 거래비용 10bps 반영 후에도 CAR +18.9~22.1%로 생존</strong>했다. 지금까지 검토한 공개 문헌 중 Polymarket에서 거래비용 반영 후 생존한 유일한 규칙 기반 백테스트다. 골든 시리즈의 다른 봇들(cherry의 마감 수렴, elderberry의 패닉 페이드 등)이 심리 가설에서 출발해 파라미터를 설계했다면, nectarine은 반대로 데이터에서 생존한 규칙을 가져와 심리적 해석을 붙인다. 기존 골든 시리즈 전략과 독립적으로, 공개 문헌·백테스트 근거에서 도출되었다.</p>
+<p>심리적 메커니즘 — 왜 신저가가 사는 자리인가. <strong>손실 회피</strong>: Kahneman &amp; Tversky의 전망이론(Prospect Theory)이 보여주듯 손실의 심리 가중치는 이득의 약 2배다. 보유자는 하락하는 tail 포지션을 "더 떨어지기 전에" 던지고, 얇은 호가에서 이 투매는 가격을 실제 확률 이하로 오버슈트시킨다. <strong>얇은 장기 시장의 구조</strong>: 마감이 먼 시장은 관심(attention)과 유동성이 적다. 소수의 매도만으로 신저가가 만들어지고, 정정할 차익거래꾼도 자본 잠김(장기 락업) 때문에 느리게 들어온다 — Scott Alexander의 <em>"Prediction Market FAQ"</em>가 지적하는 장기 시장의 만성적 가격 압축·왜곡과 같은 구조다. <strong>평균 회귀의 시간 스케일</strong>: 실측("10%+ 급변은 mean-revert")과 QuantPedia의 Y=5일 최적값이 일치한다. 오버슈트는 며칠 단위로 복원되므로 청산은 가격 목표가 아니라 <strong>달력(5일)</strong>이다. 예측시장 가격 오차가 무작위가 아니라 체계적이라는 배경 근거로는 arXiv 2602.19520 <em>"Decomposing Crowd Wisdom"</em> (Kalshi+Polymarket 2.92억 거래 분석)이 있다.</p>
+<p>왜 장기(30일+) 시장만인가 — 이론 근거가 아니라 <strong>오염 차단 장치</strong>다. 마감이 가까운 시장은 시간 가치(theta) 소멸만으로도 YES tail 가격이 단조 하락해 "매일이 신저가"가 된다 — 이건 평균 회귀가 아니라 정당한 감쇠다. <code>hours_left &gt;= 720</code>(30일)은 룩백 20일 동안 theta 감쇠가 신저가를 계속 만드는 시장을 후보에서 제거한다.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모두 충족 시 진입. YES 토큰 기준 가격 p — <strong>YES 매수 고정</strong> (백테스트와 동일).</p>
+<div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>유동성</td><td>liquidity &gt;= $10,000</td><td>최소 체결 가능성 (백테스트 대상도 저유동 포함이라 낮게)</td></tr>
+<tr><td>남은 시간</td><td>hours_left &gt;= 720h (30일)</td><td>theta 감쇠發 가짜 신저가 차단</td></tr>
+<tr><td>가격 밴드</td><td>p ∈ [0.03, 0.50]</td><td>tail~중간 구간. 0.03 미만은 붕괴/해결 임박 노이즈</td></tr>
+<tr><td>신저가</td><td>p &lt;= min(지난 20일, <strong>최근 24h 제외</strong> 구간의 최저가), 동률 허용</td><td>백테스트의 X=20 규칙. 최근 24h 제외는 진행 중 하락 자체를 기준선에서 배제</td></tr>
+<tr><td>윈도우 유효성</td><td>포인트 &gt;= 5 AND 커버리지 &gt;= 10일(50%) — 백필 포함</td><td>invalid면 진입 금지</td></tr>
+<tr><td>재진입 쿨다운</td><td>168h (HOLDING/청산/skip 이후)</td><td>최저가 부근 연속 재진입 방지</td></tr>
+</table></div></section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순, trailing stop 없음.</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>exit_reason</th></tr>
+<tr><td>1</td><td><strong>보유 120h 경과 — 손익 무관 무조건 청산</strong></td><td><code>max_holding</code> — <strong>주 청산 경로</strong> (백테스트 Y=5 복제)</td></tr>
+<tr><td>2</td><td>P&amp;L &lt;= -30%</td><td><code>stop_loss</code> — 안전판 (백테스트에 없는 방어 장치)</td></tr>
+<tr><td>3</td><td>P&amp;L &gt;= +30% (목표가 0.99 캡)</td><td><code>take_profit</code> — 조기 행운 익절 안전판</td></tr>
+<tr><td>4</td><td>해결까지 &lt; 24h</td><td><code>time_exit</code> — 30일+ 진입이라 드문 경로</td></tr>
+<tr><td>—</td><td>midpoint 조회 불가 + 해결 24h 경과</td><td><code>resolved_unredeemed</code> (EXPIRED) — 수동 redeem 필요</td></tr>
+</table></div></section>
+<section><h2>파라미터 (환경변수)</h2><div class="tbl"><table>
+<tr><th>env</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_LOOKBACK_DAYS</code></td><td>20</td><td>롤링 최저가 룩백 (백테스트 X)</td></tr>
+<tr><td><code>POLYBOT_EXCLUDE_RECENT_HOURS</code></td><td>24</td><td>최저가 산출 시 제외할 최근 구간</td></tr>
+<tr><td><code>POLYBOT_HOLD_HOURS</code></td><td>120</td><td>calendar exit 보유 시간 (백테스트 Y=5일)</td></tr>
+<tr><td><code>POLYBOT_PROB_MIN</code></td><td>0.03</td><td>진입 YES 가격 하한</td></tr>
+<tr><td><code>POLYBOT_PROB_MAX</code></td><td>0.50</td><td>진입 YES 가격 상한</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>720</td><td>해결까지 최소 시간 (30일)</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>24</td><td>해결 임박 청산</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>168</td><td>재진입 쿨다운 (7일)</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.30</td><td>익절 안전판</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.30</td><td>손절 안전판</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>10000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>0</td><td>최소 24h 거래량 (0 = 비활성 — 얇은 시장이 대상)</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필 (<strong>끄면 사실상 무전략</strong>)</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (기본 비활성)</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>백테스트 과적합</strong>: QuantPedia 백테스트는 표본이 작다(2025년 계약 위주, 단일 기간). X=20/Y=5는 그리드 서치 승자라 선택 편향이 있고, 시장 구조(참가자·유동성)가 달라진 2026년에 재현되지 않을 수 있다. 이것이 이 봇의 존재 이유다 — 소액 실전으로 재현성을 검증한다.</li>
+<li><strong>passive 체결 전제</strong>: 백테스트는 passive(지정가) 체결을 가정했다. tail 시장의 스프레드는 fat-tail이라 시장가로 환산하면 알파가 소멸한다는 것이 원문의 경고다. 우리의 GTC limit @ midpoint는 semi-passive 근사일 뿐이며, 체결 슬리피지가 실제 수익률을 백테스트보다 반드시 낮출 것이다.</li>
+<li><strong>신저가가 '진짜 정보'인 경우</strong>: 이 전략에는 뉴스/거래량 필터가 없다(백테스트 충실 복제 우선). 실제 악재로 인한 정당한 하락에도 매수한다. SL -30%와 5일 청산이 유일한 방어다.</li>
+<li><strong>tail 시장의 해결 리스크</strong>: p=0.03~0.10 구간 포지션은 시장이 조기 해결(NO 확정)되면 전액 손실에 가깝다. EXPIRED 처리로 기록은 남지만 자금은 잠긴다.</li>
+<li><strong>군집 손실</strong>: 시장 전체 하락 국면(예: 크립토 급락과 상관된 시장들)에서는 여러 시장이 동시에 신저가를 만들어 포지션이 한 방향으로 몰린다. <code>POLYBOT_MAX_POSITIONS</code>로 상한을 두는 것을 권장한다.</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>시뮬레이션 (1~2주)</strong>: <code>uv run python main.py run --simulate --job sim-test</code>를 Jenkins 3~5분 간격으로. 진입 빈도와 <code>rolling_min_at_buy</code>/<code>lookback_days_at_buy</code> 분포 확인 (백필이 실제로 20일을 채우는지 <code>lookback_days_at_buy &gt;= 10</code> 비율로 검증).</li>
+<li><strong>소액 실전 (4주+)</strong>: <code>POLYBOT_BUY_AMOUNT</code>를 최소로. 5일 보유 전략이라 회전이 느리다 — 최소 4주, 30+ 거래 확보 후 판단.</li>
+<li><strong>판단 기준</strong>: <code>exit_reason=max_holding</code> 거래의 평균 P&amp;L이 양수인가 (이 전략의 본질 지표). 승률보다 평균손익 우선 (tail 매수는 승률이 낮고 payoff가 비대칭). CSV의 <code>hold_hours_at_exit</code>, <code>rolling_min_at_buy</code> 컬럼으로 회고.</li>
+<li><strong>중단 기준</strong>: 30거래 후 총 P&amp;L &lt; -15% 또는 <code>stop_loss</code> 비중 &gt; 40%면 가설 기각.</li>
+</ul>
+<p>베리에이션: A-1 백테스트 원형에 더 가깝게(<code>POLYBOT_STOP_LOSS=-0.99</code>, <code>POLYBOT_TAKE_PROFIT=9.9</code> — 안전판을 사실상 끄고 순수 calendar exit만), A-2 짧은 룩백/보유(<code>POLYBOT_LOOKBACK_DAYS=10</code>, <code>POLYBOT_HOLD_HOURS=72</code> — 회전율을 높여 표본을 빨리 모음), A-3 좁은 tail 집중(<code>POLYBOT_PROB_MIN=0.05</code>, <code>POLYBOT_PROB_MAX=0.25</code> — 오버슈트가 가장 큰 구간만).</p>
+</section>
+<section><h2>실행 (Jenkins)</h2>
+<p>3~5분 간격 주기 실행을 전제로 한다 (스냅샷 축적 + 청산 체크).</p>
+<pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=1000
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 파라미터 (기본값과 다르게 운용할 때만)
+# export POLYBOT_MAX_POSITIONS=10        # 군집 손실 방지 권장
+# export POLYBOT_HOLD_HOURS=120          # calendar exit (백테스트 Y=5일)
+# export POLYBOT_LOOKBACK_DAYS=20        # 롤링 최저가 룩백
+
+cd ./golden-nectarine
+uv sync
+uv run python ./main.py run</pre>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-nectarine · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

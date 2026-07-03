@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Enum, create_engine
+    Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -74,6 +74,12 @@ class Trade(Base):
     consistency_at_buy = Column(Float, nullable=True)  # 비음 버킷 비율
     vol_accel_at_buy = Column(Float, nullable=True)    # 거래량 가속 배수
 
+    # 회고 로깅 (A/B 포스트모템용 - 교차 봇 UNION 쿼리 계약)
+    strategy_name = Column(String, nullable=True)     # 봇 식별 상수 "grape"
+    mode = Column(String, nullable=True)              # "live" / "sim" (config.simulation_mode)
+    volume_24h_at_buy = Column(Float, nullable=True)  # 매수 시점 gamma volume24hr
+    drift_at_exit = Column(Float, nullable=True)      # 청산 시점 최근 6h 드리프트 (drift_death 판정 값)
+
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
     market_tags = Column(String, nullable=True)  # Gamma API tags, e.g. "Politics, US Elections"
@@ -127,4 +133,18 @@ def init_database(db_path: str) -> sessionmaker:
     """
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
+    # 기존 DB 파일 호환: 회고 로깅 컬럼 best-effort ALTER (이미 있으면 무시)
+    retro_columns = [
+        "strategy_name TEXT",
+        "mode TEXT",
+        "volume_24h_at_buy REAL",
+        "drift_at_exit REAL",
+    ]
+    with engine.connect() as conn:
+        for column_def in retro_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE trades ADD COLUMN {column_def}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
     return sessionmaker(bind=engine)

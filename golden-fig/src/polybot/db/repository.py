@@ -249,6 +249,10 @@ class TradeRepository:
             "buy_probability", "sell_probability",
             "yes_price_at_buy",
             "market_tags",
+            # 신규 컬럼은 맨 뒤에 둔다: 기존 월 CSV 파일에 append돼도
+            # 구 헤더의 컬럼 정렬이 깨지지 않는다 (추가 값만 뒤에 붙음)
+            "volume_24h_at_buy", "yes_price_at_exit",
+            "strategy_name", "mode",
         ]
 
         row = {
@@ -267,6 +271,10 @@ class TradeRepository:
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "yes_price_at_buy": trade.yes_price_at_buy or "",
+            "volume_24h_at_buy": trade.volume_24h_at_buy if trade.volume_24h_at_buy is not None else "",
+            "yes_price_at_exit": trade.yes_price_at_exit if trade.yes_price_at_exit is not None else "",
+            "strategy_name": trade.strategy_name or "",
+            "mode": trade.mode or "",
             "market_tags": trade.market_tags or "",
         }
 

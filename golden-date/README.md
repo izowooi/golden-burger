@@ -144,6 +144,11 @@ data/
 
 `data/`는 git에 커밋하지 않습니다 (`.gitignore` 등록).
 
+trades 테이블과 월별 CSV에는 A/B 포스트모템용 회고 컬럼이 함께 기록됩니다:
+`strategy_name`("date"), `mode`("live"/"sim"), `volume_24h_at_buy`,
+`ladder_band_at_buy`(사다리 밴드 1/2/3), `momentum_at_buy`.
+기존 DB 파일은 봇 기동 시 best-effort `ALTER TABLE`로 자동 마이그레이션됩니다 (기존 행은 NULL).
+
 ## 시뮬레이션 → 실전 전환 절차
 
 1. `uv run python main.py run --simulate --job sim` 으로 수일간 시뮬레이션 축적

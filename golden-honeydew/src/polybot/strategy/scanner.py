@@ -370,6 +370,7 @@ class MarketScanner:
                 "probability": signal.buy_price,
                 "token_id": token_ids[signal.side_index],
                 "liquidity": float(market.get("liquidity") or 0),
+                "volume_24h": volume_24h,
                 "entry_reason": signal.reason,
                 "deviation": signal.deviation,
                 "median": signal.median,

@@ -302,6 +302,28 @@ def evaluate_entry(
     )
 
 
+def compute_death_drift(
+    snapshots: Sequence,
+    token_index: int,
+    death_window_hours: int = 6,
+    now: Optional[datetime] = None,
+) -> Optional[float]:
+    """회고 로깅용: 최근 death_window_hours 매수 토큰 기준 가격 변화량.
+
+    is_drift_dead와 동일한 윈도우/변환을 쓴다 (판정 로직은 is_drift_dead가
+    단일 소스 - 이 함수는 DB drift_at_exit 기록 전용).
+
+    Returns:
+        변화량(float) 또는 None (포인트 2개 미만 - 계산 불가)
+    """
+    now = now or _utcnow()
+    window = get_window(snapshots, death_window_hours, now)
+    if len(window) < 2:
+        return None
+    token_points = to_token_points(window, token_index)
+    return token_points[-1].probability - token_points[0].probability
+
+
 def is_drift_dead(
     snapshots: Sequence,
     token_index: int,

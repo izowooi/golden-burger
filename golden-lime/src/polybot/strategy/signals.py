@@ -60,6 +60,7 @@ class EntryDecision:
     jump_size: Optional[float] = None
     base_price: Optional[float] = None
     token_price: Optional[float] = None
+    vol_mult: Optional[float] = None  # 현재 volume24hr / 윈도우 평균 (회고 기록용)
 
 
 def to_price_points(snapshots: Sequence) -> List[PricePoint]:
@@ -183,6 +184,22 @@ def is_holding_high(
     return (peak - current_price) <= max_pullback + EPSILON
 
 
+def compute_vol_mult(
+    volumes: Sequence[Optional[float]],
+    current_volume_24h: Optional[float],
+) -> Optional[float]:
+    """거래량 배수 계산: 현재 volume24hr / 윈도우 평균 (회고 기록용).
+
+    판정은 is_volume_confirmed가 담당하고, 이 값은 DB 컬럼(vol_mult_at_buy)
+    기록에만 쓴다. 계산 불가(빈 윈도우/volume 없음)면 None.
+    """
+    vols = [float(v) for v in volumes if v is not None and float(v) > 0]
+    if not vols or not current_volume_24h or current_volume_24h <= 0:
+        return None
+    avg = sum(vols) / len(vols)
+    return current_volume_24h / avg
+
+
 def is_volume_confirmed(
     volumes: Sequence[Optional[float]],
     current_volume_24h: Optional[float],
@@ -258,15 +275,16 @@ def evaluate_entry(
 
         vol_window = get_window(yes_points, params.vol_lookback_hours, now)
         volumes = [p.volume_24h for p in vol_window]
+        vol_mult = compute_vol_mult(volumes, current_volume_24h)
         if not is_volume_confirmed(volumes, current_volume_24h, params.vol_mult_min):
             return EntryDecision(
                 False, outcome_index, "volume_unconfirmed",
-                jump.jump_size, jump.base_price, token_price,
+                jump.jump_size, jump.base_price, token_price, vol_mult,
             )
 
         return EntryDecision(
             True, outcome_index, tag,
-            jump.jump_size, jump.base_price, token_price,
+            jump.jump_size, jump.base_price, token_price, vol_mult,
         )
 
     return EntryDecision(False, None, "no_jump")

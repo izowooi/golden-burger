@@ -289,6 +289,7 @@ class MarketScanner:
                 "market_tags": market_tags,
                 "ref_price": signal.ref_price,
                 "drop": signal.drop,
+                "stab_range": signal.stab_range,
             }
             candidates.append(candidate)
             logger.info(

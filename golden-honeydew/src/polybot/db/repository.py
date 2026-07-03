@@ -259,9 +259,11 @@ class TradeRepository:
             "buy_timestamp", "sell_timestamp",
             "exit_reason", "entry_reason",
             "deviation_at_buy", "median_at_buy",
+            "deviation_at_exit",
             "hours_until_resolution_at_buy",
             "buy_probability", "sell_probability",
             "market_tags",
+            "strategy_name", "mode", "volume_24h_at_buy",
         ]
 
         row = {
@@ -278,10 +280,14 @@ class TradeRepository:
             "entry_reason": trade.entry_reason or "",
             "deviation_at_buy": trade.deviation_at_buy if trade.deviation_at_buy is not None else "",
             "median_at_buy": trade.median_at_buy if trade.median_at_buy is not None else "",
+            "deviation_at_exit": trade.deviation_at_exit if trade.deviation_at_exit is not None else "",
             "hours_until_resolution_at_buy": trade.hours_until_resolution_at_buy or "",
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "market_tags": trade.market_tags or "",
+            "strategy_name": trade.strategy_name or "",
+            "mode": trade.mode or "",
+            "volume_24h_at_buy": trade.volume_24h_at_buy if trade.volume_24h_at_buy is not None else "",
         }
 
         file_exists = csv_path.exists()

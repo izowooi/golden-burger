@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-honeydew — Night Watch (한산 시간대 복원 매수)</title>
+<style>
+:root{
+  --accent:#2f9e6e;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍈</div>
+  <h1>golden-honeydew <span class="en">— Night Watch</span></h1>
+  <p class="tagline">한산 시간대 복원 매수 — 미 동부 새벽·주말에 뉴스 없이 발생한 가격 이탈(dislocation)을 복원 방향으로 매수한다.</p>
+  <div class="badges"><span>유형 <b>역행 (복원)</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>주의(attention) 희소성</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">quiet  = UTC 06–13시 ([start, end)) or 주말(토/일 UTC)   # 아니면 사이클 전체 skip
+median = median(최근 24h YES 스냅샷)
+dev    = p_yes_now − median
+ENTER iff quiet
+      AND |dev| ≥ 0.05                                    # 유의미한 이탈
+      AND avg(vol24h, 3h) &lt; 1.5 × avg(vol24h, 24h)        # 거래량 급증 = 진짜 뉴스 → 배제
+      AND 매수 토큰 가격 ∈ [0.30, 0.90]
+방향: dev &lt; 0 → YES 매수(반등 기대) · dev &gt; 0 → NO 매수(페이드)</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>Polymarket 참여자 대다수는 미국 시간대의 인간이다. UTC 06:00-13:00(미 동부 01-08시)와 주말에는 orderbook이 얇아지고, 정보가 아닌 유동성 요인만으로도 가격이 밀린다. 주의(attention)가 없는 시간의 가격 변화는 "정보"가 아니라 "노이즈"일 확률이 높고, 노이즈는 평균으로 회귀한다. 반대로 거래량이 급증하며 움직이는 가격은 진짜 뉴스일 가능성이 크므로 <strong>거래량 급증 시장은 배제</strong>한다.</p>
+<p>레포 리서치(<code>golden-cherry/docs/polymarket-strategy-momentum.md</code> 계열)의 "10%+ 급변은 mean-revert" — 단기 과잉 이동의 회귀 성향은 이 레포에서 반복적으로 확인된 관찰이다. Night Watch는 그 회귀를 <strong>"정보가 없는 시간대"로 한정</strong>해 신호 대 잡음비를 높인다. 구조적 우위도 있다: 봇은 Jenkins로 24/7, 3-5분 간격으로 돈다. <strong>사람은 이 시간대에 깨어있을 수 없다</strong> — 이 전략은 그 인프라 우위를 정면으로 수익화한다.</p>
+<p>기존 봇(STRATEGY_ANALYSIS.md)에서 배운 교정도 반영했다: banana의 스냅샷 "개수" 기반 윈도우 → timestamp 기반 윈도우 + 커버리지 검증(<code>is_window_valid</code>), 과도하게 관대한 cold-start 폴백 → invalid 윈도우면 백필 시도 후에도 부족하면 <strong>진입 안 함</strong>, cherry/banana의 condition_id당 영구 1회 거래 → 재진입 쿨다운(기본 24h), 해결된 시장의 영구 HOLDING 좀비 → <code>EXPIRED</code> 마감 + 수동 redeem 경고, take_profit 목표가 1.0 초과 → 0.99 캡, <code>LOG_LEVEL</code> env 지원, Gamma 전량 sweep 2회/사이클 → 1회(Phase 0/2 공유), 그리고 트레일링 스탑이 손절을 사실상 대체하는 whipsaw → 빠른 회전 전략이므로 <strong>trailing 자체를 제거</strong>.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모든 조건을 충족해야 매수한다.</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>1</td><td>한산 시간대</td><td>UTC <code>quiet.hours_utc</code>(기본 06-13시, <code>[start, end)</code>) 또는 주말(토/일 UTC, <code>quiet.weekends=true</code>일 때). 사이클당 1회 판정 — 아니면 스캔 전체 skip</td><td>주의 희소 구간에서만 노이즈 가설이 성립</td></tr>
+<tr><td>2</td><td>유동성 / 시간</td><td>liquidity ≥ $15,000 · 해결까지 ≥ 24h (<code>min_volume_24h</code>는 기본 0=비활성)</td><td>체결 가능성 + 복원 시간 확보</td></tr>
+<tr><td>3</td><td>편차</td><td>24h 스냅샷(YES 가격)의 <strong>median</strong>(<code>statistics.median</code>) 대비 |현재 YES 가격 − median| ≥ 0.05</td><td>유의미한 이탈만 선별</td></tr>
+<tr><td>4</td><td>뉴스 배제</td><td>최근 3h 스냅샷의 volume24hr 평균 &lt; 24h 윈도우 평균 × 1.5</td><td>급증 = 진짜 뉴스 → skip</td></tr>
+<tr><td>5</td><td>복원 방향</td><td>dev &lt; 0 → <strong>YES 매수</strong>(반등 기대), dev &gt; 0 → <strong>NO 매수</strong>(페이드, 매수가는 실제 NO 가격 <code>outcomePrices[1]</code> 기준)</td><td>복원 방향으로만 베팅</td></tr>
+<tr><td>6</td><td>가격 밴드</td><td>매수할 토큰 가격 ∈ [0.30, 0.90] (양끝 포함)</td><td>극단 가격의 왜곡 배제</td></tr>
+<tr><td>7</td><td>윈도우 유효성</td><td>포인트 ≥ 5개 AND 커버 시간 ≥ lookback의 50%. 부족하면 <code>prices-history</code> 백필 후 재평가, 그래도 부족하면 진입 안 함</td><td>데이터 없이는 베팅하지 않는다</td></tr>
+<tr><td>8</td><td>재진입 쿨다운</td><td>HOLDING 존재, 24h 내 COMPLETED 청산, 24h 내 skip 기록 중 하나라도 있으면 skip</td><td>과잉 재진입 방지</td></tr>
+</table></div>
+<p>매수 실행 직전 CLOB midpoint로 재검증한다: 가격이 밴드 상한(0.90) 초과면 <code>rapid_jump</code>로 skip 기록(쿨다운 동안만 차단 — 기존 봇의 영구 밴 아님), 하한(0.30) 미만이면 기록 없이 skip.</p>
+</section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순으로 매 사이클 검사한다.</p>
+<div class="tbl"><table>
+<tr><th>순위</th><th>조건</th><th>파라미터</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>P&amp;L ≤ -6%</td><td><code>stop_loss_percent=-0.06</code></td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>현재가 ≥ min(매수가 × 1.06, <strong>0.99</strong>)</td><td><code>take_profit_percent=0.06</code></td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>보유 ≥ 24h (복원 실패 → 회전)</td><td><code>max_holding_hours=24</code></td><td><code>max_holding</code></td></tr>
+<tr><td>4</td><td>해결까지 &lt; 12h</td><td><code>exit_hours=12</code></td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>midpoint 조회 실패 + endDate 24h 경과</td><td>-</td><td><code>resolved_unredeemed</code> (status=EXPIRED, 수동 redeem 필요)</td></tr>
+</table></div>
+<p><strong>trailing stop 없음</strong> — 목표 수익폭(+6%)이 작은 빠른 회전 전략이라, trailing이 손절을 대체해버리는 cherry/banana의 whipsaw 문제를 원천 차단한다.</p>
+</section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>환경변수 &gt; config.yaml &gt; 코드 기본값</strong>.</p>
+<div class="tbl"><table>
+<tr><th>env</th><th>yaml 키</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_QUIET_HOURS_UTC</code></td><td><code>trading.quiet.hours_utc</code></td><td><code>"6-13"</code></td><td>진입 허용 UTC 시간대. 자정 넘는 <code>"22-4"</code> 지원</td></tr>
+<tr><td><code>POLYBOT_QUIET_WEEKENDS</code></td><td><code>trading.quiet.weekends</code></td><td>true</td><td>주말(토/일 UTC) 전체 진입 허용</td></tr>
+<tr><td><code>POLYBOT_MEDIAN_LOOKBACK_HOURS</code></td><td><code>trading.signal.median_lookback_hours</code></td><td>24</td><td>median 계산 윈도우 (시간)</td></tr>
+<tr><td><code>POLYBOT_DEV_MIN</code></td><td><code>trading.signal.dev_min</code></td><td>0.05</td><td>최소 편차 |현재가 − median|</td></tr>
+<tr><td><code>POLYBOT_VOL_SPIKE_BLOCK</code></td><td><code>trading.signal.vol_spike_block</code></td><td>1.5</td><td>거래량 급증 차단 배수</td></tr>
+<tr><td><code>POLYBOT_ENTRY_PROB_MIN</code></td><td><code>trading.signal.entry_prob_min</code></td><td>0.30</td><td>매수 토큰 가격 하한</td></tr>
+<tr><td><code>POLYBOT_ENTRY_PROB_MAX</code></td><td><code>trading.signal.entry_prob_max</code></td><td>0.90</td><td>매수 토큰 가격 상한</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td><code>trading.time_based.entry_hours_min</code></td><td>24</td><td>해결까지 최소 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_MAX_HOLDING_HOURS</code></td><td><code>trading.time_based.max_holding_hours</code></td><td>24</td><td>최대 보유 시간</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td><code>trading.time_based.exit_hours</code></td><td>12</td><td>해결 N시간 전 청산</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td><code>trading.take_profit_percent</code></td><td>0.06</td><td>익절 (+6%, 목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td><code>trading.stop_loss_percent</code></td><td>-0.06</td><td>손절 (-6%)</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td><code>trading.buy_amount_usdc</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td><code>trading.min_liquidity</code></td><td>15000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td><code>trading.min_volume_24h</code></td><td>0</td><td>최소 24h 거래량 $ (0=비활성)</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td><code>trading.max_positions</code></td><td>-1</td><td>최대 동시 포지션 (-1=무제한)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td><code>trading.reentry_cooldown_hours</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td><code>trading.history_backfill</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td><code>trading.excluded_categories</code></td><td><code>""</code></td><td>제외 카테고리 (comma 구분, 기본 비활성)</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>-</td><td>INFO</td><td>로그 레벨 (<code>--verbose</code>가 최우선)</td></tr>
+</table></div>
+</section>
+<section><h2>이 전략이 실패하는 경우</h2>
+<ul class="risk">
+<li><strong>"조용한 이탈"이 사실은 느린 정보 반영일 때</strong>: 거래량 급증 없이 스마트머니가 조용히 포지션을 쌓는 경우, 봇은 노이즈로 오판해 역방향(복원 방향)을 산다. 손절 -6%가 유일한 방어선이다.</li>
+<li><strong>한산 시간대의 낮은 유동성 = 체결 리스크</strong>: 이탈을 발견한 바로 그 이유(얇은 호가) 때문에 GTC limit 주문이 미체결될 수 있고, midpoint 기준 P&amp;L이 스프레드만큼 과대평가된다.</li>
+<li><strong>median이 이미 오염된 경우</strong>: 24h 윈도우 안에 큰 추세 변화가 있으면 median 자체가 "옛날 가격"이라 복원 목표가 잘못 설정된다. 추세장에서는 연속 손절이 날 수 있다.</li>
+<li><strong>주말 = 한산이라는 가정의 예외</strong>: 주말에 해결되는 이벤트(스포츠·선거 개표 등)는 주말이 오히려 피크 시간대다. 거래량 급증 필터가 1차 방어지만 완벽하지 않다.</li>
+<li><strong>+6%/-6% 대칭 손익 구조</strong>: 승률이 50%를 유의하게 넘지 못하면 스프레드·미체결 비용 때문에 기대값이 음수가 된다. 승률 자체가 전략의 전부다.</li>
+<li><strong>시간대 가정의 취약성</strong>: 참여자 구성이 글로벌화되면 "미 동부 새벽 = 한산" 가정이 약해진다. <code>POLYBOT_QUIET_HOURS_UTC</code>로 조정 가능하지만 가정 자체는 검증 대상이다.</li>
+</ul>
+</section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>1) 시뮬레이션 (1-2주)</strong>: <code>uv run python main.py run --simulate --job sim-test</code>를 Jenkins에 3-5분 간격으로 등록. <code>data/sim-test/trades_sim.db</code>에 기록 축적.</li>
+<li><strong>2) 소액 실전 (4주)</strong>: <code>POLYBOT_BUY_AMOUNT=5</code> 수준으로 실전 전환. 다른 골든 봇들과 동일한 대시보드 계정 체계(<code>GOLDEN-HONEYDEW</code>)로 잔고 추적.</li>
+<li><strong>3) 판단 기준 (4주 경과 + 30건 이상 COMPLETED 거래)</strong>:
+  <ul>
+    <li>승률 ≥ 55% AND 평균 손익 &gt; 0 → 금액 증액</li>
+    <li>승률 50-55% → 파라미터 조정 후 4주 재검증</li>
+    <li>승률 &lt; 50% 또는 총손익 &lt; -10% → 중단</li>
+    <li><code>exit_reason</code> 분포: <code>max_holding</code> 비중이 50%를 넘으면 복원 가설 자체가 약한 것</li>
+    <li>CSV의 <code>deviation_at_buy</code> 버킷별(0.05-0.07 / 0.07-0.10 / 0.10+) 승률 비교로 dev_min 조정, <code>deviation_at_exit</code>로 복원 완료/미완료 청산 구분</li>
+    <li>교차 봇 비교는 trades의 <code>strategy_name</code>("honeydew") / <code>mode</code>("live"/"sim") / <code>volume_24h_at_buy</code>로 UNION 쿼리 (A/B 포스트모템 공통 계약)</li>
+  </ul>
+</li>
+</ul>
+</section>
+<section><h2>실행 (Jenkins)</h2>
+<pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 파라미터 (필요 시 조정)
+export POLYBOT_QUIET_HOURS_UTC="6-13"
+export POLYBOT_DEV_MIN=0.05
+export POLYBOT_MAX_HOLDING_HOURS=24
+
+cd ./golden-honeydew
+uv sync
+uv run python ./main.py run</pre>
+<p>3-5분 간격 cron 트리거를 권장한다. 한산 시간대(UTC 06-13시/주말)가 아니면 봇이 스스로 진입 스캔을 skip하므로 24시간 내내 돌려도 된다 (스냅샷 축적을 위해 오히려 계속 돌려야 한다).</p>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-honeydew · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

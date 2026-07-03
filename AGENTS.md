@@ -28,6 +28,11 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-grape/`: Cascade Rider — 완만한 일관 드리프트 + 거래량 가속 편승.
 - `golden-honeydew/`: Night Watch — 미국 새벽·주말 무근거 이탈 복원.
 - `golden-lime/`: Shock Follow — 거래량 동반 급등 편승 (elderberry와 A/B 쌍).
+- `golden-mango/`: Patience Premium — 연환산 캐리 수익률 허들 단일 수식 (settlement discount 수확).
+- `golden-nectarine/`: Bottom Fisher — 20일 롤링 최저가 매수 / 5일 보유 (QuantPedia 백테스트 복제).
+- `golden-orange/`: Fear Spike Fade — tail 시장 공포 급등 후 NO 매수 (probability neglect).
+
+전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조.
 
 리포팅·적재 (Python/uv):
 

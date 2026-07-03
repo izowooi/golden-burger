@@ -346,10 +346,12 @@ class MarketScanner:
                 "probability": probability,
                 "token_id": outcome_info["token_id"],
                 "liquidity": float(market.get("liquidity") or 0),
+                "volume_24h": float(market.get("volume24hr") or 0),
                 "entry_reason": decision.reason,
                 "end_date": end_date,
                 "hours_until_resolution": hours_left,
                 "momentum_change": decision.momentum_change,
+                "ladder_band": decision.ladder_band,
                 "market_tags": market_tags,
             }
             candidates.append(candidate)

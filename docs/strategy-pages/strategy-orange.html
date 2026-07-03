@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-orange — Fear Spike Fade</title>
+<style>
+:root{
+  --accent:#ef7f1a;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍊</div>
+  <h1>golden-orange <span class="en">— Fear Spike Fade</span></h1>
+  <p class="tagline">평시 확률 15% 이하의 tail 시장이 무서운 헤드라인에 +10%p 이상 급등한 뒤 스파이크가 멈추면 NO를 매수해, 공포가 만든 프리미엄이 감쇠(YES 되돌림)하는 것을 수확한다.</p>
+  <div class="badges"><span>유형 <b>페이드 (역행)</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>probability neglect</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">base  = median( YES, [now-7d, now-6h] )                       # 평시 확률 (최근 6h 제외)
+spike ⇔ base &lt;= 0.15  AND  yes_now - base &gt;= 0.10  AND  yes_now &lt;= 0.30
+stall ⇔ 첫 threshold(base+0.10) 돌파 후 &gt;= 90분  AND  최근 45분 YES 신고가 없음
+진입  ⇔ spike AND stall AND volume24h &gt;= 2.0 × 윈도우 평균  →  NO 토큰 매수</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>대중은 확률이 아니라 '끔찍함'에 반응한다. <strong>Probability neglect</strong> — Cass Sunstein, <em>"Probability Neglect: Emotions, Worst Cases, and Law"</em> (Yale Law Journal, 2002) 및 <em>"Terrorism and Probability Neglect"</em> (Journal of Risk and Uncertainty, 2003). 결과가 감정적으로 강렬할수록(핵, 테러, 전쟁) 사람은 발생 확률의 크기를 판단에서 사실상 제거하고 결과의 끔찍함 그 자체에 반응한다 — 1%와 0.1%를 구분하지 못하고 같은 공포 가격을 지불한다. <strong>Availability cascade</strong> — Kuran &amp; Sunstein이 정리한 메커니즘. 무서운 뉴스가 반복 노출될수록 그 사건이 "일어날 것 같다"는 체감이 자기강화적으로 증폭되고, 예측시장에서는 이것이 tail 시장 YES에 대한 '보험/복권' 매수세로 나타난다. 그 결과 공포 이벤트 직후 tail 시장 YES는 정보가 정당화하는 수준 이상으로 오버슈팅하고, 헤드라인의 감정적 강도가 식으면 되돌아온다.</p>
+<p>실측 사례 (공개 문헌). <strong>Polymarket 핵폭발 시장</strong>: CoinDesk (2026-03) 보도 — 지정학 긴장 헤드라인 구간에서 "2026년 내 핵무기 사용" 시장의 내재확률이 19%까지 급등했다. 전문가 추정 기저율(&lt;1%)과의 괴리는 확률이 아니라 공포가 가격을 만들었음을 보여준다. <strong>이란 휴전 시장</strong>: polymarkets.co.il 전략 가이드에 기록된 사례 — 루머 헤드라인에 8분 만에 35% → 68%로 급등했다가 2시간 내 58%에 안착. 같은 가이드의 관찰 "되돌림의 60%가 90~120분 내에 발생"에서 본 전략의 90분 대기 + 45분 스톨 확인 파라미터가 직접 도출되었다. <strong>군중 편향의 구조적 실증</strong>: arXiv 2602.19520 <em>"Decomposing Crowd Wisdom"</em> (Kalshi+Polymarket 2.92억 거래 분석) — 저확률 구간의 체계적 과대가격(favorite-longshot bias의 tail 쪽)은 개별 사건이 아니라 시장 구조 수준에서 반복 확인된다.</p>
+<p>이 전략은 기존 골든 시리즈(apple/banana/cherry 및 date~lime)의 내부 데이터나 전략 문서에서 파생된 것이 아니라, 위의 공개 문헌(행동경제학 논문 + 시장 실측 기사)에서 독립적으로 도출되었다. 기존 봇과의 관계는 포지셔닝 구분뿐이다: <strong>fig(Hope Crusher)</strong>는 정적인 theta 수확 — 아무 일도 없는 롱샷의 시간 가치 소멸을 먹고, <strong>lime(Shock Follow)</strong>는 거래량이 폭증하고 고점을 유지하는 '진짜 정보' 급등에 편승한다. <strong>orange(Fear Spike Fade)</strong>는 이벤트 직후의 감정 과잉만 노린다 — 스파이크가 멈춘 것을 확인한 뒤 반대편(NO)을 산다. lime이 편승하는 시장과 orange가 페이드하는 시장은 "고점 유지 여부"로 자연 분리되는 A/B 쌍이다.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모두 충족 시 <strong>NO 토큰 매수</strong>.</p>
+<div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>근거</th></tr>
+<tr><td>유동성</td><td>liquidity &gt;= $15,000</td><td>슬리피지/체결 가능성</td></tr>
+<tr><td>해결까지 남은 시간</td><td>hours_left &gt;= 72h</td><td>마감 임박 스파이크 = 진짜 정보일 가능성 배제</td></tr>
+<tr><td>윈도우 유효성</td><td>7d 윈도우, &gt;= 5포인트, 커버리지 &gt;= 50% (백필 포함)</td><td>invalid면 진입 금지 (cold-start 폴백 금지)</td></tr>
+<tr><td>평시 확률 (base)</td><td>base = median(YES, [now-7d, now-6h]) &lt;= 0.15</td><td>원래 tail 시장만 (최근 6h 제외로 스파이크 오염 방지)</td></tr>
+<tr><td>스파이크</td><td>yes_now - base &gt;= 0.10 AND yes_now &lt;= 0.30</td><td>+10%p 급등, 단 0.30 초과는 재평가된 수준일 수 있음</td></tr>
+<tr><td>스파이크 경과</td><td>첫 threshold(base+0.10) 돌파 후 &gt;= 90분</td><td>되돌림의 60%가 90~120분 내 발생 → 초기 과열 회피</td></tr>
+<tr><td>스파이크 스톨</td><td>최근 45분 YES 신고가 없음</td><td>아직 오르는 중이면 페이드 금지 (떨어지는 칼날의 반대편)</td></tr>
+<tr><td>거래량 확인</td><td>volume24h &gt;= 2.0 × 윈도우 평균</td><td>공포가 실제 거래로 이어졌는지 (조용한 노이즈 배제)</td></tr>
+</table></div>
+<p>매수 대상: NO 토큰 — NO 가격 ∈ [0.70, 0.95] 재검증 후 GTC limit @ midpoint.</p>
+</section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순, trailing stop 없음.</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>손절 — NO P&amp;L &lt;= -10% (= YES가 계속 오름 = 진짜 정보)</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td><strong>retrace 익절 (주 청산)</strong> — 스냅샷 최신 YES &lt;= base + 0.5 × (peak - base)</td><td><code>retrace_target</code></td></tr>
+<tr><td>3</td><td>익절 (보조) — NO &gt;= buy × 1.08 (목표가 0.99 캡)</td><td><code>take_profit</code></td></tr>
+<tr><td>4</td><td>최대 보유 — 보유 72h 초과 (되돌림 실패 → 자본 회수)</td><td><code>max_holding</code></td></tr>
+<tr><td>5</td><td>시간 청산 — 해결까지 24h 미만</td><td><code>time_exit</code></td></tr>
+<tr><td>—</td><td>해결 후 매도 불가 — end_date + 24h 경과 + midpoint 조회 불가</td><td><code>resolved_unredeemed</code> (EXPIRED)</td></tr>
+</table></div>
+<p>retrace 판정은 trade에 저장된 <code>base_price_at_buy</code>/<code>spike_peak_at_buy</code>와 스냅샷 최신 YES를 비교한다 (1 - NO midpoint 근사가 아니라 Phase 0 스냅샷의 YES를 그대로 사용 — 진입 시그널과 같은 단위).</p>
+</section>
+<section><h2>파라미터 (환경변수)</h2><div class="tbl"><table>
+<tr><th>env</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_BASE_WINDOW_DAYS</code></td><td>7</td><td>base 계산 윈도우 (일)</td></tr>
+<tr><td><code>POLYBOT_BASE_EXCLUDE_RECENT_HOURS</code></td><td>6</td><td>base 계산에서 제외할 최근 시간</td></tr>
+<tr><td><code>POLYBOT_BASE_MAX</code></td><td>0.15</td><td>base 상한 (평시 tail 시장만)</td></tr>
+<tr><td><code>POLYBOT_JUMP_MIN</code></td><td>0.10</td><td>스파이크 최소 상승폭 (yes_now - base)</td></tr>
+<tr><td><code>POLYBOT_YES_MAX</code></td><td>0.30</td><td>스파이크 후 YES 상한</td></tr>
+<tr><td><code>POLYBOT_SPIKE_WAIT_MINUTES</code></td><td>90</td><td>스파이크 시작 후 대기 (분)</td></tr>
+<tr><td><code>POLYBOT_STALL_WINDOW_MINUTES</code></td><td>45</td><td>신고가 부재 확인 윈도우 (분)</td></tr>
+<tr><td><code>POLYBOT_VOL_MULT_MIN</code></td><td>2.0</td><td>거래량 확인 배수</td></tr>
+<tr><td><code>POLYBOT_RETRACE_RATIO</code></td><td>0.5</td><td>retrace 익절 비율</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>72</td><td>진입 최소 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_MAX_HOLDING_HOURS</code></td><td>72</td><td>최대 보유 시간</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>24</td><td>해결 전 청산 시간</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.08</td><td>보조 익절 %</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.10</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>15000</td><td>최소 유동성 $</td></tr>
+<tr><td>공통</td><td>—</td><td><code>POLYBOT_BUY_AMOUNT</code>(5.0), <code>POLYBOT_MIN_VOLUME_24H</code>(0), <code>POLYBOT_MAX_POSITIONS</code>(-1), <code>POLYBOT_REENTRY_COOLDOWN_HOURS</code>(24), <code>POLYBOT_HISTORY_BACKFILL</code>(true), <code>POLYBOT_EXCLUDED_CATEGORIES</code>(""), <code>LOG_LEVEL</code>(INFO)</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>봇은 '진짜 정보'와 '감정 스파이크'를 구분하지 못한다.</strong> 스파이크가 실제 사건의 전조였다면(핵 실험 발표, 실제 개전) YES는 되돌아오지 않고 계속 오른다. SL -10%가 유일한 방어선이다 — 90분 대기·스톨·거래량 게이트는 확률을 낮출 뿐 제거하지 못한다.</li>
+<li><strong>내부자 선행매매</strong>: 전쟁·정치 이벤트 시장에는 정보 우위를 가진 참가자가 존재한다. '스파이크 후 스톨'이 내부자의 분할 매집 휴지기일 수 있다.</li>
+<li><strong>연쇄 스파이크</strong>: 위기 국면에서는 헤드라인이 연달아 나온다. 1차 스파이크를 페이드한 직후 2차 헤드라인이 오면 손절 연타를 맞는다 (base가 점차 올라 재진입은 자연 차단되지만, 첫 손절은 피할 수 없다).</li>
+<li><strong>base 산출 왜곡</strong>: 7일 중앙값은 저유동성 구간의 스냅샷 결손이나 이미 서서히 오르던 시장에서 실제 '평시'보다 높거나 낮게 잡힐 수 있다.</li>
+<li><strong>지정가(passive) 체결 전제</strong>: 실측 사례의 되돌림 수익은 스파이크 고원에서 NO를 실제로 살 수 있어야 실현된다. 급변 구간의 스프레드 확대는 midpoint 체결 가정을 낙관적으로 만든다.</li>
+<li><strong>표본 희소성</strong>: 조건(base&lt;=15%, +10%p, 72h+)을 모두 만족하는 이벤트는 드물다. 거래 빈도가 낮아 통계적 판단까지 오래 걸린다.</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>시뮬레이션 (2주+)</strong>: <code>uv run python main.py run --simulate --job orange-sim</code>을 Jenkins 3~5분 간격으로. 진입 시그널 발생 빈도와 <code>reason</code> 분포 확인 (거의 없으면 <code>POLYBOT_JUMP_MIN</code> 완화 검토).</li>
+<li><strong>소액 실전 (4주+)</strong>: <code>POLYBOT_BUY_AMOUNT</code>를 소액(예: $10~50)으로 실행.</li>
+<li><strong>판단 기준 (4주 + 최소 30거래, 이벤트 희소성으로 미달 시 8주로 연장)</strong>: 승률 &gt;= 60% AND 평균 손익 &gt; 0 → 증액 검토. exit_reason 분포에서 <code>retrace_target</code>이 주 수익원이어야 정상 — <code>stop_loss</code> 비중 &gt; 40%면 게이트(대기/스톨/거래량)가 진짜 정보를 못 거르는 것 → 전략 재검토. <code>max_holding</code> 비중이 높으면 되돌림 가설 자체가 약한 것.</li>
+<li><strong>사후 분석</strong>: 모든 거래는 trades DB의 <code>base_price_at_buy</code>/<code>spike_peak_at_buy</code>/<code>vol_mult_at_buy</code>/<code>yes_price_at_exit</code> 컬럼으로 회고 가능 (strategy_name='orange'로 교차 봇 UNION 쿼리).</li>
+</ul>
+<p>베리에이션: A-1 보수(<code>POLYBOT_SPIKE_WAIT_MINUTES=120</code>, <code>POLYBOT_VOL_MULT_MIN=3.0</code> — 더 확실한 스톨만, 빈도 감소·승률 상승 기대), A-2 공격(<code>POLYBOT_JUMP_MIN=0.07</code>, <code>POLYBOT_BASE_MAX=0.20</code> — 작은 공포도 페이드, 빈도·노이즈 증가), A-3 깊은 되돌림(<code>POLYBOT_RETRACE_RATIO=0.3</code> — base 근처까지 기다려 더 크게 먹기, <code>max_holding</code> 청산 비중 증가 리스크).</p>
+</section>
+<section><h2>실행 (Jenkins)</h2><pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=1000
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 파라미터 (기본값과 다르게 운영할 때만)
+# export POLYBOT_JUMP_MIN=0.10
+# export POLYBOT_SPIKE_WAIT_MINUTES=90
+# export POLYBOT_RETRACE_RATIO=0.5
+
+cd ./golden-orange
+uv sync
+uv run python ./main.py run</pre>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-orange · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

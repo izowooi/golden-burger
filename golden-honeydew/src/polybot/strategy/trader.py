@@ -1,14 +1,14 @@
 """Trading execution logic for the Night Watch strategy."""
 import logging
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from ..db.repository import TradeRepository
 from ..db.models import TradeStatus
 from ..api.clob_client import ClobClientWrapper
 from ..config import TradingConfig
-from .scanner import get_hours_until_resolution
-from .signals import ExitParams, evaluate_exit
+from .scanner import get_hours_until_resolution, to_points
+from .signals import ExitParams, compute_median_deviation, evaluate_exit, get_window
 
 logger = logging.getLogger(__name__)
 
@@ -17,6 +17,9 @@ MIN_ORDER_SIZE = 5.0
 
 # §3.4: 해결된 시장 판정 - endDate가 이 시간 이상 지났으면 EXPIRED 처리
 RESOLVED_GRACE_HOURS = 24.0
+
+# DB 회고 로깅용 봇 식별 상수 (교차 봇 UNION 쿼리 계약, 부록 스펙 §D)
+STRATEGY_NAME = "honeydew"
 
 
 class Trader:
@@ -27,6 +30,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        simulation_mode: bool = False,
     ):
         """Initialize trader.
 
@@ -34,10 +38,12 @@ class Trader:
             repo: Trade repository for DB operations
             clob_client: CLOB client for order execution
             config: Trading configuration
+            simulation_mode: 회고 로깅용 mode 컬럼 값 결정 ("sim"/"live")
         """
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.mode = "sim" if simulation_mode else "live"
 
     def _exit_params(self) -> ExitParams:
         """config → 순수 함수 파라미터 변환."""
@@ -163,6 +169,10 @@ class Trader:
                 liquidity_at_buy=candidate["liquidity"],
                 market_tags=candidate.get("market_tags", ""),
                 status=TradeStatus.HOLDING,
+                # 회고 로깅 공통 3컬럼 (부록 스펙 §D)
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
+                volume_24h_at_buy=candidate.get("volume_24h"),
                 # Night watch strategy fields
                 entry_reason=entry_reason,
                 deviation_at_buy=candidate.get("deviation"),
@@ -186,6 +196,30 @@ class Trader:
         if dt.tzinfo is not None:
             return dt.astimezone(timezone.utc).replace(tzinfo=None)
         return dt
+
+    def _deviation_at_exit(
+        self, trade, current_price: float, now: datetime
+    ) -> Optional[float]:
+        """청산 시점 24h median 대비 편차 계산 (회고 로깅용, best-effort).
+
+        스냅샷은 YES 가격 기준이므로 NO 포지션은 1-p로 환산해 비교한다.
+        윈도우가 비었거나 조회에 실패하면 None — 청산 판정에는 영향 없음.
+        """
+        try:
+            lookback = float(self.config.signal.median_lookback_hours)
+            since = now - timedelta(hours=lookback)
+            points = to_points(
+                self.repo.get_snapshots_since(trade.condition_id, since)
+            )
+            window = get_window(points, lookback, now)
+            yes_price = (
+                1.0 - current_price if trade.outcome == "No" else current_price
+            )
+            _, deviation = compute_median_deviation(yes_price, window)
+            return deviation
+        except Exception as e:
+            logger.debug(f"deviation_at_exit 계산 실패 - {trade.condition_id}: {e}")
+            return None
 
     def _handle_midpoint_failure(self, trade) -> bool:
         """midpoint 조회 실패 시 해결된 시장 leak 처리 (§3.4).
@@ -313,6 +347,8 @@ class Trader:
                 realized_pnl=realized_pnl,
                 status=TradeStatus.COMPLETED,
                 exit_reason=exit_reason,
+                # 회고 로깅: 청산 시점 24h median 대비 편차 (계산 불가 시 NULL)
+                deviation_at_exit=self._deviation_at_exit(trade, current_price, now),
             )
 
             pnl_percent_display = (current_price / trade.buy_price - 1) * 100 if trade.buy_price > 0 else 0

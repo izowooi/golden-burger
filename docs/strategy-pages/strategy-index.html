@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Burger — Polymarket 전략 포트폴리오 인덱스</title>
+<style>
+:root{
+  --accent:#c98a2d;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:28px}
+.hero p.tagline{margin:6px 0 0;color:var(--muted);font-size:16.5px}
+h2{font-size:20px;margin:34px 0 14px;padding-left:10px;border-left:4px solid var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px}
+a.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;
+  padding:16px 18px;text-decoration:none;color:var(--ink);transition:border-color .15s}
+a.card:hover{border-color:var(--accent)}
+.card .top{font-size:26px;margin-bottom:6px}
+.card b{font-size:15.5px}
+.card .en{display:block;color:var(--accent);font-size:13.5px;margin:2px 0 6px}
+.card p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.55}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍔</div>
+  <h1>Golden Burger — Polymarket 전략 포트폴리오</h1>
+  <p class="tagline">대중 심리를 파고드는 12개 자동매매 전략. 카드를 누르면 전략별 상세 문서로 이동한다.</p>
+</header>
+
+<h2>운영 중 (기존 3)</h2>
+<div class="grid">
+<a class="card" href="https://pagekeep.pages.dev/archive/e20adc40-0c8a-4706-93c2-5a3843c9322e"><div class="top">🍎</div><b>golden-apple</b><span class="en">80/90 Threshold</span><p>확률 80% 매수 → 90% 매도. certainty effect 구간의 임계값 전략.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/df1cd03d-16b0-4b26-a6e8-a17d15093644"><div class="top">🍌</div><b>golden-banana</b><span class="en">Momentum Golden Cross</span><p>85–97% 밴드 + 골든크로스. 신호 결함이 확인되어 grape가 교정 계승.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/ebfcd48a-cd29-4bb4-a091-17dfd3e58641"><div class="top">🍒</div><b>golden-cherry</b><span class="en">Resolution Momentum</span><p>마감 임박 확증 편향 편승. 현재 최고 수익 전략.</p></a>
+</div>
+
+<h2>1차 신규 6 — 심리 편향별 설계</h2>
+<div class="grid">
+<a class="card" href="https://pagekeep.pages.dev/archive/f654ec4e-b3a2-4793-b0f8-ef1f0002f14b"><div class="top">🌴</div><b>golden-date</b><span class="en">Conviction Ladder</span><p>cherry 고도화 — 시간 사다리 밴드 + 모멘텀 게이트 + 양측 favorite.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/6efefedf-10d3-4901-8bc3-91fb0ece4cbc"><div class="top">🫐</div><b>golden-elderberry</b><span class="en">Panic Fade</span><p>favorite 급락 공황 투매를 바닥 안정화 확인 후 역매수.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/443894e5-a94e-4fb7-b19e-9185e2176bea"><div class="top">🌰</div><b>golden-fig</b><span class="en">Hope Crusher</span><p>롱샷 희망 프리미엄 페이드 — NO 매수로 시간 가치(theta) 수확.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/df2dac8b-ac34-4e36-88ee-a6b08a3ddf08"><div class="top">🍇</div><b>golden-grape</b><span class="en">Cascade Rider</span><p>24h 일관 드리프트 + 거래량 가속 — 정보 폭포 편승.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/220d0ab8-8c9f-4322-8369-205f69417d7d"><div class="top">🍈</div><b>golden-honeydew</b><span class="en">Night Watch</span><p>미국 새벽·주말 무근거 이탈을 복원 방향으로 매수.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/a58fa5c9-8a18-45fe-96ac-48d1ae845034"><div class="top">🍏</div><b>golden-lime</b><span class="en">Shock Follow</span><p>거래량 동반 급등 편승 — elderberry와 정반대 가설의 A/B 쌍.</p></a>
+</div>
+
+<h2>2차 신규 3 — 공개 문헌·백테스트 독립 도출</h2>
+<div class="grid">
+<a class="card" href="https://pagekeep.pages.dev/archive/c470bb07-799d-4b0d-b6cd-95911b956199"><div class="top">🥭</div><b>golden-mango</b><span class="en">Patience Premium</span><p>연환산 캐리 수익률 허들 단일 수식 — settlement discount 수확.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/9d9a539c-464a-48e8-a6ad-f22028f72385"><div class="top">🍑</div><b>golden-nectarine</b><span class="en">Bottom Fisher</span><p>20일 롤링 최저가 매수 / 5일 보유 — 공개 백테스트 복제.</p></a>
+<a class="card" href="https://pagekeep.pages.dev/archive/5a2da271-123e-4983-8846-da361e25fbf4"><div class="top">🍊</div><b>golden-orange</b><span class="en">Fear Spike Fade</span><p>tail 시장 공포 급등의 스톨 후 NO 매수 — probability neglect.</p></a>
+</div>
+
+<footer>Golden Burger 전략 시리즈 · 2026-07 · 각 전략의 코드·테스트·실행법은 모노레포의 <code>golden-&lt;fruit&gt;/</code> 폴더 참조</footer>
+</div></body></html>

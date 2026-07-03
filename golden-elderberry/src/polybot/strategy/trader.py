@@ -3,7 +3,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 from ..db.repository import TradeRepository
-from ..db.models import TradeStatus
+from ..db.models import TradeStatus, STRATEGY_NAME
 from ..api.clob_client import ClobClientWrapper
 from ..config import TradingConfig
 from .scanner import get_hours_until_resolution
@@ -26,6 +26,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        simulation_mode: bool = False,
     ):
         """Initialize trader.
 
@@ -33,10 +34,12 @@ class Trader:
             repo: Trade repository for DB operations
             clob_client: CLOB client for order execution
             config: Trading configuration
+            simulation_mode: True면 trades.mode에 "sim" 기록 (회고 분석용)
         """
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.mode = "sim" if simulation_mode else "live"
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -160,7 +163,11 @@ class Trader:
                 entry_reason=entry_reason,
                 ref_price_at_buy=candidate.get("ref_price"),
                 drop_at_buy=candidate.get("drop"),
+                stabilization_range_at_buy=candidate.get("stab_range"),
                 max_price=current_price,
+                # A/B 포스트모템 공통 회고 컬럼
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
                 market_end_date=end_date,
                 hours_until_resolution_at_buy=hours_until_resolution,
             )

@@ -8,9 +8,12 @@ from ..db.models import TradeStatus
 from ..api.clob_client import ClobClientWrapper
 from ..config import TradingConfig
 from .scanner import get_hours_until_resolution
-from .signals import is_drift_dead, take_profit_target
+from .signals import compute_death_drift, is_drift_dead, take_profit_target
 
 logger = logging.getLogger(__name__)
+
+# 회고 로깅용 봇 식별 상수 (교차 봇 UNION 쿼리 계약)
+STRATEGY_NAME = "grape"
 
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
@@ -27,6 +30,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        mode: str = "live",
     ):
         """Initialize trader.
 
@@ -34,10 +38,12 @@ class Trader:
             repo: Trade repository for DB operations
             clob_client: CLOB client for order execution
             config: Trading configuration
+            mode: 회고 로깅용 실행 모드 - "live" 또는 "sim" (config.simulation_mode 기준)
         """
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.mode = mode
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -152,6 +158,10 @@ class Trader:
                 drift_at_buy=candidate.get("drift"),
                 consistency_at_buy=candidate.get("consistency"),
                 vol_accel_at_buy=candidate.get("vol_accel"),
+                # 회고 로깅 (A/B 포스트모템 계약)
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
+                volume_24h_at_buy=candidate.get("volume_24h"),
             )
 
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
@@ -230,6 +240,13 @@ class Trader:
         if trade.buy_price > 0:
             pnl_percent = (current_price - trade.buy_price) / trade.buy_price
 
+        # 최근 6h 스냅샷: drift_death 판정(아래 3번)과 회고용 drift_at_exit 기록에 공용
+        death_hours = self.config.cascade.death_window_hours
+        since = datetime.utcnow() - timedelta(hours=death_hours)
+        snapshots = self.repo.get_snapshots_since(condition_id, since)
+        token_index = trade.token_index if trade.token_index is not None else 0
+        drift_at_exit = compute_death_drift(snapshots, token_index, death_hours)
+
         # Determine exit signal and reason
         should_sell = False
         exit_reason = "hold"
@@ -258,10 +275,6 @@ class Trader:
 
         # 3. Drift Death: 최근 6h 매수 토큰 기준 변화 <= 0
         if not should_sell:
-            death_hours = self.config.cascade.death_window_hours
-            since = datetime.utcnow() - timedelta(hours=death_hours)
-            snapshots = self.repo.get_snapshots_since(condition_id, since)
-            token_index = trade.token_index if trade.token_index is not None else 0
             dead = is_drift_dead(snapshots, token_index, death_hours)
             if dead:
                 should_sell = True
@@ -336,6 +349,7 @@ class Trader:
                 realized_pnl=realized_pnl,
                 status=TradeStatus.COMPLETED,
                 exit_reason=exit_reason,
+                drift_at_exit=drift_at_exit,
             )
 
             pnl_percent_display = (current_price / trade.buy_price - 1) * 100 if trade.buy_price > 0 else 0

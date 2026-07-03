@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-banana — Momentum Golden Cross</title>
+<style>
+:root{
+  --accent:#d4a017;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍌</div>
+  <h1>golden-banana <span class="en">— Momentum Golden Cross</span></h1>
+  <p class="tagline">확률 85~97% 구간의 고확률 outcome을, 자체 축적한 5분 스냅샷 기반 momentum이 상승 중일 때만 매수하는 golden cross 전략.</p>
+  <div class="badges"><span>유형 <b>모멘텀 편승</b></span><span>상태 <b>운영 중</b></span><span>핵심 편향 <b>underreaction (정보 확산 지연)</b></span></div>
+</header>
+
+<section><h2>핵심 수식</h2><pre class="formula">momentum = (최신 확률 - 가장 오래된 확률) / 스냅샷 수    # 5분 주기 자체 스냅샷, 끝점 기울기
+short = momentum(최근 3개 ≈ 15분),  long = momentum(최근 72개 ≈ 6시간)
+
+BUY : 0.85 ≤ p ≤ 0.97 (상한 포함)
+      AND ( short - long ≥ +0.02  AND  long &gt; 0        # golden cross
+            OR 스냅샷 &lt; 6개 AND short &gt; 0 )              # cold-start fallback
+SELL: p ≥ 0.97 │ P&amp;L ≤ -10% │ P&amp;L ≥ +7% │ short - long ≤ -0.02 (dead cross)</pre></section>
+
+<section><h2>전략 개요</h2>
+<p>Golden Banana는 Polymarket에서 확률 85~97% 구간의 고확률 outcome을 <strong>"모멘텀이 상승 중일 때만"</strong> 매수하는 momentum 전략 봇이다. 구버전(golden-apple 계열)의 "80% 매수 → 90% 매도" 정적 임계값 전략을 개선한 것으로, 5분 주기의 Jenkins 실행마다 전체 시장 확률을 SQLite <code>market_snapshots</code> 테이블에 자체 축적하고, 이 스냅샷으로 단기(15분=3 스냅샷)·장기(6시간=72 스냅샷) momentum을 계산해 golden cross(단기-장기 ≥ +2%p/스냅샷) 발생 시 진입한다.</p>
+<p>청산은 4중 조건(확률 97% 도달, 진입가 대비 +7% 이익실현, -10% 손절, dead cross)으로 다변화했다. 주문은 CLOB v2에 midpoint 가격의 GTC limit order로 실행되며, 한 번 거래한 시장은 영구히 재거래하지 않는다.</p>
+</section>
+
+<section><h2>매수·매도 조건</h2>
+<p><strong>가격 이력 수집 — 핵심 메커니즘</strong>: 외부 price-history API를 쓰지 않고 봇이 스스로 이력을 만든다. 매 사이클 Phase 0에서 Gamma 전량 조회(100개씩 페이지네이션, offset ≥ 5,000 안전 한도) 후 <code>min_liquidity</code> 이상 + 비스포츠 시장마다 높은 쪽 확률을 <code>market_snapshots</code>에 1행 INSERT(실측 로그 기준 사이클당 약 30~35행). 판단 시 최신 82개(<code>long_window+10</code>)를 조회하며, 스냅샷 간격 = Jenkins cron 간격(5분 가정)이지만 <strong>timestamp 간격은 검증하지 않고 개수 기반 윈도우만 사용</strong>한다. 7일 지난 스냅샷은 Phase 4에서 삭제.</p>
+<p><strong>momentum 계산</strong>: <code>(최신 확률 - 가장 오래된 확률) / len(snapshots)</code> — 이동평균(MA) cross가 아니라 양 끝점 기울기(rate of change) 비교다. 단기는 최근 3개(3개 미만이면 진입 불가), 장기는 최근 72개(72개 미만이어도 6개 이상이면 있는 만큼 사용, 6개 미만이면 None). 장기가 None이면 <strong>cold-start fallback</strong>으로 단기 momentum &gt; 0 만으로 진입을 허용하며(<code>short_momentum_positive</code>), 실운영 로그(20260205)에서 실제 매수는 전부 이 경로였다.</p>
+<p><strong>매수 파이프라인</strong> — 조건 전부 AND, 순서대로:</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>비고</th></tr>
+<tr><td>1</td><td>liquidity ≥ 50,000</td><td>Gamma 전량 조회에서 필터</td></tr>
+<tr><td>2</td><td>스포츠 아님</td><td>tags + question/slug 텍스트에 <code>SPORTS_KEYWORDS</code>(약 50개; "game", "match", "win the", "beat", "score" 등) 없어야 함</td></tr>
+<tr><td>3</td><td>favorite 선택</td><td><code>outcomePrices</code> 두 값 중 큰 쪽 + <code>token_id</code> 존재. Yes/No 중 높은 쪽을 산다</td></tr>
+<tr><td>4</td><td>0.85 ≤ p ≤ 0.97</td><td>상한 <strong>포함</strong></td></tr>
+<tr><td>5</td><td>momentum 진입 시그널</td><td><code>golden_cross</code> 또는 cold-start <code>short_momentum_positive</code> (momentum 비활성 시 무조건 통과)</td></tr>
+<tr><td>6</td><td>미거래 시장</td><td><code>trades</code>/<code>skipped_markets</code>에 있으면 영구 skip</td></tr>
+<tr><td>7</td><td><code>max_positions</code> 제한</td><td>기본 -1(무제한)</td></tr>
+<tr><td>8</td><td>CLOB midpoint 재검증</td><td>&gt; 0.97 → <code>rapid_jump</code> 영구 skip / &lt; 0.85 → 이번 사이클만 skip</td></tr>
+<tr><td>9</td><td>수량 = buy_amount ÷ midpoint ≥ 5주</td><td>최소 주문 수량</td></tr>
+<tr><td>10</td><td>GTC limit BUY @ midpoint</td><td>0.01 tick 반올림, [0.01, 0.99] clamp. <code>orderID</code> 응답 시 즉시 HOLDING 기록(체결 확인 없음). <code>entry_reason</code>·momentum 값 저장</td></tr>
+</table></div>
+<p><strong>매도 파이프라인</strong> — 보유 포지션마다 매 사이클, 우선순위 순:</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>CLOB midpoint ≥ 0.97 (<code>sell_threshold</code>)</td><td><code>threshold</code></td></tr>
+<tr><td>2</td><td>(현재가-진입가)/진입가 ≤ -0.10</td><td><code>stop_loss</code></td></tr>
+<tr><td>3</td><td>≥ +0.07</td><td><code>take_profit</code></td></tr>
+<tr><td>4</td><td>short - long ≤ -0.02 (스냅샷 충분할 때만)</td><td><code>dead_cross</code></td></tr>
+</table></div>
+<p>momentum 비활성 시에는 2·3만 검사. 매도 주문도 현재 midpoint 가격 GTC limit SELL이며, 접수 즉시 <code>COMPLETED</code> + <code>realized_pnl = (매도가-매수가)×수량</code> 기록. <code>exit_reason</code>·매도 시점 momentum 값 저장.</p>
+<p><strong>파라미터 총표</strong> (우선순위: env var &gt; config.yaml &gt; 코드 기본값)</p>
+<div class="tbl"><table>
+<tr><th>파라미터</th><th>yaml 값</th><th>코드 기본값</th><th>env var</th><th>의미</th></tr>
+<tr><td><code>buy_threshold</code></td><td>0.85</td><td>0.85</td><td><code>POLYBOT_BUY_THRESHOLD</code></td><td>매수 최소 확률</td></tr>
+<tr><td><code>sell_threshold</code></td><td>0.97</td><td>0.97</td><td><code>POLYBOT_SELL_THRESHOLD</code></td><td>매수 상한이자 확률 기준 매도 트리거</td></tr>
+<tr><td><code>buy_amount_usdc</code></td><td>5.0</td><td>10.0</td><td><code>POLYBOT_BUY_AMOUNT</code></td><td>1회 매수 금액 (USDC)</td></tr>
+<tr><td><code>min_liquidity</code></td><td>50000</td><td>50000.0</td><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>최소 유동성 필터 ($)</td></tr>
+<tr><td><code>max_positions</code></td><td>-1 (무제한)</td><td>-1</td><td><code>POLYBOT_MAX_POSITIONS</code></td><td>동시 보유 포지션 상한</td></tr>
+<tr><td><code>take_profit_percent</code></td><td>0.07</td><td>0.07</td><td><code>POLYBOT_TAKE_PROFIT</code></td><td>진입가 대비 이익실현 (+7%)</td></tr>
+<tr><td><code>stop_loss_percent</code></td><td>-0.10</td><td>-0.10</td><td><code>POLYBOT_STOP_LOSS</code></td><td>진입가 대비 손절 (-10%)</td></tr>
+<tr><td><code>momentum.enabled</code></td><td>true</td><td>true</td><td><code>POLYBOT_MOMENTUM_ENABLED</code></td><td>momentum 필터 on/off</td></tr>
+<tr><td><code>momentum.short_window</code></td><td>3</td><td>3</td><td><code>POLYBOT_MOMENTUM_SHORT_WINDOW</code></td><td>단기 윈도우 (3 스냅샷 ≈ 15분)</td></tr>
+<tr><td><code>momentum.long_window</code></td><td>72</td><td>72</td><td><code>POLYBOT_MOMENTUM_LONG_WINDOW</code></td><td>장기 윈도우 (72 스냅샷 ≈ 6시간)</td></tr>
+<tr><td><code>momentum.golden_cross_threshold</code></td><td>0.02</td><td>0.02</td><td><code>POLYBOT_GOLDEN_CROSS_THRESHOLD</code></td><td>진입: 단기-장기 ≥ 이 값</td></tr>
+<tr><td><code>momentum.dead_cross_threshold</code></td><td>-0.02</td><td>-0.02</td><td><code>POLYBOT_DEAD_CROSS_THRESHOLD</code></td><td>청산: 단기-장기 ≤ 이 값</td></tr>
+<tr><td><code>momentum.require_positive_long_momentum</code></td><td>true</td><td>true</td><td><code>POLYBOT_REQUIRE_POSITIVE_LONG_MOMENTUM</code></td><td>golden cross여도 장기 momentum ≤ 0이면 진입 거부</td></tr>
+<tr><td><code>excluded_categories</code></td><td>Sports 계열 10종</td><td>동일</td><td>(env 없음)</td><td>제외 카테고리</td></tr>
+<tr><td><code>simulation_mode</code></td><td>false</td><td>false</td><td>(CLI <code>--simulate</code>로만 override)</td><td>실주문 여부</td></tr>
+<tr><td>(상수) <code>MIN_ORDER_SIZE</code></td><td>-</td><td>5.0</td><td>-</td><td>최소 주문 수량 5주</td></tr>
+<tr><td>(상수) <code>DEFAULT_TICK_SIZE</code></td><td>-</td><td>0.01</td><td>-</td><td>가격 tick 반올림, [0.01, 0.99] clamp</td></tr>
+</table></div>
+<p>필수 credential은 <code>POLYMARKET_PRIVATE_KEY</code>·<code>POLYMARKET_FUNDER_ADDRESS</code>(없으면 즉시 종료, private key의 hex prefix는 자동 제거). <code>SLACK_WEBHOOK_URL</code>은 현재 사이클에 미연결.</p>
+</section>
+
+<section><h2>이용하는 심리</h2>
+<ul>
+<li><strong>정보 확산 지연 / underreaction</strong>: 사실상 결정된 사건도 대중 전체가 인지·베팅하기까지 시간이 걸려 85~97% 구간에서 100%로 서서히 수렴한다는 가정. 15분 momentum이 6시간 추세를 앞지르는 순간 = "새 정보가 지금 가격에 반영되는 중"으로 보고 그 물결에 편승한다.</li>
+<li><strong>favorite-longshot bias의 역이용</strong>: 대중은 낮은 확률(longshot)에 과대 베팅하고 고확률(favorite)을 상대적으로 저평가하는 경향이 있어, 고확률 outcome을 사는 쪽이 기대값상 유리하다는 전제.</li>
+<li><strong>군집 행동(herding) 편승</strong>: golden cross 진입은 상승 cascade 초입에 올라타고, dead cross 청산은 반대 방향 herding이 시작되면 빠지겠다는 설계. 정적 임계값 전략이 당하던 "고점 매수 후 뉴스 반전" 손실을 momentum 반전 감지로 방어한다.</li>
+</ul>
+</section>
+
+<section><h2>강점</h2>
+<ul>
+<li><strong>전략과 인프라의 분리</strong>: 진입/청산 판단이 <code>momentum.py</code> 한 곳에 있어 sibling 봇에서 이 파일만 교체하면 된다 (golden-cherry가 실제로 이 방식으로 파생됨).</li>
+<li><strong>자체 스냅샷 축적</strong>: 외부 이력 API 의존 없이 5분 해상도 확률 시계열을 확보. <code>entry_reason</code>/<code>exit_reason</code>/momentum 컬럼으로 사후 전략 분석(SQL)이 가능.</li>
+<li><strong>다중 청산 조건</strong>: 구버전의 "매도 조건 하나, 손절 없음" 문제를 threshold/take_profit/stop_loss/dead_cross 4중으로 해결.</li>
+<li><strong>운영 방어 로직</strong>: 429 Retry-After 존중, 422 페이지네이션 종료 처리, tick 반올림 + clamp, midpoint 재검증(rapid_jump), 최소 5주 검증, job별 DB/로그 격리, simulation mode 전 구간 지원.</li>
+<li><strong>가시성</strong>: 매 사이클 momentum 분석 요약 표(진입/제외 사유, 단기/장기/차이, 스냅샷 수)를 로그로 남겨 파라미터 튜닝 근거가 된다.</li>
+</ul>
+</section>
+
+<section><h2>약점 (허점)</h2>
+<ul class="risk">
+<li><strong>의도한 시그널(golden cross)이 사실상 발화 불가능</strong>: 임계값 0.02는 "스냅샷당 +2%p" 기울기 차이 — 단기 윈도우 3개 기준 15분에 약 6%p 이상 급등해야 한다. 85~97% 구간에서 극히 드물며, 실로그의 diff는 ±0.007 이하. 실제 매수는 전부 cold-start fallback 경로였다.</li>
+<li><strong>cold-start fallback이 과도하게 관대</strong>: 스냅샷 6개 미만이면 15분간 +0.33%p(1 tick의 1/3)만 움직여도 매수. DB 초기화 직후·유동성 경계 신규 통과·7일 정리 이후에는 사실상 "85~97% + 방금 안 떨어짐" 전략으로 퇴화.</li>
+<li><strong>개수 기반 윈도우, 시간 미검증</strong>: Jenkins 중단·지연 시 "15분" 윈도우가 수 시간을 커버해도 그대로 계산.</li>
+<li><strong>체결 가정 오류</strong>: GTC limit 주문을 접수 즉시 HOLDING/COMPLETED로 기록. (a) 매수 미체결이면 유령 포지션, (b) 손절 매도 미체결이면 DB상 손절 완료지만 실제로는 계속 보유 — 급락장에서 stop loss가 보장되지 않는다.</li>
+<li><strong>해결된 시장의 포지션 영구 잔류</strong>: 시장 해결 후 orderbook 소멸 → midpoint 404 → <code>execute_sell</code> 영구 실패. 온체인 redeem이 되어도 DB <code>realized_pnl</code> 미반영으로 통계 왜곡.</li>
+<li><strong>take_profit 도달 불가 구간</strong>: 0.94 이상 진입 시 +7% 목표가 1.0 초과 → 수학적으로 불가능. 0.97 정확히 진입 시 다음 사이클 threshold 매도로 즉시 청산되는 churn 엣지도 존재.</li>
+<li><strong>스포츠 키워드 필터 과잉 차단</strong>: "game", "match", "win the", "beat", "score" 같은 일반 단어로 비스포츠 시장(수상·선거 관련 질문)까지 배제. 기회비용이 크다.</li>
+<li><strong>momentum 계산의 통계적 취약성</strong>: 양 끝점 2개 값만 사용해 끝점 노이즈에 민감. 분모가 구간 수(n-1)가 아닌 개수(n)라 기울기를 (n-1)/n만큼 과소평가. 장기 분모가 유동적이라 단기와 단위가 어긋난다.</li>
+<li><strong>영구 1회 거래 제한</strong>: <code>condition_id</code>당 평생 1회. rapid_jump로 한 번 skip되면 영구 차단 — 수개월짜리 시장의 정당한 재진입 기회 상실.</li>
+<li><strong>자금 관리 부재</strong>: <code>max_positions=-1</code> + 고정 5 USDC. 잔고 확인·일일 매수 한도·변동성 기반 sizing 없음.</li>
+<li><strong>Gamma 전량 조회 2회/사이클</strong>: Phase 0과 Phase 2가 같은 조회를 중복 호출 (API 비용 2배).</li>
+<li><strong><code>scripts/simulate.py</code> DB 경로 버그</strong>: sim 거래가 <code>trades_sim.db</code>가 아닌 해당 job의 <code>trades.db</code>에 기록된다 (<code>polybot run --simulate</code>는 정상).</li>
+<li><strong>미사용/불일치 코드</strong>: <code>DataAPIClient</code>·<code>SlackNotifier</code>는 dead code, data_api_client의 User-Agent가 <code>GoldenApple-PolyBot/1.0</code>으로 잔존, <code>excluded_categories</code>는 env override 없음.</li>
+<li><strong>시뮬레이션의 낙관 편향</strong>: midpoint 100% 체결 가정 — spread·슬리피지·수수료 미모델링으로 sim P&amp;L이 실거래보다 항상 좋게 나온다.</li>
+</ul>
+</section>
+
+<section><h2>개선 반영처</h2>
+<ul>
+<li><strong>golden-grape — 도달 가능한 드리프트 신호</strong>: 사실상 발화 불가능한 golden cross 임계값(0.02/스냅샷 = 15분에 +6%p 필요)과 과도하게 관대한 cold-start fallback을, 실제로 도달 가능한 drift 신호로 재설계해 반영.</li>
+</ul>
+</section>
+
+<section><h2>A/B 검증 계획</h2>
+<p><strong>① 시뮬레이션</strong>: <code>polybot run --simulate</code>는 실거래와 동일 경로에서 주문만 mock(<code>trades_sim.db</code> 분리). 단, midpoint 100% 체결 가정이라 sim P&amp;L은 낙관 편향(약점 14)이 있고, <code>scripts/simulate.py</code>는 DB 경로 버그(약점 12)가 있으므로 <code>--simulate</code> 플래그 경로를 사용한다. <strong>② 소액 실거래</strong>: yaml <code>buy_amount_usdc: 5.0</code>으로 건당 노출 제한. <strong>③ 판단 후 증액</strong>: 매 사이클 로그의 momentum 분석 요약 표(진입/제외 사유, 단기/장기 diff, 스냅샷 수)와 <code>entry_reason</code>/<code>exit_reason</code> 컬럼 집계로 "golden cross 경로 대비 cold-start 경로"의 실적을 비교해 임계값 재보정 여부를 결정한다.</p>
+</section>
+
+<section><h2>실행 (Jenkins)</h2>
+<pre class="code"># Jenkins cron (5분 주기, one-shot — 봇 내부 루프 없음)
+cd ./golden-banana
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+uv sync --frozen
+uv run polybot run                   # 상태는 data/{job}/trades.db 에 격리</pre>
+</section>
+
+<footer>Golden Burger 전략 시리즈 · golden-banana · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

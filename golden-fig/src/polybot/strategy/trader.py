@@ -14,6 +14,9 @@ logger = logging.getLogger(__name__)
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
 
+# DB 회고 로깅용 봇 식별 상수 (교차 봇 UNION 쿼리 계약)
+STRATEGY_NAME = "fig"
+
 # 해결 후 이 시간이 지나도 가격 조회가 안 되면 EXPIRED 마감 처리
 RESOLVED_GRACE_HOURS = 24.0
 
@@ -26,6 +29,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        simulation_mode: bool = False,
     ):
         """Initialize trader.
 
@@ -33,10 +37,12 @@ class Trader:
             repo: Trade repository for DB operations
             clob_client: CLOB client for order execution
             config: Trading configuration
+            simulation_mode: True면 trades.mode에 "sim" 기록 (회고 분석용)
         """
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.mode = "sim" if simulation_mode else "live"
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market (NO 토큰).
@@ -169,6 +175,9 @@ class Trader:
                 market_end_date=end_date,
                 hours_until_resolution_at_buy=hours_until_resolution,
                 yes_price_at_buy=candidate.get("yes_price"),
+                volume_24h_at_buy=candidate.get("volume_24h"),
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
             )
 
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
@@ -329,6 +338,8 @@ class Trader:
                 realized_pnl=realized_pnl,
                 status=TradeStatus.COMPLETED,
                 exit_reason=signal.reason,
+                # 청산 시점 YES 가격 (1 - NO 매도가): YES 소멸 속도 회고용
+                yes_price_at_exit=1.0 - current_price,
             )
 
             pnl_percent_display = (current_price / trade.buy_price - 1) * 100 if trade.buy_price > 0 else 0

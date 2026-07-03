@@ -122,6 +122,8 @@ data/
 
 DB 테이블: `trades`(재진입 허용 - condition_id unique 아님, EXPIRED 상태 포함), `market_snapshots`(YES 가격 기준), `skipped_markets`(쿨다운 판정용 timestamp 포함).
 
+`trades` 회고 로깅 컬럼 (A/B 포스트모템 계약, CSV export에도 포함): `strategy_name`(항상 "fig"), `mode`("live"/"sim"), `volume_24h_at_buy`(매수 시점 gamma volume24hr), `yes_price_at_exit`(청산 시점 1 - NO 매도가). 기존 DB 파일은 `init_database`의 best-effort ALTER로 자동 마이그레이션된다.
+
 ## 시뮬레이션 → 실전 전환 절차
 
 1. **시뮬레이션 (1~2주)**: `uv run python main.py run --simulate --job fig-sim`을 Jenkins 주기 실행. 시뮬레이션도 CLOB 인증과 실제 가격 조회를 하므로 실키 `.env`가 필요합니다.

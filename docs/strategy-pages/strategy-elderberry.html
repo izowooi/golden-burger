@@ -1,0 +1,171 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-elderberry — Panic Fade</title>
+<style>
+:root{
+  --accent:#6c5ce7;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🫐</div>
+  <h1>golden-elderberry <span class="en">— Panic Fade</span></h1>
+  <p class="tagline">원래 favorite(≥70%)이던 토큰이 악재/루머에 공황 투매로 12%p 이상 급락한 뒤, 바닥 안정화가 확인되면 역매수해 과잉반응의 되돌림(+10%)을 수확한다.</p>
+  <div class="badges"><span>유형 <b>역행 (mean-reversion)</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>손실 회피 + 공황 투매</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">p   = favorite였던 쪽 토큰 기준 가격
+ref = 최근 48h(단 최근 3h 제외) 최고가,  ref ≥ 0.70
+
+BUY if ref - p ≥ 0.12                                  # 공황 낙폭
+   AND 0.35 ≤ p ≤ 0.75                                  # 붕괴 배제 밴드
+   AND 최근 45분: p ≥ min(직전 스냅샷) AND std ≤ 0.02    # 바닥 안정화
+   AND hours_left ≥ 48h</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p><strong>손실 회피의 과잉반응.</strong> 손실 회피는 이득 대비 약 2배의 심리 가중을 갖는다 (Kahneman &amp; Tversky의 prospect theory). 악재/루머가 터지면 보유자들은 "더 잃기 전에" 일단 던지고, 매수 대기자는 관망한다 → 가격이 펀더멘털 이하로 오버슈팅한다. 급락 직후는 유동성 공급자도 스프레드를 벌리는 구간이라 소량의 투매만으로도 가격이 과도하게 밀린다. 24/7 3~5분 간격으로 도는 봇은 사람들이 자는 새벽의 공황도 잡는 구조적 우위가 있다.</p>
+<p><strong>리서치 근거.</strong> 레포의 momentum 리서치 문서(golden-cherry의 polymarket-strategy-momentum 계열)가 직접 근거다: <strong>"10%+ 급변은 mean-revert"</strong> (소폭 드리프트는 지속, 급변은 회귀). Panic Fade는 이 회귀 영역만 정조준한다.</p>
+<p><strong>왜 마감이 먼(≥48h) 시장만인가.</strong> 마감 직전 급락은 "진짜 정보"(사건 확정)일 확률이 높다. 해결까지 48시간 이상 남은 시장으로 한정해 정보에 의한 붕괴와 심리에 의한 오버슈팅을 분리한다. 급변 이벤트의 반대 가설(진짜 정보 + 거래량 폭증 = 편승)은 자매 봇 <strong>golden-lime</strong>이 검증한다 — 같은 이벤트 클래스에 대한 의도적 A/B 쌍이다.</p>
+<p><strong>기존 봇에서 배운 것 (STRATEGY_ANALYSIS 반영):</strong></p>
+<div class="tbl"><table>
+<tr><th>기존 약점</th><th>elderberry의 수정</th></tr>
+<tr><td>banana: 스냅샷 "개수" 기반 윈도우 → Jenkins 중단 시 15분 윈도우가 몇 시간을 커버</td><td><strong>timestamp 기반 윈도우</strong> + 커버리지 검증 (<code>is_window_valid</code>), invalid면 진입 안 함</td></tr>
+<tr><td>banana: 관대한 cold-start 폴백으로 사실상 무전략 진입</td><td>cold start는 <strong>prices-history 백필</strong>로 해결, 백필 실패 시 진입 금지</td></tr>
+<tr><td>cherry: rapid_jump <strong>영구</strong> skip</td><td>skip은 <code>reentry_cooldown_hours</code>(24h) 동안만 유효</td></tr>
+<tr><td>cherry: 한 번 거래한 시장 영구 재진입 금지</td><td>HOLDING/쿨다운만 체크하는 <strong>재진입 허용</strong> 구조</td></tr>
+<tr><td>cherry: 해결된 시장이 영구 HOLDING 좀비로 남음</td><td>midpoint 조회 실패 + 해결 24h 경과 시 <strong>EXPIRED</strong> 마감 + 수동 redeem 경고</td></tr>
+<tr><td>cherry: TP 목표가가 1.0을 넘어 도달 불가</td><td>목표가 <strong>0.99 캡</strong></td></tr>
+<tr><td>cherry: 트레일링 스탑이 실효 손절선을 대체 (whipsaw)</td><td>급락 매수는 진입 직후 변동이 크므로 <strong>trailing 자체를 제거</strong></td></tr>
+<tr><td>공통: <code>LOG_LEVEL</code> env 무시</td><td><code>setup_logger</code>가 LOG_LEVEL을 읽음 (<code>--verbose</code>가 최우선)</td></tr>
+</table></div></section>
+<section><h2>진입 규칙</h2>
+<p>모두 AND. favorite였던 쪽 토큰 기준 가격 p로 평가한다.</p>
+<div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>유동성</td><td>liquidity ≥ $20,000 (gamma <code>liquidity</code>)</td><td>넓은 스프레드가 만드는 가짜 급락 방어</td></tr>
+<tr><td>거래량</td><td>volume24hr ≥ $10,000 (gamma <code>volume24hr</code>)</td><td>실거래가 동반된 급락만 대상</td></tr>
+<tr><td>잔여 시간</td><td>hours_left ≥ 48h (gamma <code>endDate</code>)</td><td>마감 직전 급락 = 진짜 정보일 확률이 높아 배제</td></tr>
+<tr><td>윈도우 유효성</td><td>48h 윈도우에 ≥ 5 포인트, span ≥ 24h (<code>is_window_valid</code>)</td><td>invalid면 백필 시도 후 재검증, 그래도 invalid면 진입 금지 (banana 교훈)</td></tr>
+<tr><td>favorite 판별</td><td>ref 윈도우의 YES 최고가 ≥ 0.5면 YES쪽, 아니면 NO쪽(1-p 환산) 평가 (<code>evaluate_panic_fade</code>)</td><td>YES/NO 양방향 시장 커버</td></tr>
+<tr><td>기준가</td><td>ref = 최근 48h(단 최근 3h 제외) 최고가, <strong>ref ≥ 0.70</strong></td><td>최근 3h 제외 = 급락 자체를 ref에 넣지 않기 위함</td></tr>
+<tr><td>낙폭</td><td>ref - p ≥ 0.12</td><td>공황 규모 필터</td></tr>
+<tr><td>붕괴 배제</td><td>0.35 ≤ p ≤ 0.75</td><td>0.35 미만 붕괴는 진짜 정보로 간주</td></tr>
+<tr><td>바닥 안정화</td><td>최근 45분(≥ 3 스냅샷): 현재가 ≥ 직전 스냅샷들(최신 포인트 제외) min AND 구간 std ≤ 0.02</td><td>떨어지는 칼날 회피 (신저가 금지 — 현재가 자신은 Phase 0에서 이미 스냅샷으로 저장되므로 min 계산에서 제외)</td></tr>
+<tr><td>재진입 쿨다운</td><td>HOLDING 없음 + 마지막 청산/skip 후 24h 경과 (<code>is_reentry_blocked</code>)</td><td>반복 손절 방지</td></tr>
+</table></div>
+<p>매수 직전 CLOB midpoint 재검증: 가격이 <code>current_max</code>를 넘었으면(반등 이미 완료) <code>rebound_before_entry</code>로 skip(쿨다운 시작), <code>current_min</code> 미만이면(붕괴 진행) 이번 사이클만 보류한다.</p></section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순으로 검사한다. trailing stop은 없다.</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>값</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>손절</td><td>P&amp;L ≤ -10%</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>익절</td><td>현재가 ≥ min(진입가 × 1.10, <strong>0.99</strong>)</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>보유 시간 초과</td><td>보유 ≥ 48h (반등 실패)</td><td><code>max_holding</code></td></tr>
+<tr><td>4</td><td>시간 청산</td><td>해결까지 &lt; 24h</td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>해결 leak</td><td>midpoint 조회 실패 + 해결 24h 경과 (EXPIRED, 수동 redeem)</td><td><code>resolved_unredeemed</code></td></tr>
+</table></div></section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>env &gt; config.yaml &gt; 코드 기본값</strong></p>
+<div class="tbl"><table>
+<tr><th>env</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>20000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>10000</td><td>최소 24h 거래량 $</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.10</td><td>익절 +10% (목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.10</td><td>손절 -10%</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션 (-1 무제한)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (comma 구분, 빈 값 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_REF_WINDOW_HOURS</code></td><td>48</td><td>기준가 산출 윈도우</td></tr>
+<tr><td><code>POLYBOT_REF_EXCLUDE_RECENT_HOURS</code></td><td>3</td><td>ref에서 제외할 최근 구간</td></tr>
+<tr><td><code>POLYBOT_REF_MIN</code></td><td>0.70</td><td>ref 최소값 (원래 favorite)</td></tr>
+<tr><td><code>POLYBOT_DROP_MIN</code></td><td>0.12</td><td>최소 낙폭</td></tr>
+<tr><td><code>POLYBOT_CURRENT_MIN</code></td><td>0.35</td><td>진입 밴드 하한 (붕괴 배제)</td></tr>
+<tr><td><code>POLYBOT_CURRENT_MAX</code></td><td>0.75</td><td>진입 밴드 상한</td></tr>
+<tr><td><code>POLYBOT_STAB_WINDOW_MINUTES</code></td><td>45</td><td>안정화 확인 윈도우 (분)</td></tr>
+<tr><td><code>POLYBOT_STAB_MAX_STD</code></td><td>0.02</td><td>안정화 최대 std</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>48</td><td>진입 최소 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_MAX_HOLDING_HOURS</code></td><td>48</td><td>최대 보유 시간</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>24</td><td>해결 이 시간 전 청산</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>급락이 진짜 정보인 경우</strong>: 밴드 하한 0.35와 안정화 체크로 필터링해도, "천천히 확인되는 진짜 악재"는 45분 안정화를 통과한 뒤 계속 흘러내린다. 이때 -10% 손절이 유일한 방어선이다.</li>
+<li><strong>계단식 붕괴</strong>: 안정화 → 진입 → 2차 급락 패턴. 손절이 갭을 건너뛰면 -10%보다 크게 잃는다 (지정가 GTC 특성상 체결 미보장).</li>
+<li><strong>낮은 유동성의 가짜 급락</strong>: 스프레드가 넓은 시장에서 midpoint 급락은 실제 체결 가능 가격이 아닐 수 있다. liquidity/volume 필터가 1차 방어지만 완전하지 않다.</li>
+<li><strong>반등이 느린 시장</strong>: 48h 내 반등하지 않으면 <code>max_holding</code>으로 본전 부근 청산 → 수수료/스프레드만큼 잃는다.</li>
+<li><strong>스냅샷 공백</strong>: Jenkins 장기 중단 후에는 윈도우 invalid로 진입 자체가 멈춘다 (의도된 동작이지만 기회 손실). 백필이 실패하는 토큰은 데이터 축적까지 최소 24h 소요.</li>
+<li><strong>양쪽 whipsaw 시장</strong>: YES/NO가 번갈아 favorite이 되는 초변동 시장에서는 ref 판별(YES 최고가 ≥ 0.5)이 YES쪽으로 쏠려 NO쪽 기회를 놓치거나 노이즈에 진입할 수 있다.</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<p><strong>1) 시뮬레이션 (1~2주)</strong> — <code>uv run python main.py run --simulate --job sim-test</code>를 Jenkins 3~5분 간격으로 실행. <code>data/sim-test/trades_sim.db</code> 축적.</p>
+<p><strong>2) 소액 실전 (4주)</strong> — <code>POLYBOT_BUY_AMOUNT=1</code>로 시작, 문제 없으면 증액.</p>
+<p><strong>3) 판단 기준</strong> — 4주 + 30건 이상 거래에서:</p>
+<ul>
+<li>승률 ≥ 55% (TP:SL 1:1 구조이므로 55%가 손익분기 + 마진)</li>
+<li>평균 손익 &gt; 0, <code>max_holding</code> 청산 비율 &lt; 40%</li>
+<li><code>resolved_unredeemed</code>(EXPIRED) 발생 시 원인 분석 우선</li>
+</ul>
+<p><strong>4) 파라미터 조정</strong> — 월별 CSV(<code>trades_YYYY-MM.csv</code>)의 <code>ref_price_at_buy</code>/<code>drop_at_buy</code>/<code>exit_reason</code>으로 낙폭 구간별 승률을 집계해 데이터로 조정한다.</p>
+<p><strong>5) 회고 공통 컬럼 (A/B 포스트모템 계약)</strong> — trades와 CSV에 <code>strategy_name</code>("elderberry"), <code>mode</code>("live"/"sim"), <code>volume_24h_at_buy</code>(매수 시점 gamma volume24hr), <code>stabilization_range_at_buy</code>(진입 판정에 쓴 안정화 구간 고저폭 max-min)를 기록한다. 교차 봇 UNION 쿼리 시 <code>strategy_name</code>으로 구분하고, sim/live 혼입은 <code>mode</code>로 걸러낸다.</p>
+<p>베리에이션 후보:</p>
+<div class="tbl"><table>
+<tr><th>안</th><th>변경 env</th><th>가설</th></tr>
+<tr><td>A-1 (얕은 낙폭·빠른 회전)</td><td><code>POLYBOT_DROP_MIN=0.08</code>, <code>POLYBOT_TAKE_PROFIT=0.06</code>, <code>POLYBOT_MAX_HOLDING_HOURS=24</code></td><td>작은 과잉반응이 더 자주, 더 빨리 복원된다</td></tr>
+<tr><td>A-2 (깊은 낙폭만)</td><td><code>POLYBOT_DROP_MIN=0.18</code>, <code>POLYBOT_CURRENT_MIN=0.40</code></td><td>극단적 공황일수록 되돌림 폭이 크다</td></tr>
+<tr><td>A-3 (엄격한 안정화)</td><td><code>POLYBOT_STAB_WINDOW_MINUTES=90</code>, <code>POLYBOT_STAB_MAX_STD=0.015</code></td><td>안정화를 오래 확인할수록 떨어지는 칼날 회피율이 오른다 (진입 횟수는 감소)</td></tr>
+</table></div></section>
+<section><h2>실행 (Jenkins)</h2><pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 파라미터 예시 (생략 시 기본값)
+export POLYBOT_DROP_MIN=0.12
+export POLYBOT_REENTRY_COOLDOWN_HOURS=24
+export POLYBOT_MAX_HOLDING_HOURS=48
+
+cd ./golden-elderberry
+uv sync
+uv run python ./main.py run</pre>
+<p>3~5분 주기 cron 트리거를 권장한다 (스냅샷 축적이 시그널 품질을 좌우).</p></section>
+<footer>Golden Burger 전략 시리즈 · golden-elderberry · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

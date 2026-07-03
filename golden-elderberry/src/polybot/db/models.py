@@ -2,11 +2,14 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Enum, create_engine
+    Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
+
+# 봇 식별 상수 - 교차 봇 UNION 쿼리용 (A/B 포스트모템 계약)
+STRATEGY_NAME = "elderberry"
 
 
 class TradeStatus(enum.Enum):
@@ -65,6 +68,11 @@ class Trade(Base):
     ref_price_at_buy = Column(Float, nullable=True)   # 급락 전 기준가 (매수 토큰 기준)
     drop_at_buy = Column(Float, nullable=True)        # 진입 시점 낙폭 (ref - price)
     max_price = Column(Float, nullable=True)          # 진입 후 최고가 (분석용)
+    stabilization_range_at_buy = Column(Float, nullable=True)  # 진입 판정에 쓴 안정화 구간 고저폭 (max-min)
+
+    # A/B 포스트모템용 공통 회고 컬럼
+    strategy_name = Column(String, nullable=True)  # 봇 식별 상수 "elderberry"
+    mode = Column(String, nullable=True)           # "live" 또는 "sim" (config.simulation_mode 기준)
 
     # Time-based strategy data
     market_end_date = Column(DateTime, nullable=True)  # Market resolution time
@@ -128,4 +136,17 @@ def init_database(db_path: str) -> sessionmaker:
     """
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
+    # 기존 DB 파일 호환: 신규 컬럼 best-effort ALTER (이미 있으면 조용히 skip)
+    with engine.connect() as conn:
+        for ddl in (
+            "ALTER TABLE trades ADD COLUMN strategy_name TEXT",
+            "ALTER TABLE trades ADD COLUMN mode TEXT",
+            "ALTER TABLE trades ADD COLUMN volume_24h_at_buy REAL",
+            "ALTER TABLE trades ADD COLUMN stabilization_range_at_buy REAL",
+        ):
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+            except Exception:
+                conn.rollback()  # Column already exists - 다음 ALTER를 위해 트랜잭션 복구
     return sessionmaker(bind=engine)

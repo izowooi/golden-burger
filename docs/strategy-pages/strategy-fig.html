@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-fig — Hope Crusher</title>
+<style>
+:root{
+  --accent:#8e5572;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🌰</div>
+  <h1>golden-fig <span class="en">— Hope Crusher</span></h1>
+  <p class="tagline">"D일까지 X가 일어날까" 롱샷(YES 5~25%) 시장에서 NO 토큰(75~95%)을 매수해, 희망 보유자들이 늦게 놓는 시간 가치 소멸(theta)을 수확한다.</p>
+  <div class="badges"><span>유형 <b>페이드</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>favorite-longshot bias</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">시장 형태: "D일까지 X가 일어날까"
+
+BUY NO(clobTokenIds[1]) if
+    0.05 ≤ YES ≤ 0.25                    # 롱샷 밴드 (NO = 0.75~0.95)
+    AND 24h ≤ 해결까지 ≤ 240h
+    AND YES 24h 변화 ≤ +0.02              # 사건 진행 배제 ①
+    AND 최근 6h YES 급등 &lt; 0.05           # 사건 진행 배제 ②</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p><strong>Favorite-longshot bias.</strong> 예측시장/베팅 문헌에서 가장 잘 문서화된 편향이다. 복권 심리(작은 돈으로 큰 보상 기대)는 낮은 확률 구간에서 YES를 체계적으로 과대평가하게 만든다 — 1%로 표시된 사건의 실제 확률은 0.3% 수준이다. 반대로 favorite은 과소평가된다.</p>
+<p><strong>Theta decay + 앵커링.</strong> "D일까지 X가 일어날까" 형태의 시장은 시간이 지날수록 X가 일어날 시간 자체가 소진되어 YES의 정당 가치가 기계적으로 하락한다(theta decay). 그러나 YES 보유자는 <strong>앵커링</strong>(매수가 기준 사고)과 <strong>희망적 사고</strong> 때문에 포지션을 늦게 놓는다 → NO 가격이 정당 가치보다 낮게 유지되는 구간이 생긴다. 즉 NO 매수는 "시간의 흐름"이라는 확실한 방향성에 베팅하면서, 대중 심리가 만든 할인까지 얻는 구조다.</p>
+<p><strong>cherry의 미러.</strong> cherry는 같은 편향의 favorite 쪽(75~92% favorite 매수)을 수확해 왔다. fig는 같은 편향의 미러다: cherry가 "favorite 저평가"를 사면, fig는 "longshot 과대평가"를 판다(= NO 매수). 두 봇의 성과 비교가 이 편향의 어느 쪽이 더 두터운지에 대한 A/B 검증이 된다. 또 cherry의 <code>--yes-only</code> 운영은 NO-favorite 시장 절반을 버렸는데(STRATEGY_ANALYSIS 확인 사항), fig는 방향을 전략에 내장(항상 NO)해서 이 낭비 자체가 없다.</p>
+<p><strong>banana에서 배운 것.</strong> 개수 기반 스냅샷 윈도우 버그(Jenkins 중단 시 15분 윈도우가 수 시간을 커버), 관대한 cold-start 폴백(스냅샷 6개 미만이면 사실상 무전략 진입), 영구 one-shot(재진입 금지) 문제를 모두 수정해 반영했다.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모두 충족해야 매수한다.</p>
+<div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>유동성</td><td>liquidity ≥ $10,000 (Gamma <code>liquidity</code>)</td><td>체결 가능성 확보</td></tr>
+<tr><td>(옵션) 24h 거래량</td><td>volume24hr ≥ $0 (0 = 비활성, Gamma <code>volume24hr</code>)</td><td>필요 시 env로 활성화</td></tr>
+<tr><td>시간 윈도우</td><td>24h ≤ 해결까지 ≤ 240h (<code>endDate</code> 기준)</td><td>theta 수확 구간 한정</td></tr>
+<tr><td>YES 롱샷 밴드</td><td>0.05 ≤ YES ≤ 0.25 (양끝 포함, <code>outcomePrices[0]</code>)</td><td>복권 심리 과대평가 구간만 페이드</td></tr>
+<tr><td>윈도우 유효성</td><td>24h 윈도우에 ≥ 5 포인트, 커버리지 ≥ 12h. invalid → 백필 시도 → 그래도 invalid면 <strong>진입 금지</strong> (<code>is_window_valid</code>)</td><td>banana의 관대한 cold-start 폴백 금지</td></tr>
+<tr><td>사건 진행 배제 ①</td><td>YES 24h 변화 ≤ +0.02 (윈도우 최고(最古) 스냅샷 대비, <code>change_from_oldest</code>)</td><td>진짜 정보로 오르는 YES 배제</td></tr>
+<tr><td>사건 진행 배제 ②</td><td>최근 6h YES 급등 &lt; 0.05 (6h 윈도우 저점 대비, <code>rise_from_low</code>)</td><td>급등 진행 중 진입 차단</td></tr>
+<tr><td>재진입 정책</td><td>HOLDING 없음 AND 마지막 청산/skip 후 24h 경과 (<code>is_in_reentry_cooldown</code>)</td><td>영구 one-shot 대신 쿨다운 기반 재진입 허용</td></tr>
+</table></div>
+<p>진입 시 <strong>NO 토큰(<code>clobTokenIds[1]</code>)을 매수</strong>한다. NO 가격은 0.75~0.95 구간. 주문은 midpoint 가격 GTC limit BUY, <code>POLYBOT_BUY_AMOUNT</code>(USDC) ÷ 가격 = 주수 (최소 5주).</p>
+<p>trader의 매수 직전 재검증: NO midpoint &gt; 0.95(밴드 상단)면 <code>rapid_jump</code>로 skip 기록(쿨다운 24h), &lt; 0.75면 이번 사이클만 skip.</p></section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순으로 검사한다. trailing stop은 없다.</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>파라미터 (기본값)</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>P&amp;L ≤ -10%</td><td><code>stop_loss_percent</code> -0.10</td><td><code>stop_loss</code> (NO 하락 = YES 급등 = 사건 발생 신호)</td></tr>
+<tr><td>2</td><td>현재가 ≥ min(매수가 × 1.06, <strong>0.99</strong>)</td><td><code>take_profit_percent</code> +0.06</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>해결까지 &lt; 2h</td><td><code>exit_hours</code> 2</td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>midpoint 조회 불가 + 해결 24h 경과</td><td>-</td><td><code>resolved_unredeemed</code> (status=EXPIRED, 수동 redeem 필요)</td></tr>
+</table></div>
+<p>NO는 만기 수렴이 본질이므로 TP가 +6%로 작아도 회전율로 수익을 쌓는다. 매수가 0.934 이상이면 원목표가가 0.99를 넘으므로 0.99 도달 시 익절(캡).</p></section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>env &gt; config.yaml &gt; 코드 기본값</strong></p>
+<div class="tbl"><table>
+<tr><th>env</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>10000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>0</td><td>최소 24h 거래량 $ (0 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.06</td><td>익절 % (목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.10</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션 (-1 무제한)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (comma 구분, 빈 값 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_YES_MIN</code></td><td>0.05</td><td>YES 롱샷 밴드 하한</td></tr>
+<tr><td><code>POLYBOT_YES_MAX</code></td><td>0.25</td><td>YES 롱샷 밴드 상한</td></tr>
+<tr><td><code>POLYBOT_YES_RISE_BLOCK_24H</code></td><td>0.02</td><td>24h YES 상승 차단 임계</td></tr>
+<tr><td><code>POLYBOT_YES_SPIKE_BLOCK_6H</code></td><td>0.05</td><td>6h YES 급등 차단 임계</td></tr>
+<tr><td><code>POLYBOT_RISE_LOOKBACK_HOURS</code></td><td>24</td><td>24h 게이트 lookback</td></tr>
+<tr><td><code>POLYBOT_SPIKE_LOOKBACK_HOURS</code></td><td>6</td><td>6h 게이트 lookback</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>24</td><td>진입 최소 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MAX</code></td><td>240</td><td>진입 최대 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>2</td><td>해결 N시간 전 청산</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨 (<code>--verbose</code>가 최우선)</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>꼬리 리스크 비대칭</strong>: NO @ 0.85 매수의 최대 이익은 +0.14, 최대 손실은 -0.85. 사건이 실제로 일어나면 한 방에 익절 여러 건을 지운다. 손절 -10%가 이론상 방어선이지만, 진짜 뉴스는 한 사이클(3~5분) 안에 -10%를 건너뛰어 갭으로 폭락할 수 있다 — 손절가 체결 보장이 없다.</li>
+<li><strong>롱샷이 항상 과대평가인 것은 아니다</strong>: 정보 비대칭이 있는 시장(내부자성 매수가 YES를 끌어올리는 중)에서는 YES 5~25%가 "싼 복권"이 아니라 "스마트 머니의 초기 진입"일 수 있다. 24h/6h 상승 차단 게이트가 이를 거르지만, 게이트 임계(+0.02/+0.05) 아래로 서서히 오르는 정보는 통과한다.</li>
+<li><strong>밴드 하단의 스프레드 함정</strong>: YES 0.05 근처 시장은 NO가 0.95로 TP 여지가 거의 없고(0.99 캡까지 +4.2%), 호가 스프레드와 유동성 부족이 수익률을 잠식한다.</li>
+<li><strong>바이너리 뉴스 시장</strong>: "X가 일어날까"가 단일 발표(판결, 회담 등)에 좌우되는 시장은 theta 수확이 아니라 이벤트 도박이 된다. 발표 시각이 알려진 시장은 사람이 목록으로 걸러내는 편이 낫다.</li>
+<li><strong>집단 상관 리스크</strong>: 같은 이벤트(예: 한 인물의 여러 파생 시장)에서 여러 NO 포지션을 들면 사실상 한 베팅이다. 현재 구현은 이벤트 단위 노출 제한이 없다.</li>
+<li><strong>체결 가정</strong>: GTC limit 주문 접수 = 체결로 가정한다. 미체결 주문이 남으면 실제 포지션과 DB가 어긋난다 (cherry와의 A/B 비교 가능성을 위해 의도적으로 유지한 패턴).</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<p><strong>1) 시뮬레이션 (1~2주)</strong> — <code>uv run python main.py run --simulate --job fig-sim</code>을 Jenkins 3~5분 주기로 실행. <code>data/fig-sim/trades_sim.db</code> 축적.</p>
+<p><strong>2) 소액 실전 (4주)</strong> — <code>POLYBOT_BUY_AMOUNT</code>를 최소 수준으로 실행 (밴드 특성상 5주 최소 주문 충족 필요, NO 0.95 기준 약 $4.75 이상).</p>
+<p><strong>3) 판단 기준</strong> — 4주 경과 + <strong>30건 이상</strong> 완결 거래에서:</p>
+<ul>
+<li>승률 ≥ 75% (TP+time_exit 비중)</li>
+<li>평균 손익 &gt; 0 (stop_loss 1건이 TP 몇 건을 지우는지 확인: 손익비가 약 1:1.7 불리한 구조이므로 승률이 관건)</li>
+<li><code>exit_reason</code> 분포에서 <code>stop_loss</code>가 25% 초과하면 게이트 임계 재조정 또는 중단</li>
+</ul>
+<p><strong>4) cherry와의 A/B</strong> — 같은 편향의 favorite 쪽인 cherry와 동일 기간 수익률 비교 → 편향의 어느 쪽이 더 수확 가능한지 판단.</p>
+<p>베리에이션 후보 (각각 <code>--job fig-1</code> 식으로 job을 분리하면 DB가 분리되어 동시 A/B 운영 가능):</p>
+<ul>
+<li><strong>fig-1 (보수)</strong>: <code>POLYBOT_YES_MAX=0.15</code> — 더 깊은 롱샷만. TP 여지가 줄어드는 대신 사건 발생 확률도 낮아진다.</li>
+<li><strong>fig-2 (단기 집중)</strong>: <code>POLYBOT_ENTRY_HOURS_MAX=72</code> — 해결 3일 이내만 진입. theta가 가장 가파른 구간만 수확.</li>
+<li><strong>fig-3 (게이트 강화)</strong>: <code>POLYBOT_YES_RISE_BLOCK_24H=0.00</code>, <code>POLYBOT_YES_SPIKE_BLOCK_6H=0.03</code> — YES가 조금이라도 오르는 중이면 진입 금지. 진입 수는 줄고 안전도는 올라간다.</li>
+</ul></section>
+<section><h2>실행 (Jenkins)</h2><pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 파라미터 예시 (기본값과 다르게 운영할 때만)
+export POLYBOT_YES_MAX=0.25
+export POLYBOT_TAKE_PROFIT=0.06
+export POLYBOT_REENTRY_COOLDOWN_HOURS=24
+
+cd ./golden-fig
+uv sync
+uv run python ./main.py run</pre>
+<p>3~5분 주기 cron 트리거를 권장한다 (스냅샷 축적이 시그널 품질을 좌우).</p></section>
+<footer>Golden Burger 전략 시리즈 · golden-fig · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

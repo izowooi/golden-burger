@@ -122,7 +122,8 @@ data/
 └── {job_name}/
     ├── trades.db           # 실거래 SQLite DB
     ├── trades_sim.db       # 시뮬레이션 DB (분리)
-    ├── trades_YYYY-MM.csv  # 완료 거래 월별 CSV (deviation_at_buy 등 분석 컬럼 포함)
+    ├── trades_YYYY-MM.csv  # 완료 거래 월별 CSV (deviation_at_buy/deviation_at_exit,
+    │                       #   strategy_name/mode/volume_24h_at_buy 등 회고 분석 컬럼 포함)
     └── logs/YYYYMMDD.log   # 일자별 로그
 ```
 

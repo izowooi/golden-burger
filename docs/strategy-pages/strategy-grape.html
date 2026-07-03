@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-grape — Cascade Rider (정보 폭포 편승)</title>
+<style>
+:root{
+  --accent:#7d3fa8;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍇</div>
+  <h1>golden-grape <span class="en">— Cascade Rider</span></h1>
+  <p class="tagline">정보 폭포 편승 — "소폭이지만 일관된 24h 드리프트 + 거래량 가속"이 확인된 시장에 편승해, 정보가 대중 전체에 확산되기 전 구간의 추가 이동을 수확한다.</p>
+  <div class="badges"><span>유형 <b>편승</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>정보 폭포 · 과소반응</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula"># 매수 토큰 기준 가격 p (YES 상승 드리프트 → YES 매수, YES 하락 → NO 매수)
+drift_24h = p_now − p_24h_ago
+ENTER iff 0.40 ≤ p_now ≤ 0.80
+      AND +0.04 ≤ drift_24h ≤ +0.10            # 소폭·일관 드리프트만 (10%+는 mean-revert)
+      AND nonneg_buckets(4h 버킷 × 6) ≥ 70%    # 버킷 일관성 게이트
+      AND vol24h_now ≥ 1.2 × avg(vol24h, 24h)  # 거래량 가속 게이트</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>예측시장 참가자는 동시에 정보를 얻지 않는다. 정보에 가까운 소수가 먼저 베팅하면 가격이 소폭 움직이고, 그 가격 변화 자체가 신호가 되어 나머지 대중이 뒤따라 베팅한다(정보 폭포, information cascade). 이 확산이 완료되기 전까지 가격은 새 정보를 <strong>부분적으로만</strong> 반영한 상태이므로, 초기 드리프트에 편승하면 잔여 이동을 수확할 수 있다. 반대로 급격한 대형 움직임은 이미 확산이 끝났거나 과잉반응이므로 편승 가치가 없다.</p>
+<p>레포 공유 리서치(<code>docs/polymarket-strategy-momentum.md</code>, banana/cherry 레포)는 <strong>"2-3% 일일 변화는 같은 방향으로 추가 이동할 확률이 6-8% 상승(가장 강한 모멘텀)"</strong>, <strong>"10%+ 일일 변화는 모멘텀 약화, 평균회귀 가능성 높음"</strong>을 보고한다. grape의 드리프트 밴드 <code>[+0.04, +0.10]</code>은 이 발견을 그대로 구현한 것이다 — 하한 0.04는 노이즈(±1~2%p 일상 변동)를 걸러내고, 상한 0.10은 mean-revert 영역을 배제한다.</p>
+<p>또 하나의 축은 <strong>banana 골든크로스 전략 실패의 교정</strong>이다. banana <code>STRATEGY_ANALYSIS.md</code>에서 확인된 실패 원인 5가지를 grape는 다음과 같이 고쳤다.</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>banana의 실패 원인</th><th>grape의 교정</th></tr>
+<tr><td>1</td><td><strong>도달 불가 threshold</strong>: golden cross 임계값 0.02가 "스냅샷당 기울기" 단위여서 15분에 약 6%p 급등해야 발화 — 실로그 diff는 ±0.007 이하로 사실상 무전략으로 퇴화</td><td>임계값을 <strong>윈도우 전체 변화량(%p)</strong>으로 재정의. 24h에 +4~10%p는 리서치가 실측한, 실제로 도달 가능한 밴드</td></tr>
+<tr><td>2</td><td><strong>count 기반 윈도우</strong>: "최신 N개 스냅샷"이라 Jenkins 중단 시 "15분 윈도우"가 몇 시간을 커버해도 그대로 계산</td><td><strong>timestamp 기반 윈도우</strong>(ts ≥ now − 24h) + <strong>커버리지 검증</strong>(포인트 ≥ 5개 AND 커버 시간 ≥ lookback의 50%)</td></tr>
+<tr><td>3</td><td><strong>관대한 cold-start 폴백</strong>: 스냅샷 6개 미만이면 "단기 momentum &gt; 0"만으로 진입 — 실운영 매수의 전부가 이 우회 경로</td><td>폴백 <strong>제거</strong>. invalid → <code>/prices-history</code> 백필 시도 → 그래도 invalid면 <strong>진입하지 않는다</strong></td></tr>
+<tr><td>4</td><td><strong>양 끝점 2개 값만 사용</strong>: 끝점 노이즈에 민감, 중간 경로 무시</td><td><strong>버킷 일관성 게이트</strong>: 24h를 4h 버킷 6개로 나눠 70% 이상이 비음(≥ 0) 변화여야 진입</td></tr>
+<tr><td>5</td><td><strong>확인 신호 부재</strong>: 가격 기울기 하나로만 판단</td><td><strong>거래량 가속 게이트</strong>: volume24hr가 24h 평균의 1.2배 이상 — "가격이 오르는데 거래량도 붙는다"는 이중 확인</td></tr>
+</table></div>
+<p>기존 봇 공통 버그도 함께 수정했다: 영구 one-shot 거래 제한 → 24h 쿨다운 재진입, rapid_jump 영구 skip → timestamp 기반 skip, 해결된 시장의 HOLDING 영구 잔류 → EXPIRED 처리, take_profit 도달 불가 → 목표가 0.99 캡, <code>LOG_LEVEL</code> env 지원.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모든 조건 AND. 드리프트 방향 토큰 기준 가격 p로 판정한다.</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>1</td><td>유동성 / 거래량 / 잔여시간</td><td>liquidity ≥ $20,000 · volume24hr ≥ $10,000 · 해결까지 ≥ 48h</td><td>신호 신뢰성 + 러닝룸 확보</td></tr>
+<tr><td>2</td><td>윈도우 유효성</td><td>24h 윈도우 포인트 ≥ 5개, 커버리지 ≥ 12h. invalid면 <code>/prices-history</code> 백필 시도, 그래도 invalid면 진입 금지</td><td>banana 교정 #2, #3 — 데이터 없이는 베팅하지 않는다</td></tr>
+<tr><td>3</td><td>방향 결정</td><td>YES 상승 드리프트 → YES 매수, YES 하락(= NO 상승) → NO 매수. 이하 조건은 매수 토큰 기준</td><td>Polymarket에 숏 없음</td></tr>
+<tr><td>4</td><td>가격 밴드</td><td>p ∈ [0.40, 0.80]</td><td>러닝룸 있는 중간 구간</td></tr>
+<tr><td>5</td><td>24h 드리프트</td><td>+0.04 ≤ (현재가 − 24h 전 가격) ≤ +0.10</td><td>리서치: 소폭 모멘텀 지속, 10%+ 회귀</td></tr>
+<tr><td>6</td><td>일관성</td><td>4h 버킷 6개 중 ≥ 70%가 비음(≥ 0) 변화. 판정 가능 버킷이 절반 미만이면 데이터 부족으로 진입 금지</td><td>banana 교정 #4 — 끝점 노이즈 배제</td></tr>
+<tr><td>7</td><td>거래량 가속</td><td>현재 volume24hr ≥ 24h 윈도우 평균의 1.2배</td><td>banana 교정 #5 — 정보 확산의 이중 확인</td></tr>
+<tr><td>8</td><td>재진입</td><td>HOLDING 없음 + 마지막 청산/skip 후 24h 경과</td><td>영구 one-shot 제거</td></tr>
+</table></div>
+<p>매수 직전 CLOB midpoint로 재검증한다: 밴드 상한(0.80) 초과 급등이면 skip(<code>rapid_jump</code>, 쿨다운 후 재평가), 하한(0.40) 미만 하락이면 이번 사이클만 skip.</p>
+</section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순으로 매 사이클 검사한다.</p>
+<div class="tbl"><table>
+<tr><th>순위</th><th>조건</th><th>값</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>손절</td><td>P&amp;L ≤ -8%</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>익절</td><td>현재가 ≥ min(진입가 × 1.15, <strong>0.99</strong>)</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>드리프트 소멸</td><td>최근 6h 매수 토큰 가격 변화 ≤ 0 (포인트 2개 미만이면 판단 보류)</td><td><code>drift_death</code></td></tr>
+<tr><td>4</td><td>트레일링 스탑</td><td>최고가 대비 -6%</td><td><code>trailing_stop</code></td></tr>
+<tr><td>5</td><td>시간 청산</td><td>해결까지 &lt; 24h</td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>해결 시장</td><td>midpoint 조회 실패 + end_date 24h 경과 → EXPIRED 마감 (수동 redeem 필요)</td><td><code>resolved_unredeemed</code></td></tr>
+</table></div>
+</section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>env &gt; config.yaml &gt; 코드 기본값</strong>.</p>
+<p><strong>전략 파라미터</strong></p>
+<div class="tbl"><table>
+<tr><th>env var</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_PROB_MIN</code></td><td>0.40</td><td>매수 토큰 가격 하한</td></tr>
+<tr><td><code>POLYBOT_PROB_MAX</code></td><td>0.80</td><td>매수 토큰 가격 상한</td></tr>
+<tr><td><code>POLYBOT_DRIFT_LOOKBACK_HOURS</code></td><td>24</td><td>드리프트 판정 윈도우 (h)</td></tr>
+<tr><td><code>POLYBOT_DRIFT_MIN</code></td><td>0.04</td><td>드리프트 하한 (+4%p)</td></tr>
+<tr><td><code>POLYBOT_DRIFT_MAX</code></td><td>0.10</td><td>드리프트 상한 (mean-revert 배제)</td></tr>
+<tr><td><code>POLYBOT_BUCKET_HOURS</code></td><td>4</td><td>일관성 버킷 크기 (h)</td></tr>
+<tr><td><code>POLYBOT_CONSISTENCY_MIN</code></td><td>0.70</td><td>비음 버킷 비율 하한</td></tr>
+<tr><td><code>POLYBOT_VOL_ACCEL_MIN</code></td><td>1.2</td><td>거래량 가속 배수 하한</td></tr>
+<tr><td><code>POLYBOT_DEATH_WINDOW_HOURS</code></td><td>6</td><td>드리프트 소멸 판정 윈도우 (h)</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>48</td><td>해결까지 최소 잔여시간 (h)</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>24</td><td>시간 청산 기준 (h)</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_ENABLED</code></td><td>true</td><td>트레일링 스탑 on/off</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_PERCENT</code></td><td>0.06</td><td>트레일링 스탑 %</td></tr>
+</table></div>
+<p><strong>공통 파라미터 (전 봇 동일 이름)</strong></p>
+<div class="tbl"><table>
+<tr><th>env var</th><th>기본값</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>20000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>10000</td><td>최소 24h 거래량 $</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.15</td><td>익절 % (목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.08</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션 (-1 무제한)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운 (h)</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (comma 구분, 기본 비활성)</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨</td></tr>
+</table></div>
+</section>
+<section><h2>이 전략이 실패하는 경우</h2>
+<ul class="risk">
+<li><strong>드리프트가 이미 완성된 정보일 때</strong>: 24h 드리프트가 "초기 확산"이 아니라 이미 반영이 끝난 결과라면 진입 시점이 곧 고점이다. 거래량 가속 게이트가 일부 걸러주지만 보장은 없다.</li>
+<li><strong>뉴스 반전</strong>: 편승 직후 반대 방향 뉴스가 나오면 드리프트가 급반전한다. 손절 -8%와 드리프트 소멸 청산이 방어선이지만 갭 하락에는 무력하다.</li>
+<li><strong>낮은 신호 빈도</strong>: 조건 8개가 모두 AND라서 후보가 드물 수 있다. 특히 일관성 70% + 거래량 1.2배 조합은 보수적이다. 거래가 너무 적으면 통계적 검증 자체가 늦어진다.</li>
+<li><strong>횡보 시장에서의 왕복 손실</strong>: 드리프트가 밴드 안에서 생겼다 죽었다를 반복하면 진입 → drift_death 청산 → 쿨다운 후 재진입의 왕복 비용(스프레드)이 누적된다.</li>
+<li><strong>거래량 지표의 한계</strong>: gamma <code>volume24hr</code>는 시장 전체 거래량이지 방향별 거래량이 아니다. 반대 방향 매물 폭증도 "가속"으로 잡힌다.</li>
+<li><strong>스냅샷/백필 데이터 품질</strong>: 백필 실패 + 스냅샷 부족 구간에서는 진입 자체가 불가능하다 (의도된 동작이지만 기회비용이다).</li>
+<li><strong>negRisk 다후보 이벤트</strong>: YES/NO 2-outcome 가정으로 판정하므로 다후보 이벤트에서는 후보 간 자금 이동이 드리프트로 오인될 수 있다.</li>
+</ul>
+</section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>1) 시뮬레이션 (1~2주)</strong>: <code>uv run python main.py run --simulate --job sim-grape</code>를 Jenkins 3~5분 주기로 실행. <code>data/sim-grape/trades_sim.db</code>로 신호 빈도와 가상 손익 확인. 신호가 주 3건 미만이면 <code>POLYBOT_CONSISTENCY_MIN</code>/<code>POLYBOT_VOL_ACCEL_MIN</code> 완화를 검토.</li>
+<li><strong>2) 소액 실전 (4주)</strong>: <code>POLYBOT_BUY_AMOUNT=5</code>로 실전 전환. 대시보드(<code>GOLDEN-GRAPE</code>)와 daily-report로 잔고 추적.</li>
+<li><strong>3) 판단 기준 (4주 &amp; 30+ 거래)</strong>: 승률 ≥ 55% AND 평균 손익 &gt; 0 → 금액 증액. <code>drift_death</code>/<code>trailing_stop</code> 비중이 70%를 넘으면 진입 신호가 늦다는 뜻 → 드리프트 하한 완화 검토. 승률 &lt; 45% → 전략 기각 또는 파라미터 재설계.</li>
+</ul>
+<pre class="code">-- 검증 쿼리 (data/{job}/trades.db) — status는 enum 이름으로 저장됨 (COMPLETED/EXPIRED)
+SELECT exit_reason, COUNT(*) cnt, ROUND(AVG(realized_pnl), 4) avg_pnl,
+       SUM(CASE WHEN realized_pnl &gt; 0 THEN 1 ELSE 0 END) * 1.0 / COUNT(*) win_rate
+FROM trades WHERE status = 'COMPLETED' GROUP BY exit_reason;</pre>
+</section>
+<section><h2>실행 (Jenkins)</h2>
+<pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 파라미터 예시 (선택)
+export POLYBOT_DRIFT_MIN=0.04
+export POLYBOT_CONSISTENCY_MIN=0.70
+export POLYBOT_VOL_ACCEL_MIN=1.2
+
+cd ./golden-grape
+uv sync
+uv run python ./main.py run</pre>
+<p>3~5분 주기 cron 트리거를 권장한다 (스냅샷 축적 주기 = 드리프트 판정 해상도).</p>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-grape · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

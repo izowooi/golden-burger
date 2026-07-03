@@ -36,6 +36,7 @@ class EntryDecision:
     reason: str
     hours_left: Optional[float] = None
     momentum_change: Optional[float] = None
+    ladder_band: Optional[int] = None  # 진입 밴드 번호 1/2/3 (DB 회고 기록용)
 
 
 # ---------------------------------------------------------------------------
@@ -252,7 +253,11 @@ def evaluate_entry(
     if not gate_ok:
         return EntryDecision(False, gate_reason, hours_left, change)
 
-    return EntryDecision(True, f"{ladder_reason}_{gate_reason}", hours_left, change)
+    # 판정에는 쓰지 않는 회고 기록용 수치 (entry_reason 문자열 파싱 없이 컬럼으로 적재)
+    band = ladder_band(hours_left, entry_hours_min, rungs)
+    band_no = band[0] if band else None
+
+    return EntryDecision(True, f"{ladder_reason}_{gate_reason}", hours_left, change, band_no)
 
 
 # ---------------------------------------------------------------------------

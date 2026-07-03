@@ -1,0 +1,60 @@
+# Polymarket Trading Bot Configuration (Golden Nectarine)
+# Bottom Fisher 전략 - 롤링 최저가 역추세 (QuantPedia 백테스트 복제)
+# 장기(30일+) tail~중간 구간(YES 3~50%) 시장에서 20일 롤링 최저가 이하로
+# 떨어지면 YES 매수, 보유 120시간(5일) 경과 시 무조건 청산 (calendar exit)
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 10000
+
+  # 최소 24시간 거래량 ($) - 0이면 비활성 (얇은 장기 tail 시장이 대상이라 기본 비활성)
+  min_volume_24h: 0
+
+  # 익절 안전판 (진입가 대비 +30%) - 조기 행운 익절, 주 청산 경로는 calendar exit
+  take_profit_percent: 0.30
+
+  # 손절 안전판 (진입가 대비 -30%)
+  stop_loss_percent: -0.30
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간) - 7일
+  # 롤링 최저가 부근에서는 매 사이클이 신저가라 연속 재진입이 쉬우므로 길게 잡는다
+  reentry_cooldown_hours: 168
+
+  # CLOB prices-history 백필 활성화
+  # 20일 룩백은 스냅샷 축적만으로 채울 수 없다 - 이 전략의 생명선
+  history_backfill: true
+
+  # Bottom Fisher 전략 파라미터
+  strategy:
+    # 롤링 최저가 룩백 (일) - QuantPedia 백테스트의 X=20
+    lookback_days: 20
+    # 최저가 산출 시 제외할 최근 구간 (시간) - 진행 중인 하락 자체를 기준선에서 배제
+    exclude_recent_hours: 24
+    # calendar exit 보유 시간 - QuantPedia 백테스트의 Y=5일
+    hold_hours: 120
+    # 진입 가능한 YES 가격 하한 (tail 구간)
+    prob_min: 0.03
+    # 진입 가능한 YES 가격 상한 (중간 구간까지)
+    prob_max: 0.50
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 시간 (720시간 = 30일)
+    # 장기 시장만 - 룩백 20일 동안 theta 자연 감쇠가 신저가를 계속 만드는 것을 차단
+    entry_hours_min: 720
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (24시간)
+    exit_hours: 24
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

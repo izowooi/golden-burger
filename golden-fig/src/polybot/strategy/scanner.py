@@ -332,6 +332,7 @@ class MarketScanner:
                 "yes_price": yes_price,
                 "token_id": side["token_id"],
                 "liquidity": float(market.get("liquidity") or 0),
+                "volume_24h": float(market.get("volume24hr") or 0),
                 "entry_reason": signal.reason,
                 "end_date": end_date,
                 "hours_until_resolution": hours_left,

@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-cherry — Resolution Momentum</title>
+<style>
+:root{
+  --accent:#b03050;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍒</div>
+  <h1>golden-cherry <span class="en">— Resolution Momentum</span></h1>
+  <p class="tagline">해결까지 24~720h 남은 75~92% favorite을 매수해 해결 직전 수렴(0.95+)을 캡처 — 손절·익절·트레일링·시간 청산의 4중 리스크 관리.</p>
+  <div class="badges"><span>유형 <b>해결 수렴</b></span><span>상태 <b>운영 중 (최고 수익)</b></span><span>핵심 편향 <b>favorite-longshot bias</b></span></div>
+</header>
+
+<section><h2>핵심 수식</h2><pre class="formula">BUY : 0.75 ≤ p ≤ 0.92 (양끝 포함)  AND  24h ≤ (endDate - now) ≤ 720h
+      AND liquidity ≥ 10,000  AND  condition_id당 평생 1회
+
+SELL (우선순위 순, 매 사이클 midpoint 검사):
+  ① P&amp;L ≤ -8%  (stop_loss)        ② P&amp;L ≥ +10%  (take_profit)
+  ③ 현재가 &lt; 최고가 × 0.95 (trailing_stop)   ④ 해결 12h 전 (time_exit)</pre></section>
+
+<section><h2>전략 개요</h2>
+<p>Golden Cherry는 <strong>"해결(resolution)이 가까워진 고확률 favorite은 1.0으로 수렴한다"</strong>는 가정에 베팅하는 봇이다. Gamma API로 유동성 있는 활성 시장을 전수 스캔해서, 확률이 75~92% 구간(config 기준)이고 해결까지 24h~720h(1~30일) 남은 시장의 favorite 토큰을 시장당 1회, 고정 금액(USDC)으로 매수한다. 이후 Jenkins가 3~5분마다 봇을 재실행할 때마다 보유 포지션의 midpoint를 조회해 손절(-8%) → 익절(+10%) → 트레일링 스탑(최고점 대비 -5%) → 시간 청산(해결 12h 전) 순으로 청산 조건을 검사한다. 핵심 수익 원천은 <strong>"매수가 0.75~0.92 → 해결 직전 0.95~0.99 매도"의 수렴 구간 캡처</strong>이며, 한 번 거래(또는 skip)한 시장은 영구히 재진입하지 않는다.</p>
+<p>원래 PRD는 "80% 매수 → 90% 매도" 단순 전략이었고, 이후 모멘텀(골든크로스) 전략을 거쳐 현재의 Resolution Momentum(시간 기반 진입 + 4중 청산)으로 정착했다.</p>
+</section>
+
+<section><h2>매수·매도 조건</h2>
+<p><strong>매수 — 스캔 조건</strong> (아래를 모두 통과해야 후보):</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>구현</th><th>비고</th></tr>
+<tr><td>1</td><td>활성 시장</td><td>Gamma <code>GET /markets?active=true&amp;closed=false</code> 페이지네이션(100개씩, offset≥5000 안전 중단)</td><td></td></tr>
+<tr><td>2</td><td>카테고리 필터</td><td><code>is_sports_market()</code> — <code>excluded_categories</code>가 빈 배열이면 필터 완전 비활성화</td><td>현재 config는 <code>[]</code> → 스포츠 포함 전체 스캔</td></tr>
+<tr><td>3</td><td>유동성</td><td><code>liquidity ≥ min_liquidity</code> (클라이언트 측)</td><td>config 10,000 / 코드 기본 50,000</td></tr>
+<tr><td>4</td><td>side 선택</td><td>기본: Yes/No 중 확률 높은 쪽. <code>--yes-only</code>: 무조건 index 0(Yes) 토큰만 평가</td><td>아래 yes-only 설명 참고</td></tr>
+<tr><td>5</td><td>확률 구간</td><td><code>buy_threshold ≤ p ≤ sell_threshold</code> (양끝 포함)</td><td>0.75 ≤ p ≤ 0.92</td></tr>
+<tr><td>6</td><td>시간 구간</td><td><code>entry_hours_min ≤ (endDate - now) ≤ entry_hours_max</code> (time_based 활성 시). endDate 없음/과거면 제외</td><td>24h ~ 720h</td></tr>
+</table></div>
+<p><strong>매수 — 실행 재검증</strong> (후보별):</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>동작</th></tr>
+<tr><td>1</td><td><code>is_already_traded(condition_id)</code></td><td>trades 또는 skipped_markets에 있으면 skip (영구)</td></tr>
+<tr><td>2</td><td><code>max_positions</code> (&gt;0일 때만)</td><td>HOLDING 수 도달 시 skip. 기본 -1(무제한)</td></tr>
+<tr><td>3</td><td>CLOB <code>get_midpoint</code>로 현재가 재조회</td><td>조회 실패 시 skip</td></tr>
+<tr><td>4</td><td>현재가 &gt; <code>sell_threshold</code></td><td><strong>rapid_jump</strong>로 skipped_markets에 영구 등록 후 skip</td></tr>
+<tr><td>5</td><td>현재가 &lt; <code>buy_threshold</code></td><td>skip (영구 아님, 다음 사이클 재도전 가능)</td></tr>
+<tr><td>6</td><td><code>buy_shares = buy_amount_usdc ÷ 현재가</code> &lt; 5.0</td><td>skip — Polymarket 최소 주문 5주</td></tr>
+<tr><td>7</td><td>limit order (midpoint 0.01 tick 반올림, [0.01, 0.99] clamp, BUY, GTC)</td><td>성공 시 즉시 HOLDING 기록, <code>max_price = buy_price</code>로 초기화 (체결 확인 없음)</td></tr>
+</table></div>
+<p><strong>사이징</strong>: <code>buy_amount_usdc</code>는 USDC 달러 단위. 주수 = 금액 ÷ 가격 — 예: $5 @ 0.80 → 6.25주. 가격 0.92에서는 5주 최소요건 때문에 최소 $4.6 필요.</p>
+<p><strong>매도</strong> (매 사이클 보유 포지션 전수 검사. midpoint 조회 → <code>max_price</code> 갱신 → P&amp;L = (현재가-매수가)/매수가):</p>
+<div class="tbl"><table>
+<tr><th>순위</th><th>조건</th><th>파라미터</th><th>config 값</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>P&amp;L ≤ 손절선</td><td><code>stop_loss_percent</code></td><td>-0.08</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>P&amp;L ≥ 익절선</td><td><code>take_profit_percent</code></td><td>+0.10 (코드 기본 0.15)</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>현재가 &lt; 최고가×(1-트레일링)</td><td><code>trailing_stop.percent</code></td><td>0.05</td><td><code>trailing_stop</code></td></tr>
+<tr><td>4</td><td>해결까지 &lt; 청산시간</td><td><code>time_based.exit_hours</code></td><td>12h</td><td><code>time_exit</code></td></tr>
+</table></div>
+<p>매도 = 현재 midpoint에 지정가 GTC SELL(보유 주수 전량). 성공 판정 즉시 <code>COMPLETED</code> + <code>realized_pnl = (매도가-매수가)×주수</code> 기록, 월별 CSV(<code>data/{job}/trades_YYYY-MM.csv</code>) append.</p>
+<p><strong>중요한 상호작용</strong>: <code>max_price</code>가 매수가로 초기화되므로, 가격이 오르지 못하면 트레일링 -5%가 손절 -8%보다 <strong>먼저</strong> 발동한다. 즉 실효 손절선은 -5%이고, -8% 손절은 한 사이클(3~5분) 사이 3%p 이상 갭 하락할 때만 작동하는 백업이다. 또 TP +10%는 매수가 ≤ 0.909일 때만 도달 가능(가격 상한 1.0) — 0.91~0.92 진입 건은 익절 불가, 트레일링/시간 청산으로만 나간다. 실제 수익의 본류는 "수렴 후 해결 12h 전 <code>time_exit</code>으로 0.95+ 매도"다.</p>
+<p><strong><code>--yes-only</code>와 side 선택</strong>: 기본 모드는 Yes/No 중 높은 쪽을 favorite으로 선택해 <strong>NO 토큰도 매수한다</strong>(longshot 시장의 No @ 0.9 등, 로그에서 다수 확인). <code>--yes-only</code>(Jenkins 운영 모드)는 항상 index 0 토큰만 반환 → NO 토큰은 절대 매수 불가, Yes 확률 75% 미만 시장(= No가 favorite)은 확률 필터에서 탈락. negRisk 다후보 이벤트에서는 "1위 후보만 산다"는 의미가 된다. 주의: CLI <code>--yes-only</code>는 켜기만 가능(끄려면 플래그 생략 + env/yaml false), <code>--simulate</code>도 동일 구조.</p>
+<p><strong>파라미터 총표</strong> (우선순위: env &gt; config.yaml &gt; 코드 기본값)</p>
+<div class="tbl"><table>
+<tr><th>파라미터</th><th>env</th><th>yaml 키</th><th>코드 기본</th><th>현재 yaml</th><th>의미</th></tr>
+<tr><td>매수 하한</td><td><code>POLYBOT_BUY_THRESHOLD</code></td><td><code>trading.buy_threshold</code></td><td>0.75</td><td>0.75</td><td>이 확률 이상만 매수</td></tr>
+<tr><td>매수 상한</td><td><code>POLYBOT_SELL_THRESHOLD</code></td><td><code>trading.sell_threshold</code></td><td>0.92</td><td>0.92</td><td>이 확률 초과 시 rapid_jump 영구 skip</td></tr>
+<tr><td>매수 금액</td><td><code>POLYBOT_BUY_AMOUNT</code></td><td><code>trading.buy_amount_usdc</code></td><td>5.0</td><td>5.0</td><td>건당 USDC (달러 단위)</td></tr>
+<tr><td>최소 유동성</td><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td><code>trading.min_liquidity</code></td><td>50000</td><td>10000</td><td>$ 기준</td></tr>
+<tr><td>최대 포지션</td><td><code>POLYBOT_MAX_POSITIONS</code></td><td><code>trading.max_positions</code></td><td>-1</td><td>-1</td><td>-1=무제한</td></tr>
+<tr><td>익절</td><td><code>POLYBOT_TAKE_PROFIT</code></td><td><code>trading.take_profit_percent</code></td><td>0.15</td><td>0.10</td><td>진입가 대비</td></tr>
+<tr><td>손절</td><td><code>POLYBOT_STOP_LOSS</code></td><td><code>trading.stop_loss_percent</code></td><td>-0.08</td><td>-0.08</td><td>진입가 대비</td></tr>
+<tr><td>트레일링 on/off</td><td><code>POLYBOT_TRAILING_STOP_ENABLED</code></td><td><code>trading.trailing_stop.enabled</code></td><td>true</td><td>true</td><td></td></tr>
+<tr><td>트레일링 %</td><td><code>POLYBOT_TRAILING_STOP_PERCENT</code></td><td><code>trading.trailing_stop.percent</code></td><td>0.05</td><td>0.05</td><td>최고점 대비</td></tr>
+<tr><td>시간필터 on/off</td><td><code>POLYBOT_TIME_BASED_ENABLED</code></td><td><code>trading.time_based.enabled</code></td><td>true</td><td>true</td><td>false 시 매수 로그 f-string crash 버그 있음 (약점 9)</td></tr>
+<tr><td>진입 최대 잔여</td><td><code>POLYBOT_ENTRY_HOURS_MAX</code></td><td><code>trading.time_based.entry_hours_max</code></td><td>24</td><td>720</td><td>시간</td></tr>
+<tr><td>진입 최소 잔여</td><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td><code>trading.time_based.entry_hours_min</code></td><td>4</td><td>24</td><td>시간</td></tr>
+<tr><td>청산 잔여</td><td><code>POLYBOT_EXIT_HOURS</code></td><td><code>trading.time_based.exit_hours</code></td><td>4</td><td>12</td><td>시간</td></tr>
+<tr><td>YES-Only</td><td><code>POLYBOT_YES_ONLY</code> (CLI <code>--yes-only</code>가 최우선)</td><td><code>trading.yes_only_mode</code></td><td>false</td><td>(없음)</td><td></td></tr>
+<tr><td>제외 카테고리</td><td>(env 없음)</td><td><code>trading.excluded_categories</code></td><td>스포츠 10종</td><td><code>[]</code> (비활성)</td><td></td></tr>
+<tr><td>시뮬레이션</td><td>(CLI <code>--simulate</code>)</td><td><code>simulation_mode</code></td><td>false</td><td>false</td><td></td></tr>
+</table></div>
+<p>로그(2026-05-20) 기준 실제 운영 인스턴스는 env override로 85%~95% / 유동성 $20k / buy $2,000 조합도 사용된 적이 있다. yaml은 baseline일 뿐, Jenkins env가 실제 운영값이다. 필수 credential은 <code>POLYMARKET_PRIVATE_KEY</code>·<code>POLYMARKET_FUNDER_ADDRESS</code>(없으면 즉시 종료, private key의 hex prefix는 자동 제거).</p>
+</section>
+
+<section><h2>이용하는 심리</h2>
+<ul>
+<li><strong>Favorite-Longshot Bias</strong>: 예측시장 참가자는 복권성 longshot을 과대평가하고 favorite을 과소평가하는 경향이 있다. 75~92% 구간의 favorite은 실제 실현 확률 대비 저평가되어 있어, favorite 매수는 구조적 +EV라는 가정.</li>
+<li><strong>해결 직전 수렴 (정보 확실성 증가)</strong>: 해결이 가까워질수록 불확실성이 사라지며 가격이 0 또는 1로 수렴한다. 전략 문서는 Dune Analytics 데이터(24h 전 정확도 88.6% → 4h 전 94.2%)를 근거로 인용. 봇은 이 마지막 수렴 구간(0.8 → 0.98)의 "시간가치 소멸"을 산다.</li>
+<li><strong>관성/앵커링</strong>: 이미 방향이 정해진 이벤트도 대중은 마지막까지 극단가(0.99) 매수를 주저하므로 0.9 부근에 유동성이 남는다. 봇은 그 잔여 스프레드를 기계적으로 수취한다.</li>
+<li><strong>해결 리스크 회피 프리미엄</strong>: 해결 직전 보유는 "혹시나" 리스크가 있어 대중이 프리미엄을 요구한다. 봇은 12h 전 <code>time_exit</code>으로 그 리스크를 다음 사람에게 넘기면서 수렴분만 취한다.</li>
+</ul>
+</section>
+
+<section><h2>강점</h2>
+<ul>
+<li><strong>단순하고 검증 가능한 상태 머신</strong>: 스캔 → 매수 → 4중 청산. 사이클당 1회 실행이라 Jenkins 장애 시에도 상태가 DB에 남는다.</li>
+<li><strong>수렴 구간 캡처 구조가 실제로 돈이 되는 설계</strong>: TP에 안 걸려도 <code>time_exit</code>이 해결 12h 전 0.95+에서 강제로 이익을 실현시켜, favorite 승리 시 8~20% 구간 수익을 체계적으로 회수한다.</li>
+<li><strong>rapid_jump skip</strong>: 스캔~주문 사이 급등한 시장을 사지 않고 영구 제외 — "계단식 급변 시 아무것도 안 한다"는 PRD 요구를 그대로 구현.</li>
+<li><strong>운영 편의</strong>: env&gt;yaml&gt;기본값 3단 설정, job별 DB/로그 분리, 월별 CSV, HTML 리포트, 페이지네이션 422 정상 종료, 429/5xx 백오프 등 운영 디테일이 좋다.</li>
+<li><strong>중복 진입 방지</strong>가 DB unique + skip 테이블로 견고하다 (동일 job 내에서는).</li>
+</ul>
+</section>
+
+<section><h2>약점 (허점)</h2>
+<ul class="risk">
+<li><strong>체결 확인 없음 (가장 큰 회계 허점)</strong>: 지정가 GTC 주문을 midpoint에 내고 <code>orderID</code>만 받으면 즉시 HOLDING/COMPLETED로 기록. 미체결·부분체결이면 DB와 지갑이 영구히 어긋난다. 미체결 주문 취소/재시도 로직도 없음.</li>
+<li><strong>midpoint 기준 P&amp;L 과대평가</strong>: 실제 매수는 ask, 매도는 bid 근처 체결인데 봇은 mid로 사고 mid로 판 것으로 기록. 스프레드 2틱이면 $5 포지션에서 왕복 ~2-4%가 허수.</li>
+<li><strong>해결된 시장 처리 부재</strong>: 보유 중 시장이 endDate보다 먼저 해결되면 orderbook 404 → 매 사이클 매도 실패 → <strong>영구 HOLDING 좀비 포지션</strong> (2026-05-20 로그에서 실제 발생). redeem·패배 확정 시 realized_pnl 반영도 없어 총 P&amp;L 통계가 실제와 어긋나는 주원인.</li>
+<li><strong>트레일링 스탑이 손절을 사실상 대체</strong>: 실효 손절선 -5%. 75~85% 구간 favorite의 일상 노이즈(±3~5%p)에 whipsaw로 털리기 쉽고, -8% 손절 파라미터는 장식에 가깝다.</li>
+<li><strong>rapid_jump 영구 밴의 부작용</strong>: 한 번이라도 <code>sell_threshold</code>를 넘으면 영구 skip — 이후 가격이 구간으로 되돌아와도 기회를 영영 잃는다 (30일 진입창에서는 과도하게 보수적).</li>
+<li><strong>endDate 신뢰성</strong>: Gamma <code>endDate</code>는 실제 해결 시각이 아니라 마감 예정일인 경우가 많다. 조기 해결이면 time_exit 발동 기회 자체가 없고, 늦은 해결이면 12h 전 청산이 무의미하게 일찍 나간다. <code>no_end_date</code> 시장은 전부 배제.</li>
+<li><strong>노출 관리 없음</strong>: <code>max_positions=-1</code> + 고정 금액 → 후보 100개면 100건 매수. 이벤트 상관관계 제어가 없어 같은 선거의 "A 당선 Yes"와 "B 당선 No"를 동시 매수(2026-05-20 로그의 Texas primary 사례)해 동일 리스크를 2배로 진다.</li>
+<li><strong>job 간 중복 매수</strong>: 중복 방지가 job DB 단위라 같은 지갑으로 다른 job을 돌리면 같은 시장을 이중 매수한다.</li>
+<li><strong><code>time_based.enabled=false</code>면 매수 crash</strong>: 매수 로그 f-string이 None에 <code>.1f</code> 포맷을 적용해 TypeError → 사이클 전체 실패. 확률-only 모드는 현재 코드로 동작 불가.</li>
+<li><strong>스키마 마이그레이션 부재</strong>: 컬럼 추가 시마다 수동 DB 조치 필요 (2026-02-04 로그에 <code>no such column: trades.max_price</code> 사이클 실패 기록).</li>
+<li><strong>yes-only의 기회 손실</strong>: No가 favorite인 시장(Yes 8% / No 92%)은 진입 불가. 로그 기준 후보의 과반이 No side — 의도된 트레이드오프이나 진입 유니버스를 크게 줄인다.</li>
+<li><strong>config·README·문서 간 드리프트</strong>: README는 4~24h 창, 실제 yaml은 24~720h, 로그의 실운영은 85~95%로 제각각. 30일 창은 사실상 "시간 필터 있는 favorite 매수"다.</li>
+<li><strong>스포츠 필터 비활성</strong>: PRD는 스포츠 제외가 명시 요구였으나 현재 <code>excluded_categories: []</code>로 완전 꺼져 있고, 실제 NHL/월드컵/테니스 시장을 스캔·매수 중 (2026-05-20 로그: French Open No 매수).</li>
+<li><strong>알림 부재</strong>: SlackNotifier 미연결 — 주문 실패·좀비 포지션·사이클 crash가 로그 파일에만 남는다.</li>
+<li><strong>tick size 하드코딩(0.01)</strong>: 0.001 tick 시장에서 반올림이 과도해 유리한 가격을 버리고, clamp 상한 0.99로 고가 매도 시 1틱 손해 가능.</li>
+</ul>
+</section>
+
+<section><h2>개선 반영처</h2>
+<ul>
+<li><strong>golden-date — 허점 5개 수정</strong>: cherry에서 확인된 허점 5개를 수정해 설계된 후속 봇(시간 사다리 기반). cherry의 회계·청산 허점이 date의 설계 요구사항으로 직결됐다.</li>
+</ul>
+</section>
+
+<section><h2>A/B 검증 계획</h2>
+<p><strong>① 시뮬레이션</strong>: <code>--simulate</code> / yaml <code>simulation_mode</code> / <code>scripts/simulate.py</code> 3경로. DB가 <code>trades_sim.db</code>로 분리되고 주문만 가짜 성공(<code>SIM_BUY_xxxx</code>)으로 리턴하되, <strong>가격 조회(midpoint)는 실제 API를 사용</strong>하므로 시뮬레이션에도 실키(.env)가 필요하다. <strong>② 소액 실거래</strong>: yaml <code>buy_amount_usdc: 5.0</code>. <strong>③ 파라미터 변형 후 증액</strong>: Jenkins env override로 변형 운영(실로그 기준 85~95% / 유동성 $20k / 건당 $2,000 조합 이력). 판단 기준: 월별 CSV에 쌓이는 <code>hours_until_resolution_at_buy</code>·<code>entry_reason</code>으로 잔여시간 버킷별(24-72h / 72-240h / 240-720h) 승률·수익을 집계해 진입창의 우열을 데이터로 검증한다.</p>
+</section>
+
+<section><h2>실행 (Jenkins)</h2>
+<pre class="code"># Jenkins cron (3~5분 주기, one-shot — 봇 내부 루프 없음)
+cd ./golden-cherry
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+uv sync --frozen
+uv run polybot run --yes-only        # 운영 모드: Yes(index 0) 토큰만 매수
+# 상태는 data/{job}/trades.db, 월별 CSV는 data/{job}/trades_YYYY-MM.csv</pre>
+</section>
+
+<footer>Golden Burger 전략 시리즈 · golden-cherry · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

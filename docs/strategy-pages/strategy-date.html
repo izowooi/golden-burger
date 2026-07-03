@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-date — Conviction Ladder</title>
+<style>
+:root{
+  --accent:#8d6e4f;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🌴</div>
+  <h1>golden-date <span class="en">— Conviction Ladder</span></h1>
+  <p class="tagline">"해결이 가까울수록 비싸게, 멀수록 싸게만 favorite을 산다" — 잔여 시간에 비례한 3단 확률 밴드(사다리)로 사전 해결 수렴(pre-resolution convergence)을 수확한다.</p>
+  <div class="badges"><span>유형 <b>수렴 편승</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>확증 편향 + favorite-longshot bias</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">favorite = YES/NO 중 확률 높은 쪽,  p = favorite 가격,  h = 해결까지 잔여 시간
+
+BUY if (  6 &lt; h ≤  24 AND 0.80 ≤ p ≤ 0.95)   # 밴드1
+    or ( 24 &lt; h ≤  72 AND 0.75 ≤ p ≤ 0.92)   # 밴드2
+    or ( 72 &lt; h ≤ 168 AND 0.70 ≤ p ≤ 0.88)   # 밴드3
+   AND Δp(최근 6h) ≥ -0.01                     # 모멘텀 게이트: 하락 추세 아님</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p><strong>Favorite-longshot bias.</strong> 예측시장 참가자는 복권성 longshot을 과대평가하고 favorite을 과소평가한다. 70~95% 구간의 favorite은 실현 확률 대비 구조적으로 저평가되어 있어 favorite 매수는 +EV다.</p>
+<p><strong>사전 해결 수렴.</strong> 해결이 가까워질수록 불확실성이 사라지며 가격이 1.0으로 수렴한다. cherry가 인용한 Dune Analytics 데이터에 따르면 해결 24h 전 정확도 88.6% → 4h 전 94.2%. 이 마지막 수렴 구간의 "시간가치 소멸"이 수익 원천이다.</p>
+<p><strong>시간-확신 비례.</strong> 잔여 시간이 길수록 반전 리스크가 크다. 같은 0.93짜리 favorite이라도 하루 뒤 해결과 일주일 뒤 해결은 기대값이 다르다 — 그런데 cherry는 같은 밴드로 같은 가격을 지불했다. date는 이를 시간 사다리로 교정한 cherry 고도화 전략이다.</p>
+<p><strong>cherry에서 배운 것 — 수정한 5가지 허점:</strong></p>
+<div class="tbl"><table>
+<tr><th>#</th><th>cherry 허점</th><th>date의 수정</th></tr>
+<tr><td>①</td><td>잔여 시간과 무관한 고정 확률 밴드 (30일 남은 0.92도 매수)</td><td>시간 사다리: 멀수록 낮은 밴드만 허용</td></tr>
+<tr><td>②</td><td><code>--yes-only</code> 운영으로 NO-favorite 시장 절반을 버림</td><td>기본은 favorite side 자동 선택 (YES/NO 중 높은 쪽). <code>--yes-only</code>는 A/B용 옵션으로 유지</td></tr>
+<tr><td>③</td><td>하락 중인 favorite도 매수 (떨어지는 칼날)</td><td>모멘텀 게이트: 최근 6h favorite 변화 ≥ -0.01 이어야 진입</td></tr>
+<tr><td>④</td><td>rapid_jump 영구 skip (기회 영구 상실)</td><td>skip 기록에 timestamp를 두고 24h 쿨다운 후 재평가</td></tr>
+<tr><td>⑤</td><td>해결 12h 전 청산 → 정확도가 가장 올라가는 마지막 수렴 구간 포기</td><td>time exit을 해결 2h 전으로 연장</td></tr>
+</table></div>
+<p><strong>banana에서 배운 것.</strong> 개수 기반 스냅샷 윈도우는 Jenkins 중단 시 "15분 윈도우"가 몇 시간을 커버하는 버그 → <strong>timestamp 기반 윈도우 + 커버리지 검증</strong>으로 수정. cold-start 시 관대한 폴백이 사실상 무전략 퇴화로 이어지던 문제는 <strong>윈도우 invalid면 진입하지 않는</strong> 원칙으로 교체하고, 대신 CLOB <code>prices-history</code> 백필로 cold start 자체를 줄인다.</p>
+</section>
+<section><h2>진입 규칙</h2><div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>유동성 / 24h 거래량</td><td>liquidity ≥ $15,000 AND volume24hr ≥ $5,000</td><td>체결 가능성 확보, 저유동성의 가짜 가격 배제</td></tr>
+<tr><td>favorite side 선택</td><td>YES/NO 중 확률 높은 쪽 (<code>--yes-only</code> 시 index 0만)</td><td>NO-favorite 시장 절반을 버리지 않는다 (cherry 허점 ②)</td></tr>
+<tr><td>시간 사다리 (잔여 h, favorite 가격 p)</td><td>6 &lt; h ≤ 24: p ∈ [0.80, 0.95] / 24 &lt; h ≤ 72: p ∈ [0.75, 0.92] / 72 &lt; h ≤ 168: p ∈ [0.70, 0.88] (양끝 포함)</td><td>잔여 시간이 길수록 반전 리스크가 크므로 멀수록 낮은 밴드만 허용 (cherry 허점 ①)</td></tr>
+<tr><td>모멘텀 게이트</td><td>최근 6h 윈도우 favorite 가격 변화 ≥ -0.01. 윈도우 invalid(포인트 &lt; 5 또는 커버리지 &lt; 3h)면 백필 시도, 그래도 invalid면 <strong>진입 금지</strong></td><td>떨어지는 칼날 회피 (cherry 허점 ③), 무전략 퇴화 방지 (banana 교훈)</td></tr>
+<tr><td>재진입 쿨다운</td><td>HOLDING 없음 AND 마지막 매도/skip이 24h 이전</td><td>손절 직후 반복 진입 방지, 영구 skip 대신 재평가 허용 (cherry 허점 ④)</td></tr>
+<tr><td>주문 재검증</td><td>주문 직전 midpoint 재조회, 밴드 상한 초과 시 rapid_jump skip (쿨다운 TTL), 하한 미달 시 단순 skip, 5주 최소 주문 충족</td><td>스캔과 주문 사이의 가격 변동 대응</td></tr>
+</table></div></section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순으로 매 사이클 검사한다.</p>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>값</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>손절</td><td>P&amp;L ≤ -8%</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>익절</td><td>현재가 ≥ min(매수가 × 1.12, <strong>0.99</strong>)</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>트레일링 스탑</td><td>현재가 &lt; 최고가 × 0.95</td><td><code>trailing_stop</code></td></tr>
+<tr><td>4</td><td>시간 청산</td><td>해결까지 &lt; 2h</td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>해결된 시장 leak</td><td>midpoint 조회 실패 + endDate 24h 이상 경과 → EXPIRED 마감 (P&amp;L 미확정, 수동 redeem)</td><td><code>resolved_unredeemed</code></td></tr>
+</table></div></section>
+<section><h2>파라미터 (환경변수)</h2><div class="tbl"><table>
+<tr><th>env</th><th>기본</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>15000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>5000</td><td>최소 24h 거래량 $</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>6</td><td>진입 최소 잔여 시간 (이하 금지)</td></tr>
+<tr><td><code>POLYBOT_LADDER_H1</code> / <code>H2</code> / <code>H3</code></td><td>24 / 72 / 168</td><td>사다리 구간 상한 시간</td></tr>
+<tr><td><code>POLYBOT_BAND1_MIN</code> / <code>BAND1_MAX</code></td><td>0.80 / 0.95</td><td>밴드1 (6~24h)</td></tr>
+<tr><td><code>POLYBOT_BAND2_MIN</code> / <code>BAND2_MAX</code></td><td>0.75 / 0.92</td><td>밴드2 (24~72h)</td></tr>
+<tr><td><code>POLYBOT_BAND3_MIN</code> / <code>BAND3_MAX</code></td><td>0.70 / 0.88</td><td>밴드3 (72~168h)</td></tr>
+<tr><td><code>POLYBOT_MOMENTUM_LOOKBACK_HOURS</code></td><td>6</td><td>모멘텀 윈도우</td></tr>
+<tr><td><code>POLYBOT_MOMENTUM_MIN_CHANGE</code></td><td>-0.01</td><td>favorite 변화 하한</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.12</td><td>익절 % (목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.08</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_ENABLED</code></td><td>true</td><td>트레일링 on/off</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_PERCENT</code></td><td>0.05</td><td>최고점 대비 하락률</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>2</td><td>시간 청산 기준</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (빈 값 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_YES_ONLY</code></td><td>false</td><td>Yes(index 0) 토큰만 매수 (CLI <code>--yes-only</code>가 우선)</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>막판 반전 이벤트</strong>: 해결 2h 전까지 보유하므로 cherry(12h 전 청산)보다 막판 반전에 더 노출된다. 0.9대 favorite이 뒤집히면 -8% 손절로는 못 막는 갭 하락(0.9 → 0.2)이 가능하다.</li>
+<li><strong>트레일링이 손절을 대체하는 whipsaw</strong>: max_price가 매수가로 초기화되므로 실효 손절선은 -5%다. 70~80% 구간의 일상 노이즈(±3~5%p)에 반복적으로 털리면 수수료 없는 시장이어도 스프레드 비용이 누적된다.</li>
+<li><strong>모멘텀 게이트의 후행성</strong>: 6h 윈도우 변화는 후행 지표다. 급락 직전의 "평온한" favorite은 통과시키고, 일시 조정 후 반등할 favorite은 걸러내는 양방향 오류가 있다.</li>
+<li><strong>endDate 신뢰성</strong>: Gamma endDate는 마감 예정일이지 실제 해결 시각이 아니다. 조기 해결되면 time exit 기회 없이 EXPIRED로 빠질 수 있다 (leak 처리로 좀비는 안 남지만 P&amp;L은 미확정).</li>
+<li><strong>상관 리스크 무관리</strong>: 같은 이벤트의 여러 시장(예: 한 선거의 후보별 시장)을 동시 매수해 동일 리스크를 중복으로 질 수 있다. <code>max_positions</code>는 총량 제한일 뿐이다.</li>
+<li><strong>저변동 구간의 재진입 쿨다운</strong>: 24h 쿨다운은 완만히 수렴하는 시장에서 두 번째 진입 기회를 놓치게 할 수 있다 (반대로 쿨다운이 없으면 손절 반복 위험 — 트레이드오프).</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<p><strong>1) 시뮬레이션</strong> — <code>uv run python main.py run --simulate --job sim</code>을 Jenkins 3~5분 주기로 1~2주 축적. <code>data/sim/trades_sim.db</code> + 월별 CSV에서 진입 사유별 성과를 분리 집계한다. 회고 전용 컬럼(<code>strategy_name</code>="date", <code>mode</code>="live"/"sim", <code>volume_24h_at_buy</code>, <code>ladder_band_at_buy</code> 1/2/3, <code>momentum_at_buy</code>)이 trades·CSV에 함께 기록되므로 <code>entry_reason</code> 문자열 파싱 없이 사다리 단별·모멘텀 구간별 집계가 가능하다.</p>
+<p><strong>2) 소액 실전</strong> — <code>POLYBOT_BUY_AMOUNT=5</code>로 실주문 2주. 시뮬레이션과의 체결 편차(midpoint 가정 vs 실제)를 확인한다.</p>
+<p><strong>3) 판단 기준</strong> — 4주, 30+ 거래 기준:</p>
+<ul>
+<li>승률 ≥ 70% AND 평균 손익 &gt; 0 (수렴 전략은 소수 대형 손실 + 다수 소형 이익 구조이므로 평균이 중요)</li>
+<li>사다리 단별 승률 비교: 밴드3(멀리)이 밴드1(가까이)보다 유의미하게 나쁘면 h3 축소</li>
+<li><code>exit_reason</code> 분포: trailing_stop이 과반이면 whipsaw 의심 → 트레일링 지연/완화 검토</li>
+</ul>
+<p><strong>4) cherry와의 A/B</strong> — 같은 기간 cherry 계정 성과와 비교. 동일 GTC midpoint 체결 가정을 유지했으므로 회계 기준이 같다.</p>
+<p>베리에이션 후보 (job 분리로 동시 운영 가능):</p>
+<div class="tbl"><table>
+<tr><th>안</th><th>이름</th><th>변경 env</th></tr>
+<tr><td>A-1</td><td>date-1: 사다리 좁게 (단기 집중)</td><td><code>POLYBOT_LADDER_H3=24</code> (밴드1만 사용, h ≤ 24만 진입)</td></tr>
+<tr><td>A-2</td><td>date-2: YES-only</td><td>CLI <code>--yes-only</code> 또는 <code>POLYBOT_YES_ONLY=true</code> (cherry 운영 모드와 직접 비교)</td></tr>
+<tr><td>A-3</td><td>date-3: trailing off + 홀드</td><td><code>POLYBOT_TRAILING_STOP_ENABLED=false</code> (수렴을 2h 전까지 끝까지 태우고 -8% 손절만 사용)</td></tr>
+</table></div></section>
+<section><h2>실행 (Jenkins)</h2><pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 env 예시
+export POLYBOT_MOMENTUM_MIN_CHANGE=-0.01
+export POLYBOT_REENTRY_COOLDOWN_HOURS=24
+export POLYBOT_TRAILING_STOP_PERCENT=0.05
+
+cd ./golden-date
+uv sync
+uv run python ./main.py run</pre>
+<p>Jenkins job별로 DB/로그를 분리하려면 <code>--job &lt;이름&gt;</code>을 붙인다. YES 토큰만 매수하려면 <code>--yes-only</code>를 추가한다.</p></section>
+<footer>Golden Burger 전략 시리즈 · golden-date · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

@@ -110,6 +110,7 @@
    - 평균 손익 > 0, `max_holding` 청산 비율 < 40%
    - `resolved_unredeemed`(EXPIRED) 발생 시 원인 분석 우선
 4. 월별 CSV(`trades_YYYY-MM.csv`)의 `ref_price_at_buy`/`drop_at_buy`/`exit_reason`으로 낙폭 구간별 승률을 집계해 파라미터를 데이터로 조정한다.
+5. **회고 공통 컬럼** (A/B 포스트모템 계약): trades와 CSV에 `strategy_name`("elderberry"), `mode`("live"/"sim"), `volume_24h_at_buy`(매수 시점 gamma volume24hr), `stabilization_range_at_buy`(진입 판정에 쓴 안정화 구간 고저폭 max-min)를 기록한다. 교차 봇 UNION 쿼리 시 `strategy_name`으로 구분하고, sim/live 혼입은 `mode`로 걸러낸다.
 
 ## 7. 베리에이션 아이디어
 

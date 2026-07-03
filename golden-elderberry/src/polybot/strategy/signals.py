@@ -118,6 +118,7 @@ class PanicFadeSignal:
     current_price: Optional[float] = None  # 매수 토큰 기준 현재가
     drop: Optional[float] = None        # ref - current
     stab_std: Optional[float] = None    # 안정화 구간 표준편차
+    stab_range: Optional[float] = None  # 안정화 구간 고저폭 (max - min, 회고 기록용)
 
 
 def evaluate_panic_fade(
@@ -228,12 +229,15 @@ def evaluate_panic_fade(
             )
 
     stab_std = pstdev(p.price for p in stab_points)
+    # 판정은 std로 하고, 고저폭(max-min)은 회고 기록용으로만 계산한다
+    stab_prices = [p.price for p in stab_points]
+    stab_range = max(stab_prices) - min(stab_prices)
     if stab_std > params.stab_max_std:
         return PanicFadeSignal(
             entry=False, reason=f"not_stabilized_std_{stab_std:.4f}",
             side=side, token_index=token_index,
             ref_price=ref_price, current_price=price_now,
-            drop=drop, stab_std=stab_std,
+            drop=drop, stab_std=stab_std, stab_range=stab_range,
         )
 
     return PanicFadeSignal(
@@ -241,7 +245,7 @@ def evaluate_panic_fade(
         reason=f"panic_fade_ref{ref_price:.2f}_drop{drop:.2f}",
         side=side, token_index=token_index,
         ref_price=ref_price, current_price=price_now,
-        drop=drop, stab_std=stab_std,
+        drop=drop, stab_std=stab_std, stab_range=stab_range,
     )
 
 

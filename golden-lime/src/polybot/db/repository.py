@@ -237,6 +237,8 @@ class TradeRepository:
             "jump_size_at_buy", "base_price_at_buy",
             "buy_probability", "sell_probability",
             "market_tags",
+            "strategy_name", "mode",
+            "volume_24h_at_buy", "vol_mult_at_buy",
         ]
 
         row = {
@@ -257,6 +259,10 @@ class TradeRepository:
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "market_tags": trade.market_tags or "",
+            "strategy_name": trade.strategy_name or "",
+            "mode": trade.mode or "",
+            "volume_24h_at_buy": trade.volume_24h_at_buy if trade.volume_24h_at_buy is not None else "",
+            "vol_mult_at_buy": round(trade.vol_mult_at_buy, 6) if trade.vol_mult_at_buy is not None else "",
         }
 
         file_exists = csv_path.exists()

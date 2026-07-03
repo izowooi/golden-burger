@@ -212,6 +212,7 @@ class TradeRepository:
             "drift_at_buy", "consistency_at_buy", "vol_accel_at_buy",
             "buy_probability", "sell_probability",
             "market_tags",
+            "strategy_name", "mode", "volume_24h_at_buy", "drift_at_exit",
         ]
 
         row = {
@@ -233,6 +234,10 @@ class TradeRepository:
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "market_tags": trade.market_tags or "",
+            "strategy_name": trade.strategy_name or "",
+            "mode": trade.mode or "",
+            "volume_24h_at_buy": trade.volume_24h_at_buy if trade.volume_24h_at_buy is not None else "",
+            "drift_at_exit": trade.drift_at_exit if trade.drift_at_exit is not None else "",
         }
 
         file_exists = csv_path.exists()

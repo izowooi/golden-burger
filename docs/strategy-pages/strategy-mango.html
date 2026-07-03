@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-mango — Patience Premium</title>
+<style>
+:root{
+  --accent:#e8912d;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🥭</div>
+  <h1>golden-mango <span class="en">— Patience Premium</span></h1>
+  <p class="tagline">거의 확실해진 계약이 만기까지 남은 기간만큼 할인되어 거래되는 settlement discount를, 연환산 캐리 수익률 단일 수식으로 걸러 수확한다.</p>
+  <div class="badges"><span>유형 <b>수렴 (캐리)</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>시간선호 · 자본 잠김 회피</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula">연환산 캐리 수익률  y = ((1 - p) / p) × (8760 / hours_left)
+진입 ⇔ y &gt;= y_min                     (기본 y_min = 2.0 = 연 200%)
+
+# p에 사서 만기에 1.00을 받으면 수익률 = (1-p)/p — 이를 잔여 시간으로 연환산한 값이 y</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>이 전략은 기존 골든 시리즈(apple/banana/cherry 및 date~lime)의 내부 아이디어와 독립적으로, 공개 학술 문헌과 실증 연구에서 도출되었다. 핵심 근거는 arXiv 2605.31431 <em>"When Certainty Is Not Worth It: Capital Lock-Up and Settlement Discounting in Prediction Markets"</em>다. 이 연구는 예측시장 가격의 기간구조를 실측해, 만기까지 자본이 잠기는 기간에 비례하는 <strong>settlement discount</strong>가 체계적으로 존재함을 보였다. ASW(기간구조) 할인을 보정하면 근확실(near-certain) 구간의 가격 왜곡이 <strong>48~88% 소거</strong>된다. 즉 0.95짜리 "거의 확실" 계약이 0.95인 이유의 절반 이상이 "확률이 95%라서"가 아니라 "돈이 묶여서"다. 그 할인이 곧 이 전략이 사는 물건이다.</p>
+<p>이 왜곡은 구조적으로 지속된다. arXiv 2602.21091 <em>"Can Interest-Bearing Positions Solve the Long-Horizon Problem in Prediction Markets?"</em>는 담보에 이자가 붙지 않는 예측시장 구조가 장기 계약 가격을 구조적으로 왜곡함을 이론화했다. Polymarket의 USDC 담보는 무이자이므로 이 왜곡이 그대로 존재하고, 시장이 이 문제를 해결하기 전까지 캐리는 구조적으로 지속된다. 고전적 근거로는 <em>"The cost of capital in a prediction market"</em> (International Journal of Forecasting)이 예측시장 가격에 자본비용이 반영되어 있음을 이미 보였다.</p>
+<p>방향의 실증도 있다. CEPR VoxEU <em>"The economics of the Kalshi prediction market"</em>는 Kalshi 실증에서 고가(고확률) 계약이 <strong>양(+)의 초과수익</strong>을 보였음을 확인했다 — favorite-longshot bias의 favorite 쪽이다. 대중은 롱샷에 복권 심리로 과지불하고 favorite을 과소평가하며, 캐리 매수는 이 편향의 수혜 방향과 정확히 일치한다. arXiv 2602.19520 <em>"Decomposing Crowd Wisdom"</em> (Kalshi+Polymarket 2.92억 거래 분석)은 가격 구간별 수익 구조가 체계적으로 다름을 확인한 보조 근거다.</p>
+<p>요약하면 <strong>"확률이 틀렸다"에 베팅하는 것이 아니라, "대중의 조급함이 만든 할인"을 봇의 무한한 인내로 사들이는 전략</strong>이다 — 봇은 자본 잠김을 심리적으로 괴로워하지 않는다. cherry(Resolution Momentum)·date(Conviction Ladder)도 고확률 favorite을 사지만 심리적 타이밍이 진입 논리인 반면, mango의 진입 판단은 수익률 허들 단일 수식이다. 시간과 확률을 각각 조건으로 두지 않고 <code>y = ((1-p)/p) × (8760/h)</code> 하나로 환산해 비교하므로, 시장이 스스로 진입 frontier를 형성한다: 같은 0.98이라도 24h 남으면 y=7.45로 진입하고, 336h 남으면 y=0.53으로 걸러진다. 수식이 항상 계산 가능해 banana의 골든크로스처럼 도달 불가능한 threshold로 퇴화할 여지가 없다. 청산도 다르다 — 조기 익절(trailing/작은 TP) 없이 0.99 수렴까지 보유한다. 캐리는 만기 수렴이 수익의 원천이므로 중간에 파는 것은 전략 부정이다.</p>
+</section>
+<section><h2>진입 규칙</h2><div class="tbl"><table>
+<tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>유동성</td><td>liquidity &gt;= $20,000</td><td>슬리피지·체결 가능성 확보</td></tr>
+<tr><td>방향</td><td>favorite 토큰 (YES/NO 중 높은 쪽, <code>--yes-only</code> 지원)</td><td>favorite-longshot bias의 favorite 쪽 수혜</td></tr>
+<tr><td>확률 밴드</td><td>p ∈ [0.85, 0.985]</td><td>근확실 구간만. 상한은 스프레드/수수료 여유</td></tr>
+<tr><td>시간 창</td><td>6h &lt; hours_left &lt;= 336h (14일)</td><td>캐리를 계산·수확할 수 있는 잔여 시간 범위</td></tr>
+<tr><td>수익률 허들</td><td>y &gt;= 2.0</td><td>연 200% 이상 캐리만 — 가격 대비 남은 시간이 수지 맞는 시장만 자동 선별</td></tr>
+<tr><td>모멘텀 가드</td><td>최근 6h favorite 변화 &gt;= -0.02</td><td>급락은 새 정보(오라클 분쟁, 반전 뉴스)의 신호일 수 있음 — 떨어지는 favorite은 사지 않는다</td></tr>
+<tr><td>데이터 유효성</td><td>6h 윈도우 invalid → 백필 시도 → 그래도 invalid면 진입 금지</td><td>관대한 폴백 금지 (banana의 윈도우 버그 교훈)</td></tr>
+<tr><td>재진입</td><td>HOLDING 없음 + 마지막 매도/skip 후 24h 경과</td><td>영구 one-shot 금지, 쿨다운 기반 재진입</td></tr>
+</table></div>
+<p>캐리 수확은 "가격이 그대로 만기에 수렴한다"가 전제이므로, 모멘텀 가드가 급락 중 진입을 차단한다.</p>
+</section>
+<section><h2>청산 규칙</h2><div class="tbl"><table>
+<tr><th>우선순위</th><th>조건</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>P&amp;L &lt;= -6%</td><td><code>stop_loss</code> — 수렴 실패 신호, 즉시 이탈</td></tr>
+<tr><td>2</td><td>현재가 &gt;= 0.99</td><td><code>take_profit</code> — 수렴 완료 (목표가 0.99 캡 고정)</td></tr>
+<tr><td>3</td><td>해결까지 &lt; 2h</td><td><code>time_exit</code> — 마지막까지 캐리 수확 후 이탈</td></tr>
+<tr><td>—</td><td>trailing stop</td><td><strong>없음</strong> — 수렴 보유가 본질, 조기 익절 없음</td></tr>
+</table></div>
+<p><code>take_profit_percent</code>는 env로 남겨두되 기본 9.99로 두어 목표가 캡(0.99)만 작동한다. 즉 코드상 익절 조건은 "0.99 도달" 하나다.</p>
+</section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>env &gt; config.yaml &gt; 코드 기본값</strong></p>
+<div class="tbl"><table>
+<tr><th>env</th><th>기본</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_YIELD_MIN</code></td><td>2.0</td><td>연환산 캐리 허들 (2.0 = 연 200%)</td></tr>
+<tr><td><code>POLYBOT_PROB_MIN</code></td><td>0.85</td><td>favorite 가격 하한</td></tr>
+<tr><td><code>POLYBOT_PROB_MAX</code></td><td>0.985</td><td>favorite 가격 상한 (스프레드/수수료 여유)</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>6</td><td>잔여 시간 하한 (이하이면 진입 금지)</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MAX</code></td><td>336</td><td>잔여 시간 상한 (14일 초과 진입 금지)</td></tr>
+<tr><td><code>POLYBOT_MOMENTUM_LOOKBACK_HOURS</code></td><td>6</td><td>모멘텀 가드 윈도우</td></tr>
+<tr><td><code>POLYBOT_MOMENTUM_MIN_CHANGE</code></td><td>-0.02</td><td>favorite 변화 하한 (미만이면 진입 배제)</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>9.99</td><td>사실상 미사용 — 목표가 0.99 캡 고정</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.06</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>2</td><td>해결 N시간 전 청산</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>20000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>0</td><td>최소 24h 거래량 $ (0 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션 (실전은 제한 권장)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (빈 값 = 비활성)</td></tr>
+<tr><td><code>POLYBOT_YES_ONLY</code></td><td>false</td><td>Yes(index 0) 토큰만 매수</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨</td></tr>
+</table></div></section>
+<section><h2>이 전략이 실패하는 경우</h2><ul class="risk">
+<li><strong>UMA 오라클 분쟁 — 최대 리스크.</strong> favorite이 해결 직전에 뒤집힌 실사례가 있다: Ukraine Minerals 시장이 9% → 100%로 반전된 사건처럼, 오라클 분쟁/재해석 한 방이 0.95 매수 포지션을 0으로 만든다. 캐리 전략의 기대수익은 건당 수 %이므로 전액 손실 1회가 수십 회의 정상 수익을 지운다. 방어책은 <code>POLYBOT_MAX_POSITIONS</code>를 유한하게 설정하고 포트폴리오 대비 건당 소액 사이징을 유지하는 것 — 무제한 포지션 + 큰 사이징은 이 전략에서 자멸이다. SL -6%는 분쟁이 가격에 반영되기 시작하면 이탈하게 해주지만, 갭 하락(한 번에 0.9→0.1)은 막지 못한다.</li>
+<li><strong>tail risk의 체계적 과소평가 가능성.</strong> 시장 가격 0.95가 실제 확률 0.97의 할인이 아니라 정확한 0.95일 수 있다. 이 경우 20번 중 1번 전액 손실로 캐리가 상쇄된다. settlement discount 문헌이 "할인이 존재한다"를 보였지만 모든 시장·모든 구간에서 할인 &gt; 실제 리스크임을 보장하지는 않는다.</li>
+<li><strong>선택 편향.</strong> y &gt;= 2.0을 넘는 시장은 "시장이 유독 할인을 크게 매긴" 시장인데, 그 할인이 조급함이 아니라 우리가 모르는 진짜 위험(해결 기준 모호함, 분쟁 가능성)의 프리미엄일 수 있다. 모멘텀 가드가 일부를 거르지만 전부는 못 거른다.</li>
+<li><strong>금리 환경 변화.</strong> settlement discount의 크기는 기회비용(금리·DeFi 수익률)에 비례한다. 무위험 수익률이 낮아지면 할인 자체가 축소되어 y &gt;= 2.0을 넘는 시장이 드물어진다 (손실이 아니라 기회 소멸).</li>
+<li><strong>저거래량 시장의 stale 가격.</strong> volume 필터가 기본 비활성이므로 조용한 시장의 midpoint가 실제 체결 가능 가격과 다를 수 있다. GTC limit이 어느 정도 방어하지만 체결 가정의 한계와 결합하면 시뮬레이션 성과가 과대평가될 수 있다.</li>
+</ul></section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>시뮬레이션 (1~2주)</strong>: <code>uv run python main.py run --simulate --job sim</code>을 Jenkins 3~5분 간격으로 실행. <code>data/sim/trades_sim.db</code> + 월별 CSV로 검토.</li>
+<li><strong>소액 실전 (4주)</strong>: <code>POLYBOT_BUY_AMOUNT=5</code>(기본), <code>POLYBOT_MAX_POSITIONS=10</code> 권장.</li>
+<li><strong>판단 기준 (4주 / 30+ 거래)</strong>: 승률 &gt;= 85% (캐리 전략은 고승률·소수익 구조가 정상) · <code>stop_loss</code> 비중 &lt;= 15%, <code>resolved_unredeemed</code>(EXPIRED) 0건 유지 · 건당 평균 수익 &gt; 0 이고 최악 거래 손실이 평균 수익의 20배 이내 · <code>carry_yield_at_buy</code> 구간별(2~4 / 4~8 / 8+) 성과 비교 → y_min 조정 근거.</li>
+<li><strong>교차 봇 비교</strong>: trades에 <code>strategy_name</code>/<code>mode</code>가 기록되므로 cherry/date와 UNION 쿼리로 같은 기간 고확률 구간 성과를 직접 비교할 수 있다.</li>
+</ul>
+<p>베리에이션: A-1 보수(<code>POLYBOT_YIELD_MIN=4.0</code>, <code>POLYBOT_PROB_MIN=0.90</code>, <code>POLYBOT_MAX_POSITIONS=5</code> — 진짜 싼 캐리만), A-2 단기 집중(<code>POLYBOT_ENTRY_HOURS_MAX=72</code> — 오라클 분쟁 노출 시간 축소), A-3 YES 한정(<code>--yes-only</code> — NO-favorite 해결 기준 모호성 회피, 모수 절반 포기).</p>
+</section>
+<section><h2>실행 (Jenkins)</h2><pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=1000
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 env 예시
+export POLYBOT_YIELD_MIN=2.0
+export POLYBOT_MAX_POSITIONS=10
+export POLYBOT_REENTRY_COOLDOWN_HOURS=24
+
+cd ./golden-mango
+uv sync
+uv run python ./main.py run</pre>
+<p>job별 DB/로그 분리는 <code>--job &lt;이름&gt;</code>, YES 토큰만 매수는 <code>--yes-only</code>. UMA 오라클 리스크 때문에 실전에서는 <code>POLYBOT_MAX_POSITIONS</code> 제한과 소액 사이징을 권장한다.</p>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-mango · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

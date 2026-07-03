@@ -1,0 +1,65 @@
+# Polymarket Trading Bot Configuration (Golden Mango)
+# Patience Premium 전략 - 해결 임박 캐리 (settlement discount 수확)
+# 단일 수식: 연환산 캐리 y = ((1-p)/p) * (8760/hours_left), 진입 <=> y >= yield_min
+# 모든 값은 env 가 항상 우선한다 (env > yaml > 코드 기본값).
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 20000
+
+  # 최소 24시간 거래량 ($, gamma volume24hr). 0 = 필터 비활성
+  # (캐리 전략은 유동성만 필수 - 조용한 near-certain 시장이 오히려 좋은 먹이)
+  min_volume_24h: 0
+
+  # 익절 %: mango는 사실상 미사용. 목표가 = min(buy*(1+tp), 0.99) 캡이므로
+  # tp 기본 9.99 = 목표가 0.99 고정 (0.99 도달 = 수렴 완료 익절)
+  take_profit_percent: 9.99
+
+  # 손절 (진입가 대비 -6%; near-certain 구간의 하락은 수렴 실패 신호)
+  stop_loss_percent: -0.06
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  # 실전에서는 UMA 오라클 리스크 분산을 위해 제한 권장 (STRATEGY.md §5)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간). 마지막 매도/skip 이후 이 시간이 지나면 재진입 허용
+  reentry_cooldown_hours: 24
+
+  # CLOB prices-history 백필 (스냅샷 cold start 해결)
+  history_backfill: true
+
+  # 캐리 진입 조건: y = ((1-p)/p) * (8760/h) >= yield_min
+  carry:
+    # 연환산 캐리 허들 (2.0 = 연 200%)
+    yield_min: 2.0
+    # favorite 가격 밴드 [prob_min, prob_max]
+    prob_min: 0.85
+    prob_max: 0.985
+    # 잔여 시간 창: entry_hours_min < h <= entry_hours_max
+    entry_hours_min: 6
+    entry_hours_max: 336
+
+  # 모멘텀 가드: 최근 lookback_hours 윈도우에서
+  # favorite 가격 변화가 min_change 이상이어야 진입 (급락 중 진입 금지)
+  momentum_gate:
+    lookback_hours: 6
+    min_change: -0.02
+
+  # 청산 조건: 해결까지 이 시간 이내면 청산 (2시간)
+  exit_hours: 2
+
+  # YES-Only 모드: true면 index 0(Yes/1위 후보)만 매수, No 포지션 제외
+  # CLI --yes-only 또는 env POLYBOT_YES_ONLY가 우선
+  yes_only_mode: false
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  # env POLYBOT_EXCLUDED_CATEGORIES (comma 구분)로 오버라이드 가능
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

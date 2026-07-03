@@ -93,7 +93,10 @@
 ## 6. A/B 검증 방법
 
 1. **시뮬레이션**: `uv run python main.py run --simulate --job sim`을 Jenkins 3~5분 주기로 1~2주 축적.
-   `data/sim/trades_sim.db` + 월별 CSV에서 진입 사유(`entry_reason`의 ladder 단)별 성과 분리 집계.
+   `data/sim/trades_sim.db` + 월별 CSV에서 진입 사유별 성과 분리 집계.
+   회고 전용 컬럼(`strategy_name`="date", `mode`="live"/"sim", `volume_24h_at_buy`,
+   `ladder_band_at_buy` 1/2/3, `momentum_at_buy`)이 trades·CSV에 함께 기록되므로
+   `entry_reason` 문자열 파싱 없이 사다리 단별·모멘텀 구간별 집계가 가능하다.
 2. **소액 실전**: `POLYBOT_BUY_AMOUNT=5`로 실주문 2주. 시뮬레이션과의 체결 편차(midpoint 가정 vs 실제)를 확인.
 3. **판단 기준**: 4주, 30+ 거래 기준 —
    - 승률 >= 70% AND 평균 손익 > 0 (수렴 전략은 소수 대형 손실 + 다수 소형 이익 구조이므로 평균이 중요)

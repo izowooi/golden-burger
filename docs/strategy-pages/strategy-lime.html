@@ -1,0 +1,180 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-lime — Shock Follow (충격 뉴스 과소반응 편승)</title>
+<style>
+:root{
+  --accent:#5ba829;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍏</div>
+  <h1>golden-lime <span class="en">— Shock Follow</span></h1>
+  <p class="tagline">충격 뉴스 과소반응 편승 — 거래량 폭증을 동반하고 고점을 지키는 급변은 진짜 정보다. 대중이 덜 반영한 나머지 구간에 편승한다.</p>
+  <div class="badges"><span>유형 <b>편승</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>과소반응 · 앵커링</b></span></div>
+</header>
+<section><h2>핵심 수식</h2><pre class="formula"># 매수 토큰 기준 가격 p (YES 급등 → YES 매수, YES 급락 = NO 급등 → NO 매수)
+base = min(p, 최근 6h 윈도우)                     # 윈도우 내 최저가
+ENTER iff (p_now − base) ≥ +0.10                  # 충격 점프 감지
+      AND 0.15 ≤ base ≤ 0.70  AND  p_now ≤ 0.85   # 반등·favorite 배제 + 러닝룸
+      AND (최근 60분 고점 − p_now) ≤ 0.02          # 고점 유지 = 노이즈 스파이크 배제
+      AND vol24h_now ≥ 2.0 × avg(vol24h, 24h)     # 거래량 폭증 = 진짜 정보의 서명</pre></section>
+<section><h2>왜 이 전략인가</h2>
+<p>대형 서프라이즈가 터지면 대중은 기존 가격에 <strong>앵커링</strong>된 채 "설마 그 정도일까"라며 새 정보를 <strong>일부만</strong> 가격에 반영한다. 보유자·관찰자 모두 "어제까지 30%였던 시장"이라는 기준점에 묶여 있어, 새 정보가 60%를 정당화해도 첫 반응은 45%에서 멈춘다. 주식시장의 PEAD(Post-Earnings Announcement Drift)와 동일한 구조로, 충격 직후의 첫 점프는 끝이 아니라 시작인 경우가 많다. 충격 뉴스는 확인-확산-수용의 단계를 거치며 대중 다수는 몇 시간 뒤에야 따라온다 — 봇은 3~5분 주기로 돌기 때문에 이 확산 구간의 앞쪽에 설 수 있다. 그리고 <strong>거래량은 정보의 서명</strong>이다: 노이즈 스파이크(소액 주문, 오호가)는 거래량이 미약하고 고점을 못 지키지만, 진짜 정보는 거래량 폭증과 고점 유지를 동반한다.</p>
+<p>레포 리서치(<code>golden-cherry/docs/polymarket-strategy-momentum.md</code> 계열)는 "소폭(2-3%/일) 모멘텀은 +6-8% 지속, <strong>10%+ 급변은 mean-revert</strong>"를 보고한다. lime은 이 명제를 정면으로 받아들이되, <strong>"10%+ 급변 전체가 회귀하는 것이 아니라, 거래량·고점 유지로 구분되는 하위 집단은 지속한다"</strong>는 가설을 검증한다. 즉 리서치의 평균적 결론에 조건부 예외가 존재하는지를 실측하는 실험이다.</p>
+<p><strong>elderberry와의 A/B 쌍 (핵심 설계)</strong> — golden-elderberry(Panic Fade)와 의도적으로 정반대 트리거의 A/B 쌍이다. 같은 이벤트 클래스("최근 몇 시간 내 ±0.10 이상 급변")에 대해:</p>
+<div class="tbl"><table>
+<tr><th>급변의 성격</th><th>신호</th><th>담당 봇</th><th>액션</th></tr>
+<tr><td><strong>노이즈/공황</strong> — 거래량 미약·불안정, 고점(저점) 반납</td><td>안정화 후 되돌림</td><td><strong>elderberry</strong></td><td>급락을 <strong>역매수</strong> (mean-revert 베팅)</td></tr>
+<tr><td><strong>진짜 정보</strong> — 거래량 폭증(24h 평균의 2배+), 고점 유지</td><td>점프 후 유지</td><td><strong>lime</strong></td><td>급변 방향에 <strong>편승</strong> (drift 베팅)</td></tr>
+</table></div>
+<p>두 봇의 트리거는 상호 배타적이다: elderberry는 "바닥 안정화 + 거래량 조건 없음 + 마감이 먼(≥48h) 급락"을, lime은 "거래량 2배 폭증 + 고점 유지(되돌림 ≤ 0.02)"를 요구한다. 4주 후 성적을 비교하면 <strong>"Polymarket의 10%+ 급변은 회귀인가 지속인가, 거래량이 그 구분자인가"</strong>가 시장 데이터로 검증된다. 한쪽만 수익이면 그쪽 가설이 맞는 것이고, 둘 다 수익이면 거래량 필터가 유효한 구분자라는 강한 증거다.</p>
+<p>점프 감지는 "N시간 전 시점 가격 대비"가 아니라 <strong>최근 6h 윈도우 내 최저가(base) 대비 현재가 상승폭</strong>으로 판정한다. 시계열 정렬·보간·시점 매칭 없이 min() 하나로 끝나 단순하고, 스냅샷 간격이 불균일하거나(Jenkins 지연) 일부 결손이어도 판정이 흔들리지 않으며, 최저가 대비라 점프를 놓치는 방향의 오차가 없다. 대신 base 구간 제한([0.15, 0.70])이 "원래부터 바닥이던 시장의 자연 반등"을 걸러준다. 기존 봇의 교훈도 반영했다: banana의 개수 기반 윈도우 → timestamp 기반 윈도우 + 유효성 검증, 관대한 cold-start 폴백 → invalid 윈도우면 진입 금지 + prices-history 백필, cherry의 rapid_jump 영구 밴 → timestamp 기반 쿨다운(기본 24h), 영구 HOLDING 좀비 → EXPIRED 상태, TP 목표가 1.0 초과 → 0.99 캡.</p>
+</section>
+<section><h2>진입 규칙</h2>
+<p>모든 조건 AND. 점프 방향 토큰 기준 가격 p로 판정한다 (스냅샷은 항상 YES 가격으로 저장, NO면 1−p로 평가).</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
+<tr><td>1</td><td>유동성</td><td>liquidity ≥ $20,000 (<code>min_liquidity</code>)</td><td>체결 가능성 확보</td></tr>
+<tr><td>2</td><td>거래량</td><td>volume24hr ≥ $10,000 (<code>min_volume_24h</code>)</td><td>죽은 시장 배제</td></tr>
+<tr><td>3</td><td>잔여시간</td><td>해결까지 ≥ 24h (<code>entry_hours_min</code>)</td><td>마감 직전 정보성 급변(수렴)과 분리</td></tr>
+<tr><td>4</td><td>윈도우 유효성</td><td>6h 윈도우에 ≥ 5 포인트 AND 커버리지 ≥ 50% (<code>jump_window_hours</code> 등)</td><td>데이터 부족 시 진입 금지 (백필 시도 후에도 invalid면 skip)</td></tr>
+<tr><td>5</td><td>점프</td><td>6h 윈도우 최저가(base) 대비 현재가 상승 ≥ +0.10 (<code>jump_min</code>)</td><td>충격 감지</td></tr>
+<tr><td>6</td><td>base 구간</td><td>base ∈ [0.15, 0.70] (<code>base_min</code>, <code>base_max</code>)</td><td>붕괴권 롱샷의 반등·이미 favorite인 시장 배제</td></tr>
+<tr><td>7</td><td>현재가 상한</td><td>현재가 ≤ 0.85 (<code>current_max</code>)</td><td>러닝룸 확보 (TP +12% 도달 가능)</td></tr>
+<tr><td>8</td><td>고점 유지</td><td>최근 60분 고점 대비 되돌림 ≤ 0.02 (<code>hold_window_minutes</code>, <code>max_pullback</code>)</td><td>노이즈 스파이크 배제 (elderberry 영역)</td></tr>
+<tr><td>9</td><td>거래량 확인</td><td>현재 volume24hr ≥ 24h 윈도우 평균 × 2.0 (<code>vol_mult_min</code>)</td><td>진짜 정보의 서명</td></tr>
+<tr><td>10</td><td>재진입 쿨다운</td><td>HOLDING 아님 + 마지막 매도/skip 24h 경과 (<code>reentry_cooldown_hours</code>)</td><td>영구 one-shot 제거, 과잉 재진입 방지</td></tr>
+</table></div>
+<p><strong>방향</strong>: YES 급등 → YES(index 0) 매수, YES 급락(= NO 급등) → NO(index 1) 매수. 조건 5~8은 매수할 토큰 기준 가격으로 평가한다.</p>
+</section>
+<section><h2>청산 규칙</h2>
+<p>우선순위 순, 매 사이클 midpoint를 재조회해 검사한다.</p>
+<div class="tbl"><table>
+<tr><th>순위</th><th>조건</th><th>파라미터 (기본값)</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>P&amp;L ≤ -8%</td><td><code>stop_loss_percent</code> = -0.08</td><td><code>stop_loss</code></td></tr>
+<tr><td>2</td><td>현재가 ≥ min(매수가 × 1.12, <strong>0.99</strong>)</td><td><code>take_profit_percent</code> = 0.12</td><td><code>take_profit</code></td></tr>
+<tr><td>3</td><td>현재가 &lt; 최고가 × (1 − 0.06)</td><td><code>trailing_stop.percent</code> = 0.06</td><td><code>trailing_stop</code></td></tr>
+<tr><td>4</td><td>모멘텀 사망: 최근 3h 가격 변화 ≤ 0</td><td><code>death_window_hours</code> = 3</td><td><code>momentum_death</code></td></tr>
+<tr><td>5</td><td>해결까지 &lt; 12h</td><td><code>exit_hours</code> = 12</td><td><code>time_exit</code></td></tr>
+<tr><td>-</td><td>midpoint 조회 불가 + endDate 24h 경과</td><td>(고정)</td><td><code>resolved_unredeemed</code> (EXPIRED, 수동 redeem 필요)</td></tr>
+</table></div>
+<p>모멘텀 사망은 "편승 근거(드리프트)가 소멸했다"는 신호다. 단, 매수 직후 데이터가 얕을 때(윈도우 포인트 &lt; 2개 또는 커버리지 &lt; 50%)는 판단을 보류해 즉시 청산을 방지한다.</p>
+</section>
+<section><h2>파라미터 (환경변수)</h2>
+<p>우선순위: <strong>env &gt; config.yaml &gt; 코드 기본값</strong>.</p>
+<p><strong>공통 env (전 봇 동일 이름)</strong></p>
+<div class="tbl"><table>
+<tr><th>env</th><th>기본</th><th>의미</th></tr>
+<tr><td><code>POLYMARKET_PRIVATE_KEY</code></td><td>(필수)</td><td>CLOB L1 인증</td></tr>
+<tr><td><code>POLYMARKET_FUNDER_ADDRESS</code></td><td>(필수)</td><td>funder 지갑 주소</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5.0</td><td>1회 매수 USDC</td></tr>
+<tr><td><code>POLYBOT_MIN_LIQUIDITY</code></td><td>20000</td><td>최소 유동성 $</td></tr>
+<tr><td><code>POLYBOT_MIN_VOLUME_24H</code></td><td>10000</td><td>최소 24h 거래량 $</td></tr>
+<tr><td><code>POLYBOT_TAKE_PROFIT</code></td><td>0.12</td><td>익절 % (목표가 0.99 캡)</td></tr>
+<tr><td><code>POLYBOT_STOP_LOSS</code></td><td>-0.08</td><td>손절 %</td></tr>
+<tr><td><code>POLYBOT_MAX_POSITIONS</code></td><td>-1</td><td>최대 동시 포지션 (-1 무제한)</td></tr>
+<tr><td><code>POLYBOT_REENTRY_COOLDOWN_HOURS</code></td><td>24</td><td>재진입 쿨다운</td></tr>
+<tr><td><code>POLYBOT_HISTORY_BACKFILL</code></td><td>true</td><td>prices-history 백필</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>""</td><td>제외 카테고리 (comma 구분, 빈 값 = 비활성)</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 레벨 (<code>--verbose</code>가 최우선)</td></tr>
+</table></div>
+<p><strong>전략 전용 env</strong></p>
+<div class="tbl"><table>
+<tr><th>env</th><th>기본</th><th>의미</th></tr>
+<tr><td><code>POLYBOT_JUMP_WINDOW_HOURS</code></td><td>6</td><td>점프 감지 윈도우</td></tr>
+<tr><td><code>POLYBOT_JUMP_MIN</code></td><td>0.10</td><td>윈도우 내 최저가 대비 최소 상승폭</td></tr>
+<tr><td><code>POLYBOT_BASE_MIN</code></td><td>0.15</td><td>점프 시작 기준가 하한</td></tr>
+<tr><td><code>POLYBOT_BASE_MAX</code></td><td>0.70</td><td>점프 시작 기준가 상한</td></tr>
+<tr><td><code>POLYBOT_CURRENT_MAX</code></td><td>0.85</td><td>현재가 상한 (러닝룸)</td></tr>
+<tr><td><code>POLYBOT_HOLD_WINDOW_MINUTES</code></td><td>60</td><td>고점 유지 확인 윈도우</td></tr>
+<tr><td><code>POLYBOT_MAX_PULLBACK</code></td><td>0.02</td><td>고점 대비 최대 되돌림</td></tr>
+<tr><td><code>POLYBOT_VOL_MULT_MIN</code></td><td>2.0</td><td>거래량 확인 배수</td></tr>
+<tr><td><code>POLYBOT_DEATH_WINDOW_HOURS</code></td><td>3</td><td>모멘텀 사망 판정 윈도우</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MIN</code></td><td>24</td><td>진입 최소 잔여 시간</td></tr>
+<tr><td><code>POLYBOT_EXIT_HOURS</code></td><td>12</td><td>시간 청산 기준</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_ENABLED</code></td><td>true</td><td>트레일링 on/off</td></tr>
+<tr><td><code>POLYBOT_TRAILING_STOP_PERCENT</code></td><td>0.06</td><td>최고점 대비 하락률</td></tr>
+</table></div>
+</section>
+<section><h2>이 전략이 실패하는 경우</h2>
+<ul class="risk">
+<li><strong>리서치의 평균이 맞는 경우</strong>: "10%+ 급변은 회귀"가 거래량 조건부로도 성립하면 lime은 구조적으로 고점 매수 봇이 된다. 이 경우 elderberry가 수익을 내고 lime은 손절이 쌓인다 — A/B 설계상 이것도 유효한 실험 결과다.</li>
+<li><strong>이미 다 반영된 점프</strong>: 참여자가 충분히 기민하면 점프는 한 번에 fair value로 간다. 편승분(드리프트)이 없으면 진입 직후 횡보 → <code>momentum_death</code>로 소손실 청산이 반복된다.</li>
+<li><strong>점프의 되돌림 지연</strong>: 고점 유지 60분은 짧다. 2~3시간에 걸쳐 천천히 되돌리는 가짜 뉴스(정정 보도, 루머 부정)에는 -8% 손절로 당한다.</li>
+<li><strong>거래량 지표의 한계</strong>: <code>volume24hr</code>는 24시간 누적이라 "지금 이 순간의 폭증"을 정확히 못 잡는다. 점프 몇 시간 후에야 2배 조건이 충족되어 늦게 진입할 수 있다.</li>
+<li><strong>양방향 이벤트 상관 리스크</strong>: 같은 이벤트의 여러 시장이 동시에 점프하면 (예: 후보 사퇴 뉴스로 관련 시장 5개 급변) 동일 리스크를 다중 포지션으로 진다. 이벤트 단위 노출 상한이 없다.</li>
+<li><strong>박한 진입 빈도</strong>: 6h 내 +0.10 점프 + 거래량 2배 + 고점 유지는 드문 조합이다. 거래 표본이 느리게 쌓여 판정까지 오래 걸릴 수 있다.</li>
+</ul>
+</section>
+<section><h2>A/B 검증 계획</h2>
+<ul>
+<li><strong>1) 시뮬레이션 (1~2주)</strong>: <code>uv run python main.py run --simulate --job sim-lime</code>을 Jenkins 3~5분 주기로. <code>data/sim-lime/trades_sim.db</code>로 진입 빈도·가짜 신호 비율 확인.</li>
+<li><strong>2) 소액 실전 (4주)</strong>: <code>POLYBOT_BUY_AMOUNT=5</code>로 실전 전환. elderberry와 같은 기간·같은 금액으로 병행 운영.</li>
+<li><strong>3) 판단 기준 (4주 후, 30+ 거래 확보 시)</strong>:
+  <ul>
+    <li>승률 ≥ 55% AND 평균 손익 &gt; 0 → 금액 증액 검토</li>
+    <li><code>momentum_death</code> 청산 비율 &gt; 50% → 편승분이 없다는 신호, <code>jump_min</code> 상향 또는 전략 폐기 검토</li>
+    <li>elderberry와 비교: 같은 이벤트 클래스에서 어느 쪽 가설이 맞았는지 <code>entry_reason</code>/<code>exit_reason</code> 집계로 판정</li>
+    <li>거래 표본이 30 미만이면 4주 연장 (진입 빈도 자체가 낮은 전략)</li>
+  </ul>
+</li>
+</ul>
+</section>
+<section><h2>실행 (Jenkins)</h2>
+<pre class="code">#!/bin/bash
+export POLYBOT_BUY_AMOUNT=20
+export POLYMARKET_PRIVATE_KEY=&lt;Jenkins credential&gt;
+export POLYMARKET_FUNDER_ADDRESS=&lt;Jenkins credential&gt;
+export LOG_LEVEL=INFO
+# 전략 주요 파라미터 (기본값 사용 시 생략 가능)
+export POLYBOT_JUMP_MIN=0.10
+export POLYBOT_VOL_MULT_MIN=2.0
+export POLYBOT_MAX_PULLBACK=0.02
+
+cd ./golden-lime
+uv sync
+uv run python ./main.py run</pre>
+<p>3~5분 주기 cron 트리거를 권장한다 (스냅샷 해상도 = 실행 주기).</p>
+</section>
+<footer>Golden Burger 전략 시리즈 · golden-lime · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+</div></body></html>

@@ -326,6 +326,8 @@ class MarketScanner:
                 "entry_reason": f"{decision.reason}_{decision.jump_size:.2f}",
                 "jump_size": decision.jump_size,
                 "base_price": decision.base_price,
+                "volume_24h": current_volume,
+                "vol_mult": decision.vol_mult,
                 "end_date": end_date,
                 "hours_until_resolution": hours_left,
                 "market_tags": market_tags,

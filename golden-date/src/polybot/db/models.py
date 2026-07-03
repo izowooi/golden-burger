@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Enum, create_engine
+    Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -71,6 +71,13 @@ class Trade(Base):
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
     market_tags = Column(String, nullable=True)  # Gamma API tags, e.g. "Politics, US Elections"
+
+    # A/B 포스트모템 회고 컬럼 (부록 스펙 §D — 교차 봇 UNION 쿼리·시그널 수치 분석용)
+    strategy_name = Column(String, nullable=True)      # 봇 식별 상수 "date"
+    mode = Column(String, nullable=True)               # "live" / "sim" (config.simulation_mode)
+    volume_24h_at_buy = Column(Float, nullable=True)   # 매수 시점 gamma volume24hr
+    ladder_band_at_buy = Column(Integer, nullable=True)  # 사다리 밴드 1/2/3
+    momentum_at_buy = Column(Float, nullable=True)     # 진입 시 favorite 모멘텀 변화
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
@@ -120,4 +127,20 @@ def init_database(db_path: str) -> sessionmaker:
     """
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
+    # 기존 DB 파일 호환: 신규 컬럼 best-effort ALTER (cherry의 market_tags 패턴).
+    # 컬럼이 이미 있으면 ALTER가 실패하므로 컬럼별로 개별 try (일부만 없는 DB도 마이그레이션됨).
+    retro_columns = [
+        "strategy_name TEXT",
+        "mode TEXT",
+        "volume_24h_at_buy REAL",
+        "ladder_band_at_buy INTEGER",
+        "momentum_at_buy REAL",
+    ]
+    with engine.connect() as conn:
+        for column_ddl in retro_columns:
+            try:
+                conn.execute(text(f"ALTER TABLE trades ADD COLUMN {column_ddl}"))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
     return sessionmaker(bind=engine)

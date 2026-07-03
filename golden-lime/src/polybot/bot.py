@@ -69,7 +69,10 @@ class PolymarketBot:
         repo = TradeRepository(session)
 
         scanner = MarketScanner(self.gamma, self.config.trading, repo, self.history)
-        trader = Trader(repo, self.clob, self.config.trading)
+        trader = Trader(
+            repo, self.clob, self.config.trading,
+            simulation_mode=self.config.simulation_mode,
+        )
 
         stats = {
             "snapshots_saved": 0,

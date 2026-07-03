@@ -2,7 +2,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Enum, create_engine
+    Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -70,6 +70,14 @@ class Trade(Base):
 
     # Signal data at buy (for analysis)
     yes_price_at_buy = Column(Float, nullable=True)   # 매수 시점 YES 가격
+    volume_24h_at_buy = Column(Float, nullable=True)  # 매수 시점 gamma volume24hr
+
+    # Signal data at exit (for analysis)
+    yes_price_at_exit = Column(Float, nullable=True)  # 청산 시점 YES 가격 (1 - NO 매도가)
+
+    # A/B 포스트모템 계약 (교차 봇 UNION 쿼리용)
+    strategy_name = Column(String, nullable=True)  # 항상 "fig"
+    mode = Column(String, nullable=True)           # "live" / "sim" (config.simulation_mode 기준)
 
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
@@ -127,4 +135,18 @@ def init_database(db_path: str) -> sessionmaker:
     """
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
+    # 기존 로컬 DB 호환: 나중에 추가된 컬럼은 best-effort ALTER로 보강
+    # (create_all은 기존 테이블에 컬럼을 추가하지 않는다)
+    with engine.connect() as conn:
+        for ddl in (
+            "ALTER TABLE trades ADD COLUMN volume_24h_at_buy REAL",
+            "ALTER TABLE trades ADD COLUMN yes_price_at_exit REAL",
+            "ALTER TABLE trades ADD COLUMN strategy_name TEXT",
+            "ALTER TABLE trades ADD COLUMN mode TEXT",
+        ):
+            try:
+                conn.execute(text(ddl))
+                conn.commit()
+            except Exception:
+                pass  # Column already exists
     return sessionmaker(bind=engine)

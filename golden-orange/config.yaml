@@ -1,0 +1,67 @@
+# Polymarket Trading Bot Configuration (Golden Orange)
+# Fear Spike Fade Strategy - 공포 스파이크 페이드 (NO 토큰 매수)
+# 평시 YES <= 15% tail 시장이 공포 헤드라인에 +0.10 이상 급등한 뒤
+# 스파이크가 멈추면(90분 경과 + 45분 신고가 없음 + 거래량 2배 확인)
+# NO를 매수해 공포 프리미엄의 감쇠를 수확한다.
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 15000
+
+  # 최소 24h 거래량 ($). 0이면 비활성화
+  min_volume_24h: 0
+
+  # 보조 익절 (진입가 대비 +8%, 목표가 0.99 캡). 주 청산은 retrace_target
+  take_profit_percent: 0.08
+
+  # 손절 (진입가 대비 -10%. NO 하락 = YES 계속 상승 = 진짜 정보 → 즉시 손절)
+  stop_loss_percent: -0.10
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간). 마지막 청산/skip 후 이 시간 이내면 재진입 금지
+  reentry_cooldown_hours: 24
+
+  # CLOB /prices-history 백필 (cold start 해결, 7일 base 윈도우 채움)
+  history_backfill: true
+
+  # 전략 시그널 파라미터
+  strategy:
+    # base = median(YES, [now-7d, now-6h]) - 스파이크 이전의 '평시 확률'
+    base_window_days: 7
+    base_exclude_recent_hours: 6
+    # base 상한: 평시 tail 시장만 대상 (원래 15% 이하였던 시장)
+    base_max: 0.15
+    # 스파이크 판정: yes_now - base >= jump_min
+    jump_min: 0.10
+    # 스파이크 후 YES 상한 (초과 = 진짜 정보로 재평가된 수준일 수 있음)
+    yes_max: 0.30
+    # 스파이크 시작 후 대기 시간 (분) - 초기 과열 구간 회피
+    spike_wait_minutes: 90
+    # 신고가 부재 확인 윈도우 (분) - 스파이크 스톨 확인
+    stall_window_minutes: 45
+    # 거래량 확인: volume24h >= 윈도우 평균 x 이 배수
+    vol_mult_min: 2.0
+    # retrace 익절: YES <= base + retrace_ratio * (peak - base)
+    retrace_ratio: 0.5
+    # 최대 보유 시간 - 되돌림 실패 시 자본 회수
+    max_holding_hours: 72
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 시간 (3일 - 마감 임박 스파이크 = 진짜 정보 배제)
+    entry_hours_min: 72
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (24시간)
+    exit_hours: 24
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

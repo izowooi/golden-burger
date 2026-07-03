@@ -159,6 +159,14 @@ GROUP BY drift_bin ORDER BY drift_bin;
 
 -- EXPIRED (수동 redeem 필요) 확인
 SELECT id, question, buy_amount FROM trades WHERE status = 'EXPIRED';
+
+-- 회고 로깅 컬럼 (A/B 포스트모템용): strategy_name('grape'), mode('live'/'sim'),
+-- volume_24h_at_buy(매수 시점 gamma volume24hr), drift_at_exit(청산 시점 최근 6h 드리프트)
+SELECT mode, exit_reason, COUNT(*) cnt,
+       ROUND(AVG(drift_at_exit), 3) avg_drift_at_exit,
+       ROUND(AVG(realized_pnl), 4) avg_pnl
+FROM trades WHERE status = 'COMPLETED'
+GROUP BY mode, exit_reason;
 ```
 
 ## 주의사항

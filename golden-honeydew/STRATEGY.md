@@ -124,6 +124,9 @@ cherry/banana의 whipsaw 문제를 원천 차단한다.
    - 승률 < 50% 또는 총손익 < -10% → 중단
    - `exit_reason`별 분포 확인: `max_holding` 비중이 50%를 넘으면 복원 가설 자체가 약한 것.
    - CSV의 `deviation_at_buy` 버킷별(0.05-0.07 / 0.07-0.10 / 0.10+) 승률 비교로 dev_min 조정.
+   - `deviation_at_exit`(청산 시점 median 대비 편차)로 복원 완료/미완료 청산 구분.
+   - 교차 봇 비교는 trades의 `strategy_name`("honeydew") / `mode`("live"/"sim") /
+     `volume_24h_at_buy`로 UNION 쿼리 (A/B 포스트모템 공통 계약).
 
 ## 7. 베리에이션 아이디어
 
