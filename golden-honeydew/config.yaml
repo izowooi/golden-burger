@@ -1,0 +1,67 @@
+# Polymarket Trading Bot Configuration (Golden Honeydew)
+# Night Watch Strategy - 한산 시간대 dislocation 복원 전략
+# UTC 06-13시(미 동부 새벽) 또는 주말에 24h median 대비 ±5% 이탈을 복원 방향으로 매수
+# 설정 우선순위: 환경변수 > 이 파일 > 코드 기본값
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($) - 이 금액 미만의 시장은 제외
+  min_liquidity: 15000
+
+  # 최소 24h 거래량 ($) - 0이면 비활성
+  min_volume_24h: 0
+
+  # 이익실현 (진입가 대비 +6%, 목표가 0.99 캡)
+  take_profit_percent: 0.06
+
+  # 손절 (진입가 대비 -6%)
+  stop_loss_percent: -0.06
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간) - 청산/skip 후 이 시간 동안 같은 시장 재진입 금지
+  reentry_cooldown_hours: 24
+
+  # prices-history 백필 (cold start 시 24h 윈도우 보충)
+  history_backfill: true
+
+  # 한산 시간대 설정 (진입 허용 시간)
+  quiet:
+    # UTC 기준 "시작시-종료시" (종료시 미포함). 자정 넘는 "22-4"도 가능
+    # 6-13 = 미국 동부 새벽 01-08시
+    hours_utc: "6-13"
+    # 주말(토/일 UTC)은 시각과 무관하게 항상 진입 허용
+    weekends: true
+
+  # 진입 시그널 설정
+  signal:
+    # median 계산 윈도우 (시간)
+    median_lookback_hours: 24
+    # 최소 편차: |현재 YES 가격 - 24h median| >= 이 값
+    dev_min: 0.05
+    # 거래량 급증 차단: 최근 3h volume24hr 평균 >= 윈도우 평균 x 이 값이면 skip
+    vol_spike_block: 1.5
+    # 매수 토큰 가격 하한/상한
+    entry_prob_min: 0.30
+    entry_prob_max: 0.90
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 24시간
+    entry_hours_min: 24
+    # 청산 조건: 해결까지 이 시간 이내면 청산
+    exit_hours: 12
+    # 최대 보유 시간 (복원 실패 시 회전)
+    max_holding_hours: 24
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  # env POLYBOT_EXCLUDED_CATEGORIES (comma 구분)로 오버라이드 가능
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

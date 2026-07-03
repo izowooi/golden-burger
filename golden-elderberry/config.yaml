@@ -1,0 +1,66 @@
+# Polymarket Trading Bot Configuration (Golden Elderberry)
+# Panic Fade 전략 - 급락 과잉반응 역매수
+# 원래 favorite(>=70%)이던 토큰이 공황 투매로 12%p 이상 급락한 뒤
+# 바닥 안정화가 확인되면 역매수, 반등 시 청산
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 20000
+
+  # 최소 24시간 거래량 ($)
+  min_volume_24h: 10000
+
+  # 이익실현 (진입가 대비 +10%)
+  take_profit_percent: 0.10
+
+  # 손절 (진입가 대비 -10%)
+  stop_loss_percent: -0.10
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간)
+  # 마지막 청산/skip 후 이 시간이 지나야 같은 시장에 재진입
+  reentry_cooldown_hours: 24
+
+  # CLOB prices-history 백필 활성화 (cold start 완화)
+  history_backfill: true
+
+  # Panic Fade 전략 파라미터
+  strategy:
+    # 기준가(ref) 산출 윈도우 (시간)
+    ref_window_hours: 48
+    # ref 산출 시 제외할 최근 구간 (시간) - 급락 자체를 ref에 포함하지 않기 위함
+    ref_exclude_recent_hours: 3
+    # ref 최소값 - 원래 favorite이었어야 함
+    ref_min: 0.70
+    # 최소 낙폭 (ref - 현재가)
+    drop_min: 0.12
+    # 붕괴 배제: 진입 가능한 현재가 하한
+    current_min: 0.35
+    # 붕괴 배제: 진입 가능한 현재가 상한
+    current_max: 0.75
+    # 바닥 안정화 확인 윈도우 (분)
+    stab_window_minutes: 45
+    # 안정화 판정 최대 표준편차
+    stab_max_std: 0.02
+    # 최대 보유 시간 - 초과 시 반등 실패로 청산
+    max_holding_hours: 48
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 시간 (48시간) - 마감 직전 급락(진짜 정보)과 분리
+    entry_hours_min: 48
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (24시간)
+    exit_hours: 24
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

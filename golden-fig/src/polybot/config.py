@@ -1,0 +1,314 @@
+"""Configuration management for the trading bot."""
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import List, Optional, Union
+import os
+import yaml
+from dotenv import load_dotenv
+
+
+def _get_config_value(
+    env_key: str,
+    yaml_value,
+    default,
+    value_type: type = float
+) -> Union[float, int]:
+    """환경변수 > yaml > 기본값 순서로 설정값 로드.
+
+    Args:
+        env_key: 환경변수 이름
+        yaml_value: config.yaml에서 읽은 값
+        default: 기본값
+        value_type: 변환할 타입 (float 또는 int)
+
+    Returns:
+        우선순위에 따른 설정값
+    """
+    env_val = os.getenv(env_key)
+    if env_val is not None:
+        return value_type(env_val)
+    if yaml_value is not None:
+        return value_type(yaml_value)
+    return default
+
+
+def _get_bool_config_value(
+    env_key: str,
+    yaml_value,
+    default: bool
+) -> bool:
+    """환경변수 > yaml > 기본값 순서로 bool 설정값 로드."""
+    env_val = os.getenv(env_key)
+    if env_val is not None:
+        return env_val.lower() in ("true", "1", "yes")
+    if yaml_value is not None:
+        return bool(yaml_value)
+    return default
+
+
+def _get_list_config_value(
+    env_key: str,
+    yaml_value,
+    default: List[str]
+) -> List[str]:
+    """환경변수(comma 구분) > yaml > 기본값 순서로 리스트 설정값 로드.
+
+    env가 빈 문자열이면 [] (필터 비활성화)를 의미한다.
+    """
+    env_val = os.getenv(env_key)
+    if env_val is not None:
+        return [item.strip() for item in env_val.split(",") if item.strip()]
+    if yaml_value is not None:
+        return list(yaml_value)
+    return default
+
+
+@dataclass
+class StrategyConfig:
+    """Hope Crusher 전략 시그널 설정."""
+    yes_min: float = 0.05             # YES 롱샷 밴드 하한
+    yes_max: float = 0.25             # YES 롱샷 밴드 상한 (NO 매수가 0.75~0.95)
+    yes_rise_block_24h: float = 0.02  # YES 24h 변화가 이 값 초과면 skip
+    yes_spike_block_6h: float = 0.05  # 최근 6h YES 급등이 이 값 이상이면 skip
+    rise_lookback_hours: int = 24     # 24h 변화 게이트 lookback
+    spike_lookback_hours: int = 6     # 6h 급등 게이트 lookback
+
+
+@dataclass
+class TimeBasedConfig:
+    """시간 기반 진입/청산 설정."""
+    entry_hours_min: int = 24    # 해결까지 최소 24시간 남아야 진입
+    entry_hours_max: int = 240   # 해결까지 최대 240시간(10일) 이내 진입
+    exit_hours: int = 2          # 해결 2시간 전 청산
+
+
+@dataclass
+class TradingConfig:
+    """Trading strategy configuration."""
+    buy_amount_usdc: float = 5.0
+    min_liquidity: float = 10000.0
+    min_volume_24h: float = 0.0           # 0이면 거래량 필터 비활성화
+    max_positions: int = -1               # -1 means unlimited
+    take_profit_percent: float = 0.06     # 이익실현 +6% (목표가 0.99 캡)
+    stop_loss_percent: float = -0.10      # 손절 -10%
+    reentry_cooldown_hours: float = 24.0  # 재진입 쿨다운
+    history_backfill: bool = True         # CLOB /prices-history 백필
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
+    time_based: TimeBasedConfig = field(default_factory=TimeBasedConfig)
+    excluded_categories: List[str] = field(default_factory=list)  # 기본 비활성
+
+
+@dataclass
+class ApiConfig:
+    """API authentication configuration."""
+    private_key: str
+    funder_address: str
+    signature_type: int = 1  # 1 for Magic.Link (email wallet)
+    chain_id: int = 137  # Polygon Mainnet
+
+
+@dataclass
+class BotConfig:
+    """Complete bot configuration."""
+    trading: TradingConfig
+    api: ApiConfig
+    db_path: Path
+    simulation_mode: bool = False
+    job_name: str = "default"
+
+
+def load_config(
+    config_path: str = "config.yaml",
+    job_name: str = "default",
+    env_path: Optional[str] = None,
+    simulation_mode: Optional[bool] = None,
+) -> BotConfig:
+    """Load configuration from YAML file and environment variables.
+
+    Args:
+        config_path: Path to config.yaml file
+        job_name: Jenkins job name (used for DB path separation)
+        env_path: Optional path to .env file
+        simulation_mode: Override simulation mode (CLI --simulate flag)
+
+    Returns:
+        BotConfig instance with all settings
+
+    Raises:
+        ValueError: If required environment variables are missing
+    """
+    # Load environment variables
+    if env_path:
+        load_dotenv(env_path)
+    else:
+        load_dotenv()
+
+    # Load YAML config
+    config_file = Path(config_path)
+    if config_file.exists():
+        with open(config_file, encoding="utf-8") as f:
+            cfg = yaml.safe_load(f) or {}
+    else:
+        cfg = {}
+
+    # Parse trading config (환경변수 > yaml > 기본값)
+    trading_cfg = cfg.get("trading", {})
+
+    # Parse strategy config
+    strategy_cfg = trading_cfg.get("strategy", {})
+    strategy = StrategyConfig(
+        yes_min=_get_config_value(
+            "POLYBOT_YES_MIN",
+            strategy_cfg.get("yes_min"),
+            0.05,
+            float
+        ),
+        yes_max=_get_config_value(
+            "POLYBOT_YES_MAX",
+            strategy_cfg.get("yes_max"),
+            0.25,
+            float
+        ),
+        yes_rise_block_24h=_get_config_value(
+            "POLYBOT_YES_RISE_BLOCK_24H",
+            strategy_cfg.get("yes_rise_block_24h"),
+            0.02,
+            float
+        ),
+        yes_spike_block_6h=_get_config_value(
+            "POLYBOT_YES_SPIKE_BLOCK_6H",
+            strategy_cfg.get("yes_spike_block_6h"),
+            0.05,
+            float
+        ),
+        rise_lookback_hours=_get_config_value(
+            "POLYBOT_RISE_LOOKBACK_HOURS",
+            strategy_cfg.get("rise_lookback_hours"),
+            24,
+            int
+        ),
+        spike_lookback_hours=_get_config_value(
+            "POLYBOT_SPIKE_LOOKBACK_HOURS",
+            strategy_cfg.get("spike_lookback_hours"),
+            6,
+            int
+        ),
+    )
+
+    # Parse time-based config
+    time_based_cfg = trading_cfg.get("time_based", {})
+    time_based = TimeBasedConfig(
+        entry_hours_min=_get_config_value(
+            "POLYBOT_ENTRY_HOURS_MIN",
+            time_based_cfg.get("entry_hours_min"),
+            24,
+            int
+        ),
+        entry_hours_max=_get_config_value(
+            "POLYBOT_ENTRY_HOURS_MAX",
+            time_based_cfg.get("entry_hours_max"),
+            240,
+            int
+        ),
+        exit_hours=_get_config_value(
+            "POLYBOT_EXIT_HOURS",
+            time_based_cfg.get("exit_hours"),
+            2,
+            int
+        ),
+    )
+
+    trading = TradingConfig(
+        buy_amount_usdc=_get_config_value(
+            "POLYBOT_BUY_AMOUNT",
+            trading_cfg.get("buy_amount_usdc"),
+            5.0,
+            float
+        ),
+        min_liquidity=_get_config_value(
+            "POLYBOT_MIN_LIQUIDITY",
+            trading_cfg.get("min_liquidity"),
+            10000.0,
+            float
+        ),
+        min_volume_24h=_get_config_value(
+            "POLYBOT_MIN_VOLUME_24H",
+            trading_cfg.get("min_volume_24h"),
+            0.0,
+            float
+        ),
+        max_positions=_get_config_value(
+            "POLYBOT_MAX_POSITIONS",
+            trading_cfg.get("max_positions"),
+            -1,
+            int
+        ),
+        take_profit_percent=_get_config_value(
+            "POLYBOT_TAKE_PROFIT",
+            trading_cfg.get("take_profit_percent"),
+            0.06,
+            float
+        ),
+        stop_loss_percent=_get_config_value(
+            "POLYBOT_STOP_LOSS",
+            trading_cfg.get("stop_loss_percent"),
+            -0.10,
+            float
+        ),
+        reentry_cooldown_hours=_get_config_value(
+            "POLYBOT_REENTRY_COOLDOWN_HOURS",
+            trading_cfg.get("reentry_cooldown_hours"),
+            24.0,
+            float
+        ),
+        history_backfill=_get_bool_config_value(
+            "POLYBOT_HISTORY_BACKFILL",
+            trading_cfg.get("history_backfill"),
+            True
+        ),
+        strategy=strategy,
+        time_based=time_based,
+        excluded_categories=_get_list_config_value(
+            "POLYBOT_EXCLUDED_CATEGORIES",
+            trading_cfg.get("excluded_categories"),
+            []
+        ),
+    )
+
+    # Parse API config from environment variables
+    private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
+    funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS")
+
+    if not private_key:
+        raise ValueError("POLYMARKET_PRIVATE_KEY environment variable is required")
+    if not funder_address:
+        raise ValueError("POLYMARKET_FUNDER_ADDRESS environment variable is required")
+
+    # Remove 0x prefix if present (py-clob-client handles this)
+    if private_key.startswith("0x"):
+        private_key = private_key[2:]
+
+    api = ApiConfig(
+        private_key=private_key,
+        funder_address=funder_address,
+    )
+
+    # Simulation mode (CLI flag overrides config file)
+    if simulation_mode is None:
+        simulation_mode = cfg.get("simulation_mode", False)
+
+    # Set up database path (per job, separate for simulation)
+    db_dir = Path("data") / job_name
+    db_dir.mkdir(parents=True, exist_ok=True)
+    if simulation_mode:
+        db_path = db_dir / "trades_sim.db"
+    else:
+        db_path = db_dir / "trades.db"
+
+    return BotConfig(
+        trading=trading,
+        api=api,
+        db_path=db_path,
+        simulation_mode=simulation_mode,
+        job_name=job_name,
+    )

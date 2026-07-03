@@ -1,0 +1,67 @@
+# Polymarket Trading Bot Configuration (Golden Grape)
+# Cascade Rider 전략 - 정보 폭포 편승
+# 24h 드리프트 +4~10%p + 버킷 일관성 + 거래량 가속 확인 후 추세 편승
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 20000
+
+  # 최소 24시간 거래량 ($, gamma volume24hr)
+  min_volume_24h: 10000
+
+  # 이익실현 (진입가 대비 +15%, 목표가는 0.99로 캡)
+  take_profit_percent: 0.15
+
+  # 손절 (진입가 대비 -8%)
+  stop_loss_percent: -0.08
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간). 마지막 청산/skip 후 이 시간이 지나면 재진입 허용
+  reentry_cooldown_hours: 24
+
+  # CLOB /prices-history 백필 (cold start 해결, 실패해도 무해)
+  history_backfill: true
+
+  # 트레일링 스탑 설정
+  trailing_stop:
+    enabled: true
+    # 최고점 대비 하락율 (6%)
+    percent: 0.06
+
+  # 진입 조건: 해결까지 최소 시간 (48시간)
+  entry_hours_min: 48
+
+  # 청산 조건: 해결까지 이 시간 이내면 청산 (24시간)
+  exit_hours: 24
+
+  # Cascade Rider 전략 파라미터
+  cascade:
+    # 매수 토큰 가격 밴드 (러닝룸 있는 중간 구간)
+    prob_min: 0.40
+    prob_max: 0.80
+    # 드리프트 판정 윈도우 (시간)
+    drift_lookback_hours: 24
+    # 24h 드리프트 밴드: 소폭 모멘텀만 편승, 상한은 mean-revert 영역 배제
+    drift_min: 0.04
+    drift_max: 0.10
+    # 일관성 버킷 크기 (시간) — 24h / 4h = 6 버킷
+    bucket_hours: 4
+    # 비음(>= 0) 변화 버킷 비율 하한
+    consistency_min: 0.70
+    # 거래량 가속: 현재 volume24hr >= 윈도우 평균의 이 배수
+    vol_accel_min: 1.2
+    # 드리프트 소멸 판정 윈도우 (시간)
+    death_window_hours: 6
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

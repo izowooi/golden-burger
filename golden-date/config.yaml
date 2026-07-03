@@ -1,0 +1,74 @@
+# Polymarket Trading Bot Configuration (Golden Date)
+# Conviction Ladder 전략 - 시간 사다리 확률 밴드 + 모멘텀 게이트
+# 잔여 시간이 적을수록 높은 확신(가격)을 요구하고, 하락 추세 favorite은 사지 않는다.
+# 모든 값은 env 가 항상 우선한다 (env > yaml > 코드 기본값).
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 15000
+
+  # 최소 24시간 거래량 ($, gamma volume24hr)
+  min_volume_24h: 5000
+
+  # 익절 (진입가 대비 +12%, 목표가는 0.99로 캡)
+  take_profit_percent: 0.12
+
+  # 손절 (진입가 대비 -8%)
+  stop_loss_percent: -0.08
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간). 마지막 매도/skip 이후 이 시간이 지나면 재진입 허용
+  reentry_cooldown_hours: 24
+
+  # CLOB prices-history 백필 (스냅샷 cold start 해결)
+  history_backfill: true
+
+  # 트레일링 스탑 설정
+  trailing_stop:
+    enabled: true
+    # 최고점 대비 하락율 (5%)
+    percent: 0.05
+
+  # 시간 사다리: 잔여 시간 h 구간별 진입 확률 밴드
+  # 6 < h <= 24  : [0.80, 0.95]
+  # 24 < h <= 72 : [0.75, 0.92]
+  # 72 < h <= 168: [0.70, 0.88]
+  ladder:
+    # 잔여 시간이 이 값 이하면 진입 금지 (너무 늦음)
+    entry_hours_min: 6
+    h1: 24
+    band1_min: 0.80
+    band1_max: 0.95
+    h2: 72
+    band2_min: 0.75
+    band2_max: 0.92
+    h3: 168
+    band3_min: 0.70
+    band3_max: 0.88
+
+  # 모멘텀 게이트: 최근 lookback_hours 윈도우에서
+  # favorite 가격 변화가 min_change 이상이어야 진입 (하락 추세 배제)
+  momentum_gate:
+    lookback_hours: 6
+    min_change: -0.01
+
+  # 청산 조건: 해결까지 이 시간 이내면 청산 (2시간)
+  exit_hours: 2
+
+  # YES-Only 모드: true면 index 0(Yes/1위 후보)만 매수, No 포지션 제외
+  # CLI --yes-only 또는 env POLYBOT_YES_ONLY가 우선
+  yes_only_mode: false
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  # env POLYBOT_EXCLUDED_CATEGORIES (comma 구분)로 오버라이드 가능
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

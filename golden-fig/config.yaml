@@ -1,0 +1,58 @@
+# Polymarket Trading Bot Configuration (Golden Fig)
+# Hope Crusher Strategy - 롱샷 희망 페이드 (NO 토큰 매수)
+# YES 5~25% 롱샷 시장에서 NO(75~95%)를 매수해 시간 가치 소멸(theta)을 수확
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  min_liquidity: 10000
+
+  # 최소 24h 거래량 ($). 0이면 비활성화
+  min_volume_24h: 0
+
+  # 이익실현 (진입가 대비 +6%, 목표가 0.99 캡)
+  take_profit_percent: 0.06
+
+  # 손절 (진입가 대비 -10%. NO 하락 = YES 급등 = 사건 발생 신호)
+  stop_loss_percent: -0.10
+
+  # 최대 동시 포지션 수 (-1: 무제한)
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간). 마지막 청산/skip 후 이 시간 이내면 재진입 금지
+  reentry_cooldown_hours: 24
+
+  # CLOB /prices-history 백필 (cold start 해결)
+  history_backfill: true
+
+  # 전략 시그널 파라미터
+  strategy:
+    # YES 롱샷 밴드: 이 구간이면 NO 토큰 매수 (NO 가격 0.75~0.95)
+    yes_min: 0.05
+    yes_max: 0.25
+    # 사건 진행 배제 게이트: YES 24h 변화가 이 값 초과면 skip
+    yes_rise_block_24h: 0.02
+    # 사건 진행 배제 게이트: 최근 6h YES 급등이 이 값 이상이면 skip
+    yes_spike_block_6h: 0.05
+    # 게이트 계산 lookback (시간)
+    rise_lookback_hours: 24
+    spike_lookback_hours: 6
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 시간 (1일)
+    entry_hours_min: 24
+    # 진입 조건: 해결까지 최대 시간 (10일)
+    entry_hours_max: 240
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (2시간)
+    exit_hours: 2
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false

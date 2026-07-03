@@ -18,7 +18,16 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, 해결 직전) 전략.
 
-→ 3개 코드베이스 = 4개 알고리즘 계정 (apple 2 + banana 1 + cherry 1).
+→ 3개 코드베이스 = 4개 알고리즘 계정 (apple 2 + banana 1 + cherry 1). 운영 중.
+
+신규 전략 봇 — 대중 심리 기반, 단계적 A/B 검증 예정 (각 폴더 L3 `AGENTS.md`·`STRATEGY.md` 보유, 개요는 `docs/prediction-market-strategy-portfolio.md`):
+
+- `golden-date/`: Conviction Ladder — cherry 고도화 (시간 사다리 진입 밴드 + 모멘텀 게이트).
+- `golden-elderberry/`: Panic Fade — favorite 급락 과잉반응 역매수.
+- `golden-fig/`: Hope Crusher — 롱샷 페이드 (NO 토큰 매수, 만기 theta 수확).
+- `golden-grape/`: Cascade Rider — 완만한 일관 드리프트 + 거래량 가속 편승.
+- `golden-honeydew/`: Night Watch — 미국 새벽·주말 무근거 이탈 복원.
+- `golden-lime/`: Shock Follow — 거래량 동반 급등 편승 (elderberry와 A/B 쌍).
 
 리포팅·적재 (Python/uv):
 

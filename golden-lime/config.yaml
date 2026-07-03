@@ -1,0 +1,74 @@
+# Polymarket Trading Bot Configuration (Golden Lime)
+# Shock Follow Strategy - 충격 뉴스 과소반응 편승 전략
+# 6h 내 +0.10 점프 + 고점 유지 + 거래량 폭증 확인 후 점프 방향 편승
+# elderberry(Panic Fade)와 정반대 트리거의 A/B 쌍 - 상세는 STRATEGY.md 참조
+
+trading:
+  # 한 번 매수할 금액 (USDC)
+  buy_amount_usdc: 5.0
+
+  # 최소 유동성 ($)
+  # 이 금액 미만의 시장은 제외
+  min_liquidity: 20000
+
+  # 최소 24h 거래량 ($, gamma volume24hr)
+  min_volume_24h: 10000
+
+  # 이익실현 (진입가 대비 +12%, 목표가 0.99 캡)
+  take_profit_percent: 0.12
+
+  # 손절 (진입가 대비 -8%)
+  stop_loss_percent: -0.08
+
+  # 최대 동시 포지션 수
+  # -1: 무제한
+  max_positions: -1
+
+  # 재진입 쿨다운 (시간)
+  # 마지막 매도/skip 이후 이 시간이 지나야 같은 시장 재진입
+  reentry_cooldown_hours: 24
+
+  # 스냅샷 부족 시 CLOB /prices-history 백필 사용
+  history_backfill: true
+
+  # 트레일링 스탑 설정
+  trailing_stop:
+    # 트레일링 스탑 활성화
+    enabled: true
+    # 최고점 대비 하락율 (6%)
+    percent: 0.06
+
+  # 시간 기반 진입/청산 설정
+  time_based:
+    # 진입 조건: 해결까지 최소 시간 (24시간)
+    entry_hours_min: 24
+    # 청산 조건: 해결까지 이 시간 이내면 청산 (12시간)
+    exit_hours: 12
+
+  # Shock Follow 전략 파라미터
+  shock:
+    # 점프 감지 윈도우 (시간)
+    jump_window_hours: 6
+    # 점프 최소 폭 (윈도우 내 최저가 대비 현재가 상승폭)
+    jump_min: 0.10
+    # 점프 시작 기준가(윈도우 내 최저가) 허용 구간
+    base_min: 0.15
+    base_max: 0.70
+    # 현재가 상한 (러닝룸 확보)
+    current_max: 0.85
+    # 고점 유지 확인 윈도우 (분)
+    hold_window_minutes: 60
+    # 고점 대비 최대 되돌림
+    max_pullback: 0.02
+    # 거래량 확인: 현재 volume24hr >= 24h 윈도우 평균 x 이 배수
+    vol_mult_min: 2.0
+    # 모멘텀 사망 판정 윈도우 (시간, 청산 조건)
+    death_window_hours: 3
+
+  # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
+  excluded_categories: []
+
+# 시뮬레이션 모드
+# true: 실제 주문 없이 로그만 기록
+# false: 실제 거래 실행
+simulation_mode: false
