@@ -173,3 +173,6 @@ cython_debug/
 /streamlit_proj/.idea
 streamlit_proj/.streamlit/secrets.toml
 /cloud_run_proj/.idea
+
+# wind_down.py 매도 기록 CSV (실행 위치에 생성됨)
+wind_down_*.csv
