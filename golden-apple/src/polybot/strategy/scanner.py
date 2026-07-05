@@ -14,6 +14,17 @@ from .filters import (
 logger = logging.getLogger(__name__)
 
 
+def _log_reject_summary(rejected: Dict[str, int]) -> None:
+    """제외 사유별 집계를 개수 내림차순 한 줄로 출력."""
+    if not rejected:
+        return
+    summary = ", ".join(
+        f"{k}: {v}"
+        for k, v in sorted(rejected.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    logger.info(f"제외 사유 요약 - {summary}")
+
+
 class MarketScanner:
     """Scans markets for buy candidates based on probability thresholds."""
 
@@ -46,6 +57,7 @@ class MarketScanner:
         logger.info(f"시장 {len(markets)}개 스캔 시작")
 
         candidates = []
+        rejected = {}  # 사유 키 -> 개수 (요약 로그용)
 
         for market in markets:
             condition_id = market.get("conditionId")
@@ -55,19 +67,23 @@ class MarketScanner:
             # Filter: Excluded categories (sports)
             if is_sports_market(market, self.config.excluded_categories):
                 logger.debug(f"스포츠 시장 제외: {condition_id}")
+                rejected["excluded_category"] = rejected.get("excluded_category", 0) + 1
                 continue
 
             # Filter: Liquidity (double check)
             if not passes_liquidity_filter(market, self.config.min_liquidity):
+                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
                 continue
 
             # Filter: Volume (double check)
             if not passes_volume_filter(market, self.config.min_volume):
+                rejected["low_volume"] = rejected.get("low_volume", 0) + 1
                 continue
 
             # Get high probability outcome
             outcome_info = get_high_probability_outcome(market)
             if not outcome_info or not outcome_info.get("token_id"):
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             probability = outcome_info["probability"]
@@ -78,6 +94,7 @@ class MarketScanner:
                 self.config.buy_threshold,
                 self.config.sell_threshold,
             ):
+                rejected["prob_out_of_range"] = rejected.get("prob_out_of_range", 0) + 1
                 continue
 
             # Valid candidate
@@ -102,6 +119,8 @@ class MarketScanner:
                 f"매수 후보: {candidate['question'][:50]}... "
                 f"({candidate['outcome']} @ {probability:.1%})"
             )
+
+        _log_reject_summary(rejected)
 
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates

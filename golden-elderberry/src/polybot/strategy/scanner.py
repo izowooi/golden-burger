@@ -1,5 +1,6 @@
 """Market scanner for finding panic fade opportunities."""
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Optional
 from ..api.gamma_client import GammaClient
@@ -22,6 +23,28 @@ from .signals import (
 )
 
 logger = logging.getLogger(__name__)
+
+_NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
+
+
+def _reason_key(reason: str) -> str:
+    """제외 사유의 수치 접미사를 떼고 집계 키로 정규화.
+
+    예: drop_too_small_-0.05 → drop_too_small, ref_below_min_0.62 → ref_below_min
+    """
+    parts = [p for p in reason.split("_") if p and not _NUMERIC_REASON_PART.match(p)]
+    return "_".join(parts) or reason
+
+
+def _log_reject_summary(rejected: Dict[str, int]) -> None:
+    """제외 사유별 집계를 개수 내림차순 한 줄로 출력."""
+    if not rejected:
+        return
+    summary = ", ".join(
+        f"{k}: {v}"
+        for k, v in sorted(rejected.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    logger.info(f"제외 사유 요약 - {summary}")
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -209,7 +232,7 @@ class MarketScanner:
         params = self._signal_params()
 
         candidates = []
-        rejected = {}  # reason prefix -> count (요약 로그용)
+        rejected = {}  # 사유 키 -> 개수 (요약 로그용)
 
         for market in markets:
             condition_id = market.get("conditionId")
@@ -219,10 +242,12 @@ class MarketScanner:
             # Filter: Excluded categories (sports)
             if is_sports_market(market, self.config.excluded_categories):
                 logger.debug(f"스포츠 시장 제외: {condition_id}")
+                rejected["excluded_category"] = rejected.get("excluded_category", 0) + 1
                 continue
 
             # Filter: Liquidity + 24h volume
             if not passes_liquidity_filter(market, self.config.min_liquidity):
+                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
                 continue
             if not passes_volume_filter(market, self.config.min_volume_24h):
                 rejected["low_volume"] = rejected.get("low_volume", 0) + 1
@@ -237,6 +262,7 @@ class MarketScanner:
 
             yes_price = get_yes_price(market)
             if yes_price is None:
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             token_ids = market.get("clobTokenIds", [])
@@ -247,7 +273,7 @@ class MarketScanner:
             signal = evaluate_panic_fade(series, yes_price, params, now)
 
             if not signal.entry:
-                key = signal.reason.split("_0")[0].rstrip("0123456789._")
+                key = _reason_key(signal.reason)
                 rejected[key] = rejected.get(key, 0) + 1
                 logger.debug(
                     f"진입 조건 미충족: {condition_id[:20]}... ({signal.reason})"
@@ -259,6 +285,7 @@ class MarketScanner:
             if token_ids and signal.token_index is not None and len(token_ids) > signal.token_index:
                 token_id = token_ids[signal.token_index]
             if not token_id:
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             outcomes = market.get("outcomes", ["Yes", "No"])
@@ -299,9 +326,7 @@ class MarketScanner:
                 f"해결까지 {hours_left:.1f}h)"
             )
 
-        if rejected:
-            summary = ", ".join(f"{k}: {v}" for k, v in sorted(rejected.items()))
-            logger.info(f"제외 사유 요약 - {summary}")
+        _log_reject_summary(rejected)
 
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates

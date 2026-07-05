@@ -1,5 +1,6 @@
 """Market scanner for finding trading opportunities (Hope Crusher strategy)."""
 import logging
+import re
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from ..api.gamma_client import GammaClient
@@ -20,6 +21,28 @@ from .signals import (
 )
 
 logger = logging.getLogger(__name__)
+
+_NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
+
+
+def _reason_key(reason: str) -> str:
+    """제외 사유의 수치 접미사를 떼고 집계 키로 정규화.
+
+    예: yes_out_of_band_0.42 → yes_out_of_band, yes_rising_24h_+0.03 → yes_rising
+    """
+    parts = [p for p in reason.split("_") if p and not _NUMERIC_REASON_PART.match(p)]
+    return "_".join(parts) or reason
+
+
+def _log_reject_summary(rejected: Dict[str, int]) -> None:
+    """제외 사유별 집계를 개수 내림차순 한 줄로 출력."""
+    if not rejected:
+        return
+    summary = ", ".join(
+        f"{k}: {v}"
+        for k, v in sorted(rejected.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    logger.info(f"제외 사유 요약 - {summary}")
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -256,6 +279,7 @@ class MarketScanner:
 
         candidates = []
         scan_analysis = []  # 분석 결과 저장
+        rejected = {}  # 사유 키 -> 개수 (요약 로그용)
 
         for market in markets:
             condition_id = market.get("conditionId")
@@ -265,15 +289,18 @@ class MarketScanner:
             # Filter: Excluded categories
             if is_sports_market(market, self.config.excluded_categories):
                 logger.debug(f"제외 카테고리 시장 skip: {condition_id}")
+                rejected["excluded_category"] = rejected.get("excluded_category", 0) + 1
                 continue
 
             # Filter: Liquidity (double check)
             if not passes_liquidity_filter(market, self.config.min_liquidity):
+                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
                 continue
 
             # NO 쪽 토큰 정보 (방향 내장 - 항상 NO)
             side = get_no_side(market)
             if not side or not side.get("token_id"):
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             yes_price = side["yes_price"]
@@ -281,6 +308,7 @@ class MarketScanner:
 
             # 밴드 밖 시장은 스냅샷/시그널 계산 없이 조용히 skip (로그 노이즈 방지)
             if not (params.yes_min <= yes_price <= params.yes_max):
+                rejected["yes_out_of_band"] = rejected.get("yes_out_of_band", 0) + 1
                 continue
 
             end_date = parse_end_date(market.get("endDate"))
@@ -312,6 +340,8 @@ class MarketScanner:
             })
 
             if not signal.entry:
+                key = _reason_key(signal.reason)
+                rejected[key] = rejected.get(key, 0) + 1
                 logger.debug(
                     f"진입 조건 미충족: {condition_id[:20]}... ({signal.reason})"
                 )
@@ -347,6 +377,7 @@ class MarketScanner:
 
         # 스캔 분석 요약 출력
         self._log_scan_summary(scan_analysis)
+        _log_reject_summary(rejected)
 
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates

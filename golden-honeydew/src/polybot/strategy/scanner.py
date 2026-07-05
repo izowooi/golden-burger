@@ -1,5 +1,6 @@
 """Market scanner for the Night Watch strategy."""
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, List, Dict, Optional
 
@@ -23,6 +24,28 @@ from .signals import (
 )
 
 logger = logging.getLogger(__name__)
+
+_NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
+
+
+def _reason_key(reason: str) -> str:
+    """제외 사유의 수치 접미사를 떼고 집계 키로 정규화.
+
+    예: dev_below_min_+0.012 → dev_below_min, price_out_of_band_0.28 → price_out_of_band
+    """
+    parts = [p for p in reason.split("_") if p and not _NUMERIC_REASON_PART.match(p)]
+    return "_".join(parts) or reason
+
+
+def _log_reject_summary(rejected: Dict[str, int]) -> None:
+    """제외 사유별 집계를 개수 내림차순 한 줄로 출력."""
+    if not rejected:
+        return
+    summary = ", ".join(
+        f"{k}: {v}"
+        for k, v in sorted(rejected.items(), key=lambda kv: (-kv[1], kv[0]))
+    )
+    logger.info(f"제외 사유 요약 - {summary}")
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -279,6 +302,7 @@ class MarketScanner:
         params = self._signal_params()
         candidates = []
         scan_analysis = []  # 분석 결과 저장
+        rejected = {}  # 사유 키 -> 개수 (요약 로그용)
 
         for market in markets:
             condition_id = market.get("conditionId")
@@ -288,21 +312,25 @@ class MarketScanner:
             # Filter: Excluded categories
             if is_sports_market(market, self.config.excluded_categories):
                 logger.debug(f"제외 카테고리 시장 skip: {condition_id}")
+                rejected["excluded_category"] = rejected.get("excluded_category", 0) + 1
                 continue
 
             # Filter: Liquidity (double check)
             if not passes_liquidity_filter(market, self.config.min_liquidity):
+                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
                 continue
 
             # Filter: 24h volume (0이면 비활성)
             volume_24h = float(market.get("volume24hr") or 0)
             if self.config.min_volume_24h > 0 and volume_24h < self.config.min_volume_24h:
+                rejected["low_volume"] = rejected.get("low_volume", 0) + 1
                 continue
 
             # Filter: Time - 해결까지 최소 entry_hours_min
             end_date = parse_end_date(market.get("endDate"))
             hours_left = get_hours_until_resolution(end_date)
             if hours_left is None or hours_left < self.config.time_based.entry_hours_min:
+                rejected["too_close_to_resolution"] = rejected.get("too_close_to_resolution", 0) + 1
                 continue
 
             # YES/NO 가격·토큰 파싱 (outcomePrices[0]=YES, [1]=NO, clobTokenIds 동일 인덱스)
@@ -315,6 +343,7 @@ class MarketScanner:
                 or len(outcome_prices) < 2
                 or len(token_ids) < 2
             ):
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             try:
@@ -322,6 +351,7 @@ class MarketScanner:
                 # NO 매수가는 1-p 근사가 아니라 실제 NO 토큰 가격을 쓴다
                 no_price = float(outcome_prices[1])
             except (ValueError, TypeError):
+                rejected["no_price_data"] = rejected.get("no_price_data", 0) + 1
                 continue
 
             # 스냅샷 윈도우 구성 (DB + 필요 시 백필)
@@ -351,6 +381,8 @@ class MarketScanner:
             })
 
             if not signal.should_enter:
+                key = _reason_key(signal.reason)
+                rejected[key] = rejected.get(key, 0) + 1
                 logger.debug(
                     f"진입 조건 미충족: {condition_id[:20]}... ({signal.reason})"
                 )
@@ -387,6 +419,7 @@ class MarketScanner:
 
         # 스캔 분석 요약 출력
         self._log_scan_summary(scan_analysis)
+        _log_reject_summary(rejected)
 
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates
