@@ -19,6 +19,8 @@ CATALOG = [
     {"account_id": "golden-banana", "jenkins_name": "GOLDEN-BANANA"},
     {"account_id": "golden-cherry", "jenkins_name": "GOLDEN-CHERRY"},
     {"account_id": "golden-apple-2", "jenkins_name": "GOLDEN-APPLE (2)"},
+    {"account_id": "golden-eco", "jenkins_name": "GOLDEN-ECO"},
+    {"account_id": "golden-fox", "jenkins_name": "GOLDEN-FOX"},
 ]
 
 
@@ -30,6 +32,9 @@ def make_reports():
         "golden-banana": report(28883.37125, 25246.26975, 3637.0965),
         "golden-cherry": report(3578.21125, 2455.16975, 1123.0465),
         "golden-apple (2)": report(12783.08125, 10243.52975, 2539.5565),
+        # 2026-07 신규 테스트 슬롯 (이름 중복 없음 - display_name == name)
+        "golden-eco": report(3000.0, 0.0, 3000.0),
+        "golden-fox": report(3000.0, 0.0, 3000.0),
     }
 
 
@@ -144,7 +149,7 @@ def test_accepts_server_secret_key(monkeypatch):
         secret_key="sb_secret_example_server_key",
     )
 
-    assert writer.check_connection() == 4
+    assert writer.check_connection() == 6
 
 
 def test_permission_error_explains_required_key_type():
@@ -171,15 +176,17 @@ def test_upserts_complete_snapshot_with_date_conflicts():
         "golden-banana",
         "golden-cherry",
         "golden-apple-2",
+        "golden-eco",
+        "golden-fox",
     }
     assert all(row["report_date"] == "2026-06-23" for row in balances["payload"])
     assert total["table"] == "pb_daily_portfolio_totals"
     assert total["on_conflict"] == "report_date"
     assert result.report_date == "2026-06-23"
-    assert result.account_count == 4
-    assert result.total_value == 47037.06
+    assert result.account_count == 6
+    assert result.total_value == 53037.06
     assert result.position_value == 39312.25
-    assert result.cash_value == 7724.81
+    assert result.cash_value == 13724.81
 
 
 def test_rejects_failed_account_without_writing():

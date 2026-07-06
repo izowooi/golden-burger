@@ -1,12 +1,12 @@
 # Polymarket Daily Reporter
 
-네 개 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다.
+여섯 개 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다.
 
 ## 실행 순서
 
 ```text
 Polymarket Data API 조회
-  → 네 계정의 완전한 스냅샷 검증
+  → 전 계정(카탈로그 기준)의 완전한 스냅샷 검증
   → Slack 일간/월간 메시지 전송
   → Supabase 날짜 기준 upsert
 ```
@@ -33,6 +33,8 @@ Polymarket Data API 조회
 | `GOLDEN-BANANA` | `golden-banana` |
 | `GOLDEN-CHERRY` | `golden-cherry` |
 | `GOLDEN-APPLE (2)` | `golden-apple-2` |
+| `GOLDEN-ECO` | `golden-eco` |
+| `GOLDEN-FOX` | `golden-fox` |
 
 ## 설치
 
@@ -63,6 +65,10 @@ ACCOUNT_3_NAME=golden-cherry
 ACCOUNT_3_ADDRESS=0x...
 ACCOUNT_4_NAME=golden-apple
 ACCOUNT_4_ADDRESS=0x...
+ACCOUNT_5_NAME=golden-eco
+ACCOUNT_5_ADDRESS=0x...
+ACCOUNT_6_NAME=golden-fox
+ACCOUNT_6_ADDRESS=0x...
 
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
@@ -124,7 +130,7 @@ cd ./daily-report
 /Users/jongwoopark/.local/bin/uv run python ./daily_report.py run
 ```
 
-연결 점검이 성공하면 `Supabase 연결 성공 - 계정 카탈로그: 4개`가 출력됩니다. 이 명령은 Slack을 보내거나 DB를 수정하지 않습니다.
+연결 점검이 성공하면 `Supabase 연결 성공 - 계정 카탈로그: 6개`가 출력됩니다. 이 명령은 Slack을 보내거나 DB를 수정하지 않습니다.
 
 Pipeline job은 저장소의 `Jenkinsfile` 예시를 사용할 수 있습니다. Secret 값은 Jenkins Credentials에서만 주입됩니다.
 
@@ -190,7 +196,7 @@ limit 28;
 - **필수 Supabase 환경변수가 없습니다**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` 주입 여부를 확인합니다.
 - **`permission denied for table pb_algorithm_accounts` / HTTP 401**: `SUPABASE_SECRET_KEY` 값이 `sb_publishable_...`인지 확인합니다. `sb_secret_...` 키로 교체하고 `check-supabase`를 실행합니다. anon 권한을 추가하지 않습니다.
 - **`SUPABASE_SECRET_KEY에 sb_publishable_... 키가 설정되었습니다`**: 변수 이름은 맞지만 값 종류가 잘못된 상태입니다. Dashboard의 Secret keys에서 서버 키를 가져옵니다.
-- **일부 DB 계정의 리포트가 없습니다**: 네 개 `ACCOUNT_*` 설정과 DB 카탈로그를 확인합니다.
+- **일부 DB 계정의 리포트가 없습니다**: `ACCOUNT_*` env 설정과 DB 카탈로그(`pb_algorithm_accounts`)가 정확히 일치하는지 확인합니다. 계좌를 추가/제거할 때는 env와 카탈로그 행을 같은 시점에 반영해야 합니다.
 - **Jenkins 이름을 찾지 못했습니다**: 중복 `golden-apple` 계정의 순서가 1번과 4번인지 확인합니다.
 - **DB 적재 실패 후 일부 행만 갱신됨**: 작업을 다시 실행하면 같은 날짜 키로 idempotent upsert되어 복구됩니다.
 - **월간 실행에서 중복 행이 생김**: 날짜가 기본키이므로 중복 행은 생성되지 않습니다. 최신 값으로 갱신됩니다.

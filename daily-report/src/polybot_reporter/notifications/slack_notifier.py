@@ -232,7 +232,7 @@ class SlackNotifier:
             "footer": "Polymarket Bot • 전체 계좌 요약"
         }
 
-        # Individual account attachments
+        # Individual account attachments - 계좌당 2줄 (이름 / 금액·손익 한 줄)
         account_attachments = []
         for account_name, summary in reports.items():
             pnl_7d = summary.get("pnl_7d") or {}
@@ -242,29 +242,18 @@ class SlackNotifier:
             cash_balance = summary.get("cash_balance", 0)
             account_total = summary.get("total_value", 0)
 
-            fields = [
-                {
-                    "title": "자산 가치",
-                    "value": f"${account_total:.2f} (Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})",
-                    "short": False
-                },
-                {
-                    "title": "7d 손익",
-                    "value": _format_pnl_usd(total_pnl),
-                    "short": True
-                }
-            ]
+            line = (
+                f"${account_total:.2f} "
+                f"(Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})"
+                f" · 7d 손익 {_format_pnl_usd(total_pnl)}"
+            )
             if is_monthly:
                 pnl_30d_acc = summary.get("pnl_30d") or {}
-                fields.append({
-                    "title": "30d 손익",
-                    "value": _format_pnl_usd(pnl_30d_acc.get("total_pnl")),
-                    "short": True
-                })
+                line += f" · 30d 손익 {_format_pnl_usd(pnl_30d_acc.get('total_pnl'))}"
             account_attachments.append({
                 "color": "#36a64f" if (total_pnl or 0) >= 0 else "#ff0000",
                 "author_name": account_name.upper(),
-                "fields": fields
+                "text": line,
             })
         return self.send_message(
             text=f"일일 리포트 - 총 자산: ${total_value:.2f} (7d: ${total_pnl_7d:+.2f})",
