@@ -32,21 +32,62 @@ def test_to_unix_utc_treats_naive_as_utc():
     assert to_unix_utc(NOW) == EPOCH_20260703_1200_UTC
 
 
-def test_get_price_history_sends_utc_epoch_and_fidelity():
-    """startTs/endTs가 UTC epoch로, fidelity가 그대로 전송되는지 검증.
+def test_get_price_history_chunks_long_ranges():
+    """20일 범위는 MAX_RANGE_HOURS(336h) 이하 조각으로 나눠 요청해야 한다.
 
-    scanner는 20일 범위를 fidelity=60(시간 캔들)으로 요청한다.
+    /prices-history는 범위가 ~15일(360h)을 넘으면 HTTP 400을 반환하므로
+    (2026-07-06 실측), 단일 20일 요청은 백필 전면 실패였다 (회귀 방지).
     """
     client = make_mock_client()
     client.get_price_history(
         "token123", start=NOW - timedelta(days=20), end=NOW, fidelity=60
     )
 
-    params = client.session.get.call_args.kwargs["params"]
-    assert params["market"] == "token123"
+    calls = client.session.get.call_args_list
+    assert len(calls) == 2  # 480h -> 336h + 144h
+
+    start_epoch = EPOCH_20260703_1200_UTC - 20 * 86400
+    split_epoch = start_epoch + 336 * 3600
+    first, second = (c.kwargs["params"] for c in calls)
+
+    assert first["market"] == "token123" and first["fidelity"] == 60
+    assert (first["startTs"], first["endTs"]) == (start_epoch, split_epoch)
+    assert (second["startTs"], second["endTs"]) == (split_epoch, EPOCH_20260703_1200_UTC)
+    # 조각별 범위가 상한 이하인지
+    for params in (first, second):
+        assert params["endTs"] - params["startTs"] <= 336 * 3600
+
+
+def test_get_price_history_single_call_for_short_range():
+    """상한 이하 범위(48h 등, 다른 봇들의 사용 패턴)는 기존처럼 1회 호출."""
+    client = make_mock_client()
+    client.get_price_history(
+        "token123", start=NOW - timedelta(hours=48), end=NOW, fidelity=10
+    )
+
+    calls = client.session.get.call_args_list
+    assert len(calls) == 1
+    params = calls[0].kwargs["params"]
+    assert params["startTs"] == EPOCH_20260703_1200_UTC - 48 * 3600
     assert params["endTs"] == EPOCH_20260703_1200_UTC
-    assert params["startTs"] == EPOCH_20260703_1200_UTC - 20 * 86400
-    assert params["fidelity"] == 60
+    assert params["fidelity"] == 10
+
+
+def test_get_price_history_merges_partial_chunk_failure():
+    """조각 일부가 실패해도 성공한 조각의 포인트는 반환한다 (best-effort)."""
+    client = HistoryClient()
+    ok_response = MagicMock()
+    ok_response.json.return_value = {
+        "history": [{"t": EPOCH_20260703_1200_UTC, "p": 0.20}]
+    }
+    ok_response.raise_for_status.return_value = None
+    client.session = MagicMock()
+    client.session.get.side_effect = [RuntimeError("400"), ok_response]
+
+    points = client.get_price_history(
+        "token123", start=NOW - timedelta(days=20), end=NOW, fidelity=60
+    )
+    assert points == [(NOW, 0.20)]
 
 
 def test_get_price_history_parses_candles_as_naive_utc():
