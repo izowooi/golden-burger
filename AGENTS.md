@@ -18,7 +18,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, 해결 직전) 전략.
 
-→ 3개 코드베이스 = 4개 알고리즘 계정 (apple 2 + banana 1 + cherry 1). 운영 중.
+→ 운영 4계정(apple 2 + banana 1 + cherry 1) + 신규 테스트 슬롯 2계정(golden-eco=honeydew, golden-fox=nectarine) = 6개 알고리즘 계정.
 
 신규 전략 봇 — 대중 심리 기반, 단계적 A/B 검증 예정 (각 폴더 L3 `AGENTS.md`·`STRATEGY.md` 보유, 개요는 `docs/prediction-market-strategy-portfolio.md`):
 
@@ -36,7 +36,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 리포팅·적재 (Python/uv):
 
-- `daily-report/`: 4계정 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
+- `daily-report/`: 전 계정(현재 6개) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
 시각화·도구:
@@ -49,7 +49,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 ## 데이터 흐름
 
-봇(Jenkins 실행) → 거래·일일 잔고 → `daily-report`가 4계정 스냅샷을 Slack 송신 + Supabase(`pb_algorithm_accounts`·`pb_daily_algorithm_balances`·`pb_daily_portfolio_totals`) 적재 → `polymarket-dashboard`가 Supabase를 조회해 비교 시각화.
+봇(Jenkins 실행) → 거래·일일 잔고 → `daily-report`가 전 계정 스냅샷을 Slack 송신 + Supabase(`pb_algorithm_accounts`·`pb_daily_algorithm_balances`·`pb_daily_portfolio_totals`) 적재 → `polymarket-dashboard`가 Supabase를 조회해 비교 시각화.
 
 ## 공통 작업 원칙
 

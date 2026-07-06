@@ -32,6 +32,8 @@ const ACCOUNT_COLORS: Record<string, string> = {
   "golden-banana": "#f2db5b",
   "golden-cherry": "#ff7380",
   "golden-apple-2": "#a98cff",
+  "golden-eco": "#4cd471",
+  "golden-fox": "#57a8f5",
 };
 
 const METRICS: { value: BalanceMetric; label: string }[] = [
@@ -239,7 +241,7 @@ export function Dashboard() {
       <section className="hero-row">
         <div>
           <p className="section-kicker">PORTFOLIO OBSERVATORY</p>
-          <h2>네 개 전략의 잔고와 수익률을<br />한 화면에서 비교합니다.</h2>
+          <h2>모든 전략 계좌의 잔고와 수익률을<br />한 화면에서 비교합니다.</h2>
         </div>
         <p className="hero-note">
           수익률은 선택 기간의 첫 잔고와 마지막 잔고를 비교합니다.
@@ -494,7 +496,7 @@ export function Dashboard() {
                         <td>
                           <span
                             className="table-dot"
-                            style={{ background: ACCOUNT_COLORS[account.account_id] }}
+                            style={{ background: ACCOUNT_COLORS[account.account_id] ?? "#8de0c1" }}
                           />
                           <strong>{displayName(account)}</strong>
                         </td>

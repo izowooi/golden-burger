@@ -8,7 +8,7 @@
 
 ## 프로젝트 목적
 
-형제 전략 봇(`golden-apple`/`golden-banana`/`golden-cherry`)이 운영하는 4개 알고리즘 계정의 잔고와 기간 수익률을 한 화면에서 비교하는 대시보드다. Supabase에 적재된 일일 스냅샷을 서버에서 읽어 시각화한다.
+형제 전략 봇들이 운영하는 알고리즘 계정(현재 6개: apple x2·banana·cherry + 테스트 슬롯 eco(honeydew)·fox(nectarine))의 잔고와 기간 수익률을 한 화면에서 비교하는 대시보드다. Supabase에 적재된 일일 스냅샷을 서버에서 읽어 시각화한다.
 
 ## 기술 스택
 

@@ -276,7 +276,7 @@ button { color: inherit; }
 .section-heading-row > p { color: var(--muted); font: 500 11px/1 var(--font-mono); }
 .performance-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 12px;
   margin-top: 18px;
 }
