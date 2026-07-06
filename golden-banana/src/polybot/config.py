@@ -79,7 +79,9 @@ class ApiConfig:
     """API authentication configuration."""
     private_key: str
     funder_address: str
-    signature_type: int = 1  # 1 for Magic.Link (email wallet)
+    # 1=POLY_PROXY (구형 이메일 계정), 3=POLY_1271 (2026+ 신규 계정의 스마트 지갑).
+    # 신규 계정을 1로 서명하면 CLOB이 "maker address not allowed"로 거절한다.
+    signature_type: int = 1
     chain_id: int = 137  # Polygon Mainnet
 
 
@@ -235,6 +237,7 @@ def load_config(
     api = ApiConfig(
         private_key=private_key,
         funder_address=funder_address,
+        signature_type=int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1")),
     )
 
     # Simulation mode (CLI flag overrides config file)
