@@ -130,6 +130,53 @@ class SkippedMarket(Base):
         return f"<Skipped {self.condition_id}: {self.reason}>"
 
 
+class CycleStat(Base):
+    """사이클 단위 매수 파이프라인 계측 (max_positions 튜닝 회고용).
+
+    보유 궤적이 상한에 붙어 있었는지(cap_skips>0 빈도)를 보고
+    한 달 뒤 상한/포지션 크기를 조정하는 근거 데이터.
+    """
+    __tablename__ = "cycle_stats"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts = Column(DateTime, default=datetime.utcnow, index=True)
+    markets_scanned = Column(Integer, nullable=False)
+    buy_candidates = Column(Integer, nullable=False)
+    holdings_before = Column(Integer, nullable=False)
+    holdings_after = Column(Integer, nullable=False)
+    max_positions = Column(Integer, nullable=False)  # 당시 설정값 (튜닝 이력 추적)
+    buy_amount_usdc = Column(Float, nullable=False)  # 당시 포지션 크기
+    bought = Column(Integer, nullable=False)
+    cap_skips = Column(Integer, nullable=False)      # 상한 때문에 못 산 후보 수
+    cooldown_skips = Column(Integer, nullable=False)
+    failed_buys = Column(Integer, nullable=False)    # 주문 실패/트레이더 내부 skip
+
+    def __repr__(self) -> str:
+        return (f"<CycleStat {self.ts}: 보유 {self.holdings_after}/"
+                f"{self.max_positions}, cap_skips={self.cap_skips}>")
+
+
+class CappedCandidate(Base):
+    """max_positions 상한 때문에 매수하지 못한 후보 (반사실 P&L 회고용).
+
+    market_snapshots(60일 보존)와 join하면 '상한이 걸러낸 진입'의 가상
+    calendar-exit(+120h) 수익률을 계산할 수 있다. 같은 시장이 사이클마다
+    반복 기록되지 않도록 repository에서 24h dedup 한다.
+    """
+    __tablename__ = "capped_candidates"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    ts = Column(DateTime, default=datetime.utcnow, index=True)
+    condition_id = Column(String, index=True, nullable=False)
+    question = Column(String)
+    yes_price = Column(Float, nullable=False)   # 스킵 시점 가격 = 가상 매수가
+    rolling_min = Column(Float, nullable=True)
+    hours_left = Column(Float, nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<Capped {self.condition_id}: {self.yes_price:.3f}>"
+
+
 # 부록 §A.8: 기존 로컬 DB 호환용 best-effort ALTER 대상 컬럼
 # (cherry의 market_tags ALTER 패턴 - 이미 존재하면 조용히 무시)
 _ALTER_COLUMNS = [

@@ -109,3 +109,39 @@ def test_csv_export_includes_signal_columns(tmp_path):
     assert float(row["lookback_days_at_buy"]) == 19.5
     assert float(row["hold_hours_at_exit"]) == 121.0
     assert float(row["volume_24h_at_buy"]) == 4200.0
+
+def test_cycle_stats_roundtrip(tmp_path):
+    """max_positions 튜닝 회고용 사이클 통계가 그대로 적재/조회되는지."""
+    from polybot.db.models import CycleStat
+
+    repo = make_repo(tmp_path)
+    repo.save_cycle_stats(
+        markets_scanned=1429, buy_candidates=128,
+        holdings_before=0, holdings_after=100,
+        max_positions=100, buy_amount_usdc=10.0,
+        bought=100, cap_skips=28, cooldown_skips=0, failed_buys=0,
+    )
+    row = repo.session.query(CycleStat).one()
+    assert row.cap_skips == 28
+    assert row.max_positions == 100
+    assert row.holdings_after == 100
+    assert row.buy_amount_usdc == 10.0
+
+
+def test_capped_candidate_dedup_within_window(tmp_path):
+    """같은 시장의 상한 스킵은 24h 내 1회만 기록 (사이클마다 중복 적재 방지)."""
+    from polybot.db.models import CappedCandidate
+
+    repo = make_repo(tmp_path)
+    first = repo.save_capped_candidate(
+        condition_id="0xcap", question="q", yes_price=0.085,
+        rolling_min=0.085, hours_left=4258.8,
+    )
+    dup = repo.save_capped_candidate(
+        condition_id="0xcap", question="q", yes_price=0.084,
+    )
+    other = repo.save_capped_candidate(
+        condition_id="0xother", question="q2", yes_price=0.12,
+    )
+    assert first is not None and dup is None and other is not None
+    assert repo.session.query(CappedCandidate).count() == 2

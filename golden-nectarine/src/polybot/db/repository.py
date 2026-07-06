@@ -6,7 +6,9 @@ from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
+from .models import (
+    Trade, TradeStatus, SkippedMarket, MarketSnapshot, CycleStat, CappedCandidate,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +116,53 @@ class TradeRepository:
         self.session.add(skipped)
         self.session.commit()
         return skipped
+
+    # ------------------------------------------------------------------
+    # max_positions 튜닝 계측 (사이클 통계 + 상한 스킵 후보)
+    # ------------------------------------------------------------------
+
+    def save_cycle_stats(self, **kwargs) -> CycleStat:
+        """사이클 단위 매수 파이프라인 통계 기록."""
+        stat = CycleStat(**kwargs)
+        self.session.add(stat)
+        self.session.commit()
+        return stat
+
+    def save_capped_candidate(
+        self,
+        condition_id: str,
+        question: str,
+        yes_price: float,
+        rolling_min: float = None,
+        hours_left: float = None,
+        dedup_hours: float = 24.0,
+    ) -> Optional[CappedCandidate]:
+        """상한 스킵 후보 기록. 같은 시장은 dedup_hours 내 1회만 기록.
+
+        상한에 걸린 후보는 신호가 유지되는 한 사이클(5분)마다 다시 스킵되므로,
+        dedup 없이는 하루 수천 행이 쌓이고 반사실 회고 때 중복 집계된다.
+        """
+        cutoff = datetime.utcnow() - timedelta(hours=dedup_hours)
+        exists = (
+            self.session.query(CappedCandidate)
+            .filter(
+                CappedCandidate.condition_id == condition_id,
+                CappedCandidate.ts >= cutoff,
+            )
+            .first()
+        )
+        if exists:
+            return None
+        capped = CappedCandidate(
+            condition_id=condition_id,
+            question=question,
+            yes_price=yes_price,
+            rolling_min=rolling_min,
+            hours_left=hours_left,
+        )
+        self.session.add(capped)
+        self.session.commit()
+        return capped
 
     # ------------------------------------------------------------------
     # 스냅샷 (YES 가격 기준)

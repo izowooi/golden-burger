@@ -127,21 +127,59 @@ class PolymarketBot:
             candidates = scanner.scan_buy_candidates(markets)
             stats["buy_candidates"] = len(candidates)
 
-            # Phase 3: Execute buys (재진입 쿨다운 체크)
+            # Phase 3: Execute buys (재진입 쿨다운 + 포지션 상한 체크)
             logger.info("=== Phase 3: 매수 실행 ===")
+            holdings_before = repo.get_position_count()
+            max_positions = self.config.trading.max_positions
+            cap_skips = cooldown_skips = failed_buys = 0
             for candidate in candidates:
                 blocked, reason = repo.is_reentry_blocked(
                     candidate["condition_id"],
                     self.config.trading.reentry_cooldown_hours,
                 )
                 if blocked:
+                    cooldown_skips += 1
                     logger.info(
                         f"재진입 차단 ({reason}) skip: {candidate['condition_id']}"
                     )
                     continue
 
+                # 상한 도달 후의 후보는 매수하지 않고 기록만 남긴다
+                # (한 달 뒤 '상한이 걸러낸 진입'의 반사실 수익률 회고용)
+                if max_positions > 0 and holdings_before + stats["bought"] >= max_positions:
+                    cap_skips += 1
+                    repo.save_capped_candidate(
+                        condition_id=candidate["condition_id"],
+                        question=candidate.get("question", ""),
+                        yes_price=candidate.get("probability", 0.0),
+                        rolling_min=candidate.get("rolling_min"),
+                        hours_left=candidate.get("hours_until_resolution"),
+                    )
+                    continue
+
                 if trader.execute_buy(candidate):
                     stats["bought"] += 1
+                else:
+                    failed_buys += 1
+
+            repo.save_cycle_stats(
+                markets_scanned=len(markets),
+                buy_candidates=stats["buy_candidates"],
+                holdings_before=holdings_before,
+                holdings_after=holdings_before + stats["bought"],
+                max_positions=max_positions,
+                buy_amount_usdc=self.config.trading.buy_amount_usdc,
+                bought=stats["bought"],
+                cap_skips=cap_skips,
+                cooldown_skips=cooldown_skips,
+                failed_buys=failed_buys,
+            )
+            cap_str = str(max_positions) if max_positions > 0 else "무제한"
+            logger.info(
+                f"포지션 현황 - 보유 {holdings_before + stats['bought']}/{cap_str} "
+                f"(매수 {stats['bought']}, 상한 스킵 {cap_skips}, "
+                f"쿨다운 스킵 {cooldown_skips}, 매수 실패 {failed_buys})"
+            )
 
             # Phase 4: Cleanup old snapshots
             logger.info("=== Phase 4: 오래된 스냅샷 정리 ===")
