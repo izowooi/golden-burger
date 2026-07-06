@@ -37,7 +37,7 @@ uv run python main.py status              # 포지션/통계 확인
 ## 유지해야 하는 패턴 (변경 금지)
 
 - GTC limit order at midpoint (체결 가정 포함 — cherry와의 A/B 비교용, 한계는 STRATEGY.md §8)
-- `POLYMARKET_PRIVATE_KEY`/`POLYMARKET_FUNDER_ADDRESS` env 필수, signature_type=1, chain_id=137
+- `POLYMARKET_PRIVATE_KEY`/`POLYMARKET_FUNDER_ADDRESS` env 필수, chain_id=137. signature_type은 `POLYMARKET_SIGNATURE_TYPE` env (기본 1=구형 프록시 계정, 2026+ 신규 계정은 3=POLY_1271 — 1로 서명 시 "maker address not allowed" 거절)
 - `POLYBOT_BUY_AMOUNT`(USDC), MIN_ORDER_SIZE=5주 체크
 - `data/<job>/` 분리, `trades_sim.db` 시뮬레이션 분리
 - gamma 페이지네이션의 offset>0 HTTP 422 = 정상 종료 처리

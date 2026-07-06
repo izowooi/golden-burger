@@ -50,8 +50,9 @@ import requests
 
 CLOB_HOST = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
-CHAIN_ID = 137        # Polygon
-SIGNATURE_TYPE = 1    # 봇들과 동일 (email/proxy funder 지갑)
+CHAIN_ID = 137
+# 1=POLY_PROXY (구형 계정), 3=POLY_1271 (2026+ 신규 계정) - 봇들과 같은 env 사용
+SIGNATURE_TYPE = int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1"))
 MIN_ORDER_SIZE = 5.0  # CLOB 최소 주문 수량(주) - 봇 trader 와 동일
 DEFAULT_TICK = 0.01
 

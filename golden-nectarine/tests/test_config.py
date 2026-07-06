@@ -113,6 +113,20 @@ def test_excluded_categories_empty_env_disables_filter(base_env, monkeypatch):
     assert config.trading.excluded_categories == []
 
 
+def test_signature_type_env_override(base_env, monkeypatch):
+    """2026+ 신규 계정(POLY_1271 스마트 지갑)은 POLYMARKET_SIGNATURE_TYPE=3 으로 설정한다."""
+    monkeypatch.setenv("POLYMARKET_SIGNATURE_TYPE", "3")
+    config = load_config("nonexistent.yaml")
+    assert config.api.signature_type == 3
+
+
+def test_signature_type_defaults_to_poly_proxy(base_env, monkeypatch):
+    """env 미설정 시 구형 계정 호환 기본값 1 유지."""
+    monkeypatch.delenv("POLYMARKET_SIGNATURE_TYPE", raising=False)
+    config = load_config("nonexistent.yaml")
+    assert config.api.signature_type == 1
+
+
 def test_missing_private_key_raises(base_env, monkeypatch):
     monkeypatch.delenv("POLYMARKET_PRIVATE_KEY")
     with pytest.raises(ValueError, match="POLYMARKET_PRIVATE_KEY"):
