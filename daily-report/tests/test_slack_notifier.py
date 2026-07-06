@@ -1,4 +1,4 @@
-"""Slack 통합 리포트 포맷 검증 - 계좌당 2줄 (이름 / 금액·손익 한 줄)."""
+"""Slack 통합 리포트 포맷 검증 - 계좌당 3줄 (이름 / 금액 / 손익)."""
 from polybot_reporter.notifications.slack_notifier import SlackNotifier
 
 
@@ -25,8 +25,8 @@ def capture_payload(monkeypatch, notifier):
     return captured
 
 
-def test_account_block_is_two_lines_without_asset_label(monkeypatch):
-    """계좌 블록 = author_name(1줄) + text(1줄). '자산 가치' 문구와 fields 없음."""
+def test_account_block_is_three_lines_without_asset_label(monkeypatch):
+    """계좌 블록 = author_name(1줄) + text(금액/손익 2줄). '자산 가치' 문구와 fields 없음."""
     notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
     captured = capture_payload(monkeypatch, notifier)
 
@@ -36,7 +36,7 @@ def test_account_block_is_two_lines_without_asset_label(monkeypatch):
     assert account["author_name"] == "GOLDEN-ECO"
     assert "fields" not in account
     assert account["text"] == (
-        "$34588.65 (Position: $23140.98, Cash: $11447.67) · 7d 손익 $+668.20"
+        "$34588.65 (Position: $23140.98, Cash: $11447.67)\n7d 손익 $+668.20"
     )
     assert "자산 가치" not in str(captured["attachments"])
 
@@ -53,8 +53,8 @@ def test_new_account_without_history_shows_na(monkeypatch):
     assert account["color"] == "#36a64f"
 
 
-def test_monthly_appends_30d_on_same_line(monkeypatch):
-    """월간 리포트는 30d 손익을 같은 줄에 덧붙인다 (여전히 2줄)."""
+def test_monthly_appends_30d_on_pnl_line(monkeypatch):
+    """월간 리포트는 30d 손익을 손익 줄에 덧붙인다 (여전히 3줄)."""
     notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
     captured = capture_payload(monkeypatch, notifier)
 
@@ -64,4 +64,4 @@ def test_monthly_appends_30d_on_same_line(monkeypatch):
 
     account = captured["attachments"][1]
     assert account["text"].endswith("· 30d 손익 $-12.50")
-    assert "\n" not in account["text"]
+    assert account["text"].count("\n") == 1  # 금액 줄 + 손익 줄
