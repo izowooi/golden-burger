@@ -1,5 +1,6 @@
 """Trading execution logic for the Cascade Rider strategy."""
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -11,6 +12,18 @@ from .scanner import get_hours_until_resolution
 from .signals import compute_death_drift, is_drift_dead, take_profit_target
 
 logger = logging.getLogger(__name__)
+
+# CLOB 매도 거절 사유가 "보유 토큰 잔고 0"인지 판별하는 패턴.
+# GTC limit 매수는 접수 즉시 HOLDING으로 기록되지만(체결 가정), 실제로 체결되지
+# 않은 유령 포지션은 매도 시 "not enough balance ... balance: 0"으로 거절된다.
+# balance가 0이 아닌 거절(부분 체결/allowance 문제)은 유령이 아니므로 제외한다.
+_ZERO_BALANCE_PATTERN = re.compile(r"not enough balance.*balance:\s*0(?:\D|$)")
+
+
+def is_zero_balance_error(result: dict) -> bool:
+    """매도 주문 실패가 '잔고 0(매수 미체결)' 때문인지 판별."""
+    return bool(_ZERO_BALANCE_PATTERN.search(str(result.get("error", ""))))
+
 
 # 회고 로깅용 봇 식별 상수 (교차 봇 UNION 쿼리 계약)
 STRATEGY_NAME = "grape"
@@ -360,5 +373,30 @@ class Trader:
             )
             return True
         else:
+            if is_zero_balance_error(result):
+                self._mark_unfilled(trade)
+                return False
             logger.error(f"매도 주문 실패: {result}")
             return False
+
+    def _mark_unfilled(self, trade) -> None:
+        """유령 포지션 마감: 매수 GTC가 체결되지 않았음이 확인된 trade.
+
+        지갑 잔고 0으로 매도가 거절됐다 = 매수 지정가가 한 번도 잡히지 않았다.
+        (1) 호가창에 남은 매수 주문을 취소해 뒤늦은 역선택 체결을 막고,
+        (2) status를 UNFILLED로 바꿔 매도 재시도 루프를 끊는다.
+        회고에서 UNFILLED 건수는 체결 가정(fill assumption) 편향의 정량 지표다.
+        """
+        if trade.buy_order_id and not str(trade.buy_order_id).startswith("SIM"):
+            cancel_result = self.clob.cancel_order(trade.buy_order_id)
+            logger.info(f"미체결 매수 주문 취소: {trade.buy_order_id} -> {cancel_result}")
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.UNFILLED,
+            exit_reason="buy_unfilled",
+        )
+        logger.warning(
+            f"유령 포지션 마감 [UNFILLED]: Trade #{trade.id} "
+            f"'{trade.question[:50]}...' - 매수 GTC 미체결 확인 (지갑 잔고 0). "
+            f"P&L 집계에서 제외."
+        )

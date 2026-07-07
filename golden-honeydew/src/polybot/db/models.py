@@ -17,6 +17,8 @@ class TradeStatus(enum.Enum):
     COMPLETED = "completed"          # Trade closed with profit/loss
     SKIPPED = "skipped"              # Skipped due to rapid price jump
     EXPIRED = "expired"              # 시장 해결 후 미청산 (§3.4: 수동 redeem 필요)
+    UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
+                                     # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
 
 
 class Trade(Base):
@@ -59,7 +61,7 @@ class Trade(Base):
 
     # Entry/Exit reasons (night watch strategy)
     entry_reason = Column(String, nullable=True)   # "night_dislocation_dev-0.070" 등
-    exit_reason = Column(String, nullable=True)    # "take_profit", "stop_loss", "max_holding", "time_exit", "resolved_unredeemed"
+    exit_reason = Column(String, nullable=True)    # "take_profit", "stop_loss", "max_holding", "time_exit", "resolved_unredeemed", "buy_unfilled"
 
     # Analytics tracking (no trailing stop in this strategy, kept for analysis)
     max_price = Column(Float, nullable=True)       # Highest price since entry

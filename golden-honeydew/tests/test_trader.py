@@ -81,6 +81,53 @@ class TestZeroMidpoint:
         )
 
 
+class TestUnfilledPhantomDetection:
+    """유령 포지션(매수 GTC 미체결) 감지: balance 0 매도 거절 → UNFILLED 마감."""
+
+    ZERO_BALANCE_ERROR = (
+        "not enough balance / allowance: ... -> balance: 0, order amount: 47610000"
+    )
+
+    def make_phantom_trader(self, error_msg):
+        """midpoint 0.47(-6% → stop_loss)로 매도를 유도하되 주문은 거절되는 trader."""
+        trader, repo, clob = make_trader(0.47)
+        clob.place_limit_order.return_value = {"success": False, "error": error_msg}
+        clob.cancel_order.return_value = {"success": True}
+        return trader, repo, clob
+
+    def test_zero_balance_sell_marks_unfilled_and_cancels_buy(self):
+        """balance 0 거절 → UNFILLED + buy_unfilled + 매수 주문 취소."""
+        trader, repo, clob = self.make_phantom_trader(self.ZERO_BALANCE_ERROR)
+        trade = make_trade(buy_order_id="0xORDER_HASH")
+
+        assert trader.execute_sell(trade) is False
+        clob.cancel_order.assert_called_once_with("0xORDER_HASH")
+        update_kwargs = repo.update_trade.call_args.kwargs
+        assert update_kwargs["status"] == TradeStatus.UNFILLED
+        assert update_kwargs["exit_reason"] == "buy_unfilled"
+
+    def test_sim_buy_order_id_is_not_cancelled(self):
+        """SIM_ 접두 주문은 호가창에 없으므로 취소 호출 없이 UNFILLED만 마킹."""
+        trader, repo, clob = self.make_phantom_trader(self.ZERO_BALANCE_ERROR)
+        trade = make_trade(buy_order_id="SIM_BUY_abc123")
+
+        assert trader.execute_sell(trade) is False
+        clob.cancel_order.assert_not_called()
+        update_kwargs = repo.update_trade.call_args.kwargs
+        assert update_kwargs["status"] == TradeStatus.UNFILLED
+
+    def test_nonzero_balance_failure_keeps_holding(self):
+        """balance > 0 거절(부분 체결/allowance)은 유령이 아님 → HOLDING 유지, 재시도."""
+        trader, repo, clob = self.make_phantom_trader(
+            "not enough balance / allowance: ... -> balance: 20000000, order amount: 47610000"
+        )
+        trade = make_trade(buy_order_id="0xORDER_HASH")
+
+        assert trader.execute_sell(trade) is False
+        clob.cancel_order.assert_not_called()
+        repo.update_trade.assert_not_called()
+
+
 class TestNormalSellPath:
     def test_real_stop_loss_still_sells(self):
         """정상 midpoint에서 P&L -6% → stop_loss 매도는 그대로 동작."""

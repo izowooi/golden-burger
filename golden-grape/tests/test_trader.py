@@ -95,3 +95,74 @@ class TestZeroMidpointGuard:
         assert len(clob.orders) == 1
         assert clob.orders[0]["side"] == "SELL"
         assert clob.orders[0]["price"] == 0.50
+
+
+# --- 유령 포지션(매수 미체결) 감지 ---
+
+class PhantomClob(FakeClob):
+    """매도 주문이 '잔고 0'으로 거절되는 CLOB (매수 GTC 미체결 상황)."""
+
+    def __init__(self, midpoint):
+        super().__init__(midpoint)
+        self.cancelled = []
+
+    def place_limit_order(self, **kwargs):
+        self.orders.append(kwargs)
+        return {
+            "success": False,
+            "error": (
+                "PolyApiException[status_code=400, error_message={'error': "
+                "'not enough balance / allowance: the balance is not enough "
+                "-> balance: 0, order amount: 47610000'}]"
+            ),
+        }
+
+    def cancel_order(self, order_id):
+        self.cancelled.append(order_id)
+        return {"success": True}
+
+
+class TestUnfilledPhantomDetection:
+    def _phantom_trader(self):
+        repo = FakeRepo()
+        clob = PhantomClob(midpoint=0.50)  # 0.60 -> 0.50 = -16.7% -> stop_loss 발동
+        trader = Trader(repo, clob, TradingConfig())
+        return trader, repo, clob
+
+    def test_zero_balance_sell_marks_unfilled_and_cancels_buy(self):
+        trader, repo, clob = self._phantom_trader()
+        trade = make_trade(buy_order_id="0xORDER_HASH")
+
+        sold = trader.execute_sell(trade)
+
+        assert sold is False
+        assert clob.cancelled == ["0xORDER_HASH"]
+        statuses = [kw.get("status") for _, kw in repo.updates if "status" in kw]
+        assert statuses == [TradeStatus.UNFILLED]
+        reasons = [kw.get("exit_reason") for _, kw in repo.updates if "exit_reason" in kw]
+        assert reasons == ["buy_unfilled"]
+
+    def test_sim_buy_order_id_is_not_cancelled(self):
+        trader, repo, clob = self._phantom_trader()
+        trade = make_trade(buy_order_id="SIM_BUY_abc123")
+
+        trader.execute_sell(trade)
+
+        assert clob.cancelled == []
+        statuses = [kw.get("status") for _, kw in repo.updates if "status" in kw]
+        assert statuses == [TradeStatus.UNFILLED]
+
+    def test_nonzero_balance_failure_keeps_holding(self):
+        # 부분 체결/allowance 문제(balance > 0)는 유령이 아니다 - 재시도 유지
+        trader, repo, clob = self._phantom_trader()
+        clob.place_limit_order = lambda **kw: {
+            "success": False,
+            "error": "not enough balance / allowance: ... -> balance: 20000000, order amount: 47610000",
+        }
+        trade = make_trade(buy_order_id="0xORDER_HASH")
+
+        sold = trader.execute_sell(trade)
+
+        assert sold is False
+        assert clob.cancelled == []
+        assert all("status" not in kw for _, kw in repo.updates)

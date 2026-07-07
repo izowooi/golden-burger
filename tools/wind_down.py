@@ -335,16 +335,27 @@ def print_open_orders(orders: list):
 # 실행 (주문 취소 / 매도)
 # ---------------------------------------------------------------------------
 
-def cancel_all_orders(client, execute: bool) -> int:
+def cancel_all_orders(client, execute: bool, side: str = "ALL") -> int:
+    """미체결 주문 취소. side로 BUY/SELL만 골라 취소할 수 있다.
+
+    봇이 걸어둔 정상 매도(TP/SL) 주문까지 함께 지우는 사고를 막기 위해,
+    유령 매수 정리 시에는 --side BUY 사용을 권장한다.
+    """
     orders = client.get_open_orders() or []
+    if side != "ALL":
+        orders = [o for o in orders if str(o.get("side", "")).upper() == side]
     print_open_orders(orders)
     if not orders:
         return 0
     if not execute:
         print("  -> dry-run: 실제 취소는 --yes")
         return len(orders)
-    resp = client.cancel_all()
-    print(f"  -> cancel_all 완료: {resp}")
+    if side == "ALL":
+        resp = client.cancel_all()
+    else:
+        order_ids = [str(o.get("id")) for o in orders if o.get("id")]
+        resp = client.cancel_orders(order_ids)
+    print(f"  -> 취소 완료 (side={side}): {resp}")
     return len(orders)
 
 
@@ -424,7 +435,7 @@ def cmd_status(args, funder: str, private_key: Optional[str]) -> int:
 
 def cmd_cancel(args, funder: str, private_key: str) -> int:
     client = make_trading_client(private_key, funder)
-    cancel_all_orders(client, execute=args.yes)
+    cancel_all_orders(client, execute=args.yes, side=args.side)
     return 0
 
 
@@ -485,8 +496,10 @@ def main() -> int:
     p_status = sub.add_parser("status", help="포지션/미체결/예상 청산비용 리포트")
     add_common(p_status)
 
-    p_cancel = sub.add_parser("cancel", help="미체결 주문 전량 취소")
+    p_cancel = sub.add_parser("cancel", help="미체결 주문 취소 (기본 전량)")
     p_cancel.add_argument("--yes", action="store_true", help="실제 실행 (기본 dry-run)")
+    p_cancel.add_argument("--side", choices=["BUY", "SELL", "ALL"], default="ALL",
+                          help="취소할 주문 방향 (유령 매수 정리는 BUY 권장, 기본 ALL)")
 
     p_flat = sub.add_parser("flatten", help="전량 취소 + 보유 포지션 일괄 매도")
     add_common(p_flat)

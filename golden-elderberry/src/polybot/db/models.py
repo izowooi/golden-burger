@@ -20,6 +20,8 @@ class TradeStatus(enum.Enum):
     COMPLETED = "completed"          # Trade closed with profit/loss
     SKIPPED = "skipped"              # Skipped due to rapid price move
     EXPIRED = "expired"              # 시장이 해결됐지만 청산 못함 (수동 redeem 필요)
+    UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
+                                     # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
 
 
 class Trade(Base):
@@ -62,7 +64,7 @@ class Trade(Base):
 
     # Entry/Exit reasons (panic fade strategy)
     entry_reason = Column(String, nullable=True)   # "panic_fade_ref0.82_drop0.15"
-    exit_reason = Column(String, nullable=True)    # "take_profit", "stop_loss", "max_holding", "time_exit", "resolved_unredeemed"
+    exit_reason = Column(String, nullable=True)    # "take_profit", "stop_loss", "max_holding", "time_exit", "resolved_unredeemed", "buy_unfilled"
 
     # Panic fade strategy data
     ref_price_at_buy = Column(Float, nullable=True)   # 급락 전 기준가 (매수 토큰 기준)

@@ -16,6 +16,8 @@ class TradeStatus(enum.Enum):
     PENDING_SELL = "pending_sell"    # Waiting for sell order to fill
     COMPLETED = "completed"          # Trade closed with profit/loss
     SKIPPED = "skipped"              # Skipped due to rapid price jump
+    UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
+                                     # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
 
 
 class Trade(Base):

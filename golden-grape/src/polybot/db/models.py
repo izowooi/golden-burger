@@ -17,6 +17,8 @@ class TradeStatus(enum.Enum):
     COMPLETED = "completed"          # Trade closed with profit/loss
     SKIPPED = "skipped"              # Skipped due to rapid price jump
     EXPIRED = "expired"              # 시장 해결 후 미청산 - 수동 redeem 필요
+    UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
+                                     # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
 
 
 class Trade(Base):
