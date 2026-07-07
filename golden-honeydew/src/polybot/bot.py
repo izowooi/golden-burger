@@ -12,8 +12,10 @@ from .db.repository import TradeRepository
 
 logger = logging.getLogger(__name__)
 
-# 스냅샷 retention: 전략 lookback의 3배, 최소 7일 (§5 Phase 4)
-MIN_RETENTION_DAYS = 7
+# 스냅샷 retention: 전략 lookback의 3배, 최소 60일 (§5 Phase 4).
+# 60일인 이유: 이 DB는 월간 회고(docs/retro/)의 보조 가격 아카이브를 겸한다
+# (주 아카이브는 nectarine). TP/SL 반사실 재생에 한 달치 시계열이 필요하다.
+MIN_RETENTION_DAYS = 60
 
 
 class PolymarketBot:
