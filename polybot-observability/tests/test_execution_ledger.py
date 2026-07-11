@@ -1234,6 +1234,9 @@ def test_catalog_gap_operator_path_excludes_matched_or_trade_linked_orders(tmp_p
     linked = ledger.catalog_missing_submissions(include_evidence_linked=True)
     assert {row["order_id"] for row in linked} == {"matched", "trade-linked"}
     assert {row["fill_count"] for row in linked} == {0}
+    assert {tuple(row["fill_statuses"]) for row in linked} == {()}
+    assert all(row["completion_ready"] is False for row in linked)
+    assert all("fills_missing" in row["completion_blockers"] for row in linked)
     with pytest.raises(ValueError, match="WITH_LINKED_EVIDENCE"):
         ledger.resolve_catalog_missing_submissions(
             expected_count=2,
@@ -1268,6 +1271,64 @@ def test_catalog_gap_operator_path_excludes_matched_or_trade_linked_orders(tmp_p
             "operator accepted catalog-missing CLOB fill evidence gap "
             "with linked evidence",
         ),
+    ]
+
+
+def test_catalog_gap_linked_diagnostics_explain_nonterminal_fill(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=5,
+        result={"success": True, "orderID": "pending-fill", "status": "MATCHED"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "id": "pending-fill",
+            "status": "MATCHED",
+            "original_size": "5",
+            "size_matched": "5",
+            "price": "0.4",
+            "associate_trades": ["trade-pending"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "pending-fill",
+        {
+            "id": "trade-pending",
+            "status": "MATCHED",
+            "size": "5",
+            "price": "0.4",
+            "taker_order_id": "pending-fill",
+            "trader_side": "TAKER",
+            "fee_rate_bps": "0",
+        },
+    )
+    ledger.record_reconciliation_error(
+        submission_id,
+        RuntimeError(
+            "phase=match_authoritative_order_catalogs "
+            "error=ClobResponseUnavailableError "
+            "response_shape=sequence(len=0,item_type=none)"
+        ),
+    )
+
+    [diagnostic] = ledger.catalog_missing_submissions(include_evidence_linked=True)
+
+    assert diagnostic["fill_statuses"] == ["MATCHED"]
+    assert diagnostic["confirmed_fill_size"] == 0.0
+    assert diagnostic["expected_fill_size"] == 5.0
+    assert diagnostic["nonterminal_fill_count"] == 1
+    assert diagnostic["invalid_confirmed_fill_count"] == 0
+    assert diagnostic["fill_domain_errors"] == []
+    assert diagnostic["completion_ready"] is False
+    assert diagnostic["completion_blockers"] == [
+        "nonterminal_fills_present",
+        "confirmed_fill_sum_differs_from_expected",
     ]
 
 

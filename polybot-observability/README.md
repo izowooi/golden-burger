@@ -126,6 +126,11 @@ gate에서만 제외되고 `polybot-retro audit --strict`에는 계속 HIGH evid
 채 live gate에서 제외하기로 명시했다면 아래 별도 override를 사용한다. 강한 확인 문구 없이는
 실행되지 않으며 기존 evidence 행은 삭제하지 않는다.
 
+`--include-evidence-linked` 조회 결과에는 `fill_statuses`, `confirmed_fill_size`,
+`expected_fill_size`, `fill_domain_errors`, `completion_ready`, `completion_blockers`가 함께 나온다.
+`MATCHED`/`MINED`/`RETRYING` fill은 Polymarket finality 전 상태이므로 격리하거나 성공 처리하지 않고
+`CONFIRMED` 또는 `FAILED`가 될 때까지 재조회한다.
+
 ```bash
 uv run polybot-retro catalog-gaps \
   --db data/default/trades.db \

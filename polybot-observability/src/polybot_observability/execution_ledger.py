@@ -1023,7 +1023,92 @@ class ExecutionLedger:
                 limit=limit,
                 include_evidence_linked=include_evidence_linked,
             )
-        return [dict(row) for row in rows]
+            results: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                fill_rows = connection.execute(
+                    "SELECT trade_id, status, size, domain_error "
+                    "FROM order_fills WHERE submission_id = ?",
+                    (item["submission_id"],),
+                ).fetchall()
+                statuses = sorted(
+                    {_normalize_status(fill["status"]) for fill in fill_rows}
+                )
+                confirmed_size = sum(
+                    _number(fill["size"]) or 0.0
+                    for fill in fill_rows
+                    if _normalize_status(fill["status"]) == "CONFIRMED"
+                )
+                try:
+                    associated_payload = json.loads(
+                        item["associated_trade_ids_json"] or "[]"
+                    )
+                    associated = (
+                        {str(value) for value in associated_payload}
+                        if isinstance(associated_payload, list)
+                        else set()
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    associated = set()
+                observed_trade_ids = {str(fill["trade_id"]) for fill in fill_rows}
+                nonterminal_count = sum(
+                    _normalize_status(fill["status"]) not in _TERMINAL_TRADE_STATUSES
+                    for fill in fill_rows
+                )
+                invalid_confirmed_count = sum(
+                    _normalize_status(fill["status"]) == "CONFIRMED"
+                    and fill["domain_error"] is not None
+                    for fill in fill_rows
+                )
+
+                order_status = _normalize_status(item["latest_order_status"])
+                expected_size = None
+                if order_status in _TERMINAL_ORDER_STATUSES:
+                    expected_size = _number(item["latest_size_matched"])
+                elif (
+                    item["reconciliation_proof"]
+                    == "AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS"
+                ):
+                    if str(item["side"] or "").upper() == "BUY":
+                        expected_size = _number(item["taking_amount"])
+                    elif str(item["side"] or "").upper() == "SELL":
+                        expected_size = _number(item["making_amount"])
+
+                blockers: list[str] = []
+                if item["latest_status_domain_error"] is not None:
+                    blockers.append("latest_order_status_domain_error")
+                if not associated:
+                    blockers.append("associated_trade_ids_missing")
+                if associated != observed_trade_ids:
+                    blockers.append("associated_trade_ids_do_not_match_fills")
+                if not fill_rows:
+                    blockers.append("fills_missing")
+                if nonterminal_count:
+                    blockers.append("nonterminal_fills_present")
+                if invalid_confirmed_count:
+                    blockers.append("confirmed_fill_domain_errors_present")
+                if expected_size is None:
+                    blockers.append("expected_fill_size_missing")
+                elif not math.isclose(
+                    confirmed_size,
+                    expected_size,
+                    rel_tol=0.0,
+                    abs_tol=_QUANTITY_TOLERANCE,
+                ):
+                    blockers.append("confirmed_fill_sum_differs_from_expected")
+
+                item["fill_statuses"] = statuses
+                item["confirmed_fill_size"] = confirmed_size
+                item["expected_fill_size"] = expected_size
+                item["nonterminal_fill_count"] = nonterminal_count
+                item["invalid_confirmed_fill_count"] = invalid_confirmed_count
+                item["fill_domain_errors"] = sorted(
+                    self._fill_domain_error_tokens(connection, item["submission_id"])
+                )
+                item["completion_ready"] = not blockers
+                item["completion_blockers"] = blockers
+                results.append(item)
+        return results
 
     def quantity_scale_repair_candidates(
         self, *, limit: int = 500
@@ -1542,6 +1627,8 @@ class ExecutionLedger:
             SELECT submission_id, order_id, submitted_at, response_status,
                    side, requested_price, requested_size, last_reconciled_at,
                    latest_order_status, latest_size_matched,
+                   latest_status_domain_error, making_amount, taking_amount,
+                   reconciliation_proof,
                    associated_trade_ids_json,
                    (SELECT COUNT(*) FROM order_fills AS observed_fill
                     WHERE observed_fill.submission_id = submission.submission_id)
