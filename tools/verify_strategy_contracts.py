@@ -360,6 +360,7 @@ def _validate_clob_source(
         required_suffixes = (
             "pending_submissions",
             "get_order",
+            "get_open_orders",
             "get_pre_migration_orders",
             "normalize_clob_response",
             "safe_clob_response_shape",

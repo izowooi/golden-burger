@@ -322,14 +322,28 @@ class TypedReconcileClient:
 
 
 class LegacyCatalogClient:
-    def __init__(self, catalog=None, *, catalog_error=None, normal_response=None):
+    def __init__(
+        self,
+        catalog=None,
+        *,
+        catalog_error=None,
+        normal_response=None,
+        current_catalog=None,
+    ):
         self.catalog = [] if catalog is None else catalog
         self.catalog_error = catalog_error
         self.normal_response = normal_response
+        self.current_catalog = [] if current_catalog is None else current_catalog
+        self.current_catalog_calls = []
         self.pre_migration_calls = 0
 
     def get_order(self, _order_id):
         return self.normal_response
+
+    def get_open_orders(self, params, only_first_page=False):
+        assert only_first_page is True
+        self.current_catalog_calls.append(params.id)
+        return self.current_catalog
 
     def get_pre_migration_orders(self):
         self.pre_migration_calls += 1
@@ -527,6 +541,7 @@ def test_legacy_bootstrap_restart_uses_one_catalog_fetch_and_closes_missing_gap(
         "errors": 0,
     }
     assert client.pre_migration_calls == 1
+    assert client.current_catalog_calls == ["legacy-exact", "legacy-missing"]
     assert wrapper.execution_ledger.pending_submissions() == []
     with sqlite3.connect(db_path) as connection:
         rows = connection.execute(
@@ -598,19 +613,19 @@ def test_pre_migration_catalog_fetch_failure_stays_fail_closed(tmp_path):
         ).fetchone()[0]
     assert error == (
         "phase=fetch_pre_migration_orders error=RuntimeError "
-        "response_shape=null"
+        "response_shape=sequence(len=0,item_type=none)"
     )
 
 
 @pytest.mark.parametrize(
-    ("normal_response", "expected_shape"),
+    "normal_response",
     [
-        (None, "null"),
-        ({"private_key": "raw-secret-value"}, "mapping(count=1,known=none)"),
+        None,
+        {"private_key": "raw-secret-value"},
     ],
 )
-def test_new_order_unavailable_response_never_uses_legacy_fallback(
-    tmp_path, caplog, normal_response, expected_shape
+def test_new_order_unavailable_stays_fail_closed_when_catalogs_have_no_exact_id(
+    tmp_path, caplog, normal_response
 ):
     db_path = tmp_path / "trades.db"
     wrapper = ClobClientWrapper(
@@ -637,7 +652,8 @@ def test_new_order_unavailable_response_never_uses_legacy_fallback(
         "legacy_unavailable": 0,
         "errors": 1,
     }
-    assert client.pre_migration_calls == 0
+    assert client.current_catalog_calls == ["accepted-new"]
+    assert client.pre_migration_calls == 1
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
             "SELECT response_status, needs_reconciliation, reconciliation_error "
@@ -646,11 +662,57 @@ def test_new_order_unavailable_response_never_uses_legacy_fallback(
     assert row == (
         "ACCEPTED",
         1,
-        "phase=normalize_order error=ClobResponseUnavailableError "
-        f"response_shape={expected_shape}",
+        "phase=match_authoritative_order_catalogs "
+        "error=ClobResponseUnavailableError "
+        "response_shape=sequence(len=0,item_type=none)",
     )
     assert "raw-secret-value" not in caplog.text
     assert "private_key" not in caplog.text
+
+
+@pytest.mark.parametrize("catalog_name", ["current", "pre_migration"])
+def test_new_order_null_response_recovers_from_exact_authoritative_catalog(
+    tmp_path, catalog_name
+):
+    exact_order = {
+        "id": "accepted-new",
+        "status": "CANCELED",
+        "original_size": "10000000",
+        "size_matched": "0",
+        "price": "0.42",
+    }
+    client = LegacyCatalogClient(
+        current_catalog=[exact_order] if catalog_name == "current" else [],
+        catalog=[exact_order] if catalog_name == "pre_migration" else [],
+    )
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(),
+        audit_db_path=tmp_path / "trades.db",
+        strategy_name="golden-date",
+    )
+    wrapper._client = client
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "accepted-new"},
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats == {
+        "checked": 1,
+        "fills": 0,
+        "completed": 1,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    assert client.current_catalog_calls == ["accepted-new"]
+    assert client.pre_migration_calls == (catalog_name == "pre_migration")
+    assert wrapper.execution_ledger.pending_submissions() == []
 
 
 def test_normal_order_response_id_mismatch_stays_fail_closed(tmp_path):

@@ -334,7 +334,7 @@ class ClobClientWrapper:
         if self.simulation_mode or self.execution_ledger is None:
             return stats
 
-        from py_clob_client_v2 import TradeParams
+        from py_clob_client_v2 import OpenOrderParams, TradeParams
 
         pre_migration_index = None
         for pending in self.execution_ledger.pending_submissions():
@@ -351,43 +351,68 @@ class ClobClientWrapper:
                     detail = normalize_clob_response(
                         raw_detail, response_type="order"
                     )
-                except ClobResponseUnavailableError:
-                    if pending["response_status"] != "LEGACY_ASSUMED":
-                        raise
-                    if pre_migration_index is None:
-                        phase = "fetch_pre_migration_orders"
-                        raw_legacy_orders = self.client.get_pre_migration_orders()
-                        response_shape = safe_clob_response_shape(raw_legacy_orders)
-                        phase = "normalize_pre_migration_orders"
-                        legacy_orders = normalize_clob_response_list(
-                            raw_legacy_orders, response_type="order"
-                        )
-                        pre_migration_index = {}
-                        for legacy_order in legacy_orders:
-                            legacy_order_id = str(legacy_order.get("id") or "")
-                            if legacy_order_id:
-                                pre_migration_index.setdefault(
-                                    legacy_order_id, []
-                                ).append(legacy_order)
-                    phase = "match_pre_migration_order"
-                    matches = pre_migration_index.get(str(order_id), [])
-                    if len(matches) > 1:
+                except ClobResponseUnavailableError as unavailable_error:
+                    phase = "fetch_current_order_catalog"
+                    raw_current_orders = self.client.get_open_orders(
+                        OpenOrderParams(id=str(order_id)), only_first_page=True
+                    )
+                    response_shape = safe_clob_response_shape(raw_current_orders)
+                    phase = "normalize_current_order_catalog"
+                    current_orders = normalize_clob_response_list(
+                        raw_current_orders, response_type="order"
+                    )
+                    phase = "match_current_order_catalog"
+                    current_matches = [
+                        order
+                        for order in current_orders
+                        if str(order.get("id") or "") == str(order_id)
+                    ]
+                    if len(current_matches) > 1:
                         raise ClobResponseContractError(
-                            "pre-migration catalog에 exact order ID가 중복되었습니다"
+                            "current order catalog에 exact order ID가 중복되었습니다"
                         )
-                    if not matches:
-                        phase = "close_legacy_evidence_gap"
-                        self.execution_ledger.mark_legacy_unavailable(submission_id)
-                        stats["legacy_unavailable"] += 1
-                        logger.warning(
-                            "legacy CLOB evidence gap 종결 - phase=%s "
-                            "response_shape=%s",
-                            phase,
-                            response_shape,
-                        )
-                        continue
-                    detail = matches[0]
-                    response_shape = safe_clob_response_shape(detail)
+                    if current_matches:
+                        detail = current_matches[0]
+                        response_shape = safe_clob_response_shape(detail)
+                    else:
+                        if pre_migration_index is None:
+                            phase = "fetch_pre_migration_orders"
+                            raw_legacy_orders = self.client.get_pre_migration_orders()
+                            response_shape = safe_clob_response_shape(raw_legacy_orders)
+                            phase = "normalize_pre_migration_orders"
+                            legacy_orders = normalize_clob_response_list(
+                                raw_legacy_orders, response_type="order"
+                            )
+                            pre_migration_index = {}
+                            for legacy_order in legacy_orders:
+                                legacy_order_id = str(legacy_order.get("id") or "")
+                                if legacy_order_id:
+                                    pre_migration_index.setdefault(
+                                        legacy_order_id, []
+                                    ).append(legacy_order)
+                        phase = "match_pre_migration_order"
+                        matches = pre_migration_index.get(str(order_id), [])
+                        if len(matches) > 1:
+                            raise ClobResponseContractError(
+                                "pre-migration catalog에 exact order ID가 중복되었습니다"
+                            )
+                        if matches:
+                            detail = matches[0]
+                            response_shape = safe_clob_response_shape(detail)
+                        elif pending["response_status"] == "LEGACY_ASSUMED":
+                            phase = "close_legacy_evidence_gap"
+                            self.execution_ledger.mark_legacy_unavailable(submission_id)
+                            stats["legacy_unavailable"] += 1
+                            logger.warning(
+                                "legacy CLOB evidence gap 종결 - phase=%s "
+                                "response_shape=%s",
+                                phase,
+                                response_shape,
+                            )
+                            continue
+                        else:
+                            phase = "match_authoritative_order_catalogs"
+                            raise unavailable_error
                 phase = "validate_order_identity"
                 returned_order_id = str(detail.get("id") or "")
                 if returned_order_id and returned_order_id != str(order_id):
