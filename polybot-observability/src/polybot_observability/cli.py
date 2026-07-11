@@ -65,6 +65,11 @@ def main() -> None:
     )
     gaps_parser.add_argument("--db", required=True, type=Path)
     gaps_parser.add_argument("--strategy", required=True)
+    gaps_parser.add_argument(
+        "--include-evidence-linked",
+        action="store_true",
+        help="trade/status/fill evidence가 연결된 catalog gap도 진단 목록에 포함",
+    )
 
     resolve_parser = subparsers.add_parser(
         "resolve-catalog-gaps",
@@ -75,6 +80,11 @@ def main() -> None:
     resolve_parser.add_argument("--expected-count", required=True, type=int)
     resolve_parser.add_argument("--confirm", required=True)
     resolve_parser.add_argument("--reason", required=True)
+    resolve_parser.add_argument(
+        "--include-evidence-linked",
+        action="store_true",
+        help="강한 확인 문구로 linked evidence gap까지 operator 격리",
+    )
     resolve_parser.add_argument(
         "--backup-dir",
         type=Path,
@@ -91,7 +101,9 @@ def main() -> None:
             ledger = ExecutionLedger(database, strategy_name=args.strategy)
             print(
                 json.dumps(
-                    ledger.catalog_missing_submissions(),
+                    ledger.catalog_missing_submissions(
+                        include_evidence_linked=args.include_evidence_linked
+                    ),
                     ensure_ascii=False,
                     indent=2,
                 )
@@ -107,6 +119,7 @@ def main() -> None:
                 expected_count=args.expected_count,
                 confirmation=args.confirm,
                 reason=args.reason,
+                include_evidence_linked=args.include_evidence_linked,
             )
         except (RuntimeError, ValueError) as error:
             parser.error(f"backup={backup}; resolution 실패: {error}")
@@ -115,6 +128,7 @@ def main() -> None:
                 {
                     "resolved": resolved,
                     "status": "OPERATOR_EVIDENCE_GAP",
+                    "include_evidence_linked": args.include_evidence_linked,
                     "backup": str(backup),
                 },
                 ensure_ascii=False,

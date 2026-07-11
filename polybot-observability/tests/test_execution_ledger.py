@@ -807,6 +807,44 @@ def test_catalog_gap_operator_path_excludes_matched_or_trade_linked_orders(tmp_p
         )
 
     assert ledger.catalog_missing_submissions() == []
+    linked = ledger.catalog_missing_submissions(include_evidence_linked=True)
+    assert {row["order_id"] for row in linked} == {"matched", "trade-linked"}
+    assert {row["fill_count"] for row in linked} == {0}
+    with pytest.raises(ValueError, match="WITH_LINKED_EVIDENCE"):
+        ledger.resolve_catalog_missing_submissions(
+            expected_count=2,
+            confirmation="ACKNOWLEDGE_2_CLOB_EVIDENCE_GAPS",
+            reason="linked evidence reviewed",
+            include_evidence_linked=True,
+        )
+
+    assert ledger.resolve_catalog_missing_submissions(
+        expected_count=2,
+        confirmation=(
+            "ACKNOWLEDGE_2_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
+        ),
+        reason="linked evidence reviewed",
+        include_evidence_linked=True,
+    ) == 2
+    with sqlite3.connect(ledger.db_path) as connection:
+        rows = connection.execute(
+            "SELECT response_status, outcome_resolution, reconciliation_error "
+            "FROM order_submissions ORDER BY order_id"
+        ).fetchall()
+    assert rows == [
+        (
+            "OPERATOR_EVIDENCE_GAP",
+            "EVIDENCE_GAP_WITH_LINKED_EVIDENCE_ACCEPTED",
+            "operator accepted catalog-missing CLOB fill evidence gap "
+            "with linked evidence",
+        ),
+        (
+            "OPERATOR_EVIDENCE_GAP",
+            "EVIDENCE_GAP_WITH_LINKED_EVIDENCE_ACCEPTED",
+            "operator accepted catalog-missing CLOB fill evidence gap "
+            "with linked evidence",
+        ),
+    ]
 
 
 def test_reconciliation_error_path_redacts_bare_and_dsn_credentials(tmp_path):

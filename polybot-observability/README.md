@@ -79,6 +79,26 @@ resolve는 mutation 전에 workspace 밖에 SQLite online backup, `quick_check`,
 만든다. 격리된 행은 `OPERATOR_EVIDENCE_GAP`으로 남으며 이는 미체결 증명이 아니다. live cycle
 gate에서만 제외되고 `polybot-retro audit --strict`에는 계속 HIGH evidence issue로 보고된다.
 
+기본 조회가 `[]`이지만 operator가 이전 전략/수동 주문의 연결된 status·trade ID·fill까지 보존한
+채 live gate에서 제외하기로 명시했다면 아래 별도 override를 사용한다. 강한 확인 문구 없이는
+실행되지 않으며 기존 evidence 행은 삭제하지 않는다.
+
+```bash
+uv run polybot-retro catalog-gaps \
+  --db data/default/trades.db \
+  --strategy golden-date \
+  --include-evidence-linked
+
+uv run polybot-retro resolve-catalog-gaps \
+  --db data/default/trades.db \
+  --strategy golden-date \
+  --expected-count 19 \
+  --include-evidence-linked \
+  --confirm ACKNOWLEDGE_19_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE \
+  --reason "previous/manual order evidence reviewed and quarantined" \
+  --backup-dir ~/.polybot/operator-backups
+```
+
 Jenkins가 `sh -x`/`sh -xe`로 실행되면 inline `export`의 private key가 콘솔에 노출된다. secret은
 Credentials Binding으로 주입하고 shell의 첫 명령부터 `set +x`를 적용한다.
 

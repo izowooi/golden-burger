@@ -25,6 +25,9 @@ _TERMINAL_TRADE_STATUSES = {"CONFIRMED", "FAILED"}
 _FIXED_6_SCALE = 1_000_000
 _QUANTITY_TOLERANCE = 0.000001
 CATALOG_GAP_CONFIRMATION_TEMPLATE = "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS"
+LINKED_CATALOG_GAP_CONFIRMATION_TEMPLATE = (
+    "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
+)
 _MISSING = object()
 _MAX_RESPONSE_JSON_LENGTH = 1_000_000
 _MAX_RESPONSE_UNWRAP_DEPTH = 4
@@ -954,7 +957,7 @@ class ExecutionLedger:
         return [dict(row) for row in rows]
 
     def catalog_missing_submissions(
-        self, *, limit: int = 500
+        self, *, limit: int = 500, include_evidence_linked: bool = False
     ) -> list[dict[str, Any]]:
         """Return catalog-missing accepted orders eligible for operator quarantine.
 
@@ -966,7 +969,11 @@ class ExecutionLedger:
             raise ValueError("limit은 1 이상이어야 합니다")
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
-            rows = self._catalog_missing_rows(connection, limit=limit)
+            rows = self._catalog_missing_rows(
+                connection,
+                limit=limit,
+                include_evidence_linked=include_evidence_linked,
+            )
         return [dict(row) for row in rows]
 
     def resolve_catalog_missing_submissions(
@@ -975,6 +982,7 @@ class ExecutionLedger:
         expected_count: int,
         confirmation: str,
         reason: str,
+        include_evidence_linked: bool = False,
     ) -> int:
         """Quarantine an exact, operator-acknowledged set of irrecoverable gaps."""
         if (
@@ -983,9 +991,12 @@ class ExecutionLedger:
             or expected_count < 1
         ):
             raise ValueError("expected_count는 1 이상이어야 합니다")
-        expected_confirmation = CATALOG_GAP_CONFIRMATION_TEMPLATE.format(
-            count=expected_count
+        confirmation_template = (
+            LINKED_CATALOG_GAP_CONFIRMATION_TEMPLATE
+            if include_evidence_linked
+            else CATALOG_GAP_CONFIRMATION_TEMPLATE
         )
+        expected_confirmation = confirmation_template.format(count=expected_count)
         if confirmation != expected_confirmation:
             raise ValueError(f"확인 문구가 일치하지 않습니다: {expected_confirmation}")
         safe_reason = _safe_error_message(RuntimeError(str(reason or "").strip()))
@@ -995,7 +1006,9 @@ class ExecutionLedger:
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
             rows = self._catalog_missing_rows(
-                connection, limit=max(500, expected_count + 1)
+                connection,
+                limit=max(500, expected_count + 1),
+                include_evidence_linked=include_evidence_linked,
             )
             if len(rows) != expected_count:
                 raise RuntimeError(
@@ -1003,13 +1016,24 @@ class ExecutionLedger:
                     f"expected={expected_count}, actual={len(rows)}"
                 )
             resolved_at = _utc_now()
+            outcome_resolution = (
+                "EVIDENCE_GAP_WITH_LINKED_EVIDENCE_ACCEPTED"
+                if include_evidence_linked
+                else "EVIDENCE_GAP_ACCEPTED"
+            )
+            reconciliation_error = (
+                "operator accepted catalog-missing CLOB fill evidence gap "
+                "with linked evidence"
+                if include_evidence_linked
+                else "operator accepted catalog-missing CLOB fill evidence gap"
+            )
             for row in rows:
                 cursor = connection.execute(
                     """
                     UPDATE order_submissions
                     SET response_status = 'OPERATOR_EVIDENCE_GAP',
                         needs_reconciliation = 0,
-                        outcome_resolution = 'EVIDENCE_GAP_ACCEPTED',
+                        outcome_resolution = ?,
                         outcome_resolved_at = ?,
                         outcome_resolution_reason = ?,
                         reconciliation_error = ?,
@@ -1018,9 +1042,10 @@ class ExecutionLedger:
                     WHERE submission_id = ? AND needs_reconciliation = 1
                     """,
                     (
+                        outcome_resolution,
                         resolved_at,
                         safe_reason,
-                        "operator accepted catalog-missing CLOB fill evidence gap",
+                        reconciliation_error,
                         safe_reason,
                         row["submission_id"],
                     ),
@@ -1032,29 +1057,41 @@ class ExecutionLedger:
         return expected_count
 
     def _catalog_missing_rows(
-        self, connection: sqlite3.Connection, *, limit: int
+        self,
+        connection: sqlite3.Connection,
+        *,
+        limit: int,
+        include_evidence_linked: bool = False,
     ) -> list[sqlite3.Row]:
+        strict_contract = "" if include_evidence_linked else """
+              AND UPPER(submission.response_status) IN ('ACCEPTED', 'LIVE', 'DELAYED')
+              AND submission.latest_order_status IS NULL
+              AND COALESCE(submission.associated_trade_ids_json, '[]') = '[]'
+              AND NOT EXISTS (
+                  SELECT 1 FROM order_fills AS strict_fill
+                  WHERE strict_fill.submission_id = submission.submission_id
+              )
+        """
         return connection.execute(
-            """
+            f"""
             SELECT submission_id, order_id, submitted_at, response_status,
-                   side, requested_price, requested_size, last_reconciled_at
+                   side, requested_price, requested_size, last_reconciled_at,
+                   latest_order_status, latest_size_matched,
+                   associated_trade_ids_json,
+                   (SELECT COUNT(*) FROM order_fills AS observed_fill
+                    WHERE observed_fill.submission_id = submission.submission_id)
+                       AS fill_count
             FROM order_submissions AS submission
             WHERE submission.simulation = 0
               AND submission.strategy_name = ?
               AND submission.success = 1
               AND submission.needs_reconciliation = 1
               AND submission.order_id IS NOT NULL
-              AND UPPER(submission.response_status) IN ('ACCEPTED', 'LIVE', 'DELAYED')
-              AND submission.latest_order_status IS NULL
-              AND COALESCE(submission.associated_trade_ids_json, '[]') = '[]'
               AND submission.last_reconciled_at IS NOT NULL
               AND submission.reconciliation_error LIKE
                   'phase=match_authoritative_order_catalogs '
                   || 'error=ClobResponseUnavailableError%'
-              AND NOT EXISTS (
-                  SELECT 1 FROM order_fills AS fill
-                  WHERE fill.submission_id = submission.submission_id
-              )
+              {strict_contract}
             ORDER BY submission.submitted_at, submission.submission_id
             LIMIT ?
             """,
