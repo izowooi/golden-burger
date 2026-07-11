@@ -39,13 +39,22 @@ def _retry_after_seconds(value, fallback: float) -> float:
     return _bounded_delay(seconds)
 
 
-def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
+def rate_limit_handler(
+    max_retries: int = 5,
+    base_delay: float = 2.0,
+    *,
+    retry_forbidden: bool = False,
+):
     """Decorator for handling rate limits and transient errors.
 
     Implements exponential backoff with jitter for:
     - HTTP 429 (Rate Limit)
     - HTTP 5xx (Server Errors)
     - Connection errors
+
+    ``retry_forbidden`` is opt-in for public endpoints where a mid-stream 403
+    can be a transient edge/WAF throttle. Authenticated API 403 responses must
+    continue to fail immediately.
 
     Args:
         max_retries: Maximum number of retry attempts
@@ -58,6 +67,8 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
         raise ValueError("max_retries must be a positive integer")
     if not math.isfinite(base_delay) or base_delay < 0:
         raise ValueError("base_delay must be finite and non-negative")
+    if not isinstance(retry_forbidden, bool):
+        raise ValueError("retry_forbidden must be a boolean")
 
     def decorator(func):
         @wraps(func)
@@ -72,7 +83,9 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                     last_exception = e
                     status_code = e.response.status_code if e.response is not None else 0
 
-                    if status_code == 429:
+                    if status_code == 429 or (
+                        status_code == 403 and retry_forbidden
+                    ):
                         exponential_delay = _bounded_delay(
                             base_delay * (2 ** attempt)
                         )
@@ -86,7 +99,8 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
 
                         if attempt + 1 < max_retries:
                             logger.warning(
-                                f"Rate limit 도달 (시도 {attempt + 1}/{max_retries}), "
+                                f"Transient HTTP {status_code} "
+                                f"(시도 {attempt + 1}/{max_retries}), "
                                 f"{wait_time:.1f}초 대기..."
                             )
                             time.sleep(wait_time)
