@@ -203,7 +203,16 @@ def test_sdk_normalized_human_quantity_is_not_divided_by_fixed_scale_again(
     assert fill == (10.0,)
 
 
-def test_operator_repairs_proven_double_scaled_terminal_fill_set(tmp_path):
+@pytest.mark.parametrize(
+    ("fill_is_scaled", "expected_mode"),
+    [
+        (True, "ORDER_AND_FILL_X1000000"),
+        (False, "ORDER_ONLY_X1000000"),
+    ],
+)
+def test_operator_repairs_proven_double_scaled_terminal_fill_set(
+    tmp_path, fill_is_scaled, expected_mode
+):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
@@ -246,12 +255,13 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(tmp_path):
             "UPDATE order_status_events SET original_size = original_size / 1000000, "
             "size_matched = size_matched / 1000000"
         )
-        connection.execute("UPDATE order_fills SET size = size / 1000000")
+        if fill_is_scaled:
+            connection.execute("UPDATE order_fills SET size = size / 1000000")
 
     candidates = ledger.quantity_scale_repair_candidates()
     assert len(candidates) == 1
     assert candidates[0]["submission_id"] == submission_id
-    assert candidates[0]["confirmed_fill_size"] == pytest.approx(0.00001)
+    assert candidates[0]["repair_mode"] == expected_mode
     with pytest.raises(ValueError, match="REPAIR_1_CLOB_QUANTITIES_X1000000"):
         ledger.repair_quantity_scale(
             expected_count=1,

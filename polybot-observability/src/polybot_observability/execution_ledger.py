@@ -1087,14 +1087,15 @@ class ExecutionLedger:
                     """,
                     (_FIXED_6_SCALE, _FIXED_6_SCALE, submission_id),
                 )
-                connection.execute(
-                    """
-                    UPDATE order_fills
-                    SET size = CASE WHEN size IS NULL THEN NULL ELSE size * ? END
-                    WHERE submission_id = ?
-                    """,
-                    (_FIXED_6_SCALE, submission_id),
-                )
+                if candidate["repair_mode"] == "ORDER_AND_FILL_X1000000":
+                    connection.execute(
+                        """
+                        UPDATE order_fills
+                        SET size = CASE WHEN size IS NULL THEN NULL ELSE size * ? END
+                        WHERE submission_id = ?
+                        """,
+                        (_FIXED_6_SCALE, submission_id),
+                    )
                 after = self._quantity_repair_snapshot(connection, submission_id)
                 connection.execute(
                     """
@@ -1190,13 +1191,23 @@ class ExecutionLedger:
                 or item["invalid_fill_count"]
                 or confirmed_size is None
                 or latest_size is None
-                or not math.isclose(
-                    confirmed_size,
-                    latest_size,
-                    rel_tol=0.0,
-                    abs_tol=_QUANTITY_TOLERANCE,
-                )
             ):
+                continue
+            if math.isclose(
+                confirmed_size,
+                latest_size,
+                rel_tol=0.0,
+                abs_tol=_QUANTITY_TOLERANCE,
+            ):
+                item["repair_mode"] = "ORDER_AND_FILL_X1000000"
+            elif math.isclose(
+                confirmed_size,
+                latest_size * _FIXED_6_SCALE,
+                rel_tol=0.0,
+                abs_tol=_QUANTITY_TOLERANCE,
+            ):
+                item["repair_mode"] = "ORDER_ONLY_X1000000"
+            else:
                 continue
             item["associated_trade_count"] = len(associated)
             item.pop("associated_trade_ids_json", None)
