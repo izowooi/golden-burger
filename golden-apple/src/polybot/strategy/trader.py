@@ -3,6 +3,8 @@ import logging
 import re
 from datetime import datetime
 from typing import Optional
+from polybot_observability import SubmissionEvidenceError
+
 from ..db.repository import TradeRepository
 from ..db.models import TradeStatus
 from ..api.clob_client import ClobClientWrapper
@@ -230,7 +232,17 @@ class Trader:
         회고에서 UNFILLED 건수는 체결 가정(fill assumption) 편향의 정량 지표다.
         """
         if trade.buy_order_id and not str(trade.buy_order_id).startswith("SIM"):
-            cancel_result = self.clob.cancel_order(trade.buy_order_id)
+            try:
+                cancel_result = self.clob.cancel_order(trade.buy_order_id)
+            except SubmissionEvidenceError as error:
+                logger.error(
+                    "유령 포지션 판정 보류 - buy order의 zero-fill 취소를 "
+                    "증명하지 못해 HOLDING 유지: trade=%s order=%s error=%s",
+                    trade.id,
+                    trade.buy_order_id,
+                    type(error).__name__,
+                )
+                return
             logger.info(f"미체결 매수 주문 취소: {trade.buy_order_id} -> {cancel_result}")
         self.repo.update_trade(
             trade.id,

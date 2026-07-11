@@ -132,9 +132,9 @@ class TestUnfilledPhantomDetection:
         trader = Trader(repo, clob, TradingConfig())
         trade = make_holding_trade(repo)
 
-        with pytest.raises(SubmissionEvidenceError):
-            trader.execute_sell(trade)
+        sold = trader.execute_sell(trade)
 
+        assert sold is False
         loaded = repo.get_by_id(trade.id)
         assert loaded.status == TradeStatus.HOLDING
         assert loaded.exit_reason is None

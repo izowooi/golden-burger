@@ -821,36 +821,67 @@ def test_clob_price_response_supports_mapping_and_attribute_models(result):
 
 
 class CancelClient:
-    def __init__(self, response):
+    def __init__(self, response, detail=None):
         self.response = response
+        self.detail = detail or {
+            "id": "cancel-me",
+            "status": "ORDER_STATUS_CANCELED",
+            "size_matched": "0",
+        }
 
     def cancel_orders(self, order_ids):
         assert order_ids == ["cancel-me"]
         return self.response
 
+    def get_order(self, order_id):
+        assert order_id == "cancel-me"
+        return self.detail
 
-def test_public_cancel_requires_exact_canceled_order_id():
+
+def test_public_cancel_requires_authoritative_terminal_zero_fill():
     wrapper = ClobClientWrapper(SimpleNamespace())
     wrapper._client = CancelClient(
         ModelResponse(canceled=["cancel-me"], not_canceled={})
     )
     wrapper._initialized = True
 
-    assert wrapper.cancel_order("cancel-me")["canceled"] == ["cancel-me"]
+    result = wrapper.cancel_order("cancel-me")
+
+    assert result["canceled"] == ["cancel-me"]
+    assert result["verified_order_status"] == "CANCELED"
+    assert result["verified_size_matched"] == 0.0
+
+
+def test_public_cancel_accepts_idempotent_already_canceled_zero_fill():
+    wrapper = ClobClientWrapper(SimpleNamespace())
+    wrapper._client = CancelClient(
+        {"canceled": [], "not_canceled": {"cancel-me": "already canceled"}}
+    )
+    wrapper._initialized = True
+
+    assert wrapper.cancel_order("cancel-me")["verified_size_matched"] == 0.0
 
 
 @pytest.mark.parametrize(
-    "response",
+    ("response", "detail"),
     [
-        {},
-        {"canceled": [], "not_canceled": {"cancel-me": "already matched"}},
-        {"canceled": ["different-order"], "not_canceled": {}},
-        SimpleNamespace(unexpected="typed-unreadable"),
+        ({}, None),
+        (
+            {"canceled": [], "not_canceled": {"cancel-me": "already matched"}},
+            {"id": "cancel-me", "status": "MATCHED", "size_matched": "1"},
+        ),
+        (
+            {"canceled": ["different-order"], "not_canceled": {}},
+            {"id": "different-order", "status": "CANCELED", "size_matched": "0"},
+        ),
+        (SimpleNamespace(unexpected="typed-unreadable"), None),
     ],
 )
-def test_public_cancel_unproved_result_raises_submission_evidence_error(response):
+def test_public_cancel_unproved_result_raises_submission_evidence_error(
+    response, detail
+):
     wrapper = ClobClientWrapper(SimpleNamespace())
-    wrapper._client = CancelClient(response)
+    wrapper._client = CancelClient(response, detail=detail)
     wrapper._initialized = True
 
     with pytest.raises(SubmissionEvidenceError):

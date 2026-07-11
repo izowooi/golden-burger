@@ -47,9 +47,13 @@ class GammaClient:
             timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
         )
 
-    @rate_limit_handler(max_retries=6, base_delay=2.0)
+    @rate_limit_handler(
+        max_retries=6,
+        base_delay=2.0,
+        retry_forbidden=True,
+    )
     def _get_keyset_page(self, params: Dict):
-        """Fetch one keyset page so a retry never restarts the full sweep."""
+        """Fetch one keyset page so transient 403/429 retries keep the cursor."""
         response = self._get("/markets/keyset", params=params)
         response.raise_for_status()
         return response

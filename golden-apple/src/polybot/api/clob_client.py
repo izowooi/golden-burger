@@ -5,6 +5,7 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
 import logging
+import math
 from typing import Any, Dict, Mapping
 
 from polybot_observability import (
@@ -21,6 +22,27 @@ from ..config import ApiConfig
 from ..utils.retry import rate_limit_handler
 
 logger = logging.getLogger(__name__)
+
+_PROVABLY_UNFILLED_ORDER_STATUSES = {
+    "CANCELED",
+    "CANCELLED",
+    "CANCELED_MARKET_RESOLVED",
+    "INVALID",
+}
+
+
+def _normalize_order_status(value: Any) -> str:
+    status = str(value or "").strip().upper()
+    prefix = "ORDER_STATUS_"
+    return status[len(prefix):] if status.startswith(prefix) else status
+
+
+def _is_explicit_zero(value: Any) -> bool:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(number) and number == 0.0
 
 
 class ClobClientWrapper:
@@ -507,21 +529,38 @@ class ClobClientWrapper:
             return {"success": True, "simulated": True}
 
         try:
-            # v2: cancel(order_id=...) → cancel_orders([hash, ...])
+            # canceled 응답만으로는 부분 체결 여부를 알 수 없으므로,
+            # 직후 authoritative order detail도 검증한다. not_canceled여도
+            # 이미 취소된 zero-fill 주문이면 후속 detail로 idempotent 성공 가능하다.
             result = normalize_clob_response(
-                self.client.cancel_orders([order_id]), response_type="cancellation"
+                self.client.cancel_orders([str(order_id)]),
+                response_type="cancellation",
             )
-            canceled_ids = result.get("canceled")
-            if not isinstance(canceled_ids, (list, tuple)) or str(order_id) not in {
-                str(value) for value in canceled_ids
-            }:
+            detail = normalize_clob_response(
+                self.client.get_order(str(order_id)), response_type="order"
+            )
+            returned_order_id = str(detail.get("id") or "")
+            status = _normalize_order_status(detail.get("status"))
+            size_matched = detail.get("size_matched")
+            if (
+                returned_order_id != str(order_id)
+                or status not in _PROVABLY_UNFILLED_ORDER_STATUSES
+                or not _is_explicit_zero(size_matched)
+            ):
                 raise SubmissionEvidenceError(
-                    "CLOB cancellation response가 exact order ID 취소를 증명하지 못했습니다"
+                    "CLOB order detail이 exact zero-fill cancellation을 증명하지 못했습니다"
                 )
             logger.info(f"주문 취소 완료: {order_id}")
-            return result
+            return {
+                **result,
+                "verified_order_status": status,
+                "verified_size_matched": float(size_matched),
+            }
         except SubmissionEvidenceError:
-            logger.critical("주문 취소 증거 확인 실패", exc_info=True)
+            logger.warning(
+                "주문 취소 후 zero-fill 증거 확인 실패 - order=%s",
+                order_id,
+            )
             raise
         except Exception as error:
             logger.error("주문 취소 실패 - error=%s", type(error).__name__)

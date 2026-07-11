@@ -402,18 +402,64 @@ def _validate_clob_source(
         names = {name for name, _ in _calls(cancel)}
         required = {
             "self.client.cancel_orders",
+            "self.client.get_order",
             "normalize_clob_response",
         }
         missing = sorted(required - names)
         has_raise = any(isinstance(node, ast.Raise) for node in ast.walk(cancel))
-        if missing or not has_raise:
+        required_tokens = (
+            "_PROVABLY_UNFILLED_ORDER_STATUSES",
+            "returned_order_id",
+            "size_matched",
+            "verified_order_status",
+        )
+        if missing or not has_raise or any(
+            token not in content for token in required_tokens
+        ):
             findings.append(
                 Finding(
                     strategy,
                     "unsafe_cancellation_path",
-                    f"{relative_path}: exact cancel evidence must raise on failure",
+                    f"{relative_path}: exact terminal zero-fill evidence required",
                 )
             )
+
+
+def _validate_trader_source(
+    findings: list[Finding], strategy: str, relative_path: str, content: str
+) -> None:
+    tree = _parse_python(findings, strategy, relative_path, content)
+    if tree is None:
+        return
+    mark_unfilled = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "_mark_unfilled",
+        class_name="Trader",
+    )
+    if mark_unfilled is None:
+        return
+    evidence_handlers = [
+        handler
+        for handler in ast.walk(mark_unfilled)
+        if isinstance(handler, ast.ExceptHandler)
+        and isinstance(handler.type, ast.Name)
+        and handler.type.id == "SubmissionEvidenceError"
+    ]
+    if not evidence_handlers or not any(
+        isinstance(node, ast.Return)
+        for handler in evidence_handlers
+        for node in ast.walk(handler)
+    ):
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_phantom_position_path",
+                f"{relative_path}: unproved cancellation must keep HOLDING",
+            )
+        )
 
 
 def _validate_gamma_source(
@@ -483,6 +529,23 @@ def _validate_gamma_source(
         findings.append(
             Finding(strategy, "missing_contract", f"{relative_path}: page retry handler")
         )
+    if not any(
+        name.endswith("rate_limit_handler")
+        and any(
+            keyword.arg == "retry_forbidden"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value is True
+            for keyword in call.keywords
+        )
+        for name, call in page_decorators
+    ):
+        findings.append(
+            Finding(
+                strategy,
+                "missing_contract",
+                f"{relative_path}: transient Gamma 403 page retry",
+            )
+        )
     sweep_decorators = [
         call for decorator in sweep.decorator_list for call in _calls(decorator)
     ]
@@ -540,6 +603,8 @@ def _validate_retry_source(
             "_retry_after_seconds",
             "parsedate_to_datetime",
             "attempt + 1 < max_retries",
+            "retry_forbidden",
+            "status_code == 403",
         ),
     )
 
@@ -615,6 +680,13 @@ def validate_strategy(directory: Path) -> list[Finding]:
         findings, strategy, directory / "src/polybot/api/clob_client.py"
     )
     _validate_clob_source(findings, strategy, "src/polybot/api/clob_client.py", clob)
+
+    trader = _require_file(
+        findings, strategy, directory / "src/polybot/strategy/trader.py"
+    )
+    _validate_trader_source(
+        findings, strategy, "src/polybot/strategy/trader.py", trader
+    )
 
     gamma = _require_file(
         findings, strategy, directory / "src/polybot/api/gamma_client.py"
