@@ -56,6 +56,32 @@ ledger.resolve_uncertain_submission(
 )
 ```
 
+단건 주문, exact user-order catalog, pre-migration catalog에서 모두 사라진 accepted/live 주문은
+자동으로 미체결 처리하지 않는다. 현재 credential과 workspace ledger의 provenance가 달라졌고,
+연결된 trade ID·fill·order status도 전혀 없는 경우에만 아래 operator quarantine 대상이 된다.
+먼저 exact 대상 목록을 확인한 뒤 예상 건수와 확인 문구를 함께 지정한다.
+
+```bash
+uv run polybot-retro catalog-gaps \
+  --db data/default/trades.db \
+  --strategy golden-date
+
+uv run polybot-retro resolve-catalog-gaps \
+  --db data/default/trades.db \
+  --strategy golden-date \
+  --expected-count 19 \
+  --confirm ACKNOWLEDGE_19_CLOB_EVIDENCE_GAPS \
+  --reason "authenticated current/pre-migration catalogs reviewed" \
+  --backup-dir ~/.polybot/operator-backups
+```
+
+resolve는 mutation 전에 workspace 밖에 SQLite online backup, `quick_check`, SHA-256 manifest를
+만든다. 격리된 행은 `OPERATOR_EVIDENCE_GAP`으로 남으며 이는 미체결 증명이 아니다. live cycle
+gate에서만 제외되고 `polybot-retro audit --strict`에는 계속 HIGH evidence issue로 보고된다.
+
+Jenkins가 `sh -x`/`sh -xe`로 실행되면 inline `export`의 private key가 콘솔에 노출된다. secret은
+Credentials Binding으로 주입하고 shell의 첫 명령부터 `set +x`를 적용한다.
+
 ledger schema upgrade는 `BEGIN IMMEDIATE` 아래 개별 SQLite DDL로 copy/drop/rename을 한 transaction에
 묶는다. 이전 비원자적 migration에서 남은 `order_fills_v2`도 복구하며, 중간 실패는 원본 table과
 row를 그대로 rollback한다.

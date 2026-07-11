@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import argparse
+import json
 import sys
-from datetime import datetime, timezone
 from pathlib import Path
 
+from .execution_ledger import ExecutionLedger
 from .retro_audit import (
     audit_many,
     backup_databases,
@@ -59,7 +60,68 @@ def main() -> None:
         "--include-sim", action="store_true", help="trades_sim.db도 backup"
     )
 
+    gaps_parser = subparsers.add_parser(
+        "catalog-gaps", help="operator 격리 가능한 CLOB catalog gap 조회"
+    )
+    gaps_parser.add_argument("--db", required=True, type=Path)
+    gaps_parser.add_argument("--strategy", required=True)
+
+    resolve_parser = subparsers.add_parser(
+        "resolve-catalog-gaps",
+        help="backup 후 exact CLOB catalog gap 집합을 operator 승인으로 격리",
+    )
+    resolve_parser.add_argument("--db", required=True, type=Path)
+    resolve_parser.add_argument("--strategy", required=True)
+    resolve_parser.add_argument("--expected-count", required=True, type=int)
+    resolve_parser.add_argument("--confirm", required=True)
+    resolve_parser.add_argument("--reason", required=True)
+    resolve_parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=Path("~/.polybot/operator-backups"),
+        help="workspace 밖 online backup + SHA-256 manifest 저장 위치",
+    )
+
     args = parser.parse_args()
+    if args.command in {"catalog-gaps", "resolve-catalog-gaps"}:
+        database = args.db.expanduser().resolve()
+        if not database.is_file():
+            parser.error(f"trades.db를 찾을 수 없습니다: {database}")
+        if args.command == "catalog-gaps":
+            ledger = ExecutionLedger(database, strategy_name=args.strategy)
+            print(
+                json.dumps(
+                    ledger.catalog_missing_submissions(),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+
+        if args.expected_count < 1:
+            parser.error("--expected-count는 1 이상이어야 합니다")
+        backup = backup_databases([database], args.backup_dir)
+        ledger = ExecutionLedger(database, strategy_name=args.strategy)
+        try:
+            resolved = ledger.resolve_catalog_missing_submissions(
+                expected_count=args.expected_count,
+                confirmation=args.confirm,
+                reason=args.reason,
+            )
+        except (RuntimeError, ValueError) as error:
+            parser.error(f"backup={backup}; resolution 실패: {error}")
+        print(
+            json.dumps(
+                {
+                    "resolved": resolved,
+                    "status": "OPERATOR_EVIDENCE_GAP",
+                    "backup": str(backup),
+                },
+                ensure_ascii=False,
+            )
+        )
+        return
+
     databases = _database_paths(args.db, args.root, include_sim=args.include_sim)
     if not databases:
         parser.error("--db 또는 --root에서 trades.db를 한 개 이상 찾을 수 없습니다")

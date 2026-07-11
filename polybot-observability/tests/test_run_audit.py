@@ -725,6 +725,56 @@ def test_legacy_unavailable_order_remains_high_evidence_gap_and_out_of_pnl(
     )["severity"] == "HIGH"
 
 
+def test_operator_catalog_gap_remains_high_evidence_gap_and_out_of_pnl(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "golden-test" / "trades.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, status TEXT)")
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=1,
+        result={"success": True, "orderID": "catalog-missing"},
+        simulation=False,
+    )
+    ledger.record_reconciliation_error(
+        submission_id,
+        RuntimeError(
+            "phase=match_authoritative_order_catalogs "
+            "error=ClobResponseUnavailableError"
+        ),
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET submitted_at = "
+            "'2026-07-10T00:00:00+00:00' WHERE submission_id = ?",
+            (submission_id,),
+        )
+    ledger.resolve_catalog_missing_submissions(
+        expected_count=1,
+        confirmation="ACKNOWLEDGE_1_CLOB_EVIDENCE_GAPS",
+        reason="authenticated catalogs reviewed",
+    )
+
+    result = audit_database(
+        db_path, days=30, as_of=datetime(2026, 7, 31, tzinfo=timezone.utc)
+    )
+    codes = {issue["code"] for issue in result["issues"]}
+
+    assert result["fill_ledger"]["operator_catalog_evidence_gaps"] == 1
+    assert result["fill_ledger"]["confirmed_fill_gross_pnl_usdc"] is None
+    assert result["fill_ledger"]["confirmed_fill_net_pnl_usdc"] is None
+    assert "operator_catalog_evidence_gap" in codes
+    assert next(
+        issue for issue in result["issues"]
+        if issue["code"] == "operator_catalog_evidence_gap"
+    )["severity"] == "HIGH"
+
+
 def test_staggered_two_row_markets_fail_history_depth_gate(tmp_path: Path) -> None:
     db_path = tmp_path / "golden-honeydew" / "trades.db"
     db_path.parent.mkdir(parents=True)

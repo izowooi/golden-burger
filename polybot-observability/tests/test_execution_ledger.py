@@ -707,6 +707,108 @@ def test_reconciliation_queue_rotates_past_erroring_old_orders(tmp_path):
     assert second_batch[0]["order_id"] == "order-2"
 
 
+def test_operator_quarantines_only_exact_catalog_missing_gap_set(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_ids = []
+    for index in range(2):
+        submission_id = ledger.record_submission(
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=5,
+            result={"success": True, "orderID": f"missing-{index}"},
+            simulation=False,
+        )
+        ledger.record_reconciliation_error(
+            submission_id,
+            RuntimeError(
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError "
+                "response_shape=sequence(len=0,item_type=none)"
+            ),
+        )
+        submission_ids.append(submission_id)
+
+    assert {
+        row["submission_id"] for row in ledger.catalog_missing_submissions()
+    } == set(submission_ids)
+    with pytest.raises(ValueError, match="확인 문구"):
+        ledger.resolve_catalog_missing_submissions(
+            expected_count=2,
+            confirmation="wrong",
+            reason="catalog proof reviewed",
+        )
+    with pytest.raises(RuntimeError, match="건수가 예상과 다릅니다"):
+        ledger.resolve_catalog_missing_submissions(
+            expected_count=1,
+            confirmation="ACKNOWLEDGE_1_CLOB_EVIDENCE_GAPS",
+            reason="catalog proof reviewed",
+        )
+
+    resolved = ledger.resolve_catalog_missing_submissions(
+        expected_count=2,
+        confirmation="ACKNOWLEDGE_2_CLOB_EVIDENCE_GAPS",
+        reason="api_key=must-not-persist catalog proof reviewed",
+    )
+
+    assert resolved == 2
+    assert ledger.catalog_missing_submissions() == []
+    assert ledger.pending_submissions() == []
+    with sqlite3.connect(db_path) as connection:
+        rows = connection.execute(
+            "SELECT response_status, needs_reconciliation, outcome_resolution, "
+            "outcome_resolution_reason, reconciliation_error "
+            "FROM order_submissions ORDER BY order_id"
+        ).fetchall()
+    assert rows == [
+        (
+            "OPERATOR_EVIDENCE_GAP",
+            0,
+            "EVIDENCE_GAP_ACCEPTED",
+            "api_key=<redacted> catalog proof reviewed",
+            "operator accepted catalog-missing CLOB fill evidence gap",
+        ),
+        (
+            "OPERATOR_EVIDENCE_GAP",
+            0,
+            "EVIDENCE_GAP_ACCEPTED",
+            "api_key=<redacted> catalog proof reviewed",
+            "operator accepted catalog-missing CLOB fill evidence gap",
+        ),
+    ]
+
+
+def test_catalog_gap_operator_path_excludes_matched_or_trade_linked_orders(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    for result in (
+        {"success": True, "orderID": "matched", "status": "matched"},
+        {
+            "success": True,
+            "orderID": "trade-linked",
+            "status": "live",
+            "tradeIDs": ["trade-1"],
+        },
+    ):
+        submission_id = ledger.record_submission(
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=5,
+            result=result,
+            simulation=False,
+        )
+        ledger.record_reconciliation_error(
+            submission_id,
+            RuntimeError(
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError"
+            ),
+        )
+
+    assert ledger.catalog_missing_submissions() == []
+
+
 def test_reconciliation_error_path_redacts_bare_and_dsn_credentials(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")

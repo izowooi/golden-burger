@@ -24,6 +24,7 @@ _TERMINAL_ORDER_STATUSES = {
 _TERMINAL_TRADE_STATUSES = {"CONFIRMED", "FAILED"}
 _FIXED_6_SCALE = 1_000_000
 _QUANTITY_TOLERANCE = 0.000001
+CATALOG_GAP_CONFIRMATION_TEMPLATE = "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS"
 _MISSING = object()
 _MAX_RESPONSE_JSON_LENGTH = 1_000_000
 _MAX_RESPONSE_UNWRAP_DEPTH = 4
@@ -951,6 +952,114 @@ class ExecutionLedger:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def catalog_missing_submissions(
+        self, *, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Return catalog-missing accepted orders eligible for operator quarantine.
+
+        Eligibility deliberately excludes matched orders, known trade IDs, recorded
+        fills, and any previously observed order status. Quarantine acknowledges an
+        evidence gap; it never asserts that the order was unfilled.
+        """
+        if limit < 1:
+            raise ValueError("limit은 1 이상이어야 합니다")
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = self._catalog_missing_rows(connection, limit=limit)
+        return [dict(row) for row in rows]
+
+    def resolve_catalog_missing_submissions(
+        self,
+        *,
+        expected_count: int,
+        confirmation: str,
+        reason: str,
+    ) -> int:
+        """Quarantine an exact, operator-acknowledged set of irrecoverable gaps."""
+        if (
+            isinstance(expected_count, bool)
+            or not isinstance(expected_count, int)
+            or expected_count < 1
+        ):
+            raise ValueError("expected_count는 1 이상이어야 합니다")
+        expected_confirmation = CATALOG_GAP_CONFIRMATION_TEMPLATE.format(
+            count=expected_count
+        )
+        if confirmation != expected_confirmation:
+            raise ValueError(f"확인 문구가 일치하지 않습니다: {expected_confirmation}")
+        safe_reason = _safe_error_message(RuntimeError(str(reason or "").strip()))
+        if not safe_reason:
+            raise ValueError("operator resolution reason은 비어 있을 수 없습니다")
+
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = self._catalog_missing_rows(
+                connection, limit=max(500, expected_count + 1)
+            )
+            if len(rows) != expected_count:
+                raise RuntimeError(
+                    "catalog-missing CLOB gap 건수가 예상과 다릅니다: "
+                    f"expected={expected_count}, actual={len(rows)}"
+                )
+            resolved_at = _utc_now()
+            for row in rows:
+                cursor = connection.execute(
+                    """
+                    UPDATE order_submissions
+                    SET response_status = 'OPERATOR_EVIDENCE_GAP',
+                        needs_reconciliation = 0,
+                        outcome_resolution = 'EVIDENCE_GAP_ACCEPTED',
+                        outcome_resolved_at = ?,
+                        outcome_resolution_reason = ?,
+                        reconciliation_error = ?,
+                        error_type = 'OperatorEvidenceGap',
+                        error_message = ?
+                    WHERE submission_id = ? AND needs_reconciliation = 1
+                    """,
+                    (
+                        resolved_at,
+                        safe_reason,
+                        "operator accepted catalog-missing CLOB fill evidence gap",
+                        safe_reason,
+                        row["submission_id"],
+                    ),
+                )
+                if cursor.rowcount != 1:
+                    raise RuntimeError(
+                        "catalog-missing CLOB gap을 원자적으로 격리하지 못했습니다"
+                    )
+        return expected_count
+
+    def _catalog_missing_rows(
+        self, connection: sqlite3.Connection, *, limit: int
+    ) -> list[sqlite3.Row]:
+        return connection.execute(
+            """
+            SELECT submission_id, order_id, submitted_at, response_status,
+                   side, requested_price, requested_size, last_reconciled_at
+            FROM order_submissions AS submission
+            WHERE submission.simulation = 0
+              AND submission.strategy_name = ?
+              AND submission.success = 1
+              AND submission.needs_reconciliation = 1
+              AND submission.order_id IS NOT NULL
+              AND UPPER(submission.response_status) IN ('ACCEPTED', 'LIVE', 'DELAYED')
+              AND submission.latest_order_status IS NULL
+              AND COALESCE(submission.associated_trade_ids_json, '[]') = '[]'
+              AND submission.last_reconciled_at IS NOT NULL
+              AND submission.reconciliation_error LIKE
+                  'phase=match_authoritative_order_catalogs '
+                  || 'error=ClobResponseUnavailableError%'
+              AND NOT EXISTS (
+                  SELECT 1 FROM order_fills AS fill
+                  WHERE fill.submission_id = submission.submission_id
+              )
+            ORDER BY submission.submitted_at, submission.submission_id
+            LIMIT ?
+            """,
+            (self.strategy_name, limit),
+        ).fetchall()
 
     def mark_legacy_unavailable(self, submission_id: str) -> None:
         """Atomically close a proved-unavailable pre-ledger evidence gap.
