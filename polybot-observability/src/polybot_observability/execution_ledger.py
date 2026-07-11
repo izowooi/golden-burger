@@ -24,6 +24,7 @@ _TERMINAL_ORDER_STATUSES = {
 _TERMINAL_TRADE_STATUSES = {"CONFIRMED", "FAILED"}
 _FIXED_6_SCALE = 1_000_000
 _QUANTITY_TOLERANCE = 0.000001
+_REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS = {"quantity_scale_missing"}
 CATALOG_GAP_CONFIRMATION_TEMPLATE = "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS"
 LINKED_CATALOG_GAP_CONFIRMATION_TEMPLATE = (
     "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
@@ -1093,6 +1094,9 @@ class ExecutionLedger:
                         (item["submission_id"],),
                     )
                 }
+                fill_domain_errors = self._fill_domain_error_tokens(
+                    connection, item["submission_id"]
+                )
                 confirmed_size = _number(item["confirmed_fill_size"])
                 latest_size = _number(item["latest_size_matched"])
                 repair_mode = None
@@ -1125,13 +1129,17 @@ class ExecutionLedger:
                     reasons.append("fills_missing")
                 if item["nonterminal_fill_count"]:
                     reasons.append("nonterminal_fills_present")
-                if item["invalid_fill_count"]:
-                    reasons.append("fill_domain_errors_present")
+                unsupported_fill_errors = (
+                    fill_domain_errors - _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+                )
+                if unsupported_fill_errors:
+                    reasons.append("unsupported_fill_domain_errors_present")
                 if repair_mode is None:
                     reasons.append("confirmed_fill_sum_matches_neither_scale")
 
                 item["associated_trade_count"] = len(associated)
                 item["fill_trade_id_count"] = len(fill_trade_ids)
+                item["fill_domain_errors"] = sorted(fill_domain_errors)
                 item["repair_mode"] = repair_mode
                 item["repair_eligible"] = not reasons
                 item["rejection_reasons"] = reasons
@@ -1208,6 +1216,9 @@ class ExecutionLedger:
                         """,
                         (_FIXED_6_SCALE, submission_id),
                     )
+                self._clear_repaired_quantity_scale_fill_errors(
+                    connection, submission_id
+                )
                 after = self._quantity_repair_snapshot(connection, submission_id)
                 connection.execute(
                     """
@@ -1294,13 +1305,19 @@ class ExecutionLedger:
                     (item["submission_id"],),
                 )
             }
+            fill_domain_errors = self._fill_domain_error_tokens(
+                connection, item["submission_id"]
+            )
+            unsupported_fill_errors = (
+                fill_domain_errors - _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+            )
             confirmed_size = _number(item["confirmed_fill_size"])
             latest_size = _number(item["latest_size_matched"])
             if (
                 not associated
                 or associated != fill_trade_ids
                 or item["nonterminal_fill_count"]
-                or item["invalid_fill_count"]
+                or unsupported_fill_errors
                 or confirmed_size is None
                 or latest_size is None
             ):
@@ -1322,9 +1339,45 @@ class ExecutionLedger:
             else:
                 continue
             item["associated_trade_count"] = len(associated)
+            item["fill_domain_errors"] = sorted(fill_domain_errors)
             item.pop("associated_trade_ids_json", None)
             candidates.append(item)
         return candidates
+
+    @staticmethod
+    def _fill_domain_error_tokens(
+        connection: sqlite3.Connection, submission_id: str
+    ) -> set[str]:
+        tokens: set[str] = set()
+        for row in connection.execute(
+            "SELECT domain_error FROM order_fills WHERE submission_id = ?",
+            (submission_id,),
+        ):
+            tokens.update(
+                token.strip()
+                for token in str(row[0] or "").split(",")
+                if token.strip()
+            )
+        return tokens
+
+    @staticmethod
+    def _clear_repaired_quantity_scale_fill_errors(
+        connection: sqlite3.Connection, submission_id: str
+    ) -> None:
+        for rowid, domain_error in connection.execute(
+            "SELECT rowid, domain_error FROM order_fills WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchall():
+            remaining = [
+                token.strip()
+                for token in str(domain_error or "").split(",")
+                if token.strip()
+                and token.strip() not in _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+            ]
+            connection.execute(
+                "UPDATE order_fills SET domain_error = ? WHERE rowid = ?",
+                (",".join(remaining) or None, rowid),
+            )
 
     @staticmethod
     def _quantity_repair_snapshot(
@@ -1344,7 +1397,7 @@ class ExecutionLedger:
             (submission_id,),
         ).fetchall()
         fills = connection.execute(
-            "SELECT trade_id, bucket_index, status, size FROM order_fills "
+            "SELECT trade_id, bucket_index, status, size, domain_error FROM order_fills "
             "WHERE submission_id = ? ORDER BY trade_id, bucket_index",
             (submission_id,),
         ).fetchall()

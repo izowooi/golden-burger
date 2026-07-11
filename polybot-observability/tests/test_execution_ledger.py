@@ -257,12 +257,16 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
         )
         if fill_is_scaled:
             connection.execute("UPDATE order_fills SET size = size / 1000000")
+        connection.execute(
+            "UPDATE order_fills SET domain_error = 'quantity_scale_missing'"
+        )
 
     diagnostics = ledger.quantity_scale_diagnostics()
     assert len(diagnostics) == 1
     assert diagnostics[0]["repair_eligible"] is True
     assert diagnostics[0]["rejection_reasons"] == []
     assert diagnostics[0]["repair_mode"] == expected_mode
+    assert diagnostics[0]["fill_domain_errors"] == ["quantity_scale_missing"]
 
     candidates = ledger.quantity_scale_repair_candidates()
     assert len(candidates) == 1
@@ -287,16 +291,69 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
             "SELECT latest_size_matched, quantity_scale, needs_reconciliation "
             "FROM order_submissions"
         ).fetchone()
-        fill = connection.execute("SELECT size FROM order_fills").fetchone()
+        fill = connection.execute(
+            "SELECT size, domain_error FROM order_fills"
+        ).fetchone()
         repair = connection.execute(
             "SELECT multiplier, reason, before_json, after_json "
             "FROM quantity_scale_repairs"
         ).fetchone()
     assert submission == (10.0, 1.0, 0)
-    assert fill == (10.0,)
+    assert fill == (10.0, None)
     assert repair[0:2] == (1000000.0, "runtime scale mismatch reviewed")
     assert json.loads(repair[2])["submission"][0] == pytest.approx(0.00001)
     assert json.loads(repair[3])["submission"][0] == pytest.approx(10.0)
+
+
+def test_quantity_scale_repair_rejects_unrelated_fill_domain_error(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token-yes",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "unsafe-scale", "status": "live"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10",
+            "size_matched": "10",
+            "price": "0.42",
+            "associate_trades": ["unsafe-trade"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "unsafe-scale",
+        {
+            "id": "unsafe-trade",
+            "status": "CONFIRMED",
+            "size": "10",
+            "price": "0.42",
+            "taker_order_id": "unsafe-scale",
+            "trader_side": "TAKER",
+        },
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET latest_size_matched = "
+            "latest_size_matched / 1000000, quantity_scale = NULL"
+        )
+        connection.execute(
+            "UPDATE order_fills SET size = size / 1000000, "
+            "domain_error = 'quantity_scale_missing,confirmed_price_invalid'"
+        )
+
+    diagnostics = ledger.quantity_scale_diagnostics()
+    assert diagnostics[0]["repair_eligible"] is False
+    assert diagnostics[0]["rejection_reasons"] == [
+        "unsupported_fill_domain_errors_present"
+    ]
+    assert ledger.quantity_scale_repair_candidates() == []
 
 
 def test_typed_sdk_models_are_normalized_without_copying_unknown_fields(tmp_path):
