@@ -6,6 +6,7 @@ strategy_name / mode / volume_24h_at_buy / rolling_min_at_buy / hold_hours_at_ex
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from polybot_observability import SubmissionEvidenceError
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.strategy.trader import Trader
@@ -245,3 +246,19 @@ class TestUnfilledPhantomDetection:
         assert sold is False
         assert clob.cancelled == []
         assert all("status" not in kw for _, kw in repo.updates)
+
+    def test_unproved_cancel_keeps_holding_without_failing_cycle(self):
+        trader, repo, clob = self._phantom_trader()
+
+        def reject_cancel(order_id):
+            clob.cancelled.append(order_id)
+            raise SubmissionEvidenceError("matched or partially filled")
+
+        clob.cancel_order = reject_cancel
+        trade = make_trade(buy_order_id="0xORDER_HASH")
+
+        sold = trader.execute_sell(trade)
+
+        assert sold is False
+        assert clob.cancelled == ["0xORDER_HASH"]
+        assert all("status" not in kwargs for _, kwargs in repo.updates)

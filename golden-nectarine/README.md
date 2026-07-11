@@ -97,6 +97,11 @@ terminal cursor까지 완료된 Gamma keyset sweep만 인정하며, qualified co
 snapshot 판정과 가격/catalog를 한 transaction으로 기록한다. raw 제외 사유는 집계로,
 qualified membership은 60일 보존 후 snapshot과 함께 정리한다.
 
+매도 시 토큰 잔고가 0이어도 즉시 `UNFILLED`로 확정하지 않는다. 원 매수 주문의 취소를 요청한
+뒤 exact order detail이 terminal canceled 상태이고 `size_matched=0`임을
+증명할 때만 유령 포지션으로 마감한다. 부분 체결·수동 매도 가능성을 배제하지 못하면
+`HOLDING`을 유지하고 해당 포지션만 보류하며 나머지 cycle은 계속한다.
+
 `data/`는 git에 커밋하지 않는다 (.gitignore 등록).
 
 ## 시뮬레이션 → 실전 전환 절차
