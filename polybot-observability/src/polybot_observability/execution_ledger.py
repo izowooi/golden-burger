@@ -159,6 +159,13 @@ def _number(value: Any) -> float | None:
         return None
 
 
+def _numeric_metadata_present(value: Any) -> bool:
+    """Treat blank optional numeric API fields as missing, not malformed."""
+    return value is not None and not (
+        isinstance(value, str) and not value.strip()
+    )
+
+
 def _fixed_6_number(value: Any) -> float | None:
     """Decode CLOB v2 fixed-math amounts into human token/USDC units."""
     number = _number(value)
@@ -1129,8 +1136,8 @@ class ExecutionLedger:
                     reasons.append("fills_missing")
                 if item["nonterminal_fill_count"]:
                     reasons.append("nonterminal_fills_present")
-                unsupported_fill_errors = (
-                    fill_domain_errors - _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+                unsupported_fill_errors = self._unsupported_quantity_scale_fill_errors(
+                    connection, item["submission_id"]
                 )
                 if unsupported_fill_errors:
                     reasons.append("unsupported_fill_domain_errors_present")
@@ -1308,8 +1315,8 @@ class ExecutionLedger:
             fill_domain_errors = self._fill_domain_error_tokens(
                 connection, item["submission_id"]
             )
-            unsupported_fill_errors = (
-                fill_domain_errors - _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+            unsupported_fill_errors = self._unsupported_quantity_scale_fill_errors(
+                connection, item["submission_id"]
             )
             confirmed_size = _number(item["confirmed_fill_size"])
             latest_size = _number(item["latest_size_matched"])
@@ -1361,11 +1368,37 @@ class ExecutionLedger:
         return tokens
 
     @staticmethod
+    def _unsupported_quantity_scale_fill_errors(
+        connection: sqlite3.Connection, submission_id: str
+    ) -> set[str]:
+        unsupported: set[str] = set()
+        for domain_error, fee_rate_bps in connection.execute(
+            "SELECT domain_error, fee_rate_bps FROM order_fills "
+            "WHERE submission_id = ?",
+            (submission_id,),
+        ):
+            for token in str(domain_error or "").split(","):
+                normalized = token.strip()
+                if not normalized:
+                    continue
+                if normalized in _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS:
+                    continue
+                # Older CLOB responses sometimes supplied a blank optional fee
+                # field.  The ledger persisted that as NULL plus
+                # fee_rate_invalid.  NULL still preserves missing fee coverage;
+                # only the stale invalid-domain marker is repairable.
+                if normalized == "fee_rate_invalid" and fee_rate_bps is None:
+                    continue
+                unsupported.add(normalized)
+        return unsupported
+
+    @staticmethod
     def _clear_repaired_quantity_scale_fill_errors(
         connection: sqlite3.Connection, submission_id: str
     ) -> None:
-        for rowid, domain_error in connection.execute(
-            "SELECT rowid, domain_error FROM order_fills WHERE submission_id = ?",
+        for rowid, domain_error, fee_rate_bps in connection.execute(
+            "SELECT rowid, domain_error, fee_rate_bps FROM order_fills "
+            "WHERE submission_id = ?",
             (submission_id,),
         ).fetchall():
             remaining = [
@@ -1373,6 +1406,7 @@ class ExecutionLedger:
                 for token in str(domain_error or "").split(",")
                 if token.strip()
                 and token.strip() not in _REPAIRABLE_QUANTITY_SCALE_FILL_ERRORS
+                and not (token.strip() == "fee_rate_invalid" and fee_rate_bps is None)
             ]
             connection.execute(
                 "UPDATE order_fills SET domain_error = ? WHERE rowid = ?",
@@ -1797,14 +1831,18 @@ class ExecutionLedger:
             if not _valid_fill_price(price):
                 domain_errors.append("confirmed_price_invalid")
         fee_rate_bps = _number(fee_rate_raw)
-        if fee_rate_raw is not None and not _finite_nonnegative(fee_rate_bps):
+        if _numeric_metadata_present(fee_rate_raw) and not _finite_nonnegative(
+            fee_rate_bps
+        ):
             domain_errors.append("fee_rate_invalid")
         fee_amount_source = maker_match if maker_match is not None else trade
         fee_amount_raw = _first_present(
             fee_amount_source, "fee_amount_usdc", "fee_amount", "fee"
         )
         fee_amount_usdc = _fixed_6_number(fee_amount_raw)
-        if fee_amount_raw is not None and not _finite_nonnegative(fee_amount_usdc):
+        if _numeric_metadata_present(fee_amount_raw) and not _finite_nonnegative(
+            fee_amount_usdc
+        ):
             domain_errors.append("fee_amount_invalid")
         domain_error = ",".join(dict.fromkeys(domain_errors)) or None
         with self._connect() as connection:

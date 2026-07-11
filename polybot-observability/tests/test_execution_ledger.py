@@ -258,7 +258,8 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
         if fill_is_scaled:
             connection.execute("UPDATE order_fills SET size = size / 1000000")
         connection.execute(
-            "UPDATE order_fills SET domain_error = 'quantity_scale_missing'"
+            "UPDATE order_fills SET fee_rate_bps = NULL, "
+            "domain_error = 'quantity_scale_missing,fee_rate_invalid'"
         )
 
     diagnostics = ledger.quantity_scale_diagnostics()
@@ -266,7 +267,10 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
     assert diagnostics[0]["repair_eligible"] is True
     assert diagnostics[0]["rejection_reasons"] == []
     assert diagnostics[0]["repair_mode"] == expected_mode
-    assert diagnostics[0]["fill_domain_errors"] == ["quantity_scale_missing"]
+    assert diagnostics[0]["fill_domain_errors"] == [
+        "fee_rate_invalid",
+        "quantity_scale_missing",
+    ]
 
     candidates = ledger.quantity_scale_repair_candidates()
     assert len(candidates) == 1
@@ -305,7 +309,7 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
     assert json.loads(repair[3])["submission"][0] == pytest.approx(10.0)
 
 
-def test_quantity_scale_repair_rejects_unrelated_fill_domain_error(tmp_path):
+def test_quantity_scale_repair_rejects_nonnull_invalid_fee_rate(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
@@ -345,7 +349,7 @@ def test_quantity_scale_repair_rejects_unrelated_fill_domain_error(tmp_path):
         )
         connection.execute(
             "UPDATE order_fills SET size = size / 1000000, "
-            "domain_error = 'quantity_scale_missing,confirmed_price_invalid'"
+            "fee_rate_bps = -1, domain_error = 'fee_rate_invalid'"
         )
 
     diagnostics = ledger.quantity_scale_diagnostics()
@@ -354,6 +358,50 @@ def test_quantity_scale_repair_rejects_unrelated_fill_domain_error(tmp_path):
         "unsupported_fill_domain_errors_present"
     ]
     assert ledger.quantity_scale_repair_candidates() == []
+
+
+def test_blank_optional_fee_metadata_is_missing_not_domain_invalid(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "blank-fee", "status": "live"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10",
+            "size_matched": "10",
+            "price": "0.42",
+            "associate_trades": ["blank-fee-trade"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "blank-fee",
+        {
+            "id": "blank-fee-trade",
+            "status": "CONFIRMED",
+            "size": "10",
+            "price": "0.42",
+            "taker_order_id": "blank-fee",
+            "trader_side": "TAKER",
+            "fee_rate_bps": " ",
+            "fee_amount_usdc": "",
+        },
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    with sqlite3.connect(db_path) as connection:
+        fill = connection.execute(
+            "SELECT fee_rate_bps, fee_amount_usdc, domain_error FROM order_fills"
+        ).fetchone()
+    assert fill == (None, None, None)
 
 
 def test_typed_sdk_models_are_normalized_without_copying_unknown_fields(tmp_path):

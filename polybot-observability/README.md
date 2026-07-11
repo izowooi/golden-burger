@@ -88,6 +88,8 @@ uv run polybot-retro repair-quantity-scale \
 repair는 기존 quantity, 수정 후 quantity, multiplier, reason을 `quantity_scale_repairs`에 남기고
 order/fill 대사를 다시 수행한다. 신규 응답은 `original_size × requested_size` 관계로 raw fixed-6과
 SDK-normalized quantity를 판별하고 같은 scale을 order와 fill 전체에 적용한다.
+과거 빈 fee 응답이 `fee_rate_invalid`로 기록됐더라도 저장된 `fee_rate_bps`가 NULL인 경우만
+missing fee evidence로 재분류한다. NULL은 유지되므로 fee coverage가 있는 것으로 간주되지 않는다.
 후보별 `repair_mode`는 order와 fill이 함께 축소된 `ORDER_AND_FILL_X1000000`, fill은 이미 정상이고
 order만 축소된 `ORDER_ONLY_X1000000` 중 terminal fill 합계로 증명되는 한 가지를 표시한다.
 
