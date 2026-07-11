@@ -1,16 +1,13 @@
 """CLOB /prices-history 백필 클라이언트 (cold start 해결).
 
-`GET https://clob.polymarket.com/prices-history` (public, 인증 불필요)로
-과거 가격 캔들을 받아 스냅샷 부족을 메운다.
-
-주의: 이 endpoint는 레포 문서에 없는 외부 지식 기반이므로 실패해도
-봇이 정상 동작해야 한다. 모든 예외는 조용히 None을 반환하고,
-백필 실패는 "데이터 부족"으로 취급된다 (스냅샷 축적으로 자연 회복).
+공식 public `GET /prices-history`와 `POST /batch-prices-history`로 과거 가격
+캔들을 받아 스냅샷 부족을 메운다. 모든 예외는 조용히 None으로 격리하고,
+백필 실패는 "데이터 부족"으로 취급한다 (스냅샷 축적으로 자연 회복).
 """
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import List, Optional
+from typing import Dict, Iterable, List, Optional, Tuple
 import requests
 
 logger = logging.getLogger(__name__)
@@ -31,13 +28,98 @@ class HistoryClient:
 
     BASE_URL = "https://clob.polymarket.com"
     DEFAULT_FIDELITY = 10  # 분 단위 캔들
+    MAX_BATCH_MARKETS = 20
 
-    def __init__(self):
+    def __init__(self, timeout: float = 10.0):
+        self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update({
             "Accept": "application/json",
             "User-Agent": "GoldenFig-PolyBot/1.0"
         })
+        self._prefetched: Dict[
+            Tuple[str, int, int, int], Optional[List[HistoryPoint]]
+        ] = {}
+
+    @staticmethod
+    def _parse_points(history) -> Optional[List[HistoryPoint]]:
+        """Parse one token independently from the other batch members."""
+        if not isinstance(history, list):
+            return None
+        points: List[HistoryPoint] = []
+        try:
+            for item in history:
+                t = item.get("t")
+                p = item.get("p")
+                if t is None or p is None:
+                    continue
+                points.append(HistoryPoint(
+                    timestamp=datetime.utcfromtimestamp(int(t)),
+                    probability=float(p),
+                ))
+        except (AttributeError, TypeError, ValueError, OverflowError):
+            return None
+        return points or None
+
+    def prefetch_price_histories(
+        self,
+        token_ids: Iterable[str],
+        start_ts: int,
+        end_ts: int,
+        fidelity: int = DEFAULT_FIDELITY,
+    ) -> Dict[str, Optional[List[HistoryPoint]]]:
+        """Batch-fetch invalid local windows and cache missing evidence too."""
+        start_ts = int(start_ts)
+        end_ts = int(end_ts)
+        fidelity = int(fidelity)
+        unique_tokens = list(dict.fromkeys(str(token) for token in token_ids if token))
+        self._prefetched.clear()
+        batch_requests = 0
+
+        for offset in range(0, len(unique_tokens), self.MAX_BATCH_MARKETS):
+            batch = unique_tokens[offset : offset + self.MAX_BATCH_MARKETS]
+            batch_requests += 1
+            parsed: Dict[str, Optional[List[HistoryPoint]]]
+            try:
+                response = self.session.post(
+                    f"{self.BASE_URL}/batch-prices-history",
+                    json={
+                        "markets": batch,
+                        "start_ts": start_ts,
+                        "end_ts": end_ts,
+                        "fidelity": fidelity,
+                    },
+                    timeout=self.timeout,
+                )
+                response.raise_for_status()
+                history_map = (response.json() or {}).get("history")
+                if not isinstance(history_map, dict):
+                    raise ValueError("batch history response가 object가 아닙니다")
+                parsed = {
+                    token: self._parse_points(history_map.get(token) or [])
+                    for token in batch
+                }
+            except Exception as exc:
+                logger.debug(
+                    "prices-history 배치 백필 실패 (무시) - token %d개: %s",
+                    len(batch),
+                    exc,
+                )
+                parsed = {token: None for token in batch}
+
+            for token, points in parsed.items():
+                self._prefetched[(token, start_ts, end_ts, fidelity)] = points
+
+        if unique_tokens:
+            logger.info(
+                "히스토리 배치 백필 - token %d개, 요청 %d회",
+                len(unique_tokens),
+                batch_requests,
+            )
+        return {
+            token: self._prefetched[(token, start_ts, end_ts, fidelity)]
+            for token in unique_tokens
+        }
 
     def get_price_history(
         self,
@@ -57,6 +139,10 @@ class HistoryClient:
         Returns:
             HistoryPoint 리스트 (naive UTC timestamp) 또는 실패/빈 응답 시 None
         """
+        cache_key = (str(token_id), int(start_ts), int(end_ts), int(fidelity))
+        if cache_key in self._prefetched:
+            return self._prefetched[cache_key]
+
         try:
             response = self.session.get(
                 f"{self.BASE_URL}/prices-history",
@@ -66,22 +152,12 @@ class HistoryClient:
                     "endTs": int(end_ts),
                     "fidelity": fidelity,
                 },
-                timeout=10,
+                timeout=self.timeout,
             )
             response.raise_for_status()
 
             history = (response.json() or {}).get("history") or []
-            points = []
-            for item in history:
-                t = item.get("t")
-                p = item.get("p")
-                if t is None or p is None:
-                    continue
-                points.append(HistoryPoint(
-                    timestamp=datetime.utcfromtimestamp(int(t)),
-                    probability=float(p),
-                ))
-
+            points = self._parse_points(history)
             if not points:
                 return None
 

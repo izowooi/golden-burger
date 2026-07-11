@@ -112,6 +112,7 @@ class MarketScanner:
         self.config = config
         self.repo = repo
         self.history = history_client
+        self._cycle_price_points: Dict[str, List] = {}
 
     def _signal_params(self) -> SignalParams:
         """config → 순수 함수용 SignalParams 변환."""
@@ -188,9 +189,12 @@ class MarketScanner:
         최종 유효성 판정은 evaluate_entry의 window_invalid가 담당.
         """
         lookback = float(self.config.strategy.base_window_days) * 24.0
-        db_snapshots = self.repo.get_recent_snapshots(
-            condition_id, hours_back=lookback, now=now
-        ) if self.repo else []
+        if condition_id in self._cycle_price_points:
+            db_snapshots = self._cycle_price_points.pop(condition_id)
+        else:
+            db_snapshots = self.repo.get_recent_snapshots(
+                condition_id, hours_back=lookback, now=now
+            ) if self.repo else []
         db_points = to_price_points(db_snapshots)
 
         window = get_window(db_points, lookback, now=now)
@@ -215,6 +219,54 @@ class MarketScanner:
             f"-> {len(merged)}개 ({condition_id[:20]}...)"
         )
         return merged
+
+    def _prefetch_missing_histories(
+        self,
+        markets: List[Dict],
+        now: datetime,
+        params: SignalParams,
+    ) -> None:
+        """Batch locally invalid windows after deterministic price filters."""
+        self._cycle_price_points = {}
+        if (
+            not self.repo
+            or not self.config.history_backfill
+            or not self.history
+            or not callable(getattr(self.history, "prefetch_price_histories", None))
+        ):
+            return
+
+        lookback = float(self.config.strategy.base_window_days) * 24.0
+        missing_tokens: List[str] = []
+        for market in markets:
+            condition_id = str(market.get("conditionId") or "")
+            if not condition_id:
+                continue
+            if is_sports_market(market, self.config.excluded_categories):
+                continue
+            if not passes_liquidity_filter(market, self.config.min_liquidity):
+                continue
+            side = get_no_side(market)
+            if not side or not side.get("token_id") or not side.get("yes_token_id"):
+                continue
+            yes_price = side["yes_price"]
+            if yes_price > params.yes_max or yes_price < params.jump_min:
+                continue
+
+            snapshots = self.repo.get_recent_snapshots(
+                condition_id, hours_back=lookback, now=now
+            )
+            self._cycle_price_points[condition_id] = snapshots
+            points = to_price_points(snapshots)
+            if not is_window_valid(get_window(points, lookback, now=now), lookback):
+                missing_tokens.append(str(side["yes_token_id"]))
+
+        if missing_tokens:
+            self.history.prefetch_price_histories(
+                missing_tokens,
+                start=now - timedelta(hours=lookback),
+                end=now,
+            )
 
     def _log_scan_summary(self, analysis: List[Dict]):
         """스캔 분석 요약 출력.
@@ -280,6 +332,7 @@ class MarketScanner:
         logger.info(f"시장 {len(markets)}개 스캔 시작")
         now = datetime.utcnow()
         params = self._signal_params()
+        self._prefetch_missing_histories(markets, now, params)
 
         candidates = []
         scan_analysis = []  # 분석 결과 저장

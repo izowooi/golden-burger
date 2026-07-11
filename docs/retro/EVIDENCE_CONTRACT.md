@@ -117,11 +117,15 @@ uv run tools/wind_down.py --funder 0x... status
 
 ## 5. 시장 universe와 가격 archive
 
-Gamma 시장 수집은 `/markets/keyset`의 `next_cursor`를 끝까지 따라간다. 고정 offset 2,100개
-cap이나 “가장 오래된 시장” 표본을 더 이상 전제로 하지 않는다. 한 sweep의 대상은 cursor가
-완주된 응답 중 active, not closed, orderbook enabled, accepting orders이고 전략별 최소
-liquidity를 통과한 **그 시점의 qualifying universe**다. 따라서 절대 시장 수를 문서에
-고정하지 않고 run별 `markets_scanned`와 catalog coverage를 보고한다.
+Gamma 시장 수집은 `/markets/keyset`에 전략별 `liquidity_num_min`(해당되는 경우 누적
+`volume_num_min`)을 요청하고 `next_cursor`를 끝까지 따라간다. 고정 offset 2,100개 cap이나
+“가장 오래된 시장” 표본을 더 이상 전제로 하지 않는다. 한 sweep의 대상은 서버 필터가 만든
+request envelope를 cursor 완주한 응답 중 active, not closed, orderbook enabled, accepting
+orders이고 동일 최소 liquidity/누적 volume을 client에서도 다시 검증한 **그 시점의 qualifying
+universe**다. `raw_market_count`와 exclusion count는 전체 Gamma 시장이 아니라 이 request
+envelope 기준이다. `volume24hr` 하한은 `volume_num_min`과 의미가 다르므로 서버 필터로
+대체하지 않고 전략 scanner에서 계속 검사한다. 따라서 절대 시장 수를 문서에 고정하지 않고
+run별 filter, `markets_scanned`, membership digest와 catalog coverage를 보고한다.
 
 중앙 archive는 `golden-nectarine`(liquidity ≥ $10k)과 보조 `golden-honeydew`
 (liquidity ≥ $15k)의 SQLite다.

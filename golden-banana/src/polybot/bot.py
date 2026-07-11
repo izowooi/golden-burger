@@ -96,9 +96,12 @@ class PolymarketBot:
             else:
                 logger.info("모멘텀 설정 - 활성화: False (확률 조건만 사용)")
 
+            # One complete Gamma sweep feeds both snapshot persistence and scanning.
+            markets = scanner.fetch_markets()
+
             # Phase 0: Save market snapshots (for momentum calculation)
             logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
-            stats["snapshots_saved"] = scanner.save_market_snapshots()
+            stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
 
             # Phase 1: Check and sell holdings
             logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
@@ -111,7 +114,7 @@ class PolymarketBot:
 
             # Phase 2: Scan for buy candidates
             logger.info("=== Phase 2: 매수 후보 스캔 ===")
-            candidates = scanner.scan_buy_candidates()
+            candidates = scanner.scan_buy_candidates(markets)
             stats["buy_candidates"] = len(candidates)
 
             # Phase 3: Execute buys

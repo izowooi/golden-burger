@@ -45,6 +45,14 @@ class KeysetSession:
                         "acceptingOrders": False,
                         "liquidity": "50000",
                     },
+                    {
+                        "conditionId": "server-filter-leak",
+                        "active": True,
+                        "closed": False,
+                        "enableOrderBook": True,
+                        "acceptingOrders": True,
+                        "liquidity": "1",
+                    },
                 ],
                 "next_cursor": "cursor-1",
             },
@@ -92,14 +100,19 @@ def test_gamma_uses_keyset_cursor_and_deduplicates_conditions(monkeypatch):
     assert client.session.calls[0][0].endswith("/markets/keyset")
     assert client.session.calls[0][1]["include_tag"] == "true"
     assert client.session.calls[1][1]["after_cursor"] == "cursor-1"
+    assert all(
+        call[1]["liquidity_num_min"] == 10_000.0
+        and "volume_num_min" not in call[1]
+        for call in client.session.calls
+    )
     assert all(call[2] == (3.05, 20.0) for call in client.session.calls)
     assert page_sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS]
 
     attestation = client.last_sweep_attestation
     assert attestation["cursor_complete"] is True
     assert attestation["pages"] == 2
-    assert attestation["raw_market_count"] == 5
-    assert attestation["unique_condition_count"] == 4
+    assert attestation["raw_market_count"] == 6
+    assert attestation["unique_condition_count"] == 5
     assert attestation["qualified_market_count"] == 2
     assert attestation["duplicate_raw_count"] == 1
     assert len(attestation["membership_digest_sha256"]) == 64
@@ -113,6 +126,7 @@ def test_gamma_uses_keyset_cursor_and_deduplicates_conditions(monkeypatch):
         "qualification_reason": "qualified",
     }
     assert membership["closed"]["qualification_reason"] == "order_book_disabled_or_missing"
+    assert membership["server-filter-leak"]["qualification_reason"] == "below_min_liquidity"
     assert membership["missing-tradability-fields"]["qualified"] is False
 
 
@@ -145,10 +159,18 @@ def test_gamma_retries_only_the_rate_limited_page(monkeypatch):
     client = GammaClient()
     client.session = MidSweepRateLimitSession()
 
-    assert client.get_all_tradable_markets() == []
+    assert client.get_all_tradable_markets(
+        min_liquidity=12_345,
+        min_volume=6_789,
+    ) == []
 
     cursors = [call[1].get("after_cursor") for call in client.session.calls]
     assert cursors == [None, "cursor-1", "cursor-1"]
+    assert all(
+        call[1]["liquidity_num_min"] == 12_345.0
+        and call[1]["volume_num_min"] == 6_789.0
+        for call in client.session.calls
+    )
     assert sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS, 2.0]
     assert client.last_sweep_attestation["pages"] == 2
 
@@ -183,10 +205,18 @@ def test_gamma_retries_mid_sweep_forbidden_on_same_cursor(monkeypatch):
     client = GammaClient()
     client.session = MidSweepForbiddenSession()
 
-    assert client.get_all_tradable_markets() == []
+    assert client.get_all_tradable_markets(
+        min_liquidity=12_345,
+        min_volume=6_789,
+    ) == []
 
     cursors = [call[1].get("after_cursor") for call in client.session.calls]
     assert cursors == [None, "cursor-1", "cursor-1"]
+    assert all(
+        call[1]["liquidity_num_min"] == 12_345.0
+        and call[1]["volume_num_min"] == 6_789.0
+        for call in client.session.calls
+    )
     assert sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS, 2.0]
     assert client.last_sweep_attestation["pages"] == 2
 
@@ -232,6 +262,28 @@ def test_gamma_sweep_timeout_retries_are_bounded(monkeypatch):
     assert all(call[2] == (3.05, 20.0) for call in client.session.calls)
     assert sleeps == [2.0, 4.0, 8.0, 16.0, 32.0]
     assert client.last_sweep_attestation is None
+
+
+@pytest.mark.parametrize(
+    "filters",
+    [
+        {"min_liquidity": -1},
+        {"min_volume": -1},
+        {"min_liquidity": float("nan")},
+        {"min_volume": float("inf")},
+    ],
+)
+def test_gamma_rejects_invalid_server_filters_before_request(filters):
+    client = GammaClient()
+
+    class NoRequestSession:
+        def get(self, *_args, **_kwargs):
+            raise AssertionError("invalid filters must be rejected client-side")
+
+    client.session = NoRequestSession()
+
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        client.get_all_tradable_markets(**filters)
 
 
 @pytest.mark.parametrize(

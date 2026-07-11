@@ -109,7 +109,16 @@ class MarketScanner:
         logger.info(f"요약: 총 {len(analysis)}개 시장 중 {entry_count}개 진입 가능")
         logger.info("=" * 70)
 
-    def scan_buy_candidates(self) -> List[Dict]:
+    def fetch_markets(self) -> List[Dict]:
+        """Fetch the cycle's locally revalidated Gamma universe once."""
+        return self.gamma.get_all_tradable_markets(
+            min_liquidity=self.config.min_liquidity
+        )
+
+    def scan_buy_candidates(
+        self,
+        markets: Optional[List[Dict]] = None,
+    ) -> List[Dict]:
         """Scan for markets meeting buy criteria.
 
         Criteria:
@@ -121,10 +130,8 @@ class MarketScanner:
         Returns:
             List of candidate dictionaries with market info
         """
-        # Get all markets with minimum liquidity
-        markets = self.gamma.get_all_tradable_markets(
-            min_liquidity=self.config.min_liquidity
-        )
+        if markets is None:
+            markets = self.fetch_markets()
         logger.info(f"시장 {len(markets)}개 스캔 시작")
 
         candidates = []
@@ -253,7 +260,10 @@ class MarketScanner:
         logger.info(f"매수 후보 {len(candidates)}개 발견")
         return candidates
 
-    def save_market_snapshots(self) -> int:
+    def save_market_snapshots(
+        self,
+        markets: Optional[List[Dict]] = None,
+    ) -> int:
         """모든 추적 대상 마켓의 스냅샷 저장.
 
         5분마다 호출되어 모멘텀 계산에 필요한 데이터 축적.
@@ -265,33 +275,39 @@ class MarketScanner:
             logger.warning("Repository가 설정되지 않아 스냅샷 저장 불가")
             return 0
 
-        markets = self.gamma.get_all_tradable_markets(
-            min_liquidity=self.config.min_liquidity
-        )
+        if markets is None:
+            markets = self.fetch_markets()
 
         saved = 0
-        for market in markets:
-            condition_id = market.get("conditionId")
-            if not condition_id:
-                continue
+        try:
+            for market in markets:
+                condition_id = market.get("conditionId")
+                if not condition_id:
+                    continue
 
-            # Skip sports markets
-            if is_sports_market(market, self.config.excluded_categories):
-                continue
+                # Skip sports markets
+                if is_sports_market(market, self.config.excluded_categories):
+                    continue
 
-            # Get probability
-            outcome_info = get_high_probability_outcome(market)
-            if not outcome_info:
-                continue
+                # Get probability
+                outcome_info = get_high_probability_outcome(market)
+                if not outcome_info:
+                    continue
 
-            # Save snapshot
-            self.repo.save_snapshot(
-                condition_id=condition_id,
-                probability=outcome_info["probability"],
-                liquidity=float(market.get("liquidity") or 0),
-                volume_24h=float(market.get("volume24hr") or 0),
-            )
-            saved += 1
+                # Save the cycle's evidence in one transaction.
+                self.repo.save_snapshot(
+                    condition_id=condition_id,
+                    probability=outcome_info["probability"],
+                    liquidity=float(market.get("liquidity") or 0),
+                    volume_24h=float(market.get("volume24hr") or 0),
+                    commit=False,
+                )
+                saved += 1
+            if saved:
+                self.repo.commit()
+        except Exception:
+            self.repo.rollback()
+            raise
 
         logger.info(f"스냅샷 {saved}개 저장 완료")
         return saved

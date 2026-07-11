@@ -183,6 +183,10 @@ class GammaClient:
                 "include_tag": "true",
                 "limit": 100,
             }
+            if min_liquidity > 0:
+                params["liquidity_num_min"] = min_liquidity
+            if min_volume > 0:
+                params["volume_num_min"] = min_volume
             if cursor:
                 params["after_cursor"] = cursor
 

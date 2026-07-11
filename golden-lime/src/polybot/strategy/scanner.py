@@ -126,6 +126,7 @@ class MarketScanner:
         self.repo = repo
         self.history = history_client
         self.params = shock_params_from_config(config)
+        self._cycle_series: Dict[str, List[PricePoint]] = {}
 
     def save_market_snapshots(self, markets: List[Dict]) -> int:
         """Phase 0: 스캔 대상 시장 스냅샷 저장 (YES 가격 기준).
@@ -177,7 +178,12 @@ class MarketScanner:
         """
         since = now - timedelta(hours=max(self.params.vol_lookback_hours,
                                           self.params.jump_window_hours))
-        series = to_price_points(self.repo.get_snapshots_since(condition_id, since))
+        if condition_id in self._cycle_series:
+            series = self._cycle_series.pop(condition_id)
+        else:
+            series = to_price_points(
+                self.repo.get_snapshots_since(condition_id, since)
+            )
 
         window = get_window(series, self.params.jump_window_hours, now)
         if is_window_valid(
@@ -207,6 +213,67 @@ class MarketScanner:
             f"(DB {len(series)}개 + 백필 {len(backfill_points)}개 → {len(merged)}개)"
         )
         return merged
+
+    def _prefetch_missing_histories(
+        self,
+        markets: List[Dict],
+        now: datetime,
+    ) -> None:
+        """Batch only invalid windows that pass all existing cheap filters."""
+        self._cycle_series = {}
+        if (
+            not self.config.history_backfill
+            or not self.history
+            or not callable(getattr(self.history, "prefetch_price_histories", None))
+        ):
+            return
+
+        history_hours = self.params.vol_lookback_hours
+        db_hours = max(history_hours, self.params.jump_window_hours)
+        since = now - timedelta(hours=db_hours)
+        missing_tokens: List[str] = []
+        for market in markets:
+            condition_id = str(market.get("conditionId") or "")
+            if not condition_id:
+                continue
+            if is_sports_market(market, self.config.excluded_categories):
+                continue
+            if not passes_liquidity_filter(market, self.config.min_liquidity):
+                continue
+            if not passes_volume_filter(market, self.config.min_volume_24h):
+                continue
+            end_date = parse_end_date(market.get("endDate"))
+            hours_left = get_hours_until_resolution(end_date)
+            if hours_left is None or hours_left < self.config.time_based.entry_hours_min:
+                continue
+            outcome_prices = market.get("outcomePrices") or []
+            token_ids = market.get("clobTokenIds") or []
+            if len(outcome_prices) < 2 or len(token_ids) < 2 or not token_ids[0]:
+                continue
+            try:
+                float(outcome_prices[0])
+            except (TypeError, ValueError):
+                continue
+
+            series = to_price_points(
+                self.repo.get_snapshots_since(condition_id, since)
+            )
+            self._cycle_series[condition_id] = series
+            window = get_window(series, self.params.jump_window_hours, now)
+            if not is_window_valid(
+                window,
+                self.params.jump_window_hours,
+                self.params.min_window_points,
+                self.params.min_window_coverage,
+            ):
+                missing_tokens.append(str(token_ids[0]))
+
+        if missing_tokens:
+            self.history.prefetch_price_histories(
+                missing_tokens,
+                start=now - timedelta(hours=history_hours),
+                end=now,
+            )
 
     def _log_scan_summary(self, analysis: List[Dict]):
         """스캔 분석 요약 출력.
@@ -264,6 +331,7 @@ class MarketScanner:
         """
         logger.info(f"시장 {len(markets)}개 스캔 시작")
         now = datetime.utcnow()
+        self._prefetch_missing_histories(markets, now)
 
         candidates = []
         scan_analysis = []

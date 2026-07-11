@@ -566,6 +566,8 @@ def _validate_gamma_source(
             "/markets/keyset",
             "after_cursor",
             "next_cursor",
+            "liquidity_num_min",
+            "volume_num_min",
             "enableOrderBook",
             "acceptingOrders",
             "sweep_attestation",

@@ -142,7 +142,7 @@ cherry/banana의 whipsaw 문제를 원천 차단한다.
    체결 시 DB와 지갑이 어긋난다. cherry와의 A/B 비교 가능성을 위해 의도적으로 유지한 패턴이다
    (§3.8). 특히 한산 시간대 전략이라 이 한계의 영향이 다른 봇보다 클 수 있다.
 2. **스냅샷 의존 cold start**: 봇 최초 기동 시 24h median에 필요한 데이터가 없다.
-   `prices-history` 백필이 1차 보완이지만, 백필 endpoint는 외부 지식 기반이라 실패할 수 있다
+   공식 `batch-prices-history` 백필이 1차 보완이지만, 외부 API 장애 시 실패할 수 있다
    (실패 시 조용히 스냅샷 축적 대기 — 최대 하루면 자연 회복).
 3. **volume 급증 판정은 DB 스냅샷에만 의존**: 백필 데이터에는 volume이 없으므로 cold start 직후에는
    baseline/recent 커버리지가 찰 때까지 진입을 중단한다. 안전하지만 초기 신호를 놓친다.

@@ -100,6 +100,7 @@ class TradeRepository:
         probability: float,
         liquidity: float = None,
         volume_24h: float = None,
+        commit: bool = True,
     ) -> MarketSnapshot:
         """Save a market snapshot."""
         snapshot = MarketSnapshot(
@@ -109,8 +110,17 @@ class TradeRepository:
             volume_24h=volume_24h,
         )
         self.session.add(snapshot)
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return snapshot
+
+    def commit(self) -> None:
+        """Commit a batch of snapshot rows."""
+        self.session.commit()
+
+    def rollback(self) -> None:
+        """Rollback a failed snapshot batch."""
+        self.session.rollback()
 
     def get_snapshots_for_condition(
         self,
