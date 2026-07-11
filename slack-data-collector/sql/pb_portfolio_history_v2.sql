@@ -34,6 +34,7 @@ create index if not exists pb_strategy_deployments_account_range_idx
 create or replace function public.pb_reject_overlapping_strategy_deployments()
 returns trigger
 language plpgsql
+set search_path = pg_catalog, public
 as $$
 begin
   -- Serialize writers for one account before checking the effective range.
@@ -183,6 +184,11 @@ create index if not exists pb_snapshot_runs_date_status_idx
 alter table public.pb_daily_portfolio_totals
   add column if not exists snapshot_run_id uuid
     references public.pb_snapshot_runs(snapshot_run_id) on delete restrict;
+
+create index if not exists pb_daily_algorithm_balances_snapshot_run_id_idx
+  on public.pb_daily_algorithm_balances (snapshot_run_id);
+create index if not exists pb_daily_portfolio_totals_snapshot_run_id_idx
+  on public.pb_daily_portfolio_totals (snapshot_run_id);
 alter table public.pb_daily_portfolio_totals
   add column if not exists source_schema_version text;
 
