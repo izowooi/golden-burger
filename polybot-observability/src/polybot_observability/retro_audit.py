@@ -238,6 +238,16 @@ def audit_database(
                             f"{fill_ledger['uncertain_submission_outcomes']}건 있습니다",
                         )
                     )
+                if fill_ledger["legacy_unavailable_evidence_gaps"]:
+                    issues.append(
+                        AuditIssue(
+                            "HIGH",
+                            "legacy_order_evidence_gap",
+                            "normal/pre-migration catalog에서 찾을 수 없어 fill을 "
+                            "확정하지 못한 legacy 주문이 "
+                            f"{fill_ledger['legacy_unavailable_evidence_gaps']}건 있습니다",
+                        )
+                    )
                 if fill_ledger["confirmed_fills"] and fill_ledger["fee_known_ratio"] < 1.0:
                     issues.append(
                         AuditIssue(
@@ -1441,6 +1451,7 @@ def _fill_ledger_summary(
             "submitted_at",
             "simulation",
             "success",
+            "response_status",
             "needs_reconciliation",
             "latest_size_matched",
             "outcome_resolution",
@@ -1490,6 +1501,7 @@ def _fill_ledger_summary(
             "liquidity_role_known_ratio": 0.0,
             "stale_reconciliations": 0,
             "uncertain_submission_outcomes": 0,
+            "legacy_unavailable_evidence_gaps": 0,
             "overfilled_orders": 0,
             "invalid_confirmed_fill_domains": 0,
             "invalid_submission_domains": 0,
@@ -1603,6 +1615,16 @@ def _fill_ledger_summary(
              AND outcome_resolved_at IS NOT NULL
              AND NULLIF(TRIM(outcome_resolution_reason), '') IS NOT NULL)
           ), 0) = 0
+        """,
+        (_sqlite_time(cutoff), _sqlite_time(as_of)),
+    ).fetchone()[0]
+    legacy_unavailable_evidence_gaps = connection.execute(
+        """
+        SELECT COUNT(*) FROM order_submissions
+        WHERE simulation = 0
+          AND response_status = 'LEGACY_UNAVAILABLE'
+          AND datetime(submitted_at) >= datetime(?)
+          AND datetime(submitted_at) < datetime(?)
         """,
         (_sqlite_time(cutoff), _sqlite_time(as_of)),
     ).fetchone()[0]
@@ -1798,6 +1820,7 @@ def _fill_ledger_summary(
         ),
         "stale_reconciliations": stale_reconciliations,
         "uncertain_submission_outcomes": uncertain_submission_outcomes,
+        "legacy_unavailable_evidence_gaps": legacy_unavailable_evidence_gaps,
         "overfilled_orders": overfilled_orders,
         "invalid_confirmed_fill_domains": invalid_confirmed_fill_domains,
         "invalid_submission_domains": invalid_submission_domains,

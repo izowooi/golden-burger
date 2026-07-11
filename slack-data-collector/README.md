@@ -185,6 +185,11 @@ writer에 **필수**인 read-only preflight RPC와 single-transaction snapshot R
 `pb_external_cash_flows`를 추가합니다. migration이 없으면 writer는 부분 적재 fallback
 없이 시작 단계에서 실패합니다.
 
+두 canonical SQL 파일은 SQL Editor 적용 시에도 파일 단위 transaction으로
+실행하고 마지막에 PostgREST schema cache reload를 요청합니다. 운영 적용과 `PGRST202`
+진단은 [`../daily-report/SUPABASE_MIGRATION.md`](../daily-report/SUPABASE_MIGRATION.md)를
+따르며, Jenkins job에는 DB 관리자 credential이나 migration 권한을 두지 않습니다.
+
 `pb_external_cash_flows`에는 사용자 통제 외부 자본의 deposit/withdrawal/transfer만
 기록합니다. Polymarket 활동 타입 `TRADE`, `SPLIT`, `MERGE`, `REDEEM`, `REWARD`,
 `CONVERSION`, `MAKER_REBATE`, `REFERRAL_REWARD`는 외부 현금흐름으로 분류하지 않습니다.

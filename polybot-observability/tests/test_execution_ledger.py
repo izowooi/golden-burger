@@ -1,14 +1,94 @@
 from __future__ import annotations
 
+import json
 import sqlite3
+from dataclasses import dataclass
 
 import pytest
 
 from polybot_observability import (
+    ClobResponseContractError,
+    ClobResponseUnavailableError,
     ExecutionLedger,
     SubmissionEvidenceError,
     UnresolvedSubmissionOutcomeError,
+    normalize_clob_response,
+    normalize_clob_response_list,
+    safe_clob_response_shape,
 )
+
+
+@dataclass
+class TypedSubmission:
+    success: bool
+    order_id: str
+    status: str
+    making_amount: str
+    taking_amount: str
+    api_secret: str = "must-not-be-copied"
+
+
+class PydanticMakerOrder:
+    def model_dump(self):
+        return {
+            "orderId": "typed-order",
+            "matchedAmount": "10000000",
+            "price": "0.42",
+            "side": "BUY",
+            "feeRateBps": "0",
+            "private_key": "must-not-be-copied",
+        }
+
+
+class ToDictTrade:
+    def to_dict(self):
+        return {
+            "tradeId": "typed-trade",
+            "status": "TRADE_STATUS_CONFIRMED",
+            "makerOrders": [PydanticMakerOrder()],
+            "traderSide": "MAKER",
+            "bucketIndex": 0,
+            "matchTime": "1700000000",
+            "transactionHash": "0xtyped",
+            "api_secret": "must-not-be-copied",
+        }
+
+
+class AttributeOrder:
+    __slots__ = (
+        "status",
+        "originalSize",
+        "sizeMatched",
+        "price",
+        "associatedTrades",
+        "password",
+    )
+
+    def __init__(self):
+        self.status = "ORDER_STATUS_MATCHED"
+        self.originalSize = "10000000"
+        self.sizeMatched = "10000000"
+        self.price = "0.42"
+        self.associatedTrades = [AttributeTradeId("typed-trade")]
+        self.password = "must-not-be-copied"
+
+
+@dataclass
+class AttributeTradeId:
+    trade_id: str
+
+
+class PydanticTradePage:
+    def model_dump(self):
+        return [ToDictTrade()]
+
+
+class PydanticV1Root:
+    def __init__(self, root):
+        self.__root__ = root
+
+    def dict(self):
+        return {"__root__": self.__root__}
 
 
 def test_records_submission_status_and_confirmed_fill(tmp_path):
@@ -75,6 +155,176 @@ def test_records_submission_status_and_confirmed_fill(tmp_path):
     assert amounts == (4.2, 10.0)
 
 
+def test_typed_sdk_models_are_normalized_without_copying_unknown_fields(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token-yes",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result=TypedSubmission(
+            success=True,
+            order_id="typed-order",
+            status="live",
+            making_amount="4200000",
+            taking_amount="10000000",
+        ),
+        simulation=False,
+    )
+
+    assert ledger.record_order_status(submission_id, AttributeOrder()) == [
+        "typed-trade"
+    ]
+    ledger.record_fill(
+        submission_id,
+        "typed-order",
+        normalize_clob_response_list(
+            PydanticTradePage(), response_type="trade"
+        )[0],
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    normalized = normalize_clob_response(
+        TypedSubmission(True, "typed-order", "live", "4200000", "10000000"),
+        response_type="submission",
+    )
+    assert normalized == {
+        "success": True,
+        "orderID": "typed-order",
+        "status": "live",
+        "makingAmount": "4200000",
+        "takingAmount": "10000000",
+    }
+    assert "api_secret" not in normalized
+    with sqlite3.connect(db_path) as connection:
+        fill = connection.execute(
+            "SELECT trade_id, status, size, price, liquidity_role, "
+            "transaction_hash FROM order_fills"
+        ).fetchone()
+    assert fill == (
+        "typed-trade",
+        "CONFIRMED",
+        10.0,
+        0.42,
+        "MAKER",
+        "0xtyped",
+    )
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"id": "order-shape", "status": "MATCHED"},
+        {"order": {"id": "order-shape", "status": "MATCHED"}},
+        {"data": {"id": "order-shape", "status": "MATCHED"}},
+        {"result": [{"id": "order-shape", "status": "MATCHED"}]},
+        [{"id": "order-shape", "status": "MATCHED"}],
+        json.dumps(
+            {"data": [{"id": "order-shape", "status": "MATCHED"}]}
+        ),
+        PydanticV1Root([{"id": "order-shape", "status": "MATCHED"}]),
+    ],
+)
+def test_order_response_shapes_are_unwrapped_with_minimum_contract(payload):
+    normalized = normalize_clob_response(payload, response_type="order")
+    assert normalized["id"] == "order-shape"
+    assert normalized["status"] == "MATCHED"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [None, [], "not-json", {}, {"data": []}, {"unknown": "secret-value"}],
+)
+def test_unavailable_order_shapes_fail_explicitly(payload):
+    with pytest.raises(ClobResponseUnavailableError):
+        normalize_clob_response(payload, response_type="order")
+
+
+def test_ambiguous_or_incomplete_response_contracts_are_rejected():
+    with pytest.raises(ClobResponseContractError, match="2건"):
+        normalize_clob_response(
+            [{"status": "LIVE"}, {"status": "MATCHED"}],
+            response_type="order",
+        )
+    with pytest.raises(ClobResponseContractError, match="status"):
+        normalize_clob_response({"id": "missing-status"}, response_type="order")
+    with pytest.raises(ClobResponseContractError, match="id"):
+        normalize_clob_response({"status": "CONFIRMED"}, response_type="trade")
+    with pytest.raises(ClobResponseUnavailableError):
+        normalize_clob_response({}, response_type="cancellation")
+    assert normalize_clob_response({}, response_type="submission") == {}
+
+
+def test_v1_root_trade_collection_and_safe_shape_do_not_expose_values():
+    page = PydanticV1Root(
+        [{"id": "trade-root", "status": "CONFIRMED", "api_secret": "hidden"}]
+    )
+    assert normalize_clob_response_list(page, response_type="trade") == [
+        {"id": "trade-root", "status": "CONFIRMED"}
+    ]
+    shape = safe_clob_response_shape(
+        {"data": [{"status": "MATCHED"}], "api_secret": "do-not-log"}
+    )
+    assert shape == "mapping(count=2,known=data)"
+    assert "secret" not in shape
+    assert "MATCHED" not in shape
+
+
+def test_unreadable_post_response_is_persisted_as_unknown_outcome(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+
+    with pytest.raises(SubmissionEvidenceError, match="representation"):
+        ledger.submit_and_record(
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=1,
+            submit=lambda: object(),
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, success, needs_reconciliation "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row == ("SUBMIT_OUTCOME_UNKNOWN", 0, 0)
+    with pytest.raises(UnresolvedSubmissionOutcomeError):
+        ExecutionLedger(db_path, strategy_name="golden-test").assert_execution_ready()
+
+
+def test_unreadable_post_unknown_write_failure_stays_wrapped_and_blocks_restart(
+    tmp_path, monkeypatch
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    monkeypatch.setattr(
+        ledger,
+        "record_submission_result",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            sqlite3.OperationalError("disk unavailable")
+        ),
+    )
+
+    with pytest.raises(SubmissionEvidenceError, match="기록하지 못했습니다") as captured:
+        ledger.submit_and_record(
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=1,
+            submit=lambda: object(),
+        )
+    assert isinstance(captured.value.__cause__, sqlite3.OperationalError)
+
+    with sqlite3.connect(db_path) as connection:
+        assert connection.execute(
+            "SELECT response_status FROM order_submissions"
+        ).fetchone() == ("INTENT",)
+    with pytest.raises(UnresolvedSubmissionOutcomeError):
+        ExecutionLedger(db_path, strategy_name="golden-test").assert_execution_ready()
+
+
 def test_simulated_submission_never_requires_reconciliation(tmp_path):
     ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
     ledger.record_submission(
@@ -111,6 +361,20 @@ def test_bootstraps_recent_legacy_order_ids(tmp_path):
 
     assert len(pending) == 1
     assert pending[0]["order_id"] == "legacy-buy"
+    assert pending[0]["response_status"] == "LEGACY_ASSUMED"
+
+    ledger.mark_legacy_unavailable(pending[0]["submission_id"])
+    assert ledger.pending_submissions() == []
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, needs_reconciliation, reconciliation_error "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row == (
+        "LEGACY_UNAVAILABLE",
+        0,
+        "legacy order unavailable; fill evidence gap remains",
+    )
 
 
 def test_does_not_close_matched_order_until_every_trade_is_terminal(tmp_path):

@@ -121,6 +121,9 @@ Jenkins 실행 전 `slack-data-collector/sql/pb_portfolio_schema.sql`과
 `slack-data-collector/sql/pb_portfolio_history_v2.sql`을 순서대로 적용해야 합니다.
 `check-supabase`는 두 번째 migration의 read-only preflight RPC까지 확인하며, 누락 시
 계정 조회와 Slack 전송 전에 job을 실패시킵니다.
+`PGRST202`가 발생하면 [`SUPABASE_MIGRATION.md`](SUPABASE_MIGRATION.md)의
+`to_regprocedure` 진단과 SQL Editor의 1회 migration 절차를 따릅니다.
+정기 report Pipeline에는 DB password나 migration 실행 단계를 추가하지 않습니다.
 
 ## 5. 로컬 테스트
 

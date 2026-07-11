@@ -7,6 +7,7 @@ GTC limit 매수는 접수 즉시 HOLDING으로 기록되지만(체결 가정), 
 from datetime import datetime, timedelta
 
 import pytest
+from polybot_observability import SubmissionEvidenceError
 
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus, init_database
@@ -37,10 +38,13 @@ def repo():
 class PhantomClob:
     """매도 주문이 실패로 거절되는 CLOB 대역 (매수 GTC 미체결 상황)."""
 
-    def __init__(self, midpoint=0.96, sell_error=ZERO_BALANCE_ERROR):
+    def __init__(
+        self, midpoint=0.96, sell_error=ZERO_BALANCE_ERROR, cancel_error=None
+    ):
         self.midpoint = midpoint
         self.sell_error = sell_error
         self.cancelled = []
+        self.cancel_error = cancel_error
 
     def get_midpoint(self, token_id):
         return self.midpoint
@@ -50,6 +54,8 @@ class PhantomClob:
 
     def cancel_order(self, order_id):
         self.cancelled.append(order_id)
+        if self.cancel_error is not None:
+            raise self.cancel_error
         return {"success": True}
 
 
@@ -115,6 +121,20 @@ class TestUnfilledPhantomDetection:
 
         assert sold is False
         assert clob.cancelled == []
+        loaded = repo.get_by_id(trade.id)
+        assert loaded.status == TradeStatus.HOLDING
+        assert loaded.exit_reason is None
+
+    def test_unproved_cancel_keeps_trade_holding(self, repo):
+        clob = PhantomClob(
+            cancel_error=SubmissionEvidenceError("cancel was not proven")
+        )
+        trader = Trader(repo, clob, TradingConfig())
+        trade = make_holding_trade(repo)
+
+        with pytest.raises(SubmissionEvidenceError):
+            trader.execute_sell(trade)
+
         loaded = repo.get_by_id(trade.id)
         assert loaded.status == TradeStatus.HOLDING
         assert loaded.exit_reason is None

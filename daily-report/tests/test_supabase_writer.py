@@ -285,6 +285,30 @@ def test_preflight_requires_atomic_rpc_migration_before_collection():
     assert client.operations == []
 
 
+def test_preflight_pgrst202_has_specific_safe_recovery_without_fallback():
+    class MissingRpcClient(FakeClient):
+        def rpc(self, function_name, params):
+            del function_name, params
+            raise RuntimeError(
+                {
+                    "message": "schema cache did not contain function",
+                    "code": "PGRST202",
+                }
+            )
+
+    client = MissingRpcClient()
+
+    with pytest.raises(SupabaseWriteError) as captured:
+        SupabasePortfolioWriter(client=client).check_connection(CONFIGURED_NAMES)
+
+    message = str(captured.value)
+    assert "PGRST202" in message
+    assert "SUPABASE_MIGRATION.md" in message
+    assert "NOTIFY pgrst" in message
+    assert "unsafe fallback은 없습니다" in message
+    assert client.operations == []
+
+
 def test_six_small_raw_mismatches_share_one_canonical_cent_contract():
     reports = {
         name: report(10.02, 5.0, 5.0)

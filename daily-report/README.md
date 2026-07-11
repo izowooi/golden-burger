@@ -144,7 +144,8 @@ Secret key는 RLS를 우회할 수 있는 서버 전용 키입니다. `NEXT_PUBL
 
 ### 필수 Supabase schema/RPC migration
 
-운영 전 SQL Editor에서 다음 순서로 적용합니다.
+운영 전 SQL Editor에서 다음 순서로 적용합니다. `PGRST202` 진단과 1회 복구 절차는
+[`SUPABASE_MIGRATION.md`](SUPABASE_MIGRATION.md)를 따릅니다.
 
 1. `slack-data-collector/sql/pb_portfolio_schema.sql`
 2. `slack-data-collector/sql/pb_portfolio_history_v2.sql`
@@ -263,5 +264,5 @@ limit 28;
 - **`SUPABASE_SECRET_KEY에 sb_publishable_... 키가 설정되었습니다`**: 변수 이름은 맞지만 값 종류가 잘못된 상태입니다. Dashboard의 Secret keys에서 서버 키를 가져옵니다.
 - **일부 DB 계정의 리포트가 없습니다**: `ACCOUNT_*` env 설정과 DB 카탈로그(`pb_algorithm_accounts`)가 정확히 일치하는지 확인합니다. 계좌를 추가/제거할 때는 env와 카탈로그 행을 같은 시점에 반영해야 합니다.
 - **Jenkins 이름을 찾지 못했습니다**: 중복 `golden-apple` 계정의 순서가 1번과 4번인지 확인합니다.
-- **`atomic snapshot RPC preflight 실패`**: `pb_portfolio_history_v2.sql` migration과 function의 `service_role` EXECUTE 권한을 적용한 뒤 `check-supabase`를 다시 실행합니다. writer는 일부 행 적재 fallback을 하지 않습니다.
+- **`atomic snapshot RPC preflight 실패(PGRST202)`**: [`SUPABASE_MIGRATION.md`](SUPABASE_MIGRATION.md)의 `to_regprocedure` 진단을 실행합니다. 함수가 없으면 atomic migration을 적용하고, 함수가 있으면 `NOTIFY pgrst, 'reload schema'`로 cache를 갱신한 뒤 `check-supabase`를 다시 실행합니다. writer는 일부 행 적재 fallback을 하지 않습니다.
 - **월간 실행에서 중복 행이 생김**: 날짜가 기본키이므로 중복 행은 생성되지 않습니다. 최신 값으로 갱신됩니다.

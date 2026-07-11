@@ -24,10 +24,95 @@ _TERMINAL_ORDER_STATUSES = {
 _TERMINAL_TRADE_STATUSES = {"CONFIRMED", "FAILED"}
 _FIXED_6_SCALE = 1_000_000
 _QUANTITY_TOLERANCE = 0.000001
+_MISSING = object()
+_MAX_RESPONSE_JSON_LENGTH = 1_000_000
+_MAX_RESPONSE_UNWRAP_DEPTH = 4
+_RESPONSE_ENVELOPE_KEYS = ("order", "data", "result", "root", "__root__")
+
+# Only fields needed for execution evidence are copied out of SDK response
+# models.  In particular, we deliberately do not persist or log ``__dict__``
+# wholesale because future SDK models could carry credentials or signer state.
+_CLOB_RESPONSE_FIELDS: dict[str, dict[str, tuple[str, ...]]] = {
+    "submission": {
+        "success": ("success",),
+        "orderID": ("orderID", "order_id", "orderId"),
+        "status": ("status",),
+        "makingAmount": ("makingAmount", "making_amount"),
+        "takingAmount": ("takingAmount", "taking_amount"),
+        "tradeIDs": ("tradeIDs", "trade_ids", "tradeIds"),
+        "error": ("error",),
+        "errorMsg": ("errorMsg", "error_msg"),
+    },
+    "order": {
+        "id": ("id", "orderID", "order_id", "orderId"),
+        "status": ("status",),
+        "associate_trades": (
+            "associate_trades",
+            "associated_trades",
+            "associateTrades",
+            "associatedTrades",
+        ),
+        "original_size": ("original_size", "originalSize"),
+        "size_matched": ("size_matched", "sizeMatched"),
+        "price": ("price",),
+    },
+    "trade": {
+        "id": ("id", "trade_id", "tradeId"),
+        "status": ("status",),
+        "maker_orders": ("maker_orders", "makerOrders"),
+        "taker_order_id": ("taker_order_id", "takerOrderId"),
+        "trader_side": ("trader_side", "traderSide"),
+        "side": ("side",),
+        "size": ("size",),
+        "price": ("price",),
+        "fee_rate_bps": ("fee_rate_bps", "feeRateBps"),
+        "fee_amount_usdc": ("fee_amount_usdc", "feeAmountUsdc"),
+        "fee_amount": ("fee_amount", "feeAmount"),
+        "fee": ("fee",),
+        "bucket_index": ("bucket_index", "bucketIndex"),
+        "match_time": ("match_time", "matchTime", "matchtime", "timestamp"),
+        "last_update": ("last_update", "lastUpdate"),
+        "transaction_hash": ("transaction_hash", "transactionHash"),
+    },
+    "maker_order": {
+        "order_id": ("order_id", "orderId"),
+        "matched_amount": ("matched_amount", "matchedAmount"),
+        "price": ("price",),
+        "side": ("side",),
+        "fee_rate_bps": ("fee_rate_bps", "feeRateBps"),
+        "fee_amount_usdc": ("fee_amount_usdc", "feeAmountUsdc"),
+        "fee_amount": ("fee_amount", "feeAmount"),
+        "fee": ("fee",),
+    },
+    "cancellation": {
+        "canceled": ("canceled", "cancelled"),
+        "not_canceled": ("not_canceled", "notCanceled", "not_cancelled"),
+    },
+}
 
 
 class SubmissionEvidenceError(RuntimeError):
     """Raised when an external order cannot be kept consistent with its ledger."""
+
+
+class ClobResponseContractError(ValueError):
+    """Raised when a decoded CLOB response is ambiguous or incomplete."""
+
+
+class ClobResponseUnavailableError(ClobResponseContractError):
+    """Raised when the venue returned no usable response object."""
+
+
+class ClobReconciliationPhaseError(RuntimeError):
+    """Secret-safe reconciliation failure with phase and response shape only."""
+
+    def __init__(self, phase: str, error: BaseException, response_shape: str) -> None:
+        self.phase = phase
+        self.error_type = type(error).__name__
+        self.response_shape = response_shape
+        super().__init__(
+            f"phase={phase} error={self.error_type} response_shape={response_shape}"
+        )
 
 
 class UnresolvedSubmissionOutcomeError(SubmissionEvidenceError):
@@ -115,7 +200,305 @@ def _first_present(mapping: Mapping[str, Any], *keys: str) -> Any:
 def _string_list(value: Any) -> list[str]:
     if not isinstance(value, (list, tuple)):
         return []
-    return [str(item) for item in value if item]
+    identifiers: list[str] = []
+    for item in value:
+        if isinstance(item, (str, int)) and not isinstance(item, bool):
+            if item != "":
+                identifiers.append(str(item))
+            continue
+        item_mapping = _model_mapping(item)
+        identifier = _lookup_model_value(
+            item, item_mapping, ("id", "trade_id", "tradeId")
+        )
+        if identifier not in (_MISSING, None, ""):
+            identifiers.append(str(identifier))
+    return identifiers
+
+
+def _model_dump(value: Any) -> Any:
+    """Return a mapping/list representation from common SDK model APIs."""
+    if isinstance(value, (Mapping, list, tuple)):
+        return value
+    for method_name in ("model_dump", "to_dict", "dict", "_asdict"):
+        try:
+            method = getattr(value, method_name)
+        except Exception:
+            continue
+        if not callable(method):
+            continue
+        try:
+            dumped = method()
+        except Exception:
+            continue
+        if isinstance(dumped, (Mapping, list, tuple)):
+            return dumped
+    # Pydantic v1 custom-root models expose ``__root__`` even when ``dict()``
+    # returns an envelope. Attribute access is allowlisted and never logged.
+    try:
+        root = getattr(value, "__root__")
+    except Exception:
+        return _MISSING
+    return root if isinstance(root, (Mapping, list, tuple)) else _MISSING
+
+
+def _model_mapping(value: Any) -> Mapping[str, Any] | None:
+    """Expose a response model as a mapping without serializing arbitrary state."""
+    dumped = _model_dump(value)
+    return dumped if isinstance(dumped, Mapping) else None
+
+
+def _lookup_model_value(
+    value: Any,
+    mapping: Mapping[str, Any] | None,
+    aliases: tuple[str, ...],
+) -> Any:
+    if mapping is not None:
+        for alias in aliases:
+            if alias in mapping:
+                return mapping[alias]
+    for alias in aliases:
+        try:
+            return getattr(value, alias)
+        except Exception:
+            continue
+    return _MISSING
+
+
+def _known_response_keys() -> set[str]:
+    return {
+        alias
+        for fields_by_type in _CLOB_RESPONSE_FIELDS.values()
+        for aliases in fields_by_type.values()
+        for alias in aliases
+    } | set(_RESPONSE_ENVELOPE_KEYS) | {"trades", "results"}
+
+
+def safe_clob_response_shape(value: Any) -> str:
+    """Describe container shape without exposing response values or unknown keys."""
+    if value is _MISSING:
+        return "not_observed"
+    if value is None:
+        return "null"
+    if isinstance(value, str):
+        stripped = value.lstrip()
+        json_like = bool(stripped) and stripped[0] in "[{\""
+        return f"string(len={len(value)},json_like={str(json_like).lower()})"
+    if isinstance(value, (list, tuple)):
+        item_type = type(value[0]).__name__ if value else "none"
+        return f"sequence(len={len(value)},item_type={item_type})"
+    dumped = _model_dump(value)
+    mapping = dumped if isinstance(dumped, Mapping) else None
+    if mapping is not None:
+        known = sorted(
+            str(key) for key in mapping if str(key) in _known_response_keys()
+        )
+        known_label = ",".join(known) if known else "none"
+        prefix = "mapping" if isinstance(value, Mapping) else "model_mapping"
+        return f"{prefix}(count={len(mapping)},known={known_label})"
+    if isinstance(dumped, (list, tuple)):
+        return (
+            "model_sequence("
+            f"len={len(dumped)},item_type="
+            f"{type(dumped[0]).__name__ if dumped else 'none'})"
+        )
+    known_attributes = sorted(
+        alias
+        for alias in _known_response_keys()
+        if _lookup_model_value(value, None, (alias,)) is not _MISSING
+    )
+    known_label = ",".join(known_attributes) if known_attributes else "none"
+    return f"object(type={type(value).__name__},known={known_label})"
+
+
+def _decode_response_json(value: str, *, response_type: str) -> Any:
+    if len(value) > _MAX_RESPONSE_JSON_LENGTH:
+        raise ClobResponseContractError(
+            f"CLOB {response_type} JSON string이 허용 길이를 초과했습니다"
+        )
+    try:
+        decoded = json.loads(value)
+    except (TypeError, ValueError) as error:
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response가 plain string입니다"
+        ) from error
+    if isinstance(decoded, str):
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response JSON이 scalar string입니다"
+        )
+    return decoded
+
+
+def _has_known_field(
+    mapping: Mapping[str, Any], field_aliases: Mapping[str, tuple[str, ...]]
+) -> bool:
+    return any(alias in mapping for aliases in field_aliases.values() for alias in aliases)
+
+
+def _unwrap_single_response(
+    value: Any, *, response_type: str, depth: int = 0, decoded_json: bool = False
+) -> Any:
+    if depth > _MAX_RESPONSE_UNWRAP_DEPTH:
+        raise ClobResponseContractError(
+            f"CLOB {response_type} response envelope가 너무 깊습니다"
+        )
+    if value is None:
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response가 null입니다"
+        )
+    if isinstance(value, str):
+        if decoded_json:
+            raise ClobResponseUnavailableError(
+                f"CLOB {response_type} response가 scalar string입니다"
+            )
+        return _unwrap_single_response(
+            _decode_response_json(value, response_type=response_type),
+            response_type=response_type,
+            depth=depth + 1,
+            decoded_json=True,
+        )
+
+    dumped = _model_dump(value)
+    candidate = dumped if dumped is not _MISSING else value
+    if isinstance(candidate, (list, tuple)):
+        if not candidate:
+            raise ClobResponseUnavailableError(
+                f"CLOB {response_type} response sequence가 비어 있습니다"
+            )
+        if len(candidate) != 1:
+            raise ClobResponseContractError(
+                f"CLOB {response_type} singleton response가 {len(candidate)}건입니다"
+            )
+        return _unwrap_single_response(
+            candidate[0],
+            response_type=response_type,
+            depth=depth + 1,
+            decoded_json=decoded_json,
+        )
+    if isinstance(candidate, Mapping):
+        fields_for_type = _CLOB_RESPONSE_FIELDS[response_type]
+        if _has_known_field(candidate, fields_for_type):
+            return candidate
+        envelopes = [key for key in _RESPONSE_ENVELOPE_KEYS if key in candidate]
+        if len(envelopes) > 1:
+            raise ClobResponseContractError(
+                f"CLOB {response_type} response envelope가 중복되었습니다"
+            )
+        if envelopes:
+            return _unwrap_single_response(
+                candidate[envelopes[0]],
+                response_type=response_type,
+                depth=depth + 1,
+                decoded_json=decoded_json,
+            )
+        if response_type == "submission" and not candidate:
+            # Internal unknown-outcome persistence deliberately uses {}.
+            return candidate
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response에 알려진 evidence field가 없습니다"
+        )
+    return value
+
+
+def normalize_clob_response(value: Any, *, response_type: str) -> dict[str, Any]:
+    """Convert SDK mappings/models into a secret-safe plain evidence mapping.
+
+    ``py-clob-client-v2`` currently returns JSON mappings, while typed SDK
+    releases and test doubles may return dataclasses, Pydantic models, objects
+    exposing ``to_dict()``, or attribute-only response objects.  This adapter
+    accepts those representation differences but keeps the venue contract
+    strict: only an allowlist of evidence fields is retained and an unrelated
+    object is rejected instead of being treated as a successful response.
+    """
+    field_aliases = _CLOB_RESPONSE_FIELDS.get(response_type)
+    if field_aliases is None:
+        raise ValueError(f"지원하지 않는 CLOB response_type입니다: {response_type}")
+    value = _unwrap_single_response(value, response_type=response_type)
+    mapping = _model_mapping(value)
+    normalized: dict[str, Any] = {}
+    for canonical_name, aliases in field_aliases.items():
+        selected = _lookup_model_value(value, mapping, aliases)
+        if selected is _MISSING:
+            continue
+        if canonical_name == "maker_orders":
+            if selected is None:
+                selected = []
+            if not isinstance(selected, (list, tuple)):
+                raise ClobResponseContractError(
+                    "CLOB trade maker_orders가 sequence가 아닙니다"
+                )
+            selected = [
+                normalize_clob_response(item, response_type="maker_order")
+                for item in selected
+            ]
+        normalized[canonical_name] = selected
+
+    if not normalized and not (response_type == "submission" and mapping == {}):
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response model에 알려진 evidence field가 없습니다"
+        )
+    if response_type == "order" and not str(normalized.get("status") or "").strip():
+        raise ClobResponseContractError("CLOB order response에 status가 없습니다")
+    if response_type == "trade" and not str(normalized.get("id") or "").strip():
+        raise ClobResponseContractError("CLOB trade response에 id가 없습니다")
+    if response_type == "cancellation" and not any(
+        key in normalized for key in ("canceled", "not_canceled")
+    ):
+        raise ClobResponseContractError(
+            "CLOB cancellation response에 결과 필드가 없습니다"
+        )
+    return normalized
+
+
+def normalize_clob_response_list(
+    value: Any, *, response_type: str
+) -> list[dict[str, Any]]:
+    """Normalize a list/root/page of typed SDK response models."""
+    candidate = value
+    if isinstance(candidate, str):
+        candidate = _decode_response_json(candidate, response_type=response_type)
+    dumped = _model_dump(candidate)
+    if dumped is not _MISSING:
+        candidate = dumped
+    elif not isinstance(candidate, (Mapping, list, tuple)):
+        selected = _lookup_model_value(
+            candidate,
+            None,
+            ("data", "trades", "results", "root", "__root__"),
+        )
+        if selected is not _MISSING:
+            candidate = selected
+            nested_dump = _model_dump(candidate)
+            if nested_dump is not _MISSING:
+                candidate = nested_dump
+    if isinstance(candidate, Mapping):
+        if _has_known_field(candidate, _CLOB_RESPONSE_FIELDS[response_type]):
+            candidate = [candidate]
+        else:
+            envelopes = [
+                key
+                for key in ("data", "trades", "results", "root", "__root__")
+                if key in candidate
+            ]
+            if len(envelopes) != 1:
+                raise ClobResponseContractError(
+                    f"CLOB {response_type} collection envelope가 유일하지 않습니다"
+                )
+            candidate = candidate[envelopes[0]]
+            nested_dump = _model_dump(candidate)
+            if nested_dump is not _MISSING:
+                candidate = nested_dump
+    if candidate is None:
+        raise ClobResponseUnavailableError(
+            f"CLOB {response_type} response collection이 null입니다"
+        )
+    if not isinstance(candidate, (list, tuple)):
+        raise ClobResponseContractError(
+            f"CLOB {response_type} response collection이 sequence가 아닙니다"
+        )
+    return [
+        normalize_clob_response(item, response_type=response_type)
+        for item in candidate
+    ]
 
 
 class ExecutionLedger:
@@ -136,7 +519,7 @@ class ExecutionLedger:
         side: str,
         requested_price: float,
         requested_size: float,
-        result: Mapping[str, Any],
+        result: Any,
         simulation: bool,
     ) -> str:
         """Convenience wrapper used by simulations, tests, and legacy callers."""
@@ -161,7 +544,7 @@ class ExecutionLedger:
         side: str,
         requested_price: float,
         requested_size: float,
-        submit: Callable[[], Mapping[str, Any]],
+        submit: Callable[[], Any],
         cancel: Callable[[str], Any] | None = None,
     ) -> Mapping[str, Any]:
         """Persist intent, submit once, then persist the response on the same row.
@@ -192,10 +575,25 @@ class ExecutionLedger:
                 ) from error
             raise
 
-        if not isinstance(result, Mapping):
-            error = TypeError("CLOB order response가 mapping이 아닙니다")
-            self.record_submission_error(submission_id, error)
-            raise error
+        try:
+            result = normalize_clob_response(result, response_type="submission")
+        except Exception as error:
+            # The POST returned, so an unreadable response cannot be classified
+            # as a proven rejection. Persist it as an unknown outcome and keep
+            # the restart gate closed until an operator proves what happened.
+            try:
+                self.record_submission_result(
+                    submission_id, result={}, simulation=False
+                )
+            except _OrderResponseContractError:
+                pass
+            except Exception as ledger_error:
+                raise SubmissionEvidenceError(
+                    "해석 불가능한 POST 결과를 execution ledger에 기록하지 못했습니다"
+                ) from ledger_error
+            raise SubmissionEvidenceError(
+                "CLOB order response representation을 해석할 수 없어 cycle을 중단합니다"
+            ) from error
         try:
             self.record_submission_result(
                 submission_id,
@@ -208,11 +606,10 @@ class ExecutionLedger:
             if order_id and cancel is not None:
                 try:
                     cancel_result = cancel(order_id)
-                    canceled_ids = (
-                        cancel_result.get("canceled", [])
-                        if isinstance(cancel_result, Mapping)
-                        else []
+                    cancellation = normalize_clob_response(
+                        cancel_result, response_type="cancellation"
                     )
+                    canceled_ids = cancellation.get("canceled", [])
                     cancellation_failed = order_id not in {
                         str(value) for value in canceled_ids
                     }
@@ -234,11 +631,10 @@ class ExecutionLedger:
             if order_id and cancel is not None:
                 try:
                     cancel_result = cancel(order_id)
-                    canceled_ids = (
-                        cancel_result.get("canceled", [])
-                        if isinstance(cancel_result, Mapping)
-                        else []
+                    cancellation = normalize_clob_response(
+                        cancel_result, response_type="cancellation"
                     )
+                    canceled_ids = cancellation.get("canceled", [])
                     cancellation_failed = order_id not in {
                         str(value) for value in canceled_ids
                     }
@@ -294,10 +690,11 @@ class ExecutionLedger:
         self,
         submission_id: str,
         *,
-        result: Mapping[str, Any],
+        result: Any,
         simulation: bool,
     ) -> None:
         """Attach the venue response to a previously persisted intent."""
+        result = normalize_clob_response(result, response_type="submission")
         order_id = str(result.get("orderID") or "") or None
         explicit_success = result.get("success")
         response_anomaly: str | None = None
@@ -543,7 +940,8 @@ class ExecutionLedger:
                 raise UnresolvedSubmissionOutcomeError(int(unresolved_count))
             rows = connection.execute(
                 """
-                SELECT submission_id, order_id, associated_trade_ids_json
+                SELECT submission_id, order_id, response_status,
+                       associated_trade_ids_json
                 FROM order_submissions
                 WHERE needs_reconciliation = 1 AND order_id IS NOT NULL
                 ORDER BY CASE WHEN last_reconciled_at IS NULL THEN 0 ELSE 1 END,
@@ -553,6 +951,40 @@ class ExecutionLedger:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def mark_legacy_unavailable(self, submission_id: str) -> None:
+        """Atomically close a proved-unavailable pre-ledger evidence gap.
+
+        This is not proof of an unfilled order. The explicit response status
+        and reconciliation error preserve the gap for retrospective audits,
+        while avoiding an endless live-trading gate after both authoritative
+        order catalogs were queried successfully and the exact ID was absent.
+        """
+        with self._connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE order_submissions
+                SET response_status = 'LEGACY_UNAVAILABLE',
+                    needs_reconciliation = 0,
+                    last_reconciled_at = ?,
+                    reconciliation_error = ?,
+                    error_type = 'LegacyOrderUnavailable',
+                    error_message = ?
+                WHERE submission_id = ?
+                  AND response_status = 'LEGACY_ASSUMED'
+                  AND needs_reconciliation = 1
+                """,
+                (
+                    _utc_now(),
+                    "legacy order unavailable; fill evidence gap remains",
+                    "normal and pre-migration order catalogs returned no exact ID",
+                    submission_id,
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise RuntimeError(
+                    "LEGACY_ASSUMED reconciliation row를 원자적으로 종결하지 못했습니다"
+                )
 
     @staticmethod
     def _unresolved_sql() -> str:
@@ -585,8 +1017,9 @@ class ExecutionLedger:
         ).fetchall()
 
     def record_order_status(
-        self, submission_id: str, detail: Mapping[str, Any]
+        self, submission_id: str, detail: Any
     ) -> list[str]:
+        detail = normalize_clob_response(detail, response_type="order")
         status = _normalize_status(detail.get("status"))
         associated = _string_list(
             detail.get("associate_trades") or detail.get("associated_trades")
@@ -676,8 +1109,9 @@ class ExecutionLedger:
         self,
         submission_id: str,
         order_id: str,
-        trade: Mapping[str, Any],
+        trade: Any,
     ) -> None:
+        trade = normalize_clob_response(trade, response_type="trade")
         trade_id = str(trade.get("id") or "")
         if not trade_id:
             return

@@ -107,6 +107,15 @@ class SupabasePortfolioWriter:
         try:
             response = self.client.rpc(self.PREFLIGHT_RPC, {}).execute()
         except Exception as exc:
+            if self._api_error_code(exc) == "PGRST202":
+                raise SupabaseWriteError(
+                    "Supabase atomic snapshot RPC preflight 실패(PGRST202). "
+                    "운영 DB에 함수가 없거나 PostgREST schema cache가 오래된 상태입니다. "
+                    "daily-report/SUPABASE_MIGRATION.md의 진단 절차를 실행하세요. "
+                    "함수가 없으면 slack-data-collector/sql/pb_portfolio_history_v2.sql을 "
+                    "적용하고, 함수가 있으면 NOTIFY pgrst, 'reload schema'를 실행한 뒤 "
+                    "check-supabase를 다시 실행하세요. unsafe fallback은 없습니다."
+                ) from exc
             raise SupabaseWriteError(
                 "Supabase atomic snapshot RPC preflight 실패. "
                 "slack-data-collector/sql/pb_portfolio_history_v2.sql migration을 "

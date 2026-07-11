@@ -685,6 +685,46 @@ def test_invalid_execution_domains_are_critical_in_retro_audit(tmp_path: Path) -
     assert "order_execution_domain_invalid" in codes
 
 
+def test_legacy_unavailable_order_remains_high_evidence_gap_and_out_of_pnl(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "golden-test" / "trades.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, status TEXT)")
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=1,
+        result={"success": True, "orderID": "legacy-missing"},
+        simulation=False,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET response_status = 'LEGACY_ASSUMED', "
+            "submitted_at = '2026-07-10T00:00:00+00:00' "
+            "WHERE submission_id = ?",
+            (submission_id,),
+        )
+    ledger.mark_legacy_unavailable(submission_id)
+
+    result = audit_database(
+        db_path, days=30, as_of=datetime(2026, 7, 31, tzinfo=timezone.utc)
+    )
+    codes = {issue["code"] for issue in result["issues"]}
+
+    assert result["fill_ledger"]["legacy_unavailable_evidence_gaps"] == 1
+    assert result["fill_ledger"]["confirmed_fill_gross_pnl_usdc"] is None
+    assert result["fill_ledger"]["confirmed_fill_net_pnl_usdc"] is None
+    assert "legacy_order_evidence_gap" in codes
+    assert next(
+        issue for issue in result["issues"]
+        if issue["code"] == "legacy_order_evidence_gap"
+    )["severity"] == "HIGH"
+
+
 def test_staggered_two_row_markets_fail_history_depth_gate(tmp_path: Path) -> None:
     db_path = tmp_path / "golden-honeydew" / "trades.db"
     db_path.parent.mkdir(parents=True)

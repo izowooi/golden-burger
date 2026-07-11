@@ -2,6 +2,11 @@
 -- Apply pb_portfolio_schema.sql first. Snapshot-run columns and the two RPCs are
 -- runtime dependencies; deployment history and cash-flow tables support analysis.
 
+-- This file is also intended for direct Supabase SQL Editor/psql application.
+-- Keep the full additive migration atomic so a failed constraint/function/grant
+-- cannot leave a half-installed writer contract.
+begin;
+
 create table if not exists public.pb_strategy_deployments (
   deployment_id bigint generated always as identity primary key,
   account_id text not null
@@ -488,3 +493,8 @@ grant execute on function public.pb_portfolio_writer_preflight_v2()
 grant execute on function public.pb_write_complete_portfolio_snapshot_v2(
   date, timestamptz, numeric, text, jsonb
 ) to service_role;
+
+-- PostgREST can otherwise keep returning PGRST202 from a stale schema cache even
+-- after both functions exist. PostgreSQL delivers this notification on commit.
+notify pgrst, 'reload schema';
+commit;

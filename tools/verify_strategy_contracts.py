@@ -311,6 +311,14 @@ def _validate_clob_source(
         "reconcile_order_ledger",
         class_name="ClobClientWrapper",
     )
+    cancel = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "cancel_order",
+        class_name="ClobClientWrapper",
+    )
     if place is not None:
         names = {name for name, _ in _calls(place)}
         required = {
@@ -352,9 +360,14 @@ def _validate_clob_source(
         required_suffixes = (
             "pending_submissions",
             "get_order",
+            "get_pre_migration_orders",
+            "normalize_clob_response",
+            "safe_clob_response_shape",
             "record_order_status",
             "get_trades",
+            "normalize_clob_response_list",
             "record_fill",
+            "mark_legacy_unavailable",
             "finish_reconciliation",
             "record_reconciliation_error",
         )
@@ -369,6 +382,35 @@ def _validate_clob_source(
                     strategy,
                     "incomplete_reconciliation",
                     f"{relative_path}: {', '.join(missing)}",
+                )
+            )
+        constants = {
+            node.value
+            for node in ast.walk(reconcile)
+            if isinstance(node, ast.Constant) and isinstance(node.value, str)
+        }
+        if "LEGACY_ASSUMED" not in constants:
+            findings.append(
+                Finding(
+                    strategy,
+                    "incomplete_reconciliation",
+                    f"{relative_path}: missing LEGACY_ASSUMED fallback gate",
+                )
+            )
+    if cancel is not None:
+        names = {name for name, _ in _calls(cancel)}
+        required = {
+            "self.client.cancel_orders",
+            "normalize_clob_response",
+        }
+        missing = sorted(required - names)
+        has_raise = any(isinstance(node, ast.Raise) for node in ast.walk(cancel))
+        if missing or not has_raise:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_cancellation_path",
+                    f"{relative_path}: exact cancel evidence must raise on failure",
                 )
             )
 

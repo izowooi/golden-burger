@@ -1,3 +1,7 @@
+-- Keep direct SQL Editor/psql application atomic as well as migration-runner
+-- application. If any statement fails, no partial base schema is committed.
+begin;
+
 create table if not exists public.pb_algorithm_accounts (
   account_id text primary key,
   jenkins_name text not null unique,
@@ -72,3 +76,6 @@ revoke all on table public.pb_daily_algorithm_balances from anon, authenticated;
 -- Apply pb_portfolio_history_v2.sql immediately after this base schema. The live
 -- daily writer requires its preflight + atomic snapshot RPC; these three tables
 -- alone are retained only as the base/backfill compatibility layer.
+
+notify pgrst, 'reload schema';
+commit;

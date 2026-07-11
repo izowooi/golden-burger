@@ -48,3 +48,14 @@ def test_deployment_docs_require_atomic_migration_and_restricted_evidence_backup
     assert "pb_portfolio_history_v2.sql" in jenkins_setup
     assert "암호화된" in jenkins_setup
     assert "raw wallet address" in jenkins_setup
+
+
+def test_daily_pipeline_preflights_but_never_installs_database_migrations():
+    jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
+
+    assert "check-supabase" in jenkinsfile
+    assert "Generate Report" in jenkinsfile
+    assert jenkinsfile.index("check-supabase") < jenkinsfile.index("Generate Report")
+    assert "apply_supabase_migrations" not in jenkinsfile
+    assert "PGPASSWORD" not in jenkinsfile
+    assert "psql" not in jenkinsfile

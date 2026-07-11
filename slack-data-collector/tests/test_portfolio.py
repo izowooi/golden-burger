@@ -272,9 +272,13 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("golden-fox", sql)
 
     def test_history_v2_schema_is_additive_and_documents_flow_boundary(self) -> None:
-        migration = (
-            Path(__file__).resolve().parents[1] / "sql" / "pb_portfolio_history_v2.sql"
-        ).read_text(encoding="utf-8")
+        sql_directory = Path(__file__).resolve().parents[1] / "sql"
+        base_schema = (sql_directory / "pb_portfolio_schema.sql").read_text(
+            encoding="utf-8"
+        )
+        migration = (sql_directory / "pb_portfolio_history_v2.sql").read_text(
+            encoding="utf-8"
+        )
 
         self.assertIn("pb_strategy_deployments", migration)
         self.assertIn("pb_snapshot_runs", migration)
@@ -295,4 +299,10 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("not isfinite(p_reported_at)", migration)
         self.assertIn("grant select, insert, update", migration.lower())
         self.assertIn("to service_role", migration.lower())
+        self.assertRegex(migration.lower(), r"\bbegin\s*;")
+        self.assertIn("notify pgrst, 'reload schema';", migration.lower())
+        self.assertRegex(migration.lower(), r"commit\s*;\s*$")
         self.assertNotIn("drop table", migration.lower())
+        self.assertRegex(base_schema.lower(), r"\bbegin\s*;")
+        self.assertIn("notify pgrst, 'reload schema';", base_schema.lower())
+        self.assertRegex(base_schema.lower(), r"commit\s*;\s*$")
