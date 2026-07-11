@@ -439,12 +439,21 @@ def _validate_gamma_source(
         "_get",
         class_name="GammaClient",
     )
+    page_fetch = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "_get_keyset_page",
+        class_name="GammaClient",
+    )
     if not any(isinstance(node, ast.While) for node in ast.walk(sweep)):
         findings.append(
             Finding(strategy, "incomplete_pagination", f"{relative_path}: no keyset loop")
         )
     calls = _calls(sweep)
-    bounded_calls = [call for name, call in calls if name.endswith("self._get")]
+    page_calls = _calls(page_fetch) if page_fetch is not None else []
+    bounded_calls = [call for name, call in page_calls if name.endswith("self._get")]
     direct_get_calls = _calls(bounded_get) if bounded_get is not None else []
     session_get_calls = [
         call for name, call in direct_get_calls if name.endswith("session.get")
@@ -460,7 +469,27 @@ def _validate_gamma_source(
         findings.append(
             Finding(strategy, "missing_timeout", f"{relative_path}: Gamma request")
         )
-    if not any(name.endswith("raise_for_status") for name, _ in calls):
+    if not any(name.endswith("self._get_keyset_page") for name, _ in calls):
+        findings.append(
+            Finding(strategy, "missing_contract", f"{relative_path}: page-level retry")
+        )
+    page_decorators = (
+        [call for decorator in page_fetch.decorator_list for call in _calls(decorator)]
+        if page_fetch is not None
+        else []
+    )
+    if not any(name.endswith("rate_limit_handler") for name, _ in page_decorators):
+        findings.append(
+            Finding(strategy, "missing_contract", f"{relative_path}: page retry handler")
+        )
+    sweep_decorators = [
+        call for decorator in sweep.decorator_list for call in _calls(decorator)
+    ]
+    if any(name.endswith("rate_limit_handler") for name, _ in sweep_decorators):
+        findings.append(
+            Finding(strategy, "unsafe_retry_scope", f"{relative_path}: full Gamma sweep")
+        )
+    if not any(name.endswith("raise_for_status") for name, _ in page_calls):
         findings.append(
             Finding(strategy, "missing_contract", f"{relative_path}: HTTP status check")
         )

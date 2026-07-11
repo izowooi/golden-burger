@@ -73,11 +73,15 @@ def rate_limit_handler(max_retries: int = 5, base_delay: float = 2.0):
                     status_code = e.response.status_code if e.response is not None else 0
 
                     if status_code == 429:
+                        exponential_delay = _bounded_delay(
+                            base_delay * (2 ** attempt)
+                        )
                         retry_after = _retry_after_seconds(
                             e.response.headers.get("Retry-After"), base_delay
                         )
                         wait_time = _bounded_delay(
-                            retry_after + random.uniform(0, 1)
+                            max(retry_after, exponential_delay)
+                            + random.uniform(0, 1)
                         )
 
                         if attempt + 1 < max_retries:

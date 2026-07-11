@@ -80,7 +80,9 @@ class KeysetSession:
         return Response(self.pages.pop(0))
 
 
-def test_gamma_uses_keyset_cursor_and_deduplicates_conditions():
+def test_gamma_uses_keyset_cursor_and_deduplicates_conditions(monkeypatch):
+    page_sleeps = []
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", page_sleeps.append)
     client = GammaClient()
     client.session = KeysetSession()
 
@@ -91,6 +93,7 @@ def test_gamma_uses_keyset_cursor_and_deduplicates_conditions():
     assert client.session.calls[0][1]["include_tag"] == "true"
     assert client.session.calls[1][1]["after_cursor"] == "cursor-1"
     assert all(call[2] == (3.05, 20.0) for call in client.session.calls)
+    assert page_sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS]
 
     attestation = client.last_sweep_attestation
     assert attestation["cursor_complete"] is True
@@ -113,6 +116,43 @@ def test_gamma_uses_keyset_cursor_and_deduplicates_conditions():
     assert membership["missing-tradability-fields"]["qualified"] is False
 
 
+class RateLimitedResponse:
+    status_code = 429
+    headers = {"Retry-After": "0"}
+
+    def raise_for_status(self):
+        raise requests.exceptions.HTTPError("rate limited", response=self)
+
+
+class MidSweepRateLimitSession:
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, params, timeout):
+        self.calls.append((url, dict(params), timeout))
+        cursor = params.get("after_cursor")
+        if cursor is None:
+            return Response({"markets": [], "next_cursor": "cursor-1"})
+        if len(self.calls) == 2:
+            return RateLimitedResponse()
+        return Response({"markets": []})
+
+
+def test_gamma_retries_only_the_rate_limited_page(monkeypatch):
+    sleeps = []
+    monkeypatch.setattr("polybot.utils.retry.random.uniform", lambda _a, _b: 0.0)
+    monkeypatch.setattr("polybot.utils.retry.time.sleep", sleeps.append)
+    client = GammaClient()
+    client.session = MidSweepRateLimitSession()
+
+    assert client.get_all_tradable_markets() == []
+
+    cursors = [call[1].get("after_cursor") for call in client.session.calls]
+    assert cursors == [None, "cursor-1", "cursor-1"]
+    assert sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS, 2.0]
+    assert client.last_sweep_attestation["pages"] == 2
+
+
 class TimeoutSession:
     def __init__(self):
         self.calls = []
@@ -131,22 +171,23 @@ def test_gamma_sweep_timeout_retries_are_bounded(monkeypatch):
     with pytest.raises(requests.exceptions.Timeout):
         client.get_all_tradable_markets(min_liquidity=10_000)
 
-    assert len(client.session.calls) == 3
+    assert len(client.session.calls) == 6
     assert all(call[2] == (3.05, 20.0) for call in client.session.calls)
-    assert sleeps == [2.0, 4.0]
+    assert sleeps == [2.0, 4.0, 8.0, 16.0, 32.0]
     assert client.last_sweep_attestation is None
 
 
 @pytest.mark.parametrize(
-    ("retry_after", "expected_delay"),
+    ("retry_after", "expected_delays"),
     [
-        ("999999999", MAX_RETRY_DELAY_SECONDS),
-        ("Wed, 31 Dec 2099 23:59:59 GMT", MAX_RETRY_DELAY_SECONDS),
-        ("not-a-valid-retry-after", 2.0),
+        ("999999999", [MAX_RETRY_DELAY_SECONDS, MAX_RETRY_DELAY_SECONDS]),
+        ("Wed, 31 Dec 2099 23:59:59 GMT", [MAX_RETRY_DELAY_SECONDS, MAX_RETRY_DELAY_SECONDS]),
+        ("not-a-valid-retry-after", [2.0, 4.0]),
+        ("0", [2.0, 4.0]),
     ],
 )
 def test_retry_after_is_defensive_capped_and_skips_final_sleep(
-    monkeypatch, retry_after, expected_delay
+    monkeypatch, retry_after, expected_delays
 ):
     attempts = []
     sleeps = []
@@ -166,7 +207,7 @@ def test_retry_after_is_defensive_capped_and_skips_final_sleep(
         always_rate_limited()
 
     assert len(attempts) == 3
-    assert sleeps == [expected_delay, expected_delay]
+    assert sleeps == expected_delays
 
 
 class ReconcileClient:

@@ -3,6 +3,7 @@ import hashlib
 import json
 import logging
 import math
+import time
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from uuid import uuid4
@@ -27,6 +28,7 @@ class GammaClient:
     CONNECT_TIMEOUT_SECONDS = 3.05
     READ_TIMEOUT_SECONDS = 20.0
     MAX_SWEEP_PAGES = 10_000
+    KEYSET_PAGE_INTERVAL_SECONDS = 0.25
     SWEEP_SCHEMA_VERSION = 1
 
     def __init__(self):
@@ -44,6 +46,13 @@ class GammaClient:
             params=params,
             timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
         )
+
+    @rate_limit_handler(max_retries=6, base_delay=2.0)
+    def _get_keyset_page(self, params: Dict):
+        """Fetch one keyset page so a retry never restarts the full sweep."""
+        response = self._get("/markets/keyset", params=params)
+        response.raise_for_status()
+        return response
 
     @property
     def last_sweep_attestation(self) -> Optional[Dict]:
@@ -135,7 +144,6 @@ class GammaClient:
 
         return parsed
 
-    @rate_limit_handler(max_retries=3)
     def get_all_tradable_markets(
         self,
         min_liquidity: float = 0,
@@ -174,8 +182,7 @@ class GammaClient:
             if cursor:
                 params["after_cursor"] = cursor
 
-            response = self._get("/markets/keyset", params=params)
-            response.raise_for_status()
+            response = self._get_keyset_page(params)
             payload = response.json()
             raw_markets = payload.get("markets", [])
             if not isinstance(raw_markets, list):
@@ -221,6 +228,7 @@ class GammaClient:
                 raise RuntimeError("Gamma keyset cursor가 반복되어 순회를 중단합니다")
             seen_cursors.add(str(next_cursor))
             cursor = str(next_cursor)
+            time.sleep(self.KEYSET_PAGE_INTERVAL_SECONDS)
 
         markets = list(by_condition.values())
         sorted_memberships = sorted(
