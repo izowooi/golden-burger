@@ -30,7 +30,7 @@ test("getPerformance sorts observations and calculates the first-to-last return"
   });
 });
 
-test("selected portfolio KPI aggregates each account's first and last observation", () => {
+test("selected portfolio KPI compares earliest and latest actual daily row sums", () => {
   const rows = [
     balance("2026-07-01", "alpha", 100),
     balance("2026-07-02", "alpha", 110),
@@ -48,10 +48,12 @@ test("selected portfolio KPI aggregates each account's first and last observatio
 
   assert.equal(result?.first.report_date, "2026-07-01");
   assert.equal(result?.last.report_date, "2026-07-03");
-  assert.equal(result?.first.total_value, 300);
+  assert.equal(result?.first.total_value, 100);
   assert.equal(result?.last.total_value, 340);
-  assert.equal(result?.changeValue, 40);
-  assert.equal(result?.returnRate, (40 / 300) * 100);
+  assert.equal(result?.first.accountCount, 1);
+  assert.equal(result?.last.accountCount, 2);
+  assert.equal(result?.changeValue, 240);
+  assert.equal(result?.returnRate, 240);
   assert.equal(result?.points, 5);
   assert.equal(result?.accountCount, 2);
 });
@@ -74,6 +76,46 @@ test("selected portfolio KPI excludes only selected accounts with no period obse
   assert.equal(result?.last.total_value, 110);
   assert.equal(result?.changeValue, 10);
   assert.equal(result?.accountCount, 1);
+});
+
+test("selected portfolio KPI matches production 30D boundary totals", () => {
+  const rows = [
+    balance("2026-06-13", "golden-apple-1", 1_695.72),
+    balance("2026-06-13", "golden-apple-2", 12_785.55),
+    balance("2026-06-13", "golden-banana", 28_324.42),
+    balance("2026-06-13", "golden-cherry", 4_028.2),
+    balance("2026-07-01", "golden-apple-1", 3_500),
+    balance("2026-07-12", "golden-apple-1", 4_899.15),
+    balance("2026-07-12", "golden-apple-2", 6_834.66),
+    balance("2026-07-12", "golden-banana", 32_342.67),
+    balance("2026-07-12", "golden-cherry", 4_111.79),
+    balance("2026-07-12", "golden-eco", 2_970.02),
+    balance("2026-07-12", "golden-fox", 2_933.84),
+    balance("2026-06-13", "not-selected", 999_999),
+  ];
+
+  const result = getSelectedPortfolioPerformance(
+    rows,
+    [
+      "golden-apple-1",
+      "golden-apple-2",
+      "golden-banana",
+      "golden-cherry",
+      "golden-eco",
+      "golden-fox",
+    ],
+    "2026-06-13",
+    "2026-07-12",
+  );
+
+  assert.equal(result?.first.report_date, "2026-06-13");
+  assert.equal(result?.last.report_date, "2026-07-12");
+  assert.ok(Math.abs((result?.first.total_value ?? 0) - 46_833.89) < 1e-9);
+  assert.ok(Math.abs((result?.last.total_value ?? 0) - 54_092.13) < 1e-9);
+  assert.ok(Math.abs((result?.changeValue ?? 0) - 7_258.24) < 1e-9);
+  assert.ok(Math.abs((result?.returnRate ?? 0) - 15.497837143145695) < 1e-12);
+  assert.equal(result?.first.accountCount, 4);
+  assert.equal(result?.last.accountCount, 6);
 });
 
 test("chart rows are calendar-complete, gap-aware, and use the earliest baseline", () => {

@@ -458,7 +458,7 @@ export function Dashboard() {
               value={<Money value={portfolioPerformance?.last.total_value} />}
               detail={
                 portfolioPerformance
-                  ? `${formatDate(portfolioPerformance.last.report_date)} · ${portfolioPerformance.accountCount}개 계정별 최신값 합산`
+                  ? `${formatDate(portfolioPerformance.last.report_date)} · ${portfolioPerformance.last.accountCount} / ${selectedAccountIds.length}개 선택 계정 실제 행 합산`
                   : "선택 기간 관측 없음"
               }
             />
@@ -467,7 +467,7 @@ export function Dashboard() {
               value={<Money value={portfolioPerformance?.changeValue} signed />}
               detail={
                 portfolioPerformance
-                  ? `${dateSpan(portfolioPerformance.first.report_date, portfolioPerformance.last.report_date)} · 계정별 첫/마지막 관측`
+                  ? `${dateSpan(portfolioPerformance.first.report_date, portfolioPerformance.last.report_date)} · ${portfolioPerformance.first.accountCount}개 → ${portfolioPerformance.last.accountCount}개 계정 실제 행 합계`
                   : "선택 기간 관측 없음"
               }
               tone={tone(portfolioPerformance?.changeValue)}
@@ -475,13 +475,17 @@ export function Dashboard() {
             <KpiCard
               label="선택 전략 기간 수익률"
               value={formatPercent(portfolioPerformance?.returnRate)}
-              detail="계정별 시작 잔고 합산 · 입출금 미보정"
+              detail={
+                portfolioPerformance
+                  ? `시작일 ${portfolioPerformance.first.accountCount}개 계정 실제 행 합계 기준 · 입출금 미보정`
+                  : "선택 기간 관측 없음"
+              }
               tone={tone(portfolioPerformance?.returnRate)}
             />
             <KpiCard
-              label="선택 전략 관측 데이터"
+              label="선택 전략 기간 관측 데이터"
               value={`${portfolioPerformance?.points ?? 0}건`}
-              detail={`${portfolioPerformance?.accountCount ?? 0} / ${selectedAccountIds.length} 선택 전략 포함`}
+              detail={`${portfolioPerformance?.accountCount ?? 0} / ${selectedAccountIds.length} 선택 계정이 기간 내 1회 이상 관측`}
             />
           </section>
 

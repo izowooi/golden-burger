@@ -53,49 +53,67 @@ export function getSelectedPortfolioPerformance(
   start: string,
   end: string,
 ) {
-  const accountPerformances = selectedAccountIds
-    .map((accountId) => getPerformance(balances, accountId, start, end))
-    .filter((value): value is PerformanceSummary => value !== null);
-  if (!accountPerformances.length) return null;
+  const selected = new Set(selectedAccountIds);
+  if (!selected.size) return null;
 
-  const startValue = accountPerformances.reduce(
-    (sum, performance) => sum + performance.startValue,
-    0,
+  const filtered = balances.filter(
+    (row) =>
+      selected.has(row.account_id) && inDateRange(row.report_date, start, end),
   );
-  const endValue = accountPerformances.reduce(
-    (sum, performance) => sum + performance.endValue,
-    0,
-  );
-  const changeValue = accountPerformances.reduce(
-    (sum, performance) => sum + performance.changeValue,
-    0,
-  );
-  const startDates = accountPerformances.map((performance) => performance.startDate).sort();
-  const endDates = accountPerformances.map((performance) => performance.endDate).sort();
+  if (!filtered.length) return null;
+
+  const observedAccounts = new Set<string>();
+  const byDate = new Map<
+    string,
+    {
+      totalValue: number;
+      positionValue: number;
+      cashValue: number;
+      accountIds: Set<string>;
+    }
+  >();
+  for (const row of filtered) {
+    observedAccounts.add(row.account_id);
+    const daily = byDate.get(row.report_date) ?? {
+      totalValue: 0,
+      positionValue: 0,
+      cashValue: 0,
+      accountIds: new Set<string>(),
+    };
+    daily.totalValue += row.total_value;
+    daily.positionValue += row.position_value;
+    daily.cashValue += row.cash_value;
+    daily.accountIds.add(row.account_id);
+    byDate.set(row.report_date, daily);
+  }
+
+  const dates = [...byDate.keys()].sort();
+  const firstDate = dates[0];
+  const lastDate = dates.at(-1) ?? firstDate;
+  const firstDay = byDate.get(firstDate);
+  const lastDay = byDate.get(lastDate);
+  if (!firstDay || !lastDay) return null;
+
+  const startValue = firstDay.totalValue;
+  const endValue = lastDay.totalValue;
+  const changeValue = endValue - startValue;
   return {
     first: {
-      report_date: startDates[0],
+      report_date: firstDate,
       total_value: startValue,
+      accountCount: firstDay.accountIds.size,
     },
     last: {
-      report_date: endDates.at(-1) ?? endDates[0],
+      report_date: lastDate,
       total_value: endValue,
-      position_value: accountPerformances.reduce(
-        (sum, performance) => sum + performance.latestPosition,
-        0,
-      ),
-      cash_value: accountPerformances.reduce(
-        (sum, performance) => sum + performance.latestCash,
-        0,
-      ),
+      position_value: lastDay.positionValue,
+      cash_value: lastDay.cashValue,
+      accountCount: lastDay.accountIds.size,
     },
     changeValue,
     returnRate: startValue === 0 ? null : (changeValue / startValue) * 100,
-    points: accountPerformances.reduce(
-      (sum, performance) => sum + performance.points,
-      0,
-    ),
-    accountCount: accountPerformances.length,
+    points: filtered.length,
+    accountCount: observedAccounts.size,
   };
 }
 
