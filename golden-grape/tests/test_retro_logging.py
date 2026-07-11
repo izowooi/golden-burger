@@ -117,6 +117,7 @@ class TestSellRecordsDriftAtExit:
         trade = make_holding_trade(repo)
         # 최근 6h YES 0.62 -> 0.58 (변화 -0.04 <= 0 => drift_death)
         add_snapshot(session, "0xcond", 0.62, hours_ago=5)
+        add_snapshot(session, "0xcond", 0.60, hours_ago=3)
         add_snapshot(session, "0xcond", 0.58, hours_ago=1)
         # midpoint 0.61: SL(-8%)도 TP(0.69)도 아님 -> drift_death 경로
         trader = Trader(repo, FakeClob(midpoint=0.61), TradingConfig(), mode="sim")
@@ -133,6 +134,7 @@ class TestSellRecordsDriftAtExit:
         repo, session = make_repo(tmp_path)
         trade = make_holding_trade(repo)
         add_snapshot(session, "0xcond", 0.62, hours_ago=5)
+        add_snapshot(session, "0xcond", 0.60, hours_ago=3)
         add_snapshot(session, "0xcond", 0.58, hours_ago=1)
         # midpoint 0.50: -16.7% -> stop_loss (drift_death보다 우선)
         trader = Trader(repo, FakeClob(midpoint=0.50), TradingConfig(), mode="sim")

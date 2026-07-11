@@ -110,6 +110,27 @@ class TestEvaluateEntry:
         signal = evaluate_entry(0.50, snaps, NOW, PARAMS)
         assert signal.should_enter is True
 
+    def test_volume_backfill_without_baseline_fails_closed(self):
+        """가격 백필만 있고 volume이 없으면 '뉴스 없음'으로 간주하지 않는다."""
+        snaps = make_snapshots(
+            [0.60] * 12,
+            volumes=[None] * 11 + [10000.0],
+        )
+        signal = evaluate_entry(0.50, snaps, NOW, PARAMS)
+        assert signal.should_enter is False
+        assert signal.reason == "volume_window_invalid"
+
+    def test_recent_volume_points_without_time_coverage_fail_closed(self):
+        # baseline은 충분하지만 최근 구간에는 현재 1점만 volume이 있다.
+        snaps = make_snapshots(
+            [0.60] * 10,
+            volumes=[10000.0] * 8 + [None, 10000.0],
+            span_hours=24,
+        )
+        signal = evaluate_entry(0.50, snaps, NOW, PARAMS)
+        assert signal.should_enter is False
+        assert signal.reason == "volume_window_invalid"
+
     def test_case6_buy_price_below_band_rejected(self):
         """매수 토큰 가격 < 0.30 → 거부 (붕괴 시장 배제)."""
         # median 0.36, 현재가 0.28 → dev = -0.08 통과하지만 가격 밴드 이탈
@@ -177,18 +198,18 @@ class TestEvaluateEntry:
 
 
 class TestVolumeSpike:
-    def test_no_volume_data_is_not_spike(self):
-        """volume 데이터 없음 (백필 전용) → 판정 불가 → False."""
+    def test_no_volume_data_is_indeterminate(self):
+        """volume 데이터 없음 (백필 전용) → 판정 불가 → None."""
         snaps = [
             SnapshotPoint(NOW - timedelta(hours=h), 0.6, None)
             for h in range(24, 0, -2)
         ]
-        assert is_volume_spike(snaps, NOW) is False
+        assert is_volume_spike(snaps, NOW) is None
 
     def test_spike_boundary_exact_multiplier(self):
         """최근 평균 = 정확히 1.5x → 급증으로 판정 (>= 경계)."""
-        # 전체 평균 = (10*9000 + 2*15000)/12 = 10000, 최근 2개 평균 15000 = 정확히 1.5x
-        volumes = [9000.0] * 10 + [15000.0, 15000.0]
+        # baseline 평균 9000, 최근 평균 13500 = 정확히 1.5x
+        volumes = [9000.0] * 10 + [13500.0, 13500.0]
         snaps = make_snapshots([0.6] * 12, volumes=volumes)
         assert is_volume_spike(snaps, NOW, recent_hours=3.0, spike_mult=1.5) is True
 

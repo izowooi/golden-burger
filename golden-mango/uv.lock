@@ -600,8 +600,9 @@ wheels = [
 [[package]]
 name = "golden-mango"
 version = "0.1.0"
-source = { virtual = "." }
+source = { editable = "." }
 dependencies = [
+    { name = "polybot-observability" },
     { name = "py-clob-client-v2" },
     { name = "python-dotenv" },
     { name = "pyyaml" },
@@ -617,6 +618,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "polybot-observability", editable = "../polybot-observability" },
     { name = "py-clob-client-v2", specifier = ">=1.0.1" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" },
     { name = "pytest-cov", marker = "extra == 'dev'", specifier = ">=4.1.0" },
@@ -847,6 +849,15 @@ sdist = { url = "https://files.pythonhosted.org/packages/39/18/9fc1be6ac78bff14f
 wheels = [
     { url = "https://files.pythonhosted.org/packages/5a/d7/ff1cfba1c3a3d5d6851d7bef5e4ad19710ed6d03e149dc183111d103acab/poly_eip712_structs-0.0.1-py3-none-any.whl", hash = "sha256:11e714e8c25c64d22dcb8a606c87cf052e7154caf701652d29687ddaf7dee342", size = 12380 },
 ]
+
+[[package]]
+name = "polybot-observability"
+version = "0.1.0"
+source = { editable = "../polybot-observability" }
+
+[package.metadata]
+requires-dist = [{ name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0.0" }]
+provides-extras = ["dev"]
 
 [[package]]
 name = "py-clob-client-v2"

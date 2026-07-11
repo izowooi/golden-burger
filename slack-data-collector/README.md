@@ -9,6 +9,8 @@
 - 원본 JSONL과 정규화 JSONL을 로컬 `data/`에 저장합니다.
 - 실제 워크스페이스의 Bot Token, 채널 접근 및 메시지 조회를 검증했습니다.
 - 포트폴리오 잔고 파서와 Supabase upsert SQL 생성기가 구현되어 있습니다.
+- versioned Slack 계약의 current 6계정 text 형식과 legacy 4계정 fields 형식을 모두
+  지원하며, 부분 5계정·혼합 형식·오류 리포트는 거부합니다.
 - `pb_` Supabase 스키마 생성과 전체 이력 초기 적재를 완료했습니다.
 - 기존 `daily-report` 프로젝트의 전송 책임과 이 프로젝트의 수집 책임을 분리합니다.
 
@@ -124,6 +126,22 @@ uv run slack-data-collector portfolio \
 전송된 메시지만 선택합니다. SQL upsert도 기존 행보다 `source_message_ts`가 크거나
 같을 때만 갱신하므로 과거 메시지가 최신 데이터를 덮어쓰지 못합니다.
 
+지원하는 리포트 계약은 정확히 두 가지입니다.
+
+| schema | 계정 | 계정 attachment | 처리 |
+|---|---:|---|---|
+| `pb-portfolio/v1` 또는 marker 없는 legacy | 4 | `fields`의 `자산 가치` | 과거 이력 호환 |
+| `pb-portfolio/v2` | 6 | `author_name` + `text` 첫 줄 | 현재 정상 리포트. message text와 summary footer 모두 `pb-portfolio/v2` + `COMPLETE` 필수 |
+
+v2 parser는 message/attachment/block 전체 문자열에서 status token을 재귀 검사해
+`FAILED`, `INCOMPLETE`, `ERROR`, `STARTED`가 `COMPLETE`와 함께 나타나면 거부합니다.
+금액은 total/position을 cent 기준으로 보존하고 cash를 `total - position`으로 도출해
+SQL의 account/portfolio breakdown CHECK와 동일하게 맞춥니다.
+
+`pb-portfolio/error-v1`, `Polymarket Bot Error`, 5계정 부분 snapshot, 계정 중복,
+fields/text 혼합은 적재하지 않고 `PortfolioParseError`로 중단합니다. 변환 JSONL에는
+`source_schema_version`을 함께 남기며 SQL export는 기존 3개 테이블과 호환됩니다.
+
 ```text
 data/<run-id>/portfolio/
 ├── algorithm_accounts.json
@@ -155,6 +173,21 @@ Jenkins 이름은 원문 그대로 보존하고 DB 관계에는 안정적인 소
 | `golden-banana` | `GOLDEN-BANANA` | `golden-banana` | - |
 | `golden-cherry` | `GOLDEN-CHERRY` | `golden-cherry` | - |
 | `golden-apple-2` | `GOLDEN-APPLE (2)` | `golden-apple` | 2 |
+| `golden-eco` | `GOLDEN-ECO` | `golden-honeydew` (현재 배치) | - |
+| `golden-fox` | `GOLDEN-FOX` | `golden-nectarine` (현재 배치) | - |
+
+`algorithm_code`는 현재 표시용 값일 뿐 과거 전략 귀인의 기준으로 사용하면 안 됩니다.
+golden-eco/fox 같은 슬롯을 재사용하기 전에는 additive migration
+[`sql/pb_portfolio_history_v2.sql`](sql/pb_portfolio_history_v2.sql)을 적용하고
+`pb_strategy_deployments`에 effective 기간을 기록합니다. 이 migration은 현재 daily
+writer에 **필수**인 read-only preflight RPC와 single-transaction snapshot RPC,
+`pb_snapshot_runs`, run FK, cent reconciliation CHECK, TWR 계산용
+`pb_external_cash_flows`를 추가합니다. migration이 없으면 writer는 부분 적재 fallback
+없이 시작 단계에서 실패합니다.
+
+`pb_external_cash_flows`에는 사용자 통제 외부 자본의 deposit/withdrawal/transfer만
+기록합니다. Polymarket 활동 타입 `TRADE`, `SPLIT`, `MERGE`, `REDEEM`, `REWARD`,
+`CONVERSION`, `MAKER_REBATE`, `REFERRAL_REWARD`는 외부 현금흐름으로 분류하지 않습니다.
 
 세 테이블은 RLS가 활성화되어 있고 `anon`과 `authenticated`에는 권한과 정책이
 없습니다. 현재는 Supabase MCP 또는 서버 측 관리 권한으로만 접근합니다.

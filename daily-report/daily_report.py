@@ -25,26 +25,45 @@ Environment Variables:
     ACCOUNT_3_NAME=golden-cherry
     ACCOUNT_3_ADDRESS=0x...
 
+    # Account 4..6 (second apple + reusable eco/fox slots)
+    ACCOUNT_4_NAME=golden-apple
+    ACCOUNT_4_ADDRESS=0x...
+    ACCOUNT_5_NAME=golden-eco
+    ACCOUNT_5_ADDRESS=0x...
+    ACCOUNT_6_NAME=golden-fox
+    ACCOUNT_6_ADDRESS=0x...
+
     # Slack notification
     SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
     # Supabase server-side credentials
     SUPABASE_URL=https://your-project-ref.supabase.co
     SUPABASE_SECRET_KEY=sb_secret_...
+    DAILY_EVIDENCE_DB=data/daily_evidence.sqlite3
 """
 
 import argparse
 import logging
 import os
+import stat
 import sys
-from collections import Counter
 from datetime import datetime
 from pathlib import Path
 
 from dotenv import load_dotenv
 
+from polybot_reporter.account_config import AccountConfig, load_account_configs
 from polybot_reporter.api.data_api_client import DataAPIClient
+from polybot_reporter.contracts import (
+    PortfolioContractError,
+    canonical_money_breakdown,
+    safe_error_message,
+    validate_account_display_names,
+    validate_complete_reports,
+    validate_report_valuation,
+)
 from polybot_reporter.notifications.slack_notifier import SlackNotifier
+from polybot_reporter.storage.evidence_store import DailyEvidenceStore, EvidenceStoreError
 from polybot_reporter.storage.supabase_writer import (
     SupabaseConfigurationError,
     SupabasePortfolioWriter,
@@ -52,77 +71,51 @@ from polybot_reporter.storage.supabase_writer import (
 
 load_dotenv(Path(__file__).parent / ".env")
 
-# Configure logging
+def secure_private_file(path: Path, label: str) -> Path:
+    """Create/tighten one Unix financial-data file to mode 0600."""
+    expanded = path.expanduser()
+    absolute = Path(os.path.abspath(os.fspath(expanded)))
+    absolute.parent.mkdir(parents=True, exist_ok=True)
+    flags = os.O_CREAT | os.O_RDWR
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor: int | None = None
+    try:
+        if absolute.is_symlink():
+            raise OSError(f"{label} path가 symlink입니다")
+        descriptor = os.open(absolute, flags, 0o600)
+        if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+            raise OSError(f"{label} path가 regular file이 아닙니다")
+        os.fchmod(descriptor, 0o600)
+        mode = stat.S_IMODE(os.fstat(descriptor).st_mode)
+        if mode != 0o600:
+            raise OSError(f"{label} mode가 0600이 아닙니다: {mode:o}")
+    except OSError as error:
+        raise RuntimeError(f"{label}의 0600 권한을 강제할 수 없습니다") from error
+    finally:
+        if descriptor is not None:
+            os.close(descriptor)
+    return absolute
+
+
+# Configure logging. Jenkins supplies a build-specific filename so one build
+# never re-archives historical financial logs from a persistent workspace.
+log_file = secure_private_file(
+    Path(
+        os.getenv("DAILY_REPORT_LOG_FILE")
+        or f"daily_report_{datetime.now().strftime('%Y%m%d')}.log"
+    ),
+    "daily report log",
+)
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[
         logging.StreamHandler(),
-        logging.FileHandler(f"daily_report_{datetime.now().strftime('%Y%m%d')}.log"),
+        logging.FileHandler(log_file),
     ],
 )
 logger = logging.getLogger(__name__)
-
-
-class AccountConfig:
-    """Configuration for a single account."""
-
-    def __init__(self, name: str, address: str):
-        """Initialize account config.
-
-        Args:
-            name: Account name (e.g., "golden-apple")
-            address: Wallet address (funder address)
-        """
-        self.name = name
-        self.address = address
-        self.display_name = name  # 중복 시 load_account_configs에서 재설정
-
-    def __repr__(self):
-        return f"AccountConfig(name={self.name}, address={self.address[:10]}...)"
-
-
-def load_account_configs() -> list[AccountConfig]:
-    """Load account configurations from environment variables.
-
-    Expects environment variables in format:
-    - ACCOUNT_1_NAME, ACCOUNT_1_ADDRESS
-    - ACCOUNT_2_NAME, ACCOUNT_2_ADDRESS
-    - ACCOUNT_3_NAME, ACCOUNT_3_ADDRESS
-    - ACCOUNT_4_NAME, ACCOUNT_4_ADDRESS
-
-    Returns:
-        List of AccountConfig objects
-    """
-    accounts = []
-
-    for i in range(1, 10):  # Support up to 9 accounts
-        name_key = f"ACCOUNT_{i}_NAME"
-        address_key = f"ACCOUNT_{i}_ADDRESS"
-
-        name = os.getenv(name_key)
-        address = os.getenv(address_key)
-
-        if name and address:
-            accounts.append(AccountConfig(name=name, address=address))
-            logger.info(f"계좌 {i} 로드 완료: {name} ({address[:10]}...)")
-        elif name or address:
-            logger.warning(f"계좌 {i} 설정 불완전 - NAME: {bool(name)}, ADDRESS: {bool(address)}")
-
-    if not accounts:
-        logger.error("환경변수에서 계좌 설정을 찾을 수 없습니다")
-        logger.error("ACCOUNT_1_NAME, ACCOUNT_1_ADDRESS 등을 설정하세요")
-        return accounts
-
-    # 중복 이름 감지 및 display_name 할당
-    name_counts = Counter(acc.name for acc in accounts)
-    name_indices: dict[str, int] = {}
-    for acc in accounts:
-        if name_counts[acc.name] > 1:
-            name_indices[acc.name] = name_indices.get(acc.name, 0) + 1
-            acc.display_name = f"{acc.name} ({name_indices[acc.name]})"
-
-    return accounts
 
 
 def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dict:
@@ -139,6 +132,12 @@ def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dic
 
     try:
         summary = client.get_portfolio_summary(account.address)
+        summary.pop("address", None)
+        validate_report_valuation(account.display_name, summary)
+        money = canonical_money_breakdown(account.display_name, summary)
+        summary["total_value"] = float(money.total)
+        summary["position_value"] = float(money.position)
+        summary["cash_balance"] = float(money.cash)
         logger.info(
             f"{account.display_name} 리포트 완료 - "
             f"포지션: {summary['num_positions']}개, "
@@ -146,16 +145,41 @@ def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dic
         )
         return summary
     except Exception as e:
-        logger.error(f"{account.display_name} 리포트 생성 실패: {e}", exc_info=True)
+        safe_error = safe_error_message(e)
+        logger.error("%s 리포트 생성 실패: %s", account.display_name, safe_error)
         return {
-            "address": account.address,
-            "positions": [],
-            "total_value": 0,
-            "num_positions": 0,
-            "pnl_7d": {"total_pnl": 0, "num_trades": 0},
-            "pnl_30d": {"total_pnl": 0, "num_trades": 0},
-            "error": str(e),
+            "error": safe_error,
         }
+
+
+def mark_delivery_outcome(
+    store: DailyEvidenceStore,
+    run_id: str,
+    channel: str,
+    status: str,
+    errors: list[str],
+    *,
+    error: BaseException | str | None = None,
+) -> bool:
+    """Update local delivery provenance and turn update failure into a hard error."""
+    try:
+        final_status = store.mark_delivery(run_id, channel, status, error=error)
+        logger.info(
+            "delivery evidence 갱신 - run_id=%s, channel=%s, status=%s, final=%s",
+            run_id,
+            channel,
+            status,
+            final_status,
+        )
+        return True
+    except EvidenceStoreError as evidence_error:
+        message = (
+            f"Delivery evidence 갱신 실패({channel}={status}): "
+            + safe_error_message(evidence_error)
+        )
+        logger.error(message)
+        errors.append(message)
+        return False
 
 
 def parse_args() -> argparse.Namespace:
@@ -189,13 +213,27 @@ def main():
     logger.info(f"실행 시각: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     logger.info("=" * 60)
 
+    accounts = load_account_configs()
+    if not accounts:
+        logger.error("계좌 설정이 없어 종료합니다")
+        sys.exit(1)
+    configured_names = [account.display_name for account in accounts]
+    try:
+        validate_account_display_names(configured_names)
+    except PortfolioContractError as error:
+        logger.error("Jenkins 6계정 설정 계약 실패: %s", safe_error_message(error))
+        sys.exit(1)
+
     if args.command == "check-supabase":
         try:
-            account_count = SupabasePortfolioWriter().check_connection()
-            logger.info("✅ Supabase 연결 성공 - 계정 카탈로그: %d개", account_count)
+            account_count = SupabasePortfolioWriter().check_connection(configured_names)
+            logger.info(
+                "✅ Supabase 연결/계정 계약 확인 성공 - 계정 카탈로그: %d개",
+                account_count,
+            )
             return
         except Exception as e:
-            logger.error("Supabase 연결 점검 실패: %s", e)
+            logger.error("Supabase 연결 점검 실패: %s", safe_error_message(e))
             sys.exit(1)
 
     supabase_writer = None
@@ -203,26 +241,25 @@ def main():
         try:
             # Validate the key type before fetching data or sending Slack messages.
             supabase_writer = SupabasePortfolioWriter()
+            supabase_writer.check_connection(configured_names)
         except SupabaseConfigurationError as e:
-            logger.error("Supabase 설정 오류: %s", e)
+            logger.error("Supabase 설정 오류: %s", safe_error_message(e))
             sys.exit(1)
-
-    # Load account configurations
-    accounts = load_account_configs()
-
-    if not accounts:
-        logger.error("계좌 설정이 없어 종료합니다")
-        sys.exit(1)
+        except Exception as e:
+            logger.error("Supabase 계정 계약 확인 실패: %s", safe_error_message(e))
+            sys.exit(1)
 
     logger.info(f"총 {len(accounts)}개 계좌 처리 시작")
 
     # Initialize clients
     data_client = DataAPIClient()
     slack = SlackNotifier()
+    evidence_store = DailyEvidenceStore()
 
     # Fetch reports for all accounts
     reports = {}
     errors = []
+    failed_account_names = []
 
     for account in accounts:
         try:
@@ -231,10 +268,85 @@ def main():
 
             if "error" in summary:
                 errors.append(f"{account.display_name}: {summary['error']}")
+                failed_account_names.append(account.display_name)
         except Exception as e:
-            error_msg = f"{account.display_name} 처리 중 예외 발생: {e}"
-            logger.error(error_msg, exc_info=True)
+            error_msg = (
+                f"{account.display_name} 처리 중 예외 발생: {safe_error_message(e)}"
+            )
+            logger.error(error_msg)
             errors.append(error_msg)
+            failed_account_names.append(account.display_name)
+
+    if not errors:
+        try:
+            validate_complete_reports(reports)
+        except PortfolioContractError as contract_error:
+            errors.append(
+                "완전한 6계정 valuation 계약 실패: "
+                + safe_error_message(contract_error)
+            )
+            failed_account_names = configured_names.copy()
+
+    # A collection error invalidates the whole snapshot. Never emit a normal
+    # consolidated report containing synthetic zero balances: downstream Slack
+    # collectors must only ever see COMPLETE portfolio reports.
+    if errors:
+        try:
+            evidence = evidence_store.record_run(
+                reports,
+                expected_display_names=configured_names,
+                failed_display_names=failed_account_names,
+                delivery_enabled=not args.simulate,
+            )
+            logger.info(
+                "daily evidence 실패 run 저장 - run_id=%s, 계정=%d, 포지션=%d",
+                evidence.run_id,
+                evidence.account_count,
+                evidence.position_count,
+            )
+        except EvidenceStoreError as evidence_error:
+            logger.error(
+                "실패 run daily evidence 저장도 실패했습니다: %s",
+                safe_error_message(evidence_error),
+            )
+        logger.error(
+            "계정 수집 오류 %d건 - 정상 Slack 리포트와 Supabase 적재를 모두 생략합니다",
+            len(errors),
+        )
+        if not args.simulate:
+            for error in errors:
+                try:
+                    slack.send_error_notification("Daily Report", error)
+                except Exception as notification_error:
+                    logger.error(
+                        "에러 알림 전송 실패: %s",
+                        safe_error_message(notification_error),
+                    )
+        sys.exit(1)
+
+    try:
+        evidence = evidence_store.record_run(
+            reports,
+            expected_display_names=configured_names,
+            delivery_enabled=not args.simulate,
+        )
+        if evidence.status != "COMPLETE":
+            raise EvidenceStoreError(f"성공 수집인데 evidence status가 {evidence.status}입니다")
+        logger.info(
+            "daily evidence 저장 성공 - run_id=%s, 계정=%d, 포지션=%d, DB=%s",
+            evidence.run_id,
+            evidence.account_count,
+            evidence.position_count,
+            evidence.database_path,
+        )
+    except EvidenceStoreError as evidence_error:
+        error_message = "Daily evidence 적재 실패: " + safe_error_message(evidence_error)
+        # Do not attach the chained traceback: an underlying driver exception may
+        # contain credentials even when the outer message is sanitized.
+        logger.error(error_message)
+        if not args.simulate:
+            slack.send_error_notification("Daily Report", error_message)
+        sys.exit(1)
 
     # Fill in 7d/30d P&L as the change in total_value over the window, read from
     # the stored daily snapshots. This matches the dashboard's definition so both
@@ -243,42 +355,25 @@ def main():
         try:
             period_pnl = supabase_writer.get_period_pnl(reports)
             for name, summary in reports.items():
-                if summary.get("error"):
+                if "error" in summary:
                     continue
                 windows = period_pnl.get(name, {})
                 for days, key in ((7, "pnl_7d"), (30, "pnl_30d")):
                     summary.setdefault(key, {})["total_pnl"] = windows.get(days)
         except Exception as e:
-            logger.warning("기간 손익 계산 실패(과거 스냅샷 조회): %s", e)
+            logger.warning(
+                "기간 손익 계산 실패(과거 스냅샷 조회): %s", safe_error_message(e)
+            )
 
     is_monthly = args.monthly or datetime.now().day == 1
 
-    # Send consolidated Slack report. Monthly mode only changes Slack formatting.
-    if reports:
-        if args.simulate:
-            logger.info("🔕 [SIMULATE] Slack 리포트 전송 생략")
-        else:
-            logger.info("Slack 리포트 전송 중...")
-            try:
-                if args.monthly:
-                    logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
-                success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
-                if success:
-                    logger.info("✅ Slack 리포트 전송 성공")
-                else:
-                    logger.warning("⚠️ Slack 리포트 전송 실패 (웹훅 설정 확인 필요)")
-            except Exception as e:
-                logger.error(f"Slack 전송 중 오류: {e}", exc_info=True)
-
-    # Persist only complete snapshots. This runs after the Slack attempt and is
-    # independent of monthly Slack formatting.
+    # Commit the complete DB snapshot before publishing a COMPLETE Slack marker.
+    # A failed RPC must never leave a downstream-consumable success message.
     if reports:
         if args.simulate:
             logger.info("🔕 [SIMULATE] Supabase 일일 스냅샷 적재 생략")
-        elif errors:
-            logger.error("수집 오류가 있어 기존 DB 데이터를 보호하기 위해 적재를 생략합니다")
         else:
-            logger.info("Supabase 일일 스냅샷 upsert 중...")
+            logger.info("Supabase 일일 스냅샷 atomic RPC 적재 중...")
             try:
                 if supabase_writer is None:
                     raise RuntimeError("Supabase writer가 초기화되지 않았습니다")
@@ -290,9 +385,86 @@ def main():
                     result.total_value,
                 )
             except Exception as e:
-                error_msg = f"Supabase DB 적재 실패: {e}"
-                logger.error(error_msg, exc_info=True)
+                error_msg = f"Supabase DB atomic 적재 실패: {safe_error_message(e)}"
+                logger.error(error_msg)
                 errors.append(error_msg)
+                mark_delivery_outcome(
+                    evidence_store,
+                    evidence.run_id,
+                    "supabase",
+                    "FAILED",
+                    errors,
+                    error=e,
+                )
+                mark_delivery_outcome(
+                    evidence_store,
+                    evidence.run_id,
+                    "slack",
+                    "SKIPPED",
+                    errors,
+                )
+            else:
+                mark_delivery_outcome(
+                    evidence_store,
+                    evidence.run_id,
+                    "supabase",
+                    "SUCCESS",
+                    errors,
+                )
+
+    # Send consolidated Slack report only after durable DB completion. Monthly
+    # mode changes formatting, not the six-account completion contract.
+    if reports:
+        if args.simulate:
+            logger.info("🔕 [SIMULATE] Slack 리포트 전송 생략")
+        elif errors:
+            logger.warning("Supabase 적재 실패로 COMPLETE Slack 리포트를 생략합니다")
+            mark_delivery_outcome(
+                evidence_store,
+                evidence.run_id,
+                "slack",
+                "SKIPPED",
+                errors,
+            )
+        else:
+            logger.info("Slack 리포트 전송 중...")
+            try:
+                if args.monthly:
+                    logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
+                success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
+                if success:
+                    logger.info("✅ Slack 리포트 전송 성공")
+                    mark_delivery_outcome(
+                        evidence_store,
+                        evidence.run_id,
+                        "slack",
+                        "SUCCESS",
+                        errors,
+                    )
+                else:
+                    logger.warning("⚠️ Slack 리포트 전송 실패 (웹훅 설정 확인 필요)")
+                    slack_error = "Slack 정상 리포트 전송 실패"
+                    errors.append(slack_error)
+                    mark_delivery_outcome(
+                        evidence_store,
+                        evidence.run_id,
+                        "slack",
+                        "FAILED",
+                        errors,
+                        error=slack_error,
+                    )
+            except Exception as e:
+                safe_error = safe_error_message(e)
+                logger.error("Slack 전송 중 오류: %s", safe_error)
+                errors.append(f"Slack 정상 리포트 전송 오류: {safe_error}")
+                mark_delivery_outcome(
+                    evidence_store,
+                    evidence.run_id,
+                    "slack",
+                    "FAILED",
+                    errors,
+                    error=e,
+                )
 
     # Send error notifications if any
     if errors:
@@ -302,7 +474,9 @@ def main():
                 try:
                     slack.send_error_notification("Daily Report", error)
                 except Exception as e:
-                    logger.error(f"에러 알림 전송 실패: {e}")
+                    logger.error(
+                        "에러 알림 전송 실패: %s", safe_error_message(e)
+                    )
 
     # Print summary
     logger.info("=" * 60)
@@ -348,5 +522,5 @@ if __name__ == "__main__":
         logger.info("사용자에 의해 중단됨")
         sys.exit(130)
     except Exception as e:
-        logger.critical(f"예상치 못한 오류: {e}", exc_info=True)
+        logger.critical("예상치 못한 오류: %s", safe_error_message(e))
         sys.exit(1)

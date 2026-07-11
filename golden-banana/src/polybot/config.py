@@ -2,9 +2,14 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
+import math
 import os
 import yaml
 from dotenv import load_dotenv
+from polybot_observability.config_contract import (
+    get_trading_config_mapping,
+    validate_yaml_config_shape,
+)
 
 
 def _get_config_value(
@@ -27,9 +32,13 @@ def _get_config_value(
     env_val = os.getenv(env_key)
     if env_val is not None:
         return value_type(env_val)
-    if yaml_value is not None:
-        return value_type(yaml_value)
-    return default
+    if yaml_value is None:
+        return default
+    if isinstance(yaml_value, bool) or not isinstance(yaml_value, (int, float)):
+        raise ValueError(f"{env_key} YAML value must be numeric")
+    if value_type is int and not isinstance(yaml_value, int):
+        raise ValueError(f"{env_key} YAML value must be an integer")
+    return value_type(yaml_value)
 
 
 def _get_bool_config_value(
@@ -39,11 +48,20 @@ def _get_bool_config_value(
 ) -> bool:
     """환경변수 > yaml > 기본값 순서로 bool 설정값 로드."""
     env_val = os.getenv(env_key)
-    if env_val is not None:
-        return env_val.lower() in ("true", "1", "yes")
-    if yaml_value is not None:
-        return bool(yaml_value)
-    return default
+    value = env_val if env_val is not None else yaml_value
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{env_key} must be a boolean")
 
 
 @dataclass
@@ -95,6 +113,52 @@ class BotConfig:
     job_name: str = "default"
 
 
+def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
+    """Reject unsafe or internally inconsistent resolved configuration."""
+    momentum = trading.momentum
+    numeric = {
+        "buy_threshold": trading.buy_threshold,
+        "sell_threshold": trading.sell_threshold,
+        "buy_amount_usdc": trading.buy_amount_usdc,
+        "min_liquidity": trading.min_liquidity,
+        "max_positions": trading.max_positions,
+        "take_profit_percent": trading.take_profit_percent,
+        "stop_loss_percent": trading.stop_loss_percent,
+        "short_window": momentum.short_window,
+        "long_window": momentum.long_window,
+        "golden_cross_threshold": momentum.golden_cross_threshold,
+        "dead_cross_threshold": momentum.dead_cross_threshold,
+    }
+    for name, value in numeric.items():
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if not 0 < trading.buy_threshold < trading.sell_threshold < 1:
+        raise ValueError("buy_threshold must be < sell_threshold and both must be between 0 and 1")
+    if trading.buy_amount_usdc <= 0:
+        raise ValueError("buy_amount_usdc must be > 0")
+    if trading.min_liquidity < 0:
+        raise ValueError("min_liquidity must be >= 0")
+    if trading.max_positions != -1 and trading.max_positions <= 0:
+        raise ValueError("max_positions must be -1 or a positive integer")
+    if not 0 < trading.take_profit_percent <= 10:
+        raise ValueError("take_profit_percent must be > 0 and <= 10")
+    if not -1 < trading.stop_loss_percent < 0:
+        raise ValueError("stop_loss_percent must be between -1 and 0")
+    if momentum.short_window < 2 or momentum.short_window >= momentum.long_window:
+        raise ValueError("momentum short_window must be >= 2 and < long_window")
+    if not 0 < momentum.golden_cross_threshold <= 1:
+        raise ValueError("golden_cross_threshold must be between 0 and 1")
+    if not -1 <= momentum.dead_cross_threshold < 0:
+        raise ValueError("dead_cross_threshold must be between -1 and 0")
+    if not isinstance(trading.excluded_categories, list) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in trading.excluded_categories
+    ):
+        raise ValueError("excluded_categories must be a list of non-empty strings")
+    if api.signature_type not in {1, 3}:
+        raise ValueError("signature_type must be one of: 1, 3")
+
+
 def load_config(
     config_path: str = "config.yaml",
     job_name: str = "default",
@@ -130,7 +194,7 @@ def load_config(
         cfg = {}
 
     # Parse trading config (환경변수 > yaml > 기본값)
-    trading_cfg = cfg.get("trading", {})
+    trading_cfg = get_trading_config_mapping(cfg)
     momentum_cfg = trading_cfg.get("momentum", {})
 
     # Parse momentum config
@@ -221,6 +285,8 @@ def load_config(
         ]),
     )
 
+    validate_yaml_config_shape(cfg, trading)
+
     # Parse API config from environment variables
     private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
     funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS")
@@ -240,9 +306,13 @@ def load_config(
         signature_type=int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1")),
     )
 
+    _validate_config(trading, api)
+
     # Simulation mode (CLI flag overrides config file)
     if simulation_mode is None:
         simulation_mode = cfg.get("simulation_mode", False)
+    if not isinstance(simulation_mode, bool):
+        raise ValueError("simulation_mode must be a boolean")
 
     # Set up database path (per job, separate for simulation)
     db_dir = Path("data") / job_name

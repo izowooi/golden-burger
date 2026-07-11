@@ -2,9 +2,14 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
+import math
 import os
 import yaml
 from dotenv import load_dotenv
+from polybot_observability.config_contract import (
+    get_trading_config_mapping,
+    validate_yaml_config_shape,
+)
 
 
 def _get_config_value(
@@ -27,9 +32,13 @@ def _get_config_value(
     env_val = os.getenv(env_key)
     if env_val is not None:
         return value_type(env_val)
-    if yaml_value is not None:
-        return value_type(yaml_value)
-    return default
+    if yaml_value is None:
+        return default
+    if isinstance(yaml_value, bool) or not isinstance(yaml_value, (int, float)):
+        raise ValueError(f"{env_key} YAML value must be numeric")
+    if value_type is int and not isinstance(yaml_value, int):
+        raise ValueError(f"{env_key} YAML value must be an integer")
+    return value_type(yaml_value)
 
 
 def _get_bool_config_value(
@@ -39,11 +48,20 @@ def _get_bool_config_value(
 ) -> bool:
     """환경변수 > yaml > 기본값 순서로 bool 설정값 로드."""
     env_val = os.getenv(env_key)
-    if env_val is not None:
-        return env_val.lower() in ("true", "1", "yes")
-    if yaml_value is not None:
-        return bool(yaml_value)
-    return default
+    value = env_val if env_val is not None else yaml_value
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, int) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "off"}:
+            return False
+    raise ValueError(f"{env_key} must be a boolean")
 
 
 def _get_list_config_value(
@@ -59,7 +77,11 @@ def _get_list_config_value(
     if env_val is not None:
         return [item.strip() for item in env_val.split(",") if item.strip()]
     if yaml_value is not None:
-        return list(yaml_value)
+        if not isinstance(yaml_value, list) or any(
+            not isinstance(item, str) for item in yaml_value
+        ):
+            raise ValueError(f"{env_key} YAML value must be a list of strings")
+        return [item.strip() for item in yaml_value if item.strip()]
     return default
 
 
@@ -122,6 +144,73 @@ class BotConfig:
     job_name: str = "default"
 
 
+def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
+    """Reject unsafe or internally inconsistent resolved configuration."""
+    strategy = trading.strategy
+    timing = trading.time_based
+    numeric = {
+        "buy_amount_usdc": trading.buy_amount_usdc,
+        "min_liquidity": trading.min_liquidity,
+        "min_volume_24h": trading.min_volume_24h,
+        "max_positions": trading.max_positions,
+        "take_profit_percent": trading.take_profit_percent,
+        "stop_loss_percent": trading.stop_loss_percent,
+        "reentry_cooldown_hours": trading.reentry_cooldown_hours,
+        "strategy.base_window_days": strategy.base_window_days,
+        "strategy.base_exclude_recent_hours": strategy.base_exclude_recent_hours,
+        "strategy.base_max": strategy.base_max,
+        "strategy.jump_min": strategy.jump_min,
+        "strategy.yes_max": strategy.yes_max,
+        "strategy.spike_wait_minutes": strategy.spike_wait_minutes,
+        "strategy.stall_window_minutes": strategy.stall_window_minutes,
+        "strategy.vol_mult_min": strategy.vol_mult_min,
+        "strategy.retrace_ratio": strategy.retrace_ratio,
+        "strategy.max_holding_hours": strategy.max_holding_hours,
+        "time_based.entry_hours_min": timing.entry_hours_min,
+        "time_based.exit_hours": timing.exit_hours,
+    }
+    for name, value in numeric.items():
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if trading.buy_amount_usdc <= 0:
+        raise ValueError("buy_amount_usdc must be > 0")
+    if trading.min_liquidity < 0 or trading.min_volume_24h < 0:
+        raise ValueError("min_liquidity and min_volume_24h must be >= 0")
+    if trading.max_positions != -1 and trading.max_positions <= 0:
+        raise ValueError("max_positions must be -1 or a positive integer")
+    if not 0 < trading.take_profit_percent <= 10:
+        raise ValueError("take_profit_percent must be > 0 and <= 10")
+    if not -1 < trading.stop_loss_percent < 0:
+        raise ValueError("stop_loss_percent must be between -1 and 0")
+    if trading.reentry_cooldown_hours <= 0:
+        raise ValueError("reentry_cooldown_hours must be > 0")
+    if strategy.base_window_days <= 0:
+        raise ValueError("strategy.base_window_days must be > 0")
+    if not 0 < strategy.base_exclude_recent_hours < strategy.base_window_days * 24:
+        raise ValueError("strategy.base_exclude_recent_hours must be > 0 and shorter than base_window_days")
+    if not 0 < strategy.base_max < strategy.yes_max < 1:
+        raise ValueError("strategy probability bounds must satisfy 0 < base_max < yes_max < 1")
+    if not 0 < strategy.jump_min < 1:
+        raise ValueError("strategy.jump_min must be between 0 and 1")
+    if strategy.spike_wait_minutes <= 0 or strategy.stall_window_minutes <= 0:
+        raise ValueError("strategy spike/stall windows must be > 0")
+    if strategy.vol_mult_min < 1:
+        raise ValueError("strategy.vol_mult_min must be >= 1")
+    if not 0 < strategy.retrace_ratio <= 1:
+        raise ValueError("strategy.retrace_ratio must be between 0 and 1")
+    if strategy.max_holding_hours <= 0:
+        raise ValueError("strategy.max_holding_hours must be > 0")
+    if not 0 < timing.exit_hours <= timing.entry_hours_min:
+        raise ValueError("time_based hours must satisfy 0 < exit_hours <= entry_hours_min")
+    if not isinstance(trading.excluded_categories, list) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in trading.excluded_categories
+    ):
+        raise ValueError("excluded_categories must be a list of non-empty strings")
+    if api.signature_type not in {1, 3}:
+        raise ValueError("signature_type must be one of: 1, 3")
+
+
 def load_config(
     config_path: str = "config.yaml",
     job_name: str = "default",
@@ -157,7 +246,7 @@ def load_config(
         cfg = {}
 
     # Parse trading config (환경변수 > yaml > 기본값)
-    trading_cfg = cfg.get("trading", {})
+    trading_cfg = get_trading_config_mapping(cfg)
 
     # Parse strategy config
     strategy_cfg = trading_cfg.get("strategy", {})
@@ -298,6 +387,8 @@ def load_config(
         ),
     )
 
+    validate_yaml_config_shape(cfg, trading)
+
     # Parse API config from environment variables
     private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
     funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS")
@@ -317,9 +408,13 @@ def load_config(
         signature_type=int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1")),
     )
 
+    _validate_config(trading, api)
+
     # Simulation mode (CLI flag overrides config file)
     if simulation_mode is None:
         simulation_mode = cfg.get("simulation_mode", False)
+    if not isinstance(simulation_mode, bool):
+        raise ValueError("simulation_mode must be a boolean")
 
     # Set up database path (per job, separate for simulation)
     db_dir = Path("data") / job_name

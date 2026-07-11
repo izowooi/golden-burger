@@ -1,5 +1,10 @@
 # golden-fig 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 전략: **Hope Crusher** — 롱샷(YES 5~25%) 시장에서 항상 NO 토큰(75~95%)을 매수해 시간 가치 소멸(theta)을 수확.
 
@@ -7,11 +12,16 @@
 
 ```text
 /Users/izowooi/git/t1/docs/retro/golden-fig.md 를 읽고 §3~§5를 실행해 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 - 봇 DB 찾기: find /Users/jongwoopark/.jenkins/workspace -path "*golden-fig/data*" -name "trades.db" 2>/dev/null
   (시뮬레이션 병행 운용 시 trades_sim.db 도 같은 방법으로 찾아 별도 분석. mode 컬럼 'live'/'sim' 확인)
 - 중앙 가격 아카이브(반사실 분석용): find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
-- Jenkins job 설정의 export 블록(키 제외)을 여기 붙여넣는다 — 운영 env는 repo에 없다:
+- Jenkins job 설정의 export 블록(키 제외)을 current/legacy cross-check로 붙여넣는다.
+  post-instrumentation source of truth는 DB의 `strategy_configs`/`run_audits`다:
   [붙여넣기]
 
 주의사항 (반드시 지킬 것):
@@ -26,7 +36,11 @@
 
 **논지**: favorite-longshot bias의 미러. 대중은 낮은 확률(YES 5~25%)에 복권 심리로 과지불하고, "D일까지 X가 일어날까" 시장은 시간이 소진될수록 YES 정당 가치가 기계적으로 하락(theta decay)하지만 YES 보유자는 앵커링·희망적 사고로 늦게 놓는다. 그 할인 구간에서 **항상 NO 토큰(`clobTokenIds[1]`, 가격 0.75~0.95)을 매수**해 만기 수렴을 수확한다. cherry(같은 편향의 favorite 쪽 75~92% 매수)와의 성과 비교가 이 편향의 어느 쪽이 더 두터운지에 대한 A/B다.
 
-**진입 (모두 충족)**: liquidity >= $10k → 해결까지 24~240h → YES ∈ [0.05, 0.25] → 스냅샷 윈도우 유효(24h 윈도우 >= 5포인트, 커버리지 >= 12h; invalid면 백필, 그래도 invalid면 진입 금지) → YES 24h 변화 <= +0.02 AND 최근 6h YES 급등(저점 대비) < 0.05 → HOLDING 없음 + 마지막 청산/skip 후 24h 경과. trader 매수 직전 재검증에서 NO midpoint > 0.95면 `rapid_jump`로 skip 기록(쿨다운 24h 적용), < 0.75면 이번 사이클만 skip.
+**진입 (모두 충족)**: liquidity >= $10k → 해결까지 24~240h → YES ∈ [0.05, 0.25] →
+24h 윈도우 유효(>=5포인트, >=12h coverage) → **별도 6h spike 윈도우도 유효**
+(>=3포인트, >=3h coverage) → YES 24h 변화 <= +0.02 AND 최근 6h YES 급등(저점 대비) < 0.05
+→ HOLDING 없음 + 마지막 청산/skip 후 24h 경과. 어느 윈도우든 invalid면 백필 후 재평가하고
+그래도 부족하면 fail-closed한다.
 
 **청산 (우선순위 순, trailing 없음)**: ① P&L <= -10% → `stop_loss` ② 현재가 >= min(매수가×1.06, **0.99 캡**) → `take_profit` ③ 해결까지 < 2h → `time_exit`. midpoint 조회 불가 상태로 해결 후 24h 경과하면 `resolved_unredeemed`(status=EXPIRED, 수동 redeem 필요).
 
@@ -84,7 +98,9 @@ job명은 바뀔 수 있으니 반드시 find로 찾는다. 완료 거래 월별
 
 ### 2.2 중앙 가격 아카이브 (반사실 분석용)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로, **nectarine DB의 `market_snapshots`를 공용 아카이브**로 쓴다:
+Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집하므로,
+**nectarine DB의 `market_snapshots`를 공용 아카이브**로 쓴다. 고정 시장 수 대신 run별
+cursor completion과 catalog/snapshot coverage를 확인한다:
 
 ```bash
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
@@ -96,13 +112,18 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 - 보조 아카이브: honeydew DB (liq >= $15k, 60일, job=polybot-eco) — nectarine에 구멍이 있으면 교차 확인
 - **NO 토큰 가격은 `1 - probability` 근사** (스프레드 무시 근사임을 결과에 명시할 것)
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결 보유분의 최종가는 `trades.sell_price` 또는 redeem 값 0/1
-- 아카이브에는 `endDate`가 없다 → 잔여시간 계산은 fig `trades.market_end_date`(진입한 시장) 또는 Gamma API `condition_ids` 재조회(미진입 시장)로 보충
+- 잔여시간은 post-instrumentation `market_catalog.end_date`를 우선 사용하고, legacy catalog
+  gap만 fig `trades.market_end_date` 또는 Gamma condition ID 재조회로 보충한다.
 
 ### 2.3 Jenkins 콘솔 로그
 
 매 사이클 "제외 사유 요약 - reason: count" 한 줄이 남는다(스캔 병목 파악용). 로그는 `data/<job>/logs/YYYYMMDD.log`에도 남는다. fig의 정규화된 사유 키: `excluded_category`, `low_liquidity`, `no_price_data`, `yes_out_of_band`, `low_volume`, `no_end_date`, `already_resolved`, `too_late`, `too_early`, `window_invalid`, `yes_rising`(24h 게이트), `yes_spike`(6h 게이트). `window_invalid`가 지속적으로 크면 백필 실패/스냅샷 축적 문제, `yes_rising`/`yes_spike`가 크면 게이트가 진입을 얼마나 막았는지의 지표다.
 
-## 3. 실적 분석 SQL (그대로 실행 가능)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 `sqlite3 <fig trades.db 경로>` 에서 실행. status는 대문자 리터럴.
 
@@ -313,8 +334,12 @@ GROUP BY sim_exit;
 **진입 규칙 재생 방법** (아카이브 스냅샷은 5분 간격이므로 fig의 3~5분 사이클과 근사 일치):
 
 1. 아카이브에서 후보 시점 추출: `probability ∈ [yes_min', yes_max']` AND `liquidity >= 10000` 인 (condition_id, timestamp) 행.
-2. 각 후보 시점에 대해 같은 condition_id의 직전 24h 스냅샷으로 게이트 재현: `change_24h = probability - (윈도우 最古 probability)` <= rise', `spike_6h = probability - (직전 6h 최저 probability)` < spike'. 윈도우 유효성(>= 5포인트, 커버리지 >= 12h)도 동일 기준으로 확인.
-3. 잔여시간 필터: `endDate`는 아카이브에 없다 → fig가 진입한 시장은 `trades.market_end_date` 재사용, 미진입 시장은 Gamma API(`https://gamma-api.polymarket.com/markets?condition_ids=...`, 해결된 시장도 조회됨)로 받아 `entry_hours_min' <= (endDate - ts) <= entry_hours_max'` 판정.
+2. 각 후보 시점에 대해 24h gate(`>=5` points, `>=12h`)와 별도 6h spike gate
+   (`>=3` points, `>=3h`)를 각각 검증한다. `change_24h`와 `spike_6h`는 해당 gate가 유효할
+   때만 계산한다.
+3. 잔여시간 필터: post-instrumentation `market_catalog.end_date`를 사용한다. legacy catalog gap은
+   `trades.market_end_date` 또는 Gamma condition ID 재조회로 보충한 뒤
+   `entry_hours_min' <= (endDate - ts) <= entry_hours_max'`를 판정한다.
 4. 재진입 쿨다운 재현: 같은 condition_id에서 가상 진입 후 24h 이내 후보 시점은 버린다 (첫 통과 시점만 진입).
 5. 각 가상 진입에 (a)의 청산 시뮬레이션을 그대로 적용해 가상 P&L 계산 → "노브를 X로 했다면 추가로 잡혔을 / 걸러졌을 진입"의 성과를 현행 대비 증분으로 표기.
 6. 반대로 조이는 노브(fig-3 등)는 실제 진입 거래 중 "새 기준이면 걸러졌을 것"을 표시하고 그 거래들의 실제 P&L 합을 "회피됐을 손익"으로 계산한다 — 이쪽은 재생이 아니라 실측이므로 신뢰도가 높다.
@@ -325,7 +350,9 @@ GROUP BY sim_exit;
 
 - **NO = 1 - YES 근사**: 실제 봇은 NO 토큰의 CLOB midpoint로 체결한다. 스프레드·양쪽 호가 불일치가 무시된 근사다. 특히 YES 0.05 근처(NO 0.95)는 스프레드가 수익률의 상당분을 잠식할 수 있다 (STRATEGY.md §5-3).
 - **게이트 재현 한계**: fig의 실전 게이트는 자체 스냅샷 + CLOB /prices-history 백필 병합본으로 판정했다. 아카이브(5분 간격, 60일)와 커버리지가 달라 window_invalid 판정이 실전과 다를 수 있다 — 재생 결과의 진입 집합은 실전과 완전히 일치하지 않는다.
-- **체결 가정**: 실전도 시뮬레이션도 GTC limit 접수 = 체결 가정(STRATEGY.md §8). SL 시뮬레이션은 갭 하락(한 사이클에 -10%를 건너뛰는 폭락)을 SL 가격 체결로 낙관 처리한다.
+- **Execution evidence**: legacy `trades`와 simulation은 GTC 접수 시 상태를 전환하지만 actual
+  fill이 아니다. live 실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 계산하고
+  ledger gap을 분리한다. gap-down SL counterfactual은 trigger 가격 체결 sensitivity로만 제시한다.
 - **해결 시장 스냅샷 단절**: 아카이브는 시장 해결 시점에 끊긴다. 만기 보유 격자점의 redeem 값(1.00/0.00)은 실제 해결 결과를 확인해 수동 부여한다.
 - **아카이브 유니버스 컷**: liq >= $10k 기준이라 fig가 `POLYBOT_MIN_LIQUIDITY`를 낮춰 운영했다면 아카이브에 없는 진입이 존재할 수 있다 (env 블록으로 확인).
 
@@ -353,7 +380,9 @@ GROUP BY sim_exit;
 | `POLYBOT_MIN_VOLUME_24H` | 0 | | §4(b) 보조 노브 필터 재생 | |
 | `POLYBOT_REENTRY_COOLDOWN_HOURS` | 24 | | §3.9 회차별 성과 | |
 
-**라운드 절차**: 제안값은 코드 수정 없이 **Jenkins env만 바꾸면 적용**된다 (우선순위 env > yaml). ① 교정안 확정 → ② Jenkins job env 수정 후 4주 2차 테스트 → ③ 같은 문서로 3차 교정. 공격적인 변경은 cherry처럼 **기본/변형 병행**이 안전하다: 기존 job은 그대로 두고 `--job fig-1` 식으로 job을 분리하면 DB(`data/fig-1/trades.db`)가 분리되어 동시 A/B가 된다 (STRATEGY.md §7의 fig-1 보수 / fig-2 단기 집중 / fig-3 게이트 강화 변형 참조). 변경은 한 라운드에 노브 1~2개까지만 — 여러 개를 동시에 바꾸면 귀인이 불가능하다.
+**라운드 절차**: tunable knob는 Jenkins env로 반영하고 첫 성공 run의 새 `config_hash`/Git
+commit을 확인해 4주 2차 cohort를 분리한다. 병렬 A/B는 job/DB/account를 분리하고, 한 라운드에
+노브 1~2개만 바꾼다. preset은 STRATEGY.md §7을 따른다.
 
 ## 7. 기준 정보
 

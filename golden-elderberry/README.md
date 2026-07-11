@@ -9,7 +9,7 @@ Panic Fade 전략 기반 Polymarket 자동 매매 봇입니다. 원래 favorite(
 - **매수 조건**: 48h 최고가(ref) ≥ 70% + 낙폭 ≥ 12%p + 현재가 35~75% + 최근 45분 바닥 안정화(std ≤ 0.02) + 해결까지 48h 이상
 - **매도 조건**: 손절 -10% → 익절 +10%(0.99 캡) → 보유 48h 초과 → 해결 24h 전
 - **재진입**: 영구 밴 없음. HOLDING 중이거나 마지막 청산/skip 후 24h 이내면 차단
-- **방향**: favorite였던 쪽이 YES면 YES 매수, NO면 NO 매수 (전략에 내장, `--yes-only` 플래그 없음)
+- **방향**: ref 윈도우의 YES peak와 NO peak(`1-YES`)를 비교해 더 높았던 실제 former favorite을 매수 (전략에 내장, `--yes-only` 플래그 없음)
 
 ## Quickstart
 

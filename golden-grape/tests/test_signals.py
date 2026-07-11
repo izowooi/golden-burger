@@ -5,6 +5,7 @@ import pytest
 
 from polybot.strategy.signals import (
     SnapshotPoint,
+    compute_death_drift,
     evaluate_entry,
     is_drift_dead,
     take_profit_target,
@@ -211,6 +212,7 @@ class TestDriftDeath:
     def test_alive_when_rising(self):
         points = [
             SnapshotPoint(NOW - timedelta(hours=5), 0.60),
+            SnapshotPoint(NOW - timedelta(hours=3), 0.61),
             SnapshotPoint(NOW - timedelta(hours=1), 0.63),
         ]
         assert is_drift_dead(points, token_index=0, death_window_hours=6, now=NOW) is False
@@ -219,6 +221,7 @@ class TestDriftDeath:
         # YES 상승 = NO 하락 -> NO 포지션 기준으로는 드리프트 소멸
         points = [
             SnapshotPoint(NOW - timedelta(hours=5), 0.40),
+            SnapshotPoint(NOW - timedelta(hours=3), 0.42),
             SnapshotPoint(NOW - timedelta(hours=1), 0.45),
         ]
         assert is_drift_dead(points, token_index=1, death_window_hours=6, now=NOW) is True
@@ -226,6 +229,17 @@ class TestDriftDeath:
     def test_insufficient_data_returns_none(self):
         points = [SnapshotPoint(NOW - timedelta(hours=1), 0.60)]
         assert is_drift_dead(points, token_index=0, death_window_hours=6, now=NOW) is None
+
+    def test_clustered_points_without_death_window_coverage_return_none(self):
+        points = [
+            SnapshotPoint(NOW - timedelta(minutes=50), 0.62),
+            SnapshotPoint(NOW - timedelta(minutes=25), 0.61),
+            SnapshotPoint(NOW - timedelta(minutes=5), 0.60),
+        ]
+        assert is_drift_dead(points, token_index=0, death_window_hours=6, now=NOW) is None
+        assert compute_death_drift(
+            points, token_index=0, death_window_hours=6, now=NOW
+        ) is None
 
 
 class TestTakeProfitTarget:

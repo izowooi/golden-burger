@@ -1,5 +1,10 @@
 # golden-date 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 전략: **Conviction Ladder** — 시간 사다리 확률 밴드 + 모멘텀 게이트 (cherry 고도화).
 
@@ -7,6 +12,10 @@
 
 ```text
 docs/retro/golden-date.md 를 읽고 §3~§5를 실행한 뒤, §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 - 봇 DB 위치: find /Users/jongwoopark/.jenkins/workspace -path "*golden-date/data*" -name "trades.db" 2>/dev/null
   (2026-07 기준 job=polybot-red. job명은 바뀔 수 있으니 find 결과를 믿어라. 시뮬레이션은 trades_sim.db 별도)
@@ -62,9 +71,9 @@ docs/retro/golden-date.md 를 읽고 §3~§5를 실행한 뒤, §6 표 형식으
 인증(필수, 값은 Jenkins credential): `POLYMARKET_PRIVATE_KEY`, `POLYMARKET_FUNDER_ADDRESS`,
 `POLYMARKET_SIGNATURE_TYPE`(기본 1).
 
-**운영 env는 repo에 없다.** 실제 운영값은 Jenkins job 설정의 export 블록이 유일한 소스다.
-회고 시 반드시 Jenkins job 설정에서 export 블록(키 제외)을 복사해 §0 프롬프트에 붙여넣어라 —
-config.yaml 기본값과 다르게 운영 중일 수 있고, 그 경우 아래 모든 "현행" 값이 달라진다.
+우선순위는 env > config.yaml > code default다. post-instrumentation 실제 운영값은
+`strategy_configs`와 `run_audits`의 config hash/Git cohort가 source of truth다. Jenkins export는
+secret을 제거한 current/legacy cross-check로만 붙이고 현재 값을 과거 전체에 소급하지 않는다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -104,8 +113,9 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-date/data*" -name "tra
 
 ### 2.2 중앙 가격 아카이브 (반사실 분석용)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로,
-what-if 가격 시계열은 **nectarine DB의 market_snapshots**를 공용 아카이브로 쓴다:
+Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집하므로,
+what-if 가격 시계열은 **nectarine DB의 market_snapshots**를 공용 아카이브로 쓴다. 고정
+시장 수 대신 run별 cursor completion과 catalog/snapshot coverage를 확인한다:
 
 ```bash
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
@@ -118,7 +128,11 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
   (스프레드 무시 근사임을 결과에 명시할 것)
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결 보유분의 최종가는 `trades.sell_price` 또는 0/1(redeem 결과)로 보정
 
-## 3. 실적 분석 SQL (그대로 실행 가능)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 `sqlite3 <trades.db 경로>` 에서 실행. 모두 live 거래 기준(`mode='live'`) —
 시뮬레이션 분석은 `trades_sim.db`에서 같은 쿼리를 돌리면 된다.
@@ -370,7 +384,8 @@ WHERE status = 'COMPLETED' AND mode = 'live' AND hours_until_resolution_at_buy <
 
 1. 아카이브 `market_snapshots`에서 기간 내 condition_id 목록을 뽑고,
    Gamma API(`https://gamma-api.polymarket.com/markets?condition_ids=...`)로 각 시장의 `endDate`를 조회한다
-   (아카이브에는 endDate가 없다 — 해결된 시장도 Gamma에서 조회 가능).
+   post-instrumentation은 `market_catalog.end_date`를 사용하고, legacy catalog gap만 Gamma에서
+   condition ID로 재조회한다.
 2. 각 시장의 5분 시계열을 걸으며 매 포인트에서 `favorite = max(p, 1-p)` 가격,
    `hours_left = endDate - timestamp`, 최근 6h 윈도우 favorite 변화를 계산하고
    가상 사다리+게이트로 진입 판정(재진입 쿨다운 24h 적용, 시장당 순차).
@@ -385,12 +400,14 @@ WHERE status = 'COMPLETED' AND mode = 'live' AND hours_until_resolution_at_buy <
 - **모멘텀 재현 한계**: 실봇은 자체 스냅샷(사이클 주기) + prices-history 백필로 게이트를 판정했지만,
   재생은 아카이브 5분 격자로 근사한다. `window_invalid`로 실제 진입이 막혔던 순간은 재현 불가.
 - **NO 근사**: NO favorite 가격 = 1 - YES는 스프레드/뎁스를 무시한 근사다.
-- **체결 가정**: GTC limit at midpoint 체결 가정(STRATEGY.md §8) 그대로 스윕하므로
-  기록·가상 P&L 모두 소폭 과대평가 경향이 동일하게 있다 (상대 비교는 유효).
+- **Execution evidence**: legacy `trades`의 GTC 접수 기록은 actual fill이 아니다. 실현 결과는
+  `CONFIRMED order_fills`의 partial size/price/fee로 계산하고 ledger gap을 분리한다. midpoint
+  sweep은 execution sensitivity를 붙인 상대 비교로만 사용한다.
 - **endDate 신뢰성**: Gamma endDate는 예정일이지 실제 해결 시각이 아니다. 조기 해결 시장은
   time_exit 재현이 어긋난다 (스냅샷 중단 시점을 실질 해결 시각의 근사로 병용).
-- **아카이브 유니버스**: sweep이 "가장 오래된 활성 시장 ~2100개" 기준이라 date가 산 시장이
-  아카이브 범위 밖일 수 있다 → §4.0 커버리지 쿼리로 제외 건수를 먼저 보고.
+- **아카이브 유니버스**: keyset에는 고정 offset cap이 없지만 legacy 배포 전 구간이나
+  run/cursor/cadence gap으로 date 거래 시장이 빠질 수 있다. §4.0 coverage와 catalog join으로
+  제외 건수를 먼저 보고한다.
 - **자체 스냅샷 7일 보존**: date 자체 market_snapshots는 월간 회고용 시계열이 아니다 (§2.1).
 
 ## 5. 표본 주의사항
@@ -422,12 +439,13 @@ WHERE status = 'COMPLETED' AND mode = 'live' AND hours_until_resolution_at_buy <
 | `POLYBOT_ENTRY_HOURS_MIN` | 6 | | §4.2 조이기 SQL | |
 | `POLYBOT_REENTRY_COOLDOWN_HOURS` | 24 | | 재진입 표본 있으면 | |
 
-- "현행"은 config.yaml 기본값이 아니라 **Jenkins export 블록의 실제 운영값**으로 채워라 (§1 주의).
+- "현행"은 기간 내 `strategy_configs`/`run_audits`의 resolved config cohort로 채운다. Jenkins
+  export는 current/legacy cross-check다.
 - 근거 수치는 "격자 (TP 0.10, SL -0.08, trail off)에서 총 P&L +$X vs 현행 +$Y (n=Z, 유효 n=W)" 형식으로.
 
 **라운드 절차 (2차 테스트 → 3차 교정)**:
 
-1. 제안값은 코드 수정 없이 **Jenkins job env만 바꾸면** 적용된다 (env > yaml > 기본값).
+1. tunable knob는 Jenkins env로 반영하고 첫 성공 run의 새 `config_hash`/Git commit을 확인한다.
 2. cherry처럼 **기본/변형 병행 운용** 옵션: 같은 코드로 별도 Jenkins job(`--job <이름>`으로 DB 분리)을 하나 더 만들어
    기본 슬롯은 현행 유지, 변형 슬롯에 제안 env를 적용해 A/B 비교한다.
    STRATEGY.md §7의 사전 정의 변형: A-1(`POLYBOT_LADDER_H3=24`), A-2(`POLYBOT_YES_ONLY=true`),

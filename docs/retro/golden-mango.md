@@ -1,5 +1,10 @@
 # golden-mango 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 대상 봇: **Patience Premium** — "거의 확실한" 계약의 settlement discount(자본 잠김 할인)를 연환산 캐리 수익률 단일 수식으로 걸러 수확하는 전략.
 
@@ -8,6 +13,10 @@
 ```text
 /Users/izowooi/git/t1/docs/retro/golden-mango.md 를 읽고 §3(실적 SQL)~§5(표본 주의)를 실행한 뒤,
 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 - 봇 자기 DB는 §2의 find 명령으로 찾아라 (job명은 바뀔 수 있음).
 - 반사실(what-if) 가격 시계열은 mango 자기 스냅샷(보존 7일)이 아니라
@@ -15,14 +24,14 @@
 - §4(a) 청산 스윕(SL / TP캡 / exit_hours / 만기 redeem 보유)과
   §4(b) 노브 스윕(yield_min / entry_hours_max / momentum min_change / prob 밴드)을
   격자대로 돌리고, 격자별 총 P&L·거래수·승률 표를 제시해라.
-- 캐리 수식 y = ((1-p)/p) × (8760/h)는 hours_left에 의존한다. 아카이브에는 end_date가
-  없으므로 gamma API로 condition_id별 endDate를 조인하거나 §4(b)의 프록시를 써라.
+- 캐리 수식 y = ((1-p)/p) × (8760/h)는 hours_left에 의존한다. post-instrumentation은
+  `market_catalog.end_date`를 사용하고 legacy catalog gap만 Gamma 재조회/프록시로 보충한다.
 - 같은 이벤트에서 파생된 시장들(negRisk 다후보, 시리즈물)은 이벤트 단위로 묶어 집계하고,
   배포 초기 cold-start/백필 코호트는 정상 신호 코호트와 분리해서 봐라 (§5).
 - 이 전략은 고승률·소수익 구조다: 승률만 보지 말고 최악 거래 손실 vs 평균 수익 비율,
   stop_loss/EXPIRED 건의 tail 손실 기여를 반드시 별도 보고해라 (§5).
 - NO-favorite 포지션의 아카이브 가격은 1-YES 근사임을 결과에 명시해라.
-- 운영 env는 repo에 없다. Jenkins job 설정의 export 블록(실키 제외)을 아래에 붙여넣었다:
+- Jenkins export 블록은 DB provenance와 대조할 current/legacy cross-check다. 실키를 제외한다:
   [여기에 Jenkins env export 블록 붙여넣기 — POLYMARKET_PRIVATE_KEY 등 실키는 제외]
 ```
 
@@ -66,7 +75,8 @@
 
 코드 상수(env 아님): 윈도우 유효성 `min_points=5`, `min_coverage=0.5` (`signals.py DEFAULT_*`), 익절 목표가 캡 0.99 (`TAKE_PROFIT_PRICE_CAP`), 최소 주문 5주 (`trader.py MIN_ORDER_SIZE`), EXPIRED 판정 유예 24h (`RESOLVED_UNREDEEMED_GRACE_HOURS`), 경계 오차 `EPSILON=1e-9`.
 
-**운영 env는 repo에 없다.** 실제 운용값은 Jenkins job 설정의 export 블록이 단일 소스다 — 회고 시 반드시 §0 프롬프트에 붙여넣을 것 (README 예시처럼 `POLYBOT_MAX_POSITIONS=10` 등 기본값과 다르게 운용 중일 가능성이 높다).
+post-instrumentation 실제 운용값은 `strategy_configs`와 `run_audits`의 config hash/Git cohort가
+source of truth다. Jenkins export는 secret을 제거한 current/legacy cross-check로만 사용한다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -103,12 +113,18 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 ```
 
 - 컬럼: `condition_id`, `probability`(**항상 YES 가격**), `liquidity`, `volume_24h`, `timestamp`(UTC naive, 5분 간격)
-- 유니버스: 유동성 >= $10k, **60일 보존**. 모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로 mango 유니버스(liq >= $20k, volume 필터 off)는 아카이브의 부분집합이다 — 아카이브 쪽 `liquidity >= 20000` 필터만으로 재현.
+- 유니버스: 유동성 >= $10k, **60일 보존**. Gamma keyset cursor를 끝까지 순회한 당시
+  qualifying universe에서 `liquidity >= 20000`을 적용해 mango 후보를 재현한다. 고정 시장
+  수를 가정하지 않는다.
 - **NO 토큰 가격은 1-YES 근사** (스프레드 무시 근사임을 결과에 명시).
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결 보유분의 최종가는 `trades.sell_price` 또는 0/1 (redeem 가정).
 - mango의 최근 7일 자체 스냅샷은 `momentum_6h_at_buy` 재검산·아카이브 대조(sanity check)에만 쓴다.
 
-## 3. 실적 분석 SQL (mango trades.db에 그대로 실행)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 ```sql
 -- 3.0 상태 분포 (EXPIRED 잔여분·미청산 확인)
@@ -339,8 +355,12 @@ ORDER BY timestamp;
 ### (c) 데이터 한계 (결과 보고서에 반드시 명시)
 
 - **NO-favorite = 1-YES 근사**: 스프레드 무시. NO 포지션 P&L·가상 진입 판정 모두 실제보다 낙관될 수 있다.
-- **체결 가정**: 실봇도 GTC limit @ midpoint 즉시 체결 가정(미체결 추적 없음) — 반사실도 슬리피지/스프레드/미체결을 모델링하지 않는다. 특히 mango는 volume 필터 off라 조용한 시장의 stale midpoint 위험(STRATEGY.md §5.5)이 있어, 반사실 P&L은 상대 비교용이지 절대 수익 예측이 아니다.
-- **hours_left 재구성**: 아카이브에 end_date가 없다. 자기 거래분은 `trades.market_end_date`로 정확하지만, §4(b) 가상 진입은 gamma 조인 또는 "마지막 스냅샷 = 해결 시각" 프록시(사후 정보, 조기 해결 시 y 과대 계산)에 의존한다.
+- **Execution evidence**: legacy `trades`의 midpoint GTC 상태 전환은 actual fill이 아니다. live
+  실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 계산하고 ledger gap을 분리한다.
+  volume filter가 꺼진 시장의 midpoint grid는 spread·unfilled sensitivity를 붙인 상대 비교만 한다.
+- **hours_left 재구성**: post-instrumentation은 `market_catalog.end_date`를 사용한다. legacy
+  catalog gap은 `trades.market_end_date` 또는 Gamma 재조회로 보충하고, “마지막 snapshot =
+  해결” 프록시는 사후 정보가 섞인 sensitivity로만 제시한다.
 - **갭 하락 미해상**: 아카이브는 5분 간격이라 0.9→0.1 갭은 잡히지만, 봇 사이클(3~5분) 사이 실제 체결 가능 가격과는 다르다. SL 스윕의 체결가는 "트리거 시점 스냅샷 가격"으로 가정 — 실제 갭 하락에서는 SL이 그 가격에 못 판다 (STRATEGY.md §5.1).
 - **백필 미반영**: 실봇은 cold-start 시 CLOB `/prices-history` 백필을 병합해 모멘텀을 판정하지만 아카이브에는 그 포인트가 없다 — 배포 초기 진입은 재생이 정확히 일치하지 않는다 (§5 코호트 분리).
 - **carry_yield_at_exit NULL**: 해결 직후(음수 잔여시간) 등 계산 불가 상황에서 NULL — 집계 시 제외 처리.
@@ -365,7 +385,8 @@ ORDER BY timestamp;
 
 라운드 절차:
 
-1. **1차(이번 회고)**: 위 표 확정 → Jenkins job env만 수정 (코드 변경 불필요, env > yaml > 기본값 우선순위. 단 TP_CAP 0.99는 코드 상수라 변경 시 `signals.py` 수정 필요).
+1. **1차(이번 회고)**: 위 표 확정 → Jenkins env 반영(코드 상수 변경은 별도 code cohort) →
+   첫 성공 run의 새 `config_hash`/Git commit을 확인한다.
 2. **2차 테스트(4주)**: 제안값으로 운용. 변경 노브는 최대 2~3개로 제한 — 전부 바꾸면 귀속 불가.
 3. 확신이 낮은 제안은 cherry처럼 **기본/변형 병행 슬롯**으로 A/B: 같은 코드, 다른 env의 Jenkins job 2개 (예: 현행 vs STRATEGY.md §7 A-1 보수 `POLYBOT_YIELD_MIN=4.0 + POLYBOT_PROB_MIN=0.90 + POLYBOT_MAX_POSITIONS=5`, 또는 A-2 단기 집중 `POLYBOT_ENTRY_HOURS_MAX=72`). DB는 job명으로 자동 분리(`data/<job>/trades.db`)되어 비교가 깨끗하다.
 4. **3차 교정**: 2차 종료 후 이 문서로 재회고 → 표 갱신 → 수렴하면 `POLYBOT_BUY_AMOUNT` 증액 검토. 증액 전 STRATEGY.md §6 판단 기준 충족 확인: 승률 >= 85%, stop_loss 비중 <= 15%, `resolved_unredeemed` 0건, 최악 손실 <= 평균 수익 20배. **증액하더라도 `POLYBOT_MAX_POSITIONS` 유한 유지 + 소액 사이징은 이 전략의 생존 조건이다 (STRATEGY.md §5.1).**

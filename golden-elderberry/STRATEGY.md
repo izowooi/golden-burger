@@ -45,7 +45,7 @@
 | 2 | 거래량 | volume24hr >= $10,000 | gamma `volume24hr` |
 | 3 | 잔여 시간 | hours_left >= 48h | gamma `endDate` |
 | 4 | 윈도우 유효성 | 48h 윈도우에 >= 5 포인트, span >= 24h | `is_window_valid` (invalid면 백필 시도 후 재검증) |
-| 5 | favorite 판별 | ref 윈도우의 YES 최고가 >= 0.5면 YES쪽, 아니면 NO쪽(1-p 환산) 평가 | `evaluate_panic_fade` |
+| 5 | favorite 판별 | ref 윈도우의 YES 최고가와 NO 최고가(`1-p`)를 비교해 더 높은 peak를 만든 실제 former favorite을 평가 | `evaluate_panic_fade` |
 | 6 | 기준가 | ref = 최근 48h(단 최근 3h 제외) 최고가, **ref >= 0.70** | 최근 3h 제외 = 급락 자체를 ref에 넣지 않기 위함 |
 | 7 | 낙폭 | ref - p >= 0.12 | |
 | 8 | 붕괴 배제 | 0.35 <= p <= 0.75 | 0.35 미만 붕괴는 진짜 정보로 간주 |
@@ -99,7 +99,7 @@
 3. **낮은 유동성의 가짜 급락**: 스프레드가 넓은 시장에서 midpoint 급락은 실제 체결 가능 가격이 아닐 수 있다. liquidity/volume 필터가 1차 방어지만 완전하지 않다.
 4. **반등이 느린 시장**: 48h 내 반등하지 않으면 `max_holding`으로 본전 부근 청산 → 수수료/스프레드만큼 잃는다.
 5. **스냅샷 공백**: Jenkins 장기 중단 후에는 윈도우 invalid로 진입 자체가 멈춘다 (의도된 동작이지만 기회 손실). 백필이 실패하는 토큰은 데이터 축적까지 최소 24h 소요.
-6. **양쪽 whipsaw 시장**: YES/NO가 번갈아 favorite이 되는 초변동 시장에서는 ref 판별(YES 최고가 >= 0.5)이 YES쪽으로 쏠려 NO쪽 기회를 놓치거나 노이즈에 진입할 수 있다.
+6. **양쪽 whipsaw 시장**: YES/NO peak 중 더 높은 쪽을 선택해 단순 YES 편향은 제거했지만, 양쪽이 번갈아 급등한 초변동 시장에서는 단일 최고가가 대표성이 없을 수 있다.
 
 ## 6. A/B 검증 방법
 

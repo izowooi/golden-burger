@@ -14,6 +14,8 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 | `polymarket-golden-banana-address` | Secret text | golden-banana 계좌의 funder address | `0x5678...efgh` |
 | `polymarket-golden-cherry-address` | Secret text | golden-cherry 계좌의 funder address | `0x9abc...ijkl` |
 | `polymarket-golden-apple-2-address` | Secret text | 두 번째 golden-apple 계좌의 funder address | `0xdef0...mnop` |
+| `polymarket-golden-eco-address` | Secret text | golden-eco 테스트 슬롯 funder address | `0x1234...eco` |
+| `polymarket-golden-fox-address` | Secret text | golden-fox 테스트 슬롯 funder address | `0x1234...fox` |
 | `polymarket-slack-webhook` | Secret text | Slack Webhook URL | `https://hooks.slack.com/services/...` |
 | `polymarket-supabase-secret-key` | Secret text | Supabase 서버 전용 Secret key | `sb_secret_...` |
 
@@ -55,7 +57,7 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 - SCM: Git
 - Repository URL: 프로젝트 Git 저장소 URL
 - Branch: `*/main` (또는 사용 중인 브랜치)
-- Script Path: `Jenkinsfile`
+- Script Path: `daily-report/Jenkinsfile`
 
 **Option 2: Pipeline script (직접 입력)**
 - Script: Jenkinsfile 내용을 복사하여 붙여넣기
@@ -89,18 +91,36 @@ Jenkins 워크스페이스에 다음 구조가 필요합니다:
 
 ```
 workspace/
-├── daily_report.py          # 메인 실행 스크립트
-├── Jenkinsfile              # Jenkins 파이프라인 설정
-├── golden-apple/
-│   └── src/
-│       └── polybot/
-│           ├── api/
-│           │   └── data_api_client.py
-│           └── notifications/
-│               └── slack_notifier.py
-├── golden-banana/           # (동일 구조)
-└── golden-cherry/           # (동일 구조)
+└── daily-report/
+    ├── daily_report.py
+    ├── Jenkinsfile
+    ├── pyproject.toml
+    ├── uv.lock
+    └── src/polybot_reporter/
 ```
+
+`DAILY_EVIDENCE_DB`는 build 간 이어지는 persistent workspace 또는 별도 persistent
+volume에 두어야 합니다. `archiveArtifacts`는 30-build retention의 편의 복사본일 뿐
+누적 evidence의 유일한 backup으로 사용할 수 없습니다. artifact 조회 권한은 운영자와
+감사자 최소 인원으로 제한하고 retention을 명시적으로 유지하세요. 운영에서는 job 종료 후
+DB의 일관된 SQLite backup 복사본을 workspace 밖 **암호화된** 내구성 저장소로 전송하고,
+SHA-256 및 복구 테스트를 별도로 유지하세요. raw wallet address, Slack webhook, Supabase
+secret 또는 이를 포함할 수 있는 임의 진단 파일은 artifact/backup에 넣지 않습니다.
+ephemeral agent를 쓰면 실행 전 최근 검증된 backup을 복원해야 합니다.
+report log와 evidence DB는 application이 symlink를 거부하고 file mode `0600`을 강제합니다.
+Jenkins agent filesystem이 이 권한을 보장하지 못하면 job은 fail closed합니다.
+
+Pipeline은 `DAILY_REPORT_LOG_FILE`을 build 번호별 파일로 설정하고 해당 파일만 정확히
+archive합니다. `daily_report_*.log` wildcard를 사용하면 persistent workspace의 오래된
+금융 log가 매 build에 다시 보존되어 build retention을 우회하므로 사용하지 않습니다.
+현재 build log는 archive 완료 후 workspace에서 삭제합니다.
+누적 `daily_evidence.sqlite3`는 별도 원장이므로 artifact build 수와 무관하게 내부 과거
+row를 보유합니다. DB row retention과 제한된 조회 권한을 별도 정책으로 관리하세요.
+
+Jenkins 실행 전 `slack-data-collector/sql/pb_portfolio_schema.sql`과
+`slack-data-collector/sql/pb_portfolio_history_v2.sql`을 순서대로 적용해야 합니다.
+`check-supabase`는 두 번째 migration의 read-only preflight RPC까지 확인하며, 누락 시
+계정 조회와 Slack 전송 전에 job을 실패시킵니다.
 
 ## 5. 로컬 테스트
 
@@ -123,6 +143,12 @@ ACCOUNT_3_ADDRESS=0x9876543210fedcba9876543210fedcba98765432
 
 ACCOUNT_4_NAME=golden-apple
 ACCOUNT_4_ADDRESS=0x1111111111111111111111111111111111111111
+
+ACCOUNT_5_NAME=golden-eco
+ACCOUNT_5_ADDRESS=0x2222222222222222222222222222222222222222
+
+ACCOUNT_6_NAME=golden-fox
+ACCOUNT_6_ADDRESS=0x3333333333333333333333333333333333333333
 
 # Slack webhook
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
@@ -155,6 +181,10 @@ python3 daily_report.py run
 | 매일 오전 9시, 오후 6시 | `0 9,18 * * *` | 하루 2회 |
 | 평일 오전 9시 | `0 9 * * 1-5` | 주말 제외 |
 | 매시간 | `0 * * * *` | 테스트용 |
+
+저장소의 Pipeline은 `TZ=Asia/Seoul`과 `0 9 * * *`를 함께 지정하므로 Jenkins
+controller의 기본 timezone과 무관하게 KST 09:00에 실행됩니다. UI에서 trigger를
+직접 입력할 때도 첫 줄에 `TZ=Asia/Seoul`을 포함하세요.
 
 ## 7. 트러블슈팅
 
@@ -204,8 +234,8 @@ pip3 install --user py-clob-client requests pyyaml python-dotenv
 
 ### 로그 아카이브
 
-- Jenkins는 자동으로 `daily_report_*.log` 파일을 아카이브합니다
-- Build 페이지에서 `Artifacts` 탭에서 다운로드 가능
+- Jenkins는 현재 `DAILY_REPORT_LOG_FILE` 한 개와 누적 evidence DB만 아카이브합니다.
+- 제한된 운영자만 Build 페이지의 `Artifacts`를 조회할 수 있게 권한을 설정합니다.
 
 ## 9. 추가 계좌 설정
 
@@ -226,7 +256,10 @@ ACCOUNT_4_NAME = 'golden-dragonfruit'
 ACCOUNT_4_ADDRESS = credentials('polymarket-account-4-address')
 ```
 
-스크립트는 자동으로 `ACCOUNT_*` 환경변수를 감지하여 처리합니다.
+스크립트는 `ACCOUNT_*` 환경변수를 감지하지만, 현재 정상 리포트 계약은 고정된 6개
+표시 이름/stable account ID입니다. 계정을 임의로 추가하면 preflight가 실패하므로
+계정 계약·Supabase catalog·collector/dashboard를 함께 migration하는 별도 변경이
+필요합니다.
 
 ## 10. 보안 고려사항
 

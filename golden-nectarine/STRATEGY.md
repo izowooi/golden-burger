@@ -8,9 +8,9 @@
 
 ## 2. 왜 이 전략인가
 
-### 2.1 유일한 공개 백테스트가 있는 규칙
+### 2.1 공개 백테스트 규칙의 시간별 근사
 
-이 전략은 감이 아니라 **공개된 계량 백테스트의 직접 복제**다.
+이 전략은 공개된 계량 백테스트의 **X=20/Y=5 규칙을 가져온 시간별 가격 근사**다. CLOB `fidelity=60` 시계열은 원문의 daily-close와 체결 표본을 정확히 재현하지 않으므로 직접 복제라고 부르지 않는다.
 
 > QuantPedia (2026-04), **"Exploiting Mean-Reversion in Decentralized Prediction Markets"**:
 > Polymarket 바이너리 계약 전수 데이터에서 "X일 롤링 최저가에서 매수 → Y일 후 청산" 규칙을
@@ -37,7 +37,7 @@
 
 ## 3. 진입/청산 규칙 정밀 명세
 
-### 진입 (모두 충족, YES 토큰 기준 가격 p — YES 매수 고정, 백테스트와 동일)
+### 진입 (모두 충족, YES 토큰 기준 가격 p — YES 매수 고정, 시간별 근사)
 
 | # | 조건 | 값 | 이유 |
 |---|------|----|----|
@@ -45,7 +45,7 @@
 | 2 | 남은 시간 | hours_left >= 720h (30일) | theta 감쇠發 가짜 신저가 차단 (§2.4) |
 | 3 | 가격 밴드 | p ∈ [0.03, 0.50] | tail~중간 구간. 0.03 미만은 붕괴/해결 임박 노이즈 |
 | 4 | 신저가 | p <= min(지난 20일, **최근 24h 제외** 구간의 최저가), 동률 허용 | 백테스트의 X=20 규칙. 최근 24h 제외는 진행 중 하락 자체를 기준선에서 배제 |
-| 5 | 윈도우 유효성 | 포인트 >= 5 AND 커버리지 >= 10일(50%) — 백필 포함 | invalid면 진입 금지 |
+| 5 | 윈도우 유효성 | 포인트 >= 20 AND 커버리지 >= 19일(20일의 95%) — `fidelity=60` 백필 포함 | invalid면 진입 금지. daily-close 직접 복제 아님 |
 | 6 | 재진입 쿨다운 | 168h (HOLDING/청산/skip 이후) | 최저가 부근 연속 재진입 방지 |
 
 ### 청산 (우선순위 순, trailing 없음)
@@ -90,7 +90,7 @@
 
 ## 6. A/B 검증 방법
 
-1. **시뮬레이션 (1~2주)**: `uv run python main.py run --simulate --job sim-test`를 Jenkins 3~5분 간격으로. 진입 빈도와 `rolling_min_at_buy`/`lookback_days_at_buy` 분포 확인 (백필이 실제로 20일을 채우는지 `lookback_days_at_buy >= 10` 비율로 검증).
+1. **시뮬레이션 (1~2주)**: `uv run python main.py run --simulate --job sim-test`를 Jenkins 3~5분 간격으로. 진입 빈도와 `rolling_min_at_buy`/`lookback_days_at_buy` 분포 확인 (`lookback_days_at_buy >= 19`만 진입하는지 검증).
 2. **소액 실전 (4주+)**: `POLYBOT_BUY_AMOUNT`를 최소로. 5일 보유 전략이라 회전이 느리다 — 최소 4주, **30+ 거래** 확보 후 판단.
 3. **판단 기준**: `exit_reason=max_holding` 거래의 평균 P&L이 양수인가 (이 전략의 본질 지표). 승률보다 평균손익 우선 (tail 매수는 승률이 낮고 payoff가 비대칭). CSV의 `hold_hours_at_exit`, `rolling_min_at_buy` 컬럼으로 회고.
 4. **중단 기준**: 30거래 후 총 P&L < -15% 또는 `stop_loss` 비중 > 40%면 가설 기각.
@@ -105,6 +105,7 @@
 
 - **GTC limit @ midpoint + 체결 가정**: 주문을 넣으면 체결됐다고 가정하고 DB에 기록한다 (cherry와의 A/B 비교를 위해 유지). 미체결 시 실제 포지션과 DB가 어긋날 수 있다. 백테스트의 passive 체결과도, 진짜 시장가와도 다른 **semi-passive 근사**다.
 - **스냅샷 + 백필 의존**: `/prices-history`는 문서화되지 않은 public endpoint다. 막히면 20일 윈도우를 채울 수 없어 봇이 (안전하게) 진입을 멈춘다. 스냅샷 축적으로 자연 회복하지만 20일이 걸린다.
+- **hourly approximation**: `fidelity=60` 가격의 19일 이상 span으로 20일 규칙을 근사한다. 일별 종가 정렬·원 논문의 체결 표본을 재현하지 않으므로 원 백테스트 성과와 직접 비교할 수 없다.
 - **YES 가격 기준 스냅샷**: 스냅샷은 항상 YES 가격으로 저장한다. 이 전략은 YES 매수 고정이라 환산이 없지만, 방향을 바꾸는 베리에이션을 만들려면 signals.py에서 1-p 변환을 추가해야 한다.
 - **시뮬레이션도 CLOB 인증 필요**: midpoint 조회에 실키가 필요하다. 완전 오프라인 검증은 `pytest` + `config` 명령까지.
 

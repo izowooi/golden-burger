@@ -1,5 +1,6 @@
 """Main bot orchestrator with bottom fisher strategy."""
 import logging
+from polybot_observability import RunAudit
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -11,8 +12,8 @@ from .db.repository import TradeRepository
 
 logger = logging.getLogger(__name__)
 
-# 스냅샷 보존 기간: 전략 lookback의 3배, 최소 7일 (20일 룩백 -> 60일)
-SNAPSHOT_RETENTION_MIN_DAYS = 7.0
+# 중앙 스냅샷 보존 기간: 전략 lookback의 3배, 최소 60일
+SNAPSHOT_RETENTION_MIN_DAYS = 60.0
 
 
 class PolymarketBot:
@@ -41,7 +42,12 @@ class PolymarketBot:
 
         # Initialize API clients
         self.gamma = GammaClient()
-        self.clob = ClobClientWrapper(config.api, config.simulation_mode)
+        self.clob = ClobClientWrapper(
+            config.api,
+            config.simulation_mode,
+            audit_db_path=config.db_path,
+            strategy_name="golden-nectarine",
+        )
         self.history = HistoryClient()
 
         logger.info(
@@ -51,7 +57,7 @@ class PolymarketBot:
         )
 
     def _snapshot_retention_days(self) -> float:
-        """스냅샷 보존 일수 = 전략 lookback의 3배, 최소 7일."""
+        """중앙 아카이브 보존 일수 = lookback의 3배, 최소 60일."""
         lookback_days = self.config.trading.strategy.lookback_days
         return max(lookback_days * 3, SNAPSHOT_RETENTION_MIN_DAYS)
 
@@ -206,11 +212,24 @@ class PolymarketBot:
     def run(self):
         """Run a single trading cycle (for Jenkins)."""
         logger.info(f"트레이딩 사이클 시작 - {self.config.job_name}")
+        audit = RunAudit.start(self.config, strategy_name="golden-nectarine")
 
         try:
+            # A long-lived process may call run() repeatedly; attest only this run.
+            self.gamma.sweep_attestations.clear()
+            reconciliation = self.clob.reconcile_order_ledger()
+            if reconciliation.get("errors", 0):
+                raise RuntimeError(
+                    "미완료 CLOB 주문 대사에 실패해 새 trading cycle을 중단합니다: "
+                    f"{reconciliation['errors']}건"
+                )
             stats = self.run_cycle()
+            stats["market_sweeps"] = self.gamma.get_sweep_summaries()
+            stats["order_reconciliation"] = reconciliation
+            audit.succeed(stats)
             logger.info(f"사이클 성공적으로 완료: {stats}")
         except Exception as e:
+            audit.fail(e)
             logger.exception(f"사이클 실패: {e}")
             raise
 

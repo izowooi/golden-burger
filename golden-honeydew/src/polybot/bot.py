@@ -1,5 +1,6 @@
 """Main bot orchestrator with the Night Watch strategy."""
 import logging
+from polybot_observability import RunAudit
 import math
 from .config import BotConfig
 from .api.gamma_client import GammaClient
@@ -42,7 +43,12 @@ class PolymarketBot:
 
         # Initialize API clients
         self.gamma = GammaClient()
-        self.clob = ClobClientWrapper(config.api, config.simulation_mode)
+        self.clob = ClobClientWrapper(
+            config.api,
+            config.simulation_mode,
+            audit_db_path=config.db_path,
+            strategy_name="golden-honeydew",
+        )
         self.history = HistoryClient()
 
         logger.info(
@@ -53,7 +59,7 @@ class PolymarketBot:
         )
 
     def _retention_days(self) -> int:
-        """스냅샷 보관 일수: lookback * 3 (최소 7일)."""
+        """스냅샷 보관 일수: lookback * 3 (최소 60일)."""
         lookback_days = self.config.trading.signal.median_lookback_hours / 24
         return max(MIN_RETENTION_DAYS, math.ceil(lookback_days * 3))
 
@@ -167,11 +173,24 @@ class PolymarketBot:
     def run(self):
         """Run a single trading cycle (for Jenkins)."""
         logger.info(f"트레이딩 사이클 시작 - {self.config.job_name}")
+        audit = RunAudit.start(self.config, strategy_name="golden-honeydew")
 
         try:
+            # A long-lived process may call run() repeatedly; attest only this run.
+            self.gamma.sweep_attestations.clear()
+            reconciliation = self.clob.reconcile_order_ledger()
+            if reconciliation.get("errors", 0):
+                raise RuntimeError(
+                    "미완료 CLOB 주문 대사에 실패해 새 trading cycle을 중단합니다: "
+                    f"{reconciliation['errors']}건"
+                )
             stats = self.run_cycle()
+            stats["market_sweeps"] = self.gamma.get_sweep_summaries()
+            stats["order_reconciliation"] = reconciliation
+            audit.succeed(stats)
             logger.info(f"사이클 성공적으로 완료: {stats}")
         except Exception as e:
+            audit.fail(e)
             logger.exception(f"사이클 실패: {e}")
             raise
 

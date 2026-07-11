@@ -4,13 +4,14 @@
 진입/청산 판정을 출력한다. scanner/trader가 이 함수들을 호출하며,
 전략을 바꾸려면 이 파일만 수정하면 된다.
 
-전략 요약 (QuantPedia 2026-04 백테스트 복제):
+전략 요약 (QuantPedia 2026-04 X=20/Y=5 규칙의 시간별 가격 근사):
 - 진입 ⇔ p_now <= min(지난 20일 롤링 윈도우, 단 최근 24h 제외 구간의 최저가)
 - 청산 ⇔ 보유 120시간(5일) 경과 (calendar exit = 주 청산 경로)
 - YES 토큰 매수 고정, p ∈ [0.03, 0.50] tail~중간 구간
 
 스냅샷 히스토리는 항상 YES 가격 기준으로 저장된다. 이 전략은 YES 매수
-고정이므로 1-p 환산이 필요 없다 (백테스트와 동일 조건 유지).
+고정이므로 1-p 환산이 필요 없다. 다만 원문의 daily-close 계열을 직접
+재현하지 않고 CLOB fidelity=60 가격으로 근사한다.
 """
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -21,6 +22,12 @@ EPSILON = 1e-9
 
 # take_profit 목표가 캡 - buy_price*(1+tp)가 0.99를 넘으면 0.99 도달 시 익절
 TAKE_PROFIT_PRICE_CAP = 0.99
+
+# CLOB prices-history는 fidelity=60(시간 단위)로 받아 daily close를 정확히
+# 재현할 수 없다. 대신 20일의 95% 시간 span과 최소 일별 1점 수준의 밀도를
+# 요구해 10일짜리 부분 윈도우를 20일 신저가로 오인하지 않는다.
+HOURLY_APPROX_MIN_POINTS = 20
+HOURLY_APPROX_MIN_COVERAGE = 0.95
 
 
 class PricePoint(NamedTuple):
@@ -61,8 +68,8 @@ def get_window(
 def is_window_valid(
     window: List[PricePoint],
     hours_back: float,
-    min_points: int = 5,
-    min_coverage: float = 0.5,
+    min_points: int = HOURLY_APPROX_MIN_POINTS,
+    min_coverage: float = HOURLY_APPROX_MIN_COVERAGE,
 ) -> bool:
     """윈도우가 신호 계산에 충분한 데이터를 갖는지 검증.
 
@@ -70,8 +77,8 @@ def is_window_valid(
           (최신 ts - 최고(最古) ts) >= min_coverage * hours_back
 
     invalid면 진입하지 않는다 (banana의 관대한 cold-start 폴백 금지).
-    20일 룩백에서 백필 실패 시 스냅샷만으로는 10일 커버리지가 필요하므로
-    이 게이트가 콜드스타트 오진입을 강하게 막는다.
+    20일 룩백은 최소 19일(95%) span과 20개 포인트를 요구한다. 이는
+    daily-close 직접 복제가 아닌 hourly 가격 근사의 fail-closed 기준이다.
     """
     if len(window) < min_points:
         return False
@@ -109,8 +116,8 @@ class BottomFisherParams:
     exclude_recent_hours: float = 24.0  # 최저가 산출 시 제외할 최근 구간 (시간)
     prob_min: float = 0.03              # 진입 가능한 YES 가격 하한
     prob_max: float = 0.50              # 진입 가능한 YES 가격 상한
-    window_min_points: int = 5
-    window_min_coverage: float = 0.5
+    window_min_points: int = HOURLY_APPROX_MIN_POINTS
+    window_min_coverage: float = HOURLY_APPROX_MIN_COVERAGE
 
 
 @dataclass
@@ -132,7 +139,7 @@ def evaluate_bottom_fisher(
     """Bottom Fisher 진입 시그널 판정 (순수 함수).
 
     진입 조건 (모두 충족, YES 토큰 기준 가격 p):
-    1. 윈도우 유효성 통과 (timestamp 기반, 20일 룩백 - 백필 포함)
+    1. 윈도우 유효성 통과 (시간별 근사, 20일 룩백의 95% - 백필 포함)
     2. p_now ∈ [0.03, 0.50] (tail~중간 구간)
     3. 기준 최저가 = 룩백 윈도우 중 최근 24h를 제외한 구간의 min
     4. p_now <= 기준 최저가 (동률 허용 <=, EPSILON 오차 흡수)

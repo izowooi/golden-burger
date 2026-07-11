@@ -45,11 +45,6 @@ Documentation = "https://github.com/yourusername/polymarket-daily-reporter/blob/
 Repository = "https://github.com/yourusername/polymarket-daily-reporter"
 Issues = "https://github.com/yourusername/polymarket-daily-reporter/issues"
 
-# 실행 스크립트 정의
-[project.scripts]
-daily-report = "polybot_reporter.cli:main"
-test-report = "polybot_reporter.test_cli:main"
-
 # Build system (uv 호환)
 [build-system]
 requires = ["hatchling"]

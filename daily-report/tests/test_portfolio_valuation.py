@@ -79,7 +79,12 @@ def test_equity_snapshot_parses_all_three_fields(monkeypatch):
         {"cashBalance": "2892.055617", "positionsValue": "1349.706482", "equity": "4241.762099"}
     ]
     client = DataAPIClient()
-    monkeypatch.setattr(client.session, "get", lambda *a, **k: _zip_response(snapshot_rows))
+
+    def fake_get(*_args, timeout, **_kwargs):
+        assert timeout == (5, 30)
+        return _zip_response(snapshot_rows)
+
+    monkeypatch.setattr(client.session, "get", fake_get)
 
     snap = client.get_equity_snapshot("0x" + "0" * 40)
 
@@ -88,3 +93,38 @@ def test_equity_snapshot_parses_all_three_fields(monkeypatch):
     assert snap["total_value"] == 4241.762099
     # Backward-compatible cash accessor still works.
     assert client.get_cash_balance("0x" + "0" * 40) == 2892.055617
+
+
+def test_portfolio_accepts_small_equity_rounding_difference(monkeypatch):
+    snapshot_rows = [
+        {"cashBalance": "10.00", "positionsValue": "20.00", "equity": "30.019"}
+    ]
+
+    def fake_get(url, *args, **kwargs):
+        if "/positions" in url:
+            return _json_response([])
+        return _zip_response(snapshot_rows)
+
+    client = DataAPIClient()
+    monkeypatch.setattr(client.session, "get", fake_get)
+
+    assert client.get_portfolio_summary("0x" + "0" * 40)["total_value"] == 30.019
+
+
+def test_portfolio_rejects_equity_breakdown_mismatch(monkeypatch):
+    snapshot_rows = [
+        {"cashBalance": "10.00", "positionsValue": "20.00", "equity": "31.00"}
+    ]
+
+    def fake_get(url, *args, **kwargs):
+        if "/positions" in url:
+            return _json_response([])
+        return _zip_response(snapshot_rows)
+
+    client = DataAPIClient()
+    monkeypatch.setattr(client.session, "get", fake_get)
+
+    import pytest
+
+    with pytest.raises(ValueError, match=r"positionsValue \+ cashBalance"):
+        client.get_portfolio_summary("0x" + "0" * 40)

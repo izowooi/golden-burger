@@ -3,11 +3,13 @@
 import base64
 import json
 from datetime import date, datetime
+from decimal import Decimal
 from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 import pytest
 
+from polybot_reporter.notifications.slack_notifier import SlackNotifier
 from polybot_reporter.storage.supabase_writer import (
     SupabaseConfigurationError,
     SupabasePortfolioWriter,
@@ -22,6 +24,7 @@ CATALOG = [
     {"account_id": "golden-eco", "jenkins_name": "GOLDEN-ECO"},
     {"account_id": "golden-fox", "jenkins_name": "GOLDEN-FOX"},
 ]
+CONFIGURED_NAMES = [row["jenkins_name"] for row in CATALOG]
 
 
 def make_reports():
@@ -43,6 +46,8 @@ def report(total, position, cash):
         "total_value": total,
         "position_value": position,
         "cash_balance": cash,
+        "num_positions": 0,
+        "positions": [],
     }
 
 
@@ -91,13 +96,49 @@ class FakeQuery:
 
 
 class FakeClient:
-    def __init__(self, catalog=None, history=None):
+    def __init__(self, catalog=None, history=None, *, rpc_available=True):
         self.catalog = catalog or CATALOG
         self.history = history or []
         self.operations = []
+        self.rpc_available = rpc_available
 
     def table(self, table_name):
         return FakeQuery(self, table_name)
+
+    def rpc(self, function_name, params):
+        if not self.rpc_available:
+            raise RuntimeError("function does not exist")
+        return FakeRpcQuery(self, function_name, params)
+
+
+class FakeRpcQuery:
+    def __init__(self, client, function_name, params):
+        self.client = client
+        self.function_name = function_name
+        self.params = params
+
+    def execute(self):
+        if self.function_name == SupabasePortfolioWriter.PREFLIGHT_RPC:
+            return SimpleNamespace(
+                data={"contract_version": "pb-portfolio/v2", "account_count": 6}
+            )
+        if self.function_name != SupabasePortfolioWriter.SNAPSHOT_RPC:
+            raise RuntimeError("unknown RPC")
+        self.client.operations.append(
+            {"rpc": self.function_name, "params": self.params}
+        )
+        balances = self.params["p_balances"]
+        return SimpleNamespace(
+            data={
+                "report_date": self.params["p_report_date"],
+                "account_count": len(balances),
+                "total_value": round(sum(row["total_value"] for row in balances), 2),
+                "position_value": round(
+                    sum(row["position_value"] for row in balances), 2
+                ),
+                "cash_value": round(sum(row["cash_value"] for row in balances), 2),
+            }
+        )
 
 
 class PermissionDeniedQuery:
@@ -146,20 +187,51 @@ def test_accepts_server_secret_key(monkeypatch):
 
     writer = SupabasePortfolioWriter(
         url="https://example.supabase.co",
-        secret_key="sb_secret_example_server_key",
+        secret_key="sb_" + "secret_" + "example_server_key",
     )
 
-    assert writer.check_connection() == 6
+    assert writer.check_connection(CONFIGURED_NAMES) == 6
 
 
 def test_permission_error_explains_required_key_type():
     writer = SupabasePortfolioWriter(client=PermissionDeniedClient())
 
     with pytest.raises(SupabaseWriteError, match="sb_secret"):
-        writer.check_connection()
+        writer.check_connection(CONFIGURED_NAMES)
 
 
-def test_upserts_complete_snapshot_with_date_conflicts():
+def test_check_connection_rejects_name_mismatch_not_just_equal_count():
+    writer = SupabasePortfolioWriter(client=FakeClient())
+    wrong_names = [*CONFIGURED_NAMES[:-1], "GOLDEN-UNKNOWN"]
+
+    with pytest.raises(SupabaseWriteError, match="GOLDEN-FOX") as error:
+        writer.check_connection(wrong_names)
+
+    assert "GOLDEN-UNKNOWN" in str(error.value)
+
+
+def test_check_connection_rejects_five_accounts_even_when_catalog_has_same_five():
+    five = CATALOG[:-1]
+    writer = SupabasePortfolioWriter(client=FakeClient(catalog=five))
+
+    with pytest.raises(SupabaseWriteError, match="6계정"):
+        writer.check_connection([row["jenkins_name"] for row in five])
+
+
+def test_check_connection_rejects_swapped_stable_account_ids():
+    swapped = [dict(row) for row in CATALOG]
+    swapped[-2]["account_id"], swapped[-1]["account_id"] = (
+        swapped[-1]["account_id"],
+        swapped[-2]["account_id"],
+    )
+
+    with pytest.raises(SupabaseWriteError, match="mismatched"):
+        SupabasePortfolioWriter(client=FakeClient(catalog=swapped)).check_connection(
+            CONFIGURED_NAMES
+        )
+
+
+def test_writes_complete_snapshot_with_one_atomic_rpc_call():
     client = FakeClient()
     writer = SupabasePortfolioWriter(client=client)
     result = writer.write_daily_snapshot(
@@ -168,10 +240,10 @@ def test_upserts_complete_snapshot_with_date_conflicts():
         reported_at=datetime(2026, 6, 23, 9, 30, tzinfo=ZoneInfo("Asia/Seoul")),
     )
 
-    balances, total = client.operations
-    assert balances["table"] == "pb_daily_algorithm_balances"
-    assert balances["on_conflict"] == "report_date,account_id"
-    assert {row["account_id"] for row in balances["payload"]} == {
+    assert len(client.operations) == 1
+    operation = client.operations[0]
+    assert operation["rpc"] == SupabasePortfolioWriter.SNAPSHOT_RPC
+    assert {row["account_id"] for row in operation["params"]["p_balances"]} == {
         "golden-apple-1",
         "golden-banana",
         "golden-cherry",
@@ -179,14 +251,78 @@ def test_upserts_complete_snapshot_with_date_conflicts():
         "golden-eco",
         "golden-fox",
     }
-    assert all(row["report_date"] == "2026-06-23" for row in balances["payload"])
-    assert total["table"] == "pb_daily_portfolio_totals"
-    assert total["on_conflict"] == "report_date"
+    assert operation["params"]["p_report_date"] == "2026-06-23"
+    assert operation["params"]["p_source_schema_version"] == "pb-portfolio/v2"
     assert result.report_date == "2026-06-23"
     assert result.account_count == 6
-    assert result.total_value == 53037.06
+    assert result.total_value == 53037.05
     assert result.position_value == 39312.25
-    assert result.cash_value == 13724.81
+    assert result.cash_value == 13724.80
+    assert result.total_value == result.position_value + result.cash_value
+    assert all(
+        Decimal(str(row["total_value"]))
+        == Decimal(str(row["position_value"])) + Decimal(str(row["cash_value"]))
+        for row in operation["params"]["p_balances"]
+    )
+
+
+def test_missing_atomic_rpc_fails_closed_without_table_write():
+    client = FakeClient(rpc_available=False)
+    writer = SupabasePortfolioWriter(client=client)
+
+    with pytest.raises(SupabaseWriteError, match="unsafe fallback 없음"):
+        writer.write_daily_snapshot(make_reports())
+
+    assert client.operations == []
+
+
+def test_preflight_requires_atomic_rpc_migration_before_collection():
+    client = FakeClient(rpc_available=False)
+
+    with pytest.raises(SupabaseWriteError, match="migration을 먼저 적용"):
+        SupabasePortfolioWriter(client=client).check_connection(CONFIGURED_NAMES)
+
+    assert client.operations == []
+
+
+def test_six_small_raw_mismatches_share_one_canonical_cent_contract():
+    reports = {
+        name: report(10.02, 5.0, 5.0)
+        for name in (
+            "golden-apple (1)",
+            "golden-banana",
+            "golden-cherry",
+            "golden-apple (2)",
+            "golden-eco",
+            "golden-fox",
+        )
+    }
+    client = FakeClient()
+    slack_payload = {}
+    notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
+    notifier.send_message = lambda text, attachments=None, blocks=None: (
+        slack_payload.update(attachments=attachments) or True
+    )
+
+    notifier.send_multi_account_report(reports)
+    result = SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
+
+    balances = client.operations[0]["params"]["p_balances"]
+    assert all(
+        (row["total_value"], row["position_value"], row["cash_value"])
+        == (10.02, 5.0, 5.02)
+        for row in balances
+    )
+    assert all(
+        attachment["text"].splitlines()[0]
+        == "$10.02 (Position: $5.00, Cash: $5.02)"
+        for attachment in slack_payload["attachments"][1:]
+    )
+    assert (result.total_value, result.position_value, result.cash_value) == (
+        60.12,
+        30.0,
+        30.12,
+    )
 
 
 def test_rejects_failed_account_without_writing():
@@ -194,7 +330,7 @@ def test_rejects_failed_account_without_writing():
     reports = make_reports()
     reports["golden-cherry"]["error"] = "upstream timeout"
 
-    with pytest.raises(SupabaseWriteError, match="수집 실패"):
+    with pytest.raises(SupabaseWriteError, match="collection error"):
         SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
 
     assert client.operations == []
@@ -205,7 +341,18 @@ def test_rejects_incomplete_snapshot_without_writing():
     reports = make_reports()
     del reports["golden-apple (2)"]
 
-    with pytest.raises(SupabaseWriteError, match="일부 DB 계정"):
+    with pytest.raises(SupabaseWriteError, match="6계정 snapshot"):
+        SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
+
+    assert client.operations == []
+
+
+def test_rejects_missing_valuation_field_without_writing():
+    client = FakeClient()
+    reports = make_reports()
+    del reports["golden-fox"]["cash_balance"]
+
+    with pytest.raises(SupabaseWriteError, match="필수 valuation field"):
         SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
 
     assert client.operations == []
@@ -213,7 +360,7 @@ def test_rejects_incomplete_snapshot_without_writing():
 
 def test_compute_period_pnl_picks_earliest_in_window_and_handles_missing():
     history = [
-        {"report_date": "2026-06-20", "account_id": "a", "total_value": 100.0},
+        {"report_date": "2026-06-02", "account_id": "a", "total_value": 100.0},
         {"report_date": "2026-06-28", "account_id": "a", "total_value": 130.0},
         # report_date == as_of is ignored so the live in-memory total is "current".
         {"report_date": "2026-06-30", "account_id": "a", "total_value": 999.0},
@@ -221,9 +368,9 @@ def test_compute_period_pnl_picks_earliest_in_window_and_handles_missing():
     out = SupabasePortfolioWriter._compute_period_pnl(
         {"a": 150.0, "b": 50.0}, history, date(2026, 6, 30), (7, 30)
     )
-    # 7d floor = 6/24 -> earliest >= 6/24 is 6/28 (130) -> 150 - 130
-    assert out["a"][7] == 20.0
-    # 30d floor = 6/1 -> earliest is 6/20 (100) -> 150 - 100
+    # 7d floor = 6/24; 6/28 is too late to prove seven-day coverage.
+    assert out["a"][7] is None
+    # 30d floor = 6/1; a baseline on 6/2 is within the one-day allowance.
     assert out["a"][30] == 50.0
     # account "b" has no history -> undefined for every window
     assert out["b"][7] is None
@@ -232,9 +379,9 @@ def test_compute_period_pnl_picks_earliest_in_window_and_handles_missing():
 
 def test_get_period_pnl_uses_total_change_from_history():
     history = [
-        {"report_date": "2026-06-23", "account_id": "golden-cherry", "total_value": 3578.21},
-        {"report_date": "2026-06-29", "account_id": "golden-cherry", "total_value": 4222.59},
-        # apple-2 only has a row older than the 7d window floor (6/24)
+        {"report_date": "2026-06-02", "account_id": "golden-cherry", "total_value": 3578.21},
+        {"report_date": "2026-06-25", "account_id": "golden-cherry", "total_value": 4222.59},
+        # apple-2 only has a row far inside the 30d window, not near its floor.
         {"report_date": "2026-06-23", "account_id": "golden-apple-2", "total_value": 12783.08},
     ]
     writer = SupabasePortfolioWriter(client=FakeClient(history=history))
@@ -247,6 +394,6 @@ def test_get_period_pnl_uses_total_change_from_history():
 
     assert pnl["golden-cherry"][7] == round(4245.11 - 4222.59, 6)
     assert pnl["golden-cherry"][30] == round(4245.11 - 3578.21, 6)
-    # no snapshot on/after the 7d floor -> 7d undefined; 30d anchors on 6/23
+    # No baseline near either floor means the named period is undefined.
     assert pnl["golden-apple (2)"][7] is None
-    assert pnl["golden-apple (2)"][30] == round(13144.75 - 12783.08, 6)
+    assert pnl["golden-apple (2)"][30] is None

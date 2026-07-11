@@ -9,11 +9,17 @@
 데드크로스: 단기 모멘텀 - 장기 모멘텀 <= -threshold (청산 시그널)
 """
 import logging
+from datetime import timedelta
 from typing import List, Optional, Tuple
 from ..db.models import MarketSnapshot
 from ..config import MomentumConfig
 
 logger = logging.getLogger(__name__)
+
+# Jenkins는 5분 주기로 스냅샷을 저장한다. 개수만 맞고 같은 시각대에 몰린
+# 데이터로 15분/6시간 신호를 만들지 않도록 명목 구간의 90%를 요구한다.
+SNAPSHOT_INTERVAL_MINUTES = 5
+MIN_WINDOW_TIME_COVERAGE = 0.90
 
 
 class MomentumCalculator:
@@ -54,6 +60,31 @@ class MomentumCalculator:
 
         return (newest - oldest) / len(snapshots)
 
+    @staticmethod
+    def _has_window_coverage(
+        snapshots: List[MarketSnapshot],
+        required_points: int,
+    ) -> bool:
+        """Require both the configured sample count and its intended time span."""
+        if required_points < 2 or len(snapshots) < required_points:
+            return False
+
+        window = snapshots[-required_points:]
+        if any(snapshot.timestamp is None for snapshot in window):
+            return False
+        if any(
+            later.timestamp <= earlier.timestamp
+            for earlier, later in zip(window, window[1:])
+        ):
+            return False
+
+        expected_span = timedelta(
+            minutes=(required_points - 1)
+            * SNAPSHOT_INTERVAL_MINUTES
+            * MIN_WINDOW_TIME_COVERAGE
+        )
+        return window[-1].timestamp - window[0].timestamp >= expected_span
+
     def get_short_momentum(
         self,
         snapshots: List[MarketSnapshot]
@@ -69,7 +100,7 @@ class MomentumCalculator:
             단기 모멘텀 값 또는 None
         """
         short_window = self.config.short_window
-        if len(snapshots) < short_window:
+        if not self._has_window_coverage(snapshots, short_window):
             return None
         return self.calculate_momentum(snapshots[-short_window:])
 
@@ -79,8 +110,8 @@ class MomentumCalculator:
     ) -> Optional[float]:
         """장기(6시간) 모멘텀 계산.
 
-        최근 long_window 개 스냅샷 사용.
-        데이터 부족 시 가능한 만큼 사용.
+        최근 long_window 개 스냅샷을 사용한다. 개수 또는 시간 커버리지가
+        부족하면 계산하지 않는다.
 
         Args:
             snapshots: 시간순 정렬된 스냅샷 리스트
@@ -89,11 +120,7 @@ class MomentumCalculator:
             장기 모멘텀 값 또는 None
         """
         long_window = self.config.long_window
-        if len(snapshots) < long_window:
-            # 데이터 부족 시 가능한 만큼 사용 (최소 단기 윈도우의 2배)
-            min_required = self.config.short_window * 2
-            if len(snapshots) >= min_required:
-                return self.calculate_momentum(snapshots)
+        if not self._has_window_coverage(snapshots, long_window):
             return None
         return self.calculate_momentum(snapshots[-long_window:])
 
@@ -149,7 +176,7 @@ class MomentumCalculator:
         """진입 시그널 판단.
 
         1. 모멘텀 비활성화 시: 무조건 진입 허용
-        2. 장기 데이터 부족 시: 단기 모멘텀이 양수면 진입
+        2. 단기/장기 윈도우의 개수와 시간 커버리지가 모두 유효해야 함
         3. 골든크로스 발생 시: 진입
 
         Args:
@@ -170,13 +197,13 @@ class MomentumCalculator:
             logger.debug(f"단기 모멘텀 데이터 부족 (스냅샷 {len(snapshots)}개)")
             return False, "insufficient_short_data"
 
-        # 장기 데이터 부족 시 단기 모멘텀으로만 판단
+        # 장기 윈도우가 부족하면 단기 양수여도 fail closed
         if long_mom is None:
-            if short_mom > 0:
-                logger.debug(f"장기 데이터 부족, 단기 모멘텀 양수: {short_mom:.6f}")
-                return True, "short_momentum_positive"
-            logger.debug(f"장기 데이터 부족, 단기 모멘텀 음수: {short_mom:.6f}")
-            return False, "short_momentum_negative"
+            logger.debug(
+                f"장기 모멘텀 데이터/시간 커버리지 부족 "
+                f"(스냅샷 {len(snapshots)}개)"
+            )
+            return False, "insufficient_long_data"
 
         # 골든크로스 확인
         if self.detect_golden_cross(short_mom, long_mom):

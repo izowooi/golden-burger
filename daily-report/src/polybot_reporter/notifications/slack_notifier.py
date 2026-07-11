@@ -1,9 +1,22 @@
 """Slack notification module for sending reports."""
+
 import logging
 import os
-from typing import Dict, List, Optional
-import requests
 from datetime import datetime
+from decimal import Decimal
+from typing import Optional
+from zoneinfo import ZoneInfo
+
+import requests
+
+from polybot_reporter.contracts import (
+    PORTFOLIO_ERROR_SCHEMA_VERSION,
+    PORTFOLIO_REPORT_SCHEMA_VERSION,
+    canonical_money_breakdown,
+    normalize_display_name,
+    safe_error_message,
+    validate_complete_reports,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +24,12 @@ logger = logging.getLogger(__name__)
 def _format_pnl_usd(value: Optional[float]) -> str:
     """Format a signed P&L value, or "N/A" when it could not be computed."""
     return "N/A" if value is None else f"${value:+.2f}"
+
+
+def _reconciled_display_money(summary: dict) -> tuple[Decimal, Decimal, Decimal]:
+    """Return the shared canonical cent breakdown used by every sink."""
+    money = canonical_money_breakdown("portfolio account", summary)
+    return money.total, money.position, money.cash
 
 
 class SlackNotifier:
@@ -22,21 +41,27 @@ class SlackNotifier:
     - Structured fields
     """
 
-    def __init__(self, webhook_url: Optional[str] = None):
+    def __init__(
+        self,
+        webhook_url: Optional[str] = None,
+        timezone_name: Optional[str] = None,
+    ):
         """Initialize Slack notifier.
 
         Args:
             webhook_url: Slack webhook URL (or use SLACK_WEBHOOK_URL env var)
         """
         self.webhook_url = webhook_url or os.getenv("SLACK_WEBHOOK_URL")
+        self.timezone_name = timezone_name or os.getenv("REPORT_TIMEZONE") or "Asia/Seoul"
+        self.timezone = ZoneInfo(self.timezone_name)
         if not self.webhook_url:
             logger.warning("SLACK_WEBHOOK_URL 환경변수가 설정되지 않았습니다")
 
     def send_message(
         self,
         text: str,
-        attachments: Optional[List[Dict]] = None,
-        blocks: Optional[List[Dict]] = None
+        attachments: Optional[list[dict]] = None,
+        blocks: Optional[list[dict]] = None,
     ) -> bool:
         """Send a message to Slack.
 
@@ -59,24 +84,15 @@ class SlackNotifier:
             payload["blocks"] = blocks
 
         try:
-            response = requests.post(
-                self.webhook_url,
-                json=payload,
-                timeout=10
-            )
+            response = requests.post(self.webhook_url, json=payload, timeout=10)
             response.raise_for_status()
             logger.info("Slack 메시지 전송 완료")
             return True
         except requests.exceptions.RequestException as e:
-            logger.error(f"Slack 메시지 전송 실패: {e}")
+            logger.error("Slack 메시지 전송 실패: %s", safe_error_message(e))
             return False
 
-    def send_portfolio_report(
-        self,
-        account_name: str,
-        summary: Dict,
-        color: str = "good"
-    ) -> bool:
+    def send_portfolio_report(self, account_name: str, summary: dict, color: str = "good") -> bool:
         """Send a formatted portfolio report to Slack.
 
         Args:
@@ -110,23 +126,12 @@ class SlackNotifier:
             "title": f"📊 {account_name.upper()} Portfolio Report",
             "text": f"Daily portfolio status as of {timestamp}",
             "fields": [
-                {
-                    "title": "💰 Total Value",
-                    "value": f"${total_value:.2f}",
-                    "short": True
-                },
-                {
-                    "title": "📈 Positions",
-                    "value": f"{len(positions)} open",
-                    "short": True
-                },
+                {"title": "💰 Total Value", "value": f"${total_value:.2f}", "short": True},
+                {"title": "📈 Positions", "value": f"{len(positions)} open", "short": True},
                 {
                     "title": "📅 7-Day P&L",
-                    "value": (
-                        f"${total_pnl_7d:+.2f}\n"
-                        f"({pnl_7d.get('num_trades', 0)} trades)"
-                    ),
-                    "short": True
+                    "value": (f"${total_pnl_7d:+.2f}\n({pnl_7d.get('num_trades', 0)} trades)"),
+                    "short": True,
                 },
                 {
                     "title": "📆 30-Day P&L",
@@ -134,53 +139,50 @@ class SlackNotifier:
                         f"${pnl_30d.get('total_pnl', 0):+.2f}\n"
                         f"({pnl_30d.get('num_trades', 0)} trades)"
                     ),
-                    "short": True
+                    "short": True,
                 },
                 {
                     "title": "🔹 Realized P&L (7d)",
                     "value": f"${pnl_7d.get('realized_pnl', 0):+.2f}",
-                    "short": True
+                    "short": True,
                 },
                 {
                     "title": "🔸 Unrealized P&L (Current)",
                     "value": f"${pnl_7d.get('unrealized_pnl', 0):+.2f}",
-                    "short": True
-                }
+                    "short": True,
+                },
             ],
             "footer": f"Polymarket Bot • {account_name}",
-            "ts": int(datetime.now().timestamp())
+            "ts": int(datetime.now().timestamp()),
         }
 
         # Add top positions if any
         if positions:
             top_positions = sorted(
-                positions,
-                key=lambda p: abs(float(p.get("pnl", 0))),
-                reverse=True
+                positions, key=lambda p: abs(float(p.get("pnl", 0))), reverse=True
             )[:3]
 
-            positions_text = "\n".join([
-                f"• {pos.get('outcome', 'N/A')}: ${pos.get('value', 0):.2f} "
-                f"(P&L: ${pos.get('pnl', 0):+.2f})"
-                for pos in top_positions
-            ])
+            positions_text = "\n".join(
+                [
+                    f"• {pos.get('outcome', 'N/A')}: ${pos.get('value', 0):.2f} "
+                    f"(P&L: ${pos.get('pnl', 0):+.2f})"
+                    for pos in top_positions
+                ]
+            )
 
-            attachment["fields"].append({
-                "title": "🎯 Top Positions by P&L",
-                "value": positions_text or "No positions",
-                "short": False
-            })
+            attachment["fields"].append(
+                {
+                    "title": "🎯 Top Positions by P&L",
+                    "value": positions_text or "No positions",
+                    "short": False,
+                }
+            )
 
         return self.send_message(
-            text=f"{account_name} Daily Report - ${total_value:.2f}",
-            attachments=[attachment]
+            text=f"{account_name} Daily Report - ${total_value:.2f}", attachments=[attachment]
         )
 
-    def send_multi_account_report(
-        self,
-        reports: Dict[str, Dict],
-        is_monthly: bool = False
-    ) -> bool:
+    def send_multi_account_report(self, reports: dict[str, dict], is_monthly: bool = False) -> bool:
         """Send a consolidated report for multiple accounts.
 
         Args:
@@ -189,47 +191,47 @@ class SlackNotifier:
         Returns:
             True if sent successfully
         """
+        validate_complete_reports(reports)
+
+        display_money = {
+            name: _reconciled_display_money(summary)
+            for name, summary in reports.items()
+        }
+
         # Calculate totals
-        total_value = sum(r.get("total_value", 0) for r in reports.values())
-        total_positions = sum(r.get("num_positions", 0) for r in reports.values())
-        total_pnl_7d = sum(
-            (r.get("pnl_7d") or {}).get("total_pnl") or 0 for r in reports.values()
-        )
+        total_value = sum((values[0] for values in display_money.values()), Decimal("0"))
+        total_positions = sum(r["num_positions"] for r in reports.values())
+        total_pnl_7d = sum((r.get("pnl_7d") or {}).get("total_pnl") or 0 for r in reports.values())
         total_pnl_30d = sum(
             (r.get("pnl_30d") or {}).get("total_pnl") or 0 for r in reports.values()
         )
 
         # Main summary attachment
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total_position_value = sum(r.get("position_value", 0) for r in reports.values())
-        total_cash = sum(r.get("cash_balance", 0) for r in reports.values())
+        timestamp = datetime.now(self.timezone).strftime("%Y-%m-%d %H:%M:%S")
+        total_position_value = sum(
+            (values[1] for values in display_money.values()), Decimal("0")
+        )
+        total_cash = sum((values[2] for values in display_money.values()), Decimal("0"))
         summary_attachment = {
             "color": "good" if total_pnl_7d >= 0 else "danger",
-            "title": "📊 Polymarket 전체 포트폴리오" + (" (월간 리포트 포함)" if is_monthly else ""),
-            "text": f"일일 통합 리포트 - {timestamp} 기준" + (" 🗓️ 월간 리포트 포함" if is_monthly else ""),
+            "title": "📊 Polymarket 전체 포트폴리오"
+            + (" (월간 리포트 포함)" if is_monthly else ""),
+            "text": f"일일 통합 리포트 - {timestamp} 기준"
+            + (" 🗓️ 월간 리포트 포함" if is_monthly else ""),
             "fields": [
                 {
                     "title": "💰 총 자산",
                     "value": f"${total_value:.2f} (Position: ${total_position_value:.2f}, Cash: ${total_cash:.2f})",
-                    "short": False
+                    "short": False,
                 },
-                {
-                    "title": "📈 총 포지션 수",
-                    "value": f"{total_positions} open",
-                    "short": True
-                },
-                {
-                    "title": "📅 7d P&L",
-                    "value": f"${total_pnl_7d:+.2f}",
-                    "short": True
-                },
-                {
-                    "title": "📆 30d P&L",
-                    "value": f"${total_pnl_30d:+.2f}",
-                    "short": True
-                }
+                {"title": "📈 총 포지션 수", "value": f"{total_positions} open", "short": True},
+                {"title": "📅 7d P&L", "value": f"${total_pnl_7d:+.2f}", "short": True},
+                {"title": "📆 30d P&L", "value": f"${total_pnl_30d:+.2f}", "short": True},
             ],
-            "footer": "Polymarket Bot • 전체 계좌 요약"
+            "footer": (
+                "Polymarket Bot • 전체 계좌 요약 • "
+                f"{PORTFOLIO_REPORT_SCHEMA_VERSION} • COMPLETE • tz={self.timezone_name}"
+            ),
         }
 
         # Individual account attachments - 계좌당 3줄 (이름 / 금액 / 손익)
@@ -238,33 +240,32 @@ class SlackNotifier:
             pnl_7d = summary.get("pnl_7d") or {}
             total_pnl = pnl_7d.get("total_pnl")
 
-            position_value = summary.get("position_value", 0)
-            cash_balance = summary.get("cash_balance", 0)
-            account_total = summary.get("total_value", 0)
+            account_total, position_value, cash_balance = display_money[account_name]
 
             value_line = (
-                f"${account_total:.2f} "
-                f"(Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})"
+                f"${account_total:.2f} (Position: ${position_value:.2f}, Cash: ${cash_balance:.2f})"
             )
             pnl_line = f"7d 손익 {_format_pnl_usd(total_pnl)}"
             if is_monthly:
                 pnl_30d_acc = summary.get("pnl_30d") or {}
                 pnl_line += f" · 30d 손익 {_format_pnl_usd(pnl_30d_acc.get('total_pnl'))}"
-            account_attachments.append({
-                "color": "#36a64f" if (total_pnl or 0) >= 0 else "#ff0000",
-                "author_name": account_name.upper(),
-                "text": f"{value_line}\n{pnl_line}",
-            })
+            account_attachments.append(
+                {
+                    "color": "#36a64f" if (total_pnl or 0) >= 0 else "#ff0000",
+                    "author_name": normalize_display_name(account_name),
+                    "text": f"{value_line}\n{pnl_line}",
+                }
+            )
         return self.send_message(
-            text=f"일일 리포트 - 총 자산: ${total_value:.2f} (7d: ${total_pnl_7d:+.2f})",
-            attachments=[summary_attachment] + account_attachments
+            text=(
+                f"[{PORTFOLIO_REPORT_SCHEMA_VERSION} COMPLETE] "
+                f"일일 리포트 - 총 자산: ${total_value:.2f} "
+                f"(7d: ${total_pnl_7d:+.2f})"
+            ),
+            attachments=[summary_attachment] + account_attachments,
         )
 
-    def send_error_notification(
-        self,
-        account_name: str,
-        error_message: str
-    ) -> bool:
+    def send_error_notification(self, account_name: str, error_message: str) -> bool:
         """Send an error notification to Slack.
 
         Args:
@@ -274,15 +275,16 @@ class SlackNotifier:
         Returns:
             True if sent successfully
         """
+        safe_error = safe_error_message(error_message)
         attachment = {
             "color": "danger",
             "title": f"⚠️ Error in {account_name}",
-            "text": error_message,
-            "footer": "Polymarket Bot Error",
-            "ts": int(datetime.now().timestamp())
+            "text": safe_error,
+            "footer": f"Polymarket Bot Error • {PORTFOLIO_ERROR_SCHEMA_VERSION}",
+            "ts": int(datetime.now().timestamp()),
         }
 
         return self.send_message(
-            text=f"Error in {account_name}: {error_message}",
-            attachments=[attachment]
+            text=(f"[{PORTFOLIO_ERROR_SCHEMA_VERSION}] Error in {account_name}: {safe_error}"),
+            attachments=[attachment],
         )

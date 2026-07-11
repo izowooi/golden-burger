@@ -1,5 +1,10 @@
 # golden-cherry 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 대상: Resolution Momentum 전략 (75~92% 확률 + 해결 24h~720h 전 진입, 4중 청산).
 
@@ -7,6 +12,10 @@
 
 ```
 docs/retro/golden-cherry.md 를 읽고 §3~§5를 실행한 뒤, §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 전제/주의:
 - cherry는 두 슬롯이 병행 운용 중이다: 기본 슬롯(운영 4계정 중 하나, BUY 0.75/SELL 0.92/liq 10k)과
@@ -68,7 +77,9 @@ Jenkins env 블록 (키 제외하고 export 라인 복사, 슬롯별로):
 | YES-Only 모드 | `POLYBOT_YES_ONLY` (CLI `--yes-only`가 우선) | (yaml에 없음, 기본 false) | index 0 토큰만 매수 |
 | 제외 카테고리 | (env 없음, yaml 전용) | `[]` | 빈 배열 = 스포츠 필터 완전 비활성화 (현재 상태) |
 
-> **운영값은 yaml이 아니라 Jenkins env다.** 과거 로그 기준 85~95%/liq $20k/buy $2,000 조합도 env override로 쓰인 적 있다. 회고 시 반드시 Jenkins job 설정의 export 블록(키 제외)을 §0 프롬프트에 붙여넣어 실제 운영값을 확정하라.
+> 우선순위는 env > yaml > code default다. post-instrumentation 운영값은 `strategy_configs`와
+> `run_audits`의 config hash/Git cohort로 확정한다. Jenkins export와 과거 로그는 secret을
+> 제거한 legacy/current cross-check이며, 현재 값을 과거 전체에 소급하지 않는다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -112,7 +123,9 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
 
 ### 2.3 중앙 가격 아카이브 (nectarine DB)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로, 반사실 분석의 가격 시계열은 nectarine DB의 `market_snapshots`를 공용 아카이브로 쓴다:
+Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집하므로, 반사실 분석의
+가격 시계열은 nectarine DB의 `market_snapshots`를 공용 아카이브로 쓴다. 고정 시장 수 대신
+run별 cursor completion과 `market_catalog` join coverage를 확인한다:
 
 ```bash
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
@@ -141,7 +154,11 @@ ORDER BY snap_cnt ASC;
 -- snap_cnt = 0 인 거래는 반사실 분석에서 제외하고 제외 건수를 보고서에 명시
 ```
 
-## 3. 실적 분석 SQL (그대로 실행 가능)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 `sqlite3 <cherry의 trades.db>` 접속 후 실행. 슬롯별 DB 각각에 대해 반복한다.
 
@@ -339,7 +356,9 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 | **24~720h** | **현행** |
 | 168~720h | 장기 전용 (단기 제외의 기여 분리) |
 
-잔여시간 계산에는 endDate가 필요한데 아카이브에는 없다. 획득 경로: (1) 이미 거래한 시장은 `trades.market_end_date` 사용, (2) 미거래 시장은 Gamma `GET /markets?condition_ids=...`로 조회 (닫힌 시장도 메타데이터는 반환됨). (2)가 안 되는 시장은 제외하고 제외 수를 명시.
+잔여시간은 post-instrumentation `market_catalog.end_date`를 우선 사용한다. legacy catalog gap은
+(1) 거래 시장의 `trades.market_end_date`, (2) Gamma condition ID 재조회 순으로 보충한다.
+끝내 없는 시장은 제외하고 수를 명시한다.
 
 **노브 2 — 확률 밴드** (`POLYBOT_BUY_THRESHOLD` / `POLYBOT_SELL_THRESHOLD`):
 
@@ -351,11 +370,15 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 
 ### (c) 데이터 한계 (결과 보고서에 반드시 명시)
 
-- **midpoint/체결 가정**: 봇도 midpoint 기록, 아카이브도 mid 계열 — 실제 체결은 스프레드만큼 불리하다. $5 포지션에서 왕복 2~4% 허수 가능. 격자 간 **상대 비교**로만 사용하고 절대 P&L은 보수적으로 해석.
+- **Execution evidence**: legacy `trades`의 midpoint 상태 전환은 actual fill이 아니다. 실현 결과는
+  `CONFIRMED order_fills`의 partial size/price/fee로 계산하고 미대사 구간을 분리한다. archive
+  midpoint grid는 spread·depth를 반영하지 않으므로 상대 비교로만 사용한다.
 - **NO 가격 = 1 - YES 근사**: 스프레드 무시 근사.
 - **5분 간격**: 봇의 3~5분 사이클과 유사하나, 사이클 사이 급변(rapid_jump 경로, 갭 손절)은 정확 재현 불가.
 - **endDate != 실제 해결 시각**: 조기 해결 시장은 time_exit 재생이 실제와 어긋난다. 스냅샷이 endDate보다 훨씬 먼저 끊긴 시장은 조기 해결로 간주하고 별도 표기.
-- **아카이브 유니버스 갭**: liq >= $10k + "가장 오래된 활성 ~2100개" sweep이라 cherry가 거래한 시장이 아카이브에 없을 수 있다 (§2.3 커버리지 SQL로 먼저 확인). 변형 슬롯(liq 30k)은 커버리지가 더 좋다.
+- **아카이브 유니버스 갭**: keyset에는 고정 offset cap이 없지만, 배포 전 legacy 구간,
+  run/cursor 실패, 5-minute cadence gap 때문에 cherry 거래 시장이 없을 수 있다. §2.3 coverage
+  SQL과 catalog join으로 먼저 확인한다.
 - **60일 보존**: 그 이전 거래는 반사실 불가. 회고를 미루지 말 것.
 - **rapid_jump 영구 밴 재현 한계**: 스캔 시점과 매수 검증 시점 사이의 CLOB midpoint는 기록에 없다. skipped_markets 목록의 사후 성과(아카이브 재생)로 "밴에 TTL을 뒀다면"의 기회비용만 근사 가능.
 
@@ -384,7 +407,8 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 | POLYBOT_YES_ONLY | 기본 false / 변형 true | | §3.6 side 분해 + §4(b) 노브 3 | |
 | POLYBOT_MIN_LIQUIDITY | 기본 10000 / 변형 30000 | | 슬롯 A/B + liquidity_at_buy 분해 | |
 
-**라운드 절차**: 코드 수정 없이 **Jenkins env만 바꾸면 된다** (env > yaml > 코드 기본값).
+**라운드 절차**: tunable knob는 Jenkins env로 반영하되, 첫 성공 run에서 새 `config_hash`와
+Git commit을 확인해 이전 cohort와 분리한다.
 
 1. 1차(이번 회고): 위 표의 제안값 확정. 신뢰도 "높음"만 기본 슬롯에 반영, "중간"은 변형 슬롯 값으로 반영해 기본/변형 병행 A/B 지속 (cherry는 이미 2슬롯 구조이므로 슬롯 하나를 실험군으로 쓴다).
 2. 2차(4주 후): 같은 문서로 재실행, 1차 제안값의 실측 검증. 이때 1차 교정 전/후 코호트를 `buy_timestamp`로 분리할 것.

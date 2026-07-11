@@ -3,12 +3,14 @@
 import csv
 import io
 import logging
+import math
 import zipfile
 from datetime import datetime, timedelta
 from typing import Optional
 
 import requests
 
+from ..contracts import safe_error_message
 from ..retry import rate_limit_handler
 
 logger = logging.getLogger(__name__)
@@ -25,6 +27,7 @@ class DataAPIClient:
     """
 
     BASE_URL = "https://data-api.polymarket.com"
+    REQUEST_TIMEOUT = (5, 30)
 
     def __init__(self):
         self.session = requests.Session()
@@ -48,14 +51,40 @@ class DataAPIClient:
             - pnl: Unrealized profit/loss
         """
         try:
-            params = {"user": address.lower()}
-            response = self.session.get(f"{self.BASE_URL}/positions", params=params)
-            response.raise_for_status()
-            positions = response.json()
-            logger.info(f"포지션 {len(positions)}개 조회 완료 - address: {address[:10]}...")
+            positions: list[dict] = []
+            offset = 0
+            page_size = 500
+            while True:
+                params = {
+                    "user": address.lower(),
+                    "limit": page_size,
+                    "offset": offset,
+                    "sizeThreshold": 0,
+                }
+                response = self.session.get(
+                    f"{self.BASE_URL}/positions",
+                    params=params,
+                    timeout=self.REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not isinstance(page, list):
+                    raise ValueError("positions API 응답이 list가 아닙니다")
+                positions.extend(page)
+                if len(page) < page_size:
+                    break
+                offset += page_size
+                if offset > 10_000:
+                    raise ValueError(
+                        "positions API offset 상한(10000)을 넘어 전체 목록을 증명할 수 없습니다"
+                    )
+            logger.info("포지션 %d개 조회 완료 - address=[REDACTED]", len(positions))
             return positions
         except requests.exceptions.RequestException as e:
-            logger.error(f"포지션 조회 실패 - address: {address}: {e}")
+            logger.error(
+                "포지션 조회 실패 - address=[REDACTED]: %s",
+                safe_error_message(e),
+            )
             raise
 
     @rate_limit_handler(max_retries=3)
@@ -77,7 +106,11 @@ class DataAPIClient:
         """
         try:
             params = {"user": address.lower()}
-            response = self.session.get(f"{self.BASE_URL}/v1/accounting/snapshot", params=params)
+            response = self.session.get(
+                f"{self.BASE_URL}/v1/accounting/snapshot",
+                params=params,
+                timeout=self.REQUEST_TIMEOUT,
+            )
             response.raise_for_status()
 
             with zipfile.ZipFile(io.BytesIO(response.content)) as zf:
@@ -86,9 +119,16 @@ class DataAPIClient:
                         with zf.open(name) as f:
                             reader = csv.DictReader(io.TextIOWrapper(f))
                             for row in reader:
-                                cash = float(row.get("cashBalance", 0))
-                                position = float(row.get("positionsValue", 0))
-                                equity = float(row.get("equity", cash + position))
+                                cash = float(row["cashBalance"])
+                                position = float(row["positionsValue"])
+                                equity = float(row["equity"])
+                                if not all(
+                                    math.isfinite(value)
+                                    for value in (cash, position, equity)
+                                ):
+                                    raise ValueError("equity snapshot 금액이 유한하지 않습니다")
+                                if min(cash, position, equity) < 0:
+                                    raise ValueError("equity snapshot 금액이 음수입니다")
                                 logger.info(
                                     f"Equity 스냅샷 조회 완료 - Position: ${position:.2f}, "
                                     f"Cash: ${cash:.2f}, Equity: ${equity:.2f}"
@@ -100,10 +140,13 @@ class DataAPIClient:
                                 }
             raise ValueError("accounting snapshot에서 equity 행을 찾지 못했습니다")
         except requests.exceptions.RequestException as e:
-            logger.error(f"Equity 스냅샷 조회 실패 - address: {address}: {e}")
+            logger.error(
+                "Equity 스냅샷 조회 실패 - address=[REDACTED]: %s",
+                safe_error_message(e),
+            )
             raise
         except (zipfile.BadZipFile, KeyError, ValueError) as e:
-            logger.error(f"Equity 스냅샷 파싱 실패: {e}")
+            logger.error("Equity 스냅샷 파싱 실패: %s", safe_error_message(e))
             raise
 
     def get_cash_balance(self, address: str) -> float:
@@ -129,18 +172,43 @@ class DataAPIClient:
             List of activity dictionaries sorted by timestamp (newest first)
         """
         try:
-            params = {"address": address.lower(), "limit": limit}
-            if condition_id:
-                params["market"] = condition_id
+            if isinstance(limit, bool) or not isinstance(limit, int) or limit < 0:
+                raise ValueError("activity limit은 0 이상의 integer여야 합니다")
+            if limit > 10_000:
+                raise ValueError("activity limit은 검증 가능한 상한 10000 이하여야 합니다")
+            if limit == 0:
+                return []
 
-            response = self.session.get(f"{self.BASE_URL}/activity", params=params)
-            response.raise_for_status()
-            activities = response.json()
+            activities: list[dict] = []
+            offset = 0
+            while len(activities) < limit:
+                page_size = min(500, limit - len(activities))
+                params = {
+                    "user": address.lower(),
+                    "limit": page_size,
+                    "offset": offset,
+                }
+                if condition_id:
+                    params["market"] = condition_id
+
+                response = self.session.get(
+                    f"{self.BASE_URL}/activity",
+                    params=params,
+                    timeout=self.REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not isinstance(page, list):
+                    raise ValueError("activity API 응답이 list가 아닙니다")
+                activities.extend(page)
+                if len(page) < page_size:
+                    break
+                offset += page_size
             logger.info(f"활동 내역 {len(activities)}개 조회 완료")
             return activities
         except requests.exceptions.RequestException as e:
-            logger.error(f"활동 내역 조회 실패: {e}")
-            return []
+            logger.error("활동 내역 조회 실패: %s", safe_error_message(e))
+            raise
 
     @rate_limit_handler(max_retries=3)
     def get_trades_by_address(
@@ -157,20 +225,40 @@ class DataAPIClient:
             List of trade dictionaries with price, size, timestamp, etc.
         """
         try:
-            params = {"maker_address": address.lower(), "limit": limit}
-
-            response = self.session.get(f"{self.BASE_URL}/trades", params=params)
-            response.raise_for_status()
-            trades = response.json()
-
-            # Filter by timestamp if specified
-            if after_timestamp:
-                trades = [t for t in trades if t.get("timestamp", 0) >= after_timestamp]
+            if limit <= 0:
+                raise ValueError("trades limit은 양수여야 합니다")
+            requested_limit = min(limit, 10_000)
+            if requested_limit != limit:
+                logger.warning("trades limit을 API 증명 상한 10000으로 제한합니다")
+            trades: list[dict] = []
+            offset = 0
+            while len(trades) < requested_limit:
+                page_size = min(500, requested_limit - len(trades))
+                params = {
+                    "user": address.lower(),
+                    "limit": page_size,
+                    "offset": offset,
+                }
+                if after_timestamp is not None:
+                    params["start"] = after_timestamp
+                response = self.session.get(
+                    f"{self.BASE_URL}/trades",
+                    params=params,
+                    timeout=self.REQUEST_TIMEOUT,
+                )
+                response.raise_for_status()
+                page = response.json()
+                if not isinstance(page, list):
+                    raise ValueError("trades API 응답이 list가 아닙니다")
+                trades.extend(page)
+                if len(page) < page_size:
+                    break
+                offset += page_size
 
             logger.info(f"거래 내역 {len(trades)}개 조회 완료")
             return trades
         except requests.exceptions.RequestException as e:
-            logger.error(f"거래 내역 조회 실패: {e}")
+            logger.error("거래 내역 조회 실패: %s", safe_error_message(e))
             raise
 
     def calculate_pnl_for_period(self, address: str, days_ago: int = 7) -> dict:
@@ -219,7 +307,7 @@ class DataAPIClient:
             - pnl_7d: P&L for last 7 days
             - pnl_30d: P&L for last 30 days
         """
-        logger.info(f"포트폴리오 요약 생성 중 - address: {address[:10]}...")
+        logger.info("포트폴리오 요약 생성 중 - address=[REDACTED]")
 
         positions = self.get_positions(address)
 
@@ -230,10 +318,13 @@ class DataAPIClient:
         equity = self.get_equity_snapshot(address)
         position_value = equity["position_value"]
         cash_balance = equity["cash_balance"]
-        # Keep total = position + cash so the Supabase writer's consistency guard
-        # (|total - position - cash| <= 0.02) always holds; this equals the
-        # snapshot's own equity because positionsValue + cashBalance == equity.
-        total_value = position_value + cash_balance
+        # Preserve the snapshot's authoritative equity value and verify its own
+        # breakdown. Recomputing total would hide a malformed upstream snapshot.
+        total_value = equity["total_value"]
+        if abs(total_value - position_value - cash_balance) > 0.02:
+            raise ValueError(
+                "accounting snapshot equity가 positionsValue + cashBalance와 일치하지 않습니다"
+            )
 
         # 7d/30d P&L is the change in total_value over the window. That needs
         # historical snapshots, which this single-point-in-time client does not

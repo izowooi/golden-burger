@@ -137,7 +137,7 @@ class TestScannerCandidateVolume:
                         probability=0.70,
                         volume_24h=100.0,
                     )
-                    for h in (20, 16, 12, 8, 4)
+                    for h in (20, 16, 12, 8, 4, 2, 0)
                 ]
 
         scanner = MarketScanner(

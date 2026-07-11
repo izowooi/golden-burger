@@ -1,5 +1,10 @@
 # golden-apple 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 공통 절차·백업·3라운드 프로세스는 `docs/retro/README.md` 참조. 계정 간 A/B 비교는 `docs/ab-retro-playbook.md`.
 
@@ -8,6 +13,10 @@
 ```
 docs/retro/golden-apple.md 를 읽고 §3(실적 분석)과 §4(반사실 분석)를 실행한 뒤,
 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 - golden-apple은 같은 코드로 Jenkins job 2개(GOLDEN-APPLE (1)/(2))를 돌린다.
   find로 두 job의 trades.db를 모두 찾아 인스턴스별로 따로 분석하고, 마지막에 둘을 비교해줘.
   같은 시장이 양쪽 DB에 다 있을 수 있으니 포트폴리오 합산 시 condition_id로 dedupe 해줘.
@@ -21,9 +30,9 @@ Jenkins env export 블록 (PRIVATE_KEY 줄 제외):
 (2): [붙여넣기]
 ```
 
-**env 블록 붙여넣기가 필수인 이유**: 운영 파라미터는 repo에 없다. `config.py`의 우선순위가
-env > `config.yaml` > 코드 기본값이고, 두 인스턴스는 Jenkins env로만 차별화된다.
-env 블록 없이는 "현행값"을 특정할 수 없다.
+`config.py`의 우선순위는 env > `config.yaml` > 코드 기본값이고 두 인스턴스는 Jenkins env로
+차별화된다. 다만 post-instrumentation 운영값의 source of truth는 DB의 `strategy_configs`와
+`run_audits`다. export 블록은 현재값·legacy 구간의 cross-check로만 사용하고 secret을 제외한다.
 
 ## 1. 전략 요약
 
@@ -57,7 +66,8 @@ GTC → `COMPLETED`. **청산 경로는 이 한 가지뿐이다.** apple의 trad
 | simulation_mode | (CLI `--simulate`가 override) | false | true면 주문 미전송, `trades_sim.db` 사용 |
 
 주의: 코드 기본값은 yaml과 다르다 (buy_amount 10.0 / min_liquidity 100000 / min_volume 0).
-Jenkins env가 있으면 그것이 최종값 — §0에서 받은 env 블록 기준으로 "현행"을 채운다.
+"현행"은 `run_audits`의 기간 내 config hash와 `strategy_configs.config_json`으로 채운다.
+Jenkins env는 current/legacy cross-check다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -97,8 +107,9 @@ job명은 바뀔 수 있으니 반드시 find로 찾는다. **결과가 2개 나
 
 ### 중앙 가격 아카이브 (반사실 분석의 원료)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스캔하므로, 가격 시계열은
-**nectarine DB의 `market_snapshots`**를 공용 아카이브로 쓴다:
+Gamma keyset cursor를 끝까지 순회해 당시 조건을 통과한 시장을 수집하므로, 가격 시계열은
+**nectarine DB의 `market_snapshots`**를 공용 아카이브로 쓴다. 고정 시장 수를 가정하지 말고
+`run_audits`의 sweep과 `market_catalog` join coverage를 확인한다:
 
 ```bash
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
@@ -112,7 +123,11 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 - 시장이 해결(resolve)되면 스냅샷이 끊긴다 → 해결된 보유분의 최종가는
   `trades.sell_price` 또는 0/1 (redeem 가치)로 처리
 
-## 3. 실적 분석 SQL (그대로 실행 가능)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 **해석 전제**: apple 구조상 `COMPLETED`는 `sell_price >= 0.90 > buy_price`라서 정의상 거의 전부
 이익이다. 완결 승률은 무의미하고, 진짜 지표는 (1) **진입 대비 완결률**, (2) **HOLDING에 잠긴
@@ -275,19 +290,19 @@ HOLDING 잔존분의 mark 값 포함/제외 두 버전을 모두 제시할 것 (
 - 봇은 Gamma **누적** `volume`을 쓰는데 아카이브에는 `volume_24h`만 있다 → 누적 volume 필터는
   재현 불가. `volume_24h` 기반 근사 스윕({0, 5k, 20k})만 하고 근사임을 명시.
 
-**가상 진입의 카테고리 필터 한계**: 아카이브에는 question/tags가 없어 스포츠 제외 필터
-(태그 + "win the"/"beat" 등 키워드 오폭 포함)를 그대로 재현할 수 없다. 가상 진입 후보는
-Gamma API로 `condition_ids` 메타데이터를 조회해 필터를 적용하거나, 불가하면 "필터 미적용
-유니버스" 기준임을 결과에 명시한다.
+**가상 진입의 카테고리 필터**: post-instrumentation 구간은 `market_catalog.question`과
+`tags_json`으로 스포츠 제외 필터를 재현한다. legacy catalog gap은 Gamma metadata 재조회 또는
+“필터 미적용 universe”로 분리하고 coverage를 명시한다.
 
 ### (c) 데이터 한계 (결과 보고서에 반드시 명시)
 
-- 아카이브는 5분 간격 midpoint — 봇의 실제 체결 조건(스캔 시점, CLOB 재검증, limit 미체결
-  가능성)을 완전히 재현하지 못한다. 특히 봇은 GTC limit 접수 = 체결로 기록하므로 DB 자체가
-  낙관적일 수 있다 (회고 시작 시 실제 지갑 포지션과 대사 — `docs/retro/README.md` §5).
+- archive midpoint는 actual execution을 재현하지 않는다. legacy `trades`의 GTC 접수 상태는
+  fill이 아니며, 실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 계산한다.
+  ledger gap은 `ORDER_ASSUMPTION`으로 분리하고 account evidence/NAV와 대사한다.
 - NO 가격은 1 − YES 근사 (스프레드 무시).
-- 아카이브 유니버스(liq >= $10k, 가장 오래된 활성 ~2100개)와 apple 스캔 유니버스가 완전히
-  일치하지 않을 수 있다 — 위 커버리지 SQL로 확인하고 누락률을 보고.
+- 아카이브 유니버스(liq >= $10k)와 apple의 실행별 필터·수집 시점이 완전히 일치하지 않을 수
+  있다. 고정 cap 문제가 아니라 run/cursor/cadence gap이므로 위 coverage SQL과 catalog를
+  사용해 누락률을 보고한다.
 - 60일 보존 — 회고가 늦어지면 초기 거래의 시계열이 유실된다.
 - 해결된 시장은 스냅샷이 끊긴다 — 최종가는 `trades.sell_price` 또는 0/1 수동 판정.
 
@@ -310,7 +325,7 @@ Gamma API로 `condition_ids` 메타데이터를 조회해 필터를 적용하거
 
 인스턴스별로 하나씩 (env가 동일하면 통합 1개 + 명시):
 
-| 파라미터 | 현행 (Jenkins env 기준) | 제안 | 근거 수치 | 신뢰도(높음/중간/낮음) |
+| 파라미터 | 현행 (resolved config cohort) | 제안 | 근거 수치 | 신뢰도(높음/중간/낮음) |
 |---|---|---|---|---|
 | POLYBOT_BUY_THRESHOLD | | | | |
 | POLYBOT_SELL_THRESHOLD | | | | |
@@ -326,7 +341,8 @@ Gamma API로 `condition_ids` 메타데이터를 조회해 필터를 적용하거
   `docs/retro/README.md` §3). 파라미터 변경은 Jenkins env 교체만으로 끝난다.
   apple은 이미 2개 슬롯이므로 cherry식 병행이 자연스럽다: **(1)은 현행 유지(대조군),
   (2)에 제안 env 적용(실험군)** — 계정 간 비교 절차는 `docs/ab-retro-playbook.md`.
-- 라운드 시작/변경 시 아래 `운용 이력`에 날짜 + env 블록(키 제외)을 기록한다.
+- 변경 후 새 `config_hash`/Git cohort가 `run_audits`에 나타나는지 확인한다. 아래 `운용 이력`에는
+  날짜, 의사결정 이유, rollback 기준과 secret을 제거한 env diff를 보조 기록한다.
 
 ## 7. 기준 정보
 

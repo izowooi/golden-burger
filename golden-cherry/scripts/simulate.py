@@ -18,6 +18,16 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from dotenv import load_dotenv
 
 
+def load_simulation_config(config_path: str, job_name: str):
+    """Load a config whose mode and database are guaranteed to be simulation-only."""
+    from polybot.config import load_config
+
+    config = load_config(config_path, job_name, simulation_mode=True)
+    if not config.simulation_mode or config.db_path.name != "trades_sim.db":
+        raise RuntimeError("Simulation config resolved to a live database path")
+    return config
+
+
 def main():
     parser = argparse.ArgumentParser(description="Run bot in simulation mode")
     parser.add_argument(
@@ -42,7 +52,6 @@ def main():
 
     # Import after path setup
     import logging
-    from polybot.config import load_config
     from polybot.bot import PolymarketBot
     from polybot.utils.logger import setup_logger
 
@@ -54,16 +63,13 @@ def main():
 
     # Load config
     try:
-        config = load_config(args.config, args.job)
+        config = load_simulation_config(args.config, args.job)
     except ValueError as e:
         logger.error(f"Configuration error: {e}")
         print("\nMake sure .env file exists with:")
         print("  POLYMARKET_PRIVATE_KEY=your_key")
         print("  POLYMARKET_FUNDER_ADDRESS=your_address")
         sys.exit(1)
-
-    # Force simulation mode
-    config.simulation_mode = True
 
     print()
     print("=" * 50)

@@ -108,7 +108,7 @@
 
 | 안 | 이름 | 변경 env |
 |----|------|---------|
-| A-1 | date-1: 사다리 좁게 (단기 집중) | `POLYBOT_LADDER_H3=24` (밴드1만 사용, h<=24만 진입) |
+| A-1 | date-1: 사다리 좁게 (단기 집중) | `POLYBOT_LADDER_H1=12`, `POLYBOT_LADDER_H2=18`, `POLYBOT_LADDER_H3=24` (순서를 유지하며 h<=24만 진입) |
 | A-2 | date-2: YES-only | CLI `--yes-only` 또는 `POLYBOT_YES_ONLY=true` (cherry 운영 모드와 직접 비교) |
 | A-3 | date-3: trailing off + 홀드 | `POLYBOT_TRAILING_STOP_ENABLED=false` (수렴을 2h 전까지 끝까지 태우고 -8% 손절만 사용) |
 

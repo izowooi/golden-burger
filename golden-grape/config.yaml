@@ -57,6 +57,9 @@ trading:
     vol_accel_min: 1.2
     # 드리프트 소멸 판정 윈도우 (시간)
     death_window_hours: 6
+    # 드리프트 소멸 판정은 3개 이상 + 윈도우의 50% 이상 실제 시간 커버 필요
+    death_window_min_points: 3
+    death_window_min_coverage: 0.5
 
   # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
   excluded_categories: []

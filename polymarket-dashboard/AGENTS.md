@@ -21,6 +21,8 @@
 
 - `src/components/dashboard.tsx`: 필터·차트·KPI·상세 비교 UI (client component)
 - `src/lib/analytics.ts`: 기간 필터와 수익률 계산
+- `src/lib/data-quality.ts`: 최신 보고 시각, stale 판정, 계정별 결측일, 일일 합계 대사
+- `src/lib/*.test.ts`: analytics·data-quality 단위 테스트 (Node test runner + tsx)
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API (Route Handler)
 - `src/lib/supabase/server.ts`: 서버 전용 Supabase client
 - `src/lib/types.ts`: 응답·도메인 타입
@@ -36,9 +38,10 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-자동화 테스트는 없다. 정적 분석으로 검증한다.
+analytics와 데이터 품질 계산은 자동화 단위 테스트로 검증한다.
 
 ```bash
+npm test
 npm run lint
 npm run typecheck
 npm run build
@@ -70,8 +73,17 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 
 - 수익률 = (마지막 총 잔고 − 첫 총 잔고) / 첫 총 잔고 × 100.
 - 선택 기간에 존재하는 첫 잔고와 마지막 잔고로 계산한다.
+- 선택 계정 합산 KPI는 선택 계정 모두의 데이터가 존재하는 공통 관측일만 사용한다.
 - **입출금은 보정하지 않는다.** 자금 이동으로 값이 튄 날짜는 조회 기간에서 제외한다.
 - 위 계산식과 미보정 전제는 불변 규칙이다. 변경 시 `README.md`·`analytics.ts`·UI 안내 문구를 함께 갱신한다.
+
+## 데이터 품질 규칙
+
+- 최신 보고 시각은 `pb_daily_portfolio_totals.reported_at`의 최신값을 우선한다. total이 없을 때만 계정별 잔고의 최신 `reported_at`을 사용한다.
+- API 조회 시각 기준 최신 보고가 36시간을 초과하면 stale로 표시한다.
+- 계정별 결측일은 해당 계정의 첫 관측일부터 전체 최신 보고일까지의 calendar day 기준이다.
+- 같은 날짜의 전체 total과 계정별 `total_value` 합계 차이가 $0.01을 초과하면 대사 불일치로 표시한다.
+- 차트에는 calendar day를 채우고 결측값을 `null`로 유지한다. 결측 구간을 선으로 연결하지 않는다.
 
 ## 주의사항
 

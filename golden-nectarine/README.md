@@ -1,6 +1,6 @@
 # Golden Nectarine — Polymarket Bottom Fisher Bot
 
-장기(30일+) 시장에서 YES 가격이 **20일 롤링 최저가** 이하로 떨어지면 매수하고, **보유 120시간(5일) 경과 시 무조건 청산**하는 평균 회귀 봇. QuantPedia 공개 백테스트(X=20/Y=5, 비용 반영 CAR +18.9~22.1%)의 복제 구현이다.
+장기(30일+) 시장에서 YES 가격이 **20일 롤링 최저가** 이하로 떨어지면 매수하고, **보유 120시간(5일) 경과 시 무조건 청산**하는 평균 회귀 봇. QuantPedia 공개 백테스트의 X=20/Y=5 규칙을 CLOB `fidelity=60` 가격으로 구현한 **시간별 근사**이며, 원문의 daily-close를 직접 복제한 것은 아니다. 진입에는 20일 룩백의 최소 95%(19일) span과 20개 이상 가격 포인트가 필요하다.
 
 전략 근거·규칙·리스크 상세: [STRATEGY.md](./STRATEGY.md)
 
@@ -91,6 +91,11 @@ data/<job>/
 ├── trades_YYYY-MM.csv   # 월별 거래 이력 (시그널 컬럼 포함, 청산 시 append)
 └── logs/YYYYMMDD.log
 ```
+
+`trades*.db`에는 `market_sweeps`와 `market_sweep_memberships`도 저장한다.
+terminal cursor까지 완료된 Gamma keyset sweep만 인정하며, qualified condition별
+snapshot 판정과 가격/catalog를 한 transaction으로 기록한다. raw 제외 사유는 집계로,
+qualified membership은 60일 보존 후 snapshot과 함께 정리한다.
 
 `data/`는 git에 커밋하지 않는다 (.gitignore 등록).
 

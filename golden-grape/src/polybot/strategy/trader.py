@@ -258,7 +258,15 @@ class Trader:
         since = datetime.utcnow() - timedelta(hours=death_hours)
         snapshots = self.repo.get_snapshots_since(condition_id, since)
         token_index = trade.token_index if trade.token_index is not None else 0
-        drift_at_exit = compute_death_drift(snapshots, token_index, death_hours)
+        death_min_points = self.config.cascade.death_window_min_points
+        death_min_coverage = self.config.cascade.death_window_min_coverage
+        drift_at_exit = compute_death_drift(
+            snapshots,
+            token_index,
+            death_hours,
+            min_points=death_min_points,
+            min_coverage=death_min_coverage,
+        )
 
         # Determine exit signal and reason
         should_sell = False
@@ -288,7 +296,13 @@ class Trader:
 
         # 3. Drift Death: 최근 6h 매수 토큰 기준 변화 <= 0
         if not should_sell:
-            dead = is_drift_dead(snapshots, token_index, death_hours)
+            dead = is_drift_dead(
+                snapshots,
+                token_index,
+                death_hours,
+                min_points=death_min_points,
+                min_coverage=death_min_coverage,
+            )
             if dead:
                 should_sell = True
                 exit_reason = "drift_death"

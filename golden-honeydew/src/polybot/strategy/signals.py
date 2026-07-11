@@ -41,6 +41,8 @@ class NightWatchParams:
     entry_prob_max: float = 0.90
     min_points: int = 5
     min_coverage: float = 0.5
+    vol_window_min_points: int = 2
+    vol_window_min_coverage: float = 0.5
 
 
 @dataclass(frozen=True)
@@ -251,41 +253,62 @@ def is_volume_spike(
     now: datetime,
     recent_hours: float = 3.0,
     spike_mult: float = 1.5,
-) -> bool:
+    lookback_hours: float = 24.0,
+    min_points: int = 2,
+    min_coverage: float = 0.5,
+) -> Optional[bool]:
     """거래량 급증(진짜 뉴스) 여부 판정.
 
-    최근 recent_hours 스냅샷의 volume_24h 평균이 전체 윈도우 평균의
+    최근 recent_hours 스냅샷의 volume_24h 평균이 그 이전 baseline 평균의
     spike_mult배 이상이면 True (뉴스에 의한 이탈 → 진입 금지).
-    volume 데이터가 없으면(백필 전용 윈도우 등) 판정 불가 → False.
+    baseline/recent 어느 쪽이든 포인트 또는 시간 커버리지가 부족하면
+    판정 불가(None)를 반환해 호출자가 진입을 fail closed 한다.
 
     Args:
         window: 24h 윈도우 스냅샷
         now: 기준 시각
         recent_hours: 최근 구간 크기 (시간)
         spike_mult: 급증 판정 배수
+        lookback_hours: baseline+recent 전체 구간 크기
+        min_points: baseline/recent 각각의 최소 volume 포인트 수
+        min_coverage: baseline/recent 각각의 최소 시간 커버리지
 
     Returns:
-        거래량 급증이면 True
+        거래량 급증이면 True, 아니면 False, 판정 증거 부족이면 None
     """
-    volumes = [
-        (s.timestamp, s.volume_24h)
-        for s in window
-        if s.volume_24h is not None
-    ]
-    if not volumes:
-        return False
-
-    window_avg = statistics.mean(v for _, v in volumes)
-    if window_avg <= 0:
-        return False
+    volumes = sorted(
+        [
+            (s.timestamp, s.volume_24h)
+            for s in window
+            if s.volume_24h is not None
+            and now - timedelta(hours=lookback_hours) <= s.timestamp <= now
+        ]
+    )
 
     cutoff = now - timedelta(hours=recent_hours)
-    recent = [v for ts, v in volumes if ts >= cutoff]
-    if not recent:
-        return False
+    baseline = [(ts, value) for ts, value in volumes if ts < cutoff]
+    recent = [(ts, value) for ts, value in volumes if ts >= cutoff]
 
-    recent_avg = statistics.mean(recent)
-    return recent_avg >= spike_mult * window_avg
+    def period_is_valid(points, period_hours):
+        if len(points) < min_points:
+            return False
+        span = points[-1][0] - points[0][0]
+        return span >= timedelta(hours=period_hours * min_coverage)
+
+    baseline_hours = lookback_hours - recent_hours
+    if baseline_hours <= 0:
+        return None
+    if not period_is_valid(baseline, baseline_hours):
+        return None
+    if not period_is_valid(recent, recent_hours):
+        return None
+
+    baseline_avg = statistics.mean(value for _, value in baseline)
+    if baseline_avg <= 0:
+        return None
+
+    recent_avg = statistics.mean(value for _, value in recent)
+    return recent_avg >= spike_mult * baseline_avg
 
 
 def evaluate_entry(
@@ -335,11 +358,20 @@ def evaluate_entry(
             deviation=deviation, median=median,
         )
 
-    if is_volume_spike(
+    volume_spike = is_volume_spike(
         window, now,
         recent_hours=params.vol_recent_hours,
         spike_mult=params.vol_spike_block,
-    ):
+        lookback_hours=params.median_lookback_hours,
+        min_points=params.vol_window_min_points,
+        min_coverage=params.vol_window_min_coverage,
+    )
+    if volume_spike is None:
+        return EntrySignal(
+            False, "volume_window_invalid",
+            deviation=deviation, median=median,
+        )
+    if volume_spike:
         return EntrySignal(
             False, "volume_spike_news",
             deviation=deviation, median=median,

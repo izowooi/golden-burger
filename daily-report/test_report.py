@@ -8,18 +8,19 @@ before deploying to Jenkins.
 Usage:
     python3 test_report.py
 """
-import sys
 import os
-from pathlib import Path
+import sys
 from datetime import datetime
+from pathlib import Path
 
 from dotenv import load_dotenv
 
+from polybot_reporter.api.data_api_client import DataAPIClient
+from polybot_reporter.contracts import safe_error_message
+from polybot_reporter.notifications.slack_notifier import SlackNotifier
+
 # .env 파일 로드 (daily-report 디렉토리의 .env)
 load_dotenv(Path(__file__).parent / ".env")
-
-from polybot_reporter.api.data_api_client import DataAPIClient
-from polybot_reporter.notifications.slack_notifier import SlackNotifier
 
 
 def test_data_api_client():
@@ -33,7 +34,7 @@ def test_data_api_client():
     # Test with a dummy address (replace with real one if you want)
     test_address = os.getenv("TEST_ADDRESS", "0x0000000000000000000000000000000000000000")
 
-    print(f"Testing with address: {test_address[:10]}...")
+    print("Testing with address: [REDACTED]")
 
     try:
         # Test get_positions
@@ -46,13 +47,13 @@ def test_data_api_client():
         summary = client.get_portfolio_summary(test_address)
         print(f"   ✅ Portfolio value: ${summary['total_value']:.2f}")
         print(f"   ✅ Positions: {summary['num_positions']}")
-        print(f"   ✅ 7d P&L: ${summary['pnl_7d']['total_pnl']:+.2f}")
-        print(f"   ✅ 30d P&L: ${summary['pnl_30d']['total_pnl']:+.2f}")
+        print("   ✅ 7d P&L: N/A (daily snapshot history required)")
+        print("   ✅ 30d P&L: N/A (daily snapshot history required)")
 
         return summary
 
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   ❌ Error: {safe_error_message(e)}")
         return None
 
 
@@ -79,6 +80,8 @@ def test_slack_notifier(mock_summary=None):
                 {"outcome": "Yes", "value": 100, "pnl": 10},
                 {"outcome": "No", "value": 50, "pnl": -5},
             ],
+            "position_value": 100.0,
+            "cash_balance": 50.0,
             "total_value": 150.0,
             "num_positions": 2,
             "pnl_7d": {
@@ -105,9 +108,12 @@ def test_slack_notifier(mock_summary=None):
 
         print("\n2. Testing send_multi_account_report()...")
         multi_reports = {
-            "golden-apple": mock_summary,
+            "golden-apple (1)": mock_summary,
             "golden-banana": mock_summary,
-            "golden-cherry": mock_summary
+            "golden-cherry": mock_summary,
+            "golden-apple (2)": mock_summary,
+            "golden-eco": mock_summary,
+            "golden-fox": mock_summary,
         }
         success = slack.send_multi_account_report(multi_reports)
         if success:
@@ -126,7 +132,7 @@ def test_slack_notifier(mock_summary=None):
             print("   ❌ Failed to send error notification")
 
     except Exception as e:
-        print(f"   ❌ Error: {e}")
+        print(f"   ❌ Error: {safe_error_message(e)}")
 
 
 def main():

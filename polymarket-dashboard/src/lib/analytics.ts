@@ -4,7 +4,6 @@ import type {
   ChartMode,
   ChartRow,
   PerformanceSummary,
-  PortfolioTotal,
 } from "@/lib/types";
 
 export function getDateBounds(rows: { report_date: string }[]) {
@@ -48,14 +47,37 @@ export function getPerformance(
   };
 }
 
-export function getPortfolioPerformance(
-  totals: PortfolioTotal[],
+export function getSelectedPortfolioPerformance(
+  balances: AlgorithmBalance[],
+  selectedAccountIds: string[],
   start: string,
   end: string,
 ) {
-  const points = totals
-    .filter((row) => inDateRange(row.report_date, start, end))
-    .sort((a, b) => a.report_date.localeCompare(b.report_date));
+  const selected = new Set(selectedAccountIds);
+  if (!selected.size) return null;
+
+  const byDate = new Map<string, Map<string, AlgorithmBalance>>();
+  for (const row of balances) {
+    if (!selected.has(row.account_id) || !inDateRange(row.report_date, start, end)) {
+      continue;
+    }
+    const rows = byDate.get(row.report_date) ?? new Map<string, AlgorithmBalance>();
+    rows.set(row.account_id, row);
+    byDate.set(row.report_date, rows);
+  }
+
+  const points = [...byDate.entries()]
+    .filter(([, rows]) => selectedAccountIds.every((accountId) => rows.has(accountId)))
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([reportDate, rows]) => ({
+      report_date: reportDate,
+      total_value: [...rows.values()].reduce((sum, row) => sum + row.total_value, 0),
+      position_value: [...rows.values()].reduce(
+        (sum, row) => sum + row.position_value,
+        0,
+      ),
+      cash_value: [...rows.values()].reduce((sum, row) => sum + row.cash_value, 0),
+    }));
   const first = points[0];
   const last = points.at(-1);
   if (!first || !last) return null;
@@ -78,9 +100,16 @@ export function buildChartRows(
   mode: ChartMode,
 ): ChartRow[] {
   const selected = new Set(selectedAccountIds);
-  const filtered = balances.filter(
-    (row) => selected.has(row.account_id) && inDateRange(row.report_date, start, end),
-  );
+  const filtered = balances
+    .filter(
+      (row) =>
+        selected.has(row.account_id) && inDateRange(row.report_date, start, end),
+    )
+    .sort(
+      (left, right) =>
+        left.report_date.localeCompare(right.report_date) ||
+        left.account_id.localeCompare(right.account_id),
+    );
   const bases = new Map<string, number>();
   const byDate = new Map<string, ChartRow>();
 
@@ -96,13 +125,34 @@ export function buildChartRows(
     byDate.set(row.report_date, chartRow);
   }
 
-  return [...byDate.values()].sort((a, b) =>
-    String(a.date).localeCompare(String(b.date)),
-  );
+  const dates = [...byDate.keys()].sort();
+  if (!dates.length) return [];
+  const rangeStart = start || dates[0];
+  const rangeEnd = end || dates.at(-1) || rangeStart;
+
+  return listCalendarDates(rangeStart, rangeEnd).map((date) => {
+    const row = byDate.get(date) ?? { date };
+    for (const accountId of selectedAccountIds) {
+      if (!(accountId in row)) row[accountId] = null;
+    }
+    return row;
+  });
 }
 
 export function subtractDays(date: string, days: number) {
   const value = new Date(`${date}T00:00:00Z`);
   value.setUTCDate(value.getUTCDate() - days);
   return value.toISOString().slice(0, 10);
+}
+
+function listCalendarDates(start: string, end: string) {
+  const dates: string[] = [];
+  const cursor = new Date(`${start}T00:00:00Z`);
+  const last = new Date(`${end}T00:00:00Z`);
+
+  while (cursor <= last) {
+    dates.push(cursor.toISOString().slice(0, 10));
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return dates;
 }

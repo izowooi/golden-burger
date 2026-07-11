@@ -131,6 +131,26 @@ class TestEntrySignal:
         assert signal.entry is False
         assert signal.reason.startswith("yes_spike_6h")
 
+    def test_rejected_when_24h_valid_but_6h_spike_window_has_one_point(self):
+        """24h 이력이 있어도 6h 급등 게이트 증거가 없으면 fail closed."""
+        snapshots = [
+            PricePoint(NOW - timedelta(hours=h), 0.15)
+            for h in (24, 20, 16, 12, 8, 0)
+        ]
+        signal = entry(snapshots=snapshots)
+        assert signal.entry is False
+        assert signal.reason == "spike_window_invalid"
+
+    def test_rejected_when_6h_points_are_temporally_clustered(self):
+        """6h 포인트 수만 채우고 최근 1h에 몰린 데이터는 거부."""
+        snapshots = [
+            PricePoint(NOW - timedelta(hours=h), 0.15)
+            for h in (24, 20, 16, 12, 8, 1, 0.5, 0)
+        ]
+        signal = entry(snapshots=snapshots)
+        assert signal.entry is False
+        assert signal.reason == "spike_window_invalid"
+
     def test_entry_allowed_spike_below_threshold(self):
         # 6h 저점 대비 +0.04 < 0.05 → 허용
         snapshots = history_with_override(0.15, {4.0: 0.11})

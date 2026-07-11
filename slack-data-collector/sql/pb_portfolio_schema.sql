@@ -25,7 +25,11 @@ create table if not exists public.pb_daily_portfolio_totals (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   constraint pb_daily_portfolio_totals_currency_check
-    check (currency ~ '^[A-Z]{3}$')
+    check (currency ~ '^[A-Z]{3}$'),
+  constraint pb_daily_portfolio_totals_nonnegative_check
+    check (total_value >= 0 and position_value >= 0 and cash_value >= 0),
+  constraint pb_daily_portfolio_totals_breakdown_check
+    check (total_value = position_value + cash_value)
 );
 
 comment on table public.pb_daily_portfolio_totals is
@@ -44,7 +48,11 @@ create table if not exists public.pb_daily_algorithm_balances (
   updated_at timestamptz not null default now(),
   primary key (report_date, account_id),
   constraint pb_daily_algorithm_balances_currency_check
-    check (currency ~ '^[A-Z]{3}$')
+    check (currency ~ '^[A-Z]{3}$'),
+  constraint pb_daily_algorithm_balances_nonnegative_check
+    check (total_value >= 0 and position_value >= 0 and cash_value >= 0),
+  constraint pb_daily_algorithm_balances_breakdown_check
+    check (total_value = position_value + cash_value)
 );
 
 comment on table public.pb_daily_algorithm_balances is
@@ -60,3 +68,7 @@ alter table public.pb_daily_algorithm_balances enable row level security;
 revoke all on table public.pb_algorithm_accounts from anon, authenticated;
 revoke all on table public.pb_daily_portfolio_totals from anon, authenticated;
 revoke all on table public.pb_daily_algorithm_balances from anon, authenticated;
+
+-- Apply pb_portfolio_history_v2.sql immediately after this base schema. The live
+-- daily writer requires its preflight + atomic snapshot RPC; these three tables
+-- alone are retained only as the base/backfill compatibility layer.

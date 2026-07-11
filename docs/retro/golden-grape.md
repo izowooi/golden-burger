@@ -1,5 +1,10 @@
 # golden-grape 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 대상 봇: **Cascade Rider** — 24h 소폭 드리프트(+4~10%p) + 버킷 일관성 + 거래량 가속 편승 전략.
 
@@ -8,6 +13,10 @@
 ```text
 /Users/izowooi/git/t1/docs/retro/golden-grape.md 를 읽고 §3(실적 SQL)~§5(표본 주의)를 실행한 뒤,
 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 - 봇 자기 DB는 §2의 find 명령으로 찾아라 (job명은 바뀔 수 있음).
 - 반사실(what-if) 가격 시계열은 grape 자기 스냅샷(보존 ~7일)이 아니라
@@ -17,7 +26,7 @@
 - 같은 이벤트에서 파생된 시장들(negRisk 다후보 등)은 이벤트 단위로 묶어 집계하고,
   배포 초기 cold-start/백필 코호트는 정상 신호 코호트와 분리해서 봐라 (§5).
 - NO 포지션의 아카이브 가격은 1-YES 근사임을 결과에 명시해라.
-- 운영 env는 repo에 없다. Jenkins job 설정의 export 블록(실키 제외)을 아래에 붙여넣었다:
+- Jenkins export 블록은 DB provenance와 대조할 current/legacy cross-check다. 실키를 제외한다:
   [여기에 Jenkins env export 블록 붙여넣기 — POLYMARKET_PRIVATE_KEY 등 실키는 제외]
 ```
 
@@ -42,6 +51,8 @@
 | consistency_min | `POLYBOT_CONSISTENCY_MIN` | 0.70 | 비음(>=0) 버킷 비율 하한 |
 | vol_accel_min | `POLYBOT_VOL_ACCEL_MIN` | 1.2 | 거래량 가속 배수 하한 |
 | death_window_hours | `POLYBOT_DEATH_WINDOW_HOURS` | 6 | 드리프트 소멸 판정 윈도우 (h) |
+| death_window_min_points | `POLYBOT_DEATH_WINDOW_MIN_POINTS` | 3 | 소멸 판정 최소 포인트 |
+| death_window_min_coverage | `POLYBOT_DEATH_WINDOW_MIN_COVERAGE` | 0.5 | 소멸 윈도우 최소 시간 coverage |
 | entry_hours_min | `POLYBOT_ENTRY_HOURS_MIN` | 48 | 해결까지 최소 잔여시간 (h) |
 | exit_hours | `POLYBOT_EXIT_HOURS` | 24 | 시간 청산 기준 (h) |
 | trailing_stop.enabled | `POLYBOT_TRAILING_STOP_ENABLED` | true | 트레일링 스탑 on/off |
@@ -59,7 +70,8 @@
 
 코드 상수(env 아님): 윈도우 유효성 `min_points=5`, `min_coverage=0.5` (`signals.py`), 최소 주문 5주 (`trader.py MIN_ORDER_SIZE`), 익절 캡 0.99, EXPIRED 판정 유예 24h (`RESOLVED_GRACE_HOURS`).
 
-**운영 env는 repo에 없다.** 실제 운용값은 Jenkins job 설정의 export 블록이 단일 소스다 — 회고 시 반드시 §0 프롬프트에 붙여넣을 것 (기본값과 다르게 운용 중일 수 있다).
+post-instrumentation 실제 운용값은 `strategy_configs`와 `run_audits`의 config hash/Git cohort가
+source of truth다. Jenkins export는 secret을 제거한 current/legacy cross-check로만 사용한다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -95,12 +107,18 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 ```
 
 - 컬럼: `condition_id`, `probability`(**항상 YES 가격**), `liquidity`, `volume_24h`, `timestamp`(UTC naive, 5분 간격)
-- 유니버스: 유동성 >= $10k, **60일 보존**. 모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로 grape 유니버스(liq >= $20k)는 아카이브의 부분집합이다 — 아카이브 쪽 `liquidity >= 20000 AND volume_24h >= 10000` 필터로 재현.
+- 유니버스: 유동성 >= $10k, **60일 보존**. Gamma keyset cursor를 끝까지 순회한 당시
+  qualifying universe에서 `liquidity >= 20000 AND volume_24h >= 10000`을 적용해 grape
+  후보를 재현한다. 고정 시장 수를 가정하지 않는다.
 - **NO 토큰 가격은 1-YES 근사** (스프레드 무시 근사임을 결과에 명시).
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결 보유분의 최종가는 `trades.sell_price` 또는 0/1 (redeem 가정).
 - grape의 최근 7일 자체 스냅샷은 `drift_at_buy` 재검산·아카이브 대조(sanity check)에만 쓴다.
 
-## 3. 실적 분석 SQL (grape trades.db에 그대로 실행)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 ```sql
 -- 3.0 상태 분포 (EXPIRED 잔여분·미청산 확인)
@@ -234,9 +252,11 @@ ORDER BY timestamp;
 
 1. `stop_loss`: (p / buy_price - 1) <= SL
 2. `take_profit`: p >= min(buy_price × (1 + TP), 0.99)
-3. `drift_death`: 최근 W시간 매수 토큰 가격 변화 <= 0 (윈도우 내 포인트 2개 미만이면 판단 보류 — 트리거 없음)
+3. `drift_death`: 최근 W시간 매수 토큰 가격 변화 <= 0. 현행은 최소 3포인트와 W의 50%
+   time coverage를 모두 충족하지 않으면 판단 보류한다.
 4. `trailing_stop`: p < (진입 후 최고가) × (1 - TRAIL)
-5. `time_exit`: 해결까지 < 24h — 아카이브에 end_date가 없으므로 `trades.market_end_date`를 조인해서 판정
+5. `time_exit`: 해결까지 < 24h — post-instrumentation `market_catalog.end_date`를 사용하고,
+   legacy catalog gap만 `trades.market_end_date`로 보충
 6. 시계열 종료(해결)까지 미청산이면 redeem 가정 최종가 적용
 
 격자 (현행: TP 0.15 / SL -0.08 / TRAIL 0.06 / W 6h):
@@ -259,11 +279,14 @@ ORDER BY timestamp;
 1. 아카이브에서 `liquidity >= 20000 AND volume_24h >= 10000`인 (condition_id, timestamp) 지점만 후보로.
 2. 평가 시점은 1시간 간격으로 다운샘플 (5분 전부 돌리면 과도).
 3. 각 평가 시점에서 `signals.py`의 `evaluate_entry`와 동일 로직 적용 (grape repo를 import해서 쓰면 로직 복제 오류가 없다 — `SnapshotPoint(timestamp, probability, volume_24h)`로 변환해 넘기면 됨):
-   - 24h 윈도우 (포인트 >= 5, 커버리지 >= 12h — 아카이브는 5분 간격이라 사실상 통과)
+   - 24h 윈도우 (포인트 >=5, 커버리지 >=12h). 목표 5-minute cadence를 이유로 자동 통과
+     처리하지 말고 실제 bucket/run coverage를 검증한다.
    - `yes_drift = p_now - window[0]` 방향 결정 → 매수 토큰 기준 drift ∈ [drift_min, drift_max], p ∈ [0.40, 0.80]
    - 4h 버킷 일관성 >= consistency_min, vol_accel = 현재 volume_24h / 윈도우 평균 >= vol_accel_min
 4. 시장당 재진입 쿨다운 24h + "보유 중 중복 진입 금지"를 적용해 가상 포지션 시퀀스 생성.
-5. `entry_hours_min=48h`(해결까지 잔여) 필터는 아카이브에 end_date가 없어 정확 재현 불가 → **프록시**: 진입 시점 이후 스냅샷이 48h 이상 이어지는 시장만 채택 (사후 정보임을 명시). 또는 gamma API에서 condition_id별 endDate를 받아 조인.
+5. `entry_hours_min=48h`는 post-instrumentation `market_catalog.end_date`로 재현한다. legacy
+   catalog gap만 Gamma condition ID 재조회로 보충하며, 마지막 snapshot 프록시는 look-ahead
+   sensitivity로 별도 표시한다.
 6. 각 가상 진입을 (a)의 현행 청산 규칙으로 청산해 가상 P&L 산출.
 
 격자 (현행 굵게):
@@ -280,8 +303,12 @@ ORDER BY timestamp;
 ### (c) 데이터 한계 (결과 보고서에 반드시 명시)
 
 - **NO 토큰 = 1-YES 근사**: 스프레드 무시. NO 포지션 P&L은 실제보다 낙관될 수 있다.
-- **체결 가정**: 실봇도 GTC limit @ midpoint 즉시 체결 가정(미체결 추적 없음) — 시뮬과 반사실 모두 슬리피지/스프레드/미체결을 모델링하지 않는다. 반사실 P&L은 상대 비교용이지 절대 수익 예측이 아니다.
-- **유니버스 차이**: 아카이브는 liq >= $10k 수집이지만 필터로 grape 유니버스(>= $20k)를 근사 — liquidity가 $20k 경계를 오가는 시장에서 grape 실제 스캔과 미세하게 다를 수 있다. 아카이브는 "가장 오래된 활성 시장 ~2100개" sweep이라 신규 상장 시장은 늦게 편입될 수 있다.
+- **Execution evidence**: legacy `trades`의 midpoint GTC 상태 전환은 actual fill이 아니다. live
+  실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 계산하고 ledger gap을 분리한다.
+  simulation/counterfactual은 spread·unfilled sensitivity를 붙인 상대 비교로만 사용한다.
+- **유니버스 차이**: 아카이브는 liq >= $10k 수집이지만 필터로 grape 유니버스(>= $20k)를
+  근사하므로 경계 시장에서 실제 run과 다를 수 있다. keyset에는 고정 cap이 없지만
+  run/cursor/cadence gap과 legacy 기간은 별도 coverage로 측정한다.
 - **해상도 차이**: 아카이브 5분 간격 vs 봇 사이클 주기. 청산 스윕의 트리거 시점이 실제와 수 분 어긋난다.
 - **백필 미반영**: grape 실봇은 cold-start 시 CLOB `/prices-history` 백필을 병합해 판정하지만 아카이브에는 그 포인트가 없다 — 배포 초기 진입은 재생이 정확히 일치하지 않는다 (§5 코호트 분리).
 - **end_date 부재**: entry_hours_min/time_exit 재현은 프록시(스냅샷 지속 기간 또는 gamma 조인) 기반.
@@ -305,7 +332,8 @@ ORDER BY timestamp;
 
 라운드 절차:
 
-1. **1차(이번 회고)**: 위 표 확정 → Jenkins job env만 수정 (코드 변경 불필요, env > yaml > 기본값 우선순위).
+1. **1차(이번 회고)**: 위 표 확정 → Jenkins env 반영 → 첫 성공 run의 새
+   `config_hash`/Git commit을 확인한다.
 2. **2차 테스트(4주)**: 제안값으로 운용. 변경 노브는 최대 2~3개로 제한 — 전부 바꾸면 귀속 불가.
 3. 확신이 낮은 제안은 cherry처럼 **기본/변형 병행 슬롯**으로 A/B: 같은 코드, 다른 env의 Jenkins job 2개 (예: 현행 vs STRATEGY.md §7 grape-1 엄격 조합). DB는 job명으로 자동 분리(`data/<job>/trades.db`)되어 비교가 깨끗하다.
 4. **3차 교정**: 2차 종료 후 이 문서로 재회고 → 표 갱신 → 수렴하면 `POLYBOT_BUY_AMOUNT` 증액 검토 (STRATEGY.md §6 판단 기준: 승률 >= 55% AND 평균 손익 > 0).

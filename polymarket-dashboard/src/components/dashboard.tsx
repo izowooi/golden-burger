@@ -16,9 +16,14 @@ import {
   buildChartRows,
   getDateBounds,
   getPerformance,
-  getPortfolioPerformance,
+  getSelectedPortfolioPerformance,
   subtractDays,
 } from "@/lib/analytics";
+import {
+  getDataQuality,
+  STALE_AFTER_HOURS,
+  type DataQualityReport,
+} from "@/lib/data-quality";
 import type {
   AlgorithmAccount,
   BalanceMetric,
@@ -175,8 +180,21 @@ export function Dashboard() {
     [performances],
   );
   const portfolioPerformance = useMemo(
-    () => getPortfolioPerformance(data?.totals ?? [], startDate, endDate),
-    [data?.totals, endDate, startDate],
+    () =>
+      getSelectedPortfolioPerformance(
+        data?.balances ?? [],
+        selectedAccountIds,
+        startDate,
+        endDate,
+      ),
+    [data?.balances, endDate, selectedAccountIds, startDate],
+  );
+  const dataQuality = useMemo(
+    () =>
+      data
+        ? getDataQuality(data.accounts, data.balances, data.totals, data.generated_at)
+        : null,
+    [data],
   );
   const chartRows = useMemo(
     () =>
@@ -228,9 +246,23 @@ export function Dashboard() {
           </div>
         </div>
         <div className="status-cluster">
-          <span className="status-dot" />
-          <span>Supabase live</span>
-          {bounds.maxDate && <span className="status-date">최근 {formatDate(bounds.maxDate)}</span>}
+          <span
+            className={`status-dot ${
+              !dataQuality
+                ? "pending"
+                : dataQuality.stale
+                  ? "stale"
+                  : dataQuality.hasIssues
+                    ? "warning"
+                    : "fresh"
+            }`}
+          />
+          <span>{reportStatusLabel(dataQuality, loading, Boolean(error))}</span>
+          {dataQuality?.latestReportAt && (
+            <span className="status-date">
+              보고 {formatTimestamp(dataQuality.latestReportAt)}
+            </span>
+          )}
           <CoinPicker value={coinEmoji} onChange={setStoredCoinEmoji} />
           <button className="refresh-button" type="button" onClick={() => void loadData()}>
             새로고침
@@ -319,28 +351,40 @@ export function Dashboard() {
             </div>
           </section>
 
-          <section className="kpi-grid" aria-label="포트폴리오 요약">
+          {dataQuality && (
+            <DataQualityPanel
+              quality={dataQuality}
+              accounts={data.accounts}
+              accountMap={accountMap}
+            />
+          )}
+
+          <section className="kpi-grid" aria-label="선택 전략 포트폴리오 요약">
             <KpiCard
-              label="현재 전체 자산"
+              label="선택 전략 종료일 자산"
               value={<Money value={portfolioPerformance?.last.total_value} />}
-              detail={portfolioPerformance ? formatDate(portfolioPerformance.last.report_date) : "-"}
+              detail={
+                portfolioPerformance
+                  ? `${formatDate(portfolioPerformance.last.report_date)} · ${selectedAccountIds.length}개 합산`
+                  : "공통 관측일 없음"
+              }
             />
             <KpiCard
-              label="기간 손익"
+              label="선택 전략 기간 손익"
               value={<Money value={portfolioPerformance?.changeValue} signed />}
               detail={dateSpan(portfolioPerformance?.first.report_date, portfolioPerformance?.last.report_date)}
               tone={tone(portfolioPerformance?.changeValue)}
             />
             <KpiCard
-              label="기간 수익률"
+              label="선택 전략 기간 수익률"
               value={formatPercent(portfolioPerformance?.returnRate)}
               detail="입출금 미보정"
               tone={tone(portfolioPerformance?.returnRate)}
             />
             <KpiCard
-              label="관측 데이터"
+              label="공통 관측 데이터"
               value={`${portfolioPerformance?.points ?? 0}일`}
-              detail={`${selectedAccountIds.length} / ${data.accounts.length} 전략 활성`}
+              detail={`${selectedAccountIds.length} / ${data.accounts.length} 전략 선택 · 전 계정 완전일만 집계`}
             />
           </section>
 
@@ -433,7 +477,7 @@ export function Dashboard() {
                         strokeWidth={2.6}
                         dot={false}
                         activeDot={{ r: 5, strokeWidth: 2, fill: "#0b1311" }}
-                        connectNulls
+                        connectNulls={false}
                         isAnimationActive={false}
                       />
                     ))}
@@ -484,8 +528,8 @@ export function Dashboard() {
                     <th>종료 잔고</th>
                     <th>손익</th>
                     <th>수익률</th>
-                    <th>현재 포지션</th>
-                    <th>현재 현금</th>
+                    <th>종료일 포지션</th>
+                    <th>종료일 현금</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -516,7 +560,10 @@ export function Dashboard() {
 
           <footer>
             <span>PB Strategy Monitor</span>
-            <span>데이터 생성 {formatTimestamp(data.generated_at)}</span>
+            <span>
+              최근 DB 보고 {formatOptionalTimestamp(dataQuality?.latestReportAt)} · API 조회{" "}
+              {formatTimestamp(data.generated_at)}
+            </span>
           </footer>
         </>
       )}
@@ -545,6 +592,116 @@ function KpiCard({
   );
 }
 
+function DataQualityPanel({
+  quality,
+  accounts,
+  accountMap,
+}: {
+  quality: DataQualityReport;
+  accounts: AlgorithmAccount[];
+  accountMap: Map<string, AlgorithmAccount>;
+}) {
+  const status = quality.stale ? "지연" : quality.hasIssues ? "점검 필요" : "정상";
+  const statusTone = quality.stale
+    ? "quality-stale"
+    : quality.hasIssues
+      ? "quality-warning"
+      : "quality-healthy";
+
+  return (
+    <section className={`quality-panel ${statusTone}`} aria-label="데이터 품질">
+      <div className="quality-heading">
+        <div>
+          <p className="section-kicker">DATA QUALITY</p>
+          <h3>수집 완전성과 합계 대사</h3>
+        </div>
+        <span className="quality-badge">{status}</span>
+      </div>
+
+      <div className="quality-summary-grid">
+        <article>
+          <span>최근 DB 보고</span>
+          <strong>{formatOptionalTimestamp(quality.latestReportAt)}</strong>
+          <small>
+            {quality.ageHours === null
+              ? "유효한 reported_at 없음"
+              : `${formatAge(quality.ageHours)} 전 · ${STALE_AFTER_HOURS}시간 초과 시 지연`}
+          </small>
+        </article>
+        <article>
+          <span>계정별 결측</span>
+          <strong>{quality.missingCalendarDays} 계정·일</strong>
+          <small>각 계정 첫 관측일부터 최근 보고일까지</small>
+        </article>
+        <article>
+          <span>총계 대사 불일치</span>
+          <strong>{quality.totalMismatches.length}건</strong>
+          <small>일일 total과 계정별 합계 차이 &gt; $0.01</small>
+        </article>
+        <article>
+          <span>관측 계정</span>
+          <strong>
+            {quality.accountObservations.filter((item) => item.points > 0).length} /{" "}
+            {accounts.length}
+          </strong>
+          <small>카탈로그 기준</small>
+        </article>
+      </div>
+
+      <div className="quality-account-grid">
+        {quality.accountObservations.map((observation) => {
+          const account = accountMap.get(observation.accountId);
+          return (
+            <article key={observation.accountId}>
+              <div>
+                <strong>{account ? displayName(account) : observation.accountId}</strong>
+                <span>{account?.algorithm_code ?? observation.accountId}</span>
+              </div>
+              <p>
+                {observation.firstDate && observation.lastDate
+                  ? `${formatDate(observation.firstDate)} → ${formatDate(observation.lastDate)}`
+                  : "관측 없음"}
+              </p>
+              <small>
+                {observation.points}개 관측 · {formatMissingDates(observation.missingDates)}
+              </small>
+            </article>
+          );
+        })}
+      </div>
+
+      {(quality.totalMismatches.length > 0 || quality.orphanBalanceDates.length > 0) && (
+        <div className="quality-details">
+          {quality.totalMismatches.length > 0 && (
+            <div>
+              <strong>날짜별 총계 불일치</strong>
+              <ul>
+                {quality.totalMismatches.slice(0, 8).map((mismatch) => (
+                  <li key={mismatch.date}>
+                    {formatDate(mismatch.date)}: total − 계정합 ={" "}
+                    <span className={tone(mismatch.delta)}>
+                      <Money value={mismatch.delta} signed />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+              {quality.totalMismatches.length > 8 && (
+                <small>그 외 {quality.totalMismatches.length - 8}건</small>
+              )}
+            </div>
+          )}
+          {quality.orphanBalanceDates.length > 0 && (
+            <div>
+              <strong>전체 total이 없는 계정 잔고 날짜</strong>
+              <p>{summarizeDates(quality.orphanBalanceDates)}</p>
+            </div>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function PerformanceCard({
   account,
   performance,
@@ -565,6 +722,11 @@ function PerformanceCard({
       <div className="return-display">
         <strong className={tone(performance?.returnRate)}>{formatPercent(performance?.returnRate)}</strong>
         <span>기간 수익률</span>
+        <small>
+          {performance
+            ? `${dateSpan(performance.startDate, performance.endDate)} · ${performance.points}개 관측`
+            : "선택 기간 관측 없음"}
+        </small>
       </div>
       <div className="performance-values">
         <div><span>종료 잔고</span><strong><Money value={performance?.endValue} /></strong></div>
@@ -572,11 +734,11 @@ function PerformanceCard({
       </div>
       <div className="balance-split">
         <div>
-          <span>POSITION</span>
+          <span>END POSITION</span>
           <strong><Money value={performance?.latestPosition} /></strong>
         </div>
         <div>
-          <span>CASH</span>
+          <span>END CASH</span>
           <strong><Money value={performance?.latestCash} /></strong>
         </div>
       </div>
@@ -676,7 +838,41 @@ function formatTimestamp(value: string) {
   return new Intl.DateTimeFormat("ko-KR", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: "Asia/Seoul",
   }).format(new Date(value));
+}
+
+function formatOptionalTimestamp(value?: string | null) {
+  return value ? `${formatTimestamp(value)} KST` : "—";
+}
+
+function formatAge(ageHours: number) {
+  if (ageHours < 1) return `${Math.max(1, Math.round(ageHours * 60))}분`;
+  if (ageHours < 48) return `${Math.round(ageHours)}시간`;
+  return `${Math.floor(ageHours / 24)}일 ${Math.round(ageHours % 24)}시간`;
+}
+
+function formatMissingDates(dates: string[]) {
+  if (!dates.length) return "결측 없음";
+  return `결측 ${dates.length}일 (${summarizeDates(dates)})`;
+}
+
+function summarizeDates(dates: string[]) {
+  const visible = dates.slice(0, 3).map(formatDate).join(", ");
+  return dates.length > 3 ? `${visible} 외 ${dates.length - 3}일` : visible;
+}
+
+function reportStatusLabel(
+  quality: DataQualityReport | null,
+  loading: boolean,
+  hasError: boolean,
+) {
+  if (loading) return "데이터 확인 중";
+  if (hasError) return "데이터 연결 오류";
+  if (!quality?.latestReportAt) return "보고 시각 없음";
+  if (quality.stale) return "리포트 지연";
+  if (quality.hasIssues) return "리포트 최신 · 품질 점검";
+  return "리포트 최신";
 }
 
 function maxDate(left: string, right: string) {

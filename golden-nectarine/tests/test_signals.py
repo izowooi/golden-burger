@@ -29,21 +29,16 @@ def make_series(spec):
 
 
 def baseline_series(floor=0.20):
-    """20일 룩백을 유효하게 채우는 기본 시계열.
+    """20일 룩백의 95%(19일)를 일별 1점 이상으로 채운 기본 시계열.
 
     과거 구간(24h 이전)의 최저가 = floor. 최근 24h에는 floor보다 높은
     포인트만 있어 기준선에 영향을 주지 않는다.
     """
-    return make_series([
-        (470, floor + 0.10),   # ~19.6일 전
-        (400, floor + 0.06),
-        (300, floor + 0.03),
-        (200, floor),          # 과거 최저가
-        (100, floor + 0.02),
-        (48, floor + 0.04),
-        (12, floor + 0.05),    # 최근 24h (기준선에서 제외)
-        (2, floor + 0.05),
-    ])
+    spec = []
+    for hours_ago in range(470, 1, -24):
+        price = floor if hours_ago == 206 else floor + 0.05
+        spec.append((hours_ago, price))
+    return make_series(spec)
 
 
 # --- 진입 O 케이스 ---
@@ -130,7 +125,7 @@ def test_price_above_band_rejected():
 
 
 def test_invalid_window_rejected():
-    """케이스 11: 커버리지 부족(2일 < 10일) → window_invalid, 진입 금지.
+    """케이스 11: 커버리지 부족(2일 < 19일) → window_invalid, 진입 금지.
 
     백필 실패 + 스냅샷 부족 상황 - 관대한 cold-start 폴백 금지.
     """
@@ -141,7 +136,7 @@ def test_invalid_window_rejected():
 
 
 def test_too_few_points_rejected():
-    """케이스 12: 포인트 4개 < 5개 → window_invalid."""
+    """케이스 12: 포인트 4개 < 20개 → window_invalid."""
     series = make_series([(470, 0.30), (300, 0.28), (150, 0.27), (2, 0.25)])
     signal = evaluate_bottom_fisher(series, 0.20, PARAMS, now=NOW)
     assert signal.entry is False
@@ -160,7 +155,24 @@ def test_lookback_days_covered_reported():
     """시그널이 실제 커버 일수를 보고한다 (lookback_days_at_buy 기록용)."""
     signal = evaluate_bottom_fisher(baseline_series(0.20), 0.18, PARAMS, now=NOW)
     assert signal.lookback_days_covered is not None
-    assert abs(signal.lookback_days_covered - (470 - 2) / 24.0) < 1e-6
+    assert abs(signal.lookback_days_covered - 19.0) < 1e-6
+
+
+def test_ten_day_hourly_history_is_not_treated_as_twenty_day_low():
+    """포인트가 많아도 10일 span이면 20일 규칙의 증거가 아니다."""
+    series = make_series([
+        (hours_ago, 0.20)
+        for hours_ago in range(240, -1, -1)
+    ])
+    signal = evaluate_bottom_fisher(series, 0.18, PARAMS, now=NOW)
+    assert signal.entry is False
+    assert signal.reason == "window_invalid"
+
+
+def test_nineteen_day_boundary_is_valid_hourly_approximation():
+    signal = evaluate_bottom_fisher(baseline_series(0.20), 0.18, PARAMS, now=NOW)
+    assert signal.entry is True
+    assert signal.lookback_days_covered == 19.0
 
 
 def test_merge_price_series_db_wins_on_same_minute():

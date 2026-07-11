@@ -21,6 +21,11 @@ TP_PRICE_CAP = 0.99
 WINDOW_MIN_POINTS = 5
 WINDOW_MIN_COVERAGE = 0.5
 
+# 6h 급등 게이트는 24h 윈도우와 별도로 검증한다. 3개 이상이 6h의
+# 절반을 커버해야 저점 대비 급등을 계산할 수 있다.
+SPIKE_WINDOW_MIN_POINTS = 3
+SPIKE_WINDOW_MIN_COVERAGE = 0.5
+
 # float 뺄셈 오차 보정 (예: 0.15 - 0.10 = 0.04999...가 0.05 경계를 통과하는 문제)
 _EPS = 1e-9
 
@@ -201,6 +206,13 @@ def evaluate_entry(
 
     # 5-b. 사건 진행 배제: 최근 6h YES 급등(저점 대비) < yes_spike_block_6h
     window_spike = get_window(snapshots, params.spike_lookback_hours, now=now)
+    if not is_window_valid(
+        window_spike,
+        params.spike_lookback_hours,
+        min_points=SPIKE_WINDOW_MIN_POINTS,
+        min_coverage=SPIKE_WINDOW_MIN_COVERAGE,
+    ):
+        return EntrySignal(False, "spike_window_invalid")
     spike_6h = rise_from_low(window_spike, yes_price)
     if spike_6h is None or spike_6h >= params.yes_spike_block_6h - _EPS:
         spike_str = f"{spike_6h:+.3f}" if spike_6h is not None else "n/a"

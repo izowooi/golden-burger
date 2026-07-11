@@ -1,13 +1,24 @@
 # golden-nectarine 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후 (운영 시작 2026-07-06 → 2026-08-03 전후). 이 문서 경로를 AI에게 주면 된다.
-> 전략: **Bottom Fisher** — 장기(30일+) tail~중간 구간(YES 0.03~0.50) 시장에서 YES 가격이 20일 롤링 최저가(최근 24h 제외) 이하로 떨어지면 매수, 보유 120h(5일) 경과 시 손익 무관 무조건 청산 (calendar exit). QuantPedia 백테스트(X=20/Y=5) 복제.
+> 전략: **Bottom Fisher** — 30일+ 시장에서 YES가 20일 rolling low(최근 24h 제외) 이하일 때
+> 매수하고 5일 후 청산한다. QuantPedia X=20/Y=5 규칙의 **시간별 가격 근사 구현**이며 daily
+> close 원본 backtest의 문자 그대로 복제가 아니다.
 > 자매 문서: `docs/nectarine-max-positions-retro.md` (max_positions 상한 전용 회고 — 같은 시점에 함께 실행할 것).
 
 ## 0. 복붙용 회고 프롬프트
 
 ```
 docs/retro/golden-nectarine.md 를 읽고 §3~§5를 실행해 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 - 봇: golden-nectarine (Bottom Fisher). DB는 §2의 find 명령으로 찾아라
   (2026-07 기준 Jenkins job=polybot-fox, 대시보드 계정 golden-fox — job명은 바뀔 수 있음).
@@ -31,14 +42,22 @@ docs/retro/golden-nectarine.md 를 읽고 §3~§5를 실행해 §6 표 형식으
 
 ## 1. 전략 요약
 
-손실 회피(loss aversion)發 투매가 얇은 장기 시장의 YES 가격을 펀더멘털 이하로 오버슈트시키고, 며칠 안에 평균 회귀한다는 가설. 감이 아니라 QuantPedia(2026-04) 공개 백테스트 — "20일 롤링 최저가 매수 → 5일 후 청산"이 거래비용 10bps 반영 후 CAR +18.9~22.1%로 생존 — 의 직접 복제이며, 소액 실전으로 그 재현성을 검증하는 것이 이 봇의 존재 이유다. **YES 매수 고정**(1-p 환산 없음), trailing 없음, 주 청산 경로는 가격이 아니라 **달력(보유 120h)** 이다.
+손실 회피 투매의 평균회귀 가설을 QuantPedia X=20/Y=5 규칙에서 가져왔지만, 이 bot은 CLOB
+hourly history와 5-minute snapshots를 쓰는 근사 구현이다. 원 backtest의 daily close·universe·비용
+artifact가 독립적으로 재현되기 전에는 “복제 성공”이라고 부르지 않는다. YES 고정, 주 청산은
+보유 120h calendar exit다.
 
-- **진입 (모두 충족, `signals.evaluate_bottom_fisher`)**: liquidity >= $10k + 해결까지 >= 720h(30일 — theta 감쇠發 가짜 신저가 차단) + YES 가격 p ∈ [0.03, 0.50] + **p <= min(20일 룩백 윈도우 중 최근 24h 제외 구간의 최저가)** (동률 허용, EPSILON=1e-9 오차 흡수) + 윈도우 유효(포인트 >= 5 AND 커버리지 >= 룩백의 50% = 10일, 부족 시 prices-history 백필(fidelity=60) 후 재평가 — 그래도 invalid면 진입 금지) + 재진입 쿨다운 168h(7일) 통과. 매수 직전 CLOB midpoint 재검증: 상한(0.50) 초과면 `price_above_band`로 skipped_markets 기록(쿨다운 차단), 하한(0.03) 미만이면 기록 없이 이번 사이클만 보류.
+- **진입 (모두 충족)**: liquidity >= $10k + 해결까지 >=720h + YES ∈ [0.03,0.50] +
+  최근 24h를 제외한 20일 hourly-approx window의 최저가 이하. window는 최소 20포인트와
+  95% span(19일)을 모두 요구하며, 부족하면 fidelity=60 history를 백필하고 그래도 invalid면
+  fail-closed한다. 168h cooldown과 매수 직전 band 재검증을 적용한다.
 - **청산 (우선순위 순, `signals.evaluate_exit` — calendar가 최우선인 것이 이 봇의 특징)**: ① 보유 >= 120h → `max_holding` (**손익 무관 무조건, 주 청산 경로**) ② P&L <= -30% → `stop_loss` (안전판) ③ 현재가 >= min(매수가×1.30, 0.99) → `take_profit` (안전판) ④ 해결까지 < 24h → `time_exit` (30일+ 진입이라 드문 경로). 별도로 midpoint 조회 실패(또는 0 반환 — zero-midpoint 가드) + endDate 24h 경과 시 status=EXPIRED, exit_reason=`resolved_unredeemed`(realized_pnl NULL, 수동 redeem 필요).
 
 ### 파라미터 표 (env는 `src/polybot/config.py`, 기본값은 `config.yaml` 실제 값)
 
-우선순위: **환경변수 > config.yaml > 코드 기본값**. 운영 실값은 Jenkins export 블록이 진실이다 (§0 프롬프트에 붙여넣기). 참고로 2026-07-06 시작 설정은 `POLYMARKET_SIGNATURE_TYPE=3`, `POLYBOT_BUY_AMOUNT=10`, `POLYBOT_MAX_POSITIONS=150`이었다 (`docs/nectarine-max-positions-retro.md` §1 — 이후 바뀌었을 수 있으니 env 블록으로 확인).
+우선순위는 **환경변수 > config.yaml > 코드 기본값**이다. post-instrumentation 운영값은
+`strategy_configs`와 `run_audits`의 config hash/Git cohort가 source of truth다. Jenkins export와
+2026-07-06 문서값은 legacy/current cross-check로만 사용하고 현재 값을 과거에 소급하지 않는다.
 
 | 파라미터 | env 이름 | config.yaml 기본값 | 의미 |
 |---|---|---|---|
@@ -60,7 +79,9 @@ docs/retro/golden-nectarine.md 를 읽고 §3~§5를 실행해 §6 표 형식으
 | excluded_categories | `POLYBOT_EXCLUDED_CATEGORIES` | `[]` | 제외 카테고리 (comma 구분, 기본 비활성) |
 | (로그) | `LOG_LEVEL` | yaml 키 없음, 기본 INFO | 로그 레벨 (`--verbose`가 최우선) |
 
-env 없는 코드 상수 (`signals.py` / `scanner.py` / `trader.py` / `bot.py`): `EPSILON=1e-9`(경계 비교), `TAKE_PROFIT_PRICE_CAP=0.99`, `window_min_points=5`·`window_min_coverage=0.5`(윈도우 유효성 — 20일 룩백이면 커버 10일 필요), `BACKFILL_FIDELITY_MINUTES=60`(백필 캔들 간격), `MIN_ORDER_SIZE=5.0`(주), `RESOLVED_GRACE_HOURS=24.0`, 스냅샷 보존 = max(lookback_days×3, 7일) = **60일**. 이 값들에 env를 지어내지 말 것.
+env 없는 코드 상수: `EPSILON=1e-9`, `TAKE_PROFIT_PRICE_CAP=0.99`,
+`window_min_points=20`, `window_min_coverage=0.95`, `BACKFILL_FIDELITY_MINUTES=60`,
+`MIN_ORDER_SIZE=5.0`, `RESOLVED_GRACE_HOURS=24.0`, 최소 snapshot 보존 60일.
 
 ## 2. 데이터 위치와 스키마
 
@@ -86,7 +107,13 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 - `status`: **SQLAlchemy Enum은 enum name 대문자로 저장된다** — `'PENDING_BUY'`, `'HOLDING'`, `'PENDING_SELL'`, `'COMPLETED'`, `'SKIPPED'`, `'EXPIRED'`. SQL에서 소문자 value(`completed` 등)를 쓰면 0건이 나온다. (주의: `docs/nectarine-max-positions-retro.md` §3 SQL C의 `status = 'completed'`는 이 이유로 대문자로 고쳐 실행할 것.)
 - `EXPIRED`는 `realized_pnl` NULL — P&L 집계에서 자동으로 빠지므로 §3.3에서 반드시 별도 확인 (수동 redeem 필요 물량 — tail 진입이라 조기 NO 해결 시 전액 손실 가능, §5 참고).
 
-**market_snapshots** — `condition_id`, `probability`(**항상 YES 가격**), `liquidity`, `volume_24h`, `timestamp`(UTC naive, 5분 간격). **이 테이블이 전 봇 공용 중앙 가격 아카이브다** (아래 참조).
+**market_snapshots** — `condition_id`, `probability`(**항상 YES 가격**), `liquidity`,
+`volume_24h`, `best_bid`, `best_ask`, `spread`, `source_updated_at`, `run_id`, `timestamp`.
+**이 테이블이 전 봇 공용 중앙 가격 아카이브다.** 추가 컬럼은 post-instrumentation 행부터
+채워지며 legacy `NULL`을 추정하지 않는다.
+
+**market_catalog** — `condition_id`, market/event ID·slug, question, `end_date`, outcomes/token IDs,
+tags, fee metadata, first/last seen. event-cluster와 universe 재현은 이 테이블을 사용한다.
 
 **skipped_markets** — `condition_id`, `reason`(`price_above_band` 등), `skipped_at`. 재진입 쿨다운 판정용 (skip 후 168h 차단).
 
@@ -96,7 +123,10 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 
 ### 중앙 가격 아카이브 (반사실 분석용 시계열)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하며, **nectarine 자기 DB의 `market_snapshots`가 곧 공용 아카이브다** — 유니버스(liq >= $10k)가 자기 진입 조건과 정확히 일치하고, 보존 60일(=룩백 20일×3), 5분 간격, `liquidity`/`volume_24h` 포함. 별도 DB를 ATTACH할 필요가 없다.
+Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집하며,
+**nectarine 자기 DB의 `market_snapshots`가 곧 공용 아카이브다**. 유니버스는 liq >= $10k,
+보존 60일, 목표 cadence 5분이며 bid/ask/spread/run ID도 저장한다. 고정 시장 수를 가정하지
+말고 `market_catalog`와 실제 bucket coverage를 확인한다. 별도 DB를 ATTACH할 필요가 없다.
 
 - 보조/교차검증: honeydew DB의 `market_snapshots` (job=polybot-eco, liq >= $15k, 60일 보존). 단 유니버스가 더 좁아서($15k) nectarine 전용 저유동($10k~15k) 시장은 거기 없다 — 고유동 시장의 교차검증 용도로만.
 
@@ -108,7 +138,11 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-honeydew/data*" -name 
 - **시장이 해결되면 스냅샷이 끊긴다** → 해결 보유분의 최종가는 `trades.sell_price` 또는 0/1 (redeem 근사).
 - **아카이브에는 백필 포인트가 없다**: 봇이 본 20일 윈도우는 스냅샷 + prices-history 백필 병합이지만, 아카이브에는 스냅샷만 쌓인다 → §4(c) 참고.
 
-## 3. 실적 분석 SQL (그대로 실행 가능)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 `sqlite3 <trades.db 경로>` 로 실행. 먼저 `.headers on` / `.mode column` 권장. 모든 쿼리는 `mode='live'` 필터 포함 (sim DB는 파일이 다르지만 안전장치).
 
@@ -193,13 +227,12 @@ WHERE status = 'COMPLETED' AND mode = 'live'
 GROUP BY depth_bucket
 ORDER BY depth_bucket;
 
--- 3.6 룩백 커버리지 분포 — 백필 실효성 검증 (STRATEGY.md §6: lookback_days_at_buy >= 10 비율)
---    커버 짧은 진입(백필 실패/신생 시장)의 성과가 나쁘면 window_min_coverage 상향 근거
+-- 3.6 룩백 커버리지 분포 — 현행 gate는 20포인트 + 19일(95%) span
 SELECT
   CASE
-    WHEN lookback_days_at_buy < 10 THEN 'a_<10d'
-    WHEN lookback_days_at_buy < 15 THEN 'b_10-15d'
-    ELSE 'c_15d+'
+    WHEN lookback_days_at_buy < 19 THEN 'a_invalid_<19d'
+    WHEN lookback_days_at_buy < 20 THEN 'b_valid_19-20d'
+    ELSE 'c_20d+'
   END                                                       AS coverage_bucket,
   COUNT(*)                                                  AS n,
   ROUND(AVG(realized_pnl > 0), 3)                           AS win_rate,
@@ -336,12 +369,15 @@ ORDER BY t.id, s.timestamp;
 
 **노브 2 — `POLYBOT_EXCLUDE_RECENT_HOURS`: {12, **24**, 48, 72}** (기준선에서 제외하는 최근 구간이 길수록 "더 오래된 저가" 대비 신저가만 잡는다 — §3.5 깊이 버킷과 교차 확인)
 
-**노브 3 — `POLYBOT_PROB_MIN`/`POLYBOT_PROB_MAX` 밴드: {[0.03,0.50](현행), [0.05,0.25](A-3 좁은 tail), [0.03,0.20], [0.10,0.50]}** (§3.4 진입가 버킷과 교차 확인 — 오버슈트가 가장 큰 구간만 남기는 가설)
+**노브 3 — `POLYBOT_PROB_MIN`/`POLYBOT_PROB_MAX` 밴드**:
+`[0.03,0.50]`(현행), `[0.05,0.25]`(A-3 좁은 tail), `[0.03,0.20]`, `[0.10,0.50]`
+(§3.4 진입가 버킷과 교차 확인 — 오버슈트가 가장 큰 구간만 남기는 가설)
 
 **재생 절차:**
 
 1. 자기 DB 아카이브에서 회고 기간의 스냅샷을 condition_id별 시계열로 로드 (`liquidity >= 10000` 필터 — 자기 유니버스와 일치).
-2. 각 시각 t(5분 격자)에 대해: 룩백 윈도우 구성(`get_window` + `is_window_valid`: 포인트 >= 5, 커버 >= 50%) → 밴드 체크 → 기준 최저가 = 최근 exclude_recent_hours 제외 구간의 min → `p_now <= rolling_min`(동률 허용, EPSILON) → **condition_id당 168h 쿨다운** 적용(직전 가상 진입/청산 후 차단).
+2. 각 시각 t에 hourly-approx 20일 window를 구성해 최소 20포인트와 95% span을 검증한다.
+   유효할 때만 band, 최근 제외 구간, rolling min, 168h cooldown을 적용한다.
 3. 가상 진입마다 §(a)의 청산 시뮬레이터(현행 hold 120h / TP 0.30 / SL -0.30)로 청산 → 노브 값별 "잡혔을/걸러졌을 진입" 목록과 가상 성과 집계:
 
 | 노브 값 | 가상 진입 수 | 승률 | 총 P&L | 실거래와 겹치는 진입 수 |
@@ -352,17 +388,25 @@ ORDER BY t.id, s.timestamp;
 ### (c) 데이터 한계 (수치 해석 전 반드시 명시)
 
 - **아카이브에는 백필 포인트가 없다**: 봇의 20일 윈도우 = 자기 스냅샷 + CLOB `/prices-history` 백필 병합. 아카이브에는 스냅샷만 있으므로, **운영 시작 후 20일이 지나기 전 구간과 유니버스에 새로 들어온 시장의 재생은 봇이 본 것과 다르다** (윈도우가 invalid로 나와 가상 진입이 누락되거나 rolling_min이 다르게 계산됨). 특히 첫 이틀 백로그 코호트는 재생 불가에 가깝다 → §5 코호트 분리로 흡수. 재생 충실도가 필요한 가상 진입은 `/prices-history`를 직접 다시 조회해 병합하는 것도 방법이다 (`api/history_client.py` 재사용, fidelity=60).
-- **`entry_hours_min >= 720h` 필터는 아카이브만으로 재현 불가** (스냅샷에 endDate 없음). 미필터 재생은 마감 임박 시장의 theta 감쇠發 가짜 신저가를 포함해 **성과를 체계적으로 나쁘게** 왜곡한다. 보정: 진입된 시장은 `trades.market_end_date`, 상한 스킵분은 `capped_candidates.hours_left`로 확인하고, 그 외 가상 진입은 Gamma API로 endDate를 사후 조회하거나 "스냅샷 시계열이 가상 진입 후 30일 내 끊긴 시장"을 의심 표기하라.
-- **체결 가정**: 봇은 GTC limit @ midpoint 접수 즉시 HOLDING/COMPLETED로 기록한다 (STRATEGY.md §8). tail 시장 스프레드는 fat-tail이라 **시장가 환산 시 알파가 소멸**한다는 것이 원 백테스트의 경고 — 스윕 P&L은 상대 비교용이지 절대 수익 예측이 아니다. 회고 시 실계좌 잔고(대시보드 golden-fox)와 DB 누적 P&L의 괴리를 먼저 확인하라.
+- **`entry_hours_min >= 720h` 재현**: post-instrumentation은 `market_catalog.end_date`를 사용한다.
+  legacy catalog gap은 `trades.market_end_date`, `capped_candidates.hours_left`, Gamma 재조회 순으로
+  보충한다. metadata 없는 후보는 게이트를 생략하지 말고 제외하며 snapshot 단절 프록시는
+  look-ahead sensitivity로만 제시한다.
+- **Execution evidence**: legacy `trades`는 GTC 접수 즉시 HOLDING/COMPLETED를 기록하지만 이는
+  fill이 아니다. live 실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 계산하고
+  ledger gap을 분리한다. tail spread를 반영하지 않은 midpoint grid는 상대 비교만 하고 account
+  evidence/NAV와 대사한다.
 - **해결 시 스냅샷 중단**: 최종가는 `trades.sell_price` 또는 0/1 redeem 근사. tail YES는 0 근사가 지배적 시나리오다.
 - **60일 보존**: 4주 시점 회고면 커버되지만, 미루면 초기 구간 유실. 회고가 늦어질 것 같으면 DB 파일을 먼저 복사해둘 것. 노브 2의 30일 룩백 재생은 회고 시점 기준 최소 30일치 아카이브가 필요하다.
-- **5분 간격**: 봇 사이클(5분)과 같아 격자 재생 정밀도는 좋은 편이나, 매수 직전 CLOB midpoint 재검증(스냅샷 가격과 다를 수 있음)은 재현 불가.
+- **5-minute cadence**: 목표 주기일 뿐이다. actual bucket coverage/run gap을 측정하고, 매수 직전
+  CLOB 재검증은 archive로 재현되지 않음을 명시한다.
 - (교차 봇 비교 시에만) NO 토큰 1-YES 근사 이슈가 있으나 nectarine 자체는 YES 고정이라 해당 없음.
 
 ## 5. 표본 주의사항
 
 - **상관 클러스터**: 장기 tail 시장은 같은 이벤트의 파생(예: "대선 출마 선언" 계열, 코인 가격 사다리(ladder) 계열)이 많고, 시장 전반 하락 국면(크립토 급락 등)에는 여러 시장이 **동시에** 신저가를 만들어 진입이 한 방향으로 몰린다. `market_slug`/`question` 접두어 + `market_tags` + 진입 주(`strftime('%Y-%W', buy_timestamp)`)로 클러스터를 묶고, **이벤트(클러스터) 단위 승률/P&L을 별도 집계**하라. 클러스터 내 상관이 높으면 명목 n이 커도 독립 표본이 아니다.
-- **코호트 분리**: ① 운영 첫 이틀(2026-07-06~07) 백로그 — 첫 실행의 20일 백필이 과거 신저가를 한꺼번에 잡아 ~128건이 몰려 들어간 코호트로, "신선한 신저가 돌파"와 레짐이 다르다 (§3.9). ② 운영 중 env를 바꿨다면 변경 시점 전후 분리 — `cycle_stats.max_positions`/`buy_amount_usdc`에 당시 설정값이 남아 있어 변경 시점을 DB에서 역추적할 수 있다. ③ EXPIRED(수동 redeem 대기)와 HOLDING(미완결)은 3.1 집계에 없다 — 총 P&L 판단 전 반드시 가산.
+- **코호트 분리**: ① legacy 첫 이틀 백로그, ② `run_audits.config_hash`/Git commit 변경 전후,
+  ③ carry-in/out을 분리한다. `cycle_stats`는 max positions/buy amount의 cycle 맥락만 보조한다.
 - **명목 n ≠ 유효 n**: STRATEGY.md §6의 "30+ 거래" 기준은 명목 건수다. 5일 보유 + 168h 쿨다운 구조라 4주 회고는 비중첩 보유 사이클이 5~6개뿐이고, 같은 주 진입들은 시장 레짐을 공유한다. 클러스터 집계 후 유효 n(독립 이벤트 수)이 15 미만이면 §6 교정안의 신뢰도를 한 단계 낮춰라. 승률 55%와 50%는 n=30에서 통계적으로 구분되지 않는다 — 방향성 제안 + 2차 테스트로 검증하는 구조를 유지할 것.
 
 ## 6. 교정안 출력 형식 (AI가 반드시 채울 표)
@@ -383,7 +427,9 @@ ORDER BY t.id, s.timestamp;
 - 근거 수치는 "버킷 X 평균수익 a% (n=b, 유효 n=c) vs 버킷 Y 평균수익 d%"처럼 표본 수를 병기한다.
 - 판단 프레임(STRATEGY.md §6): **`max_holding` 거래의 평균 P&L 양수 여부가 본질 지표** (승률보다 평균손익 우선 — tail 매수는 payoff 비대칭). 30거래 후 총 P&L < -15% 또는 `stop_loss` 비중 > 40% → 가설 기각·중단 검토. 안전판(TP/SL) 교정은 A-1 비활성 셀과의 차이가 유의할 때만.
 
-**라운드 절차**: 모든 제안은 **env만 바꾸면 된다** (코드 변경 불필요, Jenkins job 설정의 export 블록 수정. `cycle_stats`가 당시 설정값을 기록하므로 조정 이력은 자동 추적).
+**라운드 절차**: tunable knob는 Jenkins env로 반영하고 첫 성공 run의 새 `config_hash`/Git
+commit을 확인한다. `cycle_stats`는 일부 설정의 cycle 맥락을 보조하고, 전체 provenance는
+`strategy_configs`/`run_audits`가 담당한다.
 
 1. **1차 회고 (이 문서 + max-positions 문서)** → 교정안 확정 → Jenkins env 반영.
 2. **2차 테스트 (4주+ — 5일 보유 전략이라 회전이 느리다)**: 단일 교체 대신 cherry처럼 **기본/변형 병행**도 가능 — 별도 Jenkins job에 `--job <변형명>`으로 DB를 분리하고 변형 env(STRATEGY.md §7의 A-1 순수 calendar / A-2 짧은 룩백·보유 / A-3 좁은 tail)를 얹어 A/B. 변형은 시뮬레이션(`--simulate`, trades_sim.db) 또는 소액 실전 중 리스크에 맞게 선택.

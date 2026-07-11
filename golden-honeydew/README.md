@@ -3,7 +3,7 @@
 **Night Watch 전략**: 한산 시간대(UTC 06-13시 = 미 동부 새벽, 또는 주말)에 뉴스 없이 발생한
 가격 이탈을 복원 방향으로 매수합니다. 전략 근거·규칙 상세는 [STRATEGY.md](STRATEGY.md) 참고.
 
-- **진입**: 한산 시간대 + 24h median 대비 |편차| >= 0.05 + 거래량 급증 아님 + 매수가 0.30~0.90
+- **진입**: 한산 시간대 + 24h median 대비 |편차| >= 0.05 + 거래량 급증 아님 + 매수가 0.30~0.90. 거래량 baseline/recent 양쪽의 포인트·시간 커버리지가 부족하면 진입하지 않는다.
 - **청산**: 손절 -6% → 익절 +6%(목표가 0.99 캡) → 최대 보유 24h → 해결 12h 전
 - **방향**: 하락 이탈 → 그 토큰 매수(반등), 상승 이탈 → 반대 토큰 매수(페이드). trailing 없음.
 
@@ -126,6 +126,11 @@ data/
     │                       #   strategy_name/mode/volume_24h_at_buy 등 회고 분석 컬럼 포함)
     └── logs/YYYYMMDD.log   # 일자별 로그
 ```
+
+`trades*.db`에는 `market_sweeps`와 `market_sweep_memberships`도 저장한다.
+terminal cursor까지 완료된 Gamma keyset sweep만 인정하며, qualified condition별
+snapshot 판정과 가격/catalog를 한 transaction으로 기록한다. raw 제외 사유는 집계로,
+qualified membership은 60일 보존 후 snapshot과 함께 정리한다.
 
 `data/`는 git에 커밋하지 않습니다 (.gitignore).
 

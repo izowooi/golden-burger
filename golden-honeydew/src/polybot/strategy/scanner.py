@@ -1,5 +1,6 @@
 """Market scanner for the Night Watch strategy."""
 import logging
+import math
 import re
 from datetime import datetime, timezone, timedelta
 from typing import TYPE_CHECKING, List, Dict, Optional
@@ -26,6 +27,60 @@ from .signals import (
 logger = logging.getLogger(__name__)
 
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
+_BOOK_TOLERANCE = 1e-6
+
+
+def _snapshot_values(market: Dict, yes_price: float) -> tuple[Optional[Dict], str]:
+    """Validate every numeric value before it can become archive evidence."""
+    if not math.isfinite(yes_price) or not 0 <= yes_price <= 1:
+        return None, "invalid_yes_price"
+
+    required_values: Dict[str, float] = {}
+    for field, source in (
+        ("liquidity", "liquidity"),
+        ("volume_24h", "volume24hr"),
+    ):
+        try:
+            value = float(market.get(source) or 0)
+        except (TypeError, ValueError):
+            return None, f"invalid_{field}"
+        if not math.isfinite(value) or value < 0:
+            return None, f"invalid_{field}"
+        required_values[field] = value
+
+    optional_values: Dict[str, Optional[float]] = {}
+    for field, source in (
+        ("best_bid", "bestBid"),
+        ("best_ask", "bestAsk"),
+        ("spread", "spread"),
+    ):
+        raw = market.get(source)
+        if raw is None or raw == "":
+            optional_values[field] = None
+            continue
+        try:
+            value = float(raw)
+        except (TypeError, ValueError):
+            return None, f"invalid_{field}"
+        if not math.isfinite(value) or not 0 <= value <= 1:
+            return None, f"invalid_{field}"
+        optional_values[field] = value
+
+    best_bid = optional_values["best_bid"]
+    best_ask = optional_values["best_ask"]
+    spread = optional_values["spread"]
+    if best_bid is not None and best_ask is not None:
+        if best_bid > best_ask + _BOOK_TOLERANCE:
+            return None, "invalid_order_book"
+        if spread is not None and not math.isclose(
+            spread,
+            best_ask - best_bid,
+            rel_tol=0.0,
+            abs_tol=_BOOK_TOLERANCE,
+        ):
+            return None, "invalid_spread_consistency"
+
+    return {**required_values, **optional_values}, "snapshot_valid"
 
 
 def _reason_key(reason: str) -> str:
@@ -144,7 +199,7 @@ class MarketScanner:
         )
 
     def save_market_snapshots(self, markets: List[Dict]) -> int:
-        """스캔 대상 시장 스냅샷 저장 (Phase 0, banana 패턴).
+        """스냅샷과 complete-sweep membership을 한 transaction으로 저장한다.
 
         liquidity 필터 통과 시장만, YES 가격(outcomePrices[0]) 기준 저장.
 
@@ -158,32 +213,83 @@ class MarketScanner:
             logger.warning("Repository가 설정되지 않아 스냅샷 저장 불가")
             return 0
 
+        attestation = self.gamma.last_sweep_attestation
+        if not attestation:
+            raise RuntimeError("완료된 Gamma sweep attestation 없이 snapshot을 저장할 수 없습니다")
+
         saved = 0
-        for market in markets:
-            condition_id = market.get("conditionId")
-            if not condition_id:
-                continue
+        snapshot_results: Dict[str, Dict] = {}
+        try:
+            for market in markets:
+                condition_id = str(market.get("conditionId") or "")
+                if not condition_id:
+                    raise ValueError("qualified Gamma market의 conditionId가 비어 있습니다")
 
-            if is_sports_market(market, self.config.excluded_categories):
-                continue
+                # Preserve metadata for the entire qualified universe in the same
+                # transaction, even when a price observation is not eligible.
+                self.repo.save_market_catalog(condition_id, market, commit=False)
 
-            outcome_prices = market.get("outcomePrices", [])
-            if not outcome_prices or len(outcome_prices) < 2:
-                continue
+                if is_sports_market(market, self.config.excluded_categories):
+                    snapshot_results[condition_id] = {
+                        "snapshot_eligible": False,
+                        "snapshotted": False,
+                        "snapshot_reason": "excluded_category",
+                    }
+                    continue
 
-            try:
-                yes_price = float(outcome_prices[0])
-            except (ValueError, TypeError):
-                continue
+                outcome_prices = market.get("outcomePrices", [])
+                if not outcome_prices or len(outcome_prices) < 2:
+                    snapshot_results[condition_id] = {
+                        "snapshot_eligible": False,
+                        "snapshotted": False,
+                        "snapshot_reason": "missing_outcome_prices",
+                    }
+                    continue
 
-            self.repo.save_snapshot(
-                condition_id=condition_id,
-                probability=yes_price,
-                liquidity=float(market.get("liquidity") or 0),
-                volume_24h=float(market.get("volume24hr") or 0),
+                try:
+                    yes_price = float(outcome_prices[0])
+                except (ValueError, TypeError):
+                    snapshot_results[condition_id] = {
+                        "snapshot_eligible": False,
+                        "snapshotted": False,
+                        "snapshot_reason": "invalid_yes_price",
+                    }
+                    continue
+
+                snapshot_values, snapshot_reason = _snapshot_values(market, yes_price)
+                if snapshot_values is None:
+                    snapshot_results[condition_id] = {
+                        "snapshot_eligible": False,
+                        "snapshotted": False,
+                        "snapshot_reason": snapshot_reason,
+                    }
+                    continue
+
+                self.repo.save_snapshot(
+                    condition_id=condition_id,
+                    probability=yes_price,
+                    **snapshot_values,
+                    source_updated_at=market.get("updatedAt"),
+                    commit=False,
+                )
+                snapshot_results[condition_id] = {
+                    "snapshot_eligible": True,
+                    "snapshotted": True,
+                    "snapshot_reason": "snapshot_saved",
+                }
+                saved += 1
+
+            self.repo.record_market_sweep(
+                attestation, snapshot_results, commit=False
             )
-            saved += 1
-
+            self.repo.commit()
+            attestation["snapshot_eligible_count"] = sum(
+                result["snapshot_eligible"] for result in snapshot_results.values()
+            )
+            attestation["snapshotted_market_count"] = saved
+        except Exception:
+            self.repo.rollback()
+            raise
         logger.info(f"스냅샷 {saved}개 저장 완료 (YES 가격 기준)")
         return saved
 

@@ -48,7 +48,7 @@
 | 1 | 한산 시간대 | UTC `quiet.hours_utc`(기본 06-13시, `[start, end)`) 또는 주말(토/일 UTC, `quiet.weekends=true`일 때). 사이클당 1회 판정 — 아니면 스캔 전체 skip |
 | 2 | 유동성/시간 | liquidity >= $15,000, 해결까지 >= 24h. (`min_volume_24h`는 기본 0=비활성) |
 | 3 | 편차 | 24h 스냅샷(YES 가격)의 **median**(`statistics.median`) 대비 \|현재 YES 가격 - median\| >= 0.05 |
-| 4 | 뉴스 배제 | 최근 3h 스냅샷의 volume24hr 평균 < 24h 윈도우 평균 × 1.5 (급증 = 진짜 뉴스 → skip) |
+| 4 | 뉴스 배제 | 최근 3h volume24hr 평균 < 이전 baseline 평균 × 1.5. baseline/recent 각각 2포인트 이상·해당 구간 50% 시간 커버가 없으면 판정 불가로 **진입 금지** |
 | 5 | 복원 방향 | dev < 0 → **YES 매수**(반등 기대), dev > 0 → **NO 매수**(페이드, 매수가는 실제 NO 가격 `outcomePrices[1]` 기준) |
 | 6 | 가격 밴드 | 매수할 토큰 가격 ∈ [0.30, 0.90] (양끝 포함) |
 | 7 | 윈도우 유효성 | 포인트 >= 5개 AND 커버 시간 >= lookback의 50%. 부족하면 `prices-history` 백필 후 재평가, 그래도 부족하면 진입 안 함 |
@@ -144,8 +144,8 @@ cherry/banana의 whipsaw 문제를 원천 차단한다.
 2. **스냅샷 의존 cold start**: 봇 최초 기동 시 24h median에 필요한 데이터가 없다.
    `prices-history` 백필이 1차 보완이지만, 백필 endpoint는 외부 지식 기반이라 실패할 수 있다
    (실패 시 조용히 스냅샷 축적 대기 — 최대 하루면 자연 회복).
-3. **volume 급증 판정은 DB 스냅샷에만 의존**: 백필 데이터에는 volume이 없어, cold start 직후에는
-   뉴스 필터의 판별력이 낮다 (volume 데이터가 전혀 없으면 급증 아님으로 처리).
+3. **volume 급증 판정은 DB 스냅샷에만 의존**: 백필 데이터에는 volume이 없으므로 cold start 직후에는
+   baseline/recent 커버리지가 찰 때까지 진입을 중단한다. 안전하지만 초기 신호를 놓친다.
 4. **EXPIRED 포지션은 수동 redeem 필요**: 봇은 해결된 시장을 EXPIRED로 마감만 하고 온체인
    redeem은 하지 않는다. `status` 명령과 로그 WARNING으로 노출된다.
 5. **endDate 신뢰성**: Gamma `endDate`는 실제 해결 시각과 다를 수 있다 (cherry 분석 §6.2-6와 동일).

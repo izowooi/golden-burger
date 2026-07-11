@@ -165,10 +165,11 @@ def evaluate_panic_fade(
     if not ref_window:
         return PanicFadeSignal(entry=False, reason="no_ref_data")
 
-    # favorite 판별: ref 시점에 favorite이었던 쪽
-    # YES 최고가 >= 0.5면 YES쪽, 아니면 NO쪽(1-p 환산) 평가
+    # favorite 판별: ref 윈도우에서 실제로 더 높은 peak를 만든 쪽.
+    # YES가 잠깐 0.5를 넘었다는 이유만으로 이후 더 강했던 NO peak를 놓치지 않는다.
     ref_yes_max = max(p.price for p in ref_window)
-    if ref_yes_max >= 0.5:
+    ref_no_max = max(1.0 - p.price for p in ref_window)
+    if ref_yes_max >= ref_no_max:
         side, token_index = "Yes", 0
         series = window
         ref_price = ref_yes_max
@@ -176,7 +177,7 @@ def evaluate_panic_fade(
     else:
         side, token_index = "No", 1
         series = [PricePoint(p.timestamp, 1.0 - p.price) for p in window]
-        ref_price = max(1.0 - p.price for p in ref_window)
+        ref_price = ref_no_max
         price_now = 1.0 - yes_price_now
 
     # 2b. 원래 favorite이었어야 함

@@ -34,8 +34,9 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 
-리포팅·적재 (Python/uv):
+공통 관측성·리포팅·적재 (Python/uv):
 
+- `polybot-observability/`: 12개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
 - `daily-report/`: 전 계정(현재 6개) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
@@ -49,7 +50,9 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 ## 데이터 흐름
 
-봇(Jenkins 실행) → 거래·일일 잔고 → `daily-report`가 전 계정 스냅샷을 Slack 송신 + Supabase(`pb_algorithm_accounts`·`pb_daily_algorithm_balances`·`pb_daily_portfolio_totals`) 적재 → `polymarket-dashboard`가 Supabase를 조회해 비교 시각화.
+봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `golden-honeydew`·`golden-nectarine`이 시장 snapshot/catalog 적재 → `daily-report`가 6계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 기준 수익률·freshness·누락·합계 대사를 표시한다.
+
+GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 `order_fills.status='CONFIRMED'`의 실제 size/price와 fee coverage로만 확정한다. 계측 배포 전 legacy 구간과 배포 후 구간은 분리하고, evidence gap을 추정값으로 채우지 않는다. 상세 계약은 `docs/retro/EVIDENCE_CONTRACT.md`를 따른다.
 
 ## 공통 작업 원칙
 
@@ -57,6 +60,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - Python 프로젝트는 **uv** 표준을 따른다: `uv sync --frozen` 후 `uv run ...`. (`legacy`만 `requirements.txt` 예외.)
 - Node 프로젝트(`polymarket-dashboard`)는 npm을 쓴다.
 - 공통 유틸은 2개 이상 실제 사용 사례가 생긴 뒤 고려하고, 먼저 폴더 내부에서 단순 해결한다.
+- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다.
 
 ## 작업 전 확인
 
@@ -64,10 +68,11 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 2. 작업 대상 폴더의 `AGENTS.md`(있으면)
 3. 대상 폴더의 `README.md`
 4. 대상 폴더의 package/config 파일 (`pyproject.toml`, `package.json`, `config.yaml`)
+5. 전략·회고 작업이면 `docs/retro/EVIDENCE_CONTRACT.md`; 새 전략이면 `docs/new-strategy-playbook.md`
 
 ## 공통 명령어
 
-폴더별로 다르다. Python은 `uv run <entry>`(golden-* 는 `uv run polybot`), 대시보드는 `npm run <script>`. 상세는 각 폴더 README/AGENTS.md를 따른다.
+폴더별로 다르다. Python은 `uv run <entry>`(golden-* 는 `uv run polybot`), 대시보드는 `npm run <script>`. 전략 공통 계약은 루트에서 `uv run tools/verify_strategy_contracts.py`, 관측성은 `uv run --project polybot-observability pytest polybot-observability/tests`로 검증한다. 상세는 각 폴더 README/AGENTS.md를 따른다.
 
 ## CI / 배포
 
@@ -78,6 +83,8 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
+- 공통 전략 계약이나 shared observability를 수정하면 12개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
+- 월간 수치 조정·전략 승격 전에 `polybot-retro audit --strict`를 실행한다. `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
 
 ## 새 서브 프로젝트 추가 기준
 
@@ -86,9 +93,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 3. Python이면 uv, Node면 npm 스캐폴드를 맞춘다.
 4. 독립 `README.md`와 필요 시 L3 `AGENTS.md`를 둔다.
 5. `REPOS.md`와 본 인덱스에 등록한다.
+6. `docs/new-strategy-playbook.md`의 research/falsification/backtest, config validation, simulation, run/order/fill/archive, reporting, retro, promotion gate를 모두 충족한다.
+7. `docs/retro/golden-<name>.md`를 만들고 `uv run tools/verify_strategy_contracts.py`를 통과한다. unit test만으로 수익성을 주장하지 않는다.
 
 ## 주의사항
 
 - 실거래 봇은 `config.yaml`의 `simulation_mode`와 `.env` 실키에 민감하다. 키 취급은 L1 보안 규칙을 따른다.
+- Jenkins Freestyle에서 private key를 inline `export`하거나 `sh -x`/`sh -xe`로 노출하지 않는다. Credentials Binding을 사용하고 secret 참조 전부터 `set +x`를 적용한다.
+- SQLite DB와 Jenkins artifact는 유일한 backup으로 취급하지 않는다. online backup + SHA-256 manifest를 workspace 밖 내구성 저장소에 복제하고 복구 검증한다.
 - 루트 `firebase-debug.log`는 추적되지 않는 잔여 로그다 (정리 권장, 임의 삭제는 하지 않음).
 - `streamlit_proj`·`cloud_run_proj`의 기존 `CLAUDE.md`는 L1 `@AGENTS.md` 컨벤션과 다를 수 있다. 정리는 별도 작업으로 다룬다.

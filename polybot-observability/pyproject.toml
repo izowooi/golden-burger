@@ -1,0 +1,26 @@
+[project]
+name = "polybot-observability"
+version = "0.1.0"
+description = "Secret-safe run telemetry and retrospective audit tooling for golden-burger bots"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+]
+
+[project.scripts]
+polybot-retro = "polybot_observability.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polybot_observability"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]

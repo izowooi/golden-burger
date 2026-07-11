@@ -174,7 +174,7 @@ from polybot_reporter import DataAPIClient, SlackNotifier
 **주요 메서드**:
 - `get_positions(address)`: 현재 포지션 조회
 - `get_trades_by_address(address)`: 거래 내역 조회
-- `calculate_pnl_for_period(address, days_ago)`: P&L 계산
+- `calculate_pnl_for_period(address, days_ago)`: legacy 현재 포지션 진단 helper (일일 기간 P&L에는 사용하지 않음)
 - `get_portfolio_summary(address)`: 전체 포트폴리오 요약
 
 **사용 예**:
@@ -235,7 +235,7 @@ def fetch_data():
 **Jenkins에서 사용**:
 - Pipeline script from SCM
 - Repository URL 설정
-- Script Path: `Jenkinsfile`
+- Script Path: `daily-report/Jenkinsfile`
 
 ### 문서
 

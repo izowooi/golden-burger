@@ -2,9 +2,14 @@
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import List, Optional, Union
+import math
 import os
 import yaml
 from dotenv import load_dotenv
+from polybot_observability.config_contract import (
+    get_trading_config_mapping,
+    validate_yaml_config_shape,
+)
 
 
 def _get_config_value(
@@ -27,9 +32,13 @@ def _get_config_value(
     env_val = os.getenv(env_key)
     if env_val is not None:
         return value_type(env_val)
-    if yaml_value is not None:
-        return value_type(yaml_value)
-    return default
+    if yaml_value is None:
+        return default
+    if isinstance(yaml_value, bool) or not isinstance(yaml_value, (int, float)):
+        raise ValueError(f"{env_key} YAML value must be numeric")
+    if value_type is int and not isinstance(yaml_value, int):
+        raise ValueError(f"{env_key} YAML value must be an integer")
+    return value_type(yaml_value)
 
 
 @dataclass
@@ -68,6 +77,36 @@ class BotConfig:
     job_name: str = "default"
 
 
+def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
+    """Reject unsafe or internally inconsistent resolved configuration."""
+    numeric = {
+        "buy_threshold": trading.buy_threshold,
+        "sell_threshold": trading.sell_threshold,
+        "buy_amount_usdc": trading.buy_amount_usdc,
+        "min_liquidity": trading.min_liquidity,
+        "min_volume": trading.min_volume,
+        "max_positions": trading.max_positions,
+    }
+    for name, value in numeric.items():
+        if not math.isfinite(value):
+            raise ValueError(f"{name} must be finite")
+    if not 0 < trading.buy_threshold < trading.sell_threshold < 1:
+        raise ValueError("buy_threshold must be < sell_threshold and both must be between 0 and 1")
+    if trading.buy_amount_usdc <= 0:
+        raise ValueError("buy_amount_usdc must be > 0")
+    if trading.min_liquidity < 0 or trading.min_volume < 0:
+        raise ValueError("min_liquidity and min_volume must be >= 0")
+    if trading.max_positions != -1 and trading.max_positions <= 0:
+        raise ValueError("max_positions must be -1 or a positive integer")
+    if not isinstance(trading.excluded_categories, list) or any(
+        not isinstance(item, str) or not item.strip()
+        for item in trading.excluded_categories
+    ):
+        raise ValueError("excluded_categories must be a list of non-empty strings")
+    if api.signature_type not in {1, 3}:
+        raise ValueError("signature_type must be one of: 1, 3")
+
+
 def load_config(
     config_path: str = "config.yaml",
     job_name: str = "default",
@@ -103,7 +142,7 @@ def load_config(
         cfg = {}
 
     # Parse trading config (환경변수 > yaml > 기본값)
-    trading_cfg = cfg.get("trading", {})
+    trading_cfg = get_trading_config_mapping(cfg)
     trading = TradingConfig(
         buy_threshold=_get_config_value(
             "POLYBOT_BUY_THRESHOLD",
@@ -147,6 +186,8 @@ def load_config(
         ]),
     )
 
+    validate_yaml_config_shape(cfg, trading)
+
     # Parse API config from environment variables
     private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
     funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS")
@@ -166,9 +207,13 @@ def load_config(
         signature_type=int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1")),
     )
 
+    _validate_config(trading, api)
+
     # Simulation mode (CLI flag overrides config file)
     if simulation_mode is None:
         simulation_mode = cfg.get("simulation_mode", False)
+    if not isinstance(simulation_mode, bool):
+        raise ValueError("simulation_mode must be a boolean")
 
     # Set up database path (per job, separate for simulation)
     db_dir = Path("data") / job_name

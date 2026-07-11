@@ -1,13 +1,18 @@
 """Repository pattern for database operations."""
 import csv
+import hashlib
+import json
 import logging
-from datetime import datetime, timedelta
+import math
+from polybot_observability import current_run_id
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from .models import (
-    Trade, TradeStatus, SkippedMarket, MarketSnapshot, CycleStat, CappedCandidate,
+    Trade, TradeStatus, SkippedMarket, MarketSnapshot, MarketCatalog,
+    MarketSweep, MarketSweepMembership, CycleStat, CappedCandidate,
 )
 
 logger = logging.getLogger(__name__)
@@ -174,17 +179,263 @@ class TradeRepository:
         probability: float,
         liquidity: float = None,
         volume_24h: float = None,
+        best_bid: float = None,
+        best_ask: float = None,
+        spread: float = None,
+        source_updated_at: str = None,
+        market: Optional[Dict[str, Any]] = None,
+        commit: bool = True,
     ) -> MarketSnapshot:
         """Save a market snapshot (probability = YES 가격)."""
+        if market is not None:
+            self._upsert_market_catalog(condition_id, market)
         snapshot = MarketSnapshot(
             condition_id=condition_id,
             probability=probability,
             liquidity=liquidity,
             volume_24h=volume_24h,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            spread=spread,
+            source_updated_at=source_updated_at,
+            run_id=current_run_id(),
         )
         self.session.add(snapshot)
-        self.session.commit()
+        if commit:
+            self.session.commit()
         return snapshot
+
+    def commit(self) -> None:
+        """Commit a batch of snapshots/catalog upserts atomically."""
+        self.session.commit()
+
+    def rollback(self) -> None:
+        """Rollback the current snapshot/sweep transaction."""
+        self.session.rollback()
+
+    def save_market_catalog(
+        self,
+        condition_id: str,
+        market: Dict[str, Any],
+        *,
+        commit: bool = False,
+    ) -> None:
+        """Upsert qualified-universe metadata even when no price row is eligible."""
+        self._upsert_market_catalog(condition_id, market)
+        if commit:
+            self.session.commit()
+
+    @staticmethod
+    def _attestation_datetime(value: Any) -> datetime:
+        """Parse an attestation timestamp and normalize it to naive UTC for SQLite."""
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        if parsed.tzinfo is not None:
+            parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
+        return parsed
+
+    def record_market_sweep(
+        self,
+        attestation: Dict[str, Any],
+        snapshot_results: Dict[str, Dict[str, Any]],
+        *,
+        commit: bool = False,
+    ) -> MarketSweep:
+        """Persist snapshots/catalog/qualified memberships as one evidence unit."""
+        if not attestation or attestation.get("cursor_complete") is not True:
+            raise ValueError("완료된 Gamma sweep attestation만 저장할 수 있습니다")
+        if int(attestation.get("schema_version", 0)) != 1:
+            raise ValueError("지원하지 않는 Gamma sweep schema_version입니다")
+        if int(attestation.get("pages", 0)) < 1:
+            raise ValueError("Gamma sweep pages는 1 이상이어야 합니다")
+
+        memberships = attestation.get("memberships")
+        if not isinstance(memberships, list):
+            raise ValueError("Gamma sweep memberships가 list가 아닙니다")
+        if attestation.get("membership_digest_scope") != "qualified_only":
+            raise ValueError("Gamma sweep digest scope는 qualified_only여야 합니다")
+        for item in memberships:
+            if not isinstance(item, dict):
+                raise ValueError("Gamma sweep membership은 object여야 합니다")
+            if not isinstance(item.get("qualified"), bool):
+                raise ValueError("Gamma sweep qualified는 boolean이어야 합니다")
+            raw_seen = item.get("raw_seen_count")
+            if isinstance(raw_seen, bool) or not isinstance(raw_seen, int):
+                raise ValueError("Gamma sweep raw_seen_count는 integer여야 합니다")
+            reason = item.get("qualification_reason")
+            if not isinstance(reason, str) or not reason:
+                raise ValueError("Gamma sweep qualification_reason이 필요합니다")
+        condition_ids = [str(item.get("condition_id") or "") for item in memberships]
+        if any(not condition_id for condition_id in condition_ids):
+            raise ValueError("Gamma sweep membership condition_id가 비어 있습니다")
+        if len(condition_ids) != len(set(condition_ids)):
+            raise ValueError("Gamma sweep membership condition_id가 중복되었습니다")
+
+        canonical_memberships = sorted(
+            [
+                {
+                    "condition_id": str(item["condition_id"]),
+                    "raw_seen_count": int(item["raw_seen_count"]),
+                    "qualified": bool(item["qualified"]),
+                    "qualification_reason": str(item["qualification_reason"]),
+                }
+                for item in memberships
+            ],
+            key=lambda item: item["condition_id"],
+        )
+        if any(item["raw_seen_count"] < 1 for item in canonical_memberships):
+            raise ValueError("Gamma sweep raw_seen_count는 1 이상이어야 합니다")
+        qualified_memberships = [
+            item for item in canonical_memberships if item["qualified"]
+        ]
+        digest = hashlib.sha256(
+            json.dumps(
+                qualified_memberships,
+                sort_keys=True,
+                separators=(",", ":"),
+                ensure_ascii=False,
+            ).encode("utf-8")
+        ).hexdigest()
+        if digest != attestation.get("membership_digest_sha256"):
+            raise ValueError("Gamma sweep membership digest가 일치하지 않습니다")
+
+        unique_count = len(canonical_memberships)
+        qualified_count = len(qualified_memberships)
+        excluded_count = unique_count - qualified_count
+        exclusion_counts: Dict[str, int] = {}
+        for item in canonical_memberships:
+            if item["qualified"]:
+                continue
+            reason = item["qualification_reason"]
+            exclusion_counts[reason] = exclusion_counts.get(reason, 0) + 1
+        if attestation.get("exclusion_counts") != dict(sorted(exclusion_counts.items())):
+            raise ValueError("Gamma sweep exclusion_counts가 membership과 불일치합니다")
+        missing_count = int(attestation.get("missing_condition_id_count", 0))
+        if missing_count < 0:
+            raise ValueError("missing_condition_id_count는 음수일 수 없습니다")
+        raw_count = sum(item["raw_seen_count"] for item in canonical_memberships) + missing_count
+        duplicate_count = raw_count - missing_count - unique_count
+        expected_counts = {
+            "unique_condition_count": unique_count,
+            "qualified_market_count": qualified_count,
+            "excluded_condition_count": excluded_count,
+            "raw_market_count": raw_count,
+            "duplicate_raw_count": duplicate_count,
+        }
+        for field, expected in expected_counts.items():
+            if int(attestation.get(field, -1)) != expected:
+                raise ValueError(f"Gamma sweep {field} 집계가 membership과 불일치합니다")
+
+        result_ids = set(snapshot_results)
+        qualified_ids = {
+            item["condition_id"] for item in canonical_memberships if item["qualified"]
+        }
+        if result_ids != qualified_ids:
+            raise ValueError("모든 qualified condition의 snapshot 판정이 필요합니다")
+        sweep_id = str(attestation.get("sweep_id") or "")
+        if not sweep_id:
+            raise ValueError("Gamma sweep_id가 비어 있습니다")
+        started_at = self._attestation_datetime(attestation["started_at"])
+        completed_at = self._attestation_datetime(attestation["completed_at"])
+        if completed_at < started_at:
+            raise ValueError("Gamma sweep completed_at이 started_at보다 빠릅니다")
+        min_liquidity = float(attestation.get("min_liquidity", 0))
+        min_volume = float(attestation.get("min_volume", 0))
+        if (
+            not math.isfinite(min_liquidity)
+            or not math.isfinite(min_volume)
+            or min_liquidity < 0
+            or min_volume < 0
+        ):
+            raise ValueError("Gamma sweep filters must be finite and non-negative")
+
+        enriched = []
+        for membership in qualified_memberships:
+            result = snapshot_results[membership["condition_id"]]
+            eligible = result.get("snapshot_eligible") is True
+            snapshotted = result.get("snapshotted") is True
+            reason = str(result.get("snapshot_reason") or "")
+            if not reason:
+                raise ValueError("snapshot_reason은 비어 있을 수 없습니다")
+            if snapshotted and not eligible:
+                raise ValueError("snapshotted condition은 snapshot_eligible이어야 합니다")
+            enriched.append((membership, eligible, snapshotted, reason))
+
+        sweep = MarketSweep(
+            sweep_id=sweep_id,
+            schema_version=int(attestation["schema_version"]),
+            run_id=current_run_id(),
+            started_at=started_at,
+            completed_at=completed_at,
+            cursor_complete=1,
+            pages=int(attestation["pages"]),
+            raw_market_count=raw_count,
+            unique_condition_count=unique_count,
+            qualified_market_count=qualified_count,
+            excluded_condition_count=excluded_count,
+            exclusion_counts_json=json.dumps(
+                exclusion_counts, sort_keys=True, separators=(",", ":")
+            ),
+            missing_condition_id_count=missing_count,
+            duplicate_raw_count=duplicate_count,
+            min_liquidity=min_liquidity,
+            min_volume=min_volume,
+            membership_digest_sha256=digest,
+            snapshotted_market_count=sum(int(row[2]) for row in enriched),
+        )
+        self.session.add(sweep)
+        for membership, eligible, snapshotted, reason in enriched:
+            self.session.add(
+                MarketSweepMembership(
+                    sweep_id=sweep.sweep_id,
+                    condition_id=membership["condition_id"],
+                    raw_seen_count=membership["raw_seen_count"],
+                    qualified=int(membership["qualified"]),
+                    qualification_reason=membership["qualification_reason"],
+                    snapshot_eligible=int(eligible),
+                    snapshotted=int(snapshotted),
+                    snapshot_reason=reason,
+                )
+            )
+        if commit:
+            self.session.commit()
+        return sweep
+
+    def _upsert_market_catalog(self, condition_id: str, market: Dict[str, Any]) -> None:
+        """Upsert replay metadata in the same transaction as its price snapshot."""
+        events = market.get("events") or []
+        event = events[0] if events and isinstance(events[0], dict) else {}
+        tags = market.get("tags") or []
+        fee_schedule = market.get("feeSchedule") or {}
+        values = {
+            "market_id": str(market.get("id") or "") or None,
+            "market_slug": market.get("slug"),
+            "question": market.get("question"),
+            "event_id": str(event.get("id") or "") or None,
+            "event_slug": event.get("slug"),
+            "end_date": market.get("endDate"),
+            "outcomes_json": json.dumps(market.get("outcomes") or [], ensure_ascii=False),
+            "token_ids_json": json.dumps(market.get("clobTokenIds") or []),
+            "tags_json": json.dumps(
+                [
+                    {"id": tag.get("id"), "slug": tag.get("slug"), "label": tag.get("label")}
+                    for tag in tags if isinstance(tag, dict)
+                ],
+                ensure_ascii=False,
+            ),
+            "fees_enabled": (
+                None
+                if market.get("feesEnabled") is None
+                else int(bool(market.get("feesEnabled")))
+            ),
+            "fee_rate": fee_schedule.get("rate"),
+            "last_seen_at": datetime.utcnow(),
+        }
+        catalog = self.session.get(MarketCatalog, condition_id)
+        if catalog is None:
+            self.session.add(MarketCatalog(condition_id=condition_id, **values))
+            return
+        for key, value in values.items():
+            setattr(catalog, key, value)
 
     def get_snapshots_since(
         self,
@@ -224,7 +475,7 @@ class TradeRepository:
         """오래된 스냅샷 정리 (디스크 공간 관리).
 
         Args:
-            days: 보관 일수 (전략 lookback의 3배, 최소 7일)
+            days: 보관 일수 (전략 lookback의 3배, 최소 60일)
 
         Returns:
             삭제된 스냅샷 수
@@ -233,9 +484,27 @@ class TradeRepository:
         deleted = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.timestamp < cutoff
         ).delete()
+        expired_sweep_ids = [
+            row[0]
+            for row in self.session.query(MarketSweep.sweep_id).filter(
+                MarketSweep.completed_at < cutoff
+            ).all()
+        ]
+        if expired_sweep_ids:
+            self.session.query(MarketSweepMembership).filter(
+                MarketSweepMembership.sweep_id.in_(expired_sweep_ids)
+            ).delete(synchronize_session=False)
+            self.session.query(MarketSweep).filter(
+                MarketSweep.sweep_id.in_(expired_sweep_ids)
+            ).delete(synchronize_session=False)
         self.session.commit()
         if deleted > 0:
             logger.info(f"오래된 스냅샷 {deleted}개 삭제 (기준: {days}일)")
+        if expired_sweep_ids:
+            logger.info(
+                f"오래된 Gamma sweep evidence {len(expired_sweep_ids)}개 삭제 "
+                f"(기준: {days}일)"
+            )
         return deleted
 
     # ------------------------------------------------------------------

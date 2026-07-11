@@ -1,7 +1,12 @@
 """Gamma API client for market data retrieval."""
+import hashlib
 import json
 import logging
+import math
+from datetime import datetime, timezone
 from typing import List, Dict, Optional
+from uuid import uuid4
+
 import requests
 from ..utils.retry import rate_limit_handler
 
@@ -19,13 +24,66 @@ class GammaClient:
     """
 
     BASE_URL = "https://gamma-api.polymarket.com"
+    CONNECT_TIMEOUT_SECONDS = 3.05
+    READ_TIMEOUT_SECONDS = 20.0
+    MAX_SWEEP_PAGES = 10_000
+    SWEEP_SCHEMA_VERSION = 1
 
     def __init__(self):
         self.session = requests.Session()
+        self.sweep_attestations: List[Dict] = []
         self.session.headers.update({
             "Accept": "application/json",
             "User-Agent": "GoldenApple-PolyBot/1.0"
         })
+
+    def _get(self, path: str, *, params: Optional[Dict] = None):
+        """Issue a bounded Gamma request with separate connect/read limits."""
+        return self.session.get(
+            f"{self.BASE_URL}{path}",
+            params=params,
+            timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
+        )
+
+    @property
+    def last_sweep_attestation(self) -> Optional[Dict]:
+        """Return the last fully completed keyset sweep, never a partial one."""
+        return self.sweep_attestations[-1] if self.sweep_attestations else None
+
+    def get_sweep_summaries(self) -> List[Dict]:
+        """Return RunAudit-safe summaries without the potentially large membership list."""
+        return [
+            {key: value for key, value in attestation.items() if key != "memberships"}
+            for attestation in self.sweep_attestations
+        ]
+
+    @staticmethod
+    def _qualification_reason(
+        market: Dict,
+        min_liquidity: float,
+        min_volume: float,
+    ) -> str:
+        """Return the first fail-closed Gamma universe exclusion reason."""
+        if market.get("active") is not True:
+            return "inactive_or_missing"
+        if market.get("closed") is not False:
+            return "closed_or_missing"
+        if market.get("enableOrderBook") is not True:
+            return "order_book_disabled_or_missing"
+        if market.get("acceptingOrders") is not True:
+            return "orders_not_accepted_or_missing"
+        try:
+            liquidity = float(market.get("liquidity") or 0)
+            volume = float(market.get("volume") or 0)
+            if not math.isfinite(liquidity) or not math.isfinite(volume):
+                return "invalid_numeric_filter_field"
+            if liquidity < min_liquidity:
+                return "below_min_liquidity"
+            if volume < min_volume:
+                return "below_min_volume"
+        except (TypeError, ValueError):
+            return "invalid_numeric_filter_field"
+        return "qualified"
 
     def _parse_market(self, market: Dict) -> Dict:
         """Parse JSON string fields in market data."""
@@ -39,33 +97,6 @@ class GammaClient:
         return market
 
     @rate_limit_handler(max_retries=3)
-    def _fetch_markets_page(
-        self,
-        limit: int = 100,
-        offset: int = 0,
-    ) -> List[Dict]:
-        """Fetch a single page of active markets from the Gamma API.
-
-        Args:
-            limit: Maximum number of markets to return (max 100)
-            offset: Pagination offset
-
-        Returns:
-            List of raw market dictionaries from API
-        """
-        params = {
-            "active": "true",
-            "closed": "false",
-            "limit": min(limit, 100),
-            "offset": offset,
-        }
-
-        response = self.session.get(f"{self.BASE_URL}/markets", params=params)
-        response.raise_for_status()
-
-        markets = response.json()
-        return [self._parse_market(m) for m in markets]
-
     def get_active_markets(
         self,
         limit: int = 100,
@@ -80,9 +111,20 @@ class GammaClient:
             min_liquidity: Minimum liquidity filter
 
         Returns:
-            List of market dictionaries passing the liquidity filter
+            List of market dictionaries
         """
-        parsed = self._fetch_markets_page(limit=limit, offset=offset)
+        params = {
+            "active": "true",
+            "closed": "false",
+            "limit": min(limit, 100),
+            "offset": offset,
+        }
+
+        response = self._get("/markets", params=params)
+        response.raise_for_status()
+
+        markets = response.json()
+        parsed = [self._parse_market(m) for m in markets]
 
         # Filter by liquidity
         if min_liquidity > 0:
@@ -93,75 +135,140 @@ class GammaClient:
 
         return parsed
 
+    @rate_limit_handler(max_retries=3)
     def get_all_tradable_markets(
         self,
         min_liquidity: float = 0,
         min_volume: float = 0,
     ) -> List[Dict]:
-        """Get all tradeable markets with pagination.
+        """Get the complete tradeable universe with cursor pagination.
 
-        Args:
-            min_liquidity: Minimum liquidity filter
-            min_volume: Minimum cumulative volume filter (0 = disabled)
-
-        Returns:
-            List of all active markets meeting criteria
+        Gamma's keyset endpoint avoids the offset ceiling and returns event/tag
+        metadata needed to reproduce the scanned universe in retrospectives.
         """
-        all_markets = []
-        offset = 0
-        limit = 100
+        min_liquidity = float(min_liquidity)
+        min_volume = float(min_volume)
+        if (
+            not math.isfinite(min_liquidity)
+            or not math.isfinite(min_volume)
+            or min_liquidity < 0
+            or min_volume < 0
+        ):
+            raise ValueError("Gamma sweep filters must be finite and non-negative")
+        started_at = datetime.now(timezone.utc)
+        sweep_id = str(uuid4())
+        by_condition: Dict[str, Dict] = {}
+        memberships: Dict[str, Dict] = {}
+        cursor: Optional[str] = None
+        seen_cursors = set()
+        pages = 0
+        raw_market_count = 0
+        missing_condition_id_count = 0
 
         while True:
-            # Fetch raw page for accurate pagination decision
-            try:
-                raw_markets = self._fetch_markets_page(limit=limit, offset=offset)
-            except requests.exceptions.HTTPError as e:
-                status = e.response.status_code if e.response is not None else 0
-                # Gamma API는 offset이 전체 시장 수를 넘으면 422를 반환한다.
-                # offset>0의 422는 마지막 페이지를 지난 것이므로 정상 종료로 처리한다.
-                # 단, 첫 페이지(offset==0)의 422는 실제 API 장애이므로 그대로 올린다.
-                if status == 422 and offset > 0:
-                    logger.info(f"페이지네이션 종료 - offset={offset} (HTTP 422)")
-                    break
-                raise
+            params = {
+                "closed": "false",
+                "include_tag": "true",
+                "limit": 100,
+            }
+            if cursor:
+                params["after_cursor"] = cursor
 
-            if not raw_markets:
+            response = self._get("/markets/keyset", params=params)
+            response.raise_for_status()
+            payload = response.json()
+            raw_markets = payload.get("markets", [])
+            if not isinstance(raw_markets, list):
+                raise ValueError("Gamma keyset 응답의 markets가 list가 아닙니다")
+
+            for raw_market in raw_markets:
+                raw_market_count += 1
+                market = self._parse_market(raw_market)
+                condition_id = market.get("conditionId")
+                if not condition_id:
+                    missing_condition_id_count += 1
+                    continue
+                condition_id = str(condition_id)
+                membership = memberships.setdefault(
+                    condition_id,
+                    {
+                        "condition_id": condition_id,
+                        "raw_seen_count": 0,
+                        "qualified": False,
+                        "qualification_reason": None,
+                    },
+                )
+                membership["raw_seen_count"] += 1
+                reason = self._qualification_reason(
+                    market, min_liquidity=min_liquidity, min_volume=min_volume
+                )
+                if reason == "qualified":
+                    membership["qualified"] = True
+                    membership["qualification_reason"] = "qualified"
+                    by_condition[condition_id] = market
+                elif not membership["qualified"]:
+                    membership["qualification_reason"] = reason
+
+            pages += 1
+            next_cursor = payload.get("next_cursor")
+            if not next_cursor:
                 break
+            if pages >= self.MAX_SWEEP_PAGES:
+                raise RuntimeError(
+                    f"Gamma keyset 순회가 {self.MAX_SWEEP_PAGES}페이지 한도를 초과했습니다"
+                )
+            if next_cursor == cursor or next_cursor in seen_cursors:
+                raise RuntimeError("Gamma keyset cursor가 반복되어 순회를 중단합니다")
+            seen_cursors.add(str(next_cursor))
+            cursor = str(next_cursor)
 
-            # Apply client-side filters
-            filtered = raw_markets
-            if min_liquidity > 0:
-                filtered = [
-                    m for m in filtered
-                    if float(m.get("liquidity") or 0) >= min_liquidity
-                ]
-            if min_volume > 0:
-                filtered = [
-                    m for m in filtered
-                    if float(m.get("volume") or 0) >= min_volume
-                ]
-
-            logger.debug(
-                f"페이지 offset={offset}: API {len(raw_markets)}개 -> 필터 통과 {len(filtered)}개"
-            )
-
-            all_markets.extend(filtered)
-            offset += limit
-
-            # If API returned fewer than requested, this is the last page
-            if len(raw_markets) < limit:
-                break
-
-            # Safety limit to prevent infinite loops
-            if offset >= 5000:
-                logger.warning("최대 페이지네이션 한도 도달")
-                break
-
-        logger.info(
-            f"시장 {len(all_markets)}개 조회 완료 "
-            f"(유동성 >= ${min_liquidity:,.0f}, 거래량 >= ${min_volume:,.0f})"
+        markets = list(by_condition.values())
+        sorted_memberships = sorted(
+            memberships.values(), key=lambda item: item["condition_id"]
         )
-        return all_markets
+        qualified_memberships = [
+            item for item in sorted_memberships if item["qualified"]
+        ]
+        exclusion_counts: Dict[str, int] = {}
+        for item in sorted_memberships:
+            if item["qualified"]:
+                continue
+            reason = item["qualification_reason"]
+            exclusion_counts[reason] = exclusion_counts.get(reason, 0) + 1
+        membership_bytes = json.dumps(
+            qualified_memberships,
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ).encode("utf-8")
+        attestation = {
+            "schema_version": self.SWEEP_SCHEMA_VERSION,
+            "sweep_id": sweep_id,
+            "started_at": started_at.isoformat(),
+            "completed_at": datetime.now(timezone.utc).isoformat(),
+            "cursor_complete": True,
+            "pages": pages,
+            "raw_market_count": raw_market_count,
+            "unique_condition_count": len(memberships),
+            "qualified_market_count": len(markets),
+            "excluded_condition_count": len(memberships) - len(markets),
+            "exclusion_counts": dict(sorted(exclusion_counts.items())),
+            "missing_condition_id_count": missing_condition_id_count,
+            "duplicate_raw_count": (
+                raw_market_count - missing_condition_id_count - len(memberships)
+            ),
+            "min_liquidity": float(min_liquidity),
+            "min_volume": float(min_volume),
+            "membership_digest_sha256": hashlib.sha256(membership_bytes).hexdigest(),
+            "membership_digest_scope": "qualified_only",
+            "memberships": sorted_memberships,
+        }
+        self.sweep_attestations.append(attestation)
+        logger.info(
+            f"시장 {len(markets)}개 조회 완료 "
+            f"(keyset {pages}페이지, 유동성 >= ${min_liquidity:,.0f})"
+        )
+        return markets
 
     @rate_limit_handler(max_retries=3)
     def get_market_by_condition_id(self, condition_id: str) -> Optional[Dict]:
@@ -176,7 +283,7 @@ class GammaClient:
         params = {"condition_ids": condition_id, "limit": 1}
 
         try:
-            response = self.session.get(f"{self.BASE_URL}/markets", params=params)
+            response = self._get("/markets", params=params)
             response.raise_for_status()
 
             markets = response.json()
@@ -198,7 +305,7 @@ class GammaClient:
             Event dictionary or None
         """
         try:
-            response = self.session.get(f"{self.BASE_URL}/events/{event_id}")
+            response = self._get(f"/events/{event_id}")
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:

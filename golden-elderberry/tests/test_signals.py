@@ -90,6 +90,22 @@ class TestPanicFadeEntry:
         assert signal.ref_price == pytest.approx(0.85)
         assert signal.current_price == pytest.approx(0.60)
 
+    def test_former_favorite_uses_stronger_no_peak_when_yes_once_crossed_half(self):
+        """YES가 한때 0.55여도 ref 윈도우의 더 높은 NO 0.90 peak를 선택한다."""
+        series = panic_fade_series(
+            peak=0.90,
+            bottom=0.60,
+            yes_side=False,
+        )
+        series.append(PricePoint(NOW - timedelta(hours=46), 0.55))
+
+        signal = evaluate_panic_fade(series, 0.40, DEFAULT_PARAMS, NOW)
+
+        assert signal.entry is True
+        assert signal.side == "No"
+        assert signal.token_index == 1
+        assert signal.ref_price == pytest.approx(0.90)
+
     def test_no_entry_ref_below_min(self):
         """케이스 3: ref 0.65 < 0.70 (원래 favorite 아님) -> 진입 X."""
         series = panic_fade_series(peak=0.65, bottom=0.50)

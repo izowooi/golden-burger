@@ -6,6 +6,7 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 """
 import logging
 from typing import Optional, Dict, Any
+from polybot_observability import ExecutionLedger, SubmissionEvidenceError
 from ..config import ApiConfig
 from ..utils.retry import rate_limit_handler
 
@@ -25,7 +26,14 @@ class ClobClientWrapper:
     HOST = "https://clob.polymarket.com"
     DEFAULT_TICK_SIZE = 0.01  # Polymarket default tick size
 
-    def __init__(self, config: ApiConfig, simulation_mode: bool = False):
+    def __init__(
+        self,
+        config: ApiConfig,
+        simulation_mode: bool = False,
+        *,
+        audit_db_path=None,
+        strategy_name: str = "unknown",
+    ):
         """Initialize CLOB client.
 
         Args:
@@ -36,6 +44,11 @@ class ClobClientWrapper:
         self.simulation_mode = simulation_mode
         self._client = None
         self._initialized = False
+        self.execution_ledger = (
+            ExecutionLedger(audit_db_path, strategy_name=strategy_name)
+            if audit_db_path is not None
+            else None
+        )
 
     def _ensure_initialized(self):
         """Lazy initialization of the CLOB client."""
@@ -221,18 +234,19 @@ class ClobClientWrapper:
 
         if self.simulation_mode:
             logger.info(f"[SIM] Limit {side} - {size:.2f}주 @ {rounded_price:.2f}, token: {token_id}")
-            return {
+            result = {
                 "success": True,
                 "orderID": f"SIM_{side}_{token_id[:8]}",
                 "simulated": True,
                 "price": rounded_price,
             }
+            self._record_limit_submission(token_id, rounded_price, size, side, result)
+            return result
 
         try:
             from py_clob_client_v2 import OrderArgs, OrderType
 
             order_side = "BUY" if side.upper() == "BUY" else "SELL"
-
             order_args = OrderArgs(
                 token_id=token_id,
                 price=rounded_price,
@@ -240,16 +254,95 @@ class ClobClientWrapper:
                 side=order_side,
             )
 
-            # v2: create_order + post_order 두 단계 유지 (v1과 동일 패턴)
-            signed_order = self.client.create_order(order_args)
-            response = self.client.post_order(signed_order, OrderType.GTC)
+            def submit_order() -> Dict[str, Any]:
+                signed_order = self.client.create_order(order_args)
+                return self.client.post_order(signed_order, OrderType.GTC)
+
+            if self.execution_ledger is None:
+                response = submit_order()
+            else:
+                response = self.execution_ledger.submit_and_record(
+                    token_id=token_id,
+                    side=side,
+                    requested_price=rounded_price,
+                    requested_size=size,
+                    submit=submit_order,
+                    cancel=lambda order_id: self.client.cancel_orders([order_id]),
+                )
 
             logger.info(f"Limit {side} 주문 완료 @ {rounded_price:.2f}: {response}")
-            return response
+            return dict(response)
 
+        except SubmissionEvidenceError:
+            logger.critical("접수 주문과 execution ledger 정합성 유지 실패", exc_info=True)
+            raise
         except Exception as e:
             logger.error(f"Limit 주문 실패: {e}")
             return {"success": False, "error": str(e)}
+
+    def _record_limit_submission(
+        self,
+        token_id: str,
+        price: float,
+        size: float,
+        side: str,
+        result: Dict[str, Any],
+    ) -> None:
+        if self.execution_ledger is None:
+            return
+        self.execution_ledger.record_submission(
+            token_id=token_id,
+            side=side,
+            requested_price=price,
+            requested_size=size,
+            result=result,
+            simulation=self.simulation_mode,
+        )
+
+    def reconcile_order_ledger(self) -> Dict[str, int]:
+        """Poll persisted orders and store actual order/trade lifecycle evidence."""
+        stats = {"checked": 0, "fills": 0, "completed": 0, "errors": 0}
+        if self.simulation_mode or self.execution_ledger is None:
+            return stats
+
+        from py_clob_client_v2 import TradeParams
+
+        for pending in self.execution_ledger.pending_submissions():
+            stats["checked"] += 1
+            submission_id = pending["submission_id"]
+            order_id = pending["order_id"]
+            try:
+                detail = self.client.get_order(order_id)
+                trade_ids = self.execution_ledger.record_order_status(
+                    submission_id, detail
+                )
+                for trade_id in trade_ids:
+                    trades = self.client.get_trades(
+                        TradeParams(id=trade_id), only_first_page=True
+                    )
+                    for trade in trades:
+                        self.execution_ledger.record_fill(
+                            submission_id, order_id, trade
+                        )
+                        stats["fills"] += 1
+                if self.execution_ledger.finish_reconciliation(submission_id):
+                    stats["completed"] += 1
+            except Exception as error:
+                stats["errors"] += 1
+                self.execution_ledger.record_reconciliation_error(
+                    submission_id, error
+                )
+                logger.warning(
+                    f"주문 원장 대사 실패 - order: {order_id}: "
+                    f"{type(error).__name__}"
+                )
+
+        if stats["checked"]:
+            logger.info(
+                f"주문 원장 대사 - 확인 {stats['checked']}, fill {stats['fills']}, "
+                f"완료 {stats['completed']}, 오류 {stats['errors']}"
+            )
+        return stats
 
     @rate_limit_handler(max_retries=3)
     def get_open_orders(self) -> list:

@@ -2,16 +2,14 @@
 
 > Supabase 일일 적재와 최신 Jenkins 설정은 [README.md](README.md)를 기준으로 합니다.
 
-4개의 Polymarket 매매봇 계좌에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack 및 Supabase로 전송하는 시스템입니다.
+6개의 Polymarket 매매봇 계좌에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack 및 Supabase로 전송하는 시스템입니다.
 
 ## 📋 기능
 
-- **다중 계좌 지원**: 최대 9개 계좌까지 동시 모니터링
+- **다중 계좌 지원**: 숫자 슬롯 상한 없이 `ACCOUNT_<n>_*` 쌍을 동적으로 탐색하며 현재 6계정을 모니터링
 - **포트폴리오 분석**:
   - 현재 포지션 수 및 총 가치
-  - 7일 및 30일 Profit/Loss 계산
-  - 실현/미실현 손익 구분
-  - 거래 횟수 통계
+  - Supabase 일별 total snapshot 기준 7일 및 30일 P&L (기간 floor coverage 부족 시 `N/A`)
 - **Slack 알림**: 시각화된 리포트를 Slack 채널로 자동 전송
 - **Jenkins 자동화**: Cron 스케줄로 매일 자동 실행
 - **에러 핸들링**: API 호출 실패 시 자동 재시도 및 에러 알림
@@ -22,13 +20,11 @@
 daily_report.py (메인 스크립트)
     │
     ├─> DataAPIClient (Polymarket Data API)
-    │   ├─> get_positions()      # 현재 포지션 조회
-    │   ├─> get_trades()          # 거래 내역 조회
-    │   └─> calculate_pnl()       # P&L 계산
-    │
-    └─> SlackNotifier (Slack 알림)
-        ├─> send_portfolio_report()       # 단일 계좌 리포트
-        └─> send_multi_account_report()   # 통합 리포트
+    │   ├─> get_positions()             # limit=500 전체 pagination
+    │   └─> get_equity_snapshot()       # authoritative cash/position/equity
+    ├─> DailyEvidenceStore              # sanitized COMPLETE/FAILED evidence
+    ├─> SupabasePortfolioWriter         # single-RPC atomic 6-account snapshot
+    └─> SlackNotifier                   # DB 확정 후 exact 6-account v2 COMPLETE
 ```
 
 ## 📦 설치 및 설정
@@ -36,7 +32,7 @@ daily_report.py (메인 스크립트)
 ### 1. 의존성 설치
 
 ```bash
-pip install py-clob-client requests pyyaml python-dotenv
+uv sync --frozen
 ```
 
 ### 2. 환경 변수 설정
@@ -183,7 +179,7 @@ summary = client.get_portfolio_summary(address="0x...")
 
 - `get_positions(address)`: 현재 보유 포지션 조회
 - `get_trades_by_address(address, after_timestamp)`: 거래 내역 조회
-- `calculate_pnl_for_period(address, days_ago)`: 기간별 P&L 계산
+- `calculate_pnl_for_period(address, days_ago)`: legacy 현재 포지션 진단 helper. 일일 리포트의 기간 P&L 근거로 사용하지 않음
 - `get_portfolio_summary(address)`: 완전한 포트폴리오 요약
 
 ### SlackNotifier
@@ -211,31 +207,18 @@ slack.send_error_notification("golden-apple", "API 호출 실패")
 
 ## ⚙️ 설정 옵션
 
-### 계좌 추가
+### 계좌 변경
 
-4번째 이상의 계좌를 추가하려면:
-
-```bash
-# 환경변수 추가
-ACCOUNT_4_NAME=golden-apple
-ACCOUNT_4_ADDRESS=0x...
-```
-
-스크립트는 자동으로 `ACCOUNT_1`부터 `ACCOUNT_9`까지 감지합니다.
+slot 탐색 자체에는 숫자 상한이 없지만 정상 리포트는 현재 6개 display name/stable
+account ID 계약으로 고정됩니다. 추가·삭제·교체는 env만 수정하지 말고 Supabase catalog,
+Slack collector, dashboard를 함께 migration해야 합니다. NAME/ADDRESS 중 한쪽만 설정된
+slot은 오류입니다.
 
 ### P&L 계산 기간 변경
 
-`data_api_client.py`에서 기본값 수정:
-
-```python
-# 기본: 7일, 30일
-pnl_7d = calculate_pnl_for_period(address, days_ago=7)
-pnl_30d = calculate_pnl_for_period(address, days_ago=30)
-
-# 수정 예: 14일, 90일
-pnl_14d = calculate_pnl_for_period(address, days_ago=14)
-pnl_90d = calculate_pnl_for_period(address, days_ago=90)
-```
+일일 리포트의 7d/30d는 `SupabasePortfolioWriter.get_period_pnl()`이 저장된 total
+snapshot의 기간 floor(최대 +1일)와 현재 total을 비교합니다. 다른 기간을 추가하려면
+표시 코드뿐 아니라 해당 기간의 baseline coverage와 dashboard 정의를 함께 변경합니다.
 
 ### 스케줄 변경
 

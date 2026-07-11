@@ -30,7 +30,7 @@
 | 2 | (옵션) 24h 거래량 | volume24hr >= $0 (0 = 비활성) | Gamma `volume24hr` |
 | 3 | 시간 윈도우 | 24h <= 해결까지 <= 240h | `endDate` 기준 |
 | 4 | YES 롱샷 밴드 | 0.05 <= YES <= 0.25 (양끝 포함) | `outcomePrices[0]` |
-| 5 | 윈도우 유효성 | 24h 윈도우에 >= 5 포인트, 커버리지 >= 12h. invalid → 백필 시도 → 그래도 invalid면 **진입 금지** | `is_window_valid` |
+| 5 | 윈도우 유효성 | 24h 윈도우에 >= 5 포인트·커버리지 >= 12h이고, 6h spike 윈도우에도 별도로 >= 3 포인트·커버리지 >= 3h. 하나라도 invalid면 **진입 금지** | `is_window_valid` |
 | 6 | 사건 진행 배제 ① | YES 24h 변화 <= +0.02 (윈도우 최고(最古) 스냅샷 대비) | `change_from_oldest` |
 | 7 | 사건 진행 배제 ② | 최근 6h YES 급등 < 0.05 (6h 윈도우 저점 대비) | `rise_from_low` |
 | 8 | 재진입 정책 | HOLDING 없음 AND 마지막 청산/skip 후 24h 경과 | `is_in_reentry_cooldown` |

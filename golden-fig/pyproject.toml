@@ -4,6 +4,7 @@ version = "0.1.0"
 description = "Polymarket automated trading bot - Hope Crusher strategy (longshot hope fade, buys NO tokens)"
 requires-python = ">=3.11"
 dependencies = [
+    "polybot-observability",
     "py-clob-client-v2>=1.0.1",
     "python-dotenv>=1.0.0",
     "requests>=2.31.0",
@@ -19,6 +20,9 @@ dev = [
 
 [project.scripts]
 polybot = "polybot.main:main"
+
+[tool.uv.sources]
+polybot-observability = { path = "../polybot-observability", editable = true }
 
 # cherry에는 없던 build-system: 이것이 없으면 uv가 프로젝트를 virtual로 취급해
 # src/polybot이 설치되지 않아 pytest import와 `uv run polybot`이 깨진다.

@@ -55,7 +55,7 @@ class Trade(Base):
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY)
 
     # Entry/Exit reasons (momentum-based strategy)
-    entry_reason = Column(String, nullable=True)   # "golden_cross", "short_momentum_positive", "momentum_disabled"
+    entry_reason = Column(String, nullable=True)   # "golden_cross", "momentum_disabled"
     exit_reason = Column(String, nullable=True)    # "threshold", "take_profit", "stop_loss", "dead_cross"
 
     # Momentum data at buy (for analysis)

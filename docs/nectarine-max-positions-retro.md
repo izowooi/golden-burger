@@ -58,7 +58,7 @@ FROM capped_candidates c;
 SELECT COUNT(*) AS n,
        AVG((sell_price - buy_price) / buy_price) AS avg_return,
        SUM(CASE WHEN sell_price > buy_price THEN 1 ELSE 0 END) * 1.0 / COUNT(*) AS win_rate
-FROM trades WHERE status = 'completed' AND buy_price > 0;
+FROM trades WHERE status = 'COMPLETED' AND buy_price > 0;
 ```
 
 ## 4. 판정 규칙

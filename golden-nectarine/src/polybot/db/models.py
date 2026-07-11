@@ -7,7 +7,7 @@
 import enum
 from datetime import datetime
 from sqlalchemy import (
-    Column, Integer, String, Float, DateTime, Enum, create_engine, text
+    Column, Integer, String, Float, DateTime, Enum, ForeignKey, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 
@@ -109,10 +109,77 @@ class MarketSnapshot(Base):
     probability = Column(Float, nullable=False)  # YES price
     liquidity = Column(Float, nullable=True)
     volume_24h = Column(Float, nullable=True)
+    best_bid = Column(Float, nullable=True)
+    best_ask = Column(Float, nullable=True)
+    spread = Column(Float, nullable=True)
+    source_updated_at = Column(String, nullable=True)
+    run_id = Column(String, index=True, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     def __repr__(self) -> str:
         return f"<Snapshot {self.condition_id}: {self.probability:.2%}>"
+
+
+class MarketCatalog(Base):
+    """Slow-changing market metadata required for event-level replay."""
+    __tablename__ = "market_catalog"
+
+    condition_id = Column(String, primary_key=True)
+    market_id = Column(String, nullable=True)
+    market_slug = Column(String, nullable=True)
+    question = Column(String, nullable=True)
+    event_id = Column(String, index=True, nullable=True)
+    event_slug = Column(String, index=True, nullable=True)
+    end_date = Column(String, nullable=True)
+    outcomes_json = Column(String, nullable=False, default="[]")
+    token_ids_json = Column(String, nullable=False, default="[]")
+    tags_json = Column(String, nullable=False, default="[]")
+    fees_enabled = Column(Integer, nullable=True)
+    fee_rate = Column(Float, nullable=True)
+    first_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
+class MarketSweep(Base):
+    """Proof that a complete Gamma keyset universe traversal finished."""
+    __tablename__ = "market_sweeps"
+
+    sweep_id = Column(String, primary_key=True)
+    schema_version = Column(Integer, nullable=False)
+    run_id = Column(String, index=True, nullable=True)
+    started_at = Column(DateTime, nullable=False, index=True)
+    completed_at = Column(DateTime, nullable=False, index=True)
+    cursor_complete = Column(Integer, nullable=False)
+    pages = Column(Integer, nullable=False)
+    raw_market_count = Column(Integer, nullable=False)
+    unique_condition_count = Column(Integer, nullable=False)
+    qualified_market_count = Column(Integer, nullable=False)
+    excluded_condition_count = Column(Integer, nullable=False)
+    exclusion_counts_json = Column(String, nullable=False)
+    missing_condition_id_count = Column(Integer, nullable=False)
+    duplicate_raw_count = Column(Integer, nullable=False)
+    min_liquidity = Column(Float, nullable=False)
+    min_volume = Column(Float, nullable=False)
+    membership_digest_sha256 = Column(String, nullable=False)
+    snapshotted_market_count = Column(Integer, nullable=False)
+
+
+class MarketSweepMembership(Base):
+    """Qualified condition membership and archive outcome for one Gamma sweep."""
+    __tablename__ = "market_sweep_memberships"
+
+    sweep_id = Column(
+        String,
+        ForeignKey("market_sweeps.sweep_id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    condition_id = Column(String, primary_key=True, index=True)
+    raw_seen_count = Column(Integer, nullable=False)
+    qualified = Column(Integer, nullable=False, index=True)
+    qualification_reason = Column(String, nullable=False)
+    snapshot_eligible = Column(Integer, nullable=False)
+    snapshotted = Column(Integer, nullable=False, index=True)
+    snapshot_reason = Column(String, nullable=False)
 
 
 class SkippedMarket(Base):
@@ -189,6 +256,11 @@ _ALTER_COLUMNS = [
     ("trades", "lookback_days_at_buy", "REAL"),
     ("trades", "hold_hours_at_exit", "REAL"),
     ("trades", "market_tags", "TEXT"),
+    ("market_snapshots", "best_bid", "REAL"),
+    ("market_snapshots", "best_ask", "REAL"),
+    ("market_snapshots", "spread", "REAL"),
+    ("market_snapshots", "source_updated_at", "TEXT"),
+    ("market_snapshots", "run_id", "TEXT"),
 ]
 
 
@@ -214,4 +286,17 @@ def init_database(db_path: str) -> sessionmaker:
                 conn.commit()
             except Exception:
                 pass  # Column already exists
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+                "ON market_snapshots(condition_id, timestamp)"
+            )
+        )
+        conn.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+                "ON market_snapshots(run_id)"
+            )
+        )
+        conn.commit()
     return sessionmaker(bind=engine)

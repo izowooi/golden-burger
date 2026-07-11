@@ -1,5 +1,10 @@
 # golden-banana 회고(포스트모템) 가이드
 
+> **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
+> `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
+> `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
+> `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
+
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
 > 마스터 플레이북: `docs/retro/README.md` (3라운드 교정 프로세스, 공통 주의사항)
 
@@ -8,11 +13,15 @@
 ```
 docs/retro/golden-banana.md 를 읽고 §3(실적 분석 SQL)과 §4(반사실 분석)를 실행한 뒤,
 §6 표 형식으로 파라미터 교정안을 제시해줘.
+REVIEW_START=<YYYY-MM-DD UTC>
+REVIEW_END=<YYYY-MM-DD UTC>
+먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
+파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 주의사항:
 - status 값은 대문자 enum 이름('COMPLETED','HOLDING' 등)이다. 소문자로 쿼리하면 0건 나온다.
-- entry_reason='short_momentum_positive'(cold-start fallback)와 'golden_cross' 코호트를
-  반드시 분리해서 판단해줘. 운영 초기(스냅샷 축적 전)의 fallback 진입은 별도 코호트다.
+- legacy `entry_reason='short_momentum_positive'`와 post-fix `golden_cross` cohort를 반드시
+  분리해라. 현재 코드는 3/72개와 각 window 90% time coverage가 없으면 fail-closed한다.
 - 상관 클러스터(같은 이벤트에서 파생된 시장들)는 이벤트 단위로 묶어서 세어줘.
 - banana가 산 쪽이 outcome='No'인 거래는 아카이브 YES 가격을 1-YES로 뒤집어서 재생해줘.
 - 표본이 부족한 결론에는 신뢰도 '낮음'을 명시해줘.
@@ -21,9 +30,9 @@ Jenkins env 블록 (PRIVATE_KEY 줄 제외하고 붙여넣음):
 [여기에 붙여넣기]
 ```
 
-운영 env는 repo에 없다 (config.yaml은 기본값일 뿐). **Jenkins job 설정의 export 블록(키 제외)을
-복사해 위 프롬프트에 함께 붙여넣는 것이 필수다** — env > yaml > 코드 기본값 순으로 적용되므로
-env 블록 없이는 실제 운용 파라미터를 알 수 없다.
+env > yaml > 코드 기본값 순으로 적용된다. post-instrumentation 실제 운용값은 DB의
+`strategy_configs`와 `run_audits`에서 config/Git cohort로 확정한다. Jenkins export 블록은
+secret을 제거한 현재값·legacy cross-check이며, DB provenance를 대체하지 않는다.
 
 ## 1. 전략 요약
 
@@ -38,8 +47,8 @@ env 블록 없이는 실제 운용 파라미터를 알 수 없다.
 2. YES/NO 중 **높은 쪽** 확률이 `buy_threshold ≤ p ≤ sell_threshold` (상한 포함) — 높은 쪽 토큰을 산다 (NO일 수도 있음)
 3. momentum 진입 시그널 (`momentum.py get_entry_signal`):
    - 골든크로스: `short_mom - long_mom ≥ golden_cross_threshold` (+ `require_positive_long_momentum`이면 long_mom > 0 필수) → `golden_cross`
-   - **cold-start fallback**: 스냅샷 6개 미만이라 장기 momentum이 None이면 단기 momentum > 0만으로 진입 → `short_momentum_positive`
-   - 단기 데이터(3개)도 없으면 진입 불가
+   - 단기 3개와 장기 72개가 모두 필요하며 각 window가 명목 시간 span의 90% 이상을 덮어야 한다.
+   - 어느 한쪽이라도 부족하면 `insufficient_short_data`/`insufficient_long_data`로 fail-closed한다.
 4. 시장당 평생 1회 (`condition_id` UNIQUE). CLOB midpoint 재검증: > sell_threshold면 `rapid_jump`로 영구 skip
 5. GTC limit BUY @ midpoint, 접수 즉시 HOLDING 기록 (체결 확인 없음)
 
@@ -68,9 +77,9 @@ env 블록 없이는 실제 운용 파라미터를 알 수 없다.
 | simulation_mode | (env 없음 — CLI `--simulate`) | false | sim이면 trades_sim.db 사용 |
 
 주의: momentum = `(최신 확률 - 가장 오래된 확률) / 스냅샷 수`. MA cross가 아니라 양 끝점 기울기 비교다.
-threshold 0.02는 "15분에 약 6%p 급등" 수준이라 **실운영에서 golden_cross 경로는 거의 발화하지 않고,
-실제 매수 대부분이 cold-start fallback(`short_momentum_positive`)이었다** (2026-02 운영 로그 실측,
-`golden-banana/STRATEGY_ANALYSIS.md` §7.1 참조). 회고의 최우선 질문: **entry_reason 분포가 지금도 그런가.**
+threshold 0.02는 "15분에 약 6%p 급등" 수준이다. 2026-02 legacy 로그의 매수 대부분은 당시
+cold-start fallback(`short_momentum_positive`)이었지만 현재 fallback은 제거됐다. 회고의
+최우선 질문은 fix 전후 config/Git cohort를 나눠 signal 빈도와 성과가 어떻게 달라졌는가다.
 
 ## 2. 데이터 위치와 스키마
 
@@ -94,7 +103,8 @@ insufficient_short_data 등) 파악에 쓴다.
   short_momentum_at_sell, long_momentum_at_sell, liquidity_at_buy, market_tags, created_at, updated_at`
   - `status`는 **대문자 enum 이름**으로 저장: `PENDING_BUY / HOLDING / PENDING_SELL / COMPLETED / SKIPPED`
     (golden-banana/README.md의 소문자 예시 SQL은 틀렸다 — 실측 확인됨)
-  - `entry_reason` 값: `golden_cross`, `short_momentum_positive`, `momentum_disabled` (+ 방어적 `unknown`)
+  - 현재 `entry_reason`: `golden_cross`, `momentum_disabled` (+ 방어적 `unknown`).
+    `short_momentum_positive`는 legacy cohort에서만 허용한다.
   - `exit_reason` 값 (trader.py/momentum.py 기준): `threshold`, `take_profit`, `stop_loss`, `dead_cross`
   - `buy_price` = `buy_probability` (둘 다 매수 시점 midpoint), timestamp는 전부 **UTC naive**
 - **market_snapshots** (banana 자체 보유): `id, condition_id, probability, liquidity, volume_24h, timestamp`
@@ -108,8 +118,9 @@ insufficient_short_data 등) 파악에 쓴다.
 
 ### 중앙 가격 아카이브 (월간 반사실 분석의 원료)
 
-모든 봇이 같은 gamma sweep(가장 오래된 활성 시장 ~2100개)을 스냅샷하므로, 가격 시계열은
-**nectarine DB의 market_snapshots**를 공용 아카이브로 쓴다:
+Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe의 가격 시계열은
+**nectarine DB의 market_snapshots**를 공용 아카이브로 쓴다. 고정 시장 수가 아니라
+run별 cursor completion과 catalog/snapshot coverage를 검증한다:
 
 ```bash
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
@@ -122,7 +133,11 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 - NO 토큰 가격은 `1 - YES` 근사 (스프레드 무시 근사임을 결과에 명시)
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결된 보유분의 최종가는 trades.sell_price 또는 0/1(redeem)로 처리
 
-## 3. 실적 분석 SQL (banana trades.db에 sqlite3로 그대로 실행)
+## 3. decision/status 진단 SQL (기간 filter 추가 필수)
+
+> 아래 `trades` SQL은 decision/status 진단용이다. 모든 query에 `REVIEW_START`/`REVIEW_END`
+> half-open UTC filter를 추가한다. 실제 P&L·승률은 order ID로 ledger를 join해 `CONFIRMED` fill의
+> partial size/price/fee로 다시 계산하며, coverage 없는 legacy 행을 합계에 넣지 않는다.
 
 ```bash
 sqlite3 "$(find /Users/jongwoopark/.jenkins/workspace -path '*golden-banana/data*' -name 'trades.db' 2>/dev/null | head -1)"
@@ -290,14 +305,13 @@ dead_cross 청산의 반사실 재생은 momentum 재계산이 필요하므로 (
 가상 진입 후 성과는 (a)의 현행 exit 규칙으로 평가. liquidity ≥ 50000 필터를 arc.liquidity로 재적용.
 
 1. **golden_cross_threshold 스윕**: {0.001, 0.0025, 0.005, 0.01, **0.02(현행)**}
-   - momentum 정의를 코드와 동일하게: `(마지막 - 처음) / 개수`, 단기 = 최근 3개, 장기 = 최근 72개
-     (72개 미만이면 6개 이상일 때 전량 사용 — `momentum.py get_long_momentum`의 fallback 그대로)
+   - momentum 정의를 코드와 동일하게: `(마지막 - 처음) / 개수`, 단기 = 최근 3개, 장기 = 최근
+     72개. 두 window 모두 개수와 명목 span 90% coverage를 충족해야 하며 fallback은 없다.
    - 산출물: threshold별 "발화한 golden_cross 진입 수 / 그 진입들의 가상 P&L". 현행 0.02에서
      발화 0건이면 "게이트가 전략을 비활성화시킨다"는 §1의 가설이 확정된다.
-2. **cold-start fallback 게이트 스윕**: 최소 스냅샷 수 {**6(현행 사실상)**, 12, 36, 72}
-   - 실거래 중 `entry_reason='short_momentum_positive'`인 건들을 대상으로, "아카이브 기준 그 시점에
-     스냅샷이 N개 이상 있어야 진입"이라는 가상 게이트를 적용했을 때 걸러졌을 진입과 그 P&L 계산.
-   - 걸러진 진입의 실제 성과가 나빴다면 fallback 강화(또는 제거) 근거가 된다.
+2. **legacy fallback 영향 측정**: `short_momentum_positive` 거래에 현재 gate(3/72개 + 90%
+   time coverage)를 사후 적용해 제외될 수와 성과를 계산한다. 이는 fix 효과의 설명 자료이며
+   fallback을 다시 tuning 후보로 올리는 sweep이 아니다.
 3. **진입 밴드 스윕**: buy_threshold {0.80, **0.85(현행)**, 0.90} × 진입 상한 {0.94, **0.97(현행)**}
    - 상한 0.94 분리안은 §3.4의 "TP 도달 불가 + churn" 버킷 성과가 근거.
    - 산출물: 밴드 조합별 가상 진입 수 / 총 P&L / 승률.
@@ -311,12 +325,13 @@ dead_cross 청산의 반사실 재생은 momentum 재계산이 필요하므로 (
   재생은 아카이브(YES 가격, 60일)를 favorite 가격으로 변환한 것이다. 두 sweep의 실행 시각이
   달라 스냅샷 개수·타이밍이 어긋날 수 있다. 최근 7일 거래는 자체 market_snapshots로 교차 검증 가능.
 - **NO 근사**: 1-YES는 스프레드를 무시한다. favorite이 NO인 시장에서 오차가 몇 tick 생긴다.
-- **체결 가정**: 실봇도 반사실도 "midpoint GTC limit = 즉시 전량 체결" 가정. 실제 미체결
-  (특히 급락장의 stop_loss 미체결)은 양쪽 다 반영 안 됨 — 지갑 잔고 대사로 보정 (`docs/retro/README.md` §5).
-- **유니버스/필터 재현 한계**: 아카이브엔 tags가 없어 스포츠 키워드 필터를 완전 재현할 수 없다.
-  (b)의 "신규 가상 진입"에는 비스포츠 확인을 question 텍스트 수동 샘플링으로 보완.
-  또한 스윕은 "가장 오래된 활성 ~2100개"만 봐서 신규 단기 시장이 빠진다 — "진입이 없었다"는
-  결론은 전략 탓이 아닐 수 있다.
+- **Execution evidence**: legacy `trades`는 midpoint GTC 접수 시 상태를 전환하므로 actual fill이
+  아니다. 실현 결과는 `CONFIRMED order_fills`의 partial size/price/fee로 다시 계산한다. ledger
+  coverage가 없는 구간은 `ORDER_ASSUMPTION`으로 분리하고, midpoint counterfactual은 상대 비교만 한다.
+- **유니버스/필터 재현 한계**: post-instrumentation `market_catalog.tags_json`과 event metadata로
+  스포츠 필터를 재현한다. legacy 구간에는 catalog가 없을 수 있으므로 수동 표본 검증과
+  coverage를 명시한다. keyset은 고정 offset cap 없이 완주하지만 run/cadence gap이 있으면
+  신규 단기 시장이 빠질 수 있으므로 “진입이 없었다”는 결론 전에 coverage를 확인한다.
 - **7일 보존의 함정**: banana 자체 스냅샷으로 한 달치를 분석하려 하지 마라. 이미 지워졌다.
 
 ## 5. 표본 주의사항
@@ -325,12 +340,11 @@ dead_cross 청산의 반사실 재생은 momentum 재계산이 필요하므로 (
   베팅 1개다. `market_slug`/`question` 접두어로 묶어 이벤트 단위 n을 다시 세고, 클러스터 내
   동반 손실은 1건으로 취급해 판단한다. 명목 n ≠ 유효 n.
 - **코호트 분리 (banana 특유)**:
-  - **cold-start 백로그 코호트**: 운영 시작 직후(및 DB 초기화·7일 정리 직후)에는 모든 시장이
-    스냅샷 6개 미만이라 fallback 경로로 대량 진입한다. 이 초기 물량은 "85~97% + 방금 안 떨어짐"
-    전략의 표본이지 momentum 전략의 표본이 아니다. `buy_timestamp` 첫 며칠을 분리 집계.
-  - **entry_reason 코호트**: `golden_cross` vs `short_momentum_positive`는 사실상 다른 전략이다.
-    §3.3으로 항상 분리. fallback 진입 중에서도 "유동성 경계를 갓 넘어 유니버스에 새로 편입된 시장"
-    (스냅샷이 적은 또 다른 이유)이 섞여 있음에 유의.
+  - **legacy cold-start cohort**: fix 전 `short_momentum_positive` 대량 진입은 momentum 전략과
+    분리한다. post-fix cold start는 진입이 없어야 하며 해당 entry reason이 보이면 code cohort를
+    잘못 분류했거나 배포가 누락된 것이다.
+  - **post-fix warm-up**: `insufficient_short_data`/`insufficient_long_data` skip과 첫 유효
+    `golden_cross`까지의 시간을 run/log에서 측정한다.
 - **threshold 청산 편향**: 0.97 근접 진입은 며칠 안에 threshold로 소액 익절되며 승률을 부풀린다.
   승률과 함께 반드시 평균 수익률·보유시간을 같이 본다 (§3.4·§3.5).
 - **HOLDING 잔류 생존 편향**: COMPLETED만 집계하면 물려 있는 포지션의 미실현 손실이 빠진다.
@@ -341,7 +355,7 @@ dead_cross 청산의 반사실 재생은 momentum 재계산이 필요하므로 (
 | 파라미터 | 현행 | 제안 | 근거 수치 | 신뢰도(높음/중간/낮음) |
 |---|---|---|---|---|
 | POLYBOT_GOLDEN_CROSS_THRESHOLD | 0.02 | | §4(b)1 발화 수/P&L | |
-| (fallback 최소 스냅샷 — 신규 노브 검토) | 사실상 6 | | §4(b)2 | |
+| warm-up evidence gate | 3/72개 + 90% span | 유지/계측 보완 | §4(b)2 | |
 | POLYBOT_BUY_THRESHOLD | 0.85 | | §3.4 + §4(b)3 | |
 | (진입 상한 분리 — 신규 노브 검토) | =sell_threshold | | §3.4 TP 불가 버킷 | |
 | POLYBOT_SELL_THRESHOLD | 0.97 | | §4(a) | |
@@ -353,11 +367,13 @@ dead_cross 청산의 반사실 재생은 momentum 재계산이 필요하므로 (
 
 **라운드 절차** (상세: `docs/retro/README.md` §3):
 1. 1차 4주 운용 → 이 문서로 회고 → 위 표 산출
-2. 제안값은 **Jenkins env만 교체**해서 2차 4주 재테스트 (코드 수정 불필요).
+2. 제안값을 Jenkins env로 반영하고, 첫 성공 run에서 새 `config_hash`와 Git commit을 확인한 뒤
+   2차 4주를 별도 cohort로 재테스트한다.
    cherry처럼 "기본 슬롯 + 제안값 슬롯" 병행 A/B가 이상적 — banana는 `--job` 분리로 DB가
    자동 격리되므로 두 job을 띄우면 된다 (A/B 비교 절차: `docs/ab-retro-playbook.md`).
-   단, "신규 노브"(fallback 게이트, 진입 상한 분리)는 env가 없어 코드 수정이 필요하다.
-3. 라운드 시작 시 이 문서 맨 아래 `## 운용 이력`에 날짜 + env 블록(키 제외)을 기록한다.
+   진입 상한을 새 knob로 분리하는 변경은 별도 code/config cohort와 test가 필요하다.
+3. `run_audits`가 자동 provenance다. 이 문서의 `운용 이력`에는 날짜, 변경 이유, rollback 기준과
+   secret을 제거한 env diff를 보조 기록한다.
 4. 2차 결과로 재회고 → 수렴하면 채택, 악화면 롤백/폐기.
 
 ## 7. 기준 정보

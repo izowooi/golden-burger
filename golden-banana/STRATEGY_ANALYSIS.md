@@ -6,6 +6,8 @@
 
 Golden Banana는 Polymarket에서 확률 85~97% 구간의 고확률 outcome을 "모멘텀이 상승 중일 때만" 매수하는 momentum 전략 봇이다. 구버전(golden-apple 계열)의 "80% 매수 → 90% 매도" 정적 임계값 전략을 개선한 것으로(`docs/prd.txt`), 5분 주기의 Jenkins 실행마다 전체 시장 확률을 SQLite `market_snapshots` 테이블에 자체 축적하고, 이 스냅샷으로 단기(15분=3 스냅샷)·장기(6시간=72 스냅샷) momentum을 계산해 golden cross(단기-장기 ≥ +2%p/스냅샷) 발생 시 진입한다. 청산은 4중 조건(확률 97% 도달, 진입가 대비 +7% 이익실현, -10% 손절, dead cross)으로 다변화했다. 주문은 CLOB v2에 midpoint 가격의 GTC limit order로 실행되며, 한 번 거래한 시장은 영구히 재거래하지 않는다.
 
+> 2026-07-11 안전 패치: 현재 구현은 단기 3개·장기 72개 전체와 각 명목 시간 구간의 90% 이상 timestamp 커버리지를 요구한다. 아래의 cold-start fallback 분석은 패치 전 운영 이력 설명이며, 현재는 장기 윈도우가 부족하면 `insufficient_long_data`로 진입을 거부한다.
+
 ## 2. 매수/매도 조건 정밀 명세
 
 ### 2.1 파라미터 표 (env var > config.yaml > 코드 기본값 순으로 적용)
@@ -36,16 +38,16 @@ Golden Banana는 Polymarket에서 확률 85~97% 구간의 고확률 outcome을 "
 
 1. **수집 (Phase 0, 매 사이클)**: `scanner.save_market_snapshots()`가 Gamma API `GET https://gamma-api.polymarket.com/markets?active=true&closed=false&limit=100&offset=N`을 100개씩 페이지네이션(offset ≥ 5000 안전 한도, offset>0에서 422 응답은 마지막 페이지로 간주)으로 전량 조회한다. `min_liquidity` 이상 + 스포츠 아님 조건을 통과한 시장마다 `outcomePrices` 중 높은 쪽 확률을 뽑아 `market_snapshots` 테이블에 1행 INSERT (`condition_id`, `probability`, `liquidity`, `volume_24h`, `timestamp=utcnow`). 실측 로그 기준 사이클당 약 30~35행.
 2. **조회**: 판단 시 `repo.get_snapshots_for_condition(condition_id, limit=long_window+10)` → **최신 82개**를 `timestamp DESC LIMIT 82`로 가져와 뒤집어 오래된 순 리스트로 반환.
-3. **granularity**: 스냅샷 간격 = Jenkins cron 간격(5분 가정). 코드는 timestamp 간격을 전혀 검증하지 않으며 **개수 기반** 윈도우만 사용한다. 봇이 멈췄다 재개되면 "15분 윈도우"가 실제로는 수 시간을 커버할 수 있다.
+3. **granularity**: 스냅샷 간격 = Jenkins cron 간격(5분 가정). 현재 코드는 단기 3개·장기 72개 전체와 각 명목 구간의 90% 이상 timestamp 커버리지를 요구한다.
 4. **보존**: Phase 4에서 7일 지난 스냅샷 삭제 (`cleanup_old_snapshots(days=7)`).
 
 ### 2.3 momentum / golden cross 계산 (`strategy/momentum.py`)
 
 - **momentum 정의**: `(최신 확률 - 가장 오래된 확률) / len(snapshots)` — 이동평균(MA) cross가 아니라 **양 끝점 기울기(rate of change)** 비교다. 이름만 golden cross.
 - **단기 momentum**: 최근 3개 스냅샷. 3개 미만이면 `None` → 진입 불가(`insufficient_short_data`).
-- **장기 momentum**: 최근 72개. 72개 미만이어도 `short_window*2 = 6`개 이상이면 있는 만큼 전부 사용, 6개 미만이면 `None`.
+- **장기 momentum**: 최근 72개. 72개 또는 90% 시간 커버리지 중 하나라도 부족하면 `None`.
 - **golden cross**: `short - long >= 0.02`. 단, `require_positive_long_momentum=true`면 `long > 0`도 필요.
-- **cold-start fallback**: 장기 momentum이 `None`(스냅샷 6개 미만)이면 **단기 momentum > 0 만으로 진입 허용** (`short_momentum_positive`). 실운영 로그(20260205)에서 실제 매수는 전부 이 경로였다.
+- **cold-start 처리**: 장기 momentum이 `None`이면 `insufficient_long_data`로 진입 거부. 패치 전 실운영 로그(20260205)의 매수는 전부 제거된 `short_momentum_positive` 경로였다.
 - **dead cross**: `short - long <= -0.02` (둘 다 `None` 아니어야 판단).
 
 ### 2.4 매수 파이프라인 (조건 전부 AND, 순서대로)
@@ -54,7 +56,7 @@ Golden Banana는 Polymarket에서 확률 85~97% 구간의 고확률 outcome을 "
 2. 스포츠 아님: tags의 slug/label이 `excluded_categories`에 없고, question+slug 텍스트에 excluded 카테고리 및 `SPORTS_KEYWORDS`(약 50개; "game", "match", "win the", "beat", "score" 등 포함)가 없어야 함.
 3. `outcomePrices` 두 값 중 큰 쪽(outcome/token 선택)이 존재하고 `token_id`가 있어야 함. Yes/No 중 높은 쪽을 산다.
 4. 확률 구간: `0.85 <= probability <= 0.97` (상한 **포함**).
-5. momentum 진입 시그널: `golden_cross` 또는 cold-start `short_momentum_positive` (momentum 비활성화 시 무조건 통과 `momentum_disabled`).
+5. momentum 진입 시그널: 유효한 단기·장기 윈도우의 `golden_cross` (momentum 비활성화 시 무조건 통과 `momentum_disabled`).
 6. `is_already_traded(condition_id)` false — trades 또는 skipped_markets에 이미 있으면 영구 skip.
 7. `max_positions` 제한 (기본 무제한).
 8. CLOB `get_midpoint(token_id)` 재검증: midpoint > 0.97이면 `rapid_jump`로 **영구 skip 등록**, midpoint < 0.85이면 이번 사이클만 skip.
@@ -137,25 +139,25 @@ main.py (루트, src path 주입) → src/polybot/main.py (argparse CLI: run/sta
 ## 7. 약점 / 허점 (구체적)
 
 1. **의도한 시그널(golden cross)이 사실상 발화 불가능**: 임계값 0.02는 "스냅샷당 +2%p" 기울기 차이인데, 단기 윈도우 3개 기준 15분에 약 6%p 이상 급등해야 한다. 85~97% 구간에서 이런 움직임은 극히 드물며, 실로그(20260205)의 diff는 ±0.007 이하다. **실제 매수는 전부 cold-start fallback(`short_momentum_positive`) 경로**로 발생했다.
-2. **cold-start fallback이 과도하게 관대**: 스냅샷 6개 미만이면 15분간 +0.33%p(1 tick의 1/3)만 움직여도 매수한다. DB 초기화 직후·유동성 경계를 새로 넘은 시장·7일 정리 이후에는 golden cross 검증 없이 사실상 "85~97% + 방금 안 떨어짐" 전략으로 퇴화한다.
-3. **개수 기반 윈도우, 시간 미검증**: Jenkins 중단·지연 시 "15분" 윈도우가 수 시간을 커버해도 그대로 계산한다. 스냅샷 timestamp 간격 검증이 없다.
+2. **cold-start 무신호 기간**: 관대한 fallback은 제거됐다. DB 초기화·신규 시장에서는 장기 72개와 시간 커버리지가 찰 때까지 진입이 없어 안전하지만 기회를 놓친다.
+3. **고정 5분 주기 가정**: timestamp 커버리지는 검증하지만 기대 간격은 5분 상수다. Jenkins 주기를 바꾸면 코드 상수도 함께 조정해야 한다.
 4. **체결 가정 오류**: GTC limit 주문을 접수 즉시 HOLDING/COMPLETED로 기록한다. 미체결 주문 추적·취소가 없어 (a) 매수 미체결이면 유령 포지션, (b) **손절 매도 미체결이면 DB상 손절 완료지만 실제로는 계속 보유** — 급락장에서 stop loss가 보장되지 않는다.
 5. **해결(resolved)된 시장의 포지션이 DB에 영구 잔류**: 시장 해결 후 orderbook이 사라지면 `get_midpoint`가 404로 실패하고 `execute_sell`이 영원히 False를 반환한다. 온체인에서는 redeem되어도 DB `realized_pnl`에는 반영되지 않아 통계가 왜곡된다.
 6. **take_profit 도달 불가 구간**: 0.94 이상에서 진입하면 +7% 목표가 1.0을 넘어 take_profit이 수학적으로 불가능하다. threshold(0.97)나 dead cross에만 의존하게 된다. 반대로 0.97 정확히에서 진입하면 다음 사이클에 threshold 매도로 즉시 청산되는 churn 엣지도 있다.
 7. **스포츠 키워드 필터 과잉 차단**: "game", "match", "win the", "beat", "score" 같은 일반 단어가 포함되어 비스포츠 시장(예: 수상·선거 관련 "win the" 포함 질문)까지 배제한다. 기회비용이 크다.
-8. **momentum 계산의 통계적 취약성**: 양 끝점 2개 값만 사용(중간 노이즈 무시가 아니라 끝점 노이즈에 민감)하고, 분모가 구간 수(n-1)가 아닌 개수(n)라 기울기를 (n-1)/n만큼 과소평가한다. 장기 momentum이 "가능한 만큼" 계산될 때 분모가 유동적이라 단기와 단위가 미묘하게 어긋난다.
+8. **momentum 계산의 통계적 취약성**: 양 끝점 2개 값만 사용(중간 노이즈 무시가 아니라 끝점 노이즈에 민감)하고, 분모가 구간 수(n-1)가 아닌 개수(n)라 기울기를 (n-1)/n만큼 과소평가한다.
 9. **영구 1회 거래 제한**: `condition_id`당 평생 1회. `rapid_jump`로 한 번 skip되면 그 시장은 영구 차단된다. 수개월짜리 시장에서 정당한 재진입 기회를 모두 버린다.
 10. **자금 관리 부재**: `max_positions=-1` + 고정 5 USDC. 잔고 확인, 일일 매수 한도, 변동성 기반 sizing이 없다. 시장이 요동치는 날 무제한으로 포지션을 늘릴 수 있다.
 11. **Gamma 전량 조회 2회/사이클**: Phase 0과 Phase 2가 같은 `get_all_tradable_markets`를 중복 호출한다 (API 비용 2배).
-12. **`scripts/simulate.py` DB 경로 버그**: `load_config`에 simulation flag를 넘기지 않고 나중에 `config.simulation_mode=True`만 설정하므로, sim 거래가 `trades_sim.db`가 아닌 해당 job의 `trades.db`에 기록된다 (`polybot run --simulate`는 정상).
+12. **legacy simulation 안전성**: `scripts/simulate.py`도 config 로드 시 `simulation_mode=True`를 전달하고 `trades_sim.db`가 아니면 중단한다.
 13. **미사용/불일치 코드**: `DataAPIClient`·`SlackNotifier`는 사이클에 연결되지 않은 dead code이고, data_api_client의 User-Agent가 `GoldenApple-PolyBot/1.0`으로 남아 있다. `excluded_categories`는 env override가 없다.
 14. **시뮬레이션의 낙관 편향**: sim 체결이 midpoint 기준 100% 체결 가정 — spread·슬리피지·수수료가 모델링되지 않아 sim P&L이 실거래보다 항상 좋게 나온다.
 
 ## 8. 개선 아이디어
 
 1. **임계값 재보정 또는 단위 변경**: golden cross 임계값을 "스냅샷당 기울기"가 아니라 "윈도우 전체 변화량(%p)"으로 재정의하고, 백테스트로 0.005~0.01 수준부터 탐색한다. 현행 0.02는 사실상 전략을 비활성화시킨다.
-2. **cold-start fallback 강화**: 최소 스냅샷 수(예: 12개=1시간)를 강제하고, 그 전에는 진입 금지. 또는 CLOB `/prices-history` endpoint로 초기 이력을 backfill해 cold-start 자체를 제거한다.
-3. **시간 기반 윈도우**: 개수 대신 `timestamp >= now - 15min / 6h` 조건으로 스냅샷을 선택하고, 커버리지가 부족하면 시그널을 무효화한다.
+2. **cold-start 백필(후속)**: fallback 제거와 엄격한 최소 개수는 적용됐다. 필요하면 CLOB `/prices-history`로 72개 장기 윈도우를 안전하게 백필한다.
+3. **주기 설정화(후속)**: 90% timestamp 커버리지 검증은 적용됐다. 현재 5분 상수를 Jenkins 주기 설정과 연결한다.
 4. **주문 lifecycle 관리**: 주문 후 `get_open_orders`로 체결 확인 → 미체결이면 다음 사이클에 재가격/취소. 매수는 `PENDING_BUY`, 매도는 `PENDING_SELL` 상태를 실제로 활용한다(모델에 이미 정의돼 있으나 미사용).
 5. **해결 시장 정리 로직**: Gamma `closed`/`umaResolutionStatus`를 조회해 해결된 보유 포지션을 `COMPLETED`(결과에 따라 pnl=±)로 정산하는 Phase를 추가한다.
 6. **진입 상한 분리**: 매수 상한을 `sell_threshold`와 분리(예: 0.94)해 take_profit 불가 구간 진입과 0.97 churn을 막는다.

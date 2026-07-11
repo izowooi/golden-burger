@@ -62,6 +62,8 @@ class TestDefaults:
         assert config.trading.cascade.consistency_min == 0.70
         assert config.trading.cascade.vol_accel_min == 1.2
         assert config.trading.cascade.death_window_hours == 6
+        assert config.trading.cascade.death_window_min_points == 3
+        assert config.trading.cascade.death_window_min_coverage == 0.5
         assert config.trading.excluded_categories == []
 
 
@@ -71,6 +73,8 @@ class TestEnvOverrides:
         env.setenv("POLYBOT_DRIFT_MIN", "0.05")
         env.setenv("POLYBOT_DRIFT_MAX", "0.12")
         env.setenv("POLYBOT_CONSISTENCY_MIN", "0.8")
+        env.setenv("POLYBOT_DEATH_WINDOW_MIN_POINTS", "4")
+        env.setenv("POLYBOT_DEATH_WINDOW_MIN_COVERAGE", "0.75")
         env.setenv("POLYBOT_REENTRY_COOLDOWN_HOURS", "48")
         env.setenv("POLYBOT_MAX_POSITIONS", "10")
         config = load()
@@ -78,6 +82,8 @@ class TestEnvOverrides:
         assert config.trading.cascade.drift_min == 0.05
         assert config.trading.cascade.drift_max == 0.12
         assert config.trading.cascade.consistency_min == 0.8
+        assert config.trading.cascade.death_window_min_points == 4
+        assert config.trading.cascade.death_window_min_coverage == 0.75
         assert config.trading.reentry_cooldown_hours == 48
         assert config.trading.max_positions == 10
 

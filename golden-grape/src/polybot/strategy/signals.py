@@ -307,6 +307,8 @@ def compute_death_drift(
     token_index: int,
     death_window_hours: int = 6,
     now: Optional[datetime] = None,
+    min_points: int = 3,
+    min_coverage: float = 0.5,
 ) -> Optional[float]:
     """회고 로깅용: 최근 death_window_hours 매수 토큰 기준 가격 변화량.
 
@@ -314,11 +316,16 @@ def compute_death_drift(
     단일 소스 - 이 함수는 DB drift_at_exit 기록 전용).
 
     Returns:
-        변화량(float) 또는 None (포인트 2개 미만 - 계산 불가)
+        변화량(float) 또는 None (포인트/시간 커버리지 부족 - 계산 불가)
     """
     now = now or _utcnow()
     window = get_window(snapshots, death_window_hours, now)
-    if len(window) < 2:
+    if not is_window_valid(
+        window,
+        death_window_hours,
+        min_points=min_points,
+        min_coverage=min_coverage,
+    ):
         return None
     token_points = to_token_points(window, token_index)
     return token_points[-1].probability - token_points[0].probability
@@ -329,16 +336,23 @@ def is_drift_dead(
     token_index: int,
     death_window_hours: int = 6,
     now: Optional[datetime] = None,
+    min_points: int = 3,
+    min_coverage: float = 0.5,
 ) -> Optional[bool]:
     """드리프트 소멸 판정: 최근 death_window_hours 동안
     매수 토큰 기준 가격 변화 <= 0이면 True.
 
     Returns:
-        True(소멸) / False(지속) / None(포인트 2개 미만 - 판단 불가)
+        True(소멸) / False(지속) / None(포인트/시간 커버리지 부족 - 판단 불가)
     """
     now = now or _utcnow()
     window = get_window(snapshots, death_window_hours, now)
-    if len(window) < 2:
+    if not is_window_valid(
+        window,
+        death_window_hours,
+        min_points=min_points,
+        min_coverage=min_coverage,
+    ):
         return None
     token_points = to_token_points(window, token_index)
     change = token_points[-1].probability - token_points[0].probability

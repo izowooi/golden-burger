@@ -40,36 +40,39 @@ def test_get_window_empty_input():
 
 
 def test_window_valid_with_enough_points_and_coverage():
-    """포인트 5개 + 커버리지 460h/480h → 유효."""
+    """포인트 20개 + 커버리지 456h/480h(95%) → 유효."""
     window = get_window(
-        [point(h) for h in (460, 350, 240, 100, 0)], 480.0, NOW
+        [point(h) for h in range(456, -1, -24)], 480.0, NOW
     )
     assert is_window_valid(window, hours_back=480.0) is True
 
 
 def test_window_invalid_with_too_few_points():
-    """커버리지가 충분해도 포인트 4개 < 5개 → 무효."""
-    window = get_window([point(h) for h in (460, 300, 150, 0)], 480.0, NOW)
+    """커버리지가 충분해도 포인트 19개 < 20개 → 무효."""
+    hours = [456] + list(range(408, -1, -24))
+    window = get_window([point(h) for h in hours], 480.0, NOW)
     assert is_window_valid(window, hours_back=480.0) is False
 
 
 def test_window_invalid_with_poor_coverage():
-    """포인트 6개지만 전부 최근 48h → 커버리지 2일 < 10일(50%) → 무효.
+    """포인트 25개지만 최근 48h뿐 → 커버리지 2일 < 19일(95%) → 무효.
 
     백필 실패 + 스냅샷 이틀치만 쌓인 콜드스타트 상황 - 이때 진입하면 안 된다.
     """
-    window = get_window([point(h) for h in (48, 40, 30, 20, 10, 0)], 480.0, NOW)
+    window = get_window([point(h) for h in range(48, -1, -2)], 480.0, NOW)
     assert is_window_valid(window, hours_back=480.0) is False
 
 
 def test_window_valid_at_exact_coverage_boundary():
     """커버리지가 정확히 min_coverage * hours_back이면 유효 (>=)."""
-    # span = 240h = 0.5 * 480h
-    window = get_window([point(h) for h in (240, 180, 120, 60, 0)], 480.0, NOW)
+    # span = 456h = 0.95 * 480h, 포인트도 20개
+    window = get_window(
+        [point(h) for h in range(456, -1, -24)], 480.0, NOW
+    )
     assert is_window_valid(window, hours_back=480.0) is True
 
 
 def test_window_custom_min_points():
-    window = get_window([point(h) for h in (400, 200, 0)], 480.0, NOW)
+    window = get_window([point(h) for h in (456, 228, 0)], 480.0, NOW)
     assert is_window_valid(window, hours_back=480.0, min_points=3) is True
     assert is_window_valid(window, hours_back=480.0, min_points=4) is False

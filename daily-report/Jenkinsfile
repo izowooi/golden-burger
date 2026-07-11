@@ -4,9 +4,9 @@
 pipeline {
     agent any
 
-    // Schedule: Run daily at 9:00 AM (adjust timezone as needed)
+    // Schedule: Run daily at 09:00 Asia/Seoul regardless of controller timezone.
     triggers {
-        cron('0 9 * * *')
+        cron('TZ=Asia/Seoul\n0 9 * * *')
     }
 
     // Environment variables
@@ -30,6 +30,14 @@ pipeline {
         ACCOUNT_4_NAME = 'golden-apple'
         ACCOUNT_4_ADDRESS = credentials('polymarket-golden-apple-2-address')
 
+        // Account 5 - reusable test slot (currently golden-honeydew)
+        ACCOUNT_5_NAME = 'golden-eco'
+        ACCOUNT_5_ADDRESS = credentials('polymarket-golden-eco-address')
+
+        // Account 6 - reusable test slot (currently golden-nectarine)
+        ACCOUNT_6_NAME = 'golden-fox'
+        ACCOUNT_6_ADDRESS = credentials('polymarket-golden-fox-address')
+
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
 
@@ -37,6 +45,10 @@ pipeline {
         SUPABASE_URL = 'https://elufbvcnhitoksoofbir.supabase.co'
         SUPABASE_SECRET_KEY = credentials('polymarket-supabase-secret-key')
         REPORT_TIMEZONE = 'Asia/Seoul'
+        DAILY_REPORT_LOG_FILE = "daily_report_build_${env.BUILD_NUMBER}.log"
+
+        // Sanitized local position evidence (wallet addresses/secrets are never stored)
+        DAILY_EVIDENCE_DB = 'data/daily_evidence.sqlite3'
     }
 
     options {
@@ -85,12 +97,6 @@ pipeline {
             }
         }
 
-        stage('Archive Logs') {
-            steps {
-                // Archive the daily report log
-                archiveArtifacts artifacts: 'daily-report/daily_report_*.log', allowEmptyArchive: true
-            }
-        }
     }
 
     post {
@@ -103,18 +109,31 @@ pipeline {
 
             // Send failure notification to Slack
             script {
-                def slackWebhook = env.SLACK_WEBHOOK_URL
-                if (slackWebhook) {
-                    sh """
-                        curl -X POST -H 'Content-type: application/json' \\
-                        --data '{"text":"⚠️ Polymarket Daily Report FAILED\\nBuild: ${env.BUILD_NUMBER}\\nTime: ${new Date()}"}' \\
-                        ${slackWebhook}
-                    """
+                if (env.SLACK_WEBHOOK_URL) {
+                    // Single-quoted Groovy keeps the credential out of Groovy
+                    // interpolation; the shell expands the masked env variable.
+                    sh '''
+                        set +x
+                        payload=$(printf '{"text":"⚠️ Polymarket Daily Report FAILED\\nBuild: %s\\nTime: %s"}' \
+                            "$BUILD_NUMBER" "$(date -u +%Y-%m-%dT%H:%M:%SZ)")
+                        curl --fail --show-error --silent \
+                            -X POST -H 'Content-type: application/json' \
+                            --data "$payload" \
+                            "$SLACK_WEBHOOK_URL"
+                    '''
                 }
             }
         }
 
         always {
+            // Build artifacts are a short-retention copy, not the durable evidence backup.
+            archiveArtifacts artifacts: "daily-report/${env.DAILY_REPORT_LOG_FILE},daily-report/data/daily_evidence.sqlite3", allowEmptyArchive: true, fingerprint: true
+            // The build log is immutable in the artifact store; do not accumulate
+            // financial logs in a persistent workspace after archival.
+            sh '''
+                set +x
+                rm -f -- "daily-report/$DAILY_REPORT_LOG_FILE"
+            '''
             // Clean up workspace (optional)
             // cleanWs()
         }
