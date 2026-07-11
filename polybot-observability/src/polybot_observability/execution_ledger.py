@@ -993,8 +993,8 @@ class ExecutionLedger:
                 raise UnresolvedSubmissionOutcomeError(int(unresolved_count))
             rows = connection.execute(
                 """
-                SELECT submission_id, order_id, response_status,
-                       associated_trade_ids_json
+                SELECT submission_id, order_id, token_id, response_status,
+                       associated_trade_ids_json, reconciliation_proof
                 FROM order_submissions
                 WHERE needs_reconciliation = 1 AND order_id IS NOT NULL
                 ORDER BY CASE WHEN last_reconciled_at IS NULL THEN 0 ELSE 1 END,
@@ -1894,6 +1894,105 @@ class ExecutionLedger:
                 ),
             )
 
+    def record_recovered_trade_associations(
+        self,
+        submission_id: str,
+        order_id: str,
+        trade_ids: list[str],
+    ) -> list[str]:
+        """Monotonically attach exact, already-persisted trade evidence.
+
+        This path is reserved for trades discovered through the authenticated
+        token trade catalog after an order disappears from both order catalogs.
+        It does not infer an order status.  Every supplied ID must already have
+        an exact-order-correlated, domain-valid fill row recorded by
+        :meth:`record_fill` before it can become canonical submission evidence.
+        """
+        normalized_trade_ids = [str(value or "").strip() for value in trade_ids]
+        if not normalized_trade_ids or any(not value for value in normalized_trade_ids):
+            raise ClobResponseContractError(
+                "복구할 authenticated trade ID가 비어 있습니다"
+            )
+        if len(set(normalized_trade_ids)) != len(normalized_trade_ids):
+            raise ClobResponseContractError(
+                "복구할 authenticated trade ID가 중복되었습니다"
+            )
+        expected_order_id = str(order_id or "").strip()
+        if not expected_order_id:
+            raise ClobResponseContractError("복구할 exact order ID가 비어 있습니다")
+
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            submission = connection.execute(
+                "SELECT order_id, associated_trade_ids_json "
+                "FROM order_submissions WHERE submission_id = ?",
+                (submission_id,),
+            ).fetchone()
+            if submission is None:
+                raise ClobResponseContractError(
+                    "authenticated trade를 연결할 submission이 없습니다"
+                )
+            if str(submission["order_id"] or "") != expected_order_id:
+                raise ClobResponseContractError(
+                    "authenticated trade의 exact order ID가 submission과 다릅니다"
+                )
+            try:
+                existing = json.loads(
+                    submission["associated_trade_ids_json"] or "[]"
+                )
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ClobResponseContractError(
+                    "기존 associated trade IDs JSON이 유효하지 않습니다"
+                ) from error
+            if not isinstance(existing, list):
+                raise ClobResponseContractError(
+                    "기존 associated trade IDs가 list가 아닙니다"
+                )
+            existing_ids = [str(value or "").strip() for value in existing]
+            if any(not value for value in existing_ids) or len(set(existing_ids)) != len(
+                existing_ids
+            ):
+                raise ClobResponseContractError(
+                    "기존 associated trade IDs가 비어 있거나 중복되었습니다"
+                )
+
+            placeholders = ",".join("?" for _ in normalized_trade_ids)
+            rows = connection.execute(
+                "SELECT trade_id, order_id, liquidity_role, domain_error "
+                "FROM order_fills WHERE submission_id = ? "
+                f"AND trade_id IN ({placeholders})",
+                (submission_id, *normalized_trade_ids),
+            ).fetchall()
+            observed_ids = {str(row["trade_id"]) for row in rows}
+            if observed_ids != set(normalized_trade_ids):
+                raise ClobResponseContractError(
+                    "authenticated trade ID의 persisted fill evidence가 완전하지 않습니다"
+                )
+            if any(
+                str(row["order_id"] or "") != expected_order_id
+                or str(row["liquidity_role"] or "") not in {"TAKER", "MAKER"}
+                or row["domain_error"] is not None
+                for row in rows
+            ):
+                raise ClobResponseContractError(
+                    "authenticated trade fill의 exact order 상관관계가 유효하지 않습니다"
+                )
+
+            merged = list(dict.fromkeys([*existing_ids, *normalized_trade_ids]))
+            cursor = connection.execute(
+                "UPDATE order_submissions "
+                "SET associated_trade_ids_json = ?, last_reconciled_at = ?, "
+                "reconciliation_error = NULL, reconciliation_proof = "
+                "'AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS' "
+                "WHERE submission_id = ? AND order_id = ?",
+                (json.dumps(merged), _utc_now(), submission_id, expected_order_id),
+            )
+            if cursor.rowcount != 1:
+                raise ClobResponseContractError(
+                    "authenticated trade association을 원자적으로 기록하지 못했습니다"
+                )
+        return merged
+
     def finish_reconciliation(self, submission_id: str) -> bool:
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
@@ -1901,7 +2000,8 @@ class ExecutionLedger:
                 """
                 SELECT latest_order_status, latest_size_matched,
                        associated_trade_ids_json, latest_status_domain_error,
-                       requested_price, requested_size
+                       requested_price, requested_size, side, making_amount,
+                       taking_amount, reconciliation_proof
                 FROM order_submissions WHERE submission_id = ?
                 """,
                 (submission_id,),
@@ -1926,7 +2026,13 @@ class ExecutionLedger:
                     ("order/submission domain invalid", submission_id),
                 )
                 return False
-            if order_status in _TERMINAL_ORDER_STATUSES:
+            authenticated_trade_proof = (
+                submission["reconciliation_proof"]
+                == "AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS"
+            )
+            if order_status in _TERMINAL_ORDER_STATUSES or (
+                trade_ids and authenticated_trade_proof
+            ):
                 trade_rows: dict[str, list[tuple[str, float | None]]] = {}
                 invalid_confirmed_domain = False
                 for row in connection.execute(
@@ -1966,6 +2072,14 @@ class ExecutionLedger:
                         )
                         for trade_id in trade_ids
                     )
+                    every_bucket_confirmed = all(
+                        str(trade_id) in trade_rows
+                        and all(
+                            status == "CONFIRMED"
+                            for status, _ in trade_rows[str(trade_id)]
+                        )
+                        for trade_id in trade_ids
+                    )
                     confirmed_size = sum(
                         size or 0.0
                         for trade_id in trade_ids
@@ -1973,25 +2087,57 @@ class ExecutionLedger:
                         if status == "CONFIRMED"
                     )
                     matched_size = _number(submission["latest_size_matched"])
-                    complete = (
-                        every_bucket_terminal
-                        and matched_size is not None
-                        and math.isclose(
-                            confirmed_size,
-                            matched_size,
-                            rel_tol=0.0,
-                            abs_tol=_QUANTITY_TOLERANCE,
-                        )
-                    )
-                    if (
-                        matched_size is not None
-                        and confirmed_size > matched_size + _QUANTITY_TOLERANCE
+                    if order_status in _TERMINAL_ORDER_STATUSES:
+                        expected_size = matched_size
+                    elif str(submission["side"] or "").upper() == "BUY":
+                        expected_size = _number(submission["taking_amount"])
+                    elif str(submission["side"] or "").upper() == "SELL":
+                        expected_size = _number(submission["making_amount"])
+                    else:
+                        expected_size = None
+                    if authenticated_trade_proof and not _finite_positive(
+                        expected_size
                     ):
                         connection.execute(
                             "UPDATE order_submissions SET reconciliation_error = ? "
                             "WHERE submission_id = ?",
                             (
-                                "confirmed fill quantity exceeds latest_size_matched",
+                                "authenticated trade full-fill proof missing "
+                                "submission token amount",
+                                submission_id,
+                            ),
+                        )
+                        return False
+                    complete = (
+                        (
+                            every_bucket_confirmed
+                            if authenticated_trade_proof
+                            and order_status not in _TERMINAL_ORDER_STATUSES
+                            else every_bucket_terminal
+                        )
+                        and expected_size is not None
+                        and math.isclose(
+                            confirmed_size,
+                            expected_size,
+                            rel_tol=0.0,
+                            abs_tol=_QUANTITY_TOLERANCE,
+                        )
+                    )
+                    if (
+                        expected_size is not None
+                        and confirmed_size > expected_size + _QUANTITY_TOLERANCE
+                    ):
+                        connection.execute(
+                            "UPDATE order_submissions SET reconciliation_error = ? "
+                            "WHERE submission_id = ?",
+                            (
+                                (
+                                    "confirmed fill quantity exceeds "
+                                    "latest_size_matched"
+                                    if order_status in _TERMINAL_ORDER_STATUSES
+                                    else "confirmed fill quantity exceeds "
+                                    "submission token amount"
+                                ),
                                 submission_id,
                             ),
                         )
@@ -2004,7 +2150,11 @@ class ExecutionLedger:
             if complete:
                 connection.execute(
                     "UPDATE order_submissions SET needs_reconciliation = 0, "
-                    "reconciliation_error = NULL WHERE submission_id = ?",
+                    "reconciliation_error = NULL, reconciliation_proof = CASE "
+                    "WHEN reconciliation_proof = "
+                    "'AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS' THEN "
+                    "'AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL' "
+                    "ELSE reconciliation_proof END WHERE submission_id = ?",
                     (submission_id,),
                 )
             return complete
@@ -2084,6 +2234,7 @@ class ExecutionLedger:
                     latest_size_matched REAL,
                     quantity_scale REAL,
                     latest_status_domain_error TEXT,
+                    reconciliation_proof TEXT,
                     last_reconciled_at TEXT,
                     needs_reconciliation INTEGER NOT NULL,
                     error_type TEXT,
@@ -2104,6 +2255,7 @@ class ExecutionLedger:
                 "outcome_resolved_at",
                 "outcome_resolution_reason",
                 "latest_status_domain_error",
+                "reconciliation_proof",
             ):
                 if column_name not in submission_columns:
                     connection.execute(
@@ -2245,6 +2397,7 @@ class ExecutionLedger:
                     "needs_reconciliation", "outcome_resolution",
                     "outcome_resolved_at", "outcome_resolution_reason",
                     "latest_status_domain_error", "quantity_scale",
+                    "reconciliation_proof",
                 },
                 "order_status_events": {
                     "submission_id", "status", "original_size", "size_matched",
@@ -2275,7 +2428,7 @@ class ExecutionLedger:
             connection.execute(
                 """
                 INSERT INTO polybot_schema_versions(component, version, updated_at)
-                VALUES ('execution_ledger', 7, ?)
+                VALUES ('execution_ledger', 8, ?)
                 ON CONFLICT(component) DO UPDATE SET
                     version = excluded.version, updated_at = excluded.updated_at
                 """,

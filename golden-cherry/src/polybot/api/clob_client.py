@@ -73,6 +73,42 @@ def _recorded_trade_ids(value: Any) -> list[str]:
     return trade_ids
 
 
+def _trade_references_exact_order(
+    trade: Mapping[str, Any], order_id: str
+) -> bool:
+    """Match authenticated trade evidence only by an exact venue order ID."""
+    expected_order_id = str(order_id)
+    if str(trade.get("taker_order_id") or "") == expected_order_id:
+        return True
+    return any(
+        isinstance(maker_order, Mapping)
+        and str(maker_order.get("order_id") or "") == expected_order_id
+        for maker_order in (trade.get("maker_orders") or [])
+    )
+
+
+def _exact_order_trade_ids(
+    trades: Iterable[Mapping[str, Any]], order_id: str
+) -> list[str]:
+    """Return stable unique trade IDs carrying exact order-ID evidence."""
+    trade_ids: list[str] = []
+    seen = set()
+    for trade in trades:
+        if not _trade_references_exact_order(trade, order_id):
+            continue
+        trade_id = str(trade.get("id") or "").strip()
+        if not trade_id:
+            raise ClobResponseContractError(
+                "exact order ID와 일치한 authenticated trade ID가 비어 있습니다"
+            )
+        # One trade ID can legitimately have multiple bucket rows.  Re-fetch
+        # that canonical ID once while retaining strict exact-order matching.
+        if trade_id not in seen:
+            seen.add(trade_id)
+            trade_ids.append(trade_id)
+    return trade_ids
+
+
 class ClobClientWrapper:
     """Wrapper for Polymarket CLOB v2 API client.
 
@@ -493,6 +529,7 @@ class ClobClientWrapper:
         from py_clob_client_v2 import OpenOrderParams, TradeParams
 
         pre_migration_index = None
+        token_trade_catalog_cache = {}
         for pending in self.execution_ledger.pending_submissions():
             stats["checked"] += 1
             submission_id = pending["submission_id"]
@@ -500,6 +537,10 @@ class ClobClientWrapper:
             phase = "fetch_order"
             response_shape = "not_observed"
             trade_ids = None
+            recovered_from_token_trade_catalog = (
+                pending.get("reconciliation_proof")
+                == "AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS"
+            )
             try:
                 raw_detail = self.client.get_order(order_id)
                 response_shape = safe_clob_response_shape(raw_detail)
@@ -572,13 +613,60 @@ class ClobClientWrapper:
                                 pending["associated_trade_ids_json"]
                             )
                             if not trade_ids:
-                                phase = "match_authoritative_order_catalogs"
-                                raise unavailable_error
-                            logger.warning(
-                                "order catalog에서 사라진 주문의 기존 exact trade "
-                                "evidence를 재조회합니다 - count=%s",
-                                len(trade_ids),
-                            )
+                                token_id = str(pending["token_id"] or "").strip()
+                                if not token_id:
+                                    raise ClobResponseContractError(
+                                        "pending submission token ID가 비어 있습니다"
+                                    )
+                                cached = token_id in token_trade_catalog_cache
+                                if not cached:
+                                    phase = "fetch_token_trade_catalog"
+                                    raw_trade_catalog = self.client.get_trades(
+                                        TradeParams(asset_id=token_id),
+                                        only_first_page=False,
+                                    )
+                                    response_shape = safe_clob_response_shape(
+                                        raw_trade_catalog
+                                    )
+                                    phase = "normalize_token_trade_catalog"
+                                    trade_catalog = normalize_clob_response_list(
+                                        raw_trade_catalog, response_type="trade"
+                                    )
+                                    token_trade_catalog_cache[token_id] = (
+                                        trade_catalog,
+                                        response_shape,
+                                    )
+                                else:
+                                    trade_catalog, response_shape = (
+                                        token_trade_catalog_cache[token_id]
+                                    )
+                                phase = "match_token_trade_catalog"
+                                trade_ids = _exact_order_trade_ids(
+                                    trade_catalog, str(order_id)
+                                )
+                                logger.warning(
+                                    "authenticated token trade catalog exact-order "
+                                    "scan - trades=%s matches=%s cached=%s",
+                                    len(trade_catalog),
+                                    len(trade_ids),
+                                    cached,
+                                )
+                                if not trade_ids:
+                                    phase = "match_authoritative_order_catalogs"
+                                    raise unavailable_error
+                                recovered_from_token_trade_catalog = True
+                                logger.warning(
+                                    "order catalog에서 사라진 주문을 authenticated "
+                                    "token trade catalog의 exact order ID로 "
+                                    "복구합니다 - count=%s",
+                                    len(trade_ids),
+                                )
+                            else:
+                                logger.warning(
+                                    "order catalog에서 사라진 주문의 기존 exact trade "
+                                    "evidence를 재조회합니다 - count=%s",
+                                    len(trade_ids),
+                                )
                 if trade_ids is None:
                     phase = "validate_order_identity"
                     returned_order_id = str(detail.get("id") or "")
@@ -614,14 +702,37 @@ class ClobClientWrapper:
                             "associated trade ID 조회 결과가 요청 ID와 다릅니다"
                         )
                     for trade in trades:
+                        if (
+                            recovered_from_token_trade_catalog
+                            and not _trade_references_exact_order(
+                                trade, str(order_id)
+                            )
+                        ):
+                            raise ClobResponseContractError(
+                                "exact trade 재조회 결과가 pending order ID를 "
+                                "참조하지 않습니다"
+                            )
                         phase = "persist_fill"
                         self.execution_ledger.record_fill(
                             submission_id, order_id, trade
                         )
                         stats["fills"] += 1
+                if recovered_from_token_trade_catalog:
+                    phase = "persist_recovered_trade_associations"
+                    self.execution_ledger.record_recovered_trade_associations(
+                        submission_id, order_id, trade_ids
+                    )
                 phase = "finalize_reconciliation"
-                if self.execution_ledger.finish_reconciliation(submission_id):
+                reconciliation_finished = (
+                    self.execution_ledger.finish_reconciliation(submission_id)
+                )
+                if reconciliation_finished:
                     stats["completed"] += 1
+                elif recovered_from_token_trade_catalog:
+                    raise ClobResponseContractError(
+                        "authenticated token trade evidence가 terminal full-fill "
+                        "수량을 증명하지 못했습니다"
+                    )
             except Exception as error:
                 stats["errors"] += 1
                 phase_error = ClobReconciliationPhaseError(

@@ -111,6 +111,7 @@ def test_records_submission_status_and_confirmed_fill(tmp_path):
 
     pending = ledger.pending_submissions()
     assert pending[0]["submission_id"] == submission_id
+    assert pending[0]["token_id"] == "token-yes"
     trade_ids = ledger.record_order_status(
         submission_id,
         {
@@ -153,6 +154,180 @@ def test_records_submission_status_and_confirmed_fill(tmp_path):
         "1700000000",
     )
     assert amounts == (4.2, 10.0)
+
+
+@pytest.mark.parametrize(
+    ("side", "making_amount", "taking_amount"),
+    [
+        ("BUY", "4200000", "10000000"),
+        ("SELL", "10000000", "4200000"),
+    ],
+)
+def test_authenticated_trade_catalog_full_fill_uses_submission_token_amount(
+    tmp_path, side, making_amount, taking_amount
+):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side=side,
+        requested_price=0.42,
+        # Deliberately differs from the signed/post response token amount.
+        requested_size=10.2,
+        result={
+            "success": True,
+            "orderID": "catalog-order",
+            "status": "LIVE",
+            "makingAmount": making_amount,
+            "takingAmount": taking_amount,
+        },
+        simulation=False,
+    )
+    ledger.record_fill(
+        submission_id,
+        "catalog-order",
+        {
+            "id": "catalog-trade",
+            "status": "CONFIRMED",
+            "size": "10000000",
+            "price": "0.42",
+            "taker_order_id": "catalog-order",
+            "trader_side": "TAKER",
+            "side": side,
+            "fee_rate_bps": "0",
+        },
+    )
+
+    assert ledger.record_recovered_trade_associations(
+        submission_id, "catalog-order", ["catalog-trade"]
+    ) == ["catalog-trade"]
+    assert ledger.finish_reconciliation(submission_id) is True
+    assert ledger.pending_submissions() == []
+
+    with sqlite3.connect(ledger.db_path) as connection:
+        row = connection.execute(
+            "SELECT associated_trade_ids_json, reconciliation_proof, "
+            "needs_reconciliation FROM order_submissions"
+        ).fetchone()
+    assert row == (
+        '["catalog-trade"]',
+        "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL",
+        0,
+    )
+
+
+@pytest.mark.parametrize("evidence_shape", ["missing_amount", "partial", "nonterminal"])
+def test_authenticated_trade_catalog_incomplete_proof_stays_pending(
+    tmp_path, evidence_shape
+):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    result = {
+        "success": True,
+        "orderID": "catalog-order",
+        "status": "LIVE",
+        "makingAmount": "4200000",
+        "takingAmount": "10000000",
+    }
+    if evidence_shape == "missing_amount":
+        result.pop("takingAmount")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result=result,
+        simulation=False,
+    )
+    ledger.record_fill(
+        submission_id,
+        "catalog-order",
+        {
+            "id": "catalog-trade",
+            "status": "MATCHED" if evidence_shape == "nonterminal" else "CONFIRMED",
+            "size": "5000000" if evidence_shape == "partial" else "10000000",
+            "price": "0.42",
+            "taker_order_id": "catalog-order",
+            "trader_side": "TAKER",
+            "side": "BUY",
+            "fee_rate_bps": "0",
+        },
+    )
+    ledger.record_recovered_trade_associations(
+        submission_id, "catalog-order", ["catalog-trade"]
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is False
+    assert len(ledger.pending_submissions()) == 1
+
+
+def test_authenticated_trade_associations_merge_monotonically(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=10,
+        result={
+            "success": True,
+            "orderID": "catalog-order",
+            "status": "LIVE",
+            "makingAmount": "4000000",
+            "takingAmount": "10000000",
+        },
+        simulation=False,
+    )
+    for trade_id in ("trade-one", "trade-two"):
+        ledger.record_fill(
+            submission_id,
+            "catalog-order",
+            {
+                "id": trade_id,
+                "status": "CONFIRMED",
+                "size": "5000000",
+                "price": "0.4",
+                "taker_order_id": "catalog-order",
+                "trader_side": "TAKER",
+                "side": "BUY",
+                "fee_rate_bps": "0",
+            },
+        )
+
+    assert ledger.record_recovered_trade_associations(
+        submission_id, "catalog-order", ["trade-one"]
+    ) == ["trade-one"]
+    assert ledger.finish_reconciliation(submission_id) is False
+    assert ledger.record_recovered_trade_associations(
+        submission_id, "catalog-order", ["trade-two"]
+    ) == ["trade-one", "trade-two"]
+    assert ledger.finish_reconciliation(submission_id) is True
+
+
+def test_authenticated_trade_association_rejects_invalid_order_correlation(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "catalog-order"},
+        simulation=False,
+    )
+    ledger.record_fill(
+        submission_id,
+        "catalog-order",
+        {
+            "id": "unrelated-trade",
+            "status": "CONFIRMED",
+            "size": "10000000",
+            "price": "0.42",
+            "taker_order_id": "different-order",
+            "side": "BUY",
+        },
+    )
+
+    with pytest.raises(ClobResponseContractError, match="상관관계"):
+        ledger.record_recovered_trade_associations(
+            submission_id, "catalog-order", ["unrelated-trade"]
+        )
 
 
 def test_sdk_normalized_human_quantity_is_not_divided_by_fixed_scale_again(
@@ -1378,6 +1553,14 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
         },
     )
     _replace_fill_table_with_legacy_primary_key(db_path)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "ALTER TABLE order_submissions DROP COLUMN reconciliation_proof"
+        )
+        connection.execute(
+            "UPDATE polybot_schema_versions SET version = 7 "
+            "WHERE component = 'execution_ledger'"
+        )
 
     def fail_after_copy(stage: str) -> None:
         assert stage == "after_order_fills_copy"
@@ -1404,6 +1587,9 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
             "AND name = 'order_fills_v2'"
         ).fetchone()[0] == 0
+        assert "reconciliation_proof" not in {
+            row[1] for row in connection.execute("PRAGMA table_info(order_submissions)")
+        }
 
         ExecutionLedger._ensure_schema(connection)
         primary_key = [
@@ -1416,6 +1602,13 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
         ]
         assert primary_key == ["submission_id", "trade_id", "bucket_index"]
         assert connection.execute("SELECT COUNT(*) FROM order_fills").fetchone()[0] == 1
+        assert "reconciliation_proof" in {
+            row[1] for row in connection.execute("PRAGMA table_info(order_submissions)")
+        }
+        assert connection.execute(
+            "SELECT version FROM polybot_schema_versions "
+            "WHERE component = 'execution_ledger'"
+        ).fetchone()[0] == 8
 
 
 def test_order_fill_migration_recovers_stale_v2_only_table(tmp_path):

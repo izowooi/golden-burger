@@ -464,8 +464,11 @@ class LegacyCatalogClient:
             raise self.catalog_error
         return self.catalog
 
-    def get_trades(self, *_args, **_kwargs):
-        raise AssertionError("unfilled canceled legacy orders have no trade IDs")
+    def get_trades(self, params, only_first_page=False):
+        assert params.id is None
+        assert params.asset_id == "token"
+        assert only_first_page is False
+        return []
 
 
 def _bootstrap_legacy_orders(db_path, order_ids):
@@ -779,8 +782,349 @@ def test_new_order_unavailable_stays_fail_closed_when_catalogs_have_no_exact_id(
         "error=ClobResponseUnavailableError "
         "response_shape=sequence(len=0,item_type=none)",
     )
+    assert "authenticated token trade catalog exact-order scan" in caplog.text
     assert "raw-secret-value" not in caplog.text
     assert "private_key" not in caplog.text
+
+
+@pytest.mark.parametrize("order_role", ["taker", "maker"])
+def test_missing_order_catalog_recovers_from_exact_authenticated_token_trade(
+    tmp_path, order_role
+):
+    class TokenTradeCatalogClient(LegacyCatalogClient):
+        def __init__(self):
+            super().__init__(catalog=[])
+            self.trade_calls = []
+
+        def get_trades(self, params, only_first_page=False):
+            self.trade_calls.append(
+                (params.id, params.asset_id, only_first_page)
+            )
+            maker_orders = [
+                {
+                    "order_id": (
+                        "accepted-new" if order_role == "maker" else "other-order"
+                    ),
+                    "matched_amount": "10000000",
+                    "price": "0.42",
+                    "side": "BUY",
+                    "fee_rate_bps": "0",
+                }
+            ]
+            exact_trade = {
+                "id": "catalog-trade",
+                "status": "CONFIRMED",
+                "maker_orders": maker_orders,
+                "taker_order_id": (
+                    "accepted-new" if order_role == "taker" else "other-order"
+                ),
+                "trader_side": order_role.upper(),
+                "size": "10000000",
+                "price": "0.42",
+                "side": "BUY",
+                "fee_rate_bps": "0",
+            }
+            if params.asset_id is not None:
+                assert params.id is None
+                assert params.asset_id == "token"
+                assert only_first_page is False
+                return [
+                    {
+                        **exact_trade,
+                        "id": "unrelated-trade",
+                        "maker_orders": [
+                            {
+                                "order_id": "similar-but-not-exact",
+                                "matched_amount": "10000000",
+                                "price": "0.42",
+                                "side": "BUY",
+                            }
+                        ],
+                        "taker_order_id": "similar-but-not-exact",
+                    },
+                    exact_trade,
+                    dict(exact_trade),
+                ]
+            assert params.id == "catalog-trade"
+            assert params.asset_id is None
+            assert only_first_page is True
+            return [exact_trade]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    client = TokenTradeCatalogClient()
+    wrapper._client = client
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={
+            "success": True,
+            "orderID": "accepted-new",
+            "status": "LIVE",
+            "makingAmount": "4200000",
+            "takingAmount": "10000000",
+        },
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats == {
+        "checked": 1,
+        "fills": 1,
+        "completed": 1,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    assert client.trade_calls == [
+        (None, "token", False),
+        ("catalog-trade", None, True),
+    ]
+    with sqlite3.connect(db_path) as connection:
+        fill = connection.execute(
+            "SELECT trade_id, status, size, liquidity_role FROM order_fills"
+        ).fetchone()
+        proof = connection.execute(
+            "SELECT reconciliation_proof FROM order_submissions"
+        ).fetchone()[0]
+    assert fill == ("catalog-trade", "CONFIRMED", 10.0, order_role.upper())
+    assert proof == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
+    assert wrapper.execution_ledger.pending_submissions() == []
+
+
+def test_authenticated_token_trade_catalog_without_exact_order_id_fails_closed(
+    tmp_path
+):
+    class UnrelatedTokenTradeClient(LegacyCatalogClient):
+        def get_trades(self, params, only_first_page=False):
+            assert params.id is None
+            assert params.asset_id == "token"
+            assert only_first_page is False
+            return [
+                {
+                    "id": "unrelated-trade",
+                    "status": "CONFIRMED",
+                    "maker_orders": [
+                        {
+                            "order_id": "accepted-new-similar",
+                            "matched_amount": "10000000",
+                            "price": "0.42",
+                            "side": "BUY",
+                        }
+                    ],
+                    "taker_order_id": "accepted-new-similar",
+                    "size": "10000000",
+                    "price": "0.42",
+                    "side": "BUY",
+                }
+            ]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    wrapper._client = UnrelatedTokenTradeClient(catalog=[])
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "accepted-new"},
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats["fills"] == 0
+    assert stats["completed"] == 0
+    assert stats["errors"] == 1
+    assert len(wrapper.execution_ledger.pending_submissions()) == 1
+    with sqlite3.connect(db_path) as connection:
+        error = connection.execute(
+            "SELECT reconciliation_error FROM order_submissions"
+        ).fetchone()[0]
+    assert error.startswith(
+        "phase=match_authoritative_order_catalogs "
+        "error=ClobResponseUnavailableError"
+    )
+
+
+def test_catalog_trade_exact_refetch_must_still_reference_pending_order(tmp_path):
+    class ChangedCorrelationClient(LegacyCatalogClient):
+        def get_trades(self, params, only_first_page=False):
+            trade = {
+                "id": "catalog-trade",
+                "status": "CONFIRMED",
+                "taker_order_id": (
+                    "accepted-new" if params.asset_id else "different-order"
+                ),
+                "trader_side": "TAKER",
+                "size": "10000000",
+                "price": "0.42",
+                "side": "BUY",
+                "fee_rate_bps": "0",
+            }
+            if params.asset_id:
+                assert only_first_page is False
+            else:
+                assert params.id == "catalog-trade"
+                assert only_first_page is True
+            return [trade]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    wrapper._client = ChangedCorrelationClient(catalog=[])
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={
+            "success": True,
+            "orderID": "accepted-new",
+            "makingAmount": "4200000",
+            "takingAmount": "10000000",
+        },
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats["fills"] == 0
+    assert stats["completed"] == 0
+    assert stats["errors"] == 1
+    with sqlite3.connect(db_path) as connection:
+        fill_count = connection.execute("SELECT COUNT(*) FROM order_fills").fetchone()[0]
+        error = connection.execute(
+            "SELECT reconciliation_error FROM order_submissions"
+        ).fetchone()[0]
+    assert fill_count == 0
+    assert error.startswith("phase=validate_trades error=ClobResponseContractError")
+
+
+def test_authenticated_token_trade_catalog_empty_trade_id_fails_closed(tmp_path):
+    class EmptyTradeIdClient(LegacyCatalogClient):
+        def get_trades(self, params, only_first_page=False):
+            assert params.id is None
+            assert params.asset_id == "token"
+            assert only_first_page is False
+            return [
+                {
+                    "id": "",
+                    "status": "CONFIRMED",
+                    "taker_order_id": "accepted-new",
+                    "size": "10000000",
+                    "price": "0.42",
+                    "side": "BUY",
+                }
+            ]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    wrapper._client = EmptyTradeIdClient(catalog=[])
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "accepted-new"},
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats["fills"] == 0
+    assert stats["completed"] == 0
+    assert stats["errors"] == 1
+    with sqlite3.connect(db_path) as connection:
+        error = connection.execute(
+            "SELECT reconciliation_error FROM order_submissions"
+        ).fetchone()[0]
+    assert error.startswith(
+        "phase=normalize_token_trade_catalog error=ClobResponseContractError"
+    )
+
+
+def test_authenticated_token_trade_catalog_is_cached_per_token_in_one_cycle(
+    tmp_path
+):
+    class SharedTokenTradeClient(LegacyCatalogClient):
+        def __init__(self):
+            super().__init__(catalog=[])
+            self.catalog_calls = 0
+            self.exact_calls = []
+
+        @staticmethod
+        def trade(order_id):
+            return {
+                "id": f"trade-{order_id}",
+                "status": "CONFIRMED",
+                "taker_order_id": order_id,
+                "trader_side": "TAKER",
+                "size": "5000000",
+                "price": "0.4",
+                "side": "BUY",
+                "fee_rate_bps": "0",
+            }
+
+        def get_trades(self, params, only_first_page=False):
+            if params.asset_id is not None:
+                assert params.asset_id == "shared-token"
+                assert only_first_page is False
+                self.catalog_calls += 1
+                return [self.trade("order-a"), self.trade("order-b")]
+            assert only_first_page is True
+            self.exact_calls.append(params.id)
+            order_id = params.id.removeprefix("trade-")
+            return [self.trade(order_id)]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    client = SharedTokenTradeClient()
+    wrapper._client = client
+    wrapper._initialized = True
+    for order_id in ("order-a", "order-b"):
+        wrapper.execution_ledger.record_submission(
+            token_id="shared-token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=5,
+            result={
+                "success": True,
+                "orderID": order_id,
+                "status": "LIVE",
+                "makingAmount": "2000000",
+                "takingAmount": "5000000",
+            },
+            simulation=False,
+        )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats == {
+        "checked": 2,
+        "fills": 2,
+        "completed": 2,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    assert client.catalog_calls == 1
+    assert client.exact_calls == ["trade-order-a", "trade-order-b"]
+    assert wrapper.execution_ledger.pending_submissions() == []
 
 
 def test_missing_order_catalog_recovers_using_previously_recorded_exact_trade(

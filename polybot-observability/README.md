@@ -35,6 +35,17 @@ CRITICAL evidence corruption으로 분류하고 P&L에서 제외한다. 기존 `
 `buy_shares`/`sell_shares`가 달라도 reconciled BUY/SELL 실제 수량이 같으면 실제 수량으로 P&L을
 계산하고 legacy mismatch를 별도 표시한다.
 
+단건 order 조회와 current/pre-migration exact order catalog에서 주문이 사라졌다면, bot은
+현재 인증 계정의 해당 `token_id` trade catalog 전체 페이지를 한 cycle에 token별 한 번만
+조회한다. 복구 대상은 `taker_order_id` 또는 `maker_orders[].order_id`가 pending order ID와
+정확히 같은 trade ID뿐이며 price/size/time 유사 매칭은 하지 않는다. 발견한 ID도 exact trade
+재조회와 order 상관관계를 다시 검증한 뒤 `order_fills`와 canonical association에 기록한다.
+order status 없이 대사를 종결하려면 모든 exact-correlated bucket이 `CONFIRMED`이고 그 합이
+submission 응답의 실제 token amount(BUY=`taking_amount`, SELL=`making_amount`)와
+±0.000001 안에서 일치해야 한다. 이 경우 `reconciliation_proof`에
+`AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL`을 남긴다. amount 누락, partial/nonterminal fill,
+exact match 부재는 모두 fail-closed 상태를 유지한다.
+
 submission의 요청 price/size, order detail의 original/matched size, CONFIRMED fill의 positive
 size·`0 < price < 1`·nonnegative integer bucket, fee rate/amount도 finite domain을 통과해야 한다.
 MAKER fill은 해당 `maker_orders.order_id` entry, TAKER fill은 `taker_order_id` 또는 명시적 TAKER
