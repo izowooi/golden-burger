@@ -156,6 +156,212 @@ def test_records_submission_status_and_confirmed_fill(tmp_path):
     assert amounts == (4.2, 10.0)
 
 
+def test_human_unit_submission_amounts_are_not_double_scaled(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.88,
+        requested_size=114.28571428571429,
+        result={
+            "success": True,
+            "orderID": "human-amounts",
+            "status": "MATCHED",
+            "makingAmount": "100.5664",
+            "takingAmount": "114.28",
+        },
+        simulation=False,
+    )
+
+    with sqlite3.connect(ledger.db_path) as connection:
+        row = connection.execute(
+            "SELECT making_amount, taking_amount, quantity_scale "
+            "FROM order_submissions"
+        ).fetchone()
+
+    assert row == (100.5664, 114.28, 1.0)
+
+
+def test_legacy_double_scaled_submission_amount_recovers_catalog_full_fill(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.88,
+        requested_size=114.28571428571429,
+        result={
+            "success": True,
+            "orderID": "legacy-human-amounts",
+            "status": "MATCHED",
+            "makingAmount": "100.5664",
+            "takingAmount": "114.28",
+        },
+        simulation=False,
+    )
+    with sqlite3.connect(ledger.db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET making_amount = making_amount / 1000000, "
+            "taking_amount = taking_amount / 1000000"
+        )
+    ledger.record_fill(
+        submission_id,
+        "legacy-human-amounts",
+        {
+            "id": "legacy-human-trade",
+            "status": "CONFIRMED",
+            "size": "114.28",
+            "price": "0.88",
+            "taker_order_id": "legacy-human-amounts",
+            "trader_side": "TAKER",
+            "fee_rate_bps": "0",
+        },
+    )
+    ledger.record_recovered_trade_associations(
+        submission_id, "legacy-human-amounts", ["legacy-human-trade"]
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    assert ledger.pending_submissions() == []
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_all_failed_trades_close_ledger_and_repair_optimistic_strategy_state(
+    tmp_path, side
+):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    order_id = f"failed-{side.lower()}"
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side=side,
+        requested_price=0.5,
+        requested_size=10,
+        result={"success": True, "orderID": order_id, "status": "MATCHED"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10000000",
+            "size_matched": "10000000",
+            "associate_trades": ["failed-trade"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        order_id,
+        {
+            "id": "failed-trade",
+            "status": "FAILED",
+            "size": "10000000",
+            "price": "0.5",
+            "taker_order_id": order_id,
+            "trader_side": "TAKER",
+            "fee_rate_bps": "0",
+        },
+    )
+    ledger.record_reconciliation_error(
+        submission_id,
+        RuntimeError(
+            "phase=match_authoritative_order_catalogs "
+            "error=ClobResponseUnavailableError"
+        ),
+    )
+    [diagnostic] = ledger.catalog_missing_submissions(
+        include_evidence_linked=True
+    )
+    assert diagnostic["terminal_failure_no_fill"] is True
+    assert diagnostic["completion_ready"] is True
+    assert diagnostic["completion_blockers"] == []
+    with sqlite3.connect(ledger.db_path) as connection:
+        connection.execute(
+            """
+            CREATE TABLE trades (
+                id INTEGER PRIMARY KEY,
+                status TEXT,
+                buy_order_id TEXT,
+                sell_order_id TEXT,
+                sell_price REAL,
+                sell_shares REAL,
+                sell_timestamp TEXT,
+                sell_probability REAL,
+                realized_pnl REAL,
+                exit_reason TEXT,
+                updated_at TEXT
+            )
+            """
+        )
+        connection.execute(
+            "INSERT INTO trades VALUES (1, ?, ?, ?, 0.6, 10, 'now', 0.6, 1, "
+            "'stop_loss', 'before')",
+            (
+                "HOLDING" if side == "BUY" else "COMPLETED",
+                order_id if side == "BUY" else None,
+                order_id if side == "SELL" else None,
+            ),
+        )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    assert ledger.pending_submissions() == []
+    with sqlite3.connect(ledger.db_path) as connection:
+        submission = connection.execute(
+            "SELECT reconciliation_proof FROM order_submissions"
+        ).fetchone()
+        trade = connection.execute(
+            "SELECT status, sell_order_id, sell_price, sell_shares, "
+            "realized_pnl, exit_reason FROM trades"
+        ).fetchone()
+
+    assert submission == ("TERMINAL_ASSOCIATED_TRADES_ALL_FAILED",)
+    if side == "BUY":
+        assert trade == ("UNFILLED", None, 0.6, 10.0, None, "buy_trade_failed")
+    else:
+        assert trade == ("HOLDING", None, None, None, None, None)
+
+
+def test_mixed_confirmed_and_failed_trade_outcomes_remain_fail_closed(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.5,
+        requested_size=10,
+        result={"success": True, "orderID": "mixed", "status": "MATCHED"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10000000",
+            "size_matched": "10000000",
+            "associate_trades": ["confirmed", "failed"],
+        },
+    )
+    for trade_id, status in (("confirmed", "CONFIRMED"), ("failed", "FAILED")):
+        ledger.record_fill(
+            submission_id,
+            "mixed",
+            {
+                "id": trade_id,
+                "status": status,
+                "size": "5000000",
+                "price": "0.5",
+                "taker_order_id": "mixed",
+                "trader_side": "TAKER",
+                "fee_rate_bps": "0",
+            },
+        )
+
+    assert ledger.finish_reconciliation(submission_id) is False
+    with sqlite3.connect(ledger.db_path) as connection:
+        row = connection.execute(
+            "SELECT needs_reconciliation, reconciliation_error "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row == (1, "mixed CONFIRMED/FAILED trade outcomes require review")
+
+
 @pytest.mark.parametrize(
     ("side", "making_amount", "taking_amount"),
     [

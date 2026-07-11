@@ -210,6 +210,89 @@ def _infer_partial_quantity_scale(raw_size: Any, requested_size: Any) -> float |
     return None
 
 
+def _submission_amount_scale(
+    side: Any,
+    requested_size: Any,
+    making_amount: Any,
+    taking_amount: Any,
+) -> float | None:
+    """Infer whether a POST response amount is human-unit or fixed-6.
+
+    CLOB V2 documents POST amounts as fixed-6, while some production SDK/API
+    combinations have returned human-unit strings.  The token-side amount is
+    bounded by the locally persisted order intent, so it provides an
+    unambiguous representation check without trusting the response format.
+    """
+    normalized_side = str(side or "").upper()
+    token_amount = taking_amount if normalized_side == "BUY" else making_amount
+    if normalized_side not in {"BUY", "SELL"}:
+        return None
+    return _infer_quantity_scale(token_amount, requested_size)
+
+
+def _normalized_submission_amounts(
+    side: Any,
+    requested_size: Any,
+    making_amount: Any,
+    taking_amount: Any,
+) -> tuple[float | None, float | None, float | None]:
+    scale = _submission_amount_scale(
+        side, requested_size, making_amount, taking_amount
+    )
+    return (
+        _quantity_number(making_amount, scale),
+        _quantity_number(taking_amount, scale),
+        scale,
+    )
+
+
+def _persisted_submission_token_amount(
+    side: Any,
+    requested_price: Any,
+    requested_size: Any,
+    making_amount: Any,
+    taking_amount: Any,
+) -> float | None:
+    """Recover a human-unit token amount from current or legacy persisted data.
+
+    Before adaptive POST normalization, already-human response amounts were
+    divided by 10^6 once more.  Both legs must remain price-consistent after
+    choosing either the identity or legacy correction multiplier.
+    """
+    normalized_side = str(side or "").upper()
+    price = _number(requested_price)
+    requested = _number(requested_size)
+    making = _number(making_amount)
+    taking = _number(taking_amount)
+    if (
+        normalized_side not in {"BUY", "SELL"}
+        or not _valid_fill_price(price)
+        or not _finite_positive(requested)
+        or not _finite_positive(making)
+        or not _finite_positive(taking)
+    ):
+        return None
+
+    token_amount = taking if normalized_side == "BUY" else making
+    for multiplier in (1.0, float(_FIXED_6_SCALE)):
+        normalized_token = token_amount * multiplier
+        if abs(normalized_token - requested) / requested > 0.05:
+            continue
+        normalized_making = making * multiplier
+        normalized_taking = taking * multiplier
+        expected_collateral = (
+            normalized_taking * price
+            if normalized_side == "BUY"
+            else normalized_making * price
+        )
+        observed_collateral = (
+            normalized_making if normalized_side == "BUY" else normalized_taking
+        )
+        if abs(observed_collateral - expected_collateral) / expected_collateral <= 0.05:
+            return normalized_token
+    return None
+
+
 def _bucket_index(value: Any) -> tuple[int, str | None]:
     if value is None:
         return 0, None
@@ -768,11 +851,27 @@ class ExecutionLedger:
         trade_ids = _string_list(result.get("tradeIDs") or result.get("trade_ids"))
         needs_reconciliation = int(bool(success and order_id and not simulation))
         with self._connect() as connection:
+            intent = connection.execute(
+                "SELECT side, requested_size FROM order_submissions "
+                "WHERE submission_id = ?",
+                (submission_id,),
+            ).fetchone()
+            if intent is None:
+                raise RuntimeError(f"order intent를 찾을 수 없습니다: {submission_id}")
+            making_amount, taking_amount, amount_scale = (
+                _normalized_submission_amounts(
+                    intent[0],
+                    intent[1],
+                    result.get("makingAmount"),
+                    result.get("takingAmount"),
+                )
+            )
             cursor = connection.execute(
                 """
                 UPDATE order_submissions
                 SET order_id = ?, simulation = ?, success = ?, response_status = ?,
                     making_amount = ?, taking_amount = ?,
+                    quantity_scale = COALESCE(quantity_scale, ?),
                     associated_trade_ids_json = ?, needs_reconciliation = ?,
                     error_type = ?, error_message = ?
                 WHERE submission_id = ?
@@ -782,8 +881,9 @@ class ExecutionLedger:
                     int(simulation),
                     int(success),
                     response_status,
-                    _fixed_6_number(result.get("makingAmount")),
-                    _fixed_6_number(result.get("takingAmount")),
+                    making_amount,
+                    taking_amount,
+                    amount_scale,
                     json.dumps(trade_ids),
                     needs_reconciliation,
                     None
@@ -1069,10 +1169,18 @@ class ExecutionLedger:
                     item["reconciliation_proof"]
                     == "AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS"
                 ):
-                    if str(item["side"] or "").upper() == "BUY":
-                        expected_size = _number(item["taking_amount"])
-                    elif str(item["side"] or "").upper() == "SELL":
-                        expected_size = _number(item["making_amount"])
+                    expected_size = _persisted_submission_token_amount(
+                        item["side"],
+                        item["requested_price"],
+                        item["requested_size"],
+                        item["making_amount"],
+                        item["taking_amount"],
+                    )
+
+                every_fill_failed = bool(fill_rows) and all(
+                    _normalize_status(fill["status"]) == "FAILED"
+                    for fill in fill_rows
+                )
 
                 blockers: list[str] = []
                 if item["latest_status_domain_error"] is not None:
@@ -1087,9 +1195,9 @@ class ExecutionLedger:
                     blockers.append("nonterminal_fills_present")
                 if invalid_confirmed_count:
                     blockers.append("confirmed_fill_domain_errors_present")
-                if expected_size is None:
+                if expected_size is None and not every_fill_failed:
                     blockers.append("expected_fill_size_missing")
-                elif not math.isclose(
+                elif not every_fill_failed and not math.isclose(
                     confirmed_size,
                     expected_size,
                     rel_tol=0.0,
@@ -1102,6 +1210,7 @@ class ExecutionLedger:
                 item["expected_fill_size"] = expected_size
                 item["nonterminal_fill_count"] = nonterminal_count
                 item["invalid_confirmed_fill_count"] = invalid_confirmed_count
+                item["terminal_failure_no_fill"] = every_fill_failed
                 item["fill_domain_errors"] = sorted(
                     self._fill_domain_error_tokens(connection, item["submission_id"])
                 )
@@ -2080,6 +2189,95 @@ class ExecutionLedger:
                 )
         return merged
 
+    @staticmethod
+    def _reconcile_all_failed_strategy_trade(
+        connection: sqlite3.Connection,
+        *,
+        order_id: str,
+        side: str,
+    ) -> None:
+        """Correct the optimistic strategy row after all exact trades fail.
+
+        Strategy bots currently persist an accepted BUY as ``HOLDING`` and an
+        accepted SELL as ``COMPLETED`` before onchain finality.  A terminally
+        failed trade therefore needs the inverse state transition in the same
+        transaction that closes the execution-ledger reconciliation.
+        """
+        table_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'trades'"
+        ).fetchone()
+        if not table_exists:
+            return
+        columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(trades)")
+        }
+        normalized_side = str(side or "").upper()
+        order_column = "buy_order_id" if normalized_side == "BUY" else "sell_order_id"
+        if (
+            normalized_side not in {"BUY", "SELL"}
+            or "status" not in columns
+            or order_column not in columns
+        ):
+            return
+        rows = connection.execute(
+            f"SELECT rowid, status FROM trades WHERE {order_column} = ?",
+            (str(order_id),),
+        ).fetchall()
+        if len(rows) > 1:
+            raise ClobResponseContractError(
+                "terminal FAILED order가 strategy trade 여러 건에 연결되어 있습니다"
+            )
+        if not rows:
+            return
+
+        rowid, stored_status = rows[0]
+        status_name = str(stored_status or "").upper().rsplit(".", 1)[-1]
+        uppercase_storage = str(stored_status or "").isupper()
+        if normalized_side == "BUY":
+            if status_name not in {"PENDING_BUY", "HOLDING", "UNFILLED"}:
+                raise ClobResponseContractError(
+                    "terminal FAILED BUY order의 strategy trade 상태가 예상과 다릅니다"
+                )
+            target_status = "UNFILLED" if uppercase_storage else "unfilled"
+            assignments = ["status = ?"]
+            values: list[Any] = [target_status]
+            if "exit_reason" in columns:
+                assignments.append("exit_reason = ?")
+                values.append("buy_trade_failed")
+            if "realized_pnl" in columns:
+                assignments.append("realized_pnl = NULL")
+        else:
+            if status_name not in {"PENDING_SELL", "COMPLETED", "HOLDING"}:
+                raise ClobResponseContractError(
+                    "terminal FAILED SELL order의 strategy trade 상태가 예상과 다릅니다"
+                )
+            target_status = "HOLDING" if uppercase_storage else "holding"
+            assignments = ["status = ?"]
+            values = [target_status]
+            for column in (
+                "sell_price",
+                "sell_shares",
+                "sell_order_id",
+                "sell_timestamp",
+                "sell_probability",
+                "realized_pnl",
+                "exit_reason",
+            ):
+                if column in columns:
+                    assignments.append(f"{column} = NULL")
+        if "updated_at" in columns:
+            assignments.append("updated_at = ?")
+            values.append(_utc_now())
+        values.append(rowid)
+        cursor = connection.execute(
+            f"UPDATE trades SET {', '.join(assignments)} WHERE rowid = ?",
+            values,
+        )
+        if cursor.rowcount != 1:
+            raise ClobResponseContractError(
+                "terminal FAILED order의 strategy trade 상태를 원자적으로 복구하지 못했습니다"
+            )
+
     def finish_reconciliation(self, submission_id: str) -> bool:
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
@@ -2088,7 +2286,7 @@ class ExecutionLedger:
                 SELECT latest_order_status, latest_size_matched,
                        associated_trade_ids_json, latest_status_domain_error,
                        requested_price, requested_size, side, making_amount,
-                       taking_amount, reconciliation_proof
+                       taking_amount, reconciliation_proof, order_id
                 FROM order_submissions WHERE submission_id = ?
                 """,
                 (submission_id,),
@@ -2098,6 +2296,7 @@ class ExecutionLedger:
             order_status = _normalize_status(submission["latest_order_status"])
             trade_ids = json.loads(submission["associated_trade_ids_json"] or "[]")
             complete = False
+            completion_proof = submission["reconciliation_proof"]
             if (
                 submission["latest_status_domain_error"] is not None
                 or not _valid_fill_price(submission["requested_price"])
@@ -2167,6 +2366,19 @@ class ExecutionLedger:
                         )
                         for trade_id in trade_ids
                     )
+                    every_bucket_failed = all(
+                        str(trade_id) in trade_rows
+                        and all(
+                            status == "FAILED"
+                            for status, _ in trade_rows[str(trade_id)]
+                        )
+                        for trade_id in trade_ids
+                    )
+                    any_failed_bucket = any(
+                        status == "FAILED"
+                        for trade_id in trade_ids
+                        for status, _ in trade_rows.get(str(trade_id), [])
+                    )
                     confirmed_size = sum(
                         size or 0.0
                         for trade_id in trade_ids
@@ -2176,14 +2388,18 @@ class ExecutionLedger:
                     matched_size = _number(submission["latest_size_matched"])
                     if order_status in _TERMINAL_ORDER_STATUSES:
                         expected_size = matched_size
-                    elif str(submission["side"] or "").upper() == "BUY":
-                        expected_size = _number(submission["taking_amount"])
-                    elif str(submission["side"] or "").upper() == "SELL":
-                        expected_size = _number(submission["making_amount"])
                     else:
-                        expected_size = None
-                    if authenticated_trade_proof and not _finite_positive(
-                        expected_size
+                        expected_size = _persisted_submission_token_amount(
+                            submission["side"],
+                            submission["requested_price"],
+                            submission["requested_size"],
+                            submission["making_amount"],
+                            submission["taking_amount"],
+                        )
+                    if (
+                        authenticated_trade_proof
+                        and not every_bucket_failed
+                        and not _finite_positive(expected_size)
                     ):
                         connection.execute(
                             "UPDATE order_submissions SET reconciliation_error = ? "
@@ -2195,23 +2411,46 @@ class ExecutionLedger:
                             ),
                         )
                         return False
-                    complete = (
-                        (
-                            every_bucket_confirmed
-                            if authenticated_trade_proof
-                            and order_status not in _TERMINAL_ORDER_STATUSES
-                            else every_bucket_terminal
+                    if every_bucket_failed:
+                        self._reconcile_all_failed_strategy_trade(
+                            connection,
+                            order_id=str(submission["order_id"] or ""),
+                            side=str(submission["side"] or ""),
                         )
-                        and expected_size is not None
-                        and math.isclose(
-                            confirmed_size,
-                            expected_size,
-                            rel_tol=0.0,
-                            abs_tol=_QUANTITY_TOLERANCE,
+                        complete = True
+                        completion_proof = "TERMINAL_ASSOCIATED_TRADES_ALL_FAILED"
+                    elif any_failed_bucket:
+                        connection.execute(
+                            "UPDATE order_submissions SET reconciliation_error = ? "
+                            "WHERE submission_id = ?",
+                            (
+                                "mixed CONFIRMED/FAILED trade outcomes require review",
+                                submission_id,
+                            ),
                         )
-                    )
+                    else:
+                        complete = (
+                            (
+                                every_bucket_confirmed
+                                if authenticated_trade_proof
+                                and order_status not in _TERMINAL_ORDER_STATUSES
+                                else every_bucket_terminal
+                            )
+                            and expected_size is not None
+                            and math.isclose(
+                                confirmed_size,
+                                expected_size,
+                                rel_tol=0.0,
+                                abs_tol=_QUANTITY_TOLERANCE,
+                            )
+                        )
+                        if complete and authenticated_trade_proof:
+                            completion_proof = (
+                                "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
+                            )
                     if (
-                        expected_size is not None
+                        not every_bucket_failed
+                        and expected_size is not None
                         and confirmed_size > expected_size + _QUANTITY_TOLERANCE
                     ):
                         connection.execute(
@@ -2237,12 +2476,9 @@ class ExecutionLedger:
             if complete:
                 connection.execute(
                     "UPDATE order_submissions SET needs_reconciliation = 0, "
-                    "reconciliation_error = NULL, reconciliation_proof = CASE "
-                    "WHEN reconciliation_proof = "
-                    "'AUTHENTICATED_TOKEN_TRADE_CATALOG_EXACT_IDS' THEN "
-                    "'AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL' "
-                    "ELSE reconciliation_proof END WHERE submission_id = ?",
-                    (submission_id,),
+                    "reconciliation_error = NULL, reconciliation_proof = ? "
+                    "WHERE submission_id = ?",
+                    (completion_proof, submission_id),
                 )
             return complete
 

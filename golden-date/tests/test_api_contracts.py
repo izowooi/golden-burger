@@ -13,6 +13,7 @@ from polybot_observability import (
 )
 from polybot.api.clob_client import ClobClientWrapper
 from polybot.api.gamma_client import GammaClient
+from polybot.db.models import Trade, TradeStatus, init_database
 from polybot.utils.retry import MAX_RETRY_DELAY_SECONDS, rate_limit_handler
 
 
@@ -895,6 +896,135 @@ def test_missing_order_catalog_recovers_from_exact_authenticated_token_trade(
     assert fill == ("catalog-trade", "CONFIRMED", 10.0, order_role.upper())
     assert proof == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
     assert wrapper.execution_ledger.pending_submissions() == []
+
+
+def test_missing_order_catalog_closes_terminally_failed_exact_trade(tmp_path):
+    class FailedTokenTradeClient(LegacyCatalogClient):
+        @staticmethod
+        def trade():
+            return {
+                "id": "failed-catalog-trade",
+                "status": "FAILED",
+                "taker_order_id": "accepted-failed",
+                "trader_side": "TAKER",
+                "size": "114.28",
+                "price": "0.88",
+                "side": "BUY",
+                "fee_rate_bps": "0",
+            }
+
+        def get_trades(self, params, only_first_page=False):
+            if params.asset_id is not None:
+                assert params.asset_id == "token"
+                assert only_first_page is False
+            else:
+                assert params.id == "failed-catalog-trade"
+                assert only_first_page is True
+            return [self.trade()]
+
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(),
+        audit_db_path=tmp_path / "trades.db",
+        strategy_name="golden-date",
+    )
+    wrapper._client = FailedTokenTradeClient(catalog=[])
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.88,
+        requested_size=114.28571428571429,
+        result={
+            "success": True,
+            "orderID": "accepted-failed",
+            "status": "MATCHED",
+            "makingAmount": "100.5664",
+            "takingAmount": "114.28",
+        },
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats == {
+        "checked": 1,
+        "fills": 1,
+        "completed": 1,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    with sqlite3.connect(wrapper.execution_ledger.db_path) as connection:
+        row = connection.execute(
+            "SELECT needs_reconciliation, reconciliation_proof "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row == (0, "TERMINAL_ASSOCIATED_TRADES_ALL_FAILED")
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_terminal_failed_order_repairs_strategy_state_through_orm(tmp_path, side):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-date")
+    session = init_database(str(db_path))()
+    order_id = f"failed-{side.lower()}"
+    trade = Trade(
+        condition_id=f"condition-{side.lower()}",
+        token_id="token",
+        buy_order_id=order_id if side == "BUY" else "confirmed-buy",
+        sell_order_id=order_id if side == "SELL" else None,
+        sell_price=0.6 if side == "SELL" else None,
+        sell_shares=10 if side == "SELL" else None,
+        realized_pnl=1 if side == "SELL" else None,
+        exit_reason="stop_loss" if side == "SELL" else None,
+        status=TradeStatus.HOLDING if side == "BUY" else TradeStatus.COMPLETED,
+    )
+    session.add(trade)
+    session.commit()
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side=side,
+        requested_price=0.5,
+        requested_size=10,
+        result={"success": True, "orderID": order_id, "status": "MATCHED"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10000000",
+            "size_matched": "10000000",
+            "associate_trades": ["failed-trade"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        order_id,
+        {
+            "id": "failed-trade",
+            "status": "FAILED",
+            "size": "10000000",
+            "price": "0.5",
+            "taker_order_id": order_id,
+            "trader_side": "TAKER",
+        },
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    session.expire_all()
+    repaired = session.get(Trade, trade.id)
+
+    if side == "BUY":
+        assert repaired.status == TradeStatus.UNFILLED
+        assert repaired.exit_reason == "buy_trade_failed"
+    else:
+        assert repaired.status == TradeStatus.HOLDING
+        assert repaired.sell_order_id is None
+        assert repaired.sell_price is None
+        assert repaired.sell_shares is None
+        assert repaired.realized_pnl is None
+        assert repaired.exit_reason is None
+    session.close()
 
 
 def test_authenticated_token_trade_catalog_without_exact_order_id_fails_closed(

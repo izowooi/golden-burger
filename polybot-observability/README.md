@@ -131,6 +131,12 @@ gate에서만 제외되고 `polybot-retro audit --strict`에는 계속 HIGH evid
 `MATCHED`/`MINED`/`RETRYING` fill은 Polymarket finality 전 상태이므로 격리하거나 성공 처리하지 않고
 `CONFIRMED` 또는 `FAILED`가 될 때까지 재조회한다.
 
+POST 응답의 `makingAmount`/`takingAmount`는 로컬 order intent의 token 수량과 대조해 fixed-6 또는
+human-unit 표현을 판별한다. 과거 human-unit을 한 번 더 10⁶으로 나눈 ledger 값도 대사 시 양쪽
+amount와 주문 가격이 일치하는 경우에만 복구해 사용한다. Exact associated trade가 전부 `FAILED`면
+미체결로 종결하고, 낙관적으로 기록했던 BUY `HOLDING`은 `UNFILLED`로, SELL `COMPLETED`는
+`HOLDING`으로 원자 복구한다. `CONFIRMED`와 `FAILED`가 섞이면 자동 판단하지 않고 fail closed한다.
+
 ```bash
 uv run polybot-retro catalog-gaps \
   --db data/default/trades.db \
