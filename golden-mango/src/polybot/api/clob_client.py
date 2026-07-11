@@ -6,7 +6,10 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 """
 import logging
 import math
-from typing import Any, Dict, Mapping
+from contextlib import contextmanager
+from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
+
+from py_clob_client_v2 import BookParams
 
 from polybot_observability import (
     ClobReconciliationPhaseError,
@@ -57,6 +60,7 @@ class ClobClientWrapper:
 
     HOST = "https://clob.polymarket.com"
     DEFAULT_TICK_SIZE = 0.01  # Polymarket default tick size
+    MAX_MIDPOINT_BATCH_SIZE = 500
 
     def __init__(
         self,
@@ -76,6 +80,7 @@ class ClobClientWrapper:
         self.simulation_mode = simulation_mode
         self._client = None
         self._initialized = False
+        self._midpoint_snapshot: Optional[Dict[str, Optional[float]]] = None
         self.execution_ledger = (
             ExecutionLedger(audit_db_path, strategy_name=strategy_name)
             if audit_db_path is not None
@@ -145,6 +150,18 @@ class ClobClientWrapper:
         Returns:
             Midpoint price as float (0.0-1.0)
         """
+        normalized_token_id = str(token_id).strip()
+        if (
+            self._midpoint_snapshot is not None
+            and normalized_token_id in self._midpoint_snapshot
+        ):
+            cached = self._midpoint_snapshot[normalized_token_id]
+            if cached is None:
+                raise ClobResponseUnavailableError(
+                    "batch midpoint snapshot에 요청한 token의 사용 가능한 응답이 없습니다"
+                )
+            return cached
+
         try:
             result = self.client.get_midpoint(token_id)
             # API returns dict like {'mid': '0.875'}
@@ -160,6 +177,98 @@ class ClobClientWrapper:
             else:
                 logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
             raise
+
+    @staticmethod
+    def _normalize_midpoint_value(value: Any) -> Optional[float]:
+        """Normalize one SDK batch value without accepting sentinel prices."""
+        if isinstance(value, Mapping):
+            value = value.get("mid")
+        try:
+            price = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(price) or not 0 < price < 1:
+            return None
+        return price
+
+    def get_midpoints(
+        self,
+        token_ids: Iterable[str],
+    ) -> Dict[str, Optional[float]]:
+        """Fetch midpoint prices in bounded public SDK batches.
+
+        Every token from a successful chunk is present in the result.
+        Missing/malformed values are represented as None so callers fail
+        closed without an N+1 request burst. Tokens from a failed chunk are
+        omitted so the scoped caller falls back to the existing single-token
+        path instead of skipping every exit check during a batch outage.
+        """
+        unique_tokens = []
+        seen = set()
+        for raw_token in token_ids:
+            if raw_token is None:
+                continue
+            token = str(raw_token).strip()
+            if not token or token in seen:
+                continue
+            seen.add(token)
+            unique_tokens.append(token)
+
+        results: Dict[str, Optional[float]] = {}
+        chunk_count = 0
+        failed_chunks = 0
+
+        for offset in range(0, len(unique_tokens), self.MAX_MIDPOINT_BATCH_SIZE):
+            chunk = unique_tokens[offset : offset + self.MAX_MIDPOINT_BATCH_SIZE]
+            chunk_count += 1
+            try:
+                response = self.client.get_midpoints(
+                    [BookParams(token_id=token) for token in chunk]
+                )
+                if not isinstance(response, Mapping):
+                    raise ClobResponseContractError(
+                        "CLOB batch midpoint response가 mapping이 아닙니다"
+                    )
+                for token in chunk:
+                    results[token] = self._normalize_midpoint_value(
+                        response.get(token)
+                    )
+            except Exception as exc:
+                failed_chunks += 1
+                logger.warning(
+                    "midpoint batch chunk 조회 실패 - 단건 조회로 fallback "
+                    "(token %d개, error=%s)",
+                    len(chunk),
+                    type(exc).__name__,
+                )
+
+        valid_count = sum(value is not None for value in results.values())
+        fallback_count = len(unique_tokens) - len(results)
+        logger.info(
+            "midpoint 배치 조회 - 요청 %d, 성공 %d, 누락/오류 %d, "
+            "fallback %d, chunk %d, 실패 chunk %d",
+            len(unique_tokens),
+            valid_count,
+            len(results) - valid_count,
+            fallback_count,
+            chunk_count,
+            failed_chunks,
+        )
+        return results
+
+    @contextmanager
+    def midpoint_snapshot(
+        self,
+        token_ids: Iterable[str],
+    ) -> Iterator[Dict[str, Optional[float]]]:
+        """Scope a batch snapshot while restoring any enclosing snapshot."""
+        previous_snapshot = self._midpoint_snapshot
+        snapshot = self.get_midpoints(token_ids)
+        self._midpoint_snapshot = snapshot
+        try:
+            yield snapshot
+        finally:
+            self._midpoint_snapshot = previous_snapshot
 
     @rate_limit_handler(max_retries=3)
     def get_best_bid(self, token_id: str) -> float:

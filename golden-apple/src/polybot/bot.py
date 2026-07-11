@@ -76,9 +76,13 @@ class PolymarketBot:
             holdings = repo.get_holding_trades()
             stats["checked_holdings"] = len(holdings)
 
-            for trade in holdings:
-                if trader.execute_sell(trade):
-                    stats["sold"] += 1
+            if holdings:
+                with self.clob.midpoint_snapshot(
+                    trade.token_id for trade in holdings
+                ):
+                    for trade in holdings:
+                        if trader.execute_sell(trade):
+                            stats["sold"] += 1
 
             # Phase 2: Scan for buy candidates
             logger.info("=== Phase 2: 매수 후보 스캔 ===")

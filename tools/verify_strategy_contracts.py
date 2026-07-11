@@ -288,6 +288,42 @@ def _validate_bot_source(
                 )
             )
 
+    run_cycle = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "run_cycle",
+        class_name="PolymarketBot",
+    )
+    if run_cycle is None:
+        return
+    _require_call_order(
+        findings,
+        strategy,
+        relative_path,
+        run_cycle,
+        ("get_holding_trades", "midpoint_snapshot", "execute_sell"),
+    )
+    midpoint_contexts = [
+        item.context_expr
+        for node in ast.walk(run_cycle)
+        if isinstance(node, ast.With)
+        for item in node.items
+        if any(
+            name.endswith("self.clob.midpoint_snapshot")
+            for name, _ in _calls(item.context_expr)
+        )
+    ]
+    if not midpoint_contexts:
+        findings.append(
+            Finding(
+                strategy,
+                "missing_contract",
+                f"{relative_path}: Phase 1 scoped midpoint_snapshot",
+            )
+        )
+
 
 def _validate_clob_source(
     findings: list[Finding], strategy: str, relative_path: str, content: str
@@ -317,6 +353,30 @@ def _validate_clob_source(
         relative_path,
         tree,
         "cancel_order",
+        class_name="ClobClientWrapper",
+    )
+    get_midpoint = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "get_midpoint",
+        class_name="ClobClientWrapper",
+    )
+    get_midpoints = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "get_midpoints",
+        class_name="ClobClientWrapper",
+    )
+    midpoint_snapshot = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "midpoint_snapshot",
         class_name="ClobClientWrapper",
     )
     if place is not None:
@@ -423,6 +483,63 @@ def _validate_clob_source(
                     f"{relative_path}: exact terminal zero-fill evidence required",
                 )
             )
+    if get_midpoints is not None:
+        names = {name for name, _ in _calls(get_midpoints)}
+        required_suffixes = (
+            "self.client.get_midpoints",
+            "BookParams",
+            "self._normalize_midpoint_value",
+        )
+        missing = [
+            suffix
+            for suffix in required_suffixes
+            if not any(name.endswith(suffix) for name in names)
+        ]
+        if missing:
+            findings.append(
+                Finding(
+                    strategy,
+                    "missing_contract",
+                    f"{relative_path}: batch midpoint {', '.join(missing)}",
+                )
+            )
+    if midpoint_snapshot is not None:
+        has_finally = any(
+            isinstance(node, ast.Try) and bool(node.finalbody)
+            for node in ast.walk(midpoint_snapshot)
+        )
+        if not has_finally:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_cache_scope",
+                    f"{relative_path}: midpoint snapshot must restore in finally",
+                )
+            )
+    if get_midpoint is not None:
+        midpoint_source = ast.get_source_segment(content, get_midpoint) or ""
+        if (
+            "_midpoint_snapshot" not in midpoint_source
+            or "ClobResponseUnavailableError" not in midpoint_source
+        ):
+            findings.append(
+                Finding(
+                    strategy,
+                    "missing_contract",
+                    f"{relative_path}: fail-closed midpoint snapshot lookup",
+                )
+            )
+    _require_tokens(
+        findings,
+        strategy,
+        relative_path,
+        content,
+        (
+            "MAX_MIDPOINT_BATCH_SIZE = 500",
+            "@contextmanager",
+            "fallback",
+        ),
+    )
 
 
 def _validate_trader_source(

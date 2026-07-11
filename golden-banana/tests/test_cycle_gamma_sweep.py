@@ -1,5 +1,6 @@
-"""Regression coverage for sharing one Gamma universe within a cycle."""
+"""Regression coverage for cycle-level network request sharing."""
 
+from contextlib import contextmanager
 from types import SimpleNamespace
 
 import polybot.bot as bot_module
@@ -112,3 +113,59 @@ def test_snapshot_rows_commit_once_per_cycle():
     assert scanner.save_market_snapshots(markets) == 2
     assert repository.commits == 1
     assert all(row["commit"] is False for row in repository.rows)
+
+
+def test_cycle_scopes_batch_midpoints_to_nonempty_sell_phase(monkeypatch):
+    holding = SimpleNamespace(token_id="holding-token")
+
+    class HoldingRepository(FakeRepository):
+        def get_holding_trades(self):
+            return [holding]
+
+    class SnapshotClob:
+        def __init__(self):
+            self.active = False
+            self.requested = []
+
+        @contextmanager
+        def midpoint_snapshot(self, token_ids):
+            self.requested = list(token_ids)
+            self.active = True
+            try:
+                yield {"holding-token": 0.5}
+            finally:
+                self.active = False
+
+    class SellingTrader:
+        def __init__(self, _repo, clob, _config):
+            self.clob = clob
+
+        def execute_sell(self, trade):
+            assert trade is holding
+            assert self.clob.active is True
+            return True
+
+    session = FakeSession()
+    repository = HoldingRepository()
+    gamma = FakeGamma()
+    clob = SnapshotClob()
+    monkeypatch.setattr(bot_module, "TradeRepository", lambda _session: repository)
+    monkeypatch.setattr(bot_module, "Trader", SellingTrader)
+
+    bot = PolymarketBot.__new__(PolymarketBot)
+    bot.Session = lambda: session
+    bot.gamma = gamma
+    bot.clob = clob
+    bot.config = SimpleNamespace(
+        trading=SimpleNamespace(
+            min_liquidity=50_000,
+            momentum=SimpleNamespace(enabled=False),
+        )
+    )
+
+    stats = bot.run_cycle()
+
+    assert clob.requested == ["holding-token"]
+    assert clob.active is False
+    assert stats["checked_holdings"] == 1
+    assert stats["sold"] == 1

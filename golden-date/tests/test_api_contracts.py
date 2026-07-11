@@ -6,7 +6,11 @@ from types import SimpleNamespace
 import pytest
 import requests
 
-from polybot_observability import ExecutionLedger, SubmissionEvidenceError
+from polybot_observability import (
+    ClobResponseUnavailableError,
+    ExecutionLedger,
+    SubmissionEvidenceError,
+)
 from polybot.api.clob_client import ClobClientWrapper
 from polybot.api.gamma_client import GammaClient
 from polybot.utils.retry import MAX_RETRY_DELAY_SECONDS, rate_limit_handler
@@ -870,6 +874,131 @@ def test_clob_price_response_supports_mapping_and_attribute_models(result):
     wrapper._initialized = True
 
     assert wrapper.get_best_bid("token") == 0.41
+
+
+class BatchMidpointClient:
+    def __init__(self, responses, live_midpoint=None):
+        self.responses = iter(responses)
+        self.live_midpoint = live_midpoint or {"mid": "0.61"}
+        self.batch_calls = []
+        self.live_calls = []
+
+    def get_midpoints(self, params):
+        self.batch_calls.append([param.token_id for param in params])
+        response = next(self.responses)
+        if isinstance(response, Exception):
+            raise response
+        if callable(response):
+            return response(params)
+        return response
+
+    def get_midpoint(self, token_id):
+        self.live_calls.append(token_id)
+        return self.live_midpoint
+
+
+def _batch_midpoint_wrapper(client):
+    wrapper = ClobClientWrapper(SimpleNamespace())
+    wrapper._client = client
+    wrapper._initialized = True
+    return wrapper
+
+
+def test_clob_batch_midpoints_empty_input_does_not_initialize_client():
+    wrapper = ClobClientWrapper(SimpleNamespace())
+
+    assert wrapper.get_midpoints([]) == {}
+    assert wrapper._initialized is False
+
+
+def test_clob_batch_midpoints_chunks_unique_nonblank_tokens_at_500():
+    client = BatchMidpointClient([
+        lambda params: {param.token_id: "0.41" for param in params},
+        lambda params: {param.token_id: {"mid": "0.42"} for param in params},
+    ])
+    wrapper = _batch_midpoint_wrapper(client)
+    tokens = [f"token-{index}" for index in range(501)]
+
+    result = wrapper.get_midpoints(["", "  ", tokens[0], *tokens, None])
+
+    assert [len(call) for call in client.batch_calls] == [500, 1]
+    assert client.batch_calls[0][0] == "token-0"
+    assert len(result) == 501
+    assert result["token-0"] == 0.41
+    assert result["token-500"] == 0.42
+
+
+def test_clob_batch_midpoints_isolates_missing_malformed_and_failed_chunks():
+    client = BatchMidpointClient([
+        {
+            "good": "0.45",
+            "nan": "nan",
+            "zero": "0",
+        },
+        RuntimeError("chunk unavailable"),
+        {"later": "0.55"},
+    ])
+    wrapper = _batch_midpoint_wrapper(client)
+    wrapper.MAX_MIDPOINT_BATCH_SIZE = 4
+
+    result = wrapper.get_midpoints(
+        ["good", "missing", "nan", "zero", "failed", "failed-2", "failed-3", "failed-4", "later"]
+    )
+
+    assert result == {
+        "good": 0.45,
+        "missing": None,
+        "nan": None,
+        "zero": None,
+        "later": 0.55,
+    }
+    assert len(client.batch_calls) == 3
+
+
+def test_midpoint_snapshot_falls_back_to_live_calls_for_failed_chunk():
+    client = BatchMidpointClient(
+        [RuntimeError("batch unavailable")],
+        live_midpoint={"mid": "0.57"},
+    )
+    wrapper = _batch_midpoint_wrapper(client)
+
+    with wrapper.midpoint_snapshot(["fallback"]):
+        assert wrapper.get_midpoint("fallback") == 0.57
+
+    assert client.live_calls == ["fallback"]
+
+
+def test_midpoint_snapshot_uses_cache_and_fails_closed_for_requested_missing():
+    client = BatchMidpointClient([{"cached": "0.44"}])
+    wrapper = _batch_midpoint_wrapper(client)
+
+    with wrapper.midpoint_snapshot(["cached", "missing"]) as snapshot:
+        assert snapshot == {"cached": 0.44, "missing": None}
+        assert wrapper.get_midpoint("cached") == 0.44
+        with pytest.raises(ClobResponseUnavailableError):
+            wrapper.get_midpoint("missing")
+        assert wrapper.get_midpoint("not-requested") == 0.61
+
+    assert wrapper.get_midpoint("cached") == 0.61
+    assert client.live_calls == ["not-requested", "cached"]
+
+
+def test_midpoint_snapshot_restores_enclosing_snapshot_after_exception():
+    client = BatchMidpointClient([
+        {"outer": "0.40"},
+        {"inner": "0.60"},
+    ])
+    wrapper = _batch_midpoint_wrapper(client)
+
+    with wrapper.midpoint_snapshot(["outer"]):
+        assert wrapper.get_midpoint("outer") == 0.40
+        with pytest.raises(RuntimeError, match="inside"):
+            with wrapper.midpoint_snapshot(["inner"]):
+                assert wrapper.get_midpoint("inner") == 0.60
+                raise RuntimeError("inside")
+        assert wrapper.get_midpoint("outer") == 0.40
+
+    assert wrapper.get_midpoint("outer") == 0.61
 
 
 class CancelClient:
