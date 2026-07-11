@@ -92,8 +92,37 @@ def main() -> None:
         help="workspace 밖 online backup + SHA-256 manifest 저장 위치",
     )
 
+    quantity_parser = subparsers.add_parser(
+        "quantity-scale-repairs",
+        help="10^6 double-scaling이 증명된 terminal CLOB fill 조회",
+    )
+    quantity_parser.add_argument("--db", required=True, type=Path)
+    quantity_parser.add_argument("--strategy", required=True)
+
+    repair_parser = subparsers.add_parser(
+        "repair-quantity-scale",
+        help="backup 후 exact CLOB quantity double-scaling 집합 복구",
+    )
+    repair_parser.add_argument("--db", required=True, type=Path)
+    repair_parser.add_argument("--strategy", required=True)
+    repair_parser.add_argument("--expected-count", required=True, type=int)
+    repair_parser.add_argument("--confirm", required=True)
+    repair_parser.add_argument("--reason", required=True)
+    repair_parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=Path("~/.polybot/operator-backups"),
+        help="workspace 밖 online backup + SHA-256 manifest 저장 위치",
+    )
+
     args = parser.parse_args()
-    if args.command in {"catalog-gaps", "resolve-catalog-gaps"}:
+    operator_commands = {
+        "catalog-gaps",
+        "resolve-catalog-gaps",
+        "quantity-scale-repairs",
+        "repair-quantity-scale",
+    }
+    if args.command in operator_commands:
         database = args.db.expanduser().resolve()
         if not database.is_file():
             parser.error(f"trades.db를 찾을 수 없습니다: {database}")
@@ -110,27 +139,46 @@ def main() -> None:
             )
             return
 
+        if args.command == "quantity-scale-repairs":
+            ledger = ExecutionLedger(database, strategy_name=args.strategy)
+            print(
+                json.dumps(
+                    ledger.quantity_scale_repair_candidates(),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+
         if args.expected_count < 1:
             parser.error("--expected-count는 1 이상이어야 합니다")
         backup = backup_databases([database], args.backup_dir)
         ledger = ExecutionLedger(database, strategy_name=args.strategy)
         try:
-            resolved = ledger.resolve_catalog_missing_submissions(
-                expected_count=args.expected_count,
-                confirmation=args.confirm,
-                reason=args.reason,
-                include_evidence_linked=args.include_evidence_linked,
-            )
-        except (RuntimeError, ValueError) as error:
-            parser.error(f"backup={backup}; resolution 실패: {error}")
-        print(
-            json.dumps(
-                {
-                    "resolved": resolved,
+            if args.command == "resolve-catalog-gaps":
+                result = {
+                    "resolved": ledger.resolve_catalog_missing_submissions(
+                        expected_count=args.expected_count,
+                        confirmation=args.confirm,
+                        reason=args.reason,
+                        include_evidence_linked=args.include_evidence_linked,
+                    ),
                     "status": "OPERATOR_EVIDENCE_GAP",
                     "include_evidence_linked": args.include_evidence_linked,
-                    "backup": str(backup),
-                },
+                }
+            else:
+                result = ledger.repair_quantity_scale(
+                    expected_count=args.expected_count,
+                    confirmation=args.confirm,
+                    reason=args.reason,
+                )
+                result["status"] = "QUANTITY_SCALE_REPAIRED"
+        except (RuntimeError, ValueError) as error:
+            parser.error(f"backup={backup}; resolution 실패: {error}")
+        result["backup"] = str(backup)
+        print(
+            json.dumps(
+                result,
                 ensure_ascii=False,
             )
         )

@@ -258,6 +258,15 @@ def audit_database(
                             f"{fill_ledger['operator_catalog_evidence_gaps']}건 있습니다",
                         )
                     )
+                if fill_ledger["quantity_scale_repairs"]:
+                    issues.append(
+                        AuditIssue(
+                            "MEDIUM",
+                            "clob_quantity_scale_repaired",
+                            "CLOB v2 quantity double-scaling을 audit trail과 함께 복구한 "
+                            f"주문이 {fill_ledger['quantity_scale_repairs']}건 있습니다",
+                        )
+                    )
                 if fill_ledger["confirmed_fills"] and fill_ledger["fee_known_ratio"] < 1.0:
                     issues.append(
                         AuditIssue(
@@ -1513,6 +1522,7 @@ def _fill_ledger_summary(
             "uncertain_submission_outcomes": 0,
             "legacy_unavailable_evidence_gaps": 0,
             "operator_catalog_evidence_gaps": 0,
+            "quantity_scale_repairs": 0,
             "overfilled_orders": 0,
             "invalid_confirmed_fill_domains": 0,
             "invalid_submission_domains": 0,
@@ -1649,6 +1659,18 @@ def _fill_ledger_summary(
         """,
         (_sqlite_time(cutoff), _sqlite_time(as_of)),
     ).fetchone()[0]
+    quantity_scale_repairs = 0
+    if "quantity_scale_repairs" in tables:
+        quantity_scale_repairs = connection.execute(
+            """
+            SELECT COUNT(*) FROM quantity_scale_repairs AS repair
+            JOIN order_submissions AS submission
+              ON submission.submission_id = repair.submission_id
+            WHERE datetime(submission.submitted_at) >= datetime(?)
+              AND datetime(submission.submitted_at) < datetime(?)
+            """,
+            (_sqlite_time(cutoff), _sqlite_time(as_of)),
+        ).fetchone()[0]
     overfilled_orders = connection.execute(
         """
         WITH confirmed AS (
@@ -1843,6 +1865,7 @@ def _fill_ledger_summary(
         "uncertain_submission_outcomes": uncertain_submission_outcomes,
         "legacy_unavailable_evidence_gaps": legacy_unavailable_evidence_gaps,
         "operator_catalog_evidence_gaps": operator_catalog_evidence_gaps,
+        "quantity_scale_repairs": quantity_scale_repairs,
         "overfilled_orders": overfilled_orders,
         "invalid_confirmed_fill_domains": invalid_confirmed_fill_domains,
         "invalid_submission_domains": invalid_submission_domains,

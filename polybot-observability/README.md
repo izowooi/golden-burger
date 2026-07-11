@@ -61,6 +61,29 @@ ledger.resolve_uncertain_submission(
 연결된 trade ID·fill·order status도 전혀 없는 경우에만 아래 operator quarantine 대상이 된다.
 먼저 exact 대상 목록을 확인한 뒤 예상 건수와 확인 문구를 함께 지정한다.
 
+`MATCHED` 주문의 `requested_size`가 약 100인데 matched/fill size가 약 `0.0001`처럼 정확히 10⁶
+축소된 경우는 quarantine 대상이 아니다. SDK가 이미 사람 단위로 반환한 quantity를 fixed-6으로
+다시 나눈 과거 계측 오류다. terminal trade ID와 CONFIRMED fill 합계가 모두 일치하는 건만 아래
+명령으로 진단·복구한다.
+
+```bash
+uv run polybot-retro quantity-scale-repairs \
+  --db data/default/trades.db \
+  --strategy golden-date
+
+uv run polybot-retro repair-quantity-scale \
+  --db data/default/trades.db \
+  --strategy golden-date \
+  --expected-count 19 \
+  --confirm REPAIR_19_CLOB_QUANTITIES_X1000000 \
+  --reason "runtime order/fill quantities were double-scaled" \
+  --backup-dir ~/.polybot/operator-backups
+```
+
+repair는 기존 quantity, 수정 후 quantity, multiplier, reason을 `quantity_scale_repairs`에 남기고
+order/fill 대사를 다시 수행한다. 신규 응답은 `original_size × requested_size` 관계로 raw fixed-6과
+SDK-normalized quantity를 판별하고 같은 scale을 order와 fill 전체에 적용한다.
+
 ```bash
 uv run polybot-retro catalog-gaps \
   --db data/default/trades.db \

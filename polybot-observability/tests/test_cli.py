@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import sqlite3
 import sys
 from pathlib import Path
 
@@ -85,3 +86,95 @@ def test_catalog_gap_cli_lists_then_backs_up_and_resolves(
     assert ExecutionLedger(
         db_path, strategy_name="golden-test"
     ).pending_submissions() == []
+
+
+def test_quantity_scale_cli_lists_then_backs_up_and_repairs(
+    tmp_path, monkeypatch, capsys
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.5,
+        requested_size=10,
+        result={"success": True, "orderID": "scaled", "status": "live"},
+        simulation=False,
+    )
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "10",
+            "size_matched": "10",
+            "associate_trades": ["scaled-trade"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "scaled",
+        {
+            "id": "scaled-trade",
+            "status": "CONFIRMED",
+            "size": "10",
+            "price": "0.5",
+            "taker_order_id": "scaled",
+            "trader_side": "TAKER",
+            "fee_rate_bps": "0",
+        },
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET latest_size_matched = "
+            "latest_size_matched / 1000000, quantity_scale = NULL"
+        )
+        connection.execute(
+            "UPDATE order_status_events SET original_size = original_size / 1000000, "
+            "size_matched = size_matched / 1000000"
+        )
+        connection.execute("UPDATE order_fills SET size = size / 1000000")
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
+            "quantity-scale-repairs",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+        ],
+    )
+    main()
+    assert len(json.loads(capsys.readouterr().out)) == 1
+
+    backup_dir = tmp_path / "quantity-backups"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
+            "repair-quantity-scale",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+            "--expected-count",
+            "1",
+            "--confirm",
+            "REPAIR_1_CLOB_QUANTITIES_X1000000",
+            "--reason",
+            "runtime scale mismatch reviewed",
+            "--backup-dir",
+            str(backup_dir),
+        ],
+    )
+    main()
+
+    result = json.loads(capsys.readouterr().out)
+    assert result["repaired"] == 1
+    assert result["completed"] == 1
+    assert result["pending"] == 0
+    assert result["status"] == "QUANTITY_SCALE_REPAIRED"
+    assert (Path(result["backup"]) / "manifest.json").is_file()

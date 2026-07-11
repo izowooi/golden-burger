@@ -28,6 +28,9 @@ CATALOG_GAP_CONFIRMATION_TEMPLATE = "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS"
 LINKED_CATALOG_GAP_CONFIRMATION_TEMPLATE = (
     "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
 )
+QUANTITY_SCALE_REPAIR_CONFIRMATION_TEMPLATE = (
+    "REPAIR_{count}_CLOB_QUANTITIES_X1000000"
+)
 _MISSING = object()
 _MAX_RESPONSE_JSON_LENGTH = 1_000_000
 _MAX_RESPONSE_UNWRAP_DEPTH = 4
@@ -159,6 +162,44 @@ def _fixed_6_number(value: Any) -> float | None:
     """Decode CLOB v2 fixed-math amounts into human token/USDC units."""
     number = _number(value)
     return None if number is None else number / _FIXED_6_SCALE
+
+
+def _quantity_number(value: Any, scale: float | None) -> float | None:
+    number = _number(value)
+    if number is None or scale not in {1.0, float(_FIXED_6_SCALE)}:
+        return None
+    return number / scale
+
+
+def _infer_quantity_scale(raw_original_size: Any, requested_size: Any) -> float | None:
+    """Distinguish raw fixed-6 responses from SDK-normalized human quantities."""
+    raw = _number(raw_original_size)
+    requested = _number(requested_size)
+    if not _finite_positive(raw) or not _finite_positive(requested):
+        return None
+    candidates = (
+        (1.0, raw),
+        (float(_FIXED_6_SCALE), raw / _FIXED_6_SCALE),
+    )
+    scale, normalized = min(
+        candidates,
+        key=lambda candidate: abs(candidate[1] - requested) / requested,
+    )
+    relative_error = abs(normalized - requested) / requested
+    return scale if relative_error <= 0.05 else None
+
+
+def _infer_partial_quantity_scale(raw_size: Any, requested_size: Any) -> float | None:
+    """Infer representation for a partial fill bounded by the requested size."""
+    raw = _number(raw_size)
+    requested = _number(requested_size)
+    if not _finite_positive(raw) or not _finite_positive(requested):
+        return None
+    if raw > requested * 1_000:
+        return float(_FIXED_6_SCALE)
+    if raw <= requested * 1.05:
+        return 1.0
+    return None
 
 
 def _bucket_index(value: Any) -> tuple[int, str | None]:
@@ -976,6 +1017,220 @@ class ExecutionLedger:
             )
         return [dict(row) for row in rows]
 
+    def quantity_scale_repair_candidates(
+        self, *, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Return terminal fills exhibiting the proven 10^6 double-scaling shape."""
+        if limit < 1:
+            raise ValueError("limit은 1 이상이어야 합니다")
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            return self._quantity_scale_repair_rows(connection, limit=limit)
+
+    def repair_quantity_scale(
+        self,
+        *,
+        expected_count: int,
+        confirmation: str,
+        reason: str,
+    ) -> dict[str, int]:
+        """Repair exact double-scaled order/fill quantities with an audit trail."""
+        if (
+            isinstance(expected_count, bool)
+            or not isinstance(expected_count, int)
+            or expected_count < 1
+        ):
+            raise ValueError("expected_count는 1 이상이어야 합니다")
+        expected_confirmation = QUANTITY_SCALE_REPAIR_CONFIRMATION_TEMPLATE.format(
+            count=expected_count
+        )
+        if confirmation != expected_confirmation:
+            raise ValueError(f"확인 문구가 일치하지 않습니다: {expected_confirmation}")
+        safe_reason = _safe_error_message(RuntimeError(str(reason or "").strip()))
+        if not safe_reason:
+            raise ValueError("quantity repair reason은 비어 있을 수 없습니다")
+
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            candidates = self._quantity_scale_repair_rows(
+                connection, limit=max(500, expected_count + 1)
+            )
+            if len(candidates) != expected_count:
+                raise RuntimeError(
+                    "quantity-scale repair 건수가 예상과 다릅니다: "
+                    f"expected={expected_count}, actual={len(candidates)}"
+                )
+            repaired_at = _utc_now()
+            for candidate in candidates:
+                submission_id = candidate["submission_id"]
+                before = self._quantity_repair_snapshot(connection, submission_id)
+                connection.execute(
+                    """
+                    UPDATE order_submissions
+                    SET latest_size_matched = latest_size_matched * ?,
+                        quantity_scale = 1,
+                        reconciliation_error = 'quantity scale repaired; reconciliation pending',
+                        error_type = 'QuantityScaleRepaired',
+                        error_message = ?
+                    WHERE submission_id = ? AND needs_reconciliation = 1
+                    """,
+                    (_FIXED_6_SCALE, safe_reason, submission_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE order_status_events
+                    SET original_size = CASE WHEN original_size IS NULL THEN NULL
+                                             ELSE original_size * ? END,
+                        size_matched = CASE WHEN size_matched IS NULL THEN NULL
+                                           ELSE size_matched * ? END
+                    WHERE submission_id = ?
+                    """,
+                    (_FIXED_6_SCALE, _FIXED_6_SCALE, submission_id),
+                )
+                connection.execute(
+                    """
+                    UPDATE order_fills
+                    SET size = CASE WHEN size IS NULL THEN NULL ELSE size * ? END
+                    WHERE submission_id = ?
+                    """,
+                    (_FIXED_6_SCALE, submission_id),
+                )
+                after = self._quantity_repair_snapshot(connection, submission_id)
+                connection.execute(
+                    """
+                    INSERT INTO quantity_scale_repairs (
+                        repair_id, submission_id, strategy_name, repaired_at,
+                        multiplier, reason, before_json, after_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        str(uuid.uuid4()),
+                        submission_id,
+                        self.strategy_name,
+                        repaired_at,
+                        _FIXED_6_SCALE,
+                        safe_reason,
+                        json.dumps(before, sort_keys=True, separators=(",", ":")),
+                        json.dumps(after, sort_keys=True, separators=(",", ":")),
+                    ),
+                )
+
+        completed = sum(
+            1
+            for candidate in candidates
+            if self.finish_reconciliation(candidate["submission_id"])
+        )
+        return {
+            "repaired": expected_count,
+            "completed": completed,
+            "pending": expected_count - completed,
+        }
+
+    def _quantity_scale_repair_rows(
+        self, connection: sqlite3.Connection, *, limit: int
+    ) -> list[dict[str, Any]]:
+        rows = connection.execute(
+            """
+            SELECT submission.submission_id, submission.order_id,
+                   submission.submitted_at, submission.side,
+                   submission.requested_size, submission.latest_size_matched,
+                   submission.associated_trade_ids_json,
+                   COUNT(fill.trade_id) AS fill_count,
+                   COUNT(DISTINCT fill.trade_id) AS distinct_fill_trade_count,
+                   SUM(CASE WHEN fill.status = 'CONFIRMED'
+                            THEN COALESCE(fill.size, 0) ELSE 0 END)
+                       AS confirmed_fill_size,
+                   SUM(CASE WHEN fill.status NOT IN ('CONFIRMED', 'FAILED')
+                            THEN 1 ELSE 0 END) AS nonterminal_fill_count,
+                   SUM(CASE WHEN fill.domain_error IS NOT NULL THEN 1 ELSE 0 END)
+                       AS invalid_fill_count
+            FROM order_submissions AS submission
+            JOIN order_fills AS fill
+              ON fill.submission_id = submission.submission_id
+            LEFT JOIN quantity_scale_repairs AS repair
+              ON repair.submission_id = submission.submission_id
+            WHERE submission.strategy_name = ?
+              AND submission.simulation = 0
+              AND submission.success = 1
+              AND submission.needs_reconciliation = 1
+              AND submission.latest_order_status = 'MATCHED'
+              AND submission.latest_status_domain_error IS NULL
+              AND submission.requested_size > 0
+              AND submission.latest_size_matched > 0
+              AND submission.requested_size / submission.latest_size_matched
+                  BETWEEN 900000 AND 1100000
+              AND repair.submission_id IS NULL
+            GROUP BY submission.submission_id
+            ORDER BY submission.submitted_at, submission.submission_id
+            LIMIT ?
+            """,
+            (self.strategy_name, limit),
+        ).fetchall()
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            item = dict(row)
+            try:
+                associated = set(json.loads(item["associated_trade_ids_json"] or "[]"))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                continue
+            fill_trade_ids = {
+                str(fill_row[0])
+                for fill_row in connection.execute(
+                    "SELECT DISTINCT trade_id FROM order_fills "
+                    "WHERE submission_id = ?",
+                    (item["submission_id"],),
+                )
+            }
+            confirmed_size = _number(item["confirmed_fill_size"])
+            latest_size = _number(item["latest_size_matched"])
+            if (
+                not associated
+                or associated != fill_trade_ids
+                or item["nonterminal_fill_count"]
+                or item["invalid_fill_count"]
+                or confirmed_size is None
+                or latest_size is None
+                or not math.isclose(
+                    confirmed_size,
+                    latest_size,
+                    rel_tol=0.0,
+                    abs_tol=_QUANTITY_TOLERANCE,
+                )
+            ):
+                continue
+            item["associated_trade_count"] = len(associated)
+            item.pop("associated_trade_ids_json", None)
+            candidates.append(item)
+        return candidates
+
+    @staticmethod
+    def _quantity_repair_snapshot(
+        connection: sqlite3.Connection, submission_id: str
+    ) -> dict[str, Any]:
+        submission = connection.execute(
+            """
+            SELECT latest_size_matched, quantity_scale, needs_reconciliation,
+                   reconciliation_error FROM order_submissions
+            WHERE submission_id = ?
+            """,
+            (submission_id,),
+        ).fetchone()
+        statuses = connection.execute(
+            "SELECT id, original_size, size_matched FROM order_status_events "
+            "WHERE submission_id = ? ORDER BY id",
+            (submission_id,),
+        ).fetchall()
+        fills = connection.execute(
+            "SELECT trade_id, bucket_index, status, size FROM order_fills "
+            "WHERE submission_id = ? ORDER BY trade_id, bucket_index",
+            (submission_id,),
+        ).fetchall()
+        return {
+            "submission": list(submission) if submission else None,
+            "status_events": [list(row) for row in statuses],
+            "fills": [list(row) for row in fills],
+        }
+
     def resolve_catalog_missing_submissions(
         self,
         *,
@@ -1172,20 +1427,39 @@ class ExecutionLedger:
         )
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT associated_trade_ids_json FROM order_submissions "
+                "SELECT associated_trade_ids_json, requested_size, quantity_scale "
+                "FROM order_submissions "
                 "WHERE submission_id = ?",
                 (submission_id,),
             ).fetchone()
         existing = json.loads(row[0] or "[]") if row else []
         associated = list(dict.fromkeys([*existing, *associated]))
+        quantity_scale = _number(row[2]) if row else None
+        if quantity_scale not in {1.0, float(_FIXED_6_SCALE)}:
+            quantity_scale = _infer_quantity_scale(
+                detail.get("original_size"), row[1] if row else None
+            )
+        if quantity_scale is None:
+            quantity_scale = _infer_partial_quantity_scale(
+                detail.get("size_matched"), row[1] if row else None
+            )
+        if quantity_scale is None and _number(detail.get("size_matched")) == 0.0:
+            quantity_scale = 1.0
         selected = {
             "status": status,
-            "original_size": _fixed_6_number(detail.get("original_size")),
-            "size_matched": _fixed_6_number(detail.get("size_matched")),
+            "original_size": _quantity_number(
+                detail.get("original_size"), quantity_scale
+            ),
+            "size_matched": _quantity_number(
+                detail.get("size_matched"), quantity_scale
+            ),
             "price": _number(detail.get("price")),
             "associated": associated,
+            "quantity_scale": quantity_scale,
         }
         domain_errors: list[str] = []
+        if quantity_scale is None:
+            domain_errors.append("quantity_scale_ambiguous")
         if selected["original_size"] is not None and not _finite_nonnegative(
             selected["original_size"]
         ):
@@ -1236,7 +1510,8 @@ class ExecutionLedger:
                 UPDATE order_submissions
                 SET latest_order_status = ?, latest_size_matched = ?,
                     associated_trade_ids_json = ?, last_reconciled_at = ?,
-                    latest_status_domain_error = ?, reconciliation_error = ?
+                    latest_status_domain_error = ?, reconciliation_error = ?,
+                    quantity_scale = ?
                 WHERE submission_id = ?
                 """,
                 (
@@ -1246,6 +1521,7 @@ class ExecutionLedger:
                     _utc_now(),
                     domain_error,
                     domain_error,
+                    quantity_scale,
                     submission_id,
                 ),
             )
@@ -1261,6 +1537,16 @@ class ExecutionLedger:
         trade_id = str(trade.get("id") or "")
         if not trade_id:
             return
+        with self._connect() as connection:
+            scale_row = connection.execute(
+                "SELECT requested_size, quantity_scale FROM order_submissions "
+                "WHERE submission_id = ?",
+                (submission_id,),
+            ).fetchone()
+        requested_size = _number(scale_row[0]) if scale_row else None
+        quantity_scale = _number(scale_row[1]) if scale_row else None
+        if quantity_scale not in {1.0, float(_FIXED_6_SCALE)}:
+            quantity_scale = None
         status = _normalize_status(trade.get("status"))
         maker_orders = trade.get("maker_orders") or []
         maker_match = next(
@@ -1289,25 +1575,37 @@ class ExecutionLedger:
         if maker_match is not None and taker_match:
             domain_errors.append("order_fill_correlation_conflict")
         if maker_match is not None:
-            size = _fixed_6_number(maker_match.get("matched_amount"))
+            raw_size = maker_match.get("matched_amount")
             price = _number(maker_match.get("price"))
             side = str(maker_match.get("side") or "").upper()
             liquidity_role = "MAKER"
             fee_rate_raw = maker_match.get("fee_rate_bps")
         elif taker_match:
-            size = _fixed_6_number(trade.get("size"))
+            raw_size = trade.get("size")
             price = _number(trade.get("price"))
             side = str(trade.get("side") or "").upper()
             liquidity_role = "TAKER"
             fee_rate_raw = trade.get("fee_rate_bps")
         else:
-            size = _fixed_6_number(trade.get("size"))
+            raw_size = trade.get("size")
             price = _number(trade.get("price"))
             side = str(trade.get("side") or "").upper()
             liquidity_role = "UNKNOWN"
             fee_rate_raw = trade.get("fee_rate_bps")
             if execution_payload_present:
                 domain_errors.append("order_fill_correlation_invalid")
+        if quantity_scale is None:
+            quantity_scale = _infer_partial_quantity_scale(raw_size, requested_size)
+            if quantity_scale is not None:
+                with self._connect() as connection:
+                    connection.execute(
+                        "UPDATE order_submissions SET quantity_scale = ? "
+                        "WHERE submission_id = ? AND quantity_scale IS NULL",
+                        (quantity_scale, submission_id),
+                    )
+        if quantity_scale is None:
+            domain_errors.append("quantity_scale_missing")
+        size = _quantity_number(raw_size, quantity_scale)
         if (
             reported_role in {"TAKER", "MAKER"}
             and liquidity_role != "UNKNOWN"
@@ -1570,6 +1868,7 @@ class ExecutionLedger:
                     associated_trade_ids_json TEXT NOT NULL DEFAULT '[]',
                     latest_order_status TEXT,
                     latest_size_matched REAL,
+                    quantity_scale REAL,
                     latest_status_domain_error TEXT,
                     last_reconciled_at TEXT,
                     needs_reconciliation INTEGER NOT NULL,
@@ -1596,6 +1895,10 @@ class ExecutionLedger:
                     connection.execute(
                         f"ALTER TABLE order_submissions ADD COLUMN {column_name} TEXT"
                     )
+            if "quantity_scale" not in submission_columns:
+                connection.execute(
+                    "ALTER TABLE order_submissions ADD COLUMN quantity_scale REAL"
+                )
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS order_status_events (
@@ -1706,13 +2009,28 @@ class ExecutionLedger:
                 "CREATE INDEX IF NOT EXISTS order_fills_order_idx "
                 "ON order_fills(order_id)"
             )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS quantity_scale_repairs (
+                    repair_id TEXT PRIMARY KEY,
+                    submission_id TEXT NOT NULL UNIQUE
+                        REFERENCES order_submissions(submission_id),
+                    strategy_name TEXT NOT NULL,
+                    repaired_at TEXT NOT NULL,
+                    multiplier REAL NOT NULL,
+                    reason TEXT NOT NULL,
+                    before_json TEXT NOT NULL,
+                    after_json TEXT NOT NULL
+                )
+                """
+            )
             required_columns = {
                 "order_submissions": {
                     "submission_id", "run_id", "order_id", "requested_price",
                     "requested_size", "simulation", "success", "response_status",
                     "needs_reconciliation", "outcome_resolution",
                     "outcome_resolved_at", "outcome_resolution_reason",
-                    "latest_status_domain_error",
+                    "latest_status_domain_error", "quantity_scale",
                 },
                 "order_status_events": {
                     "submission_id", "status", "original_size", "size_matched",
@@ -1721,6 +2039,10 @@ class ExecutionLedger:
                 "order_fills": {
                     "submission_id", "order_id", "trade_id", "bucket_index",
                     "status", "size", "price", "fee_rate_bps", "domain_error",
+                },
+                "quantity_scale_repairs": {
+                    "repair_id", "submission_id", "strategy_name", "repaired_at",
+                    "multiplier", "reason", "before_json", "after_json",
                 },
             }
             for table, required in required_columns.items():
@@ -1739,7 +2061,7 @@ class ExecutionLedger:
             connection.execute(
                 """
                 INSERT INTO polybot_schema_versions(component, version, updated_at)
-                VALUES ('execution_ledger', 6, ?)
+                VALUES ('execution_ledger', 7, ?)
                 ON CONFLICT(component) DO UPDATE SET
                     version = excluded.version, updated_at = excluded.updated_at
                 """,
