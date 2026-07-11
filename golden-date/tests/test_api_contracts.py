@@ -783,6 +783,77 @@ def test_new_order_unavailable_stays_fail_closed_when_catalogs_have_no_exact_id(
     assert "private_key" not in caplog.text
 
 
+def test_missing_order_catalog_recovers_using_previously_recorded_exact_trade(
+    tmp_path,
+):
+    class RecordedTradeClient(LegacyCatalogClient):
+        def __init__(self):
+            super().__init__(
+                catalog=[
+                    {"id": f"unrelated-{index}", "status": "CANCELED"}
+                    for index in range(4)
+                ]
+            )
+            self.trade_calls = []
+
+        def get_trades(self, params, only_first_page=False):
+            assert only_first_page is True
+            self.trade_calls.append(params.id)
+            return [
+                {
+                    "id": "recorded-trade",
+                    "status": "CONFIRMED",
+                    "size": "10000000",
+                    "price": "0.42",
+                    "side": "BUY",
+                    "fee_rate_bps": "0",
+                    "taker_order_id": "accepted-new",
+                    "trader_side": "TAKER",
+                }
+            ]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(), audit_db_path=db_path, strategy_name="golden-date"
+    )
+    client = RecordedTradeClient()
+    wrapper._client = client
+    wrapper._initialized = True
+    submission_id = wrapper.execution_ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.42,
+        requested_size=10,
+        result={"success": True, "orderID": "accepted-new"},
+        simulation=False,
+    )
+    wrapper.execution_ledger.record_order_status(
+        submission_id,
+        {
+            "id": "accepted-new",
+            "status": "MATCHED",
+            "original_size": "10000000",
+            "size_matched": "10000000",
+            "price": "0.42",
+            "associate_trades": ["recorded-trade"],
+        },
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats == {
+        "checked": 1,
+        "fills": 1,
+        "completed": 1,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    assert client.current_catalog_calls == ["accepted-new"]
+    assert client.pre_migration_calls == 1
+    assert client.trade_calls == ["recorded-trade"]
+    assert wrapper.execution_ledger.pending_submissions() == []
+
+
 @pytest.mark.parametrize("catalog_name", ["current", "pre_migration"])
 def test_new_order_null_response_recovers_from_exact_authoritative_catalog(
     tmp_path, catalog_name

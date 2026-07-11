@@ -4,6 +4,7 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 `py-clob-client-v2` (import: `py_clob_client_v2`) 를 사용한다.
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
+import json
 import logging
 import math
 from contextlib import contextmanager
@@ -46,6 +47,30 @@ def _is_explicit_zero(value: Any) -> bool:
     except (TypeError, ValueError):
         return False
     return math.isfinite(number) and number == 0.0
+
+
+def _recorded_trade_ids(value: Any) -> list[str]:
+    """Decode previously observed exact trade IDs without guessing evidence."""
+    try:
+        decoded = json.loads(value or "[]")
+    except (TypeError, ValueError) as error:
+        raise ClobResponseContractError(
+            "recorded associated trade IDs JSON이 유효하지 않습니다"
+        ) from error
+    if not isinstance(decoded, list):
+        raise ClobResponseContractError(
+            "recorded associated trade IDs가 list가 아닙니다"
+        )
+    trade_ids = [str(item or "").strip() for item in decoded]
+    if any(not trade_id for trade_id in trade_ids):
+        raise ClobResponseContractError(
+            "recorded associated trade ID가 비어 있습니다"
+        )
+    if len(set(trade_ids)) != len(trade_ids):
+        raise ClobResponseContractError(
+            "recorded associated trade ID가 중복되었습니다"
+        )
+    return trade_ids
 
 
 class ClobClientWrapper:
@@ -474,6 +499,7 @@ class ClobClientWrapper:
             order_id = pending["order_id"]
             phase = "fetch_order"
             response_shape = "not_observed"
+            trade_ids = None
             try:
                 raw_detail = self.client.get_order(order_id)
                 response_shape = safe_clob_response_shape(raw_detail)
@@ -542,18 +568,28 @@ class ClobClientWrapper:
                             )
                             continue
                         else:
-                            phase = "match_authoritative_order_catalogs"
-                            raise unavailable_error
-                phase = "validate_order_identity"
-                returned_order_id = str(detail.get("id") or "")
-                if returned_order_id and returned_order_id != str(order_id):
-                    raise ClobResponseContractError(
-                        "CLOB order response ID가 요청 order ID와 다릅니다"
+                            trade_ids = _recorded_trade_ids(
+                                pending["associated_trade_ids_json"]
+                            )
+                            if not trade_ids:
+                                phase = "match_authoritative_order_catalogs"
+                                raise unavailable_error
+                            logger.warning(
+                                "order catalog에서 사라진 주문의 기존 exact trade "
+                                "evidence를 재조회합니다 - count=%s",
+                                len(trade_ids),
+                            )
+                if trade_ids is None:
+                    phase = "validate_order_identity"
+                    returned_order_id = str(detail.get("id") or "")
+                    if returned_order_id and returned_order_id != str(order_id):
+                        raise ClobResponseContractError(
+                            "CLOB order response ID가 요청 order ID와 다릅니다"
+                        )
+                    phase = "persist_order_status"
+                    trade_ids = self.execution_ledger.record_order_status(
+                        submission_id, detail
                     )
-                phase = "persist_order_status"
-                trade_ids = self.execution_ledger.record_order_status(
-                    submission_id, detail
-                )
                 for trade_id in trade_ids:
                     phase = "fetch_trades"
                     raw_trades = self.client.get_trades(
