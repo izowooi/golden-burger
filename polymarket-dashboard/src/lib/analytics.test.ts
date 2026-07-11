@@ -30,7 +30,7 @@ test("getPerformance sorts observations and calculates the first-to-last return"
   });
 });
 
-test("selected portfolio KPI uses only dates observed by every selected account", () => {
+test("selected portfolio KPI aggregates each account's first and last observation", () => {
   const rows = [
     balance("2026-07-01", "alpha", 100),
     balance("2026-07-02", "alpha", 110),
@@ -46,12 +46,34 @@ test("selected portfolio KPI uses only dates observed by every selected account"
     "2026-07-03",
   );
 
-  assert.equal(result?.first.report_date, "2026-07-02");
+  assert.equal(result?.first.report_date, "2026-07-01");
   assert.equal(result?.last.report_date, "2026-07-03");
-  assert.equal(result?.first.total_value, 310);
+  assert.equal(result?.first.total_value, 300);
   assert.equal(result?.last.total_value, 340);
-  assert.equal(result?.changeValue, 30);
-  assert.equal(result?.points, 2);
+  assert.equal(result?.changeValue, 40);
+  assert.equal(result?.returnRate, (40 / 300) * 100);
+  assert.equal(result?.points, 5);
+  assert.equal(result?.accountCount, 2);
+});
+
+test("selected portfolio KPI excludes only selected accounts with no period observations", () => {
+  const rows = [
+    balance("2026-07-01", "alpha", 100),
+    balance("2026-07-02", "alpha", 110),
+    balance("2026-07-03", "beta", 200),
+  ];
+
+  const result = getSelectedPortfolioPerformance(
+    rows,
+    ["alpha", "beta", "not-started"],
+    "2026-07-01",
+    "2026-07-02",
+  );
+
+  assert.equal(result?.first.total_value, 100);
+  assert.equal(result?.last.total_value, 110);
+  assert.equal(result?.changeValue, 10);
+  assert.equal(result?.accountCount, 1);
 });
 
 test("chart rows are calendar-complete, gap-aware, and use the earliest baseline", () => {

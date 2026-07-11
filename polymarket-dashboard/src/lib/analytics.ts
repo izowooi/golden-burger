@@ -53,41 +53,49 @@ export function getSelectedPortfolioPerformance(
   start: string,
   end: string,
 ) {
-  const selected = new Set(selectedAccountIds);
-  if (!selected.size) return null;
+  const accountPerformances = selectedAccountIds
+    .map((accountId) => getPerformance(balances, accountId, start, end))
+    .filter((value): value is PerformanceSummary => value !== null);
+  if (!accountPerformances.length) return null;
 
-  const byDate = new Map<string, Map<string, AlgorithmBalance>>();
-  for (const row of balances) {
-    if (!selected.has(row.account_id) || !inDateRange(row.report_date, start, end)) {
-      continue;
-    }
-    const rows = byDate.get(row.report_date) ?? new Map<string, AlgorithmBalance>();
-    rows.set(row.account_id, row);
-    byDate.set(row.report_date, rows);
-  }
-
-  const points = [...byDate.entries()]
-    .filter(([, rows]) => selectedAccountIds.every((accountId) => rows.has(accountId)))
-    .sort(([left], [right]) => left.localeCompare(right))
-    .map(([reportDate, rows]) => ({
-      report_date: reportDate,
-      total_value: [...rows.values()].reduce((sum, row) => sum + row.total_value, 0),
-      position_value: [...rows.values()].reduce(
-        (sum, row) => sum + row.position_value,
+  const startValue = accountPerformances.reduce(
+    (sum, performance) => sum + performance.startValue,
+    0,
+  );
+  const endValue = accountPerformances.reduce(
+    (sum, performance) => sum + performance.endValue,
+    0,
+  );
+  const changeValue = accountPerformances.reduce(
+    (sum, performance) => sum + performance.changeValue,
+    0,
+  );
+  const startDates = accountPerformances.map((performance) => performance.startDate).sort();
+  const endDates = accountPerformances.map((performance) => performance.endDate).sort();
+  return {
+    first: {
+      report_date: startDates[0],
+      total_value: startValue,
+    },
+    last: {
+      report_date: endDates.at(-1) ?? endDates[0],
+      total_value: endValue,
+      position_value: accountPerformances.reduce(
+        (sum, performance) => sum + performance.latestPosition,
         0,
       ),
-      cash_value: [...rows.values()].reduce((sum, row) => sum + row.cash_value, 0),
-    }));
-  const first = points[0];
-  const last = points.at(-1);
-  if (!first || !last) return null;
-  const changeValue = last.total_value - first.total_value;
-  return {
-    first,
-    last,
+      cash_value: accountPerformances.reduce(
+        (sum, performance) => sum + performance.latestCash,
+        0,
+      ),
+    },
     changeValue,
-    returnRate: first.total_value === 0 ? null : (changeValue / first.total_value) * 100,
-    points: points.length,
+    returnRate: startValue === 0 ? null : (changeValue / startValue) * 100,
+    points: accountPerformances.reduce(
+      (sum, performance) => sum + performance.points,
+      0,
+    ),
+    accountCount: accountPerformances.length,
   };
 }
 

@@ -351,43 +351,6 @@ export function Dashboard() {
             </div>
           </section>
 
-          {dataQuality && (
-            <DataQualityPanel
-              quality={dataQuality}
-              accounts={data.accounts}
-              accountMap={accountMap}
-            />
-          )}
-
-          <section className="kpi-grid" aria-label="선택 전략 포트폴리오 요약">
-            <KpiCard
-              label="선택 전략 종료일 자산"
-              value={<Money value={portfolioPerformance?.last.total_value} />}
-              detail={
-                portfolioPerformance
-                  ? `${formatDate(portfolioPerformance.last.report_date)} · ${selectedAccountIds.length}개 합산`
-                  : "공통 관측일 없음"
-              }
-            />
-            <KpiCard
-              label="선택 전략 기간 손익"
-              value={<Money value={portfolioPerformance?.changeValue} signed />}
-              detail={dateSpan(portfolioPerformance?.first.report_date, portfolioPerformance?.last.report_date)}
-              tone={tone(portfolioPerformance?.changeValue)}
-            />
-            <KpiCard
-              label="선택 전략 기간 수익률"
-              value={formatPercent(portfolioPerformance?.returnRate)}
-              detail="입출금 미보정"
-              tone={tone(portfolioPerformance?.returnRate)}
-            />
-            <KpiCard
-              label="공통 관측 데이터"
-              value={`${portfolioPerformance?.points ?? 0}일`}
-              detail={`${selectedAccountIds.length} / ${data.accounts.length} 전략 선택 · 전 계정 완전일만 집계`}
-            />
-          </section>
-
           <section className="chart-panel">
             <div className="panel-header">
               <div>
@@ -489,6 +452,39 @@ export function Dashboard() {
             </div>
           </section>
 
+          <section className="kpi-grid" aria-label="선택 전략 포트폴리오 요약">
+            <KpiCard
+              label="선택 전략 종료일 자산"
+              value={<Money value={portfolioPerformance?.last.total_value} />}
+              detail={
+                portfolioPerformance
+                  ? `${formatDate(portfolioPerformance.last.report_date)} · ${portfolioPerformance.accountCount}개 계정별 최신값 합산`
+                  : "선택 기간 관측 없음"
+              }
+            />
+            <KpiCard
+              label="선택 전략 기간 손익"
+              value={<Money value={portfolioPerformance?.changeValue} signed />}
+              detail={
+                portfolioPerformance
+                  ? `${dateSpan(portfolioPerformance.first.report_date, portfolioPerformance.last.report_date)} · 계정별 첫/마지막 관측`
+                  : "선택 기간 관측 없음"
+              }
+              tone={tone(portfolioPerformance?.changeValue)}
+            />
+            <KpiCard
+              label="선택 전략 기간 수익률"
+              value={formatPercent(portfolioPerformance?.returnRate)}
+              detail="계정별 시작 잔고 합산 · 입출금 미보정"
+              tone={tone(portfolioPerformance?.returnRate)}
+            />
+            <KpiCard
+              label="선택 전략 관측 데이터"
+              value={`${portfolioPerformance?.points ?? 0}건`}
+              detail={`${portfolioPerformance?.accountCount ?? 0} / ${selectedAccountIds.length} 선택 전략 포함`}
+            />
+          </section>
+
           <section className="performance-section">
             <div className="section-heading-row">
               <div>
@@ -557,6 +553,14 @@ export function Dashboard() {
               </table>
             </div>
           </section>
+
+          {dataQuality && (
+            <DataQualityPanel
+              quality={dataQuality}
+              accounts={data.accounts}
+              accountMap={accountMap}
+            />
+          )}
 
           <footer>
             <span>PB Strategy Monitor</span>
