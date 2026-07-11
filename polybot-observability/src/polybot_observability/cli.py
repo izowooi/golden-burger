@@ -99,6 +99,13 @@ def main() -> None:
     quantity_parser.add_argument("--db", required=True, type=Path)
     quantity_parser.add_argument("--strategy", required=True)
 
+    quantity_diagnostics_parser = subparsers.add_parser(
+        "quantity-scale-diagnostics",
+        help="10^6 scale 의심 주문의 repair 제외 사유를 read-only 출력",
+    )
+    quantity_diagnostics_parser.add_argument("--db", required=True, type=Path)
+    quantity_diagnostics_parser.add_argument("--strategy", required=True)
+
     repair_parser = subparsers.add_parser(
         "repair-quantity-scale",
         help="backup 후 exact CLOB quantity double-scaling 집합 복구",
@@ -120,6 +127,7 @@ def main() -> None:
         "catalog-gaps",
         "resolve-catalog-gaps",
         "quantity-scale-repairs",
+        "quantity-scale-diagnostics",
         "repair-quantity-scale",
     }
     if args.command in operator_commands:
@@ -144,6 +152,16 @@ def main() -> None:
             print(
                 json.dumps(
                     ledger.quantity_scale_repair_candidates(),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+        if args.command == "quantity-scale-diagnostics":
+            ledger = ExecutionLedger(database, strategy_name=args.strategy)
+            print(
+                json.dumps(
+                    ledger.quantity_scale_diagnostics(),
                     ensure_ascii=False,
                     indent=2,
                 )

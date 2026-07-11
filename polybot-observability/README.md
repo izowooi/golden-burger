@@ -71,6 +71,11 @@ uv run polybot-retro quantity-scale-repairs \
   --db data/default/trades.db \
   --strategy golden-date
 
+# 후보가 []이면 mutation 없이 제외 사유와 fill 합계를 출력
+uv run polybot-retro quantity-scale-diagnostics \
+  --db data/default/trades.db \
+  --strategy golden-date
+
 uv run polybot-retro repair-quantity-scale \
   --db data/default/trades.db \
   --strategy golden-date \

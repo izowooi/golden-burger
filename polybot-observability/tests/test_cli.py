@@ -139,6 +139,23 @@ def test_quantity_scale_cli_lists_then_backs_up_and_repairs(
         "argv",
         [
             "polybot-retro",
+            "quantity-scale-diagnostics",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+        ],
+    )
+    main()
+    diagnostics = json.loads(capsys.readouterr().out)
+    assert diagnostics[0]["repair_eligible"] is True
+    assert diagnostics[0]["rejection_reasons"] == []
+
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
             "quantity-scale-repairs",
             "--db",
             str(db_path),

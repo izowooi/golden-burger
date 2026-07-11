@@ -1027,6 +1027,118 @@ class ExecutionLedger:
             connection.row_factory = sqlite3.Row
             return self._quantity_scale_repair_rows(connection, limit=limit)
 
+    def quantity_scale_diagnostics(
+        self, *, limit: int = 500
+    ) -> list[dict[str, Any]]:
+        """Explain why suspicious 10^6-scale rows are or are not repairable."""
+        if limit < 1:
+            raise ValueError("limit은 1 이상이어야 합니다")
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT submission.submission_id, submission.order_id,
+                       submission.submitted_at, submission.response_status,
+                       submission.latest_order_status, submission.requested_size,
+                       submission.latest_size_matched, submission.quantity_scale,
+                       submission.latest_status_domain_error,
+                       submission.reconciliation_error,
+                       submission.associated_trade_ids_json,
+                       COUNT(fill.trade_id) AS fill_count,
+                       COUNT(DISTINCT fill.trade_id) AS distinct_fill_trade_count,
+                       GROUP_CONCAT(DISTINCT fill.status) AS fill_statuses,
+                       SUM(CASE WHEN fill.status = 'CONFIRMED'
+                                THEN COALESCE(fill.size, 0) ELSE 0 END)
+                           AS confirmed_fill_size,
+                       SUM(COALESCE(fill.size, 0)) AS total_fill_size,
+                       SUM(CASE WHEN fill.status NOT IN ('CONFIRMED', 'FAILED')
+                                THEN 1 ELSE 0 END) AS nonterminal_fill_count,
+                       SUM(CASE WHEN fill.domain_error IS NOT NULL THEN 1 ELSE 0 END)
+                           AS invalid_fill_count
+                FROM order_submissions AS submission
+                LEFT JOIN order_fills AS fill
+                  ON fill.submission_id = submission.submission_id
+                LEFT JOIN quantity_scale_repairs AS repair
+                  ON repair.submission_id = submission.submission_id
+                WHERE submission.strategy_name = ?
+                  AND submission.simulation = 0
+                  AND submission.success = 1
+                  AND submission.needs_reconciliation = 1
+                  AND submission.requested_size > 0
+                  AND submission.latest_size_matched > 0
+                  AND submission.requested_size / submission.latest_size_matched
+                      BETWEEN 900000 AND 1100000
+                  AND repair.submission_id IS NULL
+                GROUP BY submission.submission_id
+                ORDER BY submission.submitted_at, submission.submission_id
+                LIMIT ?
+                """,
+                (self.strategy_name, limit),
+            ).fetchall()
+
+            diagnostics: list[dict[str, Any]] = []
+            for row in rows:
+                item = dict(row)
+                try:
+                    associated = set(
+                        json.loads(item["associated_trade_ids_json"] or "[]")
+                    )
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    associated = set()
+                fill_trade_ids = {
+                    str(fill_row[0])
+                    for fill_row in connection.execute(
+                        "SELECT DISTINCT trade_id FROM order_fills "
+                        "WHERE submission_id = ?",
+                        (item["submission_id"],),
+                    )
+                }
+                confirmed_size = _number(item["confirmed_fill_size"])
+                latest_size = _number(item["latest_size_matched"])
+                repair_mode = None
+                if confirmed_size is not None and latest_size is not None:
+                    if math.isclose(
+                        confirmed_size,
+                        latest_size,
+                        rel_tol=0.0,
+                        abs_tol=_QUANTITY_TOLERANCE,
+                    ):
+                        repair_mode = "ORDER_AND_FILL_X1000000"
+                    elif math.isclose(
+                        confirmed_size,
+                        latest_size * _FIXED_6_SCALE,
+                        rel_tol=0.0,
+                        abs_tol=_QUANTITY_TOLERANCE,
+                    ):
+                        repair_mode = "ORDER_ONLY_X1000000"
+
+                reasons: list[str] = []
+                if item["latest_order_status"] != "MATCHED":
+                    reasons.append("latest_order_status_not_matched")
+                if item["latest_status_domain_error"] is not None:
+                    reasons.append("latest_order_status_domain_error")
+                if not associated:
+                    reasons.append("associated_trade_ids_missing")
+                if associated != fill_trade_ids:
+                    reasons.append("associated_trade_ids_do_not_match_fills")
+                if not item["fill_count"]:
+                    reasons.append("fills_missing")
+                if item["nonterminal_fill_count"]:
+                    reasons.append("nonterminal_fills_present")
+                if item["invalid_fill_count"]:
+                    reasons.append("fill_domain_errors_present")
+                if repair_mode is None:
+                    reasons.append("confirmed_fill_sum_matches_neither_scale")
+
+                item["associated_trade_count"] = len(associated)
+                item["fill_trade_id_count"] = len(fill_trade_ids)
+                item["repair_mode"] = repair_mode
+                item["repair_eligible"] = not reasons
+                item["rejection_reasons"] = reasons
+                item.pop("associated_trade_ids_json", None)
+                diagnostics.append(item)
+            return diagnostics
+
     def repair_quantity_scale(
         self,
         *,

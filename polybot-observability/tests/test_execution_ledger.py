@@ -258,6 +258,12 @@ def test_operator_repairs_proven_double_scaled_terminal_fill_set(
         if fill_is_scaled:
             connection.execute("UPDATE order_fills SET size = size / 1000000")
 
+    diagnostics = ledger.quantity_scale_diagnostics()
+    assert len(diagnostics) == 1
+    assert diagnostics[0]["repair_eligible"] is True
+    assert diagnostics[0]["rejection_reasons"] == []
+    assert diagnostics[0]["repair_mode"] == expected_mode
+
     candidates = ledger.quantity_scale_repair_candidates()
     assert len(candidates) == 1
     assert candidates[0]["submission_id"] == submission_id
