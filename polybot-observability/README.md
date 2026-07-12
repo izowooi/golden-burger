@@ -53,10 +53,13 @@ MAKER fill은 해당 `maker_orders.order_id` entry, TAKER fill은 `taker_order_i
 MAKER/TAKER coverage가 빠지면 strict 회고가 실패한다.
 
 POST timeout/5xx, `success=true`인데 `orderID`가 없는 응답, `success=false`와 `orderID`가 함께 온
-모순 응답은 `SUBMIT_OUTCOME_UNKNOWN` evidence로 남기고 현재 cycle을 중단한다. order ID가 없는
-불확실 intent는 process restart 뒤에도 `pending_submissions()`/`assert_execution_ready()`에서
-`UnresolvedSubmissionOutcomeError`를 발생시킨다. 자동 해제하지 않으며 operator가 venue 증거를
-검토한 뒤 먼저 secret-safe 진단을 조회한다.
+모순 응답은 `SUBMIT_OUTCOME_UNKNOWN` evidence로 남기고 현재 cycle을 중단한다. 다음 process에서는
+불확실 intent 하나가 전략 전체의 청산·스캔을 영구 중단하지 않는다. `pending_submissions()`는
+정상적인 exact-ID 대사를 계속하고, 새 주문 직전에는 같은 `token_id × side` 조합만 국소 격리한다.
+따라서 불확실 BUY의 중복 매수와 불확실 SELL의 중복 매도는 차단하면서 다른 시장과 반대 방향의
+정상 주문은 계속된다. `assert_execution_ready()`와 strict 회고는 operator 해결 전까지 계속
+실패하며 evidence issue를 숨기지 않는다. 자동 해제하지 않으며 operator가 venue 증거를 검토한 뒤
+먼저 secret-safe 진단을 조회한다.
 
 ```bash
 uv run polybot-retro unresolved-intents \

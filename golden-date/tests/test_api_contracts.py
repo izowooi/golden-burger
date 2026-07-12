@@ -1665,6 +1665,62 @@ def test_limit_order_intent_is_durable_before_post(tmp_path):
     assert row == ("placed-order", "LIVE", 4.0, 10.0, 1)
 
 
+def test_unresolved_prior_intent_is_locally_quarantined_without_stopping_cycle(
+    tmp_path, caplog
+):
+    class LocalQuarantineClient:
+        def __init__(self):
+            self.created_tokens = []
+
+        def create_order(self, order_args):
+            self.created_tokens.append(order_args.token_id)
+            return {"signed": True, "args": order_args}
+
+        def post_order(self, signed_order, order_type):
+            return {
+                "success": True,
+                "orderID": "safe-other-order",
+                "status": "live",
+            }
+
+        def cancel_orders(self, order_ids):
+            return {"canceled": order_ids, "not_canceled": {}}
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(),
+        audit_db_path=db_path,
+        strategy_name="golden-date",
+    )
+    client = LocalQuarantineClient()
+    wrapper._client = client
+    wrapper._initialized = True
+    wrapper.execution_ledger.record_intent(
+        token_id="uncertain-token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=10,
+        simulation=False,
+    )
+
+    stats = wrapper.reconcile_order_ledger()
+    blocked = wrapper.place_limit_order("uncertain-token", 0.4, 10, "BUY")
+    allowed = wrapper.place_limit_order("other-token", 0.4, 10, "BUY")
+
+    assert stats == {
+        "checked": 0,
+        "fills": 0,
+        "completed": 0,
+        "legacy_unavailable": 0,
+        "errors": 0,
+    }
+    assert blocked["success"] is False
+    assert "동일 token/side" in blocked["error"]
+    assert allowed["orderID"] == "safe-other-order"
+    assert client.created_tokens == ["other-token"]
+    assert "trading cycle은 계속" in caplog.text
+
+
 def test_accepted_order_is_canceled_if_response_evidence_write_fails(
     tmp_path, monkeypatch
 ):

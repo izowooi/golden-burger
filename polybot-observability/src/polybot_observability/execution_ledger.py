@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import math
 import sqlite3
 import uuid
@@ -13,6 +14,8 @@ from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
 from .run_audit import _safe_error_message, current_run_id
+
+logger = logging.getLogger(__name__)
 
 _TERMINAL_ORDER_STATUSES = {
     "MATCHED",
@@ -132,13 +135,26 @@ class ClobReconciliationPhaseError(RuntimeError):
 
 
 class UnresolvedSubmissionOutcomeError(SubmissionEvidenceError):
-    """Raised while a possible submitted order still lacks operator resolution."""
+    """Raised by the explicit strict-readiness gate for unresolved outcomes."""
 
     def __init__(self, count: int) -> None:
         self.count = count
         super().__init__(
             "결과가 불확실한 CLOB 주문 intent가 "
-            f"{count}건 남아 있어 새 trading cycle을 중단합니다"
+            f"{count}건 남아 있어 strict execution readiness를 충족하지 못했습니다"
+        )
+
+
+class UnresolvedTokenSubmissionError(RuntimeError):
+    """Raised when a prior ambiguous POST quarantines one token/side pair."""
+
+    def __init__(self, token_id: str, side: str, count: int) -> None:
+        self.token_id = str(token_id)
+        self.side = str(side).upper()
+        self.count = int(count)
+        super().__init__(
+            "결과가 불확실한 이전 CLOB intent가 있어 동일 token/side의 "
+            f"신규 {self.side} 주문을 보류합니다: {self.count}건"
         )
 
 
@@ -697,6 +713,16 @@ class ExecutionLedger:
         accepts an order but the response cannot be persisted, a best-effort
         cancellation is attempted and a fail-closed exception is raised.
         """
+        unresolved_count = self.unresolved_submission_count(
+            token_id=token_id,
+            side=side,
+        )
+        if unresolved_count:
+            raise UnresolvedTokenSubmissionError(
+                token_id,
+                side,
+                unresolved_count,
+            )
         submission_id = self.record_intent(
             token_id=token_id,
             side=side,
@@ -991,8 +1017,8 @@ class ExecutionLedger:
         """Return secret-safe uncertain intents that require operator proof.
 
         These rows cannot be reconciled automatically because no trustworthy
-        venue order ID was persisted. They remain a restart gate until an
-        operator records either a proved non-submission or the discovered ID.
+        venue order ID was persisted. They remain a strict-readiness issue and
+        a token/side-local order quarantine until an operator records proof.
         """
         if limit < 1:
             raise ValueError("limit은 1 이상이어야 합니다")
@@ -1001,8 +1027,34 @@ class ExecutionLedger:
             rows = self._unresolved_outcome_rows(connection, limit=limit)
         return [dict(row) for row in rows]
 
+    def unresolved_submission_count(
+        self,
+        *,
+        token_id: str | None = None,
+        side: str | None = None,
+    ) -> int:
+        """Count unresolved live intents, optionally scoped to token and side."""
+        clauses = [self._unresolved_sql()]
+        parameters: list[Any] = []
+        if token_id is not None:
+            clauses.append("token_id = ?")
+            parameters.append(str(token_id))
+        if side is not None:
+            normalized_side = str(side).strip().upper()
+            if normalized_side not in {"BUY", "SELL"}:
+                raise ValueError("side는 BUY 또는 SELL이어야 합니다")
+            clauses.append("side = ?")
+            parameters.append(normalized_side)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM order_submissions WHERE "
+                + " AND ".join(f"({clause})" for clause in clauses),
+                parameters,
+            ).fetchone()
+        return int(row[0] or 0)
+
     def assert_execution_ready(self) -> None:
-        """Fail closed when a prior ambiguous POST is unresolved across restart."""
+        """Apply the explicit strict gate for prior ambiguous POST outcomes."""
         with self._connect() as connection:
             row = connection.execute(
                 f"SELECT COUNT(*) FROM order_submissions WHERE {self._unresolved_sql()}"
@@ -1098,7 +1150,11 @@ class ExecutionLedger:
                 f"SELECT COUNT(*) FROM order_submissions WHERE {self._unresolved_sql()}"
             ).fetchone()[0]
             if unresolved_count:
-                raise UnresolvedSubmissionOutcomeError(int(unresolved_count))
+                logger.warning(
+                    "불확실한 CLOB intent는 동일 token/side 신규 주문만 격리하고 "
+                    "trading cycle은 계속합니다 - count=%s",
+                    int(unresolved_count),
+                )
             rows = connection.execute(
                 """
                 SELECT submission_id, order_id, token_id, response_status,

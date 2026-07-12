@@ -12,6 +12,7 @@ from polybot_observability import (
     ExecutionLedger,
     SubmissionEvidenceError,
     UnresolvedSubmissionOutcomeError,
+    UnresolvedTokenSubmissionError,
     normalize_clob_response,
     normalize_clob_response_list,
     safe_clob_response_shape,
@@ -1206,9 +1207,7 @@ def test_sdk_request_exception_is_preserved_as_unknown_outcome(tmp_path):
     unresolved = restarted.unresolved_submission_outcomes()
     assert len(unresolved) == 1
     assert unresolved[0]["response_status"] == "SUBMIT_OUTCOME_UNKNOWN"
-    with pytest.raises(UnresolvedSubmissionOutcomeError) as gate:
-        restarted.pending_submissions()
-    assert gate.value.count == 1
+    assert restarted.pending_submissions() == []
     with pytest.raises(UnresolvedSubmissionOutcomeError):
         restarted.assert_execution_ready()
 
@@ -1284,6 +1283,73 @@ def test_operator_can_link_discovered_order_id_for_normal_reconciliation(tmp_pat
     )
 
 
+def test_unresolved_intent_quarantines_only_same_token_side(tmp_path, caplog):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    ledger.record_intent(
+        token_id="uncertain-token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=5,
+        simulation=False,
+    )
+    accepted_id = ledger.record_submission(
+        token_id="other-token",
+        side="BUY",
+        requested_price=0.5,
+        requested_size=4,
+        result={"success": True, "orderID": "accepted-order"},
+        simulation=False,
+    )
+
+    pending = ledger.pending_submissions()
+
+    assert [row["submission_id"] for row in pending] == [accepted_id]
+    assert "trading cycle은 계속" in caplog.text
+    assert ledger.unresolved_submission_count() == 1
+    assert (
+        ledger.unresolved_submission_count(
+            token_id="uncertain-token",
+            side="BUY",
+        )
+        == 1
+    )
+    submitted = False
+
+    def submit():
+        nonlocal submitted
+        submitted = True
+        return {"success": True, "orderID": "must-not-submit"}
+
+    with pytest.raises(UnresolvedTokenSubmissionError) as blocked:
+        ledger.submit_and_record(
+            token_id="uncertain-token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=5,
+            submit=submit,
+        )
+    assert blocked.value.count == 1
+    assert submitted is False
+
+    sell_result = ledger.submit_and_record(
+        token_id="uncertain-token",
+        side="SELL",
+        requested_price=0.6,
+        requested_size=5,
+        submit=lambda: {"success": True, "orderID": "safe-opposite-side"},
+    )
+    other_result = ledger.submit_and_record(
+        token_id="new-token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=5,
+        submit=lambda: {"success": True, "orderID": "safe-other-token"},
+    )
+    assert sell_result["orderID"] == "safe-opposite-side"
+    assert other_result["orderID"] == "safe-other-token"
+
+
 def test_crashed_intent_and_unlinked_evidence_failure_block_restart(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
@@ -1309,8 +1375,9 @@ def test_crashed_intent_and_unlinked_evidence_failure_block_restart(tmp_path):
         live_intent,
         evidence_intent,
     }
+    assert restarted.pending_submissions() == []
     with pytest.raises(UnresolvedSubmissionOutcomeError) as gate:
-        restarted.pending_submissions()
+        restarted.assert_execution_ready()
     assert gate.value.count == 2
 
 
