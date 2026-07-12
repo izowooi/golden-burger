@@ -467,8 +467,18 @@ class ClobClientWrapper:
                 side=order_side,
             )
 
+            if self.execution_ledger is not None:
+                self.execution_ledger.assert_submission_allowed(
+                    token_id=token_id,
+                    side=order_side,
+                )
+
+            # create_order performs signing and read-only preflight such as
+            # tick-size/neg-risk lookups. Finish it before recording an intent
+            # so a GET timeout cannot be mistaken for an uncertain POST.
+            signed_order = self.client.create_order(order_args)
+
             def submit_order() -> Dict[str, Any]:
-                signed_order = self.client.create_order(order_args)
                 return self.client.post_order(signed_order, OrderType.GTC)
 
             if self.execution_ledger is None:
@@ -478,7 +488,7 @@ class ClobClientWrapper:
             else:
                 response = self.execution_ledger.submit_and_record(
                     token_id=token_id,
-                    side=side,
+                    side=order_side,
                     requested_price=rounded_price,
                     requested_size=size,
                     submit=submit_order,

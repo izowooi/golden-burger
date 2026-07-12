@@ -122,6 +122,11 @@ data/
 
 DB 테이블: `trades`(재진입 허용 - condition_id unique 아님, EXPIRED 상태 포함), `market_snapshots`(YES 가격 기준), `skipped_markets`(쿨다운 판정용 timestamp 포함).
 
+매수 중 collateral 잔고/allowance 부족이 확인되면 같은 cycle의 남은 후보 주문을 중단한다.
+매도 시 DB 수량보다 CLOB token 잔고가 작으면 가용 잔고의 99%로 한 번만 재시도한다. token
+잔고가 0이고 과거 buy order detail이 CLOB catalog에서 사라졌다면 손익을 추정하지 않고
+`QUARANTINED`로 격리해 반복 매도와 API 부하를 막는다.
+
 `trades` 회고 로깅 컬럼 (A/B 포스트모템 계약, CSV export에도 포함): `strategy_name`(항상 "fig"), `mode`("live"/"sim"), `volume_24h_at_buy`(매수 시점 gamma volume24hr), `yes_price_at_exit`(청산 시점 1 - NO 매도가). 기존 DB 파일은 `init_database`의 best-effort ALTER로 자동 마이그레이션된다.
 
 ## 시뮬레이션 → 실전 전환 절차

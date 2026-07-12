@@ -697,22 +697,8 @@ class ExecutionLedger:
         )
         return submission_id
 
-    def submit_and_record(
-        self,
-        *,
-        token_id: str,
-        side: str,
-        requested_price: float,
-        requested_size: float,
-        submit: Callable[[], Any],
-        cancel: Callable[[str], Any] | None = None,
-    ) -> Mapping[str, Any]:
-        """Persist intent, submit once, then persist the response on the same row.
-
-        The intent write happens before the external side effect. If the venue
-        accepts an order but the response cannot be persisted, a best-effort
-        cancellation is attempted and a fail-closed exception is raised.
-        """
+    def assert_submission_allowed(self, *, token_id: str, side: str) -> None:
+        """Reject only an exact token/side pair with an unresolved prior POST."""
         unresolved_count = self.unresolved_submission_count(
             token_id=token_id,
             side=side,
@@ -723,6 +709,29 @@ class ExecutionLedger:
                 side,
                 unresolved_count,
             )
+
+    def submit_and_record(
+        self,
+        *,
+        token_id: str,
+        side: str,
+        requested_price: float,
+        requested_size: float,
+        submit: Callable[[], Any],
+        cancel: Callable[[str], Any] | None = None,
+    ) -> Mapping[str, Any]:
+        """Persist intent, POST once, then persist the response on the same row.
+
+        The intent write happens before the external side effect. If the venue
+        accepts an order but the response cannot be persisted, a best-effort
+        cancellation is attempted and a fail-closed exception is raised.
+
+        ``submit`` must contain only the actual order POST. Side-effect-free
+        signing and HTTP preflight (tick size, fee, neg-risk, etc.) must finish
+        before this method is called; otherwise a preflight transport failure
+        would be misclassified as an uncertain POST outcome.
+        """
+        self.assert_submission_allowed(token_id=token_id, side=side)
         submission_id = self.record_intent(
             token_id=token_id,
             side=side,

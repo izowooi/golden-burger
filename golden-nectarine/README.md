@@ -99,8 +99,11 @@ qualified membership은 60일 보존 후 snapshot과 함께 정리한다.
 
 매도 시 토큰 잔고가 0이어도 즉시 `UNFILLED`로 확정하지 않는다. 원 매수 주문의 취소를 요청한
 뒤 exact order detail이 terminal canceled 상태이고 `size_matched=0`임을
-증명할 때만 유령 포지션으로 마감한다. 부분 체결·수동 매도 가능성을 배제하지 못하면
-`HOLDING`을 유지하고 해당 포지션만 보류하며 나머지 cycle은 계속한다.
+증명할 때만 유령 포지션으로 마감한다. 과거 order가 CLOB catalog에서 이미 사라져 detail 자체를
+조회할 수 없으면 `QUARANTINED`로 격리해 P&L을 만들지 않고 반복 매도를 중단한다. detail이
+존재하지만 partial/matched 등 모순 증거가 있거나 네트워크 확인에 실패하면 `HOLDING`을 유지한다.
+DB 수량보다 실제 token 잔고가 작다는 CLOB 거절에는 가용 잔고의 99%로 한 번만 재시도하고,
+collateral 부족이 확인되면 해당 cycle의 남은 매수는 중단한다.
 
 `data/`는 git에 커밋하지 않는다 (.gitignore 등록).
 

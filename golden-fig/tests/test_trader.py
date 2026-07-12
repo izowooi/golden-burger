@@ -2,6 +2,10 @@
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+from polybot_observability import (
+    ClobResponseUnavailableError,
+    SubmissionEvidenceError,
+)
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.strategy.trader import Trader
@@ -11,8 +15,10 @@ class FakeClob:
     def __init__(self, midpoint):
         self._midpoint = midpoint
         self.orders = []
+        self.midpoint_calls = 0
 
     def get_midpoint(self, token_id):
+        self.midpoint_calls += 1
         if isinstance(self._midpoint, Exception):
             raise self._midpoint
         return self._midpoint
@@ -25,9 +31,27 @@ class FakeClob:
 class FakeRepo:
     def __init__(self):
         self.updates = []
+        self.created = []
+        self.skipped = []
 
     def update_trade(self, trade_id, **kwargs):
         self.updates.append((trade_id, kwargs))
+
+    def has_holding(self, condition_id):
+        return False
+
+    def is_in_reentry_cooldown(self, condition_id, cooldown_hours):
+        return False
+
+    def get_position_count(self):
+        return 0
+
+    def mark_as_skipped(self, condition_id, reason):
+        self.skipped.append((condition_id, reason))
+
+    def create_trade(self, **kwargs):
+        self.created.append(kwargs)
+        return SimpleNamespace(id=1, **kwargs)
 
 
 def make_trade(**overrides):
@@ -45,6 +69,23 @@ def make_trade(**overrides):
     for key, value in overrides.items():
         setattr(trade, key, value)
     return trade
+
+
+def make_candidate(condition_id="0xbuy"):
+    return {
+        "condition_id": condition_id,
+        "token_id": f"NO_{condition_id}",
+        "probability": 0.80,
+        "yes_price": 0.20,
+        "outcome": "No",
+        "question": "Will X happen by D?",
+        "market_slug": "will-x-happen",
+        "liquidity": 20_000.0,
+        "volume_24h": 1_000.0,
+        "entry_reason": "hope_crusher_yes0.20_100h",
+        "end_date": datetime.utcnow() + timedelta(hours=100),
+        "hours_until_resolution": 100.0,
+    }
 
 
 def make_trader(midpoint):
@@ -96,6 +137,56 @@ class TestZeroMidpointGuard:
         assert len(clob.orders) == 1
         assert clob.orders[0]["side"] == "SELL"
         assert clob.orders[0]["price"] == 0.70
+
+
+class TestBalanceHandling:
+    def test_buy_balance_rejection_stops_remaining_cycle_orders(self):
+        class InsufficientBuyClob(FakeClob):
+            def place_limit_order(self, **kwargs):
+                self.orders.append(kwargs)
+                return {
+                    "success": False,
+                    "error": (
+                        "not enough balance / allowance: the balance is not "
+                        "enough -> balance: 3347124, order amount: 5000000"
+                    ),
+                }
+
+        repo = FakeRepo()
+        clob = InsufficientBuyClob(midpoint=0.80)
+        trader = Trader(repo, clob, TradingConfig())
+
+        assert trader.execute_buy(make_candidate("first")) is None
+        assert trader.execute_buy(make_candidate("second")) is None
+
+        assert trader.buying_disabled is True
+        assert len(clob.orders) == 1
+        assert clob.midpoint_calls == 1
+
+    def test_partial_token_balance_retries_once_and_records_actual_sell_size(self):
+        class PartialBalanceClob(FakeClob):
+            def place_limit_order(self, **kwargs):
+                self.orders.append(kwargs)
+                if len(self.orders) == 1:
+                    return {
+                        "success": False,
+                        "error": (
+                            "not enough balance / allowance: the balance is "
+                            "not enough -> balance: 5500000, order amount: 6000000"
+                        ),
+                    }
+                return {"success": True, "orderID": "PARTIAL_SELL"}
+
+        repo = FakeRepo()
+        clob = PartialBalanceClob(midpoint=0.70)
+        trader = Trader(repo, clob, TradingConfig())
+
+        assert trader.execute_sell(make_trade()) is True
+
+        assert [order["size"] for order in clob.orders] == [6.0, 5.445]
+        completed = repo.updates[-1][1]
+        assert completed["status"] == TradeStatus.COMPLETED
+        assert completed["sell_shares"] == 5.445
 
 
 class PhantomClob(FakeClob):
@@ -166,3 +257,22 @@ class TestUnfilledPhantomDetection:
         assert sold is False
         assert clob.cancelled == []
         assert all("status" not in kw for _, kw in repo.updates)
+
+    def test_unavailable_aged_order_is_quarantined_instead_of_retried_forever(self):
+        trader, repo, clob = self._phantom_trader()
+
+        def unavailable_cancel(order_id):
+            clob.cancelled.append(order_id)
+            try:
+                raise ClobResponseUnavailableError("aged out")
+            except ClobResponseUnavailableError as cause:
+                raise SubmissionEvidenceError("unavailable") from cause
+
+        clob.cancel_order = unavailable_cancel
+
+        assert trader.execute_sell(make_trade(buy_order_id="0xAGED")) is False
+
+        assert clob.cancelled == ["0xAGED"]
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.QUARANTINED
+        assert update["exit_reason"] == "zero_balance_order_unavailable"

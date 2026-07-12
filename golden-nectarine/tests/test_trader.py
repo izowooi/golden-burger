@@ -6,7 +6,10 @@ strategy_name / mode / volume_24h_at_buy / rolling_min_at_buy / hold_hours_at_ex
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
-from polybot_observability import SubmissionEvidenceError
+from polybot_observability import (
+    ClobResponseUnavailableError,
+    SubmissionEvidenceError,
+)
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.strategy.trader import Trader
@@ -16,8 +19,10 @@ class FakeClob:
     def __init__(self, midpoint):
         self._midpoint = midpoint
         self.orders = []
+        self.midpoint_calls = 0
 
     def get_midpoint(self, token_id):
+        self.midpoint_calls += 1
         if isinstance(self._midpoint, Exception):
             raise self._midpoint
         return self._midpoint
@@ -176,8 +181,60 @@ class TestRetroLoggingContract:
         assert repo.created == []
         assert repo.skipped == [("0xcond", "price_above_band")]
 
+    def test_buy_balance_rejection_stops_remaining_cycle_orders(self):
+        class InsufficientBuyClob(FakeClob):
+            def place_limit_order(self, **kwargs):
+                self.orders.append(kwargs)
+                return {
+                    "success": False,
+                    "error": (
+                        "not enough balance / allowance: the balance is not "
+                        "enough -> balance: 3347124, order amount: 5000000"
+                    ),
+                }
+
+        repo = FakeRepo()
+        clob = InsufficientBuyClob(midpoint=0.18)
+        trader = Trader(repo, clob, TradingConfig(), mode="live")
+
+        first = self.make_candidate()
+        second = {**self.make_candidate(), "condition_id": "0xsecond"}
+        assert trader.execute_buy(first) is None
+        assert trader.execute_buy(second) is None
+
+        assert trader.buying_disabled is True
+        assert len(clob.orders) == 1
+        assert clob.midpoint_calls == 1
+
 
 # --- 유령 포지션(매수 미체결) 감지 ---
+
+class TestPartialBalanceSell:
+    def test_retries_once_and_records_actual_sell_size(self):
+        class PartialBalanceClob(FakeClob):
+            def place_limit_order(self, **kwargs):
+                self.orders.append(kwargs)
+                if len(self.orders) == 1:
+                    return {
+                        "success": False,
+                        "error": (
+                            "not enough balance / allowance: the balance is "
+                            "not enough -> balance: 20000000, order amount: 25000000"
+                        ),
+                    }
+                return {"success": True, "orderID": "PARTIAL_SELL"}
+
+        repo = FakeRepo()
+        clob = PartialBalanceClob(midpoint=0.275)
+        trader = Trader(repo, clob, TradingConfig(), mode="live")
+
+        assert trader.execute_sell(make_trade()) is True
+
+        assert [order["size"] for order in clob.orders] == [25.0, 19.8]
+        completed = repo.updates[-1][1]
+        assert completed["status"] == TradeStatus.COMPLETED
+        assert completed["sell_shares"] == 19.8
+
 
 class PhantomClob(FakeClob):
     """매도 주문이 '잔고 0'으로 거절되는 CLOB (매수 GTC 미체결 상황)."""
@@ -262,3 +319,22 @@ class TestUnfilledPhantomDetection:
         assert sold is False
         assert clob.cancelled == ["0xORDER_HASH"]
         assert all("status" not in kwargs for _, kwargs in repo.updates)
+
+    def test_unavailable_aged_order_is_quarantined_instead_of_retried_forever(self):
+        trader, repo, clob = self._phantom_trader()
+
+        def unavailable_cancel(order_id):
+            clob.cancelled.append(order_id)
+            try:
+                raise ClobResponseUnavailableError("aged out")
+            except ClobResponseUnavailableError as cause:
+                raise SubmissionEvidenceError("unavailable") from cause
+
+        clob.cancel_order = unavailable_cancel
+
+        assert trader.execute_sell(make_trade(buy_order_id="0xAGED")) is False
+
+        assert clob.cancelled == ["0xAGED"]
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.QUARANTINED
+        assert update["exit_reason"] == "zero_balance_order_unavailable"

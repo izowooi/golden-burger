@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 import pytest
 import requests
+from py_clob_client_v2.exceptions import PolyApiException
 
 from polybot_observability import (
     ClobResponseUnavailableError,
@@ -1625,11 +1626,16 @@ class PlacementClient:
             statuses = connection.execute(
                 "SELECT response_status FROM order_submissions"
             ).fetchall()
-        assert statuses == [("INTENT",)]
+        assert statuses == []
         return {"signed": True, "args": order_args}
 
     def post_order(self, signed_order, order_type):
         assert signed_order["signed"] is True
+        with sqlite3.connect(self.db_path) as connection:
+            statuses = connection.execute(
+                "SELECT response_status FROM order_submissions"
+            ).fetchall()
+        assert statuses == [("INTENT",)]
         return {
             "success": True,
             "orderID": "placed-order",
@@ -1663,6 +1669,63 @@ def test_limit_order_intent_is_durable_before_post(tmp_path):
             "needs_reconciliation FROM order_submissions"
         ).fetchone()
     assert row == ("placed-order", "LIVE", 4.0, 10.0, 1)
+
+
+def test_limit_order_preflight_timeout_creates_no_uncertain_intent(tmp_path):
+    class PreflightTimeoutClient:
+        def create_order(self, order_args):
+            raise PolyApiException(error_msg="Request exception!")
+
+        def post_order(self, signed_order, order_type):
+            raise AssertionError("preflight 실패 후 POST가 호출되면 안 됩니다")
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(),
+        audit_db_path=db_path,
+        strategy_name="golden-date",
+    )
+    wrapper._client = PreflightTimeoutClient()
+    wrapper._initialized = True
+
+    result = wrapper.place_limit_order("token", 0.4, 10, "SELL")
+
+    assert result["success"] is False
+    assert "Request exception" in result["error"]
+    with sqlite3.connect(db_path) as connection:
+        count = connection.execute(
+            "SELECT COUNT(*) FROM order_submissions"
+        ).fetchone()[0]
+    assert count == 0
+
+
+def test_limit_order_post_timeout_remains_unknown_and_fail_closed(tmp_path):
+    class PostTimeoutClient(PlacementClient):
+        def post_order(self, signed_order, order_type):
+            with sqlite3.connect(self.db_path) as connection:
+                statuses = connection.execute(
+                    "SELECT response_status FROM order_submissions"
+                ).fetchall()
+            assert statuses == [("INTENT",)]
+            raise PolyApiException(error_msg="Request exception!")
+
+    db_path = tmp_path / "trades.db"
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(),
+        audit_db_path=db_path,
+        strategy_name="golden-date",
+    )
+    wrapper._client = PostTimeoutClient(db_path)
+    wrapper._initialized = True
+
+    with pytest.raises(SubmissionEvidenceError, match="POST 결과가 불확실"):
+        wrapper.place_limit_order("token", 0.4, 10, "BUY")
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, order_id FROM order_submissions"
+        ).fetchone()
+    assert row == ("SUBMIT_OUTCOME_UNKNOWN", None)
 
 
 def test_unresolved_prior_intent_is_locally_quarantined_without_stopping_cycle(

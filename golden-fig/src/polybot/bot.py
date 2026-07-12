@@ -133,6 +133,11 @@ class PolymarketBot:
             # Phase 3: Execute buys (재진입 정책: HOLDING 또는 쿨다운이면 skip)
             logger.info("=== Phase 3: 매수 실행 ===")
             for candidate in candidates:
+                if trader.buying_disabled:
+                    logger.warning(
+                        "가용 collateral 부족으로 남은 매수 후보 처리를 종료합니다"
+                    )
+                    break
                 condition_id = candidate["condition_id"]
 
                 if repo.has_holding(condition_id):
@@ -154,7 +159,7 @@ class PolymarketBot:
 
             # Log statistics
             db_stats = repo.get_stats()
-            logger.info(f"=== 사이클 완료 ===")
+            logger.info("=== 사이클 완료 ===")
             logger.info(f"스냅샷 저장: {stats['snapshots_saved']}개")
             logger.info(f"보유 포지션 확인: {stats['checked_holdings']}개")
             logger.info(f"매도: {stats['sold']}건")
@@ -164,6 +169,11 @@ class PolymarketBot:
             logger.info(f"총 P&L: ${db_stats['total_pnl']:.4f}")
             if db_stats["expired"] > 0:
                 logger.warning(f"수동 redeem 필요(EXPIRED): {db_stats['expired']}건")
+            if db_stats["quarantined"] > 0:
+                logger.warning(
+                    "수동 확인 필요(QUARANTINED): "
+                    f"{db_stats['quarantined']}건"
+                )
 
             return stats
 

@@ -52,7 +52,10 @@ MAKER fill은 해당 `maker_orders.order_id` entry, TAKER fill은 `taker_order_i
 증거와 연결되어야 한다. 다른 maker의 top-level size/price를 현재 주문에 귀속하지 않는다.
 MAKER/TAKER coverage가 빠지면 strict 회고가 실패한다.
 
-POST timeout/5xx, `success=true`인데 `orderID`가 없는 응답, `success=false`와 `orderID`가 함께 온
+order intent는 서명과 tick-size/fee/neg-risk 같은 read-only preflight가 끝난 뒤 실제
+`post_order()` 직전에 기록한다. 따라서 preflight GET timeout은 주문 미생성이 확실한 일반 실패이며
+불확실 intent를 만들지 않는다. POST timeout/5xx, `success=true`인데 `orderID`가 없는 응답,
+`success=false`와 `orderID`가 함께 온
 모순 응답은 `SUBMIT_OUTCOME_UNKNOWN` evidence로 남기고 현재 cycle을 중단한다. 다음 process에서는
 불확실 intent 하나가 전략 전체의 청산·스캔을 영구 중단하지 않는다. `pending_submissions()`는
 정상적인 exact-ID 대사를 계속하고, 새 주문 직전에는 같은 `token_id × side` 조합만 국소 격리한다.
