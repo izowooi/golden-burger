@@ -1814,7 +1814,8 @@ class ExecutionLedger:
         return connection.execute(
             f"""
             SELECT submission_id, run_id, submitted_at, response_status,
-                   side, requested_price, requested_size, error_type
+                   order_id, token_id, side, requested_price, requested_size,
+                   error_type, error_message
             FROM order_submissions
             WHERE {cls._unresolved_sql()}
             ORDER BY submitted_at, submission_id

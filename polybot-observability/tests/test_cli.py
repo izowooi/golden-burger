@@ -88,6 +88,75 @@ def test_catalog_gap_cli_lists_then_backs_up_and_resolves(
     ).pending_submissions() == []
 
 
+def test_unresolved_intent_cli_lists_then_backs_up_and_resolves(
+    tmp_path, monkeypatch, capsys
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_intent(
+        token_id="token-secret-free",
+        side="BUY",
+        requested_price=0.8,
+        requested_size=12.5,
+        simulation=False,
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
+            "unresolved-intents",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+        ],
+    )
+
+    main()
+
+    [listed] = json.loads(capsys.readouterr().out)
+    assert listed["submission_id"] == submission_id
+    assert listed["response_status"] == "INTENT"
+    assert listed["order_id"] is None
+    assert listed["token_id"] == "token-secret-free"
+    assert listed["requested_price"] == 0.8
+    assert listed["requested_size"] == 12.5
+
+    backup_dir = tmp_path / "intent-backups"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
+            "resolve-intent",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+            "--submission-id",
+            submission_id,
+            "--resolution",
+            "NO_ORDER_CREATED",
+            "--confirm",
+            f"RESOLVE_{submission_id}_AS_NO_ORDER_CREATED",
+            "--reason",
+            "authenticated venue history proves no order",
+            "--backup-dir",
+            str(backup_dir),
+        ],
+    )
+
+    main()
+
+    resolved = json.loads(capsys.readouterr().out)
+    assert resolved["submission_id"] == submission_id
+    assert resolved["resolution"] == "NO_ORDER_CREATED"
+    assert resolved["order_id"] is None
+    assert (Path(resolved["backup"]) / "manifest.json").is_file()
+    assert ledger.unresolved_submission_outcomes() == []
+
+
 def test_quantity_scale_cli_lists_then_backs_up_and_repairs(
     tmp_path, monkeypatch, capsys
 ):

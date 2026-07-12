@@ -56,7 +56,40 @@ POST timeout/5xx, `success=true`인데 `orderID`가 없는 응답, `success=fals
 모순 응답은 `SUBMIT_OUTCOME_UNKNOWN` evidence로 남기고 현재 cycle을 중단한다. order ID가 없는
 불확실 intent는 process restart 뒤에도 `pending_submissions()`/`assert_execution_ready()`에서
 `UnresolvedSubmissionOutcomeError`를 발생시킨다. 자동 해제하지 않으며 operator가 venue 증거를
-검토한 뒤 아래 API로 한 번만 해결한다.
+검토한 뒤 먼저 secret-safe 진단을 조회한다.
+
+```bash
+uv run polybot-retro unresolved-intents \
+  --db data/default/trades.db \
+  --strategy golden-cherry
+```
+
+Venue history에서 주문이 생성되지 않았음이 확인된 경우에만 workspace 밖 backup과 강한 확인
+문구를 사용해 해제한다. 주문 ID를 찾았다면 `ORDER_ID_LINKED`와 exact ID를 지정해 일반 대사 큐로
+보낸다.
+
+```bash
+uv run polybot-retro resolve-intent \
+  --db data/default/trades.db \
+  --strategy golden-cherry \
+  --submission-id '<submission-id>' \
+  --resolution NO_ORDER_CREATED \
+  --confirm 'RESOLVE_<submission-id>_AS_NO_ORDER_CREATED' \
+  --reason 'authenticated venue history proves no order' \
+  --backup-dir ~/.polybot/operator-backups
+
+uv run polybot-retro resolve-intent \
+  --db data/default/trades.db \
+  --strategy golden-cherry \
+  --submission-id '<submission-id>' \
+  --resolution ORDER_ID_LINKED \
+  --order-id '<order-id>' \
+  --confirm 'LINK_<submission-id>_TO_<order-id>' \
+  --reason 'exact order found in authenticated venue history' \
+  --backup-dir ~/.polybot/operator-backups
+```
+
+동일 기능은 아래 Python API로도 사용할 수 있다.
 
 ```python
 unresolved = ledger.unresolved_submission_outcomes()

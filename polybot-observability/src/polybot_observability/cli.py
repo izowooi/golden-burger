@@ -71,6 +71,35 @@ def main() -> None:
         help="trade/status/fill evidence가 연결된 catalog gap도 진단 목록에 포함",
     )
 
+    unresolved_parser = subparsers.add_parser(
+        "unresolved-intents",
+        help="order ID가 확정되지 않은 live CLOB intent를 read-only 조회",
+    )
+    unresolved_parser.add_argument("--db", required=True, type=Path)
+    unresolved_parser.add_argument("--strategy", required=True)
+
+    resolve_intent_parser = subparsers.add_parser(
+        "resolve-intent",
+        help="backup 후 불확실한 CLOB intent에 operator 증거를 기록",
+    )
+    resolve_intent_parser.add_argument("--db", required=True, type=Path)
+    resolve_intent_parser.add_argument("--strategy", required=True)
+    resolve_intent_parser.add_argument("--submission-id", required=True)
+    resolve_intent_parser.add_argument(
+        "--resolution",
+        required=True,
+        choices=("NO_ORDER_CREATED", "ORDER_ID_LINKED"),
+    )
+    resolve_intent_parser.add_argument("--order-id")
+    resolve_intent_parser.add_argument("--confirm", required=True)
+    resolve_intent_parser.add_argument("--reason", required=True)
+    resolve_intent_parser.add_argument(
+        "--backup-dir",
+        type=Path,
+        default=Path("~/.polybot/operator-backups"),
+        help="workspace 밖 online backup + SHA-256 manifest 저장 위치",
+    )
+
     resolve_parser = subparsers.add_parser(
         "resolve-catalog-gaps",
         help="backup 후 exact CLOB catalog gap 집합을 operator 승인으로 격리",
@@ -125,6 +154,8 @@ def main() -> None:
     args = parser.parse_args()
     operator_commands = {
         "catalog-gaps",
+        "unresolved-intents",
+        "resolve-intent",
         "resolve-catalog-gaps",
         "quantity-scale-repairs",
         "quantity-scale-diagnostics",
@@ -143,6 +174,55 @@ def main() -> None:
                     ),
                     ensure_ascii=False,
                     indent=2,
+                )
+            )
+            return
+
+        if args.command == "unresolved-intents":
+            ledger = ExecutionLedger(database, strategy_name=args.strategy)
+            print(
+                json.dumps(
+                    ledger.unresolved_submission_outcomes(),
+                    ensure_ascii=False,
+                    indent=2,
+                )
+            )
+            return
+
+        if args.command == "resolve-intent":
+            normalized_order_id = str(args.order_id or "").strip()
+            if args.resolution == "NO_ORDER_CREATED":
+                expected_confirmation = (
+                    f"RESOLVE_{args.submission_id}_AS_NO_ORDER_CREATED"
+                )
+            else:
+                if not normalized_order_id:
+                    parser.error("ORDER_ID_LINKED에는 --order-id가 필요합니다")
+                expected_confirmation = (
+                    f"LINK_{args.submission_id}_TO_{normalized_order_id}"
+                )
+            if args.confirm != expected_confirmation:
+                parser.error(f"확인 문구가 일치하지 않습니다: {expected_confirmation}")
+            backup = backup_databases([database], args.backup_dir)
+            ledger = ExecutionLedger(database, strategy_name=args.strategy)
+            try:
+                ledger.resolve_uncertain_submission(
+                    args.submission_id,
+                    resolution=args.resolution,
+                    reason=args.reason,
+                    order_id=normalized_order_id or None,
+                )
+            except (RuntimeError, ValueError) as error:
+                parser.error(f"backup={backup}; resolution 실패: {error}")
+            print(
+                json.dumps(
+                    {
+                        "submission_id": args.submission_id,
+                        "resolution": args.resolution,
+                        "order_id": normalized_order_id or None,
+                        "backup": str(backup),
+                    },
+                    ensure_ascii=False,
                 )
             )
             return
