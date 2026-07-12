@@ -54,6 +54,9 @@ _CLOB_RESPONSE_FIELDS: dict[str, dict[str, tuple[str, ...]]] = {
     "order": {
         "id": ("id", "orderID", "order_id", "orderId"),
         "status": ("status",),
+        "maker_address": ("maker_address", "makerAddress"),
+        "asset_id": ("asset_id", "assetId", "token_id", "tokenId"),
+        "side": ("side",),
         "associate_trades": (
             "associate_trades",
             "associated_trades",
@@ -63,10 +66,13 @@ _CLOB_RESPONSE_FIELDS: dict[str, dict[str, tuple[str, ...]]] = {
         "original_size": ("original_size", "originalSize"),
         "size_matched": ("size_matched", "sizeMatched"),
         "price": ("price",),
+        "created_at": ("created_at", "createdAt"),
     },
     "trade": {
         "id": ("id", "trade_id", "tradeId"),
         "status": ("status",),
+        "asset_id": ("asset_id", "assetId", "token_id", "tokenId"),
+        "maker_address": ("maker_address", "makerAddress"),
         "maker_orders": ("maker_orders", "makerOrders"),
         "taker_order_id": ("taker_order_id", "takerOrderId"),
         "trader_side": ("trader_side", "traderSide"),
@@ -84,6 +90,8 @@ _CLOB_RESPONSE_FIELDS: dict[str, dict[str, tuple[str, ...]]] = {
     },
     "maker_order": {
         "order_id": ("order_id", "orderId"),
+        "maker_address": ("maker_address", "makerAddress"),
+        "asset_id": ("asset_id", "assetId", "token_id", "tokenId"),
         "matched_amount": ("matched_amount", "matchedAmount"),
         "price": ("price",),
         "side": ("side",),

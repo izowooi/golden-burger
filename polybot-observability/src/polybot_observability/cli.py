@@ -8,6 +8,11 @@ import sys
 from pathlib import Path
 
 from .execution_ledger import ExecutionLedger
+from .intent_probe import (
+    IntentProbeConfigurationError,
+    authenticated_clob_session_from_environment,
+    probe_unresolved_intent,
+)
 from .retro_audit import (
     audit_many,
     backup_databases,
@@ -77,6 +82,20 @@ def main() -> None:
     )
     unresolved_parser.add_argument("--db", required=True, type=Path)
     unresolved_parser.add_argument("--strategy", required=True)
+
+    probe_intent_parser = subparsers.add_parser(
+        "probe-intent",
+        help="불확실한 CLOB intent를 authenticated order/trade history와 read-only 대조",
+    )
+    probe_intent_parser.add_argument("--db", required=True, type=Path)
+    probe_intent_parser.add_argument("--strategy", required=True)
+    probe_intent_parser.add_argument("--submission-id", required=True)
+    probe_intent_parser.add_argument(
+        "--window-seconds",
+        type=int,
+        default=600,
+        help="intent 제출 시각 전후 조회 범위(기본 600초, 최대 86400초)",
+    )
 
     resolve_intent_parser = subparsers.add_parser(
         "resolve-intent",
@@ -155,6 +174,7 @@ def main() -> None:
     operator_commands = {
         "catalog-gaps",
         "unresolved-intents",
+        "probe-intent",
         "resolve-intent",
         "resolve-catalog-gaps",
         "quantity-scale-repairs",
@@ -187,6 +207,29 @@ def main() -> None:
                     indent=2,
                 )
             )
+            return
+
+        if args.command == "probe-intent":
+            if not 1 <= args.window_seconds <= 86_400:
+                parser.error("--window-seconds는 1~86400 범위여야 합니다")
+            try:
+                session = authenticated_clob_session_from_environment()
+            except IntentProbeConfigurationError as error:
+                parser.error(str(error))
+            except Exception as error:
+                parser.error(f"CLOB 인증 초기화 실패: {type(error).__name__}")
+            try:
+                result = probe_unresolved_intent(
+                    database,
+                    strategy_name=args.strategy,
+                    submission_id=args.submission_id,
+                    client=session.client,
+                    funder_address=session.funder_address,
+                    window_seconds=args.window_seconds,
+                )
+            except ValueError as error:
+                parser.error(str(error))
+            print(json.dumps(result, ensure_ascii=False, indent=2))
             return
 
         if args.command == "resolve-intent":

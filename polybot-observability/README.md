@@ -64,6 +64,19 @@ uv run polybot-retro unresolved-intents \
   --strategy golden-cherry
 ```
 
+주문 ID가 없으면 같은 Jenkins credential 환경에서 제출 시각 전후의 authenticated user order와
+trade history를 read-only로 대조한다. 이 명령은 `derive_api_key`와 GET 요청만 사용하고 DB outcome을
+변경하지 않는다. `unique_candidate_order_id`와 `resolution_evidence`가 함께 나올 때만 아래
+`ORDER_ID_LINKED` 복구를 진행한다. 빈 후보나 일부 query 실패는 `NO_ORDER_CREATED` 증거가 아니다.
+
+```bash
+uv run polybot-retro probe-intent \
+  --db data/default/trades.db \
+  --strategy golden-cherry \
+  --submission-id '<submission-id>' \
+  --window-seconds 600
+```
+
 Venue history에서 주문이 생성되지 않았음이 확인된 경우에만 workspace 밖 backup과 강한 확인
 문구를 사용해 해제한다. 주문 ID를 찾았다면 `ORDER_ID_LINKED`와 exact ID를 지정해 일반 대사 큐로
 보낸다.

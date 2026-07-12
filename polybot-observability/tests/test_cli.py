@@ -4,6 +4,7 @@ import json
 import sqlite3
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 
 from polybot_observability import ExecutionLedger
 from polybot_observability.cli import main
@@ -155,6 +156,65 @@ def test_unresolved_intent_cli_lists_then_backs_up_and_resolves(
     assert resolved["order_id"] is None
     assert (Path(resolved["backup"]) / "manifest.json").is_file()
     assert ledger.unresolved_submission_outcomes() == []
+
+
+def test_probe_intent_cli_uses_authenticated_read_only_probe(
+    tmp_path, monkeypatch, capsys
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_intent(
+        token_id="token",
+        side="BUY",
+        requested_price=0.8,
+        requested_size=10,
+        simulation=False,
+    )
+    fake_client = object()
+    monkeypatch.setattr(
+        "polybot_observability.cli.authenticated_clob_session_from_environment",
+        lambda: SimpleNamespace(client=fake_client, funder_address="0x-funder"),
+    )
+    captured = {}
+
+    def fake_probe(database, **kwargs):
+        captured["database"] = database
+        captured.update(kwargs)
+        return {"unique_candidate_order_id": "venue-order"}
+
+    monkeypatch.setattr(
+        "polybot_observability.cli.probe_unresolved_intent", fake_probe
+    )
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "polybot-retro",
+            "probe-intent",
+            "--db",
+            str(db_path),
+            "--strategy",
+            "golden-test",
+            "--submission-id",
+            submission_id,
+            "--window-seconds",
+            "900",
+        ],
+    )
+
+    main()
+
+    assert json.loads(capsys.readouterr().out) == {
+        "unique_candidate_order_id": "venue-order"
+    }
+    assert captured == {
+        "database": db_path.resolve(),
+        "strategy_name": "golden-test",
+        "submission_id": submission_id,
+        "client": fake_client,
+        "funder_address": "0x-funder",
+        "window_seconds": 900,
+    }
 
 
 def test_quantity_scale_cli_lists_then_backs_up_and_repairs(
