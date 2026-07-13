@@ -18,6 +18,9 @@ DISPLAY_NAMES = [
     "golden-apple (2)",
     "golden-eco",
     "golden-fox",
+    "golden-lion",
+    "golden-tiger",
+    "golden-wolf",
 ]
 
 
@@ -59,7 +62,7 @@ def test_complete_run_persists_required_position_fields_without_wallet(tmp_path)
     )
 
     assert result.status == "COMPLETE"
-    assert result.account_count == 6
+    assert result.account_count == 9
     assert result.position_count == 1
     with sqlite3.connect(db_path) as connection:
         run = connection.execute(
@@ -76,7 +79,7 @@ def test_complete_run_persists_required_position_fields_without_wallet(tmp_path)
             "FROM evidence_delivery_status"
         ).fetchone()
 
-    assert run == ("COMPLETE", 6, 6, "[]")
+    assert run == ("COMPLETE", 9, 9, "[]")
     assert row == (
         "golden-fox",
         "condition-1",
@@ -109,7 +112,7 @@ def test_failed_run_records_completeness_without_synthetic_failed_account(tmp_pa
     )
 
     assert result.status == "FAILED"
-    assert result.account_count == 5
+    assert result.account_count == 8
     with sqlite3.connect(db_path) as connection:
         run = connection.execute(
             "SELECT status, observed_account_count, failed_account_ids_json "
@@ -124,7 +127,7 @@ def test_failed_run_records_completeness_without_synthetic_failed_account(tmp_pa
             "FROM evidence_delivery_status"
         ).fetchone()
 
-    assert run[0:2] == ("FAILED", 5)
+    assert run[0:2] == ("FAILED", 8)
     assert json.loads(run[2]) == ["golden-fox"]
     assert "golden-fox" not in account_ids
     assert delivery == ("SKIPPED", "SKIPPED", "NOT_ATTEMPTED")
@@ -141,7 +144,7 @@ def test_explicit_failure_excludes_otherwise_success_shaped_report(tmp_path):
     )
 
     assert result.status == "FAILED"
-    assert result.account_count == 5
+    assert result.account_count == 8
     with sqlite3.connect(db_path) as connection:
         ids = {
             row[0]
@@ -160,7 +163,7 @@ def test_incomplete_report_cannot_be_recorded_as_complete(tmp_path):
     )
 
     assert result.status == "FAILED"
-    assert result.account_count == 5
+    assert result.account_count == 8
 
 
 def test_fresh_account_snapshot_schema_requires_money_values(tmp_path):
@@ -257,7 +260,7 @@ def test_local_account_money_uses_same_canonical_cent_contract(tmp_path):
             "SELECT total_value, position_value, cash_value "
             "FROM evidence_account_snapshots"
         ).fetchall()
-    assert rows == [(10.02, 5.0, 5.02)] * 6
+    assert rows == [(10.02, 5.0, 5.02)] * 9
 
 
 def test_evidence_write_fails_if_mode_0600_cannot_be_enforced(monkeypatch, tmp_path):

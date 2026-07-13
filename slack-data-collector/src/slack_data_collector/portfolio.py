@@ -15,7 +15,8 @@ class PortfolioParseError(ValueError):
 
 
 LEGACY_REPORT_SCHEMA_VERSION = "pb-portfolio/v1"
-CURRENT_REPORT_SCHEMA_VERSION = "pb-portfolio/v2"
+PREVIOUS_REPORT_SCHEMA_VERSION = "pb-portfolio/v2"
+CURRENT_REPORT_SCHEMA_VERSION = "pb-portfolio/v3"
 ERROR_REPORT_SCHEMA_VERSION = "pb-portfolio/error-v1"
 
 
@@ -35,6 +36,9 @@ ALGORITHM_ACCOUNTS = (
     AlgorithmAccount("golden-apple-2", "GOLDEN-APPLE (2)", "golden-apple", 2, 4),
     AlgorithmAccount("golden-eco", "GOLDEN-ECO", "golden-honeydew", None, 5),
     AlgorithmAccount("golden-fox", "GOLDEN-FOX", "golden-nectarine", None, 6),
+    AlgorithmAccount("golden-lion", "GOLDEN-LION", "golden-lion", None, 7),
+    AlgorithmAccount("golden-tiger", "GOLDEN-TIGER", "golden-tiger", None, 8),
+    AlgorithmAccount("golden-wolf", "GOLDEN-WOLF", "golden-wolf", None, 9),
 )
 _ACCOUNT_BY_JENKINS_NAME = {
     account.jenkins_name: account for account in ALGORITHM_ACCOUNTS
@@ -48,6 +52,14 @@ _LEGACY_ACCOUNT_IDS = {
     "golden-cherry",
     "golden-apple-2",
 }
+_PREVIOUS_ACCOUNT_IDS = {
+    "golden-apple-1",
+    "golden-banana",
+    "golden-cherry",
+    "golden-apple-2",
+    "golden-eco",
+    "golden-fox",
+}
 _CURRENT_ACCOUNT_IDS = {account.account_id for account in ALGORITHM_ACCOUNTS}
 
 _REPORTED_AT_RE = re.compile(r"(\d{4}-\d{2}-\d{2})\s+(\d{2}:\d{2}:\d{2})\s+기준")
@@ -55,12 +67,17 @@ _SCHEMA_VERSION_RE = re.compile(r"\bpb-portfolio/v\d+\b", re.IGNORECASE)
 _REPORT_STATUS_RE = re.compile(
     r"\b(STARTED|COMPLETE|FAILED|INCOMPLETE|ERROR)\b", re.IGNORECASE
 )
-_CURRENT_MESSAGE_MARKER_RE = re.compile(
-    r"\[pb-portfolio/v2\s+COMPLETE\]", re.IGNORECASE
-)
-_CURRENT_FOOTER_MARKER_RE = re.compile(
-    r"(?:^|•\s*)pb-portfolio/v2\s*•\s*COMPLETE(?:\s*•|$)", re.IGNORECASE
-)
+_MESSAGE_MARKER_BY_SCHEMA = {
+    version: re.compile(rf"\[{re.escape(version)}\s+COMPLETE\]", re.IGNORECASE)
+    for version in (PREVIOUS_REPORT_SCHEMA_VERSION, CURRENT_REPORT_SCHEMA_VERSION)
+}
+_FOOTER_MARKER_BY_SCHEMA = {
+    version: re.compile(
+        rf"(?:^|•\s*){re.escape(version)}\s*•\s*COMPLETE(?:\s*•|$)",
+        re.IGNORECASE,
+    )
+    for version in (PREVIOUS_REPORT_SCHEMA_VERSION, CURRENT_REPORT_SCHEMA_VERSION)
+}
 _TIMEZONE_RE = re.compile(r"\btz=([A-Za-z0-9_+\-/]+)")
 _MONEY_BREAKDOWN_RE = re.compile(
     r"^\$([+-]?[\d,]+(?:\.\d+)?)\s*"
@@ -262,16 +279,26 @@ def parse_portfolio_message(message: dict[str, Any]) -> PortfolioReport | None:
     inferred_schema = (
         LEGACY_REPORT_SCHEMA_VERSION
         if style == "fields"
-        else CURRENT_REPORT_SCHEMA_VERSION
+        else PREVIOUS_REPORT_SCHEMA_VERSION
     )
-    if explicit_schema is not None and explicit_schema != inferred_schema:
+    allowed_for_style = (
+        {LEGACY_REPORT_SCHEMA_VERSION}
+        if style == "fields"
+        else {PREVIOUS_REPORT_SCHEMA_VERSION, CURRENT_REPORT_SCHEMA_VERSION}
+    )
+    if explicit_schema is not None and explicit_schema not in allowed_for_style:
         raise PortfolioParseError(
             f"리포트 schema와 attachment 형식이 일치하지 않습니다: "
             f"schema={explicit_schema}, style={style}, ts={source_message_ts}"
         )
     schema_version = explicit_schema or inferred_schema
     if style == "text":
-        _validate_current_report_markers(message, summary, source_message_ts)
+        _validate_text_report_markers(
+            message,
+            summary,
+            schema_version,
+            source_message_ts,
+        )
         _validate_current_payload_status(message, source_message_ts)
 
     algorithms: list[AlgorithmBalance] = []
@@ -303,17 +330,18 @@ def parse_portfolio_message(message: dict[str, Any]) -> PortfolioReport | None:
             )
         )
 
-    expected_ids = (
-        _LEGACY_ACCOUNT_IDS
-        if schema_version == LEGACY_REPORT_SCHEMA_VERSION
-        else _CURRENT_ACCOUNT_IDS
-    )
+    expected_ids = {
+        LEGACY_REPORT_SCHEMA_VERSION: _LEGACY_ACCOUNT_IDS,
+        PREVIOUS_REPORT_SCHEMA_VERSION: _PREVIOUS_ACCOUNT_IDS,
+        CURRENT_REPORT_SCHEMA_VERSION: _CURRENT_ACCOUNT_IDS,
+    }[schema_version]
     actual_ids = {algorithm.account_id for algorithm in algorithms}
     if actual_ids != expected_ids:
         missing = sorted(expected_ids - actual_ids)
         unexpected = sorted(actual_ids - expected_ids)
         raise PortfolioParseError(
-            "리포트의 알고리즘 계정 집합이 허용된 legacy4/current6 계약과 다릅니다: "
+            "리포트의 알고리즘 계정 집합이 허용된 legacy4/v2-six/v3-nine "
+            "계약과 다릅니다: "
             f"missing={missing}, unexpected={unexpected}, ts={source_message_ts}"
         )
 
@@ -358,38 +386,45 @@ def _explicit_schema_version(
     if not versions:
         return None
     version = versions.pop()
-    if version not in {LEGACY_REPORT_SCHEMA_VERSION, CURRENT_REPORT_SCHEMA_VERSION}:
+    if version not in {
+        LEGACY_REPORT_SCHEMA_VERSION,
+        PREVIOUS_REPORT_SCHEMA_VERSION,
+        CURRENT_REPORT_SCHEMA_VERSION,
+    }:
         raise PortfolioParseError(
             f"지원하지 않는 리포트 schema입니다: {version}, ts={message_ts}"
         )
     return version
 
 
-def _validate_current_report_markers(
-    message: dict[str, Any], summary: dict[str, Any], message_ts: str
+def _validate_text_report_markers(
+    message: dict[str, Any],
+    summary: dict[str, Any],
+    schema_version: str,
+    message_ts: str,
 ) -> None:
-    """Require redundant, unambiguous v2 COMPLETE attestations."""
+    """Require redundant, unambiguous COMPLETE attestations."""
     locations = {
         "message text": (
             str(message.get("text") or ""),
-            _CURRENT_MESSAGE_MARKER_RE,
+            _MESSAGE_MARKER_BY_SCHEMA[schema_version],
         ),
         "summary footer": (
             str(summary.get("footer") or ""),
-            _CURRENT_FOOTER_MARKER_RE,
+            _FOOTER_MARKER_BY_SCHEMA[schema_version],
         ),
     }
     for location, (value, marker_pattern) in locations.items():
         versions = {match.lower() for match in _SCHEMA_VERSION_RE.findall(value)}
         statuses = {match.upper() for match in _REPORT_STATUS_RE.findall(value)}
         if (
-            versions != {CURRENT_REPORT_SCHEMA_VERSION}
+            versions != {schema_version}
             or statuses != {"COMPLETE"}
             or marker_pattern.search(value) is None
         ):
             raise PortfolioParseError(
                 "current report는 message text와 summary footer 각각에 "
-                f"pb-portfolio/v2 + COMPLETE만 명시해야 합니다: "
+                f"{schema_version} + COMPLETE만 명시해야 합니다: "
                 f"location={location}, schema={sorted(versions)}, "
                 f"status={sorted(statuses)}, ts={message_ts}"
             )

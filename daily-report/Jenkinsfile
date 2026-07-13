@@ -38,6 +38,18 @@ pipeline {
         ACCOUNT_6_NAME = 'golden-fox'
         ACCOUNT_6_ADDRESS = credentials('polymarket-golden-fox-address')
 
+        // Account 7 - reusable strategy slot
+        ACCOUNT_7_NAME = 'golden-lion'
+        ACCOUNT_7_ADDRESS = credentials('polymarket-golden-lion-address')
+
+        // Account 8 - reusable strategy slot
+        ACCOUNT_8_NAME = 'golden-tiger'
+        ACCOUNT_8_ADDRESS = credentials('polymarket-golden-tiger-address')
+
+        // Account 9 - reusable strategy slot (currently golden-fig)
+        ACCOUNT_9_NAME = 'golden-wolf'
+        ACCOUNT_9_ADDRESS = credentials('polymarket-golden-wolf-address')
+
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
 

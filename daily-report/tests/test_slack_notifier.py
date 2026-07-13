@@ -43,6 +43,9 @@ def make_reports(**overrides):
         "golden-apple (2)": make_summary(),
         "golden-eco": make_summary(),
         "golden-fox": make_summary(),
+        "golden-lion": make_summary(),
+        "golden-tiger": make_summary(),
+        "golden-wolf": make_summary(),
     }
     reports.update(overrides)
     return reports

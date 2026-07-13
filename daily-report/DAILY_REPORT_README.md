@@ -2,11 +2,11 @@
 
 > Supabase 일일 적재와 최신 Jenkins 설정은 [README.md](README.md)를 기준으로 합니다.
 
-6개의 Polymarket 매매봇 계좌에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack 및 Supabase로 전송하는 시스템입니다.
+9개의 Polymarket 매매봇 계좌에 대한 일일 포트폴리오 리포트를 자동으로 생성하고 Slack 및 Supabase로 전송하는 시스템입니다.
 
 ## 📋 기능
 
-- **다중 계좌 지원**: 숫자 슬롯 상한 없이 `ACCOUNT_<n>_*` 쌍을 동적으로 탐색하며 현재 6계정을 모니터링
+- **다중 계좌 지원**: 숫자 슬롯 상한 없이 `ACCOUNT_<n>_*` 쌍을 동적으로 탐색하며 현재 9계정을 모니터링
 - **포트폴리오 분석**:
   - 현재 포지션 수 및 총 가치
   - Supabase 일별 total snapshot 기준 7일 및 30일 P&L (기간 floor coverage 부족 시 `N/A`)
@@ -23,8 +23,8 @@ daily_report.py (메인 스크립트)
     │   ├─> get_positions()             # limit=500 전체 pagination
     │   └─> get_equity_snapshot()       # authoritative cash/position/equity
     ├─> DailyEvidenceStore              # sanitized COMPLETE/FAILED evidence
-    ├─> SupabasePortfolioWriter         # single-RPC atomic 6-account snapshot
-    └─> SlackNotifier                   # DB 확정 후 exact 6-account v2 COMPLETE
+    ├─> SupabasePortfolioWriter         # single-RPC atomic 9-account snapshot
+    └─> SlackNotifier                   # DB 확정 후 exact 9-account v3 COMPLETE
 ```
 
 ## 📦 설치 및 설정
@@ -209,7 +209,7 @@ slack.send_error_notification("golden-apple", "API 호출 실패")
 
 ### 계좌 변경
 
-slot 탐색 자체에는 숫자 상한이 없지만 정상 리포트는 현재 6개 display name/stable
+slot 탐색 자체에는 숫자 상한이 없지만 정상 리포트는 현재 9개 display name/stable
 account ID 계약으로 고정됩니다. 추가·삭제·교체는 env만 수정하지 말고 Supabase catalog,
 Slack collector, dashboard를 함께 migration해야 합니다. NAME/ADDRESS 중 한쪽만 설정된
 slot은 오류입니다.

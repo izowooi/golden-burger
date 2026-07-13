@@ -32,6 +32,12 @@ Environment Variables:
     ACCOUNT_5_ADDRESS=0x...
     ACCOUNT_6_NAME=golden-fox
     ACCOUNT_6_ADDRESS=0x...
+    ACCOUNT_7_NAME=golden-lion
+    ACCOUNT_7_ADDRESS=0x...
+    ACCOUNT_8_NAME=golden-tiger
+    ACCOUNT_8_ADDRESS=0x...
+    ACCOUNT_9_NAME=golden-wolf
+    ACCOUNT_9_ADDRESS=0x...
 
     # Slack notification
     SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
@@ -221,7 +227,7 @@ def main():
     try:
         validate_account_display_names(configured_names)
     except PortfolioContractError as error:
-        logger.error("Jenkins 6계정 설정 계약 실패: %s", safe_error_message(error))
+        logger.error("Jenkins 계정 설정 계약 실패: %s", safe_error_message(error))
         sys.exit(1)
 
     if args.command == "check-supabase":
@@ -282,7 +288,7 @@ def main():
             validate_complete_reports(reports)
         except PortfolioContractError as contract_error:
             errors.append(
-                "완전한 6계정 valuation 계약 실패: "
+                "완전한 계정 valuation 계약 실패: "
                 + safe_error_message(contract_error)
             )
             failed_account_names = configured_names.copy()
@@ -413,7 +419,7 @@ def main():
                 )
 
     # Send consolidated Slack report only after durable DB completion. Monthly
-    # mode changes formatting, not the six-account completion contract.
+    # mode changes formatting, not the complete-account contract.
     if reports:
         if args.simulate:
             logger.info("🔕 [SIMULATE] Slack 리포트 전송 생략")

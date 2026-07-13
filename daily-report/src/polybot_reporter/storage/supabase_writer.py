@@ -16,6 +16,7 @@ from supabase import create_client
 
 from polybot_reporter.contracts import (
     ACCOUNT_ID_BY_DISPLAY_NAME,
+    CURRENT_ACCOUNT_COUNT,
     PORTFOLIO_REPORT_SCHEMA_VERSION,
     PortfolioContractError,
     canonical_money_breakdown,
@@ -51,8 +52,8 @@ class SupabasePortfolioWriter:
     ACCOUNT_TABLE = "pb_algorithm_accounts"
     BALANCE_TABLE = "pb_daily_algorithm_balances"
     TOTAL_TABLE = "pb_daily_portfolio_totals"
-    PREFLIGHT_RPC = "pb_portfolio_writer_preflight_v2"
-    SNAPSHOT_RPC = "pb_write_complete_portfolio_snapshot_v2"
+    PREFLIGHT_RPC = "pb_portfolio_writer_preflight_v3"
+    SNAPSHOT_RPC = "pb_write_complete_portfolio_snapshot_v3"
 
     def __init__(
         self,
@@ -102,7 +103,9 @@ class SupabasePortfolioWriter:
         try:
             validate_account_display_names(list(configured_names))
         except PortfolioContractError as error:
-            raise SupabaseWriteError(f"Jenkins 6계정 설정 계약 불일치: {error}") from error
+            raise SupabaseWriteError(
+                f"Jenkins {CURRENT_ACCOUNT_COUNT}계정 설정 계약 불일치: {error}"
+            ) from error
         catalog = self._validate_catalog(self._load_account_catalog())
         try:
             response = self.client.rpc(self.PREFLIGHT_RPC, {}).execute()
@@ -112,13 +115,13 @@ class SupabasePortfolioWriter:
                     "Supabase atomic snapshot RPC preflight 실패(PGRST202). "
                     "운영 DB에 함수가 없거나 PostgREST schema cache가 오래된 상태입니다. "
                     "daily-report/SUPABASE_MIGRATION.md의 진단 절차를 실행하세요. "
-                    "함수가 없으면 slack-data-collector/sql/pb_portfolio_history_v2.sql을 "
+                    "함수가 없으면 slack-data-collector/sql/pb_portfolio_history_v3.sql을 "
                     "적용하고, 함수가 있으면 NOTIFY pgrst, 'reload schema'를 실행한 뒤 "
                     "check-supabase를 다시 실행하세요. unsafe fallback은 없습니다."
                 ) from exc
             raise SupabaseWriteError(
                 "Supabase atomic snapshot RPC preflight 실패. "
-                "slack-data-collector/sql/pb_portfolio_history_v2.sql migration을 "
+                "slack-data-collector/sql/pb_portfolio_history_v3.sql migration을 "
                 f"먼저 적용하세요: {safe_error_message(exc)}"
             ) from exc
         payload = self._rpc_object(response.data, "atomic snapshot RPC preflight")
@@ -146,7 +149,9 @@ class SupabasePortfolioWriter:
         try:
             validate_complete_reports(reports)
         except PortfolioContractError as error:
-            raise SupabaseWriteError(f"완전한 6계정 snapshot 계약 불일치: {error}") from error
+            raise SupabaseWriteError(
+                f"완전한 {CURRENT_ACCOUNT_COUNT}계정 snapshot 계약 불일치: {error}"
+            ) from error
 
         snapshot_time = self._normalize_reported_at(reported_at)
         snapshot_date = self._normalize_report_date(report_date, snapshot_time)

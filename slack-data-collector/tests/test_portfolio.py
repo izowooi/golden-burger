@@ -9,6 +9,7 @@ from pathlib import Path
 from slack_data_collector.portfolio import (
     CURRENT_REPORT_SCHEMA_VERSION,
     LEGACY_REPORT_SCHEMA_VERSION,
+    PREVIOUS_REPORT_SCHEMA_VERSION,
     PortfolioParseError,
     parse_portfolio_message,
     transform_portfolio_reports,
@@ -51,31 +52,34 @@ def report_message(
     }
 
 
-def current_report_message(ts: str, report_date: str) -> dict[str, object]:
-    names_and_values = [
-        ("GOLDEN-APPLE (1)", "$10.00 (Position: $6.00, Cash: $4.00)"),
-        ("GOLDEN-BANANA", "$11.00 (Position: $7.00, Cash: $4.00)"),
-        ("GOLDEN-CHERRY", "$12.00 (Position: $8.00, Cash: $4.00)"),
-        ("GOLDEN-APPLE (2)", "$13.00 (Position: $9.00, Cash: $4.00)"),
-        ("GOLDEN-ECO", "$14.00 (Position: $10.00, Cash: $4.00)"),
-        ("GOLDEN-FOX", "$15.00 (Position: $11.00, Cash: $4.00)"),
-    ]
+def text_report_message(
+    ts: str,
+    report_date: str,
+    schema_version: str,
+    names_and_values: list[tuple[str, str]],
+    total: str,
+    position: str,
+    cash: str,
+) -> dict[str, object]:
     return {
         "type": "message",
         "subtype": "bot_message",
         "ts": ts,
-        "text": "[pb-portfolio/v2 COMPLETE] daily report",
+        "text": f"[{schema_version} COMPLETE] daily report",
         "attachments": [
             {
                 "title": "📊 Polymarket 전체 포트폴리오",
                 "text": f"일일 통합 리포트 - {report_date} 09:00:00 기준",
                 "footer": (
-                    "Polymarket Bot • pb-portfolio/v2 • COMPLETE • tz=Asia/Seoul"
+                    f"Polymarket Bot • {schema_version} • COMPLETE • "
+                    "tz=Asia/Seoul"
                 ),
                 "fields": [
                     {
                         "title": "💰 총 자산",
-                        "value": "$75.00 (Position: $51.00, Cash: $24.00)",
+                        "value": (
+                            f"${total} (Position: ${position}, Cash: ${cash})"
+                        ),
                     }
                 ],
             },
@@ -85,6 +89,49 @@ def current_report_message(ts: str, report_date: str) -> dict[str, object]:
             ],
         ],
     }
+
+
+def previous_report_message(ts: str, report_date: str) -> dict[str, object]:
+    names_and_values = [
+        ("GOLDEN-APPLE (1)", "$10.00 (Position: $6.00, Cash: $4.00)"),
+        ("GOLDEN-BANANA", "$11.00 (Position: $7.00, Cash: $4.00)"),
+        ("GOLDEN-CHERRY", "$12.00 (Position: $8.00, Cash: $4.00)"),
+        ("GOLDEN-APPLE (2)", "$13.00 (Position: $9.00, Cash: $4.00)"),
+        ("GOLDEN-ECO", "$14.00 (Position: $10.00, Cash: $4.00)"),
+        ("GOLDEN-FOX", "$15.00 (Position: $11.00, Cash: $4.00)"),
+    ]
+    return text_report_message(
+        ts,
+        report_date,
+        PREVIOUS_REPORT_SCHEMA_VERSION,
+        names_and_values,
+        "75.00",
+        "51.00",
+        "24.00",
+    )
+
+
+def current_report_message(ts: str, report_date: str) -> dict[str, object]:
+    names_and_values = [
+        ("GOLDEN-APPLE (1)", "$10.00 (Position: $6.00, Cash: $4.00)"),
+        ("GOLDEN-BANANA", "$11.00 (Position: $7.00, Cash: $4.00)"),
+        ("GOLDEN-CHERRY", "$12.00 (Position: $8.00, Cash: $4.00)"),
+        ("GOLDEN-APPLE (2)", "$13.00 (Position: $9.00, Cash: $4.00)"),
+        ("GOLDEN-ECO", "$14.00 (Position: $10.00, Cash: $4.00)"),
+        ("GOLDEN-FOX", "$15.00 (Position: $11.00, Cash: $4.00)"),
+        ("GOLDEN-LION", "$16.00 (Position: $12.00, Cash: $4.00)"),
+        ("GOLDEN-TIGER", "$17.00 (Position: $13.00, Cash: $4.00)"),
+        ("GOLDEN-WOLF", "$18.00 (Position: $14.00, Cash: $4.00)"),
+    ]
+    return text_report_message(
+        ts,
+        report_date,
+        CURRENT_REPORT_SCHEMA_VERSION,
+        names_and_values,
+        "126.00",
+        "90.00",
+        "36.00",
+    )
 
 
 class PortfolioParserTests(unittest.TestCase):
@@ -101,7 +148,7 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertEqual(report.algorithms[0].jenkins_name, "GOLDEN-APPLE (1)")
         self.assertEqual(report.algorithms[-1].balance.cash_value, Decimal("2539.55"))
 
-    def test_parses_current_six_account_text_contract(self) -> None:
+    def test_parses_current_nine_account_text_contract(self) -> None:
         report = parse_portfolio_message(
             current_report_message("1782211560.242069", "2026-06-23")
         )
@@ -109,16 +156,27 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIsNotNone(report)
         assert report is not None
         self.assertEqual(report.schema_version, CURRENT_REPORT_SCHEMA_VERSION)
+        self.assertEqual(len(report.algorithms), 9)
+        self.assertEqual(report.algorithms[-1].account_id, "golden-wolf")
+        self.assertEqual(report.algorithms[-1].balance.total_value, Decimal("18.00"))
+
+    def test_parses_previous_six_account_text_contract(self) -> None:
+        report = parse_portfolio_message(
+            previous_report_message("1782211560.242069", "2026-06-23")
+        )
+
+        self.assertIsNotNone(report)
+        assert report is not None
+        self.assertEqual(report.schema_version, PREVIOUS_REPORT_SCHEMA_VERSION)
         self.assertEqual(len(report.algorithms), 6)
         self.assertEqual(report.algorithms[-1].account_id, "golden-fox")
-        self.assertEqual(report.algorithms[-1].balance.total_value, Decimal("15.00"))
 
-    def test_rejects_partial_five_account_current_report(self) -> None:
+    def test_rejects_partial_eight_account_current_report(self) -> None:
         message = current_report_message("1782211560.242069", "2026-06-23")
         assert isinstance(message["attachments"], list)
         message["attachments"].pop()
 
-        with self.assertRaisesRegex(PortfolioParseError, "legacy4/current6"):
+        with self.assertRaisesRegex(PortfolioParseError, "legacy4/v2-six/v3-nine"):
             parse_portfolio_message(message)
 
     def test_rejects_explicit_error_report(self) -> None:
@@ -141,10 +199,10 @@ class PortfolioParserTests(unittest.TestCase):
     def test_rejects_non_complete_or_ambiguous_current_status(self) -> None:
         for status in ("FAILED", "STARTED"):
             message = current_report_message("1782211560.242069", "2026-06-23")
-            message["text"] = f"[pb-portfolio/v2 {status}] daily report"
+            message["text"] = f"[pb-portfolio/v3 {status}] daily report"
             assert isinstance(message["attachments"], list)
             message["attachments"][0]["footer"] = (
-                f"Polymarket Bot • pb-portfolio/v2 • {status} • tz=Asia/Seoul"
+                f"Polymarket Bot • pb-portfolio/v3 • {status} • tz=Asia/Seoul"
             )
             with self.subTest(status=status), self.assertRaisesRegex(
                 PortfolioParseError, "COMPLETE만"
@@ -157,11 +215,11 @@ class PortfolioParserTests(unittest.TestCase):
             parse_portfolio_message(ambiguous)
 
         negated = current_report_message("1782211560.242069", "2026-06-23")
-        negated["text"] = "pb-portfolio/v2 is not COMPLETE"
+        negated["text"] = "pb-portfolio/v3 is not COMPLETE"
         with self.assertRaisesRegex(PortfolioParseError, "COMPLETE만"):
             parse_portfolio_message(negated)
 
-    def test_rejects_current_report_without_redundant_v2_complete_markers(self) -> None:
+    def test_rejects_current_report_without_redundant_v3_complete_markers(self) -> None:
         message = current_report_message("1782211560.242069", "2026-06-23")
         message["text"] = "daily report"
 
@@ -171,7 +229,7 @@ class PortfolioParserTests(unittest.TestCase):
         missing_timezone = current_report_message("1782211560.242069", "2026-06-23")
         assert isinstance(missing_timezone["attachments"], list)
         missing_timezone["attachments"][0]["footer"] = (
-            "Polymarket Bot • pb-portfolio/v2 • COMPLETE"
+            "Polymarket Bot • pb-portfolio/v3 • COMPLETE"
         )
         with self.assertRaisesRegex(PortfolioParseError, "tz=<IANA timezone>"):
             parse_portfolio_message(missing_timezone)
@@ -270,6 +328,9 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("where excluded.source_message_ts >=", sql)
         self.assertIn("golden-eco", sql)
         self.assertIn("golden-fox", sql)
+        self.assertIn("golden-lion", sql)
+        self.assertIn("golden-tiger", sql)
+        self.assertIn("golden-wolf", sql)
 
     def test_history_v2_schema_is_additive_and_documents_flow_boundary(self) -> None:
         sql_directory = Path(__file__).resolve().parents[1] / "sql"
@@ -299,6 +360,15 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("not isfinite(p_reported_at)", migration)
         self.assertIn("grant select, insert, update", migration.lower())
         self.assertIn("to service_role", migration.lower())
+        balance_column = migration.index(
+            "alter table public.pb_daily_algorithm_balances\n"
+            "  add column if not exists snapshot_run_id"
+        )
+        balance_index = migration.index(
+            "create index if not exists "
+            "pb_daily_algorithm_balances_snapshot_run_id_idx"
+        )
+        self.assertLess(balance_column, balance_index)
         self.assertRegex(migration.lower(), r"\bbegin\s*;")
         self.assertIn("notify pgrst, 'reload schema';", migration.lower())
         self.assertRegex(migration.lower(), r"commit\s*;\s*$")
@@ -306,3 +376,23 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertRegex(base_schema.lower(), r"\bbegin\s*;")
         self.assertIn("notify pgrst, 'reload schema';", base_schema.lower())
         self.assertRegex(base_schema.lower(), r"commit\s*;\s*$")
+
+    def test_history_v3_schema_adds_exact_nine_account_atomic_contract(self) -> None:
+        migration = (
+            Path(__file__).resolve().parents[1]
+            / "sql"
+            / "pb_portfolio_history_v3.sql"
+        ).read_text(encoding="utf-8")
+
+        self.assertIn("pb_portfolio_writer_preflight_v3", migration)
+        self.assertIn("pb_write_complete_portfolio_snapshot_v3", migration)
+        self.assertIn("pb-portfolio/v3", migration)
+        self.assertIn("expected_account_count = 9", migration)
+        self.assertIn("golden-lion", migration)
+        self.assertIn("golden-tiger", migration)
+        self.assertIn("golden-wolf", migration)
+        self.assertIn("security invoker", migration.lower())
+        self.assertIn("set search_path = pg_catalog, public", migration.lower())
+        self.assertRegex(migration.lower(), r"\bbegin\s*;")
+        self.assertIn("notify pgrst, 'reload schema';", migration.lower())
+        self.assertRegex(migration.lower(), r"commit\s*;\s*$")

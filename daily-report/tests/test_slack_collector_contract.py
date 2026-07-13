@@ -61,6 +61,9 @@ def test_current_reporter_payload_round_trips_through_collector():
             "golden-apple (2)": summary(14.0),
             "golden-eco": summary(15.0),
             "golden-fox": summary(16.0),
+            "golden-lion": summary(17.0),
+            "golden-tiger": summary(18.0),
+            "golden-wolf": summary(19.0),
         }
     )
 
@@ -68,9 +71,9 @@ def test_current_reporter_payload_round_trips_through_collector():
 
     assert report is not None
     assert report.schema_version == CURRENT_REPORT_SCHEMA_VERSION
-    assert len(report.algorithms) == 6
-    assert report.algorithms[-1].account_id == "golden-fox"
-    assert report.algorithms[-1].balance.total_value == 16
+    assert len(report.algorithms) == 9
+    assert report.algorithms[-1].account_id == "golden-wolf"
+    assert report.algorithms[-1].balance.total_value == 19
     assert report.reported_at.endswith("+09:00")
 
 
@@ -84,6 +87,9 @@ def test_raw_boundary_rounding_still_round_trips_with_exact_display_reconciliati
         "golden-apple (2)": summary(14.0),
         "golden-eco": summary(15.0),
         "golden-fox": summary(16.0),
+        "golden-lion": summary(17.0),
+        "golden-tiger": summary(18.0),
+        "golden-wolf": summary(19.0),
     }
     # Raw total differs from position+cash by exactly the allowed $0.02.
     # Independent cent rounding would produce $10.03 != $5.00 + $5.00.

@@ -39,6 +39,9 @@ const ACCOUNT_COLORS: Record<string, string> = {
   "golden-apple-2": "#a98cff",
   "golden-eco": "#4cd471",
   "golden-fox": "#57a8f5",
+  "golden-lion": "#ff9d4d",
+  "golden-tiger": "#44d7d7",
+  "golden-wolf": "#d383ff",
 };
 
 const METRICS: { value: BalanceMetric; label: string }[] = [

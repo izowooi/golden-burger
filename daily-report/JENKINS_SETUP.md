@@ -16,6 +16,9 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 | `polymarket-golden-apple-2-address` | Secret text | 두 번째 golden-apple 계좌의 funder address | `0xdef0...mnop` |
 | `polymarket-golden-eco-address` | Secret text | golden-eco 테스트 슬롯 funder address | `0x1234...eco` |
 | `polymarket-golden-fox-address` | Secret text | golden-fox 테스트 슬롯 funder address | `0x1234...fox` |
+| `polymarket-golden-lion-address` | Secret text | golden-lion 테스트 슬롯 funder address | `0x1234...lion` |
+| `polymarket-golden-tiger-address` | Secret text | golden-tiger 테스트 슬롯 funder address | `0x1234...tiger` |
+| `polymarket-golden-wolf-address` | Secret text | golden-wolf 테스트 슬롯 funder address | `0x1234...wolf` |
 | `polymarket-slack-webhook` | Secret text | Slack Webhook URL | `https://hooks.slack.com/services/...` |
 | `polymarket-supabase-secret-key` | Secret text | Supabase 서버 전용 Secret key | `sb_secret_...` |
 
@@ -117,9 +120,10 @@ archive합니다. `daily_report_*.log` wildcard를 사용하면 persistent works
 누적 `daily_evidence.sqlite3`는 별도 원장이므로 artifact build 수와 무관하게 내부 과거
 row를 보유합니다. DB row retention과 제한된 조회 권한을 별도 정책으로 관리하세요.
 
-Jenkins 실행 전 `slack-data-collector/sql/pb_portfolio_schema.sql`과
-`slack-data-collector/sql/pb_portfolio_history_v2.sql`을 순서대로 적용해야 합니다.
-`check-supabase`는 두 번째 migration의 read-only preflight RPC까지 확인하며, 누락 시
+Jenkins 실행 전 `slack-data-collector/sql/pb_portfolio_schema.sql`,
+`slack-data-collector/sql/pb_portfolio_history_v2.sql`,
+`slack-data-collector/sql/pb_portfolio_history_v3.sql`을 순서대로 적용해야 합니다.
+`check-supabase`는 세 번째 migration의 read-only preflight RPC까지 확인하며, 누락 시
 계정 조회와 Slack 전송 전에 job을 실패시킵니다.
 `PGRST202`가 발생하면 [`SUPABASE_MIGRATION.md`](SUPABASE_MIGRATION.md)의
 `to_regprocedure` 진단과 SQL Editor의 1회 migration 절차를 따릅니다.
@@ -152,6 +156,15 @@ ACCOUNT_5_ADDRESS=0x2222222222222222222222222222222222222222
 
 ACCOUNT_6_NAME=golden-fox
 ACCOUNT_6_ADDRESS=0x3333333333333333333333333333333333333333
+
+ACCOUNT_7_NAME=golden-lion
+ACCOUNT_7_ADDRESS=0x4444444444444444444444444444444444444444
+
+ACCOUNT_8_NAME=golden-tiger
+ACCOUNT_8_ADDRESS=0x5555555555555555555555555555555555555555
+
+ACCOUNT_9_NAME=golden-wolf
+ACCOUNT_9_ADDRESS=0x6666666666666666666666666666666666666666
 
 # Slack webhook
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
@@ -242,7 +255,7 @@ pip3 install --user py-clob-client requests pyyaml python-dotenv
 
 ## 9. 추가 계좌 설정
 
-4번째 이상의 계좌를 추가하려면:
+현재 9계정 집합을 변경하려면:
 
 ### Jenkins Credentials 추가
 
@@ -259,7 +272,7 @@ ACCOUNT_4_NAME = 'golden-dragonfruit'
 ACCOUNT_4_ADDRESS = credentials('polymarket-account-4-address')
 ```
 
-스크립트는 `ACCOUNT_*` 환경변수를 감지하지만, 현재 정상 리포트 계약은 고정된 6개
+스크립트는 `ACCOUNT_*` 환경변수를 감지하지만, 현재 정상 리포트 계약은 고정된 9개
 표시 이름/stable account ID입니다. 계정을 임의로 추가하면 preflight가 실패하므로
 계정 계약·Supabase catalog·collector/dashboard를 함께 migration하는 별도 변경이
 필요합니다.

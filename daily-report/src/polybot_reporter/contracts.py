@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
-PORTFOLIO_REPORT_SCHEMA_VERSION = "pb-portfolio/v2"
+PORTFOLIO_REPORT_SCHEMA_VERSION = "pb-portfolio/v3"
 PORTFOLIO_ERROR_SCHEMA_VERSION = "pb-portfolio/error-v1"
 
 ACCOUNT_ID_BY_DISPLAY_NAME = {
@@ -18,8 +18,12 @@ ACCOUNT_ID_BY_DISPLAY_NAME = {
     "GOLDEN-APPLE (2)": "golden-apple-2",
     "GOLDEN-ECO": "golden-eco",
     "GOLDEN-FOX": "golden-fox",
+    "GOLDEN-LION": "golden-lion",
+    "GOLDEN-TIGER": "golden-tiger",
+    "GOLDEN-WOLF": "golden-wolf",
 }
 CURRENT_ACCOUNT_DISPLAY_NAMES = frozenset(ACCOUNT_ID_BY_DISPLAY_NAME)
+CURRENT_ACCOUNT_COUNT = len(ACCOUNT_ID_BY_DISPLAY_NAME)
 _CHAIN_IDENTIFIER_RE = re.compile(
     r"0x(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{40})(?![0-9a-fA-F])"
 )
@@ -58,7 +62,7 @@ _SAFE_ERROR_MAX_LENGTH = 500
 
 
 class PortfolioContractError(ValueError):
-    """Raised when a report cannot be treated as one complete six-account snapshot."""
+    """Raised when a report cannot be treated as one complete current snapshot."""
 
 
 @dataclass(frozen=True)
@@ -124,14 +128,14 @@ def normalize_display_name(value: str) -> str:
 
 
 def validate_account_display_names(display_names: list[str] | tuple[str, ...]) -> None:
-    """Require the exact, non-duplicated six-account display-name contract."""
+    """Require the exact, non-duplicated current display-name contract."""
     normalized_names = [normalize_display_name(name) for name in display_names]
     if len(normalized_names) != len(set(normalized_names)):
         raise PortfolioContractError("portfolio report 계정 표시 이름이 중복됩니다")
     actual = set(normalized_names)
     if actual != CURRENT_ACCOUNT_DISPLAY_NAMES:
         raise PortfolioContractError(
-            "portfolio report는 현재 6계정 exact set이어야 합니다: "
+            f"portfolio report는 현재 {CURRENT_ACCOUNT_COUNT}계정 exact set이어야 합니다: "
             f"missing={sorted(CURRENT_ACCOUNT_DISPLAY_NAMES - actual)}, "
             f"unexpected={sorted(actual - CURRENT_ACCOUNT_DISPLAY_NAMES)}"
         )

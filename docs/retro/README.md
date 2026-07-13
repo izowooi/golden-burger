@@ -104,7 +104,8 @@ uv run tools/wind_down.py --funder 0x... status
 
 - 거래 condition ID의 `market_snapshots`/`market_catalog` join coverage를 확인한다.
 - 기간 양끝, expected 5-minute bucket, run gap, event ID coverage를 수치화한다.
-- daily local evidence는 expected 6계정이 모두 있는 `COMPLETE` run만 사용한다.
+- daily local evidence는 해당 schema의 exact account set(v2=6, v3=9)이 모두 있는
+  `COMPLETE` run만 사용한다.
 - dashboard의 freshness, account별 date range/missing days, portfolio reconciliation을 확인한다.
 - event 파생 시장은 `market_catalog.event_id` 중심으로 묶어 명목 n과 유효 n을 함께 보고한다.
 
@@ -170,3 +171,5 @@ credential은 audit/report/artifact/commit에 포함하지 않는다.
 - 각 `golden-*/STRATEGY.md`
 - `slack-data-collector/sql/pb_portfolio_history_v2.sql` — atomic daily writer의 필수
   additive migration; production 적용 여부는 별도로 검증
+- `slack-data-collector/sql/pb_portfolio_history_v3.sql` — current exact 9-account
+  atomic writer migration; v2 적용 후 production 적용 여부를 별도로 검증

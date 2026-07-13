@@ -1,10 +1,10 @@
 # Polymarket Strategy Dashboard
 
-Supabase에 적재된 Jenkins 전략 계좌들(현재 6개)의 잔고와 기간 수익률을 비교하는 로컬 대시보드입니다. Next.js App Router의 서버 Route Handler가 Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
+Supabase에 적재된 Jenkins 전략 계좌들(현재 9개)의 잔고와 기간 수익률을 비교하는 로컬 대시보드입니다. Next.js App Router의 서버 Route Handler가 Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
 
 ## 제공 기능
 
-- `GOLDEN-APPLE (1)`, `GOLDEN-BANANA`, `GOLDEN-CHERRY`, `GOLDEN-APPLE (2)`, `GOLDEN-ECO`, `GOLDEN-FOX` 개별 표시/숨김
+- `GOLDEN-APPLE (1)`, `GOLDEN-BANANA`, `GOLDEN-CHERRY`, `GOLDEN-APPLE (2)`, `GOLDEN-ECO`, `GOLDEN-FOX`, `GOLDEN-LION`, `GOLDEN-TIGER`, `GOLDEN-WOLF` 개별 표시/숨김
 - 전체 기간 또는 최근 7일·30일·90일, 직접 지정한 기간 조회
 - 전략별 총 잔고·포지션·현금 추이 비교
 - 잔고 차트와 기간 시작점 대비 수익률 차트 전환

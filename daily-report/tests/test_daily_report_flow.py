@@ -34,13 +34,19 @@ ACCOUNT_ENV = {
     "ACCOUNT_5_ADDRESS": "0x5",
     "ACCOUNT_6_NAME": "golden-fox",
     "ACCOUNT_6_ADDRESS": "0x6",
+    "ACCOUNT_7_NAME": "golden-lion",
+    "ACCOUNT_7_ADDRESS": "0x7",
+    "ACCOUNT_8_NAME": "golden-tiger",
+    "ACCOUNT_8_ADDRESS": "0x8",
+    "ACCOUNT_9_NAME": "golden-wolf",
+    "ACCOUNT_9_ADDRESS": "0x9",
 }
 
 
 class FakeWriter:
     def check_connection(self, configured_names):
-        assert len(configured_names) == 6
-        return 6
+        assert len(configured_names) == 9
+        return 9
 
 
 class FailingDataClient:
@@ -79,7 +85,7 @@ class CompleteWriter(FakeWriter):
 
     def write_daily_snapshot(self, _reports):
         type(self).writes += 1
-        return SimpleNamespace(report_date="2026-07-11", account_count=6, total_value=60.0)
+        return SimpleNamespace(report_date="2026-07-11", account_count=9, total_value=90.0)
 
 
 class CapturingSlack:
@@ -135,7 +141,7 @@ def test_collection_failure_emits_only_error_and_failed_evidence(monkeypatch, tm
             "SELECT supabase_status, slack_status, delivery_status "
             "FROM evidence_delivery_status"
         ).fetchone()
-    assert run == ("FAILED", 6, 5)
+    assert run == ("FAILED", 9, 8)
     assert delivery == ("SKIPPED", "SKIPPED", "NOT_ATTEMPTED")
 
 

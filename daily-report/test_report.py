@@ -114,6 +114,9 @@ def test_slack_notifier(mock_summary=None):
             "golden-apple (2)": mock_summary,
             "golden-eco": mock_summary,
             "golden-fox": mock_summary,
+            "golden-lion": mock_summary,
+            "golden-tiger": mock_summary,
+            "golden-wolf": mock_summary,
         }
         success = slack.send_multi_account_report(multi_reports)
         if success:

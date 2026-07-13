@@ -1,21 +1,24 @@
-"""Deployment files must preserve the same six-account/evidence contract as code."""
+"""Deployment files must preserve the same nine-account/evidence contract as code."""
 
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_jenkins_and_env_example_supply_all_six_accounts_and_archive_evidence():
+def test_jenkins_and_env_example_supply_all_nine_accounts_and_archive_evidence():
     jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
 
-    for slot in range(1, 7):
+    for slot in range(1, 10):
         assert f"ACCOUNT_{slot}_NAME" in jenkinsfile
         assert f"ACCOUNT_{slot}_ADDRESS" in jenkinsfile
         assert f"ACCOUNT_{slot}_NAME" in env_example
         assert f"ACCOUNT_{slot}_ADDRESS" in env_example
     assert "polymarket-golden-eco-address" in jenkinsfile
     assert "polymarket-golden-fox-address" in jenkinsfile
+    assert "polymarket-golden-lion-address" in jenkinsfile
+    assert "polymarket-golden-tiger-address" in jenkinsfile
+    assert "polymarket-golden-wolf-address" in jenkinsfile
     assert "post {" in jenkinsfile
     assert "always {" in jenkinsfile
     assert "daily_evidence.sqlite3" in jenkinsfile
@@ -41,11 +44,11 @@ def test_deployment_docs_require_atomic_migration_and_restricted_evidence_backup
     readme = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
     jenkins_setup = (PROJECT_ROOT / "JENKINS_SETUP.md").read_text(encoding="utf-8")
 
-    assert "pb_portfolio_history_v2.sql" in readme
+    assert "pb_portfolio_history_v3.sql" in readme
     assert "unsafe" in readme
     assert "암호화된" in readme
     assert "권한을 제한" in readme
-    assert "pb_portfolio_history_v2.sql" in jenkins_setup
+    assert "pb_portfolio_history_v3.sql" in jenkins_setup
     assert "암호화된" in jenkins_setup
     assert "raw wallet address" in jenkins_setup
 

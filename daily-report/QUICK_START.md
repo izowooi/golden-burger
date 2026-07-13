@@ -64,7 +64,7 @@ python3 test_report.py
 ### 3단계: 실제 리포트 실행 (1분)
 
 ```bash
-# 6개 계좌 모두 설정
+# 9개 계좌 모두 설정
 export ACCOUNT_2_NAME=golden-banana
 export ACCOUNT_2_ADDRESS=<WALLET_ADDRESS_2>
 export ACCOUNT_3_NAME=golden-cherry
@@ -75,6 +75,12 @@ export ACCOUNT_5_NAME=golden-eco
 export ACCOUNT_5_ADDRESS=<WALLET_ADDRESS_5>
 export ACCOUNT_6_NAME=golden-fox
 export ACCOUNT_6_ADDRESS=<WALLET_ADDRESS_6>
+export ACCOUNT_7_NAME=golden-lion
+export ACCOUNT_7_ADDRESS=<WALLET_ADDRESS_7>
+export ACCOUNT_8_NAME=golden-tiger
+export ACCOUNT_8_ADDRESS=<WALLET_ADDRESS_8>
+export ACCOUNT_9_NAME=golden-wolf
+export ACCOUNT_9_ADDRESS=<WALLET_ADDRESS_9>
 export SUPABASE_URL=https://your-project-ref.supabase.co
 export SUPABASE_SECRET_KEY=<JENKINS_SECRET_KEY>
 
@@ -88,7 +94,7 @@ python3 daily_report.py run
 ### 필수 사전 준비
 
 - Jenkins 서버 접근 권한
-- Wallet Address 6개 (각 계좌의 funder address)
+- Wallet Address 9개 (각 계좌의 funder address)
 - Slack Webhook URL
 - Supabase Project URL과 Secret key
 
@@ -114,6 +120,15 @@ python3 daily_report.py run
 
    ID: polymarket-golden-fox-address
    Secret: 0x3333333333333333333333333333333333333333
+
+   ID: polymarket-golden-lion-address
+   Secret: 0x4444444444444444444444444444444444444444
+
+   ID: polymarket-golden-tiger-address
+   Secret: 0x5555555555555555555555555555555555555555
+
+   ID: polymarket-golden-wolf-address
+   Secret: 0x6666666666666666666666666666666666666666
 
    ID: polymarket-slack-webhook
    Secret: https://hooks.slack.com/services/...
@@ -144,7 +159,7 @@ python3 daily_report.py run
 설정이 올바른지 확인하세요:
 
 - [ ] Slack Webhook URL을 생성했고, 테스트 메시지가 전송됨
-- [ ] 6개 계좌의 Wallet Address를 확보함
+- [ ] 9개 계좌의 Wallet Address를 확보함
 - [ ] `test_report.py` 실행이 성공함
 - [ ] Jenkins Credentials를 모두 등록함
 - [ ] Jenkins Job이 생성되고 첫 빌드가 성공함
