@@ -71,7 +71,9 @@ def test_account_block_is_three_lines_without_asset_label(monkeypatch):
     assert "fields" not in account
     assert account["text"] == ("$34588.65 (Position: $23140.98, Cash: $11447.67)\n7d 손익 $+668.20")
     assert "자산 가치" not in str(captured["attachments"])
-    assert PORTFOLIO_REPORT_SCHEMA_VERSION in captured["text"]
+    assert captured["text"].startswith("일일 리포트 - 총 자산:")
+    assert PORTFOLIO_REPORT_SCHEMA_VERSION not in captured["text"]
+    assert "COMPLETE" not in captured["text"]
     assert "COMPLETE" in captured["attachments"][0]["footer"]
     assert "tz=Asia/Seoul" in captured["attachments"][0]["footer"]
 

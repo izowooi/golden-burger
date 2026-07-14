@@ -125,7 +125,7 @@ def current_report_message(ts: str, report_date: str) -> dict[str, object]:
         ("GOLDEN-EAGLE", "$19.00 (Position: $15.00, Cash: $4.00)"),
         ("GOLDEN-BEAR", "$20.00 (Position: $16.00, Cash: $4.00)"),
     ]
-    return text_report_message(
+    message = text_report_message(
         ts,
         report_date,
         CURRENT_REPORT_SCHEMA_VERSION,
@@ -134,6 +134,8 @@ def current_report_message(ts: str, report_date: str) -> dict[str, object]:
         "121.00",
         "44.00",
     )
+    message["text"] = "일일 리포트 - 총 자산: $165.00 (7d: $+0.00)"
+    return message
 
 
 class PortfolioParserTests(unittest.TestCase):
@@ -221,13 +223,15 @@ class PortfolioParserTests(unittest.TestCase):
         with self.assertRaisesRegex(PortfolioParseError, "COMPLETE만"):
             parse_portfolio_message(negated)
 
-    def test_rejects_current_report_without_redundant_v3_complete_markers(self) -> None:
+    def test_current_report_allows_human_readable_message_text(self) -> None:
         message = current_report_message("1782211560.242069", "2026-06-23")
-        message["text"] = "daily report"
 
-        with self.assertRaisesRegex(PortfolioParseError, "message text"):
-            parse_portfolio_message(message)
+        report = parse_portfolio_message(message)
 
+        self.assertIsNotNone(report)
+        self.assertNotIn("pb-portfolio", str(message["text"]))
+
+    def test_rejects_current_report_without_footer_marker_or_timezone(self) -> None:
         missing_timezone = current_report_message("1782211560.242069", "2026-06-23")
         assert isinstance(missing_timezone["attachments"], list)
         missing_timezone["attachments"][0]["footer"] = (

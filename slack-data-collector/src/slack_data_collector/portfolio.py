@@ -69,9 +69,10 @@ _SCHEMA_VERSION_RE = re.compile(r"\bpb-portfolio/v\d+\b", re.IGNORECASE)
 _REPORT_STATUS_RE = re.compile(
     r"\b(STARTED|COMPLETE|FAILED|INCOMPLETE|ERROR)\b", re.IGNORECASE
 )
+_NEGATED_COMPLETE_RE = re.compile(r"\bnot\s+COMPLETE\b", re.IGNORECASE)
 _MESSAGE_MARKER_BY_SCHEMA = {
     version: re.compile(rf"\[{re.escape(version)}\s+COMPLETE\]", re.IGNORECASE)
-    for version in (PREVIOUS_REPORT_SCHEMA_VERSION, CURRENT_REPORT_SCHEMA_VERSION)
+    for version in (PREVIOUS_REPORT_SCHEMA_VERSION,)
 }
 _FOOTER_MARKER_BY_SCHEMA = {
     version: re.compile(
@@ -405,17 +406,18 @@ def _validate_text_report_markers(
     schema_version: str,
     message_ts: str,
 ) -> None:
-    """Require redundant, unambiguous COMPLETE attestations."""
+    """Require an unambiguous COMPLETE attestation in the summary footer."""
     locations = {
-        "message text": (
-            str(message.get("text") or ""),
-            _MESSAGE_MARKER_BY_SCHEMA[schema_version],
-        ),
         "summary footer": (
             str(summary.get("footer") or ""),
             _FOOTER_MARKER_BY_SCHEMA[schema_version],
         ),
     }
+    if schema_version == PREVIOUS_REPORT_SCHEMA_VERSION:
+        locations["message text"] = (
+            str(message.get("text") or ""),
+            _MESSAGE_MARKER_BY_SCHEMA[schema_version],
+        )
     for location, (value, marker_pattern) in locations.items():
         versions = {match.lower() for match in _SCHEMA_VERSION_RE.findall(value)}
         statuses = {match.upper() for match in _REPORT_STATUS_RE.findall(value)}
@@ -425,7 +427,7 @@ def _validate_text_report_markers(
             or marker_pattern.search(value) is None
         ):
             raise PortfolioParseError(
-                "current report는 message text와 summary footer 각각에 "
+                "current report는 summary footer에 "
                 f"{schema_version} + COMPLETE만 명시해야 합니다: "
                 f"location={location}, schema={sorted(versions)}, "
                 f"status={sorted(statuses)}, ts={message_ts}"
@@ -444,9 +446,13 @@ def _validate_current_payload_status(message: dict[str, Any], message_ts: str) -
         for fragment in _iter_payload_strings(message)
         for match in _REPORT_STATUS_RE.findall(fragment)
     }
-    if statuses != {"COMPLETE"}:
+    has_negated_complete = any(
+        _NEGATED_COMPLETE_RE.search(fragment) is not None
+        for fragment in _iter_payload_strings(message)
+    )
+    if statuses != {"COMPLETE"} or has_negated_complete:
         raise PortfolioParseError(
-            "current report 전체 payload에는 모순 없는 COMPLETE status만 있어야 합니다: "
+            "current report 전체 payload에는 모순 없는 COMPLETE만 있어야 합니다: "
             f"status={sorted(statuses)}, ts={message_ts}"
         )
 

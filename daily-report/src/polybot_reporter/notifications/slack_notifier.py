@@ -266,7 +266,6 @@ class SlackNotifier:
             )
         return self.send_message(
             text=(
-                f"[{PORTFOLIO_REPORT_SCHEMA_VERSION} COMPLETE] "
                 f"일일 리포트 - 총 자산: ${total_value:.2f} "
                 f"(7d: ${total_pnl_7d:+.2f})"
             ),

@@ -132,7 +132,7 @@ uv run slack-data-collector portfolio \
 |---|---:|---|---|
 | `pb-portfolio/v1` 또는 marker 없는 legacy | 4 | `fields`의 `자산 가치` | 과거 이력 호환 |
 | `pb-portfolio/v2` | 6 | `author_name` + `text` 첫 줄 | 과거 6계정 이력 호환 |
-| `pb-portfolio/v3` | 11 | `author_name` + `text` 첫 줄 | 현재 정상 리포트. message text와 summary footer 모두 `pb-portfolio/v3` + `COMPLETE` 필수 |
+| `pb-portfolio/v3` | 11 | `author_name` + `text` 첫 줄 | 현재 정상 리포트. summary footer에 `pb-portfolio/v3` + `COMPLETE` 필수 |
 
 v2/v3 parser는 message/attachment/block 전체 문자열에서 status token을 재귀 검사해
 `FAILED`, `INCOMPLETE`, `ERROR`, `STARTED`가 `COMPLETE`와 함께 나타나면 거부합니다.
