@@ -109,8 +109,10 @@ def test_rejects_partial_or_failed_report_before_webhook(monkeypatch):
     partial = make_reports()
     del partial["golden-fox"]
 
-    with pytest.raises(ValueError, match="exact set"):
-        notifier.send_multi_account_report(partial)
+    with pytest.raises(ValueError, match="계정 집합"):
+        notifier.send_multi_account_report(
+            partial, expected_display_names=list(make_reports())
+        )
 
     failed = make_reports()
     failed["golden-fox"]["error"] = "upstream timeout"

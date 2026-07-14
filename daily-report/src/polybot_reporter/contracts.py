@@ -11,19 +11,6 @@ from typing import Any
 PORTFOLIO_REPORT_SCHEMA_VERSION = "pb-portfolio/v3"
 PORTFOLIO_ERROR_SCHEMA_VERSION = "pb-portfolio/error-v1"
 
-ACCOUNT_ID_BY_DISPLAY_NAME = {
-    "GOLDEN-APPLE (1)": "golden-apple-1",
-    "GOLDEN-BANANA": "golden-banana",
-    "GOLDEN-CHERRY": "golden-cherry",
-    "GOLDEN-APPLE (2)": "golden-apple-2",
-    "GOLDEN-ECO": "golden-eco",
-    "GOLDEN-FOX": "golden-fox",
-    "GOLDEN-LION": "golden-lion",
-    "GOLDEN-TIGER": "golden-tiger",
-    "GOLDEN-WOLF": "golden-wolf",
-}
-CURRENT_ACCOUNT_DISPLAY_NAMES = frozenset(ACCOUNT_ID_BY_DISPLAY_NAME)
-CURRENT_ACCOUNT_COUNT = len(ACCOUNT_ID_BY_DISPLAY_NAME)
 _CHAIN_IDENTIFIER_RE = re.compile(
     r"0x(?:[0-9a-fA-F]{64}|[0-9a-fA-F]{40})(?![0-9a-fA-F])"
 )
@@ -127,23 +114,46 @@ def normalize_display_name(value: str) -> str:
     return " ".join(value.strip().upper().split())
 
 
+def stable_account_id(display_name: str) -> str:
+    """Derive the local evidence ID used by the Supabase account catalog."""
+    normalized = normalize_display_name(display_name).lower()
+    duplicate = re.fullmatch(r"(.+?) \(([1-9]\d*)\)", normalized)
+    if duplicate:
+        normalized = f"{duplicate.group(1)}-{duplicate.group(2)}"
+    account_id = re.sub(r"[^a-z0-9]+", "-", normalized).strip("-")
+    if not account_id:
+        raise PortfolioContractError("portfolio report 계정 표시 이름이 비어 있습니다")
+    return account_id
+
+
 def validate_account_display_names(display_names: list[str] | tuple[str, ...]) -> None:
-    """Require the exact, non-duplicated current display-name contract."""
+    """Require a non-empty list of unique, usable display names."""
     normalized_names = [normalize_display_name(name) for name in display_names]
+    if not normalized_names:
+        raise PortfolioContractError("portfolio report 계정이 없습니다")
+    if any(not name for name in normalized_names):
+        raise PortfolioContractError("portfolio report 계정 표시 이름이 비어 있습니다")
     if len(normalized_names) != len(set(normalized_names)):
         raise PortfolioContractError("portfolio report 계정 표시 이름이 중복됩니다")
-    actual = set(normalized_names)
-    if actual != CURRENT_ACCOUNT_DISPLAY_NAMES:
-        raise PortfolioContractError(
-            f"portfolio report는 현재 {CURRENT_ACCOUNT_COUNT}계정 exact set이어야 합니다: "
-            f"missing={sorted(CURRENT_ACCOUNT_DISPLAY_NAMES - actual)}, "
-            f"unexpected={sorted(actual - CURRENT_ACCOUNT_DISPLAY_NAMES)}"
-        )
 
 
-def validate_complete_reports(reports: Mapping[str, Mapping[str, Any]]) -> None:
+def validate_complete_reports(
+    reports: Mapping[str, Mapping[str, Any]],
+    *,
+    expected_display_names: list[str] | tuple[str, ...] | None = None,
+) -> None:
     """Validate account identity and required valuation fields before any write."""
     validate_account_display_names(list(reports))
+    if expected_display_names is not None:
+        validate_account_display_names(expected_display_names)
+        actual = {normalize_display_name(name) for name in reports}
+        expected = {normalize_display_name(name) for name in expected_display_names}
+        if actual != expected:
+            raise PortfolioContractError(
+                "portfolio report 계정 집합이 설정과 다릅니다: "
+                f"missing={sorted(expected - actual)}, "
+                f"unexpected={sorted(actual - expected)}"
+            )
 
     for display_name, report in reports.items():
         validate_report_valuation(display_name, report)

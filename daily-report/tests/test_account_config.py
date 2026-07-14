@@ -28,6 +28,22 @@ def test_discovers_sparse_slots_above_old_nine_account_cap():
     ]
 
 
+def test_discovers_twenty_account_slots_in_numeric_order():
+    environ = {
+        f"ACCOUNT_{slot}_{field}": (
+            f"golden-{slot}" if field == "NAME" else f"0x{slot:040x}"
+        )
+        for slot in range(1, 21)
+        for field in ("NAME", "ADDRESS")
+    }
+
+    accounts = load_account_configs(environ)
+
+    assert len(accounts) == 20
+    assert accounts[9].display_name == "golden-10"
+    assert accounts[-1].display_name == "golden-20"
+
+
 def test_rejects_incomplete_pair_even_with_later_complete_slot():
     with pytest.raises(AccountConfigurationError, match="설정이 불완전"):
         load_account_configs(

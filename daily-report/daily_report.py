@@ -285,7 +285,9 @@ def main():
 
     if not errors:
         try:
-            validate_complete_reports(reports)
+            validate_complete_reports(
+                reports, expected_display_names=configured_names
+            )
         except PortfolioContractError as contract_error:
             errors.append(
                 "완전한 계정 valuation 계약 실패: "
@@ -437,7 +439,11 @@ def main():
             try:
                 if args.monthly:
                     logger.info("--monthly 플래그 감지: 월간 리포트 모드로 실행")
-                success = slack.send_multi_account_report(reports, is_monthly=is_monthly)
+                success = slack.send_multi_account_report(
+                    reports,
+                    is_monthly=is_monthly,
+                    expected_display_names=configured_names,
+                )
                 if success:
                     logger.info("✅ Slack 리포트 전송 성공")
                     mark_delivery_outcome(

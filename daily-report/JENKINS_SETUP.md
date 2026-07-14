@@ -255,7 +255,7 @@ pip3 install --user py-clob-client requests pyyaml python-dotenv
 
 ## 9. 추가 계좌 설정
 
-현재 9계정 집합을 변경하려면:
+현재 계정 집합을 변경하려면:
 
 ### Jenkins Credentials 추가
 
@@ -272,10 +272,10 @@ ACCOUNT_4_NAME = 'golden-dragonfruit'
 ACCOUNT_4_ADDRESS = credentials('polymarket-account-4-address')
 ```
 
-스크립트는 `ACCOUNT_*` 환경변수를 감지하지만, 현재 정상 리포트 계약은 고정된 9개
-표시 이름/stable account ID입니다. 계정을 임의로 추가하면 preflight가 실패하므로
-계정 계약·Supabase catalog·collector/dashboard를 함께 migration하는 별도 변경이
-필요합니다.
+스크립트는 두 자리 이상을 포함한 모든 `ACCOUNT_<숫자>_*` 환경변수를 동적으로 감지합니다.
+계정을 추가할 때는 같은 표시 이름/stable account ID를 Supabase
+`pb_algorithm_accounts` 카탈로그에도 등록한 뒤 v3 migration을 재적용하고
+`check-supabase`를 실행해야 합니다.
 
 ## 10. 보안 고려사항
 

@@ -1,36 +1,30 @@
-"""Current portfolio account-set contract."""
+"""Dynamic portfolio account-set contract."""
 
 import pytest
 
 from polybot_reporter.contracts import (
-    ACCOUNT_ID_BY_DISPLAY_NAME,
     PORTFOLIO_REPORT_SCHEMA_VERSION,
     PortfolioContractError,
+    stable_account_id,
     validate_account_display_names,
 )
 
-EXPECTED_NINE_ACCOUNT_MAPPING = {
-    "GOLDEN-APPLE (1)": "golden-apple-1",
-    "GOLDEN-BANANA": "golden-banana",
-    "GOLDEN-CHERRY": "golden-cherry",
-    "GOLDEN-APPLE (2)": "golden-apple-2",
-    "GOLDEN-ECO": "golden-eco",
-    "GOLDEN-FOX": "golden-fox",
-    "GOLDEN-LION": "golden-lion",
-    "GOLDEN-TIGER": "golden-tiger",
-    "GOLDEN-WOLF": "golden-wolf",
-}
 
+def test_contract_accepts_double_digit_account_sets() -> None:
+    names = [f"GOLDEN-ACCOUNT-{index}" for index in range(1, 21)]
 
-def test_current_contract_accepts_exact_nine_accounts() -> None:
     assert PORTFOLIO_REPORT_SCHEMA_VERSION == "pb-portfolio/v3"
-    assert ACCOUNT_ID_BY_DISPLAY_NAME == EXPECTED_NINE_ACCOUNT_MAPPING
-
-    validate_account_display_names(list(EXPECTED_NINE_ACCOUNT_MAPPING))
+    validate_account_display_names(names)
 
 
-def test_previous_six_account_set_is_incomplete_for_new_snapshots() -> None:
-    previous_six = list(EXPECTED_NINE_ACCOUNT_MAPPING)[:6]
+def test_contract_rejects_duplicate_or_empty_names() -> None:
+    with pytest.raises(PortfolioContractError, match="중복"):
+        validate_account_display_names(["golden-eagle", " GOLDEN-EAGLE "])
 
-    with pytest.raises(PortfolioContractError, match="9계정 exact set"):
-        validate_account_display_names(previous_six)
+    with pytest.raises(PortfolioContractError, match="비어"):
+        validate_account_display_names([" "])
+
+
+def test_stable_account_id_preserves_duplicate_instance_identity() -> None:
+    assert stable_account_id("GOLDEN-APPLE (1)") == "golden-apple-1"
+    assert stable_account_id("golden-eagle") == "golden-eagle"

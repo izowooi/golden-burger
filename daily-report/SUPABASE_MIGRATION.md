@@ -53,5 +53,5 @@ uv run --frozen python daily_report.py check-supabase
 - `anon`/publishable role에 write 권한 부여
 - Jenkins job에 DB 관리자 password 또는 migration 권한 부여
 
-이 조치들은 9계정과 portfolio total의 단일 transaction 계약을 깨거나 불필요한 관리자
+이 조치들은 카탈로그 전체 계정과 portfolio total의 단일 transaction 계약을 깨거나 불필요한 관리자
 권한을 상시 노출합니다.

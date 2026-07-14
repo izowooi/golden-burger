@@ -100,6 +100,18 @@ def test_complete_run_persists_required_position_fields_without_wallet(tmp_path)
     assert b"must-not-persist" not in database_bytes
 
 
+def test_complete_run_accepts_double_digit_dynamic_account_set(tmp_path):
+    display_names = [f"golden-account-{index}" for index in range(1, 21)]
+
+    result = DailyEvidenceStore(tmp_path / "daily-evidence.sqlite3").record_run(
+        {name: summary() for name in display_names},
+        expected_display_names=display_names,
+    )
+
+    assert result.status == "COMPLETE"
+    assert result.account_count == 20
+
+
 def test_failed_run_records_completeness_without_synthetic_failed_account(tmp_path):
     reports = {name: summary() for name in DISPLAY_NAMES}
     reports["golden-fox"] = {"error": "upstream timeout", "total_value": 0}

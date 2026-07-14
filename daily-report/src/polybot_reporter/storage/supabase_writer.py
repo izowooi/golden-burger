@@ -15,8 +15,6 @@ from zoneinfo import ZoneInfo
 from supabase import create_client
 
 from polybot_reporter.contracts import (
-    ACCOUNT_ID_BY_DISPLAY_NAME,
-    CURRENT_ACCOUNT_COUNT,
     PORTFOLIO_REPORT_SCHEMA_VERSION,
     PortfolioContractError,
     canonical_money_breakdown,
@@ -104,9 +102,17 @@ class SupabasePortfolioWriter:
             validate_account_display_names(list(configured_names))
         except PortfolioContractError as error:
             raise SupabaseWriteError(
-                f"Jenkins {CURRENT_ACCOUNT_COUNT}계정 설정 계약 불일치: {error}"
+                f"Jenkins 계정 설정 계약 불일치: {error}"
             ) from error
         catalog = self._validate_catalog(self._load_account_catalog())
+        configured = {normalize_display_name(name) for name in configured_names}
+        catalog_names = {row["jenkins_name"] for row in catalog}
+        if configured != catalog_names:
+            raise SupabaseWriteError(
+                "Jenkins 계정과 Supabase 카탈로그가 일치하지 않습니다: "
+                f"missing={sorted(catalog_names - configured)}, "
+                f"unexpected={sorted(configured - catalog_names)}"
+            )
         try:
             response = self.client.rpc(self.PREFLIGHT_RPC, {}).execute()
         except Exception as exc:
@@ -127,7 +133,7 @@ class SupabasePortfolioWriter:
         payload = self._rpc_object(response.data, "atomic snapshot RPC preflight")
         if (
             payload.get("contract_version") != PORTFOLIO_REPORT_SCHEMA_VERSION
-            or payload.get("account_count") != len(ACCOUNT_ID_BY_DISPLAY_NAME)
+            or payload.get("account_count") != len(catalog)
         ):
             raise SupabaseWriteError(
                 "Supabase atomic snapshot RPC contract 응답이 예상과 다릅니다"
@@ -150,7 +156,7 @@ class SupabasePortfolioWriter:
             validate_complete_reports(reports)
         except PortfolioContractError as error:
             raise SupabaseWriteError(
-                f"완전한 {CURRENT_ACCOUNT_COUNT}계정 snapshot 계약 불일치: {error}"
+                f"완전한 계정 snapshot 계약 불일치: {error}"
             ) from error
 
         snapshot_time = self._normalize_reported_at(reported_at)
@@ -396,31 +402,27 @@ class SupabasePortfolioWriter:
 
     @staticmethod
     def _validate_catalog(rows: Sequence[Mapping[str, Any]]) -> list[dict[str, str]]:
-        """Require the immutable display-name to stable-account-ID mapping."""
+        """Require unique, non-empty display names and stable account IDs."""
         actual: dict[str, str] = {}
+        account_ids: set[str] = set()
         for row in rows:
             try:
                 display_name = normalize_display_name(str(row["jenkins_name"]))
-                account_id = str(row["account_id"])
+                account_id = str(row["account_id"]).strip()
             except (KeyError, TypeError) as error:
                 raise SupabaseWriteError("Supabase 계정 카탈로그 row가 불완전합니다") from error
+            if not display_name or not account_id:
+                raise SupabaseWriteError("Supabase 계정 카탈로그에 빈 이름/ID가 있습니다")
             if display_name in actual:
                 raise SupabaseWriteError(
                     f"Supabase 계정 카탈로그 Jenkins 이름이 중복됩니다: {display_name}"
                 )
+            if account_id in account_ids:
+                raise SupabaseWriteError(
+                    f"Supabase 계정 카탈로그 stable ID가 중복됩니다: {account_id}"
+                )
             actual[display_name] = account_id
-        if actual != ACCOUNT_ID_BY_DISPLAY_NAME:
-            missing = sorted(set(ACCOUNT_ID_BY_DISPLAY_NAME) - set(actual))
-            unexpected = sorted(set(actual) - set(ACCOUNT_ID_BY_DISPLAY_NAME))
-            mismatched = sorted(
-                name
-                for name in set(actual) & set(ACCOUNT_ID_BY_DISPLAY_NAME)
-                if actual[name] != ACCOUNT_ID_BY_DISPLAY_NAME[name]
-            )
-            raise SupabaseWriteError(
-                "Supabase stable account mapping 불일치: "
-                f"missing={missing}, unexpected={unexpected}, mismatched={mismatched}"
-            )
+            account_ids.add(account_id)
         return [
             {"jenkins_name": name, "account_id": account_id}
             for name, account_id in actual.items()

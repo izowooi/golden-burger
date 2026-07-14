@@ -39,6 +39,8 @@ ALGORITHM_ACCOUNTS = (
     AlgorithmAccount("golden-lion", "GOLDEN-LION", "golden-lion", None, 7),
     AlgorithmAccount("golden-tiger", "GOLDEN-TIGER", "golden-tiger", None, 8),
     AlgorithmAccount("golden-wolf", "GOLDEN-WOLF", "golden-wolf", None, 9),
+    AlgorithmAccount("golden-eagle", "GOLDEN-EAGLE", "golden-eagle", None, 10),
+    AlgorithmAccount("golden-bear", "GOLDEN-BEAR", "golden-bear", None, 11),
 )
 _ACCOUNT_BY_JENKINS_NAME = {
     account.jenkins_name: account for account in ALGORITHM_ACCOUNTS
@@ -340,7 +342,7 @@ def parse_portfolio_message(message: dict[str, Any]) -> PortfolioReport | None:
         missing = sorted(expected_ids - actual_ids)
         unexpected = sorted(actual_ids - expected_ids)
         raise PortfolioParseError(
-            "리포트의 알고리즘 계정 집합이 허용된 legacy4/v2-six/v3-nine "
+            "리포트의 알고리즘 계정 집합이 허용된 legacy4/v2-six/v3-current "
             "계약과 다릅니다: "
             f"missing={missing}, unexpected={unexpected}, ts={source_message_ts}"
         )

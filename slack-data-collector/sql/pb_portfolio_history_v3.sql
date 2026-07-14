@@ -1,7 +1,7 @@
--- Nine-account pb-portfolio/v3 contract and atomic daily writer.
+-- Catalog-driven pb-portfolio/v3 contract and atomic daily writer.
 -- Apply pb_portfolio_schema.sql and pb_portfolio_history_v2.sql first.
--- Historical v2 six-account snapshot runs remain valid; new writes require the
--- exact v3 nine-account set.
+-- Historical v2 six-account snapshot runs remain valid; new v3 writes require
+-- every account currently registered in pb_algorithm_accounts.
 
 begin;
 
@@ -16,7 +16,9 @@ insert into public.pb_algorithm_accounts (
   ('golden-fox', 'GOLDEN-FOX', 'golden-nectarine', null, 6),
   ('golden-lion', 'GOLDEN-LION', 'golden-lion', null, 7),
   ('golden-tiger', 'GOLDEN-TIGER', 'golden-tiger', null, 8),
-  ('golden-wolf', 'GOLDEN-WOLF', 'golden-wolf', null, 9)
+  ('golden-wolf', 'GOLDEN-WOLF', 'golden-wolf', null, 9),
+  ('golden-eagle', 'GOLDEN-EAGLE', 'golden-eagle', null, 10),
+  ('golden-bear', 'GOLDEN-BEAR', 'golden-bear', null, 11)
 on conflict (account_id) do nothing;
 
 -- The v2 migration installed an exact-six check. Replace it with a versioned
@@ -43,17 +45,7 @@ alter table public.pb_snapshot_runs
     or
     (
       source_schema_version = 'pb-portfolio/v3'
-      and expected_account_count = 9
-      and expected_account_ids @> array[
-        'golden-apple-1', 'golden-apple-2', 'golden-banana',
-        'golden-cherry', 'golden-eco', 'golden-fox',
-        'golden-lion', 'golden-tiger', 'golden-wolf'
-      ]::text[]
-      and expected_account_ids <@ array[
-        'golden-apple-1', 'golden-apple-2', 'golden-banana',
-        'golden-cherry', 'golden-eco', 'golden-fox',
-        'golden-lion', 'golden-tiger', 'golden-wolf'
-      ]::text[]
+      and expected_account_count > 0
     )
   ) not valid;
 
@@ -64,33 +56,18 @@ security invoker
 set search_path = pg_catalog, public
 as $$
 declare
-  actual_mapping jsonb;
-  expected_mapping constant jsonb := jsonb_build_object(
-    'GOLDEN-APPLE (1)', 'golden-apple-1',
-    'GOLDEN-APPLE (2)', 'golden-apple-2',
-    'GOLDEN-BANANA', 'golden-banana',
-    'GOLDEN-CHERRY', 'golden-cherry',
-    'GOLDEN-ECO', 'golden-eco',
-    'GOLDEN-FOX', 'golden-fox',
-    'GOLDEN-LION', 'golden-lion',
-    'GOLDEN-TIGER', 'golden-tiger',
-    'GOLDEN-WOLF', 'golden-wolf'
-  );
+  catalog_count integer;
 begin
-  select coalesce(
-    jsonb_object_agg(account.jenkins_name, account.account_id),
-    '{}'::jsonb
-  )
-  into actual_mapping
-  from public.pb_algorithm_accounts account;
+  select count(*) into catalog_count
+  from public.pb_algorithm_accounts;
 
-  if actual_mapping <> expected_mapping then
-    raise exception 'pb_algorithm_accounts exact nine-account mapping mismatch';
+  if catalog_count < 1 then
+    raise exception 'pb_algorithm_accounts catalog must not be empty';
   end if;
 
   return jsonb_build_object(
     'contract_version', 'pb-portfolio/v3',
-    'account_count', 9
+    'account_count', catalog_count
   );
 end;
 $$;
@@ -108,11 +85,7 @@ security invoker
 set search_path = pg_catalog, public
 as $$
 declare
-  expected_ids constant text[] := array[
-    'golden-apple-1', 'golden-apple-2', 'golden-banana',
-    'golden-cherry', 'golden-eco', 'golden-fox',
-    'golden-lion', 'golden-tiger', 'golden-wolf'
-  ]::text[];
+  expected_ids text[];
   observed_ids text[];
   snapshot_id uuid;
   account_count integer;
@@ -122,6 +95,10 @@ declare
   portfolio_cash numeric;
 begin
   perform public.pb_portfolio_writer_preflight_v3();
+
+  select array_agg(account.account_id order by account.account_id)
+  into expected_ids
+  from public.pb_algorithm_accounts account;
 
   if p_report_date is null or p_reported_at is null
      or not isfinite(p_report_date) or not isfinite(p_reported_at) then
@@ -158,8 +135,9 @@ begin
     cash_value numeric
   );
 
-  if account_count <> 9 or observed_ids <> expected_ids then
-    raise exception 'balances must contain the exact nine stable account IDs';
+  if account_count <> cardinality(expected_ids)
+     or observed_ids is distinct from expected_ids then
+    raise exception 'balances must contain every catalog stable account ID exactly once';
   end if;
   if exists (
     select 1
@@ -194,7 +172,7 @@ begin
     expected_account_ids, observed_account_ids, completed_at
   ) values (
     p_report_date, p_reported_at, p_source_schema_version, 'COMPLETE',
-    9, 9, expected_ids, observed_ids, statement_timestamp()
+    account_count, account_count, expected_ids, observed_ids, statement_timestamp()
   )
   returning snapshot_run_id into snapshot_id;
 
@@ -225,7 +203,7 @@ begin
     source_schema_version = excluded.source_schema_version
   where excluded.source_message_ts >= existing.source_message_ts;
   get diagnostics written_count = row_count;
-  if written_count <> 9 then
+  if written_count <> account_count then
     raise exception 'stale or incomplete algorithm balance write rejected';
   end if;
 

@@ -26,6 +26,8 @@ CATALOG = [
     {"account_id": "golden-lion", "jenkins_name": "GOLDEN-LION"},
     {"account_id": "golden-tiger", "jenkins_name": "GOLDEN-TIGER"},
     {"account_id": "golden-wolf", "jenkins_name": "GOLDEN-WOLF"},
+    {"account_id": "golden-eagle", "jenkins_name": "GOLDEN-EAGLE"},
+    {"account_id": "golden-bear", "jenkins_name": "GOLDEN-BEAR"},
 ]
 CONFIGURED_NAMES = [row["jenkins_name"] for row in CATALOG]
 
@@ -44,6 +46,8 @@ def make_reports():
         "golden-lion": report(3000.0, 0.0, 3000.0),
         "golden-tiger": report(3000.0, 0.0, 3000.0),
         "golden-wolf": report(3000.0, 0.0, 3000.0),
+        "golden-eagle": report(3000.0, 0.0, 3000.0),
+        "golden-bear": report(3000.0, 0.0, 3000.0),
     }
 
 
@@ -126,7 +130,10 @@ class FakeRpcQuery:
     def execute(self):
         if self.function_name == SupabasePortfolioWriter.PREFLIGHT_RPC:
             return SimpleNamespace(
-                data={"contract_version": "pb-portfolio/v3", "account_count": 9}
+                data={
+                    "contract_version": "pb-portfolio/v3",
+                    "account_count": len(self.client.catalog),
+                }
             )
         if self.function_name != SupabasePortfolioWriter.SNAPSHOT_RPC:
             raise RuntimeError("unknown RPC")
@@ -196,7 +203,7 @@ def test_accepts_server_secret_key(monkeypatch):
         secret_key="sb_" + "secret_" + "example_server_key",
     )
 
-    assert writer.check_connection(CONFIGURED_NAMES) == 9
+    assert writer.check_connection(CONFIGURED_NAMES) == 11
 
 
 def test_permission_error_explains_required_key_type():
@@ -210,29 +217,26 @@ def test_check_connection_rejects_name_mismatch_not_just_equal_count():
     writer = SupabasePortfolioWriter(client=FakeClient())
     wrong_names = [*CONFIGURED_NAMES[:-1], "GOLDEN-UNKNOWN"]
 
-    with pytest.raises(SupabaseWriteError, match="GOLDEN-WOLF") as error:
+    with pytest.raises(SupabaseWriteError, match="GOLDEN-BEAR") as error:
         writer.check_connection(wrong_names)
 
     assert "GOLDEN-UNKNOWN" in str(error.value)
 
 
-def test_check_connection_rejects_eight_accounts_even_when_catalog_has_same_eight():
-    eight = CATALOG[:-1]
-    writer = SupabasePortfolioWriter(client=FakeClient(catalog=eight))
+def test_check_connection_rejects_configured_account_missing_from_catalog():
+    ten = CATALOG[:-1]
+    writer = SupabasePortfolioWriter(client=FakeClient(catalog=ten))
 
-    with pytest.raises(SupabaseWriteError, match="9계정"):
-        writer.check_connection([row["jenkins_name"] for row in eight])
+    with pytest.raises(SupabaseWriteError, match="Supabase 카탈로그"):
+        writer.check_connection(CONFIGURED_NAMES)
 
 
-def test_check_connection_rejects_swapped_stable_account_ids():
-    swapped = [dict(row) for row in CATALOG]
-    swapped[-2]["account_id"], swapped[-1]["account_id"] = (
-        swapped[-1]["account_id"],
-        swapped[-2]["account_id"],
-    )
+def test_check_connection_rejects_duplicate_stable_account_ids():
+    duplicated = [dict(row) for row in CATALOG]
+    duplicated[-1]["account_id"] = duplicated[-2]["account_id"]
 
-    with pytest.raises(SupabaseWriteError, match="mismatched"):
-        SupabasePortfolioWriter(client=FakeClient(catalog=swapped)).check_connection(
+    with pytest.raises(SupabaseWriteError, match="stable ID가 중복"):
+        SupabasePortfolioWriter(client=FakeClient(catalog=duplicated)).check_connection(
             CONFIGURED_NAMES
         )
 
@@ -259,20 +263,42 @@ def test_writes_complete_snapshot_with_one_atomic_rpc_call():
         "golden-lion",
         "golden-tiger",
         "golden-wolf",
+        "golden-eagle",
+        "golden-bear",
     }
     assert operation["params"]["p_report_date"] == "2026-06-23"
     assert operation["params"]["p_source_schema_version"] == "pb-portfolio/v3"
     assert result.report_date == "2026-06-23"
-    assert result.account_count == 9
-    assert result.total_value == 62037.05
+    assert result.account_count == 11
+    assert result.total_value == 68037.05
     assert result.position_value == 39312.25
-    assert result.cash_value == 22724.80
+    assert result.cash_value == 28724.80
     assert result.total_value == result.position_value + result.cash_value
     assert all(
         Decimal(str(row["total_value"]))
         == Decimal(str(row["position_value"])) + Decimal(str(row["cash_value"]))
         for row in operation["params"]["p_balances"]
     )
+
+
+def test_preflight_and_snapshot_support_twenty_catalog_accounts():
+    catalog = [
+        {
+            "account_id": f"golden-account-{index}",
+            "jenkins_name": f"GOLDEN-ACCOUNT-{index}",
+        }
+        for index in range(1, 21)
+    ]
+    reports = {
+        row["jenkins_name"]: report(10.0, 4.0, 6.0) for row in catalog
+    }
+    writer = SupabasePortfolioWriter(client=FakeClient(catalog=catalog))
+
+    assert writer.check_connection(list(reports)) == 20
+    result = writer.write_daily_snapshot(reports)
+
+    assert result.account_count == 20
+    assert result.total_value == 200.0
 
 
 def test_missing_atomic_rpc_fails_closed_without_table_write():
@@ -318,7 +344,7 @@ def test_preflight_pgrst202_has_specific_safe_recovery_without_fallback():
     assert client.operations == []
 
 
-def test_nine_small_raw_mismatches_share_one_canonical_cent_contract():
+def test_double_digit_raw_mismatches_share_one_canonical_cent_contract():
     reports = {
         name: report(10.02, 5.0, 5.0)
         for name in (
@@ -331,6 +357,8 @@ def test_nine_small_raw_mismatches_share_one_canonical_cent_contract():
             "golden-lion",
             "golden-tiger",
             "golden-wolf",
+            "golden-eagle",
+            "golden-bear",
         )
     }
     client = FakeClient()
@@ -355,9 +383,9 @@ def test_nine_small_raw_mismatches_share_one_canonical_cent_contract():
         for attachment in slack_payload["attachments"][1:]
     )
     assert (result.total_value, result.position_value, result.cash_value) == (
-        90.18,
-        45.0,
-        45.18,
+        110.22,
+        55.0,
+        55.22,
     )
 
 
@@ -377,7 +405,7 @@ def test_rejects_incomplete_snapshot_without_writing():
     reports = make_reports()
     del reports["golden-apple (2)"]
 
-    with pytest.raises(SupabaseWriteError, match="9계정 snapshot"):
+    with pytest.raises(SupabaseWriteError, match="일부 DB 계정"):
         SupabasePortfolioWriter(client=client).write_daily_snapshot(reports)
 
     assert client.operations == []

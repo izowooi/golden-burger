@@ -40,13 +40,17 @@ ACCOUNT_ENV = {
     "ACCOUNT_8_ADDRESS": "0x8",
     "ACCOUNT_9_NAME": "golden-wolf",
     "ACCOUNT_9_ADDRESS": "0x9",
+    "ACCOUNT_10_NAME": "golden-eagle",
+    "ACCOUNT_10_ADDRESS": "0x10",
+    "ACCOUNT_11_NAME": "golden-bear",
+    "ACCOUNT_11_ADDRESS": "0x11",
 }
 
 
 class FakeWriter:
     def check_connection(self, configured_names):
-        assert len(configured_names) == 9
-        return 9
+        assert len(configured_names) == 11
+        return 11
 
 
 class FailingDataClient:
@@ -85,7 +89,7 @@ class CompleteWriter(FakeWriter):
 
     def write_daily_snapshot(self, _reports):
         type(self).writes += 1
-        return SimpleNamespace(report_date="2026-07-11", account_count=9, total_value=90.0)
+        return SimpleNamespace(report_date="2026-07-11", account_count=11, total_value=110.0)
 
 
 class CapturingSlack:
@@ -93,7 +97,10 @@ class CapturingSlack:
         self.normal_reports = []
         self.errors = []
 
-    def send_multi_account_report(self, reports, is_monthly=False):
+    def send_multi_account_report(
+        self, reports, is_monthly=False, *, expected_display_names=None
+    ):
+        assert expected_display_names == list(reports)
         self.normal_reports.append((reports, is_monthly))
         return True
 
@@ -141,7 +148,7 @@ def test_collection_failure_emits_only_error_and_failed_evidence(monkeypatch, tm
             "SELECT supabase_status, slack_status, delivery_status "
             "FROM evidence_delivery_status"
         ).fetchone()
-    assert run == ("FAILED", 9, 8)
+    assert run == ("FAILED", 11, 10)
     assert delivery == ("SKIPPED", "SKIPPED", "NOT_ATTEMPTED")
 
 
@@ -221,7 +228,10 @@ def test_slack_transport_failure_still_writes_db_but_exits_one(monkeypatch, tmp_
         monkeypatch.setenv(key, value)
 
     class FailingSlack(CapturingSlack):
-        def send_multi_account_report(self, reports, is_monthly=False):
+        def send_multi_account_report(
+            self, reports, is_monthly=False, *, expected_display_names=None
+        ):
+            assert expected_display_names == list(reports)
             self.normal_reports.append((reports, is_monthly))
             return False
 

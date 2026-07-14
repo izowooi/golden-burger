@@ -16,11 +16,10 @@ from typing import Any
 from zoneinfo import ZoneInfo
 
 from polybot_reporter.contracts import (
-    ACCOUNT_ID_BY_DISPLAY_NAME,
     PortfolioContractError,
     canonical_money_breakdown,
-    normalize_display_name,
     safe_error_message,
+    stable_account_id,
     validate_complete_reports,
     validate_report_valuation,
 )
@@ -109,7 +108,9 @@ class DailyEvidenceStore:
         )
         if status == "COMPLETE":
             try:
-                validate_complete_reports(reports)
+                validate_complete_reports(
+                    reports, expected_display_names=list(expected_display_names)
+                )
             except PortfolioContractError as error:
                 raise EvidenceStoreError(
                     f"COMPLETE daily evidence 계약 검증 실패: {error}"
@@ -481,13 +482,10 @@ class DailyEvidenceStore:
 
     @staticmethod
     def _account_id(display_name: str) -> str:
-        normalized = normalize_display_name(display_name)
-        account_id = ACCOUNT_ID_BY_DISPLAY_NAME.get(normalized)
-        if account_id is None:
-            raise EvidenceStoreError(
-                f"evidence account catalog에 없는 표시 이름입니다: {display_name!r}"
-            )
-        return account_id
+        try:
+            return stable_account_id(display_name)
+        except PortfolioContractError as error:
+            raise EvidenceStoreError(str(error)) from error
 
     def _reported_at(self, value: datetime | None) -> datetime:
         if value is None:

@@ -1,15 +1,15 @@
-"""Deployment files must preserve the same nine-account/evidence contract as code."""
+"""Deployment files must preserve the current account/evidence contract."""
 
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_jenkins_and_env_example_supply_all_nine_accounts_and_archive_evidence():
+def test_jenkins_and_env_example_supply_all_eleven_accounts_and_archive_evidence():
     jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
 
-    for slot in range(1, 10):
+    for slot in range(1, 12):
         assert f"ACCOUNT_{slot}_NAME" in jenkinsfile
         assert f"ACCOUNT_{slot}_ADDRESS" in jenkinsfile
         assert f"ACCOUNT_{slot}_NAME" in env_example
@@ -19,6 +19,8 @@ def test_jenkins_and_env_example_supply_all_nine_accounts_and_archive_evidence()
     assert "polymarket-golden-lion-address" in jenkinsfile
     assert "polymarket-golden-tiger-address" in jenkinsfile
     assert "polymarket-golden-wolf-address" in jenkinsfile
+    assert "polymarket-golden-eagle-address" in jenkinsfile
+    assert "polymarket-golden-bear-address" in jenkinsfile
     assert "post {" in jenkinsfile
     assert "always {" in jenkinsfile
     assert "daily_evidence.sqlite3" in jenkinsfile

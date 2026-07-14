@@ -182,7 +182,13 @@ class SlackNotifier:
             text=f"{account_name} Daily Report - ${total_value:.2f}", attachments=[attachment]
         )
 
-    def send_multi_account_report(self, reports: dict[str, dict], is_monthly: bool = False) -> bool:
+    def send_multi_account_report(
+        self,
+        reports: dict[str, dict],
+        is_monthly: bool = False,
+        *,
+        expected_display_names: list[str] | tuple[str, ...] | None = None,
+    ) -> bool:
         """Send a consolidated report for multiple accounts.
 
         Args:
@@ -191,7 +197,9 @@ class SlackNotifier:
         Returns:
             True if sent successfully
         """
-        validate_complete_reports(reports)
+        validate_complete_reports(
+            reports, expected_display_names=expected_display_names
+        )
 
         display_money = {
             name: _reconciled_display_money(summary)

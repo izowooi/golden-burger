@@ -122,15 +122,17 @@ def current_report_message(ts: str, report_date: str) -> dict[str, object]:
         ("GOLDEN-LION", "$16.00 (Position: $12.00, Cash: $4.00)"),
         ("GOLDEN-TIGER", "$17.00 (Position: $13.00, Cash: $4.00)"),
         ("GOLDEN-WOLF", "$18.00 (Position: $14.00, Cash: $4.00)"),
+        ("GOLDEN-EAGLE", "$19.00 (Position: $15.00, Cash: $4.00)"),
+        ("GOLDEN-BEAR", "$20.00 (Position: $16.00, Cash: $4.00)"),
     ]
     return text_report_message(
         ts,
         report_date,
         CURRENT_REPORT_SCHEMA_VERSION,
         names_and_values,
-        "126.00",
-        "90.00",
-        "36.00",
+        "165.00",
+        "121.00",
+        "44.00",
     )
 
 
@@ -148,7 +150,7 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertEqual(report.algorithms[0].jenkins_name, "GOLDEN-APPLE (1)")
         self.assertEqual(report.algorithms[-1].balance.cash_value, Decimal("2539.55"))
 
-    def test_parses_current_nine_account_text_contract(self) -> None:
+    def test_parses_current_eleven_account_text_contract(self) -> None:
         report = parse_portfolio_message(
             current_report_message("1782211560.242069", "2026-06-23")
         )
@@ -156,9 +158,9 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIsNotNone(report)
         assert report is not None
         self.assertEqual(report.schema_version, CURRENT_REPORT_SCHEMA_VERSION)
-        self.assertEqual(len(report.algorithms), 9)
-        self.assertEqual(report.algorithms[-1].account_id, "golden-wolf")
-        self.assertEqual(report.algorithms[-1].balance.total_value, Decimal("18.00"))
+        self.assertEqual(len(report.algorithms), 11)
+        self.assertEqual(report.algorithms[-1].account_id, "golden-bear")
+        self.assertEqual(report.algorithms[-1].balance.total_value, Decimal("20.00"))
 
     def test_parses_previous_six_account_text_contract(self) -> None:
         report = parse_portfolio_message(
@@ -171,12 +173,12 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertEqual(len(report.algorithms), 6)
         self.assertEqual(report.algorithms[-1].account_id, "golden-fox")
 
-    def test_rejects_partial_eight_account_current_report(self) -> None:
+    def test_rejects_partial_ten_account_current_report(self) -> None:
         message = current_report_message("1782211560.242069", "2026-06-23")
         assert isinstance(message["attachments"], list)
         message["attachments"].pop()
 
-        with self.assertRaisesRegex(PortfolioParseError, "legacy4/v2-six/v3-nine"):
+        with self.assertRaisesRegex(PortfolioParseError, "legacy4/v2-six/v3-current"):
             parse_portfolio_message(message)
 
     def test_rejects_explicit_error_report(self) -> None:
@@ -331,6 +333,8 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("golden-lion", sql)
         self.assertIn("golden-tiger", sql)
         self.assertIn("golden-wolf", sql)
+        self.assertIn("golden-eagle", sql)
+        self.assertIn("golden-bear", sql)
 
     def test_history_v2_schema_is_additive_and_documents_flow_boundary(self) -> None:
         sql_directory = Path(__file__).resolve().parents[1] / "sql"
@@ -377,7 +381,7 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("notify pgrst, 'reload schema';", base_schema.lower())
         self.assertRegex(base_schema.lower(), r"commit\s*;\s*$")
 
-    def test_history_v3_schema_adds_exact_nine_account_atomic_contract(self) -> None:
+    def test_history_v3_schema_adds_catalog_driven_atomic_contract(self) -> None:
         migration = (
             Path(__file__).resolve().parents[1]
             / "sql"
@@ -387,10 +391,13 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertIn("pb_portfolio_writer_preflight_v3", migration)
         self.assertIn("pb_write_complete_portfolio_snapshot_v3", migration)
         self.assertIn("pb-portfolio/v3", migration)
-        self.assertIn("expected_account_count = 9", migration)
+        self.assertIn("expected_account_count > 0", migration)
+        self.assertIn("cardinality(expected_ids)", migration)
         self.assertIn("golden-lion", migration)
         self.assertIn("golden-tiger", migration)
         self.assertIn("golden-wolf", migration)
+        self.assertIn("golden-eagle", migration)
+        self.assertIn("golden-bear", migration)
         self.assertIn("security invoker", migration.lower())
         self.assertIn("set search_path = pg_catalog, public", migration.lower())
         self.assertRegex(migration.lower(), r"\bbegin\s*;")
