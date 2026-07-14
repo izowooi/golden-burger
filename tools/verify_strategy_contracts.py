@@ -27,6 +27,7 @@ CURRENT_STRATEGIES = {
     "golden-mango",
     "golden-nectarine",
     "golden-orange",
+    "golden-papaya",
 }
 PRE_L3_STRATEGIES = {"golden-apple", "golden-banana", "golden-cherry"}
 
@@ -114,6 +115,27 @@ def _call_name(call: ast.Call) -> str:
     return ".".join(reversed(parts))
 
 
+def _expression_name(node: ast.AST) -> str:
+    parts: list[str] = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    if isinstance(node, ast.Name):
+        parts.append(node.id)
+    return ".".join(reversed(parts))
+
+
+def _keyword_value(call: ast.Call, name: str) -> ast.AST | None:
+    return next(
+        (keyword.value for keyword in call.keywords if keyword.arg == name),
+        None,
+    )
+
+
+def _is_none_constant(node: ast.AST | None) -> bool:
+    return isinstance(node, ast.Constant) and node.value is None
+
+
 def _calls(node: ast.AST) -> list[tuple[str, ast.Call]]:
     return [
         (_call_name(child), child)
@@ -144,6 +166,77 @@ def _mode_comparison(test: ast.AST, mode: str) -> str | None:
         if isinstance(node.ops[0], ast.NotEq):
             return "ne"
     return None
+
+
+def _instance_mode_comparison(test: ast.AST, mode: str) -> str | None:
+    """Return ``eq``/``ne`` when *test* compares ``self.mode`` to *mode*."""
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+            continue
+        operands = [node.left, *node.comparators]
+        has_instance_mode = any(
+            isinstance(operand, ast.Attribute)
+            and operand.attr == "mode"
+            and isinstance(operand.value, ast.Name)
+            and operand.value.id == "self"
+            for operand in operands
+        )
+        has_mode = any(
+            isinstance(operand, ast.Constant) and operand.value == mode
+            for operand in operands
+        )
+        if not has_instance_mode or not has_mode:
+            continue
+        if isinstance(node.ops[0], ast.Eq):
+            return "eq"
+        if isinstance(node.ops[0], ast.NotEq):
+            return "ne"
+    return None
+
+
+def _update_calls_with_simulation_guard(
+    node: ast.AST,
+    *,
+    simulation_guarded: bool = False,
+) -> list[tuple[ast.Call, bool]]:
+    """Collect ``update_trade`` calls and whether their branch requires simulation."""
+    collected: list[tuple[ast.Call, bool]] = []
+
+    if isinstance(node, ast.Call) and _call_name(node).endswith("update_trade"):
+        collected.append((node, simulation_guarded))
+
+    if isinstance(node, ast.If):
+        comparison = _instance_mode_comparison(node.test, "sim")
+        body_guarded = simulation_guarded or comparison == "eq"
+        else_guarded = simulation_guarded or comparison == "ne"
+        collected.extend(
+            item
+            for child in node.body
+            for item in _update_calls_with_simulation_guard(
+                child, simulation_guarded=body_guarded
+            )
+        )
+        collected.extend(
+            item
+            for child in node.orelse
+            for item in _update_calls_with_simulation_guard(
+                child, simulation_guarded=else_guarded
+            )
+        )
+        collected.extend(
+            _update_calls_with_simulation_guard(
+                node.test, simulation_guarded=simulation_guarded
+            )
+        )
+        return collected
+
+    for child in ast.iter_child_nodes(node):
+        collected.extend(
+            _update_calls_with_simulation_guard(
+                child, simulation_guarded=simulation_guarded
+            )
+        )
+    return collected
 
 
 def _guarded_calls(
@@ -443,6 +536,35 @@ def _validate_bot_source(
         )
 
 
+def _validate_papaya_bot_source(
+    findings: list[Finding], strategy: str, relative_path: str, content: str
+) -> None:
+    tree = _parse_python(findings, strategy, relative_path, content)
+    if tree is None:
+        return
+    run_cycle = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "run_cycle",
+        class_name="PolymarketBot",
+    )
+    if run_cycle is None:
+        return
+    _require_call_order(
+        findings,
+        strategy,
+        relative_path,
+        run_cycle,
+        (
+            "get_pending_sell_trades",
+            "reconcile_pending_sell",
+            "get_holding_trades",
+        ),
+    )
+
+
 def _validate_clob_source(
     findings: list[Finding], strategy: str, relative_path: str, content: str
 ) -> None:
@@ -697,6 +819,230 @@ def _validate_trader_source(
         )
 
 
+def _validate_papaya_trader_source(
+    findings: list[Finding], strategy: str, relative_path: str, content: str
+) -> None:
+    """Enforce Papaya's accepted-SELL versus confirmed-fill state boundary."""
+    tree = _parse_python(findings, strategy, relative_path, content)
+    if tree is None:
+        return
+
+    execute_sell = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "execute_sell",
+        class_name="Trader",
+    )
+    reconcile = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "reconcile_pending_sell",
+        class_name="Trader",
+    )
+    fill_ready = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "_actual_fill_ready",
+        class_name="Trader",
+    )
+
+    if execute_sell is not None:
+        update_calls = _update_calls_with_simulation_guard(execute_sell)
+        pending_updates = [
+            call
+            for call, _ in update_calls
+            if _expression_name(_keyword_value(call, "status") or ast.Constant())
+            == "TradeStatus.PENDING_SELL"
+        ]
+        if not pending_updates:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_sell_acceptance_path",
+                    f"{relative_path}: live accepted SELL must become PENDING_SELL",
+                )
+            )
+        for call in pending_updates:
+            if not _is_none_constant(_keyword_value(call, "realized_pnl")):
+                findings.append(
+                    Finding(
+                        strategy,
+                        "unsafe_sell_acceptance_path",
+                        f"{relative_path}: accepted SELL realized_pnl must remain None",
+                    )
+                )
+            if not _is_none_constant(_keyword_value(call, "hypothetical_pnl")):
+                findings.append(
+                    Finding(
+                        strategy,
+                        "unsafe_sell_acceptance_path",
+                        f"{relative_path}: live accepted SELL cannot record hypothetical P&L",
+                    )
+                )
+
+        unguarded_completed = [
+            call
+            for call, simulation_guarded in update_calls
+            if _expression_name(_keyword_value(call, "status") or ast.Constant())
+            == "TradeStatus.COMPLETED"
+            and not simulation_guarded
+        ]
+        if unguarded_completed:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_sell_acceptance_path",
+                    f"{relative_path}: accepted live SELL cannot become COMPLETED",
+                )
+            )
+
+    if fill_ready is not None:
+        fill_ready_source = ast.get_source_segment(content, fill_ready) or ""
+        _require_tokens(
+            findings,
+            strategy,
+            relative_path,
+            fill_ready_source,
+            (
+                "has_reconciled_full_fill",
+                "fee_complete",
+                "confirmed_size",
+                "confirmed_vwap",
+                "confirmed_fee_usdc",
+            ),
+        )
+
+    if reconcile is None:
+        return
+
+    calls = _calls(reconcile)
+    required_suffixes = (
+        "get_exact_sell_fill_evidence",
+        "get_exact_buy_fill_evidence",
+        "_actual_fill_ready",
+        "math.isclose",
+        "update_trade",
+    )
+    missing = [
+        suffix
+        for suffix in required_suffixes
+        if not any(name.endswith(suffix) for name, _ in calls)
+    ]
+    if missing:
+        findings.append(
+            Finding(
+                strategy,
+                "incomplete_pending_sell_reconciliation",
+                f"{relative_path}: {', '.join(missing)}",
+            )
+        )
+
+    completed_updates = [
+        call
+        for name, call in calls
+        if name.endswith("update_trade")
+        and _expression_name(_keyword_value(call, "status") or ast.Constant())
+        == "TradeStatus.COMPLETED"
+    ]
+    if not completed_updates:
+        findings.append(
+            Finding(
+                strategy,
+                "incomplete_pending_sell_reconciliation",
+                f"{relative_path}: confirmed fill path must finalize COMPLETED",
+            )
+        )
+    else:
+        completed = min(completed_updates, key=lambda call: call.lineno)
+        if _is_none_constant(_keyword_value(completed, "realized_pnl")) or (
+            _keyword_value(completed, "realized_pnl") is None
+        ):
+            findings.append(
+                Finding(
+                    strategy,
+                    "incomplete_pending_sell_reconciliation",
+                    f"{relative_path}: confirmed BUY/SELL fills must calculate realized_pnl",
+                )
+            )
+        pnl_basis = _keyword_value(completed, "pnl_basis")
+        if not (
+            isinstance(pnl_basis, ast.Constant)
+            and pnl_basis.value
+            == "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+        ):
+            findings.append(
+                Finding(
+                    strategy,
+                    "incomplete_pending_sell_reconciliation",
+                    f"{relative_path}: exact confirmed-fill net-fee P&L basis required",
+                )
+            )
+
+        sell_lines = sorted(
+            call.lineno
+            for name, call in calls
+            if name.endswith("get_exact_sell_fill_evidence")
+        )
+        buy_lines = sorted(
+            call.lineno
+            for name, call in calls
+            if name.endswith("get_exact_buy_fill_evidence")
+        )
+        ready_lines = sorted(
+            call.lineno
+            for name, call in calls
+            if name.endswith("_actual_fill_ready")
+        )
+        size_check_lines = sorted(
+            call.lineno for name, call in calls if name.endswith("math.isclose")
+        )
+        ordered_evidence = (
+            bool(sell_lines)
+            and bool(buy_lines)
+            and len(ready_lines) >= 2
+            and bool(size_check_lines)
+            and sell_lines[0]
+            < ready_lines[0]
+            < buy_lines[0]
+            < ready_lines[1]
+            < size_check_lines[0]
+            < completed.lineno
+        )
+        if not ordered_evidence:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_pending_sell_reconciliation",
+                    f"{relative_path}: SELL proof -> BUY proof -> size match -> COMPLETED required",
+                )
+            )
+
+    holding_updates = [
+        call
+        for name, call in calls
+        if name.endswith("update_trade")
+        and _expression_name(_keyword_value(call, "status") or ast.Constant())
+        == "TradeStatus.HOLDING"
+    ]
+    if not holding_updates or not all(
+        _is_none_constant(_keyword_value(call, "realized_pnl"))
+        for call in holding_updates
+    ):
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_pending_sell_reconciliation",
+                f"{relative_path}: terminal zero-fill SELL must return to HOLDING without P&L",
+            )
+        )
+
+
 def _validate_gamma_source(
     findings: list[Finding], strategy: str, relative_path: str, content: str
 ) -> None:
@@ -918,6 +1264,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
+    if strategy == "golden-papaya":
+        _validate_papaya_bot_source(
+            findings, strategy, "src/polybot/bot.py", bot
+        )
     _require_tokens(
         findings,
         strategy,
@@ -989,6 +1339,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
     _validate_trader_source(
         findings, strategy, "src/polybot/strategy/trader.py", trader
     )
+    if strategy == "golden-papaya":
+        _validate_papaya_trader_source(
+            findings, strategy, "src/polybot/strategy/trader.py", trader
+        )
 
     gamma = _require_file(
         findings, strategy, directory / "src/polybot/api/gamma_client.py"

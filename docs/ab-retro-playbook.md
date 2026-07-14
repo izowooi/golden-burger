@@ -2,7 +2,7 @@
 
 한 달 운영 후 포스트모템 때 SQLite DB만으로 "무엇 때문에 손해가 났는지, 트랜잭션을 얼마나 맺었는지"를 분석하는 표준 절차. 대상 DB는 각 봇의 `data/<job>/trades.db` (시뮬레이션은 `trades_sim.db`).
 
-## 로깅 계약 (date~orange 9개 봇 공통)
+## 로깅 계약 (date~papaya 10개 봇 공통)
 
 모든 신규 봇의 `trades` 테이블은 아래를 기록한다:
 
@@ -20,8 +20,13 @@
   - mango: `carry_yield_at_buy`, `momentum_6h_at_buy`, `carry_yield_at_exit`
   - nectarine: `rolling_min_at_buy`, `lookback_days_at_buy`, `hold_hours_at_exit`
   - orange: `base_price_at_buy`, `spike_peak_at_buy`, `spike_age_minutes_at_buy`, `vol_mult_at_buy`, `yes_price_at_exit`
+  - papaya: `prior_yes_price_at_entry`, `yes_price_at_buy`, `stop_price_at_entry`,
+    `entry_snapshot_id`, `best_bid_at_buy`, `best_ask_at_buy`, `yes_price_at_exit`,
+    `best_bid_at_exit`, `resolution_value`, `resolution_status`
 
-`EXPIRED`(= `resolved_unredeemed`)는 해결됐지만 청산 못 한 포지션 — `realized_pnl`이 NULL이므로 수동 redeem 후 손익을 별도 집계해야 한다.
+`EXPIRED`(= `resolved_unredeemed`)는 해결됐지만 청산 못 한 포지션이다. resolution payout은
+YES=1/NO=0이며 드문 ambiguous market은 0.5일 수 있다. resolution 관측, redeemable 상태,
+실제 redemption transaction을 분리하고, 상환 전에는 realized cash P&L로 집계하지 않는다.
 
 ## 구 3봇 (apple/banana/cherry) 주의사항
 
@@ -126,4 +131,6 @@ GROUP BY drift_bucket, vol_bucket;
 - 기각 신호: `stop_loss` 비중 40%+ (진입 조건 부실), `EXPIRED`/좀비 다수 (청산 로직 부실), 특정 태그에서만 손실 집중 (카테고리 필터 필요).
 - 채택 신호: 승률과 avg_return이 시뮬레이션→소액 실전에서 유지, exit_reason 분포가 설계 의도와 일치 (예: mango는 take_profit 위주, nectarine은 max_holding 위주가 정상).
 - 채택 후 베리에이션(A-1/A-2)은 env만 바꿔 별도 `--job`으로 병행 — 쿼리 7의 ATTACH 패턴으로 비교.
-- 참고: `realized_pnl`은 GTC limit@midpoint 체결 가정치다. 월 1회 Polymarket 실계정 잔고(daily-report)와 대사해 괴리를 확인할 것.
+- 실제 성과는 `order_fills.status='CONFIRMED'`의 partial size/price와 fee/liquidity role로
+  재계산한다. `realized_pnl`, GTC 접수, midpoint는 actual fill 증거가 아니다. 월 1회
+  Polymarket 실계정 잔고(daily-report) 및 resolution/redeem evidence와 대사한다.

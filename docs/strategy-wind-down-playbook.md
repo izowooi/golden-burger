@@ -2,7 +2,7 @@
 
 ## 결론
 
-12개 `golden-*` 전략은 모두 동일한 수명주기 스위치를 지원한다. 전략을 퇴역할 때는 즉시
+13개 `golden-*` 전략은 모두 동일한 수명주기 스위치를 지원한다. 전략을 퇴역할 때는 즉시
 일괄 매도하지 않고 Jenkins 잡을 먼저 `close_only`로 바꾼다. 기존 GTC BUY 주문을 한 번
 취소한 뒤 같은 주기로 자연 청산을 반복하고, 유예기간 뒤에도 남은 포지션만 유동성과
 스프레드를 확인해 단계적으로 정리한다.
@@ -28,7 +28,7 @@
 
 지원 전략: `golden-apple`, `golden-banana`, `golden-cherry`, `golden-date`,
 `golden-elderberry`, `golden-fig`, `golden-grape`, `golden-honeydew`, `golden-lime`,
-`golden-mango`, `golden-nectarine`, `golden-orange`.
+`golden-mango`, `golden-nectarine`, `golden-orange`, `golden-papaya`.
 
 `lifecycle_mode`는 resolved config와 run provenance에 포함된다. 따라서 이 기능을 처음
 배포하면 환경변수를 생략해 `active`로 실행하더라도 이전 배포와 `config_hash` cohort가 한 번
@@ -106,6 +106,9 @@
 - 해결 잔여시간 상한으로 진입하는 전략의 기본 grace는 `golden-date` 약 7일,
   `golden-fig` 약 10일, `golden-mango` 약 14일에 대사 버퍼를 더한다. 설정값을 바꿨다면
   실제 resolved config의 상한을 기준으로 다시 계산한다.
+- `golden-papaya`는 사전 해결 time exit이 없으므로 72h 뒤 강제 청산을 가정하지 않는다.
+  0.90 absolute stop이 체결되지 않은 포지션은 resolution 결과(1/0/드문 0.5)와 실제 redeem
+  evidence까지 별도 분류하고, grace 종료 후에도 시장가성 sweep으로 억지 처분하지 않는다.
 - `golden-grape`·`golden-lime`은 최대 보유시간이나 진입 잔여시간 상한이 없어 자연
   청산 완료시점을 보장할 수 없다. 손절/익절/모멘텀 또는 해결 임박 조건을 기다리되,
   사전에 정한 grace 종료일에 잔여분을 수동 분류한다. `close_only` 자체는 별도 만료시간을
@@ -154,6 +157,9 @@
 `golden-honeydew`·`golden-nectarine`의 중앙 snapshot 보존기간은 최소 60일이므로 전환 후
 적어도 60일은 아카이브 책임을 유지한다. 이 두 잡을 모두 중지하려면 먼저 다른 job이 같은
 시장 catalog/snapshot 계약과 5분 bucket coverage를 제공하는지 strict audit로 증명한다.
+`golden-papaya`도 $1k 저유동성 universe의 자체 archive를 최소 60일 유지한다. papaya 잡을
+중지하려면 cursor-complete sweep, schedule/run manifest 기준 cadence coverage, first observed
+crossing lineage를 다른 job이 제공하는지 먼저 증명한다.
 다른 전략도 로컬 청산 신호가 snapshot history에 의존하면 증거 보존기간을 확인하고 잡을
 중지한다.
 

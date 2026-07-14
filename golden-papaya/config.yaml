@@ -1,0 +1,41 @@
+# Golden Papaya — Final Five
+# env > config.yaml > code defaults. New strategy defaults to simulation mode.
+
+trading:
+  lifecycle_mode: active
+
+  # Exposure controls
+  buy_amount_usdc: 5.0
+  min_liquidity: 1000
+  min_volume_24h: 0
+  max_positions: 20
+  max_event_positions: 1
+  reentry_cooldown_hours: 24
+  # A crossing is valid only when consecutive persisted snapshots are <=30m apart.
+  max_snapshot_gap_minutes: 30
+
+  # Polymarket minimum-order guard
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.10
+
+  # Final Five is inherently YES-only and rejects false at validation.
+  yes_only_mode: true
+
+  # First upward crossing is always required; there is no toggle.
+  entry:
+    prob_min: 0.95
+    prob_max: 0.97
+    stop_price: 0.90
+    hours_min: 2
+    hours_max: 72
+
+  # Own low-liquidity research archive for counterfactual review.
+  archive:
+    prob_min: 0.80
+    hours_max: 168
+    retention_days: 60
+
+  excluded_categories: []
+
+# Conservative default. Live trading requires an explicit operational decision.
+simulation_mode: true

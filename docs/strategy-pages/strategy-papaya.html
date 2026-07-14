@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Papaya — Final Five</title>
+<style>
+:root{
+  --accent:#e36f3d; --accent-soft:#fff0e8;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --danger:#a43131;
+}
+@media (prefers-color-scheme: dark){
+  :root{--accent:#ff9568;--accent-soft:#36251f;--bg:#12151a;--card:#1b2027;
+    --ink:#e8eaed;--muted:#a5adb7;--line:#2b323b;--code-bg:#232a33;--danger:#ff8a8a}
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Apple SD Gothic Neo",
+  "Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.68;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:28px 20px 64px}
+.back{display:inline-block;color:var(--accent);text-decoration:none;margin-bottom:18px;font-size:14px}
+header{border-bottom:3px solid var(--accent);padding:4px 0 24px;margin-bottom:28px}
+.emoji{font-size:48px;line-height:1}
+h1{font-size:30px;margin:10px 0 4px}.subtitle{color:var(--accent);font-weight:700}
+.lead{color:var(--muted);font-size:17px;max-width:760px}
+h2{font-size:21px;margin:36px 0 14px;padding-left:10px;border-left:4px solid var(--accent)}
+h3{font-size:17px;margin:24px 0 8px}
+.formula,.callout,.risk{border:1px solid var(--line);border-radius:12px;background:var(--card);
+  padding:18px 20px;margin:16px 0}
+.formula{border-color:var(--accent);background:var(--accent-soft);font-family:ui-monospace,
+  SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap}
+.risk{border-left:5px solid var(--danger)}
+table{border-collapse:collapse;width:100%;table-layout:fixed;margin:14px 0;background:var(--card)}
+th,td{border:1px solid var(--line);padding:9px 11px;text-align:left;vertical-align:top}
+th{background:var(--code-bg)}
+code{background:var(--code-bg);padding:2px 5px;border-radius:4px;font-size:.9em}
+pre{background:var(--code-bg);border:1px solid var(--line);border-radius:10px;padding:15px;
+  overflow:auto;max-width:100%;font-size:13.5px;line-height:1.55}
+ul,ol{padding-left:22px}li{margin:5px 0}.muted{color:var(--muted)}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+th,td,p,li,.formula,footer{overflow-wrap:anywhere;word-break:break-word}
+@media (max-width:520px){
+  .wrap{padding:20px 14px 48px}
+  h1{font-size:26px}
+  th,td{padding:8px 7px;font-size:13.5px}
+  .formula,.callout,.risk{padding:14px}
+}
+</style>
+</head>
+<body><div class="wrap">
+<a class="back" href="strategy-index.html">← 전략 포트폴리오 인덱스</a>
+<header>
+  <div class="emoji">🧡</div>
+  <h1>Golden Papaya</h1>
+  <div class="subtitle">Final Five · first observed 95% crossing</div>
+  <p class="lead">표준 이진 YES가 archive cadence에서 처음 0.95 상향 교차로 관측되면
+  작은 포지션으로 해결 수렴을 검증한다. 규칙은 단순하지만, 마지막 5%의 tail risk와
+  저유동성 stop 실행 실패를 숨기지 않는다.</p>
+</header>
+
+<h2>핵심 계약</h2>
+<div class="formula">previous valid YES &lt; 0.95
+0.95 ≤ current YES ≤ 0.97
+2h ≤ hours_left ≤ 72h
+strict standard binary · YES only
+fresh best ask exists and ask ≤ 0.97
+
+pre-resolution exit: YES signal/midpoint ≤ 0.90
+execution check: fresh best bid → confirmed fill</div>
+
+<p>“first”는 실제 연속시간 시장의 절대적 최초가 아니라 <strong>archive cadence에서의
+first observed upward crossing</strong>이다. sweep/run gap이 있으면 교차 시점은
+interval-censored이며, 직전·현재 snapshot 간격이 30분을 넘으면 진입하지 않는다. 첫
+crossing snapshot은 이후 filter에서 탈락해도 durable history에 남아 재-crossing을 새
+최초 crossing으로 바꾸지 않는다.</p>
+
+<h2>시장과 노출</h2>
+<table>
+<tr><th>항목</th><th>기본값</th><th>의미</th></tr>
+<tr><td>Universe</td><td>정확히 Yes/No, 2 tokens, non-negRisk</td><td>다중 outcome/neg-risk 제외, event당 1개 노출</td></tr>
+<tr><td>유동성 / volume24h</td><td>$1,000 / $0</td><td>넓은 falsification envelope, 안전 보장 아님</td></tr>
+<tr><td>주문</td><td>$5</td><td>fresh executable ask를 확인한 소액 진입</td></tr>
+<tr><td>동시 / event cap</td><td>20 / 1</td><td>상관 파생 시장의 중복 노출 제한</td></tr>
+<tr><td>Archive</td><td>YES≥0.80, ≤168h, 60일</td><td>$1k universe의 자체 counterfactual source</td></tr>
+</table>
+
+<h2>진입과 종료</h2>
+<h3>진입</h3>
+<ol>
+  <li>직전 유효 snapshot이 0.95 미만이고 현재 snapshot이 0.95 이상인지 확인한다.</li>
+  <li>현재 observed YES가 0.97 이하이고 잔여시간이 2–72시간인지 확인한다.</li>
+  <li>strict binary와 event cap을 통과한 뒤 fresh best ask를 다시 조회한다.</li>
+  <li>ask가 없거나 0.97을 넘으면 주문하지 않는다. 로컬 접수 행은 intent/lifecycle
+  기록이며, 실제 노출은 exact order ID의 confirmed fill로만 인정한다.</li>
+</ol>
+
+<h3>미해결 stop</h3>
+<p>YES current/signal midpoint가 0.90 이하이면 absolute stop을 발생시킨다. fresh best bid로
+매도 가능성을 확인한다. 접수된 SELL은 pending intent이며, exact confirmed BUY/SELL full
+fill과 fee가 대사된 뒤에만 완료·실제 손익으로 전환한다. 0.90은 보장 가격이 아니라
+트리거다.</p>
+
+<h3>Resolution과 redemption</h3>
+<p>사전 해결 take-profit, trailing stop, max holding, time exit은 없다. 해결 outcome은
+YES=1, NO=0이며 드문 ambiguous market은 0.5 payout일 수 있다. resolution 관측,
+redeemable 상태, 실제 redemption transaction을 분리한다. live에서는 confirmed BUY fill이
+없는 intent를 resolution 포지션으로 정산하지 않고, 상환 전에는 cash P&amp;L로 확정하지 않는다.</p>
+
+<h2>왜 실패할 수 있는가</h2>
+<div class="risk">
+<strong>0.95에서의 gross upside는 비용 전 약 5.26%뿐이다.</strong> 0으로 끝나는 한 건은
+약 19건의 정상 승리를 지울 수 있다. spread, fee, redeem 지연을 더하면 필요한 승률은 더 높다.
+</div>
+<ul>
+  <li>0.95가 mispricing이 아니라 실제 5% tail risk의 정확한 가격일 수 있다.</li>
+  <li>stale midpoint와 작은 주문이 교차를 만들 수 있다.</li>
+  <li>$1k 유동성 시장에서는 0.90 stop이 미체결·부분체결되거나 큰 slippage를 낼 수 있다.</li>
+  <li>UMA dispute, 문구 해석, invalid/ambiguous resolution이 마지막 5%에 집중될 수 있다.</li>
+  <li>같은 event의 파생 시장을 독립 표본으로 세면 edge가 과장된다.</li>
+</ul>
+
+<h2>기각 우선 회고</h2>
+<p>최소 4주와 terminal event-cluster 유효 n 30을 모두 요구한다. 그 전에 수익성을 승인하거나
+금액을 키우지 않는다. <code>polybot-retro audit --strict</code>에 CRITICAL/HIGH가 있으면
+parameter tuning 대신 evidence를 복구한다.</p>
+
+<table>
+<tr><th>축</th><th>월간 grid</th></tr>
+<tr><td>crossing lower</td><td>0.94 / <strong>0.95</strong> / 0.96</td></tr>
+<tr><td>entry upper</td><td>0.96 / <strong>0.97</strong> / 0.98</td></tr>
+<tr><td>absolute stop</td><td>0.85 / <strong>0.90</strong> / 0.93</td></tr>
+<tr><td>min liquidity</td><td><strong>1k</strong> / 5k / 10k / 20k</td></tr>
+<tr><td>min volume24h</td><td><strong>0</strong> / 500 / 2k / 5k</td></tr>
+<tr><td>hours max</td><td>24 / 48 / <strong>72</strong></td></tr>
+</table>
+
+<p><code>scripts/backtest.py</code>는 UTC review window에서 위 여섯 축의 1,296개 조합을
+offline replay한다. strict Yes/No token identity와 non-negRisk 증거가 입력에 없으면
+실패하며, midpoint와 observed book 가상 체결을 분리한다. confirmed-fill 결과는 exact
+ledger join 전까지 <code>null</code>이다.</p>
+
+<p>STOP 신호는 비용 후 event-cluster EV≤0, stop 실행 실패, crossing lineage 결손,
+leave-one-event-out에서의 edge 소멸이다. actual result는 confirmed partial fill/fee와 별도
+resolution/redemption evidence로만 만든다.</p>
+
+<h2>안전한 시작</h2>
+<pre><code>cd golden-papaya
+uv sync --frozen --extra dev
+uv run pytest
+uv run polybot config
+uv run polybot run --simulate --job sim</code></pre>
+<p>저장소 기본값은 <code>simulation_mode: true</code>다. live 전환은 별도 계정/DB,
+Credentials Binding, 운영 승인과 새 config hash cohort를 갖춘 명시적 결정이어야 한다.</p>
+
+<h2>공식 처리 계약</h2>
+<p class="muted">다음 Polymarket primary reference는 token·price side·resolution·redeem
+구현 계약을 확인하기 위한 것이다. Final Five의 비용 후 edge를 입증하지 않는다. 핵심 가설은
+사용자 직관에서 출발한 미검증 가설이며 위 falsification을 통과해야 한다.</p>
+<ul>
+  <li><a href="https://docs.polymarket.com/concepts/resolution">Resolution</a> — rules,
+  dispute, YES/NO 및 드문 Unknown/50-50 payout</li>
+  <li><a href="https://docs.polymarket.com/trading/ctf/redeem">Redeem Tokens</a> — resolution
+  후 CTF redemption과 payout vector</li>
+  <li><a href="https://docs.polymarket.com/concepts/positions-tokens">Positions &amp; Tokens</a>
+  — outcome token과 position</li>
+  <li><a href="https://docs.polymarket.com/api-reference/market-data/get-market-price">Get market
+  price</a> — token ID와 BUY/SELL side의 market price API</li>
+</ul>
+
+<footer>Golden Burger 전략 시리즈 · 상세 계약은 <code>golden-papaya/STRATEGY.md</code>와
+<code>docs/retro/golden-papaya.md</code> 참조</footer>
+</div></body></html>

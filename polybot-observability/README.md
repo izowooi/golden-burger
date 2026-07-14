@@ -1,6 +1,6 @@
 # Polybot Observability
 
-12개 `golden-*` 전략이 공통으로 사용하는 로컬 관측성 패키지다. 주문 가격이나 전략 판단을
+13개 `golden-*` 전략이 공통으로 사용하는 로컬 관측성 패키지다. 주문 가격이나 전략 판단을
 바꾸지 않고, 각 봇의 기존 SQLite DB에 실행 provenance와 실제 CLOB lifecycle evidence를
 추가한다.
 
