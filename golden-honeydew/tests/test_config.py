@@ -30,6 +30,7 @@ class TestDefaults:
     def test_code_defaults(self):
         config = load_defaults()
         t = config.trading
+        assert t.lifecycle_mode == "active"
         assert t.buy_amount_usdc == 5.0
         assert t.min_liquidity == 15000.0
         assert t.min_volume_24h == 0.0
@@ -67,6 +68,10 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_mode_is_normalized(self, monkeypatch):
+        monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "close-only")
+        assert load_defaults().trading.lifecycle_mode == "close_only"
+
     def test_common_env_overrides(self, monkeypatch):
         monkeypatch.setenv("POLYBOT_BUY_AMOUNT", "1000")
         monkeypatch.setenv("POLYBOT_MIN_LIQUIDITY", "50000")
@@ -86,6 +91,15 @@ class TestEnvOverrides:
         assert t.max_positions == 10
         assert t.reentry_cooldown_hours == 48.0
         assert t.history_backfill is False
+
+
+    def test_lifecycle_mode_can_be_loaded_from_yaml(self, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n",
+            encoding="utf-8",
+        )
+        assert load_config(str(config_file)).trading.lifecycle_mode == "archive_only"
 
     def test_strategy_env_overrides(self, monkeypatch):
         monkeypatch.setenv("POLYBOT_QUIET_HOURS_UTC", "22-4")

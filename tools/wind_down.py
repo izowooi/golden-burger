@@ -10,24 +10,25 @@
 """Polymarket 계정 wind-down 도구 — 전략 전환용 현황/일괄 청산 스크립트.
 
 전략 A → B 전환 권장 절차:
-  1) A Jenkins 잡에 POLYBOT_BUY_AMOUNT=0 을 넣어 드레인 모드로 전환
-     (모든 봇 trader의 MIN_ORDER_SIZE=5주 체크에 걸려 매수만 자연 중단,
-      손절/익절/시간 청산 등 매도 로직은 그대로 동작)
+  1) A Jenkins 잡에 POLYBOT_LIFECYCLE_MODE=close_only 를 넣어 드레인 전환
+     (신규 스캔/매수 차단, 손절/익절/시간 청산과 시장 아카이브는 계속)
   2) 이 스크립트 status 로 잔여 포지션/미체결/예상 청산비용 확인
-  3) 드레인 데드라인이 지나면 A 잡을 끄고 flatten 으로 잔여분 강제 청산
+  3) 기존 GTC 매수가 남아 있으면 cancel --side BUY 로 한 번 취소
+  4) 드레인 데드라인이 지나면 flatten 으로 잔여분 강제 청산
      (기본 dry-run — 예상 비용을 보고 --yes 로 실행)
-  4) 자금 정산 확인 후 Jenkins 스크립트를 B 로 교체
+  5) 포지션/주문/ledger가 모두 정리된 뒤 archive_only 또는 새 전략으로 전환
 
 사용 예 (봇과 동일한 env 사용):
   export POLYMARKET_FUNDER_ADDRESS=0x...          # status 는 이것만으로 동작
   export POLYMARKET_PRIVATE_KEY=0x...             # cancel/flatten 에만 필요
   uv run tools/wind_down.py status
-  uv run tools/wind_down.py cancel --yes
+  uv run tools/wind_down.py cancel                         # BUY 취소 dry-run
+  uv run tools/wind_down.py cancel --side BUY --yes
   uv run tools/wind_down.py flatten                       # dry-run (계획만 출력)
   uv run tools/wind_down.py flatten --yes                 # 취소 후 best bid 매도
   uv run tools/wind_down.py flatten --mode mid --rounds 6 --wait 300 --yes
                                                           # midpoint 지정가로 반복 재호가
-  uv run tools/wind_down.py status --env-file golden-date/.env
+  uv run tools/wind_down.py --env-file golden-date/.env status
 
 매도 모드:
   bid   (기본) best bid 지정가 — 사실상 즉시 체결, 비용 = mid-bid (반스프레드)
@@ -51,8 +52,6 @@ import requests
 CLOB_HOST = "https://clob.polymarket.com"
 DATA_API = "https://data-api.polymarket.com"
 CHAIN_ID = 137
-# 1=POLY_PROXY (구형 계정), 3=POLY_1271 (2026+ 신규 계정) - 봇들과 같은 env 사용
-SIGNATURE_TYPE = int(os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1"))
 MIN_ORDER_SIZE = 5.0  # CLOB 최소 주문 수량(주) - 봇 trader 와 동일
 DEFAULT_TICK = 0.01
 
@@ -159,6 +158,20 @@ def make_readonly_client():
     return ClobClient(host=CLOB_HOST, chain_id=CHAIN_ID)
 
 
+def resolved_signature_type() -> int:
+    """env 파일 로드 후 봇과 동일한 CLOB 서명 타입을 검증해 반환."""
+    raw = os.environ.get("POLYMARKET_SIGNATURE_TYPE", "1")
+    try:
+        signature_type = int(raw)
+    except ValueError as error:
+        raise ValueError(
+            "POLYMARKET_SIGNATURE_TYPE must be one of: 1, 3"
+        ) from error
+    if signature_type not in {1, 3}:
+        raise ValueError("POLYMARKET_SIGNATURE_TYPE must be one of: 1, 3")
+    return signature_type
+
+
 def make_trading_client(private_key: str, funder: str):
     """주문/취소용 인증 클라이언트 (봇 ClobClientWrapper 와 동일 초기화)."""
     from py_clob_client_v2 import ClobClient
@@ -166,7 +179,7 @@ def make_trading_client(private_key: str, funder: str):
         host=CLOB_HOST,
         chain_id=CHAIN_ID,
         key=private_key,
-        signature_type=SIGNATURE_TYPE,
+        signature_type=resolved_signature_type(),
         funder=funder,
     )
     client.set_api_creds(client.create_or_derive_api_key())
@@ -496,10 +509,10 @@ def main() -> int:
     p_status = sub.add_parser("status", help="포지션/미체결/예상 청산비용 리포트")
     add_common(p_status)
 
-    p_cancel = sub.add_parser("cancel", help="미체결 주문 취소 (기본 전량)")
+    p_cancel = sub.add_parser("cancel", help="미체결 주문 취소 (기본 BUY만)")
     p_cancel.add_argument("--yes", action="store_true", help="실제 실행 (기본 dry-run)")
-    p_cancel.add_argument("--side", choices=["BUY", "SELL", "ALL"], default="ALL",
-                          help="취소할 주문 방향 (유령 매수 정리는 BUY 권장, 기본 ALL)")
+    p_cancel.add_argument("--side", choices=["BUY", "SELL", "ALL"], default="BUY",
+                          help="취소할 주문 방향 (기본 BUY, 전량은 명시적으로 ALL)")
 
     p_flat = sub.add_parser("flatten", help="전량 취소 + 보유 포지션 일괄 매도")
     add_common(p_flat)
@@ -513,7 +526,7 @@ def main() -> int:
 
     if args.env_file:
         from dotenv import load_dotenv
-        load_dotenv(args.env_file, override=False)
+        load_dotenv(args.env_file, override=True)
 
     funder = args.funder or os.environ.get("POLYMARKET_FUNDER_ADDRESS", "").strip()
     private_key = os.environ.get("POLYMARKET_PRIVATE_KEY", "").strip() or None

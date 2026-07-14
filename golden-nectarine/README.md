@@ -39,6 +39,7 @@ export LOG_LEVEL=INFO
 # export POLYBOT_MAX_POSITIONS=10        # 군집 손실 방지 권장
 # export POLYBOT_HOLD_HOURS=120          # calendar exit (백테스트 Y=5일)
 # export POLYBOT_LOOKBACK_DAYS=20        # 롤링 최저가 룩백
+# 퇴역할 때만: export POLYBOT_LIFECYCLE_MODE=close_only
 
 cd ./golden-nectarine
 /Users/jongwoopark/.local/bin/uv sync
@@ -64,6 +65,7 @@ cd ./golden-nectarine
 |---|---|---|
 | `POLYMARKET_PRIVATE_KEY` | (필수) | 지갑 private key |
 | `POLYMARKET_FUNDER_ADDRESS` | (필수) | 지갑 주소 |
+| `POLYBOT_LIFECYCLE_MODE` | active | `active` / `close_only` / `archive_only` |
 | `POLYBOT_BUY_AMOUNT` | 5.0 | 1회 매수 USDC |
 | `POLYBOT_MIN_LIQUIDITY` | 10000 | 최소 유동성 $ |
 | `POLYBOT_MIN_VOLUME_24H` | 0 | 최소 24h 거래량 $ (0 = 비활성) |
@@ -81,6 +83,11 @@ cd ./golden-nectarine
 | `POLYBOT_HISTORY_BACKFILL` | true | prices-history 백필 (20일 룩백의 생명선) |
 | `POLYBOT_EXCLUDED_CATEGORIES` | "" | 제외 카테고리 (comma 구분, 기본 비활성) |
 | `LOG_LEVEL` | INFO | 로그 레벨 (DEBUG/INFO/WARNING/ERROR) |
+
+`close_only`는 신규 스캔·매수를 차단하면서 기존 포지션 청산과 시장 스냅샷 저장을
+계속합니다. `archive_only`는 모든 주문 경로를 건너뛰고 스냅샷만 저장하므로 포지션,
+미체결 주문, execution ledger가 정리된 뒤에만 사용합니다. 운영 전환 순서는
+[전략 퇴역 플레이북](../docs/strategy-wind-down-playbook.md)을 따릅니다.
 
 ## data/ 구조
 

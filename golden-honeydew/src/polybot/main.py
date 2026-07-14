@@ -128,6 +128,7 @@ Examples:
         print("=== Bot Configuration (Night Watch) ===")
         print(f"Job Name: {config.job_name}")
         print(f"Simulation Mode: {config.simulation_mode}")
+        print(f"Lifecycle Mode: {trading.lifecycle_mode}")
         print(f"DB Path: {config.db_path}")
         print()
         print("=== Quiet Time (진입 허용 시간) ===")
