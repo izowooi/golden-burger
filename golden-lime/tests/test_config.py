@@ -25,6 +25,7 @@ def test_defaults_without_yaml(base_env):
     """yaml이 없으면 코드 기본값 사용."""
     config = load_config("nonexistent.yaml")
 
+    assert config.trading.lifecycle_mode == "active"
     assert config.trading.buy_amount_usdc == 5.0
     assert config.trading.min_liquidity == 20000.0
     assert config.trading.min_volume_24h == 10000.0
@@ -79,6 +80,23 @@ def test_env_overrides_defaults(base_env, monkeypatch):
     assert config.trading.trailing_stop.percent == 0.08
     assert config.trading.time_based.entry_hours_min == 48
     assert config.trading.time_based.exit_hours == 6
+
+
+def test_lifecycle_mode_env_is_normalized(base_env, monkeypatch):
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "close-only")
+    assert load_config("nonexistent.yaml").trading.lifecycle_mode == "close_only"
+
+
+def test_lifecycle_mode_yaml_and_env_precedence(base_env, monkeypatch, tmp_path):
+    config_file = tmp_path / "config.yaml"
+    config_file.write_text(
+        "trading:\n  lifecycle_mode: archive_only\n",
+        encoding="utf-8",
+    )
+    assert load_config(str(config_file)).trading.lifecycle_mode == "archive_only"
+
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+    assert load_config(str(config_file)).trading.lifecycle_mode == "active"
 
 
 def test_env_overrides_yaml(base_env, monkeypatch, tmp_path):

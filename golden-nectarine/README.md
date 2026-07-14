@@ -27,7 +27,8 @@ uv sync --extra dev && uv run pytest
 
 ## Jenkins 실행 스크립트
 
-3~5분 간격 주기 실행을 전제로 한다 (스냅샷 축적 + 청산 체크).
+3~5분 간격 주기 실행을 전제로 한다 (스냅샷 축적 + 청산 체크). 같은 SQLite를 쓰는 이전
+빌드와 겹치지 않도록 Jenkins 동시 빌드는 비활성화한다.
 
 ```bash
 #!/bin/bash
@@ -87,7 +88,9 @@ cd ./golden-nectarine
 `close_only`는 신규 스캔·매수를 차단하면서 기존 포지션 청산과 시장 스냅샷 저장을
 계속합니다. `archive_only`는 모든 주문 경로를 건너뛰고 스냅샷만 저장하므로 포지션,
 미체결 주문, execution ledger가 정리된 뒤에만 사용합니다. 운영 전환 순서는
-[전략 퇴역 플레이북](../docs/strategy-wind-down-playbook.md)을 따릅니다.
+[전략 퇴역 플레이북](../docs/strategy-wind-down-playbook.md)을 따릅니다. `close_only` 전환
+전에 접수된 GTC BUY는 자동 취소되지 않으므로 플레이북의 dry-run 후 BUY만 한 번
+취소해야 합니다.
 
 ## data/ 구조
 

@@ -58,6 +58,7 @@ export POLYBOT_BUY_AMOUNT=20
 export POLYMARKET_PRIVATE_KEY=<Jenkins credential>
 export POLYMARKET_FUNDER_ADDRESS=<Jenkins credential>
 export LOG_LEVEL=INFO
+# 퇴역할 때만: export POLYBOT_LIFECYCLE_MODE=close_only
 # 전략 주요 env 예시
 export POLYBOT_MOMENTUM_MIN_CHANGE=-0.01
 export POLYBOT_REENTRY_COOLDOWN_HOURS=24
@@ -69,6 +70,15 @@ cd ./golden-date
 ```
 
 Jenkins job별로 DB/로그를 분리하려면 `--job <이름>`을 붙이세요. YES 토큰만 매수하려면 `--yes-only`를 추가합니다.
+5분 주기로 실행할 때는 Jenkins 동시 빌드를 비활성화하고, 최초 실행 로그의 `Lifecycle` 값과 `config` 출력이 기대한 모드인지 확인하세요.
+
+### Lifecycle 운영
+
+- `active`(기본): 기존과 동일하게 스냅샷·청산·신규 매수를 모두 수행합니다.
+- `close_only`: Phase 0 스냅샷과 Phase 1 청산, Phase 4 정리는 유지하고 스캔·신규 매수를 차단합니다.
+- `archive_only`: 스냅샷과 정리만 유지하고 매수·매도 주문을 모두 차단합니다.
+
+`close_only` 전환은 기존에 접수된 GTC BUY 주문을 취소하지 않습니다. 전환 직후 동일 계정으로 [전략 종료 플레이북](../docs/strategy-wind-down-playbook.md)의 dry-run을 확인한 뒤 GTC BUY 주문을 한 번 취소하세요. 이 전략은 최대 168시간 전 진입하고 해결 2시간 전에 자연 청산하므로, 정상 경로만 기다려도 약 7일에 오류 대응 여유가 추가로 필요합니다.
 
 ## CLI
 
@@ -98,6 +108,7 @@ Jenkins job별로 DB/로그를 분리하려면 `--job <이름>`을 붙이세요.
 | 변수 | 기본 | 의미 |
 |------|------|------|
 | `POLYBOT_BUY_AMOUNT` | 5.0 | 1회 매수 USDC (달러 단위) |
+| `POLYBOT_LIFECYCLE_MODE` | active | `active` / `close_only` / `archive_only` |
 | `POLYBOT_MIN_LIQUIDITY` | 15000 | 최소 유동성 $ |
 | `POLYBOT_MIN_VOLUME_24H` | 5000 | 최소 24h 거래량 $ (gamma volume24hr) |
 | `POLYBOT_TAKE_PROFIT` | 0.12 | 익절 % (목표가 0.99 캡) |

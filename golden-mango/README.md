@@ -62,6 +62,8 @@ export POLYBOT_BUY_AMOUNT=1000
 export POLYMARKET_PRIVATE_KEY=<Jenkins credential>
 export POLYMARKET_FUNDER_ADDRESS=<Jenkins credential>
 export LOG_LEVEL=INFO
+# 기본값은 active(기존 매매). 퇴역할 때만 아래 주석을 해제합니다.
+# export POLYBOT_LIFECYCLE_MODE=close_only
 # 전략 주요 env 예시
 export POLYBOT_YIELD_MIN=2.0
 export POLYBOT_MAX_POSITIONS=10
@@ -76,6 +78,26 @@ Jenkins job별로 DB/로그를 분리하려면 `--job <이름>`을 붙이세요.
 YES 토큰만 매수하려면 `--yes-only`를 추가합니다.
 UMA 오라클 리스크 때문에 실전에서는 `POLYBOT_MAX_POSITIONS` 제한과 소액 사이징을 권장합니다
 (STRATEGY.md §5).
+
+### 전략 퇴역 (`close_only`)
+
+`POLYBOT_LIFECYCLE_MODE=close_only`는 Phase 0 스냅샷, 기존 포지션의 정상
+청산 판단, Phase 4 정리를 계속하면서 신규 후보 스캔과 BUY를 차단합니다. 전량을
+즉시 매도하는 모드가 아닙니다. Mango에는 최대 보유 시간 제한이 없고 수렴 보유가
+전략의 본질이므로, 손절·0.99 도달·만기 2시간 전 조건 중 하나가 충족될 때까지
+포지션이 남을 수 있습니다. `archive_only`는 모든 주문 경로를 끄고 스냅샷과 정리만
+수행하므로 포지션과 미체결 주문이 모두 정리된 뒤에만 사용합니다.
+
+5분 Jenkins 주기는 그대로 사용할 수 있습니다. 기존과 같은 `--job`과 workspace를
+유지하고 concurrent build를 비활성화해 이전 사이클과 겹치지 않게 하세요. 전환 전
+이미 접수된 GTC BUY는 `close_only`가 자동 취소하지 않으므로, 동일한 계정 credential로
+저장소 루트의 `tools/wind_down.py cancel --side BUY`를 dry-run한 뒤 `--yes`로 한 번
+취소해야 합니다. 전환 직후 `main.py config`의 `Lifecycle Mode: close_only`와 실행
+로그의 `Phase 2/3 건너뜀`을 확인하세요. `POLYBOT_BUY_AMOUNT=0`은 설정 검증에서
+거부되므로 신규 진입 차단 용도로 사용하지 않습니다. `--yes-only` 설정은
+`close_only` 중에는 신규 진입이 없어 영향을 주지 않습니다.
+전체 전환·잔여 포지션 절차는
+[전략 퇴역 플레이북](../docs/strategy-wind-down-playbook.md)을 따릅니다.
 
 ## CLI
 
@@ -104,6 +126,7 @@ UMA 오라클 리스크 때문에 실전에서는 `POLYBOT_MAX_POSITIONS` 제한
 
 | 변수 | 기본 | 의미 |
 |------|------|------|
+| `POLYBOT_LIFECYCLE_MODE` | active | `active` / `close_only` / `archive_only` |
 | `POLYBOT_BUY_AMOUNT` | 5.0 | 1회 매수 USDC (달러 단위) |
 | `POLYBOT_MIN_LIQUIDITY` | 20000 | 최소 유동성 $ |
 | `POLYBOT_MIN_VOLUME_24H` | 0 | 최소 24h 거래량 $ (0 = 필터 비활성) |

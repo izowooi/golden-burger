@@ -60,6 +60,32 @@ def test_simulation_mode_yaml_must_be_boolean(tmp_path):
         load_config(str(path))
 
 
+def test_lifecycle_mode_defaults_to_active():
+    assert load_config("missing.yaml").trading.lifecycle_mode == "active"
+
+
+def test_lifecycle_mode_loads_from_yaml(tmp_path):
+    path = tmp_path / "lifecycle.yaml"
+    path.write_text("trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8")
+
+    assert load_config(str(path)).trading.lifecycle_mode == "archive_only"
+
+
+def test_lifecycle_mode_env_overrides_yaml_and_normalizes(monkeypatch, tmp_path):
+    path = tmp_path / "lifecycle.yaml"
+    path.write_text("trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8")
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", " Close-Only ")
+
+    assert load_config(str(path)).trading.lifecycle_mode == "close_only"
+
+
+@pytest.mark.parametrize("value", ["disabled", "close", "1", ""])
+def test_invalid_lifecycle_mode_is_rejected(monkeypatch, value):
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", value)
+    with pytest.raises(ValueError, match="POLYBOT_LIFECYCLE_MODE"):
+        load_config("missing.yaml")
+
+
 @pytest.mark.parametrize(("yaml_text", "match"), [
     ("trading:\n  buy_amount_usdc: true\n", "numeric"),
     ("trading:\n  buy_amount_usdc: '5'\n", "numeric"),

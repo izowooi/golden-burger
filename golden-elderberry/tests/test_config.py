@@ -18,6 +18,7 @@ def env(monkeypatch, tmp_path):
         "POLYBOT_BUY_AMOUNT", "POLYBOT_MIN_LIQUIDITY", "POLYBOT_MIN_VOLUME_24H",
         "POLYBOT_TAKE_PROFIT", "POLYBOT_STOP_LOSS", "POLYBOT_MAX_POSITIONS",
         "POLYBOT_REENTRY_COOLDOWN_HOURS", "POLYBOT_HISTORY_BACKFILL",
+        "POLYBOT_LIFECYCLE_MODE",
         "POLYBOT_EXCLUDED_CATEGORIES", "POLYBOT_REF_WINDOW_HOURS",
         "POLYBOT_REF_EXCLUDE_RECENT_HOURS", "POLYBOT_REF_MIN",
         "POLYBOT_DROP_MIN", "POLYBOT_CURRENT_MIN", "POLYBOT_CURRENT_MAX",
@@ -35,6 +36,7 @@ class TestDefaults:
         config = load_config(config_path="nonexistent.yaml")
         t = config.trading
         assert t.buy_amount_usdc == 5.0
+        assert t.lifecycle_mode == "active"
         assert t.min_liquidity == 20000.0
         assert t.min_volume_24h == 10000.0
         assert t.take_profit_percent == 0.10
@@ -73,6 +75,25 @@ class TestRequiredEnv:
 
 
 class TestEnvOverride:
+    def test_lifecycle_env_normalizes_hyphen(self, env):
+        env.setenv("POLYBOT_LIFECYCLE_MODE", "CLOSE-ONLY")
+        assert load_config("nonexistent.yaml").trading.lifecycle_mode == "close_only"
+
+    def test_lifecycle_env_overrides_yaml(self, env, tmp_path):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8"
+        )
+        env.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "active"
+
+    def test_lifecycle_yaml_value(self, env, tmp_path):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive-only\n", encoding="utf-8"
+        )
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "archive_only"
+
     def test_env_overrides_defaults(self, env):
         """env > yaml > 기본값 우선순위에서 env가 이긴다."""
         env.setenv("POLYBOT_BUY_AMOUNT", "1000")

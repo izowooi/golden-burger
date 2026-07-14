@@ -127,6 +127,7 @@ Examples:
         print("=== Bot Configuration ===")
         print(f"Job Name: {config.job_name}")
         print(f"Simulation Mode: {config.simulation_mode}")
+        print(f"Lifecycle Mode: {config.trading.lifecycle_mode}")
         print(f"DB Path: {config.db_path}")
         print()
         print("=== Trading Config ===")

@@ -57,6 +57,7 @@ def test_cycle_shares_one_gamma_sweep_between_snapshot_and_scan(monkeypatch):
         trading=SimpleNamespace(
             min_liquidity=50_000,
             momentum=SimpleNamespace(enabled=False),
+            lifecycle_mode="active",
         )
     )
 
@@ -64,6 +65,7 @@ def test_cycle_shares_one_gamma_sweep_between_snapshot_and_scan(monkeypatch):
 
     assert gamma.calls == [(50_000, 0)]
     assert stats == {
+        "lifecycle_mode": "active",
         "snapshots_saved": 0,
         "checked_holdings": 0,
         "sold": 0,
@@ -160,6 +162,7 @@ def test_cycle_scopes_batch_midpoints_to_nonempty_sell_phase(monkeypatch):
         trading=SimpleNamespace(
             min_liquidity=50_000,
             momentum=SimpleNamespace(enabled=False),
+            lifecycle_mode="active",
         )
     )
 

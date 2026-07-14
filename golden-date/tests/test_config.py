@@ -14,6 +14,7 @@ POLYBOT_ENV_KEYS = [
     "POLYBOT_BUY_AMOUNT", "POLYBOT_MIN_LIQUIDITY", "POLYBOT_MIN_VOLUME_24H",
     "POLYBOT_TAKE_PROFIT", "POLYBOT_STOP_LOSS", "POLYBOT_MAX_POSITIONS",
     "POLYBOT_REENTRY_COOLDOWN_HOURS", "POLYBOT_HISTORY_BACKFILL",
+    "POLYBOT_LIFECYCLE_MODE",
     "POLYBOT_EXCLUDED_CATEGORIES", "POLYBOT_YES_ONLY",
     "POLYBOT_LADDER_H1", "POLYBOT_LADDER_H2", "POLYBOT_LADDER_H3",
     "POLYBOT_BAND1_MIN", "POLYBOT_BAND1_MAX",
@@ -43,6 +44,7 @@ class TestDefaults:
         trading = config.trading
 
         assert trading.buy_amount_usdc == 5.0
+        assert trading.lifecycle_mode == "active"
         assert trading.min_liquidity == 15000.0
         assert trading.min_volume_24h == 5000.0
         assert trading.take_profit_percent == 0.12
@@ -82,6 +84,25 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_env_normalizes_hyphen(self, base_env):
+        base_env.setenv("POLYBOT_LIFECYCLE_MODE", "CLOSE-ONLY")
+        assert load_config("missing.yaml", "test").trading.lifecycle_mode == "close_only"
+
+    def test_lifecycle_env_overrides_yaml(self, base_env, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8"
+        )
+        base_env.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load_config(str(config_file), "test").trading.lifecycle_mode == "active"
+
+    def test_lifecycle_yaml_value(self, base_env, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "trading:\n  lifecycle_mode: archive-only\n", encoding="utf-8"
+        )
+        assert load_config(str(config_file), "test").trading.lifecycle_mode == "archive_only"
+
     def test_env_overrides_defaults(self, base_env):
         base_env.setenv("POLYBOT_BUY_AMOUNT", "1000")
         base_env.setenv("POLYBOT_TAKE_PROFIT", "0.2")

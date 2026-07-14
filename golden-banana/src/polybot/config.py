@@ -12,6 +12,9 @@ from polybot_observability.config_contract import (
 )
 
 
+LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+
+
 def _get_config_value(
     env_key: str,
     yaml_value,
@@ -64,6 +67,26 @@ def _get_bool_config_value(
     raise ValueError(f"{env_key} must be a boolean")
 
 
+def _get_lifecycle_mode(yaml_value) -> str:
+    """환경변수 > yaml > active 순서로 봇 수명주기 모드를 로드."""
+    env_val = os.getenv("POLYBOT_LIFECYCLE_MODE")
+    value = env_val if env_val is not None else yaml_value
+    if value is None:
+        return "active"
+    if not isinstance(value, str):
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized not in LIFECYCLE_MODES:
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    return normalized
+
+
 @dataclass
 class MomentumConfig:
     """모멘텀 전략 설정."""
@@ -90,6 +113,7 @@ class TradingConfig:
         "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
         "Soccer", "Football", "Basketball", "Baseball"
     ])
+    lifecycle_mode: str = "active"
 
 
 @dataclass
@@ -155,6 +179,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         for item in trading.excluded_categories
     ):
         raise ValueError("excluded_categories must be a list of non-empty strings")
+    if trading.lifecycle_mode not in LIFECYCLE_MODES:
+        raise ValueError(
+            "lifecycle_mode must be one of: active, close_only, archive_only"
+        )
     if api.signature_type not in {1, 3}:
         raise ValueError("signature_type must be one of: 1, 3")
 
@@ -283,6 +311,9 @@ def load_config(
             "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
             "Soccer", "Football", "Basketball", "Baseball"
         ]),
+        lifecycle_mode=_get_lifecycle_mode(
+            trading_cfg.get("lifecycle_mode")
+        ),
     )
 
     validate_yaml_config_shape(cfg, trading)

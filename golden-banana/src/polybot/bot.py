@@ -54,7 +54,8 @@ class PolymarketBot:
         logger.info(
             f"Bot 초기화 완료 - Job: {config.job_name}, "
             f"Simulation: {config.simulation_mode}, "
-            f"Momentum: {config.trading.momentum.enabled}"
+            f"Momentum: {config.trading.momentum.enabled}, "
+            f"Lifecycle: {config.trading.lifecycle_mode}"
         )
 
     def run_cycle(self) -> dict:
@@ -62,6 +63,7 @@ class PolymarketBot:
 
         Returns:
             Dictionary with cycle statistics:
+            - lifecycle_mode: str
             - snapshots_saved: int
             - checked_holdings: int
             - sold: int
@@ -76,6 +78,7 @@ class PolymarketBot:
         trader = Trader(repo, self.clob, self.config.trading)
 
         stats = {
+            "lifecycle_mode": self.config.trading.lifecycle_mode,
             "snapshots_saved": 0,
             "checked_holdings": 0,
             "sold": 0,
@@ -103,34 +106,47 @@ class PolymarketBot:
             logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
 
-            # Phase 1: Check and sell holdings
-            logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
-            holdings = repo.get_holding_trades()
-            stats["checked_holdings"] = len(holdings)
+            lifecycle_mode = self.config.trading.lifecycle_mode
 
-            if holdings:
-                with self.clob.midpoint_snapshot(
-                    trade.token_id for trade in holdings
-                ):
-                    for trade in holdings:
-                        if trader.execute_sell(trade):
-                            stats["sold"] += 1
+            if lifecycle_mode == "archive_only":
+                logger.warning(
+                    "=== Phase 1 건너뜀: archive_only 모드에서는 주문을 생성하지 않습니다 ==="
+                )
+            else:
+                # Phase 1: Check and sell holdings
+                logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
+                holdings = repo.get_holding_trades()
+                stats["checked_holdings"] = len(holdings)
 
-            # Phase 2: Scan for buy candidates
-            logger.info("=== Phase 2: 매수 후보 스캔 ===")
-            candidates = scanner.scan_buy_candidates(markets)
-            stats["buy_candidates"] = len(candidates)
+                if holdings:
+                    with self.clob.midpoint_snapshot(
+                        trade.token_id for trade in holdings
+                    ):
+                        for trade in holdings:
+                            if trader.execute_sell(trade):
+                                stats["sold"] += 1
 
-            # Phase 3: Execute buys
-            logger.info("=== Phase 3: 매수 실행 ===")
-            for candidate in candidates:
-                # Skip if already traded
-                if repo.is_already_traded(candidate["condition_id"]):
-                    logger.info(f"이미 거래한 시장 skip: {candidate['condition_id']}")
-                    continue
+            if lifecycle_mode == "active":
+                # Phase 2: Scan for buy candidates
+                logger.info("=== Phase 2: 매수 후보 스캔 ===")
+                candidates = scanner.scan_buy_candidates(markets)
+                stats["buy_candidates"] = len(candidates)
 
-                if trader.execute_buy(candidate):
-                    stats["bought"] += 1
+                # Phase 3: Execute buys
+                logger.info("=== Phase 3: 매수 실행 ===")
+                for candidate in candidates:
+                    # Skip if already traded
+                    if repo.is_already_traded(candidate["condition_id"]):
+                        logger.info(f"이미 거래한 시장 skip: {candidate['condition_id']}")
+                        continue
+
+                    if trader.execute_buy(candidate):
+                        stats["bought"] += 1
+            else:
+                logger.warning(
+                    "=== Phase 2/3 건너뜀: "
+                    f"{lifecycle_mode} 모드에서 신규 진입이 차단됩니다 ==="
+                )
 
             # Phase 4: Cleanup old snapshots (weekly)
             logger.info("=== Phase 4: 오래된 스냅샷 정리 ===")
@@ -192,6 +208,7 @@ class PolymarketBot:
             return {
                 "job_name": self.config.job_name,
                 "simulation_mode": self.config.simulation_mode,
+                "lifecycle_mode": self.config.trading.lifecycle_mode,
                 "db_path": str(self.config.db_path),
                 "statistics": stats,
                 "holdings": [
@@ -216,6 +233,7 @@ class PolymarketBot:
                     "take_profit_percent": self.config.trading.take_profit_percent,  # Added
                     "stop_loss_percent": self.config.trading.stop_loss_percent,  # Added
                     "momentum_enabled": self.config.trading.momentum.enabled,  # Added
+                    "lifecycle_mode": self.config.trading.lifecycle_mode,
                 },
             }
         finally:

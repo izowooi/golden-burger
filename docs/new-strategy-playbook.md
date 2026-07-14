@@ -177,6 +177,8 @@ rolling signal이나 counterfactual에 가격 history가 필요하면 다음을 
   maker/taker와 fee, retry/restart idempotency
 - DB migration: 기존 SQLite에 additive schema 적용, snapshot+catalog batch atomicity
 - run audit: success/failure/stale/secret redaction/Git/config cohort
+- lifecycle: 미설정 `active`의 기존 진입 경로, `close_only`의 청산 유지+신규 스캔/BUY 차단,
+  `archive_only`의 주문 전면 차단+기존 아카이브 Phase 유지
 - end-to-end dry cycle: fake Gamma/CLOB에서 signal→submission→reconciliation→run summary
 
 검증 명령은 프로젝트 README에 고정한다.
@@ -191,6 +193,10 @@ live promotion 직전에는 `polybot-observability` 자체 test와 월간 strict
 
 ## 7. Jenkins 운영 계약
 
+- 모든 전략은 `POLYBOT_LIFECYCLE_MODE`를 `active`(기본), `close_only`, `archive_only`로
+  지원한다. 환경변수를 설정하지 않은 live job은 반드시 기존 `active` 경로와 같아야 한다.
+  퇴역 절차와 GTC BUY 취소·잔여 포지션 게이트는
+  [전략 퇴역 플레이북](strategy-wind-down-playbook.md)을 따른다.
 - 같은 SQLite를 쓰는 build는 `disableConcurrentBuilds()` 또는 동등한 single-writer 보장이
   있어야 한다. job 이름은 stable하고 DB namespace와 일치시킨다.
 - workspace wipe, SCM cleanup, ephemeral agent가 DB 원본을 없애지 않도록 data directory를

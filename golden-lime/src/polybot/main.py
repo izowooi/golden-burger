@@ -129,6 +129,7 @@ Examples:
         print("=== Bot Configuration (Golden Lime - Shock Follow) ===")
         print(f"Job Name: {config.job_name}")
         print(f"Simulation Mode: {config.simulation_mode}")
+        print(f"Lifecycle Mode: {trading.lifecycle_mode}")
         print(f"DB Path: {config.db_path}")
         print()
         print("=== Trading Config ===")

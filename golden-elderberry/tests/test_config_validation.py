@@ -21,6 +21,7 @@ def clean_env(monkeypatch, tmp_path):
     ("POLYBOT_BUY_AMOUNT", "0", "buy_amount_usdc"),
     ("POLYBOT_MIN_LIQUIDITY", "-1", "min_liquidity"),
     ("POLYBOT_MAX_POSITIONS", "0", "max_positions"),
+    ("POLYBOT_LIFECYCLE_MODE", "pause", "LIFECYCLE_MODE"),
     ("POLYMARKET_SIGNATURE_TYPE", "2", "signature_type"),
 ])
 def test_invalid_env_values_are_rejected(monkeypatch, key, value, match):

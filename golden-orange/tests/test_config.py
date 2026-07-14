@@ -41,6 +41,7 @@ class TestDefaults:
     def test_strategy_defaults_without_yaml(self, base_env):
         config = load_config("nonexistent.yaml")
         strategy = config.trading.strategy
+        assert config.trading.lifecycle_mode == "active"
         assert strategy.base_window_days == 7.0
         assert strategy.base_exclude_recent_hours == 6.0
         assert strategy.base_max == 0.15
@@ -64,6 +65,10 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_mode_env_is_normalized(self, base_env, monkeypatch):
+        monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "close-only")
+        assert load_config("nonexistent.yaml").trading.lifecycle_mode == "close_only"
+
     def test_strategy_env_overrides(self, base_env, monkeypatch):
         monkeypatch.setenv("POLYBOT_BASE_WINDOW_DAYS", "14")
         monkeypatch.setenv("POLYBOT_BASE_EXCLUDE_RECENT_HOURS", "12")
@@ -129,6 +134,19 @@ class TestEnvOverrides:
 
 
 class TestYamlAndPriority:
+    def test_lifecycle_mode_yaml_and_env_precedence(
+        self, base_env, tmp_path, monkeypatch
+    ):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n",
+            encoding="utf-8",
+        )
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "archive_only"
+
+        monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "active"
+
     def test_yaml_values_used_when_no_env(self, base_env, tmp_path):
         yaml_path = tmp_path / "config.yaml"
         yaml_path.write_text(

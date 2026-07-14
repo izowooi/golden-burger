@@ -51,6 +51,7 @@ class TestDefaults:
         assert config.trading.take_profit_percent == 0.06
         assert config.trading.stop_loss_percent == -0.10
         assert config.trading.buy_amount_usdc == 5.0
+        assert config.trading.lifecycle_mode == "active"
         assert config.trading.min_liquidity == 10000.0
         assert config.trading.max_positions == -1
         assert config.trading.reentry_cooldown_hours == 24.0
@@ -59,6 +60,25 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_env_normalizes_hyphen(self, base_env, monkeypatch):
+        monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "CLOSE-ONLY")
+        assert load_config("nonexistent.yaml").trading.lifecycle_mode == "close_only"
+
+    def test_lifecycle_env_overrides_yaml(self, base_env, tmp_path, monkeypatch):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8"
+        )
+        monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "active"
+
+    def test_lifecycle_yaml_value(self, base_env, tmp_path):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive-only\n", encoding="utf-8"
+        )
+        assert load_config(str(yaml_path)).trading.lifecycle_mode == "archive_only"
+
     def test_strategy_env_overrides(self, base_env, monkeypatch):
         monkeypatch.setenv("POLYBOT_YES_MIN", "0.10")
         monkeypatch.setenv("POLYBOT_YES_MAX", "0.20")

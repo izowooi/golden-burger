@@ -12,6 +12,9 @@ from polybot_observability.config_contract import (
 )
 
 
+LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+
+
 def _get_config_value(
     env_key: str,
     yaml_value,
@@ -64,6 +67,26 @@ def _get_bool_config_value(
     raise ValueError(f"{env_key} must be a boolean")
 
 
+def _get_lifecycle_mode(yaml_value) -> str:
+    """환경변수 > yaml > active 순서로 봇 수명주기 모드를 로드."""
+    env_val = os.getenv("POLYBOT_LIFECYCLE_MODE")
+    value = env_val if env_val is not None else yaml_value
+    if value is None:
+        return "active"
+    if not isinstance(value, str):
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized not in LIFECYCLE_MODES:
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    return normalized
+
+
 @dataclass
 class TrailingStopConfig:
     """트레일링 스탑 설정."""
@@ -97,6 +120,7 @@ class TradingConfig:
         "Soccer", "Football", "Basketball", "Baseball"
     ])
     yes_only_mode: bool = False           # True: Yes(1위) 포지션만 매수, No 제외
+    lifecycle_mode: str = "active"
 
 
 @dataclass
@@ -165,6 +189,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         for item in trading.excluded_categories
     ):
         raise ValueError("excluded_categories must be a list of non-empty strings")
+    if trading.lifecycle_mode not in LIFECYCLE_MODES:
+        raise ValueError(
+            "lifecycle_mode must be one of: active, close_only, archive_only"
+        )
     if api.signature_type not in {1, 3}:
         raise ValueError("signature_type must be one of: 1, 3")
 
@@ -304,6 +332,9 @@ def load_config(
             "POLYBOT_YES_ONLY",
             trading_cfg.get("yes_only_mode"),
             False
+        ),
+        lifecycle_mode=_get_lifecycle_mode(
+            trading_cfg.get("lifecycle_mode")
         ),
     )
 

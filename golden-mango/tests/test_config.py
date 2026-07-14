@@ -11,6 +11,7 @@ DUMMY_ADDR = "0x" + "00" * 19 + "01"
 
 # 테스트 간 누수를 막기 위해 초기화할 env 목록
 POLYBOT_ENV_KEYS = [
+    "POLYBOT_LIFECYCLE_MODE",
     "POLYBOT_BUY_AMOUNT", "POLYBOT_MIN_LIQUIDITY", "POLYBOT_MIN_VOLUME_24H",
     "POLYBOT_TAKE_PROFIT", "POLYBOT_STOP_LOSS", "POLYBOT_MAX_POSITIONS",
     "POLYBOT_REENTRY_COOLDOWN_HOURS", "POLYBOT_HISTORY_BACKFILL",
@@ -38,6 +39,7 @@ class TestDefaults:
         config = load_config("missing.yaml", "test")
         trading = config.trading
 
+        assert trading.lifecycle_mode == "active"
         assert trading.buy_amount_usdc == 5.0
         assert trading.min_liquidity == 20000.0
         assert trading.min_volume_24h == 0.0
@@ -74,6 +76,25 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_mode_env_is_normalized(self, base_env):
+        base_env.setenv("POLYBOT_LIFECYCLE_MODE", "close-only")
+        trading = load_config("missing.yaml", "test").trading
+        assert trading.lifecycle_mode == "close_only"
+
+    def test_lifecycle_mode_yaml_and_env_precedence(self, base_env, tmp_path):
+        config_file = tmp_path / "config.yaml"
+        config_file.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n",
+            encoding="utf-8",
+        )
+        assert (
+            load_config(str(config_file), "test").trading.lifecycle_mode
+            == "archive_only"
+        )
+
+        base_env.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load_config(str(config_file), "test").trading.lifecycle_mode == "active"
+
     def test_env_overrides_defaults(self, base_env):
         base_env.setenv("POLYBOT_BUY_AMOUNT", "1000")
         base_env.setenv("POLYBOT_YIELD_MIN", "3.5")

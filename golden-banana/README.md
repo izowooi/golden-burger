@@ -226,6 +226,30 @@ trading:
 simulation_mode: false
 ```
 
+## 전략 퇴역 모드
+
+`POLYBOT_LIFECYCLE_MODE`를 설정하지 않으면 항상 `active`이며 기존 매매 로직은 그대로
+실행됩니다. 전략을 퇴역시킬 때만 Jenkins 환경변수를 `close_only`로 바꿉니다.
+
+| 값 | snapshot/cleanup | 기존 포지션 청산 | 신규 스캔/BUY | 용도 |
+|---|---:|---:|---:|---|
+| `active` | O | O | O | 기본 운영 |
+| `close_only` | O | O | X | 신규 진입 동결 후 자연 청산 |
+| `archive_only` | O | X | X | 주문 없이 snapshot만 유지 |
+
+```bash
+export POLYBOT_LIFECYCLE_MODE=close_only
+uv run python main.py config   # Lifecycle Mode: close_only 확인
+uv run python main.py run      # 기존 Jenkins의 --job 값이 있다면 동일하게 유지
+```
+
+Banana의 데드크로스 청산은 최신 snapshot에 의존하므로 `close_only`에서도 Phase 0 저장과
+오래된 snapshot 정리를 계속합니다. 모드 전환 전에 접수된 GTC BUY 주문은 자동 취소되지
+않으므로 저장소 루트의 `tools/wind_down.py cancel --side BUY`를 dry-run한 뒤 계정별로 한 번
+취소해야 합니다. `close_only`는 기존 threshold/익절/손절/데드크로스 조건만 수행하며 즉시
+전량 매도하는 모드가 아닙니다. 상세 절차는
+[`docs/strategy-wind-down-playbook.md`](../docs/strategy-wind-down-playbook.md)를 참조하세요.
+
 ## Jenkins 통합
 
 ### Jenkinsfile 예시
@@ -234,6 +258,10 @@ simulation_mode: false
 pipeline {
     agent any
 
+    options {
+        disableConcurrentBuilds()
+    }
+
     triggers {
         cron('*/5 * * * *')  // 5분마다 실행
     }
@@ -241,6 +269,7 @@ pipeline {
     environment {
         POLYMARKET_PRIVATE_KEY = credentials('polymarket-private-key')
         POLYMARKET_FUNDER_ADDRESS = credentials('polymarket-funder-address')
+        POLYBOT_LIFECYCLE_MODE = 'active' // 퇴역할 때만 close_only
     }
 
     stages {
@@ -256,6 +285,10 @@ pipeline {
     }
 }
 ```
+
+`close_only`도 snapshot과 청산 조건을 5분마다 갱신해야 하므로 기존 cron을 유지합니다.
+전체 Gamma sweep이 계속 실행되므로 동시 빌드를 막고, 전환 전후에 같은 `--job` 값을 사용해
+기존 포지션·momentum DB를 계속 읽어야 합니다.
 
 ### 다중 설정 운영
 

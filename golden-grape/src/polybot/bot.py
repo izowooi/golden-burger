@@ -54,6 +54,7 @@ class PolymarketBot:
         logger.info(
             f"Bot 초기화 완료 - Job: {config.job_name}, "
             f"Simulation: {config.simulation_mode}, "
+            f"Lifecycle: {config.trading.lifecycle_mode}, "
             f"Backfill: {config.trading.history_backfill}"
         )
 
@@ -78,6 +79,7 @@ class PolymarketBot:
         )
 
         stats = {
+            "lifecycle_mode": self.config.trading.lifecycle_mode,
             "snapshots_saved": 0,
             "checked_holdings": 0,
             "sold": 0,
@@ -114,44 +116,53 @@ class PolymarketBot:
             logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
 
-            # Phase 1: Check and sell holdings
-            logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
-            holdings = repo.get_holding_trades()
-            stats["checked_holdings"] = len(holdings)
+            lifecycle_mode = self.config.trading.lifecycle_mode
+            if lifecycle_mode != "archive_only":
+                # Phase 1: Check and sell holdings
+                logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
+                holdings = repo.get_holding_trades()
+                stats["checked_holdings"] = len(holdings)
 
-            if holdings:
-                with self.clob.midpoint_snapshot(
-                    trade.token_id for trade in holdings
-                ):
-                    for trade in holdings:
-                        if trader.execute_sell(trade):
-                            stats["sold"] += 1
-                            updated_trade = repo.get_by_id(trade.id)
-                            if updated_trade:
-                                repo.append_trade_to_csv(
-                                    updated_trade, self.config.db_path.parent
-                                )
+                if holdings:
+                    with self.clob.midpoint_snapshot(
+                        trade.token_id for trade in holdings
+                    ):
+                        for trade in holdings:
+                            if trader.execute_sell(trade):
+                                stats["sold"] += 1
+                                updated_trade = repo.get_by_id(trade.id)
+                                if updated_trade:
+                                    repo.append_trade_to_csv(
+                                        updated_trade, self.config.db_path.parent
+                                    )
+            else:
+                logger.info("Lifecycle archive_only: Phase 1 매도 확인 생략")
 
-            # Phase 2: Scan for buy candidates
-            logger.info("=== Phase 2: 매수 후보 스캔 ===")
-            candidates = scanner.scan_buy_candidates(markets)
-            stats["buy_candidates"] = len(candidates)
+            if lifecycle_mode == "active":
+                # Phase 2: Scan for buy candidates
+                logger.info("=== Phase 2: 매수 후보 스캔 ===")
+                candidates = scanner.scan_buy_candidates(markets)
+                stats["buy_candidates"] = len(candidates)
 
-            # Phase 3: Execute buys (재진입 쿨다운 체크)
-            logger.info("=== Phase 3: 매수 실행 ===")
-            for candidate in candidates:
-                block = repo.get_reentry_block(
-                    candidate["condition_id"],
-                    self.config.trading.reentry_cooldown_hours,
-                )
-                if block:
-                    logger.info(
-                        f"재진입 차단({block}) skip: {candidate['condition_id']}"
+                # Phase 3: Execute buys (재진입 쿨다운 체크)
+                logger.info("=== Phase 3: 매수 실행 ===")
+                for candidate in candidates:
+                    block = repo.get_reentry_block(
+                        candidate["condition_id"],
+                        self.config.trading.reentry_cooldown_hours,
                     )
-                    continue
+                    if block:
+                        logger.info(
+                            f"재진입 차단({block}) skip: {candidate['condition_id']}"
+                        )
+                        continue
 
-                if trader.execute_buy(candidate):
-                    stats["bought"] += 1
+                    if trader.execute_buy(candidate):
+                        stats["bought"] += 1
+            else:
+                logger.info(
+                    f"Lifecycle {lifecycle_mode}: Phase 2 스캔과 Phase 3 매수 생략"
+                )
 
             # Phase 4: Cleanup old snapshots
             logger.info("=== Phase 4: 오래된 스냅샷 정리 ===")
@@ -218,6 +229,7 @@ class PolymarketBot:
             return {
                 "job_name": self.config.job_name,
                 "simulation_mode": self.config.simulation_mode,
+                "lifecycle_mode": self.config.trading.lifecycle_mode,
                 "db_path": str(self.config.db_path),
                 "statistics": stats,
                 "holdings": [
@@ -239,6 +251,7 @@ class PolymarketBot:
                     for t in holdings
                 ],
                 "config": {
+                    "lifecycle_mode": self.config.trading.lifecycle_mode,
                     "buy_amount_usdc": self.config.trading.buy_amount_usdc,
                     "min_liquidity": self.config.trading.min_liquidity,
                     "min_volume_24h": self.config.trading.min_volume_24h,

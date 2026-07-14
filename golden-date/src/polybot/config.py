@@ -12,6 +12,9 @@ from polybot_observability.config_contract import (
 )
 
 
+LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+
+
 def _get_config_value(
     env_key: str,
     yaml_value,
@@ -62,6 +65,26 @@ def _get_bool_config_value(
         if normalized in {"false", "0", "no", "off"}:
             return False
     raise ValueError(f"{env_key} must be a boolean")
+
+
+def _get_lifecycle_mode(yaml_value) -> str:
+    """환경변수 > yaml > 기본값 순서로 봇 수명주기 모드를 로드."""
+    env_val = os.getenv("POLYBOT_LIFECYCLE_MODE")
+    value = env_val if env_val is not None else yaml_value
+    if value is None:
+        return "active"
+    if not isinstance(value, str):
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    normalized = value.strip().lower().replace("-", "_")
+    if normalized not in LIFECYCLE_MODES:
+        raise ValueError(
+            "POLYBOT_LIFECYCLE_MODE must be one of: "
+            "active, close_only, archive_only"
+        )
+    return normalized
 
 
 def _get_list_config_value(
@@ -130,6 +153,7 @@ class MomentumGateConfig:
 @dataclass
 class TradingConfig:
     """Trading strategy configuration."""
+    lifecycle_mode: str = "active"
     buy_amount_usdc: float = 5.0
     min_liquidity: float = 15000.0
     min_volume_24h: float = 5000.0
@@ -198,6 +222,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     for name, value in numeric.items():
         if not math.isfinite(value):
             raise ValueError(f"{name} must be finite")
+    if trading.lifecycle_mode not in LIFECYCLE_MODES:
+        raise ValueError(
+            "lifecycle_mode must be one of: active, close_only, archive_only"
+        )
     if trading.buy_amount_usdc <= 0:
         raise ValueError("buy_amount_usdc must be > 0")
     if trading.min_liquidity < 0 or trading.min_volume_24h < 0:
@@ -325,6 +353,9 @@ def load_config(
     )
 
     trading = TradingConfig(
+        lifecycle_mode=_get_lifecycle_mode(
+            trading_cfg.get("lifecycle_mode")
+        ),
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT",
             trading_cfg.get("buy_amount_usdc"),

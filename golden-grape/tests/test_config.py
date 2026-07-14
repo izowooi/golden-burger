@@ -13,6 +13,7 @@ def env(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", DUMMY_KEY)
     monkeypatch.setenv("POLYMARKET_FUNDER_ADDRESS", DUMMY_FUNDER)
+    monkeypatch.delenv("POLYBOT_LIFECYCLE_MODE", raising=False)
     return monkeypatch
 
 
@@ -45,6 +46,7 @@ class TestDefaults:
     def test_code_defaults_without_yaml(self, env):
         config = load()
         assert config.trading.buy_amount_usdc == 5.0
+        assert config.trading.lifecycle_mode == "active"
         assert config.trading.min_liquidity == 20000.0
         assert config.trading.min_volume_24h == 10000.0
         assert config.trading.take_profit_percent == 0.15
@@ -68,6 +70,25 @@ class TestDefaults:
 
 
 class TestEnvOverrides:
+    def test_lifecycle_env_normalizes_hyphen(self, env):
+        env.setenv("POLYBOT_LIFECYCLE_MODE", "CLOSE-ONLY")
+        assert load().trading.lifecycle_mode == "close_only"
+
+    def test_lifecycle_env_overrides_yaml(self, env, tmp_path):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive_only\n", encoding="utf-8"
+        )
+        env.setenv("POLYBOT_LIFECYCLE_MODE", "active")
+        assert load(str(yaml_path)).trading.lifecycle_mode == "active"
+
+    def test_lifecycle_yaml_value(self, env, tmp_path):
+        yaml_path = tmp_path / "config.yaml"
+        yaml_path.write_text(
+            "trading:\n  lifecycle_mode: archive-only\n", encoding="utf-8"
+        )
+        assert load(str(yaml_path)).trading.lifecycle_mode == "archive_only"
+
     def test_env_overrides_defaults(self, env):
         env.setenv("POLYBOT_BUY_AMOUNT", "25.5")
         env.setenv("POLYBOT_DRIFT_MIN", "0.05")

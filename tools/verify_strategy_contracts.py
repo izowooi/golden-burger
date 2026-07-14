@@ -122,6 +122,74 @@ def _calls(node: ast.AST) -> list[tuple[str, ast.Call]]:
     ]
 
 
+def _mode_comparison(test: ast.AST, mode: str) -> str | None:
+    """Return ``eq``/``ne`` when *test* compares lifecycle_mode to *mode*."""
+    for node in ast.walk(test):
+        if not isinstance(node, ast.Compare) or len(node.ops) != 1:
+            continue
+        operands = [node.left, *node.comparators]
+        has_lifecycle = any(
+            (isinstance(operand, ast.Name) and operand.id == "lifecycle_mode")
+            or (isinstance(operand, ast.Attribute) and operand.attr == "lifecycle_mode")
+            for operand in operands
+        )
+        has_mode = any(
+            isinstance(operand, ast.Constant) and operand.value == mode
+            for operand in operands
+        )
+        if not has_lifecycle or not has_mode:
+            continue
+        if isinstance(node.ops[0], ast.Eq):
+            return "eq"
+        if isinstance(node.ops[0], ast.NotEq):
+            return "ne"
+    return None
+
+
+def _guarded_calls(
+    node: ast.AST,
+    suffixes: tuple[str, ...],
+    *,
+    active_guarded: bool = False,
+) -> list[tuple[str, ast.Call, bool]]:
+    """Collect calls and whether their control path requires active mode."""
+    collected: list[tuple[str, ast.Call, bool]] = []
+
+    if isinstance(node, ast.Call):
+        name = _call_name(node)
+        if any(name.endswith(suffix) for suffix in suffixes):
+            collected.append((name, node, active_guarded))
+
+    if isinstance(node, ast.If):
+        comparison = _mode_comparison(node.test, "active")
+        body_guarded = active_guarded or comparison == "eq"
+        else_guarded = active_guarded or comparison == "ne"
+        collected.extend(
+            item
+            for child in node.body
+            for item in _guarded_calls(
+                child, suffixes, active_guarded=body_guarded
+            )
+        )
+        collected.extend(
+            item
+            for child in node.orelse
+            for item in _guarded_calls(
+                child, suffixes, active_guarded=else_guarded
+            )
+        )
+        collected.extend(
+            _guarded_calls(node.test, suffixes, active_guarded=active_guarded)
+        )
+        return collected
+
+    for child in ast.iter_child_nodes(node):
+        collected.extend(
+            _guarded_calls(child, suffixes, active_guarded=active_guarded)
+        )
+    return collected
+
+
 def _require_function(
     findings: list[Finding],
     strategy: str,
@@ -192,6 +260,9 @@ def _validate_config_source(
     number_loader = _require_function(
         findings, strategy, relative_path, tree, "_get_config_value"
     )
+    lifecycle_loader = _require_function(
+        findings, strategy, relative_path, tree, "_get_lifecycle_mode"
+    )
     if validator is not None:
         calls = {name for name, _ in _calls(validator)}
         if not any(name.endswith("math.isfinite") for name in calls):
@@ -208,6 +279,7 @@ def _validate_config_source(
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
             "_validate_config",
+            "_get_lifecycle_mode",
         )
         missing_loader_calls = [
             name
@@ -251,6 +323,21 @@ def _validate_config_source(
                     f"{relative_path}: strict YAML numeric types",
                 )
             )
+    if lifecycle_loader is not None:
+        lifecycle_source = ast.get_source_segment(content, lifecycle_loader) or ""
+        _require_tokens(
+            findings,
+            strategy,
+            relative_path,
+            lifecycle_source,
+            (
+                "POLYBOT_LIFECYCLE_MODE",
+                "active",
+                "close_only",
+                "archive_only",
+                "replace",
+            ),
+        )
 
 
 def _validate_bot_source(
@@ -321,6 +408,37 @@ def _validate_bot_source(
                 strategy,
                 "missing_contract",
                 f"{relative_path}: Phase 1 scoped midpoint_snapshot",
+            )
+        )
+
+    entry_calls = _guarded_calls(
+        run_cycle, ("scan_buy_candidates", "execute_buy")
+    )
+    unguarded_entries = [name for name, _, guarded in entry_calls if not guarded]
+    if unguarded_entries:
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_lifecycle_path",
+                f"{relative_path}: active guard missing for "
+                + ", ".join(sorted(set(unguarded_entries))),
+            )
+        )
+    if _mode_comparison(run_cycle, "archive_only") is None:
+        findings.append(
+            Finding(
+                strategy,
+                "missing_contract",
+                f"{relative_path}: archive_only order guard",
+            )
+        )
+    sell_calls = _guarded_calls(run_cycle, ("execute_sell",))
+    if sell_calls and all(guarded for _, _, guarded in sell_calls):
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_lifecycle_path",
+                f"{relative_path}: close_only must retain execute_sell",
             )
         )
 
@@ -769,7 +887,7 @@ def _validate_pyproject(
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
-    required = ("README.md", "config.yaml", "uv.lock")
+    required = ("README.md", ".env.example", "config.yaml", "uv.lock")
     for relative_path in required:
         _require_file(findings, strategy, directory / relative_path)
 
@@ -789,11 +907,76 @@ def validate_strategy(directory: Path) -> list[Finding]:
         strategy,
         "src/polybot/config.py",
         config,
-        ("excluded_categories must be a list", "simulation_mode must be a boolean"),
+        (
+            "excluded_categories must be a list",
+            "simulation_mode must be a boolean",
+            "LIFECYCLE_MODES",
+            "lifecycle_mode: str = \"active\"",
+            "POLYBOT_LIFECYCLE_MODE",
+        ),
     )
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/bot.py",
+        bot,
+        ("lifecycle_mode", "active", "archive_only"),
+    )
+
+    main_source = _require_file(
+        findings, strategy, directory / "src/polybot/main.py"
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/main.py",
+        main_source,
+        ("Lifecycle Mode", "lifecycle_mode"),
+    )
+
+    env_example = _read(directory / ".env.example")
+    _require_tokens(
+        findings,
+        strategy,
+        ".env.example",
+        env_example,
+        ("POLYBOT_LIFECYCLE_MODE=active",),
+    )
+
+    readme = _read(directory / "README.md")
+    _require_tokens(
+        findings,
+        strategy,
+        "README.md",
+        readme,
+        (
+            "POLYBOT_LIFECYCLE_MODE",
+            "close_only",
+            "archive_only",
+            "strategy-wind-down-playbook.md",
+        ),
+    )
+
+    lifecycle_test = _require_file(
+        findings, strategy, directory / "tests/test_lifecycle_mode.py"
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "tests/test_lifecycle_mode.py",
+        lifecycle_test,
+        (
+            "active",
+            "close_only",
+            "archive_only",
+            "scan_buy_candidates",
+            "execute_buy",
+            "execute_sell",
+        ),
+    )
 
     clob = _require_file(
         findings, strategy, directory / "src/polybot/api/clob_client.py"
