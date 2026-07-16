@@ -96,6 +96,10 @@ def main() -> None:
         f"{trading.min_order_size:.2f} + {trading.min_order_buffer_shares:.2f} buffer"
     )
     print(
+        f"Entry metadata gates: liquidity >= ${trading.min_liquidity:,.0f}, "
+        f"24h volume >= ${trading.min_volume_24h:,.0f}"
+    )
+    print(
         f"Limits: {trading.max_positions} total, "
         f"{trading.max_event_positions} per event, "
         f"{trading.reentry_cooldown_hours:.0f}h cooldown"

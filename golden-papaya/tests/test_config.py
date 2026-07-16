@@ -35,8 +35,8 @@ def test_final_five_defaults_are_fail_closed():
 
     assert trading.lifecycle_mode == "active"
     assert trading.buy_amount_usdc == 5.0
-    assert trading.min_liquidity == 1_000.0
-    assert trading.min_volume_24h == 0.0
+    assert trading.min_liquidity == 10_000.0
+    assert trading.min_volume_24h == 2_000.0
     assert trading.max_positions == 20
     assert trading.max_event_positions == 1
     assert trading.reentry_cooldown_hours == 24.0

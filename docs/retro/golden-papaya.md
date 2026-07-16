@@ -39,8 +39,8 @@ Jenkins export는 secret/address를 제거한 legacy cross-check로만 사용한
 | 항목 | env | baseline |
 |---|---|---:|
 | 주문 금액 | `POLYBOT_BUY_AMOUNT` | $5 |
-| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | $1,000 |
-| 최소 volume24h | `POLYBOT_MIN_VOLUME_24H` | $0 |
+| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | $10,000 |
+| 최소 volume24h | `POLYBOT_MIN_VOLUME_24H` | $2,000 |
 | 최대 연속 snapshot 간격 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | 30m |
 | 첫 교차/진입 하한 | `POLYBOT_ENTRY_PROB_MIN` | 0.95 |
 | 진입 상한 | `POLYBOT_ENTRY_PROB_MAX` | 0.97 |
@@ -79,10 +79,11 @@ find /Users/jongwoopark/.jenkins/workspace \
   -path "*golden-papaya/data*" -name "trades_sim.db" 2>/dev/null
 ```
 
-papaya universe의 유동성 하한 $1,000은 중앙 nectarine($10k)/honeydew($15k) archive보다
-넓다. 따라서 counterfactual의 주 source는 papaya 자체 archive다. envelope는 YES ≥ 0.80,
-잔여 ≤168h, 유동성 ≥$1,000, volume24h ≥$0이고 최소 60일을 보존한다. counterfactual이나
-운영 entry filter를 5k/10k/20k로 높여도 archive request baseline은 $1,000/$0으로 유지한다.
+운영 entry universe는 $10,000/$2,000이지만 첫 crossing 이전 history와 낮은 gate의
+counterfactual까지 보존해야 한다. 따라서 주 source는 papaya 자체 archive다. envelope는
+YES ≥ 0.80, 잔여 ≤168h, 유동성 ≥$1,000, volume24h ≥$0이고 최소 60일을 보존한다.
+counterfactual이나 운영 entry filter를 바꿔도 archive request baseline은 $1,000/$0으로
+유지한다.
 
 회고마다 다음을 수치화한다.
 
@@ -159,8 +160,8 @@ terminal 분류는 최소 다음처럼 나눈다.
 | crossing/entry lower | 0.94 / **0.95** / 0.96 |
 | entry upper | 0.96 / **0.97** / 0.98 |
 | absolute stop | 0.85 / **0.90** / 0.93 |
-| min liquidity | **1k** / 5k / 10k / 20k |
-| min volume24h | **0** / 500 / 2k / 5k |
+| min liquidity | 1k / 5k / **10k** / 20k |
+| min volume24h | 0 / 500 / **2k** / 5k |
 | hours max | 24 / 48 / **72** |
 
 동일한 immutable export를 아래처럼 실행하면 여섯 축의 1,296개 조합과 월별 UTC entry

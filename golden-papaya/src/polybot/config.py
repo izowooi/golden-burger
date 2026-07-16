@@ -127,8 +127,8 @@ class TradingConfig:
 
     lifecycle_mode: str = "active"
     buy_amount_usdc: float = 5.0
-    min_liquidity: float = 1_000.0
-    min_volume_24h: float = 0.0
+    min_liquidity: float = 10_000.0
+    min_volume_24h: float = 2_000.0
     max_positions: int = 20
     max_event_positions: int = 1
     reentry_cooldown_hours: float = 24.0
@@ -313,10 +313,10 @@ def load_config(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
         min_liquidity=_get_config_value(
-            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 1_000.0
+            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 10_000.0
         ),
         min_volume_24h=_get_config_value(
-            "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 0.0
+            "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 2_000.0
         ),
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS", trading_cfg.get("max_positions"), 20, int

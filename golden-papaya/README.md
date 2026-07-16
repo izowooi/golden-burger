@@ -13,9 +13,10 @@
 그 외 = resolution과 redeem 증거를 분리해 기록
 ```
 
-기본값은 주문 $5, 최대 20포지션, event당 1포지션, 유동성 $1,000 이상,
-24h 거래량 하한 $0이다. 사전 해결 익절·trailing stop·time exit은 없다. 상세 가설과
-기각 기준은 [STRATEGY.md](STRATEGY.md)를 참조한다.
+기본값은 주문 $5, 최대 20포지션, event당 1포지션, 유동성 $10,000 이상,
+최근 24h 거래량 $2,000 이상이다. 사전 해결 익절·trailing stop·time exit은 없다. 상세
+가설과 기각 기준은 [STRATEGY.md](STRATEGY.md), 증액 판단과 꼬리손실 계산은
+[증액·꼬리손실 가이드](docs/SCALING_AND_TAIL_RISK.md)를 참조한다.
 
 ## Quickstart
 
@@ -51,6 +52,8 @@ simulation을 해제한다.
   않는다. 로컬 `trades` 행의 접수 가격·수량·상태는 주문 intent/lifecycle 기록이며, 실제
   노출과 체결 평가는 exact order ID로 연결된 confirmed fill을 사용한다.
 - 같은 event의 상관 파생 시장은 최대 1개만 보유한다.
+- 최대 20포지션은 해당 `--job` DB의 `PENDING_BUY`·`HOLDING`·`PENDING_SELL`을 합친
+  동시 상한이다. 누적 거래 수나 지갑 전체 상한이 아니며, 다른 job과 자동 합산되지 않는다.
 - 현재 YES signal/midpoint가 0.90 이하가 되면 fresh best bid를 확인해 SELL을 시도하지만,
   얇은 호가에서는 미체결·부분체결·큰 슬리피지가 발생할 수 있다. DB 상태만 보고 손절
   완료로 간주하지 않는다.
@@ -70,8 +73,8 @@ set +x
 export POLYMARKET_SIGNATURE_TYPE=3  # 이 계정이 POLY_1271일 때만 3; 구형 프록시는 1
 export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
-export POLYBOT_MIN_LIQUIDITY=1000
-export POLYBOT_MIN_VOLUME_24H=0
+export POLYBOT_MIN_LIQUIDITY=10000
+export POLYBOT_MIN_VOLUME_24H=2000
 export POLYBOT_MAX_SNAPSHOT_GAP_MINUTES=30
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=72
@@ -118,8 +121,8 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 | `POLYMARKET_SIGNATURE_TYPE` | `1` | 계정에 맞는 `1` 또는 `3` |
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active` / `close_only` / `archive_only` |
 | `POLYBOT_BUY_AMOUNT` | `5` | 주문 금액 USDC |
-| `POLYBOT_MIN_LIQUIDITY` | `1000` | 최소 유동성 USD |
-| `POLYBOT_MIN_VOLUME_24H` | `0` | 최소 24h 거래량 USD; 0은 비활성 |
+| `POLYBOT_MIN_LIQUIDITY` | `10000` | Gamma 최소 유동성 USD; 실제 호가 depth 보장은 아님 |
+| `POLYBOT_MIN_VOLUME_24H` | `2000` | Gamma 최소 최근 24h 거래량 USD |
 | `POLYBOT_REENTRY_COOLDOWN_HOURS` | `24` | 같은 condition 재진입 쿨다운 시간 |
 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `30` | 연속 persisted snapshot 사이 허용 최대 간격, inclusive |
 | `POLYBOT_MIN_ORDER_SIZE` | `5` | venue 최소 주문 shares |
@@ -187,6 +190,7 @@ actual 성과로 승격하지 않는다. `manifest.json`은 입력·산출물 SH
 ## 주의
 
 0.95 매수의 만기 총수익률은 비용 전 약 5.26%뿐이다. 0으로 끝나는 1건은 약 19건의
-정상 승리를 지울 수 있고, spread·fee·미체결은 그보다 더 불리하게 만든다. 낮은 유동성
-기본값은 가설을 넓게 관측하기 위한 값이지 안전 보장이 아니다. 소액과 event cap을 유지하고,
-strict evidence 없이 금액을 키우지 않는다.
+정상 승리를 지울 수 있고, spread·fee·미체결은 그보다 더 불리하게 만든다. `$10k/$2k`
+진입 문턱도 실제 token별 호가 depth나 stop 체결을 보장하지 않는다. 소액과 position/event
+cap을 유지하고, [증액 gate](docs/SCALING_AND_TAIL_RISK.md)와 strict evidence 없이 금액을
+키우지 않는다.

@@ -50,7 +50,7 @@ def market(
         "acceptingOrders": True,
         "liquidity": str(liquidity),
         "volume": "4000",
-        "volume24hr": "1200",
+        "volume24hr": "4000",
         "outcomePrices": json.dumps([yes_price, 1.0 - yes_price]),
         "outcomes": json.dumps(list(outcomes)),
         "clobTokenIds": json.dumps(list(tokens)),
@@ -163,7 +163,7 @@ def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
     snapshot = session.query(MarketSnapshot).one()
     assert snapshot.probability == 0.85
     assert snapshot.liquidity == 20_000
-    assert snapshot.volume_24h == 1_200
+    assert snapshot.volume_24h == 4_000
     assert snapshot.best_bid == 0.84
     assert snapshot.best_ask == 0.86
     assert snapshot.spread == 0.02
@@ -339,7 +339,7 @@ def test_rejected_first_crossing_is_durable_and_later_recross_fails_closed(
     snapshot_cycle(gamma, repo, config, dip, NOW + timedelta(minutes=10))
 
     recross = market("durable", yes_price=0.95, hours_left=48)
-    recross["liquidity"] = "6000"
+    recross["liquidity"] = "20000"
     recross["volume24hr"] = "6000"
     recross_scanner, recross_markets = snapshot_cycle(
         gamma,

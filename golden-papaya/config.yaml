@@ -6,8 +6,9 @@ trading:
 
   # Exposure controls
   buy_amount_usdc: 5.0
-  min_liquidity: 1000
-  min_volume_24h: 0
+  # Entry metadata gates. The research archive below deliberately stays at $1k/$0.
+  min_liquidity: 10000
+  min_volume_24h: 2000
   max_positions: 20
   max_event_positions: 1
   reentry_cooldown_hours: 24
