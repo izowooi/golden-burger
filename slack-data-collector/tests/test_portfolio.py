@@ -407,3 +407,25 @@ class PortfolioParserTests(unittest.TestCase):
         self.assertRegex(migration.lower(), r"\bbegin\s*;")
         self.assertIn("notify pgrst, 'reload schema';", migration.lower())
         self.assertRegex(migration.lower(), r"commit\s*;\s*$")
+
+    def test_catalog_sync_rpc_is_add_only_and_service_role_only(self) -> None:
+        migration = (
+            Path(__file__).resolve().parents[1]
+            / "sql"
+            / "pb_algorithm_account_catalog_sync_v1.sql"
+        ).read_text(encoding="utf-8")
+
+        lowered = migration.lower()
+        self.assertIn("pb_register_algorithm_accounts_v1", migration)
+        self.assertIn("security definer", lowered)
+        self.assertIn("set search_path = pg_catalog, public", lowered)
+        self.assertIn("on conflict (account_id) do nothing", lowered)
+        self.assertIn("revoke all", lowered)
+        self.assertIn("from anon", lowered)
+        self.assertIn("from authenticated", lowered)
+        self.assertIn("to service_role", lowered)
+        self.assertNotIn("delete from", lowered)
+        self.assertNotIn("update public.pb_algorithm_accounts", lowered)
+        self.assertIn("notify pgrst, 'reload schema';", lowered)
+        self.assertRegex(lowered, r"\bbegin\s*;")
+        self.assertRegex(lowered, r"commit\s*;\s*$")

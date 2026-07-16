@@ -135,6 +135,25 @@ class FakeRpcQuery:
                     "account_count": len(self.client.catalog),
                 }
             )
+        if self.function_name == SupabasePortfolioWriter.CATALOG_SYNC_RPC:
+            accounts = self.params["p_accounts"]
+            self.client.operations.append(
+                {"rpc": self.function_name, "params": self.params}
+            )
+            self.client.catalog.extend(
+                {
+                    "account_id": row["account_id"],
+                    "jenkins_name": row["jenkins_name"],
+                }
+                for row in accounts
+            )
+            return SimpleNamespace(
+                data={
+                    "requested_count": len(accounts),
+                    "inserted_count": len(accounts),
+                    "catalog_count": len(self.client.catalog),
+                }
+            )
         if self.function_name != SupabasePortfolioWriter.SNAPSHOT_RPC:
             raise RuntimeError("unknown RPC")
         self.client.operations.append(
@@ -239,6 +258,55 @@ def test_check_connection_rejects_duplicate_stable_account_ids():
         SupabasePortfolioWriter(client=FakeClient(catalog=duplicated)).check_connection(
             CONFIGURED_NAMES
         )
+
+
+def test_sync_catalog_adds_only_missing_accounts_and_verifies_contract():
+    client = FakeClient(catalog=[dict(row) for row in CATALOG])
+    writer = SupabasePortfolioWriter(client=client)
+
+    result = writer.sync_catalog([*CONFIGURED_NAMES, "golden-cat", "golden-dog"])
+
+    assert result.requested_count == 2
+    assert result.inserted_count == 2
+    assert result.catalog_count == 13
+    operation = client.operations[0]
+    assert operation["rpc"] == SupabasePortfolioWriter.CATALOG_SYNC_RPC
+    assert operation["params"]["p_accounts"] == [
+        {
+            "account_id": "golden-cat",
+            "jenkins_name": "GOLDEN-CAT",
+            "algorithm_code": "golden-cat",
+            "instance_no": None,
+            "sort_order": 12,
+        },
+        {
+            "account_id": "golden-dog",
+            "jenkins_name": "GOLDEN-DOG",
+            "algorithm_code": "golden-dog",
+            "instance_no": None,
+            "sort_order": 13,
+        },
+    ]
+
+
+def test_sync_catalog_is_noop_when_contract_already_matches():
+    client = FakeClient(catalog=[dict(row) for row in CATALOG])
+
+    result = SupabasePortfolioWriter(client=client).sync_catalog(CONFIGURED_NAMES)
+
+    assert result.requested_count == 0
+    assert result.inserted_count == 0
+    assert result.catalog_count == 11
+    assert client.operations == []
+
+
+def test_sync_catalog_refuses_to_delete_accounts_missing_from_jenkins():
+    writer = SupabasePortfolioWriter(
+        client=FakeClient(catalog=[dict(row) for row in CATALOG])
+    )
+
+    with pytest.raises(SupabaseWriteError, match="삭제하지 않습니다"):
+        writer.sync_catalog(CONFIGURED_NAMES[:-1])
 
 
 def test_writes_complete_snapshot_with_one_atomic_rpc_call():

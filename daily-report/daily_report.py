@@ -204,8 +204,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "command",
         nargs="?",
-        choices=["run", "check-supabase"],
-        help="실행 명령어: run 또는 check-supabase",
+        choices=["run", "check-supabase", "sync-supabase-catalog"],
+        help="실행 명령어: run, check-supabase 또는 sync-supabase-catalog",
     )
     return parser.parse_args()
 
@@ -240,6 +240,23 @@ def main():
             return
         except Exception as e:
             logger.error("Supabase 연결 점검 실패: %s", safe_error_message(e))
+            sys.exit(1)
+
+    if args.command == "sync-supabase-catalog":
+        if args.simulate:
+            logger.error("sync-supabase-catalog는 --simulate와 함께 사용할 수 없습니다")
+            sys.exit(1)
+        try:
+            result = SupabasePortfolioWriter().sync_catalog(configured_names)
+            logger.info(
+                "✅ Supabase 계정 카탈로그 동기화 성공 - 요청: %d개, 추가: %d개, 전체: %d개",
+                result.requested_count,
+                result.inserted_count,
+                result.catalog_count,
+            )
+            return
+        except Exception as e:
+            logger.error("Supabase 계정 카탈로그 동기화 실패: %s", safe_error_message(e))
             sys.exit(1)
 
     supabase_writer = None

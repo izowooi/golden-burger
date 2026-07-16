@@ -5,11 +5,11 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_jenkins_and_env_example_supply_all_eleven_accounts_and_archive_evidence():
+def test_jenkins_and_env_example_supply_all_thirteen_accounts_and_archive_evidence():
     jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
 
-    for slot in range(1, 12):
+    for slot in range(1, 14):
         assert f"ACCOUNT_{slot}_NAME" in jenkinsfile
         assert f"ACCOUNT_{slot}_ADDRESS" in jenkinsfile
         assert f"ACCOUNT_{slot}_NAME" in env_example
@@ -21,6 +21,8 @@ def test_jenkins_and_env_example_supply_all_eleven_accounts_and_archive_evidence
     assert "polymarket-golden-wolf-address" in jenkinsfile
     assert "polymarket-golden-eagle-address" in jenkinsfile
     assert "polymarket-golden-bear-address" in jenkinsfile
+    assert "polymarket-golden-cat-address" in jenkinsfile
+    assert "polymarket-golden-dog-address" in jenkinsfile
     assert "post {" in jenkinsfile
     assert "always {" in jenkinsfile
     assert "daily_evidence.sqlite3" in jenkinsfile
@@ -53,6 +55,8 @@ def test_deployment_docs_require_atomic_migration_and_restricted_evidence_backup
     assert "pb_portfolio_history_v3.sql" in jenkins_setup
     assert "암호화된" in jenkins_setup
     assert "raw wallet address" in jenkins_setup
+    assert "sync-supabase-catalog" in readme
+    assert "Supabase Console" in readme
 
 
 def test_daily_pipeline_preflights_but_never_installs_database_migrations():

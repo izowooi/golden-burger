@@ -20,6 +20,7 @@ from polybot_reporter.contracts import (
     canonical_money_breakdown,
     normalize_display_name,
     safe_error_message,
+    stable_account_id,
     validate_account_display_names,
     validate_complete_reports,
 )
@@ -44,6 +45,15 @@ class SnapshotWriteResult:
     cash_value: float
 
 
+@dataclass(frozen=True)
+class CatalogSyncResult:
+    """Summary of an explicit, add-only account catalog synchronization."""
+
+    requested_count: int
+    inserted_count: int
+    catalog_count: int
+
+
 class SupabasePortfolioWriter:
     """Write complete date-keyed snapshots through one transactional DB RPC."""
 
@@ -52,6 +62,7 @@ class SupabasePortfolioWriter:
     TOTAL_TABLE = "pb_daily_portfolio_totals"
     PREFLIGHT_RPC = "pb_portfolio_writer_preflight_v3"
     SNAPSHOT_RPC = "pb_write_complete_portfolio_snapshot_v3"
+    CATALOG_SYNC_RPC = "pb_register_algorithm_accounts_v1"
 
     def __init__(
         self,
@@ -139,6 +150,101 @@ class SupabasePortfolioWriter:
                 "Supabase atomic snapshot RPC contract 응답이 예상과 다릅니다"
             )
         return len(catalog)
+
+    def sync_catalog(self, configured_names: Sequence[str]) -> CatalogSyncResult:
+        """Register Jenkins accounts missing from the catalog, without mutations.
+
+        This is deliberately separate from the daily report path. Existing rows are
+        never renamed, reordered, overwritten, or deleted; those changes require an
+        operator to review the catalog directly.
+        """
+        try:
+            validate_account_display_names(list(configured_names))
+        except PortfolioContractError as error:
+            raise SupabaseWriteError(
+                f"Jenkins 계정 설정 계약 불일치: {error}"
+            ) from error
+
+        catalog = self._validate_catalog(self._load_account_catalog())
+        catalog_by_name = {row["jenkins_name"]: row["account_id"] for row in catalog}
+        configured = [normalize_display_name(name) for name in configured_names]
+        configured_set = set(configured)
+        catalog_names = set(catalog_by_name)
+        removed_from_jenkins = catalog_names - configured_set
+        if removed_from_jenkins:
+            raise SupabaseWriteError(
+                "카탈로그 동기화는 계정을 삭제하지 않습니다. Jenkins에서 사라진 계정을 "
+                f"Supabase Console에서 먼저 검토하세요: {sorted(removed_from_jenkins)}"
+            )
+
+        existing_ids = set(catalog_by_name.values())
+        accounts: list[dict[str, Any]] = []
+        for sort_order, display_name in enumerate(configured, start=1):
+            if display_name in catalog_by_name:
+                continue
+            account_id = stable_account_id(display_name)
+            if account_id in existing_ids:
+                raise SupabaseWriteError(
+                    "신규 Jenkins 계정의 stable ID가 기존 Supabase 계정과 충돌합니다: "
+                    f"{display_name} -> {account_id}"
+                )
+            instance_no = None
+            algorithm_code = account_id
+            duplicate = display_name.rsplit(" (", 1)
+            if len(duplicate) == 2 and duplicate[1].endswith(")"):
+                suffix = duplicate[1][:-1]
+                if suffix.isdigit() and int(suffix) > 0:
+                    instance_no = int(suffix)
+                    algorithm_code = stable_account_id(duplicate[0])
+            accounts.append(
+                {
+                    "account_id": account_id,
+                    "jenkins_name": display_name,
+                    "algorithm_code": algorithm_code,
+                    "instance_no": instance_no,
+                    "sort_order": sort_order,
+                }
+            )
+            existing_ids.add(account_id)
+
+        if not accounts:
+            account_count = self.check_connection(configured_names)
+            return CatalogSyncResult(0, 0, account_count)
+
+        try:
+            response = self.client.rpc(
+                self.CATALOG_SYNC_RPC, {"p_accounts": accounts}
+            ).execute()
+        except Exception as exc:
+            if self._api_error_code(exc) == "PGRST202":
+                raise SupabaseWriteError(
+                    "Supabase 카탈로그 동기화 RPC가 없습니다. "
+                    "slack-data-collector/sql/pb_algorithm_account_catalog_sync_v1.sql "
+                    "migration을 먼저 적용하세요."
+                ) from exc
+            raise SupabaseWriteError(
+                "Supabase 계정 카탈로그 동기화 실패: " + safe_error_message(exc)
+            ) from exc
+
+        payload = self._rpc_object(response.data, "account catalog sync RPC")
+        try:
+            requested_count = int(payload.get("requested_count"))
+            inserted_count = int(payload.get("inserted_count"))
+            catalog_count = int(payload.get("catalog_count"))
+        except (TypeError, ValueError) as error:
+            raise SupabaseWriteError(
+                "Supabase 계정 카탈로그 동기화 응답이 불완전합니다"
+            ) from error
+        if requested_count != len(accounts) or inserted_count < 0:
+            raise SupabaseWriteError(
+                "Supabase 계정 카탈로그 동기화 대사 결과가 요청과 다릅니다"
+            )
+        verified_count = self.check_connection(configured_names)
+        if catalog_count != verified_count:
+            raise SupabaseWriteError(
+                "Supabase 계정 카탈로그 동기화 후 계정 수가 일치하지 않습니다"
+            )
+        return CatalogSyncResult(requested_count, inserted_count, catalog_count)
 
     def write_daily_snapshot(
         self,

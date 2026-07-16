@@ -274,8 +274,22 @@ ACCOUNT_4_ADDRESS = credentials('polymarket-account-4-address')
 
 스크립트는 두 자리 이상을 포함한 모든 `ACCOUNT_<숫자>_*` 환경변수를 동적으로 감지합니다.
 계정을 추가할 때는 같은 표시 이름/stable account ID를 Supabase
-`pb_algorithm_accounts` 카탈로그에도 등록한 뒤 v3 migration을 재적용하고
-`check-supabase`를 실행해야 합니다.
+`pb_algorithm_accounts` 카탈로그에도 등록해야 합니다. v3 migration을 매번 재적용하지
+말고, `pb_algorithm_account_catalog_sync_v1.sql`을 최초 한 번 적용한 뒤 다음 명령을
+계정 추가 시 한 번 실행합니다.
+
+```bash
+set +x
+cd ./daily-report
+uv sync --frozen
+uv run python ./daily_report.py sync-supabase-catalog
+uv run python ./daily_report.py check-supabase
+```
+
+이 Build Step만 가진 별도 수동 Freestyle job을 만들어도 됩니다. 일일 job과 동일한
+Supabase/계정 Credentials Binding을 사용하되 schedule은 설정하지 않습니다. Supabase
+Console의 SQL Editor에서 직접 처리하는 RPC 예시와 충돌 규칙은 `README.md`의
+“Supabase Console에서 직접 추가”를 참고하세요. MCP는 매 계정 추가 때 필요하지 않습니다.
 
 ## 10. 보안 고려사항
 

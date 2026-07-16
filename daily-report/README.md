@@ -1,6 +1,6 @@
 # Polymarket Daily Reporter
 
-여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 11계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다.
+여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 13계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다.
 
 ## 실행 순서
 
@@ -42,6 +42,8 @@ Polymarket Data API 조회
 | `GOLDEN-WOLF` | `golden-wolf` |
 | `GOLDEN-EAGLE` | `golden-eagle` |
 | `GOLDEN-BEAR` | `golden-bear` |
+| `GOLDEN-CAT` | `golden-cat` |
+| `GOLDEN-DOG` | `golden-dog` |
 
 ## 설치
 
@@ -86,6 +88,10 @@ ACCOUNT_10_NAME=golden-eagle
 ACCOUNT_10_ADDRESS=0x...
 ACCOUNT_11_NAME=golden-bear
 ACCOUNT_11_ADDRESS=0x...
+ACCOUNT_12_NAME=golden-cat
+ACCOUNT_12_ADDRESS=0x...
+ACCOUNT_13_NAME=golden-dog
+ACCOUNT_13_ADDRESS=0x...
 
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
@@ -166,12 +172,15 @@ Secret key는 RLS를 우회할 수 있는 서버 전용 키입니다. `NEXT_PUBL
 1. `slack-data-collector/sql/pb_portfolio_schema.sql`
 2. `slack-data-collector/sql/pb_portfolio_history_v2.sql`
 3. `slack-data-collector/sql/pb_portfolio_history_v3.sql`
+4. `slack-data-collector/sql/pb_algorithm_account_catalog_sync_v1.sql`
 
 세 번째 migration의 `pb_portfolio_writer_preflight_v3`와
 `pb_write_complete_portfolio_snapshot_v3`는 선택 사항이 아닙니다. writer는 카탈로그 전체 계정
 balance와 portfolio total을 단일 Postgres transaction으로 쓰며 RPC가 없으면 unsafe
 multi-request fallback 없이 종료합니다. `check-supabase`도 read-only preflight RPC를
 호출하므로 Jenkins가 Data API 조회나 Slack 전송 전에 migration 누락을 탐지합니다.
+네 번째 migration은 신규 계정을 안전하게 추가하는 service-role 전용 RPC입니다. 기존
+계정의 이름·ID·순서 변경이나 삭제는 허용하지 않으며 일일 리포트가 자동 호출하지 않습니다.
 
 ## Jenkins 권장 설정
 
@@ -194,6 +203,8 @@ multi-request fallback 없이 종료합니다. `check-supabase`도 read-only pre
 | `polymarket-golden-wolf-address` | golden-wolf 테스트 슬롯 주소 |
 | `polymarket-golden-eagle-address` | golden-eagle 테스트 슬롯 주소 |
 | `polymarket-golden-bear-address` | golden-bear 테스트 슬롯 주소 |
+| `polymarket-golden-cat-address` | golden-cat 테스트 슬롯 주소 |
+| `polymarket-golden-dog-address` | golden-dog 테스트 슬롯 주소 |
 
 Freestyle job이라면 Credentials Binding에서 위 값을 각각 `SLACK_WEBHOOK_URL`, `SUPABASE_SECRET_KEY`, `ACCOUNT_*_ADDRESS` 환경변수에 연결합니다. Project URL은 비밀값이 아니므로 job 환경변수에 직접 설정할 수 있습니다.
 
@@ -222,6 +233,55 @@ cd ./daily-report
 
 Pipeline job은 저장소의 `daily-report/Jenkinsfile`을 Script Path로 사용합니다. Secret 값은 Jenkins Credentials에서만 주입됩니다.
 
+### 계정 추가용 별도 Jenkins 작업
+
+MCP는 최초 migration 적용이나 긴급 운영 점검에만 필요합니다. 평소 계정 추가는 일일
+리포트와 분리된 수동 Jenkins Freestyle 작업(예: `polybot-report-catalog-sync`)으로 처리할
+수 있습니다. 일일 작업과 동일한 Git 저장소, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, 전체
+`ACCOUNT_<n>_NAME/ADDRESS` Credentials Binding을 사용하고 Build Step에는 다음만 둡니다.
+
+```bash
+set +x
+cd ./daily-report
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run python ./daily_report.py sync-supabase-catalog
+/Users/jongwoopark/.local/bin/uv run python ./daily_report.py check-supabase
+```
+
+새 계정의 Jenkins 환경변수를 추가한 뒤 이 작업을 한 번 수동 실행하고, 성공한 다음 일일
+작업을 실행합니다. 이 명령은 Jenkins에는 있지만 Supabase에는 없는 계정만 추가합니다.
+기존 행을 변경·삭제하지 않으며, Supabase에만 남은 계정이나 ID/순번 충돌이 있으면 검토를
+요구하며 실패합니다. 따라서 정기 schedule이나 일일 작업의 자동 복구 단계로 넣지 않습니다.
+
+### Supabase Console에서 직접 추가
+
+별도 Jenkins 작업을 만들지 않아도 Dashboard의 **SQL Editor**에서 RPC를 직접 호출할 수
+있습니다. 아래 값은 예시이므로 실제 신규 계정과 Jenkins slot 순서에 맞춰 수정합니다.
+wallet address는 이 카탈로그에 저장하지 않습니다.
+
+```sql
+select public.pb_register_algorithm_accounts_v1(
+  '[
+    {"account_id":"golden-cat","jenkins_name":"GOLDEN-CAT","algorithm_code":"golden-cat","instance_no":null,"sort_order":12},
+    {"account_id":"golden-dog","jenkins_name":"GOLDEN-DOG","algorithm_code":"golden-dog","instance_no":null,"sort_order":13}
+  ]'::jsonb
+);
+```
+
+이후 카탈로그와 Jenkins 사전검사를 확인합니다.
+
+```sql
+select account_id, jenkins_name, algorithm_code, instance_no, sort_order
+from public.pb_algorithm_accounts
+order by sort_order;
+
+select public.pb_portfolio_writer_preflight_v3();
+```
+
+```bash
+uv run python daily_report.py check-supabase
+```
+
 ### `.env` 파일을 Jenkins 서버에 복사하는 방식
 
 Credentials Binding을 사용할 수 없다면 Jenkins 계정만 읽을 수 있는 `.env`를 `daily-report/.env`에 둡니다.
@@ -246,6 +306,9 @@ uv run python daily_report.py --simulate run
 
 # 키/DB 읽기 권한과 동적 env-catalog 일치 확인 (Slack/DB 수정 없음)
 uv run python daily_report.py check-supabase
+
+# Jenkins에는 있으나 DB에 없는 계정만 명시적으로 추가
+uv run python daily_report.py sync-supabase-catalog
 ```
 
 매월 1일에는 별도 플래그가 없어도 월간 Slack 형식을 사용합니다. 같은 날 작업이 두 번 실행되면 DB는 뒤에 실행된 값으로 upsert됩니다.
@@ -268,7 +331,7 @@ limit 7;
 select *
 from public.pb_daily_algorithm_balances
 order by report_date desc, account_id
-limit 63;
+limit 91;
 ```
 
 ## 보안 체크리스트
@@ -284,6 +347,7 @@ limit 63;
 - **필수 Supabase 환경변수가 없습니다**: `SUPABASE_URL`, `SUPABASE_SECRET_KEY` 주입 여부를 확인합니다.
 - **`permission denied for table pb_algorithm_accounts` / HTTP 401**: `SUPABASE_SECRET_KEY` 값이 `sb_publishable_...`인지 확인합니다. `sb_secret_...` 키로 교체하고 `check-supabase`를 실행합니다. anon 권한을 추가하지 않습니다.
 - **`SUPABASE_SECRET_KEY에 sb_publishable_... 키가 설정되었습니다`**: 변수 이름은 맞지만 값 종류가 잘못된 상태입니다. Dashboard의 Secret keys에서 서버 키를 가져옵니다.
+- **Jenkins 계정과 Supabase 카탈로그가 일치하지 않습니다**: 신규 계정만 추가한 경우 `sync-supabase-catalog` 전용 작업을 한 번 실행합니다. 제거·이름 변경은 자동 처리하지 않으므로 Supabase Console에서 기존 행과 이력 영향을 먼저 검토합니다.
 - **일부 DB 계정의 리포트가 없습니다**: `ACCOUNT_*` env 설정과 DB 카탈로그(`pb_algorithm_accounts`)가 정확히 일치하는지 확인합니다. 계좌를 추가/제거할 때는 env와 카탈로그 행을 같은 시점에 반영해야 합니다.
 - **Jenkins 이름을 찾지 못했습니다**: 중복 `golden-apple` 계정의 순서가 1번과 4번인지 확인합니다.
 - **`atomic snapshot RPC preflight 실패(PGRST202)`**: [`SUPABASE_MIGRATION.md`](SUPABASE_MIGRATION.md)의 `to_regprocedure` 진단을 실행합니다. 함수가 없으면 atomic migration을 적용하고, 함수가 있으면 `NOTIFY pgrst, 'reload schema'`로 cache를 갱신한 뒤 `check-supabase`를 다시 실행합니다. writer는 일부 행 적재 fallback을 하지 않습니다.
