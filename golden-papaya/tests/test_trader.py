@@ -233,7 +233,7 @@ class TestEntryExecution:
         assert created["stop_price_at_entry"] == 0.90
         assert created["entry_prob_min_at_buy"] == 0.95
         assert created["entry_prob_max_at_buy"] == 0.97
-        assert created["entry_hours_min_at_buy"] == 2.0
+        assert created["entry_hours_min_at_buy"] == 0.0
         assert created["entry_hours_max_at_buy"] == 72.0
         assert created["entry_snapshot_id"] == 17
         assert created["best_bid_at_buy"] == 0.946

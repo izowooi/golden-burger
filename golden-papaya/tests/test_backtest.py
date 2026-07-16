@@ -153,10 +153,29 @@ def test_no_entry_without_a_crossing_even_if_first_row_is_above_threshold(tmp_pa
     )
 
 
+def test_positive_sub_two_hour_crossing_is_inside_entry_window(tmp_path):
+    path = tmp_path / "sub-two-hours.csv"
+    _write_research(
+        path,
+        [
+            _row("sports", "2026-01-01T00:00:00Z", 1.6, 0.94),
+            _row("sports", "2026-01-01T00:05:00Z", 1.5, 0.951),
+            _row("other", "2026-02-01T00:00:00Z", 10, 0.90),
+        ],
+    )
+    grouped = backtest.read_research_csv(path)
+    time_split = backtest.build_time_split(grouped, 0.5)
+
+    result = backtest.replay_market(grouped["sports"], _params(), time_split)
+
+    assert result is not None
+    assert result.condition_id == "sports"
+
+
 @pytest.mark.parametrize(
     ("hours", "ask", "liquidity", "volume"),
     [
-        (1.99, 0.951, 25_000, 10_000),
+        (0.0, 0.951, 25_000, 10_000),
         (72.01, 0.951, 25_000, 10_000),
         (24, 0.971, 25_000, 10_000),
         (24, 0.951, 999, 10_000),
@@ -219,7 +238,7 @@ def test_run_writes_hashed_csv_json_manifest_and_no_database(
 
     assert manifest_path == output / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["engine_version"] == "papaya-offline-v2"
+    assert manifest["engine_version"] == "papaya-offline-v3"
     assert manifest["safety"] == {
         "database_writes": False,
         "network_calls": False,

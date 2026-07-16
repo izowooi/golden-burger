@@ -48,7 +48,7 @@ def test_final_five_defaults_are_fail_closed():
     assert trading.entry.prob_min == 0.95
     assert trading.entry.prob_max == 0.97
     assert trading.entry.stop_price == 0.90
-    assert trading.entry.hours_min == 2.0
+    assert trading.entry.hours_min == 0.0
     assert trading.entry.hours_max == 72.0
     assert trading.archive.prob_min == 0.80
     assert trading.archive.hours_max == 168.0

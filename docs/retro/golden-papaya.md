@@ -6,9 +6,9 @@
 > 실제 주문 결과는 `order_fills.status='CONFIRMED'`만 사용하며 resolution과 redeem은
 > 별도 evidence로 대사한다.
 
-전략: **Final Five** — strict standard binary YES가 해결 2–72시간 전에 처음 0.95를
-상향 돌파하고 현재가가 0.95–0.97일 때 $5 매수한다. 사전 해결 청산은 YES 절대가 0.90
-이하 stop뿐이며, 그 외에는 resolution/redeem까지 보유한다.
+전략: **Final Five** — strict standard binary YES가 해결까지 0시간 초과 72시간 이하로
+남았을 때 처음 0.95를 상향 돌파하고 현재가가 0.95–0.97일 때 $5 매수한다. 사전 해결
+청산은 YES 절대가 0.90 이하 stop뿐이며, 그 외에는 resolution/redeem까지 보유한다.
 
 ## 0. 복붙용 프롬프트
 
@@ -22,7 +22,7 @@ REVIEW_END=<YYYY-MM-DD UTC>
 2) polybot-retro audit --strict를 먼저 실행한다. CRITICAL/HIGH면 수치 변경 대신
    evidence 복구 계획만 제안한다.
 3) config_hash × git_commit × mode × job_name cohort를 분리한다.
-4) strict binary, previous_yes < .95 <= current_yes, [2h,72h], event cap lineage를 검증한다.
+4) strict binary, previous_yes < .95 <= current_yes, (0h,72h], event cap lineage를 검증한다.
 5) actual execution은 CONFIRMED fill size/price/fee만 사용한다. resolution payout
    (YES=1/NO=0/rare ambiguous=0.5), redeemable,
    redemption transaction은 SELL fill과 분리한다.
@@ -45,7 +45,7 @@ Jenkins export는 secret/address를 제거한 legacy cross-check로만 사용한
 | 첫 교차/진입 하한 | `POLYBOT_ENTRY_PROB_MIN` | 0.95 |
 | 진입 상한 | `POLYBOT_ENTRY_PROB_MAX` | 0.97 |
 | 절대 stop | `POLYBOT_STOP_PRICE` | 0.90 |
-| 잔여시간 | `POLYBOT_ENTRY_HOURS_MIN/MAX` | 2–72h |
+| 잔여시간 | `POLYBOT_ENTRY_HOURS_MIN/MAX` | 0h 초과–72h 이하 |
 | 최대 포지션 | `POLYBOT_MAX_POSITIONS` | 20 |
 | event cap | `POLYBOT_MAX_EVENT_POSITIONS` | 1 |
 | archive envelope | `POLYBOT_ARCHIVE_PROB_MIN/HOURS_MAX` | 0.80 / 168h |
@@ -131,7 +131,8 @@ WHERE mode = 'live'
   AND NOT (
     prior_yes_price_at_entry < 0.95
     AND buy_probability BETWEEN 0.95 AND 0.97
-    AND hours_until_resolution_at_buy BETWEEN 2 AND 72
+    AND hours_until_resolution_at_buy > 0
+    AND hours_until_resolution_at_buy <= 72
   );
 ```
 
@@ -189,7 +190,7 @@ for each cursor-complete snapshot in chronological order:
   require strict standard binary and event exposure == 0
   require liquidity >= min_liquidity and volume24h >= min_volume24h
   require previous valid YES < entry_lower <= current YES <= entry_upper
-  require 2h <= hours_left <= hours_max
+  require 0h < hours_left <= hours_max
   refresh best ask; reject missing ask or executable ask > entry_upper
   never restore a consumed crossing after any downstream rejection
   model BUY at fresh ask, then confirmed-fill sensitivity

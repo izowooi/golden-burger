@@ -26,7 +26,8 @@ trading:
     prob_min: 0.95
     prob_max: 0.97
     stop_price: 0.90
-    hours_min: 2
+    # Strictly positive remaining time; 0 disables the former 2-hour floor.
+    hours_min: 0
     hours_max: 72
 
   # Own low-liquidity research archive for counterfactual review.

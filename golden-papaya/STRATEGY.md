@@ -2,11 +2,11 @@
 
 ## 1. 사전 등록 가설
 
-표준 이진 시장의 YES가 해결 2–72시간 전에 archive cadence에서 처음 0.95 상향 돌파로
-관측되면, 그 교차는 단순한
-고확률 수준보다 강한 정보 집약 신호이며 해결까지 1.00으로 수렴할 가능성이 비용 후에도
-충분히 높다. 이를 **Final Five**라 부른다. 봇은 `[0.95, 0.97]`에서 YES를 소액 매수하고,
-수렴 가설이 깨졌음을 나타내는 절대 가격 0.90만 사전 해결 청산 신호로 사용한다.
+표준 이진 시장의 YES가 해결까지 0시간 초과 72시간 이하로 남았을 때 archive cadence에서
+처음 0.95 상향 돌파로 관측되면, 그 교차는 단순한 고확률 수준보다 강한 정보 집약
+신호이며 해결까지 1.00으로 수렴할 가능성이 비용 후에도 충분히 높다. 이를 **Final Five**라
+부른다. 봇은 `[0.95, 0.97]`에서 YES를 소액 매수하고, 수렴 가설이 깨졌음을 나타내는 절대
+가격 0.90만 사전 해결 청산 신호로 사용한다.
 
 이 가설은 아직 입증되지 않았다. 0.95는 시장이 실제 5% tail risk를 정확히 반영한 가격일
 수 있고, 교차가 정보가 아니라 얇은 호가 한 건의 결과일 수도 있다. 따라서 최초 배포는
@@ -30,7 +30,7 @@
 3. token ID가 정확히 두 개이며 YES token을 명확히 식별 가능
 4. 표준(non-negRisk) 이진 시장
 5. 유동성 `>= $1,000`, 24h 거래량 `>= $0`
-6. 종료시각이 있고 `2h <= hours_left <= 72h`
+6. 종료시각이 있고 `0h < hours_left <= 72h`
 
 같은 event 아래의 파생 시장은 서로 독립 표본이 아니다. `market_catalog.event_id` 기준
 동시 노출을 1개로 제한하고 회고에서도 명목 시장 n과 event-cluster 유효 n을 함께 낸다.
@@ -45,7 +45,7 @@ current_snapshot_id is positive and persisted in the current sweep
 previous_yes < 0.95
 no earlier persisted YES >= 0.95
 0.95 <= current_yes <= 0.97
-2 <= hours_left <= 72
+0 < hours_left <= 72
 strict_standard_binary == true
 event_open_positions == 0
 portfolio_open_positions < 20

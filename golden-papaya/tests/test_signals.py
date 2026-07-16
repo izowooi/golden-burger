@@ -14,7 +14,7 @@ PARAMS = FinalFiveConfig(
     prob_min=0.95,
     prob_max=0.97,
     stop_price=0.90,
-    hours_min=2.0,
+    hours_min=0.0,
     hours_max=72.0,
 )
 
@@ -58,10 +58,12 @@ def test_entry_price_boundaries_are_inclusive():
     assert entry(0.949, 0.97, 24).entry is True
 
 
-def test_time_boundaries_two_to_seventy_two_hours_are_inclusive():
+def test_time_window_accepts_all_positive_remaining_time_through_seventy_two_hours():
+    assert entry(0.94, 0.95, 0.001).entry is True
+    assert entry(0.94, 0.95, 1.999).entry is True
     assert entry(0.94, 0.95, 2.0).entry is True
     assert entry(0.94, 0.95, 72.0).entry is True
-    assert entry(0.94, 0.95, 1.999).reason.startswith("too_late")
+    assert entry(0.94, 0.95, 0).reason.startswith("too_late")
     assert entry(0.94, 0.95, 72.001).reason.startswith("too_early")
     assert entry(0.94, 0.95, None).reason == "no_end_date"
     assert entry(0.94, 0.95, -1).reason == "already_resolved"

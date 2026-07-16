@@ -30,14 +30,14 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-ENGINE_VERSION = "papaya-offline-v2"
+ENGINE_VERSION = "papaya-offline-v3"
 ENTRY_GRID = (0.94, 0.95, 0.96)
 ENTRY_UPPER_GRID = (0.96, 0.97, 0.98)
 STOP_GRID = (0.85, 0.90, 0.93)
 LIQUIDITY_GRID = (1_000.0, 5_000.0, 10_000.0, 20_000.0)
 VOLUME_GRID = (0.0, 500.0, 2_000.0, 5_000.0)
 HOURS_MAX_GRID = (24.0, 48.0, 72.0)
-ENTRY_HOURS_MIN = 2.0
+ENTRY_HOURS_MIN = 0.0
 MAX_SNAPSHOT_GAP_MINUTES = 30.0
 MAX_OPEN_POSITIONS = 20
 
@@ -353,7 +353,9 @@ def replay_market(
                 <= current.best_ask
                 <= params.entry_price_max
             )
-            in_window = ENTRY_HOURS_MIN <= current.hours_left <= params.entry_hours_max
+            in_window = (
+                ENTRY_HOURS_MIN < current.hours_left <= params.entry_hours_max
+            )
             liquid = (
                 current.liquidity >= params.min_liquidity
                 and current.volume_24h >= params.min_volume_24h

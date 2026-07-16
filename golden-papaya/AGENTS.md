@@ -1,9 +1,8 @@
 # L3 AGENTS.md — golden-papaya
 
 `golden-papaya`는 Polymarket **Final Five** 전략 봇이다. 표준 이진 시장의 YES가 archive
-cadence에서 처음 관측된
-0.95를 상향 돌파할 때 0.95–0.97에서 진입하고, 해결까지 보유하되 YES가 0.90 이하로
-내려오면 손절한다.
+cadence에서 처음 관측된 0.95를 상향 돌파할 때 0.95–0.97에서 진입한다. 남은 시간이
+0시간 초과 72시간 이하인 시장을 해결까지 보유하되 YES가 0.90 이하로 내려오면 손절한다.
 
 - 상위 규칙: L2 `/Users/izowooi/git/t1/AGENTS.md`, L1 `/Users/izowooi/git/AGENTS.md`
 - 전략 계약: `STRATEGY.md`
@@ -31,7 +30,7 @@ uv run polybot run --simulate --job sim
   crossing**만 인정한다. 현재 snapshot은 현재 sweep에서 commit된 양의 ID여야 하고 직전
   persisted snapshot과의 간격은 기본 `0 < gap <= 30분`이어야 한다. sweep/run gap이 있으면
   실제 교차 시점은 interval-censored다. 현재 진입가는 `[0.95, 0.97]`, 잔여시간은
-  `[2h, 72h]`다.
+  `(0h, 72h]`다.
 - 최초 threshold snapshot은 유동성·volume·window·event cap·fresh ask 같은 후속 gate에서
   주문이 거부돼도 one-shot을 소진한다. 보존 이력에 0.95 이상 관측이 하나라도 있으면 이후
   dip/re-cross를 새 후보로 만들지 않는다.

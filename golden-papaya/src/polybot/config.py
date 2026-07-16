@@ -104,7 +104,7 @@ class FinalFiveConfig:
     prob_min: float = 0.95
     prob_max: float = 0.97
     stop_price: float = 0.90
-    hours_min: float = 2.0
+    hours_min: float = 0.0
     hours_max: float = 72.0
 
 
@@ -213,8 +213,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "entry prices must satisfy 0 < stop_price < prob_min <= prob_max < 1"
         )
-    if not 2 <= entry.hours_min < entry.hours_max <= 72:
-        raise ValueError("entry hours must satisfy 2 <= hours_min < hours_max <= 72")
+    if not 0 <= entry.hours_min < entry.hours_max <= 72:
+        raise ValueError("entry hours must satisfy 0 <= hours_min < hours_max <= 72")
     if not 0 < archive.prob_min <= 0.85 or archive.prob_min >= entry.prob_min:
         raise ValueError(
             "archive.prob_min must be in (0, 0.85] and below entry.prob_min"
@@ -278,7 +278,7 @@ def load_config(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.90
         ),
         hours_min=_get_config_value(
-            "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 2.0
+            "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 0.0
         ),
         hours_max=_get_config_value(
             "POLYBOT_ENTRY_HOURS_MAX", entry_cfg.get("hours_max"), 72.0

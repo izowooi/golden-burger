@@ -8,7 +8,7 @@
      + persisted_previous_yes < 0.95 <= persisted_current_yes <= 0.97
      + 0m < consecutive_snapshot_gap <= 30m
      + earlier_observation_at_or_above_0.95 == false
-     + 2h <= hours_left <= 72h
+     + 0h < hours_left <= 72h
 청산 = unresolved 상태에서 current_yes <= 0.90
 그 외 = resolution과 redeem 증거를 분리해 기록
 ```
@@ -73,6 +73,8 @@ export POLYBOT_BUY_AMOUNT=5
 export POLYBOT_MIN_LIQUIDITY=1000
 export POLYBOT_MIN_VOLUME_24H=0
 export POLYBOT_MAX_SNAPSHOT_GAP_MINUTES=30
+export POLYBOT_ENTRY_HOURS_MIN=0
+export POLYBOT_ENTRY_HOURS_MAX=72
 export POLYBOT_MAX_POSITIONS=20
 export POLYBOT_MAX_EVENT_POSITIONS=1
 export LOG_LEVEL=INFO
@@ -126,7 +128,7 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 | `POLYBOT_EXCLUDED_CATEGORIES` | 빈 값 | comma 구분 제외 category |
 | `POLYBOT_ENTRY_PROB_MIN` | `0.95` | 진입가 하한/상향 교차 임계값 |
 | `POLYBOT_ENTRY_PROB_MAX` | `0.97` | 진입가 상한 |
-| `POLYBOT_ENTRY_HOURS_MIN` | `2` | 진입 잔여시간 하한, inclusive |
+| `POLYBOT_ENTRY_HOURS_MIN` | `0` | 진입 잔여시간 설정 하한. 기본 0일 때 실제 조건은 `hours_left > 0` |
 | `POLYBOT_ENTRY_HOURS_MAX` | `72` | 진입 잔여시간 상한, inclusive |
 | `POLYBOT_STOP_PRICE` | `0.90` | 절대 YES 손절 가격 |
 | `POLYBOT_MAX_POSITIONS` | `20` | 동시 포지션 상한 |

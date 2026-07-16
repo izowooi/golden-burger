@@ -84,8 +84,9 @@ def main() -> None:
         f"{trading.entry.prob_min:.2f}, current YES "
         f"[{trading.entry.prob_min:.2f}, {trading.entry.prob_max:.2f}]"
     )
+    lower_bracket = "(" if trading.entry.hours_min == 0 else "["
     print(
-        f"Entry hours: [{trading.entry.hours_min:.1f}, "
+        f"Entry hours: {lower_bracket}{trading.entry.hours_min:.1f}, "
         f"{trading.entry.hours_max:.1f}]"
     )
     print(f"Absolute stop: current YES <= {trading.entry.stop_price:.2f}")

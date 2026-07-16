@@ -79,6 +79,8 @@ def evaluate_entry(
         return EntryDecision(False, "no_end_date", previous, current, None)
     if hours < 0:
         return EntryDecision(False, "already_resolved", previous, current, hours)
+    if hours <= 0:
+        return EntryDecision(False, f"too_late_{hours:.1f}h", previous, current, hours)
     if hours < hours_min - EPSILON:
         return EntryDecision(False, f"too_late_{hours:.1f}h", previous, current, hours)
     if hours > hours_max + EPSILON:

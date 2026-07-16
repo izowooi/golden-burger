@@ -60,7 +60,7 @@ def test_invalid_scalar_values_are_rejected(monkeypatch, key, value, match):
             "entry hours",
         ),
         (
-            {"POLYBOT_ENTRY_HOURS_MIN": "1.99"},
+            {"POLYBOT_ENTRY_HOURS_MIN": "-0.01"},
             "hours_min",
         ),
         (
@@ -96,7 +96,7 @@ def test_entry_and_archive_boundaries_are_accepted(monkeypatch):
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MIN", "0.95")
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MAX", "0.97")
     monkeypatch.setenv("POLYBOT_STOP_PRICE", "0.90")
-    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MIN", "2")
+    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MIN", "0")
     monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MAX", "72")
     monkeypatch.setenv("POLYBOT_ARCHIVE_PROB_MIN", "0.85")
     config = load_config("missing.yaml")

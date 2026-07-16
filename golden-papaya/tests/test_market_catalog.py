@@ -357,6 +357,36 @@ def test_rejected_first_crossing_is_durable_and_later_recross_fails_closed(
     session.close()
 
 
+def test_sub_two_hour_first_crossing_is_an_entry_candidate(tmp_path):
+    Session = init_database(str(tmp_path / "sub-two-hour-window.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    gamma = GammaClient()
+    gamma.session = _KeysetSession([])
+    config = TradingConfig()
+
+    below = market("sports-window", yes_price=0.94, hours_left=1.5)
+    snapshot_cycle(gamma, repo, config, below, NOW)
+    crossing = market("sports-window", yes_price=0.95, hours_left=1.5)
+    scanner, markets = snapshot_cycle(
+        gamma,
+        repo,
+        config,
+        crossing,
+        NOW + timedelta(minutes=5),
+    )
+
+    candidates = scanner.scan_buy_candidates(
+        markets,
+        now=NOW + timedelta(minutes=5),
+    )
+
+    assert len(candidates) == 1
+    assert candidates[0]["condition_id"] == "sports-window"
+    assert 0 < candidates[0]["hours_until_resolution"] < 2
+    session.close()
+
+
 def test_window_rejected_first_crossing_is_durable_after_entry_window_opens(
     tmp_path,
     caplog,
