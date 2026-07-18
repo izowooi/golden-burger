@@ -122,7 +122,9 @@ ledger.resolve_uncertain_submission(
 단건 주문, exact user-order catalog, pre-migration catalog에서 모두 사라진 accepted/live 주문은
 자동으로 미체결 처리하지 않는다. 현재 credential과 workspace ledger의 provenance가 달라졌고,
 연결된 trade ID·fill·order status도 전혀 없는 경우에만 아래 operator quarantine 대상이 된다.
-먼저 exact 대상 목록을 확인한 뒤 예상 건수와 확인 문구를 함께 지정한다.
+자동 대사가 실패한 동안에는 증거 오류를 보존하고 같은 `token_id × side`의 신규 주문만 막으며,
+다른 시장의 청산·스캔은 계속한다. 먼저 exact 대상 목록을 확인한 뒤 예상 건수와 확인 문구를 함께
+지정한다.
 
 `MATCHED` 주문의 `requested_size`가 약 100인데 matched/fill size가 약 `0.0001`처럼 정확히 10⁶
 축소된 경우는 quarantine 대상이 아니다. SDK가 이미 사람 단위로 반환한 quantity를 fixed-6으로
@@ -172,7 +174,8 @@ uv run polybot-retro resolve-catalog-gaps \
 
 resolve는 mutation 전에 workspace 밖에 SQLite online backup, `quick_check`, SHA-256 manifest를
 만든다. 격리된 행은 `OPERATOR_EVIDENCE_GAP`으로 남으며 이는 미체결 증명이 아니다. live cycle
-gate에서만 제외되고 `polybot-retro audit --strict`에는 계속 HIGH evidence issue로 보고된다.
+의 token/side 신규 주문 gate와 반복 대사 큐에서만 제외되고 `polybot-retro audit --strict`에는
+계속 HIGH evidence issue로 보고된다.
 
 기본 조회가 `[]`이지만 operator가 이전 전략/수동 주문의 연결된 status·trade ID·fill까지 보존한
 채 live gate에서 제외하기로 명시했다면 아래 별도 override를 사용한다. 강한 확인 문구 없이는

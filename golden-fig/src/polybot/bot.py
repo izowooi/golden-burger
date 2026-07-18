@@ -201,9 +201,10 @@ class PolymarketBot:
             self.gamma.sweep_attestations.clear()
             reconciliation = self.clob.reconcile_order_ledger()
             if reconciliation.get("errors", 0):
-                raise RuntimeError(
-                    "미완료 CLOB 주문 대사에 실패해 새 trading cycle을 중단합니다: "
-                    f"{reconciliation['errors']}건"
+                logger.warning(
+                    "미완료 CLOB 주문 대사 실패 %s건은 해당 token/side 신규 "
+                    "주문만 격리하고 trading cycle을 계속합니다",
+                    reconciliation["errors"],
                 )
             stats = self.run_cycle()
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()

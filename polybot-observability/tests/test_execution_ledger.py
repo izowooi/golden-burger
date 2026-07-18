@@ -1350,6 +1350,51 @@ def test_unresolved_intent_quarantines_only_same_token_side(tmp_path, caplog):
     assert other_result["orderID"] == "safe-other-token"
 
 
+def test_reconciliation_gap_quarantines_only_same_token_side(tmp_path):
+    ledger = ExecutionLedger(tmp_path / "trades.db", strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="gap-token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=5,
+        result={"success": True, "orderID": "gap-order"},
+        simulation=False,
+    )
+    ledger.record_reconciliation_error(
+        submission_id,
+        RuntimeError(
+            "phase=match_authoritative_order_catalogs "
+            "error=ClobResponseUnavailableError"
+        ),
+    )
+
+    assert ledger.unresolved_submission_count() == 0
+    assert ledger.reconciliation_gap_count() == 1
+    assert (
+        ledger.submission_quarantine_count(token_id="gap-token", side="BUY")
+        == 1
+    )
+    with pytest.raises(UnresolvedTokenSubmissionError) as blocked:
+        ledger.assert_submission_allowed(token_id="gap-token", side="BUY")
+    assert blocked.value.count == 1
+    ledger.assert_submission_allowed(token_id="gap-token", side="SELL")
+    ledger.assert_submission_allowed(token_id="other-token", side="BUY")
+
+    ledger.record_order_status(
+        submission_id,
+        {
+            "id": "gap-order",
+            "status": "LIVE",
+            "original_size": "5",
+            "size_matched": "0",
+            "price": "0.4",
+        },
+    )
+
+    assert ledger.reconciliation_gap_count() == 0
+    ledger.assert_submission_allowed(token_id="gap-token", side="BUY")
+
+
 def test_crashed_intent_and_unlinked_evidence_failure_block_restart(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")

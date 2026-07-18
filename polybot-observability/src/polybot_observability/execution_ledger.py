@@ -146,14 +146,14 @@ class UnresolvedSubmissionOutcomeError(SubmissionEvidenceError):
 
 
 class UnresolvedTokenSubmissionError(RuntimeError):
-    """Raised when a prior ambiguous POST quarantines one token/side pair."""
+    """Raised when unresolved execution evidence quarantines one token/side pair."""
 
     def __init__(self, token_id: str, side: str, count: int) -> None:
         self.token_id = str(token_id)
         self.side = str(side).upper()
         self.count = int(count)
         super().__init__(
-            "결과가 불확실한 이전 CLOB intent가 있어 동일 token/side의 "
+            "결과 또는 대사 증거가 불확실한 이전 CLOB intent가 있어 동일 token/side의 "
             f"신규 {self.side} 주문을 보류합니다: {self.count}건"
         )
 
@@ -698,8 +698,8 @@ class ExecutionLedger:
         return submission_id
 
     def assert_submission_allowed(self, *, token_id: str, side: str) -> None:
-        """Reject only an exact token/side pair with an unresolved prior POST."""
-        unresolved_count = self.unresolved_submission_count(
+        """Reject only an exact token/side pair with unresolved execution evidence."""
+        unresolved_count = self.submission_quarantine_count(
             token_id=token_id,
             side=side,
         )
@@ -1061,6 +1061,53 @@ class ExecutionLedger:
                 parameters,
             ).fetchone()
         return int(row[0] or 0)
+
+    def reconciliation_gap_count(
+        self,
+        *,
+        token_id: str | None = None,
+        side: str | None = None,
+    ) -> int:
+        """Count accepted orders whose latest reconciliation attempt failed."""
+        clauses = [
+            "simulation = 0",
+            "success = 1",
+            "needs_reconciliation = 1",
+            "order_id IS NOT NULL",
+            "reconciliation_error IS NOT NULL",
+        ]
+        parameters: list[Any] = []
+        if token_id is not None:
+            clauses.append("token_id = ?")
+            parameters.append(str(token_id))
+        if side is not None:
+            normalized_side = str(side).strip().upper()
+            if normalized_side not in {"BUY", "SELL"}:
+                raise ValueError("side는 BUY 또는 SELL이어야 합니다")
+            clauses.append("side = ?")
+            parameters.append(normalized_side)
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT COUNT(*) FROM order_submissions WHERE "
+                + " AND ".join(f"({clause})" for clause in clauses),
+                parameters,
+            ).fetchone()
+        return int(row[0] or 0)
+
+    def submission_quarantine_count(
+        self,
+        *,
+        token_id: str | None = None,
+        side: str | None = None,
+    ) -> int:
+        """Count token/side-local blockers without applying a global cycle gate."""
+        return self.unresolved_submission_count(
+            token_id=token_id,
+            side=side,
+        ) + self.reconciliation_gap_count(
+            token_id=token_id,
+            side=side,
+        )
 
     def assert_execution_ready(self) -> None:
         """Apply the explicit strict gate for prior ambiguous POST outcomes."""
