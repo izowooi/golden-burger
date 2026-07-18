@@ -449,9 +449,29 @@ def _validate_bot_source(
         strategy,
         relative_path,
         run,
-        ("RunAudit.start", "reconcile_order_ledger", "run_cycle", "audit.succeed"),
+        (
+            "RunAudit.start",
+            "reconcile_order_ledger",
+            "log_reconciliation_continuity",
+            "run_cycle",
+            "audit.succeed",
+        ),
     )
     calls = {name for name, _ in _calls(run)}
+    if any(
+        name.endswith("reconciliation.get")
+        and call.args
+        and isinstance(call.args[0], ast.Constant)
+        and call.args[0].value == "errors"
+        for name, call in _calls(run)
+    ):
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_global_gate",
+                f"{relative_path}: per-order reconciliation errors must stay local",
+            )
+        )
     if not any(name.endswith("audit.fail") for name in calls):
         findings.append(Finding(strategy, "missing_call", f"{relative_path}: audit.fail"))
     if not any(isinstance(node, ast.Raise) for node in ast.walk(run)):

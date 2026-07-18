@@ -1,6 +1,6 @@
 """Main bot orchestrator with Shock Follow strategy."""
 import logging
-from polybot_observability import RunAudit
+from polybot_observability import RunAudit, log_reconciliation_continuity
 import math
 from .config import BotConfig
 from .api.gamma_client import GammaClient
@@ -200,11 +200,7 @@ class PolymarketBot:
             # A long-lived process may call run() repeatedly; attest only this run.
             self.gamma.sweep_attestations.clear()
             reconciliation = self.clob.reconcile_order_ledger()
-            if reconciliation.get("errors", 0):
-                raise RuntimeError(
-                    "미완료 CLOB 주문 대사에 실패해 새 trading cycle을 중단합니다: "
-                    f"{reconciliation['errors']}건"
-                )
+            log_reconciliation_continuity(reconciliation, logger=logger)
             stats = self.run_cycle()
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()
             stats["order_reconciliation"] = reconciliation

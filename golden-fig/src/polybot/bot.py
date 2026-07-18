@@ -1,6 +1,6 @@
 """Main bot orchestrator with Hope Crusher strategy."""
 import logging
-from polybot_observability import RunAudit
+from polybot_observability import RunAudit, log_reconciliation_continuity
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -200,12 +200,7 @@ class PolymarketBot:
             # A long-lived process may call run() repeatedly; attest only this run.
             self.gamma.sweep_attestations.clear()
             reconciliation = self.clob.reconcile_order_ledger()
-            if reconciliation.get("errors", 0):
-                logger.warning(
-                    "미완료 CLOB 주문 대사 실패 %s건은 해당 token/side 신규 "
-                    "주문만 격리하고 trading cycle을 계속합니다",
-                    reconciliation["errors"],
-                )
+            log_reconciliation_continuity(reconciliation, logger=logger)
             stats = self.run_cycle()
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()
             stats["order_reconciliation"] = reconciliation

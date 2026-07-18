@@ -1,6 +1,7 @@
 """Shared observability primitives for Polymarket strategy bots."""
 
 from .run_audit import RunAudit, current_run_id
+from .reconciliation_policy import log_reconciliation_continuity
 from .execution_ledger import (
     ClobReconciliationPhaseError,
     ClobResponseContractError,
@@ -24,6 +25,7 @@ __all__ = [
     "UnresolvedSubmissionOutcomeError",
     "UnresolvedTokenSubmissionError",
     "current_run_id",
+    "log_reconciliation_continuity",
     "normalize_clob_response",
     "normalize_clob_response_list",
     "safe_clob_response_shape",
