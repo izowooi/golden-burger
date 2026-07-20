@@ -1,6 +1,7 @@
 """Main bot orchestrator with Hope Crusher strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -36,7 +37,14 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=float(
+                    config.trading.strategy.rise_lookback_hours
+                )
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()

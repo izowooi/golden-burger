@@ -3,10 +3,15 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from dataclasses import asdict
 from datetime import datetime, timedelta, timezone
 import json
+import sqlite3
 
 import pytest
+from sqlalchemy import inspect, text
+
+from polybot_observability import SQLiteMaintenanceRequirements, policy_for
 
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ArchiveConfig, TradingConfig
@@ -114,6 +119,45 @@ def snapshot_cycle(gamma, repo, config, raw_market, observed_at):
     return scanner, qualified
 
 
+def activate_compact_maintenance(session, *, active=1):
+    requirements = SQLiteMaintenanceRequirements()
+    report = json.dumps(
+        {
+            "policy": asdict(policy_for("golden-papaya", requirements)),
+            "requirements": asdict(requirements),
+            "snapshot_anchor": None,
+        }
+    )
+    session.execute(
+        text(
+            "CREATE TABLE polybot_db_maintenance ("
+            "profile TEXT PRIMARY KEY, "
+            "schema_version INTEGER NOT NULL, "
+            "strategy_name TEXT NOT NULL, "
+            "active INTEGER NOT NULL, "
+            "activated_at TEXT NOT NULL, "
+            "last_maintained_at TEXT, "
+            "last_report_json TEXT NOT NULL DEFAULT '{}'"
+            ")"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO polybot_db_maintenance "
+            "(profile, schema_version, strategy_name, active, activated_at, "
+            "last_report_json) "
+            "VALUES ('compact-v1', 2, 'golden-papaya', :active, :activated_at, "
+            ":last_report_json)"
+        ),
+        {
+            "active": active,
+            "activated_at": datetime.utcnow().isoformat(),
+            "last_report_json": report,
+        },
+    )
+    session.commit()
+
+
 def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
     tmp_path,
 ):
@@ -146,9 +190,9 @@ def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
         "too-early",
         "invalid-book",
     }
-    assert {
-        row.condition_id for row in session.query(MarketSnapshot).all()
-    } == {"archive-floor"}
+    assert {row.condition_id for row in session.query(MarketSnapshot).all()} == {
+        "archive-floor"
+    }
 
     catalog = session.get(MarketCatalog, "archive-floor")
     assert catalog.event_id == "event-cluster"
@@ -179,8 +223,7 @@ def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
     assert sweep.snapshot_eligible_count == 2
     assert sweep.snapshotted_market_count == 1
     memberships = {
-        row.condition_id: row
-        for row in session.query(MarketSweepMembership).all()
+        row.condition_id: row for row in session.query(MarketSweepMembership).all()
     }
     assert set(memberships) == {
         "archive-floor",
@@ -201,6 +244,106 @@ def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
     assert memberships["invalid-book"].snapshot_reason == "invalid_order_book"
     assert gamma.last_sweep_attestation["snapshot_eligible_count"] == 2
     assert gamma.last_sweep_attestation["snapshotted_market_count"] == 1
+    session.close()
+
+
+def test_compact_maintenance_keeps_sweep_summary_but_gates_membership_detail(
+    tmp_path,
+):
+    session, repo, gamma, scanner = build_scanner(tmp_path, [market("archive-floor")])
+    activate_compact_maintenance(session)
+
+    first_markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(first_markets, now=NOW)
+    first_sweep = session.query(MarketSweep).one()
+    assert first_sweep.membership_detail_stored == 1
+    assert session.query(MarketSweepMembership).count() == 1
+
+    second_markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(second_markets, now=NOW + timedelta(minutes=5))
+    sweeps = session.query(MarketSweep).order_by(MarketSweep.completed_at.asc()).all()
+    assert [row.membership_detail_stored for row in sweeps] == [1, 0]
+    assert sweeps[1].qualified_market_count == 1
+    assert sweeps[1].snapshot_eligible_count == 1
+    assert sweeps[1].snapshotted_market_count == 1
+    assert (
+        sweeps[1].membership_digest_sha256
+        == (gamma.last_sweep_attestation["membership_digest_sha256"])
+    )
+    assert session.query(MarketSweepMembership).count() == 1
+
+    first_sweep.completed_at = datetime.utcnow() - timedelta(hours=25)
+    session.commit()
+    third_markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(third_markets, now=NOW + timedelta(minutes=10))
+    newest = (
+        session.query(MarketSweep).order_by(MarketSweep.completed_at.desc()).first()
+    )
+    assert newest.membership_detail_stored == 1
+    assert session.query(MarketSweepMembership).count() == 2
+    session.close()
+
+
+def test_inactive_compact_profile_preserves_legacy_membership_detail(tmp_path):
+    session, _repo, _gamma, scanner = build_scanner(tmp_path, [market("archive-floor")])
+    activate_compact_maintenance(session, active=0)
+
+    first = scanner.fetch_markets()
+    scanner.save_market_snapshots(first, now=NOW)
+    second = scanner.fetch_markets()
+    scanner.save_market_snapshots(second, now=NOW + timedelta(minutes=5))
+
+    assert [
+        row.membership_detail_stored
+        for row in session.query(MarketSweep).order_by(MarketSweep.completed_at.asc())
+    ] == [1, 1]
+    assert session.query(MarketSweepMembership).count() == 2
+    session.close()
+
+
+def test_existing_market_sweeps_table_gets_membership_detail_migration(tmp_path):
+    db_path = tmp_path / "legacy-papaya.db"
+    connection = sqlite3.connect(db_path)
+    connection.execute("CREATE TABLE market_sweeps (sweep_id TEXT PRIMARY KEY)")
+    connection.execute("INSERT INTO market_sweeps (sweep_id) VALUES ('legacy')")
+    connection.commit()
+    connection.close()
+
+    Session = init_database(str(db_path))
+    session = Session()
+    columns = {
+        column["name"]: column
+        for column in inspect(session.get_bind()).get_columns("market_sweeps")
+    }
+    assert columns["membership_detail_stored"]["nullable"] is False
+    value = session.execute(
+        text(
+            "SELECT membership_detail_stored FROM market_sweeps "
+            "WHERE sweep_id = 'legacy'"
+        )
+    ).scalar_one()
+    assert value == 1
+    session.close()
+
+
+def test_compact_schema_does_not_recreate_removed_single_column_indexes(tmp_path):
+    Session = init_database(str(tmp_path / "compact-indexes.db"))
+    session = Session()
+    inspector = inspect(session.get_bind())
+    snapshot_indexes = {
+        index["name"] for index in inspector.get_indexes("market_snapshots")
+    }
+    membership_indexes = {
+        index["name"] for index in inspector.get_indexes("market_sweep_memberships")
+    }
+
+    assert "market_snapshots_condition_timestamp_idx" in snapshot_indexes
+    assert "market_snapshots_run_idx" in snapshot_indexes
+    assert "ix_market_snapshots_condition_id" not in snapshot_indexes
+    assert "ix_market_snapshots_run_id" not in snapshot_indexes
+    assert "ix_market_sweep_memberships_condition_id" in membership_indexes
+    assert "ix_market_sweep_memberships_qualified" not in membership_indexes
+    assert "ix_market_sweep_memberships_snapshotted" not in membership_indexes
     session.close()
 
 
@@ -281,9 +424,7 @@ def test_tampered_sweep_digest_rolls_back_catalog_snapshot_and_sweep(tmp_path):
 
 
 def test_archive_requires_completed_sweep_attestation(tmp_path):
-    session, _repo, _gamma, scanner = build_scanner(
-        tmp_path, [market("archive-floor")]
-    )
+    session, _repo, _gamma, scanner = build_scanner(tmp_path, [market("archive-floor")])
     with pytest.raises(RuntimeError, match="attestation"):
         scanner.save_market_snapshots([], now=NOW)
     session.close()
@@ -330,9 +471,12 @@ def test_rejected_first_crossing_is_durable_and_later_recross_fails_closed(
         NOW + timedelta(minutes=5),
     )
     with caplog.at_level("INFO"):
-        assert first_scanner.scan_buy_candidates(
-            first_markets, now=NOW + timedelta(minutes=5)
-        ) == []
+        assert (
+            first_scanner.scan_buy_candidates(
+                first_markets, now=NOW + timedelta(minutes=5)
+            )
+            == []
+        )
     assert f"{first_rejection}: 1" in caplog.text
 
     dip = market("durable", yes_price=0.94, hours_left=48)
@@ -350,9 +494,12 @@ def test_rejected_first_crossing_is_durable_and_later_recross_fails_closed(
     )
     caplog.clear()
     with caplog.at_level("INFO"):
-        assert recross_scanner.scan_buy_candidates(
-            recross_markets, now=NOW + timedelta(minutes=15)
-        ) == []
+        assert (
+            recross_scanner.scan_buy_candidates(
+                recross_markets, now=NOW + timedelta(minutes=15)
+            )
+            == []
+        )
     assert "first_crossing_already_observed: 1" in caplog.text
     session.close()
 
@@ -411,9 +558,12 @@ def test_window_rejected_first_crossing_is_durable_after_entry_window_opens(
         NOW + timedelta(minutes=5),
     )
     with caplog.at_level("INFO"):
-        assert first_scanner.scan_buy_candidates(
-            first_markets, now=NOW + timedelta(minutes=5)
-        ) == []
+        assert (
+            first_scanner.scan_buy_candidates(
+                first_markets, now=NOW + timedelta(minutes=5)
+            )
+            == []
+        )
     assert "too_early: 1" in caplog.text
 
     # Preserve an uninterrupted <=30-minute lineage until the entry window
@@ -439,9 +589,9 @@ def test_window_rejected_first_crossing_is_durable_after_entry_window_opens(
     )
     caplog.clear()
     with caplog.at_level("INFO"):
-        assert recross_scanner.scan_buy_candidates(
-            recross_markets, now=recross_time
-        ) == []
+        assert (
+            recross_scanner.scan_buy_candidates(recross_markets, now=recross_time) == []
+        )
     assert "first_crossing_already_observed: 1" in caplog.text
     session.close()
 
@@ -501,9 +651,7 @@ def test_fresh_ask_rejected_first_crossing_is_durable_and_not_retried(
     clob = AskAboveCapClob()
     # Trader uses wall-clock time for final revalidation; keep only that field
     # fresh while preserving the scanner/archive lineage under test.
-    first_candidates[0]["end_date"] = datetime.now(timezone.utc) + timedelta(
-        hours=48
-    )
+    first_candidates[0]["end_date"] = datetime.now(timezone.utc) + timedelta(hours=48)
     trader = Trader(repo, clob, config, simulation_mode=True)
     with caplog.at_level("INFO"):
         assert trader.execute_buy(first_candidates[0]) is None
@@ -522,17 +670,18 @@ def test_fresh_ask_rejected_first_crossing_is_durable_and_not_retried(
     )
     caplog.clear()
     with caplog.at_level("INFO"):
-        assert recross_scanner.scan_buy_candidates(
-            recross_markets, now=NOW + timedelta(minutes=15)
-        ) == []
+        assert (
+            recross_scanner.scan_buy_candidates(
+                recross_markets, now=NOW + timedelta(minutes=15)
+            )
+            == []
+        )
     assert "first_crossing_already_observed: 1" in caplog.text
     session.close()
 
 
 def test_retention_removes_old_snapshots_and_sweeps_but_not_catalog(tmp_path):
-    session, repo, _gamma, scanner = build_scanner(
-        tmp_path, [market("archive-floor")]
-    )
+    session, repo, _gamma, scanner = build_scanner(tmp_path, [market("archive-floor")])
     qualified = scanner.fetch_markets()
     scanner.save_market_snapshots(qualified, now=NOW)
     old = datetime.utcnow() - timedelta(days=61)

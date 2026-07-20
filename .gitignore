@@ -179,3 +179,7 @@ wind_down_*.csv
 # Local Jenkins console dumps may contain masked/unmasked runtime credentials.
 /logs/
 /docs/[#]*.txt
+
+# Local production DB copies used for read-only diagnosis. These can be many
+# gigabytes and may contain operational evidence; never stage them.
+/docs/db/

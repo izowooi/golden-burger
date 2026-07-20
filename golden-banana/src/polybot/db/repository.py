@@ -1,5 +1,6 @@
 """Repository pattern for database operations."""
 import logging
+from polybot_observability import compact_maintenance_active
 from datetime import datetime, date, timedelta
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
@@ -166,6 +167,8 @@ class TradeRepository:
         Returns:
             삭제된 스냅샷 수
         """
+        if compact_maintenance_active(self.session, "golden-banana"):
+            return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
         deleted = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.timestamp < cutoff

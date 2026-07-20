@@ -5,6 +5,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
+from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 
 Base = declarative_base()
 
@@ -127,7 +128,10 @@ class SkippedMarket(Base):
         return f"<Skipped {self.condition_id}: {self.reason}>"
 
 
-def init_database(db_path: str) -> sessionmaker:
+def init_database(
+    db_path: str,
+    maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
+) -> sessionmaker:
     """Initialize database and return session factory.
 
     Args:
@@ -136,6 +140,11 @@ def init_database(db_path: str) -> sessionmaker:
     Returns:
         SQLAlchemy sessionmaker instance
     """
+    prepare_database(
+        db_path,
+        "golden-elderberry",
+        requirements=maintenance_requirements,
+    )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     # 기존 DB 파일 호환: 신규 컬럼 best-effort ALTER (이미 있으면 조용히 skip)

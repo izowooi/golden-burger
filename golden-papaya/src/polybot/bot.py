@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 
 from .api.clob_client import ClobClientWrapper
 from .api.gamma_client import GammaClient
@@ -23,7 +24,16 @@ class PolymarketBot:
 
     def __init__(self, config: BotConfig):
         self.config = config
-        self.Session = init_database(str(config.db_path))
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=float(
+                    config.trading.max_snapshot_gap_minutes
+                )
+                / 60.0,
+                retention_days=float(config.trading.archive.retention_days),
+            ),
+        )
         self.gamma = GammaClient()
         self.clob = ClobClientWrapper(
             config.api,

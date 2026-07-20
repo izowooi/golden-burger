@@ -1,6 +1,7 @@
 """Main bot orchestrator with Fear Spike Fade strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -36,7 +37,14 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        base_window_days = float(config.trading.strategy.base_window_days)
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=base_window_days * 24.0,
+                retention_days=base_window_days,
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()

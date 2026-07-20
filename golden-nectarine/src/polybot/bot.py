@@ -1,6 +1,7 @@
 """Main bot orchestrator with bottom fisher strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -38,7 +39,16 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        strategy = config.trading.strategy
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                retention_days=float(strategy.lookback_days),
+                boundary_interval_hours=float(strategy.lookback_days) * 24.0
+                - float(strategy.exclude_recent_hours),
+                max_rollup_hours=float(strategy.lookback_days) * 24.0 * 0.05,
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()

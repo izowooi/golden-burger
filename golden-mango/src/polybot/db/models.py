@@ -6,6 +6,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Enum, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
+from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 
 logger = logging.getLogger(__name__)
 
@@ -142,7 +143,10 @@ _ALTER_COLUMNS = [
 ]
 
 
-def init_database(db_path: str) -> sessionmaker:
+def init_database(
+    db_path: str,
+    maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
+) -> sessionmaker:
     """Initialize database and return session factory.
 
     새 DB는 create_all이 최신 스키마로 만들고, 구버전 스키마의 기존 로컬 DB에는
@@ -154,6 +158,11 @@ def init_database(db_path: str) -> sessionmaker:
     Returns:
         SQLAlchemy sessionmaker instance
     """
+    prepare_database(
+        db_path,
+        "golden-mango",
+        requirements=maintenance_requirements,
+    )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     with engine.connect() as conn:

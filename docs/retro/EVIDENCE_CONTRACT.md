@@ -145,13 +145,26 @@ coverage 계약을 지킨다.
 질문·시간 기반 휴리스틱을 사용한다. NO 가격 `1 - YES`는 spread와 fee를 무시한 근사이며
 실제 fill을 대체하지 않는다.
 
-“5분 archive”라는 이름만 믿지 않는다. `market_sweeps`와
-`market_sweep_memberships`의 cursor-complete qualifying 분모를 기준으로 선택 기간 양 끝 coverage,
-시장별 eligible/snapshot 비율, run gap, 거래 condition ID의 snapshot/catalog join coverage를
-수치로 보고한다. 중앙 nectarine/honeydew는 expected 5-minute sweep을 사용하고, papaya는
-Jenkins schedule/run manifest에서 해당 cohort의 expected cadence를 산출한다. digest/count/run
-연결이 깨진 sweep은 분모에서도 제외하고 CRITICAL evidence issue로 처리한다. coverage가 부족한
-구간은 counterfactual 대상에서 제외한다.
+`compact-v1` 활성 전에는 모든 sweep의 상세 membership과 5분 snapshot을 전제로 했다.
+활성 후에는 cursor-complete `market_sweeps`의 count/digest/run summary는 매 sweep 유지하지만,
+시장별 `market_sweep_memberships` 상세는 기본 24시간 checkpoint 표본이다.
+`membership_detail_stored=0`인 sweep의 digest는 사후 개별 row로 재계산할 수 없으므로 count와
+digest shape/run provenance만 검증하며, per-condition exclusion과 eligible/snapshot 비율은
+`membership_detail_stored=1` 표본에 한해 보고한다. 두 evidence 수준을 동등하다고 표현하지 않는다.
+
+snapshot cadence도 hot/cold로 나눈다. `polybot_db_maintenance.last_report_json`의 profile,
+schema version, strategy, selector와 양의 finite policy가 모두 유효할 때만 hot 구간은 5분,
+cold 구간은 선언된 rollup bucket cadence로 감사한다. 깨진/임의 maintenance metadata는 legacy
+5분 계약으로 fail closed한다. Nectarine cold row는 이동창 양끝의 최저 변화점, Papaya는
+최저·최고 변화점이므로 한 bucket에 여러 row가 있을 수 있다. Papaya의 거래별
+`prior_snapshot_id_at_entry`/`entry_snapshot_id`는 rollup과 retention에서 제외한다.
+
+“5분 archive”라는 이름만 믿지 않는다. `market_sweeps`의 cursor-complete qualifying 분모를
+기준으로 선택 기간 양 끝 coverage, adaptive snapshot bucket, run gap, 거래 condition ID의
+snapshot/catalog join coverage를 수치로 보고한다. digest/count/run 연결이 깨진 sweep은
+분모에서도 제외하고 CRITICAL evidence issue로 처리한다. coverage가 부족한 구간은
+counterfactual 대상에서 제외한다. 구체적인 migration/rollback은
+`docs/sqlite-storage-maintenance.md`를 따른다.
 
 ## 6. local daily evidence와 내구성
 

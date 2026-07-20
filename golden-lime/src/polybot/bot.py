@@ -1,6 +1,7 @@
 """Main bot orchestrator with Shock Follow strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 import math
 from .config import BotConfig
 from .api.gamma_client import GammaClient
@@ -37,7 +38,17 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        shock = config.trading.shock
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=max(
+                    24.0,
+                    float(shock.jump_window_hours),
+                    float(shock.death_window_hours),
+                )
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()

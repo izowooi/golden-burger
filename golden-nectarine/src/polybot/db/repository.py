@@ -4,7 +4,11 @@ import hashlib
 import json
 import logging
 import math
-from polybot_observability import current_run_id
+from polybot_observability import (
+    compact_maintenance_active,
+    current_run_id,
+    membership_details_due,
+)
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -360,6 +364,9 @@ class TradeRepository:
                 raise ValueError("snapshotted condition은 snapshot_eligible이어야 합니다")
             enriched.append((membership, eligible, snapshotted, reason))
 
+        store_membership_details = membership_details_due(
+            self.session, "golden-nectarine"
+        )
         sweep = MarketSweep(
             sweep_id=sweep_id,
             schema_version=int(attestation["schema_version"]),
@@ -381,21 +388,23 @@ class TradeRepository:
             min_volume=min_volume,
             membership_digest_sha256=digest,
             snapshotted_market_count=sum(int(row[2]) for row in enriched),
+            membership_detail_stored=int(store_membership_details),
         )
         self.session.add(sweep)
-        for membership, eligible, snapshotted, reason in enriched:
-            self.session.add(
-                MarketSweepMembership(
-                    sweep_id=sweep.sweep_id,
-                    condition_id=membership["condition_id"],
-                    raw_seen_count=membership["raw_seen_count"],
-                    qualified=int(membership["qualified"]),
-                    qualification_reason=membership["qualification_reason"],
-                    snapshot_eligible=int(eligible),
-                    snapshotted=int(snapshotted),
-                    snapshot_reason=reason,
+        if store_membership_details:
+            for membership, eligible, snapshotted, reason in enriched:
+                self.session.add(
+                    MarketSweepMembership(
+                        sweep_id=sweep.sweep_id,
+                        condition_id=membership["condition_id"],
+                        raw_seen_count=membership["raw_seen_count"],
+                        qualified=int(membership["qualified"]),
+                        qualification_reason=membership["qualification_reason"],
+                        snapshot_eligible=int(eligible),
+                        snapshotted=int(snapshotted),
+                        snapshot_reason=reason,
+                    )
                 )
-            )
         if commit:
             self.session.commit()
         return sweep
@@ -480,6 +489,8 @@ class TradeRepository:
         Returns:
             삭제된 스냅샷 수
         """
+        if compact_maintenance_active(self.session, "golden-nectarine"):
+            return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
         deleted = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.timestamp < cutoff

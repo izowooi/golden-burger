@@ -99,10 +99,10 @@ def audit_database(
         cohort_modes = _cohort_mode_summary(connection, tables)
         result["cohort_mode_evidence"] = cohort_modes
         cohort_mismatch = (
-            is_simulation_database and cohort_modes["has_live_evidence"]
-        ) or (not is_simulation_database and cohort_modes["has_simulation_evidence"]) or cohort_modes[
-            "has_invalid_mode_evidence"
-        ]
+            (is_simulation_database and cohort_modes["has_live_evidence"])
+            or (not is_simulation_database and cohort_modes["has_simulation_evidence"])
+            or cohort_modes["has_invalid_mode_evidence"]
+        )
         if cohort_mismatch:
             issues.append(
                 AuditIssue(
@@ -112,14 +112,16 @@ def audit_database(
                     f"{cohort_modes}",
                 )
             )
-        treat_as_simulation = is_simulation_database and not cohort_modes[
-            "has_live_evidence"
-        ]
+        treat_as_simulation = (
+            is_simulation_database and not cohort_modes["has_live_evidence"]
+        )
         if not treat_as_simulation:
             result["cohort"] = "live"
 
         if "trades" not in tables:
-            issues.append(AuditIssue("CRITICAL", "trades_missing", "trades table이 없습니다"))
+            issues.append(
+                AuditIssue("CRITICAL", "trades_missing", "trades table이 없습니다")
+            )
             result["trades"] = None
         else:
             result["trades"] = _trade_summary(connection, cutoff, as_of)
@@ -128,9 +130,7 @@ def audit_database(
             fill_ledger = _fill_ledger_summary(connection, tables, cutoff, as_of)
             result["fill_ledger"] = fill_ledger
             result["trades"]["pnl_quality"] = (
-                "SIMULATION_ASSUMPTION"
-                if treat_as_simulation
-                else "ORDER_ASSUMPTION"
+                "SIMULATION_ASSUMPTION" if treat_as_simulation else "ORDER_ASSUMPTION"
             )
             if not treat_as_simulation and (
                 fill_ledger
@@ -267,7 +267,10 @@ def audit_database(
                             f"주문이 {fill_ledger['quantity_scale_repairs']}건 있습니다",
                         )
                     )
-                if fill_ledger["confirmed_fills"] and fill_ledger["fee_known_ratio"] < 1.0:
+                if (
+                    fill_ledger["confirmed_fills"]
+                    and fill_ledger["fee_known_ratio"] < 1.0
+                ):
                     issues.append(
                         AuditIssue(
                             "HIGH",
@@ -288,10 +291,10 @@ def audit_database(
                             f"{1 - fill_ledger['liquidity_role_known_ratio']:.1%}입니다",
                         )
                     )
-            if (
-                not treat_as_simulation
-                and not {"buy_order_id", "sell_order_id"}.issubset(trade_columns)
-            ):
+            if not treat_as_simulation and not {
+                "buy_order_id",
+                "sell_order_id",
+            }.issubset(trade_columns):
                 issues.append(
                     AuditIssue(
                         "HIGH",
@@ -304,7 +307,9 @@ def audit_database(
             result["runs"] = _run_summary(connection, cutoff, as_of)
             if result["runs"]["success"] == 0:
                 issues.append(
-                    AuditIssue("HIGH", "no_successful_runs", "선택 기간 SUCCESS run이 없습니다")
+                    AuditIssue(
+                        "HIGH", "no_successful_runs", "선택 기간 SUCCESS run이 없습니다"
+                    )
                 )
             if result["runs"]["failed"]:
                 issues.append(
@@ -349,26 +354,68 @@ def audit_database(
                 )
             )
 
-        minimum_history_hours = {
+        fallback_minimum_history_hours = {
             "golden-honeydew": 24.0,
             "golden-nectarine": 19.0 * 24.0,
         }.get(strategy_name, 0.0)
+        compact_snapshot_policy = _active_compact_policy(
+            connection,
+            tables,
+            strategy_name,
+        )
+        minimum_history_hours = fallback_minimum_history_hours
+        minimum_archive_history_hours = (
+            60.0 * 24.0 if strategy_name == "golden-papaya" else 0.0
+        )
+        if compact_snapshot_policy is not None:
+            compact_requirements = compact_snapshot_policy["requirements"]
+            minimum_history_hours = max(
+                float(compact_requirements["full_cadence_hours"]),
+                float(compact_requirements["boundary_interval_hours"] or 0.0),
+            )
+            if strategy_name == "golden-papaya":
+                minimum_archive_history_hours = max(
+                    minimum_archive_history_hours,
+                    float(compact_requirements["retention_days"]) * 24.0,
+                )
+        result["compact_snapshot_policy"] = compact_snapshot_policy
         if "market_snapshots" in tables:
             result["market_snapshots"] = _snapshot_summary(
                 connection,
                 cutoff,
                 as_of,
                 minimum_history_hours=minimum_history_hours,
+                minimum_archive_history_hours=minimum_archive_history_hours,
+                compact_policy=compact_snapshot_policy,
             )
         else:
             result["market_snapshots"] = None
 
-        result["market_sweeps"] = _sweep_summary(connection, tables, cutoff, as_of)
+        archive_evidence_cutoff = cutoff
+        if strategy_name == "golden-papaya" and minimum_archive_history_hours > 0:
+            archive_evidence_cutoff = min(
+                cutoff,
+                as_of - timedelta(hours=minimum_archive_history_hours),
+            )
+        result["market_sweeps"] = _sweep_summary(
+            connection,
+            tables,
+            archive_evidence_cutoff,
+            as_of,
+            strategy_name=strategy_name,
+        )
         result["market_catalog"] = _catalog_summary(
-            connection, tables, cutoff, as_of
+            connection,
+            tables,
+            archive_evidence_cutoff,
+            as_of,
         )
 
-        if strategy_name in {"golden-honeydew", "golden-nectarine"}:
+        if strategy_name in {
+            "golden-honeydew",
+            "golden-nectarine",
+            "golden-papaya",
+        }:
             snapshots = result.get("market_snapshots") or {}
             invalid_snapshot_rows = snapshots.get("invalid_value_rows") or 0
             if invalid_snapshot_rows:
@@ -382,54 +429,87 @@ def audit_database(
                     )
                 )
             window_ratio = snapshots.get("requested_window_coverage_ratio") or 0
-            cadence_ratio = snapshots.get("five_minute_bucket_coverage_ratio") or 0
+            cadence_ratio = snapshots.get("cadence_bucket_coverage_ratio") or 0
             per_market_p10 = snapshots.get("per_market_cadence_p10") or 0
             history_p10 = snapshots.get("per_market_history_depth_p10") or 0
+            archive_history_ratio = (
+                snapshots.get("archive_history_window_coverage_ratio")
+                if strategy_name == "golden-papaya"
+                else None
+            )
+            archive_history_cadence_ratio = (
+                snapshots.get("archive_history_cadence_coverage_ratio")
+                if strategy_name == "golden-papaya"
+                else None
+            )
             sweeps = result.get("market_sweeps") or {}
-            sweep_bucket_ratio = (
-                sweeps.get("complete_sweep_bucket_coverage_ratio") or 0
+            compact_profile_active = bool(sweeps.get("compact_profile_active"))
+            detailed_membership_metrics_available = bool(
+                sweeps.get("detailed_membership_metrics_available")
             )
-            attested_market_p10 = (
-                sweeps.get("per_market_attested_snapshot_p10") or 0
+            sweep_bucket_ratio = sweeps.get("complete_sweep_bucket_coverage_ratio") or 0
+            attested_market_p10 = sweeps.get("per_market_attested_snapshot_p10")
+            eligible_snapshot_ratio = sweeps.get("snapshot_eligible_coverage_ratio")
+            qualified_eligibility_ratio = sweeps.get(
+                "qualified_snapshot_eligibility_ratio"
             )
-            eligible_snapshot_ratio = (
-                sweeps.get("snapshot_eligible_coverage_ratio") or 0
+            detail_checkpoint_ratio = sweeps.get(
+                "detail_checkpoint_bucket_coverage_ratio"
             )
-            qualified_eligibility_ratio = (
-                sweeps.get("qualified_snapshot_eligibility_ratio") or 0
+            membership_coverage_short = (
+                compact_profile_active and (detail_checkpoint_ratio or 0) < 0.8
+            ) or (
+                (not compact_profile_active or detailed_membership_metrics_available)
+                and (
+                    (attested_market_p10 or 0) < 0.8
+                    or (eligible_snapshot_ratio or 0) < 0.99
+                    or (qualified_eligibility_ratio or 0) < 0.99
+                )
             )
             if (
                 window_ratio < 0.9
                 or cadence_ratio < 0.8
                 or per_market_p10 < 0.8
                 or history_p10 < 0.8
+                or (
+                    strategy_name == "golden-papaya"
+                    and (
+                        (archive_history_ratio or 0) < 0.9
+                        or (archive_history_cadence_ratio or 0) < 0.8
+                    )
+                )
                 or sweep_bucket_ratio < 0.8
-                or attested_market_p10 < 0.8
-                or eligible_snapshot_ratio < 0.99
-                or qualified_eligibility_ratio < 0.99
+                or membership_coverage_short
             ):
+
+                def display_ratio(value: Any) -> str:
+                    return "n/a" if value is None else f"{value:.1%}"
+
                 issues.append(
                     AuditIssue(
                         "HIGH",
                         "archive_window_short",
-                        "중앙 아카이브가 요청 기간/5분 sweep/전략 lookback을 충분히 덮지 못합니다 "
+                        "시장 아카이브가 요청 기간/5분 sweep/전략 lookback을 충분히 덮지 못합니다 "
                         f"(window={window_ratio:.1%}, global cadence={cadence_ratio:.1%}, "
                         f"observed per-market p10={per_market_p10:.1%}, "
                         f"history p10={history_p10:.1%}, sweep={sweep_bucket_ratio:.1%}, "
-                        f"attested per-market p10={attested_market_p10:.1%}, "
-                        f"eligible snapshots={eligible_snapshot_ratio:.1%}, "
-                        f"qualified eligibility={qualified_eligibility_ratio:.1%})",
+                        "archive retention="
+                        f"{display_ratio(archive_history_ratio)}, "
+                        "archive retention cadence="
+                        f"{display_ratio(archive_history_cadence_ratio)}, "
+                        "attested per-market p10="
+                        f"{display_ratio(attested_market_p10)}, "
+                        "eligible snapshots="
+                        f"{display_ratio(eligible_snapshot_ratio)}, "
+                        "qualified eligibility="
+                        f"{display_ratio(qualified_eligibility_ratio)}, "
+                        "detail checkpoints="
+                        f"{display_ratio(detail_checkpoint_ratio)})",
                     )
                 )
-            if not sweeps or not sweeps.get("contract_complete"):
-                issues.append(
-                    AuditIssue(
-                        "HIGH",
-                        "market_sweep_attestation_missing",
-                        "완전한 Gamma keyset sweep와 market membership denominator가 없습니다",
-                    )
-                )
-            elif sweeps.get("invariant_failures") or sweeps.get("incomplete_sweeps"):
+            if sweeps and (
+                sweeps.get("invariant_failures") or sweeps.get("incomplete_sweeps")
+            ):
                 issues.append(
                     AuditIssue(
                         "CRITICAL",
@@ -437,6 +517,14 @@ def audit_database(
                         "Gamma sweep count/digest/hierarchy invariant가 깨졌습니다 "
                         f"(invalid={sweeps.get('invariant_failures', 0)}, "
                         f"incomplete={sweeps.get('incomplete_sweeps', 0)})",
+                    )
+                )
+            elif not sweeps or not sweeps.get("contract_complete"):
+                issues.append(
+                    AuditIssue(
+                        "HIGH",
+                        "market_sweep_attestation_missing",
+                        "완전한 Gamma keyset sweep와 market membership denominator가 없습니다",
                     )
                 )
             elif sweeps.get("valid_complete_sweeps", 0) == 0:
@@ -449,9 +537,7 @@ def audit_database(
                 )
             catalog = result.get("market_catalog") or {}
             catalog_coverage = catalog.get("snapshot_condition_coverage_ratio") or 0
-            qualified_coverage = (
-                catalog.get("qualified_condition_coverage_ratio") or 0
-            )
+            qualified_coverage = catalog.get("qualified_condition_coverage_ratio") or 0
             metadata_coverage = catalog.get("metadata_completeness_ratio") or 0
             if (
                 catalog.get("rows", 0) == 0
@@ -474,7 +560,9 @@ def audit_database(
         result["logs"] = _log_summary(log_paths or _default_log_paths(resolved))
         if result["logs"]["files"] == 0:
             issues.append(
-                AuditIssue("MEDIUM", "logs_missing", "연결된 실행 로그 파일을 찾지 못했습니다")
+                AuditIssue(
+                    "MEDIUM", "logs_missing", "연결된 실행 로그 파일을 찾지 못했습니다"
+                )
             )
     except sqlite3.Error as error:
         issues.append(AuditIssue("CRITICAL", "audit_query_failed", str(error)))
@@ -565,7 +653,8 @@ def render_markdown(bundle: dict[str, Any]) -> str:
             lines.append(
                 f"- snapshots: {snapshots['period_rows']}행 / {snapshots['period_markets']}시장, "
                 f"window {snapshots['requested_window_coverage_ratio']:.1%}, "
-                f"5m cadence {snapshots['five_minute_bucket_coverage_ratio']:.1%}"
+                f"{snapshots.get('cadence_mode', 'five-minute')} cadence "
+                f"{snapshots.get('cadence_bucket_coverage_ratio', snapshots['five_minute_bucket_coverage_ratio']):.1%}"
             )
         lines.append("- 이슈:")
         if audit.get("issues"):
@@ -579,7 +668,9 @@ def render_markdown(bundle: dict[str, Any]) -> str:
     return "\n".join(lines).rstrip() + "\n"
 
 
-def write_audit_bundle(bundle: dict[str, Any], output_directory: Path) -> tuple[Path, Path]:
+def write_audit_bundle(
+    bundle: dict[str, Any], output_directory: Path
+) -> tuple[Path, Path]:
     output_directory.mkdir(parents=True, exist_ok=True)
     json_path = output_directory / "retro-audit.json"
     markdown_path = output_directory / "retro-audit.md"
@@ -594,14 +685,18 @@ def backup_databases(databases: Iterable[Path], output_directory: Path) -> Path:
     destination = output_directory.expanduser().resolve() / timestamp
     destination.mkdir(parents=True, exist_ok=False)
     records: list[dict[str, Any]] = []
-    for index, source in enumerate(sorted({path.resolve() for path in databases}), start=1):
+    for index, source in enumerate(
+        sorted({path.resolve() for path in databases}), start=1
+    ):
         strategy = _path_strategy_name(source) or "unknown"
         target = destination / f"{index:02d}-{strategy}-{source.name}"
         with sqlite3.connect(f"file:{source}?mode=ro", uri=True) as source_connection:
             with sqlite3.connect(target) as target_connection:
                 source_connection.backup(target_connection)
         with sqlite3.connect(f"file:{target}?mode=ro", uri=True) as check_connection:
-            integrity = [str(row[0]) for row in check_connection.execute("PRAGMA quick_check")]
+            integrity = [
+                str(row[0]) for row in check_connection.execute("PRAGMA quick_check")
+            ]
         if integrity != ["ok"]:
             raise RuntimeError(
                 f"backup SQLite quick_check 실패 ({source.name}): {'; '.join(integrity)}"
@@ -718,10 +813,14 @@ def _run_summary(
     ]
     successful_times = sorted(value for value in successful_times if value is not None)
     schedule_points = [cutoff, *successful_times, as_of]
-    gaps = [
-        max(0.0, (later - earlier).total_seconds() / 3600)
-        for earlier, later in zip(schedule_points, schedule_points[1:])
-    ] if successful_times else []
+    gaps = (
+        [
+            max(0.0, (later - earlier).total_seconds() / 3600)
+            for earlier, later in zip(schedule_points, schedule_points[1:])
+        ]
+        if successful_times
+        else []
+    )
     stale_cutoff = as_of - timedelta(hours=1)
     config_epochs: list[dict[str, Any]] = []
     for row in rows:
@@ -758,12 +857,235 @@ def _run_summary(
     }
 
 
+def _active_compact_policy(
+    connection: sqlite3.Connection,
+    tables: set[str],
+    strategy_name: str | None,
+) -> dict[str, Any] | None:
+    """Return a validated active compact-v1 policy, otherwise fail closed."""
+    if "polybot_db_maintenance" not in tables or not strategy_name:
+        return None
+    required_columns = {
+        "profile",
+        "schema_version",
+        "strategy_name",
+        "active",
+        "last_report_json",
+        "last_maintained_at",
+    }
+    if not required_columns.issubset(_columns(connection, "polybot_db_maintenance")):
+        return None
+    row = connection.execute(
+        "SELECT schema_version, strategy_name, active, last_report_json, "
+        "last_maintained_at "
+        "FROM polybot_db_maintenance "
+        "WHERE profile = 'compact-v1' LIMIT 1"
+    ).fetchone()
+    if row is None or row[0] != 2 or row[2] != 1:
+        return None
+    normalized_strategy = str(strategy_name).strip().lower()
+    if str(row[1] or "").strip().lower() != normalized_strategy:
+        return None
+    try:
+        report = json.loads(row[3])
+        policy = report["policy"]
+        requirements = report["requirements"]
+        snapshot_anchor = report["snapshot_anchor"]
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError):
+        return None
+    if not isinstance(report, dict):
+        return None
+    if not isinstance(policy, dict) or set(policy) != {
+        "strategy_name",
+        "hot_hours",
+        "rollup_hours",
+        "retention_days",
+        "selector",
+        "run_interval_hours",
+        "membership_detail_hours",
+    }:
+        return None
+    if not isinstance(requirements, dict) or set(requirements) != {
+        "full_cadence_hours",
+        "retention_days",
+        "boundary_interval_hours",
+        "max_rollup_hours",
+        "minimum_latest_points",
+    }:
+        return None
+    if str(policy.get("strategy_name") or "").strip().lower() != normalized_strategy:
+        return None
+    maintained_at = _parse_sqlite_datetime(row[4])
+    parsed_anchor = (
+        _parse_sqlite_datetime(snapshot_anchor) if snapshot_anchor is not None else None
+    )
+    if maintained_at is None:
+        return None
+    if snapshot_anchor is not None and parsed_anchor is None:
+        return None
+    if parsed_anchor is not None and parsed_anchor > maintained_at:
+        return None
+    if "market_snapshots" in tables:
+        snapshot_columns = _columns(connection, "market_snapshots")
+        if "timestamp" in snapshot_columns:
+            if (
+                snapshot_anchor is not None
+                and not connection.execute(
+                    "SELECT 1 FROM market_snapshots "
+                    "WHERE datetime(timestamp) = datetime(?) LIMIT 1",
+                    (_sqlite_time(parsed_anchor),),
+                ).fetchone()
+            ):
+                return None
+            if (
+                snapshot_anchor is None
+                and connection.execute(
+                    "SELECT 1 FROM market_snapshots "
+                    "WHERE datetime(timestamp) <= datetime(?) LIMIT 1",
+                    (_sqlite_time(maintained_at),),
+                ).fetchone()
+            ):
+                return None
+    numeric_fields = (
+        "hot_hours",
+        "rollup_hours",
+        "retention_days",
+        "run_interval_hours",
+        "membership_detail_hours",
+    )
+    numeric_values: dict[str, float] = {}
+    for field in numeric_fields:
+        value = policy.get(field)
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number) or number <= 0:
+            return None
+        numeric_values[field] = number
+    selector = str(policy.get("selector") or "")
+    expected_selector = (
+        "minimum"
+        if normalized_strategy == "golden-nectarine"
+        else (
+            "extrema"
+            if normalized_strategy in {"golden-elderberry", "golden-papaya"}
+            else "latest"
+        )
+    )
+    if selector != expected_selector:
+        return None
+    requirement_values: dict[str, float | None] = {}
+    for field in ("full_cadence_hours", "retention_days"):
+        value = requirements.get(field)
+        if isinstance(value, bool):
+            return None
+        try:
+            number = float(value)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(number) or number < 0:
+            return None
+        requirement_values[field] = number
+    boundary = requirements.get("boundary_interval_hours")
+    if boundary is None:
+        requirement_values["boundary_interval_hours"] = None
+    else:
+        if isinstance(boundary, bool):
+            return None
+        try:
+            boundary_number = float(boundary)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(boundary_number) or boundary_number < 0:
+            return None
+        requirement_values["boundary_interval_hours"] = boundary_number
+    max_rollup = requirements.get("max_rollup_hours")
+    if max_rollup is None:
+        requirement_values["max_rollup_hours"] = None
+    else:
+        if isinstance(max_rollup, bool):
+            return None
+        try:
+            max_rollup_number = float(max_rollup)
+        except (TypeError, ValueError):
+            return None
+        if not math.isfinite(max_rollup_number) or max_rollup_number < 0:
+            return None
+        requirement_values["max_rollup_hours"] = max_rollup_number
+    if numeric_values["retention_days"] * 24.0 < numeric_values["hot_hours"]:
+        return None
+    if numeric_values["hot_hours"] < float(
+        requirement_values["full_cadence_hours"] or 0.0
+    ):
+        return None
+    if numeric_values["retention_days"] < float(
+        requirement_values["retention_days"] or 0.0
+    ):
+        return None
+    if (
+        requirement_values["boundary_interval_hours"] is not None
+        and float(requirement_values["boundary_interval_hours"] or 0.0)
+        < numeric_values["rollup_hours"]
+    ):
+        return None
+    if requirement_values["max_rollup_hours"] is not None and numeric_values[
+        "rollup_hours"
+    ] > float(requirement_values["max_rollup_hours"] or 0.0):
+        return None
+    minimum_latest_points = requirements.get("minimum_latest_points")
+    if (
+        isinstance(minimum_latest_points, bool)
+        or not isinstance(minimum_latest_points, int)
+        or minimum_latest_points < 0
+    ):
+        return None
+    requirement_values["minimum_latest_points"] = minimum_latest_points
+    return {
+        "profile": "compact-v1",
+        "schema_version": 2,
+        "strategy_name": normalized_strategy,
+        "last_maintained_at": maintained_at.isoformat(),
+        "snapshot_anchor": snapshot_anchor,
+        **numeric_values,
+        "selector": selector,
+        "requirements": requirement_values,
+    }
+
+
+def _bucket_span(start: datetime, end: datetime, seconds: int) -> int:
+    """Count epoch-aligned buckets intersecting the half-open [start, end)."""
+    if end <= start:
+        return 0
+    first = math.floor(start.timestamp() / seconds)
+    last = math.floor(math.nextafter(end.timestamp(), -math.inf) / seconds)
+    return max(0, last - first + 1)
+
+
+def _adaptive_bucket_span(
+    start: datetime,
+    end: datetime,
+    *,
+    hot_boundary: datetime,
+    rollup_seconds: int,
+) -> int:
+    cold_end = min(end, hot_boundary)
+    hot_start = max(start, hot_boundary)
+    return _bucket_span(start, cold_end, rollup_seconds) + _bucket_span(
+        hot_start, end, 300
+    )
+
+
 def _snapshot_summary(
     connection: sqlite3.Connection,
     cutoff: datetime,
     as_of: datetime,
     *,
     minimum_history_hours: float = 0.0,
+    minimum_archive_history_hours: float = 0.0,
+    compact_policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     columns = _columns(connection, "market_snapshots")
     if "timestamp" not in columns:
@@ -777,16 +1099,32 @@ def _snapshot_summary(
         (_sqlite_time(cutoff), _sqlite_time(as_of)),
     ).fetchone()
     first_seen, last_seen = row[2], row[3]
+    first_dt: datetime | None = None
+    last_dt: datetime | None = None
     coverage = 0.0
     if first_seen and last_seen:
         first_dt = _parse_sqlite_datetime(first_seen)
         last_dt = _parse_sqlite_datetime(last_seen)
         if first_dt and last_dt:
             coverage = max(0.0, (last_dt - first_dt).total_seconds() / 86_400)
+    hot_boundary: datetime | None = None
+    rollup_seconds = 300
+    if compact_policy is not None:
+        global_max_dt = _parse_sqlite_datetime(compact_policy.get("snapshot_anchor"))
+        if global_max_dt is not None:
+            hot_boundary = global_max_dt - timedelta(
+                hours=float(compact_policy["hot_hours"])
+            )
+            rollup_seconds = max(1, round(float(compact_policy["rollup_hours"]) * 3600))
     requested_seconds = max(1.0, (as_of - cutoff).total_seconds())
     covered_start = max(cutoff, first_dt) if first_seen and first_dt else as_of
+    tail_seconds = (
+        rollup_seconds
+        if last_dt is not None and hot_boundary is not None and last_dt < hot_boundary
+        else 300
+    )
     covered_end = (
-        min(as_of, last_dt + timedelta(minutes=5))
+        min(as_of, last_dt + timedelta(seconds=tail_seconds))
         if last_seen and last_dt
         else cutoff
     )
@@ -802,21 +1140,162 @@ def _snapshot_summary(
         (_sqlite_time(cutoff), _sqlite_time(as_of)),
     ).fetchone()[0]
     expected_buckets = max(1, math.ceil(requested_seconds / 300))
+    cadence_buckets = buckets
+    expected_cadence_buckets = expected_buckets
+    if hot_boundary is not None:
+        cadence_buckets = connection.execute(
+            """
+            SELECT COUNT(DISTINCT CASE
+                WHEN datetime(timestamp) < datetime(?)
+                THEN 'cold:' || CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                ELSE 'hot:' || CAST(strftime('%s', timestamp) / 300 AS INTEGER)
+            END)
+            FROM market_snapshots
+            WHERE datetime(timestamp) >= datetime(?)
+              AND datetime(timestamp) < datetime(?)
+            """,
+            (
+                _sqlite_time(hot_boundary),
+                rollup_seconds,
+                _sqlite_time(cutoff),
+                _sqlite_time(as_of),
+            ),
+        ).fetchone()[0]
+        expected_cadence_buckets = max(
+            1,
+            _adaptive_bucket_span(
+                cutoff,
+                as_of,
+                hot_boundary=hot_boundary,
+                rollup_seconds=rollup_seconds,
+            ),
+        )
+    archive_history_window_ratio: float | None = None
+    archive_history_cadence_ratio: float | None = None
+    archive_history_first_seen: str | None = None
+    archive_history_last_seen: str | None = None
+    archive_history_cadence_buckets = 0
+    archive_history_expected_cadence_buckets = 0
+    if minimum_archive_history_hours > 0:
+        archive_start = as_of - timedelta(hours=minimum_archive_history_hours)
+        archive_row = connection.execute(
+            """
+            SELECT MIN(timestamp), MAX(timestamp)
+            FROM market_snapshots
+            WHERE datetime(timestamp) >= datetime(?)
+              AND datetime(timestamp) < datetime(?)
+            """,
+            (_sqlite_time(archive_start), _sqlite_time(as_of)),
+        ).fetchone()
+        archive_history_first_seen = archive_row[0]
+        archive_history_last_seen = archive_row[1]
+        archive_first_dt = (
+            _parse_sqlite_datetime(archive_row[0]) if archive_row[0] else None
+        )
+        archive_last_dt = (
+            _parse_sqlite_datetime(archive_row[1]) if archive_row[1] else None
+        )
+        archive_requested_seconds = max(1.0, (as_of - archive_start).total_seconds())
+        archive_tail_seconds = (
+            rollup_seconds
+            if archive_last_dt is not None
+            and hot_boundary is not None
+            and archive_last_dt < hot_boundary
+            else 300
+        )
+        archive_covered_start = (
+            max(archive_start, archive_first_dt)
+            if archive_first_dt is not None
+            else as_of
+        )
+        archive_covered_end = (
+            min(
+                as_of,
+                archive_last_dt + timedelta(seconds=archive_tail_seconds),
+            )
+            if archive_last_dt is not None
+            else archive_start
+        )
+        archive_history_window_ratio = max(
+            0.0,
+            min(
+                1.0,
+                (archive_covered_end - archive_covered_start).total_seconds()
+                / archive_requested_seconds,
+            ),
+        )
+        if hot_boundary is None:
+            archive_history_cadence_buckets = connection.execute(
+                """
+                SELECT COUNT(DISTINCT CAST(strftime('%s', timestamp) / 300 AS INTEGER))
+                FROM market_snapshots
+                WHERE datetime(timestamp) >= datetime(?)
+                  AND datetime(timestamp) < datetime(?)
+                """,
+                (_sqlite_time(archive_start), _sqlite_time(as_of)),
+            ).fetchone()[0]
+            archive_history_expected_cadence_buckets = max(
+                1, _bucket_span(archive_start, as_of, 300)
+            )
+        else:
+            archive_history_cadence_buckets = connection.execute(
+                """
+                SELECT COUNT(DISTINCT CASE
+                    WHEN datetime(timestamp) < datetime(?)
+                    THEN 'cold:' || CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                    ELSE 'hot:' || CAST(strftime('%s', timestamp) / 300 AS INTEGER)
+                END)
+                FROM market_snapshots
+                WHERE datetime(timestamp) >= datetime(?)
+                  AND datetime(timestamp) < datetime(?)
+                """,
+                (
+                    _sqlite_time(hot_boundary),
+                    rollup_seconds,
+                    _sqlite_time(archive_start),
+                    _sqlite_time(as_of),
+                ),
+            ).fetchone()[0]
+            archive_history_expected_cadence_buckets = max(
+                1,
+                _adaptive_bucket_span(
+                    archive_start,
+                    as_of,
+                    hot_boundary=hot_boundary,
+                    rollup_seconds=rollup_seconds,
+                ),
+            )
+        archive_history_cadence_ratio = min(
+            1.0,
+            archive_history_cadence_buckets / archive_history_expected_cadence_buckets,
+        )
     value_columns = (
-        "probability", "liquidity", "volume_24h", "best_bid", "best_ask", "spread"
+        "probability",
+        "liquidity",
+        "volume_24h",
+        "best_bid",
+        "best_ask",
+        "spread",
     )
     value_expressions = [
-        column if column in columns else f"NULL AS {column}"
-        for column in value_columns
+        column if column in columns else f"NULL AS {column}" for column in value_columns
     ]
     invalid_value_reasons: Counter[str] = Counter()
     invalid_value_rows = 0
+    value_validation_cutoff = (
+        min(
+            cutoff,
+            as_of - timedelta(hours=minimum_archive_history_hours),
+        )
+        if minimum_archive_history_hours > 0
+        else cutoff
+    )
     for value_row in connection.execute(
         f"""
-        SELECT {', '.join(value_expressions)} FROM market_snapshots
+        SELECT {", ".join(value_expressions)} FROM market_snapshots
         WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
         """,
-        (_sqlite_time(cutoff), _sqlite_time(as_of)),
+        (_sqlite_time(value_validation_cutoff), _sqlite_time(as_of)),
     ):
         row_errors = _snapshot_value_errors(value_row)
         if row_errors:
@@ -827,29 +1306,64 @@ def _snapshot_summary(
     required_history_seconds = min(
         requested_seconds, max(0.0, minimum_history_hours) * 3600
     )
-    for market_row in connection.execute(
+    if hot_boundary is None:
+        market_query = """
+            SELECT condition_id, MIN(timestamp), MAX(timestamp),
+                   COUNT(DISTINCT CAST(strftime('%s', timestamp) / 300 AS INTEGER))
+            FROM market_snapshots
+            WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
+            GROUP BY condition_id
         """
-        SELECT condition_id, MIN(timestamp), MAX(timestamp),
-               COUNT(DISTINCT CAST(strftime('%s', timestamp) / 300 AS INTEGER))
-        FROM market_snapshots
-        WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
-        GROUP BY condition_id
-        """,
-        (_sqlite_time(cutoff), _sqlite_time(as_of)),
-    ):
+        market_parameters: tuple[Any, ...] = (
+            _sqlite_time(cutoff),
+            _sqlite_time(as_of),
+        )
+    else:
+        market_query = """
+            SELECT condition_id, MIN(timestamp), MAX(timestamp),
+                   COUNT(DISTINCT CASE
+                       WHEN datetime(timestamp) < datetime(?)
+                       THEN 'cold:' || CAST(strftime('%s', timestamp) / ? AS INTEGER)
+                       ELSE 'hot:' || CAST(strftime('%s', timestamp) / 300 AS INTEGER)
+                   END)
+            FROM market_snapshots
+            WHERE datetime(timestamp) >= datetime(?) AND datetime(timestamp) < datetime(?)
+            GROUP BY condition_id
+        """
+        market_parameters = (
+            _sqlite_time(hot_boundary),
+            rollup_seconds,
+            _sqlite_time(cutoff),
+            _sqlite_time(as_of),
+        )
+    for market_row in connection.execute(market_query, market_parameters):
         market_first = _parse_sqlite_datetime(market_row[1])
         market_last = _parse_sqlite_datetime(market_row[2])
         if market_first is None or market_last is None:
             continue
-        expected = max(
-            1,
-            int(max(0.0, (market_last - market_first).total_seconds()) // 300) + 1,
-        )
+        if hot_boundary is None:
+            expected = max(
+                1,
+                int(max(0.0, (market_last - market_first).total_seconds()) // 300) + 1,
+            )
+            history_tail_seconds = 300
+        else:
+            expected = max(
+                1,
+                _adaptive_bucket_span(
+                    market_first,
+                    market_last + timedelta(microseconds=1),
+                    hot_boundary=hot_boundary,
+                    rollup_seconds=rollup_seconds,
+                ),
+            )
+            history_tail_seconds = rollup_seconds if market_last < hot_boundary else 300
         per_market_ratios.append(
             0.0 if market_row[3] < 2 else min(1.0, market_row[3] / expected)
         )
         observed_seconds = max(
-            0.0, (market_last - market_first).total_seconds() + 300
+            0.0,
+            (market_last - market_first).total_seconds() + history_tail_seconds,
         )
         per_market_history_ratios.append(
             1.0
@@ -872,11 +1386,30 @@ def _snapshot_summary(
         "last_seen": last_seen,
         "coverage_days": round(coverage, 3),
         "five_minute_buckets": buckets,
+        "cadence_mode": "compact-v1" if hot_boundary is not None else "five-minute",
+        "compact_hot_boundary": (
+            hot_boundary.isoformat() if hot_boundary is not None else None
+        ),
+        "compact_hot_hours": (
+            float(compact_policy["hot_hours"])
+            if hot_boundary is not None and compact_policy is not None
+            else None
+        ),
+        "compact_rollup_hours": (
+            float(compact_policy["rollup_hours"])
+            if hot_boundary is not None and compact_policy is not None
+            else None
+        ),
+        "cadence_buckets": cadence_buckets,
+        "expected_cadence_buckets": expected_cadence_buckets,
         "invalid_value_rows": invalid_value_rows,
         "invalid_value_reasons": dict(sorted(invalid_value_reasons.items())),
         "requested_window_coverage_ratio": round(requested_ratio, 6),
         "five_minute_bucket_coverage_ratio": round(
             min(1.0, buckets / expected_buckets), 6
+        ),
+        "cadence_bucket_coverage_ratio": round(
+            min(1.0, cadence_buckets / expected_cadence_buckets), 6
         ),
         "per_market_cadence_min": (
             round(per_market_ratios[0], 6) if per_market_ratios else 0.0
@@ -888,10 +1421,25 @@ def _snapshot_summary(
             round(per_market_ratios[median_index], 6) if per_market_ratios else 0.0
         ),
         "minimum_history_hours": minimum_history_hours,
+        "minimum_archive_history_hours": minimum_archive_history_hours,
+        "archive_history_first_seen": archive_history_first_seen,
+        "archive_history_last_seen": archive_history_last_seen,
+        "archive_history_window_coverage_ratio": (
+            round(archive_history_window_ratio, 6)
+            if archive_history_window_ratio is not None
+            else None
+        ),
+        "archive_history_cadence_buckets": archive_history_cadence_buckets,
+        "archive_history_expected_cadence_buckets": (
+            archive_history_expected_cadence_buckets
+        ),
+        "archive_history_cadence_coverage_ratio": (
+            round(archive_history_cadence_ratio, 6)
+            if archive_history_cadence_ratio is not None
+            else None
+        ),
         "per_market_history_depth_min": (
-            round(per_market_history_ratios[0], 6)
-            if per_market_history_ratios
-            else 0.0
+            round(per_market_history_ratios[0], 6) if per_market_history_ratios else 0.0
         ),
         "per_market_history_depth_p10": (
             round(per_market_history_ratios[history_p10_index], 6)
@@ -912,9 +1460,7 @@ def _snapshot_value_errors(row: Sequence[Any]) -> list[str]:
     for name, value in (("best_bid", best_bid), ("best_ask", best_ask)):
         if value is not None and not _is_probability(value):
             errors.append(name)
-    if spread is not None and (
-        not _is_finite_nonnegative(spread) or float(spread) > 1
-    ):
+    if spread is not None and (not _is_finite_nonnegative(spread) or float(spread) > 1):
         errors.append("spread")
     if (
         best_bid is not None
@@ -937,26 +1483,56 @@ def _snapshot_value_errors(row: Sequence[Any]) -> list[str]:
     return errors
 
 
+def _is_sha256_digest(value: Any) -> bool:
+    text = str(value or "")
+    if len(text) != 64:
+        return False
+    try:
+        int(text, 16)
+    except ValueError:
+        return False
+    return True
+
+
 def _sweep_summary(
     connection: sqlite3.Connection,
     tables: set[str],
     cutoff: datetime,
     as_of: datetime,
+    *,
+    strategy_name: str | None,
 ) -> dict[str, Any] | None:
     required_tables = {"market_sweeps", "market_sweep_memberships"}
     if not (required_tables & tables):
         return None
     required_sweep_columns = {
-        "sweep_id", "schema_version", "run_id", "started_at", "completed_at",
-        "cursor_complete", "pages", "raw_market_count", "unique_condition_count",
-        "qualified_market_count", "missing_condition_id_count", "duplicate_raw_count",
-        "excluded_condition_count", "exclusion_counts_json",
-        "min_liquidity", "min_volume", "membership_digest_sha256",
+        "sweep_id",
+        "schema_version",
+        "run_id",
+        "started_at",
+        "completed_at",
+        "cursor_complete",
+        "pages",
+        "raw_market_count",
+        "unique_condition_count",
+        "qualified_market_count",
+        "missing_condition_id_count",
+        "duplicate_raw_count",
+        "excluded_condition_count",
+        "exclusion_counts_json",
+        "min_liquidity",
+        "min_volume",
+        "membership_digest_sha256",
         "snapshotted_market_count",
     }
     required_membership_columns = {
-        "sweep_id", "condition_id", "raw_seen_count", "qualified",
-        "qualification_reason", "snapshot_eligible", "snapshotted",
+        "sweep_id",
+        "condition_id",
+        "raw_seen_count",
+        "qualified",
+        "qualification_reason",
+        "snapshot_eligible",
+        "snapshotted",
         "snapshot_reason",
     }
     sweep_columns = (
@@ -996,10 +1572,28 @@ def _sweep_summary(
         (_sqlite_time(cutoff), _sqlite_time(as_of)),
     ).fetchall()
     complete_rows = [row for row in sweep_rows if int(row["cursor_complete"] or 0) == 1]
+    compact_memberships = "membership_detail_stored" in sweep_columns
+    compact_policy = _active_compact_policy(
+        connection,
+        tables,
+        strategy_name,
+    )
+    compact_profile_active = compact_policy is not None
     invariant_failures: list[dict[str, Any]] = []
     valid_sweep_ids: list[str] = []
+    valid_detail_sweep_ids: list[str] = []
+    valid_summary_sweep_ids: list[str] = []
+    summary_only_sweeps = 0
     for sweep in complete_rows:
         sweep_id = str(sweep["sweep_id"])
+        raw_detail_flag = (
+            sweep["membership_detail_stored"] if compact_memberships else 1
+        )
+        detail_flag_valid = raw_detail_flag in (0, 1, False, True)
+        detail_stored = int(raw_detail_flag) == 1 if detail_flag_valid else False
+        summary_declared = detail_flag_valid and not detail_stored
+        if summary_declared:
+            summary_only_sweeps += 1
         memberships = connection.execute(
             """
             SELECT condition_id, raw_seen_count, qualified, qualification_reason,
@@ -1033,8 +1627,10 @@ def _sweep_summary(
         hierarchy_invalid = sum(
             1
             for row in memberships
-            if bool(row["snapshotted"]) and not bool(row["snapshot_eligible"])
-            or bool(row["snapshot_eligible"]) and not bool(row["qualified"])
+            if bool(row["snapshotted"])
+            and not bool(row["snapshot_eligible"])
+            or bool(row["snapshot_eligible"])
+            and not bool(row["qualified"])
         )
         try:
             exclusion_counts = json.loads(sweep["exclusion_counts_json"] or "{}")
@@ -1046,17 +1642,23 @@ def _sweep_summary(
         except (TypeError, ValueError, json.JSONDecodeError):
             exclusion_count_sum = -1
         run_id = str(sweep["run_id"] or "")
-        run_exists = bool(run_id) and "run_audits" in tables and bool(
-            connection.execute(
-                "SELECT 1 FROM run_audits WHERE run_id = ? LIMIT 1", (run_id,)
-            ).fetchone()
+        run_exists = (
+            bool(run_id)
+            and "run_audits" in tables
+            and bool(
+                connection.execute(
+                    "SELECT 1 FROM run_audits WHERE run_id = ? LIMIT 1", (run_id,)
+                ).fetchone()
+            )
         )
         attested_snapshot_conditions = {
             str(row["condition_id"]) for row in memberships if bool(row["snapshotted"])
         }
         actual_snapshot_conditions: set[str] | None = None
         if (
-            "market_snapshots" in tables
+            detail_stored
+            and not compact_profile_active
+            and "market_snapshots" in tables
             and {"condition_id", "run_id"}.issubset(
                 _columns(connection, "market_snapshots")
             )
@@ -1071,9 +1673,13 @@ def _sweep_summary(
         counts_nonnegative = all(
             int(sweep[column] or 0) >= 0
             for column in (
-                "pages", "raw_market_count", "unique_condition_count",
-                "qualified_market_count", "missing_condition_id_count",
-                "duplicate_raw_count", "excluded_condition_count",
+                "pages",
+                "raw_market_count",
+                "unique_condition_count",
+                "qualified_market_count",
+                "missing_condition_id_count",
+                "duplicate_raw_count",
+                "excluded_condition_count",
                 "snapshotted_market_count",
             )
         )
@@ -1084,10 +1690,6 @@ def _sweep_summary(
             for column in ("min_liquidity", "min_volume")
         )
         checks = {
-            "membership_count": membership_count
-            == int(sweep["qualified_market_count"] or 0),
-            "qualified_market_count": qualified_count
-            == int(sweep["qualified_market_count"] or 0),
             "raw_market_identity": int(sweep["raw_market_count"] or 0)
             == int(sweep["unique_condition_count"] or 0)
             + int(sweep["duplicate_raw_count"] or 0)
@@ -1097,15 +1699,6 @@ def _sweep_summary(
             + int(sweep["excluded_condition_count"] or 0),
             "exclusion_count_identity": exclusion_count_sum
             == int(sweep["excluded_condition_count"] or 0),
-            "snapshotted_market_count": snapshotted_count
-            == int(sweep["snapshotted_market_count"] or 0),
-            "membership_digest_sha256": digest
-            == str(sweep["membership_digest_sha256"] or ""),
-            "membership_hierarchy": hierarchy_invalid == 0,
-            "qualified_membership_values": all(
-                bool(row["qualified"]) and int(row["raw_seen_count"] or 0) >= 1
-                for row in memberships
-            ),
             "completed_at": sweep["completed_at"] is not None,
             "timestamp_order": started_at is not None
             and completed_at is not None
@@ -1115,18 +1708,63 @@ def _sweep_summary(
             "schema_version": int(sweep["schema_version"] or 0) == 1,
             "pages_positive": int(sweep["pages"] or 0) >= 1,
             "counts_nonnegative": counts_nonnegative,
-            "snapshot_rows_match_membership": actual_snapshot_conditions
-            == attested_snapshot_conditions,
+            "count_hierarchy": (
+                int(sweep["snapshotted_market_count"] or 0)
+                <= int(sweep["qualified_market_count"] or 0)
+                <= int(sweep["unique_condition_count"] or 0)
+                <= int(sweep["raw_market_count"] or 0)
+            ),
+            "membership_digest_shape": _is_sha256_digest(
+                sweep["membership_digest_sha256"]
+            ),
+            "membership_detail_stored_domain": detail_flag_valid,
+            "summary_only_requires_compact_profile": (
+                not summary_declared or compact_profile_active
+            ),
         }
+        if detail_stored:
+            checks.update(
+                {
+                    "membership_count": membership_count
+                    == int(sweep["qualified_market_count"] or 0),
+                    "qualified_market_count": qualified_count
+                    == int(sweep["qualified_market_count"] or 0),
+                    "snapshotted_market_count": snapshotted_count
+                    == int(sweep["snapshotted_market_count"] or 0),
+                    "membership_digest_sha256": digest
+                    == str(sweep["membership_digest_sha256"] or ""),
+                    "membership_hierarchy": hierarchy_invalid == 0,
+                    "qualified_membership_values": all(
+                        bool(row["qualified"]) and int(row["raw_seen_count"] or 0) >= 1
+                        for row in memberships
+                    ),
+                }
+            )
+            if not compact_profile_active:
+                checks["snapshot_rows_match_membership"] = (
+                    actual_snapshot_conditions == attested_snapshot_conditions
+                )
+        elif summary_declared:
+            checks["summary_membership_rows_absent"] = membership_count == 0
         failed = sorted(name for name, passed in checks.items() if not passed)
         if failed:
             invariant_failures.append({"sweep_id": sweep_id, "failed": failed})
         else:
             valid_sweep_ids.append(sweep_id)
+            if detail_stored:
+                valid_detail_sweep_ids.append(sweep_id)
+            else:
+                valid_summary_sweep_ids.append(sweep_id)
 
     requested_seconds = max(1.0, (as_of - cutoff).total_seconds())
     expected_buckets = max(1, math.ceil(requested_seconds / 300))
     valid_bucket_count = 0
+    detail_checkpoint_bucket_count = 0
+    expected_detail_checkpoint_buckets = 0
+    detail_checkpoint_coverage_ratio: float | None = None
+    detail_checkpoint_count_coverage_ratio: float | None = None
+    detail_checkpoint_gap_coverage_ratio: float | None = None
+    detail_checkpoint_max_gap_hours: float | None = None
     eligible_memberships = 0
     snapshotted_memberships = 0
     qualified_memberships = 0
@@ -1140,6 +1778,8 @@ def _sweep_summary(
             """,
             valid_sweep_ids,
         ).fetchone()[0]
+    if valid_detail_sweep_ids:
+        placeholders = ",".join("?" for _ in valid_detail_sweep_ids)
         qualified_memberships, eligible_memberships, snapshotted_memberships = (
             connection.execute(
                 f"""
@@ -1149,7 +1789,7 @@ def _sweep_summary(
                 FROM market_sweep_memberships
                 WHERE sweep_id IN ({placeholders})
                 """,
-                valid_sweep_ids,
+                valid_detail_sweep_ids,
             ).fetchone()
         )
         per_market_ratios = [
@@ -1162,18 +1802,94 @@ def _sweep_summary(
                 GROUP BY condition_id
                 HAVING SUM(snapshot_eligible) > 0
                 """,
-                valid_sweep_ids,
+                valid_detail_sweep_ids,
             )
         ]
+    if compact_policy is not None:
+        detail_interval_seconds = max(
+            1, round(float(compact_policy["membership_detail_hours"]) * 3600)
+        )
+        expected_detail_checkpoint_buckets = max(
+            1, math.ceil(requested_seconds / detail_interval_seconds)
+        )
+        detail_times: list[datetime] = []
+        if valid_detail_sweep_ids:
+            placeholders = ",".join("?" for _ in valid_detail_sweep_ids)
+            detail_times = sorted(
+                {
+                    parsed
+                    for row in connection.execute(
+                        f"""
+                        SELECT completed_at
+                        FROM market_sweeps WHERE sweep_id IN ({placeholders})
+                        """,
+                        valid_detail_sweep_ids,
+                    )
+                    if (parsed := _parse_sqlite_datetime(row[0])) is not None
+                    and cutoff <= parsed < as_of
+                }
+            )
+            detail_checkpoint_bucket_count = len(detail_times)
+        detail_checkpoint_count_coverage_ratio = min(
+            1.0,
+            detail_checkpoint_bucket_count / expected_detail_checkpoint_buckets,
+        )
+        checkpoint_boundaries = [cutoff, *detail_times, as_of]
+        max_gap_seconds = max(
+            max(0.0, (later - earlier).total_seconds())
+            for earlier, later in zip(
+                checkpoint_boundaries,
+                checkpoint_boundaries[1:],
+            )
+        )
+        detail_checkpoint_max_gap_hours = max_gap_seconds / 3600.0
+        detail_checkpoint_gap_coverage_ratio = (
+            1.0
+            if max_gap_seconds <= 0
+            else min(1.0, detail_interval_seconds / max_gap_seconds)
+        )
+        detail_checkpoint_coverage_ratio = min(
+            detail_checkpoint_count_coverage_ratio,
+            detail_checkpoint_gap_coverage_ratio,
+        )
     per_market_ratios.sort()
     p10_index = int((len(per_market_ratios) - 1) * 0.1) if per_market_ratios else 0
     return {
-        "contract_complete": True,
+        "contract_complete": (
+            compact_policy is None or (detail_checkpoint_coverage_ratio or 0.0) >= 0.8
+        ),
         "missing_columns": missing_columns,
         "period_sweeps": len(sweep_rows),
         "complete_sweeps": len(complete_rows),
         "incomplete_sweeps": len(sweep_rows) - len(complete_rows),
         "valid_complete_sweeps": len(valid_sweep_ids),
+        "valid_detailed_sweeps": len(valid_detail_sweep_ids),
+        "valid_summary_only_sweeps": len(valid_summary_sweep_ids),
+        "summary_only_sweeps": summary_only_sweeps,
+        "compact_profile_active": compact_profile_active,
+        "detailed_membership_metrics_available": bool(valid_detail_sweep_ids),
+        "detail_checkpoint_buckets": detail_checkpoint_bucket_count,
+        "expected_detail_checkpoint_buckets": expected_detail_checkpoint_buckets,
+        "detail_checkpoint_bucket_coverage_ratio": (
+            round(detail_checkpoint_coverage_ratio, 6)
+            if detail_checkpoint_coverage_ratio is not None
+            else None
+        ),
+        "detail_checkpoint_count_coverage_ratio": (
+            round(detail_checkpoint_count_coverage_ratio, 6)
+            if detail_checkpoint_count_coverage_ratio is not None
+            else None
+        ),
+        "detail_checkpoint_gap_coverage_ratio": (
+            round(detail_checkpoint_gap_coverage_ratio, 6)
+            if detail_checkpoint_gap_coverage_ratio is not None
+            else None
+        ),
+        "detail_checkpoint_max_gap_hours": (
+            round(detail_checkpoint_max_gap_hours, 6)
+            if detail_checkpoint_max_gap_hours is not None
+            else None
+        ),
         "invariant_failures": len(invariant_failures),
         "invariant_failure_details": invariant_failures,
         "complete_sweep_buckets": valid_bucket_count,
@@ -1184,19 +1900,19 @@ def _sweep_summary(
         "snapshot_eligible_memberships": int(eligible_memberships or 0),
         "snapshotted_memberships": int(snapshotted_memberships or 0),
         "snapshot_eligible_coverage_ratio": round(
-            1.0
-            if not eligible_memberships
-            else snapshotted_memberships / eligible_memberships,
+            snapshotted_memberships / eligible_memberships,
             6,
-        ),
+        )
+        if eligible_memberships
+        else None,
         "qualified_snapshot_eligibility_ratio": round(
-            0.0
-            if not qualified_memberships
-            else eligible_memberships / qualified_memberships,
+            eligible_memberships / qualified_memberships,
             6,
-        ),
+        )
+        if qualified_memberships
+        else None,
         "per_market_attested_snapshot_p10": (
-            round(per_market_ratios[p10_index], 6) if per_market_ratios else 0.0
+            round(per_market_ratios[p10_index], 6) if per_market_ratios else None
         ),
     }
 
@@ -1220,9 +1936,8 @@ def _catalog_summary(
     catalog_rows = connection.execute("SELECT * FROM market_catalog").fetchall()
     catalog_by_condition = {str(row["condition_id"]): row for row in catalog_rows}
     snapshot_condition_ids: set[str] = set()
-    if (
-        "market_snapshots" in tables
-        and {"condition_id", "timestamp"}.issubset(_columns(connection, "market_snapshots"))
+    if "market_snapshots" in tables and {"condition_id", "timestamp"}.issubset(
+        _columns(connection, "market_snapshots")
     ):
         snapshot_condition_ids = {
             str(row[0])
@@ -1239,11 +1954,11 @@ def _catalog_summary(
     if {"market_sweeps", "market_sweep_memberships"}.issubset(tables):
         sweep_columns = _columns(connection, "market_sweeps")
         membership_columns = _columns(connection, "market_sweep_memberships")
-        if {"sweep_id", "completed_at", "cursor_complete"}.issubset(
-            sweep_columns
-        ) and {"sweep_id", "condition_id", "qualified"}.issubset(
-            membership_columns
-        ):
+        if {"sweep_id", "completed_at", "cursor_complete"}.issubset(sweep_columns) and {
+            "sweep_id",
+            "condition_id",
+            "qualified",
+        }.issubset(membership_columns):
             qualified_condition_ids = {
                 str(row[0])
                 for row in connection.execute(
@@ -1273,8 +1988,14 @@ def _catalog_summary(
         return 1.0 if denominator == 0 else numerator / denominator
 
     expected_metadata_columns = {
-        "event_id", "event_slug", "end_date", "outcomes_json", "token_ids_json",
-        "tags_json", "fees_enabled", "fee_rate",
+        "event_id",
+        "event_slug",
+        "end_date",
+        "outcomes_json",
+        "token_ids_json",
+        "tags_json",
+        "fees_enabled",
+        "fee_rate",
     }
     return {
         "rows": len(catalog_rows),
@@ -1307,8 +2028,14 @@ def _catalog_summary(
 
 def _catalog_row_complete(row: sqlite3.Row, columns: set[str]) -> bool:
     expected = {
-        "event_id", "event_slug", "end_date", "outcomes_json", "token_ids_json",
-        "tags_json", "fees_enabled", "fee_rate",
+        "event_id",
+        "event_slug",
+        "end_date",
+        "outcomes_json",
+        "token_ids_json",
+        "tags_json",
+        "fees_enabled",
+        "fee_rate",
     }
     if not expected.issubset(columns):
         return False
@@ -1557,8 +2284,7 @@ def _fill_ledger_summary(
             """,
             (_sqlite_time(cutoff), _sqlite_time(as_of)),
         )
-        if not _is_probability(row[0], strict=True)
-        or not _is_finite_positive(row[1])
+        if not _is_probability(row[0], strict=True) or not _is_finite_positive(row[1])
     )
     invalid_order_status_domains = sum(
         1

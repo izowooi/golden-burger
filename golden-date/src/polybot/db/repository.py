@@ -1,6 +1,7 @@
 """Repository pattern for database operations."""
 import csv
 import logging
+from polybot_observability import compact_maintenance_active
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Tuple
@@ -177,6 +178,8 @@ class TradeRepository:
         Returns:
             삭제된 스냅샷 수
         """
+        if compact_maintenance_active(self.session, "golden-date"):
+            return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
         deleted = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.timestamp < cutoff

@@ -6,6 +6,8 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+import pytest
+
 from polybot.config import TradingConfig
 from polybot.strategy.scanner import MarketScanner
 
@@ -95,6 +97,7 @@ def test_crossed_strict_binary_market_preserves_gamma_event_identity():
     assert candidate["outcome"] == "Yes"
     assert candidate["prior_yes_price"] == 0.949
     assert candidate["yes_price"] == 0.95
+    assert candidate["prior_snapshot_id"] == 1
     assert candidate["entry_snapshot_id"] == 2
 
 
@@ -102,9 +105,7 @@ def test_crossed_market_without_event_id_fails_closed_and_is_counted(caplog):
     scanner = scanner_with_lineage()
 
     with caplog.at_level("INFO"):
-        candidates = scanner.scan_buy_candidates(
-            [crossed_market(event=False)], now=NOW
-        )
+        candidates = scanner.scan_buy_candidates([crossed_market(event=False)], now=NOW)
 
     assert candidates == []
     assert "missing_event_id: 1" in caplog.text
@@ -133,6 +134,40 @@ def test_non_positive_current_snapshot_id_fails_closed(caplog):
         assert scanner.scan_buy_candidates([crossed_market()], now=NOW) == []
 
     assert "current_snapshot_id_invalid: 1" in caplog.text
+
+
+@pytest.mark.parametrize("prior_id", [None, 0, -1, True, 1.0, "1"])
+def test_invalid_prior_snapshot_id_fails_closed(prior_id, caplog):
+    repo = PriorRepo()
+    repo.prior.id = prior_id
+    scanner = scanner_with_lineage(repo=repo)
+
+    with caplog.at_level("INFO"):
+        assert scanner.scan_buy_candidates([crossed_market()], now=NOW) == []
+
+    assert "prior_snapshot_id_invalid: 1" in caplog.text
+
+
+def test_non_preceding_prior_snapshot_id_fails_closed(caplog):
+    repo = PriorRepo()
+    repo.prior.id = 3
+    scanner = scanner_with_lineage(repo=repo)
+
+    with caplog.at_level("INFO"):
+        assert scanner.scan_buy_candidates([crossed_market()], now=NOW) == []
+
+    assert "prior_snapshot_id_order_invalid: 1" in caplog.text
+
+
+def test_prior_snapshot_for_another_condition_fails_closed(caplog):
+    repo = PriorRepo()
+    repo.prior.condition_id = "another-condition"
+    scanner = scanner_with_lineage(repo=repo)
+
+    with caplog.at_level("INFO"):
+        assert scanner.scan_buy_candidates([crossed_market()], now=NOW) == []
+
+    assert "prior_snapshot_condition_mismatch: 1" in caplog.text
 
 
 def test_stale_prior_snapshot_fails_closed_at_explicit_gap(caplog):

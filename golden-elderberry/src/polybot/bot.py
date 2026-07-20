@@ -1,6 +1,7 @@
 """Main bot orchestrator with panic fade strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -38,7 +39,17 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        strategy = config.trading.strategy
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=float(strategy.stab_window_minutes) / 60.0,
+                retention_days=float(strategy.ref_window_hours) / 24.0,
+                boundary_interval_hours=float(strategy.ref_window_hours)
+                - float(strategy.ref_exclude_recent_hours),
+                max_rollup_hours=float(strategy.ref_window_hours) * 0.5,
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import enum
 from datetime import datetime
 
+from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from sqlalchemy import (
     Column,
     DateTime,
@@ -95,6 +96,7 @@ class Trade(Base):
     entry_prob_max_at_buy = Column(Float)
     entry_hours_min_at_buy = Column(Float)
     entry_hours_max_at_buy = Column(Float)
+    prior_snapshot_id_at_entry = Column(Integer)
     entry_snapshot_id = Column(Integer)
 
     # Fresh executable-book observations.
@@ -134,7 +136,7 @@ class MarketSnapshot(Base):
     __tablename__ = "market_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    condition_id = Column(String, index=True, nullable=False)
+    condition_id = Column(String, nullable=False)
     probability = Column(Float, nullable=False)
     liquidity = Column(Float)
     volume_24h = Column(Float)
@@ -142,7 +144,7 @@ class MarketSnapshot(Base):
     best_ask = Column(Float)
     spread = Column(Float)
     source_updated_at = Column(String)
-    run_id = Column(String, index=True)
+    run_id = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -204,6 +206,9 @@ class MarketSweep(Base):
     membership_digest_sha256 = Column(String, nullable=False)
     snapshot_eligible_count = Column(Integer, nullable=False)
     snapshotted_market_count = Column(Integer, nullable=False)
+    membership_detail_stored = Column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
 
 class MarketSweepMembership(Base):
@@ -218,10 +223,10 @@ class MarketSweepMembership(Base):
     )
     condition_id = Column(String, primary_key=True, index=True)
     raw_seen_count = Column(Integer, nullable=False)
-    qualified = Column(Integer, nullable=False, index=True)
+    qualified = Column(Integer, nullable=False)
     qualification_reason = Column(String, nullable=False)
     snapshot_eligible = Column(Integer, nullable=False)
-    snapshotted = Column(Integer, nullable=False, index=True)
+    snapshotted = Column(Integer, nullable=False)
     snapshot_reason = Column(String, nullable=False)
 
 
@@ -256,6 +261,7 @@ _TRADE_MIGRATION_COLUMNS = {
     "entry_prob_max_at_buy": "REAL",
     "entry_hours_min_at_buy": "REAL",
     "entry_hours_max_at_buy": "REAL",
+    "prior_snapshot_id_at_entry": "INTEGER",
     "entry_snapshot_id": "INTEGER",
     "best_bid_at_buy": "REAL",
     "best_ask_at_buy": "REAL",
@@ -278,8 +284,12 @@ _TRADE_MIGRATION_COLUMNS = {
 }
 
 
-def init_database(db_path: str) -> sessionmaker:
+def init_database(
+    db_path: str,
+    maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
+) -> sessionmaker:
     """Create the schema and best-effort upgrade an existing local DB."""
+    prepare_database(db_path, "golden-papaya", requirements=maintenance_requirements)
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     with engine.connect() as connection:
@@ -303,6 +313,16 @@ def init_database(db_path: str) -> sessionmaker:
                 connection.commit()
             except Exception:
                 pass
+        try:
+            connection.execute(
+                text(
+                    "ALTER TABLE market_sweeps ADD COLUMN "
+                    "membership_detail_stored INTEGER NOT NULL DEFAULT 1"
+                )
+            )
+            connection.commit()
+        except Exception:
+            pass
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "

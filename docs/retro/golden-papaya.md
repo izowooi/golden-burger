@@ -122,7 +122,8 @@ WHERE created_at >= :review_start
 GROUP BY status, mode, exit_reason;
 
 -- entry contract drift 진단. 실제 컬럼명은 배포 schema를 audit bundle과 대조한다.
-SELECT id, condition_id, event_id, entry_snapshot_id, buy_probability,
+SELECT id, condition_id, event_id, prior_snapshot_id_at_entry,
+       entry_snapshot_id, buy_probability,
        prior_yes_price_at_entry, hours_until_resolution_at_buy,
        liquidity_at_buy, volume_24h_at_buy
 FROM trades

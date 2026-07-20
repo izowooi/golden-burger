@@ -90,7 +90,9 @@ class Trader:
             best_bid = _valid_book_price(self.clob.get_best_bid(token_id))
             best_ask = _valid_book_price(self.clob.get_best_ask(token_id))
         except Exception as error:
-            logger.warning("fresh order book 조회 실패 - token=%s error=%s", token_id, error)
+            logger.warning(
+                "fresh order book 조회 실패 - token=%s error=%s", token_id, error
+            )
             return None
         if best_bid is None or best_ask is None or best_bid > best_ask + 1e-9:
             logger.warning(
@@ -124,6 +126,21 @@ class Trader:
                 entry_snapshot_id,
             )
             return None
+        prior_snapshot_id = candidate.get("prior_snapshot_id")
+        if (
+            isinstance(prior_snapshot_id, bool)
+            or not isinstance(prior_snapshot_id, int)
+            or prior_snapshot_id <= 0
+            or prior_snapshot_id >= entry_snapshot_id
+        ):
+            logger.warning(
+                "직전 persisted snapshot 증거 없는 후보를 fail-closed 처리합니다 - "
+                "condition=%s prior_snapshot=%s entry_snapshot=%s",
+                condition_id,
+                prior_snapshot_id,
+                entry_snapshot_id,
+            )
+            return None
 
         can_enter, reason = self.repo.can_reenter(
             condition_id, self.config.reentry_cooldown_hours
@@ -142,7 +159,10 @@ class Trader:
             )
             return None
         event_id = str(raw_event_id).strip()
-        if self.repo.get_event_position_count(event_id) >= self.config.max_event_positions:
+        if (
+            self.repo.get_event_position_count(event_id)
+            >= self.config.max_event_positions
+        ):
             logger.info(
                 "event 포지션 한도 도달 - event=%s limit=%s",
                 event_id,
@@ -153,7 +173,9 @@ class Trader:
         try:
             current_yes = _valid_book_price(self.clob.get_midpoint(token_id))
         except Exception as error:
-            logger.warning("entry midpoint 조회 실패 - condition=%s error=%s", condition_id, error)
+            logger.warning(
+                "entry midpoint 조회 실패 - condition=%s error=%s", condition_id, error
+            )
             return None
         hours_left = get_hours_until_resolution(candidate.get("end_date"))
         decision = evaluate_entry(
@@ -249,12 +271,15 @@ class Trader:
             entry_prob_max_at_buy=self.config.entry.prob_max,
             entry_hours_min_at_buy=self.config.entry.hours_min,
             entry_hours_max_at_buy=self.config.entry.hours_max,
+            prior_snapshot_id_at_entry=prior_snapshot_id,
             entry_snapshot_id=entry_snapshot_id,
             best_bid_at_buy=best_bid,
             best_ask_at_buy=best_ask,
             spread_at_buy=spread,
         )
-        logger.info("매수 주문 접수: Trade #%s Order=%s", trade.id, result.get("orderID"))
+        logger.info(
+            "매수 주문 접수: Trade #%s Order=%s", trade.id, result.get("orderID")
+        )
         return trade.id
 
     def _record_proven_resolution(
@@ -354,9 +379,7 @@ class Trader:
                 getattr(trade, "buy_order_id", None)
             )
             if evidence.state == "confirmed":
-                self._record_proven_resolution(
-                    trade, market, fill_evidence=evidence
-                )
+                self._record_proven_resolution(trade, market, fill_evidence=evidence)
                 return False
             if evidence.state == "terminal_zero_fill":
                 self.repo.update_trade(
@@ -403,9 +426,10 @@ class Trader:
         available = available_shares_from_error(result)
         if available is None or available <= 0 or available >= requested_size:
             return result, requested_size
-        retry_size = math.floor(
-            available * _SELL_BALANCE_SAFETY_FACTOR * _CLOB_QUANTITY_SCALE
-        ) / _CLOB_QUANTITY_SCALE
+        retry_size = (
+            math.floor(available * _SELL_BALANCE_SAFETY_FACTOR * _CLOB_QUANTITY_SCALE)
+            / _CLOB_QUANTITY_SCALE
+        )
         if retry_size < self.config.min_order_size:
             logger.warning(
                 "부분 잔고가 최소 SELL 수량보다 작아 보류 - available=%.6f",
@@ -470,8 +494,7 @@ class Trader:
                 sell_fill_matched_at=None,
             )
             logger.warning(
-                "exact terminal zero-fill SELL 증거로 HOLDING 복귀: "
-                "Trade #%s order=%s",
+                "exact terminal zero-fill SELL 증거로 HOLDING 복귀: Trade #%s order=%s",
                 trade.id,
                 sell_evidence.order_id,
             )
@@ -541,8 +564,7 @@ class Trader:
             sell_fill_matched_at=sell_evidence.matched_at,
         )
         logger.info(
-            "confirmed stop SELL 완료: Trade #%s size=%.6f vwap=%.4f "
-            "actual P&L=$%.4f",
+            "confirmed stop SELL 완료: Trade #%s size=%.6f vwap=%.4f actual P&L=$%.4f",
             trade.id,
             size,
             sell_evidence.confirmed_vwap,

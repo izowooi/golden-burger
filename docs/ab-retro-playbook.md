@@ -21,7 +21,8 @@
   - nectarine: `rolling_min_at_buy`, `lookback_days_at_buy`, `hold_hours_at_exit`
   - orange: `base_price_at_buy`, `spike_peak_at_buy`, `spike_age_minutes_at_buy`, `vol_mult_at_buy`, `yes_price_at_exit`
   - papaya: `prior_yes_price_at_entry`, `yes_price_at_buy`, `stop_price_at_entry`,
-    `entry_snapshot_id`, `best_bid_at_buy`, `best_ask_at_buy`, `yes_price_at_exit`,
+    `prior_snapshot_id_at_entry`, `entry_snapshot_id`, `best_bid_at_buy`,
+    `best_ask_at_buy`, `yes_price_at_exit`,
     `best_bid_at_exit`, `resolution_value`, `resolution_status`
 
 `EXPIRED`(= `resolved_unredeemed`)는 해결됐지만 청산 못 한 포지션이다. resolution payout은

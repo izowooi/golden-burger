@@ -9,10 +9,16 @@ import hashlib
 import json
 import logging
 import math
+import os
 from pathlib import Path
+import tempfile
 from typing import Any, Dict, List, Optional, Tuple
 
-from polybot_observability import current_run_id
+from polybot_observability import (
+    compact_maintenance_active,
+    current_run_id,
+    membership_details_due,
+)
 from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
@@ -83,17 +89,25 @@ class TradeRepository:
         return self.session.get(Trade, trade_id)
 
     def get_by_condition_id(self, condition_id: str) -> Optional[Trade]:
-        return self.session.query(Trade).filter(
-            Trade.condition_id == condition_id
-        ).order_by(Trade.id.desc()).first()
+        return (
+            self.session.query(Trade)
+            .filter(Trade.condition_id == condition_id)
+            .order_by(Trade.id.desc())
+            .first()
+        )
 
     get_latest_by_condition_id = get_by_condition_id
 
     def has_holding(self, condition_id: str) -> bool:
-        return self.session.query(Trade.id).filter(
-            Trade.condition_id == condition_id,
-            Trade.status.in_(_OPEN_STATUSES),
-        ).first() is not None
+        return (
+            self.session.query(Trade.id)
+            .filter(
+                Trade.condition_id == condition_id,
+                Trade.status.in_(_OPEN_STATUSES),
+            )
+            .first()
+            is not None
+        )
 
     def can_reenter(
         self,
@@ -105,24 +119,34 @@ class TradeRepository:
         if self.has_holding(condition_id):
             return False, "holding"
         cutoff = now - timedelta(hours=cooldown_hours)
-        recent_close = self.session.query(Trade.id).filter(
-            Trade.condition_id == condition_id,
-            Trade.status.in_((TradeStatus.COMPLETED, TradeStatus.RESOLVED)),
-            or_(Trade.sell_timestamp >= cutoff, Trade.resolution_observed_at >= cutoff),
-        ).first()
+        recent_close = (
+            self.session.query(Trade.id)
+            .filter(
+                Trade.condition_id == condition_id,
+                Trade.status.in_((TradeStatus.COMPLETED, TradeStatus.RESOLVED)),
+                or_(
+                    Trade.sell_timestamp >= cutoff,
+                    Trade.resolution_observed_at >= cutoff,
+                ),
+            )
+            .first()
+        )
         if recent_close:
             return False, "close_cooldown"
-        recent_skip = self.session.query(SkippedMarket).filter(
-            SkippedMarket.condition_id == condition_id,
-            SkippedMarket.skipped_at >= cutoff,
-        ).order_by(SkippedMarket.skipped_at.desc()).first()
+        recent_skip = (
+            self.session.query(SkippedMarket)
+            .filter(
+                SkippedMarket.condition_id == condition_id,
+                SkippedMarket.skipped_at >= cutoff,
+            )
+            .order_by(SkippedMarket.skipped_at.desc())
+            .first()
+        )
         if recent_skip:
             return False, f"skip_cooldown_{recent_skip.reason}"
         return True, "ok"
 
-    def is_in_reentry_cooldown(
-        self, condition_id: str, cooldown_hours: float
-    ) -> bool:
+    def is_in_reentry_cooldown(self, condition_id: str, cooldown_hours: float) -> bool:
         allowed, _ = self.can_reenter(condition_id, cooldown_hours)
         return not allowed
 
@@ -145,42 +169,56 @@ class TradeRepository:
         return trade
 
     def get_holding_trades(self) -> List[Trade]:
-        return self.session.query(Trade).filter(
-            Trade.status == TradeStatus.HOLDING
-        ).all()
+        return (
+            self.session.query(Trade).filter(Trade.status == TradeStatus.HOLDING).all()
+        )
 
     def get_pending_buy_trades(self) -> List[Trade]:
-        return self.session.query(Trade).filter(
-            Trade.status == TradeStatus.PENDING_BUY
-        ).all()
+        return (
+            self.session.query(Trade)
+            .filter(Trade.status == TradeStatus.PENDING_BUY)
+            .all()
+        )
 
     def get_pending_sell_trades(self) -> List[Trade]:
-        return self.session.query(Trade).filter(
-            Trade.status == TradeStatus.PENDING_SELL
-        ).all()
+        return (
+            self.session.query(Trade)
+            .filter(Trade.status == TradeStatus.PENDING_SELL)
+            .all()
+        )
 
     def get_trades_by_date(self, target_date: date) -> List[Trade]:
         start = datetime.combine(target_date, datetime.min.time())
         end = datetime.combine(target_date, datetime.max.time())
-        return self.session.query(Trade).filter(
-            Trade.buy_timestamp >= start, Trade.buy_timestamp <= end
-        ).all()
+        return (
+            self.session.query(Trade)
+            .filter(Trade.buy_timestamp >= start, Trade.buy_timestamp <= end)
+            .all()
+        )
 
     def get_all_trades(self) -> List[Trade]:
         return self.session.query(Trade).all()
 
     def get_position_count(self) -> int:
-        return self.session.query(func.count(Trade.id)).filter(
-            Trade.status.in_(_OPEN_STATUSES)
-        ).scalar() or 0
+        return (
+            self.session.query(func.count(Trade.id))
+            .filter(Trade.status.in_(_OPEN_STATUSES))
+            .scalar()
+            or 0
+        )
 
     def get_event_position_count(self, event_id: Optional[str]) -> int:
         if not event_id:
             return 0
-        return self.session.query(func.count(Trade.id)).filter(
-            Trade.event_id == event_id,
-            Trade.status.in_(_OPEN_STATUSES),
-        ).scalar() or 0
+        return (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.event_id == event_id,
+                Trade.status.in_(_OPEN_STATUSES),
+            )
+            .scalar()
+            or 0
+        )
 
     get_open_event_position_count = get_event_position_count
 
@@ -194,7 +232,7 @@ class TradeRepository:
     def _normalize_order_status(value: Any) -> str:
         status = str(value or "").strip().upper()
         prefix = "ORDER_STATUS_"
-        return status[len(prefix):] if status.startswith(prefix) else status
+        return status[len(prefix) :] if status.startswith(prefix) else status
 
     def get_exact_order_fill_evidence(
         self,
@@ -234,16 +272,20 @@ class TradeRepository:
             )
 
         try:
-            submissions = self.session.execute(
-                text(
-                    "SELECT submission_id, side, requested_size, "
-                    "latest_order_status, latest_size_matched, "
-                    "latest_status_domain_error, needs_reconciliation, "
-                    "reconciliation_error, simulation "
-                    "FROM order_submissions WHERE order_id = :order_id"
-                ),
-                {"order_id": normalized_order_id},
-            ).mappings().all()
+            submissions = (
+                self.session.execute(
+                    text(
+                        "SELECT submission_id, side, requested_size, "
+                        "latest_order_status, latest_size_matched, "
+                        "latest_status_domain_error, needs_reconciliation, "
+                        "reconciliation_error, simulation "
+                        "FROM order_submissions WHERE order_id = :order_id"
+                    ),
+                    {"order_id": normalized_order_id},
+                )
+                .mappings()
+                .all()
+            )
         except Exception as error:
             return ExactFillEvidence(
                 "unavailable",
@@ -319,17 +361,21 @@ class TradeRepository:
             )
 
         try:
-            fills = self.session.execute(
-                text(
-                    "SELECT status, side, size, price, fee_amount_usdc, "
-                    "matched_at, domain_error FROM order_fills "
-                    "WHERE submission_id = :submission_id AND order_id = :order_id"
-                ),
-                {
-                    "submission_id": submission["submission_id"],
-                    "order_id": normalized_order_id,
-                },
-            ).mappings().all()
+            fills = (
+                self.session.execute(
+                    text(
+                        "SELECT status, side, size, price, fee_amount_usdc, "
+                        "matched_at, domain_error FROM order_fills "
+                        "WHERE submission_id = :submission_id AND order_id = :order_id"
+                    ),
+                    {
+                        "submission_id": submission["submission_id"],
+                        "order_id": normalized_order_id,
+                    },
+                )
+                .mappings()
+                .all()
+            )
         except Exception as error:
             return ExactFillEvidence(
                 "unavailable",
@@ -340,9 +386,8 @@ class TradeRepository:
         confirmed = [
             row
             for row in fills
-            if str(row["status"] or "").strip().upper().removeprefix(
-                "TRADE_STATUS_"
-            ) == "CONFIRMED"
+            if str(row["status"] or "").strip().upper().removeprefix("TRADE_STATUS_")
+            == "CONFIRMED"
         ]
         if confirmed:
             size_total = 0.0
@@ -405,9 +450,7 @@ class TradeRepository:
                 and matched_size is not None
                 and math.isfinite(matched_size)
                 and matched_size > 0
-                and math.isclose(
-                    size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6
-                )
+                and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
                 and math.isclose(
                     matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
                 )
@@ -466,19 +509,13 @@ class TradeRepository:
             ),
         )
 
-    def get_exact_buy_fill_evidence(
-        self, order_id: Optional[str]
-    ) -> ExactFillEvidence:
-        return self.get_exact_order_fill_evidence(
-            order_id, expected_side="BUY"
-        )
+    def get_exact_buy_fill_evidence(self, order_id: Optional[str]) -> ExactFillEvidence:
+        return self.get_exact_order_fill_evidence(order_id, expected_side="BUY")
 
     def get_exact_sell_fill_evidence(
         self, order_id: Optional[str]
     ) -> ExactFillEvidence:
-        return self.get_exact_order_fill_evidence(
-            order_id, expected_side="SELL"
-        )
+        return self.get_exact_order_fill_evidence(order_id, expected_side="SELL")
 
     def save_snapshot(
         self,
@@ -515,15 +552,23 @@ class TradeRepository:
     def get_snapshots_since(
         self, condition_id: str, since: datetime
     ) -> List[MarketSnapshot]:
-        return self.session.query(MarketSnapshot).filter(
-            MarketSnapshot.condition_id == condition_id,
-            MarketSnapshot.timestamp >= since,
-        ).order_by(MarketSnapshot.timestamp.asc(), MarketSnapshot.id.asc()).all()
+        return (
+            self.session.query(MarketSnapshot)
+            .filter(
+                MarketSnapshot.condition_id == condition_id,
+                MarketSnapshot.timestamp >= since,
+            )
+            .order_by(MarketSnapshot.timestamp.asc(), MarketSnapshot.id.asc())
+            .all()
+        )
 
     def get_latest_snapshot(self, condition_id: str) -> Optional[MarketSnapshot]:
-        return self.session.query(MarketSnapshot).filter(
-            MarketSnapshot.condition_id == condition_id
-        ).order_by(MarketSnapshot.timestamp.desc(), MarketSnapshot.id.desc()).first()
+        return (
+            self.session.query(MarketSnapshot)
+            .filter(MarketSnapshot.condition_id == condition_id)
+            .order_by(MarketSnapshot.timestamp.desc(), MarketSnapshot.id.desc())
+            .first()
+        )
 
     def get_latest_snapshot_before_run(
         self,
@@ -556,11 +601,13 @@ class TradeRepository:
         if commit:
             self.session.commit()
 
-    def _upsert_market_catalog(
-        self, condition_id: str, market: Dict[str, Any]
-    ) -> None:
+    def _upsert_market_catalog(self, condition_id: str, market: Dict[str, Any]) -> None:
         events = market.get("events") or []
-        event = events[0] if isinstance(events, list) and events and isinstance(events[0], dict) else {}
+        event = (
+            events[0]
+            if isinstance(events, list) and events and isinstance(events[0], dict)
+            else {}
+        )
         event_meta = get_event_metadata(market)
         tags = market.get("tags") or []
         fee_schedule = market.get("feeSchedule") or {}
@@ -578,7 +625,9 @@ class TradeRepository:
             "event_title": event.get("title"),
             "event_market_count": len(event.get("markets") or []) or None,
             "end_date": market.get("endDate"),
-            "outcomes_json": json.dumps(market.get("outcomes") or [], ensure_ascii=False),
+            "outcomes_json": json.dumps(
+                market.get("outcomes") or [], ensure_ascii=False
+            ),
             "outcome_prices_json": json.dumps(market.get("outcomePrices") or []),
             "token_ids_json": json.dumps(market.get("clobTokenIds") or []),
             "tags_json": json.dumps(
@@ -599,9 +648,13 @@ class TradeRepository:
             "accepting_orders": bool_int(market.get("acceptingOrders")),
             "enable_order_book": bool_int(market.get("enableOrderBook")),
             "fees_enabled": bool_int(market.get("feesEnabled")),
-            "fee_rate": fee_schedule.get("rate") if isinstance(fee_schedule, dict) else None,
+            "fee_rate": fee_schedule.get("rate")
+            if isinstance(fee_schedule, dict)
+            else None,
             "resolution_status": (
-                resolution["status"] if resolution else market.get("umaResolutionStatus")
+                resolution["status"]
+                if resolution
+                else market.get("umaResolutionStatus")
             ),
             "resolved_outcome": resolution["outcome"] if resolution else None,
             "resolved_value": resolution["yes_payout"] if resolution else None,
@@ -618,7 +671,9 @@ class TradeRepository:
 
     @staticmethod
     def _attestation_datetime(value: Any) -> datetime:
-        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        parsed = (
+            value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        )
         if parsed.tzinfo is not None:
             parsed = parsed.astimezone(timezone.utc).replace(tzinfo=None)
         return parsed
@@ -651,9 +706,18 @@ class TradeRepository:
             raw_seen = item.get("raw_seen_count")
             qualified = item.get("qualified")
             reason = item.get("qualification_reason")
-            if not condition_id or isinstance(raw_seen, bool) or not isinstance(raw_seen, int) or raw_seen < 1:
+            if (
+                not condition_id
+                or isinstance(raw_seen, bool)
+                or not isinstance(raw_seen, int)
+                or raw_seen < 1
+            ):
                 raise ValueError("invalid Gamma membership identity/count")
-            if not isinstance(qualified, bool) or not isinstance(reason, str) or not reason:
+            if (
+                not isinstance(qualified, bool)
+                or not isinstance(reason, str)
+                or not reason
+            ):
                 raise ValueError("invalid Gamma membership qualification")
             canonical.append(
                 {
@@ -687,7 +751,9 @@ class TradeRepository:
             if not item["qualified"]:
                 reason = item["qualification_reason"]
                 exclusion_counts[reason] = exclusion_counts.get(reason, 0) + 1
-        if attestation.get("exclusion_counts") != dict(sorted(exclusion_counts.items())):
+        if attestation.get("exclusion_counts") != dict(
+            sorted(exclusion_counts.items())
+        ):
             raise ValueError("Gamma exclusion counts mismatch")
         missing = int(attestation.get("missing_condition_id_count", 0))
         raw_count = sum(item["raw_seen_count"] for item in canonical) + missing
@@ -726,6 +792,10 @@ class TradeRepository:
         sweep_id = str(attestation.get("sweep_id") or "")
         if not sweep_id:
             raise ValueError("Gamma sweep_id is required")
+        store_membership_details = membership_details_due(
+            self.session,
+            "golden-papaya",
+        )
 
         sweep = MarketSweep(
             sweep_id=sweep_id,
@@ -747,21 +817,23 @@ class TradeRepository:
             membership_digest_sha256=digest,
             snapshot_eligible_count=sum(int(row[1]) for row in enriched),
             snapshotted_market_count=sum(int(row[2]) for row in enriched),
+            membership_detail_stored=int(store_membership_details),
         )
         self.session.add(sweep)
-        for membership, eligible, snapshotted, reason in enriched:
-            self.session.add(
-                MarketSweepMembership(
-                    sweep_id=sweep_id,
-                    condition_id=membership["condition_id"],
-                    raw_seen_count=membership["raw_seen_count"],
-                    qualified=1,
-                    qualification_reason=membership["qualification_reason"],
-                    snapshot_eligible=int(eligible),
-                    snapshotted=int(snapshotted),
-                    snapshot_reason=reason,
+        if store_membership_details:
+            for membership, eligible, snapshotted, reason in enriched:
+                self.session.add(
+                    MarketSweepMembership(
+                        sweep_id=sweep_id,
+                        condition_id=membership["condition_id"],
+                        raw_seen_count=membership["raw_seen_count"],
+                        qualified=1,
+                        qualification_reason=membership["qualification_reason"],
+                        snapshot_eligible=int(eligible),
+                        snapshotted=int(snapshotted),
+                        snapshot_reason=reason,
+                    )
                 )
-            )
         if commit:
             self.session.commit()
         return sweep
@@ -773,15 +845,65 @@ class TradeRepository:
         self.session.rollback()
 
     def cleanup_old_snapshots(self, days: int = 60) -> int:
+        if compact_maintenance_active(self.session, "golden-papaya"):
+            return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
-        deleted = self.session.query(MarketSnapshot).filter(
-            MarketSnapshot.timestamp < cutoff
-        ).delete()
+        # Entry crossing evidence is immutable, even after the telemetry
+        # retention horizon.  Build the protected set before deleting so a
+        # legacy trade's inferred immediate-prior row cannot shift while the
+        # DELETE statement is running.
+        self.session.execute(
+            text(
+                "CREATE TEMP TABLE IF NOT EXISTS "
+                "_polybot_papaya_protected_snapshots "
+                "(id INTEGER PRIMARY KEY) WITHOUT ROWID"
+            )
+        )
+        self.session.execute(text("DELETE FROM _polybot_papaya_protected_snapshots"))
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_papaya_protected_snapshots(id) "
+                "SELECT entry_snapshot_id FROM trades "
+                "WHERE entry_snapshot_id IS NOT NULL"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_papaya_protected_snapshots(id) "
+                "SELECT prior_snapshot_id_at_entry FROM trades "
+                "WHERE prior_snapshot_id_at_entry IS NOT NULL"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_papaya_protected_snapshots(id) "
+                "SELECT prior_id FROM ("
+                "SELECT (SELECT prior.id FROM market_snapshots AS prior "
+                "WHERE prior.condition_id = entry.condition_id AND ("
+                "prior.timestamp < entry.timestamp OR "
+                "(prior.timestamp = entry.timestamp AND prior.id < entry.id)) "
+                "ORDER BY prior.timestamp DESC, prior.id DESC LIMIT 1) AS prior_id "
+                "FROM trades AS trade JOIN market_snapshots AS entry "
+                "ON entry.id = trade.entry_snapshot_id "
+                "WHERE trade.entry_snapshot_id IS NOT NULL "
+                "AND trade.prior_snapshot_id_at_entry IS NULL"
+                ") inferred WHERE prior_id IS NOT NULL"
+            )
+        )
+        deleted = self.session.execute(
+            text(
+                "DELETE FROM market_snapshots WHERE timestamp < :cutoff "
+                "AND id NOT IN ("
+                "SELECT id FROM _polybot_papaya_protected_snapshots)"
+            ),
+            {"cutoff": cutoff},
+        ).rowcount
+        self.session.execute(text("DROP TABLE _polybot_papaya_protected_snapshots"))
         expired_sweeps = [
             row[0]
-            for row in self.session.query(MarketSweep.sweep_id).filter(
-                MarketSweep.completed_at < cutoff
-            ).all()
+            for row in self.session.query(MarketSweep.sweep_id)
+            .filter(MarketSweep.completed_at < cutoff)
+            .all()
         ]
         if expired_sweeps:
             self.session.query(MarketSweepMembership).filter(
@@ -791,17 +913,23 @@ class TradeRepository:
                 MarketSweep.sweep_id.in_(expired_sweeps)
             ).delete(synchronize_session=False)
         self.session.commit()
-        return deleted
+        return max(0, int(deleted or 0))
 
     def get_stats(self) -> Dict[str, Any]:
         def count(status: TradeStatus) -> int:
-            return self.session.query(func.count(Trade.id)).filter(
-                Trade.status == status
-            ).scalar() or 0
+            return (
+                self.session.query(func.count(Trade.id))
+                .filter(Trade.status == status)
+                .scalar()
+                or 0
+            )
 
-        total_pnl = self.session.query(func.sum(Trade.realized_pnl)).filter(
-            Trade.realized_pnl.isnot(None)
-        ).scalar() or 0.0
+        total_pnl = (
+            self.session.query(func.sum(Trade.realized_pnl))
+            .filter(Trade.realized_pnl.isnot(None))
+            .scalar()
+            or 0.0
+        )
         return {
             "total_trades": self.session.query(func.count(Trade.id)).scalar() or 0,
             "holding": count(TradeStatus.HOLDING),
@@ -820,18 +948,42 @@ class TradeRepository:
         timestamp = trade.sell_timestamp or datetime.utcnow()
         path = Path(db_dir) / f"trades_{timestamp:%Y-%m}.csv"
         headers = [
-            "id", "strategy_name", "mode", "condition_id", "event_id",
-            "question", "outcome", "buy_price", "sell_price", "realized_pnl",
-            "hypothetical_pnl", "pnl_basis",
-            "buy_confirmed_size", "buy_confirmed_vwap",
-            "buy_confirmed_fee_usdc", "sell_confirmed_size",
-            "sell_confirmed_vwap", "sell_confirmed_fee_usdc",
+            "id",
+            "strategy_name",
+            "mode",
+            "condition_id",
+            "event_id",
+            "question",
+            "outcome",
+            "buy_price",
+            "sell_price",
+            "realized_pnl",
+            "hypothetical_pnl",
+            "pnl_basis",
+            "buy_confirmed_size",
+            "buy_confirmed_vwap",
+            "buy_confirmed_fee_usdc",
+            "sell_confirmed_size",
+            "sell_confirmed_vwap",
+            "sell_confirmed_fee_usdc",
             "sell_fill_matched_at",
-            "buy_timestamp", "sell_timestamp", "entry_reason", "exit_reason",
-            "prior_yes_price_at_entry", "yes_price_at_buy", "yes_price_at_exit",
-            "stop_price_at_entry", "best_bid_at_buy", "best_ask_at_buy",
-            "spread_at_buy", "best_bid_at_exit", "best_ask_at_exit",
-            "spread_at_exit", "hours_until_resolution_at_buy",
+            "buy_timestamp",
+            "sell_timestamp",
+            "entry_reason",
+            "exit_reason",
+            "prior_yes_price_at_entry",
+            "yes_price_at_buy",
+            "yes_price_at_exit",
+            "prior_snapshot_id_at_entry",
+            "entry_snapshot_id",
+            "stop_price_at_entry",
+            "best_bid_at_buy",
+            "best_ask_at_buy",
+            "spread_at_buy",
+            "best_bid_at_exit",
+            "best_ask_at_exit",
+            "spread_at_exit",
+            "hours_until_resolution_at_buy",
         ]
         row = {
             field: (
@@ -841,7 +993,35 @@ class TradeRepository:
             )
             for field in headers
         }
-        exists = path.exists()
+        exists = path.exists() and path.stat().st_size > 0
+        if exists:
+            with path.open("r", newline="", encoding="utf-8") as handle:
+                reader = csv.DictReader(handle)
+                existing_headers = list(reader.fieldnames or [])
+                existing_rows = list(reader)
+            if existing_headers != headers:
+                unknown = [field for field in existing_headers if field not in headers]
+                if not existing_headers or unknown:
+                    raise RuntimeError(
+                        "기존 거래 CSV header가 현재 schema와 호환되지 않습니다: "
+                        f"unknown={unknown}"
+                    )
+                descriptor, temporary_name = tempfile.mkstemp(
+                    prefix=f".{path.name}.", suffix=".upgrade", dir=path.parent
+                )
+                temporary_path = Path(temporary_name)
+                try:
+                    with os.fdopen(
+                        descriptor, "w", newline="", encoding="utf-8"
+                    ) as handle:
+                        writer = csv.DictWriter(handle, fieldnames=headers)
+                        writer.writeheader()
+                        writer.writerows(existing_rows)
+                        handle.flush()
+                        os.fsync(handle.fileno())
+                    os.replace(temporary_path, path)
+                finally:
+                    temporary_path.unlink(missing_ok=True)
         with path.open("a", newline="", encoding="utf-8") as handle:
             writer = csv.DictWriter(handle, fieldnames=headers)
             if not exists:

@@ -10,6 +10,7 @@ from sqlalchemy import (
     Column, Integer, String, Float, DateTime, Enum, ForeignKey, create_engine, text
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
+from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 
 Base = declarative_base()
 
@@ -106,7 +107,7 @@ class MarketSnapshot(Base):
     __tablename__ = "market_snapshots"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
-    condition_id = Column(String, index=True, nullable=False)
+    condition_id = Column(String, nullable=False)
     probability = Column(Float, nullable=False)  # YES price
     liquidity = Column(Float, nullable=True)
     volume_24h = Column(Float, nullable=True)
@@ -114,7 +115,7 @@ class MarketSnapshot(Base):
     best_ask = Column(Float, nullable=True)
     spread = Column(Float, nullable=True)
     source_updated_at = Column(String, nullable=True)
-    run_id = Column(String, index=True, nullable=True)
+    run_id = Column(String, nullable=True)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
     def __repr__(self) -> str:
@@ -163,6 +164,9 @@ class MarketSweep(Base):
     min_volume = Column(Float, nullable=False)
     membership_digest_sha256 = Column(String, nullable=False)
     snapshotted_market_count = Column(Integer, nullable=False)
+    membership_detail_stored = Column(
+        Integer, nullable=False, default=1, server_default=text("1")
+    )
 
 
 class MarketSweepMembership(Base):
@@ -176,10 +180,10 @@ class MarketSweepMembership(Base):
     )
     condition_id = Column(String, primary_key=True, index=True)
     raw_seen_count = Column(Integer, nullable=False)
-    qualified = Column(Integer, nullable=False, index=True)
+    qualified = Column(Integer, nullable=False)
     qualification_reason = Column(String, nullable=False)
     snapshot_eligible = Column(Integer, nullable=False)
-    snapshotted = Column(Integer, nullable=False, index=True)
+    snapshotted = Column(Integer, nullable=False)
     snapshot_reason = Column(String, nullable=False)
 
 
@@ -262,10 +266,18 @@ _ALTER_COLUMNS = [
     ("market_snapshots", "spread", "REAL"),
     ("market_snapshots", "source_updated_at", "TEXT"),
     ("market_snapshots", "run_id", "TEXT"),
+    (
+        "market_sweeps",
+        "membership_detail_stored",
+        "INTEGER NOT NULL DEFAULT 1",
+    ),
 ]
 
 
-def init_database(db_path: str) -> sessionmaker:
+def init_database(
+    db_path: str,
+    maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
+) -> sessionmaker:
     """Initialize database and return session factory.
 
     신규 컬럼은 best-effort ALTER로 기존 로컬 DB에도 추가한다 (§A.8).
@@ -276,6 +288,9 @@ def init_database(db_path: str) -> sessionmaker:
     Returns:
         SQLAlchemy sessionmaker instance
     """
+    prepare_database(
+        db_path, "golden-nectarine", requirements=maintenance_requirements
+    )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     with engine.connect() as conn:

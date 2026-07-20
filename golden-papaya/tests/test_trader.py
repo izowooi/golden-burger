@@ -163,6 +163,7 @@ def make_candidate(**overrides):
         "outcome": "Yes",
         "token_id": "yes-token",
         "prior_yes_price": 0.949,
+        "prior_snapshot_id": 16,
         "entry_snapshot_id": 17,
         "liquidity": 25_000.0,
         "volume_24h": 4_000.0,
@@ -235,6 +236,7 @@ class TestEntryExecution:
         assert created["entry_prob_max_at_buy"] == 0.97
         assert created["entry_hours_min_at_buy"] == 0.0
         assert created["entry_hours_max_at_buy"] == 72.0
+        assert created["prior_snapshot_id_at_entry"] == 16
         assert created["entry_snapshot_id"] == 17
         assert created["best_bid_at_buy"] == 0.946
         assert created["best_ask_at_buy"] == 0.956
@@ -257,11 +259,23 @@ class TestEntryExecution:
             (make_candidate(entry_snapshot_id=True), FakeClob(), FakeRepo()),
             (make_candidate(entry_snapshot_id=17.0), FakeClob(), FakeRepo()),
             (make_candidate(entry_snapshot_id="17"), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=None), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=0), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=-1), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=True), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=16.0), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id="16"), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=17), FakeClob(), FakeRepo()),
+            (make_candidate(prior_snapshot_id=18), FakeClob(), FakeRepo()),
             (make_candidate(prior_yes_price=0.95), FakeClob(), FakeRepo()),
             (make_candidate(), FakeClob(midpoint=0.971), FakeRepo()),
             (make_candidate(), FakeClob(best_ask=0.971), FakeRepo()),
             (make_candidate(), FakeClob(best_bid=0.96, best_ask=0.95), FakeRepo()),
-            (make_candidate(), FakeClob(best_ask=RuntimeError("book down")), FakeRepo()),
+            (
+                make_candidate(),
+                FakeClob(best_ask=RuntimeError("book down")),
+                FakeRepo(),
+            ),
             (make_candidate(), FakeClob(), FakeRepo(positions=20)),
             (make_candidate(), FakeClob(), FakeRepo(event_positions=1)),
             (make_candidate(), FakeClob(), FakeRepo(can_reenter=False)),
@@ -356,7 +370,9 @@ class TestStopExecution:
                 }
             return {"success": True, "orderID": "RETRY"}
 
-        clob = FakeClob(midpoint=0.89, best_bid=0.88, best_ask=0.90, order_result=result)
+        clob = FakeClob(
+            midpoint=0.89, best_bid=0.88, best_ask=0.90, order_result=result
+        )
         trader, repo, _ = make_trader(clob=clob)
         assert trader.execute_sell(make_trade()) is False
         assert [order["size"] for order in clob.orders] == [
@@ -382,9 +398,7 @@ class TestStopExecution:
         assert update["status"] == TradeStatus.COMPLETED
         assert update["realized_pnl"] is None
         assert update["hypothetical_pnl"] == pytest.approx((0.88 - 0.955) * 5.2)
-        assert update["pnl_basis"] == (
-            "simulation_hypothetical_best_bid_fees_excluded"
-        )
+        assert update["pnl_basis"] == ("simulation_hypothetical_best_bid_fees_excluded")
 
     def test_zero_balance_marks_proven_unfilled_and_cancels_live_buy(self):
         clob = FakeClob(
@@ -394,8 +408,7 @@ class TestStopExecution:
             order_result={
                 "success": False,
                 "error": (
-                    "not enough balance / allowance: balance: 0, "
-                    "order amount: 5200000"
+                    "not enough balance / allowance: balance: 0, order amount: 5200000"
                 ),
             },
         )
@@ -425,9 +438,7 @@ class TestPendingSellReconciliation:
         assert update["sell_confirmed_vwap"] == 0.885
         assert update["buy_confirmed_fee_usdc"] == 0.0
         assert update["sell_confirmed_fee_usdc"] == 0.01
-        assert update["realized_pnl"] == pytest.approx(
-            (0.885 - 0.955) * 5.2 - 0.01
-        )
+        assert update["realized_pnl"] == pytest.approx((0.885 - 0.955) * 5.2 - 0.01)
         assert update["hypothetical_pnl"] is None
         assert update["pnl_basis"] == (
             "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
@@ -694,9 +705,7 @@ class TestResolutionEvidence:
     )
     def test_unproven_resolution_never_finalizes_position(self, market):
         gamma = FakeGamma(market)
-        trader, repo, clob = make_trader(
-            clob=FakeClob(midpoint=None), gamma=gamma
-        )
+        trader, repo, clob = make_trader(clob=FakeClob(midpoint=None), gamma=gamma)
         assert trader.execute_sell(make_trade()) is False
         assert repo.catalog == []
         assert repo.updates == []

@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 import json
+import sqlite3
+from dataclasses import asdict
 from datetime import datetime, timedelta
 
 import pytest
+from sqlalchemy import inspect, text
+
+from polybot_observability import SQLiteMaintenanceRequirements, policy_for
 
 from polybot.api.gamma_client import GammaClient
 from polybot.config import TradingConfig
@@ -227,9 +232,9 @@ def test_complete_sweep_and_snapshots_are_persisted_atomically(tmp_path):
     assert sweep.excluded_condition_count == 1
     assert json.loads(sweep.exclusion_counts_json) == {"below_min_liquidity": 1}
     assert sweep.snapshotted_market_count == 1
+    assert sweep.membership_detail_stored == 1
     memberships = {
-        row.condition_id: row
-        for row in session.query(MarketSweepMembership).all()
+        row.condition_id: row for row in session.query(MarketSweepMembership).all()
     }
     assert memberships["snapshot-ok"].snapshot_eligible == 1
     assert memberships["snapshot-ok"].snapshotted == 1
@@ -241,15 +246,144 @@ def test_complete_sweep_and_snapshots_are_persisted_atomically(tmp_path):
     assert "low-liquidity" not in memberships
     assert len(memberships) == sweep.qualified_market_count
     assert session.query(MarketSnapshot).count() == 1
-    assert {
-        row.condition_id for row in session.query(MarketCatalog).all()
-    } == {"snapshot-ok", "no-price", "invalid-book"}
+    assert {row.condition_id for row in session.query(MarketCatalog).all()} == {
+        "snapshot-ok",
+        "no-price",
+        "invalid-book",
+    }
     sweep.completed_at = datetime.utcnow() - timedelta(days=61)
     session.commit()
     repo.cleanup_old_snapshots(days=60)
     assert session.query(MarketSweep).count() == 0
     assert session.query(MarketSweepMembership).count() == 0
     assert session.query(MarketSnapshot).count() == 1
+    session.close()
+
+
+def test_compact_profile_checkpoints_membership_details_once_per_day(tmp_path):
+    Session = init_database(str(tmp_path / "compact-sweep.db"))
+    session = Session()
+    session.execute(
+        text(
+            """
+            CREATE TABLE polybot_db_maintenance (
+                profile TEXT PRIMARY KEY,
+                schema_version INTEGER NOT NULL,
+                strategy_name TEXT NOT NULL,
+                active INTEGER NOT NULL,
+                activated_at TEXT NOT NULL,
+                last_maintained_at TEXT,
+                last_report_json TEXT NOT NULL DEFAULT '{}'
+            )
+            """
+        )
+    )
+    requirements = SQLiteMaintenanceRequirements()
+    report = json.dumps(
+        {
+            "policy": asdict(policy_for("golden-honeydew", requirements)),
+            "requirements": asdict(requirements),
+            "snapshot_anchor": None,
+        }
+    )
+    session.execute(
+        text(
+            """
+            INSERT INTO polybot_db_maintenance
+                (profile, schema_version, strategy_name, active, activated_at,
+                 last_report_json)
+            VALUES ('compact-v1', 2, 'golden-honeydew', 1, :activated_at,
+                    :last_report_json)
+            """
+        ),
+        {
+            "activated_at": datetime.utcnow().isoformat(),
+            "last_report_json": report,
+        },
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    gamma = GammaClient()
+    gamma.session = _KeysetSession()
+    scanner = MarketScanner(gamma, TradingConfig(), repo=repo)
+
+    markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(markets)
+    first = session.query(MarketSweep).one()
+    assert first.membership_detail_stored == 1
+    assert session.query(MarketSweepMembership).count() == first.qualified_market_count
+
+    markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(markets)
+    second = (
+        session.query(MarketSweep).filter(MarketSweep.sweep_id != first.sweep_id).one()
+    )
+    assert second.membership_detail_stored == 0
+    assert second.membership_digest_sha256
+    assert second.qualified_market_count == first.qualified_market_count
+    assert session.query(MarketSweepMembership).count() == first.qualified_market_count
+
+    first.completed_at = datetime.utcnow() - timedelta(hours=25)
+    session.commit()
+    markets = scanner.fetch_markets()
+    scanner.save_market_snapshots(markets)
+    third = (
+        session.query(MarketSweep)
+        .filter(MarketSweep.sweep_id.notin_([first.sweep_id, second.sweep_id]))
+        .one()
+    )
+    assert third.membership_detail_stored == 1
+    assert session.query(MarketSweepMembership).count() == (
+        first.qualified_market_count + third.qualified_market_count
+    )
+    session.close()
+
+
+def test_init_database_migrates_membership_detail_stored(tmp_path):
+    db_path = tmp_path / "legacy-sweep.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE market_sweeps (sweep_id TEXT PRIMARY KEY)")
+        connection.execute(
+            "INSERT INTO market_sweeps (sweep_id) VALUES ('legacy-sweep')"
+        )
+
+    Session = init_database(str(db_path))
+    Session().close()
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            row[1]: row
+            for row in connection.execute("PRAGMA table_info(market_sweeps)")
+        }
+        stored = connection.execute(
+            "SELECT membership_detail_stored FROM market_sweeps "
+            "WHERE sweep_id = 'legacy-sweep'"
+        ).fetchone()[0]
+
+    assert columns["membership_detail_stored"][3] == 1
+    assert str(columns["membership_detail_stored"][4]).strip("'\"") == "1"
+    assert stored == 1
+
+
+def test_compact_schema_does_not_recreate_removed_single_column_indexes(tmp_path):
+    Session = init_database(str(tmp_path / "compact-indexes.db"))
+    session = Session()
+    inspector = inspect(session.get_bind())
+    snapshot_indexes = {
+        index["name"] for index in inspector.get_indexes("market_snapshots")
+    }
+    membership_indexes = {
+        index["name"] for index in inspector.get_indexes("market_sweep_memberships")
+    }
+
+    assert "market_snapshots_condition_timestamp_idx" in snapshot_indexes
+    assert "market_snapshots_run_idx" in snapshot_indexes
+    assert "ix_market_snapshots_condition_id" not in snapshot_indexes
+    assert "ix_market_snapshots_run_id" not in snapshot_indexes
+    assert "ix_market_sweep_memberships_condition_id" in membership_indexes
+    assert "ix_market_sweep_memberships_qualified" not in membership_indexes
+    assert "ix_market_sweep_memberships_snapshotted" not in membership_indexes
     session.close()
 
 

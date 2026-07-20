@@ -37,9 +37,7 @@ def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
     try:
         text = str(end_date_str).strip()
         parsed = datetime.fromisoformat(
-            text.replace("Z", "+00:00")
-            if "T" in text
-            else f"{text}T00:00:00+00:00"
+            text.replace("Z", "+00:00") if "T" in text else f"{text}T00:00:00+00:00"
         )
     except (TypeError, ValueError):
         return None
@@ -291,13 +289,10 @@ class MarketScanner:
                 }
                 saved += 1
 
-            self.repo.record_market_sweep(
-                attestation, snapshot_results, commit=False
-            )
+            self.repo.record_market_sweep(attestation, snapshot_results, commit=False)
             self.repo.commit()
             attestation["snapshot_eligible_count"] = sum(
-                int(item["snapshot_eligible"])
-                for item in snapshot_results.values()
+                int(item["snapshot_eligible"]) for item in snapshot_results.values()
             )
             attestation["snapshotted_market_count"] = saved
         except Exception:
@@ -400,7 +395,8 @@ class MarketScanner:
         ordered = sorted(
             history,
             key=lambda row: (
-                self._snapshot_timestamp(row) or datetime.min.replace(tzinfo=timezone.utc),
+                self._snapshot_timestamp(row)
+                or datetime.min.replace(tzinfo=timezone.utc),
                 int(getattr(row, "id", 0) or 0),
             ),
         )
@@ -416,10 +412,15 @@ class MarketScanner:
             return None, current, "prior_snapshot_missing"
 
         prior = ordered[current_index - 1]
+        prior_id = getattr(prior, "id", None)
+        if isinstance(prior_id, bool) or not isinstance(prior_id, int) or prior_id <= 0:
+            return None, current, "prior_snapshot_id_invalid"
+        if prior_id >= current_id:
+            return None, current, "prior_snapshot_id_order_invalid"
+        if getattr(prior, "condition_id", None) != condition_id:
+            return None, current, "prior_snapshot_condition_mismatch"
         cached_prior = self._prior_snapshot(condition_id)
-        if cached_prior is None or getattr(cached_prior, "id", None) != getattr(
-            prior, "id", None
-        ):
+        if cached_prior is None or getattr(cached_prior, "id", None) != prior_id:
             return None, current, "prior_snapshot_lineage_mismatch"
         prior_timestamp = self._snapshot_timestamp(prior)
         if prior_timestamp is None or prior_timestamp >= current_timestamp:
@@ -494,9 +495,7 @@ class MarketScanner:
                 # Per-event exposure is a hard risk limit.  Falling back to a
                 # condition id would silently turn every market with missing
                 # Gamma event metadata into its own event and bypass that cap.
-                rejected["missing_event_id"] = (
-                    rejected.get("missing_event_id", 0) + 1
-                )
+                rejected["missing_event_id"] = rejected.get("missing_event_id", 0) + 1
                 continue
             tags = market.get("tags") or []
             tag_text = ", ".join(
@@ -515,6 +514,7 @@ class MarketScanner:
                 "probability": yes["probability"],
                 "yes_price": yes["probability"],
                 "prior_yes_price": prior.probability,
+                "prior_snapshot_id": prior.id,
                 "entry_snapshot_id": current_snapshot.id,
                 "liquidity": current_snapshot.liquidity,
                 "volume_24h": current_snapshot.volume_24h,

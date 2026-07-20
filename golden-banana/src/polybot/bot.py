@@ -1,6 +1,7 @@
 """Main bot orchestrator with momentum-based strategy."""
 import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
+from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
@@ -32,7 +33,16 @@ class PolymarketBot:
         self.config = config
 
         # Initialize database
-        self.Session = init_database(str(config.db_path))
+        long_window = int(config.trading.momentum.long_window)
+        self.Session = init_database(
+            str(config.db_path),
+            SQLiteMaintenanceRequirements(
+                full_cadence_hours=max(
+                    5.0 / 60.0, (long_window - 1.0) * 5.0 / 60.0
+                ),
+                minimum_latest_points=long_window + 10,
+            ),
+        )
 
         # Initialize API clients
         self.gamma = GammaClient()
