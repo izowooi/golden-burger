@@ -100,7 +100,7 @@ class TimeBasedConfig:
     enabled: bool = True
     entry_hours_max: int = 24   # 해결 24시간 이내 진입
     entry_hours_min: int = 4    # 해결 4시간 이상 남아야 진입
-    exit_hours: int = 4         # 해결 4시간 이내 청산
+    exit_hours: int = 4         # 해결 4시간 이내 청산 (0이면 비활성화)
 
 
 @dataclass
@@ -179,11 +179,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if not 0 < trailing.percent < 1:
         raise ValueError("trailing_stop.percent must be between 0 and 1")
     if timing.enabled and not (
-        timing.entry_hours_min > 0
-        and timing.entry_hours_min < timing.entry_hours_max
-        and 0 < timing.exit_hours <= timing.entry_hours_min
+        0 <= timing.entry_hours_min < timing.entry_hours_max
+        and 0 <= timing.exit_hours < timing.entry_hours_max
     ):
-        raise ValueError("enabled time_based windows must satisfy 0 < exit_hours <= entry_hours_min < entry_hours_max")
+        raise ValueError(
+            "enabled time_based windows must satisfy "
+            "0 <= entry_hours_min < entry_hours_max and "
+            "0 <= exit_hours < entry_hours_max"
+        )
     if not isinstance(trading.excluded_categories, list) or any(
         not isinstance(item, str) or not item.strip()
         for item in trading.excluded_categories

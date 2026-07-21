@@ -1,9 +1,13 @@
 """Trading execution logic with resolution momentum strategy."""
 import logging
+import math
 import re
 from datetime import datetime
 from typing import Optional
-from polybot_observability import SubmissionEvidenceError
+from polybot_observability import (
+    ClobResponseUnavailableError,
+    SubmissionEvidenceError,
+)
 
 from ..db.repository import TradeRepository
 from ..db.models import TradeStatus
@@ -18,11 +22,34 @@ logger = logging.getLogger(__name__)
 # 않은 유령 포지션은 매도 시 "not enough balance ... balance: 0"으로 거절된다.
 # balance가 0이 아닌 거절(부분 체결/allowance 문제)은 유령이 아니므로 제외한다.
 _ZERO_BALANCE_PATTERN = re.compile(r"not enough balance.*balance:\s*0(?:\D|$)")
+_BALANCE_ALLOWANCE_PATTERN = re.compile(
+    r"not enough balance\s*/\s*allowance", re.IGNORECASE
+)
+_AVAILABLE_BALANCE_PATTERN = re.compile(
+    r"balance:\s*(\d+)\s*,\s*order amount:\s*(\d+)", re.IGNORECASE
+)
+_CLOB_QUANTITY_SCALE = 1_000_000
+_SELL_BALANCE_SAFETY_FACTOR = 0.99
 
 
 def is_zero_balance_error(result: dict) -> bool:
     """매도 주문 실패가 '잔고 0(매수 미체결)' 때문인지 판별."""
     return bool(_ZERO_BALANCE_PATTERN.search(str(result.get("error", ""))))
+
+
+def is_balance_allowance_error(result: dict) -> bool:
+    """Return whether CLOB rejected an order for balance or allowance."""
+    return bool(
+        _BALANCE_ALLOWANCE_PATTERN.search(str(result.get("error", "")))
+    )
+
+
+def available_shares_from_error(result: dict) -> Optional[float]:
+    """Extract the conditional-token balance reported by CLOB, in shares."""
+    match = _AVAILABLE_BALANCE_PATTERN.search(str(result.get("error", "")))
+    if match is None:
+        return None
+    return int(match.group(1)) / _CLOB_QUANTITY_SCALE
 
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
@@ -47,6 +74,7 @@ class Trader:
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.buying_disabled = False
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -69,6 +97,9 @@ class Trader:
         """
         condition_id = candidate["condition_id"]
         token_id = candidate["token_id"]
+
+        if self.buying_disabled:
+            return None
 
         # Check: Already traded?
         if self.repo.is_already_traded(condition_id):
@@ -163,17 +194,79 @@ class Trader:
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
             return trade.id
         else:
-            logger.error(f"매수 주문 실패: {result}")
+            if is_balance_allowance_error(result):
+                self.buying_disabled = True
+                logger.warning(
+                    "collateral 잔고/allowance가 매수금액보다 부족해 "
+                    "이번 cycle의 남은 매수를 중단합니다"
+                )
+            else:
+                logger.error(f"매수 주문 실패: {result}")
             return None
+
+    def _place_sell_with_balance_retry(
+        self,
+        *,
+        token_id: str,
+        price: float,
+        requested_size: float,
+    ) -> tuple[dict, float]:
+        """Retry one SELL below a smaller balance explicitly reported by CLOB."""
+        result = self.clob.place_limit_order(
+            token_id=token_id,
+            price=price,
+            size=requested_size,
+            side="SELL",
+        )
+        if result.get("success") or result.get("orderID"):
+            return result, requested_size
+
+        available_shares = available_shares_from_error(result)
+        if (
+            available_shares is None
+            or available_shares <= 0
+            or available_shares >= requested_size
+        ):
+            return result, requested_size
+
+        retry_size = math.floor(
+            available_shares
+            * _SELL_BALANCE_SAFETY_FACTOR
+            * _CLOB_QUANTITY_SCALE
+        ) / _CLOB_QUANTITY_SCALE
+        if retry_size < MIN_ORDER_SIZE:
+            logger.warning(
+                "부분 체결 잔고가 최소 주문량보다 작아 매도 보류 - "
+                "token=%s available=%.6f",
+                token_id,
+                available_shares,
+            )
+            return result, requested_size
+
+        logger.warning(
+            "DB 수량보다 CLOB token 잔고가 작아 가용 잔고의 99%%로 "
+            "매도를 한 번 재시도합니다 - requested=%.6f available=%.6f "
+            "retry=%.6f",
+            requested_size,
+            available_shares,
+            retry_size,
+        )
+        retry_result = self.clob.place_limit_order(
+            token_id=token_id,
+            price=price,
+            size=retry_size,
+            side="SELL",
+        )
+        return retry_result, retry_size
 
     def execute_sell(self, trade) -> bool:
         """Execute sell order for a holding position.
 
         청산 조건 (우선순위 순):
         1. 손절: P&L <= -8%
-        2. 익절: P&L >= +15%
+        2. 익절: P&L >= configured take-profit threshold
         3. 트레일링 스탑: 최고점 대비 -5%
-        4. 시간: 해결 4시간 이내
+        4. 시간: 설정된 exit_hours 이내 (0이면 비활성화)
 
         Args:
             trade: Trade object from DB
@@ -238,15 +331,22 @@ class Trader:
                     f"하락폭: {drawdown:.1%})"
                 )
 
-        # 4. Time-based Exit: hours_until_resolution < exit_hours
+        # 4. Time-based Exit: only unresolved markets within the exit window.
+        # exit_hours=0 disables this rule. A past endDate is not proof of
+        # resolution and must never trigger a CLOB sell by itself.
         if not should_sell and self.config.time_based.enabled:
             hours_left = get_hours_until_resolution(trade.market_end_date)
-            if hours_left is not None and hours_left < self.config.time_based.exit_hours:
+            exit_hours = self.config.time_based.exit_hours
+            if (
+                exit_hours > 0
+                and hours_left is not None
+                and 0 < hours_left <= exit_hours
+            ):
                 should_sell = True
                 exit_reason = "time_exit"
                 logger.info(
                     f"시간 기반 청산 - 매도: {condition_id} "
-                    f"(해결까지: {hours_left:.1f}h < {self.config.time_based.exit_hours}h)"
+                    f"(해결까지: {hours_left:.1f}h <= {exit_hours}h)"
                 )
 
         if not should_sell:
@@ -265,25 +365,24 @@ class Trader:
             f"@ {current_price:.2%} ({trade.buy_shares:.2f}주) [사유: {exit_reason}]"
         )
 
-        result = self.clob.place_limit_order(
+        result, sell_shares = self._place_sell_with_balance_retry(
             token_id=token_id,
             price=current_price,
-            size=trade.buy_shares,
-            side="SELL",
+            requested_size=trade.buy_shares,
         )
 
         # Check result
         if result.get("success") or result.get("orderID"):
             # Calculate P&L
-            sell_value = current_price * trade.buy_shares
-            buy_value = trade.buy_price * trade.buy_shares
+            sell_value = current_price * sell_shares
+            buy_value = trade.buy_price * sell_shares
             realized_pnl = sell_value - buy_value
 
             # Update trade record
             self.repo.update_trade(
                 trade.id,
                 sell_price=current_price,
-                sell_shares=trade.buy_shares,
+                sell_shares=sell_shares,
                 sell_order_id=result.get("orderID"),
                 sell_timestamp=datetime.utcnow(),
                 sell_probability=current_price,
@@ -318,6 +417,20 @@ class Trader:
             try:
                 cancel_result = self.clob.cancel_order(trade.buy_order_id)
             except SubmissionEvidenceError as error:
+                if isinstance(error.__cause__, ClobResponseUnavailableError):
+                    self.repo.update_trade(
+                        trade.id,
+                        status=TradeStatus.QUARANTINED,
+                        exit_reason="zero_balance_order_unavailable",
+                        realized_pnl=None,
+                    )
+                    logger.warning(
+                        "zero-balance 포지션 격리 [QUARANTINED]: "
+                        "Trade #%s - 과거 buy order가 CLOB catalog에서 "
+                        "사라져 zero-fill 여부를 확정하지 못했습니다",
+                        trade.id,
+                    )
+                    return
                 logger.error(
                     "유령 포지션 판정 보류 - buy order의 zero-fill 취소를 "
                     "증명하지 못해 HOLDING 유지: trade=%s order=%s error=%s",

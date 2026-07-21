@@ -18,6 +18,7 @@ from polybot_observability import (
     ClobResponseUnavailableError,
     ExecutionLedger,
     SubmissionEvidenceError,
+    SubmissionOutcomeQuarantinedError,
     normalize_clob_response,
     normalize_clob_response_list,
     safe_clob_response_shape,
@@ -498,6 +499,18 @@ class ClobClientWrapper:
             logger.info(f"Limit {side} 주문 완료 @ {rounded_price:.2f}: {response}")
             return dict(response)
 
+        except SubmissionOutcomeQuarantinedError as error:
+            logger.warning(
+                "CLOB 주문 결과가 불확실해 동일 token/side를 격리하고 "
+                "trading cycle을 계속합니다 - side=%s",
+                error.side,
+            )
+            return {
+                "success": False,
+                "error": str(error),
+                "submission_outcome_unknown": True,
+                "quarantined": True,
+            }
         except SubmissionEvidenceError:
             logger.critical("접수 주문과 execution ledger 정합성 유지 실패", exc_info=True)
             raise

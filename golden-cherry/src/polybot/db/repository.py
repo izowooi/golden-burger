@@ -178,6 +178,10 @@ class TradeRepository:
             Trade.status == TradeStatus.COMPLETED
         ).scalar() or 0
 
+        quarantined = self.session.query(func.count(Trade.id)).filter(
+            Trade.status == TradeStatus.QUARANTINED
+        ).scalar() or 0
+
         total_pnl = self.session.query(func.sum(Trade.realized_pnl)).filter(
             Trade.realized_pnl.isnot(None)
         ).scalar() or 0.0
@@ -188,6 +192,7 @@ class TradeRepository:
             "total_trades": total,
             "holding": holding,
             "completed": completed,
+            "quarantined": quarantined,
             "skipped": skipped,
             "total_pnl": round(total_pnl, 4),
         }

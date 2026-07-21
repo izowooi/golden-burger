@@ -5,7 +5,7 @@ from polybot_observability import SQLiteMaintenanceRequirements
 from .config import BotConfig
 from .api.gamma_client import GammaClient
 from .api.clob_client import ClobClientWrapper
-from .strategy.scanner import MarketScanner
+from .strategy.scanner import MarketScanner, format_entry_window
 from .strategy.trader import Trader
 from .db.models import init_database
 from .db.repository import TradeRepository
@@ -82,11 +82,16 @@ class PolymarketBot:
             # Log strategy configuration at cycle start
             time_cfg = self.config.trading.time_based
             if time_cfg.enabled:
+                time_exit_text = (
+                    f"해결 {time_cfg.exit_hours}h 전"
+                    if time_cfg.exit_hours > 0
+                    else "비활성화"
+                )
                 logger.info(
                     f"Resolution Momentum 전략 - "
-                    f"진입: {time_cfg.entry_hours_min}h < 해결시간 <= {time_cfg.entry_hours_max}h, "
+                    f"진입: {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
                     f"확률: {self.config.trading.buy_threshold:.0%} ~ {self.config.trading.sell_threshold:.0%}, "
-                    f"청산: 해결 {time_cfg.exit_hours}h 전"
+                    f"시간 청산: {time_exit_text}"
                 )
                 logger.info(
                     f"손익 설정 - 손절: {self.config.trading.stop_loss_percent:.0%}, "

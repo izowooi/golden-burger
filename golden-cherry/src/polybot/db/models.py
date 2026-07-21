@@ -19,6 +19,7 @@ class TradeStatus(enum.Enum):
     SKIPPED = "skipped"              # Skipped due to rapid price jump
     UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
                                      # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
+    QUARANTINED = "quarantined"      # 잔고 0이나 과거 order 증거가 소실된 격리 포지션
 
 
 class Trade(Base):

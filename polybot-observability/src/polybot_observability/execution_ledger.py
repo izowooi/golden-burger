@@ -114,6 +114,22 @@ class SubmissionEvidenceError(RuntimeError):
     """Raised when an external order cannot be kept consistent with its ledger."""
 
 
+class SubmissionOutcomeQuarantinedError(SubmissionEvidenceError):
+    """Raised when an ambiguous POST outcome was durably quarantined locally.
+
+    The external order may or may not exist, but the ledger write succeeded and
+    blocks only the exact token/side pair. Callers may therefore continue other
+    independent work without retrying this order.
+    """
+
+    def __init__(self, token_id: str, side: str) -> None:
+        self.token_id = str(token_id)
+        self.side = str(side).upper()
+        super().__init__(
+            "주문 POST 결과가 불확실하여 동일 token/side를 격리했습니다"
+        )
+
+
 class ClobResponseContractError(ValueError):
     """Raised when a decoded CLOB response is ambiguous or incomplete."""
 
@@ -749,8 +765,9 @@ class ExecutionLedger:
                     "주문 실패 상태를 execution ledger에 기록하지 못했습니다"
                 ) from ledger_error
             if response_status == "SUBMIT_OUTCOME_UNKNOWN":
-                raise SubmissionEvidenceError(
-                    "주문 POST 결과가 불확실하여 trading cycle을 중단합니다"
+                raise SubmissionOutcomeQuarantinedError(
+                    token_id=token_id,
+                    side=side,
                 ) from error
             raise
 

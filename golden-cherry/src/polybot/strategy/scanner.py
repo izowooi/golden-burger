@@ -81,14 +81,16 @@ def get_hours_until_resolution(end_date: Optional[datetime]) -> Optional[float]:
 def is_valid_time_entry(
     end_date: Optional[datetime],
     entry_hours_max: int,
-    entry_hours_min: int
+    entry_hours_min: int,
+    exit_hours: int = 0,
 ) -> tuple[bool, str, Optional[float]]:
     """Check if market is within valid time window for entry.
 
     Args:
         end_date: Market resolution datetime
-        entry_hours_max: Maximum hours until resolution (24)
-        entry_hours_min: Minimum hours until resolution (4)
+        entry_hours_max: Maximum hours until resolution (inclusive)
+        entry_hours_min: Minimum hours until resolution (inclusive; 0 allowed)
+        exit_hours: Active time-exit window. New entries inside it are rejected.
 
     Returns:
         Tuple of (is_valid, reason, hours_left)
@@ -107,7 +109,17 @@ def is_valid_time_entry(
     if hours_left < entry_hours_min:
         return False, f"too_late_{hours_left:.1f}h", hours_left
 
+    if exit_hours > 0 and hours_left <= exit_hours:
+        return False, f"inside_exit_window_{hours_left:.1f}h", hours_left
+
     return True, f"time_based_{hours_left:.1f}h", hours_left
+
+
+def format_entry_window(entry_hours_min: int, entry_hours_max: int) -> str:
+    """Render the actual lower-bound semantics used by ``is_valid_time_entry``."""
+    if entry_hours_min == 0:
+        return f"0h < 해결시간 <= {entry_hours_max}h"
+    return f"{entry_hours_min}h <= 해결시간 <= {entry_hours_max}h"
 
 
 class MarketScanner:
@@ -146,7 +158,7 @@ class MarketScanner:
 
         time_cfg = self.config.time_based
         logger.info(
-            f"설정: 진입 조건 {time_cfg.entry_hours_min}h < 해결시간 <= {time_cfg.entry_hours_max}h, "
+            f"설정: 진입 조건 {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
             f"확률 {self.config.buy_threshold:.0%} ~ {self.config.sell_threshold:.0%}"
         )
         logger.info("-" * 70)
@@ -176,7 +188,7 @@ class MarketScanner:
         1. Not in excluded categories (sports)
         2. Liquidity >= min_liquidity
         3. Probability: buy_threshold <= prob <= sell_threshold (75-92%)
-        4. Time: entry_hours_min < hours_until_resolution <= entry_hours_max (4-24h)
+        4. Time: positive hours_until_resolution in the configured inclusive window
 
         Returns:
             List of candidate dictionaries with market info
@@ -235,7 +247,8 @@ class MarketScanner:
                 entry_signal, entry_reason, hours_left = is_valid_time_entry(
                     end_date,
                     self.config.time_based.entry_hours_max,
-                    self.config.time_based.entry_hours_min
+                    self.config.time_based.entry_hours_min,
+                    self.config.time_based.exit_hours,
                 )
 
             # 분석 결과 저장 (진입 여부와 관계없이)

@@ -11,6 +11,7 @@ from polybot_observability import (
     ClobResponseUnavailableError,
     ExecutionLedger,
     SubmissionEvidenceError,
+    SubmissionOutcomeQuarantinedError,
     UnresolvedSubmissionOutcomeError,
     UnresolvedTokenSubmissionError,
     normalize_clob_response,
@@ -1184,7 +1185,7 @@ def test_sdk_request_exception_is_preserved_as_unknown_outcome(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
 
-    with pytest.raises(SubmissionEvidenceError) as captured:
+    with pytest.raises(SubmissionOutcomeQuarantinedError) as captured:
         ledger.submit_and_record(
             token_id="token",
             side="BUY",
@@ -1195,6 +1196,8 @@ def test_sdk_request_exception_is_preserved_as_unknown_outcome(tmp_path):
             ),
         )
     assert isinstance(captured.value.__cause__, PolyApiException)
+    assert captured.value.token_id == "token"
+    assert captured.value.side == "BUY"
 
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(

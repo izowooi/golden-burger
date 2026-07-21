@@ -408,7 +408,7 @@ def test_preflight_timeout_creates_no_uncertain_intent(tmp_path):
         ).fetchone()[0] == 0
 
 
-def test_post_timeout_remains_unknown_and_fails_closed(tmp_path):
+def test_post_timeout_is_quarantined_without_failing_cycle(tmp_path):
     class PostTimeout(PlacementClient):
         def post_order(self, signed_order, order_type):
             with sqlite3.connect(self.db_path) as connection:
@@ -420,8 +420,14 @@ def test_post_timeout_remains_unknown_and_fails_closed(tmp_path):
     db_path = tmp_path / "trades.db"
     wrapper = _placement_wrapper(db_path, PostTimeout(db_path))
 
-    with pytest.raises(SubmissionEvidenceError, match="POST 결과가 불확실"):
-        wrapper.place_limit_order("token", 0.4, 10, "BUY")
+    result = wrapper.place_limit_order("token", 0.4, 10, "BUY")
+
+    assert result == {
+        "success": False,
+        "error": "주문 POST 결과가 불확실하여 동일 token/side를 격리했습니다",
+        "submission_outcome_unknown": True,
+        "quarantined": True,
+    }
 
     with sqlite3.connect(db_path) as connection:
         assert connection.execute(

@@ -1,11 +1,11 @@
 # Golden Cherry - Polymarket 자동 매매 봇
 
-Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 해결 직전(4-24시간) 고확률(75-92%) 시장에 진입하여 단기 수익을 추구합니다.
+Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 `config.yaml`은 해결까지 24~720시간 남은 고확률(75~92%) 시장을 대상으로 합니다.
 
 ## 개요
 
-- **매수 조건**: 75% ≤ 확률 ≤ 92% + 해결까지 4~24시간
-- **매도 조건**: 익절 +10%, 손절 -8%, 트레일링 스탑 -5%, 해결 4시간 전
+- **매수 조건**: 75% ≤ 확률 ≤ 92% + 해결까지 24~720시간
+- **매도 조건**: 익절 +10%, 손절 -8%, 트레일링 스탑 -5%, 해결 12시간 전
 - **리스크 관리**: 손절, 이익실현, 트레일링 스탑, 시간 기반 청산
 
 ## 아키텍처
@@ -41,7 +41,7 @@ flowchart TB
 stateDiagram-v2
     [*] --> Scanning: 5분 주기
 
-    Scanning --> BuyCandidate: 75% ≤ 확률 ≤ 92%<br/>+ 해결까지 4~24시간
+    Scanning --> BuyCandidate: 75% ≤ 확률 ≤ 92%<br/>+ 해결까지 24~720시간
     Scanning --> Skip: 조건 미충족
 
     BuyCandidate --> CheckExisting: 이미 거래한 시장?
@@ -52,7 +52,7 @@ stateDiagram-v2
 
     Holding --> SellCheck: 매 사이클
     SellCheck --> Holding: 청산 조건 미충족
-    SellCheck --> Sell: +10% or -8% or 트레일링 -5% or 해결 4h 전
+    SellCheck --> Sell: +10% or -8% or 트레일링 -5% or 해결 12h 전
 
     Sell --> Completed: 매도 완료
 
@@ -213,9 +213,9 @@ trading:
   # 시간 기반 진입/청산 설정
   time_based:
     enabled: true
-    entry_hours_max: 24  # 해결까지 최대 24시간
-    entry_hours_min: 4   # 해결까지 최소 4시간
-    exit_hours: 4        # 해결 4시간 전 청산
+    entry_hours_max: 720 # 해결까지 최대 30일
+    entry_hours_min: 24  # 해결까지 최소 1일
+    exit_hours: 12       # 해결 12시간 전 청산 (0이면 시간 청산 비활성화)
 
   # 제외 카테고리 (비어있으면 모든 카테고리 스캔)
   excluded_categories: []
@@ -349,12 +349,12 @@ golden-cherry/
 
 | 상황 | 동작 |
 |------|------|
-| 75% ≤ 확률 ≤ 92% + 해결 4~24시간 | 매수 |
+| 75% ≤ 확률 ≤ 92% + 해결 24~720시간 | 매수 |
 | 진입가 대비 +10% 이상 | 이익실현 매도 |
 | 진입가 대비 -8% 이하 | 손절 매도 |
 | 최고점 대비 -5% 하락 | 트레일링 스탑 매도 |
-| 해결까지 4시간 미만 | 시간 기반 청산 |
-| 해결 24시간 초과 | 대기 (매수 안함) |
+| 해결까지 12시간 이하 | 시간 기반 청산 |
+| 해결 720시간 초과 | 대기 (매수 안함) |
 | 이미 거래한 시장 | 재거래 금지 |
 
 ---
@@ -393,9 +393,24 @@ golden-cherry/
 |---------|---------|--------------|-----------|-------------------|------|
 | 진입 최대 잔여 시간 | `POLYBOT_ENTRY_HOURS_MAX` | `trading.time_based.entry_hours_max` | 24h | **720h (30일)** | 해결까지 이 시간 이내 진입 |
 | 진입 최소 잔여 시간 | `POLYBOT_ENTRY_HOURS_MIN` | `trading.time_based.entry_hours_min` | 4h | **24h** | 해결까지 이 시간 이상 남아야 진입 |
-| 청산 기준 잔여 시간 | `POLYBOT_EXIT_HOURS` | `trading.time_based.exit_hours` | 4h | **12h** | 해결까지 이 시간 미만이면 청산 |
+| 청산 기준 잔여 시간 | `POLYBOT_EXIT_HOURS` | `trading.time_based.exit_hours` | 4h | **12h** | 해결까지 이 시간 이하면 청산; 0이면 비활성화 |
 
 > **주의**: 코드 기본값(4~24시간 단기)과 현재 config.yaml(24~720시간, 최대 30일)이 크게 다릅니다.
+
+#### Jenkins에서 “5일 이내 전체”로 제한
+
+```bash
+export POLYBOT_ENTRY_HOURS_MIN=0
+export POLYBOT_ENTRY_HOURS_MAX=120
+export POLYBOT_EXIT_HOURS=0
+```
+
+이 설정은 `0 < 해결까지 남은 시간 <= 120시간`인 신규 시장을 대상으로 하며,
+`POLYBOT_EXIT_HOURS=0`은 기존 12시간 전 자동 청산을 끕니다. 진입 최소시간만 0으로 바꾸고
+청산시간을 12로 유지하면 12시간 이내 시장은 진입과 청산 조건이 충돌하므로 신규 진입에서 제외되어
+“5일 이내 전체를 만기까지 보유”하려는 운영에는 맞지 않습니다. 진입 최대/최소시간은 신규
+매수 필터에만 사용되므로, 이미 보유한 포지션이 120시간 밖에 있다는 이유만으로 팔리지는
+않습니다. 기존 포지션에는 손절·익절·트레일링 스탑과 별도로 설정한 시간 청산만 적용됩니다.
 
 ---
 

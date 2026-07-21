@@ -40,6 +40,28 @@ def test_invalid_cross_field_values_are_rejected(monkeypatch, values, match):
         load_config("missing.yaml")
 
 
+def test_zero_hour_entry_and_disabled_time_exit_are_supported(monkeypatch):
+    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MIN", "0")
+    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MAX", "120")
+    monkeypatch.setenv("POLYBOT_EXIT_HOURS", "0")
+
+    timing = load_config("missing.yaml").trading.time_based
+
+    assert timing.entry_hours_min == 0
+    assert timing.entry_hours_max == 120
+    assert timing.exit_hours == 0
+
+
+@pytest.mark.parametrize(("key", "value"), [
+    ("POLYBOT_ENTRY_HOURS_MIN", "-1"),
+    ("POLYBOT_EXIT_HOURS", "-1"),
+])
+def test_negative_time_window_values_are_rejected(monkeypatch, key, value):
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="time_based windows"):
+        load_config("missing.yaml")
+
+
 def test_invalid_boolean_env_is_rejected(monkeypatch):
     monkeypatch.setenv("POLYBOT_TRAILING_STOP_ENABLED", "tru")
     with pytest.raises(ValueError, match="boolean"):
