@@ -277,7 +277,7 @@ pipeline {
     }
 
     triggers {
-        cron('*/5 * * * *')  // 5분마다 실행
+        cron('H/5 * * * *')  // Jenkins hash 분산을 적용해 약 5분마다 실행
     }
 
     environment {
@@ -321,7 +321,7 @@ pipeline {
 디렉터리·DB·run audit의 전략명은 golden-cherry로 유지합니다. 기존 Jenkins가 `--job` 없이
 실행됐다면 계속 `default` DB를 사용해야 하므로 임의로 새 `--job` 값을 붙이지 않습니다.
 
-Freestyle Job의 Execute shell에서는 같은 환경변수를 설정한 뒤 아래 세 줄을 사용합니다.
+Freestyle Job의 Execute shell에서는 같은 환경변수를 설정한 뒤 아래 명령을 사용합니다.
 private key와 funder address를 shell에 직접 적지 말고 Jenkins Credentials Binding으로
 주입하며, secret을 참조하기 전부터 `set +x` 상태여야 합니다.
 
@@ -332,6 +332,28 @@ cd ./golden-cherry
 /Users/jongwoopark/.local/bin/uv run python ./main.py config
 /Users/jongwoopark/.local/bin/uv run python ./main.py run --yes-only
 ```
+
+#### `main.py config`를 먼저 실행하는 이유
+
+```bash
+/Users/jongwoopark/.local/bin/uv run python ./main.py config
+```
+
+이 명령은 거래를 실행하지 않는 **설정 사전 점검(preflight)** 입니다.
+
+1. `.env`, `config.yaml`, Jenkins 환경변수를 읽고 `환경변수 > config.yaml > 코드 기본값`
+   순서로 최종값을 결정합니다.
+2. 필수 인증값 존재 여부, 확률 범위, 주문 하드캡, 시간 범위, 포지션/원금 한도의 모순을
+   검사합니다.
+3. 최종 적용된 매수금액, 유동성 기준, 시간창, lifecycle, YES-only 여부와 DB 경로를 Jenkins
+   로그에 출력합니다. private key 자체는 출력하지 않습니다.
+4. Gamma/CLOB API를 호출하거나 주문을 만들지는 않습니다. 다만 `data/<job>/` 디렉터리가
+   없으면 설정 로드 과정에서 생성할 수 있습니다.
+
+`run` 명령도 시작할 때 같은 설정 로드와 검증을 다시 수행하므로 `config`는 필수는 아닙니다.
+Jenkins 로그에서 배포된 실제 값을 바로 확인하려면 유지하고, 실행 시간을 조금이라도 줄이고
+싶다면 제거해도 거래 동작은 같습니다. `--job`을 사용한다면 `config`와 `run` 양쪽에 반드시
+같은 값을 지정해야 합니다.
 
 `POLYBOT_YES_ONLY=true`와 `--yes-only`는 같은 안전 모드를 가리킵니다. 둘을 함께 두면
 실행 동작은 바뀌지 않으면서, 바로 앞의 `main.py config` 출력도 `YES-Only Mode: True`로
@@ -585,46 +607,66 @@ excluded_categories: []  # ← 빈 배열 = 스포츠 필터 완전 비활성화
 
 ---
 
-### 환경변수 전체 목록
+### 환경변수 전체 설명
 
-```bash
-# 필수 (API 인증)
-POLYMARKET_PRIVATE_KEY=0xYourPrivateKey
-POLYMARKET_FUNDER_ADDRESS=0xYourWalletAddress
+모든 비율은 퍼센트 숫자가 아니라 소수로 지정합니다. 예를 들어 92%는 `0.92`, 0.2%는
+`0.002`, -8%는 `-0.08`입니다. 실제 적용 우선순위는 `환경변수 > config.yaml > 코드
+기본값`입니다.
 
-# 매수/매도 임계값 (선택)
-POLYBOT_BUY_THRESHOLD=0.75
-POLYBOT_SELL_THRESHOLD=0.92
-POLYBOT_BUY_AMOUNT=5.0
-POLYBOT_MAX_BUY_AMOUNT_USDC=100
-POLYBOT_MIN_LIQUIDITY=50000
-POLYBOT_MAX_ORDER_LIQUIDITY_RATIO=0.002
-POLYBOT_MAX_POSITIONS=100
-POLYBOT_MAX_OPEN_NOTIONAL_USDC=5000
-POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=5
+#### 인증 및 실행 모드
 
-# 익절/손절 (선택)
-POLYBOT_TAKE_PROFIT=0.15
-POLYBOT_STOP_LOSS=-0.08
+| 환경변수 | 현재 Jenkins 권장값 | 의미 | 주의사항 |
+|---|---:|---|---|
+| `POLYMARKET_PRIVATE_KEY` | Credentials Binding | CLOB 주문 서명용 개인키 | 필수 secret. shell에 직접 쓰거나 콘솔에 출력하지 않음 |
+| `POLYMARKET_FUNDER_ADDRESS` | Credentials Binding | 자금과 conditional token을 보유하는 golden-banana 계좌 주소 | 필수. 전략명 golden-cherry와 계좌명 golden-banana를 혼동하지 않음 |
+| `POLYMARKET_SIGNATURE_TYPE` | 기존 계좌 설정 유지 | CLOB 서명 방식. 코드 기본값 `1`; 지원값은 `1` 또는 `3` | 이미 주문이 정상인 계좌는 바꾸지 않음. 신규 1271 smart wallet만 검증 후 `3` 사용 |
+| `POLYBOT_LIFECYCLE_MODE` | `active` | `active`=매수+청산, `close_only`=신규 BUY 차단+기존 청산, `archive_only`=주문 모두 차단 | 즉시 전량매도 스위치가 아님 |
+| `POLYBOT_YES_ONLY` | `true` | `true`이면 outcome index 0(일반적으로 Yes)만 진입 후보로 평가 | CLI `--yes-only`도 true로 강제함. 둘을 함께 써도 동작은 같음 |
 
-# 트레일링 스탑 (선택)
-POLYBOT_TRAILING_STOP_ENABLED=true
-POLYBOT_TRAILING_STOP_PERCENT=0.05
+#### 진입 확률과 주문 규모
 
-# 시간 기반 필터 (선택)
-POLYBOT_TIME_BASED_ENABLED=true
-POLYBOT_ENTRY_HOURS_MAX=120
-POLYBOT_ENTRY_HOURS_MIN=0
-POLYBOT_EXIT_HOURS=0
+| 환경변수 | 현재 적용값 | 의미 | 제약/상호작용 |
+|---|---:|---|---|
+| `POLYBOT_BUY_THRESHOLD` | `0.75` (`config.yaml`) | 신규 BUY 확률 하한 | 현재 진입 범위의 아래 경계, 양끝 포함 |
+| `POLYBOT_SELL_THRESHOLD` | `0.92` (`config.yaml`) | 이름과 달리 Golden Cherry의 신규 BUY 확률 상한 | 실제 매도 조건이 아님. 92% 초과 가격은 BUY에서 제외 |
+| `POLYBOT_BUY_AMOUNT` | `100` | 후보 한 건당 요청할 USDC 금액 | `MAX_BUY_AMOUNT_USDC` 이하이고 `MAX_OPEN_NOTIONAL_USDC` 이하이어야 함 |
+| `POLYBOT_MAX_BUY_AMOUNT_USDC` | `100` | 실수로 큰 주문을 넣지 못하게 하는 건당 하드캡 | `BUY_AMOUNT`가 더 크면 주문 전에 설정 오류로 종료 |
+| `POLYBOT_MIN_LIQUIDITY` | `50000` | Gamma 시장 총 유동성의 정적 하한 | 실제 호가창의 즉시 체결 가능 수량과는 다름 |
+| `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `0.002` | 주문액을 Gamma 유동성의 최대 0.2%로 제한 | 실효 유동성 하한은 `max(MIN_LIQUIDITY, BUY_AMOUNT / 비율)` |
+| `POLYBOT_MAX_POSITIONS` | `100` | DB상 open exposure 포지션 수 상한 | 신규 BUY만 차단하며 기존 포지션을 강제 매도하지 않음 |
+| `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `5000` | open 포지션들의 요청 매수원금 합계 상한 | 현재 $100 주문이면 포지션 수보다 약 50건에서 먼저 제한될 수 있음 |
+| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `5` | Jenkins 한 번 실행에서 새로 넣을 수 있는 BUY 수 | 5분마다 최대 5건이라는 burst 제한이며 총 포지션 상한과 별개 |
 
-# 스포츠 gameStartTime 필터 (선택)
-POLYBOT_GAME_START_FILTER_ENABLED=true
-POLYBOT_ALLOW_IN_PLAY=true
-POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START=true
+#### 시간 및 스포츠 시장
 
-# 모드 플래그 (선택)
-POLYBOT_YES_ONLY=false
-```
+| 환경변수 | 현재 적용값 | 의미 | 제약/상호작용 |
+|---|---:|---|---|
+| `POLYBOT_TIME_BASED_ENABLED` | `true` (`config.yaml`) | 시간 기반 신규 진입과 `EXIT_HOURS` 청산 규칙 전체 활성화 | `false`이면 확률 조건 중심으로 동작하므로 운영 중 임의 비활성화 금지 |
+| `POLYBOT_ENTRY_HOURS_MIN` | `0` | 경기 전 스포츠는 gameStartTime, 비스포츠는 endDate까지의 최소 잔여시간 | 실제 신규 진입은 잔여시간이 0보다 커야 함 |
+| `POLYBOT_ENTRY_HOURS_MAX` | `120` | 위 기준시각까지 최대 잔여시간 | 경기 전/비스포츠는 `0 < 잔여시간 <= 120h` |
+| `POLYBOT_EXIT_HOURS` | `0` | endDate까지 이 시간 이하일 때 기존 포지션 시간 청산 | `0`은 시간 청산 비활성. 손절·익절·trailing stop은 계속 적용 |
+| `POLYBOT_GAME_START_FILTER_ENABLED` | `true` | 스포츠의 경기 전 시간창을 endDate가 아닌 gameStartTime으로 계산 | 정산용 endDate 때문에 이미 시작한 경기를 오분류하는 것을 방지 |
+| `POLYBOT_ALLOW_IN_PLAY` | `true` | 경기 시작 뒤에도 Polymarket이 주문을 받는 시장의 신규 BUY 허용 | 실제 경기 종료까지 남은 분을 뜻하지 않음 |
+| `POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START` | `true` | sportsMarketType은 있지만 gameStartTime이 없으면 제외 | endDate로 추측하지 않는 fail-closed 설정 |
+
+#### 청산 조건
+
+| 환경변수 | 현재 적용값 | 의미 | 제약/상호작용 |
+|---|---:|---|---|
+| `POLYBOT_TAKE_PROFIT` | `0.10` (`config.yaml`) | 진입가 대비 +10% 이상이면 익절 SELL | 환경변수를 지정하면 YAML 값을 덮어씀 |
+| `POLYBOT_STOP_LOSS` | `-0.08` | 진입가 대비 -8% 이하이면 손절 SELL | 음수로 지정해야 함 |
+| `POLYBOT_TRAILING_STOP_ENABLED` | `true` | 진입 후 최고가 대비 하락 청산 활성화 | 손절·익절과 별도로 평가 |
+| `POLYBOT_TRAILING_STOP_PERCENT` | `0.05` | 최고가에서 5% 하락하면 trailing-stop SELL | 진입가 대비 5% 손실이라는 뜻이 아님 |
+
+#### 현재 shell에 있지만 설정으로 사용되지 않는 값
+
+| 이름 | 현재 동작 | 권장 |
+|---|---|---|
+| `LOG_LEVEL` | Golden Cherry의 `main.py`는 현재 이 환경변수를 읽지 않음. 기본은 INFO이고 `run --verbose`일 때만 DEBUG | `export LOG_LEVEL=INFO`는 제거해도 동일함. DEBUG가 필요할 때만 `--verbose` 사용 |
+
+`simulation_mode`, 제외 카테고리, DB job 이름은 환경변수가 아닙니다. 각각 `config.yaml` 또는
+CLI의 `--simulate`, `--job`, `--config`로 제어합니다. `SLACK_WEBHOOK_URL`은 별도 notifier
+유틸리티가 읽을 수 있지만 현재 기본 trading cycle에서는 사용하지 않습니다.
 
 ## 데이터 분석
 
