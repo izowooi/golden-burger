@@ -15,20 +15,28 @@
 3. $8,000/$1,000 주문과 무제한 포지션이 손실 노출을 키웠다.
 4. DB 수량이 실제 conditional-token 잔고보다 아주 조금 커 손절 SELL 전체가 거절됐다.
 
-따라서 진입창은 사용자가 의도한 `0 < 남은시간 <= 120시간`으로 유지한다. 스포츠는
-`gameStartTime`, 비스포츠는 `endDate`를 남은시간의 기준으로 사용한다. 기본 시간청산은
-0시간(비활성)이며, 이 변경은 기존 포지션을 시간 범위 밖이라는 이유로 매도하지 않는다.
+따라서 비스포츠 진입창은 사용자가 의도한 `0 < endDate 잔여시간 <= 120시간`으로 유지한다.
+스포츠는 경기 전 `gameStartTime`까지 120시간 이내이거나, 경기 시작 뒤 아직 주문 가능한
+인플레이 시장이면 후보가 된다. 기본 시간청산은 0시간(비활성)이며, 이 변경은 기존 포지션을
+시간 범위 밖이라는 이유로 매도하지 않는다.
 
 ## 구현한 방어선
 
 ### 1. 스포츠 기준시각
 
-- `gameStartTime`이 있는 시장은 그 시각까지 남은 시간이 0~120시간일 때만 후보가 된다.
-- 경기 시작 5분 전부터 신규 BUY를 차단한다.
+- 경기 전에는 `gameStartTime`까지 남은 시간이 0~120시간일 때 후보가 된다.
+- 경기 시작 직전 buffer는 두지 않는다. 시작 5분 전과 경기 중에도 확률 조건을 만족하면 후보가 된다.
+- 경기 시작 뒤에는 `POLYBOT_ALLOW_IN_PLAY=true`이고 Gamma가 주문 가능 상태로 제공하는 동안
+  인플레이 후보가 된다.
 - `sportsMarketType`은 있지만 `gameStartTime`이 없거나 파싱할 수 없으면 fail closed한다.
-- 긴 Gamma keyset 순회 중 경기가 시작될 수 있으므로 주문 직전에도 다시 검사한다.
+- 긴 Gamma keyset 순회 중 pregame이 in-play로 바뀔 수 있으므로 주문 직전에도 다시 분류한다.
 - DB에는 `market_game_start_time`, `minutes_until_game_start_at_buy`,
-  `entry_time_reference`, `hours_until_entry_deadline_at_buy`, `sports_market_type`을 기록한다.
+  `entry_time_reference`, `hours_until_entry_deadline_at_buy`, `sports_market_type`,
+  `sports_phase_at_buy`을 기록한다.
+
+`gameStartTime`은 실제 경기의 남은 시간을 제공하지 않는다. 따라서 이 설정은 “경기 중”을
+허용할 수는 있지만 “축구 종료 5분 전”을 식별할 수는 없다. 그 조건은 별도의 live clock
+데이터가 있어야 구현할 수 있다.
 
 ### 2. 주문과 누적 노출
 
@@ -39,10 +47,12 @@
 - open 요청원금 상한: $5,000
 - Jenkins cycle 한 번의 신규 포지션 상한: 5개
 
-`max_buy_amount_usdc`는 운영 주문값과 별개의 하드캡이다. 예를 들어 주문을 $1,000으로
-키우려면 `POLYBOT_BUY_AMOUNT`와 `POLYBOT_MAX_BUY_AMOUNT_USDC`를 모두 바꿔야 하며,
-0.2% 규칙 때문에 최소 유동성도 자동으로 $500,000까지 올라간다. 이중 변경은 실수로 과거
-$8,000 설정이 재현되는 것을 막기 위한 의도적인 마찰이다.
+`max_buy_amount_usdc`는 운영 주문값과 별개의 하드캡이다. 주문을 키우려면
+`POLYBOT_BUY_AMOUNT`와 `POLYBOT_MAX_BUY_AMOUNT_USDC`를 모두 바꿔야 한다. 0.2% 규칙에서
+$1,000 주문은 $500,000, $10,000 주문은 $5,000,000의 최소 Gamma 유동성을 요구한다.
+$10,000 / $500,000 = 2%이므로 $500,000은 현재 규칙보다 10배 공격적이다. 또한 $10,000
+주문을 허용하려면 `POLYBOT_MAX_OPEN_NOTIONAL_USDC`도 적어도 $10,000 이상이어야 한다.
+이중 변경은 실수로 과거 $8,000 설정이 재현되는 것을 막기 위한 의도적인 마찰이다.
 
 ### 3. 실제 잔고 기준 SELL
 
@@ -64,6 +74,8 @@ $8,000 설정이 재현되는 것을 막기 위한 의도적인 마찰이다.
   실제 지갑 포지션을 대사한다.
 - Gamma `liquidity`는 실제 체결 가능한 동일 가격대의 book depth와 같지 않다. 0.2% 제한은
   최소 안전선이지 $100 이상 scale-up의 충분조건이 아니다.
+- $100 → $1,000 → $10,000 확대 전에 각 단계에서 ask-side order-book depth, 예상 평균
+  체결가, slippage 상한을 검증한다. 총 Gamma 유동성 숫자만 보고 $10,000으로 올리지 않는다.
 - run/order/fill audit의 strict evidence 문제가 남아 있으므로, 이 변경만으로 수익성이
   검증됐다고 해석하지 않는다.
 
@@ -74,7 +86,7 @@ export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=120
 export POLYBOT_EXIT_HOURS=0
 export POLYBOT_GAME_START_FILTER_ENABLED=true
-export POLYBOT_GAME_START_BUFFER_MINUTES=5
+export POLYBOT_ALLOW_IN_PLAY=true
 export POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START=true
 
 export POLYBOT_BUY_AMOUNT=100

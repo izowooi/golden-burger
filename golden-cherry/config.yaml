@@ -54,11 +54,11 @@ trading:
     # 0이면 endDate 기반 자동 시간청산 비활성화
     exit_hours: 0
 
-  # 스포츠는 endDate 대신 실제 gameStartTime을 진입 기준시각으로 사용
+  # 스포츠는 경기 전에는 gameStartTime을 진입 기준시각으로 사용하고,
+  # 경기 시작 뒤에는 Gamma가 주문 가능하다고 보고하는 동안 인플레이 진입 허용
   game_start:
     enabled: true
-    # 3/5분 Jenkins 주기와 스캔 지연을 고려해 시작 5분 전부터 진입 차단
-    entry_buffer_minutes: 5
+    allow_in_play: true
     # sportsMarketType이 있는데 gameStartTime이 없으면 endDate로 추측하지 않음
     reject_sports_without_game_start: true
 

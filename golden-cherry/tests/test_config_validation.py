@@ -24,7 +24,6 @@ def clean_env(monkeypatch, tmp_path):
     ("POLYBOT_MAX_POSITIONS", "-1", "max_positions"),
     ("POLYBOT_MAX_OPEN_NOTIONAL_USDC", "0", "max_open_notional_usdc"),
     ("POLYBOT_MAX_ORDER_LIQUIDITY_RATIO", "0", "max_order_liquidity_ratio"),
-    ("POLYBOT_GAME_START_BUFFER_MINUTES", "1441", "entry_buffer_minutes"),
     ("POLYMARKET_SIGNATURE_TYPE", "2", "signature_type"),
 ])
 def test_invalid_env_values_are_rejected(monkeypatch, key, value, match):
@@ -67,7 +66,7 @@ def test_live_safety_defaults_are_finite():
     assert trading.max_open_notional_usdc == 5000
     assert trading.max_new_positions_per_cycle == 5
     assert trading.game_start.enabled is True
-    assert trading.game_start.entry_buffer_minutes == 5
+    assert trading.game_start.allow_in_play is True
     assert trading.effective_min_liquidity == 50_000
 
 
@@ -89,6 +88,12 @@ def test_invalid_boolean_env_is_rejected(monkeypatch):
 
 def test_invalid_game_start_boolean_env_is_rejected(monkeypatch):
     monkeypatch.setenv("POLYBOT_GAME_START_FILTER_ENABLED", "tru")
+    with pytest.raises(ValueError, match="boolean"):
+        load_config("missing.yaml")
+
+
+def test_invalid_allow_in_play_boolean_env_is_rejected(monkeypatch):
+    monkeypatch.setenv("POLYBOT_ALLOW_IN_PLAY", "tru")
     with pytest.raises(ValueError, match="boolean"):
         load_config("missing.yaml")
 

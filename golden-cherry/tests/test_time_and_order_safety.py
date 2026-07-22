@@ -208,7 +208,7 @@ def test_per_cycle_position_limit_stops_buy_burst():
     assert len(clob.orders) == 1
 
 
-def test_order_preflight_rejects_sport_inside_game_start_buffer():
+def test_order_preflight_allows_sport_immediately_before_game_start():
     game_start = datetime.now(timezone.utc) + timedelta(minutes=4)
     candidate = make_candidate()
     candidate.update({
@@ -221,8 +221,28 @@ def test_order_preflight_rejects_sport_inside_game_start_buffer():
     clob = FakeClob(midpoint=0.80)
     trader = Trader(repo, clob, TradingConfig())
 
-    assert trader.execute_buy(candidate) is None
-    assert clob.orders == []
+    assert trader.execute_buy(candidate) == 1
+    assert len(clob.orders) == 1
+    assert repo.created[-1]["sports_phase_at_buy"] == "pregame"
+
+
+def test_order_preflight_allows_in_play_sport():
+    game_start = datetime.now(timezone.utc) - timedelta(minutes=10)
+    candidate = make_candidate()
+    candidate.update({
+        "entry_time_reference": "game_start_time",
+        "game_start_time": game_start,
+        "sports_market_type": "moneyline",
+        "is_sports_timed": True,
+    })
+    repo = FakeRepo()
+    clob = FakeClob(midpoint=0.80)
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_buy(candidate) == 1
+    assert len(clob.orders) == 1
+    assert repo.created[-1]["sports_phase_at_buy"] == "in_play"
+    assert repo.created[-1]["minutes_until_game_start_at_buy"] < 0
 
 
 def test_order_preflight_rejects_non_sport_after_end_date():
@@ -281,6 +301,7 @@ def test_existing_trade_database_gets_game_start_evidence_columns(tmp_path):
         "entry_time_reference",
         "hours_until_entry_deadline_at_buy",
         "sports_market_type",
+        "sports_phase_at_buy",
     } <= columns
 
 
@@ -360,17 +381,25 @@ def test_game_start_filter_uses_start_not_late_end_date():
     assert candidates[0]["hours_until_resolution"] > 160
 
 
-def test_game_start_filter_rejects_started_buffer_and_missing_start():
+def test_game_start_filter_allows_pregame_and_in_play_but_rejects_missing_start():
     now = datetime.now(timezone.utc)
     config = GameStartConfig(
         enabled=True,
-        entry_buffer_minutes=5,
+        allow_in_play=True,
         reject_sports_without_game_start=True,
     )
 
-    inside = evaluate_game_start(
+    pregame = evaluate_game_start(
         {
             "gameStartTime": (now + timedelta(minutes=4)).isoformat(),
+            "sportsMarketType": "moneyline",
+        },
+        config,
+        now=now,
+    )
+    in_play = evaluate_game_start(
+        {
+            "gameStartTime": (now - timedelta(minutes=10)).isoformat(),
             "sportsMarketType": "moneyline",
         },
         config,
@@ -382,10 +411,67 @@ def test_game_start_filter_rejects_started_buffer_and_missing_start():
         now=now,
     )
 
-    assert inside.valid is False
-    assert inside.reason.startswith("game_started_or_inside_buffer")
+    assert pregame.valid is True
+    assert pregame.phase == "pregame"
+    assert in_play.valid is True
+    assert in_play.phase == "in_play"
+    assert in_play.reason.startswith("game_in_play")
     assert missing.valid is False
     assert missing.reason == "sports_missing_game_start"
+
+
+def test_game_start_filter_can_explicitly_disable_in_play_entry():
+    now = datetime.now(timezone.utc)
+    evaluation = evaluate_game_start(
+        {
+            "gameStartTime": (now - timedelta(minutes=1)).isoformat(),
+            "sportsMarketType": "moneyline",
+        },
+        GameStartConfig(allow_in_play=False),
+        now=now,
+    )
+
+    assert evaluation.valid is False
+    assert evaluation.phase == "in_play"
+    assert evaluation.reason.startswith("game_in_play_disabled")
+
+
+def test_scanner_allows_in_play_sport_despite_late_settlement_end_date():
+    now = datetime.now(timezone.utc)
+
+    class FakeGamma:
+        def get_all_tradable_markets(self, min_liquidity):
+            assert min_liquidity == 50_000
+            return [{
+                "conditionId": "0xinplay",
+                "slug": "live-football-match",
+                "question": "Will Team A win?",
+                "outcomePrices": ["0.80", "0.20"],
+                "outcomes": ["Yes", "No"],
+                "clobTokenIds": ["YES", "NO"],
+                "liquidity": "100000",
+                "endDate": (now + timedelta(days=7)).isoformat(),
+                "gameStartTime": (now - timedelta(minutes=70)).isoformat(),
+                "sportsMarketType": "moneyline",
+            }]
+
+    config = TradingConfig(
+        excluded_categories=[],
+        time_based=TimeBasedConfig(
+            enabled=True,
+            entry_hours_min=0,
+            entry_hours_max=120,
+            exit_hours=0,
+        ),
+        game_start=GameStartConfig(allow_in_play=True),
+    )
+
+    candidates = MarketScanner(FakeGamma(), config).scan_buy_candidates()
+
+    assert len(candidates) == 1
+    assert candidates[0]["sports_phase"] == "in_play"
+    assert candidates[0]["hours_until_entry_deadline"] < 0
+    assert candidates[0]["hours_until_resolution"] > 160
 
 
 def test_unknown_submission_result_does_not_create_or_complete_trade():

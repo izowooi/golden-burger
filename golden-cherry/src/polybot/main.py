@@ -147,7 +147,7 @@ Examples:
         print(f"Max Open Notional: ${config.trading.max_open_notional_usdc:,.0f}")
         print(f"Max New Positions / Cycle: {config.trading.max_new_positions_per_cycle}")
         print(
-            "Entry Window: "
+            "Pregame / Non-sports Entry Window: "
             f"{config.trading.time_based.entry_hours_min}-"
             f"{config.trading.time_based.entry_hours_max}h"
         )
@@ -155,7 +155,7 @@ Examples:
         print(
             "Sports gameStartTime Guard: "
             f"{config.trading.game_start.enabled} "
-            f"(buffer {config.trading.game_start.entry_buffer_minutes}m)"
+            f"(allow in-play: {config.trading.game_start.allow_in_play})"
         )
         print()
         print("=== Excluded Categories ===")

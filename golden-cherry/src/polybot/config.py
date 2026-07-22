@@ -105,9 +105,9 @@ class TimeBasedConfig:
 
 @dataclass
 class GameStartConfig:
-    """스포츠 시장의 경기 시작시각 기반 진입 안전장치."""
+    """스포츠 시장의 경기 시작시각 및 인플레이 진입 설정."""
     enabled: bool = True
-    entry_buffer_minutes: int = 5
+    allow_in_play: bool = True
     reject_sports_without_game_start: bool = True
 
 
@@ -186,7 +186,6 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "entry_hours_min": timing.entry_hours_min,
         "entry_hours_max": timing.entry_hours_max,
         "exit_hours": timing.exit_hours,
-        "game_start.entry_buffer_minutes": game_start.entry_buffer_minutes,
     }
     for name, value in numeric.items():
         if not math.isfinite(value):
@@ -230,10 +229,6 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
             "enabled time_based windows must satisfy "
             "0 <= entry_hours_min < entry_hours_max and "
             "0 <= exit_hours < entry_hours_max"
-        )
-    if not 0 <= game_start.entry_buffer_minutes <= 1440:
-        raise ValueError(
-            "game_start.entry_buffer_minutes must be between 0 and 1440"
         )
     if not isinstance(trading.excluded_categories, list) or any(
         not isinstance(item, str) or not item.strip()
@@ -330,8 +325,8 @@ def load_config(
         ),
     )
 
-    # Parse sports game-start guard. Sports use gameStartTime as their entry
-    # deadline because Gamma endDate can be a later settlement/catalog date.
+    # Parse sports game-state rules. gameStartTime defines the pregame window;
+    # after kickoff, allow_in_play decides whether a tradeable market remains eligible.
     game_start_cfg = trading_cfg.get("game_start", {})
     game_start = GameStartConfig(
         enabled=_get_bool_config_value(
@@ -339,11 +334,10 @@ def load_config(
             game_start_cfg.get("enabled"),
             True,
         ),
-        entry_buffer_minutes=_get_config_value(
-            "POLYBOT_GAME_START_BUFFER_MINUTES",
-            game_start_cfg.get("entry_buffer_minutes"),
-            5,
-            int,
+        allow_in_play=_get_bool_config_value(
+            "POLYBOT_ALLOW_IN_PLAY",
+            game_start_cfg.get("allow_in_play"),
+            True,
         ),
         reject_sports_without_game_start=_get_bool_config_value(
             "POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START",

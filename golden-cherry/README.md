@@ -1,12 +1,12 @@
 # Golden Cherry - Polymarket 자동 매매 봇
 
-Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 `config.yaml`은 진입
-기준시각까지 0~120시간 남은 고확률(75~92%) 시장을 대상으로 합니다. 스포츠의 기준시각은
-`gameStartTime`, 그 외 시장은 `endDate`입니다.
+Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 `config.yaml`은
+고확률(75~92%) 시장 중 비스포츠는 `endDate`까지 120시간 이내, 스포츠는
+`gameStartTime`까지 120시간 이내이거나 현재 인플레이인 시장을 대상으로 합니다.
 
 ## 개요
 
-- **매수 조건**: 75% ≤ 확률 ≤ 92% + 기준시각까지 0~120시간
+- **매수 조건**: 75% ≤ 확률 ≤ 92% + 비스포츠 0~120시간 / 스포츠 경기 전 0~120시간 또는 인플레이
 - **매도 조건**: 익절 +10%, 손절 -8%, 트레일링 스탑 -5% (시간 청산 기본 비활성)
 - **리스크 관리**: 손절, 이익실현, 트레일링 스탑, 시간 기반 청산
 
@@ -223,10 +223,11 @@ trading:
     entry_hours_min: 0   # 기준시각 전 모든 양수 시간
     exit_hours: 0        # endDate 기반 시간 청산 비활성화
 
-  # 스포츠는 endDate가 아니라 gameStartTime을 진입 기준으로 사용
+  # 스포츠는 경기 전에는 gameStartTime을 진입 기준으로 사용하고,
+  # 경기 시작 뒤에는 Gamma가 주문 가능하다고 보고하는 동안 진입 허용
   game_start:
     enabled: true
-    entry_buffer_minutes: 5
+    allow_in_play: true
     reject_sports_without_game_start: true
 
   # 제외 카테고리 (비어있으면 모든 카테고리 스캔)
@@ -290,7 +291,7 @@ pipeline {
         POLYBOT_ENTRY_HOURS_MAX = '120'
         POLYBOT_EXIT_HOURS = '0'
         POLYBOT_GAME_START_FILTER_ENABLED = 'true'
-        POLYBOT_GAME_START_BUFFER_MINUTES = '5'
+        POLYBOT_ALLOW_IN_PLAY = 'true'
         POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START = 'true'
         POLYBOT_MIN_LIQUIDITY = '50000'
         POLYBOT_MAX_ORDER_LIQUIDITY_RATIO = '0.002'
@@ -398,8 +399,9 @@ golden-cherry/
 
 | 상황 | 동작 |
 |------|------|
-| 75% ≤ 확률 ≤ 92% + 진입 기준시각 0~120시간 | 매수 후보 |
-| 스포츠 | `gameStartTime`을 기준시각으로 사용; 시작 5분 전부터 신규 진입 차단 |
+| 75% ≤ 확률 ≤ 92% + 진입 시간 조건 | 매수 후보 |
+| 스포츠 경기 전 | `gameStartTime`까지 `0 < h <= 120`이면 후보 |
+| 스포츠 경기 중 | `allow_in_play=true`이고 Gamma/CLOB이 주문 가능하면 후보 |
 | 비스포츠 | `endDate`를 기준시각으로 사용 |
 | 진입가 대비 +10% 이상 | 이익실현 매도 |
 | 진입가 대비 -8% 이하 | 손절 매도 |
@@ -436,6 +438,22 @@ golden-cherry/
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `trading.max_open_notional_usdc` | 5000 | 5000 | HOLDING/격리/대기 포지션의 요청 원금 합계 |
 | cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 5 | 5 | 3/5분 실행 한 번의 burst 제한 |
 
+실제 스캔에 쓰는 최소 유동성은 `max(POLYBOT_MIN_LIQUIDITY,
+POLYBOT_BUY_AMOUNT / POLYBOT_MAX_ORDER_LIQUIDITY_RATIO)`입니다. 0.2%를 유지할 때의 계산은
+다음과 같습니다.
+
+| 건당 주문액 | 필요한 최소 Gamma 유동성 |
+|---:|---:|
+| $100 | $50,000 |
+| $1,000 | $500,000 |
+| $10,000 | $5,000,000 |
+
+따라서 $10,000 주문에 $500,000은 2%로, 현재 0.2% 한도의 10배입니다. $10,000으로
+확대하려면 `POLYBOT_MAX_BUY_AMOUNT_USDC`와 `POLYBOT_MAX_OPEN_NOTIONAL_USDC`도 최소
+$10,000 이상이어야 합니다. 다만 Gamma의 총 유동성은 현재 매도호가에서 즉시 체결할 수 있는
+수량과 같지 않으므로, $100을 넘는 단계적 확대에는 별도의 order-book depth와 최대 slippage
+검증이 선행되어야 합니다.
+
 ### 익절/손절
 
 | 파라미터 | 환경변수 | config.yaml 키 | 코드 기본값 | 현재 config.yaml 값 | 설명 |
@@ -451,8 +469,8 @@ golden-cherry/
 | 진입 최대 잔여 시간 | `POLYBOT_ENTRY_HOURS_MAX` | `trading.time_based.entry_hours_max` | 120h | 120h | 기준시각까지 이 시간 이내 진입 |
 | 진입 최소 잔여 시간 | `POLYBOT_ENTRY_HOURS_MIN` | `trading.time_based.entry_hours_min` | 0h | 0h | 0이면 기준시각 전 모든 양수 시간 |
 | 청산 기준 잔여 시간 | `POLYBOT_EXIT_HOURS` | `trading.time_based.exit_hours` | 0h | 0h | endDate 기반 청산; 0이면 비활성화 |
-| 경기시각 필터 | `POLYBOT_GAME_START_FILTER_ENABLED` | `trading.game_start.enabled` | true | true | 스포츠 진입시각을 gameStartTime으로 교체 |
-| 경기 시작 buffer | `POLYBOT_GAME_START_BUFFER_MINUTES` | `trading.game_start.entry_buffer_minutes` | 5m | 5m | 시작 5분 전부터 신규 진입 차단 |
+| 경기시각 필터 | `POLYBOT_GAME_START_FILTER_ENABLED` | `trading.game_start.enabled` | true | true | 경기 전 120시간 창을 gameStartTime으로 계산 |
+| 인플레이 진입 | `POLYBOT_ALLOW_IN_PLAY` | `trading.game_start.allow_in_play` | true | true | 경기 시작 뒤에도 주문 가능 시장의 신규 진입 허용 |
 | 경기시각 누락 차단 | `POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START` | `trading.game_start.reject_sports_without_game_start` | true | true | sportsMarketType만 있고 시작시각이 없으면 제외 |
 
 #### Jenkins에서 “5일 이내 전체”로 제한
@@ -463,15 +481,24 @@ export POLYBOT_ENTRY_HOURS_MAX=120
 export POLYBOT_EXIT_HOURS=0
 ```
 
-이 설정은 `0 < 진입 기준시각까지 남은 시간 <= 120시간`인 신규 시장을 대상으로 하며,
+비스포츠는 `0 < endDate까지 남은 시간 <= 120시간`, 스포츠 경기 전에는
+`0 < gameStartTime까지 남은 시간 <= 120시간`인 신규 시장을 대상으로 하며,
 `POLYBOT_EXIT_HOURS=0`은 기존 12시간 전 자동 청산을 끕니다. 진입 최소시간만 0으로 바꾸고
 청산시간을 12로 유지하면 12시간 이내 시장은 진입과 청산 조건이 충돌하므로 신규 진입에서 제외되어
 “5일 이내 전체를 만기까지 보유”하려는 운영에는 맞지 않습니다. 진입 최대/최소시간은 신규
 매수 필터에만 사용되므로, 이미 보유한 포지션이 120시간 밖에 있다는 이유만으로 팔리지는
 않습니다. 기존 포지션에는 손절·익절·트레일링 스탑과 별도로 설정한 시간 청산만 적용됩니다.
 
-스포츠 시장의 “5일”은 `endDate`가 아니라 `gameStartTime`까지 남은 시간입니다. 따라서 경기
-종료 며칠 뒤로 잡힌 정산용 endDate 때문에 이미 시작한 경기가 뒤늦게 후보가 되는 문제를 막습니다.
+스포츠 시장의 경기 전 “5일”은 `endDate`가 아니라 `gameStartTime`까지 남은 시간입니다.
+`POLYBOT_ALLOW_IN_PLAY=true`이면 킥오프 뒤에는 음수가 된 gameStartTime 잔여시간을 이유로
+차단하지 않고, Gamma가 `active=true`, `closed=false`, `enableOrderBook=true`,
+`acceptingOrders=true`로 제공하는 동안 인플레이 후보로 유지합니다. `gameStartTime`만으로는
+축구의 전반/후반이나 실제 경기 종료까지 5분이 남았는지는 알 수 없습니다. 정확한 “경기 종료
+5분 전” 조건이 필요하면 별도의 실시간 경기 시계 데이터가 필요합니다.
+
+확률 조건은 별개입니다. 현재 상한은 92%이므로 정확히 92%는 후보지만 92%를 초과하면
+인플레이 여부와 무관하게 제외됩니다. 92% 초과도 사고 싶다면 진입 확률 상한 자체를 별도로
+높여야 하며, 이는 시간 필터 수정과 다른 전략 변경입니다.
 
 ### 실제 잔고 기준 매도
 
@@ -503,7 +530,8 @@ export POLYBOT_EXIT_HOURS=0
 | YES-Only 모드 | `POLYBOT_YES_ONLY` | `trading.yes_only_mode` | `--yes-only` | false | true면 index 0(Yes/1위 후보)만 매수, No 포지션 제외 |
 | 트레일링 스탑 | `POLYBOT_TRAILING_STOP_ENABLED` | `trading.trailing_stop.enabled` | - | true | false면 트레일링 스탑 비활성화 |
 | 시간 기반 필터 | `POLYBOT_TIME_BASED_ENABLED` | `trading.time_based.enabled` | - | true | false면 진입/청산 시간 조건 무시 |
-| 경기 시작 필터 | `POLYBOT_GAME_START_FILTER_ENABLED` | `trading.game_start.enabled` | - | true | 스포츠만 gameStartTime 기준과 시작 buffer 적용 |
+| 경기 시작 필터 | `POLYBOT_GAME_START_FILTER_ENABLED` | `trading.game_start.enabled` | - | true | 스포츠 경기 전 gameStartTime 기준 적용 |
+| 인플레이 진입 | `POLYBOT_ALLOW_IN_PLAY` | `trading.game_start.allow_in_play` | - | true | 주문 가능한 스포츠 시장은 경기 시작 뒤에도 진입 |
 
 ---
 
@@ -591,7 +619,7 @@ POLYBOT_EXIT_HOURS=0
 
 # 스포츠 gameStartTime 필터 (선택)
 POLYBOT_GAME_START_FILTER_ENABLED=true
-POLYBOT_GAME_START_BUFFER_MINUTES=5
+POLYBOT_ALLOW_IN_PLAY=true
 POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START=true
 
 # 모드 플래그 (선택)

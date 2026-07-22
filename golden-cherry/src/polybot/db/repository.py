@@ -240,6 +240,7 @@ class TradeRepository:
             "entry_time_reference", "hours_until_entry_deadline_at_buy",
             "market_game_start_time", "minutes_until_game_start_at_buy",
             "sports_market_type",
+            "sports_phase_at_buy",
             "buy_probability", "sell_probability",
             "market_tags",
         ]
@@ -265,6 +266,7 @@ class TradeRepository:
             ),
             "minutes_until_game_start_at_buy": trade.minutes_until_game_start_at_buy or "",
             "sports_market_type": trade.sports_market_type or "",
+            "sports_phase_at_buy": trade.sports_phase_at_buy or "",
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "market_tags": trade.market_tags or "",

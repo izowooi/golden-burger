@@ -71,6 +71,7 @@ class Trade(Base):
     entry_time_reference = Column(String, nullable=True)  # end_date | game_start_time
     hours_until_entry_deadline_at_buy = Column(Float, nullable=True)
     sports_market_type = Column(String, nullable=True)
+    sports_phase_at_buy = Column(String, nullable=True)  # pregame | in_play
 
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
@@ -136,6 +137,7 @@ def init_database(
         "entry_time_reference": "TEXT",
         "hours_until_entry_deadline_at_buy": "FLOAT",
         "sports_market_type": "TEXT",
+        "sports_phase_at_buy": "TEXT",
     }
     with engine.begin() as conn:
         existing = {

@@ -83,6 +83,7 @@ class GameStartEvaluation:
     game_start_time: Optional[datetime]
     minutes_until_game_start: Optional[float]
     sports_market_type: Optional[str]
+    phase: str
 
 
 def evaluate_game_start(
@@ -94,9 +95,10 @@ def evaluate_game_start(
     """Validate a sports market against its actual ``gameStartTime``.
 
     Gamma ``endDate`` can be a settlement/catalog deadline several days after
-    a game. A market carrying ``gameStartTime`` therefore uses that timestamp
-    as its entry deadline. A sports market type without a usable start time is
-    rejected by default instead of falling back to the misleading endDate.
+    a game. Before kickoff, ``gameStartTime`` controls the 120-hour admission
+    window. After kickoff, an otherwise tradeable market remains eligible as
+    ``in_play`` when explicitly enabled. A sports market type without a usable
+    start time is rejected by default instead of guessing from endDate.
     """
     raw_game_start = market.get("gameStartTime")
     raw_sports_type = market.get("sportsMarketType")
@@ -113,6 +115,7 @@ def evaluate_game_start(
             game_start_time=parse_market_datetime(raw_game_start),
             minutes_until_game_start=None,
             sports_market_type=sports_market_type,
+            phase="filter_disabled",
         )
 
     if not is_sports_timed:
@@ -123,6 +126,7 @@ def evaluate_game_start(
             game_start_time=None,
             minutes_until_game_start=None,
             sports_market_type=None,
+            phase="not_sports",
         )
 
     if not raw_game_start:
@@ -138,6 +142,7 @@ def evaluate_game_start(
             game_start_time=None,
             minutes_until_game_start=None,
             sports_market_type=sports_market_type,
+            phase="unknown",
         )
 
     game_start_time = parse_market_datetime(raw_game_start)
@@ -149,6 +154,7 @@ def evaluate_game_start(
             game_start_time=None,
             minutes_until_game_start=None,
             sports_market_type=sports_market_type,
+            phase="unknown",
         )
 
     current = now or datetime.now(timezone.utc)
@@ -157,12 +163,18 @@ def evaluate_game_start(
     minutes_left = (
         game_start_time - current.astimezone(timezone.utc)
     ).total_seconds() / 60
-    valid = minutes_left > config.entry_buffer_minutes
-    reason = (
-        f"game_start_safe_{minutes_left:.1f}m"
-        if valid
-        else f"game_started_or_inside_buffer_{minutes_left:.1f}m"
-    )
+    in_play = minutes_left <= 0
+    valid = not in_play or config.allow_in_play
+    if in_play:
+        reason = (
+            f"game_in_play_{abs(minutes_left):.1f}m"
+            if valid
+            else f"game_in_play_disabled_{abs(minutes_left):.1f}m"
+        )
+        phase = "in_play"
+    else:
+        reason = f"game_pregame_{minutes_left:.1f}m"
+        phase = "pregame"
     return GameStartEvaluation(
         is_sports_timed=True,
         valid=valid,
@@ -170,6 +182,7 @@ def evaluate_game_start(
         game_start_time=game_start_time,
         minutes_until_game_start=minutes_left,
         sports_market_type=sports_market_type,
+        phase=phase,
     )
 
 
@@ -356,9 +369,10 @@ class MarketScanner:
                 rejected["prob_out_of_range"] = rejected.get("prob_out_of_range", 0) + 1
                 continue
 
-            # Sports use gameStartTime as the entry deadline. Non-sports keep
-            # using endDate. This prevents a late catalog/settlement endDate
-            # from admitting an already-started sporting event.
+            # Before kickoff, sports use gameStartTime for the 120-hour entry
+            # window. Once the game starts, the Gamma universe's active/closed/
+            # order-book/acceptingOrders contract controls availability and the
+            # market remains eligible as in_play. Non-sports keep using endDate.
             entry_signal = True
             entry_reason = "probability_only"
             entry_hours_left = None
@@ -378,12 +392,23 @@ class MarketScanner:
                 entry_signal = False
                 entry_reason = game_start.reason
 
-            if entry_signal and self.config.time_based.enabled:
+            if entry_signal and game_start.phase == "in_play":
+                entry_hours_left = (
+                    game_start.minutes_until_game_start / 60
+                    if game_start.minutes_until_game_start is not None
+                    else None
+                )
+                entry_reason = game_start.reason
+            elif entry_signal and self.config.time_based.enabled:
                 entry_signal, time_reason, entry_hours_left = is_valid_time_entry(
                     entry_deadline,
                     self.config.time_based.entry_hours_max,
                     self.config.time_based.entry_hours_min,
-                    self.config.time_based.exit_hours,
+                    (
+                        0
+                        if entry_time_reference == "game_start_time"
+                        else self.config.time_based.exit_hours
+                    ),
                 )
                 if entry_signal:
                     entry_reason = (
@@ -437,6 +462,7 @@ class MarketScanner:
                 "minutes_until_game_start": game_start.minutes_until_game_start,
                 "sports_market_type": game_start.sports_market_type,
                 "is_sports_timed": game_start.is_sports_timed,
+                "sports_phase": game_start.phase,
                 "market_tags": market_tags,
             }
             candidates.append(candidate)

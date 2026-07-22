@@ -95,10 +95,10 @@ class PolymarketBot:
                 )
                 game_cfg = self.config.trading.game_start
                 logger.info(
-                    "시간 기준 - 비스포츠=endDate, 스포츠=%s, 시작 buffer=%d분, "
+                    "시간 기준 - 비스포츠=endDate, 스포츠=%s, 인플레이 허용=%s, "
                     "gameStartTime 누락 스포츠 차단=%s",
                     "gameStartTime" if game_cfg.enabled else "endDate",
-                    game_cfg.entry_buffer_minutes,
+                    game_cfg.allow_in_play,
                     game_cfg.reject_sports_without_game_start,
                 )
                 logger.info(
@@ -255,7 +255,7 @@ class PolymarketBot:
                     "entry_hours_min": self.config.trading.time_based.entry_hours_min,
                     "exit_hours": self.config.trading.time_based.exit_hours,
                     "game_start_filter_enabled": self.config.trading.game_start.enabled,
-                    "game_start_buffer_minutes": self.config.trading.game_start.entry_buffer_minutes,
+                    "allow_in_play": self.config.trading.game_start.allow_in_play,
                     "reject_sports_without_game_start": self.config.trading.game_start.reject_sports_without_game_start,
                     "lifecycle_mode": self.config.trading.lifecycle_mode,
                 },

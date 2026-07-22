@@ -202,8 +202,8 @@ class Trader:
             )
             return None
 
-        # The keyset sweep can take long enough for a game to cross its start
-        # buffer. Re-evaluate immediately before the order POST.
+        # The keyset sweep can take long enough for a game to move from pregame
+        # to in-play. Re-evaluate immediately before the order POST.
         game_start = evaluate_game_start(
             {
                 "gameStartTime": candidate.get("game_start_time"),
@@ -213,7 +213,7 @@ class Trader:
         )
         if candidate.get("is_sports_timed") and not game_start.valid:
             logger.warning(
-                "경기 시작시각 재검증 실패로 매수 차단 - condition=%s reason=%s",
+                "경기 상태 재검증 실패로 매수 차단 - condition=%s reason=%s",
                 condition_id,
                 game_start.reason,
             )
@@ -229,12 +229,23 @@ class Trader:
         )
         hours_until_resolution = get_hours_until_resolution(end_date)
         entry_hours_left = get_hours_until_resolution(entry_deadline)
-        if self.config.time_based.enabled:
+        if game_start.phase == "in_play":
+            entry_hours_left = (
+                game_start.minutes_until_game_start / 60
+                if game_start.minutes_until_game_start is not None
+                else None
+            )
+            entry_reason = game_start.reason
+        elif self.config.time_based.enabled:
             still_valid, timing_reason, entry_hours_left = is_valid_time_entry(
                 entry_deadline,
                 self.config.time_based.entry_hours_max,
                 self.config.time_based.entry_hours_min,
-                self.config.time_based.exit_hours,
+                (
+                    0
+                    if entry_time_reference == "game_start_time"
+                    else self.config.time_based.exit_hours
+                ),
             )
             if not still_valid:
                 logger.warning(
@@ -245,17 +256,20 @@ class Trader:
                     timing_reason,
                 )
                 return None
-        hours_text = (
-            f"{entry_hours_left:.1f}h"
-            if entry_hours_left is not None
-            else "N/A"
-        )
+        if game_start.phase == "in_play" and game_start.minutes_until_game_start is not None:
+            hours_text = f"경기 시작 후 {abs(game_start.minutes_until_game_start):.1f}m"
+        else:
+            hours_text = (
+                f"기준시각까지 {entry_hours_left:.1f}h"
+                if entry_hours_left is not None
+                else "N/A"
+            )
 
         # Place order
         logger.info(
             f"매수: {candidate['outcome']} - '{candidate['question'][:50]}...' "
             f"@ {current_price:.2%} ({buy_shares:.2f}주, ${self.config.buy_amount_usdc}) "
-            f"[사유: {entry_reason}, 기준={entry_time_reference}, 남은시간={hours_text}]"
+            f"[사유: {entry_reason}, 기준={entry_time_reference}, 시간={hours_text}]"
         )
 
         result = self.clob.place_limit_order(
@@ -293,6 +307,7 @@ class Trader:
                 entry_time_reference=entry_time_reference,
                 hours_until_entry_deadline_at_buy=entry_hours_left,
                 sports_market_type=game_start.sports_market_type,
+                sports_phase_at_buy=game_start.phase,
             )
 
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
