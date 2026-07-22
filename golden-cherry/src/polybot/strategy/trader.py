@@ -2,7 +2,8 @@
 import logging
 import math
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 from polybot_observability import (
     ClobResponseUnavailableError,
@@ -13,7 +14,11 @@ from ..db.repository import TradeRepository
 from ..db.models import TradeStatus
 from ..api.clob_client import ClobClientWrapper
 from ..config import TradingConfig
-from .scanner import get_hours_until_resolution
+from .scanner import (
+    evaluate_game_start,
+    get_hours_until_resolution,
+    is_valid_time_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +34,7 @@ _AVAILABLE_BALANCE_PATTERN = re.compile(
     r"balance:\s*(\d+)\s*,\s*order amount:\s*(\d+)", re.IGNORECASE
 )
 _CLOB_QUANTITY_SCALE = 1_000_000
-_SELL_BALANCE_SAFETY_FACTOR = 0.99
+_GENERIC_SELL_RETRY_FACTOR = 0.99
 
 
 def is_zero_balance_error(result: dict) -> bool:
@@ -51,8 +56,24 @@ def available_shares_from_error(result: dict) -> Optional[float]:
         return None
     return int(match.group(1)) / _CLOB_QUANTITY_SCALE
 
+
+def floor_clob_shares(value: float, *, reserve_micro_shares: int = 0) -> float:
+    """Floor a share quantity to the CLOB's six-decimal integer scale."""
+    raw_units = int(
+        (Decimal(str(value)) * _CLOB_QUANTITY_SCALE).to_integral_value(
+            rounding=ROUND_DOWN
+        )
+    )
+    raw_units = max(0, raw_units - reserve_micro_shares)
+    return raw_units / _CLOB_QUANTITY_SCALE
+
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
+
+
+def _utcnow_naive() -> datetime:
+    """Return explicit UTC with the legacy SQLite-naive representation."""
+    return datetime.now(timezone.utc).replace(tzinfo=None)
 
 
 class Trader:
@@ -75,6 +96,7 @@ class Trader:
         self.clob = clob_client
         self.config = config
         self.buying_disabled = False
+        self.buys_placed_this_cycle = 0
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -101,17 +123,49 @@ class Trader:
         if self.buying_disabled:
             return None
 
+        if self.buys_placed_this_cycle >= self.config.max_new_positions_per_cycle:
+            logger.warning(
+                "cycle 신규 포지션 상한(%d)에 도달해 남은 매수를 중단합니다",
+                self.config.max_new_positions_per_cycle,
+            )
+            self.buying_disabled = True
+            return None
+
         # Check: Already traded?
         if self.repo.is_already_traded(condition_id):
             logger.info(f"이미 거래한 시장: {condition_id}")
             return None
 
-        # Check: Max positions limit
-        if self.config.max_positions > 0:
-            current_positions = self.repo.get_position_count()
-            if current_positions >= self.config.max_positions:
-                logger.info(f"최대 포지션 수 ({self.config.max_positions}) 도달")
-                return None
+        # Check: finite position and requested-notional exposure limits. The
+        # repository counts quarantined/pending rows conservatively because
+        # those positions may still exist at the venue.
+        current_positions = self.repo.get_position_count()
+        if current_positions >= self.config.max_positions:
+            logger.warning(f"최대 포지션 수 ({self.config.max_positions}) 도달")
+            return None
+        open_notional = self.repo.get_open_notional_usdc()
+        projected_notional = open_notional + self.config.buy_amount_usdc
+        if projected_notional > self.config.max_open_notional_usdc + 1e-9:
+            logger.warning(
+                "오픈 매수원금 상한 초과로 신규 매수 차단 - "
+                "현재=$%.2f, 주문=$%.2f, 상한=$%.2f",
+                open_notional,
+                self.config.buy_amount_usdc,
+                self.config.max_open_notional_usdc,
+            )
+            return None
+
+        liquidity = float(candidate.get("liquidity") or 0)
+        required_liquidity = self.config.effective_min_liquidity
+        if not math.isfinite(liquidity) or liquidity < required_liquidity:
+            logger.warning(
+                "주문금액 대비 유동성 부족으로 매수 차단 - "
+                "condition=%s liquidity=$%.2f required=$%.2f",
+                condition_id,
+                liquidity,
+                required_liquidity,
+            )
+            return None
 
         # Get current price (re-verify before buying)
         try:
@@ -148,15 +202,60 @@ class Trader:
             )
             return None
 
+        # The keyset sweep can take long enough for a game to cross its start
+        # buffer. Re-evaluate immediately before the order POST.
+        game_start = evaluate_game_start(
+            {
+                "gameStartTime": candidate.get("game_start_time"),
+                "sportsMarketType": candidate.get("sports_market_type"),
+            },
+            self.config.game_start,
+        )
+        if candidate.get("is_sports_timed") and not game_start.valid:
+            logger.warning(
+                "경기 시작시각 재검증 실패로 매수 차단 - condition=%s reason=%s",
+                condition_id,
+                game_start.reason,
+            )
+            return None
+
         entry_reason = candidate.get("entry_reason", "unknown")
         end_date = candidate.get("end_date")
-        hours_until_resolution = candidate.get("hours_until_resolution")
+        entry_time_reference = candidate.get("entry_time_reference", "end_date")
+        entry_deadline = (
+            game_start.game_start_time
+            if entry_time_reference == "game_start_time"
+            else end_date
+        )
+        hours_until_resolution = get_hours_until_resolution(end_date)
+        entry_hours_left = get_hours_until_resolution(entry_deadline)
+        if self.config.time_based.enabled:
+            still_valid, timing_reason, entry_hours_left = is_valid_time_entry(
+                entry_deadline,
+                self.config.time_based.entry_hours_max,
+                self.config.time_based.entry_hours_min,
+                self.config.time_based.exit_hours,
+            )
+            if not still_valid:
+                logger.warning(
+                    "주문 직전 진입 기준시각 재검증 실패로 매수 차단 - "
+                    "condition=%s reference=%s reason=%s",
+                    condition_id,
+                    entry_time_reference,
+                    timing_reason,
+                )
+                return None
+        hours_text = (
+            f"{entry_hours_left:.1f}h"
+            if entry_hours_left is not None
+            else "N/A"
+        )
 
         # Place order
         logger.info(
             f"매수: {candidate['outcome']} - '{candidate['question'][:50]}...' "
             f"@ {current_price:.2%} ({buy_shares:.2f}주, ${self.config.buy_amount_usdc}) "
-            f"[사유: {entry_reason}, 해결까지 {hours_until_resolution:.1f}h]"
+            f"[사유: {entry_reason}, 기준={entry_time_reference}, 남은시간={hours_text}]"
         )
 
         result = self.clob.place_limit_order(
@@ -179,7 +278,7 @@ class Trader:
                 buy_amount=self.config.buy_amount_usdc,
                 buy_shares=buy_shares,
                 buy_order_id=result.get("orderID"),
-                buy_timestamp=datetime.utcnow(),
+                buy_timestamp=_utcnow_naive(),
                 buy_probability=current_price,
                 liquidity_at_buy=candidate["liquidity"],
                 market_tags=candidate.get("market_tags", ""),
@@ -189,9 +288,15 @@ class Trader:
                 max_price=current_price,  # Initialize max_price with buy price
                 market_end_date=end_date,
                 hours_until_resolution_at_buy=hours_until_resolution,
+                market_game_start_time=game_start.game_start_time,
+                minutes_until_game_start_at_buy=game_start.minutes_until_game_start,
+                entry_time_reference=entry_time_reference,
+                hours_until_entry_deadline_at_buy=entry_hours_left,
+                sports_market_type=game_start.sports_market_type,
             )
 
             logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
+            self.buys_placed_this_cycle += 1
             return trade.id
         else:
             if is_balance_allowance_error(result):
@@ -210,45 +315,94 @@ class Trader:
         token_id: str,
         price: float,
         requested_size: float,
-    ) -> tuple[dict, float]:
-        """Retry one SELL below a smaller balance explicitly reported by CLOB."""
+    ) -> tuple[dict, float, float]:
+        """Clamp SELL to live token balance and retry one stale-balance reject.
+
+        Returns ``(result, submitted_size, unsold_size)``. The initial request
+        uses the smaller of the DB quantity and the authenticated CLOB balance.
+        If CLOB still reports a smaller integer balance, the retry reserves one
+        micro-share rather than discarding a fixed 1% of a potentially large
+        position. A generic balance-cache rejection retains a one-time 99%
+        compatibility fallback; any sellable remainder stays open.
+        """
+        available_shares = None
+        try:
+            available_shares = self.clob.get_conditional_token_balance(token_id)
+        except Exception as error:
+            logger.warning(
+                "SELL token 잔고 preflight 실패 - DB 수량으로 시도 후 "
+                "CLOB 거절 응답을 사용합니다: token=%s error=%s",
+                token_id,
+                type(error).__name__,
+            )
+
+        sell_basis = requested_size
+        initial_size = floor_clob_shares(requested_size)
+        if available_shares is not None and available_shares > 0:
+            sell_basis = min(requested_size, available_shares)
+            initial_size = floor_clob_shares(sell_basis)
+            if initial_size < requested_size:
+                logger.warning(
+                    "DB 수량을 실제 CLOB token 잔고로 선제 보정합니다 - "
+                    "requested=%.6f available=%.6f submitted=%.6f",
+                    requested_size,
+                    available_shares,
+                    initial_size,
+                )
+
+        # A sub-minimum preflight balance is not enough evidence to rewrite the
+        # trade lifecycle. Send the DB size once so the venue can return its
+        # explicit order error and the existing zero-balance proof path remains.
+        if initial_size < MIN_ORDER_SIZE:
+            initial_size = floor_clob_shares(requested_size)
+            sell_basis = requested_size
+
         result = self.clob.place_limit_order(
             token_id=token_id,
             price=price,
-            size=requested_size,
+            size=initial_size,
             side="SELL",
         )
         if result.get("success") or result.get("orderID"):
-            return result, requested_size
+            return result, initial_size, max(0.0, sell_basis - initial_size)
 
-        available_shares = available_shares_from_error(result)
-        if (
-            available_shares is None
-            or available_shares <= 0
-            or available_shares >= requested_size
-        ):
-            return result, requested_size
+        reported_shares = available_shares_from_error(result)
+        retry_basis = initial_size
+        if reported_shares == 0:
+            return result, initial_size, sell_basis
+        if reported_shares is not None and 0 < reported_shares <= initial_size:
+            retry_basis = reported_shares
+            retry_size = floor_clob_shares(
+                reported_shares,
+                reserve_micro_shares=1,
+            )
+            retry_reason = "CLOB reported balance minus one micro-share"
+        elif reported_shares is not None:
+            return result, initial_size, sell_basis
+        elif is_balance_allowance_error(result):
+            retry_size = floor_clob_shares(
+                initial_size * _GENERIC_SELL_RETRY_FACTOR
+            )
+            retry_reason = "generic balance-cache 99% fallback"
+        else:
+            return result, initial_size, sell_basis
 
-        retry_size = math.floor(
-            available_shares
-            * _SELL_BALANCE_SAFETY_FACTOR
-            * _CLOB_QUANTITY_SCALE
-        ) / _CLOB_QUANTITY_SCALE
         if retry_size < MIN_ORDER_SIZE:
             logger.warning(
                 "부분 체결 잔고가 최소 주문량보다 작아 매도 보류 - "
-                "token=%s available=%.6f",
+                "token=%s available=%s",
                 token_id,
-                available_shares,
+                f"{reported_shares:.6f}" if reported_shares is not None else "unknown",
             )
-            return result, requested_size
+            return result, initial_size, sell_basis
 
         logger.warning(
-            "DB 수량보다 CLOB token 잔고가 작아 가용 잔고의 99%%로 "
-            "매도를 한 번 재시도합니다 - requested=%.6f available=%.6f "
-            "retry=%.6f",
+            "SELL 수량을 보정해 한 번 재시도합니다 - reason=%s "
+            "requested=%.6f first=%.6f reported=%s retry=%.6f",
+            retry_reason,
             requested_size,
-            available_shares,
+            initial_size,
+            f"{reported_shares:.6f}" if reported_shares is not None else "unknown",
             retry_size,
         )
         retry_result = self.clob.place_limit_order(
@@ -257,7 +411,8 @@ class Trader:
             size=retry_size,
             side="SELL",
         )
-        return retry_result, retry_size
+        unsold_size = max(0.0, retry_basis - retry_size)
+        return retry_result, retry_size, unsold_size
 
     def execute_sell(self, trade) -> bool:
         """Execute sell order for a holding position.
@@ -365,7 +520,7 @@ class Trader:
             f"@ {current_price:.2%} ({trade.buy_shares:.2f}주) [사유: {exit_reason}]"
         )
 
-        result, sell_shares = self._place_sell_with_balance_retry(
+        result, sell_shares, unsold_shares = self._place_sell_with_balance_retry(
             token_id=token_id,
             price=current_price,
             requested_size=trade.buy_shares,
@@ -376,28 +531,62 @@ class Trader:
             # Calculate P&L
             sell_value = current_price * sell_shares
             buy_value = trade.buy_price * sell_shares
-            realized_pnl = sell_value - buy_value
+            partial_pnl = sell_value - buy_value
+            previous_realized_pnl = float(
+                getattr(trade, "realized_pnl", None) or 0.0
+            )
+            realized_pnl = previous_realized_pnl + partial_pnl
+            previous_sell_shares = float(
+                getattr(trade, "sell_shares", None) or 0.0
+            )
+            cumulative_sell_shares = previous_sell_shares + sell_shares
+
+            # A one-micro-share rounding reserve is economically unsellable and
+            # does not justify an endless stop-loss retry loop. A sellable 99%
+            # fallback remainder, however, stays HOLDING for the next cycle.
+            completed = unsold_shares < MIN_ORDER_SIZE
+            next_status = TradeStatus.COMPLETED if completed else TradeStatus.HOLDING
+            next_exit_reason = (
+                exit_reason if completed else f"partial_{exit_reason}"
+            )
 
             # Update trade record
-            self.repo.update_trade(
-                trade.id,
+            update_fields = dict(
                 sell_price=current_price,
-                sell_shares=sell_shares,
+                sell_shares=cumulative_sell_shares,
                 sell_order_id=result.get("orderID"),
-                sell_timestamp=datetime.utcnow(),
+                sell_timestamp=_utcnow_naive(),
                 sell_probability=current_price,
                 realized_pnl=realized_pnl,
-                status=TradeStatus.COMPLETED,
-                exit_reason=exit_reason,
+                status=next_status,
+                exit_reason=next_exit_reason,
             )
+            if not completed:
+                update_fields["buy_shares"] = unsold_shares
+            self.repo.update_trade(trade.id, **update_fields)
 
             pnl_percent_display = (current_price / trade.buy_price - 1) * 100 if trade.buy_price > 0 else 0
-            logger.info(
-                f"매도 주문 완료: Trade #{trade.id}, "
-                f"P&L: ${realized_pnl:.4f} ({pnl_percent_display:.1f}%), "
-                f"사유: {exit_reason}"
+            if completed:
+                if unsold_shares > 0:
+                    logger.warning(
+                        "최소 주문량 미만 잔여 %.6f주는 dust로 남기고 청산 처리합니다",
+                        unsold_shares,
+                    )
+                logger.info(
+                    f"매도 주문 완료: Trade #{trade.id}, "
+                    f"P&L: ${realized_pnl:.4f} ({pnl_percent_display:.1f}%), "
+                    f"사유: {exit_reason}"
+                )
+                return True
+
+            logger.warning(
+                "부분 매도 접수: Trade #%s, sold=%.6f, remaining=%.6f. "
+                "다음 cycle에서 잔여 수량을 다시 청산합니다",
+                trade.id,
+                sell_shares,
+                unsold_shares,
             )
-            return True
+            return False
         else:
             if is_zero_balance_error(result):
                 self._mark_unfilled(trade)

@@ -98,9 +98,17 @@ class TrailingStopConfig:
 class TimeBasedConfig:
     """시간 기반 진입/청산 설정."""
     enabled: bool = True
-    entry_hours_max: int = 24   # 해결 24시간 이내 진입
-    entry_hours_min: int = 4    # 해결 4시간 이상 남아야 진입
-    exit_hours: int = 4         # 해결 4시간 이내 청산 (0이면 비활성화)
+    entry_hours_max: int = 120  # 기준시각 120시간 이내 진입
+    entry_hours_min: int = 0    # 기준시각 전 모든 양수 시간 허용
+    exit_hours: int = 0         # endDate 기반 시간 청산 비활성화
+
+
+@dataclass
+class GameStartConfig:
+    """스포츠 시장의 경기 시작시각 기반 진입 안전장치."""
+    enabled: bool = True
+    entry_buffer_minutes: int = 5
+    reject_sports_without_game_start: bool = True
 
 
 @dataclass
@@ -109,18 +117,31 @@ class TradingConfig:
     buy_threshold: float = 0.75           # 75% 이상
     sell_threshold: float = 0.92          # 92% 이하
     buy_amount_usdc: float = 5.0
+    max_buy_amount_usdc: float = 100.0
     min_liquidity: float = 50000.0
-    max_positions: int = -1               # -1 means unlimited
+    max_order_liquidity_ratio: float = 0.002  # 주문금액 <= 유동성의 0.2%
+    max_positions: int = 100
+    max_open_notional_usdc: float = 5000.0
+    max_new_positions_per_cycle: int = 5
     take_profit_percent: float = 0.15     # 이익실현 +15%
     stop_loss_percent: float = -0.08      # 손절 -8%
     trailing_stop: TrailingStopConfig = field(default_factory=TrailingStopConfig)
     time_based: TimeBasedConfig = field(default_factory=TimeBasedConfig)
+    game_start: GameStartConfig = field(default_factory=GameStartConfig)
     excluded_categories: List[str] = field(default_factory=lambda: [
         "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
         "Soccer", "Football", "Basketball", "Baseball"
     ])
     yes_only_mode: bool = False           # True: Yes(1위) 포지션만 매수, No 제외
     lifecycle_mode: str = "active"
+
+    @property
+    def effective_min_liquidity(self) -> float:
+        """Return the stricter static/dynamic liquidity requirement."""
+        return max(
+            self.min_liquidity,
+            self.buy_amount_usdc / self.max_order_liquidity_ratio,
+        )
 
 
 @dataclass
@@ -148,18 +169,24 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     """Reject unsafe or internally inconsistent resolved configuration."""
     trailing = trading.trailing_stop
     timing = trading.time_based
+    game_start = trading.game_start
     numeric = {
         "buy_threshold": trading.buy_threshold,
         "sell_threshold": trading.sell_threshold,
         "buy_amount_usdc": trading.buy_amount_usdc,
+        "max_buy_amount_usdc": trading.max_buy_amount_usdc,
         "min_liquidity": trading.min_liquidity,
+        "max_order_liquidity_ratio": trading.max_order_liquidity_ratio,
         "max_positions": trading.max_positions,
+        "max_open_notional_usdc": trading.max_open_notional_usdc,
+        "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
         "take_profit_percent": trading.take_profit_percent,
         "stop_loss_percent": trading.stop_loss_percent,
         "trailing_stop.percent": trailing.percent,
         "entry_hours_min": timing.entry_hours_min,
         "entry_hours_max": timing.entry_hours_max,
         "exit_hours": timing.exit_hours,
+        "game_start.entry_buffer_minutes": game_start.entry_buffer_minutes,
     }
     for name, value in numeric.items():
         if not math.isfinite(value):
@@ -168,10 +195,27 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("buy_threshold must be < sell_threshold and both must be between 0 and 1")
     if trading.buy_amount_usdc <= 0:
         raise ValueError("buy_amount_usdc must be > 0")
+    if trading.max_buy_amount_usdc <= 0:
+        raise ValueError("max_buy_amount_usdc must be > 0")
+    if trading.buy_amount_usdc > trading.max_buy_amount_usdc:
+        raise ValueError(
+            "buy_amount_usdc must be <= max_buy_amount_usdc; "
+            "raise both values explicitly for a deliberate scale-up"
+        )
     if trading.min_liquidity < 0:
         raise ValueError("min_liquidity must be >= 0")
-    if trading.max_positions != -1 and trading.max_positions <= 0:
-        raise ValueError("max_positions must be -1 or a positive integer")
+    if not 0 < trading.max_order_liquidity_ratio <= 1:
+        raise ValueError("max_order_liquidity_ratio must be > 0 and <= 1")
+    if trading.max_positions <= 0:
+        raise ValueError("max_positions must be a positive integer; unlimited is unsafe")
+    if trading.max_open_notional_usdc < trading.buy_amount_usdc:
+        raise ValueError(
+            "max_open_notional_usdc must be >= buy_amount_usdc"
+        )
+    if not 0 < trading.max_new_positions_per_cycle <= trading.max_positions:
+        raise ValueError(
+            "max_new_positions_per_cycle must be > 0 and <= max_positions"
+        )
     if not 0 < trading.take_profit_percent <= 10:
         raise ValueError("take_profit_percent must be > 0 and <= 10")
     if not -1 < trading.stop_loss_percent < 0:
@@ -186,6 +230,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
             "enabled time_based windows must satisfy "
             "0 <= entry_hours_min < entry_hours_max and "
             "0 <= exit_hours < entry_hours_max"
+        )
+    if not 0 <= game_start.entry_buffer_minutes <= 1440:
+        raise ValueError(
+            "game_start.entry_buffer_minutes must be between 0 and 1440"
         )
     if not isinstance(trading.excluded_categories, list) or any(
         not isinstance(item, str) or not item.strip()
@@ -265,20 +313,42 @@ def load_config(
         entry_hours_max=_get_config_value(
             "POLYBOT_ENTRY_HOURS_MAX",
             time_based_cfg.get("entry_hours_max"),
-            24,
+            120,
             int
         ),
         entry_hours_min=_get_config_value(
             "POLYBOT_ENTRY_HOURS_MIN",
             time_based_cfg.get("entry_hours_min"),
-            4,
+            0,
             int
         ),
         exit_hours=_get_config_value(
             "POLYBOT_EXIT_HOURS",
             time_based_cfg.get("exit_hours"),
-            4,
+            0,
             int
+        ),
+    )
+
+    # Parse sports game-start guard. Sports use gameStartTime as their entry
+    # deadline because Gamma endDate can be a later settlement/catalog date.
+    game_start_cfg = trading_cfg.get("game_start", {})
+    game_start = GameStartConfig(
+        enabled=_get_bool_config_value(
+            "POLYBOT_GAME_START_FILTER_ENABLED",
+            game_start_cfg.get("enabled"),
+            True,
+        ),
+        entry_buffer_minutes=_get_config_value(
+            "POLYBOT_GAME_START_BUFFER_MINUTES",
+            game_start_cfg.get("entry_buffer_minutes"),
+            5,
+            int,
+        ),
+        reject_sports_without_game_start=_get_bool_config_value(
+            "POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START",
+            game_start_cfg.get("reject_sports_without_game_start"),
+            True,
         ),
     )
 
@@ -301,17 +371,41 @@ def load_config(
             5.0,
             float
         ),
+        max_buy_amount_usdc=_get_config_value(
+            "POLYBOT_MAX_BUY_AMOUNT_USDC",
+            trading_cfg.get("max_buy_amount_usdc"),
+            100.0,
+            float,
+        ),
         min_liquidity=_get_config_value(
             "POLYBOT_MIN_LIQUIDITY",
             trading_cfg.get("min_liquidity"),
             50000.0,
             float
         ),
+        max_order_liquidity_ratio=_get_config_value(
+            "POLYBOT_MAX_ORDER_LIQUIDITY_RATIO",
+            trading_cfg.get("max_order_liquidity_ratio"),
+            0.002,
+            float,
+        ),
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS",
             trading_cfg.get("max_positions"),
-            -1,
+            100,
             int
+        ),
+        max_open_notional_usdc=_get_config_value(
+            "POLYBOT_MAX_OPEN_NOTIONAL_USDC",
+            trading_cfg.get("max_open_notional_usdc"),
+            5000.0,
+            float,
+        ),
+        max_new_positions_per_cycle=_get_config_value(
+            "POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE",
+            trading_cfg.get("max_new_positions_per_cycle"),
+            5,
+            int,
         ),
         take_profit_percent=_get_config_value(
             "POLYBOT_TAKE_PROFIT",
@@ -327,6 +421,7 @@ def load_config(
         ),
         trailing_stop=trailing_stop,
         time_based=time_based,
+        game_start=game_start,
         excluded_categories=trading_cfg.get("excluded_categories", [
             "Sports", "sports", "NFL", "NBA", "MLB", "NHL",
             "Soccer", "Football", "Basketball", "Baseball"

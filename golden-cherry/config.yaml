@@ -1,6 +1,6 @@
 # Polymarket Trading Bot Configuration (Golden Cherry)
 # Resolution Momentum Strategy - 해결 직전 모멘텀 전략
-# 75-92% 확률 구간 + 해결 1-30일 이내 진입
+# 75-92% 확률 구간 + 진입 기준시각 5일 이내
 
 trading:
   # 매수 임계값 (0.0 ~ 1.0)
@@ -14,9 +14,16 @@ trading:
   # 한 번 매수할 금액 (USDC)
   buy_amount_usdc: 5.0
 
+  # 실수로 대형 주문을 넣지 못하게 하는 건당 하드캡.
+  # 주문액을 키울 때는 이 값도 별도로 올려야 한다.
+  max_buy_amount_usdc: 100
+
   # 최소 유동성 ($)
   # 이 금액 미만의 시장은 제외
-  min_liquidity: 10000
+  min_liquidity: 50000
+
+  # 주문액은 Gamma 유동성의 최대 0.2%. $100 주문이면 최소 $50,000.
+  max_order_liquidity_ratio: 0.002
 
   # 이익실현 (진입가 대비 +10%)
   take_profit_percent: 0.10
@@ -24,9 +31,10 @@ trading:
   # 손절 (진입가 대비 -8%)
   stop_loss_percent: -0.08
 
-  # 최대 동시 포지션 수
-  # -1: 무제한
-  max_positions: -1
+  # 최대 동시 포지션/오픈 원금/한 cycle 신규 포지션 안전한도
+  max_positions: 100
+  max_open_notional_usdc: 5000
+  max_new_positions_per_cycle: 5
 
   # 트레일링 스탑 설정
   trailing_stop:
@@ -39,12 +47,20 @@ trading:
   time_based:
     # 시간 기반 필터 활성화
     enabled: true
-    # 진입 조건: 해결까지 최대 시간 (30일 = 720시간)
-    entry_hours_max: 720
-    # 진입 조건: 해결까지 최소 시간 (1일 = 24시간)
-    entry_hours_min: 24
-    # 청산 조건: 해결까지 이 시간 이내면 청산 (12시간, 0이면 비활성화)
-    exit_hours: 12
+    # 비스포츠는 endDate, 스포츠는 gameStartTime 기준 5일 이내
+    entry_hours_max: 120
+    # 0이면 기준시각 전 모든 양수 시간 허용
+    entry_hours_min: 0
+    # 0이면 endDate 기반 자동 시간청산 비활성화
+    exit_hours: 0
+
+  # 스포츠는 endDate 대신 실제 gameStartTime을 진입 기준시각으로 사용
+  game_start:
+    enabled: true
+    # 3/5분 Jenkins 주기와 스캔 지연을 고려해 시작 5분 전부터 진입 차단
+    entry_buffer_minutes: 5
+    # sportsMarketType이 있는데 gameStartTime이 없으면 endDate로 추측하지 않음
+    reject_sports_without_game_start: true
 
   # 제외할 카테고리 (빈 배열이면 필터링 완전 비활성화)
   excluded_categories: []

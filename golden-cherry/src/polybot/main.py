@@ -141,8 +141,22 @@ Examples:
         print(f"Sell Threshold: {config.trading.sell_threshold:.0%}")
         print(f"YES-Only Mode: {config.trading.yes_only_mode}")
         print(f"Buy Amount: ${config.trading.buy_amount_usdc} USDC")
-        print(f"Min Liquidity: ${config.trading.min_liquidity:,.0f}")
-        print(f"Max Positions: {config.trading.max_positions if config.trading.max_positions > 0 else 'Unlimited'}")
+        print(f"Buy Amount Hard Cap: ${config.trading.max_buy_amount_usdc} USDC")
+        print(f"Effective Min Liquidity: ${config.trading.effective_min_liquidity:,.0f}")
+        print(f"Max Positions: {config.trading.max_positions}")
+        print(f"Max Open Notional: ${config.trading.max_open_notional_usdc:,.0f}")
+        print(f"Max New Positions / Cycle: {config.trading.max_new_positions_per_cycle}")
+        print(
+            "Entry Window: "
+            f"{config.trading.time_based.entry_hours_min}-"
+            f"{config.trading.time_based.entry_hours_max}h"
+        )
+        print(f"Time Exit: {config.trading.time_based.exit_hours}h")
+        print(
+            "Sports gameStartTime Guard: "
+            f"{config.trading.game_start.enabled} "
+            f"(buffer {config.trading.game_start.entry_buffer_minutes}m)"
+        )
         print()
         print("=== Excluded Categories ===")
         for cat in config.trading.excluded_categories:

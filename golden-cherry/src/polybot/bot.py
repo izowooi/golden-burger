@@ -89,14 +89,32 @@ class PolymarketBot:
                 )
                 logger.info(
                     f"Resolution Momentum 전략 - "
-                    f"진입: {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
+                    f"진입 기준시각: {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
                     f"확률: {self.config.trading.buy_threshold:.0%} ~ {self.config.trading.sell_threshold:.0%}, "
                     f"시간 청산: {time_exit_text}"
+                )
+                game_cfg = self.config.trading.game_start
+                logger.info(
+                    "시간 기준 - 비스포츠=endDate, 스포츠=%s, 시작 buffer=%d분, "
+                    "gameStartTime 누락 스포츠 차단=%s",
+                    "gameStartTime" if game_cfg.enabled else "endDate",
+                    game_cfg.entry_buffer_minutes,
+                    game_cfg.reject_sports_without_game_start,
                 )
                 logger.info(
                     f"손익 설정 - 손절: {self.config.trading.stop_loss_percent:.0%}, "
                     f"익절: {self.config.trading.take_profit_percent:.0%}, "
                     f"트레일링: {self.config.trading.trailing_stop.percent:.0%}"
+                )
+                logger.info(
+                    "노출 한도 - 건당 $%.2f(하드캡 $%.2f), open $%.2f, "
+                    "포지션 %d개, cycle 신규 %d개, 유동성 최소 $%.0f",
+                    self.config.trading.buy_amount_usdc,
+                    self.config.trading.max_buy_amount_usdc,
+                    self.config.trading.max_open_notional_usdc,
+                    self.config.trading.max_positions,
+                    self.config.trading.max_new_positions_per_cycle,
+                    self.config.trading.effective_min_liquidity,
                 )
             else:
                 logger.info("시간 기반 필터 비활성화 (확률 조건만 사용)")
@@ -221,8 +239,13 @@ class PolymarketBot:
                     "buy_threshold": self.config.trading.buy_threshold,
                     "sell_threshold": self.config.trading.sell_threshold,
                     "buy_amount_usdc": self.config.trading.buy_amount_usdc,
+                    "max_buy_amount_usdc": self.config.trading.max_buy_amount_usdc,
                     "min_liquidity": self.config.trading.min_liquidity,
+                    "effective_min_liquidity": self.config.trading.effective_min_liquidity,
+                    "max_order_liquidity_ratio": self.config.trading.max_order_liquidity_ratio,
                     "max_positions": self.config.trading.max_positions,
+                    "max_open_notional_usdc": self.config.trading.max_open_notional_usdc,
+                    "max_new_positions_per_cycle": self.config.trading.max_new_positions_per_cycle,
                     "take_profit_percent": self.config.trading.take_profit_percent,
                     "stop_loss_percent": self.config.trading.stop_loss_percent,
                     "trailing_stop_enabled": self.config.trading.trailing_stop.enabled,
@@ -231,6 +254,9 @@ class PolymarketBot:
                     "entry_hours_max": self.config.trading.time_based.entry_hours_max,
                     "entry_hours_min": self.config.trading.time_based.entry_hours_min,
                     "exit_hours": self.config.trading.time_based.exit_hours,
+                    "game_start_filter_enabled": self.config.trading.game_start.enabled,
+                    "game_start_buffer_minutes": self.config.trading.game_start.entry_buffer_minutes,
+                    "reject_sports_without_game_start": self.config.trading.game_start.reject_sports_without_game_start,
                     "lifecycle_mode": self.config.trading.lifecycle_mode,
                 },
             }

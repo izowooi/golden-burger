@@ -1,10 +1,11 @@
 """Market scanner for finding trading opportunities."""
 import logging
 import re
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import List, Dict, Optional
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import GameStartConfig, TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
     is_sports_market,
@@ -38,25 +39,138 @@ def _log_reject_summary(rejected: Dict[str, int]) -> None:
     logger.info(f"제외 사유 요약 - {summary}")
 
 
-def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
-    """Parse endDate string from Gamma API to datetime.
+def parse_market_datetime(value) -> Optional[datetime]:
+    """Parse a Gamma market datetime into an aware UTC datetime.
 
     Args:
-        end_date_str: ISO format date string (e.g., "2025-12-31T12:00:00Z")
+        value: ISO date/time string or datetime object
 
     Returns:
         datetime object or None if parsing fails
     """
-    if not end_date_str:
+    if isinstance(value, datetime):
+        parsed = value
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    if not isinstance(value, str) or not value.strip():
         return None
     try:
+        value = value.strip()
         # Handle both formats: "2025-12-31T12:00:00Z" and "2025-12-31"
-        if "T" in end_date_str:
-            return datetime.fromisoformat(end_date_str.replace("Z", "+00:00"))
-        else:
-            return datetime.fromisoformat(end_date_str + "T00:00:00+00:00")
+        if "T" not in value and " " not in value:
+            value += "T00:00:00+00:00"
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
     except (ValueError, TypeError):
         return None
+
+
+def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
+    """Backward-compatible endDate parser."""
+    return parse_market_datetime(end_date_str)
+
+
+@dataclass(frozen=True)
+class GameStartEvaluation:
+    """Normalized sports timing evidence from one Gamma market."""
+
+    is_sports_timed: bool
+    valid: bool
+    reason: str
+    game_start_time: Optional[datetime]
+    minutes_until_game_start: Optional[float]
+    sports_market_type: Optional[str]
+
+
+def evaluate_game_start(
+    market: Dict,
+    config: GameStartConfig,
+    *,
+    now: Optional[datetime] = None,
+) -> GameStartEvaluation:
+    """Validate a sports market against its actual ``gameStartTime``.
+
+    Gamma ``endDate`` can be a settlement/catalog deadline several days after
+    a game. A market carrying ``gameStartTime`` therefore uses that timestamp
+    as its entry deadline. A sports market type without a usable start time is
+    rejected by default instead of falling back to the misleading endDate.
+    """
+    raw_game_start = market.get("gameStartTime")
+    raw_sports_type = market.get("sportsMarketType")
+    sports_market_type = (
+        str(raw_sports_type).strip() if raw_sports_type is not None else None
+    ) or None
+    is_sports_timed = bool(raw_game_start or sports_market_type)
+
+    if not config.enabled:
+        return GameStartEvaluation(
+            is_sports_timed=is_sports_timed,
+            valid=True,
+            reason="game_start_filter_disabled",
+            game_start_time=parse_market_datetime(raw_game_start),
+            minutes_until_game_start=None,
+            sports_market_type=sports_market_type,
+        )
+
+    if not is_sports_timed:
+        return GameStartEvaluation(
+            is_sports_timed=False,
+            valid=True,
+            reason="not_sports_timed",
+            game_start_time=None,
+            minutes_until_game_start=None,
+            sports_market_type=None,
+        )
+
+    if not raw_game_start:
+        valid = not config.reject_sports_without_game_start
+        return GameStartEvaluation(
+            is_sports_timed=True,
+            valid=valid,
+            reason=(
+                "sports_missing_game_start"
+                if not valid
+                else "sports_game_start_unavailable_allowed"
+            ),
+            game_start_time=None,
+            minutes_until_game_start=None,
+            sports_market_type=sports_market_type,
+        )
+
+    game_start_time = parse_market_datetime(raw_game_start)
+    if game_start_time is None:
+        return GameStartEvaluation(
+            is_sports_timed=True,
+            valid=False,
+            reason="invalid_game_start_time",
+            game_start_time=None,
+            minutes_until_game_start=None,
+            sports_market_type=sports_market_type,
+        )
+
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    minutes_left = (
+        game_start_time - current.astimezone(timezone.utc)
+    ).total_seconds() / 60
+    valid = minutes_left > config.entry_buffer_minutes
+    reason = (
+        f"game_start_safe_{minutes_left:.1f}m"
+        if valid
+        else f"game_started_or_inside_buffer_{minutes_left:.1f}m"
+    )
+    return GameStartEvaluation(
+        is_sports_timed=True,
+        valid=valid,
+        reason=reason,
+        game_start_time=game_start_time,
+        minutes_until_game_start=minutes_left,
+        sports_market_type=sports_market_type,
+    )
 
 
 def get_hours_until_resolution(end_date: Optional[datetime]) -> Optional[float]:
@@ -118,8 +232,8 @@ def is_valid_time_entry(
 def format_entry_window(entry_hours_min: int, entry_hours_max: int) -> str:
     """Render the actual lower-bound semantics used by ``is_valid_time_entry``."""
     if entry_hours_min == 0:
-        return f"0h < 해결시간 <= {entry_hours_max}h"
-    return f"{entry_hours_min}h <= 해결시간 <= {entry_hours_max}h"
+        return f"0h < 남은시간 <= {entry_hours_max}h"
+    return f"{entry_hours_min}h <= 남은시간 <= {entry_hours_max}h"
 
 
 class MarketScanner:
@@ -158,7 +272,7 @@ class MarketScanner:
 
         time_cfg = self.config.time_based
         logger.info(
-            f"설정: 진입 조건 {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
+            f"설정: 진입 기준시각 조건 {format_entry_window(time_cfg.entry_hours_min, time_cfg.entry_hours_max)}, "
             f"확률 {self.config.buy_threshold:.0%} ~ {self.config.sell_threshold:.0%}"
         )
         logger.info("-" * 70)
@@ -173,7 +287,7 @@ class MarketScanner:
 
             logger.info(
                 f"{status} | {item['outcome']} @ {item['probability']:.1%} | "
-                f"해결까지: {hours_str} | 사유: {item['reason']}"
+                f"진입 기준시각까지: {hours_str} | 사유: {item['reason']}"
             )
             logger.info(f"       {item['question']}...")
 
@@ -185,19 +299,25 @@ class MarketScanner:
         """Scan for markets meeting buy criteria.
 
         Criteria (Resolution Momentum Strategy):
-        1. Not in excluded categories (sports)
+        1. Not in configured excluded categories (empty means no category exclusion)
         2. Liquidity >= min_liquidity
         3. Probability: buy_threshold <= prob <= sell_threshold (75-92%)
-        4. Time: positive hours_until_resolution in the configured inclusive window
+        4. Time: sports use gameStartTime; other markets use endDate
 
         Returns:
             List of candidate dictionaries with market info
         """
-        # Get all markets with minimum liquidity
+        # Scale liquidity with order size. At the default 0.2% ceiling a
+        # $100 order requires at least $50,000 reported liquidity.
+        effective_min_liquidity = self.config.effective_min_liquidity
         markets = self.gamma.get_all_tradable_markets(
-            min_liquidity=self.config.min_liquidity
+            min_liquidity=effective_min_liquidity
         )
-        logger.info(f"시장 {len(markets)}개 스캔 시작")
+        logger.info(
+            "시장 %d개 스캔 시작 (유동성 기준 $%s)",
+            len(markets),
+            f"{effective_min_liquidity:,.0f}",
+        )
 
         candidates = []
         scan_analysis = []  # 분석 결과 저장
@@ -215,7 +335,7 @@ class MarketScanner:
                 continue
 
             # Filter: Liquidity (double check)
-            if not passes_liquidity_filter(market, self.config.min_liquidity):
+            if not passes_liquidity_filter(market, effective_min_liquidity):
                 rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
                 continue
 
@@ -236,27 +356,52 @@ class MarketScanner:
                 rejected["prob_out_of_range"] = rejected.get("prob_out_of_range", 0) + 1
                 continue
 
-            # Filter: Time-based entry (if enabled)
+            # Sports use gameStartTime as the entry deadline. Non-sports keep
+            # using endDate. This prevents a late catalog/settlement endDate
+            # from admitting an already-started sporting event.
             entry_signal = True
             entry_reason = "probability_only"
-            hours_left = None
-            end_date = None
+            entry_hours_left = None
+            end_date = parse_end_date(market.get("endDate"))
+            resolution_hours_left = get_hours_until_resolution(end_date)
+            game_start = evaluate_game_start(market, self.config.game_start)
+            entry_time_reference = "end_date"
+            entry_deadline = end_date
 
-            if self.config.time_based.enabled:
-                end_date = parse_end_date(market.get("endDate"))
-                entry_signal, entry_reason, hours_left = is_valid_time_entry(
-                    end_date,
+            if (
+                self.config.game_start.enabled
+                and game_start.game_start_time is not None
+            ):
+                entry_time_reference = "game_start_time"
+                entry_deadline = game_start.game_start_time
+            if not game_start.valid:
+                entry_signal = False
+                entry_reason = game_start.reason
+
+            if entry_signal and self.config.time_based.enabled:
+                entry_signal, time_reason, entry_hours_left = is_valid_time_entry(
+                    entry_deadline,
                     self.config.time_based.entry_hours_max,
                     self.config.time_based.entry_hours_min,
                     self.config.time_based.exit_hours,
                 )
+                if entry_signal:
+                    entry_reason = (
+                        f"game_start_{entry_hours_left:.1f}h"
+                        if entry_time_reference == "game_start_time"
+                        else time_reason
+                    )
+                else:
+                    entry_reason = time_reason
+            elif entry_deadline is not None:
+                entry_hours_left = get_hours_until_resolution(entry_deadline)
 
             # 분석 결과 저장 (진입 여부와 관계없이)
             scan_analysis.append({
                 "question": market.get("question", "")[:50],
                 "outcome": outcome_info["outcome"],
                 "probability": probability,
-                "hours_left": hours_left,
+                "hours_left": entry_hours_left,
                 "entry_signal": entry_signal,
                 "reason": entry_reason,
             })
@@ -285,14 +430,25 @@ class MarketScanner:
                 "liquidity": float(market.get("liquidity") or 0),
                 "entry_reason": entry_reason,
                 "end_date": end_date,
-                "hours_until_resolution": hours_left,
+                "hours_until_resolution": resolution_hours_left,
+                "entry_time_reference": entry_time_reference,
+                "hours_until_entry_deadline": entry_hours_left,
+                "game_start_time": game_start.game_start_time,
+                "minutes_until_game_start": game_start.minutes_until_game_start,
+                "sports_market_type": game_start.sports_market_type,
+                "is_sports_timed": game_start.is_sports_timed,
                 "market_tags": market_tags,
             }
             candidates.append(candidate)
+            entry_hours_text = (
+                f"{entry_hours_left:.1f}h"
+                if entry_hours_left is not None
+                else "N/A"
+            )
             logger.debug(
                 f"매수 후보: {candidate['question'][:50]}... "
                 f"({candidate['outcome']} @ {probability:.1%}, "
-                f"해결까지 {hours_left:.1f}h, 사유: {entry_reason})"
+                f"진입 기준시각까지 {entry_hours_text}, 사유: {entry_reason})"
             )
 
         # 스캔 분석 요약 출력

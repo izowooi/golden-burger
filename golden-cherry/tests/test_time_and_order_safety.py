@@ -1,5 +1,6 @@
 """Golden Cherry의 시간 경계와 주문 실패 방어 로직 테스트."""
 
+import sqlite3
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
@@ -7,9 +8,14 @@ from polybot_observability import (
     ClobResponseUnavailableError,
     SubmissionEvidenceError,
 )
-from polybot.config import TimeBasedConfig, TradingConfig
-from polybot.db.models import TradeStatus
-from polybot.strategy.scanner import is_valid_time_entry
+from polybot.config import GameStartConfig, TimeBasedConfig, TradingConfig
+from polybot.api.clob_client import ClobClientWrapper
+from polybot.db.models import TradeStatus, init_database
+from polybot.strategy.scanner import (
+    MarketScanner,
+    evaluate_game_start,
+    is_valid_time_entry,
+)
 from polybot.strategy.trader import Trader
 
 
@@ -18,15 +24,20 @@ def utcnow_naive():
 
 
 class FakeRepo:
-    def __init__(self):
+    def __init__(self, *, position_count=0, open_notional=0.0):
         self.updates = []
         self.created = []
+        self.position_count = position_count
+        self.open_notional = open_notional
 
     def is_already_traded(self, condition_id):
         return False
 
     def get_position_count(self):
-        return 0
+        return self.position_count
+
+    def get_open_notional_usdc(self):
+        return self.open_notional
 
     def mark_as_skipped(self, condition_id, reason):
         return None
@@ -40,14 +51,18 @@ class FakeRepo:
 
 
 class FakeClob:
-    def __init__(self, midpoint=0.85, results=None):
+    def __init__(self, midpoint=0.85, results=None, token_balance=None):
         self.midpoint = midpoint
         self.results = list(results or [{"success": True, "orderID": "ORDER"}])
+        self.token_balance = token_balance
         self.orders = []
         self.cancelled = []
 
     def get_midpoint(self, token_id):
         return self.midpoint
+
+    def get_conditional_token_balance(self, token_id):
+        return self.token_balance
 
     def place_limit_order(self, **kwargs):
         self.orders.append(kwargs)
@@ -86,7 +101,7 @@ def make_candidate(condition_id="0xbuy"):
         "outcome": "Yes",
         "question": "Will this market resolve?",
         "market_slug": "will-this-market-resolve",
-        "liquidity": 20_000.0,
+        "liquidity": 100_000.0,
         "entry_reason": "time_based_24h",
         "end_date": utcnow_naive() + timedelta(hours=24),
         "hours_until_resolution": 24.0,
@@ -165,7 +180,111 @@ def test_past_end_date_does_not_trigger_time_exit():
     assert clob.orders == []
 
 
-def test_partial_token_balance_retries_once_and_records_actual_size():
+def test_open_notional_limit_blocks_buy_without_touching_clob():
+    config = TradingConfig(
+        buy_amount_usdc=100,
+        max_buy_amount_usdc=100,
+        max_open_notional_usdc=5000,
+    )
+    repo = FakeRepo(open_notional=4950)
+    clob = FakeClob(midpoint=0.80)
+    trader = Trader(repo, clob, config)
+
+    assert trader.execute_buy(make_candidate()) is None
+    assert clob.orders == []
+
+
+def test_per_cycle_position_limit_stops_buy_burst():
+    config = TradingConfig(max_new_positions_per_cycle=1)
+    repo = FakeRepo()
+    clob = FakeClob(
+        midpoint=0.80,
+        results=[{"success": True, "orderID": "FIRST"}],
+    )
+    trader = Trader(repo, clob, config)
+
+    assert trader.execute_buy(make_candidate("0xfirst")) == 1
+    assert trader.execute_buy(make_candidate("0xsecond")) is None
+    assert len(clob.orders) == 1
+
+
+def test_order_preflight_rejects_sport_inside_game_start_buffer():
+    game_start = datetime.now(timezone.utc) + timedelta(minutes=4)
+    candidate = make_candidate()
+    candidate.update({
+        "entry_time_reference": "game_start_time",
+        "game_start_time": game_start,
+        "sports_market_type": "moneyline",
+        "is_sports_timed": True,
+    })
+    repo = FakeRepo()
+    clob = FakeClob(midpoint=0.80)
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_buy(candidate) is None
+    assert clob.orders == []
+
+
+def test_order_preflight_rejects_non_sport_after_end_date():
+    candidate = make_candidate()
+    candidate["end_date"] = utcnow_naive() - timedelta(seconds=1)
+    repo = FakeRepo()
+    clob = FakeClob(midpoint=0.80)
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_buy(candidate) is None
+    assert clob.orders == []
+
+
+def test_live_token_balance_clamps_sell_before_order():
+    repo = FakeRepo()
+    clob = FakeClob(
+        midpoint=0.70,
+        token_balance=9248.547141,
+        results=[{"success": True, "orderID": "CLAMPED_SELL"}],
+    )
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_sell(make_trade(buy_shares=9248.5549)) is True
+    assert [order["size"] for order in clob.orders] == [9248.547141]
+    assert repo.updates[-1][1]["sell_shares"] == 9248.547141
+    assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+
+
+def test_clob_conditional_balance_is_scaled_from_micro_shares():
+    wrapper = object.__new__(ClobClientWrapper)
+    wrapper.simulation_mode = False
+    wrapper._initialized = True
+    wrapper._client = SimpleNamespace(
+        get_balance_allowance=lambda params: {"balance": "9248547141"}
+    )
+
+    assert wrapper.get_conditional_token_balance("TOKEN") == 9248.547141
+
+
+def test_existing_trade_database_gets_game_start_evidence_columns(tmp_path):
+    db_path = tmp_path / "legacy.db"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "CREATE TABLE trades (id INTEGER PRIMARY KEY, market_tags TEXT)"
+        )
+
+    init_database(str(db_path))
+
+    with sqlite3.connect(db_path) as connection:
+        columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(trades)")
+        }
+    assert {
+        "market_game_start_time",
+        "minutes_until_game_start_at_buy",
+        "entry_time_reference",
+        "hours_until_entry_deadline_at_buy",
+        "sports_market_type",
+    } <= columns
+
+
+def test_reported_token_balance_retries_one_micro_share_below_balance():
     repo = FakeRepo()
     clob = FakeClob(
         midpoint=0.70,
@@ -183,9 +302,90 @@ def test_partial_token_balance_retries_once_and_records_actual_size():
     trader = Trader(repo, clob, TradingConfig())
 
     assert trader.execute_sell(make_trade()) is True
-    assert [order["size"] for order in clob.orders] == [6.0, 5.445]
-    assert repo.updates[-1][1]["sell_shares"] == 5.445
+    assert [order["size"] for order in clob.orders] == [6.0, 5.499999]
+    assert repo.updates[-1][1]["sell_shares"] == 5.499999
     assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+
+
+def test_generic_large_partial_sell_keeps_sellable_remainder_open():
+    repo = FakeRepo()
+    clob = FakeClob(
+        midpoint=0.70,
+        results=[
+            {"success": False, "error": "not enough balance / allowance"},
+            {"success": True, "orderID": "PARTIAL_SELL"},
+        ],
+    )
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_sell(make_trade(buy_shares=1000.0)) is False
+    assert [order["size"] for order in clob.orders] == [1000.0, 990.0]
+    assert repo.updates[-1][1]["buy_shares"] == 10.0
+    assert repo.updates[-1][1]["status"] == TradeStatus.HOLDING
+
+
+def test_game_start_filter_uses_start_not_late_end_date():
+    now = datetime.now(timezone.utc)
+
+    class FakeGamma:
+        def get_all_tradable_markets(self, min_liquidity):
+            assert min_liquidity == 50_000
+            return [{
+                "conditionId": "0xsport",
+                "slug": "tennis-match",
+                "question": "Will Player A win?",
+                "outcomePrices": ["0.80", "0.20"],
+                "outcomes": ["Yes", "No"],
+                "clobTokenIds": ["YES", "NO"],
+                "liquidity": "100000",
+                "endDate": (now + timedelta(days=7)).isoformat(),
+                "gameStartTime": (now + timedelta(hours=2)).isoformat(),
+                "sportsMarketType": "moneyline",
+            }]
+
+    config = TradingConfig(
+        excluded_categories=[],
+        time_based=TimeBasedConfig(
+            enabled=True,
+            entry_hours_min=0,
+            entry_hours_max=120,
+            exit_hours=0,
+        ),
+    )
+    candidates = MarketScanner(FakeGamma(), config).scan_buy_candidates()
+
+    assert len(candidates) == 1
+    assert candidates[0]["entry_time_reference"] == "game_start_time"
+    assert 1.9 < candidates[0]["hours_until_entry_deadline"] <= 2
+    assert candidates[0]["hours_until_resolution"] > 160
+
+
+def test_game_start_filter_rejects_started_buffer_and_missing_start():
+    now = datetime.now(timezone.utc)
+    config = GameStartConfig(
+        enabled=True,
+        entry_buffer_minutes=5,
+        reject_sports_without_game_start=True,
+    )
+
+    inside = evaluate_game_start(
+        {
+            "gameStartTime": (now + timedelta(minutes=4)).isoformat(),
+            "sportsMarketType": "moneyline",
+        },
+        config,
+        now=now,
+    )
+    missing = evaluate_game_start(
+        {"sportsMarketType": "spread"},
+        config,
+        now=now,
+    )
+
+    assert inside.valid is False
+    assert inside.reason.startswith("game_started_or_inside_buffer")
+    assert missing.valid is False
+    assert missing.reason == "sports_missing_game_start"
 
 
 def test_unknown_submission_result_does_not_create_or_complete_trade():

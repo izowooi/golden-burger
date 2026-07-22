@@ -66,6 +66,11 @@ class Trade(Base):
     # Time-based strategy data
     market_end_date = Column(DateTime, nullable=True)  # Market resolution time
     hours_until_resolution_at_buy = Column(Float, nullable=True)  # Hours left when bought
+    market_game_start_time = Column(DateTime, nullable=True)
+    minutes_until_game_start_at_buy = Column(Float, nullable=True)
+    entry_time_reference = Column(String, nullable=True)  # end_date | game_start_time
+    hours_until_entry_deadline_at_buy = Column(Float, nullable=True)
+    sports_market_type = Column(String, nullable=True)
 
     # Metadata
     liquidity_at_buy = Column(Float, nullable=True)
@@ -124,10 +129,22 @@ def init_database(
     )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
-    with engine.connect() as conn:
-        try:
-            conn.execute(text("ALTER TABLE trades ADD COLUMN market_tags TEXT"))
-            conn.commit()
-        except Exception:
-            pass  # Column already exists
+    migration_columns = {
+        "market_tags": "TEXT",
+        "market_game_start_time": "DATETIME",
+        "minutes_until_game_start_at_buy": "FLOAT",
+        "entry_time_reference": "TEXT",
+        "hours_until_entry_deadline_at_buy": "FLOAT",
+        "sports_market_type": "TEXT",
+    }
+    with engine.begin() as conn:
+        existing = {
+            row[1]
+            for row in conn.execute(text("PRAGMA table_info(trades)"))
+        }
+        for column_name, column_type in migration_columns.items():
+            if column_name not in existing:
+                conn.execute(text(
+                    f"ALTER TABLE trades ADD COLUMN {column_name} {column_type}"
+                ))
     return sessionmaker(bind=engine)

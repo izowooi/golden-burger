@@ -8,6 +8,7 @@ import json
 import logging
 import math
 from contextlib import contextmanager
+from decimal import Decimal, InvalidOperation
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 
 from py_clob_client_v2 import BookParams
@@ -34,6 +35,7 @@ _PROVABLY_UNFILLED_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_CONDITIONAL_TOKEN_SCALE = Decimal("1000000")
 
 
 def _normalize_order_status(value: Any) -> str:
@@ -239,6 +241,45 @@ class ClobClientWrapper:
             else:
                 logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
             raise
+
+    @rate_limit_handler(max_retries=2)
+    def get_conditional_token_balance(self, token_id: str) -> Optional[float]:
+        """Return the authenticated wallet's available outcome-token shares.
+
+        The CLOB balance endpoint reports conditional-token quantities as
+        integer micro-shares. ``None`` in simulation mode deliberately means
+        "no live preflight" so simulated order sizes remain deterministic.
+        """
+        if self.simulation_mode:
+            return None
+
+        from py_clob_client_v2 import AssetType, BalanceAllowanceParams
+
+        response = self.client.get_balance_allowance(
+            BalanceAllowanceParams(
+                asset_type=AssetType.CONDITIONAL,
+                token_id=str(token_id),
+            )
+        )
+        if not isinstance(response, Mapping) or "balance" not in response:
+            raise ClobResponseContractError(
+                "conditional token balance response가 balance mapping이 아닙니다"
+            )
+        try:
+            raw_balance = Decimal(str(response["balance"]))
+        except (InvalidOperation, TypeError, ValueError) as error:
+            raise ClobResponseContractError(
+                "conditional token balance가 숫자가 아닙니다"
+            ) from error
+        if (
+            not raw_balance.is_finite()
+            or raw_balance < 0
+            or raw_balance != raw_balance.to_integral_value()
+        ):
+            raise ClobResponseContractError(
+                "conditional token balance가 유효한 non-negative integer가 아닙니다"
+            )
+        return float(raw_balance / _CONDITIONAL_TOKEN_SCALE)
 
     @staticmethod
     def _normalize_midpoint_value(value: Any) -> Optional[float]:

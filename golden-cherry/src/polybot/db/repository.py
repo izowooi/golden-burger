@@ -11,6 +11,13 @@ from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
 
 logger = logging.getLogger(__name__)
 
+OPEN_EXPOSURE_STATUSES = (
+    TradeStatus.PENDING_BUY,
+    TradeStatus.HOLDING,
+    TradeStatus.PENDING_SELL,
+    TradeStatus.QUARANTINED,
+)
+
 
 class TradeRepository:
     """CRUD operations for trades."""
@@ -198,10 +205,17 @@ class TradeRepository:
         }
 
     def get_position_count(self) -> int:
-        """Get current number of open positions."""
+        """Get all positions that may still carry wallet exposure."""
         return self.session.query(func.count(Trade.id)).filter(
-            Trade.status == TradeStatus.HOLDING
+            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
         ).scalar() or 0
+
+    def get_open_notional_usdc(self) -> float:
+        """Return conservative requested BUY notional for open exposure."""
+        value = self.session.query(func.sum(Trade.buy_amount)).filter(
+            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
+        ).scalar()
+        return float(value or 0.0)
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:
         """완료된 거래를 월별 CSV 파일에 추가.
@@ -223,6 +237,9 @@ class TradeRepository:
             "buy_timestamp", "sell_timestamp",
             "exit_reason", "entry_reason",
             "hours_until_resolution_at_buy",
+            "entry_time_reference", "hours_until_entry_deadline_at_buy",
+            "market_game_start_time", "minutes_until_game_start_at_buy",
+            "sports_market_type",
             "buy_probability", "sell_probability",
             "market_tags",
         ]
@@ -240,6 +257,14 @@ class TradeRepository:
             "exit_reason": trade.exit_reason or "",
             "entry_reason": trade.entry_reason or "",
             "hours_until_resolution_at_buy": trade.hours_until_resolution_at_buy or "",
+            "entry_time_reference": trade.entry_time_reference or "",
+            "hours_until_entry_deadline_at_buy": trade.hours_until_entry_deadline_at_buy or "",
+            "market_game_start_time": (
+                trade.market_game_start_time.isoformat()
+                if trade.market_game_start_time else ""
+            ),
+            "minutes_until_game_start_at_buy": trade.minutes_until_game_start_at_buy or "",
+            "sports_market_type": trade.sports_market_type or "",
             "buy_probability": trade.buy_probability or "",
             "sell_probability": trade.sell_probability or "",
             "market_tags": trade.market_tags or "",

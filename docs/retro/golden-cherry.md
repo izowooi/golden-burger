@@ -6,7 +6,12 @@
 > `CONFIRMED` fill만 사용하고 legacy `ORDER_ASSUMPTION` cohort를 분리한다.
 
 > 회고 실행: 운영 시작 4주 후. 이 문서 경로를 AI에게 주면 된다.
-> 대상: Resolution Momentum 전략 (75~92% 확률 + 해결 24h~720h 전 진입, 4중 청산).
+> 대상: Resolution Momentum 전략. 2026-07-22부터 신규 진입은 비스포츠 `endDate` / 스포츠
+> `gameStartTime` 기준 0~120h이고 시간 청산은 기본 비활성이다. 그 전 24~720h/12h 코호트는
+> 대규모 손실 원인 분석을 위해 아래 SQL에서 별도 historical cohort로 유지한다.
+
+> 계정/전략 식별: 분석할 자금 계좌는 **golden-banana**, 실행 코드·DB·run audit의
+> strategy_name은 **golden-cherry**다. 이름이 같은 별도 전략 golden-banana와 혼합하지 않는다.
 
 ## 0. 복붙용 회고 프롬프트
 
@@ -18,9 +23,9 @@ REVIEW_END=<YYYY-MM-DD UTC>
 파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
 전제/주의:
-- cherry는 두 슬롯이 병행 운용 중이다: 기본 슬롯(운영 4계정 중 하나, BUY 0.75/SELL 0.92/liq 10k)과
-  변형 슬롯(BUY 0.85/SELL 0.95/liq 30k/--yes-only). 슬롯별 DB를 find로 각각 찾아 따로 분석하고,
-  두 슬롯의 A/B 비교표(승률/평균수익률/exit_reason 분포)를 §6 앞에 먼저 제시해라.
+- 과거에는 기본/변형 두 슬롯이 있었을 수 있으므로 DB가 여러 개면 config hash별로 분리한다.
+  현재 확인 대상은 golden-banana 계좌의 golden-cherry `--yes-only` job이다. 이름만 보고
+  다른 golden-banana 전략이나 과거 슬롯을 합치지 말고 resolved config로 식별한다.
 - status 컬럼은 대문자 enum 이름('COMPLETED', 'HOLDING' 등)으로 저장돼 있다. 소문자로 조회하면 0건 나온다.
 - HOLDING인데 market_end_date가 이미 지난 "좀비 포지션"을 먼저 집계하고(§3.5), 좀비의 추정 손익(0/1 redeem 가정)을
   포함한 보정 P&L과 실현 P&L을 반드시 나란히 제시해라. 실현 통계만 보면 생존편향으로 성과가 과대평가된다.
@@ -32,20 +37,20 @@ REVIEW_END=<YYYY-MM-DD UTC>
   cherry 자기 DB의 market_snapshots 테이블은 비어 있다(봇이 안 씀).
 - NO 포지션(outcome='No')의 가격은 1 - probability 근사임을 결과에 명시해라.
 
-Jenkins env 블록 (키 제외하고 export 라인 복사, 슬롯별로):
-[기본 슬롯: 여기 붙여넣기]
-[변형 슬롯: 여기 붙여넣기]
+Jenkins env 블록 (키 제외하고 현재 golden-banana job의 export 라인 복사):
+[현재 운영값: 여기 붙여넣기]
 ```
 
 ## 1. 전략 요약
 
-**논지**: "해결(resolution)이 가까워진 고확률 favorite은 1.0으로 수렴한다"에 베팅한다. Gamma API로 활성 시장을 전수 스캔해, 확률 0.75~0.92 구간이고 해결까지 24h~720h(1~30일) 남은 시장의 favorite 토큰을 시장당 1회, 고정 $5로 매수한다. 수익 원천은 "0.75~0.92 매수 → 해결 직전 0.95+ 매도"의 수렴 구간 캡처(favorite-longshot bias + 시간가치 소멸). 한 번 거래(또는 skip)한 시장은 영구 재진입 금지.
+**논지**: "해결(resolution)이 가까워진 고확률 favorite은 1.0으로 수렴한다"에 베팅한다. Gamma API로 활성 시장을 전수 스캔해 확률 0.75~0.92 구간의 favorite 토큰을 시장당 1회 매수한다. 2026-07-22 이후 진입 기준은 비스포츠 `endDate`, 스포츠 `gameStartTime`까지 0~120h이며 경기 시작 5분 전부터 스포츠 신규 진입을 차단한다. 수익 원천은 "0.75~0.92 매수 → 해결 직전 0.95+ 매도"의 수렴 구간 캡처(favorite-longshot bias + 시간가치 소멸). 한 번 거래(또는 skip)한 시장은 영구 재진입 금지.
 
 **진입 규칙** (`src/polybot/strategy/scanner.py::scan_buy_candidates` → `trader.py::execute_buy`):
 1. 유동성 >= `min_liquidity`
 2. favorite 확률 p: `buy_threshold <= p <= sell_threshold` (양끝 포함). 기본 모드는 Yes/No 중 높은 쪽(→ **NO 토큰도 매수**), `--yes-only`면 index 0(Yes) 토큰만
-3. 해결까지 잔여시간: `entry_hours_min <= h <= entry_hours_max`
+3. 진입 기준시각 잔여시간: `0 < h <= 120`; 스포츠는 gameStartTime, 나머지는 endDate
 4. 매수 직전 CLOB midpoint 재검증: `> sell_threshold`면 "rapid_jump"로 **영구 skip**, `< buy_threshold`면 이번 사이클만 skip
+5. 주문 직전 sports gameStartTime buffer, open 원금/포지션/cycle burst, 주문/유동성 비율 재검증
 
 **청산 규칙** (`trader.py::execute_sell`, 우선순위 순 — exit_reason 값 그대로):
 | 순위 | 조건 | exit_reason |
@@ -53,7 +58,7 @@ Jenkins env 블록 (키 제외하고 export 라인 복사, 슬롯별로):
 | 1 | P&L <= `stop_loss_percent` (-8%) | `stop_loss` |
 | 2 | P&L >= `take_profit_percent` (+10%) | `take_profit` |
 | 3 | 현재가 < max_price × (1 - 트레일링 5%) | `trailing_stop` |
-| 4 | 해결까지 < `exit_hours` (12h) | `time_exit` |
+| 4 | `0 < endDate 잔여시간 <= exit_hours` (기본 0=비활성) | `time_exit` |
 
 **구조적 특성 (회고 시 반드시 고려)**: `max_price`가 매수가로 초기화되므로 실효 손절선은 트레일링 -5%다. -8% 손절은 사이클 간 갭 하락에서만 발동하는 백업. 또 매수가 0.91 이상이면 TP +10%는 수학적으로 도달 불가(상한 1.0) → 그 구간은 trailing/time_exit로만 청산된다.
 
@@ -64,16 +69,23 @@ Jenkins env 블록 (키 제외하고 export 라인 복사, 슬롯별로):
 | 매수 하한 확률 | `POLYBOT_BUY_THRESHOLD` | 0.75 | 이 확률 이상만 매수 |
 | 매수 상한 확률 | `POLYBOT_SELL_THRESHOLD` | 0.92 | 초과 시 rapid_jump 영구 skip |
 | 건당 매수 금액 | `POLYBOT_BUY_AMOUNT` | 5.0 | USDC 달러 단위 |
-| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | 10000 | $ (코드 기본은 50000) |
-| 최대 동시 포지션 | `POLYBOT_MAX_POSITIONS` | -1 | -1 = 무제한 |
+| 건당 하드캡 | `POLYBOT_MAX_BUY_AMOUNT_USDC` | 100 | scale-up 이중 확인 |
+| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | 50000 | $ |
+| 주문/유동성 비율 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | 0.002 | 최대 0.2% |
+| 최대 동시 포지션 | `POLYBOT_MAX_POSITIONS` | 100 | 무제한 금지 |
+| 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | 5000 | 요청 BUY 원금 합계 |
+| cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 5 | burst 제한 |
 | 익절 | `POLYBOT_TAKE_PROFIT` | 0.10 | 진입가 대비 (코드 기본은 0.15) |
 | 손절 | `POLYBOT_STOP_LOSS` | -0.08 | 진입가 대비 |
 | 트레일링 on/off | `POLYBOT_TRAILING_STOP_ENABLED` | true | |
 | 트레일링 % | `POLYBOT_TRAILING_STOP_PERCENT` | 0.05 | 최고점 대비 하락률 |
-| 시간필터 on/off | `POLYBOT_TIME_BASED_ENABLED` | true | false면 매수 로그 f-string crash 알려짐 |
-| 진입 최대 잔여시간 | `POLYBOT_ENTRY_HOURS_MAX` | 720 | 시간 (코드 기본은 24) |
-| 진입 최소 잔여시간 | `POLYBOT_ENTRY_HOURS_MIN` | 24 | 시간 (코드 기본은 4) |
-| 시간 청산 기준 | `POLYBOT_EXIT_HOURS` | 12 | 해결까지 이 시간 미만이면 청산 (코드 기본은 4) |
+| 시간필터 on/off | `POLYBOT_TIME_BASED_ENABLED` | true | false면 진입·시간청산 조건 비활성 |
+| 진입 최대 잔여시간 | `POLYBOT_ENTRY_HOURS_MAX` | 120 | 진입 기준시각까지 시간 |
+| 진입 최소 잔여시간 | `POLYBOT_ENTRY_HOURS_MIN` | 0 | 기준시각 전 모든 양수 시간 |
+| 시간 청산 기준 | `POLYBOT_EXIT_HOURS` | 0 | endDate 시간 청산 비활성 |
+| 경기시각 필터 | `POLYBOT_GAME_START_FILTER_ENABLED` | true | 스포츠 기준을 gameStartTime으로 교체 |
+| 경기 시작 buffer | `POLYBOT_GAME_START_BUFFER_MINUTES` | 5 | 시작 전 신규 진입 차단 |
+| 경기시각 누락 차단 | `POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START` | true | fail closed |
 | YES-Only 모드 | `POLYBOT_YES_ONLY` (CLI `--yes-only`가 우선) | (yaml에 없음, 기본 false) | index 0 토큰만 매수 |
 | 제외 카테고리 | (env 없음, yaml 전용) | `[]` | 빈 배열 = 스포츠 필터 완전 비활성화 (현재 상태) |
 
@@ -91,10 +103,11 @@ Jenkins job 이름은 바뀔 수 있으니 find로 찾는다. **주의: `polybot
 find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "trades.db" 2>/dev/null
 ```
 
-- 기본 슬롯과 변형 슬롯(BUY 0.85/SELL 0.95/liq 30k/--yes-only)이 각각 다른 job으로 돌므로 결과가 2개 이상 나올 수 있다. `data/<job명>/trades.db`의 job명으로 구분하고, 각 DB를 따로 분석한다.
+- 과거 슬롯 또는 다른 job 때문에 결과가 2개 이상 나올 수 있다. 현재 golden-banana job의
+  workspace/job/config hash를 먼저 확정하고 각 DB를 따로 분석한다.
 - 시뮬레이션 기록은 같은 폴더의 `trades_sim.db`로 분리돼 있다 — 실거래 분석에 섞지 말 것.
 - 완결 거래는 `data/<job>/trades_YYYY-MM.csv`에도 append된다 (교차 검증용).
-- Jenkins 콘솔 로그와 `data/<job>/logs/YYYYMMDD.log`에 사이클마다 "제외 사유 요약 - reason: count" 한 줄이 남는다. cherry의 reason 키: `excluded_category`, `low_liquidity`, `no_price_data`, `prob_out_of_range`, `too_early`, `too_late`, `already_resolved`, `no_end_date`. 스캔 병목(어디서 후보가 걸러지는지) 파악에 사용.
+- Jenkins 콘솔 로그와 `data/<job>/logs/YYYYMMDD.log`에 사이클마다 "제외 사유 요약 - reason: count" 한 줄이 남는다. 주요 reason 키: `excluded_category`, `low_liquidity`, `no_price_data`, `prob_out_of_range`, `too_early`, `too_late`, `already_resolved`, `no_end_date`, `sports_missing_game_start`, `invalid_game_start_time`, `game_started_or_inside_buffer`. 스캔 병목 파악에 사용한다.
 
 ### 2.2 테이블 (`src/polybot/db/models.py` 기준)
 
@@ -106,13 +119,16 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
 | `market_slug`, `question`, `outcome` | outcome은 "Yes"/"No" — NO 포지션 구분에 필수 |
 | `buy_price`, `buy_amount`, `buy_shares`, `buy_timestamp`, `buy_probability` | 매수 정보. buy_price = buy_probability = 매수 시 midpoint |
 | `sell_price`, `sell_shares`, `sell_timestamp`, `sell_probability` | 매도 정보 |
-| `realized_pnl` | (매도가-매수가)×주수, COMPLETED에서만 채워짐 |
-| `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `SKIPPED` |
-| `entry_reason` | 실제 값은 `time_based_<잔여h>h` 형식 (예: `time_based_18.3h`) 또는 `probability_only` — **LIKE 'time_based%'로 조회** |
+| `realized_pnl` | (매도가-매수가)×주수. 부분 매도 HOLDING에서는 누적 실현값일 수 있음 |
+| `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `SKIPPED` / `UNFILLED` / `QUARANTINED` |
+| `entry_reason` | 비스포츠 `time_based_<잔여h>h`, 스포츠 `game_start_<잔여h>h`, 또는 `probability_only` |
 | `exit_reason` | `take_profit` / `stop_loss` / `trailing_stop` / `time_exit` |
 | `max_price` | 진입 후 최고가 (트레일링 추적용, 매수가로 초기화됨) |
 | `market_end_date` | 시장 해결 예정 시각 (Gamma endDate, 실제 해결 시각과 다를 수 있음) |
-| `hours_until_resolution_at_buy` | 매수 시점 잔여시간 — **진입 시간창 교정의 핵심 컬럼** |
+| `hours_until_resolution_at_buy` | endDate까지 잔여시간 (스포츠 진입 기준과 다를 수 있음) |
+| `market_game_start_time`, `minutes_until_game_start_at_buy` | 스포츠 실제 시작시각과 매수 직전 잔여분 |
+| `entry_time_reference`, `hours_until_entry_deadline_at_buy` | `end_date`/`game_start_time` 및 실제 진입창 잔여시간 |
+| `sports_market_type` | Gamma sportsMarketType evidence |
 | `liquidity_at_buy`, `market_tags` | 매수 시 유동성, Gamma 태그 문자열 |
 
 모든 timestamp는 `datetime.utcnow()` — **UTC naive**. 중앙 아카이브의 timestamp와 같은 기준이라 그대로 join 가능하다.
@@ -133,7 +149,9 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name
 ```
 
 - 컬럼: `condition_id`, `probability`(**항상 YES 가격**), `liquidity`, `volume_24h`, `timestamp`(UTC naive, 5분 간격)
-- 유니버스: 유동성 >= $10k, **60일 보존** — cherry 기본 슬롯(liq $10k)과 문턱이 같아 커버리지가 좋은 편. 보조 아카이브: honeydew DB (liq >= $15k, 60일, job=polybot-eco)
+- 유니버스: 유동성 >= $10k, **60일 보존** — 현재 cherry 문턱($50k)보다 넓지만
+  run/cursor gap은 별도 확인해야 한다. 보조 아카이브: honeydew DB (liq >= $15k, 60일,
+  job=polybot-eco)
 - **NO 포지션은 1 - probability 근사** (스프레드 무시 근사임을 결과에 명시)
 - 시장이 해결되면 스냅샷이 끊긴다 → 해결 보유분의 최종가는 `trades.sell_price` 또는 0/1 (redeem 가정)
 - 60일 보존이므로 회고는 반드시 보존 기간 안에 실행
@@ -222,29 +240,45 @@ WHERE status = 'COMPLETED' AND buy_amount > 0
 GROUP BY entry_bucket ORDER BY entry_bucket;
 ```
 
-> 변형 슬롯(0.85~0.95)은 버킷 경계를 0.85/0.88/0.91/0.93/0.95로 바꿔 실행. 0.90+ 버킷은 TP 도달 불가 구간이므로 exit_reason 분포를 함께 볼 것 (`GROUP BY entry_bucket, exit_reason` 변형).
+> 과거 0.85~0.95 config cohort가 실제로 있으면 버킷 경계를
+> 0.85/0.88/0.91/0.93/0.95로 바꿔 실행한다. 0.90+ 버킷은 TP 도달 불가 구간이므로
+> exit_reason 분포를 함께 본다 (`GROUP BY entry_bucket, exit_reason` 변형).
 
-### 3.4 잔여시간 버킷별 성과 — 진입 시간창(24~720h) 교정 근거 (cherry 고유 핵심)
+### 3.4 잔여시간 버킷별 성과 — 과거 진입 시간창(24~720h) 교정 근거
 
 ```sql
+WITH timed AS (
+  SELECT *,
+         COALESCE(
+           hours_until_entry_deadline_at_buy,
+           hours_until_resolution_at_buy
+         ) AS entry_hours
+  FROM trades
+)
 SELECT CASE
-         WHEN hours_until_resolution_at_buy < 48  THEN 'a. 24-48h'
-         WHEN hours_until_resolution_at_buy < 120 THEN 'b. 48-120h'
-         WHEN hours_until_resolution_at_buy < 240 THEN 'c. 120-240h'
-         WHEN hours_until_resolution_at_buy < 480 THEN 'd. 240-480h'
-         ELSE 'e. 480-720h' END                                       AS ttr_bucket,
+         WHEN entry_hours < 12  THEN 'a. 0-12h'
+         WHEN entry_hours < 24  THEN 'b. 12-24h'
+         WHEN entry_hours < 72  THEN 'c. 24-72h'
+         WHEN entry_hours < 120 THEN 'd. 72-120h'
+         WHEN entry_hours < 240 THEN 'e. 120-240h'
+         WHEN entry_hours < 480 THEN 'f. 240-480h'
+         ELSE 'g. 480h+' END                                          AS ttr_bucket,
        COUNT(*)                                                       AS n,
        ROUND(AVG(realized_pnl > 0), 3)                                AS win_rate,
        ROUND(SUM(realized_pnl), 4)                                    AS total_pnl,
        ROUND(AVG(realized_pnl / buy_amount), 4)                       AS avg_ret,
        ROUND(AVG((julianday(sell_timestamp) - julianday(buy_timestamp)) * 24), 1) AS avg_hold_h
-FROM trades
+FROM timed
 WHERE status = 'COMPLETED' AND buy_amount > 0
-  AND hours_until_resolution_at_buy IS NOT NULL
+  AND entry_hours IS NOT NULL
 GROUP BY ttr_bucket ORDER BY ttr_bucket;
 ```
 
-해석 가이드: 문서상 원래 전략(4~24h 단기 수렴)과 현행 운영(24~720h)의 우열을 데이터로 판정한다. 장기 버킷(d, e)의 수익률이 낮고 자본 회전이 느리면 `POLYBOT_ENTRY_HOURS_MAX` 축소 근거.
+해석 가이드: 문서상 원래 전략(4~24h 단기 수렴), 과거 운영(24~720h),
+2026-07-22 이후 운영(기준시각 0~120h)을 서로 다른 config/Git cohort로 분리한다.
+과거 장기 버킷(e~g)은 720h 확대가 손실과 자본 회전에 미친 영향을 평가하는 자료다.
+새 컬럼이 없는 과거 행만 `hours_until_resolution_at_buy`로 대체한다. 현재 스포츠 행은 반드시
+`hours_until_entry_deadline_at_buy`(gameStartTime 기준)를 사용하며 endDate 시간과 섞지 않는다.
 
 ### 3.5 좀비 포지션 + 보정 P&L (실현 통계의 생존편향 교정 — 필수)
 
@@ -276,7 +310,7 @@ ORDER BY market_end_date;
 ### 3.6 side(Yes/No)·태그별 성과, rapid_jump 통계
 
 ```sql
--- 기본 슬롯은 NO 토큰도 매수한다. side별 성과가 다르면 yes_only 판단 근거
+-- 과거 non-yes-only cohort가 있으면 side별 성과를 분리해 판단 근거로 사용
 SELECT outcome, COUNT(*) AS n, ROUND(AVG(realized_pnl > 0), 3) AS win_rate,
        ROUND(SUM(realized_pnl), 4) AS total_pnl,
        ROUND(AVG(realized_pnl / buy_amount), 4) AS avg_ret
@@ -330,30 +364,31 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 5. 시계열이 끝날 때까지 미발동이면: COMPLETED 거래는 실제 sell_price, 해결된 HOLDING은 0/1(redeem), 미해결 HOLDING은 마지막 스냅샷 가격으로 평가
 6. 격자 셀별로 총 P&L / 승률 / 평균 보유시간 집계
 
-**격자 (현행 설정 주변)**:
+**격자 (현재 설정 주변)**:
 
 | 노브 | env | 현행 | 스윕 값 |
 |------|-----|------|---------|
 | 익절 | `POLYBOT_TAKE_PROFIT` | 0.10 | 0.06, 0.08, **0.10**, 0.12, 0.15, 없음(수렴 보유) |
 | 손절 | `POLYBOT_STOP_LOSS` | -0.08 | -0.05, **-0.08**, -0.12, 없음 |
 | 트레일링 | `POLYBOT_TRAILING_STOP_PERCENT` | 0.05 | off, 0.03, **0.05**, 0.08 |
-| 시간 청산 | `POLYBOT_EXIT_HOURS` | 12 | 4, **12**, 24, 48 |
+| 시간 청산 | `POLYBOT_EXIT_HOURS` | 0 | **0**, 4, 12, 24 |
 
 전체 조합(6×4×4×4=384셀)이 부담이면 노브별 1차원 스윕(다른 노브는 현행 고정) 후 상위 조합만 2차원 교차. **추가로 "armed trailing" 변형 1개를 반드시 포함**: 트레일링을 `가격 >= 매수가×1.03` 도달 후에만 활성화 — 실효 손절 -5% 문제(§1 구조적 특성)가 실제 손실원인지 판정하는 실험이다.
 
 ### (b) 전략 고유 노브 스윕: 진입 시간창 / 확률 밴드 / yes_only
 
-**노브 1 — 진입 시간창** (`POLYBOT_ENTRY_HOURS_MIN` / `POLYBOT_ENTRY_HOURS_MAX`, 현행 24/720):
+**노브 1 — 진입 시간창** (`POLYBOT_ENTRY_HOURS_MIN` / `POLYBOT_ENTRY_HOURS_MAX`, 현재 0/120):
 
 아카이브로 진입 규칙을 재생한다: 아카이브의 각 시장에 대해 "확률이 밴드(0.75~0.92) 안이고 잔여시간이 창 안인 최초 스냅샷"을 가상 진입 시점으로 잡고, (a)의 청산 재생을 현행 청산 설정으로 돌려 가상 성과를 계산한다.
 
 | 창 (min~max) | 의미 |
 |--------------|------|
+| **0~120h** | **2026-07-22 이후 현재값; 스포츠 gameStartTime / 비스포츠 endDate** |
 | 4~24h | 코드 기본값 = 문서상 원래 "Resolution Momentum" |
 | 24~72h | 단기 수렴 |
 | 24~168h | 1주 이내 |
 | 72~240h | 중기 |
-| **24~720h** | **현행** |
+| 24~720h | 과거 운영값 |
 | 168~720h | 장기 전용 (단기 제외의 기여 분리) |
 
 잔여시간은 post-instrumentation `market_catalog.end_date`를 우선 사용한다. legacy catalog gap은
@@ -362,11 +397,16 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 
 **노브 2 — 확률 밴드** (`POLYBOT_BUY_THRESHOLD` / `POLYBOT_SELL_THRESHOLD`):
 
-두 실운용 슬롯(0.75/0.92 vs 0.85/0.95)이 자연 A/B다. 실측 비교를 먼저 제시하고, 아카이브 재생으로 중간 격자를 보간한다: buy {0.70, **0.75**, 0.80, **0.85**} × sell {0.90, **0.92**, **0.95**} (buy < sell 조합만). 재생 방법은 노브 1과 동일하되 시간창은 현행 고정.
+과거 두 슬롯(0.75/0.92 vs 0.85/0.95)의 config hash가 실제로 모두 존재하면 자연 A/B로
+분리하고, 없으면 병행 운용이었다고 가정하지 않는다. 아카이브 재생으로 중간 격자를 보간한다:
+buy {0.70, **0.75**, 0.80, **0.85**} × sell {0.90, **0.92**, **0.95**}
+(buy < sell 조합만). 재생 방법은 노브 1과 동일하되 시간창은 현재값으로 고정한다.
 
 **노브 3 — yes_only on/off**:
 
-기본 슬롯 데이터의 `outcome` 컬럼으로 Yes/No 코호트를 나누면(§3.6) 재생 없이도 1차 판정 가능. NO side가 체계적으로 나쁘면 기본 슬롯에도 `POLYBOT_YES_ONLY=true` 제안, 좋으면 변형 슬롯의 --yes-only가 기회손실임을 정량화(아카이브에서 NO-favorite 시장의 가상 성과 재생).
+과거 non-yes-only config cohort가 있으면 `outcome` 컬럼으로 Yes/No를 나눠(§3.6)
+재생 없이 1차 판정한다. 현재 Golden Banana job은 `--yes-only`이므로 NO side 실측이 없으면
+아카이브에서 NO-favorite 시장의 가상 성과로만 기회비용을 추정하고 한계를 명시한다.
 
 ### (c) 데이터 한계 (결과 보고서에 반드시 명시)
 
@@ -392,27 +432,29 @@ GROUP BY hold_bucket ORDER BY hold_bucket;
 
 ## 6. 교정안 출력 형식 (AI가 반드시 채울 표)
 
-두 슬롯의 A/B 비교표를 먼저 제시한 뒤, 슬롯별로 아래 표를 채운다:
+동시에 존재한 두 config cohort가 실제로 확인될 때만 A/B 비교표를 먼저 제시한다. 그렇지 않으면
+현재 Golden Banana / Golden Cherry cohort 하나에 대해 아래 표를 채운다:
 
 | 파라미터 | 현행 | 제안 | 근거 수치 | 신뢰도(높음/중간/낮음) |
 |---------|------|------|----------|----------------------|
 | POLYBOT_BUY_THRESHOLD | 0.75 | | §3.3 버킷 + §4(b) 노브 2 격자 | |
 | POLYBOT_SELL_THRESHOLD | 0.92 | | 〃 | |
-| POLYBOT_ENTRY_HOURS_MIN | 24 | | §3.4 버킷 + §4(b) 노브 1 격자 | |
-| POLYBOT_ENTRY_HOURS_MAX | 720 | | 〃 | |
-| POLYBOT_EXIT_HOURS | 12 | | §4(a) 격자 | |
+| POLYBOT_ENTRY_HOURS_MIN | 0 | | §3.4 버킷 + §4(b) 노브 1 격자 | |
+| POLYBOT_ENTRY_HOURS_MAX | 120 | | 〃 | |
+| POLYBOT_EXIT_HOURS | 0 | | §4(a) 격자 | |
 | POLYBOT_TAKE_PROFIT | 0.10 | | 〃 | |
 | POLYBOT_STOP_LOSS | -0.08 | | 〃 (armed trailing 변형 포함) | |
 | POLYBOT_TRAILING_STOP_PERCENT | 0.05 | | 〃 | |
-| POLYBOT_YES_ONLY | 기본 false / 변형 true | | §3.6 side 분해 + §4(b) 노브 3 | |
-| POLYBOT_MIN_LIQUIDITY | 기본 10000 / 변형 30000 | | 슬롯 A/B + liquidity_at_buy 분해 | |
+| POLYBOT_YES_ONLY | 현재 Golden Banana true (`--yes-only`) | | §3.6 side 분해 + §4(b) 노브 3 | |
+| POLYBOT_MIN_LIQUIDITY | 50000 | | config cohort + liquidity_at_buy 분해 | |
 
 **라운드 절차**: tunable knob는 Jenkins env로 반영하되, 첫 성공 run에서 새 `config_hash`와
 Git commit을 확인해 이전 cohort와 분리한다.
 
-1. 1차(이번 회고): 위 표의 제안값 확정. 신뢰도 "높음"만 기본 슬롯에 반영, "중간"은 변형 슬롯 값으로 반영해 기본/변형 병행 A/B 지속 (cherry는 이미 2슬롯 구조이므로 슬롯 하나를 실험군으로 쓴다).
+1. 1차(이번 회고): 위 표의 제안값 확정. 신뢰도 "높음"만 현재 job에 반영한다.
+   별도 계좌·DB·Jenkins job이 실제로 준비된 경우에만 "중간" 값을 실험군으로 병행한다.
 2. 2차(4주 후): 같은 문서로 재실행, 1차 제안값의 실측 검증. 이때 1차 교정 전/후 코호트를 `buy_timestamp`로 분리할 것.
-3. 3차: 수렴하면 변형 슬롯을 다음 실험(예: armed trailing, 스포츠 필터 on)에 재할당.
+3. 3차: 수렴하고 별도 실험군이 있으면 다음 단일 노브 실험에 재할당한다.
 
 교정과 별개로, 좀비 포지션(§3.5)이 다수 확인되면 파라미터 교정보다 **해결/redeem 처리 자동화**(개선 아이디어는 `golden-cherry/STRATEGY_ANALYSIS.md` §7-2)를 우선 과제로 보고한다 — 회계가 틀리면 다음 회고의 근거 수치도 틀린다.
 
@@ -422,4 +464,7 @@ Git commit을 확인해 이전 cohort와 분리한다.
 - 전략 문서: `golden-cherry/STRATEGY_ANALYSIS.md` (정밀 명세·알려진 약점 §6.2·개선 아이디어 §7 — 이 회고의 보조 근거), `golden-cherry/docs/polymarket-strategy-last.md` (Resolution Momentum 원 논지)
 - 그라운딩 코드: `golden-cherry/config.yaml`, `src/polybot/config.py`, `src/polybot/db/models.py`, `src/polybot/strategy/trader.py`, `src/polybot/strategy/scanner.py`
 - cherry에는 별도 `STRATEGY.md`/`AGENTS.md`가 없다 (신규 봇들과 달리 원조 3봇 구조). 전략 근거는 위 STRATEGY_ANALYSIS.md가 대신한다.
-- 운영 슬롯 (2026-07-07 기준): 기본 슬롯(운영 4계정 중 하나) + 변형 슬롯(BUY 0.85/SELL 0.95/liq 30k/--yes-only). Jenkins job명은 가변 — §2.1의 find로 확인. **`polybot-cherry` job은 elderberry 워크스페이스이니 이름으로 판단 금지.**
+- 과거 운영 슬롯 정보(2026-07-07)는 config hash별 historical cohort로만 사용한다. 현재 분석
+  대상은 golden-banana 계좌의 golden-cherry `--yes-only` job이며 Jenkins 이름이 아니라
+  workspace/DB/run audit를 함께 확인한다. **`polybot-cherry` job은 elderberry 워크스페이스이니
+  이름으로 판단 금지.**
