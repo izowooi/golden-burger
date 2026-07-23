@@ -2,7 +2,7 @@
 
 ## 결론
 
-13개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다. 기존 DB에는 환경변수 하나로
+14개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다. 기존 DB에는 환경변수 하나로
 일회성 안전 마이그레이션을 실행하고, 성공 후 그 환경변수를 제거한다. 활성화 상태는 DB의
 `polybot_db_maintenance`에 남으므로 이후 실행도 자동으로 시간당 경량화를 계속한다. 현재
 상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와 신뢰할
@@ -54,11 +54,12 @@ snapshot은 라이브 신호에 필요한 경계를 다르게 보존한다.
 | `golden-nectarine` | 1시간 | 양방향 prefix/suffix 최저 변화점. 20일 이동창과 최근 24h 제외 경계의 최저를 정확히 복원 |
 | `golden-orange` | 168시간 | bucket의 최신 관측. 비가중 7일 median은 축약할 수 없어 전체 base window 유지 |
 | `golden-papaya` | 1시간 | 양방향 최저·최고 변화점. 과거 0.95 이상 관측 predicate 유지 |
+| `golden-queen` | 1시간 | 양방향 최저·최고 변화점. 과거 0.90 이상 관측 predicate 유지 |
 | `golden-cherry` | 72시간 | bucket의 최신 관측 |
 | `golden-banana` | 24시간 + 최근 N개 원형 보호 | bucket의 최신 관측. 기본 `long_window + 10`인 최근 82개는 장시간 수집 중단으로 24시간보다 오래돼도 원형 유지 |
 | 나머지 전략 | 24시간 | bucket의 최신 관측 |
 
-Papaya 거래가 참조한 `entry_snapshot_id`와 `prior_snapshot_id_at_entry`는 보존기간과
+Papaya/Queen 거래가 참조한 `entry_snapshot_id`와 `prior_snapshot_id_at_entry`는 보존기간과
 무관하게 영구 보호한다. 구버전 거래는 entry snapshot과 동일 condition의 직전
 `(timestamp, id)` row를 마이그레이션 중 추론해 함께 보호한다. 마이그레이션 전후 dangling
 lineage count가 달라지면 전체 작업을 실패시킨다.
@@ -90,7 +91,7 @@ job을 둔 채 강제로 삭제해서는 안 된다.
 
 ### 2. 정확히 한 번 실행
 
-아래 예시는 `golden-nectarine`이다. 폴더만 해당 전략으로 바꾸면 13개 전략에 동일하다.
+아래 예시는 `golden-nectarine`이다. 폴더만 해당 전략으로 바꾸면 14개 전략에 동일하다.
 
 ```bash
 #!/bin/bash
@@ -149,7 +150,7 @@ cd ./golden-nectarine
 새 migration profile과 복제본 검증을 먼저 추가해야 한다. 기존 repository의 별도
 `cleanup_old_snapshots`도 active DB에서는 삭제를 공유 maintainer에 양보한다.
 
-## 13개 전략 적용 순서
+## 14개 전략 적용 순서
 
 각 DB마다 위 절차를 한 번씩 수행한다.
 
@@ -158,7 +159,7 @@ golden-apple       golden-banana      golden-cherry
 golden-date        golden-elderberry  golden-fig
 golden-grape       golden-honeydew    golden-lime
 golden-mango       golden-nectarine   golden-orange
-golden-papaya
+golden-papaya      golden-queen
 ```
 
 같은 DB를 공유하는 두 Jenkins job이 있다면 동시에 실행하지 말고 한 job에서만 migration을
@@ -212,7 +213,7 @@ fail closed한다.
 - Banana: hot window가 명목 momentum window 이상이며, 실제 조회 tail인
   `long_window + 10`개도 시간과 무관하게 원형 보호
 - Date/Fig/Grape/Lime/Mango: hot window가 각 live signal의 최대 lookback 이상
-- Papaya: hot window가 `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` 이상이고,
+- Papaya/Queen: hot window가 `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` 이상이고,
   DB retention이 `POLYBOT_SNAPSHOT_RETENTION_DAYS` 이상
 - Nectarine: DB retention이 `POLYBOT_LOOKBACK_DAYS` 이상
 - 모든 전략: retention이 full-cadence hot window 이상

@@ -99,6 +99,9 @@ def test_policy_is_strategy_aware(monkeypatch):
 
     assert policy_for("golden-nectarine").selector == "minimum"
     assert policy_for("golden-papaya").selector == "extrema"
+    assert policy_for("golden-queen").selector == "extrema"
+    assert policy_for("golden-queen").retention_days == 60
+    assert policy_for("golden-queen").hot_hours == 1
     assert policy_for("golden-elderberry").selector == "extrema"
     assert policy_for("golden-honeydew").selector == "latest"
     assert policy_for("golden-orange").retention_days == 21
@@ -119,6 +122,8 @@ def test_policy_rejects_non_finite_number(monkeypatch):
         ("golden-honeydew", {"POLYBOT_DB_HOT_HOURS": "23"}),
         ("golden-papaya", {"POLYBOT_DB_HOT_HOURS": "0.49"}),
         ("golden-papaya", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
+        ("golden-queen", {"POLYBOT_DB_HOT_HOURS": "0.24"}),
+        ("golden-queen", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-nectarine", {"POLYBOT_DB_RETENTION_DAYS": "19"}),
         ("golden-elderberry", {"POLYBOT_DB_HOT_HOURS": "0.5"}),
         ("golden-elderberry", {"POLYBOT_DB_RETENTION_DAYS": "1"}),
@@ -523,10 +528,11 @@ def test_ongoing_thinning_never_promotes_summary_sweep_over_real_detail(
         )
 
 
-def test_papaya_trade_entry_and_immediate_prior_snapshots_are_never_deleted(
-    tmp_path, monkeypatch
+@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_deleted(
+    tmp_path, monkeypatch, strategy_name
 ):
-    database = tmp_path / "papaya.db"
+    database = tmp_path / f"{strategy_name}.db"
     backup_root = tmp_path / "backups"
     _seed_database(database)
     with sqlite3.connect(database) as connection:
@@ -569,7 +575,7 @@ def test_papaya_trade_entry_and_immediate_prior_snapshots_are_never_deleted(
     monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
     monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
     monkeypatch.setenv("POLYBOT_DB_HOT_HOURS", "0.5")
-    prepare_database(database, "golden-papaya")
+    prepare_database(database, strategy_name)
 
     with sqlite3.connect(database) as connection:
         remaining = {

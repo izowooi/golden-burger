@@ -18,7 +18,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, 해결 직전) 전략.
 
-→ 보고 대상은 9계정(apple 2 + banana + cherry + golden-eco + golden-fox + golden-lion + golden-tiger + golden-wolf)이다. 전략 코드베이스는 13개이며, 계정 slot과 배치 전략은 별도 계약으로 관리한다. 현재 명시된 배치는 golden-eco=honeydew, golden-fox=nectarine이고 lion/tiger/wolf는 재사용 가능한 slot ID다.
+→ 보고 대상은 9계정(apple 2 + banana + cherry + golden-eco + golden-fox + golden-lion + golden-tiger + golden-wolf)이다. 전략 코드베이스는 14개이며, 계정 slot과 배치 전략은 별도 계약으로 관리한다. 현재 명시된 배치는 golden-eco=honeydew, golden-fox=nectarine이고 lion/tiger/wolf는 재사용 가능한 slot ID다.
 
 신규 전략 봇 — 대중 심리 기반, 단계적 A/B 검증 예정 (각 폴더 L3 `AGENTS.md`·`STRATEGY.md` 보유, 개요는 `docs/prediction-market-strategy-portfolio.md`):
 
@@ -32,12 +32,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-nectarine/`: Bottom Fisher — 20일 롤링 최저가 매수 / 5일 보유 (QuantPedia 백테스트 복제).
 - `golden-orange/`: Fear Spike Fade — tail 시장 공포 급등 후 NO 매수 (probability neglect).
 - `golden-papaya/`: Final Five — 표준 이진 YES의 first observed 0.95 상향 교차를 0.95–0.97에서 매수하고 해결까지 보유.
+- `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 
 공통 관측성·리포팅·적재 (Python/uv):
 
-- `polybot-observability/`: 13개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
+- `polybot-observability/`: 14개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
 - `daily-report/`: 전 계정(현재 9개) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
@@ -51,7 +52,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 ## 데이터 흐름
 
-봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `golden-honeydew`·`golden-nectarine`이 중앙 시장 snapshot/catalog를 적재하고 `golden-papaya`는 $1k 저유동성 universe용 자체 60일 archive를 적재 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 기준 수익률·freshness·누락·합계 대사를 표시한다.
+봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `golden-honeydew`·`golden-nectarine`이 중앙 시장 snapshot/catalog를 적재하고 `golden-papaya`·`golden-queen`은 기본 $1k(각 전략의 `min(configured entry liquidity, $1k)`) request envelope용 자체 60일 archive를 적재 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 기준 수익률·freshness·누락·합계 대사를 표시한다.
 
 GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 `order_fills.status='CONFIRMED'`의 실제 size/price와 fee coverage로만 확정한다. 계측 배포 전 legacy 구간과 배포 후 구간은 분리하고, evidence gap을 추정값으로 채우지 않는다. 상세 계약은 `docs/retro/EVIDENCE_CONTRACT.md`를 따른다.
 
@@ -84,7 +85,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
-- 공통 전략 계약이나 shared observability를 수정하면 13개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
+- 공통 전략 계약이나 shared observability를 수정하면 14개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
 - 월간 수치 조정·전략 승격 전에 `polybot-retro audit --strict`를 실행한다. `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
 
 ## 새 서브 프로젝트 추가 기준

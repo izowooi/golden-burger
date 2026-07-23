@@ -228,9 +228,12 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             full_cadence_hours=base_window_days * 24.0,
             retention_days=base_window_days,
         )
-    if normalized == "golden-papaya":
+    if normalized in {"golden-papaya", "golden-queen"}:
+        default_gap_minutes = 15.0 if normalized == "golden-queen" else 30.0
         return SQLiteMaintenanceRequirements(
-            full_cadence_hours=_positive_float("POLYBOT_MAX_SNAPSHOT_GAP_MINUTES", 30.0)
+            full_cadence_hours=_positive_float(
+                "POLYBOT_MAX_SNAPSHOT_GAP_MINUTES", default_gap_minutes
+            )
             / 60.0,
             retention_days=_positive_float("POLYBOT_SNAPSHOT_RETENTION_DAYS", 60.0),
         )
@@ -270,20 +273,22 @@ def policy_for(
         # cannot be reconstructed from extrema/latest rollups, so its complete
         # base window stays at full cadence.
         "golden-orange": 7.0 * 24.0,
-        # Papaya needs the immediately previous <=30 minute observation at
-        # full fidelity; older extrema preserve the never-crossed predicate.
+        # First-crossing strategies need their immediately previous observation
+        # at full fidelity; older extrema preserve the never-crossed predicate.
         "golden-papaya": 1.0,
+        "golden-queen": 1.0,
     }
     retention_defaults = {
         "golden-honeydew": 60.0,
         "golden-nectarine": 60.0,
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
+        "golden-queen": 60.0,
     }
     selector = "latest"
     if normalized == "golden-nectarine":
         selector = "minimum"
-    elif normalized in {"golden-elderberry", "golden-papaya"}:
+    elif normalized in {"golden-elderberry", "golden-papaya", "golden-queen"}:
         selector = "extrema"
     policy = SQLiteMaintenancePolicy(
         strategy_name=normalized,
@@ -353,7 +358,7 @@ def _protected_counts(connection: sqlite3.Connection) -> dict[str, int]:
 
 
 def _snapshot_lineage_gaps(connection: sqlite3.Connection) -> dict[str, int]:
-    """Count pre-existing/current Papaya snapshot reference gaps.
+    """Count pre-existing/current first-crossing snapshot reference gaps.
 
     Comparing these counts before and after compaction makes a dangling
     reference regression fail the migration even though the protected trade
@@ -508,9 +513,9 @@ def _build_protected_snapshot_ids(
 ) -> None:
     """Protect immutable trade lineage from telemetry retention/rollup.
 
-    Papaya stores the current entry snapshot ID on the trade.  Its immediately
-    preceding snapshot is equally important because the strategy proves a
-    <=30 minute crossing from that row.  The temporary set is harmless for
+    First-crossing strategies store the current entry snapshot ID on the trade.
+    The immediately preceding snapshot is equally important because the
+    crossing is proved from that row. The temporary set is harmless for
     strategies whose trade schema has no ``entry_snapshot_id`` column.
     """
 

@@ -28,6 +28,7 @@ CURRENT_STRATEGIES = {
     "golden-nectarine",
     "golden-orange",
     "golden-papaya",
+    "golden-queen",
 }
 PRE_L3_STRATEGIES = {"golden-apple", "golden-banana", "golden-cherry"}
 
@@ -842,7 +843,7 @@ def _validate_trader_source(
 def _validate_papaya_trader_source(
     findings: list[Finding], strategy: str, relative_path: str, content: str
 ) -> None:
-    """Enforce Papaya's accepted-SELL versus confirmed-fill state boundary."""
+    """Enforce the strict accepted-SELL versus confirmed-fill state boundary."""
     tree = _parse_python(findings, strategy, relative_path, content)
     if tree is None:
         return
@@ -1284,7 +1285,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
-    if strategy == "golden-papaya":
+    if strategy in {"golden-papaya", "golden-queen"}:
         _validate_papaya_bot_source(
             findings, strategy, "src/polybot/bot.py", bot
         )
@@ -1359,7 +1360,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
     _validate_trader_source(
         findings, strategy, "src/polybot/strategy/trader.py", trader
     )
-    if strategy == "golden-papaya":
+    if strategy in {"golden-papaya", "golden-queen"}:
         _validate_papaya_trader_source(
             findings, strategy, "src/polybot/strategy/trader.py", trader
         )

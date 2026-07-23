@@ -1,0 +1,68 @@
+# Golden Queen — Crown Momentum
+# env > config.yaml > code defaults. New strategy defaults to simulation mode.
+
+trading:
+  lifecycle_mode: active
+
+  # The only routine strategy control.  Metadata and capital limits scale from it.
+  buy_amount_usdc: 5.0
+  max_buy_amount_usdc: 1000
+
+  # Dynamic entry gates:
+  #   effective liquidity = max($10k, order / 0.001)
+  #   effective 24h volume = max($2k, order / 0.02)
+  min_liquidity: 10000
+  max_order_liquidity_ratio: 0.001
+  min_volume_24h: 2000
+  max_order_volume_ratio: 0.02
+
+  # Exposure controls automatically scale with POLYBOT_BUY_AMOUNT.
+  max_positions: 20
+  max_event_positions: 1
+  max_open_notional_multiple: 10
+  max_new_positions_per_cycle: 1
+  reentry_cooldown_hours: 168
+
+  # A crossing is valid only when consecutive persisted snapshots are <=15m apart.
+  max_snapshot_gap_minutes: 15
+
+  # Fresh executable-order-book guards.
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.10
+  max_spread: 0.02
+  depth_price_window: 0.01
+  depth_safety_multiple: 1.20
+
+  # Crown Momentum is inherently YES-only and rejects false at validation.
+  yes_only_mode: true
+
+  # One-shot first upward crossing; no startup inventory or later re-cross.
+  entry:
+    prob_min: 0.90
+    prob_max: 0.94
+    stop_price: 0.85
+    take_profit_price: 0.98
+    hours_min: 0
+    hours_max: 24
+
+  # Sports are included by default. Before kickoff use gameStartTime; while the
+  # market is still tradeable allow at most the first six hours of in-play.
+  sports:
+    use_game_start_time: true
+    allow_in_play: true
+    # Missing gameStartTime falls back to endDate so sports remain included.
+    # Set true only when an operator explicitly wants the strict clock filter.
+    reject_without_game_start: false
+    max_in_play_minutes: 360
+
+  # Own broad archive for first-crossing proof and counterfactual review.
+  archive:
+    prob_min: 0.80
+    hours_max: 72
+    retention_days: 60
+
+  # Empty means every category, including sports, is eligible.
+  excluded_categories: []
+
+# Conservative default. Live trading requires an explicit operational decision.
+simulation_mode: true

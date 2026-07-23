@@ -7,6 +7,8 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import pytest
+
 from polybot_observability import RunAudit
 from polybot_observability.retro_audit import audit_database
 
@@ -55,7 +57,8 @@ def _compact_report(
         if normalized_strategy == "golden-nectarine"
         else (
             "extrema"
-            if normalized_strategy in {"golden-elderberry", "golden-papaya"}
+            if normalized_strategy
+            in {"golden-elderberry", "golden-papaya", "golden-queen"}
             else "latest"
         )
     )
@@ -72,10 +75,16 @@ def _compact_report(
             },
             "requirements": {
                 "full_cadence_hours": (
-                    0.5 if normalized_strategy == "golden-papaya" else 24.0
+                    0.5
+                    if normalized_strategy == "golden-papaya"
+                    else (
+                        0.25 if normalized_strategy == "golden-queen" else 24.0
+                    )
                 ),
                 "retention_days": (
-                    60.0 if normalized_strategy == "golden-papaya" else 0.0
+                    60.0
+                    if normalized_strategy in {"golden-papaya", "golden-queen"}
+                    else 0.0
                 ),
                 "boundary_interval_hours": None,
                 "max_rollup_hours": None,
@@ -348,7 +357,9 @@ def _store_detail_checkpoint(connection: sqlite3.Connection, sweep_id: str) -> N
     )
 
 
-def _extend_papaya_archive_to_sixty_days(path: Path, *, as_of: datetime) -> None:
+def _extend_first_crossing_archive_to_sixty_days(
+    path: Path, *, as_of: datetime
+) -> None:
     archive_start = as_of - timedelta(days=60)
     with sqlite3.connect(path) as connection:
         run_id = connection.execute("SELECT run_id FROM run_audits LIMIT 1").fetchone()[
@@ -732,13 +743,16 @@ def test_contradictory_compact_metadata_cannot_relax_evidence_contract(
         ), case_name
 
 
-def test_papaya_requires_its_own_sixty_day_archive(tmp_path: Path) -> None:
+@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+def test_first_crossing_strategy_requires_its_own_sixty_day_archive(
+    tmp_path: Path, strategy_name: str
+) -> None:
     as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
-    db_path = tmp_path / "golden-papaya" / "trades.db"
+    db_path = tmp_path / strategy_name / "trades.db"
     _create_compact_archive(
         db_path,
         as_of=as_of,
-        strategy_name="golden-papaya",
+        strategy_name=strategy_name,
     )
     with sqlite3.connect(db_path) as connection:
         _store_detail_checkpoint(connection, "sweep-000")
@@ -746,22 +760,25 @@ def test_papaya_requires_its_own_sixty_day_archive(tmp_path: Path) -> None:
     result = audit_database(db_path, days=1, as_of=as_of)
     snapshots = result["market_snapshots"]
 
-    assert result["compact_snapshot_policy"]["strategy_name"] == "golden-papaya"
+    assert result["compact_snapshot_policy"]["strategy_name"] == strategy_name
     assert snapshots["minimum_archive_history_hours"] == 60 * 24
     assert snapshots["archive_history_window_coverage_ratio"] < 0.02
     assert snapshots["archive_history_cadence_coverage_ratio"] < 0.5
     assert any(issue["code"] == "archive_window_short" for issue in result["issues"])
 
 
-def test_papaya_sixty_day_compact_archive_is_ready(tmp_path: Path) -> None:
+@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+def test_first_crossing_sixty_day_compact_archive_is_ready(
+    tmp_path: Path, strategy_name: str
+) -> None:
     as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
-    db_path = tmp_path / "golden-papaya" / "trades.db"
+    db_path = tmp_path / strategy_name / "trades.db"
     _create_compact_archive(
         db_path,
         as_of=as_of,
-        strategy_name="golden-papaya",
+        strategy_name=strategy_name,
     )
-    _extend_papaya_archive_to_sixty_days(db_path, as_of=as_of)
+    _extend_first_crossing_archive_to_sixty_days(db_path, as_of=as_of)
 
     result = audit_database(db_path, days=1, as_of=as_of)
     snapshots = result["market_snapshots"]
@@ -774,17 +791,18 @@ def test_papaya_sixty_day_compact_archive_is_ready(tmp_path: Path) -> None:
     assert "market_sweep_attestation_invalid" not in issue_codes
 
 
-def test_papaya_validates_snapshot_domains_across_sixty_day_archive(
-    tmp_path: Path,
+@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+def test_first_crossing_validates_snapshot_domains_across_sixty_day_archive(
+    tmp_path: Path, strategy_name: str
 ) -> None:
     as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
-    db_path = tmp_path / "golden-papaya" / "trades.db"
+    db_path = tmp_path / strategy_name / "trades.db"
     _create_compact_archive(
         db_path,
         as_of=as_of,
-        strategy_name="golden-papaya",
+        strategy_name=strategy_name,
     )
-    _extend_papaya_archive_to_sixty_days(db_path, as_of=as_of)
+    _extend_first_crossing_archive_to_sixty_days(db_path, as_of=as_of)
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             "UPDATE market_snapshots SET probability = 2.0 "

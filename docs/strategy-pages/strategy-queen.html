@@ -1,0 +1,287 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Queen — Crown Momentum</title>
+<style>
+:root{
+  --gold:#b77a10; --gold-2:#f1b943; --gold-soft:#fff8e7;
+  --bg:#f7f5ef; --card:#fffdf8; --ink:#241f17; --muted:#6b6256;
+  --line:#ded7c9; --code:#eee9de; --danger:#a23d39; --ok:#287451;
+  --shadow:0 14px 36px rgba(62,45,18,.08);
+}
+@media (prefers-color-scheme: dark){
+  :root{--gold:#f1b943;--gold-2:#ffd477;--gold-soft:#332a18;--bg:#14130f;
+    --card:#1e1c17;--ink:#f3eee5;--muted:#b6ac9e;--line:#383328;
+    --code:#29261f;--danger:#ff8e87;--ok:#74d3a4;--shadow:none}
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:
+  radial-gradient(circle at 85% 0,rgba(241,185,67,.14),transparent 26rem),var(--bg);
+  color:var(--ink);font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",
+  -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.68;font-size:16px}
+.wrap{max-width:960px;margin:0 auto;padding:28px 22px 72px}
+.back{display:inline-block;color:var(--gold);text-decoration:none;margin-bottom:18px;font-size:14px}
+header{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:22px;
+  background:linear-gradient(135deg,var(--card),var(--gold-soft));padding:32px 34px;
+  box-shadow:var(--shadow);margin-bottom:28px}
+header:after{content:"♛";position:absolute;right:20px;top:-42px;color:var(--gold);
+  opacity:.10;font-size:190px;line-height:1}
+.eyebrow{color:var(--gold);font-size:13px;font-weight:800;letter-spacing:.12em;text-transform:uppercase}
+h1{font-size:36px;line-height:1.15;margin:8px 0 4px}
+.subtitle{color:var(--gold);font-size:19px;font-weight:750}
+.lead{max-width:730px;margin:14px 0 0;color:var(--muted);font-size:17px}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:20px}
+.badge{border:1px solid var(--line);border-radius:999px;background:var(--card);
+  padding:5px 10px;font-size:12.5px;font-weight:700}
+.badge.sport{color:var(--ok);border-color:color-mix(in srgb,var(--ok) 50%,var(--line))}
+h2{font-size:22px;margin:42px 0 15px;padding-left:11px;border-left:4px solid var(--gold)}
+h3{font-size:17px;margin:26px 0 9px}
+p{margin:10px 0}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin:15px 0}
+.card,.formula,.notice,.risk{background:var(--card);border:1px solid var(--line);
+  border-radius:14px;padding:18px 20px;box-shadow:var(--shadow)}
+.card h3{margin:0 0 7px;color:var(--gold)}
+.formula{background:var(--gold-soft);border-color:var(--gold);font-family:ui-monospace,
+  SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;line-height:1.72}
+.notice{border-left:5px solid var(--gold)}
+.risk{border-left:5px solid var(--danger)}
+.ok{border-left:5px solid var(--ok)}
+table{border-collapse:separate;border-spacing:0;width:100%;table-layout:fixed;margin:15px 0;
+  background:var(--card);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line);
+  border-right:1px solid var(--line)}
+th{background:var(--code);font-size:14px}
+tr:last-child td{border-bottom:0}th:last-child,td:last-child{border-right:0}
+code{background:var(--code);padding:2px 5px;border-radius:4px;font-size:.9em}
+pre{background:var(--code);border:1px solid var(--line);border-radius:12px;padding:16px;
+  overflow:auto;max-width:100%;font-size:13px;line-height:1.55}
+ul,ol{padding-left:23px}li{margin:6px 0}.muted{color:var(--muted)}.danger{color:var(--danger)}
+.steps{counter-reset:step;display:grid;gap:10px}
+.step{position:relative;padding:13px 15px 13px 52px;border:1px solid var(--line);
+  border-radius:11px;background:var(--card)}
+.step:before{counter-increment:step;content:counter(step);position:absolute;left:14px;top:12px;
+  display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:var(--gold);
+  color:white;font-size:13px;font-weight:800}
+a{color:var(--gold)}
+footer{margin-top:50px;padding-top:18px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+th,td,p,li,.formula,footer{overflow-wrap:anywhere;word-break:break-word}
+@media (max-width:700px){
+  .wrap{padding:18px 14px 48px}.grid{grid-template-columns:1fr}
+  header{padding:25px 20px}h1{font-size:30px}header:after{font-size:130px}
+  th,td{padding:8px 7px;font-size:13px}.card,.formula,.notice,.risk{padding:15px}
+}
+</style>
+</head>
+<body><div class="wrap">
+<a class="back" href="strategy-index.html">← 전략 포트폴리오 인덱스</a>
+<header>
+  <div class="eyebrow">Golden Burger · Strategy 14</div>
+  <h1>👑 Golden Queen</h1>
+  <div class="subtitle">Crown Momentum</div>
+  <p class="lead">YES가 0.90을 처음 상향 돌파하는 순간만 잡고, 0.98 목표와 0.85
+  절대 stop으로 관리한다. 스포츠를 기본 포함하며, 주문 접수와 실제 체결을 엄격히 분리한
+  Cherry 계승 전략이다.</p>
+  <div class="badges">
+    <span class="badge">0.90 → 0.94 진입</span>
+    <span class="badge">0.98 목표 · 0.85 stop</span>
+    <span class="badge sport">스포츠 기본 포함</span>
+    <span class="badge">기본 $5 · simulation</span>
+  </div>
+</header>
+
+<h2>한눈에 보는 계약</h2>
+<div class="formula">진입 = strict standard binary YES
+     + 저장된 직전 YES &lt; 0.90 ≤ 현재 YES ≤ 0.94
+     + 0분 &lt; 두 snapshot 간격 ≤ 15분
+     + 이전 60일에 YES ≥ 0.90 관측 없음
+     + 일반/경기 전: 0시간 &lt; 남은 시간 ≤ 24시간
+     + 스포츠 경기 중: kickoff 후 ≤ 360분
+     + fresh spread ≤ 0.02
+     + 실제 ask depth ≥ 주문 수량 × 1.20
+
+청산 = 미해결 YES ≥ 0.98 AND fresh bid ≥ 0.98
+    OR 미해결 YES ≤ 0.85
+
+그 외 = resolution · redeemable/실제 redeem · CLOB fill을 별도 사실로 취급</div>
+
+<div class="notice ok">
+  <strong>스포츠는 환경변수를 설정하지 않아도 포함됩니다.</strong>
+  <code>gameStartTime</code>이 있으면 경기 시작 전과 시작 후 360분까지 감시하고, 값이 없으면
+  <code>endDate</code>를 사용합니다. category 제외는 Gamma tag의 exact match이므로
+  제외가 필요할 때만 실제 tag를 <code>POLYBOT_EXCLUDED_CATEGORIES</code>에 comma로
+  명시합니다. 환경변수를 생략하면 스포츠를 포함합니다.
+</div>
+
+<h2>왜 이렇게 단순화했나</h2>
+<div class="grid">
+  <div class="card"><h3>첫 교차 하나</h3><p>고확률 시장을 계속 사지 않는다. 직전 저장값이
+  0.90 미만이고 현재가 처음 0.90을 넘은 한 번만 후보가 된다.</p></div>
+  <div class="card"><h3>두 개의 출구</h3><p>trailing stop과 time exit을 제거했다.
+  실행 가능한 0.98 목표 또는 0.85 절대 stop만 사용한다.</p></div>
+  <div class="card"><h3>실제 호가 확인</h3><p>Gamma 유동성 숫자만 믿지 않는다. 같은 CLOB
+  snapshot에서 ask·bid·spread와 주문 수량 대비 depth를 검사한다.</p></div>
+  <div class="card"><h3>체결 증거 우선</h3><p><code>accepted</code>/<code>live</code>는
+  체결이 아니다. exact full confirmed fill 전에는 BUY/SELL 모두 pending이다.</p></div>
+</div>
+
+<h2>Cherry 데이터가 말해 준 것</h2>
+<div class="risk">
+  <strong>Golden Queen은 “과거 수익이 입증된 최적 전략”이 아닙니다.</strong>
+  Cherry의 2026-06-23~07-23 UTC strict audit가 CRITICAL 4, HIGH 6, MEDIUM 1로 실패했고
+  시장 snapshot은 0행이었습니다. 따라서 threshold를 과거 수익에 맞춰 최적화하지 않고,
+  실패 원인을 차단한 반증 가능한 신규 가설로 사전 등록했습니다.
+</div>
+<table>
+<tr><th>Cherry evidence</th><th>관측</th><th>Queen 조치</th></tr>
+<tr><td>COMPLETED confirmed roundtrip coverage</td><td>45.6%</td><td>full confirmed fill 전 pending 유지</td></tr>
+<tr><td>닫힌 거래 수량 불일치</td><td>69건</td><td>BUY/SELL exact size 대사</td></tr>
+<tr><td>fee amount 누락</td><td>87.6%</td><td>fee 불완전 시 actual P&amp;L 미확정</td></tr>
+<tr><td>market snapshots</td><td>0행</td><td>자체 60일 archive + crossing lineage</td></tr>
+<tr><td>최대 SUCCESS run gap</td><td>445.67시간</td><td>snapshot gap 15분 초과 시 진입 금지</td></tr>
+</table>
+
+<h2>자체 archive와 최초 관측</h2>
+<div class="formula">YES ≥ 0.80
+scheduled / pregame ≤ 72시간
+Gamma liquidity ≥ min(POLYBOT_MIN_LIQUIDITY, $1,000)
+보존기간 = 60일</div>
+<p><code>event_id</code>가 없는 observation도 교차 이력을 잃지 않도록 archive하지만 신규
+진입은 거부합니다. “최초 교차”는 전 세계 과거 전체가 아니라 이 Queen archive envelope와
+보존기간 안에서 처음 관측했다는 뜻입니다.</p>
+
+<h2>스포츠 시간은 이렇게 작동한다</h2>
+<table>
+<tr><th>시장 상태</th><th>기본 동작</th></tr>
+<tr><td>스포츠, 경기 전</td><td><code>gameStartTime</code>까지 24시간 이내면 후보</td></tr>
+<tr><td>스포츠, 경기 중</td><td>upstream이 tradable이고 kickoff 후 360분 이내면 후보</td></tr>
+<tr><td>스포츠, 시작시각 누락</td><td><code>endDate</code>로 fallback하여 포함</td></tr>
+<tr><td>비스포츠</td><td><code>endDate</code>까지 0시간 초과 24시간 이하</td></tr>
+<tr><td>명시적 category 제외</td><td><code>POLYBOT_EXCLUDED_CATEGORIES</code>에 실제 Gamma tag를 exact match로 지정</td></tr>
+</table>
+<p class="muted"><code>gameStartTime</code>은 경기 종료시각이 아닙니다. “종료 5분 전
+매수”로 해석하지 않으며, 경기 중 가격 교차도 거래 대상입니다. <code>sports</code> 하나가
+<code>nba</code>나 <code>soccer</code> 같은 별도 tag를 자동 포함하지 않습니다.</p>
+
+<h2>주문부터 실제 손익까지</h2>
+<div class="steps">
+  <div class="step"><strong>Archive</strong> — cursor-complete sweep과 시장·event·snapshot을
+  원자적으로 저장하고 first-crossing lineage를 확정한다.</div>
+  <div class="step"><strong>Preflight</strong> — fresh midpoint, best ask, spread,
+  same-snapshot ask depth를 검증한다.</div>
+  <div class="step"><strong>PENDING_BUY</strong> — GTC BUY 접수는 보유가 아니다. exact order의
+  full confirmed fill까지 기다린다.</div>
+  <div class="step"><strong>HOLDING</strong> — confirmed BUY size·VWAP을 실제 포지션으로
+  기록하고 immutable 0.98/0.85를 적용한다.</div>
+  <div class="step"><strong>PENDING_SELL → COMPLETED</strong> — SELL도 full confirmed fill,
+  BUY/SELL size 일치, 양쪽 fee가 확인돼야 actual net P&amp;L을 확정한다.</div>
+</div>
+<p class="muted">resolution 결과와 cash realization은 다릅니다. 현재 Queen은 resolution
+결과를 기록하지만 redeemable 상태와 실제 redeem transaction은 아직 수집하지 않으므로,
+이를 resolution이나 synthetic SELL에서 추정하지 않습니다.</p>
+<p class="muted">원자적 sweep/archive 또는 RunAudit 실패는 cycle 전체를 중단합니다.
+개별 시장의 event/lineage/book/depth 누락은 그 시장만 제외하고, 과거 주문의 개별 대사
+오류는 해당 <code>token_id × side</code> 신규 주문만 격리합니다.
+<code>archive_only</code>도 시작 시 execution ledger 대사는 수행하지만 이후 주문과
+trade-position mutation은 하지 않습니다.</p>
+
+<h2>금액을 바꾸면 자동으로 커지는 안전문</h2>
+<div class="formula">effective minimum liquidity = max($10,000, 주문액 / 0.001)
+effective minimum volume24h = max($2,000, 주문액 / 0.02)
+maximum open notional       = 주문액 × 10</div>
+<table>
+<tr><th>주문액</th><th>최소 유동성</th><th>최소 24h 거래량</th><th>총 open notional</th></tr>
+<tr><td>$5</td><td>$10,000</td><td>$2,000</td><td>$50</td></tr>
+<tr><td>$100</td><td>$100,000</td><td>$5,000</td><td>$1,000</td></tr>
+<tr><td>$1,000</td><td>$1,000,000</td><td>$50,000</td><td>$10,000</td></tr>
+</table>
+<p class="danger"><strong>자동 계산은 수익이나 체결을 보장하지 않습니다.</strong>
+$5 → $100 → $1,000은 각 단계에서 30일 strict audit와 terminal event-effective n 30,
+실제 depth/slippage, full fill·fee coverage를 다시 통과해야 합니다. 코드 hard cap은
+$1,000입니다.</p>
+
+<h2>최소 Jenkins shell</h2>
+<p>private key와 funder는 Jenkins Credentials Binding으로 주입합니다. shell에 실값을
+적지 않고 secret을 참조하기 전부터 <code>set +x</code>를 사용합니다.</p>
+<pre><code>#!/bin/bash
+set -euo pipefail
+set +x
+
+# POLYMARKET_PRIVATE_KEY / POLYMARKET_FUNDER_ADDRESS:
+# Jenkins Credentials Binding
+export POLYMARKET_SIGNATURE_TYPE=3
+export POLYBOT_BUY_AMOUNT=5
+export LOG_LEVEL=INFO
+
+cd ./golden-queen
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config --job queen-live-24h
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job queen-live-24h</code></pre>
+<p>저장소 기본값은 simulation입니다. 실거래는 <code>--live</code>를 명시해야 합니다.
+권장 timer는 <code>H/5 * * * *</code>이고 concurrent build는 비활성화합니다.</p>
+
+<h2>12시간 대 24시간 A/B</h2>
+<table>
+<tr><th>항목</th><th>A · 대조군</th><th>B · 실험군</th></tr>
+<tr><td>유일한 변경</td><td><code>ENTRY_HOURS_MAX=24</code></td><td><code>ENTRY_HOURS_MAX=12</code></td></tr>
+<tr><td>주문액</td><td>$5</td><td>$5</td></tr>
+<tr><td>진입 / 목표 / stop</td><td>0.90–0.94 / 0.98 / 0.85</td><td>동일</td></tr>
+<tr><td>스포츠 / in-play</td><td>포함 / 360분</td><td>동일</td></tr>
+<tr><td>격리</td><td>별도 계정·job·DB</td><td>별도 계정·job·DB</td></tr>
+</table>
+<pre><code># A
+export POLYBOT_ENTRY_HOURS_MAX=24
+uv run polybot run --live --job queen-live-24h
+
+# B
+export POLYBOT_ENTRY_HOURS_MAX=12
+uv run polybot run --live --job queen-live-12h</code></pre>
+<p>Git commit, 실행주기, 금액, threshold, liquidity·volume·depth, lifecycle은 고정합니다.
+같은 event는 독립 두 건이 아니라 paired observation으로 평가합니다.</p>
+
+<h2>환경변수 요약</h2>
+<table>
+<tr><th>변수</th><th>기본</th><th>용도</th></tr>
+<tr><td><code>POLYMARKET_PRIVATE_KEY</code></td><td>필수</td><td>Credentials Binding 전용</td></tr>
+<tr><td><code>POLYMARKET_FUNDER_ADDRESS</code></td><td>필수</td><td>Queen 전용 계정 funder</td></tr>
+<tr><td><code>POLYMARKET_SIGNATURE_TYPE</code></td><td>1</td><td>계정에 맞는 1 또는 3</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5</td><td>routine 운용 knob, hard cap $1,000</td></tr>
+<tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 수준</td></tr>
+<tr><td><code>POLYBOT_LIFECYCLE_MODE</code></td><td>active</td><td>active / close_only / archive_only</td></tr>
+<tr><td><code>POLYBOT_ENTRY_HOURS_MAX</code></td><td>24</td><td>A/B에서만 12로 변경</td></tr>
+<tr><td><code>POLYBOT_ALLOW_IN_PLAY</code></td><td>true</td><td>스포츠 경기 중 진입 허용</td></tr>
+<tr><td><code>POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START</code></td><td>false</td><td>true일 때만 시작시각 누락 스포츠 차단</td></tr>
+<tr><td><code>POLYBOT_EXCLUDED_CATEGORIES</code></td><td>빈 값</td><td>명시한 Gamma tag를 exact match로 제외</td></tr>
+</table>
+<p>threshold·depth·cap·archive 등 모든 고급 override는
+<code>golden-queen/README.md</code>에 정리돼 있습니다. 정상 운영에서는 계정 3개 값,
+주문액, 선택적 로그 수준만 사용합니다.</p>
+
+<h2>한 달 뒤 판정</h2>
+<ul>
+  <li><strong>STOP:</strong> strict audit 실패, 비용 후 event-cluster EV≤0,
+  12h/24h 모두 음수, 한 event를 빼면 edge 소멸.</li>
+  <li><strong>KEEP:</strong> 최소 30일 + terminal event-effective n 30, full fill·fee
+  evidence, paired/independent 결과 방향 일치.</li>
+  <li><strong>SCALE:</strong> KEEP 이후에만 $5→$100 한 단계. A/B와 증액을 동시에 하지 않음.</li>
+</ul>
+
+<h2>공식 API 계약</h2>
+<p class="muted">아래 문서는 시장 metadata, order book, 주문과 수수료 처리의 구현 근거입니다.
+Queen의 수익성을 증명하는 자료는 아닙니다.</p>
+<ul>
+  <li><a href="https://docs.polymarket.com/api-reference/introduction">Polymarket API introduction</a></li>
+  <li><a href="https://docs.polymarket.com/api-reference/markets/get-clob-market-info">CLOB market info</a></li>
+  <li><a href="https://docs.polymarket.com/api-reference/market-data/get-order-book">Get order book</a></li>
+  <li><a href="https://docs.polymarket.com/api-reference/trade/post-a-new-order">Post a new order</a></li>
+  <li><a href="https://docs.polymarket.com/trading/fees">Trading fees</a></li>
+</ul>
+
+<footer>Golden Burger 전략 시리즈 · 상세 계약:
+<code>golden-queen/STRATEGY.md</code> · 실행:
+<code>golden-queen/README.md</code> · 회고:
+<code>docs/retro/golden-queen.md</code></footer>
+</div></body></html>

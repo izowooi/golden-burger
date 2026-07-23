@@ -364,8 +364,12 @@ def audit_database(
             strategy_name,
         )
         minimum_history_hours = fallback_minimum_history_hours
+        first_crossing_archive = strategy_name in {
+            "golden-papaya",
+            "golden-queen",
+        }
         minimum_archive_history_hours = (
-            60.0 * 24.0 if strategy_name == "golden-papaya" else 0.0
+            60.0 * 24.0 if first_crossing_archive else 0.0
         )
         if compact_snapshot_policy is not None:
             compact_requirements = compact_snapshot_policy["requirements"]
@@ -373,7 +377,7 @@ def audit_database(
                 float(compact_requirements["full_cadence_hours"]),
                 float(compact_requirements["boundary_interval_hours"] or 0.0),
             )
-            if strategy_name == "golden-papaya":
+            if first_crossing_archive:
                 minimum_archive_history_hours = max(
                     minimum_archive_history_hours,
                     float(compact_requirements["retention_days"]) * 24.0,
@@ -392,7 +396,7 @@ def audit_database(
             result["market_snapshots"] = None
 
         archive_evidence_cutoff = cutoff
-        if strategy_name == "golden-papaya" and minimum_archive_history_hours > 0:
+        if first_crossing_archive and minimum_archive_history_hours > 0:
             archive_evidence_cutoff = min(
                 cutoff,
                 as_of - timedelta(hours=minimum_archive_history_hours),
@@ -415,6 +419,7 @@ def audit_database(
             "golden-honeydew",
             "golden-nectarine",
             "golden-papaya",
+            "golden-queen",
         }:
             snapshots = result.get("market_snapshots") or {}
             invalid_snapshot_rows = snapshots.get("invalid_value_rows") or 0
@@ -434,12 +439,12 @@ def audit_database(
             history_p10 = snapshots.get("per_market_history_depth_p10") or 0
             archive_history_ratio = (
                 snapshots.get("archive_history_window_coverage_ratio")
-                if strategy_name == "golden-papaya"
+                if first_crossing_archive
                 else None
             )
             archive_history_cadence_ratio = (
                 snapshots.get("archive_history_cadence_coverage_ratio")
-                if strategy_name == "golden-papaya"
+                if first_crossing_archive
                 else None
             )
             sweeps = result.get("market_sweeps") or {}
@@ -472,7 +477,7 @@ def audit_database(
                 or per_market_p10 < 0.8
                 or history_p10 < 0.8
                 or (
-                    strategy_name == "golden-papaya"
+                    first_crossing_archive
                     and (
                         (archive_history_ratio or 0) < 0.9
                         or (archive_history_cadence_ratio or 0) < 0.8
@@ -971,7 +976,8 @@ def _active_compact_policy(
         if normalized_strategy == "golden-nectarine"
         else (
             "extrema"
-            if normalized_strategy in {"golden-elderberry", "golden-papaya"}
+            if normalized_strategy
+            in {"golden-elderberry", "golden-papaya", "golden-queen"}
             else "latest"
         )
     )
