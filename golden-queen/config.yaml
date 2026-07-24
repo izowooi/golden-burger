@@ -4,11 +4,13 @@
 trading:
   lifecycle_mode: active
 
-  # The only routine strategy control.  Metadata and capital limits scale from it.
-  buy_amount_usdc: 5.0
+  # The only routine strategy control. Metadata and capital limits scale from it.
+  # $100 => liquidity $100k, 24h volume $5k, open notional $1k.
+  buy_amount_usdc: 100.0
   max_buy_amount_usdc: 1000
 
-  # Dynamic entry gates:
+  # Dynamic entry gates. The fixed values are safety floors, not the effective
+  # defaults; a $100 order raises them to $100k and $5k through the ratios.
   #   effective liquidity = max($10k, order / 0.001)
   #   effective 24h volume = max($2k, order / 0.02)
   min_liquidity: 10000

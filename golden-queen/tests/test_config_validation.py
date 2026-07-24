@@ -83,7 +83,10 @@ def test_invalid_scalar_values_are_rejected(monkeypatch, key, value, match):
             "max_event_positions",
         ),
         (
-            {"POLYBOT_MIN_ORDER_BUFFER_SHARES": "0.4"},
+            {
+                "POLYBOT_BUY_AMOUNT": "5",
+                "POLYBOT_MIN_ORDER_BUFFER_SHARES": "0.4",
+            },
             "too small",
         ),
     ],

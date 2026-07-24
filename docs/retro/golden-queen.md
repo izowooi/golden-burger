@@ -27,7 +27,7 @@ REVIEW_END=<YYYY-MM-DD UTC>
 8) resolution payout과 CLOB SELL을 분리한다. 현재 Queen이 수집하지 않는 redeemable/
    실제 redeem transaction은 미수집으로 표시하고 resolution에서 추정하지 않는다.
 9) 30일과 terminal event-effective n 30을 모두 충족한 뒤 KEEP/STOP/SCALE을 결정한다.
-10) scale은 $5→$100→$1,000 단계별 새 cohort로 하고 A/B와 동시에 변경하지 않는다.
+10) scale은 $100→$200→$400→$1,000 단계별 새 cohort로 하고 A/B와 동시에 변경하지 않는다.
 ```
 
 ## 1. 기간과 DB
@@ -61,8 +61,8 @@ uv run --project polybot-observability polybot-retro audit \
 | first crossing | prior <0.90 → current 0.90~0.94 | 동일 |
 | target / stop | 0.98 / 0.85 | 동일 |
 | snapshot gap | ≤15분 | 동일 |
-| order | $5 | $5 |
-| liquidity / volume | $10k / $2k | 동일 |
+| order | $100 | $100 |
+| liquidity / volume | $100k / $5k | 동일 |
 | spread / depth | ≤0.02 / 1.2x | 동일 |
 | sports | 포함, in-play 360분 | 동일 |
 | entry hours max | **24** | **12** |
@@ -189,12 +189,13 @@ fill이고 actual fill 열은 exact ledger join 전까지 `null`이다. CSV에 f
 ### SCALE
 
 KEEP 조건에 더해 [Queen 증액 가이드](../../golden-queen/docs/SCALING_AND_TAIL_RISK.md)의
-단계별 gate를 충족해야 한다. 첫 결정은 `$5 → $100`뿐이며 `$1,000`을 동시에 승인하지 않는다.
+단계별 gate를 충족해야 한다. 첫 결정은 `$100 → $200`뿐이며 `$400`이나 `$1,000`을
+동시에 승인하지 않는다.
 
 결론은 다음 형식으로 남긴다.
 
 ```text
-Decision: KEEP | STOP | SCALE_TO_100
+Decision: KEEP | STOP | SCALE_TO_200 | SCALE_TO_400 | SCALE_TO_1000
 Selected horizon: 12h | 24h | undecided
 Confidence: low | medium | high
 Evidence window:

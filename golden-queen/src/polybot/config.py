@@ -17,6 +17,7 @@ import yaml
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+DEFAULT_BUY_AMOUNT_USDC = 100.0
 
 
 def _get_config_value(
@@ -142,7 +143,7 @@ class TradingConfig:
     """Crown Momentum trading and evidence-capture configuration."""
 
     lifecycle_mode: str = "active"
-    buy_amount_usdc: float = 5.0
+    buy_amount_usdc: float = DEFAULT_BUY_AMOUNT_USDC
     max_buy_amount_usdc: float = 1_000.0
     min_liquidity: float = 10_000.0
     max_order_liquidity_ratio: float = 0.001
@@ -437,7 +438,9 @@ def load_config(
     trading = TradingConfig(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
         buy_amount_usdc=_get_config_value(
-            "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
+            "POLYBOT_BUY_AMOUNT",
+            trading_cfg.get("buy_amount_usdc"),
+            DEFAULT_BUY_AMOUNT_USDC,
         ),
         max_buy_amount_usdc=_get_config_value(
             "POLYBOT_MAX_BUY_AMOUNT_USDC",

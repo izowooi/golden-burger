@@ -4,7 +4,7 @@
 
 해결 직전의 표준 이진 시장에서 YES가 0.90을 **처음 상향 교차**하는 사건은 단순한
 고확률 수준보다 새로운 정보가 우세 방향으로 집약되는 순간일 수 있다. 24시간 이내의 이
-교차를 실행 가능한 호가에서 소액 매수하면 0.98 또는 resolution 1로의 수렴을 얻을 수
+교차를 실행 가능한 호가에서 사전 등록한 주문 금액으로 매수하면 0.98 또는 resolution 1로의 수렴을 얻을 수
 있다는 것이 Crown Momentum의 가설이다.
 
 이 가설은 아직 검증되지 않았다. 0.90 가격이 실제 10% tail risk를 정확히 반영한다면
@@ -128,6 +128,10 @@ effective_min_liquidity = max(10,000, buy_amount / 0.001)
 effective_min_volume24h = max(2,000, buy_amount / 0.02)
 ```
 
+기본 `buy_amount=$100`에서는 각각 `$100,000`, `$5,000`이다. 주문 금액을 `$200`,
+`$400`으로 바꾸면 이 값도 `$200,000/$10,000`, `$400,000/$20,000`으로 자동 상승한다.
+고정 바닥값을 주문 금액별로 따로 설정하지 않는다.
+
 fresh order-book gate:
 
 ```text
@@ -178,6 +182,7 @@ live SELL은 `PENDING_SELL`이다. BUY/SELL full confirmed size가 같고 양쪽
 ## 8. Exposure
 
 ```text
+default buy amount = $100
 max positions = 20
 max event positions = 1
 max open requested notional = buy_amount * 10
@@ -196,6 +201,8 @@ buy amount hard cap = $1,000
 
 | 항목 | 대조군 | 실험군 |
 |---|---:|---:|
+| 주문 금액 | $100 | $100 |
+| 실효 liquidity / volume24h | $100,000 / $5,000 | 동일 |
 | `POLYBOT_ENTRY_HOURS_MAX` | 24 | 12 |
 
 그 밖의 commit, schedule, 계정 규모, 진입/청산, liquidity/volume/depth, sports, cap은
@@ -211,7 +218,8 @@ buy amount hard cap = $1,000
 
 ## 10. Falsification
 
-최소 30일과 terminal event-effective n 30을 모두 충족하기 전에는 승격·증액하지 않는다.
+기본 `$100` cohort에서 최소 30일과 terminal event-effective n 30을 모두 충족하기 전에는
+`$200` 이상으로 증액하지 않는다.
 다음 중 하나면 `STOP` 또는 계측 복구다.
 
 - strict audit에 CRITICAL/HIGH issue 존재
@@ -240,7 +248,8 @@ buy amount hard cap = $1,000
 
 ## 12. Offline replay의 역할
 
-`scripts/backtest.py`는 immutable CSV에서 사전 등록한 12h/24h 두 parameter row만
+`scripts/backtest.py`는 immutable CSV에서 기본 `$100`의 실효 gate인
+liquidity `$100,000`/volume24h `$5,000`과 사전 등록한 12h/24h 두 parameter row만
 재생한다. observed ask/bid를 hypothetical fill로 사용하고 confirmed-fill 열은 `null`이다.
 CSV에 full depth와 `gameStartTime`가 없으므로 production 실행 가능성을 증명하지 않는다.
 이 스크립트는 unit test가 아니라 leakage·기간·first crossing을 재현하는 research artifact다.

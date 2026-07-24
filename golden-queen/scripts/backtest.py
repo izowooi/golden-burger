@@ -32,13 +32,28 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-ENGINE_VERSION = "queen-offline-v4"
+ENGINE_VERSION = "queen-offline-v5"
 ENTRY_GRID = (0.90,)
 ENTRY_UPPER_GRID = (0.94,)
 STOP_GRID = (0.85,)
 TAKE_PROFIT_GRID = (0.98,)
-LIQUIDITY_GRID = (10_000.0,)
-VOLUME_GRID = (2_000.0,)
+ORDER_NOTIONAL_USDC = 100.0
+MIN_LIQUIDITY_FLOOR = 10_000.0
+MAX_ORDER_LIQUIDITY_RATIO = 0.001
+MIN_VOLUME_24H_FLOOR = 2_000.0
+MAX_ORDER_VOLUME_RATIO = 0.02
+LIQUIDITY_GRID = (
+    max(
+        MIN_LIQUIDITY_FLOOR,
+        ORDER_NOTIONAL_USDC / MAX_ORDER_LIQUIDITY_RATIO,
+    ),
+)
+VOLUME_GRID = (
+    max(
+        MIN_VOLUME_24H_FLOOR,
+        ORDER_NOTIONAL_USDC / MAX_ORDER_VOLUME_RATIO,
+    ),
+)
 HOURS_MAX_GRID = (12.0, 24.0)
 ENTRY_HOURS_MIN = 0.0
 MAX_SNAPSHOT_GAP_MINUTES = 15.0
@@ -711,6 +726,7 @@ def write_artifacts(
             "sports_clock": "gameStartTime and in-play phase are absent; hours_left must already use the intended clock",
         },
         "grid": {
+            "order_notional_usdc": ORDER_NOTIONAL_USDC,
             "entry": list(ENTRY_GRID),
             "entry_upper": list(ENTRY_UPPER_GRID),
             "stop": list(STOP_GRID),

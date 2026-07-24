@@ -53,7 +53,7 @@ def _row(condition: str, timestamp: str, hours: float, price: float, **overrides
         "yes_price": price,
         "best_ask": overrides.pop("best_ask", price + 0.001),
         "best_bid": overrides.pop("best_bid", price - 0.001),
-        "liquidity": overrides.pop("liquidity", 25_000),
+        "liquidity": overrides.pop("liquidity", 250_000),
         "volume_24h": overrides.pop("volume_24h", 10_000),
         "resolution_payout": overrides.pop("resolution_payout", 1),
         "outcomes": overrides.pop("outcomes", '["Yes", "No"]'),
@@ -223,8 +223,8 @@ def test_declared_grid_is_complete():
     assert {item.entry_price_max for item in params} == {0.94}
     assert {item.stop_probability for item in params} == {0.85}
     assert {item.take_profit_probability for item in params} == {0.98}
-    assert {item.min_liquidity for item in params} == {10_000}
-    assert {item.min_volume_24h for item in params} == {2_000}
+    assert {item.min_liquidity for item in params} == {100_000}
+    assert {item.min_volume_24h for item in params} == {5_000}
     assert sorted({item.entry_hours_max for item in params}) == [12, 24]
 
 
@@ -246,7 +246,7 @@ def test_run_writes_hashed_csv_json_manifest_and_no_database(
 
     assert manifest_path == output / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["engine_version"] == "queen-offline-v4"
+    assert manifest["engine_version"] == "queen-offline-v5"
     assert manifest["safety"] == {
         "database_writes": False,
         "network_calls": False,
@@ -265,12 +265,13 @@ def test_run_writes_hashed_csv_json_manifest_and_no_database(
         "entry_cohort": "first_observed_crossing_timestamp",
     }
     assert manifest["grid"] == {
+        "order_notional_usdc": 100.0,
         "entry": [0.9],
         "entry_upper": [0.94],
         "stop": [0.85],
         "take_profit": [0.98],
-        "liquidity": [10000.0],
-        "volume_24h": [2000.0],
+        "liquidity": [100000.0],
+        "volume_24h": [5000.0],
         "hours_max": [12.0, 24.0],
     }
     assert manifest["rows"]["grid"] == 2

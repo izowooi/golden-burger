@@ -89,7 +89,7 @@ th,td,p,li,.formula,footer{overflow-wrap:anywhere;word-break:break-word}
     <span class="badge">0.90 → 0.94 진입</span>
     <span class="badge">0.98 목표 · 0.85 stop</span>
     <span class="badge sport">스포츠 기본 포함</span>
-    <span class="badge">기본 $5 · simulation</span>
+    <span class="badge">기본 $100 · simulation</span>
   </div>
 </header>
 
@@ -196,12 +196,14 @@ maximum open notional       = 주문액 × 10</div>
 <tr><th>주문액</th><th>최소 유동성</th><th>최소 24h 거래량</th><th>총 open notional</th></tr>
 <tr><td>$5</td><td>$10,000</td><td>$2,000</td><td>$50</td></tr>
 <tr><td>$100</td><td>$100,000</td><td>$5,000</td><td>$1,000</td></tr>
+<tr><td>$200</td><td>$200,000</td><td>$10,000</td><td>$2,000</td></tr>
+<tr><td>$400</td><td>$400,000</td><td>$20,000</td><td>$4,000</td></tr>
 <tr><td>$1,000</td><td>$1,000,000</td><td>$50,000</td><td>$10,000</td></tr>
 </table>
 <p class="danger"><strong>자동 계산은 수익이나 체결을 보장하지 않습니다.</strong>
-$5 → $100 → $1,000은 각 단계에서 30일 strict audit와 terminal event-effective n 30,
-실제 depth/slippage, full fill·fee coverage를 다시 통과해야 합니다. 코드 hard cap은
-$1,000입니다.</p>
+현재 baseline은 $100이며, $100 → $200 → $400 → $1,000은 각 단계에서 30일 strict
+audit와 terminal event-effective n 30, 실제 depth/slippage, full fill·fee coverage를
+다시 통과해야 합니다. 코드 hard cap은 $1,000입니다.</p>
 
 <h2>최소 Jenkins shell</h2>
 <p>private key와 funder는 Jenkins Credentials Binding으로 주입합니다. shell에 실값을
@@ -213,8 +215,10 @@ set +x
 # POLYMARKET_PRIVATE_KEY / POLYMARKET_FUNDER_ADDRESS:
 # Jenkins Credentials Binding
 export POLYMARKET_SIGNATURE_TYPE=3
-export POLYBOT_BUY_AMOUNT=5
 export LOG_LEVEL=INFO
+
+# 기본은 $100. 향후 증액할 때만 아래 한 줄을 추가합니다.
+# export POLYBOT_BUY_AMOUNT=200
 
 cd ./golden-queen
 /Users/jongwoopark/.local/bin/uv sync --frozen
@@ -227,7 +231,7 @@ cd ./golden-queen
 <table>
 <tr><th>항목</th><th>A · 대조군</th><th>B · 실험군</th></tr>
 <tr><td>유일한 변경</td><td><code>ENTRY_HOURS_MAX=24</code></td><td><code>ENTRY_HOURS_MAX=12</code></td></tr>
-<tr><td>주문액</td><td>$5</td><td>$5</td></tr>
+<tr><td>주문액</td><td>$100</td><td>$100</td></tr>
 <tr><td>진입 / 목표 / stop</td><td>0.90–0.94 / 0.98 / 0.85</td><td>동일</td></tr>
 <tr><td>스포츠 / in-play</td><td>포함 / 360분</td><td>동일</td></tr>
 <tr><td>격리</td><td>별도 계정·job·DB</td><td>별도 계정·job·DB</td></tr>
@@ -248,7 +252,7 @@ uv run polybot run --live --job queen-live-12h</code></pre>
 <tr><td><code>POLYMARKET_PRIVATE_KEY</code></td><td>필수</td><td>Credentials Binding 전용</td></tr>
 <tr><td><code>POLYMARKET_FUNDER_ADDRESS</code></td><td>필수</td><td>Queen 전용 계정 funder</td></tr>
 <tr><td><code>POLYMARKET_SIGNATURE_TYPE</code></td><td>1</td><td>계정에 맞는 1 또는 3</td></tr>
-<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>5</td><td>routine 운용 knob, hard cap $1,000</td></tr>
+<tr><td><code>POLYBOT_BUY_AMOUNT</code></td><td>100</td><td>건당 주문 금액; 이것만 바꾸면 파생 gate 자동 조정, hard cap $1,000</td></tr>
 <tr><td><code>LOG_LEVEL</code></td><td>INFO</td><td>로그 수준</td></tr>
 <tr><td><code>POLYBOT_LIFECYCLE_MODE</code></td><td>active</td><td>active / close_only / archive_only</td></tr>
 <tr><td><code>POLYBOT_ENTRY_HOURS_MAX</code></td><td>24</td><td>A/B에서만 12로 변경</td></tr>
@@ -258,7 +262,7 @@ uv run polybot run --live --job queen-live-12h</code></pre>
 </table>
 <p>threshold·depth·cap·archive 등 모든 고급 override는
 <code>golden-queen/README.md</code>에 정리돼 있습니다. 정상 운영에서는 계정 3개 값,
-주문액, 선택적 로그 수준만 사용합니다.</p>
+선택적 주문액과 로그 수준만 사용합니다.</p>
 
 <h2>한 달 뒤 판정</h2>
 <ul>
@@ -266,7 +270,7 @@ uv run polybot run --live --job queen-live-12h</code></pre>
   12h/24h 모두 음수, 한 event를 빼면 edge 소멸.</li>
   <li><strong>KEEP:</strong> 최소 30일 + terminal event-effective n 30, full fill·fee
   evidence, paired/independent 결과 방향 일치.</li>
-  <li><strong>SCALE:</strong> KEEP 이후에만 $5→$100 한 단계. A/B와 증액을 동시에 하지 않음.</li>
+  <li><strong>SCALE:</strong> KEEP 이후에만 $100→$200 한 단계. A/B와 증액을 동시에 하지 않음.</li>
 </ul>
 
 <h2>공식 API 계약</h2>

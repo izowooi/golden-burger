@@ -37,7 +37,7 @@ def market(
     *,
     yes_price: float = 0.85,
     hours_left: float = 48,
-    liquidity: float = 20_000,
+    liquidity: float = 200_000,
     neg_risk=False,
     outcomes=("Yes", "No"),
     tokens=("yes-token", "no-token"),
@@ -55,8 +55,8 @@ def market(
         "enableOrderBook": True,
         "acceptingOrders": True,
         "liquidity": str(liquidity),
-        "volume": "4000",
-        "volume24hr": "4000",
+        "volume": "10000",
+        "volume24hr": "10000",
         "outcomePrices": json.dumps([yes_price, 1.0 - yes_price]),
         "outcomes": json.dumps(list(outcomes)),
         "clobTokenIds": json.dumps(list(tokens)),
@@ -207,8 +207,8 @@ def test_complete_sweep_catalogs_all_qualified_but_snapshots_only_archive_set(
 
     snapshot = session.query(MarketSnapshot).one()
     assert snapshot.probability == 0.80
-    assert snapshot.liquidity == 20_000
-    assert snapshot.volume_24h == 4_000
+    assert snapshot.liquidity == 200_000
+    assert snapshot.volume_24h == 10_000
     assert snapshot.best_bid == 0.84
     assert snapshot.best_ask == 0.86
     assert snapshot.spread == 0.02
@@ -435,12 +435,12 @@ def test_archive_requires_completed_sweep_attestation(tmp_path):
     ("config", "first_crossing_overrides", "first_rejection"),
     [
         (
-            TradingConfig(min_liquidity=5_000),
+            TradingConfig(buy_amount_usdc=5.0, min_liquidity=5_000),
             {"liquidity": 2_000},
             "low_liquidity",
         ),
         (
-            TradingConfig(min_volume_24h=5_000),
+            TradingConfig(buy_amount_usdc=5.0, min_volume_24h=5_000),
             {"volume24hr": "2000"},
             "low_volume",
         ),

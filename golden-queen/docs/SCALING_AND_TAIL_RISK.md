@@ -6,12 +6,15 @@
 자동 계산은 주문 가능성과 전략 수익성을 보장하지 않는다.
 
 ```text
-$5 → 최소 30일 strict evidence → $100
-$100 → 새 30일 cohort strict evidence → $1,000
+$100 → 최소 30일 strict evidence → $200
+$200 → 새 30일 cohort strict evidence → $400
+$400 → 새 30일 cohort + 별도 자본 승인 → $1,000
 ```
 
-중간 단계를 건너뛰지 않는다. hard cap `$1,000`을 넘기는 것은 환경변수 조정이 아니라 새
-리스크 설계와 코드 리뷰가 필요한 별도 전략 변경이다.
+`$100`은 실제 fill이 발생하기 전에 정한 현재 운용 baseline이며, 과거 성과가 입증한
+승격값이라는 뜻은 아니다. 이후에는 중간 단계를 건너뛰지 않는다. hard cap `$1,000`을
+넘기는 것은 환경변수 조정이 아니라 새 리스크 설계와 코드 리뷰가 필요한 별도 전략
+변경이다.
 
 ## 1. 자동 계산
 
@@ -25,6 +28,8 @@ max_open_notional = order * 10
 |---:|---:|---:|---:|---:|
 | $5 | $10,000 | $2,000 | $50 | 10 |
 | $100 | $100,000 | $5,000 | $1,000 | 10 |
+| $200 | $200,000 | $10,000 | $2,000 | 10 |
+| $400 | $400,000 | $20,000 | $4,000 | 10 |
 | $1,000 | $1,000,000 | $50,000 | $10,000 | 10 |
 
 `max_positions=20`이어도 open notional이 먼저 작동해 full-size 신규 포지션은 통상 10개가
@@ -63,7 +68,7 @@ entry와 exit의 actual VWAP/slippage를 따로 사용한다.
 
 ## 4. 단계별 승격 gate
 
-### $5 → $100
+### 모든 단계 공통: $100 → $200 → $400
 
 - live 30일 이상
 - terminal event-effective n 30 이상
@@ -76,11 +81,14 @@ entry와 exit의 actual VWAP/slippage를 따로 사용한다.
 - 12h 또는 24h cohort를 사전 기준으로 채택하고 다른 knob는 고정
 - wallet/order/DB reconciliation과 backup restore 검증 완료
 
-### $100 → $1,000
+각 증액 후에는 새 `config_hash` cohort에서 위 조건을 다시 충족해야 한다. `$100` 결과로
+`$200`과 `$400`을 한꺼번에 승인하지 않는다.
 
-위 조건을 `$100`의 새 config-hash cohort에서 다시 30일 이상 충족하고 다음을 추가한다.
+### $400 → $1,000
 
-- `$100` actual 주문의 p95 entry/exit slippage가 승인된 손실 예산 이내
+위 조건을 `$400`의 새 config-hash cohort에서 다시 30일 이상 충족하고 다음을 추가한다.
+
+- `$400` actual 주문의 p95 entry/exit slippage가 승인된 손실 예산 이내
 - $1m liquidity / $50k volume universe에서 충분한 event-effective sample 예상
 - $1,000 주문 수량의 1.2배 depth가 실제로 반복 관측됨
 - market/category별 fee와 maker/taker role 확정
@@ -97,7 +105,7 @@ entry와 exit의 actual VWAP/slippage를 따로 사용한다.
 - same-event 파생 시장을 독립 표본으로 세어 성과가 좋아짐
 - liquidity 기준은 통과하지만 실제 ask/bid depth가 반복적으로 부족
 - 한 번의 0 resolution이 한 달 이익 대부분을 제거
-- `$5`/`$100` 단계가 음수인데 금액을 키워 복구하려 함
+- `$100`/`$200`/`$400` 단계가 음수인데 금액을 키워 복구하려 함
 
 ## 6. A/B와 scale을 섞지 않는다
 
@@ -105,15 +113,15 @@ entry와 exit의 actual VWAP/slippage를 따로 사용한다.
 
 | 항목 | 24h job | 12h job |
 |---|---:|---:|
-| amount | $5 | $5 |
+| amount | $100 | $100 |
 | crossing | 0.90~0.94 | 0.90~0.94 |
 | target / stop | 0.98 / 0.85 | 0.98 / 0.85 |
 | sports | 포함 | 포함 |
 | liquidity / volume / depth | 동일 | 동일 |
 | hours max | 24 | 12 |
 
-A/B가 끝나기 전에 한쪽만 `$100`으로 올리면 시간 효과와 금액/체결 효과를 분리할 수 없다.
-채택 cohort를 고른 뒤 양쪽 A/B를 종료하고, 새 `$100` 단일 cohort를 시작한다.
+A/B가 끝나기 전에 한쪽만 `$200`으로 올리면 시간 효과와 금액/체결 효과를 분리할 수 없다.
+채택 cohort를 고른 뒤 양쪽 A/B를 종료하고, 새 `$200` 단일 cohort를 시작한다.
 
 ## 7. 월간 체크리스트
 

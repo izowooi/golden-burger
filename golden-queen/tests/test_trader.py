@@ -20,7 +20,7 @@ class FakeClob:
         midpoint=0.91,
         best_bid=0.90,
         best_ask=0.91,
-        depth_shares=100.0,
+        depth_shares=1_000.0,
         order_result=None,
         simulation_mode=False,
     ):
@@ -190,8 +190,8 @@ def make_candidate(**overrides):
         "prior_yes_price": 0.899,
         "prior_snapshot_id": 16,
         "entry_snapshot_id": 17,
-        "liquidity": 25_000.0,
-        "volume_24h": 4_000.0,
+        "liquidity": 200_000.0,
+        "volume_24h": 10_000.0,
         "market_tags": "economics",
         "end_date": datetime.now(timezone.utc) + timedelta(hours=12),
         "hours_until_resolution": 12.0,
@@ -249,7 +249,7 @@ class TestEntryExecution:
             {
                 "token_id": "yes-token",
                 "price": 0.92,
-                "size": pytest.approx(5.0 / 0.92),
+                "size": pytest.approx(100.0 / 0.92),
                 "side": "BUY",
             }
         ]
@@ -276,7 +276,7 @@ class TestEntryExecution:
         assert created["best_bid_at_buy"] == 0.90
         assert created["best_ask_at_buy"] == 0.91
         assert created["spread_at_buy"] == pytest.approx(0.01)
-        assert created["book_depth_shares_at_buy"] == 100.0
+        assert created["book_depth_shares_at_buy"] == 1_000.0
         assert created["depth_limit_price_at_buy"] == 0.92
 
     def test_simulation_mode_is_evidence_on_created_trade(self):
@@ -331,7 +331,7 @@ class TestEntryExecution:
             ),
             (make_candidate(), FakeClob(), FakeRepo(positions=20)),
             (make_candidate(), FakeClob(), FakeRepo(event_positions=1)),
-            (make_candidate(), FakeClob(), FakeRepo(open_notional=50)),
+            (make_candidate(), FakeClob(), FakeRepo(open_notional=1_000)),
             (make_candidate(), FakeClob(), FakeRepo(can_reenter=False)),
         ],
     )
@@ -342,7 +342,10 @@ class TestEntryExecution:
         assert repo.created == []
 
     def test_minimum_share_buffer_is_enforced_at_actual_ask(self):
-        config = TradingConfig(min_order_buffer_shares=0.40)
+        config = TradingConfig(
+            buy_amount_usdc=5.0,
+            min_order_buffer_shares=0.40,
+        )
         clob = FakeClob(midpoint=0.91, best_bid=0.92, best_ask=0.93)
         trader, repo, _ = make_trader(clob=clob, config=config)
         assert trader.execute_buy(make_candidate()) is None

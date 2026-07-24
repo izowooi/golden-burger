@@ -67,7 +67,9 @@ uv sync --frozen --extra dev
 export POLYMARKET_PRIVATE_KEY=...
 export POLYMARKET_FUNDER_ADDRESS=...
 export POLYMARKET_SIGNATURE_TYPE=3  # 실제 계정이 POLY_1271일 때만 3
-export POLYBOT_BUY_AMOUNT=5
+
+# 기본 주문 금액은 $100. 향후 증액할 때만 이 한 줄을 추가한다.
+# export POLYBOT_BUY_AMOUNT=200
 
 uv run polybot config
 uv run pytest
@@ -96,7 +98,6 @@ set +x
 # POLYMARKET_PRIVATE_KEY / POLYMARKET_FUNDER_ADDRESS:
 # Jenkins Credentials Binding에서 주입
 export POLYMARKET_SIGNATURE_TYPE=3
-export POLYBOT_BUY_AMOUNT=5
 export LOG_LEVEL=INFO
 
 cd ./golden-queen
@@ -116,7 +117,7 @@ Jenkins timer는 `H/5 * * * *`, concurrent build는 비활성화를 권장한다
 고정할 값:
 
 - Git commit과 schedule
-- `POLYBOT_BUY_AMOUNT=5`
+- 주문 금액 `$100`
 - 진입 `0.90~0.94`, 목표 `0.98`, stop `0.85`
 - 유동성·volume·spread·depth·position/event cap
 - sports 포함과 in-play 규칙
@@ -194,11 +195,14 @@ category 제외는 Gamma tag slug/label의 대소문자를 무시한 **exact mat
 |---:|---:|---:|---:|
 | $5 | $10,000 | $2,000 | $50 |
 | $100 | $100,000 | $5,000 | $1,000 |
+| $200 | $200,000 | $10,000 | $2,000 |
+| $400 | $400,000 | $20,000 | $4,000 |
 | $1,000 | $1,000,000 | $50,000 | $10,000 |
 
 코드 hard cap은 `$1,000`이다. 표의 자동 계산은 주문이 안전하거나 전략이 수익이라는
-보장이 아니다. `$5 → $100 → $1,000`은 한 달 strict audit, exact fill/fee coverage,
-실제 depth/slippage, drawdown, event-effective 표본을 각 단계에서 통과한 뒤에만 진행한다.
+보장이 아니다. 현재 운용 기본값은 `$100`이며, `$100 → $200 → $400 → $1,000`은 한 달
+strict audit, exact fill/fee coverage, 실제 depth/slippage, drawdown, event-effective
+표본을 각 단계에서 통과한 뒤에만 진행한다.
 상세 gate는 [SCALING_AND_TAIL_RISK.md](docs/SCALING_AND_TAIL_RISK.md)에 있다.
 
 `POLYBOT_MAX_POSITIONS=20`은 누적 거래 수나 지갑 전체 포지션 수가 아니라 해당
@@ -222,15 +226,16 @@ open-notional 상한이 주문액 10배라 full-size 신규 포지션은 보통 
 
 ## 환경변수
 
-우선순위는 `env > config.yaml > 코드 기본값`이다. 정상 운용에는 앞의 4개 계정/금액 값과
-선택적 `LOG_LEVEL`만 사용하고, 아래 나머지는 실험 cohort를 새로 만들 때만 변경한다.
+우선순위는 `env > config.yaml > 코드 기본값`이다. 정상 운용에는 계정 3개 값과 선택적
+`LOG_LEVEL`만 필요하다. 기본 주문 금액 `$100`을 바꿀 때도 `POLYBOT_BUY_AMOUNT` 하나만
+설정하고, 유동성·거래량·총 노출은 자동 파생값을 사용한다.
 
 | 변수 | 기본값 | 의미 |
 |---|---:|---|
 | `POLYMARKET_PRIVATE_KEY` | 필수 | CLOB 서명 key. 로그·문서·commit 금지 |
 | `POLYMARKET_FUNDER_ADDRESS` | 필수 | 이 Queen 계정의 funder. 로그·commit 금지 |
 | `POLYMARKET_SIGNATURE_TYPE` | `1` | 계정에 맞는 `1` 또는 `3` |
-| `POLYBOT_BUY_AMOUNT` | `5` | 한 진입의 USDC. hard cap `$1,000` |
+| `POLYBOT_BUY_AMOUNT` | `100` | 건당 주문 금액(USDC). hard cap `$1,000` |
 | `LOG_LEVEL` | `INFO` | Python 로그 수준 |
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active` / `close_only` / `archive_only` |
 | `POLYBOT_ENTRY_HOURS_MAX` | `24` | A/B에서만 `12`로 변경 |

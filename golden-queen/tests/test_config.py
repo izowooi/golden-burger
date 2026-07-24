@@ -34,12 +34,12 @@ def test_crown_cross_defaults_are_fail_closed():
     trading = config.trading
 
     assert trading.lifecycle_mode == "active"
-    assert trading.buy_amount_usdc == 5.0
+    assert trading.buy_amount_usdc == 100.0
     assert trading.min_liquidity == 10_000.0
     assert trading.min_volume_24h == 2_000.0
     assert trading.max_positions == 20
     assert trading.max_event_positions == 1
-    assert trading.max_open_notional_usdc == 50.0
+    assert trading.max_open_notional_usdc == 1_000.0
     assert trading.max_new_positions_per_cycle == 1
     assert trading.reentry_cooldown_hours == 168.0
     assert trading.max_snapshot_gap_minutes == 15.0
@@ -50,8 +50,8 @@ def test_crown_cross_defaults_are_fail_closed():
     assert trading.depth_safety_multiple == 1.20
     assert trading.yes_only_mode is True
     assert trading.excluded_categories == []
-    assert trading.effective_min_liquidity == 10_000.0
-    assert trading.effective_min_volume_24h == 2_000.0
+    assert trading.effective_min_liquidity == 100_000.0
+    assert trading.effective_min_volume_24h == 5_000.0
     assert trading.entry.prob_min == 0.90
     assert trading.entry.prob_max == 0.94
     assert trading.entry.stop_price == 0.85
@@ -209,6 +209,8 @@ def test_missing_yaml_defaults_to_simulation_but_explicit_cli_can_enable_live():
     [
         ("5", 10_000.0, 2_000.0, 50.0),
         ("100", 100_000.0, 5_000.0, 1_000.0),
+        ("200", 200_000.0, 10_000.0, 2_000.0),
+        ("400", 400_000.0, 20_000.0, 4_000.0),
         ("1000", 1_000_000.0, 50_000.0, 10_000.0),
     ],
 )
