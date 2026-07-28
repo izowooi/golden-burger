@@ -48,11 +48,19 @@
 
 `max_positions`는 `PENDING_BUY`/`HOLDING`/`PENDING_SELL`/`QUARANTINED`를 모두 센다. 현재 HOLDING 246 + QUARANTINED 76 = **322행 vs 상한 10**.
 
-| 분류 | 건수 | 금액 | 처리 |
+> **2026-07-28 지갑 실조회로 아래 표는 대체되었다.** 공개 data-api로 funder 주소를 조회한 결과
+> **실제 보유는 17건 $16,668**이고 DB의 246 HOLDING 중 지갑에 실재하는 것은 **7건**뿐이다.
+> redeemable 46건은 **전부 평가액 $0**(진 포지션)이고, 이긴 포지션은 운영자가 주 3~4회 직접
+> redeem 중이라 잠겨 있지 않다. 따라서 **아래 B의 "상환 대기 $29,186"은 틀렸다** — 이미
+> 현금화된 금액이다. 잔고 하락을 이 항목으로 설명할 수 없다.
+>
+> 정리는 `uv run tools/reconcile_positions.py`로 한다(공개 API, private key 불필요).
+
+| 분류(DB 기준, 참고용) | 건수 | 금액 | 비고 |
 |---|---|---|---|
-| A. CONFIRMED fill 기록 없음 | 166 | 요청 $280,810 | **유령으로 단정하면 안 된다 — 아래 경고 참조** |
-| B. 해결완료 YES (상환 대기) | 64 | 상환가치 $29,186 | **redeem 필요 — 현금이 안 됐다** |
-| C. 해결완료 NO (소각 확정) | 14 | 체결원가 $6,949 | 손실 확정, 행 정리 |
+| A. CONFIRMED fill 기록 없음 | 166 | 요청 $280,810 | 유령으로 단정 불가 — 아래 경고 참조 |
+| B. 해결완료 YES | 64 | (DB 추정 $29,186) | **이미 redeem 완료. 잠겨 있지 않다** |
+| C. 해결완료 NO (소각 확정) | 14 | 체결원가 $6,949 | 손실 확정 |
 | D. 미해결 + fill 기록 있음 | 2 | — | — |
 
 > ### ⚠️ A 버킷을 유령으로 처리하지 말 것 (2026-07-28 20:08 실행 로그로 반증됨)
@@ -149,8 +157,18 @@ B(대사 실패 22건)는 별개 문제이고 대부분 BUY 쪽이다. 내역: `
 | Ty Masterson | stop_loss -9.4% | 82.00% | 0.82 | live, accepting |
 | Donavan McKinney | trailing -5.5% | 86.50% | 0.865 | live, accepting |
 
-특히 **+17.4% 익절이 막혔다**. 익절은 이 전략의 유일한 수익 엔진(§4)이므로, 격리가 풀릴 때까지
-전략의 수익원이 통째로 정지한 상태다.
+> **정정**: 처음엔 "+17.4% 익절 기회를 잃었다"고 적었으나 틀렸다. 지갑 조회 결과 Jerri Green
+> 포지션은 **애초에 존재하지 않는다**(DB상 3,726.7주는 유령). 격리된 14개 token 중 지갑에 실제
+> 보유가 있는 것은 **5개**뿐이고, 그중 유의미한 금액은 Abdul El-Sayed $6,613과 Jeremy Moss
+> $1,882 둘이다. 나머지 9개는 유령이거나 이미 종료됐다.
+>
+> 매도 실패 로그에서 "잔고 보정" 줄이 없다고 실보유인 것도 아니다. 잔고가 **0**이면
+> `_place_sell_with_balance_retry`가 sub-minimum escape 경로로 빠져 보정 로그 없이 원래 수량을
+> 그대로 제출한다(거래소의 명시적 zero-balance 증거를 받기 위해). 즉 보정 로그의 부재는
+> "잔고 충분"과 "잔고 0" 둘 다에서 나타난다.
+
+격리 자체는 여전히 실제 문제다. Abdul El-Sayed($6,613)와 Jeremy Moss($1,882)는 실보유인데
+봇이 청산할 수 없는 상태다.
 
 ### 2-2. 해결된 시장을 0.50에 손절하려 한다 (미수정 위험)
 
@@ -243,11 +261,18 @@ Woo Sang-ho 주문은 CLOB이 `invalid token id`로 **거절해줘서** 손해�
 
 파라미터를 바꿔도 봇이 멈춰 있으면 아무 일도 일어나지 않는다.
 
-1. **지갑 실보유 확보가 먼저다.** `uv run tools/wind_down.py status`로 실제 포지션 목록을 받는다.
-   **DB만 보고 정리하면 실보유를 유령으로 오분류해 날린다** (§2 경고 참조).
-2. **redeem**: 해결완료 YES 64건(상환가치 $29,186)을 Polymarket UI에서 상환해 현금화한다.
-   `wind_down.py`는 이들을 `redeemable`로 분류만 하고 CLOB 매도는 불가능하다.
-3. **DB 정리**: 지갑 잔고가 0으로 확인된 행만 `UNFILLED`로, 해결완료 NO 14건을 종결 처리한다.
+1. **지갑 실보유 확보가 먼저다.** private key 없이 공개 API로 조회된다:
+   ```bash
+   uv run tools/reconcile_positions.py \
+     --db golden-cherry/data/default/trades.db --funder <POLYMARKET_FUNDER_ADDRESS>
+   ```
+   (`tools/wind_down.py status`도 같은 목록을 주지만 key를 요구한다. 조회만 할 거면 위쪽이 안전하다.)
+2. **redeem**: 운영자가 주 3~4회 직접 수행 중이므로 별도 조치 불필요.
+3. **DB 정리**: 위 스크립트에 `--execute --confirm CLOSE_<건수>`를 붙인다. 지갑에 실재하는 행은
+   건드리지 않고, 지갑에 없는 행만 종결한다. 이때 CONFIRMED fill 기록이 있으면 `COMPLETED`
+   (`exit_reason='wallet_reconciled_closed_offledger'`), 없으면 `UNFILLED`
+   (`wallet_reconciled_no_fill_evidence`)로 나눠 기록해 회고에서 구분 가능하게 남긴다.
+   `realized_pnl`은 손대지 않는다. 실행 전 DB를 자동 백업한다.
 4. **격리 해제 (§2-1)**. 이걸 풀지 않으면 정리 후에도 청산이 안 된다. 반드시 backup 먼저:
    ```bash
    uv run --project polybot-observability polybot-retro backup \

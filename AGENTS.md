@@ -50,7 +50,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`).
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요).
 - `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`가 있다.
 
 ## 데이터 흐름
