@@ -1,5 +1,10 @@
 # golden-cherry 회고(포스트모템) 가이드
 
+> **1차 회고가 이미 끝났다**: [golden-cherry-2026-07-parameter-review.md](golden-cherry-2026-07-parameter-review.md)
+> (2026-07-11~28, 체결 기준 300건 + Gamma 해결 결과 대조). 2차 회고는 그 문서의 §6 권장값과
+> §7 계측 공백부터 확인하고 시작한다. 특히 **`realized_pnl`은 쓰지 말 것**, **`POLYBOT_STOP_LOSS`는
+> 트레일링 5%에 가려 효과가 없음**, **`max_positions`를 잠식하는 유령/좀비 행** 세 가지는 이미 확인된 사실이다.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
@@ -133,7 +138,7 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
   workspace/job/config hash를 먼저 확정하고 각 DB를 따로 분석한다.
 - 시뮬레이션 기록은 같은 폴더의 `trades_sim.db`로 분리돼 있다 — 실거래 분석에 섞지 말 것.
 - 완결 거래는 `data/<job>/trades_YYYY-MM.csv`에도 append된다 (교차 검증용).
-- Jenkins 콘솔 로그와 `data/<job>/logs/YYYYMMDD.log`에 사이클마다 "제외 사유 요약 - reason: count" 한 줄이 남는다. 주요 reason 키: `excluded_category`, `low_liquidity`, `no_price_data`, `prob_out_of_range`, `too_early`, `too_late`, `already_resolved`, `no_end_date`, `sports_missing_game_start`, `invalid_game_start_time`, `game_in_play_disabled`. 스캔 병목 파악에 사용한다.
+- Jenkins 콘솔 로그와 `data/<job>/logs/YYYYMMDD.log`에 사이클마다 "제외 사유 요약 - reason: count" 한 줄이 남는다. 주요 reason 키(스캐너 평가 순서): `excluded_category`, `low_liquidity`, `no_price_data`, `prob_out_of_range`, `sports_missing_game_start`, `invalid_game_start_time`, `game_in_play_disabled`, `no_end_date`, `already_resolved`, `too_early`, `too_late`, `inside_exit_window`(`POLYBOT_EXIT_HOURS`를 0보다 크게 잡을 때만 나타난다). 스캔 병목 파악에 사용한다.
 
 ### 2.2 테이블 (`src/polybot/db/models.py` 기준)
 
@@ -145,10 +150,11 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
 | `market_slug`, `question`, `outcome` | outcome은 "Yes"/"No" — NO 포지션 구분에 필수 |
 | `buy_price`, `buy_amount`, `buy_shares`, `buy_timestamp`, `buy_probability` | 매수 정보. buy_price = buy_probability = 매수 시 midpoint |
 | `sell_price`, `sell_shares`, `sell_timestamp`, `sell_probability` | 매도 정보 |
-| `realized_pnl` | (매도가-매수가)×주수. 부분 매도 HOLDING에서는 누적 실현값일 수 있음 |
+| `realized_pnl` | **성과 지표로 쓰지 말 것.** 매도 GTC가 `orderID`만 받아도 (체결 여부와 무관하게) 요청 가격×요청 수량으로 기록된다. 성과는 `order_fills.status='CONFIRMED'`로만 계산한다. 부분 매도 HOLDING에서는 누적 실현값이다 |
+| `buy_shares` | 부분 매도가 일어나면 **미매도 잔량으로 덮어써진다** — "매수한 주수"가 아니다. 원가 계산에 그대로 쓰면 틀린다 |
 | `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `SKIPPED` / `UNFILLED` / `QUARANTINED` |
 | `entry_reason` | 비스포츠 `time_based_<잔여h>h`, 스포츠 경기 전 `game_start_<잔여h>h`, 인플레이 `game_in_play_<경과분>m`, 또는 `probability_only` |
-| `exit_reason` | `take_profit` / `stop_loss` / `trailing_stop` / `time_exit` |
+| `exit_reason` | 정상 청산 `take_profit` / `stop_loss` / `trailing_stop` / `time_exit`. 부분 매도면 같은 값에 `partial_` 접두사가 붙는다(`partial_stop_loss` 등) — **`GROUP BY exit_reason`이 조용히 쪼개지므로 집계 시 접두사를 제거할 것**. 그 밖에 체결된 적 없는 매수는 `buy_unfilled`, CLOB에서 주문이 사라지면 `zero_balance_order_unavailable`, ledger가 되돌린 경우 `buy_trade_failed` |
 | `max_price` | 진입 후 최고가 (트레일링 추적용, 매수가로 초기화됨) |
 | `market_end_date` | 시장 해결 예정 시각 (Gamma endDate, 실제 해결 시각과 다를 수 있음) |
 | `hours_until_resolution_at_buy` | endDate까지 잔여시간 (스포츠 진입 기준과 다를 수 있음) |

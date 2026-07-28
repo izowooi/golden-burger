@@ -14,11 +14,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 전략 봇 — Polymarket 자동매매 (Python/uv, `main.py`+`config.yaml`+`src/polybot/`):
 
-- `golden-apple/`: 확률 80% 매수 / 90% 매도 전략. 상수값만 다른 2개 인스턴스로 운영 → 대시보드의 `GOLDEN-APPLE (1)`·`(2)`.
+- `golden-apple/`: 확률 80% 매수 / 90% 매도 전략. 2개 인스턴스로 운영 → 대시보드의 `GOLDEN-APPLE (1)`·`(2)`. 인스턴스 2의 상수는 저장소가 아니라 Jenkins env override에 있다.
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
-- `golden-cherry/`: Resolution Momentum(75~92%, 해결 직전) 전략.
+- `golden-cherry/`: Resolution Momentum(75~92%, `entry_hours_max` 120h) 전략. **자금은 golden-banana 계정에 있고 Jenkins job 이름은 `polybot-yellow`다** — 폴더명·계정명·job명이 모두 다르다. → L3 `AGENTS.md` 참조.
 
-→ 보고 대상은 9계정(apple 2 + banana + cherry + golden-eco + golden-fox + golden-lion + golden-tiger + golden-wolf)이다. 전략 코드베이스는 14개이며, 계정 slot과 배치 전략은 별도 계약으로 관리한다. 현재 명시된 배치는 golden-eco=honeydew, golden-fox=nectarine이고 lion/tiger/wolf는 재사용 가능한 slot ID다.
+→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유이며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. 전략 코드베이스는 14개다.
+
+→ 계정 slot은 `daily-report`가 `ACCOUNT_<n>_NAME`/`ACCOUNT_<n>_ADDRESS` 쌍을 번호순으로 훑어 동적으로 발견한다 (`daily-report/src/polybot_reporter/account_config.py`). 코드에 상한은 없고, 현재 `Jenkinsfile`·`.env.example`이 **13 slot**을 선언한다. slot→전략 배치는 `slack-data-collector/src/slack_data_collector/portfolio.py`에 11행이 seed되어 있고(golden-eco=honeydew, golden-fox=nectarine, golden-wolf=fig), 나머지는 Supabase 실데이터라 저장소만으로는 확인할 수 없다.
 
 신규 전략 봇 — 대중 심리 기반, 단계적 A/B 검증 예정 (각 폴더 L3 `AGENTS.md`·`STRATEGY.md` 보유, 개요는 `docs/prediction-market-strategy-portfolio.md`):
 
@@ -39,7 +41,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 공통 관측성·리포팅·적재 (Python/uv):
 
 - `polybot-observability/`: 14개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
-- `daily-report/`: 전 계정(현재 9개) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
+- `daily-report/`: 선언된 전 계정(현재 13 slot) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
 시각화·도구:
@@ -48,13 +50,16 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `docs/`: 문서 자산.
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`).
+- `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`가 있다.
 
 ## 데이터 흐름
 
-봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `golden-honeydew`·`golden-nectarine`이 중앙 시장 snapshot/catalog를 적재하고 `golden-papaya`·`golden-queen`은 기본 $1k(각 전략의 `min(configured entry liquidity, $1k)`) request envelope용 자체 60일 archive를 적재 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 기준 수익률·freshness·누락·합계 대사를 표시한다.
+봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 **구간** 기준 수익률·freshness·누락·합계 대사를 표시한다.
 
-GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 `order_fills.status='CONFIRMED'`의 실제 size/price와 fee coverage로만 확정한다. 계측 배포 전 legacy 구간과 배포 후 구간은 분리하고, evidence gap을 추정값으로 채우지 않는다. 상세 계약은 `docs/retro/EVIDENCE_CONTRACT.md`를 따른다.
+**공유 저장소는 없다.** 14개 전략 모두 자기 폴더의 `data/<job>/trades.db`만 읽고 쓴다. `golden-honeydew`·`golden-nectarine`은 거래 대상이 아닌 시장까지 포함한 universe 전체 snapshot을 60일 보존하고, `golden-papaya`·`golden-queen`은 `min(설정 진입 유동성, $1k)` 기준으로 자체 archive를 적재한다(이쪽만 보존일수가 config로 조정 가능). "중앙 archive"란 회고 시 분석자가 이 4개 DB를 찾아 참조한다는 **분석 관행**이지 런타임 의존이 아니다 — 경로 예시는 `docs/retro/golden-honeydew.md` 참조. `market_catalog`는 이 4개에만 있다.
+
+GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 `order_fills.status='CONFIRMED'`의 실제 size/price와 fee coverage로만 확정한다. `trades.realized_pnl`은 **요청 가격 × 요청 수량**으로 계산되므로 성과 지표로 쓰면 안 된다 — 매도 GTC가 `orderID`만 받아도 `COMPLETED`로 기록된다. 체결된 적 없는 매수는 `TradeStatus.UNFILLED`(유령 포지션), CLOB 카탈로그에서 사라진 주문은 `QUARANTINED`로 종결되며 **둘 다 오픈 노출로 집계**되어 `max_positions`를 소모한다. 계측 배포 전 legacy 구간과 배포 후 구간은 분리하고, evidence gap을 추정값으로 채우지 않는다. 상세 계약은 `docs/retro/EVIDENCE_CONTRACT.md`를 따른다.
 
 ## 공통 작업 원칙
 
@@ -86,7 +91,8 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
 - 공통 전략 계약이나 shared observability를 수정하면 14개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
-- 월간 수치 조정·전략 승격 전에 `polybot-retro audit --strict`를 실행한다. `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
+- 월간 수치 조정·전략 승격 전에 `uv run --project polybot-observability polybot-retro audit --root . --output-dir <경로> --strict`를 실행한다(`--output-dir`은 필수 인자다). `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
+- 수치를 조정하기 전에 대상 구간이 단일 cohort인지 확인한다. `strategy_configs` 테이블에 `config_hash`별 전체 config JSON이 남으므로, 여러 cohort가 섞인 구간의 집계로 파라미터를 정하지 않는다.
 
 ## 새 서브 프로젝트 추가 기준
 
@@ -100,7 +106,8 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 
 ## 주의사항
 
-- 실거래 봇은 `config.yaml`의 `simulation_mode`와 `.env` 실키에 민감하다. 키 취급은 L1 보안 규칙을 따른다.
+- 실거래 봇은 `config.yaml`의 `simulation_mode`와 `.env` 실키에 민감하다. 키 취급은 L1 보안 규칙을 따른다. `golden-papaya`·`golden-queen`은 `simulation_mode: true`가 기본이라 실주문을 내지 않는다.
+- `POLYMARKET_SIGNATURE_TYPE`은 계정 종류에 따라 반드시 맞춰야 한다: `1`=POLY_PROXY(구형 이메일 계정), `3`=POLY_1271(2026년 이후 신규 계정의 스마트 지갑). 틀리면 CLOB이 `maker address not allowed`로 전 주문을 거절한다. 14개 전략과 `tools/wind_down.py` 모두 이 env를 읽는다.
 - Jenkins Freestyle에서 private key를 inline `export`하거나 `sh -x`/`sh -xe`로 노출하지 않는다. Credentials Binding을 사용하고 secret 참조 전부터 `set +x`를 적용한다.
 - SQLite DB와 Jenkins artifact는 유일한 backup으로 취급하지 않는다. online backup + SHA-256 manifest를 workspace 밖 내구성 저장소에 복제하고 복구 검증한다.
 - 루트 `firebase-debug.log`는 추적되지 않는 잔여 로그다 (정리 권장, 임의 삭제는 하지 않음).

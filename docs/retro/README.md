@@ -13,7 +13,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 |---|---|---|
 | golden-apple | [golden-apple.md](golden-apple.md) | 운영 2계정 (1)/(2) |
 | golden-banana | [golden-banana.md](golden-banana.md) | 운영 |
-| golden-cherry | [golden-cherry.md](golden-cherry.md) | 운영 + 변형 slot |
+| golden-cherry | [golden-cherry.md](golden-cherry.md) · **1차 완료** → [2026-07 파라미터 회고](golden-cherry-2026-07-parameter-review.md) | 운영 + 변형 slot |
 | golden-date | [golden-date.md](golden-date.md) | Conviction Ladder |
 | golden-elderberry | [golden-elderberry.md](golden-elderberry.md) | Panic Fade |
 | golden-fig | [golden-fig.md](golden-fig.md) | Hope Crusher |

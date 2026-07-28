@@ -200,8 +200,8 @@ trading:
   min_liquidity: 50000
   max_order_liquidity_ratio: 0.002
 
-  # 이익실현 (진입가 대비 +15%)
-  take_profit_percent: 0.15
+  # 이익실현 (진입가 대비 +10%)
+  take_profit_percent: 0.10
 
   # 손절 (진입가 대비 -8%)
   stop_loss_percent: -0.08
