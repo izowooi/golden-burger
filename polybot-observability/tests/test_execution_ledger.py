@@ -2047,3 +2047,84 @@ def test_order_fill_migration_replaces_stale_v2_beside_legacy_source(tmp_path):
             "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
             "AND name = 'order_fills_v2'"
         ).fetchone()[0] == 0
+
+
+# ── 격리 자가 해제 (autoresolve_stale_sell_intents) ────────────────────
+def _insert_unresolved_sell(db_path, submission_id, token_id, age_minutes):
+    """거래소 응답이 불확실해 격리된 SELL intent를 직접 심는다."""
+    from datetime import datetime, timedelta, timezone
+    submitted = (
+        datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
+    ).isoformat(timespec="microseconds")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "INSERT INTO order_submissions ("
+            "submission_id, strategy_name, token_id, side, requested_price,"
+            "requested_size, submitted_at, simulation, success, response_status,"
+            "needs_reconciliation) "
+            "VALUES (?, 'golden-test', ?, 'SELL', 0.5, 10.0, ?, 0, 0,"
+            "'SUBMIT_OUTCOME_UNKNOWN', 0)",
+            (submission_id, token_id, submitted),
+        )
+
+
+def test_autoresolve_clears_only_intents_with_no_live_exchange_order(tmp_path):
+    """거래소에 주문이 없음이 확인된 오래된 SELL intent만 해제한다.
+
+    격리는 시간 기반 해제가 없어 5xx 한 번이 청산을 영구히 막는다.
+    거래소 열린 주문에 없으면 주문이 안 만들어진 것이 확인되므로 안전하다.
+    """
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    _insert_unresolved_sell(db_path, "sub-gone", "token-gone", age_minutes=120)
+    _insert_unresolved_sell(db_path, "sub-live", "token-live", age_minutes=120)
+    _insert_unresolved_sell(db_path, "sub-fresh", "token-fresh", age_minutes=5)
+
+    stats = ledger.autoresolve_stale_sell_intents(
+        live_order_keys={("token-live", "SELL")}, min_age_minutes=30.0
+    )
+
+    assert stats["checked"] == 3
+    assert stats["resolved"] == 1          # token-gone만
+    assert stats["kept_live_order"] == 1   # token-live는 주문이 실재
+    assert stats["too_recent"] == 1        # token-fresh는 5분 전이라 보류
+
+    with sqlite3.connect(db_path) as connection:
+        rows = dict(
+            connection.execute(
+                "SELECT submission_id, outcome_resolution FROM order_submissions"
+            ).fetchall()
+        )
+    assert rows["sub-gone"] == "NO_ORDER_CREATED"
+    assert rows["sub-live"] is None
+    assert rows["sub-fresh"] is None
+
+
+def test_autoresolve_never_touches_buy_intents(tmp_path):
+    """BUY는 중복 매수가 실제로 가능하므로 자동화하지 않는다."""
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    _insert_unresolved_sell(db_path, "sub-sell", "token-a", age_minutes=120)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET side='BUY' WHERE submission_id='sub-sell'"
+        )
+
+    stats = ledger.autoresolve_stale_sell_intents(
+        live_order_keys=set(), min_age_minutes=30.0
+    )
+    assert stats["checked"] == 0
+    assert stats["resolved"] == 0
+
+
+def test_autoresolve_unblocks_the_submission_gate(tmp_path):
+    """해제 후에는 같은 token/side의 신규 주문이 다시 허용되어야 한다."""
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    _insert_unresolved_sell(db_path, "sub-x", "token-x", age_minutes=120)
+
+    assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 1
+    ledger.autoresolve_stale_sell_intents(
+        live_order_keys=set(), min_age_minutes=30.0
+    )
+    assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 0

@@ -20,7 +20,13 @@ def _parser() -> argparse.ArgumentParser:
     run = commands.add_parser("run", help="Run one archive/trading cycle")
     run.add_argument("--config", "-c", default="config.yaml")
     run.add_argument("--job", "-j", default="default")
-    run.add_argument("--simulate", "-s", action="store_true")
+    mode = run.add_mutually_exclusive_group()
+    mode.add_argument("--simulate", "-s", action="store_true")
+    mode.add_argument(
+        "--live",
+        action="store_true",
+        help="Explicitly enable real CLOB orders (default is simulation)",
+    )
     run.add_argument("--verbose", "-v", action="store_true")
     status = commands.add_parser("status", help="Show DB status")
     status.add_argument("--config", "-c", default="config.yaml")
@@ -43,6 +49,15 @@ def _load(args, simulation_override=None):
         sys.exit(1)
 
 
+def _run_simulation_override(args: argparse.Namespace) -> bool:
+    """실주문은 매번 명시적인 ``--live``를 요구한다 (queen과 같은 안전 기본값).
+
+    config.yaml의 ``simulation_mode: true``는 그대로 두고, 실거래는 Jenkins에서
+    ``--live``를 붙여야만 켜진다. 플래그 없이 실행하면 시뮬레이션이다.
+    """
+    return not bool(args.live)
+
+
 def main() -> None:
     parser = _parser()
     args = parser.parse_args()
@@ -53,7 +68,7 @@ def main() -> None:
     if args.command == "run":
         config = _load(
             args,
-            simulation_override=True if args.simulate else None,
+            simulation_override=_run_simulation_override(args),
         )
         setup_logger(config.job_name, verbose=args.verbose)
         try:

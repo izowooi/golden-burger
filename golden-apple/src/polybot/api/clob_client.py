@@ -5,6 +5,7 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
 import json
+import os
 import logging
 import math
 from contextlib import contextmanager
@@ -769,6 +770,43 @@ class ClobClientWrapper:
                     phase,
                     type(error).__name__,
                     response_shape,
+                )
+
+        # 격리 자가 해제. CLOB POST가 5xx/timeout으로 끝나면 그 token/side의 주문이
+        # 영구히 막히는데 시간 기반 해제가 없다. 거래소 열린 주문 목록에 없으면
+        # 주문이 만들어지지 않은 것이 확인되므로 안전하게 풀 수 있다.
+        # 조회 실패 시에는 절대 해제하지 않는다(빈 목록과 구분 불가).
+        if os.environ.get("POLYBOT_INTENT_AUTORESOLVE", "true").lower() not in (
+            "false", "0", "no", "off"
+        ):
+            try:
+                raw_open = self.client.get_open_orders()
+                open_orders = normalize_clob_response_list(
+                    raw_open, response_type="order"
+                )
+                live_keys = {
+                    (
+                        str(o.get("asset_id") or o.get("token_id") or ""),
+                        str(o.get("side", "")).upper(),
+                    )
+                    for o in (open_orders or [])
+                }
+                heal = self.execution_ledger.autoresolve_stale_sell_intents(
+                    live_order_keys=live_keys
+                )
+                stats["intent_autoresolved"] = heal["resolved"]
+                if heal["resolved"] or heal["kept_live_order"]:
+                    logger.info(
+                        "격리 자가 해제 - 해제 %s건, 거래소 주문 실재로 보류 %s건, "
+                        "최근이라 보류 %s건",
+                        heal["resolved"],
+                        heal["kept_live_order"],
+                        heal["too_recent"],
+                    )
+            except Exception as heal_error:  # noqa: BLE001
+                logger.warning(
+                    "격리 자가 해제 생략 - 거래소 열린 주문 조회 실패: %s",
+                    heal_error,
                 )
 
         if stats["checked"]:

@@ -9,7 +9,7 @@ import math
 import sqlite3
 import uuid
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Iterator, Mapping
 
@@ -180,6 +180,15 @@ class _OrderResponseContractError(SubmissionEvidenceError):
 
 def _utc_now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _parse_submitted_at(value: Any):
+    """order_submissions.submitted_at(ISO8601) → aware datetime. 실패 시 None."""
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
 
 
 def _normalize_status(value: Any) -> str:
@@ -1052,6 +1061,70 @@ class ExecutionLedger:
             connection.row_factory = sqlite3.Row
             rows = self._unresolved_outcome_rows(connection, limit=limit)
         return [dict(row) for row in rows]
+
+    def autoresolve_stale_sell_intents(
+        self,
+        *,
+        live_order_keys: set,
+        min_age_minutes: float = 30.0,
+        limit: int = 500,
+    ) -> dict:
+        """거래소에 주문이 없음이 확인된 오래된 SELL intent를 자동 해제한다.
+
+        격리는 "POST 응답이 5xx/timeout이라 주문이 들어갔는지 모른다"는 상태다.
+        시간 기반 해제가 없어서 한 번의 네트워크 오류가 그 token/side의 청산을
+        영구히 막는다(2026-07-28 실측: 함대 매도 실패 113건 중 111건이 이것).
+
+        거래소의 열린 주문 목록에 해당 token/side가 **없으면** 주문이 만들어지지
+        않은 것이 확인되므로 중복 주문 위험 없이 해제할 수 있다.
+
+        SELL만 자동화한다. 거래소가 보유 수량을 넘겨 팔지 못하게 막으므로 만에 하나
+        중복 주문이 나가도 과매도가 불가능하다. BUY는 중복 매수가 실제로 가능하므로
+        사람이 판단한다.
+
+        Args:
+            live_order_keys: 거래소에 실재하는 (token_id, side) 집합.
+                **조회에 실패했다면 이 메서드를 호출하지 말 것** — 빈 집합(주문 없음)과
+                구분되지 않아 잘못된 해제로 이어진다.
+            min_age_minutes: 이보다 최근의 intent는 건드리지 않는다. 방금 제출한
+                주문이 거래소에 반영되기 전일 수 있다.
+        """
+        stats = {"checked": 0, "resolved": 0, "kept_live_order": 0, "too_recent": 0}
+        cutoff = datetime.now(timezone.utc) - timedelta(
+            minutes=float(min_age_minutes)
+        )
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT submission_id, token_id, side, submitted_at "
+                f"FROM order_submissions WHERE {self._unresolved_sql()} "
+                "AND side = 'SELL' AND order_id IS NULL "
+                "ORDER BY submitted_at LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        for row in rows:
+            stats["checked"] += 1
+            submitted = _parse_submitted_at(row["submitted_at"])
+            if submitted is not None and submitted > cutoff:
+                stats["too_recent"] += 1
+                continue
+            if (str(row["token_id"]), "SELL") in live_order_keys:
+                stats["kept_live_order"] += 1
+                continue
+            try:
+                self.resolve_uncertain_submission(
+                    row["submission_id"],
+                    resolution="NO_ORDER_CREATED",
+                    reason=(
+                        "auto: exchange open-order catalog contained no live SELL "
+                        "order for this token"
+                    ),
+                )
+                stats["resolved"] += 1
+            except ValueError:
+                # 경합으로 이미 해결됐거나 상태가 바뀐 경우 - 조용히 넘어간다.
+                continue
+        return stats
 
     def unresolved_submission_count(
         self,
