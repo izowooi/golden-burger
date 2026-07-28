@@ -53,6 +53,43 @@ def available_shares_from_error(result: dict) -> Optional[float]:
         return None
     return int(match.group(1)) / _CLOB_QUANTITY_SCALE
 
+# ── 매도 실패 진단 ────────────────────────────────────────────────────
+# 매도 거절 중 상당수는 재시도해도 성공하지 않는다. 그런데 실패 분기가 trade
+# 상태를 바꾸지 않으므로 HOLDING으로 남아 매 사이클 같은 주문을 반복 제출한다.
+# golden-cherry 실측(2026-07-11~28): 실패한 SELL 제출 73,238건 / 401 token
+# = 토큰당 평균 182.6회, 최대 4,002회(17일간 사실상 매 사이클).
+# 원인은 둘이었다 — (1) 부분 체결로 실제 잔고 < DB 수량인데 줄이지 않음,
+# (2) 잔고와 정확히 같은 수량을 제출(거래소가 반올림 여유를 요구).
+_SELL_GONE_PATTERNS = ("invalid token id", "orderbook id does not exist")
+
+
+def classify_sell_failure(
+    result: dict, requested_size: float, min_order_size: float = 5.0
+) -> str:
+    """매도 실패를 재시도 가능성 기준으로 분류한다 (로그 집계용).
+
+    market_gone / dust_unsellable 은 영구적이라 재시도가 무의미하다.
+    partial_balance / balance_edge 는 수량을 줄이면 체결될 수 있다.
+    """
+    message = str(result.get("error", "")).lower()
+    if any(pattern in message for pattern in _SELL_GONE_PATTERNS):
+        return "market_gone"
+    if "not enough balance" not in message:
+        if "not ready" in message or "request exception" in message:
+            return "transient"
+        return "other"
+    available = available_shares_from_error(result)
+    if available is None:
+        return "balance_unparsed"
+    if available <= 0:
+        return "zero_balance"
+    if available < min_order_size:
+        return "dust_unsellable"
+    if available < requested_size:
+        return "partial_balance"
+    return "balance_edge"
+
+
 
 def _valid_book_price(value) -> Optional[float]:
     try:
@@ -670,6 +707,15 @@ class Trader:
         if is_zero_balance_error(result):
             self._mark_unfilled(trade)
             return False
+        _available = available_shares_from_error(result)
+        logger.warning(
+            "매도 실패 진단 - 사유=%s trade=%s token=%s 요청=%.6f 가용=%s",
+            classify_sell_failure(result, trade.buy_shares),
+            trade.id,
+            str(trade.token_id)[:16],
+            trade.buy_shares,
+            f"{_available:.6f}" if _available is not None else "미상",
+        )
         logger.error("매도 주문 실패: %s", result)
         return False
 
