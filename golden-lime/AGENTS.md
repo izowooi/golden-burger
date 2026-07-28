@@ -1,5 +1,20 @@
 # L3 AGENTS.md — golden-lime
 
+> ## ⚠ 2026-07-28: 폐쇄 권고 상태
+>
+> 14일간 계정이 **-72%**($239.89 → $66.36)를 기록했고, 코드 분석 결과 파라미터로
+> 고칠 수 없는 구조적 결함이 확인됐다. **판정 근거와 폐쇄 절차는
+> [docs/retro/golden-lime-2026-07-close-recommendation.md](../docs/retro/golden-lime-2026-07-close-recommendation.md)** 를 먼저 읽을 것.
+>
+> 요약: ① `signals.py:153`의 `base = min(window)` 때문에 신호가 충격이 아니라
+> **구간 천장**을 감지한다. ② 모멘텀 편승 전략인데 midpoint **수동적 GTC 지정가**로
+> 체결하므로 가설이 맞을수록 체결되지 않는다. ③ `max_price`가 매수가로 초기화되어
+> 트레일링 -6%가 손절보다 먼저 걸리고, 익절은 원래 점프의 30~96%를 추가로 요구한다.
+> ④ `max_positions: -1`이라 리스크 상한이 없다.
+>
+> **파라미터 튜닝을 제안하기 전에 위 문서 §5(항목별 수정 가능성)를 확인할 것.**
+> 아래 본문은 폐쇄 판정 이전에 작성된 원래 설계 설명이다.
+
 Polymarket **Shock Follow** 전략 봇 — 충격 뉴스 급변(6h 내 +0.10 점프) 중 거래량 폭증 + 고점 유지가 확인된 "진짜 정보"에만 편승한다. golden-elderberry(Panic Fade)와 정반대 트리거의 A/B 쌍.
 
 - 상위 계층: L2 `/Users/izowooi/git/t1/AGENTS.md` (모노레포 공통 규칙), L1 `/Users/izowooi/git/AGENTS.md` (전역 규칙).
