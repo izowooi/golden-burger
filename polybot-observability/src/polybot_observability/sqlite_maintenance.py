@@ -228,8 +228,10 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             full_cadence_hours=base_window_days * 24.0,
             retention_days=base_window_days,
         )
-    if normalized in {"golden-papaya", "golden-queen"}:
-        default_gap_minutes = 15.0 if normalized == "golden-queen" else 30.0
+    if normalized in {"golden-papaya", "golden-queen", "golden-quince"}:
+        default_gap_minutes = (
+            15.0 if normalized in {"golden-queen", "golden-quince"} else 30.0
+        )
         return SQLiteMaintenanceRequirements(
             full_cadence_hours=_positive_float(
                 "POLYBOT_MAX_SNAPSHOT_GAP_MINUTES", default_gap_minutes
@@ -277,6 +279,7 @@ def policy_for(
         # at full fidelity; older extrema preserve the never-crossed predicate.
         "golden-papaya": 1.0,
         "golden-queen": 1.0,
+        "golden-quince": 1.0,
     }
     retention_defaults = {
         "golden-honeydew": 60.0,
@@ -284,11 +287,17 @@ def policy_for(
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
         "golden-queen": 60.0,
+        "golden-quince": 60.0,
     }
     selector = "latest"
     if normalized == "golden-nectarine":
         selector = "minimum"
-    elif normalized in {"golden-elderberry", "golden-papaya", "golden-queen"}:
+    elif normalized in {
+        "golden-elderberry",
+        "golden-papaya",
+        "golden-queen",
+        "golden-quince",
+    }:
         selector = "extrema"
     policy = SQLiteMaintenancePolicy(
         strategy_name=normalized,

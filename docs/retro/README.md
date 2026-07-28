@@ -28,6 +28,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
+| golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, 실행 측면(maker/taker)이 처치축, A/B 3팔 사전 등록 |
 
 새 전략은 [새 전략 구현·승격 플레이북](../new-strategy-playbook.md)을 따른다. nectarine의
 position cap은 [전용 회고](../nectarine-max-positions-retro.md)를 함께 참고하되, execution

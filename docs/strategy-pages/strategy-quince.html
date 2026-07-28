@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-quince — Spread Harvest</title>
+<style>
+:root{
+  --accent:#8d6e4f;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body><div class="wrap">
+<header class="hero">
+  <div class="emoji">🍐</div>
+  <h1>golden-quince <span class="en">— Spread Harvest</span></h1>
+  <p class="tagline">"시장을 이기려 하지 않는다. 스프레드를 내는 쪽이 아니라 받는 쪽에 선다." — 방향성 예측을 포기하고 <strong>실행 측면(maker/taker)</strong> 하나만을 수익원으로 삼는 전략.</p>
+  <div class="badges"><span>유형 <b>실행 비용</b></span><span>상태 <b>신규 · A/B 사전 등록</b></span><span>처치축 <b>execution_mode</b></span><span>기본 주문 <b>$5</b></span></div>
+</header>
+
+<section><h2>핵심 아이디어</h2>
+<pre class="formula">가격 = 실현 확률  (실측: 99개 셀 중 BH 통과 0개)
+   ⇒ 매수 후 보유의 기대값은 비용 전 0
+
+   ⇒ 양수 EV의 출처는 하나뿐: <b>거래비용의 부호를 바꾸는 것</b>
+
+BUY  지정가 = floor(midpoint)   # 매수호가에 합류 → maker
+SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
+                                # 절대 크로스하지 않는다</pre></section>
+
+<section><h2>왜 이 전략인가 — 다른 모든 것이 기각됐다</h2>
+<p>2026-07-28~29에 5개 전략(cherry·lime·fig·mango·date)을 실측 검증하고 4개를 폐쇄했다. 가설은 전부 달랐지만 결과는 같았다.</p>
+<div class="tbl"><table>
+<tr><th>검정한 것</th><th>결과</th></tr>
+<tr><td>확률 예측 edge</td><td><strong>없음.</strong> 99개 셀 중 Benjamini-Hochberg q=0.05 통과 <strong>0개</strong>. 최대 |z|=2.47인데 필요 p ≤ 0.0005</td></tr>
+<tr><td>경로 구조 (평균회귀)</td><td><strong>실재하나 작다.</strong> rho=−0.0901, t=−26.2로 매우 유의하지만 되돌림이 7.9 bps에 불과</td></tr>
+<tr><td>청산 규칙 edge</td><td><strong>없음.</strong> 통합 785건 +0.44pp, p=0.74. 초판의 "+$633 이득"은 체결기록 결손 artifact였고 철회됨</td></tr>
+<tr><td><strong>실행 측면</strong></td><td><strong>103 bps 차이 — 유일하게 남은 것</strong></td></tr>
+</table></div>
+<p><strong>실측 왕복 비용은 실행 경로에 따라 부호가 뒤집힌다</strong> ($5 주문 2,139 왕복):</p>
+<div class="tbl"><table>
+<tr><th>실행 경로</th><th>비중</th><th>왕복 비용</th></tr>
+<tr><td><strong>buy MAKER → sell MAKER</strong></td><td>41.5%</td><td><strong>−31.1 bps (버는 쪽)</strong></td></tr>
+<tr><td>buy MAKER → sell TAKER</td><td>18.2%</td><td>−33.4 bps</td></tr>
+<tr><td>buy TAKER → sell MAKER</td><td>23.0%</td><td>+32.8 bps</td></tr>
+<tr><td><strong>buy TAKER → sell TAKER</strong></td><td>13.8%</td><td><strong>+72.5 bps</strong></td></tr>
+</table></div>
+</section>
+
+<section><h2>메커니즘 — 기존 14개 봇은 이 축이 무작위였다</h2>
+<pre class="code">rounded = round(round(price / tick_size) * tick_size, 2)   # 가장 가까운 틱</pre>
+<p>호가가 0.79/0.80이면 midpoint는 0.795다. 이것이 0.80으로 반올림되면 <strong>매도호가를 리프트해서 taker</strong>가 되고, 0.79로 내려가면 <strong>매수호가에 합류해 maker</strong>가 된다. <strong>어느 쪽이 될지는 midpoint 셋째 자리에 달려 있다 — 사실상 무작위다.</strong></p>
+<p>golden-date 실거래에서 이 무작위성을 <strong>자연실험</strong>으로 측정한 결과:</p>
+<div class="tbl"><table>
+<tr><th>반올림 방향</th><th>n</th><th>체결률</th></tr>
+<tr><td>UP (매도호가 리프트 = taker)</td><td>493</td><td><strong>91.1%</strong></td></tr>
+<tr><td>DOWN (매수호가 합류 = maker)</td><td>487</td><td><strong>39.4%</strong></td></tr>
+</table></div>
+<p>quince는 이 축을 <code>execution_mode</code>로 <strong>설정에 고정</strong>한다.</p>
+</section>
+
+<section class="notice"><h2>⚠ 경쟁 가설 — 아직 기각되지 않았다</h2>
+<p><strong>"패시브가 얻는 1틱 할인은 역선택으로 상쇄된다."</strong> 패시브 주문은 가격이 나에게 내려왔을 때 체결되고, 그것은 계속 내려갈 수 있다는 뜻이다.</p>
+<p>golden-date에서 진입 밴드를 통제해 종결 ROI를 비교하면 <strong>부호가 밴드마다 뒤집힌다</strong>(−3.80 / −12.01 / +6.37 / +2.64 pp, n=30~64). 역선택은 현재 DB로 측정 불가능하다 — 거래에 가장 가까운 snapshot이 평균 135분 떨어져 있다.</p>
+<p><strong>그래서 이 전략은 "확신"이 아니라 사전 등록된 실험이다.</strong></p>
+</section>
+
+<section><h2>진입 · 청산 규칙</h2>
+<p>golden-queen에서 <strong>의도적으로 그대로 상속</strong>한다. 신호가 아니라 실행이 처치이므로, 신호는 A/B 전 팔에서 동일해야 한다.</p>
+<div class="tbl"><table>
+<tr><th>#</th><th>진입 조건 (모두 충족)</th></tr>
+<tr><td>1</td><td>표준 이진 시장 (<code>[Yes, No]</code>, price/token 각 2개, <code>negRisk is False</code> 명시)</td></tr>
+<tr><td>2</td><td>YES-only</td></tr>
+<tr><td>3</td><td>직전 persisted YES &lt; 0.90 AND 현재 YES ∈ [0.90, 0.94] — <strong>최초 상향 교차만</strong></td></tr>
+<tr><td>4</td><td>lineage: 현재 snapshot은 이번 sweep의 양의 ID, 직전과 <code>0 &lt; gap ≤ 15분</code></td></tr>
+<tr><td>5</td><td>시계: 비스포츠·경기 전 <code>(0h, 24h]</code>, 경기 중은 kickoff 후 360분까지</td></tr>
+<tr><td>6</td><td><code>event_id</code> 필수, event당 동시 1개</td></tr>
+<tr><td>7</td><td>주문 직전 fresh midpoint가 밴드 안, best ask ≤ 0.94, spread ≤ 0.02, depth 1.2배, 최소 5.1주</td></tr>
+</table></div>
+<div class="tbl"><table>
+<tr><th>우선순위</th><th>청산 조건</th><th>exit_reason</th></tr>
+<tr><td>1</td><td>fresh YES ≥ 0.98 AND 실행가능 bid ≥ 0.98</td><td><code>take_profit</code></td></tr>
+<tr><td>2</td><td>fresh YES ≤ 0.85</td><td><code>absolute_stop</code></td></tr>
+</table></div>
+<p><strong>trailing stop과 time exit은 없다.</strong> 청산 규칙에 edge가 없음이 785건에서 확인됐고(+0.44pp, p=0.74), <code>time_exit</code>의 SELL leg는 TAKER 비중이 59.4%(+16.2 bps)라 <strong>패시브 원칙과 정면 충돌</strong>한다. 또 <code>max_price</code>를 매수가로 초기화하는 트레일링은 명목 손절을 도달 불가능하게 만든다(cherry·date·grape에서 확인, 실제 발동 중앙값 −14.2% / −16.8%).</p>
+</section>
+
+<section class="ok"><h2>리스크 통제 — 전부 유한하고, 코드가 강제한다</h2>
+<p>폐쇄한 3개 전략(fig·mango·date)이 <code>max_positions: -1</code>이었다.</p>
+<div class="tbl"><table>
+<tr><th>항목</th><th>값</th></tr>
+<tr><td><code>buy_amount_usdc</code></td><td><strong>5.0</strong> — 사전 등록 롤아웃 금액. 증액은 판정 기준 통과 후</td></tr>
+<tr><td><code>max_positions</code> / event / cycle</td><td>20 / 1 / 1</td></tr>
+<tr><td>open notional</td><td><strong>$50</strong> (주문액 × 10)</td></tr>
+<tr><td><code>reentry_cooldown_hours</code></td><td>168</td></tr>
+<tr><td><strong>낙폭 kill switch</strong></td><td><strong>확정손익 ≤ −$40 → 신규 진입 자동 차단</strong></td></tr>
+</table></div>
+<p>golden-date는 판정 기준을 문서에만 적어두고 실측 승률 35.7%(기준 70%)로 계좌 절반을 잃을 때까지 아무것도 멈추지 않았다. quince는 <code>Trader._drawdown_stop_triggered()</code>가 <strong>코드에서</strong> 차단한다. 청산은 계속되고, 재개는 사람의 판단을 요구한다.</p>
+</section>
+
+<section><h2>A/B 설계 (사전 등록)</h2>
+<p>처치는 <strong>실행 측면 하나</strong>다. 신호·금액·캡·청산은 전 팔에서 동일하다.</p>
+<div class="tbl"><table>
+<tr><th>팔</th><th>job</th><th><code>POLYBOT_EXECUTION_MODE</code></th><th>역할</th></tr>
+<tr><td><strong>A</strong></td><td><code>polybot-quince-passive</code></td><td><code>passive</code></td><td><strong>처치군</strong> — 절대 크로스 안 함</td></tr>
+<tr><td><strong>B</strong></td><td><code>polybot-quince-nearest</code></td><td><code>nearest</code></td><td><strong>대조군</strong> — 기존 14봇과 동일</td></tr>
+<tr><td><strong>C</strong></td><td><code>polybot-quince-cross</code></td><td><code>cross</code></td><td><strong>비용 상한</strong> — 항상 크로스</td></tr>
+</table></div>
+<p><strong>왜 대조군이 둘인가.</strong> B만 있으면 "A가 B보다 낫다"를 관측해도 실행 때문인지 우연인지 모른다. C가 있으면 <strong>예측된 순서</strong>가 생긴다:</p>
+<pre class="formula">순 수익:   A  &gt;  B  &gt;  C
+체결률:    A  &lt;  B  &lt;  C</pre>
+<p>이 <strong>부등식이 깨지면 우리의 비용 모형이 틀린 것</strong>이고, 그 자체가 정보다. 단일 대조군으로는 얻을 수 없는 falsifiability다.</p>
+<p>선택적 4번째 팔 D는 <code>passive</code> + <code>POLYBOT_BUY_AMOUNT=10</code>으로 크기 효과를 분리한다. 자금 여유가 있을 때만 추가하며 <strong>A·B·C가 우선</strong>이다.</p>
+<div class="tbl"><table>
+<tr><th>시점</th><th>조건</th><th>결정</th></tr>
+<tr><td>상시</td><td>확정손익 ≤ −$40</td><td><strong>자동 중단</strong></td></tr>
+<tr><td>30일</td><td>A의 CONFIRMED 왕복 &lt; 25건</td><td><strong>판정 불가</strong> → 진입 조건 완화 후 재시작</td></tr>
+<tr><td>30일</td><td>A 순손익 ≤ 0</td><td><strong>폐쇄</strong></td></tr>
+<tr><td>30일</td><td>A ≤ B</td><td><strong>가설 기각</strong> — 실행 측면은 수익원이 아니다</td></tr>
+<tr><td>30일</td><td>A &gt; B &gt; C AND A 순손익 &gt; 0</td><td><strong>계속</strong>, 금액 증액 검토</td></tr>
+</table></div>
+<p><strong>"승률"은 판정 기준에 넣지 않는다.</strong> 승률은 진입 밴드가 결정하며 처치와 무관하다. 재는 것은 같은 신호에 대한 <strong>순 실행 비용 차이</strong>다.</p>
+</section>
+
+<section class="risk"><h2>이 전략이 실패하는 경우</h2>
+<ul class="risk">
+<li><strong>역선택이 스프레드보다 크다.</strong> 가장 유력한 실패 모드. → A vs B가 이것을 잰다.</li>
+<li><strong>체결이 안 된다.</strong> 패시브 체결률 39%대, 0.90~0.95 밴드의 $5 주문 체결률 36.2%. 자금 거절까지 포함하면 신호→포지션 전환율 ~25%.</li>
+<li><strong>미체결분이 유령이 된다.</strong> 미체결 $5 BUY의 <strong>36.4%가 INVALID</strong>로 전환되어 <code>max_positions</code>를 잠식한다. 패시브는 미체결이 많으므로 이 위험이 <strong>더 크다</strong>.</li>
+<li><strong>신호가 너무 희소하다.</strong> queen은 약 15,500개를 훑어 후보 2건이 나왔다. 진입이 0에 수렴하면 A/B가 성립하지 않는다.</li>
+<li><strong>dust 잔류.</strong> 체결 $5 BUY의 0.3~0.9%가 5주 미만으로 남아 영구 매도 불가.</li>
+<li><strong>수수료가 실제로 부과된다.</strong> 기록된 fill의 수수료는 전부 0/NULL이지만 Gamma 메타데이터는 94% 시장에 <code>fee_rate</code> 0.04~0.07을 붙이고 있다. 이 불일치는 <strong>미해결</strong>이다.</li>
+</ul>
+</section>
+
+<section><h2>알려진 한계</h2>
+<ul>
+<li><strong>역선택 미측정</strong>이 가장 큰 미지수다. <code>market_snapshots</code>에 bid/ask를 함께 적재하므로 30일 뒤에는 직접 측정이 가능해진다.</li>
+<li><strong>캘리브레이션 연구는 1주다.</strong> favorite 밴드에서 3~8pp의 진짜 edge는 이 표본 크기로는 보이지 않는다(MDE 8~9pp). <strong>"edge가 없다"가 아니라 "edge를 보지 못했다"</strong>이다.</li>
+<li>성과는 <code>order_fills.status='CONFIRMED'</code>로만 확정한다. midpoint 기반 P&amp;L 금지.</li>
+<li>패시브는 체결률을 절반 이하로 떨어뜨린다. 부작용이 아니라 <strong>설계의 일부</strong>이며 표본 축적 속도와의 트레이드오프다.</li>
+</ul>
+</section>
+
+<footer>
+golden-quince · Spread Harvest · 2026-07-29 신규 · 상세: <code>golden-quince/STRATEGY.md</code><br>
+근거: <code>docs/retro/2026-07-29-market-structure-study.md</code> · <code>docs/retro/2026-07-29-execution-cost-floor.md</code> · <code>docs/retro/closed-strategies-postmortem.md</code>
+</footer>
+</div></body></html>

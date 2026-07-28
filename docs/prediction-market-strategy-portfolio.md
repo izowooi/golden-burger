@@ -177,3 +177,23 @@ py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐�
 - 시뮬레이션 손익은 midpoint 체결·슬리피지 0 가정이라 낙관 편향 — 소액 실전 단계를 생략하지 말 것.
 - GTC 주문의 `accepted`/order ID는 fill이 아니다. 실제 성과는 confirmed fill evidence로만 확정하며, papaya/queen의 SELL은 접수 뒤 `PENDING_SELL`을 유지하고 exact BUY/SELL fill 대사 전에는 완료로 간주하지 않는다. Queen BUY도 exact full fill 전에는 `PENDING_BUY`다.
 - private key는 Jenkins credential로만 주입한다. 스크립트 파일·채팅에 평문 노출 금지.
+
+
+---
+
+## golden-quince — Spread Harvest (2026-07-29 신규)
+
+방향성 예측을 포기하고 **실행 측면(maker/taker)** 하나를 수익원으로 삼는다.
+
+2026-07-28~29에 4개 전략을 폐쇄하며 확인한 것: 가격은 캘리브레이션되어 있고
+(99개 셀 중 BH 통과 0개), 경로 구조는 실재하나 틱보다 작으며(되돌림 7.9 bps),
+청산 규칙에도 edge가 없다(785건 +0.44pp, p=0.74). 남은 것은 **거래비용의 부호**뿐이다.
+
+실측 왕복 비용이 maker→maker `-31.1 bps` / taker→taker `+72.5 bps`로 **103 bps**
+갈리는데, 기존 14개 봇은 `_round_to_tick`이 side를 보지 않아 이 축이 **무작위**였다.
+quince는 `execution_mode`(passive/nearest/cross)로 이를 고정하고, A/B 3팔로
+`A > B > C` 순서를 사전 등록해 검정한다.
+
+- 기본 주문 **$5**, 낙폭 kill switch가 **코드로** 강제됨(확정손익 ≤ -$40 → 진입 차단)
+- 진입 신호는 golden-queen에서 그대로 상속 (신호가 아니라 실행이 처치이므로)
+- 상세: `golden-quince/STRATEGY.md`, `docs/strategy-pages/strategy-quince.html`

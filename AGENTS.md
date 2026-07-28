@@ -18,7 +18,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, `entry_hours_max` 120h) 전략. **자금은 golden-banana 계정에 있고 Jenkins job 이름은 `polybot-yellow`다** — 폴더명·계정명·job명이 모두 다르다. → L3 `AGENTS.md` 참조.
 
-→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유이며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. 전략 코드베이스는 14개다.
+→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유이며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. 전략 코드베이스는 15개다 (2026-07-29 golden-quince 추가).
 
 → 계정 slot은 `daily-report`가 `ACCOUNT_<n>_NAME`/`ACCOUNT_<n>_ADDRESS` 쌍을 번호순으로 훑어 동적으로 발견한다 (`daily-report/src/polybot_reporter/account_config.py`). 코드에 상한은 없고, 현재 `Jenkinsfile`·`.env.example`이 **13 slot**을 선언한다. slot→전략 배치는 `slack-data-collector/src/slack_data_collector/portfolio.py`에 11행이 seed되어 있고(golden-eco=honeydew, golden-fox=nectarine, golden-wolf=fig), 나머지는 Supabase 실데이터라 저장소만으로는 확인할 수 없다.
 
@@ -36,11 +36,17 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-papaya/`: Final Five — 표준 이진 YES의 first observed 0.95 상향 교차를 0.95–0.97에서 매수하고 해결까지 보유.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
+- `golden-quince/`: **Spread Harvest** — 방향성 예측을 포기하고 **실행 측면(maker/taker)**
+  하나를 수익원으로 삼는다. `execution_mode`(passive/nearest/cross)가 처치축이며 실측 왕복
+  비용이 maker→maker -31.1bps / taker→taker +72.5bps로 **103bps** 갈린다. 진입 신호는
+  queen에서 그대로 상속(신호가 아니라 실행이 처치이므로). $5 시작, 낙폭 kill switch를
+  코드로 강제. A/B 3팔 사전 등록. 근거: `docs/retro/2026-07-29-market-structure-study.md`,
+  `docs/retro/2026-07-29-execution-cost-floor.md`.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 
 공통 관측성·리포팅·적재 (Python/uv):
 
-- `polybot-observability/`: 14개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
+- `polybot-observability/`: 15개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
 - `daily-report/`: 선언된 전 계정(현재 13 slot) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
@@ -92,7 +98,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
-- 공통 전략 계약이나 shared observability를 수정하면 14개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
+- 공통 전략 계약이나 shared observability를 수정하면 15개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
 - 월간 수치 조정·전략 승격 전에 `uv run --project polybot-observability polybot-retro audit --root . --output-dir <경로> --strict`를 실행한다(`--output-dir`은 필수 인자다). `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
 - 수치를 조정하기 전에 대상 구간이 단일 cohort인지 확인한다. `strategy_configs` 테이블에 `config_hash`별 전체 config JSON이 남으므로, 여러 cohort가 섞인 구간의 집계로 파라미터를 정하지 않는다.
 
@@ -109,7 +115,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 ## 주의사항
 
 - 실거래 봇은 `config.yaml`의 `simulation_mode`와 `.env` 실키에 민감하다. 키 취급은 L1 보안 규칙을 따른다. `golden-papaya`·`golden-queen`은 `simulation_mode: true`가 기본이라 실주문을 내지 않는다.
-- `POLYMARKET_SIGNATURE_TYPE`은 계정 종류에 따라 반드시 맞춰야 한다: `1`=POLY_PROXY(구형 이메일 계정), `3`=POLY_1271(2026년 이후 신규 계정의 스마트 지갑). 틀리면 CLOB이 `maker address not allowed`로 전 주문을 거절한다. 14개 전략과 `tools/wind_down.py` 모두 이 env를 읽는다.
+- `POLYMARKET_SIGNATURE_TYPE`은 계정 종류에 따라 반드시 맞춰야 한다: `1`=POLY_PROXY(구형 이메일 계정), `3`=POLY_1271(2026년 이후 신규 계정의 스마트 지갑). 틀리면 CLOB이 `maker address not allowed`로 전 주문을 거절한다. 15개 전략과 `tools/wind_down.py` 모두 이 env를 읽는다.
 - Jenkins Freestyle에서 private key를 inline `export`하거나 `sh -x`/`sh -xe`로 노출하지 않는다. Credentials Binding을 사용하고 secret 참조 전부터 `set +x`를 적용한다.
 - SQLite DB와 Jenkins artifact는 유일한 backup으로 취급하지 않는다. online backup + SHA-256 manifest를 workspace 밖 내구성 저장소에 복제하고 복구 검증한다.
 - 루트 `firebase-debug.log`는 추적되지 않는 잔여 로그다 (정리 권장, 임의 삭제는 하지 않음).

@@ -29,6 +29,7 @@ CURRENT_STRATEGIES = {
     "golden-orange",
     "golden-papaya",
     "golden-queen",
+    "golden-quince",
 }
 # L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
 # golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
@@ -1287,7 +1288,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
-    if strategy in {"golden-papaya", "golden-queen"}:
+    if strategy in {"golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_bot_source(
             findings, strategy, "src/polybot/bot.py", bot
         )
@@ -1362,7 +1363,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
     _validate_trader_source(
         findings, strategy, "src/polybot/strategy/trader.py", trader
     )
-    if strategy in {"golden-papaya", "golden-queen"}:
+    if strategy in {"golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_trader_source(
             findings, strategy, "src/polybot/strategy/trader.py", trader
         )
