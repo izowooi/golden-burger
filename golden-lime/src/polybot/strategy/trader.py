@@ -98,8 +98,14 @@ class Trader:
                 return None
 
         # Get current price (re-verify before buying)
+        # midpoint는 수동적 지정가라 체결이 상대 매도 흐름에 의존한다. 즉 편승이
+        # 실제로 이어지면 호가가 도망가 체결되지 않고, 꺾일 때만 체결된다.
+        # entry_price_mode="ask"는 best ask에 걸어 즉시 체결을 노린다(모멘텀 가설과 정합).
         try:
-            current_price = self.clob.get_midpoint(token_id)
+            if self.config.entry_price_mode == "ask":
+                current_price = self.clob.get_best_ask(token_id)
+            else:
+                current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
             logger.warning(f"가격 조회 실패 - condition: {condition_id}: {e}")
             return None
@@ -229,6 +235,17 @@ class Trader:
         """
         death_hours = self.config.shock.death_window_hours
         now = datetime.utcnow()
+
+        # snapshot은 Phase 0에서 universe 전체에 대해 적재되므로, 방금 매수한
+        # 시장도 이미 death_window를 채운 이력을 갖는다. 그래서 is_momentum_dead의
+        # min_coverage 가드가 무력화되어 매수 5분 뒤 첫 검사부터 청산이 발동했다.
+        # 보유 시간 자체로 가드를 건다 - 원래 docstring이 의도한 동작이다.
+        held_hours = None
+        if trade.buy_timestamp is not None:
+            held_hours = (now - trade.buy_timestamp).total_seconds() / 3600
+        if held_hours is not None and held_hours < death_hours:
+            return False
+
         snapshots = self.repo.get_snapshots_since(
             trade.condition_id, now - timedelta(hours=death_hours)
         )

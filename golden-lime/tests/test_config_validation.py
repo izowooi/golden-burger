@@ -71,3 +71,22 @@ def test_yaml_numeric_types_are_strict(tmp_path, yaml_text, match):
     path.write_text(yaml_text, encoding="utf-8")
     with pytest.raises(ValueError, match=match):
         load_config(str(path))
+
+
+@pytest.mark.parametrize(("key", "value", "match"), [
+    ("POLYBOT_JUMP_BASE_MODE", "minimum", "jump_base_mode"),
+    ("POLYBOT_ENTRY_PRICE_MODE", "market", "entry_price_mode"),
+])
+def test_invalid_mode_values_are_rejected(monkeypatch, key, value, match):
+    """오타난 mode는 조용히 기본값으로 떨어지지 않고 실패해야 한다."""
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match=match):
+        load_config("missing.yaml")
+
+
+def test_accepts_open_and_ask_modes(monkeypatch):
+    monkeypatch.setenv("POLYBOT_JUMP_BASE_MODE", "open")
+    monkeypatch.setenv("POLYBOT_ENTRY_PRICE_MODE", "ask")
+    cfg = load_config("missing.yaml")
+    assert cfg.trading.shock.jump_base_mode == "open"
+    assert cfg.trading.entry_price_mode == "ask"

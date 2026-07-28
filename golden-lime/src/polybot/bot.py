@@ -66,6 +66,13 @@ class PolymarketBot:
             f"Lifecycle: {config.trading.lifecycle_mode}, "
             f"Backfill: {config.trading.history_backfill}"
         )
+        # 두 모드는 전략의 성격 자체를 바꾸므로 매 사이클 로그에 남긴다.
+        logger.info(
+            f"진입 방식 - 점프 기준가: {config.trading.shock.jump_base_mode}, "
+            f"주문 가격: {config.trading.entry_price_mode}, "
+            f"포지션 상한: "
+            f"{config.trading.max_positions if config.trading.max_positions > 0 else '무제한'}"
+        )
 
     def _snapshot_retention_days(self) -> int:
         """스냅샷 보존 일수: 전략 lookback(24h volume 윈도우)의 3배, 최소 7일."""

@@ -42,6 +42,8 @@ class ShockParams:
     vol_lookback_hours: float = 24.0
     min_window_points: int = 5
     min_window_coverage: float = 0.5
+    # "min"(기본, 기존 동작) | "open" — detect_jump 참조
+    jump_base_mode: str = "min"
 
 
 @dataclass(frozen=True)
@@ -141,16 +143,27 @@ def detect_jump(
     base_min: float,
     base_max: float,
     current_max: float,
+    base_mode: str = "min",
 ) -> Optional[JumpSignal]:
-    """점프 감지: 윈도우 내 최저가(base) 대비 현재가 상승폭.
+    """점프 감지: 기준가(base) 대비 현재가 상승폭.
 
     - jump = current - base >= jump_min
     - base ∈ [base_min, base_max] (이미 극단가였던 시장 배제)
     - current <= current_max (러닝룸 확보)
+
+    base_mode:
+      "min"  - 윈도우 최저가. 순서통계량이라 노이즈가 클수록 낮아지고, 현재가와의
+               거리는 "사건이 있었는가"가 아니라 "변동폭이 큰가"를 잰다. 폭이
+               jump_min을 넘는 박스권이면 천장을 칠 때마다 발동한다.
+      "open" - 윈도우 시작가. 구간 전체의 순변화만 점프로 세므로 방향성 이동을
+               요구한다. 박스권 왕복은 순변화가 0에 가까워 걸러진다.
     """
     if not window:
         return None
-    base = min(p.price for p in window)
+    if base_mode == "open":
+        base = window[0].price
+    else:
+        base = min(p.price for p in window)
     jump = current_price - base
     if jump < jump_min - EPSILON:
         return None
@@ -257,6 +270,7 @@ def evaluate_entry(
             params.base_min,
             params.base_max,
             params.current_max,
+            params.jump_base_mode,
         )
         if jump is None:
             continue

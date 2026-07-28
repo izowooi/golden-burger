@@ -243,3 +243,50 @@ def test_merge_price_points_dedupes_by_minute():
     merged = merge_price_points(db, backfill)
     assert len(merged) == 3
     assert [round(p.price, 2) for p in merged] == [0.40, 0.45, 0.50]
+
+
+# ── jump_base_mode: 박스권 천장 매수 문제 ────────────────────────────────
+def _box_window(now=NOW):
+    """폭 0.12짜리 박스권을 왕복하고 시작가 근처로 돌아온 6h 윈도우.
+
+    사건은 없었고 순변화도 0에 가깝지만, 최저가 대비로는 +0.12다.
+    """
+    prices = [0.40, 0.34, 0.28, 0.33, 0.38, 0.36, 0.40]
+    return [
+        PricePoint(now - timedelta(hours=6 - i), p)
+        for i, p in enumerate(prices)
+    ]
+
+
+def test_min_mode_fires_on_range_top_without_any_event():
+    """base='min'은 박스권 천장만으로도 점프를 인정한다 (기존 동작)."""
+    window = _box_window()
+    signal = detect_jump(window, 0.40, 0.10, 0.15, 0.70, 0.85, "min")
+    assert signal is not None
+    assert signal.base_price == 0.28          # 윈도우 최저가
+    assert abs(signal.jump_size - 0.12) < 1e-9
+
+
+def test_open_mode_rejects_range_top():
+    """base='open'은 구간 순변화를 보므로 왕복 박스권을 걸러낸다."""
+    window = _box_window()
+    assert detect_jump(window, 0.40, 0.10, 0.15, 0.70, 0.85, "open") is None
+
+
+def test_open_mode_still_accepts_real_directional_move():
+    """실제 방향성 상승은 base='open'에서도 통과한다."""
+    prices = [0.30, 0.31, 0.30, 0.36, 0.41, 0.43, 0.44]
+    window = [
+        PricePoint(NOW - timedelta(hours=6 - i), p) for i, p in enumerate(prices)
+    ]
+    signal = detect_jump(window, 0.44, 0.10, 0.15, 0.70, 0.85, "open")
+    assert signal is not None
+    assert signal.base_price == 0.30          # 윈도우 시작가
+    assert abs(signal.jump_size - 0.14) < 1e-9
+
+
+def test_default_base_mode_is_min_for_backward_compat():
+    """인자를 생략하면 기존 동작(min)을 유지한다."""
+    window = _box_window()
+    assert detect_jump(window, 0.40, 0.10, 0.15, 0.70, 0.85) is not None
+    assert ShockParams().jump_base_mode == "min"

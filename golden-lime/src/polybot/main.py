@@ -147,7 +147,9 @@ Examples:
         print()
         print("=== Shock Follow Config ===")
         print(f"Jump Window: {shock.jump_window_hours}h")
-        print(f"Jump Min: +{shock.jump_min:.2f} (윈도우 내 최저가 대비)")
+        base_label = "윈도우 시작가 대비" if shock.jump_base_mode == "open" else "윈도우 내 최저가 대비"
+        print(f"Jump Min: +{shock.jump_min:.2f} ({base_label}, base_mode={shock.jump_base_mode})")
+        print(f"Entry Price Mode: {trading.entry_price_mode}")
         print(f"Base Range: [{shock.base_min:.2f}, {shock.base_max:.2f}]")
         print(f"Current Max: {shock.current_max:.2f}")
         print(f"Hold Window: {shock.hold_window_minutes:.0f}min, Max Pullback: {shock.max_pullback:.2f}")

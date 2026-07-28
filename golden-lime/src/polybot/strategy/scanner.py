@@ -96,6 +96,7 @@ def shock_params_from_config(config: TradingConfig) -> ShockParams:
         max_pullback=s.max_pullback,
         vol_mult_min=s.vol_mult_min,
         death_window_hours=s.death_window_hours,
+        jump_base_mode=s.jump_base_mode,
     )
 
 

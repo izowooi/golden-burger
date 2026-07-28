@@ -13,6 +13,11 @@ from polybot_observability.config_contract import (
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+# 점프 기준가 산정 방식. detect_jump 주석 참조.
+JUMP_BASE_MODES = frozenset({"min", "open"})
+# 진입 주문 가격. "midpoint"는 수동적 지정가라 체결이 상대 매도 흐름에 의존한다.
+# 모멘텀 편승은 즉시성이 전제이므로 "ask"(marketable)가 가설과 정합적이다.
+ENTRY_PRICE_MODES = frozenset({"midpoint", "ask"})
 
 
 def _get_config_value(
@@ -130,6 +135,9 @@ class ShockConfig:
     max_pullback: float = 0.02         # 고점 대비 최대 되돌림
     vol_mult_min: float = 2.0          # 거래량 확인 배수
     death_window_hours: float = 3.0    # 모멘텀 사망 판정 윈도우 (청산)
+    # 점프 기준가 산정: "min"(기존) = 윈도우 최저가, "open" = 윈도우 시작가.
+    # "min"은 박스권 천장에서도 발동하므로 방향성 이동만 잡으려면 "open"을 쓴다.
+    jump_base_mode: str = "min"
 
 
 @dataclass
@@ -142,6 +150,8 @@ class TradingConfig:
     take_profit_percent: float = 0.12   # 이익실현 +12% (목표가 0.99 캡)
     stop_loss_percent: float = -0.08    # 손절 -8%
     max_positions: int = -1             # -1 means unlimited
+    # "midpoint"(기존) | "ask". ENTRY_PRICE_MODES 주석 참조.
+    entry_price_mode: str = "midpoint"
     reentry_cooldown_hours: float = 24.0
     history_backfill: bool = True
     trailing_stop: TrailingStopConfig = field(default_factory=TrailingStopConfig)
@@ -224,6 +234,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("shock time windows must be > 0")
     if not 0 < shock.jump_min < 1:
         raise ValueError("shock.jump_min must be between 0 and 1")
+    if shock.jump_base_mode not in JUMP_BASE_MODES:
+        raise ValueError(
+            f"shock.jump_base_mode must be one of: {', '.join(sorted(JUMP_BASE_MODES))}"
+        )
+    if trading.entry_price_mode not in ENTRY_PRICE_MODES:
+        raise ValueError(
+            f"entry_price_mode must be one of: {', '.join(sorted(ENTRY_PRICE_MODES))}"
+        )
     if not 0 < shock.base_min < shock.base_max < shock.current_max < 1:
         raise ValueError("shock bounds must satisfy 0 < base_min < base_max < current_max < 1")
     if shock.base_min + shock.jump_min > shock.current_max:
@@ -343,6 +361,9 @@ def load_config(
         death_window_hours=_get_config_value(
             "POLYBOT_DEATH_WINDOW_HOURS", shock_cfg.get("death_window_hours"), 3.0, float
         ),
+        jump_base_mode=_get_config_value(
+            "POLYBOT_JUMP_BASE_MODE", shock_cfg.get("jump_base_mode"), "min", str
+        ),
     )
 
     trading = TradingConfig(
@@ -384,6 +405,12 @@ def load_config(
             trading_cfg.get("max_positions"),
             -1,
             int
+        ),
+        entry_price_mode=_get_config_value(
+            "POLYBOT_ENTRY_PRICE_MODE",
+            trading_cfg.get("entry_price_mode"),
+            "midpoint",
+            str
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",
