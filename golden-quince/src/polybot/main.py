@@ -90,11 +90,12 @@ def main() -> None:
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     # 이 전략의 처치축과 안전장치는 반드시 프리플라이트에 보여야 한다.
     print(
-        f"Execution Mode: {trading.execution_mode}"
-        f"  (passive=크로스 안 함 / nearest=기존 14봇 / cross=항상 크로스)"
+        f"Execution Mode (진입 전용): {trading.execution_mode}"
+        f"  (passive=매수호가 합류 / nearest=기존 14봇 / cross=항상 크로스)"
+        f"  — SELL은 항상 nearest"
     )
     print(
-        f"Drawdown kill switch: 확정손익 <= -$"
+        f"Drawdown kill switch: 경제손익(확정+해결추정) <= -$"
         f"{trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f}"
         f"  (실험자금 ${trading.experiment_capital_usdc:.2f}"
         f" x {trading.max_drawdown_stop * 100:.0f}%) → 신규 진입 자동 차단"

@@ -70,7 +70,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>확률 예측 edge</td><td><strong>없음.</strong> 99개 셀 중 Benjamini-Hochberg q=0.05 통과 <strong>0개</strong>. 최대 |z|=2.47인데 필요 p ≤ 0.0005</td></tr>
 <tr><td>경로 구조 (평균회귀)</td><td><strong>실재하나 작다.</strong> rho=−0.0901, t=−26.2로 매우 유의하지만 되돌림이 7.9 bps에 불과</td></tr>
 <tr><td>청산 규칙 edge</td><td><strong>없음.</strong> 통합 785건 +0.44pp, p=0.74. 초판의 "+$633 이득"은 체결기록 결손 artifact였고 철회됨</td></tr>
-<tr><td><strong>실행 측면</strong></td><td><strong>103 bps 차이 — 유일하게 남은 것</strong></td></tr>
+<tr><td><strong>실행 측면</strong></td><td><strong>진입 leg에서 ~73 bps 차이 — 유일하게 남은 것</strong></td></tr>
 </table></div>
 <p><strong>실측 왕복 비용은 실행 경로에 따라 부호가 뒤집힌다</strong> ($5 주문 2,139 왕복):</p>
 <div class="tbl"><table>
@@ -80,17 +80,25 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>buy TAKER → sell MAKER</td><td>23.0%</td><td>+32.8 bps</td></tr>
 <tr><td><strong>buy TAKER → sell TAKER</strong></td><td>13.8%</td><td><strong>+72.5 bps</strong></td></tr>
 </table></div>
+<p>다만 <strong>처치는 진입(BUY) leg에만 적용</strong>하므로(아래 "진입·청산 규칙" 참조), 우리가 실제로 움직이는 양은 매수 leg의 차이다:</p>
+<div class="tbl"><table>
+<tr><th>진입 leg</th><th>비용</th><th>95% CI</th></tr>
+<tr><td>MAKER</td><td><strong>−16.8 bps</strong></td><td>[−19.1, −14.3]</td></tr>
+<tr><td>TAKER</td><td><strong>+56.7 bps</strong></td><td>[+54.3, +59.0] (97.5%가 지불)</td></tr>
+</table></div>
+<p><strong>차이가 약 73 bps</strong>이고, 결정적으로 <strong>분산이 매우 작다</strong>(CI 폭 ±2 bps). 이 성질이 아래 A/B의 검정력을 결정한다.</p>
 </section>
 
 <section><h2>메커니즘 — 기존 14개 봇은 이 축이 무작위였다</h2>
 <pre class="code">rounded = round(round(price / tick_size) * tick_size, 2)   # 가장 가까운 틱</pre>
 <p>호가가 0.79/0.80이면 midpoint는 0.795다. 이것이 0.80으로 반올림되면 <strong>매도호가를 리프트해서 taker</strong>가 되고, 0.79로 내려가면 <strong>매수호가에 합류해 maker</strong>가 된다. <strong>어느 쪽이 될지는 midpoint 셋째 자리에 달려 있다 — 사실상 무작위다.</strong></p>
-<p>golden-date 실거래에서 이 무작위성을 <strong>자연실험</strong>으로 측정한 결과:</p>
+<p>golden-date 실거래에서 이 축을 <strong>준무작위 자연실험</strong>으로 측정한 결과:</p>
 <div class="tbl"><table>
 <tr><th>반올림 방향</th><th>n</th><th>체결률</th></tr>
 <tr><td>UP (매도호가 리프트 = taker)</td><td>493</td><td><strong>91.1%</strong></td></tr>
 <tr><td>DOWN (매수호가 합류 = maker)</td><td>487</td><td><strong>39.4%</strong></td></tr>
 </table></div>
+<p><strong>다만 "무작위"는 과장이다.</strong> 결정 midpoint의 52~68%가 정확히 반 틱 위에 놓이는데, 그 지점에서 <code>round()</code>는 가격에 대해 <strong>결정적</strong>이다. 따라서 반올림 방향은 가격 수준의 함수이고, 가격 수준은 결과와 상관이 있다 — 밴드 통제 시 부호가 뒤집힌 것도 이 교란 때문일 수 있다. 정확히는 <strong>"가격 수준 교란이 있는 준무작위 배정"</strong>이며, 그래서 실제 MAKER 비중은 가정하지 않고 팔별로 <strong>실측 기록</strong>한다.</p>
 <p>quince는 이 축을 <code>execution_mode</code>로 <strong>설정에 고정</strong>한다.</p>
 </section>
 
@@ -117,6 +125,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>1</td><td>fresh YES ≥ 0.98 AND 실행가능 bid ≥ 0.98</td><td><code>take_profit</code></td></tr>
 <tr><td>2</td><td>fresh YES ≤ 0.85</td><td><code>absolute_stop</code></td></tr>
 </table></div>
+<p><strong>처치는 진입(BUY)에만 적용한다. 청산은 전 팔에서 <code>nearest</code>로 동일하다.</strong> passive를 SELL에 적용하면 <code>ceil(mid)</code>가 되어 최우선 매수호가보다 <strong>위에</strong> 주문이 걸린다. 익절은 그래도 괜찮지만 <code>absolute_stop</code>은 치명적이다 — 시장가보다 비싸게 내놓는 손절은 체결되지 않고, <strong>체결되지 않는 손절은 손절이 아니다</strong>. 비대칭이 실재한다: 진입에서 미체결은 무해하지만, 손절에서 미체결은 손실 포지션을 그대로 안고 가는 것이다. 부수 효과로 청산이 전 팔에서 동일해져 진입 축의 대비가 더 깨끗해진다.</p>
 <p><strong>trailing stop과 time exit은 없다.</strong> 청산 규칙에 edge가 없음이 785건에서 확인됐고(+0.44pp, p=0.74), <code>time_exit</code>의 SELL leg는 TAKER 비중이 59.4%(+16.2 bps)라 <strong>패시브 원칙과 정면 충돌</strong>한다. 또 <code>max_price</code>를 매수가로 초기화하는 트레일링은 명목 손절을 도달 불가능하게 만든다(cherry·date·grape에서 확인, 실제 발동 중앙값 −14.2% / −16.8%).</p>
 </section>
 
@@ -128,7 +137,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td><code>max_positions</code> / event / cycle</td><td>20 / 1 / 1</td></tr>
 <tr><td>open notional</td><td><strong>$50</strong> (주문액 × 10)</td></tr>
 <tr><td><code>reentry_cooldown_hours</code></td><td>168</td></tr>
-<tr><td><strong>낙폭 kill switch</strong></td><td><strong>확정손익 ≤ −$40 → 신규 진입 자동 차단</strong></td></tr>
+<tr><td><strong>낙폭 kill switch</strong></td><td><strong>경제손익(확정+해결추정) ≤ −$40 → 신규 진입 자동 차단</strong></td></tr>
 </table></div>
 <p>golden-date는 판정 기준을 문서에만 적어두고 실측 승률 35.7%(기준 70%)로 계좌 절반을 잃을 때까지 아무것도 멈추지 않았다. quince는 <code>Trader._drawdown_stop_triggered()</code>가 <strong>코드에서</strong> 차단한다. 청산은 계속되고, 재개는 사람의 판단을 요구한다.</p>
 </section>
@@ -142,19 +151,28 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td><strong>C</strong></td><td><code>polybot-quince-cross</code></td><td><code>cross</code></td><td><strong>비용 상한</strong> — 항상 크로스</td></tr>
 </table></div>
 <p><strong>왜 대조군이 둘인가.</strong> B만 있으면 "A가 B보다 낫다"를 관측해도 실행 때문인지 우연인지 모른다. C가 있으면 <strong>예측된 순서</strong>가 생긴다:</p>
-<pre class="formula">순 수익:   A  &gt;  B  &gt;  C
-체결률:    A  &lt;  B  &lt;  C</pre>
+<pre class="formula">MAKER 비중:  A  &gt;  B  &gt;  C
+진입 비용:   A  &lt;  B  &lt;  C     (bps, 결정 midpoint 대비)
+체결률:      A  &lt;  B  &lt;  C</pre>
 <p>이 <strong>부등식이 깨지면 우리의 비용 모형이 틀린 것</strong>이고, 그 자체가 정보다. 단일 대조군으로는 얻을 수 없는 falsifiability다.</p>
 <p>선택적 4번째 팔 D는 <code>passive</code> + <code>POLYBOT_BUY_AMOUNT=10</code>으로 크기 효과를 분리한다. 자금 여유가 있을 때만 추가하며 <strong>A·B·C가 우선</strong>이다.</p>
+<p><strong>1차 종점은 순손익이 아니라 실행 지표다.</strong> 순손익은 해결 결과가 지배한다 — p≈0.92에서 YES는 +8.7%, NO는 −100%라 건당 표준편차가 <strong>약 2,900 bps</strong>다. 여기서 ~73 bps를 80% 검정력으로 탐지하려면 팔당 <strong>수만 건</strong>이 필요하다. 30일 25건으로 "A ≤ B"를 판정하면 동전던지기이고, <strong>판정 불가능한 기준을 사전 등록하는 것은 golden-date의 실패를 숫자만 적어서 반복하는 것</strong>이다.</p>
+<div class="tbl"><table>
+<tr><th>1차 종점 (30~50 체결이면 판정 가능)</th><th>예측</th></tr>
+<tr><td>MAKER 체결 비중 (<code>order_fills.liquidity_role</code>)</td><td><strong>A &gt; B &gt; C</strong></td></tr>
+<tr><td>실효 체결가 − 결정 midpoint (bps, 진입 leg)</td><td><strong>A &lt; B &lt; C</strong> (A는 음수여야)</td></tr>
+<tr><td>체결률</td><td><strong>A &lt; B &lt; C</strong></td></tr>
+</table></div>
 <div class="tbl"><table>
 <tr><th>시점</th><th>조건</th><th>결정</th></tr>
-<tr><td>상시</td><td>확정손익 ≤ −$40</td><td><strong>자동 중단</strong></td></tr>
-<tr><td>30일</td><td>A의 CONFIRMED 왕복 &lt; 25건</td><td><strong>판정 불가</strong> → 진입 조건 완화 후 재시작</td></tr>
-<tr><td>30일</td><td>A 순손익 ≤ 0</td><td><strong>폐쇄</strong></td></tr>
-<tr><td>30일</td><td>A ≤ B</td><td><strong>가설 기각</strong> — 실행 측면은 수익원이 아니다</td></tr>
-<tr><td>30일</td><td>A &gt; B &gt; C AND A 순손익 &gt; 0</td><td><strong>계속</strong>, 금액 증액 검토</td></tr>
+<tr><td>상시</td><td>경제손익(확정+해결추정) ≤ −$40</td><td><strong>자동 중단</strong></td></tr>
+<tr><td>30일</td><td>A의 CONFIRMED 진입 체결 &lt; 30건</td><td><strong>판정 불가</strong> → 진입 조건 완화 후 재시작</td></tr>
+<tr><td>30일</td><td>A의 MAKER 비중이 B보다 유의하게 높지 않음</td><td><strong>구현 실패</strong> — 처치가 작동하지 않았다</td></tr>
+<tr><td>30일</td><td>A의 진입 비용(bps)이 B보다 낮지 않음</td><td><strong>가설 기각</strong></td></tr>
+<tr><td>30일</td><td>위 둘 성립 AND 역선택 표류 &lt; 진입 할인</td><td><strong>계속</strong>, 증액 검토</td></tr>
 </table></div>
-<p><strong>"승률"은 판정 기준에 넣지 않는다.</strong> 승률은 진입 밴드가 결정하며 처치와 무관하다. 재는 것은 같은 신호에 대한 <strong>순 실행 비용 차이</strong>다.</p>
+<p>순손익 A vs B는 <strong>표본 부족으로 판정 불가</strong>이며 부호만 기록한다. 역선택은 패시브 체결 후 15/60분 midpoint 표류로 잰다 — <strong>가격 표류라 해결 결과보다 분산이 훨씬 작아 낮은 n에서도 유의미</strong>하다.</p>
+<p><strong>"승률"과 "순손익"은 1차 판정 기준이 아니다.</strong> 승률은 진입 밴드가 결정하며 처치와 무관하고, 순손익은 이 표본 크기에서 처치 효과를 담을 수 없다. 재는 것은 같은 신호에 대한 <strong>순 진입 실행 비용 차이</strong>다.</p>
 </section>
 
 <section class="risk"><h2>이 전략이 실패하는 경우</h2>

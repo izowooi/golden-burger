@@ -281,7 +281,19 @@ class ClobClientWrapper:
         ticks = price / tick_size
         side_u = (side or "").upper()
 
-        if side_u not in ("BUY", "SELL") or mode == "nearest":
+        # ── 처치는 **진입(BUY)에만** 적용한다 ────────────────────────────
+        # SELL에 passive를 적용하면 ceil(mid)가 되어 최우선 매수호가보다 위에
+        # 주문이 걸린다. 익절은 그래도 괜찮지만 `absolute_stop`은 치명적이다 —
+        # 시장가보다 비싸게 내놓는 손절은 체결되지 않고, **체결되지 않는 손절은
+        # 손절이 아니다.** time_exit도 없으므로 대체 경로가 없다.
+        #
+        # 비대칭이 실재한다: 진입에서 미체결은 무해하지만(그 시장을 안 사면 그만),
+        # 손절에서 미체결은 손실 포지션을 그대로 안고 가는 것이다.
+        #
+        # 부수 효과로 청산이 전 팔에서 동일해져 진입 축의 대비가 더 깨끗해진다.
+        if side_u == "SELL":
+            snapped = round(ticks)
+        elif side_u != "BUY" or mode == "nearest":
             snapped = round(ticks)
         elif mode == "passive":
             # 사는 쪽은 더 싸게, 파는 쪽은 더 비싸게 걸어 호가에 합류한다.

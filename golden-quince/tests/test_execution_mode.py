@@ -32,18 +32,12 @@ class TestPassiveNeverCrosses:
     """passive 모드는 어떤 가격에서도 상대 호가를 건드리지 않아야 한다."""
 
     @pytest.mark.parametrize(
-        "mid,expected_buy,expected_sell",
-        [
-            (0.795, 0.79, 0.80),
-            (0.902, 0.90, 0.91),
-            (0.9349, 0.93, 0.94),
-            (0.8501, 0.85, 0.86),
-        ],
+        "mid,expected_buy",
+        [(0.795, 0.79), (0.902, 0.90), (0.9349, 0.93), (0.8501, 0.85)],
     )
-    def test_buy_floors_and_sell_ceils(self, mid, expected_buy, expected_sell):
+    def test_buy_floors_to_join_the_bid(self, mid, expected_buy):
         wrapper = make_wrapper("passive")
         assert wrapper._round_to_tick(mid, side="BUY") == pytest.approx(expected_buy)
-        assert wrapper._round_to_tick(mid, side="SELL") == pytest.approx(expected_sell)
 
     def test_buy_price_never_exceeds_midpoint(self):
         """매수 지정가가 midpoint를 넘으면 그 순간 taker가 된다."""
@@ -52,11 +46,19 @@ class TestPassiveNeverCrosses:
             mid = i / 100 + 0.005
             assert wrapper._round_to_tick(mid, side="BUY") <= mid + 1e-9
 
-    def test_sell_price_never_below_midpoint(self):
-        wrapper = make_wrapper("passive")
-        for i in range(1, 99):
-            mid = i / 100 + 0.005
-            assert wrapper._round_to_tick(mid, side="SELL") >= mid - 1e-9
+    def test_sell_is_never_passive_so_stops_can_execute(self):
+        """처치는 진입에만 적용된다.
+
+        SELL에 passive를 적용하면 최우선 매수호가보다 위에 걸려 손절이 체결되지
+        않는다. **체결되지 않는 손절은 손절이 아니다.** time_exit도 없으므로
+        대체 경로가 없다.
+        """
+        for mode in ("passive", "nearest", "cross"):
+            wrapper = make_wrapper(mode)
+            for i in range(1, 99):
+                mid = i / 100 + 0.005
+                nearest = make_wrapper("nearest")._round_to_tick(mid, side="SELL")
+                assert wrapper._round_to_tick(mid, side="SELL") == pytest.approx(nearest)
 
 
 class TestControlArms:
@@ -69,11 +71,10 @@ class TestControlArms:
             assert wrapper._round_to_tick(mid, side="BUY") == pytest.approx(legacy)
             assert wrapper._round_to_tick(mid, side="SELL") == pytest.approx(legacy)
 
-    def test_cross_always_takes_liquidity(self):
-        """비용 상한을 재는 팔. 매수는 올리고 매도는 내린다."""
+    def test_cross_always_takes_liquidity_on_entry(self):
+        """비용 상한을 재는 팔. 진입에서 매도호가를 리프트한다."""
         wrapper = make_wrapper("cross")
         assert wrapper._round_to_tick(HALF_TICK_MID, side="BUY") == pytest.approx(0.80)
-        assert wrapper._round_to_tick(HALF_TICK_MID, side="SELL") == pytest.approx(0.79)
 
     def test_passive_is_never_worse_priced_than_cross(self):
         """같은 midpoint에서 passive 매수가는 cross 매수가보다 항상 싸거나 같다.
@@ -86,9 +87,7 @@ class TestControlArms:
             assert passive._round_to_tick(mid, side="BUY") <= cross._round_to_tick(
                 mid, side="BUY"
             ) + 1e-9
-            assert passive._round_to_tick(mid, side="SELL") >= cross._round_to_tick(
-                mid, side="SELL"
-            ) - 1e-9
+
 
 
 class TestFailClosed:
@@ -101,6 +100,11 @@ class TestFailClosed:
         wrapper = make_wrapper("sideways")
         with pytest.raises(ValueError):
             wrapper._round_to_tick(HALF_TICK_MID, side="BUY")
+
+    def test_unknown_mode_does_not_break_sell_path(self):
+        """SELL은 mode와 무관하게 nearest이므로 알 수 없는 모드에서도 안전하다."""
+        wrapper = make_wrapper("sideways")
+        assert wrapper._round_to_tick(HALF_TICK_MID, side="SELL") == pytest.approx(0.80)
 
     @pytest.mark.parametrize("mode", ["passive", "nearest", "cross"])
     def test_price_stays_inside_tradable_bounds(self, mode):
@@ -134,7 +138,7 @@ class TestConfigResolution:
 class TestDrawdownKillSwitch:
     """사전 등록 기준을 코드가 강제하는지 — golden-date의 -52%를 반복하지 않기 위한 것."""
 
-    def _trader(self, realized_pnl):
+    def _trader(self, realized_pnl, settlement_pnl=0.0):
         from types import SimpleNamespace
         from polybot.strategy.trader import Trader
 
@@ -142,7 +146,12 @@ class TestDrawdownKillSwitch:
         trader.config = SimpleNamespace(
             experiment_capital_usdc=200.0, max_drawdown_stop=0.20
         )
-        trader.repo = SimpleNamespace(get_stats=lambda: {"total_pnl": realized_pnl})
+        trader.repo = SimpleNamespace(
+            get_stats=lambda: {
+                "total_pnl": realized_pnl,
+                "settlement_pnl_assumption": settlement_pnl,
+            }
+        )
         return trader
 
     def test_allows_entry_above_limit(self):
@@ -161,3 +170,21 @@ class TestDrawdownKillSwitch:
     def test_missing_pnl_is_treated_as_zero(self):
         """확정 왕복이 아직 없으면 정지하지 않는다 (None을 손실로 오해하면 안 된다)."""
         assert self._trader(None)._drawdown_stop_triggered() is False
+
+    def test_resolution_only_loss_triggers_switch(self):
+        """해결로만 잃은 경우 — 이 전략의 지배적 손실 경로.
+
+        청산 규칙이 익절·손절 둘뿐이라 상당수가 해결까지 간다. 해결 포지션은
+        CLOB SELL fill이 없어 realized_pnl이 NULL이고 손실이 settlement에만 남는다.
+        확정손익만 보면 이 경로에서 kill switch가 영영 발동하지 않는다.
+        """
+        assert self._trader(0.0, -50.0)._drawdown_stop_triggered() is True
+
+    def test_mixed_channels_sum_for_safety(self):
+        assert self._trader(-25.0, -15.0)._drawdown_stop_triggered() is True
+
+    def test_settlement_gain_offsets_realized_loss(self):
+        assert self._trader(-50.0, 20.0)._drawdown_stop_triggered() is False
+
+    def test_missing_settlement_key_is_zero(self):
+        assert self._trader(-10.0, None)._drawdown_stop_triggered() is False

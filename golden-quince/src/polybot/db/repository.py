@@ -943,6 +943,16 @@ class TradeRepository:
             .scalar()
             or 0.0
         )
+        # 해결로 종결된 포지션은 CLOB SELL fill이 없으므로 realized_pnl이 NULL이다.
+        # 그 손익은 settlement_pnl_assumption에만 남는다. 두 계열을 **더하지 않고**
+        # 따로 반환한다 — 근거 등급이 다르기 때문이다(확정 체결 vs 해결 추정).
+        # golden-date는 이 값이 집계에서 빠져 320건의 손실이 보이지 않았다.
+        settlement_pnl = (
+            self.session.query(func.sum(Trade.settlement_pnl_assumption))
+            .filter(Trade.settlement_pnl_assumption.isnot(None))
+            .scalar()
+            or 0.0
+        )
         return {
             "total_trades": self.session.query(func.count(Trade.id)).scalar() or 0,
             "holding": count(TradeStatus.HOLDING),
@@ -954,6 +964,8 @@ class TradeRepository:
             "quarantined": count(TradeStatus.QUARANTINED),
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
             "total_pnl": round(total_pnl, 4),
+            "settlement_pnl_assumption": round(settlement_pnl, 4),
+            "economic_pnl": round(total_pnl + settlement_pnl, 4),
         }
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:

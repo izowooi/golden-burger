@@ -4,8 +4,9 @@
 
 **수익원은 진입 신호가 아니라 실행 측면이다.** 방향성 예측 edge는 2026-07-29 실측에서
 전부 기각됐다(99개 셀 중 BH 통과 0개). 남은 것은 거래비용의 부호를 바꾸는 것뿐이며,
-실측 왕복 비용이 maker→maker `-31.1 bps` / taker→taker `+72.5 bps`로 **103 bps**
-갈린다. `execution_mode`(passive/nearest/cross)가 그 축이고, 이 전략의 전부다.
+처치는 **진입(BUY) leg 전용**이며 실측 진입 비용이 MAKER `-16.8 bps` / TAKER
+`+56.7 bps`로 **약 73 bps** 갈린다(CI 폭 ±2 bps). `execution_mode`
+(passive/nearest/cross)가 그 축이고, 이 전략의 전부다.
 
 진입 신호는 golden-queen의 Crown Momentum(첫 0.90 상향 교차, 0.90–0.94 진입,
 0.98 익절 / 0.85 손절)을 **의도적으로 그대로 상속**한다 — 신호가 아니라 실행이
@@ -36,19 +37,27 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
 
 ## quince 고유 계약 (queen과 다른 부분)
 
-- `execution_mode`는 **처치축**이다. A/B 중에는 절대 바꾸지 않는다. `passive`는
-  BUY 내림 / SELL 올림으로 **절대 크로스하지 않는다.**
+- `execution_mode`는 **처치축**이며 **진입(BUY)에만 적용**된다. A/B 중에는 절대
+  바꾸지 않는다. **SELL은 어떤 모드에서도 `nearest`** — passive를 SELL에 적용하면
+  최우선 매수호가보다 위에 걸려 손절이 체결되지 않는다. 체결되지 않는 손절은
+  손절이 아니다.
 - `buy_amount_usdc` 기본은 **$5**다. 사전 등록 롤아웃 금액이며 증액은 `STRATEGY.md` §6
   판정 기준을 통과한 뒤에만 한다. golden-date는 이 규약을 어기고 첫날 $100(20배)로
   실행해 계좌 절반을 잃었다.
-- **낙폭 kill switch가 코드에 있다.** 확정손익이
-  `experiment_capital_usdc x max_drawdown_stop`(기본 $40) 이하가 되면
+- **낙폭 kill switch가 코드에 있다.** **경제손익(확정 `realized_pnl` + 해결
+  `settlement_pnl_assumption`)** 이 `experiment_capital_usdc x max_drawdown_stop`
+  (기본 $40) 이하가 되면
   `Trader._drawdown_stop_triggered()`가 신규 진입을 차단한다. 청산은 계속된다.
   이 값을 우회하거나 비활성화하지 않는다.
 - `intent_autoresolve`는 env가 아니라 `TradingConfig` 필드다. `config_hash`에 담겨야
   동작이 다른 두 run이 같은 cohort로 묶이지 않는다.
-- 판정 기준에 **승률을 넣지 않는다.** 승률은 진입 밴드가 결정하며 처치와 무관하다.
-  재는 것은 같은 신호에 대한 **순 실행 비용 차이**다.
+- 판정 기준에 **승률과 순손익을 1차로 넣지 않는다.** 순손익은 해결 결과가 지배해
+  건당 sd가 ~2,900 bps라 73 bps 처치 효과를 30일 표본으로 담을 수 없다.
+  **1차 종점은 MAKER 체결 비중과 진입 실효가−midpoint(bps)** 이며, 이 축은 팔당
+  30~50 체결이면 결정적이다. 상세는 `STRATEGY.md` §6.
+- `get_stats()`는 `total_pnl`(확정)과 `settlement_pnl_assumption`(해결 추정)을
+  **따로** 반환한다. 근거 등급이 다르므로 성과 보고에서 합산하지 않는다.
+  안전 판정(kill switch)에서만 합산한다.
 
 ## 변경 불가 전략 계약
 

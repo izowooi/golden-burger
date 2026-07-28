@@ -170,20 +170,31 @@ class Trader:
         아무것도 멈추지 못한다는 것이 그 회고의 결론이다
         (`docs/retro/closed-strategies-postmortem.md` §6).
 
-        그래서 여기서는 **확정 손익만으로** 판정한다. `realized_pnl`은 CONFIRMED fill
-        대사를 통과한 왕복에서만 채워지므로, 미체결·미해결 포지션의 평가손익이
-        판단을 흔들지 않는다. 보수적으로도 안전한 방향이다 — 확정 손실이 한도를
-        넘으면 그것만으로 충분한 정지 사유다.
+        판정에는 **확정 손익 + 해결 정산 추정**을 함께 쓴다. 확정 손익만 보면
+        안 되는 이유가 결정적이다: 해결로 종결된 포지션은 CLOB SELL fill이 없어
+        `realized_pnl`이 NULL로 남고, 손실이 `settlement_pnl_assumption`에만 기록된다.
+        **이 전략은 청산 규칙이 익절·손절 둘뿐이라 상당수가 해결까지 간다.**
+        확정 손익만 보면 계좌가 마르는 동안 kill switch가 영영 발동하지 않는다 —
+        golden-date에서 EXPIRED 320건의 손실이 자체 성적표에서 사라진 것과 같은 구조다
+        (`docs/retro/closed-strategies-postmortem.md` §4).
+
+        두 계열은 근거 등급이 다르므로 `get_stats()`가 따로 반환하고, **안전 판정에서만**
+        합산한다. 성과 보고에는 절대 합산하지 않는다.
         """
         limit = self.config.experiment_capital_usdc * self.config.max_drawdown_stop
-        realized = self.repo.get_stats().get("total_pnl") or 0.0
-        if realized > -limit:
+        stats = self.repo.get_stats()
+        realized = stats.get("total_pnl") or 0.0
+        settlement = stats.get("settlement_pnl_assumption") or 0.0
+        economic = realized + settlement
+        if economic > -limit:
             return False
         logger.error(
-            "낙폭 kill switch 발동 - 확정손익 $%.2f <= -$%.2f "
-            "(실험자금 $%.2f x %.0f%%). 신규 진입을 중단합니다. "
+            "낙폭 kill switch 발동 - 경제손익 $%.2f (확정 $%.2f + 해결추정 $%.2f) "
+            "<= -$%.2f (실험자금 $%.2f x %.0f%%). 신규 진입을 중단합니다. "
             "청산은 계속되며, 재개하려면 사람이 판단해야 합니다.",
+            economic,
             realized,
+            settlement,
             limit,
             self.config.experiment_capital_usdc,
             self.config.max_drawdown_stop * 100,

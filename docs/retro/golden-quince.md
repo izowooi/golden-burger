@@ -16,13 +16,16 @@ golden-queen에서 의도적으로 그대로 상속했다. 처치는 `execution_
 
 | 축 | 집계 | 판정 |
 |---|---|---|
-| `execution_mode` × 순손익 | A(passive) / B(nearest) / C(cross) | **A > B > C** 순서가 성립하는가 |
-| `execution_mode` × 체결률 | 같은 축 | **A < B < C** 가 성립하는가 (반대면 모형 오류) |
-| MAKER/TAKER 비중 | `order_fills.liquidity_role` | A의 TAKER 비중이 0에 가까운가 |
-| 확정 왕복 수 | `order_fills.status='CONFIRMED'` 양 leg | A가 30일에 25건 미만이면 **판정 불가** |
+| **MAKER 체결 비중** (1차) | `order_fills.liquidity_role`, 진입 leg | **A > B > C** |
+| **진입 실효가 − 결정 midpoint** (1차) | bps | **A < B < C**, A는 음수여야 |
+| 체결률 | 수락 대비 CONFIRMED | **A < B < C** |
+| 진입 체결 수 | `order_fills.status='CONFIRMED'` BUY | A가 30일에 30건 미만이면 **판정 불가** |
+| 순손익 (2차) | — | **표본 부족으로 판정 불가.** 부호만 기록 |
 | 낙폭 kill switch | 로그 `낙폭 kill switch 발동` | 발동했다면 그 시점 이후는 별도 cohort |
 
-**승률을 판정 기준에 넣지 않는다.** 승률은 진입 밴드가 결정하며 처치와 무관하다.
+**승률과 순손익을 1차 판정 기준에 넣지 않는다.** 순손익은 해결 결과가 지배해 건당
+sd가 ~2,900 bps다. 73 bps 처치 효과를 30일 표본으로 담을 수 없다. 반면 실행 지표는
+CI 폭이 ±2 bps라 팔당 30~50 체결이면 결정적이다.
 
 > 역선택 측정: `market_snapshots`의 `best_bid`/`best_ask`/`spread`가 적재되므로,
 > 30일 뒤에는 "패시브 체결 직후 가격이 계속 내려갔는가"를 직접 잴 수 있다.

@@ -139,7 +139,10 @@ class FakeRepo:
 
     def get_stats(self):
         # 낙폭 kill switch가 확정손익만 본다. 기본 fake는 손실 없음.
-        return {"total_pnl": getattr(self, "realized_pnl_total", 0.0)}
+        return {
+            "total_pnl": getattr(self, "realized_pnl_total", 0.0),
+            "settlement_pnl_assumption": getattr(self, "settlement_pnl_total", 0.0),
+        }
 
     def get_event_position_count(self, _event_id):
         return self.event_positions
