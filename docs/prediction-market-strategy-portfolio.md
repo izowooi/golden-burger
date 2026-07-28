@@ -22,11 +22,11 @@
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 마감 1–30일 | 운영 중 (성과는 evidence cohort별 검증) |
 | golden-date | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | 신규 |
 | golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 (원래 favorite) | 신규 |
-| golden-fig | Hope Crusher | favorite-longshot bias (복권 심리) | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | 신규 |
+| ~~golden-fig~~ (**⛔ 폐쇄 2026-07-28**) | Hope Crusher | favorite-longshot bias (복권 심리) | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | 신규 |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | 신규 |
 | golden-honeydew | Night Watch | 주의(attention) 사이클 — 새벽·주말 부재 | 무근거 이탈 복원 | 0.30–0.90 | 신규 |
-| golden-lime | Shock Follow | 대형 뉴스 불신·앵커링 (PEAD 유사) | 급등 편승 | 점프 후 ≤0.85 | 신규 |
-| golden-mango | Patience Premium | 자본 잠김 회피(조급함) → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | 신규 (문헌 도출) |
+| ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 (PEAD 유사) | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 (2026-07-28, 가설 기각)** |
+| ~~golden-mango~~ (**⛔ 폐쇄 2026-07-28**) | Patience Premium | 자본 잠김 회피(조급함) → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | 신규 (문헌 도출) |
 | golden-nectarine | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | 신규 (백테스트 복제) |
 | golden-orange | Fear Spike Fade | probability neglect (공포의 확률 무시) | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | 신규 (문헌 도출) |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 가설 | strict binary YES 편승 | 관측된 0.95 교차, 0h 초과–72h 이하 | 신규 (falsification cohort) |
@@ -46,7 +46,13 @@ cherry가 이미 돈을 벌고 있는 가설("마감이 다가오면 대중이 f
 ### golden-elderberry — Panic Fade
 손실 회피는 이득보다 약 2배 무겁게 작동한다. 악재·루머가 뜨면 보유자들이 공황 투매해 가격이 펀더멘털 아래로 오버슈팅한다. 레포 내 리서치 문서도 "10%+ 급변은 mean-revert"를 확인했다. 마감 48h+ 남은 시장으로 한정해 '마감 직전 급락 = 진짜 정보' 케이스를 배제하고, 45분 바닥 안정화를 확인한 뒤 진입해 떨어지는 칼날을 피한다.
 
-### golden-fig — Hope Crusher
+### golden-fig — ⛔ 폐쇄 (2026-07-28) — Hope Crusher
+
+> **가설 기각.** 거래 시장 1,567건의 실제 해결 결과 대조에서 **5개 가격 구간 전부 edge 음수**
+> (진입가 0.8489 vs 실현률 83.41%). favorite-longshot bias가 존재하지 않는다. 필요 승률 69.0%
+> vs 실제 57.5%. 스포츠 필터가 꺼져 있었으나 본래 우주(`No`)만 봐도 손실이다.
+> → [판정](retro/golden-mango-fig-2026-07-verdict.md)
+
 favorite-longshot bias는 예측시장 문헌에서 가장 잘 문서화된 편향이다 — 대중은 낮은 확률의 "복권"에 체계적으로 과지불한다. cherry가 이 편향의 favorite 쪽(과소평가)을 수확한다면, fig는 미러 이미지: "D일까지 X가 일어날까" 시장에서 마감이 다가와도 희망 보유자들이 앵커링으로 YES를 놓지 않는다. 시간이 소진되는 것 자체가 수익 동력이므로(NO는 1.0으로 수렴), 예측시장에만 존재하는 '만기'라는 구조를 가장 직접적으로 이용한다.
 
 ### golden-grape — Cascade Rider
@@ -55,14 +61,32 @@ favorite-longshot bias는 예측시장 문헌에서 가장 잘 문서화된 편�
 ### golden-honeydew — Night Watch
 Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 새벽 01–08시와 주말에는 호가가 얇아 소액 주문에도 가격이 밀리고, 아침에 주의가 돌아오면 복원된다. "24시간 계속 리퀘스트를 날릴 수 있다"는 우리의 구조적 우위를 가장 정면으로 수익화한다 — 이 전략의 경쟁자는 그 시간에 깨어 있을 수 없다. 거래량 급증 시 진입 금지(뉴스에 의한 진짜 이동 배제)로 무근거 이탈만 노린다.
 
-### golden-lime — Shock Follow
+### golden-lime — Shock Follow ⛔ 폐쇄 (2026-07-28)
+
+> **가설 기각.** 14일 운영 -72% 후 `market_snapshots` 103만 행으로 백테스트한 결과, 파라미터
+> 28개 조합 어디에도 거래비용을 넘는 표류가 없었다. barrier 승률 41.2%가 무편향 이론값
+> 40.0%와 일치하고, 손실은 거래비용 그 자체로 설명된다(예측이 실측을 98% 재현).
+> 이 문서가 인용한 "10%+ 급변은 mean-revert"가 맞았다.
+> → [최종 판정](retro/golden-lime-2026-07-backtest-verdict.md)
+>
+> 같은 백테스트에서 **반대 방향(elderberry의 급락 후 반등)도 지지되지 않았다** —
+> 급락 후 12h 평균 -18.92%(t=-2.10)로 반등이 아니라 계속 하락했다. 다만 이는 lime의
+> snapshot universe로 elderberry 트리거를 근사한 것이므로, elderberry 자체 데이터로
+> 재확인이 필요하다.
+
 대형 서프라이즈에 대중은 "설마"(불신)와 기존 가격 앵커링으로 일부만 반영한다 — 주식의 실적 발표 후 드리프트(PEAD)와 같은 구조. elderberry와 정반대 트리거의 의도적 A/B 쌍: 급변 이벤트에서 거래량이 미약하고 고점을 반납하면 노이즈(elderberry가 페이드), 거래량이 2배+ 폭증하고 고점을 유지하면 정보(lime이 편승). 두 가설을 동시에 실전 검증한다.
 
 ## 2차 신규 3개 (기존 전략과 독립적으로, 공개 문헌·백테스트에서 도출)
 
 이 3종은 기존 골든 시리즈를 참조하지 않고 예측시장 문헌 리서치에서 독립 도출했다. 출처는 각 `STRATEGY.md`에 명기.
 
-### golden-mango — Patience Premium
+### golden-mango — ⛔ 폐쇄 (2026-07-28) — Patience Premium
+
+> **가설 기각.** 허들 `y>=2.0`은 자본 기회비용으로 정당화되는 할인의 **10배**를 요구한다 —
+> 즉 시간가치가 아니라 **손실확률**을 탐지한다. 게다가 후보 정렬이 없어 매 사이클 140개 중
+> 임의의 10개를 산다. 승률 54.5%(자체 기준 85%), stop_loss 42%(기준 15%).
+> → [판정](retro/golden-mango-fig-2026-07-verdict.md)
+
 예측시장 참여자는 자본이 잠기는 것을 싫어해서, "거의 확실한" 계약도 만기까지의 기간만큼 할인되어 거래된다(settlement discount). 2026년 arXiv 논문 2편이 이 할인 기간구조를 실측했고(할인 보정 시 근확실 구간 왜곡의 48~88%가 소거), Kalshi 실증도 고가 계약의 양(+)의 수익률을 확인했다. 단일 수식 `y = ((1-p)/p) × (8760/남은시간) ≥ 2.0` 하나로 진입을 판정한다 — 대중의 조급함이 만든 할인을 봇의 인내로 수확한다. 골든크로스만큼 간결하지만, 근거는 가장 강하다.
 
 ### golden-nectarine — Bottom Fisher

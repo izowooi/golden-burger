@@ -1,5 +1,8 @@
 # Golden Lime - Polymarket 자동 매매 봇
 
+> **⛔ 2026-07-28 폐쇄 권고.** 백테스트로 가설이 기각됐다. 운영 재개 전
+> [최종 판정](../docs/retro/golden-lime-2026-07-backtest-verdict.md)을 먼저 읽을 것.
+
 **Shock Follow** 전략 기반 Polymarket 자동 매매 봇입니다. 충격 뉴스로 인한 급변(6h 내 +0.10 점프) 중 "진짜 정보"(거래량 폭증 + 고점 유지)만 골라 점프 방향에 편승합니다. golden-elderberry(Panic Fade)와 정반대 트리거의 A/B 쌍입니다.
 
 전략 근거·규칙 상세는 **[STRATEGY.md](./STRATEGY.md)** 참조.

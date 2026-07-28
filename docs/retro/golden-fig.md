@@ -1,5 +1,13 @@
 # golden-fig 회고(포스트모템) 가이드
 
+> ## ⛔ 회고 종료 — 가설 기각, 폐쇄 권고 (2026-07-28)
+>
+> 캘리브레이션 5개 가격 구간 전부 edge 음수 — favorite-longshot bias가 없다. 이 가이드의 절차는 더 이상 실행할 필요가 없다.
+>
+> **→ [판정 문서](golden-mango-fig-2026-07-verdict.md)**
+>
+> 아래 절차는 다른 전략에 재사용할 템플릿으로만 참고할 것.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는

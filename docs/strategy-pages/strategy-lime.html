@@ -70,6 +70,22 @@ ENTER iff (p_now − base) ≥ +0.10                  # 충격 점프 감지
 <p>두 봇의 트리거는 상호 배타적이다: elderberry는 "바닥 안정화 + 거래량 조건 없음 + 마감이 먼(≥48h) 급락"을, lime은 "거래량 2배 폭증 + 고점 유지(되돌림 ≤ 0.02)"를 요구한다. 4주 후 성적을 비교하면 <strong>"Polymarket의 10%+ 급변은 회귀인가 지속인가, 거래량이 그 구분자인가"</strong>가 시장 데이터로 검증된다. 한쪽만 수익이면 그쪽 가설이 맞는 것이고, 둘 다 수익이면 거래량 필터가 유효한 구분자라는 강한 증거다.</p>
 <p>점프 감지는 "N시간 전 시점 가격 대비"가 아니라 <strong>최근 6h 윈도우 내 최저가(base) 대비 현재가 상승폭</strong>으로 판정한다. 시계열 정렬·보간·시점 매칭 없이 min() 하나로 끝나 단순하고, 스냅샷 간격이 불균일하거나(Jenkins 지연) 일부 결손이어도 판정이 흔들리지 않으며, 최저가 대비라 점프를 놓치는 방향의 오차가 없다. 대신 base 구간 제한([0.15, 0.70])이 "원래부터 바닥이던 시장의 자연 반등"을 걸러준다. 기존 봇의 교훈도 반영했다: banana의 개수 기반 윈도우 → timestamp 기반 윈도우 + 유효성 검증, 관대한 cold-start 폴백 → invalid 윈도우면 진입 금지 + prices-history 백필, cherry의 rapid_jump 영구 밴 → timestamp 기반 쿨다운(기본 24h), 영구 HOLDING 좀비 → EXPIRED 상태, TP 목표가 1.0 초과 → 0.99 캡.</p>
 </section>
+<section style="border:2px solid #c0392b;border-radius:10px;padding:16px 20px;margin:24px 0;background:var(--card)">
+<h2 style="color:#c0392b;margin-top:0">⛔ 이 가설은 기각되었다 (2026-07-28)</h2>
+<p><strong>운영 결과: 14일간 계정 −72%</strong> ($239.89 → $66.36). 그리고 <code>market_snapshots</code> <strong>103만 행</strong>으로 사후 백테스트를 수행한 결과, <strong>가설을 지지하는 증거가 없었다.</strong></p>
+<div class="tbl"><table>
+<tr><th>검정</th><th>결과</th></tr>
+<tr><td>barrier 승률 (운영 설정)</td><td><strong>41.2%</strong> — 무편향 가격의 이론값 <strong>40.0%</strong>와 사실상 동일</td></tr>
+<tr><td>파라미터 격자 28개 조합</td><td>전부 <strong>|t| &lt; 1.3</strong>. 어느 방향으로도 유의한 표류 없음</td></tr>
+<tr><td>유일한 양수 셀</td><td>z=1.96이나 Bonferroni(필요 |z|&gt;3.1) 미통과. 기간 이분할 시 전반 65.7% → 후반 57.1%로 감쇠</td></tr>
+<tr><td>반대 가설(elderberry 방향)</td><td>함께 기각. 급락 후 12h 평균 <strong>−18.92%</strong> (t=−2.10) — 반등이 아니라 계속 하락</td></tr>
+<tr><td>손실의 정체</td><td>시뮬레이션 예측이 실제 계좌 손실을 <strong>98% 정확도로 설명</strong>. 잃은 것은 <strong>거래비용 그 자체</strong></td></tr>
+</table></div>
+<p>즉 위에 서술한 <strong>"거래량·고점 유지로 구분되는 하위 집단은 지속한다"</strong>는 조건부 예외는 <strong>존재하지 않았다.</strong> 이 문서가 스스로 인용한 리서치("10%+ 급변은 mean-revert")가 맞았다.</p>
+<p>구현 결함(신호가 구간 천장을 감지, 수동적 지정가로 모멘텀 편승, 트레일링이 승자 절단)도 모두 확인되어 수정했으나, <strong>그것을 다 고쳐도 부호가 바뀌지 않는다.</strong> 청산 구조의 기대값은 왕복 거래비용의 음수(EV = −c)이고 이는 파라미터로 바꿀 수 없다.</p>
+<p><strong>→ 상세: <code>docs/retro/golden-lime-2026-07-backtest-verdict.md</code></strong></p>
+<p style="color:var(--muted)">아래 내용은 <strong>폐쇄 판정 이전에 작성된 원래 설계 문서</strong>다. 역사 자료로만 읽을 것.</p>
+</section>
 <section><h2>진입 규칙</h2>
 <p>모든 조건 AND. 점프 방향 토큰 기준 가격 p로 판정한다 (스냅샷은 항상 YES 가격으로 저장, NO면 1−p로 평가).</p>
 <div class="tbl"><table>

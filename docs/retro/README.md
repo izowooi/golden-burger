@@ -16,11 +16,11 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-cherry | [golden-cherry.md](golden-cherry.md) · **1차 완료** → [2026-07 파라미터 회고](golden-cherry-2026-07-parameter-review.md) | 운영 + 변형 slot |
 | golden-date | [golden-date.md](golden-date.md) | Conviction Ladder |
 | golden-elderberry | [golden-elderberry.md](golden-elderberry.md) | Panic Fade |
-| golden-fig | [golden-fig.md](golden-fig.md) | Hope Crusher |
+| golden-fig | [golden-fig.md](golden-fig.md) · **⛔ 폐쇄 권고** → [판정](golden-mango-fig-2026-07-verdict.md) | Hope Crusher |
 | golden-grape | [golden-grape.md](golden-grape.md) | Cascade Rider |
 | golden-honeydew | [golden-honeydew.md](golden-honeydew.md) | Night Watch, 보조 중앙 archive |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⚠ 폐쇄 권고(백테스트로 확정)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
-| golden-mango | [golden-mango.md](golden-mango.md) | Patience Premium |
+| golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 권고** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
 | golden-nectarine | [golden-nectarine.md](golden-nectarine.md) | Bottom Fisher, 주 중앙 archive |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |

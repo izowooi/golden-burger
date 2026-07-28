@@ -26,11 +26,11 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 - `golden-date/`: Conviction Ladder — cherry 고도화 (시간 사다리 진입 밴드 + 모멘텀 게이트).
 - `golden-elderberry/`: Panic Fade — favorite 급락 과잉반응 역매수.
-- `golden-fig/`: Hope Crusher — 롱샷 페이드 (NO 토큰 매수, 만기 theta 수확).
+- `golden-fig/`: Hope Crusher — 롱샷 페이드. **⛔ 2026-07-28 폐쇄 권고** (캘리브레이션 전 구간 edge 음수, `docs/retro/golden-mango-fig-2026-07-verdict.md`).
 - `golden-grape/`: Cascade Rider — 완만한 일관 드리프트 + 거래량 가속 편승.
 - `golden-honeydew/`: Night Watch — 미국 새벽·주말 무근거 이탈 복원.
-- `golden-lime/`: Shock Follow — 거래량 동반 급등 편승 (elderberry와 A/B 쌍).
-- `golden-mango/`: Patience Premium — 연환산 캐리 수익률 허들 단일 수식 (settlement discount 수확).
+- `golden-lime/`: Shock Follow — 거래량 동반 급등 편승. **⛔ 2026-07-28 폐쇄 권고(백테스트로 가설 기각, `docs/retro/golden-lime-2026-07-backtest-verdict.md`).** 같은 검정에서 elderberry 방향도 지지되지 않아 재확인이 필요하다.
+- `golden-mango/`: Patience Premium — 연환산 캐리 허들. **⛔ 2026-07-28 폐쇄 권고** (허들이 시간가치가 아니라 손실확률을 탐지, 후보 정렬 부재).
 - `golden-nectarine/`: Bottom Fisher — 20일 롤링 최저가 매수 / 5일 보유 (QuantPedia 백테스트 복제).
 - `golden-orange/`: Fear Spike Fade — tail 시장 공포 급등 후 NO 매수 (probability neglect).
 - `golden-papaya/`: Final Five — 표준 이진 YES의 first observed 0.95 상향 교차를 0.95–0.97에서 매수하고 해결까지 보유.

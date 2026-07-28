@@ -1,5 +1,16 @@
 # golden-lime 회고(포스트모템) 가이드
 
+> ## ⛔ 회고 종료 — 가설 기각, 폐쇄 권고 (2026-07-28)
+>
+> 이 가이드의 절차는 더 이상 실행할 필요가 없다. `market_snapshots` 103만 행으로 사후
+> 백테스트를 완료했고 결론이 나왔다: **거래비용을 넘는 표류가 어떤 파라미터에서도 없다.**
+> barrier 승률 41.2% vs 무편향 이론값 40.0%, 28개 조합 전부 |t|<1.3, 유일한 양수 셀은
+> 다중검정 미통과.
+>
+> **→ [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md)**
+>
+> 아래 절차는 다른 전략에 재사용할 템플릿으로만 참고할 것.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는

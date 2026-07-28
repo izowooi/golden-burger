@@ -65,6 +65,20 @@ BUY NO(clobTokenIds[1]) if
 <p><strong>cherry의 미러.</strong> cherry는 같은 편향의 favorite 쪽(75~92% favorite 매수)을 수확해 왔다. fig는 같은 편향의 미러다: cherry가 "favorite 저평가"를 사면, fig는 "longshot 과대평가"를 판다(= NO 매수). 두 봇의 성과 비교가 이 편향의 어느 쪽이 더 두터운지에 대한 A/B 검증이 된다. 또 cherry의 <code>--yes-only</code> 운영은 NO-favorite 시장 절반을 버렸는데(STRATEGY_ANALYSIS 확인 사항), fig는 방향을 전략에 내장(항상 NO)해서 이 낭비 자체가 없다.</p>
 <p><strong>banana에서 배운 것.</strong> 개수 기반 스냅샷 윈도우 버그(Jenkins 중단 시 15분 윈도우가 수 시간을 커버), 관대한 cold-start 폴백(스냅샷 6개 미만이면 사실상 무전략 진입), 영구 one-shot(재진입 금지) 문제를 모두 수정해 반영했다.</p>
 </section>
+<section style="border:2px solid #c0392b;border-radius:10px;padding:16px 20px;margin:24px 0;background:var(--card)">
+<h2 style="color:#c0392b;margin-top:0">⛔ 이 가설은 기각되었다 (2026-07-28)</h2>
+<ul>
+<li><strong>필요 승률 69.0% vs 실제 57.5% — 11.5pp 부족.</strong> 설정 손절 -10%가 실제로는 <strong>-18.96%</strong>로 실현되어(갭 통과) 손익비가 1:2.23으로 벌어졌다.</li>
+<li><strong>캘리브레이션 5개 가격 구간이 전부 edge 음수.</strong> 거래 시장 1,567건의 실제 해결 결과를 대조한 결과 진입가 0.8489 vs 실현률 83.41%로 <strong>-1.48pp</strong>. 5/5 구간 동일 방향은 부호검정 p=3.1%. <strong>favorite-longshot bias는 이 데이터에 존재하지 않는다.</strong> 종결 ROI -1.9%는 *모든 포지션을 해결까지 들고 갔어도 손실*이라는 뜻이다.</li>
+<li><strong>전략이 자기 우주에서 실행되지 않았다.</strong> excluded_categories: []로 스포츠 필터가 꺼져 있어 outcome 라벨이 <strong>698종</strong>(테니스 핸디캡, 축구 프롭, 선수 이름…)이었다. theta 수확 논리가 성립하지 않는 시장들이다. <strong>그런데 본래 대상인 outcome='No'만 봐도 -$125.10 손실</strong>이라 필터를 켜도 살아나지 않는다.</li>
+<li><strong>장부가 명목을 약 4배 부풀린다.</strong> BUY 제출 4,501건 중 전량체결은 <strong>23.4%</strong>뿐(순수 유령 57.9%). 독립 교차검증: HOLDING 653건×$5 = 장부 $3,265 vs 지갑 실제 $794.60 = 24.3%.</li>
+<li><strong>리스크 통제 부재.</strong> max_positions: -1(무제한), 지갑 잔고 사전 확인 없음, 이벤트 단위 상한 없음 → Position $794.60 / Cash $3.44. 매도 제출 13,395건 중 <strong>11,777건(87.9%) 실패</strong>(부분체결 무한 재시도).</li>
+<li>전략 자체 중단 기준(STRATEGY.md:95: stop_loss 25% 초과)도 이미 발동했다 — <strong>실제 33.1%</strong>.</li>
+</ul>
+<p><strong>파라미터로 기대값의 부호를 바꿀 수 있는 조합이 없다.</strong></p>
+<p><strong>→ 상세: <code>docs/retro/golden-mango-fig-2026-07-verdict.md</code></strong></p>
+<p style="color:var(--muted)">아래 내용은 <strong>폐쇄 판정 이전에 작성된 원래 설계 문서</strong>다. 역사 자료로만 읽을 것.</p>
+</section>
 <section><h2>진입 규칙</h2>
 <p>모두 충족해야 매수한다.</p>
 <div class="tbl"><table>

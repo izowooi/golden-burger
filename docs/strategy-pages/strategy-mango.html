@@ -62,6 +62,19 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
 <p>방향의 실증도 있다. CEPR VoxEU <em>"The economics of the Kalshi prediction market"</em>는 Kalshi 실증에서 고가(고확률) 계약이 <strong>양(+)의 초과수익</strong>을 보였음을 확인했다 — favorite-longshot bias의 favorite 쪽이다. 대중은 롱샷에 복권 심리로 과지불하고 favorite을 과소평가하며, 캐리 매수는 이 편향의 수혜 방향과 정확히 일치한다. arXiv 2602.19520 <em>"Decomposing Crowd Wisdom"</em> (Kalshi+Polymarket 2.92억 거래 분석)은 가격 구간별 수익 구조가 체계적으로 다름을 확인한 보조 근거다.</p>
 <p>요약하면 <strong>"확률이 틀렸다"에 베팅하는 것이 아니라, "대중의 조급함이 만든 할인"을 봇의 무한한 인내로 사들이는 전략</strong>이다 — 봇은 자본 잠김을 심리적으로 괴로워하지 않는다. cherry(Resolution Momentum)·date(Conviction Ladder)도 고확률 favorite을 사지만 심리적 타이밍이 진입 논리인 반면, mango의 진입 판단은 수익률 허들 단일 수식이다. 시간과 확률을 각각 조건으로 두지 않고 <code>y = ((1-p)/p) × (8760/h)</code> 하나로 환산해 비교하므로, 시장이 스스로 진입 frontier를 형성한다: 같은 0.98이라도 24h 남으면 y=7.45로 진입하고, 336h 남으면 y=0.53으로 걸러진다. 수식이 항상 계산 가능해 banana의 골든크로스처럼 도달 불가능한 threshold로 퇴화할 여지가 없다. 청산도 다르다 — 조기 익절(trailing/작은 TP) 없이 0.99 수렴까지 보유한다. 캐리는 만기 수렴이 수익의 원천이므로 중간에 파는 것은 전략 부정이다.</p>
 </section>
+<section style="border:2px solid #c0392b;border-radius:10px;padding:16px 20px;margin:24px 0;background:var(--card)">
+<h2 style="color:#c0392b;margin-top:0">⛔ 이 가설은 기각되었다 (2026-07-28)</h2>
+<ul>
+<li><strong>운영 결과: 14일간 -$10.84</strong> ($300.11 → $289.27). 그 손실의 <strong>거의 전부가 realized_pnl=NULL인 EXPIRED 6건</strong>이라 봇의 자체 손익 집계에는 보이지 않았다.</li>
+<li><strong>허들이 시간가치가 아니라 손실확률을 탐지한다.</strong> y >= 2.0을 만족하려면 자본 기회비용(연 20% 가정)으로 정당화되는 할인의 <strong>정확히 10배</strong>가 필요하다 — 잔여시간과 무관하게 10배다. 순수한 lock-up 할인 시장은 y ≈ 0.2라 전부 탈락하고, 통과한 것은 <strong>우리가 모르는 위험의 프리미엄</strong>이다. STRATEGY.md §5.3이 이미 이 가능성을 자인했고, 데이터가 그쪽을 지지한다.</li>
+<li><strong>허들은 병목이 아니었다.</strong> 로그의 제외 사유는 too_early: 2103 vs yield_below_min: 28. 실제 병목은 max_positions=10이고, 최대 포지션 수 도달 로그가 <strong>749,321회</strong> 찍혔다.</li>
+<li><strong>후보 정렬이 없다.</strong> 매 사이클 127~213개 후보를 Gamma 스윕 순서대로 선착순 배정한다. 보유 10개는 <strong>임의의 표본</strong>이지 수익률 상위 10개가 아니다. "시장이 스스로 진입 frontier를 형성한다"는 전제가 코드에 구현된 적이 없다.</li>
+<li><strong>자체 기준 전부 미달</strong>: 승률 54.5%(기준 85%), stop_loss 비중 42%(기준 15% 이하), resolved_unredeemed 6건(기준 0건).</li>
+</ul>
+<p><strong>파라미터로 기대값의 부호를 바꿀 수 있는 조합이 없다.</strong></p>
+<p><strong>→ 상세: <code>docs/retro/golden-mango-fig-2026-07-verdict.md</code></strong></p>
+<p style="color:var(--muted)">아래 내용은 <strong>폐쇄 판정 이전에 작성된 원래 설계 문서</strong>다. 역사 자료로만 읽을 것.</p>
+</section>
 <section><h2>진입 규칙</h2><div class="tbl"><table>
 <tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
 <tr><td>유동성</td><td>liquidity &gt;= $20,000</td><td>슬리피지·체결 가능성 확보</td></tr>
