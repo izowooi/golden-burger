@@ -64,3 +64,26 @@ def test_zero_balance_still_routes_to_ghost_path():
 def test_transient_errors_are_not_permanent():
     ready = _err("PolyApiException[status_code=425, error_message={'error': 'order manager not ready, please retry'}]")
     assert classify_sell_failure(ready, 10.0) == "transient"
+
+
+def test_locked_in_own_orders_is_not_retryable():
+    """잔고 전액이 자기 미체결 주문에 묶인 경우 - 수량 축소로 해결되지 않는다.
+
+    2026-07-28 honeydew 실측: balance 8.86 / sum of active orders 8.86.
+    축소 재시도(8.77주)도 같은 사유로 거절됐다. 기존 주문 취소가 선행되어야 한다.
+    """
+    from polybot.strategy.trader import locked_in_own_orders
+
+    locked = _err(
+        "PolyApiException[status_code=400, error_message={'error': 'not enough "
+        "balance / allowance: the balance is not enough -> balance: 8860000, "
+        "sum of active orders: 8860000, sum of matched orders: 0, "
+        "order amount (inc. fees): 8770000'}]"
+    )
+    assert locked_in_own_orders(locked) is True
+    assert classify_sell_failure(locked, 10.752688) == "locked_in_own_orders"
+    # 형식 2도 잔고 파싱은 되어야 한다 (balance_unparsed로 새지 않도록)
+    assert available_shares_from_error(locked) == 8.86
+
+    plain = _err(NOT_ENOUGH % ("48400000", "8839780000"))
+    assert locked_in_own_orders(plain) is False

@@ -31,9 +31,29 @@ def is_zero_balance_error(result: dict) -> bool:
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
 
+# CLOB 잔고 거절은 두 가지 형식으로 온다. 실측(2026-07-28 Jenkins 로그):
+#   (1) balance: N, order amount: M
+#   (2) balance: N, sum of active orders: X, sum of matched orders: Y,
+#       order amount (inc. fees): Z
+# (2)에서 X가 N과 같으면 잔고 전액이 **자기 자신의 미체결 주문**에 묶인 것이다.
+# 이 경우 수량을 줄여도 절대 팔리지 않는다 — 기존 주문을 먼저 취소해야 한다.
 _AVAILABLE_BALANCE_PATTERN = re.compile(
-    r"balance:\s*(\d+)\s*,\s*order amount:\s*(\d+)", re.IGNORECASE
+    r"balance:\s*(\d+)\s*,\s*(?:sum of active orders:\s*\d+.*?)?"
+    r"order amount(?:\s*\(inc\. fees\))?:\s*(\d+)",
+    re.IGNORECASE | re.DOTALL,
 )
+_ACTIVE_ORDERS_PATTERN = re.compile(
+    r"balance:\s*(\d+)\s*,\s*sum of active orders:\s*(\d+)", re.IGNORECASE
+)
+
+
+def locked_in_own_orders(result: dict) -> bool:
+    """잔고 전액이 자기 미체결 주문에 묶였는지. 수량 축소로는 해결되지 않는다."""
+    match = _ACTIVE_ORDERS_PATTERN.search(str(result.get("error", "")))
+    if match is None:
+        return False
+    balance, active = int(match.group(1)), int(match.group(2))
+    return balance > 0 and active >= balance
 _CLOB_QUANTITY_SCALE = 1_000_000
 _SELL_BALANCE_SAFETY_FACTOR = 0.99
 
@@ -70,6 +90,8 @@ def classify_sell_failure(
         if "not ready" in message or "request exception" in message:
             return "transient"
         return "other"
+    if locked_in_own_orders(result):
+        return "locked_in_own_orders"
     available = available_shares_from_error(result)
     if available is None:
         return "balance_unparsed"
@@ -339,6 +361,16 @@ class Trader:
             side="SELL",
         )
         if result.get("success") or result.get("orderID"):
+            return result, requested_size
+
+        if locked_in_own_orders(result):
+            # 잔고 전액이 자기 미체결 주문에 묶였다. 수량을 줄여도 팔리지 않으므로
+            # 재시도하지 않는다. 기존 주문 취소가 선행되어야 한다.
+            logger.warning(
+                "매도 실패 진단 - 사유=locked_in_own_orders token=%s 요청=%.6f "
+                "(잔고 전액이 자기 미체결 주문에 묶여 축소 재시도로 해결 불가)",
+                str(token_id)[:16], requested_size,
+            )
             return result, requested_size
 
         available = available_shares_from_error(result)

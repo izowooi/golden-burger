@@ -50,7 +50,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프 진단, `docs/sell-retry-loop-defense.md`).
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정 — 매도 실패 사유·격리 intent·상한 포화). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
 - `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`, `sell-retry-loop-defense.md`가 있다.
 
 ## 데이터 흐름

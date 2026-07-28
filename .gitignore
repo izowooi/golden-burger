@@ -183,3 +183,6 @@ wind_down_*.csv
 # Local production DB copies used for read-only diagnosis. These can be many
 # gigabytes and may contain operational evidence; never stage them.
 /docs/db/
+
+# 운영 로그 사본 (분석용, 커밋 대상 아님)
+docs/logs/
