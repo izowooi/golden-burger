@@ -24,7 +24,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 신규 전략 봇 — 대중 심리 기반, 단계적 A/B 검증 예정 (각 폴더 L3 `AGENTS.md`·`STRATEGY.md` 보유, 개요는 `docs/prediction-market-strategy-portfolio.md`):
 
-- `golden-date/`: Conviction Ladder — cherry 고도화 (시간 사다리 진입 밴드 + 모멘텀 게이트).
+- `golden-date/`: Conviction Ladder — 시간 사다리 + 모멘텀 게이트. **⛔ 2026-07-29 폐쇄 권고** (edge -1.56pp, 회전율 14.8배가 손실을 증폭. `docs/retro/golden-date-2026-07-verdict.md`).
 - `golden-elderberry/`: Panic Fade — favorite 급락 과잉반응 역매수.
 - `golden-fig/`: Hope Crusher — 롱샷 페이드. **⛔ 2026-07-28 폐쇄 권고** (캘리브레이션 전 구간 edge 음수, `docs/retro/golden-mango-fig-2026-07-verdict.md`).
 - `golden-grape/`: Cascade Rider — 완만한 일관 드리프트 + 거래량 가속 편승.

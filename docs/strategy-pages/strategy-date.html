@@ -73,6 +73,15 @@ BUY if (  6 &lt; h ≤  24 AND 0.80 ≤ p ≤ 0.95)   # 밴드1
 </table></div>
 <p><strong>banana에서 배운 것.</strong> 개수 기반 스냅샷 윈도우는 Jenkins 중단 시 "15분 윈도우"가 몇 시간을 커버하는 버그 → <strong>timestamp 기반 윈도우 + 커버리지 검증</strong>으로 수정. cold-start 시 관대한 폴백이 사실상 무전략 퇴화로 이어지던 문제는 <strong>윈도우 invalid면 진입하지 않는</strong> 원칙으로 교체하고, 대신 CLOB <code>prices-history</code> 백필로 cold start 자체를 줄인다.</p>
 </section>
+<section style="border:2px solid #c0392b;border-radius:10px;padding:16px 20px;margin:24px 0;background:var(--card)">
+<h2 style="color:#c0392b;margin-top:0">⛔ 폐쇄 권고 (2026-07-29)</h2>
+<p>14일간 계정 <strong>−52.2%</strong>($4,730.91 → $2,260.61). 체결 733건의 실제 해결 결과 대조에서 <strong>edge −1.56pp (z=−1.08)</strong> — 양수 edge의 증거가 없다.</p>
+<p>손실의 정체는 <strong>작은 음수 edge × 회전율 14.8배</strong>다. 종결 기준 −3.1% × 14.8배 = 계좌 대비 −46%로, 실측 −52.2%와 맞는다. <code>max_positions: -1</code>(무제한)이 그 회전을 만들었다.</p>
+<p>다만 lime·fig와 달리 <strong>청산 기계는 건강하다</strong> — 실제 ROI −2.12% vs 해결까지 보유 −3.07%로 손절이 오히려 $628을 절약했다. 즉 "망가진 전략"이 아니라 <strong>"edge가 없는데 과도하게 굴린 전략"</strong>이다.</p>
+<p>그래도 최선의 파라미터 조합(최악 칸 제거 + 회전 통제)으로 도달 가능한 것이 <strong>본전</strong>이라 폐쇄를 권고한다. 계속할 경우의 설정은 판정 문서 §6-B 참조.</p>
+<p><strong>→ 상세: <code>docs/retro/golden-date-2026-07-verdict.md</code></strong></p>
+<p style="color:var(--muted)">아래는 폐쇄 판정 이전에 작성된 원래 설계 문서다.</p>
+</section>
 <section><h2>진입 규칙</h2><div class="tbl"><table>
 <tr><th>조건</th><th>값 (기본)</th><th>이유</th></tr>
 <tr><td>유동성 / 24h 거래량</td><td>liquidity ≥ $15,000 AND volume24hr ≥ $5,000</td><td>체결 가능성 확보, 저유동성의 가짜 가격 배제</td></tr>

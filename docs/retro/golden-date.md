@@ -1,5 +1,12 @@
 # golden-date 회고(포스트모템) 가이드
 
+> ## ⛔ 회고 종료 — 폐쇄 권고 (2026-07-29)
+>
+> edge -1.56pp(z=-1.08)로 양수 edge의 증거가 없다. 손실은 작은 음수 edge × 회전율
+> 14.8배의 결과이며 `max_positions: -1`이 원인이다. 청산 기계는 건강하다.
+>
+> **→ [판정 문서](golden-date-2026-07-verdict.md)**
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는

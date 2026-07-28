@@ -20,7 +20,7 @@
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | 운영 중 (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | 운영 중 (신호 결함 확인됨) |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 마감 1–30일 | 운영 중 (성과는 evidence cohort별 검증) |
-| golden-date | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | 신규 |
+| ~~golden-date~~ (**⛔ 폐쇄 권고 2026-07-29**) | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | 신규 |
 | golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 (원래 favorite) | 신규 |
 | ~~golden-fig~~ (**⛔ 폐쇄 2026-07-28**) | Hope Crusher | favorite-longshot bias (복권 심리) | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | 신규 |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | 신규 |
@@ -40,7 +40,7 @@
 
 ## 신규 6개의 근거 요약
 
-### golden-date — Conviction Ladder
+### golden-date — ⛔ 폐쇄 권고 (2026-07-29) — Conviction Ladder
 cherry가 이미 돈을 벌고 있는 가설("마감이 다가오면 대중이 favorite으로 쏠리고, 시장 정확도는 24h 전 88.6% → 4h 전 94.2%로 수렴")을 유지하면서, 분석에서 확인된 cherry의 허점 5개를 수정한 직계 후계자다: 남은 시간과 무관한 고정 확률 밴드 → 시간 사다리(마감이 멀수록 싸게만 진입), --yes-only로 NO-favorite 시장 절반 폐기 → 양측 지원, 하락 중에도 매수 → 6h 모멘텀 게이트, rapid_jump 영구 skip → 쿨다운 재진입, 12h 전 조기 청산 → 2h 전까지 수렴 구간 수확.
 
 ### golden-elderberry — Panic Fade
