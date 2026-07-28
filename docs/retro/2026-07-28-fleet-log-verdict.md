@@ -40,8 +40,40 @@
 | **papaya** | 2329 | active | — | 0 | 0 | **0** | **0** | **0** | 🟢 정상 |
 | **queen** | 588 | active | — | 0 | 0 | **0** | **0** | **0** | 🟢 정상 |
 
-`papaya`·`queen`이 깨끗한 이유는 `simulation_mode: true`라 실주문을 내지 않기
-때문입니다. 즉 "문제가 없다"기보다 **"아직 노출되지 않았다"** 로 읽어야 합니다.
+### ⚠ queen에 대한 초판 서술 정정
+
+초판에서 "papaya·queen이 깨끗한 이유는 `simulation_mode: true`"라고 적었으나
+**queen에 대해서는 틀렸습니다.**
+
+로그의 `Simulation: True`는 `--live`가 붙지 않은 **`polybot config` 프리플라이트
+출력**이었습니다. 실제 실행 줄은 다릅니다:
+
+```
++ uv run polybot config --job queen-live-12h        → Simulation: True   (프리플라이트)
++ uv run polybot run --live --job queen-live-12h    → simulation=False, mode=live
+```
+
+| | 실제 상태 | 격리 0건인 진짜 이유 |
+|---|---|---|
+| **queen** | **실거래(live)** | **보유 포지션이 0개**라 매도 시도 자체가 없다 |
+| papaya | 시뮬레이션(True) | 실주문을 내지 않는다 |
+
+즉 queen은 **정상이지만 굶고 있는** 상태입니다. 스캔 깔때기:
+
+```
+neg_risk_or_unknown: 10,132 · low_liquidity: 3,427 · not_standard_yes_no: 1,859
+current_snapshot_missing: 43 · low_volume: 24 · already_resolved: 6
+game_in_play_too_old: 3 · first_crossing_already_observed: 2
+```
+
+약 15,500개를 훑어 **끝까지 간 것이 2건**이고, 그 2건도
+`first_crossing_already_observed`(첫 상향 교차를 이미 지나침)로 탈락했습니다.
+전략이 고장난 게 아니라 조건이 극도로 좁습니다. 12h job은
+`ENTRY_HOURS_MAX=12`라 더 좁습니다.
+
+**queen에 대한 판정: 결함 없음. 다만 진입 빈도가 0에 수렴하므로 한 달을 돌려도
+판정 표본이 안 쌓일 위험이 있습니다.** 신호가 계속 0이면 `current_max`(0.94)나
+`ENTRY_HOURS_MAX`를 넓히는 것을 검토하되, 그건 별도 회고 주제입니다.
 
 ---
 
