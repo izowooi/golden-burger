@@ -72,6 +72,11 @@ def main() -> int:
     ap.add_argument("--execute", action="store_true", help="실제 DB 갱신 (기본은 조회만)")
     ap.add_argument("--confirm", help="--execute 시 필수. CLOSE_<종결할 건수>")
     ap.add_argument("--reason", default="operator: wallet reconciliation")
+    ap.add_argument("--sync-held", action="store_true",
+                    help="유지되는 행의 buy_shares/buy_amount를 지갑 실보유로 맞춘다. "
+                         "부분체결된 대형 주문이 요청액 그대로 남아 max_open_notional_usdc를 "
+                         "잠식하는 것을 푼다. buy_price는 건드리지 않으므로 손절·익절 "
+                         "발동 기준은 변하지 않는다.")
     args = ap.parse_args()
 
     if not args.db.exists():
@@ -91,7 +96,7 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(OPEN_STATUSES))
     rows = conn.execute(
-        f"SELECT id, token_id, status, buy_amount, buy_shares, question "
+        f"SELECT id, token_id, status, buy_price, buy_amount, buy_shares, question "
         f"FROM trades WHERE status IN ({placeholders})", OPEN_STATUSES
     ).fetchall()
     print(f"DB 오픈 행 {len(rows)}건 ({', '.join(OPEN_STATUSES)})")
@@ -128,11 +133,30 @@ def main() -> int:
     print("\n  ※ 체결기록 X가 곧 미체결은 아니다. order_fills 계측 이전 매수는 기록 자체가 없다.")
     print("    다만 지갑에도 없으므로 어느 쪽이든 오픈 노출로 잡아둘 이유는 없다.")
 
-    print("\n  유지되는 행:")
+    # 유지 행의 DB 수량 vs 지갑 수량. 요청액 그대로 남은 부분체결 주문을 드러낸다.
+    sync = []
+    print("\n  유지되는 행 (DB 수량 → 지갑 실보유):")
     for r in keep:
         p = live[str(r["token_id"])]
-        print(f"      #{r['id']:<5} ${float(p.get('currentValue') or 0):>9,.2f} "
-              f"{float(p.get('size') or 0):>10.1f}주  {(r['question'] or '')[:44]}")
+        wsz = float(p.get("size") or 0)
+        dsz = float(r["buy_shares"] or 0)
+        new_amt = float(r["buy_price"] or 0) * wsz
+        print(f"      #{r['id']:<5} ${float(p.get('currentValue') or 0):>9,.2f}  "
+              f"{dsz:>9.1f} → {wsz:>9.1f}주   "
+              f"요청 ${float(r['buy_amount'] or 0):>8,.0f} → ${new_amt:>8,.0f}  "
+              f"{(r['question'] or '')[:36]}")
+        if abs(dsz - wsz) > 1e-6:
+            sync.append((r["id"], wsz, new_amt))
+
+    cur_notional = sum(float(r["buy_amount"] or 0) for r in keep)
+    new_notional = sum(
+        float(r["buy_price"] or 0) * float(live[str(r["token_id"])].get("size") or 0)
+        for r in keep)
+    print(f"\n  오픈 요청 원금 합계: ${cur_notional:,.0f}"
+          f"  → 동기화 시 ${new_notional:,.0f}")
+    if sync and not args.sync_held:
+        print(f"  ※ {len(sync)}건이 지갑과 어긋난다. --sync-held 를 붙이면 맞춘다.")
+        print("    (max_open_notional_usdc는 요청액 기준이라, 안 맞추면 신규 매수가 계속 막힌다.)")
 
     if not args.execute:
         print(f"\n조회만 수행했다. 실제 종결하려면:")
@@ -144,8 +168,8 @@ def main() -> int:
               f"--confirm CLOSE_{len(close)} 가 필요하다.", file=sys.stderr)
         print("(대상 건수는 지갑 상태에 따라 바뀐다. 실행 직전에 다시 조회할 것.)", file=sys.stderr)
         return 2
-    if not close:
-        print("\n종결할 행이 없다.")
+    if not close and not (args.sync_held and sync):
+        print("\n변경할 것이 없다.")
         return 0
 
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -165,10 +189,18 @@ def main() -> int:
             "UPDATE trades SET status='COMPLETED', exit_reason=?, updated_at=? WHERE id=?",
             [("wallet_reconciled_closed_offledger", now, r["id"]) for r in closed_off],
         )
+        if args.sync_held and sync:
+            conn.executemany(
+                "UPDATE trades SET buy_shares=?, buy_amount=?, updated_at=? WHERE id=?",
+                [(sz, amt, now, tid) for tid, sz, amt in sync],
+            )
     remaining = conn.execute(
         f"SELECT COUNT(*) FROM trades WHERE status IN ({placeholders})", OPEN_STATUSES
     ).fetchone()[0]
     print(f"종결 완료: UNFILLED {len(no_fill)}건 + COMPLETED {len(closed_off)}건 = {len(close)}건")
+    if args.sync_held and sync:
+        print(f"수량 동기화: {len(sync)}건 → 오픈 요청 원금 ${new_notional:,.0f}")
+        print(f"  POLYBOT_MAX_OPEN_NOTIONAL_USDC 는 이 값보다 커야 신규 매수가 된다.")
     print(f"남은 오픈 노출: {remaining}건")
     return 0
 

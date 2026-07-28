@@ -273,7 +273,20 @@ Woo Sang-ho 주문은 CLOB이 `invalid token id`로 **거절해줘서** 손해�
    (`exit_reason='wallet_reconciled_closed_offledger'`), 없으면 `UNFILLED`
    (`wallet_reconciled_no_fill_evidence`)로 나눠 기록해 회고에서 구분 가능하게 남긴다.
    `realized_pnl`은 손대지 않는다. 실행 전 DB를 자동 백업한다.
-4. **격리 해제 (§2-1)**. 이걸 풀지 않으면 정리 후에도 청산이 안 된다. 반드시 backup 먼저:
+4. **남은 행의 수량을 지갑에 맞춘다** — 3의 종결만으로는 신규 매수가 안 된다.
+   `max_open_notional_usdc`는 `buy_amount`(요청액) 합계로 판정하는데, 옛 $8,000 주문 시절의
+   부분체결 행이 요청액 그대로 남아 있기 때문이다. 2026-07-28 실측: 남은 7건의 요청액 합계
+   **$46,000** vs 실제 체결 원가 **$10,957** (예: Adam Hamilton DB 9,090주 → 지갑 97주).
+   ```bash
+   uv run --script tools/reconcile_positions.py --db ... --funder ... --sync-held --execute --confirm CLOSE_<n>
+   ```
+   `buy_price`는 건드리지 않으므로 손절·익절 발동 기준은 변하지 않고, `buy_shares`·`buy_amount`만
+   지갑 실보유로 맞춘다. 이후 `POLYBOT_MAX_OPEN_NOTIONAL_USDC`를 동기화된 합계보다 크게 잡는다
+   (현 시점 기준 **15000** 권장).
+   > 이 행들의 `buy_amount`는 동기화 후 "요청액"이 아니라 "체결 원가"가 된다. 회고에서 요청액
+   > 기준 분석을 할 때는 `wallet_reconciled` 흔적이 있는 구간을 분리한다.
+
+5. **격리 해제 (§2-1)**. 이걸 풀지 않으면 정리 후에도 청산이 안 된다. 반드시 backup 먼저:
    ```bash
    uv run --project polybot-observability polybot-retro backup \
      --db golden-cherry/data/default/trades.db --output-dir ~/.polybot/operator-backups
@@ -306,7 +319,7 @@ Woo Sang-ho 주문은 CLOB이 `invalid token id`로 **거절해줘서** 손해�
    (증명되지 않은 체결을 증거로 위장하게 된다). `mixed` 1건은 CONFIRMED 129.83+1.75와 FAILED 1.75가
    `latest_size_matched` 133.33과 정확히 맞아떨어져 데이터만으로는 판별 불가다 — 거래소 이력을 직접 보고 판단한다.
 
-5. 정리 후 `status`별 건수를 다시 세어 오픈 노출이 실제 보유와 일치하는지 확인한다.
+6. 정리 후 `status`별 건수를 다시 세어 오픈 노출이 실제 보유와 일치하는지 확인한다.
 
 > `tools/wind_down.py`는 `ExecutionLedger`를 우회해 직접 주문한다. 14건을 **오늘 당장 청산할 수는
 > 있지만** 그 체결은 어떤 submission에도 귀속되지 않아 evidence gap이 넓어진다. 탈출구이지 해결책이 아니다.
