@@ -146,7 +146,9 @@
 | `POLYBOT_SELL_THRESHOLD` | 0.92 | **0.88** | **데이터 + 기하** | 0.90~0.92 밴드가 실제·보유 ROI 양쪽 최악(-8.4%/-12.4%)이고 54%가 익절 도달 불가. 0.88이면 익절 목표가 최대 0.968로 항상 도달 가능 |
 | `POLYBOT_MAX_POSITIONS` | 10 | **10 유지** | 운영 | 값이 아니라 §6-1의 정리가 문제였다. 정리 후 10은 $500×10=$5,000으로 계정 규모에 적정 |
 | `POLYBOT_BUY_AMOUNT` | 500 | **250** | 데이터(체결률) | $100 주문은 66.6%, $1,000은 20.9% 체결. 미체결은 유령 행이 되어 포지션 상한을 잠식한다. `MIN_LIQUIDITY`도 함께 125,000으로 낮춰야 후보가 유지된다 |
-| `POLYBOT_MIN_LIQUIDITY` | 250000 | **125000** | 기하 | `effective_min_liquidity = max(min_liquidity, buy/ratio)`. $250 ÷ 0.002 = 125,000 |
+| `POLYBOT_MIN_LIQUIDITY` | 250000 | **125000** | 기하 (실측 아님) | `effective_min_liquidity = max(min_liquidity, buy/ratio)`, $250 ÷ 0.002 = 125,000. **125k 체제의 체결률 데이터는 없다** — 과거 체결률은 `min_liquidity: 10000` 구간에서 측정된 값이다. 유니버스는 현재 333개에서 대략 2배가 된다 |
+
+세 값은 서로 맞물린다. `BUY_AMOUNT` 250 × `MAX_POSITIONS` 10 = 요청 원금 $2,500이므로 `MAX_OPEN_NOTIONAL_USDC=5000`은 느슨해지고 **포지션 개수만 실질 제약**이 된다. 노출을 더 키우려면 `MAX_POSITIONS`를 올리고, 줄이려면 `MAX_OPEN_NOTIONAL_USDC`를 $2,500 아래로 내린다.
 
 ### 6-3. 유지 권장 (바꾸지 말 것)
 

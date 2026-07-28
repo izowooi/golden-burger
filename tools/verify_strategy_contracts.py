@@ -30,7 +30,9 @@ CURRENT_STRATEGIES = {
     "golden-papaya",
     "golden-queen",
 }
-PRE_L3_STRATEGIES = {"golden-apple", "golden-banana", "golden-cherry"}
+# L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
+# golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
+PRE_L3_STRATEGIES = {"golden-apple", "golden-banana"}
 
 
 @dataclass(frozen=True)
