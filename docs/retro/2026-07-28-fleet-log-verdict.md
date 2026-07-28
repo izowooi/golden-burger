@@ -56,7 +56,22 @@
 | | 실제 상태 | 격리 0건인 진짜 이유 |
 |---|---|---|
 | **queen** | **실거래(live)** | **보유 포지션이 0개**라 매도 시도 자체가 없다 |
-| papaya | 시뮬레이션(True) | 실주문을 내지 않는다 |
+| papaya | 시뮬레이션(True) | 실주문을 내지 않았다 |
+
+> **papaya 후속 (2026-07-29 01:04, 커밋 `afad5b2`)**: `main.py`에 `--live` 플래그가
+> 아예 없어 CLI로는 실거래가 불가능했다(`simulation_override`가 `True` 아니면 `None`,
+> `None`이면 `config.yaml:43 simulation_mode: true`로 떨어짐). queen과 같은 `--live`
+> 패턴을 이식했고, Jenkins 잡 `polybot-cat`·`polybot-dog`에 `--live`를 붙여
+> **`simulation=False` 전환을 확인**했다.
+>
+> 부작용 하나: `config.py:383`이 `trades_sim.db`(sim)와 `trades.db`(live)를 나누므로
+> **live 전환과 함께 DB가 바뀐다.** 시뮬레이션 보유 10~12건과 그동안 쌓은
+> `market_snapshots`가 sim DB에 남고 live DB는 빈 상태로 시작한다. 그래서 전환 직후
+> 스캔이 `current_snapshot_missing: 347`, `prior_snapshot_missing: 25`로 끝나
+> 후보가 0이다. **결함이 아니라 lineage 재축적 구간**이며, 스냅샷이 쌓이면 해소된다.
+>
+> 두 잡의 workspace는 `polybot-cat`/`polybot-dog`로 분리되어 있어 같은 `--job papaya`를
+> 써도 DB가 충돌하지 않는다(확인 완료).
 
 즉 queen은 **정상이지만 굶고 있는** 상태입니다. 스캔 깔때기:
 
