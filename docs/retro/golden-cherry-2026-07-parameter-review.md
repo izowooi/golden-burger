@@ -98,10 +98,45 @@ Limit 주문 실패: 결과 또는 대사 증거가 불확실한 이전 CLOB int
                 동일 token/side의 신규 SELL 주문을 보류합니다: 1건
 ```
 
-대사(reconciliation)가 16건 실패 → 해당 token/side 격리 → 청산 불가 → 포지션 상한 유지, 라는
-자기강화 고리다. DB 스냅샷 기준 `needs_reconciliation=1`이 28건(BUY 20 / SELL 8),
-`SUBMIT_OUTCOME_UNKNOWN`이 21건(BUY 7 / SELL 14)이고, **22개 token의 SELL 경로가 막혀 있다**
-(그중 14건 $54,000 요청분이 아직 HOLDING).
+> **주의: 로그에 보이는 "대사 오류 16건"은 매도를 막은 원인이 아니다.** 두 개의 독립된 격리
+> 조건이 있고, 매도를 막은 것은 그중 대사가 **한 번도 건드리지 않는** 쪽이다.
+
+`assert_submission_allowed`는 아래 두 predicate의 합이 0보다 크면 같은 token/side를 봉쇄한다.
+
+| | 조건 | 현재 건수 | 해제 방법 |
+|---|---|---|---|
+| **A. POST 결과 미확정** | `response_status='SUBMIT_OUTCOME_UNKNOWN'` **AND `order_id IS NULL` AND `needs_reconciliation=0`** | BUY 7 / **SELL 14** | `polybot-retro resolve-intent`만 가능 |
+| **B. 대사 미완료** | `needs_reconciliation=1 AND order_id IS NOT NULL AND reconciliation_error IS NOT NULL` | 22건 (BUY 17 / SELL 5) | `finish_reconciliation` 성공 또는 `resolve-catalog-gaps` |
+
+`reconcile_order_ledger`가 처리하는 대상은 `needs_reconciliation=1 AND order_id IS NOT NULL`이다.
+**A는 `needs_reconciliation=0`이고 `order_id`가 NULL이라 이 쿼리에 절대 잡히지 않는다.** 즉 A는
+대사가 실패하는 게 아니라 **대사가 보지도 않는다.** 사람이 개입하기 전까지 영구히 풀리지 않는다.
+
+이번에 실패한 매도 7건을 전부 조회한 결과 **7건 모두 A, B는 0건**이었다:
+
+| 시장 | predicate A | predicate B | 봉쇄 시작 |
+|---|---|---|---|
+| Abdul El-Sayed / Ty Masterson | 1 | 0 | 2026-07-11 |
+| Fed no change / Fed Pause×3 | 1 | 0 | 2026-07-13 |
+| Pyunik | 1 | 0 | 2026-07-16 |
+| Donavan McKinney | 1 | 0 | 2026-07-17 |
+| Jerri Green (익절 +17.4%) | 1 | 0 | 2026-07-19 |
+
+A는 CLOB POST가 `status_code=None/5xx`나 timeout으로 끝났을 때 `record_submission_error`가 남긴다.
+주문이 실제로 들어갔는지 알 수 없으므로 중복 주문을 막기 위해 봉쇄하는 것이고, 설계상 옳다.
+문제는 **시간 기반 에스컬레이션이 없어서** CLOB의 5xx 한 번이 그 token/side의 청산을 영구히
+꺼버린다는 점이다.
+
+B(대사 실패 22건)는 별개 문제이고 대부분 BUY 쪽이다. 내역: `match_authoritative_order_catalogs`
+12(BUY), `fetch_order` 4(BUY), `finalize_reconciliation` 4(BUY 2/SELL 2), `mixed CONFIRMED/FAILED`
+1(SELL), `fetch_trades` 1(BUY).
+
+`finalize_reconciliation` 4건이 실패하는 근본 원인은 확인됐다: **pending 28건 전부
+`making_amount`/`taking_amount`가 NULL이다.** 이 값은 제출 시점 `record_submission_result`만
+쓰는데, 대기 중인 GTC(`response_status='LIVE'`)의 POST 응답에는 수량이 없고 이후 백필 경로도
+없다. 그래서 `_persisted_submission_token_amount`가 None이 되어 full-fill 증명이 불가능하다.
+설령 값이 있어도 `abs_tol=1e-6` 비교는 거래소 반올림 체결가(예: 합계 1142.841815 vs 요청
+1142.857142)와 1.5e-2 차이라 통과할 수 없다.
 
 막힌 청산 8건을 Gamma로 대조한 결과 **6건은 여전히 거래 가능한 살아있는 시장**이었다:
 
@@ -213,9 +248,43 @@ Woo Sang-ho 주문은 CLOB이 `invalid token id`로 **거절해줘서** 손해�
 2. **redeem**: 해결완료 YES 64건(상환가치 $29,186)을 Polymarket UI에서 상환해 현금화한다.
    `wind_down.py`는 이들을 `redeemable`로 분류만 하고 CLOB 매도는 불가능하다.
 3. **DB 정리**: 지갑 잔고가 0으로 확인된 행만 `UNFILLED`로, 해결완료 NO 14건을 종결 처리한다.
-4. **격리 해제**: `needs_reconciliation=1`(28건) / `SUBMIT_OUTCOME_UNKNOWN`(21건) 때문에
-   22개 token의 SELL이 봉쇄돼 있다(§2-1). 이걸 풀지 않으면 정리 후에도 청산이 안 된다.
+4. **격리 해제 (§2-1)**. 이걸 풀지 않으면 정리 후에도 청산이 안 된다. 반드시 backup 먼저:
+   ```bash
+   uv run --project polybot-observability polybot-retro backup \
+     --db golden-cherry/data/default/trades.db --output-dir ~/.polybot/operator-backups
+   ```
+   **4-a. 매도를 막고 있는 A 14건** — 지원 경로가 있으나 실패할 가능성이 높다:
+   ```bash
+   uv run --project polybot-observability polybot-retro probe-intent \
+     --db golden-cherry/data/default/trades.db --strategy golden-cherry \
+     --submission-id <id> --window-seconds 86400
+   ```
+   `--window-seconds`는 최대 86,400초(24h)인데 대상 intent는 4~17일 전이다. CLOB 이력이
+   그만큼 거슬러 올라가지 못하면 후보가 비고, **후보가 비었다는 사실은 `NO_ORDER_CREATED`의
+   증거가 아니다**(`polybot-observability/README.md`). 그 경우 남는 선택지는 raw SQL로
+   `outcome_resolution='NO_ORDER_CREATED'`를 쓰는 것인데, 이는 **"주문이 안 들어갔다"를
+   거래소 증거 없이 단정하는 것**이다. 실제로 들어갔다면 미기록 SELL이 거래소에 살아 있고
+   봇이 중복 주문을 낸다. 실행 전 Polymarket UI에서 해당 token의 열린 주문을 눈으로 확인할 것.
+
+   **4-b. B의 `match_authoritative_order_catalogs` 12건(BUY)** — 정식 명령으로 처리 가능:
+   ```bash
+   uv run --project polybot-observability polybot-retro catalog-gaps \
+     --db golden-cherry/data/default/trades.db --strategy golden-cherry --include-evidence-linked
+   # 위 출력 건수를 --expected-count에 그대로 넣는다 (불일치하면 중단된다)
+   uv run --project polybot-observability polybot-retro resolve-catalog-gaps ... --confirm ...
+   ```
+
+   **4-c. `finalize_reconciliation` 4건 + `mixed` 1건** — 지원 명령이 없다. `resolve-catalog-gaps`의
+   LIKE 필터에 걸리지 않고 `resolve-intent`는 `response_status`가 달라 거부한다. SQL로 풀 수밖에
+   없고, 그때 포기하는 보장은 "체결 수량이 주문 전량과 일치한다는 증명"이다. `order_fills`의
+   CONFIRMED 행은 남으므로 P&L 계산에는 영향이 없다. `reconciliation_proof` 컬럼은 **절대 쓰지 말 것**
+   (증명되지 않은 체결을 증거로 위장하게 된다). `mixed` 1건은 CONFIRMED 129.83+1.75와 FAILED 1.75가
+   `latest_size_matched` 133.33과 정확히 맞아떨어져 데이터만으로는 판별 불가다 — 거래소 이력을 직접 보고 판단한다.
+
 5. 정리 후 `status`별 건수를 다시 세어 오픈 노출이 실제 보유와 일치하는지 확인한다.
+
+> `tools/wind_down.py`는 `ExecutionLedger`를 우회해 직접 주문한다. 14건을 **오늘 당장 청산할 수는
+> 있지만** 그 체결은 어떤 submission에도 귀속되지 않아 evidence gap이 넓어진다. 탈출구이지 해결책이 아니다.
 
 ### 6-2. 변경 권장
 

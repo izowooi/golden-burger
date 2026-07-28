@@ -33,7 +33,7 @@
 
 5. **`order_fills`에 기록이 없다고 미체결이 아니다.** 계측 시작은 2026-07-11 13:43이고 그 이후에도 누락이 있다. 지갑 잔고가 유일한 권위이므로, 유령 포지션을 정리할 때는 반드시 `tools/wind_down.py status` 또는 CLOB `balance-allowance`로 확인한다. DB만 보고 `UNFILLED` 처리하면 실보유를 날린다.
 
-6. **대사 실패는 청산을 봉쇄한다.** `needs_reconciliation=1` 또는 `SUBMIT_OUTCOME_UNKNOWN` 상태의 intent가 있으면 같은 token/side의 신규 주문이 격리된다. 대사가 계속 실패하면 그 포지션은 청산 자체가 불가능해진다. 2026-07-28 실행에서 청산 신호 8건이 전부 이 이유로 실패했다(익절 +17.4% 포함).
+6. **격리 조건은 둘이고, 그중 하나는 대사가 보지도 않는다.** `assert_submission_allowed`는 (A) `response_status='SUBMIT_OUTCOME_UNKNOWN'` + `order_id IS NULL` + `needs_reconciliation=0`, (B) `needs_reconciliation=1` + `order_id IS NOT NULL` + `reconciliation_error IS NOT NULL` 중 하나라도 있으면 같은 token/side를 봉쇄한다. `reconcile_order_ledger`는 `needs_reconciliation=1 AND order_id IS NOT NULL`만 처리하므로 **A는 영구히 자동 해제되지 않는다** — `polybot-retro resolve-intent`로 사람이 풀어야 한다. 2026-07-28 실행에서 막힌 청산 7건은 **전부 A**였고(2026-07-11~19 발생), 같은 로그의 "대사 오류 16건"과는 무관하다. 로그만 보고 대사를 고치려 들면 헛수고다.
 
 7. **`effective_min_liquidity = max(min_liquidity, buy_amount / max_order_liquidity_ratio)`.** `POLYBOT_BUY_AMOUNT`만 올리면 유동성 하한이 조용히 따라 올라가 후보가 0이 될 수 있다. 주문액을 키울 때는 `MAX_BUY_AMOUNT_USDC`와 `MAX_OPEN_NOTIONAL_USDC`도 같이 올리지 않으면 `_validate_config`가 run을 실패시킨다.
 
