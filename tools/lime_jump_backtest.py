@@ -138,14 +138,25 @@ def detect(jump_min, vol_mult_min, max_pullback,
 
 
 def forward(cid, idx, hours):
+    """t+hours 시점의 가격. 실제 관측이 목표 시각 근처에 없으면 None.
+
+    단순히 "target 이하의 마지막 관측"을 쓰면 시계열이 끊긴 시장에서 모든
+    horizon이 같은 값으로 포화되어 가짜 신호를 만든다. 관측 간격이 평균 39분이므로
+    허용 오차를 max(45분, horizon의 40%)로 둔다.
+    """
     pts = SERIES[cid]
-    target = pts[idx][0] + timedelta(hours=hours)
-    best = None
+    t0 = pts[idx][0]
+    target = t0 + timedelta(hours=hours)
+    tol = timedelta(minutes=max(45.0, hours * 60 * 0.4))
+    best, best_gap = None, None
     for t, p, _ in pts[idx + 1:]:
-        if t <= target:
-            best = p
-        else:
+        gap = abs(t - target)
+        if best_gap is None or gap < best_gap:
+            best, best_gap = p, gap
+        if t > target + tol:
             break
+    if best_gap is None or best_gap > tol:
+        return None
     return best
 
 
