@@ -15,7 +15,9 @@
 
 ## 전략 요약
 
-75~92% 확률 구간의 YES를 사서 +10% 익절 / -8% 손절 / 최고가 대비 5% 트레일링으로 관리한다. 진입 시간창은 기준시각까지 0~120h(5일). 비스포츠는 `endDate`, 스포츠는 `gameStartTime`이 기준시각이다.
+확률 구간의 YES를 사서 +10% 익절 / -8% 손절 / 최고가 대비 5% 트레일링으로 관리한다. 진입 시간창은 기준시각까지 0~120h(5일). 비스포츠는 `endDate`, 스포츠는 `gameStartTime`이 기준시각이다.
+
+진입 확률 구간은 `config.yaml` 기본이 75~92%지만, **운영(`polybot-yellow`)은 2026-07-28부터 env로 75~88%를 쓴다.** 근거는 [2026-07 파라미터 회고](../docs/retro/golden-cherry-2026-07-parameter-review.md) — 진입가 0.909 이상은 익절(`진입가 × 1.10`)이 $1.00을 넘어 구조적으로 발동하지 않는다.
 
 ## 코드만으로는 안 보이는 계약
 
@@ -27,19 +29,26 @@
 
 4. **해결된 시장은 스스로 정리되지 않는다.** 오더북이 사라지면 `get_midpoint`가 예외를 던지고 `execute_sell`이 매 cycle `False`만 반환한다. redeem 회계가 없어서 해결된 YES 포지션은 현금이 되지 않고 `HOLDING`으로 남는다. 정리는 `tools/wind_down.py`와 수동 redeem으로 한다.
 
-5. **`effective_min_liquidity = max(min_liquidity, buy_amount / max_order_liquidity_ratio)`.** `POLYBOT_BUY_AMOUNT`만 올리면 유동성 하한이 조용히 따라 올라가 후보가 0이 될 수 있다. 주문액을 키울 때는 `MAX_BUY_AMOUNT_USDC`와 `MAX_OPEN_NOTIONAL_USDC`도 같이 올리지 않으면 `_validate_config`가 run을 실패시킨다.
+   더 위험한 중간 상태가 있다. 해결 직후 오더북이 **완전히 죽기 전** 구간에서는 `get_midpoint`가 예외 대신 **0.50**을 돌려준다. 가격 기반 청산 3규칙에는 해결 여부 가드가 없어서, 봇은 이 0.50을 현재가로 읽고 **이미 이긴(주당 $1.00) 포지션을 손절하려 든다**. 2026-07-28 실행에서 실제로 발생했고 CLOB이 `invalid token id`로 거절해 손실을 면했다 — 봇이 막은 게 아니다. 청산 로직을 만질 때 이 가드를 먼저 넣을 것.
 
-6. **진입 기준시각이 두 종류다.** `game_start.enabled`이고 `gameStartTime`이 파싱되면 기준시각이 `game_start_time`이 되고, 이때 `exit_hours`는 진입 검사에서 0으로 강제된다. 그래서 `hours_until_resolution_at_buy`(endDate 기준)와 `hours_until_entry_deadline_at_buy`(실제 기준시각)는 행마다 의미가 다르다. **두 컬럼을 한 집계에 섞지 말 것.**
+5. **`order_fills`에 기록이 없다고 미체결이 아니다.** 계측 시작은 2026-07-11 13:43이고 그 이후에도 누락이 있다. 지갑 잔고가 유일한 권위이므로, 유령 포지션을 정리할 때는 반드시 `tools/wind_down.py status` 또는 CLOB `balance-allowance`로 확인한다. DB만 보고 `UNFILLED` 처리하면 실보유를 날린다.
 
-7. **DB는 job 단위다.** `data/<job>/trades.db`(simulation은 `trades_sim.db`), 중복 진입 방지도 DB 단위다. 같은 지갑에 다른 `--job`으로 두 번 띄우면 같은 시장을 두 번 산다. 과거 운영분은 `--job` 없이 돌아서 `default`에 있다.
+6. **대사 실패는 청산을 봉쇄한다.** `needs_reconciliation=1` 또는 `SUBMIT_OUTCOME_UNKNOWN` 상태의 intent가 있으면 같은 token/side의 신규 주문이 격리된다. 대사가 계속 실패하면 그 포지션은 청산 자체가 불가능해진다. 2026-07-28 실행에서 청산 신호 8건이 전부 이 이유로 실패했다(익절 +17.4% 포함).
 
-8. **스캔 확률은 Gamma `outcomePrices`, 청산 확률은 CLOB midpoint다.** 스캔을 통과하고도 주문 직전 midpoint 재확인에서 걸릴 수 있다.
+7. **`effective_min_liquidity = max(min_liquidity, buy_amount / max_order_liquidity_ratio)`.** `POLYBOT_BUY_AMOUNT`만 올리면 유동성 하한이 조용히 따라 올라가 후보가 0이 될 수 있다. 주문액을 키울 때는 `MAX_BUY_AMOUNT_USDC`와 `MAX_OPEN_NOTIONAL_USDC`도 같이 올리지 않으면 `_validate_config`가 run을 실패시킨다.
+
+8. **진입 기준시각이 두 종류다.** `game_start.enabled`이고 `gameStartTime`이 파싱되면 기준시각이 `game_start_time`이 되고, 이때 `exit_hours`는 진입 검사에서 0으로 강제된다. 그래서 `hours_until_resolution_at_buy`(endDate 기준)와 `hours_until_entry_deadline_at_buy`(실제 기준시각)는 행마다 의미가 다르다. **두 컬럼을 한 집계에 섞지 말 것.**
+
+9. **DB는 job 단위다.** `data/<job>/trades.db`(simulation은 `trades_sim.db`), 중복 진입 방지도 DB 단위다. 같은 지갑에 다른 `--job`으로 두 번 띄우면 같은 시장을 두 번 산다. 과거 운영분은 `--job` 없이 돌아서 `default`에 있다.
+
+10. **스캔 확률은 Gamma `outcomePrices`, 청산 확률은 CLOB midpoint다.** 스캔을 통과하고도 주문 직전 midpoint 재확인에서 걸릴 수 있다.
 
 ## 알려진 계측 공백 (2026-07-28 기준)
 
 회고 전에 반드시 확인한다. 아래는 **컬럼은 있는데 값이 없다**:
 
-- `entry_time_reference`, `sports_phase_at_buy`, `hours_until_entry_deadline_at_buy`, `minutes_until_game_start_at_buy`, `market_game_start_time` → 671행 전부 NULL. `game_start` 경로는 2026-07-22 도입 후 거래 데이터가 아직 없다. 스포츠 인플레이 관련 판단은 현재 데이터로 불가능하다.
+- `entry_time_reference`, `sports_phase_at_buy`, `hours_until_entry_deadline_at_buy`, `minutes_until_game_start_at_buy`, `market_game_start_time` → 기존 671행 전부 NULL. `game_start` 경로는 2026-07-22 도입 후 2026-07-28 20:09 스캔에서 처음으로 후보를 냈지만(`game_start_0.3h`, 테니스), 포지션 상한에 막혀 체결 데이터는 아직 0건이다. **스포츠 인플레이 관련 판단은 현재 데이터로 불가능하다.**
+- `order_fills` → 계측 시작이 2026-07-11 13:43이고 그 이후에도 누락이 있다. 항목 5 참조.
 - `market_snapshots` → 0행. `save_snapshot`은 어떤 경로에서도 호출되지 않고 `repository.py`의 `cleanup_old_snapshots`도 호출부가 없다. **가격 경로가 없으므로 경로 의존 반사실(“손절을 -15%로 했다면”)은 계산할 수 없다.** 이웃 봇 DB(`golden-nectarine`/`golden-honeydew`)의 universe snapshot을 빌려야 한다.
 
 ## 환경변수
