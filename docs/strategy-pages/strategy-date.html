@@ -50,7 +50,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
   <div class="emoji">🌴</div>
   <h1>golden-date <span class="en">— Conviction Ladder</span></h1>
   <p class="tagline">"해결이 가까울수록 비싸게, 멀수록 싸게만 favorite을 산다" — 잔여 시간에 비례한 3단 확률 밴드(사다리)로 사전 해결 수렴(pre-resolution convergence)을 수확한다.</p>
-  <div class="badges"><span>유형 <b>수렴 편승</b></span><span>상태 <b>신규 · 검증 대기</b></span><span>핵심 편향 <b>확증 편향 + favorite-longshot bias</b></span></div>
+  <div class="badges"><span>유형 <b>수렴 편승</b></span><span>상태 <b>⛔ 폐쇄 (2026-07-29)</b></span><span>핵심 편향 <b>확증 편향 + favorite-longshot bias</b></span></div>
 </header>
 <section><h2>핵심 수식</h2><pre class="formula">favorite = YES/NO 중 확률 높은 쪽,  p = favorite 가격,  h = 해결까지 잔여 시간
 
@@ -74,11 +74,11 @@ BUY if (  6 &lt; h ≤  24 AND 0.80 ≤ p ≤ 0.95)   # 밴드1
 <p><strong>banana에서 배운 것.</strong> 개수 기반 스냅샷 윈도우는 Jenkins 중단 시 "15분 윈도우"가 몇 시간을 커버하는 버그 → <strong>timestamp 기반 윈도우 + 커버리지 검증</strong>으로 수정. cold-start 시 관대한 폴백이 사실상 무전략 퇴화로 이어지던 문제는 <strong>윈도우 invalid면 진입하지 않는</strong> 원칙으로 교체하고, 대신 CLOB <code>prices-history</code> 백필로 cold start 자체를 줄인다.</p>
 </section>
 <section style="border:2px solid #c0392b;border-radius:10px;padding:16px 20px;margin:24px 0;background:var(--card)">
-<h2 style="color:#c0392b;margin-top:0">⛔ 폐쇄 권고 (2026-07-29)</h2>
+<h2 style="color:#c0392b;margin-top:0">⛔ 폐쇄 완료 (2026-07-29)</h2>
 <p>14일간 계정 <strong>−52.2%</strong>($4,730.91 → $2,260.61). 체결 733건의 실제 해결 결과 대조에서 <strong>edge −1.56pp (z=−1.08)</strong> — 양수 edge의 증거가 없다.</p>
 <p>손실의 정체는 <strong>작은 음수 edge × 회전율 14.8배</strong>다. 종결 기준 −3.1% × 14.8배 = 계좌 대비 −46%로, 실측 −52.2%와 맞는다. <code>max_positions: -1</code>(무제한)이 그 회전을 만들었다.</p>
 <p>다만 lime·fig와 달리 <strong>청산 기계는 건강하다</strong> — 실제 ROI −2.12% vs 해결까지 보유 −3.07%로 손절이 오히려 $628을 절약했다. 즉 "망가진 전략"이 아니라 <strong>"edge가 없는데 과도하게 굴린 전략"</strong>이다.</p>
-<p>그래도 최선의 파라미터 조합으로 도달 가능한 것이 <strong>본전</strong>이라 폐쇄를 권고한다. 계속할 경우의 설정은 판정 문서 §6-B 참조.</p>
+<p>그래도 최선의 파라미터 조합으로 도달 가능한 것이 <strong>본전</strong>이라 폐쇄했다.</p>
 <p><strong>결정적으로, 이 전략은 아래 "검증 계획 / 판단 기준"에 스스로 사전 등록한 시험에 이미 실패했다</strong> — 승률 ≥ 70% 요구에 실측 <strong>35.7%</strong>, 평균 손익 &gt; 0 요구에 음수. 거래 수(582건)는 기준(30건)을 19배 충족하므로 표본 부족이 아니다. 사전 등록된 <code>POLYBOT_BUY_AMOUNT=5</code> 2주 소액 관측도 건너뛰고 첫날부터 $100(20배)로 실행됐다.</p>
 <p><strong>살릴 수 있는 진입 레버는 실측으로 전부 기각됐다.</strong> 코드에는 실제 결함이 있다 — <code>excluded_categories: []</code>로 스포츠 필터가 무력화돼 체결의 70%가 스포츠이고, <code>gameStartTime</code>을 읽지 않아 시간 사다리가 <code>endDate</code>(날짜 경계)만 본다. 그런데 <strong>스포츠를 제외해도 살아나지 않는다</strong>: 비스포츠 edge <strong>−2.5pp</strong>로 오히려 더 나쁘다. 모멘텀 상한도 효과가 단조롭지 않아(−1.72% / −3.16% / −2.93%) 잡음이고, 최악 칸의 순위는 표본을 자르는 방식에 따라 뒤집힌다. <strong>양수 edge를 가진 부분표본이 존재하지 않는다.</strong></p>
 <p><strong>→ 상세: <code>docs/retro/golden-date-2026-07-verdict.md</code> (§7 코드 검증)</strong></p>
