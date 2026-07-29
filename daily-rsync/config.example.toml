@@ -1,0 +1,12 @@
+schema_version = 1
+ssh_host = "macmini-m5"
+expected_ip = "192.168.50.23"
+remote_jenkins_home = "/Users/jongwoopark/.jenkins"
+remote_staging_root = "/Users/jongwoopark/.cache/daily-rsync"
+data_root = "data"
+initial_log_days = 60
+log_retention_days = 365
+minimum_free_gb = 50
+batch_file_limit = 1000
+batch_byte_limit_gb = 2
+default_job_pattern = "polybot-*"

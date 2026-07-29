@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>daily-rsync</title>
+  <style>
+    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
+    body { margin: 0; background: #0b1020; color: #e8ecf5; }
+    main { max-width: 1180px; margin: 0 auto; padding: 32px 22px 80px; }
+    h1 { margin-bottom: 4px; } .muted { color: #94a3b8; }
+    section { background: #121a2d; border: 1px solid #26324d; border-radius: 14px;
+      padding: 20px; margin-top: 18px; }
+    button, input { border-radius: 8px; border: 1px solid #3b4a6b; padding: 10px 12px;
+      background: #17223b; color: #fff; }
+    button { cursor: pointer; background: #3156d3; border-color: #4e70e8; }
+    button.secondary { background: #17223b; }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
+    th, td { text-align: left; border-bottom: 1px solid #26324d; padding: 10px 8px; }
+    pre { overflow: auto; padding: 14px; background: #080d19; border-radius: 10px;
+      max-height: 420px; }
+    .ok { color: #65d6a6; } .warn { color: #ffcc66; }
+    input[type=text] { min-width: 220px; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>daily-rsync</h1>
+  <div class="muted">{{ ssh_host }} → {{ data_root }}</div>
+
+  <section>
+    <h2>1. 연결 확인</h2>
+    <button onclick="doctor()">Doctor</button>
+    <pre id="doctor">아직 실행하지 않았습니다.</pre>
+  </section>
+
+  <section>
+    <h2>2. Jenkins 잡 선택</h2>
+    <p class="muted">전체 목록은 metadata만 읽습니다. 상세 DB·로그는 선택한 잡만 조사합니다.</p>
+    <button onclick="loadJobs()">잡 목록 새로고침</button>
+    <table>
+      <thead><tr><th>선택</th><th>Jenkins job</th><th>현재 전략</th><th>Build</th><th>전략</th></tr></thead>
+      <tbody id="jobs"></tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>3. 계획과 동기화</h2>
+    <div class="row">
+      <input id="job" type="text" placeholder="polybot-king">
+      <input id="strategy" type="text" placeholder="golden-queen">
+      <input id="days" type="number" min="1" max="365" value="{{ initial_days }}">
+      <label><input id="safety" type="checkbox"> 안전 사본 DB 포함</label>
+      <button onclick="makePlan()">용량 계획</button>
+      <button id="sync" onclick="startSync()" disabled>동기화 시작</button>
+    </div>
+    <pre id="plan">잡과 전략을 선택하세요.</pre>
+    <pre id="progress">진행 대기</pre>
+  </section>
+
+  <section>
+    <h2>4. 계좌 deployment epoch</h2>
+    <p class="muted">같은 Jenkins 잡이 다른 계좌나 전략으로 전환될 때 적용 시작 build를 기록합니다.</p>
+    <div class="row">
+      <input id="accountAlias" type="text" placeholder="golden-king">
+      <input id="firstBuild" type="number" min="1" value="1">
+      <button onclick="saveEpoch()">계좌 구간 저장</button>
+      <button class="secondary" onclick="loadEpochs()">저장 구간 보기</button>
+    </div>
+    <pre id="epochs">아직 등록하지 않았습니다.</pre>
+  </section>
+
+  <section>
+    <h2>5. AI bundle</h2>
+    <div class="row">
+      <input id="fromDate" type="date">
+      <input id="toDate" type="date">
+      <button onclick="makeBundle()">DB+로그 bundle 생성</button>
+    </div>
+    <pre id="bundle">동기화된 자료를 선택 기간의 독립 폴더로 만듭니다.</pre>
+  </section>
+</main>
+<script>
+let currentPlan = null;
+const pretty = value => JSON.stringify(value, null, 2);
+async function api(url, options) {
+  const response = await fetch(url, options);
+  const body = await response.json();
+  if (!response.ok) throw new Error(body.detail || pretty(body));
+  return body;
+}
+async function doctor() {
+  const node = document.getElementById('doctor'); node.textContent = '확인 중...';
+  try { node.textContent = pretty(await api('/api/doctor')); }
+  catch (e) { node.textContent = e.message; }
+}
+async function loadJobs() {
+  const body = document.getElementById('jobs');
+  body.innerHTML = '<tr><td colspan="5">원격 metadata를 읽는 중...</td></tr>';
+  try {
+    const jobs = await api('/api/jobs');
+    body.innerHTML = '';
+    for (const item of jobs.filter(x => x.name.startsWith('polybot-'))) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `<td><button class="secondary">선택</button></td><td>${item.name}</td>
+        <td>${item.current_strategy || '미분류'}</td><td>${item.build_count}</td>
+        <td>${item.strategies.join(', ')}</td>`;
+      tr.querySelector('button').onclick = () => {
+        document.getElementById('job').value = item.name;
+        document.getElementById('strategy').value = item.current_strategy || '';
+      };
+      body.appendChild(tr);
+    }
+  } catch (e) { body.innerHTML = `<tr><td colspan="5">${e.message}</td></tr>`; }
+}
+async function makePlan() {
+  const node = document.getElementById('plan'); node.textContent = '선택한 잡을 상세 조사 중...';
+  document.getElementById('sync').disabled = true;
+  try {
+    currentPlan = await api('/api/plans', {method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({job:job.value, strategy:strategy.value || null,
+        days:Number(days.value), include_safety_databases:safety.checked})});
+    node.textContent = pretty(currentPlan);
+    document.getElementById('sync').disabled = false;
+  } catch (e) { node.textContent = e.message; }
+}
+async function startSync() {
+  if (!currentPlan) return;
+  const node = document.getElementById('progress'); node.textContent = '작업 등록 중...';
+  try {
+    const started = await api(`/api/plans/${currentPlan.plan_id}/sync`, {method:'POST'});
+    const poll = setInterval(async () => {
+      const state = await api(`/api/tasks/${started.task_id}`);
+      node.textContent = pretty(state);
+      if (['SUCCESS','PARTIAL','FAILED'].includes(state.status)) clearInterval(poll);
+    }, 1500);
+  } catch (e) { node.textContent = e.message; }
+}
+async function makeBundle() {
+  const node = document.getElementById('bundle'); node.textContent = 'bundle 생성 중...';
+  try {
+    node.textContent = pretty(await api('/api/bundles', {method:'POST',
+      headers:{'Content-Type':'application/json'}, body:JSON.stringify({
+        job:job.value, strategy:strategy.value, from_date:fromDate.value, to_date:toDate.value})}));
+  } catch (e) { node.textContent = e.message; }
+}
+async function saveEpoch() {
+  const node = document.getElementById('epochs'); node.textContent = '저장 중...';
+  try {
+    await api('/api/account-epochs', {method:'POST', headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({job:job.value, strategy:strategy.value,
+        account_alias:accountAlias.value, first_build:Number(firstBuild.value)})});
+    await loadEpochs();
+  } catch (e) { node.textContent = e.message; }
+}
+async function loadEpochs() {
+  const node = document.getElementById('epochs');
+  try { node.textContent = pretty(await api(`/api/account-epochs?job=${encodeURIComponent(job.value)}`)); }
+  catch (e) { node.textContent = e.message; }
+}
+</script>
+</body>
+</html>
