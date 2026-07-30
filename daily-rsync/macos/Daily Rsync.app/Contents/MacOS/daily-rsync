@@ -1,0 +1,62 @@
+#!/bin/zsh
+set -u
+
+APP_CONTENTS="$(cd "$(dirname "$0")/.." && pwd)"
+MARKER="$APP_CONTENTS/Resources/project-root.txt"
+
+if [[ -n "${DAILY_RSYNC_PROJECT_ROOT:-}" && -d "$DAILY_RSYNC_PROJECT_ROOT" ]]; then
+  PROJECT_ROOT="$DAILY_RSYNC_PROJECT_ROOT"
+elif [[ -f "$MARKER" ]]; then
+  PROJECT_ROOT="$(head -n 1 "$MARKER")"
+else
+  PROJECT_ROOT="$(cd "$APP_CONTENTS/../../.." && pwd)"
+fi
+
+UV="${DAILY_RSYNC_UV:-}"
+if [[ -z "$UV" ]]; then
+  for candidate in "$HOME/.local/bin/uv" /opt/homebrew/bin/uv /usr/local/bin/uv; do
+    if [[ -x "$candidate" ]]; then
+      UV="$candidate"
+      break
+    fi
+  done
+fi
+URL="http://127.0.0.1:8765"
+LOG="$PROJECT_ROOT/data/ui-server.log"
+PID_FILE="$PROJECT_ROOT/data/ui-server.pid"
+
+alert() {
+  /usr/bin/osascript -e "display alert \"Daily Rsync\" message \"$1\" as critical" >/dev/null
+}
+
+if [[ ! -d "$PROJECT_ROOT" || ! -f "$PROJECT_ROOT/pyproject.toml" ]]; then
+  alert "프로젝트 폴더를 찾지 못했습니다: $PROJECT_ROOT"
+  exit 1
+fi
+if [[ -z "$UV" || ! -x "$UV" ]]; then
+  alert "uv 실행 파일을 찾지 못했습니다. Homebrew 또는 ~/.local/bin 설치를 확인하세요."
+  exit 1
+fi
+
+if /usr/bin/curl -fsS "$URL/api/status" >/dev/null 2>&1; then
+  /usr/bin/open "$URL"
+  exit 0
+fi
+
+/bin/mkdir -p "$PROJECT_ROOT/data"
+cd "$PROJECT_ROOT" || exit 1
+/usr/bin/nohup "$UV" run daily-rsync serve --no-open >>"$LOG" 2>&1 &
+SERVER_PID=$!
+echo "$SERVER_PID" >"$PID_FILE"
+
+for _ in {1..80}; do
+  if /usr/bin/curl -fsS "$URL/api/status" >/dev/null 2>&1; then
+    /usr/bin/open "$URL"
+    wait "$SERVER_PID"
+    exit $?
+  fi
+  /bin/sleep 0.25
+done
+
+alert "웹 UI를 시작하지 못했습니다. 로그를 확인하세요: $LOG"
+exit 1

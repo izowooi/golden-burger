@@ -127,13 +127,19 @@ class Catalog:
                 """,
                 (artifact.source_key,),
             ).fetchone()
-        if row is None or row["status"] != "SYNCED" or not row["local_path"]:
-            return False
-        return (
-            int(row["remote_size_bytes"]) == artifact.size_bytes
-            and int(row["remote_mtime_ns"]) == artifact.mtime_ns
-            and Path(row["local_path"]).exists()
-        )
+            if row is None or not row["local_path"]:
+                return False
+            matches = (
+                int(row["remote_size_bytes"]) == artifact.size_bytes
+                and int(row["remote_mtime_ns"]) == artifact.mtime_ns
+                and Path(row["local_path"]).exists()
+            )
+            if matches and row["status"] == "SOURCE_MISSING":
+                connection.execute(
+                    "UPDATE artifacts SET status = 'SYNCED' WHERE source_key = ?",
+                    (artifact.source_key,),
+                )
+            return matches and row["status"] in {"SYNCED", "SOURCE_MISSING"}
 
     def save_inventory(
         self, *, source: str, job: str, current_strategy: str | None, payload: dict[str, Any]
@@ -383,3 +389,66 @@ class Catalog:
                     parameters,
                 )
             )
+
+    def list_pins(
+        self, *, job: str | None = None, strategy: str | None = None
+    ) -> list[sqlite3.Row]:
+        clauses: list[str] = []
+        parameters: list[Any] = []
+        if job:
+            clauses.append("a.jenkins_job = ?")
+            parameters.append(job)
+        if strategy:
+            clauses.append("a.strategy = ?")
+            parameters.append(strategy)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    f"""
+                    SELECT p.*, a.jenkins_job, a.strategy, a.runtime_job, a.kind
+                    FROM pins p
+                    JOIN artifacts a ON a.source_key = p.source_key
+                    {where}
+                    ORDER BY p.created_at DESC
+                    """,
+                    parameters,
+                )
+            )
+
+    def list_sync_runs(self, *, limit: int = 20) -> list[sqlite3.Row]:
+        with self.connect() as connection:
+            return list(
+                connection.execute(
+                    """
+                    SELECT * FROM sync_runs
+                    ORDER BY started_at DESC LIMIT ?
+                    """,
+                    (limit,),
+                )
+            )
+
+    def dashboard_summary(self) -> dict[str, Any]:
+        with self.connect() as connection:
+            artifact_rows = connection.execute(
+                """
+                SELECT status, kind, COUNT(*) AS count,
+                       COALESCE(SUM(remote_size_bytes), 0) AS bytes
+                FROM artifacts GROUP BY status, kind
+                """
+            ).fetchall()
+            job_count = connection.execute("SELECT COUNT(*) FROM jobs").fetchone()[0]
+            latest_run = connection.execute(
+                """
+                SELECT * FROM sync_runs ORDER BY started_at DESC LIMIT 1
+                """
+            ).fetchone()
+            pin_count = connection.execute("SELECT COUNT(*) FROM pins").fetchone()[0]
+        return {
+            "jobs": int(job_count),
+            "pins": int(pin_count),
+            "artifacts": [{key: row[key] for key in row.keys()} for row in artifact_rows],
+            "latest_run": (
+                {key: latest_run[key] for key in latest_run.keys()} if latest_run else None
+            ),
+        }

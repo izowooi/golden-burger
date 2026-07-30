@@ -1,5 +1,14 @@
 # 운영과 복구
 
+## 일상 실행
+
+`~/Applications/Daily Rsync.app`을 Finder에서 더블클릭한다. 앱은 이미 실행 중인
+로컬 서버가 있으면 새 프로세스를 만들지 않고 브라우저만 다시 연다. 시작 로그와 PID는
+각각 `data/ui-server.log`, `data/ui-server.pid`에 기록되며 둘 다 Git에서 제외된다.
+
+웹 UI와 CLI는 같은 `data/catalog.sqlite3`와 artifact 경로를 사용한다. 따라서 UI에서
+동기화한 뒤 CLI나 AI가 즉시 `verify`, `bundle`, 분석 명령을 이어서 사용할 수 있다.
+
 ## 정상 실행
 
 1. `doctor`

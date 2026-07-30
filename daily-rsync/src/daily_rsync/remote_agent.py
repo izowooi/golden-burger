@@ -165,10 +165,19 @@ def scan(args):
         latest_build_strategy = None
         detailed = bool(args.job)
         if builds_dir.is_dir():
-            for build_dir in builds_dir.iterdir():
-                if build_dir.is_dir() and build_dir.name.isdigit():
-                    build_numbers.append(int(build_dir.name))
-            build_numbers.sort()
+            if detailed:
+                for build_dir in builds_dir.iterdir():
+                    if build_dir.is_dir() and build_dir.name.isdigit():
+                        build_numbers.append(int(build_dir.name))
+                build_numbers.sort()
+            else:
+                next_build_path = job_dir / "nextBuildNumber"
+                try:
+                    latest_number = int(next_build_path.read_text().strip()) - 1
+                except (OSError, ValueError):
+                    latest_number = 0
+                if latest_number > 0:
+                    build_numbers = [latest_number]
             numbers_to_scan = build_numbers if detailed else build_numbers[-1:]
             for number in numbers_to_scan:
                 log_path = builds_dir / str(number) / "log"
@@ -222,7 +231,7 @@ def scan(args):
                 candidate = (path.stat().st_mtime_ns, strategy)
                 if latest_db is None or candidate[0] > latest_db[0]:
                     latest_db = candidate
-            for path in workspace.glob("golden-*/data/*/logs/*"):
+            for path in workspace.glob("golden-*/data/*/logs/*") if detailed else []:
                 if not path.is_file() or path.is_symlink():
                     continue
                 value = path.stat()
@@ -241,7 +250,7 @@ def scan(args):
                             runtime_job=runtime_job,
                         )
                     )
-            for path in workspace.glob("golden-*/data/*/trades_*.csv"):
+            for path in workspace.glob("golden-*/data/*/trades_*.csv") if detailed else []:
                 if not path.is_file() or path.is_symlink():
                     continue
                 strategy = path.parents[2].name
@@ -262,7 +271,9 @@ def scan(args):
             {
                 "name": job,
                 "workspace": str(workspace),
-                "build_count": len(build_numbers),
+                "build_count": (
+                    len(build_numbers) if detailed else (build_numbers[-1] if build_numbers else 0)
+                ),
                 "min_build": min(build_numbers) if build_numbers else None,
                 "max_build": max(build_numbers) if build_numbers else None,
                 "current_strategy": current_strategy,

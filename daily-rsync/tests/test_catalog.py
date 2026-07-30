@@ -82,3 +82,6 @@ def test_missing_source_keeps_local_file_and_updates_status(tmp_path: Path) -> N
     assert changed == 1
     assert local.is_file()
     assert catalog.get_artifact(item.source_key)["status"] == "SOURCE_MISSING"
+
+    assert catalog.artifact_is_current(item)
+    assert catalog.get_artifact(item.source_key)["status"] == "SYNCED"

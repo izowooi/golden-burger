@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import webbrowser
 from datetime import date
 from pathlib import Path
@@ -238,6 +239,29 @@ def serve(
     if open_browser:
         webbrowser.open(f"http://127.0.0.1:{port}")
     uvicorn.run(create_app(load_config(config)), host="127.0.0.1", port=port)
+
+
+@app.command("install-app")
+def install_app(
+    destination: Annotated[
+        Path | None, typer.Option(help="macOS app installation directory")
+    ] = None,
+) -> None:
+    """Install a Finder-launchable Daily Rsync.app into ~/Applications."""
+    config = load_config()
+    source = config.project_root / "macos" / "Daily Rsync.app"
+    if not source.is_dir():
+        raise typer.BadParameter(f"app bundle not found: {source}")
+    install_root = (destination or Path.home() / "Applications").expanduser()
+    install_root.mkdir(parents=True, exist_ok=True)
+    target = install_root / source.name
+    shutil.copytree(source, target, dirs_exist_ok=True)
+    executable = target / "Contents" / "MacOS" / "daily-rsync"
+    executable.chmod(0o755)
+    project_marker = target / "Contents" / "Resources" / "project-root.txt"
+    project_marker.parent.mkdir(parents=True, exist_ok=True)
+    project_marker.write_text(f"{config.project_root}\n", encoding="utf-8")
+    typer.echo(str(target))
 
 
 if __name__ == "__main__":

@@ -4,7 +4,43 @@ Jenkins Mac mini의 전략 SQLite와 로그를 MacBook으로 안전하게 pull�
 동기화 앱입니다. AI가 Jenkins에 접속하는 구조가 아니라, 사용자가 이 앱의 버튼 또는
 CLI를 실행할 때만 `ssh`와 `rsync`가 동작합니다.
 
-## 빠른 시작
+## 가장 쉬운 실행 방법
+
+Finder의 `응용 프로그램`에서 **Daily Rsync**를 더블클릭하면 로컬 웹 UI가 열립니다.
+앱은 `127.0.0.1:8765`에서만 실행되며 외부 네트워크에는 공개되지 않습니다.
+
+최초 한 번 앱을 설치하는 명령은 다음과 같습니다. 저장소에 포함된 `.app`을
+`~/Applications/Daily Rsync.app`으로 복사하고 현재 프로젝트 경로를 연결합니다.
+
+```bash
+cd daily-rsync
+uv sync --frozen
+uv run daily-rsync install-app
+open "$HOME/Applications/Daily Rsync.app"
+```
+
+이 설치는 현재 작업 과정에서 이미 수행하므로, 이후에는 터미널 명령을 기억할 필요가
+없습니다. 서버가 이미 실행 중이면 앱은 기존 화면만 다시 열고 중복 서버를 만들지
+않습니다.
+
+## 웹 UI에서 할 수 있는 일
+
+- Mac mini SSH와 디스크 상태 확인
+- 전체 `polybot-*` Job 검색 및 무작위 선택
+- 현재/과거 전략과 로그 기간, 안전 사본 DB 옵션 선택
+- 증분 전송 계획의 파일 수·건너뜀 수·최대 용량 확인
+- 동기화 진행률과 기술 로그 확인
+- 동기화된 catalog 탐색과 Finder 열기
+- SQLite DB 무결성 검사와 snapshot pin
+- 계좌 deployment epoch 기록
+- 365일 retention 미리보기와 확인 후 적용
+- DB가 포함된 AI evidence bundle 생성
+- 최근 동기화 결과 확인
+
+오래 걸리는 동기화·무결성 검사·bundle 작업은 화면을 멈추지 않고 백그라운드에서
+순서대로 실행합니다.
+
+## 개발 또는 CLI 실행
 
 ```bash
 cd daily-rsync
@@ -19,6 +55,9 @@ uv run daily-rsync serve --open
 Polymarket credential을 이 프로젝트 설정에 넣지 않습니다.
 
 ## CLI 사용법
+
+CLI는 웹 UI와 같은 Python 엔진과 catalog를 사용합니다. AI 자동화, cron, scheduled
+작업에서는 계속 아래 명령을 사용할 수 있습니다.
 
 ```bash
 # 접속과 디스크 확인

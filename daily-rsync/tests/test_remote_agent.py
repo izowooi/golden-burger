@@ -80,6 +80,43 @@ def test_scan_preserves_job_strategy_and_runtime_identity(tmp_path: Path) -> Non
     assert database_record["canonical"] is True
 
 
+def test_job_list_uses_next_build_number_without_full_history(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job_root = home / "jobs" / "polybot-king"
+    latest = job_root / "builds" / "725"
+    latest.mkdir(parents=True)
+    (job_root / "nextBuildNumber").write_text("726\n", encoding="utf-8")
+    (latest / "log").write_text(
+        "[RUN_AUDIT] 시작 strategy=golden-queen\nFinished: SUCCESS\n",
+        encoding="utf-8",
+    )
+    (latest / "build.xml").write_text("<build><result>SUCCESS</result></build>", encoding="utf-8")
+    database = (
+        home
+        / "workspace"
+        / "polybot-king"
+        / "golden-queen"
+        / "data"
+        / "queen-live-12h"
+        / "trades.db"
+    )
+    make_db(database)
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--cutoff-epoch",
+        "0",
+    )
+    job = payload["jobs"][0]
+
+    assert job["build_count"] == 725
+    assert job["max_build"] == 725
+    assert job["current_strategy"] == "golden-queen"
+    assert job["artifacts"] == []
+
+
 def test_snapshot_is_consistent_and_cleanup_is_scoped(tmp_path: Path) -> None:
     home = tmp_path / ".jenkins"
     database = (

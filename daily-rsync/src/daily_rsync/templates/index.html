@@ -3,162 +3,220 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>daily-rsync</title>
-  <style>
-    :root { color-scheme: dark; font-family: ui-sans-serif, system-ui, sans-serif; }
-    body { margin: 0; background: #0b1020; color: #e8ecf5; }
-    main { max-width: 1180px; margin: 0 auto; padding: 32px 22px 80px; }
-    h1 { margin-bottom: 4px; } .muted { color: #94a3b8; }
-    section { background: #121a2d; border: 1px solid #26324d; border-radius: 14px;
-      padding: 20px; margin-top: 18px; }
-    button, input { border-radius: 8px; border: 1px solid #3b4a6b; padding: 10px 12px;
-      background: #17223b; color: #fff; }
-    button { cursor: pointer; background: #3156d3; border-color: #4e70e8; }
-    button.secondary { background: #17223b; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
-    table { width: 100%; border-collapse: collapse; margin-top: 14px; }
-    th, td { text-align: left; border-bottom: 1px solid #26324d; padding: 10px 8px; }
-    pre { overflow: auto; padding: 14px; background: #080d19; border-radius: 10px;
-      max-height: 420px; }
-    .ok { color: #65d6a6; } .warn { color: #ffcc66; }
-    input[type=text] { min-width: 220px; }
-  </style>
+  <meta name="color-scheme" content="light">
+  <title>Daily Rsync</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/static/app.css">
+  <script defer src="/static/app.js"></script>
 </head>
 <body>
-<main>
-  <h1>daily-rsync</h1>
-  <div class="muted">{{ ssh_host }} → {{ data_root }}</div>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">↙</div>
+        <div>
+          <h1>Daily Rsync</h1>
+          <p>Jenkins evidence, safely on your Mac.</p>
+        </div>
+      </div>
+      <div class="connection">
+        <span id="connectionDot" class="status-dot idle"></span>
+        <span id="connectionText">{{ ssh_host }}</span>
+        <button class="button ghost compact" type="button" data-action="doctor">연결 확인</button>
+      </div>
+    </header>
 
-  <section>
-    <h2>1. 연결 확인</h2>
-    <button onclick="doctor()">Doctor</button>
-    <pre id="doctor">아직 실행하지 않았습니다.</pre>
-  </section>
+    <main>
+      <section class="hero">
+        <div>
+          <span class="eyebrow">LOCAL EVIDENCE WORKSPACE</span>
+          <h2>필요한 Job만 고르고,<br>변경된 자료만 가져오세요.</h2>
+          <p>실행 중인 SQLite는 안전한 snapshot으로 복제하고, 이미 받은 로그는 건너뜁니다.</p>
+        </div>
+        <div class="hero-actions">
+          <button class="button primary large" type="button" data-action="load-jobs">
+            <span>Job 불러오기</span><span aria-hidden="true">→</span>
+          </button>
+          <button class="button secondary" type="button" data-action="random-job">무작위 Job 선택</button>
+        </div>
+      </section>
 
-  <section>
-    <h2>2. Jenkins 잡 선택</h2>
-    <p class="muted">전체 목록은 metadata만 읽습니다. 상세 DB·로그는 선택한 잡만 조사합니다.</p>
-    <button onclick="loadJobs()">잡 목록 새로고침</button>
-    <table>
-      <thead><tr><th>선택</th><th>Jenkins job</th><th>현재 전략</th><th>Build</th><th>전략</th></tr></thead>
-      <tbody id="jobs"></tbody>
-    </table>
-  </section>
+      <section class="metrics" aria-label="로컬 저장소 상태">
+        <article class="metric">
+          <span>동기화 Job</span><strong id="metricJobs">—</strong><small>catalog 기준</small>
+        </article>
+        <article class="metric">
+          <span>보관 artifact</span><strong id="metricArtifacts">—</strong><small id="metricBreakdown">DB · logs</small>
+        </article>
+        <article class="metric">
+          <span>로컬 여유 공간</span><strong id="metricFree">—</strong><small>안전선 {{ minimum_free_gb }} GB</small>
+        </article>
+        <article class="metric">
+          <span>최근 실행</span><strong id="metricRun">—</strong><small id="metricRunTime">아직 없음</small>
+        </article>
+      </section>
 
-  <section>
-    <h2>3. 계획과 동기화</h2>
-    <div class="row">
-      <input id="job" type="text" placeholder="polybot-king">
-      <input id="strategy" type="text" placeholder="golden-queen">
-      <input id="days" type="number" min="1" max="365" value="{{ initial_days }}">
-      <label><input id="safety" type="checkbox"> 안전 사본 DB 포함</label>
-      <button onclick="makePlan()">용량 계획</button>
-      <button id="sync" onclick="startSync()" disabled>동기화 시작</button>
-    </div>
-    <pre id="plan">잡과 전략을 선택하세요.</pre>
-    <pre id="progress">진행 대기</pre>
-  </section>
+      <div class="workspace">
+        <aside class="sidebar card">
+          <div class="section-heading">
+            <div><span class="step">01</span><h3>Jenkins Job</h3></div>
+            <button class="icon-button" type="button" title="새로고침" data-action="load-jobs">↻</button>
+          </div>
+          <label class="search">
+            <span aria-hidden="true">⌕</span>
+            <input id="jobSearch" type="search" placeholder="Job 이름 검색">
+          </label>
+          <div id="jobList" class="job-list">
+            <div class="empty compact-empty">Job 목록을 불러오세요.</div>
+          </div>
+          <button class="button ghost full" type="button" data-action="random-job">🎲 무작위로 하나 선택</button>
+        </aside>
 
-  <section>
-    <h2>4. 계좌 deployment epoch</h2>
-    <p class="muted">같은 Jenkins 잡이 다른 계좌나 전략으로 전환될 때 적용 시작 build를 기록합니다.</p>
-    <div class="row">
-      <input id="accountAlias" type="text" placeholder="golden-king">
-      <input id="firstBuild" type="number" min="1" value="1">
-      <button onclick="saveEpoch()">계좌 구간 저장</button>
-      <button class="secondary" onclick="loadEpochs()">저장 구간 보기</button>
-    </div>
-    <pre id="epochs">아직 등록하지 않았습니다.</pre>
-  </section>
+        <div class="content">
+          <section class="card sync-card">
+            <div class="section-heading">
+              <div><span class="step">02</span><h3>동기화 준비</h3></div>
+              <span id="selectionBadge" class="badge neutral">Job 미선택</span>
+            </div>
 
-  <section>
-    <h2>5. AI bundle</h2>
-    <div class="row">
-      <input id="fromDate" type="date">
-      <input id="toDate" type="date">
-      <button onclick="makeBundle()">DB+로그 bundle 생성</button>
-    </div>
-    <pre id="bundle">동기화된 자료를 선택 기간의 독립 폴더로 만듭니다.</pre>
-  </section>
-</main>
-<script>
-let currentPlan = null;
-const pretty = value => JSON.stringify(value, null, 2);
-async function api(url, options) {
-  const response = await fetch(url, options);
-  const body = await response.json();
-  if (!response.ok) throw new Error(body.detail || pretty(body));
-  return body;
-}
-async function doctor() {
-  const node = document.getElementById('doctor'); node.textContent = '확인 중...';
-  try { node.textContent = pretty(await api('/api/doctor')); }
-  catch (e) { node.textContent = e.message; }
-}
-async function loadJobs() {
-  const body = document.getElementById('jobs');
-  body.innerHTML = '<tr><td colspan="5">원격 metadata를 읽는 중...</td></tr>';
-  try {
-    const jobs = await api('/api/jobs');
-    body.innerHTML = '';
-    for (const item of jobs.filter(x => x.name.startsWith('polybot-'))) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = `<td><button class="secondary">선택</button></td><td>${item.name}</td>
-        <td>${item.current_strategy || '미분류'}</td><td>${item.build_count}</td>
-        <td>${item.strategies.join(', ')}</td>`;
-      tr.querySelector('button').onclick = () => {
-        document.getElementById('job').value = item.name;
-        document.getElementById('strategy').value = item.current_strategy || '';
-      };
-      body.appendChild(tr);
-    }
-  } catch (e) { body.innerHTML = `<tr><td colspan="5">${e.message}</td></tr>`; }
-}
-async function makePlan() {
-  const node = document.getElementById('plan'); node.textContent = '선택한 잡을 상세 조사 중...';
-  document.getElementById('sync').disabled = true;
-  try {
-    currentPlan = await api('/api/plans', {method:'POST', headers:{'Content-Type':'application/json'},
-      body: JSON.stringify({job:job.value, strategy:strategy.value || null,
-        days:Number(days.value), include_safety_databases:safety.checked})});
-    node.textContent = pretty(currentPlan);
-    document.getElementById('sync').disabled = false;
-  } catch (e) { node.textContent = e.message; }
-}
-async function startSync() {
-  if (!currentPlan) return;
-  const node = document.getElementById('progress'); node.textContent = '작업 등록 중...';
-  try {
-    const started = await api(`/api/plans/${currentPlan.plan_id}/sync`, {method:'POST'});
-    const poll = setInterval(async () => {
-      const state = await api(`/api/tasks/${started.task_id}`);
-      node.textContent = pretty(state);
-      if (['SUCCESS','PARTIAL','FAILED'].includes(state.status)) clearInterval(poll);
-    }, 1500);
-  } catch (e) { node.textContent = e.message; }
-}
-async function makeBundle() {
-  const node = document.getElementById('bundle'); node.textContent = 'bundle 생성 중...';
-  try {
-    node.textContent = pretty(await api('/api/bundles', {method:'POST',
-      headers:{'Content-Type':'application/json'}, body:JSON.stringify({
-        job:job.value, strategy:strategy.value, from_date:fromDate.value, to_date:toDate.value})}));
-  } catch (e) { node.textContent = e.message; }
-}
-async function saveEpoch() {
-  const node = document.getElementById('epochs'); node.textContent = '저장 중...';
-  try {
-    await api('/api/account-epochs', {method:'POST', headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({job:job.value, strategy:strategy.value,
-        account_alias:accountAlias.value, first_build:Number(firstBuild.value)})});
-    await loadEpochs();
-  } catch (e) { node.textContent = e.message; }
-}
-async function loadEpochs() {
-  const node = document.getElementById('epochs');
-  try { node.textContent = pretty(await api(`/api/account-epochs?job=${encodeURIComponent(job.value)}`)); }
-  catch (e) { node.textContent = e.message; }
-}
-</script>
+            <div id="selectionEmpty" class="empty">
+              <div class="empty-icon">⌁</div>
+              <strong>왼쪽에서 Jenkins Job을 선택하세요.</strong>
+              <span>현재 전략과 저장 용량을 확인한 뒤 전송 계획을 만들 수 있습니다.</span>
+            </div>
+
+            <div id="selectionPanel" class="hidden">
+              <div class="selected-summary">
+                <div><span>Jenkins Job</span><strong id="selectedJob">—</strong></div>
+                <div><span>전략</span><strong id="selectedStrategy">—</strong></div>
+                <div><span>Build</span><strong id="selectedBuilds">—</strong></div>
+              </div>
+
+              <div class="form-grid">
+                <label>전략
+                  <select id="strategySelect"></select>
+                </label>
+                <label>로그 범위
+                  <select id="daysSelect">
+                    <option value="7">최근 7일</option>
+                    <option value="30">최근 30일</option>
+                    <option value="{{ initial_days }}" selected>최근 {{ initial_days }}일</option>
+                    <option value="180">최근 180일</option>
+                    <option value="365">최근 365일</option>
+                  </select>
+                </label>
+                <label class="checkbox-field">
+                  <input id="safetyDatabase" type="checkbox">
+                  <span><strong>안전 사본 DB 포함</strong><small>pre-* 백업까지 가져옵니다.</small></span>
+                </label>
+              </div>
+
+              <div class="action-row">
+                <button class="button primary" type="button" data-action="make-plan">전송 계획 만들기</button>
+                <button class="button secondary" type="button" data-action="verify">로컬 무결성 검사</button>
+              </div>
+            </div>
+
+            <div id="planPanel" class="plan-panel hidden">
+              <div class="plan-stats">
+                <div><span>새로 전송</span><strong id="planTransfer">0</strong></div>
+                <div><span>건너뜀</span><strong id="planSkipped">0</strong></div>
+                <div><span>최대 전송량</span><strong id="planBytes">0 B</strong></div>
+              </div>
+              <div id="planNotice" class="notice safe">계획을 확인한 뒤 동기화를 시작하세요.</div>
+              <details>
+                <summary>전송 대상 자세히 보기</summary>
+                <div id="planArtifacts" class="artifact-list"></div>
+              </details>
+              <button id="syncButton" class="button primary large full" type="button" data-action="start-sync">
+                동기화 시작
+              </button>
+            </div>
+          </section>
+
+          <section id="taskCard" class="card task-card hidden">
+            <div class="section-heading">
+              <div><span class="step">03</span><h3 id="taskTitle">작업 진행</h3></div>
+              <span id="taskStatus" class="badge working">준비 중</span>
+            </div>
+            <div class="progress-track"><div id="taskProgress" class="progress-value"></div></div>
+            <div class="task-meta">
+              <span id="taskPhase">작업을 등록하고 있습니다.</span>
+              <strong id="taskCount">0 / 0</strong>
+            </div>
+            <details>
+              <summary>기술 로그 보기</summary>
+              <pre id="taskRaw"></pre>
+            </details>
+          </section>
+
+          <section class="card tools-card">
+            <div class="section-heading">
+              <div><span class="step">04</span><h3>자료 관리</h3></div>
+              <span class="muted">선택한 Job에 적용</span>
+            </div>
+            <div class="tabs" role="tablist">
+              <button class="tab active" type="button" data-tab="catalog">Catalog</button>
+              <button class="tab" type="button" data-tab="bundle">AI Bundle</button>
+              <button class="tab" type="button" data-tab="epoch">계좌 구간</button>
+              <button class="tab" type="button" data-tab="retention">보존 정책</button>
+            </div>
+
+            <div id="tab-catalog" class="tab-panel active">
+              <div class="tool-header">
+                <p>동기화된 DB와 로그를 확인하고, 중요한 DB snapshot을 고정합니다.</p>
+                <button class="button secondary compact" type="button" data-action="load-catalog">목록 새로고침</button>
+              </div>
+              <div id="catalogList" class="data-list"><div class="empty compact-empty">Job을 선택하세요.</div></div>
+            </div>
+
+            <div id="tab-bundle" class="tab-panel">
+              <p>선택 기간의 DB와 로그를 AI 분석용 독립 폴더로 만듭니다.</p>
+              <div class="form-grid two">
+                <label>시작일<input id="bundleFrom" type="date"></label>
+                <label>종료일<input id="bundleTo" type="date"></label>
+              </div>
+              <div class="action-row">
+                <button class="button primary" type="button" data-action="bundle">Bundle 만들기</button>
+                <button id="openBundleButton" class="button secondary hidden" type="button" data-action="open-bundle">Finder에서 보기</button>
+              </div>
+              <div id="bundleResult" class="notice neutral">기간을 선택하세요.</div>
+            </div>
+
+            <div id="tab-epoch" class="tab-panel">
+              <p>같은 Jenkins Job이 다른 전략이나 계좌로 전환되는 시점을 build 번호로 기록합니다.</p>
+              <div class="form-grid two">
+                <label>계좌 별칭<input id="accountAlias" type="text" placeholder="golden-king"></label>
+                <label>적용 시작 Build<input id="firstBuild" type="number" min="1" value="1"></label>
+              </div>
+              <div class="action-row">
+                <button class="button primary" type="button" data-action="save-epoch">구간 저장</button>
+                <button class="button secondary" type="button" data-action="load-epochs">기록 새로고침</button>
+              </div>
+              <div id="epochList" class="data-list"></div>
+            </div>
+
+            <div id="tab-retention" class="tab-panel">
+              <p>기본 보존 기간을 지난 로그만 정리합니다. DB, pin, bundle 포함 자료는 보호됩니다.</p>
+              <div id="retentionResult" class="notice neutral">먼저 정리 대상을 미리 확인하세요.</div>
+              <div class="action-row">
+                <button class="button secondary" type="button" data-action="retention-preview">정리 대상 미리보기</button>
+                <button class="button danger" type="button" data-action="retention-apply">확인 후 실제 정리</button>
+              </div>
+            </div>
+          </section>
+
+          <section class="card history-card">
+            <div class="section-heading">
+              <div><span class="step">05</span><h3>최근 동기화</h3></div>
+              <button class="icon-button" type="button" title="새로고침" data-action="load-runs">↻</button>
+            </div>
+            <div id="runList" class="data-list"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 </body>
 </html>

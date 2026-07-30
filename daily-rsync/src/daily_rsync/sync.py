@@ -101,12 +101,13 @@ class SyncService:
                 current_strategy=inventory.current_strategy,
                 payload=asdict(inventory),
             )
-            self.catalog.mark_source_missing(
-                source=self.config.ssh_host,
-                job=inventory.name,
-                observed_paths={artifact.remote_path for artifact in inventory.artifacts},
-                log_cutoff_ns=int(cutoff.timestamp() * 1_000_000_000),
-            )
+            if job is not None:
+                self.catalog.mark_source_missing(
+                    source=self.config.ssh_host,
+                    job=inventory.name,
+                    observed_paths={artifact.remote_path for artifact in inventory.artifacts},
+                    log_cutoff_ns=int(cutoff.timestamp() * 1_000_000_000),
+                )
         return inventories
 
     def create_plan(

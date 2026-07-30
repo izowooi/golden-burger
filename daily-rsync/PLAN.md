@@ -15,6 +15,7 @@ Jenkins job과 전략을 선택하고, 이미 받은 자료를 다시 받지 않
 
 - 프로젝트 폴더는 `daily-rsync/`다.
 - Python 엔진과 FastAPI 로컬 웹 UI를 함께 제공한다.
+- Finder에서 실행하는 macOS `.app` launcher를 기본 진입점으로 제공한다.
 - 웹 서버는 `127.0.0.1`에만 bind하고 수동 버튼과 CLI로 실행한다.
 - 최초 기본 범위는 선택한 job/전략의 운영 DB 전체와 최근 60일 로그다.
 - 선택 계층은 `Jenkins job → strategy → runtime job → artifact`다.
