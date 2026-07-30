@@ -2,10 +2,12 @@
 
 ## 결론
 
-14개 `golden-*` 전략은 모두 동일한 수명주기 스위치를 지원한다. 전략을 퇴역할 때는 즉시
-일괄 매도하지 않고 Jenkins 잡을 먼저 `close_only`로 바꾼다. 기존 GTC BUY 주문을 한 번
-취소한 뒤 같은 주기로 자연 청산을 반복하고, 유예기간 뒤에도 남은 포지션만 유동성과
-스프레드를 확인해 단계적으로 정리한다.
+15개 live-capable `golden-*` 전략은 동일한 수명주기 스위치를 지원한다. 전략을 퇴역할
+때는 즉시 일괄 매도하지 않고 Jenkins 잡을 먼저 `close_only`로 바꾼다. 기존 GTC BUY
+주문을 한 번 취소한 뒤 같은 주기로 자연 청산을 반복하고, 유예기간 뒤에도 남은 포지션만
+유동성과 스프레드를 확인해 단계적으로 정리한다. 16번째인 `golden-kiwi`도 같은 lifecycle
+interface를 제공하지만 source-level live hard block이 있는 simulation/research 전용이므로
+실제 주문 청산 대상이 아니다.
 
 `close_only`는 강제 청산 모드가 아니다. 신규 스캔과 BUY만 차단하고 각 전략의 기존 청산
 조건을 그대로 실행한다. 따라서 최대 보유시간이 없거나 시장 종료일이 누락된 전략은
@@ -28,7 +30,13 @@
 
 지원 전략: `golden-apple`, `golden-banana`, `golden-cherry`, `golden-date`,
 `golden-elderberry`, `golden-fig`, `golden-grape`, `golden-honeydew`, `golden-lime`,
-`golden-mango`, `golden-nectarine`, `golden-orange`, `golden-papaya`, `golden-queen`.
+`golden-mango`, `golden-nectarine`, `golden-orange`, `golden-papaya`, `golden-queen`,
+`golden-quince`, `golden-kiwi`.
+
+`golden-kiwi`는 예외적으로 source-level live hard block이 있는 simulation/research
+전용이다. Kiwi에서 `close_only`는 신규 simulation signal 생성을 멈추는 연구 상태 전환일
+뿐 실제 주문·포지션 청산 절차가 아니다. hard block을 해제하는 source change 없이 Kiwi에
+live 계정이나 credential을 배치하지 않는다.
 
 `lifecycle_mode`는 resolved config와 run provenance에 포함된다. 따라서 이 기능을 처음
 배포하면 환경변수를 생략해 `active`로 실행하더라도 이전 배포와 `config_hash` cohort가 한 번
@@ -113,6 +121,12 @@
   포지션 만료가 아니다. immutable 0.98 목표/0.85 stop 또는 resolution evidence까지
   관리하고, horizon 변경만으로 기존 포지션을 매도하지 않는다. Queen은 현재
   redeemable/실제 redeem transaction을 수집하지 않으므로 별도 운영 증거가 필요하다.
+- `golden-quince`는 세 팔 모두 고정 24시간 실험 horizon과 동일한 `nearest` SELL 계약을
+  사용한다. 팔별 wallet/job/DB를 섞지 않고, 종료 시 각 팔의 pending BUY·SELL과 confirmed
+  fill coverage를 별도로 대사한다.
+- `golden-kiwi`는 실제 포지션이 없어야 한다. simulation DB에 live submission이나
+  confirmed fill이 한 건이라도 보이면 정상 청산 대상으로 간주하지 말고 live hard-block
+  위반으로 즉시 조사한다.
 - `golden-grape`·`golden-lime`은 최대 보유시간이나 진입 잔여시간 상한이 없어 자연
   청산 완료시점을 보장할 수 없다. 손절/익절/모멘텀 또는 해결 임박 조건을 기다리되,
   사전에 정한 grace 종료일에 잔여분을 수동 분류한다. `close_only` 자체는 별도 만료시간을
@@ -165,6 +179,9 @@
 (`min(configured entry liquidity, $1k)`) request envelope의 자체 archive를 최소 60일
 유지한다. 두 잡을 중지하려면 cursor-complete sweep, schedule/run manifest 기준 cadence
 coverage, first observed crossing lineage를 다른 job이 제공하는지 먼저 증명한다.
+`golden-quince`도 Queen과 같은 crossing lineage를 팔별 DB에 보존한다. `golden-kiwi`는
+새 독립 검정에 30일의 실제 5분 row가 필요하므로 60일 full-cadence 자체 archive를
+보존하며, compact cold rollup을 원래 5분 evidence로 대체하지 않는다.
 다른 전략도 로컬 청산 신호가 snapshot history에 의존하면 증거 보존기간을 확인하고 잡을
 중지한다.
 

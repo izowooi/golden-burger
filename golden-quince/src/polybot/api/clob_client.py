@@ -261,10 +261,11 @@ class ClobClientWrapper:
 
         차이가 **103 bps**다. 어떤 방향성 edge보다 크고, 우리가 완전히 통제할 수 있다.
 
-        execution_mode:
-          passive  — BUY는 내림, SELL은 올림. 절대 크로스하지 않는다 (기본).
-          nearest  — 기존 14개 봇과 동일. A/B 대조군.
-          cross    — BUY는 올림, SELL은 내림. 항상 크로스. 비용 상한 측정용.
+        execution_mode (BUY leg only):
+          passive  — BUY는 내림 (기본 처치군).
+          nearest  — BUY는 최근접 반올림 (대조군).
+          cross    — BUY는 올림 (비용 상한 측정용).
+          SELL은 안전한 청산을 위해 세 모드 모두 nearest로 고정한다.
 
         Args:
             price: Raw price value
@@ -617,7 +618,7 @@ class ClobClientWrapper:
             Order result dictionary
         """
         # Round price to tick size to avoid INVALID_ORDER_MIN_TICK_SIZE error.
-        # side를 넘겨야 execution_mode(passive/nearest/cross)가 적용된다.
+        # side를 넘겨야 BUY leg에 execution_mode가 적용되고 SELL은 nearest로 고정된다.
         rounded_price = self._round_to_tick(price, side=side)
 
         if self.simulation_mode:

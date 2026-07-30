@@ -228,6 +228,19 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             full_cadence_hours=base_window_days * 24.0,
             retention_days=base_window_days,
         )
+    if normalized == "golden-kiwi":
+        # Micro-Cascade's independent research gate replays 3/5-step
+        # persisted lineages and the +60 minute exit from raw five-minute
+        # observations. Cold rollups are not equivalent evidence, so the
+        # entire frozen 60-day archive must remain at full cadence. Keeping
+        # the latest six rows per condition is an additional outage-safe
+        # lineage guarantee, not a substitute for that archive.
+        retention_days = 60.0
+        return SQLiteMaintenanceRequirements(
+            full_cadence_hours=retention_days * 24.0,
+            retention_days=retention_days,
+            minimum_latest_points=6,
+        )
     if normalized in {"golden-papaya", "golden-queen", "golden-quince"}:
         default_gap_minutes = (
             15.0 if normalized in {"golden-queen", "golden-quince"} else 30.0
@@ -265,6 +278,10 @@ def policy_for(
         "golden-fig": 24.0,
         "golden-grape": 24.0,
         "golden-honeydew": 24.0,
+        # Micro-Cascade needs raw five-minute paths for the complete research
+        # retention window. This intentionally trades disk space for an
+        # auditable 30/60-day independent test.
+        "golden-kiwi": 60.0 * 24.0,
         "golden-lime": 24.0,
         "golden-mango": 24.0,
         # Bottom Fisher excludes the most recent 24h from its reference low.
@@ -283,6 +300,7 @@ def policy_for(
     }
     retention_defaults = {
         "golden-honeydew": 60.0,
+        "golden-kiwi": 60.0,
         "golden-nectarine": 60.0,
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
@@ -519,13 +537,16 @@ def _ensure_sweep_detail_column(connection: sqlite3.Connection) -> None:
 def _build_protected_snapshot_ids(
     connection: sqlite3.Connection,
     requirements: SQLiteMaintenanceRequirements,
+    *,
+    trade_lineage_points: int = 2,
 ) -> None:
     """Protect immutable trade lineage from telemetry retention/rollup.
 
     First-crossing strategies store the current entry snapshot ID on the trade.
-    The immediately preceding snapshot is equally important because the
-    crossing is proved from that row. The temporary set is harmless for
-    strategies whose trade schema has no ``entry_snapshot_id`` column.
+    Their immediately preceding snapshot is equally important because the
+    crossing is proved from that row. Micro-Cascade requires the current entry
+    plus five predecessors. The temporary set is harmless for strategies whose
+    trade schema has no ``entry_snapshot_id`` column.
     """
 
     connection.execute("DROP TABLE IF EXISTS temp._polybot_protected_snapshot_ids")
@@ -565,6 +586,35 @@ def _build_protected_snapshot_ids(
         "SELECT entry_snapshot_id FROM trades "
         "WHERE entry_snapshot_id IS NOT NULL"
     )
+    if trade_lineage_points > 2:
+        connection.execute(
+            """
+            INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id)
+            SELECT snapshot_id
+            FROM (
+                SELECT prior.id AS snapshot_id,
+                       ROW_NUMBER() OVER (
+                           PARTITION BY trade.entry_snapshot_id
+                           ORDER BY datetime(prior.timestamp) DESC, prior.id DESC
+                       ) AS lineage_rank
+                FROM trades AS trade
+                JOIN market_snapshots AS entry
+                  ON entry.id = trade.entry_snapshot_id
+                JOIN market_snapshots AS prior
+                  ON prior.condition_id = entry.condition_id
+                 AND (
+                      prior.timestamp < entry.timestamp
+                      OR (
+                          prior.timestamp = entry.timestamp
+                          AND prior.id <= entry.id
+                      )
+                 )
+                WHERE trade.entry_snapshot_id IS NOT NULL
+            ) ranked
+            WHERE lineage_rank <= ?
+            """,
+            (trade_lineage_points,),
+        )
     connection.execute(
         """
         INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id)
@@ -841,7 +891,13 @@ def _compact_connection(
     try:
         connection.execute(_STATE_TABLE_SQL)
         _ensure_sweep_detail_column(connection)
-        _build_protected_snapshot_ids(connection, requirements)
+        _build_protected_snapshot_ids(
+            connection,
+            requirements,
+            trade_lineage_points=(
+                6 if policy.strategy_name == "golden-kiwi" else 2
+            ),
+        )
         before = {
             "snapshots": _count(connection, "market_snapshots"),
             "memberships": _count(connection, "market_sweep_memberships"),

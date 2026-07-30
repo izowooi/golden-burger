@@ -364,12 +364,14 @@ def audit_database(
             strategy_name,
         )
         minimum_history_hours = fallback_minimum_history_hours
-        first_crossing_archive = strategy_name in {
+        lineage_archive = strategy_name in {
+            "golden-kiwi",
             "golden-papaya",
             "golden-queen",
+            "golden-quince",
         }
         minimum_archive_history_hours = (
-            60.0 * 24.0 if first_crossing_archive else 0.0
+            60.0 * 24.0 if lineage_archive else 0.0
         )
         if compact_snapshot_policy is not None:
             compact_requirements = compact_snapshot_policy["requirements"]
@@ -377,7 +379,7 @@ def audit_database(
                 float(compact_requirements["full_cadence_hours"]),
                 float(compact_requirements["boundary_interval_hours"] or 0.0),
             )
-            if first_crossing_archive:
+            if lineage_archive:
                 minimum_archive_history_hours = max(
                     minimum_archive_history_hours,
                     float(compact_requirements["retention_days"]) * 24.0,
@@ -391,12 +393,15 @@ def audit_database(
                 minimum_history_hours=minimum_history_hours,
                 minimum_archive_history_hours=minimum_archive_history_hours,
                 compact_policy=compact_snapshot_policy,
+                probability_bounds=(
+                    (0.16, 0.84) if strategy_name == "golden-kiwi" else None
+                ),
             )
         else:
             result["market_snapshots"] = None
 
         archive_evidence_cutoff = cutoff
-        if first_crossing_archive and minimum_archive_history_hours > 0:
+        if lineage_archive and minimum_archive_history_hours > 0:
             archive_evidence_cutoff = min(
                 cutoff,
                 as_of - timedelta(hours=minimum_archive_history_hours),
@@ -417,9 +422,11 @@ def audit_database(
 
         if strategy_name in {
             "golden-honeydew",
+            "golden-kiwi",
             "golden-nectarine",
             "golden-papaya",
             "golden-queen",
+            "golden-quince",
         }:
             snapshots = result.get("market_snapshots") or {}
             invalid_snapshot_rows = snapshots.get("invalid_value_rows") or 0
@@ -439,12 +446,12 @@ def audit_database(
             history_p10 = snapshots.get("per_market_history_depth_p10") or 0
             archive_history_ratio = (
                 snapshots.get("archive_history_window_coverage_ratio")
-                if first_crossing_archive
+                if lineage_archive
                 else None
             )
             archive_history_cadence_ratio = (
                 snapshots.get("archive_history_cadence_coverage_ratio")
-                if first_crossing_archive
+                if lineage_archive
                 else None
             )
             sweeps = result.get("market_sweeps") or {}
@@ -461,29 +468,34 @@ def audit_database(
             detail_checkpoint_ratio = sweeps.get(
                 "detail_checkpoint_bucket_coverage_ratio"
             )
+            # Micro-Cascade's independent gate requires at least 90% of the
+            # expected raw five-minute archive. Other legacy archive audits
+            # retain their established 80% readiness threshold.
+            cadence_floor = 0.9 if strategy_name == "golden-kiwi" else 0.8
             membership_coverage_short = (
-                compact_profile_active and (detail_checkpoint_ratio or 0) < 0.8
+                compact_profile_active
+                and (detail_checkpoint_ratio or 0) < cadence_floor
             ) or (
                 (not compact_profile_active or detailed_membership_metrics_available)
                 and (
-                    (attested_market_p10 or 0) < 0.8
+                    (attested_market_p10 or 0) < cadence_floor
                     or (eligible_snapshot_ratio or 0) < 0.99
                     or (qualified_eligibility_ratio or 0) < 0.99
                 )
             )
             if (
                 window_ratio < 0.9
-                or cadence_ratio < 0.8
-                or per_market_p10 < 0.8
-                or history_p10 < 0.8
+                or cadence_ratio < cadence_floor
+                or per_market_p10 < cadence_floor
+                or history_p10 < cadence_floor
                 or (
-                    first_crossing_archive
+                    lineage_archive
                     and (
                         (archive_history_ratio or 0) < 0.9
-                        or (archive_history_cadence_ratio or 0) < 0.8
+                        or (archive_history_cadence_ratio or 0) < cadence_floor
                     )
                 )
-                or sweep_bucket_ratio < 0.8
+                or sweep_bucket_ratio < cadence_floor
                 or membership_coverage_short
             ):
 
@@ -977,7 +989,12 @@ def _active_compact_policy(
         else (
             "extrema"
             if normalized_strategy
-            in {"golden-elderberry", "golden-papaya", "golden-queen"}
+            in {
+                "golden-elderberry",
+                "golden-papaya",
+                "golden-queen",
+                "golden-quince",
+            }
             else "latest"
         )
     )
@@ -1049,6 +1066,18 @@ def _active_compact_policy(
     ):
         return None
     requirement_values["minimum_latest_points"] = minimum_latest_points
+    if normalized_strategy == "golden-kiwi" and (
+        numeric_values["hot_hours"] < 60.0 * 24.0
+        or numeric_values["retention_days"] < 60.0
+        or float(requirement_values["full_cadence_hours"] or 0.0)
+        < 60.0 * 24.0
+        or float(requirement_values["retention_days"] or 0.0) < 60.0
+        or minimum_latest_points < 6
+    ):
+        # Persisted compact metadata cannot redefine Kiwi's research contract.
+        # A shorter hot window would make cold rollups look like five-minute
+        # evidence and silently invalidate the independent 30/60-day gate.
+        return None
     return {
         "profile": "compact-v1",
         "schema_version": 2,
@@ -1092,6 +1121,7 @@ def _snapshot_summary(
     minimum_history_hours: float = 0.0,
     minimum_archive_history_hours: float = 0.0,
     compact_policy: dict[str, Any] | None = None,
+    probability_bounds: tuple[float, float] | None = None,
 ) -> dict[str, Any]:
     columns = _columns(connection, "market_snapshots")
     if "timestamp" not in columns:
@@ -1303,7 +1333,10 @@ def _snapshot_summary(
         """,
         (_sqlite_time(value_validation_cutoff), _sqlite_time(as_of)),
     ):
-        row_errors = _snapshot_value_errors(value_row)
+        row_errors = _snapshot_value_errors(
+            value_row,
+            probability_bounds=probability_bounds,
+        )
         if row_errors:
             invalid_value_rows += 1
             invalid_value_reasons.update(row_errors)
@@ -1410,6 +1443,14 @@ def _snapshot_summary(
         "expected_cadence_buckets": expected_cadence_buckets,
         "invalid_value_rows": invalid_value_rows,
         "invalid_value_reasons": dict(sorted(invalid_value_reasons.items())),
+        "probability_domain": (
+            {
+                "minimum": probability_bounds[0],
+                "maximum": probability_bounds[1],
+            }
+            if probability_bounds is not None
+            else {"minimum": 0.0, "maximum": 1.0}
+        ),
         "requested_window_coverage_ratio": round(requested_ratio, 6),
         "five_minute_bucket_coverage_ratio": round(
             min(1.0, buckets / expected_buckets), 6
@@ -1455,11 +1496,19 @@ def _snapshot_summary(
     }
 
 
-def _snapshot_value_errors(row: Sequence[Any]) -> list[str]:
+def _snapshot_value_errors(
+    row: Sequence[Any],
+    *,
+    probability_bounds: tuple[float, float] | None = None,
+) -> list[str]:
     probability, liquidity, volume_24h, best_bid, best_ask, spread = row
     errors: list[str] = []
     if not _is_probability(probability):
         errors.append("probability")
+    elif probability_bounds is not None and not (
+        probability_bounds[0] <= float(probability) <= probability_bounds[1]
+    ):
+        errors.append("probability_archive_band")
     for name, value in (("liquidity", liquidity), ("volume_24h", volume_24h)):
         if value is not None and not _is_finite_nonnegative(value):
             errors.append(name)

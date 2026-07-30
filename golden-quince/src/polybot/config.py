@@ -168,9 +168,10 @@ class TradingConfig:
 
     lifecycle_mode: str = "active"
     # 전략의 핵심 축. clob_client._round_to_tick 참조.
-    #   passive — BUY 내림 / SELL 올림. 절대 크로스하지 않는다 (기본, 처치군)
-    #   nearest — 기존 14개 봇과 동일. 대조군
-    #   cross   — 항상 크로스. 비용 상한 측정용
+    #   passive — BUY 내림 (기본 처치군)
+    #   nearest — BUY 최근접 반올림 (대조군)
+    #   cross   — BUY 올림 (비용 상한 측정용)
+    # SELL은 손절/익절 실행을 훼손하지 않도록 모든 모드에서 nearest다.
     execution_mode: str = "passive"
     # 격리 intent 자가 해제. env가 아니라 여기 두는 이유는 config_hash에 담기게
     # 하기 위함이다 (golden-date 회고: env override가 cohort에 안 보이는 문제).

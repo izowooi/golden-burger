@@ -1,0 +1,417 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>golden-kiwi — Micro-Cascade 연구 전략</title>
+<style>
+:root{
+  --bg:#f5f6f2;--card:#fff;--ink:#20251f;--muted:#626b62;--line:#dce0d8;
+  --accent:#5d7e2c;--accent-strong:#3f6417;--soft:#f0f7e5;--warning:#9a4d31;
+  --warning-soft:#fff1e9;--research:#745094;--research-soft:#f5edfb;
+  --good:#28704c;--good-soft:#eaf7ef;--code:#edf0ea;
+  --shadow:0 12px 30px rgba(33,41,30,.07);
+}
+@media(prefers-color-scheme:dark){
+  :root{
+    --bg:#111510;--card:#1a2018;--ink:#edf1e9;--muted:#a8b1a3;--line:#323b2f;
+    --accent:#afd76e;--accent-strong:#c4e68d;--soft:#23301c;--warning:#f2a184;
+    --warning-soft:#35231d;--research:#c8a5e3;--research-soft:#2d2335;
+    --good:#83d3a8;--good-soft:#193127;--code:#252d23;--shadow:none;
+  }
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:
+  radial-gradient(circle at 92% 0,rgba(122,164,60,.15),transparent 30rem),var(--bg);
+  color:var(--ink);font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",
+  -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.68}
+a{color:var(--accent-strong);text-underline-offset:3px}
+a:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.skip{position:absolute;left:-9999px;top:8px;background:var(--card);padding:8px 12px;
+  border:2px solid var(--accent);border-radius:8px;z-index:10}
+.skip:focus{left:8px}
+.wrap{max-width:1060px;margin:auto;padding:26px 20px 72px}
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 14px;margin:0 0 18px;font-size:13px}
+.crumbs a{text-decoration:none}
+.hero{position:relative;overflow:hidden;background:linear-gradient(135deg,var(--card),var(--soft));
+  border:1px solid var(--line);border-radius:23px;padding:31px 34px;box-shadow:var(--shadow)}
+.hero::after{content:"🥝";position:absolute;right:24px;top:4px;font-size:112px;opacity:.12;
+  transform:rotate(8deg)}
+.eyebrow{color:var(--accent-strong);font-size:12px;font-weight:850;letter-spacing:.14em}
+h1{font-size:36px;line-height:1.16;margin:7px 0 8px}
+.subtitle{max-width:790px;margin:0;color:var(--muted);font-size:17px}
+.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:19px}
+.badge{display:inline-flex;align-items:center;border:1px solid var(--line);background:var(--card);
+  border-radius:999px;padding:4px 10px;font-size:12.5px;font-weight:750}
+.badge.research{color:var(--research);background:var(--research-soft)}
+.badge.block{color:var(--warning);background:var(--warning-soft)}
+.alert{border:1px solid var(--warning);border-left:6px solid var(--warning);
+  background:var(--warning-soft);border-radius:15px;padding:18px 20px;margin:20px 0;
+  box-shadow:var(--shadow)}
+.alert strong{color:var(--warning)}
+.alert p{margin:5px 0}
+h2{font-size:23px;margin:42px 0 14px;padding-left:11px;border-left:4px solid var(--accent)}
+h3{font-size:17px;margin:0 0 8px}
+p{margin:10px 0}
+.muted{color:var(--muted)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+.card{border:1px solid var(--line);background:var(--card);border-radius:15px;padding:18px 19px;
+  box-shadow:var(--shadow)}
+.card p{color:var(--muted);font-size:14px}
+.arm-code{display:inline-block;color:var(--accent-strong);font-weight:850;font-size:13px;
+  letter-spacing:.05em;margin-bottom:5px}
+.primary{border-color:var(--accent);background:linear-gradient(145deg,var(--card),var(--soft))}
+.formula{white-space:pre-wrap;background:var(--soft);border:1px solid var(--line);
+  border-left:5px solid var(--accent);border-radius:12px;padding:17px 19px;overflow:auto;
+  color:var(--ink);font:14px/1.7 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+.code{white-space:pre;overflow:auto;background:var(--code);border:1px solid var(--line);
+  border-radius:11px;padding:15px 17px;font:13px/1.65 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace}
+code{background:var(--code);padding:2px 5px;border-radius:4px;font-size:.91em}
+.table-wrap{overflow:auto;border:1px solid var(--line);border-radius:14px;background:var(--card);
+  box-shadow:var(--shadow)}
+table{width:100%;border-collapse:collapse;min-width:720px;font-size:14px}
+caption{text-align:left;padding:12px 14px;background:var(--soft);font-weight:800}
+th,td{padding:10px 12px;text-align:left;vertical-align:top;border-bottom:1px solid var(--line)}
+th{background:var(--soft);color:var(--muted);font-size:12px;letter-spacing:.025em}
+tr:last-child td{border-bottom:0}
+.fail{color:var(--warning);font-weight:850}
+.pass{color:var(--good);font-weight:850}
+.steps{counter-reset:step;display:grid;gap:10px;padding:0;list-style:none}
+.steps li{counter-increment:step;position:relative;border:1px solid var(--line);background:var(--card);
+  border-radius:12px;padding:13px 15px 13px 52px}
+.steps li::before{content:counter(step);position:absolute;left:14px;top:12px;width:25px;height:25px;
+  display:grid;place-items:center;border-radius:50%;background:var(--accent);color:#fff;
+  font-size:12px;font-weight:850}
+.checklist{padding-left:22px}.checklist li{margin:7px 0}
+.note{border:1px solid var(--line);border-left:5px solid var(--research);
+  background:var(--research-soft);border-radius:12px;padding:14px 17px;margin:16px 0}
+.links{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}
+.links a{display:block;border:1px solid var(--line);background:var(--card);border-radius:11px;
+  padding:12px 14px;text-decoration:none;box-shadow:var(--shadow)}
+.links small{display:block;color:var(--muted);margin-top:2px}
+footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:var(--muted);
+  font-size:12.5px}
+@media(max-width:720px){
+  .wrap{padding:16px 12px 48px}.hero{padding:24px 19px}.hero::after{font-size:80px;right:5px}
+  h1{font-size:29px}.subtitle{font-size:15px}.grid,.links{grid-template-columns:1fr}
+  .card{padding:16px}.alert{padding:15px 16px}
+}
+@media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<a class="skip" href="#content">본문으로 건너뛰기</a>
+<main class="wrap" id="content">
+<nav class="crumbs" aria-label="관련 문서">
+  <a href="strategy-index.html">← 전략 인덱스</a>
+  <a href="strategy-status.html">운영 현황판</a>
+  <a href="../../golden-kiwi/README.md">README</a>
+  <a href="../../golden-kiwi/STRATEGY.md">전략 명세</a>
+</nav>
+
+<header class="hero">
+  <div class="eyebrow">GOLDEN KIWI · MICRO-CASCADE</div>
+  <h1>5분짜리 군집 행동은<br>한 시간 더 이어지는가?</h1>
+  <p class="subtitle">3~5회의 작고 연속적인 YES 상승을 사회적 정보 cascade의 후보로 보고,
+  이후 60분의 실행 가능한 호가에 움직임이 남는지 검증하는 네 팔 연구다. 현재는 수익 전략이
+  아니라, 단순하고 반증 가능한 심리 가설을 계측하는 simulation 전용 도구다.</p>
+  <div class="badges" aria-label="전략 상태">
+    <span class="badge research">RESEARCH / SIMULATION ONLY</span>
+    <span class="badge block">LIVE SOURCE-LEVEL HARD BLOCK</span>
+    <span class="badge">5분 cadence</span>
+    <span class="badge">4-arm preregistration</span>
+    <span class="badge">$5 가상 진입</span>
+  </div>
+</header>
+
+<aside class="alert" role="alert" aria-labelledby="live-warning">
+  <strong id="live-warning">실거래 금지 — OOS에서 네 팔 모두 FAIL</strong>
+  <p><code>uv run polybot run --live</code>는 의도적으로 실패한다. 사전 등록한 외부표본
+  검정에서 primary B를 포함한 모든 팔이 승격 기준을 통과하지 못했으므로, private key나
+  funder address를 이 전략에 주입하지 않는다. 30일 검정을 통과하더라도 바로 live가 되는
+  것이 아니라 별도 <em>shadow execution review</em>만 열 수 있다.</p>
+</aside>
+
+<section aria-labelledby="plain-rule">
+<h2 id="plain-rule">전략을 한글로 풀면</h2>
+<pre class="formula">관찰
+  5분 안팎으로 YES 가격을 계속 저장한다.
+
+후보
+  표준 이진 Yes/No + YES 20~80% + 해결까지 6시간 이상
+  + 유동성 $20,000 이상 + 24시간 거래량 $10,000 이상
+  + 유효한 bid/ask + spread 2%p 이하
+
+추세
+  각 간격 3~10분
+  + 3회 또는 5회 연속 상승
+  + 각 상승은 0 초과 2%p 이하
+  + 누적 상승은 팔별 1%p 또는 2%p 이상, 공통 최대 4%p
+
+가상 진입
+  같은 event에서 유동성이 가장 큰 하나를 고른다.
+  event별 승자는 전체 유동성 내림차순·condition ID 오름차순으로 다시 정렬하고,
+  그 순서에서 fresh gate를 처음 통과한 최대 1개/cycle만 진입한다.
+  한 번의 fresh CLOB book에서 midpoint·bid·ask·spread·depth를 함께 고정하고
+  마지막 step과 gap을 다시 확인한 뒤 $5 simulation을 기록한다.
+
+가상 종료
+  진입 60분 뒤 처음 실행된 cycle의 fresh best bid
+  = hypothetical P&amp;L일 뿐, 실제 fill이나 realized P&amp;L이 아님
+
+Primary 연구 outcome
+  raw signal 전체에서 사전 순서로 고른 raw_selected의 point-in-time best ask
+  → +60~75분 독립 condition 조회의 첫 SUCCESS valid best bid
+  = 가상 position 수와 무관한 event-equal counterfactual</pre>
+<p class="muted">최근 24시간 거래량은 최소 유동성 gate로만 쓴다. 24시간 누적값의 증가를
+15~25분 추세 가속으로 해석하지 않는다. 가격 stop, take-profit, trailing stop도 두지
+않아 네 팔의 비교창을 동일한 60분으로 고정한다.</p>
+</section>
+
+<section aria-labelledby="universe">
+<h2 id="universe">공통 진입 계약</h2>
+<ol class="steps">
+  <li><strong>Point-in-time evidence</strong> — 현재 snapshot은 SUCCESS run과
+  cursor-complete Gamma sweep에 연결되어야 한다.</li>
+  <li><strong>표준 이진 시장</strong> — outcomes가 정확히 Yes/No 두 개이고,
+  서로 다른 token 두 개이며 <code>negRisk=false</code>가 명시되어야 한다.</li>
+  <li><strong>시간·가격·시장성</strong> — 해결까지 6시간 이상, YES
+  <code>[0.20, 0.80]</code>, liquidity ≥ $20,000, volume24h ≥ $10,000.</li>
+  <li><strong>실행 가능 호가</strong> — <code>0 &lt; bid ≤ ask &lt; 1</code>,
+  spread ≤ 0.02, $5 수량의 1.2배 ask depth를 fresh book에서 재확인한다.</li>
+  <li><strong>시장군 제외</strong> — exact tag
+  <code>sports</code>, <code>games</code>, <code>esports</code>,
+  <code>crypto-prices</code>, <code>up-or-down</code>,
+  <code>multi-strikes</code>, <code>5m</code>, <code>15m</code>,
+  <code>1h</code>를 제외한다.</li>
+  <li><strong>event와 cycle 선택</strong> — 한 collecting run에서 event당 유동성 1위
+  condition 하나만 고른다. event별 승자는 전체 유동성 내림차순·condition ID
+  오름차순으로 정렬하고 fresh gate를 처음 통과한 최대 1개만 진입한다. 같은 event의
+  재진입은 6시간 뒤에 허용한다.</li>
+</ol>
+<div class="note">
+  진입 밴드 밖의 lineage가 잘리지 않도록 archive는 YES <strong>[0.16, 0.84]</strong>를
+  저장한다. Gamma fetch의 서버측 유동성 하한은 <strong>$1,000</strong>이며, 이 아래에서
+  $20,000 entry gate로 급등한 시장은 새 3/5-step lineage가 쌓일 때까지 backfill 없이
+  제외한다. 각 snapshot에는 전체 sweep 종료시각이 아니라 해당 Gamma page의 로컬
+  수신시각을 쓴다. 60일 동안 실제 5분 원본을 보존하며 <strong>cold rollup을 5분
+  data로 해석하지 않는다.</strong>
+</div>
+</section>
+
+<section aria-labelledby="arms">
+<h2 id="arms">정확한 2 × 2 네 팔</h2>
+<p>다른 값은 모두 고정하고 <strong>연속 상승 횟수</strong>와
+<strong>누적 상승 하한</strong> 두 축만 바꾼다. 결과가 좋아 보이는 팔을 사후에 primary로
+바꾸지 않는다.</p>
+<div class="grid">
+  <article class="card">
+    <span class="arm-code">ARM A · LOOSE CONTROL</span>
+    <h3>3회 연속 · 누적 +1%p</h3>
+    <p><code>POLYBOT_CONFIRMATION_STEPS=3</code><br>
+    <code>POLYBOT_MIN_CUMULATIVE_MOVE=0.01</code></p>
+    <p>job: <code>kiwi-sim-a-3x1</code></p>
+  </article>
+  <article class="card primary">
+    <span class="arm-code">ARM B · FROZEN PRIMARY</span>
+    <h3>3회 연속 · 누적 +2%p</h3>
+    <p><code>POLYBOT_CONFIRMATION_STEPS=3</code><br>
+    <code>POLYBOT_MIN_CUMULATIVE_MOVE=0.02</code></p>
+    <p>job: <code>kiwi-sim-b-3x2</code></p>
+  </article>
+  <article class="card">
+    <span class="arm-code">ARM C · LONGER SENSITIVITY</span>
+    <h3>5회 연속 · 누적 +1%p</h3>
+    <p><code>POLYBOT_CONFIRMATION_STEPS=5</code><br>
+    <code>POLYBOT_MIN_CUMULATIVE_MOVE=0.01</code></p>
+    <p>job: <code>kiwi-sim-c-5x1</code></p>
+  </article>
+  <article class="card">
+    <span class="arm-code">ARM D · STRICT SENSITIVITY</span>
+    <h3>5회 연속 · 누적 +2%p</h3>
+    <p><code>POLYBOT_CONFIRMATION_STEPS=5</code><br>
+    <code>POLYBOT_MIN_CUMULATIVE_MOVE=0.02</code></p>
+    <p>job: <code>kiwi-sim-d-5x2</code></p>
+  </article>
+</div>
+</section>
+
+<section aria-labelledby="oos">
+<h2 id="oos">먼저 실행한 OOS: 네 팔 모두 실패 · 증거 정정</h2>
+<p>팔별 forward return을 보기 전에 protocol을 SHA-256
+<code>0a2e6537…8006</code>으로 고정했다. 동기화된 Honeydew DB에서 확인된
+full-cadence 구간의 1,293,610 snapshot을 사용했으며, primary outcome은
+<code>exit_best_bid / entry_best_ask - 1</code>이다.</p>
+<div class="table-wrap">
+<table>
+<caption>Temporal OOS — cooldown carried</caption>
+<thead><tr><th>팔</th><th>signals / events</th><th>event-equal return</th>
+<th>98.75% CI</th><th>−10.4bps stress</th><th>판정</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>4 / 2</td><td>−1.0234%</td><td>[−1.9379%, −0.1089%]</td>
+<td>−1.1274%</td><td class="fail">FAIL</td></tr>
+<tr><td><strong>B · primary</strong></td><td>2 / 2</td><td>−1.8072%</td>
+<td>[−3.7500%, +0.1355%]</td><td>−1.9112%</td><td class="fail">FAIL</td></tr>
+<tr><td>C</td><td>1 / 1</td><td>+0.5263%</td><td>추정 불가</td>
+<td>+0.4223%</td><td class="fail">FAIL</td></tr>
+<tr><td>D</td><td>0 / 0</td><td>추정 불가</td><td>추정 불가</td>
+<td>추정 불가</td><td class="fail">FAIL</td></tr>
+</tbody>
+</table>
+</div>
+<div class="table-wrap" style="margin-top:12px">
+<table>
+<caption>Strict event-purged temporal OOS</caption>
+<thead><tr><th>팔</th><th>signals / events</th><th>event-equal return</th><th>해석</th></tr></thead>
+<tbody>
+<tr><td>A</td><td>0 / 0</td><td>추정 불가</td><td class="fail">FAIL</td></tr>
+<tr><td><strong>B · primary</strong></td><td>1 / 1</td><td>+0.1355%</td>
+<td>event 1개라 CI 불가 · <span class="fail">FAIL</span></td></tr>
+<tr><td>C</td><td>1 / 1</td><td>+0.5263%</td>
+<td>event 1개라 CI 불가 · <span class="fail">FAIL</span></td></tr>
+<tr><td>D</td><td>0 / 0</td><td>추정 불가</td><td class="fail">FAIL</td></tr>
+</tbody>
+</table>
+</div>
+<div class="note">
+  <strong>독립 재검토 정정:</strong> C의 유일한 양수 신호는 서로 다른 Git commit의
+  snapshot을 한 계단으로 이은 계약 위반이었다. 과거 Honeydew DB도 관측 당시의
+  outcomes/token/tags/<code>negRisk</code>를 snapshot별로 고정하지 않아, 위 A/B/C/D
+  수치는 현재 기준의 promotion evidence가 아니다. C의 +0.5263% 해석은 철회한다.
+  Immutable 과거 산출물은 감사용으로 보존하며, primary B의 표본·CI gate 실패와
+  <strong>live 금지 결론은 변하지 않는다.</strong>
+</div>
+<p class="muted">새 수집에서는 현재 run의 마지막 row와 같은
+<code>config_hash × git_commit × mode × job_name</code>인 SUCCESS/cursor-complete
+history만 lineage로 쓴다. 이 값은 top-of-book 반사실이며 depth, queue, latency,
+partial fill, fee를 증명하지 않는다.</p>
+</section>
+
+<section aria-labelledby="jenkins">
+<h2 id="jenkins">Jenkins 수집 계약</h2>
+<ul class="checklist">
+  <li>숨은 <code>H</code> offset을 쓰지 않는다. A/B/C/D trigger를 각각
+  <code>0-59/5 * * * *</code>, <code>1-59/5 * * * *</code>,
+  <code>2-59/5 * * * *</code>, <code>3-59/5 * * * *</code>로 고정한다.</li>
+  <li><strong>Execute concurrent builds if necessary를 끈다.</strong> 한 job의 DB에는
+  writer가 하나만 있어야 한다.</li>
+  <li>canonical job 이름을 그대로 <code>--job</code>에 전달한다. 각 DB는
+  <code>data/&lt;job&gt;/trades_sim.db</code>로 분리된다.</li>
+  <li>네 팔은 같은 Git commit과 정확히 같은 30일 UTC 반개구간을 쓰고, arm별
+  <code>POLYBOT_CADENCE_OFFSET_MINUTE</code>는 0/1/2/3으로 고정한다.</li>
+  <li>실험 시작·종료·offset 세 환경변수가 없으면 smoke/archive mode이고
+  <code>collection_eligible=0</code>이다. 일부만 설정하면 시작을 거부한다.</li>
+  <li>wallet credential은 필요하지 않다. private key, funder address,
+  signature type을 Kiwi job에 주입하지 않는다.</li>
+  <li>회고에서는 실제 SUCCESS run과 3~10분 lineage gap만 인정하며, 기대 5분 slot
+  coverage가 90% 미만이면 평가 불가로 판정한다. 정규 slot 밖이나 같은 slot의 중복
+  SUCCESS run이 하나라도 있으면 그 run의 signal·follow-up을 제외하고 promotion도
+  fail-closed한다.</li>
+</ul>
+<pre class="code" aria-label="Jenkins 공통 shell 예시">#!/bin/bash
+set -euo pipefail
+
+export LOG_LEVEL=INFO
+export POLYBOT_CONFIRMATION_STEPS=3       # A/B=3, C/D=5
+export POLYBOT_MIN_CUMULATIVE_MOVE=0.02   # A/C=.01, B/D=.02
+export POLYBOT_EXPERIMENT_START_UTC=&lt;확정할_UTC_START&gt;
+export POLYBOT_EXPERIMENT_END_UTC=&lt;START의_정확히_30일_뒤&gt;
+export POLYBOT_CADENCE_OFFSET_MINUTE=1    # A/B/C/D = 0/1/2/3
+
+cd ./golden-kiwi
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config --job kiwi-sim-b-3x2
+/Users/jongwoopark/.local/bin/uv run polybot run --simulate --job kiwi-sim-b-3x2</pre>
+<p class="muted">위 예시는 primary B다. 정확한 30일 구간은 첫 실행 전에 사용자가
+확정해야 한다. A/C/D에서는 두 처치값, canonical job과 offset만 표에 맞게 바꾼다.
+한 cycle의 p95가 5분을 넘거나 gap이 지속적으로 3~10분을 벗어나면 threshold를
+느슨하게 하지 않고 해당 cohort를 cadence 실패로 분류한다.</p>
+</section>
+
+<section aria-labelledby="risk">
+<h2 id="risk">유한한 simulation risk와 evidence</h2>
+<div class="table-wrap">
+<table>
+<caption>코드로 고정한 연구 한도</caption>
+<tbody>
+<tr><th scope="row">가상 주문 / 연구 자본</th><td>$5 / $100</td></tr>
+<tr><th scope="row">동시 position / open notional</th><td>최대 3개 / $15</td></tr>
+<tr><th scope="row">신규 진입</th><td>event당 1개, cycle당 1개, event cooldown 6시간</td></tr>
+<tr><th scope="row">research kill switch</th><td>누적 economic P&amp;L ≤ −$20이면 DB에 최초 trip을 영구 latch. 이후 P&amp;L 회복·재시작에도 자동 해제 없음</td></tr>
+<tr><th scope="row">성과 필드</th><td><code>hypothetical_pnl</code>; <code>realized_pnl=NULL</code></td></tr>
+<tr><th scope="row">60분 outcome gap</th><td>target +15분을 넘기면 기록은 보존하되 promotion 분석에서 censor</td></tr>
+</tbody>
+</table>
+</div>
+<p class="muted">drawdown은 같은 cohort의 SUCCESS terminal evidence만 시간순으로
+합산한다. 감지 RUNNING run에는 pending row만 쓰고 그 run이 SUCCESS가 된 뒤 영구
+latch로 확정한다. FAILED/stale pending은 폐기한다. 작동한 latch row를 지워 같은 DB에서
+재개하지 않는다. 새 실험은 새 preregistration, canonical job, DB와 별도 검토가
+필요하다.</p>
+</section>
+
+<section aria-labelledby="gate">
+<h2 id="gate">30일 뒤 판정 — 통과해도 shadow review뿐</h2>
+<p>네 DB의 독립 UTC 기간을 사전에 고정한다. <strong>Primary B</strong>가 아래를 모두
+만족해야 다음 단계 검토를 열 수 있다.</p>
+<ol class="checklist">
+  <li>quote-complete signal 50개 이상, unique event cluster 30개 이상</li>
+  <li>event-cluster Bonferroni 98.75% lower confidence bound가 0보다 큼</li>
+  <li>추가 10.4bps stress 후에도 같은 lower bound가 0보다 큼</li>
+  <li>사전 정의한 전반부와 후반부가 모두 양수</li>
+  <li>target/quote coverage 90% 이상</li>
+  <li>충분히 표본이 있는 <code>config_hash × git_commit × mode × job_name</code>
+  cohort에서 material sign reversal 없음</li>
+  <li>60일 raw 5분 archive·run/sweep/catalog/lineage evidence 충족</li>
+  <li>strict retro audit의 CRITICAL/HIGH가 0</li>
+</ol>
+<p class="muted">Primary metric은 append-only raw signal 전체에서 사전 고정 순서로
+선택된 <code>raw_selected</code>의 point-in-time best ask와, +60~75분 사이 독립
+condition 조회에서 처음 얻은 SUCCESS-run valid best bid를 비교한다. simulation
+position 결과는 별도 diagnostic이다. 네 DB 각각의 exact-window strict audit JSON이
+없거나, audit의 <code>database_sha256</code>과 분석 DB 실제 바이트가 다르거나,
+immutable contract·cadence·cohort 증거가 불완전하면
+<code>NOT_EVALUABLE_FAIL_CLOSED</code>다.</p>
+<div class="note">
+  <strong>판정의 상한:</strong> 모두 통과해도 실제 주문 승격이 아니다.
+  $5 depth와 latency, BUY/SELL exact confirmed full fill, fee와 maker/taker role,
+  partial/zero/unknown fill, reconciliation을 계측할 <strong>별도 shadow execution
+  review</strong>만 허용한다. B가 실패하거나 50/30 표본을 못 채우면 threshold를
+  완화하지 않고 <code>STOP / UNRESEARCHABLE</code>로 끝낸다.
+</div>
+</section>
+
+<section aria-labelledby="sources">
+<h2 id="sources">근거와 재현 문서</h2>
+<div class="links">
+  <a href="../../golden-kiwi/README.md"><strong>Golden Kiwi README</strong>
+    <small>실행법, 네 Jenkins shell, 환경변수와 안전장치</small></a>
+  <a href="../../golden-kiwi/STRATEGY.md"><strong>전략 명세</strong>
+    <small>point-in-time universe, 처치, 가상 exit, promotion contract</small></a>
+  <a href="../retro/golden-kiwi.md"><strong>30일 회고 템플릿</strong>
+    <small>고정 기간, cohort 분리, strict evidence 판정</small></a>
+  <a href="../../golden-kiwi/research/frozen-2026-07-30/PREREGISTRATION.md">
+    <strong>Frozen preregistration</strong><small>결과 확인 전 고정한 OOS protocol</small></a>
+  <a href="../../golden-kiwi/research/2026-07-30-cohort-correction.md">
+    <strong>Frozen 증거 정정</strong><small>cross-commit C 철회와 point-in-time 증거 한계</small></a>
+  <a href="../../golden-kiwi/research/frozen-2026-07-30/RESULTS.md">
+    <strong>Frozen OOS results</strong><small>네 팔 수치와 실패 사유</small></a>
+  <a href="../../golden-kiwi/research/frozen-2026-07-30/RESEARCH_REPORT.md">
+    <strong>전체 연구 보고서</strong><small>evidence cutoff, 경쟁 설명과 해석 한계</small></a>
+  <a href="../../golden-kiwi/research/frozen-2026-07-30/MANIFEST.sha256">
+    <strong>SHA-256 manifest</strong><small>고정 산출물 무결성 확인</small></a>
+  <a href="../retro/closed-strategies-postmortem.md"><strong>폐쇄 전략 통합 회고</strong>
+    <small>Kiwi의 단순한 제약을 만든 실패 교훈</small></a>
+</div>
+</section>
+
+<footer>
+golden-kiwi · Micro-Cascade · 기준일 2026-07-30 ·
+상태: simulation/research-only · live source-level hard block.<br>
+이 문서는 전략 설명용이다. 실제 판정은 고정된 MD 계약과 검증된 DB evidence를 우선한다.
+</footer>
+</main>
+</body>
+</html>

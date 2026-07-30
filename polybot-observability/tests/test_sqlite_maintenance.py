@@ -8,6 +8,7 @@ from polybot_observability import (
     SQLiteMaintenanceRequirements,
     policy_for,
     prepare_database,
+    requirements_for,
 )
 
 
@@ -102,6 +103,15 @@ def test_policy_is_strategy_aware(monkeypatch):
     assert policy_for("golden-queen").selector == "extrema"
     assert policy_for("golden-queen").retention_days == 60
     assert policy_for("golden-queen").hot_hours == 1
+    assert policy_for("golden-quince").selector == "extrema"
+    assert policy_for("golden-kiwi").selector == "latest"
+    assert policy_for("golden-kiwi").retention_days == 60
+    assert policy_for("golden-kiwi").hot_hours == 60 * 24
+    assert requirements_for("golden-kiwi") == SQLiteMaintenanceRequirements(
+        full_cadence_hours=60 * 24,
+        retention_days=60,
+        minimum_latest_points=6,
+    )
     assert policy_for("golden-elderberry").selector == "extrema"
     assert policy_for("golden-honeydew").selector == "latest"
     assert policy_for("golden-orange").retention_days == 21
@@ -124,6 +134,8 @@ def test_policy_rejects_non_finite_number(monkeypatch):
         ("golden-papaya", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-queen", {"POLYBOT_DB_HOT_HOURS": "0.24"}),
         ("golden-queen", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
+        ("golden-kiwi", {"POLYBOT_DB_HOT_HOURS": "1439"}),
+        ("golden-kiwi", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-nectarine", {"POLYBOT_DB_RETENTION_DAYS": "19"}),
         ("golden-elderberry", {"POLYBOT_DB_HOT_HOURS": "0.5"}),
         ("golden-elderberry", {"POLYBOT_DB_RETENTION_DAYS": "1"}),
@@ -333,6 +345,86 @@ def test_banana_preserves_exact_latest_n_rows_across_outages(tmp_path, monkeypat
     assert set(range(19, 101)).issubset(retained_ids)
 
 
+def test_kiwi_preserves_full_sixty_day_cadence_and_latest_six_across_outage(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "kiwi.db"
+    backup_root = tmp_path / "backups"
+    anchor = datetime.utcnow() - timedelta(hours=1)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE market_snapshots ("
+            "id INTEGER PRIMARY KEY, condition_id TEXT NOT NULL, "
+            "probability REAL NOT NULL, timestamp TEXT NOT NULL)"
+        )
+        # One condition represents a healthy 60-day five-minute research
+        # archive. A second simulates a long-stale market: its latest six rows
+        # must remain available as immutable persisted lineage.
+        healthy_rows = [
+            (
+                number + 1,
+                "healthy",
+                0.5,
+                (anchor - timedelta(minutes=5 * (11 - number))).isoformat(),
+            )
+            for number in range(12)
+        ]
+        healthy_rows.extend(
+            [
+                (
+                    20 + number,
+                    "healthy",
+                    0.5,
+                    (anchor - timedelta(days=30, minutes=5 * number)).isoformat(),
+                )
+                for number in range(3)
+            ]
+        )
+        stale_rows = [
+            (
+                100 + number,
+                "stale",
+                0.4 + number / 100,
+                (anchor - timedelta(days=140 - number * 10)).isoformat(),
+            )
+            for number in range(8)
+        ]
+        connection.executemany(
+            "INSERT INTO market_snapshots("
+            "id, condition_id, probability, timestamp"
+            ") VALUES (?, ?, ?, ?)",
+            [*healthy_rows, *stale_rows],
+        )
+
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    prepare_database(database, "golden-kiwi")
+
+    with sqlite3.connect(database) as connection:
+        healthy_retained = connection.execute(
+            "SELECT COUNT(*) FROM market_snapshots "
+            "WHERE condition_id = 'healthy'"
+        ).fetchone()[0]
+        stale_retained = {
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM market_snapshots "
+                "WHERE condition_id = 'stale'"
+            )
+        }
+        state_payload = json.loads(
+            connection.execute(
+                "SELECT last_report_json FROM polybot_db_maintenance "
+                "WHERE profile = 'compact-v1'"
+            ).fetchone()[0]
+        )
+
+    assert healthy_retained == len(healthy_rows)
+    assert set(range(102, 108)).issubset(stale_retained)
+    assert state_payload["policy"]["hot_hours"] == 60 * 24
+    assert state_payload["requirements"]["minimum_latest_points"] == 6
+
+
 def test_migration_fails_closed_when_source_has_a_writer(tmp_path, monkeypatch):
     database = tmp_path / "trades.db"
     backup_root = tmp_path / "backups"
@@ -528,7 +620,10 @@ def test_ongoing_thinning_never_promotes_summary_sweep_over_real_detail(
         )
 
 
-@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+@pytest.mark.parametrize(
+    "strategy_name",
+    ("golden-papaya", "golden-queen", "golden-quince"),
+)
 def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_deleted(
     tmp_path, monkeypatch, strategy_name
 ):
@@ -598,6 +693,70 @@ def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_dele
         "entry_snapshot_missing": 0,
         "prior_snapshot_missing": 0,
     }
+
+
+def test_kiwi_trade_entry_preserves_complete_six_snapshot_lineage(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "golden-kiwi.db"
+    backup_root = tmp_path / "backups"
+    now = datetime.utcnow()
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE trades (
+                id INTEGER PRIMARY KEY,
+                status TEXT,
+                entry_snapshot_id INTEGER
+            );
+            CREATE TABLE market_snapshots (
+                id INTEGER PRIMARY KEY,
+                condition_id TEXT NOT NULL,
+                probability REAL NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            """
+        )
+        old_start = now - timedelta(days=100)
+        connection.executemany(
+            "INSERT INTO market_snapshots("
+            "id, condition_id, probability, timestamp"
+            ") VALUES (?, 'traded-condition', ?, ?)",
+            [
+                (
+                    number,
+                    0.3 + number / 100,
+                    (old_start + timedelta(minutes=5 * number)).isoformat(),
+                )
+                for number in range(1, 15)
+            ],
+        )
+        connection.execute(
+            "INSERT INTO trades(id, status, entry_snapshot_id) "
+            "VALUES (1, 'COMPLETED', 8)"
+        )
+        connection.execute(
+            "INSERT INTO market_snapshots("
+            "id, condition_id, probability, timestamp"
+            ") VALUES (100, 'current-condition', 0.5, ?)",
+            (now.isoformat(),),
+        )
+
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    prepare_database(database, "golden-kiwi")
+
+    with sqlite3.connect(database) as connection:
+        retained = {
+            row[0]
+            for row in connection.execute(
+                "SELECT id FROM market_snapshots "
+                "WHERE condition_id = 'traded-condition'"
+            )
+        }
+
+    assert set(range(3, 9)).issubset(retained)
+    assert {1, 2}.isdisjoint(retained)
 
 
 def test_future_timestamp_cannot_advance_destructive_retention_cutoff(

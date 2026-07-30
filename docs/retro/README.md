@@ -3,7 +3,7 @@
 > **용도**: `golden-*` 전략을 고정된 기간과 검증된 execution evidence로 회고하고,
 > 근거가 충분할 때만 파라미터를 교정한다.
 
-폐쇄 판정된 6개 전략(lime·fig·mango·date·honeydew·nectarine)의 교차 비교와 다음 전략용 체크리스트는
+폐쇄 완료된 6개 전략(lime·fig·mango·date·honeydew·nectarine)의 교차 비교와 다음 전략용 체크리스트는
 **[폐쇄 전략 통합 포스트모템](closed-strategies-postmortem.md)** 에 있다.
 
 모든 회고는 먼저 [Evidence Contract](EVIDENCE_CONTRACT.md)를 읽는다. 전략별 문서는
@@ -21,14 +21,15 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-elderberry | [golden-elderberry.md](golden-elderberry.md) | Panic Fade |
 | golden-fig | [golden-fig.md](golden-fig.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Hope Crusher |
 | golden-grape | [golden-grape.md](golden-grape.md) | Cascade Rider |
-| golden-honeydew | [golden-honeydew.md](golden-honeydew.md) · **⛔ 폐쇄 판정 (2026-07-30)** → [판정](golden-honeydew-2026-07-verdict.md) | Night Watch, archive 보존 |
+| golden-honeydew | [golden-honeydew.md](golden-honeydew.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-honeydew-2026-07-verdict.md) | Night Watch, archive 보존 |
+| golden-kiwi | [golden-kiwi.md](golden-kiwi.md) · [과거 증거 정정](../../golden-kiwi/research/2026-07-30-cohort-correction.md) | **Micro-Cascade, research/simulation 전용, live 금지**, 4-arm 5분 독립 검정 |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
 | golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
-| golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 판정 (2026-07-30)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
+| golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
-| golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, 실행 측면(maker/taker)이 처치축, A/B 3팔 사전 등록 |
+| golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, BUY 실행 측면이 처치축, $5·24h·A/B/C 3팔 사전 등록 |
 
 새 전략은 [새 전략 구현·승격 플레이북](../new-strategy-playbook.md)을 따른다. nectarine의
 position cap은 [전용 회고](../nectarine-max-positions-retro.md)를 함께 참고하되, execution
@@ -50,13 +51,16 @@ portfolio NAV            Supabase pb_* tables
   `order_fills.status='CONFIRMED'`의 size/price/fee를 사용한다.
 - pre-instrumentation legacy 구간은 fill/config/catalog가 없을 수 있다. 그 구간을 사후
   추정값으로 채우지 않고 별도 cohort로 표시한다.
-- 중앙 가격 archive는 nectarine(liquidity ≥ $10k)과 honeydew(≥ $15k) DB다. papaya와
-  queen의 기본 $1k(`min(configured entry liquidity, $1k)`) request envelope는 중앙
-  archive에 완전히 포함되지 않으므로 각 전략의 자체 60일 archive를 사용한다.
+- 중앙 가격 archive는 폐쇄된 nectarine(liquidity ≥ $10k)과 honeydew(≥ $15k)의
+  보존 DB다. 폐쇄가 archive 삭제를 뜻하지 않는다. papaya, queen, quince, kiwi는
+  각각의 진입/연구 universe와 lineage가 달라 자기 DB의 point-in-time
+  `market_snapshots`/`market_catalog`를 주 source로 사용한다. 중앙 archive와 겹치는
+  시장은 교집합 대조에만 쓴다.
   Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 저장하므로 고정 시장 수나
   2,100 cap을 가정하지 않는다. 중앙 archive는 실제 5-minute coverage를 측정하고,
-  papaya/queen은 Jenkins schedule/run manifest에서 cohort 기대 cadence를 산출해 actual
-  bucket과 gap을 비교한다.
+  papaya/queen/quince/kiwi는 Jenkins schedule/run manifest에서 cohort 기대 cadence를
+  산출해 actual bucket과 gap을 비교한다. Kiwi의 primary B는 5분 full-cadence 30일
+  독립 기간이 필수이며 compact된 cold rollup을 원래 5분 data로 해석하지 않는다.
 - Supabase NAV는 account snapshot이다. effective deployment, complete snapshot marker,
   external cash flow migration이 실제 적용·backfill되기 전에는 과거 전략 귀속이나 TWR의 완전한
   source로 사용하지 않는다.
@@ -114,8 +118,8 @@ uv run tools/wind_down.py --funder 0x... status
 
 - 거래 condition ID의 `market_snapshots`/`market_catalog` join coverage를 확인한다.
 - 기간 양끝, archive별 기대 cadence 대비 actual bucket, run gap, event ID coverage를 수치화한다.
-  중앙 nectarine/honeydew는 5-minute, papaya/queen은 Jenkins schedule/run manifest의
-  cohort cadence를 쓴다.
+  중앙 nectarine/honeydew의 hot evidence는 실제 5-minute coverage를 재고,
+  papaya/queen/quince/kiwi는 Jenkins schedule/run manifest의 cohort cadence를 쓴다.
 - daily local evidence는 해당 schema의 exact account set(v2=6, v3=9)이 모두 있는
   `COMPLETE` run만 사용한다.
 - dashboard의 freshness, account별 date range/missing days, portfolio reconciliation을 확인한다.
@@ -142,7 +146,8 @@ REVIEW_END=<YYYY-MM-DD UTC>
 4) actual result는 CONFIRMED order_fills만 사용하고 partial fill·fee·liquidity role·
    reconciliation coverage를 보고한다. legacy ORDER_ASSUMPTION P&L은 섞지 않는다.
 5) market_catalog event cluster와 archive별 실제 cadence coverage를 검증한다. 중앙 archive는
-  5-minute, papaya/queen은 Jenkins schedule/run manifest에서 산출한 cohort cadence를 사용한다.
+  실제 5-minute hot coverage를 재고, papaya/queen/quince/kiwi는 Jenkins schedule/run
+  manifest에서 산출한 cohort cadence를 사용한다.
 6) 기간 내 결과와 동일 evidence의 counterfactual을 비교해 전략 문서의 제안 표를 채운다.
 7) evidence gate를 못 통과하면 파라미터 변경 대신 복구/계측 계획만 제안한다.
 

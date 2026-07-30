@@ -1,0 +1,61 @@
+# Golden Kiwi — Micro-Cascade
+# RESEARCH/SIMULATION ONLY. The frozen OOS promotion gate failed.
+
+trading:
+  lifecycle_mode: active
+
+  # Code-enforced simulation drawdown stop.
+  max_drawdown_stop: 0.20
+  experiment_capital_usdc: 100
+
+  buy_amount_usdc: 5
+  max_buy_amount_usdc: 5
+  min_liquidity: 20000
+  min_volume_24h: 10000
+  # Conservative OOS research exposure: at most 3 x $5 = $15.
+  max_positions: 3
+  max_event_positions: 1
+  max_open_notional_usdc: 15
+  max_new_positions_per_cycle: 1
+  reentry_cooldown_hours: 6
+
+  min_order_size: 5
+  min_order_buffer_shares: 0.10
+  max_spread: 0.02
+  depth_price_window: 0.01
+  depth_safety_multiple: 1.20
+  yes_only_mode: true
+
+  # Frozen primary arm B. Only these first two values may differ by arm:
+  # A=(3, .01), B=(3, .02), C=(5, .01), D=(5, .02).
+  entry:
+    confirmation_steps: 3
+    min_cumulative_move: 0.02
+    min_step_move: 0
+    max_step_move: 0.02
+    max_cumulative_move: 0.04
+    min_snapshot_gap_minutes: 3
+    max_snapshot_gap_minutes: 10
+    prob_min: 0.20
+    prob_max: 0.80
+    min_hours_to_resolution: 6
+    hold_minutes: 60
+    max_exit_delay_minutes: 15
+
+  archive:
+    prob_min: 0.16
+    prob_max: 0.84
+    retention_days: 60
+
+  excluded_categories:
+    - sports
+    - games
+    - esports
+    - crypto-prices
+    - up-or-down
+    - multi-strikes
+    - 5m
+    - 15m
+    - 1h
+
+simulation_mode: true

@@ -1,6 +1,10 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-기존 3개 + 신규 12개 = 총 15개 전략의 전체 지도. 각 전략의 상세 근거와 규칙은 각 폴더의 `STRATEGY.md`, 기존 봇 분석은 각 폴더의 `STRATEGY_ANALYSIS.md`, 사람이 읽기 좋은 HTML 버전은 `docs/strategy-pages/`, 회고 절차는 `docs/ab-retro-playbook.md` 참조.
+총 16개 전략의 전체 지도다. 현재 운영 상태는
+[전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
+`STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
+`docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
+다른 사실**이며, 이 문서는 2026-07-30 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -17,30 +21,34 @@
 
 | 봇 | 전략 | 노리는 심리 | 방향 | 시장 구간 | 상태 |
 |---|---|---|---|---|---|
-| golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | 운영 중 (2계정) |
-| golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | 운영 중 (신호 결함 확인됨) |
-| golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 마감 1–30일 | 운영 중 (성과는 evidence cohort별 검증) |
-| ~~golden-date~~ (**⛔ 폐쇄 권고 2026-07-29**) | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | 신규 |
-| golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 (원래 favorite) | 신규 |
-| ~~golden-fig~~ (**⛔ 폐쇄 2026-07-28**) | Hope Crusher | favorite-longshot bias (복권 심리) | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | 신규 |
-| golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | 신규 |
-| ~~golden-honeydew~~ (**⛔ 폐쇄 판정 2026-07-30**) | Night Watch | 주의(attention) 사이클 — 새벽·주말 부재 | 무근거 이탈 복원 | 0.30–0.90 | confirmed-fill gross -3.54% |
-| ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 (PEAD 유사) | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 (2026-07-28, 가설 기각)** |
-| ~~golden-mango~~ (**⛔ 폐쇄 2026-07-28**) | Patience Premium | 자본 잠김 회피(조급함) → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | 신규 (문헌 도출) |
-| ~~golden-nectarine~~ (**⛔ 폐쇄 판정 2026-07-30**) | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | 대사된 120h calendar-exit subset -4.70% |
-| golden-orange | Fear Spike Fade | probability neglect (공포의 확률 무시) | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | 신규 (문헌 도출) |
-| golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 가설 | strict binary YES 편승 | 관측된 0.95 교차, 0h 초과–72h 이하 | 신규 (falsification cohort) |
-| golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 가설 | strict binary YES 편승 | 0.90–0.94, 24h 이내·스포츠 in-play | 신규 (Cherry evidence 복구형) |
+| golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
+| golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
+| golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
+| ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
+| golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 | **운영 중** |
+| ~~golden-fig~~ | Hope Crusher | favorite-longshot bias | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | **⛔ 폐쇄 완료 2026-07-28** |
+| golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | **구현 완료 · 시작 evidence 없음** |
+| ~~golden-honeydew~~ | Night Watch | 새벽·주말 attention 희소성 | 무근거 이탈 복원 | 0.30–0.90 | **⛔ 폐쇄 완료 2026-07-30** |
+| **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 15–25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
+| ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
+| ~~golden-mango~~ | Patience Premium | 자본 잠김 회피 → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | **⛔ 폐쇄 완료 2026-07-28** |
+| ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
+| golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
+| golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
+| golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
+| golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 
-포트폴리오 관점의 커버리지:
+상태 합계는 운영 6, 구현만 완료 3, simulation 전용 1, 명시적 보류 0, 폐쇄 완료
+6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
-- **시간축**: 마감 임박(cherry/date/papaya/queen) ↔ 마감 먼 구간(elderberry/grape) ↔ 시간 무관(honeydew)
-- **방향**: 편승(date/grape/lime) ↔ 역행(elderberry/honeydew) ↔ 구조적 수렴(fig)
-- **이벤트**: 급변 발생 시 elderberry(노이즈 가설)와 lime(정보 가설)이 서로 반대 베팅 → 자연스러운 A/B 쌍
+폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
+모두 지지하지 않았고, Honeydew는 snapshot replay와 actual confirmed-fill 성과의 부호가
+달랐으며, Nectarine은 단일 이벤트가 전체 양수를 만들었다. 새 가설은 독립 기간,
+point-in-time catalog, event clustering, executable quote와 fill evidence로 다시 검정한다.
 
-## 신규 6개의 근거 요약
+## 1차 설계군의 근거와 현재 판정
 
-### golden-date — ⛔ 폐쇄 권고 (2026-07-29) — Conviction Ladder
+### golden-date — ⛔ 폐쇄 완료 (2026-07-29) — Conviction Ladder
 cherry가 이미 돈을 벌고 있는 가설("마감이 다가오면 대중이 favorite으로 쏠리고, 시장 정확도는 24h 전 88.6% → 4h 전 94.2%로 수렴")을 유지하면서, 분석에서 확인된 cherry의 허점 5개를 수정한 직계 후계자다: 남은 시간과 무관한 고정 확률 밴드 → 시간 사다리(마감이 멀수록 싸게만 진입), --yes-only로 NO-favorite 시장 절반 폐기 → 양측 지원, 하락 중에도 매수 → 6h 모멘텀 게이트, rapid_jump 영구 skip → 쿨다운 재진입, 12h 전 조기 청산 → 2h 전까지 수렴 구간 수확.
 
 ### golden-elderberry — Panic Fade
@@ -58,7 +66,7 @@ favorite-longshot bias는 예측시장 문헌에서 가장 잘 문서화된 편�
 ### golden-grape — Cascade Rider
 뉴스는 대중에게 천천히 퍼진다(정보 폭포). 리서치 문서: "2–3%/일의 완만한 이동은 +6–8% 지속, 10%+ 급변은 회귀". banana의 골든크로스가 실패한 이유는 가설이 아니라 신호였다 — threshold 0.02가 사실상 도달 불가능해 모든 실거래가 cold-start 폴백으로 발생했다. grape는 같은 모멘텀 가설을 도달 가능한 신호(24h 일관 드리프트 +4~10pt, 4h 버킷 70% 일관성, 거래량 1.2배 가속)로 재구현하고, 드리프트 상한으로 mean-revert 영역을 배제한다.
 
-### golden-honeydew — ⛔ 폐쇄 판정 (2026-07-30) — Night Watch
+### golden-honeydew — ⛔ 폐쇄 완료 (2026-07-30) — Night Watch
 
 > 완전 대사된 confirmed-fill 316건의 fee 차감 전 gross P&L은 **-$55.92(-3.54%)**였고,
 > deviation·유동성·거래량·평일/주말 주요 slice가 모두 음수였다. 낙관적 snapshot
@@ -82,7 +90,7 @@ Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 �
 
 대형 서프라이즈에 대중은 "설마"(불신)와 기존 가격 앵커링으로 일부만 반영한다 — 주식의 실적 발표 후 드리프트(PEAD)와 같은 구조. elderberry와 정반대 트리거의 의도적 A/B 쌍: 급변 이벤트에서 거래량이 미약하고 고점을 반납하면 노이즈(elderberry가 페이드), 거래량이 2배+ 폭증하고 고점을 유지하면 정보(lime이 편승). 두 가설을 동시에 실전 검증한다.
 
-## 2차 신규 3개 (기존 전략과 독립적으로, 공개 문헌·백테스트에서 도출)
+## 2차 설계군 (공개 문헌·백테스트에서 도출)
 
 이 3종은 기존 골든 시리즈를 참조하지 않고 예측시장 문헌 리서치에서 독립 도출했다. 출처는 각 `STRATEGY.md`에 명기.
 
@@ -95,7 +103,7 @@ Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 �
 
 예측시장 참여자는 자본이 잠기는 것을 싫어해서, "거의 확실한" 계약도 만기까지의 기간만큼 할인되어 거래된다(settlement discount). 2026년 arXiv 논문 2편이 이 할인 기간구조를 실측했고(할인 보정 시 근확실 구간 왜곡의 48~88%가 소거), Kalshi 실증도 고가 계약의 양(+)의 수익률을 확인했다. 단일 수식 `y = ((1-p)/p) × (8760/남은시간) ≥ 2.0` 하나로 진입을 판정한다 — 대중의 조급함이 만든 할인을 봇의 인내로 수확한다. 골든크로스만큼 간결하지만, 근거는 가장 강하다.
 
-### golden-nectarine — ⛔ 폐쇄 판정 (2026-07-30) — Bottom Fisher
+### golden-nectarine — ⛔ 폐쇄 완료 (2026-07-30) — Bottom Fisher
 
 > 완전 대사된 전체 81건은 gross +$6.95였지만 단일 이벤트 +$26.09에 의존했다. 이를
 > 제외하면 -$19.14이고, 대사된 120시간 `max_holding` 부분집합 59건은
@@ -108,7 +116,7 @@ Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 �
 ### golden-orange — Fear Spike Fade
 무서운 헤드라인 아래에서 대중은 확률이 아니라 결과의 끔찍함에 반응한다(probability neglect, Sunstein 2002). tail 시장 YES가 급등했다가 90~120분 내 되돌림의 60%가 발생한 실측 사례(이란 휴전 35→68→58%, 핵폭발 시장 19%)를 근거로, 스파이크가 스톨한 뒤 NO를 사서 공포 프리미엄 감쇠를 수확한다. fig(정적 theta)·lime(급등 편승)과 구분되는 이벤트 직후 감정 과잉 전담.
 
-## 3차 신규 1개 — 단순 수렴 가설의 엄격한 대조군
+## 3차 설계 — 단순 수렴 가설의 엄격한 대조군
 
 ### golden-papaya — Final Five
 표준 이진 YES가 해결까지 0시간 초과 72시간 이하로 남았을 때 archive cadence에서
@@ -121,7 +129,7 @@ first-crossing lineage와 반사실을 위해 YES≥0.80·잔여≤168h·유동�
 자체 archive를 60일 보존한다.
 sweep/run gap이 있으면 실제 교차 시점은 interval-censored로 보고한다.
 
-## 4차 신규 1개 — Cherry 계승·실행 증거 강화
+## 4차 설계 — Cherry 계승·실행 증거 강화
 
 ### golden-queen — Crown Momentum
 
@@ -141,6 +149,61 @@ exit은 없다. 현재 baseline은 건당 $100이며, 24h 대 12h 한 축만 별
 Cherry 30일 strict audit가 CRITICAL/HIGH evidence issue로 실패했으므로 이 규칙은 “최적
 수익값”이 아니라 반증 가능한 보수적 신규 가설이다.
 
+## 5차 설계 — 실행 측면만 처치하는 3-arm 실험
+
+### golden-quince — Spread Harvest
+
+방향성 예측을 포기하고 **진입 실행 측면(maker/taker)** 하나만 수익원으로 검정한다.
+실측 왕복 비용이 maker→maker `-31.1 bps`, taker→taker `+72.5 bps`로 103 bps
+갈렸다는 관찰에서 출발했다. Queen 진입 신호, $5, 고정 24h horizon, SELL `nearest`는
+세 팔에서 같고 BUY tick 처리만 바꾼다.
+
+| 팔 | BUY mode | canonical Jenkins job | 역할 |
+|---|---|---|---|
+| A | `passive` | `polybot-quince-passive` | maker 처치군 |
+| B | `nearest` | `polybot-quince-nearest` | 기존 반올림 대조군 |
+| C | `cross` | `polybot-quince-cross` | taker 비용 상한 |
+
+각 팔은 별도 wallet/account, Jenkins job, `--job`, DB를 사용한다. 30일의 1차 endpoint는
+승률이나 최종 P&L이 아니라 MAKER 비중, decision midpoint 대비 진입 VWAP, 체결률,
+체결 뒤 15/60분 역선택이다. 현재 상태는 **구현 완료, 실제 시작 evidence 없음**이다.
+
+## 6차 설계 — 5분 Micro-Cascade 연구
+
+### golden-kiwi — Micro-Cascade
+
+사람들이 정보를 한 번에 반영하지 않고 서로의 거래를 따라갈 때 3~5회의 작은 5분
+YES 상승이 한 시간 더 이어질 수 있다는 단순 가설이다. Lime의 6시간 shock-follow와
+Grape의 24시간 drift 사이를 다시 최적화하지 않고, 15~25분 monotone micro-trend만
+고정된 2×2로 수집한다.
+
+| 팔 | 양의 step 수 | 최소 누적 상승 | 역할 |
+|---|---:|---:|---|
+| A | 3 | +1pp | loose sensitivity |
+| **B** | **3** | **+2pp** | **사전 등록 primary** |
+| C | 5 | +1pp | 긴 확인 sensitivity |
+| D | 5 | +2pp | strict sensitivity |
+
+공통 조건은 step마다 `0 < ΔYES ≤ 2pp`, 누적 ≤4pp, 관측 gap 3~10분, YES
+0.20~0.80, 잔여 ≥6h, liquidity ≥$20k, volume24h ≥$10k, spread ≤2pp,
+event 6h cooldown이다. 60분 뒤 첫 유효 bid로 quote-to-quote 결과를 기록한다.
+
+하지만 2026-07-30에 **결과를 보기 전에** Arm B와 승격 gate를 동결하고 Honeydew의
+독립 시간 구간으로 검정했을 때 어느 팔도 통과하지 못했다. strict event-purged B는
+1 signal/1 event, +13.55 bps였고 10.4 bps stress 뒤 +3.15 bps였지만 CI를 계산할 수
+없었다. cooldown-carried B는 2 events 평균 -1.8072%였다. 독립 재검토에서는 C의 유일한
+양수 신호가 서로 다른 Git commit snapshot을 이었고, 과거 DB에 snapshot-level
+strict-binary/`negRisk` 증거도 없음을 확인했다. 따라서 C 양수 해석은 철회했으며 당시
+A/B/C/D 수치는 모두 현재 promotion evidence가 아니다.
+
+따라서 Kiwi는 **research/simulation 전용**이고 live execution은 코드에서 금지한다.
+새로운 독립 30일 5분 data에서 B가 50 quote-complete signals/30 event clusters,
+98.75% clustered lower bound >0(10.4 bps stress 뒤에도 >0), 양쪽 time half 양수,
+coverage ≥90%를 모두 충족하기 전에는 threshold 완화나 live 승격을 하지 않는다.
+상세는 `golden-kiwi/STRATEGY.md`, `golden-kiwi/research/`,
+`golden-kiwi/research/2026-07-30-cohort-correction.md`,
+`docs/retro/golden-kiwi.md`를 따른다.
+
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
 기존 봇 분석에서 확인된 결함의 수정:
@@ -148,13 +211,13 @@ Cherry 30일 strict audit가 CRITICAL/HIGH evidence issue로 실패했으므로 
 | 결함 (기존 봇) | 수정 (신규 봇) |
 |---|---|
 | 스냅샷 개수 기반 윈도우 — Jenkins 중단 시 왜곡 | timestamp 기반 윈도우 + 커버리지 검증, 데이터 부족 시 진입 금지 |
-| cold start 시 히스토리 없음 | CLOB `/prices-history` 백필 (실패 시 조용히 스냅샷 축적으로 폴백) |
+| cold start 시 히스토리 없음 | 일반 신규 봇은 CLOB `/prices-history` 백필을 사용한다. Kiwi는 시간축이 다른 backfill을 섞지 않고 persisted current-run snapshot만 사용하므로 필요한 3/5-step lineage가 쌓일 때까지 진입하지 않음 |
 | condition_id당 영구 1회 거래 | 쿨다운(기본 24h) 후 재진입 허용 |
 | 해결된 시장이 영원히 HOLDING | 일반 신규 전략은 endDate+24h 경과 시 EXPIRED 처리 + 수동 redeem 경고. papaya/queen은 예외로 time exit/수익성 EXPIRED 처리를 하지 않고 resolution을 SELL/cash realization과 분리한다. queen은 actual redeem ingestion이 아직 없음을 명시 |
 | 진입가 높으면 take_profit 도달 불가 | 목표가 0.99 캡 |
 | `LOG_LEVEL` env 무시 | 지원 |
 | Gamma 전체 sweep 2회/사이클 | 1회로 통합 |
-| excluded_categories env 불가 | `POLYBOT_EXCLUDED_CATEGORIES` 지원 |
+| excluded_categories env 불가 | 일반 신규 봇은 `POLYBOT_EXCLUDED_CATEGORIES`를 지원한다. Kiwi는 사전 등록한 exact 제외 집합을 고정하고 변경 시 시작 거부 |
 
 유지한 것(비교 가능성): `POLYBOT_BUY_AMOUNT` 등 env 이름, `data/<job>/` 분리,
 py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐름을 유지하지만 papaya/queen은
@@ -162,51 +225,28 @@ py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐�
 사용하고, queen은 같은 order-book snapshot의 spread와 ask depth까지 검증한다. 진입·성과
 확정은 별도의 confirmed fill evidence로만 수행한다.
 
-## 6개월 롤아웃 제안
+## 현재 실행 우선순위
 
-한 달에 1–2개씩, 시뮬레이션 → 소액 실전 → 증액의 3단계. 순서는 "기존에 입증된 가설과의 거리" 기준:
-
-| 월 | 투입 | 이유 |
+| 대상 | 지금 할 일 | 하지 않을 일 |
 |---|---|---|
-| M1 | **date** | cherry 가설 그대로 + 버그 수정만 — 가장 낮은 리스크. cherry와 직접 A/B (같은 기간, 같은 금액) |
-| M2 | **fig** | cherry의 미러. 문헌 근거 최강. 마감 수렴이라는 이미 입증된 동력 공유 |
-| M3 | **elderberry** | 독립 가설 1호. 리서치 문서의 mean-revert 근거 |
-| M4 | **grape** | banana의 교훈을 반영한 재도전 |
-| M5 | **lime** | elderberry와 A/B 쌍으로 동시 평가 시작 |
-| M6 | **honeydew** | 시간대 데이터가 충분히 쌓인 뒤 판단 (스냅샷 축적 필요성 최대) |
+| 운영 6개 | 현 config cohort를 보존하고 strict audit·confirmed fill·event-effective 성과를 수집 | 여러 knob를 동시에 변경하거나 legacy P&L로 증액 |
+| grape / orange | 시작하려면 새 계정·job·DB와 사전 등록부터 확인 | 코드가 있다는 이유로 “운영 중” 표시 |
+| quince | $5·24h·5분 cadence로 A/B/C를 별도 wallet/job/DB에서 실행 | 12h/24h나 주문액까지 동시에 변경 |
+| kiwi | 네 simulation job에서 독립 30일 5분 research archive 수집 | live 실행, threshold 완화, 관측 winner로 B 교체 |
+| 폐쇄 6개 | 문서·DB·로그·checksum을 보존하고 wallet/order/redeem 잔여 evidence 대사 | 재가동, 승자 slice 선택, 같은 데이터 재최적화 |
 
-2차 3종은 월 2개 페이스로 병행 투입 가능: **mango**는 근거가 가장 강해 M1~M2에 date와 병행 A/B를 권장, **orange**는 fig/lime과 같은 계열이므로 M2~M3에, **nectarine**은 백테스트 복제 검증 목적으로 아무 때나 소액 병행. **papaya**는 기존 slot/DB를 재사용하지 않는 별도 simulation → $5 live falsification cohort로 마지막에 추가한다. **queen**은 별도 계정·job·DB에서 24h/12h만 바꾼 $100 A/B로 시작한다. 둘 다 4주와 terminal event 유효 n 30 이전에는 다음 금액 단계로 증액하지 않는다.
-
-### A/B 판단 기준 (제안)
-
-- 각 전략 최소 **4주 + 30건 이상** 거래 후 판단. 단, papaya/queen은 단순 trade 수가 아니라 **terminal event-cluster 유효 n 30**을 요구한다.
-- 지표: 총손익, 거래당 평균 손익, 승률, 최대 낙폭(MDD), exit_reason 분포 (stop_loss 비중이 40%+면 진입 조건 재검토).
-- 입증되면 env 변수만 바꾼 베리에이션(A-1/A-2/A-3)을 별도 `--job`으로 병행 — 각 폴더 STRATEGY.md의 베리에이션 절 참조.
-- 모든 봇이 `data/<job>/trades.db`에 동일 스키마로 기록하므로 폴더 간 비교 집계가 쉽다. 채택 시 `daily-report`의 계정 목록에 추가할 것.
+일반적인 “30건이면 충분” 규칙은 사용하지 않는다. 전략별 사전 등록 endpoint와
+dependence unit을 따른다. 예를 들어 Queen/Papaya는 terminal event cluster,
+Quince는 같은 event-window의 BUY execution endpoint, Kiwi는 quote-complete signal
+50건과 event cluster 30개가 최소 gate다.
 
 ## 운영 주의
 
 - 신규 봇의 `data/`는 git에 커밋하지 않는다 (기존 3개 봇과 다른 점).
-- 시뮬레이션 손익은 midpoint 체결·슬리피지 0 가정이라 낙관 편향 — 소액 실전 단계를 생략하지 말 것.
-- GTC 주문의 `accepted`/order ID는 fill이 아니다. 실제 성과는 confirmed fill evidence로만 확정하며, papaya/queen의 SELL은 접수 뒤 `PENDING_SELL`을 유지하고 exact BUY/SELL fill 대사 전에는 완료로 간주하지 않는다. Queen BUY도 exact full fill 전에는 `PENDING_BUY`다.
-- private key는 Jenkins credential로만 주입한다. 스크립트 파일·채팅에 평문 노출 금지.
-
-
----
-
-## golden-quince — Spread Harvest (2026-07-29 신규)
-
-방향성 예측을 포기하고 **실행 측면(maker/taker)** 하나를 수익원으로 삼는다.
-
-2026-07-28~29에 4개 전략을 폐쇄하며 확인한 것: 가격은 캘리브레이션되어 있고
-(99개 셀 중 BH 통과 0개), 경로 구조는 실재하나 틱보다 작으며(되돌림 7.9 bps),
-청산 규칙에도 edge가 없다(785건 +0.44pp, p=0.74). 남은 것은 **거래비용의 부호**뿐이다.
-
-실측 왕복 비용이 maker→maker `-31.1 bps` / taker→taker `+72.5 bps`로 **103 bps**
-갈리는데, 기존 14개 봇은 `_round_to_tick`이 side를 보지 않아 이 축이 **무작위**였다.
-quince는 `execution_mode`(passive/nearest/cross)로 이를 고정하고, A/B 3팔로
-`A > B > C` 순서를 사전 등록해 검정한다.
-
-- 기본 주문 **$5**, 낙폭 kill switch가 **코드로** 강제됨(확정손익 ≤ -$40 → 진입 차단)
-- 진입 신호는 golden-queen에서 그대로 상속 (신호가 아니라 실행이 처치이므로)
-- 상세: `golden-quince/STRATEGY.md`, `docs/strategy-pages/strategy-quince.html`
+- 일반 전략의 시뮬레이션 손익은 midpoint 체결·슬리피지 0 가정이라 낙관 편향이다.
+  Kiwi도 fresh entry limit→exit best bid의 top-of-book counterfactual일 뿐 depth 전체,
+  queue, latency, partial fill과 fee를 증명하지 않는다.
+- GTC 주문의 `accepted`/order ID는 fill이 아니다. 실제 성과는 confirmed fill evidence로만 확정하며, modern fill-state 전략의 BUY/SELL은 exact fill 대사 전 terminal로 간주하지 않는다.
+- Kiwi simulation 결과는 실제 fill 또는 live 수익이 아니다. 코드의 live hard block을 우회하지 않는다.
+- live-capable 전략의 private key는 Jenkins credential로만 주입한다. 스크립트
+  파일·채팅에 평문 노출 금지. Kiwi simulation에는 credential 자체를 주입하지 않는다.

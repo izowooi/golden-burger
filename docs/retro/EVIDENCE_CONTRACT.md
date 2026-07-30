@@ -1,6 +1,6 @@
 # 월간 전략 회고 Evidence Contract
 
-이 문서는 14개 `golden-*` 전략 회고의 공통 데이터 계약이다. 각 전략별 문서는
+이 문서는 16개 `golden-*` 전략 회고의 공통 데이터 계약이다. 각 전략별 문서는
 시그널과 파라미터를 설명하지만, **어떤 기록을 사실로 인정할지**는 이 문서가 우선한다.
 계측이 배포되기 전의 legacy 구간과 배포 후 구간을 섞어 하나의 실측치처럼 보고하지 않는다.
 
@@ -127,8 +127,9 @@ envelope 기준이다. `volume24hr` 하한은 `volume_num_min`과 의미가 다�
 대체하지 않고 전략 scanner에서 계속 검사한다. 따라서 절대 시장 수를 문서에 고정하지 않고
 run별 filter, `markets_scanned`, membership digest와 catalog coverage를 보고한다.
 
-중앙 archive는 `golden-nectarine`(liquidity ≥ $10k)과 보조 `golden-honeydew`
-(liquidity ≥ $15k)의 SQLite다.
+과거 중앙 archive는 `golden-nectarine`(liquidity ≥ $10k)과 보조 `golden-honeydew`
+(liquidity ≥ $15k)의 SQLite다. 두 전략은 2026-07-30 폐쇄됐으므로 이 DB는 폐쇄 시점까지의
+historical evidence source일 뿐, 이후 universe를 계속 수집하는 live archive로 간주하지 않는다.
 
 `golden-papaya`와 `golden-queen`의 기본 request envelope는 liquidity ≥ $1k이며, 실제
 하한은 `min(configured entry liquidity, $1k)`이다. 따라서 중앙 archive가 저유동성
@@ -136,6 +137,14 @@ universe를 완전히 덮지 못한다. 각 counterfactual은 자체 archive를 
 중앙 archive는 교집합 대조용으로만 사용한다. 둘 다 YES ≥ 0.80, 최소 60일을 보존하며
 scheduled/pregame horizon은 papaya ≤168h, queen ≤72h다. 두 자체 archive 모두 동일한
 cursor-complete sweep/membership digest/catalog/event coverage 계약을 지킨다.
+
+`golden-kiwi`는 live 성과가 아니라 Micro-Cascade 가설을 검증하는 **simulation-only**
+archive다. 모든 5분 raw snapshot을 60일 보존하고, A/B/C/D arm은
+`job_name × config_hash × Git commit × simulation` cohort로 완전히 분리한다. 진입의
+best ask와 60~75분 뒤 최초 관측 best bid로 계산한 값은 hypothetical proxy return이며,
+confirmed fill 또는 live realized P&L로 표현하지 않는다. 75분 안에 exit quote가 없으면
+임의 가격을 채우지 않고 censored observation으로 남긴다. Kiwi compact metadata가
+깨졌거나 cadence coverage가 90% 미만이면 strict audit은 fail closed한다.
 
 - `market_snapshots`: YES probability, liquidity, volume, best bid/ask, spread,
   source update 시각, `run_id`, 수집 시각

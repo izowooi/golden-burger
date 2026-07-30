@@ -50,7 +50,7 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
   <div class="emoji">🍐</div>
   <h1>golden-quince <span class="en">— Spread Harvest</span></h1>
   <p class="tagline">"시장을 이기려 하지 않는다. 스프레드를 내는 쪽이 아니라 받는 쪽에 선다." — 방향성 예측을 포기하고 <strong>실행 측면(maker/taker)</strong> 하나만을 수익원으로 삼는 전략.</p>
-  <div class="badges"><span>유형 <b>실행 비용</b></span><span>상태 <b>신규 · A/B 사전 등록</b></span><span>처치축 <b>execution_mode</b></span><span>기본 주문 <b>$5</b></span></div>
+  <div class="badges"><span>유형 <b>실행 비용</b></span><span>상태 <b>구현 완료 · 시작 evidence 없음</b></span><span>처치축 <b>BUY execution_mode</b></span><span>기본 주문 <b>$5</b></span><span>신호 <b>24h 고정</b></span></div>
 </header>
 
 <section><h2>핵심 아이디어</h2>
@@ -59,9 +59,12 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
 
    ⇒ 양수 EV의 출처는 하나뿐: <b>거래비용의 부호를 바꾸는 것</b>
 
-BUY  지정가 = floor(midpoint)   # 매수호가에 합류 → maker
-SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
-                                # 절대 크로스하지 않는다</pre></section>
+처치(BUY만):
+  A passive = floor(midpoint)   # 매수호가 합류
+  B nearest = round(midpoint)   # 기존 대조
+  C cross   = ceil(midpoint)    # BUY 크로스
+
+SELL = nearest                  # A/B/C 모두 동일, 처치 아님</pre></section>
 
 <section><h2>왜 이 전략인가 — 다른 모든 것이 기각됐다</h2>
 <p>2026-07-28~29에 5개 전략(cherry·lime·fig·mango·date)을 실측 검증하고 4개를 폐쇄했다. 가설은 전부 달랐지만 결과는 같았다.</p>
@@ -86,7 +89,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>MAKER</td><td><strong>−16.8 bps</strong></td><td>[−19.1, −14.3]</td></tr>
 <tr><td>TAKER</td><td><strong>+56.7 bps</strong></td><td>[+54.3, +59.0] (97.5%가 지불)</td></tr>
 </table></div>
-<p><strong>차이가 약 73 bps</strong>이고, 결정적으로 <strong>분산이 매우 작다</strong>(CI 폭 ±2 bps). 이 성질이 아래 A/B의 검정력을 결정한다.</p>
+<p><strong>차이가 약 73 bps</strong>이고, 결정적으로 <strong>분산이 매우 작다</strong>(CI 폭 ±2 bps). 이 성질이 아래 A/B/C의 검정력을 결정한다.</p>
 </section>
 
 <section><h2>메커니즘 — 기존 14개 봇은 이 축이 무작위였다</h2>
@@ -99,7 +102,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>DOWN (매수호가 합류 = maker)</td><td>487</td><td><strong>39.4%</strong></td></tr>
 </table></div>
 <p><strong>다만 "무작위"는 과장이다.</strong> 결정 midpoint의 52~68%가 정확히 반 틱 위에 놓이는데, 그 지점에서 <code>round()</code>는 가격에 대해 <strong>결정적</strong>이다. 따라서 반올림 방향은 가격 수준의 함수이고, 가격 수준은 결과와 상관이 있다 — 밴드 통제 시 부호가 뒤집힌 것도 이 교란 때문일 수 있다. 정확히는 <strong>"가격 수준 교란이 있는 준무작위 배정"</strong>이며, 그래서 실제 MAKER 비중은 가정하지 않고 팔별로 <strong>실측 기록</strong>한다.</p>
-<p>quince는 이 축을 <code>execution_mode</code>로 <strong>설정에 고정</strong>한다.</p>
+<p>quince는 이 BUY 축을 <code>execution_mode</code>로 <strong>설정에 고정</strong>한다. SELL은 mode와 무관하게 항상 <code>nearest</code>다.</p>
 </section>
 
 <section class="notice"><h2>⚠ 경쟁 가설 — 아직 기각되지 않았다</h2>
@@ -109,7 +112,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 </section>
 
 <section><h2>진입 · 청산 규칙</h2>
-<p>golden-queen에서 <strong>의도적으로 그대로 상속</strong>한다. 신호가 아니라 실행이 처치이므로, 신호는 A/B 전 팔에서 동일해야 한다.</p>
+<p>고정된 Crown Momentum signal contract를 <strong>의도적으로 그대로 사용</strong>한다. 신호가 아니라 BUY 실행이 처치이므로, 24시간 horizon을 포함한 신호는 A/B/C 전 팔에서 동일해야 한다.</p>
 <div class="tbl"><table>
 <tr><th>#</th><th>진입 조건 (모두 충족)</th></tr>
 <tr><td>1</td><td>표준 이진 시장 (<code>[Yes, No]</code>, price/token 각 2개, <code>negRisk is False</code> 명시)</td></tr>
@@ -142,20 +145,36 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <p>golden-date는 판정 기준을 문서에만 적어두고 실측 승률 35.7%(기준 70%)로 계좌 절반을 잃을 때까지 아무것도 멈추지 않았다. quince는 <code>Trader._drawdown_stop_triggered()</code>가 <strong>코드에서</strong> 차단한다. 청산은 계속되고, 재개는 사람의 판단을 요구한다.</p>
 </section>
 
-<section><h2>A/B 설계 (사전 등록)</h2>
+<section><h2>A/B/C 3팔 설계 (사전 등록)</h2>
 <p>처치는 <strong>실행 측면 하나</strong>다. 신호·금액·캡·청산은 전 팔에서 동일하다.</p>
 <div class="tbl"><table>
-<tr><th>팔</th><th>job</th><th><code>POLYBOT_EXECUTION_MODE</code></th><th>역할</th></tr>
-<tr><td><strong>A</strong></td><td><code>polybot-quince-passive</code></td><td><code>passive</code></td><td><strong>처치군</strong> — 절대 크로스 안 함</td></tr>
-<tr><td><strong>B</strong></td><td><code>polybot-quince-nearest</code></td><td><code>nearest</code></td><td><strong>대조군</strong> — 기존 14봇과 동일</td></tr>
-<tr><td><strong>C</strong></td><td><code>polybot-quince-cross</code></td><td><code>cross</code></td><td><strong>비용 상한</strong> — 항상 크로스</td></tr>
+<tr><th>팔</th><th>Jenkins job = <code>--job</code></th><th>DB</th><th>BUY mode</th><th>역할</th></tr>
+<tr><td><strong>A</strong></td><td><code>polybot-quince-passive</code></td><td><code>data/polybot-quince-passive/trades.db</code></td><td><code>passive</code></td><td><strong>처치군</strong> — BUY 크로스 안 함</td></tr>
+<tr><td><strong>B</strong></td><td><code>polybot-quince-nearest</code></td><td><code>data/polybot-quince-nearest/trades.db</code></td><td><code>nearest</code></td><td><strong>대조군</strong> — 기존 방식</td></tr>
+<tr><td><strong>C</strong></td><td><code>polybot-quince-cross</code></td><td><code>data/polybot-quince-cross/trades.db</code></td><td><code>cross</code></td><td><strong>비용 상한</strong> — BUY 크로스</td></tr>
 </table></div>
+<p><strong>격리 계약:</strong> A/B/C는 서로 다른 wallet/account, Jenkins credentials, job, <code>--job</code>, DB를 쓴다. 세 job의 cadence는 모두 <code>H/5 * * * *</code>이고 concurrent build는 끈다. Git commit, $5 주문, 24시간 signal horizon, threshold, risk, sports, lifecycle은 고정한다. SELL은 모든 팔에서 <code>nearest</code>다.</p>
+<p>Private key와 funder는 Jenkins <strong>Credentials Binding</strong>으로만 주입하고 값은 shell·문서·로그에 쓰지 않는다. secret을 참조하기 전부터 <code>set +x</code>를 적용한다.</p>
+<pre class="code"># A — wallet A / Jenkins job polybot-quince-passive / H/5 * * * *
+set +x
+export POLYBOT_EXECUTION_MODE=passive POLYBOT_BUY_AMOUNT=5 POLYBOT_ENTRY_HOURS_MAX=24
+uv run polybot run --live --job polybot-quince-passive
+
+# B — wallet B / Jenkins job polybot-quince-nearest / H/5 * * * *
+set +x
+export POLYBOT_EXECUTION_MODE=nearest POLYBOT_BUY_AMOUNT=5 POLYBOT_ENTRY_HOURS_MAX=24
+uv run polybot run --live --job polybot-quince-nearest
+
+# C — wallet C / Jenkins job polybot-quince-cross / H/5 * * * *
+set +x
+export POLYBOT_EXECUTION_MODE=cross POLYBOT_BUY_AMOUNT=5 POLYBOT_ENTRY_HOURS_MAX=24
+uv run polybot run --live --job polybot-quince-cross</pre>
 <p><strong>왜 대조군이 둘인가.</strong> B만 있으면 "A가 B보다 낫다"를 관측해도 실행 때문인지 우연인지 모른다. C가 있으면 <strong>예측된 순서</strong>가 생긴다:</p>
 <pre class="formula">MAKER 비중:  A  &gt;  B  &gt;  C
 진입 비용:   A  &lt;  B  &lt;  C     (bps, 결정 midpoint 대비)
 체결률:      A  &lt;  B  &lt;  C</pre>
 <p>이 <strong>부등식이 깨지면 우리의 비용 모형이 틀린 것</strong>이고, 그 자체가 정보다. 단일 대조군으로는 얻을 수 없는 falsifiability다.</p>
-<p>선택적 4번째 팔 D는 <code>passive</code> + <code>POLYBOT_BUY_AMOUNT=10</code>으로 크기 효과를 분리한다. 자금 여유가 있을 때만 추가하며 <strong>A·B·C가 우선</strong>이다.</p>
+<p>선택적 4번째 팔 D는 별도 wallet/job/DB에서 <code>passive</code> + <code>POLYBOT_BUY_AMOUNT=10</code>으로 크기 효과만 분리한다. <strong>A·B·C가 우선</strong>이다.</p>
 <p><strong>1차 종점은 순손익이 아니라 실행 지표다.</strong> 순손익은 해결 결과가 지배한다 — p≈0.92에서 YES는 +8.7%, NO는 −100%라 건당 표준편차가 <strong>약 2,900 bps</strong>다. 여기서 ~73 bps를 80% 검정력으로 탐지하려면 팔당 <strong>수만 건</strong>이 필요하다. 30일 25건으로 "A ≤ B"를 판정하면 동전던지기이고, <strong>판정 불가능한 기준을 사전 등록하는 것은 golden-date의 실패를 숫자만 적어서 반복하는 것</strong>이다.</p>
 <div class="tbl"><table>
 <tr><th>1차 종점 (30~50 체결이면 판정 가능)</th><th>예측</th></tr>
@@ -169,7 +188,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <tr><td>30일</td><td>A의 CONFIRMED 진입 체결 &lt; 30건</td><td><strong>판정 불가</strong> → 진입 조건 완화 후 재시작</td></tr>
 <tr><td>30일</td><td>A의 MAKER 비중이 B보다 유의하게 높지 않음</td><td><strong>구현 실패</strong> — 처치가 작동하지 않았다</td></tr>
 <tr><td>30일</td><td>A의 진입 비용(bps)이 B보다 낮지 않음</td><td><strong>가설 기각</strong></td></tr>
-<tr><td>30일</td><td>위 둘 성립 AND 역선택 표류 &lt; 진입 할인</td><td><strong>계속</strong>, 증액 검토</td></tr>
+<tr><td>30일</td><td>위 둘 성립 AND 역선택 표류 &lt; 진입 할인</td><td><strong>계속</strong>, 선택적 D $10 검토</td></tr>
 </table></div>
 <p>순손익 A vs B는 <strong>표본 부족으로 판정 불가</strong>이며 부호만 기록한다. 역선택은 패시브 체결 후 15/60분 midpoint 표류로 잰다 — <strong>가격 표류라 해결 결과보다 분산이 훨씬 작아 낮은 n에서도 유의미</strong>하다.</p>
 <p><strong>"승률"과 "순손익"은 1차 판정 기준이 아니다.</strong> 승률은 진입 밴드가 결정하며 처치와 무관하고, 순손익은 이 표본 크기에서 처치 효과를 담을 수 없다. 재는 것은 같은 신호에 대한 <strong>순 진입 실행 비용 차이</strong>다.</p>
@@ -180,7 +199,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 <li><strong>역선택이 스프레드보다 크다.</strong> 가장 유력한 실패 모드. → A vs B가 이것을 잰다.</li>
 <li><strong>체결이 안 된다.</strong> 패시브 체결률 39%대, 0.90~0.95 밴드의 $5 주문 체결률 36.2%. 자금 거절까지 포함하면 신호→포지션 전환율 ~25%.</li>
 <li><strong>미체결분이 유령이 된다.</strong> 미체결 $5 BUY의 <strong>36.4%가 INVALID</strong>로 전환되어 <code>max_positions</code>를 잠식한다. 패시브는 미체결이 많으므로 이 위험이 <strong>더 크다</strong>.</li>
-<li><strong>신호가 너무 희소하다.</strong> queen은 약 15,500개를 훑어 후보 2건이 나왔다. 진입이 0에 수렴하면 A/B가 성립하지 않는다.</li>
+<li><strong>신호가 너무 희소하다.</strong> 선행 관측에서는 약 15,500개를 훑어 후보 2건만 나왔다. 진입이 0에 수렴하면 A/B/C가 성립하지 않는다.</li>
 <li><strong>dust 잔류.</strong> 체결 $5 BUY의 0.3~0.9%가 5주 미만으로 남아 영구 매도 불가.</li>
 <li><strong>수수료가 실제로 부과된다.</strong> 기록된 fill의 수수료는 전부 0/NULL이지만 Gamma 메타데이터는 94% 시장에 <code>fee_rate</code> 0.04~0.07을 붙이고 있다. 이 불일치는 <strong>미해결</strong>이다.</li>
 </ul>
@@ -196,7 +215,7 @@ SELL 지정가 = ceil(midpoint)    # 매도호가에 합류 → maker
 </section>
 
 <footer>
-golden-quince · Spread Harvest · 2026-07-29 신규 · 상세: <code>golden-quince/STRATEGY.md</code><br>
+golden-quince · Spread Harvest · 2026-07-29 구현 완료 · 시작 evidence 미확인 · 상세: <code>golden-quince/STRATEGY.md</code><br>
 근거: <code>docs/retro/2026-07-29-market-structure-study.md</code> · <code>docs/retro/2026-07-29-execution-cost-floor.md</code> · <code>docs/retro/closed-strategies-postmortem.md</code>
 </footer>
 </div></body></html>

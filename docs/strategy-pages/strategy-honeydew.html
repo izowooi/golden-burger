@@ -50,16 +50,17 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
   <div class="emoji">🍈</div>
   <h1>golden-honeydew <span class="en">— Night Watch</span></h1>
   <p class="tagline">한산 시간대 복원 매수 — 미 동부 새벽·주말에 뉴스 없이 발생한 가격 이탈(dislocation)을 복원 방향으로 매수한다.</p>
-  <div class="badges"><span>유형 <b>역행 (복원)</b></span><span>상태 <b>⛔ 폐쇄 판정 (2026-07-30)</b></span><span>핵심 편향 <b>주의(attention) 희소성</b></span></div>
+  <div class="badges"><span>유형 <b>역행 (복원)</b></span><span>상태 <b>⛔ 폐쇄 완료 (2026-07-30)</b></span><span>핵심 편향 <b>주의(attention) 희소성</b></span></div>
 </header>
-<section style="border:2px solid #c0392b"><h2 style="color:#c0392b">⛔ 실거래 종료 판정</h2>
+<section style="border:2px solid #c0392b"><h2 style="color:#c0392b">⛔ 실거래 종료 완료</h2>
 <p>Jenkins <code>polybot-bear</code>의 synchronized DB·로그를 strict audit했다. BUY·SELL
 양쪽 confirmed fill이 완전 대사된 316건의 fee 차감 전 gross P&amp;L은
 <strong>-$55.92(-3.54%)</strong>였고, deviation·유동성·거래량·평일/주말 주요 slice도
 모두 음수였다. 일부 낙관적 snapshot replay가 보여준 양수 조합은 실제 체결 성과와
 모순되므로 live A/B 근거로 쓰지 않는다.</p>
-<p><strong>운영:</strong> 신규 BUY 중단 → wallet/CLOB 대사 → 증거 기반 wind-down →
-Jenkins job 비활성화. 상세 근거는 <code>docs/retro/golden-honeydew-2026-07-verdict.md</code>.
+<p><strong>운영:</strong> 사용자가 2026-07-30 전략 종료를 확인했다. 신규 BUY 중단과
+전략 폐쇄는 완료됐으며, wallet/CLOB 잔여 노출은 별도 evidence로 계속 대사한다.
+상세 근거는 <code>docs/retro/golden-honeydew-2026-07-verdict.md</code>.
 아래는 폐쇄 전 설계 문서로만 보존한다.</p></section>
 <section><h2>핵심 수식</h2><pre class="formula">quiet  = UTC 06–13시 ([start, end)) or 주말(토/일 UTC)   # 아니면 사이클 전체 skip
 median = median(최근 24h YES 스냅샷)
@@ -169,5 +170,5 @@ uv sync
 uv run python ./main.py run</pre>
 <p>3-5분 간격 cron 트리거를 권장한다. 한산 시간대(UTC 06-13시/주말)가 아니면 봇이 스스로 진입 스캔을 skip하므로 24시간 내내 돌려도 된다 (스냅샷 축적을 위해 오히려 계속 돌려야 한다).</p>
 </section>
-<footer>Golden Burger 전략 시리즈 · golden-honeydew · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+<footer>Golden Burger 전략 시리즈 · golden-honeydew · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · kiwi · lime · mango · nectarine · orange · papaya · queen · quince</footer>
 </div></body></html>

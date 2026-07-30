@@ -1,11 +1,12 @@
 # golden-nectarine 회고(포스트모템) 가이드
 
-> **⛔ 2026-07-30 CLOSE 판정**: Jenkins `polybot-eagle`의 synchronized production
+> **⛔ 2026-07-30 폐쇄 완료(운영자 확인)**: Jenkins `polybot-eagle`의 synchronized production
 > evidence를 strict audit했다. 전체 완전 대사 81건의 gross +$6.95는 단일 이벤트
 > +$26.09에 의존했고, 대사된 120시간 `max_holding` 부분집합 59건은
 > **-$14.46(-4.70%)**였다. 현행 실거래와 live A/B를 중단한다. 정정된 24~240시간
 > 반사실 구간은 모두 0을 포함해 특정 보유기간을 후속 A/B 후보로 지명하지 않는다. 상세는
-> [2026-07 판정](golden-nectarine-2026-07-verdict.md)을 따른다.
+> [2026-07 판정](golden-nectarine-2026-07-verdict.md)을 따른다. 사용자가 판정에 따라
+> 전략 운영을 종료했으며, 아래의 과거 A/B·증액 절차를 다시 실행하지 않는다.
 
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의

@@ -50,15 +50,17 @@ footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
   <div class="emoji">🍑</div>
   <h1>golden-nectarine <span class="en">— Bottom Fisher</span></h1>
   <p class="tagline">장기(30일+) tail~중간 구간 시장에서 YES 가격이 20일 롤링 최저가 이하로 떨어지면 매수하고, 보유 120시간(5일)이 지나면 손익과 무관하게 무조건 청산한다.</p>
-  <div class="badges"><span>유형 <b>역행 (평균 회귀)</b></span><span>상태 <b>⛔ 폐쇄 판정 (2026-07-30)</b></span><span>핵심 편향 <b>손실 회피 (loss aversion)</b></span></div>
+  <div class="badges"><span>유형 <b>역행 (평균 회귀)</b></span><span>상태 <b>⛔ 폐쇄 완료 (2026-07-30)</b></span><span>핵심 편향 <b>손실 회피 (loss aversion)</b></span></div>
 </header>
-<section style="border:2px solid #c0392b"><h2 style="color:#c0392b">⛔ 현행 실거래 종료 판정</h2>
+<section style="border:2px solid #c0392b"><h2 style="color:#c0392b">⛔ 현행 실거래 종료 완료</h2>
 <p>Jenkins <code>polybot-eagle</code>의 synchronized DB·로그를 strict audit했다. 완전
 대사된 전체 81건은 gross +$6.95였지만 단일 이벤트 +$26.09에 의존했고, 그 이벤트를
 제외하면 -$19.14였다. 대사된 120시간 <code>max_holding</code> 부분집합 59건은
 <strong>-$14.46(-4.70%)</strong>였다.</p>
 <p>정정된 24·72·120·168·240시간 counterfactual의 condition-cluster CI는 모두 0을
-포함했다. 따라서 특정 보유기간을 후속 A/B 후보로 선택하지 않는다. 상세 근거는
+포함했다. 따라서 특정 보유기간을 후속 A/B 후보로 선택하지 않는다. 사용자가
+2026-07-30 전략 종료를 확인했으며, wallet/CLOB 잔여 노출은 별도 evidence로 계속
+대사한다. 상세 근거는
 <code>docs/retro/golden-nectarine-2026-07-verdict.md</code>. 아래는 폐쇄 전 설계 문서로
 보존한다.</p></section>
 <section><h2>핵심 수식</h2><pre class="formula">진입 ⇔ p &lt;= min( YES 가격, 지난 20일 중 최근 24h 제외 구간 )   # 롤링 최저가, 동률 허용
@@ -142,5 +144,5 @@ cd ./golden-nectarine
 uv sync
 uv run python ./main.py run</pre>
 </section>
-<footer>Golden Burger 전략 시리즈 · golden-nectarine · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · lime · mango · nectarine · orange</footer>
+<footer>Golden Burger 전략 시리즈 · golden-nectarine · 2026-07<br>시리즈: apple · banana · cherry · date · elderberry · fig · grape · honeydew · kiwi · lime · mango · nectarine · orange · papaya · queen · quince</footer>
 </div></body></html>

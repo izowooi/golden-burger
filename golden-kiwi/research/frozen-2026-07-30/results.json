@@ -1,0 +1,1710 @@
+{
+  "arm_gates": {
+    "A": {
+      "arm": "A",
+      "decision": "FAIL_NO_LIVE_RECOMMENDATION",
+      "failed_reasons": [
+        "quote-complete signals < 50",
+        "event clusters < 30",
+        "98.75% executable CI not estimable",
+        "98.75% executable -10.4bps CI not estimable",
+        "quote coverage < 90%",
+        "oos_early executable mean <= 0 or absent",
+        "oos_late executable mean <= 0 or absent"
+      ]
+    },
+    "B": {
+      "arm": "B",
+      "decision": "FAIL_NO_LIVE_RECOMMENDATION",
+      "failed_reasons": [
+        "quote-complete signals < 50",
+        "event clusters < 30",
+        "98.75% executable CI not estimable",
+        "98.75% executable -10.4bps CI not estimable",
+        "oos_early executable mean <= 0 or absent"
+      ]
+    },
+    "C": {
+      "arm": "C",
+      "decision": "FAIL_NO_LIVE_RECOMMENDATION",
+      "failed_reasons": [
+        "quote-complete signals < 50",
+        "event clusters < 30",
+        "98.75% executable CI not estimable",
+        "98.75% executable -10.4bps CI not estimable",
+        "oos_early executable mean <= 0 or absent"
+      ]
+    },
+    "D": {
+      "arm": "D",
+      "decision": "FAIL_NO_LIVE_RECOMMENDATION",
+      "failed_reasons": [
+        "quote-complete signals < 50",
+        "event clusters < 30",
+        "98.75% executable CI not estimable",
+        "98.75% executable -10.4bps CI not estimable",
+        "quote coverage < 90%",
+        "oos_early executable mean <= 0 or absent",
+        "oos_late executable mean <= 0 or absent"
+      ]
+    }
+  },
+  "catalog_conditions": 81572,
+  "limitations": [
+    "One sub-day full-cadence regime; compact-v1 makes older rows 12-hour rollups.",
+    "Snapshot probability and quotes are observational; no order was submitted.",
+    "Top-of-book proxy lacks depth, queue, latency, partial fills, and actual fee.",
+    "Catalog tags/end dates are stable-identity joins from the synchronized snapshot, not point-in-time catalog versions.",
+    "Nested arms are dependent and are not alternative winners if primary Arm B fails."
+  ],
+  "load_diagnostics": {
+    "conditions": 10658,
+    "sql_rows": 1293610
+  },
+  "manifest": {
+    "analysis_generated_at": "2026-07-30T14:04:31.620206+00:00",
+    "bootstrap_draws": 20000,
+    "bootstrap_seed": 20260730,
+    "database": "/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-bear/strategies/golden-honeydew/runtime/default/databases/latest/trades.db",
+    "db_sha256": "f0ae41a1a8b88d94e0d20c307d07f3d8fa02f77022c6d8a0804bd2b00d3486df",
+    "latest_successful_sync_finished_at": "2026-07-30T12:14:27.341243Z",
+    "prereg_sha256": "0a2e6537320f27254d3235629652afb97af15a25bc6304f2836cd618e1c28006",
+    "preregistration": "/Users/izowooi/.Codex/_workspace/new-strategy-2026-07-30/closed-data-research/PREREGISTRATION.md",
+    "quick_check": "ok",
+    "source_cutoff": "2026-07-28T15:42:05.414525Z",
+    "synced_at": "2026-07-30T12:13:51.689096Z"
+  },
+  "primary_gate": {
+    "arm": "B",
+    "decision": "FAIL_NO_LIVE_RECOMMENDATION",
+    "failed_reasons": [
+      "quote-complete signals < 50",
+      "event clusters < 30",
+      "98.75% executable CI not estimable",
+      "98.75% executable -10.4bps CI not estimable",
+      "oos_early executable mean <= 0 or absent"
+    ]
+  },
+  "raw_candidate_counts": {
+    "A": 14,
+    "B": 3,
+    "C": 4,
+    "D": 0
+  },
+  "selected_signal_counts": {
+    "A": 7,
+    "B": 3,
+    "C": 2,
+    "D": 0
+  },
+  "summaries": {
+    "mechanics": [
+      {
+        "arm": "A",
+        "cohort": null,
+        "event_clusters_quote_complete": 3,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": 0.595,
+          "ci95": [
+            -0.027137042062415184,
+            0.013717421124828544
+          ],
+          "ci98_75": [
+            -0.027137042062415184,
+            0.013717421124828544
+          ],
+          "ci_estimable": true,
+          "mean": -0.0014836703573719208
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": 0.595,
+          "ci95": [
+            -0.028177042062415183,
+            0.012677421124828545
+          ],
+          "ci98_75": [
+            -0.028177042062415183,
+            0.012677421124828545
+          ],
+          "ci_estimable": true,
+          "mean": -0.0025236703573719207
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": 0.2562,
+          "ci95": [
+            -0.00550000000000006,
+            0.01100000000000001
+          ],
+          "ci98_75": [
+            -0.00550000000000006,
+            0.01100000000000001
+          ],
+          "ci_estimable": true,
+          "mean": 0.004499999999999986
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": 0.03965,
+          "ci95": [
+            -0.007529089664613409,
+            0.036446469248291535
+          ],
+          "ci98_75": [
+            -0.007529089664613409,
+            0.036446469248291535
+          ],
+          "ci_estimable": true,
+          "mean": 0.014672299714806472
+        },
+        "mean_entry_spread": 0.007000000000000006,
+        "mean_target_delay_minutes": 3.696641883333333,
+        "midpoint_complete": 3,
+        "oos_half": null,
+        "period": "mechanics",
+        "quote_complete": 3,
+        "quote_coverage": 1.0,
+        "signal_events": 3,
+        "signals": 3,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": -0.0014836703573719208,
+        "trade_weighted_executable_median": 0.008968609865470878,
+        "trade_weighted_executable_win_rate": 0.6666666666666666,
+        "trade_weighted_midpoint_return_mean": 0.014672299714806472,
+        "trade_weighted_point_change_mean": 0.004499999999999986
+      },
+      {
+        "arm": "B",
+        "cohort": null,
+        "event_clusters_quote_complete": 1,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": -0.027137042062415184
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": -0.028177042062415183
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": -0.00550000000000006
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": -0.007529089664613409
+        },
+        "mean_entry_spread": 0.013000000000000012,
+        "mean_target_delay_minutes": 4.696560333333333,
+        "midpoint_complete": 1,
+        "oos_half": null,
+        "period": "mechanics",
+        "quote_complete": 1,
+        "quote_coverage": 1.0,
+        "signal_events": 1,
+        "signals": 1,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": -0.027137042062415184,
+        "trade_weighted_executable_median": -0.027137042062415184,
+        "trade_weighted_executable_win_rate": 0.0,
+        "trade_weighted_midpoint_return_mean": -0.007529089664613409,
+        "trade_weighted_point_change_mean": -0.00550000000000006
+      },
+      {
+        "arm": "C",
+        "cohort": null,
+        "event_clusters_quote_complete": 1,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.022321428571428603
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.021281428571428604
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.006500000000000006
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.029082774049216997
+        },
+        "mean_entry_spread": 0.0010000000000000009,
+        "mean_target_delay_minutes": 4.8209200333333335,
+        "midpoint_complete": 1,
+        "oos_half": null,
+        "period": "mechanics",
+        "quote_complete": 1,
+        "quote_coverage": 1.0,
+        "signal_events": 1,
+        "signals": 1,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": 0.022321428571428603,
+        "trade_weighted_executable_median": 0.022321428571428603,
+        "trade_weighted_executable_win_rate": 1.0,
+        "trade_weighted_midpoint_return_mean": 0.029082774049216997,
+        "trade_weighted_point_change_mean": 0.006500000000000006
+      },
+      {
+        "arm": "D",
+        "cohort": null,
+        "event_clusters_quote_complete": 0,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "mean_entry_spread": null,
+        "mean_target_delay_minutes": null,
+        "midpoint_complete": 0,
+        "oos_half": null,
+        "period": "mechanics",
+        "quote_complete": 0,
+        "quote_coverage": null,
+        "signal_events": 0,
+        "signals": 0,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": null,
+        "trade_weighted_executable_median": null,
+        "trade_weighted_executable_win_rate": null,
+        "trade_weighted_midpoint_return_mean": null,
+        "trade_weighted_point_change_mean": null
+      }
+    ],
+    "oos": [
+      {
+        "arm": "A",
+        "cohort": null,
+        "event_clusters_quote_complete": 2,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": 1.0,
+          "ci95": [
+            -0.01937893081761005,
+            -0.0010892776772291057
+          ],
+          "ci98_75": [
+            -0.01937893081761005,
+            -0.0010892776772291057
+          ],
+          "ci_estimable": true,
+          "mean": -0.010234104247419579
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": 1.0,
+          "ci95": [
+            -0.02041893081761005,
+            -0.002129277677229106
+          ],
+          "ci98_75": [
+            -0.02041893081761005,
+            -0.002129277677229106
+          ],
+          "ci_estimable": true,
+          "mean": -0.011274104247419578
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": 0.74795,
+          "ci95": [
+            -0.0030000000000000027,
+            0.0010000000000000009
+          ],
+          "ci98_75": [
+            -0.0030000000000000027,
+            0.0010000000000000009
+          ],
+          "ci_estimable": true,
+          "mean": -0.0010000000000000009
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": 0.74925,
+          "ci95": [
+            -0.003790271636133935,
+            0.0013559322033898091
+          ],
+          "ci98_75": [
+            -0.003790271636133935,
+            0.0013559322033898091
+          ],
+          "ci_estimable": true,
+          "mean": -0.001217169716372063
+        },
+        "mean_entry_spread": 0.0050000000000000044,
+        "mean_target_delay_minutes": 4.0808145541666665,
+        "midpoint_complete": 4,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 4,
+        "quote_coverage": 1.0,
+        "signal_events": 2,
+        "signals": 4,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": -0.010234104247419579,
+        "trade_weighted_executable_median": -0.002395715269906895,
+        "trade_weighted_executable_win_rate": 0.25,
+        "trade_weighted_midpoint_return_mean": -0.001217169716372063,
+        "trade_weighted_point_change_mean": -0.0010000000000000009
+      },
+      {
+        "arm": "B",
+        "cohort": null,
+        "event_clusters_quote_complete": 2,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": 0.75205,
+          "ci95": [
+            -0.03749999999999998,
+            0.0013550135501354532
+          ],
+          "ci98_75": [
+            -0.03749999999999998,
+            0.0013550135501354532
+          ],
+          "ci_estimable": true,
+          "mean": -0.018072493224932262
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": 0.75205,
+          "ci95": [
+            -0.03853999999999998,
+            0.0003150135501354533
+          ],
+          "ci98_75": [
+            -0.03853999999999998,
+            0.0003150135501354533
+          ],
+          "ci_estimable": true,
+          "mean": -0.01911249322493226
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": 0.75095,
+          "ci95": [
+            -0.006000000000000005,
+            0.0020000000000000018
+          ],
+          "ci98_75": [
+            -0.006000000000000005,
+            0.0020000000000000018
+          ],
+          "ci_estimable": true,
+          "mean": -0.0020000000000000018
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": 0.74575,
+          "ci95": [
+            -0.00758054327226787,
+            0.0027118644067796183
+          ],
+          "ci98_75": [
+            -0.00758054327226787,
+            0.0027118644067796183
+          ],
+          "ci_estimable": true,
+          "mean": -0.002434339432744126
+        },
+        "mean_entry_spread": 0.009000000000000008,
+        "mean_target_delay_minutes": 3.137845675,
+        "midpoint_complete": 2,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 2,
+        "quote_coverage": 1.0,
+        "signal_events": 2,
+        "signals": 2,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": -0.018072493224932262,
+        "trade_weighted_executable_median": -0.018072493224932262,
+        "trade_weighted_executable_win_rate": 0.5,
+        "trade_weighted_midpoint_return_mean": -0.002434339432744126,
+        "trade_weighted_point_change_mean": -0.0020000000000000018
+      },
+      {
+        "arm": "C",
+        "cohort": null,
+        "event_clusters_quote_complete": 1,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0052631578947368585
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.004223157894736858
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0050000000000000044
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.006583278472679366
+        },
+        "mean_entry_spread": 0.0010000000000000009,
+        "mean_target_delay_minutes": 0.48484716666666666,
+        "midpoint_complete": 1,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 1,
+        "quote_coverage": 1.0,
+        "signal_events": 1,
+        "signals": 1,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": 0.0052631578947368585,
+        "trade_weighted_executable_median": 0.0052631578947368585,
+        "trade_weighted_executable_win_rate": 1.0,
+        "trade_weighted_midpoint_return_mean": 0.006583278472679366,
+        "trade_weighted_point_change_mean": 0.0050000000000000044
+      },
+      {
+        "arm": "D",
+        "cohort": null,
+        "event_clusters_quote_complete": 0,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "mean_entry_spread": null,
+        "mean_target_delay_minutes": null,
+        "midpoint_complete": 0,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 0,
+        "quote_coverage": null,
+        "signal_events": 0,
+        "signals": 0,
+        "strict_event_purge": false,
+        "trade_weighted_executable_mean": null,
+        "trade_weighted_executable_median": null,
+        "trade_weighted_executable_win_rate": null,
+        "trade_weighted_midpoint_return_mean": null,
+        "trade_weighted_point_change_mean": null
+      }
+    ],
+    "oos_cohorts_event_purged": {
+      "A": [],
+      "B": [
+        {
+          "arm": "B",
+          "cohort": "30be03ee6262cee4d16595da53ec23de76b86b2a16992a0e1576afc0fe439852|d6c52f7a1ab46a00dc31e9ba89683c832dff9ac5|live|default",
+          "event_clusters_quote_complete": 1,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0013550135501354532
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0003150135501354533
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0020000000000000018
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0027118644067796183
+          },
+          "mean_entry_spread": 0.0010000000000000009,
+          "mean_target_delay_minutes": 4.748093483333333,
+          "midpoint_complete": 1,
+          "oos_half": null,
+          "period": "oos",
+          "quote_complete": 1,
+          "quote_coverage": 1.0,
+          "signal_events": 1,
+          "signals": 1,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": 0.0013550135501354532,
+          "trade_weighted_executable_median": 0.0013550135501354532,
+          "trade_weighted_executable_win_rate": 1.0,
+          "trade_weighted_midpoint_return_mean": 0.0027118644067796183,
+          "trade_weighted_point_change_mean": 0.0020000000000000018
+        }
+      ],
+      "C": [
+        {
+          "arm": "C",
+          "cohort": "30be03ee6262cee4d16595da53ec23de76b86b2a16992a0e1576afc0fe439852|9b648b38ca87aea98663c7ee3b0bd0275c4369f8|live|default",
+          "event_clusters_quote_complete": 1,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0052631578947368585
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.004223157894736858
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0050000000000000044
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.006583278472679366
+          },
+          "mean_entry_spread": 0.0010000000000000009,
+          "mean_target_delay_minutes": 0.48484716666666666,
+          "midpoint_complete": 1,
+          "oos_half": null,
+          "period": "oos",
+          "quote_complete": 1,
+          "quote_coverage": 1.0,
+          "signal_events": 1,
+          "signals": 1,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": 0.0052631578947368585,
+          "trade_weighted_executable_median": 0.0052631578947368585,
+          "trade_weighted_executable_win_rate": 1.0,
+          "trade_weighted_midpoint_return_mean": 0.006583278472679366,
+          "trade_weighted_point_change_mean": 0.0050000000000000044
+        }
+      ],
+      "D": []
+    },
+    "oos_event_purged": [
+      {
+        "arm": "A",
+        "cohort": null,
+        "event_clusters_quote_complete": 0,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "mean_entry_spread": null,
+        "mean_target_delay_minutes": null,
+        "midpoint_complete": 0,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 0,
+        "quote_coverage": null,
+        "signal_events": 0,
+        "signals": 0,
+        "strict_event_purge": true,
+        "trade_weighted_executable_mean": null,
+        "trade_weighted_executable_median": null,
+        "trade_weighted_executable_win_rate": null,
+        "trade_weighted_midpoint_return_mean": null,
+        "trade_weighted_point_change_mean": null
+      },
+      {
+        "arm": "B",
+        "cohort": null,
+        "event_clusters_quote_complete": 1,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0013550135501354532
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0003150135501354533
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0020000000000000018
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0027118644067796183
+        },
+        "mean_entry_spread": 0.0010000000000000009,
+        "mean_target_delay_minutes": 4.748093483333333,
+        "midpoint_complete": 1,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 1,
+        "quote_coverage": 1.0,
+        "signal_events": 1,
+        "signals": 1,
+        "strict_event_purge": true,
+        "trade_weighted_executable_mean": 0.0013550135501354532,
+        "trade_weighted_executable_median": 0.0013550135501354532,
+        "trade_weighted_executable_win_rate": 1.0,
+        "trade_weighted_midpoint_return_mean": 0.0027118644067796183,
+        "trade_weighted_point_change_mean": 0.0020000000000000018
+      },
+      {
+        "arm": "C",
+        "cohort": null,
+        "event_clusters_quote_complete": 1,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0052631578947368585
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.004223157894736858
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.0050000000000000044
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": 0.006583278472679366
+        },
+        "mean_entry_spread": 0.0010000000000000009,
+        "mean_target_delay_minutes": 0.48484716666666666,
+        "midpoint_complete": 1,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 1,
+        "quote_coverage": 1.0,
+        "signal_events": 1,
+        "signals": 1,
+        "strict_event_purge": true,
+        "trade_weighted_executable_mean": 0.0052631578947368585,
+        "trade_weighted_executable_median": 0.0052631578947368585,
+        "trade_weighted_executable_win_rate": 1.0,
+        "trade_weighted_midpoint_return_mean": 0.006583278472679366,
+        "trade_weighted_point_change_mean": 0.0050000000000000044
+      },
+      {
+        "arm": "D",
+        "cohort": null,
+        "event_clusters_quote_complete": 0,
+        "event_equal_executable": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_executable_minus_10_4bps": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_point_change": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "event_equal_midpoint_return": {
+          "bootstrap_p_le_zero": null,
+          "ci95": [
+            null,
+            null
+          ],
+          "ci98_75": [
+            null,
+            null
+          ],
+          "ci_estimable": false,
+          "mean": null
+        },
+        "mean_entry_spread": null,
+        "mean_target_delay_minutes": null,
+        "midpoint_complete": 0,
+        "oos_half": null,
+        "period": "oos",
+        "quote_complete": 0,
+        "quote_coverage": null,
+        "signal_events": 0,
+        "signals": 0,
+        "strict_event_purge": true,
+        "trade_weighted_executable_mean": null,
+        "trade_weighted_executable_median": null,
+        "trade_weighted_executable_win_rate": null,
+        "trade_weighted_midpoint_return_mean": null,
+        "trade_weighted_point_change_mean": null
+      }
+    ],
+    "oos_halves_event_purged": {
+      "A": [
+        {
+          "arm": "A",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_early",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        },
+        {
+          "arm": "A",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_late",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        }
+      ],
+      "B": [
+        {
+          "arm": "B",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_early",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        },
+        {
+          "arm": "B",
+          "cohort": null,
+          "event_clusters_quote_complete": 1,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0013550135501354532
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0003150135501354533
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0020000000000000018
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0027118644067796183
+          },
+          "mean_entry_spread": 0.0010000000000000009,
+          "mean_target_delay_minutes": 4.748093483333333,
+          "midpoint_complete": 1,
+          "oos_half": "oos_late",
+          "period": "oos",
+          "quote_complete": 1,
+          "quote_coverage": 1.0,
+          "signal_events": 1,
+          "signals": 1,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": 0.0013550135501354532,
+          "trade_weighted_executable_median": 0.0013550135501354532,
+          "trade_weighted_executable_win_rate": 1.0,
+          "trade_weighted_midpoint_return_mean": 0.0027118644067796183,
+          "trade_weighted_point_change_mean": 0.0020000000000000018
+        }
+      ],
+      "C": [
+        {
+          "arm": "C",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_early",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        },
+        {
+          "arm": "C",
+          "cohort": null,
+          "event_clusters_quote_complete": 1,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0052631578947368585
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.004223157894736858
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.0050000000000000044
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": 0.006583278472679366
+          },
+          "mean_entry_spread": 0.0010000000000000009,
+          "mean_target_delay_minutes": 0.48484716666666666,
+          "midpoint_complete": 1,
+          "oos_half": "oos_late",
+          "period": "oos",
+          "quote_complete": 1,
+          "quote_coverage": 1.0,
+          "signal_events": 1,
+          "signals": 1,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": 0.0052631578947368585,
+          "trade_weighted_executable_median": 0.0052631578947368585,
+          "trade_weighted_executable_win_rate": 1.0,
+          "trade_weighted_midpoint_return_mean": 0.006583278472679366,
+          "trade_weighted_point_change_mean": 0.0050000000000000044
+        }
+      ],
+      "D": [
+        {
+          "arm": "D",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_early",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        },
+        {
+          "arm": "D",
+          "cohort": null,
+          "event_clusters_quote_complete": 0,
+          "event_equal_executable": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_executable_minus_10_4bps": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_point_change": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "event_equal_midpoint_return": {
+            "bootstrap_p_le_zero": null,
+            "ci95": [
+              null,
+              null
+            ],
+            "ci98_75": [
+              null,
+              null
+            ],
+            "ci_estimable": false,
+            "mean": null
+          },
+          "mean_entry_spread": null,
+          "mean_target_delay_minutes": null,
+          "midpoint_complete": 0,
+          "oos_half": "oos_late",
+          "period": "oos",
+          "quote_complete": 0,
+          "quote_coverage": null,
+          "signal_events": 0,
+          "signals": 0,
+          "strict_event_purge": true,
+          "trade_weighted_executable_mean": null,
+          "trade_weighted_executable_median": null,
+          "trade_weighted_executable_win_rate": null,
+          "trade_weighted_midpoint_return_mean": null,
+          "trade_weighted_point_change_mean": null
+        }
+      ]
+    }
+  }
+}

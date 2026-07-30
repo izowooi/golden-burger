@@ -1,7 +1,8 @@
 # 폐쇄 전략 통합 포스트모템 — 2026-07-28~30
 
-2026-07-28~30에 **6개 전략을 폐쇄 판정**했다. 첫 4개(lime·fig·mango·date)는
-7월 28~29일에, honeydew·nectarine은 7월 30일 synchronized DB·로그 회고에서 판정했다.
+2026-07-28~30에 **6개 전략을 폐쇄했고 운영 종료를 확인했다.** 첫 4개
+(lime·fig·mango·date)는 7월 28~29일에, honeydew·nectarine은 7월 30일 synchronized
+DB·로그 회고 뒤 사용자가 종료했다.
 이 문서는 각 폐쇄의 근거를 한자리에 모으고, **다음 전략이 반복하면 안 되는 것**을
 뽑아낸다.
 
@@ -218,7 +219,8 @@ golden-date는 `STRATEGY.md`에 판정 기준을 **미리 적어두었다**:
 - **회고 교재**: §6의 "사전 기준이 있었으나 강제되지 않았다"는 실패 유형은 전략과
   무관하게 재발한다.
 
-`close_only` 전환과 잔여 포지션의 지갑 대조는 각 판정 문서의 순서로 수행한다.
+신규 BUY 중단과 전략 종료는 완료됐지만, wallet/CLOB open order/redeem/cash
+realization은 별도 evidence다. 잔여 포지션 대사는 각 판정 문서의 순서로 수행하고
 코드·문서·DB는 **보존**한다.
 
 ---
@@ -267,6 +269,32 @@ reconciliation 35건과 uncertain intent 3건, Nectarine은 stale reconciliation
 uncertain intent 2건이 남았다. Nectarine은 69.2% cycle에서 150-position cap이 작동했고
 `QUARANTINED` 231건이 포트폴리오 공간을 잠식했다.
 
-따라서 두 전략 모두 신규 BUY 중단이 먼저다. `close_only` → CLOB open order와 wallet
-실보유 대사 → 증거 기반 wind-down → job 비활성화 순서를 지킨 뒤, archive는 연구용으로
-보존한다.
+두 전략의 신규 BUY 중단과 전략 종료는 2026-07-30 완료됐다. 다만 이 사실만으로
+CLOB open order, wallet 실보유, redeem/cash realization까지 0이라고 추정하지 않는다.
+그 후속 대사는 evidence가 있는 별도 운영 절차로 남고, archive는 연구용으로 보존한다.
+
+---
+
+## 10. 이 교훈으로 만든 Golden Kiwi와 즉시 실패한 gate
+
+Micro-Cascade는 여섯 폐쇄 전략의 “좋았던 부분”을 합친 것이 아니다. 실패를 반복하지
+않도록 다음만 남겼다.
+
+- Lime의 6시간 shock와 Grape의 24시간 drift를 피해 **15~25분의 작은 연속 상승** 하나만
+  가설로 둔다.
+- Honeydew처럼 optimistic midpoint replay를 actual fill 수익으로 부르지 않고,
+  entry ask → +60분 exit bid의 top-of-book proxy로 먼저 반증한다.
+- Nectarine처럼 관측 winner를 고르지 않도록 결과 조회 전에 B를 primary로 동결한다.
+- Date처럼 무제한 노출이나 문서뿐인 stop을 두지 않고, 유한 cap과 simulation-only
+  hard block을 코드에서 강제한다.
+- 같은 event 파생 시장을 독립 표본으로 세지 않고 event cluster와 temporal OOS를 쓴다.
+
+그 결과는 낙관적이지 않았다. strict event-purged primary B는 1 signal/1 event,
++13.55 bps(+10.4 bps stress 뒤 +3.15 bps)에 불과해 CI를 계산할 수 없었다.
+event purge 전 B는 2 events 평균 -1.8072%였다. 사전 등록한 최소 50 signals,
+30 event clusters, 양의 98.75% lower bound를 모두 못 채웠으므로 **모든 arm은 FAIL**이다.
+
+이것이 중요한 이유는 새 전략을 만들면서도 “최고의 관측값”을 live로 보내지 않았기
+때문이다. Golden Kiwi는 5분마다 독립 data를 쌓는 four-arm simulation research tool로만
+남는다. 앞으로 30일에도 표본 gate를 못 채우면 threshold를 느슨하게 하지 않고
+`too rare to research`로 종료한다.

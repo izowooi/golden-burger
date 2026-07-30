@@ -5,6 +5,7 @@
 - review window: **[2026-07-12 00:00:00Z, 2026-07-30 00:00:00Z)**
 - DB snapshot: 2026-07-30 12:16:51Z
 - 판정: **CLOSE**
+- 운영 상태: **CLOSED — 운영자 종료 확인 2026-07-30**
 - 판정 신뢰도: **중상**(중단 방향), **낮음~중간**(정확한 net 손익과 현재 wallet 노출)
 - 성과 원장: BUY·SELL 양쪽의 수량이 일치하는
   `order_fills.status='CONFIRMED'`만 사용
@@ -15,6 +16,12 @@
 
 **현행 live 전략을 종료한다. `POLYBOT_HOLD_HOURS=24`로 live 전환하거나 live A/B를
 하지 않는다.**
+
+> **2026-07-30 운영 확인:** 사용자가 이 판정에 따라 Nectarine 전략 운영을 실제로
+> 종료했다고 확인했다. 따라서 아래 wind-down 절차는 권고안이 아니라 **실행 이력**으로
+> 보존한다. 다만 이 확인만으로 동기화 cutoff 이후 wallet 잔고, redeem 완료, CLOB open
+> order 0건이 새 evidence로 증명되는 것은 아니다. 그런 사실은 후속 wallet/CLOB 대사
+> artifact가 있을 때만 별도로 확정한다.
 
 완전히 대사된 81건 전체는 fee 전 gross +$6.95지만 이 합계는 견고하지 않다.
 단일 event cluster의 6개 market이 +$26.09를 만들었고, 그 cluster를 제외하면
@@ -323,7 +330,10 @@ fee 결손, 대규모 quarantine/stale reconciliation과 cap 오염 때문에 �
 live 검증을 계속할 수 없다는 운영·evidence 근거가 CLOSE의 주근거다. 현 데이터에서는
 24h를 포함한 특정 보유기간도 후속 실험군으로 선택하지 않는다.
 
-## 9. 운영 후속 조치
+## 9. 운영 후속 조치 — 전략 종료 완료
+
+전략의 신규 진입과 운영 종료는 2026-07-30 운영자 확인으로 완료됐다. 아래 명령과
+게이트는 당시 종료 절차를 재현하거나 잔여 evidence를 감사할 때만 사용한다.
 
 ### 즉시: 신규 진입 동결
 

@@ -3,79 +3,85 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Golden Burger — Polymarket 전략 포트폴리오 인덱스</title>
+<title>Golden Burger — 전략 문서 인덱스</title>
 <style>
-:root{
-  --accent:#c98a2d;
-  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
-  --line:#e4e7eb; --code-bg:#f2f4f6;
-}
-@media (prefers-color-scheme: dark){
-  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
-         --line:#2b323b; --code-bg:#232a33; }
-}
+:root{--accent:#aa721f;--bg:#f7f6f2;--card:#fff;--ink:#20241f;--muted:#636b64;
+  --line:#dde0dc;--live:#287451;--built:#3d6896;--research:#8050a3;--closed:#a34545;
+  --shadow:0 10px 28px rgba(35,40,35,.07)}
+@media(prefers-color-scheme:dark){:root{--accent:#e0b15b;--bg:#121512;--card:#1b201b;
+  --ink:#edf0eb;--muted:#a7afa7;--line:#343b34;--live:#79d3a3;--built:#8cb8e8;
+  --research:#cba6e8;--closed:#ef9292;--shadow:none}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--ink);
-  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
-  line-height:1.65;font-size:16px}
-.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
-header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
-.hero .emoji{font-size:44px;line-height:1}
-.hero h1{margin:8px 0 4px;font-size:28px}
-.hero p.tagline{margin:6px 0 0;color:var(--muted);font-size:16.5px}
-h2{font-size:20px;margin:34px 0 14px;padding-left:10px;border-left:4px solid var(--accent)}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:14px}
-a.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:12px;
-  padding:16px 18px;text-decoration:none;color:var(--ink);transition:border-color .15s}
-a.card:hover{border-color:var(--accent)}
-.card .top{font-size:26px;margin-bottom:6px}
-.card b{font-size:15.5px}
-.card .en{display:block;color:var(--accent);font-size:13.5px;margin:2px 0 6px}
-.card p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.55}
-footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+body{margin:0;background:radial-gradient(circle at 90% 0,rgba(224,177,91,.14),transparent 25rem),var(--bg);
+  color:var(--ink);font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",
+  -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.62}
+.wrap{max-width:1050px;margin:auto;padding:30px 20px 68px}
+header{border-bottom:3px solid var(--accent);padding:8px 0 25px;margin-bottom:25px}
+h1{font-size:31px;margin:7px 0}.lead{color:var(--muted);margin:0;max-width:800px}
+.dashboard{display:inline-block;margin-top:17px;background:var(--accent);color:white;text-decoration:none;
+  border-radius:999px;padding:8px 14px;font-weight:750;font-size:14px}
+h2{font-size:20px;margin:35px 0 13px;padding-left:10px;border-left:4px solid var(--accent)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(245px,1fr));gap:13px}
+.card{display:block;color:var(--ink);text-decoration:none;background:var(--card);border:1px solid var(--line);
+  border-radius:13px;padding:16px 17px;box-shadow:var(--shadow)}
+.card:hover{border-color:var(--accent)}.top{display:flex;justify-content:space-between;gap:8px}
+.fruit{font-size:27px}.state{font-size:11px;font-weight:800;border:1px solid currentColor;
+  border-radius:999px;padding:2px 7px;height:max-content}
+.state.live{color:var(--live)}.state.built{color:var(--built)}.state.research{color:var(--research)}
+.state.closed{color:var(--closed)}
+.card b{display:block;margin-top:5px}.en{display:block;color:var(--accent);font-size:13px}
+.card p{color:var(--muted);font-size:13px;line-height:1.5;margin:7px 0 0}
+.note{margin-top:18px;border:1px solid var(--line);border-left:5px solid var(--accent);
+  border-radius:12px;background:var(--card);padding:14px 16px;color:var(--muted)}
+footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:var(--muted);font-size:12.5px}
+@media(max-width:600px){.wrap{padding:18px 13px 48px}h1{font-size:28px}}
 </style>
 </head>
-<body><div class="wrap">
-<header class="hero">
-  <div class="emoji">🍔</div>
-  <h1>Golden Burger — Polymarket 전략 포트폴리오</h1>
-  <p class="tagline">대중 심리를 파고드는 15개 자동매매 전략. 카드를 누르면 전략별 상세 문서로 이동한다.</p>
+<body><main class="wrap">
+<header>
+  <div style="font-size:43px">🍔</div>
+  <h1>Golden Burger 전략 문서</h1>
+  <p class="lead">총 16개 전략의 local HTML 인덱스다. 현재 실행 여부, 폐쇄 여부,
+  Jenkins 실험군을 확인하려면 운영 현황 화면을 먼저 본다.</p>
+  <a class="dashboard" href="strategy-status.html">전략 운영 현황 대시보드 열기 →</a>
 </header>
 
-<h2>운영 중 (기존 3)</h2>
+<h2>운영 중 · 6</h2>
 <div class="grid">
-<a class="card" href="https://pagekeep.pages.dev/archive/e20adc40-0c8a-4706-93c2-5a3843c9322e"><div class="top">🍎</div><b>golden-apple</b><span class="en">80/90 Threshold</span><p>확률 80% 매수 → 90% 매도. certainty effect 구간의 임계값 전략.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/df1cd03d-16b0-4b26-a6e8-a17d15093644"><div class="top">🍌</div><b>golden-banana</b><span class="en">Momentum Golden Cross</span><p>85–97% 밴드 + 골든크로스. 신호 결함이 확인되어 grape가 교정 계승.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/ebfcd48a-cd29-4bb4-a091-17dfd3e58641"><div class="top">🍒</div><b>golden-cherry</b><span class="en">Resolution Momentum</span><p>마감 임박 확증 편향 편승. 운영 성과는 검증된 evidence cohort별로 평가.</p></a>
+  <a class="card" href="strategy-apple.html"><div class="top"><span class="fruit">🍎</span><span class="state live">운영 중</span></div><b>golden-apple</b><span class="en">80/90 Threshold</span><p>0.80 매수 → 0.90 매도.</p></a>
+  <a class="card" href="strategy-banana.html"><div class="top"><span class="fruit">🍌</span><span class="state live">운영 중</span></div><b>golden-banana</b><span class="en">Momentum Golden Cross</span><p>고확률 모멘텀. 신호 evidence caveat가 있다.</p></a>
+  <a class="card" href="strategy-cherry.html"><div class="top"><span class="fruit">🍒</span><span class="state live">운영 중</span></div><b>golden-cherry</b><span class="en">Resolution Momentum</span><p>계정 golden-banana · Jenkins polybot-yellow.</p></a>
+  <a class="card" href="strategy-elderberry.html"><div class="top"><span class="fruit">🫐</span><span class="state live">운영 중</span></div><b>golden-elderberry</b><span class="en">Panic Fade</span><p>favorite 급락 뒤 복원 가설.</p></a>
+  <a class="card" href="strategy-papaya.html"><div class="top"><span class="fruit">🧡</span><span class="state live">운영 중</span></div><b>golden-papaya</b><span class="en">Final Five</span><p>first observed 0.95 crossing.</p></a>
+  <a class="card" href="strategy-queen.html"><div class="top"><span class="fruit">👑</span><span class="state live">운영 중</span></div><b>golden-queen</b><span class="en">Crown Momentum</span><p>first observed 0.90 crossing.</p></a>
 </div>
 
-<h2>1차 신규 6 — 심리 편향별 설계</h2>
+<h2>구현 완료 · 시작 증거 없음 · 3</h2>
 <div class="grid">
-<a class="card" href="https://pagekeep.pages.dev/archive/f654ec4e-b3a2-4793-b0f8-ef1f0002f14b"><div class="top">🌴</div><b>golden-date</b><span class="en">Conviction Ladder</span><p><strong style="color:#c0392b">⛔ 폐쇄 권고 (2026-07-29).</strong> cherry 고도화 — 시간 사다리 밴드 + 모멘텀 게이트 + 양측 favorite.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/6efefedf-10d3-4901-8bc3-91fb0ece4cbc"><div class="top">🫐</div><b>golden-elderberry</b><span class="en">Panic Fade</span><p>favorite 급락 공황 투매를 바닥 안정화 확인 후 역매수.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/443894e5-a94e-4fb7-b19e-9185e2176bea"><div class="top">🌰</div><b>golden-fig</b><span class="en">Hope Crusher</span><p><strong style="color:#c0392b">⛔ 폐쇄 (2026-07-28) — 백테스트로 가설 기각.</strong> 롱샷 희망 프리미엄 페이드 — NO 매수로 시간 가치(theta) 수확.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/df2dac8b-ac34-4e36-88ee-a6b08a3ddf08"><div class="top">🍇</div><b>golden-grape</b><span class="en">Cascade Rider</span><p>24h 일관 드리프트 + 거래량 가속 — 정보 폭포 편승.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/220d0ab8-8c9f-4322-8369-205f69417d7d"><div class="top">🍈</div><b>golden-honeydew</b><span class="en">Night Watch</span><p><strong style="color:#c0392b">⛔ 폐쇄 판정 (2026-07-30).</strong> confirmed-fill gross -3.54%, 주요 단일축 slice 전부 음수.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/a58fa5c9-8a18-45fe-96ac-48d1ae845034"><div class="top">🍏</div><b>golden-lime</b><span class="en">Shock Follow</span><p><strong style="color:#c0392b">⛔ 폐쇄 (2026-07-28) — 백테스트로 가설 기각.</strong> 거래량 동반 급등 편승 — elderberry와 정반대 가설의 A/B 쌍이었다.</p></a>
+  <a class="card" href="strategy-grape.html"><div class="top"><span class="fruit">🍇</span><span class="state built">구현 완료</span></div><b>golden-grape</b><span class="en">Cascade Rider</span><p>완만한 정보 확산 편승.</p></a>
+  <a class="card" href="strategy-orange.html"><div class="top"><span class="fruit">🍊</span><span class="state built">구현 완료</span></div><b>golden-orange</b><span class="en">Fear Spike Fade</span><p>tail 공포 급등 뒤 NO 매수.</p></a>
+  <a class="card" href="strategy-quince.html"><div class="top"><span class="fruit">🍐</span><span class="state built">A/B/C 3-arm</span></div><b>golden-quince</b><span class="en">Spread Harvest</span><p>찾고 있던 passive / nearest / cross 실행 실험.</p></a>
 </div>
 
-<h2>2차 신규 3 — 공개 문헌·백테스트 독립 도출</h2>
+<h2>신규 research · simulation 전용 · 1</h2>
 <div class="grid">
-<a class="card" href="https://pagekeep.pages.dev/archive/c470bb07-799d-4b0d-b6cd-95911b956199"><div class="top">🥭</div><b>golden-mango</b><span class="en">Patience Premium</span><p><strong style="color:#c0392b">⛔ 폐쇄 (2026-07-28) — 백테스트로 가설 기각.</strong> 연환산 캐리 수익률 허들 단일 수식 — settlement discount 수확.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/9d9a539c-464a-48e8-a6ad-f22028f72385"><div class="top">🍑</div><b>golden-nectarine</b><span class="en">Bottom Fisher</span><p><strong style="color:#c0392b">⛔ 폐쇄 판정 (2026-07-30).</strong> 대사된 120h calendar-exit subset gross -4.70%.</p></a>
-<a class="card" href="https://pagekeep.pages.dev/archive/5a2da271-123e-4983-8846-da361e25fbf4"><div class="top">🍊</div><b>golden-orange</b><span class="en">Fear Spike Fade</span><p>tail 시장 공포 급등의 스톨 후 NO 매수 — probability neglect.</p></a>
+  <a class="card" href="strategy-kiwi.html"><div class="top"><span class="fruit">🥝</span><span class="state research">LIVE 금지</span></div><b>golden-kiwi</b><span class="en">Micro-Cascade</span><p>5분 micro-trend 2×2 네 팔. 외부표본 gate 실패로 연구 수집만 허용.</p></a>
 </div>
 
-<h2>3차 신규 1 — 단순 수렴 가설 대조군</h2>
+<h2>폐쇄 완료 · 6</h2>
 <div class="grid">
-<a class="card" href="strategy-papaya.html"><div class="top">🧡</div><b>golden-papaya</b><span class="en">Final Five</span><p>표준 이진 YES의 first observed 0.95 상향 교차를 매수해 해결 수렴을 검증.</p></a>
+  <a class="card" href="strategy-date.html"><div class="top"><span class="fruit">🌴</span><span class="state closed">폐쇄 완료</span></div><b>golden-date</b><span class="en">Conviction Ladder</span><p>음의 edge와 과도한 turnover.</p></a>
+  <a class="card" href="strategy-fig.html"><div class="top"><span class="fruit">🌰</span><span class="state closed">폐쇄 완료</span></div><b>golden-fig</b><span class="en">Hope Crusher</span><p>캘리브레이션 전 구간 edge 음수.</p></a>
+  <a class="card" href="strategy-honeydew.html"><div class="top"><span class="fruit">🍈</span><span class="state closed">폐쇄 완료</span></div><b>golden-honeydew</b><span class="en">Night Watch</span><p>confirmed-fill gross -3.54%.</p></a>
+  <a class="card" href="strategy-lime.html"><div class="top"><span class="fruit">🍏</span><span class="state closed">폐쇄 완료</span></div><b>golden-lime</b><span class="en">Shock Follow</span><p>비용을 넘는 drift 없음.</p></a>
+  <a class="card" href="strategy-mango.html"><div class="top"><span class="fruit">🥭</span><span class="state closed">폐쇄 완료</span></div><b>golden-mango</b><span class="en">Patience Premium</span><p>carry hurdle 가설 기각.</p></a>
+  <a class="card" href="strategy-nectarine.html"><div class="top"><span class="fruit">🍑</span><span class="state closed">폐쇄 완료</span></div><b>golden-nectarine</b><span class="en">Bottom Fisher</span><p>120h 대사 subset -4.70%.</p></a>
 </div>
 
-<h2>4차 신규 1 — Cherry 계승·실행 증거 강화</h2>
-<div class="grid">
-<a class="card" href="strategy-quince.html"><div class="top">🍐</div><b>golden-quince</b><span class="en">Spread Harvest</span><p>방향성 예측을 포기하고 실행 측면(maker/taker)만을 수익원으로 삼는다. 패시브 반올림으로 절대 크로스하지 않으며 A/B 3팔이 사전 등록돼 있다.</p></a>
-<a class="card" href="strategy-queen.html"><div class="top">👑</div><b>golden-queen</b><span class="en">Crown Momentum</span><p>스포츠를 포함해 YES의 첫 0.90 교차를 잡고 0.98 목표·0.85 stop으로 관리.</p></a>
-</div>
+<div class="note"><strong>명시적 보류 상태는 현재 0개입니다.</strong>
+<code>close_only</code>나 <code>archive_only</code>는 bot lifecycle mode이며
+“보류” 또는 “폐쇄”라는 전략 의사결정과 같은 말이 아닙니다.</div>
 
-<footer>Golden Burger 전략 시리즈 · 2026-07 · 각 전략의 코드·테스트·실행법은 모노레포의 <code>golden-&lt;fruit&gt;/</code> 폴더 참조</footer>
-</div></body></html>
+<footer>Golden Burger · 2026-07-30 · 상세 코드와 실행 계약은 각
+<code>golden-&lt;name&gt;/</code> 폴더의 README/STRATEGY/AGENTS 문서를 따른다.</footer>
+</main></body></html>

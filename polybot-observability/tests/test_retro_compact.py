@@ -58,7 +58,12 @@ def _compact_report(
         else (
             "extrema"
             if normalized_strategy
-            in {"golden-elderberry", "golden-papaya", "golden-queen"}
+            in {
+                "golden-elderberry",
+                "golden-papaya",
+                "golden-queen",
+                "golden-quince",
+            }
             else "latest"
         )
     )
@@ -75,20 +80,35 @@ def _compact_report(
             },
             "requirements": {
                 "full_cadence_hours": (
-                    0.5
-                    if normalized_strategy == "golden-papaya"
+                    60.0 * 24.0
+                    if normalized_strategy == "golden-kiwi"
                     else (
-                        0.25 if normalized_strategy == "golden-queen" else 24.0
+                        0.5
+                        if normalized_strategy == "golden-papaya"
+                        else (
+                            0.25
+                            if normalized_strategy
+                            in {"golden-queen", "golden-quince"}
+                            else 24.0
+                        )
                     )
                 ),
                 "retention_days": (
                     60.0
-                    if normalized_strategy in {"golden-papaya", "golden-queen"}
+                    if normalized_strategy
+                    in {
+                        "golden-kiwi",
+                        "golden-papaya",
+                        "golden-queen",
+                        "golden-quince",
+                    }
                     else 0.0
                 ),
                 "boundary_interval_hours": None,
                 "max_rollup_hours": None,
-                "minimum_latest_points": 0,
+                "minimum_latest_points": (
+                    6 if normalized_strategy == "golden-kiwi" else 0
+                ),
             },
             "snapshot_anchor": (
                 snapshot_anchor.isoformat() if snapshot_anchor is not None else None
@@ -259,6 +279,9 @@ def _create_compact_archive(
                 as_of.isoformat(),
                 _compact_report(
                     strategy_name=strategy_name,
+                    hot_hours=(
+                        60.0 * 24.0 if strategy_name == "golden-kiwi" else 24.0
+                    ),
                     snapshot_anchor=as_of - timedelta(minutes=5),
                 ),
             ),
@@ -415,6 +438,71 @@ def _extend_first_crossing_archive_to_sixty_days(
             )
             """,
             cold_sweeps,
+        )
+        connection.executemany(
+            "INSERT INTO market_sweep_memberships VALUES "
+            "(?, 'condition-1', 1, 1, 'qualified', 1, 1, 'snapshotted')",
+            [(sweep_id,) for sweep_id in detailed_sweep_ids],
+        )
+        _store_detail_checkpoint(connection, "sweep-000")
+
+
+def _extend_kiwi_archive_to_sixty_days(path: Path, *, as_of: datetime) -> None:
+    """Add the 59 coldest days without compact rollup.
+
+    Kiwi's 60-day archive is intentionally raw five-minute evidence. The
+    helper is larger than first-crossing fixtures because a 4/12-hour rollup
+    would invalidate the independent Micro-Cascade research gate.
+    """
+
+    archive_start = as_of - timedelta(days=60)
+    with sqlite3.connect(path) as connection:
+        run_id = connection.execute("SELECT run_id FROM run_audits LIMIT 1").fetchone()[
+            0
+        ]
+        count = 59 * 288
+        connection.executemany(
+            """
+            INSERT INTO market_snapshots(
+                condition_id, timestamp, probability, liquidity, volume_24h,
+                best_bid, best_ask, spread, run_id
+            ) VALUES ('condition-1', ?, 0.5, 10000, 20000, 0.49, 0.51, 0.02, ?)
+            """,
+            [
+                (
+                    (archive_start + timedelta(minutes=index * 5)).isoformat(),
+                    run_id,
+                )
+                for index in range(count)
+            ],
+        )
+        sweep_rows = []
+        detailed_sweep_ids: list[str] = []
+        for index in range(count):
+            started_at = archive_start + timedelta(minutes=index * 5)
+            sweep_id = f"kiwi-archive-sweep-{index:05d}"
+            detail_stored = int(index % 288 == 0)
+            digest = _membership_digest() if detail_stored else "0" * 64
+            sweep_rows.append(
+                (
+                    sweep_id,
+                    run_id,
+                    started_at.isoformat(),
+                    (started_at + timedelta(seconds=1)).isoformat(),
+                    digest,
+                    detail_stored,
+                )
+            )
+            if detail_stored:
+                detailed_sweep_ids.append(sweep_id)
+        connection.executemany(
+            """
+            INSERT INTO market_sweeps VALUES (
+                ?, 1, ?, ?, ?, 1, 1, 1, 1, 1, 0, 0, 0, '{}',
+                0, 0, ?, 1, ?
+            )
+            """,
+            sweep_rows,
         )
         connection.executemany(
             "INSERT INTO market_sweep_memberships VALUES "
@@ -743,7 +831,10 @@ def test_contradictory_compact_metadata_cannot_relax_evidence_contract(
         ), case_name
 
 
-@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+@pytest.mark.parametrize(
+    "strategy_name",
+    ("golden-papaya", "golden-queen", "golden-quince"),
+)
 def test_first_crossing_strategy_requires_its_own_sixty_day_archive(
     tmp_path: Path, strategy_name: str
 ) -> None:
@@ -767,7 +858,10 @@ def test_first_crossing_strategy_requires_its_own_sixty_day_archive(
     assert any(issue["code"] == "archive_window_short" for issue in result["issues"])
 
 
-@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+@pytest.mark.parametrize(
+    "strategy_name",
+    ("golden-papaya", "golden-queen", "golden-quince"),
+)
 def test_first_crossing_sixty_day_compact_archive_is_ready(
     tmp_path: Path, strategy_name: str
 ) -> None:
@@ -791,7 +885,10 @@ def test_first_crossing_sixty_day_compact_archive_is_ready(
     assert "market_sweep_attestation_invalid" not in issue_codes
 
 
-@pytest.mark.parametrize("strategy_name", ("golden-papaya", "golden-queen"))
+@pytest.mark.parametrize(
+    "strategy_name",
+    ("golden-papaya", "golden-queen", "golden-quince"),
+)
 def test_first_crossing_validates_snapshot_domains_across_sixty_day_archive(
     tmp_path: Path, strategy_name: str
 ) -> None:
@@ -814,3 +911,113 @@ def test_first_crossing_validates_snapshot_domains_across_sixty_day_archive(
 
     assert result["market_snapshots"]["invalid_value_rows"] == 1
     assert issues["archive_snapshot_domain_invalid"] == "CRITICAL"
+
+
+def test_kiwi_requires_its_own_raw_sixty_day_archive(tmp_path: Path) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-kiwi" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-kiwi",
+    )
+    with sqlite3.connect(db_path) as connection:
+        _store_detail_checkpoint(connection, "sweep-000")
+
+    result = audit_database(db_path, days=1, as_of=as_of)
+    snapshots = result["market_snapshots"]
+
+    assert result["compact_snapshot_policy"]["hot_hours"] == 60 * 24
+    assert result["compact_snapshot_policy"]["requirements"] == {
+        "full_cadence_hours": 60 * 24,
+        "retention_days": 60.0,
+        "boundary_interval_hours": None,
+        "max_rollup_hours": None,
+        "minimum_latest_points": 6,
+    }
+    assert snapshots["minimum_archive_history_hours"] == 60 * 24
+    assert snapshots["archive_history_window_coverage_ratio"] < 0.02
+    assert any(issue["code"] == "archive_window_short" for issue in result["issues"])
+
+
+def test_kiwi_raw_sixty_day_five_minute_archive_is_ready(tmp_path: Path) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-kiwi" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-kiwi",
+    )
+    _extend_kiwi_archive_to_sixty_days(db_path, as_of=as_of)
+
+    result = audit_database(db_path, days=30, as_of=as_of)
+    snapshots = result["market_snapshots"]
+    issue_codes = {issue["code"] for issue in result["issues"]}
+
+    assert snapshots["cadence_mode"] == "compact-v1"
+    assert snapshots["compact_hot_hours"] == 60 * 24
+    assert snapshots["compact_rollup_hours"] == 4.0
+    assert snapshots["five_minute_bucket_coverage_ratio"] == 1.0
+    assert snapshots["cadence_bucket_coverage_ratio"] == 1.0
+    assert snapshots["archive_history_window_coverage_ratio"] == 1.0
+    assert snapshots["archive_history_cadence_coverage_ratio"] == 1.0
+    assert "archive_window_short" not in issue_codes
+    assert "market_sweep_attestation_missing" not in issue_codes
+    assert "market_sweep_attestation_invalid" not in issue_codes
+
+
+def test_kiwi_validates_frozen_archive_probability_band(tmp_path: Path) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-kiwi" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-kiwi",
+    )
+    with sqlite3.connect(db_path) as connection:
+        _store_detail_checkpoint(connection, "sweep-000")
+        connection.execute(
+            "UPDATE market_snapshots SET probability = 0.159 "
+            "WHERE id = (SELECT MIN(id) FROM market_snapshots)"
+        )
+
+    result = audit_database(db_path, days=1, as_of=as_of)
+    snapshots = result["market_snapshots"]
+    issues = {issue["code"]: issue["severity"] for issue in result["issues"]}
+
+    assert snapshots["probability_domain"] == {"minimum": 0.16, "maximum": 0.84}
+    assert snapshots["invalid_value_rows"] == 1
+    assert snapshots["invalid_value_reasons"] == {"probability_archive_band": 1}
+    assert issues["archive_snapshot_domain_invalid"] == "CRITICAL"
+
+
+def test_kiwi_compact_metadata_cannot_relax_raw_sixty_day_contract(
+    tmp_path: Path,
+) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-kiwi" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-kiwi",
+    )
+    with sqlite3.connect(db_path) as connection:
+        raw_report = connection.execute(
+            "SELECT last_report_json FROM polybot_db_maintenance "
+            "WHERE profile = 'compact-v1'"
+        ).fetchone()[0]
+        report = json.loads(raw_report)
+        report["policy"]["hot_hours"] = 1.0
+        report["requirements"]["full_cadence_hours"] = 1.0
+        report["requirements"]["minimum_latest_points"] = 0
+        connection.execute(
+            "UPDATE polybot_db_maintenance SET last_report_json = ? "
+            "WHERE profile = 'compact-v1'",
+            (json.dumps(report),),
+        )
+
+    result = audit_database(db_path, days=1, as_of=as_of)
+
+    assert result["compact_snapshot_policy"] is None
+    assert result["market_snapshots"]["cadence_mode"] == "five-minute"
+    assert any(issue["code"] == "archive_window_short" for issue in result["issues"])

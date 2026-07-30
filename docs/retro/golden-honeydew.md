@@ -1,11 +1,11 @@
 # golden-honeydew 회고(포스트모템) 가이드
 
-> **⛔ 2026-07-30 CLOSE 판정**: Jenkins `polybot-bear`의 synchronized production
+> **⛔ 2026-07-30 폐쇄 완료(운영자 확인)**: Jenkins `polybot-bear`의 synchronized production
 > evidence를 strict audit한 결과, 완전 대사된 316건의 fee 차감 전 gross P&L은
 > **-$55.92(-3.54%)**였고 주요 단일 파라미터 slice도 모두 음수였다. 실자금 A/B는
-> 중단한다. 근거와 wind-down 순서는
+> 중단한다. 사용자가 판정에 따라 전략 운영을 종료했으며, 근거와 당시 wind-down 순서는
 > [2026-07 판정](golden-honeydew-2026-07-verdict.md)을 따른다. 아래 내용은 원래 설계와
-> 재현 가이드로만 보존한다.
+> 재현 가이드로만 보존한다. 아래의 과거 A/B·증액 절차를 다시 실행하지 않는다.
 
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의

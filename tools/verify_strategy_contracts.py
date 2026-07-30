@@ -23,6 +23,7 @@ CURRENT_STRATEGIES = {
     "golden-fig",
     "golden-grape",
     "golden-honeydew",
+    "golden-kiwi",
     "golden-lime",
     "golden-mango",
     "golden-nectarine",
@@ -502,31 +503,44 @@ def _validate_bot_source(
     )
     if run_cycle is None:
         return
-    _require_call_order(
-        findings,
-        strategy,
-        relative_path,
-        run_cycle,
-        ("get_holding_trades", "midpoint_snapshot", "execute_sell"),
-    )
-    midpoint_contexts = [
-        item.context_expr
-        for node in ast.walk(run_cycle)
-        if isinstance(node, ast.With)
-        for item in node.items
-        if any(
-            name.endswith("self.clob.midpoint_snapshot")
-            for name, _ in _calls(item.context_expr)
+    if strategy == "golden-kiwi":
+        # Kiwi deliberately prices each timed exit from one fresh executable
+        # bid.  Its entry uses one CLOB order book for midpoint, spread and
+        # depth, so forcing the fleet's batch-midpoint context here would
+        # reintroduce a second, stale price observation.
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            run_cycle,
+            ("get_holding_trades", "execute_sell"),
         )
-    ]
-    if not midpoint_contexts:
-        findings.append(
-            Finding(
-                strategy,
-                "missing_contract",
-                f"{relative_path}: Phase 1 scoped midpoint_snapshot",
+    else:
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            run_cycle,
+            ("get_holding_trades", "midpoint_snapshot", "execute_sell"),
+        )
+        midpoint_contexts = [
+            item.context_expr
+            for node in ast.walk(run_cycle)
+            if isinstance(node, ast.With)
+            for item in node.items
+            if any(
+                name.endswith("self.clob.midpoint_snapshot")
+                for name, _ in _calls(item.context_expr)
             )
-        )
+        ]
+        if not midpoint_contexts:
+            findings.append(
+                Finding(
+                    strategy,
+                    "missing_contract",
+                    f"{relative_path}: Phase 1 scoped midpoint_snapshot",
+                )
+            )
 
     entry_calls = _guarded_calls(
         run_cycle, ("scan_buy_candidates", "execute_buy")
@@ -1067,6 +1081,159 @@ def _validate_papaya_trader_source(
         )
 
 
+def _validate_kiwi_trader_source(
+    findings: list[Finding], strategy: str, relative_path: str, content: str
+) -> None:
+    """Enforce Kiwi's single-book decision and permanent research stop."""
+    tree = _parse_python(findings, strategy, relative_path, content)
+    if tree is None:
+        return
+
+    execute_buy = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "execute_buy",
+        class_name="Trader",
+    )
+    drawdown = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "evaluate_drawdown_stop",
+        class_name="Trader",
+    )
+    if execute_buy is not None:
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            execute_buy,
+            (
+                "get_buy_book_depth",
+                "evaluate_entry",
+                "place_limit_order",
+                "create_trade",
+            ),
+        )
+        execute_source = ast.get_source_segment(content, execute_buy) or ""
+        _require_tokens(
+            findings,
+            strategy,
+            relative_path,
+            execute_source,
+            (
+                "trend_decision_timestamps_json",
+                "trend_decision_gap_minutes_json",
+                "decision_observed_at_at_entry",
+                "clob_single_order_book_midpoint",
+                "best_bid_at_buy",
+                "best_ask_at_buy",
+                "book_depth_shares_at_buy",
+            ),
+        )
+        execute_calls = {name for name, _ in _calls(execute_buy)}
+        if any(
+            name.endswith(("get_midpoint", "_fresh_book"))
+            for name in execute_calls
+        ):
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_price_lineage",
+                    f"{relative_path}: Kiwi BUY must use one get_buy_book_depth response",
+                )
+            )
+
+    if drawdown is not None:
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            drawdown,
+            (
+                "get_drawdown_kill_switch",
+                "current_run_id",
+                "strict_terminal_economic_path",
+                "stage_drawdown_kill_switch",
+            ),
+        )
+        _require_tokens(
+            findings,
+            strategy,
+            relative_path,
+            ast.get_source_segment(content, drawdown) or "",
+            (
+                "experiment_capital_usdc",
+                "max_drawdown_stop",
+                "source_terminal_run_id",
+                "candidate-independent first crossing",
+            ),
+        )
+
+
+def _validate_kiwi_bot_source(
+    findings: list[Finding], strategy: str, relative_path: str, content: str
+) -> None:
+    """Enforce candidate-independent drawdown evaluation and two-phase latch."""
+    tree = _parse_python(findings, strategy, relative_path, content)
+    if tree is None:
+        return
+    run_cycle = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "run_cycle",
+        class_name="PolymarketBot",
+    )
+    run = _require_function(
+        findings,
+        strategy,
+        relative_path,
+        tree,
+        "run",
+        class_name="PolymarketBot",
+    )
+    if run_cycle is not None:
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            run_cycle,
+            (
+                "evaluate_drawdown_stop",
+                "fetch_markets",
+                "scan_buy_candidates",
+            ),
+        )
+    if run is not None:
+        _require_call_order(
+            findings,
+            strategy,
+            relative_path,
+            run,
+            (
+                "reconcile_staged_drawdown_kill_switch",
+                "run_cycle",
+                "succeed",
+                "finalize_staged_drawdown_kill_switch",
+            ),
+        )
+        _require_tokens(
+            findings,
+            strategy,
+            relative_path,
+            ast.get_source_segment(content, run) or "",
+            (
+                "invalidate_non_successful_run_evidence",
+                "discard_staged_drawdown_kill_switch",
+            ),
+        )
+
+
 def _validate_gamma_source(
     findings: list[Finding], strategy: str, relative_path: str, content: str
 ) -> None:
@@ -1288,8 +1455,12 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
-    if strategy in {"golden-papaya", "golden-queen", "golden-quince"}:
+    if strategy in {"golden-kiwi", "golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_bot_source(
+            findings, strategy, "src/polybot/bot.py", bot
+        )
+    if strategy == "golden-kiwi":
+        _validate_kiwi_bot_source(
             findings, strategy, "src/polybot/bot.py", bot
         )
     _require_tokens(
@@ -1363,8 +1534,12 @@ def validate_strategy(directory: Path) -> list[Finding]:
     _validate_trader_source(
         findings, strategy, "src/polybot/strategy/trader.py", trader
     )
-    if strategy in {"golden-papaya", "golden-queen", "golden-quince"}:
+    if strategy in {"golden-kiwi", "golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_trader_source(
+            findings, strategy, "src/polybot/strategy/trader.py", trader
+        )
+    if strategy == "golden-kiwi":
+        _validate_kiwi_trader_source(
             findings, strategy, "src/polybot/strategy/trader.py", trader
         )
 
