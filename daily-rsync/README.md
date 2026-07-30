@@ -75,6 +75,10 @@ uv run daily-rsync sync --plan <plan-id>
 # local 자료 검증
 uv run daily-rsync verify --job polybot-king
 
+# 회고용 로컬 DB·로그 자동 탐색 (잡명 또는 전략명 하나만 있어도 됨)
+uv run daily-rsync locate --job polybot-king
+uv run daily-rsync locate --strategy golden-queen
+
 # 계좌가 바뀐 deployment epoch 기록
 uv run daily-rsync account-epoch \
   --job polybot-king --strategy golden-queen \
@@ -96,6 +100,32 @@ uv run daily-rsync bundle \
 ```bash
 uv run daily-rsync sync-job --job polybot-king --strategy golden-queen
 ```
+
+## AI 회고용 evidence 찾기
+
+`locate`는 SSH나 원격 scan을 실행하지 않고 로컬 catalog만 읽습니다. 같은 전략을 여러
+Jenkins job이 실행하거나, 한 job이 시간에 따라 여러 전략을 실행한 경우에도
+`source → Jenkins job → strategy → runtime job`을 분리해 모두 반환합니다.
+
+출력에는 최근 sync 시도와 최근 성공 sync run, runtime별 DB 원본/로컬
+경로·원본 시각·SHA-256·artifact 상태, bot log 및 Jenkins console log의
+개수·범위·로컬 루트, 그리고 실행할 `verify` 명령이 포함됩니다. 회고 전에는 반드시
+다음 순서를 지킵니다.
+
+```bash
+cd daily-rsync
+uv run daily-rsync locate --job polybot-bear --strategy golden-honeydew
+uv run daily-rsync verify --job polybot-bear --strategy golden-honeydew
+```
+
+`analysis_ready=true`는 최신 sync 시도까지 성공했고 `SYNCED` 또는 `SOURCE_MISSING`
+상태의 로컬 DB가 존재한다는 뜻입니다. 예전 성공 뒤 최신 시도가 실패했다면
+`latest_successful_sync`가 있어도 false입니다. `SOURCE_MISSING`은 원격에서 사라진 과거 epoch의 보존본이므로
+`source_completed_at` 이후의 현재 상태를 주장하면 안 됩니다. 현재 파일의 checksum과
+SQLite `quick_check`까지 다시 확인했다는 뜻은 아니므로 `verify`를 생략하면 안 됩니다.
+보존 정책으로 이미 삭제된 로그는 `verify`가 `skipped_retention_deleted`로 별도
+보고하며 결손으로 오인하지 않습니다. plan 파일의 존재만으로 동기화 성공을 추정하지
+않습니다.
 
 ## 기본 정책
 

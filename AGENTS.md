@@ -28,10 +28,10 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-elderberry/`: Panic Fade — favorite 급락 과잉반응 역매수.
 - `golden-fig/`: Hope Crusher — 롱샷 페이드. **⛔ 2026-07-28 폐쇄 권고** (캘리브레이션 전 구간 edge 음수, `docs/retro/golden-mango-fig-2026-07-verdict.md`).
 - `golden-grape/`: Cascade Rider — 완만한 일관 드리프트 + 거래량 가속 편승.
-- `golden-honeydew/`: Night Watch — 미국 새벽·주말 무근거 이탈 복원.
+- `golden-honeydew/`: Night Watch — 미국 새벽·주말 무근거 이탈 복원. **⛔ 2026-07-30 폐쇄 권고** (strict confirmed-fill gross -3.54%, 주요 slice 전부 음수. `docs/retro/golden-honeydew-2026-07-verdict.md`).
 - `golden-lime/`: Shock Follow — 거래량 동반 급등 편승. **⛔ 2026-07-28 폐쇄 권고(백테스트로 가설 기각, `docs/retro/golden-lime-2026-07-backtest-verdict.md`).** 같은 검정에서 elderberry 방향도 지지되지 않아 재확인이 필요하다.
 - `golden-mango/`: Patience Premium — 연환산 캐리 허들. **⛔ 2026-07-28 폐쇄 권고** (허들이 시간가치가 아니라 손실확률을 탐지, 후보 정렬 부재).
-- `golden-nectarine/`: Bottom Fisher — 20일 롤링 최저가 매수 / 5일 보유 (QuantPedia 백테스트 복제).
+- `golden-nectarine/`: Bottom Fisher — 20일 롤링 최저가 매수 / 5일 보유의 시간별 근사. **⛔ 2026-07-30 폐쇄 권고** (대사된 120h calendar-exit subset -4.70%; 정정된 24~240h 반사실 구간은 모두 0 포함. `docs/retro/golden-nectarine-2026-07-verdict.md`).
 - `golden-orange/`: Fear Spike Fade — tail 시장 공포 급등 후 NO 매수 (probability neglect).
 - `golden-papaya/`: Final Five — 표준 이진 YES의 first observed 0.95 상향 교차를 0.95–0.97에서 매수하고 해결까지 보유.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
@@ -48,6 +48,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 
 - `polybot-observability/`: 15개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
 - `daily-report/`: 선언된 전 계정(현재 13 slot) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
+- `daily-rsync/`: Jenkins job별 SQLite·bot log·console log를 local-only로 증분 pull하고, catalog·plan·manifest로 provenance와 무결성을 보존하는 Python/uv 도구.
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
 
 시각화·도구:
@@ -56,14 +57,14 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(14개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(15개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
 - `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`, `sell-retry-loop-defense.md`가 있다.
 
 ## 데이터 흐름
 
 봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 **구간** 기준 수익률·freshness·누락·합계 대사를 표시한다.
 
-**공유 저장소는 없다.** 14개 전략 모두 자기 폴더의 `data/<job>/trades.db`만 읽고 쓴다. `golden-honeydew`·`golden-nectarine`은 거래 대상이 아닌 시장까지 포함한 universe 전체 snapshot을 60일 보존하고, `golden-papaya`·`golden-queen`은 `min(설정 진입 유동성, $1k)` 기준으로 자체 archive를 적재한다(이쪽만 보존일수가 config로 조정 가능). "중앙 archive"란 회고 시 분석자가 이 4개 DB를 찾아 참조한다는 **분석 관행**이지 런타임 의존이 아니다 — 경로 예시는 `docs/retro/golden-honeydew.md` 참조. `market_catalog`는 이 4개에만 있다.
+**공유 저장소는 없다.** 15개 전략 모두 자기 폴더의 `data/<job>/trades.db`만 읽고 쓴다. `golden-honeydew`·`golden-nectarine`은 거래 대상이 아닌 시장까지 포함한 universe 전체 snapshot을 60일 보존하고, `golden-papaya`·`golden-queen`은 `min(설정 진입 유동성, $1k)` 기준으로 자체 archive를 적재한다(이쪽만 보존일수가 config로 조정 가능). "중앙 archive"란 회고 시 분석자가 이 4개 DB를 찾아 참조한다는 **분석 관행**이지 런타임 의존이 아니다 — 경로 예시는 `docs/retro/golden-honeydew.md` 참조. `market_catalog`는 이 4개에만 있다.
 
 매도 거절은 trade 상태를 바꾸지 않으므로 `HOLDING`으로 남아 매 사이클 반복 제출된다. 이 루프가 `max_positions`를 잠식해 봇을 정지시킨 사례가 있다(cherry 2026-07-22~28). 전 전략에 거절 사유 분류 로그(`매도 실패 진단`)와 축소 재시도 방어가 들어 있다 — 상세는 `docs/sell-retry-loop-defense.md`.
 
@@ -85,6 +86,33 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 4. 대상 폴더의 package/config 파일 (`pyproject.toml`, `package.json`, `config.yaml`)
 5. 전략·회고 작업이면 `docs/retro/EVIDENCE_CONTRACT.md`; 새 전략이면 `docs/new-strategy-playbook.md`
 
+## 회고 evidence 자동 발견
+
+Jenkins job 또는 strategy 이름만 주어지면 DB/log 경로를 사용자에게 묻지 않고 `daily-rsync/README.md`, `daily-rsync/DATA_LAYOUT.md`, `daily-rsync/OPERATIONS.md`를 확인해 local catalog에서 evidence를 자동 발견한다. local evidence가 없거나 요청 기간을 덮지 않으면 임의 SSH/rsync를 실행하지 말고 evidence gap과 필요한 sync 범위를 보고한다.
+`default`는 Jenkins job이 아니라 runtime job이며, 하나의 strategy가 여러 Jenkins job에, 하나의 Jenkins job이 여러 strategy epoch에 대응할 수 있으므로 `source × Jenkins job × strategy × runtime job`을 evidence discovery 경계로 분리한다.
+실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다.
+
+회고 시작 전에 UTC half-open range `[review-start, review-end-exclusive)`를 고정하고 `review-days`를 그 기간과 일치시키며, 보고서 첫머리에 range와 timezone, `remote_path`, verified DB 절대 경로와 SHA-256(`local_sha256`), `latest_successful_sync.finished_at`과 DB `synced_at` sync cutoff, `source_completed_at` 또는 remote `source_mtime_at` source cutoff를 기록한다. `polybot-retro --as-of`는 포함 종료일을 받아 다음 날 00:00Z를 exclusive end로 만들므로 `review-end-exclusive`의 전날을 넘긴다.
+각 match에서 `latest_sync_attempt.status='SUCCESS'`와 `latest_successful_sync.status='SUCCESS'`, local DB/log 존재, artifact status가 `SYNCED` 또는 `SOURCE_MISSING`인지 확인하고 `verify`를 실행하며, plan 파일이나 디렉터리 이름만으로 sync 성공을 추정하지 않는다.
+`SOURCE_MISSING` DB는 local file이 있고 `verify`가 성공하며 요청 UTC range 전체가 source cutoff 안에서 완결되는 `review-end-exclusive <= source_completed_at`(없으면 remote `source_mtime_at`)일 때만 historical evidence로 사용하고 limitation을 기록하며, cutoff를 넘으면 중단한다.
+`verify.status='SUCCESS'`여도 `skipped_retention_deleted`는 explicit retention skip이지 log coverage가 아니므로, 요청 range에 필요한 log면 limitation과 evidence gap을 기록하고 중단한다.
+`verify`를 통과한 catalog DB 절대 경로만 Evidence Contract audit에 명시하고, 여러 DB는 `--db`를 반복하며, `CRITICAL`/`HIGH` issue나 evidence gap이 있으면 추정·parameter tuning·승격을 중단한다.
+
+```bash
+cd daily-rsync
+uv run daily-rsync locate --job <jenkins-job>
+uv run daily-rsync locate --strategy <strategy>
+uv run daily-rsync verify --job <jenkins-job> --strategy <strategy>
+cd ..
+uv run --project polybot-observability polybot-retro audit \
+  --db <verified-db-path-1> \
+  --db <verified-db-path-2> \
+  --days <review-days> \
+  --as-of <review-end-inclusive-date> \
+  --output-dir <output-dir> \
+  --strict
+```
+
 ## 공통 명령어
 
 폴더별로 다르다. Python은 `uv run <entry>`(golden-* 는 `uv run polybot`), 대시보드는 `npm run <script>`. 전략 공통 계약은 루트에서 `uv run tools/verify_strategy_contracts.py`, 관측성은 `uv run --project polybot-observability pytest polybot-observability/tests`로 검증한다. 상세는 각 폴더 README/AGENTS.md를 따른다.
@@ -99,7 +127,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
 - 공통 전략 계약이나 shared observability를 수정하면 15개 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, contract verifier를 통과시킨다.
-- 월간 수치 조정·전략 승격 전에 `uv run --project polybot-observability polybot-retro audit --root . --output-dir <경로> --strict`를 실행한다(`--output-dir`은 필수 인자다). `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
+- 월간 수치 조정·전략 승격의 strict gate도 broad `--root` discovery를 쓰지 않고 위 절차로 검증한 DB를 `--db`로 반복 명시한다. `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
 - 수치를 조정하기 전에 대상 구간이 단일 cohort인지 확인한다. `strategy_configs` 테이블에 `config_hash`별 전체 config JSON이 남으므로, 여러 cohort가 섞인 구간의 집계로 파라미터를 정하지 않는다.
 
 ## 새 서브 프로젝트 추가 기준

@@ -1,5 +1,12 @@
 # golden-nectarine 회고(포스트모템) 가이드
 
+> **⛔ 2026-07-30 CLOSE 판정**: Jenkins `polybot-eagle`의 synchronized production
+> evidence를 strict audit했다. 전체 완전 대사 81건의 gross +$6.95는 단일 이벤트
+> +$26.09에 의존했고, 대사된 120시간 `max_holding` 부분집합 59건은
+> **-$14.46(-4.70%)**였다. 현행 실거래와 live A/B를 중단한다. 정정된 24~240시간
+> 반사실 구간은 모두 0을 포함해 특정 보유기간을 후속 A/B 후보로 지명하지 않는다. 상세는
+> [2026-07 판정](golden-nectarine-2026-07-verdict.md)을 따른다.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
@@ -20,8 +27,9 @@ REVIEW_END=<YYYY-MM-DD UTC>
 먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
 파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
-- 봇: golden-nectarine (Bottom Fisher). DB는 §2의 find 명령으로 찾아라
-  (2026-07 기준 Jenkins job=polybot-fox, 대시보드 계정 golden-fox — job명은 바뀔 수 있음).
+- 봇: golden-nectarine (Bottom Fisher). Jenkins job 또는 strategy 이름으로 §2의
+  `daily-rsync locate`를 실행해 DB·로그를 찾아라. 2026-07 판정 deployment는
+  Jenkins `polybot-eagle`, strategy `golden-nectarine`, runtime job `default`다.
 - Jenkins env 블록 (job 설정의 export 블록에서 POLYMARKET_PRIVATE_KEY /
   POLYMARKET_FUNDER_ADDRESS 두 키만 제외하고 그대로 붙여넣기):
   [여기에 붙여넣기]
@@ -85,14 +93,24 @@ env 없는 코드 상수: `EPSILON=1e-9`, `TAKE_PROFIT_PRICE_CAP=0.99`,
 
 ## 2. 데이터 위치와 스키마
 
-### 자기 DB 찾기
+### 동기화된 자기 DB·로그 찾기
 
 ```bash
-find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
+cd daily-rsync
+uv run daily-rsync locate --strategy golden-nectarine
+uv run daily-rsync verify --job polybot-eagle --strategy golden-nectarine
 ```
 
-- job명은 바뀔 수 있으니 반드시 find로 찾는다 (2026-07 기준 job=polybot-fox, 대시보드 계정 golden-fox, `--job` 미지정 실행이라 경로는 `.../golden-nectarine/data/default/trades.db`).
-- 시뮬레이션은 같은 폴더의 `trades_sim.db` 별도. 완료 거래 월별 CSV(`trades_YYYY-MM.csv`, 청산 시 append — `hold_hours_at_exit`/`rolling_min_at_buy` 시그널 컬럼 포함)와 일자별 로그(`logs/YYYYMMDD.log`)도 같은 `data/<job>/` 아래에 있다.
+- `locate` 결과의 최근 `SUCCESS` sync run과 `analysis_ready`, DB SHA/path를 확인한 뒤
+  `verify`로 checksum과 SQLite `quick_check`를 다시 검사한다. plan 파일이나 폴더명만으로
+  동기화 성공을 추정하지 않는다.
+- 같은 전략이 여러 Jenkins job에서, 같은 job이 여러 strategy epoch에서 실행될 수 있다.
+  `source × Jenkins job × strategy × runtime job`을 분리한다. `default`는 Jenkins job명이
+  아니라 runtime job이다.
+- 2026-07 판정 DB:
+  `daily-rsync/data/sources/macmini-m5/jobs/polybot-eagle/strategies/golden-nectarine/runtime/default/databases/latest/trades.db`
+- 시뮬레이션은 별도 `trades_sim.db`다. CSV, bot log, Jenkins console log의 실제
+  경로·개수·범위는 `locate` 결과를 source of truth로 사용한다.
 - Jenkins 콘솔 로그/일자별 로그에는 사이클마다 `제외 사유 요약 - reason: count` 한 줄이 남는다 (스캔 병목 파악용). reason 키: `excluded_category`, `low_liquidity`, `low_volume`, `too_close_to_resolution`, `no_price_data`, `price_out_of_band`, 그리고 시그널 탈락(수치 접미사 제거) `window_invalid`, `no_ref_data`, `above_rolling_min`.
 
 ### 테이블 (`src/polybot/db/models.py` 기준 — 이 컬럼만 사용)
@@ -128,10 +146,14 @@ Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집�
 보존 60일, 목표 cadence 5분이며 bid/ask/spread/run ID도 저장한다. 고정 시장 수를 가정하지
 말고 `market_catalog`와 실제 bucket coverage를 확인한다. 별도 DB를 ATTACH할 필요가 없다.
 
-- 보조/교차검증: honeydew DB의 `market_snapshots` (job=polybot-eco, liq >= $15k, 60일 보존). 단 유니버스가 더 좁아서($15k) nectarine 전용 저유동($10k~15k) 시장은 거기 없다 — 고유동 시장의 교차검증 용도로만.
+- 보조/교차검증: `daily-rsync locate --strategy golden-honeydew`가 반환한 honeydew DB의
+  `market_snapshots` (liq >= $15k, 60일 보존). 단 유니버스가 더 좁아서($15k)
+  nectarine 전용 저유동($10k~15k) 시장은 거기 없다 — 고유동 시장의 교차검증
+  용도로만 사용한다.
 
 ```bash
-find /Users/jongwoopark/.jenkins/workspace -path "*golden-honeydew/data*" -name "trades.db" 2>/dev/null
+cd daily-rsync
+uv run daily-rsync locate --strategy golden-honeydew
 ```
 
 - **NO 토큰 가격은 1-YES 근사**지만, nectarine은 YES 매수 고정이라 이 근사가 필요 없다 (다른 봇 대비 재생 오차 요인이 하나 적다).
@@ -441,4 +463,7 @@ commit을 확인한다. `cycle_stats`는 일부 설정의 cycle 맥락을 보조
 - 전략 문서: `/Users/izowooi/git/t1/golden-nectarine/STRATEGY.md` (논지·백테스트 출처 §2·규칙 명세 §3·리스크 §5·A/B 기준 §6·베리에이션 §7·구현 한계 §8).
 - 자매 회고: `/Users/izowooi/git/t1/docs/nectarine-max-positions-retro.md` (max_positions 상한 전용 — cycle_stats/capped_candidates 기반, 계측 도입 커밋 `26a2d2f`).
 - 코드 기준: env 파싱 `golden-nectarine/src/polybot/config.py`, 스키마 `src/polybot/db/models.py`, 진입/청산 판정 `src/polybot/strategy/signals.py`(순수 함수 — 재생 구현 시 그대로 import 가능), 주문 실행·EXPIRED 처리 `src/polybot/strategy/trader.py`, 스캔·백필 `src/polybot/strategy/scanner.py`.
-- 슬롯 매핑 (2026-07-07 기준, 바뀔 수 있음 — find로 재확인): nectarine=polybot-fox(계정 golden-fox), honeydew=polybot-eco(계정 golden-eco), date=polybot-red, elderberry=polybot-cherry 워크스페이스(이름 주의). 운영 4계정 = apple x2, banana, cherry.
+- 당시 슬롯 매핑(2026-07-07, historical provenance):
+  nectarine=polybot-fox(계정 golden-fox), honeydew=polybot-eco(계정 golden-eco),
+  date=polybot-red, elderberry=polybot-cherry. 현재·미래 deployment는 이 매핑을
+  재사용하지 않고 §2의 `daily-rsync locate` 결과를 따른다.

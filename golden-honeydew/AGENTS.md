@@ -3,6 +3,11 @@
 Polymarket **Night Watch** 전략 봇 — 한산 시간대(UTC 06-13시/주말)에 뉴스 없이 발생한
 가격 이탈을 24h median 복원 방향으로 매수하는 Python/uv 프로젝트.
 
+> **⛔ 2026-07-30 CLOSE 권고.** 운영자가 별도 재개 결정을 내리기 전에는 신규 BUY와
+> live parameter A/B를 재개하지 않는다.
+> `../docs/retro/golden-honeydew-2026-07-verdict.md`의 순서로 기존 주문·wallet·intent를
+> 대사하고 wind-down한 뒤, 코드는 연구 provenance와 simulation-only 검증용으로 보존한다.
+
 - 상위 계층: L2 `/Users/izowooi/git/t1/AGENTS.md` (모노레포 규칙), L1 워크스페이스 전역 규칙.
 - 전략 근거·규칙 상세: `STRATEGY.md`. 실행법·env var: `README.md`.
 
@@ -18,6 +23,8 @@ uv run python main.py config  # 병합된 설정 확인 (네트워크 불필요)
 
 - `run`/`status`/`config` 모두 `POLYMARKET_PRIVATE_KEY`·`POLYMARKET_FUNDER_ADDRESS` env 필수.
 - 시뮬레이션 모드도 가격 조회는 실제 API를 사용하므로 유효한 키가 필요하다.
+- `run` live 실행은 운영자가 재개를 승인하거나 운영 복구/wind-down을 수행하는 경우가
+  아니면 재개하지 않는다.
 
 ## 전략 로직 위치
 

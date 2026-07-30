@@ -1,6 +1,15 @@
 # L3 AGENTS.md — golden-nectarine
 
-Polymarket **Bottom Fisher** 전략 봇: 장기(30일+) tail~중간 구간(YES 3~50%) 시장에서 YES 가격이 20일 롤링 최저가 이하로 떨어지면 매수하고, 보유 120h(5일) 경과 시 손익 무관 무조건 청산한다(calendar exit). QuantPedia 공개 백테스트(X=20/Y=5)의 복제 구현.
+Polymarket **Bottom Fisher** 전략 봇: 장기(30일+) tail~중간 구간(YES 3~50%) 시장에서
+YES 가격이 20일 롤링 최저가 이하로 떨어지면 매수하고, 보유 120h(5일) 경과 시 손익
+무관 무조건 청산한다(calendar exit). QuantPedia 공개 백테스트(X=20/Y=5)를 CLOB hourly
+history로 옮긴 **근사 구현**이며 원본의 direct replication으로 간주하지 않는다.
+
+> **⛔ 2026-07-30 CLOSE 권고.** 운영자가 별도 재개 결정을 내리기 전에는 신규 BUY와
+> live parameter A/B를 재개하지 않는다.
+> `../docs/retro/golden-nectarine-2026-07-verdict.md`의 순서로 기존 주문·wallet·intent를
+> 대사하고 wind-down한다. 정정된 24·72·120·168·240h 반사실 구간은 모두 0을
+> 포함하므로 특정 보유기간을 후속 A/B 후보로 선택하지 않는다.
 
 - 상위 계층: L2 `/Users/izowooi/git/t1/AGENTS.md` (모노레포 공통 규칙), L1 `/Users/izowooi/git/AGENTS.md` (전역 규칙).
 - 전략 근거·파라미터·리스크는 `STRATEGY.md`, 실행법·env 표는 `README.md` 참조.
@@ -17,6 +26,8 @@ uv run python main.py status              # 포지션/통계 확인
 
 - 시뮬레이션도 CLOB 가격 조회에 실키가 필요하다 (주문만 가짜). 네트워크 없는 검증은 `pytest` + `config` 명령까지.
 - 코드 수정 후에는 최소 `uv run pytest`를 통과시킨다.
+- `run` live 실행은 운영자가 재개를 승인하거나 운영 복구/wind-down을 수행하는 경우가
+  아니면 재개하지 않는다.
 
 ## 코드 구조 (전략 변경 위치)
 

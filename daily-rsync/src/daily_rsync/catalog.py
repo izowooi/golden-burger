@@ -428,6 +428,26 @@ class Catalog:
                 )
             )
 
+    def latest_sync_run(
+        self,
+        *,
+        source: str,
+        job: str,
+        strategy: str,
+        successful_only: bool = False,
+    ) -> sqlite3.Row | None:
+        status_clause = "AND status = 'SUCCESS'" if successful_only else ""
+        with self.connect() as connection:
+            return connection.execute(
+                f"""
+                SELECT * FROM sync_runs
+                WHERE source = ? AND jenkins_job = ? AND strategy = ?
+                {status_clause}
+                ORDER BY started_at DESC LIMIT 1
+                """,
+                (source, job, strategy),
+            ).fetchone()
+
     def dashboard_summary(self) -> dict[str, Any]:
         with self.connect() as connection:
             artifact_rows = connection.execute(

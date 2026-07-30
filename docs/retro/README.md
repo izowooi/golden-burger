@@ -1,9 +1,9 @@
 # 전략 회고(포스트모템) 마스터 플레이북
 
-> **용도**: 14개 `golden-*` 전략을 고정된 기간과 검증된 execution evidence로 회고하고,
+> **용도**: `golden-*` 전략을 고정된 기간과 검증된 execution evidence로 회고하고,
 > 근거가 충분할 때만 파라미터를 교정한다.
 
-폐쇄된 4개 전략(lime·fig·mango·date)의 교차 비교와 다음 전략용 체크리스트는
+폐쇄 판정된 6개 전략(lime·fig·mango·date·honeydew·nectarine)의 교차 비교와 다음 전략용 체크리스트는
 **[폐쇄 전략 통합 포스트모템](closed-strategies-postmortem.md)** 에 있다.
 
 모든 회고는 먼저 [Evidence Contract](EVIDENCE_CONTRACT.md)를 읽는다. 전략별 문서는
@@ -21,10 +21,10 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-elderberry | [golden-elderberry.md](golden-elderberry.md) | Panic Fade |
 | golden-fig | [golden-fig.md](golden-fig.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Hope Crusher |
 | golden-grape | [golden-grape.md](golden-grape.md) | Cascade Rider |
-| golden-honeydew | [golden-honeydew.md](golden-honeydew.md) | Night Watch, 보조 중앙 archive |
+| golden-honeydew | [golden-honeydew.md](golden-honeydew.md) · **⛔ 폐쇄 판정 (2026-07-30)** → [판정](golden-honeydew-2026-07-verdict.md) | Night Watch, archive 보존 |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
 | golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
-| golden-nectarine | [golden-nectarine.md](golden-nectarine.md) | Bottom Fisher, 주 중앙 archive |
+| golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 판정 (2026-07-30)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |

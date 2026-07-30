@@ -143,6 +143,21 @@ def verify(
 
 
 @app.command()
+def locate(
+    job: Annotated[str | None, typer.Option(help="Jenkins job name")] = None,
+    strategy: Annotated[str | None, typer.Option(help="Strategy folder/name")] = None,
+    config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
+) -> None:
+    """Locate synchronized DB/log evidence without scanning the remote host."""
+    if not job and not strategy:
+        raise typer.BadParameter("pass --job or --strategy")
+    result = _service(config).locate_evidence(job=job, strategy=strategy)
+    typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
+    if result["status"] != "FOUND":
+        raise typer.Exit(1)
+
+
+@app.command()
 def pin(
     artifact: Annotated[str, typer.Option(help="Catalog source_key")],
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,

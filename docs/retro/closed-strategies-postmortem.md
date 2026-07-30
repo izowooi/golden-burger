@@ -1,7 +1,9 @@
-# 폐쇄 전략 통합 포스트모템 — 2026-07-28~29
+# 폐쇄 전략 통합 포스트모템 — 2026-07-28~30
 
-2026-07-28~29 이틀 동안 **4개 전략을 폐쇄**했다. 이 문서는 각 폐쇄의 근거를 한자리에
-모으고, **다음 전략이 반복하면 안 되는 것**을 뽑아낸다.
+2026-07-28~30에 **6개 전략을 폐쇄 판정**했다. 첫 4개(lime·fig·mango·date)는
+7월 28~29일에, honeydew·nectarine은 7월 30일 synchronized DB·로그 회고에서 판정했다.
+이 문서는 각 폐쇄의 근거를 한자리에 모으고, **다음 전략이 반복하면 안 되는 것**을
+뽑아낸다.
 
 개별 판정 문서는 각 행의 링크를 따라갈 것. 이 문서는 요약이 아니라 **교차 비교**다.
 
@@ -11,10 +13,12 @@
 | **golden-fig** | 롱샷 페이드 (favorite-longshot bias) | $299.27 → $798.04 (+$900 입금) | 5/5 가격 구간 edge 음수 (부호검정 p=3.1%) | [mango·fig](golden-mango-fig-2026-07-verdict.md) |
 | **golden-mango** | 연환산 캐리 허들 | $300.11 → $289.27 (**-3.6%**) | 허들이 시간가치가 아니라 손실확률을 탐지 | [mango·fig](golden-mango-fig-2026-07-verdict.md) |
 | **golden-date** | 시간 사다리 + 모멘텀 게이트 | $4,730.91 → $2,260.61 (**-52.2%**) | edge -1.56pp(z=-1.08). 양수 부분표본 부재 | [date](golden-date-2026-07-verdict.md) |
+| **golden-honeydew** | 한산 시간대 무근거 이탈 복원 | net 미확정 | strict confirmed-fill gross **-$55.92(-3.54%)**, 주요 slice 전부 음수 | [honeydew](golden-honeydew-2026-07-verdict.md) |
+| **golden-nectarine** | 20일 신저가의 5일 평균회귀 | net 미확정 | 대사된 120h calendar-exit subset **-$14.46(-4.70%)**, 전체 양수는 단일 이벤트 의존 | [nectarine](golden-nectarine-2026-07-verdict.md) |
 
 ---
 
-## 1. 네 전략이 같은 벽에 부딪혔다
+## 1. 첫 네 전략이 같은 벽에 부딪혔다
 
 가설은 전부 달랐다. 편승(lime), 페이드(fig), 캐리(mango), 수렴(date) — 방향도
 시간축도 가격대도 달랐다. **그런데 결과는 같았다.**
@@ -180,7 +184,8 @@ golden-date는 `STRATEGY.md`에 판정 기준을 **미리 적어두었다**:
 
 ## 7. 다음 전략이 반드시 만족해야 할 것
 
-이 네 번의 실패에서 도출한 체크리스트다. 새 전략은 **전부** 충족해야 한다.
+첫 네 번의 실패와 §9의 후속 두 전략에서 도출한 체크리스트다. 새 전략은 **전부**
+충족해야 한다.
 
 | # | 요구 | 근거 |
 |---|---|---|
@@ -194,6 +199,8 @@ golden-date는 `STRATEGY.md`에 판정 기준을 **미리 적어두었다**:
 | 8 | 격리 자동 해제 · 매도 축소 재시도 · 거절 사유 분류를 **처음부터** 포함 | §5 |
 | 9 | 판정 기준을 **코드에서 강제**하고, 낙폭 임계 도달 시 자동 `close_only` | §6 |
 | 10 | 롤아웃 금액 규약을 지킬 것 ($5 시작, 증액은 사전 기준 통과 후) | §6 |
+| 11 | 실제 체결군과 미체결/격리군의 반사실 성과를 분리하고, **체결 선택 편향**을 검정 | §9 |
+| 12 | 외부 백테스트를 옮길 때 원본의 clock·universe·fill rule을 재현하거나 괴리를 사전 등록 | §9 |
 
 ---
 
@@ -201,13 +208,65 @@ golden-date는 `STRATEGY.md`에 판정 기준을 **미리 적어두었다**:
 
 폐쇄했다고 삭제하지 않는다. 아래 용도로 보존한다.
 
-- **데이터 자산**: `market_snapshots` 총 **450만 행**(fig 205만, date 142만, mango 106만,
-  lime 104만, 2026-07-21~28). 새 전략의 백테스트 기반이다. 삭제하면 복구 불가.
+- **데이터 자산**: 7월 28일 네 전략 archive(fig 약 205만, date 약 142만, mango 약
+  106만, lime 1,036,657행)에 더해, 7월 30일 synchronized snapshot의 honeydew
+  **1,545,992행**과 nectarine **1,399,137행**도 보존한다. 새 전략의 백테스트
+  기반이며 삭제하면 복구할 수 없다.
 - **반례 라이브러리**: 새 가설이 나왔을 때 "이건 lime과 같은 형태 아닌가?"를 검증하는
   기준선. 특히 barrier 구조 EV = -c 논증(lime)과 캘리브레이션 검정(fig·date)은
   재사용 가능한 검정 절차다.
 - **회고 교재**: §6의 "사전 기준이 있었으나 강제되지 않았다"는 실패 유형은 전략과
   무관하게 재발한다.
 
-`close_only`로 전환되어 있으며 잔여 포지션은 지갑 대조 후 정리한다. 코드·문서·DB는
-**보존**한다.
+`close_only` 전환과 잔여 포지션의 지갑 대조는 각 판정 문서의 순서로 수행한다.
+코드·문서·DB는 **보존**한다.
+
+---
+
+## 9. 7월 30일 후속 판정이 추가한 것
+
+### 9.1 Honeydew: 낙관적 replay와 실제 체결은 반대였다
+
+Night Watch의 strict confirmed-fill 316건은 gross -3.54%였고 event-cluster bootstrap
+95% 구간도 -4.75%~-2.21%였다. deviation 하한을 0.05에서 0.10으로 올려도 실제 체결
+56건은 gross -$12.06, 평균 return -4.30%였다. 그런데 “모든 제출 신호가 기록 가격에
+체결됐다”고 가정한 snapshot replay에서는 같은 deviation≥0.10이 양수처럼 보였다.
+
+이 차이는 튜닝 기회가 아니라 경고다. 얇은 호가에서 유리한 신호는 미체결되고 불리한
+신호만 체결되는 adverse selection, spread·queue·latency 누락이 반사실을 뒤집을 수 있다.
+실제로 성공 처리된 BUY 596건 중 179건은 `UNFILLED`였고 SELL submission 실패도
+17,173회 반복됐다.
+
+> **추가 교훈.** submitted-signal midpoint replay가 양수여도 실제 confirmed-fill
+> cohort가 음수이면 live A/B로 승격하지 않는다. “체결됐다고 가정한 알파”는 체결
+> 가능성을 포함하기 전까지 알파가 아니다.
+
+### 9.2 Nectarine: 공개 백테스트가 있어도 구현 동등성이 없으면 별개 전략이다
+
+Bottom Fisher의 81개 strict round trip은 gross +$6.95였지만, 단일 event cluster
++$26.09를 제외하면 -$19.14였다. 120시간 `max_holding`으로 종료된 대사 가능
+부분집합 59건은 gross -$14.46(-4.70%)였고 cluster bootstrap 95% 구간도
+-7.61%~-1.75%였다. 이는 exit reason으로 사후 선택된 기술 통계이며 전체 120h 정책의
+alpha 추정값으로 확대하지 않는다.
+
+공개 연구의 X=20/Y=5 규칙을 인용했지만 실봇은 daily close가 아니라 hourly
+`prices-history`, 다른 universe, GTC midpoint 주문과 24시간 제외창을 사용했다. 게다가
+진입 때 사용한 20일 backfill point가 archive에 보존되지 않아 동일 신호를 사후에 완전
+재생할 수 없었다. 목표 시점 이후의 관측만 허용하도록 정정한 24·72·120·168·240시간
+counterfactual은 모두 cluster CI가 0을 포함했다. spread·fee·queue도 무시한 in-sample
+단일축 screen이므로 특정 보유기간을 후속 A/B 후보로 고를 근거가 없다.
+
+> **추가 교훈.** “논문 전략을 복제했다”는 이름보다 clock, universe, signal lineage,
+> fill model의 동등성이 중요하다. 하나라도 다르면 별도 전략으로 보고 simulation에서
+> 다시 검증한다.
+
+### 9.3 두 전략 공통: 운영 debt가 신호 검증보다 컸다
+
+두 strict audit 모두 4 CRITICAL / 6 HIGH / 2 MEDIUM으로 실패했다. Honeydew는 stale
+reconciliation 35건과 uncertain intent 3건, Nectarine은 stale reconciliation 237건과
+uncertain intent 2건이 남았다. Nectarine은 69.2% cycle에서 150-position cap이 작동했고
+`QUARANTINED` 231건이 포트폴리오 공간을 잠식했다.
+
+따라서 두 전략 모두 신규 BUY 중단이 먼저다. `close_only` → CLOB open order와 wallet
+실보유 대사 → 증거 기반 wind-down → job 비활성화 순서를 지킨 뒤, archive는 연구용으로
+보존한다.

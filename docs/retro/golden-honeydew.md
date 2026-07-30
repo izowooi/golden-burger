@@ -1,5 +1,12 @@
 # golden-honeydew 회고(포스트모템) 가이드
 
+> **⛔ 2026-07-30 CLOSE 판정**: Jenkins `polybot-bear`의 synchronized production
+> evidence를 strict audit한 결과, 완전 대사된 316건의 fee 차감 전 gross P&L은
+> **-$55.92(-3.54%)**였고 주요 단일 파라미터 slice도 모두 음수였다. 실자금 A/B는
+> 중단한다. 근거와 wind-down 순서는
+> [2026-07 판정](golden-honeydew-2026-07-verdict.md)을 따른다. 아래 내용은 원래 설계와
+> 재현 가이드로만 보존한다.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽고
 > `REVIEW_START`/`REVIEW_END`를 UTC 날짜로 고정한다. `polybot-retro audit --strict`의
 > `CRITICAL`/`HIGH` gap을 해결하기 전에는 parameter tuning을 제안하지 않는다. 실제 성과는
@@ -17,8 +24,9 @@ REVIEW_END=<YYYY-MM-DD UTC>
 먼저 docs/retro/EVIDENCE_CONTRACT.md의 strict audit gate를 통과시켜라. 통과하지 못하면
 파라미터 교정 대신 evidence 복구 계획만 제시해라.
 
-- 봇: golden-honeydew (Night Watch). DB는 §2의 find 명령으로 찾아라
-  (2026-07 기준 Jenkins job=polybot-eco, 대시보드 계정 golden-eco — job명은 바뀔 수 있음).
+- 봇: golden-honeydew (Night Watch). Jenkins job 또는 strategy 이름으로 §2의
+  `daily-rsync locate`를 실행해 DB·로그를 찾아라. 2026-07 판정 deployment는
+  Jenkins `polybot-bear`, strategy `golden-honeydew`, runtime job `default`다.
 - Jenkins env 블록 (job 설정의 export 블록에서 POLYMARKET_PRIVATE_KEY /
   POLYMARKET_FUNDER_ADDRESS 두 키만 제외하고 그대로 붙여넣기):
   [여기에 붙여넣기]
@@ -79,14 +87,24 @@ env 없는 코드 상수 (`signals.py` / `trader.py`): `vol_recent_hours=3.0`, �
 
 ## 2. 데이터 위치와 스키마
 
-### 자기 DB 찾기
+### 동기화된 자기 DB·로그 찾기
 
 ```bash
-find /Users/jongwoopark/.jenkins/workspace -path "*golden-honeydew/data*" -name "trades.db" 2>/dev/null
+cd daily-rsync
+uv run daily-rsync locate --strategy golden-honeydew
+uv run daily-rsync verify --job polybot-bear --strategy golden-honeydew
 ```
 
-- job명은 바뀔 수 있으니 반드시 find로 찾는다 (2026-07 기준 job=polybot-eco, 대시보드 계정 golden-eco).
-- 시뮬레이션은 같은 폴더의 `trades_sim.db` 별도. 완료 거래 월별 CSV(`trades_YYYY-MM.csv`)와 일자별 로그(`logs/YYYYMMDD.log`)도 같은 `data/<job>/` 아래에 있다.
+- `locate` 결과의 최근 `SUCCESS` sync run과 `analysis_ready`, DB SHA/path를 확인한 뒤
+  `verify`로 checksum과 SQLite `quick_check`를 다시 검사한다. plan 파일이나 폴더명만으로
+  동기화 성공을 추정하지 않는다.
+- job명은 바뀔 수 있고 같은 전략이 여러 job에서 실행될 수 있다. `source × Jenkins job ×
+  strategy × runtime job`을 하나의 deployment로 분리한다. `default`는 Jenkins job명이
+  아니라 runtime job이다.
+- 2026-07 판정 DB:
+  `daily-rsync/data/sources/macmini-m5/jobs/polybot-bear/strategies/golden-honeydew/runtime/default/databases/latest/trades.db`
+- 시뮬레이션은 별도 `trades_sim.db`다. 완료 거래 CSV, bot log, Jenkins console log의
+  경로·개수·범위는 `locate` 결과를 source of truth로 사용한다.
 - Jenkins 콘솔 로그/일자별 로그에는 사이클마다 `제외 사유 요약 - reason: count` 한 줄이 남는다 (스캔 병목 파악용). reason 키: `excluded_category`, `low_liquidity`, `low_volume`, `too_close_to_resolution`, `no_price_data`, 그리고 시그널 탈락(숫자 접미사 제거) `window_invalid`, `dev_below_min`, `volume_spike_news`, `price_out_of_band`.
 
 ### 테이블 (`src/polybot/db/models.py` 기준 — 이 컬럼만 사용)
@@ -116,12 +134,12 @@ Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 수집�
 시계열은 공용 아카이브를 쓴다. 고정 시장 수 대신 run별 cursor completion과
 catalog/snapshot coverage를 확인한다:
 
-- **1차: honeydew 자기 DB의 `market_snapshots`** — 유니버스(liq >= $15k)가 자기 진입 조건과 정확히 일치하고, volume_24h까지 있어 뉴스 필터 재현이 가능하다. 보존 60일, 5분 간격. (honeydew DB는 레포 공통 문서에서 "보조 아카이브"로 지정된 그 DB다 — job=polybot-eco.)
+- **1차: honeydew 자기 DB의 `market_snapshots`** — 유니버스(liq >= $15k)가 자기 진입 조건과 정확히 일치하고, volume_24h까지 있어 뉴스 필터 재현이 가능하다. 보존 60일, 목표 5분 간격. 2026-07 판정 deployment는 job `polybot-bear`다.
 - **보조/교차검증: nectarine DB의 `market_snapshots`** (공용 아카이브, liq >= $10k, 60일 보존):
 
 ```bash
-find /Users/jongwoopark/.jenkins/workspace -path "*golden-nectarine/data*" -name "trades.db" 2>/dev/null
-# 2026-07 기준 job=polybot-fox
+cd daily-rsync
+uv run daily-rsync locate --strategy golden-nectarine
 ```
 
 - snapshot/catalog 계약은 위와 동일하다. 목표 cadence 5분을 가정하지 말고 실제 bucket ratio와
@@ -420,4 +438,7 @@ Git commit을 확인해 이전 cohort와 분리한다.
 - 이 문서 생성 기준: commit `7bcf83f` (2026-07-06 시점 main), 작성일 2026-07-07.
 - 전략 문서: `/Users/izowooi/git/t1/golden-honeydew/STRATEGY.md` (논지·파라미터 근거·리스크 §5·A/B 기준 §6·베리에이션 §7·구현 한계 §8).
 - 코드 기준: env 파싱 `golden-honeydew/src/polybot/config.py`, 스키마 `src/polybot/db/models.py`, 진입 판정 `src/polybot/strategy/signals.py`(순수 함수 — 재생 구현 시 그대로 import 가능), 청산 `src/polybot/strategy/trader.py`.
-- 슬롯 매핑 (2026-07-07 기준, 바뀔 수 있음 — find로 재확인): honeydew=polybot-eco(계정 golden-eco), nectarine=polybot-fox(계정 golden-fox), date=polybot-red, elderberry=polybot-cherry 워크스페이스(이름 주의). 운영 4계정 = apple x2, banana, cherry.
+- 당시 슬롯 매핑(2026-07-07, historical provenance):
+  honeydew=polybot-eco(계정 golden-eco), nectarine=polybot-fox(계정 golden-fox),
+  date=polybot-red, elderberry=polybot-cherry. 현재·미래 deployment는 이 매핑을
+  재사용하지 않고 §2의 `daily-rsync locate` 결과를 따른다.

@@ -46,6 +46,24 @@ uv run daily-rsync prune --dry-run
 uv run daily-rsync prune --apply
 ```
 
+## 회고 evidence 인계
+
+AI 회고나 포스트모템을 시작할 때 경로를 손으로 추측하지 않는다.
+
+```bash
+uv run daily-rsync locate --job <jenkins-job>
+uv run daily-rsync locate --strategy <golden-strategy>
+uv run daily-rsync verify --job <jenkins-job> --strategy <golden-strategy>
+```
+
+전략명만 조회하면 여러 Jenkins job deployment가 모두 반환될 수 있다. 잡명만 조회하면
+그 잡의 과거 전략 epoch가 함께 나올 수 있다. 따라서 분석 cohort는 locate 결과의
+`Jenkins job × strategy × runtime job`별로 나누고, `latest_sync_attempt`와
+`latest_successful_sync`가 모두 `SUCCESS`이며 `verify`가 성공한 DB만 사용한다.
+DB가 `SOURCE_MISSING`이면 보존된 과거 epoch로
+취급하고 `source_completed_at`을 분석 cutoff로 명시한다. plan JSON이나 디렉터리
+이름만 보고 성공 여부를 판단하지 않는다.
+
 ## 실제 자료 확인
 
 ```bash

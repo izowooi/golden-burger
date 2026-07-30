@@ -1,6 +1,6 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-기존 3개 + 신규 11개 = 총 14개 전략의 전체 지도. 각 전략의 상세 근거와 규칙은 각 폴더의 `STRATEGY.md`, 기존 봇 분석은 각 폴더의 `STRATEGY_ANALYSIS.md`, 사람이 읽기 좋은 HTML 버전은 `docs/strategy-pages/`, 회고 절차는 `docs/ab-retro-playbook.md` 참조.
+기존 3개 + 신규 12개 = 총 15개 전략의 전체 지도. 각 전략의 상세 근거와 규칙은 각 폴더의 `STRATEGY.md`, 기존 봇 분석은 각 폴더의 `STRATEGY_ANALYSIS.md`, 사람이 읽기 좋은 HTML 버전은 `docs/strategy-pages/`, 회고 절차는 `docs/ab-retro-playbook.md` 참조.
 
 ## 설계 원칙
 
@@ -24,10 +24,10 @@
 | golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 (원래 favorite) | 신규 |
 | ~~golden-fig~~ (**⛔ 폐쇄 2026-07-28**) | Hope Crusher | favorite-longshot bias (복권 심리) | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | 신규 |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | 신규 |
-| golden-honeydew | Night Watch | 주의(attention) 사이클 — 새벽·주말 부재 | 무근거 이탈 복원 | 0.30–0.90 | 신규 |
+| ~~golden-honeydew~~ (**⛔ 폐쇄 판정 2026-07-30**) | Night Watch | 주의(attention) 사이클 — 새벽·주말 부재 | 무근거 이탈 복원 | 0.30–0.90 | confirmed-fill gross -3.54% |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 (PEAD 유사) | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 (2026-07-28, 가설 기각)** |
 | ~~golden-mango~~ (**⛔ 폐쇄 2026-07-28**) | Patience Premium | 자본 잠김 회피(조급함) → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | 신규 (문헌 도출) |
-| golden-nectarine | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | 신규 (백테스트 복제) |
+| ~~golden-nectarine~~ (**⛔ 폐쇄 판정 2026-07-30**) | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | 대사된 120h calendar-exit subset -4.70% |
 | golden-orange | Fear Spike Fade | probability neglect (공포의 확률 무시) | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | 신규 (문헌 도출) |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 가설 | strict binary YES 편승 | 관측된 0.95 교차, 0h 초과–72h 이하 | 신규 (falsification cohort) |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 가설 | strict binary YES 편승 | 0.90–0.94, 24h 이내·스포츠 in-play | 신규 (Cherry evidence 복구형) |
@@ -58,7 +58,13 @@ favorite-longshot bias는 예측시장 문헌에서 가장 잘 문서화된 편�
 ### golden-grape — Cascade Rider
 뉴스는 대중에게 천천히 퍼진다(정보 폭포). 리서치 문서: "2–3%/일의 완만한 이동은 +6–8% 지속, 10%+ 급변은 회귀". banana의 골든크로스가 실패한 이유는 가설이 아니라 신호였다 — threshold 0.02가 사실상 도달 불가능해 모든 실거래가 cold-start 폴백으로 발생했다. grape는 같은 모멘텀 가설을 도달 가능한 신호(24h 일관 드리프트 +4~10pt, 4h 버킷 70% 일관성, 거래량 1.2배 가속)로 재구현하고, 드리프트 상한으로 mean-revert 영역을 배제한다.
 
-### golden-honeydew — Night Watch
+### golden-honeydew — ⛔ 폐쇄 판정 (2026-07-30) — Night Watch
+
+> 완전 대사된 confirmed-fill 316건의 fee 차감 전 gross P&L은 **-$55.92(-3.54%)**였고,
+> deviation·유동성·거래량·평일/주말 주요 slice가 모두 음수였다. 낙관적 snapshot
+> replay의 일부 양수 조합은 실제 체결 결과와 반대여서 live A/B 근거가 아니다.
+> → [판정](retro/golden-honeydew-2026-07-verdict.md)
+
 Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 새벽 01–08시와 주말에는 호가가 얇아 소액 주문에도 가격이 밀리고, 아침에 주의가 돌아오면 복원된다. "24시간 계속 리퀘스트를 날릴 수 있다"는 우리의 구조적 우위를 가장 정면으로 수익화한다 — 이 전략의 경쟁자는 그 시간에 깨어 있을 수 없다. 거래량 급증 시 진입 금지(뉴스에 의한 진짜 이동 배제)로 무근거 이탈만 노린다.
 
 ### golden-lime — Shock Follow ⛔ 폐쇄 (2026-07-28)
@@ -89,8 +95,15 @@ Polymarket 참여자 대다수는 미국 시간대의 사람이다. 미 동부 �
 
 예측시장 참여자는 자본이 잠기는 것을 싫어해서, "거의 확실한" 계약도 만기까지의 기간만큼 할인되어 거래된다(settlement discount). 2026년 arXiv 논문 2편이 이 할인 기간구조를 실측했고(할인 보정 시 근확실 구간 왜곡의 48~88%가 소거), Kalshi 실증도 고가 계약의 양(+)의 수익률을 확인했다. 단일 수식 `y = ((1-p)/p) × (8760/남은시간) ≥ 2.0` 하나로 진입을 판정한다 — 대중의 조급함이 만든 할인을 봇의 인내로 수확한다. 골든크로스만큼 간결하지만, 근거는 가장 강하다.
 
-### golden-nectarine — Bottom Fisher
-장기 tail 시장에서 패닉/노이즈 매도가 가격을 일시적으로 누르면 반등한다. QuantPedia(2026-04)의 Polymarket 공개 백테스트를 충실 복제: `현재가 ≤ 20일 롤링 최저가 → 매수, 5일(120h) 보유 후 무조건 청산`. 10bps 비용 반영 후 CAR +18.9~22.1%로 생존한 유일한 공개 규칙. 소표본 과적합 위험은 STRATEGY.md에 명시.
+### golden-nectarine — ⛔ 폐쇄 판정 (2026-07-30) — Bottom Fisher
+
+> 완전 대사된 전체 81건은 gross +$6.95였지만 단일 이벤트 +$26.09에 의존했다. 이를
+> 제외하면 -$19.14이고, 대사된 120시간 `max_holding` 부분집합 59건은
+> **-$14.46(-4.70%)**였다. 정정된 24·72·120·168·240시간 counterfactual의
+> condition-cluster CI는 모두 0을 포함해, 특정 보유기간을 후속 A/B 후보로 선택하지 않는다.
+> → [판정](retro/golden-nectarine-2026-07-verdict.md)
+
+장기 tail 시장에서 패닉/노이즈 매도가 가격을 일시적으로 누르면 반등한다. QuantPedia(2026-04)의 Polymarket 공개 백테스트를 시간별 CLOB 데이터에 근사 이식했다: `현재가 ≤ 20일 롤링 최저가 → 매수, 5일(120h) 보유 후 무조건 청산`. 원문의 daily close·universe·fill rule과 동등하지 않으며, 이번 실거래 결과는 원 연구의 복제 성공이 아니다.
 
 ### golden-orange — Fear Spike Fade
 무서운 헤드라인 아래에서 대중은 확률이 아니라 결과의 끔찍함에 반응한다(probability neglect, Sunstein 2002). tail 시장 YES가 급등했다가 90~120분 내 되돌림의 60%가 발생한 실측 사례(이란 휴전 35→68→58%, 핵폭발 시장 19%)를 근거로, 스파이크가 스톨한 뒤 NO를 사서 공포 프리미엄 감쇠를 수확한다. fig(정적 theta)·lime(급등 편승)과 구분되는 이벤트 직후 감정 과잉 전담.

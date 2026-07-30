@@ -4,6 +4,7 @@ import gzip
 import hashlib
 import json
 import os
+import shlex
 import shutil
 import sqlite3
 import subprocess
@@ -12,6 +13,7 @@ from collections.abc import Callable
 from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from .catalog import Catalog
 from .config import AppConfig
@@ -442,8 +444,12 @@ class SyncService:
     def verify(self, *, job: str | None = None, strategy: str | None = None) -> dict[str, object]:
         rows = self.catalog.list_artifacts(job=job, strategy=strategy)
         checked = 0
+        skipped_retention_deleted = 0
         failed: list[str] = []
         for row in rows:
+            if row["status"] == "RETENTION_DELETED":
+                skipped_retention_deleted += 1
+                continue
             path = Path(row["local_path"] or "")
             if not path.is_file():
                 failed.append(f"missing: {path}")
@@ -465,9 +471,213 @@ class SyncService:
                 failed.append(f"{path}: {error}")
         return {
             "checked": checked,
+            "skipped_retention_deleted": skipped_retention_deleted,
             "failed": len(failed),
             "errors": failed,
             "status": "SUCCESS" if not failed else "FAILED",
+        }
+
+    def locate_evidence(
+        self, *, job: str | None = None, strategy: str | None = None
+    ) -> dict[str, object]:
+        """Return compact, machine-readable local evidence locations.
+
+        Jenkins job, strategy and runtime job are separate identities. A strategy-only
+        query can therefore return several deployments, while one deployment can contain
+        several runtime databases.
+        """
+        if not job and not strategy:
+            raise ValueError("pass at least one of job or strategy")
+
+        rows = self.catalog.list_artifacts(job=job, strategy=strategy)
+        deployments: dict[tuple[str, str, str], list[Any]] = {}
+        for row in rows:
+            deployment_strategy = str(row["strategy"] or "unknown")
+            key = (str(row["source"]), str(row["jenkins_job"]), deployment_strategy)
+            deployments.setdefault(key, []).append(row)
+
+        matches: list[dict[str, object]] = []
+        for (source, jenkins_job, deployment_strategy), deployment_rows in sorted(
+            deployments.items()
+        ):
+            console_rows = [
+                row for row in deployment_rows if row["kind"] == "jenkins_console"
+            ]
+            runtime_rows: dict[str, list[Any]] = {}
+            for row in deployment_rows:
+                if row["kind"] == "jenkins_console":
+                    continue
+                runtime_job = str(row["runtime_job"] or "default")
+                runtime_rows.setdefault(runtime_job, []).append(row)
+
+            latest_attempt = None
+            latest_run = None
+            if deployment_strategy != "unknown":
+                latest_attempt = self._sync_run_location(
+                    self.catalog.latest_sync_run(
+                        source=source,
+                        job=jenkins_job,
+                        strategy=deployment_strategy,
+                    )
+                )
+                latest_run = self._sync_run_location(
+                    self.catalog.latest_sync_run(
+                        source=source,
+                        job=jenkins_job,
+                        strategy=deployment_strategy,
+                        successful_only=True,
+                    )
+                )
+
+            latest_attempt_succeeded = (
+                latest_attempt is not None and latest_attempt["status"] == "SUCCESS"
+            )
+
+            runtimes: list[dict[str, object]] = []
+            database_available = False
+            for runtime_job, scoped_rows in sorted(runtime_rows.items()):
+                database_rows = [
+                    row for row in scoped_rows if str(row["kind"]).startswith("database")
+                ]
+                databases = [self._database_location(row) for row in database_rows]
+                database_available = database_available or any(
+                    bool(item["available"])
+                    and item["status"] in {"SYNCED", "SOURCE_MISSING"}
+                    for item in databases
+                )
+                runtimes.append(
+                    {
+                        "runtime_job": runtime_job,
+                        "databases": databases,
+                        "bot_logs": self._log_location(
+                            [row for row in scoped_rows if row["kind"] == "bot_log"]
+                        ),
+                        "other_artifacts": self._artifact_count(
+                            [
+                                row
+                                for row in scoped_rows
+                                if row["kind"] != "bot_log"
+                                and not str(row["kind"]).startswith("database")
+                            ]
+                        ),
+                    }
+                )
+
+            verify_parts = [
+                "uv",
+                "run",
+                "daily-rsync",
+                "verify",
+                "--job",
+                jenkins_job,
+            ]
+            if deployment_strategy != "unknown":
+                verify_parts.extend(["--strategy", deployment_strategy])
+            matches.append(
+                {
+                    "source": source,
+                    "jenkins_job": jenkins_job,
+                    "strategy": deployment_strategy,
+                    "analysis_ready": (
+                        database_available
+                        and latest_run is not None
+                        and latest_attempt_succeeded
+                    ),
+                    "latest_sync_attempt": latest_attempt,
+                    "latest_successful_sync": latest_run,
+                    "jenkins_console_logs": self._log_location(console_rows),
+                    "runtimes": runtimes,
+                    "verification_command": shlex.join(verify_parts),
+                }
+            )
+
+        return {
+            "schema_version": 1,
+            "catalog_path": str(self.config.catalog_path),
+            "query": {"job": job, "strategy": strategy},
+            "match_count": len(matches),
+            "matches": matches,
+            "status": "FOUND" if matches else "NOT_FOUND",
+        }
+
+    @staticmethod
+    def _sync_run_location(row: Any | None) -> dict[str, object] | None:
+        if row is None:
+            return None
+        return {
+            key: row[key]
+            for key in (
+                "run_id",
+                "plan_id",
+                "status",
+                "started_at",
+                "finished_at",
+                "transferred",
+                "skipped",
+                "failed",
+                "bytes_written",
+            )
+        }
+
+    @staticmethod
+    def _database_location(row: Any) -> dict[str, object]:
+        path = Path(row["local_path"] or "")
+        metadata = json.loads(row["metadata_json"] or "{}")
+        remote_mtime = datetime.fromtimestamp(
+            int(row["remote_mtime_ns"]) / 1_000_000_000,
+            UTC,
+        ).isoformat()
+        return {
+            "source_key": row["source_key"],
+            "kind": row["kind"],
+            "status": row["status"],
+            "historical_source_missing": row["status"] == "SOURCE_MISSING",
+            "remote_path": row["remote_path"],
+            "local_path": str(path),
+            "available": path.is_file(),
+            "remote_size_bytes": int(row["remote_size_bytes"]),
+            "source_completed_at": metadata.get("completed_at"),
+            "source_mtime_at": remote_mtime,
+            "local_sha256": row["local_sha256"],
+            "remote_sha256": row["remote_sha256"],
+            "synced_at": row["synced_at"],
+        }
+
+    @staticmethod
+    def _artifact_count(rows: list[Any]) -> dict[str, int]:
+        return {
+            "cataloged": len(rows),
+            "available": sum(Path(row["local_path"] or "").is_file() for row in rows),
+        }
+
+    @staticmethod
+    def _log_location(rows: list[Any]) -> dict[str, object]:
+        paths = [Path(row["local_path"] or "") for row in rows]
+        available_paths = [path for path in paths if path.is_file()]
+        local_root = None
+        if available_paths:
+            common = Path(os.path.commonpath([str(path) for path in available_paths]))
+            local_root = str(common.parent if len(available_paths) == 1 else common)
+
+        build_numbers = [
+            int(row["build_number"]) for row in rows if row["build_number"] is not None
+        ]
+        completed_at: list[str] = []
+        for row in rows:
+            metadata = json.loads(row["metadata_json"] or "{}")
+            timestamp = metadata.get("completed_at")
+            if timestamp:
+                completed_at.append(str(timestamp))
+        return {
+            "cataloged": len(rows),
+            "available": len(available_paths),
+            "remote_size_bytes": sum(int(row["remote_size_bytes"]) for row in rows),
+            "local_size_bytes": sum(path.stat().st_size for path in available_paths),
+            "local_root": local_root,
+            "first_build": min(build_numbers) if build_numbers else None,
+            "last_build": max(build_numbers) if build_numbers else None,
+            "first_completed_at": min(completed_at) if completed_at else None,
+            "last_completed_at": max(completed_at) if completed_at else None,
         }
 
     def pin_database(self, source_key: str) -> Path:
