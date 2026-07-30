@@ -6,7 +6,11 @@ import copy
 
 import pytest
 
-from polybot.strategy.filters import get_strict_binary_yes
+from polybot.strategy.filters import (
+    category_filter_reason,
+    get_strict_binary_yes,
+    is_excluded_market,
+)
 
 
 @pytest.fixture
@@ -76,3 +80,54 @@ def test_raw_gamma_json_strings_are_parsed_before_strict_validation(binary_marke
     binary_market["outcomePrices"] = '["0.951", "0.049"]'
     binary_market["clobTokenIds"] = '["YES_TOKEN", "NO_TOKEN"]'
     assert get_strict_binary_yes(binary_market)["token_id"] == "YES_TOKEN"
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        None,
+        "[]",
+        {},
+        [None],
+        [1],
+        ["sports"],
+        [""],
+        [{}],
+        [{"id": "7"}],
+        [{"slug": 7}],
+        [{"slug": ""}],
+    ],
+)
+def test_configured_tag_filter_rejects_unknown_or_malformed_metadata(tags):
+    market = {"tags": tags}
+    assert category_filter_reason(market, ["sports"]) == "tags_unknown"
+    assert is_excluded_market(market, ["sports"]) is True
+
+
+def test_configured_tag_filter_rejects_missing_metadata():
+    assert category_filter_reason({}, ["sports"]) == "tags_unknown"
+
+
+def test_explicit_empty_tag_list_is_valid_non_excluded_evidence():
+    market = {"tags": []}
+    assert category_filter_reason(market, ["sports"]) == "ok"
+    assert is_excluded_market(market, ["sports"]) is False
+
+
+@pytest.mark.parametrize(
+    "tags",
+    [
+        [{"slug": "sports"}],
+        [{"label": " Sports "}],
+        [{"slug": "SPORTS"}],
+    ],
+)
+def test_configured_tag_filter_preserves_exact_exclusion(tags):
+    assert category_filter_reason({"tags": tags}, ["sports"]) == "excluded_category"
+
+
+def test_configured_tag_filter_preserves_near_match():
+    assert (
+        category_filter_reason({"tags": [{"slug": "sports-politics"}]}, ["sports"])
+        == "ok"
+    )

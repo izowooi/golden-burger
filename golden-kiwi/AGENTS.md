@@ -158,7 +158,8 @@ coverage 각각 90% 이상, 단일 shared Git cohort, strict audit CRITICAL/HIGH
 
 ## 변경 금지와 주의사항
 
-- frozen control, arm mapping, selection 순서와 promotion gate를 관측 결과에 맞춰 바꾸지 않는다.
+- frozen experiment contract, arm mapping, selection 순서와 promotion gate를 관측
+  결과에 맞춰 바꾸지 않는다.
 - private key나 funder를 Kiwi job에 주입하지 않는다.
 - drawdown latch나 append-only experiment row를 수정·삭제하지 않는다.
 - resolution, redeemable, redeem transaction, CLOB intent와 confirmed fill을 섞지 않는다.

@@ -16,8 +16,10 @@ Golden Kiwi는 네 개의 독립 simulation 팔로 **짧은 연속 상승의 60�
 
 시장 참여자는 같은 정보를 동시에 완전하게 해석하지 않는다. 누군가의 거래가 다른 사람의
 정보가 되어 순차적으로 따라붙는다면, 한 번의 급등보다 **3~5회의 작고 연속적인 YES
-상승**이 짧은 사회적 정보 cascade일 수 있다. 이 15~25분 staircase가 이후 60분의 실행
-가능한 가격에도 남는지를 검정한다.
+상승**이 짧은 사회적 정보 cascade일 수 있다. 정확한 5분 cadence에서는 명목상
+15/25분 staircase지만, 허용 gap 3~10분을 적용한 실제 span은 3-step arm이 9~30분,
+5-step arm이 15~50분이다. 이 staircase가 이후 60분의 실행 가능한 가격에도 남는지를
+검정한다.
 
 이 아이디어는 다음 시장행동 문헌과 방향은 맞지만, 문헌이 Polymarket의 수익성을
 보증하지는 않는다.
@@ -39,6 +41,8 @@ Golden Kiwi는 네 개의 독립 simulation 팔로 **짧은 연속 상승의 60�
 4. `best ask → best bid` 비용이 작은 drift를 전부 지울 수 있다.
 5. 한 event의 여러 condition이 함께 움직여 signal 수만 부풀 수 있다.
 6. 5분 Jenkins schedule이 실제로는 10분 이상 벌어져 다른 현상을 측정할 수 있다.
+7. 서로 다른 event ID가 같은 뉴스·테마에 묶여 event-cluster inference가 남은 상관을
+   모두 제거하지 못할 수 있다.
 
 ## 3. 폐쇄 전략에서 배운 설계 제약
 
@@ -51,19 +55,23 @@ Golden Kiwi는 네 개의 독립 simulation 팔로 **짧은 연속 상승의 60�
 | Honeydew: snapshot replay와 confirmed fill 성과 부호 불일치 | quote counterfactual을 actual P&L로 부르지 않음 |
 | Nectarine: 120h calendar mean reversion 음수·단일 event 의존 | 6시간 event cooldown, event-equal 평가, 60분 고정창 |
 
-실패 전략의 threshold를 섞어 새 composite score를 만들지 않았다. 관측 가능한 두 변수
-`연속 횟수 × 누적 상승 하한`만 처치한다.
+이 매핑은
+[여섯 폐쇄 전략의 통합 포스트모템](../docs/retro/closed-strategies-postmortem.md)에서
+도출했다. 실패 전략의 threshold를 섞어 새 composite score를 만들지 않았다. 6시간
+shock와 24시간 drift를 다시 최적화하는 대신, 더 짧은 실제 관측 staircase의 지속성만
+독립적으로 반증한다. 관측 가능한 두 변수 `연속 횟수 × 누적 상승 하한`만 처치한다.
 
 ## 4. Point-in-time universe
 
 진입 snapshot에서 모두 참이어야 한다.
 
-1. `SUCCESS` run과 cursor-complete Gamma sweep에 연결된 현재 관측
+1. 현재 `RUNNING` run의 cursor-complete Gamma sweep 관측과, 같은 cohort의 이전
+   `SUCCESS`·cursor-complete 관측으로 구성된 lineage
 2. outcomes가 정확히 `["Yes", "No"]`
 3. 서로 다른 CLOB token 두 개와 정확히 두 outcome price
 4. `negRisk=false`가 명시된 표준 이진 시장
 5. catalog가 entry 이후 정보로 보강되지 않은 point-in-time 시장
-6. `endDate`까지 6시간 이상
+6. `endDate`까지 6시간 이상이며 최대 horizon 상한은 없음
 7. 현재 YES `0.20 <= p <= 0.80`
 8. liquidity ≥ $20,000
 9. `volume24hr` ≥ $10,000
@@ -83,8 +91,11 @@ multi-strikes
 1h
 ```
 
-tag는 slug/label의 대소문자를 무시한 exact match다. `sports-politics`는 `sports`와 같지
-않다. 이 제외 집합은 팔별로 바꿀 수 없다.
+tag는 slug/label의 앞뒤 공백과 대소문자를 정규화한 exact match다.
+`sports-politics`는 `sports`와 같지 않다. 명시적 빈 tag 목록은 허용하지만 tag 필드가
+누락됐거나 형식이 비정상이면 point-in-time universe를 증명할 수 없으므로 제외한다.
+이 제외 집합은 팔별로 바꿀 수 없다. 스포츠 제외는 과거 전략에서 alpha가 개선됐다는
+근거가 아니라 서로 다른 시장 시계를 섞지 않기 위한 동질적 연구 universe 선택이다.
 
 Archive는 진입 밴드보다 넓은 YES `[0.16, 0.84]`를 저장한다. Gamma keyset fetch에는
 서버측 유동성 하한 `$1,000`을 적용한다. 이는 `$20,000` entry gate와 다른 수집 비용
@@ -117,6 +128,10 @@ page를 로컬에서 받은 시각**이다. sweep이 수분 걸려도 모든 시
 
 B가 primary다. A/C/D는 B가 실패했을 때 observed winner로 교체할 후보가 아니라
 희귀성·확인 길이·minimum move에 대한 동시 민감도 검사다.
+
+이 grid는 무처치 control 또는 동일 시장을 무작위 배정한 실행 A/B가 아니다. 두 축 모두
+신호의 엄격도와 희귀성을 바꾸므로 B만 confirmatory 판정에 사용하고 A/C/D는
+falsification/sensitivity 진단으로만 해석한다.
 
 ## 6. Event 선택과 재진입
 

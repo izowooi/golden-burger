@@ -134,6 +134,14 @@ footer{margin-top:48px;padding-top:18px;border-top:1px solid var(--line);color:v
   것이 아니라 별도 <em>shadow execution review</em>만 열 수 있다.</p>
 </aside>
 
+<section aria-labelledby="origin">
+<h2 id="origin">어디서 나온 전략인가</h2>
+<p>Lime·Fig·Mango·Date·Honeydew·Nectarine 여섯 폐쇄 전략의 DB와 로그를 함께 검토한
+통합 포스트모템에서 출발했다. 실패한 threshold를 합쳐 “최고 전략”을 만든 것이 아니라,
+반복하면 안 될 회전율·표본 선택·체결 증거·event 의존 문제를 코드 제약으로 제거하고
+작은 연속 상승의 지속성이라는 독립 가설 하나만 남겼다.</p>
+</section>
+
 <section aria-labelledby="plain-rule">
 <h2 id="plain-rule">전략을 한글로 풀면</h2>
 <pre class="formula">관찰
@@ -166,26 +174,30 @@ Primary 연구 outcome
   → +60~75분 독립 condition 조회의 첫 SUCCESS valid best bid
   = 가상 position 수와 무관한 event-equal counterfactual</pre>
 <p class="muted">최근 24시간 거래량은 최소 유동성 gate로만 쓴다. 24시간 누적값의 증가를
-15~25분 추세 가속으로 해석하지 않는다. 가격 stop, take-profit, trailing stop도 두지
-않아 네 팔의 비교창을 동일한 60분으로 고정한다.</p>
+짧은 추세 가속으로 해석하지 않는다. 정확한 5분 cadence에서는 명목상 15/25분이지만,
+허용 gap 3~10분에서 실제 span은 3-step 9~30분, 5-step 15~50분이다. 가격 stop,
+take-profit, trailing stop도 두지 않아 네 팔의 비교창을 동일한 60분으로 고정한다.</p>
 </section>
 
 <section aria-labelledby="universe">
 <h2 id="universe">공통 진입 계약</h2>
 <ol class="steps">
-  <li><strong>Point-in-time evidence</strong> — 현재 snapshot은 SUCCESS run과
-  cursor-complete Gamma sweep에 연결되어야 한다.</li>
+  <li><strong>Point-in-time evidence</strong> — 현재 snapshot은 아직
+  <code>RUNNING</code>인 run의 cursor-complete Gamma sweep에 연결되고, 이전 관측은
+  같은 cohort의 <code>SUCCESS</code>·cursor-complete row여야 한다.</li>
   <li><strong>표준 이진 시장</strong> — outcomes가 정확히 Yes/No 두 개이고,
   서로 다른 token 두 개이며 <code>negRisk=false</code>가 명시되어야 한다.</li>
-  <li><strong>시간·가격·시장성</strong> — 해결까지 6시간 이상, YES
-  <code>[0.20, 0.80]</code>, liquidity ≥ $20,000, volume24h ≥ $10,000.</li>
+  <li><strong>시간·가격·시장성</strong> — 해결까지 6시간 이상(최대 horizon 상한 없음),
+  YES <code>[0.20, 0.80]</code>, liquidity ≥ $20,000, volume24h ≥ $10,000.</li>
   <li><strong>실행 가능 호가</strong> — <code>0 &lt; bid ≤ ask &lt; 1</code>,
   spread ≤ 0.02, $5 수량의 1.2배 ask depth를 fresh book에서 재확인한다.</li>
   <li><strong>시장군 제외</strong> — exact tag
   <code>sports</code>, <code>games</code>, <code>esports</code>,
   <code>crypto-prices</code>, <code>up-or-down</code>,
   <code>multi-strikes</code>, <code>5m</code>, <code>15m</code>,
-  <code>1h</code>를 제외한다.</li>
+  <code>1h</code>를 제외한다. 명시적 빈 tag 목록은 허용하지만 누락·비정상 tag
+  metadata는 fail-closed한다. 스포츠 제외는 수익성 근거가 아니라 동질적인 연구
+  universe를 고정하기 위한 선택이다.</li>
   <li><strong>event와 cycle 선택</strong> — 한 collecting run에서 event당 유동성 1위
   condition 하나만 고른다. event별 승자는 전체 유동성 내림차순·condition ID
   오름차순으로 정렬하고 fresh gate를 처음 통과한 최대 1개만 진입한다. 같은 event의
@@ -205,10 +217,11 @@ Primary 연구 outcome
 <h2 id="arms">정확한 2 × 2 네 팔</h2>
 <p>다른 값은 모두 고정하고 <strong>연속 상승 횟수</strong>와
 <strong>누적 상승 하한</strong> 두 축만 바꾼다. 결과가 좋아 보이는 팔을 사후에 primary로
-바꾸지 않는다.</p>
+바꾸지 않는다. 무처치 control이나 동일 시장의 무작위 배정 실험은 아니며, B만
+confirmatory primary이고 A/C/D는 희귀성·threshold 민감도·반증용 비교군이다.</p>
 <div class="grid">
   <article class="card">
-    <span class="arm-code">ARM A · LOOSE CONTROL</span>
+    <span class="arm-code">ARM A · LOWER-THRESHOLD SENSITIVITY</span>
     <h3>3회 연속 · 누적 +1%p</h3>
     <p><code>POLYBOT_CONFIRMATION_STEPS=3</code><br>
     <code>POLYBOT_MIN_CUMULATIVE_MOVE=0.01</code></p>
@@ -292,7 +305,8 @@ partial fill, fee를 증명하지 않는다.</p>
 <section aria-labelledby="jenkins">
 <h2 id="jenkins">Jenkins 수집 계약</h2>
 <ul class="checklist">
-  <li>숨은 <code>H</code> offset을 쓰지 않는다. A/B/C/D trigger를 각각
+  <li>각 job의 <strong>Build periodically</strong>에 trigger를 입력하고 숨은
+  <code>H</code> offset을 쓰지 않는다. A/B/C/D trigger를 각각
   <code>0-59/5 * * * *</code>, <code>1-59/5 * * * *</code>,
   <code>2-59/5 * * * *</code>, <code>3-59/5 * * * *</code>로 고정한다.</li>
   <li><strong>Execute concurrent builds if necessary를 끈다.</strong> 한 job의 DB에는
@@ -301,6 +315,10 @@ partial fill, fee를 증명하지 않는다.</p>
   <code>data/&lt;job&gt;/trades_sim.db</code>로 분리된다.</li>
   <li>네 팔은 같은 Git commit과 정확히 같은 30일 UTC 반개구간을 쓰고, arm별
   <code>POLYBOT_CADENCE_OFFSET_MINUTE</code>는 0/1/2/3으로 고정한다.</li>
+  <li>workspace가 모노레포 루트인지, Jenkins agent에서 예시의
+  <code>/Users/jongwoopark/.local/bin/uv</code>가 실제 경로인지 확인한다.</li>
+  <li>trigger 활성화 전에 <code>polybot config</code>를 수동 실행해 arm, job,
+  offset, 절대 DB 경로와 <code>Promotion collection: ENABLED</code>를 확인한다.</li>
   <li>실험 시작·종료·offset 세 환경변수가 없으면 smoke/archive mode이고
   <code>collection_eligible=0</code>이다. 일부만 설정하면 시작을 거부한다.</li>
   <li>wallet credential은 필요하지 않다. private key, funder address,

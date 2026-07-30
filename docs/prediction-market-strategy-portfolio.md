@@ -29,7 +29,7 @@
 | ~~golden-fig~~ | Hope Crusher | favorite-longshot bias | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | **⛔ 폐쇄 완료 2026-07-28** |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | **구현 완료 · 시작 evidence 없음** |
 | ~~golden-honeydew~~ | Night Watch | 새벽·주말 attention 희소성 | 무근거 이탈 복원 | 0.30–0.90 | **⛔ 폐쇄 완료 2026-07-30** |
-| **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 15–25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
+| **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-mango~~ | Patience Premium | 자본 잠김 회피 → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
@@ -174,8 +174,9 @@ Cherry 30일 strict audit가 CRITICAL/HIGH evidence issue로 실패했으므로 
 
 사람들이 정보를 한 번에 반영하지 않고 서로의 거래를 따라갈 때 3~5회의 작은 5분
 YES 상승이 한 시간 더 이어질 수 있다는 단순 가설이다. Lime의 6시간 shock-follow와
-Grape의 24시간 drift 사이를 다시 최적화하지 않고, 15~25분 monotone micro-trend만
-고정된 2×2로 수집한다.
+Grape의 24시간 drift 사이를 다시 최적화하지 않고, 정확한 5분 cadence에서 명목상
+15/25분인 monotone micro-trend만 고정된 2×2로 수집한다. 허용 gap 3~10분을 적용한
+실제 span은 3-step이 9~30분, 5-step이 15~50분이다.
 
 | 팔 | 양의 step 수 | 최소 누적 상승 | 역할 |
 |---|---:|---:|---|

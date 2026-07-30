@@ -16,9 +16,9 @@ from ..api.gamma_client import GammaClient
 from ..config import ExperimentCollectionConfig, TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
+    category_filter_reason,
     get_event_metadata,
     get_strict_binary_yes,
-    is_excluded_market,
     passes_liquidity_filter,
     passes_volume_filter,
     strict_binary_reason,
@@ -210,8 +210,11 @@ class MarketScanner:
         reason = strict_binary_reason(market)
         if reason != "ok":
             return False, reason
-        if is_excluded_market(market, self.config.excluded_categories):
-            return False, "excluded_category"
+        tag_reason = category_filter_reason(
+            market, self.config.excluded_categories
+        )
+        if tag_reason != "ok":
+            return False, tag_reason
         end_date = parse_end_date(market.get("endDate"))
         hours_left = get_hours_until_resolution(end_date, now)
         if hours_left is None:
@@ -499,8 +502,11 @@ class MarketScanner:
             if not yes:
                 reject(strict_binary_reason(market))
                 continue
-            if is_excluded_market(market, self.config.excluded_categories):
-                reject("excluded_category")
+            tag_reason = category_filter_reason(
+                market, self.config.excluded_categories
+            )
+            if tag_reason != "ok":
+                reject(tag_reason)
                 continue
             if not passes_liquidity_filter(market, self.config.min_liquidity):
                 reject("low_liquidity")
@@ -537,9 +543,12 @@ class MarketScanner:
                 continue
             tags = market.get("tags") or []
             tag_text = ", ".join(
-                str(tag.get("label") or tag.get("slug") or "")
+                (
+                    str(tag.get("label") or tag.get("slug") or "")
+                    if isinstance(tag, dict)
+                    else str(tag)
+                )
                 for tag in tags
-                if isinstance(tag, dict)
             )
             raw_candidates.append(
                 {

@@ -174,6 +174,19 @@ def test_similar_but_not_exact_tag_is_not_excluded():
     assert len(scanner_for({"c1": rows}).scan_buy_candidates([tagged], now=NOW)) == 1
 
 
+@pytest.mark.parametrize(
+    "tags",
+    [None, "[]", {}, [None], [{}], [{"id": "7"}]],
+)
+def test_entry_rejects_unknown_or_malformed_tag_evidence(tags):
+    rows = snapshots()
+    candidate_market = market()
+    candidate_market["tags"] = tags
+    scanner = scanner_for({"c1": rows})
+
+    assert scanner.scan_buy_candidates([candidate_market], now=NOW) == []
+
+
 def test_one_candidate_per_event_uses_liquidity_then_condition_id():
     first = snapshots("c1", liquidity=40_000)
     second = snapshots("c2", liquidity=50_000)

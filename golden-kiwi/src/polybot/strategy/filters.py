@@ -151,23 +151,63 @@ def passes_volume_filter(market: Dict[str, Any], minimum: float) -> bool:
     return math.isfinite(value) and value >= 0 and value >= minimum
 
 
-def is_excluded_market(market: Dict[str, Any], categories: List[str]) -> bool:
-    """Apply only explicitly configured category/tag exclusions."""
+def category_filter_reason(
+    market: Dict[str, Any],
+    categories: List[str],
+) -> str:
+    """Return a complete exact-tag exclusion decision.
+
+    A configured exclusion list is meaningful only when Gamma supplied
+    inspectable tag metadata.  Missing or malformed metadata therefore cannot
+    be treated as "no excluded tag"; it is rejected as ``tags_unknown``.
+    The point-in-time catalog stores Gamma tag dictionaries, so any other item
+    shape is rejected instead of being normalized into evidence the database
+    cannot faithfully preserve.  An explicit empty list is valid evidence that
+    the market has no tags.
+    """
     if not categories:
-        return False
-    excluded = {category.strip().lower() for category in categories}
-    tags = market.get("tags") or []
-    for tag in tags if isinstance(tags, list) else []:
-        if isinstance(tag, dict):
-            candidates = {
-                str(tag.get("slug") or "").lower(),
-                str(tag.get("label") or "").lower(),
-            }
-        else:
-            candidates = {str(tag).lower()}
-        if excluded.intersection(candidates):
-            return True
-    return False
+        return "ok"
+    excluded = {
+        category.strip().lower()
+        for category in categories
+        if isinstance(category, str) and category.strip()
+    }
+    if "tags" not in market:
+        return "tags_unknown"
+    tags = market.get("tags")
+    if not isinstance(tags, list):
+        return "tags_unknown"
+
+    candidates = set()
+    for tag in tags:
+        if not isinstance(tag, dict):
+            return "tags_unknown"
+
+        names = []
+        for field in ("slug", "label"):
+            if field not in tag or tag[field] is None:
+                continue
+            value = tag[field]
+            if not isinstance(value, str) or not value.strip():
+                return "tags_unknown"
+            names.append(value.strip().lower())
+        if not names:
+            return "tags_unknown"
+        candidates.update(names)
+
+    if excluded.intersection(candidates):
+        return "excluded_category"
+    return "ok"
+
+
+def is_excluded_market(market: Dict[str, Any], categories: List[str]) -> bool:
+    """Return whether exact-tag policy rejects this market.
+
+    ``tags_unknown`` is deliberately a rejection, not an implicit clean bill
+    of health.  Call :func:`category_filter_reason` when the distinct reason is
+    needed for evidence.
+    """
+    return category_filter_reason(market, categories) != "ok"
 
 
 def get_high_probability_outcome(

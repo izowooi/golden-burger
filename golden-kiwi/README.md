@@ -3,6 +3,11 @@
 Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 군집 행동으로 이어질 수
 있다는 가설을 검증하는 **5분 주기 research/simulation 전용 봇**이다.
 
+출발점은 Lime·Fig·Mango·Date·Honeydew·Nectarine 여섯 폐쇄 전략의 DB·로그를 함께
+검토한 [통합 포스트모템](../docs/retro/closed-strategies-postmortem.md)이다. 여섯 전략의
+threshold를 합쳐 새 점수를 만든 것이 아니라, 반복하면 안 될 실패를 코드 제약으로
+제거하고 **작은 연속 상승의 지속성**이라는 독립 가설 하나만 남겼다.
+
 > **현재 결론: live 금지.**
 > 동기화된 운영 DB로 사전 등록 후 시간 외 표본(OOS)을 검사했지만 네 실험군 모두 승격
 > 기준을 통과하지 못했다. 그래서 코드가 `--live`를 명시적으로 거부한다. 이 폴더는
@@ -15,13 +20,14 @@ Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 
 공통 진입 후보
   = 표준 이진 Yes/No 시장의 YES
   + 스포츠·게임·e스포츠와 짧은 주기 crypto 계열 exact tag 제외
-  + 해결까지 6시간 이상
+  + tag가 point-in-time으로 확인됨 (누락·비정상 tag는 제외)
+  + 해결까지 6시간 이상 (최대 시간 상한은 없음)
   + 현재 YES 20%~80%
   + 유동성 $20,000 이상, 최근 24시간 거래량 $10,000 이상
   + 유효한 매수/매도 호가, spread 2%p 이하
 
 추세 확인
-  = 5분 안팎의 연속 관측 3회 또는 5회가 모두 상승
+  = 5분 안팎의 연속 가격 변화 3회 또는 5회가 모두 상승
   + 각 관측 간격 3~10분
   + 한 번의 상승폭은 0%p 초과 2%p 이하
   + 전체 상승폭은 실험군별 1%p 또는 2%p 이상, 공통 최대 4%p
@@ -39,9 +45,18 @@ Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 
   + 실제 종료 지연 시간을 별도 기록
 ```
 
-`volume_24h`의 증가율은 쓰지 않는다. 24시간 누적값을 15~25분짜리 처치로 해석하면 시간
-단위가 맞지 않기 때문이다. price stop이나 take-profit도 없다. 60분 출구는 현재 입증된
-최적 청산법이 아니라 네 실험군을 같은 자본 회전 시간으로 비교하기 위한 고정 측정창이다.
+정확히 5분마다 수집되면 3/5회 상승은 명목상 15/25분이다. 다만 허용 gap이 3~10분이므로
+실제 staircase span은 A/B가 9~30분, C/D가 15~50분이다. `volume_24h`의 증가율은 쓰지
+않는다. 24시간 누적값을 이 짧은 처치의 가속도로 해석하면 시간 단위가 맞지 않기 때문이다.
+price stop이나 take-profit도 없다. 60분 출구는 현재 입증된 최적 청산법이 아니라 네
+실험군을 같은 자본 회전 시간으로 비교하기 위한 고정 측정창이다.
+
+위 simulation position의 60분 CLOB 청산은 **runtime diagnostic**이다. 승격 판정의
+primary outcome은 position 보유 여부와 무관하게 `raw_selected` 당시 snapshot best
+ask와 +60~75분 direct Gamma 조회의 첫 유효 best bid를 비교한다.
+
+스포츠 제외는 과거 데이터에서 수익 개선이 입증됐다는 뜻이 아니다. 서로 다른 시계와
+시장 구조를 한 표본에 섞지 않기 위한 고정 universe 선택이며 네 팔에서 동일하게 적용한다.
 
 ## 사전 등록한 네 실험군
 
@@ -49,13 +64,14 @@ Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 
 
 | 팔 | 연속 상승 횟수 | 누적 상승 하한 | 역할 | canonical job |
 |---|---:|---:|---|---|
-| A | 3 | +1%p | 느슨한 대조군 | `kiwi-sim-a-3x1` |
+| A | 3 | +1%p | 낮은 threshold 민감도·반증 | `kiwi-sim-a-3x1` |
 | **B** | **3** | **+2%p** | **사전 지정 primary** | `kiwi-sim-b-3x2` |
 | C | 5 | +1%p | 긴 확인 민감도 | `kiwi-sim-c-5x1` |
-| D | 5 | +2%p | 가장 엄격한 민감도 | `kiwi-sim-d-5x2` |
+| D | 5 | +2%p | 결합 strict 민감도 | `kiwi-sim-d-5x2` |
 
 결과가 가장 좋아 보이는 팔을 사후에 winner로 바꾸지 않는다. Primary B가 실패하면 A/C/D의
-우연한 양수로 구조하지 않는다.
+우연한 양수로 구조하지 않는다. 무처치 control이나 시장을 무작위 배정한 실험이 아니라,
+B 하나를 판정하고 A/C/D로 신호 희귀성과 threshold 민감도를 확인하는 고정 비교 grid다.
 
 ## 동기화 DB에서 먼저 확인한 결과와 정정
 
@@ -111,6 +127,16 @@ uv run polybot run --live --job kiwi-sim-b-3x2
 네 Jenkins job은 **Execute concurrent builds if necessary를 끈다**. Promotion
 collection에서는 Jenkins의 숨은 `H` 값을 추정하지 않고 다음처럼 명시적 5분 offset을
 고정한다.
+
+실행 전에는 다음을 한 번씩 확인한다.
+
+1. 각 job의 **Build periodically**에 아래 trigger를 입력한다.
+2. 네 job이 모노레포 루트 workspace와 같은 Git commit을 checkout하는지 확인한다.
+3. Jenkins agent에서 `/Users/jongwoopark/.local/bin/uv` 경로가 실제로 존재하는지
+   확인한다.
+4. trigger를 켜기 전에 shell의 `polybot config`를 수동 실행해 arm, job, offset,
+   절대 DB 경로와 `Promotion collection: ENABLED`를 확인한다.
+5. wallet private key, funder address, signature type은 설정하지 않는다.
 
 | arm | Build Trigger | `POLYBOT_CADENCE_OFFSET_MINUTE` |
 |---|---|---:|

@@ -7,7 +7,13 @@ import json
 import pytest
 
 from polybot.config import TradingConfig
-from polybot.db.models import MarketCatalog, MarketSnapshot, MarketSweep, init_database
+from polybot.db.models import (
+    MarketCatalog,
+    MarketSnapshot,
+    MarketSweep,
+    MarketSweepMembership,
+    init_database,
+)
 from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import MarketScanner
 
@@ -161,6 +167,28 @@ def test_no_inferred_history_backfill_client_is_used(tmp_path):
         Gamma(markets), TradingConfig(), repo, history_client=ForbiddenHistory()
     )
     assert scanner.save_market_snapshots(markets, now=NOW) == 1
+    session.close()
+
+
+@pytest.mark.parametrize(
+    "tag_mutation",
+    ["missing", None, "[]", {}, [None], [{}], [{"id": "7"}]],
+)
+def test_archive_rejects_unknown_or_malformed_tag_evidence(tmp_path, tag_mutation):
+    markets = [make_market()]
+    if tag_mutation == "missing":
+        del markets[0]["tags"]
+    else:
+        markets[0]["tags"] = tag_mutation
+    session, repo = repo_for(tmp_path)
+    scanner = MarketScanner(Gamma(markets), TradingConfig(), repo)
+
+    assert scanner.save_market_snapshots(markets, now=NOW) == 0
+    assert session.query(MarketSnapshot).count() == 0
+    membership = session.query(MarketSweepMembership).one()
+    assert membership.snapshot_eligible == 0
+    assert membership.snapshotted == 0
+    assert membership.snapshot_reason == "tags_unknown"
     session.close()
 
 

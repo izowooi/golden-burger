@@ -280,8 +280,9 @@ CLOB open order, wallet 실보유, redeem/cash realization까지 0이라고 추�
 Micro-Cascade는 여섯 폐쇄 전략의 “좋았던 부분”을 합친 것이 아니다. 실패를 반복하지
 않도록 다음만 남겼다.
 
-- Lime의 6시간 shock와 Grape의 24시간 drift를 피해 **15~25분의 작은 연속 상승** 하나만
-  가설로 둔다.
+- Lime의 6시간 shock와 Grape의 24시간 drift를 피해 **명목상 15/25분의 작은 연속
+  상승** 하나만 가설로 둔다. 실제 허용 gap 3~10분에서는 3-step이 9~30분,
+  5-step이 15~50분이다.
 - Honeydew처럼 optimistic midpoint replay를 actual fill 수익으로 부르지 않고,
   entry ask → +60분 exit bid의 top-of-book proxy로 먼저 반증한다.
 - Nectarine처럼 관측 winner를 고르지 않도록 결과 조회 전에 B를 primary로 동결한다.
