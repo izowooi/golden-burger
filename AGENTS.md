@@ -48,6 +48,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   과거 C의 유일한 양수 신호는 cross-commit lineage라 해석이 철회됐다. primary B를
   관측 결과로 교체하거나 threshold를 완화하지 않는다.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
+quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runbook.md`(자립형 런북 — 팔 구성·금액·예산·기간·day-1 kill-check·무효화 조건)를 단독으로 따른다.
 
 공통 관측성·리포팅·적재 (Python/uv):
 
