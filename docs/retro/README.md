@@ -18,7 +18,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-banana | [golden-banana.md](golden-banana.md) | 운영 |
 | golden-cherry | [golden-cherry.md](golden-cherry.md) · **1차 완료** → [2026-07 파라미터 회고](golden-cherry-2026-07-parameter-review.md) | 운영 + 변형 slot |
 | golden-date | [golden-date.md](golden-date.md) · **⛔ 폐쇄 완료 (2026-07-29)** → [판정](golden-date-2026-07-verdict.md) | Conviction Ladder |
-| golden-elderberry | [golden-elderberry.md](golden-elderberry.md) · **⚠️ 폐쇄 후보 (2026-08-03)** → [2026-08 파라미터 리뷰](golden-elderberry-2026-08-parameter-review.md) | Panic Fade, `polybot-cherry` job에서 운영. 생존편향 제거 시 −6%~−15%/건 |
+| golden-elderberry | [golden-elderberry.md](golden-elderberry.md) · **파라미터 조정 보류** → [2026-08 파라미터 리뷰](golden-elderberry-2026-08-parameter-review.md) | Panic Fade, `polybot-cherry` job에서 운영. `max_positions: 20` 적용 완료 |
 | golden-fig | [golden-fig.md](golden-fig.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Hope Crusher |
 | golden-grape | [golden-grape.md](golden-grape.md) | Cascade Rider |
 | golden-honeydew | [golden-honeydew.md](golden-honeydew.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-honeydew-2026-07-verdict.md) | Night Watch, archive 보존 |
