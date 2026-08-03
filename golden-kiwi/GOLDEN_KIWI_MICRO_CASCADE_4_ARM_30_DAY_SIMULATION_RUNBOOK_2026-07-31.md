@@ -83,6 +83,28 @@ multi-strikes
 스포츠 제외는 스포츠가 수익성이 없다는 결론이 아니다. 서로 다른 시장 시계를 한
 연구 표본에 섞지 않기 위한 universe 동질성 선택이다.
 
+### 고정 가상 청산과 Primary 평가
+
+이 실험에는 익절, 손절, trailing stop이 없다. 각 가상 position은 진입 시각으로부터
+60분이 지난 뒤 처음 성공한 bot cycle의 fresh best bid로 가상 청산한다. 허용하는
+청산 지연은 최대 15분이므로, 정상 평가 구간은 진입 후 **+60분부터 +75분까지**다.
+
+승격 판정에 쓰는 Primary outcome은 runtime position의 상태가 아니라 다음 두 quote를
+비교한 수익률이다.
+
+```text
+진입 가격 = raw_selected 시점에 append-only로 저장한 fresh best ask
+청산 가격 = +60~75분 사이 direct Gamma 조회에서 처음 확인한 valid best bid
+Primary return = (청산 bid - 진입 ask) / 진입 ask
+```
+
+이렇게 ask로 사고 bid로 파는 왕복 기준을 사용해 spread를 성과에 포함한다. +60~75분
+사이에 유효한 bid를 얻지 못한 signal은 midpoint, 마지막 가격, 0 또는 1로 임의 보정하지
+않고 **censored**로 기록한다. censored signal은 수익률 표본에서 제외하되 quote coverage
+분모에는 남기며, coverage가 90% 미만이면 결과가 좋아 보여도 실험은 통과하지 못한다.
+75분 뒤에야 bot이 복구된 경우 실제 지연과 진단용 가상 청산 기록은 보존하지만, frozen
+Primary 60~75분 outcome을 사후에 대체하지 않는다.
+
 ## 4. 4개 실험군
 
 네 개가 맞다. 다만 무처치 대조군을 둔 전통적인 A/B/C/D 실험은 아니다. B만
