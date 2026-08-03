@@ -257,11 +257,16 @@ n=47   중앙 -12.00%   평균 -16.24%
 ### 4-4. 매도 무한 재시도 루프가 살아 있다
 
 ```
-SELL submission 총 97,437건 중 latest_order_status = NULL 이 97,437건
+SELL submission 총 97,554건 (BUY는 4,460건 — SELL이 BUY의 21.9배)
+  그 중 latest_order_status 가 NULL      97,437건 (99.88%)
+  MATCHED 107 / LIVE 8 / CANCELED_MARKET_RESOLVED 2
 같은 token/side 반복 제출 상위: 3,370회 / 3,072회 / 3,016회 / 3,001회 / 2,873회 …
 needs_reconciliation=1  39건
 reconciliation_error 존재  26건
 ```
+
+**BUY 4,460건에 SELL 97,554건**이라는 비율 자체가 진단이다. 매도가 체결되지 않은 채
+매 사이클 재제출되고 있다.
 
 `docs/sell-retry-loop-defense.md`가 기술한 바로 그 실패다. 2026-07-28 build #49267에서
 격리 intent **47건을 수동 해제**한 기록이 콘솔 로그에 남아 있다.
@@ -292,21 +297,31 @@ reconciliation_error 존재  26건
 
 ## 5. 부수 소득 — quince의 미해결 질문 일부 해소
 
-### 5-1. 수수료는 실제로 0이다 (단, 증거는 부분적)
+### 5-1. taker leg의 수수료 요율은 실제로 0으로 보고된다
 
-```
-CONFIRMED fill 556건
-  fee_amount_usdc  값 있음 0건        → 전부 NULL
-  fee_rate_bps     값 있음 111건, 그 111건 전부 0.0   (0이 아닌 것 0건)
-```
+CONFIRMED fill 556건을 `liquidity_role`로 쪼개면 **완벽하게 갈린다**:
 
-**`fee_rate_bps`가 명시적으로 `0.0`으로 기록된 111건**은 단순 누락이 아니라
-**거래소가 요율 0을 보고했다는 양의 증거**다. Gamma 메타데이터가 94% 시장에
-`fee_rate` 0.04~0.07을 선언하는 것과 배치되며, **"선언은 있으나 부과는 없다"**
-쪽을 지지한다. `docs/golden-quince-abc-runbook.md` §6 판독표의 2행에 해당한다.
+| `liquidity_role` | n | `fee_rate_bps` NULL | `fee_rate_bps` = 0.0 | `fee_amount_usdc` NULL |
+|---|---:|---:|---:|---:|
+| MAKER | 445 | **445** | 0 | 445 |
+| TAKER | 111 | 0 | **111** | 111 |
 
-다만 445건은 여전히 NULL이므로 **완결된 답은 아니다.** quince 첫 체결에서
-재확인은 그대로 필요하다.
+**거래소는 taker leg에만 요율을 보고하고, 보고할 때는 전부 0이다.** maker leg에는
+필드 자체가 없다. `fee_amount_usdc`는 556건 전부 NULL이다.
+
+이 `0.0`이 진짜 보고값인지 코드 기본값인지 확인했다 —
+`execution_ledger.py:2199/2204`는 `maker_match.get("fee_rate_bps")` /
+`trade.get("fee_rate_bps")`로 읽고, 키가 없으면 `.get()`이 `None`을 돌려주며
+0으로 coalesce하는 경로가 없다(그래서 MAKER 445건이 NULL로 남았다).
+**따라서 111건의 `0.0`은 누락이 아니라 거래소가 요율 0을 보고한 양의 증거다.**
+
+Gamma 메타데이터가 94% 시장에 `fee_rate` 0.04~0.07을 선언하는 것과 배치되며,
+**"선언은 있으나 부과는 없다"** 쪽을 지지한다.
+`docs/golden-quince-abc-runbook.md` §6 판독표 2행에 해당한다.
+
+**quince에 특히 중요하다**: 수수료가 물린다면 그것이 나타날 곳은 taker leg이고,
+그 taker leg 111건이 전부 0을 보고했다. 다만 `fee_amount_usdc`는 여전히 전건
+NULL이므로 **완결된 답은 아니다.** quince 첫 체결에서의 재확인은 그대로 필요하다.
 
 ### 5-2. 역선택 가설에 불리한 관측
 

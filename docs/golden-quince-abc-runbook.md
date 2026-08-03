@@ -384,6 +384,15 @@ Next review date:
    | **> 0** | **0 / NULL** | **불일치의 정체.** 요율은 선언되나 부과는 안 됨. 관측만 기록 |
    | > 0 | > 0 | **실제 부과.** 73 bps 가정을 재계산하기 전에는 증액하지 않는다 |
 
+   > **2026-08-03 갱신 — 이 질문은 부분적으로 이미 풀렸다.**
+   > golden-elderberry의 CONFIRMED fill 556건에서 `liquidity_role`로 쪼개면
+   > **TAKER 111건은 전부 `fee_rate_bps = 0.0`, MAKER 445건은 전부 NULL**이다.
+   > `execution_ledger.py`가 부재 시 `None`을 쓰고 0으로 coalesce하지 않으므로
+   > 그 `0.0`은 **거래소가 실제로 요율 0을 보고한 값**이다. 수수료가 물린다면
+   > 나타날 곳이 바로 taker leg인데 거기가 0이었다. 다만 `fee_amount_usdc`는
+   > 전건 NULL이라 완결된 답은 아니므로, 위 확인은 그대로 수행한다.
+   > 근거: [golden-elderberry 2026-08 파라미터 리뷰](retro/golden-elderberry-2026-08-parameter-review.md) §5-1
+
 ### Jenkins shell — A (passive, 처치군)
 
 ```bash
