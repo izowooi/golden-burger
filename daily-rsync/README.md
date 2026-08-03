@@ -6,6 +6,28 @@ CLI를 실행할 때만 `ssh`와 `rsync`가 동작합니다.
 
 ## 가장 쉬운 실행 방법
 
+저장소 안의 `daily-rsync-toggle.sh`를 실행하면 현재 상태에 따라 웹 UI를 켜거나 끕니다.
+
+```bash
+cd /Users/izowooi/git/t1/daily-rsync
+./daily-rsync-toggle.sh
+```
+
+같은 명령을 다시 실행하면 종료됩니다. Finder에서는
+`Daily Rsync 켜고 끄기.command`를 더블클릭해 같은 동작을 할 수 있습니다. 상태를
+명확히 지정하려면 다음 명령을 사용합니다.
+
+```bash
+./daily-rsync-toggle.sh start
+./daily-rsync-toggle.sh stop
+./daily-rsync-toggle.sh status
+./daily-rsync-toggle.sh restart
+./daily-rsync-toggle.sh open
+```
+
+스크립트는 `data/ui-server.pid`에 기록된 Daily Rsync 프로세스만 종료합니다. 같은
+port에 다른 서버가 있거나 PID 소유권을 확인할 수 없으면 임의로 `kill`하지 않습니다.
+
 Finder의 `응용 프로그램`에서 **Daily Rsync**를 더블클릭하면 로컬 웹 UI가 열립니다.
 앱은 `127.0.0.1:8765`에서만 실행되며 외부 네트워크에는 공개되지 않습니다.
 

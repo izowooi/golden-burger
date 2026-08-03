@@ -2,6 +2,19 @@
 
 ## 일상 실행
 
+가장 단순한 시작·종료 방법은 저장소의 toggle script다.
+
+```bash
+cd /Users/izowooi/git/t1/daily-rsync
+./daily-rsync-toggle.sh       # 꺼져 있으면 시작, 켜져 있으면 종료
+./daily-rsync-toggle.sh status
+```
+
+Finder에서는 `Daily Rsync 켜고 끄기.command`를 더블클릭한다. 자동화나 장애 대응에서는
+`start`, `stop`, `restart`, `open` action을 명시한다. 종료는 PID 파일과 process command가
+모두 Daily Rsync임을 확인한 뒤 `SIGTERM`만 보내며, 10초 안에 끝나지 않아도 강제
+종료하지 않는다.
+
 `~/Applications/Daily Rsync.app`을 Finder에서 더블클릭한다. 앱은 이미 실행 중인
 로컬 서버가 있으면 새 프로세스를 만들지 않고 브라우저만 다시 연다. 시작 로그와 PID는
 각각 `data/ui-server.log`, `data/ui-server.pid`에 기록되며 둘 다 Git에서 제외된다.
