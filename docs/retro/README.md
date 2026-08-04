@@ -25,6 +25,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-kiwi | [golden-kiwi.md](golden-kiwi.md) · [과거 증거 정정](../../golden-kiwi/research/2026-07-30-cohort-correction.md) | **Micro-Cascade, research/simulation 전용, live 금지**, 4-arm 5분 독립 검정 |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
 | golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
+| golden-melon | [golden-melon.md](golden-melon.md) | **Resolution Sprint**, cherry 재설계, 거래량 gate가 A/B/C 처치축 |
 | golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |

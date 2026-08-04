@@ -26,6 +26,7 @@ CURRENT_STRATEGIES = {
     "golden-kiwi",
     "golden-lime",
     "golden-mango",
+    "golden-melon",
     "golden-nectarine",
     "golden-orange",
     "golden-papaya",
@@ -1455,7 +1456,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     bot = _require_file(findings, strategy, directory / "src/polybot/bot.py")
     _validate_bot_source(findings, strategy, "src/polybot/bot.py", bot)
-    if strategy in {"golden-kiwi", "golden-papaya", "golden-queen", "golden-quince"}:
+    if strategy in {"golden-kiwi", "golden-melon", "golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_bot_source(
             findings, strategy, "src/polybot/bot.py", bot
         )
@@ -1534,7 +1535,7 @@ def validate_strategy(directory: Path) -> list[Finding]:
     _validate_trader_source(
         findings, strategy, "src/polybot/strategy/trader.py", trader
     )
-    if strategy in {"golden-kiwi", "golden-papaya", "golden-queen", "golden-quince"}:
+    if strategy in {"golden-kiwi", "golden-melon", "golden-papaya", "golden-queen", "golden-quince"}:
         _validate_papaya_trader_source(
             findings, strategy, "src/polybot/strategy/trader.py", trader
         )

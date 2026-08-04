@@ -241,9 +241,11 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             retention_days=retention_days,
             minimum_latest_points=6,
         )
-    if normalized in {"golden-papaya", "golden-queen", "golden-quince"}:
+    if normalized in {"golden-melon", "golden-papaya", "golden-queen", "golden-quince"}:
         default_gap_minutes = (
-            15.0 if normalized in {"golden-queen", "golden-quince"} else 30.0
+            15.0
+            if normalized in {"golden-melon", "golden-queen", "golden-quince"}
+            else 30.0
         )
         return SQLiteMaintenanceRequirements(
             full_cadence_hours=_positive_float(
@@ -294,6 +296,7 @@ def policy_for(
         "golden-orange": 7.0 * 24.0,
         # First-crossing strategies need their immediately previous observation
         # at full fidelity; older extrema preserve the never-crossed predicate.
+        "golden-melon": 1.0,
         "golden-papaya": 1.0,
         "golden-queen": 1.0,
         "golden-quince": 1.0,
@@ -301,6 +304,7 @@ def policy_for(
     retention_defaults = {
         "golden-honeydew": 60.0,
         "golden-kiwi": 60.0,
+        "golden-melon": 60.0,
         "golden-nectarine": 60.0,
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
@@ -312,6 +316,7 @@ def policy_for(
         selector = "minimum"
     elif normalized in {
         "golden-elderberry",
+        "golden-melon",
         "golden-papaya",
         "golden-queen",
         "golden-quince",

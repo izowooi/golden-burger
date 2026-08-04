@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>golden-melon — Resolution Sprint</title>
+<style>
+:root{
+  --accent:#4f8d5e;
+  --bg:#fafaf8; --card:#ffffff; --ink:#1f2328; --muted:#59636e;
+  --line:#e4e7eb; --code-bg:#f2f4f6; --formula-bg:#fbf7ef;
+}
+@media (prefers-color-scheme: dark){
+  :root{ --bg:#12151a; --card:#1b2027; --ink:#e8eaed; --muted:#9aa4af;
+         --line:#2b323b; --code-bg:#232a33; --formula-bg:#221f18; }
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  line-height:1.65;font-size:16px}
+.wrap{max-width:880px;margin:0 auto;padding:32px 20px 64px}
+header.hero{border-bottom:3px solid var(--accent);padding:8px 0 24px;margin-bottom:28px}
+.hero .emoji{font-size:44px;line-height:1}
+.hero h1{margin:8px 0 4px;font-size:30px}
+.hero h1 .en{color:var(--accent)}
+.hero p.tagline{margin:6px 0 14px;color:var(--muted);font-size:17px}
+.badges span{display:inline-block;background:var(--card);border:1px solid var(--line);
+  border-radius:999px;padding:3px 12px;margin-right:8px;font-size:13px;color:var(--muted)}
+.badges span b{color:var(--accent);font-weight:600}
+h2{font-size:21px;margin:36px 0 12px;padding-left:10px;border-left:4px solid var(--accent)}
+section p{margin:10px 0}
+pre.formula{background:var(--formula-bg);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:8px;padding:16px 18px;overflow-x:auto;font-size:14.5px;line-height:1.7}
+pre.code{background:var(--code-bg);border:1px solid var(--line);border-radius:8px;
+  padding:14px 16px;overflow-x:auto;font-size:13.5px}
+.tbl{overflow-x:auto}
+table{border-collapse:collapse;width:100%;background:var(--card);font-size:14.5px}
+th,td{border:1px solid var(--line);padding:8px 12px;text-align:left;vertical-align:top}
+th{background:var(--code-bg);white-space:nowrap}
+td code, p code, li code{background:var(--code-bg);border-radius:4px;padding:1px 5px;font-size:0.92em}
+ul{padding-left:22px}
+li{margin:6px 0}
+.risk li::marker{content:"⚠ ";}
+footer{margin-top:48px;padding-top:16px;border-top:1px solid var(--line);
+  color:var(--muted);font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="hero">
+  <div class="emoji">🍈</div>
+  <h1>golden-melon <span class="en">— Resolution Sprint</span></h1>
+  <p class="tagline">해결이 임박한 시장에서 확률이 처음으로 올라설 때 사고, 해결 전에 목표가에서 판다.</p>
+  <div class="badges">
+    <span>진입 <b>0.85–0.93</b></span>
+    <span>시계 <b>(0h, 72h]</b></span>
+    <span>목표/손절 <b>0.97 / 0.78</b></span>
+    <span>주문 <b>$5</b></span>
+    <span>A/B/C 축 <b>24h 거래량</b></span>
+  </div>
+</header>
+
+<h2>1. 한 줄 요약</h2>
+<p><code>golden-cherry</code>(Resolution Momentum)의 재설계다. <b>가설은 유지하고, 실측으로
+드러난 손실 경로 세 개를 코드로 막았다.</b></p>
+
+<h2>2. cherry는 왜 실패했는가 — 671건 실측</h2>
+<p>운영자의 문제 제기는 <i>"전략은 맞는데 스케일업이 망가뜨렸다"</i>였다. <b>절반만 맞았다.</b></p>
+
+<table>
+<tr><th>주문금액</th><th>n</th><th>건당 수익률</th><th>승률</th><th>CONFIRMED BUY</th><th>주문/유동성</th></tr>
+<tr><td>$200 미만</td><td>281</td><td>−3.10%</td><td>33%</td><td>73%</td><td>0.87%</td></tr>
+<tr><td>$200~$1,500</td><td>261</td><td>−3.17%</td><td>33%</td><td>33%</td><td>8.68%</td></tr>
+<tr><td>$1,500 이상</td><td>120</td><td>−4.99%</td><td>31%</td><td><b>18%</b></td><td><b>21.71%</b></td></tr>
+</table>
+
+<p><b>모든 금액대에서 −3%다.</b> 스케일업 이전에도 음수였다. 하지만 스케일업은
+체결률을 무너뜨리고 주문을 유동성의 21.7%까지 키웠다.</p>
+
+<h3>진짜 원인: 매수 직후의 가격 점프</h3>
+<p><code>stop_loss</code> 52건이 <b>−24.78%</b>로 실현됐다. 설정은 −8%였다.</p>
+
+<table>
+<tr><th>보유시간</th><th>n</th><th>평균</th><th>최악</th></tr>
+<tr><td><b>30분 미만</b></td><td><b>31 (60%)</b></td><td><b>−24.6%</b></td><td><b>−99.3%</b></td></tr>
+<tr><td>30분~2h</td><td>3</td><td>−25.9%</td><td>−42.8%</td></tr>
+<tr><td>2~12h</td><td>12</td><td>−22.7%</td><td>−47.1%</td></tr>
+<tr><td>12h 이상</td><td>6</td><td>−29.2%</td><td>−62.5%</td></tr>
+</table>
+
+<p>실제 사례: 0.765에 사서 <b>6분 뒤 0.005</b>. 5분 폴링으로는 어떤 손절값도 잡을 수 없다.
+<code>take_profit</code> 70건 +1,006을 <code>stop_loss</code> 52건 <b>−1,289</b>가 통째로 지웠다.</p>
+
+<p class="formula">$3,000짜리 −99%는 <b>−$2,970</b>. $5짜리 −99%는 <b>−$4.95</b>.<br>
+스케일업이 문제였던 이유는 시장충격이 아니라 <b>꼬리 증폭</b>이다.</p>
+
+<h2>3. 무엇을 바꿨는가</h2>
+<table>
+<tr><th>cherry의 손실 경로</th><th>melon의 방어</th></tr>
+<tr><td>trailing stop 122건 −3.94%, 명목 손절을 도달불가로 만듦</td><td><b>trailing stop 제거</b></td></tr>
+<tr><td>손절 −24.78% (설정 −8%)</td><td>절대가 손절만, 실행가능 bid 확인 후 제출</td></tr>
+<tr><td>30분 내 점프 −99%</td><td><b>$5 고정 + 포지션 20 상한</b> → 단건 최대 −$5</td></tr>
+<tr><td>주문/유동성 21.7%</td><td><code>max_order_liquidity_ratio: 0.001</code></td></tr>
+<tr><td><code>max_positions: -1</code> → HOLDING 246 + QUARANTINED 76</td><td>20 / event당 1 / cycle당 1</td></tr>
+<tr><td>무제한 손실</td><td>경제손익 <b>−$20</b>에서 신규 진입 자동 차단</td></tr>
+</table>
+
+<h2>4. 진입 / 청산</h2>
+<pre><code>진입 = 표준 이진 YES (negRisk false), YES-only
+     + 직전 저장 YES &lt; 0.85 AND 현재 YES ∈ [0.85, 0.93]   ← 최초 상향 교차만
+     + 두 snapshot 간격 0분 초과 15분 이하
+     + 해결까지 (0h, 72h]
+     + 24h 거래량 ≥ min_volume_24h        ← A/B/C 처치축
+     + 유동성 ≥ max($20,000, 주문액/0.001)
+     + spread ≤ 0.02, ask depth ≥ 주문 수량 × 1.2
+
+청산 = YES ≥ 0.97 이고 fresh bid ≥ 0.97   → take_profit
+     또는 YES ≤ 0.78                      → absolute_stop
+     trailing stop 없음, time exit 없음</code></pre>
+
+<h2>5. 배리어로는 edge가 생기지 않는다</h2>
+<p class="formula">밴드 중앙 <b>0.89</b> 기준<br>
+목표 0.97 = +9.0% &nbsp;|&nbsp; 손절 0.78 = −12.4%<br>
+손익분기 승률 = 12.4 / (9.0 + 12.4) = <b>58.0%</b><br>
+martingale 도달확률 = (0.89 − 0.78) / (0.97 − 0.78) = <b>57.9%</b></p>
+
+<p><b>두 값이 같다.</b> quince가 9개 배리어 조합을 갭 반영 재생으로 검정해 보정 p=0.27로
+확인한 것과 같은 결론이다. 따라서 <b>edge는 진입 선별에서만 올 수 있다.</b></p>
+
+<h2>6. $5는 선호가 아니라 하한이다</h2>
+<table>
+<tr><th>주문액</th><th>@0.85</th><th>@0.90</th><th>@0.93</th><th>판정</th></tr>
+<tr><td><b>$1</b></td><td>1.18주</td><td>1.11주</td><td>1.08주</td><td><b>전 구간 거절</b></td></tr>
+<tr><td><b>$5</b></td><td>5.88주</td><td>5.56주</td><td>5.38주</td><td>✅ 성립</td></tr>
+</table>
+<p>CLOB 최소 주문이 <b>5.0 shares</b>이고 버퍼 0.10을 더해 5.10주가 필요하다.
+이 제약이 진입 밴드 상한(<code>prob_max</code> ≤ 0.98)도 정하며,
+<code>config.py</code>가 validation에서 강제한다.</p>
+
+<h2>7. A/B/C 설계</h2>
+<table>
+<tr><th>팔</th><th>job</th><th><code>POLYBOT_MIN_VOLUME_24H</code></th><th>입금</th><th>역할</th></tr>
+<tr><td><b>A</b></td><td><code>polybot-melon-low</code></td><td>$20,000</td><td>$100</td><td>넓은 풀</td></tr>
+<tr><td><b>B</b></td><td><code>polybot-melon-mid</code></td><td>$50,000</td><td>$100</td><td>기준값</td></tr>
+<tr><td><b>C</b></td><td><code>polybot-melon-high</code></td><td>$150,000</td><td>$100</td><td>좁은 풀</td></tr>
+</table>
+<p><b>단조성이 판정이다.</b> 순서가 단조가 아니면 거래량은 선별 축이 아니며, 그 자체가 결론이다.
+팔당 최악 손실 약 −$70, 3팔 총 최악 약 −$210.</p>
+
+<p><b>거절된 후보도 자산이다.</b> <code>skipped_markets</code>에 거절 사유와 당시
+volume·liquidity·잔여시간이 남으므로, 30일 뒤 <b>실행하지 않은 threshold의 반사실</b>을
+오프라인으로 계산할 수 있다. live A/B는 세 점만 재지만 로그는 연속 곡선을 준다.</p>
+
+<h2>8. 이 전략이 실패하는 경우</h2>
+<ol>
+<li><b>캘리브레이션이 맞다.</b> 가장 유력하다. 0.85~0.93이 정확히 가격대로 해결되면 EV는 0이고 비용만큼 음수다.</li>
+<li><b>점프 위험이 그대로다.</b> 60%/30분 문제가 시장 구조라면 금액이 작아 파산은 없지만 edge도 없다.</li>
+<li><b>신호가 희소하다.</b> $150,000 gate에서 후보가 0에 수렴하면 C팔 판정이 불가능하다.</li>
+<li><b>거래량이 선별 축이 아니다.</b> 세 팔이 구분되지 않으면 처치 자체가 무효다.</li>
+</ol>
+
+<h2>9. 알려진 한계</h2>
+<p>cherry 진단은 daily-rsync catalog에 없는 작업트리 사본 하나에 근거한다.
+<code>verify</code>·<code>local_sha256</code> 증빙이 없고 <code>polybot-yellow</code>·
+<code>polybot-orange</code>의 DB는 동기화되지 않았다. 운영자가 기억하는 "월간 10%" 구간은
+이 사본에 없다(4월 −0.46%, 5월 −9.93%). <b>melon의 설계 근거로는 쓰되 cherry의 최종
+판정으로 인용하지 않는다.</b></p>
+
+<footer>
+<p>전략 계약: <code>golden-melon/STRATEGY.md</code> ·
+회고 절차: <code>docs/retro/golden-melon.md</code> ·
+Evidence Contract: <code>docs/retro/EVIDENCE_CONTRACT.md</code></p>
+</footer>
+</div>
+</body>
+</html>

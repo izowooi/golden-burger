@@ -18,7 +18,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, `entry_hours_max` 120h) 전략. **자금은 golden-banana 계정에 있고 Jenkins job 이름은 `polybot-yellow`다** — 폴더명·계정명·job명이 모두 다르다. → L3 `AGENTS.md` 참조.
 
-→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유이며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. 전략 코드베이스는 16개다 (2026-07-30 `golden-kiwi` 추가).
+→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유이며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. 전략 코드베이스는 17개다 (2026-08-04 `golden-melon` 추가).
 
 → 계정 slot은 `daily-report`가 `ACCOUNT_<n>_NAME`/`ACCOUNT_<n>_ADDRESS` 쌍을 번호순으로 훑어 동적으로 발견한다 (`daily-report/src/polybot_reporter/account_config.py`). 코드에 상한은 없고, 현재 `Jenkinsfile`·`.env.example`이 **13 slot**을 선언한다. `slack-data-collector/src/slack_data_collector/portfolio.py`의 11행 seed 중 명시적인 과거 전략 매핑은 `golden-eco=honeydew`, `golden-fox=nectarine`뿐이다. 다른 계정 ID의 실제 전략 배치는 effective-dated Supabase 실데이터로 확인하며 계정명으로 추정하지 않는다.
 
@@ -42,6 +42,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   queen에서 그대로 상속(신호가 아니라 실행이 처치이므로). $5 시작, 낙폭 kill switch를
   코드로 강제. A/B 3팔 사전 등록. 근거: `docs/retro/2026-07-29-market-structure-study.md`,
   `docs/retro/2026-07-29-execution-cost-floor.md`.
+- `golden-melon/`: **Resolution Sprint** — `golden-cherry` 재설계. 해결까지 `(0h, 72h]`인
+  표준 이진 YES가 처음으로 `[0.85, 0.93]`에 상향 교차하고 24h 거래량 gate를 통과하면
+  매수, `0.97` 목표 / `0.78` 절대 손절. **trailing stop과 time exit 없음.**
+  A/B/C 처치축은 `min_volume_24h`(20k/50k/150k) 하나다. 배리어 산술상 손익분기 승률
+  58.0% = martingale 57.9%이므로 edge는 진입 선별에서만 온다. 근거: cherry 671건에서
+  `stop_loss` 52건이 설정 −8%인데 **−24.78%** 로 실현됐고 그 **60%가 매수 후 30분 이내**
+  (최악 −99.3%)였다. 꼬리는 파라미터가 아니라 $5 금액과 포지션 20 상한으로 막는다.
 - `golden-kiwi/`: **Micro-Cascade** — 3/5회의 5분 연속 소폭 상승과 누적 +1/+2pp를
   2×2 네 팔로 수집하는 추세 연구 봇. 사전 등록한 독립 시간구간 검정에서 모든 팔이
   승격 gate를 실패했으므로 **simulation/research 전용이며 live 실행은 코드에서 차단**한다.
@@ -52,7 +59,7 @@ quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runboo
 
 공통 관측성·리포팅·적재 (Python/uv):
 
-- `polybot-observability/`: 16개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
+- `polybot-observability/`: 17개 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup.
 - `daily-report/`: 선언된 전 계정(현재 13 slot) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `daily-rsync/`: Jenkins job별 SQLite·bot log·console log를 local-only로 증분 pull하고, catalog·plan·manifest로 provenance와 무결성을 보존하는 Python/uv 도구.
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
@@ -63,14 +70,14 @@ quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runboo
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(16개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(17개 전략 공통 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
 - `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`, `sell-retry-loop-defense.md`가 있다.
 
 ## 데이터 흐름
 
 봇(Jenkins 실행) → 각 SQLite에 전략 판단 + resolved config/Git/run + order/fill lifecycle 기록 → `daily-report`가 계정 완전성 검증 후 secret-free local evidence, Slack, Supabase(`pb_*`)에 일일 snapshot 적재 → `polymarket-dashboard`가 공통 날짜 **구간** 기준 수익률·freshness·누락·합계 대사를 표시한다.
 
-**공유 저장소는 없다.** 16개 전략 모두 자기 폴더의 `data/<job>/trades.db` 또는
+**공유 저장소는 없다.** 17개 전략 모두 자기 폴더의 `data/<job>/trades.db` 또는
 simulation 전용 `trades_sim.db`만 읽고 쓴다. 폐쇄된 `golden-honeydew`·
 `golden-nectarine` DB는 넓은 universe snapshot 자산으로 보존한다. `golden-papaya`·
 `golden-queen`·`golden-quince`·`golden-kiwi`는 각 전략의 request envelope와

@@ -1,0 +1,91 @@
+# Golden Melon — Resolution Sprint
+# env > config.yaml > code defaults. New strategy defaults to simulation mode.
+#
+# 가설: 해결이 임박한(<=72h) 시장에서 확률이 처음으로 높은 밴드에 진입하고
+# 거래량이 충분하면, 해결 전에 목표가까지 수렴한다.
+#
+# 이 전략의 A/B 처치축은 min_volume_24h 하나다. 진입 밴드·시계·배리어는 전 팔 동일.
+# 근거와 판정 기준: STRATEGY.md, ../docs/retro/golden-melon.md
+
+trading:
+  lifecycle_mode: active
+
+  # melon의 처치축이 아니다. quince가 이 축을 별도로 검정 중이므로
+  # melon은 기존 14봇과 같은 중립값 nearest로 고정한다.
+  execution_mode: nearest
+
+  # 격리 intent 자가 해제. config_hash에 담기도록 env가 아니라 여기 둔다.
+  intent_autoresolve: true
+
+  # 사전 등록 kill switch — 문서가 아니라 코드가 강제한다.
+  # $100 x 20% = -$20 에서 신규 진입이 자동 차단된다.
+  max_drawdown_stop: 0.20
+  experiment_capital_usdc: 100.0
+
+  # $5는 선호가 아니라 하한이다. CLOB 최소 주문이 5.0 주(shares)이므로
+  # $1은 진입가 전 구간에서 1.0~1.3주가 되어 전량 거절된다.
+  # $5 / 0.93 = 5.38주 >= 5.10(최소+버퍼) 이므로 밴드 상한 0.93까지 성립한다.
+  buy_amount_usdc: 5.0
+  max_buy_amount_usdc: 1000
+
+  # 시장충격·꼬리손실 방어. golden-cherry는 주문/유동성이 21.7%까지 갔다.
+  #   effective liquidity  = max($20k, order / 0.001)
+  #   effective 24h volume = max(min_volume_24h, order / 0.02)
+  min_liquidity: 20000
+  max_order_liquidity_ratio: 0.001
+
+  # ★ A/B 처치축 ★  거래량 gate. 팔별로 이 값만 다르다.
+  # cherry의 최다 제외 사유가 low_volume이었다. 이 문턱이 후보 풀을 정한다.
+  min_volume_24h: 50000
+  max_order_volume_ratio: 0.02
+
+  # 노출 상한. cherry는 max_positions=-1로 HOLDING 246 + QUARANTINED 76을 만들었다.
+  max_positions: 20
+  max_event_positions: 1
+  max_open_notional_multiple: 10
+  max_new_positions_per_cycle: 1
+  reentry_cooldown_hours: 168
+
+  # 연속 관측이 15분 이내일 때만 최초 교차로 인정한다.
+  max_snapshot_gap_minutes: 15
+
+  # 주문 직전 실행가능 호가창 검증.
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.10
+  max_spread: 0.02
+  depth_price_window: 0.01
+  depth_safety_multiple: 1.20
+
+  yes_only_mode: true
+
+  # 최초 상향 교차 one-shot. 재교차나 startup inventory를 새 후보로 만들지 않는다.
+  #
+  # 배리어 산술(사전 등록): 밴드 중앙 0.89에서
+  #   목표 0.97 = +9.0% / 손절 0.78 = -12.4%  ->  손익분기 승률 58.0%
+  #   캘리브레이션이 맞다면 martingale 도달확률 = (0.89-0.78)/(0.97-0.78) = 57.9%
+  # 즉 배리어 배치로는 edge가 생기지 않는다. edge는 진입 선별(거래량 gate)에서만 온다.
+  entry:
+    prob_min: 0.85
+    prob_max: 0.93
+    stop_price: 0.78
+    take_profit_price: 0.97
+    hours_min: 0
+    hours_max: 72
+
+  sports:
+    use_game_start_time: true
+    allow_in_play: true
+    reject_without_game_start: false
+    max_in_play_minutes: 360
+
+  # 최초 교차를 증명하려면 archive가 진입 gate보다 넓어야 한다.
+  # prob 0.75 < 진입하한 0.85, hours 168 > 진입상한 72.
+  archive:
+    prob_min: 0.75
+    hours_max: 168
+    retention_days: 60
+
+  excluded_categories: []
+
+# 보수적 기본값. 실주문은 --live 를 명시해야만 활성화된다.
+simulation_mode: true
