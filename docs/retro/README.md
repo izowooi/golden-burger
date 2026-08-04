@@ -16,6 +16,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 |---|---|---|
 | golden-apple | [golden-apple.md](golden-apple.md) | 운영 2계정 (1)/(2) |
 | golden-banana | [golden-banana.md](golden-banana.md) | 운영 |
+| golden-blueberry | [golden-blueberry.md](golden-blueberry.md) | **Closing Surge**, 72h 첫 급등 +2%p/+5%p A/B, $5 hard cap |
 | golden-cherry | [golden-cherry.md](golden-cherry.md) · **1차 완료** → [2026-07 파라미터 회고](golden-cherry-2026-07-parameter-review.md) | 운영 + 변형 slot |
 | golden-date | [golden-date.md](golden-date.md) · **⛔ 폐쇄 완료 (2026-07-29)** → [판정](golden-date-2026-07-verdict.md) | Conviction Ladder |
 | golden-elderberry | [golden-elderberry.md](golden-elderberry.md) · **파라미터 조정 보류** → [2026-08 파라미터 리뷰](golden-elderberry-2026-08-parameter-review.md) | Panic Fade, `polybot-cherry` job에서 운영. `max_positions: 20` 적용 완료 |
@@ -55,11 +56,12 @@ portfolio NAV            Supabase pb_* tables
 - 중앙 가격 archive는 폐쇄된 nectarine(liquidity ≥ $10k)과 honeydew(≥ $15k)의
   보존 DB다. 폐쇄가 archive 삭제를 뜻하지 않는다. papaya, queen, quince, kiwi는
   각각의 진입/연구 universe와 lineage가 달라 자기 DB의 point-in-time
-  `market_snapshots`/`market_catalog`를 주 source로 사용한다. 중앙 archive와 겹치는
+  `market_snapshots`/`market_catalog`를 주 source로 사용한다. Blueberry도 첫 교차와
+  A/B 상승폭을 증명하기 위해 자기 archive/catalog를 주 source로 사용한다. 중앙 archive와 겹치는
   시장은 교집합 대조에만 쓴다.
   Gamma keyset cursor를 끝까지 순회한 당시 qualifying universe를 저장하므로 고정 시장 수나
   2,100 cap을 가정하지 않는다. 중앙 archive는 실제 5-minute coverage를 측정하고,
-  papaya/queen/quince/kiwi는 Jenkins schedule/run manifest에서 cohort 기대 cadence를
+  papaya/queen/quince/kiwi/blueberry는 Jenkins schedule/run manifest에서 cohort 기대 cadence를
   산출해 actual bucket과 gap을 비교한다. Kiwi의 primary B는 5분 full-cadence 30일
   독립 기간이 필수이며 compact된 cold rollup을 원래 5분 data로 해석하지 않는다.
 - Supabase NAV는 account snapshot이다. effective deployment, complete snapshot marker,
@@ -102,7 +104,8 @@ gate에 섞지 않는다.
 ### 3.3 cohort와 execution 대사
 
 1. `run_audits`와 `strategy_configs`로 `config_hash × git_commit × mode × job_name` cohort를
-   만든다. Jenkins export는 legacy/current cross-check로만 쓴다.
+   만든다. 단, Kiwi와 Blueberry는 모노레포 commit 대신 각 L3 계약의
+   `strategy_source_digest`를 사용한다. Jenkins export는 legacy/current cross-check로만 쓴다.
 2. `trades`의 BUY/SELL order ID를 execution ledger와 연결한다. confirmed fill coverage,
    partial fills, fee/role completeness, pending reconciliation을 먼저 보고한다.
 3. `UNFILLED`은 뒤늦게 발견한 일부 미체결 표식일 뿐이다. 그 외 trade가 체결됐다는 역증거로
@@ -120,7 +123,7 @@ uv run tools/wind_down.py --funder 0x... status
 - 거래 condition ID의 `market_snapshots`/`market_catalog` join coverage를 확인한다.
 - 기간 양끝, archive별 기대 cadence 대비 actual bucket, run gap, event ID coverage를 수치화한다.
   중앙 nectarine/honeydew의 hot evidence는 실제 5-minute coverage를 재고,
-  papaya/queen/quince/kiwi는 Jenkins schedule/run manifest의 cohort cadence를 쓴다.
+  papaya/queen/quince/kiwi/blueberry는 Jenkins schedule/run manifest의 cohort cadence를 쓴다.
 - daily local evidence는 해당 schema의 exact account set(v2=6, v3=9)이 모두 있는
   `COMPLETE` run만 사용한다.
 - dashboard의 freshness, account별 date range/missing days, portfolio reconciliation을 확인한다.
@@ -143,11 +146,12 @@ REVIEW_END=<YYYY-MM-DD UTC>
 
 1) polybot-retro --strict audit를 먼저 실행하고 audit bundle을 보존한다.
 2) CRITICAL/HIGH gap을 해결하거나 분석 범위를 계측 이후로 다시 고정한다.
-3) config_hash × git_commit × mode × job cohort를 분리한다.
+3) config_hash × git_commit × mode × job cohort를 분리한다. Kiwi와 Blueberry는 각 L3의
+   strategy_source_digest 기반 cohort 계약을 따른다.
 4) actual result는 CONFIRMED order_fills만 사용하고 partial fill·fee·liquidity role·
    reconciliation coverage를 보고한다. legacy ORDER_ASSUMPTION P&L은 섞지 않는다.
 5) market_catalog event cluster와 archive별 실제 cadence coverage를 검증한다. 중앙 archive는
-  실제 5-minute hot coverage를 재고, papaya/queen/quince/kiwi는 Jenkins schedule/run
+  실제 5-minute hot coverage를 재고, papaya/queen/quince/kiwi/blueberry는 Jenkins schedule/run
   manifest에서 산출한 cohort cadence를 사용한다.
 6) 기간 내 결과와 동일 evidence의 counterfactual을 비교해 전략 문서의 제안 표를 채운다.
 7) evidence gate를 못 통과하면 파라미터 변경 대신 복구/계측 계획만 제안한다.

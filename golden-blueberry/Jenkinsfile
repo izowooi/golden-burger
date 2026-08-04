@@ -1,0 +1,62 @@
+pipeline {
+  agent any
+
+  options {
+    disableConcurrentBuilds()
+    timeout(time: 15, unit: 'MINUTES')
+  }
+
+  triggers {
+    // A/B jobs must start on the same wall-clock minutes. Jenkins H/5 hashes
+    // each job name to a different offset and would change the observed pair.
+    cron('*/5 * * * *')
+  }
+
+  parameters {
+    choice(name: 'BLUEBERRY_ARM', choices: ['A_2PP', 'B_5PP'], description: 'Only A/B treatment axis')
+    booleanParam(name: 'BLUEBERRY_LIVE', defaultValue: false, description: 'Explicitly allow real CLOB orders')
+    choice(name: 'POLYMARKET_SIGNATURE_TYPE', choices: ['3', '1'], description: '3=POLY_1271 smart wallet, 1=legacy POLY_PROXY')
+  }
+
+  stages {
+    stage('Run one cycle') {
+      steps {
+        dir('golden-blueberry') {
+          sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=150
+
+case "${BLUEBERRY_ARM}" in
+  A_2PP)
+    export POLYBOT_MIN_SURGE=0.02
+    RUNTIME_JOB=blueberry-live-a-2pp
+    ;;
+  B_5PP)
+    export POLYBOT_MIN_SURGE=0.05
+    RUNTIME_JOB=blueberry-live-b-5pp
+    ;;
+  *) echo "Invalid BLUEBERRY_ARM" >&2; exit 2 ;;
+esac
+
+/Users/jongwoopark/.local/bin/uv sync --frozen
+
+if [ "${BLUEBERRY_LIVE}" = "true" ]; then
+  : "${POLYMARKET_PRIVATE_KEY:?Bind POLYMARKET_PRIVATE_KEY with Jenkins Credentials Binding}"
+  : "${POLYMARKET_FUNDER_ADDRESS:?Bind POLYMARKET_FUNDER_ADDRESS with Jenkins Credentials Binding}"
+  /Users/jongwoopark/.local/bin/uv run polybot config --live --job "${RUNTIME_JOB}"
+  /Users/jongwoopark/.local/bin/uv run polybot run --live --job "${RUNTIME_JOB}"
+else
+  /Users/jongwoopark/.local/bin/uv run polybot config --simulate --job "${RUNTIME_JOB}"
+  /Users/jongwoopark/.local/bin/uv run polybot run --simulate --job "${RUNTIME_JOB}"
+fi
+'''
+        }
+      }
+    }
+  }
+}

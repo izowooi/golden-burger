@@ -97,7 +97,7 @@ job을 둔 채 강제로 삭제해서는 안 된다.
 
 ### 2. 정확히 한 번 실행
 
-아래 예시는 `golden-nectarine`이다. 폴더만 해당 전략으로 바꾸면 16개 전략에 동일하다.
+아래 예시는 `golden-nectarine`이다. 폴더만 해당 전략으로 바꾸면 18개 전략에 동일하다.
 
 ```bash
 #!/bin/bash
@@ -156,7 +156,7 @@ cd ./golden-nectarine
 새 migration profile과 복제본 검증을 먼저 추가해야 한다. 기존 repository의 별도
 `cleanup_old_snapshots`도 active DB에서는 삭제를 공유 maintainer에 양보한다.
 
-## 16개 전략 적용 순서
+## 18개 전략 적용 순서
 
 각 DB마다 위 절차를 한 번씩 수행한다.
 

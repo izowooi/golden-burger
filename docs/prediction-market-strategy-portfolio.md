@@ -1,10 +1,10 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 16개 전략의 전체 지도다. 현재 운영 상태는
+총 18개 전략의 전체 지도다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-07-30 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-04 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -23,6 +23,7 @@
 |---|---|---|---|---|---|
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
+| **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B 시작 evidence 없음** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
 | golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 | **운영 중** |
@@ -32,13 +33,14 @@
 | **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-mango~~ | Patience Premium | 자본 잠김 회피 → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | **⛔ 폐쇄 완료 2026-07-28** |
+| **golden-melon** | Resolution Sprint | 마감 임박 수렴의 거래량 선별 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B/C 시작 evidence 없음** |
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 
-상태 합계는 운영 6, 구현만 완료 3, simulation 전용 1, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 6, 구현만 완료 5, simulation 전용 1, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -205,6 +207,31 @@ coverage ≥90%를 모두 충족하기 전에는 threshold 완화나 live 승격
 `golden-kiwi/research/2026-07-30-cohort-correction.md`,
 `docs/retro/golden-kiwi.md`를 따른다.
 
+## 7차 설계 — 마감 임박 최초 급등 강도 A/B
+
+### golden-blueberry — Closing Surge
+
+운영자가 기억하는 “3일 이내 시장에서 확률이 치솟을 때 사고 해결 전에 판다”는 Cherry 계보를
+실거래 가능한 최소 단위로 다시 검정한다. strict binary non-negRisk YES의 persisted 직전값이
+0.85 미만이고 현재 `[0.85,0.93]`에 처음 들어올 때만 후보가 된다. 일반/경기 전은
+`(0h,72h]`, 스포츠 경기 중은 kickoff 뒤 최대 360분까지 포함한다. fresh ask `<=0.93`,
+spread `<=2%p`, depth `>=1.2×`를 다시 확인하고 0.97 target 또는 0.78 absolute stop으로
+관리한다. trailing/time exit은 없다.
+
+유일한 A/B 처치축은 연속 15분 이내 snapshot의 최소 급등 폭이다. A는 `+2%p`, B는
+`+5%p`; 각각 별도 계좌/job/DB와 $150를 쓰고 건당 $5로 시작한다. `$1`은 CLOB 5-share
+최소 주문을 충족하지 못한다. arm당 open notional $50, economic drawdown -$30 kill switch,
+liquidity와 volume24h 각각 $10k gate가 있다. 최초 crossing이 B 급등폭을 못 넘으면 reject로
+기록하고 나중 recross로 대체하지 않는다.
+
+과거 Cherry 671건은 legacy fill gap 때문에 월 10%나 스포츠 우위를 확정하지 못한다. 따라서
+Blueberry는 실제 급등 가설을 `entry_signal_decisions`와 exact confirmed fill/fee로 새로
+측정한다. 1주는 health checkpoint, 30일에도 arm당 confirmed closed 20건 미만이면 판정하지
+않는다. cohort는 `config_hash × strategy_source_digest × mode × job_name`이며 Git commit은
+provenance다. 상세는 `golden-blueberry/STRATEGY.md`,
+`golden-blueberry/research/2026-08-04-origin-and-preregistration.md`,
+`docs/retro/golden-blueberry.md`를 따른다.
+
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
 기존 봇 분석에서 확인된 결함의 수정:
@@ -232,6 +259,7 @@ py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐�
 |---|---|---|
 | 운영 6개 | 현 config cohort를 보존하고 strict audit·confirmed fill·event-effective 성과를 수집 | 여러 knob를 동시에 변경하거나 legacy P&L로 증액 |
 | grape / orange | 시작하려면 새 계정·job·DB와 사전 등록부터 확인 | 코드가 있다는 이유로 “운영 중” 표시 |
+| blueberry | $5·72h·5분 cadence로 +2%p/+5%p A/B를 별도 wallet/job/DB에서 시작 | $1 주문, 여러 knob 변경, 1주 P&L로 승자 선택 |
 | quince | $5·24h·5분 cadence로 A/B/C를 별도 wallet/job/DB에서 실행 | 12h/24h나 주문액까지 동시에 변경 |
 | kiwi | 네 simulation job에서 독립 30일 5분 research archive 수집 | live 실행, threshold 완화, 관측 winner로 B 교체 |
 | 폐쇄 6개 | 문서·DB·로그·checksum을 보존하고 wallet/order/redeem 잔여 evidence 대사 | 재가동, 승자 slice 선택, 같은 데이터 재최적화 |

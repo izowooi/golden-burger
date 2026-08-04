@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Blueberry — Closing Surge</title>
+<style>
+:root{--berry:#4267a9;--berry2:#7652a6;--bg:#f6f7fb;--card:#fff;--ink:#202533;
+  --muted:#626b7b;--line:#dce1eb;--soft:#eef3ff;--risk:#a33e4a;--ok:#267450;
+  --shadow:0 13px 34px rgba(38,57,92,.08)}
+@media(prefers-color-scheme:dark){:root{--berry:#8fb1ef;--berry2:#c3a1ef;--bg:#11141b;
+  --card:#1a1f29;--ink:#edf0f6;--muted:#a9b1bf;--line:#323a49;--soft:#202a3d;
+  --risk:#ff929d;--ok:#75d2a3;--shadow:none}}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 88% 0,
+  rgba(118,82,166,.15),transparent 27rem),var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,
+  BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.67}
+.wrap{max-width:960px;margin:auto;padding:28px 21px 72px}.back{color:var(--berry);text-decoration:none}
+header{margin-top:18px;padding:31px 33px;border:1px solid var(--line);border-radius:22px;
+  background:linear-gradient(135deg,var(--card),var(--soft));box-shadow:var(--shadow)}
+.eyebrow{font-size:12px;font-weight:850;letter-spacing:.13em;color:var(--berry)}
+h1{margin:7px 0 2px;font-size:36px;line-height:1.15}.subtitle{font-size:20px;color:var(--berry2);font-weight:780}
+.lead{max-width:760px;color:var(--muted);font-size:17px}.badges{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.badge{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:5px 10px;font-size:12.5px;font-weight:720}
+h2{font-size:22px;margin:42px 0 14px;padding-left:11px;border-left:4px solid var(--berry)}
+h3{font-size:17px;margin:25px 0 8px}.box,.formula,.risk,.ok{border:1px solid var(--line);
+  background:var(--card);border-radius:14px;padding:18px 20px;box-shadow:var(--shadow);margin:14px 0}
+.formula{background:var(--soft);border-color:var(--berry);font-family:ui-monospace,SFMono-Regular,
+  Menlo,Consolas,monospace;white-space:pre-wrap;overflow:auto}.risk{border-left:5px solid var(--risk)}
+.ok{border-left:5px solid var(--ok)}.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}
+table{border-collapse:separate;border-spacing:0;width:100%;margin:15px 0;background:var(--card);
+  border:1px solid var(--line);border-radius:12px;overflow:hidden}th,td{padding:10px 12px;
+  text-align:left;vertical-align:top;border-right:1px solid var(--line);border-bottom:1px solid var(--line)}
+th{background:var(--soft);font-size:14px}tr:last-child td{border-bottom:0}th:last-child,td:last-child{border-right:0}
+code{background:rgba(120,130,150,.14);padding:2px 5px;border-radius:4px;font-size:.9em}
+pre{background:#171c27;color:#e8edf7;border-radius:12px;padding:16px;overflow:auto;font-size:13px;line-height:1.55}
+ul,ol{padding-left:23px}li{margin:6px 0}.muted{color:var(--muted)}.danger{color:var(--risk)}
+footer{margin-top:48px;padding-top:17px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+@media(max-width:700px){.wrap{padding:18px 13px 48px}header{padding:25px 20px}h1{font-size:30px}
+  .grid{grid-template-columns:1fr}th,td{padding:8px 7px;font-size:13px}.box,.formula,.risk,.ok{padding:15px}}
+</style>
+</head>
+<body><main class="wrap">
+<a class="back" href="strategy-index.html">← 전략 문서 인덱스</a>
+<header>
+  <div class="eyebrow">GOLDEN BURGER · PREREGISTERED LIVE A/B · 2026-08-04</div>
+  <h1>🫐 Golden Blueberry</h1>
+  <div class="subtitle">Closing Surge</div>
+  <p class="lead">해결 또는 경기 종료까지 72시간 이내인 표준 이진 시장에서 YES가
+  0.85를 처음 상향 돌파할 때 진입한다. 과거 Cherry의 아이디어를 수익 전략으로 단정하지
+  않고, $5 exact-fill 실거래 두 팔로 다시 검증한다.</p>
+  <div class="badges">
+    <span class="badge">진입 0.85–0.93</span><span class="badge">A 2%p · B 5%p</span>
+    <span class="badge">익절 0.97 · 손절 0.78</span><span class="badge">스포츠 경기 중 포함</span>
+    <span class="badge">$5 × 두 계정 · 총 $300</span>
+  </div>
+</header>
+
+<h2>한눈에 보는 규칙</h2>
+<div class="formula">진입 = strict standard binary YES, negRisk=false
+     + 저장된 직전 YES &lt; 0.85 ≤ 현재 YES ≤ 0.93
+     + 0분 &lt; 연속 snapshot 간격 ≤ 15분
+     + 보존기간 안에서 앞선 YES ≥ 0.85 관측 없음
+     + 상승폭 ≥ 0.02(A) 또는 0.05(B)
+     + 일반/경기 전: 0시간 &lt; 남은 시간 ≤ 72시간
+     + 스포츠 경기 중: kickoff 후 ≤ 360분
+     + 유동성 ≥ $10,000, 24h 거래량 ≥ $10,000
+     + fresh ask ≤ 0.93, spread ≤ 0.02, ask depth ≥ 주문수량 × 1.20
+
+청산 = 미해결 YES ≥ 0.97 AND fresh bid ≥ 0.97
+    OR 미해결 YES ≤ 0.78
+
+없는 규칙 = trailing stop, 임의 time exit
+별도 사실 = resolution, redeem/현금화, CLOB SELL fill</div>
+
+<div class="ok"><strong>스포츠는 기본 포함됩니다.</strong> <code>gameStartTime</code>을
+경기 종료가 아니라 경기 시작 시각으로 해석한다. 따라서 경기 전 72시간뿐 아니라 upstream이
+거래 가능 상태인 경기 중 첫 급등도 kickoff 후 360분까지 살 수 있다.</div>
+
+<h2>과거 전략에서 확인된 것과 확인되지 않은 것</h2>
+<div class="grid">
+  <section class="box"><h3>확인된 역사</h3><p>초기 Banana 계열은 2026-02-04에 24시간
+  집중 규칙과 스포츠 포함을 거쳤고, 다음 날 12–720시간으로 확장됐다. 현재 그 계보는
+  <code>golden-cherry</code>에 가깝다.</p></section>
+  <section class="box"><h3>확인되지 않은 수익</h3><p>Cherry 사본에는 legacy 체결 공백이
+  크고 실제 fee까지 완결된 표본이 부족하다. 운영자가 기억하는 “월 10%”를 현재 DB로
+  재현하거나 반박할 수 없다.</p></section>
+  <section class="box"><h3>확인된 스케일 위험</h3><p>$8,000 cohort에서 주문액/표시 유동성이
+  평균 57.64%였다. 체결 실패와 시장충격을 무시한 급격한 증액은 같은 전략이 아니다.</p></section>
+  <section class="box"><h3>Blueberry의 대응</h3><p>$5 hard cap, event당 1건, actual depth,
+  exact fill, rejected crossing, source digest와 resolved config를 모두 남긴다.</p></section>
+</div>
+
+<div class="risk"><strong>Blueberry도 아직 edge가 입증되지 않았습니다.</strong> 비슷한
+<code>golden-melon</code>은 24시간 거래량 floor를 세 팔로 비교한다. Blueberry는 거래량을
+$10,000으로 고정하고, 사용자가 말한 “확률이 얼마나 치솟아야 하는가”만 2%p 대 5%p로
+검증한다. 두 실험 결과를 섞어 승률을 만들지 않는다.</div>
+
+<h2>왜 $1이 아니라 $5인가</h2>
+<table><tr><th>주문액</th><th>0.93에서 받는 수량</th><th>판정</th></tr>
+<tr><td>$1</td><td>1.08 shares</td><td>5-share CLOB 최소 주문 미달</td></tr>
+<tr><td><strong>$5</strong></td><td><strong>5.38 shares</strong></td><td>5.0 + 0.1 안전 buffer 충족</td></tr></table>
+<p>$5는 공격적인 금액이 아니라 이 진입 밴드에서 가능한 최소 notional이다. 각 arm에 $150를
+배정해 총 $300을 사용하되, 동시에 여는 금액은 arm당 최대 $50이고 경제손익이 −$30이면
+신규 BUY를 코드가 차단한다.</p>
+
+<h2>권장 A/B</h2>
+<table><tr><th>항목</th><th>A · 넓은 급등</th><th>B · 강한 급등</th></tr>
+<tr><td>별도 계정 / job / DB</td><td><code>blueberry-live-a-2pp</code></td><td><code>blueberry-live-b-5pp</code></td></tr>
+<tr><td>유일한 처치</td><td><code>POLYBOT_MIN_SURGE=0.02</code></td><td><code>POLYBOT_MIN_SURGE=0.05</code></td></tr>
+<tr><td>건당 / arm 자금</td><td>$5 / $150</td><td>$5 / $150</td></tr>
+<tr><td>나머지 진입·청산·실행</td><td colspan="2">완전히 동일</td></tr></table>
+<p>두 job은 같은 날 시작하고 같은 snapshot 시각을 보도록 <code>*/5 * * * *</code>,
+concurrent build 금지를 쓴다. job마다 분 offset이 달라지는 <code>H/5</code>는 사용하지 않는다.
+코호트는 <code>config_hash × strategy_source_digest × mode × job_name</code>으로 구분한다.
+Git commit은 provenance일 뿐 실험을 고정하는 핀이 아니다.</p>
+
+<h2>Freestyle Jenkins shell</h2>
+<pre><code>#!/bin/bash
+set +x
+set -euo pipefail
+
+# 두 secret은 Jenkins Credentials Binding으로 주입
+export POLYMARKET_SIGNATURE_TYPE=3  # legacy 계정은 1
+export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=150
+export POLYBOT_MIN_SURGE=0.02       # B만 0.05
+
+: "${POLYMARKET_PRIVATE_KEY:?Credentials Binding required}"
+: "${POLYMARKET_FUNDER_ADDRESS:?Credentials Binding required}"
+
+cd ./golden-blueberry
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config --live \
+  --job blueberry-live-a-2pp
+/Users/jongwoopark/.local/bin/uv run polybot run --live \
+  --job blueberry-live-a-2pp</code></pre>
+<p>B는 <code>0.05</code>와 <code>blueberry-live-b-5pp</code>만 바꾼다. 저장소 기본은
+simulation이며 실제 주문은 <code>--live</code>를 명시해야 한다.</p>
+
+<h2>1주와 30일에 무엇을 판단하나</h2>
+<ol>
+  <li><strong>1주:</strong> 수익으로 승자를 고르지 않는다. 5분 주기, sweep 완전성,
+  first-crossing 저장, source/config 고정, BUY/SELL fill·fee coverage, backup을 점검한다.</li>
+  <li><strong>30일:</strong> arm당 confirmed closed 20건 이상일 때만 비교한다. actual net
+  P&amp;L, win rate, 후보→주문→체결 attrition과 손실 꼬리를 함께 본다.</li>
+  <li><strong>부족하면:</strong> 임계값을 중간에 바꾸지 않고 기간을 연장하거나
+  <code>INCONCLUSIVE</code>로 끝낸다.</li>
+  <li><strong>증액:</strong> 먼저 $5에서 증거 계약을 통과한 뒤 별도 reviewed cohort로만
+  $10 → $20처럼 단계적으로 올린다. 환경변수만으로 hard cap을 우회할 수 없다.</li>
+</ol>
+<p class="muted">읽기 전용 분석기는 두 arm의 공통 설정이 최소 상승폭 외에는 같은지,
+DB와 job이 분리됐는지, source digest와 fee coverage가 완전한지 먼저 검사한다. 조건을
+통과해도 자동 승자를 선언하지 않는다.</p>
+
+<footer>전략 계약: <code>golden-blueberry/STRATEGY.md</code> · 운영 가이드:
+<code>golden-blueberry/README.md</code> · 회고: <code>docs/retro/golden-blueberry.md</code> ·
+작성일: 2026-08-04</footer>
+</main></body></html>

@@ -64,10 +64,13 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
   `RUNNING`/`SUCCESS`/`FAILED`, cycle 통계와 DB 요약
 
 환경변수 우선순위는 여전히 `env > config.yaml > code default`지만, Jenkins export 블록은
-**현재 설정의 legacy cross-check**일 뿐 과거 실행의 단일 진실이 아니다. 회고 기간을
+**현재 설정의 legacy cross-check**일 뿐 과거 실행의 단일 진실이 아니다. 기본 회고 기간은
 `config_hash × git_commit × mode × job_name` cohort로 나누고, 각 거래·스냅샷은 가능한 경우
-`run_id`로 연결한다. `git_commit='unknown'`, stale `RUNNING`, 실패 run, 실행 간 큰 공백은
-결론의 신뢰도를 낮추며 strict audit issue로 처리한다.
+`run_id`로 연결한다. 단, 전략 코드와 shared runtime의 별도 SHA-256 source digest를
+사전 등록해 DB에 저장하는 전략(Kiwi·Blueberry)은 해당 L3 계약에 따라 `git_commit` 대신
+`strategy_source_digest`를 cohort 축으로 쓴다. 이 경우에도 Git commit은 provenance로
+보존한다. `git_commit='unknown'`, stale `RUNNING`, 실패 run, 실행 간 큰 공백은 결론의
+신뢰도를 낮추며 strict audit issue로 처리한다.
 
 계측 배포 전 구간에는 resolved config가 자동 저장되지 않았다. 그 구간만 Jenkins 설정,
 로그, 문서의 `운용 이력`을 보조 증거로 사용하고 출처와 불확실성을 적는다. 현재 env를 과거

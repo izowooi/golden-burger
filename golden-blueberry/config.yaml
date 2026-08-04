@@ -1,0 +1,73 @@
+# Golden Blueberry — Closing Surge
+# env > config.yaml > code defaults. Real orders require an explicit --live.
+
+trading:
+  lifecycle_mode: active
+
+  # A/B common execution. Do not change this during the experiment.
+  execution_mode: nearest
+  intent_autoresolve: true
+
+  # Two accounts x $150 = total experiment budget $300.
+  # Each account stops opening new positions at economic P&L <= -$30.
+  max_drawdown_stop: 0.20
+  experiment_capital_usdc: 150.0
+
+  # $1 cannot satisfy the CLOB 5-share minimum in the 0.85~0.93 band.
+  # $5 / 0.93 = 5.38 shares, above the 5.10 share safety requirement.
+  buy_amount_usdc: 5.0
+  # Documentation mirror of the code hard cap. This is intentionally not an
+  # environment override; promotion requires reviewing config.py and tests.
+  max_buy_amount_usdc: 5.0
+
+  # At $5 these are $10k floors. If a reviewed version raises order size,
+  # both gates scale so an order is never above 0.05% of either metric.
+  min_liquidity: 10000
+  max_order_liquidity_ratio: 0.0005
+  min_volume_24h: 10000
+  max_order_volume_ratio: 0.0005
+
+  # $50 maximum open notional per arm; $100 remains as reserve.
+  max_positions: 10
+  max_event_positions: 1
+  max_open_notional_multiple: 10
+  max_new_positions_per_cycle: 1
+  reentry_cooldown_hours: 168
+
+  max_snapshot_gap_minutes: 15
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.10
+  max_spread: 0.02
+  depth_price_window: 0.01
+  depth_safety_multiple: 1.20
+  yes_only_mode: true
+
+  entry:
+    prob_min: 0.85
+    prob_max: 0.93
+    stop_price: 0.78
+    take_profit_price: 0.97
+    hours_min: 0
+    hours_max: 72
+
+    # Sole A/B treatment axis:
+    # A = 0.02 (+2 percentage points), B = 0.05 (+5 percentage points).
+    min_surge: 0.02
+
+  # Sports are included. gameStartTime is the pregame/in-play clock; an
+  # in-play market remains eligible for six hours after the scheduled start.
+  sports:
+    use_game_start_time: true
+    allow_in_play: true
+    reject_without_game_start: false
+    max_in_play_minutes: 360
+
+  # Wider than the entry band/horizon so the first crossing is provable.
+  archive:
+    prob_min: 0.75
+    hours_max: 168
+    retention_days: 60
+
+  excluded_categories: []
+
+simulation_mode: true

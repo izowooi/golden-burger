@@ -41,7 +41,7 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
 <header>
   <div style="font-size:43px">🍔</div>
   <h1>Golden Burger 전략 문서</h1>
-  <p class="lead">총 16개 전략의 local HTML 인덱스다. 현재 실행 여부, 폐쇄 여부,
+  <p class="lead">총 18개 전략의 local HTML 인덱스다. 현재 실행 여부, 폐쇄 여부,
   Jenkins 실험군을 확인하려면 운영 현황 화면을 먼저 본다.</p>
   <a class="dashboard" href="strategy-status.html">전략 운영 현황 대시보드 열기 →</a>
 </header>
@@ -56,16 +56,17 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
   <a class="card" href="strategy-queen.html"><div class="top"><span class="fruit">👑</span><span class="state live">운영 중</span></div><b>golden-queen</b><span class="en">Crown Momentum</span><p>first observed 0.90 crossing.</p></a>
 </div>
 
-<h2>구현 완료 · 시작 증거 없음 · 3</h2>
+<h2>구현 완료 · 시작 증거 없음 · 5</h2>
 <div class="grid">
   <a class="card" href="strategy-grape.html"><div class="top"><span class="fruit">🍇</span><span class="state built">구현 완료</span></div><b>golden-grape</b><span class="en">Cascade Rider</span><p>완만한 정보 확산 편승.</p></a>
+  <a class="card" href="strategy-blueberry.html"><div class="top"><span class="fruit">🫐</span><span class="state built">A/B 2-arm</span></div><b>golden-blueberry</b><span class="en">Closing Surge</span><p>72h 이내 첫 0.85 교차의 상승폭 2pp 대 5pp 실험.</p></a>
+  <a class="card" href="strategy-melon.html"><div class="top"><span class="fruit">🍈</span><span class="state built">A/B/C 3-arm</span></div><b>golden-melon</b><span class="en">Resolution Sprint</span><p>cherry 재설계. 24h 거래량 gate가 처치축.</p></a>
   <a class="card" href="strategy-orange.html"><div class="top"><span class="fruit">🍊</span><span class="state built">구현 완료</span></div><b>golden-orange</b><span class="en">Fear Spike Fade</span><p>tail 공포 급등 뒤 NO 매수.</p></a>
   <a class="card" href="strategy-quince.html"><div class="top"><span class="fruit">🍐</span><span class="state built">A/B/C 3-arm</span></div><b>golden-quince</b><span class="en">Spread Harvest</span><p>찾고 있던 passive / nearest / cross 실행 실험.</p></a>
 </div>
 
 <h2>신규 research · simulation 전용 · 1</h2>
 <div class="grid">
-  <a class="card" href="strategy-melon.html"><div class="top"><span class="fruit">🍈</span><span class="state built">A/B/C 3-arm</span></div><b>golden-melon</b><span class="en">Resolution Sprint</span><p>cherry 재설계. 72h 이내 첫 0.85 교차 + 거래량 gate가 처치축.</p></a>
   <a class="card" href="strategy-kiwi.html"><div class="top"><span class="fruit">🥝</span><span class="state research">LIVE 금지</span></div><b>golden-kiwi</b><span class="en">Micro-Cascade</span><p>5분 micro-trend 2×2 네 팔. 외부표본 gate 실패로 연구 수집만 허용.</p></a>
 </div>
 
@@ -83,6 +84,6 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
 <code>close_only</code>나 <code>archive_only</code>는 bot lifecycle mode이며
 “보류” 또는 “폐쇄”라는 전략 의사결정과 같은 말이 아닙니다.</div>
 
-<footer>Golden Burger · 2026-07-30 · 상세 코드와 실행 계약은 각
+<footer>Golden Burger · 2026-08-04 · 상세 코드와 실행 계약은 각
 <code>golden-&lt;name&gt;/</code> 폴더의 README/STRATEGY/AGENTS 문서를 따른다.</footer>
 </main></body></html>
