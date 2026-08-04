@@ -24,6 +24,7 @@ UTC = timezone.utc
 START = datetime(2026, 8, 1, tzinfo=UTC)
 END = START + timedelta(days=30)
 GIT_COMMIT = "a" * 40
+SOURCE_DIGEST = "d" * 64
 
 
 def _canonical_json(value):
@@ -107,10 +108,11 @@ def _schema(connection):
     )
 
 
-def _config_payload(arm, *, move=None):
+def _config_payload(arm, *, move=None, source_digest=SOURCE_DIGEST):
     expected = analyzer.CANONICAL_ARMS[arm]
     trading = {
         **analyzer.FROZEN_TRADING_VALUES,
+        "strategy_source_digest": source_digest,
         "entry": {
             **analyzer.FROZEN_ENTRY_VALUES,
             "confirmation_steps": expected["confirmation_steps"],
@@ -137,10 +139,15 @@ def _add_run(
     status="SUCCESS",
     cursor_complete=1,
     git_commit=GIT_COMMIT,
+    source_digest=SOURCE_DIGEST,
     job_name=None,
     config_move=None,
 ):
-    payload = _config_payload(arm, move=config_move)
+    payload = _config_payload(
+        arm,
+        move=config_move,
+        source_digest=source_digest,
+    )
     config_json = _canonical_json(payload)
     config_hash = hashlib.sha256(config_json.encode()).hexdigest()
     connection.execute(
@@ -381,7 +388,7 @@ def test_registered_two_sided_bootstrap_lower_quantile_is_frozen():
         analyzer.ValidSignal(
             trade_id=index,
             event_id=f"event-{index}",
-            cohort=analyzer.Cohort("c", GIT_COMMIT, "sim", "job"),
+            cohort=analyzer.Cohort("c", SOURCE_DIGEST, "sim", "job"),
             signal_timestamp=START,
             executable_return=0.01 + index / 10_000,
         )
@@ -429,18 +436,18 @@ def test_missing_and_invalid_evidence_is_censored_with_specific_reasons(tmp_path
         entry_run_id=entry_run,
         lineage_json=False,
     )
-    other_git_exit = _add_run(
+    other_source_exit = _add_run(
         connection,
         "B",
-        "other-git-exit",
-        git_commit="b" * 40,
+        "other-source-exit",
+        source_digest="e" * 64,
     )
     _add_trade(
         connection,
         "B",
         5,
         entry_run_id=entry_run,
-        exit_run_id=other_git_exit,
+        exit_run_id=other_source_exit,
     )
     connection.commit()
     connection.close()
@@ -457,11 +464,29 @@ def test_missing_and_invalid_evidence_is_censored_with_specific_reasons(tmp_path
         "lineage_json_missing_or_invalid": 1,
         "snapshot_neg_risk_or_unknown": 1,
     }
-    # The second successful Git commit is reported as a separate collection
-    # cohort and is never silently pooled into an event-equal metric.
+    # A different strategy source digest is a separate collection cohort and
+    # is never silently pooled into an event-equal metric.
     assert result["cohort_count"] == 2
     assert result["event_equal_return"] is None
     assert result["ci_method"] == "unavailable_multiple_cohorts_not_pooled"
+
+
+def test_git_commit_change_does_not_split_strategy_cohort(tmp_path):
+    path = _make_db(tmp_path, "B")
+    connection = sqlite3.connect(path)
+    _add_run(
+        connection,
+        "B",
+        "new-monorepo-commit",
+        git_commit="b" * 40,
+    )
+    connection.commit()
+    connection.close()
+
+    result = analyzer.analyze_arm("B", path, start=START, end=END)
+
+    assert result["cohort_count"] == 1
+    assert result["cohorts"][0]["strategy_source_digest"] == SOURCE_DIGEST
 
 
 def test_decision_clock_and_source_are_verified(tmp_path):

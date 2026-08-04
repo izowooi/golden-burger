@@ -87,7 +87,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - Python 프로젝트는 **uv** 표준을 따른다: `uv sync --frozen` 후 `uv run ...`. (`legacy`만 `requirements.txt` 예외.)
 - Node 프로젝트(`polymarket-dashboard`)는 npm을 쓴다.
 - 공통 유틸은 2개 이상 실제 사용 사례가 생긴 뒤 고려하고, 먼저 폴더 내부에서 단순 해결한다.
-- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다.
+- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Kiwi는 모노레포 commit을 cohort로 쓰지 않고 L4 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다.
 
 ## 작업 전 확인
 
@@ -101,7 +101,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 
 Jenkins job 또는 strategy 이름만 주어지면 DB/log 경로를 사용자에게 묻지 않고 `daily-rsync/README.md`, `daily-rsync/DATA_LAYOUT.md`, `daily-rsync/OPERATIONS.md`를 확인해 local catalog에서 evidence를 자동 발견한다. local evidence가 없거나 요청 기간을 덮지 않으면 임의 SSH/rsync를 실행하지 말고 evidence gap과 필요한 sync 범위를 보고한다.
 `default`는 Jenkins job이 아니라 runtime job이며, 하나의 strategy가 여러 Jenkins job에, 하나의 Jenkins job이 여러 strategy epoch에 대응할 수 있으므로 `source × Jenkins job × strategy × runtime job`을 evidence discovery 경계로 분리한다.
-실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다.
+실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다. Golden Kiwi는 L4에 명시된 strategy source digest 기반 예외를 따른다.
 
 회고 시작 전에 UTC half-open range `[review-start, review-end-exclusive)`를 고정하고 `review-days`를 그 기간과 일치시키며, 보고서 첫머리에 range와 timezone, `remote_path`, verified DB 절대 경로와 SHA-256(`local_sha256`), `latest_successful_sync.finished_at`과 DB `synced_at` sync cutoff, `source_completed_at` 또는 remote `source_mtime_at` source cutoff를 기록한다. `polybot-retro --as-of`는 포함 종료일을 받아 다음 날 00:00Z를 exclusive end로 만들므로 `review-end-exclusive`의 전날을 넘긴다.
 각 match에서 `latest_sync_attempt.status='SUCCESS'`와 `latest_successful_sync.status='SUCCESS'`, local DB/log 존재, artifact status가 `SYNCED` 또는 `SOURCE_MISSING`인지 확인하고 `verify`를 실행하며, plan 파일이나 디렉터리 이름만으로 sync 성공을 추정하지 않는다.

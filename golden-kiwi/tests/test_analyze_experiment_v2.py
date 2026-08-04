@@ -25,6 +25,7 @@ UTC = timezone.utc
 START = datetime(2026, 8, 1, tzinfo=UTC)
 END = START + timedelta(days=30)
 GIT_COMMIT = "c" * 40
+SOURCE_DIGEST = "d" * 64
 
 
 def _canonical_json(value):
@@ -39,6 +40,7 @@ def _config_payload(arm):
         "mode": "sim",
         "trading": {
             **analyzer.FROZEN_TRADING_VALUES,
+            "strategy_source_digest": SOURCE_DIGEST,
             "entry": {
                 **analyzer.FROZEN_ENTRY_VALUES,
                 "confirmation_steps": expected["confirmation_steps"],

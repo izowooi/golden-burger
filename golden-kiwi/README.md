@@ -135,7 +135,8 @@ collection에서는 Jenkins의 숨은 `H` 값을 추정하지 않고 다음처�
 실행 전에는 다음을 한 번씩 확인한다.
 
 1. 각 job의 **Build periodically**에 아래 trigger를 입력한다.
-2. 네 job이 모노레포 루트 workspace와 같은 Git commit을 checkout하는지 확인한다.
+2. 네 job의 `polybot config`에 표시되는 `Strategy source cohort`가 같은지 확인한다.
+   Git commit은 계속 바뀔 수 있으며 cohort 판정에는 사용하지 않는다.
 3. Jenkins agent에서 `/Users/jongwoopark/.local/bin/uv` 경로가 실제로 존재하는지
    확인한다.
 4. trigger를 켜기 전에 shell의 `polybot config`를 수동 실행해 arm, job, offset,
@@ -265,13 +266,13 @@ contract 값, lifecycle만 둔다.
 ## 위험 한도와 evidence
 
 - simulation amount $5, 최대 동시 position 3개, open notional $15
-- 같은 job/config/Git/mode의 SUCCESS terminal outcome을 시간순으로 합산해 최초
+- 같은 job/config/source digest/mode의 SUCCESS terminal outcome을 시간순으로 합산해 최초
   -$20 crossing을 계산한다. cycle 시작에 후보가 0개여도 평가한다. 감지 run이 성공하기
   전에는 pending row만 쓰고, FAILED면 폐기하며 SUCCESS 뒤에만 영구 latch로 승격한다.
   이후 P&L 회복이나 프로세스 재시작으로 자동 해제하지 않음
 - 같은 event 최대 1개, 한 cycle 신규 1개, event cooldown 6시간
 - 원자적 cursor-complete sweep과 현재 run snapshot이 없으면 진입 금지
-- 현재 run의 마지막 관측과 같은 `config_hash × git_commit × mode × job_name`인
+- 현재 run의 마지막 관측과 같은 `config_hash × strategy_source_digest × mode × job_name`인
   SUCCESS history만 계단 lineage로 사용
 - Gamma sweep 종료시각이 아니라 각 keyset page를 받은 로컬 시각을 관측시각으로 저장
 - archive fetch의 서버측 유동성 하한은 $1,000이다. $1,000 미만에서 갑자기 $20,000
@@ -308,8 +309,8 @@ Primary B가 아래 조건을 모두 통과해야만 별도 shadow review를 열
 3. 추가 10.4bps stress 후 lower bound도 0보다 큼
 4. 사전 정의한 전반/후반 구간이 모두 양수
 5. target/quote coverage 90% 이상
-6. arm마다 정확히 한 `config_hash × git_commit × mode × job_name` cohort이고 네 arm이
-   같은 Git commit을 사용
+6. arm마다 정확히 한 `config_hash × strategy_source_digest × mode × job_name` cohort이고
+   네 arm이 같은 strategy source digest를 사용. Git commit은 판정과 무관한 provenance임
 7. strict audit의 CRITICAL/HIGH가 0
 
 통과해도 live 승격이 아니다. $5 depth, queue/latency, partial fill, fee/role과 exact

@@ -85,7 +85,10 @@ def add_snapshot_and_sweep(
     session.close()
 
 
-def test_lineage_uses_only_successful_cursor_complete_same_cohort_rows(tmp_path):
+def test_lineage_uses_only_successful_cursor_complete_same_cohort_rows(
+    tmp_path,
+    monkeypatch,
+):
     db_path = tmp_path / "lineage.db"
     Session = init_database(str(db_path))
     primary = bot_config(db_path)
@@ -100,6 +103,18 @@ def test_lineage_uses_only_successful_cursor_complete_same_cohort_rows(tmp_path)
         probability=0.40,
     )
     success.succeed()
+
+    # A monorepo commit change is provenance only and must not split lineage.
+    monkeypatch.setenv("GIT_COMMIT", "b" * 40)
+    later_commit = RunAudit.start(primary, strategy_name="golden-kiwi")
+    add_snapshot_and_sweep(
+        Session,
+        run_id=later_commit.run_id,
+        sweep_id="later-commit",
+        timestamp=base + timedelta(minutes=3),
+        probability=0.403,
+    )
+    later_commit.succeed()
 
     failed = RunAudit.start(primary, strategy_name="golden-kiwi")
     add_snapshot_and_sweep(
@@ -159,7 +174,11 @@ def test_lineage_uses_only_successful_cursor_complete_same_cohort_rows(tmp_path)
         base - timedelta(minutes=1),
         current.run_id,
     )
-    assert [row.run_id for row in rows] == [success.run_id, current.run_id]
+    assert [row.run_id for row in rows] == [
+        success.run_id,
+        later_commit.run_id,
+        current.run_id,
+    ]
     session.close()
     current.fail(RuntimeError("test cleanup"))
 

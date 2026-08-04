@@ -90,6 +90,11 @@ def main() -> None:
     print("Live execution: HARD DISABLED (failed frozen OOS promotion gate)")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     print(f"DB: {config.db_path}")
+    print(
+        "Strategy source cohort: "
+        f"{trading.strategy_source_digest[:12]} "
+        "(Git commit is provenance only)"
+    )
     print(f"YES-only (inherent): {trading.yes_only_mode}")
     print(
         f"Frozen arm: {trading.arm_name} "

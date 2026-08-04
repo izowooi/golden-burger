@@ -24,6 +24,7 @@ diagnostic이다.
 - `tests/`: arm, lineage, funnel, follow-up, collection, drawdown, live 차단 계약
 - `research/frozen-2026-07-30/`: checksum으로 고정한 최초 연구 산출물
 - `research/2026-07-30-cohort-correction.md`: cross-Git 양수 결과 철회 기록
+- `research/2026-08-04-cohort-identity-amendment.md`: Git commit을 cohort에서 제거한 계약 정정
 - `data/<job>/trades_sim.db`: ignored canonical runtime DB
 - `README.md`: 실행·Jenkins·분석 절차
 - `STRATEGY.md`: 가설·반증·promotion 계약
@@ -40,8 +41,9 @@ diagnostic이다.
 | C | 5 | `0.01` | `kiwi-sim-c-5x1` | 2 |
 | D | 5 | `0.02` | `kiwi-sim-d-5x2` | 3 |
 
-각 job은 같은 Git commit과 서로 다른 절대 경로 DB를 사용한다. lineage 전체는 같은
-`config_hash × git_commit × mode × job_name`이어야 하고, 현재 RUNNING run의 마지막
+각 job은 서로 다른 절대 경로 DB를 사용한다. 모노레포 Git commit은 provenance로만
+기록하며 cohort 경계로 쓰지 않는다. lineage 전체는 같은
+`config_hash × strategy_source_digest × mode × job_name`이어야 하고, 현재 RUNNING run의 마지막
 snapshot과 이전 SUCCESS·cursor-complete run의 row만 3~10분 gap으로 연결한다.
 backfill, forward-fill, rollup 또는 다른 cohort 결합은 금지한다.
 
@@ -152,7 +154,9 @@ recorded-trade subset은 diagnostic/fallback일 뿐 promotion denominator가 아
 
 Primary B에 대해 quote-complete raw signal 50개, event 30개, event-cluster 98.75%
 lower CI와 10.4bps stress lower CI가 모두 양수, 전반/후반 양수, target/quote 및 cadence
-coverage 각각 90% 이상, 단일 shared Git cohort, strict audit CRITICAL/HIGH 0을 모두
+coverage 각각 90% 이상, arm별 단일
+`config_hash × strategy_source_digest × mode × job_name` cohort와 네 arm의 shared
+strategy source digest, strict audit CRITICAL/HIGH 0을 모두
 요구한다. 실패나 표본 부족은 `STOP / UNRESEARCHABLE`이며 threshold를 완화하지 않는다.
 통과도 `SHADOW_REVIEW_ONLY`일 뿐 live 승인이 아니다.
 
@@ -163,6 +167,7 @@ coverage 각각 90% 이상, 단일 shared Git cohort, strict audit CRITICAL/HIGH
 - private key나 funder를 Kiwi job에 주입하지 않는다.
 - drawdown latch나 append-only experiment row를 수정·삭제하지 않는다.
 - resolution, redeemable, redeem transaction, CLOB intent와 confirmed fill을 섞지 않는다.
-- 과거 C `+0.5263%`는 cross-Git lineage이므로 양수 evidence로 재사용하지 않는다.
+- 과거 C `+0.5263%`는 당시 lineage identity 계약을 충족하지 못한 무효 결과이므로
+  양수 evidence로 재사용하지 않는다.
 - live hard block 제거에는 별도 사용자 승인, shadow evidence, 새 risk budget,
   reviewed source change와 새 preregistration이 모두 필요하다.

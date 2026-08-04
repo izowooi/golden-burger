@@ -297,8 +297,9 @@ full-cadence 구간의 1,293,610 snapshot을 사용했으며, primary outcome은
   <strong>live 금지 결론은 변하지 않는다.</strong>
 </div>
 <p class="muted">새 수집에서는 현재 run의 마지막 row와 같은
-<code>config_hash × git_commit × mode × job_name</code>인 SUCCESS/cursor-complete
-history만 lineage로 쓴다. 이 값은 top-of-book 반사실이며 depth, queue, latency,
+<code>config_hash × strategy_source_digest × mode × job_name</code>인
+SUCCESS/cursor-complete history만 lineage로 쓴다. Git commit은 provenance로만
+기록한다. 이 값은 top-of-book 반사실이며 depth, queue, latency,
 partial fill, fee를 증명하지 않는다.</p>
 </section>
 
@@ -313,7 +314,8 @@ partial fill, fee를 증명하지 않는다.</p>
   writer가 하나만 있어야 한다.</li>
   <li>canonical job 이름을 그대로 <code>--job</code>에 전달한다. 각 DB는
   <code>data/&lt;job&gt;/trades_sim.db</code>로 분리된다.</li>
-  <li>네 팔은 같은 Git commit과 정확히 같은 30일 UTC 반개구간을 쓰고, arm별
+  <li>네 팔은 <code>polybot config</code>에 표시되는 같은 strategy source digest와
+  정확히 같은 30일 UTC 반개구간을 쓴다. Git commit 차이는 허용하며, arm별
   <code>POLYBOT_CADENCE_OFFSET_MINUTE</code>는 0/1/2/3으로 고정한다.</li>
   <li>workspace가 모노레포 루트인지, Jenkins agent에서 예시의
   <code>/Users/jongwoopark/.local/bin/uv</code>가 실제 경로인지 확인한다.</li>
@@ -380,7 +382,8 @@ latch로 확정한다. FAILED/stale pending은 폐기한다. 작동한 latch row
   <li>추가 10.4bps stress 후에도 같은 lower bound가 0보다 큼</li>
   <li>사전 정의한 전반부와 후반부가 모두 양수</li>
   <li>target/quote coverage 90% 이상</li>
-  <li>충분히 표본이 있는 <code>config_hash × git_commit × mode × job_name</code>
+  <li>충분히 표본이 있는
+  <code>config_hash × strategy_source_digest × mode × job_name</code>
   cohort에서 material sign reversal 없음</li>
   <li>60일 raw 5분 archive·run/sweep/catalog/lineage evidence 충족</li>
   <li>strict retro audit의 CRITICAL/HIGH가 0</li>

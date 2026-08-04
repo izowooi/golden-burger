@@ -25,7 +25,7 @@ Golden Kiwi는 실제 Polymarket 계좌 네 개로 주문을 내는 전략이 �
 - 실험군별 Polymarket 계좌
 
 폐쇄 중인 계좌가 정리되는 것은 전체 운영상 좋은 체크포인트지만, Golden Kiwi
-시뮬레이션 시작의 기술적 선행 조건은 아니다. 필요한 것은 같은 Git commit을 실행하는
+시뮬레이션 시작의 기술적 선행 조건은 아니다. 필요한 것은 같은 strategy source digest를 실행하는
 Jenkins job 네 개와 충분한 실행시간·디스크다.
 
 ## 2. 어떤 전략인가
@@ -158,7 +158,7 @@ workspace의 DB를 smoke 용도로 재사용하거나 수동 삭제해서는 안
 - 한 cycle의 p95 실행시간이 5분을 초과
 - 같은 job의 실행이 겹침
 - snapshot gap이 지속적으로 3~10분을 벗어남
-- 네 job이 서로 다른 Git commit을 사용
+- 네 job의 strategy source digest가 서로 다름 (Git commit 차이는 허용)
 - 디스크와 backup 공간이 부족
 
 ## 6. 권장 금액과 시장 거래량
@@ -291,8 +291,8 @@ Primary B가 다음을 모두 만족해야 shadow execution review만 열 수 �
 5. 사전 정의한 전반 15일과 후반 15일이 모두 양수
 6. +60~75분 target/quote coverage 90% 이상
 7. cadence coverage 90% 이상
-8. Arm별 단일 `config_hash × git_commit × mode × job_name` cohort
-9. 네 Arm이 같은 Git commit 사용
+8. Arm별 단일 `config_hash × strategy_source_digest × mode × job_name` cohort
+9. 네 Arm이 같은 strategy source digest 사용. Git commit은 provenance로만 기록
 10. strict audit의 CRITICAL/HIGH가 0
 
 통과해도 실거래 승인이 아니다. 다음 단계는 depth, queue, latency, partial fill,
@@ -300,7 +300,7 @@ maker/taker fee와 exact confirmed fill을 측정하는 별도 $5 shadow review�
 
 ## 10. 이메일을 받은 뒤 실행 전 체크리스트
 
-- [ ] 이 문서의 작성일과 현재 Git commit을 확인했다.
+- [ ] 이 문서의 작성일과 `polybot config`의 Strategy source cohort를 확인했다.
 - [ ] 기존 폐쇄 전략의 DB·로그·manifest를 보존했다.
 - [ ] Golden Kiwi에 private key와 funder address를 넣지 않았다.
 - [ ] 폐기 가능한 별도 workspace에서 canonical job 네 개로 24시간

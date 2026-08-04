@@ -23,7 +23,7 @@ REVIEW_AS_OF=<REVIEW_END_EXCLUSIVE의 전날 YYYY-MM-DD>
 1) A/B/C/D의 canonical DB 네 개를 명시하고 SHA-256·PRAGMA quick_check를 기록한다.
 2) polybot-retro audit --strict를 실행한다.
 3) CRITICAL/HIGH가 하나라도 있으면 arm 성과·threshold 변경·shadow 승격을 중단한다.
-4) config_hash × git_commit × mode × job_name cohort를 분리한다.
+4) config_hash × strategy_source_digest × mode × job_name cohort를 분리한다. Git commit은 provenance로만 보존한다.
 5) 네 팔은 confirmation_steps와 min_cumulative_move 외의 값이 같은지 검증한다.
 6) SUCCESS run, cursor-complete sweep, current-run 마지막 snapshot, lineage 전체의
    동일 config/Git/mode/job, 60일 raw cadence, point-in-time catalog/event와
@@ -140,7 +140,7 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
 - hold 60m, target 이후 +15m outcome window
 - event 1개, 6h cooldown, 전체 position 3, open notional $15, 신규 1/cycle
 - 60일 raw cadence archive, no cold rollup
-- 네 arm이 같은 Git commit을 사용하고, arm별 explicit Jenkins trigger와 contract offset이
+- 네 arm이 같은 strategy source digest를 사용하고, arm별 explicit Jenkins trigger와 contract offset이
   `A=0`, `B=1`, `C=2`, `D=3`으로 일치
 
 `strategy_configs`에서 다른 값이 하나라도 보이면 protocol deviation으로 별도 cohort에
@@ -158,7 +158,7 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
 - window의 expected 5분 slot 수, offset에 맞는 SUCCESS run 수, coverage, duplicate/missed
   slot, 최대/중앙/p95 run gap과 cycle runtime. off-schedule 또는 duplicate SUCCESS
   run이 있으면 해당 signal/follow-up을 제외하고 전체 promotion 판정을 fail-closed
-- unknown Git commit/config hash
+- missing strategy source digest/config hash (unknown Git commit 자체는 cohort 오류가 아님)
 - cursor-complete sweep 비율, membership digest, 원자적 catalog+snapshot commit
 
 ### Raw cadence와 lineage
@@ -166,7 +166,7 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
 - 최근 60일 `market_snapshots`가 raw cadence 정책인지
 - eligible condition의 3~10분 gap coverage ≥90%
 - current snapshot이 해당 run에 생성됐는지
-- 모든 lineage row가 현재 row와 같은 config hash, Git commit, mode, job인지
+- 모든 lineage row가 현재 row와 같은 config hash, strategy source digest, mode, job인지
 - arm별 exact `steps+1` snapshot ID가 오름차순·동일 condition인지
 - price `[0.16,0.84]` archive envelope 위반
 - Gamma page 로컬 수신시각이 snapshot clock으로 보존됐는지
@@ -305,7 +305,7 @@ key로 사용하고 entry timestamp 차이도 공개한다.
 - 10.4bps stress 후 lower CI≤0
 - early/late 중 하나가 0 이하
 - quote coverage<90%
-- arm 안에 둘 이상의 collection cohort가 존재하거나 네 arm의 Git commit이 다름
+- arm 안에 둘 이상의 collection cohort가 존재하거나 네 arm의 strategy source digest가 다름
 - 한 event를 제거하면 edge 소멸
 - strict audit CRITICAL/HIGH 존재
 - drawdown 영구 latch가 손상됐거나 trip 시각 이후 신규 BUY가 존재
@@ -323,7 +323,7 @@ Primary B가 아래를 모두 충족할 때만 이 상태를 열 수 있다.
 - 10.4bps stress lower CI>0
 - early/late 양수
 - quote coverage≥90%
-- arm별 단일 cohort와 네 arm의 shared Git commit
+- arm별 단일 cohort와 네 arm의 shared strategy source digest
 - strict evidence gate 통과
 
 이는 live가 아니다. 다음 단계에서 depth, queue, latency, exact confirmed fill, fee/role,

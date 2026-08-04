@@ -679,7 +679,7 @@ class TradeRepository:
         current = self.session.execute(
             text(
                 """
-                SELECT config_hash, git_commit, mode, job_name, status
+                SELECT config_hash, mode, job_name, status
                 FROM run_audits
                 WHERE run_id = :run_id
                   AND strategy_name = 'golden-kiwi'
@@ -708,11 +708,9 @@ class TradeRepository:
                   AND entry_run.strategy_name = 'golden-kiwi'
                   AND terminal_run.strategy_name = 'golden-kiwi'
                   AND entry_run.config_hash = :config_hash
-                  AND entry_run.git_commit = :git_commit
                   AND entry_run.mode = :mode
                   AND entry_run.job_name = :job_name
                   AND terminal_run.config_hash = :config_hash
-                  AND terminal_run.git_commit = :git_commit
                   AND terminal_run.mode = :mode
                   AND terminal_run.job_name = :job_name
                 ORDER BY terminal_at, trades.id
@@ -720,7 +718,6 @@ class TradeRepository:
             ),
             {
                 "config_hash": current["config_hash"],
-                "git_commit": current["git_commit"],
                 "mode": current["mode"],
                 "job_name": current["job_name"],
             },
@@ -1194,7 +1191,7 @@ class TradeRepository:
         current = self.session.execute(
             text(
                 """
-                SELECT config_hash, git_commit, mode, job_name, status
+                SELECT config_hash, mode, job_name, status
                 FROM run_audits
                 WHERE run_id = :run_id
                   AND strategy_name = 'golden-kiwi'
@@ -1228,7 +1225,6 @@ class TradeRepository:
                           snapshots.run_id <> :run_id
                           AND runs.status = 'SUCCESS'
                           AND runs.config_hash = :config_hash
-                          AND runs.git_commit = :git_commit
                           AND runs.mode = :mode
                           AND runs.job_name = :job_name
                       )
@@ -1241,7 +1237,6 @@ class TradeRepository:
                 "since": since,
                 "run_id": run_id,
                 "config_hash": current["config_hash"],
-                "git_commit": current["git_commit"],
                 "mode": current["mode"],
                 "job_name": current["job_name"],
             },

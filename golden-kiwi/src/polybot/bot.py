@@ -116,11 +116,12 @@ class PolymarketBot:
                     session.close()
         logger.info(
             "Micro-Cascade bot 초기화 - job=%s simulation=%s lifecycle=%s "
-            "arm=%s",
+            "arm=%s source_cohort=%s git_commit=provenance_only",
             config.job_name,
             config.simulation_mode,
             config.trading.lifecycle_mode,
             config.trading.arm_name,
+            config.trading.strategy_source_digest[:12],
         )
 
     def _log_strategy_config(self) -> None:

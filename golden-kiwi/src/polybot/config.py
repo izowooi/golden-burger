@@ -18,6 +18,8 @@ from polybot_observability.config_contract import (
 )
 import yaml
 
+from .source_digest import compute_strategy_source_digest
+
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 ALLOWED_CONFIRMATION_STEPS = frozenset({3, 5})
@@ -42,7 +44,8 @@ PREREGISTRATION_SHA256 = (
 )
 EXPERIMENT_WINDOW_DAYS = 30
 EXPECTED_CADENCE_MINUTES = 5
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = SOURCE_PROJECT_ROOT
 CANONICAL_JOB_ARMS = {
     "kiwi-sim-a-3x1": (3, 0.01, "A"),
     "kiwi-sim-b-3x2": (3, 0.02, "B"),
@@ -184,6 +187,7 @@ class TradingConfig:
     depth_price_window: float = 0.01
     depth_safety_multiple: float = 1.20
     yes_only_mode: bool = True
+    strategy_source_digest: str = ""
     entry: MicroCascadeEntryConfig = field(default_factory=MicroCascadeEntryConfig)
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     excluded_categories: List[str] = field(
@@ -760,6 +764,7 @@ def load_config(
             1.20,
         ),
         yes_only_mode=resolved_yes_only,
+        strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

@@ -222,7 +222,7 @@ max new positions per cycle    = 1
 event reentry cooldown         = 6h
 ```
 
-같은 `config_hash × git_commit × mode × job_name`의 SUCCESS entry/terminal run에
+같은 `config_hash × strategy_source_digest × mode × job_name`의 SUCCESS entry/terminal run에
 연결된 finite `hypothetical_pnl + settlement_pnl_assumption`만 시간순으로 합산한다.
 현재 합계가 회복됐더라도 경로 중 최초 -$20 crossing이 있으면 이후 신규 simulation BUY를
 차단한다. 이 평가는 후보 유무와 무관하게 cycle 시작에 실행된다.
@@ -272,7 +272,7 @@ Primary B는 낙관적인 과거 계산에서도 표본·CI·전반/후반 gate�
 
 ## 11. 다음 30일 독립 검정
 
-네 job은 같은 Git commit, 같은 고정 UTC 30일 반개구간, 명시적 5분 schedule을
+네 job은 같은 strategy source digest, 같은 고정 UTC 30일 반개구간, 명시적 5분 schedule을
 사용하되 별도 job name·offset·SQLite를 쓴다.
 
 | arm | job | 처치값 | trigger / offset |
@@ -290,7 +290,7 @@ decision은 `collection_eligible=0`이다. 일부만 설정하거나, 같은 DB�
 
 분석 시 실제 SUCCESS run 시각이 전체 expected slot의 90% 이상인지 계산한다. 실제 gap
 3~10분을 만족한 persisted lineage만 signal로 인정한다. lineage 전체는 같은
-`config_hash × git_commit × mode × job_name`이어야 하며, 현재 run의 마지막 row와
+`config_hash × strategy_source_digest × mode × job_name`이어야 하며, 현재 run의 마지막 row와
 이전 SUCCESS/cursor-complete row만 허용한다. 정규 offset 밖의 SUCCESS run 또는 같은
 slot의 중복 SUCCESS run은 primary signal과 follow-up에서 제외하며, 존재 자체가 cadence
 contract 실패이므로 promotion을 fail-closed한다.
@@ -305,7 +305,7 @@ contract 실패이므로 promotion을 fail-closed한다.
 4. 10.4bps cost stress 후 98.75% lower CI > 0
 5. predeclared early/late half 모두 양수
 6. earliest valid +60~75m target/quote coverage ≥ 90%
-7. arm별 collection cohort가 정확히 하나이고 네 arm의 Git commit이 동일
+7. arm별 collection cohort가 정확히 하나이고 네 arm의 strategy source digest가 동일
 8. run/sweep/catalog/lineage provenance와 고정 30일 5분 run cadence coverage 충족
 9. strict retro audit CRITICAL/HIGH = 0이며 audit `database_sha256`과 분석 DB가 일치
 

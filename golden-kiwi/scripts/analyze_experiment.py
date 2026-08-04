@@ -282,17 +282,22 @@ class AnalysisContractError(RuntimeError):
 @dataclass(frozen=True)
 class Cohort:
     config_hash: str
-    git_commit: str
+    strategy_source_digest: str
     mode: str
     job_name: str
 
     def key(self) -> tuple[str, str, str, str]:
-        return (self.config_hash, self.git_commit, self.mode, self.job_name)
+        return (
+            self.config_hash,
+            self.strategy_source_digest,
+            self.mode,
+            self.job_name,
+        )
 
     def as_dict(self) -> dict[str, str]:
         return {
             "config_hash": self.config_hash,
-            "git_commit": self.git_commit,
+            "strategy_source_digest": self.strategy_source_digest,
             "mode": self.mode,
             "job_name": self.job_name,
         }
@@ -519,16 +524,22 @@ def _cohort_for_run(
         return None, "run_wrong_job"
     if run["mode"] != "sim":
         return None, "run_not_simulation"
-    if not str(run["git_commit"] or "").strip() or run["git_commit"] == "unknown":
-        return None, "run_git_unknown"
     config = configs.get(str(run["config_hash"]))
     reason = _canonical_config_reason(config, expected)
     if reason is not None:
         return None, reason
+    payload = json.loads(str(config["config_json"]))
+    source_digest = str(payload["trading"].get("strategy_source_digest") or "")
+    try:
+        digest_valid = len(source_digest) == 64 and int(source_digest, 16) >= 0
+    except ValueError:
+        digest_valid = False
+    if not digest_valid:
+        return None, "config_missing_strategy_source_digest"
     return (
         Cohort(
             config_hash=str(run["config_hash"]),
-            git_commit=str(run["git_commit"]),
+            strategy_source_digest=source_digest,
             mode=str(run["mode"]),
             job_name=str(run["job_name"]),
         ),
@@ -1278,10 +1289,12 @@ def _analyze_experiment_legacy(
         arm: analyze_arm(arm, normalized[arm], start=start, end=end)
         for arm in CANONICAL_ARMS
     }
-    git_commits = {
-        cohort["git_commit"] for result in arms.values() for cohort in result["cohorts"]
+    source_digests = {
+        cohort["strategy_source_digest"]
+        for result in arms.values()
+        for cohort in result["cohorts"]
     }
-    shared_git_commit = len(git_commits) == 1 and all(
+    shared_source_digest = len(source_digests) == 1 and all(
         result["cohort_count"] == 1 for result in arms.values()
     )
 
@@ -1295,12 +1308,12 @@ def _analyze_experiment_legacy(
         "single_cohort_per_arm": _check(
             {arm: result["cohort_count"] for arm, result in arms.items()},
             all(result["cohort_count"] == 1 for result in arms.values()),
-            "one config_hash × git_commit × mode × job cohort per arm",
+            "one config_hash × strategy_source_digest × mode × job cohort per arm",
         ),
-        "shared_git_commit": _check(
-            sorted(git_commits),
-            shared_git_commit,
-            "all four arms use one shared Git commit",
+        "shared_strategy_source_digest": _check(
+            sorted(source_digests),
+            shared_source_digest,
+            "all four arms use one strategy-relevant source digest",
         ),
         "raw_counterfactual_signals": _check(
             None,
@@ -1386,8 +1399,8 @@ def _analyze_experiment_legacy(
             "must_not_be_used_as_raw_denominator": True,
         },
         "experiment_contract": {
-            "shared_git_commit": shared_git_commit,
-            "git_commits": sorted(git_commits),
+            "shared_strategy_source_digest": shared_source_digest,
+            "strategy_source_digests": sorted(source_digests),
         },
         "primary_b_gate": {
             "passed": passed,
@@ -2528,10 +2541,12 @@ def _analyze_experiment_v2(
         for arm in CANONICAL_ARMS
     }
     primary = arms["B"]
-    git_commits = {
-        cohort["git_commit"] for result in arms.values() for cohort in result["cohorts"]
+    source_digests = {
+        cohort["strategy_source_digest"]
+        for result in arms.values()
+        for cohort in result["cohorts"]
     }
-    shared_git = len(git_commits) == 1 and all(
+    shared_source = len(source_digests) == 1 and all(
         result["cohort_count"] == 1 for result in arms.values()
     )
     contract_evidence_complete = (
@@ -2541,7 +2556,7 @@ def _analyze_experiment_v2(
             and result["cadence"]["valid"]
             for result in arms.values()
         )
-        and shared_git
+        and shared_source
     )
     checks = {
         "canonical_mapping_and_immutable_contract": _check(
@@ -2568,10 +2583,10 @@ def _analyze_experiment_v2(
             all(result["cadence"]["coverage"] >= 0.90 for result in arms.values()),
             "each arm covers at least 90% of predeclared 5-minute UTC slots",
         ),
-        "shared_git_commit": _check(
-            sorted(git_commits),
-            shared_git,
-            "all four arms have exactly one cohort and one shared Git commit",
+        "shared_strategy_source_digest": _check(
+            sorted(source_digests),
+            shared_source,
+            "all four arms have one cohort and one shared strategy source digest",
         ),
         "raw_counterfactual_signals": _check(
             primary["quote_complete_signals"],
@@ -2622,7 +2637,7 @@ def _analyze_experiment_v2(
             "canonical_mapping_and_immutable_contract",
             "strict_audits",
             "cadence_coverage",
-            "shared_git_commit",
+            "shared_strategy_source_digest",
         }
     ]
     passed = contract_evidence_complete and all(
@@ -2659,8 +2674,8 @@ def _analyze_experiment_v2(
         },
         "experiment_contract": {
             "promotion_evidence_complete": contract_evidence_complete,
-            "shared_git_commit": shared_git,
-            "git_commits": sorted(git_commits),
+            "shared_strategy_source_digest": shared_source,
+            "strategy_source_digests": sorted(source_digests),
         },
         "primary_b_gate": {
             "passed": passed,
