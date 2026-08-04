@@ -46,6 +46,9 @@ $5 / 0.93 = 5.38 shares  → 5.0 + 0.1 buffer 충족
 
 ## 설치와 검증
 
+아래 검증은 배포 직후 **한 번만** 실행한다. 5분 주기 Jenkins shell에서 매번 `pytest`와
+`--extra dev`를 실행할 필요는 없다.
+
 ```bash
 cd golden-blueberry
 uv sync --frozen --extra dev
@@ -57,6 +60,105 @@ uv run polybot status --simulate --job blueberry-sim-a-2pp
 
 `config`와 `status`에도 실행 모드를 지정한다. `--live`면 `trades.db`, `--simulate`면
 `trades_sim.db`를 본다. 모드 없이 `run`하면 안전하게 simulation이다.
+
+## A/B simulation Jenkins shell
+
+질문에 제시한 두 shell은 방향은 맞지만 다음 세 가지를 고쳐야 한다.
+
+1. simulation은 계좌를 쓰지 않으므로 private key, funder address, signature type을 넣지 않는다.
+2. B의 runtime job은 `blueberry-sim-**b**-5pp`여야 한다. job 이름 자체가 처치를 바꾸지는
+   않지만 DB와 결과 파일을 식별하는 계약이다.
+3. 정기 실행에서는 `uv sync --frozen`과 `config/run/status`만 실행한다. 테스트는 위의
+   1회 preflight에서 수행한다.
+
+A job:
+
+```bash
+#!/bin/bash
+set +x
+set -euo pipefail
+
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+
+export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=150
+export POLYBOT_MIN_SURGE=0.02
+RUNTIME_JOB=blueberry-sim-a-2pp
+
+cd ./golden-blueberry
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config --simulate \
+  --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot run --simulate \
+  --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot status --simulate \
+  --job "${RUNTIME_JOB}"
+```
+
+B job은 아래 두 줄만 다르고 나머지는 A와 같아야 한다.
+
+```bash
+export POLYBOT_MIN_SURGE=0.05
+RUNTIME_JOB=blueberry-sim-b-5pp
+```
+
+명령의 `--job` 세 곳에 모두 같은 `${RUNTIME_JOB}`을 쓰므로 오타를 줄일 수 있다. 과거
+Nectarine을 실행하던 Jenkins workspace라도 위처럼 새로운 runtime job을 쓰면 Blueberry는
+`data/blueberry-sim-*/trades_sim.db`에 기록하므로 기존 DB와 섞이지 않는다.
+
+## 계좌 없는 Research Shadow
+
+`archive_only`는 시장 snapshot만 저장한다. 반면 새 `--shadow`는 실제 계좌와 주문 없이
+최초 0.85 교차를 다음 고정 2×2 grid로 동시에 추적한다.
+
+| 축 | 값 |
+|---|---|
+| 최소 연속 급등 | `2%p`, `5%p` |
+| 진입 horizon | `72h`, `168h` |
+| 공통 진입 | 동일한 0.85~0.93 band, 유동성·거래량, fresh ask/spread/depth |
+| 가상 청산 | first observed `bid>=0.97`, `YES<=0.78` 시 fresh bid, 또는 proven resolution |
+
+각 최초 교차는 `shadow_signals` 네 행으로 확장된다. 처치상 진입했을 행은 `OPEN`, 처치
+때문에 제외됐지만 실행 가능했던 행은 `COUNTERFACTUAL_OPEN`으로 추적한다. 종결 후에는
+`MISSED_PROFIT`과 `AVOIDED_LOSS`도 구분한다. `shadow_observations`에는 매 cycle의 가격,
+fresh bid, 거래량·유동성, 당시 `endDate`/entry deadline이 남으므로 end date 변경도 나중에
+복원할 수 있다.
+
+Shadow 수익은 **가상 gross P&L이며 fee를 포함하지 않는다.** 실제 주문, `trades` 행,
+`order_submissions`는 만들지 않으며 독립 DB
+`data/blueberry-shadow-research/shadow.db`를 쓴다. 공개 Gamma/CLOB 조회만 사용하므로
+private key와 funder address가 없어야 정상이다.
+
+Jenkins의 Build periodically는 Shadow 한 job만 돌리므로 `H/5 * * * *`를 사용할 수 있다.
+
+```bash
+#!/bin/bash
+set +x
+set -euo pipefail
+
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+
+export LOG_LEVEL=INFO
+
+cd ./golden-blueberry
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config --shadow \
+  --job blueberry-shadow-research
+/Users/jongwoopark/.local/bin/uv run polybot run --shadow \
+  --job blueberry-shadow-research
+/Users/jongwoopark/.local/bin/uv run polybot status --shadow \
+  --job blueberry-shadow-research
+```
+
+`--shadow`가 `simulation=true`, `lifecycle=shadow_only`, `shadow.db`를 함께 강제하므로
+`POLYBOT_LIFECYCLE_MODE`나 `POLYBOT_MIN_SURGE`를 이 job에 설정하지 않는다. `--shadow`와
+`--live`는 동시에 사용할 수 없다.
 
 ## 권장 A/B 실거래
 
@@ -121,7 +223,7 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `15` | 연속 관측 허용 간격 |
 | `POLYBOT_ALLOW_IN_PLAY` | `true` | 스포츠 경기 중 진입 허용 |
 | `POLYBOT_MAX_IN_PLAY_MINUTES` | `360` | kickoff 뒤 최대 후보 시간 |
-| `POLYBOT_LIFECYCLE_MODE` | `active` | `active`, `close_only`, `archive_only` |
+| `POLYBOT_LIFECYCLE_MODE` | `active` | `active`, `close_only`, `archive_only`, `shadow_only` |
 | `POLYBOT_EXCLUDED_CATEGORIES` | 빈 목록 | exact tag 제외; 기본은 스포츠 포함 |
 | `POLYMARKET_SIGNATURE_TYPE` | 계정별 | `3`=POLY_1271, `1`=legacy POLY_PROXY |
 
@@ -131,12 +233,16 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 `close_only`는 archive/reconciliation/청산을 유지하고 신규 BUY만 막는다. `archive_only`는
 주문 lifecycle mutation 없이 archive만 수집한다. 계좌나 전략을 종료할 때는 임의로 DB 상태를
 바꾸지 말고 [strategy-wind-down-playbook.md](../docs/strategy-wind-down-playbook.md)를 따른다.
+`shadow_only`는 직접 env로 쓰기보다 `--shadow`로 실행해야 simulation 전용 DB 계약까지 함께
+적용된다.
 
 ## 어떤 데이터가 남는가
 
 - `market_snapshots`, `market_catalog`, `market_sweeps`: point-in-time 시장과 sweep 완전성
 - `entry_signal_decisions`: **주문하지 않은 최초 교차도** arm, 상승폭, 시간, 유동성,
   거래량과 signal/metadata 거절 이유를 함께 저장
+- `shadow_signals`, `shadow_observations`: 2×2 treatment별 가상 진입/종결과 광범위한
+  가격·deadline 경로. 실제 체결 성과와 합산하지 않음
 - fresh-book 거절 상세: sanitization된 실행 로그에 기록하고, DB에서는
   candidate→submitted attrition으로 함께 대사
 - `strategy_configs`, `run_audits`: resolved config와 run 결과

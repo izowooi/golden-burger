@@ -5,7 +5,6 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
 import json
-import os
 import logging
 import math
 from contextlib import contextmanager
@@ -213,19 +212,31 @@ class ClobClientWrapper:
         try:
             from py_clob_client_v2 import ClobClient
 
-            self._client = ClobClient(
-                host=self.HOST,
-                key=self.config.private_key,
-                chain_id=self.config.chain_id,
-                signature_type=self.config.signature_type,
-                funder=self.config.funder_address,
-            )
+            if self.simulation_mode:
+                # Midpoint, price and order-book endpoints are public.  A
+                # simulation/shadow run must therefore never require, derive,
+                # or transmit wallet credentials merely to observe a market.
+                self._client = ClobClient(
+                    host=self.HOST,
+                    chain_id=self.config.chain_id,
+                )
+            else:
+                self._client = ClobClient(
+                    host=self.HOST,
+                    key=self.config.private_key,
+                    chain_id=self.config.chain_id,
+                    signature_type=self.config.signature_type,
+                    funder=self.config.funder_address,
+                )
 
-            # Create or derive API credentials (v2: create_or_derive_api_key)
-            api_creds = self._client.create_or_derive_api_key()
-            self._client.set_api_creds(api_creds)
+                # Create or derive API credentials only for live order paths.
+                api_creds = self._client.create_or_derive_api_key()
+                self._client.set_api_creds(api_creds)
             self._initialized = True
-            logger.info("CLOB client 초기화 완료 (v2)")
+            logger.info(
+                "CLOB client 초기화 완료 (v2, %s)",
+                "public-read-only" if self.simulation_mode else "authenticated",
+            )
 
         except Exception as e:
             logger.error(f"CLOB client 초기화 실패: {e}")

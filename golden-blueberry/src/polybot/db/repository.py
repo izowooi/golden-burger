@@ -28,6 +28,8 @@ from .models import (
     MarketSnapshot,
     MarketSweep,
     MarketSweepMembership,
+    ShadowObservation,
+    ShadowSignal,
     SkippedMarket,
     Trade,
     TradeStatus,
@@ -179,6 +181,83 @@ class TradeRepository:
         if commit:
             self.session.commit()
         return decision
+
+    def get_shadow_signal(
+        self,
+        condition_id: str,
+        min_surge: float,
+        horizon_hours: float,
+    ) -> Optional[ShadowSignal]:
+        return (
+            self.session.query(ShadowSignal)
+            .filter(
+                ShadowSignal.condition_id == condition_id,
+                ShadowSignal.min_surge == float(min_surge),
+                ShadowSignal.horizon_hours == float(horizon_hours),
+            )
+            .one_or_none()
+        )
+
+    def record_shadow_signal(
+        self, *, commit: bool = True, **kwargs
+    ) -> tuple[ShadowSignal, bool]:
+        """Persist one fixed-grid Shadow treatment row idempotently."""
+        existing = self.get_shadow_signal(
+            str(kwargs.get("condition_id") or ""),
+            float(kwargs.get("min_surge")),
+            float(kwargs.get("horizon_hours")),
+        )
+        if existing is not None:
+            return existing, False
+        signal = ShadowSignal(**kwargs)
+        self.session.add(signal)
+        self.session.flush()
+        if commit:
+            self.session.commit()
+        return signal, True
+
+    def record_shadow_observation(
+        self, *, commit: bool = True, **kwargs
+    ) -> tuple[ShadowObservation, bool]:
+        """Persist at most one Shadow path observation per run/condition."""
+        run_id = str(kwargs.get("run_id") or "")
+        condition_id = str(kwargs.get("condition_id") or "")
+        existing = (
+            self.session.query(ShadowObservation)
+            .filter(
+                ShadowObservation.run_id == run_id,
+                ShadowObservation.condition_id == condition_id,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            return existing, False
+        observation = ShadowObservation(**kwargs)
+        self.session.add(observation)
+        self.session.flush()
+        if commit:
+            self.session.commit()
+        return observation, True
+
+    def get_open_shadow_signals(
+        self, condition_id: Optional[str] = None
+    ) -> List[ShadowSignal]:
+        query = self.session.query(ShadowSignal).filter(
+            ShadowSignal.status.in_(("OPEN", "COUNTERFACTUAL_OPEN"))
+        )
+        if condition_id is not None:
+            query = query.filter(ShadowSignal.condition_id == condition_id)
+        return query.order_by(ShadowSignal.id.asc()).all()
+
+    def get_watched_shadow_condition_ids(self) -> List[str]:
+        return [
+            str(row[0])
+            for row in self.session.query(ShadowSignal.condition_id)
+            .filter(ShadowSignal.status.in_(("OPEN", "COUNTERFACTUAL_OPEN")))
+            .distinct()
+            .order_by(ShadowSignal.condition_id.asc())
+            .all()
+        ]
 
     def update_trade(self, trade_id: int, **kwargs) -> Trade:
         trade = self.session.get(Trade, trade_id)
@@ -926,6 +1005,18 @@ class TradeRepository:
         self.session.execute(
             text(
                 "INSERT OR IGNORE INTO _polybot_blueberry_protected_snapshots(id) "
+                "SELECT prior_snapshot_id FROM shadow_signals"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_blueberry_protected_snapshots(id) "
+                "SELECT current_snapshot_id FROM shadow_signals"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_blueberry_protected_snapshots(id) "
                 "SELECT prior_id FROM ("
                 "SELECT (SELECT prior.id FROM market_snapshots AS prior "
                 "WHERE prior.condition_id = entry.condition_id AND ("
@@ -961,6 +1052,9 @@ class TradeRepository:
             self.session.query(MarketSweep).filter(
                 MarketSweep.sweep_id.in_(expired_sweeps)
             ).delete(synchronize_session=False)
+        self.session.query(ShadowObservation).filter(
+            ShadowObservation.observed_at < cutoff
+        ).delete(synchronize_session=False)
         self.session.commit()
         return max(0, int(deleted or 0))
 
@@ -989,6 +1083,33 @@ class TradeRepository:
             .scalar()
             or 0.0
         )
+        shadow_entered_gross = (
+            self.session.query(func.sum(ShadowSignal.hypothetical_gross_pnl))
+            .filter(
+                ShadowSignal.entry_decision == "ENTERED",
+                ShadowSignal.hypothetical_gross_pnl.isnot(None),
+            )
+            .scalar()
+            or 0.0
+        )
+        shadow_counterfactual_gross = (
+            self.session.query(func.sum(ShadowSignal.hypothetical_gross_pnl))
+            .filter(
+                ShadowSignal.entry_decision == "REJECTED_TREATMENT",
+                ShadowSignal.hypothetical_gross_pnl.isnot(None),
+            )
+            .scalar()
+            or 0.0
+        )
+
+        def shadow_count(*, status: Optional[str] = None, classification: Optional[str] = None) -> int:
+            query = self.session.query(func.count(ShadowSignal.id))
+            if status is not None:
+                query = query.filter(ShadowSignal.status == status)
+            if classification is not None:
+                query = query.filter(ShadowSignal.classification == classification)
+            return query.scalar() or 0
+
         return {
             "total_trades": self.session.query(func.count(Trade.id)).scalar() or 0,
             "holding": count(TradeStatus.HOLDING),
@@ -1001,6 +1122,26 @@ class TradeRepository:
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
             "entry_signal_decisions": (
                 self.session.query(func.count(EntrySignalDecision.id)).scalar() or 0
+            ),
+            "shadow_signals": shadow_count(),
+            "shadow_open": shadow_count(status="OPEN"),
+            "shadow_counterfactual_open": shadow_count(
+                status="COUNTERFACTUAL_OPEN"
+            ),
+            "shadow_closed": shadow_count(status="CLOSED"),
+            "shadow_not_executable": shadow_count(status="NOT_EXECUTABLE"),
+            "shadow_observations": (
+                self.session.query(func.count(ShadowObservation.id)).scalar() or 0
+            ),
+            "shadow_missed_profit": shadow_count(
+                classification="MISSED_PROFIT"
+            ),
+            "shadow_avoided_loss": shadow_count(
+                classification="AVOIDED_LOSS"
+            ),
+            "shadow_entered_gross_pnl": round(shadow_entered_gross, 4),
+            "shadow_counterfactual_gross_pnl": round(
+                shadow_counterfactual_gross, 4
             ),
             "total_pnl": round(total_pnl, 4),
             "settlement_pnl_assumption": round(settlement_pnl, 4),

@@ -13,6 +13,11 @@ from .config import BotConfig
 from .db.models import init_database
 from .db.repository import TradeRepository
 from .strategy.scanner import MarketScanner
+from .strategy.shadow import (
+    SHADOW_HORIZONS_HOURS,
+    SHADOW_MIN_SURGES,
+    ShadowResearcher,
+)
 from .strategy.trader import Trader
 
 
@@ -38,7 +43,11 @@ class PolymarketBot:
         self.clob = ClobClientWrapper(
             config.api,
             config.simulation_mode,
-            audit_db_path=config.db_path,
+            audit_db_path=(
+                None
+                if config.trading.lifecycle_mode == "shadow_only"
+                else config.db_path
+            ),
             strategy_name="golden-blueberry",
             execution_mode=config.trading.execution_mode,
             intent_autoresolve=config.trading.intent_autoresolve,
@@ -49,7 +58,11 @@ class PolymarketBot:
             config.job_name,
             config.simulation_mode,
             config.trading.lifecycle_mode,
-            config.trading.ab_arm,
+            (
+                "shadow-grid"
+                if config.trading.lifecycle_mode == "shadow_only"
+                else config.trading.ab_arm
+            ),
             config.trading.strategy_source_digest[:12],
             config.trading.yes_only_mode,
         )
@@ -58,19 +71,31 @@ class PolymarketBot:
         trading = self.config.trading
         entry = trading.entry
         archive = trading.archive
-        logger.info(
-            "Closing Surge 전략 - prior YES < %.2f -> current YES [%.2f, %.2f], "
-            "surge >= %.3f, scheduled hours (%.1f, %.1f], "
-            "absolute target >= %.2f / stop <= %.2f",
-            entry.prob_min,
-            entry.prob_min,
-            entry.prob_max,
-            entry.min_surge,
-            entry.hours_min,
-            entry.hours_max,
-            entry.take_profit_price,
-            entry.stop_price,
-        )
+        if trading.lifecycle_mode == "shadow_only":
+            logger.info(
+                "Closing Surge Shadow - prior YES < %.2f -> current YES "
+                "[%.2f, %.2f], surge={0.02,0.05}, "
+                "scheduled horizons={72h,168h}, target >= %.2f / stop <= %.2f",
+                entry.prob_min,
+                entry.prob_min,
+                entry.prob_max,
+                entry.take_profit_price,
+                entry.stop_price,
+            )
+        else:
+            logger.info(
+                "Closing Surge 전략 - prior YES < %.2f -> current YES "
+                "[%.2f, %.2f], surge >= %.3f, scheduled hours (%.1f, %.1f], "
+                "absolute target >= %.2f / stop <= %.2f",
+                entry.prob_min,
+                entry.prob_min,
+                entry.prob_max,
+                entry.min_surge,
+                entry.hours_min,
+                entry.hours_max,
+                entry.take_profit_price,
+                entry.stop_price,
+            )
         logger.info(
             "실행 - fresh ask <= %.2f, spread <= %.3f, depth >= %.2fx; "
             "$%.2f, effective liquidity=$%.0f, volume24h=$%.0f",
@@ -107,12 +132,17 @@ class PolymarketBot:
         session = self.Session()
         repo = TradeRepository(session)
         scanner = MarketScanner(self.gamma, self.config.trading, repo)
-        trader = Trader(
-            repo,
-            self.clob,
-            self.config.trading,
-            gamma_client=self.gamma,
-            simulation_mode=self.config.simulation_mode,
+        lifecycle_mode = self.config.trading.lifecycle_mode
+        trader = (
+            None
+            if lifecycle_mode == "shadow_only"
+            else Trader(
+                repo,
+                self.clob,
+                self.config.trading,
+                gamma_client=self.gamma,
+                simulation_mode=self.config.simulation_mode,
+            )
         )
         stats = {
             "lifecycle_mode": self.config.trading.lifecycle_mode,
@@ -125,6 +155,9 @@ class PolymarketBot:
             "resolved": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "shadow_crossings": 0,
+            "shadow_signals_created": 0,
+            "shadow_observations_saved": 0,
         }
         try:
             self._log_strategy_config()
@@ -132,11 +165,26 @@ class PolymarketBot:
 
             logger.info("=== Phase 0: Closing Surge research archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
-            lifecycle_mode = self.config.trading.lifecycle_mode
 
-            if lifecycle_mode == "archive_only":
+            if lifecycle_mode == "shadow_only":
+                logger.info(
+                    "=== Phase 1: accountless Shadow 2%%p/5%%p x 72h/168h ==="
+                )
+                shadow = ShadowResearcher(
+                    repo,
+                    scanner,
+                    self.gamma,
+                    self.clob,
+                    self.config.trading,
+                )
+                stats.update(shadow.run(markets))
+                logger.warning(
+                    "shadow_only: Trade/order mutation 없이 가상 경로만 기록합니다"
+                )
+            elif lifecycle_mode == "archive_only":
                 logger.warning("archive_only: 주문 및 포지션 mutation을 건너뜁니다")
             else:
+                assert trader is not None
                 logger.info("=== Phase 1: exact BUY/SELL fill 및 exit 확인 ===")
                 pending_buys = repo.get_pending_buy_trades()
                 stats["pending_buys_checked"] = len(pending_buys)
@@ -173,6 +221,7 @@ class PolymarketBot:
                 )
 
             if lifecycle_mode == "active":
+                assert trader is not None
                 logger.info("=== Phase 2: threshold-crossing scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
@@ -199,7 +248,8 @@ class PolymarketBot:
             db_stats = repo.get_stats()
             logger.info(
                 "사이클 완료 - snapshots=%s checked=%s stop_sells=%s resolved=%s "
-                "signals=%s candidates=%s buys=%s holding=%s realized_pnl=$%.4f",
+                "signals=%s candidates=%s buys=%s holding=%s shadow=%s/%s "
+                "realized_pnl=$%.4f",
                 stats["snapshots_saved"],
                 stats["checked_holdings"],
                 stats["sold"],
@@ -208,6 +258,8 @@ class PolymarketBot:
                 stats["buy_candidates"],
                 stats["bought"],
                 db_stats["holding"],
+                db_stats.get("shadow_signals", 0),
+                db_stats.get("shadow_closed", 0),
                 db_stats["total_pnl"],
             )
             return stats
@@ -219,8 +271,18 @@ class PolymarketBot:
         audit = RunAudit.start(self.config, strategy_name="golden-blueberry")
         try:
             self.gamma.sweep_attestations.clear()
-            reconciliation = self.clob.reconcile_order_ledger()
-            log_reconciliation_continuity(reconciliation, logger=logger)
+            if self.config.trading.lifecycle_mode == "shadow_only":
+                reconciliation = {
+                    "checked": 0,
+                    "fills": 0,
+                    "completed": 0,
+                    "legacy_unavailable": 0,
+                    "errors": 0,
+                    "skipped": "shadow_only",
+                }
+            else:
+                reconciliation = self.clob.reconcile_order_ledger()
+                log_reconciliation_continuity(reconciliation, logger=logger)
             stats = self.run_cycle()
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()
             stats["order_reconciliation"] = reconciliation
@@ -242,9 +304,23 @@ class PolymarketBot:
                 "job_name": self.config.job_name,
                 "simulation_mode": self.config.simulation_mode,
                 "lifecycle_mode": trading.lifecycle_mode,
-                "ab_arm": trading.ab_arm,
+                "ab_arm": (
+                    None
+                    if trading.lifecycle_mode == "shadow_only"
+                    else trading.ab_arm
+                ),
                 "strategy_source_digest": trading.strategy_source_digest,
                 "db_path": str(self.config.db_path),
+                "shadow_grid": (
+                    {
+                        "min_surges": list(SHADOW_MIN_SURGES),
+                        "horizons_hours": list(SHADOW_HORIZONS_HOURS),
+                        "orders_enabled": False,
+                        "pnl_basis": "hypothetical_gross_fees_excluded",
+                    }
+                    if trading.lifecycle_mode == "shadow_only"
+                    else None
+                ),
                 "statistics": repo.get_stats(),
                 "holdings": [
                     {
@@ -283,7 +359,11 @@ class PolymarketBot:
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,
                     "yes_only_mode": trading.yes_only_mode,
-                    "ab_arm": trading.ab_arm,
+                    "ab_arm": (
+                        None
+                        if trading.lifecycle_mode == "shadow_only"
+                        else trading.ab_arm
+                    ),
                     "strategy_source_digest": trading.strategy_source_digest,
                     "entry": {
                         "prob_min": trading.entry.prob_min,

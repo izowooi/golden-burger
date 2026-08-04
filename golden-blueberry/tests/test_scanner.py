@@ -109,6 +109,19 @@ def test_crossed_strict_binary_market_preserves_gamma_event_identity():
     assert scanner.repo.signal_decisions[0]["decision"] == "candidate"
 
 
+def test_shadow_crossing_is_pre_treatment_and_does_not_write_ab_decision():
+    repo = PriorRepo(probability=0.849)
+    scanner = scanner_with_lineage(repo=repo)
+
+    crossings = scanner.scan_shadow_crossings([crossed_market()], now=NOW)
+
+    assert len(crossings) == 1
+    assert crossings[0]["condition_id"] == "condition-1"
+    assert crossings[0]["surge"] == pytest.approx(0.051)
+    assert crossings[0]["hours_left"] == pytest.approx(12.0)
+    assert repo.signal_decisions == []
+
+
 def test_crossed_market_without_event_id_fails_closed_and_is_counted(caplog):
     scanner = scanner_with_lineage()
 

@@ -23,6 +23,11 @@ def _parser() -> argparse.ArgumentParser:
     mode = run.add_mutually_exclusive_group()
     mode.add_argument("--simulate", "-s", action="store_true")
     mode.add_argument(
+        "--shadow",
+        action="store_true",
+        help="Run accountless 2%p/5%p x 72h/168h research into shadow.db",
+    )
+    mode.add_argument(
         "--live",
         action="store_true",
         help="Explicitly enable real CLOB orders (default is simulation)",
@@ -33,12 +38,14 @@ def _parser() -> argparse.ArgumentParser:
     status.add_argument("--job", "-j", default="default")
     status_mode = status.add_mutually_exclusive_group()
     status_mode.add_argument("--simulate", "-s", action="store_true")
+    status_mode.add_argument("--shadow", action="store_true")
     status_mode.add_argument("--live", action="store_true")
     config = commands.add_parser("config", help="Show resolved configuration")
     config.add_argument("--config", "-c", default="config.yaml")
     config.add_argument("--job", "-j", default="default")
     config_mode = config.add_mutually_exclusive_group()
     config_mode.add_argument("--simulate", "-s", action="store_true")
+    config_mode.add_argument("--shadow", action="store_true")
     config_mode.add_argument("--live", action="store_true")
     return parser
 
@@ -49,6 +56,7 @@ def _load(args, simulation_override=None):
             args.config,
             args.job,
             simulation_mode=simulation_override,
+            shadow_mode=bool(getattr(args, "shadow", False)),
         )
     except ValueError as error:
         print(f"Configuration error: {error}")
@@ -64,7 +72,7 @@ def _inspection_simulation_override(args: argparse.Namespace) -> bool | None:
     """Keep config/status pointed at the operator-selected runtime database."""
     if bool(args.live):
         return False
-    if bool(args.simulate):
+    if bool(args.simulate) or bool(getattr(args, "shadow", False)):
         return True
     return None
 
@@ -102,29 +110,35 @@ def main() -> None:
         return
 
     trading = config.trading
+    shadow_only = trading.lifecycle_mode == "shadow_only"
     print("=== Golden Blueberry / Closing Surge ===")
     print(f"Job: {config.job_name}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
+    if shadow_only:
+        print("Shadow grid: surge [2%p, 5%p] x horizon [72h, 168h]")
+        print("Shadow orders: disabled; hypothetical gross P&L, fees excluded")
     print(
         "Strategy source cohort: "
         f"{trading.strategy_source_digest[:12]} "
         "(Git commit is provenance only)"
     )
-    print(
-        f"A/B arm: {trading.ab_arm} "
-        f"(minimum consecutive surge {trading.entry.min_surge * 100:.0f}%p)"
-    )
+    if not shadow_only:
+        print(
+            f"A/B arm: {trading.ab_arm} "
+            f"(minimum consecutive surge {trading.entry.min_surge * 100:.0f}%p)"
+        )
     # 이 전략의 처치축과 안전장치는 반드시 프리플라이트에 보여야 한다.
     print(
         f"Execution Mode: {trading.execution_mode} (A/B 공통 고정)"
     )
-    print(
-        f"Drawdown kill switch: 경제손익(확정+해결추정) <= -$"
-        f"{trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f}"
-        f"  (실험자금 ${trading.experiment_capital_usdc:.2f}"
-        f" x {trading.max_drawdown_stop * 100:.0f}%) → 신규 진입 자동 차단"
-    )
+    if not shadow_only:
+        print(
+            f"Drawdown kill switch: 경제손익(확정+해결추정) <= -$"
+            f"{trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f}"
+            f"  (실험자금 ${trading.experiment_capital_usdc:.2f}"
+            f" x {trading.max_drawdown_stop * 100:.0f}%) → 신규 진입 자동 차단"
+        )
     print(f"Intent autoresolve: {trading.intent_autoresolve}")
     print(f"DB: {config.db_path}")
     print(f"YES-only (inherent): {trading.yes_only_mode}")
@@ -133,16 +147,23 @@ def main() -> None:
         f"{trading.entry.prob_min:.2f}, current YES "
         f"[{trading.entry.prob_min:.2f}, {trading.entry.prob_max:.2f}]"
     )
-    print(
-        "Consecutive surge: current - prior >= "
-        f"{trading.entry.min_surge:.3f} within "
-        f"{trading.max_snapshot_gap_minutes:.0f} minutes"
-    )
-    lower_bracket = "(" if trading.entry.hours_min == 0 else "["
-    print(
-        f"Entry hours: {lower_bracket}{trading.entry.hours_min:.1f}, "
-        f"{trading.entry.hours_max:.1f}]"
-    )
+    if shadow_only:
+        print(
+            "Consecutive surge grid: current - prior >= 0.020 / 0.050 "
+            f"within {trading.max_snapshot_gap_minutes:.0f} minutes"
+        )
+        print("Entry horizon grid: (0, 72h] / (0, 168h]; in-play is separate")
+    else:
+        print(
+            "Consecutive surge: current - prior >= "
+            f"{trading.entry.min_surge:.3f} within "
+            f"{trading.max_snapshot_gap_minutes:.0f} minutes"
+        )
+        lower_bracket = "(" if trading.entry.hours_min == 0 else "["
+        print(
+            f"Entry hours: {lower_bracket}{trading.entry.hours_min:.1f}, "
+            f"{trading.entry.hours_max:.1f}]"
+        )
     print(f"Absolute stop: current YES <= {trading.entry.stop_price:.2f}")
     print(
         "Absolute take profit: current YES >= "
@@ -158,13 +179,16 @@ def main() -> None:
         f"${trading.effective_min_liquidity:,.0f}, "
         f"24h volume >= ${trading.effective_min_volume_24h:,.0f}"
     )
-    print(
-        f"Limits: {trading.max_positions} total, "
-        f"{trading.max_event_positions} per event, "
-        f"${trading.max_open_notional_usdc:,.0f} open notional, "
-        f"{trading.max_new_positions_per_cycle}/cycle, "
-        f"{trading.reentry_cooldown_hours:.0f}h cooldown"
-    )
+    if shadow_only:
+        print("Limits: recorded as comparability metadata; no capital/position mutation")
+    else:
+        print(
+            f"Limits: {trading.max_positions} total, "
+            f"{trading.max_event_positions} per event, "
+            f"${trading.max_open_notional_usdc:,.0f} open notional, "
+            f"{trading.max_new_positions_per_cycle}/cycle, "
+            f"{trading.reentry_cooldown_hours:.0f}h cooldown"
+        )
     print(
         "Snapshot lineage: current run required, prior gap <= "
         f"{trading.max_snapshot_gap_minutes:.1f} minutes"

@@ -606,6 +606,128 @@ class MarketScanner:
         logger.info("Closing Surge 매수 후보 %s개 발견", len(candidates))
         return candidates
 
+    def scan_shadow_crossings(
+        self,
+        markets: List[Dict],
+        now: Optional[datetime] = None,
+    ) -> List[Dict]:
+        """Return first 0.85 crossings before treatment/horizon gates.
+
+        Shadow research expands each returned crossing into the fixed
+        2%p/5%p x 72h/168h grid.  This method intentionally does not write an
+        ``entry_signal_decisions`` row and never turns a research observation
+        into a trading candidate.
+        """
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is None:
+            reference = reference.replace(tzinfo=timezone.utc)
+        crossings: List[Dict] = []
+        rejected: Dict[str, int] = {}
+        for market in markets:
+            condition_id = str(market.get("conditionId") or "")
+            if not condition_id:
+                continue
+            yes = get_strict_binary_yes(market)
+            if not yes:
+                key = strict_binary_reason(market)
+                rejected[key] = rejected.get(key, 0) + 1
+                continue
+            if is_excluded_market(market, self.config.excluded_categories):
+                rejected["excluded_category"] = (
+                    rejected.get("excluded_category", 0) + 1
+                )
+                continue
+            current_probability = float(yes["probability"])
+            if (
+                current_probability < self.config.entry.prob_min - EPSILON
+                or current_probability > self.config.entry.prob_max + EPSILON
+            ):
+                rejected["outside_crossing_band"] = (
+                    rejected.get("outside_crossing_band", 0) + 1
+                )
+                continue
+            clock = evaluate_entry_clock(market, self.config.sports, reference)
+            if not clock.valid:
+                rejected[clock.reason] = rejected.get(clock.reason, 0) + 1
+                continue
+            prior, current_snapshot, lineage_reason = self._entry_snapshot_lineage(
+                condition_id,
+                current_probability,
+            )
+            if lineage_reason != "lineage_valid":
+                key = _reason_key(lineage_reason)
+                rejected[key] = rejected.get(key, 0) + 1
+                continue
+            prior_probability = float(prior.probability)
+            if not (
+                prior_probability < self.config.entry.prob_min - EPSILON
+                and current_probability >= self.config.entry.prob_min - EPSILON
+            ):
+                rejected["not_first_crossing"] = (
+                    rejected.get("not_first_crossing", 0) + 1
+                )
+                continue
+            current_timestamp = self._snapshot_timestamp(current_snapshot)
+            prior_timestamp = self._snapshot_timestamp(prior)
+            if current_timestamp is None or prior_timestamp is None:
+                rejected["snapshot_timestamp_invalid"] = (
+                    rejected.get("snapshot_timestamp_invalid", 0) + 1
+                )
+                continue
+            gap_minutes = (
+                current_timestamp - prior_timestamp
+            ).total_seconds() / 60.0
+            event = get_event_metadata(market)
+            end_date = parse_end_date(market.get("endDate"))
+            tags = market.get("tags") or []
+            crossings.append(
+                {
+                    "condition_id": condition_id,
+                    "question": market.get("question", ""),
+                    "event_id": event["event_id"],
+                    "event_slug": event["event_slug"],
+                    "token_id": yes["token_id"],
+                    "prior_snapshot_id": prior.id,
+                    "current_snapshot_id": current_snapshot.id,
+                    "prior_probability": prior_probability,
+                    "current_probability": current_probability,
+                    "surge": current_probability - prior_probability,
+                    "snapshot_gap_minutes": gap_minutes,
+                    "liquidity": current_snapshot.liquidity,
+                    "volume_24h": current_snapshot.volume_24h,
+                    "market_end_date": end_date,
+                    "hours_until_resolution": get_hours_until_resolution(
+                        end_date, reference
+                    ),
+                    "clock_reference": clock.reference,
+                    "entry_deadline": clock.deadline,
+                    "hours_left": clock.hours_left,
+                    "sports_phase": (
+                        clock.phase if clock.is_sports else "not_sports"
+                    ),
+                    "is_sports": clock.is_sports,
+                    "source_updated_at": market.get("updatedAt"),
+                    "market_tags": ", ".join(
+                        str(tag.get("label") or tag.get("slug") or "")
+                        for tag in tags
+                        if isinstance(tag, dict)
+                    ),
+                    "market": market,
+                }
+            )
+        if rejected:
+            logger.info(
+                "Shadow 최초 교차 제외 사유 - %s",
+                ", ".join(
+                    f"{key}: {value}"
+                    for key, value in sorted(
+                        rejected.items(), key=lambda item: (-item[1], item[0])
+                    )
+                ),
+            )
+        logger.info("Shadow first-crossing %s개 발견", len(crossings))
+        return crossings
+
     def check_current_price(self, token_id: str, clob_client) -> float:
         try:
             return clob_client.get_midpoint(token_id)

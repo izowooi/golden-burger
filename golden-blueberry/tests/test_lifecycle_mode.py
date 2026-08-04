@@ -107,6 +107,44 @@ def test_archive_only_persists_research_without_reading_or_writing_orders(
     session.close.assert_called_once()
 
 
+def test_shadow_only_uses_research_engine_without_constructing_trader_or_orders(
+    monkeypatch, tmp_path
+):
+    bot, scanner, _trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "shadow_only", []
+    )
+    bot.config.simulation_mode = True
+    shadow = MagicMock()
+    shadow.run.return_value = {
+        "shadow_crossings": 1,
+        "shadow_signals_created": 4,
+        "shadow_observations_saved": 1,
+    }
+    trader_factory = MagicMock(
+        side_effect=AssertionError("shadow_only must not construct Trader")
+    )
+    monkeypatch.setattr(bot_module, "Trader", trader_factory)
+    monkeypatch.setattr(
+        bot_module,
+        "ShadowResearcher",
+        MagicMock(return_value=shadow),
+    )
+    repo.get_holding_trades.side_effect = AssertionError(
+        "shadow_only must not read trading positions"
+    )
+
+    stats = bot.run_cycle()
+
+    assert stats["shadow_signals_created"] == 4
+    trader_factory.assert_not_called()
+    shadow.run.assert_called_once()
+    scanner.scan_buy_candidates.assert_not_called()
+    repo.get_pending_buy_trades.assert_not_called()
+    repo.get_pending_sell_trades.assert_not_called()
+    repo.get_holding_trades.assert_not_called()
+    session.close.assert_called_once()
+
+
 def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     bot, scanner, trader, repo, session, _gamma = _build_bot(
         monkeypatch, tmp_path, "active", []

@@ -18,6 +18,7 @@ def test_only_explicit_live_flag_disables_simulation():
 
     assert _run_simulation_override(parser.parse_args(["run", "--simulate"])) is True
     assert _run_simulation_override(parser.parse_args(["run", "--live"])) is False
+    assert _run_simulation_override(parser.parse_args(["run", "--shadow"])) is True
 
 
 def test_config_and_status_can_select_the_same_runtime_database():
@@ -30,3 +31,6 @@ def test_config_and_status_can_select_the_same_runtime_database():
         parser.parse_args(["status", "--simulate"])
     ) is True
     assert _inspection_simulation_override(parser.parse_args(["status"])) is None
+    assert _inspection_simulation_override(
+        parser.parse_args(["config", "--shadow"])
+    ) is True

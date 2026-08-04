@@ -204,6 +204,22 @@ def test_simulation_and_live_databases_are_isolated_by_job():
     assert len({sim.db_path, live.db_path, another.db_path}) == 3
 
 
+def test_shadow_mode_is_accountless_simulation_with_dedicated_database(monkeypatch):
+    shadow = load_config(
+        "missing.yaml",
+        "blueberry-shadow-research",
+        shadow_mode=True,
+    )
+
+    assert shadow.simulation_mode is True
+    assert shadow.trading.lifecycle_mode == "shadow_only"
+    assert shadow.db_path.name == "shadow.db"
+    assert shadow.api.private_key == ""
+    assert shadow.api.funder_address == ""
+    with pytest.raises(ValueError, match="simulation-only"):
+        load_config("missing.yaml", shadow_mode=True, simulation_mode=False)
+
+
 def test_missing_yaml_defaults_to_simulation_but_explicit_cli_can_enable_live():
     safe_default = load_config("missing.yaml", "safe-default")
     explicit_live = load_config(

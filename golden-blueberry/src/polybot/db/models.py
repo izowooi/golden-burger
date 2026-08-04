@@ -283,6 +283,116 @@ class EntrySignalDecision(Base):
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
+class ShadowSignal(Base):
+    """One immutable treatment row for an accountless Shadow crossing.
+
+    A single first crossing expands into a fixed 2x2 research grid:
+    minimum surge 2%p/5%p by entry horizon 72h/168h.  Rows never represent an
+    exchange order.  Executable rows carry a hypothetical entry price/size and
+    are followed until the first observed target, stop, or proven resolution.
+    """
+
+    __tablename__ = "shadow_signals"
+    __table_args__ = (
+        UniqueConstraint(
+            "condition_id",
+            "min_surge",
+            "horizon_hours",
+            name="uq_shadow_signal_condition_treatment",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String, nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, index=True)
+    question = Column(String)
+    token_id = Column(String)
+
+    prior_snapshot_id = Column(Integer, nullable=False)
+    current_snapshot_id = Column(Integer, nullable=False)
+    prior_probability = Column(Float, nullable=False)
+    current_probability = Column(Float, nullable=False)
+    fresh_midpoint = Column(Float)
+    surge = Column(Float, nullable=False)
+    snapshot_gap_minutes = Column(Float, nullable=False)
+
+    min_surge = Column(Float, nullable=False)
+    horizon_hours = Column(Float, nullable=False)
+    stop_price = Column(Float, nullable=False)
+    take_profit_price = Column(Float, nullable=False)
+    entry_decision = Column(String, nullable=False)
+    entry_reason = Column(String, nullable=False)
+    status = Column(String, nullable=False, index=True)
+
+    clock_reference = Column(String)
+    sports_phase = Column(String)
+    is_sports = Column(Integer, nullable=False, default=0)
+    entry_deadline = Column(DateTime)
+    hours_left_at_signal = Column(Float)
+    market_end_date = Column(DateTime)
+    hours_until_resolution_at_signal = Column(Float)
+    liquidity_at_signal = Column(Float)
+    volume_24h_at_signal = Column(Float)
+
+    best_bid_at_entry = Column(Float)
+    best_ask_at_entry = Column(Float)
+    spread_at_entry = Column(Float)
+    ask_depth_shares_at_entry = Column(Float)
+    entry_limit_price = Column(Float)
+    hypothetical_notional = Column(Float)
+    hypothetical_shares = Column(Float)
+
+    first_observed_at = Column(DateTime, nullable=False, index=True)
+    last_observed_at = Column(DateTime, nullable=False)
+    min_probability = Column(Float)
+    max_probability = Column(Float)
+    min_best_bid = Column(Float)
+    max_best_bid = Column(Float)
+
+    exit_observed_at = Column(DateTime)
+    exit_price = Column(Float)
+    exit_reason = Column(String)
+    resolution_outcome = Column(String)
+    resolution_value = Column(Float)
+    resolution_evidence = Column(String)
+    hypothetical_gross_pnl = Column(Float)
+    pnl_basis = Column(String)
+    classification = Column(String, index=True)
+
+
+class ShadowObservation(Base):
+    """Point-in-time path/deadline evidence for watched Shadow markets."""
+
+    __tablename__ = "shadow_observations"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "condition_id", name="uq_shadow_observation_run_condition"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String, nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    probability = Column(Float)
+    best_bid = Column(Float)
+    best_ask = Column(Float)
+    spread = Column(Float)
+    liquidity = Column(Float)
+    volume_24h = Column(Float)
+    market_end_date = Column(DateTime)
+    hours_until_resolution = Column(Float)
+    entry_deadline = Column(DateTime)
+    hours_until_entry_deadline = Column(Float)
+    sports_phase = Column(String)
+    source_updated_at = Column(String)
+    resolution_outcome = Column(String)
+    resolution_value = Column(Float)
+    resolution_evidence = Column(String)
+    data_status = Column(String, nullable=False)
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class SkippedMarket(Base):
     __tablename__ = "skipped_markets"
 
@@ -399,6 +509,18 @@ def init_database(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS shadow_observations_condition_time_idx "
+                "ON shadow_observations(condition_id, observed_at)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS shadow_signals_condition_status_idx "
+                "ON shadow_signals(condition_id, status)"
             )
         )
         connection.commit()

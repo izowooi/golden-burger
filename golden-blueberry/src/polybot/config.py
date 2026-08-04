@@ -18,7 +18,9 @@ import yaml
 from .source_digest import compute_strategy_source_digest
 
 
-LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
+LIFECYCLE_MODES = frozenset(
+    {"active", "close_only", "archive_only", "shadow_only"}
+)
 EXECUTION_MODES = frozenset({"passive", "nearest", "cross"})
 DEFAULT_BUY_AMOUNT_USDC = 5.0
 CODE_MAX_BUY_AMOUNT_USDC = 5.0
@@ -88,12 +90,14 @@ def _get_lifecycle_mode(yaml_value) -> str:
         return "active"
     if not isinstance(value, str):
         raise ValueError(
-            "POLYBOT_LIFECYCLE_MODE must be one of: active, close_only, archive_only"
+            "POLYBOT_LIFECYCLE_MODE must be one of: active, close_only, "
+            "archive_only, shadow_only"
         )
     normalized = value.strip().lower().replace("-", "_")
     if normalized not in LIFECYCLE_MODES:
         raise ValueError(
-            "POLYBOT_LIFECYCLE_MODE must be one of: active, close_only, archive_only"
+            "POLYBOT_LIFECYCLE_MODE must be one of: active, close_only, "
+            "archive_only, shadow_only"
         )
     return normalized
 
@@ -299,7 +303,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
             raise ValueError(f"{name} must be finite")
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError(
-            "lifecycle_mode must be one of: active, close_only, archive_only"
+            "lifecycle_mode must be one of: active, close_only, archive_only, "
+            "shadow_only"
         )
     if trading.buy_amount_usdc <= 0:
         raise ValueError("buy_amount_usdc must be > 0")
@@ -418,6 +423,7 @@ def load_config(
     env_path: Optional[str] = None,
     simulation_mode: Optional[bool] = None,
     yes_only_mode: Optional[bool] = None,
+    shadow_mode: bool = False,
 ) -> BotConfig:
     """Load and validate resolved configuration.
 
@@ -425,6 +431,13 @@ def load_config(
     strategies.  Passing ``False`` is rejected; Blueberry never permits NO-side
     trading.
     """
+    if not isinstance(shadow_mode, bool):
+        raise ValueError("shadow_mode override must be a boolean")
+    if shadow_mode and simulation_mode is False:
+        raise ValueError("shadow mode is simulation-only and cannot use --live")
+    if shadow_mode:
+        simulation_mode = True
+
     load_dotenv(env_path) if env_path else load_dotenv()
 
     path = Path(config_path)
@@ -642,15 +655,27 @@ def load_config(
         ),
     )
 
+    if shadow_mode:
+        # CLI --shadow is an explicit, accountless research contract.  It must
+        # not inherit an operator's active/close-only environment setting.
+        trading.lifecycle_mode = "shadow_only"
+
     validate_yaml_config_shape(cfg, trading)
 
     if simulation_mode is None:
         simulation_mode = cfg.get("simulation_mode", True)
     if not isinstance(simulation_mode, bool):
         raise ValueError("simulation_mode must be a boolean")
+    if trading.lifecycle_mode == "shadow_only" and not simulation_mode:
+        raise ValueError("shadow_only lifecycle is simulation-only")
 
     private_key = os.getenv("POLYMARKET_PRIVATE_KEY", "")
     funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS", "")
+    if trading.lifecycle_mode == "shadow_only":
+        # Do not retain accidentally injected credentials in the resolved
+        # Shadow config/provenance. Public Gamma/CLOB reads do not need them.
+        private_key = ""
+        funder_address = ""
     if not simulation_mode and not private_key:
         raise ValueError("POLYMARKET_PRIVATE_KEY environment variable is required")
     if not simulation_mode and not funder_address:
@@ -667,7 +692,11 @@ def load_config(
 
     db_dir = Path("data") / job_name
     db_dir.mkdir(parents=True, exist_ok=True)
-    db_path = db_dir / ("trades_sim.db" if simulation_mode else "trades.db")
+    if trading.lifecycle_mode == "shadow_only":
+        db_filename = "shadow.db"
+    else:
+        db_filename = "trades_sim.db" if simulation_mode else "trades.db"
+    db_path = db_dir / db_filename
     return BotConfig(
         trading=trading,
         api=api,

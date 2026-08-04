@@ -238,6 +238,42 @@ def test_best_ask_supports_mapping_and_typed_response(model):
     assert calls == [("token", "SELL")]
 
 
+def test_simulation_initializes_public_client_without_deriving_credentials(
+    monkeypatch,
+):
+    import py_clob_client_v2
+
+    calls = []
+
+    class PublicClient:
+        def __init__(self, **kwargs):
+            calls.append(kwargs)
+
+        def create_or_derive_api_key(self):
+            raise AssertionError("simulation must not derive API credentials")
+
+    monkeypatch.setattr(py_clob_client_v2, "ClobClient", PublicClient)
+    wrapper = ClobClientWrapper(
+        SimpleNamespace(
+            private_key="",
+            funder_address="",
+            chain_id=137,
+            signature_type=3,
+        ),
+        simulation_mode=True,
+    )
+
+    wrapper._ensure_initialized()
+
+    assert calls == [
+        {
+            "host": "https://clob.polymarket.com",
+            "chain_id": 137,
+        }
+    ]
+    assert wrapper._initialized is True
+
+
 @pytest.mark.parametrize(
     "book",
     [
