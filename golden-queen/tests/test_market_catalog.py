@@ -100,8 +100,11 @@ class _KeysetSession:
         return _Response({"markets": self.markets})
 
 
-def build_scanner(tmp_path, markets, *, archive_floor=0.80):
-    Session = init_database(str(tmp_path / "queen-evidence.db"))
+def build_scanner(tmp_path, markets, *, archive_floor=0.80, compact=True):
+    Session = init_database(
+        str(tmp_path / "queen-evidence.db"),
+        activate_compact_on_create=compact,
+    )
     session = Session()
     repo = TradeRepository(session)
     gamma = GammaClient()
@@ -131,7 +134,7 @@ def activate_compact_maintenance(session, *, active=1):
     )
     session.execute(
         text(
-            "CREATE TABLE polybot_db_maintenance ("
+            "CREATE TABLE IF NOT EXISTS polybot_db_maintenance ("
             "profile TEXT PRIMARY KEY, "
             "schema_version INTEGER NOT NULL, "
             "strategy_name TEXT NOT NULL, "
@@ -144,7 +147,7 @@ def activate_compact_maintenance(session, *, active=1):
     )
     session.execute(
         text(
-            "INSERT INTO polybot_db_maintenance "
+            "INSERT OR REPLACE INTO polybot_db_maintenance "
             "(profile, schema_version, strategy_name, active, activated_at, "
             "last_report_json) "
             "VALUES ('compact-v1', 2, 'golden-queen', :active, :activated_at, "
@@ -685,7 +688,9 @@ def test_fresh_ask_rejected_first_crossing_is_durable_and_not_retried(
 
 
 def test_retention_removes_old_snapshots_and_sweeps_but_not_catalog(tmp_path):
-    session, repo, _gamma, scanner = build_scanner(tmp_path, [market("archive-floor")])
+    session, repo, _gamma, scanner = build_scanner(
+        tmp_path, [market("archive-floor")], compact=False
+    )
     qualified = scanner.fetch_markets()
     scanner.save_market_snapshots(qualified, now=NOW)
     old = datetime.utcnow() - timedelta(days=61)

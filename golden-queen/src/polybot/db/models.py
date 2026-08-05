@@ -307,9 +307,16 @@ _TRADE_MIGRATION_COLUMNS = {
 def init_database(
     db_path: str,
     maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
+    *,
+    activate_compact_on_create: bool = True,
 ) -> sessionmaker:
     """Create the schema and best-effort upgrade an existing local DB."""
-    prepare_database(db_path, "golden-queen", requirements=maintenance_requirements)
+    prepare_database(
+        db_path,
+        "golden-queen",
+        requirements=maintenance_requirements,
+        activate_compact_on_create=activate_compact_on_create,
+    )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     with engine.connect() as connection:

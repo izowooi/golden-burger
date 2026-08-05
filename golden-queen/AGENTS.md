@@ -76,6 +76,9 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
   envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, volume `>= $0`를 60일
   보존한다. 기본 envelope는 $1,000이며, archive baseline과 실제 entry gate를 혼동하거나
   entry와 함께 좁히지 않는다.
+- 존재하지 않거나 0바이트인 새 runtime DB는 첫 생성부터 `compact-v1`을 자동 활성화한다.
+  기존 내용이 있는 legacy DB만 명시적 `polybot-db-maintenance migrate` 대상이다. 반복
+  workspace clean으로 compact marker나 first-crossing lineage를 지우지 않는다.
 
 ## lifecycle과 evidence
 

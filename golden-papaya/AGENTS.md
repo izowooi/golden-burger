@@ -42,6 +42,9 @@ uv run polybot run --simulate --job sim
   매도나 실현 P&L을 추정하지 않는다.
 - papaya 자체 archive는 `YES >= 0.80`, 잔여 `<= 168h`, 유동성 `>= $1,000`, volume `>= $0`
   envelope를 60일 보존한다. entry filter를 높여도 archive baseline은 높이지 않는다.
+- 존재하지 않거나 0바이트인 새 runtime DB는 첫 생성부터 `compact-v1`을 자동 활성화한다.
+  기존 내용이 있는 legacy DB만 명시적 `polybot-db-maintenance migrate` 대상이다. 반복
+  workspace clean으로 compact marker나 first-crossing lineage를 지우지 않는다.
 - 증액 판단과 position cap 의미는 `docs/SCALING_AND_TAIL_RISK.md`를 따른다. full-book
   depth/VWAP/총원금 gate 없이 `$100` 이상으로 올리지 않는다.
 

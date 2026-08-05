@@ -10,6 +10,12 @@
 완료한다. 성공한 DB에는 활성 marker가 남으므로 이후 평소 Jenkins shell로 다시 실행하면
 별도 migration 환경변수 없이도 한 시간마다 bounded cleanup이 자동 수행된다.
 
+단, **이 문서의 migration은 이미 내용이 쌓인 기존 DB만 대상**이다. Queen과 Papaya는
+존재하지 않거나 0바이트인 runtime DB를 처음 열 때 즉시 `compact-v1` marker와 incremental
+auto-vacuum을 만들고 처음부터 축약 형식으로 적재한다. confirmed fill과 보유 포지션이 없는
+cohort를 한 번 clean해 새 DB로 시작한다면 migration 명령도 `POLYBOT_DB_*` 환경변수도
+필요 없다. Mango와 기존 legacy DB에는 이 자동 생성 계약을 소급 적용하지 않는다.
+
 한 Jenkins job 안에 runtime `--job`이 여러 개라면 `trades.db`와 `trades_sim.db` 각각이
 독립 DB다. 필요한 DB마다 한 번씩 수행하며, 경로를 계좌명·전략명으로 추정하지 않는다.
 CLI는 등록된 18개 전략명만 허용하고, DB에 남은 `run_audits`/`strategy_configs` provenance가

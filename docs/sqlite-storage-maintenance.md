@@ -8,6 +8,10 @@
 현재 상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와
 신뢰할 수 있는 snapshot 기준시각도 함께 고정한다.
 
+Queen과 Papaya는 예외적으로 존재하지 않거나 0바이트인 새 DB를 첫 실행부터 자동으로
+`compact-v1`로 생성한다. 새 cohort를 clean 뒤 시작하는 경우 아래 migration은 필요 없으며,
+이미 내용이 쌓인 legacy DB에만 사용한다. 자동 생성은 기존 DB를 암묵적으로 변경하지 않는다.
+
 ```bash
 uv run polybot-db-maintenance migrate \
   --strategy golden-queen \

@@ -114,8 +114,10 @@ Jenkins timer는 `H/5 * * * *`, concurrent build는 비활성화를 권장한다
 기존 job에 confirmed fill, open order, wallet position이 모두 0임을 확인했다면 Jenkins의
 `Delete workspace before build starts` 또는 동등한 **workspace clean을 딱 한 번만** 켠다.
 `data/queen-live-24h/trades.db`와 로그가 workspace 안에 있으므로 clean 뒤 첫 실행은 같은
-`--job` 이름으로도 새 DB를 만든다. 첫 성공 build 직후 clean 옵션을 다시 끈다. 매 build마다
-workspace를 지우면 직전 snapshot이 사라져 first crossing을 영원히 증명할 수 없다.
+`--job` 이름으로도 새 DB를 만든다. 새 DB는 첫 생성부터 `compact-v1`이 자동 활성화되므로
+별도 migration이나 `POLYBOT_DB_*` 환경변수가 필요 없다. 첫 성공 build 직후 clean 옵션을
+다시 끈다. 매 build마다 workspace를 지우면 compact marker와 직전 snapshot이 함께 사라져
+first crossing을 영원히 증명할 수 없다.
 
 clean 전 timer와 concurrent build를 끄고, daily-rsync 사본까지 지울지는 별도로 결정한다.
 이번 기본값 변경은 새 `config_hash`로 기록되므로 초기화 전후 데이터가 우연히 함께 남아도
@@ -282,9 +284,14 @@ open-notional 상한이 주문액 10배라 full-size 신규 포지션은 보통 
 | `POLYBOT_ARCHIVE_HOURS_MAX` | `72` | scheduled archive 상한 |
 | `POLYBOT_SNAPSHOT_RETENTION_DAYS` | `60` | snapshot 최소 보존일 |
 
-## DB 저장공간 마이그레이션
+## DB 저장공간 정책과 기존 DB 마이그레이션
 
-기존 DB는 최근 1시간 snapshot 원형과 60일 first-crossing extrema를 보존하면서, sweep별
+새로 생성하는 Queen DB는 처음부터 최근 1시간 snapshot 원형, 60일 first-crossing extrema,
+24시간 sweep 상세 checkpoint를 쓰는 `compact-v1`으로 적재한다. 따라서 confirmed fill이 없는
+cohort를 위 절차로 한 번 clean한 경우에는 아래 명령을 실행하지 않는다.
+
+배포 전부터 내용이 남아 있는 기존 legacy DB만 최근 1시간 snapshot 원형과 60일
+first-crossing extrema를 보존하면서, sweep별
 시장 상세를 24시간 checkpoint로 줄일 수 있다. Jenkins timer와 모든 writer를 먼저 중지한
 뒤 거래 cycle과 분리된 명령을 DB마다 한 번 실행한다.
 

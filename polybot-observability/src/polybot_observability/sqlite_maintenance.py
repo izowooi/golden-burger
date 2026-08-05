@@ -1413,35 +1413,71 @@ def prepare_database(
     strategy_name: str,
     *,
     requirements: SQLiteMaintenanceRequirements | None = None,
+    activate_compact_on_create: bool = False,
 ) -> SQLiteMaintenanceReport | None:
-    """Run legacy opt-in migration or already-activated lean maintenance.
+    """Bootstrap an allowed new compact DB or maintain an activated one.
 
     New operator migrations should use :func:`migrate_database`, which never
     starts a trading cycle.  ``POLYBOT_DB_MAINTENANCE=compact-v1`` remains for
     compatibility with the original one-run activation workflow.  In both
     cases the activation marker remains in the DB and keeps bounded
-    maintenance enabled on future runs.
+    maintenance enabled on future runs.  ``activate_compact_on_create`` only
+    affects a missing/zero-byte DB; an existing legacy DB is never implicitly
+    migrated.
     """
 
     raw_profile = os.getenv(ENV_PROFILE, "").strip()
     if raw_profile and raw_profile != PROFILE:
         raise ValueError(f"{ENV_PROFILE} must be empty or {PROFILE!r}")
     path = Path(db_path).expanduser().resolve()
-    if not path.exists() or path.stat().st_size == 0:
-        if raw_profile != PROFILE:
-            return None
-        # A brand-new Jenkins job can activate compact-v1 on its first run as
-        # well.  Materialize a valid, schema-light SQLite file so the same
-        # backed-up migration path can mark it active before SQLAlchemy creates
-        # the strategy tables.  Without this, the flag would require a second
-        # run merely because the DB did not exist yet.
+    is_new_database = not path.exists() or path.stat().st_size == 0
+    if is_new_database and (activate_compact_on_create or raw_profile == PROFILE):
+        normalized = str(strategy_name).strip().lower()
+        if normalized not in _SUPPORTED_STRATEGIES:
+            raise ValueError(
+                "unsupported strategy for compact SQLite bootstrap: "
+                f"{normalized!r}"
+            )
+        resolved_requirements = requirements or requirements_for(normalized)
+        policy = policy_for(normalized, resolved_requirements)
         path.parent.mkdir(parents=True, exist_ok=True)
-        bootstrap = sqlite3.connect(path)
+        bootstrap = sqlite3.connect(path, timeout=30)
         try:
-            bootstrap.execute(_STATE_TABLE_SQL)
-            bootstrap.commit()
+            # Set incremental auto-vacuum before strategy tables exist.  A new
+            # DB has nothing to migrate or back up, so activating its immutable
+            # compact policy directly is both safer and cheaper than routing it
+            # through the legacy destructive-migration workflow.
+            bootstrap.execute("PRAGMA auto_vacuum=INCREMENTAL")
+            counts = _compact_connection(
+                bootstrap,
+                policy,
+                resolved_requirements,
+                activate=True,
+            )
         finally:
             bootstrap.close()
+        after_bytes = path.stat().st_size
+        LOGGER.info(
+            "새 SQLite DB를 compact-v1로 생성했습니다 - strategy=%s path=%s",
+            normalized,
+            path,
+        )
+        return SQLiteMaintenanceReport(
+            strategy_name=normalized,
+            profile=PROFILE,
+            snapshots_before=counts["snapshots"],
+            snapshots_after=counts["snapshots_after"],
+            memberships_before=counts["memberships"],
+            memberships_after=counts["memberships_after"],
+            sweeps_before=counts["sweeps"],
+            sweeps_after=counts["sweeps_after"],
+            bytes_before=0,
+            bytes_after=after_bytes,
+            backup_path=None,
+            backup_sha256=None,
+        )
+    if is_new_database:
+        return None
     if raw_profile == PROFILE:
         resolved_requirements = requirements or requirements_for(strategy_name)
         policy = policy_for(strategy_name, resolved_requirements)

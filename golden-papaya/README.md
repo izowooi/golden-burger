@@ -99,9 +99,10 @@ Jenkins concurrent build는 끄고, simulation/live 및 다른 전략과 `--job`
 
 confirmed fill, open order, wallet position이 모두 0인 job은 Jenkins의
 `Delete workspace before build starts` 또는 동등한 workspace clean을 **한 번만** 켠 뒤
-위 shell을 실행해도 된다. 같은 `--job` 이름이어도 새 `trades.db`가 생성된다. 첫 성공 build
-직후 clean 옵션을 반드시 끈다. 매번 지우면 직전 snapshot이 없어져 first crossing이 절대
-성립하지 않는다. timer와 concurrent build도 clean 동안 끈다.
+위 shell을 실행해도 된다. 같은 `--job` 이름이어도 새 `trades.db`가 생성되며 첫 생성부터
+`compact-v1`이 자동 활성화된다. 별도 migration이나 `POLYBOT_DB_*` 환경변수는 필요 없다.
+첫 성공 build 직후 clean 옵션을 반드시 끈다. 매번 지우면 compact marker와 직전 snapshot이
+없어져 first crossing이 절대 성립하지 않는다. timer와 concurrent build도 clean 동안 끈다.
 
 ## Lifecycle
 
@@ -151,9 +152,14 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 
 환경변수 이름은 `uv run polybot config` 출력과 `.env.example`을 기준으로 한다.
 
-## DB 저장공간 마이그레이션
+## DB 저장공간 정책과 기존 DB 마이그레이션
 
-기존 DB는 최근 1시간 snapshot 원형과 60일 first-crossing extrema를 보존하면서, sweep별
+새로 생성하는 Papaya DB는 처음부터 최근 1시간 snapshot 원형, 60일 first-crossing extrema,
+24시간 sweep 상세 checkpoint를 쓰는 `compact-v1`으로 적재한다. confirmed fill이 없는 cohort를
+위 절차로 한 번 clean한 경우에는 아래 명령을 실행하지 않는다.
+
+배포 전부터 내용이 남아 있는 기존 legacy DB만 최근 1시간 snapshot 원형과 60일
+first-crossing extrema를 보존하면서, sweep별
 시장 상세를 24시간 checkpoint로 줄일 수 있다. Jenkins timer와 모든 writer를 먼저 중지한
 뒤 거래 cycle과 분리된 명령을 DB마다 한 번 실행한다.
 

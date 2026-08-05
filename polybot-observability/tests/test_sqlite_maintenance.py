@@ -677,6 +677,51 @@ def test_flag_activates_a_brand_new_database(tmp_path, monkeypatch):
         ).fetchone() == (1, "golden-apple")
 
 
+def test_new_database_can_start_compact_without_migration_flag(tmp_path, monkeypatch):
+    database = tmp_path / "queen" / "trades.db"
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE", raising=False)
+
+    report = prepare_database(
+        database,
+        "golden-queen",
+        activate_compact_on_create=True,
+    )
+
+    assert report is not None
+    assert report.backup_path is None
+    assert report.bytes_before == 0
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert connection.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+        state = connection.execute(
+            "SELECT active, strategy_name, last_report_json "
+            "FROM polybot_db_maintenance WHERE profile = 'compact-v1'"
+        ).fetchone()
+        assert state[:2] == (1, "golden-queen")
+        payload = json.loads(state[2])
+        assert payload["policy"]["hot_hours"] == 1.0
+        assert payload["policy"]["membership_detail_hours"] == 24.0
+
+
+def test_auto_compact_create_does_not_mutate_existing_legacy_database(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "legacy.db"
+    _seed_database(database)
+    original = database.read_bytes()
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE", raising=False)
+
+    assert (
+        prepare_database(
+            database,
+            "golden-queen",
+            activate_compact_on_create=True,
+        )
+        is None
+    )
+    assert database.read_bytes() == original
+
+
 def test_maintenance_continues_after_one_shot_flag_is_removed(tmp_path, monkeypatch):
     database = tmp_path / "trades.db"
     backup_root = tmp_path / "backups"

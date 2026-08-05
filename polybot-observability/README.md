@@ -221,6 +221,11 @@ row를 그대로 rollback한다.
 전략별 신호 window에 맞춰 축약한다. 기존 DB는 bot `run`보다 먼저 전용 명령으로 migration한다.
 이 명령은 API client를 만들거나 거래 cycle을 시작하지 않는다.
 
+Queen과 Papaya는 새 runtime DB에 한해 `prepare_database(...,
+activate_compact_on_create=True)`로 첫 schema 생성 전부터 compact marker와 incremental
+auto-vacuum을 활성화한다. 이 경로는 삭제할 기존 데이터가 없으므로 backup/migration을 만들지
+않는다. 내용이 있는 legacy DB는 자동 변경하지 않고 아래 전용 migration을 계속 요구한다.
+
 ```bash
 uv run polybot-db-maintenance migrate \
   --strategy golden-queen \
