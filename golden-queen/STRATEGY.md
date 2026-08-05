@@ -124,12 +124,12 @@ game_start_elapsed <= 360m
 metadata gate:
 
 ```text
-effective_min_liquidity = max(10,000, buy_amount / 0.001)
-effective_min_volume24h = max(2,000, buy_amount / 0.02)
+effective_min_liquidity = max(5,000, buy_amount / 0.004)
+effective_min_volume24h = max(1,000, buy_amount / 0.05)
 ```
 
-기본 `buy_amount=$100`에서는 각각 `$100,000`, `$5,000`이다. 주문 금액을 `$200`,
-`$400`으로 바꾸면 이 값도 `$200,000/$10,000`, `$400,000/$20,000`으로 자동 상승한다.
+기본 `buy_amount=$100`에서는 각각 `$25,000`, `$2,000`이다. 주문 금액을 `$200`,
+`$400`으로 바꾸면 이 값도 `$50,000/$4,000`, `$100,000/$8,000`으로 자동 상승한다.
 고정 바닥값을 주문 금액별로 따로 설정하지 않는다.
 
 fresh order-book gate:
@@ -202,7 +202,7 @@ buy amount hard cap = $1,000
 | 항목 | 대조군 | 실험군 |
 |---|---:|---:|
 | 주문 금액 | $100 | $100 |
-| 실효 liquidity / volume24h | $100,000 / $5,000 | 동일 |
+| 실효 liquidity / volume24h | $25,000 / $2,000 | 동일 |
 | `POLYBOT_ENTRY_HOURS_MAX` | 24 | 12 |
 
 그 밖의 commit, schedule, 계정 규모, 진입/청산, liquidity/volume/depth, sports, cap은
@@ -249,7 +249,7 @@ buy amount hard cap = $1,000
 ## 12. Offline replay의 역할
 
 `scripts/backtest.py`는 immutable CSV에서 기본 `$100`의 실효 gate인
-liquidity `$100,000`/volume24h `$5,000`과 사전 등록한 12h/24h 두 parameter row만
+liquidity `$25,000`/volume24h `$2,000`과 사전 등록한 12h/24h 두 parameter row만
 재생한다. observed ask/bid를 hypothetical fill로 사용하고 confirmed-fill 열은 `null`이다.
 CSV에 full depth와 `gameStartTime`가 없으므로 production 실행 가능성을 증명하지 않는다.
 이 스크립트는 unit test가 아니라 leakage·기간·first crossing을 재현하는 research artifact다.

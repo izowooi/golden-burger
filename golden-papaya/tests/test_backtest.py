@@ -211,12 +211,18 @@ def test_entry_requires_window_executable_ask_liquidity_and_volume(
 
 def test_declared_grid_is_complete():
     params = list(backtest.parameter_grid())
-    assert len(params) == 3 * 3 * 3 * 4 * 4 * 3
+    assert len(params) == 3 * 3 * 3 * 4 * 5 * 3
     assert sorted({item.entry_probability for item in params}) == [0.94, 0.95, 0.96]
     assert sorted({item.entry_price_max for item in params}) == [0.96, 0.97, 0.98]
     assert sorted({item.stop_probability for item in params}) == [0.85, 0.90, 0.93]
     assert sorted({item.min_liquidity for item in params}) == [1000, 5000, 10000, 20000]
-    assert sorted({item.min_volume_24h for item in params}) == [0, 500, 2000, 5000]
+    assert sorted({item.min_volume_24h for item in params}) == [
+        0,
+        500,
+        1000,
+        2000,
+        5000,
+    ]
     assert sorted({item.entry_hours_max for item in params}) == [24, 48, 72]
 
 
@@ -238,7 +244,7 @@ def test_run_writes_hashed_csv_json_manifest_and_no_database(
 
     assert manifest_path == output / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    assert manifest["engine_version"] == "papaya-offline-v3"
+    assert manifest["engine_version"] == "papaya-offline-v4"
     assert manifest["safety"] == {
         "database_writes": False,
         "network_calls": False,
@@ -261,10 +267,10 @@ def test_run_writes_hashed_csv_json_manifest_and_no_database(
         "entry_upper": [0.96, 0.97, 0.98],
         "stop": [0.85, 0.9, 0.93],
         "liquidity": [1000.0, 5000.0, 10000.0, 20000.0],
-        "volume_24h": [0.0, 500.0, 2000.0, 5000.0],
+        "volume_24h": [0.0, 500.0, 1000.0, 2000.0, 5000.0],
         "hours_max": [24.0, 48.0, 72.0],
     }
-    assert manifest["rows"]["grid"] == 1296
+    assert manifest["rows"]["grid"] == 1620
     assert manifest["rows"]["monthly_grid"] > 0
     for name in (
         "trades.csv",

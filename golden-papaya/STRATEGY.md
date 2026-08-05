@@ -29,7 +29,7 @@
 2. outcomes를 정규화했을 때 정확히 `Yes`, `No` 두 개
 3. token ID가 정확히 두 개이며 YES token을 명확히 식별 가능
 4. 표준(non-negRisk) 이진 시장
-5. Gamma 유동성 `>= $10,000`, 최근 24h 거래량 `>= $2,000`
+5. Gamma 유동성 `>= $5,000`, 최근 24h 거래량 `>= $1,000`
 6. 종료시각이 있고 `0h < hours_left <= 72h`
 
 같은 event 아래의 파생 시장은 서로 독립 표본이 아니다. `market_catalog.event_id` 기준
@@ -94,7 +94,7 @@ DB trade를 임의로 1.00에 매도된 것으로 마감하거나 `EXPIRED`를 �
 
 ## 6. Archive 계약
 
-운영 진입 universe는 `$10,000/$2,000`이지만 first-crossing lineage와 거부된 후보의
+운영 진입 universe는 `$5,000/$1,000`이지만 first-crossing lineage와 거부된 후보의
 반사실을 보존하려면 더 넓은 history가 필요하다. 중앙 archive의 cadence·시장 계약에
 의존하지 않고 papaya가 자체로 다음 request envelope를 keyset cursor 끝까지 수집한다.
 
@@ -121,7 +121,7 @@ stop threshold의 반사실을 검증할 수 있다.
    음수다. 0.95 진입의 gross return은 약 5.26%이고, 0으로 해결되는 1건은 약 19승을 지운다.
 2. **교차의 허위 정밀도**: 얇은 orderbook, stale midpoint, 작은 주문이 0.95 교차를 만들 수
    있다. 이것은 정보 집약이 아니라 microstructure noise다.
-3. **stop 실행 불가**: 유동성 $10,000/최근 24h volume $2,000 기본값도 실제 token별
+3. **stop 실행 불가**: 유동성 $5,000/최근 24h volume $1,000 기본값도 실제 token별
    bid depth를 보장하지 않는다. 0.90을 관측해도 spread가 넓거나 SELL이 미체결·부분체결될
    수 있다. 0.90은 손실 보장이 아니라 주문 트리거다.
 4. **resolution ambiguity**: 문구 해석, UMA dispute, 시장 무효화가 마지막 5%에 집중될 수 있다.
@@ -170,15 +170,15 @@ stop threshold의 반사실을 검증할 수 있다.
 | crossing/entry lower | 0.94 / **0.95** / 0.96 |
 | entry upper | 0.96 / **0.97** / 0.98 |
 | absolute stop | 0.85 / **0.90** / 0.93 |
-| min liquidity | 1k / 5k / **10k** / 20k |
-| min volume24h | 0 / 500 / **2k** / 5k |
+| min liquidity | 1k / **5k** / 10k / 20k |
+| min volume24h | 0 / 500 / **1k** / 2k / 5k |
 | hours max | 24 / 48 / **72** |
 
 look-ahead 없이 각 snapshot 시점에 당시 알려진 값만 사용한다. 동일 event의 여러 시장을
 train/test에 나누지 않고 event 단위로 bootstrap 또는 leave-one-event-out한다. fill
 sensitivity는 midpoint, observed bid/ask, confirmed fill의 세 가지로 따로 제시한다.
 
-저장소의 `scripts/backtest.py`는 이 여섯 축의 1,296개 조합과 UTC
+저장소의 `scripts/backtest.py`는 이 여섯 축의 1,620개 조합과 UTC
 `REVIEW_START`/`REVIEW_END` entry cohort를 offline CSV에서 재현한다. 입력은
 `outcomes=["Yes","No"]`, 서로 다른 두 token, YES token identity, `neg_risk=false`를
 행마다 증명해야 한다. 스크립트가 직접 계산하는 것은 midpoint와 observed book의

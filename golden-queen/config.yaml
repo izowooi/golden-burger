@@ -5,18 +5,18 @@ trading:
   lifecycle_mode: active
 
   # The only routine strategy control. Metadata and capital limits scale from it.
-  # $100 => liquidity $100k, 24h volume $5k, open notional $1k.
+  # $100 => liquidity $25k, 24h volume $2k, open notional $1k.
   buy_amount_usdc: 100.0
   max_buy_amount_usdc: 1000
 
   # Dynamic entry gates. The fixed values are safety floors, not the effective
-  # defaults; a $100 order raises them to $100k and $5k through the ratios.
-  #   effective liquidity = max($10k, order / 0.001)
-  #   effective 24h volume = max($2k, order / 0.02)
-  min_liquidity: 10000
-  max_order_liquidity_ratio: 0.001
-  min_volume_24h: 2000
-  max_order_volume_ratio: 0.02
+  # defaults; a $100 order raises them to $25k and $2k through the ratios.
+  #   effective liquidity = max($5k, order / 0.004)
+  #   effective 24h volume = max($1k, order / 0.05)
+  min_liquidity: 5000
+  max_order_liquidity_ratio: 0.004
+  min_volume_24h: 1000
+  max_order_volume_ratio: 0.05
 
   # Exposure controls automatically scale with POLYBOT_BUY_AMOUNT.
   max_positions: 20

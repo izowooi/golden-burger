@@ -145,10 +145,10 @@ class TradingConfig:
     lifecycle_mode: str = "active"
     buy_amount_usdc: float = DEFAULT_BUY_AMOUNT_USDC
     max_buy_amount_usdc: float = 1_000.0
-    min_liquidity: float = 10_000.0
-    max_order_liquidity_ratio: float = 0.001
-    min_volume_24h: float = 2_000.0
-    max_order_volume_ratio: float = 0.02
+    min_liquidity: float = 5_000.0
+    max_order_liquidity_ratio: float = 0.004
+    min_volume_24h: float = 1_000.0
+    max_order_volume_ratio: float = 0.05
     max_positions: int = 20
     max_event_positions: int = 1
     max_open_notional_multiple: float = 10.0
@@ -448,20 +448,20 @@ def load_config(
             1_000.0,
         ),
         min_liquidity=_get_config_value(
-            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 10_000.0
+            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 5_000.0
         ),
         max_order_liquidity_ratio=_get_config_value(
             "POLYBOT_MAX_ORDER_LIQUIDITY_RATIO",
             trading_cfg.get("max_order_liquidity_ratio"),
-            0.001,
+            0.004,
         ),
         min_volume_24h=_get_config_value(
-            "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 2_000.0
+            "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 1_000.0
         ),
         max_order_volume_ratio=_get_config_value(
             "POLYBOT_MAX_ORDER_VOLUME_RATIO",
             trading_cfg.get("max_order_volume_ratio"),
-            0.02,
+            0.05,
         ),
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS", trading_cfg.get("max_positions"), 20, int

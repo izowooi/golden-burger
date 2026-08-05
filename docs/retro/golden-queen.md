@@ -62,13 +62,16 @@ uv run --project polybot-observability polybot-retro audit \
 | target / stop | 0.98 / 0.85 | 동일 |
 | snapshot gap | ≤15분 | 동일 |
 | order | $100 | $100 |
-| liquidity / volume | $100k / $5k | 동일 |
+| liquidity / volume | $25k / $2k | 동일 |
 | spread / depth | ≤0.02 / 1.2x | 동일 |
 | sports | 포함, in-play 360분 | 동일 |
 | entry hours max | **24** | **12** |
 
 DB의 `strategy_configs`가 이 표와 일치하는지 확인한다. 표와 다른 config hash가 있으면 별도
 cohort로 분리하고 A/B에 섞지 않는다.
+
+이 표는 2026-08-05 clean restart 이후 cohort다. 종전 `$100k/$5k` cohort는 체결 없이
+종료했으며, archive·로그 분석에는 남길 수 있어도 새 cohort와 합산하지 않는다.
 
 ## 3. Evidence gate
 

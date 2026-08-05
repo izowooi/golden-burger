@@ -109,6 +109,18 @@ cd ./golden-queen
 Jenkins timer는 `H/5 * * * *`, concurrent build는 비활성화를 권장한다. 실행 시간이 5분을
 넘으면 중첩 실행을 허용하지 말고 다음 build가 queue에서 기다리게 한다.
 
+### 체결 없는 기존 cohort를 완전히 초기화할 때
+
+기존 job에 confirmed fill, open order, wallet position이 모두 0임을 확인했다면 Jenkins의
+`Delete workspace before build starts` 또는 동등한 **workspace clean을 딱 한 번만** 켠다.
+`data/queen-live-24h/trades.db`와 로그가 workspace 안에 있으므로 clean 뒤 첫 실행은 같은
+`--job` 이름으로도 새 DB를 만든다. 첫 성공 build 직후 clean 옵션을 다시 끈다. 매 build마다
+workspace를 지우면 직전 snapshot이 사라져 first crossing을 영원히 증명할 수 없다.
+
+clean 전 timer와 concurrent build를 끄고, daily-rsync 사본까지 지울지는 별도로 결정한다.
+이번 기본값 변경은 새 `config_hash`로 기록되므로 초기화 전후 데이터가 우연히 함께 남아도
+회고에서는 서로 다른 cohort다.
+
 ## 12시간 대 24시간 A/B
 
 두 계정, 두 Jenkins job, 두 `--job` DB를 사용한다. 같은 지갑·SQLite를 공유하면 A/B가
@@ -193,17 +205,22 @@ category 제외는 Gamma tag slug/label의 대소문자를 무시한 **exact mat
 
 | 주문 | 최소 liquidity | 최소 24h volume | open notional 상한 |
 |---:|---:|---:|---:|
-| $5 | $10,000 | $2,000 | $50 |
-| $100 | $100,000 | $5,000 | $1,000 |
-| $200 | $200,000 | $10,000 | $2,000 |
-| $400 | $400,000 | $20,000 | $4,000 |
-| $1,000 | $1,000,000 | $50,000 | $10,000 |
+| $5 | $5,000 | $1,000 | $50 |
+| $100 | $25,000 | $2,000 | $1,000 |
+| $200 | $50,000 | $4,000 | $2,000 |
+| $400 | $100,000 | $8,000 | $4,000 |
+| $1,000 | $250,000 | $20,000 | $10,000 |
 
 코드 hard cap은 `$1,000`이다. 표의 자동 계산은 주문이 안전하거나 전략이 수익이라는
 보장이 아니다. 현재 운용 기본값은 `$100`이며, `$100 → $200 → $400 → $1,000`은 한 달
 strict audit, exact fill/fee coverage, 실제 depth/slippage, drawdown, event-effective
 표본을 각 단계에서 통과한 뒤에만 진행한다.
 상세 gate는 [SCALING_AND_TAIL_RISK.md](docs/SCALING_AND_TAIL_RISK.md)에 있다.
+
+2026-08-05 기존 Queen archive 약 11일을 재생했을 때 first 0.90 crossing 101개 중 종전
+`$100k/$5k`를 통과한 것은 0개였다. 새 `$25k/$2k`는 9개를 남겼다. 이는 수익성 증명이
+아니라 후보가 전혀 사라지는 metadata 병목을 완화한 근거다. fresh spread·ask 상한·실제
+ask depth 1.2배 검사는 그대로 유지한다.
 
 `POLYBOT_MAX_POSITIONS=20`은 누적 거래 수나 지갑 전체 포지션 수가 아니라 해당
 `--job` DB의 `PENDING_BUY`, `HOLDING`, `PENDING_SELL` 동시 open state 합계다. 기본
@@ -244,10 +261,10 @@ open-notional 상한이 주문액 10배라 full-size 신규 포지션은 보통 
 | `POLYBOT_ENTRY_PROB_MAX` | `0.94` | signal·fresh ask 상한 |
 | `POLYBOT_TAKE_PROFIT_PRICE` | `0.98` | signal과 fresh bid가 모두 도달해야 매도 |
 | `POLYBOT_STOP_PRICE` | `0.85` | 절대 YES stop signal |
-| `POLYBOT_MIN_LIQUIDITY` | `10000` | metadata liquidity 바닥; 금액에 따라 자동 상향 |
-| `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `0.001` | 주문/liquidity 최대 0.1% |
-| `POLYBOT_MIN_VOLUME_24H` | `2000` | 24h volume 바닥; 금액에 따라 자동 상향 |
-| `POLYBOT_MAX_ORDER_VOLUME_RATIO` | `0.02` | 주문/24h volume 최대 2% |
+| `POLYBOT_MIN_LIQUIDITY` | `5000` | metadata liquidity 바닥; 금액에 따라 자동 상향 |
+| `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `0.004` | 주문/liquidity 최대 0.4% |
+| `POLYBOT_MIN_VOLUME_24H` | `1000` | 24h volume 바닥; 금액에 따라 자동 상향 |
+| `POLYBOT_MAX_ORDER_VOLUME_RATIO` | `0.05` | 주문/24h volume 최대 5% |
 | `POLYBOT_MAX_SPREAD` | `0.02` | fresh CLOB spread 상한 |
 | `POLYBOT_DEPTH_PRICE_WINDOW` | `0.01` | best ask 위 depth 측정 폭 |
 | `POLYBOT_DEPTH_SAFETY_MULTIPLE` | `1.20` | 필요한 실제 ask depth 배수 |

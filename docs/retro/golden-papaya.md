@@ -39,8 +39,8 @@ Jenkins export는 secret/address를 제거한 legacy cross-check로만 사용한
 | 항목 | env | baseline |
 |---|---|---:|
 | 주문 금액 | `POLYBOT_BUY_AMOUNT` | $5 |
-| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | $10,000 |
-| 최소 volume24h | `POLYBOT_MIN_VOLUME_24H` | $2,000 |
+| 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | $5,000 |
+| 최소 volume24h | `POLYBOT_MIN_VOLUME_24H` | $1,000 |
 | 최대 연속 snapshot 간격 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | 30m |
 | 첫 교차/진입 하한 | `POLYBOT_ENTRY_PROB_MIN` | 0.95 |
 | 진입 상한 | `POLYBOT_ENTRY_PROB_MAX` | 0.97 |
@@ -50,6 +50,10 @@ Jenkins export는 secret/address를 제거한 legacy cross-check로만 사용한
 | event cap | `POLYBOT_MAX_EVENT_POSITIONS` | 1 |
 | archive envelope | `POLYBOT_ARCHIVE_PROB_MIN/HOURS_MAX` | 0.80 / 168h |
 | 보존 | `POLYBOT_SNAPSHOT_RETENTION_DAYS` | 60d |
+
+이 baseline은 2026-08-05 clean restart 이후 cohort다. 종전 `$10,000/$2,000` cohort는
+confirmed fill 없이 종료했으며 새 cohort와 합산하지 않는다. 새 문턱은 Queen 호환 archive의
+0.95 first-crossing proxy를 이용해 후보 소멸을 줄인 값이지 Papaya 수익성 증거가 아니다.
 
 first observed crossing은 현재 sweep에서 commit된 양의 snapshot ID, 직전 persisted snapshot,
 기본 `0 < gap <= 30분`이 모두 증명되고 직전 YES가 0.95 미만이며 현재 YES가 0.95 이상일
@@ -79,7 +83,7 @@ find /Users/jongwoopark/.jenkins/workspace \
   -path "*golden-papaya/data*" -name "trades_sim.db" 2>/dev/null
 ```
 
-운영 entry universe는 $10,000/$2,000이지만 첫 crossing 이전 history와 낮은 gate의
+운영 entry universe는 $5,000/$1,000이지만 첫 crossing 이전 history와 낮은 gate의
 counterfactual까지 보존해야 한다. 따라서 주 source는 papaya 자체 archive다. envelope는
 YES ≥ 0.80, 잔여 ≤168h, 유동성 ≥$1,000, volume24h ≥$0이고 최소 60일을 보존한다.
 counterfactual이나 운영 entry filter를 바꿔도 archive request baseline은 $1,000/$0으로
@@ -161,11 +165,11 @@ terminal 분류는 최소 다음처럼 나눈다.
 | crossing/entry lower | 0.94 / **0.95** / 0.96 |
 | entry upper | 0.96 / **0.97** / 0.98 |
 | absolute stop | 0.85 / **0.90** / 0.93 |
-| min liquidity | 1k / 5k / **10k** / 20k |
-| min volume24h | 0 / 500 / **2k** / 5k |
+| min liquidity | 1k / **5k** / 10k / 20k |
+| min volume24h | 0 / 500 / **1k** / 2k / 5k |
 | hours max | 24 / 48 / **72** |
 
-동일한 immutable export를 아래처럼 실행하면 여섯 축의 1,296개 조합과 월별 UTC entry
+동일한 immutable export를 아래처럼 실행하면 여섯 축의 1,620개 조합과 월별 UTC entry
 cohort가 SHA-256 manifest와 함께 생성된다.
 
 ```bash

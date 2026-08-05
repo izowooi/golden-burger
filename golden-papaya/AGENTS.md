@@ -34,8 +34,8 @@ uv run polybot run --simulate --job sim
 - 최초 threshold snapshot은 유동성·volume·window·event cap·fresh ask 같은 후속 gate에서
   주문이 거부돼도 one-shot을 소진한다. 보존 이력에 0.95 이상 관측이 하나라도 있으면 이후
   dip/re-cross를 새 후보로 만들지 않는다.
-- 기본 주문은 $5, 동시 포지션 20, event당 1개다. 기본 진입 유동성은 $10,000,
-  최근 24h 거래량 하한은 $2,000이다. 이는 실제 CLOB depth 보장이 아니다.
+- 기본 주문은 $5, 동시 포지션 20, event당 1개다. 기본 진입 유동성은 $5,000,
+  최근 24h 거래량 하한은 $1,000이다. 이는 실제 CLOB depth 보장이 아니다.
 - 사전 해결 익절·trailing·time exit은 없다. 미해결 상태에서 YES midpoint가 0.90
   이하일 때만 절대 가격 손절을 시도한다.
 - resolution 결과와 redeem/지급 증거는 SELL fill과 분리한다. 해결됐다는 이유로 1.00

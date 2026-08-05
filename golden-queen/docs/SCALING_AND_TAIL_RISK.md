@@ -19,18 +19,18 @@ $400 → 새 30일 cohort + 별도 자본 승인 → $1,000
 ## 1. 자동 계산
 
 ```text
-effective_min_liquidity = max($10,000, order / 0.001)
-effective_min_volume24h = max($2,000, order / 0.02)
+effective_min_liquidity = max($5,000, order / 0.004)
+effective_min_volume24h = max($1,000, order / 0.05)
 max_open_notional = order * 10
 ```
 
 | 주문 | liquidity | volume24h | open notional | nominal full-size slots |
 |---:|---:|---:|---:|---:|
-| $5 | $10,000 | $2,000 | $50 | 10 |
-| $100 | $100,000 | $5,000 | $1,000 | 10 |
-| $200 | $200,000 | $10,000 | $2,000 | 10 |
-| $400 | $400,000 | $20,000 | $4,000 | 10 |
-| $1,000 | $1,000,000 | $50,000 | $10,000 | 10 |
+| $5 | $5,000 | $1,000 | $50 | 10 |
+| $100 | $25,000 | $2,000 | $1,000 | 10 |
+| $200 | $50,000 | $4,000 | $2,000 | 10 |
+| $400 | $100,000 | $8,000 | $4,000 | 10 |
+| $1,000 | $250,000 | $20,000 | $10,000 | 10 |
 
 `max_positions=20`이어도 open notional이 먼저 작동해 full-size 신규 포지션은 통상 10개가
 상한이다. pending BUY/SELL도 노출 계산과 position cap에 포함된다.
@@ -54,7 +54,7 @@ resolution 중단으로 훨씬 낮게 체결되거나 체결되지 않을 수 �
 
 ## 3. metadata와 실제 depth의 차이
 
-Gamma liquidity `$100,000`은 “0.94 이하 ask에 $100 주문이 충분히 있다”는 뜻이 아니다.
+Gamma liquidity `$25,000`은 “0.94 이하 ask에 $100 주문이 충분히 있다”는 뜻이 아니다.
 Queen은 같은 CLOB snapshot에서 다음을 다시 확인한다.
 
 ```text
@@ -89,7 +89,7 @@ entry와 exit의 actual VWAP/slippage를 따로 사용한다.
 위 조건을 `$400`의 새 config-hash cohort에서 다시 30일 이상 충족하고 다음을 추가한다.
 
 - `$400` actual 주문의 p95 entry/exit slippage가 승인된 손실 예산 이내
-- $1m liquidity / $50k volume universe에서 충분한 event-effective sample 예상
+- $250k liquidity / $20k volume universe에서 충분한 event-effective sample 예상
 - $1,000 주문 수량의 1.2배 depth가 실제로 반복 관측됨
 - market/category별 fee와 maker/taker role 확정
 - open notional `$10,000`과 단일-event tail loss를 감당할 별도 자본 승인

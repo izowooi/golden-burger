@@ -68,8 +68,9 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
 
 - 기본 주문액은 $100, 동시 포지션 20, event당 1, cycle당 신규 1, 재진입 cooldown
   168시간이다. open-notional cap은 주문액의 10배이며 주문액 hard cap은 $1,000이다.
-- 주문액별 실효 유동성은 `max($10,000, 주문액 / 0.001)`, 24시간 거래량은
-  `max($2,000, 주문액 / 0.02)`다. 실제 same-snapshot CLOB ask depth도 요청 수량의
+- 주문액별 실효 유동성은 `max($5,000, 주문액 / 0.004)`, 24시간 거래량은
+  `max($1,000, 주문액 / 0.05)`다. 기본 $100에서는 $25,000/$2,000이다. 실제
+  same-snapshot CLOB ask depth도 요청 수량의
   1.2배를 충족해야 한다. 증액할 때 이 자동 파생 gate를 우회하지 않는다.
 - 자체 archive는 표준 이진 YES `>= 0.80`, scheduled/pregame `<= 72h`, Gamma 요청
   envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, volume `>= $0`를 60일

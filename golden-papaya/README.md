@@ -13,8 +13,8 @@
 그 외 = resolution과 redeem 증거를 분리해 기록
 ```
 
-기본값은 주문 $5, 최대 20포지션, event당 1포지션, 유동성 $10,000 이상,
-최근 24h 거래량 $2,000 이상이다. 사전 해결 익절·trailing stop·time exit은 없다. 상세
+기본값은 주문 $5, 최대 20포지션, event당 1포지션, 유동성 $5,000 이상,
+최근 24h 거래량 $1,000 이상이다. 사전 해결 익절·trailing stop·time exit은 없다. 상세
 가설과 기각 기준은 [STRATEGY.md](STRATEGY.md), 증액 판단과 꼬리손실 계산은
 [증액·꼬리손실 가이드](docs/SCALING_AND_TAIL_RISK.md)를 참조한다.
 
@@ -73,8 +73,6 @@ set +x
 export POLYMARKET_SIGNATURE_TYPE=3  # 이 계정이 POLY_1271일 때만 3; 구형 프록시는 1
 export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
-export POLYBOT_MIN_LIQUIDITY=10000
-export POLYBOT_MIN_VOLUME_24H=2000
 export POLYBOT_MAX_SNAPSHOT_GAP_MINUTES=30
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=72
@@ -84,16 +82,26 @@ export LOG_LEVEL=INFO
 
 cd ./golden-papaya
 /Users/jongwoopark/.local/bin/uv sync --frozen
-/Users/jongwoopark/.local/bin/uv run polybot run --job papaya
+/Users/jongwoopark/.local/bin/uv run polybot config --job papaya-live-72h
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job papaya-live-72h
 ```
 
-이 예시는 저장소의 `simulation_mode: true`를 그대로 사용하므로 실제 주문을 만들지 않는다.
-live 전환은 운영 승인 후 `config.yaml`을 명시적으로 `false`로 바꾸고 새 config hash cohort로
-배포하는 별도 변경이다.
+`POLYBOT_MIN_LIQUIDITY`와 `POLYBOT_MIN_VOLUME_24H`를 생략하면 저장소 기본값
+`$5,000/$1,000`을 사용한다. `config`는 주문을 내지 않고 resolved 값을 보여주며,
+실제 주문은 뒤의 `run --live`에서만 가능하다. 저장소 기본이 simulation이라 `config`
+출력의 mode/DB는 simulation으로 보일 수 있지만 진입 수치는 동일하다.
 
 Jenkins concurrent build는 끄고, simulation/live 및 다른 전략과 `--job`과 DB를 공유하지
 않는다. signature type은 계정 종류에 맞춰야 하며 신규 계정이라고 무조건 3인 것은 아니다.
 `scripts/test_api_key.py`로 같은 Jenkins credential 조합을 먼저 확인한다.
+
+### 체결 없는 기존 cohort를 완전히 초기화할 때
+
+confirmed fill, open order, wallet position이 모두 0인 job은 Jenkins의
+`Delete workspace before build starts` 또는 동등한 workspace clean을 **한 번만** 켠 뒤
+위 shell을 실행해도 된다. 같은 `--job` 이름이어도 새 `trades.db`가 생성된다. 첫 성공 build
+직후 clean 옵션을 반드시 끈다. 매번 지우면 직전 snapshot이 없어져 first crossing이 절대
+성립하지 않는다. timer와 concurrent build도 clean 동안 끈다.
 
 ## Lifecycle
 
@@ -121,8 +129,8 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 | `POLYMARKET_SIGNATURE_TYPE` | `1` | 계정에 맞는 `1` 또는 `3` |
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active` / `close_only` / `archive_only` |
 | `POLYBOT_BUY_AMOUNT` | `5` | 주문 금액 USDC |
-| `POLYBOT_MIN_LIQUIDITY` | `10000` | Gamma 최소 유동성 USD; 실제 호가 depth 보장은 아님 |
-| `POLYBOT_MIN_VOLUME_24H` | `2000` | Gamma 최소 최근 24h 거래량 USD |
+| `POLYBOT_MIN_LIQUIDITY` | `5000` | Gamma 최소 유동성 USD; 실제 호가 depth 보장은 아님 |
+| `POLYBOT_MIN_VOLUME_24H` | `1000` | Gamma 최소 최근 24h 거래량 USD |
 | `POLYBOT_REENTRY_COOLDOWN_HOURS` | `24` | 같은 condition 재진입 쿨다운 시간 |
 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `30` | 연속 persisted snapshot 사이 허용 최대 간격, inclusive |
 | `POLYBOT_MIN_ORDER_SIZE` | `5` | venue 최소 주문 shares |
@@ -203,7 +211,7 @@ uv run python scripts/backtest.py /absolute/path/papaya-research.csv \
 
 replay는 30분 이내의 연속 snapshot에서 생긴 최초 crossing만 한 번 소비하고, 후속 filter에
 탈락해도 재-crossing을 새 최초 crossing으로 바꾸지 않는다. entry lower/upper, stop,
-liquidity, volume24h, hours max의 1,296개 조합을 실행하며 동시 20포지션·event당 1포지션을
+liquidity, volume24h, hours max의 1,620개 조합을 실행하며 동시 20포지션·event당 1포지션을
 시간축으로 적용한다. 산출물은 midpoint 반사실과 observed bid/ask 가상 체결을 분리한다.
 confirmed-fill 열은 exact execution ledger를 별도 join하기 전까지 `null`이며, 가상 체결을
 actual 성과로 승격하지 않는다. `manifest.json`은 입력·산출물 SHA-256, UTC review window,
@@ -212,7 +220,7 @@ actual 성과로 승격하지 않는다. `manifest.json`은 입력·산출물 SH
 ## 주의
 
 0.95 매수의 만기 총수익률은 비용 전 약 5.26%뿐이다. 0으로 끝나는 1건은 약 19건의
-정상 승리를 지울 수 있고, spread·fee·미체결은 그보다 더 불리하게 만든다. `$10k/$2k`
+정상 승리를 지울 수 있고, spread·fee·미체결은 그보다 더 불리하게 만든다. `$5k/$1k`
 진입 문턱도 실제 token별 호가 depth나 stop 체결을 보장하지 않는다. 소액과 position/event
 cap을 유지하고, [증액 gate](docs/SCALING_AND_TAIL_RISK.md)와 strict evidence 없이 금액을
 키우지 않는다.

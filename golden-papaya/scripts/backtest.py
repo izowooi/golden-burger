@@ -30,12 +30,12 @@ from pathlib import Path
 from typing import Iterable, Sequence
 
 
-ENGINE_VERSION = "papaya-offline-v3"
+ENGINE_VERSION = "papaya-offline-v4"
 ENTRY_GRID = (0.94, 0.95, 0.96)
 ENTRY_UPPER_GRID = (0.96, 0.97, 0.98)
 STOP_GRID = (0.85, 0.90, 0.93)
 LIQUIDITY_GRID = (1_000.0, 5_000.0, 10_000.0, 20_000.0)
-VOLUME_GRID = (0.0, 500.0, 2_000.0, 5_000.0)
+VOLUME_GRID = (0.0, 500.0, 1_000.0, 2_000.0, 5_000.0)
 HOURS_MAX_GRID = (24.0, 48.0, 72.0)
 ENTRY_HOURS_MIN = 0.0
 MAX_SNAPSHOT_GAP_MINUTES = 30.0
