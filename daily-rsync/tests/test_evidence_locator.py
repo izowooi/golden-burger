@@ -273,6 +273,16 @@ def test_verify_treats_retention_deleted_logs_as_an_explicit_skip(
     assert result["failed"] == 0
 
 
+def test_verify_reports_not_found_instead_of_vacuous_success(app_config) -> None:
+    service = SyncService(app_config)
+
+    result = service.verify(job="polybot-eagle", strategy="golden-blueberry")
+
+    assert result["status"] == "NOT_FOUND"
+    assert result["checked"] == 0
+    assert result["errors"] == ["no synchronized artifacts match the requested identity"]
+
+
 def test_locate_evidence_requires_an_identity(app_config) -> None:
     service = SyncService(app_config)
 

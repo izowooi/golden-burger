@@ -62,6 +62,32 @@ open "$HOME/Applications/Daily Rsync.app"
 오래 걸리는 동기화·무결성 검사·bundle 작업은 화면을 멈추지 않고 백그라운드에서
 순서대로 실행합니다.
 
+### 자동 Job 새로고침과 전략 근거
+
+웹 UI를 열면 원격 Jenkins Job inventory를 자동으로 한 번 `scan`합니다. `Job 새로고침`
+버튼도 같은 scan을 다시 실행합니다. 새 inventory가 도착하면 Job 목록뿐 아니라 현재
+선택된 Job 객체, 전략 dropdown, Build 수와 전략 요약을 모두 새 값으로 교체합니다.
+선택했던 Job이 원격 목록에서 사라졌다면 이전 객체를 계속 사용하지 않고 선택을
+해제합니다. scan 직후 상단의 local catalog·artifact 상태 지표도 다시 읽습니다.
+
+선택 요약의 `전략 판정 근거`는 서버가 비밀정보 없이 만든 `strategy_evidence`를
+표시합니다. 전략 이름은 다음 신호에서 독립적으로 수집됩니다.
+
+1. Jenkins `config.xml`의 shell command에서 구조적으로 추출한 `cd golden-*`
+2. 최신 완료 Build의 구조화된 전략 metadata
+3. 최신 canonical DB의 `run_audits` 전략 identity
+
+UI는 서버가 선택한 `current_source`와 `state`를 그대로 표시하며, 이 신호들이 충돌하면
+경고 badge를 보여줍니다. `config.xml` 원문, 환경변수, key와 address는 브라우저로
+보내거나 표시하지 않습니다. 충돌 상태에서는 전송 계획을 만들기 전에 Jenkins 설정과
+최신 Build·DB epoch를 확인해야 합니다.
+
+`scan`과 `sync`는 역할이 다릅니다. scan은 SSH로 원격 파일의 identity와 metadata를
+읽어 inventory를 갱신할 뿐 DB나 로그 본문을 전송하지 않습니다. sync는 사용자가 만든
+plan을 실행해 SQLite snapshot과 선택된 로그를 local data root로 가져옵니다. 따라서
+자동 새로고침으로 전략 표시가 최신이 되어도 local evidence가 동기화되었다는 의미는
+아닙니다.
+
 ## 개발 또는 CLI 실행
 
 ```bash

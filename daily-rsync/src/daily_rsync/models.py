@@ -43,6 +43,7 @@ class JobInventory:
     strategies: tuple[str, ...]
     artifacts: tuple[RemoteArtifact, ...]
     remote_free_bytes: int
+    strategy_evidence: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
     def from_dict(cls, payload: dict[str, Any]) -> JobInventory:

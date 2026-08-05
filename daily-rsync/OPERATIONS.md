@@ -22,6 +22,22 @@ Finder에서는 `Daily Rsync 켜고 끄기.command`를 더블클릭한다. 자�
 웹 UI와 CLI는 같은 `data/catalog.sqlite3`와 artifact 경로를 사용한다. 따라서 UI에서
 동기화한 뒤 CLI나 AI가 즉시 `verify`, `bundle`, 분석 명령을 이어서 사용할 수 있다.
 
+웹 UI 시작 시 `/api/jobs`가 원격 Job inventory를 자동 scan한다. 사용자가 새로고침
+버튼을 누를 때도 기존 브라우저 객체를 재사용하지 않고 scan 결과로 Job 목록과 현재
+선택, 전략 dropdown, 요약 panel을 다시 만든다. 원격에서 선택 Job이 사라지면 선택을
+해제하며, 성공한 scan 다음에는 local status metric도 갱신한다.
+
+전략 identity는 raw 설정을 노출하지 않고 다음 세 신호로 교차 확인한다.
+
+1. `config.xml` shell command의 안전한 `cd golden-*` 추출값
+2. 최신 완료 Build가 남긴 구조화된 전략값
+3. 최신 canonical DB의 `run_audits` 전략값
+
+서버가 반환하는 `strategy_evidence.current_source`가 현재 판정에 사용한 신호이고,
+`state`와 `conflict`가 신호 합의 여부를 나타낸다. UI에 conflict 경고가 보이면 과거 DB나
+다른 전략 Build를 현재 전략 evidence로 간주하지 않는다. 설정 원문이나 environment,
+credential은 전략 판정을 위해 출력하거나 browser response에 포함하지 않는다.
+
 ## 정상 실행
 
 1. `doctor`
@@ -33,6 +49,19 @@ Finder에서는 `Daily Rsync 켜고 끄기.command`를 더블클릭한다. 자�
 
 처음에는 하나의 job으로 검증한 뒤 저장 profile을 늘린다. 선택하지 않은 job은 상세
 build log를 조사하거나 전송하지 않는다.
+
+### Scan과 Sync의 경계
+
+- **Scan**: 원격 Job·Build·DB의 metadata와 identity를 읽고 inventory/catalog의 Job
+  상태를 갱신한다. DB와 로그 본문은 가져오지 않는다. 웹 UI의 시작 및 Job 새로고침은
+  이 단계까지만 자동 실행한다.
+- **Plan**: 선택한 Job·전략·기간에 대해 전송 대상, 변경 없음, 예상 byte를 계산한다.
+- **Sync**: 확인한 plan의 SQLite online snapshot과 로그를 실제로 local data root에
+  전송하고 checksum·catalog 상태를 갱신한다.
+
+따라서 자동 scan 후 화면에 새 전략이 표시되는 것과 해당 전략의 DB/log가 local에
+존재하는 것은 별개다. 회고나 compact 검증에는 반드시 sync 완료, `locate`의 최신
+attempt/success, `verify` 결과를 추가로 확인한다.
 
 ## 실패 처리
 

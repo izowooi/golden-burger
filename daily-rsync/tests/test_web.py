@@ -20,6 +20,27 @@ def test_local_web_home_renders_without_remote_access(app_config) -> None:
     assert client.get("/static/app.js").status_code == 200
 
 
+def test_static_ui_auto_refreshes_inventory_and_renders_strategy_evidence(app_config) -> None:
+    client = TestClient(create_app(app_config))
+
+    html = client.get("/").text
+    javascript = client.get("/static/app.js").text
+
+    assert 'id="strategyEvidenceSource"' in html
+    assert 'id="strategyEvidenceState"' in html
+    assert 'id="strategyEvidenceBadge"' in html
+    assert 'id="evidenceConfigured"' in html
+    assert 'id="evidenceBuild"' in html
+    assert 'id="evidenceDatabase"' in html
+    assert "loadJobs(null)" in javascript
+    assert "function reconcileSelectedJob" in javascript
+    assert "strategyChanged ? refreshed.current_strategy : selectedStrategy" in javascript
+    assert "function clearSelection" in javascript
+    assert "job.strategy_evidence" in javascript
+    assert "await loadStatus();" in javascript
+    assert '$("strategyEvidenceBadge").className' in javascript
+
+
 def test_account_epoch_can_be_saved_in_web_ui(app_config) -> None:
     client = TestClient(create_app(app_config))
     payload = {

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from daily_rsync.models import RemoteArtifact
+import pytest
+
+from daily_rsync.models import JobInventory, RemoteArtifact
 from daily_rsync.sync import SyncService
 
 
@@ -35,3 +37,28 @@ def test_console_logs_are_sharded_by_build_number(app_config) -> None:
     )
 
     assert service.local_path(artifact).as_posix().endswith("/builds/049000/49268.log.gz")
+
+
+def test_plan_requires_explicit_strategy_while_config_deployment_is_pending(
+    app_config, monkeypatch
+) -> None:
+    service = SyncService(app_config)
+    inventory = JobInventory(
+        name="polybot-eagle",
+        workspace="/jenkins/workspace/polybot-eagle",
+        build_count=101,
+        min_build=1,
+        max_build=101,
+        current_strategy="golden-blueberry",
+        strategies=("golden-blueberry", "golden-nectarine"),
+        artifacts=(),
+        remote_free_bytes=10**9,
+        strategy_evidence={"state": "PENDING_DEPLOYMENT", "conflict": True},
+    )
+    monkeypatch.setattr(service, "scan", lambda **_kwargs: [inventory])
+
+    with pytest.raises(ValueError, match="PENDING_DEPLOYMENT"):
+        service.create_plan(job="polybot-eagle")
+
+    plan = service.create_plan(job="polybot-eagle", strategy="golden-blueberry")
+    assert plan.strategy == "golden-blueberry"

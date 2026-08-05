@@ -35,7 +35,7 @@
         </div>
         <div class="hero-actions">
           <button class="button primary large" type="button" data-action="load-jobs">
-            <span>Job 불러오기</span><span aria-hidden="true">→</span>
+            <span>Job 새로고침</span><span aria-hidden="true">→</span>
           </button>
           <button class="button secondary" type="button" data-action="random-job">무작위 Job 선택</button>
         </div>
@@ -67,7 +67,7 @@
             <input id="jobSearch" type="search" placeholder="Job 이름 검색">
           </label>
           <div id="jobList" class="job-list">
-            <div class="empty compact-empty">Job 목록을 불러오세요.</div>
+            <div class="empty compact-empty">앱 시작과 함께 Job 목록을 확인합니다.</div>
           </div>
           <button class="button ghost full" type="button" data-action="random-job">🎲 무작위로 하나 선택</button>
         </aside>
@@ -88,8 +88,24 @@
             <div id="selectionPanel" class="hidden">
               <div class="selected-summary">
                 <div><span>Jenkins Job</span><strong id="selectedJob">—</strong></div>
-                <div><span>전략</span><strong id="selectedStrategy">—</strong></div>
+                <div><span>현재 전략</span><strong id="selectedStrategy">—</strong></div>
                 <div><span>Build</span><strong id="selectedBuilds">—</strong></div>
+              </div>
+
+              <div id="strategyEvidence" class="strategy-evidence" aria-live="polite">
+                <div class="strategy-evidence-heading">
+                  <div>
+                    <span>전략 판정 근거</span>
+                    <strong id="strategyEvidenceSource">근거 없음</strong>
+                    <small id="strategyEvidenceState">UNKNOWN</small>
+                  </div>
+                  <span id="strategyEvidenceBadge" class="badge neutral">근거 미확인</span>
+                </div>
+                <div class="strategy-evidence-signals">
+                  <div><span>Jenkins 설정</span><strong id="evidenceConfigured">근거 없음</strong></div>
+                  <div><span>최신 완료 Build</span><strong id="evidenceBuild">근거 없음</strong></div>
+                  <div><span>최신 canonical DB</span><strong id="evidenceDatabase">근거 없음</strong></div>
+                </div>
               </div>
 
               <div class="form-grid">

@@ -110,6 +110,7 @@ main { max-width: 1360px; margin: 0 auto; padding: 42px 24px 80px; }
 .badge { padding: 5px 9px; border-radius: 999px; font-size: 10px; font-weight: 700; }
 .badge.neutral { background: var(--wash); color: var(--muted); }
 .badge.success { background: var(--green-soft); color: var(--green); }
+.badge.warning { background: var(--amber-soft); color: var(--amber); }
 .badge.working { background: var(--amber-soft); color: var(--amber); }
 .badge.failed { background: var(--red-soft); color: var(--red); }
 .empty { min-height: 190px; display: grid; place-items: center; align-content: center; text-align: center; gap: 7px; color: var(--muted); }
@@ -124,6 +125,32 @@ main { max-width: 1360px; margin: 0 auto; padding: 42px 24px 80px; }
 .selected-summary > div, .plan-stats > div { background: var(--paper); padding: 14px 16px; }
 .selected-summary span, .plan-stats span { display: block; color: var(--muted); font-size: 10px; margin-bottom: 5px; }
 .selected-summary strong, .plan-stats strong { font-size: 14px; }
+.strategy-evidence {
+  margin: -6px 0 18px; padding: 14px 16px; border: 1px solid var(--line);
+  border-radius: 12px; background: #fbfcfa;
+}
+.strategy-evidence-heading {
+  display: flex; align-items: center; justify-content: space-between; gap: 14px;
+  margin-bottom: 12px;
+}
+.strategy-evidence-heading span,
+.strategy-evidence-signals span,
+.strategy-evidence-heading small {
+  display: block; color: var(--muted); font-size: 10px;
+}
+.strategy-evidence-heading strong { display: inline-block; margin: 4px 8px 0 0; font-size: 13px; }
+.strategy-evidence-heading small { display: inline-block; }
+.strategy-evidence-signals {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px;
+}
+.strategy-evidence-signals > div {
+  min-width: 0; padding: 10px 11px; border-radius: 9px; background: var(--paper);
+  border: 1px solid #e8ece8;
+}
+.strategy-evidence-signals strong {
+  display: block; margin-top: 4px; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; font-size: 12px;
+}
 .form-grid { display: grid; grid-template-columns: 1fr 1fr 1.25fr; gap: 12px; }
 .form-grid.two { grid-template-columns: 1fr 1fr; max-width: 650px; }
 .form-grid label { color: var(--muted); font-size: 11px; font-weight: 700; }
@@ -199,5 +226,6 @@ pre { max-height: 260px; overflow: auto; background: #17211b; color: #d9e5dc; pa
   .metric strong { font-size: 20px; }
   .sync-card, .task-card, .tools-card, .history-card { padding: 18px; }
   .selected-summary, .plan-stats, .form-grid, .form-grid.two { grid-template-columns: 1fr; }
+  .strategy-evidence-signals { grid-template-columns: 1fr; }
   .artifact-row { grid-template-columns: 85px 65px 1fr; }
 }

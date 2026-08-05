@@ -124,6 +124,12 @@ class SyncService:
         if not inventories:
             raise ValueError(f"Jenkins job not found: {job}")
         inventory = inventories[0]
+        strategy_state = str(inventory.strategy_evidence.get("state") or "UNKNOWN")
+        if strategy is None and strategy_state in {"AMBIGUOUS_CONFIG", "PENDING_DEPLOYMENT"}:
+            raise ValueError(
+                "strategy identity is not settled "
+                f"({strategy_state}); inspect strategy_evidence and pass --strategy explicitly"
+            )
         selected_strategy = strategy or inventory.current_strategy
         if not selected_strategy:
             raise ValueError("strategy could not be inferred; pass --strategy")
@@ -443,6 +449,14 @@ class SyncService:
 
     def verify(self, *, job: str | None = None, strategy: str | None = None) -> dict[str, object]:
         rows = self.catalog.list_artifacts(job=job, strategy=strategy)
+        if not rows:
+            return {
+                "checked": 0,
+                "skipped_retention_deleted": 0,
+                "failed": 0,
+                "errors": ["no synchronized artifacts match the requested identity"],
+                "status": "NOT_FOUND",
+            }
         checked = 0
         skipped_retention_deleted = 0
         failed: list[str] = []

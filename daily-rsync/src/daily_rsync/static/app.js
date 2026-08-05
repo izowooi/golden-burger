@@ -6,6 +6,7 @@ const state = {
   plan: null,
   currentTask: null,
   bundlePath: null,
+  jobsRequestId: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -99,22 +100,58 @@ async function doctor(button) {
 }
 
 async function loadJobs(button) {
+  const requestId = ++state.jobsRequestId;
   setBusy(button, true, "불러오는 중…");
   $("jobList").innerHTML = '<div class="empty compact-empty">Mac mini에서 Job을 찾는 중…</div>';
   try {
-    state.jobs = (await api("/api/jobs")).filter((job) => job.name.startsWith("polybot-"));
-    renderJobs();
-    toast(`${state.jobs.length}개 Job을 불러왔습니다.`);
+    const jobs = (await api("/api/jobs")).filter((job) => job.name.startsWith("polybot-"));
+    if (requestId !== state.jobsRequestId) return;
+    const selectedName = state.selected?.name || null;
+    const selectedCurrentStrategy = state.selected?.current_strategy || null;
+    const selectedStrategy = $("strategySelect").value || null;
+    state.jobs = jobs;
+    const selectionState = reconcileSelectedJob(
+      selectedName, selectedCurrentStrategy, selectedStrategy,
+    );
+    await loadStatus();
+    const suffix = selectionState === "removed" ? " · 이전 선택은 원격에서 사라져 해제했습니다." : "";
+    toast(`${state.jobs.length}개 Job을 불러왔습니다.${suffix}`, selectionState === "removed");
   } catch (error) {
+    if (requestId !== state.jobsRequestId) return;
     $("jobList").innerHTML = `<div class="notice error">${error.message}</div>`;
     toast(error.message, true);
   } finally { setBusy(button, false); }
 }
 
+function reconcileSelectedJob(selectedName, previousCurrentStrategy, selectedStrategy) {
+  if (!selectedName) {
+    renderJobs();
+    return "none";
+  }
+  const refreshed = state.jobs.find((job) => job.name === selectedName);
+  if (!refreshed) {
+    clearSelection();
+    renderJobs();
+    return "removed";
+  }
+  const strategyChanged = previousCurrentStrategy !== refreshed.current_strategy;
+  selectJob(refreshed, {
+    preferredStrategy: strategyChanged ? refreshed.current_strategy : selectedStrategy,
+  });
+  return "updated";
+}
+
 function renderJobs() {
   const query = $("jobSearch").value.trim().toLowerCase();
-  const values = state.jobs.filter((job) =>
-    `${job.name} ${job.current_strategy || ""}`.toLowerCase().includes(query));
+  const values = state.jobs.filter((job) => {
+    const evidence = job.strategy_evidence || {};
+    const evidenceTerms = [
+      evidence.configured_strategy,
+      evidence.latest_build_strategy,
+      evidence.latest_database_strategy,
+    ].filter(Boolean).join(" ");
+    return `${job.name} ${job.current_strategy || ""} ${evidenceTerms}`.toLowerCase().includes(query);
+  });
   $("jobList").replaceChildren();
   if (!values.length) {
     $("jobList").innerHTML = '<div class="empty compact-empty">조건에 맞는 Job이 없습니다.</div>';
@@ -145,7 +182,7 @@ function randomJob() {
   selectJob(state.jobs[Math.floor(Math.random() * state.jobs.length)]);
 }
 
-function selectJob(job) {
+function selectJob(job, {preferredStrategy = null} = {}) {
   state.selected = job;
   state.plan = null;
   state.bundlePath = null;
@@ -153,8 +190,6 @@ function selectJob(job) {
   $("selectionEmpty").classList.add("hidden");
   $("selectionPanel").classList.remove("hidden");
   $("planPanel").classList.add("hidden");
-  $("selectionBadge").className = "badge success";
-  $("selectionBadge").textContent = "선택됨";
   $("selectedJob").textContent = job.name;
   $("selectedStrategy").textContent = job.current_strategy || "미분류";
   $("selectedBuilds").textContent = Number(job.build_count).toLocaleString();
@@ -166,8 +201,75 @@ function selectJob(job) {
     option.textContent = value;
     $("strategySelect").append(option);
   }
-  loadCatalog();
+  const nextStrategy = preferredStrategy && strategies.includes(preferredStrategy)
+    ? preferredStrategy
+    : (job.current_strategy && strategies.includes(job.current_strategy) ? job.current_strategy : strategies[0]);
+  if (nextStrategy) $("strategySelect").value = nextStrategy;
+  renderStrategyEvidence(job);
+  if (nextStrategy) loadCatalog();
+  else $("catalogList").innerHTML = '<div class="empty compact-empty">원격 inventory에 전략이 없습니다.</div>';
   loadEpochs();
+}
+
+function clearSelection() {
+  state.selected = null;
+  state.plan = null;
+  state.bundlePath = null;
+  $("strategySelect").replaceChildren();
+  $("selectionPanel").classList.add("hidden");
+  $("selectionEmpty").classList.remove("hidden");
+  $("planPanel").classList.add("hidden");
+  $("selectionBadge").className = "badge neutral";
+  $("selectionBadge").textContent = "Job 미선택";
+  $("selectedJob").textContent = "—";
+  $("selectedStrategy").textContent = "—";
+  $("selectedBuilds").textContent = "—";
+  $("catalogList").innerHTML = '<div class="empty compact-empty">Job을 선택하세요.</div>';
+  $("epochList").replaceChildren();
+}
+
+function evidenceValue(value) {
+  return typeof value === "string" && value.trim() ? value : "근거 없음";
+}
+
+function evidenceSourceLabel(value) {
+  const labels = {
+    config: "Jenkins 설정 (config.xml)",
+    config_xml: "Jenkins 설정 (config.xml)",
+    configured_strategy: "Jenkins 설정 (config.xml)",
+    jenkins_config: "Jenkins 설정 (config.xml)",
+    latest_build: "최신 완료 Build",
+    latest_build_strategy: "최신 완료 Build",
+    structured_build: "최신 완료 Build",
+    structured_run_audit: "최신 완료 Build (RUN_AUDIT)",
+    database: "최신 canonical DB",
+    latest_database: "최신 canonical DB",
+    latest_database_strategy: "최신 canonical DB",
+    database_run_audit: "최신 canonical DB (run_audits)",
+    unknown: "근거 없음",
+  };
+  return labels[value] || evidenceValue(value);
+}
+
+function renderStrategyEvidence(job) {
+  const evidence = job.strategy_evidence && typeof job.strategy_evidence === "object"
+    ? job.strategy_evidence
+    : {};
+  const stateValue = evidenceValue(evidence.state);
+  const stateName = String(evidence.state || "").toUpperCase();
+  const conflict = evidence.conflict === true
+    || String(evidence.conflict).toLowerCase() === "true"
+    || stateName === "CONFLICT";
+  const evidenceKnown = Boolean(evidence.state) && stateName !== "UNKNOWN";
+  $("evidenceConfigured").textContent = evidenceValue(evidence.configured_strategy);
+  $("evidenceBuild").textContent = evidenceValue(evidence.latest_build_strategy);
+  $("evidenceDatabase").textContent = evidenceValue(evidence.latest_database_strategy);
+  $("strategyEvidenceSource").textContent = evidenceSourceLabel(evidence.current_source);
+  $("strategyEvidenceState").textContent = stateValue;
+  $("strategyEvidenceBadge").className = `badge ${conflict ? "warning" : evidenceKnown ? "success" : "neutral"}`;
+  $("strategyEvidenceBadge").textContent = conflict ? "전략 근거 충돌" : evidenceKnown ? "근거 확인" : "근거 미확인";
+  $("selectionBadge").className = `badge ${conflict ? "warning" : "success"}`;
+  $("selectionBadge").textContent = conflict ? "확인 필요" : "선택됨";
 }
 
 function requireSelection() {
@@ -518,4 +620,4 @@ $("strategySelect").addEventListener("change", () => {
 });
 
 setDefaultDates();
-Promise.all([loadStatus(), loadRuns(), doctor(null)]);
+Promise.all([loadStatus(), loadRuns(), doctor(null), loadJobs(null)]);
