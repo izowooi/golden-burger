@@ -34,6 +34,29 @@ ENV_RETENTION_DAYS = "POLYBOT_DB_RETENTION_DAYS"
 ENV_RUN_INTERVAL_HOURS = "POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS"
 ENV_MEMBERSHIP_DETAIL_HOURS = "POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS"
 
+_SUPPORTED_STRATEGIES = frozenset(
+    {
+        "golden-apple",
+        "golden-banana",
+        "golden-blueberry",
+        "golden-cherry",
+        "golden-date",
+        "golden-elderberry",
+        "golden-fig",
+        "golden-grape",
+        "golden-honeydew",
+        "golden-kiwi",
+        "golden-lime",
+        "golden-mango",
+        "golden-melon",
+        "golden-nectarine",
+        "golden-orange",
+        "golden-papaya",
+        "golden-queen",
+        "golden-quince",
+    }
+)
+
 _STATE_TABLE_SQL = """
 CREATE TABLE IF NOT EXISTS polybot_db_maintenance (
     profile TEXT PRIMARY KEY,
@@ -285,7 +308,12 @@ def policy_for(
         # auditable 30/60-day independent test.
         "golden-kiwi": 60.0 * 24.0,
         "golden-lime": 24.0,
-        "golden-mango": 24.0,
+        # Patience Premium reads an exact six-hour momentum window. Keeping
+        # another eighteen hours at five-minute cadence only multiplies the
+        # largest table and does not change the live signal. Existing Mango
+        # databases activated with the former 24h policy must be explicitly
+        # reprofiled with ``migrate_database`` before a normal bot restart.
+        "golden-mango": 6.0,
         # Bottom Fisher excludes the most recent 24h from its reference low.
         # One hour of raw observations is enough for current-cycle continuity;
         # older prefix/suffix minima below preserve exact sliding-window lows.
@@ -517,7 +545,10 @@ def _online_backup(
             raise RuntimeError(f"reserved backup destination is invalid: {destination}")
     else:
         destination.unlink(missing_ok=True)
-    source_connection = sqlite3.connect(f"file:{source}?mode=ro", uri=True)
+    source_connection = sqlite3.connect(
+        f"{source.resolve().as_uri()}?mode=ro",
+        uri=True,
+    )
     destination_connection = sqlite3.connect(destination)
     try:
         source_connection.backup(destination_connection, pages=8192)
@@ -1047,6 +1078,107 @@ def _validate_active_state(
             )
 
 
+def _validate_compacting_reprofile(
+    row: Mapping[str, Any],
+    strategy_name: str,
+    policy: SQLiteMaintenancePolicy,
+    requirements: SQLiteMaintenanceRequirements,
+) -> None:
+    """Allow only an explicit, evidence-safe reduction of the hot window.
+
+    A normal bot start continues to reject every stored policy mismatch.  The
+    dedicated migration command may re-run the atomic backup/copy/VACUUM path
+    only when the strategy requirements and every other destructive policy
+    field are unchanged and the new hot window is strictly smaller.  Increasing
+    a hot window cannot restore raw rows already rolled up, while changing
+    retention, selector, or bucket cadence is a different migration profile.
+    """
+
+    normalized = str(strategy_name).strip().lower()
+    if int(row["active"] or 0) != 1:
+        raise RuntimeError("compact-v1 maintenance state is not active")
+    if int(row["schema_version"] or 0) != SCHEMA_VERSION:
+        raise RuntimeError(
+            "unsupported compact-v1 maintenance schema_version: "
+            f"{row['schema_version']!r}"
+        )
+    if str(row["strategy_name"] or "").strip().lower() != normalized:
+        raise RuntimeError(
+            "compact-v1 strategy identity mismatch: "
+            f"stored={row['strategy_name']!r}, requested={normalized!r}"
+        )
+    try:
+        report = json.loads(str(row["last_report_json"] or ""))
+        stored_policy = report["policy"]
+        stored_requirements = report["requirements"]
+    except (TypeError, ValueError, KeyError, json.JSONDecodeError) as error:
+        raise RuntimeError("invalid compact-v1 maintenance policy report") from error
+    if not isinstance(stored_policy, dict) or not isinstance(
+        stored_requirements, dict
+    ):
+        raise RuntimeError("invalid compact-v1 maintenance policy report")
+    expected_requirements = asdict(requirements)
+    if stored_requirements != expected_requirements:
+        raise RuntimeError(
+            "compact-v1 explicit reprofile requires unchanged resolved strategy "
+            f"requirements: stored={stored_requirements!r}, "
+            f"requested={expected_requirements!r}"
+        )
+    expected_policy = asdict(policy)
+    immutable_fields = (
+        "strategy_name",
+        "rollup_hours",
+        "retention_days",
+        "selector",
+        "run_interval_hours",
+        "membership_detail_hours",
+    )
+    changed = {
+        name: (stored_policy.get(name), expected_policy[name])
+        for name in immutable_fields
+        if stored_policy.get(name) != expected_policy[name]
+    }
+    if changed:
+        raise RuntimeError(
+            "compact-v1 explicit reprofile may only reduce hot_hours; "
+            f"other policy fields changed: {changed!r}"
+        )
+    try:
+        stored_hot_hours = float(stored_policy["hot_hours"])
+    except (TypeError, ValueError, KeyError) as error:
+        raise RuntimeError("invalid compact-v1 stored hot_hours") from error
+    if not policy.hot_hours < stored_hot_hours:
+        raise RuntimeError(
+            "compact-v1 explicit reprofile only supports a smaller hot window: "
+            f"stored={stored_hot_hours}, requested={policy.hot_hours}"
+        )
+
+
+def _validate_database_strategy_identity(
+    connection: sqlite3.Connection,
+    strategy_name: str,
+) -> None:
+    """Reject an explicit migration when persisted provenance names differ."""
+
+    identities: set[str] = set()
+    existing = _tables(connection)
+    for table in ("run_audits", "strategy_configs"):
+        if table not in existing or "strategy_name" not in _columns(connection, table):
+            continue
+        identities.update(
+            str(row[0]).strip().lower()
+            for row in connection.execute(
+                f"SELECT DISTINCT strategy_name FROM {_quote_identifier(table)} "
+                "WHERE strategy_name IS NOT NULL AND trim(strategy_name) != ''"
+            )
+        )
+    if identities and identities != {strategy_name}:
+        raise RuntimeError(
+            "SQLite database strategy provenance mismatch; refusing explicit "
+            f"migration: stored={sorted(identities)!r}, requested={strategy_name!r}"
+        )
+
+
 def _maintenance_due(
     connection: sqlite3.Connection, policy: SQLiteMaintenancePolicy
 ) -> bool:
@@ -1212,17 +1344,83 @@ def _migrate(
     return report
 
 
+def migrate_database(
+    db_path: str | os.PathLike[str],
+    strategy_name: str,
+    *,
+    requirements: SQLiteMaintenanceRequirements | None = None,
+) -> SQLiteMaintenanceReport | None:
+    """Explicitly activate or safely tighten compact-v1 without running a bot.
+
+    This is the API behind the ``polybot-db-maintenance migrate`` command.  It
+    differs from :func:`prepare_database` in two important ways:
+
+    * the target DB must already exist, preventing a typo from creating and
+      "migrating" an empty database;
+    * an already-active profile may only move to a smaller full-cadence hot
+      window when all strategy requirements and every other policy field are
+      identical.  The migration still takes a new verified backup and performs
+      the atomic replacement path.
+
+    A fully matching active profile is an idempotent no-op.
+    """
+
+    path = Path(db_path).expanduser().resolve()
+    if not path.is_file() or path.stat().st_size == 0:
+        raise FileNotFoundError(f"SQLite database does not exist or is empty: {path}")
+    normalized = str(strategy_name).strip().lower()
+    if normalized not in _SUPPORTED_STRATEGIES:
+        raise ValueError(
+            "unsupported strategy for explicit SQLite migration: "
+            f"{normalized!r}"
+        )
+    resolved_requirements = requirements or requirements_for(normalized)
+    policy = policy_for(normalized, resolved_requirements)
+    # Use an explicit read-only URI so a path disappearing between the stat
+    # check above and connect cannot be silently recreated as an empty DB.
+    probe = sqlite3.connect(f"{path.as_uri()}?mode=ro", uri=True)
+    try:
+        _validate_database_strategy_identity(probe, normalized)
+        row = _state(probe)
+        if row is not None and int(row["active"] or 0) == 1:
+            try:
+                _validate_active_state(
+                    row,
+                    normalized,
+                    policy,
+                    resolved_requirements,
+                )
+            except RuntimeError:
+                _validate_compacting_reprofile(
+                    row,
+                    normalized,
+                    policy,
+                    resolved_requirements,
+                )
+            else:
+                LOGGER.info(
+                    "SQLite compact-v1은 이미 현재 정책으로 활성화되어 있습니다: %s",
+                    path,
+                )
+                return None
+    finally:
+        probe.close()
+    return _migrate(path, policy, resolved_requirements)
+
+
 def prepare_database(
     db_path: str | os.PathLike[str],
     strategy_name: str,
     *,
     requirements: SQLiteMaintenanceRequirements | None = None,
 ) -> SQLiteMaintenanceReport | None:
-    """Run the one-time migration or already-activated lean maintenance.
+    """Run legacy opt-in migration or already-activated lean maintenance.
 
-    Set ``POLYBOT_DB_MAINTENANCE=compact-v1`` for exactly one successful run,
-    verify its backup/report, then remove the variable.  The activation marker
-    remains in the DB and keeps bounded maintenance enabled on future runs.
+    New operator migrations should use :func:`migrate_database`, which never
+    starts a trading cycle.  ``POLYBOT_DB_MAINTENANCE=compact-v1`` remains for
+    compatibility with the original one-run activation workflow.  In both
+    cases the activation marker remains in the DB and keeps bounded
+    maintenance enabled on future runs.
     """
 
     raw_profile = os.getenv(ENV_PROFILE, "").strip()

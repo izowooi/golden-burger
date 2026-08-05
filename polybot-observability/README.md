@@ -1,6 +1,6 @@
 # Polybot Observability
 
-16개 `golden-*` 전략이 공통으로 사용하는 로컬 관측성 패키지다. 주문 가격이나 전략 판단을
+18개 `golden-*` 전략이 공통으로 사용하는 로컬 관측성 패키지다. 주문 가격이나 전략 판단을
 바꾸지 않고, 각 봇의 기존 SQLite DB에 실행 provenance와 실제 CLOB lifecycle evidence를
 추가한다.
 
@@ -214,6 +214,27 @@ Credentials Binding으로 주입하고 shell의 첫 명령부터 `set +x`를 적
 ledger schema upgrade는 `BEGIN IMMEDIATE` 아래 개별 SQLite DDL로 copy/drop/rename을 한 transaction에
 묶는다. 이전 비원자적 migration에서 남은 `order_fills_v2`도 복구하며, 중간 실패는 원본 table과
 row를 그대로 rollback한다.
+
+## SQLite telemetry 축소
+
+거래·주문·체결·run/config evidence는 유지하고 고용량 market snapshot과 sweep membership만
+전략별 신호 window에 맞춰 축약한다. 기존 DB는 bot `run`보다 먼저 전용 명령으로 migration한다.
+이 명령은 API client를 만들거나 거래 cycle을 시작하지 않는다.
+
+```bash
+uv run polybot-db-maintenance migrate \
+  --strategy golden-queen \
+  --db /absolute/path/to/data/<job>/trades.db \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
+```
+
+writer와 Jenkins timer를 모두 중지하고 정확한 기존 DB 경로를 지정해야 한다. 명령은 검증된
+workspace 외부 backup과 working copy를 만든 뒤 `quick_check`를 통과한 결과만 원자 교체한다.
+성공한 DB에는 `compact-v1` marker가 남아 이후 정상 bot 실행이 bounded cleanup을 자동 유지한다.
+전략별 보존 범위, 공간 요구량, Mango 24h→6h 재프로파일과 rollback 절차는
+[`docs/queen-papaya-mango-db-compaction-migration.md`](../docs/queen-papaya-mango-db-compaction-migration.md)와
+[`docs/sqlite-storage-maintenance.md`](../docs/sqlite-storage-maintenance.md)를 따른다.
 
 ## 봇 연동
 

@@ -265,6 +265,29 @@ open-notional 상한이 주문액 10배라 full-size 신규 포지션은 보통 
 | `POLYBOT_ARCHIVE_HOURS_MAX` | `72` | scheduled archive 상한 |
 | `POLYBOT_SNAPSHOT_RETENTION_DAYS` | `60` | snapshot 최소 보존일 |
 
+## DB 저장공간 마이그레이션
+
+기존 DB는 최근 1시간 snapshot 원형과 60일 first-crossing extrema를 보존하면서, sweep별
+시장 상세를 24시간 checkpoint로 줄일 수 있다. Jenkins timer와 모든 writer를 먼저 중지한
+뒤 거래 cycle과 분리된 명령을 DB마다 한 번 실행한다.
+
+```bash
+unset POLYBOT_DB_MAINTENANCE POLYBOT_DB_HOT_HOURS POLYBOT_DB_ROLLUP_HOURS
+unset POLYBOT_DB_RETENTION_DAYS POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS
+unset POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS
+uv run polybot-db-maintenance migrate \
+  --strategy golden-queen \
+  --db data/queen-live-24h/trades.db \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
+```
+
+성공 후에는 `POLYBOT_DB_MAINTENANCE`를 설정하지 않고 기존 `polybot run --live --job ...`을
+그대로 실행한다. active marker가 이후 bounded cleanup을 자동 유지한다. 다중 A/B runtime,
+simulation DB와 rollback 절차는
+[Queen·Papaya·Mango DB 마이그레이션](../docs/queen-papaya-mango-db-compaction-migration.md)을
+따른다.
+
 ## 회고와 offline replay
 
 ```bash

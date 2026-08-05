@@ -6,10 +6,12 @@ import pytest
 
 from polybot_observability import (
     SQLiteMaintenanceRequirements,
+    migrate_database,
     policy_for,
     prepare_database,
     requirements_for,
 )
+from polybot_observability.db_maintenance_cli import main as maintenance_main
 
 
 def _seed_database(path):
@@ -114,6 +116,7 @@ def test_policy_is_strategy_aware(monkeypatch):
     )
     assert policy_for("golden-elderberry").selector == "extrema"
     assert policy_for("golden-honeydew").selector == "latest"
+    assert policy_for("golden-mango").hot_hours == 6
     assert policy_for("golden-orange").retention_days == 21
     assert policy_for("golden-orange").hot_hours == 168
     assert policy_for("golden-nectarine").hot_hours == 1
@@ -240,6 +243,161 @@ def test_compact_v1_is_backed_up_atomic_and_idempotent(tmp_path, monkeypatch):
     # Leaving the one-shot flag in place cannot run or back up the migration twice.
     assert prepare_database(database, "golden-nectarine") is None
     assert len(list(manifest_path.glob("*.manifest.json"))) == 1
+
+
+def test_explicit_migration_needs_no_bot_profile_environment(tmp_path, monkeypatch):
+    database = tmp_path / "queen.db"
+    backup_root = tmp_path / "backups"
+    _seed_database(database)
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE", raising=False)
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+
+    report = migrate_database(database, "golden-queen")
+
+    assert report is not None
+    assert report.strategy_name == "golden-queen"
+    assert report.memberships_after < report.memberships_before
+    assert migrate_database(database, "golden-queen") is None
+    assert len(list(backup_root.rglob("*.manifest.json"))) == 1
+
+
+def test_migration_cli_requires_writer_stop_confirmation(capsys):
+    with pytest.raises(SystemExit) as exit_info:
+        maintenance_main(
+            ["migrate", "--strategy", "golden-queen", "--db", "missing.db"]
+        )
+
+    assert exit_info.value.code == 2
+    assert "pass --confirm" in capsys.readouterr().err
+
+
+def test_migration_cli_outputs_machine_readable_result(
+    tmp_path, monkeypatch, capsys
+):
+    database = tmp_path / "queen.db"
+    backup_root = tmp_path / "backups"
+    _seed_database(database)
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE", raising=False)
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+
+    maintenance_main(
+        [
+            "migrate",
+            "--strategy",
+            "golden-queen",
+            "--db",
+            str(database),
+            "--backup-dir",
+            str(backup_root),
+            "--confirm",
+        ]
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert payload["status"] == "migrated"
+    assert payload["strategy_name"] == "golden-queen"
+    assert payload["policy"]["hot_hours"] == 1
+    assert payload["report"]["backup_path"]
+
+
+def test_mango_requires_explicit_migration_before_tighter_hot_window(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "mango.db"
+    backup_root = tmp_path / "backups"
+    _seed_database(database)
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_HOT_HOURS", "24")
+    first = prepare_database(database, "golden-mango")
+    assert first is not None
+
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE")
+    monkeypatch.delenv("POLYBOT_DB_HOT_HOURS")
+    with pytest.raises(RuntimeError, match="policy mismatch"):
+        prepare_database(database, "golden-mango")
+
+    second = migrate_database(database, "golden-mango")
+
+    assert second is not None
+    assert second.snapshots_after < second.snapshots_before
+    with sqlite3.connect(database) as connection:
+        state_payload = json.loads(
+            connection.execute(
+                "SELECT last_report_json FROM polybot_db_maintenance "
+                "WHERE profile = 'compact-v1'"
+            ).fetchone()[0]
+        )
+    assert state_payload["policy"]["hot_hours"] == 6
+    assert len(list(backup_root.rglob("*.manifest.json"))) == 2
+    assert prepare_database(database, "golden-mango") is None
+
+
+def test_explicit_reprofile_rejects_other_policy_changes(tmp_path, monkeypatch):
+    database = tmp_path / "mango.db"
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_HOT_HOURS", "24")
+    _seed_database(database)
+    assert prepare_database(database, "golden-mango") is not None
+
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE")
+    monkeypatch.delenv("POLYBOT_DB_HOT_HOURS")
+    monkeypatch.setenv("POLYBOT_DB_RETENTION_DAYS", "8")
+
+    with pytest.raises(RuntimeError, match="may only reduce hot_hours"):
+        migrate_database(database, "golden-mango")
+
+
+def test_explicit_reprofile_rejects_changed_strategy_requirements(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "mango.db"
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(tmp_path / "backups"))
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_HOT_HOURS", "24")
+    _seed_database(database)
+    assert prepare_database(database, "golden-mango") is not None
+
+    monkeypatch.delenv("POLYBOT_DB_MAINTENANCE")
+    monkeypatch.delenv("POLYBOT_DB_HOT_HOURS")
+    monkeypatch.setenv("POLYBOT_MOMENTUM_LOOKBACK_HOURS", "5")
+
+    with pytest.raises(RuntimeError, match="unchanged resolved strategy requirements"):
+        migrate_database(database, "golden-mango")
+
+
+def test_explicit_migration_rejects_missing_or_empty_database(tmp_path):
+    missing = tmp_path / "missing.db"
+    with pytest.raises(FileNotFoundError, match="does not exist or is empty"):
+        migrate_database(missing, "golden-queen")
+
+    empty = tmp_path / "empty.db"
+    empty.touch()
+    with pytest.raises(FileNotFoundError, match="does not exist or is empty"):
+        migrate_database(empty, "golden-queen")
+
+
+def test_explicit_migration_rejects_unknown_strategy_and_provenance_mismatch(
+    tmp_path,
+):
+    database = tmp_path / "queen.db"
+    _seed_database(database)
+
+    with pytest.raises(ValueError, match="unsupported strategy"):
+        migrate_database(database, "golden-queeen")
+
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE run_audits "
+            "(run_id TEXT PRIMARY KEY, strategy_name TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO run_audits VALUES ('run-1', 'golden-papaya')"
+        )
+        connection.commit()
+    with pytest.raises(RuntimeError, match="strategy provenance mismatch"):
+        migrate_database(database, "golden-queen")
 
 
 def test_active_state_rejects_strategy_and_schema_identity_mismatch(

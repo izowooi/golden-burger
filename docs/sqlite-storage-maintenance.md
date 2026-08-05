@@ -2,15 +2,24 @@
 
 ## 결론
 
-16개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다. 기존 DB에는 환경변수 하나로
-일회성 안전 마이그레이션을 실행하고, 성공 후 그 환경변수를 제거한다. 활성화 상태는 DB의
-`polybot_db_maintenance`에 남으므로 이후 실행도 자동으로 시간당 경량화를 계속한다. 현재
-상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와 신뢰할
-수 있는 snapshot 기준시각도 함께 고정한다.
+18개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다. 기존 DB는 거래 사이클을
+시작하지 않는 전용 명령으로 일회성 안전 마이그레이션한다. 활성화 상태는 DB의
+`polybot_db_maintenance`에 남으므로 이후 평소 bot 실행이 자동으로 시간당 경량화를 계속한다.
+현재 상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와
+신뢰할 수 있는 snapshot 기준시각도 함께 고정한다.
 
 ```bash
-export POLYBOT_DB_MAINTENANCE=compact-v1
+uv run polybot-db-maintenance migrate \
+  --strategy golden-queen \
+  --db "$BOT_DB" \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
 ```
+
+이 명령은 API client를 만들거나 매매 cycle을 실행하지 않으므로 private key와 funder 주소가
+필요 없다. 과거의 `POLYBOT_DB_MAINTENANCE=compact-v1` + bot `run` 방식도 호환성을 위해
+남아 있지만, migration 직후 뜻하지 않은 거래 cycle까지 이어지므로 신규 작업에는 사용하지
+않는다.
 
 이 프로필은 거래 판단·주문·체결·run/config 증거를 삭제하지 않는다. 용량의 대부분을 차지한
 시장 telemetry만 전략별로 축약한다.
@@ -59,6 +68,7 @@ snapshot은 라이브 신호에 필요한 경계를 다르게 보존한다.
 | `golden-kiwi` | **1,440시간(60일)** | cold rollup 없음. 30일 독립 연구에 필요한 실제 5분 cadence를 보존한 뒤 retention 경계에서 삭제 |
 | `golden-cherry` | 72시간 | bucket의 최신 관측 |
 | `golden-banana` | 24시간 + 최근 N개 원형 보호 | bucket의 최신 관측. 기본 `long_window + 10`인 최근 82개는 장시간 수집 중단으로 24시간보다 오래돼도 원형 유지 |
+| `golden-mango` | 6시간 | bucket의 최신 관측. 실제 6h momentum window만 원형 유지 |
 | 나머지 전략 | 24시간 | bucket의 최신 관측 |
 
 Papaya/Queen/Quince 거래가 참조한 `entry_snapshot_id`와
@@ -97,21 +107,26 @@ job을 둔 채 강제로 삭제해서는 안 된다.
 
 ### 2. 정확히 한 번 실행
 
-아래 예시는 `golden-nectarine`이다. 폴더만 해당 전략으로 바꾸면 18개 전략에 동일하다.
+아래 예시는 `golden-queen`이다. `--db`에는 추정값이 아니라 실제 runtime job의 기존 DB를
+지정한다. 명령은 빈 경로나 존재하지 않는 파일을 새 DB로 만들어 주지 않고 실패한다. 등록되지
+않은 전략명, 또는 DB의 run/config provenance와 다른 전략명도 변경 전에 거부한다.
 
 ```bash
 #!/bin/bash
 set -euo pipefail
 set +x
 
-# Jenkins Credentials Binding이 제공하는 기존 secret 환경변수는 여기서 사용한다.
-export POLYBOT_DB_MAINTENANCE=compact-v1
-# 생략 시 $HOME/.polybot/db-backups/<strategy> 사용. 반드시 workspace 밖이어야 한다.
-export POLYBOT_DB_BACKUP_DIR="$HOME/polybot-db-backups"
-
-cd ./golden-nectarine
+unset POLYBOT_DB_MAINTENANCE POLYBOT_DB_HOT_HOURS POLYBOT_DB_ROLLUP_HOURS
+unset POLYBOT_DB_RETENTION_DAYS POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS
+unset POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS
+BOT_DB="$WORKSPACE/golden-queen/data/queen-live-12h/trades.db"
+cd "$WORKSPACE/golden-queen"
 /Users/jongwoopark/.local/bin/uv sync --frozen
-/Users/jongwoopark/.local/bin/uv run python ./main.py run
+/Users/jongwoopark/.local/bin/uv run polybot-db-maintenance migrate \
+  --strategy golden-queen \
+  --db "$BOT_DB" \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
 ```
 
 다음 로그를 확인한다.
@@ -131,8 +146,10 @@ SQLite compact-v1 완료 - strategy=... bytes=...->... snapshots=...->... member
 
 ### 3. 성공 후 정상 shell
 
-성공한 다음 build부터는 **`POLYBOT_DB_MAINTENANCE` 한 줄만 제거**한다. 활성화할 때 사용한
-`POLYBOT_DB_HOT_HOURS`, `POLYBOT_DB_ROLLUP_HOURS`, `POLYBOT_DB_RETENTION_DAYS`,
+성공한 다음 build부터는 기존 정상 bot shell을 그대로 실행한다. 전용 CLI를 사용했다면
+`POLYBOT_DB_MAINTENANCE`를 추가할 필요가 없다. 과거 환경변수 방식으로 활성화했다면 성공 후
+그 한 줄을 제거한다. 활성화할 때 사용한 `POLYBOT_DB_HOT_HOURS`,
+`POLYBOT_DB_ROLLUP_HOURS`, `POLYBOT_DB_RETENTION_DAYS`,
 `POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS` override가 있었다면 이후에도 값을 바꾸거나 제거하지 않는다.
 가장 안전한 운영은 처음부터 이 override들을 쓰지 않고 전략별 기본값을 쓰는 것이다.
 
@@ -141,19 +158,19 @@ SQLite compact-v1 완료 - strategy=... bytes=...->... snapshots=...->... member
 set -euo pipefail
 set +x
 
-export POLYBOT_DB_BACKUP_DIR="$HOME/polybot-db-backups"
-
-cd ./golden-nectarine
+cd "$WORKSPACE/golden-queen"
 /Users/jongwoopark/.local/bin/uv sync --frozen
-/Users/jongwoopark/.local/bin/uv run python ./main.py run
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job queen-live-12h
 ```
 
-플래그를 실수로 한 번 더 남겨도 active marker를 확인해 백업/마이그레이션을 반복하지 않는다.
-하지만 성공 확인 후 제거하는 것이 운영 계약이다.
+전용 migration 명령을 같은 DB에 다시 실행해도 현재 policy와 일치하면
+`status=already_active`로 끝나며 백업/마이그레이션을 반복하지 않는다.
 
 활성화 뒤 strategy YAML/env의 signal window 또는 compact policy가 달라지면 코드가 자동 삭제를
-계속하지 않고 fail closed한다. 보존 경계를 바꾸려면 기존 profile 값을 억지로 수정하지 말고,
-새 migration profile과 복제본 검증을 먼저 추가해야 한다. 기존 repository의 별도
+계속하지 않고 fail closed한다. 동일한 signal 요구사항과 retention/selector/bucket을 유지하면서
+원형 hot window만 줄이는 경우는 전용 migration 명령이 새 backup을 만든 뒤 명시적으로
+재프로파일할 수 있다. 그 밖의 보존 경계 변경은 기존 profile 값을 억지로 수정하지 말고 새
+migration profile과 복제본 검증을 먼저 추가해야 한다. 기존 repository의 별도
 `cleanup_old_snapshots`도 active DB에서는 삭제를 공유 maintainer에 양보한다.
 
 ## 18개 전략 적용 순서
@@ -219,7 +236,9 @@ fail closed한다.
 - Orange: hot window와 retention이 모두 `POLYBOT_BASE_WINDOW_DAYS` 이상
 - Banana: hot window가 명목 momentum window 이상이며, 실제 조회 tail인
   `long_window + 10`개도 시간과 무관하게 원형 보호
-- Date/Fig/Grape/Lime/Mango: hot window가 각 live signal의 최대 lookback 이상
+- Date/Fig/Grape/Lime/Mango: hot window가 각 live signal의 최대 lookback 이상. Mango
+  기본값은 실제 momentum lookback과 같은 6시간이며, 과거 24시간 profile DB는 정상 실행
+  전에 전용 migration 명령으로 명시적으로 재프로파일한다.
 - Papaya/Queen/Quince: hot window가 `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` 이상이고,
   DB retention이 `POLYBOT_SNAPSHOT_RETENTION_DAYS` 이상
 - Kiwi: hot window와 retention이 모두 `POLYBOT_SNAPSHOT_RETENTION_DAYS`(기본 60일)
@@ -227,7 +246,7 @@ fail closed한다.
 - Nectarine: DB retention이 `POLYBOT_LOOKBACK_DAYS` 이상
 - 모든 전략: retention이 full-cadence hot window 이상
 
-`POLYBOT_DB_ROLLUP_HOURS`, `POLYBOT_DB_HOT_HOURS`, `POLYBOT_DB_RETENTION_DAYS`나 signal
-window를 바꿀 때는 새 migration profile/cohort로 취급하고 전략 테스트·실제 DB 복제본
-audit·용량 추정을 다시 수행한다. 활성 DB에서 현재 profile 값을 직접 바꾸는 것은 지원하지
-않는다.
+`POLYBOT_DB_ROLLUP_HOURS`, `POLYBOT_DB_RETENTION_DAYS`나 signal window를 바꿀 때는 새
+migration profile/cohort로 취급하고 전략 테스트·실제 DB 복제본 audit·용량 추정을 다시
+수행한다. `POLYBOT_DB_HOT_HOURS` 축소는 위의 제한된 전용 migration 경로만 지원한다. 활성
+DB에서 marker/report 값을 직접 편집하는 것은 지원하지 않는다.

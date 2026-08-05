@@ -13,6 +13,7 @@ dev = [
 
 [project.scripts]
 polybot-retro = "polybot_observability.cli:main"
+polybot-db-maintenance = "polybot_observability.db_maintenance_cli:main"
 
 [build-system]
 requires = ["hatchling"]

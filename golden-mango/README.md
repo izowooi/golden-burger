@@ -170,6 +170,29 @@ data/
 
 `data/`는 git에 커밋하지 않습니다 (`.gitignore` 등록).
 
+## DB 저장공간 마이그레이션
+
+Patience Premium의 원형 snapshot은 실제 momentum lookback과 같은 최근 6시간만 필요하다.
+그보다 오래된 7일 이력은 12시간 bucket의 최신 관측으로 보존한다. 종전 24시간 hot policy가
+활성화된 DB는 새 코드로 bot을 재시작하기 전에 다음 전용 명령으로 재프로파일해야 한다.
+
+```bash
+unset POLYBOT_DB_MAINTENANCE POLYBOT_DB_HOT_HOURS POLYBOT_DB_ROLLUP_HOURS
+unset POLYBOT_DB_RETENTION_DAYS POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS
+unset POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS
+uv run polybot-db-maintenance migrate \
+  --strategy golden-mango \
+  --db data/default/trades.db \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
+```
+
+명령 전 Jenkins timer와 모든 DB writer를 중지한다. 이 명령은 거래 cycle이나 API client를
+시작하지 않으며, 검증된 backup과 working copy를 만든 뒤에만 DB를 원자 교체한다. 성공 후
+기존 bot shell을 그대로 재개하면 자동 cleanup이 이어진다. 전체 절차는
+[Queen·Papaya·Mango DB 마이그레이션](../docs/queen-papaya-mango-db-compaction-migration.md)을
+따른다.
+
 ## 시뮬레이션 → 실전 전환 절차
 
 1. `uv run python main.py run --simulate --job sim` 으로 수일간 시뮬레이션 축적

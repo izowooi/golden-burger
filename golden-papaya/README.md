@@ -143,6 +143,28 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 
 환경변수 이름은 `uv run polybot config` 출력과 `.env.example`을 기준으로 한다.
 
+## DB 저장공간 마이그레이션
+
+기존 DB는 최근 1시간 snapshot 원형과 60일 first-crossing extrema를 보존하면서, sweep별
+시장 상세를 24시간 checkpoint로 줄일 수 있다. Jenkins timer와 모든 writer를 먼저 중지한
+뒤 거래 cycle과 분리된 명령을 DB마다 한 번 실행한다.
+
+```bash
+unset POLYBOT_DB_MAINTENANCE POLYBOT_DB_HOT_HOURS POLYBOT_DB_ROLLUP_HOURS
+unset POLYBOT_DB_RETENTION_DAYS POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS
+unset POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS
+uv run polybot-db-maintenance migrate \
+  --strategy golden-papaya \
+  --db data/papaya-live/trades.db \
+  --backup-dir "$HOME/polybot-db-backups" \
+  --confirm
+```
+
+성공 후 기존 bot shell을 그대로 재개하면 active marker가 bounded cleanup을 자동 유지한다.
+정확한 runtime 경로 확인, simulation DB, 검증과 rollback은
+[Queen·Papaya·Mango DB 마이그레이션](../docs/queen-papaya-mango-db-compaction-migration.md)을
+따른다.
+
 ## 데이터와 회고
 
 ```text
