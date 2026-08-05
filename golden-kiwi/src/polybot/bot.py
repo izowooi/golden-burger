@@ -73,6 +73,7 @@ class PolymarketBot:
                     )
                     * 24.0,
                     retention_days=float(config.trading.archive.retention_days),
+                    minimum_latest_points=6,
                 ),
             )
             # ExecutionLedger schema/bootstrap writes happen in the wrapper

@@ -5,6 +5,8 @@ import sys
 from pathlib import Path
 from datetime import datetime
 
+from polybot_observability import DEFAULT_LOG_RETENTION_DAYS, prune_daily_logs
+
 DEFAULT_LEVEL = logging.INFO
 
 
@@ -48,6 +50,14 @@ def setup_logger(job_name: str = "default", level: int = None, verbose: bool = F
     # Create log directory
     log_dir = Path("data") / job_name / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
+    retention_error = None
+    try:
+        removed_logs = prune_daily_logs(
+            log_dir, retention_days=DEFAULT_LOG_RETENTION_DAYS
+        )
+    except OSError as error:
+        removed_logs = ()
+        retention_error = error
 
     # Log file path
     log_file = log_dir / f"{datetime.now().strftime('%Y%m%d')}.log"
@@ -77,6 +87,15 @@ def setup_logger(job_name: str = "default", level: int = None, verbose: bool = F
 
     root_logger.addHandler(file_handler)
     root_logger.addHandler(console_handler)
+
+    if retention_error is not None:
+        logging.warning("오래된 bot log 정리 실패 - error=%s", retention_error)
+    elif removed_logs:
+        logging.info(
+            "오래된 bot log 정리 완료 - retention=%dd removed=%d",
+            DEFAULT_LOG_RETENTION_DAYS,
+            len(removed_logs),
+        )
 
     # Reduce noise from third-party libraries
     logging.getLogger("urllib3").setLevel(logging.WARNING)

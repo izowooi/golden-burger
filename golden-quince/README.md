@@ -80,6 +80,18 @@ POLYBOT_EXECUTION_MODE=passive \
 `config`는 주문을 실행하지 않고 최종적으로 해석된 값, DB 경로, simulation 여부를
 보여준다. Jenkins 적용 전 typo와 잘못된 계정 signature type을 확인하는 용도다.
 
+### 새 DB와 로그 저장공간
+
+새 코드 checkout 뒤 새 cohort를 시작할 때 Jenkins clean build는 **한 번만** 실행한다.
+Quince는 새 DB를 처음부터 `compact-v1`로 만들므로 migration이나 `POLYBOT_DB_*`
+환경변수가 필요 없다. 첫 실행 로그의 `새 SQLite DB를 compact-v1로 생성했습니다 -
+strategy=golden-quince`를 확인한 뒤 매-build clean 옵션은 끈다.
+
+첫 1시간 snapshot은 원형으로, 이후 60일까지는 crossing extrema로 보존하고 전체 시장 sweep
+상세는 24시간마다 한 번만 저장한다. 거래·주문·체결과 execution-mode evidence는 삭제하지
+않는다. 일일 bot log는 60일을 넘으면 정리되며 Jenkins console log는 Jenkins `Discard old
+builds`에서 별도로 60일 보존한다.
+
 ## 3팔 Jenkins 실험 — 먼저 여기서 배포
 
 A/B/C는 **서로 다른 wallet/account, Jenkins job, `--job`, SQLite DB**를 사용한다.

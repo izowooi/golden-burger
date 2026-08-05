@@ -3,6 +3,7 @@
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import sqlite3
 
 import pytest
 
@@ -96,6 +97,24 @@ class Gamma:
 def repo_for(tmp_path):
     session = init_database(str(tmp_path / "kiwi.db"))()
     return session, TradeRepository(session)
+
+
+def test_fresh_database_starts_with_compact_storage(tmp_path):
+    database = tmp_path / "fresh-kiwi.db"
+    init_database(str(database))().close()
+
+    with sqlite3.connect(database) as connection:
+        assert connection.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+        active, strategy, raw_report = connection.execute(
+            "SELECT active, strategy_name, last_report_json "
+            "FROM polybot_db_maintenance WHERE profile = 'compact-v1'"
+        ).fetchone()
+    report = json.loads(raw_report)
+    assert (active, strategy) == (1, "golden-kiwi")
+    assert report["policy"]["hot_hours"] == 60 * 24
+    assert report["policy"]["membership_detail_hours"] == 24.0
+    assert report["policy"]["retention_days"] == 60.0
+    assert report["requirements"]["minimum_latest_points"] == 6
 
 
 def test_catalog_snapshot_and_sweep_commit_as_one_unit(tmp_path):

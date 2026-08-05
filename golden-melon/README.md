@@ -51,6 +51,17 @@ uv run python main.py run --simulate --job melon-sim
 > 표시되는 `Simulation: True`와 `trades_sim.db`는 실제 run의 모드가 아니다.
 > 실제 모드는 실행 로그의 `[RUN_AUDIT] ... mode=live`로 확인한다.
 
+### 새 DB와 로그 저장공간
+
+새 코드 checkout 뒤 새 cohort를 시작할 때 Jenkins clean build는 **한 번만** 실행한다.
+Melon은 새 DB를 처음부터 `compact-v1`로 만들므로 migration이나 `POLYBOT_DB_*`
+환경변수가 필요 없다. 첫 실행 로그의 `새 SQLite DB를 compact-v1로 생성했습니다 -
+strategy=golden-melon`을 확인한 뒤 매-build clean 옵션은 끈다.
+
+첫 1시간 snapshot은 원형으로, 이후 60일까지는 crossing extrema로 보존하고 전체 시장 sweep
+상세는 24시간마다 한 번만 저장한다. 일일 bot log는 60일을 넘으면 정리된다. Jenkins console
+log는 Jenkins `Discard old builds`에서 별도로 60일 보존한다.
+
 ## 3팔 Jenkins 실험
 
 세 팔은 **서로 다른 wallet/account, Jenkins job, `--job`, SQLite DB**를 쓴다.

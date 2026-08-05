@@ -138,6 +138,7 @@ simulation/live와 A/B/C variant는 서로 다른 `job_name`과 DB를 사용한�
 - trailing stop이나 time exit을 되살리지 않는다.
 - private key, funder 실값, API/access token, `.env`, `data/`, DB, 로그를 커밋하지 않는다.
   Jenkins는 Credentials Binding을 쓰고 secret 참조 전부터 `set +x`를 적용한다.
+- 새 DB는 자동 `compact-v1`이며 sweep 상세는 24시간 checkpoint, telemetry와 bot 일일 로그는 60일 보존한다. clean build는 새 cohort 시작 시 한 번만 허용한다.
 - 다른 `golden-*` 폴더는 read-only로 취급한다.
 
 `CLAUDE.md`는 `@AGENTS.md` 한 줄만 유지한다.

@@ -44,7 +44,10 @@ def test_legacy_trade_table_adds_nullable_staircase_lineage(tmp_path):
 def test_repository_retention_preserves_explicit_and_legacy_snapshot_pairs(
     tmp_path,
 ):
-    Session = init_database(str(tmp_path / "lineage-retention.db"))
+    Session = init_database(
+        str(tmp_path / "lineage-retention.db"),
+        activate_compact_on_create=False,
+    )
     session = Session()
     repository = TradeRepository(session)
     old = datetime.utcnow() - timedelta(days=61)

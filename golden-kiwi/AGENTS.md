@@ -62,6 +62,7 @@ backfill, forward-fill, rollup 또는 다른 cohort 결합은 금지한다.
 - FAILED source/observer run은 row를 삭제하지 않고 분석에서 제외한다.
 - quote가 없으면 0, 마지막 가격 또는 추정값으로 채우지 않고 censor한다.
 - point-in-time catalog가 붙은 실제 5분 snapshot을 60일 보존하고 cold rollup하지 않는다.
+- 새 DB는 자동 `compact-v1`이며 sweep 상세만 24시간 checkpoint로 줄인다. 실제 5분 snapshot과 append-only signal/follow-up evidence는 이 저장공간 작업을 이유로 축약하지 않는다. bot 일일 로그는 60일 보존하고 clean build는 새 cohort 시작 시 한 번만 허용한다.
 
 ## Promotion collection 계약
 

@@ -40,6 +40,7 @@ def test_bot_preserves_full_five_minute_cadence_for_all_60_days(
     requirements = captured["requirements"]
     assert requirements.full_cadence_hours == 60 * 24
     assert requirements.retention_days == 60
+    assert requirements.minimum_latest_points == 6
     assert requirements.boundary_interval_hours is None
     assert requirements.max_rollup_hours is None
 

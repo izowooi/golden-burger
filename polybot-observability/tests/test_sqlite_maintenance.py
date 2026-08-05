@@ -101,6 +101,13 @@ def test_policy_is_strategy_aware(monkeypatch):
         monkeypatch.delenv(name, raising=False)
 
     assert policy_for("golden-nectarine").selector == "minimum"
+    assert policy_for("golden-blueberry").selector == "extrema"
+    assert policy_for("golden-blueberry").retention_days == 60
+    assert policy_for("golden-blueberry").hot_hours == 1
+    assert requirements_for("golden-blueberry") == SQLiteMaintenanceRequirements(
+        full_cadence_hours=0.25,
+        retention_days=60,
+    )
     assert policy_for("golden-papaya").selector == "extrema"
     assert policy_for("golden-queen").selector == "extrema"
     assert policy_for("golden-queen").retention_days == 60
@@ -825,7 +832,7 @@ def test_ongoing_thinning_never_promotes_summary_sweep_over_real_detail(
 
 @pytest.mark.parametrize(
     "strategy_name",
-    ("golden-papaya", "golden-queen", "golden-quince"),
+    ("golden-blueberry", "golden-papaya", "golden-queen", "golden-quince"),
 )
 def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_deleted(
     tmp_path, monkeypatch, strategy_name
@@ -896,6 +903,114 @@ def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_dele
         "entry_snapshot_missing": 0,
         "prior_snapshot_missing": 0,
     }
+
+
+def test_blueberry_decision_and_shadow_snapshot_references_are_never_deleted(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "golden-blueberry.db"
+    backup_root = tmp_path / "backups"
+    now = datetime.utcnow()
+    old = now - timedelta(days=61)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE market_snapshots (
+                id INTEGER PRIMARY KEY,
+                condition_id TEXT NOT NULL,
+                probability REAL NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            CREATE TABLE entry_signal_decisions (
+                id INTEGER PRIMARY KEY,
+                prior_snapshot_id INTEGER,
+                current_snapshot_id INTEGER
+            );
+            CREATE TABLE shadow_signals (
+                id INTEGER PRIMARY KEY,
+                prior_snapshot_id INTEGER,
+                current_snapshot_id INTEGER
+            );
+            """
+        )
+        connection.executemany(
+            "INSERT INTO market_snapshots VALUES (?, ?, 0.5, ?)",
+            [
+                (1, "entry", old.isoformat()),
+                (2, "entry", (old + timedelta(minutes=5)).isoformat()),
+                (3, "shadow", old.isoformat()),
+                (4, "shadow", (old + timedelta(minutes=5)).isoformat()),
+                (5, "unrelated", old.isoformat()),
+                (99, "current", now.isoformat()),
+            ],
+        )
+        connection.execute(
+            "INSERT INTO entry_signal_decisions VALUES (1, 1, 2)"
+        )
+        connection.execute("INSERT INTO shadow_signals VALUES (1, 3, 4)")
+
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    prepare_database(database, "golden-blueberry")
+
+    with sqlite3.connect(database) as connection:
+        remaining = {
+            row[0] for row in connection.execute("SELECT id FROM market_snapshots")
+        }
+    assert {1, 2, 3, 4, 99}.issubset(remaining)
+    assert 5 not in remaining
+
+
+def test_kiwi_append_only_decision_snapshot_lineage_is_never_deleted(
+    tmp_path, monkeypatch
+):
+    database = tmp_path / "golden-kiwi-decisions.db"
+    backup_root = tmp_path / "backups"
+    now = datetime.utcnow()
+    old_start = now - timedelta(days=100)
+    with sqlite3.connect(database) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE market_snapshots (
+                id INTEGER PRIMARY KEY,
+                condition_id TEXT NOT NULL,
+                probability REAL NOT NULL,
+                timestamp TEXT NOT NULL
+            );
+            CREATE TABLE micro_cascade_signal_decisions (
+                id INTEGER PRIMARY KEY,
+                entry_snapshot_id INTEGER NOT NULL,
+                trend_snapshot_ids_json TEXT NOT NULL
+            );
+            """
+        )
+        connection.executemany(
+            "INSERT INTO market_snapshots VALUES (?, 'condition-a', 0.5, ?)",
+            [
+                (number, (old_start + timedelta(minutes=5 * number)).isoformat())
+                for number in range(1, 11)
+            ],
+        )
+        connection.execute(
+            "INSERT INTO market_snapshots VALUES "
+            "(99, 'condition-a', 0.5, ?)",
+            (now.isoformat(),),
+        )
+        connection.execute(
+            "INSERT INTO micro_cascade_signal_decisions VALUES "
+            "(1, 3, '[1, 2, 3]')"
+        )
+
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    prepare_database(database, "golden-kiwi")
+
+    with sqlite3.connect(database) as connection:
+        remaining = {
+            row[0] for row in connection.execute("SELECT id FROM market_snapshots")
+        }
+    assert {1, 2, 3, 6, 7, 8, 9, 10, 99}.issubset(remaining)
+    assert {4, 5}.isdisjoint(remaining)
 
 
 def test_kiwi_trade_entry_preserves_complete_six_snapshot_lineage(

@@ -114,5 +114,6 @@ uv run tools/verify_strategy_contracts.py
 - simulation과 live는 같은 `job_name`에서도 각각 `trades_sim.db`와 `trades.db`를 선택하며 status/config 확인에도 mode flag를 생략하지 않는다.
 - arm별 wallet, DB 또는 job을 공유하면 A/B 격리가 아니므로 실험을 시작하지 않는다.
 - Jenkins는 두 arm의 관측 시각을 맞추는 `*/5 * * * *`, `disableConcurrentBuilds()`와 15분 timeout을 유지한다. job별 offset이 달라지는 `H/5`로 바꾸지 않는다.
+- 새 DB는 자동 `compact-v1`이며 sweep 상세는 24시간 checkpoint, telemetry와 bot 일일 로그는 60일 보존한다. entry/shadow decision snapshot 참조는 정리하지 않는다. clean build는 새 cohort 시작 시 한 번만 허용한다.
 - arm별 실제 infrastructure identifier는 저장소 문서에 고정하지 않고 Jenkins에서 관리한다.
 - 다른 `golden-*` 폴더는 read-only로 취급한다.

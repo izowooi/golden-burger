@@ -116,6 +116,19 @@ uv run pytest
 보여준다. 기본값은 primary B이며 DB는 현재 작업 디렉터리가 아니라 항상
 `golden-kiwi/data/<job>/trades_sim.db`의 절대 경로로 고정된다.
 
+### 새 DB와 로그 저장공간
+
+새 코드 checkout 뒤 각 canonical job에서 Jenkins clean build는 **한 번만** 실행한다. Kiwi는
+새 `trades_sim.db`를 처음부터 `compact-v1`로 만들므로 migration이나 `POLYBOT_DB_*`
+환경변수가 필요 없다. 첫 실행 로그의 `새 SQLite DB를 compact-v1로 생성했습니다 -
+strategy=golden-kiwi`를 확인한 뒤 매-build clean 옵션은 끈다.
+
+Kiwi만은 연구 계약상 실제 5분 snapshot을 60일 동안 cold rollup 없이 보존하므로 다른 세
+전략보다 DB가 크게 유지되는 것이 정상이다. 대신 가장 큰 반복 데이터인 전체 시장 sweep
+상세는 24시간마다 한 번만 저장하고, 60일 경계를 넘은 telemetry는 정리한다. append-only
+decision의 3/5-step snapshot lineage는 영구 보호한다. 일일 bot log는 60일을 넘으면 정리되며,
+Jenkins console log는 Jenkins `Discard old builds`에서 별도로 60일 보존한다.
+
 30일 window 환경변수 세 개가 없으면 안전한 **smoke/archive mode**다. 이때도 archive와
 raw decision 진단은 남지만 `collection_eligible=0`이므로 promotion 분석 표본으로 쓰이지
 않는다. 설정 여부는 `polybot config`의 `Promotion collection` 줄에서 먼저 확인한다.

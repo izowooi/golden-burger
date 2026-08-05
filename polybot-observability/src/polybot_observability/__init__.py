@@ -1,6 +1,7 @@
 """Shared observability primitives for Polymarket strategy bots."""
 
 from .run_audit import RunAudit, current_run_id
+from .log_retention import DEFAULT_LOG_RETENTION_DAYS, prune_daily_logs
 from .reconciliation_policy import log_reconciliation_continuity
 from .sqlite_maintenance import (
     SQLiteMaintenancePolicy,
@@ -32,6 +33,7 @@ __all__ = [
     "ClobResponseContractError",
     "ClobResponseUnavailableError",
     "ExecutionLedger",
+    "DEFAULT_LOG_RETENTION_DAYS",
     "RunAudit",
     "SQLiteMaintenancePolicy",
     "SQLiteMaintenanceReport",
@@ -50,5 +52,6 @@ __all__ = [
     "safe_clob_response_shape",
     "policy_for",
     "prepare_database",
+    "prune_daily_logs",
     "requirements_for",
 ]

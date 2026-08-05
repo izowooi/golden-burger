@@ -264,10 +264,22 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             retention_days=retention_days,
             minimum_latest_points=6,
         )
-    if normalized in {"golden-melon", "golden-papaya", "golden-queen", "golden-quince"}:
+    if normalized in {
+        "golden-blueberry",
+        "golden-melon",
+        "golden-papaya",
+        "golden-queen",
+        "golden-quince",
+    }:
         default_gap_minutes = (
             15.0
-            if normalized in {"golden-melon", "golden-queen", "golden-quince"}
+            if normalized
+            in {
+                "golden-blueberry",
+                "golden-melon",
+                "golden-queen",
+                "golden-quince",
+            }
             else 30.0
         )
         return SQLiteMaintenanceRequirements(
@@ -324,12 +336,14 @@ def policy_for(
         "golden-orange": 7.0 * 24.0,
         # First-crossing strategies need their immediately previous observation
         # at full fidelity; older extrema preserve the never-crossed predicate.
+        "golden-blueberry": 1.0,
         "golden-melon": 1.0,
         "golden-papaya": 1.0,
         "golden-queen": 1.0,
         "golden-quince": 1.0,
     }
     retention_defaults = {
+        "golden-blueberry": 60.0,
         "golden-honeydew": 60.0,
         "golden-kiwi": 60.0,
         "golden-melon": 60.0,
@@ -343,6 +357,7 @@ def policy_for(
     if normalized == "golden-nectarine":
         selector = "minimum"
     elif normalized in {
+        "golden-blueberry",
         "golden-elderberry",
         "golden-melon",
         "golden-papaya",
@@ -613,9 +628,66 @@ def _build_protected_snapshot_ids(
             """,
             (requirements.minimum_latest_points,),
         )
+    # Blueberry persists candidate and shadow research decisions even when no
+    # live trade is created. Their exact prior/current rows are immutable
+    # first-crossing evidence and must survive generic telemetry compaction.
+    for table in ("entry_signal_decisions", "shadow_signals"):
+        if table not in existing:
+            continue
+        columns = _columns(connection, table)
+        for column in ("prior_snapshot_id", "current_snapshot_id"):
+            if column not in columns:
+                continue
+            connection.execute(
+                "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
+                f"SELECT {_quote_identifier(column)} "
+                f"FROM {_quote_identifier(table)} "
+                f"WHERE {_quote_identifier(column)} IS NOT NULL"
+            )
+    if "micro_cascade_signal_decisions" in existing:
+        decision_columns = _columns(connection, "micro_cascade_signal_decisions")
+        if "entry_snapshot_id" in decision_columns:
+            connection.execute(
+                "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
+                "SELECT entry_snapshot_id FROM micro_cascade_signal_decisions "
+                "WHERE entry_snapshot_id IS NOT NULL"
+            )
+        if "trend_snapshot_ids_json" in decision_columns:
+            for decision_id, raw_ids in connection.execute(
+                "SELECT id, trend_snapshot_ids_json "
+                "FROM micro_cascade_signal_decisions "
+                "WHERE trend_snapshot_ids_json IS NOT NULL"
+            ):
+                try:
+                    snapshot_ids = json.loads(str(raw_ids))
+                except (TypeError, ValueError, json.JSONDecodeError) as error:
+                    raise RuntimeError(
+                        "invalid Micro-Cascade decision snapshot lineage: "
+                        f"decision={decision_id}"
+                    ) from error
+                if (
+                    not isinstance(snapshot_ids, list)
+                    or not snapshot_ids
+                    or any(
+                        isinstance(value, bool)
+                        or not isinstance(value, int)
+                        or value <= 0
+                        for value in snapshot_ids
+                    )
+                ):
+                    raise RuntimeError(
+                        "invalid Micro-Cascade decision snapshot lineage: "
+                        f"decision={decision_id}"
+                    )
+                connection.executemany(
+                    "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
+                    "VALUES (?)",
+                    ((snapshot_id,) for snapshot_id in snapshot_ids),
+                )
     if "trades" not in existing:
         return
-    if "entry_snapshot_id" not in _columns(connection, "trades"):
+    trade_columns = _columns(connection, "trades")
+    if "entry_snapshot_id" not in trade_columns:
         return
     connection.execute(
         "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
@@ -677,12 +749,46 @@ def _build_protected_snapshot_ids(
         WHERE prior_id IS NOT NULL
         """
     )
-    if "prior_snapshot_id_at_entry" in _columns(connection, "trades"):
+    if "prior_snapshot_id_at_entry" in trade_columns:
         connection.execute(
             "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
             "SELECT prior_snapshot_id_at_entry FROM trades "
             "WHERE prior_snapshot_id_at_entry IS NOT NULL"
         )
+    if "trend_start_snapshot_id_at_entry" in trade_columns:
+        connection.execute(
+            "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
+            "SELECT trend_start_snapshot_id_at_entry FROM trades "
+            "WHERE trend_start_snapshot_id_at_entry IS NOT NULL"
+        )
+    if "trend_snapshot_ids_json" in trade_columns:
+        for trade_id, raw_ids in connection.execute(
+            "SELECT id, trend_snapshot_ids_json FROM trades "
+            "WHERE trend_snapshot_ids_json IS NOT NULL"
+        ):
+            try:
+                snapshot_ids = json.loads(str(raw_ids))
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise RuntimeError(
+                    f"invalid trade snapshot lineage: trade={trade_id}"
+                ) from error
+            if (
+                not isinstance(snapshot_ids, list)
+                or not snapshot_ids
+                or any(
+                    isinstance(value, bool)
+                    or not isinstance(value, int)
+                    or value <= 0
+                    for value in snapshot_ids
+                )
+            ):
+                raise RuntimeError(
+                    f"invalid trade snapshot lineage: trade={trade_id}"
+                )
+            connection.executemany(
+                "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) VALUES (?)",
+                ((snapshot_id,) for snapshot_id in snapshot_ids),
+            )
 
 
 def _trusted_latest_timestamp(
@@ -1572,7 +1678,9 @@ def membership_details_due(
             f"compact-v1 policy: stored={hours}, requested={interval_hours}"
         )
     latest = connection.exec_driver_sql(
-        "SELECT MAX(completed_at) FROM market_sweeps WHERE membership_detail_stored = 1"
+        "SELECT MAX(completed_at) FROM market_sweeps "
+        "WHERE membership_detail_stored = 1 "
+        "AND datetime(completed_at) <= datetime('now')"
     ).scalar()
     if latest is None:
         return True

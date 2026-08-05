@@ -61,6 +61,19 @@ uv run polybot status --simulate --job blueberry-sim-a-2pp
 `config`와 `status`에도 실행 모드를 지정한다. `--live`면 `trades.db`, `--simulate`면
 `trades_sim.db`를 본다. 모드 없이 `run`하면 안전하게 simulation이다.
 
+### 새 DB와 로그 저장공간
+
+새 코드 checkout 뒤 새 cohort를 시작할 때 Jenkins clean build는 **한 번만** 실행한다.
+Blueberry는 존재하지 않는 DB를 처음부터 `compact-v1`로 만들므로 migration이나
+`POLYBOT_DB_*` 환경변수가 필요 없다. 첫 실행 로그의 `새 SQLite DB를 compact-v1로
+생성했습니다 - strategy=golden-blueberry`를 확인한 뒤 매-build clean 옵션은 끈다.
+
+첫 1시간 snapshot은 원형으로, 이후 60일까지는 first-crossing에 필요한 extrema로 보존하고
+전체 시장 sweep 상세는 24시간마다 한 번만 저장한다. entry/shadow decision이 참조하는
+snapshot은 보존기간과 무관하게 보호한다. `shadow_observations`와 일일 bot log는 60일을
+넘으면 정리된다. 저장소 `Jenkinsfile`은 console/build도 60일 보존하며, Freestyle job이면
+Jenkins `Discard old builds`에 같은 값을 직접 설정한다.
+
 ## A/B simulation Jenkins shell
 
 질문에 제시한 두 shell은 방향은 맞지만 다음 세 가지를 고쳐야 한다.

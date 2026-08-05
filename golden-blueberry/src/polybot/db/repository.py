@@ -962,6 +962,11 @@ class TradeRepository:
 
     def cleanup_old_snapshots(self, days: int = 60) -> int:
         if compact_maintenance_active(self.session, "golden-blueberry"):
+            cutoff = datetime.utcnow() - timedelta(days=days)
+            self.session.query(ShadowObservation).filter(
+                ShadowObservation.observed_at < cutoff
+            ).delete(synchronize_session=False)
+            self.session.commit()
             return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
         # Entry crossing evidence is immutable, even after the telemetry

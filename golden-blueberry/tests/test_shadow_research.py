@@ -111,6 +111,35 @@ def test_first_crossing_expands_to_fixed_2x2_grid_without_trade(tmp_path):
     session.close()
 
 
+def test_compact_mode_still_expires_old_shadow_observations(tmp_path):
+    session, repo, _engine = researcher(tmp_path)
+    current = datetime.utcnow()
+    old = current - timedelta(days=61)
+    session.add_all(
+        [
+            ShadowObservation(
+                run_id="old-run",
+                condition_id="old-condition",
+                data_status="OPEN",
+                observed_at=old,
+            ),
+            ShadowObservation(
+                run_id="current-run",
+                condition_id="current-condition",
+                data_status="OPEN",
+                observed_at=current,
+            ),
+        ]
+    )
+    session.commit()
+
+    assert repo.cleanup_old_snapshots(days=60) == 0
+    assert [row.condition_id for row in session.query(ShadowObservation).all()] == [
+        "current-condition"
+    ]
+    session.close()
+
+
 def test_counterfactual_resolution_labels_missed_loss_avoidance(tmp_path):
     session, repo, engine = researcher(tmp_path, midpoint=0.88)
     # +3%p at 100h: only A-2pp/168h enters; the other three treatments reject.

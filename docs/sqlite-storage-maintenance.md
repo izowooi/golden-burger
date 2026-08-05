@@ -8,9 +8,10 @@
 현재 상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와
 신뢰할 수 있는 snapshot 기준시각도 함께 고정한다.
 
-Queen과 Papaya는 예외적으로 존재하지 않거나 0바이트인 새 DB를 첫 실행부터 자동으로
-`compact-v1`로 생성한다. 새 cohort를 clean 뒤 시작하는 경우 아래 migration은 필요 없으며,
-이미 내용이 쌓인 legacy DB에만 사용한다. 자동 생성은 기존 DB를 암묵적으로 변경하지 않는다.
+Queen, Papaya, Blueberry, Kiwi, Melon, Quince는 존재하지 않거나 0바이트인 새 DB를 첫
+실행부터 자동으로 `compact-v1`로 생성한다. 새 cohort를 clean 뒤 시작하는 경우 아래
+migration이나 `POLYBOT_DB_*` 환경변수는 필요 없다. 이미 내용이 쌓인 legacy DB만 전용
+migration 대상이며, 자동 생성은 기존 DB를 암묵적으로 변경하지 않는다.
 
 ```bash
 uv run polybot-db-maintenance migrate \
@@ -62,6 +63,7 @@ snapshot은 라이브 신호에 필요한 경계를 다르게 보존한다.
 
 | 전략 | full-cadence hot 구간 | cold 구간(기본 12시간 bucket) |
 |---|---:|---|
+| `golden-blueberry` | 1시간 | 양방향 최저·최고 변화점. 과거 0.85 이상 관측과 entry/shadow first-crossing lineage 유지 |
 | `golden-elderberry` | 1시간 | 양방향 최저·최고 변화점. 48h favorite peak와 45분 안정화 신호 유지 |
 | `golden-honeydew` | 24시간 | bucket의 최신 관측. 24h median 라이브 신호는 원형 유지 |
 | `golden-nectarine` | 1시간 | 양방향 prefix/suffix 최저 변화점. 20일 이동창과 최근 24h 제외 경계의 최저를 정확히 복원 |
@@ -75,14 +77,39 @@ snapshot은 라이브 신호에 필요한 경계를 다르게 보존한다.
 | `golden-mango` | 6시간 | bucket의 최신 관측. 실제 6h momentum window만 원형 유지 |
 | 나머지 전략 | 24시간 | bucket의 최신 관측 |
 
-Papaya/Queen/Quince 거래가 참조한 `entry_snapshot_id`와
+Blueberry/Melon/Papaya/Queen/Quince 거래가 참조한 `entry_snapshot_id`와
 `prior_snapshot_id_at_entry`는 보존기간과
 무관하게 영구 보호한다. 구버전 거래는 entry snapshot과 동일 condition의 직전
 `(timestamp, id)` row를 마이그레이션 중 추론해 함께 보호한다. 마이그레이션 전후 dangling
-lineage count가 달라지면 전체 작업을 실패시킨다. Kiwi는 현재 simulation 전용이지만
-3/5-step 신호의 현재 관측을 포함한 최대 6개 연속 row도 별도로 보호한다. 다만 이 최소
-lineage 보호는 30일 연구 cadence를 대신하지 않으므로 Kiwi의 60일 full-cadence hot window를
-축소하지 않는다.
+lineage count가 달라지면 전체 작업을 실패시킨다. Blueberry의 append-only entry decision과
+shadow signal이 참조하는 prior/current snapshot도 보호한다. Kiwi는 현재 simulation
+전용이지만 3/5-step 신호의 현재 관측을 포함한 최대 6개 연속 row와 append-only decision의
+원본 snapshot ID들을 별도로 보호한다. 이 최소 lineage 보호는 30일 연구 cadence를 대신하지
+않으므로 Kiwi의 60일 full-cadence hot window를 축소하지 않는다.
+
+## 새 cohort clean 시작
+
+위 여섯 전략은 새 코드 checkout 뒤 Jenkins에서 **정확히 한 번** clean build하면 된다.
+기존 DB를 보존하지 않기로 한 새 cohort에는 migration을 실행하지 않는다. 첫 실행에서 다음
+로그와 DB 상태를 확인한다.
+
+```text
+새 SQLite DB를 compact-v1로 생성했습니다 - strategy=golden-... path=...
+```
+
+```bash
+sqlite3 "$BOT_DB" "PRAGMA quick_check; PRAGMA auto_vacuum;"
+sqlite3 "$BOT_DB" \
+  "SELECT profile, strategy_name, active FROM polybot_db_maintenance;"
+```
+
+정상값은 `ok`, `2`, `compact-v1|golden-...|1`이다. 성공 직후 Jenkins의 매-build clean
+옵션은 반드시 끈다. 계속 clean하면 DB 급증 대신 모든 lineage와 포지션 상태를 매번 잃는다.
+
+각 전략의 `data/<job>/logs/YYYYMMDD.log`는 시작 시 60일보다 오래된 **정상 일일 로그
+파일만** 자동 삭제한다. 현재 파일, symlink, 이름이 다른 파일은 건드리지 않는다. Jenkins
+console log는 별도 저장소이므로 Jenkins `Discard old builds`를 60일 기준으로 설정한다.
+30일 실험 중 build-count만 낮게 제한해 실험 구간 console을 먼저 지우지 않는다.
 
 ## 일회성 Jenkins 실행
 
