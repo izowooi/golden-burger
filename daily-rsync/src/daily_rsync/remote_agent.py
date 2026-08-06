@@ -5,6 +5,7 @@ remote host; :class:`RemoteClient` sends this source to ``python3 -`` for each c
 """
 
 import argparse
+import fcntl
 import hashlib
 import json
 import os
@@ -13,10 +14,12 @@ import shlex
 import shutil
 import socket
 import sqlite3
+import stat
 import sys
 import time
 import uuid
 import xml.etree.ElementTree as ET
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,6 +28,10 @@ AUDIT_PATTERN = re.compile(rb"\[RUN_AUDIT\].{0,160}?strategy=(golden-[a-z0-9-]+)
 RUNTIME_PATTERN = re.compile(rb"(?:--job[ =]|Job: |job=)([A-Za-z0-9_.-]+)", re.I)
 TEXT_STRATEGY_PATTERN = re.compile(r"(?<![A-Za-z0-9-])(golden-[a-z0-9-]+)(?![A-Za-z0-9-])", re.I)
 SHELL_STRATEGY_TAGS = {"command", "script"}
+RESEARCH_ARCHIVE_PATTERN = re.compile(r"^trades_sim_(\d{8})\.db$")
+WORKSPACE_MARKER_NAME = ".daily-rsync-workspace.json"
+WORKSPACE_MARKER_SCHEMA_VERSION = 1
+WORKSPACE_MARKER_MAX_BYTES = 4096
 
 
 def emit(payload):
@@ -66,9 +73,7 @@ def classify_log_details(path):
     audit = AUDIT_PATTERN.findall(data)
     tokens = STRATEGY_PATTERN.findall(data)
     runtime = RUNTIME_PATTERN.findall(data)
-    structured_strategy = (
-        audit[-1].decode("ascii", "replace").lower() if audit else None
-    )
+    structured_strategy = audit[-1].decode("ascii", "replace").lower() if audit else None
     legacy_strategy = tokens[-1].decode("ascii", "replace").lower() if tokens else None
     strategy = structured_strategy or legacy_strategy
     runtime_job = runtime[-1].decode("ascii", "replace") if runtime else None
@@ -82,6 +87,230 @@ def classify_log(path):
 
 def _local_tag(value):
     return value.rsplit("}", 1)[-1]
+
+
+def _absolute_path(value, label):
+    path = Path(value).expanduser()
+    if not path.is_absolute():
+        raise RuntimeError("{} must be absolute: {}".format(label, value))
+    return Path(os.path.abspath(str(path)))
+
+
+def workspace_roots(args, require_available=True):
+    home = _absolute_path(args.jenkins_home, "Jenkins home")
+    values = getattr(args, "workspace_root", None) or [str(home / "workspace")]
+    roots = []
+    seen = set()
+    for value in values:
+        lexical = _absolute_path(value, "workspace root")
+        if lexical.is_symlink():
+            raise RuntimeError(
+                "allowlisted workspace root must be a real directory, not a symlink: {}".format(
+                    lexical
+                )
+            )
+        available = lexical.is_dir()
+        if require_available and not available:
+            raise RuntimeError("allowlisted workspace root is not mounted: {}".format(lexical))
+        resolved = lexical.resolve()
+        key = str(resolved)
+        if key in seen:
+            continue
+        seen.add(key)
+        roots.append(
+            {
+                "path": lexical,
+                "realpath": resolved,
+                "available": available,
+            }
+        )
+    if not roots:
+        raise RuntimeError("at least one workspace root must be allowlisted")
+    return roots
+
+
+def _safe_job_name(job):
+    if not job or job in (".", "..") or Path(job).name != job:
+        raise RuntimeError("unsafe Jenkins job name: {}".format(job))
+    return job
+
+
+def configured_workspace(job_dir):
+    config_path = job_dir / "config.xml"
+    if not config_path.is_file() or config_path.is_symlink():
+        return None
+    try:
+        root = ET.parse(str(config_path)).getroot()
+    except (ET.ParseError, OSError):
+        return None
+    values = {
+        element.text.strip()
+        for element in root.iter()
+        if _local_tag(element.tag) == "customWorkspace" and element.text and element.text.strip()
+    }
+    if len(values) > 1:
+        raise RuntimeError("Jenkins config has multiple customWorkspace values")
+    return next(iter(values)) if values else None
+
+
+def _validate_job_workspace(workspace, root, job, require_exists=True):
+    expected = root["path"] / job
+    if workspace != expected:
+        raise RuntimeError(
+            "job workspace must be the exact allowlisted <root>/<job> path: {}".format(workspace)
+        )
+    if not workspace.exists() and not workspace.is_symlink():
+        if require_exists:
+            raise RuntimeError("configured job workspace is not mounted: {}".format(workspace))
+        return workspace
+    if workspace.is_symlink() or not workspace.is_dir():
+        raise RuntimeError(
+            "job workspace must be a real directory, not a symlink: {}".format(workspace)
+        )
+    resolved = workspace.resolve()
+    expected_resolved = root["realpath"] / job
+    if resolved != expected_resolved or resolved.parent != root["realpath"]:
+        raise RuntimeError(
+            "job workspace realpath escapes its allowlisted root: {}".format(workspace)
+        )
+    return workspace
+
+
+def workspace_attestation(workspace, job, required=False):
+    """Read and validate a job-owned workspace selection marker without symlinks."""
+    marker = workspace / WORKSPACE_MARKER_NAME
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    try:
+        descriptor = os.open(str(marker), flags)
+    except FileNotFoundError:
+        if required:
+            raise RuntimeError(
+                "workspace selection marker is required: {}".format(marker)
+            ) from None
+        return None
+    except OSError as error:
+        raise RuntimeError(
+            "workspace selection marker cannot be opened safely: {} ({})".format(marker, error)
+        ) from None
+    try:
+        value = os.fstat(descriptor)
+        if not stat.S_ISREG(value.st_mode):
+            raise RuntimeError(
+                "workspace selection marker must be a regular file: {}".format(marker)
+            )
+        if value.st_size > WORKSPACE_MARKER_MAX_BYTES:
+            raise RuntimeError("workspace selection marker is too large: {}".format(marker))
+        chunks = []
+        remaining = WORKSPACE_MARKER_MAX_BYTES + 1
+        while remaining:
+            chunk = os.read(descriptor, min(remaining, 4096))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+    finally:
+        os.close(descriptor)
+    if len(raw) > WORKSPACE_MARKER_MAX_BYTES:
+        raise RuntimeError("workspace selection marker is too large: {}".format(marker))
+    try:
+        payload = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError):
+        raise RuntimeError(
+            "workspace selection marker is not valid UTF-8 JSON: {}".format(marker)
+        ) from None
+    expected = {
+        "schema_version": WORKSPACE_MARKER_SCHEMA_VERSION,
+        "job": job,
+        "workspace": str(workspace),
+    }
+    if payload != expected:
+        raise RuntimeError(
+            "workspace selection marker payload mismatch: expected={} actual={}".format(
+                expected, payload
+            )
+        )
+    canonical = json.dumps(expected, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "name": WORKSPACE_MARKER_NAME,
+        "schema_version": WORKSPACE_MARKER_SCHEMA_VERSION,
+        "payload_sha256": hashlib.sha256(canonical).hexdigest(),
+    }
+
+
+def select_job_workspace(job_dir, job, roots):
+    job = _safe_job_name(job)
+    custom = configured_workspace(job_dir)
+    if custom:
+        # Jenkins Freestyle custom workspaces commonly persist this safe,
+        # job-scoped variable literally in config.xml. Expand only JOB_NAME;
+        # every path still has to equal an allowlisted <root>/<job> below.
+        custom = custom.replace("${JOB_NAME}", job).replace("$JOB_NAME", job)
+        candidate = _absolute_path(custom, "customWorkspace")
+        for root in roots:
+            if candidate == root["path"] / job:
+                selected = _validate_job_workspace(candidate, root, job)
+                workspace_attestation(selected, job)
+                return selected
+        raise RuntimeError(
+            "customWorkspace is outside the exact allowlisted <root>/<job> paths: {}".format(
+                candidate
+            )
+        )
+
+    matches = []
+    for root in roots:
+        candidate = root["path"] / job
+        if candidate.exists() or candidate.is_symlink():
+            matches.append(_validate_job_workspace(candidate, root, job))
+    if len(matches) > 1:
+        marked = [
+            candidate for candidate in matches if workspace_attestation(candidate, job) is not None
+        ]
+        if len(marked) != 1:
+            raise RuntimeError(
+                "job workspace is ambiguous across allowlisted roots; exactly one valid {} "
+                "is required: {}".format(WORKSPACE_MARKER_NAME, job)
+            )
+        return marked[0]
+    if matches:
+        workspace_attestation(matches[0], job)
+        return matches[0]
+    return _validate_job_workspace(roots[0]["path"] / job, roots[0], job, require_exists=False)
+
+
+def workspace_mount_identity(workspace, roots):
+    """Bind a workspace path to the mounted filesystem selected during scan."""
+    if not workspace.is_dir() or workspace.is_symlink():
+        return {}
+    for root in roots:
+        if workspace == root["path"] / workspace.name:
+            root_stat = root["path"].stat()
+            workspace_stat = workspace.stat()
+            identity = {
+                "root_path": str(root["path"]),
+                "root_realpath": str(root["realpath"]),
+                "root_st_dev": int(root_stat.st_dev),
+                "workspace_st_dev": int(workspace_stat.st_dev),
+                "selection_contract": "allowlisted-root-job-v1",
+            }
+            marker = workspace_attestation(workspace, workspace.name)
+            if marker is not None:
+                identity["workspace_marker"] = marker
+            return identity
+    raise RuntimeError("selected workspace has no allowlisted root identity: {}".format(workspace))
+
+
+def research_archive_date(path):
+    match = RESEARCH_ARCHIVE_PATTERN.fullmatch(path.name)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match.group(1), "%Y%m%d").date()
+    except ValueError:
+        return None
 
 
 def _shell_segments(command):
@@ -185,27 +414,116 @@ def stat_record(
     build_number=None,
     status=None,
     canonical=True,
+    archive_date=None,
+    mode=None,
+    data_contract=None,
+    database_utc_date=None,
 ):
     value = path.stat()
+    fingerprint = None
+    size_bytes = value.st_size
+    mtime_ns = value.st_mtime_ns
+    if kind.startswith("database"):
+        state = sqlite_source_state(path)
+        fingerprint = state["fingerprint"]
+        size_bytes = state["size_bytes"]
+        mtime_ns = state["mtime_ns"]
+    completed_ns = mtime_ns
+    if kind == "database_research_archive":
+        # Pomegranate publishes a completed UTC-day shard with a hard link.
+        # A hard link preserves data mtime but advances inode ctime, so the
+        # latter is the source-side proof that the immutable name existed only
+        # after rotation. Preserve it separately from the durable data
+        # fingerprint/mtime used for incremental sync.
+        completed_ns = max(completed_ns, value.st_ctime_ns)
     return {
         "kind": kind,
         "remote_path": str(path),
-        "size_bytes": value.st_size,
-        "mtime_ns": value.st_mtime_ns,
+        "size_bytes": size_bytes,
+        "mtime_ns": mtime_ns,
         "jenkins_job": job,
         "strategy": strategy,
         "runtime_job": runtime_job,
         "build_number": build_number,
-        "completed_at": iso_from_ns(value.st_mtime_ns),
+        "completed_at": iso_from_ns(completed_ns),
         "status": status,
         "canonical": canonical,
+        "archive_date": archive_date.isoformat() if archive_date else None,
+        "mode": mode,
+        "data_contract": data_contract,
+        "database_utc_date": database_utc_date,
+        "fingerprint": fingerprint,
     }
+
+
+def _sqlite_source_state_once(path):
+    members = []
+    total = 0
+    newest = 0
+    # ``-shm`` is volatile coordination state. Merely opening a read-only WAL
+    # database can create/touch it, so including its inode/mtime manufactures
+    # immutable conflicts. Main + WAL contain the durable database evidence.
+    for suffix in ("", "-wal"):
+        candidate = Path(str(path) + suffix)
+        if not candidate.is_file() or candidate.is_symlink():
+            continue
+        value = candidate.stat()
+        member = {
+            "suffix": suffix or "main",
+            "size_bytes": value.st_size,
+            "mtime_ns": value.st_mtime_ns,
+            "inode": value.st_ino,
+        }
+        members.append(member)
+        total += value.st_size
+        newest = max(newest, value.st_mtime_ns)
+    if not members or members[0]["suffix"] != "main":
+        raise RuntimeError("database source disappeared while fingerprinting: {}".format(path))
+    encoded = json.dumps(members, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return {
+        "fingerprint": hashlib.sha256(encoded).hexdigest(),
+        "size_bytes": total,
+        "mtime_ns": newest,
+        "members": members,
+    }
+
+
+def sqlite_source_state(path, attempts=6, delay_seconds=0.01):
+    """Return a bounded, double-read stable SQLite main/WAL state."""
+    if attempts < 2:
+        raise ValueError("sqlite source state requires at least two attempts")
+    previous = None
+    last_error = None
+    for attempt in range(attempts):
+        try:
+            current = _sqlite_source_state_once(path)
+            last_error = None
+        except (OSError, RuntimeError) as error:
+            # A writer can create/remove a WAL sidecar between is_file() and
+            # stat(). Retry the entire composite read instead of accepting a
+            # partial main/WAL identity.
+            previous = None
+            last_error = error
+        else:
+            if previous is not None and current["members"] == previous["members"]:
+                return current
+            previous = current
+        if attempt + 1 < attempts:
+            time.sleep(delay_seconds)
+    message = "database source remained unstable while fingerprinting: {}".format(path)
+    if last_error is not None:
+        raise RuntimeError(message) from last_error
+    raise RuntimeError(message)
 
 
 def database_identity(path):
     strategy = path.parents[2].name if len(path.parents) >= 3 else None
     runtime_job = path.parent.name
-    mode = "sim" if path.name == "trades_sim.db" else "live"
+    archive_date = research_archive_date(path)
+    mode = "sim" if path.name == "trades_sim.db" or archive_date else "live"
+    data_contract = None
+    database_utc_date = None
+    connection = None
     try:
         connection = sqlite3.connect("file:{}?mode=ro".format(path), uri=True, timeout=2)
         tables = {
@@ -221,18 +539,64 @@ def database_identity(path):
             ).fetchone()
             if row:
                 strategy, runtime_job, mode = row
-        connection.close()
-    except (OSError, sqlite3.Error):
-        pass
-    return strategy, runtime_job, mode
+        if "collection_contracts" in tables:
+            rows = list(
+                connection.execute(
+                """
+                SELECT contract_name, database_utc_date
+                FROM collection_contracts
+                """
+                )
+            )
+            if len(rows) != 1:
+                raise RuntimeError(
+                    "research database must contain exactly one collection_contracts row: "
+                    "{}".format(path)
+                )
+            data_contract = rows[0][0]
+            database_utc_date = rows[0][1]
+    except (OSError, sqlite3.Error) as error:
+        if archive_date is not None:
+            raise RuntimeError(
+                "research archive identity could not be read: {}".format(path)
+            ) from error
+    finally:
+        if connection is not None:
+            connection.close()
+    if path.name == "trades_sim.db" or archive_date:
+        mode = "sim"
+    if archive_date is not None and data_contract != "research-full-v1":
+        raise RuntimeError(
+            "research archive is missing the required research-full-v1 "
+            "collection_contracts row: {}".format(path)
+        )
+    if data_contract == "research-full-v1":
+        try:
+            database_day = datetime.strptime(str(database_utc_date), "%Y-%m-%d").date()
+        except (TypeError, ValueError):
+            raise RuntimeError(
+                "research database has invalid database_utc_date: {}".format(path)
+            ) from None
+        if str(database_utc_date) != database_day.isoformat():
+            raise RuntimeError(
+                "research database date is not canonical YYYY-MM-DD: {}".format(path)
+            )
+        if archive_date is not None and database_day != archive_date:
+            raise RuntimeError(
+                "research archive filename date does not match database_utc_date: "
+                "path={} filename_date={} database_utc_date={}".format(
+                    path, archive_date.isoformat(), database_day.isoformat()
+                )
+            )
+    return strategy, runtime_job, mode, data_contract, database_utc_date
 
 
 def scan(args):
-    home = Path(args.jenkins_home).expanduser().resolve()
+    home = _absolute_path(args.jenkins_home, "Jenkins home").resolve()
     jobs_root = home / "jobs"
-    workspace_root = home / "workspace"
-    if not jobs_root.is_dir() or not workspace_root.is_dir():
-        raise RuntimeError("Jenkins jobs/workspace directory not found")
+    roots = workspace_roots(args)
+    if not jobs_root.is_dir():
+        raise RuntimeError("Jenkins jobs directory not found")
     disk = shutil.disk_usage(str(home))
     selected = (
         [args.job]
@@ -241,15 +605,25 @@ def scan(args):
     )
     jobs = []
     cutoff_ns = int(args.cutoff_epoch * 1_000_000_000)
+    archive_from_date = (
+        datetime.strptime(args.archive_from_date, "%Y-%m-%d").date()
+        if args.archive_from_date
+        else None
+    )
+    archive_to_date = (
+        datetime.strptime(args.archive_to_date, "%Y-%m-%d").date() if args.archive_to_date else None
+    )
+    if archive_from_date and archive_to_date and archive_from_date > archive_to_date:
+        raise RuntimeError("archive date range is reversed")
     for job in selected:
+        _safe_job_name(job)
         job_dir = jobs_root / job
-        workspace = workspace_root / job
         if not job_dir.is_dir():
             continue
+        workspace = select_job_workspace(job_dir, job, roots)
+        workspace_identity = workspace_mount_identity(workspace, roots)
         config_candidates = configured_strategies(job_dir)
-        configured_strategy = (
-            next(iter(config_candidates)) if len(config_candidates) == 1 else None
-        )
+        configured_strategy = next(iter(config_candidates)) if len(config_candidates) == 1 else None
         artifacts = []
         builds_dir = job_dir / "builds"
         build_numbers = []
@@ -320,16 +694,47 @@ def scan(args):
         if latest_build_strategy:
             strategies.add(latest_build_strategy)
         latest_db = None
+        current_utc_day = datetime.now(timezone.utc).date()
         if workspace.is_dir():
             for path in workspace.glob("golden-*/data/*/trades*.db"):
                 if not path.is_file() or path.is_symlink():
                     continue
-                strategy, runtime_job, mode = database_identity(path)
+                archive_date = research_archive_date(path)
+                (
+                    strategy,
+                    runtime_job,
+                    mode,
+                    data_contract,
+                    database_utc_date,
+                ) = database_identity(path)
+                # ``trades_sim.db`` is mutable and can cover only the current UTC
+                # day. Historical ranges require the immutable dated archive even
+                # when a stale active DB still declares an older database date.
+                if (
+                    path.name == "trades_sim.db"
+                    and data_contract == "research-full-v1"
+                    and archive_from_date
+                    and archive_to_date
+                    and not (
+                        database_utc_date
+                        and datetime.strptime(database_utc_date, "%Y-%m-%d").date()
+                        == current_utc_day
+                        and archive_from_date <= current_utc_day <= archive_to_date
+                    )
+                ):
+                    continue
+                if archive_date and (
+                    (archive_from_date and archive_date < archive_from_date)
+                    or (archive_to_date and archive_date > archive_to_date)
+                ):
+                    continue
                 if strategy:
                     strategies.add(strategy)
                 canonical = path.name in ("trades.db", "trades_sim.db")
                 kind = "database_sim" if mode == "sim" else "database_live"
-                if not canonical:
+                if archive_date:
+                    kind = "database_research_archive"
+                elif not canonical:
                     kind = "database_safety"
                 if detailed:
                     artifacts.append(
@@ -340,6 +745,17 @@ def scan(args):
                             strategy=strategy,
                             runtime_job=runtime_job,
                             canonical=canonical,
+                            archive_date=(
+                                archive_date
+                                or (
+                                    datetime.strptime(database_utc_date, "%Y-%m-%d").date()
+                                    if data_contract == "research-full-v1" and database_utc_date
+                                    else None
+                                )
+                            ),
+                            mode=mode,
+                            data_contract=data_contract,
+                            database_utc_date=database_utc_date,
                         )
                     )
                 if canonical:
@@ -439,6 +855,7 @@ def scan(args):
             {
                 "name": job,
                 "workspace": str(workspace),
+                "workspace_identity": workspace_identity,
                 "build_count": (
                     len(build_numbers) if detailed else (build_numbers[-1] if build_numbers else 0)
                 ),
@@ -463,7 +880,8 @@ def scan(args):
 
 
 def doctor(args):
-    home = Path(args.jenkins_home).expanduser().resolve()
+    home = _absolute_path(args.jenkins_home, "Jenkins home").resolve()
+    roots = workspace_roots(args, require_available=False)
     disk = shutil.disk_usage(str(home))
     emit(
         {
@@ -472,66 +890,243 @@ def doctor(args):
             "username": os.getenv("USER") or "",
             "jenkins_home": str(home),
             "jobs_exists": (home / "jobs").is_dir(),
-            "workspace_exists": (home / "workspace").is_dir(),
+            "workspace_exists": all(root["available"] for root in roots),
+            "workspace_roots": [
+                {
+                    "path": str(root["path"]),
+                    "realpath": str(root["realpath"]),
+                    "available": root["available"],
+                }
+                for root in roots
+            ],
+            "workspace_marker_contract": {
+                "name": WORKSPACE_MARKER_NAME,
+                "schema_version": WORKSPACE_MARKER_SCHEMA_VERSION,
+                "required_when_multiple_candidates": True,
+                "payload_keys": ["schema_version", "job", "workspace"],
+            },
             "free_bytes": disk.free,
             "python": sys.version.split()[0],
         }
     )
 
 
-def snapshot(args):
-    home = Path(args.jenkins_home).expanduser().resolve()
-    workspace = (home / "workspace").resolve()
-    source = Path(args.source).expanduser().resolve()
-    try:
-        source.relative_to(workspace)
-    except ValueError:
-        raise RuntimeError("database source is outside Jenkins workspace") from None
-    if not source.is_file() or source.is_symlink():
-        raise RuntimeError("database source must be a regular file")
+def validated_expected_workspace(args):
+    """Re-resolve and compare a persisted workspace/mount attestation."""
 
+    home = _absolute_path(args.jenkins_home, "Jenkins home").resolve()
+    roots = workspace_roots(args)
+    job = _safe_job_name(args.job)
+    selected = select_job_workspace(home / "jobs" / job, job, roots)
+    expected = _absolute_path(args.expected_workspace, "expected workspace")
+    if selected != expected:
+        raise RuntimeError(
+            "persisted plan workspace is stale: expected={} current={}".format(expected, selected)
+        )
+    try:
+        expected_identity = json.loads(args.expected_identity)
+    except (TypeError, ValueError):
+        raise RuntimeError("persisted plan workspace identity is missing or invalid") from None
+    if not isinstance(expected_identity, dict) or not expected_identity:
+        raise RuntimeError("persisted plan workspace identity is missing or invalid")
+    current_identity = workspace_mount_identity(selected, roots)
+    required = (
+        "root_path",
+        "root_realpath",
+        "root_st_dev",
+        "workspace_st_dev",
+        "selection_contract",
+    )
+    if any(key not in expected_identity for key in required):
+        raise RuntimeError("persisted plan workspace identity is incomplete")
+    if expected_identity != current_identity:
+        raise RuntimeError(
+            "persisted plan workspace mount identity changed: expected={} current={}".format(
+                expected_identity, current_identity
+            )
+        )
+    return job, selected, current_identity, roots
+
+
+def validate_workspace(args):
+    """Re-resolve a persisted plan's Jenkins workspace without transferring data."""
+
+    job, selected, current_identity, _roots = validated_expected_workspace(args)
+    emit(
+        {
+            "job": job,
+            "workspace": str(selected),
+            "workspace_identity": current_identity,
+            "validated": True,
+        }
+    )
+
+
+@contextmanager
+def snapshot_read_lock(source, timeout_seconds=30.0, required=False):
+    """Share the collector lock so rotation cannot race an online backup."""
+    lock_path = source.parent / ".pomegranate.lock"
+    if not lock_path.exists():
+        if required:
+            raise RuntimeError("collector snapshot lock is required: {}".format(lock_path))
+        yield
+        return
+    if lock_path.is_symlink() or not lock_path.is_file():
+        raise RuntimeError("collector lock must be a regular file: {}".format(lock_path))
+    flags = os.O_RDONLY
+    if hasattr(os, "O_NOFOLLOW"):
+        flags |= os.O_NOFOLLOW
+    descriptor = os.open(str(lock_path), flags)
+    deadline = time.monotonic() + timeout_seconds
+    try:
+        value = os.fstat(descriptor)
+        if not stat.S_ISREG(value.st_mode):
+            raise RuntimeError("collector lock must be a regular file: {}".format(lock_path))
+        while True:
+            try:
+                fcntl.flock(descriptor, fcntl.LOCK_SH | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError(
+                        "timed out waiting for collector snapshot lock: {}".format(lock_path)
+                    ) from None
+                time.sleep(0.05)
+        yield
+    finally:
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_UN)
+        finally:
+            os.close(descriptor)
+
+
+def snapshot(args):
+    if not args.job or not args.expected_workspace or not args.expected_identity:
+        raise RuntimeError("database snapshot requires expected workspace mount identity")
+    expected_job, selected_workspace, current_identity, roots = validated_expected_workspace(args)
+    source_path = _absolute_path(args.source, "database source")
+    if not source_path.is_file() or source_path.is_symlink():
+        raise RuntimeError("database source must be a regular file")
+    source = source_path.resolve()
+    allowed = False
+    for root in roots:
+        try:
+            lexical_relative = source_path.relative_to(root["path"])
+            resolved_relative = source.relative_to(root["realpath"])
+        except ValueError:
+            continue
+        if len(lexical_relative.parts) < 5 or len(resolved_relative.parts) < 5:
+            continue
+        job = lexical_relative.parts[0]
+        if job != expected_job:
+            continue
+        if source_path.parent != selected_workspace:
+            try:
+                source_path.relative_to(selected_workspace)
+            except ValueError:
+                continue
+        if resolved_relative.parts[0] != job:
+            continue
+        if not lexical_relative.parts[1].startswith("golden-"):
+            continue
+        if lexical_relative.parts[2] != "data" or not source.name.startswith("trades"):
+            continue
+        _validate_job_workspace(root["path"] / job, root, job)
+        allowed = True
+        break
+    if not allowed:
+        raise RuntimeError("database source is outside an exact allowlisted job workspace")
+
+    with snapshot_read_lock(
+        source,
+        required=args.expected_data_contract == "research-full-v1",
+    ):
+        # The marker and st_dev values are re-read in this same SSH helper
+        # immediately before opening SQLite, closing the scan/plan TOCTOU gap.
+        _job, current_workspace, rechecked_identity, _roots = validated_expected_workspace(args)
+        if current_workspace != selected_workspace or rechecked_identity != current_identity:
+            raise RuntimeError("workspace identity changed before database snapshot")
+        _snapshot_database_source(args, source)
+
+
+def _snapshot_database_source(args, source):
     staging_root = Path(args.staging_root).expanduser().resolve()
     staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
-    if shutil.disk_usage(str(staging_root)).free < source.stat().st_size + 10 * 1024**3:
+    source_state_before = sqlite_source_state(source)
+    if shutil.disk_usage(str(staging_root)).free < source_state_before["size_bytes"] + 10 * 1024**3:
         raise RuntimeError("remote staging would violate the 10 GiB free-space reserve")
     run_dir = staging_root / uuid.uuid4().hex
     run_dir.mkdir(mode=0o700)
     target = run_dir / "snapshot.db"
     started = time.time()
-    source_connection = sqlite3.connect("file:{}?mode=ro".format(source), uri=True, timeout=30)
-    destination = sqlite3.connect(str(target), timeout=30)
     try:
-        source_connection.execute("PRAGMA busy_timeout=30000")
-        source_connection.backup(destination, pages=4096, sleep=0.02)
-    finally:
-        destination.close()
-        source_connection.close()
-    check = sqlite3.connect("file:{}?mode=ro".format(target), uri=True)
-    try:
-        integrity = [row[0] for row in check.execute("PRAGMA quick_check")]
-    finally:
-        check.close()
-    if integrity != ["ok"]:
+        source_connection = sqlite3.connect("file:{}?mode=ro".format(source), uri=True, timeout=30)
+        destination = sqlite3.connect(str(target), timeout=30)
+        try:
+            source_connection.execute("PRAGMA busy_timeout=30000")
+            source_connection.backup(destination, pages=4096, sleep=0.02)
+        finally:
+            destination.close()
+            source_connection.close()
+        check = sqlite3.connect("file:{}?mode=ro".format(target), uri=True)
+        try:
+            integrity = [row[0] for row in check.execute("PRAGMA quick_check")]
+        finally:
+            check.close()
+        if integrity != ["ok"]:
+            raise RuntimeError("snapshot quick_check failed: {}".format(integrity))
+        (
+            _strategy,
+            _runtime_job,
+            _mode,
+            data_contract,
+            database_utc_date,
+        ) = database_identity(target)
+        if args.expected_data_contract and data_contract != args.expected_data_contract:
+            raise RuntimeError(
+                "snapshot data contract changed: expected={} actual={}".format(
+                    args.expected_data_contract, data_contract
+                )
+            )
+        if (
+            args.expected_database_utc_date
+            and database_utc_date != args.expected_database_utc_date
+        ):
+            raise RuntimeError(
+                "snapshot database UTC date changed: expected={} actual={}".format(
+                    args.expected_database_utc_date, database_utc_date
+                )
+            )
+        digest = sha256(target)
+        target.chmod(0o600)
+        source_state_after = sqlite_source_state(source)
+        manifest = {
+            "schema_version": 2,
+            "source": str(source),
+            "snapshot": str(target),
+            "source_size_bytes": source.stat().st_size,
+            "source_storage_bytes": source_state_after["size_bytes"],
+            "source_fingerprint_before": source_state_before["fingerprint"],
+            "source_fingerprint_after": source_state_after["fingerprint"],
+            "source_members_after": source_state_after["members"],
+            "snapshot_size_bytes": target.stat().st_size,
+            "sha256": digest,
+            "quick_check": integrity,
+            "data_contract": data_contract,
+            "database_utc_date": database_utc_date,
+            "elapsed_seconds": round(time.time() - started, 3),
+        }
+        manifest_path = run_dir / "manifest.json"
+        manifest_path.write_text(
+            json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
+        )
+        manifest_path.chmod(0o600)
+        emit(manifest)
+    except BaseException:
+        # The caller cannot discover a staging path when this helper fails, so
+        # cleanup must happen here rather than relying on a later SSH request.
         shutil.rmtree(str(run_dir), ignore_errors=True)
-        raise RuntimeError("snapshot quick_check failed: {}".format(integrity))
-    digest = sha256(target)
-    target.chmod(0o600)
-    manifest = {
-        "schema_version": 1,
-        "source": str(source),
-        "snapshot": str(target),
-        "source_size_bytes": source.stat().st_size,
-        "snapshot_size_bytes": target.stat().st_size,
-        "sha256": digest,
-        "quick_check": integrity,
-        "elapsed_seconds": round(time.time() - started, 3),
-    }
-    manifest_path = run_dir / "manifest.json"
-    manifest_path.write_text(
-        json.dumps(manifest, ensure_ascii=False, indent=2) + "\n", encoding="utf-8"
-    )
-    manifest_path.chmod(0o600)
-    emit(manifest)
+        raise
 
 
 def cleanup(args):
@@ -553,16 +1148,33 @@ def main():
 
     doctor_parser = subparsers.add_parser("doctor")
     doctor_parser.add_argument("--jenkins-home", required=True)
+    doctor_parser.add_argument("--workspace-root", action="append")
 
     scan_parser = subparsers.add_parser("scan")
     scan_parser.add_argument("--jenkins-home", required=True)
+    scan_parser.add_argument("--workspace-root", action="append")
     scan_parser.add_argument("--job")
     scan_parser.add_argument("--cutoff-epoch", type=float, default=0)
+    scan_parser.add_argument("--archive-from-date")
+    scan_parser.add_argument("--archive-to-date")
 
     snapshot_parser = subparsers.add_parser("snapshot")
     snapshot_parser.add_argument("--jenkins-home", required=True)
+    snapshot_parser.add_argument("--workspace-root", action="append")
+    snapshot_parser.add_argument("--job")
     snapshot_parser.add_argument("--source", required=True)
     snapshot_parser.add_argument("--staging-root", required=True)
+    snapshot_parser.add_argument("--expected-workspace")
+    snapshot_parser.add_argument("--expected-identity")
+    snapshot_parser.add_argument("--expected-data-contract")
+    snapshot_parser.add_argument("--expected-database-utc-date")
+
+    validate_parser = subparsers.add_parser("validate-workspace")
+    validate_parser.add_argument("--jenkins-home", required=True)
+    validate_parser.add_argument("--workspace-root", action="append")
+    validate_parser.add_argument("--job", required=True)
+    validate_parser.add_argument("--expected-workspace", required=True)
+    validate_parser.add_argument("--expected-identity", required=True)
 
     cleanup_parser = subparsers.add_parser("cleanup")
     cleanup_parser.add_argument("--staging-root", required=True)
@@ -575,6 +1187,8 @@ def main():
         scan(args)
     elif args.command == "snapshot":
         snapshot(args)
+    elif args.command == "validate-workspace":
+        validate_workspace(args)
     elif args.command == "cleanup":
         cleanup(args)
 

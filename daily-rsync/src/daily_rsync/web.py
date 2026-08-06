@@ -145,7 +145,7 @@ def create_app(config: AppConfig) -> FastAPI:
     def status() -> dict[str, object]:
         disk = shutil.disk_usage(config.data_root)
         return {
-            **service.catalog.dashboard_summary(),
+            **service.catalog.dashboard_summary(source=config.ssh_host),
             "data_root": str(config.data_root),
             "free_bytes": disk.free,
             "total_bytes": disk.total,
@@ -206,7 +206,11 @@ def create_app(config: AppConfig) -> FastAPI:
     def catalog(job: str | None = None, strategy: str | None = None) -> list[dict[str, Any]]:
         return [
             {key: row[key] for key in row.keys()}
-            for row in service.catalog.list_artifacts(job=job, strategy=strategy)
+            for row in service.catalog.list_artifacts(
+                source=config.ssh_host,
+                job=job,
+                strategy=strategy,
+            )
         ]
 
     @application.get("/api/runs")
@@ -215,14 +219,18 @@ def create_app(config: AppConfig) -> FastAPI:
             raise HTTPException(422, "limit must be between 1 and 100")
         return [
             {key: row[key] for key in row.keys()}
-            for row in service.catalog.list_sync_runs(limit=limit)
+            for row in service.catalog.list_sync_runs(source=config.ssh_host, limit=limit)
         ]
 
     @application.get("/api/pins")
     def pins(job: str | None = None, strategy: str | None = None) -> list[dict[str, Any]]:
         return [
             {key: row[key] for key in row.keys()}
-            for row in service.catalog.list_pins(job=job, strategy=strategy)
+            for row in service.catalog.list_pins(
+                source=config.ssh_host,
+                job=job,
+                strategy=strategy,
+            )
         ]
 
     @application.post("/api/pins")

@@ -30,6 +30,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
+| golden-pomegranate | [golden-pomegranate.md](golden-pomegranate.md) | **Market Observatory**, accountless `research-full-v1` collector; trading P&L은 N/A |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
 | golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, BUY 실행 측면이 처치축, $5·24h·A/B/C 3팔 사전 등록 |
 
@@ -64,6 +65,10 @@ portfolio NAV            Supabase pb_* tables
   papaya/queen/quince/kiwi/blueberry는 Jenkins schedule/run manifest에서 cohort 기대 cadence를
   산출해 actual bucket과 gap을 비교한다. Kiwi의 primary B는 5분 full-cadence 30일
   독립 기간이 필수이며 compact된 cold rollup을 원래 5분 data로 해석하지 않는다.
+- Pomegranate는 중앙 archive를 대체하는 새 strategy runtime 의존성이 아니라, 향후 가설
+  탐색용 별도 연구 원자료다. 거래 audit 대신 complete cursor, raw cadence, order-book
+  selection coverage, resolution follow-up, disk/restore health를 검증하며 `trades_sim.db`와
+  완결 UTC shard를 함께 읽는다. 관측치를 P&L이나 confirmed fill로 해석하지 않는다.
 - Supabase NAV는 account snapshot이다. effective deployment, complete snapshot marker,
   external cash flow migration이 실제 적용·backfill되기 전에는 과거 전략 귀속이나 TWR의 완전한
   source로 사용하지 않는다.
@@ -194,5 +199,6 @@ credential은 audit/report/artifact/commit에 포함하지 않는다.
 - 각 `golden-*/STRATEGY.md`
 - `slack-data-collector/sql/pb_portfolio_history_v2.sql` — atomic daily writer의 필수
   additive migration; production 적용 여부는 별도로 검증
-- `slack-data-collector/sql/pb_portfolio_history_v3.sql` — current exact 9-account
-  atomic writer migration; v2 적용 후 production 적용 여부를 별도로 검증
+- `slack-data-collector/sql/pb_portfolio_history_v3.sql` — 당시 account-set을 원자적으로
+  적재하도록 도입한 migration. 현재 계정 수를 9로 하드코딩한 운영 계약으로 해석하지 말고,
+  v2 적용 여부와 각 run의 expected/observed account set을 별도로 검증

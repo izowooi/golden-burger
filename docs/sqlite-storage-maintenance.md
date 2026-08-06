@@ -2,7 +2,9 @@
 
 ## 결론
 
-18개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다. 기존 DB는 거래 사이클을
+수익 가설을 검정하는 기존 18개 `golden-*` 전략은 공통 `compact-v1` 프로필을 사용한다.
+19번째 프로젝트인 accountless collector `golden-pomegranate`는 이 프로필의 명시적
+예외이며 아래 `research-full-v1` 계약을 따른다. 기존 trading DB는 거래 사이클을
 시작하지 않는 전용 명령으로 일회성 안전 마이그레이션한다. 활성화 상태는 DB의
 `polybot_db_maintenance`에 남으므로 이후 평소 bot 실행이 자동으로 시간당 경량화를 계속한다.
 현재 상태 schema는 `2`이며, 활성화 당시의 실제 전략 window 요구사항, destructive policy와
@@ -28,6 +30,40 @@ uv run polybot-db-maintenance migrate \
 
 이 프로필은 거래 판단·주문·체결·run/config 증거를 삭제하지 않는다. 용량의 대부분을 차지한
 시장 telemetry만 전략별로 축약한다.
+
+## Golden Pomegranate: `research-full-v1` 예외
+
+Pomegranate의 목적은 아직 정하지 않은 probability·horizon·liquidity·volume threshold를
+나중에 검정하는 것이다. 따라서 trading DB에서 안전한 rollup도 이 수집기에는 표본 선택과
+경로 손실이 된다.
+
+- `prepare_database(... compact-v1 ...)`와 `polybot-db-maintenance migrate`를 호출하지 않는다.
+- complete Gamma sweep마다 raw cadence의 `closed=false` non-closed 전 시장 observation,
+  variable outcomes, 전체
+  membership을 보존한다. 24시간 membership checkpoint와 hot/cold snapshot rollup은 없다.
+- Data API trade tape의 verified time window/raw request, complete watermark, overlap membership과
+  CLOB rotation sample을 row 수와 무관하게 요약·삭제하지 않는다.
+- active DB는 simulation 전용 `trades_sim.db`다. UTC day가 바뀌면 직전 파일을
+  `trades_sim_YYYYMMDD.db`로 원자적으로 회전하고, 새 active DB에서 다음 sweep을 시작한다.
+  한 sweep을 두 shard에 나누지 않는다. 회전 전 완전한 WAL checkpoint 뒤 WAL→DELETE ownership
+  barrier를 통과해야 하며, idle reader라도 과거 WAL namespace를 소유하면 fail closed한다.
+- row 단위 retention delete나 `VACUUM`으로 용량을 관리하지 않는다. 완결 shard의 SHA-256,
+  `quick_check`, Daily Rsync copy와 별도 복구 검증을 마친 뒤에만 whole-shard 보존 정책을
+  적용한다.
+- 매 run DB/WAL bytes와 filesystem free/used ratio를 기록한다. `bytes/day`와
+  preregistered stop까지의 forecast는 단일 active file 또는 한 cycle의 증가분을 일 단위로
+  오해하지 않고, 완결 UTC shard의 연속 크기와 검증된 retention 범위로 7-day report에서
+  계산한다. used 70%에서 경고하고, used 80% 또는 free 150GiB 미만이면 새 heavy sweep을
+  fail closed한다.
+- 사람용 log에는 count·duration·retry·gap·storage summary만 두고 market별 자료는 DB에
+  넣는다. log verbosity가 raw evidence를 대신하지 않는다.
+
+2026-08-06 현재 약 34,000 markets의 하한 추정은 CLOB 상세와 public trade tape
+overhead를 제외하고도
+10분 약 4.9GB/day, 15분 약 3.3GB/day, 30분 약 1.6GB/day다. 초기 운영은 15분/120일을
+권장한다. 7일 health check에서 p95 cycle이 8분 미만이고 실제 120일 forecast가 안전할 때만
+새 collection contract로 10분을 검토한다. 1TB는 backup이 아니므로 복제본은 다른 물리
+장치에 둔다.
 
 ## 12GB DB에서 확인한 원인
 
@@ -204,7 +240,7 @@ cd "$WORKSPACE/golden-queen"
 migration profile과 복제본 검증을 먼저 추가해야 한다. 기존 repository의 별도
 `cleanup_old_snapshots`도 active DB에서는 삭제를 공유 maintainer에 양보한다.
 
-## 18개 전략 적용 순서
+## compact-v1 18개 전략 적용 순서
 
 각 DB마다 위 절차를 한 번씩 수행한다.
 
@@ -214,11 +250,15 @@ golden-date        golden-elderberry  golden-fig
 golden-grape       golden-honeydew    golden-lime
 golden-mango       golden-nectarine   golden-orange
 golden-papaya      golden-queen       golden-quince
-golden-kiwi
+golden-kiwi        golden-blueberry   golden-melon
 ```
 
 같은 DB를 공유하는 두 Jenkins job이 있다면 동시에 실행하지 말고 한 job에서만 migration을
 성공시킨 뒤 둘 다 정상 shell로 복귀한다.
+
+`golden-pomegranate`는 이 목록에 추가하지 않는다. 해당 DB에서
+`polybot_db_maintenance.profile='compact-v1'`이 발견되면 정상 상태가 아니라 잘못된 초기화로
+간주하고 수집을 중단한다.
 
 ## 검증과 복구
 

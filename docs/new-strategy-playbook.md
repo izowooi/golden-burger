@@ -85,6 +85,35 @@ polybot-observability = { path = "../polybot-observability", editable = true }
 - config parsing/validation은 경계값과 invalid table-driven test를 둔다. default 변경은 migration
   note와 재현 test 없이 하지 않는다.
 
+### 3.1 accountless research instrument 예외
+
+수익 전략을 만들기 위한 범용 시장 수집기는 거래 bot과 반대되는 안전 계약을 가진다. 목적이
+관측이라면 공통 폴더명은 과일 코드네임을 따르되 다음 예외를 명시한다.
+
+- private key, funder address, signature type을 요구하지 않고, 해당 credential이 주입되면
+  잘못된 Jenkins 배치로 간주해 시작 전에 실패한다.
+- `--live`, `Trader`, 주문 제출 client, `ExecutionLedger`, position/P&L 상태 머신을 두지 않는다.
+  공통 구조 검사를 통과하려고 가짜 주문 경로를 만드는 것도 금지한다.
+- lifecycle은 `archive_only` 하나로 고정한다. `active`나 `close_only`를 받아들이되 우연히 주문이
+  없게 만드는 방식이 아니라, 의미가 맞지 않는 mode를 source client와 DB를 열기 전에 거부한다.
+- resolved config, source digest, config hash, job과 local append-only run event, complete cursor
+  sweep, source receipt time, API 요청 증거와 DB 무결성은 거래 bot과 동일하거나 더 엄격하게
+  남긴다.
+- universe를 probability, time-to-end, liquidity, volume, category로 잘라내지 않는다. 이런 값은
+  나중에 전략을 검정할 feature이며 수집 단계의 제외 gate가 아니다.
+- `closed=false` source envelope 전수의 raw-cadence observation과 variable-length outcomes를 보존한다. CLOB full
+  book은 실행시간상 결정적 rotation/계층 표본을 허용하되 selection reason·bucket·coverage를
+  기록해 sampling bias를 측정할 수 있어야 한다.
+- 공개 trade tape를 polling한다면 endpoint의 window/offset cap을 완전한 체결 이력으로
+  오해하지 않도록 receipt range, watermark overlap, cap 도달과 `possible_gap`을 함께 보존한다.
+  화면용 profile·bio·image 같은 필드는 경제적 trade row에서 제외한다.
+- `compact-v1`의 row rollup·membership checkpoint·row deletion을 적용하지 않는다. 대신
+  완결된 UTC shard 전체를 회전하고, disk watermark에서 fail closed하며, 검증된 외부 backup
+  이후에만 whole-shard retention을 적용한다.
+- 거래 승격 gate 대신 cursor completeness, cadence coverage, missingness, resolution follow-up,
+  restore 검증과 storage forecast를 사전 등록한다. execution ledger·small-live 항목은 숨기지
+  않고 `N/A — source-level no-order`로 표시한다.
+
 ## 4. safe simulation과 live safety
 
 - `--simulate`는 명시적으로 `simulation_mode=True`를 override하고 `trades_sim.db`처럼 live DB와

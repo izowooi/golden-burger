@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import hashlib
+from dataclasses import replace
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -26,6 +28,7 @@ def _save(
         size_bytes=5,
         mtime_ns=1,
         jenkins_job=jenkins_job,
+        source=service.config.ssh_host,
         strategy=strategy,
         runtime_job=runtime_job,
         build_number=build_number,
@@ -36,7 +39,7 @@ def _save(
     digest = hashlib.sha256(b"hello").hexdigest()
     service.catalog.upsert_artifact(
         item,
-        source="test-host",
+        source=service.config.ssh_host,
         local_path=path,
         local_sha256=digest,
         remote_sha256=digest if kind.startswith("database") else None,
@@ -111,9 +114,7 @@ def test_locate_evidence_preserves_deployment_and_runtime_identity(
     )
 
 
-def test_locate_evidence_keeps_multiple_deployments_separate(
-    app_config, tmp_path: Path
-) -> None:
+def test_locate_evidence_keeps_multiple_deployments_separate(app_config, tmp_path: Path) -> None:
     service = SyncService(app_config)
     deployments = (
         ("polybot-bear", "golden-honeydew"),
@@ -150,15 +151,57 @@ def test_locate_evidence_keeps_multiple_deployments_separate(
     result = service.locate_evidence(strategy="golden-honeydew")
 
     assert result["match_count"] == 2
-    assert {
-        (match["jenkins_job"], match["strategy"]) for match in result["matches"]
-    } == set(deployments)
+    assert {(match["jenkins_job"], match["strategy"]) for match in result["matches"]} == set(
+        deployments
+    )
     assert all(match["analysis_ready"] is True for match in result["matches"])
 
 
-def test_locate_evidence_keeps_strategy_epochs_separate(
-    app_config, tmp_path: Path
+def test_locate_evidence_filters_shared_catalog_by_configured_source(
+    app_config,
+    tmp_path: Path,
 ) -> None:
+    services = {
+        source: SyncService(replace(app_config, ssh_host=source))
+        for source in ("host-a", "host-b")
+    }
+    remote_path = "/workspace/golden-honeydew/data/default/trades.db"
+    for source, service in services.items():
+        _save(
+            service,
+            tmp_path=tmp_path,
+            kind="database_live",
+            remote_path=remote_path,
+            runtime_job="default",
+        )
+        service.catalog.begin_run(
+            run_id=f"run-{source}",
+            plan_id=f"plan-{source}",
+            source=source,
+            job="polybot-bear",
+            strategy="golden-honeydew",
+        )
+        service.catalog.finish_run(
+            run_id=f"run-{source}",
+            status="SUCCESS",
+            transferred=1,
+            skipped=0,
+            failed=0,
+            bytes_written=5,
+            errors=[],
+        )
+
+    for source, service in services.items():
+        result = service.locate_evidence(
+            job="polybot-bear",
+            strategy="golden-honeydew",
+        )
+        assert result["match_count"] == 1
+        assert result["matches"][0]["source"] == source
+        assert result["matches"][0]["latest_sync_attempt"]["run_id"] == f"run-{source}"
+
+
+def test_locate_evidence_keeps_strategy_epochs_separate(app_config, tmp_path: Path) -> None:
     service = SyncService(app_config)
     strategies = ("golden-honeydew", "golden-nectarine")
     for index, strategy in enumerate(strategies, start=1):
@@ -237,9 +280,7 @@ def test_locate_evidence_fails_closed_when_latest_sync_attempt_failed(
         errors=["transfer failed"],
     )
 
-    result = service.locate_evidence(
-        job="polybot-bear", strategy="golden-honeydew"
-    )
+    result = service.locate_evidence(job="polybot-bear", strategy="golden-honeydew")
 
     match = result["matches"][0]
     assert match["analysis_ready"] is False
@@ -259,9 +300,7 @@ def test_verify_treats_retention_deleted_logs_as_an_explicit_skip(
         remote_path="/workspace/golden-honeydew/data/default/logs/old.log",
         runtime_job="default",
     )
-    row = service.catalog.list_artifacts(
-        job="polybot-bear", strategy="golden-honeydew"
-    )[0]
+    row = service.catalog.list_artifacts(job="polybot-bear", strategy="golden-honeydew")[0]
     Path(row["local_path"]).unlink()
     service.catalog.mark_retention_deleted(str(row["source_key"]))
 
@@ -281,6 +320,26 @@ def test_verify_reports_not_found_instead_of_vacuous_success(app_config) -> None
     assert result["status"] == "NOT_FOUND"
     assert result["checked"] == 0
     assert result["errors"] == ["no synchronized artifacts match the requested identity"]
+
+
+def test_range_locate_surfaces_every_missing_utc_archive_date_without_artifacts(
+    app_config,
+) -> None:
+    service = SyncService(app_config)
+
+    result = service.locate_evidence(
+        job="polybot-pomegranate",
+        strategy="golden-pomegranate",
+        from_date=date(2026, 8, 4),
+        to_date=date(2026, 8, 5),
+    )
+
+    assert result["status"] == "NOT_FOUND"
+    assert result["archive_coverage"]["missing_dates"] == [
+        "2026-08-04",
+        "2026-08-05",
+    ]
+    assert result["archive_coverage"]["complete"] is False
 
 
 def test_locate_evidence_requires_an_identity(app_config) -> None:

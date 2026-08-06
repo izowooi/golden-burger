@@ -1,0 +1,45 @@
+simulation_mode: true
+
+trading:
+  lifecycle_mode: archive_only
+  cadence_minutes: 15
+  data_contract: research-full-v1
+
+  gamma:
+    base_url: https://gamma-api.polymarket.com
+    page_size: 100
+    max_pages: 10000
+    connect_timeout_seconds: 3.05
+    read_timeout_seconds: 30
+    max_retries: 6
+    retry_base_seconds: 2
+    retry_max_seconds: 60
+
+  data_api:
+    base_url: https://data-api.polymarket.com
+    trade_limit: 10000
+    safety_lag_seconds: 300
+    overlap_seconds: 1800
+    initial_lookback_hours: 24
+    catchup_chunk_seconds: 3600
+    max_request_attempts_per_cycle: 64
+    max_windows_per_cycle: 32
+    runtime_budget_seconds: 120
+
+  orderbook:
+    base_url: https://clob.polymarket.com
+    bucket_count: 48
+    max_markets_per_cycle: 400
+    normalized_levels: 10
+    batch_token_limit: 500
+
+  resolution:
+    max_condition_lookups_per_cycle: 50
+    batch_size: 50
+
+  storage:
+    raw_payload_every_cycles: 1
+    min_free_gib: 150
+    warn_used_ratio: 0.70
+    stop_used_ratio: 0.80
+    busy_timeout_ms: 30000

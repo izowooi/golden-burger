@@ -41,7 +41,8 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
 <header>
   <div style="font-size:43px">🍔</div>
   <h1>Golden Burger 전략 문서</h1>
-  <p class="lead">총 18개 전략의 local HTML 인덱스다. 현재 실행 여부, 폐쇄 여부,
+  <p class="lead">총 19개 <code>golden-*</code> 프로젝트의 local HTML 인덱스다. 18개 수익 가설과
+  1개 범용 시장 수집기를 구분한다. 현재 실행 여부, 폐쇄 여부,
   Jenkins 실험군을 확인하려면 운영 현황 화면을 먼저 본다.</p>
   <a class="dashboard" href="strategy-status.html">전략 운영 현황 대시보드 열기 →</a>
 </header>
@@ -65,9 +66,10 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
   <a class="card" href="strategy-quince.html"><div class="top"><span class="fruit">🍐</span><span class="state built">A/B/C 3-arm</span></div><b>golden-quince</b><span class="en">Spread Harvest</span><p>찾고 있던 passive / nearest / cross 실행 실험.</p></a>
 </div>
 
-<h2>신규 research · simulation 전용 · 1</h2>
+<h2>research · simulation 전용 · 2</h2>
 <div class="grid">
   <a class="card" href="strategy-kiwi.html"><div class="top"><span class="fruit">🥝</span><span class="state research">LIVE 금지</span></div><b>golden-kiwi</b><span class="en">Micro-Cascade</span><p>5분 micro-trend 2×2 네 팔. 외부표본 gate 실패로 연구 수집만 허용.</p></a>
+  <a class="card" href="strategy-pomegranate.html"><div class="top"><span class="fruit">🔴</span><span class="state research">ORDER 금지</span></div><b>golden-pomegranate</b><span class="en">Market Observatory</span><p>전 시장 point-in-time 자료와 회전 CLOB book을 수집해 미래 전략을 만든다.</p></a>
 </div>
 
 <h2>폐쇄 완료 · 6</h2>
@@ -84,6 +86,6 @@ footer{margin-top:45px;padding-top:16px;border-top:1px solid var(--line);color:v
 <code>close_only</code>나 <code>archive_only</code>는 bot lifecycle mode이며
 “보류” 또는 “폐쇄”라는 전략 의사결정과 같은 말이 아닙니다.</div>
 
-<footer>Golden Burger · 2026-08-04 · 상세 코드와 실행 계약은 각
+<footer>Golden Burger · 2026-08-06 · 상세 코드와 실행 계약은 각
 <code>golden-&lt;name&gt;/</code> 폴더의 README/STRATEGY/AGENTS 문서를 따른다.</footer>
 </main></body></html>

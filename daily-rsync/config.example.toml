@@ -3,6 +3,14 @@ ssh_host = "macmini-m5"
 expected_ip = "192.168.50.23"
 remote_jenkins_home = "/Users/jongwoopark/.jenkins"
 remote_staging_root = "/Users/jongwoopark/.cache/daily-rsync"
+remote_workspace_roots = [
+  "/Users/jongwoopark/.jenkins/workspace",
+  # "/Volumes/t7/jenkins/workspace",
+]
+# 같은 Job directory가 둘 이상의 root에 있으면 실제 workspace 한 곳에만
+# .daily-rsync-workspace.json을 둡니다:
+# {"schema_version":1,"job":"polybot-pomegranate",
+#  "workspace":"/Volumes/t7/jenkins/workspace/polybot-pomegranate"}
 data_root = "data"
 initial_log_days = 60
 log_retention_days = 365

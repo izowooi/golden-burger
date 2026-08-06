@@ -45,10 +45,19 @@ def doctor(
 def scan(
     job: Annotated[str | None, typer.Option(help="Jenkins job name")] = None,
     days: Annotated[int | None, typer.Option(min=1)] = None,
+    from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
+    to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 ) -> None:
     """Discover jobs or inspect one job in detail."""
-    inventories = _service(config).scan(job=job, days=days)
+    if (from_date is None) != (to_date is None):
+        raise typer.BadParameter("pass --from-date and --to-date together")
+    inventories = _service(config).scan(
+        job=job,
+        days=days,
+        from_date=date.fromisoformat(from_date) if from_date else None,
+        to_date=date.fromisoformat(to_date) if to_date else None,
+    )
     for inventory in inventories:
         total = sum(item.size_bytes for item in inventory.artifacts)
         typer.echo(
@@ -64,14 +73,20 @@ def plan_command(
     strategy: Annotated[str | None, typer.Option(help="Strategy folder/name")] = None,
     include_safety_databases: Annotated[bool, typer.Option()] = False,
     days: Annotated[int | None, typer.Option(min=1)] = None,
+    from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
+    to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 ) -> None:
     """Create a persisted, reviewable synchronization plan."""
+    if (from_date is None) != (to_date is None):
+        raise typer.BadParameter("pass --from-date and --to-date together")
     plan = _service(config).create_plan(
         job=job,
         strategy=strategy,
         include_safety_databases=include_safety_databases,
         days=days,
+        from_date=date.fromisoformat(from_date) if from_date else None,
+        to_date=date.fromisoformat(to_date) if to_date else None,
     )
     typer.echo(
         f"plan_id={plan.plan_id} job={plan.jenkins_job} strategy={plan.strategy} "
@@ -106,22 +121,24 @@ def sync_job(
     strategy: Annotated[str | None, typer.Option()] = None,
     include_safety_databases: Annotated[bool, typer.Option()] = False,
     days: Annotated[int | None, typer.Option(min=1)] = None,
+    from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
+    to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 ) -> None:
     """Create and execute a plan for one selected job."""
+    if (from_date is None) != (to_date is None):
+        raise typer.BadParameter("pass --from-date and --to-date together")
     service = _service(config)
-    plan = service.create_plan(
+    parsed_from = date.fromisoformat(from_date) if from_date else None
+    parsed_to = date.fromisoformat(to_date) if to_date else None
+    typer.echo(f"Executing sync-job: job={job} strategy={strategy or 'auto'}")
+    result = service.sync_job(
         job=job,
         strategy=strategy,
         include_safety_databases=include_safety_databases,
         days=days,
-    )
-    typer.echo(
-        f"Executing {plan.plan_id}: {len(plan.artifacts)} artifacts, "
-        f"upper bound {_bytes(plan.estimated_bytes)}"
-    )
-    result = service.execute(
-        plan,
+        from_date=parsed_from,
+        to_date=parsed_to,
         progress=lambda payload: typer.echo(json.dumps(payload, ensure_ascii=False)),
     )
     typer.echo(json.dumps(result.__dict__, ensure_ascii=False, indent=2))
@@ -133,10 +150,19 @@ def sync_job(
 def verify(
     job: Annotated[str | None, typer.Option()] = None,
     strategy: Annotated[str | None, typer.Option()] = None,
+    from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
+    to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 ) -> None:
     """Recheck synchronized files and SQLite integrity."""
-    result = _service(config).verify(job=job, strategy=strategy)
+    if (from_date is None) != (to_date is None):
+        raise typer.BadParameter("pass --from-date and --to-date together")
+    result = _service(config).verify(
+        job=job,
+        strategy=strategy,
+        from_date=date.fromisoformat(from_date) if from_date else None,
+        to_date=date.fromisoformat(to_date) if to_date else None,
+    )
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "SUCCESS":
         raise typer.Exit(1)
@@ -146,12 +172,21 @@ def verify(
 def locate(
     job: Annotated[str | None, typer.Option(help="Jenkins job name")] = None,
     strategy: Annotated[str | None, typer.Option(help="Strategy folder/name")] = None,
+    from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
+    to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
     config: Annotated[Path | None, typer.Option(exists=True, dir_okay=False)] = None,
 ) -> None:
     """Locate synchronized DB/log evidence without scanning the remote host."""
     if not job and not strategy:
         raise typer.BadParameter("pass --job or --strategy")
-    result = _service(config).locate_evidence(job=job, strategy=strategy)
+    if (from_date is None) != (to_date is None):
+        raise typer.BadParameter("pass --from-date and --to-date together")
+    result = _service(config).locate_evidence(
+        job=job,
+        strategy=strategy,
+        from_date=date.fromisoformat(from_date) if from_date else None,
+        to_date=date.fromisoformat(to_date) if to_date else None,
+    )
     typer.echo(json.dumps(result, ensure_ascii=False, indent=2))
     if result["status"] != "FOUND":
         raise typer.Exit(1)

@@ -1,6 +1,7 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 18개 전략의 전체 지도다. 현재 운영 상태는
+총 19개 `golden-*` 프로젝트의 전체 지도다. 이 중 18개는 수익 가설을 검정하는 전략이고,
+`golden-pomegranate` 하나는 미래 전략을 만들기 위한 accountless market observatory다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
@@ -37,10 +38,11 @@
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
+| **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 
-상태 합계는 운영 6, 구현만 완료 5, simulation 전용 1, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 2, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -232,6 +234,40 @@ provenance다. 상세는 `golden-blueberry/STRATEGY.md`,
 `golden-blueberry/research/2026-08-04-origin-and-preregistration.md`,
 `docs/retro/golden-blueberry.md`를 따른다.
 
+## 8차 설계 — 전략을 고르기 전의 범용 시장 관측소
+
+### golden-pomegranate — Market Observatory
+
+Pomegranate는 수익을 내는 19번째 trading strategy가 아니다. 기존 전략들이 각자의
+probability·horizon·liquidity gate를 통과한 시장만 저장해 생긴 strategy-filter selection
+bias를 `closed=false` source envelope 안에서 제거하고,
+나중에 어떤 gate와 threshold가 실제로 유효했는지 다시 계산하기 위한 **accountless
+research instrument**다.
+
+매 cycle Gamma keyset을 cursor 끝까지 순회해 `closed=false` non-closed universe 전부와 variable-length
+outcomes를 저장한다. 누적 `volume`과 `volume24hr`, liquidity 계열, 모든 source clock,
+event/tag/sports, YES/NO가 아닌 복수 outcome까지 point-in-time으로 분리해 보존한다. CLOB
+full book은 전체 token을 N+1로 긁지 않고 condition hash 기반 결정적 rotation으로
+표본 수집하며, selection reason·bucket·cyclic offset·coverage를 함께 남긴다. 닫히거나
+`closed=false` census에서 사라진 condition은 독립 resolution watcher가 추적하고 resolution과
+redeemable evidence를 구분한다.
+
+공개 Data API trade tape는 최초 `stabilized target - 24h` bootstrap baseline을 고정하고,
+직전 complete watermark부터 cycle당 최대 1시간씩 bounded catch-up한다. source의 최신
+stabilized end와 이번 bounded target을 별도로 남기며, `start`/`end` 10,000건 cap에 닿는 창은
+시간으로 재귀 분할하고 overlap을 canonical trade hash로 dedupe한다. 1초 창도 cap을 넘으면
+`possible_gap`을 남기고 watermark를 넘기지 않는다. 이는 public polling window를 증명하는
+것이지 WebSocket의 모든 tick을 손실 없이 재현한다는 주장이 아니다.
+
+저장 계약은 관측치를 thinning하는 `compact-v1`이 아니라 append-only
+`research-full-v1`이다. 활성 `trades_sim.db`는 UTC 일 경계에서
+`trades_sim_YYYYMMDD.db`로 회전한다. 1TB 외장 디스크도 유한하므로 초기 cadence는
+15분, 최소 free space 150GiB, 70% 경고/80% 중단을 기본으로 한다. 7일간 p95 cycle이
+8분 미만이고 120일 storage forecast가 안전할 때만 10분으로 올린다. private key·funder·
+signature type이 주입되거나 `--live`를 요청하면 startup 자체가 실패하며, account/daily-report
+slot도 만들지 않는다. 상세 계약은 `golden-pomegranate/STRATEGY.md`, 운영법은
+`golden-pomegranate/README.md`, 회고는 `docs/retro/golden-pomegranate.md`를 따른다.
+
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
 기존 봇 분석에서 확인된 결함의 수정:
@@ -262,6 +298,7 @@ py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐�
 | blueberry | $5·72h·5분 cadence로 +2%p/+5%p A/B를 별도 wallet/job/DB에서 시작 | $1 주문, 여러 knob 변경, 1주 P&L로 승자 선택 |
 | quince | $5·24h·5분 cadence로 A/B/C를 별도 wallet/job/DB에서 실행 | 12h/24h나 주문액까지 동시에 변경 |
 | kiwi | 네 simulation job에서 독립 30일 5분 research archive 수집 | live 실행, threshold 완화, 관측 winner로 B 교체 |
+| pomegranate | 계좌 없이 15분 full census를 수집하고 7일 health/storage gate를 점검 | 수익/P&L 주장, credential 주입, 관측치를 compact/rollup, 즉시 10분 고정 |
 | 폐쇄 6개 | 문서·DB·로그·checksum을 보존하고 wallet/order/redeem 잔여 evidence 대사 | 재가동, 승자 slice 선택, 같은 데이터 재최적화 |
 
 일반적인 “30건이면 충분” 규칙은 사용하지 않는다. 전략별 사전 등록 endpoint와

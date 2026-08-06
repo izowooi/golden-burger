@@ -4,6 +4,7 @@ import json
 import shlex
 import subprocess
 import tempfile
+from datetime import date
 from pathlib import Path
 from typing import Any
 
@@ -35,6 +36,14 @@ class RemoteClient:
             self.config.ssh_host,
         ]
 
+    @property
+    def workspace_arguments(self) -> list[str]:
+        return [
+            value
+            for root in self.config.effective_remote_workspace_roots
+            for value in ("--workspace-root", root)
+        ]
+
     def _helper(self, command: str, arguments: list[str], *, timeout: int = 120) -> dict[str, Any]:
         remote_command = " ".join(
             shlex.quote(value) for value in ["python3", "-", command, *arguments]
@@ -64,34 +73,97 @@ class RemoteClient:
     def doctor(self) -> dict[str, Any]:
         return self._helper(
             "doctor",
-            ["--jenkins-home", self.config.remote_jenkins_home],
-            timeout=30,
-        )
-
-    def scan(self, *, job: str | None, cutoff_epoch: float) -> list[JobInventory]:
-        arguments = [
-            "--jenkins-home",
-            self.config.remote_jenkins_home,
-            "--cutoff-epoch",
-            str(cutoff_epoch),
-        ]
-        if job:
-            arguments.extend(["--job", job])
-        payload = self._helper("scan", arguments, timeout=300)
-        return [JobInventory.from_dict(item) for item in payload.get("jobs", [])]
-
-    def snapshot_database(self, remote_path: str) -> dict[str, Any]:
-        return self._helper(
-            "snapshot",
             [
                 "--jenkins-home",
                 self.config.remote_jenkins_home,
-                "--source",
-                remote_path,
-                "--staging-root",
-                self.config.remote_staging_root,
+                *self.workspace_arguments,
             ],
+            timeout=30,
+        )
+
+    def scan(
+        self,
+        *,
+        job: str | None,
+        cutoff_epoch: float,
+        archive_from_date: date | None = None,
+        archive_to_date: date | None = None,
+    ) -> list[JobInventory]:
+        arguments = [
+            "--jenkins-home",
+            self.config.remote_jenkins_home,
+            *self.workspace_arguments,
+            "--cutoff-epoch",
+            str(cutoff_epoch),
+        ]
+        if archive_from_date:
+            arguments.extend(["--archive-from-date", archive_from_date.isoformat()])
+        if archive_to_date:
+            arguments.extend(["--archive-to-date", archive_to_date.isoformat()])
+        if job:
+            arguments.extend(["--job", job])
+        payload = self._helper("scan", arguments, timeout=300)
+        for item in payload.get("jobs", []):
+            for artifact in item.get("artifacts", []):
+                artifact["source"] = self.config.ssh_host
+        return [JobInventory.from_dict(item) for item in payload.get("jobs", [])]
+
+    def snapshot_database(
+        self,
+        remote_path: str,
+        *,
+        job: str,
+        expected_workspace: str,
+        expected_identity: dict[str, Any],
+        expected_data_contract: str | None = None,
+        expected_database_utc_date: str | None = None,
+    ) -> dict[str, Any]:
+        arguments = [
+            "--jenkins-home",
+            self.config.remote_jenkins_home,
+            *self.workspace_arguments,
+            "--source",
+            remote_path,
+            "--staging-root",
+            self.config.remote_staging_root,
+            "--job",
+            job,
+            "--expected-workspace",
+            expected_workspace,
+            "--expected-identity",
+            json.dumps(expected_identity, sort_keys=True),
+        ]
+        if expected_data_contract:
+            arguments.extend(["--expected-data-contract", expected_data_contract])
+        if expected_database_utc_date:
+            arguments.extend(["--expected-database-utc-date", expected_database_utc_date])
+        return self._helper(
+            "snapshot",
+            arguments,
             timeout=7200,
+        )
+
+    def validate_workspace(
+        self,
+        *,
+        job: str,
+        expected_workspace: str,
+        expected_identity: dict[str, Any],
+    ) -> dict[str, Any]:
+        return self._helper(
+            "validate-workspace",
+            [
+                "--jenkins-home",
+                self.config.remote_jenkins_home,
+                *self.workspace_arguments,
+                "--job",
+                job,
+                "--expected-workspace",
+                expected_workspace,
+                "--expected-identity",
+                json.dumps(expected_identity, sort_keys=True),
+            ],
+            timeout=60,
         )
 
     def cleanup_snapshot(self, snapshot_path: str) -> None:

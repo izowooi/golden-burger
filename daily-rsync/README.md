@@ -102,6 +102,43 @@ uv run daily-rsync serve --open
 `/Users/jongwoopark/.jenkins`, local `daily-rsync/data`를 사용합니다. SSH private key나
 Polymarket credential을 이 프로젝트 설정에 넣지 않습니다.
 
+Jenkins Job workspace가 외장 volume에 있으면 `config.local.toml`의 allowlist에
+workspace **root**를 명시합니다. 각 Job은 반드시 `<root>/<jenkins-job>` 바로 아래에
+있어야 합니다. Jenkins `config.xml`에 absolute `customWorkspace`가 있으면 그 경로를
+우선하되 동일한 규칙을 통과해야 합니다.
+
+```toml
+remote_workspace_roots = [
+  "/Users/jongwoopark/.jenkins/workspace",
+  "/Volumes/t7/jenkins/workspace",
+]
+```
+
+일시 override는 `DAILY_RSYNC_REMOTE_WORKSPACE_ROOTS`에 platform path separator(macOS는
+`:`)로 구분해 넣습니다. 이 환경변수는 TOML 목록 전체를 대체합니다. 목록을 생략하면
+기존 `$JENKINS_HOME/workspace` 하나가 기본값입니다. allowlisted root가 mount되어 있지
+않거나 Job 경로가 symlink로 root 밖을 가리키거나, `customWorkspace`가 정확한
+`<root>/<job>`이 아니면 scan과 snapshot은 중단됩니다. `/Volumes/t7/jenkins` 같은 공유
+상위 directory 자체를 Job workspace로 지정하지 않습니다.
+
+Pipeline이 기본 workspace에서 preflight를 한 뒤 `ws(...)`로 외장 workspace로 이동하면
+두 root에 같은 Job directory가 남을 수 있습니다. 이때 실제 workspace 하나에만
+`.daily-rsync-workspace.json`을 둡니다. filename과 payload key는 고정이며 추가 key도
+허용하지 않습니다.
+
+```json
+{
+  "schema_version": 1,
+  "job": "polybot-pomegranate",
+  "workspace": "/Volumes/t7/jenkins/workspace/polybot-pomegranate"
+}
+```
+
+복수 후보에서 marker가 없거나, 둘 이상에 있거나, JSON·Job·absolute workspace가 정확히
+맞지 않으면 fail closed합니다. `scan`은 root/workspace `st_dev`와 marker digest를 plan에
+넣고 `sync` 직전에 다시 비교합니다. 따라서 volume 교체·unmount·marker 변경 후 예전
+plan을 실행할 수 없고, workspace identity가 없는 구버전 plan도 새로 만들어야 합니다.
+
 ## CLI 사용법
 
 CLI는 웹 UI와 같은 Python 엔진과 catalog를 사용합니다. AI 자동화, cron, scheduled
@@ -117,6 +154,10 @@ uv run daily-rsync scan --job polybot-king
 # 전송 계획 생성
 uv run daily-rsync plan --job polybot-king --strategy golden-queen
 
+# research daily shard를 정확한 UTC range로 제한
+uv run daily-rsync plan --job polybot-king --strategy golden-queen \
+  --from-date 2026-08-05 --to-date 2026-08-05
+
 # 출력된 plan ID 실행
 uv run daily-rsync sync --plan <plan-id>
 
@@ -126,6 +167,10 @@ uv run daily-rsync verify --job polybot-king
 # 회고용 로컬 DB·로그 자동 탐색 (잡명 또는 전략명 하나만 있어도 됨)
 uv run daily-rsync locate --job polybot-king
 uv run daily-rsync locate --strategy golden-queen
+
+# 해당 UTC day의 research archive shard만 evidence 후보로 표시
+uv run daily-rsync locate --strategy golden-queen \
+  --from-date 2026-08-05 --to-date 2026-08-05
 
 # 계좌가 바뀐 deployment epoch 기록
 uv run daily-rsync account-epoch \
@@ -155,6 +200,14 @@ uv run daily-rsync sync-job --job polybot-king --strategy golden-queen
 Jenkins job이 실행하거나, 한 job이 시간에 따라 여러 전략을 실행한 경우에도
 `source → Jenkins job → strategy → runtime job`을 분리해 모두 반환합니다.
 
+`--from-date/--to-date`를 주면 요청한 모든 UTC day에 대해 같은 runtime의
+`trades_sim_YYYYMMDD.db`가 있어야 `verify=SUCCESS`와 `analysis_ready=true`가 됩니다.
+canonical DB·safety DB·로그는 누락된 daily shard를 대신하지 않습니다. 결과의
+`archive_coverage`가 covered/missing/unavailable/conflicted date를 명시하며, open
+`artifact_conflicts`가 하나라도 있으면 plan·verify·분석 준비 상태를 차단합니다.
+`SOURCE_MISSING` shard는 local checksum이 유효하고 source cutoff가 해당 UTC day 다음 날
+00:00Z 이상임을 metadata로 증명할 때만 historical coverage로 인정합니다.
+
 출력에는 최근 sync 시도와 최근 성공 sync run, runtime별 DB 원본/로컬
 경로·원본 시각·SHA-256·artifact 상태, bot log 및 Jenkins console log의
 개수·범위·로컬 루트, 그리고 실행할 `verify` 명령이 포함됩니다. 회고 전에는 반드시
@@ -181,6 +234,10 @@ SQLite `quick_check`까지 다시 확인했다는 뜻은 아니므로 `verify`�
 - 로그 보존: 365일
 - 로컬 디스크 안전선: 50GB
 - DB: canonical `trades.db`, `trades_sim.db` 기본 선택
+- Research DB: `trades_sim_YYYYMMDD.db`를 UTC day별 immutable archive로 기본 선택
+- Research current day: `collection_contracts.database_utc_date`가 현재 UTC day와 일치할
+  때만 active `trades_sim.db`를 partial evidence로 전송한다. 완료된 하루 coverage는
+  rollover 후의 dated archive만 인정한다.
 - DB 이력: latest 1개, 수동 pin
 - 로그: 원문 gzip, redaction 없음
 - 원격 쓰기: `~/.cache/daily-rsync`의 일회성 SQLite snapshot만 허용
@@ -189,6 +246,29 @@ SQLite `quick_check`까지 다시 확인했다는 뜻은 아니므로 `verify`�
 중단된 단일 파일 전송은 `data/incoming/*.partial`을 남기고 다음 실행의 rsync가
 이어받습니다. 검증을 마치지 못한 partial은 catalog의 완료 자료나 DB `latest`로
 승격되지 않습니다.
+
+`trades_sim_YYYYMMDD.db`는 `database_research_archive`, `mode=sim`,
+`canonical=false`로 catalog에 기록되고 active `trades_sim.db`와 다른 날짜별 경로에
+보관됩니다. 파일명의 날짜와 SQLite
+`collection_contracts.database_utc_date`가 정확히 같고 contract가
+`research-full-v1`이어야 하며, 누락·불일치는 scan/plan에서 전송 전에 중단합니다.
+`plan --days N` 또는 `plan --from-date/--to-date`로 기간을 명시한 경우
+shard filename의 UTC day가 그 기간에 속하는 것만 plan에 들어갑니다. `research-full-v1`의
+active `trades_sim.db`는 기간에 현재 UTC day가 포함될 때만 들어가지만, mutable이므로
+`verify`의 완결된 UTC-day coverage는 만족하지 않습니다. 일반 누적 simulation DB에는 이
+규칙을 적용하지 않습니다. 기간을 생략한 CLI plan은 발견된 shard 전체를 대상으로
+하며, fingerprint가 같은 shard는 다른 artifact와 동일하게 증분 skip됩니다.
+SQLite fingerprint와 예상 전송량은 main DB와 현재 존재하는 durable `-wal`을 함께
+계산합니다. 따라서 main DB stat이 그대로인 WAL-only 변경도 다음 plan의 동기화
+대상입니다. `-shm`은 read-only open만으로도 바뀌는 volatile coordination state라
+제외합니다. 이미 동기화한 immutable research shard의 fingerprint가 바뀌거나,
+workspace root 이동으로 다른 원격 경로가 같은 로컬 경로를 가리키면 기존 파일을
+덮어쓰지 않고 catalog에 open conflict를 남긴 뒤 plan을 중단합니다.
+artifact `source_key`에는 SSH source identity도 포함됩니다. 같은 job/path를 가진 서로
+다른 Mac mini는 catalog에서 별개 artifact이며, 기존 catalog key는 pin/conflict 참조를
+보존하면서 자동으로 source-aware v2 key로 마이그레이션됩니다.
+`bundle --from-date/--to-date`도 같은 active/daily shard 범위를 적용합니다. safety DB 선택 정책은
+기존과 같이 `--include-safety-databases`로만 바뀝니다.
 
 과거 전략은 scan 결과에 표시되지만 현재 전략만 기본 선택합니다. 원격에서 과거 전략을
 직접 삭제해도 local 자료는 자동으로 삭제되지 않습니다.

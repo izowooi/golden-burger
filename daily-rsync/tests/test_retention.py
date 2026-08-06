@@ -17,13 +17,14 @@ def test_retention_is_dry_run_by_default_and_apply_keeps_catalog(app_config) -> 
         size_bytes=3,
         mtime_ns=int(old.timestamp() * 1_000_000_000),
         jenkins_job="polybot-king",
+        source=app_config.ssh_host,
         strategy="golden-queen",
         runtime_job="queen-live-12h",
         completed_at=old.isoformat(),
     )
     service.catalog.upsert_artifact(
         item,
-        source="macmini",
+        source=app_config.ssh_host,
         local_path=local,
         local_sha256="digest",
         metadata={"completed_at": old.isoformat()},

@@ -1,0 +1,166 @@
+pipeline {
+  agent any
+
+  options {
+    skipDefaultCheckout(true)
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(daysToKeepStr: '120'))
+    timeout(time: 13, unit: 'MINUTES')
+  }
+
+  triggers {
+    cron('H/15 * * * *')
+  }
+
+  environment {
+    UV_LINK_MODE = 'copy'
+    LOG_LEVEL = 'INFO'
+    PYTHONUNBUFFERED = '1'
+    POLYBOT_LIFECYCLE_MODE = 'archive_only'
+    // Change this one value when the approved external APFS volume is renamed.
+    POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'
+  }
+
+  stages {
+    stage('Verify external APFS volume') {
+      steps {
+        sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+MOUNT_ROOT="${POMEGRANATE_MOUNT_ROOT}"
+SENTINEL="${MOUNT_ROOT}/.golden-pomegranate-volume"
+
+if [ ! -d "${MOUNT_ROOT}" ] || [ -L "${MOUNT_ROOT}" ]; then
+  echo 'Golden Pomegranate external mount is absent or unsafe' >&2
+  exit 2
+fi
+if [ ! -f "${SENTINEL}" ] || [ -L "${SENTINEL}" ]; then
+  echo 'Golden Pomegranate volume sentinel is absent or unsafe' >&2
+  exit 2
+fi
+
+VOLUME_INFO="$(/usr/sbin/diskutil info "${MOUNT_ROOT}")"
+FILESYSTEM="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/File System Personality/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+CURRENT_UUID="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+EXPECTED_PROFILE="$(sed -n 's/^profile=//p' "${SENTINEL}")"
+EXPECTED_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+
+if [ "${FILESYSTEM}" != 'APFS' ]; then
+  echo 'Golden Pomegranate data volume is not APFS' >&2
+  exit 2
+fi
+if [ "${EXPECTED_PROFILE}" != 'golden-pomegranate-apfs-v1' ]; then
+  echo 'Golden Pomegranate sentinel profile is invalid' >&2
+  exit 2
+fi
+if [ -z "${CURRENT_UUID}" ] || [ -z "${EXPECTED_UUID}" ] || [ "${CURRENT_UUID}" != "${EXPECTED_UUID}" ]; then
+  echo 'Golden Pomegranate mount UUID does not match the stable sentinel' >&2
+  exit 2
+fi
+'''
+      }
+    }
+
+    stage('Collect one research cycle') {
+      steps {
+        ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${env.JOB_NAME}") {
+          sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+EXPECTED_WORKSPACE="${POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}"
+if [ "${WORKSPACE}" != "${EXPECTED_WORKSPACE}" ]; then
+  echo 'Jenkins allocated a non-canonical Golden Pomegranate workspace' >&2
+  exit 2
+fi
+
+SENTINEL="${POMEGRANATE_MOUNT_ROOT}/.golden-pomegranate-volume"
+EXPECTED_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+WORKSPACE_UUID="$(/usr/sbin/diskutil info "${WORKSPACE}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+if [ -z "${WORKSPACE_UUID}" ] || [ "${WORKSPACE_UUID}" != "${EXPECTED_UUID}" ]; then
+  echo 'Jenkins workspace is not on the approved Golden Pomegranate volume' >&2
+  exit 2
+fi
+
+'''
+          checkout scm
+          sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+# Daily Rsync can see both Jenkins' short-lived default checkout and this
+# external workspace.  A job-bound, secret-free marker makes the latter the
+# only valid evidence source.  Write it atomically after checkout/clean steps.
+/usr/bin/python3 - "${WORKSPACE}" "${JOB_NAME}" <<'PY'
+import json
+import os
+from pathlib import Path
+import sys
+
+workspace = Path(sys.argv[1])
+job = sys.argv[2]
+payload = {
+    "schema_version": 1,
+    "job": job,
+    "workspace": str(workspace),
+}
+target = workspace / ".daily-rsync-workspace.json"
+temporary = workspace / f".daily-rsync-workspace.json.tmp.{os.getpid()}"
+flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
+if hasattr(os, "O_NOFOLLOW"):
+    flags |= os.O_NOFOLLOW
+descriptor = os.open(temporary, flags, 0o600)
+try:
+    with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, sort_keys=True, separators=(",", ":"))
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    os.replace(temporary, target)
+    directory = os.open(workspace, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+finally:
+    try:
+        temporary.unlink()
+    except FileNotFoundError:
+        pass
+PY
+'''
+          dir('golden-pomegranate') {
+            sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+if [ "${POLYMARKET_PRIVATE_KEY+x}" = x ] || \
+   [ "${POLYMARKET_FUNDER_ADDRESS+x}" = x ] || \
+   [ "${POLYMARKET_SIGNATURE_TYPE+x}" = x ] || \
+   [ "${POLYMARKET_API_KEY+x}" = x ] || \
+   [ "${POLYMARKET_API_SECRET+x}" = x ] || \
+   [ "${POLYMARKET_API_PASSPHRASE+x}" = x ] || \
+   [ "${CLOB_API_KEY+x}" = x ] || \
+   [ "${CLOB_SECRET+x}" = x ] || \
+   [ "${CLOB_PASSPHRASE+x}" = x ]; then
+  echo 'Golden Pomegranate refuses credential-bearing Jenkins jobs' >&2
+  exit 2
+fi
+
+RUNTIME_JOB="${JOB_NAME//\//__}"
+UV=/Users/jongwoopark/.local/bin/uv
+
+"${UV}" sync --frozen
+"${UV}" run polybot config --simulate --job "${RUNTIME_JOB}"
+"${UV}" run polybot health --simulate --job "${RUNTIME_JOB}"
+"${UV}" run polybot run --simulate --job "${RUNTIME_JOB}"
+"${UV}" run polybot status --simulate --job "${RUNTIME_JOB}"
+"${UV}" run polybot health --simulate --job "${RUNTIME_JOB}"
+'''
+          }
+        }
+      }
+    }
+  }
+}

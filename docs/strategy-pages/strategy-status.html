@@ -89,13 +89,13 @@ footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line);color:v
   <p class="lead">폴더가 있다는 것, 실행한 적이 있다는 것, 지금 운영 중이라는 것, 그리고
   가설을 기각해 폐쇄했다는 것을 서로 다른 사실로 표시한다. 성과나 실행 여부를 추정하지 않고,
   저장소 문서와 2026-07 회고에서 확인된 상태만 기록한다.</p>
-  <span class="asof">기준일 2026-08-04 · 총 18개 전략</span>
+  <span class="asof">기준일 2026-08-06 · 총 19개 golden-* 프로젝트</span>
 </header>
 
 <section class="summary" aria-label="상태 요약">
   <div class="metric"><b style="color:var(--live)">6</b><span>운영 중</span></div>
   <div class="metric"><b style="color:var(--built)">5</b><span>구현 완료 · 시작 증거 없음</span></div>
-  <div class="metric"><b style="color:var(--research)">1</b><span>simulation 전용 연구</span></div>
+  <div class="metric"><b style="color:var(--research)">2</b><span>simulation 전용 연구</span></div>
   <div class="metric"><b style="color:var(--paused)">0</b><span>명시적 보류</span></div>
   <div class="metric"><b style="color:var(--closed)">6</b><span>폐쇄 완료</span></div>
 </section>
@@ -108,10 +108,10 @@ footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line);color:v
 </div>
 
 <div class="controls" aria-label="전략 상태 필터">
-  <button class="active" data-filter="all">전체 18</button>
+  <button class="active" data-filter="all">전체 19</button>
   <button data-filter="live">운영 중 6</button>
   <button data-filter="built">구현만 완료 5</button>
-  <button data-filter="research">simulation 전용 1</button>
+  <button data-filter="research">simulation 전용 2</button>
   <button data-filter="paused">보류 0</button>
   <button data-filter="closed">폐쇄 완료 6</button>
 </div>
@@ -138,6 +138,7 @@ footer{margin-top:46px;padding-top:16px;border-top:1px solid var(--line);color:v
 <tr data-status="closed"><td><span class="strategy">🍑 golden-nectarine</span><div class="name">Bottom Fisher</div></td><td><span class="status closed">폐쇄 완료</span></td><td>120h 대사 subset -4.70%, 보유기간 CI 모두 0 포함. 2026-07-30 운영자 종료 확인.</td><td class="caveat">Jenkins: polybot-eagle<br>legacy: polybot-fox</td><td><a href="strategy-nectarine.html">HTML</a></td></tr>
 <tr data-status="built"><td><span class="strategy">🍊 golden-orange</span><div class="name">Fear Spike Fade</div></td><td><span class="status built">구현 완료</span></td><td>tail 공포 급등 뒤 NO 매수. 현재 저장소에서 실제 시작 증거 미확인.</td><td class="caveat">canonical job 미확인</td><td><a href="strategy-orange.html">HTML</a></td></tr>
 <tr data-status="live"><td><span class="strategy">🧡 golden-papaya</span><div class="name">Final Five</div></td><td><span class="status live">운영 중</span></td><td>strict binary YES의 first observed 0.95 crossing.</td><td class="caveat">accounts/jobs: golden-cat · golden-dog</td><td><a href="strategy-papaya.html">HTML</a></td></tr>
+<tr data-status="research"><td><span class="strategy">🔴 golden-pomegranate</span><div class="name">Market Observatory</div></td><td><span class="status research">research-only</span></td><td>수익 가설 없이 <code>closed=false</code> universe 전수와 결정적 CLOB book 표본을 append-only로 수집. live/order hard block.</td><td class="caveat">account: 없음<br>runtime job: Jenkins <code>JOB_NAME</code>에서 파생<br>초기 cadence: 15분</td><td><a href="strategy-pomegranate.html">HTML</a></td></tr>
 <tr data-status="live"><td><span class="strategy">👑 golden-queen</span><div class="name">Crown Momentum</div></td><td><span class="status live">운영 중</span></td><td>first observed 0.90 crossing, 0.98 target / 0.85 stop.</td><td class="caveat">12h arm: polybot-king<br>24h arm은 별도 job</td><td><a href="strategy-queen.html">HTML</a></td></tr>
 <tr data-status="built"><td><span class="strategy">🍐 golden-quince</span><div class="name">Spread Harvest</div></td><td><span class="status built">구현 완료</span></td><td>maker/taker execution mode만 바꾸는 3-arm 사전 등록. 시작 증거 미확인.</td><td class="caveat">passive / nearest / cross</td><td><a href="strategy-quince.html">HTML</a></td></tr>
 </tbody>

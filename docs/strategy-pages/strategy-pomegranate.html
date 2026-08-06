@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Golden Pomegranate — Market Observatory</title>
+<style>
+:root{--bg:#f7f5f2;--card:#fff;--ink:#282321;--muted:#6f6560;--line:#e1d9d4;
+  --red:#8e2738;--soft:#fff0f2;--green:#276749;--shadow:0 12px 30px rgba(63,31,36,.08)}
+@media(prefers-color-scheme:dark){:root{--bg:#161313;--card:#211c1d;--ink:#f2eceb;
+  --muted:#b9aead;--line:#403536;--red:#f08ca0;--soft:#342126;--green:#83d2aa;--shadow:none}}
+*{box-sizing:border-box}body{margin:0;background:radial-gradient(circle at 90% 0,
+  rgba(142,39,56,.13),transparent 29rem),var(--bg);color:var(--ink);
+  font-family:"Apple SD Gothic Neo","Pretendard","Noto Sans KR",-apple-system,
+  BlinkMacSystemFont,"Segoe UI",sans-serif;line-height:1.65}
+.wrap{max-width:1020px;margin:auto;padding:28px 20px 70px}.back{color:var(--red);text-decoration:none}
+header{margin-top:18px;border:1px solid var(--line);border-radius:24px;padding:34px;
+  background:linear-gradient(135deg,var(--card),var(--soft));box-shadow:var(--shadow)}
+.eyebrow{color:var(--red);font-weight:850;letter-spacing:.13em;font-size:12px}h1{margin:7px 0;
+  font-size:37px;line-height:1.18}.lead{color:var(--muted);max-width:780px;margin:0}
+.badge{display:inline-block;margin-top:17px;border:1px solid var(--red);color:var(--red);
+  border-radius:999px;padding:5px 10px;font-size:12px;font-weight:800}
+h2{font-size:22px;margin:37px 0 13px;padding-left:10px;border-left:4px solid var(--red)}
+.grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:13px}.card,.note{
+  border:1px solid var(--line);border-radius:14px;background:var(--card);padding:17px 18px;
+  box-shadow:var(--shadow)}.card b{display:block;color:var(--red);font-size:18px}.card p{margin:7px 0 0;color:var(--muted)}
+.note{border-left:5px solid var(--red)}table{border-collapse:collapse;width:100%;background:var(--card);
+  border:1px solid var(--line)}th,td{text-align:left;vertical-align:top;padding:10px 12px;
+  border-bottom:1px solid var(--line)}th{background:var(--soft);font-size:13px}code,pre{
+  background:rgba(127,127,127,.12);border-radius:5px}code{padding:2px 5px}pre{padding:15px;
+  overflow:auto;line-height:1.48}.ok{color:var(--green);font-weight:800}footer{margin-top:45px;
+  border-top:1px solid var(--line);padding-top:15px;color:var(--muted);font-size:12.5px}
+@media(max-width:720px){.wrap{padding:17px 12px 48px}header{padding:25px 20px}h1{font-size:31px}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body><main class="wrap">
+<a class="back" href="strategy-index.html">← 전략 문서 인덱스</a>
+<header>
+  <div class="eyebrow">GOLDEN POMEGRANATE · RESEARCH-FULL-V1</div>
+  <h1>🔴 Market Observatory</h1>
+  <p class="lead">돈을 버는 규칙을 먼저 고르지 않는다. Polymarket의 전체 non-closed universe와
+  가격·거래량·유동성·시계·outcome·표본 CLOB book·resolution 경로를 point-in-time으로
+  축적해, 나중에 어떤 전략과 parameter가 실제로 살아남는지 검정하는 계좌 없는 관측소다.</p>
+  <span class="badge">RESEARCH ONLY · LIVE/ORDER HARD BLOCK</span>
+</header>
+
+<h2>기존 전략과 무엇이 다른가</h2>
+<div class="grid">
+  <article class="card"><b>전략 gate가 없다</b><p>0.90 이상, 72시간 이내, 유동성 $10k 같은
+  조건은 모두 미래 feature다. 수집 단계에서 시장을 잘라내지 않는다.</p></article>
+  <article class="card"><b>복수 outcome도 원형 보존</b><p>YES/NO만 남기지 않고 outcome index,
+  label, token ID, reference price를 variable-length row로 저장한다.</p></article>
+  <article class="card"><b>실행 가능성도 표본화</b><p>condition hash 기반 deterministic rotation으로
+  public CLOB book을 수집하고 bucket·cyclic offset·reason·coverage를 함께 남긴다.</p></article>
+  <article class="card"><b>종료일과 해결을 구분</b><p><code>endDate</code>, closed, one-hot outcome,
+  redeemable을 별도 사실로 기록한다. fill/P&amp;L을 만들지 않는다.</p></article>
+</div>
+
+<h2>저장 계층</h2>
+<table>
+<thead><tr><th>계층</th><th>저장 내용</th></tr></thead>
+<tbody>
+<tr><td>Run / request</td><td>resolved config, source digest, cursor/page, retry, latency, bytes, SHA-256, source receipt time</td></tr>
+<tr><td>Universe</td><td>complete sweep summary, 매 sweep 전체 membership, <code>closed=false</code> market observation</td></tr>
+<tr><td>Market / outcome</td><td>event·condition·market identity, metadata version, clocks, tags, prices, liquidity, <code>volume_total</code>과 <code>volume_24h</code> 분리</td></tr>
+<tr><td>Public trade tape</td><td><code>start/end</code> window, complete watermark, canonical trade hash, overlap, 10,000건 cap 재귀 분할, <code>possible_gap</code></td></tr>
+<tr><td>CLOB</td><td>결정적 selection, exact raw batch response, top-N levels, notional별 depth/VWAP</td></tr>
+<tr><td>Resolution</td><td><code>closed=false</code> census에서 사라진 condition의 독립 조회, resolution status와 redeemable 분리</td></tr>
+<tr><td>Storage health</td><td>DB/WAL bytes, disk free/used, rows/run, overlap/gap, preregistered stop까지의 forecast</td></tr>
+</tbody>
+</table>
+
+<h2>Public trade tape의 정확한 범위</h2>
+<div class="note"><strong>WebSocket tick 전수가 아니라 15분 polling 관측이다.</strong>
+공개 Data API를 <code>takerOnly=true</code>로 읽으므로 maker-side participant archive나 complete
+historical tape라고 주장하지 않는다. 첫 baseline은 현재보다 24시간 전에서 시작하되 한 cycle에
+최대 3,600초만 전진한다. 실제 HTTP 시도 64회, 전체 logical/sub-window node 32개, worker runtime 120초 중
+하나라도 소진되면 <code>BUDGET_EXHAUSTED</code>와 <code>possible_gap=1</code>을 남기고 watermark를
+전진시키지 않는다. 다음 cycle은 같은 안전한 경계에서 다시 수집한다.</div>
+
+<h2>왜 compact하지 않는가</h2>
+<div class="note"><strong><code>research-full-v1</code>은 수집된 bundle을 thinning하지 않는 계약이다.</strong>
+upstream API와 15분 polling 자체가 모든 tick을 포착한다는 뜻은 아니다. 다만 수집에 성공한
+bundle에는 기존 <code>compact-v1</code>의 hot/cold rollup, 24시간 membership checkpoint, row retention
+delete를 적용하지 않는다. 대신 활성 <code>trades_sim.db</code>를 UTC 일 경계에서
+<code>trades_sim_YYYYMMDD.db</code>로 회전한다. 완전한 WAL checkpoint와 idle reader를 검출하는
+WAL→DELETE ownership barrier를 통과한 shard만 닫고, 검증된 backup 뒤 완결 shard 단위로만 보존한다.
+압축 BLOB은 byte encoding을 줄일 뿐 관측치를 합치거나 삭제하지 않는다.</div>
+
+<h2>초기 실행 계약</h2>
+<table>
+<tbody>
+<tr><th>초기 cadence</th><td><code>H/15 * * * *</code></td></tr>
+<tr><th>10분 승격</th><td>7일간 expected slot 대비 complete Gamma sweep ≥95%, 성공 sweep 내부의
+cursor/page/membership integrity 100%,
+public trade unresolved <code>possible_gap=0</code>, p95 runtime &lt;8분, 120일 storage forecast에서
+free 150GiB 이상일 때만 새 contract로 변경</td></tr>
+<tr><th>30분 fallback</th><td>13분 timeout 안에 census를 안정적으로 완주하지 못하거나 scheduled coverage 저하가 지속되거나 storage forecast가 위험할 때</td></tr>
+<tr><th>Disk</th><td>외장 APFS mount/sentinel 확인. used 70% 경고, 80% 또는 free 150GiB 미만에서 중단</td></tr>
+<tr><th>보존</th><td>120일은 capacity forecast horizon이다. 자동 삭제가 아니며, 검증된 외부 backup 전에는
+row나 whole shard를 제거하지 않는다.</td></tr>
+<tr><th>계정</th><td>없음. private key/funder/signature env가 있으면 startup 실패</td></tr>
+</tbody>
+</table>
+
+<h2>Jenkins에서 확인할 명령</h2>
+<pre><code>RUNTIME_JOB="${JOB_NAME//\//__}"
+cd ./golden-pomegranate
+/Users/jongwoopark/.local/bin/uv sync --frozen
+/Users/jongwoopark/.local/bin/uv run polybot config \
+  --simulate --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot health \
+  --simulate --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot run \
+  --simulate --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot status \
+  --simulate --job "${RUNTIME_JOB}"
+/Users/jongwoopark/.local/bin/uv run polybot health \
+  --simulate --job "${RUNTIME_JOB}"</code></pre>
+<p class="ok">정확한 외장 volume preflight와 Jenkins shell은 프로젝트 README/Jenkinsfile을 따른다.</p>
+
+<h2>이 자료로 전략을 고를 때</h2>
+<div class="note">완전 sweep만 사용하고, 같은 event는 같은 split에 두며, 미래 closed/outcome으로
+과거 universe를 거르지 않는다. Gamma reference price와 CLOB quote를 구분하고, CLOB rotation의
+selection bias를 보고한다. forward return·MFE/MAE·barrier label은 raw DB를 수정하지 않는
+versioned derived artifact로 만든다. 가장 좋아 보이는 threshold를 같은 기간에 다시 평가해
+“전략”이라고 부르지 않는다.</div>
+
+<footer>작성 기준 2026-08-06 · 코드 계약: <code>golden-pomegranate/STRATEGY.md</code> ·
+운영: <code>golden-pomegranate/README.md</code> · 회고:
+<code>docs/retro/golden-pomegranate.md</code></footer>
+</main></body></html>

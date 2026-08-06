@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from xml.sax.saxutils import escape
 
 import pytest
 
@@ -13,7 +14,7 @@ from daily_rsync import remote_agent
 
 
 def make_db(path: Path) -> None:
-    path.parent.mkdir(parents=True)
+    path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(path)
     connection.executescript(
         """
@@ -32,6 +33,21 @@ def make_db(path: Path) -> None:
     connection.close()
 
 
+def make_research_db(path: Path) -> None:
+    make_db(path)
+    archive_day = remote_agent.research_archive_date(path)
+    database_utc_date = archive_day.isoformat() if archive_day else "2026-08-06"
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE collection_contracts("
+            "contract_name TEXT PRIMARY KEY, database_utc_date TEXT NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO collection_contracts VALUES (?, ?)",
+            ("research-full-v1", database_utc_date),
+        )
+
+
 def invoke(*arguments: str) -> dict:
     process = subprocess.run(
         [sys.executable, str(Path(remote_agent.__file__)), *arguments],
@@ -42,13 +58,68 @@ def invoke(*arguments: str) -> dict:
     return json.loads(process.stdout)
 
 
-def make_freestyle_config(home: Path, job: str, command: str) -> None:
+def snapshot_identity_arguments(
+    home: Path,
+    job: str,
+    *,
+    workspace_root: Path | None = None,
+) -> list[str]:
+    (home / "jobs" / job).mkdir(parents=True, exist_ok=True)
+    arguments = [
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        job,
+        "--cutoff-epoch",
+        "0",
+    ]
+    if workspace_root is not None:
+        arguments.extend(("--workspace-root", str(workspace_root)))
+    inventory = invoke(*arguments)["jobs"][0]
+    return [
+        "--job",
+        job,
+        "--expected-workspace",
+        inventory["workspace"],
+        "--expected-identity",
+        json.dumps(inventory["workspace_identity"], sort_keys=True),
+    ]
+
+
+def make_freestyle_config(
+    home: Path,
+    job: str,
+    command: str,
+    *,
+    custom_workspace: Path | None = None,
+) -> None:
     job_root = home / "jobs" / job
     job_root.mkdir(parents=True, exist_ok=True)
+    custom = (
+        f"<customWorkspace>{escape(str(custom_workspace))}</customWorkspace>"
+        if custom_workspace
+        else ""
+    )
     (job_root / "config.xml").write_text(
-        "<project><builders><hudson.tasks.Shell><command><![CDATA["
+        "<project>"
+        + custom
+        + "<builders><hudson.tasks.Shell><command><![CDATA["
         + command
         + "]]></command></hudson.tasks.Shell></builders></project>",
+        encoding="utf-8",
+    )
+
+
+def write_workspace_marker(workspace: Path, job: str, **overrides: object) -> None:
+    payload: dict[str, object] = {
+        "schema_version": 1,
+        "job": job,
+        "workspace": str(workspace),
+    }
+    payload.update(overrides)
+    (workspace / ".daily-rsync-workspace.json").write_text(
+        json.dumps(payload) + "\n",
         encoding="utf-8",
     )
 
@@ -92,6 +163,552 @@ def test_scan_preserves_job_strategy_and_runtime_identity(tmp_path: Path) -> Non
     database_record = next(item for item in job["artifacts"] if item["kind"] == "database_live")
     assert database_record["runtime_job"] == "queen-live-12h"
     assert database_record["canonical"] is True
+    assert database_record["fingerprint"]
+
+
+def test_scan_fingerprint_and_size_include_wal_only_changes(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-king").mkdir(parents=True)
+    database = (
+        home / "workspace" / "polybot-king" / "golden-queen" / "data" / "queen-live" / "trades.db"
+    )
+    database.parent.mkdir(parents=True)
+    connection = sqlite3.connect(database)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute("CREATE TABLE evidence(value TEXT)")
+    connection.commit()
+    first = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+    )["jobs"][0]["artifacts"][0]
+    main_stat = database.stat()
+    connection.execute("INSERT INTO evidence VALUES ('wal-only')")
+    connection.commit()
+    assert database.stat().st_size == main_stat.st_size
+    second = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+    )["jobs"][0]["artifacts"][0]
+    connection.close()
+
+    assert first["fingerprint"] != second["fingerprint"]
+    assert second["size_bytes"] > database.stat().st_size
+
+
+def test_sqlite_fingerprint_excludes_volatile_shm_metadata(tmp_path: Path) -> None:
+    database = tmp_path / "trades_sim.db"
+    connection = sqlite3.connect(database)
+    connection.execute("PRAGMA journal_mode=WAL")
+    connection.execute("PRAGMA wal_autocheckpoint=0")
+    connection.execute("CREATE TABLE evidence(value TEXT)")
+    connection.execute("INSERT INTO evidence VALUES ('wal')")
+    connection.commit()
+    first = remote_agent.sqlite_source_state(database)
+    shm = Path(f"{database}-shm")
+    assert shm.is_file()
+    value = shm.stat()
+    os.utime(shm, ns=(value.st_atime_ns, value.st_mtime_ns + 1_000_000))
+    second = remote_agent.sqlite_source_state(database)
+    connection.close()
+
+    assert first["fingerprint"] == second["fingerprint"]
+    assert all(member["suffix"] != "-shm" for member in second["members"])
+
+
+def test_sqlite_source_state_retries_sidecar_toctou_until_two_reads_are_stable(
+    monkeypatch,
+) -> None:
+    stable = {
+        "fingerprint": "stable",
+        "size_bytes": 10,
+        "mtime_ns": 20,
+        "members": [{"suffix": "main", "size_bytes": 10, "mtime_ns": 20, "inode": 1}],
+    }
+    responses = iter((FileNotFoundError("wal vanished"), stable, stable))
+
+    def fake_state(_path):
+        value = next(responses)
+        if isinstance(value, BaseException):
+            raise value
+        return value
+
+    monkeypatch.setattr(remote_agent, "_sqlite_source_state_once", fake_state)
+
+    assert remote_agent.sqlite_source_state("trades.db", attempts=3, delay_seconds=0) == stable
+
+
+def test_sqlite_source_state_fails_when_composite_state_never_stabilizes(
+    monkeypatch,
+) -> None:
+    counter = iter(range(3))
+
+    def changing_state(_path):
+        value = next(counter)
+        return {
+            "fingerprint": str(value),
+            "size_bytes": value,
+            "mtime_ns": value,
+            "members": [
+                {
+                    "suffix": "main",
+                    "size_bytes": value,
+                    "mtime_ns": value,
+                    "inode": 1,
+                }
+            ],
+        }
+
+    monkeypatch.setattr(remote_agent, "_sqlite_source_state_once", changing_state)
+
+    with pytest.raises(RuntimeError, match="remained unstable"):
+        remote_agent.sqlite_source_state("trades.db", attempts=3, delay_seconds=0)
+
+
+def test_scan_uses_external_allowlisted_workspace_root(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-king").mkdir(parents=True)
+    external_root = tmp_path / "external" / "jenkins" / "workspace"
+    database = (
+        external_root / "polybot-king" / "golden-queen" / "data" / "queen-live-12h" / "trades.db"
+    )
+    make_db(database)
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(external_root),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+    )
+
+    assert payload["jobs"][0]["workspace"] == str(external_root / "polybot-king")
+    assert payload["jobs"][0]["artifacts"][0]["remote_path"] == str(database)
+
+
+def test_unique_workspace_marker_selects_external_root_when_default_also_exists(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    make_freestyle_config(home, job, "cd golden-pomegranate")
+    default_root = home / "workspace"
+    external_root = tmp_path / "external" / "workspace"
+    (default_root / job).mkdir(parents=True)
+    selected = external_root / job
+    database = selected / "golden-pomegranate" / "data" / "pomegranate-research" / "trades_sim.db"
+    make_research_db(database)
+    write_workspace_marker(selected, job)
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(default_root),
+        "--workspace-root",
+        str(external_root),
+        "--job",
+        job,
+        "--cutoff-epoch",
+        "0",
+    )
+
+    inventory = payload["jobs"][0]
+    assert inventory["workspace"] == str(selected)
+    assert inventory["workspace_identity"]["workspace_marker"]["name"] == (
+        ".daily-rsync-workspace.json"
+    )
+    assert inventory["workspace_identity"]["root_st_dev"] == selected.parent.stat().st_dev
+
+
+@pytest.mark.parametrize("case", ("none", "multiple", "invalid"))
+def test_multiple_workspace_candidates_fail_closed_without_one_valid_marker(
+    tmp_path: Path,
+    case: str,
+) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    make_freestyle_config(home, job, "cd golden-pomegranate")
+    roots = (home / "workspace", tmp_path / "external" / "workspace")
+    candidates = []
+    for root in roots:
+        candidate = root / job
+        candidate.mkdir(parents=True)
+        candidates.append(candidate)
+    if case == "multiple":
+        for candidate in candidates:
+            write_workspace_marker(candidate, job)
+    elif case == "invalid":
+        write_workspace_marker(candidates[1], "wrong-job")
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "scan",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(roots[0]),
+            "--workspace-root",
+            str(roots[1]),
+            "--job",
+            job,
+            "--cutoff-epoch",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert (
+        "exactly one valid .daily-rsync-workspace.json" in process.stderr
+        if case != "invalid"
+        else "payload mismatch" in process.stderr
+    )
+
+
+def test_custom_workspace_selects_the_exact_allowlisted_job_path(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    default_workspace = home / "workspace" / "polybot-king"
+    default_workspace.mkdir(parents=True)
+    external_root = tmp_path / "external" / "workspace"
+    custom_workspace = external_root / "polybot-king"
+    database = custom_workspace / "golden-queen" / "data" / "default" / "trades.db"
+    make_db(database)
+    make_freestyle_config(
+        home,
+        "polybot-king",
+        "cd golden-queen",
+        custom_workspace=custom_workspace,
+    )
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(home / "workspace"),
+        "--workspace-root",
+        str(external_root),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+    )
+
+    assert payload["jobs"][0]["workspace"] == str(custom_workspace)
+    assert any(item["remote_path"] == str(database) for item in payload["jobs"][0]["artifacts"])
+
+
+@pytest.mark.parametrize("job_variable", ("${JOB_NAME}", "$JOB_NAME"))
+def test_custom_workspace_expands_only_the_jenkins_job_name_variable(
+    tmp_path: Path,
+    job_variable: str,
+) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    external_root = tmp_path / "external" / "workspace"
+    database = (
+        external_root
+        / job
+        / "golden-pomegranate"
+        / "data"
+        / "pomegranate-research"
+        / "trades_sim.db"
+    )
+    make_db(database)
+    make_freestyle_config(
+        home,
+        job,
+        "cd golden-pomegranate",
+        custom_workspace=Path(str(external_root / job_variable)),
+    )
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(external_root),
+        "--job",
+        job,
+        "--cutoff-epoch",
+        "0",
+    )
+
+    assert payload["jobs"][0]["workspace"] == str(external_root / job)
+    assert any(item["remote_path"] == str(database) for item in payload["jobs"][0]["artifacts"])
+
+
+@pytest.mark.parametrize("case", ("unmounted", "outside", "symlink", "shared-root"))
+def test_scan_rejects_unsafe_workspace_resolution(tmp_path: Path, case: str) -> None:
+    home = tmp_path / ".jenkins"
+    allowed_root = tmp_path / "external" / "workspace"
+    job = "polybot-king"
+    custom_workspace = None
+    if case != "unmounted":
+        allowed_root.mkdir(parents=True)
+    if case == "outside":
+        custom_workspace = tmp_path / "outside" / job
+        custom_workspace.mkdir(parents=True)
+    elif case == "symlink":
+        outside = tmp_path / "outside" / job
+        outside.mkdir(parents=True)
+        (allowed_root / job).symlink_to(outside, target_is_directory=True)
+    elif case == "shared-root":
+        custom_workspace = allowed_root
+    make_freestyle_config(
+        home,
+        job,
+        "cd golden-queen",
+        custom_workspace=custom_workspace,
+    )
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "scan",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(allowed_root),
+            "--job",
+            job,
+            "--cutoff-epoch",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert any(
+        phrase in process.stderr
+        for phrase in ("not mounted", "outside", "symlink", "exact allowlisted")
+    )
+
+
+def test_scan_rejects_symlinked_allowlisted_workspace_root(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    make_freestyle_config(home, job, "cd golden-pomegranate")
+    real_root = tmp_path / "external" / "real-workspace"
+    (real_root / job).mkdir(parents=True)
+    symlinked_root = tmp_path / "external" / "workspace"
+    symlinked_root.symlink_to(real_root, target_is_directory=True)
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "scan",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(symlinked_root),
+            "--job",
+            job,
+            "--cutoff-epoch",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert "workspace root must be a real directory, not a symlink" in process.stderr
+
+
+def test_research_archive_has_sim_identity_and_is_not_canonical(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-king").mkdir(parents=True)
+    runtime = home / "workspace" / "polybot-king" / "golden-queen" / "data" / "queen-research"
+    active = runtime / "trades_sim.db"
+    archive = runtime / "trades_sim_20260805.db"
+    make_research_db(active)
+    make_research_db(archive)
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+    )
+    records = {Path(item["remote_path"]).name: item for item in payload["jobs"][0]["artifacts"]}
+
+    assert records["trades_sim.db"]["kind"] == "database_sim"
+    assert records["trades_sim.db"]["canonical"] is True
+    assert records["trades_sim.db"]["mode"] == "sim"
+    assert records["trades_sim.db"]["data_contract"] == "research-full-v1"
+    assert records[archive.name]["kind"] == "database_research_archive"
+    assert records[archive.name]["canonical"] is False
+    assert records[archive.name]["archive_date"] == "2026-08-05"
+    assert records[archive.name]["mode"] == "sim"
+    assert records[archive.name]["data_contract"] == "research-full-v1"
+
+
+def test_research_archive_scan_honors_utc_date_range(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-king").mkdir(parents=True)
+    runtime = home / "workspace" / "polybot-king" / "golden-queen" / "data" / "queen-research"
+    for day in ("20260804", "20260805", "20260806"):
+        make_research_db(runtime / f"trades_sim_{day}.db")
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-king",
+        "--cutoff-epoch",
+        "0",
+        "--archive-from-date",
+        "2026-08-05",
+        "--archive-to-date",
+        "2026-08-05",
+    )
+    archives = [
+        item
+        for item in payload["jobs"][0]["artifacts"]
+        if item["kind"] == "database_research_archive"
+    ]
+
+    assert [Path(item["remote_path"]).name for item in archives] == ["trades_sim_20260805.db"]
+
+
+def test_research_archive_scan_rejects_filename_contract_date_mismatch(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    (home / "jobs" / job).mkdir(parents=True)
+    archive = (
+        home
+        / "workspace"
+        / job
+        / "golden-pomegranate"
+        / "data"
+        / "research"
+        / "trades_sim_20260805.db"
+    )
+    make_research_db(archive)
+    with sqlite3.connect(archive) as connection:
+        connection.execute(
+            "UPDATE collection_contracts SET database_utc_date = ?",
+            ("2026-08-04",),
+        )
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "scan",
+            "--jenkins-home",
+            str(home),
+            "--job",
+            job,
+            "--cutoff-epoch",
+            "0",
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert "filename date does not match" in process.stderr
+
+
+def test_historical_archive_scan_does_not_include_mutable_active_shard(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-pomegranate").mkdir(parents=True)
+    runtime = (
+        home
+        / "workspace"
+        / "polybot-pomegranate"
+        / "golden-pomegranate"
+        / "data"
+        / "pomegranate-research"
+    )
+    make_research_db(runtime / "trades_sim.db")
+    make_research_db(runtime / "trades_sim_19990101.db")
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-pomegranate",
+        "--cutoff-epoch",
+        "0",
+        "--archive-from-date",
+        "1999-01-01",
+        "--archive-to-date",
+        "1999-01-01",
+    )
+    database_names = {
+        Path(item["remote_path"]).name
+        for item in payload["jobs"][0]["artifacts"]
+        if item["kind"].startswith("database")
+    }
+
+    assert database_names == {"trades_sim_19990101.db"}
+
+
+def test_historical_archive_scan_keeps_ordinary_cumulative_simulation_database(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "polybot-queen").mkdir(parents=True)
+    runtime = home / "workspace" / "polybot-queen" / "golden-queen" / "data" / "queen-sim"
+    make_db(runtime / "trades_sim.db")
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "polybot-queen",
+        "--cutoff-epoch",
+        "0",
+        "--archive-from-date",
+        "1999-01-01",
+        "--archive-to-date",
+        "1999-01-01",
+    )
+    database_names = {
+        Path(item["remote_path"]).name
+        for item in payload["jobs"][0]["artifacts"]
+        if item["kind"].startswith("database")
+    }
+
+    assert database_names == {"trades_sim.db"}
 
 
 def test_scan_prefers_current_config_after_clean_strategy_transition(tmp_path: Path) -> None:
@@ -102,9 +719,7 @@ def test_scan_prefers_current_config_after_clean_strategy_transition(tmp_path: P
         "[RUN_AUDIT] 시작 strategy=golden-nectarine\nFinished: SUCCESS\n",
         encoding="utf-8",
     )
-    (build / "build.xml").write_text(
-        "<build><result>SUCCESS</result></build>", encoding="utf-8"
-    )
+    (build / "build.xml").write_text("<build><result>SUCCESS</result></build>", encoding="utf-8")
     secret = "must-not-leak-private-key"
     make_freestyle_config(
         home,
@@ -148,7 +763,7 @@ def test_scan_prefers_current_config_after_clean_strategy_transition(tmp_path: P
         "cd golden-blueberry",
         "cd './golden-blueberry/'",
         'cd "$WORKSPACE/golden-blueberry"',
-        "STRATEGY=golden-blueberry; cd \"$STRATEGY\"",
+        'STRATEGY=golden-blueberry; cd "$STRATEGY"',
         "# cd golden-nectarine\ncd golden-blueberry # current strategy",
         "set -euo pipefail; builtin cd -- ./golden-blueberry && uv run polybot run",
     ),
@@ -294,6 +909,7 @@ def test_snapshot_is_consistent_and_cleanup_is_scoped(tmp_path: Path) -> None:
         "snapshot",
         "--jenkins-home",
         str(home),
+        *snapshot_identity_arguments(home, "polybot-king"),
         "--source",
         str(database),
         "--staging-root",
@@ -312,3 +928,261 @@ def test_snapshot_is_consistent_and_cleanup_is_scoped(tmp_path: Path) -> None:
         str(snapshot.parent),
     )
     assert not snapshot.parent.exists()
+
+
+def test_research_snapshot_requires_collector_lock(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-pomegranate"
+    database = (
+        home
+        / "workspace"
+        / job
+        / "golden-pomegranate"
+        / "data"
+        / "pomegranate-research"
+        / "trades_sim.db"
+    )
+    make_research_db(database)
+    staging = tmp_path / ".cache" / "daily-rsync"
+    identity_arguments = snapshot_identity_arguments(home, job)
+    command = [
+        sys.executable,
+        str(Path(remote_agent.__file__)),
+        "snapshot",
+        "--jenkins-home",
+        str(home),
+        *identity_arguments,
+        "--source",
+        str(database),
+        "--staging-root",
+        str(staging),
+        "--expected-data-contract",
+        "research-full-v1",
+        "--expected-database-utc-date",
+        "2026-08-06",
+    ]
+
+    missing_lock = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    assert missing_lock.returncode != 0
+    assert "collector snapshot lock is required" in missing_lock.stderr
+
+    (database.parent / ".pomegranate.lock").touch()
+    accepted = subprocess.run(command, capture_output=True, text=True, check=False)
+
+    assert accepted.returncode == 0, accepted.stderr
+    payload = json.loads(accepted.stdout)
+    assert payload["data_contract"] == "research-full-v1"
+    invoke(
+        "cleanup",
+        "--staging-root",
+        str(staging),
+        "--path",
+        str(Path(payload["snapshot"]).parent),
+    )
+
+
+def test_research_archive_completed_at_uses_publication_ctime(tmp_path: Path) -> None:
+    archive = tmp_path / "trades_sim_20260805.db"
+    make_research_db(archive)
+    old_timestamp_ns = 946_684_800 * 1_000_000_000
+    os.utime(archive, ns=(old_timestamp_ns, old_timestamp_ns))
+
+    record = remote_agent.stat_record(
+        archive,
+        "database_research_archive",
+        "polybot-pomegranate",
+        strategy="golden-pomegranate",
+        runtime_job="pomegranate-research",
+        canonical=False,
+        archive_date=remote_agent.research_archive_date(archive),
+        mode="sim",
+        data_contract="research-full-v1",
+        database_utc_date="2026-08-05",
+    )
+
+    assert record["mtime_ns"] == old_timestamp_ns
+    assert record["completed_at"] > remote_agent.iso_from_ns(old_timestamp_ns)
+
+
+def test_snapshot_accepts_external_allowlisted_workspace_and_rejects_outside(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    home.mkdir()
+    external_root = tmp_path / "external" / "workspace"
+    database = (
+        external_root
+        / "polybot-king"
+        / "golden-queen"
+        / "data"
+        / "queen-research"
+        / "trades_sim_20260805.db"
+    )
+    make_research_db(database)
+    staging = tmp_path / ".cache" / "daily-rsync"
+    identity_arguments = snapshot_identity_arguments(
+        home,
+        "polybot-king",
+        workspace_root=external_root,
+    )
+
+    payload = invoke(
+        "snapshot",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(external_root),
+        *identity_arguments,
+        "--source",
+        str(database),
+        "--staging-root",
+        str(staging),
+    )
+
+    assert payload["quick_check"] == ["ok"]
+    outside = tmp_path / "outside" / "trades.db"
+    make_db(outside)
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "snapshot",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(external_root),
+            *identity_arguments,
+            "--source",
+            str(outside),
+            "--staging-root",
+            str(staging),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert "outside an exact allowlisted job workspace" in process.stderr
+
+
+def test_persisted_plan_workspace_validation_rejects_new_or_ambiguous_root(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-king"
+    root_a = tmp_path / "a" / "workspace"
+    root_b = tmp_path / "b" / "workspace"
+    make_freestyle_config(home, job, "cd golden-queen")
+    (root_a / job).mkdir(parents=True)
+    inventory = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(root_a),
+        "--job",
+        job,
+        "--cutoff-epoch",
+        "0",
+    )["jobs"][0]
+    expected_identity = json.dumps(inventory["workspace_identity"], sort_keys=True)
+
+    accepted = invoke(
+        "validate-workspace",
+        "--jenkins-home",
+        str(home),
+        "--workspace-root",
+        str(root_a),
+        "--job",
+        job,
+        "--expected-workspace",
+        str(root_a / job),
+        "--expected-identity",
+        expected_identity,
+    )
+    assert accepted["validated"] is True
+
+    changed_identity = dict(inventory["workspace_identity"])
+    changed_identity["root_st_dev"] = int(changed_identity["root_st_dev"]) + 1
+    changed_mount = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "validate-workspace",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(root_a),
+            "--job",
+            job,
+            "--expected-workspace",
+            str(root_a / job),
+            "--expected-identity",
+            json.dumps(changed_identity, sort_keys=True),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert changed_mount.returncode != 0
+    assert "mount identity changed" in changed_mount.stderr
+
+    (root_b / job).mkdir(parents=True)
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "validate-workspace",
+            "--jenkins-home",
+            str(home),
+            "--workspace-root",
+            str(root_a),
+            "--workspace-root",
+            str(root_b),
+            "--job",
+            job,
+            "--expected-workspace",
+            str(root_a / job),
+            "--expected-identity",
+            expected_identity,
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert process.returncode != 0
+    assert "ambiguous" in process.stderr
+
+
+def test_snapshot_failure_removes_remote_staging_directory(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-king"
+    (home / "jobs" / job).mkdir(parents=True)
+    database = home / "workspace" / job / "golden-queen" / "data" / "queen-live" / "trades.db"
+    database.parent.mkdir(parents=True)
+    database.write_bytes(b"not-a-sqlite-database")
+    staging = tmp_path / "staging"
+    identity_arguments = snapshot_identity_arguments(home, job)
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "snapshot",
+            "--jenkins-home",
+            str(home),
+            *identity_arguments,
+            "--source",
+            str(database),
+            "--staging-root",
+            str(staging),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert staging.is_dir()
+    assert list(staging.iterdir()) == []

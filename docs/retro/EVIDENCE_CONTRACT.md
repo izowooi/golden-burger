@@ -1,6 +1,6 @@
 # 월간 전략 회고 Evidence Contract
 
-이 문서는 16개 `golden-*` 전략 회고의 공통 데이터 계약이다. 각 전략별 문서는
+이 문서는 수익 가설을 검정하는 18개 `golden-*` 전략 회고의 공통 데이터 계약이다. 각 전략별 문서는
 시그널과 파라미터를 설명하지만, **어떤 기록을 사실로 인정할지**는 이 문서가 우선한다.
 계측이 배포되기 전의 legacy 구간과 배포 후 구간을 섞어 하나의 실측치처럼 보고하지 않는다.
 
@@ -179,10 +179,40 @@ snapshot/catalog join coverage를 수치로 보고한다. digest/count/run 연�
 counterfactual 대상에서 제외한다. 구체적인 migration/rollback은
 `docs/sqlite-storage-maintenance.md`를 따른다.
 
+### 5.1 Golden Pomegranate accountless collector
+
+`golden-pomegranate`는 trading strategy가 아니라 미래 가설 탐색용 market observatory다.
+따라서 `trades`, confirmed BUY/SELL fill, fee coverage와 P&L이 없는 것은 evidence gap이 아니라
+**source-level no-order 계약**이다. 반대로 다음 항목이 primary evidence gate다.
+
+- append-only `research_run_events`, `research_config_versions`의 resolved config/source digest와
+  UTC collection contract
+- cursor-complete `market_sweeps`, 매 sweep 전체 membership, `closed=false` non-closed universe 전수 observation
+- sweep 완료 시각이 아니라 Gamma page별 local receipt time
+- variable outcome label/index/token identity와 누적 `volume`/`volume24hr` 분리
+- deterministic CLOB book rotation의 bucket·selection reason·coverage·source receipt time
+- Data API trade window의 start/end, complete watermark, overlap/dedupe, cap 분할, 경제 field만
+  남긴 sanitized source payload와
+  `possible_gap`; public polling coverage를 WebSocket full-tick evidence로 대체하지 않음
+- active sweep에서 사라진 condition의 독립 resolution observation과 redeemable 분리
+- UTC 일별 `trades_sim_YYYYMMDD.db` shard의 SHA-256/`quick_check`/source cutoff
+- disk watermark, DB/WAL bytes, overlap/gap과 `forecast_days_to_stop`
+
+Pomegranate는 `compact-v1` 대상이 아니며 observation/member row를 rollup하거나 삭제하지
+않는다. 분석 기간에 걸친 active `trades_sim.db`와 완결 shard를 모두 명시해 검증한다.
+현재 trading 중심 `polybot-retro audit --strict` 결과를 collector health 판정으로 재해석하지
+말고, `golden-pomegranate`의 `health`와 manifest를 primary gate로 사용한다. Pomegranate에서
+만든 derived dataset을 trading strategy backtest에 쓸 때는 dataset version/checksum과
+point-in-time cutoff를 고정한 뒤 그 전략의 기존 execution contract를 별도로 적용한다.
+
 ## 6. local daily evidence와 내구성
 
-`daily-report/data/daily_evidence.sqlite3`는 이미 API에서 가져온 current exact 9계정 결과를
-한 transaction으로 저장한다. 과거 v2 구간은 exact 6계정 cohort로 분리한다.
+`daily-report/data/daily_evidence.sqlite3`는 `ACCOUNT_<n>_NAME`/`ACCOUNT_<n>_ADDRESS`에서
+동적으로 발견한 현재 configured account 집합을 Supabase stable catalog와 대사한 뒤 한
+transaction으로 저장한다. 코드에 고정 상한은 없으며 2026-08-06 현재 Jenkinsfile과
+`.env.example`에는 13개 slot이 선언돼 있다. 따라서 회고에서 9나 13 같은 수를 영구 계약으로
+하드코딩하지 않고, 각 run의 expected/observed account 집합과 schema version을 기준으로 과거
+v2 exact 6-account 구간 및 이전 v3 account-set cohort를 분리한다.
 
 - `evidence_report_runs`: expected/observed account 집합과 `COMPLETE`/`FAILED`
 - `evidence_account_snapshots`: account별 total/position/cash value

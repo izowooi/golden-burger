@@ -31,9 +31,11 @@ CURRENT_STRATEGIES = {
     "golden-nectarine",
     "golden-orange",
     "golden-papaya",
+    "golden-pomegranate",
     "golden-queen",
     "golden-quince",
 }
+RESEARCH_ONLY_STRATEGIES = {"golden-pomegranate"}
 # L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
 # golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
 PRE_L3_STRATEGIES = {"golden-apple", "golden-banana"}
@@ -1423,6 +1425,264 @@ def _validate_pyproject(
         findings.append(Finding(strategy, "missing_package", "src/polybot"))
 
 
+def _validate_research_only_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate a source-level accountless collector without fake order code.
+
+    Trading bots and market research instruments have opposite safety
+    contracts.  Requiring a ``Trader`` or an ``ExecutionLedger`` here would
+    manufacture an order path solely to satisfy a structural checker.  The
+    collector branch instead proves that live execution is impossible and
+    that its raw evidence is complete, append-only, and discoverable.
+    """
+
+    required_sources = (
+        "src/polybot/config.py",
+        "src/polybot/main.py",
+        "src/polybot/bot.py",
+        "src/polybot/run_audit.py",
+        "src/polybot/api/gamma_client.py",
+        "src/polybot/api/clob_client.py",
+        "src/polybot/api/data_client.py",
+        "src/polybot/db/repository.py",
+        "src/polybot/utils/retry.py",
+        "src/polybot/source_digest.py",
+    )
+    sources: dict[str, str] = {}
+    for relative_path in required_sources:
+        sources[relative_path] = _require_file(
+            findings, strategy, directory / relative_path
+        )
+
+    config = sources["src/polybot/config.py"]
+    config_tree = _parse_python(
+        findings, strategy, "src/polybot/config.py", config
+    )
+    if config_tree is not None:
+        for function_name in (
+            "_validate_config",
+            "load_config",
+            "_get_config_value",
+            "_get_lifecycle_mode",
+            "assert_no_credentials",
+        ):
+            _require_function(
+                findings,
+                strategy,
+                "src/polybot/config.py",
+                config_tree,
+                function_name,
+            )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/config.py",
+        config,
+        (
+            "get_trading_config_mapping",
+            "validate_yaml_config_shape",
+            "simulation_mode must be a boolean",
+            "POLYMARKET_PRIVATE_KEY",
+            "POLYMARKET_FUNDER_ADDRESS",
+            "POLYMARKET_SIGNATURE_TYPE",
+            "research-full-v1",
+            "math.isfinite",
+            "archive_only",
+        ),
+    )
+
+    main_source = sources["src/polybot/main.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/main.py",
+        main_source,
+        ("--live", "--simulate", "config", "status", "health"),
+    )
+
+    bot = sources["src/polybot/bot.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/bot.py",
+        bot,
+        (
+            "ResearchRunAudit.start",
+            "exclusive_job_run_lock",
+            "record_storage_metric",
+            "assert_no_credentials",
+        ),
+    )
+
+    gamma = sources["src/polybot/api/gamma_client.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/api/gamma_client.py",
+        gamma,
+        (
+            "/markets/keyset",
+            "after_cursor",
+            "next_cursor",
+            "include_tag",
+            "received_at",
+        ),
+    )
+    retry = sources["src/polybot/utils/retry.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/utils/retry.py",
+        retry,
+        ("RequestException", "ChunkedEncodingError", "Retry-After"),
+    )
+
+    clob = sources["src/polybot/api/clob_client.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/api/clob_client.py",
+        clob,
+        (
+            "/books",
+            "token_id",
+            "sampler_slot",
+            "rotation_offset",
+            "long_run_coverage_basis",
+        ),
+    )
+
+    data_api = sources["src/polybot/api/data_client.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/api/data_client.py",
+        data_api,
+        (
+            "/trades",
+            "takerOnly",
+            "safety_lag_seconds",
+            "overlap_seconds",
+            "possible_gap",
+            "occurrence_index",
+            "sanitize_trade",
+        ),
+    )
+
+    repository = sources["src/polybot/db/repository.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/db/repository.py",
+        repository,
+        (
+            "market_sweep_memberships",
+            "research_config_versions",
+            "research_run_events",
+            "market_observations",
+            "outcome_observations",
+            "market_metadata_versions",
+            "api_requests",
+            "orderbook_snapshots",
+            "orderbook_token_attempts",
+            "resolution_observations",
+            "trade_tape_sweeps",
+            "trade_tape_windows",
+            "trade_tape_memberships",
+            "trade_observations",
+            "data_quality_issues",
+            "storage_metrics",
+            "append-only evidence",
+        ),
+    )
+
+    run_audit = sources["src/polybot/run_audit.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/run_audit.py",
+        run_audit,
+        (
+            "class ResearchRunAudit",
+            "record_research_run_start",
+            "record_research_run_event",
+            "STARTED",
+            "SUCCEEDED",
+            "FAILED",
+        ),
+    )
+
+    combined = "\n".join(sources.values())
+    forbidden = (
+        "ExecutionLedger",
+        "submit_and_record",
+        "post_order",
+        "place_limit_order",
+        "POLYMARKET_PRIVATE_KEY=",
+    )
+    for token in forbidden:
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_order_path",
+                    f"research-only source contains {token}",
+                )
+            )
+
+    readme = _read(directory / "README.md")
+    _require_tokens(
+        findings,
+        strategy,
+        "README.md",
+        readme,
+        (
+            "research-full-v1",
+            "trades_sim.db",
+            "trades_sim_YYYYMMDD.db",
+            "H/15",
+            "--simulate",
+            "--live",
+            "compact-v1",
+        ),
+    )
+    env_example = _read(directory / ".env.example")
+    _require_tokens(
+        findings,
+        strategy,
+        ".env.example",
+        env_example,
+        (
+            "POLYBOT_LIFECYCLE_MODE=archive_only",
+            "POLYBOT_CADENCE_MINUTES=15",
+            "POLYBOT_MIN_FREE_GIB=150",
+        ),
+    )
+
+    for relative_path in (
+        "tests/test_config.py",
+        "tests/test_research_safety.py",
+        "tests/test_gamma_client.py",
+        "tests/test_repository.py",
+        "tests/test_lifecycle_mode.py",
+        "tests/test_trade_tape.py",
+        "tests/test_storage.py",
+        "tests/test_run_audit.py",
+    ):
+        _require_file(findings, strategy, directory / relative_path)
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -1438,6 +1698,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
     pyproject = _require_file(findings, strategy, pyproject_path)
     if pyproject:
         _validate_pyproject(findings, strategy, pyproject_path, pyproject)
+
+    if strategy in RESEARCH_ONLY_STRATEGIES:
+        _validate_research_only_strategy(findings, strategy, directory)
+        return findings
 
     config = _require_file(findings, strategy, directory / "src/polybot/config.py")
     _validate_config_source(findings, strategy, "src/polybot/config.py", config)

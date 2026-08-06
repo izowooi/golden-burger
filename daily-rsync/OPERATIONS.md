@@ -47,6 +47,20 @@ credential은 전략 판정을 위해 출력하거나 browser response에 포함
 5. `sync --plan <id>`
 6. `verify --job <job>`
 
+`doctor`의 `workspace_roots`에서 configured path·realpath·`available`을 확인한다. 외장
+volume root 하나라도 mount되어 있지 않으면 scan/snapshot을 실행하지 않는다. 외장
+workspace를 쓰는 Job은 Jenkins `customWorkspace`가
+`/Volumes/t7/jenkins/workspace/<job>`처럼 allowlisted root의 정확한 직속 Job 경로인지
+확인한다. 공유 상위 directory(`/Volumes/t7/jenkins`)나 symlink workspace는 허용하지
+않는다.
+
+Pipeline이 기본 workspace와 외장 `ws(...)`를 모두 만들면 실제 외장 Job workspace
+하나에만 `.daily-rsync-workspace.json`을 둔다. payload는
+`{"schema_version":1,"job":"<JOB_NAME>","workspace":"<absolute workspace>"}` 세
+key만 사용한다. `doctor`가 marker contract를 출력하며 scan inventory의
+`workspace_identity`에서 선택 root의 `st_dev`와 marker digest를 확인한다. marker를
+고치거나 volume을 교체했다면 기존 plan을 버리고 새로 scan/plan한다.
+
 처음에는 하나의 job으로 검증한 뒤 저장 profile을 늘린다. 선택하지 않은 job은 상세
 build log를 조사하거나 전송하지 않는다.
 
@@ -63,12 +77,30 @@ build log를 조사하거나 전송하지 않는다.
 존재하는 것은 별개다. 회고나 compact 검증에는 반드시 sync 완료, `locate`의 최신
 attempt/success, `verify` 결과를 추가로 확인한다.
 
+Research simulation은 active `trades_sim.db`와 UTC daily
+`trades_sim_YYYYMMDD.db` shard를 함께 발견한다. Daily shard는 기본 plan 대상이고
+`--days` 또는 `--from-date/--to-date`가 있으면 해당 UTC day 범위만 남는다.
+dated shard의 filename day와 `collection_contracts.database_utc_date`가 다르거나 contract
+row가 없으면 scan/plan이 fail closed한다. `research-full-v1` active shard는 현재 UTC day가
+범위에 포함될 때만 선택하지만 mutable partial evidence이므로 완료된 UTC-day coverage는
+rollover된 dated shard만 만족한다. 일반 누적 simulation DB는 계속 포함한다. 각 shard도 SQLite online backup,
+원격·로컬 `quick_check`, SHA-256 검증을 통과해야 catalog에 승격된다. raw/blob/log table은
+DB 안의 evidence이므로 별도 raw directory를 동기화하지 않는다. `database_safety`의
+기존 opt-in 의미는 그대로 유지한다.
+
 ## 실패 처리
 
 - SSH 실패: local latest와 catalog 완료 상태를 변경하지 않는다.
 - remote snapshot 공간 부족: 해당 DB만 실패하고 로그 작업은 재시도할 수 있다.
 - rsync 중단: `data/incoming/*.partial`을 유지해 다음 실행에서 재사용한다.
 - SHA 또는 `quick_check` 불일치: incoming을 격리하고 기존 latest를 보존한다.
+- immutable shard 변경: `IMMUTABLE_CONFLICT`와 open conflict를 남기고 기존 shard를 보존한다.
+- open provenance conflict: prior artifact row가 없어도 이후 plan과 verify를 차단한다.
+- workspace root 이동/중복: 유일 marker를 확인하고 저장 plan을 폐기한 뒤 새로 scan한다.
+- workspace/provenance preflight 실패: 전송 전 실패도 `FAILED` sync run으로 기록한다.
+- scan/plan 실패: plan 파일이 만들어지기 전이라도 deterministic `no-plan-*` plan ID의
+  `FAILED` sync attempt를 남긴다. 과거 `SUCCESS`가 최신 시도로 보이게 두지 않는다.
+- UI progress callback 실패: 전송 transaction과 sync run 종결을 방해하지 않는다.
 - source 삭제: `source_missing`으로 표시하고 local 파일은 보존한다.
 - local free space 50GB 미만: 새 sync와 bundle 생성을 차단한다.
 
@@ -95,6 +127,8 @@ AI 회고나 포스트모템을 시작할 때 경로를 손으로 추측하지 �
 ```bash
 uv run daily-rsync locate --job <jenkins-job>
 uv run daily-rsync locate --strategy <golden-strategy>
+uv run daily-rsync locate --strategy <golden-strategy> \
+  --from-date <YYYY-MM-DD> --to-date <YYYY-MM-DD>
 uv run daily-rsync verify --job <jenkins-job> --strategy <golden-strategy>
 ```
 
@@ -105,6 +139,15 @@ uv run daily-rsync verify --job <jenkins-job> --strategy <golden-strategy>
 DB가 `SOURCE_MISSING`이면 보존된 과거 epoch로
 취급하고 `source_completed_at`을 분석 cutoff로 명시한다. plan JSON이나 디렉터리
 이름만 보고 성공 여부를 판단하지 않는다.
+
+기간을 준 `locate`는 `research_archives`에 filename UTC day가 범위 안인 shard만
+반환한다. `current_databases`는 active canonical DB만, `safety_databases`는 기존 안전
+사본만 담는다. Archive의 `archive_date`, `remote_path`, `source_mtime_at`, local SHA와
+sync cutoff를 보고서에 함께 남긴다.
+또한 같은 runtime에서 요청 UTC day 전부가 `archive_coverage.covered_dates`에 있어야 한다.
+missing/unavailable/conflicted 날짜, full-day cutoff가 증명되지 않은 `SOURCE_MISSING`, open
+artifact conflict 중 하나라도 있으면 `verify`와 `analysis_ready`는 실패다. 범위 scan은
+의도적으로 범위 밖에 둔 canonical DB를 `SOURCE_MISSING`으로 바꾸지 않는다.
 
 ## 실제 자료 확인
 
