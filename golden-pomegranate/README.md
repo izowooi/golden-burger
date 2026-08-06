@@ -116,6 +116,8 @@ maker-side wallet 점유율, 양측 participant 활동량이나 participant-row 
 - request 실패나 malformed response도 error component observation으로 남기며 watermark를
   진행시키지 않는다. 필수 economic field가 없거나 timestamp가 integer epoch가 아니거나
   requested window 밖인 row도 malformed로 보고 전체 window를 `ERROR` 처리한다.
+- 응답 자체는 성공했지만 worker runtime budget을 넘긴 경우도 그 request ID와 sanitized raw
+  payload를 `BUDGET_EXHAUSTED` logical window에 연결한 뒤 watermark를 동결한다.
 - 정상 empty window와 trade가 하나도 없는 complete cycle은 명시적인 `EMPTY`이며 complete
   watermark는 전진한다. `source_target_end_epoch`가 이미 저장된 watermark보다 과거이면
   **clock regression** `ERROR`로 기록하고 source request와 watermark 전진을 모두 막는다.
@@ -249,8 +251,8 @@ mtime을 바꿀 수 있으므로, `-shm`은 durable evidence와 Daily Rsync fing
 
 ## Disk guard와 보존
 
-검증 책임은 계층으로 나뉜다. Jenkins preflight는 external mount/APFS/sentinel/volume UUID와
-workspace UUID를 검사한다. `polybot run`은 network 요청과 write transaction 전에 disk 사용량,
+검증 책임은 계층으로 나뉜다. Jenkins preflight는 exact external mount/APFS/sentinel/off-volume
+UUID pin과 workspace canonical path·filesystem device를 검사한다. `polybot run`은 network 요청과 write transaction 전에 disk 사용량,
 single-writer lock, active shard rotation/`quick_check`를 검사한다. `polybot health`는 DB/path
 readiness를 읽기 전용으로 보여 주지만 Jenkins mount identity 검사를 대신하지 않는다.
 
@@ -323,14 +325,19 @@ volume root에는 운영자가 한 번 만드는 sentinel이 필요하다. senti
 
 ```bash
 MOUNT_ROOT=/Volumes/t7
-VOLUME_UUID="$(diskutil info "$MOUNT_ROOT" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+/, "", $2); print $2; exit}')"
+VOLUME_UUID="$(diskutil info "$MOUNT_ROOT" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
 printf 'profile=golden-pomegranate-apfs-v1\nvolume_uuid=%s\n' "$VOLUME_UUID" \
   > "$MOUNT_ROOT/.golden-pomegranate-volume"
+umask 077
+printf '%s\n' "$VOLUME_UUID" \
+  > /Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid
 ```
 
-Jenkins는 APFS personality, sentinel profile, expected/current UUID가 모두 맞기 전에는 checkout이나
-collector를 실행하지 않는다. mount point에 다른 disk 또는 빈 directory가 나타나도 local disk에
-조용히 DB를 만들지 않는다.
+마지막 파일은 승인 UUID를 **외장 volume 밖**에 pin한다. Jenkins home이 다르면 Jenkinsfile의
+`POMEGRANATE_HOST_UUID_PIN`과 아래 Freestyle 경로를 함께 바꾼다. Jenkins는 exact mount point, `Device Location=External`,
+APFS personality, sentinel과 off-volume pin의 UUID가 모두 맞기 전에는 checkout이나 collector를
+실행하지 않는다. mount point에 다른 disk 또는 빈 directory가 나타나도 local disk에 조용히
+DB를 만들지 않는다.
 
 ### Jenkins Freestyle job
 
@@ -348,30 +355,47 @@ set -euo pipefail
 MOUNT_ROOT=/Volumes/t7
 EXPECTED_WORKSPACE="${MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}"
 SENTINEL="${MOUNT_ROOT}/.golden-pomegranate-volume"
+HOST_UUID_PIN=/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid
 
 if [ "${WORKSPACE}" != "${EXPECTED_WORKSPACE}" ] || [ ! -d "${MOUNT_ROOT}" ] || \
-   [ -L "${MOUNT_ROOT}" ] || [ ! -f "${SENTINEL}" ] || [ -L "${SENTINEL}" ]; then
+   [ -L "${MOUNT_ROOT}" ] || [ ! -f "${SENTINEL}" ] || [ -L "${SENTINEL}" ] || \
+   [ ! -f "${HOST_UUID_PIN}" ] || [ -L "${HOST_UUID_PIN}" ] || \
+   [ ! -d "${WORKSPACE}" ] || [ -L "${WORKSPACE}" ]; then
   echo 'Golden Pomegranate workspace or external mount is unsafe' >&2
+  exit 2
+fi
+
+CANONICAL_WORKSPACE="$(cd "${WORKSPACE}" && /bin/pwd -P)"
+if [ "${CANONICAL_WORKSPACE}" != "${EXPECTED_WORKSPACE}" ]; then
+  echo 'Golden Pomegranate workspace canonical path is unsafe' >&2
   exit 2
 fi
 
 VOLUME_INFO="$(/usr/sbin/diskutil info "${MOUNT_ROOT}")"
 FILESYSTEM="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/File System Personality/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+MOUNT_POINT="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Mount Point/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+DEVICE_LOCATION="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Device Location/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
 CURRENT_UUID="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
 EXPECTED_PROFILE="$(sed -n 's/^profile=//p' "${SENTINEL}")"
-EXPECTED_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
-WORKSPACE_UUID="$(/usr/sbin/diskutil info "${WORKSPACE}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+SENTINEL_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+HOST_UUID="$(sed -n '1p' "${HOST_UUID_PIN}")"
+MOUNT_DEVICE_ID="$(/usr/bin/stat -f '%d' "${MOUNT_ROOT}")"
+WORKSPACE_DEVICE_ID="$(/usr/bin/stat -f '%d' "${WORKSPACE}")"
+HOST_PIN_DEVICE_ID="$(/usr/bin/stat -f '%d' "${HOST_UUID_PIN}")"
 
 if [ "${FILESYSTEM}" != APFS ] || \
+   [ "${MOUNT_POINT}" != "${MOUNT_ROOT}" ] || [ "${DEVICE_LOCATION}" != External ] || \
    [ "${EXPECTED_PROFILE}" != golden-pomegranate-apfs-v1 ] || \
-   [ -z "${CURRENT_UUID}" ] || [ "${CURRENT_UUID}" != "${EXPECTED_UUID}" ] || \
-   [ "${WORKSPACE_UUID}" != "${EXPECTED_UUID}" ]; then
+   [ -z "${CURRENT_UUID}" ] || [ "${CURRENT_UUID}" != "${HOST_UUID}" ] || \
+   [ "${SENTINEL_UUID}" != "${HOST_UUID}" ] || \
+   [ -z "${HOST_PIN_DEVICE_ID}" ] || [ "${HOST_PIN_DEVICE_ID}" = "${MOUNT_DEVICE_ID}" ] || \
+   [ -z "${MOUNT_DEVICE_ID}" ] || [ "${WORKSPACE_DEVICE_ID}" != "${MOUNT_DEVICE_ID}" ]; then
   echo 'Golden Pomegranate APFS sentinel or volume UUID verification failed' >&2
   exit 2
 fi
 
 # default Jenkins workspace와 external workspace가 둘 다 남아 있어도 Daily Rsync가
-# 추측하지 않도록, UUID 검증을 통과한 이 workspace에만 exact marker를 원자적으로 쓴다.
+# 추측하지 않도록, off-volume UUID와 canonical-device 검증을 통과한 이 workspace에만 exact marker를 원자적으로 쓴다.
 /usr/bin/python3 - "${WORKSPACE}" "${JOB_NAME}" <<'PY'
 import json
 import os

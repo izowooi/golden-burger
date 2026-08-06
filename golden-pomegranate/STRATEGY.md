@@ -190,13 +190,13 @@ destination nonexistence를 요구한다. 다음 날 DB를 임시 파일에 먼�
 만들어 검증·`fsync`한 뒤 같은 APFS volume에서 기존 active를 dated 이름으로 hard-link하고 새
 active를 atomic replace한다. hard-link 뒤 중단된 same-inode 상태는 다음 실행에서 재개한다.
 
-collection 시작 전 다음이면 hard stop한다. APFS/sentinel/mount UUID와 exact workspace는 Jenkins
+collection 시작 전 다음이면 hard stop한다. exact external APFS/sentinel/off-volume UUID pin과 canonical workspace device는 Jenkins
 preflight가 담당하고, collector `run`은 disk/lock/shard integrity를 담당한다. CLI `health`는
 DB/path readiness의 read-only view이며 Jenkins mount identity 검사를 대체하지 않는다.
 
 - filesystem usage `>=80%`
 - free space `<150 GiB`
-- APFS/sentinel/mount UUID mismatch
+- external APFS/sentinel/off-volume UUID pin/canonical workspace device mismatch
 - writer lock 획득 실패
 - active/dated shard collision 또는 failed `quick_check`
 

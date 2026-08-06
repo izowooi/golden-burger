@@ -113,12 +113,20 @@ class _DataTradeBudgetExceeded(RuntimeError):
         parent_window_id: str | None,
         source_target_end_epoch: int,
         bounded_target_end_epoch: int,
+        window_id: str | None = None,
+        request_id: str | None = None,
+        raw_payload_id: str | None = None,
+        received_at: str | None = None,
     ) -> None:
         self.kind = kind
         self.start_epoch = start_epoch
         self.end_epoch = end_epoch
         self.split_depth = split_depth
         self.parent_window_id = parent_window_id
+        self.window_id = window_id
+        self.request_id = request_id
+        self.raw_payload_id = raw_payload_id
+        self.received_at = received_at
         message = (
             "data trade cycle budget exhausted: "
             f"kind={kind} used={used:.3f} limit={limit:.3f} "
@@ -399,6 +407,10 @@ class DataApiClient:
             end_epoch: int,
             depth: int,
             parent_window_id: str | None,
+            window_id: str | None = None,
+            request_id: str | None = None,
+            raw_payload_id: str | None = None,
+            received_at: str | None = None,
         ) -> _DataTradeBudgetExceeded:
             return _DataTradeBudgetExceeded(
                 kind=kind,
@@ -413,6 +425,10 @@ class DataApiClient:
                 parent_window_id=parent_window_id,
                 source_target_end_epoch=source_target_end,
                 bounded_target_end_epoch=target_end,
+                window_id=window_id,
+                request_id=request_id,
+                raw_payload_id=raw_payload_id,
+                received_at=received_at,
             )
 
         def assert_budget(
@@ -465,6 +481,12 @@ class DataApiClient:
             request_attempts += 1
             if self.evidence_sink is not None:
                 self.evidence_sink(record)
+            # A successful response must first return through ``_get_window``
+            # so its sanitized raw payload and request lineage can be linked to
+            # the BUDGET_EXHAUSTED logical window. The post-response check in
+            # ``collect_window`` still freezes the watermark.
+            if record.get("status") == "SUCCESS":
+                return
             elapsed = max(0.0, self._monotonic() - fetch_started_clock)
             if elapsed >= self.config.runtime_budget_seconds:
                 raise budget_error(
@@ -475,9 +497,17 @@ class DataApiClient:
                     end_epoch=end_epoch,
                     depth=depth,
                     parent_window_id=parent_window_id,
+                    request_id=(
+                        str(record["request_id"])
+                        if record.get("request_id") is not None
+                        else None
+                    ),
+                    received_at=(
+                        str(record["completed_at"])
+                        if record.get("completed_at") is not None
+                        else None
+                    ),
                 )
-            if record.get("status") == "SUCCESS":
-                return
             if request_attempts >= self.config.max_request_attempts_per_cycle:
                 raise budget_error(
                     kind="request_attempts",
@@ -530,6 +560,10 @@ class DataApiClient:
                         end_epoch=end_epoch,
                         depth=depth,
                         parent_window_id=parent_window_id,
+                        window_id=window_id,
+                        request_id=request_id,
+                        raw_payload_id=raw_payload_id,
+                        received_at=received_at,
                     )
             except _DataTradeBudgetExceeded:
                 raise
@@ -734,15 +768,15 @@ class DataApiClient:
             error_message = f"{type(error).__name__}: {error}"
             windows.append(
                 {
-                    "window_id": str(uuid4()),
+                    "window_id": error.window_id or str(uuid4()),
                     "parent_window_id": error.parent_window_id,
                     "start_epoch": error.start_epoch,
                     "end_epoch": error.end_epoch,
                     "split_depth": error.split_depth,
                     "offset": 0,
-                    "request_id": None,
-                    "raw_payload_id": None,
-                    "received_at": utc_now(),
+                    "request_id": error.request_id,
+                    "raw_payload_id": error.raw_payload_id,
+                    "received_at": error.received_at or utc_now(),
                     "row_count": 0,
                     "membership_count": 0,
                     "economic_unique_count": 0,

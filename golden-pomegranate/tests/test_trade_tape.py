@@ -490,6 +490,8 @@ def test_runtime_budget_stops_before_next_split_request_and_records_usage():
 
 def test_runtime_budget_rejects_slow_success_without_advancing_watermark():
     clock = [0.0]
+    evidence = []
+    raw_payloads = []
 
     def slow_success(params):
         clock[0] = 2.0
@@ -503,6 +505,10 @@ def test_runtime_budget_rejects_slow_success_without_advancing_watermark():
         catchup_chunk_seconds=100,
         runtime_budget_seconds=1,
         monotonic=lambda: clock[0],
+        evidence_sink=evidence.append,
+        raw_payload_sink=(
+            lambda **kwargs: raw_payloads.append(kwargs) or "slow-success-raw"
+        ),
     )
 
     result = client.fetch_incremental(
@@ -518,6 +524,10 @@ def test_runtime_budget_rejects_slow_success_without_advancing_watermark():
     assert result.watermark_advance_to_epoch is None
     assert result.windows[-1]["status"] == "BUDGET_EXHAUSTED"
     assert "kind=runtime_seconds" in result.windows[-1]["error_message"]
+    assert evidence[-1]["status"] == "SUCCESS"
+    assert result.windows[-1]["request_id"] == evidence[-1]["request_id"]
+    assert result.windows[-1]["raw_payload_id"] == "slow-success-raw"
+    assert raw_payloads[-1]["request_id"] == result.windows[-1]["request_id"]
 
 
 def test_clock_regression_fails_before_request_and_preserves_watermark():

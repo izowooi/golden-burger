@@ -19,6 +19,8 @@ pipeline {
     POLYBOT_LIFECYCLE_MODE = 'archive_only'
     // Change this one value when the approved external APFS volume is renamed.
     POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'
+    // Plain UUID pin kept outside the removable volume; this is not a secret.
+    POMEGRANATE_HOST_UUID_PIN = '/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid'
   }
 
   stages {
@@ -30,6 +32,7 @@ set -euo pipefail
 
 MOUNT_ROOT="${POMEGRANATE_MOUNT_ROOT}"
 SENTINEL="${MOUNT_ROOT}/.golden-pomegranate-volume"
+HOST_UUID_PIN="${POMEGRANATE_HOST_UUID_PIN}"
 
 if [ ! -d "${MOUNT_ROOT}" ] || [ -L "${MOUNT_ROOT}" ]; then
   echo 'Golden Pomegranate external mount is absent or unsafe' >&2
@@ -39,23 +42,44 @@ if [ ! -f "${SENTINEL}" ] || [ -L "${SENTINEL}" ]; then
   echo 'Golden Pomegranate volume sentinel is absent or unsafe' >&2
   exit 2
 fi
+if [ ! -f "${HOST_UUID_PIN}" ] || [ -L "${HOST_UUID_PIN}" ]; then
+  echo 'Golden Pomegranate off-volume UUID pin is absent or unsafe' >&2
+  exit 2
+fi
 
 VOLUME_INFO="$(/usr/sbin/diskutil info "${MOUNT_ROOT}")"
 FILESYSTEM="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/File System Personality/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+MOUNT_POINT="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Mount Point/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+DEVICE_LOCATION="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Device Location/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
 CURRENT_UUID="$(printf '%s\n' "${VOLUME_INFO}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
 EXPECTED_PROFILE="$(sed -n 's/^profile=//p' "${SENTINEL}")"
-EXPECTED_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+SENTINEL_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+HOST_UUID="$(sed -n '1p' "${HOST_UUID_PIN}")"
+MOUNT_DEVICE_ID="$(/usr/bin/stat -f '%d' "${MOUNT_ROOT}")"
+HOST_PIN_DEVICE_ID="$(/usr/bin/stat -f '%d' "${HOST_UUID_PIN}")"
 
 if [ "${FILESYSTEM}" != 'APFS' ]; then
   echo 'Golden Pomegranate data volume is not APFS' >&2
+  exit 2
+fi
+if [ "${MOUNT_POINT}" != "${MOUNT_ROOT}" ] || [ "${DEVICE_LOCATION}" != 'External' ]; then
+  echo 'Golden Pomegranate path is not the exact external mount point' >&2
   exit 2
 fi
 if [ "${EXPECTED_PROFILE}" != 'golden-pomegranate-apfs-v1' ]; then
   echo 'Golden Pomegranate sentinel profile is invalid' >&2
   exit 2
 fi
-if [ -z "${CURRENT_UUID}" ] || [ -z "${EXPECTED_UUID}" ] || [ "${CURRENT_UUID}" != "${EXPECTED_UUID}" ]; then
-  echo 'Golden Pomegranate mount UUID does not match the stable sentinel' >&2
+if ! [[ "${HOST_UUID}" =~ ^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$ ]]; then
+  echo 'Golden Pomegranate off-volume UUID pin is malformed' >&2
+  exit 2
+fi
+if [ -z "${HOST_PIN_DEVICE_ID}" ] || [ "${HOST_PIN_DEVICE_ID}" = "${MOUNT_DEVICE_ID}" ]; then
+  echo 'Golden Pomegranate trusted UUID pin is not off-volume' >&2
+  exit 2
+fi
+if [ "${CURRENT_UUID}" != "${HOST_UUID}" ] || [ "${SENTINEL_UUID}" != "${HOST_UUID}" ]; then
+  echo 'Golden Pomegranate mount UUID does not match both trusted pins' >&2
   exit 2
 fi
 '''
@@ -74,11 +98,25 @@ if [ "${WORKSPACE}" != "${EXPECTED_WORKSPACE}" ]; then
   echo 'Jenkins allocated a non-canonical Golden Pomegranate workspace' >&2
   exit 2
 fi
+if [ ! -d "${WORKSPACE}" ] || [ -L "${WORKSPACE}" ]; then
+  echo 'Jenkins workspace is absent or is a symlink' >&2
+  exit 2
+fi
+CANONICAL_WORKSPACE="$(cd "${WORKSPACE}" && /bin/pwd -P)"
+if [ "${CANONICAL_WORKSPACE}" != "${EXPECTED_WORKSPACE}" ]; then
+  echo 'Jenkins workspace canonical path does not match the approved path' >&2
+  exit 2
+fi
 
 SENTINEL="${POMEGRANATE_MOUNT_ROOT}/.golden-pomegranate-volume"
-EXPECTED_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
-WORKSPACE_UUID="$(/usr/sbin/diskutil info "${WORKSPACE}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
-if [ -z "${WORKSPACE_UUID}" ] || [ "${WORKSPACE_UUID}" != "${EXPECTED_UUID}" ]; then
+HOST_UUID_PIN="${POMEGRANATE_HOST_UUID_PIN}"
+HOST_UUID="$(sed -n '1p' "${HOST_UUID_PIN}")"
+SENTINEL_UUID="$(sed -n 's/^volume_uuid=//p' "${SENTINEL}")"
+CURRENT_UUID="$(/usr/sbin/diskutil info "${POMEGRANATE_MOUNT_ROOT}" | awk -F: '/Volume UUID/ {gsub(/^[[:space:]]+|[[:space:]]+$/, "", $2); print $2; exit}')"
+MOUNT_DEVICE_ID="$(/usr/bin/stat -f '%d' "${POMEGRANATE_MOUNT_ROOT}")"
+WORKSPACE_DEVICE_ID="$(/usr/bin/stat -f '%d' "${WORKSPACE}")"
+if [ -z "${MOUNT_DEVICE_ID}" ] || [ "${WORKSPACE_DEVICE_ID}" != "${MOUNT_DEVICE_ID}" ] || \
+   [ "${CURRENT_UUID}" != "${HOST_UUID}" ] || [ "${SENTINEL_UUID}" != "${HOST_UUID}" ]; then
   echo 'Jenkins workspace is not on the approved Golden Pomegranate volume' >&2
   exit 2
 fi

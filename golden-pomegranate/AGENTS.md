@@ -120,8 +120,8 @@ Jenkins 순서는 `config → health → run → status → health`로 유지한
 - active `trades_sim.db`는 UTC day 경계에서만 완결된 WAL checkpoint와 `quick_check`를 거친 뒤,
   같은 APFS volume의 hard-link dated shard + 준비된 새 active의 atomic replace로 회전한다.
   중단된 same-inode handoff는 재개하고 기존의 다른 dated shard는 덮어쓰지 않는다.
-- Jenkins는 checkout 전에 external APFS, sentinel profile, mount UUID를 확인한다.
-- workspace는 같은 UUID의 `${POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}`여야 한다.
+- Jenkins는 checkout 전에 exact external APFS mount, sentinel profile, off-volume host UUID pin을 확인한다.
+- workspace는 symlink가 아닌 canonical `${POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}`이며 승인 mount와 같은 filesystem device여야 한다.
 - UUID 검증 뒤 그 workspace에만 exact `.daily-rsync-workspace.json` marker를 원자적으로 쓰며,
   Daily Rsync가 default workspace를 추측하도록 두지 않는다.
 - filesystem 사용률 70% 이상은 warning, 80% 이상 또는 free space 150 GiB 미만은 collection stop이다.

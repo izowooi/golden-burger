@@ -96,7 +96,7 @@ cursor/page/membership integrity 100%,
 public trade unresolved <code>possible_gap=0</code>, p95 runtime &lt;8분, 120일 storage forecast에서
 free 150GiB 이상일 때만 새 contract로 변경</td></tr>
 <tr><th>30분 fallback</th><td>13분 timeout 안에 census를 안정적으로 완주하지 못하거나 scheduled coverage 저하가 지속되거나 storage forecast가 위험할 때</td></tr>
-<tr><th>Disk</th><td>외장 APFS mount/sentinel 확인. used 70% 경고, 80% 또는 free 150GiB 미만에서 중단</td></tr>
+<tr><th>Disk</th><td>exact 외장 APFS mount, off-volume UUID pin, sentinel, canonical workspace device 확인. used 70% 경고, 80% 또는 free 150GiB 미만에서 중단</td></tr>
 <tr><th>보존</th><td>120일은 capacity forecast horizon이다. 자동 삭제가 아니며, 검증된 외부 backup 전에는
 row나 whole shard를 제거하지 않는다.</td></tr>
 <tr><th>계정</th><td>없음. private key/funder/signature env가 있으면 startup 실패</td></tr>

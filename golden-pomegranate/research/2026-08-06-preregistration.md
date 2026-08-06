@@ -168,7 +168,7 @@ account가 없으므로 마지막 두 항목의 transaction/fill channel은 존�
 - cross-midnight sweep: 시작일 shard에 전체 commit, 다음 cycle 시작 전에 rotation
 - collision/corruption: overwrite/repair 없이 failed run과 hard stop
 
-disk gate는 collection/network보다 먼저 평가한다. Jenkins가 APFS/sentinel/mount·workspace UUID를
+disk gate는 collection/network보다 먼저 평가한다. Jenkins가 exact external APFS/sentinel/off-volume UUID pin과 canonical workspace device를
 검증하고 collector `run`이 disk/lock/shard gate를 적용한다. CLI `health`는 DB/path readiness를
 읽기 전용으로 보고할 뿐 Jenkins mount identity preflight를 대신하지 않는다.
 
@@ -178,7 +178,7 @@ disk gate는 collection/network보다 먼저 평가한다. Jenkins가 APFS/senti
 | usage `>=70%` and `<80%` | warning, 10분 cadence 금지 |
 | usage `>=80%` | hard stop |
 | free `<150 GiB` | hard stop |
-| APFS/sentinel/mount UUID/lock/quick-check 실패 | hard stop |
+| external APFS/sentinel/off-volume UUID pin/workspace device/lock/quick-check 실패 | hard stop |
 
 120일 whole-shard 보존을 capacity forecast horizon으로 사용한다. 120일이 자동 deletion age는
 아니다. verified durable backup, checksum, restore `quick_check`와 manifest의 shard UTC date,

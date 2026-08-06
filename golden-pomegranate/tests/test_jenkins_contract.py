@@ -35,15 +35,36 @@ def test_jenkins_uses_single_writer_external_workspace_and_initial_cadence():
     assert "POLYBOT_LIFECYCLE_MODE = 'archive_only'" in source
 
 
-def test_jenkins_verifies_stable_apfs_sentinel_and_volume_uuid():
+def test_jenkins_verifies_external_mount_off_volume_pin_and_workspace_device():
     source = _source()
 
     assert "${POMEGRANATE_MOUNT_ROOT}/.golden-pomegranate-volume" in source
+    assert (
+        "POMEGRANATE_HOST_UUID_PIN = "
+        "'/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid'"
+    ) in source
+    assert 'HOST_UUID_PIN="${POMEGRANATE_HOST_UUID_PIN}"' in source
     assert "File System Personality" in source
+    assert "Mount Point" in source
+    assert "Device Location" in source
     assert "Volume UUID" in source
     assert "golden-pomegranate-apfs-v1" in source
-    assert '"${CURRENT_UUID}" != "${EXPECTED_UUID}"' in source
-    assert '"${WORKSPACE_UUID}" != "${EXPECTED_UUID}"' in source
+    assert '"${CURRENT_UUID}" != "${HOST_UUID}"' in source
+    assert '"${SENTINEL_UUID}" != "${HOST_UUID}"' in source
+    assert "MOUNT_DEVICE_ID" in source
+    assert "WORKSPACE_DEVICE_ID" in source
+    assert "HOST_PIN_DEVICE_ID" in source
+    assert '"${HOST_PIN_DEVICE_ID}" = "${MOUNT_DEVICE_ID}"' in source
+    assert '"${WORKSPACE_DEVICE_ID}" != "${MOUNT_DEVICE_ID}"' in source
+    assert '/usr/sbin/diskutil info "${WORKSPACE}"' not in source
+
+
+def test_jenkins_rejects_symlink_or_noncanonical_workspace():
+    source = _source()
+
+    assert '[ ! -d "${WORKSPACE}" ] || [ -L "${WORKSPACE}" ]' in source
+    assert 'CANONICAL_WORKSPACE="$(cd "${WORKSPACE}" && /bin/pwd -P)"' in source
+    assert '"${CANONICAL_WORKSPACE}" != "${EXPECTED_WORKSPACE}"' in source
 
 
 def test_daily_rsync_workspace_marker_is_job_bound_post_checkout_and_atomic():
