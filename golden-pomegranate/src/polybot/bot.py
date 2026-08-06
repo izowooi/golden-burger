@@ -124,6 +124,14 @@ class PolymarketResearchBot:
                 "strategy_source_digest": self.config.trading.strategy_source_digest,
                 "parser_version": "research-full-v1-parser-1",
                 "gamma_endpoint": f"{self.config.trading.gamma.base_url}/markets/keyset",
+                "gamma_market_envelope": {
+                    "closed": False,
+                    "min_liquidity": self.config.trading.gamma.min_liquidity,
+                    "min_total_volume": self.config.trading.gamma.min_total_volume,
+                    "max_end_horizon_days": (
+                        self.config.trading.gamma.max_end_horizon_days
+                    ),
+                },
                 "data_trade_endpoint": f"{self.config.trading.data_api.base_url}/trades",
                 "data_trade_query_contract": {
                     "takerOnly": True,
@@ -207,7 +215,8 @@ class PolymarketResearchBot:
                 logger.info(
                     "research cycle complete run=%s cycle=%s runtime_s=%.3f source=%s "
                     "pages=%s markets=%s outcomes=%s books=%s books_status=%s "
-                    "trades=%s tape_status=%s possible_gap=%s watermark=%s "
+                    "trade_source_rows=%s trades_persisted=%s tape_status=%s "
+                    "possible_gap=%s watermark=%s "
                     "resolution=%s resolution_status=%s logical_bytes=%s "
                     "used_ratio=%.3f free_bytes=%s days_to_stop=%s issues=%s",
                     audit.run_id,
@@ -219,6 +228,7 @@ class PolymarketResearchBot:
                     stats.get("outcomes_observed"),
                     stats["orderbooks_observed"],
                     stats.get("orderbook_component_status"),
+                    stats.get("trade_source_rows_received"),
                     stats["trades_observed"],
                     stats.get("trade_tape_component_status"),
                     stats.get("trade_tape_possible_gap"),

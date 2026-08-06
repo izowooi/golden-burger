@@ -1,7 +1,8 @@
 # Golden Pomegranate 수집 계약 — Accountless Market Observatory
 
 2026-08-07 이후 운영 envelope와 cadence는
-[capacity amendment](research/2026-08-07-capacity-amendment.md) 및
+[capacity amendment](research/2026-08-07-capacity-amendment.md),
+[cadence amendment](research/2026-08-07-cadence-amendment.md) 및
 [운영 README](OPERATIONS.md)를 따른다. 2026-08-06 global/15-minute 수치는 최초 설계
 provenance이며 현재 기본값이 아니다.
 
@@ -37,7 +38,7 @@ CLOB은 API 비용 때문에 전수 수집하지 않는다. 대신 selection 함
 sampling frame/rank/probability/version을 저장하면 book 분석의 표본 편향을 측정하거나 weighting할
 수 있다. Gamma census와 CLOB sample을 같은 것으로 표현하지 않는 것이 핵심이다.
 
-Data API trade는 WebSocket/tick 전수 capture가 아니라 60분 polling의 bounded rolling query다.
+Data API trade는 WebSocket/tick 전수 capture가 아니라 15분 polling의 bounded rolling query다.
 persisted complete watermark, 30분 overlap, 300초 safety lag와 cap-window 재귀 분할을 함께
 저장해야만 어느 source interval을 완전히 조회했다고 주장하는지 복원할 수 있다.
 
@@ -124,9 +125,10 @@ window가 10,000-row cap에 닿으면 midpoint로 재귀 분할한다. 하나의
 array는 명시적인 complete `EMPTY` window이며, cycle 전체가 비었어도 complete watermark는
 전진한다. 필수 economic field 누락, non-finite/out-of-range economics, integer가 아닌 epoch
 timestamp는 window `ERROR`다. HTTP success가 requested window 밖 timestamp를 반환하면 source
-bounds 위반이다. economic row와 HTTP/sanitized raw lineage는
-`SOURCE_BOUNDS_VIOLATION`으로 보존하되 component는 `POSSIBLE_GAP`이고 watermark는 전진시키지
-않는다. bounds를 무시한 응답을 재귀 split해 complete tape로 오인시키지 않는다.
+bounds 위반이다. compressed sanitized raw payload, economic count/digest와 HTTP lineage는
+`SOURCE_BOUNDS_VIOLATION`으로 보존하되 요청 범위 밖 row는 normalized fact/membership으로
+확장하지 않는다. component는 `POSSIBLE_GAP`이고 watermark는 전진시키지 않는다. bounds를
+무시한 응답을 재귀 split해 complete tape로 오인시키지 않는다.
 `source_target_end_epoch`가 persisted watermark보다 과거인
 **clock regression**은 request 전에 `ERROR`로 멈춘다.
 
@@ -248,7 +250,7 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 
 ## 9. Preregistered collection-health gates
 
-현재 cadence는 60분이다. 첫 7개 complete UTC day는 총 168 expected slot을 denominator로 한다.
+현재 cadence는 15분이다. 첫 7개 complete UTC day는 총 672 expected slot을 denominator로 한다.
 
 ### 필수 validity gate
 
@@ -270,9 +272,9 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 하나라도 실패한 범위는 해당 분석에 `NOT_EVALUABLE_FAIL_CLOSED`다. row를 고쳐 같은 cohort를
 살리지 않는다.
 
-### 30분 cadence 검토 gate
+### 5분 cadence 검토 gate
 
-다음을 모두 만족해야 30분 cadence를 별도 변경으로 검토할 수 있다.
+다음을 모두 만족해야 5분 cadence와 별도 WebSocket/tick collector를 변경안으로 검토할 수 있다.
 
 - 7-day scheduled-slot success coverage `>=95%`
 - successful requested-book observation coverage `>=95%`
@@ -282,15 +284,15 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 - 같은 forecast 후 free space `>=150 GiB`
 
 통과는 자동 cadence 변경이 아니다. 운영자가 7-day report와 Jenkins timeout/headroom을 검토한
-뒤 새 config/source cohort로 시작한다. 실패하면 60분을 유지한다. global envelope, row 삭제,
-compaction, concurrent build로 수치를 맞추지 않는다.
+뒤 새 config/source cohort로 시작한다. 실패하면 15분을 유지한다. global envelope, 정상 범위
+fact row 삭제, concurrent build로 수치를 맞추지 않는다.
 
 ## 10. Falsification과 판정
 
 다음이면 “현재 설계가 unbiased reusable observatory evidence를 만든다”는 운영 가설을 기각하거나
 범위를 제한한다.
 
-- 60분 cadence에서도 cursor-complete bounded census를 20분 timeout 안에 안정적으로 끝내지 못함
+- 15분 cadence에서도 cursor-complete bounded census를 20분 timeout 안에 안정적으로 끝내지 못함
 - source가 complete cursor 또는 stable market/outcome identity를 제공하지 않음
 - full membership/page clocks가 storage transaction에 원자적으로 보존되지 않음
 - CLOB selection/error metadata가 missingness와 selection probability를 복원하지 못함
@@ -299,7 +301,7 @@ compaction, concurrent build로 수치를 맞추지 않는다.
 - 120일 storage forecast가 warn threshold를 넘고 durable capacity를 확보하지 못함
 - daily shard를 backup/verify/restore할 수 없음
 
-실패 시 허용되는 제안은 cadence 30분 fallback, fetch/retry/transaction 계측 수정, storage/backup
+실패 시 허용되는 제안은 cadence 30/60분 fallback, fetch/retry/transaction 계측 수정, storage/backup
 확장 또는 해당 연구 질문의 `NOT_EVALUABLE` 판정이다. 시장 filter 추가, 과거 row 삭제,
 결과가 좋아 보이는 표본만 선택하는 방식으로 full-observatory 주장을 유지하지 않는다.
 

@@ -18,8 +18,8 @@ def test_jenkins_uses_single_writer_external_workspace_and_capacity_cadence():
     assert "disableConcurrentBuilds()" in source
     assert "timeout(time: 20, unit: 'MINUTES')" in source
     assert "buildDiscarder(logRotator(daysToKeepStr: '120'))" in source
-    assert "cron('H * * * *')" in source
-    assert "POLYBOT_CADENCE_MINUTES = '60'" in source
+    assert "cron('H/15 * * * *')" in source
+    assert "POLYBOT_CADENCE_MINUTES = '15'" in source
     assert "cron('H/10 * * * *')" not in source
     assert "POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'" in source
     assert 'ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/golden-pomegranate")' in source
@@ -31,7 +31,7 @@ def test_jenkins_uses_single_writer_external_workspace_and_capacity_cadence():
     assert '"schema_version": 1' in source
     assert "UV_LINK_MODE = 'copy'" in source
     assert "POLYBOT_LIFECYCLE_MODE = 'archive_only'" in source
-    assert "POMEGRANATE_RUNTIME_JOB = 'pomegranate-hourly-v1'" in source
+    assert "POMEGRANATE_RUNTIME_JOB = 'pomegranate-15m-v2'" in source
     assert 'RUNTIME_JOB="${POMEGRANATE_RUNTIME_JOB}"' in source
 
 

@@ -2059,17 +2059,18 @@ class ResearchRepository:
         deltas = [
             max(0, right - left) for left, right in zip(prior_sizes, prior_sizes[1:])
         ]
-        if prior_sizes:
-            deltas.append(max(0, logical_bytes - prior_sizes[-1]))
+        if len(prior_sizes) >= 2 and logical_bytes > prior_sizes[-1]:
+            deltas.append(logical_bytes - prior_sizes[-1])
         # On the first successful cycle there is no prior post_publish row yet.
         # Treat the current logical DB size as the first-cycle growth estimate
         # instead of reporting a misleading zero-day forecast.  Later cycles
         # continue to use measured deltas between post-publish observations.
-        growth = (
-            sum(deltas) / len(deltas)
-            if deltas
-            else (float(logical_bytes) if logical_bytes > 0 else 0.0)
-        )
+        if deltas:
+            growth = sum(deltas) / len(deltas)
+        elif len(prior_sizes) == 1:
+            growth = float(prior_sizes[0])
+        else:
+            growth = float(logical_bytes) if logical_bytes > 0 else 0.0
         forecast = growth * (1440 / cadence_minutes)
         ratio_headroom = max(0.0, storage.stop_used_ratio * usage.total - usage.used)
         free_floor_headroom = max(0.0, usage.free - storage.min_free_gib * GIB)
@@ -2152,8 +2153,29 @@ class ResearchRepository:
                 "database_utc_date": database_utc_date,
                 "error": "invalid_database_utc_date",
             }
-        start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
-        day_end = start + timedelta(days=1)
+        day_start = datetime.combine(day, datetime.min.time(), tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        started_rows = connection.execute(
+            "SELECT event_at FROM research_run_events "
+            "WHERE event_type = 'STARTED' ORDER BY event_at"
+        ).fetchall()
+        parsed_started = [self._utc_datetime(row[0]) for row in started_rows]
+        first_started = next(
+            (
+                timestamp
+                for timestamp in parsed_started
+                if timestamp is not None and day_start <= timestamp < day_end
+            ),
+            None,
+        )
+        cadence_seconds = cadence * 60
+        if first_started is None:
+            start = day_start
+        else:
+            elapsed_from_midnight = int((first_started - day_start).total_seconds())
+            start = day_start + timedelta(
+                seconds=(elapsed_from_midnight // cadence_seconds) * cadence_seconds
+            )
         basis_clock = (
             coverage_end_utc.astimezone(timezone.utc)
             if coverage_end_utc is not None
@@ -2161,32 +2183,32 @@ class ResearchRepository:
         )
         coverage_end = min(max(basis_clock, start), day_end)
         elapsed = max(0.0, (coverage_end - start).total_seconds())
-        cadence_seconds = cadence * 60
         if coverage_end >= day_end:
             expected = int((elapsed + cadence_seconds - 1) // cadence_seconds)
         elif elapsed == 0:
             expected = 0 if coverage_end_utc is not None else 1
         else:
             expected = int(elapsed // cadence_seconds) + 1
-        started_rows = connection.execute(
-            "SELECT event_at FROM research_run_events "
-            "WHERE event_type = 'STARTED' ORDER BY event_at"
-        ).fetchall()
         slots: set[int] = set()
         started_in_contract_day = 0
         malformed_started_at = 0
-        for row in started_rows:
-            timestamp = self._utc_datetime(row[0])
+        for timestamp in parsed_started:
             if timestamp is None:
                 malformed_started_at += 1
                 continue
-            if start <= timestamp < day_end:
+            if day_start <= timestamp < day_end:
                 started_in_contract_day += 1
-                slots.add(int((timestamp - start).total_seconds() // cadence_seconds))
+                if timestamp >= start:
+                    slots.add(
+                        int((timestamp - start).total_seconds() // cadence_seconds)
+                    )
         observed = len({slot for slot in slots if slot < expected})
         gap = max(0, expected - observed)
         return {
-            "coverage_semantics": "observed_start_bucket_coverage_not_jenkins_schedule",
+            "coverage_semantics": (
+                "observed_start_bucket_coverage_from_first_observed_slot_"
+                "not_jenkins_schedule"
+            ),
             "coverage_clock_basis": (
                 "persisted_source_cutoff"
                 if coverage_end_utc is not None

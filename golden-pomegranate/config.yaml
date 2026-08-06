@@ -2,7 +2,7 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  cadence_minutes: 60
+  cadence_minutes: 15
   data_contract: research-full-v1
 
   gamma:

@@ -236,6 +236,7 @@ def test_multi_page_cycle_persists_full_census_books_trade_tape_and_lineage(
         "orderbooks_observed": 5,
         "trade_tape_component_status": "SUCCESS",
         "trade_tape_possible_gap": False,
+        "trade_source_rows_received": 2,
         "trades_observed": 2,
         "trade_watermark_advanced_to": NOW_EPOCH - 300 - 24 * 3600 + 3_600,
         "resolution_component_status": "EMPTY",

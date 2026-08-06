@@ -400,6 +400,30 @@ def test_first_cycle_forecast_uses_current_logical_size_without_history(
     )
 
 
+def test_read_only_forecast_keeps_first_post_publish_growth_sample(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "polybot.db.repository.shutil.disk_usage",
+        lambda _path: DiskUsage(1_000 * GIB, 100 * GIB, 900 * GIB),
+    )
+    repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
+    first = repository.record_storage_metric(
+        phase="post_publish",
+        storage=StorageConfig(),
+        cadence_minutes=15,
+        run_id="run-1",
+        cycle_number=1,
+    )
+
+    inspected = repository.inspect_storage(storage=StorageConfig(), cadence_minutes=15)
+
+    assert inspected["recent_growth_bytes_per_cycle"] == first["logical_bytes"]
+    assert inspected["forecast_next_day_bytes"] == pytest.approx(
+        first["logical_bytes"] * 96
+    )
+
+
 def test_growth_forecast_uses_one_post_publish_sample_per_cycle(tmp_path, monkeypatch):
     repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
     monkeypatch.setattr(
@@ -575,3 +599,30 @@ def test_status_reports_run_terminal_component_runtime_and_observed_slot_gaps(
     assert status["cadence_coverage"]["expected_slots"] == 3
     assert status["cadence_coverage"]["observed_slots"] == 2
     assert status["cadence_coverage"]["gap_slots"] == 1
+
+
+def test_first_observed_slot_does_not_count_pre_cohort_hours_as_gaps(tmp_path):
+    repository = ResearchRepository(
+        tmp_path / "data" / "job" / "trades_sim.db",
+        clock=lambda: datetime(2026, 8, 6, 21, 43, 40, tzinfo=timezone.utc),
+    )
+    repository.initialize(
+        contract_metadata={"cadence_minutes": 60, "job_name": "research-job"}
+    )
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute(
+            "INSERT INTO research_run_events "
+            "(event_id, run_id, event_type, event_at, strategy_name, job_name, "
+            "mode, lifecycle_mode, config_hash, strategy_source_digest, git_commit) "
+            "VALUES ('event-1', 'run-1', 'STARTED', "
+            "'2026-08-06T21:43:09+00:00', 'golden-pomegranate', "
+            "'research-job', 'sim', 'archive_only', 'cfg', 'digest', 'commit')"
+        )
+
+    status = repository.status(cadence_minutes=60)
+
+    coverage = status["cadence_coverage"]
+    assert coverage["window_start_utc"] == "2026-08-06T21:00:00+00:00"
+    assert coverage["expected_slots"] == 1
+    assert coverage["observed_slots"] == 1
+    assert coverage["gap_slots"] == 0

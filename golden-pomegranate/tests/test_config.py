@@ -45,7 +45,7 @@ def test_default_config_is_archive_only_research_full_and_simulation(tmp_path):
     assert config.trading.collects_full_universe is True
     assert config.trading.collects_resolution_only is False
     assert config.trading.data_contract == RESEARCH_DATA_CONTRACT == "research-full-v1"
-    assert config.trading.cadence_minutes == 60
+    assert config.trading.cadence_minutes == 15
     assert config.trading.gamma.min_liquidity == 10_000
     assert config.trading.gamma.min_total_volume == 2_000
     assert config.trading.gamma.max_end_horizon_days == 120
@@ -339,7 +339,7 @@ def test_cross_field_and_frozen_research_contracts_are_rejected(
         load_config(_mutated_config(tmp_path, mutation), env={})
 
 
-@pytest.mark.parametrize("cadence", [0, 1, 5, 9, 10, 11, 15, 20, 120])
+@pytest.mark.parametrize("cadence", [0, 1, 5, 9, 10, 11, 20, 120])
 def test_only_preregistered_cadences_are_allowed(tmp_path, cadence):
     path = _mutated_config(
         tmp_path,
@@ -349,7 +349,7 @@ def test_only_preregistered_cadences_are_allowed(tmp_path, cadence):
         load_config(path, env={})
 
 
-@pytest.mark.parametrize("cadence", [30, 60])
+@pytest.mark.parametrize("cadence", [15, 30, 60])
 def test_preregistered_cadences_are_valid(tmp_path, cadence):
     path = _mutated_config(
         tmp_path,

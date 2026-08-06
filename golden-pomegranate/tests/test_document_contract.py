@@ -36,7 +36,7 @@ def test_readme_names_the_research_profile_rotation_and_live_block():
     assert "/Users/jongwoopark/.local/bin/uv" in operations
     assert "반복 수집에서는 제외한다" in operations
     assert "항상 simulate" in operations
-    freestyle = operations[operations.index("## 매시간 반복 수집 shell") :]
+    freestyle = operations[operations.index("## 15분 반복 수집 shell") :]
     config_at = freestyle.index("polybot config --simulate")
     first_health_at = freestyle.index("polybot health --simulate", config_at)
     run_at = freestyle.index("polybot run --simulate", first_health_at)
@@ -57,9 +57,9 @@ def test_operations_readme_starts_with_timeline_and_capacity_profile():
         "30일",
         "60~90일",
         "120일",
-        "H * * * *",
-        "POLYBOT_CADENCE_MINUTES=60",
-        "pomegranate-hourly-v1",
+        "H/15 * * * *",
+        "POLYBOT_CADENCE_MINUTES=15",
+        "pomegranate-15m-v2",
         "2,899",
         "97.9%",
         "UV_LINK_MODE=copy",

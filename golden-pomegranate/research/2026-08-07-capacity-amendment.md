@@ -1,5 +1,8 @@
 # 2026-08-07 Golden Pomegranate capacity amendment
 
+> 이 문서의 bounded universe는 유지한다. 60분 cadence는 `#3` 실측 후
+> [15분 cadence amendment](2026-08-07-cadence-amendment.md)로 대체됐다.
+
 ## 변경 사유
 
 최초 global `closed=false` cycle은 139,310 markets, 278,620 outcomes를 관측했고 DB가

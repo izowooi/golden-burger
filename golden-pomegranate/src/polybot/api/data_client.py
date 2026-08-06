@@ -668,11 +668,15 @@ class DataApiClient:
             if out_of_bounds_count:
                 # The public unscoped endpoint has been observed returning its
                 # current global head while ignoring documented start/end
-                # bounds.  Keep those economically valid rows and their exact
-                # HTTP/raw lineage for research, but never claim the requested
-                # interval is complete or advance its watermark.  Splitting a
-                # response that ignored the parent bounds would only repeat the
-                # same head payload and consume the cycle budget.
+                # bounds.  The exact sanitized response is already retained as
+                # one compressed raw payload.  Do not also expand thousands of
+                # rows into normalized observations and per-cycle memberships:
+                # they are outside the requested evidence interval and the API
+                # has repeatedly returned the same moving global head.  Keep a
+                # compact economic digest/count plus request/raw lineage, never
+                # claim interval completeness, and never advance the watermark.
+                # Splitting a response that ignored the parent bounds would only
+                # repeat the same head payload and consume the cycle budget.
                 possible_gap = True
                 window["status"] = "SOURCE_BOUNDS_VIOLATION"
                 window["possible_gap"] = 1
@@ -683,6 +687,18 @@ class DataApiClient:
                     f"observed=[{observed_min_epoch},{observed_max_epoch}]"
                 )
                 error_message = window["error_message"]
+                economic_hashes = [canonical_trade_hash(row) for row in rows]
+                unique_economic_hashes = set(economic_hashes)
+                window["economic_unique_count"] = len(unique_economic_hashes)
+                window["duplicate_economic_row_count"] = max(
+                    0, len(economic_hashes) - len(unique_economic_hashes)
+                )
+                # No normalized memberships are published for this window, so
+                # its membership digest must attest the empty membership set.
+                # The compact source-response digest lives on raw_payloads.
+                window["membership_digest_sha256"] = hashlib.sha256(b"[]").hexdigest()
+                windows.append(window)
+                return
             elif hit_cap and duration >= 1:
                 midpoint = start_epoch + duration // 2
                 window["status"] = "SPLIT"

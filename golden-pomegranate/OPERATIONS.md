@@ -22,8 +22,8 @@ console log와 SQLite whole-shard의 **보존 상한 계획**이지 전략 연�
 
 기본 profile은 2026-08-07부터 저장공간을 다음처럼 제한한다.
 
-- Jenkins cadence: 매시간 `H * * * *`
-- resolved cadence: `POLYBOT_CADENCE_MINUTES=60`
+- Jenkins cadence: 15분 `H/15 * * * *`
+- resolved cadence: `POLYBOT_CADENCE_MINUTES=15`
 - `closed=false`
 - 누적 유동성 `>= $10,000`
 - 누적 거래량 `>= $2,000`
@@ -36,24 +36,33 @@ console log와 SQLite whole-shard의 **보존 상한 계획**이지 전략 연�
 엄격하게만 만들 수 있고, gate를 낮춰 전역 139k 시장으로 돌아가는 것은 config에서 거부한다.
 
 2026-08-07 실제 공개 API 비교에서는 기존 envelope 139,310 markets가 새 기본 envelope
-2,899 markets로 줄었다(약 97.9% 감소). 시장당 평균 크기가 비슷하다는 보수적 선형 추정이면
-첫 cycle 1.38GB는 약 29MB/cycle, 약 0.7GB/day, 약 21GB/30일, 약 84GB/120일이다. 인덱스,
-trade tape, order book과 source 변화 때문에 실제 값은 달라지므로 첫 3 cycle의 실측 증가량으로
-대체한다. `1.2 × 실측 일평균 × 120일`이 680GB를 넘거나 `forecast_days_to_stop < 120`이면
-timer를 중지하고 gate를 더 엄격하게 한다.
+2,899 markets로 줄었다(약 97.9% 감소). `#3`의 첫 bounded cycle은 3,030 markets,
+25.597초, 49,168,384 bytes였다. 다만 이 크기에는 Data API가 요청 범위를 무시하고 반환한
+10,000개 global-head row를 정규화해 중복 저장한 비용이 포함돼 있었다. 현재 코드는 이런
+`SOURCE_BOUNDS_VIOLATION` 응답을 compressed sanitized raw payload + count/digest/request lineage로만
+남기며, 요청 범위 밖 row와 membership 10,000개를 fact table로 확장하지 않는다.
+
+수정 전 49.2MB/cycle을 그대로 쓰는 보수적 상한에서도 15분은 약 4.72GB/day,
+`1.2 × daily × 120일 ≈ 680GB`다. 반면 5분은 약 14.16GB/day,
+동일 안전계수로 약 2.04TB이므로 1TB volume의 120일 계약을 만족하지 못한다. 따라서 15분을
+최종 기본값으로 사용한다. 실제 값은 첫 3 cycle의 marginal growth로 즉시 대체하며,
+`1.2 × 실측 일평균 × 120일`이 680GB를 넘거나 `forecast_days_to_stop < 120`이면 timer를
+중지하고 수집 계약을 재검토한다.
 
 1시간으로만 늦추고 139k global census를 유지하면 약 33GB/day이므로 해결책이 아니다. 이번
 profile은 cadence와 universe를 동시에 줄인다.
 
-## 기존 `pomegranate-local`에서 1회 전환
+## 기존 profile에서 1회 전환
 
-기존 DB는 15분 global-open-market envelope이고 새 DB는 60분 bounded envelope다. 같은 UTC
-shard에 두 계약을 섞지 않는다. 새 runtime job `pomegranate-hourly-v1`을 사용하면 기존 파일을
-건드리지 않고 새 DB에서 시작한다.
+기존 `pomegranate-local`은 15분 global-open-market envelope이고,
+`pomegranate-hourly-v1`은 60분 bounded envelope이지만 범위 밖 Data API row를 확장 저장한다.
+새 runtime job `pomegranate-15m-v2`는 15분 bounded envelope과 compact bounds-violation evidence를
+사용한다. 서로 다른 계약을 같은 UTC shard에 섞지 않는다.
 
 ```text
 data/pomegranate-local/trades_sim.db          # 구 profile, 필요 없으면 검증 후 삭제
-data/pomegranate-hourly-v1/trades_sim.db      # 새 기본 profile
+data/pomegranate-hourly-v1/trades_sim.db      # 이전 60분 bounded 검증 1회
+data/pomegranate-15m-v2/trades_sim.db         # 현재 기본 profile
 ```
 
 구 DB를 삭제할 때는 Jenkins를 먼저 중지하고, 정말 보존할 필요가 없는 첫 실험 cycle인지 확인한
@@ -79,7 +88,7 @@ UV=/Users/jongwoopark/.local/bin/uv
 반복 수집에서는 제외한다. `set -euo pipefail`이 없으면 테스트가 실패해도 Jenkins가 뒤 명령을
 계속 실행해 거짓 `SUCCESS`가 될 수 있다.
 
-## 매시간 반복 수집 shell
+## 15분 반복 수집 shell
 
 ```bash
 #!/bin/bash
@@ -90,11 +99,11 @@ export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
 export PYTHONUNBUFFERED=1
 export POLYBOT_LIFECYCLE_MODE=archive_only
-export POLYBOT_CADENCE_MINUTES=60
+export POLYBOT_CADENCE_MINUTES=15
 
 cd golden-pomegranate
 UV=/Users/jongwoopark/.local/bin/uv
-JOB=pomegranate-hourly-v1
+JOB=pomegranate-15m-v2
 
 "${UV}" sync --frozen
 "${UV}" run polybot config --simulate --job "${JOB}"
@@ -104,8 +113,11 @@ JOB=pomegranate-hourly-v1
 "${UV}" run polybot health --simulate --job "${JOB}"
 ```
 
-Build periodically는 `H * * * *`를 쓴다. `H/30 * * * *`나 `*/30 * * * *`로 실행하면서 config
-cadence를 60으로 두지 않는다. schedule과 resolved cadence는 반드시 일치해야 한다.
+Build periodically는 `H/15 * * * *`를 쓴다. `H/15`는 Jenkins가 job별 시작 분을 분산하면서
+15분마다 실행하므로 `*/15`보다 동시 부하가 적다. schedule과 resolved cadence는 반드시
+일치해야 한다. 5분 수집은 스포츠 변화에는 매력적이지만 현재 full bounded census의 120일
+capacity 계약을 위반하므로 사용하지 않는다. Golden Pomegranate는 주문 bot이 아니라 넓은
+시장 research collector이며, 1분 tick 연구는 별도 WebSocket collector의 계약으로 설계해야 한다.
 
 `--simulate`는 가짜 데이터라는 뜻이 아니다. 실제 공개 Gamma/CLOB/Data API를 읽고 실제 연구
 DB에 기록하지만 계좌와 주문 경로가 없다는 뜻이다. Golden Pomegranate는 항상 simulate이며
@@ -143,7 +155,7 @@ shard의 backup, SHA-256, `PRAGMA quick_check=ok`, manifest/table count를 확�
 
 ## 매 cycle 확인 항목
 
-1. `config`: cadence 60, bounded Gamma gate, simulate, stable job 확인
+1. `config`: cadence 15, bounded Gamma gate, simulate, stable job 확인
 2. 첫 `health`: `quick_check=ok`, append-only trigger, disk `OK` 확인
 3. `run`: Gamma terminal cursor, component별 SUCCESS/EMPTY/POSSIBLE_GAP 확인
 4. `status`: market count, runtime, cycle당 marginal growth, watermark 확인

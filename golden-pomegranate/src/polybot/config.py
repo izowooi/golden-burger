@@ -160,7 +160,7 @@ class StorageConfig:
 @dataclass(frozen=True)
 class TradingConfig:
     lifecycle_mode: str = "archive_only"
-    cadence_minutes: int = 60
+    cadence_minutes: int = 15
     data_contract: str = RESEARCH_DATA_CONTRACT
     strategy_source_digest: str = ""
     gamma: GammaConfig = field(default_factory=GammaConfig)
@@ -340,8 +340,8 @@ def _validate_config(trading: TradingConfig) -> None:
         raise ValueError(f"data_contract must be {RESEARCH_DATA_CONTRACT}")
     if trading.cadence_minutes <= 0:
         raise ValueError("cadence_minutes must be > 0")
-    if trading.cadence_minutes not in {30, 60}:
-        raise ValueError("cadence_minutes must be one of: 30, 60")
+    if trading.cadence_minutes not in {15, 30, 60}:
+        raise ValueError("cadence_minutes must be one of: 15, 30, 60")
     _validate_public_base_url("gamma.base_url", gamma.base_url)
     if not 1 <= gamma.page_size <= 100:
         raise ValueError("gamma.page_size must be in [1, 100]")

@@ -34,16 +34,16 @@ wallet, 주문, position, fill, P&L을 다루지 않으며 trading strategy 또�
 ```bash
 cd golden-pomegranate
 uv sync --frozen --extra dev
-uv run polybot config --simulate --job pomegranate-hourly-v1
-uv run polybot health --simulate --job pomegranate-hourly-v1
-uv run polybot status --simulate --job pomegranate-hourly-v1
-uv run polybot export-manifest --simulate --job pomegranate-hourly-v1
+uv run polybot config --simulate --job pomegranate-15m-v2
+uv run polybot health --simulate --job pomegranate-15m-v2
+uv run polybot status --simulate --job pomegranate-15m-v2
+uv run polybot export-manifest --simulate --job pomegranate-15m-v2
 ```
 
 한 번의 실제 public collection cycle이 필요한 경우에만 다음 명령을 사용한다.
 
 ```bash
-uv run polybot run --simulate --job pomegranate-hourly-v1
+uv run polybot run --simulate --job pomegranate-15m-v2
 ```
 
 `--simulate`는 network mock이 아니다.
@@ -75,9 +75,9 @@ uv build
 ## 배포
 
 trading 또는 application 배포는 없다.
-`Jenkinsfile`이 `H * * * *`, 20분 timeout, `disableConcurrentBuilds()`로 한 cycle씩 실행한다.
+`Jenkinsfile`이 `H/15 * * * *`, 20분 timeout, `disableConcurrentBuilds()`로 한 cycle씩 실행한다.
 Jenkins 순서는 `config → health → run → status → health`로 유지한다.
-30분 cadence는 7개의 완결된 UTC day와 `OPERATIONS.md`의 capacity gate를 모두 통과한 뒤 새 cohort로만 검토한다.
+5분/tick cadence는 7개의 완결된 UTC day와 `OPERATIONS.md`의 capacity gate를 모두 통과한 뒤 별도 collector/cohort로만 검토한다.
 
 ## 작업 규칙
 

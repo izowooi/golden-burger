@@ -31,6 +31,8 @@ override는 더 엄격하게만 허용된다.
 2026-08-07 실제 API 비교에서는 2,899 markets로 약 97.9% 줄었다. 이 count는 고정값이 아니며
 매 cycle 실제 page/market/outcome 수와 receipt clock을 기록한다. 변경 근거는
 [capacity amendment](research/2026-08-07-capacity-amendment.md)에 있다.
+최종 15분 cadence와 범위 밖 Data API 응답의 compact evidence 근거는
+[cadence amendment](research/2026-08-07-cadence-amendment.md)에 있다.
 
 ## Gamma complete bounded census
 
@@ -74,8 +76,9 @@ profile field는 저장하지 않는다.
 - 정상 빈 window는 `EMPTY`
 - error, cap 또는 source bounds violation은 `possible_gap=true`
 - gap이 있으면 complete watermark를 절대 전진시키지 않음
-- source가 bounds를 무시한 global-head row를 반환하면 lineage는 보존하되
-  `SOURCE_BOUNDS_VIOLATION`으로 표시
+- source가 bounds를 무시한 global-head row를 반환하면 compressed sanitized raw payload와
+  count/digest/request lineage만 보존하고 `SOURCE_BOUNDS_VIOLATION`으로 표시. 요청 범위 밖
+  row를 normalized fact/membership으로 중복 확장하지 않음
 
 이 tape는 maker-side activity, WebSocket/price tick 전수 또는 complete historical tape가 아니다.
 분석은 source/request/receipt clock을 혼합하지 않고 regression leakage를 검사한다.

@@ -1335,6 +1335,17 @@ class ResearchCollector:
                     "bounded_target_end": trades.bounded_target_end_epoch,
                     "source_target_end": trades.source_target_end_epoch,
                     "windows": len(trades.windows),
+                    "source_rows_received": sum(
+                        int(row.get("row_count") or 0) for row in trades.windows
+                    ),
+                    "normalized_rows_persisted": len(trades.trades),
+                    "bounds_violation_windows": sum(
+                        row.get("status") == "SOURCE_BOUNDS_VIOLATION"
+                        for row in trades.windows
+                    ),
+                    "bounds_violation_storage": (
+                        "compressed_raw_plus_digest_no_normalized_rows"
+                    ),
                 },
                 error_message=trades.error_message or trade_unexpected_error,
             ),
@@ -1423,6 +1434,9 @@ class ResearchCollector:
             "orderbooks_observed": len(books.books),
             "trade_tape_component_status": trades.status,
             "trade_tape_possible_gap": trades.possible_gap,
+            "trade_source_rows_received": sum(
+                int(row.get("row_count") or 0) for row in trades.windows
+            ),
             "trades_observed": len(trades.trades),
             "trade_watermark_advanced_to": trades.watermark_advance_to_epoch,
             "resolution_component_status": components[-1]["status"],
