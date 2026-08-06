@@ -16,6 +16,9 @@ from polybot.config import StorageConfig
 from polybot.db.repository import GIB, ResearchRepository
 
 
+DiskUsage = namedtuple("DiskUsage", "total used free")
+
+
 def _repository(tmp_path: Path, date: datetime) -> ResearchRepository:
     repository = ResearchRepository(
         tmp_path / "data" / "job" / "trades_sim.db",
@@ -290,8 +293,12 @@ def test_same_utc_day_does_not_rotate(tmp_path):
 
 
 def test_health_requires_quick_check_wal_full_sync_profile_and_all_append_guards(
-    tmp_path,
+    tmp_path, monkeypatch
 ):
+    monkeypatch.setattr(
+        "polybot.db.repository.shutil.disk_usage",
+        lambda _path: DiskUsage(1_000 * GIB, 100 * GIB, 900 * GIB),
+    )
     repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
 
     healthy = repository.health()
@@ -319,9 +326,6 @@ def test_same_utc_shard_rejects_cadence_or_contract_metadata_change(tmp_path):
         repository.initialize(
             contract_metadata={"cadence_minutes": 10, "job_name": "research-job"}
         )
-
-
-DiskUsage = namedtuple("DiskUsage", "total used free")
 
 
 @pytest.mark.parametrize(
@@ -354,6 +358,24 @@ def test_disk_guard_warns_at_70_and_stops_at_80_or_below_150_gib(
     assert metric["guard_state"] == expected
     assert metric["filesystem_free_bytes"] == usage.free
     assert metric["filesystem_used_ratio"] == usage.used / usage.total
+
+
+def test_first_cycle_forecast_uses_current_logical_size_without_history(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "polybot.db.repository.shutil.disk_usage",
+        lambda _path: DiskUsage(1_000 * GIB, 100 * GIB, 900 * GIB),
+    )
+    repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
+
+    metric = repository.inspect_storage(storage=StorageConfig(), cadence_minutes=15)
+
+    assert metric["logical_bytes"] > 0
+    assert metric["recent_growth_bytes_per_cycle"] == metric["logical_bytes"]
+    assert metric["forecast_next_day_bytes"] == pytest.approx(
+        metric["logical_bytes"] * 96
+    )
 
 
 def test_growth_forecast_uses_one_post_publish_sample_per_cycle(tmp_path, monkeypatch):
@@ -408,7 +430,13 @@ def test_growth_forecast_uses_one_post_publish_sample_per_cycle(tmp_path, monkey
     assert metric["forecast_next_day_bytes"] == pytest.approx(expected_growth * 96)
 
 
-def test_export_manifest_checksums_active_and_closed_whole_shards(tmp_path):
+def test_export_manifest_checksums_active_and_closed_whole_shards(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setattr(
+        "polybot.db.repository.shutil.disk_usage",
+        lambda _path: DiskUsage(1_000 * GIB, 100 * GIB, 900 * GIB),
+    )
     repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
     repository.rotate_if_utc_day_changed(datetime(2026, 8, 7, tzinfo=timezone.utc))
     destination = tmp_path / "manifest.json"

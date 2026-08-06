@@ -32,10 +32,13 @@ def test_readme_names_the_research_profile_rotation_and_live_block():
     assert "free space `<150 GiB`" in source
     assert "filesystem 사용률 `>=80%`" in source
     assert "Use custom workspace" in source
-    assert "/Volumes/t7/jenkins/workspace/${JOB_NAME}" in source
+    assert "/Volumes/t7/jenkins/golden-pomegranate" in source
     assert "Credentials Binding" in source
     assert "summary console log를 120일" in source
     assert "Jenkins mount identity 검사를 대신하지 않는다" in source
+    assert "/Users/jongwoopark/.local/bin/uv" in source
+    assert "반복 수집에서는 실행하지 않는다" in source
+    assert "거래 없는 공개 API 수집도 항상 `--simulate`" in source
     freestyle = source[source.index("### Jenkins Freestyle job") :]
     config_at = freestyle.index("polybot config --simulate")
     first_health_at = freestyle.index("polybot health --simulate", config_at)

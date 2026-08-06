@@ -21,18 +21,17 @@ def test_jenkins_uses_single_writer_external_workspace_and_initial_cadence():
     assert "cron('H/15 * * * *')" in source
     assert "cron('H/10 * * * *')" not in source
     assert "POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'" in source
+    assert 'ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/golden-pomegranate")' in source
     assert (
-        'ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${env.JOB_NAME}")'
-        in source
-    )
-    assert (
-        'EXPECTED_WORKSPACE="${POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}"'
+        'EXPECTED_WORKSPACE="${POMEGRANATE_MOUNT_ROOT}/jenkins/golden-pomegranate"'
         in source
     )
     assert 'workspace / ".daily-rsync-workspace.json"' in source
     assert '"schema_version": 1' in source
     assert "UV_LINK_MODE = 'copy'" in source
     assert "POLYBOT_LIFECYCLE_MODE = 'archive_only'" in source
+    assert "POMEGRANATE_RUNTIME_JOB = 'pomegranate-local'" in source
+    assert 'RUNTIME_JOB="${POMEGRANATE_RUNTIME_JOB}"' in source
 
 
 def test_jenkins_verifies_external_mount_off_volume_pin_and_workspace_device():

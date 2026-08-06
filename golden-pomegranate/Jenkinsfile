@@ -17,6 +17,7 @@ pipeline {
     LOG_LEVEL = 'INFO'
     PYTHONUNBUFFERED = '1'
     POLYBOT_LIFECYCLE_MODE = 'archive_only'
+    POMEGRANATE_RUNTIME_JOB = 'pomegranate-local'
     // Change this one value when the approved external APFS volume is renamed.
     POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'
     // Plain UUID pin kept outside the removable volume; this is not a secret.
@@ -88,12 +89,12 @@ fi
 
     stage('Collect one research cycle') {
       steps {
-        ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${env.JOB_NAME}") {
+        ws("${env.POMEGRANATE_MOUNT_ROOT}/jenkins/golden-pomegranate") {
           sh '''#!/bin/bash
 set +x
 set -euo pipefail
 
-EXPECTED_WORKSPACE="${POMEGRANATE_MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}"
+EXPECTED_WORKSPACE="${POMEGRANATE_MOUNT_ROOT}/jenkins/golden-pomegranate"
 if [ "${WORKSPACE}" != "${EXPECTED_WORKSPACE}" ]; then
   echo 'Jenkins allocated a non-canonical Golden Pomegranate workspace' >&2
   exit 2
@@ -186,7 +187,7 @@ if [ "${POLYMARKET_PRIVATE_KEY+x}" = x ] || \
   exit 2
 fi
 
-RUNTIME_JOB="${JOB_NAME//\//__}"
+RUNTIME_JOB="${POMEGRANATE_RUNTIME_JOB}"
 UV=/Users/jongwoopark/.local/bin/uv
 
 "${UV}" sync --frozen

@@ -114,8 +114,13 @@ maker-side wallet 점유율, 양측 participant 활동량이나 participant-row 
 - 하나의 epoch timestamp만 남은 window에서도 10,000행에 닿으면 `possible_gap=1`을 append하고 complete watermark를
   진행시키지 않는다.
 - request 실패나 malformed response도 error component observation으로 남기며 watermark를
-  진행시키지 않는다. 필수 economic field가 없거나 timestamp가 integer epoch가 아니거나
-  requested window 밖인 row도 malformed로 보고 전체 window를 `ERROR` 처리한다.
+  진행시키지 않는다. 필수 economic field가 없거나 timestamp가 integer epoch가 아니면 전체
+  window를 `ERROR` 처리한다.
+- 성공 응답이 documented `[start,end]` 밖 timestamp를 반환하면 source가 bounds를 지키지 않은
+  것이다. 해당 economic row와 HTTP/sanitized raw lineage는 버리지 않고
+  `SOURCE_BOUNDS_VIOLATION` window에 보존하지만, component는 `POSSIBLE_GAP`이며 complete
+  watermark를 절대 전진시키지 않는다. bounds를 무시한 동일 global-head 응답을 재귀 split해
+  완전한 과거 tape처럼 꾸미지 않는다.
 - 응답 자체는 성공했지만 worker runtime budget을 넘긴 경우도 그 request ID와 sanitized raw
   payload를 `BUDGET_EXHAUSTED` logical window에 연결한 뒤 watermark를 동결한다.
 - 정상 empty window와 trade가 하나도 없는 complete cycle은 명시적인 `EMPTY`이며 complete
@@ -205,27 +210,59 @@ Git commit은 provenance이며 cohort 경계는
 ## 설치와 로컬 실행
 
 credential은 필요하지 않다. `.env`나 실제 key를 만들지 않는다.
+Mac mini Jenkins에서는 uv 설치 위치를 추측하지 않고 아래 절대 경로를 사용한다.
+
+### 최초 설치 또는 코드 변경 후 1회 검증
 
 ```bash
 cd golden-pomegranate
-uv sync --frozen --extra dev
-uv run pytest
-uv build
+UV=/Users/jongwoopark/.local/bin/uv
+export UV_LINK_MODE=copy
 
-uv run polybot config --simulate --job pomegranate-local
-uv run polybot health --simulate --job pomegranate-local
-uv run polybot run --simulate --job pomegranate-local
-uv run polybot status --simulate --job pomegranate-local
+"${UV}" sync --frozen --extra dev
+"${UV}" run pytest
+"${UV}" build
+```
+
+`pytest`와 `build`는 새 코드 checkout의 최초 검증 또는 dependency/build 설정 변경 때 실행한다.
+5분·15분·30분마다 도는 반복 수집에서는 실행하지 않는다. 테스트가 실패하면 뒤 명령까지
+진행하지 않도록 Jenkins shell에는 반드시 `set -euo pipefail`을 둔다.
+
+### 반복 수집 cycle
+
+```bash
+#!/bin/bash
+set +x
+set -euo pipefail
+
+export UV_LINK_MODE=copy
+export LOG_LEVEL=INFO
+export PYTHONUNBUFFERED=1
+export POLYBOT_LIFECYCLE_MODE=archive_only
+
+cd golden-pomegranate
+UV=/Users/jongwoopark/.local/bin/uv
+
+"${UV}" sync --frozen
+"${UV}" run polybot config --simulate --job pomegranate-local
+"${UV}" run polybot health --simulate --job pomegranate-local
+"${UV}" run polybot run --simulate --job pomegranate-local
+"${UV}" run polybot status --simulate --job pomegranate-local
+"${UV}" run polybot health --simulate --job pomegranate-local
 ```
 
 `run`은 daemon이 아니라 정확히 한 cursor-complete cycle을 수행한다. `config`와 `status`도
-mode를 생략하지 않는다. lifecycle은 오직 `archive_only`만 허용하며 `active`, `close_only`와
-unknown value는 config 단계에서 거부한다. 다음 명령은 DB나 network를 열기 전에 **실패해야
-정상**이다.
+mode를 생략하지 않는다. `--simulate`는 가짜 API나 가상 주문을 뜻하지 않는다. 공개 Gamma,
+CLOB, Data API는 실제로 읽고 연구 DB를 실제로 쓰지만 계좌·주문 경로가 없다는 뜻이다.
+따라서 거래 없는 공개 API 수집도 항상 `--simulate`로 운영한다. lifecycle은 오직
+`archive_only`만 허용하며 `active`, `close_only`와 unknown value는 config 단계에서 거부한다.
+
+다음 `--live` 명령은 운영 예시가 아니라 안전장치의 **negative test**다. DB나 network를 열기
+전에 실패해야 정상이며 정기 Jenkins shell에는 넣지 않는다.
 
 ```bash
-uv run polybot run --live --job pomegranate-local
-POLYMARKET_PRIVATE_KEY=forbidden uv run polybot config --simulate --job pomegranate-local
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job pomegranate-local
+POLYMARKET_PRIVATE_KEY=forbidden /Users/jongwoopark/.local/bin/uv run polybot config --simulate --job pomegranate-local
 ```
 
 실제 credential 값을 예제로 넣거나 console에 출력하지 않는다. 안전 block은 대표 key 하나만
@@ -279,6 +316,21 @@ dated shard는 **120일 whole-shard retention**을 권장한다. 이는 자동 �
 금지한다. free-space hard stop에 닿으면 먼저 cadence를 30분으로 낮추고 backup/storage를
 확장한다.
 
+여기서 120일은 “전략을 만들기 전에 기다려야 하는 기간”이 아니다. Jenkins의 120일 console
+log 보존과 SQLite whole-shard 120일 capacity planning horizon은 서로 별도 보존 정책이다.
+
+### 데이터를 언제 분석할 것인가
+
+- 7 complete UTC day: 수집 안정성, 누락, runtime, shard rotation과 disk forecast만 판정한다.
+- 14일: feature 정의와 탐색 분석을 시작할 수 있지만 수익성 결론은 내리지 않는다.
+- 30일: 첫 후보 전략과 반사실 backtest를 만들 수 있는 권장 최소 구간이다.
+- 60~90일: 스포츠/정치/경제와 주중·주말 등 여러 regime을 나눈 재검증 구간이다.
+- 120일: 보존·capacity horizon이지 분석 시작을 미루는 의무 기간이 아니다.
+
+resolution label은 시장의 실제 종료 뒤에 생기므로, 30일이 지나도 아직 unresolved인 시장은
+성과 분모에 억지로 넣지 않는다. 7일 health gate가 실패하면 기간을 더 기다리지 말고 수집
+계약부터 복구한다.
+
 ## Cadence 변경 gate
 
 초기 Jenkins trigger는 `H/15 * * * *`다. 첫 7개의 완결된 UTC day 동안 15분 cadence를
@@ -301,12 +353,31 @@ dated shard는 **120일 whole-shard retention**을 권장한다. 이는 자동 �
 coverage가 계속 낮고 API/storage pressure가 원인이면 `H/30 * * * *`로 fallback한다. 동시
 build, partial cursor, filter 추가, row 삭제로 cadence를 맞추지 않는다.
 
+### 최초 운영 승인 순서
+
+1. test/build를 포함한 1회 검증을 통과시킨다.
+2. test/build를 뺀 반복 shell로 수동 cycle을 2~3회 실행한다.
+3. 매번 마지막 `health/status`의 component status, runtime, marginal DB growth와
+   `forecast_days_to_stop`을 확인한다.
+4. Data API `ERROR` 또는 unresolved `possible_gap`을 정상 수집으로 간주하지 않는다.
+5. runtime이 10분 이상이거나 15분 slot headroom이 3분 미만이면 우선 `H/30 * * * *`와
+   `POLYBOT_CADENCE_MINUTES=30`으로 시작한다. trigger와 config cadence는 반드시 같아야 하며,
+   기존 DB의 cadence 변경은 UTC day 경계에서만 적용한다. 같은 UTC shard 도중 변경하면
+   fail closed하는 것이 정상이다.
+6. 실측 성장률 기준 hard-stop 예상일이 30일보다 짧으면 timer를 켜지 않고 storage profile을
+   먼저 재설계한다.
+
+2026-08-07 Mac mini 첫 cycle은 collector runtime `753.392초`, active DB
+`1,379,725,312 bytes`였다. 단일 표본을 장기 성장률로 확정할 수는 없지만 15분 slot의 안전한
+headroom은 부족하므로, 수정 배포 후 수동 cycle에서 재측정하기 전에는 timer를 활성화하지
+않는다. 같은 수준이 반복되면 현재 host의 시작 cadence는 15분이 아니라 30분이다.
+
 ## Jenkins와 외장 APFS volume
 
 저장소 [Jenkinsfile](Jenkinsfile)은 다음 계약을 고정한다.
 
 - external APFS root `/Volumes/t7`
-- job별 고유 workspace `/Volumes/t7/jenkins/workspace/${JOB_NAME}`
+- 승인된 단일 workspace `/Volumes/t7/jenkins/golden-pomegranate`
 - 외장 workspace를 Daily Rsync가 유일하게 식별하는
   `.daily-rsync-workspace.json` exact marker
 - `disableConcurrentBuilds()`
@@ -315,6 +386,13 @@ build, partial cursor, filter 추가, row 삭제로 cadence를 맞추지 않는�
 - `UV_LINK_MODE=copy`
 - explicit `config → health → run → status → health`
 - credential binding/inline secret 없음
+
+[`UV_LINK_MODE`](https://docs.astral.sh/uv/reference/environment/#uv_link_mode)`=copy`는 외장
+APFS라서 Python이 특별히 요구하는 값은 아니다. uv의 global cache가
+내장 volume에 있고 `.venv`가 외장 volume에 있으면 기본 clone(copy-on-write)이나 hardlink가
+filesystem 경계를 넘지 못할 수 있다. `copy`는 cache artifact를 target environment에 실제로
+복사해 cross-device link/clone 편차와 자동 fallback 경고를 없앤다. 약간의 설치 시간과 공간을
+더 쓰지만 외장 Jenkins에서는 재현성이 더 중요하므로 고정한다.
 
 `/Volumes/t7`은 기본 예시다. 승인한 외장 volume 이름이 다르면 Declarative pipeline에서는
 [Jenkinsfile](Jenkinsfile)의 `POMEGRANATE_MOUNT_ROOT` 값 하나를 바꾸고, 아래 sentinel 생성 경로도
@@ -342,7 +420,7 @@ DB를 만들지 않는다.
 ### Jenkins Freestyle job
 
 Freestyle을 쓰면 shell보다 먼저 Jenkins UI의 **Use custom workspace**를 켜고 exact path를
-`/Volumes/t7/jenkins/workspace/${JOB_NAME}`로 설정한다. 다른 승인 volume을 쓰는 경우 이 UI path와
+`/Volumes/t7/jenkins/golden-pomegranate`로 설정한다. 다른 승인 volume을 쓰는 경우 이 UI path와
 아래 `MOUNT_ROOT` 첫 줄을 함께 바꾼다. Build Environment의 Credentials Binding은 추가하지 않고,
 Build Discarder는 summary console log를 120일 보존하도록 설정한다. Git SCM이 monorepo root를
 workspace에 checkout한다는 전제에서 다음 shell을 그대로 사용한다.
@@ -353,7 +431,7 @@ set +x
 set -euo pipefail
 
 MOUNT_ROOT=/Volumes/t7
-EXPECTED_WORKSPACE="${MOUNT_ROOT}/jenkins/workspace/${JOB_NAME}"
+EXPECTED_WORKSPACE="${MOUNT_ROOT}/jenkins/golden-pomegranate"
 SENTINEL="${MOUNT_ROOT}/.golden-pomegranate-volume"
 HOST_UUID_PIN=/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid
 
@@ -450,7 +528,7 @@ export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
 export PYTHONUNBUFFERED=1
 export POLYBOT_LIFECYCLE_MODE=archive_only
-RUNTIME_JOB="${JOB_NAME//\//__}"
+RUNTIME_JOB=pomegranate-local
 UV=/Users/jongwoopark/.local/bin/uv
 
 cd "${WORKSPACE}/golden-pomegranate"

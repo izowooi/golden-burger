@@ -2052,7 +2052,15 @@ class ResearchRepository:
         ]
         if prior_sizes:
             deltas.append(max(0, logical_bytes - prior_sizes[-1]))
-        growth = sum(deltas) / len(deltas) if deltas else 0.0
+        # On the first successful cycle there is no prior post_publish row yet.
+        # Treat the current logical DB size as the first-cycle growth estimate
+        # instead of reporting a misleading zero-day forecast.  Later cycles
+        # continue to use measured deltas between post-publish observations.
+        growth = (
+            sum(deltas) / len(deltas)
+            if deltas
+            else (float(logical_bytes) if logical_bytes > 0 else 0.0)
+        )
         forecast = growth * (1440 / cadence_minutes)
         ratio_headroom = max(0.0, storage.stop_used_ratio * usage.total - usage.used)
         free_floor_headroom = max(0.0, usage.free - storage.min_free_gib * GIB)

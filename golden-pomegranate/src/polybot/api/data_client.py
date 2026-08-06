@@ -196,7 +196,7 @@ class DataApiClient:
         page_number: int,
         run_id: str | None,
         attempt_evidence_sink: Callable[[Mapping[str, Any]], None],
-    ) -> tuple[Any, str, str, str | None]:
+    ) -> tuple[Any, str, str, str | None, int, int | None, int | None]:
         result = get_json_with_retry(
             self.session,
             f"{self.config.base_url}/trades",
@@ -250,6 +250,8 @@ class DataApiClient:
                     content=sanitized_bytes,
                     store_blob=True,
                 )
+            timestamps: list[int] = []
+            out_of_bounds_count = 0
             for index, trade in enumerate(sanitized):
                 missing = [
                     field
@@ -299,10 +301,10 @@ class DataApiClient:
                         raise ValueError(
                             f"Data API trade row {index} outcomeIndex must be an integer"
                         )
-                if not start_epoch <= timestamp <= end_epoch:
-                    raise ValueError(
-                        f"Data API trade row {index} timestamp is outside requested bounds"
-                    )
+                timestamp_epoch = int(timestamp_decimal)
+                timestamps.append(timestamp_epoch)
+                if not start_epoch <= timestamp_epoch <= end_epoch:
+                    out_of_bounds_count += 1
         except ValueError as error:
             raise _DataTradeContractError(
                 str(error),
@@ -310,7 +312,15 @@ class DataApiClient:
                 received_at=result.received_at,
                 raw_payload_id=raw_payload_id,
             ) from error
-        return sanitized, result.request_id, result.received_at, raw_payload_id
+        return (
+            sanitized,
+            result.request_id,
+            result.received_at,
+            raw_payload_id,
+            out_of_bounds_count,
+            min(timestamps) if timestamps else None,
+            max(timestamps) if timestamps else None,
+        )
 
     def fetch_incremental(
         self,
@@ -519,13 +529,15 @@ class DataApiClient:
                     parent_window_id=parent_window_id,
                 )
 
+        error_message: str | None = None
+
         def collect_window(
             start_epoch: int,
             end_epoch: int,
             depth: int,
             parent_window_id: str | None,
         ) -> None:
-            nonlocal possible_gap, page_counter, windows_started
+            nonlocal error_message, possible_gap, page_counter, windows_started
             if depth > 40:
                 raise RuntimeError("Data trade window split depth exceeded")
             assert_budget(start_epoch, end_epoch, depth, parent_window_id)
@@ -533,7 +545,15 @@ class DataApiClient:
             window_id = str(uuid4())
             page_counter += 1
             try:
-                rows, request_id, received_at, raw_payload_id = self._get_window(
+                (
+                    rows,
+                    request_id,
+                    received_at,
+                    raw_payload_id,
+                    out_of_bounds_count,
+                    observed_min_epoch,
+                    observed_max_epoch,
+                ) = self._get_window(
                     collection_id=collection_id,
                     window_id=window_id,
                     start_epoch=start_epoch,
@@ -645,14 +665,32 @@ class DataApiClient:
                 "possible_gap": 0,
                 "error_message": None,
             }
-            if hit_cap and duration >= 1:
+            if out_of_bounds_count:
+                # The public unscoped endpoint has been observed returning its
+                # current global head while ignoring documented start/end
+                # bounds.  Keep those economically valid rows and their exact
+                # HTTP/raw lineage for research, but never claim the requested
+                # interval is complete or advance its watermark.  Splitting a
+                # response that ignored the parent bounds would only repeat the
+                # same head payload and consume the cycle budget.
+                possible_gap = True
+                window["status"] = "SOURCE_BOUNDS_VIOLATION"
+                window["possible_gap"] = 1
+                window["error_message"] = (
+                    "Data API returned rows outside requested bounds: "
+                    f"count={out_of_bounds_count} "
+                    f"requested=[{start_epoch},{end_epoch}] "
+                    f"observed=[{observed_min_epoch},{observed_max_epoch}]"
+                )
+                error_message = window["error_message"]
+            elif hit_cap and duration >= 1:
                 midpoint = start_epoch + duration // 2
                 window["status"] = "SPLIT"
                 windows.append(window)
                 collect_window(start_epoch, midpoint, depth + 1, window_id)
                 collect_window(midpoint + 1, end_epoch, depth + 1, window_id)
                 return
-            if hit_cap:
+            if hit_cap and not out_of_bounds_count:
                 possible_gap = True
                 window["status"] = "POSSIBLE_GAP"
                 window["possible_gap"] = 1
@@ -729,7 +767,6 @@ class DataApiClient:
                 canonical_json(digest_scope).encode()
             ).hexdigest()
 
-        error_message: str | None = None
         try:
             if target_start < target_end:
                 collect_window(target_start, target_end, 0, None)

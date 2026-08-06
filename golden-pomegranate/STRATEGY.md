@@ -118,7 +118,10 @@ window가 10,000-row cap에 닿으면 midpoint로 재귀 분할한다. 하나의
 전진시키지 않는다. network/parser error도 같은 fail-visible 규칙을 쓴다. HTTP success의 빈
 array는 명시적인 complete `EMPTY` window이며, cycle 전체가 비었어도 complete watermark는
 전진한다. 필수 economic field 누락, non-finite/out-of-range economics, integer가 아닌 epoch
-timestamp 또는 requested window 밖 timestamp는 window `ERROR`다.
+timestamp는 window `ERROR`다. HTTP success가 requested window 밖 timestamp를 반환하면 source
+bounds 위반이다. economic row와 HTTP/sanitized raw lineage는
+`SOURCE_BOUNDS_VIOLATION`으로 보존하되 component는 `POSSIBLE_GAP`이고 watermark는 전진시키지
+않는다. bounds를 무시한 응답을 재귀 split해 complete tape로 오인시키지 않는다.
 `source_target_end_epoch`가 persisted watermark보다 과거인
 **clock regression**은 request 전에 `ERROR`로 멈춘다.
 

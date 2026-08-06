@@ -337,7 +337,7 @@ def test_two_inclusive_timestamp_buckets_split_without_overlap_or_false_gap():
     assert leaves == [(0, 0), (1, 1)]
 
 
-def test_contract_error_window_retains_http_and_sanitized_payload_lineage():
+def test_source_bounds_violation_retains_http_raw_and_normalized_lineage():
     raw_payloads = []
 
     def save_payload(**kwargs):
@@ -358,7 +358,12 @@ def test_contract_error_window_retains_http_and_sanitized_payload_lineage():
         run_id="run",
     )
 
-    assert result.status == "ERROR"
+    assert result.status == "POSSIBLE_GAP"
+    assert result.possible_gap is True
+    assert result.watermark_advance_to_epoch is None
+    assert len(result.trades) == 1
+    assert len(result.memberships) == 1
+    assert result.windows[-1]["status"] == "SOURCE_BOUNDS_VIOLATION"
     assert result.windows[-1]["request_id"]
     assert result.windows[-1]["raw_payload_id"] == "payload-invalid"
     assert raw_payloads[0]["request_id"] == result.windows[-1]["request_id"]
@@ -553,7 +558,7 @@ def test_clock_regression_fails_before_request_and_preserves_watermark():
     assert session.calls == []
 
 
-def test_out_of_window_trade_is_malformed_and_freezes_watermark():
+def test_out_of_window_trade_is_retained_but_freezes_watermark():
     session = CallbackSession(lambda params: [_trade(timestamp=params["end"] + 1)])
     client = _client(session)
 
@@ -564,12 +569,33 @@ def test_out_of_window_trade_is_malformed_and_freezes_watermark():
         run_id="run",
     )
 
-    assert result.status == "ERROR"
+    assert result.status == "POSSIBLE_GAP"
     assert result.possible_gap is True
     assert result.watermark_advance_to_epoch is None
-    assert result.trades == ()
-    assert result.memberships == ()
+    assert len(result.trades) == 1
+    assert len(result.memberships) == 1
+    assert result.windows[0]["status"] == "SOURCE_BOUNDS_VIOLATION"
     assert "outside requested bounds" in result.error_message
+
+
+def test_bounds_violating_capped_head_is_not_recursively_refetched():
+    session = CallbackSession(lambda params: [_trade(timestamp=params["end"] + 1)])
+    client = _client(session, trade_limit=1)
+
+    result = client.fetch_incremental(
+        watermark_epoch=10_000,
+        now_epoch=10_500,
+        cycle_number=2,
+        run_id="run",
+    )
+
+    assert result.status == "POSSIBLE_GAP"
+    assert result.watermark_advance_to_epoch is None
+    assert len(session.calls) == 1
+    assert len(result.windows) == 1
+    assert result.windows[0]["hit_cap"] == 1
+    assert result.windows[0]["status"] == "SOURCE_BOUNDS_VIOLATION"
+    assert len(result.trades) == 1
 
 
 def test_only_trade_fields_are_persistable_and_sanitized_raw_has_no_profile_data():

@@ -119,8 +119,10 @@ participant 활동량 또는 participant-row volume을 추정하지 않는다.
 9. HTTP success empty array는 receipt clock을 가진 complete `EMPTY` window이고, complete empty
    cycle도 watermark를 전진시킨다.
 10. 필수 economic field 누락, non-finite/out-of-range economics, integer가 아닌 epoch
-    timestamp 또는 requested window 밖 timestamp는 window `ERROR`; watermark는 전진하지
-    않는다.
+    timestamp는 window `ERROR`; watermark는 전진하지 않는다. HTTP success가 requested
+    bounds 밖 timestamp를 반환하면 row와 HTTP/sanitized raw lineage는
+    `SOURCE_BOUNDS_VIOLATION`으로 보존하되 component는 `POSSIBLE_GAP`이며 watermark는
+    전진하지 않는다. bounds를 무시한 응답을 재귀 split하지 않는다.
 11. `source_target_end_epoch`가 persisted watermark보다 과거인 **clock regression**은 source request
     전에 `ERROR`로 기록하고 watermark를 유지한다.
 
