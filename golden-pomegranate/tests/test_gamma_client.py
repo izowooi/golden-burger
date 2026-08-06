@@ -97,8 +97,9 @@ def test_gamma_fetches_every_page_and_preserves_variable_outcomes_and_volumes(
     assert session.calls[0][0].endswith("/markets/keyset")
     assert session.calls[0][1]["closed"] == "false"
     assert session.calls[0][1]["include_tag"] == "true"
-    assert "liquidity_num_min" not in session.calls[0][1]
-    assert "volume_num_min" not in session.calls[0][1]
+    assert session.calls[0][1]["liquidity_num_min"] == 10_000
+    assert session.calls[0][1]["volume_num_min"] == 2_000
+    assert session.calls[0][1]["end_date_max"] == "2026-12-04T00:00:00+00:00"
     assert "active" not in session.calls[0][1]
     assert session.calls[1][1]["after_cursor"] == "cursor-1"
     assert sweep.pages[0].markets[0]["outcomes"] == ["Yes", "No", "Invalid"]
@@ -115,6 +116,28 @@ def test_gamma_fetches_every_page_and_preserves_variable_outcomes_and_volumes(
     assert flattened[1]["volume24hr"] is None
     assert flattened[0]["_page_received_at"] != sweep.completed_at
     assert len(sweep.request_attestation_sha256) == 64
+
+
+def test_capacity_envelope_is_present_on_every_cursor_page(monkeypatch):
+    session = SequenceSession(
+        Response({"markets": [], "next_cursor": "next"}),
+        Response({"markets": [], "next_cursor": None}),
+    )
+    gamma_clocks = iter(["2026-08-06T12:00:00+00:00", "2026-08-06T12:00:03+00:00"])
+    monkeypatch.setattr("polybot.api.gamma_client.utc_now", lambda: next(gamma_clocks))
+    client = _client(
+        session,
+        min_liquidity=25_000,
+        min_total_volume=5_000,
+        max_end_horizon_days=30,
+    )
+
+    client.fetch_complete_sweep("bounded", cycle_number=1)
+
+    for _, params, _ in session.calls:
+        assert params["liquidity_num_min"] == 25_000
+        assert params["volume_num_min"] == 5_000
+        assert params["end_date_max"] == "2026-09-05T12:00:00+00:00"
 
 
 def test_repeated_cursor_aborts_without_returning_a_partial_sweep():

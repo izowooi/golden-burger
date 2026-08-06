@@ -1,5 +1,9 @@
 # 2026-08-06 Golden Pomegranate collection preregistration
 
+> 2026-08-07 capacity 실측으로 global-envelope/15-minute 운영안은
+> [capacity amendment](2026-08-07-capacity-amendment.md)로 전향적으로 대체되었다. 이 문서는
+> 최초 결정의 provenance로 보존하며 현재 운영 명령으로 사용하지 않는다.
+
 ## 상태와 목적
 
 이 문서는 첫 운영 수집 결과를 보기 전에 Golden Pomegranate의 collection denominator,

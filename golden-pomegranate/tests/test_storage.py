@@ -328,6 +328,28 @@ def test_same_utc_shard_rejects_cadence_or_contract_metadata_change(tmp_path):
         )
 
 
+def test_same_utc_shard_allows_source_digest_cohort_change(tmp_path):
+    repository = ResearchRepository(
+        tmp_path / "data" / "job" / "trades_sim.db",
+        clock=lambda: datetime(2026, 8, 6, tzinfo=timezone.utc),
+    )
+    repository.initialize(
+        contract_metadata={
+            "cadence_minutes": 60,
+            "job_name": "research-job",
+            "strategy_source_digest": "a" * 64,
+        }
+    )
+
+    repository.initialize(
+        contract_metadata={
+            "cadence_minutes": 60,
+            "job_name": "research-job",
+            "strategy_source_digest": "b" * 64,
+        }
+    )
+
+
 @pytest.mark.parametrize(
     ("usage", "expected"),
     [

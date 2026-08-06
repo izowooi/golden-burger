@@ -16,7 +16,8 @@ wallet, 주문, position, fill, P&L을 다루지 않으며 trading strategy 또�
 
 ## 주요 파일
 
-- `README.md`: 수집, storage, cadence, Jenkins 운영 계약이다.
+- `README.md`: 수집 데이터 계약이다.
+- `OPERATIONS.md`: storage, cadence, 외장 APFS와 Jenkins 운영 계약이다.
 - `STRATEGY.md`: trading strategy가 아닌 research hypothesis와 falsification gate다.
 - `research/2026-08-06-preregistration.md`: 최초 7-day collection health gate다.
 - `config.yaml`, `src/polybot/config.py`: simulation-only resolved config와 fail-closed validation이다.
@@ -33,16 +34,16 @@ wallet, 주문, position, fill, P&L을 다루지 않으며 trading strategy 또�
 ```bash
 cd golden-pomegranate
 uv sync --frozen --extra dev
-uv run polybot config --simulate --job pomegranate-local
-uv run polybot health --simulate --job pomegranate-local
-uv run polybot status --simulate --job pomegranate-local
-uv run polybot export-manifest --simulate --job pomegranate-local
+uv run polybot config --simulate --job pomegranate-hourly-v1
+uv run polybot health --simulate --job pomegranate-hourly-v1
+uv run polybot status --simulate --job pomegranate-hourly-v1
+uv run polybot export-manifest --simulate --job pomegranate-hourly-v1
 ```
 
 한 번의 실제 public collection cycle이 필요한 경우에만 다음 명령을 사용한다.
 
 ```bash
-uv run polybot run --simulate --job pomegranate-local
+uv run polybot run --simulate --job pomegranate-hourly-v1
 ```
 
 `--simulate`는 network mock이 아니다.
@@ -74,15 +75,16 @@ uv build
 ## 배포
 
 trading 또는 application 배포는 없다.
-`Jenkinsfile`이 `H/15 * * * *`, 13분 timeout, `disableConcurrentBuilds()`로 한 cycle씩 실행한다.
+`Jenkinsfile`이 `H * * * *`, 20분 timeout, `disableConcurrentBuilds()`로 한 cycle씩 실행한다.
 Jenkins 순서는 `config → health → run → status → health`로 유지한다.
-10분 cadence는 7개의 완결된 UTC day와 `STRATEGY.md`의 health gate를 모두 통과한 뒤 새 cohort로만 검토한다.
+30분 cadence는 7개의 완결된 UTC day와 `OPERATIONS.md`의 capacity gate를 모두 통과한 뒤 새 cohort로만 검토한다.
 
 ## 작업 규칙
 
 - authenticated client, order submission, account, position, fill, `ExecutionLedger`, P&L code path나 dependency를 추가하지 않는다.
-- Gamma는 `/markets/keyset`의 `closed=false` envelope를 terminal cursor까지 순회하고 반환된 모든 market과 variable outcome을 보존한다.
-- Gamma에 `active`, liquidity, volume, category, probability, date, binary 여부 등의 client-side filter를 추가하지 않는다.
+- Gamma는 `/markets/keyset`의 capacity-bounded envelope를 terminal cursor까지 순회하고 반환된 모든 market과 variable outcome을 보존한다.
+- 기본 storage gate는 liquidity $10k, cumulative volume $2k, end horizon 120일이며 override는 더 엄격하게만 허용한다.
+- sports, category, probability, active, binary 여부의 client-side 사후 filter는 추가하지 않는다.
 - repeated cursor, malformed page, page limit 또는 request failure가 있으면 Gamma census bundle 전체를 rollback한다.
 - public CLOB은 complete Gamma frame을 SHA-256 bucket에 배치하고 UTC shard와 독립적인 cadence slot·deterministic cyclic window로 market을 회전 선택한다.
 - 선택 market의 모든 distinct public outcome token을 `/books`로 조회하고 selection denominator, rank, truncation, empty/error metadata를 보존한다.

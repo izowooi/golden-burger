@@ -735,7 +735,16 @@ class ResearchRepository:
             ):
                 connection.rollback()
                 raise RuntimeError("incompatible research collection contract")
-            if contract_metadata is not None and row["metadata_json"] != metadata_json:
+            # Source digest is run/cohort provenance, not a daily shard schema
+            # boundary. It is already recorded in research_config_versions and
+            # research_run_events. Older shards included it here, so normalize
+            # both sides to let a safe source-only deployment continue.
+            stored_metadata = json.loads(str(row["metadata_json"]))
+            comparable_metadata = dict(metadata)
+            if isinstance(stored_metadata, dict):
+                stored_metadata.pop("strategy_source_digest", None)
+            comparable_metadata.pop("strategy_source_digest", None)
+            if contract_metadata is not None and stored_metadata != comparable_metadata:
                 connection.rollback()
                 raise RuntimeError(
                     "research shard contract metadata changed within one UTC day; "

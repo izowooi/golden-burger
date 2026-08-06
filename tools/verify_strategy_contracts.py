@@ -1641,7 +1641,7 @@ def _validate_research_only_strategy(
             "research-full-v1",
             "trades_sim.db",
             "trades_sim_YYYYMMDD.db",
-            "H/15",
+            "OPERATIONS.md",
             "--simulate",
             "--live",
             "compact-v1",
@@ -1655,7 +1655,10 @@ def _validate_research_only_strategy(
         env_example,
         (
             "POLYBOT_LIFECYCLE_MODE=archive_only",
-            "POLYBOT_CADENCE_MINUTES=15",
+            "POLYBOT_CADENCE_MINUTES=60",
+            "POLYBOT_GAMMA_MIN_LIQUIDITY=10000",
+            "POLYBOT_GAMMA_MIN_TOTAL_VOLUME=2000",
+            "POLYBOT_GAMMA_MAX_END_HORIZON_DAYS=120",
             "POLYBOT_MIN_FREE_GIB=150",
         ),
     )

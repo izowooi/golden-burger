@@ -2,7 +2,7 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  cadence_minutes: 15
+  cadence_minutes: 60
   data_contract: research-full-v1
 
   gamma:
@@ -14,6 +14,12 @@ trading:
     max_retries: 6
     retry_base_seconds: 2
     retry_max_seconds: 60
+    # Capacity-bounded actionable research envelope. Overrides may only make
+    # these gates stricter; the collector never returns to the 139k-row global
+    # open-market census by accident.
+    min_liquidity: 10000
+    min_total_volume: 2000
+    max_end_horizon_days: 120
 
   data_api:
     base_url: https://data-api.polymarket.com

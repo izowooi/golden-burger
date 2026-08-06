@@ -52,6 +52,9 @@ _ALLOWED_POLYBOT_ENV_KEYS = frozenset(
         "POLYBOT_GAMMA_MAX_RETRIES",
         "POLYBOT_GAMMA_RETRY_BASE_SECONDS",
         "POLYBOT_GAMMA_RETRY_MAX_SECONDS",
+        "POLYBOT_GAMMA_MIN_LIQUIDITY",
+        "POLYBOT_GAMMA_MIN_TOTAL_VOLUME",
+        "POLYBOT_GAMMA_MAX_END_HORIZON_DAYS",
         "POLYBOT_DATA_API_BASE_URL",
         "POLYBOT_DATA_TRADE_LIMIT",
         "POLYBOT_TRADE_SAFETY_LAG_SECONDS",
@@ -112,6 +115,9 @@ class GammaConfig:
     max_retries: int = 6
     retry_base_seconds: float = 2.0
     retry_max_seconds: float = 60.0
+    min_liquidity: float = 10_000.0
+    min_total_volume: float = 2_000.0
+    max_end_horizon_days: int = 120
 
 
 @dataclass(frozen=True)
@@ -154,7 +160,7 @@ class StorageConfig:
 @dataclass(frozen=True)
 class TradingConfig:
     lifecycle_mode: str = "archive_only"
-    cadence_minutes: int = 15
+    cadence_minutes: int = 60
     data_contract: str = RESEARCH_DATA_CONTRACT
     strategy_source_digest: str = ""
     gamma: GammaConfig = field(default_factory=GammaConfig)
@@ -298,6 +304,9 @@ def _validate_config(trading: TradingConfig) -> None:
         "gamma.max_retries": gamma.max_retries,
         "gamma.retry_base_seconds": gamma.retry_base_seconds,
         "gamma.retry_max_seconds": gamma.retry_max_seconds,
+        "gamma.min_liquidity": gamma.min_liquidity,
+        "gamma.min_total_volume": gamma.min_total_volume,
+        "gamma.max_end_horizon_days": gamma.max_end_horizon_days,
         "data_api.trade_limit": data_api.trade_limit,
         "data_api.safety_lag_seconds": data_api.safety_lag_seconds,
         "data_api.overlap_seconds": data_api.overlap_seconds,
@@ -331,8 +340,8 @@ def _validate_config(trading: TradingConfig) -> None:
         raise ValueError(f"data_contract must be {RESEARCH_DATA_CONTRACT}")
     if trading.cadence_minutes <= 0:
         raise ValueError("cadence_minutes must be > 0")
-    if trading.cadence_minutes not in {10, 15, 30}:
-        raise ValueError("cadence_minutes must be one of: 10, 15, 30")
+    if trading.cadence_minutes not in {30, 60}:
+        raise ValueError("cadence_minutes must be one of: 30, 60")
     _validate_public_base_url("gamma.base_url", gamma.base_url)
     if not 1 <= gamma.page_size <= 100:
         raise ValueError("gamma.page_size must be in [1, 100]")
@@ -346,6 +355,14 @@ def _validate_config(trading: TradingConfig) -> None:
         raise ValueError("Gamma retry delays must be non-negative/positive")
     if gamma.retry_base_seconds > gamma.retry_max_seconds:
         raise ValueError("retry_base_seconds must be <= retry_max_seconds")
+    if gamma.min_liquidity < 10_000:
+        raise ValueError("gamma.min_liquidity cannot be below the $10,000 storage gate")
+    if gamma.min_total_volume < 2_000:
+        raise ValueError(
+            "gamma.min_total_volume cannot be below the $2,000 storage gate"
+        )
+    if not 1 <= gamma.max_end_horizon_days <= 120:
+        raise ValueError("gamma.max_end_horizon_days must be in [1, 120]")
     _validate_public_base_url("data_api.base_url", data_api.base_url)
     if data_api.trade_limit != 10_000:
         raise ValueError("data_api.trade_limit is fixed at the public 10000-row cap")
@@ -485,6 +502,25 @@ def load_config(
             "POLYBOT_GAMMA_RETRY_MAX_SECONDS",
             gamma_raw.get("retry_max_seconds"),
             GammaConfig.retry_max_seconds,
+        ),
+        min_liquidity=_get_config_value(
+            resolved_env,
+            "POLYBOT_GAMMA_MIN_LIQUIDITY",
+            gamma_raw.get("min_liquidity"),
+            GammaConfig.min_liquidity,
+        ),
+        min_total_volume=_get_config_value(
+            resolved_env,
+            "POLYBOT_GAMMA_MIN_TOTAL_VOLUME",
+            gamma_raw.get("min_total_volume"),
+            GammaConfig.min_total_volume,
+        ),
+        max_end_horizon_days=_get_config_value(
+            resolved_env,
+            "POLYBOT_GAMMA_MAX_END_HORIZON_DAYS",
+            gamma_raw.get("max_end_horizon_days"),
+            GammaConfig.max_end_horizon_days,
+            int,
         ),
     )
     data_api = DataApiConfig(

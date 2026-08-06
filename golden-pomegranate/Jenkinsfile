@@ -5,11 +5,11 @@ pipeline {
     skipDefaultCheckout(true)
     disableConcurrentBuilds()
     buildDiscarder(logRotator(daysToKeepStr: '120'))
-    timeout(time: 13, unit: 'MINUTES')
+    timeout(time: 20, unit: 'MINUTES')
   }
 
   triggers {
-    cron('H/15 * * * *')
+    cron('H * * * *')
   }
 
   environment {
@@ -17,7 +17,8 @@ pipeline {
     LOG_LEVEL = 'INFO'
     PYTHONUNBUFFERED = '1'
     POLYBOT_LIFECYCLE_MODE = 'archive_only'
-    POMEGRANATE_RUNTIME_JOB = 'pomegranate-local'
+    POLYBOT_CADENCE_MINUTES = '60'
+    POMEGRANATE_RUNTIME_JOB = 'pomegranate-hourly-v1'
     // Change this one value when the approved external APFS volume is renamed.
     POMEGRANATE_MOUNT_ROOT = '/Volumes/t7'
     // Plain UUID pin kept outside the removable volume; this is not a secret.

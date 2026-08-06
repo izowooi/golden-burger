@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timedelta
 import hashlib
 from typing import Any, Callable, Mapping, Sequence
 from uuid import uuid4
@@ -133,16 +134,20 @@ class GammaClient:
         cycle_number: int = 1,
         run_id: str | None = None,
     ) -> GammaSweep:
-        """Traverse ``/markets/keyset`` completely with zero server minima.
+        """Traverse the capacity-bounded ``/markets/keyset`` envelope completely.
 
-        No active/orderbook/liquidity/strategy filter is applied to returned
-        rows. ``closed=false`` is the sole lifecycle envelope requested by the
-        research contract, and every raw market in it is published.
+        The server-side liquidity, total-volume and end-horizon gates are fixed
+        storage boundaries, not candidate ranking. Every market returned by
+        that declared envelope is still page-clocked and published.
         """
         if cycle_number <= 0:
             raise ValueError("cycle_number must be positive")
         sweep_id = sweep_id or str(uuid4())
         started_at = utc_now()
+        started_at_clock = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+        end_date_max = (
+            started_at_clock + timedelta(days=self.config.max_end_horizon_days)
+        ).isoformat()
         cursor: str | None = None
         seen_cursors: set[str] = set()
         pages: list[GammaPage] = []
@@ -156,6 +161,9 @@ class GammaClient:
                 "closed": "false",
                 "include_tag": "true",
                 "limit": self.config.page_size,
+                "liquidity_num_min": self.config.min_liquidity,
+                "volume_num_min": self.config.min_total_volume,
+                "end_date_max": end_date_max,
             }
             if cursor is not None:
                 params["after_cursor"] = cursor

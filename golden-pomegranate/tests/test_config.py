@@ -45,7 +45,10 @@ def test_default_config_is_archive_only_research_full_and_simulation(tmp_path):
     assert config.trading.collects_full_universe is True
     assert config.trading.collects_resolution_only is False
     assert config.trading.data_contract == RESEARCH_DATA_CONTRACT == "research-full-v1"
-    assert config.trading.cadence_minutes == 15
+    assert config.trading.cadence_minutes == 60
+    assert config.trading.gamma.min_liquidity == 10_000
+    assert config.trading.gamma.min_total_volume == 2_000
+    assert config.trading.gamma.max_end_horizon_days == 120
     assert config.trading.data_api.trade_limit == 10_000
     assert config.trading.data_api.safety_lag_seconds == 300
     assert config.trading.data_api.overlap_seconds == 1_800
@@ -67,6 +70,9 @@ def test_known_environment_overrides_are_strict_and_take_precedence(tmp_path):
         env={
             "POLYBOT_CADENCE_MINUTES": "30",
             "POLYBOT_GAMMA_PAGE_SIZE": "50",
+            "POLYBOT_GAMMA_MIN_LIQUIDITY": "25000",
+            "POLYBOT_GAMMA_MIN_TOTAL_VOLUME": "5000",
+            "POLYBOT_GAMMA_MAX_END_HORIZON_DAYS": "60",
             "POLYBOT_MIN_FREE_GIB": "200",
             "POLYBOT_LIFECYCLE_MODE": "archive_only",
             "POLYBOT_TRADE_CATCHUP_CHUNK_SECONDS": "1800",
@@ -78,6 +84,9 @@ def test_known_environment_overrides_are_strict_and_take_precedence(tmp_path):
 
     assert config.trading.cadence_minutes == 30
     assert config.trading.gamma.page_size == 50
+    assert config.trading.gamma.min_liquidity == 25_000
+    assert config.trading.gamma.min_total_volume == 5_000
+    assert config.trading.gamma.max_end_horizon_days == 60
     assert config.trading.storage.min_free_gib == 200
     assert config.trading.data_api.catchup_chunk_seconds == 1_800
     assert config.trading.data_api.max_request_attempts_per_cycle == 32
@@ -262,6 +271,24 @@ def test_environment_numeric_and_boolean_types_are_strict(
             "raw_payload|every",
         ),
         (
+            lambda payload: payload["trading"]["gamma"].__setitem__(
+                "min_liquidity", 9_999
+            ),
+            "10,000|liquidity",
+        ),
+        (
+            lambda payload: payload["trading"]["gamma"].__setitem__(
+                "min_total_volume", 1_999
+            ),
+            "2,000|volume",
+        ),
+        (
+            lambda payload: payload["trading"]["gamma"].__setitem__(
+                "max_end_horizon_days", 121
+            ),
+            "120|horizon",
+        ),
+        (
             lambda payload: payload["trading"]["data_api"].__setitem__(
                 "safety_lag_seconds", 299
             ),
@@ -312,7 +339,7 @@ def test_cross_field_and_frozen_research_contracts_are_rejected(
         load_config(_mutated_config(tmp_path, mutation), env={})
 
 
-@pytest.mark.parametrize("cadence", [0, 1, 5, 9, 11, 20, 60])
+@pytest.mark.parametrize("cadence", [0, 1, 5, 9, 10, 11, 15, 20, 120])
 def test_only_preregistered_cadences_are_allowed(tmp_path, cadence):
     path = _mutated_config(
         tmp_path,
@@ -322,7 +349,7 @@ def test_only_preregistered_cadences_are_allowed(tmp_path, cadence):
         load_config(path, env={})
 
 
-@pytest.mark.parametrize("cadence", [10, 15, 30])
+@pytest.mark.parametrize("cadence", [30, 60])
 def test_preregistered_cadences_are_valid(tmp_path, cadence):
     path = _mutated_config(
         tmp_path,

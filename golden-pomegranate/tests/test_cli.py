@@ -162,11 +162,11 @@ def test_status_health_and_manifest_route_to_read_only_repository(
 
     assert main_module.main(["status", "--simulate"]) == 0
     assert json.loads(capsys.readouterr().out)["exists"] is False
-    assert instances[-1].calls == [("status", 150.0, 15)]
+    assert instances[-1].calls == [("status", 150.0, 60)]
 
     assert main_module.main(["health", "--simulate"]) == 0
     assert json.loads(capsys.readouterr().out)["healthy"] is True
-    assert instances[-1].calls == [("health", 150.0, 15)]
+    assert instances[-1].calls == [("health", 150.0, 60)]
 
     output = tmp_path / "manifest.json"
     assert (
@@ -174,7 +174,7 @@ def test_status_health_and_manifest_route_to_read_only_repository(
         == 0
     )
     assert json.loads(capsys.readouterr().out)["files"] == []
-    assert instances[-1].calls == [("manifest", str(output), 150.0, 15, True)]
+    assert instances[-1].calls == [("manifest", str(output), 150.0, 60, True)]
 
 
 def test_simulated_run_constructs_one_bot_and_returns_its_outcome(

@@ -243,7 +243,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         logger.warning("research collector interrupted")
         return 130
     except BaseException as error:
-        logger.error("research collector failed error_type=%s", type(error).__name__)
+        logger.exception(
+            "research collector failed error_type=%s error=%s",
+            type(error).__name__,
+            " ".join(str(error).splitlines()),
+        )
         return 1
     return 0
 

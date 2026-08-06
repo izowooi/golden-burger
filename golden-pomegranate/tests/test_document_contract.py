@@ -8,12 +8,13 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 
 def test_readme_names_the_research_profile_rotation_and_live_block():
     source = (PROJECT_ROOT / "README.md").read_text(encoding="utf-8")
+    operations = (PROJECT_ROOT / "OPERATIONS.md").read_text(encoding="utf-8")
 
     for token in (
         "research-full-v1",
         "trades_sim.db",
         "trades_sim_20260806.db",
-        "H/15",
+        "OPERATIONS.md",
         "--simulate",
         "--live",
         "compact-v1",
@@ -28,24 +29,42 @@ def test_readme_names_the_research_profile_rotation_and_live_block():
     ):
         assert token in source
 
-    assert "120일 whole-shard retention" in source
-    assert "free space `<150 GiB`" in source
-    assert "filesystem 사용률 `>=80%`" in source
-    assert "Use custom workspace" in source
-    assert "/Volumes/t7/jenkins/golden-pomegranate" in source
-    assert "Credentials Binding" in source
-    assert "summary console log를 120일" in source
-    assert "Jenkins mount identity 검사를 대신하지 않는다" in source
-    assert "/Users/jongwoopark/.local/bin/uv" in source
-    assert "반복 수집에서는 실행하지 않는다" in source
-    assert "거래 없는 공개 API 수집도 항상 `--simulate`" in source
-    freestyle = source[source.index("### Jenkins Freestyle job") :]
+    assert "120일 whole-shard retention" in operations
+    assert "free space `<150 GiB`" in operations
+    assert "filesystem 사용률 `>=80%`" in operations
+    assert "/Volumes/t7/jenkins/golden-pomegranate" in operations
+    assert "/Users/jongwoopark/.local/bin/uv" in operations
+    assert "반복 수집에서는 제외한다" in operations
+    assert "항상 simulate" in operations
+    freestyle = operations[operations.index("## 매시간 반복 수집 shell") :]
     config_at = freestyle.index("polybot config --simulate")
     first_health_at = freestyle.index("polybot health --simulate", config_at)
     run_at = freestyle.index("polybot run --simulate", first_health_at)
     status_at = freestyle.index("polybot status --simulate", run_at)
     second_health_at = freestyle.index("polybot health --simulate", status_at)
     assert config_at < first_health_at < run_at < status_at < second_health_at
+
+
+def test_operations_readme_starts_with_timeline_and_capacity_profile():
+    source = (PROJECT_ROOT / "OPERATIONS.md").read_text(encoding="utf-8")
+
+    timeline_at = source.index("## 먼저 보는 운영 일정")
+    storage_at = source.index("## 권장 storage profile")
+    assert timeline_at < storage_at
+    for token in (
+        "7일",
+        "14일",
+        "30일",
+        "60~90일",
+        "120일",
+        "H * * * *",
+        "POLYBOT_CADENCE_MINUTES=60",
+        "pomegranate-hourly-v1",
+        "2,899",
+        "97.9%",
+        "UV_LINK_MODE=copy",
+    ):
+        assert token in source
 
 
 def test_preregistration_is_dated_and_has_health_falsification_gates():

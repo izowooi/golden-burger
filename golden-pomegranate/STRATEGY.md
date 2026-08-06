@@ -1,13 +1,18 @@
 # Golden Pomegranate 수집 계약 — Accountless Market Observatory
 
+2026-08-07 이후 운영 envelope와 cadence는
+[capacity amendment](research/2026-08-07-capacity-amendment.md) 및
+[운영 README](OPERATIONS.md)를 따른다. 2026-08-06 global/15-minute 수치는 최초 설계
+provenance이며 현재 기본값이 아니다.
+
 문서 이름은 monorepo convention에 맞춘 `STRATEGY.md`지만 Golden Pomegranate에는 trading
-strategy가 없다. 이 문서는 full-universe 관측과 deterministic public-book sampling을 나중에
+strategy가 없다. 이 문서는 bounded-universe 관측과 deterministic public-book sampling을 나중에
 재현할 수 있게 하는 data-collection contract다.
 
 ## 1. Research hypothesis
 
-Gamma `closed=false` envelope가 반환한 전체 non-closed market/outcome의 point-in-time 상태를
-selection filter 없이 보존하고,
+Gamma의 고정 liquidity/volume/end-horizon envelope가 반환한 market/outcome의 point-in-time
+상태를 그 bounded 범위 안에서 누락 없이 보존하고,
 공개 CLOB book을 selection probability가 복원 가능한 deterministic rotation으로 표본화하며,
 public Data API `/trades`의 exact bounded window를 반복 수집하면,
 기존 전략 DB로는 답할 수 없던 다음 질문을 survivorship/strategy-selection bias를 드러낸 채
@@ -32,7 +37,7 @@ CLOB은 API 비용 때문에 전수 수집하지 않는다. 대신 selection 함
 sampling frame/rank/probability/version을 저장하면 book 분석의 표본 편향을 측정하거나 weighting할
 수 있다. Gamma census와 CLOB sample을 같은 것으로 표현하지 않는 것이 핵심이다.
 
-Data API trade는 WebSocket/tick 전수 capture가 아니라 15분 polling의 bounded rolling query다.
+Data API trade는 WebSocket/tick 전수 capture가 아니라 60분 polling의 bounded rolling query다.
 persisted complete watermark, 30분 overlap, 300초 safety lag와 cap-window 재귀 분할을 함께
 저장해야만 어느 source interval을 완전히 조회했다고 주장하는지 복원할 수 있다.
 
@@ -57,7 +62,7 @@ terminal이 될 때까지 해당 request envelope가 반환한 **모든 non-clos
 
 한 번 census에서 관측한 condition은 independent resolution/redeemable watcher가 closed 이후까지
 추적한다. 최초 collector run 전에 이미 closed였던 market은 historical coverage 밖이다. 과거
-closed 전수를 매 15분 재수집하지 않으며, 이 한계를 full historical Gamma archive라고 숨기지
+closed 전수를 매시간 재수집하지 않으며, 이 한계를 full historical Gamma archive라고 숨기지
 않는다.
 
 primary observation clock은 market이 포함된 **page receipt UTC**다. sweep end를 모든 row에
@@ -203,7 +208,7 @@ DB/path readiness의 read-only view이며 Jenkins mount identity 검사를 대�
 - writer lock 획득 실패
 - active/dated shard collision 또는 failed `quick_check`
 
-usage `>=70%`는 warning이며 10분 cadence 승격과 새 장기 cohort를 금지한다. space pressure가
+usage `>=70%`는 warning이며 30분 cadence 승격과 새 장기 cohort를 금지한다. space pressure가
 evidence 삭제 권한을 만들지 않는다. 120일 whole-shard 보존을 기본 planning horizon으로 쓰고,
 verified durable backup 전에는 오래된 shard도 제거하지 않는다.
 
@@ -243,7 +248,7 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 
 ## 9. Preregistered collection-health gates
 
-최초 cadence는 15분이다. 첫 7개 complete UTC day는 총 672 expected slot을 denominator로 한다.
+현재 cadence는 60분이다. 첫 7개 complete UTC day는 총 168 expected slot을 denominator로 한다.
 
 ### 필수 validity gate
 
@@ -265,9 +270,9 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 하나라도 실패한 범위는 해당 분석에 `NOT_EVALUABLE_FAIL_CLOSED`다. row를 고쳐 같은 cohort를
 살리지 않는다.
 
-### 10분 cadence 검토 gate
+### 30분 cadence 검토 gate
 
-다음을 모두 만족해야 10분 cadence를 별도 변경으로 검토할 수 있다.
+다음을 모두 만족해야 30분 cadence를 별도 변경으로 검토할 수 있다.
 
 - 7-day scheduled-slot success coverage `>=95%`
 - successful requested-book observation coverage `>=95%`
@@ -277,16 +282,15 @@ public CLOB read는 trading client의 read method 재사용으로 구현하지 �
 - 같은 forecast 후 free space `>=150 GiB`
 
 통과는 자동 cadence 변경이 아니다. 운영자가 7-day report와 Jenkins timeout/headroom을 검토한
-뒤 새 config/source cohort로 시작한다. 실패하면 15분을 유지하고, runtime/API/storage pressure로
-slot coverage가 회복되지 않으면 30분 fallback을 사용한다. filter, compaction, concurrent build로
-수치를 맞추지 않는다.
+뒤 새 config/source cohort로 시작한다. 실패하면 60분을 유지한다. global envelope, row 삭제,
+compaction, concurrent build로 수치를 맞추지 않는다.
 
 ## 10. Falsification과 판정
 
 다음이면 “현재 설계가 unbiased reusable observatory evidence를 만든다”는 운영 가설을 기각하거나
 범위를 제한한다.
 
-- 15분 cadence에서도 cursor-complete census를 13분 timeout 안에 안정적으로 끝내지 못함
+- 60분 cadence에서도 cursor-complete bounded census를 20분 timeout 안에 안정적으로 끝내지 못함
 - source가 complete cursor 또는 stable market/outcome identity를 제공하지 않음
 - full membership/page clocks가 storage transaction에 원자적으로 보존되지 않음
 - CLOB selection/error metadata가 missingness와 selection probability를 복원하지 못함
