@@ -6,6 +6,11 @@
 
 제외: 폐쇄 중인 `golden-date`
 
+> 배포 후 확인: 8개 `close_only` 수동 build와 재동기화 결과는
+> [`004-blueberry-melon-quince-close-only-verification-2026-08-10.md`](004-blueberry-melon-quince-close-only-verification-2026-08-10.md)에 기록했다.
+> 18건의 `PENDING_BUY`는 모두 해소됐지만 closed market resolution 조회의 별도 결함이
+> 발견돼 자동 trigger 재활성화는 보류한다.
+
 ## 0. 결론
 
 Blueberry·Melon·Quince의 동기화 DB에서 발견된 `PENDING_BUY` 18건은 미체결 주문이
