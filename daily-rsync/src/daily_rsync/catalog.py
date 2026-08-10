@@ -164,16 +164,17 @@ class Catalog:
 
     @staticmethod
     def _migrate_source_keys(connection: sqlite3.Connection) -> None:
-        """Migrate pre-v4 host-agnostic keys without orphaning pins/conflicts."""
+        """Canonicalize host-scoped keys without orphaning pins/conflicts.
 
-        version_row = connection.execute(
-            "SELECT value FROM catalog_meta WHERE key = 'source_key_version'"
-        ).fetchone()
-        if version_row is not None and str(version_row[0]) == str(SOURCE_KEY_VERSION):
-            return
+        Some catalogs received source-aware rows before the v2 key formula was
+        finalized.  Their version marker is already current, so checking only
+        the marker leaves stale rows that point at the same mutable local file.
+        Recompute the canonical key on every open and coalesce those rows to the
+        most recently synchronized evidence.
+        """
+
         rows = connection.execute("SELECT * FROM artifacts ORDER BY source_key").fetchall()
-        migrations: list[tuple[str, str, sqlite3.Row]] = []
-        targets: dict[str, str] = {}
+        groups: dict[str, list[sqlite3.Row]] = {}
         for row in rows:
             source = str(row["source"] or "")
             if not source:
@@ -184,46 +185,59 @@ class Catalog:
                 kind=str(row["kind"]),
                 remote_path=str(row["remote_path"]),
             )
-            prior = targets.setdefault(new_key, str(row["source_key"]))
-            if prior != str(row["source_key"]):
-                raise RuntimeError(
-                    "catalog source-key migration found duplicate host-scoped artifacts"
-                )
-            if new_key != row["source_key"]:
-                migrations.append((str(row["source_key"]), new_key, row))
+            groups.setdefault(new_key, []).append(row)
 
         columns = [str(row[1]) for row in connection.execute("PRAGMA table_info(artifacts)")]
         quoted_columns = ", ".join(columns)
         placeholders = ", ".join("?" for _column in columns)
-        for old_key, new_key, row in migrations:
+        comparable = [column for column in columns if column != "source_key"]
+        for new_key, candidates in groups.items():
+            winner = max(
+                candidates,
+                key=lambda row: (
+                    str(row["synced_at"] or ""),
+                    int(row["remote_mtime_ns"] or 0),
+                    str(row["source_key"]) == new_key,
+                ),
+            )
             existing = connection.execute(
                 "SELECT * FROM artifacts WHERE source_key = ?", (new_key,)
             ).fetchone()
             if existing is None:
-                values = [new_key if column == "source_key" else row[column] for column in columns]
+                values = [
+                    new_key if column == "source_key" else winner[column]
+                    for column in columns
+                ]
                 connection.execute(
                     f"INSERT INTO artifacts({quoted_columns}) VALUES ({placeholders})",
                     values,
                 )
-            else:
-                comparable = [column for column in columns if column != "source_key"]
-                if any(existing[column] != row[column] for column in comparable):
-                    raise RuntimeError(
-                        "catalog source-key migration collision contains different evidence"
-                    )
-            connection.execute(
-                "UPDATE pins SET source_key = ? WHERE source_key = ?", (new_key, old_key)
-            )
-            connection.execute(
-                "UPDATE artifact_conflicts SET source_key = ? WHERE source_key = ?",
-                (new_key, old_key),
-            )
-            connection.execute(
-                "UPDATE artifact_conflicts SET existing_source_key = ? "
-                "WHERE existing_source_key = ?",
-                (new_key, old_key),
-            )
-            connection.execute("DELETE FROM artifacts WHERE source_key = ?", (old_key,))
+            elif str(winner["source_key"]) != new_key:
+                assignments = ", ".join(f"{column} = ?" for column in comparable)
+                connection.execute(
+                    f"UPDATE artifacts SET {assignments} WHERE source_key = ?",
+                    [winner[column] for column in comparable] + [new_key],
+                )
+
+            for row in candidates:
+                old_key = str(row["source_key"])
+                if old_key == new_key:
+                    continue
+                connection.execute(
+                    "UPDATE pins SET source_key = ? WHERE source_key = ?", (new_key, old_key)
+                )
+                connection.execute(
+                    "UPDATE artifact_conflicts SET source_key = ? WHERE source_key = ?",
+                    (new_key, old_key),
+                )
+                connection.execute(
+                    "UPDATE artifact_conflicts SET existing_source_key = ? "
+                    "WHERE existing_source_key = ?",
+                    (new_key, old_key),
+                )
+                connection.execute(
+                    "DELETE FROM artifacts WHERE source_key = ?", (old_key,)
+                )
 
     def artifact_is_current(self, artifact: RemoteArtifact) -> bool:
         if not artifact.source:

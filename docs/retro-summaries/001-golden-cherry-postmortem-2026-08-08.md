@@ -1,5 +1,10 @@
 # 001-golden-cherry-postmortem-2026-08-08
 
+> **Superseded — 2026-08-10.** 이 문서는 `daily-rsync verify`가 실패한 snapshot에서
+> BUY/SELL 현금흐름을 넓게 합산해 손실을 과대계상했다. 검증된 새 DB와 strict exact-fill
+> 계약으로 다시 계산한 판정은
+> [`002-live-strategy-fleet-sync-and-postmortem-2026-08-10.md`](002-live-strategy-fleet-sync-and-postmortem-2026-08-10.md)를 따른다.
+
 작성일: 2026-08-08  
 전략: `golden-cherry`  
 Jenkins job: `polybot-yellow` / runtime: `default`

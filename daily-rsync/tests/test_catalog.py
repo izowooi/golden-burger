@@ -213,6 +213,68 @@ def test_catalog_migrates_legacy_source_keys_without_orphaning_references(
     assert tuple(conflict) == (migrated_key, migrated_key)
 
 
+def test_catalog_coalesces_stale_legacy_duplicate_when_key_version_is_current(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "catalog.sqlite3"
+    catalog = Catalog(path)
+    local = tmp_path / "trades.db"
+    local.write_bytes(b"current")
+    item = RemoteArtifact(
+        kind="database_live",
+        remote_path="/remote/trades.db",
+        size_bytes=local.stat().st_size,
+        mtime_ns=200,
+        fingerprint="current-fingerprint",
+        jenkins_job="polybot-yellow",
+        strategy="golden-cherry",
+        runtime_job="default",
+        source="macmini",
+    )
+    catalog.upsert_artifact(
+        item,
+        source="macmini",
+        local_path=local,
+        local_sha256="current-digest",
+    )
+
+    legacy_key = "stale-v2-key-from-an-older-key-formula"
+    with catalog.connect() as connection:
+        connection.execute(
+            """
+            INSERT INTO artifacts(
+                source_key, source, jenkins_job, strategy, runtime_job, kind,
+                build_number, remote_path, remote_size_bytes, remote_mtime_ns,
+                remote_fingerprint, remote_sha256, local_path, local_sha256,
+                status, synced_at, metadata_json
+            )
+            SELECT
+                ?, source, jenkins_job, strategy, runtime_job, kind,
+                build_number, remote_path, remote_size_bytes - 1, 100,
+                NULL, 'stale-remote-digest', local_path, 'stale-local-digest',
+                status, '2026-08-08T00:00:00+00:00', metadata_json
+            FROM artifacts
+            WHERE source_key = ?
+            """,
+            (legacy_key, item.source_key),
+        )
+
+    Catalog(path)
+
+    with catalog.connect() as connection:
+        rows = connection.execute(
+            """
+            SELECT source_key, local_sha256, remote_fingerprint
+            FROM artifacts
+            WHERE source = ? AND jenkins_job = ? AND kind = ? AND remote_path = ?
+            """,
+            ("macmini", "polybot-yellow", "database_live", "/remote/trades.db"),
+        ).fetchall()
+    assert [tuple(row) for row in rows] == [
+        (item.source_key, "current-digest", "current-fingerprint")
+    ]
+
+
 def test_catalog_keeps_identical_remote_paths_from_two_hosts_separate(
     tmp_path: Path,
 ) -> None:
