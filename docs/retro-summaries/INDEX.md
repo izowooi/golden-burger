@@ -9,3 +9,4 @@
 | 003 | [003-blueberry-melon-quince-pending-buy-fix-2026-08-10.md](003-blueberry-melon-quince-pending-buy-fix-2026-08-10.md) | strict audit 쉬운 설명, MATCHED 수량 반올림 및 PENDING_BUY lifecycle 수정 | 2026-08-10 |
 | 004 | [004-blueberry-melon-quince-close-only-verification-2026-08-10.md](004-blueberry-melon-quince-close-only-verification-2026-08-10.md) | 8개 close-only build·재동기화 검증 및 closed-market resolution 조회 결함 발견 | 2026-08-10 |
 | 005 | [005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md](005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md) | 세 전략의 closed Gamma fallback 수정, 회귀·실 API 검증 및 재가동 절차 | 2026-08-10 |
+| 006 | [006-blueberry-melon-quince-resolution-deployment-verification-2026-08-10.md](006-blueberry-melon-quince-resolution-deployment-verification-2026-08-10.md) | 8개 close-only 배포·재동기화 검증, HOLDING 0·RESOLVED 18 확인 | 2026-08-10 |

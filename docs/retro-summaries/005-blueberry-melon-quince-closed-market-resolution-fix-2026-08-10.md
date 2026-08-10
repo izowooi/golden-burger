@@ -70,6 +70,10 @@ Gamma는 closed market에 이 요청을 빈 배열로 반환할 수 있다. CLOB
 코드 수정과 로컬 검증은 끝났지만, Jenkins 운영 DB의 18개 `HOLDING`이 전환됐다는 뜻은
 아직 아니다. 배포 후 확인이 남아 있다.
 
+> 배포 후 확인 완료: [006 — resolution deployment verification](006-blueberry-melon-quince-resolution-deployment-verification-2026-08-10.md)에서
+> 8개 job 모두 수정 commit을 실행했고, 검증 DB 합계 `HOLDING=0`, `RESOLVED=18`,
+> 신규 BUY 0을 확인했다. 아래 목록은 당시 사용한 검증 절차로 보존한다.
+
 1. Jenkins 8개 job이 이 수정 commit을 checkout하게 한다.
 2. timer는 계속 끄고 `POLYBOT_LIFECYCLE_MODE=close_only`를 유지한다.
 3. Blueberry 2개, Melon 3개, Quince 3개 job을 각각 한 번 수동 실행한다.
