@@ -1,0 +1,9 @@
+[project]
+name = "jenkins-lan-inspector"
+version = "0.1.0"
+description = "Read-only, secret-safe inspection of Jenkins jobs on a trusted LAN"
+requires-python = ">=3.11"
+dependencies = []
+
+[tool.uv]
+package = false

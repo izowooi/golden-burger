@@ -1,0 +1,4 @@
+interface:
+  display_name: "Inspect Jenkins Job"
+  short_description: "LAN Jenkins 잡 구성과 로그를 안전하게 조회"
+  default_prompt: "Use $inspect-jenkins-job to inspect the polybot-yellow Jenkins job configuration."

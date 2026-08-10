@@ -1,0 +1,34 @@
+{
+  "name": "jenkins-lan-inspector",
+  "version": "0.1.0+codex.20260810104423",
+  "description": "Read-only inspection of LAN Jenkins jobs with mandatory secret redaction.",
+  "author": {
+    "name": "izowooi",
+    "url": "https://github.com/izowooi"
+  },
+  "repository": "https://github.com/izowooi/golden-burger",
+  "keywords": [
+    "jenkins",
+    "lan",
+    "job-config",
+    "console-log",
+    "workspace"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Jenkins LAN Inspector",
+    "shortDescription": "Inspect Jenkins jobs without exposing inline secrets.",
+    "longDescription": "Safely reads Jenkins job metadata, config.xml, console-log tails, and workspace listings over the Jenkins HTTP API. All credential-like assignments are redacted and no build-changing operation is included.",
+    "developerName": "izowooi",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Read-only",
+      "Secret redaction"
+    ],
+    "defaultPrompt": [
+      "Inspect the polybot-yellow Jenkins job configuration.",
+      "Show the latest redacted console log for a Jenkins job.",
+      "List the workspace root for a Jenkins job."
+    ]
+  }
+}
