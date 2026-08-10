@@ -24,12 +24,17 @@ strict entry 후보는 17개에서 17개로 유지됐다. 이 값은 point-in-ti
 ## 2. 최초 시작 순서
 
 1. 네 job의 periodic trigger가 꺼져 있고 concurrent build도 꺼져 있는지 확인한다.
-2. 각 job에서 기존 workspace/DB를 지우는 **clean build를 정확히 한 번만** 선택한다.
-3. 첫 실제 `run`은 2026-08-13 00:00Z(한국시간 09:00) 이후에 실행한다. 그 전에 확인할
-   때는 shell의 `polybot config`까지만 수동 실행해 pre-window snapshot을 만들지 않는다.
-4. 첫 성공 뒤 clean 옵션을 끈다. 이후 clean build는 30일 lineage와 immutable DB를 없애므로
-   사용하지 않는다.
-5. 아래 trigger를 다시 켠다.
+2. 그 전에 확인할 때는 shell의 `polybot config`까지만 수동 실행한다. `polybot run`을
+   실행해 pre-window snapshot을 만들지 않는다.
+3. 각 job에서 기존 workspace/DB를 지우는 **clean build를 정확히 한 번만** 설정하고,
+   아래 periodic trigger를 2026-08-13 00:00Z(한국시간 09:00) 직전에 켠다.
+4. 첫 clean build도 scheduler가 A/B/C/D 각각 UTC minute 0/1/2/3에 시작하게 한다. window
+   안의 임의 시각에 수동 build하면 off-schedule SUCCESS가 되어 실험 전체가 무효다.
+5. 각 첫 SUCCESS 직후, 다음 5분 trigger 전에 clean 옵션을 끈다. 이후 clean build는
+   30일 lineage와 immutable DB를 없애므로 사용하지 않는다.
+6. console/DB의 실제 `started_at` minute가 각 offset과 일치하는지 확인한다. queue 때문에
+   다른 minute에 시작했다면 timer를 끄고 해당 새 DB를 다시 clean한 뒤 다음 정상 slot에서
+   처음부터 시작한다.
 
 | Jenkins job | Arm/runtime job | Trigger |
 |---|---|---|

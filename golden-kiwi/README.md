@@ -184,7 +184,9 @@ collection에서는 Jenkins의 숨은 `H` 값을 추정하지 않고 다음처�
 `[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)`를 함께 쓴다. 같은 DB에서
 날짜·offset·arm·job·preregistration hash·analyzer version을 바꾸면 시작을 거부한다.
 기존 cadence-invalid DB를 migration하거나 합치지 말고 첫 build에서만 clean build로
-새 DB를 만든 뒤 이후 build의 clean 옵션은 끈다.
+새 DB를 만든 뒤 이후 build의 clean 옵션은 끈다. 첫 clean build도 임의 수동 시각이 아니라
+A/B/C/D 각각 UTC minute 0/1/2/3의 scheduler slot에서 시작해야 한다. 정확한 one-shot
+순서는 현재 실행 가이드를 따른다.
 
 한 cycle의 p95 실행시간이 5분을 넘거나 snapshot 간격이 3~10분을 지속적으로 벗어나면
 표본을 늘리려고 동시 실행이나 gap 완화를 하지 않는다. 그 cohort는 cadence 계약 실패로

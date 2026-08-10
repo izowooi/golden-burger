@@ -76,8 +76,9 @@ request filter로 해결하고 신호 표본은 불필요하게 줄이지 않는
 중요 운영 순서:
 
 1. 2026-08-13 00:00Z 전에는 `polybot config`까지만 확인한다.
-2. 각 job에서 첫 실제 run에만 clean build를 사용한다.
-3. 첫 성공 직후 clean 옵션을 끄고 기존 0/1/2/3 offset trigger를 켠다.
+2. 각 job의 첫 실제 run에만 clean build를 설정하고 기존 0/1/2/3 offset trigger로
+   첫 run을 시작한다. 임의 시각의 수동 SUCCESS는 cadence를 무효화한다.
+3. 첫 성공 직후 다음 5분 slot 전에 clean 옵션을 끈다.
 4. 24시간 뒤 cycle p95<5분, schedule/cadence, sweep budgets를 확인한다.
 5. budget 초과 시 threshold/gap/cron을 즉석 완화하지 않고 네 timer를 다시 중단한다.
 
