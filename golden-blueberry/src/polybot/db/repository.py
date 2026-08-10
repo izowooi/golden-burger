@@ -567,8 +567,14 @@ class TradeRepository:
                 and math.isfinite(matched_size)
                 and matched_size > 0
                 and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
-                and math.isclose(
-                    matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+                and (
+                    # MATCHED is the ledger's terminal full-order state.  Its
+                    # matched size is venue-quantized and can legitimately be
+                    # a few thousandths below the pre-quantization intent.
+                    order_status == "MATCHED"
+                    or math.isclose(
+                        matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+                    )
                 )
             )
             return ExactFillEvidence(

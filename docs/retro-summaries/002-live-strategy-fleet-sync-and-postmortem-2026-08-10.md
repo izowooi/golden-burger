@@ -8,6 +8,12 @@ Jenkins: `macmini-m5` (`192.168.50.23:8080`)
 
 회고 timezone: UTC
 
+> 후속 메모 (2026-08-10): 이 snapshot 이후 운영자가 `polybot-orange`의 주문액을
+> `$500`에서 `$5`로 낮췄다. 아래 Orange 수치와 유동성 진단은 source cutoff 당시의
+> `$500` cohort를 설명하며, 변경 후 구간은 별도 cohort로 평가해야 한다. Blueberry·Melon·
+> Quince의 `PENDING_BUY` 결함 수정과 재가동 절차는
+> [`003-blueberry-melon-quince-pending-buy-fix-2026-08-10.md`](003-blueberry-melon-quince-pending-buy-fix-2026-08-10.md)에 기록했다.
+
 ## 0. 요청과 결론
 
 요청은 Jenkins에서 현재 timer로 실행 중이며 wallet credential이 있는 live 전략만 DB와

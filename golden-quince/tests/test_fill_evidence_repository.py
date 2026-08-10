@@ -174,6 +174,84 @@ def test_exact_fill_evidence_reads_real_ledger_states(tmp_path):
     session.close()
 
 
+def test_matched_quantized_buy_promotes_pending_trade_to_holding(tmp_path):
+    """The venue-rounded MATCHED size, not the raw intent, defines the position."""
+    db_path = tmp_path / "quince-quantized-buy.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-quince")
+    requested_size = 5.43478260869565
+    matched_size = 5.43
+    submission_id = ledger.record_submission(
+        token_id="yes-token",
+        side="BUY",
+        requested_price=0.92,
+        requested_size=requested_size,
+        result={
+            "success": True,
+            "orderID": "OID-quantized-buy",
+            "status": "MATCHED",
+            "makingAmount": "4.9413",
+            "takingAmount": "5.43",
+        },
+        simulation=False,
+    )
+
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=:matched_size, needs_reconciliation=0 "
+            "WHERE order_id='OID-quantized-buy'"
+        ),
+        {"matched_size": matched_size},
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-quantized-buy', 'quantized-fill', 0, "
+            "'CONFIRMED', 'BUY', :matched_size, 0.91, 0.0, "
+            "'2026-08-10T00:00:00Z', NULL)"
+        ),
+        {"submission_id": submission_id, "matched_size": matched_size},
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    evidence = repo.get_exact_buy_fill_evidence("OID-quantized-buy")
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.requested_size == pytest.approx(requested_size)
+    assert evidence.confirmed_size == pytest.approx(matched_size)
+
+    trade = repo.create_trade(
+        condition_id="condition-quantized-buy",
+        outcome="Yes",
+        token_id="yes-token",
+        buy_price=0.92,
+        buy_shares=requested_size,
+        buy_order_id="OID-quantized-buy",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+    trader = Trader(
+        repo,
+        SimpleNamespace(simulation_mode=False),
+        TradingConfig(),
+        simulation_mode=False,
+    )
+
+    assert trader.reconcile_pending_buy(trade) is True
+    holding = repo.get_by_id(trade.id)
+    assert holding is not None
+    assert holding.status == TradeStatus.HOLDING
+    assert holding.buy_shares == pytest.approx(matched_size)
+    assert holding.buy_price == pytest.approx(0.91)
+    assert holding.buy_confirmed_size == pytest.approx(matched_size)
+    session.close()
+
+
 def test_pending_sell_completes_from_real_buy_and_sell_ledger_rows(tmp_path):
     """Exercise the strategy transition against the real shared ledger schema."""
     db_path = tmp_path / "quince-pending-sell.db"
