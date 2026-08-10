@@ -33,6 +33,16 @@ class Response:
         return self.payload
 
 
+class MarketLookupSession:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+        self.calls = []
+
+    def get(self, url, params, timeout):
+        self.calls.append((url, dict(params), timeout))
+        return Response(self.payloads.pop(0))
+
+
 class KeysetSession:
     def __init__(self):
         self.calls = []
@@ -212,6 +222,76 @@ def test_gamma_qualification_accepts_literal_numeric_zero(value):
         "volume": value,
     }
     assert GammaClient._qualification_reason(market, 0, 0) == "qualified"
+
+
+def test_gamma_condition_lookup_returns_open_market_without_closed_retry():
+    client = GammaClient()
+    client.session = MarketLookupSession(
+        [[{"conditionId": "0xabc", "closed": False, "outcomes": '["Yes", "No"]'}]]
+    )
+
+    market = client.get_market_by_condition_id(" 0xAbC ")
+
+    assert market["conditionId"] == "0xabc"
+    assert market["outcomes"] == ["Yes", "No"]
+    assert [call[1] for call in client.session.calls] == [
+        {"condition_ids": "0xAbC", "limit": 1}
+    ]
+
+
+def test_gamma_condition_lookup_retries_explicitly_for_closed_market():
+    client = GammaClient()
+    client.session = MarketLookupSession(
+        [
+            [],
+            [
+                {
+                    "conditionId": "0xcondition",
+                    "closed": True,
+                    "negRisk": False,
+                    "outcomes": '["Yes", "No"]',
+                    "outcomePrices": '["1", "0"]',
+                    "clobTokenIds": '["yes-token", "no-token"]',
+                }
+            ],
+        ]
+    )
+
+    market = client.get_market_by_condition_id("0xcondition")
+
+    assert market["closed"] is True
+    assert market["outcomePrices"] == ["1", "0"]
+    assert [call[1] for call in client.session.calls] == [
+        {"condition_ids": "0xcondition", "limit": 1},
+        {"condition_ids": "0xcondition", "limit": 1, "closed": "true"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "closed_payload",
+    [
+        [{"conditionId": "0xdifferent", "closed": True}],
+        [{"conditionId": "0xcondition", "closed": False}],
+        {"markets": [{"conditionId": "0xcondition", "closed": True}]},
+    ],
+)
+def test_gamma_closed_fallback_rejects_wrong_identity_state_or_shape(closed_payload):
+    client = GammaClient()
+    client.session = MarketLookupSession([[], closed_payload])
+
+    assert client.get_market_by_condition_id("0xcondition") is None
+    assert len(client.session.calls) == 2
+
+
+def test_gamma_condition_lookup_rejects_blank_id_before_network():
+    client = GammaClient()
+    client.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("network must not be called")
+        )
+    )
+
+    assert client.get_market_by_condition_id("   ") is None
 
 
 @pytest.mark.parametrize("model", [{"price": "0.41"}, SimpleNamespace(price="0.41")])

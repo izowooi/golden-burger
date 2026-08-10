@@ -22,6 +22,10 @@ DB source cutoff: `2026-08-10T14:01:28Z`–`14:01:30Z`
 Gamma에서 이미 `closed=true`, `resolved`, YES payout 1로 확인되지만, 봇의
 condition-ID 조회가 closed market을 제외해 18건을 `RESOLVED`로 종결하지 못했다.
 
+> 후속 조치: 이 조회 결함은
+> [005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md](005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md)에서
+> 세 전략 모두 수정했다. 본 문서의 DB·Jenkins 수치는 수정 배포 전 snapshot으로 유지한다.
+
 ## 1. Jenkins build와 lifecycle 로그
 
 모든 job의 `TimerTrigger`는 비어 있었고, latest build는 운영자의 수동 실행이었다.
