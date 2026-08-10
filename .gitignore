@@ -186,3 +186,6 @@ wind_down_*.csv
 
 # 운영 로그 사본 (분석용, 커밋 대상 아님)
 docs/logs/
+
+# Local Jenkins job/strategy routing snapshot. It contains internal topology and is regenerated locally.
+/docs/local/jenkins-job-strategy-inventory.md

@@ -119,8 +119,15 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 3. 대상 폴더의 `README.md`
 4. 대상 폴더의 package/config 파일 (`pyproject.toml`, `package.json`, `config.yaml`)
 5. 전략·회고 작업이면 `docs/retro/EVIDENCE_CONTRACT.md`; 새 전략이면 `docs/new-strategy-playbook.md`
+6. Jenkins 현황·job↔strategy 매핑·`daily-rsync` routing 작업이면 local-only `docs/local/jenkins-job-strategy-inventory.md`(존재할 때)
 
 ## 회고 evidence 자동 발견
+
+### Local Jenkins inventory routing
+
+Jenkins의 현재 실행 현황, job↔strategy/runtime 매핑, 여러 전략의 `daily-rsync` 대상 선택을 묻는 경우 먼저 local-only `docs/local/jenkins-job-strategy-inventory.md`를 읽는다. 이 파일은 내부 topology snapshot이므로 `.gitignore` 상태를 유지하고 절대 commit하지 않는다. 파일이 없거나 대상 job이 없거나 config SHA-256이 달라졌으면 `inspect-jenkins-job`으로 실제 Jenkins config를 다시 읽어 local inventory를 갱신한다.
+
+inventory는 routing 후보이지 sync 성공이나 historical epoch의 권위가 아니다. 실제 동기화 요청에서는 선택한 각 `Jenkins job × strategy`마다 `daily-rsync scan --job <job>`으로 current strategy evidence를 확인한 뒤 별도 plan을 만든다. 하나의 strategy에 live/simulation/shadow/close-only 또는 복수 Jenkins job이 있으면 조용히 하나를 고르지 않고 요청 범위에 맞는 모든 row와 mode를 먼저 제시한다. runtime job은 inventory에서 예상값을 확인하되 CLI parameter로 임의 주입하지 않고 remote scan/DB metadata가 발견하게 한다.
 
 Jenkins job 또는 strategy 이름만 주어지면 DB/log 경로를 사용자에게 묻지 않고 `daily-rsync/README.md`, `daily-rsync/DATA_LAYOUT.md`, `daily-rsync/OPERATIONS.md`를 확인해 local catalog에서 evidence를 자동 발견한다. local evidence가 없거나 요청 기간을 덮지 않으면 임의 SSH/rsync를 실행하지 말고 evidence gap과 필요한 sync 범위를 보고한다.
 `default`는 Jenkins job이 아니라 runtime job이며, 하나의 strategy가 여러 Jenkins job에, 하나의 Jenkins job이 여러 strategy epoch에 대응할 수 있으므로 `source × Jenkins job × strategy × runtime job`을 evidence discovery 경계로 분리한다.
