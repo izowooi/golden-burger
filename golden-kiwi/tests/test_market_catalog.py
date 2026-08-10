@@ -37,6 +37,7 @@ def make_market(condition="c1", probability=0.40):
         "acceptingOrders": True,
         "enableOrderBook": True,
         "liquidity": 30_000,
+        "volume": 15_000,
         "volume24hr": 12_000,
         "bestBid": probability - 0.005,
         "bestAsk": probability + 0.005,
@@ -68,7 +69,7 @@ def attestation(markets):
         ).encode()
     ).hexdigest()
     return {
-        "schema_version": 1,
+        "schema_version": 2,
         "sweep_id": "sweep-1",
         "started_at": (NOW - timedelta(seconds=1)).isoformat(),
         "completed_at": NOW.isoformat(),
@@ -81,8 +82,12 @@ def attestation(markets):
         "exclusion_counts": {},
         "missing_condition_id_count": 0,
         "duplicate_raw_count": 0,
-        "min_liquidity": 1000.0,
-        "min_volume": 0.0,
+        "min_liquidity": 20_000.0,
+        "min_volume": 10_000.0,
+        "max_pages": 53,
+        "max_markets": 5_330,
+        "max_elapsed_seconds": 120.0,
+        "elapsed_seconds": 1.0,
         "membership_digest_sha256": digest,
         "membership_digest_scope": "qualified_only",
         "memberships": memberships,
@@ -134,6 +139,13 @@ def test_catalog_snapshot_and_sweep_commit_as_one_unit(tmp_path):
     assert snapshot.catalog_end_date == markets[0]["endDate"]
     sweep = session.query(MarketSweep).one()
     assert sweep.cursor_complete == 1
+    assert sweep.schema_version == 2
+    assert sweep.min_liquidity == 20_000
+    assert sweep.min_volume == 10_000
+    assert sweep.max_pages == 53
+    assert sweep.max_markets == 5_330
+    assert sweep.max_elapsed_seconds == 120
+    assert sweep.elapsed_seconds == 1
     assert sweep.snapshot_eligible_count == 1
     assert sweep.snapshotted_market_count == 1
     session.close()

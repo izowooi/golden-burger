@@ -143,11 +143,19 @@ cursor-complete sweep/membership digest/catalog/event coverage 계약을 지킨�
 
 `golden-kiwi`는 live 성과가 아니라 Micro-Cascade 가설을 검증하는 **simulation-only**
 archive다. 모든 5분 raw snapshot을 60일 보존하고, A/B/C/D arm은
-`job_name × config_hash × Git commit × simulation` cohort로 완전히 분리한다. 진입의
+`config_hash × strategy_source_digest × mode × job_name` cohort로 완전히 분리한다. Git
+commit은 provenance일 뿐 cohort 경계가 아니다. 진입의
 best ask와 60~75분 뒤 최초 관측 best bid로 계산한 값은 hypothetical proxy return이며,
 confirmed fill 또는 live realized P&L로 표현하지 않는다. 75분 안에 exit quote가 없으면
 임의 가격을 채우지 않고 censored observation으로 남긴다. Kiwi compact metadata가
 깨졌거나 cadence coverage가 90% 미만이면 strict audit은 fail closed한다.
+
+2026-08-13 재실험에서 Kiwi의 request envelope는 Gamma
+`liquidity_num_min=20000`, 누적 `volume_num_min=10000`으로 고정한다. 전략 entry의
+`volume24hr>=10000`은 별도로 재검증한다. 각 SUCCESS run은 정확히 한 schema v2
+cursor-complete sweep을 가져야 하고, 53 page·5,330 raw market·120초를 하나라도 넘은
+partial/over-budget run은 evidence로 인정하지 않는다. analyzer v3는 DB의 attested filter,
+budget과 elapsed를 모든 canonical SUCCESS run에서 다시 확인한다.
 
 - `market_snapshots`: YES probability, liquidity, volume, best bid/ask, spread,
   source update 시각, `run_id`, 수집 시각

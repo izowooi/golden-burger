@@ -169,10 +169,17 @@ class PolymarketBot:
             trading.reentry_cooldown_hours,
         )
         logger.info(
-            "research archive - strict binary YES %.2f~%.2f, retention=%sd",
+            "research archive - strict binary YES %.2f~%.2f, retention=%sd; "
+            "Gamma liquidity >= $%.0f, cumulative volume >= $%.0f, "
+            "budgets=%sp/%s markets/%.0fs",
             archive.prob_min,
             archive.prob_max,
             archive.retention_days,
+            archive.fetch_min_liquidity,
+            archive.fetch_min_total_volume,
+            archive.max_fetch_pages,
+            archive.max_fetch_markets,
+            archive.max_sweep_seconds,
         )
         logger.info(
             "lineage - current-run snapshot required, %s persisted moves, "
@@ -524,6 +531,19 @@ class PolymarketBot:
                         "prob_min": trading.archive.prob_min,
                         "prob_max": trading.archive.prob_max,
                         "retention_days": trading.archive.retention_days,
+                        "fetch_min_liquidity": (
+                            trading.archive.fetch_min_liquidity
+                        ),
+                        "fetch_min_total_volume": (
+                            trading.archive.fetch_min_total_volume
+                        ),
+                        "max_fetch_pages": trading.archive.max_fetch_pages,
+                        "max_fetch_markets": (
+                            trading.archive.max_fetch_markets
+                        ),
+                        "max_sweep_seconds": (
+                            trading.archive.max_sweep_seconds
+                        ),
                     },
                     "excluded_categories_exact": list(
                         trading.excluded_categories

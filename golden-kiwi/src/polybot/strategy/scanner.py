@@ -29,7 +29,6 @@ from .signals import EPSILON, EntryDecision, evaluate_entry
 logger = logging.getLogger(__name__)
 _BOOK_TOLERANCE = 1e-6
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
-_ARCHIVE_FETCH_MIN_LIQUIDITY = 1_000.0
 
 
 @dataclass(frozen=True)
@@ -194,11 +193,13 @@ class MarketScanner:
         self.last_signal_funnel: List[Dict] = []
 
     def fetch_markets(self) -> List[Dict]:
+        archive = self.config.archive
         return self.gamma.get_all_tradable_markets(
-            min_liquidity=min(
-                self.config.min_liquidity, _ARCHIVE_FETCH_MIN_LIQUIDITY
-            ),
-            min_volume=0,
+            min_liquidity=archive.fetch_min_liquidity,
+            min_volume=archive.fetch_min_total_volume,
+            max_pages=archive.max_fetch_pages,
+            max_markets=archive.max_fetch_markets,
+            max_elapsed_seconds=archive.max_sweep_seconds,
         )
 
     def _archive_decision(

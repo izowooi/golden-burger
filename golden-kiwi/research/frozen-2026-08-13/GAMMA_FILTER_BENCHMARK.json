@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "observed_at_utc": "2026-08-10T15:32:52Z",
+  "purpose": "Select a cursor-complete Gamma request envelope at or below one fifth of the cadence-incident pages and raw markets without dropping the current strict entry set.",
+  "incident_reference": {
+    "source": "Jenkins polybot-kiwi-a/b/c/d latest synchronized completed cycle",
+    "pages_per_arm": 267,
+    "raw_markets_per_arm": 26654,
+    "qualified_markets_per_arm": 17107,
+    "sweep_seconds_approx": 308,
+    "cycle_seconds_approx": 376
+  },
+  "one_fifth_budgets": {
+    "max_pages": 53,
+    "max_raw_markets": 5330
+  },
+  "screening_sweep": {
+    "filters": {
+      "min_liquidity": 1000,
+      "min_cumulative_volume": 1
+    },
+    "pages": 174,
+    "raw_markets": 17305,
+    "qualified_markets": 17305,
+    "elapsed_seconds": 191.049
+  },
+  "request_grid_selected_rows": [
+    {
+      "min_liquidity": 1000,
+      "min_cumulative_volume": 10000,
+      "qualified_markets": 4646,
+      "estimated_pages": 47
+    },
+    {
+      "min_liquidity": 10000,
+      "min_cumulative_volume": 10000,
+      "qualified_markets": 3366,
+      "estimated_pages": 34
+    },
+    {
+      "min_liquidity": 20000,
+      "min_cumulative_volume": 1,
+      "qualified_markets": 4150,
+      "estimated_pages": 42
+    },
+    {
+      "min_liquidity": 20000,
+      "min_cumulative_volume": 10000,
+      "qualified_markets": 2184,
+      "estimated_pages": 22
+    },
+    {
+      "min_liquidity": 20000,
+      "min_cumulative_volume": 25000,
+      "qualified_markets": 1736,
+      "estimated_pages": 18
+    },
+    {
+      "min_liquidity": 50000,
+      "min_cumulative_volume": 10000,
+      "qualified_markets": 1153,
+      "estimated_pages": 12
+    }
+  ],
+  "exact_validation": [
+    {
+      "filters": {
+        "min_liquidity": 20000,
+        "min_cumulative_volume": 1
+      },
+      "pages": 42,
+      "raw_markets": 4162,
+      "qualified_markets": 4162,
+      "elapsed_seconds": 47.401,
+      "strict_archive_markets_before_quote_validation": 88,
+      "strict_entry_markets_before_quote_validation": 17
+    },
+    {
+      "filters": {
+        "min_liquidity": 20000,
+        "min_cumulative_volume": 10000
+      },
+      "pages": 22,
+      "raw_markets": 2182,
+      "qualified_markets": 2182,
+      "elapsed_seconds": 23.601,
+      "strict_archive_markets_before_quote_validation": 81,
+      "strict_entry_markets_before_quote_validation": 17
+    }
+  ],
+  "strict_entry_set_parity": {
+    "reference_min_cumulative_volume": 1,
+    "selected_min_cumulative_volume": 10000,
+    "reference_count": 17,
+    "selected_count": 17,
+    "lost_condition_count": 0,
+    "unexpected_condition_count": 0
+  },
+  "volume24hr_sensitivity_at_liquidity_20000": [
+    {
+      "min_volume_24h": 5000,
+      "strict_entry_markets": 24
+    },
+    {
+      "min_volume_24h": 10000,
+      "strict_entry_markets": 17
+    },
+    {
+      "min_volume_24h": 15000,
+      "strict_entry_markets": 15
+    },
+    {
+      "min_volume_24h": 20000,
+      "strict_entry_markets": 13
+    },
+    {
+      "min_volume_24h": 25000,
+      "strict_entry_markets": 12
+    },
+    {
+      "min_volume_24h": 50000,
+      "strict_entry_markets": 8
+    }
+  ],
+  "decision": {
+    "fetch_min_liquidity": 20000,
+    "fetch_min_cumulative_volume": 10000,
+    "entry_min_liquidity": 20000,
+    "entry_min_volume_24h": 10000,
+    "max_fetch_pages": 53,
+    "max_fetch_markets": 5330,
+    "max_sweep_seconds": 120
+  },
+  "limitations": [
+    "Measurements are point-in-time observations and not latency percentiles.",
+    "Estimated pages are ceil(qualified_market_count / 100); exact validation rows are full API traversals.",
+    "Cumulative volume_num_min is not volume24hr; the scanner must continue to validate volume24hr independently.",
+    "Post-deployment p95 runtime and cadence are still required before promotion evaluation."
+  ]
+}

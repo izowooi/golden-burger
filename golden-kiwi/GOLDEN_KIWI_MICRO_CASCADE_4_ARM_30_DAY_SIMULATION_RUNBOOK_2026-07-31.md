@@ -1,5 +1,9 @@
 # Golden Kiwi Micro-Cascade — 4개 실험군 30일 시뮬레이션 실행 가이드
 
+> **역사 문서:** 2026-08-06 수집은 cadence-invalid로 종료됐다. 현재 실행에는
+> [`GOLDEN_KIWI_FILTERED_4_ARM_30_DAY_RUNBOOK_2026-08-13.md`](GOLDEN_KIWI_FILTERED_4_ARM_30_DAY_RUNBOOK_2026-08-13.md)를
+> 사용한다. 이 문서의 범용 window/수집 권고로 새 job을 시작하지 않는다.
+
 - 작성일: **2026-07-31**
 - 기준 시간대: Asia/Seoul
 - 전략 폴더: `golden-kiwi/`

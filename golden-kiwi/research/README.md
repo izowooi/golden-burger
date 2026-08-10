@@ -1,20 +1,25 @@
 # Golden Kiwi research artifacts
 
-이 디렉터리는 Micro-Cascade를 만들기 전에 고정한 연구 protocol과 결과를 보존한다.
-현재 frozen set은 [`frozen-2026-07-30/`](frozen-2026-07-30/) 하나다.
+이 디렉터리는 Micro-Cascade의 immutable 연구 protocol, benchmark와 결과를 보존한다.
+현재 실행 계약은 [`frozen-2026-08-13/`](frozen-2026-08-13/)이고,
+[`frozen-2026-07-30/`](frozen-2026-07-30/)은 최초 연구의 역사 기록이다.
 
 ## 가장 먼저 읽을 순서
 
-1. [`2026-07-30-cohort-correction.md`](2026-07-30-cohort-correction.md) — 독립
+1. [`frozen-2026-08-13/PREREGISTRATION.md`](frozen-2026-08-13/PREREGISTRATION.md) —
+   filtered request envelope, 고정 UTC window와 새 analyzer 계약
+2. [`frozen-2026-08-13/GAMMA_FILTER_BENCHMARK.json`](frozen-2026-08-13/GAMMA_FILTER_BENCHMARK.json) —
+   threshold grid, exact API sweep, strict 후보 parity와 선택 근거
+3. [`2026-07-30-cohort-correction.md`](2026-07-30-cohort-correction.md) — 독립
    재검토에서 확인한 cross-commit C 신호와 point-in-time catalog 증거 부족
-2. [`PREREGISTRATION.md`](frozen-2026-07-30/PREREGISTRATION.md) — arm 결과를 보기 전에
+4. [`PREREGISTRATION.md`](frozen-2026-07-30/PREREGISTRATION.md) — arm 결과를 보기 전에
    고정한 universe, 네 팔, outcome, 통계와 promotion gate
-3. [`RESEARCH_REPORT.md`](frozen-2026-07-30/RESEARCH_REPORT.md) — evidence 발견, 분석
+5. [`RESEARCH_REPORT.md`](frozen-2026-07-30/RESEARCH_REPORT.md) — evidence 발견, 분석
    범위, OOS 결과와 해석
-4. [`RESULTS.md`](frozen-2026-07-30/RESULTS.md) — 기계 생성 결과 요약
-5. [`signals.csv`](frozen-2026-07-30/signals.csv) /
+6. [`RESULTS.md`](frozen-2026-07-30/RESULTS.md) — 기계 생성 결과 요약
+7. [`signals.csv`](frozen-2026-07-30/signals.csv) /
    [`results.json`](frozen-2026-07-30/results.json) — 행 단위 및 구조화 결과
-6. [`micro_cascade_analysis.py`](frozen-2026-07-30/micro_cascade_analysis.py) — 사용한
+8. [`micro_cascade_analysis.py`](frozen-2026-07-30/micro_cascade_analysis.py) — 사용한
    분석 코드
 
 ## 무결성 확인
@@ -22,12 +27,20 @@
 ```bash
 cd golden-kiwi/research/frozen-2026-07-30
 shasum -a 256 -c MANIFEST.sha256
+cd ../frozen-2026-08-13
+shasum -a 256 -c MANIFEST.sha256
 ```
 
-여섯 파일이 모두 `OK`여야 한다. `MANIFEST.sha256` 자체는 manifest가 자신을 재귀적으로
-서명하지 않기 때문에 검증 목록에 포함하지 않는다.
+각 manifest의 모든 파일이 `OK`여야 한다. `MANIFEST.sha256` 자체는 manifest가 자신을
+재귀적으로 서명하지 않기 때문에 검증 목록에 포함하지 않는다.
 
-Preregistration SHA-256:
+현재 filtered-universe preregistration SHA-256:
+
+```text
+65e33146e018ff9b01495af515fd059ba5be33de15758ad438584427ea02223c
+```
+
+최초 연구 preregistration SHA-256:
 
 ```text
 0a2e6537320f27254d3235629652afb97af15a25bc6304f2836cd618e1c28006

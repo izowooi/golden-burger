@@ -18,6 +18,10 @@ class GammaConditionMismatchError(RuntimeError):
     """Gamma returned a non-empty market that does not match the requested ID."""
 
 
+class GammaSweepBudgetExceeded(RuntimeError):
+    """A complete keyset sweep cannot fit inside its frozen cadence budget."""
+
+
 class GammaClient:
     """Client for Polymarket Gamma API (market metadata).
 
@@ -33,7 +37,7 @@ class GammaClient:
     READ_TIMEOUT_SECONDS = 20.0
     MAX_SWEEP_PAGES = 10_000
     KEYSET_PAGE_INTERVAL_SECONDS = 0.25
-    SWEEP_SCHEMA_VERSION = 1
+    SWEEP_SCHEMA_VERSION = 2
 
     def __init__(self):
         self.session = requests.Session()
@@ -170,6 +174,10 @@ class GammaClient:
         self,
         min_liquidity: float = 0,
         min_volume: float = 0,
+        *,
+        max_pages: Optional[int] = None,
+        max_markets: Optional[int] = None,
+        max_elapsed_seconds: Optional[float] = None,
     ) -> List[Dict]:
         """Get the complete tradeable universe with cursor pagination.
 
@@ -185,7 +193,35 @@ class GammaClient:
             or min_volume < 0
         ):
             raise ValueError("Gamma sweep filters must be finite and non-negative")
+        effective_max_pages = self.MAX_SWEEP_PAGES if max_pages is None else max_pages
+        if (
+            isinstance(effective_max_pages, bool)
+            or not isinstance(effective_max_pages, int)
+            or not 0 < effective_max_pages <= self.MAX_SWEEP_PAGES
+        ):
+            raise ValueError(
+                "Gamma max_pages must be a positive integer within the hard limit"
+            )
+        if (
+            max_markets is not None
+            and (
+                isinstance(max_markets, bool)
+                or not isinstance(max_markets, int)
+                or max_markets <= 0
+            )
+        ):
+            raise ValueError("Gamma max_markets must be a positive integer")
+        if max_elapsed_seconds is not None:
+            max_elapsed_seconds = float(max_elapsed_seconds)
+            if (
+                not math.isfinite(max_elapsed_seconds)
+                or max_elapsed_seconds <= 0
+            ):
+                raise ValueError(
+                    "Gamma max_elapsed_seconds must be finite and positive"
+                )
         started_at = datetime.now(timezone.utc)
+        started_monotonic = time.monotonic()
         sweep_id = str(uuid4())
         by_condition: Dict[str, Dict] = {}
         memberships: Dict[str, Dict] = {}
@@ -196,6 +232,16 @@ class GammaClient:
         missing_condition_id_count = 0
 
         while True:
+            elapsed_seconds = time.monotonic() - started_monotonic
+            if (
+                max_elapsed_seconds is not None
+                and elapsed_seconds > max_elapsed_seconds
+            ):
+                raise GammaSweepBudgetExceeded(
+                    "Gamma keyset sweep exceeded the elapsed-time budget before "
+                    f"page {pages + 1}: {elapsed_seconds:.3f}s > "
+                    f"{max_elapsed_seconds:.3f}s"
+                )
             params = {
                 "closed": "false",
                 "include_tag": "true",
@@ -250,12 +296,27 @@ class GammaClient:
                     membership["qualification_reason"] = reason
 
             pages += 1
+            elapsed_seconds = time.monotonic() - started_monotonic
+            if max_markets is not None and raw_market_count > max_markets:
+                raise GammaSweepBudgetExceeded(
+                    "Gamma keyset sweep exceeded the raw-market budget: "
+                    f"{raw_market_count} > {max_markets}"
+                )
+            if (
+                max_elapsed_seconds is not None
+                and elapsed_seconds > max_elapsed_seconds
+            ):
+                raise GammaSweepBudgetExceeded(
+                    "Gamma keyset sweep exceeded the elapsed-time budget: "
+                    f"{elapsed_seconds:.3f}s > {max_elapsed_seconds:.3f}s"
+                )
             next_cursor = payload.get("next_cursor")
             if not next_cursor:
                 break
-            if pages >= self.MAX_SWEEP_PAGES:
-                raise RuntimeError(
-                    f"Gamma keyset 순회가 {self.MAX_SWEEP_PAGES}페이지 한도를 초과했습니다"
+            if pages >= effective_max_pages:
+                raise GammaSweepBudgetExceeded(
+                    "Gamma keyset sweep requires more than the page budget: "
+                    f"> {effective_max_pages} pages"
                 )
             if next_cursor == cursor or next_cursor in seen_cursors:
                 raise RuntimeError("Gamma keyset cursor가 반복되어 순회를 중단합니다")
@@ -263,6 +324,16 @@ class GammaClient:
             cursor = str(next_cursor)
             time.sleep(self.KEYSET_PAGE_INTERVAL_SECONDS)
 
+        elapsed_seconds = time.monotonic() - started_monotonic
+        if (
+            max_elapsed_seconds is not None
+            and elapsed_seconds > max_elapsed_seconds
+        ):
+            raise GammaSweepBudgetExceeded(
+                "Gamma keyset sweep exceeded the elapsed-time budget before "
+                f"attestation: {elapsed_seconds:.3f}s > "
+                f"{max_elapsed_seconds:.3f}s"
+            )
         markets = list(by_condition.values())
         sorted_memberships = sorted(
             memberships.values(), key=lambda item: item["condition_id"]
@@ -300,6 +371,10 @@ class GammaClient:
             ),
             "min_liquidity": float(min_liquidity),
             "min_volume": float(min_volume),
+            "max_pages": int(effective_max_pages),
+            "max_markets": max_markets,
+            "max_elapsed_seconds": max_elapsed_seconds,
+            "elapsed_seconds": elapsed_seconds,
             "membership_digest_sha256": hashlib.sha256(membership_bytes).hexdigest(),
             "membership_digest_scope": "qualified_only",
             "memberships": sorted_memberships,
@@ -307,7 +382,8 @@ class GammaClient:
         self.sweep_attestations.append(attestation)
         logger.info(
             f"시장 {len(markets)}개 조회 완료 "
-            f"(keyset {pages}페이지, 유동성 >= ${min_liquidity:,.0f})"
+            f"(keyset {pages}페이지, 유동성 >= ${min_liquidity:,.0f}, "
+            f"누적 거래량 >= ${min_volume:,.0f}, {elapsed_seconds:.1f}초)"
         )
         return markets
 

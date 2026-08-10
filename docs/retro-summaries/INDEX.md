@@ -11,3 +11,4 @@
 | 005 | [005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md](005-blueberry-melon-quince-closed-market-resolution-fix-2026-08-10.md) | 세 전략의 closed Gamma fallback 수정, 회귀·실 API 검증 및 재가동 절차 | 2026-08-10 |
 | 006 | [006-blueberry-melon-quince-resolution-deployment-verification-2026-08-10.md](006-blueberry-melon-quince-resolution-deployment-verification-2026-08-10.md) | 8개 close-only 배포·재동기화 검증, HOLDING 0·RESOLVED 18 확인 | 2026-08-10 |
 | 007 | [007-golden-kiwi-cadence-runtime-diagnosis-2026-08-11.md](007-golden-kiwi-cadence-runtime-diagnosis-2026-08-11.md) | Kiwi A/B/C/D 13~14분 runtime, off-schedule cadence invalidation 및 one-sweep 구조 권고 | 2026-08-11 |
+| 008 | [008-golden-kiwi-filtered-universe-rebuild-2026-08-11.md](008-golden-kiwi-filtered-universe-rebuild-2026-08-11.md) | Kiwi Gamma server filter benchmark, 1/5 이하 universe 재작성, 새 30일 cohort 실행 계약 | 2026-08-11 |

@@ -8,8 +8,8 @@ Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 
 threshold를 합쳐 새 점수를 만든 것이 아니라, 반복하면 안 될 실패를 코드 제약으로
 제거하고 **작은 연속 상승의 지속성**이라는 독립 가설 하나만 남겼다.
 
-향후 계좌 정리 후 네 Jenkins 실험군을 시작할 때는
-[2026-07-31 작성 4개 Arm·30일 시뮬레이션 실행 가이드](GOLDEN_KIWI_MICRO_CASCADE_4_ARM_30_DAY_SIMULATION_RUNBOOK_2026-07-31.md)를
+네 Jenkins 실험군을 다시 시작할 때는
+[2026-08-13 filtered-universe 4개 Arm 실행 가이드](GOLDEN_KIWI_FILTERED_4_ARM_30_DAY_RUNBOOK_2026-08-13.md)를
 먼저 읽는다.
 
 > **현재 결론: live 금지.**
@@ -61,6 +61,23 @@ ask와 +60~75분 direct Gamma 조회의 첫 유효 best bid를 비교한다.
 
 스포츠 제외는 과거 데이터에서 수익 개선이 입증됐다는 뜻이 아니다. 서로 다른 시계와
 시장 구조를 한 표본에 섞지 않기 위한 고정 universe 선택이며 네 팔에서 동일하게 적용한다.
+
+## 서버측 filtered universe
+
+각 arm은 Gamma `/markets/keyset`에 `liquidity_num_min=20000`과 누적 거래량
+`volume_num_min=10000`을 함께 보내 pagination 전에 시장을 줄인다. 이 누적 거래량은
+`volume24hr`와 다른 필드이므로 entry의 최근 24시간 거래량 $10,000 gate도 그대로 다시
+검사한다.
+
+2026-08-11 실측에서 기존 267 page·26,654 raw market은 22 page·2,182 raw market으로
+줄었다(각각 약 8.2%). 기존 entry 계약의 point-in-time strict 후보 17개도 모두 남았다.
+같은 시점에 `volume24hr`를 15k/20k/25k/50k로 높이면 후보가 15/13/12/8개로 줄어
+primary B의 최소 표본 50개를 더 어렵게 만들었다. 따라서 이번에는 request filter만
+높이고 전략의 `volume24hr=10000`은 유지한다.
+
+한 sweep이 53 page, 5,330 raw market 또는 120초를 넘으면 partial snapshot을 저장하지
+않고 run을 실패시킨다. 이 세 상한은 장애 당시 수치의 1/5 이하이며, point-in-time
+benchmark이므로 재가동 뒤 실제 p95 cycle runtime과 cadence coverage를 계속 확인한다.
 
 ## 사전 등록한 네 실험군
 
@@ -163,10 +180,11 @@ collection에서는 Jenkins의 숨은 `H` 값을 추정하지 않고 다음처�
 | C | `2-59/5 * * * *` | `2` |
 | D | `3-59/5 * * * *` | `3` |
 
-네 팔은 같은 UTC `[start,end)`를 쓰고 end는 start의 정확히 30일 뒤여야 한다. 아래
-`2026-08-01T00:00:00Z`~`2026-08-31T00:00:00Z`는 사전 등록 예시다. 첫 promotion run
-전에 한 번 확정하고, 같은 DB에서 날짜·offset·arm·job·preregistration hash·analyzer
-version을 바꾸면 시작을 거부한다.
+네 팔은 고정된 UTC
+`[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)`를 함께 쓴다. 같은 DB에서
+날짜·offset·arm·job·preregistration hash·analyzer version을 바꾸면 시작을 거부한다.
+기존 cadence-invalid DB를 migration하거나 합치지 말고 첫 build에서만 clean build로
+새 DB를 만든 뒤 이후 build의 clean 옵션은 끈다.
 
 한 cycle의 p95 실행시간이 5분을 넘거나 snapshot 간격이 3~10분을 지속적으로 벗어나면
 표본을 늘리려고 동시 실행이나 gap 완화를 하지 않는다. 그 cohort는 cadence 계약 실패로
@@ -178,13 +196,19 @@ SUCCESS run이 하나라도 있으면 그 run의 signal·follow-up을 primary �
 
 ```bash
 #!/bin/bash
+set +x
 set -euo pipefail
 
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_CONFIRMATION_STEPS=3
 export POLYBOT_MIN_CUMULATIVE_MOVE=0.01
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-01T00:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-08-31T00:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T00:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T00:00:00Z
 export POLYBOT_CADENCE_OFFSET_MINUTE=0
 
 cd ./golden-kiwi
@@ -197,13 +221,19 @@ cd ./golden-kiwi
 
 ```bash
 #!/bin/bash
+set +x
 set -euo pipefail
 
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_CONFIRMATION_STEPS=3
 export POLYBOT_MIN_CUMULATIVE_MOVE=0.02
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-01T00:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-08-31T00:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T00:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T00:00:00Z
 export POLYBOT_CADENCE_OFFSET_MINUTE=1
 
 cd ./golden-kiwi
@@ -216,13 +246,19 @@ cd ./golden-kiwi
 
 ```bash
 #!/bin/bash
+set +x
 set -euo pipefail
 
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_CONFIRMATION_STEPS=5
 export POLYBOT_MIN_CUMULATIVE_MOVE=0.01
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-01T00:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-08-31T00:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T00:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T00:00:00Z
 export POLYBOT_CADENCE_OFFSET_MINUTE=2
 
 cd ./golden-kiwi
@@ -235,13 +271,19 @@ cd ./golden-kiwi
 
 ```bash
 #!/bin/bash
+set +x
 set -euo pipefail
 
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_CONFIRMATION_STEPS=5
 export POLYBOT_MIN_CUMULATIVE_MOVE=0.02
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-01T00:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-08-31T00:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T00:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T00:00:00Z
 export POLYBOT_CADENCE_OFFSET_MINUTE=3
 
 cd ./golden-kiwi
@@ -263,8 +305,8 @@ cd ./golden-kiwi
 |---|---|---|
 | `POLYBOT_CONFIRMATION_STEPS` | `3`, `5` | 연속으로 확인할 양의 상승 횟수 |
 | `POLYBOT_MIN_CUMULATIVE_MOVE` | `0.01`, `0.02` | 관측창 전체 최소 YES 상승폭 |
-| `POLYBOT_EXPERIMENT_START_UTC` | UTC ISO-8601 | 네 팔이 공유하는 30일 반개구간 시작 |
-| `POLYBOT_EXPERIMENT_END_UTC` | UTC ISO-8601 | 시작의 정확히 30일 뒤인 exclusive end |
+| `POLYBOT_EXPERIMENT_START_UTC` | `2026-08-13T00:00:00Z` | 네 팔이 공유하는 30일 반개구간 시작 |
+| `POLYBOT_EXPERIMENT_END_UTC` | `2026-09-12T00:00:00Z` | 고정 exclusive end |
 | `POLYBOT_CADENCE_OFFSET_MINUTE` | job별 고정: A/B/C/D=`0/1/2/3` | 해당 canonical job의 5분 schedule offset |
 | `POLYBOT_LIFECYCLE_MODE` | `active`, `close_only`, `archive_only` | 운영 복구용 lifecycle; arm 축이 아님 |
 | `LOG_LEVEL` | 예: `INFO` | 로그 상세도 |
@@ -288,8 +330,9 @@ contract 값, lifecycle만 둔다.
 - 현재 run의 마지막 관측과 같은 `config_hash × strategy_source_digest × mode × job_name`인
   SUCCESS history만 계단 lineage로 사용
 - Gamma sweep 종료시각이 아니라 각 keyset page를 받은 로컬 시각을 관측시각으로 저장
-- archive fetch의 서버측 유동성 하한은 $1,000이다. $1,000 미만에서 갑자기 $20,000
-  진입 gate로 올라온 시장은 충분한 새 lineage가 쌓일 때까지 backfill 없이 제외
+- archive fetch는 서버에서 liquidity $20,000·누적 volume $10,000 이상만 받는다.
+  request envelope에 새로 들어온 시장은 충분한 새 lineage가 쌓일 때까지 backfill 없이 제외
+- 각 SUCCESS sweep은 schema v2, cursor complete, 53 page·5,330 market·120초 이하여야 함
 - 실행 직전 한 번의 CLOB book에서 midpoint·bid·ask·spread·depth를 함께 읽고 마지막
   price와 gap을 다시 평가
 - 60일 동안 실제 5분 cadence 원본을 보존하며 cold rollup 금지

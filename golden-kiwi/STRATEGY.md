@@ -98,10 +98,15 @@ tag는 slug/label의 앞뒤 공백과 대소문자를 정규화한 exact match�
 근거가 아니라 서로 다른 시장 시계를 섞지 않기 위한 동질적 연구 universe 선택이다.
 
 Archive는 진입 밴드보다 넓은 YES `[0.16, 0.84]`를 저장한다. Gamma keyset fetch에는
-서버측 유동성 하한 `$1,000`을 적용한다. 이는 `$20,000` entry gate와 다른 수집 비용
-하한이다. `$1,000` 아래에서 갑자기 진입 gate 위로 올라온 시장은 이전 관측을 추정하거나
-backfill하지 않고 exact 3/5-step lineage가 새로 쌓일 때까지 제외한다. 60일 동안 실제
-cadence row를 보존하고 cold rollup을 하지 않는다.
+pagination 전 서버측 `liquidity_num_min=20000`과 누적
+`volume_num_min=10000`을 적용한다. 누적 volume은 `volume24hr`와 같은 지표가 아니므로
+scanner가 entry의 최근 24시간 $10,000 gate를 별도로 재검증한다. request envelope 밖에서
+새로 들어온 시장은 이전 관측을 추정하거나 backfill하지 않고 exact 3/5-step lineage가
+새로 쌓일 때까지 제외한다. 60일 동안 실제 cadence row를 보존하고 cold rollup을 하지 않는다.
+
+cursor를 끝까지 완주하되 53 page, 5,330 raw market, 120초 중 하나라도 넘으면 partial
+sweep/snapshot을 저장하지 않고 run을 실패시킨다. 성공 sweep에는 schema v2와 filter,
+budget, 실제 elapsed를 남기며 analyzer v3가 모든 SUCCESS run에서 이를 다시 검증한다.
 
 각 snapshot 시각은 전체 keyset sweep 종료시각이 아니라 해당 시장이 포함된 **Gamma
 page를 로컬에서 받은 시각**이다. sweep이 수분 걸려도 모든 시장을 같은 시각에 본 것처럼
@@ -192,7 +197,7 @@ book과 depth 때문에 raw population보다 작기 때문이다. Primary counte
 `best_bid`를 종료가로 쓴다.
 
 후속 조회는 main tradable/archive sweep의 확률·유동성·시간·closed 필터를 재사용하지
-않는다. 시장이 종료됐거나 유동성이 $1,000 아래로 내려가도 condition lookup을 시도한다.
+않는다. 시장이 종료됐거나 main request envelope 밖으로 내려가도 condition lookup을 시도한다.
 각 cycle의 부재·invalid quote·source 오류도
 `micro_cascade_followup_observations`에 append-only로 기록하고, FAILED observing run은
 분석에서 제외한다. window 안의 valid quote가 없으면 censor하며 0이나 마지막 가격으로
@@ -239,6 +244,20 @@ P&L·자본·한도를 영구 `drawdown_kill_switch`로 원자적으로 승격�
 
 원자적 archive/market sweep 또는 RunAudit 실패는 cycle 전체를 중단한다. 개별 시장의
 lineage/book/event 결함은 그 시장만 제외한다.
+
+## 9.1 2026-08-13 filtered-universe 재실험 계약
+
+2026-08-06에 시작한 수집은 267 page·26,654 raw market sweep 때문에 cadence가 무너져
+promotion evidence로 무효다. 새 계약은
+`[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)`로 고정하고 clean DB에서 시작한다.
+사전등록 SHA-256은
+`65e33146e018ff9b01495af515fd059ba5be33de15758ad438584427ea02223c`다.
+
+2026-08-11 exact API benchmark에서 선택한 request envelope는 22 page·2,182 raw
+market으로 기존 장애 수치의 약 8.2%였고, 당시 strict entry 후보 17개를 잃지 않았다.
+이는 point-in-time 검증이지 30일 latency 보장이 아니므로 p95 runtime과 cadence gate는
+그대로 유지한다. benchmark와 한계는
+`research/frozen-2026-08-13/GAMMA_FILTER_BENCHMARK.json`에 고정한다.
 
 ## 10. 기존 OOS 결과와 증거 정정
 

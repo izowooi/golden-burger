@@ -108,6 +108,24 @@ def scanner_for(
     return scanner
 
 
+def test_fetch_markets_uses_frozen_server_side_envelope_and_budgets():
+    calls = []
+    gamma = SimpleNamespace(
+        get_all_tradable_markets=lambda **kwargs: calls.append(kwargs) or []
+    )
+
+    assert MarketScanner(gamma, TradingConfig()).fetch_markets() == []
+    assert calls == [
+        {
+            "min_liquidity": 20_000,
+            "min_volume": 10_000,
+            "max_pages": 53,
+            "max_markets": 5_330,
+            "max_elapsed_seconds": 120,
+        }
+    ]
+
+
 def test_three_step_candidate_carries_complete_trend_evidence():
     rows = snapshots()
     candidate = scanner_for({"c1": rows}).scan_buy_candidates(

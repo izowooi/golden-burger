@@ -60,7 +60,7 @@ def add_snapshot_and_sweep(
     session.add(
         MarketSweep(
             sweep_id=sweep_id,
-            schema_version=1,
+            schema_version=2,
             run_id=run_id,
             started_at=timestamp - timedelta(seconds=1),
             completed_at=timestamp,
@@ -73,8 +73,12 @@ def add_snapshot_and_sweep(
             exclusion_counts_json="{}",
             missing_condition_id_count=0,
             duplicate_raw_count=0,
-            min_liquidity=1_000,
-            min_volume=0,
+            min_liquidity=20_000,
+            min_volume=10_000,
+            max_pages=53,
+            max_markets=5_330,
+            max_elapsed_seconds=120,
+            elapsed_seconds=1,
             membership_digest_sha256="0" * 64,
             snapshot_eligible_count=1,
             snapshotted_market_count=1,

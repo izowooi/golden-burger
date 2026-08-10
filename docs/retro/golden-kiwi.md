@@ -25,8 +25,8 @@ REVIEW_AS_OF=<REVIEW_END_EXCLUSIVE의 전날 YYYY-MM-DD>
 3) CRITICAL/HIGH가 하나라도 있으면 arm 성과·threshold 변경·shadow 승격을 중단한다.
 4) config_hash × strategy_source_digest × mode × job_name cohort를 분리한다. Git commit은 provenance로만 보존한다.
 5) 네 팔은 confirmation_steps와 min_cumulative_move 외의 값이 같은지 검증한다.
-6) SUCCESS run, cursor-complete sweep, current-run 마지막 snapshot, lineage 전체의
-   동일 config/Git/mode/job, 60일 raw cadence, point-in-time catalog/event와
+6) SUCCESS run, schema-v2 filtered cursor-complete sweep, current-run 마지막 snapshot,
+   lineage 전체의 동일 config/source digest/mode/job, 60일 raw cadence, point-in-time catalog/event와
    snapshot bid/ask coverage를 검사한다.
 7) micro_cascade_signal_decisions의 raw_selected entry ask와
    micro_cascade_followup_observations의 +60~75분 첫 SUCCESS valid bid를 쓴다.
@@ -44,9 +44,9 @@ REVIEW_AS_OF=<REVIEW_END_EXCLUSIVE의 전날 YYYY-MM-DD>
 네 Jenkins job과 SQLite가 서로 달라야 한다.
 
 ```bash
-export REVIEW_START=2026-08-01T00:00:00Z
-export REVIEW_END_EXCLUSIVE=2026-08-31T00:00:00Z
-export REVIEW_AS_OF=2026-08-30
+export REVIEW_START=2026-08-13T00:00:00Z
+export REVIEW_END_EXCLUSIVE=2026-09-12T00:00:00Z
+export REVIEW_AS_OF=2026-09-11
 export REVIEW_DAYS=30
 export KIWI_A_DB=/absolute/path/golden-kiwi/data/kiwi-sim-a-3x1/trades_sim.db
 export KIWI_B_DB=/absolute/path/golden-kiwi/data/kiwi-sim-b-3x2/trades_sim.db
@@ -108,7 +108,7 @@ uv run --project polybot-observability polybot-retro audit \
   --strict
 ```
 
-네 audit가 모두 PASS일 때만 v2 분석기를 실행한다.
+네 audit가 모두 PASS일 때만 v3 분석기를 실행한다.
 
 ```bash
 uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
@@ -119,7 +119,7 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
   --strict-audit "C=$RETRO_OUTPUT/C/retro-audit.json" \
   --strict-audit "D=$RETRO_OUTPUT/D/retro-audit.json" \
   --start "$REVIEW_START" --end "$REVIEW_END_EXCLUSIVE" \
-  --output "$RETRO_OUTPUT/kiwi-analysis-v2.json"
+  --output "$RETRO_OUTPUT/kiwi-analysis-v3.json"
 ```
 
 ## 2. 팔별 불변 계약
@@ -136,6 +136,8 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
 - YES `[0.20,0.80]`, resolution ≥6h
 - 각 step `(0,0.02]`, cumulative cap 0.04, gap `[3m,10m]`
 - liquidity ≥$20k, volume24h ≥$10k, spread ≤0.02
+- Gamma request liquidity ≥$20k, cumulative volume ≥$10k
+- SUCCESS run당 schema v2 cursor-complete sweep 정확히 1개, 최대 53 page·5,330 raw market·120초
 - exact excluded tags 집합
 - hold 60m, target 이후 +15m outcome window
 - event 1개, 6h cooldown, 전체 position 3, open notional $15, 신규 1/cycle
@@ -170,8 +172,8 @@ uv run --project golden-kiwi python golden-kiwi/scripts/analyze_experiment.py \
 - arm별 exact `steps+1` snapshot ID가 오름차순·동일 condition인지
 - price `[0.16,0.84]` archive envelope 위반
 - Gamma page 로컬 수신시각이 snapshot clock으로 보존됐는지
-- server-side archive liquidity floor `$1,000` 아래에서 entry universe로 급등해
-  lineage가 없는 시장을 backfill하지 않고 censor했는지
+- filtered request envelope 밖에서 새로 들어와 lineage가 없는 시장을 backfill하지 않고
+  exact 3/5-step이 쌓일 때까지 censor했는지
 - compact metadata가 60일 hot window보다 작지 않은지
 
 ### Entry/exit identity
@@ -376,5 +378,7 @@ Frozen artifact 검증:
 
 ```bash
 cd golden-kiwi/research/frozen-2026-07-30
+shasum -a 256 -c MANIFEST.sha256
+cd ../frozen-2026-08-13
 shasum -a 256 -c MANIFEST.sha256
 ```

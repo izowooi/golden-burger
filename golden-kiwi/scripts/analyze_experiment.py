@@ -24,10 +24,10 @@ from typing import Any, Iterable, Mapping, Sequence
 
 
 SCHEMA_VERSION = 1
-ANALYZER_VERSION = 2
-EXPERIMENT_CONTRACT_SCHEMA_VERSION = 1
+ANALYZER_VERSION = 3
+EXPERIMENT_CONTRACT_SCHEMA_VERSION = 2
 PREREGISTRATION_SHA256 = (
-    "0a2e6537320f27254d3235629652afb97af15a25bc6304f2836cd618e1c28006"
+    "65e33146e018ff9b01495af515fd059ba5be33de15758ad438584427ea02223c"
 )
 WINDOW_DAYS = 30
 EXPECTED_CADENCE_MINUTES = 5
@@ -88,6 +88,11 @@ FROZEN_ARCHIVE_VALUES: dict[str, float | int] = {
     "prob_min": 0.16,
     "prob_max": 0.84,
     "retention_days": 60,
+    "fetch_min_liquidity": 20_000.0,
+    "fetch_min_total_volume": 10_000.0,
+    "max_fetch_pages": 53,
+    "max_fetch_markets": 5_330,
+    "max_sweep_seconds": 120.0,
 }
 FROZEN_EXCLUDED_CATEGORIES = [
     "sports",
@@ -200,6 +205,24 @@ REQUIRED_TABLE_COLUMNS: dict[str, frozenset[str]] = {
 }
 
 V2_REQUIRED_TABLE_COLUMNS: dict[str, frozenset[str]] = {
+    "market_sweeps": frozenset(
+        {
+            "sweep_id",
+            "schema_version",
+            "run_id",
+            "started_at",
+            "completed_at",
+            "cursor_complete",
+            "pages",
+            "raw_market_count",
+            "min_liquidity",
+            "min_volume",
+            "max_pages",
+            "max_markets",
+            "max_elapsed_seconds",
+            "elapsed_seconds",
+        }
+    ),
     "market_snapshots": frozenset(
         {
             "id",
@@ -559,6 +582,72 @@ def _has_complete_sweep(connection: sqlite3.Connection, run_id: str) -> bool:
         ).fetchone()
         is not None
     )
+
+
+def _sweep_contract_reason(
+    connection: sqlite3.Connection,
+    run_id: str,
+) -> str | None:
+    """Require one complete, bounded filtered-universe sweep for one SUCCESS run."""
+    rows = connection.execute(
+        """
+        SELECT schema_version, started_at, completed_at, cursor_complete,
+               pages, raw_market_count, min_liquidity, min_volume,
+               max_pages, max_markets, max_elapsed_seconds, elapsed_seconds
+        FROM market_sweeps
+        WHERE run_id = ?
+        ORDER BY sweep_id
+        """,
+        (run_id,),
+    ).fetchall()
+    if len(rows) != 1:
+        return f"row_count_{len(rows)}"
+    row = rows[0]
+    if row["schema_version"] != 2:
+        return "schema_version_not_2"
+    if row["cursor_complete"] != 1:
+        return "cursor_incomplete"
+
+    pages = row["pages"]
+    raw_markets = row["raw_market_count"]
+    max_pages = row["max_pages"]
+    max_markets = row["max_markets"]
+    if isinstance(pages, bool) or not isinstance(pages, int) or pages < 1:
+        return "pages_invalid"
+    if (
+        isinstance(raw_markets, bool)
+        or not isinstance(raw_markets, int)
+        or raw_markets < 0
+    ):
+        return "raw_market_count_invalid"
+    if max_pages != 53:
+        return "max_pages_not_53"
+    if max_markets != 5_330:
+        return "max_markets_not_5330"
+    if pages > max_pages:
+        return "page_budget_exceeded"
+    if raw_markets > max_markets:
+        return "market_budget_exceeded"
+    if raw_markets > pages * 100:
+        return "raw_market_count_exceeds_page_capacity"
+    if not _same_number(row["min_liquidity"], 20_000.0):
+        return "min_liquidity_not_20000"
+    if not _same_number(row["min_volume"], 10_000.0):
+        return "min_cumulative_volume_not_10000"
+    if not _same_number(row["max_elapsed_seconds"], 120.0):
+        return "max_elapsed_seconds_not_120"
+    elapsed = _finite(row["elapsed_seconds"])
+    if elapsed is None or elapsed < 0:
+        return "elapsed_seconds_invalid"
+    if elapsed > 120.0 + 1e-9:
+        return "elapsed_budget_exceeded"
+    started = _parse_timestamp(row["started_at"])
+    completed = _parse_timestamp(row["completed_at"])
+    if started is None or completed is None:
+        return "wall_clock_invalid"
+    if completed < started:
+        return "wall_clock_reversed"
+    return None
 
 
 def _analyze_kill_switch(
@@ -2309,13 +2398,19 @@ def _analyze_arm_v2(
         ]
         valid_run_cohorts: dict[str, Cohort] = {}
         for run in canonical_runs:
+            run_id = str(run["run_id"])
+            sweep_reason = _sweep_contract_reason(connection, run_id)
+            if sweep_reason is not None:
+                mapping_errors.append(
+                    f"sweep_contract:{run_id}:{sweep_reason}"
+                )
             cohort, reason = _cohort_for_run(run, expected=expected, configs=configs)
             if reason is not None or cohort is None:
                 mapping_errors.append(
-                    f"run_contract:{run['run_id']}:{reason or 'missing_cohort'}"
+                    f"run_contract:{run_id}:{reason or 'missing_cohort'}"
                 )
-            else:
-                valid_run_cohorts[str(run["run_id"])] = cohort
+            elif sweep_reason is None:
+                valid_run_cohorts[run_id] = cohort
         cohort_keys = {cohort.key() for cohort in valid_run_cohorts.values()}
         if len(cohort_keys) != 1:
             mapping_errors.append(f"collection_cohort_count:{len(cohort_keys)}")
@@ -2382,8 +2477,13 @@ def _analyze_arm_v2(
             if source_cohort is None:
                 censors["decision_source_run_contract_invalid"] += 1
                 continue
-            if not _has_complete_sweep(connection, source_run_id):
-                censors["decision_source_cursor_incomplete"] += 1
+            source_sweep_reason = _sweep_contract_reason(
+                connection, source_run_id
+            )
+            if source_sweep_reason is not None:
+                censors[
+                    f"decision_source_sweep_contract:{source_sweep_reason}"
+                ] += 1
                 continue
             integrity_rows.append(row)
             lineage_reason = _raw_lineage_reason(

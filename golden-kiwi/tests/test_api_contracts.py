@@ -16,7 +16,11 @@ from polybot_observability import (
     ClobResponseUnavailableError,
 )
 from polybot.api.clob_client import ClobClientWrapper
-from polybot.api.gamma_client import GammaClient, GammaConditionMismatchError
+from polybot.api.gamma_client import (
+    GammaClient,
+    GammaConditionMismatchError,
+    GammaSweepBudgetExceeded,
+)
 
 
 class Response:
@@ -43,7 +47,7 @@ class KeysetSession:
                         "enableOrderBook": True,
                         "acceptingOrders": True,
                         "liquidity": "20000",
-                        "volume": "1000",
+                        "volume": "15000",
                         "outcomes": '["Yes", "No"]',
                     },
                     {
@@ -53,7 +57,7 @@ class KeysetSession:
                         "enableOrderBook": True,
                         "acceptingOrders": True,
                         "liquidity": "50000",
-                        "volume": "1000",
+                        "volume": "15000",
                     },
                     {
                         "conditionId": "server-filter-leak",
@@ -62,7 +66,7 @@ class KeysetSession:
                         "enableOrderBook": True,
                         "acceptingOrders": True,
                         "liquidity": "1",
-                        "volume": "1000",
+                        "volume": "15000",
                     },
                 ],
                 "next_cursor": "cursor-1",
@@ -76,7 +80,7 @@ class KeysetSession:
                         "enableOrderBook": True,
                         "acceptingOrders": True,
                         "liquidity": "20000",
-                        "volume": "1000",
+                        "volume": "15000",
                     },
                     {
                         "conditionId": "two",
@@ -85,13 +89,13 @@ class KeysetSession:
                         "enableOrderBook": True,
                         "acceptingOrders": True,
                         "liquidity": "30000",
-                        "volume": "2000",
+                        "volume": "20000",
                     },
                     {
                         "conditionId": "missing-tradability",
                         "active": True,
                         "liquidity": "30000",
-                        "volume": "2000",
+                        "volume": "20000",
                     },
                 ]
             },
@@ -108,20 +112,36 @@ def test_gamma_keyset_sweep_deduplicates_and_attests_membership(monkeypatch):
     client = GammaClient()
     client.session = KeysetSession()
 
-    markets = client.get_all_tradable_markets(min_liquidity=10_000)
+    markets = client.get_all_tradable_markets(
+        min_liquidity=20_000,
+        min_volume=10_000,
+        max_pages=53,
+        max_markets=5_330,
+        max_elapsed_seconds=120,
+    )
 
     assert [market["conditionId"] for market in markets] == ["one", "two"]
     assert client.session.calls[0][0].endswith("/markets/keyset")
     assert client.session.calls[1][1]["after_cursor"] == "cursor-1"
+    assert all(
+        call[1]["liquidity_num_min"] == 20_000
+        and call[1]["volume_num_min"] == 10_000
+        for call in client.session.calls
+    )
     assert all(call[2] == (3.05, 20.0) for call in client.session.calls)
     assert sleeps == [client.KEYSET_PAGE_INTERVAL_SECONDS]
     attestation = client.last_sweep_attestation
+    assert attestation["schema_version"] == 2
     assert attestation["cursor_complete"] is True
     assert attestation["pages"] == 2
     assert attestation["raw_market_count"] == 6
     assert attestation["unique_condition_count"] == 5
     assert attestation["qualified_market_count"] == 2
     assert attestation["duplicate_raw_count"] == 1
+    assert attestation["max_pages"] == 53
+    assert attestation["max_markets"] == 5_330
+    assert attestation["max_elapsed_seconds"] == 120
+    assert 0 <= attestation["elapsed_seconds"] <= 120
     assert len(attestation["membership_digest_sha256"]) == 64
     memberships = {item["condition_id"]: item for item in attestation["memberships"]}
     assert memberships["one"]["raw_seen_count"] == 2
@@ -129,6 +149,39 @@ def test_gamma_keyset_sweep_deduplicates_and_attests_membership(monkeypatch):
     assert memberships["closed"]["qualification_reason"] == "closed_or_missing"
     assert memberships["server-filter-leak"]["qualification_reason"] == "below_min_liquidity"
     assert memberships["missing-tradability"]["qualified"] is False
+
+
+def test_gamma_page_budget_fails_without_partial_attestation(monkeypatch):
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _value: None)
+    client = GammaClient()
+    client.session = KeysetSession()
+
+    with pytest.raises(GammaSweepBudgetExceeded, match="page budget"):
+        client.get_all_tradable_markets(max_pages=1)
+
+    assert client.last_sweep_attestation is None
+
+
+def test_gamma_market_budget_fails_without_partial_attestation():
+    client = GammaClient()
+    client.session = KeysetSession()
+
+    with pytest.raises(GammaSweepBudgetExceeded, match="raw-market budget"):
+        client.get_all_tradable_markets(max_markets=2)
+
+    assert client.last_sweep_attestation is None
+
+
+def test_gamma_elapsed_budget_fails_without_partial_attestation(monkeypatch):
+    clocks = iter([0.0, 0.0, 121.0])
+    monkeypatch.setattr("polybot.api.gamma_client.time.monotonic", lambda: next(clocks))
+    client = GammaClient()
+    client.session = KeysetSession()
+
+    with pytest.raises(GammaSweepBudgetExceeded, match="elapsed-time budget"):
+        client.get_all_tradable_markets(max_elapsed_seconds=120)
+
+    assert client.last_sweep_attestation is None
 
 
 class TimeoutSession:
@@ -228,6 +281,28 @@ def test_gamma_rejects_invalid_filters_before_network(filters):
     )
     with pytest.raises(ValueError, match="finite and non-negative"):
         client.get_all_tradable_markets(**filters)
+
+
+@pytest.mark.parametrize(
+    "budgets",
+    [
+        {"max_pages": 0},
+        {"max_pages": True},
+        {"max_markets": 0},
+        {"max_markets": True},
+        {"max_elapsed_seconds": 0},
+        {"max_elapsed_seconds": float("nan")},
+    ],
+)
+def test_gamma_rejects_invalid_budgets_before_network(budgets):
+    client = GammaClient()
+    client.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("network must not be called")
+        )
+    )
+    with pytest.raises(ValueError, match="max_|positive integer"):
+        client.get_all_tradable_markets(**budgets)
 
 
 @pytest.mark.parametrize("field", ["liquidity", "volume"])

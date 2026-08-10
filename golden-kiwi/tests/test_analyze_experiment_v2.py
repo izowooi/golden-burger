@@ -22,7 +22,7 @@ sys.modules[SPEC.name] = analyzer
 SPEC.loader.exec_module(analyzer)
 
 UTC = timezone.utc
-START = datetime(2026, 8, 1, tzinfo=UTC)
+START = datetime(2026, 8, 13, tzinfo=UTC)
 END = START + timedelta(days=30)
 GIT_COMMIT = "c" * 40
 SOURCE_DIGEST = "d" * 64
@@ -91,11 +91,13 @@ def _insert_run(connection, *, arm, run_id, started_at, status="SUCCESS"):
                 unique_condition_count, qualified_market_count,
                 excluded_condition_count, exclusion_counts_json,
                 missing_condition_id_count, duplicate_raw_count,
-                min_liquidity, min_volume, membership_digest_sha256,
+                min_liquidity, min_volume, max_pages, max_markets,
+                max_elapsed_seconds, elapsed_seconds,
+                membership_digest_sha256,
                 snapshot_eligible_count, snapshotted_market_count
             ) VALUES (
-                ?, 1, ?, ?, ?, 1, 1, 1, 1, 1, 0, '{}', 0, 0,
-                1000, 0, ?, 1, 1
+                ?, 2, ?, ?, ?, 1, 1, 1, 1, 1, 0, '{}', 0, 0,
+                20000, 10000, 53, 5330, 120, 20, ?, 1, 1
             )
             """,
             (
@@ -321,7 +323,7 @@ def _build_arm(path, arm, *, add_primary_signals=False):
             canonical_job, schema_version, analyzer_version,
             preregistration_sha256, arm, window_start, window_end,
             expected_cadence_minutes, expected_offset_minute, created_at
-        ) VALUES (?, 1, 2, ?, ?, ?, ?, 5, ?, ?)
+        ) VALUES (?, 2, 3, ?, ?, ?, ?, 5, ?, ?)
         """,
         (
             analyzer.CANONICAL_ARMS[arm]["job_name"],
@@ -428,7 +430,8 @@ def test_v2_primary_uses_raw_quote_path_and_can_pass(positive_experiment):
     _, _, result = positive_experiment
     primary = result["arms"]["B"]
 
-    assert result["schema_version"] == 2
+    assert result["schema_version"] == 3
+    assert result["analyzer_version"] == 3
     assert result["primary_metric_status"] == (
         "RECONSTRUCTED_FROM_APPEND_ONLY_RAW_EVIDENCE"
     )
@@ -499,6 +502,32 @@ def test_strict_audit_digest_is_required_and_bound_to_exact_db_bytes(
     assert (
         "strict_audit_database_sha256_mismatch"
         in result["arms"]["B"]["strict_audit"]["errors"]
+    )
+
+
+def test_filtered_sweep_contract_mismatch_fails_closed(
+    positive_experiment,
+    tmp_path,
+):
+    databases, _, _ = positive_experiment
+    copied = _copy_experiment(databases, tmp_path / "sweep-contract")
+    with sqlite3.connect(copied["B"]) as connection:
+        connection.execute(
+            "UPDATE market_sweeps SET max_pages = 54 WHERE run_id = 'run-B-0'"
+        )
+    audits = {arm: _strict_audit(path) for arm, path in copied.items()}
+
+    result = analyzer.analyze_experiment(
+        copied,
+        start=START,
+        end=END,
+        strict_audits=audits,
+    )
+
+    assert result["primary_b_gate"]["verdict"] == "NOT_EVALUABLE_FAIL_CLOSED"
+    assert (
+        "sweep_contract:run-B-0:max_pages_not_53"
+        in result["arms"]["B"]["mapping_errors"]
     )
 
 

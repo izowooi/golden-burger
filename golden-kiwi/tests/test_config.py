@@ -7,7 +7,12 @@ import sqlite3
 import pytest
 
 import polybot.config as config_module
-from polybot.config import REQUIRED_EXCLUDED_CATEGORIES, load_config
+from polybot.config import (
+    ANALYZER_SCHEMA_VERSION,
+    PREREGISTRATION_SHA256,
+    REQUIRED_EXCLUDED_CATEGORIES,
+    load_config,
+)
 
 
 ARM_CASES = [
@@ -49,6 +54,11 @@ def test_default_simulation_needs_no_wallet_secrets():
     assert config.trading.max_positions == 3
     assert config.trading.max_open_notional_usdc == 15
     assert tuple(config.trading.excluded_categories) == REQUIRED_EXCLUDED_CATEGORIES
+    assert config.trading.archive.fetch_min_liquidity == 20_000
+    assert config.trading.archive.fetch_min_total_volume == 10_000
+    assert config.trading.archive.max_fetch_pages == 53
+    assert config.trading.archive.max_fetch_markets == 5_330
+    assert config.trading.archive.max_sweep_seconds == 120
 
 
 @pytest.mark.parametrize(("steps", "move", "arm", "job"), ARM_CASES)
@@ -71,6 +81,11 @@ def test_only_four_registered_arms_resolve(monkeypatch, steps, move, arm, job):
         ("POLYBOT_HOLD_MINUTES", "61"),
         ("POLYBOT_MAX_SPREAD", "0.03"),
         ("POLYBOT_SNAPSHOT_RETENTION_DAYS", "61"),
+        ("POLYBOT_FETCH_MIN_LIQUIDITY", "19999"),
+        ("POLYBOT_FETCH_MIN_TOTAL_VOLUME", "9999"),
+        ("POLYBOT_MAX_FETCH_PAGES", "52"),
+        ("POLYBOT_MAX_FETCH_MARKETS", "5329"),
+        ("POLYBOT_MAX_SWEEP_SECONDS", "119"),
     ],
 )
 def test_every_non_arm_runtime_treatment_knob_is_frozen(monkeypatch, key, value):
@@ -192,7 +207,7 @@ def test_absent_experiment_window_is_nonpromotion_smoke_mode():
 
 def test_collection_window_env_is_all_or_none(monkeypatch):
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-01T00:00:00Z"
+        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-13T00:00:00Z"
     )
     with pytest.raises(ValueError, match="셋 모두"):
         load_config("missing.yaml", "kiwi-sim-b-3x2")
@@ -200,10 +215,10 @@ def test_collection_window_env_is_all_or_none(monkeypatch):
 
 def test_collection_window_is_exact_shared_30_day_utc_contract(monkeypatch):
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-01T00:00:00Z"
+        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-13T00:00:00Z"
     )
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_END_UTC", "2026-08-31T00:00:00Z"
+        "POLYBOT_EXPERIMENT_END_UTC", "2026-09-12T00:00:00Z"
     )
     monkeypatch.setenv("POLYBOT_CADENCE_OFFSET_MINUTE", "1")
     experiment = load_config(
@@ -215,6 +230,21 @@ def test_collection_window_is_exact_shared_30_day_utc_contract(monkeypatch):
     )
     assert experiment.expected_cadence_minutes == 5
     assert experiment.expected_offset_minute == 1
+    assert experiment.analyzer_version == ANALYZER_SCHEMA_VERSION
+    assert experiment.preregistration_sha256 == PREREGISTRATION_SHA256
+
+
+def test_collection_rejects_another_exact_30_day_window(monkeypatch):
+    monkeypatch.setenv(
+        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-14T00:00:00Z"
+    )
+    monkeypatch.setenv(
+        "POLYBOT_EXPERIMENT_END_UTC", "2026-09-13T00:00:00Z"
+    )
+    monkeypatch.setenv("POLYBOT_CADENCE_OFFSET_MINUTE", "1")
+
+    with pytest.raises(ValueError, match="preregistered"):
+        load_config("missing.yaml", "kiwi-sim-b-3x2")
 
 
 @pytest.mark.parametrize(
@@ -231,10 +261,10 @@ def test_collection_offset_is_fixed_per_canonical_job(
     monkeypatch.setenv("POLYBOT_CONFIRMATION_STEPS", str(steps))
     monkeypatch.setenv("POLYBOT_MIN_CUMULATIVE_MOVE", str(move))
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-01T00:00:00Z"
+        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-13T00:00:00Z"
     )
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_END_UTC", "2026-08-31T00:00:00Z"
+        "POLYBOT_EXPERIMENT_END_UTC", "2026-09-12T00:00:00Z"
     )
     monkeypatch.setenv("POLYBOT_CADENCE_OFFSET_MINUTE", str(offset))
 
@@ -245,10 +275,10 @@ def test_collection_offset_is_fixed_per_canonical_job(
 
 def test_collection_rejects_offset_from_another_canonical_job(monkeypatch):
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-01T00:00:00Z"
+        "POLYBOT_EXPERIMENT_START_UTC", "2026-08-13T00:00:00Z"
     )
     monkeypatch.setenv(
-        "POLYBOT_EXPERIMENT_END_UTC", "2026-08-31T00:00:00Z"
+        "POLYBOT_EXPERIMENT_END_UTC", "2026-09-12T00:00:00Z"
     )
     monkeypatch.setenv("POLYBOT_CADENCE_OFFSET_MINUTE", "3")
 

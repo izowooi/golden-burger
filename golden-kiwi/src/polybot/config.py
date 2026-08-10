@@ -37,13 +37,20 @@ REQUIRED_EXCLUDED_CATEGORIES = (
 )
 DEFAULT_BUY_AMOUNT_USDC = 5.0
 LIVE_EXECUTION_ENABLED = False
-EXPERIMENT_SCHEMA_VERSION = 1
-ANALYZER_SCHEMA_VERSION = 2
+EXPERIMENT_SCHEMA_VERSION = 2
+ANALYZER_SCHEMA_VERSION = 3
 PREREGISTRATION_SHA256 = (
-    "0a2e6537320f27254d3235629652afb97af15a25bc6304f2836cd618e1c28006"
+    "65e33146e018ff9b01495af515fd059ba5be33de15758ad438584427ea02223c"
 )
 EXPERIMENT_WINDOW_DAYS = 30
 EXPECTED_CADENCE_MINUTES = 5
+PREREGISTERED_WINDOW_START = datetime(2026, 8, 13, tzinfo=timezone.utc)
+PREREGISTERED_WINDOW_END = datetime(2026, 9, 12, tzinfo=timezone.utc)
+FETCH_MIN_LIQUIDITY = 20_000.0
+FETCH_MIN_TOTAL_VOLUME = 10_000.0
+MAX_FETCH_PAGES = 53
+MAX_FETCH_MARKETS = 5_330
+MAX_SWEEP_SECONDS = 120.0
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 PROJECT_ROOT = SOURCE_PROJECT_ROOT
 CANONICAL_JOB_ARMS = {
@@ -163,6 +170,11 @@ class ArchiveConfig:
     prob_min: float = 0.16
     prob_max: float = 0.84
     retention_days: int = 60
+    fetch_min_liquidity: float = FETCH_MIN_LIQUIDITY
+    fetch_min_total_volume: float = FETCH_MIN_TOTAL_VOLUME
+    max_fetch_pages: int = MAX_FETCH_PAGES
+    max_fetch_markets: int = MAX_FETCH_MARKETS
+    max_sweep_seconds: float = MAX_SWEEP_SECONDS
 
 
 @dataclass
@@ -313,6 +325,11 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "archive.prob_min": archive.prob_min,
         "archive.prob_max": archive.prob_max,
         "archive.retention_days": archive.retention_days,
+        "archive.fetch_min_liquidity": archive.fetch_min_liquidity,
+        "archive.fetch_min_total_volume": archive.fetch_min_total_volume,
+        "archive.max_fetch_pages": archive.max_fetch_pages,
+        "archive.max_fetch_markets": archive.max_fetch_markets,
+        "archive.max_sweep_seconds": archive.max_sweep_seconds,
     }
     for name, value in numeric.items():
         if not math.isfinite(value):
@@ -356,6 +373,18 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         ),
         "archive.prob_min": (archive.prob_min, 0.16),
         "archive.prob_max": (archive.prob_max, 0.84),
+        "archive.fetch_min_liquidity": (
+            archive.fetch_min_liquidity,
+            FETCH_MIN_LIQUIDITY,
+        ),
+        "archive.fetch_min_total_volume": (
+            archive.fetch_min_total_volume,
+            FETCH_MIN_TOTAL_VOLUME,
+        ),
+        "archive.max_sweep_seconds": (
+            archive.max_sweep_seconds,
+            MAX_SWEEP_SECONDS,
+        ),
     }
     for name, (actual, expected) in frozen_values.items():
         if not _same_float(actual, expected):
@@ -377,6 +406,16 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("archive probability buffer must cover the entry band")
     if archive.retention_days != 60:
         raise ValueError("archive.retention_days is frozen at 60")
+    if archive.max_fetch_pages != MAX_FETCH_PAGES:
+        raise ValueError(f"archive.max_fetch_pages is frozen at {MAX_FETCH_PAGES}")
+    if archive.max_fetch_markets != MAX_FETCH_MARKETS:
+        raise ValueError(
+            f"archive.max_fetch_markets is frozen at {MAX_FETCH_MARKETS}"
+        )
+    if archive.max_fetch_pages * 100 > archive.max_fetch_markets:
+        raise ValueError("fetch page budget must fit inside the raw-market budget")
+    if not 0 < archive.max_sweep_seconds < EXPECTED_CADENCE_MINUTES * 60:
+        raise ValueError("max sweep seconds must be positive and below five minutes")
 
     fixed_controls = {
         "max_drawdown_stop": (trading.max_drawdown_stop, 0.20),
@@ -402,6 +441,12 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
                 f"{name} is frozen at {expected}; only the registered arm axes "
                 "may vary"
             )
+    if archive.fetch_min_liquidity > trading.min_liquidity:
+        raise ValueError("archive fetch liquidity must not exceed the entry gate")
+    if archive.fetch_min_total_volume > trading.min_volume_24h:
+        raise ValueError(
+            "cumulative fetch volume must not exceed the 24h entry gate"
+        )
     if trading.max_positions != 3:
         raise ValueError("max_positions is frozen at 3")
     if trading.max_event_positions != 1:
@@ -546,6 +591,11 @@ def _load_experiment_collection(job_name: str) -> ExperimentCollectionConfig:
     end = _parse_collection_timestamp(keys[1], str(raw[keys[1]]))
     if end - start != timedelta(days=EXPERIMENT_WINDOW_DAYS):
         raise ValueError("experiment UTC window must be exactly 30 days")
+    if start != PREREGISTERED_WINDOW_START or end != PREREGISTERED_WINDOW_END:
+        raise ValueError(
+            "experiment UTC window is preregistered at "
+            "[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)"
+        )
     try:
         offset = int(str(raw[keys[2]]))
     except (TypeError, ValueError) as error:
@@ -679,6 +729,33 @@ def load_config(
             archive_cfg.get("retention_days"),
             60,
             int,
+        ),
+        fetch_min_liquidity=_get_config_value(
+            "POLYBOT_FETCH_MIN_LIQUIDITY",
+            archive_cfg.get("fetch_min_liquidity"),
+            FETCH_MIN_LIQUIDITY,
+        ),
+        fetch_min_total_volume=_get_config_value(
+            "POLYBOT_FETCH_MIN_TOTAL_VOLUME",
+            archive_cfg.get("fetch_min_total_volume"),
+            FETCH_MIN_TOTAL_VOLUME,
+        ),
+        max_fetch_pages=_get_config_value(
+            "POLYBOT_MAX_FETCH_PAGES",
+            archive_cfg.get("max_fetch_pages"),
+            MAX_FETCH_PAGES,
+            int,
+        ),
+        max_fetch_markets=_get_config_value(
+            "POLYBOT_MAX_FETCH_MARKETS",
+            archive_cfg.get("max_fetch_markets"),
+            MAX_FETCH_MARKETS,
+            int,
+        ),
+        max_sweep_seconds=_get_config_value(
+            "POLYBOT_MAX_SWEEP_SECONDS",
+            archive_cfg.get("max_sweep_seconds"),
+            MAX_SWEEP_SECONDS,
         ),
     )
     resolved_yes_only = _get_bool_config_value(

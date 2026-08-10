@@ -46,6 +46,16 @@ trading:
     prob_min: 0.16
     prob_max: 0.84
     retention_days: 60
+    # Filter before Gamma keyset pagination. These are cumulative-volume and
+    # liquidity request-envelope controls, not the volume24hr entry gate.
+    fetch_min_liquidity: 20000
+    fetch_min_total_volume: 10000
+    # Fail closed instead of completing a sweep that can no longer fit inside
+    # the five-minute cadence. 53 pages / 5,330 markets are <= one fifth of
+    # the 2026-08-10 incident envelope (267 / 26,654).
+    max_fetch_pages: 53
+    max_fetch_markets: 5330
+    max_sweep_seconds: 120
 
   excluded_categories:
     - sports

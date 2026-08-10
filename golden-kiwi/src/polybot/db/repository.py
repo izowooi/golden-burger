@@ -35,7 +35,20 @@ from .models import (
     Trade,
     TradeStatus,
 )
-from ..config import CANONICAL_JOB_ARMS, CANONICAL_JOB_OFFSETS
+from ..config import (
+    ANALYZER_SCHEMA_VERSION,
+    CANONICAL_JOB_ARMS,
+    CANONICAL_JOB_OFFSETS,
+    EXPERIMENT_SCHEMA_VERSION,
+    FETCH_MIN_LIQUIDITY,
+    FETCH_MIN_TOTAL_VOLUME,
+    MAX_FETCH_MARKETS,
+    MAX_FETCH_PAGES,
+    MAX_SWEEP_SECONDS,
+    PREREGISTERED_WINDOW_END,
+    PREREGISTERED_WINDOW_START,
+    PREREGISTRATION_SHA256,
+)
 from ..strategy.filters import (
     get_event_metadata,
     get_proven_resolution,
@@ -1450,9 +1463,10 @@ class TradeRepository:
         """Validate and persist derived sweep membership atomically."""
         if not attestation or attestation.get("cursor_complete") is not True:
             raise ValueError("only a completed Gamma sweep may be persisted")
-        if int(attestation.get("schema_version", 0)) != 1:
+        if int(attestation.get("schema_version", 0)) != 2:
             raise ValueError("unsupported Gamma sweep schema")
-        if int(attestation.get("pages", 0)) < 1:
+        pages = attestation.get("pages")
+        if isinstance(pages, bool) or not isinstance(pages, int) or pages < 1:
             raise ValueError("Gamma sweep pages must be positive")
         memberships = attestation.get("memberships")
         if not isinstance(memberships, list):
@@ -1551,6 +1565,49 @@ class TradeRepository:
             for value in (min_liquidity, min_volume)
         ):
             raise ValueError("Gamma sweep filters must be finite/non-negative")
+        max_pages = attestation.get("max_pages")
+        max_markets = attestation.get("max_markets")
+        if (
+            isinstance(max_pages, bool)
+            or not isinstance(max_pages, int)
+            or max_pages < 1
+            or isinstance(max_markets, bool)
+            or not isinstance(max_markets, int)
+            or max_markets < 1
+        ):
+            raise ValueError("Gamma sweep page/market budgets must be positive integers")
+        try:
+            max_elapsed_seconds = float(attestation["max_elapsed_seconds"])
+            elapsed_seconds = float(attestation["elapsed_seconds"])
+        except (KeyError, TypeError, ValueError) as error:
+            raise ValueError("Gamma sweep elapsed-time evidence is required") from error
+        if (
+            not math.isfinite(max_elapsed_seconds)
+            or max_elapsed_seconds <= 0
+            or not math.isfinite(elapsed_seconds)
+            or elapsed_seconds < 0
+        ):
+            raise ValueError("Gamma sweep elapsed-time evidence must be finite")
+        if pages > max_pages:
+            raise ValueError("Gamma sweep pages exceed the attested budget")
+        if raw_count > max_markets:
+            raise ValueError("Gamma sweep raw markets exceed the attested budget")
+        if elapsed_seconds > max_elapsed_seconds:
+            raise ValueError("Gamma sweep elapsed time exceeds the attested budget")
+        frozen_contract = {
+            "min_liquidity": (min_liquidity, FETCH_MIN_LIQUIDITY),
+            "min_volume": (min_volume, FETCH_MIN_TOTAL_VOLUME),
+            "max_pages": (max_pages, MAX_FETCH_PAGES),
+            "max_markets": (max_markets, MAX_FETCH_MARKETS),
+            "max_elapsed_seconds": (max_elapsed_seconds, MAX_SWEEP_SECONDS),
+        }
+        for field, (actual, expected_value) in frozen_contract.items():
+            if not math.isclose(
+                float(actual), float(expected_value), rel_tol=0, abs_tol=1e-9
+            ):
+                raise ValueError(
+                    f"Gamma sweep {field} does not match the frozen request contract"
+                )
         sweep_id = str(attestation.get("sweep_id") or "")
         if not sweep_id:
             raise ValueError("Gamma sweep_id is required")
@@ -1561,12 +1618,12 @@ class TradeRepository:
 
         sweep = MarketSweep(
             sweep_id=sweep_id,
-            schema_version=1,
+            schema_version=2,
             run_id=current_run_id(),
             started_at=started,
             completed_at=completed,
             cursor_complete=1,
-            pages=int(attestation["pages"]),
+            pages=pages,
             raw_market_count=raw_count,
             unique_condition_count=len(canonical),
             qualified_market_count=len(qualified_rows),
@@ -1576,6 +1633,10 @@ class TradeRepository:
             duplicate_raw_count=expected["duplicate_raw_count"],
             min_liquidity=min_liquidity,
             min_volume=min_volume,
+            max_pages=max_pages,
+            max_markets=max_markets,
+            max_elapsed_seconds=max_elapsed_seconds,
+            elapsed_seconds=elapsed_seconds,
             membership_digest_sha256=digest,
             snapshot_eligible_count=sum(int(row[1]) for row in enriched),
             snapshotted_market_count=sum(int(row[2]) for row in enriched),
@@ -1643,6 +1704,13 @@ class TradeRepository:
                 "experiment contract는 정확한 UTC minute 경계의 30일 "
                 "반개구간이어야 합니다"
             )
+        preregistered_start = PREREGISTERED_WINDOW_START.replace(tzinfo=None)
+        preregistered_end = PREREGISTERED_WINDOW_END.replace(tzinfo=None)
+        if start != preregistered_start or end != preregistered_end:
+            raise ValueError(
+                "experiment contract window는 "
+                "[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)로 고정됩니다"
+            )
         if (
             isinstance(expected_cadence_minutes, bool)
             or int(expected_cadence_minutes) != 5
@@ -1669,12 +1737,20 @@ class TradeRepository:
             hash_is_hex = False
         if not hash_is_hex:
             raise ValueError("preregistration SHA-256 형식이 유효하지 않습니다")
-        if isinstance(analyzer_version, bool) or int(analyzer_version) != 2:
-            raise ValueError("experiment analyzer version은 v2로 고정됩니다")
+        if (
+            isinstance(analyzer_version, bool)
+            or int(analyzer_version) != ANALYZER_SCHEMA_VERSION
+        ):
+            raise ValueError(
+                f"experiment analyzer version은 v{ANALYZER_SCHEMA_VERSION}로 "
+                "고정됩니다"
+            )
+        if normalized_hash != PREREGISTRATION_SHA256:
+            raise ValueError("experiment preregistration hash가 고정 계약과 다릅니다")
 
         values = {
             "canonical_job": normalized_job,
-            "schema_version": 1,
+            "schema_version": EXPERIMENT_SCHEMA_VERSION,
             "analyzer_version": int(analyzer_version),
             "preregistration_sha256": normalized_hash,
             "arm": normalized_arm,

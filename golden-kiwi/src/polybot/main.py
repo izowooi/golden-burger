@@ -8,7 +8,7 @@ import logging
 import sys
 
 from .bot import PolymarketBot
-from .config import load_config
+from .config import EXPERIMENT_SCHEMA_VERSION, load_config
 from .utils.logger import setup_logger
 
 
@@ -144,6 +144,14 @@ def main() -> None:
         f"{trading.archive.retention_days}d retention"
     )
     print(
+        "Gamma request: "
+        f"liquidity >= ${trading.archive.fetch_min_liquidity:,.0f}, "
+        f"cumulative volume >= ${trading.archive.fetch_min_total_volume:,.0f}; "
+        f"budgets={trading.archive.max_fetch_pages} pages / "
+        f"{trading.archive.max_fetch_markets:,} markets / "
+        f"{trading.archive.max_sweep_seconds:.0f}s"
+    )
+    print(
         "Exact excluded tags: "
         + ", ".join(trading.excluded_categories)
     )
@@ -163,7 +171,7 @@ def main() -> None:
             f"offset={experiment.expected_offset_minute}"
         )
         print(
-            "Experiment evidence: schema=1, "
+            f"Experiment evidence: schema={EXPERIMENT_SCHEMA_VERSION}, "
             f"analyzer={experiment.analyzer_version}, "
             f"prereg={experiment.preregistration_sha256}"
         )

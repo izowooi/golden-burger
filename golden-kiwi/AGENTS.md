@@ -20,11 +20,13 @@ diagnostic이다.
 
 - `src/polybot/`: archive, signal, ranking, follow-up, simulation과 live hard block
 - `src/polybot/db/`: job별 SQLite와 append-only experiment evidence
-- `scripts/analyze_experiment.py`: 네 DB를 read-only로 평가하는 analyzer v2
+- `scripts/analyze_experiment.py`: 네 DB를 read-only로 평가하는 analyzer v3
 - `tests/`: arm, lineage, funnel, follow-up, collection, drawdown, live 차단 계약
 - `research/frozen-2026-07-30/`: checksum으로 고정한 최초 연구 산출물
 - `research/2026-07-30-cohort-correction.md`: cross-Git 양수 결과 철회 기록
 - `research/2026-08-04-cohort-identity-amendment.md`: Git commit을 cohort에서 제거한 계약 정정
+- `research/frozen-2026-08-13/`: filtered-universe 재실험 사전등록·API benchmark·checksum
+- `GOLDEN_KIWI_FILTERED_4_ARM_30_DAY_RUNBOOK_2026-08-13.md`: 현재 Jenkins 실행 계약
 - `data/<job>/trades_sim.db`: ignored canonical runtime DB
 - `README.md`: 실행·Jenkins·분석 절차
 - `STRATEGY.md`: 가설·반증·promotion 계약
@@ -51,6 +53,10 @@ backfill, forward-fill, rollup 또는 다른 cohort 결합은 금지한다.
 
 - 표준 이진 YES, `negRisk=false`, 6시간 이상, YES 0.20~0.80만 진입 후보로 삼는다.
 - liquidity $20,000, volume24h $10,000, spread 0.02를 고정한다.
+- Gamma request envelope도 liquidity $20,000과 cumulative volume $10,000으로 서버에서
+  먼저 제한한다. 이는 `volume24hr`를 대신하지 않으며 scanner가 24시간 gate를 다시 검사한다.
+- cursor-complete sweep은 최대 53 page, 5,330 raw market, 120초다. 하나라도 넘으면
+  partial evidence를 저장하지 않고 run을 실패시킨다.
 - sports, games, esports와 짧은 crypto 계열 exact tag를 고정 제외한다.
 - 같은 event에서는 liquidity 내림차순·`condition_id` 오름차순으로 하나를 고른다.
 - event 승자를 같은 전역 순서로 정렬하고 fresh gate를 처음 통과한 최대 1개만 진입한다.
@@ -69,8 +75,10 @@ backfill, forward-fill, rollup 또는 다른 cohort 결합은 금지한다.
 `POLYBOT_EXPERIMENT_START_UTC`, `POLYBOT_EXPERIMENT_END_UTC`,
 `POLYBOT_CADENCE_OFFSET_MINUTE`는 all-or-none이다. 없으면 smoke/archive mode이며
 `collection_eligible=0`이다. 일부만 있거나 `[start,end)`가 정확히 30일이 아니면
-시작하지 않는다. 정확한 최초 UTC 구간은 사용자가 첫 run 전에 확정해야 하며 README의
-날짜는 예시일 뿐이다.
+시작하지 않는다. 현재 재실험 구간은
+`[2026-08-13T00:00:00Z, 2026-09-12T00:00:00Z)`로 고정하며 다른 정확한 30일 구간도
+시작을 거부한다. 2026-08-06에 시작한 cadence-invalid DB와 합치지 않고 clean build로
+새 DB를 한 번 생성한다.
 
 `micro_cascade_experiment_contracts`는 arm/job, window, cadence offset,
 preregistration hash와 analyzer version을 DB에 최초 한 번 불변 저장한다. 같은 DB에서
@@ -117,6 +125,8 @@ dependency와 frozen artifact부터 확인한다.
 uv sync --frozen --extra dev
 cd research/frozen-2026-07-30
 shasum -a 256 -c MANIFEST.sha256
+cd ../frozen-2026-08-13
+shasum -a 256 -c MANIFEST.sha256
 cd ../..
 uv run pytest
 uv run pytest --cov=polybot --cov-report=term-missing
@@ -147,7 +157,8 @@ uv run python scripts/analyze_experiment.py \
   --output <RESULT_JSON>
 ```
 
-analyzer v2는 raw denominator와 +60~75분 outcome을 재구성한다. 외부 strict audit,
+analyzer v3는 raw denominator와 +60~75분 outcome을 재구성하고 각 SUCCESS run의
+filtered sweep schema/filter/page/market/elapsed budget을 검증한다. 외부 strict audit,
 cadence 또는 immutable contract가 없으면 `NOT_EVALUABLE_FAIL_CLOSED`다. legacy
 recorded-trade subset은 diagnostic/fallback일 뿐 promotion denominator가 아니다.
 

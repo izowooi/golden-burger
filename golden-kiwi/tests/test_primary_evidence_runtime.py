@@ -11,9 +11,13 @@ from sqlalchemy import func, text
 from sqlalchemy.exc import DatabaseError, IntegrityError
 
 from polybot.config import (
+    ANALYZER_SCHEMA_VERSION,
     ApiConfig,
     BotConfig,
     MicroCascadeEntryConfig,
+    PREREGISTERED_WINDOW_END,
+    PREREGISTERED_WINDOW_START,
+    PREREGISTRATION_SHA256,
     TradingConfig,
 )
 from polybot.api.gamma_client import GammaConditionMismatchError
@@ -31,7 +35,8 @@ from polybot_observability import RunAudit
 
 
 UTC = timezone.utc
-WINDOW_START = datetime(2026, 8, 1, tzinfo=UTC)
+WINDOW_START = PREREGISTERED_WINDOW_START
+WINDOW_END = PREREGISTERED_WINDOW_END
 
 
 def _config(db_path, *, job="kiwi-sim-b-3x2", trading=None):
@@ -133,33 +138,33 @@ def test_contract_and_primary_tables_are_immutable_append_only(tmp_path):
         canonical_job="kiwi-sim-b-3x2",
         arm="B",
         window_start=WINDOW_START,
-        window_end=WINDOW_START + timedelta(days=30),
+        window_end=WINDOW_END,
         expected_cadence_minutes=5,
         expected_offset_minute=1,
-        preregistration_sha256="a" * 64,
-        analyzer_version=2,
+        preregistration_sha256=PREREGISTRATION_SHA256,
+        analyzer_version=ANALYZER_SCHEMA_VERSION,
     )
-    assert contract.schema_version == 1
+    assert contract.schema_version == 2
     assert repository.ensure_experiment_contract(
         canonical_job="kiwi-sim-b-3x2",
         arm="B",
         window_start=WINDOW_START,
-        window_end=WINDOW_START + timedelta(days=30),
+        window_end=WINDOW_END,
         expected_cadence_minutes=5,
         expected_offset_minute=1,
-        preregistration_sha256="a" * 64,
-        analyzer_version=2,
+        preregistration_sha256=PREREGISTRATION_SHA256,
+        analyzer_version=ANALYZER_SCHEMA_VERSION,
     ).canonical_job == contract.canonical_job
     with pytest.raises(RuntimeError, match="contract"):
         repository.ensure_experiment_contract(
-            canonical_job="kiwi-sim-b-3x2",
-            arm="B",
+            canonical_job="kiwi-sim-a-3x1",
+            arm="A",
             window_start=WINDOW_START,
-            window_end=WINDOW_START + timedelta(days=30),
+            window_end=WINDOW_END,
             expected_cadence_minutes=5,
-            expected_offset_minute=1,
-            preregistration_sha256="b" * 64,
-            analyzer_version=2,
+            expected_offset_minute=0,
+            preregistration_sha256=PREREGISTRATION_SHA256,
+            analyzer_version=ANALYZER_SCHEMA_VERSION,
         )
     with pytest.raises(DatabaseError, match="append-only"):
         session.execute(
@@ -195,7 +200,7 @@ def test_contract_and_primary_tables_are_immutable_append_only(tmp_path):
         ({"expected_offset_minute": 2}, "1분으로 고정"),
         ({"expected_offset_minute": "1"}, "정수"),
         ({"preregistration_sha256": "not-a-hash"}, "SHA-256"),
-        ({"analyzer_version": 1}, "v2"),
+        ({"analyzer_version": 1}, "v3"),
     ],
 )
 def test_experiment_contract_rejects_noncanonical_values(
@@ -209,11 +214,11 @@ def test_experiment_contract_rejects_noncanonical_values(
         "canonical_job": "kiwi-sim-b-3x2",
         "arm": "B",
         "window_start": WINDOW_START,
-        "window_end": WINDOW_START + timedelta(days=30),
+        "window_end": WINDOW_END,
         "expected_cadence_minutes": 5,
         "expected_offset_minute": 1,
-        "preregistration_sha256": "a" * 64,
-        "analyzer_version": 2,
+        "preregistration_sha256": PREREGISTRATION_SHA256,
+        "analyzer_version": ANALYZER_SCHEMA_VERSION,
     }
     values.update(override)
     with pytest.raises(ValueError, match=message):

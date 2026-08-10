@@ -29,3 +29,6 @@ def test_config_command_works_without_wallet_credentials(monkeypatch, tmp_path, 
     assert "Golden Kiwi / Micro-Cascade" in output
     assert "Simulation only: True" in output
     assert "Frozen arm: B" in output
+    assert "liquidity >= $20,000" in output
+    assert "cumulative volume >= $10,000" in output
+    assert "budgets=53 pages / 5,330 markets / 120s" in output
