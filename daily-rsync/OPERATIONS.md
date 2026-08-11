@@ -88,6 +88,10 @@ rollover된 dated shard만 만족한다. 일반 누적 simulation DB는 계속 �
 DB 안의 evidence이므로 별도 raw directory를 동기화하지 않는다. `database_safety`의
 기존 opt-in 의미는 그대로 유지한다.
 
+Accountless shadow runtime의 canonical `shadow.db`도 `database_sim`으로 발견하고 같은
+SQLite online backup, 원격·로컬 `quick_check`, SHA-256 검증 절차를 적용한다. 이는
+`research-full-v1` daily shard가 아니므로 날짜별 archive coverage 규칙은 적용하지 않는다.
+
 ## 실패 처리
 
 - SSH 실패: local latest와 catalog 완료 상태를 변경하지 않는다.

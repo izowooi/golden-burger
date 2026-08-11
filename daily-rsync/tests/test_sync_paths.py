@@ -51,6 +51,30 @@ def test_default_runtime_is_nested_below_real_jenkins_job(app_config) -> None:
     assert path.name == "trades.db"
 
 
+def test_shadow_database_uses_canonical_latest_path(app_config) -> None:
+    service = SyncService(app_config)
+    artifact = RemoteArtifact(
+        kind="database_sim",
+        remote_path=(
+            "/jenkins/workspace/polybot-shadow/golden-blueberry/"
+            "data/blueberry-shadow-research/shadow.db"
+        ),
+        size_bytes=1,
+        mtime_ns=2,
+        jenkins_job="polybot-shadow",
+        strategy="golden-blueberry",
+        runtime_job="blueberry-shadow-research",
+        mode="sim",
+    )
+
+    path = service.local_path(artifact)
+
+    assert path.as_posix().endswith(
+        "/jobs/polybot-shadow/strategies/golden-blueberry/"
+        "runtime/blueberry-shadow-research/databases/latest/shadow.db"
+    )
+
+
 def test_console_logs_are_sharded_by_build_number(app_config) -> None:
     service = SyncService(app_config)
     artifact = RemoteArtifact(

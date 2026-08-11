@@ -67,6 +67,7 @@ identity를 다시 읽는다. root가 이동·교체됐거나 identity 없는 �
 |---|---|---|---|---|
 | `trades.db` | `database_live` | live | true | `databases/latest/` |
 | `trades_sim.db` | `database_sim` | sim | true | `databases/latest/` |
+| `shadow.db` | `database_sim` | sim | true | `databases/latest/` |
 | `trades_sim_YYYYMMDD.db` | `database_research_archive` | sim | false | `databases/research/YYYY/MM/DD/` |
 | 그 밖의 `trades*.db` | `database_safety` | DB identity 유지 | false | `databases/safety/` |
 

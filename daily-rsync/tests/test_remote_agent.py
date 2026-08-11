@@ -166,6 +166,48 @@ def test_scan_preserves_job_strategy_and_runtime_identity(tmp_path: Path) -> Non
     assert database_record["fingerprint"]
 
 
+def test_scan_discovers_shadow_database_as_canonical_simulation(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-shadow"
+    (home / "jobs" / job).mkdir(parents=True)
+    database = (
+        home
+        / "workspace"
+        / job
+        / "golden-blueberry"
+        / "data"
+        / "blueberry-shadow-research"
+        / "shadow.db"
+    )
+    make_db(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE run_audits SET strategy_name = ?, job_name = ?, mode = ?",
+            ("golden-blueberry", "blueberry-shadow-research", "sim"),
+        )
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        job,
+        "--cutoff-epoch",
+        "0",
+    )
+    record = next(
+        item
+        for item in payload["jobs"][0]["artifacts"]
+        if item["remote_path"].endswith("shadow.db")
+    )
+
+    assert record["kind"] == "database_sim"
+    assert record["canonical"] is True
+    assert record["mode"] == "sim"
+    assert record["strategy"] == "golden-blueberry"
+    assert record["runtime_job"] == "blueberry-shadow-research"
+
+
 def test_scan_fingerprint_and_size_include_wal_only_changes(tmp_path: Path) -> None:
     home = tmp_path / ".jenkins"
     (home / "jobs" / "polybot-king").mkdir(parents=True)
@@ -928,6 +970,42 @@ def test_snapshot_is_consistent_and_cleanup_is_scoped(tmp_path: Path) -> None:
         str(snapshot.parent),
     )
     assert not snapshot.parent.exists()
+
+
+def test_snapshot_accepts_canonical_shadow_database(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-shadow"
+    database = (
+        home
+        / "workspace"
+        / job
+        / "golden-blueberry"
+        / "data"
+        / "blueberry-shadow-research"
+        / "shadow.db"
+    )
+    make_db(database)
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "UPDATE run_audits SET strategy_name = ?, job_name = ?, mode = ?",
+            ("golden-blueberry", "blueberry-shadow-research", "sim"),
+        )
+    staging = tmp_path / ".cache" / "daily-rsync"
+
+    payload = invoke(
+        "snapshot",
+        "--jenkins-home",
+        str(home),
+        *snapshot_identity_arguments(home, job),
+        "--source",
+        str(database),
+        "--staging-root",
+        str(staging),
+    )
+
+    assert Path(payload["snapshot"]).is_file()
+    assert payload["quick_check"] == ["ok"]
+    assert payload["data_contract"] is None
 
 
 def test_research_snapshot_requires_collector_lock(tmp_path: Path) -> None:

@@ -29,6 +29,7 @@ RUNTIME_PATTERN = re.compile(rb"(?:--job[ =]|Job: |job=)([A-Za-z0-9_.-]+)", re.I
 TEXT_STRATEGY_PATTERN = re.compile(r"(?<![A-Za-z0-9-])(golden-[a-z0-9-]+)(?![A-Za-z0-9-])", re.I)
 SHELL_STRATEGY_TAGS = {"command", "script"}
 RESEARCH_ARCHIVE_PATTERN = re.compile(r"^trades_sim_(\d{8})\.db$")
+CANONICAL_DATABASE_NAMES = frozenset(("trades.db", "trades_sim.db", "shadow.db"))
 WORKSPACE_MARKER_NAME = ".daily-rsync-workspace.json"
 WORKSPACE_MARKER_SCHEMA_VERSION = 1
 WORKSPACE_MARKER_MAX_BYTES = 4096
@@ -313,6 +314,11 @@ def research_archive_date(path):
         return None
 
 
+def supported_database_name(name):
+    """Return whether a runtime SQLite filename is part of the sync contract."""
+    return name == "shadow.db" or (name.startswith("trades") and name.endswith(".db"))
+
+
 def _shell_segments(command):
     variables = {}
     candidates = set()
@@ -520,7 +526,7 @@ def database_identity(path):
     strategy = path.parents[2].name if len(path.parents) >= 3 else None
     runtime_job = path.parent.name
     archive_date = research_archive_date(path)
-    mode = "sim" if path.name == "trades_sim.db" or archive_date else "live"
+    mode = "sim" if path.name in ("trades_sim.db", "shadow.db") or archive_date else "live"
     data_contract = None
     database_utc_date = None
     connection = None
@@ -563,7 +569,7 @@ def database_identity(path):
     finally:
         if connection is not None:
             connection.close()
-    if path.name == "trades_sim.db" or archive_date:
+    if path.name in ("trades_sim.db", "shadow.db") or archive_date:
         mode = "sim"
     if archive_date is not None and data_contract != "research-full-v1":
         raise RuntimeError(
@@ -696,7 +702,9 @@ def scan(args):
         latest_db = None
         current_utc_day = datetime.now(timezone.utc).date()
         if workspace.is_dir():
-            for path in workspace.glob("golden-*/data/*/trades*.db"):
+            for path in workspace.glob("golden-*/data/*/*.db"):
+                if not supported_database_name(path.name):
+                    continue
                 if not path.is_file() or path.is_symlink():
                     continue
                 archive_date = research_archive_date(path)
@@ -730,7 +738,7 @@ def scan(args):
                     continue
                 if strategy:
                     strategies.add(strategy)
-                canonical = path.name in ("trades.db", "trades_sim.db")
+                canonical = path.name in CANONICAL_DATABASE_NAMES
                 kind = "database_sim" if mode == "sim" else "database_live"
                 if archive_date:
                     kind = "database_research_archive"
@@ -1029,7 +1037,7 @@ def snapshot(args):
             continue
         if not lexical_relative.parts[1].startswith("golden-"):
             continue
-        if lexical_relative.parts[2] != "data" or not source.name.startswith("trades"):
+        if lexical_relative.parts[2] != "data" or not supported_database_name(source.name):
             continue
         _validate_job_workspace(root["path"] / job, root, job)
         allowed = True

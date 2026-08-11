@@ -233,7 +233,7 @@ SQLite `quick_check`까지 다시 확인했다는 뜻은 아니므로 `verify`�
 - 최초 로그 범위: 최근 60일
 - 로그 보존: 365일
 - 로컬 디스크 안전선: 50GB
-- DB: canonical `trades.db`, `trades_sim.db` 기본 선택
+- DB: canonical `trades.db`, `trades_sim.db`, accountless shadow의 `shadow.db` 기본 선택
 - Research DB: `trades_sim_YYYYMMDD.db`를 UTC day별 immutable archive로 기본 선택
 - Research current day: `collection_contracts.database_utc_date`가 현재 UTC day와 일치할
   때만 active `trades_sim.db`를 partial evidence로 전송한다. 완료된 하루 coverage는
