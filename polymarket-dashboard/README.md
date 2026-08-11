@@ -1,6 +1,6 @@
 # Polymarket Strategy Dashboard
 
-Supabase에 적재된 Jenkins 전략 계좌들(현재 9개)의 잔고와 기간 수익률을 비교하는 로컬 대시보드입니다. Next.js App Router의 서버 Route Handler가 Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
+Supabase에 적재된 Jenkins 전략 계좌들의 잔고·기간 수익률과 Mac mini filesystem 용량을 보는 대시보드입니다. Next.js App Router의 서버 Route Handler가 Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
 
 ## 제공 기능
 
@@ -12,6 +12,9 @@ Supabase에 적재된 Jenkins 전략 계좌들(현재 9개)의 잔고와 기간 
 - 실제 최신 DB 보고 시각과 36시간 기준 stale 상태 표시
 - 계정별 실제 관측 구간·관측 수·첫 관측 이후 calendar 결측일 표시
 - 날짜별 전체 total과 계정 잔고 합계 대사 결과 표시
+- `/storage`에서 host·mount별 전체/사용/여유 공간과 사용률 표시
+- 80% 주의·90% 위험, 36시간 수집 지연 판정
+- 최근 최대 30일 증가율과 예상 소진일, 결측일을 끊은 사용률 차트
 - 데스크톱과 모바일 화면 대응
 
 수익률은 선택 기간에 존재하는 첫 잔고와 마지막 잔고로 다음과 같이 계산합니다.
@@ -38,14 +41,17 @@ Supabase에 적재된 Jenkins 전략 계좌들(현재 9개)의 잔고와 기간 
 
 ```text
 브라우저
-  └─ GET /api/portfolio
+  ├─ GET /api/portfolio
+  │    └─ Next.js 서버 전용 Supabase client
+  │         ├─ pb_algorithm_accounts
+  │         ├─ pb_daily_algorithm_balances
+  │         └─ pb_daily_portfolio_totals
+  └─ GET /api/storage
        └─ Next.js 서버 전용 Supabase client
-            ├─ pb_algorithm_accounts
-            ├─ pb_daily_algorithm_balances
-            └─ pb_daily_portfolio_totals
+            └─ pb_host_storage_daily
 ```
 
-브라우저에는 Supabase 키를 제공하지 않습니다. 서버는 허용된 세 테이블과 컬럼만 조회하고 응답은 `private, no-store`로 반환합니다.
+브라우저에는 Supabase 키를 제공하지 않습니다. 서버는 허용된 네 테이블과 컬럼만 조회하고 응답은 `private, no-store`로 반환합니다.
 
 `SUPABASE_SECRET_KEY`는 RLS를 우회할 수 있는 서버 전용 자격 증명입니다. 다음 원칙을 지켜야 합니다.
 
@@ -109,6 +115,8 @@ npm audit
 ```text
 GET /api/portfolio
 GET /api/portfolio?start=2026-06-01&end=2026-06-23
+GET /api/storage
+GET /api/storage?start=2026-08-01&end=2026-08-31
 ```
 
 `start`와 `end`는 선택 사항이며 `YYYY-MM-DD` 형식입니다. 현재 UI는 한 번에 전체 데이터를 받아 브라우저에서 즉시 기간을 전환합니다. 데이터가 수만 건 이상으로 증가하면 기간별 서버 조회 방식으로 전환하는 것이 적합합니다.
@@ -162,8 +170,11 @@ Secret key 자체는 서버에 숨겨지지만 `/api/portfolio`의 응답 데이
 ## 주요 파일
 
 - `src/components/dashboard.tsx`: 필터, 차트, KPI, 상세 비교 UI
+- `src/components/storage-dashboard.tsx`: filesystem 용량 KPI·추세·최신 상태 UI
 - `src/lib/analytics.ts`: 기간 필터와 수익률 계산
+- `src/lib/storage.ts`: 사용률, 증가량, 예상 소진일 계산
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API
+- `src/app/api/storage/route.ts`: 저장공간 Supabase 읽기 전용 API
 - `src/lib/supabase/server.ts`: 서버 전용 Supabase client
 - `.env.example`: 로컬 환경변수 템플릿
 - `.dev.vars.example`: Cloudflare 로컬 미리보기 템플릿
@@ -172,6 +183,6 @@ Secret key 자체는 서버에 숨겨지지만 `/api/portfolio`의 응답 데이
 ## 문제 해결
 
 - **환경변수 누락 오류**: `.env.local`의 두 값과 변수명을 확인하고 개발 서버를 다시 시작합니다.
-- **500 응답**: Secret key가 현재 프로젝트의 키인지, 세 테이블이 존재하는지 확인합니다.
+- **500 응답**: Secret key가 현재 프로젝트의 키인지, 네 테이블이 존재하는지 확인합니다. 저장공간 화면만 실패하면 `pb_host_storage_v1.sql` migration을 확인합니다.
 - **빈 기간**: DB에 실제 보고 날짜가 있는 범위인지 확인합니다.
 - **수익률 급등**: 입출금 미보정 결과입니다. 자금 이동일을 피해서 기간을 다시 지정합니다.

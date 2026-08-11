@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, useSyncExternalStore } from "react";
 import {
   CartesianGrid,
@@ -248,28 +249,34 @@ export function Dashboard() {
             <h1>Strategy Monitor</h1>
           </div>
         </div>
-        <div className="status-cluster">
-          <span
-            className={`status-dot ${
-              !dataQuality
-                ? "pending"
-                : dataQuality.stale
-                  ? "stale"
-                  : dataQuality.hasIssues
-                    ? "warning"
-                    : "fresh"
-            }`}
-          />
-          <span>{reportStatusLabel(dataQuality, loading, Boolean(error))}</span>
-          {dataQuality?.latestReportAt && (
-            <span className="status-date">
-              보고 {formatTimestamp(dataQuality.latestReportAt)}
-            </span>
-          )}
-          <CoinPicker value={coinEmoji} onChange={setStoredCoinEmoji} />
-          <button className="refresh-button" type="button" onClick={() => void loadData()}>
-            새로고침
-          </button>
+        <div className="topbar-actions">
+          <nav className="monitor-nav" aria-label="대시보드 화면">
+            <Link className="selected" href="/" aria-current="page">성과</Link>
+            <Link href="/storage">저장공간</Link>
+          </nav>
+          <div className="status-cluster">
+            <span
+              className={`status-dot ${
+                !dataQuality
+                  ? "pending"
+                  : dataQuality.stale
+                    ? "stale"
+                    : dataQuality.hasIssues
+                      ? "warning"
+                      : "fresh"
+              }`}
+            />
+            <span>{reportStatusLabel(dataQuality, loading, Boolean(error))}</span>
+            {dataQuality?.latestReportAt && (
+              <span className="status-date">
+                보고 {formatTimestamp(dataQuality.latestReportAt)}
+              </span>
+            )}
+            <CoinPicker value={coinEmoji} onChange={setStoredCoinEmoji} />
+            <button className="refresh-button" type="button" onClick={() => void loadData()}>
+              새로고침
+            </button>
+          </div>
         </div>
       </header>
 

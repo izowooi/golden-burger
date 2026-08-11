@@ -1,6 +1,6 @@
 # Polymarket Daily Reporter
 
-여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 13계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다.
+여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 13계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다. 별도 [`disk_monitor.py`](STORAGE_MONITOR.md)는 Mac mini·외장 filesystem의 용량을 하루 한 번 기록합니다.
 
 ## 실행 순서
 
@@ -26,6 +26,7 @@ Polymarket Data API 조회
 | `pb_algorithm_accounts` | Jenkins 이름과 안정적인 account ID 매핑 | `account_id` |
 | `pb_daily_algorithm_balances` | 날짜·계정별 총액, 포지션, 현금 | `report_date, account_id` |
 | `pb_daily_portfolio_totals` | 날짜별 전체 합계 | `report_date` |
+| `pb_host_storage_daily` | 날짜·host·mount별 전체/사용/여유 byte | `report_date, host_id, mount_id` |
 
 현재 매핑은 다음과 같습니다.
 
@@ -174,6 +175,10 @@ Secret key는 RLS를 우회할 수 있는 서버 전용 키입니다. `NEXT_PUBL
 3. `slack-data-collector/sql/pb_portfolio_history_v3.sql`
 4. `slack-data-collector/sql/pb_algorithm_account_catalog_sync_v1.sql`
 
+저장공간 모니터를 사용할 때는 포트폴리오 migration과 독립적으로
+`slack-data-collector/sql/pb_host_storage_v1.sql`도 한 번 적용합니다. 상세 Jenkins shell과
+mount 안전 검사는 [`STORAGE_MONITOR.md`](STORAGE_MONITOR.md)를 따릅니다.
+
 세 번째 migration의 `pb_portfolio_writer_preflight_v3`와
 `pb_write_complete_portfolio_snapshot_v3`는 선택 사항이 아닙니다. writer는 카탈로그 전체 계정
 balance와 portfolio total을 단일 Postgres transaction으로 쓰며 RPC가 없으면 unsafe
@@ -309,6 +314,14 @@ uv run python daily_report.py check-supabase
 
 # Jenkins에는 있으나 DB에 없는 계정만 명시적으로 추가
 uv run python daily_report.py sync-supabase-catalog
+
+# Mac mini filesystem/Supabase contract 읽기 점검
+uv run python disk_monitor.py check-supabase
+
+# 실제 mount인지 확인한 뒤 일별 저장공간 적재
+uv run python disk_monitor.py collect \
+  --host-id macmini-m5 \
+  --mount "internal=/System/Volumes/Data"
 ```
 
 매월 1일에는 별도 플래그가 없어도 월간 Slack 형식을 사용합니다. 같은 날 작업이 두 번 실행되면 DB는 뒤에 실행된 값으로 upsert됩니다.

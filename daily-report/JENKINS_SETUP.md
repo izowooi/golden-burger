@@ -1,6 +1,8 @@
 # Jenkins 설정 가이드
 
 Polymarket 일일 리포트 봇을 Jenkins에서 실행하기 위한 설정 가이드입니다.
+Mac mini 내부·외장 filesystem 용량을 별도 일일 job으로 수집하려면
+[`STORAGE_MONITOR.md`](STORAGE_MONITOR.md)를 따릅니다.
 
 ## 1. Jenkins Credentials 설정
 

@@ -34,6 +34,27 @@ export interface PortfolioResponse {
   generated_at: string;
 }
 
+export interface HostStorageSnapshot {
+  report_date: string;
+  host_id: string;
+  mount_id: string;
+  mount_label: string;
+  mount_path: string;
+  total_bytes: number;
+  used_bytes: number;
+  available_bytes: number;
+  reported_at: string;
+}
+
+export interface HostStorageResponse {
+  snapshots: HostStorageSnapshot[];
+  range: {
+    start: string | null;
+    end: string | null;
+  };
+  generated_at: string;
+}
+
 export type BalanceMetric = "total_value" | "position_value" | "cash_value";
 export type ChartMode = "balance" | "return";
 
