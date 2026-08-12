@@ -189,6 +189,19 @@ def test_gamma_shared_cache_reuses_one_complete_sweep_across_clients(
     assert len(list(cache_root.glob("sweep-*.json"))) == 1
 
 
+def test_gamma_shared_cache_uses_owner_home_automatically_on_jenkins(
+    tmp_path,
+    monkeypatch,
+):
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("JENKINS_URL", "http://jenkins.invalid/")
+
+    root = GammaClient()._shared_cache_root()
+
+    assert root == tmp_path / ".cache/golden-blueberry/gamma-sweeps-v1"
+    assert root.stat().st_mode & 0o077 == 0
+
+
 class TimeoutSession:
     def __init__(self):
         self.calls = []

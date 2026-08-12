@@ -83,6 +83,10 @@ Jenkins `Discard old builds`에 같은 값을 직접 설정한다.
 export POLYBOT_GAMMA_SHARED_CACHE_DIR=/Users/jongwoopark/.cache/golden-blueberry/gamma-sweeps-v1
 ```
 
+Jenkins 표준 환경(`JENKINS_URL`)에서는 이 변수가 없어도 실행 사용자의
+`~/.cache/golden-blueberry/gamma-sweeps-v1`을 자동 선택한다. 위 export는 경로를 명시적으로
+고정하는 권장값이며, 예외적으로 독립 sweep이 필요하면 값을 `off`로 설정한다.
+
 같은 5분 bucket과 동일한 Gamma filter 조합에서는 먼저 lock을 얻은 한 job만
 `/markets/keyset`의 terminal cursor까지 전수 조회한다. 다른 job은 완료를 기다린 뒤
 membership SHA-256, cursor-complete, market 집합을 다시 검증한 동일 payload를 사용한다.

@@ -98,10 +98,19 @@ class GammaClient:
 
     def _shared_cache_root(self) -> Optional[Path]:
         """Return an owner-private, explicitly configured cross-workspace cache."""
-        raw = os.getenv(self.SHARED_CACHE_ENV, "").strip()
-        if not raw:
-            return None
-        candidate = Path(raw).expanduser()
+        configured = os.getenv(self.SHARED_CACHE_ENV)
+        if configured is None:
+            # Freestyle jobs expose JENKINS_URL even when their shell cannot be
+            # edited anonymously.  A home-scoped path is shared by that user's
+            # Blueberry workspaces but remains isolated from other accounts.
+            if not os.getenv("JENKINS_URL"):
+                return None
+            candidate = Path.home() / ".cache/golden-blueberry/gamma-sweeps-v1"
+        else:
+            raw = configured.strip()
+            if not raw or raw.casefold() in {"off", "disabled", "none"}:
+                return None
+            candidate = Path(raw).expanduser()
         if not candidate.is_absolute():
             raise ValueError(f"{self.SHARED_CACHE_ENV} must be an absolute path")
         if candidate.is_symlink():
