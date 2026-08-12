@@ -17,3 +17,4 @@
 | 011 | [011-jenkins-clean-and-fleet-config-audit-2026-08-12.md](011-jenkins-clean-and-fleet-config-audit-2026-08-12.md) | Queen/King 재가동 검증, 22개 잡 Clean·timer·mode·보안 구성 감사 | 2026-08-12 |
 | 012 | [012-papaya-queen-clean-restart-baseline-2026-08-12.md](012-papaya-queen-clean-restart-baseline-2026-08-12.md) | Cat/Dog clean 제거 확인과 Papaya·Queen 4개 잡의 정상 평가 시작일 재설정 | 2026-08-12 |
 | 013 | [013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md](013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md) | Cat/Dog Jenkins build·console 14일 보존 pilot과 실제 LogRotator 검증 | 2026-08-12 |
+| 014 | [014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md](014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md) | Quince A/B/C 재동기화, 저빈도·H/5 cadence 판정과 전 팔 TAKER 실행축 결함 진단 | 2026-08-12 |
