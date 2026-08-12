@@ -27,7 +27,7 @@ snapshot lineage가 반복 초기화됐으므로 향후 정상 거래·성과 �
 
 ## Cat / Dog 재검증
 
-2026-08-12 21:22–21:24 KST에 `$inspect-jenkins-job`으로 read-only 재조회했다.
+2026-08-12 21:22–21:30 KST에 `$inspect-jenkins-job`으로 read-only 재조회했다.
 
 - 두 config 모두 SCM cleanup extension과 shell cleanup command가 없다.
 - 실제 `TimerTrigger`는 둘 다 `H/10 * * * *`이다.
@@ -36,8 +36,9 @@ snapshot lineage가 반복 초기화됐으므로 향후 정상 거래·성과 �
 - 수동 재가동은 Cat `#3444` 143.7초, Dog `#3336` 128.3초로 성공했다.
 - 양쪽 첫 cycle은 snapshot 100개를 저장했고 `RUN_AUDIT SUCCESS`, candidate/BUY 0이었다.
   이 한 cycle 결과로 gate나 수익성을 평가하지 않는다.
-- Cat의 첫 자연 timer `#3445`도 245.0초로 성공했다. 첫 cycle의
-  `prior_snapshot_missing: 23`이 사라져 이전 snapshot이 보존된 사실까지 확인했다.
+- 첫 자연 timer도 Cat `#3445` 245.0초, Dog `#3337` 212.7초로 모두 성공했다.
+  두 잡 모두 첫 cycle의 `prior_snapshot_missing: 23`이 사라져 이전 snapshot이 보존된
+  사실까지 확인했다.
 
 Queen/King의 clean 제거, H/5, 수동 1회와 자연 timer 2회 성공, snapshot lineage 지속은
 `011-jenkins-clean-and-fleet-config-audit-2026-08-12.md`에서 확인했다.
