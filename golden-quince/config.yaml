@@ -9,7 +9,8 @@
 trading:
   lifecycle_mode: active
 
-  # 실험 처치축. passive(처치) / nearest(대조, 기존 14봇과 동일) / cross(비용 상한)
+  # 실험 처치축. passive(best ask 미만) / nearest(midpoint 반올림 대조) /
+  # cross(검증된 ask-depth cap으로 best ask 이상, 비용 상한)
   execution_mode: passive
 
   # 격리 intent 자가 해제. config_hash에 담기도록 env가 아니라 여기 둔다.

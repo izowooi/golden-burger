@@ -36,6 +36,7 @@ _PROVABLY_UNFILLED_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
 
 
 @dataclass(frozen=True)
@@ -308,6 +309,85 @@ class ClobClientWrapper:
         # Clamp to tick-aligned bounds. Polymarket rejects prices outside
         # [tick_size, 1 - tick_size] with "invalid price (1.0)" / "(0.0)".
         return min(max(rounded, tick_size), round(1 - tick_size, 2))
+
+    def select_buy_limit_price(
+        self,
+        *,
+        midpoint: float,
+        best_bid: float,
+        best_ask: float,
+        cross_limit: float,
+    ) -> float:
+        """Resolve the actual BUY limit from one fresh order-book envelope.
+
+        ``_round_to_tick`` alone cannot enforce the Quince treatment: the old
+        caller passed an already tick-aligned ask-depth cap, so floor/round/ceil
+        all produced the same taker order.  This method binds the configured
+        mode to executable book prices:
+
+        * ``passive`` rounds the decision midpoint down, joins/improves the bid,
+          and is strictly below the best ask.
+        * ``nearest`` preserves the fleet's midpoint-rounding control.
+        * ``cross`` uses the pre-validated ask-depth cap, which is at or above
+          the best ask and therefore takes liquidity.
+        """
+        values = {
+            "midpoint": midpoint,
+            "best_bid": best_bid,
+            "best_ask": best_ask,
+            "cross_limit": cross_limit,
+        }
+        normalized: dict[str, float] = {}
+        for name, raw_value in values.items():
+            try:
+                value = float(raw_value)
+            except (TypeError, ValueError) as error:
+                raise ClobResponseContractError(
+                    f"BUY {name}가 숫자가 아닙니다"
+                ) from error
+            if not math.isfinite(value) or not 0 < value < 1:
+                raise ClobResponseContractError(
+                    f"BUY {name}가 (0, 1) 범위의 유한값이 아닙니다"
+                )
+            normalized[name] = value
+
+        midpoint = normalized["midpoint"]
+        best_bid = normalized["best_bid"]
+        best_ask = normalized["best_ask"]
+        cross_limit = normalized["cross_limit"]
+        if best_bid > best_ask + 1e-9:
+            raise ClobResponseContractError("BUY order book이 crossed 상태입니다")
+        if cross_limit < best_ask - 1e-9:
+            raise ClobResponseContractError("BUY cross limit이 best ask보다 낮습니다")
+
+        mode = (self.execution_mode or "nearest").lower()
+        if mode == "passive":
+            if best_bid >= best_ask - 1e-9:
+                raise ClobResponseContractError(
+                    "locked book에서는 maker-only passive BUY 가격을 만들 수 없습니다"
+                )
+            rounded_midpoint = self._round_to_tick(midpoint, side="BUY")
+            non_cross_cap = round(best_ask - self.DEFAULT_TICK_SIZE, 2)
+            selected = max(best_bid, min(rounded_midpoint, non_cross_cap))
+            selected = self._round_to_tick(selected, side="BUY")
+            if selected >= best_ask - 1e-9:
+                raise ClobResponseContractError(
+                    "passive BUY limit이 best ask를 cross합니다"
+                )
+        elif mode == "nearest":
+            selected = self._round_to_tick(midpoint, side="BUY")
+        elif mode == "cross":
+            selected = self._round_to_tick(cross_limit, side="BUY")
+            if selected < best_ask - 1e-9:
+                raise ClobResponseContractError(
+                    "cross BUY limit이 best ask에 도달하지 못했습니다"
+                )
+        else:
+            raise ValueError(f"unknown execution_mode: {self.execution_mode}")
+
+        if selected > cross_limit + 1e-9:
+            raise ClobResponseContractError("BUY limit이 검증된 ask-depth cap을 넘었습니다")
+        return selected
 
     @rate_limit_handler(max_retries=3)
     def get_midpoint(self, token_id: str) -> float:
@@ -1005,7 +1085,7 @@ class ClobClientWrapper:
 
     @rate_limit_handler(max_retries=3)
     def cancel_order(self, order_id: str) -> Dict[str, Any]:
-        """Cancel an order.
+        """Cancel an order only when authoritative evidence proves zero fill.
 
         Args:
             order_id: Order ID (hash) to cancel
@@ -1018,9 +1098,10 @@ class ClobClientWrapper:
             return {"success": True, "simulated": True}
 
         try:
-            # canceled 응답만으로는 부분 체결 여부를 알 수 없으므로,
-            # 직후 authoritative order detail도 검증한다. not_canceled여도
-            # 이미 취소된 zero-fill 주문이면 후속 detail로 idempotent 성공 가능하다.
+            # This strict path is used before marking a strategy trade UNFILLED.
+            # It must independently prove exact identity, terminal status, and
+            # zero matched quantity; a generic terminal/partial helper is not
+            # sufficient for that state transition.
             result = normalize_clob_response(
                 self.client.cancel_orders([str(order_id)]),
                 response_type="cancellation",
@@ -1050,6 +1131,73 @@ class ClobClientWrapper:
                 "주문 취소 후 zero-fill 증거 확인 실패 - order=%s",
                 order_id,
             )
+            raise
+        except Exception as error:
+            logger.error("주문 취소 실패 - error=%s", type(error).__name__)
+            raise SubmissionEvidenceError(
+                "CLOB 주문 취소 결과를 증명할 수 없습니다"
+            ) from error
+
+    @rate_limit_handler(max_retries=3)
+    def cancel_order_for_reconciliation(self, order_id: str) -> Dict[str, Any]:
+        """Cancel an expired entry order while preserving any partial fill.
+
+        Unlike :meth:`cancel_order`, this path accepts a terminal partial fill.
+        The execution ledger reconciles that exact matched quantity on the next
+        cycle, after which the strategy activates only the confirmed shares.
+        """
+        return self._cancel_with_terminal_evidence(order_id)
+
+    def _cancel_with_terminal_evidence(self, order_id: str) -> Dict[str, Any]:
+        """Return exact terminal order identity/status/matched-size evidence."""
+        if self.simulation_mode:
+            logger.info(f"[SIM] 주문 취소 - order: {order_id}")
+            return {
+                "success": True,
+                "simulated": True,
+                "verified_order_status": "CANCELED",
+                "verified_size_matched": 0.0,
+            }
+
+        try:
+            # The cancellation response alone cannot distinguish zero, partial,
+            # or race-to-full fill.  Always verify the exact order immediately.
+            result = normalize_clob_response(
+                self.client.cancel_orders([str(order_id)]),
+                response_type="cancellation",
+            )
+            detail = normalize_clob_response(
+                self.client.get_order(str(order_id)), response_type="order"
+            )
+            returned_order_id = str(detail.get("id") or "")
+            status = _normalize_order_status(detail.get("status"))
+            try:
+                size_matched = float(detail.get("size_matched"))
+            except (TypeError, ValueError) as error:
+                raise SubmissionEvidenceError(
+                    "CLOB terminal order의 size_matched가 숫자가 아닙니다"
+                ) from error
+            if (
+                returned_order_id != str(order_id)
+                or status not in _TERMINAL_ORDER_STATUSES
+                or not math.isfinite(size_matched)
+                or size_matched < 0
+            ):
+                raise SubmissionEvidenceError(
+                    "CLOB order detail이 exact terminal cancellation을 증명하지 못했습니다"
+                )
+            logger.info(
+                "주문 취소/종결 확인: order=%s status=%s matched=%.6f",
+                order_id,
+                status,
+                size_matched,
+            )
+            return {
+                **result,
+                "verified_order_status": status,
+                "verified_size_matched": size_matched,
+            }
+        except SubmissionEvidenceError:
             raise
         except Exception as error:
             logger.error("주문 취소 실패 - error=%s", type(error).__name__)

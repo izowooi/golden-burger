@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from polybot.api.clob_client import ClobClientWrapper
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.db.repository import ExactFillEvidence
@@ -23,6 +24,8 @@ class FakeClob:
         depth_shares=1_000.0,
         order_result=None,
         simulation_mode=False,
+        execution_mode="passive",
+        cancel_terminal=None,
     ):
         self.midpoint = midpoint
         self.best_bid = best_bid
@@ -33,6 +36,11 @@ class FakeClob:
             "orderID": "TEST_ORDER",
         }
         self.simulation_mode = simulation_mode
+        self.execution_mode = execution_mode
+        self.cancel_terminal = cancel_terminal or {
+            "verified_order_status": "CANCELED",
+            "verified_size_matched": 0.0,
+        }
         self.orders = []
         self.cancelled = []
 
@@ -69,15 +77,36 @@ class FakeClob:
             ask_limit_price=limit,
         )
 
+    def select_buy_limit_price(self, **kwargs):
+        wrapper = ClobClientWrapper.__new__(ClobClientWrapper)
+        wrapper.execution_mode = self.execution_mode
+        return wrapper.select_buy_limit_price(**kwargs)
+
     def place_limit_order(self, **kwargs):
-        self.orders.append(kwargs)
+        wrapper = ClobClientWrapper.__new__(ClobClientWrapper)
+        wrapper.execution_mode = self.execution_mode
+        submitted = dict(kwargs)
+        if submitted["side"] == "BUY":
+            # Exercise the wrapper's final BUY rounding as well as Trader's
+            # mode selection.  SELL tests in this fake retain their historical
+            # raw-price assertions and are outside this regression's scope.
+            submitted["price"] = wrapper._round_to_tick(
+                submitted["price"], side=submitted["side"]
+            )
+        self.orders.append(submitted)
         if callable(self.order_result):
-            return self.order_result(kwargs, len(self.orders))
+            return self.order_result(submitted, len(self.orders))
         return dict(self.order_result)
 
     def cancel_order(self, order_id):
         self.cancelled.append(order_id)
         return {"success": True}
+
+    def cancel_order_for_reconciliation(self, order_id):
+        self.cancelled.append(order_id)
+        if isinstance(self.cancel_terminal, Exception):
+            raise self.cancel_terminal
+        return dict(self.cancel_terminal)
 
 
 class FakeRepo:
@@ -234,14 +263,27 @@ def make_trade(**overrides):
 def make_trader(*, clob=None, repo=None, config=None, gamma=None, simulation=None):
     clob = clob or FakeClob()
     repo = repo or FakeRepo()
+    resolved_config = config or TradingConfig()
+    if hasattr(clob, "execution_mode"):
+        clob.execution_mode = resolved_config.execution_mode
     trader = Trader(
         repo,
         clob,
-        config or TradingConfig(),
+        resolved_config,
         gamma_client=gamma,
         simulation_mode=simulation,
     )
     return trader, repo, clob
+
+
+def test_trader_rejects_execution_mode_mismatch():
+    with pytest.raises(ValueError, match="execution_mode mismatch"):
+        Trader(
+            FakeRepo(),
+            FakeClob(execution_mode="cross"),
+            TradingConfig(execution_mode="passive"),
+            simulation_mode=False,
+        )
 
 
 class TestDrawdownKillSwitchBlocksEntry:
@@ -268,7 +310,7 @@ class TestDrawdownKillSwitchBlocksEntry:
 
 
 class TestEntryExecution:
-    def test_buy_revalidates_crossing_and_executes_with_depth_capped_limit(self):
+    def test_buy_revalidates_crossing_and_executes_passive_below_best_ask(self):
         clob = FakeClob(midpoint=0.911, best_bid=0.90, best_ask=0.91)
         trader, repo, _ = make_trader(clob=clob, simulation=False)
 
@@ -278,8 +320,8 @@ class TestEntryExecution:
         assert clob.orders == [
             {
                 "token_id": "yes-token",
-                "price": 0.92,
-                "size": pytest.approx(5.0 / 0.92),
+                "price": 0.90,
+                "size": pytest.approx(5.0 / 0.90),
                 "side": "BUY",
             }
         ]
@@ -289,7 +331,7 @@ class TestEntryExecution:
         assert created["mode"] == "live"
         assert created["status"] == TradeStatus.PENDING_BUY
         assert created["event_id"] == "event-1"
-        assert created["buy_price"] == 0.92
+        assert created["buy_price"] == 0.90
         assert created["buy_probability"] == 0.911
         assert created["prior_yes_price_at_entry"] == 0.899
         assert created["yes_price_at_buy"] == 0.911
@@ -308,6 +350,36 @@ class TestEntryExecution:
         assert created["spread_at_buy"] == pytest.approx(0.01)
         assert created["book_depth_shares_at_buy"] == 1_000.0
         assert created["depth_limit_price_at_buy"] == 0.92
+
+    @pytest.mark.parametrize(
+        ("mode", "expected_price"),
+        [
+            ("passive", 0.90),
+            ("nearest", 0.91),
+            ("cross", 0.92),
+        ],
+    )
+    def test_candidate_to_submitted_price_preserves_execution_axis(
+        self, mode, expected_price
+    ):
+        config = TradingConfig(execution_mode=mode)
+        clob = FakeClob(midpoint=0.911, best_bid=0.90, best_ask=0.91)
+        trader, repo, _ = make_trader(
+            clob=clob,
+            config=config,
+            simulation=False,
+        )
+
+        assert trader.execute_buy(make_candidate()) == 1
+        assert clob.orders[0]["price"] == pytest.approx(expected_price)
+        assert clob.orders[0]["size"] == pytest.approx(5.0 / expected_price)
+        assert repo.created[0]["buy_price"] == pytest.approx(expected_price)
+        assert repo.created[0]["depth_limit_price_at_buy"] == pytest.approx(0.92)
+
+        if mode == "passive":
+            assert clob.orders[0]["price"] < clob.best_ask
+        elif mode == "cross":
+            assert clob.orders[0]["price"] >= clob.best_ask
 
     def test_simulation_mode_is_evidence_on_created_trade(self):
         trader, repo, _ = make_trader(
@@ -371,10 +443,10 @@ class TestEntryExecution:
         assert clob.orders == []
         assert repo.created == []
 
-    def test_minimum_share_buffer_is_enforced_at_actual_ask(self):
+    def test_minimum_share_buffer_is_enforced_at_actual_order_limit(self):
         config = TradingConfig(
             buy_amount_usdc=5.0,
-            min_order_buffer_shares=0.40,
+            min_order_buffer_shares=0.45,
         )
         clob = FakeClob(midpoint=0.91, best_bid=0.92, best_ask=0.93)
         trader, repo, _ = make_trader(clob=clob, config=config)
@@ -582,6 +654,72 @@ class TestPendingBuyReconciliation:
         assert trader.reconcile_pending_buy(make_trade()) is False
         assert repo.updates[-1][1]["status"] == TradeStatus.UNFILLED
         assert repo.updates[-1][1]["exit_reason"] == "buy_terminal_zero_fill"
+
+    def test_terminal_canceled_partial_fill_activates_exact_shares(self):
+        partial = ExactFillEvidence(
+            "confirmed",
+            "0xBUY",
+            order_status="CANCELED",
+            side="BUY",
+            requested_size=5.5,
+            latest_size_matched=2.25,
+            needs_reconciliation=False,
+            reconciled_full_fill=False,
+            confirmed_size=2.25,
+            confirmed_vwap=0.90,
+            confirmed_fee_usdc=0.0,
+            fee_complete=True,
+        )
+        repo = FakeRepo(fill_evidence=partial)
+        trader, _, _ = make_trader(repo=repo)
+
+        assert trader.reconcile_pending_buy(make_trade()) is True
+
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.HOLDING
+        assert update["buy_price"] == pytest.approx(0.90)
+        assert update["buy_shares"] == pytest.approx(2.25)
+        assert update["buy_confirmed_size"] == pytest.approx(2.25)
+
+    def test_expired_pending_buy_is_canceled_for_next_cycle_reconciliation(self):
+        pending = ExactFillEvidence(
+            "pending",
+            "0xBUY",
+            order_status="LIVE",
+            side="BUY",
+            requested_size=5.5,
+            latest_size_matched=0.0,
+            needs_reconciliation=True,
+        )
+        repo = FakeRepo(fill_evidence=pending)
+        clob = FakeClob()
+        trader, _, _ = make_trader(repo=repo, clob=clob)
+        now = datetime(2026, 8, 13, 0, 30, 0)
+        trade = make_trade(buy_timestamp=now - timedelta(minutes=15))
+
+        assert trader.reconcile_pending_buy(trade, now=now) is False
+
+        assert clob.cancelled == ["0xBUY"]
+        assert repo.updates == []
+
+    def test_fresh_pending_buy_is_not_canceled(self):
+        pending = ExactFillEvidence(
+            "pending",
+            "0xBUY",
+            order_status="LIVE",
+            side="BUY",
+            requested_size=5.5,
+            latest_size_matched=0.0,
+            needs_reconciliation=True,
+        )
+        repo = FakeRepo(fill_evidence=pending)
+        clob = FakeClob()
+        trader, _, _ = make_trader(repo=repo, clob=clob)
+        now = datetime(2026, 8, 13, 0, 30, 0)
+        trade = make_trade(buy_timestamp=now - timedelta(minutes=14, seconds=59))
+
+        assert trader.reconcile_pending_buy(trade, now=now) is False
+        assert clob.cancelled == []
 
 
 class TestPendingSellReconciliation:

@@ -75,8 +75,10 @@ golden-date 실거래에서 이 축을 **준무작위 자연실험**으로 측�
 > "가격 수준 교란이 있는 준무작위 배정"이다. 그래서 실제 MAKER 비중은 가정하지 않고
 > **팔별로 실측 기록**한다(§6).
 
-quince는 이 축을 **설정으로 고정**한다. `execution_mode: passive`는 **매수를 내림**
-처리해 매수호가에 합류시킨다. 매도는 §3에서 설명하는 이유로 처치하지 않는다.
+quince는 이 축을 **fresh book에 묶인 실제 제출가로 고정**한다.
+`execution_mode: passive`는 midpoint를 내리되 best bid보다 뒤로 가지 않고 best ask보다
+항상 한 틱 이상 낮게 둔다. `cross`는 검증된 ask-depth cap으로 best ask 이상을 보장한다.
+매도는 §3에서 설명하는 이유로 처치하지 않는다.
 
 ### 경쟁 가설 (Competing explanation)
 
@@ -130,9 +132,13 @@ golden-queen에서 그대로 상속한다. **신호를 바꾸지 않는 것이 �
 
 | execution_mode | BUY | SELL | 역할 |
 |---|---|---|---|
-| **passive** | **floor(mid)** | round(mid) | **처치군.** 진입에서 매수호가에 합류 |
+| **passive** | **max(best bid, min(floor(mid), best ask−1tick))** | round(mid) | **처치군.** best ask를 절대 건드리지 않음 |
 | nearest | round(mid) | round(mid) | **대조군.** 기존 14개 봇과 동일 |
-| cross | **ceil(mid)** | round(mid) | 비용 상한 측정 |
+| cross | **ask-depth cap ≥ best ask** | round(mid) | 비용 상한 측정 |
+
+세 팔 모두 accepted BUY는 먼저 `PENDING_BUY`다. first-crossing freshness와 같은 15분이
+지나면 GTC 잔량을 취소한다. exact terminal ledger에서 zero-fill이면 `UNFILLED`, 일부만
+체결됐으면 그 CONFIRMED 수량만 `HOLDING`으로 승격해 실제 노출을 청산 관리한다.
 
 > **왜 SELL에는 적용하지 않는가.** passive를 SELL에 적용하면 `ceil(mid)`가 되어
 > 최우선 매수호가보다 **위에** 주문이 걸린다. 익절은 그래도 괜찮지만
@@ -184,8 +190,9 @@ golden-queen에서 그대로 상속한다. **신호를 바꾸지 않는 것이 �
 2. **체결이 안 된다.** 패시브 체결률은 39%대이고 0.90~0.95 밴드에서 $5 주문의
    체결률은 36.2%다. 자금 거절까지 포함하면 신호→포지션 전환율이 ~25%다.
    표본이 안 쌓이면 판정 자체가 불가능하다.
-3. **미체결분이 유령이 된다.** 미체결 $5 BUY의 **36.4%가 INVALID**로 전환되어
-   `max_positions`를 잠식한다. 패시브는 미체결이 많으므로 이 위험이 **더 크다.**
+3. **미체결/부분체결 lifecycle이 깨진다.** 패시브는 미체결이 많으므로 이 위험이 더 크다.
+   코드가 15분 TTL 뒤 잔량을 취소하고 exact zero/partial/full evidence를 대사하지만,
+   cancellation/reconciliation 오류가 나면 해당 주문은 fail-closed로 남아 진단이 필요하다.
 4. **신호가 너무 희소하다.** queen은 약 15,500개를 훑어 후보 2건이 나왔고 그마저
    `first_crossing_already_observed`로 탈락했다. 진입이 0에 수렴하면 A/B가 성립하지 않는다.
 5. **dust 잔류.** 체결 $5 BUY의 0.3~0.9%가 5주 미만으로 남아 영구 매도 불가가 된다.

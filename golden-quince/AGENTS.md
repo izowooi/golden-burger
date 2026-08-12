@@ -39,6 +39,9 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
   바꾸지 않는다. **SELL은 어떤 모드에서도 `nearest`** — passive를 SELL에 적용하면
   최우선 매수호가보다 위에 걸려 손절이 체결되지 않는다. 체결되지 않는 손절은
   손절이 아니다.
+- 실제 BUY limit은 fresh book에 묶는다. passive는
+  `max(best_bid, min(floor(mid), best_ask-1tick))`로 best ask를 절대 건드리지 않고,
+  nearest는 `round(mid)`, cross는 검증된 ask-depth cap으로 best ask 이상을 보장한다.
 - `buy_amount_usdc` 기본은 **$5**다. 사전 등록 롤아웃 금액이며 증액은 `STRATEGY.md` §6
   판정 기준을 통과한 뒤에만 검토한다. 선택적 D만 별도 wallet/job/DB에서 $10을 쓴다.
 - **낙폭 kill switch가 코드에 있다.** **경제손익(확정 `realized_pnl` + 해결
@@ -118,6 +121,10 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
 - GTC `accepted`/`live`는 체결이 아니다. 실제 성과와 포지션은
   live cohort에서 `order_fills.status='CONFIRMED'`의 정확한 size/price/fee만으로 확정하고,
   simulation 결과는 별도 hypothetical cohort로 유지한다.
+- live BUY 잔량의 TTL은 first-crossing freshness와 같은
+  `max_snapshot_gap_minutes`(기본 15분)다. TTL 뒤 exact order를 취소하고 다음 cycle에
+  terminal ledger를 대사한다. zero-fill은 `UNFILLED`, terminal partial fill은 실제
+  CONFIRMED 수량만 `HOLDING`으로 승격한다. 미체결 잔량을 요청 전량으로 추정하지 않는다.
 
 ## A/B/C 격리 계약
 

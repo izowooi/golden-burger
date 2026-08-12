@@ -20,6 +20,8 @@
 각 팔은 별도 wallet/account/funder/credential, Jenkins job, `--job`, DB를 사용한다.
 같은 wallet이나 DB를 공유하면 live A/B/C 격리가 아니다. Git commit, schedule,
 threshold, risk, sports/in-play, archive, lifecycle은 동일하게 유지한다.
+BUY remainder TTL도 first-crossing freshness와 같은 15분으로 동일하며, terminal partial
+fill은 실제 CONFIRMED 수량만 position과 execution endpoint에 포함한다.
 
 선택적 D는 별도 wallet/job/DB에서 A와 같은 `passive`에 주문액만 $10으로 바꾼
 size-effect cohort다. **A/B/C가 우선**이며 D를 1차 실행-mode 비교에 합치지 않는다.
@@ -157,7 +159,7 @@ uv run --project polybot-observability polybot-retro audit \
 ```text
 arm = config_hash × git_commit × mode × job_name
 ordered = exact BUY submission
-confirmed = order_fills.status = CONFIRMED and side = BUY
+confirmed = terminal-reconciled exact order의 order_fills.status = CONFIRMED and side = BUY
 entry_vwap = exact confirmed BUY fills only
 decision_midpoint = order decision에 연결된 same-cycle bid/ask midpoint
 entry_cost_bps = (entry_vwap - decision_midpoint) / decision_midpoint * 10,000
@@ -169,11 +171,11 @@ entry_cost_bps = (entry_vwap - decision_midpoint) / decision_midpoint * 10,000
 |---|---|
 | raw signal n | first-crossing lineage가 증명된 condition |
 | accepted BUY n | exact BUY submission이 accepted/live가 된 수 |
-| CONFIRMED BUY n | exact order ID에 CONFIRMED BUY가 있는 수 |
+| CONFIRMED BUY n | terminal-reconciled exact order ID에 양의 CONFIRMED BUY가 있는 수 |
 | MAKER n / 비중 | `liquidity_role='MAKER'`인 CONFIRMED BUY |
 | entry cost bps | CONFIRMED BUY VWAP − decision midpoint |
 | fill rate | CONFIRMED BUY / accepted BUY |
-| fill latency | submission → first/full CONFIRMED BUY |
+| fill latency | submission → first CONFIRMED BUY / terminal reconciliation |
 
 role이나 decision midpoint가 누락된 fill을 임의 분류하거나 보간하지 않는다. 누락률을
 별도 endpoint coverage로 보고하고 비교 모집단에서 제외한다.

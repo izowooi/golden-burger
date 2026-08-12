@@ -489,6 +489,24 @@ def test_cancel_unproved_fill_state_fails_closed():
         wrapper.cancel_order("cancel-me")
 
 
+@pytest.mark.parametrize(
+    ("status", "matched"),
+    [("CANCELED", "2.25"), ("MATCHED", "5.5")],
+)
+def test_expired_entry_cancel_preserves_terminal_matched_quantity(status, matched):
+    wrapper = ClobClientWrapper(SimpleNamespace())
+    wrapper._client = CancelClient(
+        {"canceled": ["cancel-me"], "not_canceled": {}},
+        detail={"id": "cancel-me", "status": status, "size_matched": matched},
+    )
+    wrapper._initialized = True
+
+    result = wrapper.cancel_order_for_reconciliation("cancel-me")
+
+    assert result["verified_order_status"] == status
+    assert result["verified_size_matched"] == pytest.approx(float(matched))
+
+
 class PlacementClient:
     def __init__(self, db_path):
         self.db_path = db_path

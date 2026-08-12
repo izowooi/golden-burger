@@ -91,7 +91,8 @@ def main() -> None:
     # 이 전략의 처치축과 안전장치는 반드시 프리플라이트에 보여야 한다.
     print(
         f"Execution Mode (진입 전용): {trading.execution_mode}"
-        f"  (passive=매수호가 합류 / nearest=기존 14봇 / cross=항상 크로스)"
+        f"  (passive=best ask 미만 / nearest=midpoint 반올림 / "
+        f"cross=ask-depth cap으로 항상 크로스)"
         f"  — SELL은 항상 nearest"
     )
     print(
@@ -122,6 +123,10 @@ def main() -> None:
     print(
         f"Order: ${trading.buy_amount_usdc:.2f}, min shares "
         f"{trading.min_order_size:.2f} + {trading.min_order_buffer_shares:.2f} buffer"
+    )
+    print(
+        f"Pending BUY remainder TTL: {trading.max_snapshot_gap_minutes:.1f} minutes"
+        "  (zero-fill=UNFILLED / terminal partial=exact shares HOLDING)"
     )
     print(
         "Effective entry gates: liquidity >= "

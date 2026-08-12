@@ -13,6 +13,7 @@ import math
 
 import pytest
 
+from polybot_observability import ClobResponseContractError
 from polybot.api.clob_client import ClobClientWrapper
 from polybot.config import _get_execution_mode
 
@@ -87,6 +88,42 @@ class TestControlArms:
             assert passive._round_to_tick(mid, side="BUY") <= cross._round_to_tick(
                 mid, side="BUY"
             ) + 1e-9
+
+
+class TestBookBoundLimitSelection:
+    @pytest.mark.parametrize(
+        ("mode", "expected"),
+        [("passive", 0.90), ("nearest", 0.91), ("cross", 0.92)],
+    )
+    def test_same_book_produces_distinct_arm_prices(self, mode, expected):
+        wrapper = make_wrapper(mode)
+        assert wrapper.select_buy_limit_price(
+            midpoint=0.911,
+            best_bid=0.90,
+            best_ask=0.91,
+            cross_limit=0.92,
+        ) == pytest.approx(expected)
+
+    def test_passive_improves_wide_spread_without_crossing(self):
+        wrapper = make_wrapper("passive")
+        selected = wrapper.select_buy_limit_price(
+            midpoint=0.91,
+            best_bid=0.90,
+            best_ask=0.92,
+            cross_limit=0.93,
+        )
+        assert selected == pytest.approx(0.91)
+        assert 0.90 <= selected < 0.92
+
+    def test_locked_book_rejects_passive_instead_of_becoming_taker(self):
+        wrapper = make_wrapper("passive")
+        with pytest.raises(ClobResponseContractError, match="locked book"):
+            wrapper.select_buy_limit_price(
+                midpoint=0.91,
+                best_bid=0.91,
+                best_ask=0.91,
+                cross_limit=0.92,
+            )
 
 
 

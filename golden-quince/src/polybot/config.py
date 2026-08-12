@@ -167,10 +167,10 @@ class TradingConfig:
     """Spread Harvest trading and evidence-capture configuration."""
 
     lifecycle_mode: str = "active"
-    # 전략의 핵심 축. clob_client._round_to_tick 참조.
-    #   passive — BUY 내림 (기본 처치군)
+    # 전략의 핵심 축. clob_client.select_buy_limit_price 참조.
+    #   passive — best ask 미만의 BUY floor(mid) (기본 처치군)
     #   nearest — BUY 최근접 반올림 (대조군)
-    #   cross   — BUY 올림 (비용 상한 측정용)
+    #   cross   — 검증된 ask-depth cap으로 BUY 크로스 (비용 상한)
     # SELL은 손절/익절 실행을 훼손하지 않도록 모든 모드에서 nearest다.
     execution_mode: str = "passive"
     # 격리 intent 자가 해제. env가 아니라 여기 두는 이유는 config_hash에 담기게

@@ -67,8 +67,11 @@ class PolymarketBot:
             entry.stop_price,
         )
         logger.info(
-            "실행 - fresh ask <= %.2f, spread <= %.3f, depth >= %.2fx; "
-            "$%.2f, effective liquidity=$%.0f, volume24h=$%.0f",
+            "실행 - BUY mode=%s, pending TTL=%.1fmin, fresh ask <= %.2f, "
+            "spread <= %.3f, depth >= %.2fx; $%.2f, effective liquidity=$%.0f, "
+            "volume24h=$%.0f",
+            trading.execution_mode,
+            trading.max_snapshot_gap_minutes,
             entry.prob_max,
             trading.max_spread,
             trading.depth_safety_multiple,
@@ -171,7 +174,7 @@ class PolymarketBot:
                 logger.info("=== Phase 2: threshold-crossing scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
-                logger.info("=== Phase 3: fresh-ask BUY execution ===")
+                logger.info("=== Phase 3: execution-mode BUY execution ===")
                 for candidate in candidates:
                     if (
                         stats["bought"]
@@ -255,6 +258,8 @@ class PolymarketBot:
                     for trade in holdings
                 ],
                 "config": {
+                    "execution_mode": trading.execution_mode,
+                    "pending_buy_ttl_minutes": trading.max_snapshot_gap_minutes,
                     "buy_amount_usdc": trading.buy_amount_usdc,
                     "min_liquidity": trading.min_liquidity,
                     "effective_min_liquidity": trading.effective_min_liquidity,

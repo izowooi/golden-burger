@@ -58,9 +58,9 @@ quince는 이 축을 설정으로 고정한다. 그게 전부다.
 
 | `POLYBOT_EXECUTION_MODE` | BUY | SELL | 역할 |
 |---|---|---|---|
-| `passive` | **내림** (매수호가 합류) | `nearest` | **A = 처치군** |
+| `passive` | **best ask 미만 floor(mid)** (매수호가 합류/개선) | `nearest` | **A = 처치군** |
 | `nearest` | 반올림 | `nearest` | **B = 대조군** (기존 14봇과 동일) |
-| `cross` | **올림** (크로스) | `nearest` | **C = 비용 상한** |
+| `cross` | **검증된 ask-depth cap ≥ best ask** | `nearest` | **C = 비용 상한** |
 
 > **SELL은 세 팔 모두 `nearest`로 고정된다. 코드가 그렇게 강제한다.**
 > passive를 SELL에 적용하면 최우선 매수호가보다 **위에** 걸려 `0.85` 손절이 체결되지 않는다.
@@ -97,6 +97,10 @@ golden-queen의 Crown Momentum을 **의도적으로 그대로 상속**했다. �
 4. **신호가 너무 희소하다.** queen은 ~15,500개를 훑어 후보 2건. 진입이 0에 수렴하면 A/B가 성립 안 함.
 5. **수수료가 실제로 부과된다.** 기록된 fill 수수료는 전부 0/NULL인데 Gamma는 94% 시장에
    `fee_rate` 0.04~0.07을 붙인다. **미해결 — 첫 실체결에서 반드시 확인.**
+
+accepted BUY는 GTC이므로 즉시 포지션이 아니다. 세 팔 모두 15분 동안 exact fill을 대사하고,
+그 뒤 미체결 잔량을 취소한다. terminal zero-fill은 `UNFILLED`, terminal partial fill은
+실제 CONFIRMED 수량만 `HOLDING`으로 승격한다. 이 TTL도 세 팔에서 동일하다.
 
 ---
 
@@ -326,8 +330,11 @@ Next review date:
 - [ ] 팔마다 **서로 다른 Jenkins job 이름 = `--job` 값 = DB 경로**
 - [ ] 세 job **같은 Git commit**, cadence 모두 `H/5 * * * *`, concurrent build 비활성화
 - [ ] **세 팔을 같은 시각에 기동** (아래 ⚠️ 참조)
+- [ ] 새 cohort의 첫 수동 build에만 Jenkins `Clean before checkout` 사용. 성공 직후 제거하고
+      그 다음부터 `H/5`를 켠다
 - [ ] private key·funder는 Jenkins **Credentials Binding**. shell 첫머리에 `set +x`
 - [ ] `uv run polybot config --job <name>`으로 해석된 값을 먼저 눈으로 확인
+- [ ] 첫 공통 candidate에서 submitted BUY가 A=`best ask` 미만, C=`best ask` 이상인지 확인
 
 > ### ⚠️ 세 팔은 반드시 동시에 기동한다
 >
@@ -404,6 +411,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet A}"
 export POLYBOT_EXECUTION_MODE=passive
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -423,6 +431,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet B}"
 export POLYBOT_EXECUTION_MODE=nearest
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -442,6 +451,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet C}"
 export POLYBOT_EXECUTION_MODE=cross
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -461,6 +471,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet D}"
 export POLYBOT_EXECUTION_MODE=passive
 export POLYBOT_BUY_AMOUNT=10          # ← A와 다른 유일한 값
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -494,6 +505,7 @@ uv run polybot run --live --job polybot-quince-passive-10
 | 12 | kill switch 우회·비활성화 | golden-date가 판정 기준을 문서에만 두고 계좌 절반을 잃은 실패의 재현 |
 | 13 | simulation과 live 결과 합산 | 별도 hypothetical cohort로 유지 |
 | 14 | C가 30건 찼다고 조기 종료 | 판정은 **A의 건수**를 본다. C는 체결률이 2배 이상 높다 (§4) |
+| 15 | clean checkout을 정기 build마다 유지 | DB·archive·first-crossing lineage가 매번 삭제돼 실험이 성립하지 않음 |
 
 ---
 

@@ -36,8 +36,9 @@ Golden Quince는 resolution 결과는 기록하지만 redeemable 상태와 실�
 비용은 MAKER `-16.8 bps`, TAKER `+56.7 bps`로 약 73 bps 갈렸지만, 패시브 체결의
 역선택이 그 할인을 상쇄할 가능성은 아직 기각되지 않았다.
 
-따라서 accepted BUY를 `PENDING_BUY`로 두고 exact full `CONFIRMED` fill 이후에만
-`HOLDING`으로 바꾼다. 실제 판정은 세 팔의 execution ledger를 30일 쌓은 뒤
+따라서 accepted BUY를 `PENDING_BUY`로 두고 exact terminal `CONFIRMED` fill 이후에만
+`HOLDING`으로 바꾼다. 15분 안에 전량 체결되지 않은 GTC BUY 잔량은 취소한다. zero-fill은
+`UNFILLED`, terminal partial fill은 실제 CONFIRMED 수량만 `HOLDING`으로 관리한다. 실제 판정은 세 팔의 execution ledger를 30일 쌓은 뒤
 MAKER 비중·진입 실효가·체결률로 내린다. 승률과 순손익은 1차 종점이 아니다.
 
 ## 왜 더 단순한가
@@ -121,6 +122,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet A}"
 export POLYBOT_EXECUTION_MODE=passive
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -140,6 +142,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet B}"
 export POLYBOT_EXECUTION_MODE=nearest
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -159,6 +162,7 @@ set +x
 : "${POLYMARKET_SIGNATURE_TYPE:?set 1 or 3 for wallet C}"
 export POLYBOT_EXECUTION_MODE=cross
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_EXPERIMENT_CAPITAL_USDC=200
 export POLYBOT_ENTRY_HOURS_MAX=24
 export LOG_LEVEL=INFO
 cd ./golden-quince
@@ -205,11 +209,14 @@ category 제외는 Gamma tag slug/label의 대소문자를 무시한 **exact mat
 
 - Gamma liquidity/volume은 1차 metadata gate다. 실제 주문 가능성은 같은 CLOB snapshot의
   bid/ask/spread와 ask depth로 다시 검사한다.
-- BUY limit은 `min(0.94, best ask + 0.01)`이며, 그 가격 이하 ask depth가 주문 수량의
-  1.2배 이상이어야 한다.
+- ask-depth cap은 `min(0.94, best ask + 0.01)`이며, 그 가격 이하 ask depth가 실제
+  주문 수량의 1.2배 이상이어야 한다. 실제 BUY limit은 mode별로 passive=`best ask`
+  미만의 floor(mid), nearest=round(mid), cross=ask-depth cap이다.
 - GTC `live`/`accepted`/order ID는 fill이 아니다.
-- live BUY는 `PENDING_BUY`로 시작한다. exact order ID의 full reconciled fill이 확인된
-  뒤에만 실제 보유로 승격한다.
+- live BUY는 `PENDING_BUY`로 시작한다. exact order ID의 terminal reconciled fill이
+  확인된 뒤에만 실제 보유로 승격한다. 신호 freshness와 같은 15분이 지나면 미체결
+  잔량을 취소한다. zero-fill은 `UNFILLED`, terminal partial fill은 exact CONFIRMED
+  수량만 보유로 승격한다.
 - live SELL도 `PENDING_SELL`이며 BUY·SELL full confirmed size와 fee가 모두 대사된 뒤에만
   `COMPLETED`와 actual net P&L을 만든다.
 - 위 actual fill/P&L 계약은 live cohort에만 적용한다. simulation 결과는 별도
@@ -259,13 +266,14 @@ open-notional 상한이 주문액 10배라 full-size 신규 포지션은 보통 
 
 ## 실행 모드 (이 전략의 처치축)
 
-`POLYBOT_EXECUTION_MODE`는 틱 반올림 방향을 정한다. 이것이 golden-quince의 전부다.
+`POLYBOT_EXECUTION_MODE`는 fresh book에 묶인 실제 BUY limit을 정한다. 이것이
+golden-quince의 처치축이다.
 
 | 값 | BUY | SELL | 역할 |
 |---|---|---|---|
-| `passive` (기본) | 내림 | **nearest** | 매수호가 합류 — 처치군 |
-| `nearest` | 반올림 | **nearest** | 기존 14개 봇과 동일 — 대조군 |
-| `cross` | 올림 | **nearest** | BUY 크로스 — 비용 상한 |
+| `passive` (기본) | `max(best bid, min(floor(mid), best ask-1tick))` | **nearest** | best ask를 절대 건드리지 않는 처치군 |
+| `nearest` | `round(mid)` | **nearest** | 기존 14개 봇과 동일 — 대조군 |
+| `cross` | ask-depth cap | **nearest** | best ask 이상 BUY — 비용 상한 |
 
 `execution_mode`는 **BUY에만 적용**된다. SELL은 손절 체결성을 보존하기 위해 모든 팔에서
 `nearest`다. 실측 진입 비용은 MAKER `-16.8 bps`, TAKER `+56.7 bps`로 약 73 bps
@@ -316,7 +324,7 @@ golden-date가 판정 기준을 문서에만 두고 -52%까지 간 실패를 반
 | `POLYBOT_MAX_OPEN_NOTIONAL_MULTIPLE` | `10` | open notional=`BUY_AMOUNT × 10` |
 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `1` | 한 실행에서 만드는 최대 신규 position |
 | `POLYBOT_REENTRY_COOLDOWN_HOURS` | `168` | 같은 condition 재진입 최소 간격 |
-| `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `15` | first-crossing 연속 관측 최대 간격 |
+| `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `15` | first-crossing 연속 관측 최대 간격이자 live BUY 잔량 TTL |
 | `POLYBOT_ALLOW_IN_PLAY` | `true` | 경기 중 진입 허용 |
 | `POLYBOT_MAX_IN_PLAY_MINUTES` | `360` | 경기 시작 후 진입 허용 시간 |
 | `POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START` | `false` | true일 때만 clock 누락 스포츠 차단 |
