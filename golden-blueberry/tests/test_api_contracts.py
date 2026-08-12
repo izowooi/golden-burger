@@ -22,6 +22,12 @@ from polybot.api.clob_client import ClobClientWrapper
 from polybot.api.gamma_client import GammaClient
 
 
+@pytest.fixture(autouse=True)
+def _disable_gamma_shared_cache(monkeypatch):
+    """Unit tests opt in explicitly when cross-process caching is under test."""
+    monkeypatch.delenv(GammaClient.SHARED_CACHE_ENV, raising=False)
+
+
 class Response:
     def __init__(self, payload):
         self.payload = payload
@@ -142,6 +148,45 @@ def test_gamma_keyset_sweep_deduplicates_and_attests_membership(monkeypatch):
     assert memberships["closed"]["qualification_reason"] == "closed_or_missing"
     assert memberships["server-filter-leak"]["qualification_reason"] == "below_min_liquidity"
     assert memberships["missing-tradability"]["qualified"] is False
+
+
+def test_gamma_shared_cache_reuses_one_complete_sweep_across_clients(
+    tmp_path,
+    monkeypatch,
+):
+    cache_root = tmp_path / "shared-gamma"
+    monkeypatch.setenv(GammaClient.SHARED_CACHE_ENV, str(cache_root))
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _value: None)
+
+    leader = GammaClient()
+    leader.session = KeysetSession()
+    leader_markets = leader.get_all_tradable_markets(min_liquidity=10_000)
+
+    follower = GammaClient()
+    follower.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("cache follower must not contact Gamma")
+        )
+    )
+    follower_markets = follower.get_all_tradable_markets(min_liquidity=10_000)
+
+    assert [market["conditionId"] for market in follower_markets] == [
+        market["conditionId"] for market in leader_markets
+    ]
+    leader_attestation = leader.last_sweep_attestation
+    follower_attestation = follower.last_sweep_attestation
+    assert leader_attestation["shared_cache_hit"] is False
+    assert follower_attestation["shared_cache_hit"] is True
+    assert (
+        follower_attestation["source_sweep_id"]
+        == leader_attestation["source_sweep_id"]
+    )
+    assert follower_attestation["sweep_id"] != leader_attestation["sweep_id"]
+    assert (
+        follower_attestation["membership_digest_sha256"]
+        == leader_attestation["membership_digest_sha256"]
+    )
+    assert len(list(cache_root.glob("sweep-*.json"))) == 1
 
 
 class TimeoutSession:

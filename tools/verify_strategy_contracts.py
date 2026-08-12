@@ -1270,11 +1270,31 @@ def _validate_gamma_source(
         "_get_keyset_page",
         class_name="GammaClient",
     )
-    if not any(isinstance(node, ast.While) for node in ast.walk(sweep)):
+    sweep_nodes = [sweep]
+    public_calls = _calls(sweep)
+    if any(
+        name.endswith("self._get_all_tradable_markets_uncached")
+        for name, _ in public_calls
+    ):
+        delegated_sweep = _require_function(
+            findings,
+            strategy,
+            relative_path,
+            tree,
+            "_get_all_tradable_markets_uncached",
+            class_name="GammaClient",
+        )
+        if delegated_sweep is not None:
+            sweep_nodes.append(delegated_sweep)
+    if not any(
+        isinstance(node, ast.While)
+        for sweep_node in sweep_nodes
+        for node in ast.walk(sweep_node)
+    ):
         findings.append(
             Finding(strategy, "incomplete_pagination", f"{relative_path}: no keyset loop")
         )
-    calls = _calls(sweep)
+    calls = [call for sweep_node in sweep_nodes for call in _calls(sweep_node)]
     page_calls = _calls(page_fetch) if page_fetch is not None else []
     bounded_calls = [call for name, call in page_calls if name.endswith("self._get")]
     direct_get_calls = _calls(bounded_get) if bounded_get is not None else []

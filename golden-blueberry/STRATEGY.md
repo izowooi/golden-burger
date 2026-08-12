@@ -129,6 +129,8 @@ source change는 새 cohort가 된다.
 
 - expected 5분 cadence와 성공 run coverage
 - complete Gamma cursor sweep과 archive/snapshot lineage
+- 같은 호스트 A/B는 동일 filter·5분 bucket의 검증된 Gamma sweep을 공유하며,
+  leader/follower 모두 cursor-complete와 동일 membership digest를 남기는지 확인
 - `entry_signal_decisions`의 crossing/rejection 기록
 - order submission → status → exact fill reconciliation
 - DB online backup, SHA-256, restore/integrity check

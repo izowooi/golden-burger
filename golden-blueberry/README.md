@@ -74,6 +74,23 @@ snapshot은 보존기간과 무관하게 보호한다. `shadow_observations`와 
 넘으면 정리된다. 저장소 `Jenkinsfile`은 console/build도 60일 보존하며, Freestyle job이면
 Jenkins `Discard old builds`에 같은 값을 직접 설정한다.
 
+### 같은 호스트 A/B의 Gamma sweep 공유
+
+두 A/B job이 같은 Mac에서 같은 시각에 시작하면 아래 owner-private 절대경로를 **둘 다
+동일하게** 설정한다.
+
+```bash
+export POLYBOT_GAMMA_SHARED_CACHE_DIR=/Users/jongwoopark/.cache/golden-blueberry/gamma-sweeps-v1
+```
+
+같은 5분 bucket과 동일한 Gamma filter 조합에서는 먼저 lock을 얻은 한 job만
+`/markets/keyset`의 terminal cursor까지 전수 조회한다. 다른 job은 완료를 기다린 뒤
+membership SHA-256, cursor-complete, market 집합을 다시 검증한 동일 payload를 사용한다.
+이는 유동성·거래량·시간·가격 gate나 시장 universe를 줄이는 기능이 아니며 A/B가 같은
+관측면을 쓰게 하는 운영 최적화다. 최근 3개 bucket만 남는 재생성 가능한 public market
+data cache이며 DB evidence나 backup을 대신하지 않는다. lock은 12분에 fail closed하며,
+경로를 설정하지 않으면 기존처럼 각 process가 독립 sweep을 수행한다.
+
 ## A/B simulation Jenkins shell
 
 질문에 제시한 두 shell은 방향은 맞지만 다음 세 가지를 고쳐야 한다.
@@ -199,6 +216,7 @@ export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
 export POLYBOT_EXPERIMENT_CAPITAL_USDC=150
 export POLYBOT_MIN_SURGE=0.02       # B job만 0.05
+export POLYBOT_GAMMA_SHARED_CACHE_DIR=/Users/jongwoopark/.cache/golden-blueberry/gamma-sweeps-v1
 export POLYMARKET_SIGNATURE_TYPE=3 # legacy 이메일 계정이면 1
 
 : "${POLYMARKET_PRIVATE_KEY:?Jenkins Credentials Binding required}"
@@ -236,6 +254,7 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `15` | 연속 관측 허용 간격 |
 | `POLYBOT_ALLOW_IN_PLAY` | `true` | 스포츠 경기 중 진입 허용 |
 | `POLYBOT_MAX_IN_PLAY_MINUTES` | `360` | kickoff 뒤 최대 후보 시간 |
+| `POLYBOT_GAMMA_SHARED_CACHE_DIR` | 미설정 | 같은 호스트 A/B의 검증된 5분 sweep 공유 절대경로 |
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active`, `close_only`, `archive_only`, `shadow_only` |
 | `POLYBOT_EXCLUDED_CATEGORIES` | 빈 목록 | exact tag 제외; 기본은 스포츠 포함 |
 | `POLYMARKET_SIGNATURE_TYPE` | 계정별 | `3`=POLY_1271, `1`=legacy POLY_PROXY |

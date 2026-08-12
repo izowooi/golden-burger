@@ -31,6 +31,7 @@ export LOG_LEVEL=INFO
 export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
 export POLYBOT_EXPERIMENT_CAPITAL_USDC=150
+export POLYBOT_GAMMA_SHARED_CACHE_DIR=/Users/jongwoopark/.cache/golden-blueberry/gamma-sweeps-v1
 
 case "${BLUEBERRY_ARM}" in
   A_2PP)
