@@ -91,9 +91,10 @@ Jenkins 표준 환경(`JENKINS_URL`)에서는 이 변수가 없어도 실행 사
 `/markets/keyset`의 terminal cursor까지 전수 조회한다. 다른 job은 완료를 기다린 뒤
 membership SHA-256, cursor-complete, market 집합을 다시 검증한 동일 payload를 사용한다.
 이는 유동성·거래량·시간·가격 gate나 시장 universe를 줄이는 기능이 아니며 A/B가 같은
-관측면을 쓰게 하는 운영 최적화다. 최근 3개 bucket만 남는 재생성 가능한 public market
-data cache이며 DB evidence나 backup을 대신하지 않는다. lock은 12분에 fail closed하며,
-경로를 설정하지 않으면 기존처럼 각 process가 독립 sweep을 수행한다.
+관측면을 쓰게 하는 운영 최적화다. 현재 bucket 하나만 gzip으로 남기는 재생성 가능한
+public market data cache이며 DB evidence나 backup을 대신하지 않는다. filter별 고정 lock은
+5분마다 빈 lock 파일이 쌓이지 않게 하며 12분에 fail closed한다. 경로를 설정하지 않으면
+기존처럼 각 process가 독립 sweep을 수행한다.
 
 ## A/B simulation Jenkins shell
 

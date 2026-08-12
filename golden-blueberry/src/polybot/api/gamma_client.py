@@ -1,5 +1,6 @@
 """Gamma API client for market data retrieval."""
 import fcntl
+import gzip
 import hashlib
 import json
 import logging
@@ -41,6 +42,7 @@ class GammaClient:
     SHARED_CACHE_BUCKET_SECONDS = 300
     SHARED_CACHE_LOCK_TIMEOUT_SECONDS = 12 * 60
     SHARED_CACHE_MAX_BYTES = 512 * 1024 * 1024
+    SHARED_CACHE_COMPRESSION_LEVEL = 1
 
     def __init__(self):
         self.session = requests.Session()
@@ -227,7 +229,7 @@ class GammaClient:
             return None
         if path.is_symlink() or path.stat().st_size > self.SHARED_CACHE_MAX_BYTES:
             raise ValueError("Gamma shared cache file is unsafe or too large")
-        with path.open("r", encoding="utf-8") as handle:
+        with gzip.open(path, "rt", encoding="utf-8") as handle:
             payload = json.load(handle)
         return self._validate_cached_sweep(
             payload,
@@ -256,23 +258,26 @@ class GammaClient:
         }
         temporary_name: Optional[str] = None
         try:
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding="utf-8",
+            descriptor, temporary_name = tempfile.mkstemp(
                 dir=path.parent,
                 prefix=f".{cache_key}-",
                 suffix=".tmp",
-                delete=False,
+            )
+            os.fchmod(descriptor, 0o600)
+            os.close(descriptor)
+            with gzip.open(
+                temporary_name,
+                mode="wt",
+                encoding="utf-8",
+                compresslevel=self.SHARED_CACHE_COMPRESSION_LEVEL,
             ) as handle:
-                temporary_name = handle.name
-                os.chmod(temporary_name, 0o600)
                 json.dump(
                     payload,
                     handle,
                     ensure_ascii=False,
                     separators=(",", ":"),
                 )
-                handle.flush()
+            with open(temporary_name, "rb") as handle:
                 os.fsync(handle.fileno())
             os.replace(temporary_name, path)
             os.chmod(path, 0o600)
@@ -282,18 +287,17 @@ class GammaClient:
 
     @staticmethod
     def _prune_shared_cache(root: Path, current_path: Path) -> None:
-        candidates = sorted(
-            (
-                candidate
-                for candidate in root.glob("sweep-*.json")
-                if candidate.is_file() and not candidate.is_symlink()
-            ),
-            key=lambda candidate: candidate.stat().st_mtime,
-            reverse=True,
-        )
-        keep = {current_path, *candidates[:3]}
+        cache_key = current_path.name.removesuffix(".json.gz")
+        filter_digest = cache_key.rsplit("-", 1)[-1]
+        candidates: list[Path] = []
+        for candidate in root.glob(f"sweep-*-{filter_digest}.json*"):
+            try:
+                if candidate.is_file() and not candidate.is_symlink():
+                    candidates.append(candidate)
+            except FileNotFoundError:
+                continue
         for candidate in candidates:
-            if candidate in keep:
+            if candidate == current_path:
                 continue
             try:
                 candidate.unlink()
@@ -452,8 +456,11 @@ class GammaClient:
             min_volume,
             bucket,
         )
-        cache_path = cache_root / f"{cache_key}.json"
-        lock_path = cache_root / f"{cache_key}.lock"
+        filter_digest = cache_key.rsplit("-", 1)[-1]
+        cache_path = cache_root / f"{cache_key}.json.gz"
+        # One filter-scoped lock avoids leaving a new lock inode every five
+        # minutes and serializes a slow sweep across bucket boundaries.
+        lock_path = cache_root / f"sweep-filter-{filter_digest}.lock"
         logger.info("공유 Gamma sweep 대기 - bucket=%s", bucket)
         lock = self._acquire_shared_cache_lock(lock_path)
         try:

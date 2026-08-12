@@ -186,7 +186,11 @@ def test_gamma_shared_cache_reuses_one_complete_sweep_across_clients(
         follower_attestation["membership_digest_sha256"]
         == leader_attestation["membership_digest_sha256"]
     )
-    assert len(list(cache_root.glob("sweep-*.json"))) == 1
+    cache_files = list(cache_root.glob("sweep-*.json.gz"))
+    assert len(cache_files) == 1
+    assert cache_files[0].read_bytes().startswith(b"\x1f\x8b")
+    assert len(list(cache_root.glob("sweep-filter-*.lock"))) == 1
+    assert not list(cache_root.glob("sweep-[0-9]*-*.lock"))
 
 
 def test_gamma_shared_cache_uses_owner_home_automatically_on_jenkins(
@@ -200,6 +204,31 @@ def test_gamma_shared_cache_uses_owner_home_automatically_on_jenkins(
 
     assert root == tmp_path / ".cache/golden-blueberry/gamma-sweeps-v1"
     assert root.stat().st_mode & 0o077 == 0
+
+
+def test_gamma_shared_cache_keeps_one_compressed_bucket_and_one_filter_lock(
+    tmp_path,
+    monkeypatch,
+):
+    cache_root = tmp_path / "shared-gamma"
+    clock = [300.0]
+    monkeypatch.setenv(GammaClient.SHARED_CACHE_ENV, str(cache_root))
+    monkeypatch.setattr("polybot.api.gamma_client.time.time", lambda: clock[0])
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _value: None)
+
+    first = GammaClient()
+    first.session = KeysetSession()
+    first.get_all_tradable_markets(min_liquidity=10_000)
+
+    clock[0] = 600.0
+    second = GammaClient()
+    second.session = KeysetSession()
+    second.get_all_tradable_markets(min_liquidity=10_000)
+
+    cache_files = list(cache_root.glob("sweep-*.json.gz"))
+    assert len(cache_files) == 1
+    assert "sweep-2-" in cache_files[0].name
+    assert len(list(cache_root.glob("sweep-filter-*.lock"))) == 1
 
 
 class TimeoutSession:
