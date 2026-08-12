@@ -19,3 +19,4 @@
 | 013 | [013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md](013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md) | Cat/Dog Jenkins build·console 14일 보존 pilot과 실제 LogRotator 검증 | 2026-08-12 |
 | 014 | [014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md](014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md) | Quince A/B/C 재동기화, 저빈도·H/5 cadence 판정과 전 팔 TAKER 실행축 결함 진단 | 2026-08-12 |
 | 015 | [015-golden-quince-execution-axis-clean-restart-2026-08-13.md](015-golden-quince-execution-axis-clean-restart-2026-08-13.md) | Quince 실행축·pending BUY lifecycle 수정, 3-arm one-time clean 재시작과 H/5·동기화 검증 | 2026-08-13 |
+| 016 | [016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md](016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md) | Blueberry A/B 저빈도·cadence 진단, Gamma 공유 sweep 최적화와 자연 build·재동기화 검증 | 2026-08-13 |

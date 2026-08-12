@@ -24,6 +24,23 @@
 - account/job/runtime job/DB/signature type의 독립성
 - drawdown kill switch가 의도대로 신규 BUY만 차단하는지
 
+### 2026-08-13 1주 운영 checkpoint
+
+- 결론: `INCONCLUSIVE_KEEP_PARAMETERS / OPERATIONS_FIX_DEPLOYED`.
+- 기존 운영에서 두 팔은 같은 first crossing 102건을 관측했다. 정적 후보는 A 6/B 2,
+  exact confirmed BUY는 A 3/B 1, confirmed BUY+SELL round trip은 양쪽 0이다.
+- 실제 timer는 양쪽 `*/5 * * * *`, start gap p50 300초이며 cadence가 저빈도의 주원인은
+  아니다. signal·liquidity/volume·fresh spread/price gate가 직접 원인이다.
+- 같은 호스트의 A/B가 동일 Gamma full sweep을 중복 조회하지 않도록 owner-private
+  compressed shared cache를 배포했다. signal, universe, execution gate는 바꾸지 않았다.
+- 안정 source cohort 시작은 A `2026-08-12T17:30:14.053866Z`, B
+  `2026-08-12T17:30:14.057747Z`; 공통 source digest는 `069f092ee63a…`다.
+- day-7 운영 점검은 2026-08-20 02:31 KST 이후, 30일 성과 점검은
+  2026-09-12 02:31 KST 이후 수행한다. 그 전에는 +2/+5%p, liquidity/volume `$10k`,
+  spread `0.02`, `$5`를 바꾸지 않는다.
+- 상세 evidence와 배포 검증:
+  `docs/retro-summaries/016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md`.
+
 ## 30일 review window
 
 ```bash
