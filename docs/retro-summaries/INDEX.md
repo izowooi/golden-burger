@@ -14,3 +14,4 @@
 | 008 | [008-golden-kiwi-filtered-universe-rebuild-2026-08-11.md](008-golden-kiwi-filtered-universe-rebuild-2026-08-11.md) | Kiwi Gamma server filter benchmark, 1/5 이하 universe 재작성, 새 30일 cohort 실행 계약 | 2026-08-11 |
 | 009 | [009-live-strategy-start-dates-2026-08-12.md](009-live-strategy-start-dates-2026-08-12.md) | 계정 메모 12개 job의 현재 strategy/runtime별 최초 확인 live cycle 날짜 | 2026-08-12 |
 | 010 | [010-golden-queen-low-trade-diagnosis-2026-08-12.md](010-golden-queen-low-trade-diagnosis-2026-08-12.md) | Queen/King DB·로그 재동기화, timer off·반복 clean 진단과 H/5 무파라미터 재가동안 | 2026-08-12 |
+| 011 | [011-jenkins-clean-and-fleet-config-audit-2026-08-12.md](011-jenkins-clean-and-fleet-config-audit-2026-08-12.md) | Queen/King 재가동 검증, 22개 잡 Clean·timer·mode·보안 구성 감사 | 2026-08-12 |
