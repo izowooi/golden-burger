@@ -16,3 +16,4 @@
 | 010 | [010-golden-queen-low-trade-diagnosis-2026-08-12.md](010-golden-queen-low-trade-diagnosis-2026-08-12.md) | Queen/King DB·로그 재동기화, timer off·반복 clean 진단과 H/5 무파라미터 재가동안 | 2026-08-12 |
 | 011 | [011-jenkins-clean-and-fleet-config-audit-2026-08-12.md](011-jenkins-clean-and-fleet-config-audit-2026-08-12.md) | Queen/King 재가동 검증, 22개 잡 Clean·timer·mode·보안 구성 감사 | 2026-08-12 |
 | 012 | [012-papaya-queen-clean-restart-baseline-2026-08-12.md](012-papaya-queen-clean-restart-baseline-2026-08-12.md) | Cat/Dog clean 제거 확인과 Papaya·Queen 4개 잡의 정상 평가 시작일 재설정 | 2026-08-12 |
+| 013 | [013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md](013-cat-dog-jenkins-build-retention-pilot-2026-08-12.md) | Cat/Dog Jenkins build·console 14일 보존 pilot과 실제 LogRotator 검증 | 2026-08-12 |
