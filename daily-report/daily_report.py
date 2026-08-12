@@ -39,6 +39,9 @@ Environment Variables:
     ACCOUNT_9_NAME=golden-wolf
     ACCOUNT_9_ADDRESS=0x...
 
+    # Optional exact display order for the consolidated Slack report
+    REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,...'
+
     # Slack notification
     SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 

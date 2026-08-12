@@ -11,6 +11,7 @@ from collections.abc import Mapping
 logger = logging.getLogger(__name__)
 
 _ACCOUNT_ENV_PATTERN = re.compile(r"^ACCOUNT_([1-9]\d*)_(NAME|ADDRESS)$")
+_REPORT_ACCOUNT_ORDER_ENV = "REPORT_ACCOUNT_ORDER"
 
 
 class AccountConfigurationError(ValueError):
@@ -30,7 +31,7 @@ class AccountConfig:
 
 
 def load_account_configs(environ: Mapping[str, str] | None = None) -> list[AccountConfig]:
-    """Discover every numeric ACCOUNT_<slot> NAME/ADDRESS pair in slot order."""
+    """Discover numeric account slots and apply an optional explicit report order."""
     values = os.environ if environ is None else environ
     account_slots = sorted(
         {int(match.group(1)) for key in values if (match := _ACCOUNT_ENV_PATTERN.fullmatch(key))}
@@ -63,4 +64,29 @@ def load_account_configs(environ: Mapping[str, str] | None = None) -> list[Accou
     normalized_addresses = [account.address.lower() for account in accounts]
     if len(normalized_addresses) != len(set(normalized_addresses)):
         raise AccountConfigurationError("동일한 wallet address가 여러 계정 slot에 있습니다")
-    return accounts
+
+    raw_report_order = values.get(_REPORT_ACCOUNT_ORDER_ENV, "").strip()
+    if not raw_report_order:
+        return accounts
+
+    report_order = [name.strip() for name in raw_report_order.split(",")]
+    if any(not name for name in report_order):
+        raise AccountConfigurationError(
+            f"{_REPORT_ACCOUNT_ORDER_ENV}에 빈 계정 이름이 있습니다"
+        )
+    if len(report_order) != len(set(report_order)):
+        raise AccountConfigurationError(
+            f"{_REPORT_ACCOUNT_ORDER_ENV}에 중복 계정 이름이 있습니다"
+        )
+
+    accounts_by_display_name = {account.display_name: account for account in accounts}
+    configured_names = set(accounts_by_display_name)
+    ordered_names = set(report_order)
+    if configured_names != ordered_names:
+        raise AccountConfigurationError(
+            f"{_REPORT_ACCOUNT_ORDER_ENV}가 전체 계정의 정확한 순열이 아닙니다: "
+            f"missing={sorted(configured_names - ordered_names)}, "
+            f"unknown={sorted(ordered_names - configured_names)}"
+        )
+
+    return [accounts_by_display_name[name] for name in report_order]

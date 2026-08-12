@@ -1,6 +1,6 @@
 # Polymarket Daily Reporter
 
-여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 13계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다. 별도 [`disk_monitor.py`](STORAGE_MONITOR.md)는 Mac mini·외장 filesystem의 용량을 하루 한 번 기록합니다.
+여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 16계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다. 별도 [`disk_monitor.py`](STORAGE_MONITOR.md)는 Mac mini·외장 filesystem의 용량을 하루 한 번 기록합니다.
 
 ## 실행 순서
 
@@ -36,15 +36,18 @@ Polymarket Data API 조회
 | `GOLDEN-BANANA` | `golden-banana` |
 | `GOLDEN-CHERRY` | `golden-cherry` |
 | `GOLDEN-APPLE (2)` | `golden-apple-2` |
-| `GOLDEN-ECO` | `golden-eco` |
-| `GOLDEN-FOX` | `golden-fox` |
-| `GOLDEN-LION` | `golden-lion` |
-| `GOLDEN-TIGER` | `golden-tiger` |
-| `GOLDEN-WOLF` | `golden-wolf` |
 | `GOLDEN-EAGLE` | `golden-eagle` |
-| `GOLDEN-BEAR` | `golden-bear` |
+| `GOLDEN-FOX` | `golden-fox` |
 | `GOLDEN-CAT` | `golden-cat` |
 | `GOLDEN-DOG` | `golden-dog` |
+| `GOLDEN-QUEEN` | `golden-queen` |
+| `GOLDEN-KING` | `golden-king` |
+| `GOLDEN-BEAR` | `golden-bear` |
+| `GOLDEN-ECO` | `golden-eco` |
+| `GOLDEN-TIGER` | `golden-tiger` |
+| `GOLDEN-FRUIT` | `golden-fruit` |
+| `GOLDEN-LION` | `golden-lion` |
+| `GOLDEN-WOLF` | `golden-wolf` |
 
 ## 설치
 
@@ -93,6 +96,14 @@ ACCOUNT_12_NAME=golden-cat
 ACCOUNT_12_ADDRESS=0x...
 ACCOUNT_13_NAME=golden-dog
 ACCOUNT_13_ADDRESS=0x...
+ACCOUNT_14_NAME=golden-queen
+ACCOUNT_14_ADDRESS=0x...
+ACCOUNT_15_NAME=golden-king
+ACCOUNT_15_ADDRESS=0x...
+ACCOUNT_16_NAME=golden-fruit
+ACCOUNT_16_ADDRESS=0x...
+
+REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
 
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
@@ -144,6 +155,12 @@ Slack, Supabase account rows와 portfolio total은 정확히 같은 식으로 �
 수집 실패 알림은 별도 `pb-portfolio/error-v1` marker를 사용하고 정상 리포트와 섞지
 않습니다. `slack-data-collector`는 이 계약과 과거 4계정 fields 형식(v1), 6계정 text
 형식(v2)을 모두 읽습니다.
+
+Slack의 계정 attachment는 기본적으로 `ACCOUNT_<숫자>` slot 순서를 따릅니다.
+`REPORT_ACCOUNT_ORDER`를 지정하면 duplicate 이름에 `(1)`, `(2)`가 붙은 뒤 그 순서를
+적용합니다. 값은 쉼표로 구분하며 전체 display name을 정확히 한 번씩 포함해야 합니다.
+누락·오타·중복이 있으면 잘못된 순서로 발행하지 않고 설정 오류로 종료합니다. 이 설정은
+Supabase의 안정적 `account_id`나 과거 balance row를 바꾸지 않습니다.
 
 ### Supabase URL과 Secret key 얻기
 
@@ -210,6 +227,9 @@ multi-request fallback 없이 종료합니다. `check-supabase`도 read-only pre
 | `polymarket-golden-bear-address` | golden-bear 테스트 슬롯 주소 |
 | `polymarket-golden-cat-address` | golden-cat 테스트 슬롯 주소 |
 | `polymarket-golden-dog-address` | golden-dog 테스트 슬롯 주소 |
+| `polymarket-golden-queen-address` | golden-queen 테스트 슬롯 주소 |
+| `polymarket-golden-king-address` | golden-king 테스트 슬롯 주소 |
+| `polymarket-golden-fruit-address` | golden-fruit 테스트 슬롯 주소 |
 
 Freestyle job이라면 Credentials Binding에서 위 값을 각각 `SLACK_WEBHOOK_URL`, `SUPABASE_SECRET_KEY`, `ACCOUNT_*_ADDRESS` 환경변수에 연결합니다. Project URL은 비밀값이 아니므로 job 환경변수에 직접 설정할 수 있습니다.
 
@@ -219,6 +239,12 @@ Freestyle job이라면 Credentials Binding에서 위 값을 각각 `SLACK_WEBHOO
 하나라도 누락·미등록되면 데이터
 조회와 Slack 전송 전에 실패한다. NAME/ADDRESS 중 한쪽만 있는 추가 slot도 무시하지
 않고 설정 오류로 종료한다.
+
+Freestyle shell에서는 다음처럼 원하는 Slack 순서를 명시합니다.
+
+```bash
+export REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+```
 
 ```bash
 export SUPABASE_URL=https://your-project-ref.supabase.co

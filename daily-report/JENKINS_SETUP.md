@@ -21,6 +21,13 @@ Jenkins에서 `Manage Jenkins` → `Manage Credentials` → `(global)` → `Add 
 | `polymarket-golden-lion-address` | Secret text | golden-lion 테스트 슬롯 funder address | `0x1234...lion` |
 | `polymarket-golden-tiger-address` | Secret text | golden-tiger 테스트 슬롯 funder address | `0x1234...tiger` |
 | `polymarket-golden-wolf-address` | Secret text | golden-wolf 테스트 슬롯 funder address | `0x1234...wolf` |
+| `polymarket-golden-eagle-address` | Secret text | golden-eagle 테스트 슬롯 funder address | `0x1234...eagle` |
+| `polymarket-golden-bear-address` | Secret text | golden-bear 테스트 슬롯 funder address | `0x1234...bear` |
+| `polymarket-golden-cat-address` | Secret text | golden-cat 테스트 슬롯 funder address | `0x1234...cat` |
+| `polymarket-golden-dog-address` | Secret text | golden-dog 테스트 슬롯 funder address | `0x1234...dog` |
+| `polymarket-golden-queen-address` | Secret text | golden-queen 테스트 슬롯 funder address | `0x1234...queen` |
+| `polymarket-golden-king-address` | Secret text | golden-king 테스트 슬롯 funder address | `0x1234...king` |
+| `polymarket-golden-fruit-address` | Secret text | golden-fruit 테스트 슬롯 funder address | `0x1234...fruit` |
 | `polymarket-slack-webhook` | Secret text | Slack Webhook URL | `https://hooks.slack.com/services/...` |
 | `polymarket-supabase-secret-key` | Secret text | Supabase 서버 전용 Secret key | `sb_secret_...` |
 
@@ -175,6 +182,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_replace_with_server_only_key
 REPORT_TIMEZONE=Asia/Seoul
+REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
 ```
 
 ### 로컬 실행

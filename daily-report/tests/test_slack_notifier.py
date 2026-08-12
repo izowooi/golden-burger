@@ -105,6 +105,39 @@ def test_monthly_appends_30d_on_pnl_line(monkeypatch):
     assert account["text"].count("\n") == 1  # 금액 줄 + 손익 줄
 
 
+def test_consolidated_report_preserves_explicit_account_insertion_order(monkeypatch):
+    notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
+    captured = capture_payload(monkeypatch, notifier)
+    order = [
+        "golden-apple (1)",
+        "golden-banana",
+        "golden-cherry",
+        "golden-apple (2)",
+        "golden-eagle",
+        "golden-fox",
+        "golden-cat",
+        "golden-dog",
+        "golden-queen",
+        "golden-king",
+        "golden-bear",
+        "golden-eco",
+        "golden-tiger",
+        "golden-fruit",
+        "golden-lion",
+        "golden-wolf",
+    ]
+    reports = {name: make_summary() for name in order}
+
+    notifier.send_multi_account_report(
+        reports,
+        expected_display_names=order,
+    )
+
+    assert [
+        attachment["author_name"] for attachment in captured["attachments"][1:]
+    ] == [name.upper() for name in order]
+
+
 def test_rejects_partial_or_failed_report_before_webhook(monkeypatch):
     notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
     captured = capture_payload(monkeypatch, notifier)

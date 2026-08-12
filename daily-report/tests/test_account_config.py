@@ -79,3 +79,75 @@ def test_wallet_address_is_never_logged_or_exposed_by_repr(caplog):
     assert wallet[:10] not in caplog.text
     assert wallet not in repr(account)
     assert "[REDACTED]" in repr(account)
+
+
+def test_explicit_report_order_is_applied_after_duplicate_names_are_numbered():
+    slot_names = [
+        "golden-apple",
+        "golden-banana",
+        "golden-cherry",
+        "golden-apple",
+        "golden-eco",
+        "golden-fox",
+        "golden-lion",
+        "golden-tiger",
+        "golden-wolf",
+        "golden-eagle",
+        "golden-bear",
+        "golden-cat",
+        "golden-dog",
+        "golden-queen",
+        "golden-king",
+        "golden-fruit",
+    ]
+    expected_order = [
+        "golden-apple (1)",
+        "golden-banana",
+        "golden-cherry",
+        "golden-apple (2)",
+        "golden-eagle",
+        "golden-fox",
+        "golden-cat",
+        "golden-dog",
+        "golden-queen",
+        "golden-king",
+        "golden-bear",
+        "golden-eco",
+        "golden-tiger",
+        "golden-fruit",
+        "golden-lion",
+        "golden-wolf",
+    ]
+    environ = {
+        f"ACCOUNT_{slot}_{field}": (
+            name if field == "NAME" else f"0x{slot:040x}"
+        )
+        for slot, name in enumerate(slot_names, start=1)
+        for field in ("NAME", "ADDRESS")
+    }
+    environ["REPORT_ACCOUNT_ORDER"] = ",".join(expected_order)
+
+    accounts = load_account_configs(environ)
+
+    assert [account.display_name for account in accounts] == expected_order
+
+
+@pytest.mark.parametrize(
+    "report_order, error_pattern",
+    [
+        ("golden-apple,golden-apple", "중복 계정 이름"),
+        ("golden-apple,golden-unknown", "정확한 순열"),
+        ("golden-apple,", "빈 계정 이름"),
+    ],
+)
+def test_rejects_invalid_explicit_report_order(report_order, error_pattern):
+    with pytest.raises(AccountConfigurationError, match=error_pattern):
+        load_account_configs(
+            {
+                "ACCOUNT_1_NAME": "golden-apple",
+                "ACCOUNT_1_ADDRESS": "0x1",
+                "ACCOUNT_2_NAME": "golden-banana",
+                "ACCOUNT_2_ADDRESS": "0x2",
+                "REPORT_ACCOUNT_ORDER": report_order,
+            }
+        )

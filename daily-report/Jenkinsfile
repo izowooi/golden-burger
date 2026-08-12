@@ -66,6 +66,21 @@ pipeline {
         ACCOUNT_13_NAME = 'golden-dog'
         ACCOUNT_13_ADDRESS = credentials('polymarket-golden-dog-address')
 
+        // Account 14 - reusable strategy slot
+        ACCOUNT_14_NAME = 'golden-queen'
+        ACCOUNT_14_ADDRESS = credentials('polymarket-golden-queen-address')
+
+        // Account 15 - reusable strategy slot
+        ACCOUNT_15_NAME = 'golden-king'
+        ACCOUNT_15_ADDRESS = credentials('polymarket-golden-king-address')
+
+        // Account 16 - reusable strategy slot
+        ACCOUNT_16_NAME = 'golden-fruit'
+        ACCOUNT_16_ADDRESS = credentials('polymarket-golden-fruit-address')
+
+        // Slack attachment order. This must be an exact permutation of display names.
+        REPORT_ACCOUNT_ORDER = 'golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
 
