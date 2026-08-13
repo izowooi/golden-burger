@@ -147,6 +147,32 @@ Fleet 검사:
 signal case가 0인 것은 이 범위가 frozen experiment start `01:00Z` 전이라
 `experiment_window_eligible=false`인 의도된 결과다. 이를 근거로 threshold를 완화하지 않는다.
 
+### 첫 confirmatory cycle
+
+frozen start 뒤 정확한 첫 범위 `[2026-08-13T01:00:00Z, 2026-08-13T01:03:00Z)`도
+자연 timer로 수집하고 다시 동기화했다.
+
+| Job / build | Runtime | Shard market | Token coverage | Qualified signal case | Health |
+|---|---:|---:|---:|---:|---|
+| DO `#9 SUCCESS` | 1.536s | 4 | 8/8 | DO 0 / RE 0 / MI 0 | PASS |
+| RE `#10 SUCCESS` | 9.277s | 2 | 4/4 | DO 2 / RE 1 / MI 1 | PASS |
+| MI `#10 SUCCESS` | 1.287s | 6 | 12/12 | DO 1 / RE 1 / MI 1 | PASS |
+
+- selected condition 12개, cross-shard overlap 0
+- cadence 3/3, off-slot/duplicate/missing 0
+- terminal cursor 3/3, same-request pair와 raw payload linkage 100%
+- quality issue 0, common source digest `7a65cef8118d…`, shard별 single cohort
+- fleet signal은 DO 3 / RE 2 / MI 2건이며, SIGNAL 7건과 OPPOSITE 7건의 follow-up case를 생성
+- 첫 3분에는 strict neutral match가 0건이다. 표본 부족 상태이므로 gate를 완화하지 않고
+  24시간 checkpoint에서 neutral missingness를 먼저 판정한다.
+- follow-up target은 RE shard `02:01:21Z`, MI shard `02:02:13Z`; cadence상 첫 due cycle은
+  대략 `02:06Z` / `02:07Z`이며 각 case의 window end는 `02:16:21Z` / `02:17:13Z`다.
+
+MI 두 entry는 각각 `01:01:21Z`와 `01:02:13Z`로 window 안이다. 앞의 두 history snapshot은
+`00:51/00:56Z`, `00:52/00:57Z`의 warm-up이지만 모두 final source digest와 정상
+`STARTED→SUCCEEDED` run이다. frozen 계약의 “entry는 현재 receipt, MI는 backdate하지 않음”과
+일치하고 미래정보·다른 cohort를 사용하지 않는다.
+
 ## 6. Daily Rsync 결함 발견과 수정
 
 초기 sync에서 bot/Jenkins log는 전송됐지만 DB online snapshot은
@@ -180,12 +206,13 @@ frozen manifest 모두 통과했다.
 
 | Job | Runtime | Sync finished UTC | Source cutoff UTC | DB SHA-256 | Verify |
 |---|---|---|---|---|---|
-| `polybot-do` | `raspberry-do-shard-0` | `2026-08-13T00:37:44Z` | `2026-08-13T00:35:22Z` | `2bc45d94471bf1c6ec13158bff845169287f875ab221194391e2562c52a7250d` | SUCCESS · 6 |
-| `polybot-re` | `raspberry-re-shard-1` | `2026-08-13T00:37:52Z` | `2026-08-13T00:36:14Z` | `a15434e67adbb1d0647d7317254fe33fed1ffecd895f7f5fea2aa0399493e30c` | SUCCESS · 7 |
-| `polybot-mi` | `raspberry-mi-shard-2` | `2026-08-13T00:38:06Z` | `2026-08-13T00:37:13Z` | `e2bfbd3803d91f6eb2d173af255e1753578ce6cb544deea5694a24527e71e05a` | SUCCESS · 7 |
+| `polybot-do` | `raspberry-do-shard-0` | `2026-08-13T01:02:53Z` | `2026-08-13T01:00:14Z` | `0836d72bb9d066cba1eb7665e4e69ce637ecd50d5e5c8a85c7b088e6feb39753` | SUCCESS · 11 |
+| `polybot-re` | `raspberry-re-shard-1` | `2026-08-13T01:03:03Z` | `2026-08-13T01:01:21Z` | `87c9be691414164ca5036422abfac03ede85356c9aa2176795d5ebbd8e45f50e` | SUCCESS · 12 |
+| `polybot-mi` | `raspberry-mi-shard-2` | `2026-08-13T01:03:13Z` | `2026-08-13T01:02:13Z` | `69d005847f169b813ab16c2c747388f4055601e0cb0a78402fea6c47e5d5c2f5` | SUCCESS · 12 |
 
-세 DB 합계는 약 5.72MiB다. cycle 1→최종 관측의 초기 증가율은 fleet 5분당 약 1.1MiB,
-단순 외삽 약 0.3GiB/day, 9~10GiB/30일이다. 표본이 4~5 cycle뿐이고 시장 수가 변하므로
+첫 confirmatory sync의 세 DB 합계는 약 11.2MiB다. cycle 1→최종 관측의 초기 증가율은
+fleet 5분당 약 1.1MiB,
+단순 외삽 약 0.3GiB/day, 9~10GiB/30일이다. 표본이 9~10 cycle뿐이고 시장 수가 변하므로
 24시간 checkpoint에서 실제 증가량으로 다시 계산한다. 현재 양쪽 disk guard는 통과한다.
 
 ## 8. 24시간 뒤 요청 문장
