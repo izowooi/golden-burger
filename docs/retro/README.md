@@ -33,6 +33,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-pomegranate | [golden-pomegranate.md](golden-pomegranate.md) | **Market Observatory**, accountless `research-full-v1` collector; trading P&L은 N/A |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
 | golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, BUY 실행 측면이 처치축, $5·24h·A/B/C 3팔 사전 등록 |
+| golden-raspberry | [golden-raspberry.md](golden-raspberry.md) | **Queue Echo**, accountless `queue-echo-v1`; MI primary와 DO/RE sensitivity를 세 hash shard에서 동시 수집 |
 
 새 전략은 [새 전략 구현·승격 플레이북](../new-strategy-playbook.md)을 따른다. nectarine의
 position cap은 [전용 회고](../nectarine-max-positions-retro.md)를 함께 참고하되, execution

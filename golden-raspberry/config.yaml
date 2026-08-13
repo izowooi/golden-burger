@@ -1,0 +1,54 @@
+simulation_mode: true
+
+trading:
+  lifecycle_mode: archive_only
+  data_contract: queue-echo-v1
+  cadence_minutes: 5
+
+  gamma:
+    base_url: https://gamma-api.polymarket.com
+    page_size: 100
+    max_pages: 60
+    connect_timeout_seconds: 3.05
+    read_timeout_seconds: 30
+    max_retries: 4
+    retry_base_seconds: 1
+    retry_max_seconds: 15
+    min_liquidity: 20000
+    min_total_volume: 10000
+    min_volume_24h: 2000
+    min_hours_to_end: 6
+    max_hours_to_end: 2160
+
+  orderbook:
+    base_url: https://clob.polymarket.com
+    batch_token_limit: 250
+    stored_levels_per_side: 20
+    near_touch_window: 0.02
+    max_spread: 0.02
+    min_price: 0.20
+    max_price: 0.80
+    min_near_touch_notional: 50
+
+  experiment:
+    start_utc: 2026-08-13T01:00:00Z
+    end_utc: 2026-09-12T01:00:00Z
+    score_threshold: 0.50
+    neutral_score_max: 0.10
+    weighted_tick_levels: 3
+    level_weight_decay: 0.50
+    followup_minutes: 60
+    followup_grace_minutes: 15
+    history_gap_min_minutes: 3
+    history_gap_max_minutes: 10
+    cooldown_hours: 6
+    simulated_notional_usdc: 5
+    base_cost_stress_bps: 10.4
+    severe_taker_stress_bps: 72.5
+
+  storage:
+    busy_timeout_ms: 30000
+    min_free_gib: 30
+    warn_used_ratio: 0.80
+    stop_used_ratio: 0.90
+    bot_log_retention_days: 45

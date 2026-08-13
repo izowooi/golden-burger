@@ -18,7 +18,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-banana/`: 모멘텀(85~97% + 골든크로스) 전략.
 - `golden-cherry/`: Resolution Momentum(75~92%, `entry_hours_max` 120h) 전략. **자금은 golden-banana 계정에 있고 Jenkins job 이름은 `polybot-yellow`다** — 폴더명·계정명·job명이 모두 다르다. → L3 `AGENTS.md` 참조.
 
-→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유하며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. `golden-*` 프로젝트는 19개며, 18개는 수익 가설 전략이고 1개는 accountless research collector다 (2026-08-06 `golden-pomegranate` 추가).
+→ 이 3개는 L3 `AGENTS.md`가 없는 상태로 오래 운영됐다. `golden-apple`·`golden-banana`는 여전히 미보유하며 `tools/verify_strategy_contracts.py`의 `PRE_L3_STRATEGIES`가 예외로 처리한다. `golden-*` 프로젝트는 20개며, 19개는 수익 가설을 검정하고 1개는 범용 accountless market observatory다. 수익 가설 중 `golden-raspberry`는 주문 없이 displayed-book 반사실만 검정한다.
 
 → 계정 slot은 `daily-report`가 `ACCOUNT_<n>_NAME`/`ACCOUNT_<n>_ADDRESS` 쌍을 번호순으로 훑어 동적으로 발견한다 (`daily-report/src/polybot_reporter/account_config.py`). 코드에 상한은 없고, 현재 `Jenkinsfile`·`.env.example`이 **13 slot**을 선언한다. `slack-data-collector/src/slack_data_collector/portfolio.py`의 11행 seed 중 명시적인 과거 전략 매핑은 `golden-eco=honeydew`, `golden-fox=nectarine`뿐이다. 다른 계정 ID의 실제 전략 배치는 effective-dated Supabase 실데이터로 확인하며 계정명으로 추정하지 않는다.
 
@@ -65,12 +65,17 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   shard에 append-only로 보존한다. `--live`와 credential 주입을 source-level로 차단하며
   lifecycle은 `archive_only`로 고정한다. 초기 cadence는 15분이고 외장 APFS volume의
   여유 공간·mount identity·single writer를 확인한다.
+- `golden-raspberry/`: **Queue Echo** — 동시 YES/NO displayed-depth imbalance가 3회의
+  5분 snapshot에 지속될 때 60분 뒤 `$5` ask-to-bid 반사실 수익을 예측하는지 검정한다.
+  `polybot-do/re/mi`는 arm이 아니라 condition hash 3-shard이며 각 shard가 DO(1회),
+  RE(2회), MI(3회)를 모두 계산한다. MI만 primary이고 주문·credential·`--live`는
+  source-level로 금지한다. `queue-echo-v1` append-only DB와 frozen preregistration을 따른다.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runbook.md`(자립형 런북 — 팔 구성·금액·예산·기간·day-1 kill-check·무효화 조건)를 단독으로 따른다.
 
 공통 관측성·리포팅·적재 (Python/uv):
 
-- `polybot-observability/`: 18개 거래 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup. `golden-pomegranate`는 공통 secret-free config contract만 재사용하고, run provenance는 자체 append-only `ResearchRunAudit`로 기록한다.
+- `polybot-observability/`: 18개 기존 전략의 resolved config/Git/run provenance, CLOB order/fill 대사, 회고 readiness audit와 SQLite online backup. `golden-pomegranate`·`golden-raspberry`는 공통 secret-free config contract만 재사용하고, run provenance는 자체 append-only `ResearchRunAudit`로 기록한다.
 - `daily-report/`: 선언된 전 계정(현재 13 slot) 잔고를 Slack 보고 + Supabase `pb_*` 적재 (`Jenkinsfile` 보유).
 - `daily-rsync/`: Jenkins job별 SQLite·bot log·console log를 local-only로 증분 pull하고, catalog·plan·manifest로 provenance와 무결성을 보존하는 Python/uv 도구.
 - `slack-data-collector/`: Slack 리포트 이력 수집·정규화·DB 적재.
@@ -81,7 +86,7 @@ quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runboo
 - `streamlit_proj/`: "Golden Burger" 주식 차트 대시보드 (Streamlit).
 - `cloud_run_proj/`: 나스닥·한국 ETF 이평선 신호 알리미.
 - `legacy/`: 이평 추세매매 + 이메일·텔레그램 알림 (구버전, `requirements.txt`).
-- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(19개 `golden-*` 프로젝트의 거래/research-only 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
+- `tools/`: 저장소 공통 스크립트. `verify_strategy_contracts.py`(20개 `golden-*` 프로젝트의 거래/research-only 계약 검증), `wind_down.py`(전략 전환 시 잔여 주문 취소·포지션 정리 CLI, 절차는 `docs/strategy-wind-down-playbook.md`), `reconcile_positions.py`(봇 DB 오픈 포지션을 지갑 실보유와 대조·정리. 공개 API만 쓰므로 private key 불필요), `lime_jump_backtest.py`(`market_snapshots`로 점프 이벤트의 사후 수익률을 측정), `lime_barrier_sim.py`(TP/SL 구조를 실제 가격 경로로 재생, 다중검정 보정 포함), `market_calibration.py`(가격 구간별 실제 해결률 측정 — 확률 기반 전략의 전제를 직접 검정), `sell_retry_audit.py`(매도 무한 재시도 루프를 DB로 진단), `jenkins_log_audit.py`(Jenkins 실행 로그를 봇별로 판정), `resolve_stuck_intents.py`(매도를 막는 CLOB intent 격리를 거래소 열린 주문과 대조해 증거 기반 해제). 배경은 `docs/sell-retry-loop-defense.md`, 최근 판정은 `docs/retro/2026-07-28-fleet-log-verdict.md`.
 - `docs/`: 문서 자산. 위에 인덱싱되지 않은 것으로 `sqlite-storage-maintenance.md`, `strategy-wind-down-playbook.md`, `nectarine-max-positions-retro.md`, `sell-retry-loop-defense.md`가 있다.
 
 ## 데이터 흐름
@@ -99,6 +104,10 @@ lineage가 달라 자체 archive/catalog를 주 source로 사용한다. "중앙 
 `trades_sim_YYYYMMDD.db` 일별 shard에 `research-full-v1` 관측 증거를 저장한다.
 `compact-v1`을 적용하지 않고 row를 지우지 않으며, external APFS workspace와
 whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L evidence로 해석하지 않는다.
+
+`golden-raspberry`도 `data/<job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의
+고정 hash-shard DB다. 세 DB의 `queue-echo-v1` raw Gamma/CLOB evidence를 함께 검증하고,
+표시 호가 반사실을 actual fill이나 realized P&L로 해석하지 않는다.
 
 매도 거절은 trade 상태를 바꾸지 않으므로 `HOLDING`으로 남아 매 사이클 반복 제출된다. 이 루프가 `max_positions`를 잠식해 봇을 정지시킨 사례가 있다(cherry 2026-07-22~28). 전 전략에 거절 사유 분류 로그(`매도 실패 진단`)와 축소 재시도 방어가 들어 있다 — 상세는 `docs/sell-retry-loop-defense.md`.
 
@@ -171,7 +180,7 @@ uv run --project polybot-observability polybot-retro audit \
 
 - 특정 폴더만 수정했다면 해당 폴더의 검증(lint/test/build)만 수행한다.
 - 루트 공통 파일(`.gitignore`, `REPOS.md`)이나 Supabase `pb_*` 데이터 계약에 영향을 주는 변경은 영향 범위를 먼저 확인한다.
-- 공통 전략 계약이나 shared observability를 수정하면 18개 거래 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, `golden-pomegranate`의 research-only test와 19-project contract verifier를 통과시킨다.
+- 공통 전략 계약이나 shared observability를 수정하면 18개 기존 전략의 `uv sync --frozen --extra dev`와 test를 모두 실행하고, `golden-pomegranate`·`golden-raspberry`의 research-only test와 20-project contract verifier를 통과시킨다.
 - 월간 수치 조정·전략 승격의 strict gate도 broad `--root` discovery를 쓰지 않고 위 절차로 검증한 DB를 `--db`로 반복 명시한다. `CRITICAL`/`HIGH` evidence issue가 있으면 조정하지 않고 수집·대사부터 복구한다.
 - 수치를 조정하기 전에 대상 구간이 단일 cohort인지 확인한다. `strategy_configs` 테이블에 `config_hash`별 전체 config JSON이 남으므로, 여러 cohort가 섞인 구간의 집계로 파라미터를 정하지 않는다.
 
@@ -189,7 +198,7 @@ uv run --project polybot-observability polybot-retro audit \
 
 - 실거래 봇은 `config.yaml`의 `simulation_mode`와 `.env` 실키에 민감하다. 키 취급은 L1 보안 규칙을 따른다. `golden-papaya`·`golden-queen`은 `simulation_mode: true`가 기본이라 실주문을 내지 않는다. `golden-kiwi`는 source-level live hard block이 있는 simulation/research 전용이다.
 - `POLYMARKET_SIGNATURE_TYPE`은 계정 종류에 따라 반드시 맞춰야 한다: `1`=POLY_PROXY(구형 이메일 계정), `3`=POLY_1271(2026년 이후 신규 계정의 스마트 지갑). 틀리면 CLOB이 `maker address not allowed`로 전 주문을 거절한다. live-capable 17개 전략과 `tools/wind_down.py`가 이 env를 읽으며, Kiwi simulation에는 실제 credential을 주입하지 않는다.
-- `golden-pomegranate`는 credential-free collector다. signature type을 포함한 credential-like
+- `golden-pomegranate`·`golden-raspberry`는 credential-free collector다. signature type을 포함한 credential-like
   environment variable가 하나라도 있거나 `--live`/`active`/`close_only`로 실행하면 network와 DB를 열기 전에 실패해야 한다.
 - Jenkins Freestyle에서 private key를 inline `export`하거나 `sh -x`/`sh -xe`로 노출하지 않는다. Credentials Binding을 사용하고 secret 참조 전부터 `set +x`를 적용한다.
 - SQLite DB와 Jenkins artifact는 유일한 backup으로 취급하지 않는다. online backup + SHA-256 manifest를 workspace 밖 내구성 저장소에 복제하고 복구 검증한다.

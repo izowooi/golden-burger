@@ -34,8 +34,9 @@ CURRENT_STRATEGIES = {
     "golden-pomegranate",
     "golden-queen",
     "golden-quince",
+    "golden-raspberry",
 }
-RESEARCH_ONLY_STRATEGIES = {"golden-pomegranate"}
+RESEARCH_ONLY_STRATEGIES = {"golden-pomegranate", "golden-raspberry"}
 # L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
 # golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
 PRE_L3_STRATEGIES = {"golden-apple", "golden-banana"}
@@ -1706,6 +1707,289 @@ def _validate_research_only_strategy(
     )
 
 
+def _validate_queue_echo_research_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate Raspberry's accountless preregistered hypothesis collector."""
+
+    required_sources = (
+        "src/polybot/config.py",
+        "src/polybot/main.py",
+        "src/polybot/bot.py",
+        "src/polybot/run_audit.py",
+        "src/polybot/collector.py",
+        "src/polybot/api/gamma_client.py",
+        "src/polybot/api/clob_client.py",
+        "src/polybot/db/repository.py",
+        "src/polybot/utils/retry.py",
+        "src/polybot/source_digest.py",
+    )
+    sources = {
+        relative_path: _require_file(findings, strategy, directory / relative_path)
+        for relative_path in required_sources
+    }
+
+    config = sources["src/polybot/config.py"]
+    config_tree = _parse_python(findings, strategy, "src/polybot/config.py", config)
+    if config_tree is not None:
+        for function_name in (
+            "_validate_config",
+            "load_config",
+            "_get_config_value",
+            "_get_lifecycle_mode",
+            "assert_no_credentials",
+        ):
+            _require_function(
+                findings,
+                strategy,
+                "src/polybot/config.py",
+                config_tree,
+                function_name,
+            )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/config.py",
+        config,
+        (
+            "get_trading_config_mapping",
+            "validate_yaml_config_shape",
+            "simulation_mode must be a boolean",
+            "POLYMARKET_PRIVATE_KEY",
+            "POLYMARKET_FUNDER_ADDRESS",
+            "POLYMARKET_SIGNATURE_TYPE",
+            "queue-echo-v1",
+            "CANONICAL_JOBS",
+            "math.isfinite",
+            "archive_only",
+        ),
+    )
+
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/main.py",
+        sources["src/polybot/main.py"],
+        ("--live", "--simulate", "config", "status", "health"),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/bot.py",
+        sources["src/polybot/bot.py"],
+        (
+            "ResearchRunAudit.start",
+            "exclusive_job_run_lock",
+            "record_storage_metric",
+            "assert_no_credentials",
+            "archive_only",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/api/gamma_client.py",
+        sources["src/polybot/api/gamma_client.py"],
+        (
+            "/markets/keyset",
+            "after_cursor",
+            "next_cursor",
+            "cursor_complete",
+            "received_at",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/api/clob_client.py",
+        sources["src/polybot/api/clob_client.py"],
+        (
+            "/books",
+            "token_id",
+            "atomic_pairs",
+            "EMPTY_BOOK",
+            "MISSING",
+            "MALFORMED",
+            "RawBookPayload",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/collector.py",
+        sources["src/polybot/collector.py"],
+        (
+            '("DO", 1)',
+            '("RE", 2)',
+            '("MI", 3)',
+            "pair_received_skew_seconds",
+            "history_gaps_minutes_json",
+            "matched_control_snapshot_id",
+            "WINDOW_EXPIRED",
+            "int(winner.event_selection_hash, 16)",
+            "gzip.compress",
+            "payload_sha256",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/db/repository.py",
+        sources["src/polybot/db/repository.py"],
+        (
+            "experiment_contracts",
+            "research_config_versions",
+            "research_run_events",
+            "api_requests",
+            "market_sweeps",
+            "market_observations",
+            "raw_payloads",
+            "orderbook_token_attempts",
+            "orderbook_snapshots",
+            "signal_decisions",
+            "research_cases",
+            "followup_attempts",
+            'terminal = "SELECT 1 FROM followup_attempts f WHERE f.case_id=c.case_id"',
+            "cycle_stats",
+            "data_quality_issues",
+            "storage_metrics",
+            "append-only evidence",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/run_audit.py",
+        sources["src/polybot/run_audit.py"],
+        (
+            "class ResearchRunAudit",
+            "record_research_run_event",
+            "STARTED",
+            "SUCCEEDED",
+            "FAILED",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/utils/retry.py",
+        sources["src/polybot/utils/retry.py"],
+        ("RequestException", "ChunkedEncodingError", "Retry-After"),
+    )
+
+    combined = "\n".join(sources.values())
+    for token in (
+        "ExecutionLedger",
+        "submit_and_record",
+        "post_order",
+        "place_limit_order",
+        "POLYMARKET_PRIVATE_KEY=",
+    ):
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_order_path",
+                    f"research-only source contains {token}",
+                )
+            )
+
+    readme = _read(directory / "README.md")
+    _require_tokens(
+        findings,
+        strategy,
+        "README.md",
+        readme,
+        (
+            "queue-echo-v1",
+            "trades_sim.db",
+            "OPERATIONS.md",
+            "PREREGISTRATION.md",
+            "--simulate",
+            "--live",
+            "polybot-do",
+            "polybot-re",
+            "polybot-mi",
+        ),
+    )
+    env_example = _read(directory / ".env.example")
+    _require_tokens(
+        findings,
+        strategy,
+        ".env.example",
+        env_example,
+        (
+            "POLYBOT_LIFECYCLE_MODE=archive_only",
+            "POLYBOT_SIMULATION_MODE=true",
+            "POLYBOT_SHARD_COUNT=3",
+            "POLYBOT_EXPERIMENT_START_UTC=2026-08-13T01:00:00Z",
+            "POLYBOT_EXPERIMENT_END_UTC=2026-09-12T01:00:00Z",
+        ),
+    )
+    analyzer = _require_file(
+        findings, strategy, directory / "scripts/analyze_experiment.py"
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "scripts/analyze_experiment.py",
+        analyzer,
+        (
+            "queue-echo-analyzer-v1",
+            "BOOTSTRAP_DRAWS = 20_000",
+            "BOOTSTRAP_SEED = 20260813",
+            "SHADOW_REVIEW_ONLY",
+            "STOP_UNRESEARCHABLE",
+            "mode=ro&immutable=1",
+            "WITH first_attempt AS",
+            "same_request_pair_coverage",
+            "MI_MINUS_DO_DIAGNOSTIC",
+            "mi_minus_do_severe_lower_positive",
+        ),
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/source_digest.py",
+        sources["src/polybot/source_digest.py"],
+        (
+            '"pyproject.toml"',
+            '"uv.lock"',
+            '"scripts/analyze_experiment.py"',
+            '"src/polybot/main.py"',
+            '"src/polybot/bot.py"',
+            '"src/polybot/run_audit.py"',
+            '"src/polybot/utils/retry.py"',
+        ),
+    )
+
+    for relative_path in (
+        "tests/test_config.py",
+        "tests/test_research_safety.py",
+        "tests/test_gamma_client.py",
+        "tests/test_clob_client.py",
+        "tests/test_collector.py",
+        "tests/test_repository.py",
+        "tests/test_lifecycle_mode.py",
+        "tests/test_run_audit.py",
+        "tests/test_analyzer.py",
+        "research/frozen-2026-08-13/PREREGISTRATION.md",
+        "research/frozen-2026-08-13/MANIFEST.sha256",
+        "OPERATIONS.md",
+    ):
+        _require_file(findings, strategy, directory / relative_path)
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -1723,7 +2007,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
         _validate_pyproject(findings, strategy, pyproject_path, pyproject)
 
     if strategy in RESEARCH_ONLY_STRATEGIES:
-        _validate_research_only_strategy(findings, strategy, directory)
+        if strategy == "golden-pomegranate":
+            _validate_research_only_strategy(findings, strategy, directory)
+        else:
+            _validate_queue_echo_research_strategy(findings, strategy, directory)
         return findings
 
     config = _require_file(findings, strategy, directory / "src/polybot/config.py")

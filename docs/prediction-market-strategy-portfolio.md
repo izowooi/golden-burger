@@ -1,7 +1,8 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 19개 `golden-*` 프로젝트의 전체 지도다. 이 중 18개는 수익 가설을 검정하는 전략이고,
-`golden-pomegranate` 하나는 미래 전략을 만들기 위한 accountless market observatory다. 현재 운영 상태는
+총 20개 `golden-*` 프로젝트의 전체 지도다. 이 중 19개는 수익 가설을 검정하고,
+`golden-pomegranate` 하나는 미래 전략을 만들기 위한 범용 accountless market observatory다.
+`golden-raspberry`는 수익 가설이지만 주문 없이 displayed-book 반사실만 수집한다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
@@ -41,8 +42,9 @@
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
+| **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 
-상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 2, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 3, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -238,7 +240,7 @@ provenance다. 상세는 `golden-blueberry/STRATEGY.md`,
 
 ### golden-pomegranate — Market Observatory
 
-Pomegranate는 수익을 내는 19번째 trading strategy가 아니다. 기존 전략들이 각자의
+Pomegranate는 수익을 내는 trading strategy가 아니다. 기존 전략들이 각자의
 probability·horizon·liquidity gate를 통과한 시장만 저장해 생긴 strategy-filter selection
 bias를 `closed=false` source envelope 안에서 제거하고,
 나중에 어떤 gate와 threshold가 실제로 유효했는지 다시 계산하기 위한 **accountless
@@ -267,6 +269,30 @@ stabilized end와 이번 bounded target을 별도로 남기며, `start`/`end` 10
 signature type이 주입되거나 `--live`를 요청하면 startup 자체가 실패하며, account/daily-report
 slot도 만들지 않는다. 상세 계약은 `golden-pomegranate/STRATEGY.md`, 운영법은
 `golden-pomegranate/README.md`, 회고는 `docs/retro/golden-pomegranate.md`를 따른다.
+
+## 9차 설계 — persistent displayed-depth 가설의 accountless 검정
+
+### golden-raspberry — Queue Echo
+
+유동성이 충분한 표준 이진 시장에서 YES·NO 두 book의 3-tick 가중 잔량이 같은 방향으로
+세 번 지속되면, 정보가 가격에 지연 반영되어 60분 뒤 실행 가능 bid가 개선된다는 가설이다.
+REST snapshot은 주문 queue identity나 취소·spoofing을 증명하지 않으므로 “queue pressure”가
+아니라 **persistent displayed-depth snapshots의 예측력**만 주장한다.
+
+세 Jenkins job `polybot-do/re/mi`는 서로 다른 arm이 아니라
+`sha256(condition_id) mod 3` source shard다. 각 shard가 동일 raw stream에서 DO(현재 1회),
+RE(2회), MI(3회)를 모두 계산해 request timing과 missingness가 arm 차이로 섞이지 않게 한다.
+MI만 primary이고 DO/RE는 sensitivity다. entry는 displayed ask를 걸어 정확히 `$5`를 쓰며,
+60~75분 사이 첫 독립 request의 displayed bid로 같은 shares를 모두 파는 반사실이다.
+
+`queue-echo-v1`은 terminal Gamma cursor, 동시 YES/NO raw CLOB body, signal lineage,
+neutral/opposite control, follow-up censoring을 append-only SQLite에 남긴다. 24시간은 계측,
+7일은 collection health, 30일은 event-cluster confirmatory gate만 판정한다. threshold를 같은
+자료에서 완화하거나 DO/RE 승자를 사후 primary로 바꾸지 않는다. `--live`, credential,
+order path는 source-level로 금지하며 통과 판정도 `SHADOW_REVIEW_ONLY`다. 상세는
+`golden-raspberry/STRATEGY.md`, frozen 계약은
+`golden-raspberry/research/frozen-2026-08-13/PREREGISTRATION.md`, 회고는
+`docs/retro/golden-raspberry.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
