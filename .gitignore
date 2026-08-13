@@ -190,5 +190,8 @@ docs/logs/
 # Local Jenkins job/strategy routing snapshot. It contains internal topology and is regenerated locally.
 /docs/local/jenkins-job-strategy-inventory.md
 
+# Generated Queue Echo health analyzer payloads contain local evidence paths and stay local.
+/docs/local/queue-echo-health-*.json
+
 # Golden Raspberry research evidence is local/Jenkins runtime state, never source.
 /golden-raspberry/data/
