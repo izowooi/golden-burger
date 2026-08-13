@@ -21,7 +21,7 @@ cd golden-raspberry
 uv sync --frozen --extra dev
 uv run pytest
 uv build
-(cd research/frozen-2026-08-13 && shasum -a 256 -c MANIFEST.sha256)
+(cd research/frozen-2026-08-13-external-v2 && shasum -a 256 -c MANIFEST.sha256)
 ```
 
 config 확인은 read-only이며 DB를 만들지 않는다.
@@ -58,6 +58,10 @@ set -euo pipefail
 RUNTIME_JOB=raspberry-do-shard-0
 SHARD_INDEX=0
 OFFSET=0
+MOUNT_ROOT=/Volumes/t7
+EXPECTED_WORKSPACE="${MOUNT_ROOT}/jenkins/${JOB_NAME}"
+VOLUME_SENTINEL="${MOUNT_ROOT}/.golden-raspberry-volume"
+HOST_UUID_PIN=/Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid
 
 unset POLYMARKET_PRIVATE_KEY
 unset POLYMARKET_FUNDER_ADDRESS
@@ -76,12 +80,21 @@ export POLYBOT_SIMULATION_MODE=true
 export POLYBOT_SHARD_COUNT=3
 export POLYBOT_SHARD_INDEX="${SHARD_INDEX}"
 export POLYBOT_CADENCE_OFFSET_MINUTE="${OFFSET}"
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T01:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T01:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-13T12:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-12T12:00:00Z
 
+/usr/bin/python3 ./golden-raspberry/scripts/verify_external_workspace.py \
+  --mount-root "${MOUNT_ROOT}" \
+  --workspace "${WORKSPACE}" \
+  --expected-workspace "${EXPECTED_WORKSPACE}" \
+  --job "${JOB_NAME}" \
+  --sentinel "${VOLUME_SENTINEL}" \
+  --host-uuid-pin "${HOST_UUID_PIN}" \
+  --write-daily-rsync-marker
 cd ./golden-raspberry
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
+(cd research/frozen-2026-08-13-external-v2 && shasum -a 256 -c MANIFEST.sha256)
 "${UV}" run polybot config --simulate --job "${RUNTIME_JOB}"
 "${UV}" run polybot run --simulate --job "${RUNTIME_JOB}"
 "${UV}" run polybot status --simulate --job "${RUNTIME_JOB}"
@@ -99,14 +112,20 @@ timer 없이 순차 성공시킨 뒤 timer를 활성화한다. `polybot-re`가 c
 `buildable=false`이면 Configure 화면의 실제 Save 또는 같은 효과의 config save 후
 `buildable=true`를 확인한다.
 
+custom workspace는 각각 `/Volumes/t7/jenkins/polybot-do`,
+`/Volumes/t7/jenkins/polybot-re`, `/Volumes/t7/jenkins/polybot-mi`다. 세 job이 하나의
+workspace를 공유하거나 symlink로 우회하지 않는다. preflight는 `/Volumes/t7`이 실제 external
+APFS mount인지, UUID pin과 sentinel이 일치하는지, `WORKSPACE`가 정확한 job 경로인지 확인한
+뒤 job-bound `.daily-rsync-workspace.json`을 원자적으로 기록한다.
+
 ## 분석
 
 daily-rsync로 받은 검증된 세 DB를 read-only analyzer에 명시한다.
 
 ```bash
 uv run python scripts/analyze_experiment.py \
-  --start 2026-08-13T01:00:00Z \
-  --end 2026-08-14T01:00:00Z \
+  --start 2026-08-13T12:00:00Z \
+  --end 2026-08-14T12:00:00Z \
   --db DO=/absolute/path/to/do/trades_sim.db \
   --db RE=/absolute/path/to/re/trades_sim.db \
   --db MI=/absolute/path/to/mi/trades_sim.db \
@@ -134,4 +153,5 @@ CLOB batch raw body는 gzip과 SHA-256으로 보존한다. disk free 30GiB 미�
 
 운영·daily-rsync·복구 점검은 [OPERATIONS.md](OPERATIONS.md), 고정 가설과 판정 기준은
 [STRATEGY.md](STRATEGY.md), frozen 계약은
-[PREREGISTRATION.md](research/frozen-2026-08-13/PREREGISTRATION.md)를 따른다.
+[현재 PREREGISTRATION.md](research/frozen-2026-08-13-external-v2/PREREGISTRATION.md)를
+따르며, 최초 내부 workspace frozen 자료는 이력으로만 보존한다.

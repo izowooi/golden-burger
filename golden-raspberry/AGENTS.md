@@ -13,7 +13,9 @@ Golden Raspberry는 public Polymarket Gamma/CLOB의 지속적인 YES/NO displaye
 - `src/polybot/`: CLI, public Gamma/CLOB client, collector, append-only repository, run audit와 source digest를 구현한다.
 - `scripts/`: 검증된 세 shard DB를 읽는 experiment analyzer를 둔다.
 - `tests/`: config, lifecycle, research safety, public API, collector, repository, run audit와 analyzer 계약을 검증한다.
-- `research/frozen-2026-08-13/`: outcome 관측 전에 고정한 `PREREGISTRATION.md`와 그 checksum을 담은 `MANIFEST.sha256`를 보존한다.
+- `research/frozen-2026-08-13/`: 최초 내부 workspace 구간의 원본 frozen 계약을 보존한다.
+- `research/frozen-2026-08-13-external-v2/`: 외장 workspace 전환 뒤 사용하는 현재
+  `PREREGISTRATION.md`와 `MANIFEST.sha256`다.
 - `data/`: runtime job별 persistent SQLite DB, process lock와 bot log를 보존한다.
 - `dist/`: wheel과 source distribution build artifact를 둔다.
 - `__pycache__/`: 생성된 Python bytecode cache이며 source로 취급하지 않는다.
@@ -38,10 +40,14 @@ Golden Raspberry는 public Polymarket Gamma/CLOB의 지속적인 YES/NO displaye
 - 매 cycle의 full Gamma membership은 normalized gzip으로, CLOB raw body는 gzip과 SHA-256으로 보존한다.
 - 세 Jenkins job은 full `sha256(condition_id)` integer modulo 3으로 나눈 deterministic source shard다.
 - 각 shard의 동일 raw stream에서 `DO`, `RE`, `MI`를 모두 계산하며 job 이름을 experimental arm으로 해석하지 않는다.
-- frozen experiment window는 `[2026-08-13T01:00:00Z, 2026-09-12T01:00:00Z)`다.
+- 현재 frozen experiment window는
+  `[2026-08-13T12:00:00Z, 2026-09-12T12:00:00Z)`다. 최초 내부 workspace 구간은
+  confirmatory 결론에서 제외하고 운영 검증 자료로만 보존한다.
 - SQLite evidence는 append-only로 유지하고 preregistration, config/source digest, run lifecycle, raw payload hash와 decision/follow-up lineage를 함께 보존한다.
 - 분석 cohort는 `config_hash × strategy_source_digest × mode × job_name`으로 분리한다.
-- `SOURCE_PATHS`의 root/analysis scope는 `pyproject.toml`, `uv.lock`, `config.yaml`, `STRATEGY.md`, frozen `PREREGISTRATION.md`, `scripts/analyze_experiment.py`다.
+- `SOURCE_PATHS`의 root/analysis scope는 `pyproject.toml`, `uv.lock`, `config.yaml`,
+  `STRATEGY.md`, 현재 frozen `PREREGISTRATION.md`, `scripts/analyze_experiment.py`,
+  `scripts/verify_external_workspace.py`다.
 - Runtime/collection scope는 `src/polybot/main.py`, `bot.py`, `config.py`, `run_audit.py`, `source_digest.py`, `api/gamma_client.py`, `api/clob_client.py`, `collector.py`, `db/repository.py`, `utils/retry.py`다.
 - evidence에 영향을 주는 새 파일이 `SOURCE_PATHS` 밖에 있으면 수집 전에 allowlist를 확장하고 새 source digest cohort로 기록한다.
 - source 또는 config가 바뀌면 confirmatory 30일 시작점을 최종 healthy cohort의 첫 complete slot로 다시 고정한다.
@@ -56,7 +62,8 @@ Golden Raspberry는 public Polymarket Gamma/CLOB의 지속적인 YES/NO displaye
 
 1. 이 문서와 상위 `../AGENTS.md`
 2. `README.md`와 `STRATEGY.md`
-3. `research/frozen-2026-08-13/PREREGISTRATION.md`와 `MANIFEST.sha256` 검증 결과
+3. `research/frozen-2026-08-13-external-v2/PREREGISTRATION.md`와
+   `MANIFEST.sha256` 검증 결과
 4. 운영·배포·복구 작업이면 `OPERATIONS.md`
 5. `config.yaml`, `pyproject.toml`, `uv.lock`
 6. 변경 대상 `src/polybot/` 또는 `scripts/` 코드와 대응하는 `tests/`
@@ -67,7 +74,7 @@ Golden Raspberry는 public Polymarket Gamma/CLOB의 지속적인 YES/NO displaye
 
 ```bash
 uv sync --frozen --extra dev
-(cd research/frozen-2026-08-13 && shasum -a 256 -c MANIFEST.sha256)
+(cd research/frozen-2026-08-13-external-v2 && shasum -a 256 -c MANIFEST.sha256)
 uv run pytest
 uv build
 ```
@@ -113,7 +120,9 @@ uv run python scripts/analyze_experiment.py \
 다음 파일은 experiment identity 또는 재현성에 직접 영향을 주므로 변경 전에 cohort와 배포 영향을 확인한다.
 
 - `config.yaml`: mode, public endpoint, frozen threshold, experiment window와 storage guard를 정의한다.
-- `research/frozen-2026-08-13/PREREGISTRATION.md`와 `MANIFEST.sha256`: frozen confirmatory 계약과 checksum이며 outcome 관측 뒤 수정하거나 덮어쓰지 않는다.
+- `research/frozen-2026-08-13-external-v2/PREREGISTRATION.md`와
+  `MANIFEST.sha256`: 현재 frozen confirmatory 계약과 checksum이며 outcome 관측 뒤
+  수정하거나 덮어쓰지 않는다. 기존 `frozen-2026-08-13`도 변경하지 않는다.
 - `STRATEGY.md`: 가설, feature, control, censoring과 falsification 기준을 정의한다.
 - `pyproject.toml`과 `uv.lock`: package, entry point와 dependency 해석을 함께 고정한다.
 - `.env.example`: accountless public collector 경계만 문서화하고 credential 입력 경로를 추가하지 않는다.
@@ -152,6 +161,10 @@ uv run polybot health --simulate --job raspberry-re-shard-1
 | `polybot-mi` | `raspberry-mi-shard-2` | 2 | `2-59/5 * * * *` |
 
 - 세 job의 current config SHA와 rollback copy를 확인한 뒤 변경한다.
+- custom workspace는 각각 `/Volumes/t7/jenkins/polybot-do`,
+  `/Volumes/t7/jenkins/polybot-re`, `/Volumes/t7/jenkins/polybot-mi`로 분리한다.
+- 각 build는 `scripts/verify_external_workspace.py`로 APFS external mount, volume UUID,
+  canonical workspace와 daily-rsync marker를 DB/network 전에 검증한다.
 - timer 없이 세 job을 순차 성공시킨 뒤 timer를 활성화하고 최소 2회 natural build를 검증한다.
 - Freestyle concurrent build는 비활성화하고 build log retention은 14일로 유지한다.
 - clean workspace/build를 배포나 장애 복구 수단으로 사용하지 않는다.

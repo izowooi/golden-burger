@@ -60,6 +60,9 @@ arm이 아니라 source shard다.
 
 각 shard의 동일 raw stream에서 DO·RE·MI를 전부 계산하므로 request time과 missingness가
 arm 차이로 섞이지 않는다. 세 DB를 합칠 때 condition/event는 hash상 서로 겹치지 않아야 한다.
+현재 외장 workspace confirmatory window는
+`[2026-08-13T12:00:00Z, 2026-09-12T12:00:00Z)`다. 이전 내부 workspace 구간은
+operational health 자료로만 보존하며 이 window의 결론에 합치지 않는다.
 
 ## Displayed-depth feature
 

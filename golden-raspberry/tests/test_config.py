@@ -4,8 +4,15 @@ from pathlib import Path
 
 import pytest
 
-from polybot.config import CANONICAL_JOBS, PROJECT_ROOT, assert_no_credentials, load_config
-from polybot.source_digest import SOURCE_PATHS
+from polybot.config import (
+    CANONICAL_JOBS,
+    FROZEN_EXPERIMENT_END,
+    FROZEN_EXPERIMENT_START,
+    PROJECT_ROOT,
+    assert_no_credentials,
+    load_config,
+)
+from polybot.source_digest import ACTIVE_PREREGISTRATION, SOURCE_PATHS
 
 
 CONFIG = PROJECT_ROOT / "config.yaml"
@@ -26,6 +33,8 @@ def test_canonical_job_resolves_hash_shard(monkeypatch, job, expected):
     assert config.trading.experiment.shard_index == expected[0]
     assert config.trading.experiment.cadence_offset_minute == expected[1]
     assert config.trading.experiment.shard_count == 3
+    assert config.trading.experiment.start_utc == FROZEN_EXPERIMENT_START
+    assert config.trading.experiment.end_utc == FROZEN_EXPERIMENT_END
     assert len(config.config_hash) == 64
     assert len(config.trading.strategy_source_digest) == 64
 
@@ -59,11 +68,21 @@ def test_live_contradiction_is_rejected(monkeypatch):
         load_config(CONFIG, "raspberry-do-shard-0", simulation_mode=False)
 
 
+def test_experiment_window_override_cannot_diverge_from_preregistration(monkeypatch):
+    _clear(monkeypatch)
+    monkeypatch.setenv("POLYBOT_EXPERIMENT_START_UTC", "2026-08-13T12:05:00Z")
+    monkeypatch.setenv("POLYBOT_EXPERIMENT_END_UTC", "2026-09-12T12:05:00Z")
+    with pytest.raises(ValueError, match="active frozen preregistration"):
+        load_config(CONFIG, "raspberry-do-shard-0")
+
+
 def test_source_digest_covers_collection_and_analysis_runtime():
     assert {
         "pyproject.toml",
         "uv.lock",
+        ACTIVE_PREREGISTRATION,
         "scripts/analyze_experiment.py",
+        "scripts/verify_external_workspace.py",
         "src/polybot/main.py",
         "src/polybot/bot.py",
         "src/polybot/run_audit.py",

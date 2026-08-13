@@ -31,6 +31,8 @@ CANONICAL_JOBS: dict[str, tuple[int, int]] = {
     "raspberry-re-shard-1": (1, 1),
     "raspberry-mi-shard-2": (2, 2),
 }
+FROZEN_EXPERIMENT_START = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
+FROZEN_EXPERIMENT_END = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
 _JOB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _CREDENTIAL_ENV_KEYS = frozenset(
     {
@@ -270,6 +272,11 @@ def _validate_config(config: BotConfig) -> None:
     exp = config.trading.experiment
     if exp.end_utc - exp.start_utc != timedelta(days=30):
         raise ValueError("experiment window must be exactly 30 days")
+    if (
+        exp.start_utc != FROZEN_EXPERIMENT_START
+        or exp.end_utc != FROZEN_EXPERIMENT_END
+    ):
+        raise ValueError("experiment window must match the active frozen preregistration")
     expected_shard, expected_offset = CANONICAL_JOBS[config.job_name]
     if exp.shard_count != 3 or exp.shard_index != expected_shard:
         raise ValueError("job and hash shard identity do not match")
@@ -432,6 +439,8 @@ __all__ = [
     "BotConfig",
     "CANONICAL_JOBS",
     "DATA_CONTRACT",
+    "FROZEN_EXPERIMENT_END",
+    "FROZEN_EXPERIMENT_START",
     "LIFECYCLE_MODES",
     "assert_no_credentials",
     "load_config",

@@ -31,8 +31,8 @@ trading:
     min_near_touch_notional: 50
 
   experiment:
-    start_utc: 2026-08-13T01:00:00Z
-    end_utc: 2026-09-12T01:00:00Z
+    start_utc: 2026-08-13T12:00:00Z
+    end_utc: 2026-09-12T12:00:00Z
     score_threshold: 0.50
     neutral_score_max: 0.10
     weighted_tick_levels: 3

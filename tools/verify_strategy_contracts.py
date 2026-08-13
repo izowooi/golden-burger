@@ -1760,6 +1760,9 @@ def _validate_queue_echo_research_strategy(
             "POLYMARKET_SIGNATURE_TYPE",
             "queue-echo-v1",
             "CANONICAL_JOBS",
+            "FROZEN_EXPERIMENT_START",
+            "FROZEN_EXPERIMENT_END",
+            "active frozen preregistration",
             "math.isfinite",
             "archive_only",
         ),
@@ -1922,8 +1925,8 @@ def _validate_queue_echo_research_strategy(
             "POLYBOT_LIFECYCLE_MODE=archive_only",
             "POLYBOT_SIMULATION_MODE=true",
             "POLYBOT_SHARD_COUNT=3",
-            "POLYBOT_EXPERIMENT_START_UTC=2026-08-13T01:00:00Z",
-            "POLYBOT_EXPERIMENT_END_UTC=2026-09-12T01:00:00Z",
+            "POLYBOT_EXPERIMENT_START_UTC=2026-08-13T12:00:00Z",
+            "POLYBOT_EXPERIMENT_END_UTC=2026-09-12T12:00:00Z",
         ),
     )
     analyzer = _require_file(
@@ -1956,10 +1959,30 @@ def _validate_queue_echo_research_strategy(
             '"pyproject.toml"',
             '"uv.lock"',
             '"scripts/analyze_experiment.py"',
+            '"scripts/verify_external_workspace.py"',
             '"src/polybot/main.py"',
             '"src/polybot/bot.py"',
             '"src/polybot/run_audit.py"',
             '"src/polybot/utils/retry.py"',
+        ),
+    )
+    workspace_preflight = _require_file(
+        findings, strategy, directory / "scripts/verify_external_workspace.py"
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "scripts/verify_external_workspace.py",
+        workspace_preflight,
+        (
+            "golden-raspberry-apfs-v1",
+            "FilesystemType",
+            "MountPoint",
+            "VolumeUUID",
+            '"Internal"',
+            ".daily-rsync-workspace.json",
+            "workspace canonical path does not match",
+            "trusted UUID pin is not stored off-volume",
         ),
     )
 
@@ -1973,8 +1996,11 @@ def _validate_queue_echo_research_strategy(
         "tests/test_lifecycle_mode.py",
         "tests/test_run_audit.py",
         "tests/test_analyzer.py",
+        "tests/test_external_workspace.py",
         "research/frozen-2026-08-13/PREREGISTRATION.md",
         "research/frozen-2026-08-13/MANIFEST.sha256",
+        "research/frozen-2026-08-13-external-v2/PREREGISTRATION.md",
+        "research/frozen-2026-08-13-external-v2/MANIFEST.sha256",
         "OPERATIONS.md",
     ):
         _require_file(findings, strategy, directory / relative_path)
