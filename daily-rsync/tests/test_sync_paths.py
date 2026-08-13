@@ -90,6 +90,39 @@ def test_console_logs_are_sharded_by_build_number(app_config) -> None:
     assert service.local_path(artifact).as_posix().endswith("/builds/049000/49268.log.gz")
 
 
+def test_workspace_epoch_namespaces_workspace_artifacts_but_not_console_logs(
+    app_config,
+) -> None:
+    service = SyncService(app_config)
+    database = RemoteArtifact(
+        kind="database_sim",
+        remote_path="/Volumes/t7/jenkins/polybot-do/strategy/data/runtime/trades_sim.db",
+        size_bytes=1,
+        mtime_ns=2,
+        jenkins_job="polybot-do",
+        strategy="golden-raspberry",
+        runtime_job="raspberry-do-shard-0",
+    )
+    console = RemoteArtifact(
+        kind="jenkins_console",
+        remote_path="/jenkins/jobs/polybot-do/builds/131/log",
+        size_bytes=1,
+        mtime_ns=2,
+        jenkins_job="polybot-do",
+        strategy="golden-raspberry",
+        build_number=131,
+    )
+
+    assert "/workspace-epochs/external-v2/strategies/" in service.local_path(
+        database,
+        workspace_epoch="external-v2",
+    ).as_posix()
+    assert "workspace-epochs" not in service.local_path(
+        console,
+        workspace_epoch="external-v2",
+    ).as_posix()
+
+
 def test_plan_requires_explicit_strategy_while_config_deployment_is_pending(
     app_config, monkeypatch
 ) -> None:
@@ -329,6 +362,84 @@ def test_workspace_root_move_cannot_overwrite_same_local_destination(
     assert service.catalog.list_conflicts()[0]["conflict_type"] == "SOURCE_PATH_COLLISION"
 
 
+def test_explicit_workspace_epoch_preserves_old_evidence_and_resolves_move(
+    app_config,
+    monkeypatch,
+) -> None:
+    service = SyncService(app_config)
+    workspace = "/new/workspace/polybot-do"
+    base = {
+        "kind": "bot_log",
+        "size_bytes": 17,
+        "mtime_ns": 20,
+        "jenkins_job": "polybot-do",
+        "source": app_config.ssh_host,
+        "strategy": "golden-raspberry",
+        "runtime_job": "raspberry-do-shard-0",
+        "completed_at": "2026-08-13T10:00:00+00:00",
+    }
+    old = RemoteArtifact(
+        remote_path="/old/workspace/polybot-do/strategy/data/runtime/20260813.log",
+        **base,
+    )
+    local = service.local_path(old)
+    local.parent.mkdir(parents=True)
+    local.write_bytes(b"old-root-evidence")
+    service.catalog.upsert_artifact(
+        old,
+        source=app_config.ssh_host,
+        local_path=local,
+        local_sha256=hashlib.sha256(local.read_bytes()).hexdigest(),
+    )
+    moved = RemoteArtifact(
+        remote_path=f"{workspace}/strategy/data/runtime/20260813.log",
+        **base,
+    )
+    inventory = JobInventory(
+        name="polybot-do",
+        workspace=workspace,
+        workspace_identity={
+            "root_path": "/new/workspace",
+            "root_realpath": "/new/workspace",
+            "root_st_dev": 42,
+            "workspace_st_dev": 42,
+            "selection_contract": "allowlisted-root-job-v1",
+        },
+        build_count=1,
+        min_build=1,
+        max_build=1,
+        current_strategy="golden-raspberry",
+        strategies=("golden-raspberry",),
+        artifacts=(moved,),
+        remote_free_bytes=10**12,
+    )
+    monkeypatch.setattr(service, "scan", lambda **_kwargs: [inventory])
+
+    with pytest.raises(RuntimeError, match="collides with"):
+        service.create_plan(job="polybot-do", strategy="golden-raspberry")
+
+    mapped_config = replace_dataclass(
+        app_config,
+        workspace_epochs=((workspace, "external-v2"),),
+    )
+    mapped_service = SyncService(mapped_config)
+    monkeypatch.setattr(mapped_service, "scan", lambda **_kwargs: [inventory])
+    plan = mapped_service.create_plan(job="polybot-do", strategy="golden-raspberry")
+
+    routed = mapped_service.local_path(moved, workspace_epoch="external-v2")
+    assert plan.workspace_epoch == "external-v2"
+    assert plan.artifacts == [moved]
+    assert "workspace-epochs/external-v2" in routed.as_posix()
+    assert local.read_bytes() == b"old-root-evidence"
+    assert mapped_service.catalog.get_artifact(old.source_key)["status"] == "SOURCE_MISSING"
+    conflicts = mapped_service.catalog.list_conflicts()
+    assert len(conflicts) == 1
+    assert conflicts[0]["status"] == "RESOLVED"
+    assert json.loads(conflicts[0]["details_json"])["resolution"]["workspace_epoch"] == (
+        "external-v2"
+    )
+
+
 def test_execute_revalidates_workspace_from_persisted_plan(app_config) -> None:
     service = SyncService(app_config)
     calls = []
@@ -367,6 +478,36 @@ def test_execute_revalidates_workspace_from_persisted_plan(app_config) -> None:
 
     assert result.status == "SUCCESS", result.errors
     assert calls == [("polybot-king", "/new/workspace/polybot-king", identity)]
+
+
+def test_execute_rejects_plan_after_workspace_epoch_mapping_changes(app_config) -> None:
+    workspace = "/new/workspace/polybot-do"
+    service = SyncService(
+        replace_dataclass(
+            app_config,
+            workspace_epochs=((workspace, "external-v2"),),
+        )
+    )
+    plan = SyncPlan.create(
+        source=app_config.ssh_host,
+        jenkins_job="polybot-do",
+        strategy="golden-raspberry",
+        workspace=workspace,
+        workspace_identity={
+            "root_path": "/new/workspace",
+            "root_realpath": "/new/workspace",
+            "root_st_dev": 42,
+            "workspace_st_dev": 42,
+            "selection_contract": "allowlisted-root-job-v1",
+        },
+        workspace_epoch="external-v1",
+        artifacts=[],
+        skipped_unchanged=0,
+        include_safety_databases=False,
+    )
+
+    with pytest.raises(RuntimeError, match="workspace epoch does not match"):
+        service.execute(plan)
 
 
 def test_legacy_plan_without_workspace_identity_fails_and_records_attempt(

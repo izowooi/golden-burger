@@ -61,6 +61,13 @@ key만 사용한다. `doctor`가 marker contract를 출력하며 scan inventory�
 `workspace_identity`에서 선택 root의 `st_dev`와 marker digest를 확인한다. marker를
 고치거나 volume을 교체했다면 기존 plan을 버리고 새로 scan/plan한다.
 
+기존에 동기화한 Job을 새 workspace root에서 빈 DB로 다시 시작했다면 first sync 전에
+`config.local.toml`의 `[workspace_epochs]`에 exact workspace와 epoch label을 등록한다.
+`scan/plan`은 기존 충돌 row가 있더라도 보존 파일 checksum·DB `quick_check`와 새 destination
+분리를 모두 확인한 경우에만 이를 `RESOLVED`로 바꾼다. 기존 evidence 삭제나 overwrite는
+하지 않는다. `doctor` 출력의 `workspace_epochs`, plan JSON의 `workspace_epoch`, `locate`의
+DB `workspace_epoch`가 같은지 확인한다.
+
 처음에는 하나의 job으로 검증한 뒤 저장 profile을 늘린다. 선택하지 않은 job은 상세
 build log를 조사하거나 전송하지 않는다.
 

@@ -11,6 +11,7 @@ Jenkins 표시 이름, 전략 폴더명, runtime `--job`, 계좌 이름은 서�
 | Jenkins job | `polybot-king` | Jenkins build와 console log 소유자 |
 | strategy | `golden-queen` | 실행된 코드/전략 |
 | runtime job | `queen-live-12h` | 봇 DB와 로그 namespace |
+| workspace epoch | `external-v2` | 명시적으로 분리한 workspace 이동 evidence |
 | deployment epoch | build 범위 | job의 전략/계좌 재사용 구간 |
 | config cohort | `config_hash` | 실제 resolved parameter 집합 |
 
@@ -28,14 +29,16 @@ data/
 ├── sources/macmini-m5/jobs/
 │   └── polybot-king/
 │       ├── builds/000000/725.log.gz
-│       └── strategies/golden-queen/runtime/queen-live-12h/
-│           ├── databases/latest/trades.db
-│           ├── databases/latest/manifest.json
-│           ├── databases/research/2026/08/05/
-│           │   ├── trades_sim_20260805.db
-│           │   └── manifest.json
-│           ├── databases/pinned/<timestamp>/
-│           └── logs/2026/07/20260729.log
+│       ├── strategies/golden-queen/runtime/queen-live-12h/
+│       │   ├── databases/latest/trades.db
+│       │   ├── databases/latest/manifest.json
+│       │   ├── databases/research/2026/08/05/
+│       │   │   ├── trades_sim_20260805.db
+│       │   │   └── manifest.json
+│       │   ├── databases/pinned/<timestamp>/
+│       │   └── logs/2026/07/20260729.log
+│       └── workspace-epochs/external-v2/
+│           └── strategies/golden-queen/runtime/queen-live-12h/...
 └── bundles/<bundle-id>/
 ```
 
@@ -60,6 +63,13 @@ root/workspace의 `st_dev`와 marker digest는 plan identity에 들어가고 실
 검사한다. console batch 직전, 각 artifact 직전, SQLite snapshot helper 안에서도 같은
 identity를 다시 읽는다. root가 이동·교체됐거나 identity 없는 구버전 plan이면 실행하지 않는다. 서로
 다른 원격 source path를 같은 로컬 destination으로 합치지 않는다.
+
+workspace를 옮긴 뒤에도 같은 strategy/runtime/filename을 사용해야 하면
+`config.local.toml`의 `[workspace_epochs]`에 exact current workspace를 명시해야 한다.
+이 explicit mapping이 있을 때만 기존 충돌 evidence의 checksum을 다시 확인하고 conflict를
+`RESOLVED` audit row로 남긴 뒤 새 workspace artifact를
+`workspace-epochs/<label>/`에 저장한다. 기존 artifact는 파일을 보존한 채
+`SOURCE_MISSING`으로 남는다. mapping이 없는 root 이동은 계속 fail closed한다.
 
 ## Research archive identity
 

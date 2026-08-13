@@ -94,6 +94,7 @@ class SyncService:
                 "local_data_root": str(self.config.data_root),
                 "local_free_bytes": local.free,
                 "minimum_free_bytes": self.config.minimum_free_bytes,
+                "workspace_epochs": dict(self.config.workspace_epochs),
             }
         )
         if not payload.get("jobs_exists") or not payload.get("workspace_exists"):
@@ -179,6 +180,13 @@ class SyncService:
         selected_strategy = strategy or inventory.current_strategy
         if not selected_strategy:
             raise ValueError("strategy could not be inferred; pass --strategy")
+        workspace_epoch = self.config.workspace_epoch_for(inventory.workspace)
+        if workspace_epoch and inventory.workspace_identity:
+            self._resolve_workspace_epoch_conflicts(
+                inventory=inventory,
+                strategy=selected_strategy,
+                workspace_epoch=workspace_epoch,
+            )
         open_conflicts = self.catalog.list_open_conflicts(
             source=self.config.ssh_host,
             job=job,
@@ -212,7 +220,7 @@ class SyncService:
                 continue
             if artifact.kind == "database_safety" and not include_safety_databases:
                 continue
-            destination = self.local_path(artifact)
+            destination = self.local_path(artifact, workspace_epoch=workspace_epoch)
             destination_conflict = self.catalog.destination_conflict(
                 artifact=artifact,
                 local_path=destination,
@@ -269,6 +277,7 @@ class SyncService:
             strategy=selected_strategy,
             workspace=inventory.workspace,
             workspace_identity=inventory.workspace_identity,
+            workspace_epoch=workspace_epoch,
             artifacts=selected,
             skipped_unchanged=unchanged,
             include_safety_databases=include_safety_databases,
@@ -456,10 +465,18 @@ class SyncService:
                         incoming = console_cache.get(artifact.remote_path)
                         if incoming is None:
                             raise RuntimeError("console log was not present in batch result")
-                        local_path, digest, written = self._store_regular(artifact, incoming)
+                        local_path, digest, written = self._store_regular(
+                            plan,
+                            artifact,
+                            incoming,
+                        )
                         remote_digest = None
                     else:
-                        local_path, digest, written = self._sync_regular(artifact, run_id)
+                        local_path, digest, written = self._sync_regular(
+                            plan,
+                            artifact,
+                            run_id,
+                        )
                         remote_digest = None
                     self.catalog.upsert_artifact(
                         catalog_artifact,
@@ -475,6 +492,8 @@ class SyncService:
                             "mode": catalog_artifact.mode,
                             "data_contract": catalog_artifact.data_contract,
                             "database_utc_date": catalog_artifact.database_utc_date,
+                            "workspace": plan.workspace,
+                            "workspace_epoch": plan.workspace_epoch,
                         },
                     )
                     result.transferred += 1
@@ -532,6 +551,12 @@ class SyncService:
         self._ensure_disk_capacity(plan.estimated_bytes)
         if not plan.workspace or not plan.workspace_identity:
             raise RuntimeError("persisted plan lacks workspace mount identity; create a new plan")
+        configured_epoch = self.config.workspace_epoch_for(plan.workspace)
+        if plan.workspace_epoch != configured_epoch:
+            raise RuntimeError(
+                "persisted plan workspace epoch does not match current local configuration; "
+                "create a new plan"
+            )
         self._validate_plan_workspace(plan)
         open_conflicts = self.catalog.list_open_conflicts(
             source=self.config.ssh_host,
@@ -553,7 +578,7 @@ class SyncService:
                 from_date=requested_from,
                 to_date=requested_to,
             )
-            self._ensure_artifact_provenance(plan.source, artifact)
+            self._ensure_artifact_provenance(plan, artifact)
 
     def _validate_plan_workspace(self, plan: SyncPlan) -> None:
         if not plan.workspace or not plan.workspace_identity:
@@ -621,7 +646,10 @@ class SyncService:
         artifact: RemoteArtifact,
         run_id: str,
     ) -> tuple[Path, str, str, int, RemoteArtifact]:
-        destination = self.local_path(artifact)
+        destination = self.local_path(
+            artifact,
+            workspace_epoch=plan.workspace_epoch,
+        )
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         incoming = self.config.incoming_root / f"{artifact.source_key}.db.partial"
         if not incoming.exists() and destination.is_file():
@@ -849,8 +877,119 @@ class SyncService:
             "snapshot was rejected"
         )
 
-    def _ensure_artifact_provenance(self, source: str, artifact: RemoteArtifact) -> None:
-        destination = self.local_path(artifact)
+    def _resolve_workspace_epoch_conflicts(
+        self,
+        *,
+        inventory: JobInventory,
+        strategy: str,
+        workspace_epoch: str,
+    ) -> None:
+        """Acknowledge an explicit workspace move without merging its evidence.
+
+        An epoch mapping is local operator intent. Existing evidence is checked
+        in place and retained, while the new remote source is routed to a
+        separate destination. Only previously recorded source-path collisions
+        that exactly match the current validated inventory are resolved.
+        """
+
+        artifacts = {
+            artifact.source_key: artifact
+            for artifact in inventory.artifacts
+            if artifact.source == self.config.ssh_host and artifact.strategy == strategy
+        }
+        observed_paths = {artifact.remote_path for artifact in inventory.artifacts}
+        conflicts = self.catalog.list_open_conflicts(
+            source=self.config.ssh_host,
+            job=inventory.name,
+            strategy=strategy,
+        )
+        for conflict in conflicts:
+            if conflict["conflict_type"] != "SOURCE_PATH_COLLISION":
+                continue
+            artifact = artifacts.get(str(conflict["source_key"]))
+            if artifact is None or artifact.kind == "jenkins_console":
+                continue
+            try:
+                Path(artifact.remote_path).relative_to(Path(inventory.workspace))
+            except ValueError:
+                continue
+            if conflict["existing_remote_path"] in observed_paths:
+                continue
+
+            destination = self.local_path(
+                artifact,
+                workspace_epoch=workspace_epoch,
+            )
+            if str(destination) == str(conflict["local_path"]):
+                continue
+            collision = self.catalog.destination_conflict(
+                artifact=artifact,
+                local_path=destination,
+            )
+            if collision is not None:
+                continue
+            current = self.catalog.get_artifact(artifact.source_key)
+            if destination.exists() and (
+                current is None or str(current["local_path"] or "") != str(destination)
+            ):
+                raise RuntimeError(
+                    "workspace epoch destination already exists without matching provenance: "
+                    f"{destination}"
+                )
+
+            existing_source_key = str(conflict["existing_source_key"] or "")
+            existing = self.catalog.get_artifact(existing_source_key)
+            if (
+                not existing_source_key
+                or existing is None
+                or str(existing["local_path"] or "") != str(conflict["local_path"])
+            ):
+                continue
+            self._verify_preserved_catalog_artifact(existing)
+            identity_digest = hashlib.sha256(
+                json.dumps(inventory.workspace_identity, sort_keys=True).encode()
+            ).hexdigest()
+            self.catalog.resolve_source_path_collision(
+                conflict_id=int(conflict["id"]),
+                source_key=artifact.source_key,
+                existing_source_key=existing_source_key,
+                resolution={
+                    "contract": "explicit-workspace-epoch-v1",
+                    "workspace": inventory.workspace,
+                    "workspace_epoch": workspace_epoch,
+                    "workspace_identity_sha256": identity_digest,
+                    "routed_local_path": str(destination),
+                    "preserved_local_path": str(existing["local_path"]),
+                    "preserved_local_sha256": str(existing["local_sha256"]),
+                },
+            )
+
+    @staticmethod
+    def _verify_preserved_catalog_artifact(row: Any) -> None:
+        path = Path(row["local_path"] or "")
+        if not path.is_file():
+            raise RuntimeError(f"preserved collision evidence is missing: {path}")
+        if str(row["kind"]).startswith("database"):
+            integrity = quick_check(path)
+            if integrity != ["ok"]:
+                raise RuntimeError(f"preserved database quick_check failed: {integrity}")
+            digest = sha256(path)
+        elif path.suffix == ".gz":
+            digest = gzip_content_sha256(path)
+        else:
+            digest = sha256(path)
+        if not row["local_sha256"] or digest != str(row["local_sha256"]):
+            raise RuntimeError(f"preserved collision evidence checksum mismatch: {path}")
+
+    def _ensure_artifact_provenance(
+        self,
+        plan: SyncPlan,
+        artifact: RemoteArtifact,
+    ) -> None:
+        destination = self.local_path(
+            artifact,
+            workspace_epoch=plan.workspace_epoch,
+        )
         collision = self.catalog.destination_conflict(
             artifact=artifact,
             local_path=destination,
@@ -858,7 +997,7 @@ class SyncService:
         if collision is not None:
             self.catalog.record_conflict(
                 conflict_type="SOURCE_PATH_COLLISION",
-                source=source,
+                source=plan.source,
                 artifact=artifact,
                 local_path=destination,
                 existing=collision,
@@ -872,7 +1011,7 @@ class SyncService:
         if immutable is not None:
             self.catalog.record_conflict(
                 conflict_type="IMMUTABLE_REMOTE_CHANGED",
-                source=source,
+                source=plan.source,
                 artifact=artifact,
                 local_path=destination,
                 existing=immutable,
@@ -882,8 +1021,16 @@ class SyncService:
                 f"immutable research archive fingerprint changed: {artifact.remote_path}"
             )
 
-    def _sync_regular(self, artifact: RemoteArtifact, run_id: str) -> tuple[Path, str, int]:
-        destination = self.local_path(artifact)
+    def _sync_regular(
+        self,
+        plan: SyncPlan,
+        artifact: RemoteArtifact,
+        run_id: str,
+    ) -> tuple[Path, str, int]:
+        destination = self.local_path(
+            artifact,
+            workspace_epoch=plan.workspace_epoch,
+        )
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         compress = destination.suffix == ".gz"
         incoming = self.config.incoming_root / f"{artifact.source_key}.raw.partial"
@@ -894,10 +1041,18 @@ class SyncService:
             local_path=incoming,
             compress=True,
         )
-        return self._store_regular(artifact, incoming)
+        return self._store_regular(plan, artifact, incoming)
 
-    def _store_regular(self, artifact: RemoteArtifact, incoming: Path) -> tuple[Path, str, int]:
-        destination = self.local_path(artifact)
+    def _store_regular(
+        self,
+        plan: SyncPlan,
+        artifact: RemoteArtifact,
+        incoming: Path,
+    ) -> tuple[Path, str, int]:
+        destination = self.local_path(
+            artifact,
+            workspace_epoch=plan.workspace_epoch,
+        )
         destination.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
         incoming.chmod(0o600)
         digest = sha256(incoming)
@@ -926,7 +1081,12 @@ class SyncService:
         destination.chmod(0o600)
         return destination, digest, written
 
-    def local_path(self, artifact: RemoteArtifact) -> Path:
+    def local_path(
+        self,
+        artifact: RemoteArtifact,
+        *,
+        workspace_epoch: str | None = None,
+    ) -> Path:
         source_root = (
             self.config.data_root
             / "sources"
@@ -938,6 +1098,8 @@ class SyncService:
             number = artifact.build_number or 0
             shard = f"{(number // 1000) * 1000:06d}"
             return source_root / "builds" / shard / f"{number}.log.gz"
+        if workspace_epoch:
+            source_root = source_root / "workspace-epochs" / _safe_component(workspace_epoch)
         strategy = _safe_component(artifact.strategy or "unknown")
         runtime = _safe_component(artifact.runtime_job or "default")
         root = source_root / "strategies" / strategy / "runtime" / runtime
@@ -1463,6 +1625,8 @@ class SyncService:
                 ),
             ),
             "data_contract": metadata.get("data_contract"),
+            "workspace": metadata.get("workspace"),
+            "workspace_epoch": metadata.get("workspace_epoch"),
             "status": row["status"],
             "historical_source_missing": row["status"] == "SOURCE_MISSING",
             "remote_path": row["remote_path"],
@@ -1770,11 +1934,15 @@ class SyncService:
             int(row["build_number"]) for row in rows if row["build_number"] is not None
         ]
         completed_at: list[str] = []
+        workspace_epochs: set[str] = set()
         for row in rows:
             metadata = json.loads(row["metadata_json"] or "{}")
             timestamp = metadata.get("completed_at")
             if timestamp:
                 completed_at.append(str(timestamp))
+            workspace_epoch = metadata.get("workspace_epoch")
+            if workspace_epoch:
+                workspace_epochs.add(str(workspace_epoch))
         return {
             "cataloged": len(rows),
             "available": len(available_paths),
@@ -1785,6 +1953,7 @@ class SyncService:
             "last_build": max(build_numbers) if build_numbers else None,
             "first_completed_at": min(completed_at) if completed_at else None,
             "last_completed_at": max(completed_at) if completed_at else None,
+            "workspace_epochs": sorted(workspace_epochs),
         }
 
     def pin_database(self, source_key: str) -> Path:

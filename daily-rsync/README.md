@@ -139,6 +139,22 @@ Pipeline이 기본 workspace에서 preflight를 한 뒤 `ws(...)`로 외장 work
 넣고 `sync` 직전에 다시 비교합니다. 따라서 volume 교체·unmount·marker 변경 후 예전
 plan을 실행할 수 없고, workspace identity가 없는 구버전 plan도 새로 만들어야 합니다.
 
+이미 동기화한 Job의 workspace를 다른 root로 옮기면 원격 source path가 달라집니다.
+기존 DB·로그와 새 DB·로그를 같은 로컬 파일에 합치지 않도록 기본 동작은 충돌로
+중단하는 것입니다. 새 수집을 독립 epoch로 시작하기로 결정한 경우에만 exact Job
+workspace와 안전한 label을 `workspace_epochs`에 명시합니다.
+
+```toml
+[workspace_epochs]
+"/Volumes/t7/jenkins/polybot-do" = "external-v2"
+```
+
+이 mapping은 충돌 무시 옵션이 아닙니다. 기존 로컬 checksum과 SQLite `quick_check`,
+현재 scan의 workspace identity를 확인한 뒤 기존 자료는 역사 자료로 보존하고 새 자료를
+`workspace-epochs/<label>/` 아래로 분리합니다. label을 바꾸거나 mapping을 제거하면 이미
+저장한 plan은 실행되지 않으므로 새 scan/plan이 필요합니다. Jenkins console log는
+workspace가 아니라 `$JENKINS_HOME` 소유이므로 epoch 아래로 복제하지 않습니다.
+
 ## CLI 사용법
 
 CLI는 웹 UI와 같은 Python 엔진과 catalog를 사용합니다. AI 자동화, cron, scheduled

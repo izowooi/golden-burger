@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import os
+import posixpath
+import re
 import tomllib
 from dataclasses import dataclass
 from pathlib import Path
 
 GIB = 1024**3
+WORKSPACE_EPOCH_PATTERN = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 @dataclass(frozen=True)
@@ -17,6 +20,7 @@ class AppConfig:
     remote_jenkins_home: str = "/Users/jongwoopark/.jenkins"
     remote_staging_root: str = "/Users/jongwoopark/.cache/daily-rsync"
     remote_workspace_roots: tuple[str, ...] = ()
+    workspace_epochs: tuple[tuple[str, str], ...] = ()
     initial_log_days: int = 60
     log_retention_days: int = 365
     minimum_free_bytes: int = 50 * GIB
@@ -46,6 +50,11 @@ class AppConfig:
             return self.remote_workspace_roots
         return (f"{self.remote_jenkins_home.rstrip('/')}/workspace",)
 
+    def workspace_epoch_for(self, workspace: str | None) -> str | None:
+        if not workspace:
+            return None
+        return dict(self.workspace_epochs).get(workspace)
+
 
 def _positive_int(payload: dict[str, object], key: str, default: int) -> int:
     value = int(payload.get(key, default))
@@ -70,6 +79,30 @@ def _workspace_roots(payload: dict[str, object], remote_jenkins_home: str) -> tu
     if not all(isinstance(value, str) and value.strip() for value in configured):
         raise ValueError("remote_workspace_roots entries must be non-empty strings")
     return tuple(str(value).strip() for value in configured)
+
+
+def _workspace_epochs(payload: dict[str, object]) -> tuple[tuple[str, str], ...]:
+    configured = payload.get("workspace_epochs")
+    if configured is None:
+        return ()
+    if not isinstance(configured, dict):
+        raise ValueError("workspace_epochs must be a TOML table")
+
+    result: list[tuple[str, str]] = []
+    for raw_workspace, raw_epoch in configured.items():
+        if not isinstance(raw_workspace, str) or not raw_workspace:
+            raise ValueError("workspace_epochs keys must be non-empty absolute paths")
+        workspace = posixpath.normpath(raw_workspace)
+        if not raw_workspace.startswith("/") or workspace != raw_workspace:
+            raise ValueError(
+                "workspace_epochs keys must be canonical absolute POSIX paths"
+            )
+        if not isinstance(raw_epoch, str) or not WORKSPACE_EPOCH_PATTERN.fullmatch(raw_epoch):
+            raise ValueError(
+                "workspace epoch labels must match [A-Za-z0-9][A-Za-z0-9._-]{0,63}"
+            )
+        result.append((workspace, raw_epoch))
+    return tuple(sorted(result))
 
 
 def load_config(path: Path | None = None) -> AppConfig:
@@ -97,6 +130,7 @@ def load_config(path: Path | None = None) -> AppConfig:
             payload.get("remote_staging_root", "/Users/jongwoopark/.cache/daily-rsync")
         ),
         remote_workspace_roots=_workspace_roots(payload, remote_jenkins_home),
+        workspace_epochs=_workspace_epochs(payload),
         initial_log_days=_positive_int(payload, "initial_log_days", 60),
         log_retention_days=_positive_int(payload, "log_retention_days", 365),
         minimum_free_bytes=_positive_int(payload, "minimum_free_gb", 50) * GIB,

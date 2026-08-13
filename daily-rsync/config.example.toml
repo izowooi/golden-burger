@@ -18,3 +18,9 @@ minimum_free_gb = 50
 batch_file_limit = 1000
 batch_byte_limit_gb = 2
 default_job_pattern = "polybot-*"
+
+# 기존에 동기화한 Job을 다른 workspace root로 옮길 때만 exact workspace를
+# 새 evidence epoch로 명시합니다. 이 table이 없으면 같은 로컬 destination으로
+# 향하는 source path 변경은 계속 fail closed합니다.
+# [workspace_epochs]
+# "/Volumes/t7/jenkins/polybot-do" = "external-v2"

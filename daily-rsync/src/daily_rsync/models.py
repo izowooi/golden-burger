@@ -151,6 +151,7 @@ class SyncPlan:
     strategy: str
     workspace: str | None = None
     workspace_identity: dict[str, Any] | None = None
+    workspace_epoch: str | None = None
     artifacts: list[RemoteArtifact] = field(default_factory=list)
     skipped_unchanged: int = 0
     estimated_bytes: int = 0
@@ -170,6 +171,7 @@ class SyncPlan:
         include_safety_databases: bool,
         workspace: str | None = None,
         workspace_identity: dict[str, Any] | None = None,
+        workspace_epoch: str | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
     ) -> SyncPlan:
@@ -188,6 +190,7 @@ class SyncPlan:
                 "created_at": created_at,
                 "workspace": workspace,
                 "workspace_identity": workspace_identity,
+                "workspace_epoch": workspace_epoch,
                 "from_date": from_date.isoformat() if from_date else None,
                 "to_date": to_date.isoformat() if to_date else None,
                 "artifacts": [
@@ -211,6 +214,7 @@ class SyncPlan:
             strategy=strategy,
             workspace=workspace,
             workspace_identity=workspace_identity,
+            workspace_epoch=workspace_epoch,
             artifacts=bound_artifacts,
             skipped_unchanged=skipped_unchanged,
             estimated_bytes=sum(item.size_bytes for item in artifacts),
@@ -241,6 +245,7 @@ class SyncPlan:
         payload = json.loads(path.read_text(encoding="utf-8"))
         payload.setdefault("from_date", None)
         payload.setdefault("to_date", None)
+        payload.setdefault("workspace_epoch", None)
         source = str(payload["source"])
         payload["artifacts"] = [
             RemoteArtifact(

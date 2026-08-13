@@ -546,6 +546,69 @@ class Catalog:
                     ),
                 )
 
+    def resolve_source_path_collision(
+        self,
+        *,
+        conflict_id: int,
+        source_key: str,
+        existing_source_key: str,
+        resolution: dict[str, Any],
+    ) -> None:
+        """Resolve one explicitly epoch-routed workspace move.
+
+        The caller must verify both the preserved local evidence and the new
+        non-colliding destination first. This method keeps the conflict row as
+        an audit record and marks the superseded remote source as historical.
+        """
+
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT * FROM artifact_conflicts WHERE id = ?",
+                (conflict_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError(f"artifact conflict not found: {conflict_id}")
+            if row["status"] != "OPEN" or row["conflict_type"] != "SOURCE_PATH_COLLISION":
+                raise RuntimeError("artifact conflict is not an open source-path collision")
+            if row["source_key"] != source_key or row["existing_source_key"] != existing_source_key:
+                raise RuntimeError("artifact conflict identity changed before resolution")
+
+            try:
+                details = json.loads(row["details_json"] or "{}")
+            except (TypeError, json.JSONDecodeError):
+                details = {}
+            details["resolution"] = {
+                **resolution,
+                "resolved_at": datetime.now(UTC).isoformat(),
+            }
+            updated = connection.execute(
+                """
+                UPDATE artifact_conflicts
+                SET status = 'RESOLVED', details_json = ?
+                WHERE id = ? AND status = 'OPEN'
+                """,
+                (json.dumps(details, ensure_ascii=False, sort_keys=True), conflict_id),
+            )
+            if updated.rowcount != 1:
+                raise RuntimeError("artifact conflict changed during resolution")
+            remaining = connection.execute(
+                """
+                SELECT 1 FROM artifact_conflicts
+                WHERE status = 'OPEN' AND existing_source_key = ?
+                LIMIT 1
+                """,
+                (existing_source_key,),
+            ).fetchone()
+            if remaining is None:
+                connection.execute(
+                    """
+                    UPDATE artifacts
+                    SET status = 'SOURCE_MISSING'
+                    WHERE source_key = ? AND status = 'PROVENANCE_CONFLICT'
+                    """,
+                    (existing_source_key,),
+                )
+
     def list_conflicts(self) -> list[sqlite3.Row]:
         with self.connect() as connection:
             return list(

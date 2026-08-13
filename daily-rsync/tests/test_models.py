@@ -27,6 +27,7 @@ def test_plan_round_trip(tmp_path) -> None:
             "workspace_st_dev": 42,
             "selection_contract": "allowlisted-root-job-v1",
         },
+        workspace_epoch="external-v2",
         artifacts=[item],
         skipped_unchanged=2,
         include_safety_databases=False,
@@ -38,5 +39,6 @@ def test_plan_round_trip(tmp_path) -> None:
     assert restored.estimated_bytes == 123
     assert restored.workspace == "/external/workspace/polybot-king"
     assert restored.workspace_identity == plan.workspace_identity
+    assert restored.workspace_epoch == "external-v2"
     assert restored.artifacts[0].fingerprint == "composite-1"
     assert restored.artifacts[0].source_key == item.source_key
