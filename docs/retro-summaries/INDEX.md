@@ -20,3 +20,4 @@
 | 014 | [014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md](014-golden-quince-low-trade-and-execution-axis-diagnosis-2026-08-12.md) | Quince A/B/C 재동기화, 저빈도·H/5 cadence 판정과 전 팔 TAKER 실행축 결함 진단 | 2026-08-12 |
 | 015 | [015-golden-quince-execution-axis-clean-restart-2026-08-13.md](015-golden-quince-execution-axis-clean-restart-2026-08-13.md) | Quince 실행축·pending BUY lifecycle 수정, 3-arm one-time clean 재시작과 H/5·동기화 검증 | 2026-08-13 |
 | 016 | [016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md](016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md) | Blueberry A/B 저빈도·cadence 진단, Gamma 공유 sweep 최적화와 자연 build·재동기화 검증 | 2026-08-13 |
+| 017 | [017-golden-raspberry-queue-echo-deployment-2026-08-13.md](017-golden-raspberry-queue-echo-deployment-2026-08-13.md) | Queue Echo 가설 사전등록, accountless 3-shard collector, Jenkins timer·daily-rsync 배포 검증 | 2026-08-13 |
