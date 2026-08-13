@@ -972,6 +972,55 @@ def test_snapshot_is_consistent_and_cleanup_is_scoped(tmp_path: Path) -> None:
     assert not snapshot.parent.exists()
 
 
+def test_snapshot_normalizes_wal_to_one_self_contained_file(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    database = (
+        home
+        / "workspace"
+        / "polybot-king"
+        / "golden-queen"
+        / "data"
+        / "queen-live-12h"
+        / "trades.db"
+    )
+    make_db(database)
+    connection = sqlite3.connect(database)
+    try:
+        assert connection.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        connection.execute("PRAGMA wal_autocheckpoint=0")
+        connection.execute("INSERT INTO evidence(value) VALUES ('wal evidence')")
+        connection.commit()
+        source_bytes = database.read_bytes()
+        source_mtime_ns = database.stat().st_mtime_ns
+        staging = tmp_path / ".cache" / "daily-rsync"
+
+        payload = invoke(
+            "snapshot",
+            "--jenkins-home",
+            str(home),
+            *snapshot_identity_arguments(home, "polybot-king"),
+            "--source",
+            str(database),
+            "--staging-root",
+            str(staging),
+        )
+        assert database.read_bytes() == source_bytes
+        assert database.stat().st_mtime_ns == source_mtime_ns
+    finally:
+        connection.close()
+    snapshot = Path(payload["snapshot"])
+
+    assert payload["snapshot_journal_mode"] == "delete"
+    assert sorted(path.name for path in snapshot.parent.iterdir()) == [
+        "manifest.json",
+        "snapshot.db",
+    ]
+    with sqlite3.connect(f"file:{snapshot}?mode=ro", uri=True) as connection:
+        assert connection.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+        assert connection.execute("PRAGMA quick_check").fetchone()[0] == "ok"
+        assert connection.execute("SELECT count(*) FROM evidence").fetchone()[0] == 2
+
+
 def test_snapshot_accepts_canonical_shadow_database(tmp_path: Path) -> None:
     home = tmp_path / ".jenkins"
     job = "polybot-shadow"

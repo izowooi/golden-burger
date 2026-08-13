@@ -399,7 +399,11 @@ class ResearchRepository:
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA journal_mode=WAL")
+        # Jenkins runs are single-writer and guarded by the process lock. A
+        # persistent WAL header without live -wal/-shm sidecars prevents the
+        # read-only daily-rsync backup transaction from opening on macOS, while
+        # WAL provides no concurrency benefit for this short-lived collector.
+        connection.execute("PRAGMA journal_mode=DELETE")
         connection.execute("PRAGMA synchronous=FULL")
         try:
             yield connection

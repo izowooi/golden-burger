@@ -29,7 +29,9 @@ uv run daily-rsync verify --job polybot-mi --strategy golden-raspberry
 ```
 
 분석에는 catalog가 가리키는 verified DB 절대 경로와 SHA-256만 사용한다. Jenkins console
-log retention skip을 bot log coverage로 오해하지 않는다.
+log retention skip을 bot log coverage로 오해하지 않는다. canonical DB의
+`PRAGMA journal_mode`는 `delete`여야 하며, snapshot manifest의
+`snapshot_journal_mode`도 `delete`인지 확인한다.
 
 ## 24시간 뒤 요청 문장
 

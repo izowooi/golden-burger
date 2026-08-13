@@ -1073,9 +1073,29 @@ def _snapshot_database_source(args, source):
         try:
             source_connection.execute("PRAGMA busy_timeout=30000")
             source_connection.backup(destination, pages=4096, sleep=0.02)
+            # SQLite's backup API copies the source database's persistent WAL
+            # journal mode.  The transfer contract, however, moves only the
+            # completed snapshot.db file.  Normalize the private destination
+            # while its connection is still open so the snapshot cannot depend
+            # on transient -wal/-shm sidecars and a read-only quick_check does
+            # not race their teardown on macOS.
+            journal_row = destination.execute("PRAGMA journal_mode=DELETE").fetchone()
+            snapshot_journal_mode = str(journal_row[0]).lower() if journal_row else ""
+            if snapshot_journal_mode != "delete":
+                raise RuntimeError(
+                    "snapshot journal normalization failed: {}".format(
+                        snapshot_journal_mode or "missing"
+                    )
+                )
         finally:
             destination.close()
             source_connection.close()
+        # macOS SQLite may retain an empty shared-memory file even after the
+        # destination reports DELETE mode.  Both SQLite connections are closed
+        # and DELETE mode has checkpointed the private destination, so these
+        # staging-only sidecars are no longer part of the snapshot.
+        for sidecar in (Path(str(target) + "-wal"), Path(str(target) + "-shm")):
+            sidecar.unlink(missing_ok=True)
         check = sqlite3.connect("file:{}?mode=ro".format(target), uri=True)
         try:
             integrity = [row[0] for row in check.execute("PRAGMA quick_check")]
@@ -1120,6 +1140,7 @@ def _snapshot_database_source(args, source):
             "snapshot_size_bytes": target.stat().st_size,
             "sha256": digest,
             "quick_check": integrity,
+            "snapshot_journal_mode": snapshot_journal_mode,
             "data_contract": data_contract,
             "database_utc_date": database_utc_date,
             "elapsed_seconds": round(time.time() - started, 3),

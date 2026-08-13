@@ -14,7 +14,7 @@ Golden Raspberry는 public Polymarket Gamma/CLOB의 지속적인 YES/NO displaye
 - `scripts/`: 검증된 세 shard DB를 읽는 experiment analyzer를 둔다.
 - `tests/`: config, lifecycle, research safety, public API, collector, repository, run audit와 analyzer 계약을 검증한다.
 - `research/frozen-2026-08-13/`: outcome 관측 전에 고정한 `PREREGISTRATION.md`와 그 checksum을 담은 `MANIFEST.sha256`를 보존한다.
-- `data/`: runtime job별 persistent SQLite DB, WAL/SHM, lock와 bot log를 보존한다.
+- `data/`: runtime job별 persistent SQLite DB, process lock와 bot log를 보존한다.
 - `dist/`: wheel과 source distribution build artifact를 둔다.
 - `__pycache__/`: 생성된 Python bytecode cache이며 source로 취급하지 않는다.
 
@@ -124,7 +124,10 @@ Frozen 계약을 바꿔야 하면 기존 파일을 덮어쓰지 말고 새 froze
 ## 주의사항
 
 - Jenkins clean workspace/build, generic clean 또는 wipe로 `data/`를 지우지 않는다.
-- `data/<runtime-job>/trades_sim.db`, WAL/SHM, lock와 logs는 persistent experiment evidence다.
+- `data/<runtime-job>/trades_sim.db`, lock와 logs는 persistent experiment evidence다.
+- SQLite는 single-writer Jenkins cadence와 read-only `daily-rsync` snapshot을 위해 rollback
+  `DELETE` journal을 사용한다. transaction 중 잠깐 생기는 `-journal`은 evidence 파일로
+  따로 보존하지 않는다.
 - DB row를 자동 thinning하거나 수정·삭제·truncate하지 않고 새 DB로 조용히 교체하지 않는다.
 - `trades_sim.db`라는 파일명은 compatibility 이름이며 trade/fill/P&L evidence를 뜻하지 않는다.
 - disk free가 30GiB 미만이거나 사용률이 90% 이상이면 source fetch 전에 중단한다.

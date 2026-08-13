@@ -121,14 +121,16 @@ uv run python scripts/analyze_experiment.py \
 ```text
 data/<runtime-job>/
 ├── trades_sim.db
-├── trades_sim.db-wal
-├── trades_sim.db-shm
+├── .raspberry.lock
 └── logs/YYYYMMDD.log
 ```
 
 bot log는 45일 보존한다. DB는 experiment evidence이므로 자동 thinning/UPDATE/DELETE하지
-않는다. 매 cycle full Gamma membership은 normalized gzip으로, CLOB batch raw body는 gzip과
-SHA-256으로 보존한다. disk free 30GiB 미만 또는 사용률 90% 이상이면 network 전에 중단한다.
+않는다. SQLite는 single-writer cadence에서 rollback `DELETE` journal을 사용해 process가
+끝난 뒤 `daily-rsync`가 source를 read-only online backup할 수 있게 한다. transaction 중
+생기는 `-journal`은 일시 파일이다. 매 cycle full Gamma membership은 normalized gzip으로,
+CLOB batch raw body는 gzip과 SHA-256으로 보존한다. disk free 30GiB 미만 또는 사용률 90%
+이상이면 network 전에 중단한다.
 
 운영·daily-rsync·복구 점검은 [OPERATIONS.md](OPERATIONS.md), 고정 가설과 판정 기준은
 [STRATEGY.md](STRATEGY.md), frozen 계약은
