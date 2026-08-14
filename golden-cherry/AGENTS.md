@@ -23,13 +23,13 @@
 
 1. **`sell_threshold`는 매도 조건이 아니라 매수 상한이다.** `filters.py`가 진입 확률 상한으로, `trader.py`가 `rapid_jump` 트리거로 쓴다. `filters.py`의 `should_sell()` 헬퍼는 어디서도 import되지 않는 죽은 코드다 — grep 결과를 근거로 판단하지 말 것.
 
-2. **매도 GTC 승인 ≠ 체결.** `execute_sell`은 `result.get("orderID")`만 있어도 `sell_price`·`realized_pnl`을 기록하고 `COMPLETED`로 넘긴다. 가격은 `get_midpoint()` 기준 **지정가**이고 재호가·추적·취소 재발행이 없다. 따라서 `trades.realized_pnl`은 성과 지표가 아니다. 성과는 항상 `order_fills.status='CONFIRMED'`로만 계산한다. `execution_ledger`가 되돌리는 경우는 연관 CLOB trade가 **전부 FAILED**일 때뿐이라, "그냥 안 체결된" 매도는 영원히 가짜 `COMPLETED`로 남는다.
+2. **매도 GTC 승인 ≠ 체결.** 2026-08-14 이후 live 신규 주문은 BUY 접수 시 `PENDING_BUY`, SELL 접수 시 `PENDING_SELL`에 머물고 exact order의 `CONFIRMED` fill 합계가 terminal matched 수량과 일치해야 각각 `HOLDING`/`COMPLETED`로 전이한다. 명시적 `fee_rate_bps=0`만 0 fee로 인정한다. 그 이전 legacy `COMPLETED`의 `realized_pnl`은 요청 가격·수량 가정이므로 여전히 성과 지표가 아니며 항상 `order_fills.status='CONFIRMED'`로 별도 감사한다.
 
 3. **`max_positions`는 `PENDING_BUY`/`HOLDING`/`PENDING_SELL`/`QUARANTINED`를 모두 센다.** 유령·좀비 행이 쌓이면 실보유가 0이어도 봇이 신규 매수를 못 한다. 2026-07-22~28 실제로 이 상태로 6일간 정지했다(HOLDING 246 + QUARANTINED 76 vs 상한 10). 파라미터를 만지기 전에 `status`별 건수부터 확인한다.
 
 4. **해결된 시장은 스스로 정리되지 않는다.** 오더북이 사라지면 `get_midpoint`가 예외를 던지고 `execute_sell`이 매 cycle `False`만 반환한다. redeem 회계가 없어서 해결된 YES 포지션은 현금이 되지 않고 `HOLDING`으로 남는다. 정리는 `tools/wind_down.py`와 수동 redeem으로 한다.
 
-   더 위험한 중간 상태가 있다. 해결 직후 오더북이 **완전히 죽기 전** 구간에서는 `get_midpoint`가 예외 대신 **0.50**을 돌려준다. 가격 기반 청산 3규칙에는 해결 여부 가드가 없어서, 봇은 이 0.50을 현재가로 읽고 **이미 이긴(주당 $1.00) 포지션을 손절하려 든다**. 2026-07-28 실행에서 실제로 발생했고 CLOB이 `invalid token id`로 거절해 손실을 면했다 — 봇이 막은 게 아니다. 청산 로직을 만질 때 이 가드를 먼저 넣을 것.
+   더 위험한 중간 상태가 있다. 해결 직후 오더북이 **완전히 죽기 전** 구간에서는 `get_midpoint`가 예외 대신 **0.50**을 돌려줄 수 있다. 2026-07-28에는 이를 현재가로 읽어 이미 이긴 포지션에 손절을 시도했다. 2026-08-14부터 Gamma가 `closed=true`, `active=false`, `acceptingOrders=false` 중 하나를 명시하면 midpoint 조회 전에 CLOB SELL을 차단한다. Gamma 조회 자체가 실패한 경우에는 명시적 해결 증거가 아니므로 기존 위험 청산을 막지 않으며, 수동 redeem 회계는 여전히 필요하다.
 
 5. **`order_fills`에 기록이 없다고 미체결이 아니다.** 계측 시작은 2026-07-11 13:43이고 그 이후에도 누락이 있다. 지갑 잔고가 유일한 권위이므로, 유령 포지션을 정리할 때는 반드시 `tools/wind_down.py status` 또는 CLOB `balance-allowance`로 확인한다. DB만 보고 `UNFILLED` 처리하면 실보유를 날린다.
 
@@ -53,7 +53,7 @@
 
 ## 환경변수
 
-25개 전부 `README.md`와 `docs/retro/golden-cherry.md`에 문서화되어 있다(검증 완료). 그 외에 런타임이 읽지만 cherry 문서가 다루지 않는 것:
+전략 환경변수는 `README.md`와 `docs/retro/golden-cherry.md`에 문서화한다. live BUY exact zero-fill 주문은 `POLYBOT_PENDING_BUY_TTL_MINUTES`(기본 30분, 5~1440분) 이후 authoritative cancellation이 확인된 경우에만 `UNFILLED`로 종결한다. 그 외에 런타임이 읽지만 cherry 문서가 다루지 않는 것:
 
 - `POLYBOT_DB_MAINTENANCE` — 값이 있는데 `compact-v1`이 아니면 **run이 예외로 죽는다**.
 - `POLYBOT_DB_BACKUP_DIR`, `POLYBOT_DB_HOT_HOURS`, `POLYBOT_DB_ROLLUP_HOURS`, `POLYBOT_DB_RETENTION_DAYS`(cherry 기본 7일), `POLYBOT_DB_MAINTENANCE_INTERVAL_HOURS`, `POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS`

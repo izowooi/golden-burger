@@ -1,0 +1,206 @@
+"""Exact execution-ledger evidence for the live Cherry lifecycle."""
+
+from __future__ import annotations
+
+import pytest
+from sqlalchemy import text
+
+from polybot.db.models import init_database
+from polybot.db.repository import TradeRepository
+
+
+def make_repo(tmp_path):
+    Session = init_database(str(tmp_path / "fills.db"))
+    session = Session()
+    return session, TradeRepository(session)
+
+
+def create_ledger_tables(session):
+    session.execute(
+        text(
+            """
+            CREATE TABLE order_submissions (
+                submission_id TEXT,
+                order_id TEXT,
+                side TEXT,
+                requested_size REAL,
+                latest_order_status TEXT,
+                latest_size_matched REAL,
+                latest_status_domain_error TEXT,
+                needs_reconciliation INTEGER,
+                reconciliation_error TEXT,
+                simulation INTEGER
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE TABLE order_fills (
+                submission_id TEXT,
+                order_id TEXT,
+                status TEXT,
+                side TEXT,
+                size REAL,
+                price REAL,
+                fee_rate_bps REAL,
+                fee_amount_usdc REAL,
+                matched_at TEXT,
+                domain_error TEXT
+            )
+            """
+        )
+    )
+    session.commit()
+
+
+def insert_submission(
+    session,
+    *,
+    order_id="order-1",
+    side="BUY",
+    status="LIVE",
+    requested=5.0,
+    matched=0.0,
+    reconciliation=0,
+):
+    session.execute(
+        text(
+            "INSERT INTO order_submissions "
+            "(submission_id, order_id, side, requested_size, "
+            "latest_order_status, latest_size_matched, "
+            "latest_status_domain_error, needs_reconciliation, "
+            "reconciliation_error, simulation) VALUES "
+            "(:submission, :order_id, :side, :requested, :status, :matched, "
+            "NULL, :reconciliation, NULL, 0)"
+        ),
+        {
+            "submission": f"submission-{order_id}",
+            "order_id": order_id,
+            "side": side,
+            "requested": requested,
+            "status": status,
+            "matched": matched,
+            "reconciliation": reconciliation,
+        },
+    )
+    session.commit()
+
+
+def insert_fill(
+    session,
+    *,
+    order_id="order-1",
+    side="BUY",
+    size=5.0,
+    price=0.95,
+    fee_rate=0,
+    fee=None,
+):
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, status, side, size, price, "
+            "fee_rate_bps, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission, :order_id, 'CONFIRMED', :side, :size, :price, "
+            ":fee_rate, :fee, '2026-08-14T00:00:00Z', NULL)"
+        ),
+        {
+            "submission": f"submission-{order_id}",
+            "order_id": order_id,
+            "side": side,
+            "size": size,
+            "price": price,
+            "fee_rate": fee_rate,
+            "fee": fee,
+        },
+    )
+    session.commit()
+
+
+def test_missing_ledger_fails_closed(tmp_path):
+    session, repo = make_repo(tmp_path)
+    evidence = repo.get_exact_buy_fill_evidence("accepted-order")
+    assert evidence.state == "unavailable"
+    assert evidence.detail == "ledger_tables_missing"
+    session.close()
+
+
+def test_accepted_live_zero_fill_is_pending_not_holding(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="live-zero",
+        status="LIVE",
+        matched=0,
+        reconciliation=1,
+    )
+    evidence = repo.get_exact_buy_fill_evidence("live-zero")
+    assert evidence.state == "pending"
+    assert evidence.order_status == "LIVE"
+    assert evidence.has_confirmed_fill is False
+    session.close()
+
+
+@pytest.mark.parametrize("status", ["CANCELED", "CANCELLED", "INVALID"])
+def test_terminal_exact_zero_proves_unfilled(tmp_path, status):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(session, order_id="zero", status=status, matched=0)
+    evidence = repo.get_exact_buy_fill_evidence("zero")
+    assert evidence.state == "terminal_zero_fill"
+    assert evidence.confirmed_size == 0.0
+    session.close()
+
+
+def test_matched_quantized_fill_and_explicit_zero_fee_are_complete(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="quantized",
+        status="MATCHED",
+        requested=5.224660397,
+        matched=5.22,
+    )
+    insert_fill(session, order_id="quantized", size=5.22, fee_rate=0, fee=None)
+    evidence = repo.get_exact_buy_fill_evidence("quantized")
+    assert evidence.state == "confirmed"
+    assert evidence.confirmed_size == 5.22
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.fee_complete is True
+    assert evidence.confirmed_fee_usdc == 0.0
+    session.close()
+
+
+def test_nonzero_rate_without_fee_amount_remains_incomplete(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session, order_id="fee-gap", status="MATCHED", matched=5.0
+    )
+    insert_fill(session, order_id="fee-gap", fee_rate=30, fee=None)
+    evidence = repo.get_exact_buy_fill_evidence("fee-gap")
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.fee_complete is False
+    assert evidence.confirmed_fee_usdc is None
+    session.close()
+
+
+def test_side_mismatch_never_authorizes_a_fill(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="sell-order",
+        side="SELL",
+        status="MATCHED",
+        matched=5.0,
+    )
+    insert_fill(session, order_id="sell-order", side="SELL")
+    evidence = repo.get_exact_buy_fill_evidence("sell-order")
+    assert evidence.state == "unavailable"
+    assert evidence.detail == "submission_side_mismatch"
+    session.close()

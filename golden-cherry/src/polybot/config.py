@@ -123,6 +123,7 @@ class TradingConfig:
     max_positions: int = 100
     max_open_notional_usdc: float = 5000.0
     max_new_positions_per_cycle: int = 5
+    pending_buy_ttl_minutes: int = 30
     take_profit_percent: float = 0.15     # 이익실현 +15%
     stop_loss_percent: float = -0.08      # 손절 -8%
     trailing_stop: TrailingStopConfig = field(default_factory=TrailingStopConfig)
@@ -180,6 +181,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_positions": trading.max_positions,
         "max_open_notional_usdc": trading.max_open_notional_usdc,
         "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
+        "pending_buy_ttl_minutes": trading.pending_buy_ttl_minutes,
         "take_profit_percent": trading.take_profit_percent,
         "stop_loss_percent": trading.stop_loss_percent,
         "trailing_stop.percent": trailing.percent,
@@ -214,6 +216,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if not 0 < trading.max_new_positions_per_cycle <= trading.max_positions:
         raise ValueError(
             "max_new_positions_per_cycle must be > 0 and <= max_positions"
+        )
+    if not 5 <= trading.pending_buy_ttl_minutes <= 1440:
+        raise ValueError(
+            "pending_buy_ttl_minutes must be between 5 and 1440"
         )
     if not 0 < trading.take_profit_percent <= 10:
         raise ValueError("take_profit_percent must be > 0 and <= 10")
@@ -399,6 +405,12 @@ def load_config(
             "POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE",
             trading_cfg.get("max_new_positions_per_cycle"),
             5,
+            int,
+        ),
+        pending_buy_ttl_minutes=_get_config_value(
+            "POLYBOT_PENDING_BUY_TTL_MINUTES",
+            trading_cfg.get("pending_buy_ttl_minutes"),
+            30,
             int,
         ),
         take_profit_percent=_get_config_value(

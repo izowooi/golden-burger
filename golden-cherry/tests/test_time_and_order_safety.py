@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
+import pytest
+
 from polybot_observability import (
     ClobResponseUnavailableError,
     SubmissionEvidenceError,
@@ -51,10 +53,17 @@ class FakeRepo:
 
 
 class FakeClob:
-    def __init__(self, midpoint=0.85, results=None, token_balance=None):
+    def __init__(
+        self,
+        midpoint=0.85,
+        results=None,
+        token_balance=None,
+        simulation_mode=False,
+    ):
         self.midpoint = midpoint
         self.results = list(results or [{"success": True, "orderID": "ORDER"}])
         self.token_balance = token_balance
+        self.simulation_mode = simulation_mode
         self.orders = []
         self.cancelled = []
 
@@ -265,10 +274,12 @@ def test_live_token_balance_clamps_sell_before_order():
     )
     trader = Trader(repo, clob, TradingConfig())
 
-    assert trader.execute_sell(make_trade(buy_shares=9248.5549)) is True
+    assert trader.execute_sell(make_trade(buy_shares=9248.5549)) is False
     assert [order["size"] for order in clob.orders] == [9248.547141]
-    assert repo.updates[-1][1]["sell_shares"] == 9248.547141
-    assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+    assert repo.updates[-1][1]["pending_sell_remaining_shares"] == pytest.approx(
+        0.0
+    )
+    assert repo.updates[-1][1]["status"] == TradeStatus.PENDING_SELL
 
 
 def test_clob_conditional_balance_is_scaled_from_micro_shares():
@@ -322,10 +333,12 @@ def test_reported_token_balance_retries_one_micro_share_below_balance():
     )
     trader = Trader(repo, clob, TradingConfig())
 
-    assert trader.execute_sell(make_trade()) is True
+    assert trader.execute_sell(make_trade()) is False
     assert [order["size"] for order in clob.orders] == [6.0, 5.499999]
-    assert repo.updates[-1][1]["sell_shares"] == 5.499999
-    assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+    assert repo.updates[-1][1]["pending_sell_remaining_shares"] == pytest.approx(
+        0.000001
+    )
+    assert repo.updates[-1][1]["status"] == TradeStatus.PENDING_SELL
 
 
 def test_generic_large_partial_sell_keeps_sellable_remainder_open():
@@ -341,8 +354,8 @@ def test_generic_large_partial_sell_keeps_sellable_remainder_open():
 
     assert trader.execute_sell(make_trade(buy_shares=1000.0)) is False
     assert [order["size"] for order in clob.orders] == [1000.0, 990.0]
-    assert repo.updates[-1][1]["buy_shares"] == 10.0
-    assert repo.updates[-1][1]["status"] == TradeStatus.HOLDING
+    assert repo.updates[-1][1]["pending_sell_remaining_shares"] == 10.0
+    assert repo.updates[-1][1]["status"] == TradeStatus.PENDING_SELL
 
 
 def test_game_start_filter_uses_start_not_late_end_date():

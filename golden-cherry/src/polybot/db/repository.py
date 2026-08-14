@@ -8,6 +8,7 @@ from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
+from .fill_evidence import ExactFillEvidence, get_exact_order_fill_evidence
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,28 @@ class TradeRepository:
         return self.session.query(Trade).filter(
             Trade.status == TradeStatus.PENDING_BUY
         ).all()
+
+    def get_pending_sell_trades(self) -> List[Trade]:
+        """Get all trades waiting for exact sell-fill reconciliation."""
+        return self.session.query(Trade).filter(
+            Trade.status == TradeStatus.PENDING_SELL
+        ).all()
+
+    def get_exact_buy_fill_evidence(
+        self, order_id: Optional[str]
+    ) -> ExactFillEvidence:
+        """Return fail-closed exact BUY fill evidence for one order."""
+        return get_exact_order_fill_evidence(
+            self.session, order_id, expected_side="BUY"
+        )
+
+    def get_exact_sell_fill_evidence(
+        self, order_id: Optional[str]
+    ) -> ExactFillEvidence:
+        """Return fail-closed exact SELL fill evidence for one order."""
+        return get_exact_order_fill_evidence(
+            self.session, order_id, expected_side="SELL"
+        )
 
     def get_trades_by_date(self, target_date: date) -> List[Trade]:
         """Get trades executed on a specific date."""
@@ -181,6 +204,14 @@ class TradeRepository:
             Trade.status == TradeStatus.HOLDING
         ).scalar() or 0
 
+        pending_buy = self.session.query(func.count(Trade.id)).filter(
+            Trade.status == TradeStatus.PENDING_BUY
+        ).scalar() or 0
+
+        pending_sell = self.session.query(func.count(Trade.id)).filter(
+            Trade.status == TradeStatus.PENDING_SELL
+        ).scalar() or 0
+
         completed = self.session.query(func.count(Trade.id)).filter(
             Trade.status == TradeStatus.COMPLETED
         ).scalar() or 0
@@ -198,6 +229,8 @@ class TradeRepository:
         return {
             "total_trades": total,
             "holding": holding,
+            "pending_buy": pending_buy,
+            "pending_sell": pending_sell,
             "completed": completed,
             "quarantined": quarantined,
             "skipped": skipped,

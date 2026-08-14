@@ -68,7 +68,12 @@ class PolymarketBot:
 
         # Scanner for finding candidates
         scanner = MarketScanner(self.gamma, self.config.trading, repo)
-        trader = Trader(repo, self.clob, self.config.trading)
+        trader = Trader(
+            repo,
+            self.clob,
+            self.config.trading,
+            gamma_client=self.gamma,
+        )
 
         stats = {
             "lifecycle_mode": self.config.trading.lifecycle_mode,
@@ -76,6 +81,10 @@ class PolymarketBot:
             "sold": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "legacy_buys_reclassified": 0,
+            "pending_buys_checked": 0,
+            "pending_buys_activated": 0,
+            "pending_sells_checked": 0,
         }
 
         try:
@@ -116,6 +125,10 @@ class PolymarketBot:
                     self.config.trading.max_new_positions_per_cycle,
                     self.config.trading.effective_min_liquidity,
                 )
+                logger.info(
+                    "exact zero-fill BUY TTL - %s분",
+                    self.config.trading.pending_buy_ttl_minutes,
+                )
             else:
                 logger.info("시간 기반 필터 비활성화 (확률 조건만 사용)")
 
@@ -126,7 +139,33 @@ class PolymarketBot:
                     "=== Phase 1 건너뜀: archive_only 모드에서는 주문을 생성하지 않습니다 ==="
                 )
             else:
-                # Phase 1: Check and sell holdings
+                logger.info("=== Phase 0: exact BUY/SELL fill 대사 ===")
+                # Narrow migration for legacy rows that were marked HOLDING on
+                # GTC acceptance even though their exact BUY order is still
+                # LIVE without full-fill proof.
+                holdings = repo.get_holding_trades()
+                for trade in holdings:
+                    if trader.reclassify_unconfirmed_live_buy(trade):
+                        stats["legacy_buys_reclassified"] += 1
+
+                pending_buys = repo.get_pending_buy_trades()
+                stats["pending_buys_checked"] = len(pending_buys)
+                for trade in pending_buys:
+                    if trader.reconcile_pending_buy(trade):
+                        stats["pending_buys_activated"] += 1
+
+                pending_sells = repo.get_pending_sell_trades()
+                stats["pending_sells_checked"] = len(pending_sells)
+                for trade in pending_sells:
+                    if trader.reconcile_pending_sell(trade):
+                        stats["sold"] += 1
+                        updated_trade = repo.get_by_id(trade.id)
+                        if updated_trade:
+                            repo.append_trade_to_csv(
+                                updated_trade, self.config.db_path.parent
+                            )
+
+                # Phase 1: Check only fill-confirmed holdings for sell signals.
                 logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
                 holdings = repo.get_holding_trades()
                 stats["checked_holdings"] = len(holdings)
@@ -173,7 +212,16 @@ class PolymarketBot:
             logger.info(f"매도: {stats['sold']}건")
             logger.info(f"매수 후보: {stats['buy_candidates']}개")
             logger.info(f"매수: {stats['bought']}건")
-            logger.info(f"총 포지션: {db_stats['holding']}개")
+            logger.info(
+                "총 open 포지션: %s개 (PENDING_BUY=%s, HOLDING=%s, "
+                "PENDING_SELL=%s)",
+                db_stats["pending_buy"]
+                + db_stats["holding"]
+                + db_stats["pending_sell"],
+                db_stats["pending_buy"],
+                db_stats["holding"],
+                db_stats["pending_sell"],
+            )
             logger.info(f"총 P&L: ${db_stats['total_pnl']:.4f}")
 
             return stats

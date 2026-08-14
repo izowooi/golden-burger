@@ -147,6 +147,10 @@ Examples:
         print(f"Max Open Notional: ${config.trading.max_open_notional_usdc:,.0f}")
         print(f"Max New Positions / Cycle: {config.trading.max_new_positions_per_cycle}")
         print(
+            "Pending BUY Zero-Fill TTL: "
+            f"{config.trading.pending_buy_ttl_minutes} minutes"
+        )
+        print(
             "Pregame / Non-sports Entry Window: "
             f"{config.trading.time_based.entry_hours_min}-"
             f"{config.trading.time_based.entry_hours_max}h"

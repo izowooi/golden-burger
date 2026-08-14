@@ -2,7 +2,7 @@
 import logging
 import math
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_DOWN
 from typing import Optional
 from polybot_observability import (
@@ -10,7 +10,7 @@ from polybot_observability import (
     SubmissionEvidenceError,
 )
 
-from ..db.repository import TradeRepository
+from ..db.repository import ExactFillEvidence, TradeRepository
 from ..db.models import TradeStatus
 from ..api.clob_client import ClobClientWrapper
 from ..config import TradingConfig
@@ -143,6 +143,7 @@ class Trader:
         repo: TradeRepository,
         clob_client: ClobClientWrapper,
         config: TradingConfig,
+        gamma_client=None,
     ):
         """Initialize trader.
 
@@ -154,6 +155,10 @@ class Trader:
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.gamma = gamma_client
+        self.simulation_mode = bool(
+            getattr(clob_client, "simulation_mode", False)
+        )
         self.buying_disabled = False
         self.buys_placed_this_cycle = 0
 
@@ -355,7 +360,11 @@ class Trader:
                 buy_probability=current_price,
                 liquidity_at_buy=candidate["liquidity"],
                 market_tags=candidate.get("market_tags", ""),
-                status=TradeStatus.HOLDING,
+                status=(
+                    TradeStatus.HOLDING
+                    if self.simulation_mode
+                    else TradeStatus.PENDING_BUY
+                ),
                 # Resolution momentum strategy fields
                 entry_reason=entry_reason,
                 max_price=current_price,  # Initialize max_price with buy price
@@ -369,7 +378,17 @@ class Trader:
                 sports_phase_at_buy=game_start.phase,
             )
 
-            logger.info(f"매수 주문 완료: Trade #{trade.id}, Order: {result.get('orderID')}")
+            if self.simulation_mode:
+                logger.info(
+                    "simulation 매수 완료: Trade #%s, Order: %s",
+                    trade.id,
+                    result.get("orderID"),
+                )
+            else:
+                logger.info(
+                    "매수 주문 접수: Trade #%s, exact confirmed fill 대기",
+                    trade.id,
+                )
             self.buys_placed_this_cycle += 1
             return trade.id
         else:
@@ -488,6 +507,292 @@ class Trader:
         unsold_size = max(0.0, retry_basis - retry_size)
         return retry_result, retry_size, unsold_size
 
+    @staticmethod
+    def _actual_fill_ready(evidence: ExactFillEvidence) -> bool:
+        """Return whether exact full-fill and fee evidence are complete."""
+        return (
+            evidence.has_reconciled_full_fill
+            and evidence.fee_complete
+            and evidence.confirmed_size is not None
+            and evidence.confirmed_size > 0
+            and evidence.confirmed_vwap is not None
+            and 0 < evidence.confirmed_vwap <= 1
+            and evidence.confirmed_fee_usdc is not None
+            and evidence.confirmed_fee_usdc >= 0
+        )
+
+    def reclassify_unconfirmed_live_buy(self, trade) -> bool:
+        """Move legacy accepted-but-unfilled LIVE BUY rows out of HOLDING.
+
+        This is intentionally narrow: only an exact linked BUY submission that
+        is still LIVE and lacks reconciled full-fill proof may be reclassified.
+        Historical rows with missing or ambiguous evidence remain untouched.
+        """
+        if self.simulation_mode:
+            return False
+        evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None)
+        )
+        if (
+            evidence.order_status != "LIVE"
+            or evidence.state not in {"pending", "confirmed"}
+            or evidence.has_reconciled_full_fill
+        ):
+            return False
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.PENDING_BUY,
+            exit_reason="accepted_buy_waiting_for_exact_fill",
+            realized_pnl=None,
+            pnl_basis=None,
+        )
+        logger.warning(
+            "접수만 된 legacy LIVE BUY를 PENDING_BUY로 교정: Trade #%s "
+            "matched=%s detail=%s",
+            trade.id,
+            evidence.latest_size_matched,
+            evidence.detail,
+        )
+        return True
+
+    def reconcile_pending_buy(self, trade) -> bool:
+        """Activate a position only after exact full BUY fill evidence."""
+        if self.simulation_mode:
+            logger.error(
+                "simulation trade가 PENDING_BUY에 남아 있습니다 - trade=%s",
+                trade.id,
+            )
+            return False
+        evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None)
+        )
+        if evidence.state == "terminal_zero_fill":
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.UNFILLED,
+                exit_reason="buy_terminal_zero_fill",
+                realized_pnl=None,
+                pnl_basis=None,
+            )
+            logger.warning(
+                "exact terminal zero-fill BUY 증거로 UNFILLED: Trade #%s",
+                trade.id,
+            )
+            return False
+
+        if (
+            evidence.has_reconciled_full_fill
+            and evidence.confirmed_size is not None
+            and evidence.confirmed_vwap is not None
+        ):
+            actual_notional = evidence.confirmed_size * evidence.confirmed_vwap
+            if evidence.fee_complete and evidence.confirmed_fee_usdc is not None:
+                actual_notional += evidence.confirmed_fee_usdc
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.HOLDING,
+                exit_reason=None,
+                buy_price=evidence.confirmed_vwap,
+                buy_amount=actual_notional,
+                buy_shares=evidence.confirmed_size,
+                buy_confirmed_size=evidence.confirmed_size,
+                buy_confirmed_vwap=evidence.confirmed_vwap,
+                buy_confirmed_fee_usdc=(
+                    evidence.confirmed_fee_usdc
+                    if evidence.fee_complete
+                    else None
+                ),
+            )
+            logger.info(
+                "exact full BUY fill로 HOLDING 활성화: Trade #%s "
+                "size=%.6f vwap=%.4f fee_complete=%s",
+                trade.id,
+                evidence.confirmed_size,
+                evidence.confirmed_vwap,
+                evidence.fee_complete,
+            )
+            return True
+
+        # A zero-fill GTC BUY must not reserve exposure forever.  Cancel only
+        # after the exact order remains LIVE, reports exactly zero matched, and
+        # exceeds the configured TTL.  Partial fills are never auto-cancelled by
+        # this zero-fill path.
+        buy_timestamp = getattr(trade, "buy_timestamp", None)
+        if buy_timestamp is not None and buy_timestamp.tzinfo is not None:
+            buy_timestamp = buy_timestamp.astimezone(timezone.utc).replace(
+                tzinfo=None
+            )
+        expired = (
+            buy_timestamp is not None
+            and _utcnow_naive() - buy_timestamp
+            >= timedelta(minutes=self.config.pending_buy_ttl_minutes)
+        )
+        if (
+            expired
+            and evidence.state == "pending"
+            and evidence.order_status == "LIVE"
+            and evidence.latest_size_matched == 0.0
+            and evidence.order_id
+        ):
+            try:
+                self.clob.cancel_order(evidence.order_id)
+            except SubmissionEvidenceError as error:
+                logger.warning(
+                    "만료 zero-fill BUY 취소 증명 실패로 PENDING_BUY 유지: "
+                    "Trade #%s error=%s",
+                    trade.id,
+                    type(error).__name__,
+                )
+                return False
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.UNFILLED,
+                exit_reason="buy_pending_ttl_zero_fill",
+                realized_pnl=None,
+                pnl_basis=None,
+            )
+            logger.warning(
+                "만료된 exact zero-fill BUY를 취소하고 UNFILLED 처리: "
+                "Trade #%s ttl=%sm",
+                trade.id,
+                self.config.pending_buy_ttl_minutes,
+            )
+            return False
+
+        logger.info(
+            "BUY full-fill 대사 대기: Trade #%s state=%s status=%s "
+            "matched=%s full=%s detail=%s",
+            trade.id,
+            evidence.state,
+            evidence.order_status,
+            evidence.latest_size_matched,
+            evidence.has_reconciled_full_fill,
+            evidence.detail,
+        )
+        return False
+
+    def reconcile_pending_sell(self, trade) -> bool:
+        """Finalize a live exit only from exact full SELL fill evidence."""
+        if self.simulation_mode:
+            logger.error(
+                "simulation trade가 PENDING_SELL에 남아 있습니다 - trade=%s",
+                trade.id,
+            )
+            return False
+        sell_evidence = self.repo.get_exact_sell_fill_evidence(
+            getattr(trade, "sell_order_id", None)
+        )
+        pending_reason = str(getattr(trade, "exit_reason", "") or "")
+        base_reason = pending_reason.removesuffix("_pending_confirmed_fill")
+        if sell_evidence.state == "terminal_zero_fill":
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.HOLDING,
+                exit_reason=f"{base_reason or 'exit'}_sell_terminal_zero_fill",
+                sell_price=None,
+                sell_order_id=None,
+                sell_timestamp=None,
+                sell_probability=None,
+                sell_confirmed_size=None,
+                sell_confirmed_vwap=None,
+                sell_confirmed_fee_usdc=None,
+                sell_fill_matched_at=None,
+                pending_sell_remaining_shares=None,
+            )
+            logger.warning(
+                "exact terminal zero-fill SELL 증거로 HOLDING 복귀: Trade #%s",
+                trade.id,
+            )
+            return False
+        if not self._actual_fill_ready(sell_evidence):
+            logger.warning(
+                "SELL full-fill/fee 대사 미완료로 PENDING_SELL 유지: "
+                "Trade #%s state=%s full=%s fee=%s detail=%s",
+                trade.id,
+                sell_evidence.state,
+                sell_evidence.has_reconciled_full_fill,
+                sell_evidence.fee_complete,
+                sell_evidence.detail,
+            )
+            return False
+
+        buy_evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None)
+        )
+        realized_pnl = None
+        pnl_basis = "exact_sell_confirmed_fill_buy_evidence_unavailable"
+        if (
+            self._actual_fill_ready(buy_evidence)
+            and sell_evidence.confirmed_size
+            <= buy_evidence.confirmed_size + 1e-6
+        ):
+            buy_fee_allocation = buy_evidence.confirmed_fee_usdc * min(
+                1.0,
+                sell_evidence.confirmed_size / buy_evidence.confirmed_size,
+            )
+            current_pnl = (
+                (sell_evidence.confirmed_vwap - buy_evidence.confirmed_vwap)
+                * sell_evidence.confirmed_size
+                - buy_fee_allocation
+                - sell_evidence.confirmed_fee_usdc
+            )
+            previous_exact_pnl = (
+                float(getattr(trade, "realized_pnl", None) or 0.0)
+                if str(getattr(trade, "pnl_basis", "") or "").startswith(
+                    "exact_reconciled"
+                )
+                else 0.0
+            )
+            realized_pnl = previous_exact_pnl + current_pnl
+            pnl_basis = "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+
+        remaining = max(
+            0.0,
+            float(getattr(trade, "pending_sell_remaining_shares", None) or 0.0),
+        )
+        completed = remaining < MIN_ORDER_SIZE
+        previous_sell_shares = float(
+            getattr(trade, "sell_shares", None) or 0.0
+        )
+        update_fields = dict(
+            status=(TradeStatus.COMPLETED if completed else TradeStatus.HOLDING),
+            exit_reason=(
+                f"{base_reason or 'exit'}_confirmed_fill"
+                if completed
+                else f"partial_{base_reason or 'exit'}_confirmed_fill"
+            ),
+            sell_price=sell_evidence.confirmed_vwap,
+            sell_shares=previous_sell_shares + sell_evidence.confirmed_size,
+            sell_confirmed_size=sell_evidence.confirmed_size,
+            sell_confirmed_vwap=sell_evidence.confirmed_vwap,
+            sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
+            sell_fill_matched_at=sell_evidence.matched_at,
+            pending_sell_remaining_shares=None,
+            realized_pnl=realized_pnl,
+            pnl_basis=pnl_basis,
+        )
+        if not completed:
+            update_fields["buy_shares"] = remaining
+        self.repo.update_trade(trade.id, **update_fields)
+        if completed:
+            logger.info(
+                "exact confirmed SELL로 COMPLETED: Trade #%s size=%.6f "
+                "vwap=%.4f pnl_known=%s",
+                trade.id,
+                sell_evidence.confirmed_size,
+                sell_evidence.confirmed_vwap,
+                realized_pnl is not None,
+            )
+            return True
+        logger.warning(
+            "exact partial SELL 확정 후 잔여 HOLDING: Trade #%s "
+            "sold=%.6f remaining=%.6f",
+            trade.id,
+            sell_evidence.confirmed_size,
+            remaining,
+        )
+        return False
+
     def execute_sell(self, trade) -> bool:
         """Execute sell order for a holding position.
 
@@ -505,6 +810,30 @@ class Trader:
         """
         token_id = trade.token_id
         condition_id = trade.condition_id
+
+        # Gamma can explicitly prove that a market is no longer tradeable.
+        # Never interpret a dead-book 0.50 midpoint as a stop-loss signal.
+        if self.gamma is not None:
+            try:
+                market = self.gamma.get_market_by_condition_id(condition_id)
+            except Exception as error:  # noqa: BLE001 - keep risk exits available
+                logger.warning(
+                    "시장 상태 가드 조회 실패 - condition=%s error=%s",
+                    condition_id,
+                    type(error).__name__,
+                )
+                market = None
+            if market is not None and (
+                market.get("closed") is True
+                or market.get("active") is False
+                or market.get("acceptingOrders") is False
+            ):
+                logger.warning(
+                    "종료/비거래 시장의 CLOB SELL 차단 - condition=%s; "
+                    "resolution/redeem 경로에서 처리해야 합니다",
+                    condition_id,
+                )
+                return False
 
         # Get current price
         try:
@@ -602,6 +931,34 @@ class Trader:
 
         # Check result
         if result.get("success") or result.get("orderID"):
+            if not self.simulation_mode:
+                self.repo.update_trade(
+                    trade.id,
+                    sell_price=current_price,
+                    sell_order_id=result.get("orderID"),
+                    sell_timestamp=_utcnow_naive(),
+                    sell_probability=current_price,
+                    sell_confirmed_size=None,
+                    sell_confirmed_vwap=None,
+                    sell_confirmed_fee_usdc=None,
+                    sell_fill_matched_at=None,
+                    pending_sell_remaining_shares=unsold_shares,
+                    status=TradeStatus.PENDING_SELL,
+                    exit_reason=f"{exit_reason}_pending_confirmed_fill",
+                )
+                logger.info(
+                    "%s SELL 접수, exact confirmed fill 대기: "
+                    "Trade #%s submitted=%.6f remaining=%.6f",
+                    exit_reason,
+                    trade.id,
+                    sell_shares,
+                    unsold_shares,
+                )
+                return False
+
+            # Simulation has no authoritative CLOB fill ledger.  Preserve its
+            # explicitly hypothetical immediate transition and never mix it
+            # with live realized P&L.
             # Calculate P&L
             sell_value = current_price * sell_shares
             buy_value = trade.buy_price * sell_shares
@@ -633,7 +990,8 @@ class Trader:
                 sell_probability=current_price,
                 realized_pnl=realized_pnl,
                 status=next_status,
-                exit_reason=next_exit_reason,
+                exit_reason=f"{next_exit_reason}_simulation_hypothetical",
+                pnl_basis="simulation_hypothetical_midpoint_fees_excluded",
             )
             if not completed:
                 update_fields["buy_shares"] = unsold_shares

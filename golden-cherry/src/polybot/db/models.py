@@ -42,6 +42,9 @@ class Trade(Base):
     buy_order_id = Column(String, nullable=True)
     buy_timestamp = Column(DateTime, nullable=True)
     buy_probability = Column(Float, nullable=True)
+    buy_confirmed_size = Column(Float, nullable=True)
+    buy_confirmed_vwap = Column(Float, nullable=True)
+    buy_confirmed_fee_usdc = Column(Float, nullable=True)
 
     # Sell information
     sell_price = Column(Float, nullable=True)
@@ -49,9 +52,15 @@ class Trade(Base):
     sell_order_id = Column(String, nullable=True)
     sell_timestamp = Column(DateTime, nullable=True)
     sell_probability = Column(Float, nullable=True)
+    sell_confirmed_size = Column(Float, nullable=True)
+    sell_confirmed_vwap = Column(Float, nullable=True)
+    sell_confirmed_fee_usdc = Column(Float, nullable=True)
+    sell_fill_matched_at = Column(String, nullable=True)
+    pending_sell_remaining_shares = Column(Float, nullable=True)
 
     # Profit/Loss
     realized_pnl = Column(Float, nullable=True)
+    pnl_basis = Column(String, nullable=True)
 
     # Status
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY)
@@ -138,6 +147,15 @@ def init_database(
         "hours_until_entry_deadline_at_buy": "FLOAT",
         "sports_market_type": "TEXT",
         "sports_phase_at_buy": "TEXT",
+        "buy_confirmed_size": "FLOAT",
+        "buy_confirmed_vwap": "FLOAT",
+        "buy_confirmed_fee_usdc": "FLOAT",
+        "sell_confirmed_size": "FLOAT",
+        "sell_confirmed_vwap": "FLOAT",
+        "sell_confirmed_fee_usdc": "FLOAT",
+        "sell_fill_matched_at": "TEXT",
+        "pending_sell_remaining_shares": "FLOAT",
+        "pnl_basis": "TEXT",
     }
     with engine.begin() as conn:
         existing = {

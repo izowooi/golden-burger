@@ -80,6 +80,11 @@ order, exact trade association, partial fill을 execution ledger에 기록하고
 정합성을 보존할 수 없는 실패는 fail closed한다. 회고 성과는 아래 decision/status 행이 아니라
 `CONFIRMED order_fills`를 기준으로 다시 계산한다.
 
+2026-08-14 이후 live 신규 BUY는 `PENDING_BUY`, 신규 SELL은 `PENDING_SELL`에서 시작한다.
+exact confirmed full fill이 대사돼야 각각 `HOLDING`/`COMPLETED`로 전이하며, explicit
+`fee_rate_bps=0`인 경우만 누락된 fee amount를 증명된 0 fee로 취급한다. 이전 legacy 행에는
+이 계약을 소급해 수익을 채우지 않는다.
+
 **파라미터 표** (env > config.yaml > 코드 기본값. env 이름은 `src/polybot/config.py` 실제 파싱 코드 기준):
 
 | 파라미터 | env 이름 | config.yaml 기본값 | 의미 |
@@ -93,6 +98,7 @@ order, exact trade association, partial fill을 execution ledger에 기록하고
 | 최대 동시 포지션 | `POLYBOT_MAX_POSITIONS` | 100 | 무제한 금지 |
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | 5000 | 요청 BUY 원금 합계 |
 | cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 5 | burst 제한 |
+| zero-fill BUY TTL | `POLYBOT_PENDING_BUY_TTL_MINUTES` | 30 | exact LIVE·0 fill 주문을 취소하기 전 분 단위 대기시간 |
 | 익절 | `POLYBOT_TAKE_PROFIT` | 0.10 | 진입가 대비 (코드 기본은 0.15) |
 | 손절 | `POLYBOT_STOP_LOSS` | -0.08 | 진입가 대비 |
 | 트레일링 on/off | `POLYBOT_TRAILING_STOP_ENABLED` | true | |
@@ -150,8 +156,9 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
 | `market_slug`, `question`, `outcome` | outcome은 "Yes"/"No" — NO 포지션 구분에 필수 |
 | `buy_price`, `buy_amount`, `buy_shares`, `buy_timestamp`, `buy_probability` | 매수 정보. buy_price = buy_probability = 매수 시 midpoint |
 | `sell_price`, `sell_shares`, `sell_timestamp`, `sell_probability` | 매도 정보 |
-| `realized_pnl` | **성과 지표로 쓰지 말 것.** 매도 GTC가 `orderID`만 받아도 (체결 여부와 무관하게) 요청 가격×요청 수량으로 기록된다. 성과는 `order_fills.status='CONFIRMED'`로만 계산한다. 부분 매도 HOLDING에서는 누적 실현값이다 |
-| `buy_shares` | 부분 매도가 일어나면 **미매도 잔량으로 덮어써진다** — "매수한 주수"가 아니다. 원가 계산에 그대로 쓰면 틀린다 |
+| `realized_pnl` | 2026-08-14 이전 legacy 행은 요청 가격×요청 수량 가정일 수 있어 **성과 지표로 쓰지 말 것**. 이후 exact lifecycle 행도 `pnl_basis='exact_reconciled_buy_sell_confirmed_fills_net_known_fees'`와 양쪽 confirmed coverage를 함께 확인한다 |
+| `buy_shares` | exact BUY fill 후 실제 confirmed size로 보정된다. 부분 SELL이 확정되면 미매도 잔량으로 덮어써질 수 있으므로 원래 매수량은 `buy_confirmed_size`를 사용한다 |
+| `buy_confirmed_*`, `sell_confirmed_*`, `pnl_basis` | exact order fill의 size/VWAP/known fee와 P&L 근거. null을 0으로 추정하지 않는다 |
 | `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `SKIPPED` / `UNFILLED` / `QUARANTINED` |
 | `entry_reason` | 비스포츠 `time_based_<잔여h>h`, 스포츠 경기 전 `game_start_<잔여h>h`, 인플레이 `game_in_play_<경과분>m`, 또는 `probability_only` |
 | `exit_reason` | 정상 청산 `take_profit` / `stop_loss` / `trailing_stop` / `time_exit`. 부분 매도면 같은 값에 `partial_` 접두사가 붙는다(`partial_stop_loss` 등) — **`GROUP BY exit_reason`이 조용히 쪼개지므로 집계 시 접두사를 제거할 것**. 그 밖에 체결된 적 없는 매수는 `buy_unfilled`, CLOB에서 주문이 사라지면 `zero_balance_order_unavailable`, ledger가 되돌린 경우 `buy_trade_failed` |

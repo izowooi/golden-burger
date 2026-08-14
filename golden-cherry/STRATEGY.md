@@ -42,7 +42,9 @@
 - `max_price`는 매수가로 초기화된다. 따라서 한 번도 오르지 않은 포지션은 트레일링(-5%)이 손절(-8%)보다 **항상 먼저** 걸린다. 손절이 발동하는 유일한 경우는 5분 사이클 사이에 가격이 -8%를 건너뛰고 떨어진 갭이다. → **`stop_loss` 값만 바꾸는 것은 효과가 없다.**
 - 익절 목표는 `buy_price × (1 + take_profit_percent)`이고 상한 클램프가 없다. `take_profit=0.10`이면 **진입가 0.909 이상에서는 목표가 $1.00을 넘어 영원히 발동하지 않는다.**
 
-매도는 midpoint 지정가 GTC다. 시장가가 아니며 재호가·추적이 없다.
+매도는 midpoint 지정가 GTC다. 시장가가 아니며 재호가·추적이 없다. live 주문 접수는
+체결이 아니므로 BUY는 `PENDING_BUY`, SELL은 `PENDING_SELL`에 기록하고 exact confirmed
+full fill 대사가 끝난 뒤에만 `HOLDING`/`COMPLETED`로 전이한다.
 
 ## 4. 파라미터·env var 표
 
@@ -64,6 +66,7 @@
 | `POLYBOT_MAX_POSITIONS` | 100 | 오픈 포지션 상한 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | 5000 | 오픈 요청 원금 상한 |
 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 5 | 사이클당 신규 진입 |
+| `POLYBOT_PENDING_BUY_TTL_MINUTES` | 30 | exact LIVE·0 fill BUY 취소 전 대기시간 |
 | `POLYBOT_YES_ONLY` | false | index 0 토큰만 |
 | `POLYBOT_LIFECYCLE_MODE` | active | `active`/`close_only`/`archive_only` |
 | `POLYMARKET_SIGNATURE_TYPE` | 1 | 1=POLY_PROXY, 3=POLY_1271 |
@@ -95,6 +98,7 @@
 
 - `market_snapshots`가 0행이다. `save_snapshot` 호출부가 없어 가격 경로가 남지 않고, 경로 의존 반사실을 계산할 수 없다.
 - 스포츠 진입 계측 컬럼 5개(`entry_time_reference`, `sports_phase_at_buy`, `hours_until_entry_deadline_at_buy`, `minutes_until_game_start_at_buy`, `market_game_start_time`)가 전부 NULL이다.
-- 매도 GTC가 체결되지 않아도 `COMPLETED`로 기록된다.
+- 2026-08-14 이전 legacy 매도는 GTC 접수만으로 `COMPLETED`가 될 수 있다. 이후 live
+  주문은 exact confirmed SELL full fill과 fee evidence가 완결될 때까지 `PENDING_SELL`이다.
 - 해결된 시장의 포지션이 자동 정리되지 않는다. redeem 회계가 없다.
 - `filters.py`의 `should_sell()`은 어디서도 호출되지 않는 죽은 코드다.

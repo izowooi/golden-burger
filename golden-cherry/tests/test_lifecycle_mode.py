@@ -16,13 +16,23 @@ def _build_bot(monkeypatch, tmp_path, lifecycle_mode: str, holdings):
 
     trader = MagicMock()
     trader.execute_sell.return_value = False
+    trader.reclassify_unconfirmed_live_buy.return_value = False
+    trader.reconcile_pending_buy.return_value = False
+    trader.reconcile_pending_sell.return_value = False
     trader.execute_buy.side_effect = AssertionError(
         "비활성 진입 경로에서 매수하면 안 됩니다"
     )
 
     repo = MagicMock()
     repo.get_holding_trades.return_value = holdings
-    repo.get_stats.return_value = {"holding": len(holdings), "total_pnl": 0.0}
+    repo.get_pending_buy_trades.return_value = []
+    repo.get_pending_sell_trades.return_value = []
+    repo.get_stats.return_value = {
+        "pending_buy": 0,
+        "holding": len(holdings),
+        "pending_sell": 0,
+        "total_pnl": 0.0,
+    }
 
     session = MagicMock()
     monkeypatch.setattr(bot_module, "MarketScanner", lambda *args, **kwargs: scanner)

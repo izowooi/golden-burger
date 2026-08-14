@@ -50,13 +50,17 @@ stateDiagram-v2
     CheckExisting --> Skip: Yes
     CheckExisting --> Buy: No
 
-    Buy --> Holding: 매수 완료
+    Buy --> PendingBuy: GTC 주문 접수
+    PendingBuy --> Holding: exact confirmed BUY full fill
+    PendingBuy --> Unfilled: terminal/TTL zero fill
 
     Holding --> SellCheck: 매 사이클
     SellCheck --> Holding: 청산 조건 미충족
     SellCheck --> Sell: +10% or -8% or 트레일링 -5%<br/>(시간 청산 기본 비활성)
 
-    Sell --> Completed: 매도 완료
+    Sell --> PendingSell: GTC 주문 접수
+    PendingSell --> Completed: exact confirmed SELL full fill + fee
+    PendingSell --> Holding: terminal zero fill
 
     Skip --> [*]
     Completed --> [*]
@@ -259,8 +263,10 @@ uv run python main.py run      # 기존 Jenkins의 --job 값이 있다면 동일
 
 `close_only`에서는 기존 손절·익절·트레일링 스탑·해결시간 청산과 최고가 갱신을 계속하지만
 즉시 전량 매도하지는 않습니다. `market_end_date`가 없는 포지션 등은 별도 잔여 처리 대상이
-될 수 있습니다. 모드 전환 전에 접수된 GTC BUY 주문은 자동 취소되지 않으므로 저장소 루트의
-`tools/wind_down.py cancel --side BUY`를 dry-run한 뒤 계정별로 한 번 취소해야 합니다.
+될 수 있습니다. 모드 전환 전에 접수된 GTC BUY 중 exact `LIVE + size_matched=0` 주문은
+`pending_buy_ttl_minutes`가 지나면 authoritative zero-fill 취소를 검증한 뒤 `UNFILLED`로
+종결합니다. partial fill이나 ledger evidence가 불완전한 주문은 자동 취소하지 않으므로
+저장소 루트의 `tools/wind_down.py cancel --side BUY`를 dry-run한 뒤 별도 검토해야 합니다.
 상세 절차는 [`docs/strategy-wind-down-playbook.md`](../docs/strategy-wind-down-playbook.md)를
 참조하세요.
 
@@ -459,6 +465,7 @@ golden-cherry/
 | 최대 open 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | 100 | 100 | -1/무제한은 허용하지 않음 |
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `trading.max_open_notional_usdc` | 5000 | 5000 | HOLDING/격리/대기 포지션의 요청 원금 합계 |
 | cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 5 | 5 | 3/5분 실행 한 번의 burst 제한 |
+| zero-fill BUY TTL | `POLYBOT_PENDING_BUY_TTL_MINUTES` | `trading.pending_buy_ttl_minutes` | 30 | 30 | exact LIVE·0 fill BUY를 취소하기 전 대기시간(5~1440분) |
 
 실제 스캔에 쓰는 최소 유동성은 `max(POLYBOT_MIN_LIQUIDITY,
 POLYBOT_BUY_AMOUNT / POLYBOT_MAX_ORDER_LIQUIDITY_RATIO)`입니다. 0.2%를 유지할 때의 계산은
@@ -636,6 +643,7 @@ excluded_categories: []  # ← 빈 배열 = 스포츠 필터 완전 비활성화
 | `POLYBOT_MAX_POSITIONS` | `100` | DB상 open exposure 포지션 수 상한 | 신규 BUY만 차단하며 기존 포지션을 강제 매도하지 않음 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `5000` | open 포지션들의 요청 매수원금 합계 상한 | 현재 $100 주문이면 포지션 수보다 약 50건에서 먼저 제한될 수 있음 |
 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `5` | Jenkins 한 번 실행에서 새로 넣을 수 있는 BUY 수 | 5분마다 최대 5건이라는 burst 제한이며 총 포지션 상한과 별개 |
+| `POLYBOT_PENDING_BUY_TTL_MINUTES` | `30` (`config.yaml`) | exact LIVE·0 fill BUY 주문의 최대 대기시간 | 만료 후 exact order의 zero-fill 취소가 증명된 경우에만 `UNFILLED`; partial fill은 자동취소하지 않음 |
 
 #### 시간 및 스포츠 시장
 
