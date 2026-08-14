@@ -1171,6 +1171,48 @@ def cleanup(args):
     emit({"removed": str(target)})
 
 
+def existing_files(args):
+    """Return the Jenkins console paths that still exist at transfer time.
+
+    Jenkins LogRotator can delete the oldest build between scan/plan and rsync.
+    Keep this helper narrowly scoped to console logs below JENKINS_HOME so a
+    caller cannot use the generic SSH helper as an arbitrary file oracle.
+    """
+
+    home = _absolute_path(args.jenkins_home, "Jenkins home")
+    try:
+        requested = json.loads(args.paths_json)
+    except (TypeError, json.JSONDecodeError):
+        raise RuntimeError("paths-json must be a JSON array") from None
+    if not isinstance(requested, list) or not all(
+        isinstance(value, str) for value in requested
+    ):
+        raise RuntimeError("paths-json must contain only strings")
+
+    existing = []
+    missing = []
+    for value in requested:
+        path = _absolute_path(value, "console path")
+        try:
+            relative = path.relative_to(home)
+        except ValueError:
+            raise RuntimeError("console path is outside Jenkins home") from None
+        parts = relative.parts
+        if (
+            len(parts) < 5
+            or parts[0] != "jobs"
+            or parts[-3] != "builds"
+            or not parts[-2].isdigit()
+            or parts[-1] != "log"
+        ):
+            raise RuntimeError("path is not a Jenkins build console log")
+        if path.is_file() and not path.is_symlink():
+            existing.append(str(path))
+        else:
+            missing.append(str(path))
+    emit({"existing": existing, "missing": missing})
+
+
 def main():
     parser = argparse.ArgumentParser()
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1209,6 +1251,10 @@ def main():
     cleanup_parser.add_argument("--staging-root", required=True)
     cleanup_parser.add_argument("--path", required=True)
 
+    existing_files_parser = subparsers.add_parser("existing-files")
+    existing_files_parser.add_argument("--jenkins-home", required=True)
+    existing_files_parser.add_argument("--paths-json", required=True)
+
     args = parser.parse_args()
     if args.command == "doctor":
         doctor(args)
@@ -1220,6 +1266,8 @@ def main():
         validate_workspace(args)
     elif args.command == "cleanup":
         cleanup(args)
+    elif args.command == "existing-files":
+        existing_files(args)
 
 
 if __name__ == "__main__":

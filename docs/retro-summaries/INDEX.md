@@ -22,3 +22,5 @@
 | 016 | [016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md](016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md) | Blueberry A/B 저빈도·cadence 진단, Gamma 공유 sweep 최적화와 자연 build·재동기화 검증 | 2026-08-13 |
 | 017 | [017-golden-raspberry-queue-echo-deployment-2026-08-13.md](017-golden-raspberry-queue-echo-deployment-2026-08-13.md) | Queue Echo 가설 사전등록, accountless 3-shard collector, Jenkins timer·daily-rsync 배포 검증 | 2026-08-13 |
 | 018 | [018-golden-raspberry-first-day-interim-health-2026-08-13.md](018-golden-raspberry-first-day-interim-health-2026-08-13.md) | Queue Echo 첫 24시간 전 9h13m collection health, MI executor queue off-slot과 control·storage 검증 | 2026-08-13 |
+| 019 | [019-golden-raspberry-external-workspace-restart-2026-08-13.md](019-golden-raspberry-external-workspace-restart-2026-08-13.md) | Queue Echo 3개 job 외장 APFS workspace 이전, 새 epoch 재기동·timer·동기화 검증 | 2026-08-13 |
+| 020 | [020-live-account-fleet-audit-2026-08-14.md](020-live-account-fleet-audit-2026-08-14.md) | 실제 계좌 16개 누락·clean·용량·DB·로그·wallet 대사 및 lifecycle blocker 감사 | 2026-08-14 |

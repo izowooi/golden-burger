@@ -1241,6 +1241,9 @@ def test_each_console_batch_and_artifact_boundary_revalidates_workspace(
             validations.append("validate")
             return {"validated": True}
 
+        def existing_files(self, *, remote_paths: list[str]) -> set[str]:
+            return set(remote_paths)
+
         def rsync_files(self, *, remote_paths: list[str], local_root: Path) -> None:
             assert len(remote_paths) == 1
             for remote_path in remote_paths:
@@ -1280,6 +1283,84 @@ def test_each_console_batch_and_artifact_boundary_revalidates_workspace(
     assert result.status == "SUCCESS", result.errors
     # preflight + two batch boundaries + two artifact store boundaries
     assert validations == ["validate"] * 5
+
+
+def test_console_retention_race_skips_deleted_log_and_transfers_remaining(
+    app_config,
+) -> None:
+    service = SyncService(app_config)
+    identity = {
+        "root_path": "/remote/workspace",
+        "root_realpath": "/remote/workspace",
+        "root_st_dev": 42,
+        "workspace_st_dev": 42,
+        "selection_contract": "allowlisted-root-job-v1",
+    }
+    deleted_path = f"{app_config.remote_jenkins_home}/jobs/polybot-cat/builds/1/log"
+    retained_path = f"{app_config.remote_jenkins_home}/jobs/polybot-cat/builds/2/log"
+    existing_calls = 0
+    rsync_calls = 0
+
+    class FakeRemote:
+        def validate_workspace(self, **_kwargs):
+            return {"validated": True}
+
+        def existing_files(self, *, remote_paths: list[str]) -> set[str]:
+            nonlocal existing_calls
+            existing_calls += 1
+            if existing_calls == 1:
+                return set(remote_paths)
+            return set(remote_paths) - {deleted_path}
+
+        def rsync_files(self, *, remote_paths: list[str], local_root: Path) -> None:
+            nonlocal rsync_calls
+            rsync_calls += 1
+            if rsync_calls == 1:
+                raise RuntimeError("oldest Jenkins build expired during rsync")
+            assert remote_paths == [retained_path]
+            relative = Path(retained_path).relative_to(Path(app_config.remote_jenkins_home))
+            incoming = local_root / relative
+            incoming.parent.mkdir(parents=True, exist_ok=True)
+            incoming.write_text("retained console", encoding="utf-8")
+
+    artifacts = [
+        RemoteArtifact(
+            kind="jenkins_console",
+            remote_path=path,
+            size_bytes=10,
+            mtime_ns=build,
+            jenkins_job="polybot-cat",
+            strategy="golden-papaya",
+            build_number=build,
+            source=app_config.ssh_host,
+        )
+        for build, path in ((1, deleted_path), (2, retained_path))
+    ]
+    service.remote = FakeRemote()
+    plan = SyncPlan.create(
+        source=app_config.ssh_host,
+        jenkins_job="polybot-cat",
+        strategy="golden-papaya",
+        workspace="/remote/workspace/polybot-cat",
+        workspace_identity=identity,
+        artifacts=artifacts,
+        skipped_unchanged=0,
+        include_safety_databases=False,
+    )
+
+    result = service.execute(plan)
+
+    assert result.status == "SUCCESS", result.errors
+    assert result.transferred == 1
+    assert result.skipped == 1
+    assert result.failed == 0
+    assert rsync_calls == 2
+    assert service.catalog.get_artifact(artifacts[0].source_key)["status"] == "RETENTION_DELETED"
+    assert service.catalog.get_artifact(artifacts[1].source_key)["status"] == "SYNCED"
+    verification = service.verify(job="polybot-cat", strategy="golden-papaya")
+    assert verification["status"] == "SUCCESS"
+    assert verification["checked"] == 1
+    assert verification["skipped_retention_deleted"] == 1
 
 
 def test_sync_job_records_scan_plan_failure_over_stale_success(

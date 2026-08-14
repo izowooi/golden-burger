@@ -420,11 +420,12 @@ class SyncService:
                 raise
 
             console_cache: dict[str, Path] = {}
+            retention_deleted_console_paths: set[str] = set()
             console_artifacts = [
                 artifact for artifact in plan.artifacts if artifact.kind == "jenkins_console"
             ]
             try:
-                console_cache = self._prefetch_console_logs(
+                console_cache, retention_deleted_console_paths = self._prefetch_console_logs(
                     plan,
                     console_artifacts,
                     run_id,
@@ -449,7 +450,21 @@ class SyncService:
                     # the transfer itself is protected inside _prefetch_console_logs.
                     self._validate_plan_workspace(plan)
                     catalog_artifact = artifact
-                    if artifact.kind.startswith("database"):
+                    if (
+                        artifact.kind == "jenkins_console"
+                        and artifact.remote_path in retention_deleted_console_paths
+                    ):
+                        self.catalog.record_remote_retention_deleted(
+                            artifact,
+                            source=plan.source,
+                            metadata={
+                                "completed_at": artifact.completed_at,
+                                "status": artifact.status,
+                                "retention_race_at": datetime.now(UTC).isoformat(),
+                            },
+                        )
+                        result.skipped += 1
+                    elif artifact.kind.startswith("database"):
                         (
                             local_path,
                             digest,
@@ -478,26 +493,27 @@ class SyncService:
                             run_id,
                         )
                         remote_digest = None
-                    self.catalog.upsert_artifact(
-                        catalog_artifact,
-                        source=plan.source,
-                        local_path=local_path,
-                        local_sha256=digest,
-                        remote_sha256=remote_digest,
-                        metadata={
-                            "completed_at": catalog_artifact.completed_at,
-                            "status": catalog_artifact.status,
-                            "canonical": catalog_artifact.canonical,
-                            "archive_date": catalog_artifact.archive_date,
-                            "mode": catalog_artifact.mode,
-                            "data_contract": catalog_artifact.data_contract,
-                            "database_utc_date": catalog_artifact.database_utc_date,
-                            "workspace": plan.workspace,
-                            "workspace_epoch": plan.workspace_epoch,
-                        },
-                    )
-                    result.transferred += 1
-                    result.bytes_written += written
+                    if artifact.remote_path not in retention_deleted_console_paths:
+                        self.catalog.upsert_artifact(
+                            catalog_artifact,
+                            source=plan.source,
+                            local_path=local_path,
+                            local_sha256=digest,
+                            remote_sha256=remote_digest,
+                            metadata={
+                                "completed_at": catalog_artifact.completed_at,
+                                "status": catalog_artifact.status,
+                                "canonical": catalog_artifact.canonical,
+                                "archive_date": catalog_artifact.archive_date,
+                                "mode": catalog_artifact.mode,
+                                "data_contract": catalog_artifact.data_contract,
+                                "database_utc_date": catalog_artifact.database_utc_date,
+                                "workspace": plan.workspace,
+                                "workspace_epoch": plan.workspace_epoch,
+                            },
+                        )
+                        result.transferred += 1
+                        result.bytes_written += written
                 except Exception as error:
                     result.failed += 1
                     result.errors.append(
@@ -595,12 +611,13 @@ class SyncService:
         artifacts: list[RemoteArtifact],
         run_id: str,
         progress: ProgressCallback | None,
-    ) -> dict[str, Path]:
+    ) -> tuple[dict[str, Path], set[str]]:
         if not artifacts:
-            return {}
+            return {}, set()
         root = self.config.incoming_root / f"{run_id}-console"
         root.mkdir(parents=True, exist_ok=True, mode=0o700)
         result: dict[str, Path] = {}
+        retention_deleted: set[str] = set()
         batches: list[list[RemoteArtifact]] = []
         current: list[RemoteArtifact] = []
         current_bytes = 0
@@ -626,19 +643,47 @@ class SyncService:
                 bytes=sum(item.size_bytes for item in batch),
             )
             self._validate_plan_workspace(plan)
-            self.remote.rsync_files(
-                remote_paths=[item.remote_path for item in batch],
-                local_root=root,
-            )
+            pending = [item.remote_path for item in batch]
+            copied: set[str] = set()
+            for attempt in range(3):
+                existing = self.remote.existing_files(remote_paths=pending)
+                retention_deleted.update(set(pending) - existing)
+                if not existing:
+                    break
+                try:
+                    self.remote.rsync_files(
+                        remote_paths=[path for path in pending if path in existing],
+                        local_root=root,
+                    )
+                except Exception:
+                    refreshed = self.remote.existing_files(remote_paths=list(existing))
+                    newly_missing = existing - refreshed
+                    if not newly_missing or attempt == 2:
+                        raise
+                    retention_deleted.update(newly_missing)
+                    pending = [path for path in pending if path in refreshed]
+                    continue
+                copied = existing
+                break
             for artifact in batch:
+                if artifact.remote_path in retention_deleted:
+                    continue
                 relative = Path(artifact.remote_path).relative_to(
                     Path(self.config.remote_jenkins_home)
                 )
                 incoming = root / relative
                 if not incoming.is_file():
+                    still_exists = self.remote.existing_files(
+                        remote_paths=[artifact.remote_path]
+                    )
+                    if not still_exists:
+                        retention_deleted.add(artifact.remote_path)
+                        continue
                     raise RuntimeError(f"batch rsync omitted {artifact.remote_path}")
+                if artifact.remote_path not in copied:
+                    raise RuntimeError(f"batch rsync did not attest {artifact.remote_path}")
                 result[artifact.remote_path] = incoming
-        return result
+        return result, retention_deleted
 
     def _sync_database(
         self,

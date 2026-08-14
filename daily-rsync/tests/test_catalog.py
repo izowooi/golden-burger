@@ -45,6 +45,39 @@ def test_catalog_detects_unchanged_artifact(tmp_path: Path) -> None:
     assert rows[0]["runtime_job"] == "queen-live-12h"
 
 
+def test_remote_console_retention_preserves_existing_local_evidence(
+    tmp_path: Path,
+) -> None:
+    catalog = Catalog(tmp_path / "catalog.sqlite3")
+    local = tmp_path / "42.log.gz"
+    local.write_bytes(b"verified console evidence")
+    item = RemoteArtifact(
+        kind="jenkins_console",
+        remote_path="/jenkins/jobs/polybot-cat/builds/42/log",
+        size_bytes=100,
+        mtime_ns=200,
+        jenkins_job="polybot-cat",
+        strategy="golden-papaya",
+        build_number=42,
+        source="macmini",
+    )
+    catalog.upsert_artifact(
+        item,
+        source="macmini",
+        local_path=local,
+        local_sha256="verified-digest",
+    )
+
+    status = catalog.record_remote_retention_deleted(item, source="macmini")
+
+    row = catalog.get_artifact(item.source_key)
+    assert status == "SOURCE_MISSING"
+    assert row["status"] == "SOURCE_MISSING"
+    assert row["local_path"] == str(local)
+    assert row["local_sha256"] == "verified-digest"
+    assert local.read_bytes() == b"verified console evidence"
+
+
 def test_catalog_uses_composite_sqlite_fingerprint_over_main_stat(tmp_path: Path) -> None:
     catalog = Catalog(tmp_path / "catalog.sqlite3")
     local = tmp_path / "trades.db"

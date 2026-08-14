@@ -193,5 +193,8 @@ docs/logs/
 # Generated Queue Echo health analyzer payloads contain local evidence paths and stay local.
 /docs/local/queue-echo-health-*.json
 
+# Generated fleet strict-audit payloads contain local production evidence paths.
+/docs/local/live-fleet-audit-*/
+
 # Golden Raspberry research evidence is local/Jenkins runtime state, never source.
 /golden-raspberry/data/

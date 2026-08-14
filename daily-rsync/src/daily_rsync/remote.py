@@ -265,3 +265,34 @@ class RemoteClient:
                 )
         finally:
             list_path.unlink(missing_ok=True)
+
+    def existing_files(self, *, remote_paths: list[str]) -> set[str]:
+        """Return console paths that still exist under Jenkins home.
+
+        Keep each SSH command comfortably below platform command-line limits;
+        a normal console batch can contain one thousand paths.
+        """
+
+        existing: set[str] = set()
+        for offset in range(0, len(remote_paths), 200):
+            chunk = remote_paths[offset : offset + 200]
+            payload = self._helper(
+                "existing-files",
+                [
+                    "--jenkins-home",
+                    self.config.remote_jenkins_home,
+                    "--paths-json",
+                    json.dumps(chunk, ensure_ascii=False),
+                ],
+                timeout=60,
+            )
+            reported = payload.get("existing", [])
+            if not isinstance(reported, list) or not all(
+                isinstance(value, str) for value in reported
+            ):
+                raise RemoteCommandError("remote existing-files returned invalid paths")
+            unexpected = set(reported) - set(chunk)
+            if unexpected:
+                raise RemoteCommandError("remote existing-files returned an unrequested path")
+            existing.update(reported)
+        return existing

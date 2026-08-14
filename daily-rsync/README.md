@@ -244,6 +244,13 @@ SQLite `quick_check`까지 다시 확인했다는 뜻은 아니므로 `verify`�
 보고하며 결손으로 오인하지 않습니다. plan 파일의 존재만으로 동기화 성공을 추정하지
 않습니다.
 
+Jenkins LogRotator가 `scan`/`plan` 이후 가장 오래된 build를 지우는 경계에서는
+`sync`가 console batch 직전과 재시도 시점에 파일 존재를 다시 확인합니다. 이미 받아 둔
+검증본이 있으면 `SOURCE_MISSING` 역사 evidence로 보존하고, 로컬 사본도 없이 사라진
+console만 `RETENTION_DELETED`로 기록합니다. 이 명시적 retention skip은 DB나 bot log
+동기화 실패를 성공으로 바꾸지 않으며, 요청한 회고 기간에 해당 console이 필요하면 여전히
+evidence gap으로 다뤄야 합니다.
+
 ## 기본 정책
 
 - 최초 로그 범위: 최근 60일

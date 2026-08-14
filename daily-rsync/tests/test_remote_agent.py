@@ -58,6 +58,49 @@ def invoke(*arguments: str) -> dict:
     return json.loads(process.stdout)
 
 
+def test_existing_files_is_limited_to_jenkins_console_paths(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    existing = home / "jobs" / "polybot-cat" / "builds" / "1" / "log"
+    missing = home / "jobs" / "polybot-cat" / "builds" / "2" / "log"
+    existing.parent.mkdir(parents=True)
+    existing.write_text("console", encoding="utf-8")
+
+    payload = invoke(
+        "existing-files",
+        "--jenkins-home",
+        str(home),
+        "--paths-json",
+        json.dumps([str(existing), str(missing)]),
+    )
+
+    assert payload == {"existing": [str(existing)], "missing": [str(missing)]}
+
+
+def test_existing_files_rejects_non_console_path(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    other = home / "secrets" / "master.key"
+    other.parent.mkdir(parents=True)
+    other.write_text("not-a-real-secret", encoding="utf-8")
+
+    process = subprocess.run(
+        [
+            sys.executable,
+            str(Path(remote_agent.__file__)),
+            "existing-files",
+            "--jenkins-home",
+            str(home),
+            "--paths-json",
+            json.dumps([str(other)]),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert process.returncode != 0
+    assert "not a Jenkins build console log" in process.stderr
+
+
 def snapshot_identity_arguments(
     home: Path,
     job: str,

@@ -757,6 +757,78 @@ class Catalog:
                 (source_key,),
             )
 
+    def record_remote_retention_deleted(
+        self,
+        artifact: RemoteArtifact,
+        *,
+        source: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> str:
+        """Catalog a console log removed by Jenkins after planning.
+
+        If a verified local copy already exists, preserve it as historical
+        SOURCE_MISSING evidence. Otherwise retain an explicit
+        RETENTION_DELETED row so verify can distinguish the race from an
+        unexplained transfer failure.
+        """
+
+        if artifact.source != source:
+            raise ValueError("artifact source identity does not match catalog source")
+        if artifact.kind != "jenkins_console":
+            raise ValueError("remote retention deletion is only valid for Jenkins console logs")
+        now = datetime.now(UTC).isoformat()
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT local_path FROM artifacts WHERE source_key = ?",
+                (artifact.source_key,),
+            ).fetchone()
+            if row is not None and row["local_path"] and Path(row["local_path"]).is_file():
+                connection.execute(
+                    "UPDATE artifacts SET status = 'SOURCE_MISSING' WHERE source_key = ?",
+                    (artifact.source_key,),
+                )
+                return "SOURCE_MISSING"
+            connection.execute(
+                """
+                INSERT INTO artifacts(
+                    source_key, source, jenkins_job, strategy, runtime_job, kind,
+                    build_number, remote_path, remote_size_bytes, remote_mtime_ns,
+                    remote_fingerprint, remote_sha256, local_path, local_sha256,
+                    status, synced_at, metadata_json
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL,
+                          'RETENTION_DELETED', ?, ?)
+                ON CONFLICT(source_key) DO UPDATE SET
+                    strategy=excluded.strategy,
+                    runtime_job=excluded.runtime_job,
+                    build_number=excluded.build_number,
+                    remote_size_bytes=excluded.remote_size_bytes,
+                    remote_mtime_ns=excluded.remote_mtime_ns,
+                    remote_fingerprint=excluded.remote_fingerprint,
+                    remote_sha256=NULL,
+                    local_path=NULL,
+                    local_sha256=NULL,
+                    status='RETENTION_DELETED',
+                    synced_at=excluded.synced_at,
+                    metadata_json=excluded.metadata_json
+                """,
+                (
+                    artifact.source_key,
+                    source,
+                    artifact.jenkins_job,
+                    artifact.strategy,
+                    artifact.runtime_job,
+                    artifact.kind,
+                    artifact.build_number,
+                    artifact.remote_path,
+                    artifact.size_bytes,
+                    artifact.mtime_ns,
+                    artifact.fingerprint,
+                    now,
+                    json.dumps(metadata or {}, ensure_ascii=False, sort_keys=True),
+                ),
+            )
+        return "RETENTION_DELETED"
+
     def add_pin(
         self,
         *,
