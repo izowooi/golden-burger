@@ -44,7 +44,9 @@
 
 매도는 midpoint 지정가 GTC다. 시장가가 아니며 재호가·추적이 없다. live 주문 접수는
 체결이 아니므로 BUY는 `PENDING_BUY`, SELL은 `PENDING_SELL`에 기록하고 exact confirmed
-full fill 대사가 끝난 뒤에만 `HOLDING`/`COMPLETED`로 전이한다.
+full fill 대사가 끝난 뒤에만 `HOLDING`/`COMPLETED`로 전이한다. fee amount 누락은
+명시적 zero rate 또는 builder-fee 경로가 없는 이 봇의 exact `MAKER` fill에 한해서만
+known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 
 ## 4. 파라미터·env var 표
 

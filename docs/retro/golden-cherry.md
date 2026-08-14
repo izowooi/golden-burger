@@ -82,8 +82,10 @@ order, exact trade association, partial fill을 execution ledger에 기록하고
 
 2026-08-14 이후 live 신규 BUY는 `PENDING_BUY`, 신규 SELL은 `PENDING_SELL`에서 시작한다.
 exact confirmed full fill이 대사돼야 각각 `HOLDING`/`COMPLETED`로 전이하며, explicit
-`fee_rate_bps=0`인 경우만 누락된 fee amount를 증명된 0 fee로 취급한다. 이전 legacy 행에는
-이 계약을 소급해 수익을 채우지 않는다.
+`fee_rate_bps=0` 또는 builder-fee 주문 경로가 없는 Golden Cherry의 exact
+`liquidity_role='MAKER'` fill에서 rate와 amount가 모두 생략된 경우만 누락 fee를 증명된
+0으로 취급한다. `TAKER`·role 불명·0이 아닌 rate의 amount 누락은 evidence gap이다. 이전
+legacy 행에는 이 계약을 소급해 수익을 채우지 않는다.
 
 **파라미터 표** (env > config.yaml > 코드 기본값. env 이름은 `src/polybot/config.py` 실제 파싱 코드 기준):
 

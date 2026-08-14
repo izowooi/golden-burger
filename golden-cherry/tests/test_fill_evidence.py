@@ -44,6 +44,7 @@ def create_ledger_tables(session):
                 side TEXT,
                 size REAL,
                 price REAL,
+                liquidity_role TEXT,
                 fee_rate_bps REAL,
                 fee_amount_usdc REAL,
                 matched_at TEXT,
@@ -95,6 +96,7 @@ def insert_fill(
     side="BUY",
     size=5.0,
     price=0.95,
+    liquidity_role=None,
     fee_rate=0,
     fee=None,
 ):
@@ -102,9 +104,10 @@ def insert_fill(
         text(
             "INSERT INTO order_fills "
             "(submission_id, order_id, status, side, size, price, "
-            "fee_rate_bps, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "liquidity_role, fee_rate_bps, fee_amount_usdc, matched_at, "
+            "domain_error) VALUES "
             "(:submission, :order_id, 'CONFIRMED', :side, :size, :price, "
-            ":fee_rate, :fee, '2026-08-14T00:00:00Z', NULL)"
+            ":liquidity_role, :fee_rate, :fee, '2026-08-14T00:00:00Z', NULL)"
         ),
         {
             "submission": f"submission-{order_id}",
@@ -112,6 +115,7 @@ def insert_fill(
             "side": side,
             "size": size,
             "price": price,
+            "liquidity_role": liquidity_role,
             "fee_rate": fee_rate,
             "fee": fee,
         },
@@ -181,8 +185,58 @@ def test_nonzero_rate_without_fee_amount_remains_incomplete(tmp_path):
     insert_submission(
         session, order_id="fee-gap", status="MATCHED", matched=5.0
     )
-    insert_fill(session, order_id="fee-gap", fee_rate=30, fee=None)
+    insert_fill(
+        session,
+        order_id="fee-gap",
+        liquidity_role="MAKER",
+        fee_rate=30,
+        fee=None,
+    )
     evidence = repo.get_exact_buy_fill_evidence("fee-gap")
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.fee_complete is False
+    assert evidence.confirmed_fee_usdc is None
+    session.close()
+
+
+def test_maker_fill_with_omitted_fee_metadata_is_known_zero(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session, order_id="maker-zero", side="SELL", status="MATCHED", matched=5.0
+    )
+    insert_fill(
+        session,
+        order_id="maker-zero",
+        side="SELL",
+        liquidity_role="maker",
+        fee_rate=None,
+        fee=None,
+    )
+    evidence = repo.get_exact_sell_fill_evidence("maker-zero")
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.fee_complete is True
+    assert evidence.confirmed_fee_usdc == 0.0
+    session.close()
+
+
+@pytest.mark.parametrize("liquidity_role", [None, "TAKER"])
+def test_missing_fee_metadata_without_maker_role_remains_incomplete(
+    tmp_path, liquidity_role
+):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session, order_id="unknown-fee", status="MATCHED", matched=5.0
+    )
+    insert_fill(
+        session,
+        order_id="unknown-fee",
+        liquidity_role=liquidity_role,
+        fee_rate=None,
+        fee=None,
+    )
+    evidence = repo.get_exact_buy_fill_evidence("unknown-fee")
     assert evidence.has_reconciled_full_fill is True
     assert evidence.fee_complete is False
     assert evidence.confirmed_fee_usdc is None

@@ -185,8 +185,8 @@ def get_exact_order_fill_evidence(
         fills = (
             session.execute(
                 text(
-                    "SELECT status, side, size, price, fee_rate_bps, "
-                    "fee_amount_usdc, matched_at, domain_error "
+                    "SELECT status, side, size, price, liquidity_role, "
+                    "fee_rate_bps, fee_amount_usdc, matched_at, domain_error "
                     "FROM order_fills WHERE submission_id = :submission_id "
                     "AND order_id = :order_id"
                 ),
@@ -255,8 +255,15 @@ def get_exact_order_fill_evidence(
                         detail="confirmed_fill_fee_rate_invalid",
                     )
             if row["fee_amount_usdc"] is None:
-                # CLOB omits fee_amount_usdc for explicitly fee-free fills.
-                if fee_rate != 0.0:
+                liquidity_role = str(row["liquidity_role"] or "").strip().upper()
+                # Polymarket platform maker fees are zero, and Golden Cherry
+                # does not submit builder-fee orders.  The venue may omit both
+                # fee fields for those fills.  Keep every other missing-fee
+                # shape fail-closed, including TAKER and unknown roles.
+                known_zero_fee = fee_rate == 0.0 or (
+                    fee_rate is None and liquidity_role == "MAKER"
+                )
+                if not known_zero_fee:
                     fee_complete = False
             else:
                 fee = _finite_float(row["fee_amount_usdc"])

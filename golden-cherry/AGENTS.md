@@ -23,7 +23,7 @@
 
 1. **`sell_threshold`는 매도 조건이 아니라 매수 상한이다.** `filters.py`가 진입 확률 상한으로, `trader.py`가 `rapid_jump` 트리거로 쓴다. `filters.py`의 `should_sell()` 헬퍼는 어디서도 import되지 않는 죽은 코드다 — grep 결과를 근거로 판단하지 말 것.
 
-2. **매도 GTC 승인 ≠ 체결.** 2026-08-14 이후 live 신규 주문은 BUY 접수 시 `PENDING_BUY`, SELL 접수 시 `PENDING_SELL`에 머물고 exact order의 `CONFIRMED` fill 합계가 terminal matched 수량과 일치해야 각각 `HOLDING`/`COMPLETED`로 전이한다. 명시적 `fee_rate_bps=0`만 0 fee로 인정한다. 그 이전 legacy `COMPLETED`의 `realized_pnl`은 요청 가격·수량 가정이므로 여전히 성과 지표가 아니며 항상 `order_fills.status='CONFIRMED'`로 별도 감사한다.
+2. **매도 GTC 승인 ≠ 체결.** 2026-08-14 이후 live 신규 주문은 BUY 접수 시 `PENDING_BUY`, SELL 접수 시 `PENDING_SELL`에 머물고 exact order의 `CONFIRMED` fill 합계가 terminal matched 수량과 일치해야 각각 `HOLDING`/`COMPLETED`로 전이한다. 명시적 `fee_rate_bps=0`은 0 fee로 인정한다. Golden Cherry에는 builder-fee 주문 경로가 없으므로 `liquidity_role='MAKER'`인 exact confirmed fill에서 rate와 amount를 거래소가 모두 생략한 경우도 platform fee 0으로 인정한다. `TAKER`·role 불명·0이 아닌 rate의 amount 누락은 계속 fail closed한다. 그 이전 legacy `COMPLETED`의 `realized_pnl`은 요청 가격·수량 가정이므로 여전히 성과 지표가 아니며 항상 `order_fills.status='CONFIRMED'`로 별도 감사한다.
 
 3. **`max_positions`는 `PENDING_BUY`/`HOLDING`/`PENDING_SELL`/`QUARANTINED`를 모두 센다.** 유령·좀비 행이 쌓이면 실보유가 0이어도 봇이 신규 매수를 못 한다. 2026-07-22~28 실제로 이 상태로 6일간 정지했다(HOLDING 246 + QUARANTINED 76 vs 상한 10). 파라미터를 만지기 전에 `status`별 건수부터 확인한다.
 

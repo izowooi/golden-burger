@@ -104,8 +104,11 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    confirmed fill 합계가 matched 수량과 다르면 이 예외를 적용하지 않는다.
 4. 실제 fill price와 size로 gross P&L을 계산하고, `fee_amount_usdc`가 있으면 차감한다.
    fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. 단, 같은 CONFIRMED fill의
-   `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에만 이를 **증명된 0 fee**로 인정한다.
-   rate가 없거나 0이 아닌데 amount가 없으면 fee evidence gap이며,
+   `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에는 이를 **증명된 0 fee**로 인정한다.
+   Golden Cherry처럼 builder-fee 주문 경로가 없다고 source contract가 명시한 봇은 exact
+   `liquidity_role='MAKER'` CONFIRMED fill에서 거래소가 rate와 amount를 모두 생략한 경우도
+   platform fee 0으로 인정할 수 있다. 이 예외를 `TAKER`, role 불명, builder-fee 가능 주문,
+   또는 0이 아닌 rate의 amount 누락에 적용하지 않는다. 그 밖의 누락은 fee evidence gap이며
    `liquidity_role`과 함께 fee completeness를 표시한다.
 5. `needs_reconciliation = 1`, 오래된 `last_reconciled_at`, reconciliation error,
    terminal이 아닌 order/trade는 미완결 evidence다. 결과를 확정하지 않는다.

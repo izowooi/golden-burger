@@ -66,6 +66,11 @@ stateDiagram-v2
     Completed --> [*]
 ```
 
+`fee`는 임의로 0을 채우지 않는다. 명시적인 `fee_rate_bps=0`, 또는 builder-fee 주문
+경로가 없는 이 봇의 exact `MAKER` confirmed fill에서 거래소가 rate와 amount를 모두
+생략한 경우만 known zero로 인정한다. `TAKER`와 role 불명 fill은 fee metadata가 없으면
+`PENDING_*`에 남는다.
+
 ## 설치
 
 ### 1. 저장소 클론
