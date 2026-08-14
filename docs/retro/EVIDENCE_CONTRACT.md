@@ -98,6 +98,10 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    `MINED` 전 trade, 접수 응답만으로 P&L을 만들지 않는다.
 3. partial fill은 confirmed fill의 size를 합산하고, 요청 수량이나 legacy `buy_shares`로
    전량 체결을 가정하지 않는다. BUY와 SELL 양쪽의 confirmed coverage를 각각 검증한다.
+   단, exact CONFIRMED fill 합계가 `latest_size_matched`와 일치하고 대사가 끝났으며 주문
+   상태가 terminal `MATCHED`이면, 거래소가 소수점 아래를 quantize하여 원시 요청 수량보다
+   조금 작더라도 해당 **거래소 주문의 전량 체결**로 인정한다. `MATCHED` 상태만 있거나
+   confirmed fill 합계가 matched 수량과 다르면 이 예외를 적용하지 않는다.
 4. 실제 fill price와 size로 gross P&L을 계산하고, `fee_amount_usdc`가 있으면 차감한다.
    fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. 단, 같은 CONFIRMED fill의
    `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에만 이를 **증명된 0 fee**로 인정한다.

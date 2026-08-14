@@ -215,6 +215,34 @@ def test_exact_confirmed_buy_fills_aggregate_size_vwap_and_known_fees(tmp_path):
     session.close()
 
 
+def test_matched_order_accepts_venue_quantized_size_below_raw_intent(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="quantized-full-order",
+        status="MATCHED",
+        matched=5.22,
+        requested_size=5.2246603970741905,
+    )
+    insert_fill(
+        session,
+        order_id="quantized-full-order",
+        size=5.22,
+        price=0.96,
+        fee=0.0,
+    )
+
+    evidence = repo.get_exact_buy_fill_evidence("quantized-full-order")
+
+    assert evidence.state == "confirmed"
+    assert evidence.confirmed_size == 5.22
+    assert evidence.latest_size_matched == 5.22
+    assert evidence.requested_size == pytest.approx(5.2246603970741905)
+    assert evidence.has_reconciled_full_fill is True
+    session.close()
+
+
 def test_confirmed_fill_with_unknown_fee_preserves_gross_only_evidence(tmp_path):
     session, repo = make_repo(tmp_path)
     create_ledger_tables(session)
