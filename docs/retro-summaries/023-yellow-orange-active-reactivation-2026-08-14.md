@@ -1,6 +1,7 @@
 # 023 — Yellow·Orange active 복귀와 MAKER fee 누락 복구
 
 - 작업일: 2026-08-14 KST
+- 최종 운영 확인 cutoff: 2026-08-14T11:56:25Z (2026-08-14 20:56:25 KST)
 - 대상: `polybot-yellow`, `polybot-orange` (`golden-cherry/default`, live)
 - 결과: 두 잡 모두 `active + H/5 * * * *`로 복귀했고 자연 build와 신규 주문 대사가
   성공했다.
@@ -10,8 +11,8 @@
 
 | Job | 최종 Jenkins | DB/wallet gate | 자연/최종 검증 build |
 |---|---|---|---|
-| `polybot-yellow` | lifecycle `active`, `H/5` | Lee 수동 position 2건 guard 등록, Erdoğan 없음, 복귀 전 `PENDING_BUY=0`, `PENDING_SELL=0` | 첫 자연 `#49115`, 최신 확인 `#49117` SUCCESS |
-| `polybot-orange` | lifecycle `active`, `H/5` | 기존 MAKER SELL `COMPLETED`, 복귀 전과 최신 확인 모두 `PENDING_SELL=0`, 해당 BO3 wallet position 없음 | 첫 자연 `#54364`, 최신 확인 `#54365` SUCCESS |
+| `polybot-yellow` | lifecycle `active`, `H/5` | Lee 수동 position 2건 guard 등록, Erdoğan 없음, 최신 `PENDING_BUY=0`, `PENDING_SELL=0` | 첫 자연 `#49115`, 최신 확인 `#49118` SUCCESS |
+| `polybot-orange` | lifecycle `active`, `H/5` | 기존 고착 MAKER SELL `COMPLETED`, active 복귀 gate에서 `PENDING_SELL=0`; 최신 1건은 신규 trailing-stop SELL | 첫 자연 `#54364`, 최신 확인 `#54367` SUCCESS |
 
 최종 config SHA-256은 Yellow
 `b74293dcb2d0ef3c5ca0230c8d18e39b178eb8c0bcf2e2832be28e46831d22cf`, Orange
@@ -55,10 +56,10 @@ close-only `#49112`는 commit `4395ee8`로 성공했고 open 상태는
 known fee `$0`, `needs_reconciliation=0`이다. 이는 이번 MAKER fee 누락 규칙이 신규 실거래의
 BUY→HOLDING→SELL→COMPLETED 전 구간에서 작동한다는 end-to-end 확인이다.
 
-`#49117` 같은 cycle에서 다음 take-profit SELL과 BUY도 새로 제출됐으므로 최신 원격 DB는
-`COMPLETED=975`, `HOLDING=1`, `PENDING_BUY=1`, `PENDING_SELL=1`, `UNFILLED=399`다. 이
-`PENDING_SELL=1`은 과거 고착분이 아니라 방금 생성된 in-flight 주문이며 다음 H/5 대사
-대상이다.
+`#49117` 같은 cycle에서 다음 take-profit SELL과 BUY도 새로 제출돼 일시적으로
+`PENDING_BUY=1`, `PENDING_SELL=1`이 됐다. 다음 자연 timer `#49118`은 BUY를 exact full
+fill로 `HOLDING`에 활성화하고 SELL도 exact confirmed fill로 `COMPLETED` 처리했다. 최신
+open 합계는 `PENDING_BUY=0`, `HOLDING=2`, `PENDING_SELL=0`이다.
 
 ## Orange MAKER fee metadata 누락 수정
 
@@ -93,9 +94,11 @@ pnl_basis = exact_reconciled_buy_sell_confirmed_fills_net_known_fees
 `PENDING_BUY=0`, `PENDING_SELL=0`이었다. active `#54362`가 새 BUY 4건을 pending으로
 기록했고, 대사 전용 `#54363`에서 3건을 `HOLDING`으로 전이했다. 첫 자연 timer
 `#54364`는 이전 남은 BUY를 `HOLDING`으로 전이하고 새 live BUY 한 건만 정상
-`PENDING_BUY`로 남긴 채 `PENDING_SELL=0`으로 성공했다. 다음 자연 timer `#54365`도
-SUCCESS였고 최신 원격 DB는 `COMPLETED=89`, `HOLDING=8`, `PENDING_BUY=2`,
-`PENDING_SELL=0`, `UNFILLED=60`이다.
+`PENDING_BUY`로 남긴 채 `PENDING_SELL=0`으로 성공했다. 자연 timer `#54366`도
+`PENDING_SELL=0`으로 성공했다. 다음 `#54367`은 신규 BUY 3건을 exact full fill로
+`HOLDING`에 활성화한 뒤 그중 한 포지션의 trailing stop이 충족돼 SELL을 제출했다. 최신
+open 합계는 `PENDING_BUY=3`, `HOLDING=10`, `PENDING_SELL=1`이다. 이 SELL은 기존 fee
+고착분이 아니라 `#54367`에서 새로 접수된 정상 in-flight 주문이다.
 
 ## Daily Rsync evidence
 
@@ -130,6 +133,9 @@ APFS 사용률이 99%가 됐고, 기본 `daily-rsync` 50 GiB safety floor가 후
 - Yellow의 과거 intent 오류 16건과 Orange 1건은 7월 legacy closed row에 국소 격리돼 있고
   current open token과 겹치지 않는다. 현재 cycle 전체를 막지는 않지만 historical fill
   coverage 한계로 계속 분리한다.
+- Orange `#54367`의 주문 원장 대사 경고 1건은 해당 token/side만 격리하고 나머지
+  active cycle과 exact BUY activation을 계속했다. 전역 lifecycle blocker는 아니지만 이후
+  H/5에서 해소 여부를 관측한다.
 - natural active cycle이 만든 `PENDING_BUY`와 새 `PENDING_SELL`은 체결 증거가 나오기 전
   상태를 정직하게 기록한 것이다. 다음 H/5 cycle이 full fill을 `HOLDING`으로 전이하거나,
   exact zero-fill이 30분 TTL을 넘으면 authoritative cancellation 후 `UNFILLED`로 종결한다.
