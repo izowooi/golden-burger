@@ -24,3 +24,4 @@
 | 018 | [018-golden-raspberry-first-day-interim-health-2026-08-13.md](018-golden-raspberry-first-day-interim-health-2026-08-13.md) | Queue Echo 첫 24시간 전 9h13m collection health, MI executor queue off-slot과 control·storage 검증 | 2026-08-13 |
 | 019 | [019-golden-raspberry-external-workspace-restart-2026-08-13.md](019-golden-raspberry-external-workspace-restart-2026-08-13.md) | Queue Echo 3개 job 외장 APFS workspace 이전, 새 epoch 재기동·timer·동기화 검증 | 2026-08-13 |
 | 020 | [020-live-account-fleet-audit-2026-08-14.md](020-live-account-fleet-audit-2026-08-14.md) | 실제 계좌 16개 누락·clean·용량·DB·로그·wallet 대사 및 lifecycle blocker 감사 | 2026-08-14 |
+| 021 | [021-live-order-lifecycle-remediation-2026-08-14.md](021-live-order-lifecycle-remediation-2026-08-14.md) | Cherry·Orange·Yellow·Red 및 zero-fee PENDING_SELL 긴급 복구, close-only 배포와 재가동 gate | 2026-08-14 |
