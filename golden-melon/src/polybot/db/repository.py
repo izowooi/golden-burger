@@ -377,7 +377,8 @@ class TradeRepository:
             fills = (
                 self.session.execute(
                     text(
-                        "SELECT status, side, size, price, fee_amount_usdc, "
+                        "SELECT status, side, size, price, fee_rate_bps, "
+                        "fee_amount_usdc, "
                         "matched_at, domain_error FROM order_fills "
                         "WHERE submission_id = :submission_id AND order_id = :order_id"
                     ),
@@ -435,9 +436,32 @@ class TradeRepository:
                     )
                 size_total += size
                 notional_total += size * price
+                raw_fee_rate = row["fee_rate_bps"]
+                fee_rate = None
+                if raw_fee_rate is not None:
+                    try:
+                        fee_rate = float(raw_fee_rate)
+                    except (TypeError, ValueError):
+                        return ExactFillEvidence(
+                            "unavailable",
+                            normalized_order_id,
+                            order_status=order_status,
+                            detail="confirmed_fill_fee_rate_invalid",
+                        )
+                    if not math.isfinite(fee_rate) or fee_rate < 0:
+                        return ExactFillEvidence(
+                            "unavailable",
+                            normalized_order_id,
+                            order_status=order_status,
+                            detail="confirmed_fill_fee_rate_invalid",
+                        )
                 raw_fee = row["fee_amount_usdc"]
                 if raw_fee is None:
-                    fee_complete = False
+                    # The CLOB omits fee_amount_usdc for explicitly fee-free
+                    # fills.  Only an exact, valid zero rate proves a zero fee;
+                    # a missing or non-zero rate remains incomplete evidence.
+                    if fee_rate != 0.0:
+                        fee_complete = False
                 else:
                     try:
                         fee = float(raw_fee)

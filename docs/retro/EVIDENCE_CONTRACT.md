@@ -99,8 +99,10 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
 3. partial fill은 confirmed fill의 size를 합산하고, 요청 수량이나 legacy `buy_shares`로
    전량 체결을 가정하지 않는다. BUY와 SELL 양쪽의 confirmed coverage를 각각 검증한다.
 4. 실제 fill price와 size로 gross P&L을 계산하고, `fee_amount_usdc`가 있으면 차감한다.
-   fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. `fee_rate_bps`와
-   `liquidity_role`을 함께 보고 fee completeness를 표시한다.
+   fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. 단, 같은 CONFIRMED fill의
+   `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에만 이를 **증명된 0 fee**로 인정한다.
+   rate가 없거나 0이 아닌데 amount가 없으면 fee evidence gap이며,
+   `liquidity_role`과 함께 fee completeness를 표시한다.
 5. `needs_reconciliation = 1`, 오래된 `last_reconciled_at`, reconciliation error,
    terminal이 아닌 order/trade는 미완결 evidence다. 결과를 확정하지 않는다.
 6. `trades.buy_order_id`/`sell_order_id`로 ledger와 연결한다. 두 주문의 confirmed fill

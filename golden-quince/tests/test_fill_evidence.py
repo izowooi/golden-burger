@@ -44,6 +44,7 @@ def create_ledger_tables(session):
                 side TEXT,
                 size REAL,
                 price REAL,
+                fee_rate_bps REAL,
                 fee_amount_usdc REAL,
                 matched_at TEXT,
                 domain_error TEXT
@@ -99,15 +100,18 @@ def insert_fill(
     side="BUY",
     size=1.0,
     price=0.95,
+    fee_rate=None,
     fee=0.001,
     matched_at="2026-07-14T00:00:00Z",
     domain_error=None,
 ):
     session.execute(
         text(
-            "INSERT INTO order_fills VALUES "
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, status, side, size, price, "
+            "fee_rate_bps, fee_amount_usdc, matched_at, domain_error) VALUES "
             "(:submission_id, :order_id, :status, :side, :size, :price, "
-            ":fee, :matched_at, :domain_error)"
+            ":fee_rate, :fee, :matched_at, :domain_error)"
         ),
         {
             "submission_id": f"submission-{order_id}",
@@ -116,6 +120,7 @@ def insert_fill(
             "side": side,
             "size": size,
             "price": price,
+            "fee_rate": fee_rate,
             "fee": fee,
             "matched_at": matched_at,
             "domain_error": domain_error,
@@ -222,6 +227,47 @@ def test_confirmed_fill_with_unknown_fee_preserves_gross_only_evidence(tmp_path)
     assert evidence.confirmed_size == 1.0
     assert evidence.confirmed_fee_usdc is None
     assert evidence.fee_complete is False
+    session.close()
+
+
+def test_explicit_zero_fee_rate_proves_zero_fee_when_amount_is_omitted(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(session, order_id="zero-fee", status="MATCHED", matched=1)
+    insert_fill(session, order_id="zero-fee", fee_rate=0, fee=None)
+
+    evidence = repo.get_exact_buy_fill_evidence("zero-fee")
+
+    assert evidence.state == "confirmed"
+    assert evidence.confirmed_fee_usdc == 0.0
+    assert evidence.fee_complete is True
+    session.close()
+
+
+def test_nonzero_fee_rate_without_amount_remains_incomplete(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(session, order_id="fee-amount-gap", status="MATCHED", matched=1)
+    insert_fill(session, order_id="fee-amount-gap", fee_rate=30, fee=None)
+
+    evidence = repo.get_exact_buy_fill_evidence("fee-amount-gap")
+
+    assert evidence.state == "confirmed"
+    assert evidence.confirmed_fee_usdc is None
+    assert evidence.fee_complete is False
+    session.close()
+
+
+def test_invalid_fee_rate_fails_closed_even_when_amount_is_present(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(session, order_id="bad-fee-rate", status="MATCHED", matched=1)
+    insert_fill(session, order_id="bad-fee-rate", fee_rate=-1, fee=0)
+
+    evidence = repo.get_exact_buy_fill_evidence("bad-fee-rate")
+
+    assert evidence.state == "unavailable"
+    assert evidence.detail == "confirmed_fill_fee_rate_invalid"
     session.close()
 
 
