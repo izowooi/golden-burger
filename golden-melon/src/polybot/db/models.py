@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
     create_engine,
     text,
 )
@@ -238,6 +239,45 @@ class MarketSweepMembership(Base):
     snapshot_eligible = Column(Integer, nullable=False)
     snapshotted = Column(Integer, nullable=False)
     snapshot_reason = Column(String, nullable=False)
+
+
+class EntrySignalDecision(Base):
+    """Durable evidence for each first observed Resolution Sprint crossing.
+
+    A rejection is research evidence, not a re-entry cooldown.  Keeping it in
+    a dedicated table lets the volume A/B/C experiment measure counterfactual
+    gates without changing ``skipped_markets`` semantics.
+    """
+
+    __tablename__ = "entry_signal_decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id", "condition_id", name="uq_entry_signal_run_condition"
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String, nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, index=True)
+    prior_snapshot_id = Column(Integer, nullable=False)
+    current_snapshot_id = Column(Integer, nullable=False)
+    prior_price = Column(Float, nullable=False)
+    current_price = Column(Float, nullable=False)
+    snapshot_gap_minutes = Column(Float, nullable=False)
+    hours_left = Column(Float)
+    clock_reference = Column(String)
+    sports_phase = Column(String)
+    is_sports = Column(Integer, nullable=False, default=0)
+    liquidity = Column(Float)
+    volume_24h = Column(Float)
+    effective_min_liquidity = Column(Float, nullable=False)
+    effective_min_volume_24h = Column(Float, nullable=False)
+    entry_prob_min = Column(Float, nullable=False)
+    entry_prob_max = Column(Float, nullable=False)
+    decision = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
 class SkippedMarket(Base):

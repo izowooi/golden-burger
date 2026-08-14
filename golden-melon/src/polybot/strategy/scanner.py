@@ -453,16 +453,27 @@ class MarketScanner:
             if is_excluded_market(market, self.config.excluded_categories):
                 rejected["excluded_category"] = rejected.get("excluded_category", 0) + 1
                 continue
-            if not passes_liquidity_filter(
-                market, self.config.effective_min_liquidity
-            ):
-                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
-                continue
-            if not passes_volume_filter(
-                market, self.config.effective_min_volume_24h
-            ):
-                rejected["low_volume"] = rejected.get("low_volume", 0) + 1
-                continue
+            # Preserve the old cheap-gate order for inventory that cannot be a
+            # first crossing.  Only a price already at/above the threshold
+            # needs the more expensive persisted-lineage lookup before the
+            # volume gate so a rejected crossing can be recorded.
+            potential_crossing = (
+                float(yes["probability"])
+                >= self.config.entry.prob_min - EPSILON
+            )
+            if not potential_crossing:
+                if not passes_liquidity_filter(
+                    market, self.config.effective_min_liquidity
+                ):
+                    rejected["low_liquidity"] = (
+                        rejected.get("low_liquidity", 0) + 1
+                    )
+                    continue
+                if not passes_volume_filter(
+                    market, self.config.effective_min_volume_24h
+                ):
+                    rejected["low_volume"] = rejected.get("low_volume", 0) + 1
+                    continue
             clock = evaluate_entry_clock(market, self.config.sports, reference)
             if not clock.valid:
                 rejected[clock.reason] = rejected.get(clock.reason, 0) + 1
@@ -484,18 +495,80 @@ class MarketScanner:
                 self.config.entry,
                 phase=clock.phase,
             )
+            current_timestamp = self._snapshot_timestamp(current_snapshot)
+            prior_timestamp = self._snapshot_timestamp(prior)
+            if current_timestamp is None or prior_timestamp is None:
+                rejected["snapshot_timestamp_invalid"] = (
+                    rejected.get("snapshot_timestamp_invalid", 0) + 1
+                )
+                continue
+            gap_minutes = (
+                current_timestamp - prior_timestamp
+            ).total_seconds() / 60.0
+            event = get_event_metadata(market)
+
+            # Persist only a genuine first threshold crossing.  Ordinary
+            # below-threshold inventory remains in market_snapshots and would
+            # otherwise create millions of low-value decision rows.
+            crossed = (
+                float(prior.probability) < self.config.entry.prob_min - EPSILON
+                and float(yes["probability"])
+                >= self.config.entry.prob_min - EPSILON
+            )
+
+            def record_signal(result: str, reason: str) -> None:
+                if not crossed:
+                    return
+                self.repo.record_entry_signal_decision(
+                    run_id=str(current_run_id() or "unknown"),
+                    condition_id=condition_id,
+                    event_id=event["event_id"],
+                    prior_snapshot_id=prior.id,
+                    current_snapshot_id=current_snapshot.id,
+                    prior_price=float(prior.probability),
+                    current_price=float(yes["probability"]),
+                    snapshot_gap_minutes=gap_minutes,
+                    hours_left=clock.hours_left,
+                    clock_reference=clock.reference,
+                    sports_phase=(clock.phase if clock.is_sports else "not_sports"),
+                    is_sports=int(clock.is_sports),
+                    liquidity=current_snapshot.liquidity,
+                    volume_24h=current_snapshot.volume_24h,
+                    effective_min_liquidity=self.config.effective_min_liquidity,
+                    effective_min_volume_24h=(
+                        self.config.effective_min_volume_24h
+                    ),
+                    entry_prob_min=self.config.entry.prob_min,
+                    entry_prob_max=self.config.entry.prob_max,
+                    decision=result,
+                    reason=reason,
+                )
+
             if not decision.should_enter:
                 key = _reason_key(decision.reason)
                 rejected[key] = rejected.get(key, 0) + 1
+                record_signal("rejected", key)
                 continue
-
-            event = get_event_metadata(market)
+            if not passes_liquidity_filter(
+                market, self.config.effective_min_liquidity
+            ):
+                rejected["low_liquidity"] = rejected.get("low_liquidity", 0) + 1
+                record_signal("rejected", "low_liquidity")
+                continue
+            if not passes_volume_filter(
+                market, self.config.effective_min_volume_24h
+            ):
+                rejected["low_volume"] = rejected.get("low_volume", 0) + 1
+                record_signal("rejected", "low_volume")
+                continue
             if not event["event_id"]:
                 # Per-event exposure is a hard risk limit.  Falling back to a
                 # condition id would silently turn every market with missing
                 # Gamma event metadata into its own event and bypass that cap.
                 rejected["missing_event_id"] = rejected.get("missing_event_id", 0) + 1
+                record_signal("rejected", "missing_event_id")
                 continue
+            record_signal("candidate", "signal_and_metadata_gates_passed")
             tags = market.get("tags") or []
             tag_text = ", ".join(
                 str(tag.get("label") or tag.get("slug") or "")
@@ -515,6 +588,7 @@ class MarketScanner:
                 "prior_yes_price": prior.probability,
                 "prior_snapshot_id": prior.id,
                 "entry_snapshot_id": current_snapshot.id,
+                "snapshot_gap_minutes": gap_minutes,
                 "liquidity": current_snapshot.liquidity,
                 "volume_24h": current_snapshot.volume_24h,
                 "best_bid": current_snapshot.best_bid,

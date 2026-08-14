@@ -41,12 +41,17 @@ class PriorRepo:
             spread=0.002,
         )
         self.history = history or [self.prior, self.current]
+        self.signal_decisions = []
 
     def get_latest_snapshot_before_run(self, _condition_id, run_id=None):
         return self.prior
 
     def get_snapshots_since(self, _condition_id, _since):
         return list(self.history)
+
+    def record_entry_signal_decision(self, **kwargs):
+        self.signal_decisions.append(kwargs)
+        return SimpleNamespace(**kwargs)
 
 
 def scanner_with_lineage(*, repo=None, config=None):
@@ -99,6 +104,30 @@ def test_crossed_strict_binary_market_preserves_gamma_event_identity():
     assert candidate["yes_price"] == 0.90
     assert candidate["prior_snapshot_id"] == 1
     assert candidate["entry_snapshot_id"] == 2
+    assert candidate["snapshot_gap_minutes"] == pytest.approx(5)
+    assert scanner.repo.signal_decisions[0]["decision"] == "candidate"
+
+
+def test_first_crossing_below_volume_gate_is_durably_recorded(caplog):
+    repo = PriorRepo()
+    repo.current.volume_24h = 25_000.0
+    scanner = scanner_with_lineage(
+        repo=repo,
+        config=TradingConfig(min_volume_24h=50_000.0),
+    )
+    market = crossed_market()
+    market["volume24hr"] = 25_000.0
+
+    with caplog.at_level("INFO"):
+        assert scanner.scan_buy_candidates([market], now=NOW) == []
+
+    assert "low_volume: 1" in caplog.text
+    assert len(repo.signal_decisions) == 1
+    evidence = repo.signal_decisions[0]
+    assert evidence["decision"] == "rejected"
+    assert evidence["reason"] == "low_volume"
+    assert evidence["volume_24h"] == pytest.approx(25_000.0)
+    assert evidence["effective_min_volume_24h"] == pytest.approx(50_000.0)
 
 
 def test_crossed_market_without_event_id_fails_closed_and_is_counted(caplog):

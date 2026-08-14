@@ -176,8 +176,10 @@ $5 고정이므로 D를 만들려면 다른 축을 흔들어야 하는데, 그�
 
 ### 이 실험의 진짜 자산 — 거절된 후보도 기록한다
 
-melon은 `skipped_markets`에 **거절 사유와 그때의 volume·liquidity·잔여시간**을 남기고,
-`market_snapshots`에 archive envelope(YES ≥ 0.75, ≤168h)를 60일 보존한다.
+melon은 `entry_signal_decisions`에 **첫 교차의 판정과 그때의
+volume·liquidity·잔여시간·적용 threshold**를 남기고, `market_snapshots`에 archive
+envelope(YES ≥ 0.75, ≤168h)를 60일 보존한다. `skipped_markets`는 거래 재진입
+cooldown 전용이므로 반사실 evidence로 사용하지 않는다.
 30일 뒤에는 **실행하지 않은 threshold의 반사실도 오프라인으로 계산**할 수 있다.
 live A/B는 세 점만 재지만, 로그는 연속 곡선을 준다. 운영자가 말한
 *"어떤 값이 좋은지 알기 위해 DB와 Log를 쌓는 게 중요하다"* 가 이것이다.

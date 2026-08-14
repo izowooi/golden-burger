@@ -23,6 +23,7 @@ from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .models import (
+    EntrySignalDecision,
     MarketCatalog,
     MarketSnapshot,
     MarketSweep,
@@ -155,6 +156,29 @@ class TradeRepository:
         self.session.add(trade)
         self.session.commit()
         return trade
+
+    def record_entry_signal_decision(
+        self, *, commit: bool = True, **kwargs
+    ) -> EntrySignalDecision:
+        """Persist one first-crossing decision without creating a cooldown."""
+        run_id = str(kwargs.get("run_id") or "")
+        condition_id = str(kwargs.get("condition_id") or "")
+        existing = (
+            self.session.query(EntrySignalDecision)
+            .filter(
+                EntrySignalDecision.run_id == run_id,
+                EntrySignalDecision.condition_id == condition_id,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            return existing
+        decision = EntrySignalDecision(**kwargs)
+        self.session.add(decision)
+        self.session.flush()
+        if commit:
+            self.session.commit()
+        return decision
 
     def update_trade(self, trade_id: int, **kwargs) -> Trade:
         trade = self.session.get(Trade, trade_id)
@@ -920,6 +944,18 @@ class TradeRepository:
         self.session.execute(
             text(
                 "INSERT OR IGNORE INTO _polybot_melon_protected_snapshots(id) "
+                "SELECT prior_snapshot_id FROM entry_signal_decisions"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_melon_protected_snapshots(id) "
+                "SELECT current_snapshot_id FROM entry_signal_decisions"
+            )
+        )
+        self.session.execute(
+            text(
+                "INSERT OR IGNORE INTO _polybot_melon_protected_snapshots(id) "
                 "SELECT prior_id FROM ("
                 "SELECT (SELECT prior.id FROM market_snapshots AS prior "
                 "WHERE prior.condition_id = entry.condition_id AND ("
@@ -993,6 +1029,9 @@ class TradeRepository:
             "unfilled": count(TradeStatus.UNFILLED),
             "quarantined": count(TradeStatus.QUARANTINED),
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
+            "entry_signal_decisions": (
+                self.session.query(func.count(EntrySignalDecision.id)).scalar() or 0
+            ),
             "total_pnl": round(total_pnl, 4),
             "settlement_pnl_assumption": round(settlement_pnl, 4),
             "economic_pnl": round(total_pnl + settlement_pnl, 4),
