@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import ast
+import hashlib
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -35,8 +36,13 @@ CURRENT_STRATEGIES = {
     "golden-queen",
     "golden-quince",
     "golden-raspberry",
+    "golden-strawberry",
 }
-RESEARCH_ONLY_STRATEGIES = {"golden-pomegranate", "golden-raspberry"}
+RESEARCH_ONLY_STRATEGIES = {
+    "golden-pomegranate",
+    "golden-raspberry",
+    "golden-strawberry",
+}
 # L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
 # golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
 PRE_L3_STRATEGIES = {"golden-apple", "golden-banana"}
@@ -75,6 +81,161 @@ def _require_tokens(
             findings.append(
                 Finding(strategy, "missing_contract", f"{relative_path}: {token}")
             )
+
+
+def _require_token_alternatives(
+    findings: list[Finding],
+    strategy: str,
+    relative_path: str,
+    content: str,
+    token_groups: tuple[tuple[str, ...], ...],
+) -> None:
+    """Require one token from each semantic group.
+
+    Dedicated research collectors do not need to use one exact identifier for
+    every evidence field.  This helper keeps the contract strict about the
+    evidence concept while accepting a small set of reasonable exact names.
+    """
+
+    for alternatives in token_groups:
+        if not any(token in content for token in alternatives):
+            findings.append(
+                Finding(
+                    strategy,
+                    "missing_contract",
+                    f"{relative_path}: one of {' | '.join(alternatives)}",
+                )
+            )
+
+
+def _require_one_of_files(
+    findings: list[Finding],
+    strategy: str,
+    directory: Path,
+    relative_paths: tuple[str, ...],
+) -> str:
+    for relative_path in relative_paths:
+        path = directory / relative_path
+        if path.is_file():
+            return _read(path)
+    findings.append(
+        Finding(
+            strategy,
+            "missing_file",
+            "one of: " + ", ".join(relative_paths),
+        )
+    )
+    return ""
+
+
+def _normalized_literal(value: object) -> object:
+    if isinstance(value, (list, tuple)):
+        return tuple(_normalized_literal(item) for item in value)
+    return value
+
+
+def _require_literal_assignment(
+    findings: list[Finding],
+    strategy: str,
+    relative_path: str,
+    tree: ast.Module,
+    names: tuple[str, ...],
+    expected: object,
+) -> None:
+    values: list[tuple[str, object]] = []
+    for node in tree.body:
+        targets: list[ast.expr] = []
+        value_node: ast.expr | None = None
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+            value_node = node.value
+        elif isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+            value_node = node.value
+        if value_node is None:
+            continue
+        for target in targets:
+            if not isinstance(target, ast.Name) or target.id not in names:
+                continue
+            try:
+                values.append((target.id, ast.literal_eval(value_node)))
+            except (ValueError, TypeError):
+                values.append((target.id, "<non-literal>"))
+
+    if not values:
+        findings.append(
+            Finding(
+                strategy,
+                "missing_contract",
+                f"{relative_path}: one of {' | '.join(names)}",
+            )
+        )
+        return
+
+    normalized_expected = _normalized_literal(expected)
+    invalid = [
+        (name, value)
+        for name, value in values
+        if _normalized_literal(value) != normalized_expected
+    ]
+    if invalid:
+        findings.append(
+            Finding(
+                strategy,
+                "invalid_contract",
+                f"{relative_path}: {invalid!r} != {expected!r}",
+            )
+        )
+
+
+def _simple_yaml_values(content: str, key: str) -> list[object]:
+    values: list[object] = []
+    prefix = f"{key}:"
+    for raw_line in content.splitlines():
+        line = raw_line.split("#", 1)[0].strip()
+        if not line.startswith(prefix):
+            continue
+        raw_value = line[len(prefix) :].strip()
+        lowered = raw_value.lower()
+        if lowered == "true":
+            values.append(True)
+            continue
+        if lowered == "false":
+            values.append(False)
+            continue
+        if lowered in {"null", "none", "~"}:
+            values.append(None)
+            continue
+        try:
+            values.append(ast.literal_eval(raw_value))
+        except (SyntaxError, ValueError):
+            values.append(raw_value.strip("'\""))
+    return values
+
+
+def _require_yaml_value(
+    findings: list[Finding],
+    strategy: str,
+    relative_path: str,
+    content: str,
+    key: str,
+    expected: object,
+) -> None:
+    values = _simple_yaml_values(content, key)
+    if not values:
+        findings.append(
+            Finding(strategy, "missing_contract", f"{relative_path}: {key}")
+        )
+        return
+    normalized_expected = _normalized_literal(expected)
+    if len(values) != 1 or _normalized_literal(values[0]) != normalized_expected:
+        findings.append(
+            Finding(
+                strategy,
+                "invalid_contract",
+                f"{relative_path}: {key}={values!r}, expected {expected!r}",
+            )
+        )
 
 
 def _parse_python(
@@ -2016,6 +2177,794 @@ def _validate_queue_echo_research_strategy(
     )
 
 
+def _validate_last_mile_research_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate Strawberry's frozen, accountless Last Mile experiment."""
+
+    required_sources = (
+        "src/polybot/config.py",
+        "src/polybot/main.py",
+        "src/polybot/bot.py",
+        "src/polybot/run_audit.py",
+        "src/polybot/collector.py",
+        "src/polybot/api/gamma_client.py",
+        "src/polybot/api/clob_client.py",
+        "src/polybot/db/repository.py",
+        "src/polybot/utils/retry.py",
+        "src/polybot/source_digest.py",
+    )
+    sources = {
+        relative_path: _require_file(findings, strategy, directory / relative_path)
+        for relative_path in required_sources
+    }
+
+    config_path = "src/polybot/config.py"
+    config = sources[config_path]
+    config_tree = _parse_python(findings, strategy, config_path, config)
+    if config_tree is not None:
+        for function_name in ("_validate_config", "load_config", "assert_no_credentials"):
+            _require_function(
+                findings,
+                strategy,
+                config_path,
+                config_tree,
+                function_name,
+            )
+        _require_literal_assignment(
+            findings,
+            strategy,
+            config_path,
+            config_tree,
+            ("ENTRY_THRESHOLDS", "ENTRY_THRESHOLD_GRID", "ENTRY_GRID"),
+            (0.90, 0.92, 0.95, 0.97),
+        )
+        _require_literal_assignment(
+            findings,
+            strategy,
+            config_path,
+            config_tree,
+            ("STOP_THRESHOLDS", "STOP_THRESHOLD_GRID", "STOP_GRID"),
+            (0.80, 0.85, 0.90),
+        )
+        _require_literal_assignment(
+            findings,
+            strategy,
+            config_path,
+            config_tree,
+            ("TARGET_THRESHOLDS", "TARGET_THRESHOLD_GRID", "TARGET_GRID"),
+            (0.98, 0.99),
+        )
+        _require_literal_assignment(
+            findings,
+            strategy,
+            config_path,
+            config_tree,
+            ("PRIMARY_ENTRY_THRESHOLD", "PRIMARY_ENTRY"),
+            0.95,
+        )
+        _require_literal_assignment(
+            findings,
+            strategy,
+            config_path,
+            config_tree,
+            ("PRIMARY_STOP_THRESHOLD", "PRIMARY_STOP"),
+            0.85,
+        )
+    _require_tokens(
+        findings,
+        strategy,
+        config_path,
+        config,
+        (
+            "get_trading_config_mapping",
+            "validate_yaml_config_shape",
+            "last-mile-v1",
+            "archive_only",
+            "math.isfinite",
+            "CANONICAL_JOB",
+            "FROZEN_ENTRY_START",
+            "FROZEN_ENTRY_END",
+            "FROZEN_FOLLOWUP_END",
+            "POLYMARKET_PRIVATE_KEY",
+            "POLYMARKET_FUNDER_ADDRESS",
+            "POLYMARKET_SIGNATURE_TYPE",
+            "POLYMARKET_API_KEY",
+            "POLYMARKET_API_SECRET",
+            "POLYMARKET_API_PASSPHRASE",
+            "CLOB_API_KEY",
+            "CLOB_SECRET",
+            "CLOB_PASSPHRASE",
+        ),
+    )
+    _require_token_alternatives(
+        findings,
+        strategy,
+        config_path,
+        config,
+        (
+            ("_CREDENTIAL_ENV_KEYS", "CREDENTIAL_ENV_KEYS"),
+            ("_ALLOWED_POLYBOT_ENV_KEYS", "ALLOWED_POLYBOT_ENV_KEYS"),
+            ("can never run live", "never run live", "live mode is forbidden"),
+        ),
+    )
+
+    yaml_path = "config.yaml"
+    yaml_config = _read(directory / yaml_path)
+    for key, expected in (
+        ("simulation_mode", True),
+        ("lifecycle_mode", "archive_only"),
+        ("data_contract", "last-mile-v1"),
+        ("cadence_minutes", 10),
+        ("entry_start_utc", "2026-08-15T02:00:00Z"),
+        ("entry_end_utc", "2026-08-22T02:00:00Z"),
+        ("followup_end_utc", "2026-09-21T02:00:00Z"),
+        ("page_size", 100),
+        ("max_pages", 500),
+        ("include_tags", True),
+        ("min_liquidity", 0),
+        ("min_total_volume", 0),
+        ("entry_thresholds", (0.90, 0.92, 0.95, 0.97)),
+        ("stop_thresholds", (0.80, 0.85, 0.90)),
+        ("target_thresholds", (0.98, 0.99)),
+        ("primary_entry_threshold", 0.95),
+        ("primary_stop_threshold", 0.85),
+        ("simulated_notional_usdc", 5),
+    ):
+        _require_yaml_value(
+            findings,
+            strategy,
+            yaml_path,
+            yaml_config,
+            key,
+            expected,
+        )
+
+    main_source = sources["src/polybot/main.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/main.py",
+        main_source,
+        (
+            ("--live",),
+            ("--simulate",),
+            ("status",),
+            ("health",),
+            ("refuses --live", "rejects --live", "--live is forbidden", "never run live"),
+        ),
+    )
+
+    bot = sources["src/polybot/bot.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/bot.py",
+        bot,
+        (
+            ("ResearchRunAudit.start", "ResearchRunAudit("),
+            ("exclusive_job_run_lock", "job_run_lock"),
+            ("record_storage_metric", "storage_metric"),
+            ("assert_no_credentials",),
+            ("archive_only",),
+            ("run_cycle", "collect_cycle", "collector.collect"),
+        ),
+    )
+
+    gamma = sources["src/polybot/api/gamma_client.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/api/gamma_client.py",
+        gamma,
+        (
+            ("/markets/keyset",),
+            ("after_cursor", "afterCursor"),
+            ("next_cursor", "nextCursor"),
+            ("cursor_complete", "terminal_cursor", "cursor_terminal"),
+            ("closed",),
+            ("include_tag", "includeTag"),
+            ("liquidity_num_min", "min_liquidity"),
+            ("volume_num_min", "min_total_volume"),
+            ("received_at", "source_received_at"),
+            ("raw_payload", "raw_body", "response.raw", "raw: bytes"),
+            ("payload_sha256", "raw_sha256", "response_sha256"),
+        ),
+    )
+
+    clob = sources["src/polybot/api/clob_client.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/api/clob_client.py",
+        clob,
+        (
+            ("/books",),
+            ("token_id", "asset_id"),
+            ("asks", "ask_levels"),
+            ("bids", "bid_levels"),
+            ("OBSERVED", "observed"),
+            ("MISSING", "missing"),
+            ("MALFORMED", "malformed"),
+            ("EMPTY", "empty"),
+            ("ERROR", "error"),
+            ("RawBookPayload", "raw_payload", "raw_body"),
+        ),
+    )
+
+    collector = sources["src/polybot/collector.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/collector.py",
+        collector,
+        (
+            ("LEFT_CENSORED",),
+            ("GAP_CENSORED",),
+            (
+                "first_observed",
+                "first_crossing",
+                "first crossing",
+                "episode_exists",
+                "NEW_CROSSING",
+            ),
+            ("outcome_token_id", "token_id"),
+            ("entry_thresholds", "ENTRY_THRESHOLDS"),
+            (
+                "prior_received_at",
+                "previous_received_at",
+                "prior_observed_at",
+                "interval_start",
+            ),
+            ("current_received_at", "observed_at", "interval_end"),
+            ("simulated_notional_usdc", "notional_usdc"),
+            ("displayed_book_counterfactual", "displayed-book counterfactual"),
+            ("ask_vwap", "entry_vwap"),
+            ("bid_vwap", "exit_vwap"),
+            ("terminal_payout", "resolution_payout", "resolution_observation"),
+        ),
+    )
+
+    repository = sources["src/polybot/db/repository.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/db/repository.py",
+        repository,
+        (
+            ("experiment_contracts",),
+            ("research_config_versions",),
+            ("research_run_events",),
+            ("api_requests",),
+            ("raw_payloads",),
+            ("market_sweeps", "gamma_sweeps"),
+            ("market_sweep_memberships", "gamma_membership_blobs"),
+            ("market_sweep_page_lineage", "gamma_page_lineage"),
+            ("market_observations", "market_catalog_versions"),
+            ("outcome_observations", "outcome_token_observations"),
+            ("latest_outcome_state", "crossing_states", "threshold_states"),
+            ("crossing_decisions", "threshold_decisions", "signal_decisions"),
+            ("crossing_episodes", "entry_episodes", "hypothetical_episodes"),
+            ("orderbook_token_attempts", "book_attempts", "clob_token_attempts"),
+            ("orderbook_snapshots", "book_snapshots", "clob_snapshots"),
+            ("orderbook_levels", "book_levels", "clob_levels"),
+            (
+                "episode_path_observations",
+                "counterfactual_path_observations",
+                "path_observations",
+            ),
+            ("resolution_observations",),
+            ("cycle_stats",),
+            ("data_quality_issues",),
+            ("storage_metrics",),
+            ("append-only evidence", "append_only", "append only"),
+            ("_append_only_triggers", "CREATE TRIGGER"),
+            ("BEFORE UPDATE",),
+            ("BEFORE DELETE",),
+            ("latest-state cache", "sole mutable table", "mutable_cache_table"),
+            ("UNIQUE (token_id, entry_threshold)", "UNIQUE(token_id,entry_threshold)"),
+            ("category", "category_slug"),
+            ("sports", "sport", "game_start_time"),
+            ("negRisk", "neg_risk"),
+            ("multi_outcome", "multioutcome", "outcome_count", "outcomes_json"),
+            ("interval_censored", "interval_start", "prior_received_at"),
+        ),
+    )
+
+    evidence_sources = "\n".join((gamma, collector, repository))
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "Last Mile evidence sources",
+        evidence_sources,
+        (
+            ("category", "category_slug"),
+            ("sports", "sport", "game_start_time"),
+            ("negRisk", "neg_risk"),
+            ("multi_outcome", "multioutcome", "outcome_count", "outcomes_json"),
+            ("interval_censored", "interval_start", "prior_received_at"),
+            ("condition_id",),
+            ("event_id", "event_cluster"),
+            (
+                "atomic",
+                "Atomic",
+                "publish_cycle",
+                "publish_complete_sweep",
+                "commit_complete_sweep",
+            ),
+        ),
+    )
+
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/run_audit.py",
+        sources["src/polybot/run_audit.py"],
+        (
+            ("class ResearchRunAudit",),
+            ("record_research_run_start", "ResearchRunAudit.start", "def start("),
+            ("record_research_run_event",),
+            ("STARTED",),
+            ("SUCCEEDED",),
+            ("FAILED",),
+        ),
+    )
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/utils/retry.py",
+        sources["src/polybot/utils/retry.py"],
+        (
+            ("RequestException",),
+            ("ChunkedEncodingError",),
+            ("Retry-After", "retry_after"),
+        ),
+    )
+
+    source_digest = sources["src/polybot/source_digest.py"]
+    _require_tokens(
+        findings,
+        strategy,
+        "src/polybot/source_digest.py",
+        source_digest,
+        (
+            "pyproject.toml",
+            "uv.lock",
+            "config.yaml",
+            "STRATEGY.md",
+            "research/frozen-2026-08-15/PREREGISTRATION.md",
+            "scripts/analyze_experiment.py",
+            "scripts/verify_external_workspace.py",
+            "src/polybot/main.py",
+            "src/polybot/bot.py",
+            "src/polybot/config.py",
+            "src/polybot/run_audit.py",
+            "src/polybot/source_digest.py",
+            "src/polybot/api/gamma_client.py",
+            "src/polybot/api/clob_client.py",
+            "src/polybot/collector.py",
+            "src/polybot/db/repository.py",
+            "src/polybot/utils/retry.py",
+        ),
+    )
+    if (directory / "src/polybot/analyzer.py").is_file():
+        _require_tokens(
+            findings,
+            strategy,
+            "src/polybot/source_digest.py",
+            source_digest,
+            ("src/polybot/analyzer.py",),
+        )
+
+    forbidden_path_parts = {"execution", "fill", "order", "trader", "wallet"}
+    forbidden_source_tokens = (
+        "from py_clob_client",
+        "import py_clob_client",
+        "ExecutionLedger",
+        "OrderArgs",
+        "MarketOrderArgs",
+        "ApiCreds",
+        "Trader(",
+        "Wallet(",
+        "set_api_creds(",
+        "submit_and_record(",
+        "submit_order(",
+        "post_order(",
+        "place_order(",
+        "place_limit_order(",
+        "create_market_order(",
+        "create_order(",
+        "build_order(",
+        "sign_order(",
+        "execute_order(",
+        "cancel_order(",
+        "cancel_all(",
+        "get_balance_allowance(",
+        "get_api_keys(",
+        "execute_buy(",
+        "execute_sell(",
+        "record_fill(",
+        "order_submissions",
+        "order_status_events",
+        "order_fills",
+        "confirmed_fill",
+        "realized_pnl",
+        '"/order"',
+        '"/orders"',
+        '"/cancel"',
+        '"/balance-allowance"',
+        '"/auth/api-key"',
+        "'/order'",
+        "'/orders'",
+        "'/cancel'",
+        "'/balance-allowance'",
+        "'/auth/api-key'",
+        "wallet_address",
+        "private_key=",
+        "funder_address=",
+        "POLYMARKET_PRIVATE_KEY=",
+    )
+    python_paths = set((directory / "src/polybot").rglob("*.py"))
+    python_paths.update((directory / "scripts").glob("*.py"))
+    if (directory / "main.py").is_file():
+        python_paths.add(directory / "main.py")
+    for path in sorted(python_paths):
+        relative_path = path.relative_to(directory)
+        path_stems = {Path(part).stem.lower() for part in relative_path.parts}
+        has_unsafe_path = any(
+            any(token in stem for token in forbidden_path_parts - {"order"})
+            or (
+                "order" in stem
+                and "orderbook" not in stem
+                and "order_book" not in stem
+            )
+            for stem in path_stems
+        )
+        if has_unsafe_path:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_order_path",
+                    str(relative_path),
+                )
+            )
+        content = _read(path)
+        for token in forbidden_source_tokens:
+            if token in content:
+                findings.append(
+                    Finding(
+                        strategy,
+                        "unsafe_research_order_path",
+                        f"{relative_path}: {token}",
+                    )
+                )
+    if "py-clob-client" in _read(directory / "pyproject.toml").lower():
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_research_order_path",
+                "pyproject.toml: py-clob-client",
+            )
+        )
+
+    env_example = _read(directory / ".env.example")
+    _require_tokens(
+        findings,
+        strategy,
+        ".env.example",
+        env_example,
+        (
+            "POLYBOT_LIFECYCLE_MODE=archive_only",
+            "POLYBOT_SIMULATION_MODE=true",
+        ),
+    )
+    for credential_key in (
+        "POLYMARKET_PRIVATE_KEY",
+        "POLYMARKET_FUNDER_ADDRESS",
+        "POLYMARKET_SIGNATURE_TYPE",
+        "POLYMARKET_API_KEY",
+        "POLYMARKET_API_SECRET",
+        "POLYMARKET_API_PASSPHRASE",
+        "CLOB_API_KEY",
+        "CLOB_SECRET",
+        "CLOB_PASSPHRASE",
+    ):
+        if f"{credential_key}=" in env_example:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_credentials",
+                    f".env.example: {credential_key}",
+                )
+            )
+
+    readme = _read(directory / "README.md")
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "README.md",
+        readme,
+        (
+            ("Last Mile",),
+            ("last-mile-v1",),
+            ("accountless",),
+            ("research-only", "research only"),
+            ("10 minute", "10-minute", "10분"),
+            ("trades_sim.db",),
+            ("OPERATIONS.md",),
+            ("--simulate",),
+            ("--live",),
+            ("$5",),
+        ),
+    )
+    strategy_doc = _read(directory / "STRATEGY.md")
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "STRATEGY.md",
+        strategy_doc,
+        (
+            ("Last Mile",),
+            ("0.95",),
+            ("0.85",),
+            ("terminal", "resolution"),
+            ("LEFT_CENSORED",),
+            ("GAP_CENSORED",),
+            ("one-week", "one week", "7-day", "7 day", "7일"),
+            ("health",),
+            (
+                "no live",
+                "live 금지",
+                "--live",
+                "live-deployment approval",
+                "live deployment approval",
+            ),
+        ),
+    )
+
+    operations = _require_file(findings, strategy, directory / "OPERATIONS.md")
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "OPERATIONS.md",
+        operations,
+        (
+            ("/Volumes/t7",),
+            ("verify_external_workspace.py",),
+            ("host", "off-volume"),
+            ("UUID", "uuid"),
+            ("before", "먼저"),
+            ("analyze_experiment.py",),
+            ("health",),
+        ),
+    )
+
+    prereg_relative = "research/frozen-2026-08-15/PREREGISTRATION.md"
+    manifest_relative = "research/frozen-2026-08-15/MANIFEST.sha256"
+    prereg_path = directory / prereg_relative
+    manifest_path = directory / manifest_relative
+    preregistration = _require_file(findings, strategy, prereg_path)
+    manifest = _require_file(findings, strategy, manifest_path)
+    _require_token_alternatives(
+        findings,
+        strategy,
+        prereg_relative,
+        preregistration,
+        (
+            ("2026-08-15",),
+            ("last-mile-v1",),
+            ("archive_only",),
+            ("accountless",),
+            ("10 minutes", "10-minute", "10분"),
+            ("/markets/keyset",),
+            ("cursor",),
+            ("No liquidity", "no liquidity", "liquidity_num_min=0"),
+            ("category",),
+            ("sports",),
+            ("negRisk", "neg_risk"),
+            ("multi-outcome", "multioutcome"),
+            ("LEFT_CENSORED",),
+            ("GAP_CENSORED",),
+            ("interval",),
+            ("$5",),
+            ("[0.90, 0.92, 0.95, 0.97]", "`0.90`, `0.92`, `0.95`, and `0.97`"),
+            ("[none, 0.80, 0.85, 0.90]", "`0.80` and `0.90` stops"),
+            ("[none, 0.98, 0.99]", "`0.98`/`0.99`"),
+            ("entry threshold `0.95`", "primary entry 0.95"),
+            ("stop threshold `0.85`", "primary stop 0.85"),
+            ("terminal Gamma payout", "terminal resolution"),
+            ("HEALTH_ONLY",),
+            ("one-week", "one week", "7-day", "7 day", "7일"),
+            ("50 executable episodes", "at least 50 executable episodes"),
+            (
+                "30 resolved independent event clusters",
+                "at least 30 resolved independent event clusters",
+            ),
+            ("90% episode-path coverage", "90% path coverage"),
+            ("90% resolution coverage",),
+        ),
+    )
+    if preregistration and manifest:
+        try:
+            preregistration_sha256 = hashlib.sha256(prereg_path.read_bytes()).hexdigest()
+        except OSError as error:
+            findings.append(
+                Finding(strategy, "invalid_manifest", f"{prereg_relative}: {error}")
+            )
+        else:
+            pinned = False
+            for line in manifest.splitlines():
+                fields = line.strip().split()
+                if len(fields) < 2:
+                    continue
+                target = fields[-1].lstrip("*")
+                if target.endswith("PREREGISTRATION.md"):
+                    pinned = fields[0].lower() == preregistration_sha256
+                    break
+            if not pinned:
+                findings.append(
+                    Finding(
+                        strategy,
+                        "invalid_manifest",
+                        f"{manifest_relative}: current PREREGISTRATION.md SHA-256",
+                    )
+                )
+
+    analyzer = _require_file(
+        findings, strategy, directory / "scripts/analyze_experiment.py"
+    )
+    analyzer_module = _read(directory / "src/polybot/analyzer.py")
+    analyzer_contract = "\n".join((analyzer, analyzer_module))
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "Last Mile analyzer",
+        analyzer_contract,
+        (
+            ("last-mile-analyzer-v1", "golden-strawberry-analysis-v1"),
+            ("mode=ro&immutable=1",),
+            ("PRAGMA quick_check",),
+            ("expected_slots",),
+            ("runtime_p95", "p95_runtime", "p95_cycle", '"p95": p95'),
+            ("runtime_max", "max_runtime", '"max": maximum'),
+            ("raw_linkage", "raw_payload_coverage", "raw_request_linkage"),
+            (
+                "storage_forecast",
+                "forecast_storage",
+                "projected_storage",
+                "storage_growth_and_forecast",
+            ),
+            ("crossing_clob_coverage", "crossing_book_coverage", "episode_clob_coverage"),
+            ("path_coverage",),
+            ("resolution_coverage",),
+            ("LEFT_CENSORED", "left_censored"),
+            ("GAP_CENSORED", "gap_censored"),
+            ("HEALTH_ONLY",),
+            ("PILOT_UNDERPOWERED",),
+            ("PILOT_CANDIDATE",),
+            ("ENTRY_THRESHOLDS", "entry_thresholds"),
+            ("STOP_THRESHOLDS", "stop_thresholds"),
+            ("TARGET_THRESHOLDS", "target_thresholds"),
+            ("for stop in [None]", "stop_options: list[float | None] = [None]"),
+            ("for target in [None]", "target_options: list[float | None] = [None]"),
+            ("if value < entry_threshold", "stop < entry_threshold"),
+            ("if value > entry_threshold", "target > entry_threshold"),
+            ("PRIMARY_ENTRY_THRESHOLD", "primary_entry_threshold"),
+            ("PRIMARY_STOP_THRESHOLD", "primary_stop_threshold"),
+            ("target_threshold=None", "target_threshold is None", '"target_threshold": None'),
+            (
+                "terminal_payout",
+                "resolution_payout",
+                "terminal_resolution",
+                "TERMINAL_RESOLUTION",
+            ),
+            (
+                "MIN_EXECUTABLE_EPISODES",
+                "minimum_executable_episodes",
+                "executable_episodes_at_least_50",
+            ),
+            (
+                "MIN_RESOLVED_EVENT_CLUSTERS",
+                "minimum_resolved_event_clusters",
+                "resolved_independent_event_clusters_at_least_30",
+            ),
+            (
+                "MIN_PATH_COVERAGE",
+                "minimum_path_coverage",
+                "episode_path_coverage_at_least_90pct",
+            ),
+            (
+                "MIN_RESOLUTION_COVERAGE",
+                "minimum_resolution_coverage",
+                "resolution_coverage_at_least_90pct",
+            ),
+            ('"profitability_claim_allowed": False',),
+            ('"parameter_winner_selection_allowed": False',),
+            ('"target_0_99_is_resolution": False',),
+            ("stop-before-target-before-resolution", "STOP_FIRST"),
+        ),
+    )
+
+    workspace_preflight = _require_file(
+        findings, strategy, directory / "scripts/verify_external_workspace.py"
+    )
+    # Strawberry intentionally reuses Raspberry's already trusted T7 sentinel
+    # and off-volume UUID pin instead of creating a second trust identity.
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "scripts/verify_external_workspace.py",
+        workspace_preflight,
+        (
+            ("golden-raspberry-apfs-v1",),
+            ("FilesystemType",),
+            ("MountPoint",),
+            ("VolumeUUID",),
+            ('"Internal"', "'Internal'"),
+            (".daily-rsync-workspace.json",),
+            ("host_uuid_pin", "host-uuid-pin"),
+            ("off-volume", "stored off-volume"),
+            ("st_dev", "_device_id"),
+            ("canonical",),
+            ("symlink",),
+        ),
+    )
+
+    test_groups = (
+        ("tests/test_config.py",),
+        (
+            "tests/test_research_safety.py",
+            "tests/test_accountless_safety.py",
+            "tests/test_safety.py",
+            "tests/test_safety_cli.py",
+        ),
+        ("tests/test_gamma_client.py", "tests/test_gamma.py"),
+        (
+            "tests/test_clob_client.py",
+            "tests/test_orderbook_client.py",
+            "tests/test_clob.py",
+        ),
+        ("tests/test_collector.py", "tests/test_last_mile_collector.py"),
+        ("tests/test_repository.py", "tests/test_db_repository.py"),
+        (
+            "tests/test_lifecycle_mode.py",
+            "tests/test_lifecycle.py",
+            "tests/test_main.py",
+            "tests/test_cli.py",
+            "tests/test_safety_cli.py",
+        ),
+        ("tests/test_run_audit.py", "tests/test_audit.py"),
+        ("tests/test_analyzer.py", "tests/test_analyze_experiment.py"),
+        ("tests/test_external_workspace.py", "tests/test_workspace.py"),
+    )
+    test_contents: list[str] = []
+    for relative_paths in test_groups:
+        content = _require_one_of_files(findings, strategy, directory, relative_paths)
+        test_contents.append(content)
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "accountless safety tests",
+        "\n".join(test_contents),
+        (
+            ("POLYMARKET_PRIVATE_KEY",),
+            ("POLYMARKET_FUNDER_ADDRESS",),
+            ("POLYMARKET_SIGNATURE_TYPE",),
+            ("--live", "simulation_mode=False", "simulation_mode = False"),
+        ),
+    )
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -2035,8 +2984,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
     if strategy in RESEARCH_ONLY_STRATEGIES:
         if strategy == "golden-pomegranate":
             _validate_research_only_strategy(findings, strategy, directory)
-        else:
+        elif strategy == "golden-raspberry":
             _validate_queue_echo_research_strategy(findings, strategy, directory)
+        elif strategy == "golden-strawberry":
+            _validate_last_mile_research_strategy(findings, strategy, directory)
         return findings
 
     config = _require_file(findings, strategy, directory / "src/polybot/config.py")

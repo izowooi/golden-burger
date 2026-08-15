@@ -1,12 +1,13 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 20개 `golden-*` 프로젝트의 전체 지도다. 이 중 19개는 수익 가설을 검정하고,
+총 21개 `golden-*` 프로젝트의 전체 지도다. 이 중 20개는 수익 가설을 검정하고,
 `golden-pomegranate` 하나는 미래 전략을 만들기 위한 범용 accountless market observatory다.
-`golden-raspberry`는 수익 가설이지만 주문 없이 displayed-book 반사실만 수집한다. 현재 운영 상태는
+`golden-raspberry`와 `golden-strawberry`는 수익 가설이지만 주문 없이 displayed-book
+반사실만 수집한다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-04 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-15 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -43,8 +44,9 @@
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
+| **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 10분 full census, outcome-token threshold grid | **research-only · 1주 pilot health only · live/order 금지** |
 
-상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 3, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 4, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -293,6 +295,22 @@ order path는 source-level로 금지하며 통과 판정도 `SHADOW_REVIEW_ONLY`
 `golden-raspberry/STRATEGY.md`, frozen 계약은
 `golden-raspberry/research/frozen-2026-08-13/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-raspberry.md`를 따른다.
+
+## 10차 설계 — 고확률 Last Mile의 accountless 검정
+
+### golden-strawberry — Last Mile
+
+10분마다 no-filter Gamma full census를 cursor 끝까지 수집하고, 각 outcome token의
+first-observed upward crossing을 entry `0.90/0.92/0.95/0.97` grid로 interval-censoring한다.
+CLOB displayed book에서 정확히 `$5`의 ask 진입과 이후 bid 또는 proven terminal payout만
+append-only 반사실 evidence로 남기는 **accountless research-only** collector다.
+
+Primary는 `0.95` entry, `0.85` stop, price target 없이 terminal resolution까지 보유하는
+정책 하나다. stop `none/0.80/0.85/0.90`과 target `none/0.98/0.99`는 sensitivity일 뿐이며,
+첫 1주 pilot은 collection health만 판정한다. credential, wallet, order/fill path와 `--live`는
+source-level로 금지한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
+`golden-strawberry/research/frozen-2026-08-15/PREREGISTRATION.md`, 회고는
+`docs/retro/golden-strawberry.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
