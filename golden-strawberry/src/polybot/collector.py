@@ -14,6 +14,7 @@ from uuid import uuid4
 
 from .api.clob_client import ClobBookClient
 from .api.gamma_client import GammaClient, ResolutionLookup
+from .api.sampling_client import SamplingMarketClient
 from .config import BotConfig
 from .db.repository import ResearchRepository
 from .utils.retry import PublicJsonTransport, canonical_json, iso_utc
@@ -134,7 +135,12 @@ def classify_sports(market: Mapping[str, Any], tags: Sequence[Any]) -> str:
             values = (tag,)
         for value in values:
             words.update(str(value).lower().replace("-", " ").split())
-    return "SPORTS" if words & _SPORT_TERMS else "NON_SPORTS"
+    if words & _SPORT_TERMS:
+        return "SPORTS"
+    # Non-empty source taxonomy is versioned negative evidence. A market with
+    # no usable field or tag remains UNKNOWN instead of being silently treated
+    # as non-sports.
+    return "NON_SPORTS" if words else "UNKNOWN"
 
 
 def _event_ids(market: Mapping[str, Any]) -> list[str]:
@@ -160,7 +166,7 @@ class ParsedMarket:
     membership_row: dict[str, Any]
 
 
-def parse_gamma_market(
+def parse_sampling_market(
     raw_with_lineage: Mapping[str, Any],
     *,
     sweep_id: str,
@@ -183,17 +189,25 @@ def parse_gamma_market(
     market_id = str(source.get("id") or source.get("market_id") or "") or None
     event_ids = _event_ids(source)
     event_id = event_ids[0] if event_ids else None
-    event_cluster_id = event_id or condition_id or None
-    labels_raw = _decode_array(source.get("outcomes"))
-    tokens_raw = _decode_array(
-        source.get("clobTokenIds") or source.get("clob_token_ids")
-    )
-    prices_raw = _decode_array(
-        source.get("outcomePrices") or source.get("outcome_prices")
-    )
-    labels = [str(value) for value in labels_raw or []]
-    tokens = [str(value) for value in tokens_raw or []]
-    prices = [_finite(value) for value in prices_raw or []]
+    event_cluster_id = event_id
+    token_objects = source.get("tokens")
+    if isinstance(token_objects, list) and all(
+        isinstance(item, Mapping) for item in token_objects
+    ):
+        labels = [str(item.get("outcome") or "") for item in token_objects]
+        tokens = [str(item.get("token_id") or "") for item in token_objects]
+        prices = [_finite(item.get("price")) for item in token_objects]
+    else:
+        labels_raw = _decode_array(source.get("outcomes"))
+        tokens_raw = _decode_array(
+            source.get("clobTokenIds") or source.get("clob_token_ids")
+        )
+        prices_raw = _decode_array(
+            source.get("outcomePrices") or source.get("outcome_prices")
+        )
+        labels = [str(value) for value in labels_raw or []]
+        tokens = [str(value) for value in tokens_raw or []]
+        prices = [_finite(value) for value in prices_raw or []]
     arrays_aligned = bool(
         len(labels) >= 2
         and len(labels) == len(tokens) == len(prices)
@@ -204,14 +218,14 @@ def parse_gamma_market(
     active = _source_bool(source.get("active"))
     closed = _source_bool(source.get("closed"))
     book_enabled = _source_bool(
-        source.get("enableOrderBook")
-        if "enableOrderBook" in source
-        else source.get("enable_order_book")
+        source.get("enable_order_book")
+        if "enable_order_book" in source
+        else source.get("enableOrderBook")
     )
     accepting = _source_bool(
-        source.get("acceptingOrders")
-        if "acceptingOrders" in source
-        else source.get("accepting_orders")
+        source.get("accepting_orders")
+        if "accepting_orders" in source
+        else source.get("acceptingOrders")
     )
     reasons: list[str] = []
     if not condition_id:
@@ -231,7 +245,7 @@ def parse_gamma_market(
     sports = classify_sports(source, tags)
     neg_risk = bool(
         _source_bool(
-            source.get("negRisk") if "negRisk" in source else source.get("neg_risk")
+            source.get("neg_risk") if "neg_risk" in source else source.get("negRisk")
         )
         or False
     )
@@ -241,7 +255,9 @@ def parse_gamma_market(
     volume_24h = _finite(
         source.get("volume24hr", source.get("volume24h", source.get("volume_24h")))
     )
-    end_date = source.get("endDate") or source.get("end_date")
+    end_date = (
+        source.get("end_date_iso") or source.get("endDate") or source.get("end_date")
+    )
     category = source.get("category")
     catalog_id = uuid4().hex
     normalized = {
@@ -277,7 +293,8 @@ def parse_gamma_market(
         "event_id": event_id,
         "event_ids_json": canonical_json(event_ids),
         "event_cluster_id": event_cluster_id,
-        "market_slug": str(source.get("slug") or "") or None,
+        "market_slug": str(source.get("market_slug") or source.get("slug") or "")
+        or None,
         "question": str(source.get("question") or "") or None,
         "active": int(active) if active is not None else None,
         "closed": int(closed) if closed is not None else None,
@@ -302,7 +319,7 @@ def parse_gamma_market(
         "normalized_market_json": canonical_json(normalized),
     }
     outcome_rows: list[dict[str, Any]] = []
-    if arrays_aligned and condition_id and event_cluster_id and outcome_type:
+    if arrays_aligned and condition_id and outcome_type:
         for index, (label, token, probability) in enumerate(
             zip(labels, tokens, prices)
         ):
@@ -646,12 +663,57 @@ def _resolution_result(
     }
 
 
+def _candidate_metadata_result(
+    lookup: ResolutionLookup, *, crossing_observed_at: str
+) -> dict[str, Any]:
+    base = {
+        "lookup_status": lookup.lookup_status,
+        "raw_market_sha256": None,
+        "market_id": None,
+        "event_id": None,
+        "event_ids": [],
+        "event_cluster_id": None,
+        "liquidity": None,
+        "volume_total": None,
+        "volume_24h": None,
+        "end_date": None,
+        "category": None,
+        "tags": [],
+        "enrichment_lag_seconds": (
+            _utc(lookup.observed_at) - _utc(crossing_observed_at)
+        ).total_seconds(),
+    }
+    if lookup.lookup_status != "OBSERVED" or lookup.market is None:
+        return base
+    market = lookup.market
+    raw_market = canonical_json(market)
+    event_ids = _event_ids(market)
+    tags = _compact_tags(market.get("tags"))
+    return {
+        **base,
+        "raw_market_sha256": hashlib.sha256(raw_market.encode("utf-8")).hexdigest(),
+        "market_id": str(market.get("id") or "") or None,
+        "event_id": event_ids[0] if event_ids else None,
+        "event_ids": event_ids,
+        "event_cluster_id": event_ids[0] if event_ids else None,
+        "liquidity": _finite(market.get("liquidityNum", market.get("liquidity"))),
+        "volume_total": _finite(market.get("volumeNum", market.get("volume"))),
+        "volume_24h": _finite(
+            market.get("volume24hr", market.get("volume24h", market.get("volume_24h")))
+        ),
+        "end_date": str(market.get("endDate") or market.get("end_date") or "") or None,
+        "category": str(market.get("category") or "") or None,
+        "tags": tags,
+    }
+
+
 class ResearchCollector:
     def __init__(
         self,
         config: BotConfig,
         *,
         repository: ResearchRepository,
+        sampling_client: SamplingMarketClient | None = None,
         gamma_client: GammaClient | None = None,
         clob_client: ClobBookClient | None = None,
         monotonic: Any = time.monotonic,
@@ -659,7 +721,7 @@ class ResearchCollector:
         self.config = config
         self.repository = repository
         self.monotonic = monotonic
-        if gamma_client is None or clob_client is None:
+        if sampling_client is None or gamma_client is None or clob_client is None:
             gamma_config = config.trading.gamma
             transport = PublicJsonTransport(
                 connect_timeout_seconds=gamma_config.connect_timeout_seconds,
@@ -669,10 +731,14 @@ class ResearchCollector:
                 retry_max_seconds=gamma_config.retry_max_seconds,
                 receipt_sink=repository.record_api_request,
             )
+            sampling_client = sampling_client or SamplingMarketClient(
+                config.trading.sampling, transport
+            )
             gamma_client = gamma_client or GammaClient(gamma_config, transport)
             clob_client = clob_client or ClobBookClient(
                 config.trading.orderbook, transport
             )
+        self.sampling_client = sampling_client
         self.gamma_client = gamma_client
         self.clob_client = clob_client
 
@@ -680,12 +746,12 @@ class ResearchCollector:
         started_clock = self.monotonic()
         cycle_number = self.repository.next_cycle_number()
         sweep_id = uuid4().hex
-        sweep = self.gamma_client.collect_market_sweep(run_id)
+        sweep = self.sampling_client.collect_market_sweep(run_id)
         if not sweep.cursor_complete:
-            raise RuntimeError("Gamma client returned a non-terminal sweep")
+            raise RuntimeError("sampling client returned a non-terminal sweep")
 
         parsed_markets = [
-            parse_gamma_market(
+            parse_sampling_market(
                 market,
                 sweep_id=sweep_id,
                 run_id=run_id,
@@ -700,7 +766,14 @@ class ResearchCollector:
         outcome_rows = [row for item in parsed_markets for row in item.outcome_rows]
         token_ids = [str(row["token_id"]) for row in outcome_rows]
         if len(token_ids) != len(set(token_ids)):
-            raise RuntimeError("Gamma sweep contains duplicate token identity")
+            raise RuntimeError("sampling sweep contains duplicate token identity")
+        condition_ids = [
+            str(row["condition_id"])
+            for row in catalog_rows
+            if row["condition_id"] is not None
+        ]
+        if len(condition_ids) != len(set(condition_ids)):
+            raise RuntimeError("sampling sweep contains duplicate condition identity")
 
         catalog_by_id = {str(row["catalog_version_id"]): row for row in catalog_rows}
         prior_states = self.repository.latest_states(token_ids)
@@ -784,6 +857,25 @@ class ResearchCollector:
                         }
                     )
 
+        crossing_at_by_condition: dict[str, str] = {}
+        for candidate in crossing_candidates:
+            condition_id = str(candidate["outcome"]["condition_id"])
+            observed_at = str(candidate["outcome"]["observed_at"])
+            previous = crossing_at_by_condition.get(condition_id)
+            if previous is None or _utc(observed_at) < _utc(previous):
+                crossing_at_by_condition[condition_id] = observed_at
+        metadata_lookups = self.gamma_client.fetch_metadata(
+            run_id, sorted(crossing_at_by_condition)
+        )
+        metadata_results = {
+            lookup.condition_id: _candidate_metadata_result(
+                lookup,
+                crossing_observed_at=crossing_at_by_condition[lookup.condition_id],
+            )
+            for lookup in metadata_lookups
+        }
+        metadata_ids = {condition_id: uuid4().hex for condition_id in metadata_results}
+
         unresolved = self.repository.unresolved_episodes()
         followup_active = _utc(sweep.completed_at) < experiment.followup_end_utc
         crossing_tokens = {
@@ -817,7 +909,7 @@ class ResearchCollector:
             raw_row = _raw_payload_row(
                 run_id=run_id,
                 request_id=page.request_id,
-                kind="gamma_markets_keyset_page",
+                kind="clob_sampling_markets_page",
                 received_at=page.received_at,
                 raw=page.raw,
             )
@@ -838,6 +930,18 @@ class ResearchCollector:
                     "response_sha256": page.response_sha256,
                 }
             )
+        for lookup in metadata_lookups:
+            if lookup.request_id and lookup.raw is not None:
+                raw_payloads.setdefault(
+                    lookup.request_id,
+                    _raw_payload_row(
+                        run_id=run_id,
+                        request_id=lookup.request_id,
+                        kind="gamma_candidate_metadata",
+                        received_at=lookup.observed_at,
+                        raw=lookup.raw,
+                    ),
+                )
         for raw in books.raw_payloads:
             raw_payloads[raw.request_id] = _raw_payload_row(
                 run_id=run_id,
@@ -938,6 +1042,21 @@ class ResearchCollector:
         for candidate in crossing_candidates:
             outcome = candidate["outcome"]
             catalog = candidate["catalog"]
+            condition_id = str(outcome["condition_id"])
+            metadata = metadata_results.get(
+                condition_id,
+                {
+                    "lookup_status": "MISSING",
+                    "market_id": None,
+                    "event_id": None,
+                    "event_cluster_id": None,
+                    "liquidity": None,
+                    "volume_total": None,
+                    "volume_24h": None,
+                    "end_date": None,
+                    "category": None,
+                },
+            )
             token = str(outcome["token_id"])
             book = normalized_books.get(token)
             if book is None:
@@ -960,16 +1079,18 @@ class ResearchCollector:
                 "decision_id": candidate["decision"]["decision_id"],
                 "originating_sweep_id": sweep_id,
                 "run_id": run_id,
-                "condition_id": outcome["condition_id"],
-                "market_id": outcome["market_id"],
-                "event_id": outcome["event_id"],
-                "event_cluster_id": outcome["event_cluster_id"],
+                "condition_id": condition_id,
+                "market_id": metadata.get("market_id") or outcome["market_id"],
+                "event_id": metadata.get("event_id"),
+                "event_cluster_id": metadata.get("event_cluster_id"),
                 "token_id": token,
                 "outcome_index": outcome["outcome_index"],
                 "outcome_label": outcome["outcome_label"],
                 "outcome_type": outcome["outcome_type"],
                 "neg_risk": outcome["neg_risk"],
                 "sports_classification": outcome["sports_classification"],
+                "metadata_observation_id": metadata_ids.get(condition_id),
+                "metadata_status": metadata["lookup_status"],
                 "entry_threshold": candidate["decision"]["entry_threshold"],
                 "crossing_prior_probability": candidate["decision"][
                     "prior_probability"
@@ -990,11 +1111,11 @@ class ResearchCollector:
                 "source_tick_size": book.tick_size if book else None,
                 "source_min_order_size": book.min_order_size if book else None,
                 "source_fee_rate_bps": book.fee_rate_bps if book else None,
-                "liquidity": outcome["liquidity"],
-                "volume_total": outcome["volume_total"],
-                "volume_24h": outcome["volume_24h"],
-                "end_date": outcome["end_date"],
-                "category": outcome["category"],
+                "liquidity": metadata.get("liquidity"),
+                "volume_total": metadata.get("volume_total"),
+                "volume_24h": metadata.get("volume_24h"),
+                "end_date": metadata.get("end_date") or outcome["end_date"],
+                "category": metadata.get("category") or outcome["category"],
                 "tags_json": outcome["tags_json"],
                 "created_at": iso_utc(),
             }
@@ -1132,6 +1253,21 @@ class ResearchCollector:
         resolution_rows: list[dict[str, Any]] = []
         for lookup in resolution_lookups:
             parsed = _resolution_result(lookup)
+            expected_tokens = {
+                str(episode["token_id"])
+                for episode in episodes_by_condition.get(lookup.condition_id, [])
+            }
+            if parsed[
+                "resolution_status"
+            ] == "RESOLVED" and not expected_tokens.issubset(parsed["token_payouts"]):
+                parsed = {
+                    **parsed,
+                    "resolution_status": "MALFORMED",
+                    "winning_outcome_index": None,
+                    "winning_outcome_label": None,
+                    "winning_token_id": None,
+                    "token_payouts": {},
+                }
             jumps: dict[str, list[float]] = {}
             if parsed["resolution_status"] == "RESOLVED":
                 payouts = parsed["token_payouts"]
@@ -1238,7 +1374,7 @@ class ResearchCollector:
         stats = {
             "cycle_number": cycle_number,
             "sweep_id": sweep_id,
-            "gamma_pages": len(sweep.pages),
+            "market_pages": len(sweep.pages),
             "membership_markets": len(catalog_rows),
             "tradable_markets": sum(int(row["tradable"]) for row in catalog_rows),
             "aligned_outcomes": len(outcome_rows),
@@ -1251,6 +1387,52 @@ class ResearchCollector:
             "resolution_observations": len(resolution_rows),
             "runtime_seconds": round(runtime_seconds, 6),
         }
+        evidence_observation_ids = {str(row["observation_id"]) for row in decisions}
+        evidence_outcomes = [
+            row
+            for row in outcome_rows
+            if str(row["observation_id"]) in evidence_observation_ids
+        ]
+        evidence_catalog_ids = {
+            str(row["catalog_version_id"]) for row in evidence_outcomes
+        }
+        evidence_catalog = [
+            row
+            for row in catalog_rows
+            if str(row["catalog_version_id"]) in evidence_catalog_ids
+        ]
+        lookup_by_condition = {
+            lookup.condition_id: lookup for lookup in metadata_lookups
+        }
+        metadata_rows: list[dict[str, Any]] = []
+        for condition_id, metadata in metadata_results.items():
+            lookup = lookup_by_condition[condition_id]
+            metadata_rows.append(
+                {
+                    "metadata_observation_id": metadata_ids[condition_id],
+                    "sweep_id": sweep_id,
+                    "run_id": run_id,
+                    "condition_id": condition_id,
+                    "lookup_status": metadata["lookup_status"],
+                    "requested_at": lookup.requested_at,
+                    "observed_at": lookup.observed_at,
+                    "request_id": lookup.request_id,
+                    "raw_market_sha256": metadata["raw_market_sha256"],
+                    "market_id": metadata["market_id"],
+                    "event_id": metadata["event_id"],
+                    "event_ids_json": canonical_json(metadata["event_ids"]),
+                    "event_cluster_id": metadata["event_cluster_id"],
+                    "liquidity": metadata["liquidity"],
+                    "volume_total": metadata["volume_total"],
+                    "volume_24h": metadata["volume_24h"],
+                    "end_date": metadata["end_date"],
+                    "category": metadata["category"],
+                    "tags_json": canonical_json(metadata["tags"]),
+                    "enrichment_lag_seconds": metadata["enrichment_lag_seconds"],
+                    "error_type": lookup.error_type,
+                    "error_message": lookup.error_message,
+                }
+            )
         bundle = {
             "sweep": {
                 "sweep_id": sweep_id,
@@ -1259,6 +1441,7 @@ class ResearchCollector:
                 "config_hash": self.config.config_hash,
                 "strategy_source_digest": self.config.trading.strategy_source_digest,
                 "data_contract": self.config.trading.data_contract,
+                "source_name": "clob_sampling_markets",
                 "started_at": sweep.started_at,
                 "completed_at": sweep.completed_at,
                 "published_at": completed_at,
@@ -1276,6 +1459,8 @@ class ResearchCollector:
                 "tradable_market_count": sum(
                     int(row["tradable"]) for row in catalog_rows
                 ),
+                "evidence_catalog_count": len(evidence_catalog),
+                "evidence_outcome_count": len(evidence_outcomes),
                 "membership_sha256": membership_sha,
                 "request_lineage_sha256": request_lineage_sha,
             },
@@ -1291,9 +1476,10 @@ class ResearchCollector:
             },
             "raw_payloads": list(raw_payloads.values()),
             "pages": page_rows,
-            "catalog": catalog_rows,
-            "outcomes": outcome_rows,
+            "catalog": evidence_catalog,
+            "outcomes": evidence_outcomes,
             "crossing_decisions": decisions,
+            "candidate_metadata": metadata_rows,
             "clob_attempts": attempt_rows,
             "clob_snapshots": snapshot_rows,
             "clob_levels": level_rows,
@@ -1325,8 +1511,17 @@ class ResearchCollector:
                     "condition_id": row["condition_id"],
                     "probability": row["probability"],
                     "observed_at": row["observed_at"],
-                    "observation_id": row["observation_id"],
                     "sweep_id": sweep_id,
+                    "source_request_id": catalog_by_id[str(row["catalog_version_id"])][
+                        "source_request_id"
+                    ],
+                    "source_page_number": catalog_by_id[str(row["catalog_version_id"])][
+                        "page_number"
+                    ],
+                    "source_item_number": catalog_by_id[str(row["catalog_version_id"])][
+                        "item_number"
+                    ],
+                    "raw_market_sha256": row["raw_market_sha256"],
                     "updated_at": completed_at,
                 }
                 for row in outcome_rows
@@ -1362,7 +1557,7 @@ __all__ = [
     "classify_sports",
     "evaluate_crossing",
     "normalize_book",
-    "parse_gamma_market",
+    "parse_sampling_market",
     "walk_asks",
     "walk_bids",
 ]

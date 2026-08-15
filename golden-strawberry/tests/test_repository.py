@@ -31,8 +31,8 @@ def test_schema_has_required_evidence_and_only_documented_cache_mutable(config):
         "research_run_events",
         "api_requests",
         "raw_payloads",
-        "gamma_sweeps",
-        "gamma_membership_blobs",
+        "market_sweeps",
+        "market_membership_blobs",
         "market_catalog_versions",
         "outcome_observations",
         "crossing_decisions",
@@ -56,7 +56,7 @@ def test_complete_cycle_publishes_and_append_only_triggers_reject_mutation(confi
     assert repository.next_cycle_number() == 2
     with repository._connect() as connection:
         with pytest.raises(sqlite3.IntegrityError, match="append-only evidence"):
-            connection.execute("UPDATE gamma_sweeps SET page_count=2")
+            connection.execute("UPDATE market_sweeps SET page_count=2")
         with pytest.raises(sqlite3.IntegrityError, match="append-only evidence"):
             connection.execute("DELETE FROM raw_payloads")
 
@@ -65,11 +65,11 @@ def test_partial_cycle_is_rejected_atomically(config):
     repository = _repository(config)
     bundle = minimal_bundle(config, repository)
     bundle["sweep"]["cursor_complete"] = 0
-    with pytest.raises(ValueError, match="partial Gamma"):
+    with pytest.raises(ValueError, match="partial sampling"):
         repository.publish_cycle(bundle)
     with repository._read_connect() as connection:
         assert (
-            connection.execute("SELECT COUNT(*) FROM gamma_sweeps").fetchone()[0] == 0
+            connection.execute("SELECT COUNT(*) FROM market_sweeps").fetchone()[0] == 0
         )
         assert (
             connection.execute("SELECT COUNT(*) FROM raw_payloads").fetchone()[0] == 0
@@ -84,5 +84,5 @@ def test_bad_raw_sha_is_rejected_before_publication(config):
         repository.publish_cycle(bundle)
     with repository._read_connect() as connection:
         assert (
-            connection.execute("SELECT COUNT(*) FROM gamma_sweeps").fetchone()[0] == 0
+            connection.execute("SELECT COUNT(*) FROM market_sweeps").fetchone()[0] == 0
         )

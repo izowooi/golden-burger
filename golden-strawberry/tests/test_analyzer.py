@@ -10,8 +10,8 @@ def test_analyzer_is_immutable_reports_grid_and_conservative_same_poll(
     repository, _ = build_three_cycle_evidence(config)
     result = analyze_database(
         repository.db_path,
-        start=parse_utc("2026-08-15T02:00:00Z"),
-        end=parse_utc("2026-08-15T02:30:00Z"),
+        start=parse_utc("2026-08-15T04:00:00Z"),
+        end=parse_utc("2026-08-15T04:30:00Z"),
     )
     assert result["database"]["opened_read_only_immutable"] is True
     assert result["database"]["quick_check"] == "ok"
@@ -38,8 +38,8 @@ def test_analyzer_reports_path_resolution_censoring_and_strata(config):
     repository, _ = build_three_cycle_evidence(config)
     result = analyze_database(
         repository.db_path,
-        start=parse_utc("2026-08-15T02:00:00Z"),
-        end=parse_utc("2026-08-15T02:30:00Z"),
+        start=parse_utc("2026-08-15T04:00:00Z"),
+        end=parse_utc("2026-08-15T04:30:00Z"),
     )
     coverage = result["crossing_episode_resolution_coverage"]
     assert coverage["crossing_clob_coverage"] == 1.0
@@ -59,8 +59,8 @@ def test_analyzer_writes_json_to_explicit_absolute_output(config, tmp_path):
     output = tmp_path / "analysis.json"
     result = write_analysis(
         repository.db_path,
-        start=parse_utc("2026-08-15T02:00:00Z"),
-        end=parse_utc("2026-08-15T02:30:00Z"),
+        start=parse_utc("2026-08-15T04:00:00Z"),
+        end=parse_utc("2026-08-15T04:30:00Z"),
         output=output,
     )
     assert output.is_file()

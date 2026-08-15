@@ -63,7 +63,7 @@ class ClobBookClient:
                     attempts[token] = BookAttempt(
                         token_id=token,
                         status="ERROR",
-                        request_id=None,
+                        request_id=error.request_id,
                         request_started_at=None,
                         received_at=None,
                         error_type=type(error).__name__,

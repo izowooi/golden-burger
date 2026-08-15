@@ -39,9 +39,16 @@ def canonical_json(value: Any) -> str:
 class PublicApiError(RuntimeError):
     """A bounded public request failed or returned an invalid response."""
 
-    def __init__(self, message: str, *, http_status: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        request_id: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.http_status = http_status
+        self.request_id = request_id
 
 
 @dataclass(frozen=True)
@@ -274,6 +281,7 @@ class PublicJsonTransport:
             f"{request_kind} failed after bounded retries: "
             f"{type(last_error).__name__ if last_error else 'unknown'}",
             http_status=last_status,
+            request_id=request_id,
         ) from last_error
 
 

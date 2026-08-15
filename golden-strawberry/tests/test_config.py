@@ -31,10 +31,9 @@ def test_frozen_config_contract(project_root, monkeypatch):
     assert config.job_name == CANONICAL_JOB
     assert config.trading.data_contract == DATA_CONTRACT
     assert config.trading.cadence_minutes == 10
-    assert config.trading.gamma.page_size == 100
-    assert config.trading.gamma.max_pages == 500
-    assert config.trading.gamma.min_liquidity == 0
-    assert config.trading.gamma.min_total_volume == 0
+    assert config.trading.cadence_offset_minute == 7
+    assert config.trading.sampling.page_size == 1000
+    assert config.trading.sampling.max_pages == 100
     assert config.trading.experiment.entry_thresholds == ENTRY_THRESHOLDS
     assert config.trading.experiment.entry_start_utc == FROZEN_ENTRY_START
     assert config.trading.experiment.entry_end_utc == FROZEN_ENTRY_END
@@ -80,13 +79,13 @@ def test_only_canonical_job_is_accepted(project_root, monkeypatch):
         load_config(project_root / "config.yaml", "strawberry-other")
 
 
-def test_config_rejects_loosened_source_filter(project_root, tmp_path, monkeypatch):
+def test_config_rejects_changed_sampling_envelope(project_root, tmp_path, monkeypatch):
     _clean(monkeypatch)
     raw = yaml.safe_load((project_root / "config.yaml").read_text(encoding="utf-8"))
-    raw["trading"]["gamma"]["min_liquidity"] = 1
+    raw["trading"]["sampling"]["page_size"] = 500
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
-    with pytest.raises(ValueError, match="server filters"):
+    with pytest.raises(ValueError, match="sampling page_size"):
         load_config(path)
 
 

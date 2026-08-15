@@ -32,12 +32,13 @@ REQUIRED_TABLES = frozenset(
         "research_run_events",
         "api_requests",
         "raw_payloads",
-        "gamma_sweeps",
-        "gamma_membership_blobs",
-        "gamma_page_lineage",
+        "market_sweeps",
+        "market_membership_blobs",
+        "market_page_lineage",
         "market_catalog_versions",
         "outcome_observations",
         "crossing_decisions",
+        "candidate_metadata_observations",
         "clob_token_attempts",
         "clob_snapshots",
         "clob_levels",
@@ -107,11 +108,17 @@ def _ratio(numerator: int, denominator: int) -> float | None:
 
 
 def _expected_slots(
-    start: datetime, end: datetime, cadence_minutes: int
+    start: datetime,
+    end: datetime,
+    cadence_minutes: int,
+    offset_minute: int,
 ) -> list[datetime]:
     epoch = int(start.timestamp())
     cadence_seconds = cadence_minutes * 60
-    first_epoch = ((epoch + cadence_seconds - 1) // cadence_seconds) * cadence_seconds
+    offset_seconds = offset_minute * 60
+    first_epoch = (
+        (epoch - offset_seconds + cadence_seconds - 1) // cadence_seconds
+    ) * cadence_seconds + offset_seconds
     result: list[datetime] = []
     cursor = datetime.fromtimestamp(first_epoch, timezone.utc)
     while cursor < end:
@@ -120,10 +127,16 @@ def _expected_slots(
     return result
 
 
-def _slot(value: datetime, cadence_minutes: int) -> tuple[datetime, float]:
+def _slot(
+    value: datetime, cadence_minutes: int, offset_minute: int
+) -> tuple[datetime, float]:
     cadence_seconds = cadence_minutes * 60
     epoch = value.timestamp()
-    slot_epoch = math.floor(epoch / cadence_seconds) * cadence_seconds
+    offset_seconds = offset_minute * 60
+    slot_epoch = (
+        math.floor((epoch - offset_seconds) / cadence_seconds) * cadence_seconds
+        + offset_seconds
+    )
     slot = datetime.fromtimestamp(slot_epoch, timezone.utc)
     return slot, epoch - slot_epoch
 
@@ -162,11 +175,11 @@ def _collection_health(
     end: datetime,
 ) -> dict[str, Any]:
     start_text, end_text = iso_utc(start), iso_utc(end)
-    cadence_minutes = int(
-        connection.execute(
-            "SELECT cadence_minutes FROM experiment_contracts LIMIT 1"
-        ).fetchone()[0]
-    )
+    cadence = connection.execute(
+        "SELECT cadence_minutes,cadence_offset_minute FROM experiment_contracts LIMIT 1"
+    ).fetchone()
+    cadence_minutes = int(cadence["cadence_minutes"])
+    offset_minute = int(cadence["cadence_offset_minute"])
     terminals, terminal_counts = _terminal_runs(connection, start_text, end_text)
     success_ids = {
         str(row["run_id"]) for row in terminals if row["event_type"] == "SUCCEEDED"
@@ -185,27 +198,36 @@ def _collection_health(
     success_slots: set[str] = set()
     for row in started_rows:
         observed = parse_utc(str(row["event_at"]))
-        slot, delay = _slot(observed, cadence_minutes)
+        slot, delay = _slot(observed, cadence_minutes, offset_minute)
         key = iso_utc(slot)
         slot_counts[key] += 1
         if delay > 120:
             off_slot += 1
         if str(row["run_id"]) in success_ids:
             success_slots.add(key)
-    expected = _expected_slots(start, end, cadence_minutes)
+    expected = _expected_slots(start, end, cadence_minutes, offset_minute)
     duplicate_runs = sum(max(0, count - 1) for count in slot_counts.values())
     runtime_values = [
         float(row[0])
         for row in connection.execute(
-            "SELECT runtime_seconds FROM cycle_stats WHERE completed_at>=? AND completed_at<?",
+            """
+            SELECT (julianday(MAX(CASE WHEN event_type='SUCCEEDED' THEN event_at END))
+                    - julianday(MIN(CASE WHEN event_type='STARTED' THEN event_at END)))
+                   * 86400.0 AS runtime_seconds
+            FROM research_run_events
+            WHERE event_at>=? AND event_at<?
+            GROUP BY run_id
+            HAVING SUM(event_type='STARTED')>=1 AND SUM(event_type='SUCCEEDED')>=1
+            """,
             (start_text, end_text),
         )
+        if row[0] is not None
     ]
     sweep_counts = connection.execute(
         """
         SELECT COUNT(*) AS sweeps,
                SUM(CASE WHEN cursor_complete=1 THEN 1 ELSE 0 END) AS complete_sweeps
-        FROM gamma_sweeps WHERE completed_at>=? AND completed_at<?
+        FROM market_sweeps WHERE completed_at>=? AND completed_at<?
         """,
         (start_text, end_text),
     ).fetchone()
@@ -215,43 +237,50 @@ def _collection_health(
                SUM(CASE WHEN b.sweep_id IS NOT NULL
                          AND s.membership_sha256=b.membership_sha256
                         THEN 1 ELSE 0 END) AS linked
-        FROM gamma_sweeps s
-        LEFT JOIN gamma_membership_blobs b ON b.sweep_id=s.sweep_id
+        FROM market_sweeps s
+        LEFT JOIN market_membership_blobs b ON b.sweep_id=s.sweep_id
         WHERE s.completed_at>=? AND s.completed_at<?
         """,
         (start_text, end_text),
     ).fetchone()
     raw_link_rows = connection.execute(
         """
-        SELECT 'gamma_page' AS kind,COUNT(*) AS total,
+        SELECT 'sampling_page' AS kind,COUNT(*) AS total,
                SUM(CASE WHEN r.payload_id IS NOT NULL
                          AND r.payload_sha256=p.response_sha256
                         THEN 1 ELSE 0 END) AS linked
-        FROM gamma_page_lineage p
-        JOIN gamma_sweeps s ON s.sweep_id=p.sweep_id
+        FROM market_page_lineage p
+        JOIN market_sweeps s ON s.sweep_id=p.sweep_id
         LEFT JOIN raw_payloads r ON r.request_id=p.request_id
         WHERE s.completed_at>=? AND s.completed_at<?
         UNION ALL
         SELECT 'clob_attempt',COUNT(*),
                SUM(CASE
-                       WHEN a.status='ERROR' AND a.request_id IS NULL THEN 1
                        WHEN a.request_id IS NOT NULL AND r.payload_id IS NOT NULL THEN 1
                        ELSE 0
                    END)
         FROM clob_token_attempts a
-        JOIN gamma_sweeps s ON s.sweep_id=a.sweep_id
+        JOIN market_sweeps s ON s.sweep_id=a.sweep_id
         LEFT JOIN raw_payloads r ON r.request_id=a.request_id
         WHERE s.completed_at>=? AND s.completed_at<?
         UNION ALL
+        SELECT 'candidate_metadata',COUNT(*),
+               SUM(CASE WHEN m.request_id IS NOT NULL AND r.payload_id IS NOT NULL
+                        THEN 1 ELSE 0 END)
+        FROM candidate_metadata_observations m
+        JOIN market_sweeps s ON s.sweep_id=m.sweep_id
+        LEFT JOIN raw_payloads r ON r.request_id=m.request_id
+        WHERE s.completed_at>=? AND s.completed_at<?
+        UNION ALL
         SELECT 'resolution',COUNT(*),
-               SUM(CASE WHEN o.request_id IS NULL OR r.payload_id IS NOT NULL
+               SUM(CASE WHEN o.request_id IS NOT NULL AND r.payload_id IS NOT NULL
                         THEN 1 ELSE 0 END)
         FROM resolution_observations o
-        JOIN gamma_sweeps s ON s.sweep_id=o.sweep_id
+        JOIN market_sweeps s ON s.sweep_id=o.sweep_id
         LEFT JOIN raw_payloads r ON r.request_id=o.request_id
         WHERE s.completed_at>=? AND s.completed_at<?
         """,
-        (start_text, end_text) * 3,
+        (start_text, end_text) * 4,
     ).fetchall()
     raw_linkage: dict[str, Any] = {}
     raw_total = 0
@@ -318,6 +347,7 @@ def _collection_health(
     return {
         "healthy": healthy,
         "cadence_minutes": cadence_minutes,
+        "cadence_offset_minute": offset_minute,
         "expected_slots": len(expected),
         "successful_unique_slots": len(success_slots),
         "success_coverage": success_coverage,
@@ -329,6 +359,7 @@ def _collection_health(
             "count": len(runtime_values),
             "p95": p95,
             "max": maximum,
+            "measurement": "research_run_STARTED_to_SUCCEEDED",
         },
         "cursor_complete_coverage": cursor_coverage,
         "membership_blob_coverage": membership_coverage,
@@ -377,7 +408,7 @@ def _storage_report(
         0.0,
         0.90 * int(last["filesystem_total_bytes"]) - int(last["filesystem_used_bytes"]),
     )
-    free_headroom = max(0.0, int(last["filesystem_free_bytes"]) - 30 * GIB)
+    free_headroom = max(0.0, int(last["filesystem_free_bytes"]) - 100 * GIB)
     headroom = min(ratio_headroom, free_headroom)
     forecast = (
         headroom / growth_per_day
@@ -444,7 +475,7 @@ def _resolution_by_condition(
                        ORDER BY s.cycle_number,r.observed_at,r.resolution_observation_id
                    ) AS position
             FROM resolution_observations r
-            JOIN gamma_sweeps s ON s.sweep_id=r.sweep_id
+            JOIN market_sweeps s ON s.sweep_id=r.sweep_id
             WHERE r.resolution_status='RESOLVED' AND r.observed_at<?
         ) SELECT * FROM ranked WHERE position=1
         """,
@@ -466,7 +497,7 @@ def _coverage_report(
         dict(row)
         for row in connection.execute(
             """
-            SELECT sweep_id,cycle_number,completed_at FROM gamma_sweeps
+            SELECT sweep_id,cycle_number,completed_at FROM market_sweeps
             WHERE completed_at>=? AND completed_at<? ORDER BY cycle_number
             """,
             (iso_utc(start), iso_utc(end)),
@@ -478,7 +509,7 @@ def _coverage_report(
             """
             SELECT p.*,s.cycle_number
             FROM episode_path_observations p
-            JOIN gamma_sweeps s ON s.sweep_id=p.sweep_id
+            JOIN market_sweeps s ON s.sweep_id=p.sweep_id
             WHERE p.observed_at>=? AND p.observed_at<?
             """,
             (iso_utc(start), iso_utc(end)),
@@ -492,7 +523,7 @@ def _coverage_report(
         origin_cycle = sweep_cycle.get(str(episode["originating_sweep_id"]))
         if origin_cycle is None:
             origin = connection.execute(
-                "SELECT cycle_number FROM gamma_sweeps WHERE sweep_id=?",
+                "SELECT cycle_number FROM market_sweeps WHERE sweep_id=?",
                 (episode["originating_sweep_id"],),
             ).fetchone()
             origin_cycle = int(origin[0]) if origin else None
@@ -530,18 +561,27 @@ def _coverage_report(
             (iso_utc(start), iso_utc(end)),
         ).fetchone()[0]
     )
+    enriched = sum(row.get("metadata_status") == "OBSERVED" for row in episodes)
+    cluster_ids = {
+        str(row["event_cluster_id"])
+        for row in resolved_episodes
+        if row.get("event_cluster_id") not in {None, ""}
+    }
     return {
         "new_crossings": crossing_count,
         "crossings_with_clob_attempt": crossing_with_attempt,
         "crossing_clob_coverage": _ratio(crossing_with_attempt, crossing_count),
+        "candidate_metadata_observed": enriched,
+        "candidate_metadata_coverage": _ratio(enriched, len(episodes)),
         "executable_episodes": len(executable),
         "expected_episode_path_observations": len(expected_pairs),
         "observed_episode_path_observations": linked_paths,
         "episode_path_coverage": _ratio(linked_paths, len(expected_pairs)),
         "resolved_executable_episodes": len(resolved_episodes),
         "resolution_coverage": _ratio(len(resolved_episodes), len(executable)),
-        "resolved_independent_event_clusters": len(
-            {str(row["event_cluster_id"]) for row in resolved_episodes}
+        "resolved_independent_event_clusters": len(cluster_ids),
+        "resolved_unknown_cluster_episodes": sum(
+            row.get("event_cluster_id") in {None, ""} for row in resolved_episodes
         ),
         "path_status_counts": dict(
             Counter(str(row["path_status"]) for row in path_rows)
@@ -643,7 +683,7 @@ def _policy_grid(
         """
         SELECT p.*,s.cycle_number
         FROM episode_path_observations p
-        JOIN gamma_sweeps s ON s.sweep_id=p.sweep_id
+        JOIN market_sweeps s ON s.sweep_id=p.sweep_id
         WHERE p.path_status='EXECUTABLE' AND p.entry_cycle_baseline=0
           AND p.observed_at<?
         ORDER BY s.cycle_number,p.observed_at,p.path_observation_id
@@ -881,6 +921,10 @@ def analyze_database(
         "resolution_coverage_at_least_90pct": (
             coverage["resolution_coverage"] is not None
             and coverage["resolution_coverage"] >= 0.90
+        ),
+        "candidate_metadata_coverage_at_least_90pct": (
+            coverage["candidate_metadata_coverage"] is not None
+            and coverage["candidate_metadata_coverage"] >= 0.90
         ),
     }
     if quick_check != "ok" or not health["healthy"]:

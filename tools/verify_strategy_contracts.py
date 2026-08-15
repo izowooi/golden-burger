@@ -2188,6 +2188,7 @@ def _validate_last_mile_research_strategy(
         "src/polybot/bot.py",
         "src/polybot/run_audit.py",
         "src/polybot/collector.py",
+        "src/polybot/api/sampling_client.py",
         "src/polybot/api/gamma_client.py",
         "src/polybot/api/clob_client.py",
         "src/polybot/db/repository.py",
@@ -2259,7 +2260,7 @@ def _validate_last_mile_research_strategy(
         (
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
-            "last-mile-v1",
+            "last-mile-clob-v1",
             "archive_only",
             "math.isfinite",
             "CANONICAL_JOB",
@@ -2294,16 +2295,14 @@ def _validate_last_mile_research_strategy(
     for key, expected in (
         ("simulation_mode", True),
         ("lifecycle_mode", "archive_only"),
-        ("data_contract", "last-mile-v1"),
+        ("data_contract", "last-mile-clob-v1"),
         ("cadence_minutes", 10),
-        ("entry_start_utc", "2026-08-15T02:00:00Z"),
-        ("entry_end_utc", "2026-08-22T02:00:00Z"),
-        ("followup_end_utc", "2026-09-21T02:00:00Z"),
-        ("page_size", 100),
-        ("max_pages", 500),
-        ("include_tags", True),
-        ("min_liquidity", 0),
-        ("min_total_volume", 0),
+        ("cadence_offset_minute", 7),
+        ("entry_start_utc", "2026-08-15T04:00:00Z"),
+        ("entry_end_utc", "2026-08-22T04:00:00Z"),
+        ("followup_end_utc", "2026-09-21T04:00:00Z"),
+        ("page_size", 1000),
+        ("max_pages", 100),
         ("entry_thresholds", (0.90, 0.92, 0.95, 0.97)),
         ("stop_thresholds", (0.80, 0.85, 0.90)),
         ("target_thresholds", (0.98, 0.99)),
@@ -2351,6 +2350,26 @@ def _validate_last_mile_research_strategy(
         ),
     )
 
+    sampling = sources["src/polybot/api/sampling_client.py"]
+    _require_token_alternatives(
+        findings,
+        strategy,
+        "src/polybot/api/sampling_client.py",
+        sampling,
+        (
+            ("/sampling-markets",),
+            ("next_cursor", "nextCursor"),
+            ("next_cursor", "nextCursor"),
+            ("cursor_complete", "terminal_cursor", "cursor_terminal"),
+            ("LTE=",),
+            ("page-size contract", "page_size"),
+            ("repeated cursor",),
+            ("received_at", "source_received_at"),
+            ("raw_payload", "raw_body", "response.raw", "raw: bytes"),
+            ("payload_sha256", "raw_sha256", "response_sha256"),
+        ),
+    )
+
     gamma = sources["src/polybot/api/gamma_client.py"]
     _require_token_alternatives(
         findings,
@@ -2358,17 +2377,12 @@ def _validate_last_mile_research_strategy(
         "src/polybot/api/gamma_client.py",
         gamma,
         (
-            ("/markets/keyset",),
-            ("after_cursor", "afterCursor"),
-            ("next_cursor", "nextCursor"),
-            ("cursor_complete", "terminal_cursor", "cursor_terminal"),
+            ("/markets",),
+            ("fetch_metadata",),
+            ("fetch_resolutions",),
+            ("condition_ids",),
             ("closed",),
             ("include_tag", "includeTag"),
-            ("liquidity_num_min", "min_liquidity"),
-            ("volume_num_min", "min_total_volume"),
-            ("received_at", "source_received_at"),
-            ("raw_payload", "raw_body", "response.raw", "raw: bytes"),
-            ("payload_sha256", "raw_sha256", "response_sha256"),
         ),
     )
 
@@ -2438,12 +2452,13 @@ def _validate_last_mile_research_strategy(
             ("api_requests",),
             ("raw_payloads",),
             ("market_sweeps", "gamma_sweeps"),
-            ("market_sweep_memberships", "gamma_membership_blobs"),
-            ("market_sweep_page_lineage", "gamma_page_lineage"),
+            ("market_sweep_memberships", "market_membership_blobs", "gamma_membership_blobs"),
+            ("market_sweep_page_lineage", "market_page_lineage", "gamma_page_lineage"),
             ("market_observations", "market_catalog_versions"),
             ("outcome_observations", "outcome_token_observations"),
             ("latest_outcome_state", "crossing_states", "threshold_states"),
             ("crossing_decisions", "threshold_decisions", "signal_decisions"),
+            ("candidate_metadata_observations",),
             ("crossing_episodes", "entry_episodes", "hypothetical_episodes"),
             ("orderbook_token_attempts", "book_attempts", "clob_token_attempts"),
             ("orderbook_snapshots", "book_snapshots", "clob_snapshots"),
@@ -2471,7 +2486,7 @@ def _validate_last_mile_research_strategy(
         ),
     )
 
-    evidence_sources = "\n".join((gamma, collector, repository))
+    evidence_sources = "\n".join((sampling, gamma, collector, repository))
     _require_token_alternatives(
         findings,
         strategy,
@@ -2532,7 +2547,7 @@ def _validate_last_mile_research_strategy(
             "uv.lock",
             "config.yaml",
             "STRATEGY.md",
-            "research/frozen-2026-08-15/PREREGISTRATION.md",
+            "research/frozen-2026-08-15-clob/PREREGISTRATION.md",
             "scripts/analyze_experiment.py",
             "scripts/verify_external_workspace.py",
             "src/polybot/main.py",
@@ -2540,6 +2555,7 @@ def _validate_last_mile_research_strategy(
             "src/polybot/config.py",
             "src/polybot/run_audit.py",
             "src/polybot/source_digest.py",
+            "src/polybot/api/sampling_client.py",
             "src/polybot/api/gamma_client.py",
             "src/polybot/api/clob_client.py",
             "src/polybot/collector.py",
@@ -2686,7 +2702,7 @@ def _validate_last_mile_research_strategy(
         readme,
         (
             ("Last Mile",),
-            ("last-mile-v1",),
+            ("last-mile-clob-v1",),
             ("accountless",),
             ("research-only", "research only"),
             ("10 minute", "10-minute", "10분"),
@@ -2734,13 +2750,13 @@ def _validate_last_mile_research_strategy(
             ("host", "off-volume"),
             ("UUID", "uuid"),
             ("before", "먼저"),
-            ("analyze_experiment.py",),
+            ("analyze_experiment.py", "polybot analyze"),
             ("health",),
         ),
     )
 
-    prereg_relative = "research/frozen-2026-08-15/PREREGISTRATION.md"
-    manifest_relative = "research/frozen-2026-08-15/MANIFEST.sha256"
+    prereg_relative = "research/frozen-2026-08-15-clob/PREREGISTRATION.md"
+    manifest_relative = "research/frozen-2026-08-15-clob/MANIFEST.sha256"
     prereg_path = directory / prereg_relative
     manifest_path = directory / manifest_relative
     preregistration = _require_file(findings, strategy, prereg_path)
@@ -2752,17 +2768,17 @@ def _validate_last_mile_research_strategy(
         preregistration,
         (
             ("2026-08-15",),
-            ("last-mile-v1",),
+            ("last-mile-clob-v1",),
             ("archive_only",),
             ("accountless",),
             ("10 minutes", "10-minute", "10분"),
-            ("/markets/keyset",),
+            ("/sampling-markets",),
             ("cursor",),
-            ("No liquidity", "no liquidity", "liquidity_num_min=0"),
+            ("No liquidity", "no liquidity", "no volume", "liquidity"),
             ("category",),
             ("sports",),
             ("negRisk", "neg_risk"),
-            ("multi-outcome", "multioutcome"),
+            ("outcome", "token"),
             ("LEFT_CENSORED",),
             ("GAP_CENSORED",),
             ("interval",),
@@ -2770,8 +2786,8 @@ def _validate_last_mile_research_strategy(
             ("[0.90, 0.92, 0.95, 0.97]", "`0.90`, `0.92`, `0.95`, and `0.97`"),
             ("[none, 0.80, 0.85, 0.90]", "`0.80` and `0.90` stops"),
             ("[none, 0.98, 0.99]", "`0.98`/`0.99`"),
-            ("entry threshold `0.95`", "primary entry 0.95"),
-            ("stop threshold `0.85`", "primary stop 0.85"),
+            ("entry `0.95`", "primary entry 0.95"),
+            ("stop `0.85`", "primary stop 0.85"),
             ("terminal Gamma payout", "terminal resolution"),
             ("HEALTH_ONLY",),
             ("one-week", "one week", "7-day", "7 day", "7일"),
@@ -2779,6 +2795,7 @@ def _validate_last_mile_research_strategy(
             (
                 "30 resolved independent event clusters",
                 "at least 30 resolved independent event clusters",
+                "30 resolved known event clusters",
             ),
             ("90% episode-path coverage", "90% path coverage"),
             ("90% resolution coverage",),

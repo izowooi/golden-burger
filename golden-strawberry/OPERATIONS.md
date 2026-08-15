@@ -1,133 +1,115 @@
 # Golden Strawberry operations
 
-## Deployment invariants
+## Jenkins contract
 
 - Jenkins job: `polybot-shadow-one`.
-- Runtime job: `strawberry-shadow-one` only.
-- Exact custom workspace: `/Volumes/t7/jenkins/polybot-shadow-one`.
-- Suggested timer: `0-59/10 * * * *`; concurrent builds disabled.
-- Database: `golden-strawberry/data/strawberry-shadow-one/trades_sim.db` inside that workspace.
-- Lifecycle/mode: `archive_only` and `--simulate` only.
-- Never clean/wipe the persistent workspace as deployment or recovery.
+- Runtime job: `strawberry-shadow-one`.
+- Custom workspace: `/Volumes/t7/jenkins/polybot-shadow-one`.
+- Timer: `7-59/10 * * * *`.
+- Concurrent builds: disabled; SCM clean/wipe extensions: absent.
+- Jenkins build retention: 14 days.
 
-The design probe took 121.39 seconds for 322 pages, leaving measured margin inside a ten-minute slot,
-but runtime is not assumed constant. Health reports p95/max and treats p95 at 80% of cadence or max at
-cadence as unhealthy. The observed market count and 16.7 MiB/sweep estimate are dated capacity inputs,
-not hardcoded contracts.
+Ten minutes is frozen because complete end-to-end cycles measured 5.5–6.3 seconds and the source
+requires only 13 cursor pages. Five minutes would double load without a demonstrated scientific
+benefit. Minute offset 7 avoids the existing 0–3 minute research shard offsets and is part of health
+slot accounting.
 
-## Trusted T7 preflight
-
-The T7 already has two trusted Raspberry identity anchors:
-
-- `/Volumes/t7/.golden-raspberry-volume`
-- `/Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid`
-
-Strawberry reuses those files read-only because they prove the same volume. Do not auto-create, copy,
-rename, replace, or loosen either anchor. Strawberry identity remains distinct through Jenkins job
-`polybot-shadow-one`, exact workspace `/Volumes/t7/jenkins/polybot-shadow-one`, runtime job
-`strawberry-shadow-one`, and the marker inside that workspace.
-
-Run preflight before `uv sync`, database access, logging, or collection:
+## Shell
 
 ```bash
-set -eu
+#!/bin/bash
 set +x
-test "$WORKSPACE" = /Volumes/t7/jenkins/polybot-shadow-one
+set -euo pipefail
+
+unset POLYMARKET_PRIVATE_KEY
+unset POLYMARKET_FUNDER_ADDRESS
+unset POLYMARKET_SIGNATURE_TYPE
+unset POLYMARKET_API_KEY
+unset POLYMARKET_API_SECRET
+unset POLYMARKET_API_PASSPHRASE
+unset CLOB_API_KEY
+unset CLOB_SECRET
+unset CLOB_PASSPHRASE
+
+export UV_LINK_MODE=copy
+export LOG_LEVEL=INFO
+export POLYBOT_LIFECYCLE_MODE=archive_only
+export POLYBOT_SIMULATION_MODE=true
 
 /usr/bin/python3 ./golden-strawberry/scripts/verify_external_workspace.py \
-  --mount-root /Volumes/t7 \
-  --workspace "$WORKSPACE" \
-  --expected-workspace /Volumes/t7/jenkins/polybot-shadow-one \
-  --job polybot-shadow-one \
-  --sentinel /Volumes/t7/.golden-raspberry-volume \
-  --host-uuid-pin /Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid \
+  --workspace "${WORKSPACE}" \
   --write-daily-rsync-marker
 
 cd ./golden-strawberry
-uv sync --frozen
-uv run polybot run --simulate --job strawberry-shadow-one
+UV=/Users/jongwoopark/.local/bin/uv
+
+"${UV}" sync --frozen
+(cd research/frozen-2026-08-15-clob && shasum -a 256 -c MANIFEST.sha256)
+"${UV}" run polybot config --simulate --job strawberry-shadow-one
+"${UV}" run polybot run --simulate --job strawberry-shadow-one
+"${UV}" run polybot status --simulate --job strawberry-shadow-one
+"${UV}" run polybot health --simulate --job strawberry-shadow-one
 ```
 
-The verifier requires an external APFS mount, exact UUID agreement in both pre-existing anchors, an
-off-volume host pin, canonical same-device workspace, and the exact Jenkins job. Only after all checks
-does it atomically write `.daily-rsync-workspace.json`. Daily Rsync requires exactly
-`schema_version`, `job`, and absolute `workspace`; extra keys are intentionally absent.
+Do not add `clean`, workspace wipe, DB deletion, credentials, `--live`, or a different runtime job.
+The verifier reuses the existing trusted T7 sentinel and off-volume UUID pin; it never creates trust
+anchors: `/Volumes/t7/.golden-raspberry-volume` and
+`/Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid`. The collector rechecks the exact Jenkins
+workspace and marker before opening a log or DB.
 
-## Safety preflight
+## First deployment
 
-The exact denied environment keys are:
+1. Keep the periodic trigger absent while changing config.
+2. Verify T7 is mounted and has at least 100GiB free.
+3. Save the shell and run one manual build.
+4. Require a successful 13-page terminal sweep, SQLite `quick_check=ok`, no HIGH/CRITICAL issue, and
+   healthy status.
+5. Add `7-59/10 * * * *`; wait for at least one natural build and inspect its console.
+6. Run daily-rsync scan/sync/verify and inspect the verified DB, not the Jenkins workspace DB.
 
-```text
-POLYMARKET_PRIVATE_KEY
-POLYMARKET_FUNDER_ADDRESS
-POLYMARKET_SIGNATURE_TYPE
-POLYMARKET_API_KEY
-POLYMARKET_API_SECRET
-POLYMARKET_API_PASSPHRASE
-CLOB_API_KEY
-CLOB_SECRET
-CLOB_PASSPHRASE
-```
+The first full optimized DB measured about 31.7MB because it includes the 25k-token latest cache and
+initial left-censoring. A normal subsequent cycle measured about 6.46MB. The 100GiB floor includes
+the roughly 35GB through-follow-up plan plus DB/journal/backup margin. `storage_metrics` and analyzer
+forecast override these dated estimates.
 
-Presence, even with an empty value, stops before lock/database/log/HTTP creation. Unknown
-`POLYBOT_*` keys also fail. Never add credentials to Jenkins or `.env`; this collector needs only
-public Gamma and CLOB REST.
+## Daily-rsync
 
-Before timer enablement:
+From the monorepo:
 
 ```bash
-uv sync --frozen --extra dev
-(cd research/frozen-2026-08-15 && shasum -a 256 -c MANIFEST.sha256)
-uv run pytest
-uv build
-uv run polybot config --simulate --job strawberry-shadow-one
+cd daily-rsync
+uv run daily-rsync scan --job polybot-shadow-one
+uv run daily-rsync plan --job polybot-shadow-one
+# execute the generated explicit plan according to daily-rsync OPERATIONS.md
+uv run daily-rsync locate --job polybot-shadow-one
+uv run daily-rsync verify --job polybot-shadow-one --strategy golden-strawberry
 ```
 
-Run one manual cycle, inspect `status` and `health`, then observe at least two natural timer cycles.
+The remote marker must identify `polybot-shadow-one`; runtime identity is discovered as
+`strawberry-shadow-one`. Never infer success from a directory name or plan file alone.
 
-## Storage and evidence
+## Review prompts
 
-The collector stops before source access below 30 GiB free or at 90% filesystem usage. A warning begins
-at 80%. Evidence is never thinned, updated, or deleted to evade a storage guard. Daily logs alone have
-a 45-day age policy. SQLite uses rollback `DELETE` journal and `synchronous=FULL`; the short-lived
-`-journal` is not an independent evidence artifact.
+After 24 hours:
 
-Every published sweep includes compressed full membership and raw Gamma pages. The dated week-one raw
-estimate is about 16.5 GiB before indexes and non-Gamma tables. Review actual `storage_metrics`, DB
-growth/day, free-space headroom, and forecast days to the earliest 30 GiB/90% stop. Expand trusted
-capacity or start a newly preregistered profile; do not silently reduce source coverage.
+> `polybot-shadow-one`을 daily-rsync로 동기화하고 Golden Strawberry Last Mile의 첫 24시간
+> collection health를 검증해줘. 수익성이나 파라미터는 판단하지 말고 cadence, cursor/membership,
+> crossing book, Gamma metadata, path/resolution, DB 무결성, 저장공간 증가량을 확인해줘.
 
-Back up SQLite with an online backup method, then checksum the resulting copy. Do not copy a running
-database byte-for-byte. Daily Rsync is read-only transport and its cataloged `local_sha256`, source
-cutoff, and successful verify result are required for analysis.
+After the entry window and sufficient follow-up:
 
-## Daily Rsync and review
+> `polybot-shadow-one`을 다시 동기화하고 `[2026-08-15T04:00:00Z,
+> 2026-08-22T04:00:00Z)` Golden Strawberry cohort를 strict review해줘. 0.95/0.85 primary와
+> sports/non-sports, liquidity/volume strata를 보여주되, evidence gate를 통과하지 못하면 수익성
+> 판단이나 파라미터 추천을 중단해줘.
 
-Use `daily-rsync scan --job polybot-shadow-one`, then a dedicated plan, sync, locate, and verify for
-strategy `golden-strawberry`. Do not infer runtime identity from directory names. The expected runtime
-is `strawberry-shadow-one`; a mismatch is a routing failure.
+The equivalent immutable helper is `uv run python scripts/analyze_experiment.py --help`; always pass
+the absolute DB returned by daily-rsync `locate` and verified by `verify`.
 
-Analyze only the canonical verified DB path:
+## Failure handling
 
-```bash
-cd golden-strawberry
-uv run python scripts/analyze_experiment.py \
-  --db /absolute/daily-rsync/verified/trades_sim.db \
-  --start "$REVIEW_START" \
-  --end "$REVIEW_END" \
-  --output /absolute/review/golden-strawberry.json
-```
-
-`REVIEW_END` is exclusive. The analyzer is primary for this research collector. A trading-oriented
-strict audit can only be secondary schema/provenance context because this DB intentionally has no
-trading lifecycle evidence.
-
-## Incident handling
-
-- Partial/repeated/over-budget Gamma: run is failed; verify no `gamma_sweeps` row for it.
-- CLOB missing/malformed/depth shortage: preserve explicit censoring; never substitute a value.
-- Resolution missing/error: retain the observation and retry on a later poll until follow-up cutoff.
-- Lock contention: do not remove a lock file while a process is alive; disable overlap and inspect it.
-- `quick_check` failure: stop timer, preserve files, recover from a verified online backup.
-- HIGH/CRITICAL issue, multiple cohort, or trust-anchor mismatch: stop interpretation and repair the
-  instrument. Start a new frozen cohort when evidence-affecting source/config changes.
+- Cursor/page/count/token duplication failure: no sweep should publish; keep the failed run receipts.
+- Book or Gamma enrichment failure: retain explicit censoring; do not synthesize a price or metadata.
+- Missing episode token in terminal payout: resolution is `MALFORMED` and remains unresolved.
+- Workspace/mount/marker mismatch or <100GiB free: source access must not begin.
+- Digest/manifest/config mismatch: use a new preregistered cohort; never edit the active DB contract.

@@ -41,16 +41,17 @@ uv run python scripts/analyze_experiment.py \
 분석기는 DB를 `mode=ro&immutable=1`로 열고 `quick_check`를 실행한다. 다음을 먼저 판정한다.
 
 - 10분 expected slot 대비 성공 coverage, duplicate/off-slot, terminal run state
-- terminal Gamma cursor, complete membership gzip, raw page/request/SHA linkage
+- terminal CLOB sampling cursor, complete membership gzip, raw page/request/SHA linkage
 - `config_hash × strategy_source_digest × mode × job_name` 단일 cohort
-- runtime p95/max와 실제 DB growth/day, 30 GiB/90% guard-stop forecast
+- end-to-end runtime p95/max와 실제 DB growth/day, 100 GiB/90% guard-stop forecast
 - new crossing CLOB attempt, unresolved episode별 fixed-share bid-walk 또는 explicit censoring
+- crossing-time Gamma metadata coverage/lag와 unknown event-cluster 분리
 - left/gap/interval censoring과 continuous `.95` passage 미주장
 - resolution lookup/payout 및 resolution jump와 price target의 구분
 - sports/non-sports, binary/multi, negRisk, liquidity/volume strata
 
-2026-08-15T00:xxZ capacity probe의 32,132 market/322 page/121.39s와 약 16.7 MiB per sweep,
-16.5 GiB per 1,008 sweep는 dated estimate다. 이를 contract denominator로 쓰지 않고 review DB의
+2026-08-15 predeployment CLOB probe의 약 12.5k market/25k token/13 page와 first DB 31.7MB,
+subsequent growth 6.46MB는 dated estimate다. 이를 contract denominator로 쓰지 않고 review DB의
 actual membership/runtime/growth를 사용한다.
 
 ## Frozen primary와 sensitivity
@@ -67,8 +68,9 @@ conservative stop-first를 적용한다.
 ## Verdict gate
 
 - collection health 실패: `HEALTH_ONLY`
-- health 통과지만 executable episode 50개, resolved independent event cluster 30개, path coverage
-  90%, resolution coverage 90% 중 하나라도 부족: `PILOT_UNDERPOWERED`
+- health 통과지만 executable episode 50개, resolved known event cluster 30개, path coverage 90%,
+  resolution coverage 90%, crossing-time metadata coverage 90% 중 하나라도 부족:
+  `PILOT_UNDERPOWERED`
 - 모두 충족: 최대 `PILOT_CANDIDATE`
 
 `PILOT_CANDIDATE`도 profitability, parameter winner, live 승인에 해당하지 않는다. Primary 정책은
@@ -80,7 +82,7 @@ conservative stop-first를 적용한다.
 필요하면 generic `polybot-retro audit --strict` 결과를 별도 artifact로 보존할 수 있지만,
 trading execution tables와 P&L 부재는 이 프로젝트에서 evidence gap이 아니다. 반대로 그 audit의
 통과나 실패를 Strawberry health로 재해석하지 않는다. Primary JSON과 DB checksum, Daily Rsync
-verify, source cutoff, frozen preregistration manifest가 권위다.
+verify, source cutoff, `research/frozen-2026-08-15-clob` manifest가 권위다.
 
 append-only trigger 위반, mutable latest-state cache를 source evidence로 사용, midpoint/forward
 substitution, partial sweep publication, target-as-resolution, cohort 혼합이 하나라도 있으면 가설

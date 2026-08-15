@@ -7,7 +7,7 @@ import pytest
 from polybot.collector import (
     evaluate_crossing,
     normalize_book,
-    parse_gamma_market,
+    parse_sampling_market,
     walk_asks,
     walk_bids,
 )
@@ -15,59 +15,59 @@ from polybot.collector import (
 
 def _market(probabilities=(0.94, 0.04, 0.02), *, sports=True):
     return {
-        "id": "market-1",
-        "conditionId": "condition-1",
-        "eventId": "event-1",
+        "condition_id": "condition-1",
+        "market_slug": "market-1",
         "question": "Will the home side win?",
         "active": True,
         "closed": False,
-        "enableOrderBook": True,
-        "acceptingOrders": True,
-        "outcomes": ["Home", "Draw", "Away"],
-        "clobTokenIds": ["token-home", "token-draw", "token-away"],
-        "outcomePrices": list(probabilities),
-        "liquidity": 0,
-        "volume": 0,
-        "volume24hr": 0,
-        "negRisk": True,
-        "category": "Sports" if sports else "Politics",
-        "tags": [{"label": "soccer" if sports else "elections"}],
-        "endDate": "2027-01-01T00:00:00Z",
+        "enable_order_book": True,
+        "accepting_orders": True,
+        "tokens": [
+            {"outcome": label, "token_id": token, "price": probability}
+            for label, token, probability in zip(
+                ("Home", "Draw", "Away"),
+                ("token-home", "token-draw", "token-away"),
+                probabilities,
+            )
+        ],
+        "neg_risk": True,
+        "tags": ["soccer" if sports else "elections"],
+        "end_date_iso": "2027-01-01T00:00:00Z",
         "_page_number": 1,
         "_item_number": 0,
-        "_page_received_at": "2026-08-15T02:00:00Z",
-        "_page_request_id": "gamma-request",
+        "_page_received_at": "2026-08-15T04:00:00Z",
+        "_page_request_id": "sampling-request",
     }
 
 
 def test_parse_preserves_multi_negrisk_sports_and_zero_volume():
-    parsed = parse_gamma_market(
+    parsed = parse_sampling_market(
         _market(),
         sweep_id="sweep",
         run_id="run",
-        sports_classifier_version="gamma-fields-tags-v1",
+        sports_classifier_version="clob-fields-tags-v1",
     )
     catalog = parsed.catalog_row
     assert catalog["tradable"] == 1
     assert catalog["outcome_type"] == "MULTI"
     assert catalog["neg_risk"] == 1
     assert catalog["sports_classification"] == "SPORTS"
-    assert catalog["liquidity"] == 0
-    assert catalog["volume_total"] == 0
-    assert catalog["volume_24h"] == 0
-    assert catalog["event_id"] == "event-1"
-    assert catalog["event_cluster_id"] == "event-1"
+    assert catalog["liquidity"] is None
+    assert catalog["volume_total"] is None
+    assert catalog["volume_24h"] is None
+    assert catalog["event_id"] is None
+    assert catalog["event_cluster_id"] is None
     assert len(parsed.outcome_rows) == 3
 
 
 def test_only_source_tradability_excludes_market():
     market = _market(sports=False)
-    market["acceptingOrders"] = False
-    parsed = parse_gamma_market(
+    market["accepting_orders"] = False
+    parsed = parse_sampling_market(
         market,
         sweep_id="sweep",
         run_id="run",
-        sports_classifier_version="gamma-fields-tags-v1",
+        sports_classifier_version="clob-fields-tags-v1",
     )
     assert parsed.catalog_row["tradable"] == 0
     assert "NOT_ACCEPTING_ORDERS" in parsed.catalog_row["exclusion_reason"]
@@ -75,11 +75,11 @@ def test_only_source_tradability_excludes_market():
 
 
 def test_initial_above_is_left_censored_and_later_crossing_is_interval_censored():
-    start = datetime(2026, 8, 15, 2, 0, tzinfo=timezone.utc)
-    end = datetime(2026, 8, 22, 2, 0, tzinfo=timezone.utc)
+    start = datetime(2026, 8, 15, 4, 0, tzinfo=timezone.utc)
+    end = datetime(2026, 8, 22, 4, 0, tzinfo=timezone.utc)
     initial = evaluate_crossing(
         current_probability=0.96,
-        current_observed_at="2026-08-15T02:00:00Z",
+        current_observed_at="2026-08-15T04:00:00Z",
         current_condition_id="condition",
         threshold=0.95,
         prior=None,
@@ -91,13 +91,13 @@ def test_initial_above_is_left_censored_and_later_crossing_is_interval_censored(
     assert initial["status"] == "LEFT_CENSORED"
     crossing = evaluate_crossing(
         current_probability=0.97,
-        current_observed_at="2026-08-15T02:20:00Z",
+        current_observed_at="2026-08-15T04:20:00Z",
         current_condition_id="condition",
         threshold=0.95,
         prior={
             "condition_id": "condition",
             "probability": 0.94,
-            "observed_at": "2026-08-15T02:10:00Z",
+            "observed_at": "2026-08-15T04:10:00Z",
         },
         episode_exists=False,
         entry_start=start,
@@ -112,17 +112,17 @@ def test_initial_above_is_left_censored_and_later_crossing_is_interval_censored(
 def test_gap_over_25_minutes_is_censored():
     result = evaluate_crossing(
         current_probability=0.96,
-        current_observed_at="2026-08-15T02:30:01Z",
+        current_observed_at="2026-08-15T04:30:01Z",
         current_condition_id="condition",
         threshold=0.95,
         prior={
             "condition_id": "condition",
             "probability": 0.94,
-            "observed_at": "2026-08-15T02:00:00Z",
+            "observed_at": "2026-08-15T04:00:00Z",
         },
         episode_exists=False,
-        entry_start=datetime(2026, 8, 15, 2, 0, tzinfo=timezone.utc),
-        entry_end=datetime(2026, 8, 22, 2, 0, tzinfo=timezone.utc),
+        entry_start=datetime(2026, 8, 15, 4, 0, tzinfo=timezone.utc),
+        entry_end=datetime(2026, 8, 22, 4, 0, tzinfo=timezone.utc),
         max_gap_minutes=25,
     )
     assert result["status"] == "GAP_CENSORED"
@@ -159,7 +159,7 @@ def test_book_preserves_fee_tick_minimum_and_full_depth():
             "fee_rate_bps": "20",
         },
         request_id="request",
-        observed_at="2026-08-15T02:10:00Z",
+        observed_at="2026-08-15T04:10:00Z",
     )
     assert book.bids == ((0.91, 3.0), (0.90, 2.0))
     assert book.asks == ((0.93, 2.0), (0.94, 3.0))

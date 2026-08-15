@@ -15,13 +15,17 @@ def api_receipt(repository, *, run_id: str, request_id: str, kind: str, raw: byt
             "request_kind": kind,
             "page_number": 1,
             "attempt_number": 1,
-            "method": "GET" if kind.startswith("gamma") else "POST",
+            "method": (
+                "GET"
+                if kind.startswith("gamma") or kind.startswith("clob_sampling")
+                else "POST"
+            ),
             "url": "https://example.test/public",
             "params_json": "{}",
             "body_sha256": None,
             "request_hash": hashlib.sha256(request_id.encode()).hexdigest(),
-            "started_at": "2026-08-15T02:00:00Z",
-            "completed_at": "2026-08-15T02:00:01Z",
+            "started_at": "2026-08-15T04:00:00Z",
+            "completed_at": "2026-08-15T04:00:01Z",
             "elapsed_ms": 1000.0,
             "status": "SUCCESS",
             "http_status": 200,
@@ -36,20 +40,20 @@ def api_receipt(repository, *, run_id: str, request_id: str, kind: str, raw: byt
 
 
 def minimal_bundle(config, repository, *, run_id="run-1", cycle_number=1):
-    request_id = f"gamma-{cycle_number}"
-    raw = b'{"markets":[]}'
+    request_id = f"sampling-{cycle_number}"
+    raw = b'{"data":[],"next_cursor":"LTE="}'
     api_receipt(
         repository,
         run_id=run_id,
         request_id=request_id,
-        kind="gamma_markets_keyset",
+        kind="clob_sampling_markets",
         raw=raw,
     )
     compressed_raw = gzip.compress(raw, mtime=0)
     membership_raw = canonical_json([]).encode()
     membership_blob = gzip.compress(membership_raw, mtime=0)
     sweep_id = f"sweep-{cycle_number}"
-    now = f"2026-08-15T02:{(cycle_number - 1) * 10:02d}:01Z"
+    now = f"2026-08-15T04:{(cycle_number - 1) * 10:02d}:01Z"
     payload_id = f"raw-{request_id}"
     return {
         "sweep": {
@@ -58,7 +62,8 @@ def minimal_bundle(config, repository, *, run_id="run-1", cycle_number=1):
             "cycle_number": cycle_number,
             "config_hash": config.config_hash,
             "strategy_source_digest": config.trading.strategy_source_digest,
-            "data_contract": "last-mile-v1",
+            "data_contract": "last-mile-clob-v1",
+            "source_name": "clob_sampling_markets",
             "started_at": now,
             "completed_at": now,
             "published_at": now,
@@ -68,6 +73,8 @@ def minimal_bundle(config, repository, *, run_id="run-1", cycle_number=1):
             "unique_condition_count": 0,
             "aligned_outcome_count": 0,
             "tradable_market_count": 0,
+            "evidence_catalog_count": 0,
+            "evidence_outcome_count": 0,
             "membership_sha256": hashlib.sha256(membership_raw).hexdigest(),
             "request_lineage_sha256": "lineage",
         },
@@ -86,7 +93,7 @@ def minimal_bundle(config, repository, *, run_id="run-1", cycle_number=1):
                 "payload_id": payload_id,
                 "run_id": run_id,
                 "request_id": request_id,
-                "payload_kind": "gamma_markets_keyset_page",
+                "payload_kind": "clob_sampling_markets_page",
                 "source_received_at": now,
                 "content_encoding": "gzip",
                 "payload_sha256": hashlib.sha256(raw).hexdigest(),
@@ -115,6 +122,7 @@ def minimal_bundle(config, repository, *, run_id="run-1", cycle_number=1):
         "catalog": [],
         "outcomes": [],
         "crossing_decisions": [],
+        "candidate_metadata": [],
         "clob_attempts": [],
         "clob_snapshots": [],
         "clob_levels": [],

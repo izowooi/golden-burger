@@ -12,7 +12,7 @@ def test_collector_publishes_left_censor_crossing_path_and_resolution(config):
     assert [summary["new_executable_episodes"] for summary in summaries] == [0, 1, 1]
     with repository._read_connect() as connection:
         assert (
-            connection.execute("SELECT COUNT(*) FROM gamma_sweeps").fetchone()[0] == 3
+            connection.execute("SELECT COUNT(*) FROM market_sweeps").fetchone()[0] == 3
         )
         left = connection.execute(
             "SELECT COUNT(*) FROM crossing_decisions WHERE decision_status='LEFT_CENSORED'"

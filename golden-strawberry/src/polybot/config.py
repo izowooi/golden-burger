@@ -26,18 +26,18 @@ from .source_digest import (
 )
 
 
-DATA_CONTRACT = "last-mile-v1"
+DATA_CONTRACT = "last-mile-clob-v1"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 CANONICAL_JOB = "strawberry-shadow-one"
-FROZEN_ENTRY_START = datetime(2026, 8, 15, 2, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 8, 22, 2, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 21, 2, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_START = datetime(2026, 8, 15, 4, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 8, 22, 4, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 21, 4, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.90, 0.92, 0.95, 0.97)
 STOP_THRESHOLDS = (0.80, 0.85, 0.90)
 TARGET_THRESHOLDS = (0.98, 0.99)
 PRIMARY_ENTRY_THRESHOLD = 0.95
 PRIMARY_STOP_THRESHOLD = 0.85
-SPORTS_CLASSIFIER_VERSION = "gamma-fields-tags-v1"
+SPORTS_CLASSIFIER_VERSION = "clob-fields-tags-v1"
 
 # This exact deny-list is shared with Golden Raspberry. Presence, including an
 # empty value, is forbidden before any database, log, or network construction.
@@ -136,17 +136,19 @@ def _float_tuple(value: Any, name: str) -> tuple[float, ...]:
 @dataclass(frozen=True)
 class GammaConfig:
     base_url: str
-    page_size: int
-    max_pages: int
-    include_tags: bool
-    min_liquidity: float
-    min_total_volume: float
     connect_timeout_seconds: float
     read_timeout_seconds: float
     max_retries: int
     retry_base_seconds: float
     retry_max_seconds: float
     resolution_batch_size: int
+
+
+@dataclass(frozen=True)
+class SamplingConfig:
+    base_url: str
+    page_size: int
+    max_pages: int
 
 
 @dataclass(frozen=True)
@@ -187,6 +189,8 @@ class TradingConfig:
     lifecycle_mode: str
     data_contract: str
     cadence_minutes: int
+    cadence_offset_minute: int
+    sampling: SamplingConfig
     gamma: GammaConfig
     orderbook: OrderBookConfig
     experiment: ExperimentConfig
@@ -240,13 +244,14 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError(f"data_contract must be {DATA_CONTRACT}")
     if trading.cadence_minutes != 10:
         raise ValueError("cadence_minutes must remain 10")
+    if trading.cadence_offset_minute != 7:
+        raise ValueError("cadence_offset_minute must remain 7")
+    sampling = trading.sampling
+    if sampling.page_size != 1000 or sampling.max_pages != 100:
+        raise ValueError("sampling page_size/max_pages must remain 1000/100")
+    if sampling.base_url != "https://clob.polymarket.com":
+        raise ValueError("sampling source must remain the public CLOB origin")
     gamma = trading.gamma
-    if gamma.page_size != 100 or gamma.max_pages != 500:
-        raise ValueError("Gamma page_size/max_pages must remain 100/500")
-    if not gamma.include_tags:
-        raise ValueError("Gamma tags must remain included")
-    if gamma.min_liquidity != 0 or gamma.min_total_volume != 0:
-        raise ValueError("Gamma server filters must remain zero")
     if not (1 <= gamma.resolution_batch_size <= 100):
         raise ValueError("resolution_batch_size must be between 1 and 100")
     if gamma.max_retries < 0 or gamma.max_retries > 10:
@@ -291,7 +296,7 @@ def _validate_config(config: BotConfig) -> None:
     ):
         raise ValueError("round-trip cost stresses must remain 10.4/72.5 bps")
     storage = trading.storage
-    if storage.min_free_gib < 30:
+    if storage.min_free_gib < 100:
         raise ValueError("storage free-space floor cannot be loosened")
     if not (0 < storage.warn_used_ratio < storage.stop_used_ratio <= 0.90):
         raise ValueError("storage ratios must preserve the 90% stop")
@@ -331,19 +336,18 @@ def load_config(
     if simulation_mode is not None and simulation_mode != resolved_simulation:
         raise ValueError("CLI mode contradicts resolved simulation_mode")
 
+    sampling_raw = _mapping(trading_raw, "sampling")
     gamma_raw = _mapping(trading_raw, "gamma")
     book_raw = _mapping(trading_raw, "orderbook")
     experiment_raw = _mapping(trading_raw, "experiment")
     storage_raw = _mapping(trading_raw, "storage")
+    sampling = SamplingConfig(
+        base_url=_public_origin(sampling_raw["base_url"], "sampling.base_url"),
+        page_size=_integer(sampling_raw["page_size"], "sampling.page_size"),
+        max_pages=_integer(sampling_raw["max_pages"], "sampling.max_pages"),
+    )
     gamma = GammaConfig(
         base_url=_public_origin(gamma_raw["base_url"], "gamma.base_url"),
-        page_size=_integer(gamma_raw["page_size"], "gamma.page_size"),
-        max_pages=_integer(gamma_raw["max_pages"], "gamma.max_pages"),
-        include_tags=_boolean(gamma_raw["include_tags"], "gamma.include_tags"),
-        min_liquidity=_finite(gamma_raw["min_liquidity"], "gamma.min_liquidity"),
-        min_total_volume=_finite(
-            gamma_raw["min_total_volume"], "gamma.min_total_volume"
-        ),
         connect_timeout_seconds=_finite(
             gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"
         ),
@@ -438,6 +442,11 @@ def load_config(
         cadence_minutes=_integer(
             trading_raw.get("cadence_minutes"), "trading.cadence_minutes"
         ),
+        cadence_offset_minute=_integer(
+            trading_raw.get("cadence_offset_minute"),
+            "trading.cadence_offset_minute",
+        ),
+        sampling=sampling,
         gamma=gamma,
         orderbook=orderbook,
         experiment=experiment,
@@ -473,6 +482,7 @@ __all__ = [
     "GammaConfig",
     "LIFECYCLE_MODES",
     "OrderBookConfig",
+    "SamplingConfig",
     "PRIMARY_ENTRY_THRESHOLD",
     "PRIMARY_STOP_THRESHOLD",
     "PROJECT_ROOT",

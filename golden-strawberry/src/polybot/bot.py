@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import fcntl
+import json
 import logging
+import os
 from pathlib import Path
 import shutil
 from typing import Iterator
@@ -17,6 +19,8 @@ from .run_audit import ResearchRunAudit
 
 
 logger = logging.getLogger(__name__)
+_EXPECTED_JENKINS_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-shadow-one")
+_WORKSPACE_MARKER = ".daily-rsync-workspace.json"
 
 
 @contextmanager
@@ -70,15 +74,47 @@ class PolymarketResearchBot:
         usage = shutil.disk_usage(_existing_ancestor(self.config.db_path.parent))
         used_ratio = usage.used / usage.total if usage.total else 1.0
         if usage.free < storage.min_free_gib * GIB:
-            raise RuntimeError("disk guard STOP: free space is below 30 GiB")
+            raise RuntimeError("disk guard STOP: free space is below 100 GiB")
         if used_ratio >= storage.stop_used_ratio:
             raise RuntimeError("disk guard STOP: filesystem used ratio reached 90%")
+
+    def _assert_runtime_workspace(self) -> None:
+        if "JENKINS_URL" not in os.environ:
+            return
+        workspace_text = os.environ.get("WORKSPACE", "")
+        if workspace_text != str(_EXPECTED_JENKINS_WORKSPACE):
+            raise RuntimeError("Jenkins WORKSPACE is not the pinned T7 path")
+        workspace = Path(workspace_text)
+        if workspace.is_symlink() or not workspace.is_dir():
+            raise RuntimeError("pinned Jenkins workspace is absent or unsafe")
+        if workspace.resolve(strict=True) != _EXPECTED_JENKINS_WORKSPACE:
+            raise RuntimeError("pinned Jenkins workspace canonical path changed")
+        project_root = self.config.db_path.parents[2]
+        if project_root.parent != workspace or project_root.name != "golden-strawberry":
+            raise RuntimeError("Strawberry DB is not rooted in the pinned workspace")
+        marker = workspace / _WORKSPACE_MARKER
+        if marker.is_symlink() or not marker.is_file():
+            raise RuntimeError("trusted daily-rsync workspace marker is missing")
+        try:
+            marker_payload = json.loads(marker.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            raise RuntimeError("trusted workspace marker is malformed") from error
+        expected = {
+            "schema_version": 1,
+            "job": "polybot-shadow-one",
+            "workspace": str(workspace),
+        }
+        if marker_payload != expected:
+            raise RuntimeError("trusted workspace marker does not match this job")
+        if project_root.stat().st_dev != workspace.stat().st_dev:
+            raise RuntimeError("Strawberry project is not on the workspace device")
 
     def run(self) -> dict:
         # Repeat immediately before the first filesystem write. This catches a
         # credential injected after configuration resolution and precedes the
         # lock, database, logger, and public HTTP session.
         assert_no_credentials()
+        self._assert_runtime_workspace()
         self._precreation_disk_guard()
         lock_path = self.config.db_path.parent / ".strawberry.lock"
         with exclusive_job_run_lock(lock_path):
@@ -129,7 +165,7 @@ class PolymarketResearchBot:
                 "crossings=%s executable_episodes=%s paths=%s resolutions=%s runtime_s=%.3f",
                 audit.run_id,
                 summary["cycle_number"],
-                summary["gamma_pages"],
+                summary["market_pages"],
                 summary["membership_markets"],
                 summary["new_crossings"],
                 summary["new_executable_episodes"],

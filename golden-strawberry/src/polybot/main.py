@@ -148,6 +148,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0 if result.get("healthy") else 1
 
+    try:
+        bot._assert_runtime_workspace()
+    except RuntimeError as error:
+        print(f"Workspace error ({type(error).__name__}): {error}", file=sys.stderr)
+        return 2
     log_path = setup_logging(config, verbose=args.verbose)
     logging.getLogger(__name__).info(
         "starting Last Mile job=%s source=%s db=%s log=%s",

@@ -5,6 +5,8 @@ import json
 import pytest
 
 from polybot.api.gamma_client import GammaClient
+from polybot.api.sampling_client import SamplingMarketClient
+from polybot.config import SamplingConfig
 from polybot.utils.retry import JsonResponse
 
 
@@ -23,72 +25,92 @@ class Transport:
             raw=raw,
             request_id=f"request-{number}",
             request_hash=f"hash-{number}",
-            started_at="2026-08-15T02:00:00Z",
-            received_at=f"2026-08-15T02:0{number}:00Z",
+            started_at="2026-08-15T04:00:00Z",
+            received_at=f"2026-08-15T04:0{number}:00Z",
             response_sha256=f"sha-{number}",
         )
 
 
-def test_gamma_complete_zero_filter_pagination(config):
+def test_sampling_complete_pagination_and_terminal_sentinel(config):
     transport = Transport(
         [
-            {"markets": [{"id": "1"}], "next_cursor": "cursor-1"},
-            {"markets": [{"id": "2"}]},
+            {
+                "limit": 1000,
+                "count": 1,
+                "data": [{"id": "1"}],
+                "next_cursor": "cursor-1",
+            },
+            {"limit": 1000, "count": 1, "data": [{"id": "2"}], "next_cursor": "LTE="},
         ]
     )
-    sweep = GammaClient(config.trading.gamma, transport).collect_market_sweep("run")
+    sweep = SamplingMarketClient(
+        config.trading.sampling, transport
+    ).collect_market_sweep("run")
     assert sweep.cursor_complete is True
     assert len(sweep.pages) == 2
     assert [row["id"] for row in sweep.markets] == ["1", "2"]
     first = transport.calls[0][2]["params"]
     second = transport.calls[1][2]["params"]
-    assert first["limit"] == 100
-    assert first["liquidity_num_min"] == 0
-    assert first["volume_num_min"] == 0
-    assert first["include_tag"] == "true"
-    assert "after_cursor" not in first
-    assert second["after_cursor"] == "cursor-1"
+    assert first == {}
+    assert second["next_cursor"] == "cursor-1"
 
 
-def test_gamma_repeated_cursor_fails(config):
+def test_sampling_repeated_cursor_fails(config):
     transport = Transport(
         [
-            {"markets": [], "next_cursor": "same"},
-            {"markets": [], "next_cursor": "same"},
+            {"limit": 1000, "count": 1, "data": [{"id": "1"}], "next_cursor": "same"},
+            {"limit": 1000, "count": 1, "data": [{"id": "2"}], "next_cursor": "same"},
         ]
     )
     with pytest.raises(RuntimeError, match="repeated cursor"):
-        GammaClient(config.trading.gamma, transport).collect_market_sweep("run")
+        SamplingMarketClient(config.trading.sampling, transport).collect_market_sweep(
+            "run"
+        )
 
 
-def test_gamma_over_budget_fails_without_terminal(config):
-    gamma = config.trading.gamma.__class__(
-        **{**config.trading.gamma.__dict__, "max_pages": 2}
+def test_sampling_over_budget_fails_without_terminal(config):
+    sampling = SamplingConfig(
+        base_url=config.trading.sampling.base_url,
+        page_size=1000,
+        max_pages=2,
     )
     transport = Transport(
         [
-            {"markets": [], "next_cursor": "one"},
-            {"markets": [], "next_cursor": "two"},
+            {"limit": 1000, "count": 1, "data": [{"id": "1"}], "next_cursor": "one"},
+            {"limit": 1000, "count": 1, "data": [{"id": "2"}], "next_cursor": "two"},
         ]
     )
     with pytest.raises(RuntimeError, match="exceeded max_pages"):
-        GammaClient(gamma, transport).collect_market_sweep("run")
+        SamplingMarketClient(sampling, transport).collect_market_sweep("run")
 
 
 @pytest.mark.parametrize(
     "payload",
     [
         [],
-        {"markets": {}},
-        {"markets": ["not-object"]},
-        {"markets": [], "next_cursor": 4},
+        {"data": {}},
+        {"data": ["not-object"]},
+        {"data": [], "next_cursor": 4},
     ],
 )
-def test_gamma_malformed_page_fails(config, payload):
+def test_sampling_malformed_page_fails(config, payload):
     with pytest.raises(ValueError):
-        GammaClient(config.trading.gamma, Transport([payload])).collect_market_sweep(
-            "run"
-        )
+        SamplingMarketClient(
+            config.trading.sampling, Transport([payload])
+        ).collect_market_sweep("run")
+
+
+def test_sampling_full_terminal_page_is_rejected(config):
+    payload = {
+        "limit": 1000,
+        "count": 1000,
+        "data": [{"id": str(value)} for value in range(1000)],
+        "next_cursor": "LTE=",
+    }
+    with pytest.raises(ValueError, match="continuation cursor"):
+        SamplingMarketClient(
+            config.trading.sampling, Transport([payload])
+        ).collect_market_sweep("run")
 
 
 def test_resolution_lookup_explicit_missing_and_closed_filter(config):
@@ -100,3 +122,14 @@ def test_resolution_lookup_explicit_missing_and_closed_filter(config):
     params = transport.calls[0][2]["params"]
     assert params["closed"] == "true"
     assert params["condition_ids"] == ["condition-a", "condition-b"]
+
+
+def test_metadata_lookup_is_open_and_tag_enriched(config):
+    transport = Transport([[{"conditionId": "condition-a", "closed": False}]])
+    rows = GammaClient(config.trading.gamma, transport).fetch_metadata(
+        "run", ["condition-a"]
+    )
+    assert rows[0].lookup_status == "OBSERVED"
+    params = transport.calls[0][2]["params"]
+    assert params["closed"] == "false"
+    assert params["include_tag"] == "true"

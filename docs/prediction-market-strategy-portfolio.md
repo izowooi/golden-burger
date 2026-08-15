@@ -300,7 +300,7 @@ order path는 source-level로 금지하며 통과 판정도 `SHADOW_REVIEW_ONLY`
 
 ### golden-strawberry — Last Mile
 
-10분마다 no-filter Gamma full census를 cursor 끝까지 수집하고, 각 outcome token의
+10분마다 public CLOB `/sampling-markets` full census를 cursor 끝까지 수집하고, 각 outcome token의
 first-observed upward crossing을 entry `0.90/0.92/0.95/0.97` grid로 interval-censoring한다.
 CLOB displayed book에서 정확히 `$5`의 ask 진입과 이후 bid 또는 proven terminal payout만
 append-only 반사실 evidence로 남기는 **accountless research-only** collector다.
@@ -308,8 +308,9 @@ append-only 반사실 evidence로 남기는 **accountless research-only** collec
 Primary는 `0.95` entry, `0.85` stop, price target 없이 terminal resolution까지 보유하는
 정책 하나다. stop `none/0.80/0.85/0.90`과 target `none/0.98/0.99`는 sensitivity일 뿐이며,
 첫 1주 pilot은 collection health만 판정한다. credential, wallet, order/fill path와 `--live`는
-source-level로 금지한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
-`golden-strawberry/research/frozen-2026-08-15/PREREGISTRATION.md`, 회고는
+source-level로 금지한다. Gamma는 crossing-time volume/liquidity/event metadata와 terminal
+resolution 확인에만 사용한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
+`golden-strawberry/research/frozen-2026-08-15-clob/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-strawberry.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)

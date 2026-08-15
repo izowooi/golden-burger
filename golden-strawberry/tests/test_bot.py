@@ -17,12 +17,12 @@ def test_single_writer_lock_rejects_overlap(tmp_path):
                 pass
 
 
-def test_30_gib_guard_stops_before_repository_initialization(config, monkeypatch):
+def test_100_gib_guard_stops_before_repository_initialization(config, monkeypatch):
     DiskUsage = namedtuple("DiskUsage", "total used free")
     monkeypatch.setattr(
         bot_module.shutil,
         "disk_usage",
-        lambda path: DiskUsage(100 * GIB, 71 * GIB, 29 * GIB),
+        lambda path: DiskUsage(400 * GIB, 301 * GIB, 99 * GIB),
     )
 
     class Repository:
@@ -30,7 +30,7 @@ def test_30_gib_guard_stops_before_repository_initialization(config, monkeypatch
             raise AssertionError("database initialized after failed disk guard")
 
     bot = PolymarketResearchBot(config, repository=Repository())
-    with pytest.raises(RuntimeError, match="below 30 GiB"):
+    with pytest.raises(RuntimeError, match="below 100 GiB"):
         bot.run()
 
 
@@ -39,7 +39,7 @@ def test_90_percent_guard_stops_before_repository_initialization(config, monkeyp
     monkeypatch.setattr(
         bot_module.shutil,
         "disk_usage",
-        lambda path: DiskUsage(400 * GIB, 360 * GIB, 40 * GIB),
+        lambda path: DiskUsage(2_000 * GIB, 1_800 * GIB, 200 * GIB),
     )
 
     class Repository:

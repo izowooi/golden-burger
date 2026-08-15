@@ -2,16 +2,17 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: last-mile-v1
+  data_contract: last-mile-clob-v1
   cadence_minutes: 10
+  cadence_offset_minute: 7
+
+  sampling:
+    base_url: https://clob.polymarket.com
+    page_size: 1000
+    max_pages: 100
 
   gamma:
     base_url: https://gamma-api.polymarket.com
-    page_size: 100
-    max_pages: 500
-    include_tags: true
-    min_liquidity: 0
-    min_total_volume: 0
     connect_timeout_seconds: 3.05
     read_timeout_seconds: 30
     max_retries: 4
@@ -24,9 +25,9 @@ trading:
     batch_token_limit: 250
 
   experiment:
-    entry_start_utc: 2026-08-15T02:00:00Z
-    entry_end_utc: 2026-08-22T02:00:00Z
-    followup_end_utc: 2026-09-21T02:00:00Z
+    entry_start_utc: 2026-08-15T04:00:00Z
+    entry_end_utc: 2026-08-22T04:00:00Z
+    followup_end_utc: 2026-09-21T04:00:00Z
     entry_thresholds: [0.90, 0.92, 0.95, 0.97]
     stop_thresholds: [0.80, 0.85, 0.90]
     target_thresholds: [0.98, 0.99]
@@ -34,13 +35,13 @@ trading:
     primary_stop_threshold: 0.85
     simulated_notional_usdc: 5
     prior_gap_max_minutes: 25
-    sports_classifier_version: gamma-fields-tags-v1
+    sports_classifier_version: clob-fields-tags-v1
     base_cost_stress_bps: 10.4
     severe_cost_stress_bps: 72.5
 
   storage:
     busy_timeout_ms: 30000
-    min_free_gib: 30
+    min_free_gib: 100
     warn_used_ratio: 0.80
     stop_used_ratio: 0.90
     bot_log_retention_days: 45

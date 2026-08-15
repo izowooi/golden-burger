@@ -4,43 +4,41 @@ import hashlib
 import json
 
 from polybot.api.clob_client import BookAttempt, BookCollection, RawBookPayload
-from polybot.api.gamma_client import GammaPage, GammaSweep, ResolutionLookup
+from polybot.api.gamma_client import ResolutionLookup
+from polybot.api.sampling_client import SamplingPage, SamplingSweep
 from polybot.collector import ResearchCollector
 from polybot.db.repository import ResearchRepository
 from tests.support import api_receipt
 
 
 TIMES = (
-    "2026-08-15T02:00:01Z",
-    "2026-08-15T02:10:01Z",
-    "2026-08-15T02:20:01Z",
+    "2026-08-15T04:00:01Z",
+    "2026-08-15T04:10:01Z",
+    "2026-08-15T04:20:01Z",
 )
 
 
 def market(probability: float):
     return {
-        "id": "market",
-        "conditionId": "condition",
-        "eventId": "event-cluster",
+        "condition_id": "condition",
+        "question_id": "question",
+        "market_slug": "market",
         "question": "Will YES occur?",
         "active": True,
         "closed": False,
-        "enableOrderBook": True,
-        "acceptingOrders": True,
-        "outcomes": ["YES", "NO"],
-        "clobTokenIds": ["token-yes", "token-no"],
-        "outcomePrices": [probability, 1 - probability],
-        "liquidity": 50_000,
-        "volume": 200_000,
-        "volume24hr": 25_000,
-        "negRisk": False,
-        "category": "Politics",
-        "tags": [{"label": "elections"}],
-        "endDate": "2026-08-16T00:00:00Z",
+        "enable_order_book": True,
+        "accepting_orders": True,
+        "tokens": [
+            {"outcome": "YES", "token_id": "token-yes", "price": probability},
+            {"outcome": "NO", "token_id": "token-no", "price": 1 - probability},
+        ],
+        "neg_risk": False,
+        "tags": ["Politics", "Elections"],
+        "end_date_iso": "2026-08-16T00:00:00Z",
     }
 
 
-class FakeGamma:
+class FakeSampling:
     def __init__(self, repository):
         self.repository = repository
         self.cycle = 0
@@ -48,17 +46,17 @@ class FakeGamma:
     def collect_market_sweep(self, run_id):
         self.cycle += 1
         probability = (0.94, 0.96, 0.99)[self.cycle - 1]
-        payload = {"markets": [market(probability)]}
+        payload = {"data": [market(probability)], "next_cursor": "LTE="}
         raw = json.dumps(payload, sort_keys=True).encode()
-        request_id = f"gamma-{self.cycle}"
+        request_id = f"sampling-{self.cycle}"
         api_receipt(
             self.repository,
             run_id=run_id,
             request_id=request_id,
-            kind="gamma_markets_keyset",
+            kind="clob_sampling_markets",
             raw=raw,
         )
-        page = GammaPage(
+        page = SamplingPage(
             page_number=1,
             cursor_in=None,
             cursor_out=None,
@@ -69,12 +67,58 @@ class FakeGamma:
             raw=raw,
             markets=(market(probability),),
         )
-        return GammaSweep(
+        return SamplingSweep(
             started_at=TIMES[self.cycle - 1],
             completed_at=TIMES[self.cycle - 1],
             pages=(page,),
             cursor_complete=True,
         )
+
+
+class FakeGamma:
+    def __init__(self, repository, sampling):
+        self.repository = repository
+        self.sampling = sampling
+
+    @property
+    def cycle(self):
+        return self.sampling.cycle
+
+    def fetch_metadata(self, run_id, condition_ids):
+        if not condition_ids:
+            return []
+        request_id = f"metadata-{self.cycle}"
+        market_row = {
+            "id": "market",
+            "conditionId": "condition",
+            "eventId": "event-cluster",
+            "liquidity": 50_000,
+            "volume": 200_000,
+            "volume24hr": 25_000,
+            "category": "Politics",
+            "tags": [{"label": "elections"}],
+            "endDate": "2026-08-16T00:00:00Z",
+        }
+        raw = json.dumps([market_row], sort_keys=True).encode()
+        api_receipt(
+            self.repository,
+            run_id=run_id,
+            request_id=request_id,
+            kind="gamma_candidate_metadata",
+            raw=raw,
+        )
+        return [
+            ResolutionLookup(
+                condition_id="condition",
+                lookup_status="OBSERVED",
+                requested_at=TIMES[self.cycle - 1],
+                observed_at=TIMES[self.cycle - 1],
+                request_id=request_id,
+                response_sha256=hashlib.sha256(raw).hexdigest(),
+                raw=raw,
+                market=market_row,
+            )
+        ]
 
     def fetch_resolutions(self, run_id, condition_ids):
         if not condition_ids:
@@ -171,10 +215,12 @@ def build_three_cycle_evidence(config):
     repository = ResearchRepository(config.db_path)
     repository.initialize(config)
     repository.register_config(config, git_commit=None)
+    sampling = FakeSampling(repository)
     collector = ResearchCollector(
         config,
         repository=repository,
-        gamma_client=FakeGamma(repository),
+        sampling_client=sampling,
+        gamma_client=FakeGamma(repository, sampling),
         clob_client=FakeBooks(repository),
     )
     summaries = [collector.run_cycle(f"run-{number}") for number in (1, 2, 3)]

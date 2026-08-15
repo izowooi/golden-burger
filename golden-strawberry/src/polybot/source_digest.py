@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_PREREGISTRATION = "research/frozen-2026-08-15/PREREGISTRATION.md"
+ACTIVE_PREREGISTRATION = "research/frozen-2026-08-15-clob/PREREGISTRATION.md"
 SOURCE_PATHS = (
     "pyproject.toml",
     "uv.lock",
@@ -22,6 +22,7 @@ SOURCE_PATHS = (
     "src/polybot/config.py",
     "src/polybot/run_audit.py",
     "src/polybot/source_digest.py",
+    "src/polybot/api/sampling_client.py",
     "src/polybot/api/gamma_client.py",
     "src/polybot/api/clob_client.py",
     "src/polybot/collector.py",

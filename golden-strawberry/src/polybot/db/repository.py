@@ -30,9 +30,10 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
 CREATE TABLE IF NOT EXISTS experiment_contracts (
     job_name TEXT PRIMARY KEY CHECK (job_name = 'strawberry-shadow-one'),
     strategy_name TEXT NOT NULL CHECK (strategy_name = 'golden-strawberry'),
-    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-v1'),
+    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-v1'),
     lifecycle_mode TEXT NOT NULL CHECK (lifecycle_mode = 'archive_only'),
     cadence_minutes INTEGER NOT NULL CHECK (cadence_minutes = 10),
+    cadence_offset_minute INTEGER NOT NULL CHECK (cadence_offset_minute = 7),
     entry_start TEXT NOT NULL,
     entry_end TEXT NOT NULL,
     followup_end TEXT NOT NULL,
@@ -52,7 +53,7 @@ CREATE TABLE IF NOT EXISTS research_config_versions (
     job_name TEXT NOT NULL CHECK (job_name = 'strawberry-shadow-one'),
     mode TEXT NOT NULL CHECK (mode = 'sim'),
     lifecycle_mode TEXT NOT NULL CHECK (lifecycle_mode = 'archive_only'),
-    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-v1'),
+    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-v1'),
     strategy_source_digest TEXT NOT NULL,
     preregistration_sha256 TEXT NOT NULL,
     config_json TEXT NOT NULL,
@@ -120,13 +121,14 @@ CREATE TABLE IF NOT EXISTS raw_payloads (
 );
 CREATE INDEX IF NOT EXISTS raw_payloads_hash_idx ON raw_payloads(payload_sha256);
 
-CREATE TABLE IF NOT EXISTS gamma_sweeps (
+CREATE TABLE IF NOT EXISTS market_sweeps (
     sweep_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL UNIQUE,
     cycle_number INTEGER NOT NULL UNIQUE,
     config_hash TEXT NOT NULL REFERENCES research_config_versions(config_hash),
     strategy_source_digest TEXT NOT NULL,
-    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-v1'),
+    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-v1'),
+    source_name TEXT NOT NULL CHECK (source_name = 'clob_sampling_markets'),
     started_at TEXT NOT NULL,
     completed_at TEXT NOT NULL,
     published_at TEXT NOT NULL,
@@ -136,14 +138,16 @@ CREATE TABLE IF NOT EXISTS gamma_sweeps (
     unique_condition_count INTEGER NOT NULL,
     aligned_outcome_count INTEGER NOT NULL,
     tradable_market_count INTEGER NOT NULL,
+    evidence_catalog_count INTEGER NOT NULL,
+    evidence_outcome_count INTEGER NOT NULL,
     membership_sha256 TEXT NOT NULL,
     request_lineage_sha256 TEXT NOT NULL
 );
-CREATE INDEX IF NOT EXISTS gamma_sweeps_time_idx ON gamma_sweeps(completed_at);
+CREATE INDEX IF NOT EXISTS market_sweeps_time_idx ON market_sweeps(completed_at);
 
-CREATE TABLE IF NOT EXISTS gamma_membership_blobs (
+CREATE TABLE IF NOT EXISTS market_membership_blobs (
     membership_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL UNIQUE REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL UNIQUE REFERENCES market_sweeps(sweep_id),
     encoding TEXT NOT NULL CHECK (encoding = 'gzip-json-v1'),
     membership_sha256 TEXT NOT NULL,
     uncompressed_bytes INTEGER NOT NULL,
@@ -152,9 +156,9 @@ CREATE TABLE IF NOT EXISTS gamma_membership_blobs (
     recorded_at TEXT NOT NULL
 );
 
-CREATE TABLE IF NOT EXISTS gamma_page_lineage (
+CREATE TABLE IF NOT EXISTS market_page_lineage (
     page_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     page_number INTEGER NOT NULL,
     cursor_in TEXT,
@@ -170,7 +174,7 @@ CREATE TABLE IF NOT EXISTS gamma_page_lineage (
 
 CREATE TABLE IF NOT EXISTS market_catalog_versions (
     catalog_version_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     page_number INTEGER NOT NULL,
     item_number INTEGER NOT NULL,
@@ -214,12 +218,12 @@ CREATE INDEX IF NOT EXISTS market_catalog_cluster_idx
 CREATE TABLE IF NOT EXISTS outcome_observations (
     observation_id TEXT PRIMARY KEY,
     catalog_version_id TEXT NOT NULL REFERENCES market_catalog_versions(catalog_version_id),
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     condition_id TEXT NOT NULL,
     market_id TEXT,
     event_id TEXT,
-    event_cluster_id TEXT NOT NULL,
+    event_cluster_id TEXT,
     token_id TEXT NOT NULL,
     outcome_index INTEGER NOT NULL,
     outcome_label TEXT NOT NULL,
@@ -227,7 +231,7 @@ CREATE TABLE IF NOT EXISTS outcome_observations (
     observed_at TEXT NOT NULL,
     outcome_type TEXT NOT NULL CHECK (outcome_type IN ('BINARY','MULTI')),
     neg_risk INTEGER NOT NULL CHECK (neg_risk IN (0,1)),
-    sports_classification TEXT NOT NULL CHECK (sports_classification IN ('SPORTS','NON_SPORTS')),
+    sports_classification TEXT NOT NULL CHECK (sports_classification IN ('SPORTS','NON_SPORTS','UNKNOWN')),
     sports_classifier_version TEXT NOT NULL,
     liquidity REAL,
     volume_total REAL,
@@ -246,7 +250,7 @@ CREATE INDEX IF NOT EXISTS outcome_condition_idx
 CREATE TABLE IF NOT EXISTS crossing_decisions (
     decision_id TEXT PRIMARY KEY,
     observation_id TEXT NOT NULL REFERENCES outcome_observations(observation_id),
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     condition_id TEXT NOT NULL,
     token_id TEXT NOT NULL,
@@ -268,9 +272,37 @@ CREATE TABLE IF NOT EXISTS crossing_decisions (
 CREATE INDEX IF NOT EXISTS crossing_decision_status_idx
     ON crossing_decisions(decision_status, decided_at, entry_threshold);
 
+CREATE TABLE IF NOT EXISTS candidate_metadata_observations (
+    metadata_observation_id TEXT PRIMARY KEY,
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
+    run_id TEXT NOT NULL,
+    condition_id TEXT NOT NULL,
+    lookup_status TEXT NOT NULL,
+    requested_at TEXT NOT NULL,
+    observed_at TEXT NOT NULL,
+    request_id TEXT REFERENCES api_requests(request_id),
+    raw_market_sha256 TEXT,
+    market_id TEXT,
+    event_id TEXT,
+    event_ids_json TEXT NOT NULL,
+    event_cluster_id TEXT,
+    liquidity REAL,
+    volume_total REAL,
+    volume_24h REAL,
+    end_date TEXT,
+    category TEXT,
+    tags_json TEXT NOT NULL,
+    enrichment_lag_seconds REAL,
+    error_type TEXT,
+    error_message TEXT,
+    UNIQUE (sweep_id, condition_id)
+);
+CREATE INDEX IF NOT EXISTS candidate_metadata_condition_idx
+    ON candidate_metadata_observations(condition_id, observed_at);
+
 CREATE TABLE IF NOT EXISTS clob_token_attempts (
     attempt_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     token_id TEXT NOT NULL,
     attempt_role TEXT NOT NULL CHECK (attempt_role IN ('CROSSING','EPISODE','BOTH')),
@@ -287,7 +319,7 @@ CREATE INDEX IF NOT EXISTS clob_attempt_status_idx
 
 CREATE TABLE IF NOT EXISTS clob_snapshots (
     snapshot_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     token_id TEXT NOT NULL,
     request_id TEXT NOT NULL REFERENCES api_requests(request_id),
@@ -323,18 +355,20 @@ CREATE TABLE IF NOT EXISTS clob_levels (
 CREATE TABLE IF NOT EXISTS hypothetical_episodes (
     episode_id TEXT PRIMARY KEY,
     decision_id TEXT NOT NULL UNIQUE REFERENCES crossing_decisions(decision_id),
-    originating_sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    originating_sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     condition_id TEXT NOT NULL,
     market_id TEXT,
     event_id TEXT,
-    event_cluster_id TEXT NOT NULL,
+    event_cluster_id TEXT,
     token_id TEXT NOT NULL,
     outcome_index INTEGER NOT NULL,
     outcome_label TEXT NOT NULL,
     outcome_type TEXT NOT NULL CHECK (outcome_type IN ('BINARY','MULTI')),
     neg_risk INTEGER NOT NULL CHECK (neg_risk IN (0,1)),
-    sports_classification TEXT NOT NULL CHECK (sports_classification IN ('SPORTS','NON_SPORTS')),
+    sports_classification TEXT NOT NULL CHECK (sports_classification IN ('SPORTS','NON_SPORTS','UNKNOWN')),
+    metadata_observation_id TEXT REFERENCES candidate_metadata_observations(metadata_observation_id),
+    metadata_status TEXT NOT NULL,
     entry_threshold REAL NOT NULL,
     crossing_prior_probability REAL NOT NULL,
     crossing_probability REAL NOT NULL,
@@ -370,7 +404,7 @@ CREATE INDEX IF NOT EXISTS episode_cluster_idx
 CREATE TABLE IF NOT EXISTS episode_path_observations (
     path_observation_id TEXT PRIMARY KEY,
     episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     snapshot_id TEXT REFERENCES clob_snapshots(snapshot_id),
     observed_at TEXT NOT NULL,
@@ -394,7 +428,7 @@ CREATE TABLE IF NOT EXISTS episode_threshold_events (
     threshold_event_id TEXT PRIMARY KEY,
     episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
     path_observation_id TEXT NOT NULL REFERENCES episode_path_observations(path_observation_id),
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     event_kind TEXT NOT NULL CHECK (event_kind IN ('STOP','TARGET')),
     threshold REAL NOT NULL,
     observed_at TEXT NOT NULL,
@@ -407,7 +441,7 @@ CREATE TABLE IF NOT EXISTS episode_threshold_events (
 
 CREATE TABLE IF NOT EXISTS resolution_observations (
     resolution_observation_id TEXT PRIMARY KEY,
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
     run_id TEXT NOT NULL,
     condition_id TEXT NOT NULL,
     requested_at TEXT NOT NULL,
@@ -431,7 +465,7 @@ CREATE INDEX IF NOT EXISTS resolution_condition_idx
 CREATE TABLE IF NOT EXISTS cycle_stats (
     cycle_stat_id TEXT PRIMARY KEY,
     run_id TEXT NOT NULL,
-    sweep_id TEXT NOT NULL UNIQUE REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL UNIQUE REFERENCES market_sweeps(sweep_id),
     cycle_number INTEGER NOT NULL UNIQUE,
     started_at TEXT NOT NULL,
     completed_at TEXT NOT NULL,
@@ -480,8 +514,11 @@ CREATE TABLE IF NOT EXISTS latest_outcome_state (
     condition_id TEXT NOT NULL,
     probability REAL NOT NULL CHECK (probability >= 0 AND probability <= 1),
     observed_at TEXT NOT NULL,
-    observation_id TEXT NOT NULL REFERENCES outcome_observations(observation_id),
-    sweep_id TEXT NOT NULL REFERENCES gamma_sweeps(sweep_id),
+    sweep_id TEXT NOT NULL REFERENCES market_sweeps(sweep_id),
+    source_request_id TEXT NOT NULL REFERENCES api_requests(request_id),
+    source_page_number INTEGER NOT NULL,
+    source_item_number INTEGER NOT NULL,
+    raw_market_sha256 TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
 """
@@ -494,12 +531,13 @@ APPEND_ONLY_TABLES = (
     "research_run_events",
     "api_requests",
     "raw_payloads",
-    "gamma_sweeps",
-    "gamma_membership_blobs",
-    "gamma_page_lineage",
+    "market_sweeps",
+    "market_membership_blobs",
+    "market_page_lineage",
     "market_catalog_versions",
     "outcome_observations",
     "crossing_decisions",
+    "candidate_metadata_observations",
     "clob_token_attempts",
     "clob_snapshots",
     "clob_levels",
@@ -601,18 +639,20 @@ class ResearchRepository:
                     """
                     INSERT INTO experiment_contracts(
                         job_name,strategy_name,data_contract,lifecycle_mode,
-                        cadence_minutes,entry_start,entry_end,followup_end,
+                        cadence_minutes,cadence_offset_minute,
+                        entry_start,entry_end,followup_end,
                         entry_thresholds_json,stop_thresholds_json,
                         target_thresholds_json,primary_entry_threshold,
                         primary_stop_threshold,preregistration_sha256,
                         contract_json,created_at
-                    ) VALUES(?, 'golden-strawberry', ?, 'archive_only', ?, ?, ?, ?,
+                    ) VALUES(?, 'golden-strawberry', ?, 'archive_only', ?, ?, ?, ?, ?,
                              ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         config.job_name,
                         DATA_CONTRACT,
                         config.trading.cadence_minutes,
+                        config.trading.cadence_offset_minute,
                         iso_utc(experiment.entry_start_utc),
                         iso_utc(experiment.entry_end_utc),
                         iso_utc(experiment.followup_end_utc),
@@ -642,6 +682,7 @@ class ResearchRepository:
             "data_contract": config.trading.data_contract,
             "lifecycle_mode": config.trading.lifecycle_mode,
             "cadence_minutes": config.trading.cadence_minutes,
+            "cadence_offset_minute": config.trading.cadence_offset_minute,
             "entry_start": iso_utc(experiment.entry_start_utc),
             "entry_end": iso_utc(experiment.entry_end_utc),
             "followup_end": iso_utc(experiment.followup_end_utc),
@@ -655,11 +696,9 @@ class ResearchRepository:
             "sports_classifier_version": experiment.sports_classifier_version,
             "base_cost_stress_bps": experiment.base_cost_stress_bps,
             "severe_cost_stress_bps": experiment.severe_cost_stress_bps,
-            "gamma_page_size": config.trading.gamma.page_size,
-            "gamma_max_pages": config.trading.gamma.max_pages,
-            "gamma_include_tags": config.trading.gamma.include_tags,
-            "gamma_min_liquidity": config.trading.gamma.min_liquidity,
-            "gamma_min_total_volume": config.trading.gamma.min_total_volume,
+            "sampling_source": "clob_sampling_markets",
+            "sampling_page_size": config.trading.sampling.page_size,
+            "sampling_max_pages": config.trading.sampling.max_pages,
             "preregistration_sha256": experiment.preregistration_sha256,
         }
 
@@ -737,7 +776,7 @@ class ResearchRepository:
             return 1
         with self._read_connect() as connection:
             row = connection.execute(
-                "SELECT COALESCE(MAX(cycle_number),0)+1 AS value FROM gamma_sweeps"
+                "SELECT COALESCE(MAX(cycle_number),0)+1 AS value FROM market_sweeps"
             ).fetchone()
             return int(row["value"])
 
@@ -878,37 +917,42 @@ class ResearchRepository:
     def publish_cycle(self, bundle: Mapping[str, Any]) -> None:
         sweep = bundle["sweep"]
         if int(sweep.get("cursor_complete", 0)) != 1:
-            raise ValueError("partial Gamma sweeps cannot be published")
+            raise ValueError("partial sampling sweeps cannot be published")
         pages = list(bundle.get("pages", ()))
         catalog = list(bundle.get("catalog", ()))
         outcomes = list(bundle.get("outcomes", ()))
         raw_payloads = list(bundle.get("raw_payloads", ()))
         membership = bundle["membership"]
         if int(sweep["page_count"]) != len(pages):
-            raise ValueError("Gamma page count does not match lineage")
-        if int(sweep["membership_count"]) != len(catalog):
-            raise ValueError("Gamma membership count does not match catalog")
-        if int(sweep["aligned_outcome_count"]) != len(outcomes):
-            raise ValueError("aligned outcome count does not match observations")
+            raise ValueError("sampling page count does not match lineage")
+        if int(sweep["evidence_catalog_count"]) != len(catalog):
+            raise ValueError("evidence catalog count does not match rows")
+        if int(sweep["evidence_outcome_count"]) != len(outcomes):
+            raise ValueError("evidence outcome count does not match rows")
         self._validate_payload_rows(raw_payloads)
-        self._validate_membership(membership, len(catalog))
+        self._validate_membership(membership, int(sweep["membership_count"]))
         raw_request_ids = {str(row["request_id"]) for row in raw_payloads}
         if any(str(row["request_id"]) not in raw_request_ids for row in pages):
-            raise ValueError("Gamma page is missing raw payload linkage")
+            raise ValueError("sampling page is missing raw payload linkage")
 
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
-                self._insert_many(connection, "gamma_sweeps", [sweep])
-                self._insert_many(connection, "gamma_membership_blobs", [membership])
+                self._insert_many(connection, "market_sweeps", [sweep])
+                self._insert_many(connection, "market_membership_blobs", [membership])
                 self._insert_many(connection, "raw_payloads", raw_payloads)
-                self._insert_many(connection, "gamma_page_lineage", pages)
+                self._insert_many(connection, "market_page_lineage", pages)
                 self._insert_many(connection, "market_catalog_versions", catalog)
                 self._insert_many(connection, "outcome_observations", outcomes)
                 self._insert_many(
                     connection,
                     "crossing_decisions",
                     bundle.get("crossing_decisions", ()),
+                )
+                self._insert_many(
+                    connection,
+                    "candidate_metadata_observations",
+                    bundle.get("candidate_metadata", ()),
                 )
                 self._insert_many(
                     connection,
@@ -952,14 +996,18 @@ class ResearchRepository:
                         """
                         INSERT INTO latest_outcome_state(
                             token_id,condition_id,probability,observed_at,
-                            observation_id,sweep_id,updated_at
-                        ) VALUES(?,?,?,?,?,?,?)
+                            sweep_id,source_request_id,source_page_number,
+                            source_item_number,raw_market_sha256,updated_at
+                        ) VALUES(?,?,?,?,?,?,?,?,?,?)
                         ON CONFLICT(token_id) DO UPDATE SET
                             condition_id=excluded.condition_id,
                             probability=excluded.probability,
                             observed_at=excluded.observed_at,
-                            observation_id=excluded.observation_id,
                             sweep_id=excluded.sweep_id,
+                            source_request_id=excluded.source_request_id,
+                            source_page_number=excluded.source_page_number,
+                            source_item_number=excluded.source_item_number,
+                            raw_market_sha256=excluded.raw_market_sha256,
                             updated_at=excluded.updated_at
                         """,
                         (
@@ -967,8 +1015,11 @@ class ResearchRepository:
                             state["condition_id"],
                             state["probability"],
                             state["observed_at"],
-                            state["observation_id"],
                             state["sweep_id"],
+                            state["source_request_id"],
+                            state["source_page_number"],
+                            state["source_item_number"],
+                            state["raw_market_sha256"],
                             state["updated_at"],
                         ),
                     )
@@ -1030,7 +1081,7 @@ class ResearchRepository:
         with self._read_connect() as connection:
             quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
             latest_sweep = connection.execute(
-                "SELECT * FROM gamma_sweeps ORDER BY cycle_number DESC LIMIT 1"
+                "SELECT * FROM market_sweeps ORDER BY cycle_number DESC LIMIT 1"
             ).fetchone()
             latest_event = connection.execute(
                 "SELECT * FROM research_run_events ORDER BY event_at DESC,event_id DESC LIMIT 1"
@@ -1040,10 +1091,11 @@ class ResearchRepository:
                     connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
                 )
                 for table in (
-                    "gamma_sweeps",
+                    "market_sweeps",
                     "market_catalog_versions",
                     "outcome_observations",
                     "crossing_decisions",
+                    "candidate_metadata_observations",
                     "hypothetical_episodes",
                     "episode_path_observations",
                     "resolution_observations",
@@ -1117,6 +1169,7 @@ class ResearchRepository:
             age_minutes = (now - parsed.astimezone(timezone.utc)).total_seconds() / 60
         healthy = bool(
             status.get("quick_check") == "ok"
+            and (status.get("latest_run_event") or {}).get("event_type") == "SUCCEEDED"
             and latest_success
             and age_minutes is not None
             and age_minutes <= cadence_minutes * 2.5
