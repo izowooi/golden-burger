@@ -123,6 +123,14 @@ single cohort, STARTED→SUCCEEDED p95 6.453초로 collection health는 정상�
 전이라 executable episode가 0이므로 verdict는 예상대로 `PILOT_UNDERPOWERED`이며, 이 값은
 수익성 판정이 아니다.
 
+작업 종료 직전 두 번째 자연 timer build `#3`도 `SUCCESS`였다. 동일 source/config에서 cycle
+3, 13 page, 12,526 markets, 25,052 outcomes, collector 3.433초, DB 44,806,144 bytes,
+`quick_check=ok`, DQ issue 0을 확인했다. 마지막 sync plan은 `ea4a2af6b17c4e79`, run은
+`7a04748fd40a45d284a225869dfef43a`로 `SUCCESS`다. Final source cutoff는
+`2026-08-15T02:07:16.915194Z`, sync finish는 `2026-08-15T02:07:52.946611Z`, DB SHA-256은
+`565ffe4c7fc90e9292c70ca37e1a7c69d4832a855553007be3db22672e1cb063`이며 verify는 5/5,
+failed/retention skip/conflict 모두 0이다.
+
 Verified DB:
 
 `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-shadow-one/strategies/golden-strawberry/runtime/strawberry-shadow-one/databases/latest/trades_sim.db`
