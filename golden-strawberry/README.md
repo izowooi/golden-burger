@@ -30,8 +30,6 @@ defaults. See [STRATEGY.md](STRATEGY.md) and the active
 ```bash
 uv sync --frozen --extra dev
 (cd research/frozen-2026-08-15-clob && shasum -a 256 -c MANIFEST.sha256)
-uv run ruff check .
-uv run ruff format --check .
 uv run pytest
 uv build
 ```

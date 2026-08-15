@@ -28,3 +28,4 @@
 | 022 | [022-yellow-orange-manual-position-and-reactivation-decision-2026-08-14.md](022-yellow-orange-manual-position-and-reactivation-decision-2026-08-14.md) | Yellow 미매핑 Erdoğan 식별, 수동 Lee guard와 Orange MAKER fee 누락에 따른 active 복귀 판정 | 2026-08-14 |
 | 023 | [023-yellow-orange-active-reactivation-2026-08-14.md](023-yellow-orange-active-reactivation-2026-08-14.md) | Yellow 수동 position guard, Orange MAKER fee 누락 수정, 두 job active+H/5 복귀 검증 | 2026-08-14 |
 | 024 | [024-quince-melon-live-review-2026-08-15.md](024-quince-melon-live-review-2026-08-15.md) | Quince clean cohort 53시간·Melon 9일 저빈도 회고, Melon first-crossing evidence 보완·배포 검증 | 2026-08-15 |
+| 025 | [025-golden-strawberry-last-mile-deployment-2026-08-15.md](025-golden-strawberry-last-mile-deployment-2026-08-15.md) | Last Mile 가설 사전등록, accountless CLOB census collector, 외장 Jenkins·10분 timer·daily-rsync 배포 검증 | 2026-08-15 |

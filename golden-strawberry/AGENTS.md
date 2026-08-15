@@ -11,8 +11,9 @@ payout까지 어떤 경로를 보이는지 검정하는 accountless, simulation-
 지갑을 사용하지 않고 CLOB displayed book으로 `$5` counterfactual entry/exit만 기록한다.
 
 Primary policy는 `0.95` entry, `0.85` stop, 아니면 proven resolution까지 보유다. 다른
-entry/stop/target, sports, category, liquidity, volume은 같은 frozen cohort의 sensitivity/strata로
-측정하며 수집 중 eligibility나 parameter를 바꾸지 않는다.
+entry/stop/target과 sports, outcome type, negRisk, liquidity, total/24h volume은 같은 frozen
+cohort의 sensitivity/strata로 측정하며 수집 중 eligibility나 parameter를 바꾸지 않는다.
+Category는 crossing-time Gamma metadata로 보존하지만 현재 analyzer의 built-in stratum은 아니다.
 
 ## 고정 계약
 
@@ -25,13 +26,15 @@ entry/stop/target, sports, category, liquidity, volume은 같은 frozen cohort�
 - Active preregistration: `research/frozen-2026-08-15-clob/PREREGISTRATION.md`와 같은 폴더의
   `MANIFEST.sha256`.
 
-이 값을 바꾸면 기존 cohort를 수정하지 말고 새 data contract와 새 frozen preregistration으로
-분리한다. Git commit은 provenance일 뿐 cohort key가 아니다. Cohort는
-`config_hash × strategy_source_digest × mode × job_name`이다.
+Source population, clock, threshold, cadence 또는 interpretation처럼 experiment identity를
+바꾸면 새 frozen directory, data contract, source digest, config hash, DB와 entry window로 모두
+분리한다. Jenkins job/workspace 같은 운영 topology를 옮길 때는 새 DB를 조용히 합치지 말고
+daily-rsync workspace epoch·marker·routing을 별도로 갱신한다. Git commit은 provenance일 뿐
+cohort key가 아니다. Cohort는 `config_hash × strategy_source_digest × mode × job_name`이다.
 
 ## 기술 스택과 주요 파일
 
-- Python 3.11+, uv, requests, PyYAML, SQLite, pytest, ruff, hatchling.
+- Python 3.11+, uv, requests, PyYAML, SQLite, pytest, hatchling.
 - `config.yaml`, `src/polybot/config.py`: frozen clocks, thresholds, storage/API contract.
 - `src/polybot/api/sampling_client.py`: complete CLOB `/sampling-markets` cursor traversal.
 - `src/polybot/api/clob_client.py`: crossing/episode displayed books.
@@ -49,8 +52,6 @@ entry/stop/target, sports, category, liquidity, volume은 같은 frozen cohort�
 ```bash
 uv sync --frozen --extra dev
 (cd research/frozen-2026-08-15-clob && shasum -a 256 -c MANIFEST.sha256)
-uv run ruff check .
-uv run ruff format --check .
 uv run pytest
 uv build
 ```
@@ -61,12 +62,13 @@ POLYBOT_LIFECYCLE_MODE=archive_only POLYBOT_SIMULATION_MODE=true \
 ```
 
 실제 public-data cycle은 Jenkins 외장 workspace에서 `OPERATIONS.md`의 shell 그대로 실행한다.
-로컬 smoke가 필요하면 disposable temp DB만 사용하고 프로젝트 `data/`에 실험 데이터를 만들지
-않는다.
+CLI에는 DB override가 없으므로 로컬에서는 `run` smoke를 만들지 않고 config, mock 기반 test,
+manifest와 build까지만 검증한다.
 
 ## Fail-closed 안전 규칙
 
-- `--live`, credential-like environment key(빈 값 포함), wallet/order code를 허용하지 않는다.
+- `--live`와 wallet/order code를 허용하지 않는다. `src/polybot/config.py`의 정확한 9개
+  supported Polymarket/CLOB credential key는 빈 값이어도 DB, log, HTTP session 전에 거절한다.
 - lifecycle은 `archive_only`, simulation은 `true`, runtime job은 canonical 값만 허용한다.
 - Jenkins `WORKSPACE`, T7 APFS UUID, off-volume UUID pin, sentinel, daily-rsync marker를 DB/log/network
   전에 검증한다.
@@ -92,14 +94,19 @@ POLYBOT_LIFECYCLE_MODE=archive_only POLYBOT_SIMULATION_MODE=true \
 
 ## 분석과 판정
 
-분석에는 Jenkins 원본 DB가 아니라 `daily-rsync locate`가 반환하고 `daily-rsync verify`가 통과한
-절대 경로의 DB만 사용한다. 분석 range는 UTC half-open interval로 고정하고 DB SHA-256, sync/source
-cutoff, config hash, source digest, runtime job을 보고서에 남긴다.
+먼저 `daily-rsync scan` 후 별도 plan/sync를 실행하고, `locate`가 반환하며 `verify`가 통과한
+절대 경로의 DB만 immutable Strawberry analyzer에 넘긴다. Generic trading
+`polybot-retro audit --strict`는 secondary 참고일 뿐이며 trade/fill/P&L table 부재는 이
+accountless collector의 evidence gap이 아니다. 분석 range는 UTC half-open interval로 고정하고
+DB SHA-256, sync/source cutoff, config hash, source digest, runtime job을 보고서에 남긴다.
 
-1주 차 판정은 `HEALTH_ONLY`, `PILOT_UNDERPOWERED`, `PILOT_CANDIDATE`만 허용한다. 50 executable
-episodes, 30 resolved known event clusters, metadata/path/resolution 각각 90% coverage를 만족하지
-못하면 부족한 evidence를 먼저 복구한다. 만족하더라도 같은 cohort로 최적 parameter나 수익성을
-확정하지 않고, 새 frozen 30-day out-of-sample cohort 전에는 live를 추천하지 않는다.
+1주 차 판정은 세 가지뿐이다. Health 또는 `quick_check` 실패는 `HEALTH_ONLY`다. Health는
+통과했지만 50 executable episodes, 30 resolved known event clusters, metadata/path/resolution 각각
+90% coverage 중 하나라도 부족하면 `PILOT_UNDERPOWERED`다. 모두 충족해야 최대
+`PILOT_CANDIDATE`다. 자연 발생 sample 부족을 backfill하거나 frozen window를 연장하지 않는다.
+Lineage/coverage 구현 결함은 가설 판정과 분리해 instrument failure로 복구한다. Gate를
+만족하더라도 같은 cohort로 최적 parameter나 수익성을 확정하지 않고, 새 frozen 30-day
+out-of-sample cohort 전에는 live를 추천하지 않는다.
 
 ## 변경 시 함께 확인할 것
 
