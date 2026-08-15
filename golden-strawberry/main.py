@@ -1,0 +1,7 @@
+"""Convenience launcher for the installed Golden Strawberry CLI."""
+
+from polybot.main import main
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

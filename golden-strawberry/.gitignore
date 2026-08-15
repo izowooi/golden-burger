@@ -1,0 +1,13 @@
+.env*
+!.env.example
+*.key
+*.pem
+id_rsa*
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+data/
