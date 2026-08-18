@@ -752,14 +752,28 @@ class Trader:
         )
         submitted_size = max(
             sell_evidence.confirmed_size,
-            float(sell_evidence.requested_size or 0.0),
+            float(
+                sell_evidence.submitted_size
+                or sell_evidence.requested_size
+                or 0.0
+            ),
         )
         venue_unfilled = (
             0.0
             if sell_evidence.has_reconciled_full_fill
             else max(0.0, submitted_size - sell_evidence.confirmed_size)
         )
-        remaining = preflight_unsold + venue_unfilled
+        position_unfilled = max(
+            0.0,
+            float(getattr(trade, "buy_shares", None) or 0.0)
+            - sell_evidence.confirmed_size,
+        )
+        remaining = max(preflight_unsold + venue_unfilled, position_unfilled)
+        # CLOB signs token quantities to two decimal places.  A smaller
+        # request-vs-fill difference is quantization dust, not a sellable
+        # wallet position.  Larger residuals remain explicit HOLDING exposure.
+        if remaining <= 0.010001:
+            remaining = 0.0
         completed = remaining <= 1e-6
         previous_sell_shares = float(
             getattr(trade, "sell_shares", None) or 0.0

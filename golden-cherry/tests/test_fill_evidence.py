@@ -29,7 +29,23 @@ def create_ledger_tables(session):
                 latest_status_domain_error TEXT,
                 needs_reconciliation INTEGER,
                 reconciliation_error TEXT,
-                simulation INTEGER
+                simulation INTEGER,
+                making_amount REAL,
+                taking_amount REAL
+            )
+            """
+        )
+    )
+    session.execute(
+        text(
+            """
+            CREATE TABLE order_status_events (
+                submission_id TEXT,
+                observed_at TEXT,
+                status TEXT,
+                original_size REAL,
+                size_matched REAL,
+                domain_error TEXT
             )
             """
         )
@@ -65,6 +81,9 @@ def insert_submission(
     requested=5.0,
     matched=0.0,
     reconciliation=0,
+    original=None,
+    making_amount=None,
+    taking_amount=None,
 ):
     session.execute(
         text(
@@ -72,9 +91,9 @@ def insert_submission(
             "(submission_id, order_id, side, requested_size, "
             "latest_order_status, latest_size_matched, "
             "latest_status_domain_error, needs_reconciliation, "
-            "reconciliation_error, simulation) VALUES "
+            "reconciliation_error, simulation, making_amount, taking_amount) VALUES "
             "(:submission, :order_id, :side, :requested, :status, :matched, "
-            "NULL, :reconciliation, NULL, 0)"
+            "NULL, :reconciliation, NULL, 0, :making_amount, :taking_amount)"
         ),
         {
             "submission": f"submission-{order_id}",
@@ -84,6 +103,23 @@ def insert_submission(
             "status": status,
             "matched": matched,
             "reconciliation": reconciliation,
+            "making_amount": making_amount,
+            "taking_amount": taking_amount,
+        },
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_status_events "
+            "(submission_id, observed_at, status, original_size, "
+            "size_matched, domain_error) VALUES "
+            "(:submission, '2026-08-14T00:00:00Z', :status, "
+            ":original, :matched, NULL)"
+        ),
+        {
+            "submission": f"submission-{order_id}",
+            "status": status,
+            "original": requested if original is None else original,
+            "matched": matched,
         },
     )
     session.commit()
@@ -168,6 +204,7 @@ def test_matched_quantized_fill_and_explicit_zero_fee_are_complete(tmp_path):
         status="MATCHED",
         requested=5.224660397,
         matched=5.22,
+        original=5.22,
     )
     insert_fill(session, order_id="quantized", size=5.22, fee_rate=0, fee=None)
     evidence = repo.get_exact_buy_fill_evidence("quantized")
@@ -203,6 +240,34 @@ def test_terminal_partial_fill_reconciles_actual_matched_size(tmp_path):
     assert evidence.has_reconciled_matched_fill is True
     assert evidence.has_reconciled_full_fill is False
     assert evidence.detail == "confirmed_reconciled_terminal_partial_fill"
+    session.close()
+
+
+def test_matched_status_does_not_hide_large_original_size_shortfall(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="matched-partial",
+        side="SELL",
+        status="MATCHED",
+        requested=5.78,
+        original=5.78,
+        matched=1.82,
+    )
+    insert_fill(
+        session,
+        order_id="matched-partial",
+        side="SELL",
+        size=1.82,
+        fee_rate=0,
+        fee=None,
+    )
+    evidence = repo.get_exact_sell_fill_evidence("matched-partial")
+    assert evidence.has_reconciled_matched_fill is True
+    assert evidence.has_reconciled_full_fill is False
+    assert evidence.submitted_size == pytest.approx(5.78)
+    assert evidence.submitted_size_source == "order_status_original_size"
     session.close()
 
 

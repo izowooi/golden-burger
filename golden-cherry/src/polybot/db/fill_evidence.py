@@ -17,6 +17,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "INVALID",
 }
 _TERMINAL_ORDER_STATUSES = _TERMINAL_ZERO_FILL_ORDER_STATUSES | {"MATCHED"}
+_REQUEST_QUANTIZATION_TOLERANCE = 0.010001
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,8 @@ class ExactFillEvidence:
     order_status: Optional[str] = None
     side: Optional[str] = None
     requested_size: Optional[float] = None
+    submitted_size: Optional[float] = None
+    submitted_size_source: Optional[str] = None
     latest_size_matched: Optional[float] = None
     needs_reconciliation: bool = True
     reconciled_matched_fill: bool = False
@@ -102,7 +105,11 @@ def get_exact_order_fill_evidence(
             side=side,
             detail=f"schema_inspection_{type(error).__name__}",
         )
-    if not {"order_submissions", "order_fills"}.issubset(tables):
+    if not {
+        "order_submissions",
+        "order_status_events",
+        "order_fills",
+    }.issubset(tables):
         return ExactFillEvidence(
             "unavailable",
             normalized_order_id,
@@ -115,6 +122,7 @@ def get_exact_order_fill_evidence(
             session.execute(
                 text(
                     "SELECT submission_id, side, requested_size, "
+                    "making_amount, taking_amount, "
                     "latest_order_status, latest_size_matched, "
                     "latest_status_domain_error, needs_reconciliation, "
                     "reconciliation_error, simulation "
@@ -167,6 +175,77 @@ def get_exact_order_fill_evidence(
             side=side,
             detail="submission_requested_size_invalid",
         )
+
+    try:
+        status_event = (
+            session.execute(
+                text(
+                    "SELECT original_size, domain_error "
+                    "FROM order_status_events "
+                    "WHERE submission_id = :submission_id "
+                    "AND original_size IS NOT NULL "
+                    "AND (domain_error IS NULL OR TRIM(domain_error) = '') "
+                    "ORDER BY observed_at DESC LIMIT 1"
+                ),
+                {"submission_id": submission["submission_id"]},
+            )
+            .mappings()
+            .first()
+        )
+    except Exception as error:  # noqa: BLE001
+        return ExactFillEvidence(
+            "unavailable",
+            normalized_order_id,
+            order_status=order_status,
+            side=side,
+            requested_size=requested_size,
+            latest_size_matched=matched_size,
+            detail=f"status_event_query_{type(error).__name__}",
+        )
+
+    event_original_size = None
+    if status_event is not None and not str(
+        status_event["domain_error"] or ""
+    ).strip():
+        candidate = _finite_float(status_event["original_size"])
+        if candidate is not None and candidate > 0:
+            event_original_size = candidate
+
+    response_token_field = "taking_amount" if side == "BUY" else "making_amount"
+    response_token_size = _finite_float(submission[response_token_field])
+    if response_token_size is not None and response_token_size <= 0:
+        response_token_size = None
+    if (
+        event_original_size is not None
+        and response_token_size is not None
+        and not math.isclose(
+            event_original_size,
+            response_token_size,
+            rel_tol=0.0,
+            abs_tol=1e-6,
+        )
+    ):
+        return ExactFillEvidence(
+            "unavailable",
+            normalized_order_id,
+            order_status=order_status,
+            side=side,
+            requested_size=requested_size,
+            latest_size_matched=matched_size,
+            detail="authoritative_submitted_size_conflict",
+        )
+    if event_original_size is not None:
+        submitted_size = event_original_size
+        submitted_size_source = "order_status_original_size"
+        submitted_size_tolerance = 1e-6
+    elif response_token_size is not None:
+        submitted_size = response_token_size
+        submitted_size_source = "submission_token_amount"
+        submitted_size_tolerance = 1e-6
+    else:
+        submitted_size = requested_size
+        submitted_size_source = "requested_size_quantization_fallback"
+        submitted_size_tolerance = _REQUEST_QUANTIZATION_TOLERANCE
     raw_needs_reconciliation = submission["needs_reconciliation"]
     if raw_needs_reconciliation not in (0, 1, False, True):
         return ExactFillEvidence(
@@ -300,11 +379,11 @@ def get_exact_order_fill_evidence(
             and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
         )
         reconciled_full_fill = reconciled_matched_fill and (
-            # MATCHED is terminal at the venue; its size may be quantized
-            # slightly below the pre-quantization requested size.
-            order_status == "MATCHED"
-            or math.isclose(
-                matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+            math.isclose(
+                matched_size,
+                submitted_size,
+                rel_tol=0.0,
+                abs_tol=submitted_size_tolerance,
             )
         )
         return ExactFillEvidence(
@@ -313,6 +392,8 @@ def get_exact_order_fill_evidence(
             order_status=order_status,
             side=side,
             requested_size=requested_size,
+            submitted_size=submitted_size,
+            submitted_size_source=submitted_size_source,
             latest_size_matched=matched_size,
             needs_reconciliation=needs_reconciliation,
             reconciled_matched_fill=reconciled_matched_fill,

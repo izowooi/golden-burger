@@ -25,6 +25,8 @@ def full_fill(
         order_status="MATCHED",
         side=side,
         requested_size=size,
+        submitted_size=size,
+        submitted_size_source="order_status_original_size",
         latest_size_matched=size,
         needs_reconciliation=False,
         reconciled_matched_fill=True,
@@ -176,6 +178,8 @@ def test_terminal_partial_buy_activates_only_confirmed_shares():
         order_status="CANCELED_MARKET_RESOLVED",
         side="BUY",
         requested_size=5.780347,
+        submitted_size=5.780347,
+        submitted_size_source="order_status_original_size",
         latest_size_matched=4.72,
         needs_reconciliation=False,
         reconciled_matched_fill=True,
@@ -264,6 +268,7 @@ def test_matched_quantization_does_not_create_a_false_sell_remainder():
         **{
             **quantized_sell.__dict__,
             "requested_size": 5.224660397,
+            "submitted_size": 5.22,
         }
     )
     repo = FakeRepo(
@@ -271,8 +276,23 @@ def test_matched_quantization_does_not_create_a_false_sell_remainder():
         sell_evidence=quantized_sell,
     )
     trader = Trader(repo, FakeClob(), TradingConfig())
-    assert trader.reconcile_pending_sell(trade(buy_shares=5.22)) is True
+    assert trader.reconcile_pending_sell(trade(buy_shares=5.224660397)) is True
     assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+
+
+def test_position_quantity_preserves_residual_even_if_venue_order_was_full():
+    clipped_sell = full_fill(
+        "sell-order", side="SELL", size=1.82, price=0.88
+    )
+    repo = FakeRepo(
+        buy_evidence=full_fill("buy-order", side="BUY", size=5.78, price=0.90),
+        sell_evidence=clipped_sell,
+    )
+    trader = Trader(repo, FakeClob(), TradingConfig())
+    assert trader.reconcile_pending_sell(trade(buy_shares=5.78)) is False
+    update = repo.updates[-1][1]
+    assert update["status"] == TradeStatus.HOLDING
+    assert update["buy_shares"] == pytest.approx(3.96)
 
 
 def test_terminal_partial_sell_returns_confirmed_remainder_to_holding():
@@ -282,6 +302,8 @@ def test_terminal_partial_sell_returns_confirmed_remainder_to_holding():
         order_status="CANCELED",
         side="SELL",
         requested_size=5.71,
+        submitted_size=5.71,
+        submitted_size_source="order_status_original_size",
         latest_size_matched=4.337347,
         needs_reconciliation=False,
         reconciled_matched_fill=True,
