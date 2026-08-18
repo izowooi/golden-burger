@@ -12,7 +12,7 @@
 
 ## 기술 스택
 
-- Next.js 16 (App Router) + React 19 + TypeScript
+- Next.js 16 (App Router) + React 19 + TypeScript + Tailwind CSS 4
 - Supabase (`@supabase/supabase-js`, 서버 전용 조회)
 - Recharts (잔고·수익률 차트)
 - OpenNext + Cloudflare Workers 배포 (`@opennextjs/cloudflare`, `wrangler`)
@@ -24,6 +24,11 @@
 - `src/lib/data-quality.ts`: 최신 보고 시각, stale 판정, 계정별 결측일, 일일 합계 대사
 - `src/lib/*.test.ts`: analytics·data-quality 단위 테스트 (Node test runner + tsx)
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API (Route Handler)
+- `src/app/api/strategies/route.ts`: 전략 lifecycle·Jenkins health·checkpoint 읽기 전용 API
+- `src/components/strategy-lifecycle-dashboard.tsx`: lifecycle pipeline·review radar·job 상세 UI
+- `src/lib/strategy-lifecycle.ts`: checkpoint urgency와 Jenkins/전략 health 순수 계산
+- `scripts/sync-jenkins-status.mjs`: LAN Jenkins read-only metadata를 `pd_*`에 적재
+- `supabase/`: `pd_*` migration과 idempotent lifecycle seed
 - `src/lib/supabase/server.ts`: 서버 전용 Supabase client
 - `src/lib/types.ts`: 응답·도메인 타입
 - `src/app/globals.css`: 전역 스타일 (다크 테마)
@@ -58,14 +63,19 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 
 ## 데이터 / 외부 연동
 
-- API는 Supabase 3개 테이블만 읽는다: `pb_algorithm_accounts`, `pb_daily_algorithm_balances`, `pb_daily_portfolio_totals`.
+- API는 portfolio/storage의 `pb_*`와 lifecycle의 `pd_*` allowlist만 읽는다.
+- `pd_strategies`·`pd_jenkins_jobs`·`pd_strategy_checkpoints`·`pd_sync_runs`는 RLS를 켜고
+  anon/authenticated policy를 두지 않는 서버 전용 계약이다.
+- Cloudflare는 LAN Jenkins에 접근하지 않는다. Jenkins metadata는 Mac mini의
+  `npm run sync:jenkins` 수집기가 서버 Secret으로 Supabase에 적재한다.
 - `SUPABASE_SECRET_KEY`는 RLS를 우회하는 서버 전용 자격 증명이다. client component·브라우저 번들에 절대 노출하지 않는다.
 - 환경변수 이름에 `NEXT_PUBLIC_` 접두어를 붙이지 않는다 (붙으면 브라우저로 노출).
 - API 응답은 `private, no-store`로 반환한다.
 
 ## 환경변수
 
-- `SUPABASE_URL`, `SUPABASE_SECRET_KEY` 두 값만 사용한다.
+- Dashboard는 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, 선택적인 `JENKINS_DASHBOARD_URL`을 사용한다.
+- LAN 수집기는 추가로 `JENKINS_URL`과 선택적인 `JENKINS_USER`/`JENKINS_API_TOKEN`을 사용한다.
 - 로컬: `.env.local` (`.env.example` 복사). Workers 미리보기: `.dev.vars` (`.dev.vars.example` 복사).
 - 실제 값 파일은 커밋하지 않는다. 예제 파일만 추적한다.
 

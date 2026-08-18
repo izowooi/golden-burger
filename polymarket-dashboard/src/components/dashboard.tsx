@@ -253,6 +253,7 @@ export function Dashboard() {
           <nav className="monitor-nav" aria-label="대시보드 화면">
             <Link className="selected" href="/" aria-current="page">성과</Link>
             <Link href="/storage">저장공간</Link>
+            <Link href="/strategies">전략 단계</Link>
           </nav>
           <div className="status-cluster">
             <span

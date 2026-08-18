@@ -10,5 +10,8 @@
   },
   "observability": {
     "enabled": true
+  },
+  "vars": {
+    "JENKINS_DASHBOARD_URL": "http://192.168.50.23:8080"
   }
 }

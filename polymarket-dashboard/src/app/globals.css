@@ -1,3 +1,5 @@
+@import "tailwindcss";
+
 :root {
   --bg: #08100e;
   --surface: #0d1715;
@@ -39,6 +41,16 @@ button { color: inherit; }
   min-height: 100vh;
   margin: 0 auto;
   padding: 0 42px 36px;
+}
+
+.lifecycle-shell > *,
+.lifecycle-shell section,
+.lifecycle-shell article {
+  min-width: 0;
+}
+
+.lifecycle-shell h2 {
+  overflow-wrap: anywhere;
 }
 
 .ambient {
@@ -691,6 +703,7 @@ footer {
   .topbar { align-items: stretch; flex-direction: column; }
   .topbar-actions { align-items: stretch; }
   .monitor-nav { align-self: flex-start; }
+  .lifecycle-shell .monitor-nav { max-width: 100%; flex-wrap: wrap; }
   .status-cluster { justify-content: flex-end; }
   .hero-row h2 { font-size: 36px; }
   .control-panel { padding: 18px; }

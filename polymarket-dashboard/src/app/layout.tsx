@@ -4,7 +4,7 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Polymarket Strategy Monitor",
-  description: "Golden strategy portfolio performance and host storage dashboard",
+  description: "Golden strategy lifecycle, portfolio performance, Jenkins health, and host storage dashboard",
 };
 
 export default function RootLayout({

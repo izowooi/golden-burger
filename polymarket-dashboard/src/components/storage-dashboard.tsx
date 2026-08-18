@@ -124,6 +124,7 @@ export function StorageDashboard() {
           <nav className="monitor-nav" aria-label="대시보드 화면">
             <Link href="/">성과</Link>
             <Link className="selected" href="/storage" aria-current="page">저장공간</Link>
+            <Link href="/strategies">전략 단계</Link>
           </nav>
           <div className="status-cluster">
             <span className={`status-dot ${loading ? "pending" : error ? "stale" : statusClass}`} />

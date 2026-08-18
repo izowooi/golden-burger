@@ -1,6 +1,8 @@
 # Polymarket Strategy Dashboard
 
-Supabase에 적재된 Jenkins 전략 계좌들의 잔고·기간 수익률과 Mac mini filesystem 용량을 보는 대시보드입니다. Next.js App Router의 서버 Route Handler가 Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
+Supabase에 적재된 Jenkins 전략 계좌들의 잔고·기간 수익률, Mac mini filesystem 용량,
+전략 생애주기와 Jenkins 상태를 보는 대시보드입니다. Next.js App Router의 서버 Route Handler가
+Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않습니다.
 
 ## 제공 기능
 
@@ -15,6 +17,11 @@ Supabase에 적재된 Jenkins 전략 계좌들의 잔고·기간 수익률과 Ma
 - `/storage`에서 host·mount별 전체/사용/여유 공간과 사용률 표시
 - 80% 주의·90% 위험, 36시간 수집 지연 판정
 - 최근 최대 30일 증가율과 예상 소진일, 결측일을 끊은 사용률 차트
+- `/strategies`에서 아이디어→구현→시뮬레이션→실거래 검증→안정화→수익 검증→운영→폐쇄 pipeline 표시
+- 전략별 검증 경과일, 7일·30일·월간 review checkpoint와 overdue 표시
+- 하나의 전략에 연결된 여러 Jenkins arm, schedule, mode, 최신 build health 표시
+- 폐쇄 전략은 기본 숨김이며 toggle로만 표시
+- 전략 이름과 Jenkins 이름이 다른 매핑(`polybot-orange → golden-cherry` 등)을 실제 실행 경로 기준으로 관리
 - 데스크톱과 모바일 화면 대응
 
 수익률은 선택 기간에 존재하는 첫 잔고와 마지막 잔고로 다음과 같이 계산합니다.
@@ -49,9 +56,22 @@ Supabase에 적재된 Jenkins 전략 계좌들의 잔고·기간 수익률과 Ma
   └─ GET /api/storage
        └─ Next.js 서버 전용 Supabase client
             └─ pb_host_storage_daily
+  └─ GET /api/strategies
+       └─ Next.js 서버 전용 Supabase client
+            ├─ pd_strategies
+            ├─ pd_jenkins_jobs
+            ├─ pd_strategy_checkpoints
+            └─ pd_sync_runs
+
+Mac mini Jenkins (LAN)
+  └─ npm run sync:jenkins
+       ├─ Jenkins read-only api/json
+       └─ Supabase pd_jenkins_jobs + pd_sync_runs
 ```
 
-브라우저에는 Supabase 키를 제공하지 않습니다. 서버는 허용된 네 테이블과 컬럼만 조회하고 응답은 `private, no-store`로 반환합니다.
+브라우저에는 Supabase 키를 제공하지 않습니다. 서버는 허용된 테이블과 컬럼만 조회하고 응답은
+`private, no-store`로 반환합니다. `pd_*` 네 테이블은 RLS가 활성화되어 있고 anon/authenticated
+policy가 없으므로 서버 Secret key 없이 직접 읽거나 쓸 수 없습니다.
 
 `SUPABASE_SECRET_KEY`는 RLS를 우회할 수 있는 서버 전용 자격 증명입니다. 다음 원칙을 지켜야 합니다.
 
@@ -81,7 +101,8 @@ cp .env.example .env.local
 
 ```dotenv
 SUPABASE_URL=https://your-project-ref.supabase.co
-SUPABASE_SECRET_KEY=sb_secret_your_server_only_key
+SUPABASE_SECRET_KEY=replace_with_server_only_secret
+JENKINS_DASHBOARD_URL=http://jenkins-host:8080
 ```
 
 키 체계에 관한 상세 내용은 [Supabase API key 문서](https://supabase.com/docs/guides/api/api-keys)에서 확인할 수 있습니다.
@@ -117,9 +138,69 @@ GET /api/portfolio
 GET /api/portfolio?start=2026-06-01&end=2026-06-23
 GET /api/storage
 GET /api/storage?start=2026-08-01&end=2026-08-31
+GET /api/strategies
 ```
 
 `start`와 `end`는 선택 사항이며 `YYYY-MM-DD` 형식입니다. 현재 UI는 한 번에 전체 데이터를 받아 브라우저에서 즉시 기간을 전환합니다. 데이터가 수만 건 이상으로 증가하면 기간별 서버 조회 방식으로 전환하는 것이 적합합니다.
+
+## 전략 생애주기 데이터
+
+`pd_`는 `polymarket-dashboard`에서 따온 prefix입니다. 스키마와 idempotent seed는 다음 파일에
+보관합니다.
+
+- `supabase/migrations/20260818113000_pd_strategy_lifecycle_v1.sql`
+- `supabase/seed/pd_strategy_lifecycle_seed.sql`
+
+핵심 계약은 다음과 같습니다.
+
+- `lifecycle_stage`와 `operating_status`는 분리합니다. 예를 들어 폐쇄된 Date는 lifecycle은
+  `CLOSED`지만 잔여 청산 job 때문에 operating status는 `CLOSE_ONLY`일 수 있습니다.
+- `DUE`와 `OVERDUE`는 저장하지 않고 `due_at`과 현재 시각으로 UI에서 계산합니다.
+- Jenkins build가 성공해도 전략 자체에 알려진 blocker가 있으면 전략 health는 `확인 필요`입니다.
+- `attention_level`은 `INFO`(문맥), `WATCH`(관찰), `CRITICAL`(즉시 확인)을 구분합니다.
+  단순 `INFO` 메모는 정상 health를 빨간색으로 바꾸지 않습니다.
+- 계정명·Jenkins job명·폴더명이 다를 수 있으므로 `pd_jenkins_jobs.strategy_id`를 권위 있는
+  mapping으로 사용합니다.
+- 수익성은 이 화면의 build status로 판단하지 않습니다. 별도 DB sync와 strict fill evidence
+  audit가 필요합니다.
+
+## Jenkins 상태 수집기
+
+Cloudflare Worker는 사설망 Jenkins에 접근할 수 없으므로, LAN 안의 Mac mini Jenkins에서
+`scripts/sync-jenkins-status.mjs`를 실행합니다. 이 수집기는 `api/json` metadata만 읽으며
+config.xml, console secret, workspace 파일은 읽지 않습니다.
+
+권장 Jenkins Freestyle shell은 다음과 같습니다. Supabase 값은 inline export가 아니라
+Credentials Binding으로 제공합니다.
+
+```bash
+#!/bin/bash
+set +x
+set -euo pipefail
+
+export JENKINS_URL=http://192.168.50.23:8080
+export JENKINS_REQUEST_TIMEOUT_MS=10000
+
+cd ./polymarket-dashboard
+npm ci
+npm run sync:jenkins
+```
+
+권장 `Build periodically`는 `H/5 * * * *`입니다. 실제 trading job을 실행하는 것이 아니라
+26개 job의 작은 JSON metadata만 병렬로 읽으므로 5분 주기가 충분히 가볍고, live job의 5분
+cadence와 맞아 장애를 한 cycle 안에 보이게 합니다. Jenkins가 익명 read를 막는 경우에만
+`JENKINS_USER`와 `JENKINS_API_TOKEN`을 둘 다 Credentials Binding으로 추가합니다.
+
+로컬에서 한 번 실행할 때도 같은 환경변수를 사용합니다.
+
+```bash
+cd polymarket-dashboard
+npm run sync:jenkins
+```
+
+성공하면 `pd_jenkins_jobs.observed_at`과 latest build 필드가 갱신되고, 실행 이력은
+`pd_sync_runs`에 secret-free 요약으로 남습니다. 30분 이상 새 성공 sync가 없으면 화면은
+Jenkins 관측 지연으로 표시합니다.
 
 ## Cloudflare 배포
 
@@ -175,6 +256,11 @@ Secret key 자체는 서버에 숨겨지지만 `/api/portfolio`의 응답 데이
 - `src/lib/storage.ts`: 사용률, 증가량, 예상 소진일 계산
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API
 - `src/app/api/storage/route.ts`: 저장공간 Supabase 읽기 전용 API
+- `src/app/api/strategies/route.ts`: 전략·Jenkins·checkpoint Supabase 읽기 전용 API
+- `src/components/strategy-lifecycle-dashboard.tsx`: lifecycle pipeline·review·job health UI
+- `src/lib/strategy-lifecycle.ts`: 동적 checkpoint·Jenkins/전략 health 계산
+- `scripts/sync-jenkins-status.mjs`: LAN Jenkins metadata → Supabase 수집기
+- `supabase/`: `pd_*` schema migration과 idempotent seed
 - `src/lib/supabase/server.ts`: 서버 전용 Supabase client
 - `.env.example`: 로컬 환경변수 템플릿
 - `.dev.vars.example`: Cloudflare 로컬 미리보기 템플릿
@@ -184,5 +270,7 @@ Secret key 자체는 서버에 숨겨지지만 `/api/portfolio`의 응답 데이
 
 - **환경변수 누락 오류**: `.env.local`의 두 값과 변수명을 확인하고 개발 서버를 다시 시작합니다.
 - **500 응답**: Secret key가 현재 프로젝트의 키인지, 네 테이블이 존재하는지 확인합니다. 저장공간 화면만 실패하면 `pb_host_storage_v1.sql` migration을 확인합니다.
+- **전략 화면의 Jenkins 수집 전/지연**: Mac mini에서 `npm run sync:jenkins`를 실행하고
+  `pd_sync_runs.error_summary`를 확인합니다. 브라우저에서 새로고침만 해서는 LAN Jenkins를 조회하지 않습니다.
 - **빈 기간**: DB에 실제 보고 날짜가 있는 범위인지 확인합니다.
 - **수익률 급등**: 입출금 미보정 결과입니다. 자금 이동일을 피해서 기간을 다시 지정합니다.
