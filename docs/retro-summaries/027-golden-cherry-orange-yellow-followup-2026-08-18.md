@@ -1,5 +1,12 @@
 # 027 — Golden Cherry Orange·Yellow 후속 parameter/lifecycle 회고 — 2026-08-18
 
+> **2026-08-19 정정:** 아래의 `entry > 0.90909` 15건이 "전부 손실"이라는 표현은
+> 15개 outcome이 모두 0으로 해결됐다는 뜻이 아니라, 봇의 **해결 전 매도 손익이 15건
+> 모두 음수**였다는 뜻이다. 공식 Gamma closed-market 결과를 다시 조회한 결과 매수 outcome은
+> 11건이 1, 4건이 0으로 해결됐다. 해석·lifecycle 복구·재배포 결과는
+> [028 회고](028-golden-cherry-blueberry-runtime-remediation-2026-08-19.md)가 이 문서를
+> 정정·보완한다.
+
 작성일: 2026-08-18 KST
 
 대상:
