@@ -64,9 +64,9 @@ def test_live_safety_defaults_are_finite():
     assert trading.time_based.entry_hours_min == 0
     assert trading.time_based.entry_hours_max == 120
     assert trading.time_based.exit_hours == 0
-    assert trading.max_positions == 100
+    assert trading.max_positions == 10
     assert trading.max_open_notional_usdc == 5000
-    assert trading.max_new_positions_per_cycle == 5
+    assert trading.max_new_positions_per_cycle == 1
     assert trading.pending_buy_ttl_minutes == 30
     assert trading.game_start.enabled is True
     assert trading.game_start.allow_in_play is True

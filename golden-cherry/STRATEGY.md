@@ -65,9 +65,9 @@ known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 | `POLYBOT_MIN_LIQUIDITY` | 50000 | 정적 유동성 하한 |
 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | 0.002 | 동적 하한 = 주문액 / 이 값 |
 | `POLYBOT_BUY_AMOUNT` / `_MAX_BUY_AMOUNT_USDC` | 5 / 100 | 건당 주문액과 하드캡 |
-| `POLYBOT_MAX_POSITIONS` | 100 | 오픈 포지션 상한 |
+| `POLYBOT_MAX_POSITIONS` | 10 | 오픈 포지션 상한 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | 5000 | 오픈 요청 원금 상한 |
-| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 5 | 사이클당 신규 진입 |
+| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 1 | 사이클당 신규 진입 |
 | `POLYBOT_PENDING_BUY_TTL_MINUTES` | 30 | exact LIVE·0 fill BUY 취소 전 대기시간 |
 | `POLYBOT_YES_ONLY` | false | index 0 토큰만 |
 | `POLYBOT_LIFECYCLE_MODE` | active | `active`/`close_only`/`archive_only` |

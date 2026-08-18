@@ -120,9 +120,9 @@ class TradingConfig:
     max_buy_amount_usdc: float = 100.0
     min_liquidity: float = 50000.0
     max_order_liquidity_ratio: float = 0.002  # 주문금액 <= 유동성의 0.2%
-    max_positions: int = 100
+    max_positions: int = 10
     max_open_notional_usdc: float = 5000.0
-    max_new_positions_per_cycle: int = 5
+    max_new_positions_per_cycle: int = 1
     pending_buy_ttl_minutes: int = 30
     take_profit_percent: float = 0.15     # 이익실현 +15%
     stop_loss_percent: float = -0.08      # 손절 -8%
@@ -392,7 +392,7 @@ def load_config(
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS",
             trading_cfg.get("max_positions"),
-            100,
+            10,
             int
         ),
         max_open_notional_usdc=_get_config_value(
@@ -404,7 +404,7 @@ def load_config(
         max_new_positions_per_cycle=_get_config_value(
             "POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE",
             trading_cfg.get("max_new_positions_per_cycle"),
-            5,
+            1,
             int,
         ),
         pending_buy_ttl_minutes=_get_config_value(

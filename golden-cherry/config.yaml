@@ -32,9 +32,9 @@ trading:
   stop_loss_percent: -0.08
 
   # 최대 동시 포지션/오픈 원금/한 cycle 신규 포지션 안전한도
-  max_positions: 100
+  max_positions: 10
   max_open_notional_usdc: 5000
-  max_new_positions_per_cycle: 5
+  max_new_positions_per_cycle: 1
 
   # live GTC BUY가 exact zero-fill LIVE 상태로 머무를 수 있는 최대 시간.
   # 만료 시 해당 exact order를 취소·검증한 뒤 UNFILLED로 종결한다.

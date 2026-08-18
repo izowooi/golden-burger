@@ -216,9 +216,9 @@ trading:
   stop_loss_percent: -0.08
 
   # 노출 안전한도
-  max_positions: 100
+  max_positions: 10
   max_open_notional_usdc: 5000
-  max_new_positions_per_cycle: 5
+  max_new_positions_per_cycle: 1
 
   # 트레일링 스탑 설정
   trailing_stop:
@@ -306,9 +306,9 @@ pipeline {
         POLYBOT_REJECT_SPORTS_WITHOUT_GAME_START = 'true'
         POLYBOT_MIN_LIQUIDITY = '50000'
         POLYBOT_MAX_ORDER_LIQUIDITY_RATIO = '0.002'
-        POLYBOT_MAX_POSITIONS = '100'
+        POLYBOT_MAX_POSITIONS = '10'
         POLYBOT_MAX_OPEN_NOTIONAL_USDC = '5000'
-        POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE = '5'
+        POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE = '1'
     }
 
     stages {
@@ -442,7 +442,7 @@ golden-cherry/
 | `exit_hours=0` | endDate 기반 시간 청산 안 함 |
 | 기준시각 120시간 초과 | 대기 (매수 안함) |
 | 1회 주문 $100 초과 | 설정 검증 단계에서 실행 실패(fail closed) |
-| 한 cycle 신규 5개 / open 원금 $5,000 / open 포지션 100개 초과 | 신규 매수 차단; 기존 청산은 계속 |
+| 한 cycle 신규 1개 / open 원금 $5,000 / open 포지션 10개 초과 | 신규 매수 차단; 기존 청산은 계속 |
 | 이미 거래한 시장 | 재거래 금지 |
 
 ---
@@ -467,9 +467,9 @@ golden-cherry/
 | 건당 하드캡 | `POLYBOT_MAX_BUY_AMOUNT_USDC` | `trading.max_buy_amount_usdc` | 100 | 100 | 주문액을 키울 때 별도로 올려야 함 |
 | 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | `trading.min_liquidity` | 50000 | 50000 | 이 금액 미만 시장 제외 |
 | 주문/유동성 상한 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `trading.max_order_liquidity_ratio` | 0.002 | 0.002 | 주문액은 유동성의 최대 0.2% |
-| 최대 open 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | 100 | 100 | -1/무제한은 허용하지 않음 |
+| 최대 open 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | 10 | 10 | -1/무제한은 허용하지 않음 |
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `trading.max_open_notional_usdc` | 5000 | 5000 | HOLDING/격리/대기 포지션의 요청 원금 합계 |
-| cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 5 | 5 | 3/5분 실행 한 번의 burst 제한 |
+| cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 1 | 1 | 3/5분 실행 한 번의 burst 제한 |
 | zero-fill BUY TTL | `POLYBOT_PENDING_BUY_TTL_MINUTES` | `trading.pending_buy_ttl_minutes` | 30 | 30 | exact LIVE·0 fill BUY를 취소하기 전 대기시간(5~1440분) |
 
 실제 스캔에 쓰는 최소 유동성은 `max(POLYBOT_MIN_LIQUIDITY,
@@ -645,9 +645,9 @@ excluded_categories: []  # ← 빈 배열 = 스포츠 필터 완전 비활성화
 | `POLYBOT_MAX_BUY_AMOUNT_USDC` | `100` | 실수로 큰 주문을 넣지 못하게 하는 건당 하드캡 | `BUY_AMOUNT`가 더 크면 주문 전에 설정 오류로 종료 |
 | `POLYBOT_MIN_LIQUIDITY` | `50000` | Gamma 시장 총 유동성의 정적 하한 | 실제 호가창의 즉시 체결 가능 수량과는 다름 |
 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `0.002` | 주문액을 Gamma 유동성의 최대 0.2%로 제한 | 실효 유동성 하한은 `max(MIN_LIQUIDITY, BUY_AMOUNT / 비율)` |
-| `POLYBOT_MAX_POSITIONS` | `100` | DB상 open exposure 포지션 수 상한 | 신규 BUY만 차단하며 기존 포지션을 강제 매도하지 않음 |
+| `POLYBOT_MAX_POSITIONS` | `10` | DB상 open exposure 포지션 수 상한 | 신규 BUY만 차단하며 기존 포지션을 강제 매도하지 않음 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `5000` | open 포지션들의 요청 매수원금 합계 상한 | 현재 $100 주문이면 포지션 수보다 약 50건에서 먼저 제한될 수 있음 |
-| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `5` | Jenkins 한 번 실행에서 새로 넣을 수 있는 BUY 수 | 5분마다 최대 5건이라는 burst 제한이며 총 포지션 상한과 별개 |
+| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `1` | Jenkins 한 번 실행에서 새로 넣을 수 있는 BUY 수 | 5분마다 최대 1건이라는 burst 제한이며 총 포지션 상한과 별개 |
 | `POLYBOT_PENDING_BUY_TTL_MINUTES` | `30` (`config.yaml`) | exact LIVE·0 fill BUY 주문의 최대 대기시간 | 만료 후 exact order의 zero-fill 취소가 증명된 경우에만 `UNFILLED`; partial fill은 자동취소하지 않음 |
 
 #### 시간 및 스포츠 시장
