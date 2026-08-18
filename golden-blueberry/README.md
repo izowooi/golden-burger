@@ -18,6 +18,7 @@ legacy 체결 공백이 커서 운영자가 기억하는 월 10%를 확정할 �
 | A/B 축 | A: 상승폭 `>=2%p`, B: 상승폭 `>=5%p` |
 | 시간 | 일반/경기 전 `(0h,72h]`; 경기 중 kickoff 후 최대 360분 |
 | 시장 gate | 유동성·24h 거래량 각각 `>= $10,000` |
+| archive request | 유동성 `>= $1,000`, Gamma 누적 거래량 `>= $5,000` |
 | 주문 직전 | ask `<=0.93`, spread `<=2%p`, ask depth `>=1.2 × 주문수량` |
 | 익절 | YES signal `>=0.97`이고 fresh bid도 `>=0.97` |
 | 손절 | YES signal `<=0.78` |
@@ -95,6 +96,11 @@ membership SHA-256, cursor-complete, market 집합을 다시 검증한 동일 pa
 public market data cache이며 DB evidence나 backup을 대신하지 않는다. filter별 고정 lock은
 5분마다 빈 lock 파일이 쌓이지 않게 하며 12분에 fail closed한다. 경로를 설정하지 않으면
 기존처럼 각 process가 독립 sweep을 수행한다.
+
+Gamma의 `volume_num_min=5000`은 시장의 **누적 lifetime volume** 필터다. 진입 시 다시
+검사하는 `volume24hr>=10000`과 다른 값이며 대체 관계가 아니다. 이 실험의 first crossing은
+누적 거래량이 5,000에 도달해 archive membership에 들어온 이후부터 정의한다. 따라서 이
+필터를 적용하기 전 cohort와 이후 cohort를 섞지 않는다.
 
 ## A/B simulation Jenkins shell
 

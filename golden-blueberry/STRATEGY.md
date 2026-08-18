@@ -35,8 +35,10 @@ edge를 만들지 않으므로 **최초 교차의 순간 상승폭**이 비용 �
 3. `negRisk is False`가 명시돼야 한다. missing/unknown은 허용하지 않는다.
 4. 기본 `excluded_categories=[]`로 스포츠를 포함한다. category 제외는 Gamma tag의 exact
    match이며 question keyword 추정은 쓰지 않는다.
-5. archive는 YES `>=0.75`, scheduled/pregame 잔여 `<=168h`, metadata liquidity `>=1k`인
-   더 넓은 우주를 60일 보존한다. 이 archive는 거래 gate가 아니다.
+5. archive는 YES `>=0.75`, scheduled/pregame 잔여 `<=168h`, metadata liquidity `>=1k`,
+   Gamma 누적 lifetime volume `>=5k`인 더 넓은 우주를 60일 보존한다. 이 archive는
+   `volume24h>=10k` 진입 gate와 별개다. first crossing은 누적 5k 이후 membership에서
+   처음 관측한 교차로 정의한다.
 
 ## 4. Entry
 

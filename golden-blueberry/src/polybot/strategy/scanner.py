@@ -164,16 +164,17 @@ class MarketScanner:
         self._current_snapshots: Dict[str, object] = {}
 
     def fetch_markets(self) -> List[Dict]:
-        # The archive must keep the $1k baseline even when the entry cohort
-        # raises its liquidity threshold.  Otherwise a first crossing rejected
-        # by the higher entry threshold would disappear from durable history
-        # and a later re-crossing could be misclassified as the first one.
+        # The archive keeps the $1k liquidity baseline but intentionally starts
+        # membership only after Gamma cumulative volume reaches the configured
+        # floor.  This is a new, explicitly cohort-scoped definition: a crossing
+        # before that cumulative-volume gate is outside the experiment universe.
+        # ``min_cumulative_volume`` is not the entry ``volume24hr`` threshold.
         archive_min_liquidity = min(
             self.config.min_liquidity, _BLUEBERRY_ARCHIVE_MIN_LIQUIDITY
         )
         return self.gamma.get_all_tradable_markets(
             min_liquidity=archive_min_liquidity,
-            min_volume=0,
+            min_volume=self.config.archive.min_cumulative_volume,
         )
 
     def _archive_decision(

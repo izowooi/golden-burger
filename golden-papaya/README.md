@@ -152,6 +152,10 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 
 환경변수 이름은 `uv run polybot config` 출력과 `.env.example`을 기준으로 한다.
 
+같은 호스트에서 request filter가 완전히 같은 Melon·Quince·Queen job의 cursor-complete
+Gamma public sweep은 검증 후 5분 단위로 재사용한다. Papaya의 snapshot, 최초 교차와 주문
+판정은 공유하지 않고 이 job의 SQLite에 독립적으로 기록한다.
+
 ## DB 저장공간 정책과 기존 DB 마이그레이션
 
 새로 생성하는 Papaya DB는 처음부터 최근 1시간 snapshot 원형, 60일 first-crossing extrema,

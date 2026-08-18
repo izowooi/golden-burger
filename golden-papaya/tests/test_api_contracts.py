@@ -133,6 +133,33 @@ def test_gamma_keyset_sweep_deduplicates_and_attests_membership(monkeypatch):
     assert memberships["missing-tradability"]["qualified"] is False
 
 
+def test_gamma_complete_sweep_is_shared_for_identical_filter(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("POLYBOT_GAMMA_SHARED_CACHE_DIR", str(tmp_path))
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _seconds: None)
+    first = GammaClient()
+    first.session = KeysetSession()
+
+    first_markets = first.get_all_tradable_markets(min_liquidity=10_000)
+
+    second = GammaClient()
+    second.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("identical sweep must use the shared cache")
+        )
+    )
+    second_markets = second.get_all_tradable_markets(min_liquidity=10_000)
+
+    assert second_markets == first_markets
+    assert first.last_sweep_attestation["shared_cache_hit"] is False
+    assert second.last_sweep_attestation["shared_cache_hit"] is True
+    assert (
+        second.last_sweep_attestation["source_sweep_id"]
+        == first.last_sweep_attestation["source_sweep_id"]
+    )
+
+
 class TimeoutSession:
     def __init__(self):
         self.calls = []

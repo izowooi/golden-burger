@@ -8,7 +8,8 @@
 - A: first crossing 최소 급등 `+2%p`.
 - B: first crossing 최소 급등 `+5%p`.
 - 공통: strict binary YES, `[0.85,0.93]`, `(0h,72h]`, sports in-play 포함,
-  `$5`, liquidity/volume `$10k`, target/stop `0.97/0.78`.
+  `$5`, entry liquidity/volume24h `$10k`, archive cumulative volume `$5k`,
+  target/stop `0.97/0.78`.
 - arm당 capital `$150`, open notional `$50`, drawdown kill switch `-$30`.
 
 ## 1주 checkpoint

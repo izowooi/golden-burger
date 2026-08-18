@@ -267,7 +267,7 @@ def test_any_earlier_threshold_observation_permanently_blocks_recross(caplog):
     assert "first_crossing_already_observed: 1" in caplog.text
 
 
-def test_archive_fetch_keeps_low_liquidity_baseline_for_higher_entry_cohort():
+def test_archive_fetch_keeps_low_liquidity_and_uses_cumulative_volume_envelope():
     gamma = SimpleNamespace(get_all_tradable_markets=MagicMock(return_value=[]))
     scanner = MarketScanner(
         gamma,
@@ -277,5 +277,5 @@ def test_archive_fetch_keeps_low_liquidity_baseline_for_higher_entry_cohort():
     assert scanner.fetch_markets() == []
     gamma.get_all_tradable_markets.assert_called_once_with(
         min_liquidity=1_000.0,
-        min_volume=0,
+        min_volume=5_000.0,
     )

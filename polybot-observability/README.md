@@ -25,6 +25,15 @@ token/secret 형태의 public identifier도 보수적으로 가려질 수 있으
 실패하면 trading cycle도 시작하지 않는다. 텔레메트리 없는 실거래를 허용하지 않고,
 Jenkins 동시 실행/손상 DB를 조기에 드러내기 위한 안전 규칙이다.
 
+동일 Jenkins 사용자로 실행되는 Melon·Quince·Papaya·Queen job은
+`GammaSweepCache`로 필터가 완전히 같은 cursor-complete Gamma keyset sweep을 5분 bucket
+안에서 공유한다. 기본 경로는 Jenkins 사용자의
+`~/.cache/polybot/gamma-sweeps-v1`이고 권한은 owner-only다. 시장 결과뿐 아니라 membership
+digest와 완주 attestation을 검증한 경우에만 재사용하며, 유동성·누적 거래량 등 filter가
+하나라도 다르면 cache key도 분리된다. 전략별 SQLite archive와 first-crossing 판정은 계속
+독립적으로 수행되므로 이는 네트워크 중복 제거이지 전략 evidence 공유가 아니다. Jenkins 밖에서는
+`POLYBOT_GAMMA_SHARED_CACHE_DIR`을 절대경로로 명시하지 않는 한 비활성화된다.
+
 GTC 주문의 `live`/`accepted` 응답은 fill이 아니다. `ExecutionLedger`는 미완료 주문을 다음
 cycle에서 다시 조회하고, 연결된 모든 trade가 `CONFIRMED` 또는 `FAILED`가 될 때까지
 `needs_reconciliation=1`을 유지한다. 취소 주문도 `size_matched=0`이 명시되지 않으면 미체결로

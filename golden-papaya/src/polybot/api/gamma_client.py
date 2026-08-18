@@ -9,6 +9,8 @@ from typing import List, Dict, Optional
 from uuid import uuid4
 
 import requests
+from polybot_observability.gamma_sweep_cache import GammaSweepCache
+
 from ..utils.retry import rate_limit_handler
 
 logger = logging.getLogger(__name__)
@@ -163,6 +165,63 @@ class GammaClient:
         return parsed
 
     def get_all_tradable_markets(
+        self,
+        min_liquidity: float = 0,
+        min_volume: float = 0,
+    ) -> List[Dict]:
+        """Get one complete universe, reusing an identical same-host sweep."""
+        min_liquidity = float(min_liquidity)
+        min_volume = float(min_volume)
+        if (
+            not math.isfinite(min_liquidity)
+            or not math.isfinite(min_volume)
+            or min_liquidity < 0
+            or min_volume < 0
+        ):
+            raise ValueError("Gamma sweep filters must be finite and non-negative")
+
+        cache = GammaSweepCache.from_environment()
+        if cache is None:
+            return self._get_all_tradable_markets_uncached(
+                min_liquidity, min_volume
+            )
+
+        filters = {
+            "base_url": self.BASE_URL,
+            "closed": "false",
+            "include_tag": "true",
+            "limit": 100,
+            "min_liquidity": min_liquidity,
+            "min_volume": min_volume,
+            "qualification_schema": "strict-numeric-v1",
+            "sweep_schema_version": self.SWEEP_SCHEMA_VERSION,
+        }
+
+        def producer():
+            markets = self._get_all_tradable_markets_uncached(
+                min_liquidity,
+                min_volume,
+            )
+            attestation = self.last_sweep_attestation
+            if attestation is None:
+                raise RuntimeError("Gamma sweep completed without an attestation")
+            return markets, attestation
+
+        markets, attestation, cache_hit = cache.get_or_create(
+            filters=filters,
+            producer=producer,
+        )
+        if cache_hit:
+            self.sweep_attestations.append(attestation)
+        logger.info(
+            "Gamma shared sweep %s: %s markets, source=%s",
+            "cache hit" if cache_hit else "published",
+            len(markets),
+            attestation.get("source_sweep_id"),
+        )
+        return [self._parse_market(market) for market in markets]
+
+    def _get_all_tradable_markets_uncached(
         self,
         min_liquidity: float = 0,
         min_volume: float = 0,

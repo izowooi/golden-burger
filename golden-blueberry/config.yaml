@@ -63,9 +63,12 @@ trading:
     max_in_play_minutes: 360
 
   # Wider than the entry band/horizon so the first crossing is provable.
+  # Gamma volume is cumulative lifetime volume, not volume24hr.  The archive
+  # and first-crossing lineage begin only after this gate is reached.
   archive:
     prob_min: 0.75
     hours_max: 168
+    min_cumulative_volume: 5000
     retention_days: 60
 
   excluded_categories: []

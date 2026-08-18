@@ -118,9 +118,11 @@ class PolymarketBot:
             trading.sports.max_in_play_minutes,
         )
         logger.info(
-            "research archive - strict binary YES >= %.2f, hours <= %.0f, retention=%sd",
+            "research archive - strict binary YES >= %.2f, hours <= %.0f, "
+            "cumulative volume >= $%.0f, retention=%sd",
             archive.prob_min,
             archive.hours_max,
+            archive.min_cumulative_volume,
             archive.retention_days,
         )
         logger.info(
@@ -379,6 +381,9 @@ class PolymarketBot:
                     "archive": {
                         "prob_min": trading.archive.prob_min,
                         "hours_max": trading.archive.hours_max,
+                        "min_cumulative_volume": (
+                            trading.archive.min_cumulative_volume
+                        ),
                         "retention_days": trading.archive.retention_days,
                     },
                     "sports": {

@@ -156,6 +156,9 @@ class ArchiveConfig:
     prob_min: float = 0.75
     hours_max: float = 168.0
     retention_days: int = 60
+    # Gamma's ``volume`` is cumulative lifetime volume.  This is deliberately
+    # separate from TradingConfig.min_volume_24h, which remains the entry gate.
+    min_cumulative_volume: float = 5_000.0
 
 
 @dataclass(frozen=True)
@@ -296,6 +299,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "archive.prob_min": archive.prob_min,
         "archive.hours_max": archive.hours_max,
         "archive.retention_days": archive.retention_days,
+        "archive.min_cumulative_volume": archive.min_cumulative_volume,
         "sports.max_in_play_minutes": trading.sports.max_in_play_minutes,
     }
     for name, value in numeric.items():
@@ -398,6 +402,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("archive.hours_max must cover the entry horizon")
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
+    if archive.min_cumulative_volume < 0:
+        raise ValueError("archive.min_cumulative_volume must be >= 0")
     if trading.sports.max_in_play_minutes <= 0:
         raise ValueError("sports.max_in_play_minutes must be > 0")
     # Validate the worst (highest-price) order, not just today's candidate.
@@ -517,6 +523,11 @@ def load_config(
             archive_cfg.get("retention_days"),
             60,
             int,
+        ),
+        min_cumulative_volume=_get_config_value(
+            "POLYBOT_ARCHIVE_MIN_CUMULATIVE_VOLUME",
+            archive_cfg.get("min_cumulative_volume"),
+            5_000.0,
         ),
     )
     sports = SportsConfig(

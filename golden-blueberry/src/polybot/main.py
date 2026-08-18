@@ -196,6 +196,8 @@ def main() -> None:
     print(
         f"Archive: YES >= {trading.archive.prob_min:.2f}, "
         f"<= {trading.archive.hours_max:.0f}h, "
+        f"cumulative volume >= "
+        f"${trading.archive.min_cumulative_volume:,.0f}, "
         f"{trading.archive.retention_days}d retention"
     )
     print(

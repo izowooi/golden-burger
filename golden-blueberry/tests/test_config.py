@@ -69,6 +69,7 @@ def test_closing_surge_defaults_are_fail_closed():
     assert trading.entry.min_surge == 0.02
     assert trading.archive.prob_min == 0.75
     assert trading.archive.hours_max == 168.0
+    assert trading.archive.min_cumulative_volume == 5_000.0
     assert trading.archive.retention_days == 60
     assert trading.sports.use_game_start_time is True
     assert trading.sports.allow_in_play is True
@@ -92,12 +93,14 @@ def test_env_overrides_yaml_and_yaml_overrides_default(tmp_path, monkeypatch):
         "  archive:\n"
         "    prob_min: 0.81\n"
         "    hours_max: 120\n"
+        "    min_cumulative_volume: 4000\n"
         "    retention_days: 61\n",
         encoding="utf-8",
     )
     monkeypatch.setenv("POLYBOT_MIN_LIQUIDITY", "10000")
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MIN", "0.95")
     monkeypatch.setenv("POLYBOT_ARCHIVE_PROB_MIN", "0.82")
+    monkeypatch.setenv("POLYBOT_ARCHIVE_MIN_CUMULATIVE_VOLUME", "5000")
     monkeypatch.setenv("POLYBOT_MAX_SNAPSHOT_GAP_MINUTES", "20")
 
     trading = load_config(str(path)).trading
@@ -110,6 +113,7 @@ def test_env_overrides_yaml_and_yaml_overrides_default(tmp_path, monkeypatch):
     assert trading.entry.hours_max == 48
     assert trading.archive.prob_min == 0.82
     assert trading.archive.hours_max == 120
+    assert trading.archive.min_cumulative_volume == 5_000
     assert trading.archive.retention_days == 61
     assert trading.max_event_positions == 2
     assert trading.max_snapshot_gap_minutes == 20  # env > YAML
@@ -135,6 +139,7 @@ def test_all_strategy_env_names_resolve(monkeypatch):
         "POLYBOT_MIN_SURGE": "0.05",
         "POLYBOT_ARCHIVE_PROB_MIN": "0.80",
         "POLYBOT_ARCHIVE_HOURS_MAX": "180",
+        "POLYBOT_ARCHIVE_MIN_CUMULATIVE_VOLUME": "7500",
         "POLYBOT_SNAPSHOT_RETENTION_DAYS": "90",
         "POLYBOT_YES_ONLY": "true",
         "POLYBOT_EXCLUDED_CATEGORIES": "Sports, Crypto",
@@ -166,6 +171,7 @@ def test_all_strategy_env_names_resolve(monkeypatch):
     assert trading.entry.min_surge == 0.05
     assert trading.archive.prob_min == 0.80
     assert trading.archive.hours_max == 180
+    assert trading.archive.min_cumulative_volume == 7_500
     assert trading.archive.retention_days == 90
     assert trading.yes_only_mode is True
     assert trading.excluded_categories == ["Sports", "Crypto"]

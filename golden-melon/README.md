@@ -148,6 +148,10 @@ sqlite3 data/polybot-melon-mid/trades.db \
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active` / `close_only` / `archive_only` |
 | `LOG_LEVEL` | `INFO` | Python 로그 수준 |
 
+동일한 Gamma archive request filter를 쓰는 같은 호스트의 Queen·Papaya·Quince job과는
+cursor-complete public sweep만 5분 단위로 공유한다. 각 job의 snapshot 저장, first-crossing,
+거절 사유와 주문 판단은 기존처럼 독립 DB에서 수행한다.
+
 ## 퇴역
 
 `close_only`는 강제 매도가 아니다. 설정을 바꿔도 기존 포지션은 매수 당시 저장된

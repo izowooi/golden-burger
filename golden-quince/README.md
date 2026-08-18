@@ -187,6 +187,10 @@ observation도 archive에는 남겨 교차 이력을 소실하지 않지만, 신
 따라서 “최초 0.90 상향 교차”는 전 세계 과거 전체가 아니라 이 Quince archive envelope와
 보존기간 안에서 처음 관측했다는 뜻이다.
 
+같은 호스트에서 필터가 완전히 같은 Melon·Papaya·Queen job이 이미 완주한 Gamma public
+sweep은 검증된 membership digest와 함께 5분 단위로 재사용한다. Quince의 archive 저장과
+first-crossing·주문 판정은 공유하지 않고 이 job의 DB에서 독립적으로 수행한다.
+
 ## 스포츠 시간 계약
 
 | 상태 | 기본 동작 |

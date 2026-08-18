@@ -14,6 +14,7 @@ def test_jenkins_arms_share_wall_clock_but_not_runtime_job():
     assert "disableConcurrentBuilds()" in source
     assert "POLYBOT_MIN_SURGE=0.02" in source
     assert "POLYBOT_MIN_SURGE=0.05" in source
+    assert "POLYBOT_ARCHIVE_MIN_CUMULATIVE_VOLUME=5000" in source
     assert "RUNTIME_JOB=blueberry-live-a-2pp" in source
     assert "RUNTIME_JOB=blueberry-live-b-5pp" in source
 
