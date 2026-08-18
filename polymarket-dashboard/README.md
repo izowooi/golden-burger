@@ -167,11 +167,13 @@ GET /api/strategies
 ## Jenkins 상태 수집기
 
 Cloudflare Worker는 사설망 Jenkins에 접근할 수 없으므로, LAN 안의 Mac mini Jenkins에서
-`scripts/sync-jenkins-status.mjs`를 실행합니다. 이 수집기는 `api/json` metadata만 읽으며
-config.xml, console secret, workspace 파일은 읽지 않습니다.
+`scripts/sync_jenkins_status.py`를 실행합니다. Node가 준비된 환경에서는 같은 계약의
+`scripts/sync-jenkins-status.mjs`도 사용할 수 있습니다. 두 수집기 모두 `api/json`
+metadata만 읽으며 config.xml, console secret, workspace 파일은 읽지 않습니다.
 
-권장 Jenkins Freestyle shell은 다음과 같습니다. Supabase 값은 inline export가 아니라
-Credentials Binding으로 제공합니다.
+권장 Jenkins Freestyle shell은 다음과 같습니다. Mac mini의 Jenkins 서비스 계정에 Node가
+없어도 실행되도록 Python 표준 라이브러리 수집기를 사용합니다. Supabase 값은 inline
+export가 아니라 Credentials Binding으로 제공합니다.
 
 ```bash
 #!/bin/bash
@@ -182,8 +184,17 @@ export JENKINS_URL=http://192.168.50.23:8080
 export JENKINS_REQUEST_TIMEOUT_MS=10000
 
 cd ./polymarket-dashboard
-npm ci
-npm run sync:jenkins
+
+PYTHON=/usr/bin/python3
+if [[ ! -x "${PYTHON}" ]]; then
+  PYTHON="$(command -v python3 || true)"
+fi
+if [[ -z "${PYTHON}" ]]; then
+  echo 'python3 is unavailable to the Jenkins service account' >&2
+  exit 127
+fi
+
+"${PYTHON}" ./scripts/sync_jenkins_status.py
 ```
 
 권장 `Build periodically`는 `H/5 * * * *`입니다. 실제 trading job을 실행하는 것이 아니라
@@ -191,10 +202,13 @@ npm run sync:jenkins
 cadence와 맞아 장애를 한 cycle 안에 보이게 합니다. Jenkins가 익명 read를 막는 경우에만
 `JENKINS_USER`와 `JENKINS_API_TOKEN`을 둘 다 Credentials Binding으로 추가합니다.
 
-로컬에서 한 번 실행할 때도 같은 환경변수를 사용합니다.
+로컬에서 한 번 실행할 때도 같은 환경변수를 사용합니다. Node가 준비된 개발 환경에서는
+기존 JavaScript 수집기도 동일한 DB 계약으로 사용할 수 있습니다.
 
 ```bash
 cd polymarket-dashboard
+python3 ./scripts/sync_jenkins_status.py
+# 또는
 npm run sync:jenkins
 ```
 
