@@ -22,29 +22,29 @@ insert into public.pd_strategies (
 )
 values
   (
-    'golden-strawberry', 'Golden Strawberry', 'Last Mile',
-    '0.95 상향 교차 뒤 1.00 수렴과 0.85 이하 실패 경로를 함께 기록한다.',
+    'golden-strawberry', 'Golden Strawberry', '0.95 돌파 후 가격 경로 수집',
+    '시장 가격이 0.95를 처음 넘은 뒤 1.00 수렴, 0.85 하락, 최종 해결까지의 경로를 함께 기록한다.',
     'SIMULATION_RESEARCH', 'SIMULATION', 'ACTIVE',
     '2026-08-15T04:00:00Z', '2026-08-15T04:00:00Z', 7,
-    '계정·주문 없는 frozen 7일 관측 cohort를 외장 디스크에서 수집 중이다.',
+    '실제 주문 없이 7일 동안 신규 사례를 모으고, 이후 최종 해결 결과까지 추적한다.',
     '첫 24시간 collection-health 검토가 기한을 넘겼다. 수익성 판단 전에 수집 계약부터 확인해야 한다.',
     'golden-strawberry/STRATEGY.md', false, 10
   ),
   (
-    'golden-raspberry', 'Golden Raspberry', 'Queue Echo',
-    'YES·NO book의 지속적 displayed-depth imbalance가 60분 뒤 실행가능 수익률을 예측하는지 검정한다.',
+    'golden-raspberry', 'Golden Raspberry', '호가 잔량과 60분 뒤 가격 비교',
+    'YES·NO 호가 잔량의 불균형이 60분 뒤 가격 움직임을 예측하는지 검증한다.',
     'SIMULATION_RESEARCH', 'SIMULATION', 'ACTIVE',
     '2026-08-13T12:00:00Z', '2026-08-13T12:00:00Z', 30,
-    'DO·RE·MI 세 독립 shard의 external-v2 confirmatory cohort를 수집 중이다.',
+    '외장 하드의 세 수집 구간에서 같은 검증 항목을 나눠 기록하고 있다.',
     null,
     'golden-raspberry/STRATEGY.md', false, 20
   ),
   (
-    'golden-kiwi', 'Golden Kiwi', 'Micro-Cascade',
-    '3~5회의 작은 연속 상승이 이후 60분에도 지속되는지 네 simulation arm으로 검정한다.',
+    'golden-kiwi', 'Golden Kiwi', '연속 상승 후속 움직임 검증',
+    '5분 간격의 작은 연속 상승이 60분 뒤에도 이어지는지 네 조건으로 검증한다.',
     'SIMULATION_RESEARCH', 'SIMULATION', 'ACTIVE',
     '2026-08-13T00:00:00Z', '2026-08-13T00:00:00Z', 30,
-    '네 팔을 5분 offset cadence로 수집한다. live 실행은 source-level로 차단되어 있다.',
+    '연속 횟수와 누적 상승폭을 조합한 네 조건을 5분 간격으로 비교하고 있다.',
     '이전 OOS gate는 네 팔 모두 실패했다. 현재 cohort 결과를 과거 결과와 섞지 않는다.',
     'golden-kiwi/STRATEGY.md', false, 30
   ),
@@ -79,7 +79,7 @@ values
     'golden-blueberry', 'Golden Blueberry', 'Closing Surge',
     '해결 임박 첫 0.85 교차의 직전 급등폭 +2pp와 +5pp가 선별력을 갖는지 비교한다.',
     'LIVE_TRADING', 'LIVE_VALIDATION', 'ACTIVE',
-    '2026-08-12T17:30:14Z', '2026-08-12T17:30:14Z', 30,
+    '2026-08-05T13:13:37Z', '2026-08-05T13:13:37Z', 30,
     '두 live arm과 별도 shadow research job을 함께 운영한다.',
     null,
     'golden-blueberry/STRATEGY.md', false, 120
@@ -260,10 +260,10 @@ values
   ('polybot-kiwi-b', 'golden-kiwi', 'kiwi-sim-b-3x2', 'SIMULATION', '3-step / +2pp', '1-59/5 * * * *', 5, 'INTERNAL', 'Research-only arm B'),
   ('polybot-kiwi-c', 'golden-kiwi', 'kiwi-sim-c-5x1', 'SIMULATION', '5-step / +1pp', '2-59/5 * * * *', 5, 'INTERNAL', 'Research-only arm C'),
   ('polybot-kiwi-d', 'golden-kiwi', 'kiwi-sim-d-5x2', 'SIMULATION', '5-step / +2pp', '3-59/5 * * * *', 5, 'INTERNAL', 'Research-only arm D'),
-  ('polybot-do', 'golden-raspberry', 'raspberry-do-shard-0', 'RESEARCH', 'DO / 1 observation', '0-59/5 * * * *', 5, 'EXTERNAL', 'Queue Echo shard 0'),
-  ('polybot-re', 'golden-raspberry', 'raspberry-re-shard-1', 'RESEARCH', 'RE / 2 observations', '1-59/5 * * * *', 5, 'EXTERNAL', 'Queue Echo shard 1'),
-  ('polybot-mi', 'golden-raspberry', 'raspberry-mi-shard-2', 'RESEARCH', 'MI / 3 observations', '2-59/5 * * * *', 5, 'EXTERNAL', 'Queue Echo primary shard 2'),
-  ('polybot-shadow-one', 'golden-strawberry', 'strawberry-shadow-one', 'RESEARCH', 'frozen last-mile cohort', '7-59/10 * * * *', 10, 'EXTERNAL', 'Credential-free Last Mile collector')
+  ('polybot-do', 'golden-raspberry', 'raspberry-do-shard-0', 'RESEARCH', '수집 구간 1/3', '0-59/5 * * * *', 5, 'EXTERNAL', '호가 잔량 검증 자료의 첫 번째 구간'),
+  ('polybot-re', 'golden-raspberry', 'raspberry-re-shard-1', 'RESEARCH', '수집 구간 2/3', '1-59/5 * * * *', 5, 'EXTERNAL', '호가 잔량 검증 자료의 두 번째 구간'),
+  ('polybot-mi', 'golden-raspberry', 'raspberry-mi-shard-2', 'RESEARCH', '수집 구간 3/3', '2-59/5 * * * *', 5, 'EXTERNAL', '호가 잔량 검증 자료의 세 번째 구간'),
+  ('polybot-shadow-one', 'golden-strawberry', 'strawberry-shadow-one', 'RESEARCH', '0.95 돌파 경로 수집', '7-59/10 * * * *', 10, 'EXTERNAL', '실제 주문 없는 가격 경로 수집')
 on conflict (job_name) do update set
   strategy_id = excluded.strategy_id,
   runtime_job = excluded.runtime_job,
@@ -273,6 +273,45 @@ on conflict (job_name) do update set
   expected_cadence_minutes = excluded.expected_cadence_minutes,
   workspace_class = excluded.workspace_class,
   notes = excluded.notes;
+
+update public.pd_jenkins_jobs as job
+set
+  treatment_label = valueset.treatment_label,
+  purpose = valueset.purpose,
+  test_size_label = valueset.test_size_label,
+  experiment_started_at = valueset.started_at::timestamptz,
+  experiment_ends_at = valueset.ends_at::timestamptz,
+  notes = valueset.notes
+from (
+  values
+    ('polybot-cat', '24시간', '해결까지 24시간 이내인 0.95 첫 돌파를 검증', '거래 $5 · 계정 $300', '2026-08-12T12:17:10Z', '2026-09-11T12:17:10Z', '2026-08-12 clean 옵션 제거 뒤 새 검증 시작'),
+    ('polybot-dog', '72시간', '해결까지 72시간 이내인 0.95 첫 돌파를 검증', '거래 $5 · 계정 $300', '2026-08-12T12:17:26Z', '2026-09-11T12:17:26Z', '2026-08-12 clean 옵션 제거 뒤 새 검증 시작'),
+    ('polybot-queen', '24시간', '해결까지 24시간 이내인 0.90 첫 돌파를 검증', '거래 $100 · 계정 $3,000', '2026-08-12T12:02:07Z', '2026-09-11T12:02:07Z', '2026-08-12 clean 옵션 제거 뒤 새 검증 시작'),
+    ('polybot-king', '12시간', '해결까지 12시간 이내인 0.90 첫 돌파를 검증', '거래 $100 · 계정 $3,000', '2026-08-12T12:02:01Z', '2026-09-11T12:02:01Z', '2026-08-12 clean 옵션 제거 뒤 새 검증 시작'),
+    ('polybot-eagle', '급등폭 +2%p', '직전 가격보다 최소 2%p 급등한 후보를 실거래로 검증', '거래 $5 · 실험 한도 $150', '2026-08-05T13:13:37Z', '2026-09-04T13:13:37Z', 'Blueberry의 완화 조건'),
+    ('polybot-fox', '급등폭 +5%p', '직전 가격보다 최소 5%p 급등한 후보를 실거래로 검증', '거래 $5 · 실험 한도 $150', '2026-08-05T13:13:47Z', '2026-09-04T13:13:47Z', 'Blueberry의 엄격 조건'),
+    ('polybot-shadow', '자료 수집', 'Blueberry 후보의 가격·호가·해결 경로를 실제 주문 없이 수집', '실거래 없음', null, '2026-09-04T13:13:47Z', 'Blueberry 30일 검증 종료일까지 외장 하드에 보조 자료 수집'),
+    ('polybot-fruit', '거래량 높음', '24시간 거래량 기준을 높게 둔 조건을 검증', '거래 $5 · 계정 $300', '2026-08-05T13:14:21Z', '2026-09-04T13:14:21Z', '계정 별칭은 fox, Jenkins 이름은 polybot-fruit'),
+    ('polybot-lime', '거래량 중간', '24시간 거래량 기준을 중간으로 둔 조건을 검증', '거래 $5 · 계정 $300', '2026-08-05T13:14:35Z', '2026-09-04T13:14:35Z', 'Jenkins 이름과 golden-lime 전략을 혼동하지 않음'),
+    ('polybot-wolf', '거래량 낮음', '24시간 거래량 기준을 낮게 둔 조건을 검증', '거래 $5 · 계정 $780', '2026-08-05T13:14:45Z', '2026-09-04T13:14:45Z', 'Melon의 낮은 거래량 조건'),
+    ('polybot-bear', '지정가 대기', '호가를 기다리는 주문 방식의 체결 비용을 검증', '거래 $5 · 계정 $300', '2026-08-12T15:26:26Z', '2026-09-11T15:26:26Z', '2026-08-13 KST 새 DB로 검증 시작'),
+    ('polybot-eco', '근접 지정가', '현재 호가에 가까운 지정가 방식의 체결 비용을 검증', '거래 $5 · 계정 $300', '2026-08-12T15:26:32Z', '2026-09-11T15:26:32Z', '2026-08-13 KST 새 DB로 검증 시작'),
+    ('polybot-tiger', '즉시 체결', '즉시 체결하는 주문 방식의 체결 비용을 검증', '거래 $5 · 계정 $300', '2026-08-12T15:26:34Z', '2026-09-11T15:26:34Z', '2026-08-13 KST 새 DB로 검증 시작'),
+    ('polybot-yellow', '기준값', 'Golden Cherry의 기준 수치로 실제 거래와 청산을 운영', '실거래', '2026-08-14T11:40:00Z', '2026-09-13T11:40:00Z', 'Jenkins 이름과 계정명은 전략 폴더명과 다름'),
+    ('polybot-orange', '조정값', 'Golden Cherry에서 진입·청산 수치를 조정한 조건을 비교', '실거래', '2026-08-14T11:40:00Z', '2026-09-13T11:40:00Z', 'Golden Orange 전략이 아니라 Golden Cherry를 실행'),
+    ('polybot-cherry', '청산 전용', '기존 Elderberry 포지션만 정리하고 신규 진입은 받지 않음', '신규 거래 없음', '2026-07-05T09:51:00Z', '2026-08-30T15:00:00Z', '8월 말에 재개 또는 폐쇄 검토'),
+    ('polybot-red', '폐쇄 정리', '폐쇄된 Date 전략 계정의 잔여 포지션만 정리', '신규 거래 없음', null, null, 'Date 전략은 폐쇄됨'),
+    ('golden-pomegranate', '공개 시장 상시 수집', '공개 시장·체결·표본 호가를 거래 없이 장기 보존', '실거래 없음', '2026-08-06T00:00:00Z', null, '종료일 없이 운영하며 월간 저장공간 점검'),
+    ('polybot-kiwi-a', '3회 · +1%p', '3회 연속 상승과 누적 +1%p 조건을 가상 검증', '가상 $5 · 실거래 없음', '2026-08-13T00:00:00Z', '2026-09-12T00:00:00Z', '실거래 실행은 코드에서 차단'),
+    ('polybot-kiwi-b', '3회 · +2%p', '3회 연속 상승과 누적 +2%p 조건을 가상 검증', '가상 $5 · 실거래 없음', '2026-08-13T00:00:00Z', '2026-09-12T00:00:00Z', '실거래 실행은 코드에서 차단'),
+    ('polybot-kiwi-c', '5회 · +1%p', '5회 연속 상승과 누적 +1%p 조건을 가상 검증', '가상 $5 · 실거래 없음', '2026-08-13T00:00:00Z', '2026-09-12T00:00:00Z', '실거래 실행은 코드에서 차단'),
+    ('polybot-kiwi-d', '5회 · +2%p', '5회 연속 상승과 누적 +2%p 조건을 가상 검증', '가상 $5 · 실거래 없음', '2026-08-13T00:00:00Z', '2026-09-12T00:00:00Z', '실거래 실행은 코드에서 차단'),
+    ('polybot-do', '수집 구간 1/3', '전체 시장을 세 구간으로 나눈 첫 번째 자료 수집', '가상 $5 · 실거래 없음', '2026-08-13T12:00:00Z', '2026-09-12T12:00:00Z', '세 구간 모두 동일한 검증 조건을 계산'),
+    ('polybot-re', '수집 구간 2/3', '전체 시장을 세 구간으로 나눈 두 번째 자료 수집', '가상 $5 · 실거래 없음', '2026-08-13T12:00:00Z', '2026-09-12T12:00:00Z', '세 구간 모두 동일한 검증 조건을 계산'),
+    ('polybot-mi', '수집 구간 3/3', '전체 시장을 세 구간으로 나눈 세 번째 자료 수집', '가상 $5 · 실거래 없음', '2026-08-13T12:00:00Z', '2026-09-12T12:00:00Z', '세 구간 모두 동일한 검증 조건을 계산'),
+    ('polybot-shadow-one', '0.95 돌파 경로 수집', '0.95 첫 돌파 뒤 상승·하락·최종 해결 경로를 실제 주문 없이 수집', '가상 $5 · 실거래 없음', '2026-08-15T04:00:00Z', '2026-09-21T04:00:00Z', '신규 사례는 2026-08-22까지, 기존 사례의 최종 결과는 2026-09-21까지 추적')
+) as valueset(job_name, treatment_label, purpose, test_size_label, started_at, ends_at, notes)
+where job.job_name = valueset.job_name;
 
 insert into public.pd_strategy_checkpoints (
   checkpoint_id,
@@ -286,33 +325,33 @@ insert into public.pd_strategy_checkpoints (
   source_ref
 )
 values
-  ('strawberry:first24:20260816', 'golden-strawberry', 'COLLECTION_HEALTH', '첫 24시간 collection health', '2026-08-16T04:00:00Z', 'PENDING', null, 'cadence, cursor/membership, crossing book, Gamma metadata, path/resolution, cohort, DB 무결성과 저장공간 증가량만 검증한다.', 'golden-strawberry/STRATEGY.md'),
-  ('strawberry:day7:20260822', 'golden-strawberry', 'DAY_7_REVIEW', 'Frozen entry window 종료 검토', '2026-08-22T04:00:00Z', 'PENDING', null, 'collection validity를 먼저 판정하고, 수익성 결론은 resolution coverage가 충분할 때까지 보류한다.', 'golden-strawberry/STRATEGY.md'),
-  ('strawberry:resolution:20260921', 'golden-strawberry', 'DAY_30_REVIEW', 'Resolution follow-up 종료', '2026-09-21T04:00:00Z', 'PENDING', null, 'terminal Gamma payout과 경로 coverage를 확정하고 frozen cohort를 판정한다.', 'golden-strawberry/STRATEGY.md'),
-  ('raspberry:first24:20260814', 'golden-raspberry', 'COLLECTION_HEALTH', 'External-v2 첫 24시간 health', '2026-08-14T12:00:00Z', 'PENDING', null, '세 shard cadence와 pair/follow-up/control/cohort/DB를 정확한 24시간 범위로 확인한다.', 'docs/retro-summaries/019-golden-raspberry-external-workspace-restart-2026-08-13.md'),
-  ('raspberry:day7:20260820', 'golden-raspberry', 'DAY_7_REVIEW', 'Queue Echo 7일 collection review', '2026-08-20T12:00:00Z', 'PENDING', null, '세 shard의 evidence completeness와 neutral/opposite control을 검토한다. threshold는 바꾸지 않는다.', 'golden-raspberry/STRATEGY.md'),
-  ('raspberry:day30:20260912', 'golden-raspberry', 'DAY_30_REVIEW', 'Queue Echo frozen cohort 판정', '2026-09-12T12:00:00Z', 'PENDING', null, '사전 등록 gate로만 판정하고 DO/RE를 사후 primary로 바꾸지 않는다.', 'golden-raspberry/STRATEGY.md'),
-  ('kiwi:day7:20260820', 'golden-kiwi', 'DAY_7_REVIEW', 'Filtered universe 7일 health', '2026-08-20T00:00:00Z', 'PENDING', null, '5분 cadence와 runtime, 네 팔의 동일 source cohort, follow-up coverage를 확인한다.', 'golden-kiwi/STRATEGY.md'),
-  ('kiwi:day30:20260912', 'golden-kiwi', 'DAY_30_REVIEW', 'Micro-Cascade 독립 검정', '2026-09-12T00:00:00Z', 'PENDING', null, 'frozen primary B gate를 그대로 적용한다. 통과해도 shadow review만 허용한다.', 'golden-kiwi/STRATEGY.md'),
-  ('pomegranate:monthly:20260907', 'golden-pomegranate', 'MONTHLY_REVIEW', 'Observatory 월간 capacity review', '2026-09-07T00:00:00Z', 'PENDING', null, 'daily shard, checksum, backup restore, source component coverage와 외장 디스크 증가량을 확인한다.', 'golden-pomegranate/STRATEGY.md'),
-  ('papaya:day7:20260819', 'golden-papaya', 'DAY_7_REVIEW', 'Final Five 7일 운영 검토', '2026-08-19T12:17:10Z', 'PENDING', null, '두 시간축의 cadence, confirmed fill, lifecycle completeness와 표본 수만 확인한다.', 'golden-papaya/STRATEGY.md'),
-  ('papaya:day30:20260911', 'golden-papaya', 'DAY_30_REVIEW', 'Final Five 30일 판정', '2026-09-11T12:17:10Z', 'PENDING', null, '단일 cohort와 strict confirmed-fill evidence로 수익성·승격 여부를 판정한다.', 'golden-papaya/STRATEGY.md'),
-  ('queen:day7:20260819', 'golden-queen', 'DAY_7_REVIEW', 'Crown Momentum 7일 운영 검토', '2026-08-19T12:02:01Z', 'PENDING', null, '12h·24h cadence와 첫 crossing/confirmed fill lifecycle을 확인한다.', 'golden-queen/STRATEGY.md'),
-  ('queen:day30:20260911', 'golden-queen', 'DAY_30_REVIEW', 'Crown Momentum 30일 판정', '2026-09-11T12:02:01Z', 'PENDING', null, 'strict evidence로 12h·24h를 비교하고 동시 파라미터 변경을 피한다.', 'golden-queen/STRATEGY.md'),
-  ('blueberry:day7:20260819', 'golden-blueberry', 'DAY_7_REVIEW', 'Closing Surge 7일 운영 검토', '2026-08-19T17:30:14Z', 'PENDING', null, '+2pp·+5pp arm의 cadence와 exact lifecycle, shadow evidence coverage를 확인한다.', 'golden-blueberry/STRATEGY.md'),
-  ('blueberry:day30:20260911', 'golden-blueberry', 'DAY_30_REVIEW', 'Closing Surge 30일 판정', '2026-09-11T17:30:14Z', 'PENDING', null, '두 arm의 confirmed-fill 표본과 비용 후 기대값을 사전 등록 gate로 비교한다.', 'golden-blueberry/STRATEGY.md'),
-  ('melon:day7:20260812', 'golden-melon', 'DAY_7_REVIEW', 'Resolution Sprint 저활동 검토', '2026-08-12T13:14:00Z', 'COMPLETED', '2026-08-14T21:09:00Z', '세 volume arm의 저활동 원인과 evidence gap을 점검했다.', 'docs/retro-summaries/024-quince-melon-live-review-2026-08-15.md'),
-  ('melon:day30:20260904', 'golden-melon', 'DAY_30_REVIEW', 'Resolution Sprint 30일 판정', '2026-09-04T13:14:00Z', 'PENDING', null, 'high·mid·low volume arm을 단일 cohort confirmed-fill 기준으로 비교한다.', 'golden-melon/STRATEGY.md'),
-  ('quince:day7:20260819', 'golden-quince', 'DAY_7_REVIEW', 'Spread Harvest 7일 execution review', '2026-08-19T15:26:26Z', 'PENDING', null, 'passive·nearest·cross의 후보/주문/체결 coverage와 비용만 비교한다.', 'golden-quince/STRATEGY.md'),
-  ('quince:day30:20260911', 'golden-quince', 'DAY_30_REVIEW', 'Spread Harvest 30일 판정', '2026-09-11T15:26:26Z', 'PENDING', null, 'maker/taker 처치축 외 신호 파라미터를 동시에 바꾸지 않고 판정한다.', 'golden-quince/STRATEGY.md'),
-  ('cherry:stability:20260818', 'golden-cherry', 'STABILITY_GATE', 'Partial-fill lifecycle 결함 해소', '2026-08-18T12:00:00Z', 'PENDING', null, 'Yellow·Orange의 partially filled BUY/SELL을 exact fill size로 전환하고 PENDING 고착·open cap을 재검증한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
-  ('cherry:day7:20260821', 'golden-cherry', 'DAY_7_REVIEW', '재활성 cohort 7일 안정성 검토', '2026-08-21T11:40:00Z', 'PENDING', null, 'lifecycle 결함 해소 뒤 single-cohort cadence와 fill coverage를 먼저 확인한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
-  ('cherry:day30:20260913', 'golden-cherry', 'DAY_30_REVIEW', 'Yellow·Orange 파라미터 비교', '2026-09-13T11:40:00Z', 'PENDING', null, '동일 source의 파라미터 차이를 strict fill evidence와 counterfactual sweep으로 비교한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
-  ('elderberry:monthend:20260830', 'golden-elderberry', 'STABILITY_GATE', 'Panic Fade close-only 재검토', '2026-08-30T15:00:00Z', 'PENDING', null, '잔여 position·intent 대사를 확인하고 신규 진입 재개 또는 폐쇄를 결정한다.', 'golden-elderberry/STRATEGY.md'),
+  ('strawberry:first24:20260816', 'golden-strawberry', 'COLLECTION_HEALTH', '첫 24시간 수집 상태 확인', '2026-08-16T04:00:00Z', 'PENDING', null, '수집 주기, 시장 목록, 호가, 시장 정보, 가격 경로, 최종 결과, DB 무결성과 저장공간 증가량만 확인한다.', 'golden-strawberry/STRATEGY.md'),
+  ('strawberry:day7:20260822', 'golden-strawberry', 'DAY_7_REVIEW', '신규 사례 수집 종료', '2026-08-22T04:00:00Z', 'PENDING', null, '수집 데이터가 빠짐없는지 먼저 확인하고 최종 결과가 충분히 모일 때까지 수익성 결론은 보류한다.', 'golden-strawberry/STRATEGY.md'),
+  ('strawberry:resolution:20260921', 'golden-strawberry', 'DAY_30_REVIEW', '최종 결과 추적 종료', '2026-09-21T04:00:00Z', 'PENDING', null, '각 시장의 최종 결과와 전체 가격 경로를 확인해 고정된 검증 집단을 판정한다.', 'golden-strawberry/STRATEGY.md'),
+  ('raspberry:first24:20260814', 'golden-raspberry', 'COLLECTION_HEALTH', '첫 24시간 수집 상태 확인', '2026-08-14T12:00:00Z', 'PENDING', null, '세 수집 구간의 실행 주기, YES·NO 짝, 후속 가격, 비교군과 DB 무결성을 확인한다.', 'docs/retro-summaries/019-golden-raspberry-external-workspace-restart-2026-08-13.md'),
+  ('raspberry:day7:20260820', 'golden-raspberry', 'DAY_7_REVIEW', '7일 데이터 품질 확인', '2026-08-20T12:00:00Z', 'PENDING', null, '세 수집 구간의 누락과 비교군을 확인하며 검증 기준은 바꾸지 않는다.', 'golden-raspberry/STRATEGY.md'),
+  ('raspberry:day30:20260912', 'golden-raspberry', 'DAY_30_REVIEW', '30일 가설 판정', '2026-09-12T12:00:00Z', 'PENDING', null, '미리 정한 기준으로만 가설을 판정하고 결과를 본 뒤 대표 조건을 바꾸지 않는다.', 'golden-raspberry/STRATEGY.md'),
+  ('kiwi:day7:20260820', 'golden-kiwi', 'DAY_7_REVIEW', '7일 데이터 품질 확인', '2026-08-20T00:00:00Z', 'PENDING', null, '5분 실행 주기와 네 조건의 동일한 데이터 범위, 60분 뒤 가격 기록을 확인한다.', 'golden-kiwi/STRATEGY.md'),
+  ('kiwi:day30:20260912', 'golden-kiwi', 'DAY_30_REVIEW', '30일 가설 판정', '2026-09-12T00:00:00Z', 'PENDING', null, '미리 정한 대표 조건을 그대로 판정하며 통과해도 실제 거래 전 추가 검토가 필요하다.', 'golden-kiwi/STRATEGY.md'),
+  ('pomegranate:monthly:20260907', 'golden-pomegranate', 'MONTHLY_REVIEW', '월간 저장공간·백업 확인', '2026-09-07T00:00:00Z', 'PENDING', null, '일별 DB, 체크섬, 백업 복구, 수집 항목 누락과 외장 디스크 증가량을 확인한다.', 'golden-pomegranate/STRATEGY.md'),
+  ('papaya:day7:20260819', 'golden-papaya', 'DAY_7_REVIEW', '7일 체결·운영 확인', '2026-08-19T12:17:10Z', 'PENDING', null, '24시간·72시간 조건의 실행 주기, 실제 체결, 주문 상태와 표본 수를 확인한다.', 'golden-papaya/STRATEGY.md'),
+  ('papaya:day30:20260911', 'golden-papaya', 'DAY_30_REVIEW', '30일 최종 판정', '2026-09-11T12:17:10Z', 'PENDING', null, '검증 기간을 섞지 않고 확인된 실제 체결만으로 안정화 또는 폐쇄를 판정한다.', 'golden-papaya/STRATEGY.md'),
+  ('queen:day7:20260819', 'golden-queen', 'DAY_7_REVIEW', '7일 체결·운영 확인', '2026-08-19T12:02:01Z', 'PENDING', null, '12시간·24시간 조건의 실행 주기와 첫 돌파 이후 주문·체결 상태를 확인한다.', 'golden-queen/STRATEGY.md'),
+  ('queen:day30:20260911', 'golden-queen', 'DAY_30_REVIEW', '30일 최종 판정', '2026-09-11T12:02:01Z', 'PENDING', null, '확인된 실제 체결로 두 시간 조건을 비교하며 중간에 여러 수치를 함께 바꾸지 않는다.', 'golden-queen/STRATEGY.md'),
+  ('blueberry:day7:20260819', 'golden-blueberry', 'DAY_7_REVIEW', '다음 운영 상태 확인', '2026-08-19T17:30:14Z', 'PENDING', null, '+2%p·+5%p 조건의 실행 주기와 정확한 주문·체결, 보조 자료 수집 범위를 확인한다.', 'golden-blueberry/STRATEGY.md'),
+  ('blueberry:day30:20260911', 'golden-blueberry', 'DAY_30_REVIEW', '급등폭 +2%p·+5%p 최종 비교', '2026-09-04T13:13:37Z', 'PENDING', null, '두 조건의 확인된 실제 체결 수와 비용을 포함한 결과를 미리 정한 기준으로 비교한다.', 'golden-blueberry/STRATEGY.md'),
+  ('melon:day7:20260812', 'golden-melon', 'DAY_7_REVIEW', '거래량 세 조건의 초기 검토', '2026-08-12T13:14:00Z', 'COMPLETED', '2026-08-14T21:09:00Z', '세 거래량 조건에서 거래가 적었던 원인과 데이터 누락을 점검했다.', 'docs/retro-summaries/024-quince-melon-live-review-2026-08-15.md'),
+  ('melon:day30:20260904', 'golden-melon', 'DAY_30_REVIEW', '거래량 세 조건의 최종 비교', '2026-09-04T13:14:00Z', 'PENDING', null, '높음·중간·낮음 조건을 같은 기간의 확인된 실제 체결로 비교한다.', 'golden-melon/STRATEGY.md'),
+  ('quince:day7:20260819', 'golden-quince', 'DAY_7_REVIEW', '주문 방식별 체결 상태 확인', '2026-08-19T15:26:26Z', 'PENDING', null, '지정가 대기·근접 지정가·즉시 체결의 후보, 주문, 체결과 비용을 비교한다.', 'golden-quince/STRATEGY.md'),
+  ('quince:day30:20260911', 'golden-quince', 'DAY_30_REVIEW', '주문 방식별 최종 비교', '2026-09-11T15:26:26Z', 'PENDING', null, '주문 방식 이외의 진입 조건은 함께 바꾸지 않고 세 방식의 비용을 판정한다.', 'golden-quince/STRATEGY.md'),
+  ('cherry:stability:20260818', 'golden-cherry', 'STABILITY_GATE', '일부 체결 처리 오류 해소', '2026-08-18T12:00:00Z', 'PENDING', null, 'Yellow·Orange가 일부 체결된 실제 수량을 사용하고 대기 상태나 포지션 상한에 잘못 걸리지 않는지 확인한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
+  ('cherry:day7:20260821', 'golden-cherry', 'DAY_7_REVIEW', '재가동 7일 안정성 확인', '2026-08-21T11:40:00Z', 'PENDING', null, '주문 상태 오류를 해소한 뒤 같은 코드·설정 기간의 실행 주기와 체결 누락을 먼저 확인한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
+  ('cherry:day30:20260913', 'golden-cherry', 'DAY_30_REVIEW', '기준값·조정값 최종 비교', '2026-09-13T11:40:00Z', 'PENDING', null, '같은 코드에서 달리 둔 수치를 확인된 실제 체결과 대안 수치 계산으로 비교한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
+  ('elderberry:monthend:20260830', 'golden-elderberry', 'STABILITY_GATE', '청산 상태와 재개 여부 검토', '2026-08-30T15:00:00Z', 'PENDING', null, '남은 포지션과 주문 기록을 맞춘 뒤 신규 진입 재개 또는 폐쇄를 결정한다.', 'golden-elderberry/STRATEGY.md'),
   ('apple:deployment', 'golden-apple', 'DEPLOYMENT_DECISION', '현재 배치 여부 결정', null, 'BLOCKED', null, '새 검증 가설과 Jenkins job을 지정하기 전에는 운영 상태를 inactive로 유지한다.', 'golden-apple/README.md'),
   ('banana:deployment', 'golden-banana', 'DEPLOYMENT_DECISION', '현재 배치 여부 결정', null, 'BLOCKED', null, '계정명과 전략 배치를 분리하고 새 cohort를 사전 등록한 뒤 재검증한다.', 'golden-banana/README.md'),
-  ('grape:deployment', 'golden-grape', 'DEPLOYMENT_DECISION', 'Simulation cohort 설계', null, 'BLOCKED', null, 'Jenkins 배치 전에 독립 시간구간과 evidence gate를 등록한다.', 'golden-grape/STRATEGY.md'),
-  ('orange:deployment', 'golden-orange', 'DEPLOYMENT_DECISION', 'Simulation cohort 설계', null, 'BLOCKED', null, 'polybot-orange 이름과 분리된 새 job·cohort를 등록해야 한다.', 'golden-orange/STRATEGY.md')
+  ('grape:deployment', 'golden-grape', 'DEPLOYMENT_DECISION', '시뮬레이션 계획 수립', null, 'BLOCKED', null, 'Jenkins 배치 전에 독립된 검증 기간과 판정 기준을 등록한다.', 'golden-grape/STRATEGY.md'),
+  ('orange:deployment', 'golden-orange', 'DEPLOYMENT_DECISION', '시뮬레이션 계획 수립', null, 'BLOCKED', null, 'polybot-orange와 구분되는 새 Jenkins 잡과 검증 기간을 등록해야 한다.', 'golden-orange/STRATEGY.md')
 on conflict (checkpoint_id) do update set
   strategy_id = excluded.strategy_id,
   checkpoint_type = excluded.checkpoint_type,
@@ -341,3 +380,33 @@ set attention_level = case strategy_id
   when 'golden-lime' then 'INFO'
   else 'NONE'
 end;
+
+update public.pd_strategies as strategy
+set
+  thesis = valueset.thesis,
+  current_summary = valueset.current_summary
+from (
+  values
+    ('golden-apple', '가격이 0.80 이상이면 매수하고 0.90에서 청산하도록 구현한 초기 확률 전략이다.', '코드는 구현되어 있지만 현재 이 폴더를 실행하는 Jenkins 잡은 없다.'),
+    ('golden-banana', '0.85~0.97 가격 구간에서 단기 평균선이 장기 평균선을 넘는 움직임을 이용한다.', '코드는 구현되어 있지만 현재 이 폴더를 실행하는 Jenkins 잡은 없다.'),
+    ('golden-blueberry', '해결이 가까운 시장에서 가격이 0.85를 처음 넘을 때 직전 상승폭 +2%p와 +5%p 조건을 비교한다.', '두 개의 $5 실거래 잡과 실제 주문 없는 보조 자료 수집 잡을 함께 운영한다.'),
+    ('golden-cherry', '해결이 가까운 고확률 YES 시장의 진입·청산 수치를 비교하고 주문 상태를 안정화한다.', 'polybot-yellow와 polybot-orange가 서로 다른 수치로 같은 전략 코드를 실행한다.'),
+    ('golden-date', '남은 시간별 가격 기준으로 우세한 결과의 수렴을 노렸으나 가설이 기각됐다.', '전략은 폐쇄됐고 polybot-red는 잔여 계정 정리만 수행한다.'),
+    ('golden-elderberry', '우세한 결과의 가격이 급락한 뒤 과잉반응이 되돌아오는 구간을 노린다.', 'polybot-cherry가 신규 진입 없이 기존 포지션 정리만 수행한다.'),
+    ('golden-fig', '가능성이 낮은 YES의 가격 하락을 NO 매수로 이용하려 했으나 가설이 기각됐다.', '실제 해결 확률과 시장 가격의 차이가 불리해 폐쇄했다.'),
+    ('golden-grape', '24시간 동안 완만하고 일관되게 움직이며 거래량이 늘어난 시장의 추가 이동을 노린다.', '구현은 완료됐지만 현재 연결된 Jenkins 검증 잡은 없다.'),
+    ('golden-honeydew', '미국 새벽과 주말에 정보 없이 벌어진 가격 이탈이 되돌아오는지 검증했다.', '확인된 실제 체결 성과가 주요 조건에서 모두 음수여서 폐쇄했다.'),
+    ('golden-kiwi', '5분 간격의 작은 연속 상승이 60분 뒤에도 이어지는지 네 조건으로 검증한다.', '연속 횟수와 누적 상승폭을 조합한 네 조건을 5분 간격으로 비교하고 있다.'),
+    ('golden-lime', '거래량을 동반한 급등이 이후에도 이어지는지 검증했으나 가설이 기각됐다.', '과거 가격 자료를 이용한 검증에서 가설이 기각되어 폐쇄했다.'),
+    ('golden-mango', '해결이 가까운 시장의 정산 전 할인폭이 보유 시간을 보상하는지 검증했다.', '할인폭이 시간 보상보다 손실 가능성을 나타내는 경우가 많아 폐쇄했다.'),
+    ('golden-melon', '해결이 가까운 시장에서 가격이 0.85~0.93을 처음 넘을 때 24시간 거래량 기준 세 수준을 비교한다.', '거래량 높음·중간·낮음의 세 $5 실거래 잡을 운영하며 30일 판정을 기다리고 있다.'),
+    ('golden-nectarine', '20일 최저가 부근에서 매수해 5일 뒤 청산하는 가격 회복 전략을 검증했다.', '확인된 5일 보유 거래 결과가 음수여서 폐쇄했다.'),
+    ('golden-orange', '가능성이 낮은 시장에서 공포성 가격 급등이 멈춘 뒤 NO를 매수하는 전략이다.', '구현은 완료됐지만 현재 연결된 Jenkins 검증 잡은 없다.'),
+    ('golden-papaya', '해결까지 24시간 또는 72시간 남은 시장이 0.95를 처음 넘은 뒤 결과를 비교한다.', '24시간·72시간 조건을 각각 $5 실거래로 검증하고 있다.'),
+    ('golden-pomegranate', '거래하지 않고 공개 시장 목록, 체결 기록과 표본 호가를 계속 저장한다.', '외장 하드에서 공개 시장 자료를 15분마다 수집하며 월간 용량을 점검한다.'),
+    ('golden-queen', '해결 직전 가격이 0.90을 처음 넘은 뒤 0.98 또는 최종 1에 도달하는지 검증한다.', '12시간·24시간 조건을 각각 $100 실거래로 비교하고 있다.'),
+    ('golden-quince', '같은 진입 조건에서 지정가 대기, 근접 지정가, 즉시 체결의 비용 차이를 비교한다.', '세 주문 방식을 각각 $5 실거래로 동시에 검증하고 있다.'),
+    ('golden-raspberry', 'YES·NO 호가 잔량의 불균형이 60분 뒤 가격 움직임을 예측하는지 검증한다.', '외장 하드의 세 수집 구간에서 같은 검증 항목을 나눠 기록하고 있다.'),
+    ('golden-strawberry', '시장 가격이 0.95를 처음 넘은 뒤 1.00 수렴, 0.85 하락, 최종 해결까지의 경로를 함께 기록한다.', '실제 주문 없이 7일 동안 신규 사례를 모으고 이후 최종 해결 결과까지 추적한다.')
+) as valueset(strategy_id, thesis, current_summary)
+where strategy.strategy_id = valueset.strategy_id;

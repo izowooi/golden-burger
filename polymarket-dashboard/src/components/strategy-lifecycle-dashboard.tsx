@@ -3,8 +3,12 @@
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { ThemeToggle } from "@/components/theme-toggle";
 import {
+  DASHBOARD_STAGES,
+  DASHBOARD_STAGE_LABELS,
   getCheckpointState,
+  getDashboardStage,
   getDaysElapsed,
   getEvaluationProgress,
   getHoursUntil,
@@ -12,40 +16,17 @@ import {
   getNextCheckpoint,
   getStrategyHealth,
   isStrategyVisibleByClosedToggle,
-  LIFECYCLE_STAGES,
-  LIFECYCLE_STAGE_LABELS,
+  type DashboardStage,
   type DynamicCheckpointState,
   type JenkinsHealth,
   type StrategyHealth,
 } from "@/lib/strategy-lifecycle";
 import type {
-  LifecycleStage,
-  OperatingStatus,
   StrategyCheckpoint,
   StrategyJenkinsJob,
   StrategyLifecycle,
   StrategyLifecycleResponse,
 } from "@/lib/types";
-
-const STAGE_TONES: Record<LifecycleStage, string> = {
-  IDEA: "border-slate-500/40 bg-slate-500/10 text-slate-300",
-  IMPLEMENTING: "border-sky-500/40 bg-sky-500/10 text-sky-200",
-  IMPLEMENTED: "border-cyan-500/40 bg-cyan-500/10 text-cyan-200",
-  SIMULATION: "border-violet-500/40 bg-violet-500/10 text-violet-200",
-  LIVE_VALIDATION: "border-amber-500/40 bg-amber-500/10 text-amber-200",
-  STABILIZATION: "border-orange-500/40 bg-orange-500/10 text-orange-200",
-  PROFITABILITY: "border-lime-500/40 bg-lime-500/10 text-lime-200",
-  PRODUCTION: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
-  CLOSED: "border-zinc-600/50 bg-zinc-700/20 text-zinc-400",
-};
-
-const STRATEGY_HEALTH_TONES: Record<StrategyHealth, string> = {
-  HEALTHY: "border-emerald-500/40 bg-emerald-500/10 text-emerald-200",
-  ATTENTION: "border-rose-500/40 bg-rose-500/10 text-rose-200",
-  PAUSED: "border-slate-500/40 bg-slate-500/10 text-slate-300",
-  CLOSED: "border-zinc-600/50 bg-zinc-700/20 text-zinc-400",
-  UNKNOWN: "border-yellow-500/40 bg-yellow-500/10 text-yellow-200",
-};
 
 const STRATEGY_HEALTH_LABELS: Record<StrategyHealth, string> = {
   HEALTHY: "정상",
@@ -55,32 +36,13 @@ const STRATEGY_HEALTH_LABELS: Record<StrategyHealth, string> = {
   UNKNOWN: "관측 전",
 };
 
-const JOB_HEALTH_TONES: Record<JenkinsHealth, string> = {
-  HEALTHY: "bg-emerald-400",
-  BUILDING: "bg-sky-400 animate-pulse",
-  FAILED: "bg-rose-400",
-  STALE: "bg-orange-400",
-  DISABLED: "bg-slate-500",
-  UNKNOWN: "bg-yellow-400",
-};
-
 const JOB_HEALTH_LABELS: Record<JenkinsHealth, string> = {
   HEALTHY: "성공",
-  BUILDING: "빌드 중",
+  BUILDING: "실행 중",
   FAILED: "실패",
   STALE: "관측 지연",
   DISABLED: "중지",
   UNKNOWN: "관측 전",
-};
-
-const CHECKPOINT_TONES: Record<DynamicCheckpointState, string> = {
-  UPCOMING: "border-[#345047] bg-[#10201c] text-[#b5cac3]",
-  DUE: "border-amber-500/50 bg-amber-500/10 text-amber-200",
-  OVERDUE: "border-rose-500/50 bg-rose-500/10 text-rose-200",
-  UNSCHEDULED: "border-slate-600 bg-slate-700/10 text-slate-400",
-  COMPLETED: "border-emerald-500/35 bg-emerald-500/8 text-emerald-300",
-  BLOCKED: "border-orange-500/40 bg-orange-500/10 text-orange-200",
-  CANCELLED: "border-zinc-700 bg-zinc-800/30 text-zinc-500",
 };
 
 const CHECKPOINT_LABELS: Record<DynamicCheckpointState, string> = {
@@ -93,31 +55,23 @@ const CHECKPOINT_LABELS: Record<DynamicCheckpointState, string> = {
   CANCELLED: "취소",
 };
 
-const OPERATING_LABELS: Record<OperatingStatus, string> = {
-  ACTIVE: "실행 중",
-  PAUSED: "일시 중지",
+const MODE_LABELS: Record<StrategyJenkinsJob["mode"], string> = {
+  LIVE: "실거래",
+  SIMULATION: "시뮬레이션",
+  SHADOW: "자료 수집",
   CLOSE_ONLY: "청산 전용",
-  INACTIVE: "미배치",
-  CLOSED: "종료",
+  RESEARCH: "자료 수집",
 };
 
-const KIND_LABELS = {
-  LIVE_TRADING: "LIVE TRADING",
-  SIMULATION_RESEARCH: "SIMULATION RESEARCH",
-  INFRA_RESEARCH: "DATA RESEARCH",
-  LEGACY_TRADING: "LEGACY",
-} as const;
-
-const MODE_LABELS = {
-  LIVE: "LIVE",
-  SIMULATION: "SIM",
-  SHADOW: "SHADOW",
-  CLOSE_ONLY: "CLOSE",
-  RESEARCH: "RESEARCH",
-} as const;
+const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+  timeZone: "Asia/Seoul",
+});
 
 const dateTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
-  month: "short",
+  month: "numeric",
   day: "numeric",
   hour: "2-digit",
   minute: "2-digit",
@@ -125,20 +79,12 @@ const dateTimeFormatter = new Intl.DateTimeFormat("ko-KR", {
   timeZone: "Asia/Seoul",
 });
 
-const dateFormatter = new Intl.DateTimeFormat("ko-KR", {
-  year: "numeric",
-  month: "short",
-  day: "numeric",
-  timeZone: "Asia/Seoul",
-});
-
 export function StrategyLifecycleDashboard() {
   const [data, setData] = useState<StrategyLifecycleResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [showClosed, setShowClosed] = useState(false);
-  const [stageFilter, setStageFilter] = useState<LifecycleStage | "ALL">("ALL");
-  const [statusFilter, setStatusFilter] = useState<OperatingStatus | "ALL">("ALL");
+  const [hideClosed, setHideClosed] = useState(false);
+  const [stageFilter, setStageFilter] = useState<DashboardStage | "ALL">("ALL");
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => new Date());
 
@@ -146,11 +92,7 @@ export function StrategyLifecycleDashboard() {
     setLoading(true);
     setError("");
     try {
-      const response = await fetch("/api/strategies", { signal, cache: "no-store" });
-      const payload = (await response.json()) as StrategyLifecycleResponse | { error?: string };
-      if (!response.ok || !("strategies" in payload)) {
-        throw new Error("error" in payload && payload.error ? payload.error : "전략 데이터를 불러오지 못했습니다.");
-      }
+      const payload = await fetchStrategyLifecycle(signal);
       setData(payload);
       setNow(new Date());
     } catch (caught) {
@@ -185,46 +127,41 @@ export function StrategyLifecycleDashboard() {
     [data?.checkpoints],
   );
 
+  const stageCounts = useMemo(() => {
+    const counts = Object.fromEntries(DASHBOARD_STAGES.map((stage) => [stage, 0])) as Record<DashboardStage, number>;
+    for (const strategy of data?.strategies ?? []) counts[getDashboardStage(strategy.lifecycle_stage)] += 1;
+    return counts;
+  }, [data?.strategies]);
+
   const visibleStrategies = useMemo(() => {
     const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
-    return (data?.strategies ?? []).filter((strategy) => {
-      if (!isStrategyVisibleByClosedToggle(strategy, showClosed)) return false;
-      if (stageFilter !== "ALL" && strategy.lifecycle_stage !== stageFilter) return false;
-      if (statusFilter !== "ALL" && strategy.operating_status !== statusFilter) return false;
-      if (!normalizedQuery) return true;
-      const jobs = jobsByStrategy.get(strategy.strategy_id) ?? [];
-      return [
-        strategy.strategy_id,
-        strategy.display_name,
-        strategy.codename,
-        strategy.thesis,
-        ...jobs.flatMap((job) => [job.job_name, job.runtime_job ?? "", job.treatment_label ?? ""]),
-      ].some((value) => value.toLocaleLowerCase("ko-KR").includes(normalizedQuery));
-    });
-  }, [data?.strategies, jobsByStrategy, query, showClosed, stageFilter, statusFilter]);
+    return [...(data?.strategies ?? [])]
+      .filter((strategy) => {
+        if (!isStrategyVisibleByClosedToggle(strategy, hideClosed)) return false;
+        if (stageFilter !== "ALL" && getDashboardStage(strategy.lifecycle_stage) !== stageFilter) return false;
+        if (!normalizedQuery) return true;
+        const jobs = jobsByStrategy.get(strategy.strategy_id) ?? [];
+        return [
+          strategy.strategy_id,
+          strategy.thesis,
+          strategy.current_summary,
+          ...jobs.flatMap((job) => [
+            job.job_name,
+            job.treatment_label ?? "",
+            job.purpose ?? "",
+            job.test_size_label ?? "",
+          ]),
+        ].some((value) => value.toLocaleLowerCase("ko-KR").includes(normalizedQuery));
+      })
+      .sort((left, right) => left.strategy_id.localeCompare(right.strategy_id));
+  }, [data?.strategies, hideClosed, jobsByStrategy, query, stageFilter]);
 
-  const openStrategies = (data?.strategies ?? []).filter((strategy) => strategy.lifecycle_stage !== "CLOSED");
-  const closedCount = (data?.strategies ?? []).length - openStrategies.length;
-  const activeJobCount = (data?.jobs ?? []).filter((job) => job.enabled !== false).length;
-  const attentionCount = openStrategies.filter(
-    (strategy) => getStrategyHealth(strategy, jobsByStrategy.get(strategy.strategy_id) ?? [], now) === "ATTENTION",
-  ).length;
-  const pendingCheckpoints = (data?.checkpoints ?? []).filter((checkpoint) => {
-    const strategy = data?.strategies.find((item) => item.strategy_id === checkpoint.strategy_id);
-    return strategy?.lifecycle_stage !== "CLOSED" && checkpoint.status === "PENDING" && checkpoint.due_at;
-  });
-  const overdueCount = pendingCheckpoints.filter(
-    (checkpoint) => getCheckpointState(checkpoint, now) === "OVERDUE",
-  ).length;
   const latestSync = data?.sync_runs[0] ?? null;
   const collectorState = getCollectorState(latestSync?.status, latestSync?.finished_at, now);
-
-  const reviewLane = [...pendingCheckpoints]
-    .sort((left, right) => Date.parse(left.due_at!) - Date.parse(right.due_at!))
-    .slice(0, 8);
+  const runningJobCount = (data?.jobs ?? []).filter((job) => job.enabled !== false).length;
 
   return (
-    <main className="dashboard-shell lifecycle-shell overflow-x-clip">
+    <main className="dashboard-shell lifecycle-shell">
       <div className="ambient ambient-one" />
       <div className="ambient ambient-two" />
 
@@ -232,7 +169,7 @@ export function StrategyLifecycleDashboard() {
         <div className="brand-lockup">
           <div className="brand-mark" aria-hidden="true">PB</div>
           <div>
-            <p className="eyebrow">POLYMARKET BOT / OPERATIONS DESK</p>
+            <p className="eyebrow">POLYMARKET BOT / OPERATIONS</p>
             <h1>Strategy Monitor</h1>
           </div>
         </div>
@@ -240,12 +177,12 @@ export function StrategyLifecycleDashboard() {
           <nav className="monitor-nav" aria-label="대시보드 화면">
             <Link href="/">성과</Link>
             <Link href="/storage">저장공간</Link>
-            <Link className="selected" href="/strategies" aria-current="page">전략 단계</Link>
+            <Link className="selected" href="/strategies" aria-current="page">전략 현황</Link>
           </nav>
+          <ThemeToggle />
           <div className="status-cluster">
             <span className={`status-dot ${loading ? "pending" : error || collectorState === "stale" ? "stale" : collectorState === "warning" ? "warning" : ""}`} />
-            <span>{loading ? "데이터 확인 중" : error ? "데이터 연결 오류" : collectorLabel(collectorState)}</span>
-            {latestSync?.finished_at && <span className="status-date">수집 {formatDateTime(latestSync.finished_at)}</span>}
+            <span>{loading ? "확인 중" : error ? "연결 오류" : collectorLabel(collectorState)}</span>
             <button className="refresh-button" type="button" onClick={() => void loadData()}>
               새로고침
             </button>
@@ -253,154 +190,87 @@ export function StrategyLifecycleDashboard() {
         </div>
       </header>
 
-      <section className="grid gap-8 border-b border-[#192824] py-10 lg:grid-cols-[1.25fr_0.75fr] lg:items-end">
-        <div className="min-w-0">
-          <p className="section-kicker">STRATEGY LIFECYCLE CONTROL ROOM</p>
-          <h2 className="mt-4 max-w-4xl break-words text-[2rem] font-semibold leading-[1.12] tracking-[-0.04em] text-[#edf5f2] sm:text-5xl">
-            무엇을 만들고, 검증하고,<br className="hidden sm:block" /> 멈춰야 하는지 한눈에 봅니다.
-          </h2>
+      <section className="lifecycle-intro">
+        <div>
+          <p className="section-kicker">21 STRATEGY OVERVIEW</p>
+          <h2>전체 전략 현황</h2>
+          <p>
+            golden-apple부터 golden-strawberry까지 현재 단계, 연결된 Jenkins,
+            검증 시작일과 다음 판단 시점을 한 화면에서 확인합니다.
+          </p>
         </div>
-        <p className="min-w-0 max-w-xl text-sm leading-7 text-[#93a69f] lg:justify-self-end">
-          전략 단계와 실행 상태는 별개입니다. 빌드가 성공해도 안정화 결함이 있으면 “확인 필요”로 남고,
-          폐쇄 전략은 기본 화면에서 숨깁니다. 모든 날짜는 KST로 표시합니다.
-        </p>
+        <div className="lifecycle-intro-stats" aria-label="등록 현황">
+          <div><strong>{data?.strategies.length ?? 0}</strong><span>전략</span></div>
+          <div><strong>{data?.jobs.length ?? 0}</strong><span>연결 잡</span></div>
+          <div><strong>{runningJobCount}</strong><span>실행 가능</span></div>
+        </div>
       </section>
 
-      {loading && <LifecycleLoading />}
-      {!loading && error && <LifecycleError message={error} onRetry={() => void loadData()} />}
+      {loading && !data ? (
+        <LifecycleLoading />
+      ) : error && !data ? (
+        <LifecycleError message={error} onRetry={() => void loadData()} />
+      ) : data ? (
+        <>
+          {error && (
+            <div className="lifecycle-inline-error" role="status">
+              최신 데이터를 다시 읽지 못해 직전 화면을 유지합니다. {error}
+            </div>
+          )}
 
-      {!loading && !error && data && (
-        <div className="space-y-8 py-8">
-          <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4" aria-label="전략 운영 요약">
-            <KpiCard label="기본 표시 전략" value={`${openStrategies.length}개`} detail={`폐쇄 ${closedCount}개 숨김`} />
-            <KpiCard label="Jenkins 잡" value={`${activeJobCount}/${data.jobs.length}`} detail="enabled / 등록" tone="text-emerald-300" />
-            <KpiCard label="확인 필요" value={`${attentionCount}개`} detail="전략 결함 또는 Jenkins 상태" tone={attentionCount ? "text-rose-300" : "text-emerald-300"} />
-            <KpiCard label="기한 지난 검토" value={`${overdueCount}개`} detail={`${pendingCheckpoints.length}개 예정·대기`} tone={overdueCount ? "text-rose-300" : "text-emerald-300"} />
-          </section>
-
-          <section className="rounded-2xl border border-[#21332e] bg-[#0c1714]/90 p-5 shadow-[0_20px_80px_rgba(0,0,0,0.18)]">
-            <div className="mb-5 flex flex-wrap items-end justify-between gap-3">
-              <div>
-                <p className="section-kicker">PORTFOLIO PIPELINE</p>
-                <h3 className="mt-2 text-lg font-semibold text-[#edf5f2]">현재 생애주기 분포</h3>
-              </div>
+          <section className="lifecycle-controls" aria-label="전략 단계 필터">
+            <div className="stage-filter-row">
               <button
+                className={`stage-filter all ${stageFilter === "ALL" ? "selected" : ""}`}
                 type="button"
                 onClick={() => setStageFilter("ALL")}
-                className="text-xs text-[#8da098] transition hover:text-[#edf5f2]"
               >
-                전체 단계 보기
+                <span>전체</span>
+                <strong>{data.strategies.length}</strong>
               </button>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-9">
-              {LIFECYCLE_STAGES.map((stage, index) => {
-                const count = data.strategies.filter((strategy) => strategy.lifecycle_stage === stage).length;
-                const selected = stageFilter === stage;
-                return (
-                  <button
-                    key={stage}
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() => {
-                      setStageFilter(selected ? "ALL" : stage);
-                      if (stage === "CLOSED") setShowClosed(true);
-                    }}
-                    className={`group relative min-h-28 rounded-xl border p-4 text-left transition ${STAGE_TONES[stage]} ${selected ? "ring-2 ring-[#8de0c1]/50" : "hover:-translate-y-0.5 hover:border-current/60"}`}
-                  >
-                    <span className="font-mono text-[10px] opacity-60">{String(index + 1).padStart(2, "0")}</span>
-                    <strong className="mt-5 block text-2xl tabular-nums">{count}</strong>
-                    <span className="mt-1 block text-xs font-medium">{LIFECYCLE_STAGE_LABELS[stage]}</span>
-                  </button>
-                );
-              })}
-            </div>
-          </section>
-
-          <section className="grid gap-4 xl:grid-cols-[0.8fr_1.2fr]">
-            <div className="self-start rounded-2xl border border-[#21332e] bg-[#0c1714]/90 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div>
-                  <p className="section-kicker">REVIEW RADAR</p>
-                  <h3 className="mt-2 text-lg font-semibold">다가오는 검토</h3>
-                </div>
-                <span className="font-mono text-[10px] text-[#71877f]">KST</span>
-              </div>
-              <div className="space-y-2">
-                {reviewLane.length ? reviewLane.map((checkpoint) => {
-                  const strategy = data.strategies.find((item) => item.strategy_id === checkpoint.strategy_id);
-                  const state = getCheckpointState(checkpoint, now);
-                  return (
-                    <button
-                      key={checkpoint.checkpoint_id}
-                      type="button"
-                      onClick={() => {
-                        setQuery(strategy?.strategy_id ?? "");
-                        setStageFilter("ALL");
-                      }}
-                      className="grid w-full grid-cols-[auto_1fr_auto] items-center gap-3 rounded-xl border border-[#1b2b27] bg-[#0a1311] p-3 text-left transition hover:border-[#365149]"
-                    >
-                      <span className={`h-2 w-2 rounded-full ${state === "OVERDUE" ? "bg-rose-400" : state === "DUE" ? "bg-amber-400" : "bg-[#68c7a4]"}`} />
-                      <span className="min-w-0">
-                        <span className="block truncate text-xs font-semibold text-[#dbe7e3]">{strategy?.codename ?? checkpoint.strategy_id}</span>
-                        <span className="mt-1 block truncate text-[11px] text-[#71877f]">{checkpoint.title}</span>
-                      </span>
-                      <span className={`rounded-md border px-2 py-1 text-[10px] ${CHECKPOINT_TONES[state]}`}>
-                        {formatCountdown(checkpoint.due_at!, now)}
-                      </span>
-                    </button>
-                  );
-                }) : (
-                  <p className="rounded-xl border border-dashed border-[#294038] p-5 text-sm text-[#71877f]">예정된 검토가 없습니다.</p>
-                )}
-              </div>
-            </div>
-
-            <div className="self-start rounded-2xl border border-[#21332e] bg-[#0c1714]/90 p-5">
-              <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
-                <div>
-                  <p className="section-kicker">FILTER & FIND</p>
-                  <h3 className="mt-2 text-lg font-semibold">전략 카탈로그</h3>
-                </div>
-                <span className="text-xs text-[#71877f]">현재 {visibleStrategies.length}개 표시</span>
-              </div>
-              <div className="grid gap-3 md:grid-cols-[1fr_auto_auto]">
-                <label className="relative">
-                  <span className="sr-only">전략 또는 Jenkins 잡 검색</span>
-                  <input
-                    value={query}
-                    onChange={(event) => setQuery(event.target.value)}
-                    placeholder="전략, 가설, Jenkins 잡 검색"
-                    className="h-11 w-full rounded-xl border border-[#294038] bg-[#08110f] px-4 text-sm text-[#edf5f2] outline-none transition placeholder:text-[#52665f] focus:border-[#68c7a4]"
-                  />
-                </label>
-                <select
-                  aria-label="운영 상태"
-                  value={statusFilter}
-                  onChange={(event) => setStatusFilter(event.target.value as OperatingStatus | "ALL")}
-                  className="h-11 rounded-xl border border-[#294038] bg-[#08110f] px-3 text-xs text-[#c8d6d1] outline-none focus:border-[#68c7a4]"
+              {DASHBOARD_STAGES.map((stage) => (
+                <button
+                  key={stage}
+                  className={`stage-filter stage-${stage.toLocaleLowerCase()} ${stageFilter === stage ? "selected" : ""}`}
+                  type="button"
+                  onClick={() => setStageFilter(stageFilter === stage ? "ALL" : stage)}
                 >
-                  <option value="ALL">모든 운영 상태</option>
-                  {Object.entries(OPERATING_LABELS).map(([status, label]) => <option key={status} value={status}>{label}</option>)}
-                </select>
-                <label className="flex h-11 cursor-pointer items-center gap-3 rounded-xl border border-[#294038] bg-[#08110f] px-4 text-xs text-[#a9bbb5]">
-                  <input
-                    type="checkbox"
-                    checked={showClosed}
-                    onChange={(event) => {
-                      setShowClosed(event.target.checked);
-                      if (!event.target.checked && stageFilter === "CLOSED") setStageFilter("ALL");
-                    }}
-                    className="h-4 w-4 accent-[#8de0c1]"
-                  />
-                  폐쇄 {closedCount}개 보기
-                </label>
-              </div>
+                  <span>{DASHBOARD_STAGE_LABELS[stage]}</span>
+                  <strong>{stageCounts[stage]}</strong>
+                </button>
+              ))}
+            </div>
+            <p className="stage-path" aria-label="전략 진행 순서">
+              구현 완료 <span>→</span> 시뮬레이션 <span>→</span> 검증 <span>→</span> 안정화
+              <small>검증 실패 시 폐쇄</small>
+            </p>
+            <div className="strategy-search-row">
+              <label>
+                <span className="sr-only">전략 또는 Jenkins 잡 검색</span>
+                <input
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="전략 또는 Jenkins 잡 검색"
+                />
+              </label>
+              <label className="closed-toggle">
+                <input
+                  type="checkbox"
+                  checked={hideClosed}
+                  onChange={(event) => {
+                    setHideClosed(event.target.checked);
+                    if (event.target.checked && stageFilter === "CLOSED") setStageFilter("ALL");
+                  }}
+                />
+                폐쇄 전략 숨기기
+              </label>
+              <span>{visibleStrategies.length}개 표시</span>
             </div>
           </section>
 
-          <section className="grid gap-4 xl:grid-cols-2" aria-label="전략 상세 목록">
+          <section className="strategy-map-grid" aria-label="전체 전략 현황판">
             {visibleStrategies.map((strategy) => (
-              <StrategyCard
+              <StrategyTile
                 key={strategy.strategy_id}
                 strategy={strategy}
                 jobs={jobsByStrategy.get(strategy.strategy_id) ?? []}
@@ -412,29 +282,28 @@ export function StrategyLifecycleDashboard() {
           </section>
 
           {!visibleStrategies.length && (
-            <section className="rounded-2xl border border-dashed border-[#294038] py-16 text-center">
-              <p className="text-sm text-[#93a69f]">조건에 맞는 전략이 없습니다.</p>
-              <button
-                type="button"
-                onClick={() => { setQuery(""); setStageFilter("ALL"); setStatusFilter("ALL"); }}
-                className="mt-3 text-xs text-[#8de0c1] hover:underline"
-              >
+            <section className="lifecycle-empty">
+              <p>조건에 맞는 전략이 없습니다.</p>
+              <button type="button" onClick={() => { setQuery(""); setStageFilter("ALL"); setHideClosed(false); }}>
                 필터 초기화
               </button>
             </section>
           )}
 
-          <footer className="flex flex-wrap justify-between gap-3 border-t border-[#192824] pt-5 text-[11px] text-[#62766f]">
-            <span>Supabase `pd_*` lifecycle registry · Jenkins metadata collector</span>
-            <span>API 생성 {formatDateTime(data.generated_at)} · 수익성은 별도 strict evidence audit로 판정</span>
+          <footer>
+            <span>전략 상태와 Jenkins 연결 정보는 Supabase에서 관리합니다.</span>
+            <span>
+              {latestSync?.finished_at ? `Jenkins 확인 ${formatDateTime(latestSync.finished_at)}` : "Jenkins 확인 기록 없음"}
+              {` · 화면 생성 ${formatDateTime(data.generated_at)}`}
+            </span>
           </footer>
-        </div>
-      )}
+        </>
+      ) : null}
     </main>
   );
 }
 
-function StrategyCard({
+function StrategyTile({
   strategy,
   jobs,
   checkpoints,
@@ -447,179 +316,160 @@ function StrategyCard({
   jenkinsBaseUrl: string | null;
   now: Date;
 }) {
+  const stage = getDashboardStage(strategy.lifecycle_stage);
   const health = getStrategyHealth(strategy, jobs, now);
   const daysElapsed = getDaysElapsed(strategy.evaluation_started_at, now);
   const progress = getEvaluationProgress(strategy, now);
-  const nextCheckpoint = getNextCheckpoint(checkpoints);
-  const blockedCheckpoint = checkpoints.find((checkpoint) => checkpoint.status === "BLOCKED");
+  const nextCheckpoint = getNextCheckpoint(checkpoints) ?? checkpoints.find((item) => item.status === "BLOCKED") ?? null;
+  const plannedEnd = stage === "CLOSED"
+    ? strategy.phase_started_at
+    : latestTimestamp(jobs.map((job) => job.experiment_ends_at));
+  const sortedJobs = [...jobs].sort((left, right) => left.job_name.localeCompare(right.job_name));
 
   return (
-    <article className={`overflow-hidden rounded-2xl border bg-[#0c1714]/95 shadow-[0_18px_70px_rgba(0,0,0,0.16)] ${health === "ATTENTION" ? "border-rose-500/35" : "border-[#21332e]"}`}>
-      <div className="p-5 sm:p-6">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className={`rounded-md border px-2 py-1 font-mono text-[9px] tracking-wider ${STAGE_TONES[strategy.lifecycle_stage]}`}>
-                {LIFECYCLE_STAGE_LABELS[strategy.lifecycle_stage]}
-              </span>
-              <span className="font-mono text-[9px] tracking-wider text-[#71877f]">{KIND_LABELS[strategy.strategy_kind]}</span>
-            </div>
-            <h3 className="mt-4 truncate text-2xl font-semibold tracking-[-0.03em] text-[#edf5f2]">{strategy.codename}</h3>
-            <p className="mt-1 font-mono text-[10px] text-[#6f837d]">{strategy.strategy_id}</p>
-          </div>
-          <span className={`rounded-full border px-3 py-1 text-[10px] font-semibold ${STRATEGY_HEALTH_TONES[health]}`}>
-            {STRATEGY_HEALTH_LABELS[health]}
-          </span>
+    <article className={`strategy-tile stage-${stage.toLocaleLowerCase()}`}>
+      <div className="strategy-tile-accent" aria-hidden="true" />
+      <div className="strategy-tile-header">
+        <span className="stage-badge">{DASHBOARD_STAGE_LABELS[stage]}</span>
+        <span className={`health-badge health-${health.toLocaleLowerCase()}`}>
+          {STRATEGY_HEALTH_LABELS[health]}
+        </span>
+      </div>
+
+      <h3>{strategy.strategy_id}</h3>
+      <p className="strategy-thesis">{strategy.thesis}</p>
+
+      <dl className="strategy-timeline">
+        <div>
+          <dt>검증 시작</dt>
+          <dd>{strategy.evaluation_started_at ? formatDate(strategy.evaluation_started_at) : "시작 전"}</dd>
         </div>
-
-        <p className="mt-5 text-sm leading-6 text-[#b5c5c0]">{strategy.thesis}</p>
-        <p className="mt-3 text-xs leading-5 text-[#788d86]">{strategy.current_summary}</p>
-
-        <div className="mt-5 grid gap-3 sm:grid-cols-3">
-          <InfoCell label="운영 상태" value={OPERATING_LABELS[strategy.operating_status]} />
-          <InfoCell label="검증 경과" value={daysElapsed == null ? "시작 전" : `${daysElapsed}일째`} />
-          <InfoCell
-            label="다음 검토"
-            value={nextCheckpoint?.due_at ? formatCountdown(nextCheckpoint.due_at, now) : blockedCheckpoint ? "일정 보류" : "미정"}
-          />
+        <div>
+          <dt>진행</dt>
+          <dd>{daysElapsed == null ? "—" : `${daysElapsed}일째`}</dd>
         </div>
+        <div>
+          <dt>{stage === "CLOSED" ? "폐쇄일" : "종료/판정"}</dt>
+          <dd>{plannedEnd ? formatDate(plannedEnd) : nextCheckpoint?.due_at ? formatDate(nextCheckpoint.due_at) : "미정"}</dd>
+        </div>
+      </dl>
 
-        {progress != null && strategy.evaluation_horizon_days != null && (
-          <div className="mt-4">
-            <div className="mb-2 flex items-center justify-between font-mono text-[9px] text-[#6f837d]">
-              <span>{strategy.evaluation_horizon_days}일 평가 구간</span>
-              <span>{Math.round(progress)}%</span>
-            </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-[#182823]">
-              <div className="h-full rounded-full bg-gradient-to-r from-[#4d9b7f] to-[#8de0c1]" style={{ width: `${progress}%` }} />
-            </div>
+      {progress != null && strategy.evaluation_horizon_days != null && (
+        <div className="strategy-progress" aria-label={`${strategy.evaluation_horizon_days}일 검증 중 ${Math.round(progress)}% 경과`}>
+          <span style={{ width: `${progress}%` }} />
+        </div>
+      )}
+
+      <div className="strategy-jobs">
+        <div className="strategy-jobs-heading">
+          <strong>Jenkins</strong>
+          <span>{jobs.length ? `${jobs.length}개` : "연결 없음"}</span>
+        </div>
+        {sortedJobs.length ? sortedJobs.map((job) => (
+          <CompactJob key={job.job_name} job={job} baseUrl={jenkinsBaseUrl} now={now} />
+        )) : (
+          <p className="no-jobs">현재 연결된 Jenkins 잡이 없습니다.</p>
+        )}
+      </div>
+
+      <details className="strategy-details">
+        <summary>설명과 다음 일정</summary>
+        <p>{strategy.current_summary}</p>
+        {sortedJobs.length > 0 && (
+          <div className="job-purpose-list">
+            {sortedJobs.map((job) => (
+              <div key={job.job_name}>
+                <strong>{job.job_name}</strong>
+                <span>{job.purpose ?? "역할 설명 없음"}</span>
+                <small>{formatJobWindow(job)} · {job.schedule ?? "수동 실행"}</small>
+              </div>
+            ))}
           </div>
         )}
-
         {strategy.attention_note && (
-          <div className={`mt-5 rounded-xl border p-4 ${attentionPanelTone(strategy.attention_level)}`}>
-            <p className="font-mono text-[9px] font-semibold tracking-wider">{attentionPanelLabel(strategy.attention_level)}</p>
-            <p className="mt-2 text-xs leading-5 opacity-80">{strategy.attention_note}</p>
+          <div className={`attention-note attention-${strategy.attention_level.toLocaleLowerCase()}`}>
+            <strong>확인할 점</strong>
+            <span>{strategy.attention_note}</span>
           </div>
         )}
-
-        <div className="mt-5 border-t border-[#1a2a26] pt-5">
-          <div className="mb-3 flex items-center justify-between">
-            <h4 className="font-mono text-[10px] font-semibold tracking-wider text-[#91a79f]">JENKINS JOBS</h4>
-            <span className="text-[10px] text-[#60736d]">{jobs.length}개 연결</span>
-          </div>
-          {jobs.length ? (
-            <div className="space-y-2">
-              {jobs.map((job) => (
-                <JobRow key={job.job_name} job={job} baseUrl={jenkinsBaseUrl} now={now} />
-              ))}
-            </div>
-          ) : (
-            <div className="rounded-xl border border-dashed border-[#294038] px-4 py-5 text-xs text-[#657a73]">
-              현재 연결된 Jenkins job이 없습니다.
-            </div>
-          )}
-        </div>
-
-        {(nextCheckpoint || blockedCheckpoint) && (
-          <div className="mt-5 border-t border-[#1a2a26] pt-5">
-            <h4 className="mb-3 font-mono text-[10px] font-semibold tracking-wider text-[#91a79f]">NEXT ACTION</h4>
-            <CheckpointRow checkpoint={nextCheckpoint ?? blockedCheckpoint!} now={now} />
-          </div>
-        )}
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1a2a26] bg-[#091310] px-5 py-3 font-mono text-[9px] text-[#5f736c] sm:px-6">
-        <span>근거: {strategy.source_ref}</span>
-        <span>{strategy.phase_started_at ? `현재 단계 ${dateFormatter.format(new Date(strategy.phase_started_at))} 시작` : "단계 시작일 미확정"}</span>
-      </div>
+        {nextCheckpoint && <CheckpointSummary checkpoint={nextCheckpoint} now={now} />}
+      </details>
     </article>
   );
 }
 
-function JobRow({ job, baseUrl, now }: { job: StrategyJenkinsJob; baseUrl: string | null; now: Date }) {
+function CompactJob({
+  job,
+  baseUrl,
+  now,
+}: {
+  job: StrategyJenkinsJob;
+  baseUrl: string | null;
+  now: Date;
+}) {
   const health = getJenkinsHealth(job, now);
-  const content = (
-    <div className="grid gap-3 rounded-xl border border-[#1b2b27] bg-[#091310] p-3 transition hover:border-[#314a43] sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <span className={`h-2 w-2 rounded-full ${JOB_HEALTH_TONES[health]}`} />
-          <strong className="truncate text-xs font-semibold text-[#d8e5e0]">{job.job_name}</strong>
-          <span className="rounded bg-[#172621] px-1.5 py-0.5 font-mono text-[8px] text-[#8ca198]">{MODE_LABELS[job.mode]}</span>
-          {job.workspace_class === "EXTERNAL" && <span className="font-mono text-[8px] text-violet-300">EXTERNAL</span>}
-        </div>
-        <p className="mt-1.5 truncate text-[10px] text-[#657a73]">
-          {job.treatment_label ?? job.runtime_job ?? "default"} · {job.schedule ?? "스케줄 미확정"}
-        </p>
+  const body = (
+    <div className="compact-job">
+      <div className="compact-job-title">
+        <span className={`job-dot job-${health.toLocaleLowerCase()}`} aria-hidden="true" />
+        <strong>{job.job_name}</strong>
+        <span>{JOB_HEALTH_LABELS[health]}</span>
       </div>
-      <div className="flex items-center justify-between gap-4 sm:justify-end">
-        <span className="text-[10px] text-[#7e928b]">{JOB_HEALTH_LABELS[health]}</span>
-        <span className="min-w-20 text-right font-mono text-[9px] text-[#5f736c]">
-          {job.last_build_number ? `#${job.last_build_number}` : "build —"}
-          {job.observed_at ? ` · ${formatRelativeObservation(job.observed_at, now)}` : " · 미관측"}
-        </span>
+      <div className="compact-job-labels">
+        <span>{job.treatment_label ?? MODE_LABELS[job.mode]}</span>
+        {job.test_size_label && <b>{compactTestSize(job.test_size_label)}</b>}
+      </div>
+      {job.purpose && <p>{job.purpose}</p>}
+      <div className="compact-job-meta">
+        <span>{MODE_LABELS[job.mode]} · {job.expected_cadence_minutes ? `${job.expected_cadence_minutes}분마다` : "수동"}</span>
+        <span>{formatJobWindow(job)}</span>
       </div>
     </div>
   );
 
-  if (!baseUrl) return content;
+  if (!baseUrl) return body;
   return (
-    <a href={`${baseUrl}/job/${encodeURIComponent(job.job_name)}/`} target="_blank" rel="noreferrer" className="block">
-      {content}
+    <a href={`${baseUrl}/job/${encodeURIComponent(job.job_name)}/`} target="_blank" rel="noreferrer">
+      {body}
     </a>
   );
 }
 
-function CheckpointRow({ checkpoint, now }: { checkpoint: StrategyCheckpoint; now: Date }) {
+function CheckpointSummary({ checkpoint, now }: { checkpoint: StrategyCheckpoint; now: Date }) {
   const state = getCheckpointState(checkpoint, now);
   return (
-    <div className={`rounded-xl border p-4 ${CHECKPOINT_TONES[state]}`}>
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <strong className="text-xs">{checkpoint.title}</strong>
-        <span className="rounded-md border border-current/20 px-2 py-1 font-mono text-[9px]">{CHECKPOINT_LABELS[state]}</span>
+    <div className={`checkpoint-summary checkpoint-${state.toLocaleLowerCase()}`}>
+      <div>
+        <strong>{checkpoint.title}</strong>
+        <span>{CHECKPOINT_LABELS[state]}</span>
       </div>
-      <p className="mt-2 text-[11px] leading-5 opacity-75">{checkpoint.instructions}</p>
-      <p className="mt-3 font-mono text-[9px] opacity-60">
-        {checkpoint.due_at ? `${formatDateTime(checkpoint.due_at)} · ${formatCountdown(checkpoint.due_at, now)}` : "검토일 미정"}
-      </p>
+      <p>{checkpoint.instructions}</p>
+      <small>{checkpoint.due_at ? `${formatDateTime(checkpoint.due_at)} · ${formatCountdown(checkpoint.due_at, now)}` : "검토일 미정"}</small>
     </div>
   );
 }
 
-function InfoCell({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-[#1b2b27] bg-[#091310] px-3 py-3">
-      <span className="block font-mono text-[8px] tracking-wider text-[#60736d]">{label}</span>
-      <strong className="mt-1.5 block text-xs font-medium text-[#c9d7d2]">{value}</strong>
-    </div>
-  );
+function compactTestSize(label: string) {
+  if (label.includes("신규 거래 없음")) return "청산만";
+  if (label.includes("실거래 없음") && label.includes("$5")) return "가상 $5";
+  if (label.includes("실거래 없음")) return "거래 없음";
+  const amount = label.match(/(?:거래|가상)\s*(\$[\d,]+)/)?.[1];
+  return amount ?? label;
 }
 
-function KpiCard({ label, value, detail, tone = "text-[#edf5f2]" }: { label: string; value: string; detail: string; tone?: string }) {
-  return (
-    <div className="rounded-2xl border border-[#21332e] bg-[#0c1714]/90 p-5">
-      <p className="font-mono text-[9px] tracking-wider text-[#6f837d]">{label}</p>
-      <strong className={`mt-3 block text-3xl font-semibold tracking-[-0.04em] tabular-nums ${tone}`}>{value}</strong>
-      <p className="mt-2 text-[11px] text-[#71877f]">{detail}</p>
-    </div>
-  );
+function formatJobWindow(job: StrategyJenkinsJob) {
+  if (job.experiment_started_at && job.experiment_ends_at) {
+    return `${formatDate(job.experiment_started_at)} 시작 · ${formatDate(job.experiment_ends_at)} 종료`;
+  }
+  if (job.experiment_started_at) return `${formatDate(job.experiment_started_at)} 시작 · 상시`;
+  if (job.experiment_ends_at) return `${formatDate(job.experiment_ends_at)} 종료`;
+  return "일정 미정";
 }
 
-function LifecycleLoading() {
-  return (
-    <section className="grid gap-4 py-8 sm:grid-cols-2 xl:grid-cols-4" aria-label="전략 데이터 로딩 중">
-      {[0, 1, 2, 3].map((item) => <div key={item} className="h-32 animate-pulse rounded-2xl border border-[#21332e] bg-[#0c1714]" />)}
-    </section>
-  );
-}
-
-function LifecycleError({ message, onRetry }: { message: string; onRetry: () => void }) {
-  return (
-    <section className="my-8 rounded-2xl border border-rose-500/30 bg-rose-500/8 p-8 text-center">
-      <strong className="text-sm text-rose-200">전략 생애주기를 불러오지 못했습니다.</strong>
-      <p className="mt-2 text-xs text-rose-100/65">{message}</p>
-      <button type="button" onClick={onRetry} className="mt-5 rounded-lg border border-rose-400/40 px-4 py-2 text-xs text-rose-100 hover:bg-rose-500/10">다시 시도</button>
-    </section>
-  );
+function latestTimestamp(values: Array<string | null>) {
+  const valid = values.filter((value): value is string => Boolean(value));
+  if (!valid.length) return null;
+  return valid.sort((left, right) => Date.parse(right) - Date.parse(left))[0];
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string) {
@@ -629,6 +479,10 @@ function groupBy<T>(items: T[], key: (item: T) => string) {
     grouped.set(value, [...(grouped.get(value) ?? []), item]);
   }
   return grouped;
+}
+
+function formatDate(value: string) {
+  return dateFormatter.format(new Date(value));
 }
 
 function formatDateTime(value: string) {
@@ -646,13 +500,6 @@ function formatCountdown(value: string, now: Date) {
   return `${Math.ceil(hours / 24)}일 후`;
 }
 
-function formatRelativeObservation(value: string, now: Date) {
-  const minutes = Math.max(0, Math.floor((now.getTime() - Date.parse(value)) / 60_000));
-  if (minutes < 1) return "방금";
-  if (minutes < 60) return `${minutes}분 전`;
-  return `${Math.floor(minutes / 60)}시간 전`;
-}
-
 function getCollectorState(status: string | undefined, finishedAt: string | null | undefined, now: Date) {
   if (!status || !finishedAt) return "warning" as const;
   if (status === "FAILED" || status === "PARTIAL") return "stale" as const;
@@ -666,18 +513,6 @@ function collectorLabel(state: "fresh" | "warning" | "stale") {
   return "Jenkins 수집 전";
 }
 
-function attentionPanelTone(level: StrategyLifecycle["attention_level"]) {
-  if (level === "CRITICAL") return "border-rose-500/25 bg-rose-500/7 text-rose-200";
-  if (level === "WATCH") return "border-amber-500/25 bg-amber-500/7 text-amber-200";
-  return "border-sky-500/20 bg-sky-500/5 text-sky-200";
-}
-
-function attentionPanelLabel(level: StrategyLifecycle["attention_level"]) {
-  if (level === "CRITICAL") return "ATTENTION";
-  if (level === "WATCH") return "WATCH";
-  return "CONTEXT";
-}
-
 async function fetchStrategyLifecycle(signal?: AbortSignal) {
   const response = await fetch("/api/strategies", { signal, cache: "no-store" });
   const payload = (await response.json()) as StrategyLifecycleResponse | { error?: string };
@@ -685,4 +520,22 @@ async function fetchStrategyLifecycle(signal?: AbortSignal) {
     throw new Error("error" in payload && payload.error ? payload.error : "전략 데이터를 불러오지 못했습니다.");
   }
   return payload;
+}
+
+function LifecycleLoading() {
+  return (
+    <section className="strategy-map-grid lifecycle-loading" aria-label="전략 데이터 로딩 중">
+      {Array.from({ length: 12 }, (_, index) => <div key={index} />)}
+    </section>
+  );
+}
+
+function LifecycleError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <section className="lifecycle-error">
+      <strong>전략 현황을 불러오지 못했습니다.</strong>
+      <p>{message}</p>
+      <button type="button" onClick={onRetry}>다시 시도</button>
+    </section>
+  );
 }

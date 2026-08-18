@@ -25,7 +25,7 @@ export async function GET() {
       supabase
         .from("pd_jenkins_jobs")
         .select(
-          "job_name,strategy_id,runtime_job,mode,treatment_label,schedule,expected_cadence_minutes,workspace_class,buildable,enabled,in_queue,building,job_color,last_build_number,last_build_status,last_build_started_at,last_build_duration_ms,config_sha256,observed_at,notes,updated_at",
+          "job_name,strategy_id,runtime_job,mode,treatment_label,purpose,test_size_label,experiment_started_at,experiment_ends_at,schedule,expected_cadence_minutes,workspace_class,buildable,enabled,in_queue,building,job_color,last_build_number,last_build_status,last_build_started_at,last_build_duration_ms,config_sha256,observed_at,notes,updated_at",
         )
         .order("job_name", { ascending: true }),
       supabase

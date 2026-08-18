@@ -22,6 +22,7 @@ import {
   type StorageSummary,
 } from "@/lib/storage";
 import type { HostStorageResponse } from "@/lib/types";
+import { ThemeToggle } from "@/components/theme-toggle";
 
 const SERIES_COLORS = ["#8de0c1", "#f0c36a", "#a98cff", "#57a8f5", "#ff7b86"];
 
@@ -124,8 +125,9 @@ export function StorageDashboard() {
           <nav className="monitor-nav" aria-label="대시보드 화면">
             <Link href="/">성과</Link>
             <Link className="selected" href="/storage" aria-current="page">저장공간</Link>
-            <Link href="/strategies">전략 단계</Link>
+            <Link href="/strategies">전략 현황</Link>
           </nav>
+          <ThemeToggle />
           <div className="status-cluster">
             <span className={`status-dot ${loading ? "pending" : error ? "stale" : statusClass}`} />
             <span>{loading ? "데이터 확인 중" : error ? "데이터 연결 오류" : statusLabel}</span>

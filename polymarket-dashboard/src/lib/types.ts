@@ -144,6 +144,10 @@ export interface StrategyJenkinsJob {
   runtime_job: string | null;
   mode: JenkinsJobMode;
   treatment_label: string | null;
+  purpose: string | null;
+  test_size_label: string | null;
+  experiment_started_at: string | null;
+  experiment_ends_at: string | null;
   schedule: string | null;
   expected_cadence_minutes: number | null;
   workspace_class: "INTERNAL" | "EXTERNAL" | "UNKNOWN";

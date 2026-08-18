@@ -3,13 +3,14 @@ import test from "node:test";
 
 import {
   getCheckpointState,
+  getDashboardStage,
   getDaysElapsed,
   getEvaluationProgress,
   getJenkinsHealth,
   getNextCheckpoint,
   getStrategyHealth,
   isStrategyVisibleByClosedToggle,
-  LIFECYCLE_STAGES,
+  DASHBOARD_STAGES,
 } from "./strategy-lifecycle";
 import type {
   StrategyCheckpoint,
@@ -19,15 +20,19 @@ import type {
 
 const NOW = new Date("2026-08-18T12:00:00Z");
 
-test("수익 검증 단계는 안정화와 운영 사이에 독립적으로 존재한다", () => {
-  assert.ok(LIFECYCLE_STAGES.indexOf("PROFITABILITY") > LIFECYCLE_STAGES.indexOf("STABILIZATION"));
-  assert.ok(LIFECYCLE_STAGES.indexOf("PROFITABILITY") < LIFECYCLE_STAGES.indexOf("PRODUCTION"));
+test("세부 lifecycle 값은 운영자가 보는 다섯 단계로 묶인다", () => {
+  assert.deepEqual(DASHBOARD_STAGES, ["IMPLEMENTED", "SIMULATION", "VALIDATION", "STABILIZATION", "CLOSED"]);
+  assert.equal(getDashboardStage("IDEA"), "IMPLEMENTED");
+  assert.equal(getDashboardStage("IMPLEMENTING"), "IMPLEMENTED");
+  assert.equal(getDashboardStage("PROFITABILITY"), "VALIDATION");
+  assert.equal(getDashboardStage("PRODUCTION"), "STABILIZATION");
+  assert.equal(getDashboardStage("CLOSED"), "CLOSED");
 });
 
-test("폐쇄 전략은 기본 toggle에서 숨고 명시적으로 켰을 때만 보인다", () => {
+test("폐쇄 전략도 기본 표시하고 사용자가 원할 때만 숨긴다", () => {
   const closed = strategy({ lifecycle_stage: "CLOSED", operating_status: "CLOSED", hidden_by_default: true });
-  assert.equal(isStrategyVisibleByClosedToggle(closed, false), false);
-  assert.equal(isStrategyVisibleByClosedToggle(closed, true), true);
+  assert.equal(isStrategyVisibleByClosedToggle(closed, false), true);
+  assert.equal(isStrategyVisibleByClosedToggle(closed, true), false);
   assert.equal(isStrategyVisibleByClosedToggle(strategy(), false), true);
 });
 
@@ -111,6 +116,10 @@ function job(overrides: Partial<StrategyJenkinsJob> = {}): StrategyJenkinsJob {
     runtime_job: "test",
     mode: "LIVE",
     treatment_label: null,
+    purpose: null,
+    test_size_label: null,
+    experiment_started_at: null,
+    experiment_ends_at: null,
     schedule: "H/5 * * * *",
     expected_cadence_minutes: 5,
     workspace_class: "INTERNAL",

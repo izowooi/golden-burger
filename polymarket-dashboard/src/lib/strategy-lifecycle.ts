@@ -5,29 +5,40 @@ import type {
   StrategyLifecycle,
 } from "@/lib/types";
 
-export const LIFECYCLE_STAGES: LifecycleStage[] = [
-  "IDEA",
-  "IMPLEMENTING",
+export type DashboardStage =
+  | "IMPLEMENTED"
+  | "SIMULATION"
+  | "VALIDATION"
+  | "STABILIZATION"
+  | "CLOSED";
+
+export const DASHBOARD_STAGES: DashboardStage[] = [
   "IMPLEMENTED",
   "SIMULATION",
-  "LIVE_VALIDATION",
+  "VALIDATION",
   "STABILIZATION",
-  "PROFITABILITY",
-  "PRODUCTION",
   "CLOSED",
 ];
 
-export const LIFECYCLE_STAGE_LABELS: Record<LifecycleStage, string> = {
-  IDEA: "아이디어",
-  IMPLEMENTING: "구현 중",
+export const DASHBOARD_STAGE_LABELS: Record<DashboardStage, string> = {
   IMPLEMENTED: "구현 완료",
   SIMULATION: "시뮬레이션",
-  LIVE_VALIDATION: "실거래 검증",
+  VALIDATION: "검증",
   STABILIZATION: "안정화",
-  PROFITABILITY: "수익 검증",
-  PRODUCTION: "운영",
   CLOSED: "폐쇄",
 };
+
+/**
+ * The database keeps the finer-grained values for historical and collector
+ * compatibility. Operators only need the five decisions represented here.
+ */
+export function getDashboardStage(stage: LifecycleStage): DashboardStage {
+  if (["IDEA", "IMPLEMENTING", "IMPLEMENTED"].includes(stage)) return "IMPLEMENTED";
+  if (stage === "SIMULATION") return "SIMULATION";
+  if (["LIVE_VALIDATION", "PROFITABILITY"].includes(stage)) return "VALIDATION";
+  if (["STABILIZATION", "PRODUCTION"].includes(stage)) return "STABILIZATION";
+  return "CLOSED";
+}
 
 export type DynamicCheckpointState =
   | "UPCOMING"
@@ -141,7 +152,7 @@ export function getHoursUntil(timestamp: string, now = new Date()) {
 
 export function isStrategyVisibleByClosedToggle(
   strategy: StrategyLifecycle,
-  showClosed: boolean,
+  hideClosed: boolean,
 ) {
-  return showClosed || strategy.lifecycle_stage !== "CLOSED";
+  return !hideClosed || strategy.lifecycle_stage !== "CLOSED";
 }
