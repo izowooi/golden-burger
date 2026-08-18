@@ -30,7 +30,8 @@ class GammaClient:
     CONNECT_TIMEOUT_SECONDS = 3.05
     READ_TIMEOUT_SECONDS = 20.0
     MAX_SWEEP_PAGES = 10_000
-    KEYSET_PAGE_INTERVAL_SECONDS = 0.25
+    # One cross-strategy leader stays below Gamma's 300 requests / 10s limit.
+    KEYSET_PAGE_INTERVAL_SECONDS = 0.1
     SWEEP_SCHEMA_VERSION = 1
 
     def __init__(self):
