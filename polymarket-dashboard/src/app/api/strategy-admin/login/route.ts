@@ -1,15 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { createAdminSessionToken } from "@/lib/strategy-admin";
 import {
-  createAdminSessionToken,
-  matchesAdminPassword,
-} from "@/lib/strategy-admin";
-import {
-  getStrategyAdminCredential,
   getStrategyAdminSessionSecret,
   isSameOriginRequest,
   noStoreHeaders,
   setStrategyAdminCookie,
+  verifyStrategyAdminPassword,
 } from "@/lib/strategy-admin-server";
 
 export const dynamic = "force-dynamic";
@@ -24,16 +21,7 @@ export async function POST(request: NextRequest) {
   }
 
   const sessionSecret = getStrategyAdminSessionSecret();
-  let credential: Awaited<ReturnType<typeof getStrategyAdminCredential>> = null;
-  try {
-    credential = await getStrategyAdminCredential();
-  } catch {
-    return NextResponse.json(
-      { error: "관리자 설정을 확인하지 못했습니다." },
-      { status: 503, headers: noStoreHeaders() },
-    );
-  }
-  if (!sessionSecret || !credential) {
+  if (!sessionSecret) {
     return NextResponse.json(
       { error: "관리자 모드가 아직 설정되지 않았습니다." },
       { status: 503, headers: noStoreHeaders() },
@@ -56,11 +44,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "요청 형식이 올바르지 않습니다." }, { status: 400, headers: noStoreHeaders() });
   }
 
-  if (!(await matchesAdminPassword(password, credential))) {
-    recordFailure(clientKey);
+  try {
+    if (!(await verifyStrategyAdminPassword(password))) {
+      recordFailure(clientKey);
+      return NextResponse.json(
+        { error: "암호가 올바르지 않습니다." },
+        { status: 401, headers: noStoreHeaders() },
+      );
+    }
+  } catch {
     return NextResponse.json(
-      { error: "암호가 올바르지 않습니다." },
-      { status: 401, headers: noStoreHeaders() },
+      { error: "관리자 설정을 확인하지 못했습니다." },
+      { status: 503, headers: noStoreHeaders() },
     );
   }
 

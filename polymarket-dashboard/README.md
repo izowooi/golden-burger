@@ -174,8 +174,9 @@ PATCH /api/strategy-admin/strategies/:strategyId
   audit가 필요합니다.
 - DB의 아이디어·구현 중·구현 완료 값은 운영 상태를 증명하지 않으므로 화면에서는 모두 `미정`으로
   표시합니다. 관리자 수정은 표시 단계와 호환되는 DB 세부 단계만 저장합니다.
-- 관리자 암호 원문은 저장하지 않습니다. PBKDF2 salt·hash만 RLS가 활성화된 서버 전용
-  `pd_admin_credentials`에 두며, 로그인 쿠키는 HttpOnly·SameSite=Strict이고 8시간 후 만료됩니다.
+- 관리자 암호 원문은 저장하지 않습니다. bcrypt verifier만 RLS가 활성화된 서버 전용
+  `pd_admin_credentials`에 두고 DB 함수로 검증하며, 로그인 쿠키는 HttpOnly·SameSite=Strict이고
+  8시간 후 만료됩니다.
 
 ## Jenkins 상태 수집기
 

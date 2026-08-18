@@ -3,23 +3,12 @@ import test from "node:test";
 
 import {
   createAdminSessionToken,
-  matchesAdminPassword,
   normalizeStrategyAdminUpdate,
   StrategyAdminValidationError,
   verifyAdminSessionToken,
 } from "./strategy-admin";
 
 const NOW = new Date("2026-08-18T12:00:00Z");
-
-test("관리자 암호는 원문을 저장하지 않고 동일 여부만 비교한다", async () => {
-  const credential = {
-    password_salt: "00112233445566778899aabbccddeeff",
-    password_hash: "856cbaaac4faa36371ab18c22d494bbc58c8df153b3914d9d0ab2de65aea5e19",
-    iterations: 100_000,
-  };
-  assert.equal(await matchesAdminPassword("example-password", credential), true);
-  assert.equal(await matchesAdminPassword("wrong-password", credential), false);
-});
 
 test("관리자 세션은 서명과 만료 시각을 검증한다", async () => {
   const now = NOW.getTime();

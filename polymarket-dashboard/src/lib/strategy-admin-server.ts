@@ -6,7 +6,6 @@ import {
   ADMIN_SESSION_COOKIE,
   ADMIN_SESSION_TTL_SECONDS,
   verifyAdminSessionToken,
-  type StrategyAdminCredential,
 } from "@/lib/strategy-admin";
 import { createServerSupabaseClient } from "@/lib/supabase/server";
 
@@ -15,14 +14,24 @@ export function getStrategyAdminSessionSecret() {
   return value && value.trim() ? `strategy-admin-session-v1:${value}` : null;
 }
 
-export async function getStrategyAdminCredential(): Promise<StrategyAdminCredential | null> {
+export async function isStrategyAdminConfigured() {
   const result = await createServerSupabaseClient()
     .from("pd_admin_credentials")
-    .select("password_salt,password_hash,iterations")
+    .select("credential_id")
     .eq("credential_id", "strategy-dashboard")
     .maybeSingle();
   if (result.error) throw new Error(result.error.message);
-  return result.data as StrategyAdminCredential | null;
+  return Boolean(result.data);
+}
+
+export async function verifyStrategyAdminPassword(candidate: string) {
+  if (!candidate || candidate.length > 256) return false;
+  const result = await createServerSupabaseClient().rpc(
+    "pd_verify_strategy_admin_password",
+    { candidate_password: candidate },
+  );
+  if (result.error) throw new Error(result.error.message);
+  return result.data === true;
 }
 
 export async function isStrategyAdminRequest(request: NextRequest, secret: string) {

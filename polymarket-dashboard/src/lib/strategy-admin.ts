@@ -36,60 +36,7 @@ export interface StrategyAdminUpdate {
   phase_started_at: string | null;
 }
 
-export interface StrategyAdminCredential {
-  password_salt: string;
-  password_hash: string;
-  iterations: number;
-}
-
 export class StrategyAdminValidationError extends Error {}
-
-export async function matchesAdminPassword(
-  candidate: string,
-  credential: StrategyAdminCredential,
-) {
-  if (!candidate || candidate.length > 256 || !isValidCredential(credential)) return false;
-  const candidateHash = await deriveAdminPasswordHash(
-    candidate,
-    credential.password_salt,
-    credential.iterations,
-  );
-  return constantTimeEqual(
-    new TextEncoder().encode(candidateHash),
-    new TextEncoder().encode(credential.password_hash.toLocaleLowerCase("en-US")),
-  );
-}
-
-export async function deriveAdminPasswordHash(
-  password: string,
-  saltHex: string,
-  iterations: number,
-) {
-  if (!password || password.length > 256 || !/^[0-9a-f]{32}$/i.test(saltHex)) {
-    throw new StrategyAdminValidationError("관리자 암호 설정이 올바르지 않습니다.");
-  }
-  if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 1_000_000) {
-    throw new StrategyAdminValidationError("관리자 암호 반복 횟수가 올바르지 않습니다.");
-  }
-  const keyMaterial = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(password),
-    "PBKDF2",
-    false,
-    ["deriveBits"],
-  );
-  const bits = await crypto.subtle.deriveBits(
-    {
-      name: "PBKDF2",
-      hash: "SHA-256",
-      salt: hexToBytes(saltHex),
-      iterations,
-    },
-    keyMaterial,
-    256,
-  );
-  return bytesToHex(new Uint8Array(bits));
-}
 
 export async function createAdminSessionToken(
   secret: string,
@@ -222,18 +169,6 @@ function constantTimeEqual(left: Uint8Array, right: Uint8Array) {
     difference |= (left[index] ?? 0) ^ (right[index] ?? 0);
   }
   return difference === 0;
-}
-
-function isValidCredential(credential: StrategyAdminCredential) {
-  return /^[0-9a-f]{32}$/i.test(credential.password_salt)
-    && /^[0-9a-f]{64}$/i.test(credential.password_hash)
-    && Number.isInteger(credential.iterations)
-    && credential.iterations >= 100_000
-    && credential.iterations <= 1_000_000;
-}
-
-function hexToBytes(value: string) {
-  return Uint8Array.from(value.match(/.{2}/g) ?? [], (part) => Number.parseInt(part, 16));
 }
 
 function bytesToHex(value: Uint8Array) {

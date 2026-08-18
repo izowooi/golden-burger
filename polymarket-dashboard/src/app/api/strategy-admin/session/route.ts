@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { ADMIN_SESSION_COOKIE } from "@/lib/strategy-admin";
 import {
   clearStrategyAdminCookie,
-  getStrategyAdminCredential,
   getStrategyAdminSessionSecret,
+  isStrategyAdminConfigured,
   isStrategyAdminRequest,
   noStoreHeaders,
 } from "@/lib/strategy-admin-server";
@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   const sessionSecret = getStrategyAdminSessionSecret();
   let configured = false;
   try {
-    configured = Boolean(await getStrategyAdminCredential());
+    configured = await isStrategyAdminConfigured();
   } catch {
     return NextResponse.json(
       { authenticated: false, configured: false },

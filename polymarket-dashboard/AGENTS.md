@@ -79,8 +79,8 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 ## 환경변수
 
 - Dashboard는 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, 선택적인 `JENKINS_DASHBOARD_URL`을 사용한다.
-- 관리자 암호 원문은 환경변수·Git에 두지 않는다. PBKDF2 verifier만 RLS가 활성화된
-  `pd_admin_credentials`에 별도 provisioning하고, 세션 서명은 기존 서버 Secret에서 용도 분리해 파생한다.
+- 관리자 암호 원문은 환경변수·Git에 두지 않는다. bcrypt verifier만 RLS가 활성화된
+  `pd_admin_credentials`에 두고 DB 함수로 검증하며, 세션 서명은 기존 서버 Secret에서 용도 분리해 파생한다.
 - LAN 수집기는 추가로 `JENKINS_URL`과 선택적인 `JENKINS_USER`/`JENKINS_API_TOKEN`을 사용한다.
 - 로컬: `.env.local` (`.env.example` 복사). Workers 미리보기: `.dev.vars` (`.dev.vars.example` 복사).
 - 실제 값 파일은 커밋하지 않는다. 예제 파일만 추적한다.
