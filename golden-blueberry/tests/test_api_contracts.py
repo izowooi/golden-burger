@@ -6,6 +6,7 @@ surface in the Blueberry package rather than strategy decisions.
 
 from __future__ import annotations
 
+import os
 import sqlite3
 from types import SimpleNamespace
 
@@ -229,6 +230,36 @@ def test_gamma_shared_cache_keeps_one_compressed_bucket_and_one_filter_lock(
     assert len(cache_files) == 1
     assert "sweep-2-" in cache_files[0].name
     assert len(list(cache_root.glob("sweep-filter-*.lock"))) == 1
+
+
+def test_gamma_shared_cache_reuses_recent_sweep_across_bucket_boundary(
+    tmp_path,
+    monkeypatch,
+):
+    cache_root = tmp_path / "shared-gamma"
+    clock = [1_199.0]
+    monkeypatch.setenv(GammaClient.SHARED_CACHE_ENV, str(cache_root))
+    monkeypatch.setattr("polybot.api.gamma_client.time.time", lambda: clock[0])
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _value: None)
+
+    leader = GammaClient()
+    leader.session = KeysetSession()
+    leader.get_all_tradable_markets(min_liquidity=10_000)
+    cache_path = next(cache_root.glob("sweep-*.json.gz"))
+    os.utime(cache_path, (clock[0], clock[0]))
+    clock[0] = 1_201.0
+
+    follower = GammaClient()
+    follower.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("fresh completed sweep must cross the bucket boundary")
+        )
+    )
+    follower.get_all_tradable_markets(min_liquidity=10_000)
+
+    assert follower.last_sweep_attestation["shared_cache_hit"] is True
+    assert follower.last_sweep_attestation["shared_cache_bucket"] == 4
+    assert follower.last_sweep_attestation["shared_cache_source_bucket"] == 3
 
 
 class TimeoutSession:

@@ -24,6 +24,7 @@ from uuid import uuid4
 SHARED_CACHE_ENV = "POLYBOT_GAMMA_SHARED_CACHE_DIR"
 SHARED_CACHE_SCHEMA_VERSION = 1
 SHARED_CACHE_BUCKET_SECONDS = 300
+SHARED_CACHE_REUSE_SECONDS = 300.0
 SHARED_CACHE_LOCK_TIMEOUT_SECONDS = 1_200.0
 SHARED_CACHE_MAX_BYTES = 256 * 1024 * 1024
 DEFAULT_JENKINS_CACHE = Path(".cache/polybot/gamma-sweeps-v1")
@@ -164,6 +165,45 @@ class GammaSweepCache:
             payload, cache_key=cache_key, bucket=bucket, filters=filters
         )
 
+    def _read_recent(
+        self,
+        *,
+        filter_digest: str,
+        filters: dict,
+        now: float,
+    ) -> Optional[tuple[list[dict], dict, int]]:
+        """Return the newest validated sweep published in the last five minutes."""
+        candidates = sorted(
+            self.root.glob(f"sweep-*-{filter_digest}.json.gz"),
+            key=lambda candidate: candidate.stat().st_mtime,
+            reverse=True,
+        )
+        for candidate in candidates:
+            if candidate.is_symlink():
+                continue
+            age = now - candidate.stat().st_mtime
+            if age < 0 or age > SHARED_CACHE_REUSE_SECONDS:
+                continue
+            cache_key = candidate.name.removesuffix(".json.gz")
+            try:
+                source_bucket = int(cache_key.split("-", 2)[1])
+                cached = self._read(
+                    candidate,
+                    cache_key=cache_key,
+                    bucket=source_bucket,
+                    filters=filters,
+                )
+            except (OSError, ValueError, json.JSONDecodeError, IndexError):
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if cached is not None:
+                markets, attestation = cached
+                return markets, attestation, source_bucket
+        return None
+
     @staticmethod
     def _write(
         path: Path,
@@ -215,7 +255,8 @@ class GammaSweepCache:
         filters: dict,
         producer: Callable[[], tuple[list[dict], dict]],
     ) -> tuple[list[dict], dict, bool]:
-        bucket = int(time.time()) // SHARED_CACHE_BUCKET_SECONDS
+        requested_at = time.time()
+        bucket = int(requested_at) // SHARED_CACHE_BUCKET_SECONDS
         cache_key, filter_digest = self._identity(filters, bucket)
         cache_path = self.root / f"{cache_key}.json.gz"
         lock_path = self.root / f"sweep-filter-{filter_digest}.lock"
@@ -235,6 +276,17 @@ class GammaSweepCache:
                     pass
                 cached = None
 
+            source_bucket = bucket
+            if cached is None:
+                recent = self._read_recent(
+                    filter_digest=filter_digest,
+                    filters=filters,
+                    now=time.time(),
+                )
+                if recent is not None:
+                    markets, source_attestation, source_bucket = recent
+                    cached = markets, source_attestation
+
             if cached is not None:
                 markets, source_attestation = cached
                 attestation = dict(source_attestation)
@@ -251,6 +303,7 @@ class GammaSweepCache:
                         "source_sweep_id": source_sweep_id,
                         "shared_cache_hit": True,
                         "shared_cache_bucket": bucket,
+                        "shared_cache_source_bucket": source_bucket,
                     }
                 )
                 return markets, attestation, True
@@ -277,6 +330,7 @@ class GammaSweepCache:
                     "source_sweep_id": source_sweep_id,
                     "shared_cache_hit": False,
                     "shared_cache_bucket": bucket,
+                    "shared_cache_source_bucket": bucket,
                 }
             )
             self._write(

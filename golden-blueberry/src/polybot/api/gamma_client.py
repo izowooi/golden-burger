@@ -40,6 +40,7 @@ class GammaClient:
     SHARED_CACHE_SCHEMA_VERSION = 1
     SHARED_CACHE_ENV = "POLYBOT_GAMMA_SHARED_CACHE_DIR"
     SHARED_CACHE_BUCKET_SECONDS = 300
+    SHARED_CACHE_REUSE_SECONDS = 300.0
     SHARED_CACHE_LOCK_TIMEOUT_SECONDS = 12 * 60
     SHARED_CACHE_MAX_BYTES = 512 * 1024 * 1024
     SHARED_CACHE_COMPRESSION_LEVEL = 1
@@ -237,6 +238,46 @@ class GammaClient:
             bucket=bucket,
             filters=filters,
         )
+
+    def _read_recent_shared_cache(
+        self,
+        root: Path,
+        *,
+        filter_digest: str,
+        filters: Dict[str, Any],
+        now: float,
+    ) -> Optional[tuple[List[Dict], Dict, int]]:
+        """Reuse a validated sweep published less than five minutes ago."""
+        candidates = sorted(
+            root.glob(f"sweep-*-{filter_digest}.json.gz"),
+            key=lambda candidate: candidate.stat().st_mtime,
+            reverse=True,
+        )
+        for candidate in candidates:
+            if candidate.is_symlink():
+                continue
+            age = now - candidate.stat().st_mtime
+            if age < 0 or age > self.SHARED_CACHE_REUSE_SECONDS:
+                continue
+            cache_key = candidate.name.removesuffix(".json.gz")
+            try:
+                source_bucket = int(cache_key.split("-", 2)[1])
+                cached = self._read_shared_cache(
+                    candidate,
+                    cache_key=cache_key,
+                    bucket=source_bucket,
+                    filters=filters,
+                )
+            except (OSError, ValueError, json.JSONDecodeError, IndexError):
+                try:
+                    candidate.unlink()
+                except FileNotFoundError:
+                    pass
+                continue
+            if cached is not None:
+                markets, attestation = cached
+                return markets, attestation, source_bucket
+        return None
 
     def _write_shared_cache(
         self,
@@ -450,7 +491,8 @@ class GammaClient:
                 min_volume=min_volume,
             )
 
-        bucket = int(time.time()) // self.SHARED_CACHE_BUCKET_SECONDS
+        requested_at = time.time()
+        bucket = int(requested_at) // self.SHARED_CACHE_BUCKET_SECONDS
         cache_key, filters = self._shared_cache_identity(
             min_liquidity,
             min_volume,
@@ -478,6 +520,18 @@ class GammaClient:
                 except FileNotFoundError:
                     pass
                 cached = None
+            source_bucket = bucket
+            if cached is None:
+                recent = self._read_recent_shared_cache(
+                    cache_root,
+                    filter_digest=filter_digest,
+                    filters=filters,
+                    now=time.time(),
+                )
+                if recent is not None:
+                    markets, source_attestation, source_bucket = recent
+                    cached = markets, source_attestation
+
             if cached is not None:
                 markets, source_attestation = cached
                 attestation = dict(source_attestation)
@@ -494,6 +548,7 @@ class GammaClient:
                         "source_sweep_id": source_sweep_id,
                         "shared_cache_hit": True,
                         "shared_cache_bucket": bucket,
+                        "shared_cache_source_bucket": source_bucket,
                     }
                 )
                 self.sweep_attestations.append(attestation)
@@ -519,6 +574,7 @@ class GammaClient:
                     "source_sweep_id": source_sweep_id,
                     "shared_cache_hit": False,
                     "shared_cache_bucket": bucket,
+                    "shared_cache_source_bucket": bucket,
                 }
             )
             self._write_shared_cache(

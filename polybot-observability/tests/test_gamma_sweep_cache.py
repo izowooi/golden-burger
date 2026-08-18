@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 
 from polybot_observability.gamma_sweep_cache import GammaSweepCache
 
@@ -84,3 +85,34 @@ def test_filter_identity_does_not_cross_contaminate(tmp_path, monkeypatch):
     assert one[0][0]["conditionId"] == "condition-1"
     assert two[0][0]["conditionId"] == "condition-2"
     assert len(list(tmp_path.glob("sweep-*.json.gz"))) == 2
+
+
+def test_recent_completed_sweep_is_reused_across_bucket_boundary(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("POLYBOT_GAMMA_SHARED_CACHE_DIR", str(tmp_path))
+    clock = [1_199.0]
+    monkeypatch.setattr(
+        "polybot_observability.gamma_sweep_cache.time.time",
+        lambda: clock[0],
+    )
+    filters = {"min_volume": 5_000.0}
+    first = GammaSweepCache.from_environment().get_or_create(
+        filters=filters,
+        producer=_evidence,
+    )
+    cache_path = next(tmp_path.glob("sweep-*.json.gz"))
+    os.utime(cache_path, (clock[0], clock[0]))
+    clock[0] = 1_201.0
+
+    second = GammaSweepCache.from_environment().get_or_create(
+        filters=filters,
+        producer=lambda: (_ for _ in ()).throw(
+            AssertionError("fresh completed sweep must cross the bucket boundary")
+        ),
+    )
+
+    assert first[2] is False
+    assert second[2] is True
+    assert second[1]["shared_cache_bucket"] == 4
+    assert second[1]["shared_cache_source_bucket"] == 3
