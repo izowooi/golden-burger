@@ -6,22 +6,28 @@ import type {
 } from "@/lib/types";
 
 export type DashboardStage =
-  | "IMPLEMENTED"
+  | "UNKNOWN"
   | "SIMULATION"
   | "VALIDATION"
   | "STABILIZATION"
   | "CLOSED";
 
 export const DASHBOARD_STAGES: DashboardStage[] = [
-  "IMPLEMENTED",
+  "UNKNOWN",
   "SIMULATION",
   "VALIDATION",
   "STABILIZATION",
   "CLOSED",
 ];
 
+export const DEFAULT_DASHBOARD_STAGES: DashboardStage[] = [
+  "SIMULATION",
+  "VALIDATION",
+  "STABILIZATION",
+];
+
 export const DASHBOARD_STAGE_LABELS: Record<DashboardStage, string> = {
-  IMPLEMENTED: "구현 완료",
+  UNKNOWN: "미정",
   SIMULATION: "시뮬레이션",
   VALIDATION: "검증",
   STABILIZATION: "안정화",
@@ -30,10 +36,11 @@ export const DASHBOARD_STAGE_LABELS: Record<DashboardStage, string> = {
 
 /**
  * The database keeps the finer-grained values for historical and collector
- * compatibility. Operators only need the five decisions represented here.
+ * compatibility. Pre-run stages do not prove an operational state, so the
+ * operator view deliberately calls them unknown.
  */
 export function getDashboardStage(stage: LifecycleStage): DashboardStage {
-  if (["IDEA", "IMPLEMENTING", "IMPLEMENTED"].includes(stage)) return "IMPLEMENTED";
+  if (["IDEA", "IMPLEMENTING", "IMPLEMENTED"].includes(stage)) return "UNKNOWN";
   if (stage === "SIMULATION") return "SIMULATION";
   if (["LIVE_VALIDATION", "PROFITABILITY"].includes(stage)) return "VALIDATION";
   if (["STABILIZATION", "PRODUCTION"].includes(stage)) return "STABILIZATION";
@@ -148,11 +155,4 @@ export function getNextCheckpoint(
 
 export function getHoursUntil(timestamp: string, now = new Date()) {
   return (Date.parse(timestamp) - now.getTime()) / HOUR_MS;
-}
-
-export function isStrategyVisibleByClosedToggle(
-  strategy: StrategyLifecycle,
-  hideClosed: boolean,
-) {
-  return !hideClosed || strategy.lifecycle_stage !== "CLOSED";
 }

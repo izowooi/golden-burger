@@ -17,10 +17,12 @@ Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않
 - `/storage`에서 host·mount별 전체/사용/여유 공간과 사용률 표시
 - 80% 주의·90% 위험, 36시간 수집 지연 판정
 - 최근 최대 30일 증가율과 예상 소진일, 결측일을 끊은 사용률 차트
-- `/strategies`에서 아이디어→구현→시뮬레이션→실거래 검증→안정화→수익 검증→운영→폐쇄 pipeline 표시
+- `/strategies`에서 미정·시뮬레이션·검증·안정화·폐쇄 상태를 다중 선택해 표시
+- 기본 화면은 시뮬레이션·검증·안정화만 선택하고, 카드 상세를 열 때 Jenkins와 일정을 표시
+- 암호 기반 관리자 모드에서 전략 단계·운영 상태·확인 표시를 수정
 - 전략별 검증 경과일, 7일·30일·월간 review checkpoint와 overdue 표시
 - 하나의 전략에 연결된 여러 Jenkins arm, schedule, mode, 최신 build health 표시
-- 폐쇄 전략은 기본 숨김이며 toggle로만 표시
+- 미정·폐쇄 전략은 기본 선택에서 제외하고 단계 필터로 함께 표시
 - 전략 이름과 Jenkins 이름이 다른 매핑(`polybot-orange → golden-cherry` 등)을 실제 실행 경로 기준으로 관리
 - 데스크톱과 모바일 화면 대응
 
@@ -62,6 +64,9 @@ Supabase를 조회하므로 비밀키가 브라우저 번들에 포함되지 않
             ├─ pd_jenkins_jobs
             ├─ pd_strategy_checkpoints
             └─ pd_sync_runs
+  └─ /api/strategy-admin/*
+       ├─ HttpOnly 서명 세션 + same-origin 검사
+       └─ 허용된 pd_strategies 상태 필드만 수정
 
 Mac mini Jenkins (LAN)
   └─ npm run sync:jenkins
@@ -131,7 +136,7 @@ npm audit
 
 ## API
 
-대시보드는 아래의 읽기 전용 endpoint를 사용합니다.
+대시보드는 아래 endpoint를 사용합니다. 일반 조회는 읽기 전용이고 관리자 수정만 서명 세션을 요구합니다.
 
 ```text
 GET /api/portfolio
@@ -139,6 +144,10 @@ GET /api/portfolio?start=2026-06-01&end=2026-06-23
 GET /api/storage
 GET /api/storage?start=2026-08-01&end=2026-08-31
 GET /api/strategies
+GET /api/strategy-admin/session
+POST /api/strategy-admin/login
+POST /api/strategy-admin/logout
+PATCH /api/strategy-admin/strategies/:strategyId
 ```
 
 `start`와 `end`는 선택 사항이며 `YYYY-MM-DD` 형식입니다. 현재 UI는 한 번에 전체 데이터를 받아 브라우저에서 즉시 기간을 전환합니다. 데이터가 수만 건 이상으로 증가하면 기간별 서버 조회 방식으로 전환하는 것이 적합합니다.
@@ -163,6 +172,10 @@ GET /api/strategies
   mapping으로 사용합니다.
 - 수익성은 이 화면의 build status로 판단하지 않습니다. 별도 DB sync와 strict fill evidence
   audit가 필요합니다.
+- DB의 아이디어·구현 중·구현 완료 값은 운영 상태를 증명하지 않으므로 화면에서는 모두 `미정`으로
+  표시합니다. 관리자 수정은 표시 단계와 호환되는 DB 세부 단계만 저장합니다.
+- 관리자 암호 원문은 저장하지 않습니다. PBKDF2 salt·hash만 RLS가 활성화된 서버 전용
+  `pd_admin_credentials`에 두며, 로그인 쿠키는 HttpOnly·SameSite=Strict이고 8시간 후 만료됩니다.
 
 ## Jenkins 상태 수집기
 
@@ -271,6 +284,7 @@ Secret key 자체는 서버에 숨겨지지만 `/api/portfolio`의 응답 데이
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API
 - `src/app/api/storage/route.ts`: 저장공간 Supabase 읽기 전용 API
 - `src/app/api/strategies/route.ts`: 전략·Jenkins·checkpoint Supabase 읽기 전용 API
+- `src/app/api/strategy-admin/`: 관리자 로그인·세션·허용된 전략 상태 수정 API
 - `src/components/strategy-lifecycle-dashboard.tsx`: lifecycle pipeline·review·job health UI
 - `src/lib/strategy-lifecycle.ts`: 동적 checkpoint·Jenkins/전략 health 계산
 - `scripts/sync-jenkins-status.mjs`: LAN Jenkins metadata → Supabase 수집기

@@ -25,6 +25,7 @@
 - `src/lib/*.test.ts`: analytics·data-quality 단위 테스트 (Node test runner + tsx)
 - `src/app/api/portfolio/route.ts`: Supabase 읽기 전용 API (Route Handler)
 - `src/app/api/strategies/route.ts`: 전략 lifecycle·Jenkins health·checkpoint 읽기 전용 API
+- `src/app/api/strategy-admin/`: 암호 세션으로 보호된 전략 단계·운영 상태 수정 API
 - `src/components/strategy-lifecycle-dashboard.tsx`: lifecycle pipeline·review radar·job 상세 UI
 - `src/lib/strategy-lifecycle.ts`: checkpoint urgency와 Jenkins/전략 health 순수 계산
 - `scripts/sync-jenkins-status.mjs`: Node 환경용 LAN Jenkins read-only metadata 수집기
@@ -64,7 +65,8 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 
 ## 데이터 / 외부 연동
 
-- API는 portfolio/storage의 `pb_*`와 lifecycle의 `pd_*` allowlist만 읽는다.
+- 일반 API는 portfolio/storage의 `pb_*`와 lifecycle의 `pd_*` allowlist만 읽는다. 관리자 API만
+  HttpOnly 서명 세션을 검증한 뒤 `pd_strategies`의 허용된 상태 필드를 수정한다.
 - `pd_strategies`·`pd_jenkins_jobs`·`pd_strategy_checkpoints`·`pd_sync_runs`는 RLS를 켜고
   anon/authenticated policy를 두지 않는 서버 전용 계약이다.
 - Cloudflare는 LAN Jenkins에 접근하지 않는다. Jenkins metadata는 Mac mini의
@@ -77,6 +79,8 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 ## 환경변수
 
 - Dashboard는 `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, 선택적인 `JENKINS_DASHBOARD_URL`을 사용한다.
+- 관리자 암호 원문은 환경변수·Git에 두지 않는다. PBKDF2 verifier만 RLS가 활성화된
+  `pd_admin_credentials`에 별도 provisioning하고, 세션 서명은 기존 서버 Secret에서 용도 분리해 파생한다.
 - LAN 수집기는 추가로 `JENKINS_URL`과 선택적인 `JENKINS_USER`/`JENKINS_API_TOKEN`을 사용한다.
 - 로컬: `.env.local` (`.env.example` 복사). Workers 미리보기: `.dev.vars` (`.dev.vars.example` 복사).
 - 실제 값 파일은 커밋하지 않는다. 예제 파일만 추적한다.
@@ -104,3 +108,13 @@ Cloudflare Workers로 **커밋·푸시 시 자동 배포**된다. 운영 URL: ht
 - push = 운영 배포. build 미통과 상태로 push 금지.
 - Secret key를 client component·로그·커밋에 노출 금지.
 - 입출금 미보정 특성상 자금 이동일이 기간에 포함되면 수익률이 왜곡된다.
+
+<!-- BEGIN:nextjs-agent-rules -->
+
+# This is NOT the Next.js you know
+
+This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+
+This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+
+<!-- END:nextjs-agent-rules -->

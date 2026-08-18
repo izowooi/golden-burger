@@ -1,10 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from "react";
 
 import { ThemeToggle } from "@/components/theme-toggle";
 import {
+  DEFAULT_DASHBOARD_STAGES,
   DASHBOARD_STAGES,
   DASHBOARD_STAGE_LABELS,
   getCheckpointState,
@@ -15,18 +16,39 @@ import {
   getJenkinsHealth,
   getNextCheckpoint,
   getStrategyHealth,
-  isStrategyVisibleByClosedToggle,
   type DashboardStage,
   type DynamicCheckpointState,
   type JenkinsHealth,
   type StrategyHealth,
 } from "@/lib/strategy-lifecycle";
 import type {
+  AttentionLevel,
+  OperatingStatus,
   StrategyCheckpoint,
   StrategyJenkinsJob,
   StrategyLifecycle,
   StrategyLifecycleResponse,
 } from "@/lib/types";
+
+type AdminState = "checking" | "signed-out" | "signed-in" | "unconfigured";
+
+const OPERATING_STATUS_LABELS: Record<OperatingStatus, string> = {
+  ACTIVE: "실행 중",
+  PAUSED: "일시 중지",
+  CLOSE_ONLY: "청산 전용",
+  INACTIVE: "미사용",
+  CLOSED: "폐쇄",
+};
+
+const ATTENTION_LEVEL_LABELS: Record<AttentionLevel, string> = {
+  NONE: "표시 없음",
+  INFO: "참고",
+  WATCH: "확인 필요",
+  CRITICAL: "긴급 확인",
+};
+
+const OPERATING_STATUSES = Object.keys(OPERATING_STATUS_LABELS) as OperatingStatus[];
+const ATTENTION_LEVELS = Object.keys(ATTENTION_LEVEL_LABELS) as AttentionLevel[];
 
 const STRATEGY_HEALTH_LABELS: Record<StrategyHealth, string> = {
   HEALTHY: "정상",
@@ -83,10 +105,14 @@ export function StrategyLifecycleDashboard() {
   const [data, setData] = useState<StrategyLifecycleResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [hideClosed, setHideClosed] = useState(false);
-  const [stageFilter, setStageFilter] = useState<DashboardStage | "ALL">("ALL");
+  const [selectedStages, setSelectedStages] = useState<Set<DashboardStage>>(
+    () => new Set(DEFAULT_DASHBOARD_STAGES),
+  );
   const [query, setQuery] = useState("");
   const [now, setNow] = useState(() => new Date());
+  const [adminState, setAdminState] = useState<AdminState>("checking");
+  const [loginOpen, setLoginOpen] = useState(false);
+  const [editingStrategy, setEditingStrategy] = useState<StrategyLifecycle | null>(null);
 
   const loadData = useCallback(async (signal?: AbortSignal) => {
     setLoading(true);
@@ -118,6 +144,23 @@ export function StrategyLifecycleDashboard() {
     return () => controller.abort();
   }, []);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    fetch("/api/strategy-admin/session", { signal: controller.signal, cache: "no-store" })
+      .then(async (response) => {
+        const payload = await response.json() as { authenticated?: boolean; configured?: boolean };
+        if (!response.ok || payload.configured === false) return "unconfigured" as const;
+        return payload.authenticated ? "signed-in" as const : "signed-out" as const;
+      })
+      .then(setAdminState)
+      .catch((caught) => {
+        if (!(caught instanceof DOMException && caught.name === "AbortError")) {
+          setAdminState("signed-out");
+        }
+      });
+    return () => controller.abort();
+  }, []);
+
   const jobsByStrategy = useMemo(
     () => groupBy(data?.jobs ?? [], (job) => job.strategy_id),
     [data?.jobs],
@@ -137,8 +180,7 @@ export function StrategyLifecycleDashboard() {
     const normalizedQuery = query.trim().toLocaleLowerCase("ko-KR");
     return [...(data?.strategies ?? [])]
       .filter((strategy) => {
-        if (!isStrategyVisibleByClosedToggle(strategy, hideClosed)) return false;
-        if (stageFilter !== "ALL" && getDashboardStage(strategy.lifecycle_stage) !== stageFilter) return false;
+        if (!selectedStages.has(getDashboardStage(strategy.lifecycle_stage))) return false;
         if (!normalizedQuery) return true;
         const jobs = jobsByStrategy.get(strategy.strategy_id) ?? [];
         return [
@@ -154,11 +196,40 @@ export function StrategyLifecycleDashboard() {
         ].some((value) => value.toLocaleLowerCase("ko-KR").includes(normalizedQuery));
       })
       .sort((left, right) => left.strategy_id.localeCompare(right.strategy_id));
-  }, [data?.strategies, hideClosed, jobsByStrategy, query, stageFilter]);
+  }, [data?.strategies, jobsByStrategy, query, selectedStages]);
 
   const latestSync = data?.sync_runs[0] ?? null;
   const collectorState = getCollectorState(latestSync?.status, latestSync?.finished_at, now);
-  const runningJobCount = (data?.jobs ?? []).filter((job) => job.enabled !== false).length;
+  const allStagesSelected = selectedStages.size === DASHBOARD_STAGES.length;
+
+  const toggleStage = (stage: DashboardStage) => {
+    setSelectedStages((current) => {
+      const next = new Set(current);
+      if (next.has(stage)) next.delete(stage);
+      else next.add(stage);
+      return next;
+    });
+  };
+
+  const handleAdminButton = async () => {
+    if (adminState !== "signed-in") {
+      setLoginOpen(true);
+      return;
+    }
+    await fetch("/api/strategy-admin/logout", { method: "POST" });
+    setAdminState("signed-out");
+    setEditingStrategy(null);
+  };
+
+  const handleStrategySaved = (strategy: StrategyLifecycle) => {
+    setData((current) => current ? {
+      ...current,
+      strategies: current.strategies.map((item) => (
+        item.strategy_id === strategy.strategy_id ? strategy : item
+      )),
+    } : current);
+    setEditingStrategy(null);
+  };
 
   return (
     <main className="dashboard-shell lifecycle-shell">
@@ -180,6 +251,14 @@ export function StrategyLifecycleDashboard() {
             <Link className="selected" href="/strategies" aria-current="page">전략 현황</Link>
           </nav>
           <ThemeToggle />
+          <button
+            className={`admin-mode-button ${adminState === "signed-in" ? "active" : ""}`}
+            type="button"
+            onClick={() => void handleAdminButton()}
+            disabled={adminState === "checking"}
+          >
+            {adminState === "signed-in" ? "관리자 종료" : "관리자 모드"}
+          </button>
           <div className="status-cluster">
             <span className={`status-dot ${loading ? "pending" : error || collectorState === "stale" ? "stale" : collectorState === "warning" ? "warning" : ""}`} />
             <span>{loading ? "확인 중" : error ? "연결 오류" : collectorLabel(collectorState)}</span>
@@ -194,15 +273,6 @@ export function StrategyLifecycleDashboard() {
         <div>
           <p className="section-kicker">21 STRATEGY OVERVIEW</p>
           <h2>전체 전략 현황</h2>
-          <p>
-            golden-apple부터 golden-strawberry까지 현재 단계, 연결된 Jenkins,
-            검증 시작일과 다음 판단 시점을 한 화면에서 확인합니다.
-          </p>
-        </div>
-        <div className="lifecycle-intro-stats" aria-label="등록 현황">
-          <div><strong>{data?.strategies.length ?? 0}</strong><span>전략</span></div>
-          <div><strong>{data?.jobs.length ?? 0}</strong><span>연결 잡</span></div>
-          <div><strong>{runningJobCount}</strong><span>실행 가능</span></div>
         </div>
       </section>
 
@@ -221,29 +291,31 @@ export function StrategyLifecycleDashboard() {
           <section className="lifecycle-controls" aria-label="전략 단계 필터">
             <div className="stage-filter-row">
               <button
-                className={`stage-filter all ${stageFilter === "ALL" ? "selected" : ""}`}
+                className={`stage-filter all ${allStagesSelected ? "selected" : ""}`}
                 type="button"
-                onClick={() => setStageFilter("ALL")}
+                aria-pressed={allStagesSelected}
+                aria-label={`전체 단계, ${data.strategies.length}개`}
+                onClick={() => setSelectedStages(
+                  allStagesSelected ? new Set() : new Set(DASHBOARD_STAGES),
+                )}
               >
-                <span>전체</span>
+                <span><i aria-hidden="true">{allStagesSelected ? "✓" : ""}</i>전체</span>
                 <strong>{data.strategies.length}</strong>
               </button>
               {DASHBOARD_STAGES.map((stage) => (
                 <button
                   key={stage}
-                  className={`stage-filter stage-${stage.toLocaleLowerCase()} ${stageFilter === stage ? "selected" : ""}`}
+                  className={`stage-filter stage-${stage.toLocaleLowerCase()} ${selectedStages.has(stage) ? "selected" : ""}`}
                   type="button"
-                  onClick={() => setStageFilter(stageFilter === stage ? "ALL" : stage)}
+                  aria-pressed={selectedStages.has(stage)}
+                  aria-label={`${DASHBOARD_STAGE_LABELS[stage]}, ${stageCounts[stage]}개`}
+                  onClick={() => toggleStage(stage)}
                 >
-                  <span>{DASHBOARD_STAGE_LABELS[stage]}</span>
+                  <span><i aria-hidden="true">{selectedStages.has(stage) ? "✓" : ""}</i>{DASHBOARD_STAGE_LABELS[stage]}</span>
                   <strong>{stageCounts[stage]}</strong>
                 </button>
               ))}
             </div>
-            <p className="stage-path" aria-label="전략 진행 순서">
-              구현 완료 <span>→</span> 시뮬레이션 <span>→</span> 검증 <span>→</span> 안정화
-              <small>검증 실패 시 폐쇄</small>
-            </p>
             <div className="strategy-search-row">
               <label>
                 <span className="sr-only">전략 또는 Jenkins 잡 검색</span>
@@ -252,17 +324,6 @@ export function StrategyLifecycleDashboard() {
                   onChange={(event) => setQuery(event.target.value)}
                   placeholder="전략 또는 Jenkins 잡 검색"
                 />
-              </label>
-              <label className="closed-toggle">
-                <input
-                  type="checkbox"
-                  checked={hideClosed}
-                  onChange={(event) => {
-                    setHideClosed(event.target.checked);
-                    if (event.target.checked && stageFilter === "CLOSED") setStageFilter("ALL");
-                  }}
-                />
-                폐쇄 전략 숨기기
               </label>
               <span>{visibleStrategies.length}개 표시</span>
             </div>
@@ -277,6 +338,8 @@ export function StrategyLifecycleDashboard() {
                 checkpoints={checkpointsByStrategy.get(strategy.strategy_id) ?? []}
                 jenkinsBaseUrl={data.jenkins_base_url}
                 now={now}
+                adminMode={adminState === "signed-in"}
+                onEdit={() => setEditingStrategy(strategy)}
               />
             ))}
           </section>
@@ -284,7 +347,7 @@ export function StrategyLifecycleDashboard() {
           {!visibleStrategies.length && (
             <section className="lifecycle-empty">
               <p>조건에 맞는 전략이 없습니다.</p>
-              <button type="button" onClick={() => { setQuery(""); setStageFilter("ALL"); setHideClosed(false); }}>
+              <button type="button" onClick={() => { setQuery(""); setSelectedStages(new Set(DEFAULT_DASHBOARD_STAGES)); }}>
                 필터 초기화
               </button>
             </section>
@@ -297,6 +360,29 @@ export function StrategyLifecycleDashboard() {
               {` · 화면 생성 ${formatDateTime(data.generated_at)}`}
             </span>
           </footer>
+
+          {loginOpen && (
+            <AdminLoginDialog
+              configured={adminState !== "unconfigured"}
+              onClose={() => setLoginOpen(false)}
+              onAuthenticated={() => {
+                setAdminState("signed-in");
+                setLoginOpen(false);
+              }}
+            />
+          )}
+          {editingStrategy && (
+            <StrategyEditDialog
+              strategy={editingStrategy}
+              onClose={() => setEditingStrategy(null)}
+              onSaved={handleStrategySaved}
+              onSessionExpired={() => {
+                setEditingStrategy(null);
+                setAdminState("signed-out");
+                setLoginOpen(true);
+              }}
+            />
+          )}
         </>
       ) : null}
     </main>
@@ -309,12 +395,16 @@ function StrategyTile({
   checkpoints,
   jenkinsBaseUrl,
   now,
+  adminMode,
+  onEdit,
 }: {
   strategy: StrategyLifecycle;
   jobs: StrategyJenkinsJob[];
   checkpoints: StrategyCheckpoint[];
   jenkinsBaseUrl: string | null;
   now: Date;
+  adminMode: boolean;
+  onEdit: () => void;
 }) {
   const stage = getDashboardStage(strategy.lifecycle_stage);
   const health = getStrategyHealth(strategy, jobs, now);
@@ -337,64 +427,270 @@ function StrategyTile({
       </div>
 
       <h3>{strategy.strategy_id}</h3>
-      <p className="strategy-thesis">{strategy.thesis}</p>
-
-      <dl className="strategy-timeline">
-        <div>
-          <dt>검증 시작</dt>
-          <dd>{strategy.evaluation_started_at ? formatDate(strategy.evaluation_started_at) : "시작 전"}</dd>
-        </div>
-        <div>
-          <dt>진행</dt>
-          <dd>{daysElapsed == null ? "—" : `${daysElapsed}일째`}</dd>
-        </div>
-        <div>
-          <dt>{stage === "CLOSED" ? "폐쇄일" : "종료/판정"}</dt>
-          <dd>{plannedEnd ? formatDate(plannedEnd) : nextCheckpoint?.due_at ? formatDate(nextCheckpoint.due_at) : "미정"}</dd>
-        </div>
-      </dl>
-
-      {progress != null && strategy.evaluation_horizon_days != null && (
-        <div className="strategy-progress" aria-label={`${strategy.evaluation_horizon_days}일 검증 중 ${Math.round(progress)}% 경과`}>
-          <span style={{ width: `${progress}%` }} />
-        </div>
-      )}
-
-      <div className="strategy-jobs">
-        <div className="strategy-jobs-heading">
-          <strong>Jenkins</strong>
-          <span>{jobs.length ? `${jobs.length}개` : "연결 없음"}</span>
-        </div>
-        {sortedJobs.length ? sortedJobs.map((job) => (
-          <CompactJob key={job.job_name} job={job} baseUrl={jenkinsBaseUrl} now={now} />
-        )) : (
-          <p className="no-jobs">현재 연결된 Jenkins 잡이 없습니다.</p>
-        )}
-      </div>
 
       <details className="strategy-details">
-        <summary>설명과 다음 일정</summary>
-        <p>{strategy.current_summary}</p>
-        {sortedJobs.length > 0 && (
-          <div className="job-purpose-list">
-            {sortedJobs.map((job) => (
-              <div key={job.job_name}>
-                <strong>{job.job_name}</strong>
-                <span>{job.purpose ?? "역할 설명 없음"}</span>
-                <small>{formatJobWindow(job)} · {job.schedule ?? "수동 실행"}</small>
-              </div>
-            ))}
+        <summary><span>상세 보기</span><i aria-hidden="true">⌄</i></summary>
+        <div className="strategy-details-body">
+          {adminMode && (
+            <button className="strategy-edit-button" type="button" onClick={onEdit}>
+              상태 수정
+            </button>
+          )}
+          <p className="strategy-thesis">{strategy.thesis}</p>
+
+          <dl className="strategy-timeline">
+            <div>
+              <dt>검증 시작</dt>
+              <dd>{strategy.evaluation_started_at ? formatDate(strategy.evaluation_started_at) : "미정"}</dd>
+            </div>
+            <div>
+              <dt>진행</dt>
+              <dd>{daysElapsed == null ? "—" : `${daysElapsed}일째`}</dd>
+            </div>
+            <div>
+              <dt>{stage === "CLOSED" ? "폐쇄일" : "종료/판정"}</dt>
+              <dd>{plannedEnd ? formatDate(plannedEnd) : nextCheckpoint?.due_at ? formatDate(nextCheckpoint.due_at) : "미정"}</dd>
+            </div>
+          </dl>
+
+          {progress != null && strategy.evaluation_horizon_days != null && (
+            <div className="strategy-progress" aria-label={`${strategy.evaluation_horizon_days}일 검증 중 ${Math.round(progress)}% 경과`}>
+              <span style={{ width: `${progress}%` }} />
+            </div>
+          )}
+
+          <div className="strategy-jobs">
+            <div className="strategy-jobs-heading">
+              <strong>Jenkins</strong>
+              <span>{jobs.length ? `${jobs.length}개` : "연결 없음"}</span>
+            </div>
+            {sortedJobs.length ? sortedJobs.map((job) => (
+              <CompactJob key={job.job_name} job={job} baseUrl={jenkinsBaseUrl} now={now} />
+            )) : (
+              <p className="no-jobs">현재 연결된 Jenkins 잡이 없습니다.</p>
+            )}
           </div>
-        )}
-        {strategy.attention_note && (
-          <div className={`attention-note attention-${strategy.attention_level.toLocaleLowerCase()}`}>
-            <strong>확인할 점</strong>
-            <span>{strategy.attention_note}</span>
-          </div>
-        )}
-        {nextCheckpoint && <CheckpointSummary checkpoint={nextCheckpoint} now={now} />}
+
+          <p className="strategy-summary">{strategy.current_summary}</p>
+          {sortedJobs.length > 0 && (
+            <div className="job-purpose-list">
+              {sortedJobs.map((job) => (
+                <div key={job.job_name}>
+                  <strong>{job.job_name}</strong>
+                  <span>{job.purpose ?? "역할 설명 없음"}</span>
+                  <small>{formatJobWindow(job)} · {job.schedule ?? "수동 실행"}</small>
+                </div>
+              ))}
+            </div>
+          )}
+          {strategy.attention_note && (
+            <div className={`attention-note attention-${strategy.attention_level.toLocaleLowerCase()}`}>
+              <strong>확인할 점</strong>
+              <span>{strategy.attention_note}</span>
+            </div>
+          )}
+          {nextCheckpoint && <CheckpointSummary checkpoint={nextCheckpoint} now={now} />}
+        </div>
       </details>
     </article>
+  );
+}
+
+function AdminLoginDialog({
+  configured,
+  onClose,
+  onAuthenticated,
+}: {
+  configured: boolean;
+  onClose: () => void;
+  onAuthenticated: () => void;
+}) {
+  const [password, setPassword] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEscapeToClose(onClose);
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch("/api/strategy-admin/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password }),
+      });
+      const payload = await response.json() as { authenticated?: boolean; error?: string };
+      if (!response.ok || !payload.authenticated) {
+        throw new Error(payload.error ?? "로그인하지 못했습니다.");
+      }
+      setPassword("");
+      onAuthenticated();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "로그인하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="admin-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="admin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
+        <div className="admin-dialog-heading">
+          <div>
+            <p className="section-kicker">ADMIN</p>
+            <h2 id="admin-login-title">관리자 모드</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        {!configured ? (
+          <p className="admin-dialog-error" role="alert">
+            운영 환경에 관리자 암호가 설정되지 않았습니다.
+          </p>
+        ) : (
+          <form onSubmit={(event) => void submit(event)}>
+            <label className="admin-field">
+              <span>암호</span>
+              <input
+                autoFocus
+                type="password"
+                autoComplete="current-password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                maxLength={256}
+                required
+              />
+            </label>
+            {error && <p className="admin-dialog-error" role="alert">{error}</p>}
+            <div className="admin-dialog-actions">
+              <button type="button" className="secondary" onClick={onClose}>취소</button>
+              <button type="submit" disabled={saving}>{saving ? "확인 중" : "로그인"}</button>
+            </div>
+          </form>
+        )}
+      </section>
+    </div>
+  );
+}
+
+function StrategyEditDialog({
+  strategy,
+  onClose,
+  onSaved,
+  onSessionExpired,
+}: {
+  strategy: StrategyLifecycle;
+  onClose: () => void;
+  onSaved: (strategy: StrategyLifecycle) => void;
+  onSessionExpired: () => void;
+}) {
+  const [stage, setStage] = useState<DashboardStage>(() => getDashboardStage(strategy.lifecycle_stage));
+  const [operatingStatus, setOperatingStatus] = useState<OperatingStatus>(strategy.operating_status);
+  const [attentionLevel, setAttentionLevel] = useState<AttentionLevel>(strategy.attention_level);
+  const [attentionNote, setAttentionNote] = useState(strategy.attention_note ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  useEscapeToClose(onClose);
+
+  const changeStage = (nextStage: DashboardStage) => {
+    setStage(nextStage);
+    if (nextStage === "CLOSED") setOperatingStatus("CLOSED");
+    else if (operatingStatus === "CLOSED") setOperatingStatus("INACTIVE");
+  };
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setSaving(true);
+    setError("");
+    try {
+      const response = await fetch(`/api/strategy-admin/strategies/${encodeURIComponent(strategy.strategy_id)}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          stage,
+          operating_status: operatingStatus,
+          attention_level: attentionLevel,
+          attention_note: attentionNote,
+        }),
+      });
+      const payload = await response.json() as { strategy?: StrategyLifecycle; error?: string };
+      if (response.status === 401) {
+        onSessionExpired();
+        return;
+      }
+      if (!response.ok || !payload.strategy) {
+        throw new Error(payload.error ?? "상태를 저장하지 못했습니다.");
+      }
+      onSaved(payload.strategy);
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "상태를 저장하지 못했습니다.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="admin-dialog-backdrop" role="presentation" onMouseDown={(event) => {
+      if (event.target === event.currentTarget) onClose();
+    }}>
+      <section className="admin-dialog strategy-edit-dialog" role="dialog" aria-modal="true" aria-labelledby="strategy-edit-title">
+        <div className="admin-dialog-heading">
+          <div>
+            <p className="section-kicker">ADMIN</p>
+            <h2 id="strategy-edit-title">{strategy.strategy_id}</h2>
+          </div>
+          <button type="button" onClick={onClose} aria-label="닫기">×</button>
+        </div>
+        <form onSubmit={(event) => void submit(event)}>
+          <label className="admin-field">
+            <span>단계</span>
+            <select value={stage} onChange={(event) => changeStage(event.target.value as DashboardStage)}>
+              {DASHBOARD_STAGES.map((value) => (
+                <option key={value} value={value}>{DASHBOARD_STAGE_LABELS[value]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="admin-field">
+            <span>운영 상태</span>
+            <select value={operatingStatus} onChange={(event) => setOperatingStatus(event.target.value as OperatingStatus)}>
+              {OPERATING_STATUSES.map((value) => (
+                <option key={value} value={value}>{OPERATING_STATUS_LABELS[value]}</option>
+              ))}
+            </select>
+          </label>
+          <label className="admin-field">
+            <span>확인 표시</span>
+            <select value={attentionLevel} onChange={(event) => setAttentionLevel(event.target.value as AttentionLevel)}>
+              {ATTENTION_LEVELS.map((value) => (
+                <option key={value} value={value}>{ATTENTION_LEVEL_LABELS[value]}</option>
+              ))}
+            </select>
+          </label>
+          {attentionLevel !== "NONE" && (
+            <label className="admin-field">
+              <span>확인 메모</span>
+              <textarea
+                value={attentionNote}
+                onChange={(event) => setAttentionNote(event.target.value)}
+                maxLength={500}
+                rows={4}
+                placeholder="상세 화면에 표시할 확인 사항"
+              />
+            </label>
+          )}
+          {error && <p className="admin-dialog-error" role="alert">{error}</p>}
+          <p className="admin-dialog-note">저장하면 Supabase의 현재 상태에 즉시 반영됩니다.</p>
+          <div className="admin-dialog-actions">
+            <button type="button" className="secondary" onClick={onClose}>취소</button>
+            <button type="submit" disabled={saving}>{saving ? "저장 중" : "저장"}</button>
+          </div>
+        </form>
+      </section>
+    </div>
   );
 }
 
@@ -470,6 +766,16 @@ function latestTimestamp(values: Array<string | null>) {
   const valid = values.filter((value): value is string => Boolean(value));
   if (!valid.length) return null;
   return valid.sort((left, right) => Date.parse(right) - Date.parse(left))[0];
+}
+
+function useEscapeToClose(onClose: () => void) {
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [onClose]);
 }
 
 function groupBy<T>(items: T[], key: (item: T) => string) {

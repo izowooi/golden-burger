@@ -9,7 +9,7 @@ import {
   getJenkinsHealth,
   getNextCheckpoint,
   getStrategyHealth,
-  isStrategyVisibleByClosedToggle,
+  DEFAULT_DASHBOARD_STAGES,
   DASHBOARD_STAGES,
 } from "./strategy-lifecycle";
 import type {
@@ -20,20 +20,15 @@ import type {
 
 const NOW = new Date("2026-08-18T12:00:00Z");
 
-test("세부 lifecycle 값은 운영자가 보는 다섯 단계로 묶인다", () => {
-  assert.deepEqual(DASHBOARD_STAGES, ["IMPLEMENTED", "SIMULATION", "VALIDATION", "STABILIZATION", "CLOSED"]);
-  assert.equal(getDashboardStage("IDEA"), "IMPLEMENTED");
-  assert.equal(getDashboardStage("IMPLEMENTING"), "IMPLEMENTED");
+test("세부 lifecycle 값은 미정을 포함한 다섯 단계로 묶인다", () => {
+  assert.deepEqual(DASHBOARD_STAGES, ["UNKNOWN", "SIMULATION", "VALIDATION", "STABILIZATION", "CLOSED"]);
+  assert.deepEqual(DEFAULT_DASHBOARD_STAGES, ["SIMULATION", "VALIDATION", "STABILIZATION"]);
+  assert.equal(getDashboardStage("IDEA"), "UNKNOWN");
+  assert.equal(getDashboardStage("IMPLEMENTING"), "UNKNOWN");
+  assert.equal(getDashboardStage("IMPLEMENTED"), "UNKNOWN");
   assert.equal(getDashboardStage("PROFITABILITY"), "VALIDATION");
   assert.equal(getDashboardStage("PRODUCTION"), "STABILIZATION");
   assert.equal(getDashboardStage("CLOSED"), "CLOSED");
-});
-
-test("폐쇄 전략도 기본 표시하고 사용자가 원할 때만 숨긴다", () => {
-  const closed = strategy({ lifecycle_stage: "CLOSED", operating_status: "CLOSED", hidden_by_default: true });
-  assert.equal(isStrategyVisibleByClosedToggle(closed, false), true);
-  assert.equal(isStrategyVisibleByClosedToggle(closed, true), false);
-  assert.equal(isStrategyVisibleByClosedToggle(strategy(), false), true);
 });
 
 test("checkpoint 상태는 현재 시각에 따라 동적으로 계산된다", () => {

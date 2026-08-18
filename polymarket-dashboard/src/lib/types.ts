@@ -100,6 +100,8 @@ export type OperatingStatus =
   | "INACTIVE"
   | "CLOSED";
 
+export type AttentionLevel = "NONE" | "INFO" | "WATCH" | "CRITICAL";
+
 export type JenkinsJobMode =
   | "LIVE"
   | "SIMULATION"
@@ -131,7 +133,7 @@ export interface StrategyLifecycle {
   evaluation_horizon_days: number | null;
   current_summary: string;
   attention_note: string | null;
-  attention_level: "NONE" | "INFO" | "WATCH" | "CRITICAL";
+  attention_level: AttentionLevel;
   source_ref: string;
   hidden_by_default: boolean;
   sort_order: number;

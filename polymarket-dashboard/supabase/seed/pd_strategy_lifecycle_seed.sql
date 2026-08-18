@@ -123,11 +123,11 @@ values
   (
     'golden-apple', 'Golden Apple', 'Probability Ladder',
     '0.80 이상 매수, 0.90 청산의 초기 확률 기반 전략이다.',
-    'LEGACY_TRADING', 'IMPLEMENTED', 'INACTIVE',
+    'LEGACY_TRADING', 'CLOSED', 'CLOSED',
     null, null, null,
-    '코드는 보존되어 있으나 현재 이 전략 폴더를 실행하는 Jenkins job은 확인되지 않았다.',
-    '계정의 Apple 표시는 현재 전략 배치를 뜻하지 않는다. Jenkins 실제 cd 경로로만 재배포 여부를 판단한다.',
-    'golden-apple/README.md', false, 300
+    '사용자 확인으로 폐쇄됐다. 정확한 폐쇄일은 기록되지 않아 미정이다.',
+    '폐쇄일은 확인되지 않았다.',
+    'polymarket-dashboard/supabase/migrations/20260818150000_pd_golden_apple_closed_v1.sql', true, 300
   ),
   (
     'golden-banana', 'Golden Banana', 'Golden Cross Momentum',
@@ -348,7 +348,7 @@ values
   ('cherry:day7:20260821', 'golden-cherry', 'DAY_7_REVIEW', '재가동 7일 안정성 확인', '2026-08-21T11:40:00Z', 'PENDING', null, '주문 상태 오류를 해소한 뒤 같은 코드·설정 기간의 실행 주기와 체결 누락을 먼저 확인한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
   ('cherry:day30:20260913', 'golden-cherry', 'DAY_30_REVIEW', '기준값·조정값 최종 비교', '2026-09-13T11:40:00Z', 'PENDING', null, '같은 코드에서 달리 둔 수치를 확인된 실제 체결과 대안 수치 계산으로 비교한다.', 'docs/retro-summaries/027-golden-cherry-orange-yellow-followup-2026-08-18.md'),
   ('elderberry:monthend:20260830', 'golden-elderberry', 'STABILITY_GATE', '청산 상태와 재개 여부 검토', '2026-08-30T15:00:00Z', 'PENDING', null, '남은 포지션과 주문 기록을 맞춘 뒤 신규 진입 재개 또는 폐쇄를 결정한다.', 'golden-elderberry/STRATEGY.md'),
-  ('apple:deployment', 'golden-apple', 'DEPLOYMENT_DECISION', '현재 배치 여부 결정', null, 'BLOCKED', null, '새 검증 가설과 Jenkins job을 지정하기 전에는 운영 상태를 inactive로 유지한다.', 'golden-apple/README.md'),
+  ('apple:deployment', 'golden-apple', 'DEPLOYMENT_DECISION', '폐쇄 확인', null, 'CANCELLED', null, '사용자 확인으로 폐쇄됐으며 정확한 폐쇄일은 미정이다.', 'polymarket-dashboard/supabase/migrations/20260818150000_pd_golden_apple_closed_v1.sql'),
   ('banana:deployment', 'golden-banana', 'DEPLOYMENT_DECISION', '현재 배치 여부 결정', null, 'BLOCKED', null, '계정명과 전략 배치를 분리하고 새 cohort를 사전 등록한 뒤 재검증한다.', 'golden-banana/README.md'),
   ('grape:deployment', 'golden-grape', 'DEPLOYMENT_DECISION', '시뮬레이션 계획 수립', null, 'BLOCKED', null, 'Jenkins 배치 전에 독립된 검증 기간과 판정 기준을 등록한다.', 'golden-grape/STRATEGY.md'),
   ('orange:deployment', 'golden-orange', 'DEPLOYMENT_DECISION', '시뮬레이션 계획 수립', null, 'BLOCKED', null, 'polybot-orange와 구분되는 새 Jenkins 잡과 검증 기간을 등록해야 한다.', 'golden-orange/STRATEGY.md')
@@ -387,7 +387,7 @@ set
   current_summary = valueset.current_summary
 from (
   values
-    ('golden-apple', '가격이 0.80 이상이면 매수하고 0.90에서 청산하도록 구현한 초기 확률 전략이다.', '코드는 구현되어 있지만 현재 이 폴더를 실행하는 Jenkins 잡은 없다.'),
+    ('golden-apple', '가격이 0.80 이상이면 매수하고 0.90에서 청산하도록 구현한 초기 확률 전략이다.', '사용자 확인으로 폐쇄됐다. 정확한 폐쇄일은 기록되지 않아 미정이다.'),
     ('golden-banana', '0.85~0.97 가격 구간에서 단기 평균선이 장기 평균선을 넘는 움직임을 이용한다.', '코드는 구현되어 있지만 현재 이 폴더를 실행하는 Jenkins 잡은 없다.'),
     ('golden-blueberry', '해결이 가까운 시장에서 가격이 0.85를 처음 넘을 때 직전 상승폭 +2%p와 +5%p 조건을 비교한다.', '두 개의 $5 실거래 잡과 실제 주문 없는 보조 자료 수집 잡을 함께 운영한다.'),
     ('golden-cherry', '해결이 가까운 고확률 YES 시장의 진입·청산 수치를 비교하고 주문 상태를 안정화한다.', 'polybot-yellow와 polybot-orange가 서로 다른 수치로 같은 전략 코드를 실행한다.'),
