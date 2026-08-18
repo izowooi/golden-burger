@@ -5,7 +5,6 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
 import json
-import os
 import logging
 import math
 from contextlib import contextmanager

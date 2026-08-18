@@ -182,12 +182,13 @@ paired/clustered analysis를 한다. 첫 30일 동안 mode 외 threshold·horizo
 
 Golden Quince는 진입 gate보다 넓은 `YES >= 0.80`, scheduled/pregame `<= 72h` 시장을 60일
 보존한다. Gamma request 유동성 하한은
-`min(POLYBOT_MIN_LIQUIDITY, $1,000)`이므로 기본값은 $1,000이다. `event_id`가 빠진
+`min(POLYBOT_MIN_LIQUIDITY, $1,000)`이고 누적 volume 하한은 $1,000이다. 누적 volume은
+entry의 최근 24h volume gate와 다른 필드다. `event_id`가 빠진
 observation도 archive에는 남겨 교차 이력을 소실하지 않지만, 신규 진입에서는 거부한다.
 따라서 “최초 0.90 상향 교차”는 전 세계 과거 전체가 아니라 이 Quince archive envelope와
 보존기간 안에서 처음 관측했다는 뜻이다.
 
-같은 호스트에서 필터가 완전히 같은 Melon·Papaya·Queen job이 이미 완주한 Gamma public
+같은 호스트에서 필터가 완전히 같은 Quince·Papaya·Queen job이 이미 완주한 Gamma public
 sweep은 검증된 membership digest와 함께 5분 단위로 재사용한다. Quince의 archive 저장과
 first-crossing·주문 판정은 공유하지 않고 이 job의 DB에서 독립적으로 수행한다.
 

@@ -47,6 +47,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_TERMINAL_ORDER_STATUSES = _TERMINAL_ZERO_FILL_ORDER_STATUSES | {"MATCHED"}
 
 
 @dataclass(frozen=True)
@@ -79,6 +80,27 @@ class ExactFillEvidence:
     @property
     def has_reconciled_full_fill(self) -> bool:
         return self.state == "confirmed" and self.reconciled_full_fill
+
+    @property
+    def has_reconciled_executed_fill(self) -> bool:
+        """Whether every share executed by a terminal order is proven."""
+        return (
+            self.state == "confirmed"
+            and self.order_status in _TERMINAL_ORDER_STATUSES
+            and not self.needs_reconciliation
+            and self.latest_size_matched is not None
+            and self.confirmed_size is not None
+            and math.isfinite(self.latest_size_matched)
+            and math.isfinite(self.confirmed_size)
+            and self.latest_size_matched > 0
+            and self.confirmed_size > 0
+            and math.isclose(
+                self.confirmed_size,
+                self.latest_size_matched,
+                rel_tol=1e-9,
+                abs_tol=1e-6,
+            )
+        )
 
 
 class TradeRepository:
@@ -482,12 +504,16 @@ class TradeRepository:
                     fee_total += fee
                 if row["matched_at"]:
                     matched_values.append(str(row["matched_at"]))
-            reconciled_full_fill = (
+            reconciled_executed_fill = (
                 not needs_reconciliation
                 and matched_size is not None
                 and math.isfinite(matched_size)
                 and matched_size > 0
                 and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
+                and order_status in _TERMINAL_ORDER_STATUSES
+            )
+            reconciled_full_fill = (
+                reconciled_executed_fill
                 and (
                     # MATCHED is the ledger's terminal full-order state.  Its
                     # matched size is venue-quantized and can legitimately be
@@ -515,7 +541,11 @@ class TradeRepository:
                 detail=(
                     "confirmed_reconciled_full_fill"
                     if reconciled_full_fill
-                    else "confirmed_partial_or_unreconciled"
+                    else (
+                        "confirmed_reconciled_terminal_partial_fill"
+                        if reconciled_executed_fill
+                        else "confirmed_partial_or_unreconciled"
+                    )
                 ),
             )
 

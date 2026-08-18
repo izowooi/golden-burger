@@ -59,6 +59,13 @@ class FakeClob:
         self.cancelled.append(order_id)
         return {"success": True}
 
+    def cancel_order_for_reconciliation(self, order_id):
+        self.cancelled.append(order_id)
+        return {
+            "verified_order_status": "CANCELED",
+            "verified_size_matched": 0.0,
+        }
+
 
 class FakeRepo:
     def __init__(
@@ -226,6 +233,7 @@ class TestEntryExecution:
         assert created["outcome"] == "Yes"
         assert created["strategy_name"] == "papaya"
         assert created["mode"] == "live"
+        assert created["status"] == TradeStatus.PENDING_BUY
         assert created["event_id"] == "event-1"
         assert created["buy_price"] == 0.956
         assert created["buy_probability"] == 0.951
@@ -248,6 +256,7 @@ class TestEntryExecution:
         )
         assert trader.execute_buy(make_candidate()) == 1
         assert repo.created[0]["mode"] == "sim"
+        assert repo.created[0]["status"] == TradeStatus.HOLDING
 
     @pytest.mark.parametrize(
         ("candidate", "clob", "repo"),
@@ -417,6 +426,78 @@ class TestStopExecution:
         assert clob.cancelled == ["0xBUY"]
         assert repo.updates[-1][1]["status"] == TradeStatus.UNFILLED
         assert repo.updates[-1][1]["realized_pnl"] is None
+
+
+class TestPendingBuyReconciliation:
+    def test_exact_full_buy_fill_activates_holding_with_actual_size_and_vwap(self):
+        trader, repo, _ = make_trader()
+
+        assert trader.reconcile_pending_buy(make_trade()) is True
+
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.HOLDING
+        assert update["buy_price"] == 0.955
+        assert update["buy_shares"] == 5.2
+
+    def test_terminal_canceled_partial_fill_activates_exact_shares(self):
+        partial = ExactFillEvidence(
+            "confirmed",
+            "0xBUY",
+            order_status="CANCELED",
+            side="BUY",
+            requested_size=5.5,
+            latest_size_matched=2.25,
+            needs_reconciliation=False,
+            reconciled_full_fill=False,
+            confirmed_size=2.25,
+            confirmed_vwap=0.95,
+            confirmed_fee_usdc=0.0,
+            fee_complete=True,
+        )
+        repo = FakeRepo(fill_evidence=partial)
+        trader, _, _ = make_trader(repo=repo)
+
+        assert trader.reconcile_pending_buy(make_trade()) is True
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.HOLDING
+        assert update["buy_shares"] == pytest.approx(2.25)
+
+    def test_terminal_zero_fill_buy_is_unfilled(self):
+        zero = ExactFillEvidence(
+            "terminal_zero_fill",
+            "0xBUY",
+            order_status="CANCELED",
+            side="BUY",
+            requested_size=5.2,
+            latest_size_matched=0.0,
+            needs_reconciliation=False,
+            confirmed_size=0.0,
+        )
+        repo = FakeRepo(fill_evidence=zero)
+        trader, _, _ = make_trader(repo=repo)
+
+        assert trader.reconcile_pending_buy(make_trade()) is False
+        assert repo.updates[-1][1]["status"] == TradeStatus.UNFILLED
+
+    def test_expired_pending_buy_is_canceled_for_next_cycle_reconciliation(self):
+        pending = ExactFillEvidence(
+            "pending",
+            "0xBUY",
+            order_status="LIVE",
+            side="BUY",
+            requested_size=5.5,
+            latest_size_matched=0.0,
+            needs_reconciliation=True,
+        )
+        repo = FakeRepo(fill_evidence=pending)
+        clob = FakeClob()
+        trader, _, _ = make_trader(repo=repo, clob=clob)
+        now = datetime(2026, 8, 19, 0, 30, 0)
+        trade = make_trade(buy_timestamp=now - timedelta(minutes=30))
+
+        assert trader.reconcile_pending_buy(trade, now=now) is False
+        assert clob.cancelled == ["0xBUY"]
+        assert repo.updates == []
 
 
 class TestPendingSellReconciliation:

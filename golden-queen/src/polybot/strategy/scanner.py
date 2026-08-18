@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 _BOOK_TOLERANCE = 1e-6
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
 _QUEEN_ARCHIVE_MIN_LIQUIDITY = 1_000.0
+_QUEEN_ARCHIVE_MIN_CUMULATIVE_VOLUME = 1_000.0
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -171,9 +172,11 @@ class MarketScanner:
         archive_min_liquidity = min(
             self.config.min_liquidity, _QUEEN_ARCHIVE_MIN_LIQUIDITY
         )
+        # Cumulative volume bounds the archive request; recent 24h volume is a
+        # separate entry gate and remains client-validated below.
         return self.gamma.get_all_tradable_markets(
             min_liquidity=archive_min_liquidity,
-            min_volume=0,
+            min_volume=_QUEEN_ARCHIVE_MIN_CUMULATIVE_VOLUME,
         )
 
     def _archive_decision(

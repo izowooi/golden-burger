@@ -73,9 +73,10 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
   same-snapshot CLOB ask depth도 요청 수량의
   1.2배를 충족해야 한다. 증액할 때 이 자동 파생 gate를 우회하지 않는다.
 - 자체 archive는 표준 이진 YES `>= 0.80`, scheduled/pregame `<= 72h`, Gamma 요청
-  envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, volume `>= $0`를 60일
-  보존한다. 기본 envelope는 $1,000이며, archive baseline과 실제 entry gate를 혼동하거나
-  entry와 함께 좁히지 않는다.
+  envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, 누적 volume `>= $1,000`을
+  60일 보존한다. 누적 volume은 entry의 최근 24h volume과 다른 서버측 수집 경계다.
+  first observed는 이 envelope 안에서만 주장하며 archive baseline과 실제 entry gate를
+  혼동하거나 entry와 함께 좁히지 않는다.
 - 존재하지 않거나 0바이트인 새 runtime DB는 첫 생성부터 `compact-v1`을 자동 활성화한다.
   기존 내용이 있는 legacy DB만 명시적 `polybot-db-maintenance migrate` 대상이다. 반복
   workspace clean으로 compact marker나 first-crossing lineage를 지우지 않는다.
@@ -94,6 +95,9 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
 - GTC `accepted`/`live`는 체결이 아니다. 실제 성과와 포지션은
   live cohort에서 `order_fills.status='CONFIRMED'`의 정확한 size/price/fee만으로 확정하고,
   simulation 결과는 별도 hypothetical cohort로 유지한다.
+- live BUY 잔량은 first-crossing freshness와 같은 15분 뒤 exact order ID로 취소한다.
+  다음 cycle의 terminal ledger 대사에서 zero-fill은 `UNFILLED`, terminal partial fill은 실제
+  CONFIRMED 수량만 `HOLDING`으로 승격한다.
 
 ## A/B 격리 계약
 

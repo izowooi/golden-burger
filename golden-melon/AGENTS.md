@@ -96,8 +96,11 @@ simulation/live와 A/B/C variant는 서로 다른 `job_name`과 DB를 사용한�
   `max(min_volume_24h, 주문액 / 0.02)`다. 실제 same-snapshot CLOB ask depth도 요청
   수량의 1.2배를 충족해야 한다. **증액할 때 이 자동 파생 gate를 우회하지 않는다** —
   cherry는 주문/유동성이 21.7%까지 갔다.
-- 자체 archive는 표준 이진 YES `>= 0.75`, scheduled/pregame `<= 168h`를 60일 보존한다.
-  archive는 진입 gate보다 반드시 넓어야 최초 교차를 증명할 수 있다.
+- 자체 archive는 표준 이진 YES `>= 0.75`, scheduled/pregame `<= 168h`, Gamma 유동성
+  `>= $1,000`, 누적 volume `>= $10,000` envelope를 60일 보존한다. 누적 volume은 A/B/C
+  처치축인 최근 24h volume과 다르며 entry에서 다시 검사한다. first observed는 이 envelope
+  안에서만 주장하고 세 팔 모두 동일한 envelope를 사용한다.
+- archive는 세 팔의 가장 낮은 entry gate보다 넓어야 최초 교차를 증명할 수 있다.
 - **거절된 후보도 자산이다.** `skipped_markets`의 거절 사유와 당시 volume/liquidity/
   잔여시간이 남으므로, 30일 뒤 실행하지 않은 threshold의 반사실을 오프라인으로 만든다.
 
@@ -107,6 +110,9 @@ simulation/live와 A/B/C variant는 서로 다른 `job_name`과 DB를 사용한�
   잘못된 reconciliation 통계, RunAudit 실패는 전체 cycle을 fail closed한다.
 - `active`: archive + reconcile + exit + entry / `close_only`: 신규 BUY 없음 /
   `archive_only`: 읽기·대사 후 archive만.
+- live BUY 잔량은 first-crossing freshness와 같은 15분 뒤 exact order ID로 취소한다.
+  다음 cycle의 terminal ledger 대사에서 zero-fill은 `UNFILLED`, terminal partial fill은 실제
+  CONFIRMED 수량만 `HOLDING`으로 승격한다.
 - GTC `accepted`/`live`는 체결이 아니다. 실제 성과와 포지션은 live cohort에서
   `order_fills.status='CONFIRMED'`의 정확한 size/price/fee만으로 확정한다.
 

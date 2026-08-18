@@ -96,6 +96,8 @@ class PolymarketBot:
         stats = {
             "lifecycle_mode": self.config.trading.lifecycle_mode,
             "snapshots_saved": 0,
+            "pending_buys_checked": 0,
+            "pending_buys_activated": 0,
             "pending_sells_checked": 0,
             "checked_holdings": 0,
             "sold": 0,
@@ -115,6 +117,11 @@ class PolymarketBot:
                 logger.warning("archive_only: 주문 및 포지션 mutation을 건너뜁니다")
             else:
                 logger.info("=== Phase 1: absolute-stop / resolution evidence 확인 ===")
+                pending_buys = repo.get_pending_buy_trades()
+                stats["pending_buys_checked"] = len(pending_buys)
+                for pending_trade in pending_buys:
+                    if trader.reconcile_pending_buy(pending_trade):
+                        stats["pending_buys_activated"] += 1
                 pending_sells = repo.get_pending_sell_trades()
                 stats["pending_sells_checked"] = len(pending_sells)
                 for pending_trade in pending_sells:
@@ -160,16 +167,31 @@ class PolymarketBot:
                 days=self.config.trading.archive.retention_days
             )
             db_stats = repo.get_stats()
+            stats["open_states"] = {
+                "pending_buy": db_stats["pending_buy"],
+                "holding": db_stats["holding"],
+                "pending_sell": db_stats["pending_sell"],
+                "total": (
+                    db_stats["pending_buy"]
+                    + db_stats["holding"]
+                    + db_stats["pending_sell"]
+                ),
+            }
             logger.info(
                 "사이클 완료 - snapshots=%s checked=%s stop_sells=%s resolved=%s "
-                "candidates=%s buys=%s holding=%s realized_pnl=$%.4f",
+                "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
+                "pending_sell=%s) realized_pnl=$%.4f",
                 stats["snapshots_saved"],
                 stats["checked_holdings"],
                 stats["sold"],
                 stats["resolved"],
                 stats["buy_candidates"],
                 stats["bought"],
+                stats["open_states"]["total"],
+                self.config.trading.max_positions,
+                db_stats["pending_buy"],
                 db_stats["holding"],
+                db_stats["pending_sell"],
                 db_stats["total_pnl"],
             )
             return stats

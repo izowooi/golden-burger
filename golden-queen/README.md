@@ -40,7 +40,7 @@ Golden Queen은 `golden-cherry`의 “해결이 가까운 우세 YES가 수렴�
 
 따라서 legacy `realized_pnl`, 접수된 GTC 주문, 로그 문구를 실제 체결 수익으로 재해석하지
 않았다. Queen은 이 결함을 반복하지 않도록 accepted BUY를 `PENDING_BUY`로 두고 **정확한
-full confirmed fill** 이후에만 `HOLDING`으로 바꾼다. 실제 수익성은 Queen 자체 archive와
+terminal confirmed fill** 이후에만 실제 체결 수량을 `HOLDING`으로 바꾼다. 실제 수익성은 Queen 자체 archive와
 execution ledger를 한 달 쌓은 다음 확인해야 한다.
 
 ## 왜 더 단순한가
@@ -155,12 +155,13 @@ uv run polybot run --live --job queen-live-12h
 
 Queen은 진입 gate보다 넓은 `YES >= 0.80`, scheduled/pregame `<= 72h` 시장을 60일
 보존한다. Gamma request 유동성 하한은
-`min(POLYBOT_MIN_LIQUIDITY, $1,000)`이므로 기본값은 $1,000이다. `event_id`가 빠진
+`min(POLYBOT_MIN_LIQUIDITY, $1,000)`이고 누적 volume 하한은 $1,000이다. 누적 volume은
+entry의 최근 24h volume gate와 다른 필드다. `event_id`가 빠진
 observation도 archive에는 남겨 교차 이력을 소실하지 않지만, 신규 진입에서는 거부한다.
 따라서 “최초 0.90 상향 교차”는 전 세계 과거 전체가 아니라 이 Queen archive envelope와
 보존기간 안에서 처음 관측했다는 뜻이다.
 
-같은 호스트에서 필터가 완전히 같은 Melon·Quince·Papaya job이 이미 완주한 Gamma public
+같은 호스트에서 필터가 완전히 같은 Queen·Quince·Papaya job이 이미 완주한 Gamma public
 sweep은 검증된 membership digest와 함께 5분 단위로 재사용한다. Queen의 archive 저장과
 first-crossing·주문 판정은 공유하지 않고 이 job의 DB에서 독립적으로 수행한다.
 
@@ -189,8 +190,9 @@ category 제외는 Gamma tag slug/label의 대소문자를 무시한 **exact mat
 - BUY limit은 `min(0.94, best ask + 0.01)`이며, 그 가격 이하 ask depth가 주문 수량의
   1.2배 이상이어야 한다.
 - GTC `live`/`accepted`/order ID는 fill이 아니다.
-- live BUY는 `PENDING_BUY`로 시작한다. exact order ID의 full reconciled fill이 확인된
-  뒤에만 실제 보유로 승격한다.
+- live BUY는 `PENDING_BUY`로 시작한다. 15분 뒤 미체결 잔량을 exact order ID로 취소하며,
+  terminal reconciled fill이 확인되면 실제 CONFIRMED 수량만 보유로 승격한다. zero-fill은
+  `UNFILLED`이고 미확정 수량은 요청 수량으로 채우지 않는다.
 - live SELL도 `PENDING_SELL`이며 BUY·SELL full confirmed size와 fee가 모두 대사된 뒤에만
   `COMPLETED`와 actual net P&L을 만든다.
 - 위 actual fill/P&L 계약은 live cohort에만 적용한다. simulation 결과는 별도

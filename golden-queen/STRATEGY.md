@@ -87,6 +87,7 @@ Queen의 숫자는 과최적화 결과가 아니라 한 달 live falsification�
 strict binary YES >= 0.80
 scheduled clock <= 72h
 Gamma liquidity >= min(POLYBOT_MIN_LIQUIDITY, $1,000) request envelope
+Gamma cumulative volume >= $1,000
 ```
 
 각 cursor-complete sweep은 catalog, snapshot, membership와 하나의 transaction으로
@@ -142,9 +143,10 @@ depth_limit = min(0.94, best ask + 0.01)
 ask shares at price <= depth_limit >= requested shares * 1.20
 ```
 
-주문은 `depth_limit`의 GTC BUY다. live 접수 직후 상태는 `PENDING_BUY`다. exact order ID의
-reconciled full confirmed size/VWAP이 확인된 뒤에만 `HOLDING`이 된다. terminal zero-fill이면
-`UNFILLED`이다. partial/unknown이면 pending을 유지한다.
+주문은 `depth_limit`의 GTC BUY다. live 접수 직후 상태는 `PENDING_BUY`다. 15분 TTL 뒤
+미체결 잔량을 exact order ID로 취소하고 다음 cycle에 ledger를 대사한다. terminal zero-fill이면
+`UNFILLED`, terminal partial/full이면 exact CONFIRMED size/VWAP만 `HOLDING`이 된다.
+unknown/nonterminal이면 pending을 유지한다.
 
 ## 7. Exit 우선순위
 

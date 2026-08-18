@@ -170,7 +170,8 @@ def test_exact_fill_evidence_reads_real_ledger_states(tmp_path):
     assert partial_sell.state == "confirmed"
     assert partial_sell.confirmed_size == 2.0
     assert partial_sell.has_reconciled_full_fill is False
-    assert partial_sell.detail == "confirmed_partial_or_unreconciled"
+    assert partial_sell.has_reconciled_executed_fill is True
+    assert partial_sell.detail == "confirmed_reconciled_terminal_partial_fill"
     session.close()
 
 

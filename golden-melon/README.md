@@ -107,6 +107,10 @@ uv run python main.py run --live --job polybot-melon-low
 `POLYMARKET_SIGNATURE_TYPE`은 지갑에 맞는 `1` 또는 `3`을 각 job에 설정한다. 틀리면
 CLOB이 전 주문을 `maker address not allowed`로 거절한다.
 
+live BUY는 접수만으로 보유로 간주하지 않고 `PENDING_BUY`로 시작한다. 15분 뒤 미체결
+잔량을 exact order ID로 취소한 뒤 다음 cycle에 ledger를 대사한다. terminal zero-fill은
+`UNFILLED`, terminal partial/full은 실제 CONFIRMED 수량만 `HOLDING`으로 관리한다.
+
 ## 첫 체결에서 확인할 것
 
 ```bash
@@ -148,9 +152,13 @@ sqlite3 data/polybot-melon-mid/trades.db \
 | `POLYBOT_LIFECYCLE_MODE` | `active` | `active` / `close_only` / `archive_only` |
 | `LOG_LEVEL` | `INFO` | Python 로그 수준 |
 
-동일한 Gamma archive request filter를 쓰는 같은 호스트의 Queen·Papaya·Quince job과는
-cursor-complete public sweep만 5분 단위로 공유한다. 각 job의 snapshot 저장, first-crossing,
-거절 사유와 주문 판단은 기존처럼 독립 DB에서 수행한다.
+Melon archive의 Gamma request envelope는 유동성 $1,000·누적 volume $10,000이다. 누적
+volume은 A/B/C 처치축인 최근 24h volume과 다른 필드이며 각 scanner가 20k/50k/150k gate를
+다시 검사한다. “최초 관측”은 이 서버측 envelope와 보존기간 안에서만 뜻한다.
+
+동일한 request filter를 쓰는 Melon 세 job끼리 cursor-complete public sweep을 5분 단위로
+공유한다. Queen·Papaya·Quince의 $1,000 누적-volume sweep과는 공유하지 않는다. 각 job의
+snapshot 저장, first-crossing, 거절 사유와 주문 판단은 기존처럼 독립 DB에서 수행한다.
 
 ## 퇴역
 

@@ -35,6 +35,7 @@ _PROVABLY_UNFILLED_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
 
 
 def _normalize_order_status(value: Any) -> str:
@@ -878,6 +879,65 @@ class ClobClientWrapper:
                 "주문 취소 후 zero-fill 증거 확인 실패 - order=%s",
                 order_id,
             )
+            raise
+        except Exception as error:
+            logger.error("주문 취소 실패 - error=%s", type(error).__name__)
+            raise SubmissionEvidenceError(
+                "CLOB 주문 취소 결과를 증명할 수 없습니다"
+            ) from error
+
+    @rate_limit_handler(max_retries=3)
+    def cancel_order_for_reconciliation(self, order_id: str) -> Dict[str, Any]:
+        """Cancel an expired BUY while preserving a terminal partial fill."""
+        return self._cancel_with_terminal_evidence(order_id)
+
+    def _cancel_with_terminal_evidence(self, order_id: str) -> Dict[str, Any]:
+        """Return exact terminal identity, status, and matched-size evidence."""
+        if self.simulation_mode:
+            logger.info("[SIM] 주문 취소 - order: %s", order_id)
+            return {
+                "success": True,
+                "simulated": True,
+                "verified_order_status": "CANCELED",
+                "verified_size_matched": 0.0,
+            }
+        try:
+            result = normalize_clob_response(
+                self.client.cancel_orders([str(order_id)]),
+                response_type="cancellation",
+            )
+            detail = normalize_clob_response(
+                self.client.get_order(str(order_id)), response_type="order"
+            )
+            returned_order_id = str(detail.get("id") or "")
+            status = _normalize_order_status(detail.get("status"))
+            try:
+                size_matched = float(detail.get("size_matched"))
+            except (TypeError, ValueError) as error:
+                raise SubmissionEvidenceError(
+                    "CLOB terminal order의 size_matched가 숫자가 아닙니다"
+                ) from error
+            if (
+                returned_order_id != str(order_id)
+                or status not in _TERMINAL_ORDER_STATUSES
+                or not math.isfinite(size_matched)
+                or size_matched < 0
+            ):
+                raise SubmissionEvidenceError(
+                    "CLOB order detail이 exact terminal cancellation을 증명하지 못했습니다"
+                )
+            logger.info(
+                "주문 취소/종결 확인: order=%s status=%s matched=%.6f",
+                order_id,
+                status,
+                size_matched,
+            )
+            return {
+                **result,
+                "verified_order_status": status,
+                "verified_size_matched": size_matched,
+            }
+        except SubmissionEvidenceError:
             raise
         except Exception as error:
             logger.error("주문 취소 실패 - error=%s", type(error).__name__)

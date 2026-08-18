@@ -95,6 +95,10 @@ SELL leg는 TAKER 비중이 높아 비용이 크다는 것이 확인됐다.
 | 8 | event | `event_id` 필수, event당 동시 1개 |
 | 9 | 주문 직전 | fresh midpoint가 밴드 안, best ask ≤ 0.93, spread ≤ 0.02, depth 1.2배, 최소 5.1주 |
 
+Gamma archive request는 세 팔 공통으로 liquidity >= $1,000, cumulative volume >= $10,000을
+서버에 요청한다. 이는 24h volume 처치축과 별개이며 scanner가 각 팔의 20k/50k/150k를 다시
+검증한다. 따라서 first observed crossing은 이 공통 request envelope 안에서만 정의된다.
+
 ### 청산
 
 | 우선순위 | 조건 | exit_reason |
@@ -210,7 +214,9 @@ live A/B는 세 점만 재지만, 로그는 연속 곡선을 준다. 운영자�
    있다. 그 경우 금액이 작아 파산은 없지만 edge도 없다.
 3. **신호가 희소하다.** 거래량 $150,000 gate에서 후보가 0에 수렴하면 C팔 판정이 불가능하다.
 4. **거래량이 선별 축이 아니다.** 세 팔이 구분되지 않으면 처치 자체가 무효다.
-5. **미체결·유령 포지션.** cherry는 UNFILLED 102건이었다. $5에서도 발생하면 cap을 잠식한다.
+5. **미체결·유령 포지션.** cherry는 UNFILLED 102건이었다. Melon은 15분 TTL 뒤 exact
+   order를 취소하고 terminal zero/partial/full fill을 대사하지만, API 증거가 계속
+   불완전하면 fail closed로 `PENDING_BUY`를 유지하므로 cap과 reconciliation health를 함께 본다.
 6. **수수료.** elderberry 실측에서 taker leg 111건 전부 `fee_rate_bps = 0.0`이었지만
    `fee_amount_usdc`는 전건 NULL이라 완결된 답이 아니다. 첫 체결에서 재확인한다.
 

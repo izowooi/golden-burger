@@ -148,12 +148,15 @@ run별 filter, `markets_scanned`, membership digest와 catalog coverage를 보�
 (liquidity ≥ $15k)의 SQLite다. 두 전략은 2026-07-30 폐쇄됐으므로 이 DB는 폐쇄 시점까지의
 historical evidence source일 뿐, 이후 universe를 계속 수집하는 live archive로 간주하지 않는다.
 
-`golden-papaya`와 `golden-queen`의 기본 request envelope는 liquidity ≥ $1k이며, 실제
-하한은 `min(configured entry liquidity, $1k)`이다. 따라서 중앙 archive가 저유동성
-universe를 완전히 덮지 못한다. 각 counterfactual은 자체 archive를 주 source로 사용하고
-중앙 archive는 교집합 대조용으로만 사용한다. 둘 다 YES ≥ 0.80, 최소 60일을 보존하며
-scheduled/pregame horizon은 papaya ≤168h, queen ≤72h다. 두 자체 archive 모두 동일한
-cursor-complete sweep/membership digest/catalog/event coverage 계약을 지킨다.
+`golden-papaya`·`golden-queen`·`golden-quince`의 기본 request envelope는 liquidity ≥ $1k,
+누적 volume ≥ $1k이며, liquidity의 실제 하한은 `min(configured entry liquidity, $1k)`이다.
+`golden-melon`은 liquidity ≥ $1k, 누적 volume ≥ $10k를 세 팔에 공통 적용한다. 누적 volume
+서버 필터는 각 전략의 최근 24h volume entry gate와 별개이며 client에서 둘 다 다시 검증한다.
+따라서 중앙 archive가 이 universe를 완전히 덮는다고 간주하지 않고 각 counterfactual은 자체
+archive를 주 source로 사용한다. first-observed 주장은 각 request envelope와 보존기간 안으로
+제한한다. Papaya·Queen·Quince는 같은 호스트에서 동일 filter의 검증된 sweep만 공유하고,
+Melon 세 팔은 별도의 $10k sweep만 공유한다. 모든 자체 archive는 cursor-complete
+sweep/membership digest/catalog/event coverage 계약을 지킨다.
 
 `golden-kiwi`는 live 성과가 아니라 Micro-Cascade 가설을 검증하는 **simulation-only**
 archive다. 모든 5분 raw snapshot을 60일 보존하고, A/B/C/D arm은

@@ -103,9 +103,10 @@ CLI `--live`로 명시적으로 해제할 때만 허용한다. simulation/live�
   `max($2,000, 주문액 / 0.02)`다. 실제 same-snapshot CLOB ask depth도 요청 수량의
   1.2배를 충족해야 한다. 증액할 때 이 자동 파생 gate를 우회하지 않는다.
 - 자체 archive는 표준 이진 YES `>= 0.80`, scheduled/pregame `<= 72h`, Gamma 요청
-  envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, volume `>= $0`를 60일
-  보존한다. 기본 envelope는 $1,000이며, archive baseline과 실제 entry gate를 혼동하거나
-  entry와 함께 좁히지 않는다.
+  envelope 유동성 `>= min(POLYBOT_MIN_LIQUIDITY, $1,000)`, 누적 volume `>= $1,000`을
+  60일 보존한다. 누적 volume은 entry의 최근 24h volume과 다른 서버측 수집 경계다.
+  first observed는 이 envelope 안에서만 주장하며 archive baseline과 실제 entry gate를
+  혼동하거나 entry와 함께 좁히지 않는다.
 
 ## lifecycle과 evidence
 

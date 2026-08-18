@@ -266,5 +266,5 @@ def test_archive_fetch_keeps_low_liquidity_baseline_for_higher_entry_cohort():
     assert scanner.fetch_markets() == []
     gamma.get_all_tradable_markets.assert_called_once_with(
         min_liquidity=1_000.0,
-        min_volume=0,
+        min_volume=10_000.0,
     )

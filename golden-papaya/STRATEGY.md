@@ -102,13 +102,14 @@ DB trade를 임의로 1.00에 매도된 것으로 마감하거나 `EXPIRED`를 �
 YES probability >= 0.80
 hours_left <= 168
 liquidity >= 1,000
-volume24h >= 0
+Gamma cumulative volume >= 1,000
 retention >= 60 days
 ```
 
-entry cohort의 liquidity/volume 하한을 높여도 archive request는 유동성 $1,000·volume $0
-baseline을 유지한다. 그래야 높은 운영 gate에서 거부된 최초 crossing도 durable history에 남아
-후속 re-crossing을 차단하고 반사실 분석에 포함할 수 있다.
+entry cohort의 liquidity/recent-24h-volume 하한을 높여도 archive request는 유동성 $1,000·
+누적 volume $1,000 baseline을 유지한다. Gamma 누적 volume은 entry의 `volume24hr`와 다른
+필드이며, entry gate는 scanner에서 다시 검증한다. first crossing과 저거래량 반사실은 이
+request envelope 안에서만 정의하며, envelope 밖 시장을 전수 관측했다고 주장하지 않는다.
 
 각 sweep은 filter, cursor completion, qualifying count/digest, membership, snapshot/catalog
 coverage를 남긴다. Jenkins schedule/run manifest에서 해당 cohort의 기대 cadence를 읽고

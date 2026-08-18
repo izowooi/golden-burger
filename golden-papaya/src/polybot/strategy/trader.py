@@ -314,7 +314,11 @@ class Trader:
             buy_order_id=result.get("orderID"),
             buy_timestamp=datetime.utcnow(),
             buy_probability=current_yes,
-            status=TradeStatus.HOLDING,
+            status=(
+                TradeStatus.HOLDING
+                if self.mode == "sim"
+                else TradeStatus.PENDING_BUY
+            ),
             entry_reason=decision.reason,
             strategy_name=STRATEGY_NAME,
             mode=self.mode,
@@ -515,6 +519,109 @@ class Trader:
             and evidence.confirmed_vwap is not None
             and evidence.confirmed_fee_usdc is not None
         )
+
+    @staticmethod
+    def _pending_buy_age_minutes(
+        trade, now: Optional[datetime] = None
+    ) -> Optional[float]:
+        placed_at = getattr(trade, "buy_timestamp", None)
+        if not isinstance(placed_at, datetime):
+            return None
+        current = now or datetime.utcnow()
+        if placed_at.tzinfo is not None and current.tzinfo is None:
+            current = current.replace(tzinfo=placed_at.tzinfo)
+        elif placed_at.tzinfo is None and current.tzinfo is not None:
+            current = current.replace(tzinfo=None)
+        age = (current - placed_at).total_seconds() / 60.0
+        return age if math.isfinite(age) and age >= 0 else None
+
+    def reconcile_pending_buy(
+        self, trade, *, now: Optional[datetime] = None
+    ) -> bool:
+        """Activate terminal fills and cancel stale entry remainders."""
+        if self.mode == "sim":
+            logger.error(
+                "simulation trade가 PENDING_BUY에 남아 있습니다 - trade=%s",
+                trade.id,
+            )
+            return False
+        evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None)
+        )
+        if evidence.state == "terminal_zero_fill":
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.UNFILLED,
+                exit_reason="buy_terminal_zero_fill",
+                realized_pnl=None,
+            )
+            logger.warning(
+                "exact terminal zero-fill BUY 증거로 UNFILLED: Trade #%s order=%s",
+                trade.id,
+                evidence.order_id,
+            )
+            return False
+        if not evidence.has_reconciled_executed_fill:
+            age_minutes = self._pending_buy_age_minutes(trade, now=now)
+            if (
+                age_minutes is not None
+                and age_minutes + 1e-9 >= self.config.max_snapshot_gap_minutes
+                and getattr(trade, "buy_order_id", None)
+            ):
+                try:
+                    terminal = self.clob.cancel_order_for_reconciliation(
+                        trade.buy_order_id
+                    )
+                except SubmissionEvidenceError as error:
+                    logger.warning(
+                        "만료 BUY 취소 증명 실패로 PENDING_BUY 유지: Trade #%s "
+                        "age=%.1fmin error=%s",
+                        trade.id,
+                        age_minutes,
+                        type(error).__name__,
+                    )
+                    return False
+                logger.info(
+                    "entry signal TTL 만료로 BUY remainder 취소/종결 확인: "
+                    "Trade #%s age=%.1fmin status=%s matched=%.6f; "
+                    "다음 cycle exact ledger 대사 대기",
+                    trade.id,
+                    age_minutes,
+                    terminal.get("verified_order_status"),
+                    terminal.get("verified_size_matched", 0.0),
+                )
+                return False
+            logger.info(
+                "BUY terminal fill 대사 대기: Trade #%s state=%s full=%s "
+                "age=%s detail=%s",
+                trade.id,
+                evidence.state,
+                evidence.has_reconciled_full_fill,
+                f"{age_minutes:.1f}m" if age_minutes is not None else "unknown",
+                evidence.detail,
+            )
+            return False
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.HOLDING,
+            buy_price=evidence.confirmed_vwap,
+            buy_shares=evidence.confirmed_size,
+            buy_confirmed_size=evidence.confirmed_size,
+            buy_confirmed_vwap=evidence.confirmed_vwap,
+            buy_confirmed_fee_usdc=(
+                evidence.confirmed_fee_usdc if evidence.fee_complete else None
+            ),
+        )
+        logger.info(
+            "exact terminal BUY fill로 HOLDING 활성화: Trade #%s size=%.6f "
+            "vwap=%.4f requested_full=%s status=%s",
+            trade.id,
+            evidence.confirmed_size,
+            evidence.confirmed_vwap,
+            evidence.has_reconciled_full_fill,
+            evidence.order_status,
+        )
+        return True
 
     def reconcile_pending_sell(self, trade) -> bool:
         """Finalize one live stop only from exact, full BUY/SELL fill proof."""

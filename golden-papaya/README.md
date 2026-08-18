@@ -54,6 +54,9 @@ simulation을 해제한다.
 - 같은 event의 상관 파생 시장은 최대 1개만 보유한다.
 - 최대 20포지션은 해당 `--job` DB의 `PENDING_BUY`·`HOLDING`·`PENDING_SELL`을 합친
   동시 상한이다. 누적 거래 수나 지갑 전체 상한이 아니며, 다른 job과 자동 합산되지 않는다.
+- live BUY는 `PENDING_BUY`로 시작한다. 30분 안에 전량 체결되지 않은 GTC BUY 잔량은
+  exact order ID로 취소하고 다음 cycle에 terminal ledger를 다시 대사한다. zero-fill은
+  `UNFILLED`, terminal partial fill은 실제 CONFIRMED 수량만 `HOLDING`으로 관리한다.
 - 현재 YES signal/midpoint가 0.90 이하가 되면 fresh best bid를 확인해 SELL을 시도하지만,
   얇은 호가에서는 미체결·부분체결·큰 슬리피지가 발생할 수 있다. DB 상태만 보고 손절
   완료로 간주하지 않는다.
@@ -152,7 +155,7 @@ execution ledger, redeem 대상이 모두 대사된 뒤에만 `archive_only`로 
 
 환경변수 이름은 `uv run polybot config` 출력과 `.env.example`을 기준으로 한다.
 
-같은 호스트에서 request filter가 완전히 같은 Melon·Quince·Queen job의 cursor-complete
+같은 호스트에서 request filter가 완전히 같은 Papaya·Quince·Queen job의 cursor-complete
 Gamma public sweep은 검증 후 5분 단위로 재사용한다. Papaya의 snapshot, 최초 교차와 주문
 판정은 공유하지 않고 이 job의 SQLite에 독립적으로 기록한다.
 

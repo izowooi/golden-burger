@@ -28,6 +28,8 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     repo.get_holding_trades.return_value = holdings
     repo.get_stats.return_value = {
         "holding": len(holdings),
+        "pending_buy": 0,
+        "pending_sell": 0,
         "resolved": 0,
         "expired": 0,
         "unfilled": 0,

@@ -28,7 +28,8 @@ from .timing import EntryClock, evaluate_entry_clock, parse_market_datetime
 logger = logging.getLogger(__name__)
 _BOOK_TOLERANCE = 1e-6
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
-_QUEEN_ARCHIVE_MIN_LIQUIDITY = 1_000.0
+_MELON_ARCHIVE_MIN_LIQUIDITY = 1_000.0
+_MELON_ARCHIVE_MIN_CUMULATIVE_VOLUME = 10_000.0
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -169,11 +170,13 @@ class MarketScanner:
         # by the higher entry threshold would disappear from durable history
         # and a later re-crossing could be misclassified as the first one.
         archive_min_liquidity = min(
-            self.config.min_liquidity, _QUEEN_ARCHIVE_MIN_LIQUIDITY
+            self.config.min_liquidity, _MELON_ARCHIVE_MIN_LIQUIDITY
         )
+        # All three arms share this cumulative-volume request envelope.  Their
+        # 20k/50k/150k recent-24h treatment remains client-validated below.
         return self.gamma.get_all_tradable_markets(
             min_liquidity=archive_min_liquidity,
-            min_volume=0,
+            min_volume=_MELON_ARCHIVE_MIN_CUMULATIVE_VOLUME,
         )
 
     def _archive_decision(

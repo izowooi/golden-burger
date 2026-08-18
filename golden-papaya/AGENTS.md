@@ -40,8 +40,10 @@ uv run polybot run --simulate --job sim
   이하일 때만 절대 가격 손절을 시도한다.
 - resolution 결과와 redeem/지급 증거는 SELL fill과 분리한다. 해결됐다는 이유로 1.00
   매도나 실현 P&L을 추정하지 않는다.
-- papaya 자체 archive는 `YES >= 0.80`, 잔여 `<= 168h`, 유동성 `>= $1,000`, volume `>= $0`
-  envelope를 60일 보존한다. entry filter를 높여도 archive baseline은 높이지 않는다.
+- papaya 자체 archive는 `YES >= 0.80`, 잔여 `<= 168h`, 유동성 `>= $1,000`, Gamma 누적
+  volume `>= $1,000` envelope를 60일 보존한다. 이는 entry의 최근 24h volume gate와 다른
+  서버측 수집 경계다. first observed는 이 envelope 안에서만 주장하며, entry filter를 높여도
+  archive baseline은 함께 높이지 않는다.
 - 존재하지 않거나 0바이트인 새 runtime DB는 첫 생성부터 `compact-v1`을 자동 활성화한다.
   기존 내용이 있는 legacy DB만 명시적 `polybot-db-maintenance migrate` 대상이다. 반복
   workspace clean으로 compact marker나 first-crossing lineage를 지우지 않는다.

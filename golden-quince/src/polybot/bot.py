@@ -195,16 +195,31 @@ class PolymarketBot:
                 days=self.config.trading.archive.retention_days
             )
             db_stats = repo.get_stats()
+            stats["open_states"] = {
+                "pending_buy": db_stats["pending_buy"],
+                "holding": db_stats["holding"],
+                "pending_sell": db_stats["pending_sell"],
+                "total": (
+                    db_stats["pending_buy"]
+                    + db_stats["holding"]
+                    + db_stats["pending_sell"]
+                ),
+            }
             logger.info(
                 "사이클 완료 - snapshots=%s checked=%s stop_sells=%s resolved=%s "
-                "candidates=%s buys=%s holding=%s realized_pnl=$%.4f",
+                "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
+                "pending_sell=%s) realized_pnl=$%.4f",
                 stats["snapshots_saved"],
                 stats["checked_holdings"],
                 stats["sold"],
                 stats["resolved"],
                 stats["buy_candidates"],
                 stats["bought"],
+                stats["open_states"]["total"],
+                self.config.trading.max_positions,
+                db_stats["pending_buy"],
                 db_stats["holding"],
+                db_stats["pending_sell"],
                 db_stats["total_pnl"],
             )
             return stats

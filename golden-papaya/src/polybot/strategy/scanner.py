@@ -28,6 +28,7 @@ logger = logging.getLogger(__name__)
 _BOOK_TOLERANCE = 1e-6
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
 _PAPAYA_ARCHIVE_MIN_LIQUIDITY = 1_000.0
+_PAPAYA_ARCHIVE_MIN_CUMULATIVE_VOLUME = 1_000.0
 
 
 def parse_end_date(end_date_str: Optional[str]) -> Optional[datetime]:
@@ -181,9 +182,12 @@ class MarketScanner:
         archive_min_liquidity = min(
             self.config.min_liquidity, _PAPAYA_ARCHIVE_MIN_LIQUIDITY
         )
+        # Gamma ``volume_num_min`` is cumulative volume, not the entry
+        # ``volume24hr`` gate.  Keep this fixed envelope broad and revalidate
+        # both fields client-side so one sweep does not crawl the full catalog.
         return self.gamma.get_all_tradable_markets(
             min_liquidity=archive_min_liquidity,
-            min_volume=0,
+            min_volume=_PAPAYA_ARCHIVE_MIN_CUMULATIVE_VOLUME,
         )
 
     def _archive_decision(

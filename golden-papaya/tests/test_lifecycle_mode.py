@@ -24,10 +24,13 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "inactive entry path must never buy"
     )
     repo = MagicMock()
+    repo.get_pending_buy_trades.return_value = []
     repo.get_pending_sell_trades.return_value = []
     repo.get_holding_trades.return_value = holdings
     repo.get_stats.return_value = {
         "holding": len(holdings),
+        "pending_buy": 0,
+        "pending_sell": 0,
         "resolved": 0,
         "expired": 0,
         "unfilled": 0,
@@ -74,6 +77,7 @@ def test_close_only_archives_and_checks_existing_positions_without_entry(
     scanner.fetch_markets.assert_called_once_with()
     gamma.get_all_tradable_markets.assert_not_called()
     repo.get_pending_sell_trades.assert_called_once_with()
+    repo.get_pending_buy_trades.assert_called_once_with()
     trader.execute_sell.assert_called_once_with(trade)
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_buy.assert_not_called()
@@ -100,6 +104,7 @@ def test_archive_only_persists_research_without_reading_or_writing_orders(
     scanner.save_market_snapshots.assert_called_once()
     repo.get_holding_trades.assert_not_called()
     repo.get_pending_sell_trades.assert_not_called()
+    repo.get_pending_buy_trades.assert_not_called()
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_sell.assert_not_called()
     trader.execute_buy.assert_not_called()
