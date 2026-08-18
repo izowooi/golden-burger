@@ -17,6 +17,7 @@ from .filters import (
 logger = logging.getLogger(__name__)
 
 _NUMERIC_REASON_PART = re.compile(r"^[+-]?\d[\d.]*[a-z%]*$")
+_CHERRY_MIN_CUMULATIVE_VOLUME = 5_000.0
 
 
 def _reason_key(reason: str) -> str:
@@ -314,8 +315,9 @@ class MarketScanner:
         Criteria (Resolution Momentum Strategy):
         1. Not in configured excluded categories (empty means no category exclusion)
         2. Liquidity >= min_liquidity
-        3. Probability: buy_threshold <= prob <= sell_threshold (75-92%)
-        4. Time: sports use gameStartTime; other markets use endDate
+        3. Gamma cumulative volume >= $5,000
+        4. Probability: buy_threshold <= prob <= sell_threshold (75-92%)
+        5. Time: sports use gameStartTime; other markets use endDate
 
         Returns:
             List of candidate dictionaries with market info
@@ -324,12 +326,14 @@ class MarketScanner:
         # $100 order requires at least $50,000 reported liquidity.
         effective_min_liquidity = self.config.effective_min_liquidity
         markets = self.gamma.get_all_tradable_markets(
-            min_liquidity=effective_min_liquidity
+            min_liquidity=effective_min_liquidity,
+            min_volume=_CHERRY_MIN_CUMULATIVE_VOLUME,
         )
         logger.info(
-            "시장 %d개 스캔 시작 (유동성 기준 $%s)",
+            "시장 %d개 스캔 시작 (유동성 기준 $%s, 누적 거래량 기준 $%s)",
             len(markets),
             f"{effective_min_liquidity:,.0f}",
+            f"{_CHERRY_MIN_CUMULATIVE_VOLUME:,.0f}",
         )
 
         candidates = []

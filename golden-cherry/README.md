@@ -7,6 +7,7 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 
 ## 개요
 
 - **매수 조건**: 75% ≤ 확률 ≤ 92% + 비스포츠 0~120시간 / 스포츠 경기 전 0~120시간 또는 인플레이
+- **시장 탐색 하한**: Gamma 누적 거래량 $5,000 이상 + 설정된 최소 유동성 이상
 - **매도 조건**: 익절 +10%, 손절 -8%, 트레일링 스탑 -5% (시간 청산 기본 비활성)
 - **리스크 관리**: 손절, 이익실현, 트레일링 스탑, 시간 기반 청산
 
@@ -469,6 +470,7 @@ golden-cherry/
 | 매수 금액 (USDC) | `POLYBOT_BUY_AMOUNT` | `trading.buy_amount_usdc` | 5.0 | 5.0 | 건당 매수 금액 |
 | 건당 하드캡 | `POLYBOT_MAX_BUY_AMOUNT_USDC` | `trading.max_buy_amount_usdc` | 100 | 100 | 주문액을 키울 때 별도로 올려야 함 |
 | 최소 유동성 | `POLYBOT_MIN_LIQUIDITY` | `trading.min_liquidity` | 50000 | 50000 | 이 금액 미만 시장 제외 |
+| 누적 거래량 하한 | 코드 고정 | - | 5000 | 5000 | Gamma `volume_num_min`; Yellow/Orange 공통 universe 하한 |
 | 주문/유동성 상한 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `trading.max_order_liquidity_ratio` | 0.002 | 0.002 | 주문액은 유동성의 최대 0.2% |
 | 최대 open 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | 10 | 10 | -1/무제한은 허용하지 않음 |
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `trading.max_open_notional_usdc` | 5000 | 5000 | HOLDING/격리/대기 포지션의 요청 원금 합계 |
@@ -478,6 +480,10 @@ golden-cherry/
 실제 스캔에 쓰는 최소 유동성은 `max(POLYBOT_MIN_LIQUIDITY,
 POLYBOT_BUY_AMOUNT / POLYBOT_MAX_ORDER_LIQUIDITY_RATIO)`입니다. 0.2%를 유지할 때의 계산은
 다음과 같습니다.
+
+누적 거래량 $5,000 하한은 위 유동성 계산과 별개입니다. Gamma가 보고하는 누적 거래량으로
+서버에서 시장 목록을 먼저 줄이기 위한 고정 탐색 조건이며, 24시간 거래량이나 현재 CLOB
+호가 깊이를 뜻하지 않습니다.
 
 | 건당 주문액 | 필요한 최소 Gamma 유동성 |
 |---:|---:|

@@ -282,7 +282,8 @@ class GammaClient:
         self.sweep_attestations.append(attestation)
         logger.info(
             f"시장 {len(markets)}개 조회 완료 "
-            f"(keyset {pages}페이지, 유동성 >= ${min_liquidity:,.0f})"
+            f"(keyset {pages}페이지, 유동성 >= ${min_liquidity:,.0f}, "
+            f"누적 거래량 >= ${min_volume:,.0f})"
         )
         return markets
 

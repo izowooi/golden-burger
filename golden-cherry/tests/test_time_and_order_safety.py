@@ -362,8 +362,9 @@ def test_game_start_filter_uses_start_not_late_end_date():
     now = datetime.now(timezone.utc)
 
     class FakeGamma:
-        def get_all_tradable_markets(self, min_liquidity):
+        def get_all_tradable_markets(self, min_liquidity, min_volume):
             assert min_liquidity == 50_000
+            assert min_volume == 5_000
             return [{
                 "conditionId": "0xsport",
                 "slug": "tennis-match",
@@ -453,8 +454,9 @@ def test_scanner_allows_in_play_sport_despite_late_settlement_end_date():
     now = datetime.now(timezone.utc)
 
     class FakeGamma:
-        def get_all_tradable_markets(self, min_liquidity):
+        def get_all_tradable_markets(self, min_liquidity, min_volume):
             assert min_liquidity == 50_000
+            assert min_volume == 5_000
             return [{
                 "conditionId": "0xinplay",
                 "slug": "live-football-match",

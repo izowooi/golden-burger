@@ -43,6 +43,11 @@
 
 10. **스캔 확률은 Gamma `outcomePrices`, 청산 확률은 CLOB midpoint다.** 스캔을 통과하고도 주문 직전 midpoint 재확인에서 걸릴 수 있다.
 
+11. **Gamma universe는 누적 거래량 $5,000을 서버 측 하한으로 고정한다.** 이는 Gamma의
+    `volume_num_min`(누적 거래량)이며 진입 시점의 24h 거래량이나 CLOB 호가 깊이가 아니다.
+    `polybot-yellow`와 `polybot-orange`의 A/B 차이는 확률·유동성 등 명시된 Jenkins 설정에만
+    두고, 이 universe 하한은 두 job에 동일하게 적용한다.
+
 ## 알려진 계측 공백 (2026-07-28 기준)
 
 회고 전에 반드시 확인한다. 아래는 **컬럼은 있는데 값이 없다**:
