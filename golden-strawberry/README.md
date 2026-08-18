@@ -43,6 +43,11 @@ POLYBOT_LIFECYCLE_MODE=archive_only POLYBOT_SIMULATION_MODE=true \
   uv run polybot status --simulate --job strawberry-shadow-one
 ```
 
+`status`와 `health`는 대형 append-only DB에 `PRAGMA quick_check`와 exact table counts를 수행하는
+maintenance 명령이다. Jenkins 10분 수집 shell에는 넣지 말고 job을 멈춘 maintenance window에서
+별도 실행한다. 정기 검토는 daily-rsync로 동기화·검증한 immutable copy에 SQLite
+`quick_check`와 analyzer를 적용한다.
+
 The runtime DB is `data/strawberry-shadow-one/trades_sim.db`; UTC bot logs are under the adjacent
 `logs/` directory. Neither is committed.
 

@@ -75,6 +75,11 @@ manifest와 build까지만 검증한다.
 - 100GiB 미만 free space, 90% 이상 filesystem usage, overlapping writer, partial/repeated cursor,
   malformed source, manifest/config/source digest drift는 publish 전에 중단한다.
 - Jenkins에 `clean`, workspace wipe, DB 삭제, credential binding, concurrent build를 추가하지 않는다.
+- timed Jenkins shell에는 `run` 뒤에 `status`/`health`를 붙이지 않는다. 두 명령은 대형
+  append-only DB 전체 `quick_check`와 exact count를 수행하는 maintenance 진단이며, 12GiB에서
+  함께 약 19분이 걸려 10분 cadence를 붕괴시켰다. 정기 cycle의 성공·storage guard는 run
+  audit로 확인한다. CLI deep check는 job을 멈춘 maintenance window에서만 실행하고, 정기
+  무결성·분석은 daily-rsync로 검증한 immutable copy에 `quick_check`와 analyzer를 적용한다.
 - 이 프로젝트 작업으로 다른 Jenkins job이나 live strategy를 수정하지 않는다.
 
 ## Evidence 규칙

@@ -9,10 +9,10 @@
 - Concurrent builds: disabled; SCM clean/wipe extensions: absent.
 - Jenkins build retention: 14 days.
 
-Ten minutes is frozen because complete end-to-end cycles measured 5.5–6.3 seconds and the source
-requires only 13 cursor pages. Five minutes would double load without a demonstrated scientific
-benefit. Minute offset 7 avoids the existing 0–3 minute research shard offsets and is part of health
-slot accounting.
+Ten minutes is frozen by the experiment contract. The initial empty-DB cycles were short, but the
+append-only DB grew past 12GiB and a normal collection plus atomic publication now takes about eight
+minutes. Five minutes would overlap and would also change the preregistered cadence. Minute offset 7
+avoids the existing 0–3 minute research shard offsets and is part of health slot accounting.
 
 ## Shell
 
@@ -47,9 +47,15 @@ UV=/Users/jongwoopark/.local/bin/uv
 (cd research/frozen-2026-08-15-clob && shasum -a 256 -c MANIFEST.sha256)
 "${UV}" run polybot config --simulate --job strawberry-shadow-one
 "${UV}" run polybot run --simulate --job strawberry-shadow-one
-"${UV}" run polybot status --simulate --job strawberry-shadow-one
-"${UV}" run polybot health --simulate --job strawberry-shadow-one
 ```
+
+Do not append `status` or `health` to the periodic shell. Both are deep diagnostics: `status` runs
+SQLite `PRAGMA quick_check` and exact counts over the append-only tables, while `health` includes the
+same deep status again. At 12GiB, running both after every collection added about 19 minutes and made
+a 10-minute timer execute only every 26–28 minutes. The collection command already records a
+terminal run event, storage guard, cycle statistics, and atomic-publication result. Run the CLI deep
+status or health only during a paused maintenance review. For routine review, run SQLite
+`quick_check` and the analyzer against the immutable DB synchronized and verified by daily-rsync.
 
 Do not add `clean`, workspace wipe, DB deletion, credentials, `--live`, or a different runtime job.
 The verifier reuses the existing trusted T7 sentinel and off-volume UUID pin; it never creates trust
@@ -62,8 +68,8 @@ workspace and marker before opening a log or DB.
 1. Keep the periodic trigger absent while changing config.
 2. Verify T7 is mounted and has at least 100GiB free.
 3. Save the shell and run one manual build.
-4. Require a successful 13-page terminal sweep, SQLite `quick_check=ok`, no HIGH/CRITICAL issue, and
-   healthy status.
+4. Require a successful terminal sweep, SQLite `quick_check=ok`, no HIGH/CRITICAL issue, and healthy
+   status. These deep checks are part of deployment/review, not every periodic build.
 5. Add `7-59/10 * * * *`; wait for at least one natural build and inspect its console.
 6. Run daily-rsync scan/sync/verify and inspect the verified DB, not the Jenkins workspace DB.
 
