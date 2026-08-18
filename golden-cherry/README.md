@@ -272,6 +272,9 @@ uv run python main.py run      # 기존 Jenkins의 --job 값이 있다면 동일
 `pending_buy_ttl_minutes`가 지나면 authoritative zero-fill 취소를 검증한 뒤 `UNFILLED`로
 종결합니다. partial fill이나 ledger evidence가 불완전한 주문은 자동 취소하지 않으므로
 저장소 루트의 `tools/wind_down.py cancel --side BUY`를 dry-run한 뒤 별도 검토해야 합니다.
+거래소가 주문을 terminal 상태로 끝냈고 confirmed fill 합계가 matched 수량과 정확히 대사되면,
+부분 체결분만 실제 포지션으로 활성화하고 미체결분은 체결로 가정하지 않습니다. 매도 부분 체결도
+실제 매도 수량과 잔여 수량을 분리하며, 최소 주문량 미만 잔여는 반복 주문하지 않고 해결을 기다립니다.
 상세 절차는 [`docs/strategy-wind-down-playbook.md`](../docs/strategy-wind-down-playbook.md)를
 참조하세요.
 

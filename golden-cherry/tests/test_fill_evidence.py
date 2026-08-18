@@ -174,8 +174,35 @@ def test_matched_quantized_fill_and_explicit_zero_fee_are_complete(tmp_path):
     assert evidence.state == "confirmed"
     assert evidence.confirmed_size == 5.22
     assert evidence.has_reconciled_full_fill is True
+    assert evidence.has_reconciled_matched_fill is True
     assert evidence.fee_complete is True
     assert evidence.confirmed_fee_usdc == 0.0
+    session.close()
+
+
+def test_terminal_partial_fill_reconciles_actual_matched_size(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="terminal-partial",
+        status="CANCELED_MARKET_RESOLVED",
+        requested=5.780347,
+        matched=4.72,
+    )
+    insert_fill(
+        session,
+        order_id="terminal-partial",
+        size=4.72,
+        fee_rate=0,
+        fee=None,
+    )
+    evidence = repo.get_exact_buy_fill_evidence("terminal-partial")
+    assert evidence.state == "confirmed"
+    assert evidence.confirmed_size == pytest.approx(4.72)
+    assert evidence.has_reconciled_matched_fill is True
+    assert evidence.has_reconciled_full_fill is False
+    assert evidence.detail == "confirmed_reconciled_terminal_partial_fill"
     session.close()
 
 

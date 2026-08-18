@@ -102,6 +102,9 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    상태가 terminal `MATCHED`이면, 거래소가 소수점 아래를 quantize하여 원시 요청 수량보다
    조금 작더라도 해당 **거래소 주문의 전량 체결**로 인정한다. `MATCHED` 상태만 있거나
    confirmed fill 합계가 matched 수량과 다르면 이 예외를 적용하지 않는다.
+   terminal `CANCELED` 계열의 부분 체결은 전량 체결로 부르지 않지만, confirmed fill 합계가
+   `latest_size_matched`와 일치하고 대사가 끝났다면 그 실제 체결 수량만 포지션에 반영한다.
+   미체결 잔여 수량을 요청 수량으로 채우거나 PENDING 상태에 영구 고정하지 않는다.
 4. 실제 fill price와 size로 gross P&L을 계산하고, `fee_amount_usdc`가 있으면 차감한다.
    fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. 단, 같은 CONFIRMED fill의
    `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에는 이를 **증명된 0 fee**로 인정한다.

@@ -509,9 +509,9 @@ class Trader:
 
     @staticmethod
     def _actual_fill_ready(evidence: ExactFillEvidence) -> bool:
-        """Return whether exact full-fill and fee evidence are complete."""
+        """Return whether the venue-matched amount and fee evidence are complete."""
         return (
-            evidence.has_reconciled_full_fill
+            evidence.has_reconciled_matched_fill
             and evidence.fee_complete
             and evidence.confirmed_size is not None
             and evidence.confirmed_size > 0
@@ -536,7 +536,7 @@ class Trader:
         if (
             evidence.order_status != "LIVE"
             or evidence.state not in {"pending", "confirmed"}
-            or evidence.has_reconciled_full_fill
+            or evidence.has_reconciled_matched_fill
         ):
             return False
         self.repo.update_trade(
@@ -581,7 +581,7 @@ class Trader:
             return False
 
         if (
-            evidence.has_reconciled_full_fill
+            evidence.has_reconciled_matched_fill
             and evidence.confirmed_size is not None
             and evidence.confirmed_vwap is not None
         ):
@@ -604,7 +604,7 @@ class Trader:
                 ),
             )
             logger.info(
-                "exact full BUY fill로 HOLDING 활성화: Trade #%s "
+                "exact reconciled BUY fill로 HOLDING 활성화: Trade #%s "
                 "size=%.6f vwap=%.4f fee_complete=%s",
                 trade.id,
                 evidence.confirmed_size,
@@ -666,7 +666,7 @@ class Trader:
             evidence.state,
             evidence.order_status,
             evidence.latest_size_matched,
-            evidence.has_reconciled_full_fill,
+            evidence.has_reconciled_matched_fill,
             evidence.detail,
         )
         return False
@@ -710,7 +710,7 @@ class Trader:
                 "Trade #%s state=%s full=%s fee=%s detail=%s",
                 trade.id,
                 sell_evidence.state,
-                sell_evidence.has_reconciled_full_fill,
+                sell_evidence.has_reconciled_matched_fill,
                 sell_evidence.fee_complete,
                 sell_evidence.detail,
             )
@@ -746,11 +746,21 @@ class Trader:
             realized_pnl = previous_exact_pnl + current_pnl
             pnl_basis = "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
 
-        remaining = max(
+        preflight_unsold = max(
             0.0,
             float(getattr(trade, "pending_sell_remaining_shares", None) or 0.0),
         )
-        completed = remaining < MIN_ORDER_SIZE
+        submitted_size = max(
+            sell_evidence.confirmed_size,
+            float(sell_evidence.requested_size or 0.0),
+        )
+        venue_unfilled = (
+            0.0
+            if sell_evidence.has_reconciled_full_fill
+            else max(0.0, submitted_size - sell_evidence.confirmed_size)
+        )
+        remaining = preflight_unsold + venue_unfilled
+        completed = remaining <= 1e-6
         previous_sell_shares = float(
             getattr(trade, "sell_shares", None) or 0.0
         )
@@ -914,6 +924,19 @@ class Trader:
                 f"보유 유지: {condition_id} "
                 f"(가격: {current_price:.2%}, P&L: {pnl_percent:.1%}, "
                 f"최고가: {max_price:.2%}, 해결까지: {hours_str})"
+            )
+            return False
+
+        # A terminal partial BUY/SELL can leave a real position below the CLOB
+        # minimum order size.  Keep that exposure visible in HOLDING, but do
+        # not submit a predictably rejected order every cycle.  It must leave
+        # the wallet through resolution/redeem or an operator-supported path.
+        if trade.buy_shares < MIN_ORDER_SIZE:
+            logger.warning(
+                "최소 주문량 미만 실제 잔여 포지션은 CLOB SELL을 제출하지 않고 "
+                "resolution/redeem을 기다립니다 - trade=%s shares=%.6f",
+                trade.id,
+                trade.buy_shares,
             )
             return False
 

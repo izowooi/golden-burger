@@ -16,6 +16,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_TERMINAL_ORDER_STATUSES = _TERMINAL_ZERO_FILL_ORDER_STATUSES | {"MATCHED"}
 
 
 @dataclass(frozen=True)
@@ -29,6 +30,7 @@ class ExactFillEvidence:
     requested_size: Optional[float] = None
     latest_size_matched: Optional[float] = None
     needs_reconciliation: bool = True
+    reconciled_matched_fill: bool = False
     reconciled_full_fill: bool = False
     confirmed_size: Optional[float] = None
     confirmed_vwap: Optional[float] = None
@@ -44,6 +46,17 @@ class ExactFillEvidence:
     @property
     def has_reconciled_full_fill(self) -> bool:
         return self.has_confirmed_fill and self.reconciled_full_fill
+
+    @property
+    def has_reconciled_matched_fill(self) -> bool:
+        """Whether every share the venue says was filled is reconciled.
+
+        This can be true for a terminal partial fill even when the confirmed
+        size is smaller than the pre-quantization requested size.
+        """
+        return self.has_confirmed_fill and (
+            self.reconciled_matched_fill or self.reconciled_full_fill
+        )
 
 
 def _normalize_status(value: Any) -> str:
@@ -279,18 +292,19 @@ def get_exact_order_fill_evidence(
             if row["matched_at"]:
                 matched_values.append(str(row["matched_at"]))
 
-        reconciled_full_fill = (
+        reconciled_matched_fill = (
             not needs_reconciliation
+            and order_status in _TERMINAL_ORDER_STATUSES
             and matched_size is not None
             and matched_size > 0
             and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
-            and (
-                # MATCHED is terminal at the venue; its size may be quantized
-                # slightly below the pre-quantization requested size.
-                order_status == "MATCHED"
-                or math.isclose(
-                    matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
-                )
+        )
+        reconciled_full_fill = reconciled_matched_fill and (
+            # MATCHED is terminal at the venue; its size may be quantized
+            # slightly below the pre-quantization requested size.
+            order_status == "MATCHED"
+            or math.isclose(
+                matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
             )
         )
         return ExactFillEvidence(
@@ -301,6 +315,7 @@ def get_exact_order_fill_evidence(
             requested_size=requested_size,
             latest_size_matched=matched_size,
             needs_reconciliation=needs_reconciliation,
+            reconciled_matched_fill=reconciled_matched_fill,
             reconciled_full_fill=reconciled_full_fill,
             confirmed_size=size_total,
             confirmed_vwap=notional_total / size_total,
@@ -310,6 +325,8 @@ def get_exact_order_fill_evidence(
             detail=(
                 "confirmed_reconciled_full_fill"
                 if reconciled_full_fill
+                else "confirmed_reconciled_terminal_partial_fill"
+                if reconciled_matched_fill
                 else "confirmed_partial_or_unreconciled"
             ),
         )

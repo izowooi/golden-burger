@@ -27,6 +27,7 @@ def full_fill(
         requested_size=size,
         latest_size_matched=size,
         needs_reconciliation=False,
+        reconciled_matched_fill=True,
         reconciled_full_fill=True,
         confirmed_size=size,
         confirmed_vwap=price,
@@ -168,6 +169,31 @@ def test_exact_full_buy_fill_activates_actual_holding():
     assert update["buy_amount"] == pytest.approx(5.2 * 0.91 + 0.01)
 
 
+def test_terminal_partial_buy_activates_only_confirmed_shares():
+    evidence = ExactFillEvidence(
+        "confirmed",
+        "buy-order",
+        order_status="CANCELED_MARKET_RESOLVED",
+        side="BUY",
+        requested_size=5.780347,
+        latest_size_matched=4.72,
+        needs_reconciliation=False,
+        reconciled_matched_fill=True,
+        reconciled_full_fill=False,
+        confirmed_size=4.72,
+        confirmed_vwap=0.86,
+        confirmed_fee_usdc=0.0,
+        fee_complete=True,
+    )
+    repo = FakeRepo(buy_evidence=evidence)
+    trader = Trader(repo, FakeClob(), TradingConfig())
+    assert trader.reconcile_pending_buy(trade()) is True
+    update = repo.updates[-1][1]
+    assert update["status"] == TradeStatus.HOLDING
+    assert update["buy_shares"] == pytest.approx(4.72)
+    assert update["buy_amount"] == pytest.approx(4.72 * 0.86)
+
+
 def test_expired_exact_live_zero_fill_is_cancelled_and_unfilled():
     evidence = ExactFillEvidence(
         "pending",
@@ -228,6 +254,64 @@ def test_exact_zero_fee_buy_and_sell_complete_with_actual_net_pnl():
     assert update["pnl_basis"] == (
         "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
     )
+
+
+def test_matched_quantization_does_not_create_a_false_sell_remainder():
+    quantized_sell = full_fill(
+        "sell-order", side="SELL", size=5.22, price=0.95
+    )
+    quantized_sell = ExactFillEvidence(
+        **{
+            **quantized_sell.__dict__,
+            "requested_size": 5.224660397,
+        }
+    )
+    repo = FakeRepo(
+        buy_evidence=full_fill("buy-order", side="BUY", size=5.22, price=0.90),
+        sell_evidence=quantized_sell,
+    )
+    trader = Trader(repo, FakeClob(), TradingConfig())
+    assert trader.reconcile_pending_sell(trade(buy_shares=5.22)) is True
+    assert repo.updates[-1][1]["status"] == TradeStatus.COMPLETED
+
+
+def test_terminal_partial_sell_returns_confirmed_remainder_to_holding():
+    partial_sell = ExactFillEvidence(
+        "confirmed",
+        "sell-order",
+        order_status="CANCELED",
+        side="SELL",
+        requested_size=5.71,
+        latest_size_matched=4.337347,
+        needs_reconciliation=False,
+        reconciled_matched_fill=True,
+        reconciled_full_fill=False,
+        confirmed_size=4.337347,
+        confirmed_vwap=0.88,
+        confirmed_fee_usdc=0.0,
+        fee_complete=True,
+    )
+    repo = FakeRepo(
+        buy_evidence=full_fill("buy-order", side="BUY", size=5.71, price=0.90),
+        sell_evidence=partial_sell,
+    )
+    trader = Trader(repo, FakeClob(), TradingConfig())
+    assert trader.reconcile_pending_sell(trade(buy_shares=5.71)) is False
+    update = repo.updates[-1][1]
+    assert update["status"] == TradeStatus.HOLDING
+    assert update["buy_shares"] == pytest.approx(5.71 - 4.337347)
+    assert update["sell_shares"] == pytest.approx(4.337347)
+    assert update["realized_pnl"] == pytest.approx(
+        (0.88 - 0.90) * 4.337347
+    )
+
+
+def test_subminimum_real_holding_does_not_submit_rejected_sell():
+    repo = FakeRepo()
+    clob = FakeClob(midpoint=0.70)
+    trader = Trader(repo, clob, TradingConfig())
+    assert trader.execute_sell(trade(buy_shares=1.372653)) is False
+    assert clob.orders == []
 
 
 def test_terminal_zero_fill_sell_returns_to_holding():
