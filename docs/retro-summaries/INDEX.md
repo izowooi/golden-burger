@@ -30,3 +30,4 @@
 | 024 | [024-quince-melon-live-review-2026-08-15.md](024-quince-melon-live-review-2026-08-15.md) | Quince clean cohort 53시간·Melon 9일 저빈도 회고, Melon first-crossing evidence 보완·배포 검증 | 2026-08-15 |
 | 025 | [025-golden-strawberry-last-mile-deployment-2026-08-15.md](025-golden-strawberry-last-mile-deployment-2026-08-15.md) | Last Mile 가설 사전등록, accountless CLOB census collector, 외장 Jenkins·10분 timer·daily-rsync 배포 검증 | 2026-08-15 |
 | 026 | [026-golden-cherry-orange-yellow-parameter-review-2026-08-16.md](026-golden-cherry-orange-yellow-parameter-review-2026-08-16.md) | Orange·Yellow 최신 cohort 비교, 0.95 상단 구조 검증과 partial-fill lifecycle 결함 진단 | 2026-08-16 |
+| 027 | [027-golden-cherry-orange-yellow-followup-2026-08-18.md](027-golden-cherry-orange-yellow-followup-2026-08-18.md) | Orange·Yellow 후속 동기화, 0.95 반복 기각과 active partial-fill 고착 재확인 | 2026-08-18 |
