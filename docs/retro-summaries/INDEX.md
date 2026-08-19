@@ -32,3 +32,4 @@
 | 026 | [026-golden-cherry-orange-yellow-parameter-review-2026-08-16.md](026-golden-cherry-orange-yellow-parameter-review-2026-08-16.md) | Orange·Yellow 최신 cohort 비교, 0.95 상단 구조 검증과 partial-fill lifecycle 결함 진단 | 2026-08-16 |
 | 027 | [027-golden-cherry-orange-yellow-followup-2026-08-18.md](027-golden-cherry-orange-yellow-followup-2026-08-18.md) | Orange·Yellow 후속 동기화, 0.95 반복 기각과 active partial-fill 고착 재확인 | 2026-08-18 |
 | 028 | [028-golden-cherry-blueberry-runtime-remediation-2026-08-19.md](028-golden-cherry-blueberry-runtime-remediation-2026-08-19.md) | Orange 고가 진입 outcome 해석 정정, Cherry partial-fill 복구, Blueberry volume 5k·fleet Gamma cache 배포 | 2026-08-19 |
+| 029 | [029-fleet-scan-and-position-cap-remediation-2026-08-19.md](029-fleet-scan-and-position-cap-remediation-2026-08-19.md) | 전 Jenkins scan·position-cap 감사, broad-universe 축소, Orange stale open 및 Strawberry cadence 복구 | 2026-08-19 |
