@@ -63,7 +63,11 @@ timer는 `H/15 * * * *`, external workspace는
 여기서 `--simulate`는 가짜 가격을 만든다는 뜻이 아니다. 실제 공개 시장 응답을 저장하되
 credential·wallet·order path가 source-level로 금지된다는 뜻이다.
 
-최신 Jenkins build `#1206`은 `SUCCESS`, 전체 shell duration은 140.803초였다. pre/post
+push 후 자연 timer build `#1208`은 commit
+`afe28e8a71035c0e8aa3ad0a064a228870b60a7a`를 checkout해 `SUCCESS`, 전체 shell duration은
+158.367초였다. collector 자체는 54.050초에 26 page·2,500 market·5,000 outcome을 수집했고,
+strategy source digest는 기존 cohort와 같은
+`bd9c5ebc288318c4e531051e48d199359dc267b02f9b5cef8bbcf6fd7d46710e`로 유지됐다. pre/post
 `health`가 출력한 `healthy=true`는 물리 DB·storage 건강성이다. 아래 Data API와 resolution의
 경제 데이터 완전성까지 성공했다는 뜻은 아니다.
 
