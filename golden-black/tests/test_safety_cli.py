@@ -1,0 +1,21 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+
+from polybot.main import main
+
+
+def test_live_cli_rejected_before_database(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    assert main(["run", "--live", "--job", "black-shadow-paired"]) == 2
+    assert not list(tmp_path.rglob("*.db"))
+
+
+def test_credential_rejected_before_database(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", "")
+    with pytest.raises(ValueError, match="credential-bearing"):
+        main(["run", "--simulate", "--job", "black-shadow-paired"])
+    assert not list(tmp_path.rglob("*.db"))

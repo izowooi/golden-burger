@@ -1,0 +1,38 @@
+simulation_mode: true
+
+trading:
+  lifecycle_mode: archive_only
+  data_contract: sports-resolution-paired-v1
+  cadence_minutes: 5
+
+  gamma:
+    base_url: https://gamma-api.polymarket.com
+    page_size: 500
+    max_pages: 4
+    min_liquidity: 10000
+    min_total_volume: 5000
+    end_window_hours: 6
+    connect_timeout_seconds: 3.05
+    read_timeout_seconds: 30
+    max_retries: 4
+    retry_base_seconds: 1
+    retry_max_seconds: 20
+
+  orderbook:
+    base_url: https://clob.polymarket.com
+    batch_token_limit: 250
+
+  experiment:
+    start_utc: 2026-08-20T00:00:00Z
+    entry_end_utc: 2026-09-19T00:00:00Z
+    followup_end_utc: 2026-10-19T00:00:00Z
+    entry_thresholds: [0.92, 0.94]
+    entry_band_width: 0.01
+    simulated_notional_usdc: 5
+    fee_rate_fallback: 0.05
+
+  storage:
+    busy_timeout_ms: 30000
+    min_free_gib: 50
+    stop_used_ratio: 0.90
+    bot_log_retention_days: 45

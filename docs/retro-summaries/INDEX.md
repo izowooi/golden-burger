@@ -35,3 +35,4 @@
 | 029 | [029-fleet-scan-and-position-cap-remediation-2026-08-19.md](029-fleet-scan-and-position-cap-remediation-2026-08-19.md) | 전 Jenkins scan·position-cap 감사, broad-universe 축소, Orange stale open 및 Strawberry cadence 복구 | 2026-08-19 |
 | 030 | [030-golden-pomegranate-health-and-strategy-discovery-2026-08-19.md](030-golden-pomegranate-health-and-strategy-discovery-2026-08-19.md) | Pomegranate 12일 archive 건강성, Data API·resolution 결함, holdout 기각과 prospective 스포츠 underdog 가설 | 2026-08-19 |
 | 031 | [031-golden-pomegranate-sports-favorite-grid-2026-08-19.md](031-golden-pomegranate-sports-favorite-grid-2026-08-19.md) | Pomegranate 스포츠 endDate 6h 고확률 0.75~0.97 진입·목표가·resolution grid, anchor 기각과 0.94 사후 후보 | 2026-08-19 |
+| 032 | [032-golden-black-evidence-and-design-2026-08-19.md](032-golden-black-evidence-and-design-2026-08-19.md) | 전 Jenkins·local archive 확장 검증, 0.94 비보장 판정, 0.92 대조군과 Golden Black prospective collector 설계 | 2026-08-19 |

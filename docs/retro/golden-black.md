@@ -1,0 +1,14 @@
+# Golden Black retro register
+
+Evidence 해석은 [`EVIDENCE_CONTRACT.md`](EVIDENCE_CONTRACT.md)를 따른다.
+
+- REVIEW_START: `2026-08-20T00:00:00Z`
+- REVIEW_END: `2026-09-19T00:00:00Z` (entry window exclusive end)
+- FOLLOWUP_END: `2026-10-19T00:00:00Z`
+- DATA_CONTRACT: `sports-resolution-paired-v1`
+- STATUS: simulation preregistered; no live approval
+
+첫 24시간에는 cadence, cursor, exact book, raw payload, cohort, DB integrity와 storage만 기록한다.
+7일에는 표본/coverage만 추가하고, 수익성과 parameter를 판단하지 않는다. 30일 entry window와
+follow-up이 끝난 뒤 verified immutable DB의 SHA-256, sync/source cutoff, config hash, source digest,
+job/runtime을 고정해 arm별 회고를 작성한다.

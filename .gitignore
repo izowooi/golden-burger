@@ -198,3 +198,6 @@ docs/logs/
 
 # Golden Raspberry research evidence is local/Jenkins runtime state, never source.
 /golden-raspberry/data/
+
+# Golden Black accountless research evidence is runtime state, never source.
+/golden-black/data/

@@ -1,0 +1,34 @@
+[project]
+name = "golden-black"
+version = "0.1.0"
+description = "Accountless paired sports resolution-threshold research collector"
+requires-python = ">=3.11"
+dependencies = [
+    "polybot-observability",
+    "PyYAML>=6.0",
+    "requests>=2.31.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+]
+
+[project.scripts]
+polybot = "polybot.main:main"
+
+[tool.uv.sources]
+polybot-observability = { path = "../polybot-observability", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polybot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+pythonpath = ["src", "."]

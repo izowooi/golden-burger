@@ -1,13 +1,13 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 21개 `golden-*` 프로젝트의 전체 지도다. 이 중 20개는 수익 가설을 검정하고,
+총 22개 `golden-*` 프로젝트의 전체 지도다. 이 중 21개는 수익 가설을 검정하고,
 `golden-pomegranate` 하나는 미래 전략을 만들기 위한 범용 accountless market observatory다.
-`golden-raspberry`와 `golden-strawberry`는 수익 가설이지만 주문 없이 displayed-book
+`golden-black`, `golden-raspberry`, `golden-strawberry`는 수익 가설이지만 주문 없이 displayed-book
 반사실만 수집한다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-15 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-19 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -26,6 +26,7 @@
 |---|---|---|---|---|---|
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
+| **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution 반사실 | 0.92/0.94, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
 | **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B 시작 evidence 없음** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
@@ -46,7 +47,7 @@
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 10분 full census, outcome-token threshold grid | **research-only · 1주 pilot health only · live/order 금지** |
 
-상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 4, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 5, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -312,6 +313,25 @@ source-level로 금지한다. Gamma는 crossing-time volume/liquidity/event meta
 resolution 확인에만 사용한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
 `golden-strawberry/research/frozen-2026-08-15-clob/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-strawberry.md`를 따른다.
+
+## 11차 설계 — Sports Resolution Hold paired 검정
+
+### golden-black — Sports Resolution Hold
+
+전체 sampling census 대신 Gamma event keyset의 sports, endDate 6시간, liquidity 10k,
+cumulative volume 5k server filter를 먼저 적용한다. 통과한 strict-binary market의 두 token만
+exact CLOB full book으로 읽고, 정확히 `$5`를 매수할 수 있는 VWAP가 `[0.92,0.93]` 또는
+`[0.94,0.95]`에 처음 들어오면 paired counterfactual episode를 만든다. stop/target 없이 CLOB
+market의 unique one-hot winner까지 추적한다.
+
+0.94는 Pomegranate의 사후 screen과 별도 historical archive에서 양수였지만 Wilson 하한이
+현재 fee 포함 손익분기보다 낮아 수익을 보장하지 않는다. 0.92는 두 데이터원의 시간 전·후반이
+모두 양수였던 더 넓은 대조군이다. 현재 공식 sports taker fee 0.05와 source fee schedule을
+보존한다. Gamma endDate가 실제 경기 종료와 같다는 보장은 없으므로 gameStartTime과 phase를
+같이 저장한다. 30일 prospective window가 끝나기 전 threshold를 바꾸거나 live로 승격하지 않는다.
+상세는 `golden-black/STRATEGY.md`, frozen 계약은
+`golden-black/research/frozen-2026-08-20/PREREGISTRATION.md`, 회고는
+`docs/retro/golden-black.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
