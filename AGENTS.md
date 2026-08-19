@@ -27,9 +27,10 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-black/`: **Sports Resolution Hold** — sports + Gamma `endDate` `(0h,6h]` + market
   liquidity 10k/cumulative volume 5k를 server-side keyset으로 먼저 좁힌 뒤, exact `$5` ask가
   `[0.92,0.93]` 또는 `[0.94,0.95]`인 outcome을 unique one-hot resolution까지 보유하는
-  paired displayed-book 반사실이다. 5분 cadence, accountless simulation-only이며 credential과
-  `--live`를 source-level로 금지한다. 30일 prospective cohort 전 수익성이나 live 승격을
-  판정하지 않는다.
+  paired displayed-book 반사실이다. 각 episode에서 무손절과 `0.80/0.70/0.60` stop을 동시에
+  재생하며 stop trigger와 actual full-depth VWAP, gap, partial fill과 잔여 retry를 분리해
+  저장한다. 5분 cadence, accountless simulation-only이며 credential과 `--live`를 source-level로
+  금지한다. 30일 prospective cohort 전 수익성이나 exit policy를 판정하지 않는다.
 - `golden-date/`: Conviction Ladder — 시간 사다리 + 모멘텀 게이트. **⛔ 2026-07-29 폐쇄 완료** (edge -1.56pp, 회전율 14.8배가 손실을 증폭. `docs/retro/golden-date-2026-07-verdict.md`).
 - `golden-elderberry/`: Panic Fade — favorite 급락 과잉반응 역매수.
 - `golden-fig/`: Hope Crusher — 롱샷 페이드. **⛔ 2026-07-28 폐쇄 완료** (캘리브레이션 전 구간 edge 음수, `docs/retro/golden-mango-fig-2026-07-verdict.md`).
@@ -127,9 +128,10 @@ mutable cache이고 나머지 review evidence는 append-only다. 이 DB도 actua
 P&L로 해석하지 않으며, 1주 차 결과로 parameter를 선택하지 않는다.
 
 `golden-black`은 단일 `data/black-shadow-paired/trades_sim.db`에 server-filtered sports event
-keyset, exact `$5` books, `0.92/0.94` paired episode, path와 one-hot resolution을 append-only로
-저장한다. actual fill/P&L evidence가 아니며, Gamma `endDate`를 실제 경기 종료 시각으로
-가정하지 않는다. 24시간/7일 review는 collection health와 coverage만 판정한다.
+keyset, exact `$5` books, `0.92/0.94` paired episode, 무손절·0.80·0.70·0.60 stop path와 one-hot
+resolution을 append-only로 저장한다. stop 기준가는 체결가로 간주하지 않고 displayed bid
+VWAP·부분 fill·retry를 따로 보존한다. actual fill/P&L evidence가 아니며, Gamma `endDate`를 실제
+경기 종료 시각으로 가정하지 않는다. 24시간/7일 review는 collection health와 coverage만 판정한다.
 
 매도 거절은 trade 상태를 바꾸지 않으므로 `HOLDING`으로 남아 매 사이클 반복 제출된다. 이 루프가 `max_positions`를 잠식해 봇을 정지시킨 사례가 있다(cherry 2026-07-22~28). 전 전략에 거절 사유 분류 로그(`매도 실패 진단`)와 축소 재시도 방어가 들어 있다 — 상세는 `docs/sell-retry-loop-defense.md`.
 
@@ -142,6 +144,15 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - Node 프로젝트(`polymarket-dashboard`)는 npm을 쓴다.
 - 공통 유틸은 2개 이상 실제 사용 사례가 생긴 뒤 고려하고, 먼저 폴더 내부에서 단순 해결한다.
 - 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Black·Kiwi·Blueberry·Raspberry·Strawberry는 모노레포 commit을 cohort로 쓰지 않고 L3 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다. Golden Pomegranate도 Git commit을 provenance로만 두고 L3의 `config_hash × strategy_source_digest × mode × job_name × schema_profile`을 사용한다.
+
+### Task summary 완료 checkpoint
+
+상위 L1의 `작업 기록 보관` 규칙은 이 저장소의 모든 응답에 필수다. 독립된 사용자 요청마다
+최종 응답 직전에 `task-summaries/YYYY/MM/YYYY-MM-DD_HHMMSS_<slug>.md`가 실제로 생성됐는지
+확인한다. 파일에는 작업을 시작시킨 사용자 메시지 원문과 최종 결과 요약을 함께 적고,
+credential·token·password·민감 개인정보는 `[REDACTED]`로 치환한다. summary 본문은
+local-only이므로 staging·commit·push하지 않는다. 누락을 발견하면 다음 작업과 합치지 말고
+누락된 요청의 summary를 먼저 별도 복구한다.
 
 ## 작업 전 확인
 

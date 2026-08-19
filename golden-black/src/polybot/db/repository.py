@@ -227,6 +227,21 @@ CREATE TABLE IF NOT EXISTS hypothetical_episodes (
 );
 CREATE INDEX IF NOT EXISTS episodes_threshold_time_idx ON hypothetical_episodes(threshold, entered_at);
 
+CREATE TABLE IF NOT EXISTS counterfactual_exit_policies (
+    policy_id TEXT PRIMARY KEY,
+    episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
+    created_run_id TEXT NOT NULL,
+    policy_key TEXT NOT NULL,
+    stop_price REAL,
+    created_at TEXT NOT NULL,
+    CHECK (
+        (policy_key = 'HOLD_TO_RESOLUTION' AND stop_price IS NULL)
+        OR (policy_key LIKE 'STOP_%' AND stop_price > 0 AND stop_price < 1)
+    ),
+    UNIQUE (episode_id, policy_key)
+);
+CREATE INDEX IF NOT EXISTS exit_policy_episode_idx ON counterfactual_exit_policies(episode_id, policy_key);
+
 CREATE TABLE IF NOT EXISTS episode_path_observations (
     path_id TEXT PRIMARY KEY,
     episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
@@ -239,6 +254,53 @@ CREATE TABLE IF NOT EXISTS episode_path_observations (
     status TEXT NOT NULL,
     UNIQUE (episode_id, run_id)
 );
+
+CREATE TABLE IF NOT EXISTS stop_execution_attempts (
+    attempt_id TEXT PRIMARY KEY,
+    policy_id TEXT NOT NULL REFERENCES counterfactual_exit_policies(policy_id),
+    episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
+    run_id TEXT NOT NULL,
+    snapshot_id TEXT REFERENCES orderbook_snapshots(snapshot_id),
+    observed_at TEXT NOT NULL,
+    stop_price REAL NOT NULL,
+    prior_best_bid REAL,
+    trigger_best_bid REAL,
+    requested_shares REAL NOT NULL,
+    filled_shares REAL NOT NULL,
+    remaining_shares REAL NOT NULL,
+    exit_vwap REAL,
+    gross_proceeds REAL NOT NULL,
+    fee_rate REAL NOT NULL,
+    estimated_fee REAL NOT NULL,
+    net_proceeds REAL NOT NULL,
+    levels_used INTEGER NOT NULL,
+    status TEXT NOT NULL CHECK (status IN ('FULL_EXIT','PARTIAL_FILL','NO_BID_DEPTH')),
+    gap_from_stop REAL,
+    drop_from_prior REAL,
+    UNIQUE (policy_id, run_id)
+);
+CREATE INDEX IF NOT EXISTS stop_attempt_policy_time_idx ON stop_execution_attempts(policy_id, observed_at);
+
+CREATE TABLE IF NOT EXISTS counterfactual_stop_exits (
+    exit_id TEXT PRIMARY KEY,
+    policy_id TEXT NOT NULL UNIQUE REFERENCES counterfactual_exit_policies(policy_id),
+    episode_id TEXT NOT NULL REFERENCES hypothetical_episodes(episode_id),
+    completed_run_id TEXT NOT NULL,
+    completed_attempt_id TEXT NOT NULL UNIQUE REFERENCES stop_execution_attempts(attempt_id),
+    first_triggered_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    stop_price REAL NOT NULL,
+    first_trigger_best_bid REAL,
+    exit_vwap REAL NOT NULL,
+    requested_shares REAL NOT NULL,
+    filled_shares REAL NOT NULL,
+    gross_proceeds REAL NOT NULL,
+    estimated_fee REAL NOT NULL,
+    net_proceeds REAL NOT NULL,
+    attempt_count INTEGER NOT NULL,
+    gap_from_stop REAL NOT NULL
+);
+CREATE INDEX IF NOT EXISTS stop_exit_episode_idx ON counterfactual_stop_exits(episode_id, stop_price);
 
 CREATE TABLE IF NOT EXISTS resolution_attempts (
     attempt_id TEXT PRIMARY KEY,
@@ -290,6 +352,8 @@ APPEND_ONLY_TABLES = (
     "market_sweeps", "market_observations", "outcome_observations",
     "orderbook_token_attempts", "orderbook_snapshots", "orderbook_levels",
     "signal_decisions", "hypothetical_episodes", "episode_path_observations",
+    "counterfactual_exit_policies", "stop_execution_attempts",
+    "counterfactual_stop_exits",
     "resolution_attempts", "resolution_observations", "data_quality_issues",
     "storage_metrics",
 )
@@ -379,7 +443,10 @@ class ResearchRepository:
         levels: Iterable[Mapping[str, Any]],
         decisions: Iterable[Mapping[str, Any]],
         episodes: Iterable[Mapping[str, Any]],
+        policies: Iterable[Mapping[str, Any]],
         paths: Iterable[Mapping[str, Any]],
+        stop_attempts: Iterable[Mapping[str, Any]],
+        stop_exits: Iterable[Mapping[str, Any]],
     ) -> None:
         with self.connect() as c:
             self._insert(c, "market_sweeps", sweep)
@@ -391,7 +458,10 @@ class ResearchRepository:
             self._insert_many(c, "orderbook_levels", levels)
             self._insert_many(c, "signal_decisions", decisions)
             self._insert_many(c, "hypothetical_episodes", episodes)
+            self._insert_many(c, "counterfactual_exit_policies", policies)
             self._insert_many(c, "episode_path_observations", paths)
+            self._insert_many(c, "stop_execution_attempts", stop_attempts)
+            self._insert_many(c, "counterfactual_stop_exits", stop_exits)
 
     @staticmethod
     def _insert(connection: sqlite3.Connection, table: str, row: Mapping[str, Any]) -> None:
@@ -417,6 +487,44 @@ class ResearchRepository:
                 SELECT e.* FROM hypothetical_episodes e
                 LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
                 WHERE r.condition_id IS NULL ORDER BY e.entered_at
+                """
+            ).fetchall()
+            return [dict(row) for row in rows]
+
+    def active_stop_policies(self) -> list[dict[str, Any]]:
+        with self.connect() as c:
+            rows = c.execute(
+                """
+                SELECT
+                    p.policy_id,p.policy_key,p.stop_price,p.created_at,
+                    e.*,
+                    COUNT(a.attempt_id) AS prior_attempt_count,
+                    COALESCE(SUM(a.filled_shares),0) AS prior_filled_shares,
+                    COALESCE(SUM(a.gross_proceeds),0) AS prior_gross_proceeds,
+                    COALESCE(SUM(a.estimated_fee),0) AS prior_estimated_fee,
+                    COALESCE(SUM(a.net_proceeds),0) AS prior_net_proceeds,
+                    MIN(a.observed_at) AS first_triggered_at,
+                    (
+                        SELECT first_attempt.trigger_best_bid
+                        FROM stop_execution_attempts first_attempt
+                        WHERE first_attempt.policy_id=p.policy_id
+                        ORDER BY first_attempt.observed_at,first_attempt.attempt_id LIMIT 1
+                    ) AS first_trigger_best_bid,
+                    (
+                        SELECT path.best_bid FROM episode_path_observations path
+                        WHERE path.episode_id=e.episode_id
+                        ORDER BY path.observed_at DESC,path.path_id DESC LIMIT 1
+                    ) AS prior_best_bid
+                FROM counterfactual_exit_policies p
+                JOIN hypothetical_episodes e USING(episode_id)
+                LEFT JOIN stop_execution_attempts a USING(policy_id)
+                LEFT JOIN counterfactual_stop_exits x USING(policy_id)
+                LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
+                WHERE p.stop_price IS NOT NULL
+                  AND x.policy_id IS NULL
+                  AND r.condition_id IS NULL
+                GROUP BY p.policy_id
+                ORDER BY e.entered_at,p.stop_price DESC
                 """
             ).fetchall()
             return [dict(row) for row in rows]
@@ -474,6 +582,9 @@ class ResearchRepository:
                 "runs": c.execute("SELECT COUNT(DISTINCT run_id) FROM research_run_events WHERE event_type='SUCCEEDED'").fetchone()[0],
                 "sweeps": c.execute("SELECT COUNT(*) FROM market_sweeps").fetchone()[0],
                 "episodes": c.execute("SELECT COUNT(*) FROM hypothetical_episodes").fetchone()[0],
+                "exit_policies": c.execute("SELECT COUNT(*) FROM counterfactual_exit_policies").fetchone()[0],
+                "stop_attempts": c.execute("SELECT COUNT(*) FROM stop_execution_attempts").fetchone()[0],
+                "stop_exits": c.execute("SELECT COUNT(*) FROM counterfactual_stop_exits").fetchone()[0],
                 "resolutions": c.execute("SELECT COUNT(*) FROM resolution_observations").fetchone()[0],
                 "issues": c.execute("SELECT COUNT(*) FROM data_quality_issues").fetchone()[0],
                 "db_bytes": self.path.stat().st_size if self.path.exists() else 0,
@@ -483,4 +594,22 @@ class ResearchRepository:
                 FROM hypothetical_episodes e LEFT JOIN resolution_observations r USING(condition_id)
                 GROUP BY e.threshold ORDER BY e.threshold"""
             )}
+            result["stop_policies"] = {
+                str(row[0]): {
+                    "policies": row[1], "triggered": row[2], "completed": row[3],
+                }
+                for row in c.execute(
+                    """
+                    SELECT p.policy_key,COUNT(*),
+                           SUM(CASE WHEN a.policy_id IS NOT NULL THEN 1 ELSE 0 END),
+                           SUM(CASE WHEN x.policy_id IS NOT NULL THEN 1 ELSE 0 END)
+                    FROM counterfactual_exit_policies p
+                    LEFT JOIN (
+                        SELECT DISTINCT policy_id FROM stop_execution_attempts
+                    ) a USING(policy_id)
+                    LEFT JOIN counterfactual_stop_exits x USING(policy_id)
+                    GROUP BY p.policy_key ORDER BY p.policy_key
+                    """
+                )
+            }
             return result

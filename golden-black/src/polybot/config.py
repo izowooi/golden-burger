@@ -29,10 +29,11 @@ from .source_digest import (
 DATA_CONTRACT = "sports-resolution-paired-v1"
 CANONICAL_JOB = "black-shadow-paired"
 LIFECYCLE_MODES = frozenset({"archive_only"})
-FROZEN_START = datetime(2026, 8, 20, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 19, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 10, 19, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 21, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 20, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 10, 20, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.92, 0.94)
+STOP_LEVELS = (0.80, 0.70, 0.60)
 
 _CREDENTIAL_ENV_KEYS = frozenset(
     {
@@ -163,6 +164,7 @@ class ExperimentConfig:
     followup_end_utc: datetime
     entry_thresholds: tuple[float, ...]
     entry_band_width: float
+    stop_levels: tuple[float, ...]
     simulated_notional_usdc: float
     fee_rate_fallback: float
     preregistration_sha256: str
@@ -243,6 +245,10 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError("paired thresholds must remain 0.92 and 0.94")
     if experiment.entry_band_width != 0.01:
         raise ValueError("entry band width must remain one cent")
+    if experiment.stop_levels != STOP_LEVELS:
+        raise ValueError("stop grid must remain 0.80, 0.70, and 0.60")
+    if any(stop >= min(experiment.entry_thresholds) for stop in experiment.stop_levels):
+        raise ValueError("every stop must remain below both entry thresholds")
     if experiment.simulated_notional_usdc != 5:
         raise ValueError("simulated notional must remain $5")
     if experiment.fee_rate_fallback != 0.05:
@@ -306,6 +312,7 @@ def load_config(
         followup_end_utc=_utc(experiment_raw["followup_end_utc"], "experiment.followup_end_utc"),
         entry_thresholds=_float_tuple(experiment_raw["entry_thresholds"], "experiment.entry_thresholds"),
         entry_band_width=_finite(experiment_raw["entry_band_width"], "experiment.entry_band_width"),
+        stop_levels=_float_tuple(experiment_raw["stop_levels"], "experiment.stop_levels"),
         simulated_notional_usdc=_finite(experiment_raw["simulated_notional_usdc"], "experiment.simulated_notional_usdc"),
         fee_rate_fallback=_finite(experiment_raw["fee_rate_fallback"], "experiment.fee_rate_fallback"),
         preregistration_sha256=preregistration_sha256(),

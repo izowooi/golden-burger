@@ -45,6 +45,21 @@ class BookWalk:
 
 
 @dataclass(frozen=True)
+class BidWalk:
+    best_bid: float
+    vwap: float
+    requested_shares: float
+    filled_shares: float
+    remaining_shares: float
+    proceeds: float
+    levels_used: int
+
+    @property
+    def complete(self) -> bool:
+        return self.remaining_shares <= 1e-7
+
+
+@dataclass(frozen=True)
 class ResolutionResult:
     condition_id: str
     status: str
@@ -106,7 +121,7 @@ def walk_asks(book: Mapping[str, Any], notional: float) -> BookWalk | None:
     )
 
 
-def walk_bids(book: Mapping[str, Any], shares: float) -> BookWalk | None:
+def walk_bids_partial(book: Mapping[str, Any], shares: float) -> BidWalk | None:
     if shares <= 0:
         raise ValueError("shares must be positive")
     remaining = shares
@@ -122,14 +137,29 @@ def walk_bids(book: Mapping[str, Any], shares: float) -> BookWalk | None:
         levels_used += 1
         if remaining <= 1e-9:
             break
-    if remaining > 1e-7 or consumed <= 0 or not bids:
+    if consumed <= 0 or not bids:
+        return None
+    return BidWalk(
+        best_bid=bids[0][0],
+        vwap=proceeds / consumed,
+        requested_shares=shares,
+        filled_shares=consumed,
+        remaining_shares=max(0.0, remaining),
+        proceeds=proceeds,
+        levels_used=levels_used,
+    )
+
+
+def walk_bids(book: Mapping[str, Any], shares: float) -> BookWalk | None:
+    result = walk_bids_partial(book, shares)
+    if result is None or not result.complete:
         return None
     return BookWalk(
-        best_ask=bids[0][0],
-        vwap=proceeds / consumed,
-        shares=consumed,
-        cost=proceeds,
-        levels_used=levels_used,
+        best_ask=result.best_bid,
+        vwap=result.vwap,
+        shares=result.filled_shares,
+        cost=result.proceeds,
+        levels_used=result.levels_used,
     )
 
 

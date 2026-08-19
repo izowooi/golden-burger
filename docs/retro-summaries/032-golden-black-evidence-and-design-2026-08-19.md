@@ -101,14 +101,22 @@ cursor, path/resolution 수집 구조를 설계하는 근거로만 사용했다.
 - runtime job: `black-shadow-paired`
 - A: exact `$5` ask VWAP `[0.94,0.95]`에서 가상 진입, one-hot resolution 보유
 - B: exact `$5` ask VWAP `[0.92,0.93]`에서 가상 진입, one-hot resolution 보유
+- exit sensitivity: `HOLD_TO_RESOLUTION`, `STOP_0.80`, `STOP_0.70`, `STOP_0.60`
 - universe: sports strict binary, open/orderbook/accepting, market liquidity `>=10,000`,
   cumulative volume `>=5,000`, Gamma endDate `(0h,6h]`
 - cadence: 5분
-- entry window: `[2026-08-20T00:00:00Z, 2026-09-19T00:00:00Z)`
-- follow-up end: `2026-10-19T00:00:00Z`
+- entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`
+- follow-up end: `2026-10-20T00:00:00Z`
 - credential와 `--live`는 DB와 network를 열기 전에 source-level 차단
 - API receipt, gzip raw payload, market membership, exact full book/levels, `$5` walk, decision,
-  episode, bid path, resolution, fee, config/source/run/storage provenance를 append-only로 저장
+  episode, bid path, stop trigger/actual VWAP/partial/retry, resolution, fee,
+  config/source/run/storage provenance를 append-only로 저장
+
+2026-08-20 배포 전 후속 요청으로 stop grid를 protocol에 추가하고, 실제 Jenkins 배포보다
+먼저 시작시각이 지나지 않도록 prospective start를 2026-08-21T00:00:00Z로 옮겼다. stop 가격은 fill 가격이
+아니며, best bid가 기준 이하가 된 뒤 원래 share의 displayed bid depth를 walk한다. 한 cycle에
+전량 depth가 없으면 실제 부분 수량·잔여 수량·fee를 남기고 다음 cycle에서 잔여분을 계속
+청산하는 반사실이다. stop 값은 아직 winner가 아니며 30일 전 선택하지 않는다.
 
 `>=0.94` 전체를 한 덩어리로 사지 않고 1¢ band를 둔 이유는 `0.99` 진입을 `0.94` 진입과 같은
 처치로 섞으면 payoff와 손익분기 승률이 완전히 달라지기 때문이다.

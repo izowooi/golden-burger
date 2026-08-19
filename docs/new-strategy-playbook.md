@@ -18,6 +18,10 @@ evidence contract를 갖추게 하는 Definition of Done이다. 과일 코드네
   category/tag, YES/NO/negRisk 처리와 제외 이유를 명시한다.
 - **Decision rules**: entry, exit priority, sizing, max exposure, cooldown, resolution/redeem,
   API failure 시 fail-closed 동작을 순수한 규칙으로 적는다.
+- **Take-profit / stop-loss**: 모든 전략은 조기 익절, terminal payout, 손절의 존재 여부와 우선순위를
+  명시한다. 사용하지 않는 항목도 생략하지 말고 `none`인 이유와 최대 손실 경계를 쓴다. stop
+  trigger 가격을 체결 가격으로 가정하지 않고 gap-down, bid depth, partial fill, 잔여 수량 retry와
+  fee를 실행 모델과 DB에 분리해 남긴다.
 - **Competing explanation**: 같은 데이터를 설명하는 가장 강한 대안 가설과 이를 가르는
   측정치를 적는다.
 
@@ -120,6 +124,9 @@ polybot-observability = { path = "../polybot-observability", editable = true }
   다른 경로를 사용한다. YAML이 live여도 simulation script가 실주문 client/DB를 열지 않는
   regression test를 둔다.
 - simulation order에는 실제처럼 보이는 live order ID나 confirmed fill을 만들지 않는다.
+- simulation/shadow의 stop은 기준가 도달 여부뿐 아니라 trigger 시각의 executable bid VWAP,
+  stop 대비 gap, filled/remaining size와 재시도 경로를 보존한다. 여러 stop 후보는 같은 episode의
+  대안 counterfactual로 계산하고 독립 거래처럼 합산하지 않는다.
 - API/history/volume coverage가 부족하면 signal을 생성하지 않는 fail-closed가 기본이다.
 - 주문 전에 band, balance, minimum order size, max exposure를 다시 검사한다.
 - GTC가 접수되었다는 이유로 actual fill을 주장하지 않는다. cancel/reconcile/restart 동작과

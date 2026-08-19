@@ -26,7 +26,7 @@
 |---|---|---|---|---|---|
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
-| **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution 반사실 | 0.92/0.94, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
+| **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | 0.92/0.94 × hold/0.80/0.70/0.60 stop, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
 | **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B 시작 evidence 없음** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
@@ -321,14 +321,17 @@ resolution 확인에만 사용한다. 상세는 `golden-strawberry/STRATEGY.md`,
 전체 sampling census 대신 Gamma event keyset의 sports, endDate 6시간, liquidity 10k,
 cumulative volume 5k server filter를 먼저 적용한다. 통과한 strict-binary market의 두 token만
 exact CLOB full book으로 읽고, 정확히 `$5`를 매수할 수 있는 VWAP가 `[0.92,0.93]` 또는
-`[0.94,0.95]`에 처음 들어오면 paired counterfactual episode를 만든다. stop/target 없이 CLOB
-market의 unique one-hot winner까지 추적한다.
+`[0.94,0.95]`에 처음 들어오면 paired counterfactual episode를 만든다. 조기 target 없이 CLOB
+market의 unique one-hot winner까지 추적하는 hold baseline과 `0.80/0.70/0.60` stop policy를
+동시에 계산한다. stop은 trigger 가격에 체결됐다고 가정하지 않고 실제 bid depth를 보유 share만큼
+walk한다. gap-down VWAP, partial fill, 남은 수량과 다음 cycle retry를 append-only로 남긴다.
 
 0.94는 Pomegranate의 사후 screen과 별도 historical archive에서 양수였지만 Wilson 하한이
 현재 fee 포함 손익분기보다 낮아 수익을 보장하지 않는다. 0.92는 두 데이터원의 시간 전·후반이
 모두 양수였던 더 넓은 대조군이다. 현재 공식 sports taker fee 0.05와 source fee schedule을
 보존한다. Gamma endDate가 실제 경기 종료와 같다는 보장은 없으므로 gameStartTime과 phase를
 같이 저장한다. 30일 prospective window가 끝나기 전 threshold를 바꾸거나 live로 승격하지 않는다.
+같은 기간 동안 stop policy도 선택하지 않는다.
 상세는 `golden-black/STRATEGY.md`, frozen 계약은
 `golden-black/research/frozen-2026-08-20/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-black.md`를 따른다.

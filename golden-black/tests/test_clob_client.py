@@ -2,7 +2,12 @@ from __future__ import annotations
 
 import pytest
 
-from polybot.api.clob_client import normalized_levels, walk_asks, walk_bids
+from polybot.api.clob_client import (
+    normalized_levels,
+    walk_asks,
+    walk_bids,
+    walk_bids_partial,
+)
 
 
 BOOK = {
@@ -34,3 +39,14 @@ def test_fixed_share_bid_walk() -> None:
 
 def test_insufficient_depth_is_not_imputed() -> None:
     assert walk_asks({"asks": [{"price": "0.94", "size": "1"}]}, 5) is None
+
+
+def test_partial_bid_walk_preserves_shortfall_for_stop_retry() -> None:
+    walk = walk_bids_partial({"bids": [{"price": "0.78", "size": "2"}]}, 5)
+    assert walk is not None
+    assert walk.complete is False
+    assert walk.best_bid == 0.78
+    assert walk.filled_shares == 2
+    assert walk.remaining_shares == 3
+    assert walk.proceeds == pytest.approx(1.56)
+    assert walk_bids({"bids": [{"price": "0.78", "size": "2"}]}, 5) is None

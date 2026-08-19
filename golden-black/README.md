@@ -4,6 +4,10 @@
 CLOB이 unique winner를 표시할 때까지 보유하는 accountless paired research collector다.
 고정 데이터 계약은 `sports-resolution-paired-v1`이다.
 
+기본 payoff는 winner의 terminal `$1`이고, 각 episode에서 무손절과 `0.80/0.70/0.60` 손절을
+동시에 반사실로 추적한다. 손절값은 체결 보장 가격이 아니다. best bid가 기준을 통과하면
+현재 full depth로 실제 VWAP를 계산하고, gap-down·부분 fill·잔여 수량 재시도까지 DB에 남긴다.
+
 현재 코드는 의도적으로 **simulation-only**다. `--live`와 모든 Polymarket/CLOB credential을
 source-level로 거절하며 주문 코드는 없다. DB `trades_sim.db`의 displayed-book episode를 실제
 fill이나 realized P&L로 해석하면 안 된다.
@@ -17,6 +21,9 @@ fill이나 realized P&L로 해석하면 안 된다.
 
 이 근거는 후보 선정일 뿐 수익 보장이 아니다. 과거 자료의 CLOB depth, resolution coverage,
 clock 정확도가 불완전해 30일 prospective 검증이 필요하다.
+
+손절 grid도 아직 최적값이 아니다. 수집 중 가장 좋아 보이는 값을 채택하지 않고, entry window와
+resolution follow-up이 모두 끝난 뒤 무손절 baseline과 event-cluster 기준으로 비교한다.
 
 ## 효율적인 market discovery
 

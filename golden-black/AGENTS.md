@@ -14,8 +14,9 @@ resolution까지 보유하는 accountless, simulation-only paired experiment다.
 - Runtime job: `black-shadow-paired`.
 - 권장 Jenkins job/workspace: `polybot-black`, `/Volumes/t7/jenkins/polybot-black`.
 - Cadence: `H/5 * * * *`; concurrent build 금지.
-- Entry window: `[2026-08-20T00:00:00Z, 2026-09-19T00:00:00Z)`.
-- Follow-up end: `2026-10-19T00:00:00Z`.
+- Entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`.
+- Follow-up end: `2026-10-20T00:00:00Z`.
+- Exit policy grid: `HOLD_TO_RESOLUTION`, `STOP_0.80`, `STOP_0.70`, `STOP_0.60`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Preregistration: `research/frozen-2026-08-20/PREREGISTRATION.md`.
 
@@ -32,6 +33,8 @@ runtime job 또는 DB epoch로 분리한다. Git commit은 provenance이지 coho
 - 진입은 Gamma probability가 아니라 exact CLOB full book에서 `$5` ask walk가
   `[threshold, threshold+0.01]`에 들어온 최초 관측이다.
 - 열린 episode는 원래 share 수량의 displayed bid path와 CLOB market의 unique winner를 기록한다.
+- stop은 best bid trigger와 실제 full-depth VWAP를 분리한다. 부분 fill은 채우지 않고 실제
+  filled/remaining share와 다음 cycle retry를 기록한다.
 - Gamma `endDate`가 실제 경기 종료와 같다는 보장은 없다. `gameStartTime`, phase, 두 clock을
   모두 저장하며 분석에서 이 한계를 숨기지 않는다.
 
@@ -48,7 +51,8 @@ runtime job 또는 DB epoch로 분리한다. Git commit은 provenance이지 coho
 ## Evidence 계약
 
 - API attempt, gzip raw payload, sweep, market/outcome, exact book/levels, decision, episode, path,
-  resolution, DQ issue, run/config/source provenance, storage metric은 append-only다.
+  exit policy, stop attempt/partial/retry/completion, resolution, DQ issue, run/config/source
+  provenance, storage metric은 append-only다.
 - `OBSERVED` book은 체결이 아니다. 결과는 displayed-book counterfactual로만 부른다.
 - closed market이어도 unique one-hot winner가 없으면 resolution으로 만들지 않는다.
 - 누락 라벨, 부족한 depth, cursor 실패를 수익 또는 손실로 추정해 채우지 않는다.

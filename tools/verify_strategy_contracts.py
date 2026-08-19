@@ -3020,6 +3020,7 @@ def _validate_sports_resolution_research_strategy(
             "POLYMARKET_SIGNATURE_TYPE",
             "sports-resolution-paired-v1",
             "ENTRY_THRESHOLDS = (0.92, 0.94)",
+            "STOP_LEVELS = (0.80, 0.70, 0.60)",
             "archive_only",
             "Golden Black can never run live",
             "math.isfinite",
@@ -3065,7 +3066,10 @@ def _validate_sports_resolution_research_strategy(
         strategy,
         "src/polybot/api/clob_client.py",
         sources["src/polybot/api/clob_client.py"],
-        ("/books", "/markets/", "walk_asks", "walk_bids", "winner"),
+        (
+            "/books", "/markets/", "walk_asks", "walk_bids",
+            "walk_bids_partial", "remaining_shares", "winner",
+        ),
     )
     _require_tokens(
         findings,
@@ -3079,6 +3083,10 @@ def _validate_sports_resolution_research_strategy(
             "resolution_due",
             "GAMMA_CURSOR_INCOMPLETE",
             "feeSchedule",
+            "HOLD_TO_RESOLUTION",
+            "STOP_",
+            "PARTIAL_FILL",
+            "gap_from_stop",
         ),
     )
     _require_tokens(
@@ -3100,6 +3108,9 @@ def _validate_sports_resolution_research_strategy(
             "signal_decisions",
             "hypothetical_episodes",
             "episode_path_observations",
+            "counterfactual_exit_policies",
+            "stop_execution_attempts",
+            "counterfactual_stop_exits",
             "resolution_attempts",
             "resolution_observations",
             "data_quality_issues",
@@ -3118,6 +3129,8 @@ def _validate_sports_resolution_research_strategy(
             "win_rate_wilson_95ci_pct",
             "event_equal_fee_plus_1c_roi_pct",
             "event_equal_fee_plus_1c_roi_bootstrap_95ci_pct",
+            "stop_policy_comparison",
+            "gap_below_stop_p95",
         ),
     )
     _require_tokens(
@@ -3178,7 +3191,11 @@ def _validate_sports_resolution_research_strategy(
         strategy,
         "research/frozen-2026-08-20/PREREGISTRATION.md",
         preregistration,
-        ("[0.92,0.93]", "[0.94,0.95]", "2026-09-19T00:00:00Z", "Accountless only"),
+        (
+            "[0.92,0.93]", "[0.94,0.95]",
+            "STOP_0.80", "STOP_0.70", "STOP_0.60",
+            "full displayed bid", "2026-09-20T00:00:00Z", "Accountless only",
+        ),
     )
     _require_file(
         findings,

@@ -25,3 +25,21 @@ def test_payload_is_compressed_deterministically(tmp_path) -> None:
     row = repository.payload_row(run_id="r", kind="X", request_id="q", observed_at="2026-08-20T00:00:00Z", raw=b"x" * 1000)
     assert row["gzip_bytes"] < row["raw_bytes"]
     assert len(row["sha256"]) == 64
+
+
+def test_stop_policy_tables_exist_for_append_only_contract(tmp_path) -> None:
+    repository = ResearchRepository(
+        tmp_path / "trades_sim.db", busy_timeout_ms=1000,
+        data_contract="sports-resolution-paired-v1",
+    )
+    with repository.connect() as connection:
+        names = {
+            row[0] for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type='table'"
+            )
+        }
+    assert {
+        "counterfactual_exit_policies",
+        "stop_execution_attempts",
+        "counterfactual_stop_exits",
+    } <= names

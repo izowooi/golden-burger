@@ -9,7 +9,13 @@ import math
 from typing import Any, Mapping, Sequence
 from uuid import uuid4
 
-from .api.clob_client import ClobClient, normalized_levels, walk_asks, walk_bids
+from .api.clob_client import (
+    ClobClient,
+    normalized_levels,
+    walk_asks,
+    walk_bids,
+    walk_bids_partial,
+)
 from .api.gamma_client import GammaClient
 from .config import BotConfig
 from .db.repository import ResearchRepository
@@ -82,6 +88,16 @@ def _fee_rate(market: Mapping[str, Any], fallback: float) -> tuple[float, dict[s
     if configured is not None and 0 <= configured <= 1:
         return configured, schedule_dict
     return fallback, schedule_dict
+
+
+def _execution_fee(shares: float, price: float, fee_rate: float) -> float:
+    if shares <= 0 or price <= 0 or fee_rate <= 0:
+        return 0.0
+    return shares * fee_rate * price * (1 - price)
+
+
+def _stop_policy_key(stop: float) -> str:
+    return f"STOP_{stop:.2f}"
 
 
 def _parse_market(
@@ -216,6 +232,7 @@ class Collector:
                     contexts.append(context)
 
         open_before = self.repository.open_episodes()
+        active_stop_before = self.repository.active_stop_policies()
         tokens = [token for context in contexts if context["eligible"] for token in context["tokens"]]
         tokens.extend(str(row["token_id"]) for row in open_before)
         books = self.clob.fetch_books(run_id, tokens)
@@ -263,6 +280,8 @@ class Collector:
         existing = self.repository.existing_episode_keys()
         decisions: list[dict[str, Any]] = []
         episodes: list[dict[str, Any]] = []
+        policies: list[dict[str, Any]] = []
+        new_active_stops: list[dict[str, Any]] = []
         experiment = self.config.trading.experiment
         for context in contexts:
             if not context["eligible"]:
@@ -307,7 +326,7 @@ class Collector:
                     }
                     decisions.append(decision)
                     if episode_id and walk and context["end_date"]:
-                        episodes.append({
+                        episode = {
                             "episode_id": episode_id, "decision_id": decision_id, "run_id": run_id,
                             "condition_id": market_row["condition_id"], "event_id": market_row["event_id"],
                             "event_title": market_row["event_title"], "question": market_row["question"],
@@ -319,7 +338,32 @@ class Collector:
                             "volume_total": context["volume"], "fee_rate": context["fee_rate"],
                             "entry_best_ask": walk.best_ask, "entry_vwap": walk.vwap,
                             "entry_shares": walk.shares, "entry_cost": walk.cost,
+                        }
+                        episodes.append(episode)
+                        policies.append({
+                            "policy_id": uuid4().hex, "episode_id": episode_id,
+                            "created_run_id": run_id, "policy_key": "HOLD_TO_RESOLUTION",
+                            "stop_price": None, "created_at": iso_utc(now),
                         })
+                        for stop in experiment.stop_levels:
+                            policy = {
+                                "policy_id": uuid4().hex, "episode_id": episode_id,
+                                "created_run_id": run_id,
+                                "policy_key": _stop_policy_key(stop),
+                                "stop_price": stop, "created_at": iso_utc(now),
+                            }
+                            policies.append(policy)
+                            new_active_stops.append({
+                                **episode, **policy,
+                                "prior_attempt_count": 0,
+                                "prior_filled_shares": 0.0,
+                                "prior_gross_proceeds": 0.0,
+                                "prior_estimated_fee": 0.0,
+                                "prior_net_proceeds": 0.0,
+                                "first_triggered_at": None,
+                                "first_trigger_best_bid": None,
+                                "prior_best_bid": None,
+                            })
 
         paths: list[dict[str, Any]] = []
         for episode in open_before + episodes:
@@ -334,6 +378,97 @@ class Collector:
                 "executable_bid_vwap": exit_walk.vwap if exit_walk else None,
                 "executable_proceeds": exit_walk.cost if exit_walk else None,
                 "status": "OBSERVED" if exit_walk else "INSUFFICIENT_BID_DEPTH",
+            })
+
+        stop_attempts: list[dict[str, Any]] = []
+        stop_exits: list[dict[str, Any]] = []
+        for policy in active_stop_before + new_active_stops:
+            token = str(policy["token_id"])
+            snapshot = snapshot_by_token.get(token)
+            book = books.books.get(token)
+            stop_price = float(policy["stop_price"])
+            prior_attempt_count = int(policy["prior_attempt_count"] or 0)
+            prior_filled = float(policy["prior_filled_shares"] or 0)
+            entry_shares = float(policy["entry_shares"])
+            remaining_before = max(0.0, entry_shares - prior_filled)
+            if remaining_before <= 1e-7:
+                continue
+            current_walk = walk_bids_partial(book, remaining_before) if book else None
+            current_best_bid = (
+                current_walk.best_bid
+                if current_walk is not None
+                else (snapshot["best_bid"] if snapshot else None)
+            )
+            already_triggered = prior_attempt_count > 0
+            if not already_triggered and (
+                current_best_bid is None or float(current_best_bid) > stop_price + 1e-9
+            ):
+                continue
+
+            attempt_id = uuid4().hex
+            fee_rate = float(policy["fee_rate"])
+            if current_walk is None:
+                filled = 0.0
+                remaining_after = remaining_before
+                exit_vwap = None
+                gross = 0.0
+                fee = 0.0
+                levels_used = 0
+                status = "NO_BID_DEPTH"
+            else:
+                filled = current_walk.filled_shares
+                remaining_after = current_walk.remaining_shares
+                exit_vwap = current_walk.vwap
+                gross = current_walk.proceeds
+                fee = _execution_fee(filled, exit_vwap, fee_rate)
+                levels_used = current_walk.levels_used
+                status = "FULL_EXIT" if current_walk.complete else "PARTIAL_FILL"
+            net = gross - fee
+            prior_best_bid = _number(policy.get("prior_best_bid"))
+            gap_from_stop = stop_price - exit_vwap if exit_vwap is not None else None
+            drop_from_prior = (
+                prior_best_bid - float(current_best_bid)
+                if prior_best_bid is not None and current_best_bid is not None
+                else None
+            )
+            attempt = {
+                "attempt_id": attempt_id, "policy_id": policy["policy_id"],
+                "episode_id": policy["episode_id"], "run_id": run_id,
+                "snapshot_id": snapshot["snapshot_id"] if snapshot else None,
+                "observed_at": iso_utc(now), "stop_price": stop_price,
+                "prior_best_bid": prior_best_bid, "trigger_best_bid": current_best_bid,
+                "requested_shares": remaining_before, "filled_shares": filled,
+                "remaining_shares": remaining_after, "exit_vwap": exit_vwap,
+                "gross_proceeds": gross, "fee_rate": fee_rate,
+                "estimated_fee": fee, "net_proceeds": net,
+                "levels_used": levels_used, "status": status,
+                "gap_from_stop": gap_from_stop, "drop_from_prior": drop_from_prior,
+            }
+            stop_attempts.append(attempt)
+
+            total_filled = prior_filled + filled
+            if total_filled + 1e-7 < entry_shares:
+                continue
+            total_gross = float(policy["prior_gross_proceeds"] or 0) + gross
+            total_fee = float(policy["prior_estimated_fee"] or 0) + fee
+            total_net = float(policy["prior_net_proceeds"] or 0) + net
+            exit_vwap_total = total_gross / total_filled
+            first_triggered_at = str(policy.get("first_triggered_at") or iso_utc(now))
+            first_trigger_best_bid = policy.get("first_trigger_best_bid")
+            if first_trigger_best_bid is None:
+                first_trigger_best_bid = current_best_bid
+            stop_exits.append({
+                "exit_id": uuid4().hex, "policy_id": policy["policy_id"],
+                "episode_id": policy["episode_id"], "completed_run_id": run_id,
+                "completed_attempt_id": attempt_id,
+                "first_triggered_at": first_triggered_at, "completed_at": iso_utc(now),
+                "stop_price": stop_price,
+                "first_trigger_best_bid": first_trigger_best_bid,
+                "exit_vwap": exit_vwap_total, "requested_shares": entry_shares,
+                "filled_shares": total_filled, "gross_proceeds": total_gross,
+                "estimated_fee": total_fee, "net_proceeds": total_net,
+                "attempt_count": prior_attempt_count + 1,
+                "gap_from_stop": stop_price - exit_vwap_total,
             })
 
         event_count = sum(len(page.events) for page in sweep.pages)
@@ -352,7 +487,8 @@ class Collector:
             },
             payloads=payloads, markets=market_rows, outcomes=outcome_rows,
             attempts=attempt_rows, snapshots=snapshot_rows, levels=level_rows,
-            decisions=decisions, episodes=episodes, paths=paths,
+            decisions=decisions, episodes=episodes, policies=policies, paths=paths,
+            stop_attempts=stop_attempts, stop_exits=stop_exits,
         )
 
         resolved = 0
@@ -391,5 +527,6 @@ class Collector:
             "events": event_count, "markets": len(market_rows),
             "eligible_markets": sum(row["eligible"] for row in market_rows),
             "book_tokens": len(books.attempts), "episodes_opened": len(episodes),
+            "stop_attempts": len(stop_attempts), "stop_exits": len(stop_exits),
             "resolutions_added": resolved, "pages": len(sweep.pages), "cursor_complete": True,
         }
