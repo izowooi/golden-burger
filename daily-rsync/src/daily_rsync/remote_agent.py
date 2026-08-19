@@ -716,21 +716,24 @@ def scan(args):
                     database_utc_date,
                 ) = database_identity(path)
                 # ``trades_sim.db`` is mutable and can cover only the current UTC
-                # day. Historical ranges require the immutable dated archive even
-                # when a stale active DB still declares an older database date.
+                # day. Historical Pomegranate ranges require immutable dated
+                # archives.  This also excludes pre-contract Pomegranate smoke
+                # databases such as ``pomegranate-local/trades_sim.db``; mixing
+                # those runtimes made an otherwise complete archive sync PARTIAL.
                 if (
                     path.name == "trades_sim.db"
-                    and data_contract == "research-full-v1"
                     and archive_from_date
                     and archive_to_date
-                    and not (
+                ):
+                    if strategy == "golden-pomegranate" and data_contract != "research-full-v1":
+                        continue
+                    if data_contract == "research-full-v1" and not (
                         database_utc_date
                         and datetime.strptime(database_utc_date, "%Y-%m-%d").date()
                         == current_utc_day
                         and archive_from_date <= current_utc_day <= archive_to_date
-                    )
-                ):
-                    continue
+                    ):
+                        continue
                 if archive_date and (
                     (archive_from_date and archive_date < archive_from_date)
                     or (archive_to_date and archive_date > archive_to_date)

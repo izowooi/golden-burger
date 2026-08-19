@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import hashlib
 import json
 import shutil
@@ -384,12 +385,13 @@ def test_explicit_workspace_epoch_preserves_old_evidence_and_resolves_move(
     )
     local = service.local_path(old)
     local.parent.mkdir(parents=True)
-    local.write_bytes(b"old-root-evidence")
+    original_content = b"old-root-evidence"
+    local.write_bytes(gzip.compress(original_content))
     service.catalog.upsert_artifact(
         old,
         source=app_config.ssh_host,
         local_path=local,
-        local_sha256=hashlib.sha256(local.read_bytes()).hexdigest(),
+        local_sha256=hashlib.sha256(original_content).hexdigest(),
     )
     moved = RemoteArtifact(
         remote_path=f"{workspace}/strategy/data/runtime/20260813.log",
@@ -430,7 +432,7 @@ def test_explicit_workspace_epoch_preserves_old_evidence_and_resolves_move(
     assert plan.workspace_epoch == "external-v2"
     assert plan.artifacts == [moved]
     assert "workspace-epochs/external-v2" in routed.as_posix()
-    assert local.read_bytes() == b"old-root-evidence"
+    assert gzip.decompress(local.read_bytes()) == original_content
     assert mapped_service.catalog.get_artifact(old.source_key)["status"] == "SOURCE_MISSING"
     conflicts = mapped_service.catalog.list_conflicts()
     assert len(conflicts) == 1

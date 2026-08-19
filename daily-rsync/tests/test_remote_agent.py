@@ -766,6 +766,47 @@ def test_historical_archive_scan_does_not_include_mutable_active_shard(
     assert database_names == {"trades_sim_19990101.db"}
 
 
+def test_historical_archive_scan_excludes_pre_contract_pomegranate_database(
+    tmp_path: Path,
+) -> None:
+    home = tmp_path / ".jenkins"
+    (home / "jobs" / "golden-pomegranate").mkdir(parents=True)
+    runtime = (
+        home
+        / "workspace"
+        / "golden-pomegranate"
+        / "golden-pomegranate"
+        / "data"
+        / "pomegranate-local"
+    )
+    database = runtime / "trades_sim.db"
+    database.parent.mkdir(parents=True)
+    with sqlite3.connect(database) as connection:
+        connection.execute("CREATE TABLE evidence(value TEXT)")
+        connection.execute("INSERT INTO evidence VALUES ('pre-contract')")
+
+    payload = invoke(
+        "scan",
+        "--jenkins-home",
+        str(home),
+        "--job",
+        "golden-pomegranate",
+        "--cutoff-epoch",
+        "0",
+        "--archive-from-date",
+        "1999-01-01",
+        "--archive-to-date",
+        "1999-01-01",
+    )
+    database_names = {
+        Path(item["remote_path"]).name
+        for item in payload["jobs"][0]["artifacts"]
+        if item["kind"].startswith("database")
+    }
+
+    assert database_names == set()
+
+
 def test_historical_archive_scan_keeps_ordinary_cumulative_simulation_database(
     tmp_path: Path,
 ) -> None:
