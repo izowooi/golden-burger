@@ -2,7 +2,7 @@
 
 ## 검정 질문
 
-Gamma 종료시각까지 6시간 이내인 고유동성 sports strict-binary market에서, 한 outcome을
+Gamma 종료시각까지 6시간 이내인 고유동성 sports two-outcome market에서, 한 outcome을
 정확한 `$5` ask VWAP 0.92대 또는 0.94대에 처음 살 수 있을 때 resolution까지 보유하면
 실제 confirmed fill 비용 후 양의 기대값이 있는가?
 
@@ -22,8 +22,10 @@ Jenkins 값을 그대로 보존하되 분석은 account/job별 cohort로 분리�
 Gamma `/events/keyset`에 `tag_slug=sports`, open event, liquidity `10,000`, cumulative volume
 `5,000`, `end_date_min=now`, `end_date_max=now+6h`를 서버 필터로 전달한다. page size 500,
 최대 4페이지이며 terminal cursor가 없으면 일부 시장으로 거래하지 않고 cycle 전체를 실패시킨다.
-각 nested market은 active/open/orderbook/accepting, explicit `negRisk=false`, exact
-`[Yes,No]`와 두 token, liquidity/volume/endDate를 다시 검증한다.
+각 nested market은 active/open/orderbook/accepting, explicit boolean `negRisk`, 정확히 두 개의
+서로 다른 label/price/token, liquidity/volume/endDate를 다시 검증한다. 스포츠 moneyline의 팀명
+label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 포함하고 회고에서는
+두 stratum을 분리한다.
 
 `endDate`는 반드시 실제 경기 종료시각이라는 뜻은 아니다. `gameStartTime`과 다른 clock일 수
 있으므로 “경기 종료 6시간 전”이 아니라 **Gamma endDate 6시간 이내 sports cohort**라고

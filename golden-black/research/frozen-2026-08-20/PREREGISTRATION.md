@@ -5,7 +5,9 @@
 - Follow-up cutoff: `2026-10-20T00:00:00Z`
 - Cadence: 5 minutes
 - Population: Gamma `/events/keyset`, sports tag, open events, endDate `(0h,6h]`, event and
-  market liquidity `>=10,000`, cumulative volume `>=5,000`; strict binary and accepting CLOB only.
+  market liquidity `>=10,000`, cumulative volume `>=5,000`; exactly two aligned labels/prices/tokens,
+  explicit boolean `negRisk`, and accepting CLOB only. Named moneyline (`negRisk=false`) and Yes/No
+  proposition (`negRisk=true`) are retained as separate strata.
 - Pagination: keyset, limit 500, max 4 pages, terminal cursor required.
 - Arm B: first exact `$5` ask VWAP in `[0.92,0.93]`.
 - Arm A: first exact `$5` ask VWAP in `[0.94,0.95]`.
@@ -27,3 +29,9 @@
 - Accountless only: credentials and `--live` are forbidden before DB/log/network construction.
 
 The historical screen selected these two thresholds. It is not part of the prospective outcome sample.
+
+Pre-entry-window clarification (2026-08-20): build #1 confirmed that the implemented population was
+the aligned two-outcome sports universe (47 named moneylines and 13 Yes/No negRisk propositions),
+while the prose said “strict binary.” No episode opened before the frozen start. The wording and
+normalized `neg_risk` field were corrected before `2026-08-21T00:00:00Z`; thresholds, clocks,
+notional, stop grid and raw-payload contract did not change.

@@ -110,6 +110,7 @@ CREATE TABLE IF NOT EXISTS market_observations (
     closed INTEGER,
     accepting_orders INTEGER,
     enable_order_book INTEGER,
+    neg_risk INTEGER,
     fee_rate REAL,
     fee_schedule_json TEXT NOT NULL,
     outcome_labels_json TEXT NOT NULL,
@@ -371,6 +372,19 @@ class ResearchRepository:
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
             connection.executescript(SCHEMA)
+            market_columns = {
+                str(row[1])
+                for row in connection.execute(
+                    "PRAGMA table_info(market_observations)"
+                )
+            }
+            if "neg_risk" not in market_columns:
+                # The pre-entry-window build used the same two-outcome
+                # population but retained negRisk only in raw payloads.  Add a
+                # normalized stratum without rewriting append-only rows.
+                connection.execute(
+                    "ALTER TABLE market_observations ADD COLUMN neg_risk INTEGER"
+                )
             connection.execute(
                 "INSERT OR IGNORE INTO schema_metadata(data_contract,created_at) VALUES(?,?)",
                 (data_contract, _now()),

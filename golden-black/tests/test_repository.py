@@ -43,3 +43,23 @@ def test_stop_policy_tables_exist_for_append_only_contract(tmp_path) -> None:
         "stop_execution_attempts",
         "counterfactual_stop_exits",
     } <= names
+
+
+def test_existing_preflight_database_adds_normalized_neg_risk_stratum(tmp_path) -> None:
+    database = tmp_path / "trades_sim.db"
+    with sqlite3.connect(database) as connection:
+        connection.execute(
+            "CREATE TABLE market_observations ("
+            "observation_id TEXT PRIMARY KEY, condition_id TEXT, observed_at TEXT)"
+        )
+    repository = ResearchRepository(
+        database,
+        busy_timeout_ms=1000,
+        data_contract="sports-resolution-paired-v1",
+    )
+    with repository.connect() as connection:
+        columns = {
+            row[1]
+            for row in connection.execute("PRAGMA table_info(market_observations)")
+        }
+    assert "neg_risk" in columns

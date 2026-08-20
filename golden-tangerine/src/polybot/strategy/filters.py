@@ -19,13 +19,24 @@ def _list_value(value: Any) -> Optional[list]:
     return None
 
 
-def strict_binary_reason(market: Dict[str, Any]) -> str:
-    """Return ``ok`` only for an exact standard binary Yes/No market."""
+def aligned_binary_reason(market: Dict[str, Any]) -> str:
+    """Return ``ok`` for an explicit, aligned two-outcome sports market.
+
+    Sports moneyline markets commonly use team names while proposition markets
+    use ``Yes``/``No`` and ``negRisk=true``.  Both are binary payout paths.  We
+    require two distinct labels, prices and token IDs, plus an explicit boolean
+    ``negRisk`` value, but do not infer that labels must literally be Yes/No.
+    """
     outcomes = _list_value(market.get("outcomes"))
     prices = _list_value(market.get("outcomePrices"))
     token_ids = _list_value(market.get("clobTokenIds"))
-    if outcomes != ["Yes", "No"]:
-        return "not_standard_yes_no"
+    if outcomes is None or len(outcomes) != 2:
+        return "not_two_outcome_labels"
+    normalized_outcomes = [str(outcome or "").strip() for outcome in outcomes]
+    if any(not outcome for outcome in normalized_outcomes):
+        return "empty_outcome_label"
+    if len(set(normalized_outcomes)) != 2:
+        return "non_distinct_outcome_labels"
     if prices is None or len(prices) != 2:
         return "not_two_outcome_prices"
     if token_ids is None or len(token_ids) != 2:
@@ -44,20 +55,22 @@ def strict_binary_reason(market: Dict[str, Any]) -> str:
         for price in normalized_prices
     ):
         return "invalid_outcome_price"
-    # Missing negRisk is not treated as False.  The contract must be explicit.
-    if market.get("negRisk") is not False:
-        return "neg_risk_or_unknown"
+    if not isinstance(market.get("negRisk"), bool):
+        return "neg_risk_unknown"
     return "ok"
 
 
 def get_strict_binary_yes(market: Dict[str, Any]) -> Dict[str, Any]:
-    """Return canonical YES-side data, or an empty dict when ineligible.
+    """Compatibility helper for callers that specifically require Yes/No.
 
     The shape is intentionally stable and test-friendly.  It never infers the
     YES token from array position unless the full strict binary contract first
     succeeds.
     """
-    if strict_binary_reason(market) != "ok":
+    if aligned_binary_reason(market) != "ok":
+        return {}
+    labels = [str(value).strip() for value in (_list_value(market.get("outcomes")) or [])]
+    if labels != ["Yes", "No"]:
         return {}
     prices = _list_value(market.get("outcomePrices")) or []
     token_ids = _list_value(market.get("clobTokenIds")) or []
@@ -71,16 +84,16 @@ def get_strict_binary_yes(market: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
-def get_strict_binary_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Return both explicitly aligned outcome tokens for a strict binary market."""
-    if strict_binary_reason(market) != "ok":
+def get_aligned_binary_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return both explicitly aligned labels, prices and CLOB token IDs."""
+    if aligned_binary_reason(market) != "ok":
         return []
     labels = _list_value(market.get("outcomes")) or []
     prices = _list_value(market.get("outcomePrices")) or []
     token_ids = _list_value(market.get("clobTokenIds")) or []
     return [
         {
-            "outcome": str(label),
+            "outcome": str(label).strip(),
             "probability": float(price),
             "token_id": str(token_id).strip(),
             "token_index": index,
@@ -109,26 +122,27 @@ def get_proven_resolution(
     """Return payout evidence only for closed markets with final 0/1 prices."""
     if not market or market.get("closed") is not True:
         return None
-    yes = get_strict_binary_yes(market)
-    if not yes:
+    outcomes = get_aligned_binary_outcomes(market)
+    if len(outcomes) != 2:
         return None
-    yes_price = yes["probability"]
-    no_price = yes["no_probability"]
-    if yes_price == 1.0 and no_price == 0.0:
-        outcome, value = "Yes", 1.0
-        payouts = {"Yes": 1.0, "No": 0.0}
-    elif yes_price == 0.0 and no_price == 1.0:
-        outcome, value = "No", 0.0
-        payouts = {"Yes": 0.0, "No": 1.0}
-    elif yes_price == 0.5 and no_price == 0.5:
+    labels = [str(item["outcome"]) for item in outcomes]
+    prices = [float(item["probability"]) for item in outcomes]
+    payouts = dict(zip(labels, prices))
+    if prices == [1.0, 0.0]:
+        outcome, winner_index = labels[0], 0
+    elif prices == [0.0, 1.0]:
+        outcome, winner_index = labels[1], 1
+    elif prices == [0.5, 0.5]:
         # Polymarket can settle rare ambiguous/invalid resolutions at 0.5.
-        outcome, value = "Ambiguous", 0.5
-        payouts = {"Yes": 0.5, "No": 0.5}
+        outcome, winner_index = "Ambiguous", None
     else:
         return None
     return {
         "outcome": outcome,
-        "yes_payout": value,
+        "winner_index": winner_index,
+        "first_outcome_payout": prices[0],
+        # Legacy DB columns are named yes_price_*; this alias means outcome[0].
+        "yes_payout": prices[0],
         "payouts_by_outcome": payouts,
         "status": str(market.get("umaResolutionStatus") or "closed_final_prices"),
         "evidence": "gamma_closed_final_outcome_prices",
@@ -200,3 +214,9 @@ def get_high_probability_outcome(
     if not yes_only:
         return {}
     return get_strict_binary_yes(market)
+
+
+# Compatibility aliases retained for copied tests/callers.  New Tangerine code
+# uses the precise aligned-two-outcome names above.
+strict_binary_reason = aligned_binary_reason
+get_strict_binary_outcomes = get_aligned_binary_outcomes

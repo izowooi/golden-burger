@@ -2,7 +2,7 @@
 
 ## 검정 가설
 
-스포츠 strict-binary market에서 Gamma `endDate`까지 6시간 이내이고 market liquidity
+스포츠 aligned two-outcome market에서 Gamma `endDate`까지 6시간 이내이고 market liquidity
 `>=10,000`, cumulative volume `>=5,000`일 때, exact `$5` ask가 고확률 band에 들어온
 outcome을 resolution까지 보유하면 비용 후 양의 기대값이 있는가?
 
@@ -15,6 +15,8 @@ outcome을 resolution까지 보유하면 비용 후 양의 기대값이 있는�
 
 시장·clock·liquidity·volume·notional·cadence는 동일하다. threshold 외 차이를 만들지 않는다.
 같은 token이 시간차를 두고 두 band를 각각 만족하면 paired counterfactual episode 둘을 허용한다.
+팀명 moneyline(`negRisk=false`)과 Yes/No proposition(`negRisk=true`)은 모두 이진 payout이지만
+시장 구조가 다르므로 `neg_risk`를 정규화해 별도 stratum으로 판정한다.
 
 ## 익절과 손절 정책
 

@@ -109,7 +109,10 @@ def main() -> None:
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     print(f"DB: {config.db_path}")
-    print(f"Strict binary outcomes: both (yes_only={trading.yes_only_mode})")
+    print(
+        "Aligned two-outcome sports markets: both tokens "
+        f"(yes_only={trading.yes_only_mode})"
+    )
     print(
         "Exact $5 ask VWAP band: "
         f"[{trading.entry.prob_min:.2f}, {trading.entry.prob_max:.2f}]"

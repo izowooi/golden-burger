@@ -10,7 +10,8 @@ REVIEW_END=2026-09-20T00:00:00Z
 
 Golden Tangerine은 2026-08-21부터 시작하는 sports-resolution low-notional live A/B다.
 `polybot-orange` arm A `[0.94,0.95]`와 `polybot-fox` arm B `[0.92,0.93]`를 threshold 외 동일하게
-유지한다. 24시간·7일에는 cadence, cursor, exact `$5` book, first-observation episode, FOK order,
+유지한다. 24시간·7일에는 cadence, cursor, aligned two-outcome/negRisk stratum, exact `$5` book,
+first-observation episode, FOK order,
 confirmed fill/fee, DB 무결성만 점검한다.
 
 성과 판정은 `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)` entry cohort와

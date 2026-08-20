@@ -767,7 +767,10 @@ class TradeRepository:
                 else market.get("umaResolutionStatus")
             ),
             "resolved_outcome": resolution["outcome"] if resolution else None,
-            "resolved_value": resolution["yes_payout"] if resolution else None,
+            # Legacy catalog column name stores the first listed outcome payout.
+            "resolved_value": (
+                resolution["first_outcome_payout"] if resolution else None
+            ),
             "resolved_at": market.get("resolvedAt") or market.get("closedTime"),
             "source_updated_at": market.get("updatedAt"),
             "last_seen_at": datetime.utcnow(),

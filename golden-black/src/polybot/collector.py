@@ -114,10 +114,20 @@ def _parse_market(
     labels = _array(market.get("outcomes")) or []
     tokens = _array(market.get("clobTokenIds") or market.get("clob_token_ids")) or []
     probabilities = _array(market.get("outcomePrices") or market.get("outcome_prices")) or []
-    labels = [str(value) for value in labels]
-    tokens = [str(value) for value in tokens]
+    labels = [str(value).strip() for value in labels]
+    tokens = [str(value).strip() for value in tokens]
     probability_values = [_number(value) for value in probabilities]
-    aligned = len(labels) == len(tokens) == len(probability_values) == 2 and all(tokens) and all(value is not None and 0 <= value <= 1 for value in probability_values)
+    aligned = (
+        len(labels) == len(tokens) == len(probability_values) == 2
+        and all(labels)
+        and len(set(labels)) == 2
+        and all(tokens)
+        and len(set(tokens)) == 2
+        and all(
+            value is not None and 0 <= value <= 1
+            for value in probability_values
+        )
+    )
     end_date = _utc(market.get("endDate") or market.get("end_date") or event.get("endDate"))
     game_start = _utc(market.get("gameStartTime") or event.get("startTime"))
     hours_until_end = (end_date - observed_at).total_seconds() / 3600 if end_date else None
@@ -127,6 +137,7 @@ def _parse_market(
     closed = _boolean(market.get("closed"))
     accepting = _boolean(market.get("acceptingOrders"))
     book_enabled = _boolean(market.get("enableOrderBook"))
+    neg_risk = _boolean(market.get("negRisk"))
     sports = _sports_evidence(event, market)
     reasons: list[str] = []
     if not event_id or not condition_id:
@@ -134,7 +145,9 @@ def _parse_market(
     if not sports:
         reasons.append("SPORTS_REVALIDATION_FAILED")
     if not aligned:
-        reasons.append("NOT_STRICT_BINARY")
+        reasons.append("NOT_ALIGNED_TWO_OUTCOME")
+    if neg_risk is None:
+        reasons.append("NEG_RISK_UNKNOWN")
     if active is not True or closed is not False or accepting is not True or book_enabled is not True:
         reasons.append("NOT_OPEN_TRADABLE")
     gamma = config.trading.gamma
@@ -163,6 +176,7 @@ def _parse_market(
         "closed": int(closed) if closed is not None else None,
         "accepting_orders": int(accepting) if accepting is not None else None,
         "enable_order_book": int(book_enabled) if book_enabled is not None else None,
+        "neg_risk": int(neg_risk) if neg_risk is not None else None,
         "fee_rate": fee_rate, "fee_schedule_json": canonical_json(fee_schedule),
         "outcome_labels_json": canonical_json(labels), "token_ids_json": canonical_json(tokens),
         "outcome_prices_json": canonical_json(probability_values),
@@ -172,7 +186,8 @@ def _parse_market(
             "tokens": tokens, "probabilities": probability_values,
             "end_date": iso_utc(end_date) if end_date else None,
             "game_start_time": iso_utc(game_start) if game_start else None,
-            "liquidity": liquidity, "volume_total": volume, "fee_rate": fee_rate,
+            "liquidity": liquidity, "volume_total": volume,
+            "neg_risk": neg_risk, "fee_rate": fee_rate,
         }),
     }
     outcome_rows: list[dict[str, Any]] = []

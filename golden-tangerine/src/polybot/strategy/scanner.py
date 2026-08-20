@@ -12,10 +12,10 @@ from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
+    aligned_binary_reason,
+    get_aligned_binary_outcomes,
     get_event_metadata,
-    get_strict_binary_outcomes,
     passes_liquidity_filter,
-    strict_binary_reason,
 )
 
 
@@ -91,7 +91,7 @@ class MarketScanner:
     def _market_eligible(
         self, market: Dict[str, Any], now: datetime
     ) -> tuple[bool, str, Optional[datetime], Optional[float]]:
-        reason = strict_binary_reason(market)
+        reason = aligned_binary_reason(market)
         if reason != "ok":
             return False, reason, None, None
         liquidity = _finite_nonnegative(
@@ -133,7 +133,7 @@ class MarketScanner:
         token_ids = [
             outcome["token_id"]
             for market in markets
-            for outcome in get_strict_binary_outcomes(market)
+            for outcome in get_aligned_binary_outcomes(market)
         ]
         self._walks = self.clob.get_buy_book_walks(
             token_ids, notional_usdc=self.config.buy_amount_usdc
@@ -170,7 +170,7 @@ class MarketScanner:
                     and experiment_end
                     and experiment_start <= reference < experiment_end
                 )
-                for outcome in get_strict_binary_outcomes(market):
+                for outcome in get_aligned_binary_outcomes(market):
                     token_id = str(outcome["token_id"])
                     walk = self._walks.get(token_id)
                     if walk is None:
@@ -293,7 +293,8 @@ class MarketScanner:
                 for tag in tags
                 if isinstance(tag, dict)
             )
-            for outcome in get_strict_binary_outcomes(market):
+            aligned_outcomes = get_aligned_binary_outcomes(market)
+            for outcome in aligned_outcomes:
                 token_id = str(outcome["token_id"])
                 walk = self._walks.get(token_id)
                 if walk is None:
@@ -337,8 +338,10 @@ class MarketScanner:
                         "prior_snapshot_id": None,
                         "entry_snapshot_id": entry_snapshot_id,
                         "entry_episode_id": episode_id,
+                        # Legacy DB field name: this is the first listed outcome,
+                        # which is not necessarily literal Yes in sports markets.
                         "yes_probability": float(
-                            get_strict_binary_outcomes(market)[0]["probability"]
+                            aligned_outcomes[0]["probability"]
                         ),
                         "liquidity": _finite_nonnegative(market.get("liquidity")),
                         "volume_24h": _finite_nonnegative(market.get("volume24hr")),

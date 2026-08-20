@@ -15,7 +15,8 @@ Jenkins wallet의 credential로 FOK BUY를 제출한다.
 
 - Gamma `/events/keyset`: sports, `endDate` `(0h,6h]`, liquidity `>=10,000`, cumulative
   volume `>=5,000`, terminal cursor 필수
-- strict standard binary의 YES와 NO를 모두 검사
+- 정확히 두 개의 label/price/token이 정렬된 market의 양 outcome을 검사. 팀명 moneyline
+  (`negRisk=false`)과 Yes/No proposition(`negRisk=true`)을 별도 stratum으로 보존
 - 정확히 `$5`를 소진하는 displayed ask walk의 VWAP가 arm band에 **처음** 들어온 token만 후보
 - 주문 직전 같은 `$5` full-depth walk를 다시 계산하고 venue tick의 FOK BUY 제출
 - 계정당 최대 3개, event당 1개, cycle당 신규 1개, 총 요청 원금 최대 `$15`

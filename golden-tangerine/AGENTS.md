@@ -7,7 +7,9 @@
 
 - Golden Black의 sports-resolution 가설을 두 기존 wallet에서 최소 `$5`로 A/B 검증한다.
 - arm A는 `[0.94,0.95]`, arm B는 `[0.92,0.93]`; threshold 외 처치 차이를 만들지 않는다.
-- strict binary 양 outcome, Gamma endDate `(0h,6h]`, liquidity `10k`, cumulative volume `5k`다.
+- label/price/token이 정렬된 2-outcome sports market의 양 token을 사용한다. 팀명 moneyline
+  (`negRisk=false`)과 Yes/No proposition(`negRisk=true`)을 모두 포함하되 `negRisk`는 명시적
+  boolean이어야 한다. Gamma endDate `(0h,6h]`, liquidity `10k`, cumulative volume `5k`다.
 - 첫 exact-book band observation만 사용하고 FOK BUY 후 resolution까지 보유한다.
 - 조기 SELL, stop, TP, account-wide wallet reconciliation/wind-down을 추가하지 않는다.
 - job DB가 만든 trade만 관리한다. 수동 wallet position을 탐색·편입·청산하지 않는다.

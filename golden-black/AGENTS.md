@@ -28,8 +28,10 @@ runtime job 또는 DB epoch로 분리한다. Git commit은 provenance이지 coho
 - Gamma `/events/keyset`의 server-side `tag_slug=sports`, `closed=false`, event liquidity
   `>=10,000`, cumulative volume `>=5,000`, `endDate` 6시간 window를 먼저 적용한다.
 - page size 500, 최대 4페이지이며 terminal cursor가 아니면 cycle을 publish하지 않는다.
-- nested market에서 sports evidence, strict binary, open/orderbook/accepting, market liquidity와
-  volume, endDate를 다시 검증한다.
+- nested market에서 sports evidence, 정확히 두 개의 정렬된 label/price/token, explicit boolean
+  `negRisk`, open/orderbook/accepting, market liquidity와 volume, endDate를 다시 검증한다.
+  팀명 moneyline(`negRisk=false`)과 Yes/No proposition(`negRisk=true`)을 모두 저장하고 stratum을
+  섞지 않는다.
 - 진입은 Gamma probability가 아니라 exact CLOB full book에서 `$5` ask walk가
   `[threshold, threshold+0.01]`에 들어온 최초 관측이다.
 - 열린 episode는 원래 share 수량의 displayed bid path와 CLOB market의 unique winner를 기록한다.

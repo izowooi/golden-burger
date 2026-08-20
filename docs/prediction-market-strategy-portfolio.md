@@ -320,7 +320,7 @@ resolution 확인에만 사용한다. 상세는 `golden-strawberry/STRATEGY.md`,
 ### golden-black — Sports Resolution Hold
 
 전체 sampling census 대신 Gamma event keyset의 sports, endDate 6시간, liquidity 10k,
-cumulative volume 5k server filter를 먼저 적용한다. 통과한 strict-binary market의 두 token만
+cumulative volume 5k server filter를 먼저 적용한다. 통과한 aligned two-outcome market의 두 token만
 exact CLOB full book으로 읽고, 정확히 `$5`를 매수할 수 있는 VWAP가 `[0.92,0.93]` 또는
 `[0.94,0.95]`에 처음 들어오면 paired counterfactual episode를 만든다. 조기 target 없이 CLOB
 market의 unique one-hot winner까지 추적하는 hold baseline과 `0.80/0.70/0.60` stop policy를
@@ -362,7 +362,7 @@ py-clob-client-v2, 1실행=1사이클. 기존 신규 전략은 GTC midpoint 흐�
 
 | 대상 | 지금 할 일 | 하지 않을 일 |
 |---|---|---|
-| 운영 6개 | 현 config cohort를 보존하고 strict audit·confirmed fill·event-effective 성과를 수집 | 여러 knob를 동시에 변경하거나 legacy P&L로 증액 |
+| 운영 7개 | 현 config cohort를 보존하고 strict audit·confirmed fill·event-effective 성과를 수집 | 여러 knob를 동시에 변경하거나 legacy P&L로 증액 |
 | grape / orange | 시작하려면 새 계정·job·DB와 사전 등록부터 확인 | 코드가 있다는 이유로 “운영 중” 표시 |
 | blueberry | $5·72h·5분 cadence로 +2%p/+5%p A/B를 별도 wallet/job/DB에서 시작 | $1 주문, 여러 knob 변경, 1주 P&L로 승자 선택 |
 | quince | $5·24h·5분 cadence로 A/B/C를 별도 wallet/job/DB에서 실행 | 12h/24h나 주문액까지 동시에 변경 |

@@ -32,7 +32,8 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   저장한다. 5분 cadence, accountless simulation-only이며 credential과 `--live`를 source-level로
   금지한다. 30일 prospective cohort 전 수익성이나 exit policy를 판정하지 않는다.
 - `golden-tangerine/`: **Sports Resolution Hold Live A/B** — Golden Black과 같은 sports 6h
-  universe를 두 기존 wallet에서 최소 `$5`로 prospective 검증한다. `polybot-orange`는 exact
+  universe의 aligned two-outcome(팀명 moneyline과 Yes/No proposition)을 두 기존 wallet에서
+  최소 `$5`로 prospective 검증한다. `polybot-orange`는 exact
   ask VWAP `[0.94,0.95]`, `polybot-fox`는 `[0.92,0.93]`; FOK BUY 뒤 resolution까지 보유하며
   총/event/cycle open 한도는 `3/1/1`이다. 봇 DB가 만든 trade만 관리하고 수동 wallet
   position은 편입·청산하지 않는다.

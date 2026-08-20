@@ -3088,6 +3088,7 @@ def _validate_sports_resolution_research_strategy(
             "STOP_",
             "PARTIAL_FILL",
             "gap_from_stop",
+            "NEG_RISK_UNKNOWN",
         ),
     )
     _require_tokens(
@@ -3102,6 +3103,7 @@ def _validate_sports_resolution_research_strategy(
             "raw_payloads",
             "market_sweeps",
             "market_observations",
+            "neg_risk",
             "outcome_observations",
             "orderbook_token_attempts",
             "orderbook_snapshots",
@@ -3278,7 +3280,7 @@ def _validate_tangerine_strategy(
             "OrderType.FOK",
         ),
         "src/polybot/strategy/scanner.py": (
-            "get_strict_binary_outcomes",
+            "get_aligned_binary_outcomes",
             "claim_entry_episode",
             "not_first_in_arm_observation",
             "get_buy_book_walks",
@@ -3296,7 +3298,7 @@ def _validate_tangerine_strategy(
         ),
         "tests/test_trader.py": (
             "test_existing_manual_wallet_positions_are_never_adopted_or_sold",
-            "test_no_outcome_resolution_uses_selected_payout_without_synthetic_sell",
+            "test_named_outcome_resolution_uses_selected_payout_without_synthetic_sell",
         ),
     }
     for relative_path, tokens in contracts.items():

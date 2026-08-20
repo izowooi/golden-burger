@@ -23,11 +23,12 @@ class FakeGamma:
             "tags": [{"slug": "sports"}],
             "markets": [{
                 "id": "market-1", "conditionId": "condition-1", "question": "Will A win?",
-                "outcomes": '["Yes","No"]', "clobTokenIds": '["yes","no"]',
+                "outcomes": '["Team A","Team B"]', "clobTokenIds": '["yes","no"]',
                 "outcomePrices": '["0.94","0.06"]', "endDate": "2026-08-21T02:00:00Z",
                 "gameStartTime": "2026-08-21T02:00:00Z", "liquidityNum": 20000,
                 "volumeNum": 10000, "active": True, "closed": False,
                 "acceptingOrders": True, "enableOrderBook": True, "feesEnabled": True,
+                "negRisk": False,
                 "feeSchedule": {"rate": 0.05, "takerOnly": True},
             }],
         }
@@ -81,7 +82,10 @@ def test_only_matching_arm_opens_with_exact_depth(tmp_path) -> None:
     assert result["pages"] == 1
     assert result["episodes_opened"] == 1
     with repository.connect() as connection:
-        episode = connection.execute("SELECT threshold,entry_vwap,entry_cost FROM hypothetical_episodes").fetchone()
+        episode = connection.execute("SELECT threshold,entry_vwap,entry_cost,outcome_label FROM hypothetical_episodes").fetchone()
+        market = connection.execute(
+            "SELECT neg_risk FROM market_observations WHERE eligible=1"
+        ).fetchone()
         statuses = dict(connection.execute("SELECT threshold,decision_status FROM signal_decisions WHERE token_id='yes'").fetchall())
         policies = connection.execute(
             "SELECT policy_key,stop_price FROM counterfactual_exit_policies ORDER BY policy_key"
@@ -89,6 +93,8 @@ def test_only_matching_arm_opens_with_exact_depth(tmp_path) -> None:
     assert episode[0] == 0.94
     assert episode[1] == pytest.approx(0.94)
     assert episode[2] == 5.0
+    assert episode[3] == "Team A"
+    assert market[0] == 0
     assert statuses == {0.92: "ABOVE_ENTRY_BAND", 0.94: "OPENED"}
     assert len(policies) == 4
     assert {row[0] for row in policies} == {

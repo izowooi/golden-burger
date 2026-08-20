@@ -88,7 +88,7 @@ class _Clob:
         return self.midpoint
 
 
-def _candidate(outcome="No"):
+def _candidate(outcome="Team B"):
     return {
         "condition_id": "condition-1",
         "market_slug": "market",
@@ -96,7 +96,7 @@ def _candidate(outcome="No"):
         "event_id": "event-1",
         "event_slug": "event",
         "outcome": outcome,
-        "token_id": "no-token" if outcome == "No" else "yes-token",
+        "token_id": "team-b-token" if outcome == "Team B" else "team-a-token",
         "entry_snapshot_id": 11,
         "entry_episode_id": 3,
         "yes_probability": 0.075,
@@ -117,7 +117,7 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert trader.execute_buy(_candidate()) == 7
     assert clob.orders == [
         {
-            "token_id": "no-token",
+            "token_id": "team-b-token",
             "price": 0.93,
             "size": pytest.approx(5 / 0.925),
             "side": "BUY",
@@ -125,7 +125,7 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
         }
     ]
     created = repo.created[0]
-    assert created["outcome"] == "No"
+    assert created["outcome"] == "Team B"
     assert created["buy_amount"] == 5
     assert created["buy_price"] == 0.925
     assert created["status"] is TradeStatus.PENDING_BUY
@@ -145,23 +145,23 @@ def test_existing_manual_wallet_positions_are_never_adopted_or_sold(monkeypatch)
     assert repo.updated == []
 
 
-def test_no_outcome_resolution_uses_selected_payout_without_synthetic_sell() -> None:
+def test_named_outcome_resolution_uses_selected_payout_without_synthetic_sell() -> None:
     repo, clob = _Repo(), _Clob()
     gamma = SimpleNamespace(
         get_market_by_condition_id=lambda _condition: {
             "conditionId": "condition-1",
             "closed": True,
-            "outcomes": ["Yes", "No"],
+            "outcomes": ["Team A", "Team B"],
             "outcomePrices": [0, 1],
-            "clobTokenIds": ["yes-token", "no-token"],
+            "clobTokenIds": ["team-a-token", "team-b-token"],
             "negRisk": False,
         }
     )
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
-        token_id="no-token",
-        outcome="No",
+        token_id="team-b-token",
+        outcome="Team B",
         buy_order_id="buy-1",
         buy_shares=5.4,
         buy_price=0.925,

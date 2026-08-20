@@ -10,7 +10,7 @@ from polybot.strategy.scanner import MarketScanner
 NOW = datetime(2026, 8, 21, 1, 0, tzinfo=timezone.utc)
 
 
-def _market():
+def _market(*, outcomes=("Team A", "Team B"), neg_risk=False):
     return {
         "id": "market-1",
         "conditionId": "condition-1",
@@ -26,10 +26,10 @@ def _market():
         "volumeNum": 8_000,
         "volume24hr": "1200",
         "endDate": (NOW + timedelta(hours=3)).isoformat(),
-        "outcomes": ["Yes", "No"],
+        "outcomes": list(outcomes),
         "outcomePrices": ["0.94", "0.06"],
         "clobTokenIds": ["yes-token", "no-token"],
-        "negRisk": False,
+        "negRisk": neg_risk,
         "events": [{"id": "event-1", "slug": "event-1", "title": "Game"}],
         "tags": [{"slug": "sports", "label": "Sports"}],
     }
@@ -107,12 +107,12 @@ def test_arm_a_claims_only_first_exact_book_observation(tmp_path) -> None:
     assert scanner.save_market_snapshots(markets, now=NOW) == 2
     first = scanner.scan_buy_candidates(markets, now=NOW)
     assert len(first) == 1
-    assert first[0]["outcome"] == "Yes"
+    assert first[0]["outcome"] == "Team A"
     assert first[0]["probability"] == 0.945
     assert first[0]["entry_episode_id"] > 0
     assert {(row.token_id, row.outcome) for row in session.query(MarketSnapshot)} == {
-        ("yes-token", "Yes"),
-        ("no-token", "No"),
+        ("yes-token", "Team A"),
+        ("no-token", "Team B"),
     }
     assert session.query(EntryEpisode).count() == 1
 
@@ -126,7 +126,7 @@ def test_arm_a_claims_only_first_exact_book_observation(tmp_path) -> None:
 def test_arm_b_can_select_no_without_yes_only_bias(tmp_path) -> None:
     config = TradingConfig(entry=TangerineEntryConfig(0.92, 0.93, 0, 0, 6))
     session, _repo, _gamma, scanner = _scanner(tmp_path, config, _Clob(0.075, 0.925))
-    markets = [_market()]
+    markets = [_market(outcomes=("Yes", "No"), neg_risk=True)]
     scanner.save_market_snapshots(markets, now=NOW)
     candidates = scanner.scan_buy_candidates(markets, now=NOW)
     assert [(item["outcome"], item["token_id"]) for item in candidates] == [

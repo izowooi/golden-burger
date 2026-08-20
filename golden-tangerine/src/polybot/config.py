@@ -298,8 +298,8 @@ def load_config(
     """Load and validate resolved configuration.
 
     ``yes_only_mode`` remains in the signature for compatibility, but this
-    strategy requires ``False`` because either strict-binary outcome can be the
-    high-probability token.
+    strategy requires ``False`` because either aligned sports outcome can be
+    the high-probability token.
     """
     load_dotenv(env_path) if env_path else load_dotenv()
 

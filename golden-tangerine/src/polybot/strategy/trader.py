@@ -169,8 +169,8 @@ class Trader:
         condition_id = str(candidate["condition_id"])
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
-        if outcome not in {"Yes", "No"}:
-            logger.error("strict-binary outcome identity missing: %s", condition_id)
+        if not outcome:
+            logger.error("aligned outcome identity missing: %s", condition_id)
             return None
         entry_snapshot_id = candidate.get("entry_snapshot_id")
         if (
@@ -394,7 +394,8 @@ class Trader:
             trade.id,
             status=TradeStatus.RESOLVED,
             exit_reason="resolved_with_payout_evidence",
-            yes_price_at_exit=proof["yes_payout"],
+            # Legacy column name: stores payout of the first listed outcome.
+            yes_price_at_exit=proof["first_outcome_payout"],
             resolution_outcome=proof["outcome"],
             resolution_value=payout,
             resolution_status=proof["status"],

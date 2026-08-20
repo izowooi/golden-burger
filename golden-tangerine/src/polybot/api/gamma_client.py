@@ -171,16 +171,36 @@ class GammaClient:
         prices = cls._parse_json_array(
             market.get("outcomePrices") or market.get("outcome_prices")
         )
+        normalized_outcomes = (
+            [str(outcome or "").strip() for outcome in outcomes]
+            if outcomes is not None
+            else []
+        )
+        normalized_tokens = (
+            [str(token or "").strip() for token in tokens]
+            if tokens is not None
+            else []
+        )
+        normalized_prices = (
+            [cls._number(price) for price in prices]
+            if prices is not None
+            else []
+        )
         if (
-            outcomes != ["Yes", "No"]
-            or tokens is None
-            or prices is None
-            or len(tokens) != 2
-            or len(prices) != 2
-            or not all(str(token).strip() for token in tokens)
-            or market.get("negRisk") is not False
+            len(normalized_outcomes) != 2
+            or any(not outcome for outcome in normalized_outcomes)
+            or len(set(normalized_outcomes)) != 2
+            or len(normalized_tokens) != 2
+            or any(not token for token in normalized_tokens)
+            or len(set(normalized_tokens)) != 2
+            or len(normalized_prices) != 2
+            or any(
+                price is None or price < 0 or price > 1
+                for price in normalized_prices
+            )
+            or not isinstance(market.get("negRisk"), bool)
         ):
-            return "not_strict_standard_binary"
+            return "not_aligned_two_outcome"
         return "qualified"
 
     @staticmethod
