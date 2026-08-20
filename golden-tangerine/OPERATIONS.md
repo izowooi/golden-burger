@@ -72,6 +72,9 @@ UV=/Users/jongwoopark/.local/bin/uv
 2. Black 수동 build: external mount/free-space, terminal cursor, DB quick check 확인
 3. Orange/Fox 수동 build: resolved arm, exact `$5.00` maker amount, venue-precision shares,
    FOK-only, open limit, DB path 확인
+   - `DELAYED` FOK가 30분을 넘기면 exact order/trade/cancel conjunction으로
+     `MATCHED/HOLDING` 또는 terminal zero-fill/`UNFILLED` 중 하나로 종결되는지 확인한다.
+     일반 catalog 부재만으로 미체결 처리하면 실패다.
 4. 최근 console에서 secret 노출·clean·old strategy 경로가 없는지 확인
 5. `daily-rsync scan/sync-job/verify/locate`로 세 DB와 bot/console log 확인
 6. 각 job에 `H/5` 활성화하고 두 번 이상 자연 build의 runtime/overlap/DB 증가 확인

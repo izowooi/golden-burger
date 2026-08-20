@@ -400,6 +400,18 @@ def _string_list(value: Any) -> list[str]:
     return identifiers
 
 
+def _trade_references_order(trade: Mapping[str, Any], order_id: str) -> bool:
+    """Return whether normalized authenticated trade evidence names an order."""
+    expected = str(order_id)
+    if str(trade.get("taker_order_id") or "") == expected:
+        return True
+    return any(
+        isinstance(maker_order, Mapping)
+        and str(maker_order.get("order_id") or "") == expected
+        for maker_order in (trade.get("maker_orders") or [])
+    )
+
+
 def _model_dump(value: Any) -> Any:
     """Return a mapping/list representation from common SDK model APIs."""
     if isinstance(value, (Mapping, list, tuple)):
@@ -744,6 +756,8 @@ class ExecutionLedger:
         requested_size: float,
         submit: Callable[[], Any],
         cancel: Callable[[str], Any] | None = None,
+        signed_making_amount: Any = None,
+        signed_taking_amount: Any = None,
     ) -> Mapping[str, Any]:
         """Persist intent, POST once, then persist the response on the same row.
 
@@ -755,7 +769,27 @@ class ExecutionLedger:
         signing and HTTP preflight (tick size, fee, neg-risk, etc.) must finish
         before this method is called; otherwise a preflight transport failure
         would be misclassified as an uncertain POST outcome.
+
+        If the SDK exposes the signed fixed-6 amounts before POST, callers may
+        supply both signed amount fields. They are retained when the venue's
+        accepted response omits optional amount fields, preserving the exact
+        envelope without changing the venue response status or identity.
         """
+        if (signed_making_amount is None) != (signed_taking_amount is None):
+            raise ValueError("signed making/taking amounts는 함께 제공해야 합니다")
+        if signed_making_amount is not None:
+            making, taking, scale = _normalized_submission_amounts(
+                side,
+                requested_size,
+                signed_making_amount,
+                signed_taking_amount,
+            )
+            if (
+                not _finite_positive(making)
+                or not _finite_positive(taking)
+                or scale not in {1.0, float(_FIXED_6_SCALE)}
+            ):
+                raise ValueError("signed making/taking amount domain이 유효하지 않습니다")
         self.assert_submission_allowed(token_id=token_id, side=side)
         submission_id = self.record_intent(
             token_id=token_id,
@@ -799,6 +833,10 @@ class ExecutionLedger:
             raise SubmissionEvidenceError(
                 "CLOB order response representation을 해석할 수 없어 cycle을 중단합니다"
             ) from error
+        if signed_making_amount is not None:
+            result = dict(result)
+            result.setdefault("makingAmount", signed_making_amount)
+            result.setdefault("takingAmount", signed_taking_amount)
         try:
             self.record_submission_result(
                 submission_id,
@@ -1314,6 +1352,235 @@ class ExecutionLedger:
                 (limit,),
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def record_delayed_fok_zero_fill(
+        self,
+        *,
+        order_id: str,
+        token_id: str,
+        cancellation: Any,
+        authenticated_trades: Any,
+        minimum_age_minutes: float,
+    ) -> str:
+        """Close a stale DELAYED FOK BUY from terminal all-or-none evidence.
+
+        This narrow recovery path is for a venue response that accepted a FOK
+        BUY as ``DELAYED`` and later stopped returning an order-detail row.  It
+        requires all of the following in one atomic decision:
+
+        * the exact order is absent from the authenticated order catalogs;
+        * the complete authenticated token-trade catalog has no row naming it;
+        * the cancellation API either acknowledges that exact ID or reports
+          that exact ID as not found/already canceled; and
+        * the persisted submission is old enough, BUY-side, DELAYED, and has
+          no prior status, associated trade ID, or fill evidence.
+
+        FOK is all-or-none, so this conjunction proves zero fill without
+        fabricating a missing order-detail response.  The caller must only use
+        this method for an order submitted through a source-level FOK-only
+        path and must supply the full authenticated token-trade catalog.
+        """
+        expected_order_id = str(order_id or "").strip()
+        expected_token_id = str(token_id or "").strip()
+        if not expected_order_id or not expected_token_id:
+            raise ValueError("order_id와 token_id는 비어 있을 수 없습니다")
+        if (
+            isinstance(minimum_age_minutes, bool)
+            or not _finite_positive(minimum_age_minutes)
+            or float(minimum_age_minutes) < 1
+        ):
+            raise ValueError("minimum_age_minutes는 1 이상이어야 합니다")
+
+        cancellation_evidence = normalize_clob_response(
+            cancellation, response_type="cancellation"
+        )
+        canceled = cancellation_evidence.get("canceled")
+        not_canceled = cancellation_evidence.get("not_canceled")
+        if not isinstance(canceled, (list, tuple)):
+            raise ClobResponseContractError(
+                "CLOB cancellation canceled 필드가 sequence가 아닙니다"
+            )
+        canceled_ids = [str(value) for value in canceled]
+        if not isinstance(not_canceled, Mapping):
+            raise ClobResponseContractError(
+                "CLOB cancellation not_canceled 필드가 mapping이 아닙니다"
+            )
+        exact_cancel_ack = (
+            canceled_ids == [expected_order_id] and not not_canceled
+        )
+        not_canceled_reason = str(not_canceled.get(expected_order_id) or "").lower()
+        exact_terminal_absence = (
+            not canceled_ids
+            and set(str(key) for key in not_canceled) == {expected_order_id}
+            and bool(not_canceled_reason)
+            and (
+                "not found" in not_canceled_reason
+                or "already canceled" in not_canceled_reason
+                or "already cancelled" in not_canceled_reason
+            )
+        )
+        if not exact_cancel_ack and not exact_terminal_absence:
+            raise SubmissionEvidenceError(
+                "cancellation 응답이 exact FOK terminal 상태를 증명하지 못했습니다"
+            )
+
+        trades = normalize_clob_response_list(
+            authenticated_trades, response_type="trade"
+        )
+        exact_trade_ids = {
+            str(trade.get("id") or "")
+            for trade in trades
+            if _trade_references_order(trade, expected_order_id)
+        }
+        if exact_trade_ids:
+            raise SubmissionEvidenceError(
+                "authenticated trade catalog에 exact FOK order 체결 증거가 있습니다"
+            )
+
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT submission_id, token_id, side, submitted_at,
+                       response_status, requested_price, requested_size,
+                       making_amount, taking_amount, latest_order_status,
+                       latest_size_matched, associated_trade_ids_json,
+                       reconciliation_error, needs_reconciliation
+                FROM order_submissions
+                WHERE order_id = ? AND strategy_name = ?
+                """,
+                (expected_order_id, self.strategy_name),
+            ).fetchall()
+            if len(rows) != 1:
+                raise SubmissionEvidenceError(
+                    "exact FOK order와 연결된 submission이 정확히 1건이 아닙니다"
+                )
+            row = rows[0]
+            submitted_at = _parse_submitted_at(row["submitted_at"])
+            age_minutes = (
+                (datetime.now(timezone.utc) - submitted_at).total_seconds() / 60
+                if submitted_at is not None
+                else None
+            )
+            try:
+                associated = json.loads(row["associated_trade_ids_json"] or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise SubmissionEvidenceError(
+                    "associated trade ID evidence가 유효한 JSON이 아닙니다"
+                ) from error
+            fill_count = connection.execute(
+                "SELECT COUNT(*) FROM order_fills WHERE submission_id = ?",
+                (row["submission_id"],),
+            ).fetchone()[0]
+            gap_error = str(row["reconciliation_error"] or "")
+            blockers = []
+            if str(row["token_id"] or "") != expected_token_id:
+                blockers.append("token_id_mismatch")
+            if str(row["side"] or "").upper() != "BUY":
+                blockers.append("not_buy")
+            if _normalize_status(row["response_status"]) != "DELAYED":
+                blockers.append("not_delayed")
+            if age_minutes is None or age_minutes + 1e-9 < float(
+                minimum_age_minutes
+            ):
+                blockers.append("too_recent")
+            if row["latest_order_status"] is not None:
+                blockers.append("order_status_present")
+            if row["latest_size_matched"] is not None:
+                blockers.append("matched_size_present")
+            if associated != []:
+                blockers.append("associated_trades_present")
+            if fill_count:
+                blockers.append("fills_present")
+            if not gap_error.startswith(
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError"
+            ):
+                blockers.append("catalog_absence_not_attested")
+            if int(row["needs_reconciliation"] or 0) != 1:
+                blockers.append("not_pending_reconciliation")
+            expected_size = _persisted_submission_token_amount(
+                row["side"],
+                row["requested_price"],
+                row["requested_size"],
+                row["making_amount"],
+                row["taking_amount"],
+            )
+            if expected_size is None:
+                # Legacy Tangerine FOK rows persisted their signed taker amount
+                # as requested_size before signed amount retention was added.
+                # Zero-fill is proved by terminal all-or-none evidence, not by
+                # substituting this value for a fill.
+                expected_size = _number(row["requested_size"])
+            if not _finite_positive(expected_size):
+                blockers.append("signed_token_amount_missing")
+            if blockers:
+                raise SubmissionEvidenceError(
+                    "delayed FOK zero-fill precondition 실패: "
+                    + ",".join(blockers)
+                )
+
+            proof = (
+                "EXACT_FOK_CANCEL_ACK_ZERO_FILL"
+                if exact_cancel_ack
+                else "DELAYED_FOK_TERMINAL_ABSENCE_ZERO_FILL"
+            )
+            observed_at = _utc_now()
+            selected = {
+                "status": "CANCELED",
+                "original_size": expected_size,
+                "size_matched": 0.0,
+                "price": _number(row["requested_price"]),
+                "associated": [],
+                "quantity_scale": 1.0,
+                "domain_error": None,
+                "reconciliation_proof": proof,
+            }
+            fingerprint = hashlib.sha256(
+                json.dumps(selected, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO order_status_events (
+                    submission_id, observed_at, status, original_size,
+                    size_matched, price, associated_trade_ids_json, fingerprint,
+                    domain_error
+                ) VALUES (?, ?, 'CANCELED', ?, 0, ?, '[]', ?, NULL)
+                """,
+                (
+                    row["submission_id"],
+                    observed_at,
+                    expected_size,
+                    _number(row["requested_price"]),
+                    fingerprint,
+                ),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE order_submissions
+                SET latest_order_status = 'CANCELED', latest_size_matched = 0,
+                    associated_trade_ids_json = '[]', last_reconciled_at = ?,
+                    latest_status_domain_error = NULL,
+                    reconciliation_error = NULL, reconciliation_proof = ?,
+                    quantity_scale = 1, needs_reconciliation = 0,
+                    outcome_resolution = ?, outcome_resolved_at = ?,
+                    outcome_resolution_reason = ?
+                WHERE submission_id = ? AND needs_reconciliation = 1
+                """,
+                (
+                    observed_at,
+                    proof,
+                    proof,
+                    observed_at,
+                    "stale DELAYED FOK exact catalogs/trades/cancellation verified",
+                    row["submission_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise SubmissionEvidenceError(
+                    "delayed FOK zero-fill evidence를 원자적으로 기록하지 못했습니다"
+                )
+        return proof
 
     def catalog_missing_submissions(
         self, *, limit: int = 500, include_evidence_linked: bool = False

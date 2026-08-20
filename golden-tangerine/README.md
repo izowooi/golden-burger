@@ -24,6 +24,9 @@ provenance로만 남으므로 다른 하위 프로젝트 변경이 동일 Tanger
 - 정확히 `$5`를 소진하는 displayed ask walk의 VWAP가 arm band에 **처음** 들어온 token만 후보
 - 주문 직전 같은 `$5` full-depth walk를 다시 계산하고 exact `$5.00` maker amount와
   venue-precision shares를 갖는 venue-tick FOK BUY 제출
+- sports delay의 `DELAYED` FOK는 exact fill을 계속 대사한다. 30분 뒤에도 order detail이
+  사라졌다면 current/pre-migration order catalog, 전체 authenticated token-trade catalog,
+  exact cancellation 결과가 모두 zero-fill을 입증할 때만 `UNFILLED`로 종결
 - 계정당 최대 3개, event당 1개, cycle당 신규 1개, 총 요청 원금 최대 `$15`
 - 조기 TP, stop, trailing, time exit, account-wide wind-down 없음
 - 봇 DB가 직접 만든 trade만 resolution까지 추적; 지갑의 수동 포지션은 조회·편입·청산하지 않음

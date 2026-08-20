@@ -55,3 +55,14 @@ four-decimal signed taker amount versus six-decimal matched-size response. Tange
 explicit 0.0001-share tolerance only for order-status domain validation while preserving both raw
 values and requiring exact confirmed fills. The shared default and every other strategy remain
 unchanged. No signal, threshold, universe, order amount, exposure, cadence, clock or exit rule changed.
+
+Post-acceptance delayed-FOK evidence correction (2026-08-21): one arm-B sports order returned
+`DELAYED`; after the configured 30-minute TTL, authenticated order-detail/current/pre-migration
+catalogs and the complete authenticated token-trade catalog contained no exact order or trade. The
+cancel endpoint returned successfully but the already-removed order-detail row could not supply a
+zero matched-size field, leaving the strategy fail-closed in `PENDING_BUY`. A narrow FOK-only
+terminal-absence proof was added: stale age, exact catalog absence, no exact authenticated trade, and
+an exact cancel acknowledgment or exact `not found/already canceled` response are all required. FOK
+is all-or-none; any linked trade/fill or non-FOK path blocks this recovery. This changes evidence
+reconciliation only, not the signal, thresholds, universe, order amount, exposure, cadence, clocks,
+or exit policy.

@@ -121,6 +121,15 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    coverage가 완전하지 않은 `COMPLETED` trade의 `realized_pnl`은 **order-assumption P&L**로만
    표시하고 실현 P&L 합계에서 제외한다.
 
+Sports delay의 `DELAYED` FOK가 order-detail catalog에서 사라지는 경우에는 일반적인
+catalog-missing gap과 구분한 좁은 zero-fill 계약을 사용할 수 있다. 해당 주문이 source-level
+FOK-only 경로였고, 제출 후 사전 등록된 TTL 이상이 지났으며, current/pre-migration order
+catalog에 exact ID가 없고, 전체 authenticated token-trade catalog에도 exact order를 참조하는
+trade가 없고, cancellation API가 그 exact ID를 `canceled` 또는 exact
+`not found/already canceled`로 반환해야 한다. FOK는 all-or-none이므로 이 conjunction은
+`DELAYED_FOK_*_ZERO_FILL` proof로 종결할 수 있다. 연결된 trade/fill, 부분 체결, 일반 GTC/FAK,
+단순 HTTP 200이나 빈 catalog 하나만으로는 이 예외를 적용하지 않는다.
+
 기존 order ID는 제한된 기간에 best-effort bootstrap될 수 있지만, API에서 더 이상 확인할 수
 없는 과거 주문이나 누락된 ID를 복원하지 못한다. legacy 행은 별도 표본으로 두고 “체결 사실
 미확인”이라고 명시한다. 지갑 대사가 필요하면 해당 봇 도구가 있는 프로젝트에서 전역 옵션을

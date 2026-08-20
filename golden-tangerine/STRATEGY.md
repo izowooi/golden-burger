@@ -48,6 +48,12 @@ label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 
    전량 즉시 체결되지 않으면 잔여 GTC 주문을 남기지 않는다.
 7. live trade는 CLOB execution ledger의 exact terminal confirmed fill이 확인될 때만
    `PENDING_BUY`에서 `HOLDING`으로 이동한다.
+8. sports delay에서 `DELAYED`를 받은 FOK가 30분 이상 지난 뒤 order detail에서 사라져도
+   미체결로 추정하지 않는다. current/pre-migration order catalog의 exact ID 부재, 전체
+   authenticated token-trade catalog의 exact order 체결 부재, exact cancel acknowledgment
+   또는 exact `not found/already canceled`를 함께 확인한다. FOK의 all-or-none 계약 때문에 이
+   conjunction만 terminal zero-fill 증거로 인정하며, 연결된 trade/fill이 하나라도 있으면
+   fail closed한다. 이 예외는 GTC/FAK/일반 cancellation에는 적용하지 않는다.
 
 ## Exit와 수동 포지션 경계
 

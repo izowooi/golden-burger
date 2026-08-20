@@ -694,6 +694,8 @@ class ClobClientWrapper:
                     requested_size=requested_size,
                     submit=submit_order,
                     cancel=lambda order_id: self.client.cancel_orders([order_id]),
+                    signed_making_amount=maker_micros,
+                    signed_taking_amount=taker_micros,
                 )
             result = dict(response)
             result.update(
@@ -1215,11 +1217,17 @@ class ClobClientWrapper:
             ) from error
 
     @rate_limit_handler(max_retries=3)
-    def cancel_order_for_reconciliation(self, order_id: str) -> Dict[str, Any]:
+    def cancel_order_for_reconciliation(
+        self, order_id: str, *, minimum_age_minutes: float
+    ) -> Dict[str, Any]:
         """Cancel an expired BUY while preserving a terminal partial fill."""
-        return self._cancel_with_terminal_evidence(order_id)
+        return self._cancel_with_terminal_evidence(
+            order_id, minimum_age_minutes=minimum_age_minutes
+        )
 
-    def _cancel_with_terminal_evidence(self, order_id: str) -> Dict[str, Any]:
+    def _cancel_with_terminal_evidence(
+        self, order_id: str, *, minimum_age_minutes: float
+    ) -> Dict[str, Any]:
         """Return exact terminal identity, status, and matched-size evidence."""
         if self.simulation_mode:
             logger.info("[SIM] 주문 취소 - order: %s", order_id)
@@ -1234,9 +1242,56 @@ class ClobClientWrapper:
                 self.client.cancel_orders([str(order_id)]),
                 response_type="cancellation",
             )
-            detail = normalize_clob_response(
-                self.client.get_order(str(order_id)), response_type="order"
-            )
+            try:
+                detail = normalize_clob_response(
+                    self.client.get_order(str(order_id)), response_type="order"
+                )
+            except ClobResponseUnavailableError:
+                if self.execution_ledger is None:
+                    raise
+                pending = [
+                    item
+                    for item in self.execution_ledger.pending_submissions()
+                    if str(item.get("order_id") or "") == str(order_id)
+                ]
+                if len(pending) != 1:
+                    raise SubmissionEvidenceError(
+                        "stale FOK order와 연결된 pending submission이 "
+                        "정확히 1건이 아닙니다"
+                    )
+                token_id = str(pending[0].get("token_id") or "").strip()
+                if not token_id:
+                    raise SubmissionEvidenceError(
+                        "stale FOK order의 token ID가 비어 있습니다"
+                    )
+                from py_clob_client_v2 import TradeParams
+
+                raw_trades = self.client.get_trades(
+                    TradeParams(asset_id=token_id), only_first_page=False
+                )
+                trades = normalize_clob_response_list(
+                    raw_trades, response_type="trade"
+                )
+                proof = self.execution_ledger.record_delayed_fok_zero_fill(
+                    order_id=str(order_id),
+                    token_id=token_id,
+                    cancellation=result,
+                    authenticated_trades=trades,
+                    minimum_age_minutes=minimum_age_minutes,
+                )
+                logger.info(
+                    "stale DELAYED FOK zero-fill 종결: order=%s proof=%s "
+                    "authenticated_token_trades=%s",
+                    order_id,
+                    proof,
+                    len(trades),
+                )
+                return {
+                    **result,
+                    "verified_order_status": "CANCELED",
+                    "verified_size_matched": 0.0,
+                    "reconciliation_proof": proof,
+                }
             returned_order_id = str(detail.get("id") or "")
             status = _normalize_order_status(detail.get("status"))
             try:

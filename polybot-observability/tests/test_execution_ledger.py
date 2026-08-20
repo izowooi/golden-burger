@@ -970,6 +970,37 @@ def test_simulated_submission_never_requires_reconciliation(tmp_path):
     assert ledger.pending_submissions() == []
 
 
+def test_signed_fixed_amounts_are_retained_when_accepted_response_omits_them(
+    tmp_path,
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+
+    result = ledger.submit_and_record(
+        token_id="token",
+        side="BUY",
+        requested_price=0.93,
+        requested_size=5.3763,
+        submit=lambda: {
+            "success": True,
+            "orderID": "delayed-fok",
+            "status": "DELAYED",
+        },
+        signed_making_amount=5_000_000,
+        signed_taking_amount=5_376_300,
+    )
+
+    assert result["status"] == "DELAYED"
+    with sqlite3.connect(db_path) as connection:
+        amounts = connection.execute(
+            """
+            SELECT making_amount, taking_amount, quantity_scale
+            FROM order_submissions WHERE order_id = 'delayed-fok'
+            """
+        ).fetchone()
+    assert amounts == pytest.approx((5.0, 5.3763, 1_000_000.0))
+
+
 def test_bootstraps_recent_legacy_order_ids(tmp_path):
     db_path = tmp_path / "trades.db"
     with sqlite3.connect(db_path) as connection:
@@ -1080,6 +1111,128 @@ def test_canceled_explicitly_unfilled_order_can_close(tmp_path):
 
     assert ledger.finish_reconciliation(submission_id) is True
     assert ledger.pending_submissions() == []
+
+
+@pytest.mark.parametrize(
+    ("cancellation", "expected_proof"),
+    [
+        (
+            {"canceled": ["delayed-fok"], "not_canceled": {}},
+            "EXACT_FOK_CANCEL_ACK_ZERO_FILL",
+        ),
+        (
+            {
+                "canceled": [],
+                "not_canceled": {
+                    "delayed-fok": "Order not found or already canceled"
+                },
+            },
+            "DELAYED_FOK_TERMINAL_ABSENCE_ZERO_FILL",
+        ),
+    ],
+)
+def test_stale_delayed_fok_terminal_absence_can_prove_zero_fill(
+    tmp_path, cancellation, expected_proof
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.93,
+        requested_size=5.3763,
+        result={
+            "success": True,
+            "orderID": "delayed-fok",
+            "status": "DELAYED",
+            "makingAmount": "5000000",
+            "takingAmount": "5376300",
+        },
+        simulation=False,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE order_submissions
+            SET submitted_at = '2026-08-20T00:00:00+00:00',
+                last_reconciled_at = '2026-08-20T00:01:00+00:00',
+                reconciliation_error = ?
+            WHERE submission_id = ?
+            """,
+            (
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError "
+                "response_shape=sequence(len=0,item_type=none)",
+                submission_id,
+            ),
+        )
+
+    proof = ledger.record_delayed_fok_zero_fill(
+        order_id="delayed-fok",
+        token_id="token",
+        cancellation=cancellation,
+        authenticated_trades=[],
+        minimum_age_minutes=30,
+    )
+
+    assert proof == expected_proof
+    assert ledger.pending_submissions() == []
+    with sqlite3.connect(db_path) as connection:
+        submission = connection.execute(
+            """
+            SELECT latest_order_status, latest_size_matched,
+                   needs_reconciliation, reconciliation_proof,
+                   reconciliation_error, outcome_resolution
+            FROM order_submissions WHERE submission_id = ?
+            """,
+            (submission_id,),
+        ).fetchone()
+        status_event = connection.execute(
+            """
+            SELECT status, original_size, size_matched
+            FROM order_status_events WHERE submission_id = ?
+            """,
+            (submission_id,),
+        ).fetchone()
+    assert submission == ("CANCELED", 0.0, 0, expected_proof, None, expected_proof)
+    assert status_event[0] == "CANCELED"
+    assert status_event[1:] == pytest.approx((5.3763, 0.0))
+
+
+def test_delayed_fok_zero_fill_rejects_exact_authenticated_trade(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.93,
+        requested_size=5.3763,
+        result={
+            "success": True,
+            "orderID": "delayed-fok",
+            "status": "DELAYED",
+            "makingAmount": "5000000",
+            "takingAmount": "5376300",
+        },
+        simulation=False,
+    )
+
+    with pytest.raises(SubmissionEvidenceError, match="체결 증거"):
+        ledger.record_delayed_fok_zero_fill(
+            order_id="delayed-fok",
+            token_id="token",
+            cancellation={"canceled": ["delayed-fok"], "not_canceled": {}},
+            authenticated_trades=[
+                {
+                    "id": "trade-1",
+                    "status": "CONFIRMED",
+                    "taker_order_id": "delayed-fok",
+                    "size": "5.3763",
+                    "price": "0.93",
+                }
+            ],
+            minimum_age_minutes=30,
+        )
 
 
 def test_bucketed_fixed_math_fills_must_cover_matched_size(tmp_path):

@@ -247,3 +247,55 @@ def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
 
     assert result["success"] is False
     assert "exact maker USDC" in result["error"]
+
+
+def test_stale_delayed_fok_uses_terminal_absence_ledger_proof() -> None:
+    captured = {}
+
+    class _Client:
+        def cancel_orders(self, order_ids):
+            assert order_ids == ["order-stale"]
+            return {
+                "canceled": [],
+                "not_canceled": {
+                    "order-stale": "Order not found or already canceled"
+                },
+            }
+
+        def get_order(self, order_id):
+            assert order_id == "order-stale"
+            return []
+
+        def get_trades(self, params, *, only_first_page):
+            assert str(params.asset_id) == "token-stale"
+            assert only_first_page is False
+            return []
+
+    class _Ledger:
+        def pending_submissions(self):
+            return [
+                {
+                    "order_id": "order-stale",
+                    "token_id": "token-stale",
+                }
+            ]
+
+        def record_delayed_fok_zero_fill(self, **evidence):
+            captured.update(evidence)
+            return "DELAYED_FOK_TERMINAL_ABSENCE_ZERO_FILL"
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+    wrapper.execution_ledger = _Ledger()
+
+    result = wrapper.cancel_order_for_reconciliation(
+        "order-stale", minimum_age_minutes=30
+    )
+
+    assert result["verified_order_status"] == "CANCELED"
+    assert result["verified_size_matched"] == 0
+    assert captured["order_id"] == "order-stale"
+    assert captured["token_id"] == "token-stale"
+    assert captured["authenticated_trades"] == []
+    assert captured["minimum_age_minutes"] == 30

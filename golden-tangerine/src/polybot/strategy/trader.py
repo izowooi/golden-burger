@@ -591,7 +591,8 @@ class Trader:
             ):
                 try:
                     terminal = self.clob.cancel_order_for_reconciliation(
-                        trade.buy_order_id
+                        trade.buy_order_id,
+                        minimum_age_minutes=self.config.max_snapshot_gap_minutes,
                     )
                 except SubmissionEvidenceError as error:
                     logger.warning(
