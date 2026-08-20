@@ -2,6 +2,12 @@
 
 작성일: 2026-08-19 KST
 
+> **운영 시각 정정 (2026-08-20 23:08 KST):** 아래 최초 설계안의 미래 시작 시각은
+> 운영자 요청으로 폐기했다. 현재 frozen entry window는
+> `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`, resolution follow-up cutoff는
+> `2026-10-19T14:08:00Z`다. 첫 collection-health 점검은
+> `2026-08-22T10:00:00Z`(`2026-08-22 19:00 KST`)에 수행한다.
+
 ## 0. 결론
 
 스포츠 outcome을 exact `$5` ask `0.94` 부근에서 가상 매수해 unique one-hot resolution까지
@@ -105,16 +111,17 @@ cursor, path/resolution 수집 구조를 설계하는 근거로만 사용했다.
 - universe: sports strict binary, open/orderbook/accepting, market liquidity `>=10,000`,
   cumulative volume `>=5,000`, Gamma endDate `(0h,6h]`
 - cadence: 5분
-- entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`
-- follow-up end: `2026-10-20T00:00:00Z`
+- entry window: `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`
+- follow-up end: `2026-10-19T14:08:00Z`
 - credential와 `--live`는 DB와 network를 열기 전에 source-level 차단
 - API receipt, gzip raw payload, market membership, exact full book/levels, `$5` walk, decision,
   episode, bid path, stop trigger/actual VWAP/partial/retry, resolution, fee,
   config/source/run/storage provenance를 append-only로 저장
 
-2026-08-20 배포 전 후속 요청으로 stop grid를 protocol에 추가하고, 실제 Jenkins 배포보다
-먼저 시작시각이 지나지 않도록 prospective start를 2026-08-21T00:00:00Z로 옮겼다. stop 가격은 fill 가격이
-아니며, best bid가 기준 이하가 된 뒤 원래 share의 displayed bid depth를 walk한다. 한 cycle에
+2026-08-20 배포 전 후속 요청으로 stop grid를 protocol에 추가했다. 최초에는 Jenkins 배포보다
+뒤인 `2026-08-21T00:00:00Z`를 prospective start로 잡았으나, 운영자 요청으로
+`2026-08-20T14:08:00Z` 즉시 시작으로 정정했다. stop 가격은 fill 가격이 아니며, best bid가
+기준 이하가 된 뒤 원래 share의 displayed bid depth를 walk한다. 한 cycle에
 전량 depth가 없으면 실제 부분 수량·잔여 수량·fee를 남기고 다음 cycle에서 잔여분을 계속
 청산하는 반사실이다. stop 값은 아직 winner가 아니며 30일 전 선택하지 않는다.
 
