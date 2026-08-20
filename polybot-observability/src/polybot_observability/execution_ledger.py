@@ -2035,8 +2035,20 @@ class ExecutionLedger:
         ).fetchall()
 
     def record_order_status(
-        self, submission_id: str, detail: Any
+        self,
+        submission_id: str,
+        detail: Any,
+        *,
+        quantity_tolerance: float = _QUANTITY_TOLERANCE,
     ) -> list[str]:
+        if (
+            not _finite_positive(quantity_tolerance)
+            or quantity_tolerance < _QUANTITY_TOLERANCE
+            or quantity_tolerance > 0.001
+        ):
+            raise ValueError(
+                "quantity_tolerance must be between 0.000001 and 0.001 shares"
+            )
         detail = normalize_clob_response(detail, response_type="order")
         status = _normalize_status(detail.get("status"))
         associated = _string_list(
@@ -2091,7 +2103,7 @@ class ExecutionLedger:
             and _finite_nonnegative(selected["original_size"])
             and _finite_nonnegative(selected["size_matched"])
             and selected["size_matched"]
-            > selected["original_size"] + _QUANTITY_TOLERANCE
+            > selected["original_size"] + quantity_tolerance
         ):
             domain_errors.append("size_matched_exceeds_original")
         if selected["price"] is not None and not _valid_fill_price(selected["price"]):

@@ -1841,6 +1841,51 @@ def test_submission_and_order_detail_numeric_domains_fail_closed(tmp_path):
     assert row[1] == "order/submission domain invalid"
 
 
+def test_explicit_market_buy_quantity_tolerance_preserves_exact_values(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.94,
+        requested_size=5.3191,
+        result={"success": True, "orderID": "market-buy", "status": "delayed"},
+        simulation=False,
+    )
+    trade_ids = ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "5.3191",
+            "size_matched": "5.319133",
+            "price": "0.94",
+            "associate_trades": ["market-fill"],
+        },
+        quantity_tolerance=0.0001,
+    )
+    assert trade_ids == ["market-fill"]
+    ledger.record_fill(
+        submission_id,
+        "market-buy",
+        {
+            "id": "market-fill",
+            "status": "CONFIRMED",
+            "size": "5.319133",
+            "price": "0.94",
+            "taker_order_id": "market-buy",
+            "fee_rate_bps": 0,
+        },
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is True
+    with sqlite3.connect(db_path) as connection:
+        status = connection.execute(
+            "SELECT original_size, size_matched, domain_error "
+            "FROM order_status_events"
+        ).fetchone()
+    assert status == (5.3191, 5.319133, None)
+
+
 @pytest.mark.parametrize(
     "result",
     [

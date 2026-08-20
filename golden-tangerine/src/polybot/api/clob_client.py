@@ -38,6 +38,10 @@ _PROVABLY_UNFILLED_ORDER_STATUSES = {
     "INVALID",
 }
 _TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
+# Exact-USDC market BUY responses can report six-decimal matched shares while
+# their signed taker amount is four-decimal venue precision.  Preserve both
+# exact values and permit at most one signed-share quantum during status audit.
+_MARKET_BUY_QUANTITY_TOLERANCE = 0.0001
 
 
 @dataclass(frozen=True)
@@ -1023,7 +1027,9 @@ class ClobClientWrapper:
                         )
                     phase = "persist_order_status"
                     trade_ids = self.execution_ledger.record_order_status(
-                        submission_id, detail
+                        submission_id,
+                        detail,
+                        quantity_tolerance=_MARKET_BUY_QUANTITY_TOLERANCE,
                     )
                 for trade_id in trade_ids:
                     phase = "fetch_trades"

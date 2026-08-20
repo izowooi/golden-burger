@@ -47,3 +47,11 @@ position or spend was created; arm B had no candidate. The BUY envelope was corr
 exact `$5.00` two-decimal maker amount with venue-precision taker shares and the same explicit
 fresh-book limit under FOK. Signal, thresholds, universe, exposure, cadence, clocks and exit policy
 did not change.
+
+Post-acceptance evidence precision correction (2026-08-20): Orange's first accepted exact-USDC
+market BUY was reported by CLOB as `original_size=5.3191` and `size_matched=5.319133`. The shared
+default 0.000001-share status tolerance correctly failed closed but was too narrow for the venue's
+four-decimal signed taker amount versus six-decimal matched-size response. Tangerine now passes an
+explicit 0.0001-share tolerance only for order-status domain validation while preserving both raw
+values and requiring exact confirmed fills. The shared default and every other strategy remain
+unchanged. No signal, threshold, universe, order amount, exposure, cadence, clock or exit rule changed.
