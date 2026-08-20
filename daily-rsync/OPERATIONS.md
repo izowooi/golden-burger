@@ -99,6 +99,13 @@ Accountless shadow runtime의 canonical `shadow.db`도 `database_sim`으로 발�
 SQLite online backup, 원격·로컬 `quick_check`, SHA-256 검증 절차를 적용한다. 이는
 `research-full-v1` daily shard가 아니므로 날짜별 archive coverage 규칙은 적용하지 않는다.
 
+외장 volume이 SQLite read lock을 지원하지 않아 `mode=ro` open이
+`SQLITE_CANTOPEN`으로 끝나는 경우, snapshot helper는 한 번 재시도한 뒤 WAL sidecar가
+없는 완전 checkpoint main DB에만 `immutable=1` fallback을 허용한다. 이 fallback은
+source main/WAL fingerprint가 backup 전후 완전히 같고 snapshot `quick_check`와 SHA-256이
+성공할 때만 유효하다. source가 한 번이라도 바뀌거나 WAL이 존재하면 snapshot을 폐기하고
+fail closed한다. 원격 workspace에는 journal·sidecar를 만들지 않는다.
+
 ## 실패 처리
 
 - SSH 실패: local latest와 catalog 완료 상태를 변경하지 않는다.

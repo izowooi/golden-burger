@@ -1071,28 +1071,22 @@ def _snapshot_database_source(args, source):
     target = run_dir / "snapshot.db"
     started = time.time()
     try:
-        source_connection = sqlite3.connect("file:{}?mode=ro".format(source), uri=True, timeout=30)
-        destination = sqlite3.connect(str(target), timeout=30)
-        try:
-            source_connection.execute("PRAGMA busy_timeout=30000")
-            source_connection.backup(destination, pages=4096, sleep=0.02)
-            # SQLite's backup API copies the source database's persistent WAL
-            # journal mode.  The transfer contract, however, moves only the
-            # completed snapshot.db file.  Normalize the private destination
-            # while its connection is still open so the snapshot cannot depend
-            # on transient -wal/-shm sidecars and a read-only quick_check does
-            # not race their teardown on macOS.
-            journal_row = destination.execute("PRAGMA journal_mode=DELETE").fetchone()
-            snapshot_journal_mode = str(journal_row[0]).lower() if journal_row else ""
-            if snapshot_journal_mode != "delete":
-                raise RuntimeError(
-                    "snapshot journal normalization failed: {}".format(
-                        snapshot_journal_mode or "missing"
-                    )
-                )
-        finally:
-            destination.close()
-            source_connection.close()
+        (
+            snapshot_journal_mode,
+            snapshot_open_retry_count,
+            snapshot_source_open_mode,
+        ) = _backup_database(
+            source, target, source_state_before
+        )
+        source_state_after = sqlite_source_state(source)
+        if (
+            snapshot_source_open_mode == "immutable_stable_main"
+            and source_state_after["fingerprint"]
+            != source_state_before["fingerprint"]
+        ):
+            raise RuntimeError(
+                "database source changed during immutable stable-main snapshot"
+            )
         # macOS SQLite may retain an empty shared-memory file even after the
         # destination reports DELETE mode.  Both SQLite connections are closed
         # and DELETE mode has checkpointed the private destination, so these
@@ -1130,7 +1124,6 @@ def _snapshot_database_source(args, source):
             )
         digest = sha256(target)
         target.chmod(0o600)
-        source_state_after = sqlite_source_state(source)
         manifest = {
             "schema_version": 2,
             "source": str(source),
@@ -1144,6 +1137,8 @@ def _snapshot_database_source(args, source):
             "sha256": digest,
             "quick_check": integrity,
             "snapshot_journal_mode": snapshot_journal_mode,
+            "snapshot_open_retry_count": snapshot_open_retry_count,
+            "snapshot_source_open_mode": snapshot_source_open_mode,
             "data_contract": data_contract,
             "database_utc_date": database_utc_date,
             "elapsed_seconds": round(time.time() - started, 3),
@@ -1159,6 +1154,83 @@ def _snapshot_database_source(args, source):
         # cleanup must happen here rather than relying on a later SSH request.
         shutil.rmtree(str(run_dir), ignore_errors=True)
         raise
+
+
+def _remove_partial_snapshot(target):
+    for partial in (
+        target,
+        Path(str(target) + "-wal"),
+        Path(str(target) + "-shm"),
+    ):
+        partial.unlink(missing_ok=True)
+
+
+def _backup_once(source_uri, target):
+    source_connection = None
+    destination = None
+    try:
+        source_connection = sqlite3.connect(source_uri, uri=True, timeout=30)
+        destination = sqlite3.connect(str(target), timeout=30)
+        source_connection.execute("PRAGMA busy_timeout=30000")
+        source_connection.backup(destination, pages=4096, sleep=0.02)
+        # SQLite's backup API copies the source database's persistent WAL
+        # journal mode.  The transfer contract, however, moves only the
+        # completed snapshot.db file.  Normalize the private destination
+        # while its connection is still open so the snapshot cannot depend
+        # on transient -wal/-shm sidecars and a read-only quick_check does
+        # not race their teardown on macOS.
+        journal_row = destination.execute("PRAGMA journal_mode=DELETE").fetchone()
+        snapshot_journal_mode = str(journal_row[0]).lower() if journal_row else ""
+        if snapshot_journal_mode != "delete":
+            raise RuntimeError(
+                "snapshot journal normalization failed: {}".format(
+                    snapshot_journal_mode or "missing"
+                )
+            )
+        return snapshot_journal_mode
+    finally:
+        if destination is not None:
+            destination.close()
+        if source_connection is not None:
+            source_connection.close()
+
+
+def _backup_database(source, target, source_state_before):
+    """Create a source-safe snapshot across regular and removable volumes.
+
+    A normal SQLite read-only connection is tried twice.  Some removable
+    filesystems reject SQLite's read lock even though a fully checkpointed main
+    file is readable.  Only that exact ``SQLITE_CANTOPEN`` case, with no WAL
+    member, may fall back to immutable access.  The caller then proves that the
+    composite source fingerprint stayed unchanged for the whole backup.
+    """
+
+    source_uri = "file:{}?mode=ro".format(source)
+    failure = None
+    for retry_count in range(2):
+        try:
+            return (
+                _backup_once(source_uri, target),
+                retry_count,
+                "read_only_locked",
+            )
+        except sqlite3.OperationalError as error:
+            failure = error
+        if "unable to open database file" not in str(failure).lower():
+            raise failure
+        _remove_partial_snapshot(target)
+        if retry_count == 0:
+            time.sleep(0.25)
+
+    if {member["suffix"] for member in source_state_before["members"]} != {"main"}:
+        raise failure
+    immutable_uri = source_uri + "&immutable=1"
+    try:
+        journal_mode = _backup_once(immutable_uri, target)
+    except BaseException:
+        _remove_partial_snapshot(target)
+        raise
+    return journal_mode, 2, "immutable_stable_main"
 
 
 def cleanup(args):

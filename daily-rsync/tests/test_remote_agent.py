@@ -6,6 +6,7 @@ import sqlite3
 import subprocess
 import sys
 from pathlib import Path
+from types import SimpleNamespace
 from xml.sax.saxutils import escape
 
 import pytest
@@ -1397,3 +1398,78 @@ def test_snapshot_failure_removes_remote_staging_directory(tmp_path: Path) -> No
     assert process.returncode != 0
     assert staging.is_dir()
     assert list(staging.iterdir()) == []
+
+
+def test_snapshot_retries_one_transient_cantopen_and_records_it(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "external" / "trades_sim.db"
+    make_db(source)
+    staging = tmp_path / "staging"
+    real_connect = remote_agent.sqlite3.connect
+    source_uri = f"file:{source.resolve()}?mode=ro"
+    calls = 0
+
+    def flaky_connect(database, *args, **kwargs):
+        nonlocal calls
+        if str(database) == source_uri:
+            calls += 1
+            if calls == 1:
+                raise sqlite3.OperationalError("unable to open database file")
+        return real_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(remote_agent.sqlite3, "connect", flaky_connect)
+    remote_agent._snapshot_database_source(
+        SimpleNamespace(
+            staging_root=str(staging),
+            expected_data_contract=None,
+            expected_database_utc_date=None,
+        ),
+        source.resolve(),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert calls == 2
+    assert payload["quick_check"] == ["ok"]
+    assert payload["snapshot_open_retry_count"] == 1
+    assert payload["snapshot_source_open_mode"] == "read_only_locked"
+    assert Path(payload["snapshot"]).is_file()
+
+
+def test_snapshot_uses_stable_immutable_main_when_read_lock_is_unsupported(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    source = tmp_path / "external" / "trades_sim.db"
+    make_db(source)
+    staging = tmp_path / "staging"
+    real_connect = remote_agent.sqlite3.connect
+    source_uri = f"file:{source.resolve()}?mode=ro"
+    locked_calls = 0
+
+    def filesystem_without_sqlite_read_locks(database, *args, **kwargs):
+        nonlocal locked_calls
+        if str(database) == source_uri:
+            locked_calls += 1
+            raise sqlite3.OperationalError("unable to open database file")
+        return real_connect(database, *args, **kwargs)
+
+    monkeypatch.setattr(
+        remote_agent.sqlite3,
+        "connect",
+        filesystem_without_sqlite_read_locks,
+    )
+    remote_agent._snapshot_database_source(
+        SimpleNamespace(
+            staging_root=str(staging),
+            expected_data_contract=None,
+            expected_database_utc_date=None,
+        ),
+        source.resolve(),
+    )
+
+    payload = json.loads(capsys.readouterr().out)
+    assert locked_calls == 2
+    assert payload["quick_check"] == ["ok"]
+    assert payload["source_fingerprint_before"] == payload["source_fingerprint_after"]
+    assert payload["snapshot_open_retry_count"] == 2
+    assert payload["snapshot_source_open_mode"] == "immutable_stable_main"
