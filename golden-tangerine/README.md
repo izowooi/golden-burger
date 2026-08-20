@@ -8,6 +8,10 @@ cadence, 보유 규칙과 안전 한도는 같다.
 `golden-black`은 계속 accountless detailed collector로 남는다. 이 프로젝트만 기존 두
 Jenkins wallet의 credential로 FOK BUY를 제출한다.
 
+성과 cohort는 모노레포 commit이 아니라
+`config_hash × strategy_source_digest × mode × job_name`으로 나눈다. Git commit은 배포
+provenance로만 남으므로 다른 하위 프로젝트 변경이 동일 Tangerine 실험을 분할하지 않는다.
+
 - `polybot-orange` → `tangerine-live-a-94`
 - `polybot-fox` → `tangerine-live-b-92`
 

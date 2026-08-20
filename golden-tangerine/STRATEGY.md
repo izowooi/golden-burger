@@ -15,7 +15,11 @@ Golden Black이 같은 universe와 네 가지 가상 stop 경로를 상세 수�
 | B | `polybot-fox` | `tangerine-live-b-92` | `[0.92,0.93]` |
 
 threshold 외 차이는 허용하지 않는다. wallet/signature 종류는 계정 고유 속성이므로 기존
-Jenkins 값을 그대로 보존하되 분석은 account/job별 cohort로 분리한다.
+Jenkins 값을 그대로 보존하되 분석은 account/job별 cohort로 분리한다. 모노레포 Git commit은
+provenance이고, 실제 비교 cohort는
+`config_hash × strategy_source_digest × mode × job_name`이다. source digest에는 Tangerine
+runtime, frozen preregistration, shared observability만 포함해 다른 프로젝트 변경으로 cohort가
+갈라지지 않게 한다.
 
 ## Universe와 clock
 

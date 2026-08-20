@@ -114,6 +114,11 @@ def main() -> None:
         f"(yes_only={trading.yes_only_mode})"
     )
     print(
+        "Cohort source/preregistration: "
+        f"{trading.strategy_source_digest[:12]}/"
+        f"{trading.preregistration_sha256[:12]}"
+    )
+    print(
         "Exact $5 ask VWAP band: "
         f"[{trading.entry.prob_min:.2f}, {trading.entry.prob_max:.2f}]"
     )

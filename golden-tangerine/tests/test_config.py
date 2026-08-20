@@ -37,6 +37,8 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC
+    assert len(config.trading.strategy_source_digest) == 64
+    assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64
 
 

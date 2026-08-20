@@ -14,6 +14,9 @@
 - 조기 SELL, stop, TP, account-wide wallet reconciliation/wind-down을 추가하지 않는다.
 - job DB가 만든 trade만 관리한다. 수동 wallet position을 탐색·편입·청산하지 않는다.
 - `$5`, max positions/event/new `3/1/1`, frozen clocks를 완화하지 않는다.
+- Git commit은 provenance로만 보존한다. 분석 cohort는
+  `config_hash × strategy_source_digest × mode × job_name`이며 digest에는 Tangerine runtime,
+  frozen preregistration, shared observability만 포함한다.
 
 ## 작업 전 확인
 

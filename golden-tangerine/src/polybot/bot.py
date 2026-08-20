@@ -42,11 +42,14 @@ class PolymarketBot:
             strategy_name="golden-tangerine",
         )
         logger.info(
-            "Golden Tangerine bot initialized - job=%s simulation=%s lifecycle=%s all_outcomes=%s",
+            "Golden Tangerine bot initialized - job=%s simulation=%s lifecycle=%s "
+            "all_outcomes=%s source=%s preregistration=%s",
             config.job_name,
             config.simulation_mode,
             config.trading.lifecycle_mode,
             not config.trading.yes_only_mode,
+            config.trading.strategy_source_digest[:12],
+            config.trading.preregistration_sha256[:12],
         )
 
     def _log_strategy_config(self) -> None:

@@ -3258,6 +3258,8 @@ def _validate_tangerine_strategy(
         "src/polybot/config.py": (
             "FROZEN_ARMS",
             "FROZEN_START_UTC",
+            "strategy_source_digest",
+            "preregistration_sha256",
             "Golden Tangerine live notional must remain exactly $5",
             "exposure limits are frozen at 3/1/1",
             "must evaluate both binary outcomes",
@@ -3292,6 +3294,11 @@ def _validate_tangerine_strategy(
             "payouts_by_outcome",
             "order_type=\"FOK\"",
         ),
+        "src/polybot/source_digest.py": (
+            "compute_strategy_source_digest",
+            "ACTIVE_PREREGISTRATION",
+            "polybot_observability",
+        ),
         "tests/test_scanner.py": (
             "test_arm_a_claims_only_first_exact_book_observation",
             "test_arm_b_can_select_no_without_yes_only_bias",
@@ -3310,6 +3317,7 @@ def _validate_tangerine_strategy(
         "tests/test_config.py",
         "tests/test_filters_signals.py",
         "tests/test_lifecycle_mode.py",
+        "src/polybot/source_digest.py",
         "research/frozen-2026-08-20/PREREGISTRATION.md",
         "research/frozen-2026-08-20/MANIFEST.sha256",
     ):

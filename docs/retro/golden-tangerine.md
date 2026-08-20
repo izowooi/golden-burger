@@ -16,6 +16,8 @@ confirmed fill/fee, DB 무결성만 점검한다.
 
 성과 판정은 `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)` entry cohort와
 `2026-10-20T00:00:00Z` follow-up이 끝난 뒤 verified DB 절대 경로를 arm별로 분리해 수행한다.
+cohort key는 `config_hash × strategy_source_digest × mode × job_name`이며 Git commit은
+provenance로만 사용한다.
 requested order나 settlement assumption을 realized SELL P&L로 바꾸지 않는다. exact fill/fee 또는
 resolution coverage에 CRITICAL/HIGH gap이 있거나 표본이 부족하면 threshold 선택과 규모 확대를
 중단한다. 수동 wallet position은 모집단과 청산 대상에서 제외한다.

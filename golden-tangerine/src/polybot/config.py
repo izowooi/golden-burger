@@ -16,12 +16,15 @@ from polybot_observability.config_contract import (
 )
 import yaml
 
+from .source_digest import compute_strategy_source_digest, preregistration_sha256
+
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 FROZEN_START_UTC = "2026-08-21T00:00:00Z"
 FROZEN_ENTRY_END_UTC = "2026-09-20T00:00:00Z"
 FROZEN_FOLLOWUP_END_UTC = "2026-10-20T00:00:00Z"
 FROZEN_ARMS = frozenset({(0.92, 0.93), (0.94, 0.95)})
+SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
 def _get_config_value(
@@ -168,6 +171,8 @@ class TradingConfig:
     experiment_start_utc: str = FROZEN_START_UTC
     experiment_entry_end_utc: str = FROZEN_ENTRY_END_UTC
     experiment_followup_end_utc: str = FROZEN_FOLLOWUP_END_UTC
+    strategy_source_digest: str = ""
+    preregistration_sha256: str = ""
     entry: TangerineEntryConfig = field(default_factory=TangerineEntryConfig)
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     excluded_categories: List[str] = field(default_factory=list)
@@ -286,6 +291,16 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         or trading.experiment_followup_end_utc != FROZEN_FOLLOWUP_END_UTC
     ):
         raise ValueError("experiment timestamps differ from the frozen deployment")
+    for name, digest in (
+        ("strategy_source_digest", trading.strategy_source_digest),
+        ("preregistration_sha256", trading.preregistration_sha256),
+    ):
+        try:
+            valid_digest = len(digest) == 64 and int(digest, 16) >= 0
+        except (TypeError, ValueError):
+            valid_digest = False
+        if not valid_digest:
+            raise ValueError(f"{name} must be a 64-character SHA-256 digest")
 
 
 def load_config(
@@ -420,6 +435,10 @@ def load_config(
             trading_cfg.get("experiment_followup_end_utc"),
             FROZEN_FOLLOWUP_END_UTC,
         ),
+        strategy_source_digest=compute_strategy_source_digest(
+            SOURCE_PROJECT_ROOT
+        ),
+        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

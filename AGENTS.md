@@ -149,7 +149,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - Python 프로젝트는 **uv** 표준을 따른다: `uv sync --frozen` 후 `uv run ...`. (`legacy`만 `requirements.txt` 예외.)
 - Node 프로젝트(`polymarket-dashboard`)는 npm을 쓴다.
 - 공통 유틸은 2개 이상 실제 사용 사례가 생긴 뒤 고려하고, 먼저 폴더 내부에서 단순 해결한다.
-- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Black·Kiwi·Blueberry·Raspberry·Strawberry는 모노레포 commit을 cohort로 쓰지 않고 L3 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다. Golden Pomegranate도 Git commit을 provenance로만 두고 L3의 `config_hash × strategy_source_digest × mode × job_name × schema_profile`을 사용한다.
+- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Black·Kiwi·Blueberry·Raspberry·Strawberry·Tangerine은 모노레포 commit을 cohort로 쓰지 않고 L3 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다. Golden Pomegranate도 Git commit을 provenance로만 두고 L3의 `config_hash × strategy_source_digest × mode × job_name × schema_profile`을 사용한다.
 
 ### Task summary 완료 checkpoint
 
@@ -179,7 +179,7 @@ inventory는 routing 후보이지 sync 성공이나 historical epoch의 권위�
 
 Jenkins job 또는 strategy 이름만 주어지면 DB/log 경로를 사용자에게 묻지 않고 `daily-rsync/README.md`, `daily-rsync/DATA_LAYOUT.md`, `daily-rsync/OPERATIONS.md`를 확인해 local catalog에서 evidence를 자동 발견한다. local evidence가 없거나 요청 기간을 덮지 않으면 임의 SSH/rsync를 실행하지 말고 evidence gap과 필요한 sync 범위를 보고한다.
 `default`는 Jenkins job이 아니라 runtime job이며, 하나의 strategy가 여러 Jenkins job에, 하나의 Jenkins job이 여러 strategy epoch에 대응할 수 있으므로 `source × Jenkins job × strategy × runtime job`을 evidence discovery 경계로 분리한다.
-실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다. Golden Black·Kiwi·Blueberry·Pomegranate·Raspberry·Strawberry는 각 L3에 명시된 strategy source digest 기반 예외를 따른다.
+실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다. Golden Black·Kiwi·Blueberry·Pomegranate·Raspberry·Strawberry·Tangerine은 각 L3에 명시된 strategy source digest 기반 예외를 따른다.
 Golden Pomegranate는 trade/fill retro 대상이 아니다. active `trades_sim.db`와 요청 구간의
 `trades_sim_YYYYMMDD.db` shard를 모두 `daily-rsync verify`로 확인한 뒤 collector health,
 cursor-complete census, source-component coverage, watermark gap과 manifest checksum을 검사한다.
