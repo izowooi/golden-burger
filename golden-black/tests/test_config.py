@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -7,6 +8,9 @@ import pytest
 from polybot.config import (
     CANONICAL_JOB,
     ENTRY_THRESHOLDS,
+    FROZEN_ENTRY_END,
+    FROZEN_FOLLOWUP_END,
+    FROZEN_START,
     STOP_LEVELS,
     assert_no_credentials,
     load_config,
@@ -26,6 +30,8 @@ def test_frozen_config_loads(monkeypatch: pytest.MonkeyPatch) -> None:
     assert config.trading.gamma.page_size == 500
     assert config.trading.gamma.max_pages == 4
     assert config.trading.experiment.fee_rate_fallback == 0.05
+    assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=30)
+    assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=30)
 
 
 @pytest.mark.parametrize(

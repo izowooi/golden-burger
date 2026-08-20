@@ -18,9 +18,9 @@ trading:
   min_order_buffer_shares: 0.10
   yes_only_mode: false
 
-  experiment_start_utc: 2026-08-21T00:00:00Z
-  experiment_entry_end_utc: 2026-09-20T00:00:00Z
-  experiment_followup_end_utc: 2026-10-20T00:00:00Z
+  experiment_start_utc: 2026-08-20T14:08:00Z
+  experiment_entry_end_utc: 2026-09-19T14:08:00Z
+  experiment_followup_end_utc: 2026-10-19T14:08:00Z
 
   # Default is arm A.  Jenkins arm B overrides only these two values.
   entry:

@@ -2,9 +2,10 @@
 
 Evidence 해석은 [`EVIDENCE_CONTRACT.md`](EVIDENCE_CONTRACT.md)를 따른다.
 
-- REVIEW_START: `2026-08-21T00:00:00Z`
-- REVIEW_END: `2026-09-20T00:00:00Z` (entry window exclusive end)
-- FOLLOWUP_END: `2026-10-20T00:00:00Z`
+- REVIEW_START: `2026-08-20T14:08:00Z`
+- REVIEW_END: `2026-09-19T14:08:00Z` (entry window exclusive end)
+- FOLLOWUP_END: `2026-10-19T14:08:00Z`
+- FIRST_HEALTH_CHECK: `2026-08-22T10:00:00Z` (`2026-08-22 19:00 KST`)
 - DATA_CONTRACT: `sports-resolution-paired-v1`
 - STATUS: simulation preregistered; no live approval
 

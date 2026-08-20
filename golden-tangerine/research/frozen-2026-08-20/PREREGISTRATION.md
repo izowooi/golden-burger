@@ -1,8 +1,9 @@
 # Golden Tangerine frozen live A/B protocol — 2026-08-20
 
 - Companion evidence: Golden Black `sports-resolution-paired-v1`
-- Entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`
-- Follow-up cutoff: `2026-10-20T00:00:00Z`
+- Entry window: `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`
+- Follow-up cutoff: `2026-10-19T14:08:00Z`
+- First collection-health checkpoint: `2026-08-22T10:00:00Z` (`2026-08-22 19:00 KST`)
 - Cadence: 5 minutes, non-concurrent
 - Arm A: `polybot-orange`, exact `$5` ask VWAP `[0.94,0.95]`
 - Arm B: `polybot-fox`, exact `$5` ask VWAP `[0.92,0.93]`
@@ -24,9 +25,16 @@
 Pre-entry-window correction (2026-08-20): manual build #56081 showed the prior literal
 `[Yes,No] AND negRisk=false` wording selected zero markets while Golden Black's intended paired
 population contained 47 named moneylines and 13 Yes/No negRisk propositions. No entry episode or
-order existed. Before `2026-08-21T00:00:00Z`, the contract was corrected to the aligned two-outcome
+order existed. Before the originally scheduled start, the contract was corrected to the aligned two-outcome
 population above; thresholds, clocks, notional, cadence and exit policy did not change.
 
 Pre-entry evidence-identity correction (2026-08-20): unrelated monorepo commits were observed to
 split `git_commit` lineage despite identical Tangerine code. Before the entry window, the frozen
 cohort identity was made source-scoped as stated above. No trading parameter or decision rule changed.
+
+Operator-requested immediate-start correction (2026-08-20): at `2026-08-20T14:08:00Z`, before
+the originally scheduled start and with no entry episode or order in either live arm, the entry
+window was moved forward to start immediately. Its exact 30-day duration and the following exact
+30-day resolution follow-up were preserved. Thresholds, universe, notional, cadence, exposure and
+exit policy did not change. The first operational health review is fixed at
+`2026-08-22T10:00:00Z`; it is not a parameter-selection checkpoint.

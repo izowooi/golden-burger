@@ -28,8 +28,8 @@ provenance로만 남으므로 다른 하위 프로젝트 변경이 동일 Tanger
 - 봇 DB가 직접 만든 trade만 resolution까지 추적; 지갑의 수동 포지션은 조회·편입·청산하지 않음
 - live DB는 `data/<job>/trades.db`, simulation DB는 `trades_sim.db`로 분리
 
-실험 entry window는 `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`, resolution
-follow-up cutoff는 `2026-10-20T00:00:00Z`다. 자세한 가설과 판정 기준은
+실험 entry window는 `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`, resolution
+follow-up cutoff는 `2026-10-19T14:08:00Z`다. 자세한 가설과 판정 기준은
 [STRATEGY.md](STRATEGY.md), Jenkins 절차는 [OPERATIONS.md](OPERATIONS.md)를 따른다.
 
 ## 로컬 검증

@@ -14,8 +14,9 @@ resolution까지 보유하는 accountless, simulation-only paired experiment다.
 - Runtime job: `black-shadow-paired`.
 - 권장 Jenkins job/workspace: `polybot-black`, `/Volumes/t7/jenkins/polybot-black`.
 - Cadence: `H/5 * * * *`; concurrent build 금지.
-- Entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`.
-- Follow-up end: `2026-10-20T00:00:00Z`.
+- Entry window: `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`.
+- Follow-up end: `2026-10-19T14:08:00Z`.
+- First collection-health checkpoint: `2026-08-22T10:00:00Z` (`2026-08-22 19:00 KST`).
 - Exit policy grid: `HOLD_TO_RESOLUTION`, `STOP_0.80`, `STOP_0.70`, `STOP_0.60`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Preregistration: `research/frozen-2026-08-20/PREREGISTRATION.md`.

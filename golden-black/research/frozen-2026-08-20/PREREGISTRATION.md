@@ -1,8 +1,9 @@
 # Golden Black frozen paired protocol — 2026-08-20
 
 - Contract: `sports-resolution-paired-v1`
-- Entry window: `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)`
-- Follow-up cutoff: `2026-10-20T00:00:00Z`
+- Entry window: `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)`
+- Follow-up cutoff: `2026-10-19T14:08:00Z`
+- First collection-health checkpoint: `2026-08-22T10:00:00Z` (`2026-08-22 19:00 KST`)
 - Cadence: 5 minutes
 - Population: Gamma `/events/keyset`, sports tag, open events, endDate `(0h,6h]`, event and
   market liquidity `>=10,000`, cumulative volume `>=5,000`; exactly two aligned labels/prices/tokens,
@@ -33,5 +34,12 @@ The historical screen selected these two thresholds. It is not part of the prosp
 Pre-entry-window clarification (2026-08-20): build #1 confirmed that the implemented population was
 the aligned two-outcome sports universe (47 named moneylines and 13 Yes/No negRisk propositions),
 while the prose said “strict binary.” No episode opened before the frozen start. The wording and
-normalized `neg_risk` field were corrected before `2026-08-21T00:00:00Z`; thresholds, clocks,
+normalized `neg_risk` field were corrected before the originally scheduled start; thresholds, clocks,
 notional, stop grid and raw-payload contract did not change.
+
+Operator-requested immediate-start correction (2026-08-20): at `2026-08-20T14:08:00Z`, before
+the originally scheduled start and with no prospective episode in the live companion arms, the
+entry window was moved forward to start immediately. Its exact 30-day duration and the following
+exact 30-day resolution follow-up were preserved. Thresholds, universe, simulated notional,
+cadence, stop grid and evidence contract did not change. The first collection-health review is
+fixed at `2026-08-22T10:00:00Z`; it is not a policy-selection checkpoint.

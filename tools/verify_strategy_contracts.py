@@ -3197,7 +3197,7 @@ def _validate_sports_resolution_research_strategy(
         (
             "[0.92,0.93]", "[0.94,0.95]",
             "STOP_0.80", "STOP_0.70", "STOP_0.60",
-            "full displayed bid", "2026-09-20T00:00:00Z", "Accountless only",
+            "full displayed bid", "2026-09-19T14:08:00Z", "Accountless only",
         ),
     )
     _require_file(

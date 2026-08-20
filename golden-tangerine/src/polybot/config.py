@@ -20,9 +20,9 @@ from .source_digest import compute_strategy_source_digest, preregistration_sha25
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
-FROZEN_START_UTC = "2026-08-21T00:00:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-20T00:00:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-10-20T00:00:00Z"
+FROZEN_START_UTC = "2026-08-20T14:08:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-19T14:08:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-10-19T14:08:00Z"
 FROZEN_ARMS = frozenset({(0.92, 0.93), (0.94, 0.95)})
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 

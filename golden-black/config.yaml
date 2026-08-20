@@ -23,9 +23,9 @@ trading:
     batch_token_limit: 250
 
   experiment:
-    start_utc: 2026-08-21T00:00:00Z
-    entry_end_utc: 2026-09-20T00:00:00Z
-    followup_end_utc: 2026-10-20T00:00:00Z
+    start_utc: 2026-08-20T14:08:00Z
+    entry_end_utc: 2026-09-19T14:08:00Z
+    followup_end_utc: 2026-10-19T14:08:00Z
     entry_thresholds: [0.92, 0.94]
     entry_band_width: 0.01
     stop_levels: [0.80, 0.70, 0.60]

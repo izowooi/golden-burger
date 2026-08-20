@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -37,6 +38,13 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC
+    start = datetime.fromisoformat(FROZEN_START_UTC.replace("Z", "+00:00"))
+    entry_end = datetime.fromisoformat(FROZEN_ENTRY_END_UTC.replace("Z", "+00:00"))
+    followup_end = datetime.fromisoformat(
+        FROZEN_FOLLOWUP_END_UTC.replace("Z", "+00:00")
+    )
+    assert entry_end - start == timedelta(days=30)
+    assert followup_end - entry_end == timedelta(days=30)
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64
@@ -66,7 +74,7 @@ def test_only_arm_b_threshold_override_is_accepted(
         ("POLYBOT_ENTRY_HOURS_MAX", "7", "entry window"),
         ("POLYBOT_STOP_PRICE", "0.80", "stop_price"),
         ("POLYBOT_YES_ONLY", "true", "both binary outcomes"),
-        ("POLYBOT_EXPERIMENT_END_UTC", "2026-09-21T00:00:00Z", "timestamps"),
+        ("POLYBOT_EXPERIMENT_END_UTC", "2026-09-20T14:08:00Z", "timestamps"),
     ],
 )
 def test_contract_drift_is_rejected(

@@ -29,9 +29,9 @@ from .source_digest import (
 DATA_CONTRACT = "sports-resolution-paired-v1"
 CANONICAL_JOB = "black-shadow-paired"
 LIFECYCLE_MODES = frozenset({"archive_only"})
-FROZEN_START = datetime(2026, 8, 21, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 20, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 10, 20, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 20, 14, 8, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 19, 14, 8, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 10, 19, 14, 8, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.92, 0.94)
 STOP_LEVELS = (0.80, 0.70, 0.60)
 

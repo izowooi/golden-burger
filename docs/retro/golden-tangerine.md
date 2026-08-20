@@ -4,18 +4,19 @@
 요청 UTC half-open range와 동일하게 고정한다.
 
 ```text
-REVIEW_START=2026-08-21T00:00:00Z
-REVIEW_END=2026-09-20T00:00:00Z
+REVIEW_START=2026-08-20T14:08:00Z
+REVIEW_END=2026-09-19T14:08:00Z
 ```
 
-Golden Tangerine은 2026-08-21부터 시작하는 sports-resolution low-notional live A/B다.
+Golden Tangerine은 2026-08-20T14:08:00Z부터 시작하는 sports-resolution low-notional live A/B다.
 `polybot-orange` arm A `[0.94,0.95]`와 `polybot-fox` arm B `[0.92,0.93]`를 threshold 외 동일하게
 유지한다. 24시간·7일에는 cadence, cursor, aligned two-outcome/negRisk stratum, exact `$5` book,
 first-observation episode, FOK order,
 confirmed fill/fee, DB 무결성만 점검한다.
 
-성과 판정은 `[2026-08-21T00:00:00Z, 2026-09-20T00:00:00Z)` entry cohort와
-`2026-10-20T00:00:00Z` follow-up이 끝난 뒤 verified DB 절대 경로를 arm별로 분리해 수행한다.
+첫 collection-health 점검은 `2026-08-22T10:00:00Z`에 수행하며 수익성이나 parameter를
+판단하지 않는다. 성과 판정은 `[2026-08-20T14:08:00Z, 2026-09-19T14:08:00Z)` entry cohort와
+`2026-10-19T14:08:00Z` follow-up이 끝난 뒤 verified DB 절대 경로를 arm별로 분리해 수행한다.
 cohort key는 `config_hash × strategy_source_digest × mode × job_name`이며 Git commit은
 provenance로만 사용한다.
 requested order나 settlement assumption을 realized SELL P&L로 바꾸지 않는다. exact fill/fee 또는

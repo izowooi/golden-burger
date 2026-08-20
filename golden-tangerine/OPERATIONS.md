@@ -30,9 +30,9 @@ export POLYBOT_ENTRY_PROB_MAX=0.95
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=6
 export POLYBOT_STOP_PRICE=0
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-21T00:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-09-20T00:00:00Z
-export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-10-20T00:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-20T14:08:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-19T14:08:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-10-19T14:08:00Z
 
 cd ./golden-tangerine
 UV=/Users/jongwoopark/.local/bin/uv
@@ -74,6 +74,9 @@ UV=/Users/jongwoopark/.local/bin/uv
 4. 최근 console에서 secret 노출·clean·old strategy 경로가 없는지 확인
 5. `daily-rsync scan/sync-job/verify/locate`로 세 DB와 bot/console log 확인
 6. 각 job에 `H/5` 활성화하고 두 번 이상 자연 build의 runtime/overlap/DB 증가 확인
+
+첫 운영 collection-health 점검은 `2026-08-22T10:00:00Z` (`2026-08-22 19:00 KST`)에
+수행한다. 이 점검에서는 수익성이나 threshold를 판단하지 않는다.
 
 ```bash
 cd ../daily-rsync
