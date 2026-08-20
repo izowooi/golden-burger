@@ -1,0 +1,41 @@
+# Golden Tangerine — low-notional live A/B companion to Golden Black.
+# env > config.yaml > code defaults.  Real orders still require explicit --live.
+
+trading:
+  lifecycle_mode: active
+
+  buy_amount_usdc: 5.0
+  min_liquidity: 10000
+  min_volume_24h: 0
+  min_cumulative_volume: 5000
+  max_positions: 3
+  max_event_positions: 1
+  max_new_positions_per_cycle: 1
+  reentry_cooldown_hours: 720
+  max_snapshot_gap_minutes: 30
+
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.10
+  yes_only_mode: false
+
+  experiment_start_utc: 2026-08-21T00:00:00Z
+  experiment_entry_end_utc: 2026-09-20T00:00:00Z
+  experiment_followup_end_utc: 2026-10-20T00:00:00Z
+
+  # Default is arm A.  Jenkins arm B overrides only these two values.
+  entry:
+    prob_min: 0.94
+    prob_max: 0.95
+    stop_price: 0.0
+    hours_min: 0
+    hours_max: 6
+
+  # The event-keyset universe is already small; retain both outcome paths.
+  archive:
+    prob_min: 0.0
+    hours_max: 6
+    retention_days: 60
+
+  excluded_categories: []
+
+simulation_mode: true

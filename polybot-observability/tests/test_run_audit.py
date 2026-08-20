@@ -142,6 +142,44 @@ def _create_domain_tables(path: Path) -> None:
         )
 
 
+def _pin_generated_evidence(
+    path: Path,
+    timestamp: str = "2026-07-15T00:00:00+00:00",
+) -> None:
+    """Keep generated ledger evidence inside the tests' fixed review window."""
+    updates = {
+        "strategy_configs": ("first_seen_at",),
+        "run_audits": ("started_at", "finished_at"),
+        "order_submissions": (
+            "submitted_at",
+            "last_reconciled_at",
+            "outcome_resolved_at",
+        ),
+        "order_status_events": ("observed_at",),
+        "order_fills": ("matched_at", "last_update"),
+    }
+    with sqlite3.connect(path) as connection:
+        tables = {
+            str(row[0])
+            for row in connection.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            )
+        }
+        for table, candidate_columns in updates.items():
+            if table not in tables:
+                continue
+            columns = {
+                str(row[1])
+                for row in connection.execute(f"PRAGMA table_info({table})")
+            }
+            for column in candidate_columns:
+                if column in columns:
+                    connection.execute(
+                        f"UPDATE {table} SET {column} = ? WHERE {column} IS NOT NULL",
+                        (timestamp,),
+                    )
+
+
 def test_success_records_config_without_api_secrets(tmp_path: Path) -> None:
     db_path = tmp_path / "trades.db"
     _create_domain_tables(db_path)
@@ -316,6 +354,7 @@ def test_retro_audit_reports_provenance_and_execution_gap(tmp_path: Path) -> Non
     config = Config(db_path=db_path)
     audit = RunAudit.start(config, strategy_name="golden-test")
     audit.succeed({"bought": 1})
+    _pin_generated_evidence(db_path)
 
     result = audit_database(
         db_path,
@@ -449,6 +488,7 @@ def test_audit_requires_full_fill_size_and_reports_confirmed_pnl(tmp_path: Path)
         assert ledger.finish_reconciliation(submission_id) is (side == "BUY")
     run = RunAudit.start(Config(db_path=db_path), strategy_name="golden-test")
     run.succeed()
+    _pin_generated_evidence(db_path)
 
     partial = audit_database(
         db_path,
@@ -475,6 +515,7 @@ def test_audit_requires_full_fill_size_and_reports_confirmed_pnl(tmp_path: Path)
         },
     )
     assert ledger.finish_reconciliation(sell_submission) is True
+    _pin_generated_evidence(db_path)
     complete = audit_database(
         db_path,
         days=30,
@@ -559,6 +600,7 @@ def test_reconciled_partial_round_trip_uses_actual_fills_not_legacy_shares(
         assert ledger.finish_reconciliation(submission_id) is True
     run = RunAudit.start(Config(db_path=db_path), strategy_name="golden-test")
     run.succeed()
+    _pin_generated_evidence(db_path)
 
     result = audit_database(
         db_path,
@@ -628,6 +670,7 @@ def test_overfilled_order_is_critical_and_excluded_from_pnl(tmp_path: Path) -> N
         assert ledger.finish_reconciliation(submission_id) is (side == "SELL")
     run = RunAudit.start(Config(db_path=db_path), strategy_name="golden-test")
     run.succeed()
+    _pin_generated_evidence(db_path)
 
     result = audit_database(
         db_path,
@@ -674,6 +717,7 @@ def test_invalid_execution_domains_are_critical_in_retro_audit(tmp_path: Path) -
         Config(db_path=db_path, simulation_mode=False), strategy_name="golden-test"
     )
     run.succeed()
+    _pin_generated_evidence(db_path)
 
     result = audit_database(
         db_path, days=30, as_of=datetime(2026, 7, 31, tzinfo=timezone.utc)

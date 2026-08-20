@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import hashlib
 import json
 import sqlite3
@@ -86,7 +86,9 @@ def test_one_cycle_publishes_pair_and_all_three_derived_arms(monkeypatch, tmp_pa
         "outcomes": json.dumps(["Yes", "No"]),
         "clobTokenIds": json.dumps(["yes", "no"]),
         "outcomePrices": json.dumps(["0.5", "0.5"]),
-        "endDate": "2026-08-20T00:00:00Z",
+        "endDate": (
+            datetime.now(timezone.utc) + timedelta(hours=7)
+        ).isoformat().replace("+00:00", "Z"),
         "liquidityNum": 50_000,
         "volumeNum": 100_000,
         "volume24hr": 20_000,

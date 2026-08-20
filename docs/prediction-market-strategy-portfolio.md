@@ -1,13 +1,13 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 22개 `golden-*` 프로젝트의 전체 지도다. 이 중 21개는 수익 가설을 검정하고,
+총 23개 `golden-*` 프로젝트의 전체 지도다. 이 중 22개는 수익 가설을 검정하고,
 `golden-pomegranate` 하나는 미래 전략을 만들기 위한 범용 accountless market observatory다.
 `golden-black`, `golden-raspberry`, `golden-strawberry`는 수익 가설이지만 주문 없이 displayed-book
 반사실만 수집한다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-19 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-20 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -46,8 +46,9 @@
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 10분 full census, outcome-token threshold grid | **research-only · 1주 pilot health only · live/order 금지** |
+| **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 
-상태 합계는 운영 6, 구현만 완료 5, research/simulation 전용 5, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 7, 구현만 완료 5, research/simulation 전용 5, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향

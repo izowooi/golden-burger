@@ -113,6 +113,13 @@ def test_policy_is_strategy_aware(monkeypatch):
     assert policy_for("golden-queen").retention_days == 60
     assert policy_for("golden-queen").hot_hours == 1
     assert policy_for("golden-quince").selector == "extrema"
+    assert policy_for("golden-tangerine").selector == "extrema"
+    assert policy_for("golden-tangerine").retention_days == 60
+    assert policy_for("golden-tangerine").hot_hours == 1
+    assert requirements_for("golden-tangerine") == SQLiteMaintenanceRequirements(
+        full_cadence_hours=0.5,
+        retention_days=60,
+    )
     assert policy_for("golden-kiwi").selector == "latest"
     assert policy_for("golden-kiwi").retention_days == 60
     assert policy_for("golden-kiwi").hot_hours == 60 * 24
@@ -903,6 +910,49 @@ def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_dele
         "entry_snapshot_missing": 0,
         "prior_snapshot_missing": 0,
     }
+
+
+def test_tangerine_entry_episode_snapshot_is_never_deleted(tmp_path, monkeypatch):
+    database = tmp_path / "golden-tangerine.db"
+    backup_root = tmp_path / "backups"
+    _seed_database(database)
+    with sqlite3.connect(database) as connection:
+        episode_snapshot_id = connection.execute(
+            "SELECT id FROM market_snapshots "
+            "WHERE condition_id = 'condition-a' ORDER BY timestamp, id LIMIT 1"
+        ).fetchone()[0]
+        old = datetime.utcnow() - timedelta(days=61)
+        connection.execute(
+            "UPDATE market_snapshots SET timestamp = ? WHERE id = ?",
+            (old.isoformat(), episode_snapshot_id),
+        )
+        connection.execute(
+            "CREATE TABLE entry_episodes ("
+            "id INTEGER PRIMARY KEY, entry_snapshot_id INTEGER NOT NULL)"
+        )
+        connection.execute(
+            "INSERT INTO entry_episodes VALUES (1, ?)", (episode_snapshot_id,)
+        )
+        connection.execute(
+            "INSERT INTO market_snapshots(condition_id, probability, timestamp) "
+            "VALUES ('current-condition', 0.5, ?)",
+            (datetime.utcnow().isoformat(),),
+        )
+        connection.commit()
+
+    monkeypatch.setenv("POLYBOT_DB_MAINTENANCE", "compact-v1")
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(backup_root))
+    monkeypatch.setenv("POLYBOT_DB_HOT_HOURS", "0.5")
+    prepare_database(database, "golden-tangerine")
+
+    with sqlite3.connect(database) as connection:
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM market_snapshots WHERE id = ?",
+                (episode_snapshot_id,),
+            ).fetchone()[0]
+            == 1
+        )
 
 
 def test_blueberry_decision_and_shadow_snapshot_references_are_never_deleted(

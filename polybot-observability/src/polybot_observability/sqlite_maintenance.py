@@ -54,6 +54,7 @@ _SUPPORTED_STRATEGIES = frozenset(
         "golden-papaya",
         "golden-queen",
         "golden-quince",
+        "golden-tangerine",
     }
 )
 
@@ -77,6 +78,7 @@ _PROTECTED_TABLES = (
     "order_status_events",
     "order_fills",
     "quantity_scale_repairs",
+    "entry_episodes",
 )
 
 
@@ -270,6 +272,7 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
         "golden-papaya",
         "golden-queen",
         "golden-quince",
+        "golden-tangerine",
     }:
         default_gap_minutes = (
             15.0
@@ -341,6 +344,7 @@ def policy_for(
         "golden-papaya": 1.0,
         "golden-queen": 1.0,
         "golden-quince": 1.0,
+        "golden-tangerine": 1.0,
     }
     retention_defaults = {
         "golden-blueberry": 60.0,
@@ -352,6 +356,7 @@ def policy_for(
         "golden-papaya": 60.0,
         "golden-queen": 60.0,
         "golden-quince": 60.0,
+        "golden-tangerine": 60.0,
     }
     selector = "latest"
     if normalized == "golden-nectarine":
@@ -363,6 +368,7 @@ def policy_for(
         "golden-papaya",
         "golden-queen",
         "golden-quince",
+        "golden-tangerine",
     }:
         selector = "extrema"
     policy = SQLiteMaintenancePolicy(
@@ -684,6 +690,14 @@ def _build_protected_snapshot_ids(
                     "VALUES (?)",
                     ((snapshot_id,) for snapshot_id in snapshot_ids),
                 )
+    if "entry_episodes" in existing:
+        episode_columns = _columns(connection, "entry_episodes")
+        if "entry_snapshot_id" in episode_columns:
+            connection.execute(
+                "INSERT OR IGNORE INTO _polybot_protected_snapshot_ids(id) "
+                "SELECT entry_snapshot_id FROM entry_episodes "
+                "WHERE entry_snapshot_id IS NOT NULL"
+            )
     if "trades" not in existing:
         return
     trade_columns = _columns(connection, "trades")

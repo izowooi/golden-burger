@@ -38,6 +38,7 @@ CURRENT_STRATEGIES = {
     "golden-quince",
     "golden-raspberry",
     "golden-strawberry",
+    "golden-tangerine",
 }
 RESEARCH_ONLY_STRATEGIES = {
     "golden-black",
@@ -3225,6 +3226,125 @@ def _validate_sports_resolution_research_strategy(
     )
 
 
+def _validate_tangerine_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate the bounded event-keyset live companion contract."""
+
+    contracts = {
+        "README.md": (
+            "polybot-orange",
+            "polybot-fox",
+            "tangerine-live-a-94",
+            "tangerine-live-b-92",
+            "수동 포지션",
+        ),
+        "STRATEGY.md": (
+            "[0.94,0.95]",
+            "[0.92,0.93]",
+            "FOK BUY",
+            "HOLD_TO_RESOLUTION",
+            "entry_episodes",
+        ),
+        "OPERATIONS.md": (
+            "H/5 * * * *",
+            "Clean before checkout",
+            "polybot-black",
+            "/Volumes/t7/jenkins/polybot-black",
+            "daily-rsync verify",
+        ),
+        "src/polybot/config.py": (
+            "FROZEN_ARMS",
+            "FROZEN_START_UTC",
+            "Golden Tangerine live notional must remain exactly $5",
+            "exposure limits are frozen at 3/1/1",
+            "must evaluate both binary outcomes",
+        ),
+        "src/polybot/api/gamma_client.py": (
+            "/events/keyset",
+            "tag_slug",
+            "liquidity_min",
+            "volume_min",
+            "end_date_min",
+            "end_date_max",
+            "after_cursor",
+            "cursor_complete",
+            "membership_digest_sha256",
+        ),
+        "src/polybot/api/clob_client.py": (
+            "BuyBookWalk",
+            "full $5 displayed ask depth is unavailable",
+            "get_tick_size",
+            "OrderType.FOK",
+        ),
+        "src/polybot/strategy/scanner.py": (
+            "get_strict_binary_outcomes",
+            "claim_entry_episode",
+            "not_first_in_arm_observation",
+            "get_buy_book_walks",
+        ),
+        "src/polybot/strategy/trader.py": (
+            "entry_episode_id",
+            "link_entry_episode_trade",
+            "hold to resolution",
+            "payouts_by_outcome",
+            "order_type=\"FOK\"",
+        ),
+        "tests/test_scanner.py": (
+            "test_arm_a_claims_only_first_exact_book_observation",
+            "test_arm_b_can_select_no_without_yes_only_bias",
+        ),
+        "tests/test_trader.py": (
+            "test_existing_manual_wallet_positions_are_never_adopted_or_sold",
+            "test_no_outcome_resolution_uses_selected_payout_without_synthetic_sell",
+        ),
+    }
+    for relative_path, tokens in contracts.items():
+        content = _require_file(findings, strategy, directory / relative_path)
+        _require_tokens(findings, strategy, relative_path, content, tokens)
+
+    for relative_path in (
+        "tests/test_api_contracts.py",
+        "tests/test_config.py",
+        "tests/test_filters_signals.py",
+        "tests/test_lifecycle_mode.py",
+        "research/frozen-2026-08-20/PREREGISTRATION.md",
+        "research/frozen-2026-08-20/MANIFEST.sha256",
+    ):
+        _require_file(findings, strategy, directory / relative_path)
+
+    trader_content = _read(directory / "src/polybot/strategy/trader.py")
+    trader_tree = _parse_python(
+        findings, strategy, "src/polybot/strategy/trader.py", trader_content
+    )
+    if trader_tree is not None:
+        execute_sell = _function(trader_tree, "execute_sell", class_name="Trader")
+        if execute_sell is None:
+            findings.append(
+                Finding(strategy, "missing_contract", "Trader.execute_sell")
+            )
+        elif any(
+            name.endswith("place_limit_order") for name, _call in _calls(execute_sell)
+        ):
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_contract",
+                    "Trader.execute_sell must not submit a pre-resolution order",
+                )
+            )
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -3252,6 +3372,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
             _validate_queue_echo_research_strategy(findings, strategy, directory)
         elif strategy == "golden-strawberry":
             _validate_last_mile_research_strategy(findings, strategy, directory)
+        return findings
+
+    if strategy == "golden-tangerine":
+        _validate_tangerine_strategy(findings, strategy, directory)
         return findings
 
     config = _require_file(findings, strategy, directory / "src/polybot/config.py")
