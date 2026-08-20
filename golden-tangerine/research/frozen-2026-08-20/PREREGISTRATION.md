@@ -13,7 +13,8 @@
   (`negRisk=true`) are retained as separate strata.
 - Pagination: `/events/keyset`, limit 500, max 4 pages, terminal cursor required
 - Signal unit: token's first exact displayed `$5` VWAP observation in its job arm
-- Order: fresh full-depth recheck, exact `$5` shares, venue-tick FOK BUY
+- Order: fresh full-depth recheck, exact `$5.00` maker amount, venue-precision shares,
+  explicit venue-tick limit, FOK BUY
 - Exposure: account 3, event 1, new/cycle 1; no account-wide wallet adoption
 - Exit: hold to proven resolution; no TP, stop, trailing, time exit or pre-resolution SELL
 - Evidence: `config_hash × strategy_source_digest × mode × job_name` cohort, entry
@@ -38,3 +39,11 @@ window was moved forward to start immediately. Its exact 30-day duration and the
 30-day resolution follow-up were preserved. Thresholds, universe, notional, cadence, exposure and
 exit policy did not change. The first operational health review is fixed at
 `2026-08-22T10:00:00Z`; it is not a parameter-selection checkpoint.
+
+Pre-first-accepted-order precision correction (2026-08-20): manual Orange build `#56096`
+found three arm-A candidates, but the first submission was rejected before an order ID existed
+because the limit-order envelope encoded BUY maker USDC with four decimal places. No trade, fill,
+position or spend was created; arm B had no candidate. The BUY envelope was corrected to sign an
+exact `$5.00` two-decimal maker amount with venue-precision taker shares and the same explicit
+fresh-book limit under FOK. Signal, thresholds, universe, exposure, cadence, clocks and exit policy
+did not change.

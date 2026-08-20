@@ -22,7 +22,8 @@ provenance로만 남으므로 다른 하위 프로젝트 변경이 동일 Tanger
 - 정확히 두 개의 label/price/token이 정렬된 market의 양 outcome을 검사. 팀명 moneyline
   (`negRisk=false`)과 Yes/No proposition(`negRisk=true`)을 별도 stratum으로 보존
 - 정확히 `$5`를 소진하는 displayed ask walk의 VWAP가 arm band에 **처음** 들어온 token만 후보
-- 주문 직전 같은 `$5` full-depth walk를 다시 계산하고 venue tick의 FOK BUY 제출
+- 주문 직전 같은 `$5` full-depth walk를 다시 계산하고 exact `$5.00` maker amount와
+  venue-precision shares를 갖는 venue-tick FOK BUY 제출
 - 계정당 최대 3개, event당 1개, cycle당 신규 1개, 총 요청 원금 최대 `$15`
 - 조기 TP, stop, trailing, time exit, account-wide wind-down 없음
 - 봇 DB가 직접 만든 trade만 resolution까지 추적; 지갑의 수동 포지션은 조회·편입·청산하지 않음

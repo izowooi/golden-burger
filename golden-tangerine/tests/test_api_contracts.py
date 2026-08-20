@@ -195,3 +195,55 @@ def test_live_fok_uses_venue_tick_and_fok_order_type() -> None:
     assert result["orderID"] == "order-1"
     assert float(captured["order"].price) == 0.945
     assert "FOK" in str(captured["order_type"])
+
+
+def test_live_exact_usdc_fok_buy_uses_two_decimal_maker_envelope() -> None:
+    captured = {}
+
+    class _Client:
+        def get_tick_size(self, token_id):
+            assert token_id == "token"
+            return "0.01"
+
+        def create_market_order(self, order):
+            captured["order"] = order
+            return SimpleNamespace(makerAmount="5000000", takerAmount="5319100")
+
+        def post_order(self, signed, order_type):
+            captured["signed"] = signed
+            captured["order_type"] = order_type
+            return {"success": True, "orderID": "order-2"}
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.94)
+
+    assert result["orderID"] == "order-2"
+    assert result["maker_amount_usdc"] == 5
+    assert result["requested_size"] == 5.3191
+    assert captured["order"].amount == 5
+    assert captured["order"].price == 0.94
+    assert "FOK" in str(captured["order_type"])
+
+
+def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.01"
+
+        def create_market_order(self, _order):
+            return SimpleNamespace(makerAmount="4991400", takerAmount="5310000")
+
+        def post_order(self, _signed, _order_type):
+            raise AssertionError("invalid signed amount must never be posted")
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.94)
+
+    assert result["success"] is False
+    assert "exact maker USDC" in result["error"]

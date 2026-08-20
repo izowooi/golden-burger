@@ -43,8 +43,9 @@ label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 
    후속 gate에서 거절되어도 같은 token의 band 체류/재진입을 새 신호로 재사용하지 않는다.
 4. 총 open state 3, event open state 1, cycle 신규 1을 확인한다.
 5. 주문 직전 full book을 다시 walk한다. VWAP가 band를 벗어나거나 `$5` depth가 없으면 중단한다.
-6. 최고 소비 ask를 venue별 tick에 맞춰 위로 정렬한 FOK BUY를 제출한다. 전량 즉시 체결되지
-   않으면 잔여 GTC 주문을 남기지 않는다.
+6. 최고 소비 ask를 venue별 tick에 맞춰 위로 정렬하고, maker amount를 정확히 `$5.00`
+   (USDC 2자리), taker shares를 venue precision으로 서명한 marketable FOK BUY를 제출한다.
+   전량 즉시 체결되지 않으면 잔여 GTC 주문을 남기지 않는다.
 7. live trade는 CLOB execution ledger의 exact terminal confirmed fill이 확인될 때만
    `PENDING_BUY`에서 `HOLDING`으로 이동한다.
 

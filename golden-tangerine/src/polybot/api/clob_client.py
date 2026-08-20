@@ -595,6 +595,135 @@ class ClobClientWrapper:
             return {"success": False, "error": str(e)}
 
     @rate_limit_handler(max_retries=3)
+    def place_fok_buy(
+        self,
+        token_id: str,
+        amount_usdc: float,
+        limit_price: float,
+    ) -> Dict[str, Any]:
+        """Submit an exact-USDC FOK BUY with an explicit fresh-book limit.
+
+        CLOB v2 requires the BUY maker amount (USDC) at two-decimal precision
+        and the taker amount (shares) at venue precision.  A limit ``OrderArgs``
+        envelope derives maker USDC from shares and can therefore produce a
+        four-decimal maker amount.  ``MarketOrderArgs`` represents the intended
+        fixed USDC amount directly while retaining an explicit limit price.
+        """
+        amount = Decimal(str(amount_usdc))
+        if not amount.is_finite() or amount <= 0:
+            raise ValueError("amount_usdc must be finite and positive")
+        if amount != amount.quantize(Decimal("0.01")):
+            raise ValueError("FOK BUY maker amount must have at most two decimals")
+        if not math.isfinite(limit_price) or not 0 < limit_price < 1:
+            raise ValueError("limit_price must be finite and inside (0, 1)")
+
+        tick_size = self.DEFAULT_TICK_SIZE
+        if not self.simulation_mode:
+            tick_size = float(self.client.get_tick_size(str(token_id)))
+        rounded_price = self._round_to_tick(
+            limit_price,
+            tick_size,
+            direction="up",
+        )
+
+        if self.simulation_mode:
+            requested_size = float(amount / Decimal(str(rounded_price)))
+            result = {
+                "success": True,
+                "orderID": f"SIM_BUY_{token_id[:8]}",
+                "simulated": True,
+                "price": rounded_price,
+                "maker_amount_usdc": float(amount),
+                "requested_size": requested_size,
+            }
+            self._record_limit_submission(
+                token_id, rounded_price, requested_size, "BUY", result
+            )
+            return result
+
+        try:
+            from py_clob_client_v2 import MarketOrderArgs, OrderType
+
+            order_args = MarketOrderArgs(
+                token_id=token_id,
+                amount=float(amount),
+                side="BUY",
+                price=rounded_price,
+                order_type=OrderType.FOK,
+            )
+            if self.execution_ledger is not None:
+                self.execution_ledger.assert_submission_allowed(
+                    token_id=token_id,
+                    side="BUY",
+                )
+
+            # Complete signing and its read-only market-info lookups before an
+            # intent is persisted.  The signed integer amounts are the exact
+            # values the venue will validate, so use them as ledger evidence.
+            signed_order = self.client.create_market_order(order_args)
+            try:
+                maker_micros = int(str(signed_order.makerAmount))
+                taker_micros = int(str(signed_order.takerAmount))
+            except (AttributeError, TypeError, ValueError) as error:
+                raise ClobResponseContractError(
+                    "signed FOK BUY amount evidence is unavailable"
+                ) from error
+            expected_maker_micros = int(amount * Decimal(1_000_000))
+            if maker_micros != expected_maker_micros or taker_micros <= 0:
+                raise ClobResponseContractError(
+                    "signed FOK BUY does not preserve exact maker USDC"
+                )
+            requested_size = taker_micros / 1_000_000
+
+            def submit_order() -> Dict[str, Any]:
+                return self.client.post_order(signed_order, OrderType.FOK)
+
+            if self.execution_ledger is None:
+                response = normalize_clob_response(
+                    submit_order(), response_type="submission"
+                )
+            else:
+                response = self.execution_ledger.submit_and_record(
+                    token_id=token_id,
+                    side="BUY",
+                    requested_price=rounded_price,
+                    requested_size=requested_size,
+                    submit=submit_order,
+                    cancel=lambda order_id: self.client.cancel_orders([order_id]),
+                )
+            result = dict(response)
+            result.update(
+                {
+                    "price": rounded_price,
+                    "maker_amount_usdc": maker_micros / 1_000_000,
+                    "requested_size": requested_size,
+                }
+            )
+            logger.info(
+                "Exact-USDC FOK BUY 주문 완료 @ %.4f maker=$%.2f shares=%.4f",
+                rounded_price,
+                maker_micros / 1_000_000,
+                requested_size,
+            )
+            return result
+        except SubmissionOutcomeQuarantinedError as error:
+            logger.warning(
+                "CLOB BUY 결과가 불확실해 token을 격리하고 cycle을 계속합니다"
+            )
+            return {
+                "success": False,
+                "error": str(error),
+                "submission_outcome_unknown": True,
+                "quarantined": True,
+            }
+        except SubmissionEvidenceError:
+            logger.critical("BUY execution ledger 정합성 유지 실패", exc_info=True)
+            raise
+        except Exception as error:
+            logger.error("Exact-USDC FOK BUY 주문 실패: %s", error)
+            return {"success": False, "error": str(error)}
+
+    @rate_limit_handler(max_retries=3)
     def place_limit_order(
         self,
         token_id: str,

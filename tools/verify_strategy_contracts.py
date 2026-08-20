@@ -3292,7 +3292,7 @@ def _validate_tangerine_strategy(
             "link_entry_episode_trade",
             "hold to resolution",
             "payouts_by_outcome",
-            "order_type=\"FOK\"",
+            "place_fok_buy",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",

@@ -80,9 +80,17 @@ class _Clob:
     def get_buy_book_walk(self, token_id, *, notional_usdc):
         return BuyBookWalk(token_id, 0.91, 0.92, 0.01, self.vwap, 5 / self.vwap, 5, 0.93, 2)
 
+    def place_fok_buy(self, **order):
+        self.orders.append(order)
+        return {
+            "success": True,
+            "orderID": "buy-1",
+            "requested_size": 5 / self.vwap,
+        }
+
     def place_limit_order(self, **order):
         self.orders.append(order)
-        return {"success": True, "orderID": "buy-1"}
+        return {"success": True, "orderID": "sell-1"}
 
     def get_midpoint(self, _token_id):
         return self.midpoint
@@ -118,16 +126,15 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert clob.orders == [
         {
             "token_id": "team-b-token",
-            "price": 0.93,
-            "size": pytest.approx(5 / 0.925),
-            "side": "BUY",
-            "order_type": "FOK",
+            "amount_usdc": 5,
+            "limit_price": 0.93,
         }
     ]
     created = repo.created[0]
     assert created["outcome"] == "Team B"
     assert created["buy_amount"] == 5
     assert created["buy_price"] == 0.925
+    assert created["buy_shares"] == pytest.approx(5 / 0.925)
     assert created["status"] is TradeStatus.PENDING_BUY
     assert created["yes_price_at_buy"] == 0.075
     assert repo.linked == [(3, 7)]

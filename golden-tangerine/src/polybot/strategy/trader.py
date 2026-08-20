@@ -282,12 +282,10 @@ class Trader:
             walk.limit_price * 100,
             walk.shares,
         )
-        result = self.clob.place_limit_order(
+        result = self.clob.place_fok_buy(
             token_id=token_id,
-            price=walk.limit_price,
-            size=walk.shares,
-            side="BUY",
-            order_type="FOK",
+            amount_usdc=self.config.buy_amount_usdc,
+            limit_price=walk.limit_price,
         )
         if not (result.get("success") or result.get("orderID")):
             if is_balance_allowance_error(result):
@@ -297,6 +295,17 @@ class Trader:
                 )
             else:
                 logger.error("매수 주문 실패: %s", result)
+            return None
+        try:
+            submitted_shares = float(result["requested_size"])
+        except (KeyError, TypeError, ValueError):
+            logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
+            return None
+        if not math.isfinite(submitted_shares) or submitted_shares <= 0:
+            logger.error(
+                "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
+                submitted_shares,
+            )
             return None
 
         trade = self.repo.create_trade(
@@ -309,7 +318,7 @@ class Trader:
             token_id=token_id,
             buy_price=walk.vwap,
             buy_amount=self.config.buy_amount_usdc,
-            buy_shares=walk.shares,
+            buy_shares=submitted_shares,
             buy_order_id=result.get("orderID"),
             buy_timestamp=datetime.utcnow(),
             buy_probability=walk.vwap,
