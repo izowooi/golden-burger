@@ -227,6 +227,9 @@ def main():
         logger.error("계좌 설정이 없어 종료합니다")
         sys.exit(1)
     configured_names = [account.display_name for account in accounts]
+    slack_account_labels = {
+        account.display_name: account.slack_name for account in accounts
+    }
     try:
         validate_account_display_names(configured_names)
     except PortfolioContractError as error:
@@ -463,6 +466,7 @@ def main():
                     reports,
                     is_monthly=is_monthly,
                     expected_display_names=configured_names,
+                    account_labels=slack_account_labels,
                 )
                 if success:
                     logger.info("✅ Slack 리포트 전송 성공")

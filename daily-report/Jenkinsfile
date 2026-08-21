@@ -29,6 +29,8 @@ pipeline {
         // Account 4 - second golden-apple
         ACCOUNT_4_NAME = 'golden-apple'
         ACCOUNT_4_ADDRESS = credentials('polymarket-golden-apple-2-address')
+        // Slack-only alias; stable Supabase identity remains golden-apple (2).
+        ACCOUNT_4_SLACK_NAME = 'orange'
 
         // Account 5 - reusable test slot (currently golden-honeydew)
         ACCOUNT_5_NAME = 'golden-eco'
@@ -79,7 +81,7 @@ pipeline {
         ACCOUNT_16_ADDRESS = credentials('polymarket-golden-fruit-address')
 
         // Slack attachment order. This must be an exact permutation of display names.
-        REPORT_ACCOUNT_ORDER = 'golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+        REPORT_ACCOUNT_ORDER = 'golden-apple (1),golden-banana,golden-cherry,golden-eagle,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf,golden-apple (2),golden-fox'
 
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')

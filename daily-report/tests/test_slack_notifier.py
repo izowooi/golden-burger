@@ -138,6 +138,38 @@ def test_consolidated_report_preserves_explicit_account_insertion_order(monkeypa
     ] == [name.upper() for name in order]
 
 
+def test_slack_alias_changes_only_rendered_label(monkeypatch):
+    notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
+    captured = capture_payload(monkeypatch, notifier)
+    reports = make_reports()
+    labels = {name: name for name in reports}
+    labels["golden-apple (2)"] = "orange"
+
+    notifier.send_multi_account_report(
+        reports,
+        expected_display_names=list(reports),
+        account_labels=labels,
+    )
+
+    assert account_attachment(captured, "ORANGE")["author_name"] == "ORANGE"
+    assert not any(
+        attachment.get("author_name") == "GOLDEN-APPLE (2)"
+        for attachment in captured["attachments"][1:]
+    )
+
+
+def test_rejects_incomplete_slack_alias_map(monkeypatch):
+    notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
+    captured = capture_payload(monkeypatch, notifier)
+
+    with pytest.raises(ValueError, match="Slack label 계정 집합"):
+        notifier.send_multi_account_report(
+            make_reports(), account_labels={"golden-apple (2)": "orange"}
+        )
+
+    assert captured == {}
+
+
 def test_rejects_partial_or_failed_report_before_webhook(monkeypatch):
     notifier = SlackNotifier(webhook_url="https://example.invalid/hook")
     captured = capture_payload(monkeypatch, notifier)

@@ -98,9 +98,15 @@ class CapturingSlack:
         self.errors = []
 
     def send_multi_account_report(
-        self, reports, is_monthly=False, *, expected_display_names=None
+        self,
+        reports,
+        is_monthly=False,
+        *,
+        expected_display_names=None,
+        account_labels=None,
     ):
         assert expected_display_names == list(reports)
+        assert account_labels == {name: name for name in reports}
         self.normal_reports.append((reports, is_monthly))
         return True
 
@@ -229,9 +235,15 @@ def test_slack_transport_failure_still_writes_db_but_exits_one(monkeypatch, tmp_
 
     class FailingSlack(CapturingSlack):
         def send_multi_account_report(
-            self, reports, is_monthly=False, *, expected_display_names=None
+            self,
+            reports,
+            is_monthly=False,
+            *,
+            expected_display_names=None,
+            account_labels=None,
         ):
             assert expected_display_names == list(reports)
+            assert account_labels == {name: name for name in reports}
             self.normal_reports.append((reports, is_monthly))
             return False
 

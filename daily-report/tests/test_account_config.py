@@ -26,6 +26,45 @@ def test_discovers_sparse_slots_above_old_nine_account_cap():
         "golden-apple (2)",
         "golden-fox",
     ]
+    assert [account.slack_name for account in accounts] == [
+        "golden-apple (1)",
+        "golden-apple (2)",
+        "golden-fox",
+    ]
+
+
+def test_slack_name_alias_does_not_change_stable_display_identity():
+    accounts = load_account_configs(
+        {
+            "ACCOUNT_1_NAME": "golden-apple",
+            "ACCOUNT_1_ADDRESS": "0x1",
+            "ACCOUNT_4_NAME": "golden-apple",
+            "ACCOUNT_4_ADDRESS": "0x4",
+            "ACCOUNT_4_SLACK_NAME": "orange",
+        }
+    )
+
+    assert [account.display_name for account in accounts] == [
+        "golden-apple (1)",
+        "golden-apple (2)",
+    ]
+    assert [account.slack_name for account in accounts] == [
+        "golden-apple (1)",
+        "orange",
+    ]
+
+
+def test_rejects_duplicate_slack_names_case_insensitively():
+    with pytest.raises(AccountConfigurationError, match="Slack 계정 표시 이름이 중복"):
+        load_account_configs(
+            {
+                "ACCOUNT_1_NAME": "golden-apple",
+                "ACCOUNT_1_ADDRESS": "0x1",
+                "ACCOUNT_2_NAME": "golden-banana",
+                "ACCOUNT_2_ADDRESS": "0x2",
+                "ACCOUNT_2_SLACK_NAME": " GOLDEN-APPLE ",
+            }
+        )
 
 
 def test_discovers_twenty_account_slots_in_numeric_order():

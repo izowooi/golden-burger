@@ -162,6 +162,11 @@ Slack의 계정 attachment는 기본적으로 `ACCOUNT_<숫자>` slot 순서를 
 누락·오타·중복이 있으면 잘못된 순서로 발행하지 않고 설정 오류로 종료합니다. 이 설정은
 Supabase의 안정적 `account_id`나 과거 balance row를 바꾸지 않습니다.
 
+`ACCOUNT_<숫자>_SLACK_NAME`은 해당 계정의 Slack 표기만 바꿉니다. 예를 들어 두 번째
+`golden-apple` slot에 `ACCOUNT_4_SLACK_NAME=orange`를 지정하면 Slack에는 `ORANGE`로
+보이지만, 내부 display name `golden-apple (2)`와 Supabase `golden-apple-2` 이력은 그대로
+유지됩니다. Slack 별칭도 전체 계정에서 대소문자 무시 기준으로 고유해야 합니다.
+
 ### Supabase URL과 Secret key 얻기
 
 이 작업에는 anon key, publishable key, legacy service role JWT가 필요하지 않습니다.

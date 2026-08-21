@@ -27,7 +27,8 @@ def test_jenkins_and_env_example_supply_all_sixteen_accounts_and_archive_evidenc
     assert "polymarket-golden-king-address" in jenkinsfile
     assert "polymarket-golden-fruit-address" in jenkinsfile
     assert "REPORT_ACCOUNT_ORDER" in jenkinsfile
-    assert "golden-eagle,golden-fox,golden-cat,golden-dog" in jenkinsfile
+    assert "ACCOUNT_4_SLACK_NAME = 'orange'" in jenkinsfile
+    assert "golden-fruit,golden-lion,golden-wolf,golden-apple (2),golden-fox" in jenkinsfile
     assert "post {" in jenkinsfile
     assert "always {" in jenkinsfile
     assert "daily_evidence.sqlite3" in jenkinsfile

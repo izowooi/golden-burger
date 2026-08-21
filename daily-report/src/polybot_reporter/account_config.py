@@ -21,10 +21,11 @@ class AccountConfigurationError(ValueError):
 class AccountConfig:
     """Configuration for a single account."""
 
-    def __init__(self, name: str, address: str):
+    def __init__(self, name: str, address: str, slack_name: str | None = None):
         self.name = name
         self.address = address
         self.display_name = name
+        self.slack_name = slack_name
 
     def __repr__(self) -> str:
         return f"AccountConfig(name={self.name}, address=[REDACTED])"
@@ -41,8 +42,11 @@ def load_account_configs(environ: Mapping[str, str] | None = None) -> list[Accou
     for slot in account_slots:
         name = values.get(f"ACCOUNT_{slot}_NAME", "").strip()
         address = values.get(f"ACCOUNT_{slot}_ADDRESS", "").strip()
+        slack_name = values.get(f"ACCOUNT_{slot}_SLACK_NAME", "").strip() or None
         if name and address:
-            accounts.append(AccountConfig(name=name, address=address))
+            accounts.append(
+                AccountConfig(name=name, address=address, slack_name=slack_name)
+            )
             logger.info("계좌 %d 로드 완료: %s (address=[REDACTED])", slot, name)
         elif name or address:
             raise AccountConfigurationError(
@@ -61,6 +65,14 @@ def load_account_configs(environ: Mapping[str, str] | None = None) -> list[Accou
         if name_counts[account.name] > 1:
             name_indices[account.name] = name_indices.get(account.name, 0) + 1
             account.display_name = f"{account.name} ({name_indices[account.name]})"
+        if account.slack_name is None:
+            account.slack_name = account.display_name
+
+    normalized_slack_names = [
+        " ".join(account.slack_name.upper().split()) for account in accounts
+    ]
+    if len(normalized_slack_names) != len(set(normalized_slack_names)):
+        raise AccountConfigurationError("Slack 계정 표시 이름이 중복됩니다")
     normalized_addresses = [account.address.lower() for account in accounts]
     if len(normalized_addresses) != len(set(normalized_addresses)):
         raise AccountConfigurationError("동일한 wallet address가 여러 계정 slot에 있습니다")

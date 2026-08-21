@@ -2,6 +2,7 @@
 
 import logging
 import os
+from collections.abc import Mapping
 from datetime import datetime
 from decimal import Decimal
 from typing import Optional
@@ -12,9 +13,11 @@ import requests
 from polybot_reporter.contracts import (
     PORTFOLIO_ERROR_SCHEMA_VERSION,
     PORTFOLIO_REPORT_SCHEMA_VERSION,
+    PortfolioContractError,
     canonical_money_breakdown,
     normalize_display_name,
     safe_error_message,
+    validate_account_display_names,
     validate_complete_reports,
 )
 
@@ -188,6 +191,7 @@ class SlackNotifier:
         is_monthly: bool = False,
         *,
         expected_display_names: list[str] | tuple[str, ...] | None = None,
+        account_labels: Mapping[str, str] | None = None,
     ) -> bool:
         """Send a consolidated report for multiple accounts.
 
@@ -200,6 +204,12 @@ class SlackNotifier:
         validate_complete_reports(
             reports, expected_display_names=expected_display_names
         )
+        labels = dict(account_labels or {name: name for name in reports})
+        if set(labels) != set(reports):
+            raise PortfolioContractError(
+                "Slack label 계정 집합이 report 계정 집합과 다릅니다"
+            )
+        validate_account_display_names(list(labels.values()))
 
         display_money = {
             name: _reconciled_display_money(summary)
@@ -260,7 +270,7 @@ class SlackNotifier:
             account_attachments.append(
                 {
                     "color": "#36a64f" if (total_pnl or 0) >= 0 else "#ff0000",
-                    "author_name": normalize_display_name(account_name),
+                    "author_name": normalize_display_name(labels[account_name]),
                     "text": f"{value_line}\n{pnl_line}",
                 }
             )
