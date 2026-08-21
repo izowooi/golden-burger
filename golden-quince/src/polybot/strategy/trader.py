@@ -54,6 +54,8 @@ def locked_in_own_orders(result: dict) -> bool:
         return False
     balance, active = int(match.group(1)), int(match.group(2))
     return balance > 0 and active >= balance
+
+
 _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 
@@ -71,6 +73,7 @@ def available_shares_from_error(result: dict) -> Optional[float]:
     if match is None:
         return None
     return int(match.group(1)) / _CLOB_QUANTITY_SCALE
+
 
 # ── 매도 실패 진단 ────────────────────────────────────────────────────
 # 매도 거절 중 상당수는 재시도해도 성공하지 않는다. 그런데 실패 분기가 trade
@@ -109,7 +112,6 @@ def classify_sell_failure(
     if available < requested_size:
         return "partial_balance"
     return "balance_edge"
-
 
 
 def _valid_book_price(value) -> Optional[float]:
@@ -217,7 +219,9 @@ class Trader:
         condition_id = str(candidate["condition_id"])
         token_id = str(candidate["token_id"])
         if candidate.get("outcome") != "Yes":
-            logger.error("Crown Momentum가 YES 이외 후보를 거부했습니다: %s", condition_id)
+            logger.error(
+                "Crown Momentum가 YES 이외 후보를 거부했습니다: %s", condition_id
+            )
             return None
         entry_snapshot_id = candidate.get("entry_snapshot_id")
         if (
@@ -498,17 +502,13 @@ class Trader:
             buy_timestamp=datetime.utcnow(),
             buy_probability=current_yes,
             status=(
-                TradeStatus.HOLDING
-                if self.mode == "sim"
-                else TradeStatus.PENDING_BUY
+                TradeStatus.HOLDING if self.mode == "sim" else TradeStatus.PENDING_BUY
             ),
             entry_reason=decision.reason,
             strategy_name=STRATEGY_NAME,
             mode=self.mode,
             market_end_date=candidate.get("end_date"),
-            hours_until_resolution_at_buy=candidate.get(
-                "hours_until_resolution"
-            ),
+            hours_until_resolution_at_buy=candidate.get("hours_until_resolution"),
             liquidity_at_buy=candidate.get("liquidity"),
             volume_24h_at_buy=candidate.get("volume_24h"),
             market_tags=candidate.get("market_tags", ""),
@@ -526,9 +526,7 @@ class Trader:
             market_game_start_time=clock.game_start_time,
             minutes_until_game_start_at_buy=clock.minutes_until_game_start,
             sports_market_type=clock.sports_market_type,
-            sports_phase_at_buy=(
-                clock.phase if clock.is_sports else "not_sports"
-            ),
+            sports_phase_at_buy=(clock.phase if clock.is_sports else "not_sports"),
             prior_snapshot_id_at_entry=prior_snapshot_id,
             entry_snapshot_id=entry_snapshot_id,
             best_bid_at_buy=best_bid,
@@ -712,7 +710,9 @@ class Trader:
         )
 
     @staticmethod
-    def _pending_buy_age_minutes(trade, now: Optional[datetime] = None) -> Optional[float]:
+    def _pending_buy_age_minutes(
+        trade, now: Optional[datetime] = None
+    ) -> Optional[float]:
         placed_at = getattr(trade, "buy_timestamp", None)
         if not isinstance(placed_at, datetime):
             return None
@@ -724,9 +724,7 @@ class Trader:
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
 
-    def reconcile_pending_buy(
-        self, trade, *, now: Optional[datetime] = None
-    ) -> bool:
+    def reconcile_pending_buy(self, trade, *, now: Optional[datetime] = None) -> bool:
         """Activate exact terminal fills and expire stale entry remainders.
 
         The same 15-minute boundary used to prove a fresh first crossing is the
@@ -765,7 +763,8 @@ class Trader:
             ):
                 try:
                     terminal = self.clob.cancel_order_for_reconciliation(
-                        trade.buy_order_id
+                        trade.buy_order_id,
+                        minimum_age_minutes=self.config.max_snapshot_gap_minutes,
                     )
                 except SubmissionEvidenceError as error:
                     logger.warning(
@@ -978,10 +977,7 @@ class Trader:
         if book is None:
             return False
         best_bid, best_ask, spread = book
-        if (
-            reason == "take_profit"
-            and best_bid < take_profit_price - 1e-9
-        ):
+        if reason == "take_profit" and best_bid < take_profit_price - 1e-9:
             logger.info(
                 "take-profit 신호는 충족했지만 fresh bid가 목표 미달 - "
                 "Trade #%s signal=%.4f bid=%.4f target=%.4f",
@@ -1033,8 +1029,7 @@ class Trader:
                     pnl_basis="simulation_hypothetical_best_bid_fees_excluded",
                 )
                 logger.info(
-                    "simulation %s SELL: Trade #%s bid=%.4f "
-                    "hypothetical P&L=$%.4f",
+                    "simulation %s SELL: Trade #%s bid=%.4f hypothetical P&L=$%.4f",
                     reason,
                     trade.id,
                     best_bid,

@@ -32,9 +32,7 @@ CATALOG_GAP_CONFIRMATION_TEMPLATE = "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS"
 LINKED_CATALOG_GAP_CONFIRMATION_TEMPLATE = (
     "ACKNOWLEDGE_{count}_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
 )
-QUANTITY_SCALE_REPAIR_CONFIRMATION_TEMPLATE = (
-    "REPAIR_{count}_CLOB_QUANTITIES_X1000000"
-)
+QUANTITY_SCALE_REPAIR_CONFIRMATION_TEMPLATE = "REPAIR_{count}_CLOB_QUANTITIES_X1000000"
 _MISSING = object()
 _MAX_RESPONSE_JSON_LENGTH = 1_000_000
 _MAX_RESPONSE_UNWRAP_DEPTH = 4
@@ -125,9 +123,7 @@ class SubmissionOutcomeQuarantinedError(SubmissionEvidenceError):
     def __init__(self, token_id: str, side: str) -> None:
         self.token_id = str(token_id)
         self.side = str(side).upper()
-        super().__init__(
-            "주문 POST 결과가 불확실하여 동일 token/side를 격리했습니다"
-        )
+        super().__init__("주문 POST 결과가 불확실하여 동일 token/side를 격리했습니다")
 
 
 class ClobResponseContractError(ValueError):
@@ -210,9 +206,7 @@ def _number(value: Any) -> float | None:
 
 def _numeric_metadata_present(value: Any) -> bool:
     """Treat blank optional numeric API fields as missing, not malformed."""
-    return value is not None and not (
-        isinstance(value, str) and not value.strip()
-    )
+    return value is not None and not (isinstance(value, str) and not value.strip())
 
 
 def _fixed_6_number(value: Any) -> float | None:
@@ -285,9 +279,7 @@ def _normalized_submission_amounts(
     making_amount: Any,
     taking_amount: Any,
 ) -> tuple[float | None, float | None, float | None]:
-    scale = _submission_amount_scale(
-        side, requested_size, making_amount, taking_amount
-    )
+    scale = _submission_amount_scale(side, requested_size, making_amount, taking_amount)
     return (
         _quantity_number(making_amount, scale),
         _quantity_number(taking_amount, scale),
@@ -488,12 +480,16 @@ def _lookup_model_value(
 
 
 def _known_response_keys() -> set[str]:
-    return {
-        alias
-        for fields_by_type in _CLOB_RESPONSE_FIELDS.values()
-        for aliases in fields_by_type.values()
-        for alias in aliases
-    } | set(_RESPONSE_ENVELOPE_KEYS) | {"trades", "results"}
+    return (
+        {
+            alias
+            for fields_by_type in _CLOB_RESPONSE_FIELDS.values()
+            for aliases in fields_by_type.values()
+            for alias in aliases
+        }
+        | set(_RESPONSE_ENVELOPE_KEYS)
+        | {"trades", "results"}
+    )
 
 
 def safe_clob_response_shape(value: Any) -> str:
@@ -504,7 +500,7 @@ def safe_clob_response_shape(value: Any) -> str:
         return "null"
     if isinstance(value, str):
         stripped = value.lstrip()
-        json_like = bool(stripped) and stripped[0] in "[{\""
+        json_like = bool(stripped) and stripped[0] in '[{"'
         return f"string(len={len(value)},json_like={str(json_like).lower()})"
     if isinstance(value, (list, tuple)):
         item_type = type(value[0]).__name__ if value else "none"
@@ -554,7 +550,9 @@ def _decode_response_json(value: str, *, response_type: str) -> Any:
 def _has_known_field(
     mapping: Mapping[str, Any], field_aliases: Mapping[str, tuple[str, ...]]
 ) -> bool:
-    return any(alias in mapping for aliases in field_aliases.values() for alias in aliases)
+    return any(
+        alias in mapping for aliases in field_aliases.values() for alias in aliases
+    )
 
 
 def _unwrap_single_response(
@@ -719,8 +717,7 @@ def normalize_clob_response_list(
             f"CLOB {response_type} response collection이 sequence가 아닙니다"
         )
     return [
-        normalize_clob_response(item, response_type=response_type)
-        for item in candidate
+        normalize_clob_response(item, response_type=response_type) for item in candidate
     ]
 
 
@@ -815,7 +812,9 @@ class ExecutionLedger:
                 or not _finite_positive(taking)
                 or scale not in {1.0, float(_FIXED_6_SCALE)}
             ):
-                raise ValueError("signed making/taking amount domain이 유효하지 않습니다")
+                raise ValueError(
+                    "signed making/taking amount domain이 유효하지 않습니다"
+                )
         self.assert_submission_allowed(token_id=token_id, side=side)
         submission_id = self.record_intent(
             token_id=token_id,
@@ -998,13 +997,11 @@ class ExecutionLedger:
             ).fetchone()
             if intent is None:
                 raise RuntimeError(f"order intent를 찾을 수 없습니다: {submission_id}")
-            making_amount, taking_amount, amount_scale = (
-                _normalized_submission_amounts(
-                    intent[0],
-                    intent[1],
-                    result.get("makingAmount"),
-                    result.get("takingAmount"),
-                )
+            making_amount, taking_amount, amount_scale = _normalized_submission_amounts(
+                intent[0],
+                intent[1],
+                result.get("makingAmount"),
+                result.get("takingAmount"),
             )
             cursor = connection.execute(
                 """
@@ -1051,9 +1048,7 @@ class ExecutionLedger:
         if response_anomaly:
             raise _OrderResponseContractError(response_anomaly)
 
-    def record_submission_error(
-        self, submission_id: str, error: BaseException
-    ) -> str:
+    def record_submission_error(self, submission_id: str, error: BaseException) -> str:
         """Mark a pre-submit intent failed without creating another ledger row."""
         status_code = getattr(error, "status_code", "missing")
         ambiguous = type(error).__name__ in {
@@ -1161,9 +1156,7 @@ class ExecutionLedger:
                 주문이 거래소에 반영되기 전일 수 있다.
         """
         stats = {"checked": 0, "resolved": 0, "kept_live_order": 0, "too_recent": 0}
-        cutoff = datetime.now(timezone.utc) - timedelta(
-            minutes=float(min_age_minutes)
-        )
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=float(min_age_minutes))
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
             rows = connection.execute(
@@ -1330,13 +1323,17 @@ class ExecutionLedger:
             if not unresolved:
                 raise ValueError("불확실한 order intent 상태가 아닙니다")
             if resolution == "NO_ORDER_CREATED" and row["order_id"] is not None:
-                raise ValueError("order_id가 존재하는 intent는 NO_ORDER_CREATED로 해결할 수 없습니다")
+                raise ValueError(
+                    "order_id가 존재하는 intent는 NO_ORDER_CREATED로 해결할 수 없습니다"
+                )
             if (
                 resolution == "ORDER_ID_LINKED"
                 and row["order_id"] is not None
                 and str(row["order_id"]) != normalized_order_id
             ):
-                raise ValueError("기존 response order_id와 operator order_id가 다릅니다")
+                raise ValueError(
+                    "기존 response order_id와 operator order_id가 다릅니다"
+                )
             connection.execute(
                 """
                 UPDATE order_submissions
@@ -1438,9 +1435,7 @@ class ExecutionLedger:
             raise ClobResponseContractError(
                 "CLOB cancellation not_canceled 필드가 mapping이 아닙니다"
             )
-        exact_cancel_ack = (
-            canceled_ids == [expected_order_id] and not not_canceled
-        )
+        exact_cancel_ack = canceled_ids == [expected_order_id] and not not_canceled
         not_canceled_reason = str(not_canceled.get(expected_order_id) or "").lower()
         exact_terminal_absence = (
             not canceled_ids
@@ -1513,9 +1508,7 @@ class ExecutionLedger:
                 blockers.append("not_buy")
             if _normalize_status(row["response_status"]) != "DELAYED":
                 blockers.append("not_delayed")
-            if age_minutes is None or age_minutes + 1e-9 < float(
-                minimum_age_minutes
-            ):
+            if age_minutes is None or age_minutes + 1e-9 < float(minimum_age_minutes):
                 blockers.append("too_recent")
             if row["latest_order_status"] is not None:
                 blockers.append("order_status_present")
@@ -1549,8 +1542,7 @@ class ExecutionLedger:
                 blockers.append("signed_token_amount_missing")
             if blockers:
                 raise SubmissionEvidenceError(
-                    "delayed FOK zero-fill precondition 실패: "
-                    + ",".join(blockers)
+                    "delayed FOK zero-fill precondition 실패: " + ",".join(blockers)
                 )
 
             proof = (
@@ -1612,6 +1604,219 @@ class ExecutionLedger:
             if cursor.rowcount != 1:
                 raise SubmissionEvidenceError(
                     "delayed FOK zero-fill evidence를 원자적으로 기록하지 못했습니다"
+                )
+        return proof
+
+    def record_expired_gtc_zero_fill(
+        self,
+        *,
+        order_id: str,
+        token_id: str,
+        cancellation: Any,
+        authenticated_trades: Any,
+        minimum_age_minutes: float,
+    ) -> str:
+        """Close an expired GTC BUY when terminal evidence proves zero fill.
+
+        A cancellation acknowledgement alone cannot prove that a resting GTC
+        order was never partially filled.  This recovery path therefore also
+        requires the complete authenticated token-trade catalog to contain no
+        trade that references the exact order.  It is used only when the order
+        detail endpoint no longer returns the canceled order.
+        """
+        expected_order_id = str(order_id or "").strip()
+        expected_token_id = str(token_id or "").strip()
+        if not expected_order_id or not expected_token_id:
+            raise ValueError("order_id와 token_id는 비어 있을 수 없습니다")
+        if (
+            isinstance(minimum_age_minutes, bool)
+            or not _finite_positive(minimum_age_minutes)
+            or float(minimum_age_minutes) < 1
+        ):
+            raise ValueError("minimum_age_minutes는 1 이상이어야 합니다")
+
+        cancellation_evidence = normalize_clob_response(
+            cancellation, response_type="cancellation"
+        )
+        canceled = cancellation_evidence.get("canceled")
+        not_canceled = cancellation_evidence.get("not_canceled")
+        if not isinstance(canceled, (list, tuple)):
+            raise ClobResponseContractError(
+                "CLOB cancellation canceled 필드가 sequence가 아닙니다"
+            )
+        canceled_ids = [str(value) for value in canceled]
+        if not isinstance(not_canceled, Mapping):
+            raise ClobResponseContractError(
+                "CLOB cancellation not_canceled 필드가 mapping이 아닙니다"
+            )
+        exact_cancel_ack = canceled_ids == [expected_order_id] and not not_canceled
+        not_canceled_reason = str(not_canceled.get(expected_order_id) or "").lower()
+        exact_terminal_absence = (
+            not canceled_ids
+            and set(str(key) for key in not_canceled) == {expected_order_id}
+            and bool(not_canceled_reason)
+            and (
+                "not found" in not_canceled_reason
+                or "already canceled" in not_canceled_reason
+                or "already cancelled" in not_canceled_reason
+            )
+        )
+        if not exact_cancel_ack and not exact_terminal_absence:
+            raise SubmissionEvidenceError(
+                "cancellation 응답이 exact GTC terminal 상태를 증명하지 못했습니다"
+            )
+
+        trades = normalize_clob_response_list(
+            authenticated_trades, response_type="trade"
+        )
+        exact_trade_ids = {
+            str(trade.get("id") or "")
+            for trade in trades
+            if _trade_references_order(trade, expected_order_id)
+        }
+        if exact_trade_ids:
+            raise SubmissionEvidenceError(
+                "authenticated trade catalog에 exact GTC order 체결 증거가 있습니다"
+            )
+
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT submission_id, token_id, side, submitted_at,
+                       response_status, requested_price, requested_size,
+                       making_amount, taking_amount, latest_order_status,
+                       latest_size_matched, associated_trade_ids_json,
+                       reconciliation_error, needs_reconciliation
+                FROM order_submissions
+                WHERE order_id = ? AND strategy_name = ?
+                """,
+                (expected_order_id, self.strategy_name),
+            ).fetchall()
+            if len(rows) != 1:
+                raise SubmissionEvidenceError(
+                    "exact GTC order와 연결된 submission이 정확히 1건이 아닙니다"
+                )
+            row = rows[0]
+            submitted_at = _parse_submitted_at(row["submitted_at"])
+            age_minutes = (
+                (datetime.now(timezone.utc) - submitted_at).total_seconds() / 60
+                if submitted_at is not None
+                else None
+            )
+            try:
+                associated = json.loads(row["associated_trade_ids_json"] or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise SubmissionEvidenceError(
+                    "associated trade ID evidence가 유효한 JSON이 아닙니다"
+                ) from error
+            fill_count = connection.execute(
+                "SELECT COUNT(*) FROM order_fills WHERE submission_id = ?",
+                (row["submission_id"],),
+            ).fetchone()[0]
+            gap_error = str(row["reconciliation_error"] or "")
+            response_status = _normalize_status(row["response_status"])
+            latest_status = _normalize_status(row["latest_order_status"])
+            latest_matched = _number(row["latest_size_matched"])
+            blockers = []
+            if str(row["token_id"] or "") != expected_token_id:
+                blockers.append("token_id_mismatch")
+            if str(row["side"] or "").upper() != "BUY":
+                blockers.append("not_buy")
+            if response_status not in {"ACCEPTED", "LIVE"}:
+                blockers.append("not_gtc_accepted")
+            if age_minutes is None or age_minutes + 1e-9 < float(minimum_age_minutes):
+                blockers.append("too_recent")
+            if row["latest_order_status"] is not None and latest_status != "LIVE":
+                blockers.append("non_live_order_status_present")
+            if latest_matched not in {None, 0.0}:
+                blockers.append("matched_size_nonzero")
+            if associated != []:
+                blockers.append("associated_trades_present")
+            if fill_count:
+                blockers.append("fills_present")
+            if not gap_error.startswith(
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError"
+            ):
+                blockers.append("catalog_absence_not_attested")
+            if int(row["needs_reconciliation"] or 0) != 1:
+                blockers.append("not_pending_reconciliation")
+            expected_size = _persisted_submission_token_amount(
+                row["side"],
+                row["requested_price"],
+                row["requested_size"],
+                row["making_amount"],
+                row["taking_amount"],
+            )
+            if expected_size is None:
+                expected_size = _number(row["requested_size"])
+            if not _finite_positive(expected_size):
+                blockers.append("submission_token_amount_missing")
+            if blockers:
+                raise SubmissionEvidenceError(
+                    "expired GTC zero-fill precondition 실패: " + ",".join(blockers)
+                )
+
+            proof = (
+                "EXACT_GTC_CANCEL_ACK_ZERO_FILL"
+                if exact_cancel_ack
+                else "EXPIRED_GTC_TERMINAL_ABSENCE_ZERO_FILL"
+            )
+            observed_at = _utc_now()
+            selected = {
+                "status": "CANCELED",
+                "original_size": expected_size,
+                "size_matched": 0.0,
+                "price": _number(row["requested_price"]),
+                "associated": [],
+                "quantity_scale": 1.0,
+                "domain_error": None,
+                "reconciliation_proof": proof,
+            }
+            fingerprint = hashlib.sha256(
+                json.dumps(selected, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO order_status_events (
+                    submission_id, observed_at, status, original_size,
+                    size_matched, price, associated_trade_ids_json, fingerprint,
+                    domain_error
+                ) VALUES (?, ?, 'CANCELED', ?, 0, ?, '[]', ?, NULL)
+                """,
+                (
+                    row["submission_id"],
+                    observed_at,
+                    expected_size,
+                    _number(row["requested_price"]),
+                    fingerprint,
+                ),
+            )
+            cursor = connection.execute(
+                """
+                UPDATE order_submissions
+                SET latest_order_status = 'CANCELED', latest_size_matched = 0,
+                    associated_trade_ids_json = '[]', last_reconciled_at = ?,
+                    latest_status_domain_error = NULL,
+                    reconciliation_error = NULL, reconciliation_proof = ?,
+                    quantity_scale = 1, needs_reconciliation = 0,
+                    outcome_resolution = ?, outcome_resolved_at = ?,
+                    outcome_resolution_reason = ?
+                WHERE submission_id = ? AND needs_reconciliation = 1
+                """,
+                (
+                    observed_at,
+                    proof,
+                    proof,
+                    observed_at,
+                    "expired GTC exact catalogs/trades/cancellation verified",
+                    row["submission_id"],
+                ),
+            )
+            if cursor.rowcount != 1:
+                raise SubmissionEvidenceError(
+                    "expired GTC zero-fill evidence를 원자적으로 기록하지 못했습니다"
                 )
         return proof
 
@@ -1688,8 +1893,7 @@ class ExecutionLedger:
                     )
 
                 every_fill_failed = bool(fill_rows) and all(
-                    _normalize_status(fill["status"]) == "FAILED"
-                    for fill in fill_rows
+                    _normalize_status(fill["status"]) == "FAILED" for fill in fill_rows
                 )
 
                 blockers: list[str] = []
@@ -1739,9 +1943,7 @@ class ExecutionLedger:
             connection.row_factory = sqlite3.Row
             return self._quantity_scale_repair_rows(connection, limit=limit)
 
-    def quantity_scale_diagnostics(
-        self, *, limit: int = 500
-    ) -> list[dict[str, Any]]:
+    def quantity_scale_diagnostics(self, *, limit: int = 500) -> list[dict[str, Any]]:
         """Explain why suspicious 10^6-scale rows are or are not repairable."""
         if limit < 1:
             raise ValueError("limit은 1 이상이어야 합니다")
@@ -2011,8 +2213,7 @@ class ExecutionLedger:
             fill_trade_ids = {
                 str(fill_row[0])
                 for fill_row in connection.execute(
-                    "SELECT DISTINCT trade_id FROM order_fills "
-                    "WHERE submission_id = ?",
+                    "SELECT DISTINCT trade_id FROM order_fills WHERE submission_id = ?",
                     (item["submission_id"],),
                 )
             }
@@ -2065,9 +2266,7 @@ class ExecutionLedger:
             (submission_id,),
         ):
             tokens.update(
-                token.strip()
-                for token in str(row[0] or "").split(",")
-                if token.strip()
+                token.strip() for token in str(row[0] or "").split(",") if token.strip()
             )
         return tokens
 
@@ -2232,7 +2431,10 @@ class ExecutionLedger:
         limit: int,
         include_evidence_linked: bool = False,
     ) -> list[sqlite3.Row]:
-        strict_contract = "" if include_evidence_linked else """
+        strict_contract = (
+            ""
+            if include_evidence_linked
+            else """
               AND UPPER(submission.response_status) IN ('ACCEPTED', 'LIVE', 'DELAYED')
               AND submission.latest_order_status IS NULL
               AND COALESCE(submission.associated_trade_ids_json, '[]') = '[]'
@@ -2241,6 +2443,7 @@ class ExecutionLedger:
                   WHERE strict_fill.submission_id = submission.submission_id
               )
         """
+        )
         return connection.execute(
             f"""
             SELECT submission_id, order_id, submitted_at, response_status,
@@ -2530,22 +2733,24 @@ class ExecutionLedger:
             (
                 item
                 for item in maker_orders
-                if isinstance(item, Mapping) and str(item.get("order_id")) == str(order_id)
+                if isinstance(item, Mapping)
+                and str(item.get("order_id")) == str(order_id)
             ),
             None,
         )
         reported_role = str(trade.get("trader_side") or "").upper()
         taker_match = (
-            (
-                bool(trade.get("taker_order_id"))
-                and str(trade.get("taker_order_id")) == str(order_id)
-            )
-            or (reported_role == "TAKER" and maker_match is None)
-        )
+            bool(trade.get("taker_order_id"))
+            and str(trade.get("taker_order_id")) == str(order_id)
+        ) or (reported_role == "TAKER" and maker_match is None)
         execution_payload_present = any(
             key in trade
             for key in (
-                "maker_orders", "taker_order_id", "trader_side", "size", "price"
+                "maker_orders",
+                "taker_order_id",
+                "trader_side",
+                "size",
+                "price",
             )
         )
         domain_errors: list[str] = []
@@ -2708,9 +2913,7 @@ class ExecutionLedger:
                     "authenticated trade의 exact order ID가 submission과 다릅니다"
                 )
             try:
-                existing = json.loads(
-                    submission["associated_trade_ids_json"] or "[]"
-                )
+                existing = json.loads(submission["associated_trade_ids_json"] or "[]")
             except (TypeError, ValueError, json.JSONDecodeError) as error:
                 raise ClobResponseContractError(
                     "기존 associated trade IDs JSON이 유효하지 않습니다"
@@ -2720,9 +2923,9 @@ class ExecutionLedger:
                     "기존 associated trade IDs가 list가 아닙니다"
                 )
             existing_ids = [str(value or "").strip() for value in existing]
-            if any(not value for value in existing_ids) or len(set(existing_ids)) != len(
-                existing_ids
-            ):
+            if any(not value for value in existing_ids) or len(
+                set(existing_ids)
+            ) != len(existing_ids):
                 raise ClobResponseContractError(
                     "기존 associated trade IDs가 비어 있거나 중복되었습니다"
                 )
@@ -3127,7 +3330,9 @@ class ExecutionLedger:
         is deliberately private test injection for proving mid-migration rollback.
         """
         if connection.in_transaction:
-            raise RuntimeError("execution ledger schema migration requires no transaction")
+            raise RuntimeError(
+                "execution ledger schema migration requires no transaction"
+            )
         connection.execute("BEGIN IMMEDIATE")
         try:
             connection.execute(
@@ -3256,9 +3461,20 @@ class ExecutionLedger:
             fill_info = list(connection.execute("PRAGMA table_info(order_fills)"))
             fill_columns = {str(row[1]) for row in fill_info}
             migration_columns = {
-                "submission_id", "order_id", "trade_id", "bucket_index", "status",
-                "side", "size", "price", "liquidity_role", "fee_rate_bps",
-                "fee_amount_usdc", "matched_at", "last_update", "transaction_hash",
+                "submission_id",
+                "order_id",
+                "trade_id",
+                "bucket_index",
+                "status",
+                "side",
+                "size",
+                "price",
+                "liquidity_role",
+                "fee_rate_bps",
+                "fee_amount_usdc",
+                "matched_at",
+                "last_update",
+                "transaction_hash",
                 "domain_error",
             }
             missing_migration_columns = migration_columns - fill_columns
@@ -3319,24 +3535,49 @@ class ExecutionLedger:
             )
             required_columns = {
                 "order_submissions": {
-                    "submission_id", "run_id", "order_id", "requested_price",
-                    "requested_size", "simulation", "success", "response_status",
-                    "needs_reconciliation", "outcome_resolution",
-                    "outcome_resolved_at", "outcome_resolution_reason",
-                    "latest_status_domain_error", "quantity_scale",
+                    "submission_id",
+                    "run_id",
+                    "order_id",
+                    "requested_price",
+                    "requested_size",
+                    "simulation",
+                    "success",
+                    "response_status",
+                    "needs_reconciliation",
+                    "outcome_resolution",
+                    "outcome_resolved_at",
+                    "outcome_resolution_reason",
+                    "latest_status_domain_error",
+                    "quantity_scale",
                     "reconciliation_proof",
                 },
                 "order_status_events": {
-                    "submission_id", "status", "original_size", "size_matched",
+                    "submission_id",
+                    "status",
+                    "original_size",
+                    "size_matched",
                     "domain_error",
                 },
                 "order_fills": {
-                    "submission_id", "order_id", "trade_id", "bucket_index",
-                    "status", "size", "price", "fee_rate_bps", "domain_error",
+                    "submission_id",
+                    "order_id",
+                    "trade_id",
+                    "bucket_index",
+                    "status",
+                    "size",
+                    "price",
+                    "fee_rate_bps",
+                    "domain_error",
                 },
                 "quantity_scale_repairs": {
-                    "repair_id", "submission_id", "strategy_name", "repaired_at",
-                    "multiplier", "reason", "before_json", "after_json",
+                    "repair_id",
+                    "submission_id",
+                    "strategy_name",
+                    "repaired_at",
+                    "multiplier",
+                    "reason",
+                    "before_json",
+                    "after_json",
                 },
             }
             for table, required in required_columns.items():
@@ -3406,9 +3647,7 @@ class ExecutionLedger:
         }
         if "trades" not in tables:
             return
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(trades)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(trades)")}
         required = {
             "token_id",
             "buy_order_id",
@@ -3429,7 +3668,9 @@ class ExecutionLedger:
             "sell_order_id" if "sell_order_id" in columns else "NULL AS sell_order_id",
             "sell_price" if "sell_price" in columns else "NULL AS sell_price",
             "sell_shares" if "sell_shares" in columns else "NULL AS sell_shares",
-            "sell_timestamp" if "sell_timestamp" in columns else "NULL AS sell_timestamp",
+            "sell_timestamp"
+            if "sell_timestamp" in columns
+            else "NULL AS sell_timestamp",
             "status" if "status" in columns else "NULL AS status",
         ]
         rows = connection.execute(
@@ -3453,7 +3694,9 @@ class ExecutionLedger:
                 ).fetchone()
                 if exists:
                     continue
-                submission_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"polybot:{order_id}"))
+                submission_id = str(
+                    uuid.uuid5(uuid.NAMESPACE_URL, f"polybot:{order_id}")
+                )
                 connection.execute(
                     """
                     INSERT INTO order_submissions (

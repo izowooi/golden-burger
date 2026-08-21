@@ -129,13 +129,14 @@ def test_gamma_keyset_sweep_deduplicates_and_attests_membership(monkeypatch):
     assert memberships["one"]["raw_seen_count"] == 2
     assert memberships["one"]["qualified"] is True
     assert memberships["closed"]["qualification_reason"] == "closed_or_missing"
-    assert memberships["server-filter-leak"]["qualification_reason"] == "below_min_liquidity"
+    assert (
+        memberships["server-filter-leak"]["qualification_reason"]
+        == "below_min_liquidity"
+    )
     assert memberships["missing-tradability"]["qualified"] is False
 
 
-def test_gamma_complete_sweep_is_shared_for_identical_filter(
-    tmp_path, monkeypatch
-):
+def test_gamma_complete_sweep_is_shared_for_identical_filter(tmp_path, monkeypatch):
     monkeypatch.setenv("POLYBOT_GAMMA_SHARED_CACHE_DIR", str(tmp_path))
     monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _seconds: None)
     first = GammaClient()
@@ -376,7 +377,9 @@ def test_expired_entry_cancel_preserves_terminal_matched_quantity(status, matche
     )
     wrapper._initialized = True
 
-    result = wrapper.cancel_order_for_reconciliation("cancel-me")
+    result = wrapper.cancel_order_for_reconciliation(
+        "cancel-me", minimum_age_minutes=30
+    )
 
     assert result["verified_order_status"] == status
     assert result["verified_size_matched"] == pytest.approx(float(matched))
@@ -388,9 +391,12 @@ class PlacementClient:
 
     def create_order(self, order_args):
         with sqlite3.connect(self.db_path) as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM order_submissions"
-            ).fetchone()[0] == 0
+            assert (
+                connection.execute("SELECT COUNT(*) FROM order_submissions").fetchone()[
+                    0
+                ]
+                == 0
+            )
         return {"signed": True, "args": order_args}
 
     def post_order(self, signed_order, order_type):
@@ -424,7 +430,9 @@ def test_order_intent_is_durable_before_post(tmp_path):
     db_path = tmp_path / "trades.db"
     wrapper = _placement_wrapper(db_path, PlacementClient(db_path))
 
-    assert wrapper.place_limit_order("token", 0.4, 10, "BUY")["orderID"] == "placed-order"
+    assert (
+        wrapper.place_limit_order("token", 0.4, 10, "BUY")["orderID"] == "placed-order"
+    )
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
             "SELECT order_id, response_status, making_amount, taking_amount, "
@@ -448,9 +456,10 @@ def test_preflight_timeout_creates_no_uncertain_intent(tmp_path):
 
     assert result["success"] is False
     with sqlite3.connect(db_path) as connection:
-        assert connection.execute(
-            "SELECT COUNT(*) FROM order_submissions"
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute("SELECT COUNT(*) FROM order_submissions").fetchone()[0]
+            == 0
+        )
 
 
 def test_post_timeout_is_quarantined_without_failing_cycle(tmp_path):
@@ -499,8 +508,11 @@ def test_unresolved_intent_quarantines_only_same_token_side(tmp_path):
     client = Client()
     wrapper = _placement_wrapper(db_path, client)
     wrapper.execution_ledger.record_intent(
-        token_id="uncertain", side="BUY", requested_price=0.4,
-        requested_size=10, simulation=False,
+        token_id="uncertain",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=10,
+        simulation=False,
     )
 
     wrapper.reconcile_order_ledger()

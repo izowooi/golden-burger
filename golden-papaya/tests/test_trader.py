@@ -59,7 +59,8 @@ class FakeClob:
         self.cancelled.append(order_id)
         return {"success": True}
 
-    def cancel_order_for_reconciliation(self, order_id):
+    def cancel_order_for_reconciliation(self, order_id, *, minimum_age_minutes):
+        assert minimum_age_minutes > 0
         self.cancelled.append(order_id)
         return {
             "verified_order_status": "CANCELED",

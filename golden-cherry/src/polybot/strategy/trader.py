@@ -1,4 +1,5 @@
 """Trading execution logic with resolution momentum strategy."""
+
 import logging
 import math
 import re
@@ -53,6 +54,8 @@ def locked_in_own_orders(result: dict) -> bool:
         return False
     balance, active = int(match.group(1)), int(match.group(2))
     return balance > 0 and active >= balance
+
+
 _CLOB_QUANTITY_SCALE = 1_000_000
 _GENERIC_SELL_RETRY_FACTOR = 0.99
 
@@ -64,9 +67,7 @@ def is_zero_balance_error(result: dict) -> bool:
 
 def is_balance_allowance_error(result: dict) -> bool:
     """Return whether CLOB rejected an order for balance or allowance."""
-    return bool(
-        _BALANCE_ALLOWANCE_PATTERN.search(str(result.get("error", "")))
-    )
+    return bool(_BALANCE_ALLOWANCE_PATTERN.search(str(result.get("error", ""))))
 
 
 def available_shares_from_error(result: dict) -> Optional[float]:
@@ -75,6 +76,7 @@ def available_shares_from_error(result: dict) -> Optional[float]:
     if match is None:
         return None
     return int(match.group(1)) / _CLOB_QUANTITY_SCALE
+
 
 # ── 매도 실패 진단 ────────────────────────────────────────────────────
 # 매도 거절 중 상당수는 재시도해도 성공하지 않는다. 그런데 실패 분기가 trade
@@ -115,7 +117,6 @@ def classify_sell_failure(
     return "balance_edge"
 
 
-
 def floor_clob_shares(value: float, *, reserve_micro_shares: int = 0) -> float:
     """Floor a share quantity to the CLOB's six-decimal integer scale."""
     raw_units = int(
@@ -125,6 +126,7 @@ def floor_clob_shares(value: float, *, reserve_micro_shares: int = 0) -> float:
     )
     raw_units = max(0, raw_units - reserve_micro_shares)
     return raw_units / _CLOB_QUANTITY_SCALE
+
 
 # Polymarket minimum order size requirement
 MIN_ORDER_SIZE = 5.0
@@ -156,9 +158,7 @@ class Trader:
         self.clob = clob_client
         self.config = config
         self.gamma = gamma_client
-        self.simulation_mode = bool(
-            getattr(clob_client, "simulation_mode", False)
-        )
+        self.simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
         self.buying_disabled = False
         self.buys_placed_this_cycle = 0
 
@@ -320,7 +320,10 @@ class Trader:
                     timing_reason,
                 )
                 return None
-        if game_start.phase == "in_play" and game_start.minutes_until_game_start is not None:
+        if (
+            game_start.phase == "in_play"
+            and game_start.minutes_until_game_start is not None
+        ):
             hours_text = f"경기 시작 후 {abs(game_start.minutes_until_game_start):.1f}m"
         else:
             hours_text = (
@@ -473,9 +476,7 @@ class Trader:
         elif reported_shares is not None:
             return result, initial_size, sell_basis
         elif is_balance_allowance_error(result):
-            retry_size = floor_clob_shares(
-                initial_size * _GENERIC_SELL_RETRY_FACTOR
-            )
+            retry_size = floor_clob_shares(initial_size * _GENERIC_SELL_RETRY_FACTOR)
             retry_reason = "generic balance-cache 99% fallback"
         else:
             return result, initial_size, sell_basis
@@ -598,9 +599,7 @@ class Trader:
                 buy_confirmed_size=evidence.confirmed_size,
                 buy_confirmed_vwap=evidence.confirmed_vwap,
                 buy_confirmed_fee_usdc=(
-                    evidence.confirmed_fee_usdc
-                    if evidence.fee_complete
-                    else None
+                    evidence.confirmed_fee_usdc if evidence.fee_complete else None
                 ),
             )
             logger.info(
@@ -613,29 +612,24 @@ class Trader:
             )
             return True
 
-        # A zero-fill GTC BUY must not reserve exposure forever.  Cancel only
-        # after the exact order remains LIVE, reports exactly zero matched, and
-        # exceeds the configured TTL.  Partial fills are never auto-cancelled by
-        # this zero-fill path.
+        # A stale GTC BUY must not reserve exposure forever.  Cancellation is
+        # attempted after the configured TTL; the CLOB wrapper and execution
+        # ledger independently require exact cancellation plus a complete
+        # authenticated token-trade catalog before declaring zero fill.
         buy_timestamp = getattr(trade, "buy_timestamp", None)
         if buy_timestamp is not None and buy_timestamp.tzinfo is not None:
-            buy_timestamp = buy_timestamp.astimezone(timezone.utc).replace(
-                tzinfo=None
-            )
+            buy_timestamp = buy_timestamp.astimezone(timezone.utc).replace(tzinfo=None)
         expired = (
             buy_timestamp is not None
             and _utcnow_naive() - buy_timestamp
             >= timedelta(minutes=self.config.pending_buy_ttl_minutes)
         )
-        if (
-            expired
-            and evidence.state == "pending"
-            and evidence.order_status == "LIVE"
-            and evidence.latest_size_matched == 0.0
-            and evidence.order_id
-        ):
+        if expired and evidence.order_id:
             try:
-                self.clob.cancel_order(evidence.order_id)
+                self.clob.cancel_order_for_reconciliation(
+                    evidence.order_id,
+                    minimum_age_minutes=self.config.pending_buy_ttl_minutes,
+                )
             except SubmissionEvidenceError as error:
                 logger.warning(
                     "만료 zero-fill BUY 취소 증명 실패로 PENDING_BUY 유지: "
@@ -723,8 +717,7 @@ class Trader:
         pnl_basis = "exact_sell_confirmed_fill_buy_evidence_unavailable"
         if (
             self._actual_fill_ready(buy_evidence)
-            and sell_evidence.confirmed_size
-            <= buy_evidence.confirmed_size + 1e-6
+            and sell_evidence.confirmed_size <= buy_evidence.confirmed_size + 1e-6
         ):
             buy_fee_allocation = buy_evidence.confirmed_fee_usdc * min(
                 1.0,
@@ -752,11 +745,7 @@ class Trader:
         )
         submitted_size = max(
             sell_evidence.confirmed_size,
-            float(
-                sell_evidence.submitted_size
-                or sell_evidence.requested_size
-                or 0.0
-            ),
+            float(sell_evidence.submitted_size or sell_evidence.requested_size or 0.0),
         )
         venue_unfilled = (
             0.0
@@ -775,9 +764,7 @@ class Trader:
         if remaining <= 0.010001:
             remaining = 0.0
         completed = remaining <= 1e-6
-        previous_sell_shares = float(
-            getattr(trade, "sell_shares", None) or 0.0
-        )
+        previous_sell_shares = float(getattr(trade, "sell_shares", None) or 0.0)
         update_fields = dict(
             status=(TradeStatus.COMPLETED if completed else TradeStatus.HOLDING),
             exit_reason=(
@@ -1000,13 +987,9 @@ class Trader:
             sell_value = current_price * sell_shares
             buy_value = trade.buy_price * sell_shares
             partial_pnl = sell_value - buy_value
-            previous_realized_pnl = float(
-                getattr(trade, "realized_pnl", None) or 0.0
-            )
+            previous_realized_pnl = float(getattr(trade, "realized_pnl", None) or 0.0)
             realized_pnl = previous_realized_pnl + partial_pnl
-            previous_sell_shares = float(
-                getattr(trade, "sell_shares", None) or 0.0
-            )
+            previous_sell_shares = float(getattr(trade, "sell_shares", None) or 0.0)
             cumulative_sell_shares = previous_sell_shares + sell_shares
 
             # A one-micro-share rounding reserve is economically unsellable and
@@ -1014,9 +997,7 @@ class Trader:
             # fallback remainder, however, stays HOLDING for the next cycle.
             completed = unsold_shares < MIN_ORDER_SIZE
             next_status = TradeStatus.COMPLETED if completed else TradeStatus.HOLDING
-            next_exit_reason = (
-                exit_reason if completed else f"partial_{exit_reason}"
-            )
+            next_exit_reason = exit_reason if completed else f"partial_{exit_reason}"
 
             # Update trade record
             update_fields = dict(
@@ -1034,7 +1015,11 @@ class Trader:
                 update_fields["buy_shares"] = unsold_shares
             self.repo.update_trade(trade.id, **update_fields)
 
-            pnl_percent_display = (current_price / trade.buy_price - 1) * 100 if trade.buy_price > 0 else 0
+            pnl_percent_display = (
+                (current_price / trade.buy_price - 1) * 100
+                if trade.buy_price > 0
+                else 0
+            )
             if completed:
                 if unsold_shares > 0:
                     logger.warning(
@@ -1106,7 +1091,9 @@ class Trader:
                     type(error).__name__,
                 )
                 return
-            logger.info(f"미체결 매수 주문 취소: {trade.buy_order_id} -> {cancel_result}")
+            logger.info(
+                f"미체결 매수 주문 취소: {trade.buy_order_id} -> {cancel_result}"
+            )
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.UNFILLED,

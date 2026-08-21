@@ -152,7 +152,12 @@ def test_records_submission_status_and_confirmed_fill(tmp_path):
             "SELECT making_amount, taking_amount FROM order_submissions"
         ).fetchone()
     assert fill == (
-        "CONFIRMED", 10.0, 0.419, "TAKER", 50.0, 0.01,
+        "CONFIRMED",
+        10.0,
+        0.419,
+        "TAKER",
+        50.0,
+        0.01,
         "1700000000",
     )
     assert amounts == (4.2, 10.0)
@@ -177,8 +182,7 @@ def test_human_unit_submission_amounts_are_not_double_scaled(tmp_path):
 
     with sqlite3.connect(ledger.db_path) as connection:
         row = connection.execute(
-            "SELECT making_amount, taking_amount, quantity_scale "
-            "FROM order_submissions"
+            "SELECT making_amount, taking_amount, quantity_scale FROM order_submissions"
         ).fetchone()
 
     assert row == (100.5664, 114.28, 1.0)
@@ -269,9 +273,7 @@ def test_all_failed_trades_close_ledger_and_repair_optimistic_strategy_state(
             "error=ClobResponseUnavailableError"
         ),
     )
-    [diagnostic] = ledger.catalog_missing_submissions(
-        include_evidence_linked=True
-    )
+    [diagnostic] = ledger.catalog_missing_submissions(include_evidence_linked=True)
     assert diagnostic["terminal_failure_no_fill"] is True
     assert diagnostic["completion_ready"] is True
     assert diagnostic["completion_blockers"] == []
@@ -358,8 +360,7 @@ def test_mixed_confirmed_and_failed_trade_outcomes_remain_fail_closed(tmp_path):
     assert ledger.finish_reconciliation(submission_id) is False
     with sqlite3.connect(ledger.db_path) as connection:
         row = connection.execute(
-            "SELECT needs_reconciliation, reconciliation_error "
-            "FROM order_submissions"
+            "SELECT needs_reconciliation, reconciliation_error FROM order_submissions"
         ).fetchone()
     assert row == (1, "mixed CONFIRMED/FAILED trade outcomes require review")
 
@@ -811,9 +812,7 @@ def test_typed_sdk_models_are_normalized_without_copying_unknown_fields(tmp_path
     ledger.record_fill(
         submission_id,
         "typed-order",
-        normalize_clob_response_list(
-            PydanticTradePage(), response_type="trade"
-        )[0],
+        normalize_clob_response_list(PydanticTradePage(), response_type="trade")[0],
     )
 
     assert ledger.finish_reconciliation(submission_id) is True
@@ -852,9 +851,7 @@ def test_typed_sdk_models_are_normalized_without_copying_unknown_fields(tmp_path
         {"data": {"id": "order-shape", "status": "MATCHED"}},
         {"result": [{"id": "order-shape", "status": "MATCHED"}]},
         [{"id": "order-shape", "status": "MATCHED"}],
-        json.dumps(
-            {"data": [{"id": "order-shape", "status": "MATCHED"}]}
-        ),
+        json.dumps({"data": [{"id": "order-shape", "status": "MATCHED"}]}),
         PydanticV1Root([{"id": "order-shape", "status": "MATCHED"}]),
     ],
 )
@@ -939,7 +936,9 @@ def test_unreadable_post_unknown_write_failure_stays_wrapped_and_blocks_restart(
         ),
     )
 
-    with pytest.raises(SubmissionEvidenceError, match="기록하지 못했습니다") as captured:
+    with pytest.raises(
+        SubmissionEvidenceError, match="기록하지 못했습니다"
+    ) as captured:
         ledger.submit_and_record(
             token_id="token",
             side="BUY",
@@ -1131,9 +1130,7 @@ def test_canceled_explicitly_unfilled_order_can_close(tmp_path):
         (
             {
                 "canceled": [],
-                "not_canceled": {
-                    "delayed-fok": "Order not found or already canceled"
-                },
+                "not_canceled": {"delayed-fok": "Order not found or already canceled"},
             },
             "DELAYED_FOK_TERMINAL_ABSENCE_ZERO_FILL",
         ),
@@ -1240,6 +1237,124 @@ def test_delayed_fok_zero_fill_rejects_exact_authenticated_trade(tmp_path):
                 }
             ],
             minimum_age_minutes=30,
+        )
+
+
+@pytest.mark.parametrize(
+    ("latest_status", "latest_matched", "cancellation", "expected_proof"),
+    [
+        (
+            "LIVE",
+            0.0,
+            {"canceled": ["expired-gtc"], "not_canceled": {}},
+            "EXACT_GTC_CANCEL_ACK_ZERO_FILL",
+        ),
+        (
+            None,
+            None,
+            {
+                "canceled": [],
+                "not_canceled": {"expired-gtc": "Order not found or already canceled"},
+            },
+            "EXPIRED_GTC_TERMINAL_ABSENCE_ZERO_FILL",
+        ),
+    ],
+)
+def test_expired_gtc_terminal_absence_can_prove_zero_fill(
+    tmp_path,
+    latest_status,
+    latest_matched,
+    cancellation,
+    expected_proof,
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.9,
+        requested_size=5.55,
+        result={
+            "success": True,
+            "orderID": "expired-gtc",
+            "status": "LIVE",
+        },
+        simulation=False,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE order_submissions
+            SET submitted_at = '2026-08-20T00:00:00+00:00',
+                last_reconciled_at = '2026-08-20T00:01:00+00:00',
+                latest_order_status = ?, latest_size_matched = ?,
+                reconciliation_error = ?
+            WHERE submission_id = ?
+            """,
+            (
+                latest_status,
+                latest_matched,
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError "
+                "response_shape=sequence(len=0,item_type=none)",
+                submission_id,
+            ),
+        )
+
+    proof = ledger.record_expired_gtc_zero_fill(
+        order_id="expired-gtc",
+        token_id="token",
+        cancellation=cancellation,
+        authenticated_trades=[],
+        minimum_age_minutes=15,
+    )
+
+    assert proof == expected_proof
+    assert ledger.pending_submissions() == []
+    with sqlite3.connect(db_path) as connection:
+        submission = connection.execute(
+            """
+            SELECT latest_order_status, latest_size_matched,
+                   needs_reconciliation, reconciliation_proof,
+                   reconciliation_error, outcome_resolution
+            FROM order_submissions WHERE submission_id = ?
+            """,
+            (submission_id,),
+        ).fetchone()
+    assert submission == ("CANCELED", 0.0, 0, expected_proof, None, expected_proof)
+
+
+def test_expired_gtc_zero_fill_rejects_exact_authenticated_trade(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    ledger.record_submission(
+        token_id="token",
+        side="BUY",
+        requested_price=0.9,
+        requested_size=5.55,
+        result={
+            "success": True,
+            "orderID": "expired-gtc",
+            "status": "LIVE",
+        },
+        simulation=False,
+    )
+
+    with pytest.raises(SubmissionEvidenceError, match="체결 증거"):
+        ledger.record_expired_gtc_zero_fill(
+            order_id="expired-gtc",
+            token_id="token",
+            cancellation={"canceled": ["expired-gtc"], "not_canceled": {}},
+            authenticated_trades=[
+                {
+                    "id": "trade-1",
+                    "status": "CONFIRMED",
+                    "taker_order_id": "expired-gtc",
+                    "size": "1.2",
+                    "price": "0.9",
+                }
+            ],
+            minimum_age_minutes=15,
         )
 
 
@@ -1534,10 +1649,7 @@ def test_reconciliation_gap_quarantines_only_same_token_side(tmp_path):
 
     assert ledger.unresolved_submission_count() == 0
     assert ledger.reconciliation_gap_count() == 1
-    assert (
-        ledger.submission_quarantine_count(token_id="gap-token", side="BUY")
-        == 1
-    )
+    assert ledger.submission_quarantine_count(token_id="gap-token", side="BUY") == 1
     with pytest.raises(UnresolvedTokenSubmissionError) as blocked:
         ledger.assert_submission_allowed(token_id="gap-token", side="BUY")
     assert blocked.value.count == 1
@@ -1563,16 +1675,25 @@ def test_crashed_intent_and_unlinked_evidence_failure_block_restart(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     live_intent = ledger.record_intent(
-        token_id="live", side="BUY", requested_price=0.4,
-        requested_size=1, simulation=False
+        token_id="live",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=1,
+        simulation=False,
     )
     ledger.record_intent(
-        token_id="sim", side="BUY", requested_price=0.4,
-        requested_size=1, simulation=True
+        token_id="sim",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=1,
+        simulation=True,
     )
     evidence_intent = ledger.record_intent(
-        token_id="evidence", side="SELL", requested_price=0.6,
-        requested_size=1, simulation=False
+        token_id="evidence",
+        side="SELL",
+        requested_price=0.6,
+        requested_size=1,
+        simulation=False,
     )
     ledger.mark_evidence_write_failure(
         evidence_intent, order_id="", error=OSError("disk")
@@ -1727,14 +1848,15 @@ def test_catalog_gap_operator_path_excludes_matched_or_trade_linked_orders(tmp_p
             include_evidence_linked=True,
         )
 
-    assert ledger.resolve_catalog_missing_submissions(
-        expected_count=2,
-        confirmation=(
-            "ACKNOWLEDGE_2_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"
-        ),
-        reason="linked evidence reviewed",
-        include_evidence_linked=True,
-    ) == 2
+    assert (
+        ledger.resolve_catalog_missing_submissions(
+            expected_count=2,
+            confirmation=("ACKNOWLEDGE_2_CLOB_EVIDENCE_GAPS_WITH_LINKED_EVIDENCE"),
+            reason="linked evidence reviewed",
+            include_evidence_linked=True,
+        )
+        == 2
+    )
     with sqlite3.connect(ledger.db_path) as connection:
         rows = connection.execute(
             "SELECT response_status, outcome_resolution, reconciliation_error "
@@ -1818,8 +1940,12 @@ def test_reconciliation_error_path_redacts_bare_and_dsn_credentials(tmp_path):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
-        token_id="token", side="BUY", requested_price=0.4, requested_size=1,
-        result={"success": True, "orderID": "order-redaction"}, simulation=False,
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=1,
+        result={"success": True, "orderID": "order-redaction"},
+        simulation=False,
     )
     synthetic_openai = "sk-svcacct-" + "R" * 28
     synthetic_dsn = "mongodb://fake_user:fake_password@db.invalid/fake"
@@ -1893,28 +2019,33 @@ def test_confirmed_fill_overflow_never_finishes_reconciliation(tmp_path):
         ],
     ],
 )
-def test_invalid_confirmed_size_domains_cannot_cancel_out_to_matched(
-    tmp_path, fills
-):
+def test_invalid_confirmed_size_domains_cannot_cancel_out_to_matched(tmp_path, fills):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
-        token_id="token", side="BUY", requested_price=0.4,
-        requested_size=10, result={"success": True, "orderID": "domain"},
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=10,
+        result={"success": True, "orderID": "domain"},
         simulation=False,
     )
     trade_ids = list(dict.fromkeys(fill["id"] for fill in fills))
     ledger.record_order_status(
         submission_id,
         {
-            "status": "MATCHED", "original_size": "10000000",
-            "size_matched": "10000000", "associate_trades": trade_ids,
+            "status": "MATCHED",
+            "original_size": "10000000",
+            "size_matched": "10000000",
+            "associate_trades": trade_ids,
         },
     )
     for fill in fills:
         payload = {
-            "status": "CONFIRMED", "price": "0.4",
-            "taker_order_id": "domain", "fee_rate_bps": 0,
+            "status": "CONFIRMED",
+            "price": "0.4",
+            "taker_order_id": "domain",
+            "fee_rate_bps": 0,
             **fill,
         }
         ledger.record_fill(submission_id, "domain", payload)
@@ -1933,14 +2064,18 @@ def test_invalid_fill_correlation_bucket_and_fee_are_persisted_and_blocking(
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
-        token_id="token", side="BUY", requested_price=0.4,
-        requested_size=10, result={"success": True, "orderID": "our-order"},
+        token_id="token",
+        side="BUY",
+        requested_price=0.4,
+        requested_size=10,
+        result={"success": True, "orderID": "our-order"},
         simulation=False,
     )
     ledger.record_order_status(
         submission_id,
         {
-            "status": "MATCHED", "size_matched": "10000000",
+            "status": "MATCHED",
+            "size_matched": "10000000",
             "associate_trades": ["bad-correlation"],
         },
     )
@@ -1948,13 +2083,21 @@ def test_invalid_fill_correlation_bucket_and_fee_are_persisted_and_blocking(
         submission_id,
         "our-order",
         {
-            "id": "bad-correlation", "status": "CONFIRMED",
+            "id": "bad-correlation",
+            "status": "CONFIRMED",
             "trader_side": "MAKER",
             "maker_orders": [
-                {"order_id": "someone-else", "matched_amount": "10000000", "price": "0.4"}
+                {
+                    "order_id": "someone-else",
+                    "matched_amount": "10000000",
+                    "price": "0.4",
+                }
             ],
-            "size": "10000000", "price": "0.4", "bucket_index": -1,
-            "fee_rate_bps": -1, "fee_amount_usdc": "-1",
+            "size": "10000000",
+            "price": "0.4",
+            "bucket_index": -1,
+            "fee_rate_bps": -1,
+            "fee_amount_usdc": "-1",
         },
     )
 
@@ -1976,20 +2119,28 @@ def test_submission_and_order_detail_numeric_domains_fail_closed(tmp_path):
     for price, size in ((float("inf"), 1), (0.4, 0), (1.0, 1)):
         with pytest.raises(ValueError):
             ledger.record_intent(
-                token_id="token", side="BUY", requested_price=price,
-                requested_size=size, simulation=False,
+                token_id="token",
+                side="BUY",
+                requested_price=price,
+                requested_size=size,
+                simulation=False,
             )
 
     submission_id = ledger.record_submission(
-        token_id="token", side="SELL", requested_price=0.4,
-        requested_size=10, result={"success": True, "orderID": "bad-status"},
+        token_id="token",
+        side="SELL",
+        requested_price=0.4,
+        requested_size=10,
+        result={"success": True, "orderID": "bad-status"},
         simulation=False,
     )
     ledger.record_order_status(
         submission_id,
         {
-            "status": "MATCHED", "original_size": "5000000",
-            "size_matched": "10000000", "associate_trades": ["fill"],
+            "status": "MATCHED",
+            "original_size": "5000000",
+            "size_matched": "10000000",
+            "associate_trades": ["fill"],
         },
     )
     assert ledger.finish_reconciliation(submission_id) is False
@@ -2041,8 +2192,7 @@ def test_explicit_market_buy_quantity_tolerance_preserves_exact_values(tmp_path)
     assert ledger.finish_reconciliation(submission_id) is True
     with sqlite3.connect(db_path) as connection:
         status = connection.execute(
-            "SELECT original_size, size_matched, domain_error "
-            "FROM order_status_events"
+            "SELECT original_size, size_matched, domain_error FROM order_status_events"
         ).fetchone()
     assert status == (5.3191, 5.319133, None)
 
@@ -2143,8 +2293,12 @@ def test_live_response_contract_anomalies_fail_and_block_restart(tmp_path, resul
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     with pytest.raises(SubmissionEvidenceError):
         ledger.record_submission(
-            token_id="token", side="BUY", requested_price=0.4,
-            requested_size=1, result=result, simulation=False,
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=1,
+            result=result,
+            simulation=False,
         )
 
     restarted = ExecutionLedger(db_path, strategy_name="golden-test")
@@ -2158,11 +2312,13 @@ def test_submit_and_record_preserves_unknown_response_and_cancels_known_id(tmp_p
     canceled = []
     with pytest.raises(SubmissionEvidenceError):
         ledger.submit_and_record(
-            token_id="token", side="BUY", requested_price=0.4, requested_size=1,
+            token_id="token",
+            side="BUY",
+            requested_price=0.4,
+            requested_size=1,
             submit=lambda: {"success": False, "orderID": "contradictory"},
-            cancel=lambda order_id: canceled.append(order_id) or {
-                "canceled": [order_id], "not_canceled": {}
-            },
+            cancel=lambda order_id: canceled.append(order_id)
+            or {"canceled": [order_id], "not_canceled": {}},
         )
     assert canceled == ["contradictory"]
     with sqlite3.connect(db_path) as connection:
@@ -2220,8 +2376,11 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
         submission_id,
         "legacy-order",
         {
-            "id": "legacy-fill", "status": "CONFIRMED", "size": "1000000",
-            "price": "0.4", "taker_order_id": "legacy-order",
+            "id": "legacy-fill",
+            "status": "CONFIRMED",
+            "size": "1000000",
+            "price": "0.4",
+            "taker_order_id": "legacy-order",
         },
     )
     _replace_fill_table_with_legacy_primary_key(db_path)
@@ -2241,9 +2400,7 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
     with sqlite3.connect(db_path) as connection:
         connection.execute("PRAGMA foreign_keys = ON")
         with pytest.raises(RuntimeError, match="injected migration failure"):
-            ExecutionLedger._ensure_schema(
-                connection, migration_hook=fail_after_copy
-            )
+            ExecutionLedger._ensure_schema(connection, migration_hook=fail_after_copy)
         assert connection.in_transaction is False
         primary_key = [
             row[1]
@@ -2255,10 +2412,13 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
         ]
         assert primary_key == ["submission_id", "trade_id"]
         assert connection.execute("SELECT COUNT(*) FROM order_fills").fetchone()[0] == 1
-        assert connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
-            "AND name = 'order_fills_v2'"
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'order_fills_v2'"
+            ).fetchone()[0]
+            == 0
+        )
         assert "reconciliation_proof" not in {
             row[1] for row in connection.execute("PRAGMA table_info(order_submissions)")
         }
@@ -2277,10 +2437,13 @@ def test_order_fill_migration_rolls_back_mid_copy_and_retries(tmp_path):
         assert "reconciliation_proof" in {
             row[1] for row in connection.execute("PRAGMA table_info(order_submissions)")
         }
-        assert connection.execute(
-            "SELECT version FROM polybot_schema_versions "
-            "WHERE component = 'execution_ledger'"
-        ).fetchone()[0] == 8
+        assert (
+            connection.execute(
+                "SELECT version FROM polybot_schema_versions "
+                "WHERE component = 'execution_ledger'"
+            ).fetchone()[0]
+            == 8
+        )
 
 
 def test_order_fill_migration_recovers_stale_v2_only_table(tmp_path):
@@ -2318,8 +2481,11 @@ def test_order_fill_migration_replaces_stale_v2_beside_legacy_source(tmp_path):
         submission_id,
         "authoritative",
         {
-            "id": "source-fill", "status": "CONFIRMED", "size": "1000000",
-            "price": "0.4", "taker_order_id": "authoritative",
+            "id": "source-fill",
+            "status": "CONFIRMED",
+            "size": "1000000",
+            "price": "0.4",
+            "taker_order_id": "authoritative",
         },
     )
     _replace_fill_table_with_legacy_primary_key(db_path)
@@ -2333,19 +2499,23 @@ def test_order_fill_migration_replaces_stale_v2_beside_legacy_source(tmp_path):
             "SELECT order_id, trade_id FROM order_fills"
         ).fetchall()
         assert rows == [("authoritative", "source-fill")]
-        assert connection.execute(
-            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
-            "AND name = 'order_fills_v2'"
-        ).fetchone()[0] == 0
+        assert (
+            connection.execute(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' "
+                "AND name = 'order_fills_v2'"
+            ).fetchone()[0]
+            == 0
+        )
 
 
 # ── 격리 자가 해제 (autoresolve_stale_sell_intents) ────────────────────
 def _insert_unresolved_sell(db_path, submission_id, token_id, age_minutes):
     """거래소 응답이 불확실해 격리된 SELL intent를 직접 심는다."""
     from datetime import datetime, timedelta, timezone
-    submitted = (
-        datetime.now(timezone.utc) - timedelta(minutes=age_minutes)
-    ).isoformat(timespec="microseconds")
+
+    submitted = (datetime.now(timezone.utc) - timedelta(minutes=age_minutes)).isoformat(
+        timespec="microseconds"
+    )
     with sqlite3.connect(db_path) as connection:
         connection.execute(
             "INSERT INTO order_submissions ("
@@ -2375,9 +2545,9 @@ def test_autoresolve_clears_only_intents_with_no_live_exchange_order(tmp_path):
     )
 
     assert stats["checked"] == 3
-    assert stats["resolved"] == 1          # token-gone만
-    assert stats["kept_live_order"] == 1   # token-live는 주문이 실재
-    assert stats["too_recent"] == 1        # token-fresh는 5분 전이라 보류
+    assert stats["resolved"] == 1  # token-gone만
+    assert stats["kept_live_order"] == 1  # token-live는 주문이 실재
+    assert stats["too_recent"] == 1  # token-fresh는 5분 전이라 보류
 
     with sqlite3.connect(db_path) as connection:
         rows = dict(
@@ -2414,7 +2584,5 @@ def test_autoresolve_unblocks_the_submission_gate(tmp_path):
     _insert_unresolved_sell(db_path, "sub-x", "token-x", age_minutes=120)
 
     assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 1
-    ledger.autoresolve_stale_sell_intents(
-        live_order_keys=set(), min_age_minutes=30.0
-    )
+    ledger.autoresolve_stale_sell_intents(live_order_keys=set(), min_age_minutes=30.0)
     assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 0

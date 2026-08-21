@@ -125,7 +125,7 @@ def get_exact_order_fill_evidence(
                     "making_amount, taking_amount, "
                     "latest_order_status, latest_size_matched, "
                     "latest_status_domain_error, needs_reconciliation, "
-                    "reconciliation_error, simulation "
+                    "reconciliation_error, reconciliation_proof, simulation "
                     "FROM order_submissions WHERE order_id = :order_id"
                 ),
                 {"order_id": normalized_order_id},
@@ -204,9 +204,7 @@ def get_exact_order_fill_evidence(
         )
 
     event_original_size = None
-    if status_event is not None and not str(
-        status_event["domain_error"] or ""
-    ).strip():
+    if status_event is not None and not str(status_event["domain_error"] or "").strip():
         candidate = _finite_float(status_event["original_size"])
         if candidate is not None and candidate > 0:
             event_original_size = candidate
@@ -302,10 +300,7 @@ def get_exact_order_fill_evidence(
     confirmed = [
         row
         for row in fills
-        if str(row["status"] or "")
-        .strip()
-        .upper()
-        .removeprefix("TRADE_STATUS_")
+        if str(row["status"] or "").strip().upper().removeprefix("TRADE_STATUS_")
         == "CONFIRMED"
     ]
     if confirmed:
@@ -371,19 +366,28 @@ def get_exact_order_fill_evidence(
             if row["matched_at"]:
                 matched_values.append(str(row["matched_at"]))
 
-        reconciled_matched_fill = (
-            not needs_reconciliation
-            and order_status in _TERMINAL_ORDER_STATUSES
-            and matched_size is not None
-            and matched_size > 0
-            and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
+        authenticated_full_fill = (
+            str(submission["reconciliation_proof"] or "").strip()
+            == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
+        )
+        reconciled_matched_fill = not needs_reconciliation and (
+            authenticated_full_fill
+            or (
+                order_status in _TERMINAL_ORDER_STATUSES
+                and matched_size is not None
+                and matched_size > 0
+                and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
+            )
         )
         reconciled_full_fill = reconciled_matched_fill and (
-            math.isclose(
-                matched_size,
-                submitted_size,
-                rel_tol=0.0,
-                abs_tol=submitted_size_tolerance,
+            authenticated_full_fill
+            or (
+                math.isclose(
+                    matched_size,
+                    submitted_size,
+                    rel_tol=0.0,
+                    abs_tol=submitted_size_tolerance,
+                )
             )
         )
         return ExactFillEvidence(

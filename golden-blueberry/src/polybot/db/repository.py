@@ -394,7 +394,7 @@ class TradeRepository:
                         "SELECT submission_id, side, requested_size, "
                         "latest_order_status, latest_size_matched, "
                         "latest_status_domain_error, needs_reconciliation, "
-                        "reconciliation_error, simulation "
+                        "reconciliation_error, reconciliation_proof, simulation "
                         "FROM order_submissions WHERE order_id = :order_id"
                     ),
                     {"order_id": normalized_order_id},
@@ -480,7 +480,7 @@ class TradeRepository:
             fills = (
                 self.session.execute(
                     text(
-                        "SELECT status, side, size, price, fee_rate_bps, "
+                        "SELECT status, side, size, price, liquidity_role, fee_rate_bps, "
                         "fee_amount_usdc, "
                         "matched_at, domain_error FROM order_fills "
                         "WHERE submission_id = :submission_id AND order_id = :order_id"
@@ -560,10 +560,11 @@ class TradeRepository:
                         )
                 raw_fee = row["fee_amount_usdc"]
                 if raw_fee is None:
-                    # The CLOB omits fee_amount_usdc for explicitly fee-free
-                    # fills.  Only an exact, valid zero rate proves a zero fee;
-                    # a missing or non-zero rate remains incomplete evidence.
-                    if fee_rate != 0.0:
+                    liquidity_role = str(row["liquidity_role"] or "").strip().upper()
+                    known_zero_fee = fee_rate == 0.0 or (
+                        fee_rate is None and liquidity_role == "MAKER"
+                    )
+                    if not known_zero_fee:
                         fee_complete = False
                 else:
                     try:
@@ -585,19 +586,27 @@ class TradeRepository:
                     fee_total += fee
                 if row["matched_at"]:
                     matched_values.append(str(row["matched_at"]))
-            reconciled_full_fill = (
-                not needs_reconciliation
-                and matched_size is not None
-                and math.isfinite(matched_size)
-                and matched_size > 0
-                and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
-                and (
-                    # MATCHED is the ledger's terminal full-order state.  Its
-                    # matched size is venue-quantized and can legitimately be
-                    # a few thousandths below the pre-quantization intent.
-                    order_status == "MATCHED"
-                    or math.isclose(
-                        matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+            authenticated_full_fill = (
+                str(submission["reconciliation_proof"] or "").strip()
+                == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
+            )
+            reconciled_full_fill = not needs_reconciliation and (
+                authenticated_full_fill
+                or (
+                    matched_size is not None
+                    and math.isfinite(matched_size)
+                    and matched_size > 0
+                    and math.isclose(
+                        size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6
+                    )
+                    and (
+                        # MATCHED is the ledger's terminal full-order state.  Its
+                        # matched size is venue-quantized and can legitimately be
+                        # a few thousandths below the pre-quantization intent.
+                        order_status == "MATCHED"
+                        or math.isclose(
+                            matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+                        )
                     )
                 )
             )
@@ -1137,7 +1146,9 @@ class TradeRepository:
             or 0.0
         )
 
-        def shadow_count(*, status: Optional[str] = None, classification: Optional[str] = None) -> int:
+        def shadow_count(
+            *, status: Optional[str] = None, classification: Optional[str] = None
+        ) -> int:
             query = self.session.query(func.count(ShadowSignal.id))
             if status is not None:
                 query = query.filter(ShadowSignal.status == status)
@@ -1160,24 +1171,16 @@ class TradeRepository:
             ),
             "shadow_signals": shadow_count(),
             "shadow_open": shadow_count(status="OPEN"),
-            "shadow_counterfactual_open": shadow_count(
-                status="COUNTERFACTUAL_OPEN"
-            ),
+            "shadow_counterfactual_open": shadow_count(status="COUNTERFACTUAL_OPEN"),
             "shadow_closed": shadow_count(status="CLOSED"),
             "shadow_not_executable": shadow_count(status="NOT_EXECUTABLE"),
             "shadow_observations": (
                 self.session.query(func.count(ShadowObservation.id)).scalar() or 0
             ),
-            "shadow_missed_profit": shadow_count(
-                classification="MISSED_PROFIT"
-            ),
-            "shadow_avoided_loss": shadow_count(
-                classification="AVOIDED_LOSS"
-            ),
+            "shadow_missed_profit": shadow_count(classification="MISSED_PROFIT"),
+            "shadow_avoided_loss": shadow_count(classification="AVOIDED_LOSS"),
             "shadow_entered_gross_pnl": round(shadow_entered_gross, 4),
-            "shadow_counterfactual_gross_pnl": round(
-                shadow_counterfactual_gross, 4
-            ),
+            "shadow_counterfactual_gross_pnl": round(shadow_counterfactual_gross, 4),
             "total_pnl": round(total_pnl, 4),
             "settlement_pnl_assumption": round(settlement_pnl, 4),
             "economic_pnl": round(total_pnl + settlement_pnl, 4),

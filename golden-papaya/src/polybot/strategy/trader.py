@@ -54,6 +54,8 @@ def locked_in_own_orders(result: dict) -> bool:
         return False
     balance, active = int(match.group(1)), int(match.group(2))
     return balance > 0 and active >= balance
+
+
 _CLOB_QUANTITY_SCALE = 1_000_000
 _SELL_BALANCE_SAFETY_FACTOR = 0.99
 _FILL_SIZE_TOLERANCE = 1e-6
@@ -72,6 +74,7 @@ def available_shares_from_error(result: dict) -> Optional[float]:
     if match is None:
         return None
     return int(match.group(1)) / _CLOB_QUANTITY_SCALE
+
 
 # ── 매도 실패 진단 ────────────────────────────────────────────────────
 # 매도 거절 중 상당수는 재시도해도 성공하지 않는다. 그런데 실패 분기가 trade
@@ -110,7 +113,6 @@ def classify_sell_failure(
     if available < requested_size:
         return "partial_balance"
     return "balance_edge"
-
 
 
 def _valid_book_price(value) -> Optional[float]:
@@ -315,9 +317,7 @@ class Trader:
             buy_timestamp=datetime.utcnow(),
             buy_probability=current_yes,
             status=(
-                TradeStatus.HOLDING
-                if self.mode == "sim"
-                else TradeStatus.PENDING_BUY
+                TradeStatus.HOLDING if self.mode == "sim" else TradeStatus.PENDING_BUY
             ),
             entry_reason=decision.reason,
             strategy_name=STRATEGY_NAME,
@@ -535,9 +535,7 @@ class Trader:
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
 
-    def reconcile_pending_buy(
-        self, trade, *, now: Optional[datetime] = None
-    ) -> bool:
+    def reconcile_pending_buy(self, trade, *, now: Optional[datetime] = None) -> bool:
         """Activate terminal fills and cancel stale entry remainders."""
         if self.mode == "sim":
             logger.error(
@@ -570,7 +568,8 @@ class Trader:
             ):
                 try:
                     terminal = self.clob.cancel_order_for_reconciliation(
-                        trade.buy_order_id
+                        trade.buy_order_id,
+                        minimum_age_minutes=self.config.max_snapshot_gap_minutes,
                     )
                 except SubmissionEvidenceError as error:
                     logger.warning(

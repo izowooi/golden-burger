@@ -29,6 +29,7 @@ def create_ledger_tables(session):
                 latest_status_domain_error TEXT,
                 needs_reconciliation INTEGER,
                 reconciliation_error TEXT,
+                reconciliation_proof TEXT,
                 simulation INTEGER
             )
             """
@@ -44,6 +45,7 @@ def create_ledger_tables(session):
                 side TEXT,
                 size REAL,
                 price REAL,
+                liquidity_role TEXT,
                 fee_rate_bps REAL,
                 fee_amount_usdc REAL,
                 matched_at TEXT,
@@ -65,6 +67,7 @@ def insert_submission(
     side="BUY",
     simulation=0,
     requested_size=None,
+    reconciliation_proof=None,
 ):
     if requested_size is None:
         requested_size = matched if matched and matched > 0 else 5.0
@@ -74,9 +77,10 @@ def insert_submission(
             "(submission_id, order_id, side, requested_size, "
             "latest_order_status, latest_size_matched, "
             "latest_status_domain_error, needs_reconciliation, "
-            "reconciliation_error, simulation) VALUES "
+            "reconciliation_error, reconciliation_proof, simulation) VALUES "
             "(:submission_id, :order_id, :side, :requested_size, :status, "
-            ":matched, NULL, :reconciliation, NULL, :simulation)"
+            ":matched, NULL, :reconciliation, NULL, :reconciliation_proof, "
+            ":simulation)"
         ),
         {
             "submission_id": f"submission-{order_id}",
@@ -86,6 +90,7 @@ def insert_submission(
             "status": status,
             "matched": matched,
             "reconciliation": reconciliation,
+            "reconciliation_proof": reconciliation_proof,
             "simulation": simulation,
         },
     )
@@ -100,6 +105,7 @@ def insert_fill(
     side="BUY",
     size=1.0,
     price=0.95,
+    liquidity_role=None,
     fee_rate=None,
     fee=0.001,
     matched_at="2026-07-14T00:00:00Z",
@@ -109,9 +115,10 @@ def insert_fill(
         text(
             "INSERT INTO order_fills "
             "(submission_id, order_id, status, side, size, price, "
-            "fee_rate_bps, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "liquidity_role, fee_rate_bps, fee_amount_usdc, matched_at, "
+            "domain_error) VALUES "
             "(:submission_id, :order_id, :status, :side, :size, :price, "
-            ":fee_rate, :fee, :matched_at, :domain_error)"
+            ":liquidity_role, :fee_rate, :fee, :matched_at, :domain_error)"
         ),
         {
             "submission_id": f"submission-{order_id}",
@@ -120,6 +127,7 @@ def insert_fill(
             "side": side,
             "size": size,
             "price": price,
+            "liquidity_role": liquidity_role,
             "fee_rate": fee_rate,
             "fee": fee,
             "matched_at": matched_at,
@@ -241,6 +249,47 @@ def test_explicit_zero_fee_rate_proves_zero_fee_when_amount_is_omitted(tmp_path)
     assert evidence.state == "confirmed"
     assert evidence.confirmed_fee_usdc == 0.0
     assert evidence.fee_complete is True
+    session.close()
+
+
+def test_maker_fill_with_omitted_fee_metadata_is_known_zero(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(session, order_id="maker-zero", status="MATCHED", matched=1)
+    insert_fill(
+        session,
+        order_id="maker-zero",
+        liquidity_role="maker",
+        fee_rate=None,
+        fee=None,
+    )
+
+    evidence = repo.get_exact_buy_fill_evidence("maker-zero")
+
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.fee_complete is True
+    assert evidence.confirmed_fee_usdc == 0.0
+    session.close()
+
+
+def test_authenticated_trade_catalog_full_fill_needs_no_order_status(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="catalog-full",
+        status=None,
+        matched=None,
+        requested_size=5.3763,
+        reconciliation_proof="AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL",
+    )
+    insert_fill(session, order_id="catalog-full", size=5.37, fee_rate=0, fee=None)
+
+    evidence = repo.get_exact_buy_fill_evidence("catalog-full")
+
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.has_reconciled_executed_fill is True
+    assert evidence.confirmed_size == pytest.approx(5.37)
     session.close()
 
 

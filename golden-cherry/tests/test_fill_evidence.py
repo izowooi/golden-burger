@@ -29,6 +29,7 @@ def create_ledger_tables(session):
                 latest_status_domain_error TEXT,
                 needs_reconciliation INTEGER,
                 reconciliation_error TEXT,
+                reconciliation_proof TEXT,
                 simulation INTEGER,
                 making_amount REAL,
                 taking_amount REAL
@@ -84,6 +85,7 @@ def insert_submission(
     original=None,
     making_amount=None,
     taking_amount=None,
+    reconciliation_proof=None,
 ):
     session.execute(
         text(
@@ -91,9 +93,11 @@ def insert_submission(
             "(submission_id, order_id, side, requested_size, "
             "latest_order_status, latest_size_matched, "
             "latest_status_domain_error, needs_reconciliation, "
-            "reconciliation_error, simulation, making_amount, taking_amount) VALUES "
+            "reconciliation_error, reconciliation_proof, simulation, "
+            "making_amount, taking_amount) VALUES "
             "(:submission, :order_id, :side, :requested, :status, :matched, "
-            "NULL, :reconciliation, NULL, 0, :making_amount, :taking_amount)"
+            "NULL, :reconciliation, NULL, :reconciliation_proof, 0, "
+            ":making_amount, :taking_amount)"
         ),
         {
             "submission": f"submission-{order_id}",
@@ -103,6 +107,7 @@ def insert_submission(
             "status": status,
             "matched": matched,
             "reconciliation": reconciliation,
+            "reconciliation_proof": reconciliation_proof,
             "making_amount": making_amount,
             "taking_amount": taking_amount,
         },
@@ -274,9 +279,7 @@ def test_matched_status_does_not_hide_large_original_size_shortfall(tmp_path):
 def test_nonzero_rate_without_fee_amount_remains_incomplete(tmp_path):
     session, repo = make_repo(tmp_path)
     create_ledger_tables(session)
-    insert_submission(
-        session, order_id="fee-gap", status="MATCHED", matched=5.0
-    )
+    insert_submission(session, order_id="fee-gap", status="MATCHED", matched=5.0)
     insert_fill(
         session,
         order_id="fee-gap",
@@ -312,15 +315,41 @@ def test_maker_fill_with_omitted_fee_metadata_is_known_zero(tmp_path):
     session.close()
 
 
+def test_authenticated_trade_catalog_full_fill_needs_no_order_status(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="catalog-full",
+        status=None,
+        matched=None,
+        requested=5.3763,
+        original=None,
+        reconciliation_proof="AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL",
+    )
+    insert_fill(
+        session,
+        order_id="catalog-full",
+        size=5.37,
+        fee_rate=0,
+        fee=None,
+    )
+
+    evidence = repo.get_exact_buy_fill_evidence("catalog-full")
+
+    assert evidence.has_reconciled_matched_fill is True
+    assert evidence.has_reconciled_full_fill is True
+    assert evidence.confirmed_size == pytest.approx(5.37)
+    session.close()
+
+
 @pytest.mark.parametrize("liquidity_role", [None, "TAKER"])
 def test_missing_fee_metadata_without_maker_role_remains_incomplete(
     tmp_path, liquidity_role
 ):
     session, repo = make_repo(tmp_path)
     create_ledger_tables(session)
-    insert_submission(
-        session, order_id="unknown-fee", status="MATCHED", matched=5.0
-    )
+    insert_submission(session, order_id="unknown-fee", status="MATCHED", matched=5.0)
     insert_fill(
         session,
         order_id="unknown-fee",

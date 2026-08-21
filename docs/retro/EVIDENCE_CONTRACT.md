@@ -107,10 +107,14 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    미체결 잔여 수량을 요청 수량으로 채우거나 PENDING 상태에 영구 고정하지 않는다.
    `MATCHED` 문자열만으로 전량 체결을 단정하지 않는다. submission token amount 또는
    order status event의 `original_size`와 confirmed fill 합계를 비교해 잔여 수량을 보존한다.
+   order-detail이 retention에서 사라져도 전체 authenticated token-trade catalog의 exact order
+   연결, persisted signed token amount, 모든 terminal CONFIRMED fill의 합계가 함께 전량 체결을
+   증명하면 `AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL`을 동등한 terminal full-fill proof로
+   인정한다. 이 proof 없이 빈 order-detail만으로 상태나 수량을 추정하지 않는다.
 4. 실제 fill price와 size로 gross P&L을 계산하고, `fee_amount_usdc`가 있으면 차감한다.
    fee amount가 없을 때 임의 수수료를 0으로 채우지 않는다. 단, 같은 CONFIRMED fill의
    `fee_rate_bps`가 유효한 숫자 `0`으로 명시된 경우에는 이를 **증명된 0 fee**로 인정한다.
-   Golden Cherry처럼 builder-fee 주문 경로가 없다고 source contract가 명시한 봇은 exact
+   이 모노레포의 live wrapper처럼 builder-fee 주문 경로가 없다고 source contract가 명시된 봇은 exact
    `liquidity_role='MAKER'` CONFIRMED fill에서 거래소가 rate와 amount를 모두 생략한 경우도
    platform fee 0으로 인정할 수 있다. 이 예외를 `TAKER`, role 불명, builder-fee 가능 주문,
    또는 0이 아닌 rate의 amount 누락에 적용하지 않는다. 그 밖의 누락은 fee evidence gap이며
@@ -129,6 +133,13 @@ trade가 없고, cancellation API가 그 exact ID를 `canceled` 또는 exact
 `not found/already canceled`로 반환해야 한다. FOK는 all-or-none이므로 이 conjunction은
 `DELAYED_FOK_*_ZERO_FILL` proof로 종결할 수 있다. 연결된 trade/fill, 부분 체결, 일반 GTC/FAK,
 단순 HTTP 200이나 빈 catalog 하나만으로는 이 예외를 적용하지 않는다.
+
+TTL이 지난 resting GTC BUY는 cancellation API의 exact `canceled` 또는
+`not found/already canceled` 응답에 더해, current/pre-migration order catalog의 exact ID 부재와
+**전체** authenticated token-trade catalog의 exact-order trade 부재를 모두 확인한 경우에만
+`EXACT_GTC_CANCEL_ACK_ZERO_FILL` 또는 `EXPIRED_GTC_TERMINAL_ABSENCE_ZERO_FILL`로 종결한다.
+GTC는 부분 체결될 수 있으므로 cancellation 응답이나 빈 order-detail만으로 zero fill을 선언하지
+않는다. exact trade가 하나라도 있으면 이 경로를 거부하고 일반 fill 대사로 되돌린다.
 
 기존 order ID는 제한된 기간에 best-effort bootstrap될 수 있지만, API에서 더 이상 확인할 수
 없는 과거 주문이나 누락된 ID를 복원하지 못한다. legacy 행은 별도 표본으로 두고 “체결 사실

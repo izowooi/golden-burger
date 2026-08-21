@@ -124,17 +124,22 @@ class PolymarketBot:
 
         try:
             self._log_strategy_config()
-
-            # Gamma 전체 sweep 1회 - Phase 0과 Phase 2가 공유 (banana의 2회 sweep 낭비 수정)
-            markets = self.gamma.get_all_tradable_markets(
-                min_liquidity=self.config.trading.min_liquidity
-            )
-
-            # Phase 0: Save market snapshots (모멘텀 게이트 데이터 축적)
-            logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
-            stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
-
             lifecycle_mode = self.config.trading.lifecycle_mode
+
+            markets = []
+            if lifecycle_mode in {"active", "archive_only"}:
+                # Gamma 전체 sweep 1회 - Phase 0과 Phase 2가 공유
+                markets = self.gamma.get_all_tradable_markets(
+                    min_liquidity=self.config.trading.min_liquidity
+                )
+                logger.info("=== Phase 0: 마켓 스냅샷 저장 ===")
+                stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            else:
+                logger.info(
+                    "Lifecycle %s: 신규 진입·archive가 없어 Gamma 전체 sweep 생략",
+                    lifecycle_mode,
+                )
+
             if lifecycle_mode != "archive_only":
                 # Phase 1: Check and sell holdings (EXPIRED 처리 포함)
                 logger.info("=== Phase 1: 보유 포지션 매도 확인 ===")
@@ -192,7 +197,7 @@ class PolymarketBot:
 
             # Log statistics
             db_stats = repo.get_stats()
-            logger.info(f"=== 사이클 완료 ===")
+            logger.info("=== 사이클 완료 ===")
             logger.info(f"스냅샷 저장: {stats['snapshots_saved']}개")
             logger.info(f"보유 포지션 확인: {stats['checked_holdings']}개")
             logger.info(f"매도: {stats['sold']}건")

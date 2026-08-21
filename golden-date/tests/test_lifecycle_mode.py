@@ -59,6 +59,8 @@ def test_close_only_checks_exits_but_never_scans_or_buys(monkeypatch, tmp_path):
     assert stats["checked_holdings"] == 1
     assert stats["buy_candidates"] == 0
     trader.execute_sell.assert_called_once_with(trade)
+    bot.gamma.get_all_tradable_markets.assert_not_called()
+    scanner.save_market_snapshots.assert_not_called()
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_buy.assert_not_called()
     repo.cleanup_old_snapshots.assert_called_once()

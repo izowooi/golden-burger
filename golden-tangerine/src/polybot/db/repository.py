@@ -85,6 +85,8 @@ class ExactFillEvidence:
     @property
     def has_reconciled_executed_fill(self) -> bool:
         """Whether every share executed by a terminal order is proven."""
+        if self.has_reconciled_full_fill:
+            return True
         return (
             self.state == "confirmed"
             and self.order_status in _TERMINAL_ORDER_STATUSES
@@ -301,7 +303,7 @@ class TradeRepository:
                         "SELECT submission_id, side, requested_size, "
                         "latest_order_status, latest_size_matched, "
                         "latest_status_domain_error, needs_reconciliation, "
-                        "reconciliation_error, simulation "
+                        "reconciliation_error, reconciliation_proof, simulation "
                         "FROM order_submissions WHERE order_id = :order_id"
                     ),
                     {"order_id": normalized_order_id},
@@ -387,7 +389,7 @@ class TradeRepository:
             fills = (
                 self.session.execute(
                     text(
-                        "SELECT status, side, size, price, fee_rate_bps, "
+                        "SELECT status, side, size, price, liquidity_role, fee_rate_bps, "
                         "fee_amount_usdc, "
                         "matched_at, domain_error FROM order_fills "
                         "WHERE submission_id = :submission_id AND order_id = :order_id"
@@ -467,10 +469,11 @@ class TradeRepository:
                         )
                 raw_fee = row["fee_amount_usdc"]
                 if raw_fee is None:
-                    # The CLOB omits fee_amount_usdc for explicitly fee-free
-                    # fills.  Only an exact, valid zero rate proves a zero fee;
-                    # a missing or non-zero rate remains incomplete evidence.
-                    if fee_rate != 0.0:
+                    liquidity_role = str(row["liquidity_role"] or "").strip().upper()
+                    known_zero_fee = fee_rate == 0.0 or (
+                        fee_rate is None and liquidity_role == "MAKER"
+                    )
+                    if not known_zero_fee:
                         fee_complete = False
                 else:
                     try:
@@ -492,24 +495,30 @@ class TradeRepository:
                     fee_total += fee
                 if row["matched_at"]:
                     matched_values.append(str(row["matched_at"]))
-            reconciled_executed_fill = (
-                not needs_reconciliation
-                and matched_size is not None
-                and math.isfinite(matched_size)
-                and matched_size > 0
-                and math.isclose(size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6)
-                and order_status in _TERMINAL_ORDER_STATUSES
+            authenticated_full_fill = (
+                str(submission["reconciliation_proof"] or "").strip()
+                == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
             )
-            reconciled_full_fill = (
-                reconciled_executed_fill
-                and (
-                    # MATCHED is the ledger's terminal full-order state.  Its
-                    # matched size is venue-quantized and can legitimately be
-                    # a few thousandths below the pre-quantization intent.
-                    order_status == "MATCHED"
-                    or math.isclose(
-                        matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
+            reconciled_executed_fill = not needs_reconciliation and (
+                authenticated_full_fill
+                or (
+                    matched_size is not None
+                    and math.isfinite(matched_size)
+                    and matched_size > 0
+                    and math.isclose(
+                        size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6
                     )
+                    and order_status in _TERMINAL_ORDER_STATUSES
+                )
+            )
+            reconciled_full_fill = reconciled_executed_fill and (
+                # MATCHED is the ledger's terminal full-order state.  Its
+                # matched size is venue-quantized and can legitimately be
+                # a few thousandths below the pre-quantization intent.
+                authenticated_full_fill
+                or order_status == "MATCHED"
+                or math.isclose(
+                    matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
                 )
             )
             return ExactFillEvidence(

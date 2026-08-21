@@ -4,6 +4,7 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 `py-clob-client-v2` (import: `py_clob_client_v2`) 를 사용한다.
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
+
 import json
 import os
 import logging
@@ -87,7 +88,7 @@ def _normalize_book_levels(value: Any, side: str) -> list[tuple[float, float]]:
 def _normalize_order_status(value: Any) -> str:
     status = str(value or "").strip().upper()
     prefix = "ORDER_STATUS_"
-    return status[len(prefix):] if status.startswith(prefix) else status
+    return status[len(prefix) :] if status.startswith(prefix) else status
 
 
 def _is_explicit_zero(value: Any) -> bool:
@@ -112,19 +113,13 @@ def _recorded_trade_ids(value: Any) -> list[str]:
         )
     trade_ids = [str(item or "").strip() for item in decoded]
     if any(not trade_id for trade_id in trade_ids):
-        raise ClobResponseContractError(
-            "recorded associated trade ID가 비어 있습니다"
-        )
+        raise ClobResponseContractError("recorded associated trade ID가 비어 있습니다")
     if len(set(trade_ids)) != len(trade_ids):
-        raise ClobResponseContractError(
-            "recorded associated trade ID가 중복되었습니다"
-        )
+        raise ClobResponseContractError("recorded associated trade ID가 중복되었습니다")
     return trade_ids
 
 
-def _trade_references_exact_order(
-    trade: Mapping[str, Any], order_id: str
-) -> bool:
+def _trade_references_exact_order(trade: Mapping[str, Any], order_id: str) -> bool:
     """Match authenticated trade evidence only by an exact venue order ID."""
     expected_order_id = str(order_id)
     if str(trade.get("taker_order_id") or "") == expected_order_id:
@@ -340,9 +335,7 @@ class ClobClientWrapper:
                         "CLOB batch midpoint response가 mapping이 아닙니다"
                     )
                 for token in chunk:
-                    results[token] = self._normalize_midpoint_value(
-                        response.get(token)
-                    )
+                    results[token] = self._normalize_midpoint_value(response.get(token))
             except Exception as exc:
                 failed_chunks += 1
                 logger.warning(
@@ -392,8 +385,10 @@ class ClobClientWrapper:
         """
         try:
             result = self.client.get_price(token_id, side="BUY")
-            price = result.get("price", 0) if isinstance(result, Mapping) else getattr(
-                result, "price", result
+            price = (
+                result.get("price", 0)
+                if isinstance(result, Mapping)
+                else getattr(result, "price", result)
             )
             return float(price) if price else 0.0
         except Exception as e:
@@ -415,8 +410,10 @@ class ClobClientWrapper:
         """
         try:
             result = self.client.get_price(token_id, side="SELL")
-            price = result.get("price", 0) if isinstance(result, Mapping) else getattr(
-                result, "price", result
+            price = (
+                result.get("price", 0)
+                if isinstance(result, Mapping)
+                else getattr(result, "price", result)
             )
             return float(price) if price else 0.0
         except Exception as e:
@@ -462,17 +459,9 @@ class ClobClientWrapper:
             best_bid = max(price for price, _ in bids)
             best_ask = min(price for price, _ in asks)
             if best_bid > best_ask + 1e-9:
-                raise ClobResponseContractError(
-                    "CLOB order book이 crossed 상태입니다"
-                )
-            depth_limit = (
-                min(limit, best_ask + window)
-                if window is not None
-                else limit
-            )
-            depth = sum(
-                size for price, size in asks if price <= depth_limit + 1e-9
-            )
+                raise ClobResponseContractError("CLOB order book이 crossed 상태입니다")
+            depth_limit = min(limit, best_ask + window) if window is not None else limit
+            depth = sum(size for price, size in asks if price <= depth_limit + 1e-9)
             return BuyBookDepth(
                 best_bid=best_bid,
                 best_ask=best_ask,
@@ -529,9 +518,7 @@ class ClobClientWrapper:
                 order_args,
                 order_type=OrderType.FOK,
             )
-            response = normalize_clob_response(
-                response, response_type="submission"
-            )
+            response = normalize_clob_response(response, response_type="submission")
             logger.info(f"Market BUY 주문 완료: {response}")
             return response
 
@@ -562,7 +549,9 @@ class ClobClientWrapper:
         rounded_price = self._round_to_tick(price)
 
         if self.simulation_mode:
-            logger.info(f"[SIM] Limit {side} - {size:.2f}주 @ {rounded_price:.2f}, token: {token_id}")
+            logger.info(
+                f"[SIM] Limit {side} - {size:.2f}주 @ {rounded_price:.2f}, token: {token_id}"
+            )
             result = {
                 "success": True,
                 "orderID": f"SIM_{side}_{token_id[:8]}",
@@ -627,7 +616,9 @@ class ClobClientWrapper:
                 "quarantined": True,
             }
         except SubmissionEvidenceError:
-            logger.critical("접수 주문과 execution ledger 정합성 유지 실패", exc_info=True)
+            logger.critical(
+                "접수 주문과 execution ledger 정합성 유지 실패", exc_info=True
+            )
             raise
         except Exception as e:
             logger.error(f"Limit 주문 실패: {e}")
@@ -684,9 +675,7 @@ class ClobClientWrapper:
                 response_shape = safe_clob_response_shape(raw_detail)
                 phase = "normalize_order"
                 try:
-                    detail = normalize_clob_response(
-                        raw_detail, response_type="order"
-                    )
+                    detail = normalize_clob_response(raw_detail, response_type="order")
                 except ClobResponseUnavailableError as unavailable_error:
                     phase = "fetch_current_order_catalog"
                     raw_current_orders = self.client.get_open_orders(
@@ -827,7 +816,9 @@ class ClobClientWrapper:
                         raw_trades, response_type="trade"
                     )
                     phase = "validate_trades"
-                    returned_trade_ids = [str(trade.get("id") or "") for trade in trades]
+                    returned_trade_ids = [
+                        str(trade.get("id") or "") for trade in trades
+                    ]
                     if not returned_trade_ids:
                         raise ClobResponseContractError(
                             "associated trade ID 조회 결과가 비어 있습니다"
@@ -842,9 +833,7 @@ class ClobClientWrapper:
                     for trade in trades:
                         if (
                             recovered_from_token_trade_catalog
-                            and not _trade_references_exact_order(
-                                trade, str(order_id)
-                            )
+                            and not _trade_references_exact_order(trade, str(order_id))
                         ):
                             raise ClobResponseContractError(
                                 "exact trade 재조회 결과가 pending order ID를 "
@@ -861,8 +850,8 @@ class ClobClientWrapper:
                         submission_id, order_id, trade_ids
                     )
                 phase = "finalize_reconciliation"
-                reconciliation_finished = (
-                    self.execution_ledger.finish_reconciliation(submission_id)
+                reconciliation_finished = self.execution_ledger.finish_reconciliation(
+                    submission_id
                 )
                 if reconciliation_finished:
                     stats["completed"] += 1
@@ -873,9 +862,7 @@ class ClobClientWrapper:
                     )
             except Exception as error:
                 stats["errors"] += 1
-                phase_error = ClobReconciliationPhaseError(
-                    phase, error, response_shape
-                )
+                phase_error = ClobReconciliationPhaseError(phase, error, response_shape)
                 self.execution_ledger.record_reconciliation_error(
                     submission_id, phase_error
                 )
@@ -891,7 +878,10 @@ class ClobClientWrapper:
         # 주문이 만들어지지 않은 것이 확인되므로 안전하게 풀 수 있다.
         # 조회 실패 시에는 절대 해제하지 않는다(빈 목록과 구분 불가).
         if os.environ.get("POLYBOT_INTENT_AUTORESOLVE", "true").lower() not in (
-            "false", "0", "no", "off"
+            "false",
+            "0",
+            "no",
+            "off",
         ):
             try:
                 raw_open = self.client.get_open_orders()
@@ -1000,11 +990,17 @@ class ClobClientWrapper:
             ) from error
 
     @rate_limit_handler(max_retries=3)
-    def cancel_order_for_reconciliation(self, order_id: str) -> Dict[str, Any]:
+    def cancel_order_for_reconciliation(
+        self, order_id: str, *, minimum_age_minutes: float
+    ) -> Dict[str, Any]:
         """Cancel an expired BUY while preserving a terminal partial fill."""
-        return self._cancel_with_terminal_evidence(order_id)
+        return self._cancel_with_terminal_evidence(
+            order_id, minimum_age_minutes=minimum_age_minutes
+        )
 
-    def _cancel_with_terminal_evidence(self, order_id: str) -> Dict[str, Any]:
+    def _cancel_with_terminal_evidence(
+        self, order_id: str, *, minimum_age_minutes: float
+    ) -> Dict[str, Any]:
         """Return exact terminal identity, status, and matched-size evidence."""
         if self.simulation_mode:
             logger.info("[SIM] 주문 취소 - order: %s", order_id)
@@ -1019,9 +1015,54 @@ class ClobClientWrapper:
                 self.client.cancel_orders([str(order_id)]),
                 response_type="cancellation",
             )
-            detail = normalize_clob_response(
-                self.client.get_order(str(order_id)), response_type="order"
-            )
+            try:
+                detail = normalize_clob_response(
+                    self.client.get_order(str(order_id)), response_type="order"
+                )
+            except ClobResponseUnavailableError:
+                if self.execution_ledger is None:
+                    raise
+                pending = [
+                    item
+                    for item in self.execution_ledger.pending_submissions()
+                    if str(item.get("order_id") or "") == str(order_id)
+                ]
+                if len(pending) != 1:
+                    raise SubmissionEvidenceError(
+                        "expired GTC order와 연결된 pending submission이 "
+                        "정확히 1건이 아닙니다"
+                    )
+                token_id = str(pending[0].get("token_id") or "").strip()
+                if not token_id:
+                    raise SubmissionEvidenceError(
+                        "expired GTC order의 token ID가 비어 있습니다"
+                    )
+                from py_clob_client_v2 import TradeParams
+
+                raw_trades = self.client.get_trades(
+                    TradeParams(asset_id=token_id), only_first_page=False
+                )
+                trades = normalize_clob_response_list(raw_trades, response_type="trade")
+                proof = self.execution_ledger.record_expired_gtc_zero_fill(
+                    order_id=str(order_id),
+                    token_id=token_id,
+                    cancellation=result,
+                    authenticated_trades=trades,
+                    minimum_age_minutes=minimum_age_minutes,
+                )
+                logger.info(
+                    "expired GTC zero-fill 종결: order=%s proof=%s "
+                    "authenticated_token_trades=%s",
+                    order_id,
+                    proof,
+                    len(trades),
+                )
+                return {
+                    **result,
+                    "verified_order_status": "CANCELED",
+                    "verified_size_matched": 0.0,
+                    "reconciliation_proof": proof,
+                }
             returned_order_id = str(detail.get("id") or "")
             status = _normalize_order_status(detail.get("status"))
             try:
