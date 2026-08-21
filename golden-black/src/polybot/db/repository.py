@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 import gzip
 import hashlib
 import json
 from pathlib import Path
 import shutil
 import sqlite3
+import time
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
@@ -346,6 +347,19 @@ CREATE TABLE IF NOT EXISTS storage_metrics (
     total_bytes INTEGER NOT NULL,
     used_ratio REAL NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS database_checks (
+    check_id TEXT PRIMARY KEY,
+    run_id TEXT NOT NULL,
+    check_type TEXT NOT NULL CHECK (check_type = 'QUICK_CHECK'),
+    started_at TEXT NOT NULL,
+    completed_at TEXT NOT NULL,
+    elapsed_ms REAL NOT NULL,
+    result TEXT NOT NULL,
+    db_bytes INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS database_check_time_idx
+ON database_checks(check_type, completed_at);
 """
 
 APPEND_ONLY_TABLES = (
@@ -356,8 +370,10 @@ APPEND_ONLY_TABLES = (
     "counterfactual_exit_policies", "stop_execution_attempts",
     "counterfactual_stop_exits",
     "resolution_attempts", "resolution_observations", "data_quality_issues",
-    "storage_metrics",
+    "storage_metrics", "database_checks",
 )
+
+FULL_QUICK_CHECK_INTERVAL = timedelta(hours=24)
 
 
 def _now() -> str:
@@ -588,6 +604,103 @@ class ResearchRepository:
     def quick_check(self) -> str:
         with self.connect() as c:
             return str(c.execute("PRAGMA quick_check").fetchone()[0])
+
+    def scheduled_database_check(
+        self,
+        run_id: str,
+        *,
+        now: datetime | None = None,
+        interval: timedelta = FULL_QUICK_CHECK_INTERVAL,
+    ) -> dict[str, Any]:
+        """Run a cheap probe every cycle and a full quick_check at most daily.
+
+        A full ``PRAGMA quick_check`` scans the entire append-only research DB.
+        Running it every five minutes eventually consumes the whole cadence as
+        the DB grows.  The lightweight probe still fails closed on unreadable
+        schema/contract pages, while explicit ``health`` and daily-rsync
+        verification continue to run an unconditional full check.
+        """
+        if interval.total_seconds() <= 0:
+            raise ValueError("database check interval must be positive")
+        current = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        with self.connect() as connection:
+            actual = connection.execute(
+                "SELECT data_contract FROM schema_metadata"
+            ).fetchone()
+            if actual is None or str(actual[0]) != self.data_contract:
+                raise RuntimeError(f"database contract mismatch: {actual}")
+            schema_version = int(
+                connection.execute("PRAGMA schema_version").fetchone()[0]
+            )
+            connection.execute(
+                "SELECT event_id FROM research_run_events "
+                "ORDER BY observed_at DESC LIMIT 1"
+            ).fetchone()
+            prior = connection.execute(
+                "SELECT completed_at FROM database_checks "
+                "WHERE check_type='QUICK_CHECK' AND result='ok' "
+                "ORDER BY completed_at DESC LIMIT 1"
+            ).fetchone()
+
+        prior_at = None
+        if prior is not None:
+            prior_at = datetime.fromisoformat(
+                str(prior[0]).replace("Z", "+00:00")
+            ).astimezone(timezone.utc)
+        if prior_at is not None and current - prior_at < interval:
+            return {
+                "mode": "LIGHTWEIGHT_PROBE",
+                "result": "ok",
+                "full_check_performed": False,
+                "schema_version": schema_version,
+                "last_full_check_at": prior_at.isoformat().replace("+00:00", "Z"),
+                "next_full_check_at": (prior_at + interval).isoformat().replace(
+                    "+00:00", "Z"
+                ),
+            }
+
+        started_at = current.isoformat().replace("+00:00", "Z")
+        started_clock = time.monotonic()
+        failure: BaseException | None = None
+        try:
+            result = self.quick_check()
+        except BaseException as error:
+            failure = error
+            result = f"ERROR:{type(error).__name__}"
+        elapsed_ms = round((time.monotonic() - started_clock) * 1000, 3)
+        completed = current + timedelta(milliseconds=elapsed_ms)
+        completed_at = completed.isoformat().replace("+00:00", "Z")
+        with self.connect() as connection:
+            self._insert(
+                connection,
+                "database_checks",
+                {
+                    "check_id": uuid4().hex,
+                    "run_id": run_id,
+                    "check_type": "QUICK_CHECK",
+                    "started_at": started_at,
+                    "completed_at": completed_at,
+                    "elapsed_ms": elapsed_ms,
+                    "result": result,
+                    "db_bytes": self.path.stat().st_size if self.path.exists() else 0,
+                },
+            )
+        if failure is not None:
+            raise RuntimeError("SQLite quick_check failed") from failure
+        if result != "ok":
+            raise RuntimeError(f"SQLite quick_check failed: {result}")
+        return {
+            "mode": "FULL_QUICK_CHECK",
+            "result": result,
+            "full_check_performed": True,
+            "schema_version": schema_version,
+            "started_at": started_at,
+            "completed_at": completed_at,
+            "elapsed_ms": elapsed_ms,
+            "next_full_check_at": (completed + interval).isoformat().replace(
+                "+00:00", "Z"
+            ),
+        }
 
     def summary(self) -> dict[str, Any]:
         with self.connect() as c:

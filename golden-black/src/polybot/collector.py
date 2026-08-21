@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
-from typing import Any, Mapping, Sequence
+from typing import Any, Mapping
 from uuid import uuid4
 
 from .api.clob_client import (

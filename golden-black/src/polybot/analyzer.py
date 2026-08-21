@@ -114,6 +114,19 @@ def analyze_database(path: Path) -> dict[str, Any]:
         issues = connection.execute(
             "SELECT severity,issue_type,COUNT(*) FROM data_quality_issues GROUP BY severity,issue_type"
         ).fetchall()
+        has_database_checks = connection.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='database_checks'"
+        ).fetchone()
+        check_rows = (
+            connection.execute(
+                "SELECT check_type,result,COUNT(*),MAX(completed_at),MAX(elapsed_ms) "
+                "FROM database_checks GROUP BY check_type,result "
+                "ORDER BY check_type,result"
+            ).fetchall()
+            if has_database_checks
+            else []
+        )
         policy_rows = connection.execute(
             """
             SELECT
@@ -153,6 +166,16 @@ def analyze_database(path: Path) -> dict[str, Any]:
             "eligible_markets": int(sweep[4] or 0), "max_pages": int(sweep[5] or 0),
         },
         "issues": [{"severity": row[0], "type": row[1], "count": row[2]} for row in issues],
+        "database_checks": [
+            {
+                "check_type": row[0],
+                "result": row[1],
+                "count": int(row[2]),
+                "latest_completed_at": row[3],
+                "max_elapsed_ms": row[4],
+            }
+            for row in check_rows
+        ],
         "arms": {},
         "stop_policy_comparison": {},
         "interpretation": "SHADOW_REVIEW_ONLY",

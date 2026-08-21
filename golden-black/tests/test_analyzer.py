@@ -39,6 +39,7 @@ def test_analyzer_uses_fee_and_resolution(tmp_path) -> None:
             gross-exit_fee,1,0.02,
         ))
     result = analyze_database(repository.path)
+    assert result["database_checks"] == []
     arm = result["arms"]["0.94"]["all"]
     assert arm["resolved"] == 1
     assert arm["wins"] == 1

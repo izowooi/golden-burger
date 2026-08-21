@@ -80,8 +80,9 @@ class ResearchBot:
                 )
                 result = collector.collect(run_id)
                 metric = repository.record_storage_metric(run_id)
-                if repository.quick_check() != "ok":
-                    raise RuntimeError("SQLite quick_check failed")
+                result["database_check"] = repository.scheduled_database_check(
+                    run_id
+                )
                 result["db_bytes"] = metric["db_bytes"]
                 audit.succeed(result)
                 return {"run_id": run_id, **result}

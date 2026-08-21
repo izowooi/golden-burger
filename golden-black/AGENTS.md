@@ -48,6 +48,9 @@ runtime job 또는 DB epoch로 분리한다. Git commit은 provenance이지 coho
 - 주문 SDK, signer, order submission code를 추가하지 않는다.
 - free space 50GiB 미만, filesystem 90% 이상, overlapping writer, incomplete cursor,
   malformed source, SQLite quick check 실패는 fail closed다.
+- 매 cycle은 DB contract/schema/read probe를 수행하고, 전체 SQLite quick check는 append-only
+  `database_checks`에 증거를 남기며 24시간에 한 번 수행한다. 명시적 `health`와 local
+  `daily-rsync verify`는 언제나 전체 검사를 수행한다.
 - Jenkins에 clean/wipe를 넣거나 research DB를 삭제하지 않는다.
 - 이 프로젝트 작업으로 다른 live/research Jenkins job을 변경하지 않는다.
 

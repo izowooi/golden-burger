@@ -41,6 +41,11 @@ UV=/Users/jongwoopark/.local/bin/uv
 `H/5 * * * *`를 활성화한다. `status`와 `health`는 timed shell에 넣지 않는다. 큰 DB에서 매 cycle
 deep check가 cadence를 잠식할 수 있다.
 
+`run`은 매 cycle DB contract/schema/read probe를 수행하고, 전체 `PRAGMA quick_check`는
+append-only `database_checks` 증거와 함께 24시간에 한 번만 수행한다. 명시적 `health`와
+`daily-rsync verify`는 주기와 무관하게 전체 검사를 수행한다. DB가 커져도 timed cycle마다
+전체 파일을 다시 읽지 않으며, 어느 검사든 실패하면 그 cycle은 fail closed한다.
+
 첫 manual build 뒤 `polybot status`에서 episode가 생기면 각 episode당
 `HOLD_TO_RESOLUTION/STOP_0.80/STOP_0.70/STOP_0.60` 네 policy가 생기는지 확인한다. 이후 log의
 `stop_attempts`와 `stop_exits`는 실제 주문 수가 아니라 displayed-book counterfactual 수다.
@@ -48,7 +53,8 @@ deep check가 cadence를 잠식할 수 있다.
 ## Cadence 판정
 
 5분으로 시작한다. server-side filter가 4페이지 상한을 넘거나 자연 build p95가 240초를 넘으면
-수집 범위를 줄이지 말고 timer를 일시 중지해 원인을 고친다. 증거 없이 10분으로 바꾸면 새
+수집 범위를 줄이지 말고 timer를 일시 중지해 원인을 고친다. p95는 24시간 주기의 full
+quick-check cycle을 포함한 전체 Jenkins runtime으로 계산한다. 증거 없이 10분으로 바꾸면 새
 cadence cohort가 되므로 중간 변경하지 않는다.
 
 ## Daily-rsync
