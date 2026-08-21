@@ -342,6 +342,32 @@ def _persisted_submission_token_amount(
     return None
 
 
+def _persisted_buy_maker_envelope(
+    side: Any,
+    requested_price: Any,
+    requested_size: Any,
+    making_amount: Any,
+) -> float | None:
+    """Recover the maximum BUY collateral from current or legacy rows."""
+    if str(side or "").strip().upper() != "BUY":
+        return None
+    price = _number(requested_price)
+    requested = _number(requested_size)
+    making = _number(making_amount)
+    if not _valid_fill_price(price) or not _finite_positive(requested):
+        return None
+    implied = price * requested
+    if _finite_positive(making):
+        candidates = (making, making * _FIXED_6_SCALE)
+        recovered = min(candidates, key=lambda candidate: abs(candidate - implied))
+        if abs(recovered - implied) / implied <= 0.05:
+            return recovered
+    # Legacy accepted responses can lack both normalized amount fields. BUY
+    # maker collateral is cent-quantized, so round the signed minimum-share
+    # envelope upward to the nearest cent without inventing extra capacity.
+    return math.ceil(implied * 100 - 1e-9) / 100
+
+
 def _bucket_index(value: Any) -> tuple[int, str | None]:
     if value is None:
         return 0, None
@@ -835,8 +861,15 @@ class ExecutionLedger:
             ) from error
         if signed_making_amount is not None:
             result = dict(result)
-            result.setdefault("makingAmount", signed_making_amount)
-            result.setdefault("takingAmount", signed_taking_amount)
+            # Some accepted FOK responses expose the amount keys with an
+            # explicit null/blank value.  ``setdefault`` treats those keys as
+            # present and used to discard the exact signed envelope.  Keep a
+            # non-empty venue value, but fall back to the pre-POST signed
+            # fixed-6 amounts when the optional response metadata is absent.
+            if not _numeric_metadata_present(result.get("makingAmount")):
+                result["makingAmount"] = signed_making_amount
+            if not _numeric_metadata_present(result.get("takingAmount")):
+                result["takingAmount"] = signed_taking_amount
         try:
             self.record_submission_result(
                 submission_id,
@@ -2323,24 +2356,28 @@ class ExecutionLedger:
         )
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT associated_trade_ids_json, requested_size, quantity_scale "
+                "SELECT associated_trade_ids_json, requested_size, quantity_scale, side "
                 "FROM order_submissions "
                 "WHERE submission_id = ?",
                 (submission_id,),
             ).fetchone()
         existing = json.loads(row[0] or "[]") if row else []
         associated = list(dict.fromkeys([*existing, *associated]))
-        quantity_scale = _number(row[2]) if row else None
-        if quantity_scale not in {1.0, float(_FIXED_6_SCALE)}:
-            quantity_scale = _infer_quantity_scale(
-                detail.get("original_size"), row[1] if row else None
-            )
+        persisted_quantity_scale = _number(row[2]) if row else None
+        quantity_scale = _infer_quantity_scale(
+            detail.get("original_size"), row[1] if row else None
+        )
         if quantity_scale is None:
             quantity_scale = _infer_partial_quantity_scale(
                 detail.get("size_matched"), row[1] if row else None
             )
         if quantity_scale is None and _number(detail.get("size_matched")) == 0.0:
             quantity_scale = 1.0
+        if quantity_scale is None and persisted_quantity_scale in {
+            1.0,
+            float(_FIXED_6_SCALE),
+        }:
+            quantity_scale = persisted_quantity_scale
         selected = {
             "status": status,
             "original_size": _quantity_number(
@@ -2371,6 +2408,11 @@ class ExecutionLedger:
             and _finite_nonnegative(selected["size_matched"])
             and selected["size_matched"]
             > selected["original_size"] + quantity_tolerance
+            # A BUY market order fixes maker USDC and signs the token amount
+            # at its limit price. Price improvement can therefore return more
+            # shares than ``original_size`` without exceeding the maker spend
+            # envelope. SELL orders still have a hard token-size ceiling.
+            and str(row[3] if row else "").strip().upper() != "BUY"
         ):
             domain_errors.append("size_matched_exceeds_original")
         if selected["price"] is not None and not _valid_fill_price(selected["price"]):
@@ -2440,9 +2482,7 @@ class ExecutionLedger:
                 (submission_id,),
             ).fetchone()
         requested_size = _number(scale_row[0]) if scale_row else None
-        quantity_scale = _number(scale_row[1]) if scale_row else None
-        if quantity_scale not in {1.0, float(_FIXED_6_SCALE)}:
-            quantity_scale = None
+        persisted_quantity_scale = _number(scale_row[1]) if scale_row else None
         status = _normalize_status(trade.get("status"))
         maker_orders = trade.get("maker_orders") or []
         maker_match = next(
@@ -2490,15 +2530,19 @@ class ExecutionLedger:
             fee_rate_raw = trade.get("fee_rate_bps")
             if execution_payload_present:
                 domain_errors.append("order_fill_correlation_invalid")
-        if quantity_scale is None:
-            quantity_scale = _infer_partial_quantity_scale(raw_size, requested_size)
-            if quantity_scale is not None:
-                with self._connect() as connection:
-                    connection.execute(
-                        "UPDATE order_submissions SET quantity_scale = ? "
-                        "WHERE submission_id = ? AND quantity_scale IS NULL",
-                        (quantity_scale, submission_id),
-                    )
+        quantity_scale = _infer_partial_quantity_scale(raw_size, requested_size)
+        if quantity_scale is None and persisted_quantity_scale in {
+            1.0,
+            float(_FIXED_6_SCALE),
+        }:
+            quantity_scale = persisted_quantity_scale
+        if quantity_scale is not None and quantity_scale != persisted_quantity_scale:
+            with self._connect() as connection:
+                connection.execute(
+                    "UPDATE order_submissions SET quantity_scale = ? "
+                    "WHERE submission_id = ?",
+                    (quantity_scale, submission_id),
+                )
         if quantity_scale is None:
             domain_errors.append("quantity_scale_missing")
         size = _quantity_number(raw_size, quantity_scale)
@@ -2811,6 +2855,7 @@ class ExecutionLedger:
             ):
                 trade_rows: dict[str, list[tuple[str, float | None]]] = {}
                 invalid_confirmed_domain = False
+                confirmed_notional = 0.0
                 for row in connection.execute(
                     "SELECT trade_id, status, size, price, bucket_index, domain_error "
                     "FROM order_fills "
@@ -2829,6 +2874,8 @@ class ExecutionLedger:
                         or row[5] is not None
                     ):
                         invalid_confirmed_domain = True
+                    elif fill_status == "CONFIRMED":
+                        confirmed_notional += float(row[2]) * float(row[3])
                 if invalid_confirmed_domain:
                     connection.execute(
                         "UPDATE order_submissions SET reconciliation_error = ? "
@@ -2876,6 +2923,31 @@ class ExecutionLedger:
                         if status == "CONFIRMED"
                     )
                     matched_size = _number(submission["latest_size_matched"])
+                    normalized_side = str(submission["side"] or "").strip().upper()
+                    if normalized_side == "BUY" and every_bucket_confirmed:
+                        maker_envelope = _persisted_buy_maker_envelope(
+                            submission["side"],
+                            submission["requested_price"],
+                            submission["requested_size"],
+                            submission["making_amount"],
+                        )
+                        if maker_envelope is None:
+                            connection.execute(
+                                "UPDATE order_submissions SET reconciliation_error = ? "
+                                "WHERE submission_id = ?",
+                                ("BUY maker envelope unavailable", submission_id),
+                            )
+                            return False
+                        if confirmed_notional > maker_envelope + _QUANTITY_TOLERANCE:
+                            connection.execute(
+                                "UPDATE order_submissions SET reconciliation_error = ? "
+                                "WHERE submission_id = ?",
+                                (
+                                    "confirmed BUY notional exceeds maker envelope",
+                                    submission_id,
+                                ),
+                            )
+                            return False
                     if order_status in _TERMINAL_ORDER_STATUSES:
                         expected_size = matched_size
                     else:

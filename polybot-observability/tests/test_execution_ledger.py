@@ -970,8 +970,15 @@ def test_simulated_submission_never_requires_reconciliation(tmp_path):
     assert ledger.pending_submissions() == []
 
 
-def test_signed_fixed_amounts_are_retained_when_accepted_response_omits_them(
-    tmp_path,
+@pytest.mark.parametrize(
+    "amount_fields",
+    [
+        {},
+        {"makingAmount": None, "takingAmount": ""},
+    ],
+)
+def test_signed_fixed_amounts_are_retained_when_accepted_response_omits_or_blanks_them(
+    tmp_path, amount_fields
 ):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
@@ -985,6 +992,7 @@ def test_signed_fixed_amounts_are_retained_when_accepted_response_omits_them(
             "success": True,
             "orderID": "delayed-fok",
             "status": "DELAYED",
+            **amount_fields,
         },
         signed_making_amount=5_000_000,
         signed_taking_amount=5_376_300,
@@ -1973,7 +1981,7 @@ def test_submission_and_order_detail_numeric_domains_fail_closed(tmp_path):
             )
 
     submission_id = ledger.record_submission(
-        token_id="token", side="BUY", requested_price=0.4,
+        token_id="token", side="SELL", requested_price=0.4,
         requested_size=10, result={"success": True, "orderID": "bad-status"},
         simulation=False,
     )
@@ -2037,6 +2045,78 @@ def test_explicit_market_buy_quantity_tolerance_preserves_exact_values(tmp_path)
             "FROM order_status_events"
         ).fetchone()
     assert status == (5.3191, 5.319133, None)
+
+
+@pytest.mark.parametrize(
+    ("fill_price", "expected_complete"),
+    [
+        (0.92, True),
+        (0.94, False),
+    ],
+)
+def test_market_buy_price_improvement_uses_maker_notional_envelope(
+    tmp_path, fill_price, expected_complete
+):
+    db_path = tmp_path / f"market-buy-{fill_price}.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    ledger.submit_and_record(
+        token_id="token",
+        side="BUY",
+        requested_price=0.93,
+        requested_size=5.3763,
+        submit=lambda: {
+            "success": True,
+            "orderID": "market-buy-improved",
+            "status": "DELAYED",
+            "makingAmount": None,
+            "takingAmount": None,
+        },
+        signed_making_amount=5_000_000,
+        signed_taking_amount=5_376_300,
+    )
+    with sqlite3.connect(db_path) as connection:
+        submission_id = connection.execute(
+            "SELECT submission_id FROM order_submissions"
+        ).fetchone()[0]
+
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "5.3763",
+            "size_matched": "5.434775",
+            "price": "0.93",
+            "associate_trades": ["market-fill-improved"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "market-buy-improved",
+        {
+            "id": "market-fill-improved",
+            "status": "CONFIRMED",
+            "size": "5.434775",
+            "price": str(fill_price),
+            "taker_order_id": "market-buy-improved",
+            "fee_rate_bps": 0,
+        },
+    )
+
+    assert ledger.finish_reconciliation(submission_id) is expected_complete
+    with sqlite3.connect(db_path) as connection:
+        status = connection.execute(
+            """
+            SELECT latest_status_domain_error, reconciliation_error,
+                   making_amount, taking_amount
+            FROM order_submissions
+            """
+        ).fetchone()
+    assert status[0] is None
+    assert status[2:] == pytest.approx((5.0, 5.3763))
+    if expected_complete:
+        assert status[1] is None
+    else:
+        assert status[1] == "confirmed BUY notional exceeds maker envelope"
 
 
 @pytest.mark.parametrize(
