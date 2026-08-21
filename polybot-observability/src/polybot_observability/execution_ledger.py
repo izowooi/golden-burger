@@ -2465,6 +2465,47 @@ class ExecutionLedger:
             )
         return associated
 
+    def revalidate_latest_order_status(self, submission_id: str) -> bool:
+        """Re-run current domain rules over the latest persisted status event.
+
+        Old terminal orders can disappear from every order catalog while their
+        exact trade IDs remain queryable.  In that recovery path there is no
+        fresh order payload to feed through :meth:`record_order_status`, so a
+        domain verdict fixed in newer code would otherwise remain stuck
+        forever.  Replaying only the latest immutable event preserves its raw
+        normalized evidence and appends a new fingerprint when the verdict
+        changes.
+        """
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT status, original_size, size_matched, price,
+                       associated_trade_ids_json
+                FROM order_status_events
+                WHERE submission_id = ?
+                ORDER BY id DESC
+                LIMIT 1
+                """,
+                (submission_id,),
+            ).fetchone()
+        if row is None:
+            return False
+        try:
+            associated = json.loads(row[4] or "[]")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return False
+        self.record_order_status(
+            submission_id,
+            {
+                "status": row[0],
+                "original_size": row[1],
+                "size_matched": row[2],
+                "price": row[3],
+                "associate_trades": associated,
+            },
+        )
+        return True
+
     def record_fill(
         self,
         submission_id: str,
@@ -2813,6 +2854,7 @@ class ExecutionLedger:
             )
 
     def finish_reconciliation(self, submission_id: str) -> bool:
+        self.revalidate_latest_order_status(submission_id)
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
             submission = connection.execute(

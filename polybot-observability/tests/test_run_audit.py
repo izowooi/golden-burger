@@ -692,7 +692,7 @@ def test_invalid_execution_domains_are_critical_in_retro_audit(tmp_path: Path) -
         connection.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, status TEXT)")
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
-        token_id="token", side="BUY", requested_price=0.4,
+        token_id="token", side="SELL", requested_price=0.4,
         requested_size=10, result={"success": True, "orderID": "bad-domain"},
         simulation=False,
     )
@@ -724,7 +724,9 @@ def test_invalid_execution_domains_are_critical_in_retro_audit(tmp_path: Path) -
     )
     codes = {issue["code"] for issue in result["issues"]}
     assert result["fill_ledger"]["invalid_confirmed_fill_domains"] == 1
-    assert result["fill_ledger"]["invalid_order_status_domains"] == 1
+    # The immutable ledger retains both the original fixed-6 verdict and the
+    # one-time current-rule revalidation verdict for the still-invalid SELL.
+    assert result["fill_ledger"]["invalid_order_status_domains"] == 2
     assert "confirmed_fill_domain_invalid" in codes
     assert "order_execution_domain_invalid" in codes
 

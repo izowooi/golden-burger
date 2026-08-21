@@ -2101,6 +2101,18 @@ def test_market_buy_price_improvement_uses_maker_notional_envelope(
             "fee_rate_bps": 0,
         },
     )
+    # Reproduce a verdict persisted by the pre-fix runtime after the terminal
+    # order itself has disappeared from the venue catalogs.
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE order_submissions
+            SET latest_status_domain_error='size_matched_exceeds_original',
+                reconciliation_error='order/submission domain invalid'
+            WHERE submission_id=?
+            """,
+            (submission_id,),
+        )
 
     assert ledger.finish_reconciliation(submission_id) is expected_complete
     with sqlite3.connect(db_path) as connection:
