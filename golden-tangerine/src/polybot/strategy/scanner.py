@@ -15,7 +15,6 @@ from .filters import (
     aligned_binary_reason,
     get_aligned_binary_outcomes,
     get_event_metadata,
-    passes_liquidity_filter,
 )
 
 

@@ -4,13 +4,15 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 `py-clob-client-v2` (import: `py_clob_client_v2`) 를 사용한다.
 구버전 `py-clob-client` 는 `order_version_mismatch` 오류로 더 이상 동작하지 않는다.
 """
+import hashlib
 import json
-import os
 import logging
 import math
-from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
+import os
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR, ROUND_HALF_UP
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 
 from py_clob_client_v2 import BookParams
@@ -57,6 +59,29 @@ class BuyBookWalk:
     cost: float
     limit_price: float
     levels_used: int
+
+
+@dataclass(frozen=True)
+class ClobResolutionToken:
+    """One normalized public CLOB market token at resolution lookup time."""
+
+    outcome: str
+    token_id: str
+    price: float
+    winner: bool
+
+
+@dataclass(frozen=True)
+class ClobResolutionProof:
+    """Fail-closed CLOB market result for one exact condition ID."""
+
+    condition_id: str
+    status: str
+    observed_at: str
+    tokens: tuple[ClobResolutionToken, ...]
+    winner_index: Optional[int]
+    evidence_sha256: str
+    evidence_json: str
 
 
 def _book_field(value: Any, name: str) -> Any:
@@ -163,6 +188,123 @@ def _recorded_trade_ids(value: Any) -> list[str]:
             "recorded associated trade ID가 중복되었습니다"
         )
     return trade_ids
+
+
+def _normalize_clob_resolution(
+    condition_id: str,
+    value: Any,
+    *,
+    observed_at: Optional[str] = None,
+) -> ClobResolutionProof:
+    """Accept only an exact closed two-token market with one 0/1 winner.
+
+    An open market is returned as ``OPEN``.  A closed market without a unique
+    winner remains ``CLOSED_UNRESOLVED``.  Malformed identity, payout, or
+    winner fields raise instead of being interpreted as settlement evidence.
+    """
+    normalized_condition = str(condition_id or "").strip()
+    if not normalized_condition:
+        raise ValueError("condition_id is required")
+    if not isinstance(value, Mapping):
+        raise ClobResponseContractError("CLOB market response must be a mapping")
+    returned_condition = value.get("condition_id") or value.get("conditionId")
+    if (
+        returned_condition not in (None, "")
+        and str(returned_condition) != normalized_condition
+    ):
+        raise ClobResponseContractError("CLOB market condition_id mismatch")
+    closed = value.get("closed")
+    if not isinstance(closed, bool):
+        raise ClobResponseContractError("CLOB market closed flag must be boolean")
+    observed = observed_at or datetime.now(timezone.utc).isoformat().replace(
+        "+00:00", "Z"
+    )
+    if not closed:
+        evidence_json = json.dumps(
+            {"closed": False}, sort_keys=True, separators=(",", ":")
+        )
+        return ClobResolutionProof(
+            condition_id=normalized_condition,
+            status="OPEN",
+            observed_at=observed,
+            tokens=(),
+            winner_index=None,
+            evidence_sha256=hashlib.sha256(evidence_json.encode()).hexdigest(),
+            evidence_json=evidence_json,
+        )
+
+    raw_tokens = value.get("tokens")
+    if not isinstance(raw_tokens, list) or len(raw_tokens) != 2:
+        raise ClobResponseContractError(
+            "closed CLOB market must contain exactly two tokens"
+        )
+    tokens: list[ClobResolutionToken] = []
+    for raw_token in raw_tokens:
+        if not isinstance(raw_token, Mapping):
+            raise ClobResponseContractError("CLOB market token must be a mapping")
+        outcome = str(raw_token.get("outcome") or "").strip()
+        token_id = str(raw_token.get("token_id") or "").strip()
+        winner = raw_token.get("winner")
+        try:
+            price = float(raw_token.get("price"))
+        except (TypeError, ValueError) as error:
+            raise ClobResponseContractError(
+                "CLOB resolution token price must be numeric"
+            ) from error
+        if (
+            not outcome
+            or not token_id
+            or not isinstance(winner, bool)
+            or not math.isfinite(price)
+            or not 0 <= price <= 1
+        ):
+            raise ClobResponseContractError(
+                "CLOB resolution token identity/payout is invalid"
+            )
+        tokens.append(ClobResolutionToken(outcome, token_id, price, winner))
+    if len({token.token_id for token in tokens}) != 2 or len(
+        {token.outcome for token in tokens}
+    ) != 2:
+        raise ClobResponseContractError(
+            "CLOB resolution token identities must be distinct"
+        )
+    winners = [index for index, token in enumerate(tokens) if token.winner]
+    status = "RESOLVED" if len(winners) == 1 else "CLOSED_UNRESOLVED"
+    winner_index = winners[0] if status == "RESOLVED" else None
+    if winner_index is not None:
+        expected_prices = [0.0, 0.0]
+        expected_prices[winner_index] = 1.0
+        if any(
+            not math.isclose(token.price, expected_prices[index], abs_tol=1e-12)
+            for index, token in enumerate(tokens)
+        ):
+            raise ClobResponseContractError(
+                "CLOB unique winner is not aligned with exact 0/1 payouts"
+            )
+    evidence = {
+        "closed": True,
+        "tokens": [
+            {
+                "outcome": token.outcome,
+                "price": token.price,
+                "token_id": token.token_id,
+                "winner": token.winner,
+            }
+            for token in tokens
+        ],
+    }
+    evidence_json = json.dumps(
+        evidence, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    )
+    return ClobResolutionProof(
+        condition_id=normalized_condition,
+        status=status,
+        observed_at=observed,
+        tokens=tuple(tokens),
+        winner_index=winner_index,
+        evidence_sha256=hashlib.sha256(evidence_json.encode()).hexdigest(),
+        evidence_json=evidence_json,
+    )
 
 
 def _trade_references_exact_order(
@@ -351,6 +493,12 @@ class ClobClientWrapper:
             else:
                 logger.error(f"midpoint 조회 실패 - token: {token_id}: {e}")
             raise
+
+    @rate_limit_handler(max_retries=3)
+    def get_market_resolution(self, condition_id: str) -> ClobResolutionProof:
+        """Read public CLOB one-hot winner evidence for one condition."""
+        result = self.client.get_market(str(condition_id))
+        return _normalize_clob_resolution(str(condition_id), result)
 
     @staticmethod
     def _normalize_midpoint_value(value: Any) -> Optional[float]:

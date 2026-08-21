@@ -3,10 +3,17 @@ from types import SimpleNamespace
 
 import pytest
 
-from polybot.api.clob_client import ClobClientWrapper, _walk_buy_book
+from polybot.api.clob_client import (
+    ClobClientWrapper,
+    _normalize_clob_resolution,
+    _walk_buy_book,
+)
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
-from polybot_observability import ClobResponseUnavailableError
+from polybot_observability import (
+    ClobResponseContractError,
+    ClobResponseUnavailableError,
+)
 
 
 class _Response:
@@ -166,6 +173,94 @@ def test_shallow_book_is_censored_not_imputed() -> None:
     }
     with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
         _walk_buy_book(book, "token", 5.0)
+
+
+def test_clob_resolution_requires_closed_unique_one_hot_winner() -> None:
+    proof = _normalize_clob_resolution(
+        "condition",
+        {
+            "condition_id": "condition",
+            "closed": True,
+            "tokens": [
+                {
+                    "outcome": "Team A",
+                    "price": 0,
+                    "token_id": "token-a",
+                    "winner": False,
+                },
+                {
+                    "outcome": "Team B",
+                    "price": 1,
+                    "token_id": "token-b",
+                    "winner": True,
+                },
+            ],
+        },
+        observed_at="2026-08-21T11:00:00Z",
+    )
+
+    assert proof.status == "RESOLVED"
+    assert proof.winner_index == 1
+    assert proof.tokens[1].token_id == "token-b"
+    assert proof.evidence_sha256 == _normalize_clob_resolution(
+        "condition",
+        {
+            "closed": True,
+            "tokens": [
+                {
+                    "winner": False,
+                    "token_id": "token-a",
+                    "price": 0,
+                    "outcome": "Team A",
+                },
+                {
+                    "winner": True,
+                    "token_id": "token-b",
+                    "price": 1,
+                    "outcome": "Team B",
+                },
+            ],
+        },
+    ).evidence_sha256
+
+
+def test_clob_resolution_rejects_winner_payout_mismatch() -> None:
+    with pytest.raises(ClobResponseContractError):
+        _normalize_clob_resolution(
+            "condition",
+            {
+                "closed": True,
+                "tokens": [
+                    {
+                        "outcome": "A",
+                        "price": 1,
+                        "token_id": "a",
+                        "winner": True,
+                    },
+                    {
+                        "outcome": "B",
+                        "price": 1,
+                        "token_id": "b",
+                        "winner": False,
+                    },
+                ],
+            },
+        )
+
+
+def test_clob_resolution_multiple_winners_remains_unresolved() -> None:
+    proof = _normalize_clob_resolution(
+        "condition",
+        {
+            "closed": True,
+            "tokens": [
+                {"outcome": "A", "price": 0, "token_id": "a", "winner": True},
+                {"outcome": "B", "price": 1, "token_id": "b", "winner": True},
+            ],
+        },
+    )
+    assert proof.status == "CLOSED_UNRESOLVED"
+    assert proof.winner_index is None
 
 
 def test_live_fok_uses_venue_tick_and_fok_order_type() -> None:

@@ -10,9 +10,13 @@
 - label/price/token이 정렬된 2-outcome sports market의 양 token을 사용한다. 팀명 moneyline
   (`negRisk=false`)과 Yes/No proposition(`negRisk=true`)을 모두 포함하되 `negRisk`는 명시적
   boolean이어야 한다. Gamma endDate `(0h,6h]`, liquidity `10k`, cumulative volume `5k`다.
-- 첫 exact-book band observation만 사용하고 FOK BUY 후 resolution까지 보유한다.
+- 첫 exact-book band observation만 사용하고 FOK BUY 후 resolution까지 보유한다. 최종
+  payout은 Gamma closed exact 0/1 또는 CLOB closed two-token unique one-hot winner로만
+  증명하며, CLOB fallback은 normalized payload hash를 append-only로 보존한다.
 - 조기 SELL, stop, TP, account-wide wallet reconciliation/wind-down을 추가하지 않는다.
 - job DB가 만든 trade만 관리한다. 수동 wallet position을 탐색·편입·청산하지 않는다.
+- CLOB resolution fallback은 DB settlement 상태만 기록한다. SELL/redeem 또는 wallet-wide
+  mutation을 추가하지 않는다.
 - `$5`, max positions/event/new `3/1/1`, frozen clocks를 완화하지 않는다.
 - Git commit은 provenance로만 보존한다. 분석 cohort는
   `config_hash × strategy_source_digest × mode × job_name`이며 digest에는 Tangerine runtime,

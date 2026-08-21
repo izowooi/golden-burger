@@ -66,3 +66,14 @@ an exact cancel acknowledgment or exact `not found/already canceled` response ar
 is all-or-none; any linked trade/fill or non-FOK path blocks this recovery. This changes evidence
 reconciliation only, not the signal, thresholds, universe, order amount, exposure, cadence, clocks,
 or exit policy.
+
+Post-acceptance resolution evidence correction (2026-08-21): the interim collection-health review
+found all six confirmed holdings already had public CLOB `closed=true`, exactly two distinct tokens,
+one unique `winner=true`, and aligned exact `0/1` payouts, while Gamma still exposed only a
+`proposed` resolution and the live jobs remained `HOLDING`. The resolution path now checks Gamma
+first, then the exact CLOB condition market only when midpoint is unavailable and Gamma lacks final
+payout evidence. CLOB settlement requires all of the one-hot conditions above, exact selected
+token/outcome alignment, and exact CONFIRMED BUY fill evidence; normalized public proof and SHA-256
+are stored append-only. It records DB settlement evidence only and never submits SELL/redeem or
+adopts manual wallet positions. This repairs lifecycle evidence and creates a new source-digest
+cohort; thresholds, universe, order amount, exposure, cadence, clocks, and exit policy do not change.

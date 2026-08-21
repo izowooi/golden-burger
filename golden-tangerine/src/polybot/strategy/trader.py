@@ -13,7 +13,7 @@ from polybot_observability import (
     SubmissionEvidenceError,
 )
 
-from ..api.clob_client import ClobClientWrapper
+from ..api.clob_client import ClobClientWrapper, ClobResolutionProof
 from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.models import STRATEGY_NAME, TradeStatus
@@ -356,25 +356,19 @@ class Trader:
             self.repo.link_entry_episode_trade(episode_id, trade.id)
         return trade.id
 
-    def _record_proven_resolution(
+    def _record_resolution_values(
         self,
         trade,
-        market: dict,
+        *,
+        payout: float,
+        first_outcome_payout: float,
+        winner_outcome: str,
+        resolution_status: str,
+        evidence_source: str,
+        observed_at: datetime,
+        source_updated_at: Optional[str],
         fill_evidence: Optional[ExactFillEvidence] = None,
     ) -> bool:
-        proof = get_proven_resolution(market)
-        if proof is None:
-            return False
-        observed_at = datetime.utcnow()
-        payouts = proof.get("payouts_by_outcome") or {}
-        if trade.outcome not in payouts:
-            logger.error(
-                "resolution payout lacks selected outcome - trade=%s outcome=%s",
-                trade.id,
-                trade.outcome,
-            )
-            return False
-        payout = float(payouts[trade.outcome])
         if fill_evidence is not None:
             confirmed_size = fill_evidence.confirmed_size
             confirmed_vwap = fill_evidence.confirmed_vwap
@@ -386,7 +380,7 @@ class Trader:
             else:
                 assumption_basis = "confirmed_buy_fill_gross_fee_unproven"
             resolution_evidence = (
-                f"{proof['evidence']}+execution_ledger_exact_confirmed_buy"
+                f"{evidence_source}+execution_ledger_exact_confirmed_buy"
             )
         else:
             confirmed_size = getattr(trade, "buy_shares", None)
@@ -396,20 +390,18 @@ class Trader:
             if confirmed_vwap is not None and confirmed_size is not None:
                 assumption = (payout - confirmed_vwap) * confirmed_size
             assumption_basis = "simulation_requested_order_assumption"
-            resolution_evidence = f"{proof['evidence']}+simulation_order"
-        # Preserve the Gamma catalog evidence as well as the trade-local proof.
-        self.repo.save_market_catalog(trade.condition_id, market, commit=True)
+            resolution_evidence = f"{evidence_source}+simulation_order"
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.RESOLVED,
             exit_reason="resolved_with_payout_evidence",
             # Legacy column name: stores payout of the first listed outcome.
-            yes_price_at_exit=proof["first_outcome_payout"],
-            resolution_outcome=proof["outcome"],
+            yes_price_at_exit=first_outcome_payout,
+            resolution_outcome=winner_outcome,
             resolution_value=payout,
-            resolution_status=proof["status"],
+            resolution_status=resolution_status,
             resolution_observed_at=observed_at,
-            resolution_source_updated_at=market.get("updatedAt"),
+            resolution_source_updated_at=source_updated_at,
             resolution_evidence=resolution_evidence,
             resolution_confirmed_buy_size=confirmed_size,
             resolution_confirmed_buy_vwap=confirmed_vwap,
@@ -425,72 +417,183 @@ class Trader:
             realized_pnl=None,
         )
         logger.warning(
-            "Gamma payout 증거로 RESOLVED 기록: Trade #%s selected=%s winner=%s payout=%.2f "
+            "proven payout으로 RESOLVED 기록: Trade #%s selected=%s winner=%s "
+            "payout=%.2f source=%s "
             "(settlement assumption=%s, realized_pnl=NULL)",
             trade.id,
             trade.outcome,
-            proof["outcome"],
+            winner_outcome,
             payout,
+            evidence_source,
             assumption,
         )
         return True
 
-    def _handle_midpoint_unavailable(self, trade, error) -> bool:
-        if self.gamma is None:
-            logger.warning(
-                "midpoint unavailable and Gamma client not injected - trade=%s error=%s",
+    def _record_proven_resolution(
+        self,
+        trade,
+        market: dict,
+        fill_evidence: Optional[ExactFillEvidence] = None,
+    ) -> bool:
+        proof = get_proven_resolution(market)
+        if proof is None:
+            return False
+        payouts = proof.get("payouts_by_outcome") or {}
+        if trade.outcome not in payouts:
+            logger.error(
+                "resolution payout lacks selected outcome - trade=%s outcome=%s",
                 trade.id,
-                error,
+                trade.outcome,
             )
             return False
-        try:
-            market = self.gamma.get_market_by_condition_id(trade.condition_id)
-        except Exception as gamma_error:
-            logger.warning(
-                "Gamma resolution lookup 실패 - condition=%s error=%s",
-                trade.condition_id,
-                gamma_error,
+        # Preserve the Gamma catalog evidence as well as the trade-local proof.
+        self.repo.save_market_catalog(trade.condition_id, market, commit=True)
+        return self._record_resolution_values(
+            trade,
+            payout=float(payouts[trade.outcome]),
+            first_outcome_payout=float(proof["first_outcome_payout"]),
+            winner_outcome=str(proof["outcome"]),
+            resolution_status=str(proof["status"]),
+            evidence_source=str(proof["evidence"]),
+            observed_at=datetime.utcnow(),
+            source_updated_at=market.get("updatedAt"),
+            fill_evidence=fill_evidence,
+        )
+
+    def _record_clob_resolution(
+        self,
+        trade,
+        proof: ClobResolutionProof,
+        fill_evidence: Optional[ExactFillEvidence] = None,
+    ) -> bool:
+        if (
+            proof.status != "RESOLVED"
+            or proof.winner_index not in (0, 1)
+            or len(proof.tokens) != 2
+        ):
+            return False
+        selected = next(
+            (token for token in proof.tokens if token.token_id == str(trade.token_id)),
+            None,
+        )
+        if selected is None or selected.outcome != str(trade.outcome):
+            logger.error(
+                "CLOB resolution selected token/outcome mismatch - trade=%s token=%s outcome=%s",
+                trade.id,
+                trade.token_id,
+                trade.outcome,
             )
             return False
-        proof = get_proven_resolution(market) if market else None
-        if proof is not None:
-            if self.mode == "sim" or str(getattr(trade, "buy_order_id", "")).startswith(
-                "SIM_"
-            ):
-                self._record_proven_resolution(trade, market)
-                return False
-            evidence = self.repo.get_exact_buy_fill_evidence(
-                getattr(trade, "buy_order_id", None)
-            )
-            if evidence.state == "confirmed":
-                self._record_proven_resolution(trade, market, fill_evidence=evidence)
-                return False
-            if evidence.state == "terminal_zero_fill":
-                self.repo.update_trade(
-                    trade.id,
-                    status=TradeStatus.UNFILLED,
-                    exit_reason="resolution_terminal_zero_fill",
-                    realized_pnl=None,
-                )
-                logger.warning(
-                    "resolved market의 terminal zero-fill 증명으로 UNFILLED: "
-                    "Trade #%s order=%s status=%s",
-                    trade.id,
-                    evidence.order_id,
-                    evidence.order_status,
-                )
-                return False
-            logger.warning(
-                "resolved payout은 확인했지만 exact CONFIRMED BUY fill 증거가 "
-                "없어 HOLDING 유지: Trade #%s state=%s detail=%s",
+        winner = proof.tokens[proof.winner_index]
+        observed_at = datetime.fromisoformat(
+            proof.observed_at.replace("Z", "+00:00")
+        )
+        if observed_at.tzinfo is not None:
+            observed_at = observed_at.astimezone(timezone.utc).replace(tzinfo=None)
+        self.repo.stage_clob_resolution_observation(
+            trade_id=trade.id,
+            condition_id=trade.condition_id,
+            observed_at=observed_at,
+            winner_index=proof.winner_index,
+            winner_token_id=winner.token_id,
+            winner_outcome=winner.outcome,
+            selected_token_id=selected.token_id,
+            selected_outcome=selected.outcome,
+            selected_payout=selected.price,
+            evidence_sha256=proof.evidence_sha256,
+            evidence_json=proof.evidence_json,
+        )
+        return self._record_resolution_values(
+            trade,
+            payout=selected.price,
+            first_outcome_payout=proof.tokens[0].price,
+            winner_outcome=winner.outcome,
+            resolution_status="clob_closed_unique_winner",
+            evidence_source=(
+                "clob_closed_unique_winner_sha256:" + proof.evidence_sha256
+            ),
+            observed_at=observed_at,
+            source_updated_at=proof.observed_at,
+            fill_evidence=fill_evidence,
+        )
+
+    def _apply_proven_resolution(self, trade, recorder) -> bool:
+        """Apply one proven payout only after exact BUY execution evidence."""
+        if self.mode == "sim" or str(getattr(trade, "buy_order_id", "")).startswith(
+            "SIM_"
+        ):
+            recorder(None)
+            return False
+        evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None)
+        )
+        if evidence.state == "confirmed":
+            recorder(evidence)
+            return False
+        if evidence.state == "terminal_zero_fill":
+            self.repo.update_trade(
                 trade.id,
-                evidence.state,
-                evidence.detail,
+                status=TradeStatus.UNFILLED,
+                exit_reason="resolution_terminal_zero_fill",
+                realized_pnl=None,
+            )
+            logger.warning(
+                "resolved market의 terminal zero-fill 증명으로 UNFILLED: "
+                "Trade #%s order=%s status=%s",
+                trade.id,
+                evidence.order_id,
+                evidence.order_status,
             )
             return False
         logger.warning(
-            "midpoint unavailable; closed+final payout 증거 없음 - condition=%s error=%s",
+            "resolved payout은 확인했지만 exact CONFIRMED BUY fill 증거가 "
+            "없어 HOLDING 유지: Trade #%s state=%s detail=%s",
+            trade.id,
+            evidence.state,
+            evidence.detail,
+        )
+        return False
+
+    def _handle_midpoint_unavailable(self, trade, error) -> bool:
+        market = None
+        if self.gamma is not None:
+            try:
+                market = self.gamma.get_market_by_condition_id(trade.condition_id)
+            except Exception as gamma_error:
+                logger.warning(
+                    "Gamma resolution lookup 실패 - condition=%s error=%s",
+                    trade.condition_id,
+                    gamma_error,
+                )
+        proof = get_proven_resolution(market) if market else None
+        if proof is not None:
+            return self._apply_proven_resolution(
+                trade,
+                lambda fill: self._record_proven_resolution(
+                    trade, market, fill_evidence=fill
+                ),
+            )
+        try:
+            clob_proof = self.clob.get_market_resolution(trade.condition_id)
+        except Exception as clob_error:
+            logger.warning(
+                "CLOB resolution lookup 실패 - condition=%s error=%s",
+                trade.condition_id,
+                type(clob_error).__name__,
+            )
+            return False
+        if clob_proof.status == "RESOLVED":
+            return self._apply_proven_resolution(
+                trade,
+                lambda fill: self._record_clob_resolution(
+                    trade, clob_proof, fill_evidence=fill
+                ),
+            )
+        logger.warning(
+            "midpoint unavailable; Gamma/CLOB final payout 증거 없음 - "
+            "condition=%s clob_status=%s error=%s",
             trade.condition_id,
+            clob_proof.status,
             error,
         )
         return False

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import csv
+import hashlib
 import sqlite3
 from datetime import datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy import inspect, text
+from sqlalchemy.exc import DatabaseError
 
-from polybot.db.models import MarketSnapshot, init_database
+from polybot.db.models import MarketSnapshot, TradeStatus, init_database
 from polybot.db.repository import TradeRepository
 
 
@@ -149,4 +152,96 @@ def test_trade_csv_atomically_upgrades_legacy_header_before_append(tmp_path):
     assert rows[1]["condition_id"] == "new"
     assert rows[1]["prior_snapshot_id_at_entry"] == "101"
     assert rows[1]["entry_snapshot_id"] == "102"
+    session.close()
+
+
+def test_clob_resolution_observation_is_append_only_and_commits_with_trade(tmp_path):
+    Session = init_database(str(tmp_path / "resolution.db"))
+    session = Session()
+    repository = TradeRepository(session)
+    trade = repository.create_trade(
+        condition_id="condition",
+        token_id="token-b",
+        outcome="Team B",
+        status=TradeStatus.HOLDING,
+    )
+    evidence_json = (
+        '{"closed":true,"tokens":['
+        '{"outcome":"Team A","price":0,"token_id":"token-a","winner":false},'
+        '{"outcome":"Team B","price":1,"token_id":"token-b","winner":true}]}'
+    )
+    evidence_sha256 = hashlib.sha256(evidence_json.encode()).hexdigest()
+    observation = repository.stage_clob_resolution_observation(
+        trade_id=trade.id,
+        condition_id="condition",
+        observed_at=datetime(2026, 8, 21, 11, 0),
+        winner_index=1,
+        winner_token_id="token-b",
+        winner_outcome="Team B",
+        selected_token_id="token-b",
+        selected_outcome="Team B",
+        selected_payout=1,
+        evidence_sha256=evidence_sha256,
+        evidence_json=evidence_json,
+    )
+    repository.update_trade(trade.id, status=TradeStatus.RESOLVED)
+
+    row = session.execute(
+        text(
+            "SELECT trade_id, selected_payout, evidence_sha256 "
+            "FROM resolution_observations WHERE resolution_id=:resolution_id"
+        ),
+        {"resolution_id": observation.resolution_id},
+    ).one()
+    assert row == (trade.id, 1.0, evidence_sha256)
+    with pytest.raises(DatabaseError, match="append-only evidence"):
+        session.execute(
+            text(
+                "UPDATE resolution_observations SET selected_payout=0 "
+                "WHERE resolution_id=:resolution_id"
+            ),
+            {"resolution_id": observation.resolution_id},
+        )
+        session.commit()
+    session.rollback()
+    session.close()
+
+
+def test_clob_resolution_observation_rejects_tampered_evidence(tmp_path):
+    Session = init_database(str(tmp_path / "tampered-resolution.db"))
+    session = Session()
+    repository = TradeRepository(session)
+    trade = repository.create_trade(
+        condition_id="condition",
+        token_id="token-b",
+        outcome="Team B",
+        status=TradeStatus.HOLDING,
+    )
+    evidence_json = (
+        '{"closed":true,"tokens":['
+        '{"outcome":"Team A","price":0,"token_id":"token-a","winner":false},'
+        '{"outcome":"Team B","price":1,"token_id":"token-b","winner":true}]}'
+    )
+
+    with pytest.raises(ValueError, match="does not match JSON"):
+        repository.stage_clob_resolution_observation(
+            trade_id=trade.id,
+            condition_id="condition",
+            observed_at=datetime(2026, 8, 21, 11, 0),
+            winner_index=1,
+            winner_token_id="token-b",
+            winner_outcome="Team B",
+            selected_token_id="token-b",
+            selected_outcome="Team B",
+            selected_payout=1,
+            evidence_sha256="0" * 64,
+            evidence_json=evidence_json,
+        )
+
+    assert (
+        session.execute(
+            text("SELECT count(*) FROM resolution_observations")
+        ).scalar_one()
+        == 0
+    )
     session.close()

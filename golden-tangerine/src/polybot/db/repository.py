@@ -28,6 +28,7 @@ from .models import (
     MarketSnapshot,
     MarketSweep,
     MarketSweepMembership,
+    ResolutionObservation,
     SkippedMarket,
     Trade,
     TradeStatus,
@@ -192,6 +193,119 @@ class TradeRepository:
         trade.updated_at = datetime.utcnow()
         self.session.commit()
         return trade
+
+    def stage_clob_resolution_observation(
+        self,
+        *,
+        trade_id: int,
+        condition_id: str,
+        observed_at: datetime,
+        winner_index: int,
+        winner_token_id: str,
+        winner_outcome: str,
+        selected_token_id: str,
+        selected_outcome: str,
+        selected_payout: float,
+        evidence_sha256: str,
+        evidence_json: str,
+    ) -> ResolutionObservation:
+        """Stage one deterministic append-only CLOB settlement observation.
+
+        The caller updates the trade next; ``update_trade`` commits both rows
+        atomically on the same SQLAlchemy session.
+        """
+        trade = self.session.get(Trade, trade_id)
+        if trade is None:
+            raise ValueError(f"Trade {trade_id} not found")
+        if str(trade.condition_id) != str(condition_id):
+            raise ValueError("resolution condition does not match the trade")
+        if (
+            isinstance(winner_index, bool)
+            or winner_index not in (0, 1)
+            or isinstance(selected_payout, bool)
+            or selected_payout not in (0.0, 1.0)
+        ):
+            raise ValueError("resolution winner/payout is outside the binary domain")
+        normalized_hash = str(evidence_sha256 or "").strip().lower()
+        if len(normalized_hash) != 64 or any(
+            character not in "0123456789abcdef" for character in normalized_hash
+        ):
+            raise ValueError("resolution evidence SHA-256 is invalid")
+        try:
+            decoded = json.loads(evidence_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("resolution evidence JSON is invalid") from error
+        if not isinstance(decoded, dict) or decoded.get("closed") is not True:
+            raise ValueError("resolution evidence must prove a closed market")
+        if hashlib.sha256(evidence_json.encode()).hexdigest() != normalized_hash:
+            raise ValueError("resolution evidence SHA-256 does not match JSON")
+        tokens = decoded.get("tokens")
+        if not isinstance(tokens, list) or len(tokens) != 2:
+            raise ValueError("resolution evidence must contain exactly two tokens")
+        if not all(isinstance(token, dict) for token in tokens):
+            raise ValueError("resolution evidence tokens must be objects")
+        if len({str(token.get("token_id") or "") for token in tokens}) != 2:
+            raise ValueError("resolution evidence token IDs must be distinct")
+        try:
+            prices = [float(token.get("price")) for token in tokens]
+        except (TypeError, ValueError) as error:
+            raise ValueError("resolution evidence token payouts are invalid") from error
+        if any(
+            isinstance(token.get("price"), bool)
+            or not math.isfinite(price)
+            or price not in (0.0, 1.0)
+            for token, price in zip(tokens, prices)
+        ):
+            raise ValueError("resolution evidence token payouts are not exact 0/1")
+        winners = [
+            index for index, token in enumerate(tokens) if token.get("winner") is True
+        ]
+        if winners != [winner_index]:
+            raise ValueError("resolution evidence must contain one aligned winner")
+        winner = tokens[winner_index]
+        if (
+            str(winner.get("token_id") or "") != str(winner_token_id)
+            or str(winner.get("outcome") or "") != str(winner_outcome)
+            or prices[winner_index] != 1.0
+        ):
+            raise ValueError("resolution winner does not match normalized evidence")
+        selected = [
+            token
+            for token in tokens
+            if isinstance(token, dict)
+            and str(token.get("token_id") or "") == str(selected_token_id)
+        ]
+        if (
+            len(selected) != 1
+            or str(selected[0].get("outcome") or "") != str(selected_outcome)
+            or prices[tokens.index(selected[0])] != float(selected_payout)
+        ):
+            raise ValueError("selected payout does not match normalized evidence")
+        identity = hashlib.sha256(
+            f"clob:{trade_id}:{condition_id}:{normalized_hash}".encode()
+        ).hexdigest()
+        existing = self.session.get(ResolutionObservation, identity)
+        if existing is not None:
+            return existing
+        observation = ResolutionObservation(
+            resolution_id=identity,
+            run_id=current_run_id(),
+            trade_id=trade_id,
+            condition_id=str(condition_id),
+            observed_at=observed_at,
+            source="CLOB_MARKET",
+            winner_index=winner_index,
+            winner_token_id=str(winner_token_id),
+            winner_outcome=str(winner_outcome),
+            selected_token_id=str(selected_token_id),
+            selected_outcome=str(selected_outcome),
+            selected_payout=float(selected_payout),
+            evidence_sha256=normalized_hash,
+            evidence_json=evidence_json,
+        )
+        self.session.add(observation)
+        self.session.flush()
+        return observation
 
     def get_holding_trades(self) -> List[Trade]:
         return (

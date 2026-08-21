@@ -57,10 +57,14 @@ label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 
 
 ## Exit와 수동 포지션 경계
 
-이번 cohort에는 pre-resolution SELL이 없다. midpoint 하락만으로 stop/TP를 제출하지 않고,
-Gamma closed final one-hot payout을 확인한 뒤 own trade를 `RESOLVED`로 기록한다. live 손익은
-confirmed BUY size/VWAP/fee에서 계산한 settlement assumption으로 분리하며, synthetic SELL이나
-requested-order P&L을 realized P&L로 기록하지 않는다.
+이번 cohort에는 pre-resolution SELL이 없다. midpoint 하락만으로 stop/TP를 제출하지 않는다.
+우선 Gamma closed final one-hot payout을 확인하고, Gamma가 `proposed`에 머무는 동안에는 CLOB
+exact condition market의 `closed=true`, distinct two-token, unique winner, aligned exact `0/1`
+증거를 fail-closed하게 확인한다. selected token/outcome과 exact confirmed BUY fill이 모두
+일치할 때만 own trade를 `RESOLVED`로 기록한다. CLOB proof의 normalized JSON과 SHA-256은
+append-only로 남긴다. live 손익은 confirmed BUY size/VWAP/fee에서 계산한 settlement
+assumption으로 분리하며, synthetic SELL이나 requested-order P&L을 realized P&L로 기록하지
+않는다.
 
 봇은 자기 runtime DB의 open trade만 순회한다. wallet 전체 position을 DB에 import하거나
 account-wide cancel/redeem/wind-down을 실행하지 않으므로 사용자가 수동 매수한 잔여 포지션은

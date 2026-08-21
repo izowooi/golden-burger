@@ -168,6 +168,27 @@ class EntryEpisode(Base):
     trade_id = Column(Integer)
 
 
+class ResolutionObservation(Base):
+    """Append-only normalized CLOB one-hot settlement evidence."""
+
+    __tablename__ = "resolution_observations"
+
+    resolution_id = Column(String, primary_key=True)
+    run_id = Column(String, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    observed_at = Column(DateTime, nullable=False, index=True)
+    source = Column(String, nullable=False)
+    winner_index = Column(Integer, nullable=False)
+    winner_token_id = Column(String, nullable=False)
+    winner_outcome = Column(String, nullable=False)
+    selected_token_id = Column(String, nullable=False)
+    selected_outcome = Column(String, nullable=False)
+    selected_payout = Column(Float, nullable=False)
+    evidence_sha256 = Column(String, nullable=False)
+    evidence_json = Column(String, nullable=False)
+
+
 class MarketCatalog(Base):
     """Slow-changing metadata and resolution fields for replay."""
 
@@ -362,6 +383,27 @@ def init_database(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS "
+                "resolution_observations_trade_evidence_idx "
+                "ON resolution_observations(trade_id, evidence_sha256)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_update "
+                "BEFORE UPDATE ON resolution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_delete "
+                "BEFORE DELETE ON resolution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
             )
         )
         connection.commit()

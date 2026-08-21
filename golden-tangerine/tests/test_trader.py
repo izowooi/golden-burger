@@ -4,7 +4,7 @@ from types import SimpleNamespace
 import pytest
 
 import polybot.strategy.trader as trader_module
-from polybot.api.clob_client import BuyBookWalk
+from polybot.api.clob_client import BuyBookWalk, _normalize_clob_resolution
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.db.repository import ExactFillEvidence
@@ -29,6 +29,7 @@ class _Repo:
         self.created = []
         self.updated = []
         self.linked = []
+        self.resolution_observations = []
 
     def can_reenter(self, *_args):
         return True, "ok"
@@ -51,6 +52,9 @@ class _Repo:
 
     def update_trade(self, trade_id, **values):
         self.updated.append((trade_id, values))
+
+    def stage_clob_resolution_observation(self, **values):
+        self.resolution_observations.append(values)
 
     def get_exact_buy_fill_evidence(self, _order_id):
         return ExactFillEvidence(
@@ -76,6 +80,7 @@ class _Clob:
         self.vwap = vwap
         self.midpoint = midpoint
         self.orders = []
+        self.resolution = None
 
     def get_buy_book_walk(self, token_id, *, notional_usdc):
         return BuyBookWalk(token_id, 0.91, 0.92, 0.01, self.vwap, 5 / self.vwap, 5, 0.93, 2)
@@ -94,6 +99,11 @@ class _Clob:
 
     def get_midpoint(self, _token_id):
         return self.midpoint
+
+    def get_market_resolution(self, _condition_id):
+        if self.resolution is None:
+            raise AssertionError("unexpected CLOB resolution lookup")
+        return self.resolution
 
 
 def _candidate(outcome="Team B"):
@@ -182,4 +192,71 @@ def test_named_outcome_resolution_uses_selected_payout_without_synthetic_sell() 
     assert update["yes_price_at_exit"] == 0.0
     assert update["realized_pnl"] is None
     assert update["settlement_pnl_assumption"] == pytest.approx((1 - 0.925) * 5.4 - 0.01)
+    assert clob.orders == []
+
+
+def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:
+    repo, clob = _Repo(), _Clob()
+    clob.resolution = _normalize_clob_resolution(
+        "condition-1",
+        {
+            "closed": True,
+            "tokens": [
+                {
+                    "outcome": "Team A",
+                    "price": 0,
+                    "token_id": "team-a-token",
+                    "winner": False,
+                },
+                {
+                    "outcome": "Team B",
+                    "price": 1,
+                    "token_id": "team-b-token",
+                    "winner": True,
+                },
+            ],
+        },
+        observed_at="2026-08-21T11:00:00Z",
+    )
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "condition-1",
+            "closed": True,
+            "outcomes": ["Team A", "Team B"],
+            "outcomePrices": [0.001, 0.999],
+            "clobTokenIds": ["team-a-token", "team-b-token"],
+            "negRisk": False,
+            "umaResolutionStatus": "proposed",
+        }
+    )
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        token_id="team-b-token",
+        outcome="Team B",
+        buy_order_id="buy-1",
+        buy_shares=5.4,
+        buy_price=0.925,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=gamma,
+        simulation_mode=False,
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_value"] == 1.0
+    assert update["resolution_outcome"] == "Team B"
+    assert update["resolution_status"] == "clob_closed_unique_winner"
+    assert update["resolution_evidence"].startswith(
+        "clob_closed_unique_winner_sha256:"
+    )
+    assert len(repo.resolution_observations) == 1
+    observation = repo.resolution_observations[0]
+    assert observation["winner_index"] == 1
+    assert observation["selected_payout"] == 1
     assert clob.orders == []

@@ -29,6 +29,10 @@ provenance로만 남으므로 다른 하위 프로젝트 변경이 동일 Tanger
   exact cancellation 결과가 모두 zero-fill을 입증할 때만 `UNFILLED`로 종결
 - 계정당 최대 3개, event당 1개, cycle당 신규 1개, 총 요청 원금 최대 `$15`
 - 조기 TP, stop, trailing, time exit, account-wide wind-down 없음
+- midpoint가 사라지고 Gamma final payout이 아직 없으면 CLOB exact condition market의
+  `closed=true`, 정확히 두 token, unique `winner=true`, aligned exact `0/1`을 모두 검증한다.
+  selected token/outcome과 exact confirmed BUY fill이 일치할 때만 `RESOLVED`로 바꾸고,
+  normalized public proof/hash를 append-only `resolution_observations`에 남긴다.
 - 봇 DB가 직접 만든 trade만 resolution까지 추적; 지갑의 수동 포지션은 조회·편입·청산하지 않음
 - live DB는 `data/<job>/trades.db`, simulation DB는 `trades_sim.db`로 분리
 

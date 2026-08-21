@@ -75,6 +75,10 @@ UV=/Users/jongwoopark/.local/bin/uv
    - `DELAYED` FOK가 30분을 넘기면 exact order/trade/cancel conjunction으로
      `MATCHED/HOLDING` 또는 terminal zero-fill/`UNFILLED` 중 하나로 종결되는지 확인한다.
      일반 catalog 부재만으로 미체결 처리하면 실패다.
+   - midpoint가 사라진 own holding은 Gamma final payout을 먼저 확인하고, 없으면 CLOB exact
+     condition의 closed two-token unique one-hot `0/1` proof를 검사한다. selected token과
+     confirmed BUY fill이 일치해야 하며 `resolution_observations`에 hash와 winner가 남아야 한다.
+     이 경로는 SELL/redeem을 실행하지 않는다.
 4. 최근 console에서 secret 노출·clean·old strategy 경로가 없는지 확인
 5. `daily-rsync scan/sync-job/verify/locate`로 세 DB와 bot/console log 확인
 6. 각 job에 `H/5` 활성화하고 두 번 이상 자연 build의 runtime/overlap/DB 증가 확인
