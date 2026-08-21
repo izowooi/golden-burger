@@ -44,6 +44,7 @@ _TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
 # their signed taker amount is four-decimal venue precision.  Preserve both
 # exact values and permit at most one signed-share quantum during status audit.
 _MARKET_BUY_QUANTITY_TOLERANCE = 0.0001
+_MARKET_BUY_TAKER_QUANTUM_MICROS = 100
 
 
 @dataclass(frozen=True)
@@ -756,10 +757,11 @@ class ClobClientWrapper:
         """Submit an exact-USDC FOK BUY with an explicit fresh-book limit.
 
         CLOB v2 requires the BUY maker amount (USDC) at two-decimal precision
-        and the taker amount (shares) at venue precision.  A limit ``OrderArgs``
-        envelope derives maker USDC from shares and can therefore produce a
-        four-decimal maker amount.  ``MarketOrderArgs`` represents the intended
-        fixed USDC amount directly while retaining an explicit limit price.
+        and the taker amount (shares) at no more than four decimals.  A limit
+        ``OrderArgs`` envelope derives maker USDC from shares and can therefore
+        produce a four-decimal maker amount.  ``MarketOrderArgs`` represents the
+        intended fixed USDC amount directly while retaining an explicit limit
+        price.
         """
         amount = Decimal(str(amount_usdc))
         if not amount.is_finite() or amount <= 0:
@@ -795,6 +797,7 @@ class ClobClientWrapper:
 
         try:
             from py_clob_client_v2 import MarketOrderArgs, OrderType
+            from py_clob_client_v2.clob_types import PartialCreateOrderOptions
 
             order_args = MarketOrderArgs(
                 token_id=token_id,
@@ -812,7 +815,24 @@ class ClobClientWrapper:
             # Complete signing and its read-only market-info lookups before an
             # intent is persisted.  The signed integer amounts are the exact
             # values the venue will validate, so use them as ledger evidence.
-            signed_order = self.client.create_market_order(order_args)
+            # py-clob-client-v2 permits five or six taker decimals for fine-tick
+            # markets, while the venue accepts at most four for market BUYs.
+            # A cent-aligned limit remains on every finer venue grid, so ask the
+            # signer to use the coarser cent grid without changing the price or
+            # the exact maker notional.  Non-cent limits cannot be widened or
+            # narrowed without changing the preregistered execution envelope.
+            price_decimal = Decimal(str(rounded_price))
+            cent_aligned = price_decimal == price_decimal.quantize(Decimal("0.01"))
+            signing_options = None
+            if Decimal(str(tick_size)) < Decimal("0.01") and cent_aligned:
+                signing_options = PartialCreateOrderOptions(tick_size="0.01")
+            if signing_options is None:
+                signed_order = self.client.create_market_order(order_args)
+            else:
+                signed_order = self.client.create_market_order(
+                    order_args,
+                    options=signing_options,
+                )
             try:
                 maker_micros = int(str(signed_order.makerAmount))
                 taker_micros = int(str(signed_order.takerAmount))
@@ -824,6 +844,10 @@ class ClobClientWrapper:
             if maker_micros != expected_maker_micros or taker_micros <= 0:
                 raise ClobResponseContractError(
                     "signed FOK BUY does not preserve exact maker USDC"
+                )
+            if taker_micros % _MARKET_BUY_TAKER_QUANTUM_MICROS != 0:
+                raise ClobResponseContractError(
+                    "signed FOK BUY taker shares exceed four decimal places"
                 )
             requested_size = taker_micros / 1_000_000
 

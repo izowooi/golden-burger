@@ -323,6 +323,83 @@ def test_live_exact_usdc_fok_buy_uses_two_decimal_maker_envelope() -> None:
     assert "FOK" in str(captured["order_type"])
 
 
+def test_live_exact_usdc_fok_buy_coarsens_cent_aligned_signing_grid() -> None:
+    captured = {}
+
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.001"
+
+        def create_market_order(self, order, options=None):
+            captured["order"] = order
+            captured["options"] = options
+            return SimpleNamespace(makerAmount="5000000", takerAmount="5376300")
+
+        def post_order(self, _signed, _order_type):
+            captured["posted"] = True
+            return {"success": True, "orderID": "order-fine-cent"}
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.93)
+
+    assert result["orderID"] == "order-fine-cent"
+    assert result["requested_size"] == 5.3763
+    assert captured["order"].price == 0.93
+    assert captured["options"].tick_size == "0.01"
+    assert captured["posted"] is True
+
+
+def test_live_exact_usdc_fok_buy_allows_valid_non_cent_taker_precision() -> None:
+    captured = {}
+
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.005"
+
+        def create_market_order(self, order):
+            captured["order"] = order
+            return SimpleNamespace(makerAmount="5000000", takerAmount="5291000")
+
+        def post_order(self, _signed, _order_type):
+            captured["posted"] = True
+            return {"success": True, "orderID": "order-fine-non-cent"}
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.945)
+
+    assert result["orderID"] == "order-fine-non-cent"
+    assert result["requested_size"] == 5.291
+    assert captured["order"].price == 0.945
+    assert captured["posted"] is True
+
+
+def test_live_exact_usdc_fok_buy_rejects_excess_taker_precision_before_post() -> None:
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.005"
+
+        def create_market_order(self, _order):
+            return SimpleNamespace(makerAmount="5000000", takerAmount="5347590")
+
+        def post_order(self, _signed, _order_type):
+            raise AssertionError("invalid taker precision must never be posted")
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.935)
+
+    assert result["success"] is False
+    assert "four decimal places" in result["error"]
+
+
 def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
     class _Client:
         def get_tick_size(self, _token_id):
