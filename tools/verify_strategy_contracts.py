@@ -39,12 +39,14 @@ CURRENT_STRATEGIES = {
     "golden-raspberry",
     "golden-strawberry",
     "golden-tangerine",
+    "golden-watermelon",
 }
 RESEARCH_ONLY_STRATEGIES = {
     "golden-black",
     "golden-pomegranate",
     "golden-raspberry",
     "golden-strawberry",
+    "golden-watermelon",
 }
 # L3 AGENTS.md 없이 오래 운영된 전략만 검사에서 면제한다.
 # golden-cherry는 2026-07-28에 L3를 갖췄으므로 더 이상 면제 대상이 아니다.
@@ -3228,6 +3230,181 @@ def _validate_sports_resolution_research_strategy(
     )
 
 
+def _validate_inplay_match_winner_research_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate Golden Watermelon's accountless cadence experiment."""
+
+    required_sources = (
+        "src/polybot/config.py",
+        "src/polybot/main.py",
+        "src/polybot/bot.py",
+        "src/polybot/run_audit.py",
+        "src/polybot/collector.py",
+        "src/polybot/analyzer.py",
+        "src/polybot/api/gamma_client.py",
+        "src/polybot/api/clob_client.py",
+        "src/polybot/db/repository.py",
+        "src/polybot/utils/retry.py",
+        "src/polybot/source_digest.py",
+    )
+    sources = {
+        relative: _require_file(findings, strategy, directory / relative)
+        for relative in required_sources
+    }
+    contracts = {
+        "src/polybot/config.py": (
+            "get_trading_config_mapping",
+            "validate_yaml_config_shape",
+            "POLYMARKET_PRIVATE_KEY",
+            "sports-inplay-match-winner-v1",
+            "watermelon-white-1m",
+            "watermelon-grey-5m",
+            "FAST_1M",
+            "CONTROL_5M",
+            "ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)",
+            "STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)",
+            "archive_only",
+            "can never run live",
+            "math.isfinite",
+        ),
+        "src/polybot/main.py": (
+            "--live", "--simulate", "config", "run", "status", "health",
+            "analyze", "analyze_databases",
+        ),
+        "src/polybot/bot.py": (
+            "ResearchRunAudit", "exclusive_job_run_lock",
+            "record_storage_metric", "assert_no_credentials",
+            "storage safety gate",
+        ),
+        "src/polybot/api/gamma_client.py": (
+            "/markets/keyset", "sports_market_types", "after_cursor",
+            "next_cursor", "end_date_min", "end_date_max", "cursor_complete",
+        ),
+        "src/polybot/api/clob_client.py": (
+            "/books", "/markets/", "walk_asks", "walk_bids",
+            "walk_bids_partial", "remaining_shares", "winner",
+        ),
+        "src/polybot/collector.py": (
+            "classify_match_winner", "NOT_TOP_LEVEL_MONEYLINE",
+            "ALIGNED_TWO_TEAM_MONEYLINE", "NEGRISK_TEAM_WIN_YES",
+            "DRAW_OUTCOME_EXCLUDED", "FIRST_FULL_DEPTH_ABOVE",
+            "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
+            "gap_from_stop", "resolution_due", "GAMMA_CURSOR_INCOMPLETE",
+        ),
+        "src/polybot/db/repository.py": (
+            "research_config_versions", "research_run_events", "api_requests",
+            "raw_payloads", "market_sweeps", "market_observations",
+            "match_winner_class", "eligible_outcome_indices_json",
+            "outcome_observations", "orderbook_snapshots", "orderbook_levels",
+            "signal_decisions", "hypothetical_episodes",
+            "episode_path_observations", "counterfactual_exit_policies",
+            "stop_execution_attempts", "resolution_observations",
+            "storage_metrics", "append-only evidence",
+        ),
+        "src/polybot/analyzer.py": (
+            "sports-inplay-match-winner-analyzer-v1",
+            "sports-inplay-match-winner-cadence-pair-v1",
+            "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
+            "stop_policy_comparison", "matched_episode_keys",
+            "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
+        ),
+        "src/polybot/utils/retry.py": (
+            "RequestException", "ChunkedEncodingError", "trust_env = False",
+        ),
+        "src/polybot/source_digest.py": (
+            '"uv.lock"', '"scripts/analyze_experiment.py"',
+            '"scripts/verify_external_workspace.py"',
+        ),
+    }
+    for relative, tokens in contracts.items():
+        _require_tokens(findings, strategy, relative, sources[relative], tokens)
+
+    gamma_source = sources["src/polybot/api/gamma_client.py"]
+    for forbidden in ("liquidity_num_min", "volume_num_min", '"offset"'):
+        if forbidden in gamma_source:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_selection_gate",
+                    f"Gamma collector contains forbidden selector {forbidden}",
+                )
+            )
+
+    combined = "\n".join(sources.values())
+    for token in (
+        "ExecutionLedger", "submit_and_record", "post_order",
+        "place_limit_order", "POLYMARKET_PRIVATE_KEY=",
+    ):
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_order_path",
+                    f"research-only source contains {token}",
+                )
+            )
+
+    readme = _read(directory / "README.md")
+    _require_tokens(
+        findings,
+        strategy,
+        "README.md",
+        readme,
+        (
+            "sports-inplay-match-winner-v1", "watermelon-white-1m",
+            "watermelon-grey-5m", "child_moneyline", "--simulate", "--live",
+        ),
+    )
+    env_example = _read(directory / ".env.example")
+    _require_tokens(
+        findings,
+        strategy,
+        ".env.example",
+        env_example,
+        ("POLYBOT_LIFECYCLE_MODE=archive_only", "POLYBOT_SIMULATION_MODE=true"),
+    )
+    preregistration = _require_file(
+        findings,
+        strategy,
+        directory / "research/frozen-2026-08-23/PREREGISTRATION.md",
+    )
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-08-23/PREREGISTRATION.md",
+        preregistration,
+        (
+            "2026-08-22T15:30:00Z", "2026-09-05T15:30:00Z",
+            "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
+            "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
+        ),
+    )
+    _require_file(
+        findings,
+        strategy,
+        directory / "research/frozen-2026-08-23/MANIFEST.sha256",
+    )
+    for relative in (
+        "tests/test_config.py", "tests/test_gamma_client.py",
+        "tests/test_clob_client.py", "tests/test_collector.py",
+        "tests/test_repository.py", "tests/test_safety_cli.py",
+        "tests/test_analyzer.py", "tests/test_external_workspace.py",
+        "tests/test_document_contract.py",
+    ):
+        _require_file(findings, strategy, directory / relative)
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def _validate_tangerine_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
@@ -3382,6 +3559,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
             _validate_queue_echo_research_strategy(findings, strategy, directory)
         elif strategy == "golden-strawberry":
             _validate_last_mile_research_strategy(findings, strategy, directory)
+        elif strategy == "golden-watermelon":
+            _validate_inplay_match_winner_research_strategy(
+                findings, strategy, directory
+            )
         return findings
 
     if strategy == "golden-tangerine":
