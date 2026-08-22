@@ -139,7 +139,7 @@ class FakeClob:
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v2")
     if compact_grid:
         experiment = replace(
             config.trading.experiment,
@@ -217,6 +217,8 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
     assert result["eligible_markets"] == 1
     assert result["eligible_outcomes"] == 2
     assert result["episodes_opened"] == 3
+    assert result["stop_attempts"] == 0
+    assert result["stop_exits"] == 0
     with repository.connect() as connection:
         market_row = connection.execute(
             "SELECT sports_market_type,match_winner_class,liquidity,volume_total "
@@ -229,11 +231,15 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
         policies = connection.execute(
             "SELECT COUNT(*) FROM counterfactual_exit_policies"
         ).fetchone()[0]
+        entry_cycle_paths = connection.execute(
+            "SELECT COUNT(*) FROM episode_path_observations"
+        ).fetchone()[0]
     assert tuple(market_row) == ("moneyline", "ALIGNED_TWO_TEAM_MONEYLINE", 25, 0)
     assert [row[0] for row in episodes] == [0.95, 0.96, 0.97]
     assert {row[1] for row in episodes} == {"FIRST_FULL_DEPTH_ABOVE"}
     assert {row[2] for row in episodes} == {"FAST_1M"}
     assert policies == 3 * 7
+    assert entry_cycle_paths == 0
 
 
 def test_incomplete_event_cursor_preserves_raw_failure_evidence(tmp_path) -> None:
@@ -334,7 +340,8 @@ def test_stop_trigger_records_exact_depth_gap(tmp_path) -> None:
     assert tuple(attempt[:2]) == pytest.approx((0.80, 0.79))
     assert attempt[2] < 0.79
     assert attempt[3] == "FULL_EXIT"
-    assert attempt[4] == pytest.approx(0.17)
+    # The entry-cycle bid is intentionally not treated as a prior path point.
+    assert attempt[4] is None
 
 
 def test_partial_stop_retries_only_remaining_shares(tmp_path) -> None:

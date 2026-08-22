@@ -502,7 +502,6 @@ class Collector:
         decisions: list[dict[str, Any]] = []
         episodes: list[dict[str, Any]] = []
         policies: list[dict[str, Any]] = []
-        new_active_stops: list[dict[str, Any]] = []
         experiment = self.config.trading.experiment
         for context in contexts:
             if not context["eligible"]:
@@ -593,20 +592,13 @@ class Collector:
                                 "stop_price": stop, "created_at": iso_utc(now),
                             }
                             policies.append(policy)
-                            new_active_stops.append({
-                                **episode, **policy,
-                                "prior_attempt_count": 0,
-                                "prior_filled_shares": 0.0,
-                                "prior_gross_proceeds": 0.0,
-                                "prior_estimated_fee": 0.0,
-                                "prior_net_proceeds": 0.0,
-                                "first_triggered_at": None,
-                                "first_trigger_best_bid": None,
-                                "prior_best_bid": None,
-                            })
 
         paths: list[dict[str, Any]] = []
-        for episode in open_before + episodes:
+        # Entry and exit cannot use the same displayed book. The entry ask and
+        # contemporaneous bid encode spread, not a post-entry price move. New
+        # episodes therefore receive their first path/stop observation only on
+        # the next natural cadence cycle.
+        for episode in open_before:
             token = str(episode["token_id"])
             snapshot = snapshot_by_token.get(token)
             book = books.books.get(token)
@@ -622,7 +614,7 @@ class Collector:
 
         stop_attempts: list[dict[str, Any]] = []
         stop_exits: list[dict[str, Any]] = []
-        for policy in active_stop_before + new_active_stops:
+        for policy in active_stop_before:
             token = str(policy["token_id"])
             snapshot = snapshot_by_token.get(token)
             book = books.books.get(token)

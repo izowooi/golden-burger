@@ -15,8 +15,8 @@ exact CLOB $5 ask가 0.95~0.99 threshold를 통과했을 때 가상 진입하고
 - Strategy name: **In-Play Match Winner**.
 - Data contract: `sports-inplay-match-winner-v1`.
 - Runtime jobs:
-  - `watermelon-white-1m`: `FAST_1M`, 1분 cadence.
-  - `watermelon-grey-5m`: `CONTROL_5M`, 5분 cadence.
+  - `watermelon-white-1m-v2`: `FAST_1M`, 1분 cadence.
+  - `watermelon-grey-5m-v2`: `CONTROL_5M`, 5분 cadence.
 - Jenkins/workspace:
   - `polybot-white` → `/Volumes/t7/jenkins/polybot-white`.
   - `polybot-grey` → `/Volumes/t7/jenkins/polybot-grey`.
@@ -60,6 +60,8 @@ preregistration과 runtime job/DB epoch를 만든다. Git commit은 provenance�
 - 여러 threshold와 stop은 같은 episode path의 counterfactual이며 독립 거래로 합산하지 않는다.
 - stop은 best bid trigger와 full-depth VWAP을 분리한다. gap, partial fill, 잔여 retry,
   fee를 append-only로 남긴다.
+- entry ask와 같은 book의 bid를 path/stop에 쓰지 않는다. 첫 exit 관측은 다음 natural
+  cadence cycle부터 시작한다.
 - CLOB closed + exactly one winning token만 resolution으로 인정한다.
 - White/Grey 중복 episode는 cadence pair이며 독립 표본으로 세지 않는다.
 

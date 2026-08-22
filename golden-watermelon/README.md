@@ -34,15 +34,15 @@ accepting-orders일 때만 entry eligible이다.
 cd golden-watermelon
 uv sync --frozen --extra dev
 uv run pytest
-uv run polybot config --simulate --job watermelon-white-1m
-uv run polybot config --simulate --job watermelon-grey-5m
+uv run polybot config --simulate --job watermelon-white-1m-v2
+uv run polybot config --simulate --job watermelon-grey-5m-v2
 ```
 
 public API cycle은 Polymarket credential이 전혀 없는 환경에서만 실행한다.
 
 ```bash
 POLYBOT_LIFECYCLE_MODE=archive_only POLYBOT_SIMULATION_MODE=true \
-  uv run polybot run --simulate --job watermelon-white-1m
+  uv run polybot run --simulate --job watermelon-white-1m-v2
 ```
 
 가설·판정 gate는 [STRATEGY.md](STRATEGY.md), Jenkins와 daily-rsync 절차는

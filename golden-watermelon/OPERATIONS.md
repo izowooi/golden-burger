@@ -6,8 +6,8 @@
 
 | Jenkins | exact custom workspace | runtime job | schedule |
 |---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m` | `H/5 * * * *` |
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v2` | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v2` | `H/5 * * * *` |
 
 concurrent build는 비활성화하고 Jenkins build discard는 14일로 둔다. Clean before checkout,
 workspace wipe, credential binding은 사용하지 않는다. DB는 workspace의
@@ -43,11 +43,11 @@ UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
 "${UV}" run python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot config --simulate --job watermelon-white-1m
-"${UV}" run polybot run --simulate --job watermelon-white-1m
+"${UV}" run polybot config --simulate --job watermelon-white-1m-v2
+"${UV}" run polybot run --simulate --job watermelon-white-1m-v2
 ```
 
-Grey는 마지막 두 command의 job만 `watermelon-grey-5m`로 바꾼다. 실험 parameter는 Jenkins
+Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v2`로 바꾼다. 실험 parameter는 Jenkins
 env로 override하지 않는다.
 
 ## 최초 배포
@@ -92,7 +92,7 @@ uv run daily-rsync locate --job polybot-grey --strategy golden-watermelon
 
 ```bash
 cd ../golden-watermelon
-uv run polybot analyze --simulate --job watermelon-white-1m \
+uv run polybot analyze --simulate --job watermelon-white-1m-v2 \
   --db /absolute/white/trades_sim.db \
   --db /absolute/grey/trades_sim.db \
   --output /tmp/golden-watermelon-health.json

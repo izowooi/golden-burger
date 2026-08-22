@@ -172,7 +172,7 @@ def add_winning_episode(repository: ResearchRepository, *, entered_at: str) -> N
 
 def test_analyzer_uses_fee_resolution_and_stop_depth(tmp_path) -> None:
     repository = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
     )
     add_winning_episode(repository, entered_at="2026-08-22T15:31:00Z")
     result = analyze_database(repository.path)
@@ -190,7 +190,7 @@ def test_analyzer_uses_fee_resolution_and_stop_depth(tmp_path) -> None:
 
 def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
     repository = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
     )
     repository.record_run_event(
         {
@@ -217,10 +217,10 @@ def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
 
 def test_multi_database_analyzer_pairs_same_episode_keys(tmp_path) -> None:
     white = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
     )
     grey = seeded_database(
-        tmp_path, "grey.db", "watermelon-grey-5m", 5, "CONTROL_5M"
+        tmp_path, "grey.db", "watermelon-grey-5m-v2", 5, "CONTROL_5M"
     )
     add_winning_episode(white, entered_at="2026-08-22T15:31:00Z")
     add_winning_episode(grey, entered_at="2026-08-22T15:35:00Z")

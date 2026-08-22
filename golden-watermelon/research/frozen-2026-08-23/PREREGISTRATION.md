@@ -49,8 +49,8 @@ foul/corner/player prop은 제외한다. Gamma endDate를 실제 경기 종료�
 
 | job | arm | nominal cadence |
 |---|---|---:|
-| `watermelon-white-1m` | `FAST_1M` | 1 minute |
-| `watermelon-grey-5m` | `CONTROL_5M` | 5 minutes |
+| `watermelon-white-1m-v2` | `FAST_1M` | 1 minute |
+| `watermelon-grey-5m-v2` | `CONTROL_5M` | 5 minutes |
 
 paired unit은 `condition_id × token_id × entry_threshold`이다. 두 DB의 같은 unit을 두
 독립 거래로 세지 않는다. cadence가 entry crossing 자체를 다르게 관측할 수 있으므로 entry
@@ -68,7 +68,9 @@ time/VWAP delta도 treatment outcome으로 보존한다.
 
 stop trigger는 best bid이고 exit는 original shares에 대한 full-depth bid VWAP다. gap,
 partial fill, remaining shares, retry, fee를 별도 evidence로 저장한다. 각 X/Y는 같은
-displayed liquidity를 실제로 경쟁하지 않는 counterfactual이다.
+displayed liquidity를 실제로 경쟁하지 않는 counterfactual이다. 진입 ask를 관측한 동일
+book의 bid는 post-entry move가 아니라 spread이므로 path와 stop에 재사용하지 않는다. 각
+episode의 첫 path/stop 관측은 반드시 다음 natural cadence cycle부터 시작한다.
 
 ## Cost and resolution
 
@@ -124,5 +126,9 @@ append-only다. 모든 P&L은 actual fill이 아닌 displayed-book counterfactua
 소스 수준에서 금지되어 있었다. 공식 event keyset이 `live`, `tag_slug`, 500건
 page와 enriched teams/nested markets를 지원하므로, 가설·X/Y·cadence·volume/liquidity
 무필터는 유지하고 discovery envelope만 위와 같이 교정했다. 이 교정 후 첫
-successful build receipt time이 실제 source cutoff이며, 실패 run은 새
-`strategy_source_digest × config_hash` cohort에 포함하지 않는다.
+successful build에서 진입 ask와 동일 시점 bid를 stop에 재사용해 spread를 가격 하락으로
+오인하는 instrumentation 결함을 추가로 발견했다. 이 build도 결과 cohort에서 제외한다.
+두 진단 DB는 삭제하지 않고 v1 evidence로 보존하며, 동일 book 재사용을 금지한
+`watermelon-white-1m-v2`와 `watermelon-grey-5m-v2`의 첫 successful build receipt time을
+실제 source cutoff로 사용한다. v1 run은 새 `strategy_source_digest × config_hash ×
+job_name` cohort에 포함하지 않는다.

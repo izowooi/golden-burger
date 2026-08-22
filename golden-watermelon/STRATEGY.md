@@ -81,7 +81,10 @@ Gamma `endDate`는 실제 종료시각으로 가정하지 않는다. 어떤 종�
 | `STOP_0.80` | best bid ≤ 0.80 |
 | `STOP_0.70` | best bid ≤ 0.70 |
 
-0.95처럼 민감한 stop이 entry spread만으로 즉시 작동하는지 역시 제거하지 않고 측정한다.
+진입에 사용한 동일 book은 path나 stop 판정에 재사용하지 않는다. ask 진입가와 같은 시점의
+bid 차이는 진입 이후 가격 하락이 아니라 spread이기 때문이다. 최초 path/stop 관측은 다음
+natural cadence cycle부터 시작한다. 이후 0.95처럼 민감한 stop이 실제 후속 관측에서 얼마나
+자주 작동하는지는 그대로 측정한다.
 trigger 가격은 fill 가격이 아니다. 현재 bid depth를 original shares만큼 walk해 full/partial,
 VWAP, gap, fee, remaining shares와 다음 cycle retry를 저장한다. resolution은 CLOB market이
 closed이며 두 token 중 winner가 정확히 하나일 때만 인정한다.
@@ -90,8 +93,8 @@ closed이며 두 token 중 winner가 정확히 하나일 때만 인정한다.
 
 | Jenkins | runtime job | arm | timer |
 |---|---|---|---|
-| `polybot-white` | `watermelon-white-1m` | `FAST_1M` | 매분 |
-| `polybot-grey` | `watermelon-grey-5m` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v2` | `FAST_1M` | 매분 |
+| `polybot-grey` | `watermelon-grey-5m-v2` | `CONTROL_5M` | 5분 |
 
 두 job은 cadence 외 config/source/universe/grid가 같다. 동일 episode key를 paired하고,
 entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI 차이를 비교한다.

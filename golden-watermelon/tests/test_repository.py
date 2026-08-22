@@ -13,7 +13,7 @@ def test_schema_quick_check_and_append_only(tmp_path) -> None:
     assert repository.quick_check() == "ok"
     repository.record_config({
         "config_hash": "c", "strategy_source_digest": "s", "preregistration_sha256": "p",
-        "job_name": "watermelon-white-1m", "mode": "sim", "config_json": "{}",
+        "job_name": "watermelon-white-1m-v2", "mode": "sim", "config_json": "{}",
         "first_seen_at": "2026-08-20T00:00:00Z",
     })
     with pytest.raises(sqlite3.IntegrityError, match="append-only"):

@@ -27,7 +27,7 @@ from .source_digest import (
 
 
 DATA_CONTRACT = "sports-inplay-match-winner-v1"
-CANONICAL_JOB = "watermelon-white-1m"
+CANONICAL_JOB = "watermelon-white-1m-v2"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 
 # The first successful Jenkins run remains the actual source cutoff. This
@@ -46,8 +46,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v2": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v2": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(

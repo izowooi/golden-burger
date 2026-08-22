@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize(
     ("job", "arm", "minutes"),
     [
-        ("watermelon-white-1m", "FAST_1M", 1),
-        ("watermelon-grey-5m", "CONTROL_5M", 5),
+        ("watermelon-white-1m-v2", "FAST_1M", 1),
+        ("watermelon-grey-5m-v2", "CONTROL_5M", 5),
     ],
 )
 def test_frozen_job_profiles_load(
@@ -49,11 +49,11 @@ def test_frozen_job_profiles_load(
 
 def test_job_is_the_only_cadence_treatment() -> None:
     assert set(JOB_PROFILES) == {
-        "watermelon-white-1m",
-        "watermelon-grey-5m",
+        "watermelon-white-1m-v2",
+        "watermelon-grey-5m-v2",
     }
-    white = load_config(ROOT / "config.yaml", "watermelon-white-1m")
-    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m")
+    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v2")
+    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v2")
     assert white.trading.experiment == grey.trading.experiment
     assert white.trading.gamma == grey.trading.gamma
     assert white.trading.orderbook == grey.trading.orderbook

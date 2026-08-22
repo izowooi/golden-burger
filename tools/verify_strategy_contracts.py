@@ -3258,8 +3258,8 @@ def _validate_inplay_match_winner_research_strategy(
             "validate_yaml_config_shape",
             "POLYMARKET_PRIVATE_KEY",
             "sports-inplay-match-winner-v1",
-            "watermelon-white-1m",
-            "watermelon-grey-5m",
+            "watermelon-white-1m-v2",
+            "watermelon-grey-5m-v2",
             "FAST_1M",
             "CONTROL_5M",
             "ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)",
@@ -3291,6 +3291,7 @@ def _validate_inplay_match_winner_research_strategy(
             "DRAW_OUTCOME_EXCLUDED", "FIRST_FULL_DEPTH_ABOVE",
             "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
             "gap_from_stop", "resolution_due", "GAMMA_CURSOR_INCOMPLETE",
+            "Entry and exit cannot use the same displayed book",
         ),
         "src/polybot/db/repository.py": (
             "research_config_versions", "research_run_events", "api_requests",
@@ -3355,8 +3356,8 @@ def _validate_inplay_match_winner_research_strategy(
         "README.md",
         readme,
         (
-            "sports-inplay-match-winner-v1", "watermelon-white-1m",
-            "watermelon-grey-5m", "child_moneyline", "--simulate", "--live",
+            "sports-inplay-match-winner-v1", "watermelon-white-1m-v2",
+            "watermelon-grey-5m-v2", "child_moneyline", "--simulate", "--live",
         ),
     )
     env_example = _read(directory / ".env.example")
