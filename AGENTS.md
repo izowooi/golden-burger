@@ -94,7 +94,8 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   수집하고 resolution hold와 `0.95/0.93/0.90/0.85/0.80/0.70` stop을 동시
   재생한다. `polybot-white` 1분과 `polybot-grey` 5분은 같은 population/grid의
   paired cadence 처치이며, 두 DB를 독립 거래로 세지 않는다. Gamma
-  `moneyline` keyset에 volume/liquidity 하한을 적용하지 않고 team alignment,
+  live sports event keyset에 volume/liquidity 하한을 적용하지 않고 nested
+  `moneyline`과 team alignment,
   `child_moneyline`·Draw·prop 제외, full-depth book, gap/partial/retry, one-hot resolution을
   `sports-inplay-match-winner-v1` append-only evidence로 보존한다. accountless
   simulation-only이며 credential·order·`--live`를 source-level로 금지한다.

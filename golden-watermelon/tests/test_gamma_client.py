@@ -24,13 +24,13 @@ class FakeTransport:
         )
 
 
-def config(max_pages: int = 10) -> GammaConfig:
+def config(max_pages: int = 4) -> GammaConfig:
     return GammaConfig(
         "https://gamma-api.polymarket.com",
-        100,
+        500,
         max_pages,
-        24,
-        24,
+        "sports",
+        True,
         ("moneyline",),
         3.05,
         30,
@@ -40,33 +40,33 @@ def config(max_pages: int = 10) -> GammaConfig:
     )
 
 
-def test_server_filters_moneyline_without_volume_or_liquidity_gate() -> None:
-    transport = FakeTransport([{"markets": [{"id": "1"}]}])
-    result = GammaClient(config(), transport).fetch_moneyline_markets(
+def test_server_filters_live_sports_events_without_volume_or_liquidity_gate() -> None:
+    transport = FakeTransport([{"events": [{"id": "1", "markets": []}]}])
+    result = GammaClient(config(), transport).fetch_live_sports_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is True
     method, url, kwargs = transport.calls[0]
     params = kwargs["params"]
     assert method == "GET"
-    assert url.endswith("/markets/keyset")
-    assert params["sports_market_types"] == ["moneyline"]
+    assert url.endswith("/events/keyset")
+    assert params["tag_slug"] == "sports"
+    assert params["live"] == "true"
     assert params["closed"] == "false"
-    assert params["limit"] == 100
-    assert "end_date_min" in params and "end_date_max" in params
-    assert "liquidity_num_min" not in params
-    assert "volume_num_min" not in params
+    assert params["limit"] == 500
+    assert "liquidity_min" not in params
+    assert "volume_min" not in params
     assert "offset" not in params
 
 
 def test_keyset_cursor_is_forwarded() -> None:
     transport = FakeTransport(
         [
-            {"markets": [], "next_cursor": "next"},
-            {"markets": []},
+            {"events": [], "next_cursor": "next"},
+            {"events": []},
         ]
     )
-    result = GammaClient(config(), transport).fetch_moneyline_markets(
+    result = GammaClient(config(), transport).fetch_live_sports_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is True
@@ -74,8 +74,8 @@ def test_keyset_cursor_is_forwarded() -> None:
 
 
 def test_page_cap_returns_incomplete() -> None:
-    transport = FakeTransport([{"markets": [], "next_cursor": "next"}])
-    result = GammaClient(config(max_pages=1), transport).fetch_moneyline_markets(
+    transport = FakeTransport([{"events": [], "next_cursor": "next"}])
+    result = GammaClient(config(max_pages=1), transport).fetch_live_sports_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is False

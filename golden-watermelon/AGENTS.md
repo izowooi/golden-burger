@@ -20,8 +20,8 @@ exact CLOB $5 ask가 0.95~0.99 threshold를 통과했을 때 가상 진입하고
 - Jenkins/workspace:
   - `polybot-white` → `/Volumes/t7/jenkins/polybot-white`.
   - `polybot-grey` → `/Volumes/t7/jenkins/polybot-grey`.
-- Entry window: `[2026-08-22T15:30:00Z, 2026-09-05T15:30:00Z)`.
-- Follow-up end: `2026-09-19T15:30:00Z`.
+- Entry window: `[2026-08-22T16:15:00Z, 2026-09-05T16:15:00Z)`.
+- Follow-up end: `2026-09-19T16:15:00Z`.
 - First requested health review: `2026-08-24T10:00:00Z`
   (`2026-08-24 19:00 KST`; 배포 환경에서 “다음 날 19시”를 절대시각으로 보정).
 - Entry grid: `0.95/0.96/0.97/0.98/0.99`.
@@ -37,8 +37,9 @@ preregistration과 runtime job/DB epoch를 만든다. Git commit은 provenance�
 
 ## Universe와 분류
 
-- Gamma `/markets/keyset`에 `closed=false`,
-  `sports_market_types=moneyline`, `endDate ±24h`만 server-side로 적용한다.
+- Gamma `/events/keyset`에 `closed=false`, `live=true`, `tag_slug=sports`를
+  server-side로 적용하고 nested market의 `sportsMarketType=moneyline`을 client-side로
+  재검증한다.
 - liquidity/volume 하한은 두지 않는다. exact $5 CLOB depth 부족은 exclusion이 아니라
   측정값으로 저장한다.
 - `sportsMarketType=moneyline`만 허용한다. `child_moneyline`(map/game/set winner),

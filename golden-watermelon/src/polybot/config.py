@@ -32,9 +32,9 @@ LIFECYCLE_MODES = frozenset({"archive_only"})
 
 # The first successful Jenkins run remains the actual source cutoff. This
 # boundary prevents a delayed deploy from silently creating a different cohort.
-FROZEN_START = datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 5, 15, 30, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 19, 15, 30, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 22, 16, 15, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 5, 16, 15, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 19, 16, 15, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 
@@ -165,8 +165,8 @@ class GammaConfig:
     base_url: str
     page_size: int
     max_pages: int
-    lookback_hours: float
-    lookahead_hours: float
+    tag_slug: str
+    live_only: bool
     sports_market_types: tuple[str, ...]
     connect_timeout_seconds: float
     read_timeout_seconds: float
@@ -250,10 +250,10 @@ def _validate_config(config: BotConfig) -> None:
     gamma = trading.gamma
     if gamma.base_url != "https://gamma-api.polymarket.com":
         raise ValueError("Gamma origin is frozen")
-    if gamma.page_size != 100 or not 1 <= gamma.max_pages <= 10:
-        raise ValueError("Gamma keyset envelope must remain 100 × at most 10 pages")
-    if gamma.lookback_hours != 24 or gamma.lookahead_hours != 24:
-        raise ValueError("Gamma discovery clock window must remain ±24 hours")
+    if gamma.page_size != 500 or not 1 <= gamma.max_pages <= 4:
+        raise ValueError("Gamma event keyset envelope must remain 500 × at most 4 pages")
+    if gamma.tag_slug != "sports" or gamma.live_only is not True:
+        raise ValueError("Gamma discovery must remain live sports only")
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:
@@ -320,8 +320,8 @@ def load_config(
         base_url=_public_origin(gamma_raw["base_url"], "gamma.base_url"),
         page_size=_integer(gamma_raw["page_size"], "gamma.page_size"),
         max_pages=_integer(gamma_raw["max_pages"], "gamma.max_pages"),
-        lookback_hours=_finite(gamma_raw["lookback_hours"], "gamma.lookback_hours"),
-        lookahead_hours=_finite(gamma_raw["lookahead_hours"], "gamma.lookahead_hours"),
+        tag_slug=str(gamma_raw["tag_slug"]).strip(),
+        live_only=_boolean(gamma_raw["live_only"], "gamma.live_only"),
         sports_market_types=_string_tuple(
             gamma_raw["sports_market_types"], "gamma.sports_market_types"
         ),
@@ -403,6 +403,7 @@ def load_config(
     )
     payload = provisional.redacted_dict()
     payload.pop("config_hash", None)
+    payload.pop("db_path", None)
     config_hash = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()

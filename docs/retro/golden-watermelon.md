@@ -8,8 +8,8 @@ counterfactual evidence다. 회고 전에 반드시 `docs/retro/EVIDENCE_CONTRAC
 
 - `REVIEW_START`: 두 Jenkins 잡 중 해당 DB의 첫 successful source run receipt time
 - 첫 health 점검 `REVIEW_END`: `2026-08-24T10:00:00Z` exclusive
-- entry cohort end: `2026-09-05T15:30:00Z` exclusive
-- resolution follow-up end: `2026-09-19T15:30:00Z` exclusive
+- entry cohort end: `2026-09-05T16:15:00Z` exclusive
+- resolution follow-up end: `2026-09-19T16:15:00Z` exclusive
 - timezone: UTC half-open `[REVIEW_START, REVIEW_END)`; 화면에는 KST를 병기한다.
 
 배포가 preregistration boundary보다 늦었으므로 존재하지 않는 과거 표본을 채우지 않는다.

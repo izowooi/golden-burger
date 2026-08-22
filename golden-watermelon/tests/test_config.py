@@ -38,8 +38,10 @@ def test_frozen_job_profiles_load(
     assert config.trading.cadence_minutes == minutes
     assert config.trading.experiment.entry_thresholds == ENTRY_THRESHOLDS
     assert config.trading.experiment.stop_levels == STOP_LEVELS
-    assert config.trading.gamma.page_size == 100
-    assert config.trading.gamma.max_pages == 10
+    assert config.trading.gamma.page_size == 500
+    assert config.trading.gamma.max_pages == 4
+    assert config.trading.gamma.tag_slug == "sports"
+    assert config.trading.gamma.live_only is True
     assert config.trading.gamma.sports_market_types == ("moneyline",)
     assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=14)
     assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=14)

@@ -31,7 +31,18 @@ def seeded_database(tmp_path, name: str, job: str, cadence: int, arm: str):
                     }
                 }
             ),
-            "first_seen_at": "2026-08-22T15:30:00Z",
+            "first_seen_at": "2026-08-22T16:15:00Z",
+        }
+    )
+    repository.record_run_event(
+        {
+            "event_id": f"success-{arm}",
+            "run_id": "run",
+            "event_type": "SUCCEEDED",
+            "observed_at": "2026-08-22T16:16:00Z",
+            "config_hash": f"config-{arm}",
+            "strategy_source_digest": "source",
+            "detail_json": "{}",
         }
     )
     return repository
@@ -175,6 +186,33 @@ def test_analyzer_uses_fee_resolution_and_stop_depth(tmp_path) -> None:
     assert policies["HOLD_TO_RESOLUTION"]["event_equal_fee_net_roi_pct"] > 0
     assert policies["STOP_0.80"]["event_equal_fee_net_roi_pct"] < 0
     assert policies["STOP_0.80"]["gap_below_stop_p50"] == pytest.approx(0.02)
+
+
+def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
+    repository = seeded_database(
+        tmp_path, "white.db", "watermelon-white-1m", 1, "FAST_1M"
+    )
+    repository.record_run_event(
+        {
+            "event_id": "old-failure",
+            "run_id": "old-run",
+            "event_type": "FAILED",
+            "observed_at": "2026-08-22T16:11:00Z",
+            "config_hash": "old-config",
+            "strategy_source_digest": "old-source",
+            "detail_json": "{}",
+        }
+    )
+    repository.record_issue(
+        run_id="old-run",
+        severity="CRITICAL",
+        issue_type="GAMMA_CURSOR_INCOMPLETE",
+        detail={"pages": 10},
+    )
+    result = analyze_database(repository.path)
+    assert result["cohort_run_count"] == 1
+    assert result["run_events"] == {"SUCCEEDED": 1}
+    assert result["issues"] == []
 
 
 def test_multi_database_analyzer_pairs_same_episode_keys(tmp_path) -> None:

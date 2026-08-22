@@ -12,14 +12,14 @@ from polybot.api.clob_client import (
     RawPayload,
     ResolutionResult,
 )
-from polybot.api.gamma_client import MarketPage, MarketSweep
+from polybot.api.gamma_client import EventPage, EventSweep
 from polybot.collector import Collector, classify_match_winner
 from polybot.config import load_config
 from polybot.db.repository import ResearchRepository
 
 
 ROOT = Path(__file__).resolve().parents[1]
-NOW = datetime(2026, 8, 22, 15, 31, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 22, 16, 16, tzinfo=timezone.utc)
 
 
 def event(*, live=True, ended=False):
@@ -67,18 +67,35 @@ class FakeGamma:
     def __init__(self, source=None):
         self.source = source or market()
 
-    def fetch_moneyline_markets(self, run_id, *, observed_at):
-        page = MarketPage(
+    def fetch_live_sports_events(self, run_id, *, observed_at):
+        source_event = event()
+        source_event["markets"] = [
+            {key: value for key, value in self.source.items() if key != "events"}
+        ]
+        if self.source.get("events"):
+            source_event.update(self.source["events"][0])
+            source_event["markets"] = [
+                {key: value for key, value in self.source.items() if key != "events"}
+            ]
+        page = EventPage(
             1,
             "gamma-request",
             observed_at.isoformat().replace("+00:00", "Z"),
             "a" * 64,
             b"{}",
-            (self.source,),
+            (source_event,),
             None,
             None,
         )
-        return MarketSweep((page,), True)
+        return EventSweep((page,), True)
+
+
+class IncompleteGamma(FakeGamma):
+    def fetch_live_sports_events(self, run_id, *, observed_at):
+        complete = super().fetch_live_sports_events(
+            run_id, observed_at=observed_at
+        )
+        return EventSweep(complete.pages, False)
 
 
 class FakeClob:
@@ -219,6 +236,30 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
     assert policies == 3 * 7
 
 
+def test_incomplete_event_cursor_preserves_raw_failure_evidence(tmp_path) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    with pytest.raises(RuntimeError, match="event keyset"):
+        Collector(config, repository, IncompleteGamma(), FakeClob()).collect(
+            "run-incomplete", now=NOW
+        )
+    with repository.connect() as connection:
+        sweep = connection.execute(
+            "SELECT page_count,event_count,market_count,cursor_complete "
+            "FROM market_sweeps WHERE run_id='run-incomplete'"
+        ).fetchone()
+        payloads = connection.execute(
+            "SELECT COUNT(*) FROM raw_payloads WHERE run_id='run-incomplete'"
+        ).fetchone()[0]
+        issue = connection.execute(
+            "SELECT severity,issue_type FROM data_quality_issues "
+            "WHERE run_id='run-incomplete'"
+        ).fetchone()
+    assert tuple(sweep) == (1, 1, 1, 0)
+    assert payloads == 1
+    assert tuple(issue) == ("CRITICAL", "GAMMA_CURSOR_INCOMPLETE")
+
+
 def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:
     config = configured(tmp_path)
     repository = repository_for(config)
@@ -230,7 +271,7 @@ def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:
         config, repository, FakeGamma(), FakeClob(ask=0.97, bid=0.96)
     ).collect(
         "run-2",
-        now=datetime(2026, 8, 22, 15, 32, tzinfo=timezone.utc),
+        now=datetime(2026, 8, 22, 16, 17, tzinfo=timezone.utc),
     )
     assert second["episodes_opened"] == 3
     with repository.connect() as connection:
@@ -248,9 +289,9 @@ def test_pre_game_and_finished_markets_are_excluded(tmp_path) -> None:
     config = configured(tmp_path)
     for index, source in enumerate(
         (
-            market(gameStartTime="2026-08-22T16:00:00Z"),
+            market(gameStartTime="2026-08-22T17:00:00Z"),
             market(events=[event(live=False, ended=True)]),
-            market(events=[]),
+            market(events=[{**event(), "teams": []}]),
         )
     ):
         path = tmp_path / str(index)
@@ -281,7 +322,7 @@ def test_stop_trigger_records_exact_depth_gap(tmp_path) -> None:
             ],
         ),
     ).collect(
-        "run-2", now=datetime(2026, 8, 22, 15, 32, tzinfo=timezone.utc)
+        "run-2", now=datetime(2026, 8, 22, 16, 17, tzinfo=timezone.utc)
     )
     assert result["stop_attempts"] == 1
     assert result["stop_exits"] == 1
@@ -311,7 +352,7 @@ def test_partial_stop_retries_only_remaining_shares(tmp_path) -> None:
             bid_levels=[{"price": "0.79", "size": "2"}],
         ),
     ).collect(
-        "run-2", now=datetime(2026, 8, 22, 15, 32, tzinfo=timezone.utc)
+        "run-2", now=datetime(2026, 8, 22, 16, 17, tzinfo=timezone.utc)
     )
     assert partial["stop_attempts"] == 1
     assert partial["stop_exits"] == 0
@@ -324,7 +365,7 @@ def test_partial_stop_retries_only_remaining_shares(tmp_path) -> None:
             bid_levels=[{"price": "0.77", "size": "20"}],
         ),
     ).collect(
-        "run-3", now=datetime(2026, 8, 22, 15, 33, tzinfo=timezone.utc)
+        "run-3", now=datetime(2026, 8, 22, 16, 18, tzinfo=timezone.utc)
     )
     assert completed["stop_attempts"] == 1
     assert completed["stop_exits"] == 1

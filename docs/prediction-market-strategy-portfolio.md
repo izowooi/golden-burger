@@ -342,8 +342,9 @@ walk한다. gap-down VWAP, partial fill, 남은 수량과 다음 cycle retry를 
 
 ### golden-watermelon — In-Play Match Winner
 
-Gamma `/markets/keyset`에 `sports_market_types=moneyline`을 적용하되 volume/liquidity
-하한은 두지 않는다. 경기 시작 후이고 종료되지 않은 market 중 exactly two
+Gamma `/events/keyset`에 `tag_slug=sports`, `live=true`를 적용하되 volume/liquidity
+하한은 두지 않는다. nested market의 `sportsMarketType=moneyline`을 재검증하고,
+경기 시작 후이고 종료되지 않은 market 중 exactly two
 event teams와 outcome label이 일치하는 top-level whole-match winner만 남긴다.
 `child_moneyline`, Draw/Tie, map/game/set winner, spread/total/player prop은 fail closed로
 제외한다. negRisk에서는 team-name market의 Yes만 같은 의미로 편입한다.

@@ -53,7 +53,7 @@ env로 override하지 않는다.
 ## 최초 배포
 
 1. timer 없이 각 job을 수동 1회 실행한다.
-2. console에서 `cursor_complete=true`, page 수 ≤10, `cadence_arm`,
+2. console에서 `cursor_complete=true`, page 수 ≤4, `cadence_arm`,
    `quick_check=ok` 또는 scheduled lightweight/full check, external free space를 확인한다.
 3. `polybot status`로 DB contract, episode/policy count를 확인한다.
 4. White runtime이 45초 미만, Grey runtime이 240초 미만일 때만 timer를 켠다.

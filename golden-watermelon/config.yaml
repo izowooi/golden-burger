@@ -6,10 +6,10 @@ trading:
 
   gamma:
     base_url: https://gamma-api.polymarket.com
-    page_size: 100
-    max_pages: 10
-    lookback_hours: 24
-    lookahead_hours: 24
+    page_size: 500
+    max_pages: 4
+    tag_slug: sports
+    live_only: true
     sports_market_types: [moneyline]
     connect_timeout_seconds: 3.05
     read_timeout_seconds: 30
@@ -22,9 +22,9 @@ trading:
     batch_token_limit: 250
 
   experiment:
-    start_utc: 2026-08-22T15:30:00Z
-    entry_end_utc: 2026-09-05T15:30:00Z
-    followup_end_utc: 2026-09-19T15:30:00Z
+    start_utc: 2026-08-22T16:15:00Z
+    entry_end_utc: 2026-09-05T16:15:00Z
+    followup_end_utc: 2026-09-19T16:15:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5

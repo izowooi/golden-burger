@@ -1,11 +1,11 @@
 # Frozen preregistration — In-Play Match Winner
 
-- Frozen at: `2026-08-22T15:30:00Z` (`2026-08-23 00:30 KST`).
+- Frozen at: `2026-08-22T16:15:00Z` (`2026-08-23 01:15 KST`).
 - Data contract: `sports-inplay-match-winner-v1`.
 - Mode: accountless displayed-book simulation only.
-- Entry window: `[2026-08-22T15:30:00Z, 2026-09-05T15:30:00Z)`.
-- Calibration/confirmation split: `2026-08-29T15:30:00Z`.
-- Resolution follow-up end: `2026-09-19T15:30:00Z`.
+- Entry window: `[2026-08-22T16:15:00Z, 2026-09-05T16:15:00Z)`.
+- Calibration/confirmation split: `2026-08-29T16:15:00Z`.
+- Resolution follow-up end: `2026-09-19T16:15:00Z`.
 - First operational health review: `2026-08-24T10:00:00Z`
   (`2026-08-24 19:00 KST`).
 
@@ -17,15 +17,17 @@ fee 후 양의 event-equal counterfactual ROI를 만드는가?
 
 ## Frozen universe
 
-Gamma `/markets/keyset` cursor 전체를 다음 request envelope로 수집한다.
+Gamma `/events/keyset` cursor 전체를 다음 request envelope로 수집한다.
 
 - `closed=false`
-- `sports_market_types=moneyline`
-- receipt time 기준 `end_date_min=-24h`, `end_date_max=+24h`
-- page size 100, max 10 pages
+- `live=true`
+- `tag_slug=sports`
+- page size 500, max 4 pages
 - liquidity/volume filter 없음
 
 한 page라도 실패하거나 terminal cursor에 도달하지 못하면 그 cycle 전체를 무효화한다.
+event response의 enriched teams와 nested markets를 사용하되,
+`sportsMarketType=moneyline`은 client-side에서 다시 확인한다.
 
 client eligibility는 다음 conjunction이다.
 
@@ -114,3 +116,13 @@ cohort key는
 raw Gamma/CLOB payload, request receipt, complete sweep, classifier evidence, full books/levels,
 decisions, episode paths, stop attempts, resolution, run/config/source, DB checks와 storage metrics는
 append-only다. 모든 P&L은 actual fill이 아닌 displayed-book counterfactual로만 표현한다.
+
+## Pre-cohort instrumentation correction
+
+`2026-08-22T16:11Z` 최초 수동 build는 `/markets/keyset` 100건 × 10 page 상한에
+도달해 fail-closed 했다. 완결 sweep, market observation, episode는 0건이었고 주문은
+소스 수준에서 금지되어 있었다. 공식 event keyset이 `live`, `tag_slug`, 500건
+page와 enriched teams/nested markets를 지원하므로, 가설·X/Y·cadence·volume/liquidity
+무필터는 유지하고 discovery envelope만 위와 같이 교정했다. 이 교정 후 첫
+successful build receipt time이 실제 source cutoff이며, 실패 run은 새
+`strategy_source_digest × config_hash` cohort에 포함하지 않는다.

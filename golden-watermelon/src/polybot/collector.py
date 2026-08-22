@@ -354,31 +354,97 @@ class Collector:
     def collect(self, run_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         sweep_id = uuid4().hex
-        sweep = self.gamma.fetch_moneyline_markets(run_id, observed_at=now)
-        if not sweep.cursor_complete:
-            self.repository.record_issue(run_id=run_id, severity="CRITICAL", issue_type="GAMMA_CURSOR_INCOMPLETE", detail={"pages": len(sweep.pages)})
-            raise RuntimeError("Gamma moneyline keyset sweep exceeded the frozen page cap")
-
+        sweep = self.gamma.fetch_live_sports_events(run_id, observed_at=now)
         payloads = [
-            self.repository.payload_row(run_id=run_id, kind="GAMMA_MARKET_PAGE", request_id=page.request_id, observed_at=page.received_at, raw=page.raw)
+            self.repository.payload_row(
+                run_id=run_id,
+                kind="GAMMA_EVENT_PAGE",
+                request_id=page.request_id,
+                observed_at=page.received_at,
+                raw=page.raw,
+            )
             for page in sweep.pages
         ]
+        source_event_count = sum(len(page.events) for page in sweep.pages)
+        source_market_count = sum(
+            len(markets)
+            for page in sweep.pages
+            for event in page.events
+            if isinstance((markets := event.get("markets")), list)
+        )
+        if not sweep.cursor_complete:
+            self.repository.record_collection(
+                sweep={
+                    "sweep_id": sweep_id,
+                    "run_id": run_id,
+                    "started_at": iso_utc(now),
+                    "completed_at": iso_utc(),
+                    "page_count": len(sweep.pages),
+                    "event_count": source_event_count,
+                    "market_count": source_market_count,
+                    "eligible_market_count": 0,
+                    "eligible_outcome_count": 0,
+                    "cursor_complete": 0,
+                    "request_envelope_json": canonical_json(
+                        {
+                            "closed": False,
+                            "live": True,
+                            "tag_slug": self.config.trading.gamma.tag_slug,
+                            "page_size": self.config.trading.gamma.page_size,
+                            "liquidity_filter": None,
+                            "volume_filter": None,
+                        }
+                    ),
+                },
+                payloads=payloads,
+                markets=(),
+                outcomes=(),
+                attempts=(),
+                snapshots=(),
+                levels=(),
+                decisions=(),
+                episodes=(),
+                policies=(),
+                paths=(),
+                stop_attempts=(),
+                stop_exits=(),
+            )
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="CRITICAL",
+                issue_type="GAMMA_CURSOR_INCOMPLETE",
+                detail={"pages": len(sweep.pages)},
+            )
+            raise RuntimeError(
+                "Gamma live sports event keyset sweep exceeded the frozen page cap"
+            )
+
         market_rows: list[dict[str, Any]] = []
         outcome_rows: list[dict[str, Any]] = []
         contexts: list[dict[str, Any]] = []
         for page in sweep.pages:
             observed = _utc(page.received_at) or now
-            for market in page.markets:
-                row, outcomes, context = _parse_market(
-                    market,
-                    sweep_id=sweep_id,
-                    run_id=run_id,
-                    observed_at=observed,
-                    config=self.config,
-                )
-                market_rows.append(row)
-                outcome_rows.extend(outcomes)
-                contexts.append(context)
+            for event in page.events:
+                event_markets = event.get("markets")
+                if not isinstance(event_markets, list):
+                    continue
+                event_relation = dict(event)
+                event_relation.pop("markets", None)
+                for source_market in event_markets:
+                    if not isinstance(source_market, Mapping):
+                        continue
+                    market = dict(source_market)
+                    market["events"] = [event_relation]
+                    row, outcomes, context = _parse_market(
+                        market,
+                        sweep_id=sweep_id,
+                        run_id=run_id,
+                        observed_at=observed,
+                        config=self.config,
+                    )
+                    market_rows.append(row)
+                    outcome_rows.extend(outcomes)
+                    contexts.append(context)
 
         open_before = self.repository.open_episodes()
         active_stop_before = self.repository.active_stop_policies()
@@ -645,12 +711,7 @@ class Collector:
                 "gap_from_stop": stop_price - exit_vwap_total,
             })
 
-        event_ids = {
-            str(context["market_row"]["event_id"])
-            for context in contexts
-            if context["market_row"]["event_id"]
-        }
-        event_count = len(event_ids)
+        event_count = source_event_count
         eligible_outcome_count = sum(
             int(row["entry_eligible"]) for row in outcome_rows
         )
@@ -669,11 +730,11 @@ class Collector:
                 "cursor_complete": 1,
                 "request_envelope_json": canonical_json({
                     "closed": False,
-                    "sports_market_types": list(
+                    "live": True,
+                    "tag_slug": self.config.trading.gamma.tag_slug,
+                    "client_sports_market_types": list(
                         self.config.trading.gamma.sports_market_types
                     ),
-                    "end_date_lookback_hours": self.config.trading.gamma.lookback_hours,
-                    "end_date_lookahead_hours": self.config.trading.gamma.lookahead_hours,
                     "liquidity_filter": None,
                     "volume_filter": None,
                     "page_size": self.config.trading.gamma.page_size,

@@ -13,7 +13,7 @@ import statistics
 from typing import Any, Iterable
 
 
-VALIDATION_START = datetime(2026, 8, 29, 15, 30, tzinfo=timezone.utc)
+VALIDATION_START = datetime(2026, 8, 29, 16, 15, tzinfo=timezone.utc)
 
 
 def _utc(value: str) -> datetime:
@@ -157,6 +157,24 @@ def analyze_database(path: Path) -> dict[str, Any]:
         ).fetchone()
         if config_row is None:
             raise ValueError("database has no research_config_versions")
+        connection.execute(
+            "CREATE TEMP TABLE cohort_runs(run_id TEXT PRIMARY KEY)"
+        )
+        connection.execute(
+            """
+            INSERT INTO cohort_runs(run_id)
+            SELECT DISTINCT run_id
+            FROM research_run_events
+            WHERE config_hash=? AND strategy_source_digest=?
+            """,
+            (
+                str(config_row["config_hash"]),
+                str(config_row["strategy_source_digest"]),
+            ),
+        )
+        cohort_run_count = int(
+            connection.execute("SELECT COUNT(*) FROM cohort_runs").fetchone()[0]
+        )
         config_json = json.loads(str(config_row["config_json"]))
         trading = config_json["trading"]
         cadence_minutes = int(trading["cadence_minutes"])
@@ -164,13 +182,16 @@ def analyze_database(path: Path) -> dict[str, Any]:
 
         run_rows = connection.execute(
             "SELECT event_type,COUNT(*) AS count FROM research_run_events "
+            "WHERE run_id IN (SELECT run_id FROM cohort_runs) "
             "GROUP BY event_type"
         ).fetchall()
         success_times = [
             _utc(str(row[0]))
             for row in connection.execute(
                 "SELECT observed_at FROM research_run_events "
-                "WHERE event_type='SUCCEEDED' ORDER BY observed_at"
+                "WHERE event_type='SUCCEEDED' "
+                "AND run_id IN (SELECT run_id FROM cohort_runs) "
+                "ORDER BY observed_at"
             )
         ]
         sweep = connection.execute(
@@ -183,12 +204,14 @@ def analyze_database(path: Path) -> dict[str, Any]:
                    COALESCE(SUM(eligible_outcome_count),0) AS eligible_outcomes,
                    COALESCE(MAX(page_count),0) AS max_pages
             FROM market_sweeps
+            WHERE run_id IN (SELECT run_id FROM cohort_runs)
             """
         ).fetchone()
         eligible_observations = int(
             connection.execute(
                 "SELECT COUNT(*) FROM outcome_observations "
-                "WHERE entry_eligible=1"
+                "WHERE entry_eligible=1 "
+                "AND run_id IN (SELECT run_id FROM cohort_runs)"
             ).fetchone()[0]
         )
         observed_books = int(
@@ -199,6 +222,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 JOIN orderbook_token_attempts a
                   ON a.run_id=o.run_id AND a.token_id=o.token_id
                 WHERE o.entry_eligible=1 AND a.status='OBSERVED'
+                  AND o.run_id IN (SELECT run_id FROM cohort_runs)
                 """
             ).fetchone()[0]
         )
@@ -208,6 +232,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 SELECT COUNT(*) FROM (
                     SELECT run_id,token_id
                     FROM signal_decisions
+                    WHERE run_id IN (SELECT run_id FROM cohort_runs)
                     GROUP BY run_id,token_id
                     HAVING MAX(CASE WHEN entry_vwap IS NOT NULL THEN 1 ELSE 0 END)=1
                 )
@@ -218,33 +243,41 @@ def analyze_database(path: Path) -> dict[str, Any]:
             """
             SELECT match_winner_class,eligible,COUNT(*) AS count
             FROM market_observations
+            WHERE run_id IN (SELECT run_id FROM cohort_runs)
             GROUP BY match_winner_class,eligible
             ORDER BY match_winner_class,eligible
             """
         ).fetchall()
         exclusion_counter: Counter[str] = Counter()
         for row in connection.execute(
-            "SELECT exclusion_reason FROM market_observations WHERE eligible=0"
+            "SELECT exclusion_reason FROM market_observations WHERE eligible=0 "
+            "AND run_id IN (SELECT run_id FROM cohort_runs)"
         ):
             exclusion_counter.update(str(row[0]).split(";"))
         issues = connection.execute(
             "SELECT severity,issue_type,COUNT(*) AS count "
-            "FROM data_quality_issues GROUP BY severity,issue_type"
+            "FROM data_quality_issues "
+            "WHERE run_id IN (SELECT run_id FROM cohort_runs) "
+            "GROUP BY severity,issue_type"
         ).fetchall()
         check_rows = connection.execute(
             "SELECT check_type,result,COUNT(*) AS count,MAX(completed_at) AS latest,"
             "MAX(elapsed_ms) AS max_elapsed FROM database_checks "
+            "WHERE run_id IN (SELECT run_id FROM cohort_runs) "
             "GROUP BY check_type,result ORDER BY check_type,result"
         ).fetchall()
         storage_rows = connection.execute(
             "SELECT observed_at,db_bytes,free_bytes,total_bytes,used_ratio "
-            "FROM storage_metrics ORDER BY observed_at"
+            "FROM storage_metrics "
+            "WHERE run_id IN (SELECT run_id FROM cohort_runs) "
+            "ORDER BY observed_at"
         ).fetchall()
         episode_rows = connection.execute(
             """
             SELECT e.*,r.winner_index,r.observed_at AS resolved_at
             FROM hypothetical_episodes e
             LEFT JOIN resolution_observations r USING(condition_id)
+            WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             ORDER BY e.entered_at,e.episode_id
             """
         ).fetchall()
@@ -271,6 +304,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
             LEFT JOIN stop_execution_attempts a USING(policy_id)
             LEFT JOIN counterfactual_stop_exits x USING(policy_id)
             LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
+            WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             GROUP BY p.policy_id
             ORDER BY e.entered_at,p.policy_key
             """
@@ -313,6 +347,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         "config_hash": str(config_row["config_hash"]),
         "strategy_source_digest": str(config_row["strategy_source_digest"]),
         "config_first_seen_at": str(config_row["first_seen_at"]),
+        "cohort_run_count": cohort_run_count,
         "run_events": {str(row["event_type"]): int(row["count"]) for row in run_rows},
         "cadence": _cadence_summary(success_times, cadence_minutes),
         "collection": {
@@ -502,9 +537,22 @@ def _episode_index(path: Path) -> dict[tuple[str, str, float], sqlite3.Row]:
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
+        config_row = connection.execute(
+            "SELECT config_hash,strategy_source_digest "
+            "FROM research_config_versions ORDER BY first_seen_at DESC LIMIT 1"
+        ).fetchone()
+        if config_row is None:
+            return {}
         rows = connection.execute(
-            "SELECT condition_id,token_id,threshold,entered_at,entry_vwap "
-            "FROM hypothetical_episodes"
+            """
+            SELECT condition_id,token_id,threshold,entered_at,entry_vwap
+            FROM hypothetical_episodes
+            WHERE run_id IN (
+                SELECT DISTINCT run_id FROM research_run_events
+                WHERE config_hash=? AND strategy_source_digest=?
+            )
+            """,
+            (str(config_row["config_hash"]), str(config_row["strategy_source_digest"])),
         ).fetchall()
     finally:
         connection.close()

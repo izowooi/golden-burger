@@ -17,7 +17,9 @@ P&L이 아니라 displayed-book counterfactual이다.
 
 ## Universe
 
-Gamma `/markets/keyset`의 공식 `sports_market_types=moneyline` filter를 사용한다.
+Gamma `/events/keyset`의 공식 `tag_slug=sports`, `live=true` filter로 현재 경기 중
+event를 먼저 가져온 뒤 nested market에서 `sportsMarketType=moneyline`을 엄격히
+재검증한다.
 `child_moneyline`, map/game/set winner, handicap, score, goal, foul·player prop은 제외한다.
 aligned two-team market은 양 team outcome을, negRisk market은 정확히 team에 대응하는
 `YES`만 사용하며 Draw와 `NO`는 제외한다.

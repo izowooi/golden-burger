@@ -3278,8 +3278,8 @@ def _validate_inplay_match_winner_research_strategy(
             "storage safety gate",
         ),
         "src/polybot/api/gamma_client.py": (
-            "/markets/keyset", "sports_market_types", "after_cursor",
-            "next_cursor", "end_date_min", "end_date_max", "cursor_complete",
+            "/events/keyset", "tag_slug", '"live": "true"', "events",
+            "after_cursor", "next_cursor", "cursor_complete",
         ),
         "src/polybot/api/clob_client.py": (
             "/books", "/markets/", "walk_asks", "walk_bids",
@@ -3307,7 +3307,7 @@ def _validate_inplay_match_winner_research_strategy(
             "sports-inplay-match-winner-cadence-pair-v1",
             "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
             "stop_policy_comparison", "matched_episode_keys",
-            "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
+            "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY", "cohort_runs",
         ),
         "src/polybot/utils/retry.py": (
             "RequestException", "ChunkedEncodingError", "trust_env = False",
@@ -3321,7 +3321,10 @@ def _validate_inplay_match_winner_research_strategy(
         _require_tokens(findings, strategy, relative, sources[relative], tokens)
 
     gamma_source = sources["src/polybot/api/gamma_client.py"]
-    for forbidden in ("liquidity_num_min", "volume_num_min", '"offset"'):
+    for forbidden in (
+        "liquidity_num_min", "volume_num_min", "liquidity_min",
+        "volume_min", '"offset"', "/markets/keyset",
+    ):
         if forbidden in gamma_source:
             findings.append(
                 Finding(
@@ -3375,7 +3378,7 @@ def _validate_inplay_match_winner_research_strategy(
         "research/frozen-2026-08-23/PREREGISTRATION.md",
         preregistration,
         (
-            "2026-08-22T15:30:00Z", "2026-09-05T15:30:00Z",
+            "2026-08-22T16:15:00Z", "2026-09-05T16:15:00Z",
             "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
             "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
         ),

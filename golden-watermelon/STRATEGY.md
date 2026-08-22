@@ -28,9 +28,9 @@ fee·spread·급반전 시 실제 bid depth를 반영해도 resolution까지 보
 
 ## Universe
 
-- Source: Gamma `/markets/keyset`, keyset cursor complete.
-- Server envelope: `closed=false`, `sports_market_types=moneyline`,
-  관측시각 기준 `endDate [-24h,+24h]`.
+- Source: Gamma `/events/keyset`, keyset cursor complete.
+- Server envelope: `closed=false`, `live=true`, `tag_slug=sports`, page 500,
+  max 4. nested market에서 `sportsMarketType=moneyline`을 client-side로 재검증한다.
 - volume/liquidity 하한: **none**. 두 값은 feature로 저장하고 selection gate로 쓰지 않는다.
 - Execution availability: active, not closed, accepting orders, order book enabled.
 - Clock: `gameStartTime <= receipt time`; `event.ended=true` 또는 명시적
@@ -99,10 +99,10 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 ## Frozen timeline
 
-- Entry: `[2026-08-22T15:30:00Z, 2026-09-05T15:30:00Z)`.
-- Calibration: start부터 `2026-08-29T15:30:00Z` 미만.
-- Confirmation: `[2026-08-29T15:30:00Z, entry end)`.
-- Resolution follow-up: `2026-09-19T15:30:00Z`까지.
+- Entry: `[2026-08-22T16:15:00Z, 2026-09-05T16:15:00Z)`.
+- Calibration: start부터 `2026-08-29T16:15:00Z` 미만.
+- Confirmation: `[2026-08-29T16:15:00Z, entry end)`.
+- Resolution follow-up: `2026-09-19T16:15:00Z`까지.
 - 실제 수집 시작은 각 Jenkins의 첫 successful build와 DB source receipt time으로 보고한다.
 
 ## Falsification과 판정 gate
