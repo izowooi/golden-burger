@@ -18,7 +18,7 @@ from .api.clob_client import (
     walk_bids_partial,
 )
 from .api.gamma_client import GammaClient
-from .config import BotConfig
+from .config import BotConfig, GammaConfig, MAJOR_SOCCER_LEAGUES
 from .db.repository import ResearchRepository
 from .utils.retry import canonical_json, iso_utc
 
@@ -98,6 +98,67 @@ def _select_event(
     if len(events) == 1:
         return events[0], [], 1
     return (events[0] if events else {}), ["EVENT_RELATION_NOT_UNIQUE"], len(events)
+
+
+def _event_tag_slugs(event: Mapping[str, Any]) -> tuple[str, ...]:
+    values: list[str] = []
+    raw_tags = event.get("tags")
+    if isinstance(raw_tags, list):
+        for item in raw_tags:
+            value = item.get("slug") if isinstance(item, Mapping) else item
+            normalized = str(value or "").strip().casefold()
+            if normalized:
+                values.append(normalized)
+    return tuple(dict.fromkeys(values))
+
+
+def classify_soccer_league(
+    event: Mapping[str, Any], gamma: GammaConfig
+) -> tuple[dict[str, Any], list[str]]:
+    """Require authoritative soccer metadata and a frozen major-league code."""
+    reasons: list[str] = []
+    raw_sport = event.get("sport")
+    sport = dict(raw_sport) if isinstance(raw_sport, Mapping) else {}
+    league_code = str(sport.get("sport") or "").strip().casefold()
+    league_name = str(sport.get("name") or "").strip()
+    tag_slugs = _event_tag_slugs(event)
+    series_slug = str(event.get("seriesSlug") or "").strip() or None
+    teams = [
+        item
+        for item in (event.get("teams") or [])
+        if isinstance(item, Mapping)
+    ] if isinstance(event.get("teams"), list) else []
+    team_leagues = tuple(
+        dict.fromkeys(
+            str(team.get("league") or "").strip().casefold()
+            for team in teams
+            if str(team.get("league") or "").strip()
+        )
+    )
+
+    if not sport or not league_code or not league_name:
+        reasons.append("SPORT_METADATA_MISSING")
+    if gamma.sport_family not in tag_slugs:
+        reasons.append("SOCCER_TAG_MISSING")
+    if {"esports", "e-sports"} & set(tag_slugs):
+        reasons.append("ESPORTS_EXCLUDED")
+    if league_code not in gamma.league_codes:
+        reasons.append("LEAGUE_NOT_ALLOWED")
+    else:
+        expected_name = MAJOR_SOCCER_LEAGUES[league_code]
+        if league_name != expected_name:
+            reasons.append("LEAGUE_NAME_MISMATCH")
+        if team_leagues and team_leagues != (league_code,):
+            reasons.append("TEAM_LEAGUE_MISMATCH")
+
+    return {
+        "sport_family": gamma.sport_family if gamma.sport_family in tag_slugs else None,
+        "league_code": league_code or None,
+        "league_name": league_name or None,
+        "series_slug": series_slug,
+        "event_tag_slugs": list(tag_slugs),
+        "team_leagues": list(team_leagues),
+    }, reasons
 
 
 def classify_match_winner(
@@ -236,6 +297,7 @@ def _parse_market(
     match_class, eligible_indices, classification, classification_reasons = (
         classify_match_winner(event, market, labels, tokens, probability_values)
     )
+    league, league_reasons = classify_soccer_league(event, config.trading.gamma)
     end_date = _utc(market.get("endDate") or market.get("end_date") or event.get("endDate"))
     game_start = _utc(
         market.get("gameStartTime")
@@ -253,7 +315,11 @@ def _parse_market(
     event_live = _boolean(event.get("live"))
     event_ended = _boolean(event.get("ended"))
     event_game_status = str(event.get("gameStatus") or "") or None
-    reasons: list[str] = [*event_reasons, *classification_reasons]
+    reasons: list[str] = [
+        *event_reasons,
+        *league_reasons,
+        *classification_reasons,
+    ]
     if not event_id or not condition_id:
         reasons.append("MISSING_ID")
     if active is not True or closed is not False or accepting is not True or book_enabled is not True:
@@ -283,6 +349,12 @@ def _parse_market(
         "question": str(market.get("question") or "") or None,
         "group_item_title": str(market.get("groupItemTitle") or "") or None,
         "sports_market_type": str(market.get("sportsMarketType") or "") or None,
+        "sport_family": league["sport_family"],
+        "league_code": league["league_code"],
+        "league_name": league["league_name"],
+        "series_slug": league["series_slug"],
+        "event_tag_slugs_json": canonical_json(league["event_tag_slugs"]),
+        "team_leagues_json": canonical_json(league["team_leagues"]),
         "observed_at": iso_utc(observed_at),
         "end_date": iso_utc(end_date) if end_date else None,
         "game_start_time": iso_utc(game_start) if game_start else None,
@@ -300,6 +372,7 @@ def _parse_market(
         "eligible_outcome_indices_json": canonical_json(list(eligible_indices)),
         "classification_evidence_json": canonical_json({
             **classification,
+            **league,
             "event_relation_count": event_relation_count,
         }),
         "cadence_arm": config.trading.cadence_arm,
@@ -315,6 +388,7 @@ def _parse_market(
             "liquidity": liquidity, "volume_total": volume,
             "neg_risk": neg_risk, "fee_rate": fee_rate,
             "sports_market_type": market.get("sportsMarketType"),
+            **league,
             "match_winner_class": match_class,
             "eligible_outcome_indices": list(eligible_indices),
             "event_live": event_live, "event_ended": event_ended,
@@ -340,6 +414,10 @@ def _parse_market(
         "probabilities": probability_values, "fee_rate": fee_rate,
         "end_date": end_date, "game_start": game_start, "phase": phase,
         "liquidity": liquidity, "volume": volume,
+        "sport_family": league["sport_family"],
+        "league_code": league["league_code"],
+        "league_name": league["league_name"],
+        "series_slug": league["series_slug"],
     }
     return market_row, outcome_rows, context
 
@@ -354,7 +432,7 @@ class Collector:
     def collect(self, run_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         sweep_id = uuid4().hex
-        sweep = self.gamma.fetch_live_sports_events(run_id, observed_at=now)
+        sweep = self.gamma.fetch_live_events(run_id, observed_at=now)
         payloads = [
             self.repository.payload_row(
                 run_id=run_id,
@@ -390,6 +468,10 @@ class Collector:
                             "closed": False,
                             "live": True,
                             "tag_slug": self.config.trading.gamma.tag_slug,
+                            "sport_family": self.config.trading.gamma.sport_family,
+                            "league_codes": list(
+                                self.config.trading.gamma.league_codes
+                            ),
                             "page_size": self.config.trading.gamma.page_size,
                             "liquidity_filter": None,
                             "volume_filter": None,
@@ -570,6 +652,10 @@ class Collector:
                             "outcome_label": outcome["outcome_label"], "threshold": threshold,
                             "cadence_arm": self.config.trading.cadence_arm,
                             "match_winner_class": context["match_winner_class"],
+                            "sport_family": context["sport_family"],
+                            "league_code": context["league_code"],
+                            "league_name": context["league_name"],
+                            "series_slug": context["series_slug"],
                             "entry_provenance": str(provenance),
                             "entered_at": iso_utc(now), "end_date": iso_utc(context["end_date"]),
                             "game_start_time": iso_utc(context["game_start"]) if context["game_start"] else None,
@@ -724,6 +810,10 @@ class Collector:
                     "closed": False,
                     "live": True,
                     "tag_slug": self.config.trading.gamma.tag_slug,
+                    "sport_family": self.config.trading.gamma.sport_family,
+                    "league_codes": list(
+                        self.config.trading.gamma.league_codes
+                    ),
                     "client_sports_market_types": list(
                         self.config.trading.gamma.sports_market_types
                     ),

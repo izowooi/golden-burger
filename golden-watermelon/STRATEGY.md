@@ -26,11 +26,16 @@ fee·spread·급반전 시 실제 bid depth를 반영해도 resolution까지 보
 
 같은 condition/token/threshold를 paired하고 event-cluster 단위로 집계해 이를 구분한다.
 
-## Universe
+## Universe — soccer major leagues v3
 
 - Source: Gamma `/events/keyset`, keyset cursor complete.
-- Server envelope: `closed=false`, `live=true`, `tag_slug=sports`, page 500,
+- Server envelope: `closed=false`, `live=true`, `tag_slug=soccer`, page 500,
   max 4. nested market에서 `sportsMarketType=moneyline`을 client-side로 재검증한다.
+- Frozen league allowlist: EPL(`epl`), Bundesliga(`bun`), Ligue 1(`fl1`),
+  LaLiga(`lal`), MLS(`mls`). Gamma `event.sport.sport/name`, `soccer` tag와 allowlist가
+  모두 일치해야 한다. e-sports와 그 밖의 league는 fail closed한다.
+- `sport_family`, `league_code`, `league_name`, `series_slug`, event tags와 team league
+  metadata를 저장해 리그별 고확률 역전과 resolution을 비교한다.
 - volume/liquidity 하한: **none**. 두 값은 feature로 저장하고 selection gate로 쓰지 않는다.
 - Execution availability: active, not closed, accepting orders, order book enabled.
 - Clock: `gameStartTime <= receipt time`; `event.ended=true` 또는 명시적
@@ -93,8 +98,8 @@ closed이며 두 token 중 winner가 정확히 하나일 때만 인정한다.
 
 | Jenkins | runtime job | arm | timer |
 |---|---|---|---|
-| `polybot-white` | `watermelon-white-1m-v2` | `FAST_1M` | 매분 |
-| `polybot-grey` | `watermelon-grey-5m-v2` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v3` | `FAST_1M` | 매분 |
+| `polybot-grey` | `watermelon-grey-5m-v3` | `CONTROL_5M` | 5분 |
 
 두 job은 cadence 외 config/source/universe/grid가 같다. 동일 episode key를 paired하고,
 entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI 차이를 비교한다.
@@ -102,11 +107,14 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 ## Frozen timeline
 
-- Entry: `[2026-08-22T16:15:00Z, 2026-09-05T16:15:00Z)`.
-- Calibration: start부터 `2026-08-29T16:15:00Z` 미만.
-- Confirmation: `[2026-08-29T16:15:00Z, entry end)`.
-- Resolution follow-up: `2026-09-19T16:15:00Z`까지.
+- Entry: `[2026-08-23T15:00:00Z, 2026-08-30T15:00:00Z)` (7일).
+- Calibration/confirmation descriptive split: entry window midpoint.
+- Resolution follow-up: `2026-09-06T15:00:00Z`까지.
 - 실제 수집 시작은 각 Jenkins의 첫 successful build와 DB source receipt time으로 보고한다.
+
+첫 7일은 collection health와 리그 coverage를 우선한다. threshold/stop을 선택하거나
+수익성을 확정하지 않으며, 표본 gate가 부족하면 기간을 조용히 연장하지 않고 새 코호트를
+사전 등록한다.
 
 ## Falsification과 판정 gate
 

@@ -13,7 +13,11 @@ from polybot.api.clob_client import (
     ResolutionResult,
 )
 from polybot.api.gamma_client import EventPage, EventSweep
-from polybot.collector import Collector, classify_match_winner
+from polybot.collector import (
+    Collector,
+    classify_match_winner,
+    classify_soccer_league,
+)
 from polybot.config import load_config
 from polybot.db.repository import ResearchRepository
 
@@ -29,9 +33,17 @@ def event(*, live=True, ended=False):
         "live": live,
         "ended": ended,
         "gameStatus": "2H",
+        "sport": {"id": 2, "sport": "epl", "name": "Premier League"},
+        "seriesSlug": "premier-league-2026",
+        "tags": [
+            {"slug": "sports"},
+            {"slug": "soccer"},
+            {"slug": "premier-league"},
+            {"slug": "EPL"},
+        ],
         "teams": [
-            {"name": "Team A", "abbreviation": "A"},
-            {"name": "Team B", "abbreviation": "B"},
+            {"name": "Team A", "abbreviation": "A", "league": "epl"},
+            {"name": "Team B", "abbreviation": "B", "league": "epl"},
         ],
     }
 
@@ -67,7 +79,7 @@ class FakeGamma:
     def __init__(self, source=None):
         self.source = source or market()
 
-    def fetch_live_sports_events(self, run_id, *, observed_at):
+    def fetch_live_events(self, run_id, *, observed_at):
         source_event = event()
         source_event["markets"] = [
             {key: value for key, value in self.source.items() if key != "events"}
@@ -91,8 +103,8 @@ class FakeGamma:
 
 
 class IncompleteGamma(FakeGamma):
-    def fetch_live_sports_events(self, run_id, *, observed_at):
-        complete = super().fetch_live_sports_events(
+    def fetch_live_events(self, run_id, *, observed_at):
+        complete = super().fetch_live_events(
             run_id, observed_at=observed_at
         )
         return EventSweep(complete.pages, False)
@@ -139,7 +151,17 @@ class FakeClob:
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v2")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3")
+    experiment = replace(
+        config.trading.experiment,
+        start_utc=NOW.replace(minute=15),
+        entry_end_utc=NOW.replace(day=23),
+        followup_end_utc=NOW.replace(day=24),
+    )
+    config = replace(
+        config,
+        trading=replace(config.trading, experiment=experiment),
+    )
     if compact_grid:
         experiment = replace(
             config.trading.experiment,
@@ -182,6 +204,41 @@ def test_classifier_accepts_only_whole_match_winners() -> None:
         assert "NOT_TOP_LEVEL_MONEYLINE" in rejected_reasons
 
 
+def test_soccer_league_classifier_rejects_esports_and_non_allowlisted_leagues(
+    tmp_path,
+) -> None:
+    gamma = configured(tmp_path).trading.gamma
+    accepted, reasons = classify_soccer_league(event(), gamma)
+    assert accepted["league_code"] == "epl"
+    assert accepted["sport_family"] == "soccer"
+    assert reasons == []
+
+    esports = {
+        **event(),
+        "sport": {"sport": "lol", "name": "League of Legends"},
+        "tags": [{"slug": "esports"}],
+        "teams": [
+            {"name": "Team A", "league": "lol"},
+            {"name": "Team B", "league": "lol"},
+        ],
+    }
+    _, esports_reasons = classify_soccer_league(esports, gamma)
+    assert "ESPORTS_EXCLUDED" in esports_reasons
+    assert "LEAGUE_NOT_ALLOWED" in esports_reasons
+    assert "SOCCER_TAG_MISSING" in esports_reasons
+
+    championship = {
+        **event(),
+        "sport": {"sport": "efl", "name": "Championship"},
+        "teams": [
+            {"name": "Team A", "league": "efl"},
+            {"name": "Team B", "league": "efl"},
+        ],
+    }
+    _, championship_reasons = classify_soccer_league(championship, gamma)
+    assert championship_reasons == ["LEAGUE_NOT_ALLOWED"]
+
+
 def test_classifier_keeps_only_yes_for_negrisk_team_and_excludes_draw() -> None:
     team_market = market(
         question="Will Team A win on 2026-08-22?",
@@ -221,7 +278,8 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
     assert result["stop_exits"] == 0
     with repository.connect() as connection:
         market_row = connection.execute(
-            "SELECT sports_market_type,match_winner_class,liquidity,volume_total "
+            "SELECT sports_market_type,match_winner_class,liquidity,volume_total,"
+            "sport_family,league_code,league_name "
             "FROM market_observations WHERE eligible=1"
         ).fetchone()
         episodes = connection.execute(
@@ -234,7 +292,10 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
         entry_cycle_paths = connection.execute(
             "SELECT COUNT(*) FROM episode_path_observations"
         ).fetchone()[0]
-    assert tuple(market_row) == ("moneyline", "ALIGNED_TWO_TEAM_MONEYLINE", 25, 0)
+    assert tuple(market_row) == (
+        "moneyline", "ALIGNED_TWO_TEAM_MONEYLINE", 25, 0,
+        "soccer", "epl", "Premier League",
+    )
     assert [row[0] for row in episodes] == [0.95, 0.96, 0.97]
     assert {row[1] for row in episodes} == {"FIRST_FULL_DEPTH_ABOVE"}
     assert {row[2] for row in episodes} == {"FAST_1M"}

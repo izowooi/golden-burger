@@ -103,6 +103,12 @@ CREATE TABLE IF NOT EXISTS market_observations (
     question TEXT,
     group_item_title TEXT,
     sports_market_type TEXT,
+    sport_family TEXT,
+    league_code TEXT,
+    league_name TEXT,
+    series_slug TEXT,
+    event_tag_slugs_json TEXT NOT NULL,
+    team_leagues_json TEXT NOT NULL,
     observed_at TEXT NOT NULL,
     end_date TEXT,
     game_start_time TEXT,
@@ -133,6 +139,7 @@ CREATE TABLE IF NOT EXISTS market_observations (
     UNIQUE (sweep_id, event_id, condition_id)
 );
 CREATE INDEX IF NOT EXISTS market_condition_time_idx ON market_observations(condition_id, observed_at);
+CREATE INDEX IF NOT EXISTS market_league_time_idx ON market_observations(league_code, observed_at);
 
 CREATE TABLE IF NOT EXISTS outcome_observations (
     outcome_observation_id TEXT PRIMARY KEY,
@@ -229,6 +236,10 @@ CREATE TABLE IF NOT EXISTS hypothetical_episodes (
     threshold REAL NOT NULL,
     cadence_arm TEXT NOT NULL,
     match_winner_class TEXT NOT NULL,
+    sport_family TEXT NOT NULL,
+    league_code TEXT NOT NULL,
+    league_name TEXT NOT NULL,
+    series_slug TEXT,
     entry_provenance TEXT NOT NULL,
     entered_at TEXT NOT NULL,
     end_date TEXT NOT NULL,
@@ -244,6 +255,7 @@ CREATE TABLE IF NOT EXISTS hypothetical_episodes (
     UNIQUE (condition_id, token_id, threshold)
 );
 CREATE INDEX IF NOT EXISTS episodes_threshold_time_idx ON hypothetical_episodes(threshold, entered_at);
+CREATE INDEX IF NOT EXISTS episodes_league_time_idx ON hypothetical_episodes(league_code, entered_at);
 
 CREATE TABLE IF NOT EXISTS counterfactual_exit_policies (
     policy_id TEXT PRIMARY KEY,

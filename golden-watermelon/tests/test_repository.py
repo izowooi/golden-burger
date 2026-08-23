@@ -5,15 +5,16 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from polybot.config import DATA_CONTRACT
 from polybot.db.repository import ResearchRepository
 
 
 def test_schema_quick_check_and_append_only(tmp_path) -> None:
-    repository = ResearchRepository(tmp_path / "trades_sim.db", busy_timeout_ms=1000, data_contract="sports-inplay-match-winner-v1")
+    repository = ResearchRepository(tmp_path / "trades_sim.db", busy_timeout_ms=1000, data_contract=DATA_CONTRACT)
     assert repository.quick_check() == "ok"
     repository.record_config({
         "config_hash": "c", "strategy_source_digest": "s", "preregistration_sha256": "p",
-        "job_name": "watermelon-white-1m-v2", "mode": "sim", "config_json": "{}",
+        "job_name": "watermelon-white-1m-v3", "mode": "sim", "config_json": "{}",
         "first_seen_at": "2026-08-20T00:00:00Z",
     })
     with pytest.raises(sqlite3.IntegrityError, match="append-only"):
@@ -22,7 +23,7 @@ def test_schema_quick_check_and_append_only(tmp_path) -> None:
 
 
 def test_payload_is_compressed_deterministically(tmp_path) -> None:
-    repository = ResearchRepository(tmp_path / "trades_sim.db", busy_timeout_ms=1000, data_contract="sports-inplay-match-winner-v1")
+    repository = ResearchRepository(tmp_path / "trades_sim.db", busy_timeout_ms=1000, data_contract=DATA_CONTRACT)
     row = repository.payload_row(run_id="r", kind="X", request_id="q", observed_at="2026-08-20T00:00:00Z", raw=b"x" * 1000)
     assert row["gzip_bytes"] < row["raw_bytes"]
     assert len(row["sha256"]) == 64
@@ -31,7 +32,7 @@ def test_payload_is_compressed_deterministically(tmp_path) -> None:
 def test_stop_policy_tables_exist_for_append_only_contract(tmp_path) -> None:
     repository = ResearchRepository(
         tmp_path / "trades_sim.db", busy_timeout_ms=1000,
-        data_contract="sports-inplay-match-winner-v1",
+        data_contract=DATA_CONTRACT,
     )
     with repository.connect() as connection:
         names = {
@@ -53,7 +54,7 @@ def test_scheduled_database_check_runs_full_once_then_uses_probe(
     repository = ResearchRepository(
         tmp_path / "trades_sim.db",
         busy_timeout_ms=1000,
-        data_contract="sports-inplay-match-winner-v1",
+        data_contract=DATA_CONTRACT,
     )
     calls = 0
 
@@ -86,7 +87,7 @@ def test_scheduled_database_check_repeats_after_interval(
     repository = ResearchRepository(
         tmp_path / "trades_sim.db",
         busy_timeout_ms=1000,
-        data_contract="sports-inplay-match-winner-v1",
+        data_contract=DATA_CONTRACT,
     )
     calls = 0
 
@@ -115,7 +116,7 @@ def test_scheduled_database_check_fails_closed_and_records_result(
     repository = ResearchRepository(
         tmp_path / "trades_sim.db",
         busy_timeout_ms=1000,
-        data_contract="sports-inplay-match-winner-v1",
+        data_contract=DATA_CONTRACT,
     )
     monkeypatch.setattr(repository, "quick_check", lambda: "corrupt page")
     with pytest.raises(RuntimeError, match="SQLite quick_check failed"):
@@ -133,7 +134,7 @@ def test_match_winner_and_cadence_columns_exist(tmp_path) -> None:
     repository = ResearchRepository(
         tmp_path / "trades_sim.db",
         busy_timeout_ms=1000,
-        data_contract="sports-inplay-match-winner-v1",
+        data_contract=DATA_CONTRACT,
     )
     with repository.connect() as connection:
         market_columns = {
@@ -146,10 +147,24 @@ def test_match_winner_and_cadence_columns_exist(tmp_path) -> None:
         }
     assert {
         "sports_market_type",
+        "sport_family",
+        "league_code",
+        "league_name",
+        "series_slug",
+        "event_tag_slugs_json",
+        "team_leagues_json",
         "match_winner_class",
         "eligible_outcome_indices_json",
         "event_live",
         "event_ended",
         "cadence_arm",
     } <= market_columns
-    assert {"cadence_arm", "match_winner_class", "entry_provenance"} <= episode_columns
+    assert {
+        "cadence_arm",
+        "match_winner_class",
+        "entry_provenance",
+        "sport_family",
+        "league_code",
+        "league_name",
+        "series_slug",
+    } <= episode_columns

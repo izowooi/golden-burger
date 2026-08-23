@@ -11,7 +11,7 @@ import sys
 
 from .analyzer import analyze_database, analyze_databases
 from .bot import ResearchBot
-from .config import CANONICAL_JOB, DATA_CONTRACT, assert_no_credentials, load_config
+from .config import CANONICAL_JOB, assert_no_credentials, load_config
 from .db.repository import ResearchRepository
 
 
@@ -63,10 +63,10 @@ def main(argv: list[str] | None = None) -> int:
     repository = ResearchRepository(
         config.db_path,
         busy_timeout_ms=config.trading.storage.busy_timeout_ms,
-        data_contract=DATA_CONTRACT,
+        data_contract=config.trading.data_contract,
     )
     if args.command == "health":
-        print(json.dumps({"quick_check": repository.quick_check(), "data_contract": DATA_CONTRACT, "db": str(config.db_path)}, sort_keys=True))
+        print(json.dumps({"quick_check": repository.quick_check(), "data_contract": config.trading.data_contract, "db": str(config.db_path)}, sort_keys=True))
         return 0
     if args.command == "status":
         print(json.dumps(repository.summary(), ensure_ascii=False, indent=2, sort_keys=True))

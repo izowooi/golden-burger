@@ -1,4 +1,4 @@
-"""Cursor-complete live sports event discovery."""
+"""Cursor-complete server-filtered live event discovery."""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ class GammaClient:
     def _iso(value: datetime) -> str:
         return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
-    def fetch_live_sports_events(
+    def fetch_live_events(
         self, run_id: str, *, observed_at: datetime
     ) -> EventSweep:
         observed_at = observed_at.astimezone(timezone.utc)
@@ -58,7 +58,7 @@ class GammaClient:
             response = self.transport.request_json(
                 "GET",
                 f"{self.config.base_url}{self.ENDPOINT}",
-                request_kind="gamma_live_sports_events_keyset",
+                request_kind="gamma_live_events_keyset",
                 run_id=run_id,
                 page_number=page_number,
                 params=params,

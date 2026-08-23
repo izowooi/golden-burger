@@ -26,15 +26,26 @@ from .source_digest import (
 )
 
 
-DATA_CONTRACT = "sports-inplay-match-winner-v1"
-CANONICAL_JOB = "watermelon-white-1m-v2"
+DATA_CONTRACT = "soccer-inplay-major-league-match-winner-v1"
+CANONICAL_JOB = "watermelon-white-1m-v3"
 LIFECYCLE_MODES = frozenset({"archive_only"})
+
+# Gamma's authoritative /sports metadata uses these stable sport codes.  The
+# code/name pair and the soccer event tag must all agree; unknown or renamed
+# metadata fails closed instead of silently widening the experiment.
+MAJOR_SOCCER_LEAGUES: dict[str, str] = {
+    "epl": "Premier League",
+    "bun": "Bundesliga",
+    "fl1": "Ligue 1",
+    "lal": "LaLiga",
+    "mls": "MLS",
+}
 
 # The first successful Jenkins run remains the actual source cutoff. This
 # boundary prevents a delayed deploy from silently creating a different cohort.
-FROZEN_START = datetime(2026, 8, 22, 16, 15, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 5, 16, 15, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 19, 16, 15, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 23, 15, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 8, 30, 15, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 6, 15, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 
@@ -46,8 +57,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v2": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v2": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v3": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v3": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(
@@ -167,6 +178,8 @@ class GammaConfig:
     max_pages: int
     tag_slug: str
     live_only: bool
+    sport_family: str
+    league_codes: tuple[str, ...]
     sports_market_types: tuple[str, ...]
     connect_timeout_seconds: float
     read_timeout_seconds: float
@@ -252,8 +265,12 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError("Gamma origin is frozen")
     if gamma.page_size != 500 or not 1 <= gamma.max_pages <= 4:
         raise ValueError("Gamma event keyset envelope must remain 500 × at most 4 pages")
-    if gamma.tag_slug != "sports" or gamma.live_only is not True:
-        raise ValueError("Gamma discovery must remain live sports only")
+    if gamma.tag_slug != "soccer" or gamma.live_only is not True:
+        raise ValueError("Gamma discovery must remain live soccer only")
+    if gamma.sport_family != "soccer":
+        raise ValueError("sport_family must remain soccer")
+    if gamma.league_codes != tuple(MAJOR_SOCCER_LEAGUES):
+        raise ValueError("league_codes must remain EPL/Bundesliga/Ligue 1/LaLiga/MLS")
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:
@@ -322,6 +339,10 @@ def load_config(
         max_pages=_integer(gamma_raw["max_pages"], "gamma.max_pages"),
         tag_slug=str(gamma_raw["tag_slug"]).strip(),
         live_only=_boolean(gamma_raw["live_only"], "gamma.live_only"),
+        sport_family=str(gamma_raw["sport_family"]).strip().casefold(),
+        league_codes=_string_tuple(
+            gamma_raw["league_codes"], "gamma.league_codes"
+        ),
         sports_market_types=_string_tuple(
             gamma_raw["sports_market_types"], "gamma.sports_market_types"
         ),

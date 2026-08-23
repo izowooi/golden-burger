@@ -6,10 +6,11 @@ import sqlite3
 import pytest
 
 from polybot.analyzer import analyze_database, analyze_databases
+from polybot.config import DATA_CONTRACT
 from polybot.db.repository import ResearchRepository
 
 
-CONTRACT = "sports-inplay-match-winner-v1"
+CONTRACT = DATA_CONTRACT
 
 
 def seeded_database(tmp_path, name: str, job: str, cadence: int, arm: str):
@@ -28,6 +29,10 @@ def seeded_database(tmp_path, name: str, job: str, cadence: int, arm: str):
                     "trading": {
                         "cadence_minutes": cadence,
                         "cadence_arm": arm,
+                        "experiment": {
+                            "start_utc": "2026-08-23T15:00:00Z",
+                            "entry_end_utc": "2026-08-30T15:00:00Z",
+                        },
                     }
                 }
             ),
@@ -56,10 +61,11 @@ def add_winning_episode(repository: ResearchRepository, *, entered_at: str) -> N
             INSERT INTO hypothetical_episodes(
                 episode_id,decision_id,run_id,condition_id,event_id,event_title,
                 question,token_id,outcome_index,outcome_label,threshold,cadence_arm,
-                match_winner_class,entry_provenance,entered_at,end_date,
+                match_winner_class,sport_family,league_code,league_name,series_slug,
+                entry_provenance,entered_at,end_date,
                 game_start_time,sports_phase,liquidity,volume_total,fee_rate,
                 entry_best_ask,entry_vwap,entry_shares,entry_cost
-            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             """,
             (
                 "episode",
@@ -75,6 +81,10 @@ def add_winning_episode(repository: ResearchRepository, *, entered_at: str) -> N
                 0.97,
                 "FAST_1M",
                 "ALIGNED_TWO_TEAM_MONEYLINE",
+                "soccer",
+                "epl",
+                "Premier League",
+                "premier-league-2026",
                 "UPWARD_CROSS",
                 entered_at,
                 "2026-08-22T20:00:00Z",
@@ -172,12 +182,13 @@ def add_winning_episode(repository: ResearchRepository, *, entered_at: str) -> N
 
 def test_analyzer_uses_fee_resolution_and_stop_depth(tmp_path) -> None:
     repository = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v3", 1, "FAST_1M"
     )
     add_winning_episode(repository, entered_at="2026-08-22T15:31:00Z")
     result = analyze_database(repository.path)
     assert result["quick_check"] == "ok"
     assert result["cadence_arm"] == "FAST_1M"
+    assert result["league_coverage"]["episodes"][0]["league_code"] == "epl"
     threshold = result["entry_thresholds"]["0.97"]["all"]
     assert threshold["resolved"] == 1
     assert threshold["wins"] == 1
@@ -190,7 +201,7 @@ def test_analyzer_uses_fee_resolution_and_stop_depth(tmp_path) -> None:
 
 def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
     repository = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v3", 1, "FAST_1M"
     )
     repository.record_run_event(
         {
@@ -217,10 +228,10 @@ def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
 
 def test_multi_database_analyzer_pairs_same_episode_keys(tmp_path) -> None:
     white = seeded_database(
-        tmp_path, "white.db", "watermelon-white-1m-v2", 1, "FAST_1M"
+        tmp_path, "white.db", "watermelon-white-1m-v3", 1, "FAST_1M"
     )
     grey = seeded_database(
-        tmp_path, "grey.db", "watermelon-grey-5m-v2", 5, "CONTROL_5M"
+        tmp_path, "grey.db", "watermelon-grey-5m-v3", 5, "CONTROL_5M"
     )
     add_winning_episode(white, entered_at="2026-08-22T15:31:00Z")
     add_winning_episode(grey, entered_at="2026-08-22T15:35:00Z")

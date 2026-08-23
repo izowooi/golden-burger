@@ -2,14 +2,16 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: sports-inplay-match-winner-v1
+  data_contract: soccer-inplay-major-league-match-winner-v1
 
   gamma:
     base_url: https://gamma-api.polymarket.com
     page_size: 500
     max_pages: 4
-    tag_slug: sports
+    tag_slug: soccer
     live_only: true
+    sport_family: soccer
+    league_codes: [epl, bun, fl1, lal, mls]
     sports_market_types: [moneyline]
     connect_timeout_seconds: 3.05
     read_timeout_seconds: 30
@@ -22,9 +24,9 @@ trading:
     batch_token_limit: 250
 
   experiment:
-    start_utc: 2026-08-22T16:15:00Z
-    entry_end_utc: 2026-09-05T16:15:00Z
-    followup_end_utc: 2026-09-19T16:15:00Z
+    start_utc: 2026-08-23T15:00:00Z
+    entry_end_utc: 2026-08-30T15:00:00Z
+    followup_end_utc: 2026-09-06T15:00:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5

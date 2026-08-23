@@ -3257,9 +3257,10 @@ def _validate_inplay_match_winner_research_strategy(
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
             "POLYMARKET_PRIVATE_KEY",
-            "sports-inplay-match-winner-v1",
-            "watermelon-white-1m-v2",
-            "watermelon-grey-5m-v2",
+            "soccer-inplay-major-league-match-winner-v1",
+            "watermelon-white-1m-v3",
+            "watermelon-grey-5m-v3",
+            "MAJOR_SOCCER_LEAGUES",
             "FAST_1M",
             "CONTROL_5M",
             "ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)",
@@ -3286,7 +3287,9 @@ def _validate_inplay_match_winner_research_strategy(
             "walk_bids_partial", "remaining_shares", "winner",
         ),
         "src/polybot/collector.py": (
-            "classify_match_winner", "NOT_TOP_LEVEL_MONEYLINE",
+            "classify_match_winner", "classify_soccer_league",
+            "ESPORTS_EXCLUDED", "LEAGUE_NOT_ALLOWED",
+            "NOT_TOP_LEVEL_MONEYLINE",
             "ALIGNED_TWO_TEAM_MONEYLINE", "NEGRISK_TEAM_WIN_YES",
             "DRAW_OUTCOME_EXCLUDED", "FIRST_FULL_DEPTH_ABOVE",
             "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
@@ -3296,6 +3299,7 @@ def _validate_inplay_match_winner_research_strategy(
         "src/polybot/db/repository.py": (
             "research_config_versions", "research_run_events", "api_requests",
             "raw_payloads", "market_sweeps", "market_observations",
+            "sport_family", "league_code", "league_name", "series_slug",
             "match_winner_class", "eligible_outcome_indices_json",
             "outcome_observations", "orderbook_snapshots", "orderbook_levels",
             "signal_decisions", "hypothetical_episodes",
@@ -3304,8 +3308,8 @@ def _validate_inplay_match_winner_research_strategy(
             "storage_metrics", "append-only evidence",
         ),
         "src/polybot/analyzer.py": (
-            "sports-inplay-match-winner-analyzer-v1",
-            "sports-inplay-match-winner-cadence-pair-v1",
+            "inplay-match-winner-analyzer-v2",
+            "inplay-match-winner-cadence-pair-v2", "league_coverage",
             "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
             "stop_policy_comparison", "matched_episode_keys",
             "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY", "cohort_runs",
@@ -3356,8 +3360,9 @@ def _validate_inplay_match_winner_research_strategy(
         "README.md",
         readme,
         (
-            "sports-inplay-match-winner-v1", "watermelon-white-1m-v2",
-            "watermelon-grey-5m-v2", "child_moneyline", "--simulate", "--live",
+            "soccer-inplay-major-league-match-winner-v1",
+            "watermelon-white-1m-v3", "watermelon-grey-5m-v3",
+            "child_moneyline", "--simulate", "--live", "e-sports",
         ),
     )
     env_example = _read(directory / ".env.example")
@@ -3371,23 +3376,29 @@ def _validate_inplay_match_winner_research_strategy(
     preregistration = _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-23/PREREGISTRATION.md",
+        directory / "research/frozen-2026-08-24-soccer/PREREGISTRATION.md",
     )
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-23/PREREGISTRATION.md",
+        "research/frozen-2026-08-24-soccer/PREREGISTRATION.md",
         preregistration,
         (
-            "2026-08-22T16:15:00Z", "2026-09-05T16:15:00Z",
+            "2026-08-23T15:00:00Z", "2026-08-30T15:00:00Z",
             "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
             "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
+            "epl", "bun", "fl1", "lal", "mls", "e-sports",
         ),
     )
     _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-23/MANIFEST.sha256",
+        directory / "research/frozen-2026-08-24-soccer/MANIFEST.sha256",
+    )
+    _require_file(
+        findings,
+        strategy,
+        directory / "research/frozen-2026-08-23/PREREGISTRATION.md",
     )
     for relative in (
         "tests/test_config.py", "tests/test_gamma_client.py",

@@ -7,9 +7,10 @@ ROOT = Path(__file__).resolve().parents[1]
 def test_documents_preserve_frozen_contract() -> None:
     combined = "\n".join((ROOT / name).read_text(encoding="utf-8") for name in ("README.md", "STRATEGY.md", "OPERATIONS.md", "AGENTS.md"))
     for token in (
-        "sports-inplay-match-winner-v1", "0.95", "0.97", "0.99", "0.80", "0.70",
+        "soccer-inplay-major-league-match-winner-v1", "0.95", "0.97", "0.99", "0.80", "0.70",
         "HOLD_TO_RESOLUTION", "FAST_1M", "CONTROL_5M", "moneyline",
         "child_moneyline", "archive_only", "--live", "* * * * *", "daily-rsync",
+        "epl", "bun", "fl1", "lal", "mls", "e-sports",
     ):
         assert token in combined
 

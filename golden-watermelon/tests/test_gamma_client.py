@@ -29,8 +29,10 @@ def config(max_pages: int = 4) -> GammaConfig:
         "https://gamma-api.polymarket.com",
         500,
         max_pages,
-        "sports",
+        "soccer",
         True,
+        "soccer",
+        ("epl", "bun", "fl1", "lal", "mls"),
         ("moneyline",),
         3.05,
         30,
@@ -42,7 +44,7 @@ def config(max_pages: int = 4) -> GammaConfig:
 
 def test_server_filters_live_sports_events_without_volume_or_liquidity_gate() -> None:
     transport = FakeTransport([{"events": [{"id": "1", "markets": []}]}])
-    result = GammaClient(config(), transport).fetch_live_sports_events(
+    result = GammaClient(config(), transport).fetch_live_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is True
@@ -50,7 +52,7 @@ def test_server_filters_live_sports_events_without_volume_or_liquidity_gate() ->
     params = kwargs["params"]
     assert method == "GET"
     assert url.endswith("/events/keyset")
-    assert params["tag_slug"] == "sports"
+    assert params["tag_slug"] == "soccer"
     assert params["live"] == "true"
     assert params["closed"] == "false"
     assert params["limit"] == 500
@@ -66,7 +68,7 @@ def test_keyset_cursor_is_forwarded() -> None:
             {"events": []},
         ]
     )
-    result = GammaClient(config(), transport).fetch_live_sports_events(
+    result = GammaClient(config(), transport).fetch_live_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is True
@@ -75,7 +77,7 @@ def test_keyset_cursor_is_forwarded() -> None:
 
 def test_page_cap_returns_incomplete() -> None:
     transport = FakeTransport([{"events": [], "next_cursor": "next"}])
-    result = GammaClient(config(max_pages=1), transport).fetch_live_sports_events(
+    result = GammaClient(config(max_pages=1), transport).fetch_live_events(
         "run", observed_at=datetime(2026, 8, 22, 15, 30, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is False

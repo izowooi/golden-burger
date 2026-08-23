@@ -7,7 +7,9 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_PREREGISTRATION = "research/frozen-2026-08-23/PREREGISTRATION.md"
+ACTIVE_PREREGISTRATION = (
+    "research/frozen-2026-08-24-soccer/PREREGISTRATION.md"
+)
 SOURCE_PATHS = (
     "pyproject.toml",
     "uv.lock",

@@ -6,8 +6,8 @@
 
 | Jenkins | exact custom workspace | runtime job | schedule |
 |---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v2` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v2` | `H/5 * * * *` |
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3` | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3` | `H/5 * * * *` |
 
 concurrent build는 비활성화하고 Jenkins build discard는 14일로 둔다. Clean before checkout,
 workspace wipe, credential binding은 사용하지 않는다. DB는 workspace의
@@ -43,12 +43,15 @@ UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
 "${UV}" run python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot config --simulate --job watermelon-white-1m-v2
-"${UV}" run polybot run --simulate --job watermelon-white-1m-v2
+"${UV}" run polybot config --simulate --job watermelon-white-1m-v3
+"${UV}" run polybot run --simulate --job watermelon-white-1m-v3
 ```
 
-Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v2`로 바꾼다. 실험 parameter는 Jenkins
+Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v3`로 바꾼다. 실험 parameter는 Jenkins
 env로 override하지 않는다.
+
+같은 external workspace를 유지하되 runtime job이 달라 `data/watermelon-*-v3/`에 새 DB가
+생긴다. `data/watermelon-*-v2/`는 삭제·이동·migration하지 않는다.
 
 ## 최초 배포
 
@@ -72,9 +75,9 @@ env로 override하지 않는다.
 
 ## 다음 health review
 
-현재 실행 환경에서 사용자가 말한 “다음 날 19:00 KST”는
-`2026-08-24 19:00 KST`(`2026-08-24T10:00:00Z`)이다. 그때까지는 수익성과 X/Y 선택을
-판단하지 않고 collection health만 확인한다.
+첫 24시간 review 권장 시각은 `2026-08-25 01:00 KST`
+(`2026-08-24T16:00:00Z`) 이후다. 그때까지는 수익성과 X/Y 선택을 판단하지 않고
+collection health와 league metadata coverage만 확인한다.
 
 ```bash
 cd ../daily-rsync
@@ -92,7 +95,7 @@ uv run daily-rsync locate --job polybot-grey --strategy golden-watermelon
 
 ```bash
 cd ../golden-watermelon
-uv run polybot analyze --simulate --job watermelon-white-1m-v2 \
+uv run polybot analyze --simulate --job watermelon-white-1m-v3 \
   --db /absolute/white/trades_sim.db \
   --db /absolute/grey/trades_sim.db \
   --output /tmp/golden-watermelon-health.json

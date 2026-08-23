@@ -23,8 +23,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize(
     ("job", "arm", "minutes"),
     [
-        ("watermelon-white-1m-v2", "FAST_1M", 1),
-        ("watermelon-grey-5m-v2", "CONTROL_5M", 5),
+        ("watermelon-white-1m-v3", "FAST_1M", 1),
+        ("watermelon-grey-5m-v3", "CONTROL_5M", 5),
     ],
 )
 def test_frozen_job_profiles_load(
@@ -40,20 +40,22 @@ def test_frozen_job_profiles_load(
     assert config.trading.experiment.stop_levels == STOP_LEVELS
     assert config.trading.gamma.page_size == 500
     assert config.trading.gamma.max_pages == 4
-    assert config.trading.gamma.tag_slug == "sports"
+    assert config.trading.gamma.tag_slug == "soccer"
     assert config.trading.gamma.live_only is True
+    assert config.trading.gamma.sport_family == "soccer"
+    assert config.trading.gamma.league_codes == ("epl", "bun", "fl1", "lal", "mls")
     assert config.trading.gamma.sports_market_types == ("moneyline",)
-    assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=14)
-    assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=14)
+    assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=7)
+    assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=7)
 
 
 def test_job_is_the_only_cadence_treatment() -> None:
     assert set(JOB_PROFILES) == {
-        "watermelon-white-1m-v2",
-        "watermelon-grey-5m-v2",
+        "watermelon-white-1m-v3",
+        "watermelon-grey-5m-v3",
     }
-    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v2")
-    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v2")
+    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3")
+    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v3")
     assert white.trading.experiment == grey.trading.experiment
     assert white.trading.gamma == grey.trading.gamma
     assert white.trading.orderbook == grey.trading.orderbook

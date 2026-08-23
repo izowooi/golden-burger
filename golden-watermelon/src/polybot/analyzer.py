@@ -13,9 +13,6 @@ import statistics
 from typing import Any, Iterable
 
 
-VALIDATION_START = datetime(2026, 8, 29, 16, 15, tzinfo=timezone.utc)
-
-
 def _utc(value: str) -> datetime:
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
     if result.tzinfo is None:
@@ -179,6 +176,14 @@ def analyze_database(path: Path) -> dict[str, Any]:
         trading = config_json["trading"]
         cadence_minutes = int(trading["cadence_minutes"])
         cadence_arm = str(trading["cadence_arm"])
+        experiment = trading.get("experiment", {})
+        experiment_start = _utc(
+            str(experiment.get("start_utc", config_row["first_seen_at"]))
+        )
+        experiment_end = _utc(
+            str(experiment.get("entry_end_utc", config_row["first_seen_at"]))
+        )
+        validation_start = experiment_start + (experiment_end - experiment_start) / 2
 
         run_rows = connection.execute(
             "SELECT event_type,COUNT(*) AS count FROM research_run_events "
@@ -248,6 +253,51 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ORDER BY match_winner_class,eligible
             """
         ).fetchall()
+        market_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(market_observations)")
+        }
+        episode_columns = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(hypothetical_episodes)")
+        }
+        league_observation_rows = (
+            connection.execute(
+                """
+                SELECT league_code,league_name,
+                       COUNT(*) AS observations,
+                       SUM(eligible) AS eligible_observations,
+                       COUNT(DISTINCT event_id) AS events
+                FROM market_observations
+                WHERE run_id IN (SELECT run_id FROM cohort_runs)
+                GROUP BY league_code,league_name
+                ORDER BY league_code,league_name
+                """
+            ).fetchall()
+            if {"league_code", "league_name"} <= market_columns
+            else []
+        )
+        league_episode_rows = (
+            connection.execute(
+                """
+                SELECT e.league_code,e.league_name,
+                       COUNT(*) AS episodes,
+                       COUNT(DISTINCT e.event_id) AS events,
+                       SUM(CASE WHEN r.condition_id IS NOT NULL THEN 1 ELSE 0 END)
+                           AS resolved,
+                       SUM(CASE WHEN r.condition_id IS NOT NULL
+                                     AND e.outcome_index=r.winner_index
+                                THEN 1 ELSE 0 END) AS wins
+                FROM hypothetical_episodes e
+                LEFT JOIN resolution_observations r USING(condition_id)
+                WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
+                GROUP BY e.league_code,e.league_name
+                ORDER BY e.league_code,e.league_name
+                """
+            ).fetchall()
+            if {"league_code", "league_name"} <= episode_columns
+            else []
+        )
         exclusion_counter: Counter[str] = Counter()
         for row in connection.execute(
             "SELECT exclusion_reason FROM market_observations WHERE eligible=0 "
@@ -337,7 +387,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         storage = {"samples": 0}
 
     result: dict[str, Any] = {
-        "analyzer_contract": "sports-inplay-match-winner-analyzer-v1",
+        "analyzer_contract": "inplay-match-winner-analyzer-v2",
         "db": str(path.resolve()),
         "quick_check": quick_check,
         "data_contract": str(contract[0]) if contract else None,
@@ -384,6 +434,34 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ],
             "exclusions": dict(sorted(exclusion_counter.items())),
         },
+        "league_coverage": {
+            "market_observations": [
+                {
+                    "league_code": row["league_code"],
+                    "league_name": row["league_name"],
+                    "observations": int(row["observations"]),
+                    "eligible_observations": int(
+                        row["eligible_observations"] or 0
+                    ),
+                    "events": int(row["events"]),
+                }
+                for row in league_observation_rows
+            ],
+            "episodes": [
+                {
+                    "league_code": row["league_code"],
+                    "league_name": row["league_name"],
+                    "episodes": int(row["episodes"]),
+                    "events": int(row["events"]),
+                    "resolved": int(row["resolved"] or 0),
+                    "wins": int(row["wins"] or 0),
+                    "resolution_coverage_pct": _safe_ratio(
+                        int(row["resolved"] or 0), int(row["episodes"])
+                    ),
+                }
+                for row in league_episode_rows
+            ],
+        },
         "issues": [
             {
                 "severity": str(row["severity"]),
@@ -423,7 +501,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                     [
                         row
                         for row in selected
-                        if _utc(str(row["entered_at"])) < VALIDATION_START
+                        if _utc(str(row["entered_at"])) < validation_start
                     ],
                 ),
                 (
@@ -431,7 +509,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                     [
                         row
                         for row in selected
-                        if _utc(str(row["entered_at"])) >= VALIDATION_START
+                        if _utc(str(row["entered_at"])) >= validation_start
                     ],
                 ),
             )
@@ -566,7 +644,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     resolved_paths = [Path(path).resolve() for path in paths]
     databases = [analyze_database(path) for path in resolved_paths]
     result: dict[str, Any] = {
-        "analyzer_contract": "sports-inplay-match-winner-cadence-pair-v1",
+        "analyzer_contract": "inplay-match-winner-cadence-pair-v2",
         "databases": databases,
         "pairing": None,
         "interpretation": "CADENCE_PAIRED_DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
