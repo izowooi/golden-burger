@@ -82,26 +82,30 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   5분 snapshot에 지속될 때 60분 뒤 `$5` ask-to-bid 반사실 수익을 예측하는지 검정한다.
   `polybot-do/re/mi`는 arm이 아니라 condition hash 3-shard이며 각 shard가 DO(1회),
   RE(2회), MI(3회)를 모두 계산한다. MI만 primary이고 주문·credential·`--live`는
-  source-level로 금지한다. `queue-echo-v1` append-only DB와 frozen preregistration을 따른다.
+  source-level로 금지한다. 현재 confirmatory epoch는 `queue-echo-v3`의 세 독립 DB이며,
+  invocation별 5분 slot을 public HTTP 전에 원자적으로 claim하고 225초 cooperative budget으로
+  timeout·retry·`Retry-After`를 제한한다. external-v2 DB는 무효 운영 evidence로 보존하되
+  v3와 migration·merge하지 않는다.
 - `golden-strawberry/`: **Last Mile** — CLOB `/sampling-markets` 전체 cursor population에서
   outcome token의 최초 `0.95` 상향 교차를 관측하고 `$5` displayed ask 진입 뒤 `0.85` bid
   stop 또는 terminal `0/1` payout까지 반사실 경로를 기록한다. 스포츠·비(非)스포츠와
   `0.90/0.92/0.95/0.97` entry, `none/0.80/0.85/0.90` stop, `none/0.98/0.99` target을 같은
   frozen cohort에서 측정하되 1주 차에는 collection health만 판정한다. 주문·credential·
   `--live`는 source-level로 금지한다. 7일 entry 수집을 마친 `last-mile-clob-v1`은
-  immutable source로 동결하고, `strawberry-shadow-one-followup-v2`가 unresolved episode만
-  10분마다 추적한다. v2는 token/cycle당 canonical gzip full-book 한 행을 공유하는
-  `last-mile-clob-followup-v2` append-only 계약이며 v1 census·신규 crossing을 재실행하지 않는다.
+  immutable source로 동결하고, `strawberry-shadow-one-followup-v2a`가 unresolved episode만
+  10분마다 추적한다. v2a는 매 cycle v1 stat/source anchor와 imported row/count/hash를
+  재검증하고 token/cycle당 canonical gzip full-book 한 행을 공유하는
+  `last-mile-clob-followup-v2a` 계약이다. cycle evidence와 `SUCCEEDED`는 한 transaction으로
+  게시하며 v1 census·신규 crossing을 재실행하지 않는다.
 - `golden-watermelon/`: **In-Play Match Winner** — 경기 시작 후 strict whole-match
   `moneyline`의 exact `$5` ask VWAP가 `0.95/0.96/0.97/0.98/0.99`를 통과한 시점을
   수집하고 resolution hold와 `0.95/0.93/0.90/0.85/0.80/0.70` stop을 동시
-  재생한다. `polybot-white` 1분과 `polybot-grey` 5분은 같은 population/grid의
-  paired cadence 처치이며, 두 DB를 독립 거래로 세지 않는다. Gamma
-  live sports event keyset에 volume/liquidity 하한을 적용하지 않고 nested
-  `moneyline`과 team alignment,
-  `child_moneyline`·Draw·prop 제외, full-depth book, gap/partial/retry, one-hot resolution을
-  `sports-inplay-match-winner-v1` append-only evidence로 보존한다. accountless
-  simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
+  재생한다. 현재 v3a official universe는 EPL·Bundesliga·Ligue 1·LaLiga·MLS의 top-level
+  축구 moneyline만 허용하며 exact sport/tag/series/team identity가 맞아야 한다. e-sports,
+  cup, 2부 리그, Draw·prop·child market은 CLOB 조회 전에 제외한다. `polybot-white` 1분과
+  `polybot-grey` 5분은 같은 population/grid의 paired cadence 처치이며, 두 DB를 독립 거래로
+  세지 않는다. `soccer-inplay-major-league-match-winner-v2` append-only evidence를 쓰고
+  accountless simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runbook.md`(자립형 런북 — 팔 구성·금액·예산·기간·day-1 kill-check·무효화 조건)를 단독으로 따른다.
 
@@ -137,15 +141,18 @@ lineage가 달라 자체 archive/catalog를 주 source로 사용한다. "중앙 
 `compact-v1`을 적용하지 않고 row를 지우지 않으며, external APFS workspace와
 whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L evidence로 해석하지 않는다.
 
-`golden-raspberry`도 `data/<job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의
-고정 hash-shard DB다. 세 DB의 `queue-echo-v1` raw Gamma/CLOB evidence를 함께 검증하고,
-표시 호가 반사실을 actual fill이나 realized P&L로 해석하지 않는다.
+`golden-raspberry`도 `data/<runtime-job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의
+고정 hash-shard DB다. 현재 `raspberry-do/re/mi-v3-shard-*`의 `queue-echo-v3` raw Gamma/CLOB
+evidence를 함께 검증한다. v3 이전 DB는 별도 historical epoch이며 섞지 않고, 표시 호가
+반사실을 actual fill이나 realized P&L로 해석하지 않는다.
 
 `golden-strawberry`의 동결 v1은 `data/strawberry-shadow-one/trades_sim.db`에 10분 CLOB
 sampling census와 crossing-time book/Gamma evidence를 보존한다. entry 종료 뒤에는 이 파일을
-read-only seed source로만 열고 `data/strawberry-shadow-one-followup-v2/trades_sim.db`가 unresolved
-episode의 compact book/path/resolution만 적재한다. 두 epoch를 merge하거나 하나의 DB로 덮지
-않으며, 둘 다 actual fill 또는 realized P&L로 해석하지 않는다.
+read-only seed source로만 열고 active
+`data/strawberry-shadow-one-followup-v2a/trades_sim.db`가 unresolved episode의 compact
+book/path/resolution만 적재한다. 실패한 v2 attempt는 별도 historical provenance다. 두 active
+epoch를 merge하거나 하나의 DB로 덮지 않으며, 둘 다 actual fill 또는 realized P&L로 해석하지
+않는다.
 
 `golden-black`은 단일 `data/black-shadow-paired/trades_sim.db`에 server-filtered sports event
 keyset, exact `$5` books, `0.92/0.94` paired episode, 무손절·0.80·0.70·0.60 stop path와 one-hot
@@ -206,10 +213,18 @@ Golden Pomegranate는 trade/fill retro 대상이 아니다. active `trades_sim.d
 cursor-complete census, source-component coverage, watermark gap과 manifest checksum을 검사한다.
 `polybot-retro audit`의 order/fill 계약을 여기에 적용하지 않는다.
 
+Golden Raspberry도 trade/fill retro 대상이 아니다. `polybot-do/re/mi`를 각각 scan한 뒤
+독립 plan으로 sync/verify하고, current `raspberry-*-v3-shard-*` DB 세 개만
+`queue-echo-analyzer-v3`에 명시한다. external-v2 DB는 별도 historical health evidence로만
+검증하며 v3와 합치지 않는다. 첫 7일에는 slot claim, duplicate/late HTTP 0, FAILED 포함
+runtime, cursor, YES/NO pair, follow-up claim/control, cohort, DB/storage만 판정하고 30일 전
+수익성·threshold·live 승격을 결론내리지 않는다.
+
 Golden Strawberry도 trade/fill retro 대상이 아니다. `daily-rsync verify`를 각각 통과한 frozen
-v1과 follow-up v2 `trades_sim.db`의 절대 경로를 함께 지정한다. v1-only analyzer로 sampling
+v1과 follow-up v2a `trades_sim.db`의 절대 경로를 함께 지정한다. v1-only analyzer로 sampling
 cursor/membership, crossing book과 metadata를 확인하고 `polybot-followup analyze`로 v1 anchor,
-v2 cadence, compact book/path/resolution coverage, cohort, DB 무결성과 storage/SLA를 검사한다.
+v2a cadence, imported seed hash, atomic publication, compact book/path/resolution coverage, cohort,
+DB 무결성과 storage/SLA를 검사한다.
 두 epoch를 합쳐 actual fill/P&L로 해석하지 않으며 parameter tuning·live 승격은 별도 healthy
 out-of-sample gate 전까지 결론내리지 않는다.
 
