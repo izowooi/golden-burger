@@ -365,6 +365,7 @@ def audit_database(
         )
         minimum_history_hours = fallback_minimum_history_hours
         lineage_archive = strategy_name in {
+            "golden-blueberry",
             "golden-kiwi",
             "golden-papaya",
             "golden-queen",
@@ -421,6 +422,7 @@ def audit_database(
         )
 
         if strategy_name in {
+            "golden-blueberry",
             "golden-honeydew",
             "golden-kiwi",
             "golden-nectarine",
@@ -990,6 +992,7 @@ def _active_compact_policy(
             "extrema"
             if normalized_strategy
             in {
+                "golden-blueberry",
                 "golden-elderberry",
                 "golden-papaya",
                 "golden-queen",

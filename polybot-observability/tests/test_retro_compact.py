@@ -59,6 +59,7 @@ def _compact_report(
             "extrema"
             if normalized_strategy
             in {
+                "golden-blueberry",
                 "golden-elderberry",
                 "golden-papaya",
                 "golden-queen",
@@ -88,7 +89,11 @@ def _compact_report(
                         else (
                             0.25
                             if normalized_strategy
-                            in {"golden-queen", "golden-quince"}
+                            in {
+                                "golden-blueberry",
+                                "golden-queen",
+                                "golden-quince",
+                            }
                             else 24.0
                         )
                     )
@@ -97,6 +102,7 @@ def _compact_report(
                     60.0
                     if normalized_strategy
                     in {
+                        "golden-blueberry",
                         "golden-kiwi",
                         "golden-papaya",
                         "golden-queen",
@@ -280,7 +286,11 @@ def _create_compact_archive(
                 _compact_report(
                     strategy_name=strategy_name,
                     hot_hours=(
-                        60.0 * 24.0 if strategy_name == "golden-kiwi" else 24.0
+                        60.0 * 24.0
+                        if strategy_name == "golden-kiwi"
+                        else 1.0
+                        if strategy_name == "golden-blueberry"
+                        else 24.0
                     ),
                     snapshot_anchor=as_of - timedelta(minutes=5),
                 ),
@@ -574,6 +584,86 @@ def test_compact_detail_metrics_use_only_attested_detail_samples(
     assert sweeps["qualified_snapshot_eligibility_ratio"] == 1.0
     assert sweeps["per_market_attested_snapshot_p10"] == 1.0
     assert "archive_window_short" not in issue_codes
+
+
+def test_blueberry_extrema_compact_profile_is_recognized_and_enforced(
+    tmp_path: Path,
+) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-blueberry" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-blueberry",
+    )
+    with sqlite3.connect(db_path) as connection:
+        _store_detail_checkpoint(connection, "sweep-000")
+        connection.execute(
+            "UPDATE market_snapshots SET condition_id = 'condition-2'"
+        )
+        connection.execute(
+            "UPDATE market_catalog SET condition_id = 'condition-2'"
+        )
+
+    result = audit_database(db_path, days=1, as_of=as_of)
+    policy = result["compact_snapshot_policy"]
+    snapshots = result["market_snapshots"]
+    sweeps = result["market_sweeps"]
+    issues = {issue["code"]: issue["severity"] for issue in result["issues"]}
+
+    assert policy["schema_version"] == 2
+    assert policy["strategy_name"] == "golden-blueberry"
+    assert policy["selector"] == "extrema"
+    assert policy["hot_hours"] == 1.0
+    assert sweeps["compact_profile_active"] is True
+    assert sweeps["valid_summary_only_sweeps"] == 287
+    assert sweeps["valid_detailed_sweeps"] == 1
+    assert sweeps["invariant_failures"] == 0
+    assert snapshots["minimum_archive_history_hours"] == 60 * 24
+    assert issues["archive_window_short"] == "HIGH"
+    assert "market_sweep_attestation_invalid" not in issues
+
+
+def test_blueberry_wrong_selector_fails_closed_through_archive_gate(
+    tmp_path: Path,
+) -> None:
+    as_of = datetime(2026, 7, 31, tzinfo=timezone.utc)
+    db_path = tmp_path / "golden-blueberry" / "trades.db"
+    _create_compact_archive(
+        db_path,
+        as_of=as_of,
+        strategy_name="golden-blueberry",
+    )
+    with sqlite3.connect(db_path) as connection:
+        _store_detail_checkpoint(connection, "sweep-000")
+        connection.execute(
+            "UPDATE market_snapshots SET condition_id = 'condition-2'"
+        )
+        report = json.loads(
+            connection.execute(
+                "SELECT last_report_json FROM polybot_db_maintenance "
+                "WHERE profile = 'compact-v1'"
+            ).fetchone()[0]
+        )
+        report["policy"]["selector"] = "latest"
+        connection.execute(
+            "UPDATE polybot_db_maintenance SET last_report_json = ? "
+            "WHERE profile = 'compact-v1'",
+            (json.dumps(report),),
+        )
+
+    result = audit_database(db_path, days=1, as_of=as_of)
+    failures = {
+        failed
+        for detail in result["market_sweeps"]["invariant_failure_details"]
+        for failed in detail["failed"]
+    }
+    issues = {issue["code"]: issue["severity"] for issue in result["issues"]}
+
+    assert result["compact_snapshot_policy"] is None
+    assert "summary_only_requires_compact_profile" in failures
+    assert "snapshot_rows_match_membership" in failures
+    assert issues["market_sweep_attestation_invalid"] == "CRITICAL"
 
 
 def test_unaligned_audit_window_accepts_one_daily_detail_checkpoint(
