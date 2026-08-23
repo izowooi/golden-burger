@@ -241,21 +241,30 @@ class V1SourceReader:
             placeholders = ",".join("?" for _ in chunk)
             rows = connection.execute(
                 f"""
-                SELECT p.* FROM episode_path_observations p
-                JOIN market_sweeps s ON s.sweep_id=p.sweep_id
-                WHERE p.path_status='EXECUTABLE'
-                  AND p.episode_id IN ({placeholders})
-                  AND EXISTS (
-                    SELECT 1 FROM research_run_events e
-                    WHERE e.run_id=s.run_id AND e.event_type='SUCCEEDED'
+                SELECT p.*
+                FROM hypothetical_episodes h
+                JOIN episode_path_observations p
+                  ON p.path_observation_id=(
+                    SELECT p2.path_observation_id
+                    FROM episode_path_observations p2
+                    JOIN market_sweeps s2 ON s2.sweep_id=p2.sweep_id
+                    WHERE p2.episode_id=h.episode_id
+                      AND p2.path_status='EXECUTABLE'
+                      AND EXISTS (
+                        SELECT 1 FROM research_run_events e
+                        WHERE e.run_id=s2.run_id AND e.event_type='SUCCEEDED'
+                      )
+                    ORDER BY p2.observed_at DESC,p2.path_observation_id DESC
+                    LIMIT 1
                   )
-                ORDER BY p.episode_id,p.observed_at DESC,p.path_observation_id DESC
+                WHERE h.episode_id IN ({placeholders})
+                ORDER BY p.episode_id
                 """,
                 tuple(chunk),
             )
             for row in rows:
                 episode_id = str(row["episode_id"])
-                latest.setdefault(episode_id, dict(row))
+                latest[episode_id] = dict(row)
         return latest
 
     @staticmethod
