@@ -750,6 +750,72 @@ def test_invalid_execution_domains_are_critical_in_retro_audit(tmp_path: Path) -
     assert "order_execution_domain_invalid" in codes
 
 
+def test_buy_price_improvement_legacy_share_marker_is_not_invalid_domain(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "golden-test" / "trades.db"
+    db_path.parent.mkdir(parents=True)
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY, status TEXT)")
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    ledger.submit_and_record(
+        token_id="token",
+        side="BUY",
+        requested_price=0.93,
+        requested_size=5.3763,
+        submit=lambda: {
+            "success": True,
+            "orderID": "price-improved-buy",
+            "status": "DELAYED",
+        },
+        signed_making_amount=5_000_000,
+        signed_taking_amount=5_376_300,
+    )
+    with sqlite3.connect(db_path) as connection:
+        submission_id = connection.execute(
+            "SELECT submission_id FROM order_submissions"
+        ).fetchone()[0]
+    ledger.record_order_status(
+        submission_id,
+        {
+            "status": "MATCHED",
+            "original_size": "5.3763",
+            "size_matched": "5.434775",
+            "price": "0.93",
+            "associate_trades": ["price-improved-fill"],
+        },
+    )
+    ledger.record_fill(
+        submission_id,
+        "price-improved-buy",
+        {
+            "id": "price-improved-fill",
+            "status": "CONFIRMED",
+            "size": "5.434775",
+            "price": "0.92",
+            "taker_order_id": "price-improved-buy",
+            "fee_rate_bps": 0,
+        },
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_status_events "
+            "SET domain_error='size_matched_exceeds_original'"
+        )
+        connection.execute(
+            "UPDATE order_submissions SET submitted_at='2026-07-10T00:00:00+00:00'"
+        )
+    assert ledger.finish_reconciliation(submission_id) is True
+
+    result = audit_database(
+        db_path, days=30, as_of=datetime(2026, 7, 31, tzinfo=timezone.utc)
+    )
+    codes = {issue["code"] for issue in result["issues"]}
+
+    assert result["fill_ledger"]["invalid_order_status_domains"] == 0
+    assert "order_execution_domain_invalid" not in codes
+
+
 def test_legacy_unavailable_order_remains_high_evidence_gap_and_out_of_pnl(
     tmp_path: Path,
 ) -> None:

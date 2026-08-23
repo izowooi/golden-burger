@@ -2345,7 +2345,8 @@ def _fill_ledger_summary(
         1
         for row in connection.execute(
             """
-            SELECT e.original_size, e.size_matched, e.price, e.domain_error
+            SELECT e.original_size, e.size_matched, e.price, e.domain_error,
+                   s.side
             FROM order_status_events e
             JOIN order_submissions s ON s.submission_id = e.submission_id
             WHERE s.simulation = 0
@@ -2729,8 +2730,21 @@ def _is_probability(value: Any, *, strict: bool = False) -> bool:
 
 
 def _order_status_domain_invalid(row: Sequence[Any]) -> bool:
-    original_size, size_matched, price, domain_error = row
-    if domain_error is not None:
+    original_size, size_matched, price, domain_error, side = row
+    normalized_side = str(side or "").strip().upper()
+    domain_errors = {
+        token.strip()
+        for token in str(domain_error or "").split(",")
+        if token.strip()
+    }
+    # A BUY market order fixes the maker USDC envelope. Price improvement can
+    # legitimately return more outcome shares than the token amount signed at
+    # the limit price. The live ledger validates confirmed BUY notional against
+    # that maker envelope during reconciliation, so the legacy share-ceiling
+    # marker is not itself a malformed domain for BUY orders.
+    if normalized_side == "BUY":
+        domain_errors.discard("size_matched_exceeds_original")
+    if domain_errors:
         return True
     if original_size is not None and not _is_finite_nonnegative(original_size):
         return True
@@ -2739,7 +2753,8 @@ def _order_status_domain_invalid(row: Sequence[Any]) -> bool:
     if price is not None and not _is_probability(price, strict=True):
         return True
     return bool(
-        original_size is not None
+        normalized_side != "BUY"
+        and original_size is not None
         and size_matched is not None
         and _is_finite_nonnegative(original_size)
         and _is_finite_nonnegative(size_matched)
