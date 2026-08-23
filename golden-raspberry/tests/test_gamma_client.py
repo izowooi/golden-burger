@@ -21,7 +21,7 @@ class FakeTransport:
 
 
 def test_keyset_walks_to_terminal_cursor(monkeypatch):
-    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-shard-0")
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
     transport = FakeTransport(
         [
             {"markets": [{"id": "1"}], "next_cursor": "next"},
@@ -36,7 +36,7 @@ def test_keyset_walks_to_terminal_cursor(monkeypatch):
 
 
 def test_repeated_cursor_fails(monkeypatch):
-    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-shard-0")
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
     transport = FakeTransport(
         [
             {"markets": [], "next_cursor": "same"},

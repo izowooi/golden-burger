@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from ..config import OrderBookConfig
 from ..utils.retry import PublicApiError, PublicJsonTransport
@@ -16,6 +16,7 @@ class BookAttempt:
     request_id: str | None
     started_at: str | None
     received_at: str | None
+    logical_request_id: str | None = None
     error_type: str | None = None
     error_message: str | None = None
 
@@ -23,6 +24,7 @@ class BookAttempt:
 @dataclass(frozen=True)
 class RawBookPayload:
     request_id: str
+    logical_request_id: str
     received_at: str
     response_sha256: str
     raw: bytes
@@ -48,6 +50,8 @@ class ClobBookClient:
         token_ids: list[str],
         *,
         atomic_pairs: list[tuple[str, str]] | None = None,
+        request_kind: str = "clob_universe_books",
+        before_request: Callable[[tuple[str, ...], str, str], None] | None = None,
     ) -> BookCollection:
         unique = list(dict.fromkeys(str(token) for token in token_ids if str(token)))
         books: dict[str, dict[str, Any]] = {}
@@ -81,6 +85,8 @@ class ClobBookClient:
                     books,
                     attempts,
                     payloads,
+                    request_kind=request_kind,
+                    before_request=before_request,
                 )
                 chunk = []
                 chunk_size = 0
@@ -93,6 +99,8 @@ class ClobBookClient:
                 books,
                 attempts,
                 payloads,
+                request_kind=request_kind,
+                before_request=before_request,
             )
         return BookCollection(books=books, attempts=attempts, raw_payloads=payloads)
 
@@ -103,6 +111,9 @@ class ClobBookClient:
         books: dict[str, dict[str, Any]],
         attempts: dict[str, BookAttempt],
         payloads: list[RawBookPayload],
+        *,
+        request_kind: str,
+        before_request: Callable[[tuple[str, ...], str, str], None] | None,
     ) -> None:
         if not units:
             return
@@ -111,15 +122,47 @@ class ClobBookClient:
             response = self.transport.request_json(
                 "POST",
                 f"{self.config.base_url}{self.ENDPOINT}",
-                request_kind="clob_books",
+                request_kind=request_kind,
                 run_id=run_id,
                 json_body=[{"token_id": token} for token in tokens],
+                before_first_attempt=(
+                    lambda logical_id, started_at: before_request(
+                        tuple(tokens), logical_id, started_at
+                    )
+                    if before_request is not None
+                    else None
+                ),
             )
         except PublicApiError as error:
-            if error.http_status in {400, 404, 422} and len(units) > 1:
+            # Error bisection is safe for the UNIVERSE census because each
+            # YES/NO pair remains one unit. A FOLLOWUP_ONLY 4xx has already
+            # durably consumed every case's first logical request, so sending
+            # split replacement requests would violate the first-attempt
+            # contract and is deliberately forbidden.
+            if (
+                request_kind == "clob_universe_books"
+                and error.http_status in {400, 404, 422}
+                and len(units) > 1
+            ):
                 midpoint = len(units) // 2
-                self._fetch_chunk(run_id, units[:midpoint], books, attempts, payloads)
-                self._fetch_chunk(run_id, units[midpoint:], books, attempts, payloads)
+                self._fetch_chunk(
+                    run_id,
+                    units[:midpoint],
+                    books,
+                    attempts,
+                    payloads,
+                    request_kind=request_kind,
+                    before_request=before_request,
+                )
+                self._fetch_chunk(
+                    run_id,
+                    units[midpoint:],
+                    books,
+                    attempts,
+                    payloads,
+                    request_kind=request_kind,
+                    before_request=before_request,
+                )
                 return
             for token in tokens:
                 attempts[token] = BookAttempt(
@@ -128,6 +171,7 @@ class ClobBookClient:
                     request_id=None,
                     started_at=None,
                     received_at=None,
+                    logical_request_id=None,
                     error_type=type(error).__name__,
                     error_message=str(error)[:500],
                 )
@@ -138,6 +182,7 @@ class ClobBookClient:
         payloads.append(
             RawBookPayload(
                 request_id=response.request_id,
+                logical_request_id=response.logical_request_id or response.request_id,
                 received_at=response.received_at,
                 response_sha256=response.response_sha256,
                 raw=response.raw,
@@ -164,6 +209,7 @@ class ClobBookClient:
                 request_id=response.request_id,
                 started_at=response.started_at,
                 received_at=response.received_at,
+                logical_request_id=response.logical_request_id,
             )
         for token in expected - returned:
             attempts[token] = BookAttempt(
@@ -172,6 +218,7 @@ class ClobBookClient:
                 request_id=response.request_id,
                 started_at=response.started_at,
                 received_at=response.received_at,
+                logical_request_id=response.logical_request_id,
             )
 
 

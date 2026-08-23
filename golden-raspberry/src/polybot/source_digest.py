@@ -8,14 +8,21 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-13-external-v2/PREREGISTRATION.md"
+    "research/frozen-2026-08-23-v3/PREREGISTRATION.md"
 )
+ACTIVE_DATA_CONTRACT = "research/frozen-2026-08-23-v3/DATA_CONTRACT.md"
+ACTIVE_MANIFEST = "research/frozen-2026-08-23-v3/MANIFEST.sha256"
 SOURCE_PATHS = (
     "pyproject.toml",
     "uv.lock",
     "config.yaml",
+    ".env.example",
+    "README.md",
+    "OPERATIONS.md",
     "STRATEGY.md",
     ACTIVE_PREREGISTRATION,
+    ACTIVE_DATA_CONTRACT,
+    ACTIVE_MANIFEST,
     "scripts/analyze_experiment.py",
     "scripts/verify_external_workspace.py",
     "src/polybot/main.py",
@@ -52,3 +59,7 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
 
 def preregistration_sha256(root: Path = PROJECT_ROOT) -> str:
     return sha256_file(root / ACTIVE_PREREGISTRATION)
+
+
+def data_contract_sha256(root: Path = PROJECT_ROOT) -> str:
+    return sha256_file(root / ACTIVE_DATA_CONTRACT)

@@ -50,6 +50,48 @@ class FakeClob:
         )
 
 
+class RoleAwareFakeClob(FakeClob):
+    def __init__(self, books):
+        super().__init__(books)
+        self.request_kinds = []
+
+    def fetch_books(
+        self,
+        run_id,
+        token_ids,
+        *,
+        atomic_pairs=None,
+        request_kind="clob_universe_books",
+        before_request=None,
+    ):
+        self.request_kinds.append(request_kind)
+        if request_kind == "clob_followup_books":
+            assert atomic_pairs is None
+            before_request(
+                tuple(token_ids),
+                "logical-followup",
+                datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            )
+            return BookCollection(
+                books={},
+                attempts={
+                    token: BookAttempt(
+                        token,
+                        "EMPTY_BOOK",
+                        "followup-request",
+                        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+                        "logical-followup",
+                    )
+                    for token in token_ids
+                },
+                raw_payloads=[],
+            )
+        return super().fetch_books(
+            run_id, token_ids, atomic_pairs=atomic_pairs
+        )
+
+
 def _book(token, bid_size, ask_size):
     return {
         "asset_id": token,
@@ -72,7 +114,7 @@ def _book(token, bid_size, ask_size):
 
 
 def test_one_cycle_publishes_pair_and_all_three_derived_arms(monkeypatch, tmp_path):
-    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-shard-0")
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
     object.__setattr__(config, "db_path", tmp_path / "trades_sim.db")
     repository = ResearchRepository(config.db_path)
     repository.initialize(config)
@@ -120,3 +162,84 @@ def test_one_cycle_publishes_pair_and_all_three_derived_arms(monkeypatch, tmp_pa
         ("RE", 1, "MISSING"),
         ("MI", 1, "MISSING"),
     ]
+
+
+def test_followup_only_request_is_claimed_and_censored_separately(monkeypatch, tmp_path):
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
+    object.__setattr__(config, "db_path", tmp_path / "trades_sim.db")
+    repository = ResearchRepository(config.db_path)
+    repository.initialize(config)
+    now = datetime.now(timezone.utc)
+    with sqlite3.connect(repository.db_path) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        connection.execute(
+            """
+            INSERT INTO research_cases(
+                case_id, decision_id, case_kind, matched_pair_id, condition_id,
+                event_id, token_id, outcome_label, entry_snapshot_id, entry_at,
+                entry_cost_usdc, entry_shares, entry_vwap, target_at, window_end,
+                control_match_distance
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "due-case",
+                "prior-decision",
+                "SIGNAL",
+                "pair",
+                "follow-condition",
+                "follow-event",
+                "follow-token",
+                "Yes",
+                "prior-snapshot",
+                (now - timedelta(minutes=61)).isoformat(),
+                5.0,
+                10.0,
+                0.5,
+                (now - timedelta(minutes=1)).isoformat(),
+                (now + timedelta(minutes=14)).isoformat(),
+                None,
+            ),
+        )
+    condition = _condition_for_shard(0)
+    market = {
+        "id": "market",
+        "conditionId": condition,
+        "events": [{"id": "event"}],
+        "question": "test",
+        "slug": "test",
+        "outcomes": json.dumps(["Yes", "No"]),
+        "clobTokenIds": json.dumps(["yes", "no"]),
+        "outcomePrices": json.dumps(["0.5", "0.5"]),
+        "endDate": (now + timedelta(hours=7)).isoformat().replace("+00:00", "Z"),
+        "liquidityNum": 50_000,
+        "volumeNum": 100_000,
+        "volume24hr": 20_000,
+        "active": True,
+        "closed": False,
+        "enableOrderBook": True,
+        "acceptingOrders": True,
+        "negRisk": False,
+    }
+    clob = RoleAwareFakeClob(
+        {"yes": _book("yes", 1000, 100), "no": _book("no", 100, 1000)}
+    )
+    collector = ResearchCollector(
+        config,
+        repository=repository,
+        gamma_client=FakeGamma(market),
+        clob_client=clob,
+    )
+
+    stats = collector.run_cycle("run")
+
+    assert clob.request_kinds == ["clob_followup_books", "clob_universe_books"]
+    assert stats["followup"]["status_counts"]["EMPTY_BOOK"] == 1
+    with sqlite3.connect(repository.db_path) as connection:
+        role = connection.execute(
+            "SELECT attempt_role, status FROM orderbook_token_attempts WHERE token_id='follow-token'"
+        ).fetchone()
+        outcome = connection.execute(
+            "SELECT status FROM followup_attempts WHERE case_id='due-case'"
+        ).fetchone()[0]
+    assert role == ("FOLLOWUP_ONLY", "EMPTY_BOOK")
+    assert outcome == "EMPTY_BOOK"

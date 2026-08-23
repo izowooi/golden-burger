@@ -54,15 +54,15 @@ arm이 아니라 source shard다.
 
 | Jenkins job | runtime job | shard | cron |
 |---|---|---:|---|
-| `polybot-do` | `raspberry-do-shard-0` | 0 | `0-59/5 * * * *` |
-| `polybot-re` | `raspberry-re-shard-1` | 1 | `1-59/5 * * * *` |
-| `polybot-mi` | `raspberry-mi-shard-2` | 2 | `2-59/5 * * * *` |
+| `polybot-do` | `raspberry-do-v3-shard-0` | 0 | `0-59/5 * * * *` |
+| `polybot-re` | `raspberry-re-v3-shard-1` | 1 | `1-59/5 * * * *` |
+| `polybot-mi` | `raspberry-mi-v3-shard-2` | 2 | `2-59/5 * * * *` |
 
 각 shard의 동일 raw stream에서 DO·RE·MI를 전부 계산하므로 request time과 missingness가
 arm 차이로 섞이지 않는다. 세 DB를 합칠 때 condition/event는 hash상 서로 겹치지 않아야 한다.
-현재 외장 workspace confirmatory window는
-`[2026-08-13T12:00:00Z, 2026-09-12T12:00:00Z)`다. 이전 내부 workspace 구간은
-operational health 자료로만 보존하며 이 window의 결론에 합치지 않는다.
+현재 v3 confirmatory window는
+`[2026-08-23T20:00:00Z, 2026-09-22T20:00:00Z)`다. external-v2 runtime과 DB는
+삭제·migration·mutation 없이 legacy operational evidence로 보존하며 v3 결론에 합치지 않는다.
 
 ## Displayed-depth feature
 
@@ -121,29 +121,41 @@ REST 표시잔량은 실제 fill·queue position을 증명하지 않으므로 `t
 
 ## Evidence contract
 
-`queue-echo-v1` SQLite는 append-only로 다음을 보존한다.
+`queue-echo-v3` schema 3 SQLite는 v3 runtime별 새 DB에 append-only로 다음을 보존한다.
 
-- immutable experiment contract, preregistration/config/source digest와 run lifecycle
+- immutable experiment/data contract, preregistration/config/source digest와 run lifecycle
+- public HTTP 전 unique runtime × slot atomic claim(`slot_id`, `slot_at`, `claimed_at`, lateness),
+  duplicate/late no-HTTP skip disposition
+- 225초 cooperative budget, 30초 network margin과 SUCCEEDED/FAILED terminal duration/deadline
 - 모든 Gamma request receipt, cursor-complete sweep, 압축 full membership와 gate funnel
 - event panel/hash shard 선택과 모든 client-eligible market metadata
-- 모든 requested token status, request/source clocks, CLOB raw gzip/hash, normalized levels
+- 모든 requested token status, request/source clocks, CLOB raw gzip/hash, normalized levels와
+  `UNIVERSE`/`FOLLOWUP_ONLY` source role
 - exact YES/NO pair snapshot, score, DO/RE/MI decision과 rejection/cooldown/history lineage
-- signal/opposite/neutral case와 모든 follow-up attempt/censoring reason
+- signal/opposite/neutral case, durable first-follow-up claim/request-start와 terminal disposition
 - cycle runtime, storage metric, data-quality issue
 
 cohort는 `config_hash × strategy_source_digest × mode × job_name`이다. source digest는
-lock/package, analyzer, CLI/orchestration, public clients, collector, repository와 frozen
-계약을 모두 포함한다. code instrumentation을 고친 뒤에는 새 source digest cohort가 되며
-30일 판정은 최종 단일 cohort 구간만 사용한다.
+lock/package, docs, analyzer, CLI/orchestration, public clients, collector, repository와 frozen
+v3 prereg/data contract를 모두 포함한다. external-v2 DB는 schema initialization조차 하지
+않으며 v3 source/config cohort와 결합하지 않는다.
+
+UNIVERSE coverage는 same-logical-request atomicity, normalized token/pair availability,
+quote-eligible pair와 `EMPTY_BOOK`/missing/malformed/error/raw linkage를 각각 보고한다.
+FOLLOWUP_ONLY claim·start·recovery·censoring은 별도 분모이며 UNIVERSE pair coverage를 낮추지
+않는다. 같은 request에 두 token이 있었다는 사실은 normalized 또는 quote-eligible book이
+둘 다 존재했다는 뜻이 아니다.
 
 ## Health와 falsification
 
 첫 24시간은 수익성을 판단하지 않는다. 7 complete UTC day health gate는 다음과 같다.
 
-- job별 expected slot SUCCESS coverage ≥95%, duplicate/off-slot 0
+- job별 accepted expected-slot SUCCESS coverage ≥95%, duplicate/late HTTP 0
+- STARTED-owned lifecycle terminal completeness 100%; FAILED도 duration/deadline gate에 포함
 - SUCCESS Gamma sweep 100% terminal cursor, partial publish 0
-- requested YES/NO token coverage ≥95%, same-request pair 100%, raw payload linkage 100%
-- cycle runtime p95 <180초, max <240초
+- UNIVERSE normalized YES/NO token coverage ≥95%, same-request pair atomicity 100%, raw linkage 100%
+- quote-eligible/EMPTY_BOOK/missing/malformed/error와 FOLLOWUP_ONLY disposition 별도 보고
+- all-terminal cycle runtime p95 <180초, max <240초, 225초 cooperative breach 0
 - lifecycle·lineage 위반과 CRITICAL/HIGH issue 0
 - DB quick_check 정상, disk guard 정상
 

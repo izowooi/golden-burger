@@ -38,10 +38,20 @@ class ResearchRunAudit:
 
     @classmethod
     def start(
-        cls, config: BotConfig, *, repository: ResearchRepository
+        cls,
+        config: BotConfig,
+        *,
+        repository: ResearchRepository,
+        run_id: str | None = None,
+        slot_claim: dict[str, Any] | None = None,
     ) -> "ResearchRunAudit":
         repository.register_config(config, git_commit=_git_commit())
-        audit = cls(config=config, repository=repository, run_id=uuid4().hex)
+        audit = cls(
+            config=config,
+            repository=repository,
+            run_id=run_id or uuid4().hex,
+        )
+        runtime = config.trading.runtime
         audit._event(
             "STARTED",
             {
@@ -53,6 +63,10 @@ class ResearchRunAudit:
                 "shard_index": config.trading.experiment.shard_index,
                 "shard_count": config.trading.experiment.shard_count,
                 "strategy_source_digest": config.trading.strategy_source_digest,
+                "slot_claim": slot_claim,
+                "cooperative_cycle_budget_seconds": runtime.cooperative_cycle_budget_seconds,
+                "hard_cycle_limit_seconds": runtime.hard_cycle_limit_seconds,
+                "network_stop_margin_seconds": runtime.network_stop_margin_seconds,
             },
         )
         return audit
@@ -77,16 +91,30 @@ class ResearchRunAudit:
             }
         )
 
-    def succeed(self, summary: dict[str, Any]) -> None:
+    def succeed(
+        self,
+        summary: dict[str, Any],
+        *,
+        terminal_evidence: dict[str, Any],
+    ) -> None:
         if self.terminal:
             raise RuntimeError("research run already has a terminal event")
-        self._event("SUCCEEDED", summary)
+        self._event("SUCCEEDED", {**summary, **terminal_evidence})
         self.terminal = True
 
-    def fail(self, error: BaseException) -> None:
+    def fail(
+        self,
+        error: BaseException,
+        *,
+        terminal_evidence: dict[str, Any],
+    ) -> None:
         if self.terminal:
             return
-        self._event("FAILED", {}, error=error)
+        details = dict(terminal_evidence)
+        evidence = getattr(error, "evidence", None)
+        if callable(evidence):
+            details["deadline_error"] = evidence()
+        self._event("FAILED", details, error=error)
         self.terminal = True
 
 

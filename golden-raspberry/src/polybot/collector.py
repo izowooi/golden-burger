@@ -9,15 +9,14 @@ import hashlib
 import json
 import math
 from pathlib import Path
-import time
 from typing import Any, Iterable
 from uuid import uuid4
 
 from .api.clob_client import BookAttempt, BookCollection, ClobBookClient
 from .api.gamma_client import GammaClient, GammaSweep
 from .config import BotConfig, DATA_CONTRACT
-from .db.repository import ResearchRepository
-from .utils.retry import PublicJsonTransport, iso_utc
+from .db.repository import FollowupClaimBatch, ResearchRepository
+from .utils.retry import CycleBudget, PublicJsonTransport, iso_utc
 
 
 ARMS: tuple[tuple[str, int], ...] = (("DO", 1), ("RE", 2), ("MI", 3))
@@ -144,9 +143,16 @@ class ResearchCollector:
         repository: ResearchRepository,
         gamma_client: GammaClient | None = None,
         clob_client: ClobBookClient | None = None,
+        budget: CycleBudget | None = None,
     ) -> None:
         self.config = config
         self.repository = repository
+        runtime = config.trading.runtime
+        self.budget = budget or CycleBudget(
+            cooperative_seconds=runtime.cooperative_cycle_budget_seconds,
+            hard_limit_seconds=runtime.hard_cycle_limit_seconds,
+            network_stop_margin_seconds=runtime.network_stop_margin_seconds,
+        )
         if gamma_client is None or clob_client is None:
             gamma = config.trading.gamma
             transport = PublicJsonTransport(
@@ -156,6 +162,7 @@ class ResearchCollector:
                 retry_base_seconds=gamma.retry_base_seconds,
                 retry_max_seconds=gamma.retry_max_seconds,
                 receipt_sink=repository.record_api_request,
+                budget=self.budget,
             )
             gamma_client = gamma_client or GammaClient(gamma, transport)
             clob_client = clob_client or ClobBookClient(
@@ -164,12 +171,24 @@ class ResearchCollector:
         self.gamma_client = gamma_client
         self.clob_client = clob_client
 
-    def run_cycle(self, run_id: str) -> dict[str, Any]:
+    def run_cycle(
+        self, run_id: str, *, budget: CycleBudget | None = None
+    ) -> dict[str, Any]:
+        active_budget = budget or self.budget
         cycle_started = datetime.now(timezone.utc)
-        cycle_clock = time.monotonic()
         cycle_number = self.repository.next_cycle_number()
         sweep_id = uuid4().hex
-        due_cases, expired_cases = self.repository.pending_cases(now=iso_utc(cycle_started))
+        claim_batch = self.repository.claim_due_followups(
+            run_id=run_id,
+            now=cycle_started,
+            stale_after_seconds=self.config.trading.runtime.followup_claim_stale_seconds,
+        )
+        followup_stats = self._collect_followups(
+            run_id,
+            claim_batch,
+            budget=active_budget,
+        )
+        active_budget.checkpoint("before_gamma_sweep")
         gamma_sweep = self.gamma_client.collect_market_sweep(run_id)
         parsed, membership, funnel = self._parse_gamma(gamma_sweep, cycle_started)
         self._select_panel_and_shard(parsed, membership)
@@ -188,18 +207,7 @@ class ResearchCollector:
                     "role": "UNIVERSE",
                 }
         token_meta = dict(current_token_meta)
-        for case in due_cases:
-            token_meta.setdefault(
-                str(case["token_id"]),
-                {
-                    "condition_id": case["condition_id"],
-                    "market_id": None,
-                    "event_id": case["event_id"],
-                    "outcome_index": None,
-                    "outcome_label": case["outcome_label"],
-                    "role": "FOLLOWUP_ONLY",
-                },
-            )
+        active_budget.checkpoint("before_universe_books")
         books = self.clob_client.fetch_books(
             run_id,
             sorted(token_meta),
@@ -209,7 +217,9 @@ class ResearchCollector:
         )
 
         market_rows = self._market_rows(sweep_id, run_id, parsed)
-        raw_payload_rows = self._raw_payload_rows(run_id, books)
+        raw_payload_rows = self._raw_payload_rows(
+            run_id, books, payload_kind="clob_universe_books"
+        )
         attempt_rows: list[dict[str, Any]] = []
         snapshot_rows: list[dict[str, Any]] = []
         level_rows: list[dict[str, Any]] = []
@@ -225,7 +235,13 @@ class ResearchCollector:
             if status == "OBSERVED" and book is not None:
                 try:
                     normalized_book = self._normalize_book(
-                        sweep_id, run_id, token, meta, attempt, book
+                        sweep_id,
+                        run_id,
+                        token,
+                        meta,
+                        attempt,
+                        book,
+                        snapshot_role="UNIVERSE",
                     )
                 except (TypeError, ValueError) as error:
                     status = "MALFORMED"
@@ -250,6 +266,7 @@ class ResearchCollector:
                     "attempt_role": meta["role"],
                     "status": status,
                     "request_id": attempt.request_id,
+                    "logical_request_id": attempt.logical_request_id,
                     "request_started_at": attempt.started_at,
                     "received_at": attempt.received_at,
                     "error_type": attempt.error_type,
@@ -269,19 +286,37 @@ class ResearchCollector:
             )
         finally:
             del self._current_normalized
-        followup_rows = self._followups(
-            run_id, due_cases, expired_cases, normalized
-        )
         requested_count = len(token_meta)
         observed_count = len(normalized)
         coverage = observed_count / requested_count if requested_count else 1.0
+        universe_markets = [market for market in parsed if market.shard_selected]
+        expected_pairs = len(universe_markets)
+        same_request_pairs = 0
+        normalized_pairs = 0
+        quote_eligible_pairs = 0
+        for market in universe_markets:
+            yes_attempt = books.attempts.get(market.token_ids[0])
+            no_attempt = books.attempts.get(market.token_ids[1])
+            if (
+                yes_attempt is not None
+                and no_attempt is not None
+                and yes_attempt.request_id is not None
+                and yes_attempt.request_id == no_attempt.request_id
+            ):
+                same_request_pairs += 1
+            yes = normalized.get(market.token_ids[0])
+            no = normalized.get(market.token_ids[1])
+            if yes is not None and no is not None:
+                normalized_pairs += 1
+                if yes.row["quote_eligible"] and no.row["quote_eligible"]:
+                    quote_eligible_pairs += 1
         if coverage < 0.95:
             issues.append(
                 self._issue(
                     run_id,
                     sweep_id,
                     "HIGH" if coverage < 0.90 else "WARN",
-                    "CLOB_PAIR_COVERAGE_BELOW_GATE",
+                    "CLOB_UNIVERSE_NORMALIZED_TOKEN_COVERAGE_BELOW_GATE",
                     {"requested": requested_count, "normalized": observed_count, "coverage": coverage},
                 )
             )
@@ -322,7 +357,7 @@ class ResearchCollector:
             ),
             "data_contract": DATA_CONTRACT,
         }
-        runtime_seconds = time.monotonic() - cycle_clock
+        runtime_seconds = active_budget.elapsed_seconds
         stats = {
             "cycle_number": cycle_number,
             "shard_index": self.config.trading.experiment.shard_index,
@@ -334,13 +369,24 @@ class ResearchCollector:
             "books_requested": requested_count,
             "books_normalized": observed_count,
             "book_coverage": coverage,
+            "universe_quote_coverage": {
+                "expected_pairs": expected_pairs,
+                "same_request_atomic_pairs": same_request_pairs,
+                "normalized_pairs": normalized_pairs,
+                "quote_eligible_pairs": quote_eligible_pairs,
+                "empty_book_tokens": sum(
+                    attempt.status == "EMPTY_BOOK"
+                    for attempt in books.attempts.values()
+                ),
+            },
             "decisions": len(decision_rows),
             "qualified_by_arm": {
                 arm: sum(row["qualified"] for row in decision_rows if row["arm"] == arm)
                 for arm, _ in ARMS
             },
             "new_cases": len(case_rows),
-            "followup_attempts": len(followup_rows),
+            "followup_attempts": followup_stats["terminal_attempts"],
+            "followup": followup_stats,
             "quality_issues": len(issues),
             "runtime_seconds": round(runtime_seconds, 3),
             "membership_uncompressed_bytes": len(membership_bytes),
@@ -362,6 +408,10 @@ class ResearchCollector:
             "db_bytes": db_bytes,
             "wal_bytes": wal_path.stat().st_size if wal_path.exists() else 0,
         }
+        active_budget.checkpoint(
+            "before_cycle_publish",
+            reserve_seconds=self.config.trading.runtime.network_stop_margin_seconds,
+        )
         self.repository.publish_cycle(
             {
                 "market_sweeps": [sweep_row],
@@ -372,11 +422,148 @@ class ResearchCollector:
                 "orderbook_levels": level_rows,
                 "signal_decisions": decision_rows,
                 "research_cases": case_rows,
-                "followup_attempts": followup_rows,
                 "data_quality_issues": issues,
                 "cycle_stats": [cycle_stat_row],
             }
         )
+        return stats
+
+    def _collect_followups(
+        self,
+        run_id: str,
+        claim_batch: FollowupClaimBatch,
+        *,
+        budget: CycleBudget,
+    ) -> dict[str, Any]:
+        stats: dict[str, Any] = {
+            "claimed_due": len(claim_batch.due),
+            "recovered_claims": claim_batch.recovered_claims,
+            "active_claims_skipped": claim_batch.active_claims_skipped,
+            "expired_terminalized": claim_batch.expired_terminalized,
+            "stale_terminalized": claim_batch.stale_terminalized,
+            "request_start_claims": 0,
+            "terminal_attempts": (
+                claim_batch.expired_terminalized + claim_batch.stale_terminalized
+            ),
+            "status_counts": {
+                "WINDOW_EXPIRED": claim_batch.expired_terminalized,
+                "STALE_REQUEST_UNKNOWN": claim_batch.stale_terminalized,
+            },
+        }
+        if not claim_batch.due:
+            return stats
+
+        budget.checkpoint("before_followup_books")
+        token_meta: dict[str, dict[str, Any]] = {}
+        for case in claim_batch.due:
+            token_meta.setdefault(
+                str(case["token_id"]),
+                {
+                    "condition_id": case["condition_id"],
+                    "market_id": None,
+                    "event_id": case["event_id"],
+                    "outcome_index": None,
+                    "outcome_label": case["outcome_label"],
+                    "role": "FOLLOWUP_ONLY",
+                },
+            )
+        request_starts: dict[str, str] = {}
+
+        def mark_started(
+            token_ids: tuple[str, ...], logical_request_id: str, started_at: str
+        ) -> None:
+            inserted = self.repository.mark_followup_requests_started(
+                claim_batch.due,
+                token_ids=token_ids,
+                run_id=run_id,
+                logical_request_id=logical_request_id,
+                request_started_at=started_at,
+            )
+            stats["request_start_claims"] += inserted
+            token_set = set(token_ids)
+            for case in claim_batch.due:
+                if str(case["token_id"]) in token_set:
+                    request_starts.setdefault(str(case["claim_id"]), started_at)
+
+        collection = self.clob_client.fetch_books(
+            run_id,
+            sorted(token_meta),
+            request_kind="clob_followup_books",
+            before_request=mark_started,
+        )
+        raw_rows = self._raw_payload_rows(
+            run_id, collection, payload_kind="clob_followup_books"
+        )
+        attempt_rows: list[dict[str, Any]] = []
+        snapshot_rows: list[dict[str, Any]] = []
+        level_rows: list[dict[str, Any]] = []
+        normalized: dict[str, NormalizedBook] = {}
+        effective_status: dict[str, str] = {}
+        for token, meta in token_meta.items():
+            attempt = collection.attempts.get(token)
+            if attempt is None:
+                attempt = BookAttempt(token, "MISSING", None, None, None)
+            status = attempt.status
+            book = collection.books.get(token)
+            normalized_book: NormalizedBook | None = None
+            if status == "OBSERVED" and book is not None:
+                try:
+                    normalized_book = self._normalize_book(
+                        None,
+                        run_id,
+                        token,
+                        meta,
+                        attempt,
+                        book,
+                        snapshot_role="FOLLOWUP_ONLY",
+                    )
+                except (TypeError, ValueError):
+                    status = "MALFORMED"
+            effective_status[token] = status
+            attempt_rows.append(
+                {
+                    "attempt_id": uuid4().hex,
+                    "sweep_id": None,
+                    "run_id": run_id,
+                    "condition_id": meta.get("condition_id"),
+                    "token_id": token,
+                    "outcome_index": meta.get("outcome_index"),
+                    "outcome_label": meta.get("outcome_label"),
+                    "attempt_role": "FOLLOWUP_ONLY",
+                    "status": status,
+                    "request_id": attempt.request_id,
+                    "logical_request_id": attempt.logical_request_id,
+                    "request_started_at": attempt.started_at,
+                    "received_at": attempt.received_at,
+                    "error_type": attempt.error_type,
+                    "error_message": attempt.error_message,
+                }
+            )
+            if normalized_book is not None:
+                normalized[token] = normalized_book
+                snapshot_rows.append(normalized_book.row)
+                level_rows.extend(normalized_book.level_rows)
+
+        followup_rows = self._followups(
+            run_id,
+            claim_batch.due,
+            normalized,
+            effective_status,
+            request_starts,
+        )
+        self.repository.publish_followup_evidence(
+            {
+                "raw_payloads": raw_rows,
+                "orderbook_token_attempts": attempt_rows,
+                "orderbook_snapshots": snapshot_rows,
+                "orderbook_levels": level_rows,
+                "followup_attempts": followup_rows,
+            }
+        )
+        for row in followup_rows:
+            status = str(row["status"])
+            stats["status_counts"][status] = stats["status_counts"].get(status, 0) + 1
+        stats["terminal_attempts"] += len(followup_rows)
         return stats
 
     def _parse_gamma(
@@ -585,7 +772,12 @@ class ResearchCollector:
         ]
 
     @staticmethod
-    def _raw_payload_rows(run_id: str, collection: BookCollection) -> list[dict[str, Any]]:
+    def _raw_payload_rows(
+        run_id: str,
+        collection: BookCollection,
+        *,
+        payload_kind: str,
+    ) -> list[dict[str, Any]]:
         rows = []
         for payload in collection.raw_payloads:
             compressed = gzip.compress(payload.raw, compresslevel=6)
@@ -594,7 +786,8 @@ class ResearchCollector:
                     "payload_id": uuid4().hex,
                     "run_id": run_id,
                     "request_id": payload.request_id,
-                    "payload_kind": "clob_books",
+                    "logical_request_id": payload.logical_request_id,
+                    "payload_kind": payload_kind,
                     "content_encoding": "gzip",
                     "payload_sha256": payload.response_sha256,
                     "uncompressed_bytes": len(payload.raw),
@@ -607,12 +800,14 @@ class ResearchCollector:
 
     def _normalize_book(
         self,
-        sweep_id: str,
+        sweep_id: str | None,
         run_id: str,
         token: str,
         meta: dict[str, Any],
         attempt: BookAttempt,
         book: dict[str, Any],
+        *,
+        snapshot_role: str,
     ) -> NormalizedBook:
         if attempt.received_at is None:
             raise ValueError("observed book is missing receipt time")
@@ -675,6 +870,7 @@ class ResearchCollector:
             "token_id": token,
             "outcome_index": meta.get("outcome_index"),
             "outcome_label": meta.get("outcome_label"),
+            "snapshot_role": snapshot_role,
             "request_started_at": attempt.started_at,
             "observed_at": attempt.received_at,
             "source_timestamp": str(book.get("timestamp")) if book.get("timestamp") is not None else None,
@@ -1200,40 +1396,25 @@ class ResearchCollector:
         self,
         run_id: str,
         due_cases: list[dict[str, Any]],
-        expired_cases: list[dict[str, Any]],
         normalized: dict[str, NormalizedBook],
+        source_status: dict[str, str],
+        request_starts: dict[str, str],
     ) -> list[dict[str, Any]]:
         rows: list[dict[str, Any]] = []
         exp = self.config.trading.experiment
-        for case in expired_cases:
-            rows.append(
-                {
-                    "followup_id": uuid4().hex,
-                    "case_id": case["case_id"],
-                    "observing_run_id": run_id,
-                    "attempted_at": iso_utc(),
-                    "status": "WINDOW_EXPIRED",
-                    "source_snapshot_id": None,
-                    "observed_at": None,
-                    "exit_bid": None,
-                    "exit_vwap": None,
-                    "exit_proceeds_usdc": None,
-                    "executable_return_bps": None,
-                    "base_stressed_return_bps": None,
-                    "severe_stressed_return_bps": None,
-                    "details_json": _json({"reason": "no_valid_quote_before_window_end"}),
-                }
-            )
         for case in due_cases:
-            book = normalized.get(str(case["token_id"]))
-            attempted_at = (
-                (book.row["request_started_at"] or book.row["observed_at"])
-                if book is not None
-                else iso_utc()
-            )
+            token_id = str(case["token_id"])
+            claim_id = str(case["claim_id"])
+            book = normalized.get(token_id)
+            attempted_at = request_starts.get(claim_id)
+            if attempted_at is None:
+                raise RuntimeError(
+                    "follow-up evidence cannot publish without durable request start"
+                )
             base = {
                 "followup_id": uuid4().hex,
                 "case_id": case["case_id"],
+                "claim_id": claim_id,
                 "observing_run_id": run_id,
                 "attempted_at": attempted_at,
                 "source_snapshot_id": book.row["snapshot_id"] if book else None,
@@ -1241,16 +1422,25 @@ class ResearchCollector:
                 "exit_bid": book.row["best_bid"] if book else None,
             }
             if book is None:
+                observed_status = source_status.get(token_id, "MISSING")
+                terminal_status = (
+                    "EMPTY_BOOK" if observed_status == "EMPTY_BOOK" else "SOURCE_MISSING"
+                )
                 rows.append(
                     {
                         **base,
-                        "status": "SOURCE_MISSING",
+                        "status": terminal_status,
                         "exit_vwap": None,
                         "exit_proceeds_usdc": None,
                         "executable_return_bps": None,
                         "base_stressed_return_bps": None,
                         "severe_stressed_return_bps": None,
-                        "details_json": _json({"reason": "book_not_normalized"}),
+                        "details_json": _json(
+                            {
+                                "reason": "followup_book_not_normalized",
+                                "source_status": observed_status,
+                            }
+                        ),
                     }
                 )
                 continue
@@ -1304,7 +1494,13 @@ class ResearchCollector:
                     "executable_return_bps": raw_return,
                     "base_stressed_return_bps": raw_return - exp.base_cost_stress_bps,
                     "severe_stressed_return_bps": raw_return - exp.severe_taker_stress_bps,
-                    "details_json": _json({"shares": case["entry_shares"], "cost_usdc": case["entry_cost_usdc"]}),
+                    "details_json": _json(
+                        {
+                            "shares": case["entry_shares"],
+                            "cost_usdc": case["entry_cost_usdc"],
+                            "source_status": source_status.get(token_id),
+                        }
+                    ),
                 }
             )
         return rows

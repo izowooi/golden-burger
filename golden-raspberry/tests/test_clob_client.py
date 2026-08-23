@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from polybot.api.clob_client import ClobBookClient
 from polybot.config import PROJECT_ROOT, load_config
-from polybot.utils.retry import JsonResponse
+from polybot.utils.retry import JsonResponse, PublicApiError
 
 
 class FakeTransport:
@@ -31,7 +31,7 @@ class FakeTransport:
 
 
 def test_batch_books_records_each_missing_token(monkeypatch):
-    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-shard-0")
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
     result = ClobBookClient(config.trading.orderbook, FakeTransport()).fetch_books(
         "run", ["yes", "no"]
     )
@@ -68,7 +68,7 @@ class CompleteTransport(FakeTransport):
 
 
 def test_atomic_yes_no_pairs_never_split_at_batch_boundary(monkeypatch):
-    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-shard-0")
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
     orderbook = replace(config.trading.orderbook, batch_token_limit=3)
     transport = CompleteTransport()
 
@@ -89,3 +89,39 @@ def test_atomic_yes_no_pairs_never_split_at_batch_boundary(monkeypatch):
         or {"yes-b", "no-b"}.isdisjoint(body)
         for body in transport.request_bodies
     )
+
+
+class RejectingFollowupTransport:
+    def __init__(self):
+        self.calls = 0
+
+    def request_json(self, method, url, **kwargs):
+        self.calls += 1
+        kwargs["before_first_attempt"](
+            f"logical-{self.calls}", "2026-08-23T21:00:00Z"
+        )
+        raise PublicApiError("invalid follow-up batch", http_status=400)
+
+
+def test_followup_4xx_never_bisects_or_sends_a_replacement_logical_request():
+    config = load_config(PROJECT_ROOT / "config.yaml", "raspberry-do-v3-shard-0")
+    transport = RejectingFollowupTransport()
+    starts = []
+
+    result = ClobBookClient(config.trading.orderbook, transport).fetch_books(
+        "run",
+        ["follow-a", "follow-b"],
+        request_kind="clob_followup_books",
+        before_request=lambda tokens, logical_id, started_at: starts.append(
+            (tokens, logical_id, started_at)
+        ),
+    )
+
+    assert transport.calls == 1
+    assert starts == [
+        (("follow-a", "follow-b"), "logical-1", "2026-08-23T21:00:00Z")
+    ]
+    assert {token: attempt.status for token, attempt in result.attempts.items()} == {
+        "follow-a": "ERROR",
+        "follow-b": "ERROR",
+    }

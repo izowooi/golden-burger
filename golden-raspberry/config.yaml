@@ -2,8 +2,15 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: queue-echo-v1
+  data_contract: queue-echo-v3
   cadence_minutes: 5
+
+  runtime:
+    cooperative_cycle_budget_seconds: 225
+    hard_cycle_limit_seconds: 240
+    network_stop_margin_seconds: 30
+    slot_lateness_seconds: 60
+    followup_claim_stale_seconds: 120
 
   gamma:
     base_url: https://gamma-api.polymarket.com
@@ -31,8 +38,8 @@ trading:
     min_near_touch_notional: 50
 
   experiment:
-    start_utc: 2026-08-13T12:00:00Z
-    end_utc: 2026-09-12T12:00:00Z
+    start_utc: 2026-08-23T20:00:00Z
+    end_utc: 2026-09-22T20:00:00Z
     score_threshold: 0.50
     neutral_score_max: 0.10
     weighted_tick_levels: 3
@@ -47,7 +54,7 @@ trading:
     severe_taker_stress_bps: 72.5
 
   storage:
-    busy_timeout_ms: 30000
+    busy_timeout_ms: 10000
     min_free_gib: 30
     warn_used_ratio: 0.80
     stop_used_ratio: 0.90

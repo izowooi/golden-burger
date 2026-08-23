@@ -23,7 +23,7 @@ def test_source_has_no_order_submission_path():
 
 def test_live_cli_fails_without_creating_data(monkeypatch, tmp_path):
     monkeypatch.chdir(PROJECT_ROOT)
-    before = set((PROJECT_ROOT / "data").glob("raspberry-do-shard-0/*")) if (PROJECT_ROOT / "data").exists() else set()
-    assert main(["config", "--live", "--job", "raspberry-do-shard-0"]) == 2
-    after = set((PROJECT_ROOT / "data").glob("raspberry-do-shard-0/*")) if (PROJECT_ROOT / "data").exists() else set()
+    before = set((PROJECT_ROOT / "data").glob("raspberry-do-v3-shard-0/*")) if (PROJECT_ROOT / "data").exists() else set()
+    assert main(["config", "--live", "--job", "raspberry-do-v3-shard-0"]) == 2
+    after = set((PROJECT_ROOT / "data").glob("raspberry-do-v3-shard-0/*")) if (PROJECT_ROOT / "data").exists() else set()
     assert after == before

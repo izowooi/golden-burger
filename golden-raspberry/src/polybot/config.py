@@ -20,19 +20,24 @@ from polybot_observability.config_contract import (
 )
 import yaml
 
-from .source_digest import compute_strategy_source_digest, preregistration_sha256
+from .source_digest import (
+    compute_strategy_source_digest,
+    data_contract_sha256,
+    preregistration_sha256,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-DATA_CONTRACT = "queue-echo-v1"
+DATA_CONTRACT = "queue-echo-v3"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 CANONICAL_JOBS: dict[str, tuple[int, int]] = {
-    "raspberry-do-shard-0": (0, 0),
-    "raspberry-re-shard-1": (1, 1),
-    "raspberry-mi-shard-2": (2, 2),
+    "raspberry-do-v3-shard-0": (0, 0),
+    "raspberry-re-v3-shard-1": (1, 1),
+    "raspberry-mi-v3-shard-2": (2, 2),
 }
-FROZEN_EXPERIMENT_START = datetime(2026, 8, 13, 12, 0, tzinfo=timezone.utc)
-FROZEN_EXPERIMENT_END = datetime(2026, 9, 12, 12, 0, tzinfo=timezone.utc)
+LEGACY_V2_DATA_CONTRACT = "queue-echo-v1"
+FROZEN_EXPERIMENT_START = datetime(2026, 8, 23, 20, 0, tzinfo=timezone.utc)
+FROZEN_EXPERIMENT_END = datetime(2026, 9, 22, 20, 0, tzinfo=timezone.utc)
 _JOB_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _CREDENTIAL_ENV_KEYS = frozenset(
     {
@@ -153,6 +158,15 @@ class OrderBookConfig:
 
 
 @dataclass(frozen=True)
+class RuntimeConfig:
+    cooperative_cycle_budget_seconds: float
+    hard_cycle_limit_seconds: float
+    network_stop_margin_seconds: float
+    slot_lateness_seconds: float
+    followup_claim_stale_seconds: float
+
+
+@dataclass(frozen=True)
 class ExperimentConfig:
     start_utc: datetime
     end_utc: datetime
@@ -172,6 +186,7 @@ class ExperimentConfig:
     base_cost_stress_bps: float
     severe_taker_stress_bps: float
     preregistration_sha256: str
+    data_contract_sha256: str
 
 
 @dataclass(frozen=True)
@@ -188,6 +203,7 @@ class TradingConfig:
     lifecycle_mode: str
     data_contract: str
     cadence_minutes: int
+    runtime: RuntimeConfig
     gamma: GammaConfig
     orderbook: OrderBookConfig
     experiment: ExperimentConfig
@@ -249,6 +265,21 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError(f"data_contract must be {DATA_CONTRACT}")
     if config.trading.cadence_minutes != 5:
         raise ValueError("cadence_minutes must remain 5")
+    runtime = config.trading.runtime
+    if not (
+        runtime.cooperative_cycle_budget_seconds == 225
+        and runtime.hard_cycle_limit_seconds == 240
+        and runtime.network_stop_margin_seconds == 30
+        and runtime.slot_lateness_seconds == 60
+        and runtime.followup_claim_stale_seconds == 120
+    ):
+        raise ValueError("runtime deadlines and claim leases are frozen by v3 preregistration")
+    if not (
+        0 < runtime.network_stop_margin_seconds
+        < runtime.cooperative_cycle_budget_seconds
+        < runtime.hard_cycle_limit_seconds
+    ):
+        raise ValueError("runtime deadline ordering is invalid")
     gamma = config.trading.gamma
     if not (1 <= gamma.page_size <= 100 and 1 <= gamma.max_pages <= 100):
         raise ValueError("Gamma page budget is invalid")
@@ -298,6 +329,8 @@ def _validate_config(config: BotConfig) -> None:
     ):
         raise ValueError("experiment thresholds are frozen by preregistration")
     storage = config.trading.storage
+    if storage.busy_timeout_ms != 10_000:
+        raise ValueError("v3 busy timeout must preserve the hard cycle deadline margin")
     if not (0 < storage.warn_used_ratio < storage.stop_used_ratio < 1):
         raise ValueError("storage ratios must be ordered inside (0,1)")
     if storage.min_free_gib < 30:
@@ -306,7 +339,7 @@ def _validate_config(config: BotConfig) -> None:
 
 def load_config(
     path: str | Path = "config.yaml",
-    job_name: str = "raspberry-re-shard-1",
+    job_name: str = "raspberry-re-v3-shard-1",
     *,
     simulation_mode: bool | None = None,
 ) -> BotConfig:
@@ -331,12 +364,18 @@ def load_config(
     if simulation_mode is not None and simulation_mode != resolved_sim:
         raise ValueError("CLI mode contradicts resolved simulation_mode")
 
+    runtime_raw = trading.get("runtime")
     gamma_raw = trading.get("gamma")
     book_raw = trading.get("orderbook")
     exp_raw = trading.get("experiment")
     storage_raw = trading.get("storage")
-    if not all(isinstance(value, Mapping) for value in (gamma_raw, book_raw, exp_raw, storage_raw)):
-        raise ValueError("gamma, orderbook, experiment, and storage must be mappings")
+    if not all(
+        isinstance(value, Mapping)
+        for value in (runtime_raw, gamma_raw, book_raw, exp_raw, storage_raw)
+    ):
+        raise ValueError(
+            "runtime, gamma, orderbook, experiment, and storage must be mappings"
+        )
     expected_shard, expected_offset = CANONICAL_JOBS[job_name]
     shard_index = _integer(
         os.environ.get("POLYBOT_SHARD_INDEX", expected_shard),
@@ -354,6 +393,28 @@ def load_config(
     end = _utc(
         os.environ.get("POLYBOT_EXPERIMENT_END_UTC", exp_raw["end_utc"]),
         "experiment.end_utc",
+    )
+    runtime = RuntimeConfig(
+        cooperative_cycle_budget_seconds=_finite(
+            runtime_raw["cooperative_cycle_budget_seconds"],
+            "runtime.cooperative_cycle_budget_seconds",
+        ),
+        hard_cycle_limit_seconds=_finite(
+            runtime_raw["hard_cycle_limit_seconds"],
+            "runtime.hard_cycle_limit_seconds",
+        ),
+        network_stop_margin_seconds=_finite(
+            runtime_raw["network_stop_margin_seconds"],
+            "runtime.network_stop_margin_seconds",
+        ),
+        slot_lateness_seconds=_finite(
+            runtime_raw["slot_lateness_seconds"],
+            "runtime.slot_lateness_seconds",
+        ),
+        followup_claim_stale_seconds=_finite(
+            runtime_raw["followup_claim_stale_seconds"],
+            "runtime.followup_claim_stale_seconds",
+        ),
     )
     gamma = GammaConfig(
         base_url=_public_origin(gamma_raw["base_url"], "gamma.base_url"),
@@ -399,6 +460,7 @@ def load_config(
         base_cost_stress_bps=_finite(exp_raw["base_cost_stress_bps"], "experiment.base_cost_stress_bps"),
         severe_taker_stress_bps=_finite(exp_raw["severe_taker_stress_bps"], "experiment.severe_taker_stress_bps"),
         preregistration_sha256=preregistration_sha256(),
+        data_contract_sha256=data_contract_sha256(),
     )
     storage = StorageConfig(
         busy_timeout_ms=_integer(storage_raw["busy_timeout_ms"], "storage.busy_timeout_ms"),
@@ -411,6 +473,7 @@ def load_config(
         lifecycle_mode=_get_lifecycle_mode(trading),
         data_contract=str(trading.get("data_contract", "")),
         cadence_minutes=_integer(trading.get("cadence_minutes"), "cadence_minutes"),
+        runtime=runtime,
         gamma=gamma,
         orderbook=book,
         experiment=experiment,
@@ -442,6 +505,7 @@ __all__ = [
     "FROZEN_EXPERIMENT_END",
     "FROZEN_EXPERIMENT_START",
     "LIFECYCLE_MODES",
+    "RuntimeConfig",
     "assert_no_credentials",
     "load_config",
 ]

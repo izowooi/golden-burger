@@ -68,7 +68,7 @@ def _parser() -> argparse.ArgumentParser:
 
     def common(command: argparse.ArgumentParser) -> None:
         command.add_argument("--config", "-c", default="config.yaml")
-        command.add_argument("--job", "-j", default="raspberry-re-shard-1")
+        command.add_argument("--job", "-j", default="raspberry-re-v3-shard-1")
         modes = command.add_mutually_exclusive_group(required=True)
         modes.add_argument("--simulate", action="store_true")
         modes.add_argument("--live", action="store_true", help="Rejected by design")

@@ -16,13 +16,23 @@ import statistics
 from typing import Any, Iterable
 
 
-ANALYZER_VERSION = "queue-echo-analyzer-v1"
+ANALYZER_VERSION = "queue-echo-analyzer-v3"
+LEGACY_ANALYZER_VERSION = "queue-echo-analyzer-v1"
+FROZEN_WINDOW_START = "2026-08-23T20:00:00Z"
+FROZEN_WINDOW_END = "2026-09-22T20:00:00Z"
+EXPECTED_RUNTIME_IDENTITIES = {
+    "raspberry-do-v3-shard-0": (0, 0),
+    "raspberry-re-v3-shard-1": (1, 1),
+    "raspberry-mi-v3-shard-2": (2, 2),
+}
 BOOTSTRAP_SEED = 20260813
 BOOTSTRAP_DRAWS = 20_000
 REQUIRED_TABLES = {
     "experiment_contracts",
     "research_config_versions",
     "research_run_events",
+    "cycle_slot_claims",
+    "cycle_slot_events",
     "api_requests",
     "market_sweeps",
     "market_observations",
@@ -31,6 +41,9 @@ REQUIRED_TABLES = {
     "orderbook_snapshots",
     "signal_decisions",
     "research_cases",
+    "followup_claims",
+    "followup_claim_leases",
+    "followup_request_starts",
     "followup_attempts",
     "cycle_stats",
     "data_quality_issues",
@@ -100,34 +113,51 @@ def _expected_slots(start: datetime, end: datetime, offset: int) -> list[datetim
 
 
 def _cadence(
-    starts: list[datetime], start: datetime, end: datetime, offset: int
+    claims: list[dict[str, Any]],
+    events: list[dict[str, Any]],
+    *,
+    successful_run_ids: set[str],
+    started_run_ids: set[str],
+    start: datetime,
+    end: datetime,
+    offset: int,
 ) -> dict[str, Any]:
     expected = _expected_slots(start, end, offset)
-    matched: set[datetime] = set()
-    duplicates = 0
-    off_slot = 0
-    for observed in starts:
-        candidates = [
-            slot
-            for slot in expected
-            if abs((observed - slot).total_seconds()) <= 120
-        ]
-        if not candidates:
-            off_slot += 1
-            continue
-        slot = min(candidates, key=lambda value: abs((observed - value).total_seconds()))
-        if slot in matched:
-            duplicates += 1
-        else:
-            matched.add(slot)
+    expected_set = {_iso(slot) for slot in expected}
+    accepted = [row for row in claims if row["disposition"] == "CLAIMED"]
+    matched = {
+        str(row["slot_at"])
+        for row in accepted
+        if str(row.get("owner_run_id")) in successful_run_ids
+        and str(row["slot_at"]) in expected_set
+    }
+    accepted_owners = {
+        str(row["owner_run_id"])
+        for row in accepted
+        if row.get("owner_run_id") is not None
+    }
+    invalid_slots = [
+        row
+        for row in claims
+        if str(row["slot_at"]) not in expected_set
+        or _utc(str(row["slot_at"])).minute % 5 != offset
+    ]
+    duplicate_events = sum(
+        row["event_type"] == "SKIPPED_DUPLICATE" for row in events
+    )
+    late_events = sum(row["event_type"] == "SKIPPED_LATE" for row in events)
     coverage = len(matched) / len(expected) if expected else 1.0
     return {
         "expected_slots": len(expected),
         "matched_slots": len(matched),
         "coverage": coverage,
         "missing_slots": len(expected) - len(matched),
-        "duplicate_slots": duplicates,
-        "off_slot_runs": off_slot,
+        "claimed_slots": len(accepted),
+        "duplicate_slots": duplicate_events,
+        "late_invocations": late_events,
+        "invalid_slot_claims": len(invalid_slots),
+        "started_without_claim": len(started_run_ids - accepted_owners),
+        "claimed_without_started": len(accepted_owners - started_run_ids),
     }
 
 
@@ -156,27 +186,94 @@ def _cluster_lower_bound(
     return draws[index]
 
 
-def _terminal_runs(connection: sqlite3.Connection) -> tuple[set[str], dict[str, Any]]:
-    events: dict[str, list[str]] = defaultdict(list)
-    for row in connection.execute(
-        "SELECT run_id, event_type FROM research_run_events ORDER BY event_at"
-    ):
-        events[str(row["run_id"])].append(str(row["event_type"]))
+def _terminal_runs(
+    connection: sqlite3.Connection, start: datetime, end: datetime
+) -> tuple[set[str], set[str], dict[str, Any]]:
+    """Own a run by STARTED timestamp, then inspect its terminal anywhere in the DB."""
+
+    start_s, end_s = _iso(start), _iso(end)
+    starts = connection.execute(
+        """
+        SELECT rowid, run_id, event_at, details_json
+        FROM research_run_events
+        WHERE event_type='STARTED' AND event_at>=? AND event_at<?
+        ORDER BY event_at, rowid
+        """,
+        (start_s, end_s),
+    ).fetchall()
+    started_run_ids = {str(row["run_id"]) for row in starts}
     success: set[str] = set()
+    failed: set[str] = set()
     malformed: dict[str, list[str]] = {}
-    for run_id, sequence in events.items():
-        if sequence == ["STARTED", "SUCCEEDED"]:
-            success.add(run_id)
-        elif sequence != ["STARTED", "FAILED"]:
+    terminal_durations: list[float] = []
+    failed_durations: list[float] = []
+    cooperative_breaches = 0
+    hard_breaches = 0
+    for start_row in starts:
+        run_id = str(start_row["run_id"])
+        rows = connection.execute(
+            """
+            SELECT rowid, event_type, event_at, details_json
+            FROM research_run_events WHERE run_id=? ORDER BY rowid
+            """,
+            (run_id,),
+        ).fetchall()
+        sequence = [str(row["event_type"]) for row in rows]
+        if sequence not in (["STARTED", "SUCCEEDED"], ["STARTED", "FAILED"]):
             malformed[run_id] = sequence
-    return success, {
-        "total_runs": len(events),
+            continue
+        terminal = rows[-1]
+        try:
+            details = json.loads(str(terminal["details_json"]))
+        except (TypeError, json.JSONDecodeError):
+            details = {}
+        duration = details.get("duration_seconds")
+        if not isinstance(duration, (int, float)) or not math.isfinite(float(duration)):
+            duration = (
+                _utc(str(terminal["event_at"]))
+                - _utc(str(start_row["event_at"]))
+            ).total_seconds()
+        duration = max(0.0, float(duration))
+        terminal_durations.append(duration)
+        cooperative = float(details.get("cooperative_cycle_budget_seconds", 225))
+        hard = float(details.get("hard_cycle_limit_seconds", 240))
+        cooperative_breaches += duration >= cooperative
+        hard_breaches += duration >= hard
+        if sequence[-1] == "SUCCEEDED":
+            success.add(run_id)
+        else:
+            failed.add(run_id)
+            failed_durations.append(duration)
+    outside_owned_terminals = int(
+        connection.execute(
+            """
+            SELECT COUNT(*) FROM research_run_events t
+            WHERE t.event_type IN ('SUCCEEDED','FAILED')
+              AND t.event_at>=? AND t.event_at<?
+              AND NOT EXISTS (
+                SELECT 1 FROM research_run_events s
+                WHERE s.run_id=t.run_id AND s.event_type='STARTED'
+                  AND s.event_at>=? AND s.event_at<?
+              )
+            """,
+            (start_s, end_s, start_s, end_s),
+        ).fetchone()[0]
+    )
+    return success, started_run_ids, {
+        "ownership": "STARTED_IN_REVIEW_RANGE",
+        "total_runs": len(starts),
         "successful_runs": len(success),
-        "failed_runs": sum(sequence == ["STARTED", "FAILED"] for sequence in events.values()),
+        "failed_runs": len(failed),
+        "failed_run_ids": sorted(failed),
         "malformed_lifecycle_count": len(malformed),
         "malformed_run_ids_sha256": hashlib.sha256(
             json.dumps(sorted(malformed)).encode()
         ).hexdigest(),
+        "terminal_durations_seconds": terminal_durations,
+        "failed_terminal_durations_seconds": failed_durations,
+        "cooperative_deadline_breaches": cooperative_breaches,
+        "hard_limit_breaches": hard_breaches,
+        "terminal_events_in_range_owned_elsewhere": outside_owned_terminals,
     }
 
 
@@ -428,92 +525,210 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
         if len(contract_rows) != 1:
             raise ValueError("each shard DB must have exactly one experiment contract")
         contract = dict(contract_rows[0])
-        success, lifecycle = _terminal_runs(connection)
-        success_starts = [
-            _utc(str(row["event_at"]))
-            for row in connection.execute(
-                "SELECT run_id, event_at FROM research_run_events WHERE event_type='STARTED'"
-            )
-            if str(row["run_id"]) in success and start <= _utc(str(row["event_at"])) < end
-        ]
-        cadence = _cadence(success_starts, start, end, int(contract["cadence_offset_minute"]))
         start_s, end_s = _iso(start), _iso(end)
-        sweep_rows = connection.execute(
+        success, started_run_ids, lifecycle = _terminal_runs(
+            connection, start, end
+        )
+        slot_claims = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT * FROM cycle_slot_claims
+                WHERE slot_at>=? AND slot_at<? ORDER BY slot_at, claimed_at
+                """,
+                (start_s, end_s),
+            )
+        ]
+        slot_events = [
+            dict(row)
+            for row in connection.execute(
+                """
+                SELECT * FROM cycle_slot_events
+                WHERE slot_at>=? AND slot_at<? ORDER BY slot_at, observed_at
+                """,
+                (start_s, end_s),
+            )
+        ]
+        cadence = _cadence(
+            slot_claims,
+            slot_events,
+            successful_run_ids=success,
+            started_run_ids=started_run_ids,
+            start=start,
+            end=end,
+            offset=int(contract["cadence_offset_minute"]),
+        )
+        range_sweep_rows = connection.execute(
             """
             SELECT s.* FROM market_sweeps s
             WHERE s.started_at>=? AND s.started_at<?
             """,
             (start_s, end_s),
         ).fetchall()
+        sweep_rows = [
+            row for row in range_sweep_rows if str(row["run_id"]) in started_run_ids
+        ]
+        orphan_sweeps = [
+            row for row in range_sweep_rows if str(row["run_id"]) not in started_run_ids
+        ]
         success_sweeps = [row for row in sweep_rows if str(row["run_id"]) in success]
         failed_sweeps = [row for row in sweep_rows if str(row["run_id"]) not in success]
-        expected_tokens = int(
-            connection.execute(
-                """
-                SELECT COUNT(*) * 2 FROM market_observations m
-                JOIN market_sweeps s ON s.sweep_id=m.sweep_id
-                WHERE m.shard_selected=1 AND s.started_at>=? AND s.started_at<?
-                  AND s.run_id IN (SELECT run_id FROM research_run_events WHERE event_type='SUCCEEDED')
-                """,
-                (start_s, end_s),
-            ).fetchone()[0]
-        )
-        observed_tokens = int(
-            connection.execute(
-                """
-                SELECT COUNT(*) FROM orderbook_token_attempts a
-                JOIN market_sweeps s ON s.sweep_id=a.sweep_id
-                WHERE a.attempt_role='UNIVERSE' AND a.status='OBSERVED'
-                  AND s.started_at>=? AND s.started_at<?
-                  AND s.run_id IN (SELECT run_id FROM research_run_events WHERE event_type='SUCCEEDED')
-                """,
-                (start_s, end_s),
-            ).fetchone()[0]
-        )
-        expected_pairs = int(
-            connection.execute(
-                """
-                SELECT COUNT(*) FROM market_observations m
-                JOIN market_sweeps s ON s.sweep_id=m.sweep_id
-                WHERE m.shard_selected=1 AND s.started_at>=? AND s.started_at<?
-                  AND s.run_id IN (SELECT run_id FROM research_run_events WHERE event_type='SUCCEEDED')
-                """,
-                (start_s, end_s),
-            ).fetchone()[0]
-        )
-        same_request_pairs = int(
-            connection.execute(
-                """
-                SELECT COUNT(*)
-                FROM market_observations m
-                JOIN market_sweeps s ON s.sweep_id=m.sweep_id
-                JOIN orderbook_token_attempts y
-                  ON y.sweep_id=m.sweep_id AND y.condition_id=m.condition_id
-                 AND y.outcome_index=0 AND y.attempt_role='UNIVERSE'
-                JOIN orderbook_token_attempts n
-                  ON n.sweep_id=m.sweep_id AND n.condition_id=m.condition_id
-                 AND n.outcome_index=1 AND n.attempt_role='UNIVERSE'
-                WHERE m.shard_selected=1 AND s.started_at>=? AND s.started_at<?
-                  AND s.run_id IN (SELECT run_id FROM research_run_events WHERE event_type='SUCCEEDED')
-                  AND y.status='OBSERVED' AND n.status='OBSERVED'
-                  AND y.request_id IS NOT NULL AND y.request_id=n.request_id
-                """,
-                (start_s, end_s),
-            ).fetchone()[0]
-        )
-        raw_linkage = connection.execute(
+        success_ids = sorted(success)
+        success_placeholders = ",".join("?" for _ in success_ids)
+
+        def successful_scalar(sql: str) -> int:
+            if not success_ids:
+                return 0
+            row = connection.execute(
+                sql.format(run_ids=success_placeholders), success_ids
+            ).fetchone()
+            return int(row[0] or 0)
+
+        expected_pairs = successful_scalar(
             """
-            SELECT
-              SUM(CASE WHEN a.status='OBSERVED' THEN 1 ELSE 0 END) observed,
-              SUM(CASE WHEN a.status='OBSERVED' AND EXISTS(
-                SELECT 1 FROM raw_payloads p WHERE p.request_id=a.request_id
-              ) THEN 1 ELSE 0 END) linked
-            FROM orderbook_token_attempts a
+            SELECT COUNT(*) FROM market_observations m
+            JOIN market_sweeps s ON s.sweep_id=m.sweep_id
+            WHERE m.shard_selected=1 AND s.run_id IN ({run_ids})
+            """
+        )
+        expected_tokens = expected_pairs * 2
+        attempted_tokens = successful_scalar(
+            """
+            SELECT COUNT(*) FROM orderbook_token_attempts a
             JOIN market_sweeps s ON s.sweep_id=a.sweep_id
-            WHERE s.started_at>=? AND s.started_at<?
-            """,
-            (start_s, end_s),
-        ).fetchone()
+            WHERE a.attempt_role='UNIVERSE' AND s.run_id IN ({run_ids})
+            """
+        )
+        normalized_tokens = successful_scalar(
+            """
+            SELECT COUNT(*) FROM orderbook_snapshots b
+            JOIN market_sweeps s ON s.sweep_id=b.sweep_id
+            WHERE b.snapshot_role='UNIVERSE' AND s.run_id IN ({run_ids})
+            """
+        )
+        same_request_pairs = successful_scalar(
+            """
+            SELECT COUNT(*)
+            FROM market_observations m
+            JOIN market_sweeps s ON s.sweep_id=m.sweep_id
+            JOIN orderbook_token_attempts y
+              ON y.sweep_id=m.sweep_id AND y.condition_id=m.condition_id
+             AND y.outcome_index=0 AND y.attempt_role='UNIVERSE'
+            JOIN orderbook_token_attempts n
+              ON n.sweep_id=m.sweep_id AND n.condition_id=m.condition_id
+             AND n.outcome_index=1 AND n.attempt_role='UNIVERSE'
+            WHERE m.shard_selected=1 AND s.run_id IN ({run_ids})
+              AND y.request_id IS NOT NULL AND y.request_id=n.request_id
+            """
+        )
+        normalized_pairs = successful_scalar(
+            """
+            SELECT COUNT(*)
+            FROM market_observations m
+            JOIN market_sweeps s ON s.sweep_id=m.sweep_id
+            JOIN orderbook_snapshots y
+              ON y.sweep_id=m.sweep_id AND y.condition_id=m.condition_id
+             AND y.outcome_index=0 AND y.snapshot_role='UNIVERSE'
+            JOIN orderbook_snapshots n
+              ON n.sweep_id=m.sweep_id AND n.condition_id=m.condition_id
+             AND n.outcome_index=1 AND n.snapshot_role='UNIVERSE'
+            WHERE m.shard_selected=1 AND s.run_id IN ({run_ids})
+            """
+        )
+        quote_eligible_pairs = successful_scalar(
+            """
+            SELECT COUNT(*)
+            FROM market_observations m
+            JOIN market_sweeps s ON s.sweep_id=m.sweep_id
+            JOIN orderbook_snapshots y
+              ON y.sweep_id=m.sweep_id AND y.condition_id=m.condition_id
+             AND y.outcome_index=0 AND y.snapshot_role='UNIVERSE'
+            JOIN orderbook_snapshots n
+              ON n.sweep_id=m.sweep_id AND n.condition_id=m.condition_id
+             AND n.outcome_index=1 AND n.snapshot_role='UNIVERSE'
+            WHERE m.shard_selected=1 AND s.run_id IN ({run_ids})
+              AND y.quote_eligible=1 AND n.quote_eligible=1
+            """
+        )
+        empty_book_tokens = successful_scalar(
+            """
+            SELECT COUNT(*) FROM orderbook_token_attempts a
+            JOIN market_sweeps s ON s.sweep_id=a.sweep_id
+            WHERE a.attempt_role='UNIVERSE' AND a.status='EMPTY_BOOK'
+              AND s.run_id IN ({run_ids})
+            """
+        )
+        universe_status_counts: dict[str, int] = {}
+        if success_ids:
+            universe_status_counts = {
+                str(row["status"]): int(row["count"])
+                for row in connection.execute(
+                    f"""
+                    SELECT a.status, COUNT(*) count
+                    FROM orderbook_token_attempts a
+                    JOIN market_sweeps s ON s.sweep_id=a.sweep_id
+                    WHERE a.attempt_role='UNIVERSE'
+                      AND s.run_id IN ({success_placeholders})
+                    GROUP BY a.status
+                    """,
+                    success_ids,
+                )
+            }
+        raw_linkage = {"response_backed": 0, "linked": 0}
+        if success_ids:
+            raw_row = connection.execute(
+                f"""
+                SELECT
+                  SUM(CASE WHEN a.request_id IS NOT NULL THEN 1 ELSE 0 END) response_backed,
+                  SUM(CASE WHEN a.request_id IS NOT NULL AND EXISTS(
+                    SELECT 1 FROM raw_payloads p WHERE p.request_id=a.request_id
+                  ) THEN 1 ELSE 0 END) linked
+                FROM orderbook_token_attempts a
+                JOIN market_sweeps s ON s.sweep_id=a.sweep_id
+                WHERE a.attempt_role='UNIVERSE'
+                  AND s.run_id IN ({success_placeholders})
+                """,
+                success_ids,
+            ).fetchone()
+            raw_linkage = {
+                "response_backed": int(raw_row["response_backed"] or 0),
+                "linked": int(raw_row["linked"] or 0),
+            }
+
+        followup_status_counts = {
+            str(row["status"]): int(row["count"])
+            for row in connection.execute(
+                """
+                SELECT status, COUNT(*) count FROM followup_attempts
+                WHERE attempted_at>=? AND attempted_at<? GROUP BY status
+                """,
+                (start_s, end_s),
+            )
+        }
+        followup_claims = int(
+            connection.execute(
+                "SELECT COUNT(*) FROM followup_claims WHERE claimed_at>=? AND claimed_at<?",
+                (start_s, end_s),
+            ).fetchone()[0]
+        )
+        followup_request_starts = int(
+            connection.execute(
+                """
+                SELECT COUNT(*) FROM followup_request_starts
+                WHERE request_started_at>=? AND request_started_at<?
+                """,
+                (start_s, end_s),
+            ).fetchone()[0]
+        )
+        recovered_followup_leases = int(
+            connection.execute(
+                """
+                SELECT COUNT(*) FROM followup_claim_leases
+                WHERE generation>1 AND claimed_at>=? AND claimed_at<?
+                """,
+                (start_s, end_s),
+            ).fetchone()[0]
+        )
         quality = {
             str(row["severity"]): int(row["count"])
             for row in connection.execute(
@@ -525,13 +740,16 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
                 (start_s, end_s),
             )
         }
-        runtime_values = [
+        cycle_stat_runtime_values = [
             float(row[0])
             for row in connection.execute(
                 "SELECT runtime_seconds FROM cycle_stats WHERE started_at>=? AND started_at<? ORDER BY runtime_seconds",
                 (start_s, end_s),
             )
         ]
+        runtime_values = sorted(
+            float(value) for value in lifecycle["terminal_durations_seconds"]
+        )
         p95 = (
             runtime_values[min(len(runtime_values) - 1, math.ceil(len(runtime_values) * 0.95) - 1)]
             if runtime_values
@@ -547,11 +765,11 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
             dict(row)
             for row in connection.execute(
                 """
-                SELECT DISTINCT s.config_hash, s.strategy_source_digest, c.job_name
-                FROM market_sweeps s
-                JOIN research_config_versions c ON c.config_hash=s.config_hash
-                WHERE s.started_at>=? AND s.started_at<?
-                ORDER BY s.config_hash, s.strategy_source_digest, c.job_name
+                SELECT DISTINCT c.config_hash, c.strategy_source_digest, c.job_name
+                FROM research_run_events r
+                JOIN research_config_versions c ON c.config_hash=r.config_hash
+                WHERE r.event_type='STARTED' AND r.event_at>=? AND r.event_at<?
+                ORDER BY c.config_hash, c.strategy_source_digest, c.job_name
                 """,
                 (start_s, end_s),
             )
@@ -573,6 +791,8 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
                 for key in (
                     "job_name",
                     "data_contract",
+                    "schema_version",
+                    "schema_profile",
                     "shard_index",
                     "shard_count",
                     "cadence_minutes",
@@ -580,6 +800,7 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
                     "window_start",
                     "window_end",
                     "preregistration_sha256",
+                    "data_contract_sha256",
                 )
             },
             "cohorts": configs,
@@ -589,35 +810,103 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
             "source": {
                 "successful_sweeps": len(success_sweeps),
                 "failed_run_published_sweeps": len(failed_sweeps),
+                "orphan_range_sweeps": len(orphan_sweeps),
                 "all_cursor_complete": all(int(row["cursor_complete"]) == 1 for row in success_sweeps),
+                "universe": {
+                    "expected_pairs": expected_pairs,
+                    "expected_tokens": expected_tokens,
+                    "attempt_evidence_tokens": attempted_tokens,
+                    "attempt_evidence_coverage": (
+                        attempted_tokens / expected_tokens if expected_tokens else None
+                    ),
+                    "normalized_tokens": normalized_tokens,
+                    "normalized_token_coverage": (
+                        normalized_tokens / expected_tokens if expected_tokens else None
+                    ),
+                    "same_request_atomic_pairs": same_request_pairs,
+                    "same_request_atomicity_coverage": (
+                        same_request_pairs / expected_pairs if expected_pairs else None
+                    ),
+                    "normalized_pairs": normalized_pairs,
+                    "normalized_pair_availability": (
+                        normalized_pairs / expected_pairs if expected_pairs else None
+                    ),
+                    "quote_eligible_pairs": quote_eligible_pairs,
+                    "quote_eligible_pair_coverage": (
+                        quote_eligible_pairs / expected_pairs if expected_pairs else None
+                    ),
+                    "empty_book_tokens": empty_book_tokens,
+                    "status_counts": universe_status_counts,
+                    "raw_payload_linkage": (
+                        raw_linkage["linked"] / raw_linkage["response_backed"]
+                        if raw_linkage["response_backed"]
+                        else None
+                    ),
+                },
+                "followup_only": {
+                    "claims": followup_claims,
+                    "request_starts": followup_request_starts,
+                    "recovered_leases": recovered_followup_leases,
+                    "terminal_attempts": sum(followup_status_counts.values()),
+                    "quote_complete": followup_status_counts.get("QUOTE_COMPLETE", 0),
+                    "empty_book": followup_status_counts.get("EMPTY_BOOK", 0),
+                    "censored": sum(
+                        count
+                        for status, count in followup_status_counts.items()
+                        if status != "QUOTE_COMPLETE"
+                    ),
+                    "status_counts": followup_status_counts,
+                },
+                # Compatibility aliases; unlike v2 they are derived only from UNIVERSE.
                 "expected_universe_token_attempts": expected_tokens,
-                "observed_universe_tokens": observed_tokens,
-                "pair_token_coverage": observed_tokens / expected_tokens if expected_tokens else None,
+                "observed_universe_tokens": normalized_tokens,
+                "pair_token_coverage": normalized_tokens / expected_tokens if expected_tokens else None,
                 "same_request_pair_coverage": (
                     same_request_pairs / expected_pairs if expected_pairs else None
                 ),
                 "raw_payload_linkage": (
-                    int(raw_linkage["linked"]) / int(raw_linkage["observed"])
-                    if raw_linkage and raw_linkage["observed"]
+                    raw_linkage["linked"] / raw_linkage["response_backed"]
+                    if raw_linkage["response_backed"]
                     else None
                 ),
             },
             "runtime": {
-                "cycles": len(runtime_values),
+                "terminal_runs": len(runtime_values),
+                "failed_terminal_runs": lifecycle["failed_runs"],
                 "p95_seconds": p95,
                 "max_seconds": max(runtime_values) if runtime_values else None,
+                "failed_terminal_durations_seconds": lifecycle[
+                    "failed_terminal_durations_seconds"
+                ],
+                "cooperative_deadline_breaches": lifecycle[
+                    "cooperative_deadline_breaches"
+                ],
+                "hard_limit_breaches": lifecycle["hard_limit_breaches"],
+                "successful_cycle_stat_rows": len(cycle_stat_runtime_values),
             },
             "quality_issues": quality,
             "outcomes": outcomes,
         }
         health_checks = {
             "quick_check": integrity == "ok",
+            "frozen_contract_window": (
+                contract["window_start"] == FROZEN_WINDOW_START
+                and contract["window_end"] == FROZEN_WINDOW_END
+            ),
+            "review_within_frozen_window": (
+                start_s >= str(contract["window_start"])
+                and end_s <= str(contract["window_end"])
+            ),
             "run_lifecycle": lifecycle["malformed_lifecycle_count"] == 0,
             "cadence_coverage": cadence["coverage"] >= 0.95,
             "no_duplicate_slots": cadence["duplicate_slots"] == 0,
-            "no_off_slot_runs": cadence["off_slot_runs"] == 0,
+            "no_late_invocations": cadence["late_invocations"] == 0,
+            "valid_slot_claims": cadence["invalid_slot_claims"] == 0,
+            "started_runs_owned_by_slots": cadence["started_without_claim"] == 0,
+            "claimed_slots_have_started_runs": cadence["claimed_without_started"] == 0,
             "cursor_complete": result["source"]["all_cursor_complete"],
             "no_failed_run_sweeps": not failed_sweeps,
+            "no_orphan_range_sweeps": not orphan_sweeps,
             "pair_coverage": (result["source"]["pair_token_coverage"] or 0) >= 0.95,
             "same_request_pair_coverage": (
                 result["source"]["same_request_pair_coverage"] or 0
@@ -625,6 +914,8 @@ def analyze_db(label: str, path: Path, start: datetime, end: datetime) -> dict[s
             "raw_payload_linkage": (result["source"]["raw_payload_linkage"] or 0) == 1,
             "runtime_p95": p95 is not None and p95 < 180,
             "runtime_max": bool(runtime_values) and max(runtime_values) < 240,
+            "cooperative_deadline": lifecycle["cooperative_deadline_breaches"] == 0,
+            "hard_deadline": lifecycle["hard_limit_breaches"] == 0,
             "no_high_critical": quality.get("HIGH", 0) == 0 and quality.get("CRITICAL", 0) == 0,
             "single_cohort_in_range": len(cohorts_in_range) == 1,
         }
@@ -719,7 +1010,25 @@ def main() -> int:
         "shared_window": len(shared_window) == 1,
         "shared_source_digest": len(source_digests) == 1,
         "no_cross_shard_condition_overlap": shard_overlap["cross_shard_overlap_count"] == 0,
-        "queue_echo_contract": all(contract["data_contract"] == "queue-echo-v1" for contract in contracts),
+        "queue_echo_contract": all(
+            contract["data_contract"] == "queue-echo-v3" for contract in contracts
+        ),
+        "schema_v3": all(
+            int(contract["schema_version"]) == 3
+            and contract["schema_profile"] == "queue-echo-v3-sqlite-v3"
+            for contract in contracts
+        ),
+        "exact_runtime_identities": (
+            len(contracts) == 3
+            and {
+                str(contract["job_name"]): (
+                    int(contract["shard_index"]),
+                    int(contract["cadence_offset_minute"]),
+                )
+                for contract in contracts
+            }
+            == EXPECTED_RUNTIME_IDENTITIES
+        ),
     }
     days = (end - start).total_seconds() / 86400
     primary = _primary_gate(results, fleet_outcomes, days)
