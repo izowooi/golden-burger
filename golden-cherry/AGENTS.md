@@ -27,9 +27,21 @@
 
 3. **`max_positions`는 `PENDING_BUY`/`HOLDING`/`PENDING_SELL`/`QUARANTINED`를 모두 센다.** 유령·좀비 행이 쌓이면 실보유가 0이어도 봇이 신규 매수를 못 한다. 2026-07-22~28 실제로 이 상태로 6일간 정지했다(HOLDING 246 + QUARANTINED 76 vs 상한 10). 파라미터를 만지기 전에 `status`별 건수부터 확인한다.
 
-4. **해결된 시장은 스스로 정리되지 않는다.** 오더북이 사라지면 `get_midpoint`가 예외를 던지고 `execute_sell`이 매 cycle `False`만 반환한다. redeem 회계가 없어서 해결된 YES 포지션은 현금이 되지 않고 `HOLDING`으로 남는다. 정리는 `tools/wind_down.py`와 수동 redeem으로 한다.
+4. **해결된 시장은 exact payout 증거로만 `RESOLVED` 처리한다.** Gamma의 기본
+   condition 조회는 closed market을 생략할 수 있으므로 `closed=true`로 한 번 더 조회하고,
+   condition ID·outcome·CLOB token 배열을 정확히 맞춘다. `closed=true`이면서 최종 가격이
+   정확히 one-hot `0/1`이고 execution ledger에 exact confirmed BUY가 있을 때만 해당 token의
+   payout을 기록해 open position에서 제외한다. 부분 SELL이 있었다면 원래 BUY가 아니라 DB의
+   실제 잔여 `buy_shares`만 `resolution_position_size`와 settlement assumption에 반영한다.
+   이 값은 synthetic SELL이나 realized cashflow가 아니므로 `realized_pnl`을 새로 만들지 않고,
+   기존 partial SELL realized P&L도 지우지 않는다. exact fill이나 token identity가 모호하면
+   `HOLDING`을 유지한다.
 
-   더 위험한 중간 상태가 있다. 해결 직후 오더북이 **완전히 죽기 전** 구간에서는 `get_midpoint`가 예외 대신 **0.50**을 돌려줄 수 있다. 2026-07-28에는 이를 현재가로 읽어 이미 이긴 포지션에 손절을 시도했다. 2026-08-14부터 Gamma가 `closed=true`, `active=false`, `acceptingOrders=false` 중 하나를 명시하면 midpoint 조회 전에 CLOB SELL을 차단한다. Gamma 조회 자체가 실패한 경우에는 명시적 해결 증거가 아니므로 기존 위험 청산을 막지 않으며, 수동 redeem 회계는 여전히 필요하다.
+   해결 직후 오더북이 **완전히 죽기 전** 구간에서는 `get_midpoint`가 예외 대신 **0.50**을
+   돌려줄 수 있다. 2026-07-28에는 이를 현재가로 읽어 이미 이긴 포지션에 손절을 시도했다.
+   Gamma가 terminal 상태지만 final one-hot payout이 아직 없으면 midpoint 조회와 CLOB SELL을
+   차단한다. Gamma 조회 자체가 실패한 경우에는 명시적 해결 증거가 아니므로 기존 위험 청산을
+   막지 않는다. 실제 redeem/cash 입금은 여전히 별도 account-level evidence다.
 
 5. **`order_fills`에 기록이 없다고 미체결이 아니다.** 계측 시작은 2026-07-11 13:43이고 그 이후에도 누락이 있다. 지갑 잔고가 유일한 권위이므로, 유령 포지션을 정리할 때는 반드시 `tools/wind_down.py status` 또는 CLOB `balance-allowance`로 확인한다. DB만 보고 `UNFILLED` 처리하면 실보유를 날린다.
 

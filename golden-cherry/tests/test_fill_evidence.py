@@ -22,6 +22,7 @@ def create_ledger_tables(session):
             CREATE TABLE order_submissions (
                 submission_id TEXT,
                 order_id TEXT,
+                token_id TEXT,
                 side TEXT,
                 requested_size REAL,
                 latest_order_status TEXT,
@@ -77,6 +78,7 @@ def insert_submission(
     session,
     *,
     order_id="order-1",
+    token_id="token",
     side="BUY",
     status="LIVE",
     requested=5.0,
@@ -90,18 +92,19 @@ def insert_submission(
     session.execute(
         text(
             "INSERT INTO order_submissions "
-            "(submission_id, order_id, side, requested_size, "
+            "(submission_id, order_id, token_id, side, requested_size, "
             "latest_order_status, latest_size_matched, "
             "latest_status_domain_error, needs_reconciliation, "
             "reconciliation_error, reconciliation_proof, simulation, "
             "making_amount, taking_amount) VALUES "
-            "(:submission, :order_id, :side, :requested, :status, :matched, "
+            "(:submission, :order_id, :token_id, :side, :requested, :status, :matched, "
             "NULL, :reconciliation, NULL, :reconciliation_proof, 0, "
             ":making_amount, :taking_amount)"
         ),
         {
             "submission": f"submission-{order_id}",
             "order_id": order_id,
+            "token_id": token_id,
             "side": side,
             "requested": requested,
             "status": status,
@@ -169,6 +172,28 @@ def test_missing_ledger_fails_closed(tmp_path):
     evidence = repo.get_exact_buy_fill_evidence("accepted-order")
     assert evidence.state == "unavailable"
     assert evidence.detail == "ledger_tables_missing"
+    session.close()
+
+
+def test_expected_token_mismatch_fails_closed(tmp_path):
+    session, repo = make_repo(tmp_path)
+    create_ledger_tables(session)
+    insert_submission(
+        session,
+        order_id="wrong-token",
+        token_id="actual-token",
+        status="MATCHED",
+        matched=5.0,
+    )
+    insert_fill(session, order_id="wrong-token", size=5.0)
+
+    evidence = repo.get_exact_buy_fill_evidence(
+        "wrong-token", token_id="expected-token"
+    )
+
+    assert evidence.state == "unavailable"
+    assert evidence.token_id == "actual-token"
+    assert evidence.detail == "submission_token_id_mismatch"
     session.close()
 
 

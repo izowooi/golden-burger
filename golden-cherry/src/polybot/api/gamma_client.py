@@ -109,6 +109,33 @@ class GammaClient:
                     logger.warning(f"{field} 파싱 실패 - market: {market.get('conditionId')}")
         return market
 
+    def _matching_market(
+        self,
+        payload: object,
+        condition_id: str,
+        *,
+        require_closed: bool = False,
+    ) -> Optional[Dict]:
+        """Return only an identity-matched market from a Gamma list response."""
+        if not isinstance(payload, list):
+            logger.warning(
+                "시장 조회 응답 형식 불일치 - condition: %s payload_type: %s",
+                condition_id,
+                type(payload).__name__,
+            )
+            return None
+        expected = condition_id.casefold()
+        for raw_market in payload:
+            if not isinstance(raw_market, dict):
+                continue
+            actual = str(raw_market.get("conditionId") or "").strip()
+            if actual.casefold() != expected:
+                continue
+            if require_closed and raw_market.get("closed") is not True:
+                continue
+            return self._parse_market(raw_market)
+        return None
+
     @rate_limit_handler(max_retries=3)
     def get_active_markets(
         self,
@@ -297,18 +324,33 @@ class GammaClient:
         Returns:
             Market dictionary or None if not found
         """
-        params = {"condition_ids": condition_id, "limit": 1}
+        normalized_condition_id = str(condition_id or "").strip()
+        if not normalized_condition_id:
+            logger.warning("빈 condition ID로 시장을 조회할 수 없습니다")
+            return None
+        params = {"condition_ids": normalized_condition_id, "limit": 1}
 
         try:
             response = self._get("/markets", params=params)
             response.raise_for_status()
+            market = self._matching_market(response.json(), normalized_condition_id)
+            if market is not None:
+                return market
 
-            markets = response.json()
-            if markets:
-                return self._parse_market(markets[0])
-            return None
+            # Gamma's default listing can omit closed markets even for an exact
+            # condition-id query. Retry explicitly so resolved holdings do not
+            # occupy max_positions forever after the CLOB book disappears.
+            response = self._get(
+                "/markets", params={**params, "closed": "true"}
+            )
+            response.raise_for_status()
+            return self._matching_market(
+                response.json(), normalized_condition_id, require_closed=True
+            )
         except requests.exceptions.RequestException as e:
-            logger.error(f"시장 조회 실패 - condition: {condition_id}: {e}")
+            logger.error(
+                f"시장 조회 실패 - condition: {normalized_condition_id}: {e}"
+            )
             return None
 
     @rate_limit_handler(max_retries=3)

@@ -6,7 +6,7 @@ from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
 from .fill_evidence import ExactFillEvidence, get_exact_order_fill_evidence
 
@@ -92,19 +92,29 @@ class TradeRepository:
         ).all()
 
     def get_exact_buy_fill_evidence(
-        self, order_id: Optional[str]
+        self,
+        order_id: Optional[str],
+        token_id: Optional[str] = None,
     ) -> ExactFillEvidence:
         """Return fail-closed exact BUY fill evidence for one order."""
         return get_exact_order_fill_evidence(
-            self.session, order_id, expected_side="BUY"
+            self.session,
+            order_id,
+            expected_side="BUY",
+            expected_token_id=token_id,
         )
 
     def get_exact_sell_fill_evidence(
-        self, order_id: Optional[str]
+        self,
+        order_id: Optional[str],
+        token_id: Optional[str] = None,
     ) -> ExactFillEvidence:
         """Return fail-closed exact SELL fill evidence for one order."""
         return get_exact_order_fill_evidence(
-            self.session, order_id, expected_side="SELL"
+            self.session,
+            order_id,
+            expected_side="SELL",
+            expected_token_id=token_id,
         )
 
     def get_trades_by_date(self, target_date: date) -> List[Trade]:
@@ -216,12 +226,35 @@ class TradeRepository:
             Trade.status == TradeStatus.COMPLETED
         ).scalar() or 0
 
+        resolved = self.session.query(func.count(Trade.id)).filter(
+            Trade.status == TradeStatus.RESOLVED
+        ).scalar() or 0
+
         quarantined = self.session.query(func.count(Trade.id)).filter(
             Trade.status == TradeStatus.QUARANTINED
         ).scalar() or 0
 
+        exact_pnl_basis = (
+            "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+        )
         total_pnl = self.session.query(func.sum(Trade.realized_pnl)).filter(
-            Trade.realized_pnl.isnot(None)
+            Trade.realized_pnl.isnot(None),
+            Trade.pnl_basis == exact_pnl_basis,
+        ).scalar() or 0.0
+
+        unproven_pnl = self.session.query(func.sum(Trade.realized_pnl)).filter(
+            Trade.realized_pnl.isnot(None),
+            or_(Trade.pnl_basis.is_(None), Trade.pnl_basis != exact_pnl_basis),
+        ).scalar() or 0.0
+        unproven_pnl_count = self.session.query(func.count(Trade.id)).filter(
+            Trade.realized_pnl.isnot(None),
+            or_(Trade.pnl_basis.is_(None), Trade.pnl_basis != exact_pnl_basis),
+        ).scalar() or 0
+
+        settlement_pnl_assumption = self.session.query(
+            func.sum(Trade.settlement_pnl_assumption)
+        ).filter(
+            Trade.settlement_pnl_assumption.isnot(None)
         ).scalar() or 0.0
 
         skipped = self.session.query(func.count(SkippedMarket.id)).scalar() or 0
@@ -232,9 +265,13 @@ class TradeRepository:
             "pending_buy": pending_buy,
             "pending_sell": pending_sell,
             "completed": completed,
+            "resolved": resolved,
             "quarantined": quarantined,
             "skipped": skipped,
             "total_pnl": round(total_pnl, 4),
+            "unproven_pnl": round(unproven_pnl, 4),
+            "unproven_pnl_count": unproven_pnl_count,
+            "settlement_pnl_assumption": round(settlement_pnl_assumption, 4),
         }
 
     def get_position_count(self) -> int:

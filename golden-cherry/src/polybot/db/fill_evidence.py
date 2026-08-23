@@ -26,6 +26,7 @@ class ExactFillEvidence:
 
     state: str
     order_id: str
+    token_id: Optional[str] = None
     order_status: Optional[str] = None
     side: Optional[str] = None
     requested_size: Optional[float] = None
@@ -81,6 +82,7 @@ def get_exact_order_fill_evidence(
     order_id: Optional[str],
     *,
     expected_side: str,
+    expected_token_id: Optional[str] = None,
 ) -> ExactFillEvidence:
     """Return exact confirmed-fill evidence without inferring from acceptance."""
 
@@ -121,7 +123,7 @@ def get_exact_order_fill_evidence(
         submissions = (
             session.execute(
                 text(
-                    "SELECT submission_id, side, requested_size, "
+                    "SELECT submission_id, token_id, side, requested_size, "
                     "making_amount, taking_amount, "
                     "latest_order_status, latest_size_matched, "
                     "latest_status_domain_error, needs_reconciliation, "
@@ -147,6 +149,24 @@ def get_exact_order_fill_evidence(
         )
 
     submission = submissions[0]
+    submission_token_id = str(submission["token_id"] or "").strip()
+    normalized_expected_token_id = str(expected_token_id or "").strip()
+    if not submission_token_id:
+        return ExactFillEvidence(
+            "unavailable",
+            normalized_order_id,
+            detail="submission_token_id_missing",
+        )
+    if (
+        normalized_expected_token_id
+        and submission_token_id != normalized_expected_token_id
+    ):
+        return ExactFillEvidence(
+            "unavailable",
+            normalized_order_id,
+            token_id=submission_token_id,
+            detail="submission_token_id_mismatch",
+        )
     order_status = _normalize_status(submission["latest_order_status"])
     if str(submission["side"] or "").strip().upper() != side:
         return ExactFillEvidence(
@@ -393,6 +413,7 @@ def get_exact_order_fill_evidence(
         return ExactFillEvidence(
             "confirmed",
             normalized_order_id,
+            token_id=submission_token_id,
             order_status=order_status,
             side=side,
             requested_size=requested_size,
@@ -424,6 +445,7 @@ def get_exact_order_fill_evidence(
         return ExactFillEvidence(
             "terminal_zero_fill",
             normalized_order_id,
+            token_id=submission_token_id,
             order_status=order_status,
             side=side,
             requested_size=requested_size,
@@ -436,6 +458,7 @@ def get_exact_order_fill_evidence(
     return ExactFillEvidence(
         "pending",
         normalized_order_id,
+        token_id=submission_token_id,
         order_status=order_status,
         side=side,
         requested_size=requested_size,

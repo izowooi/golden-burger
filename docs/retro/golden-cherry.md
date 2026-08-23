@@ -35,8 +35,9 @@ REVIEW_END=<YYYY-MM-DD UTC>
   현재 확인 대상은 golden-banana 계좌의 golden-cherry `--yes-only` job이다. 이름만 보고
   다른 golden-banana 전략이나 과거 슬롯을 합치지 말고 resolved config로 식별한다.
 - status 컬럼은 대문자 enum 이름('COMPLETED', 'HOLDING' 등)으로 저장돼 있다. 소문자로 조회하면 0건 나온다.
-- HOLDING인데 market_end_date가 이미 지난 "좀비 포지션"을 먼저 집계하고(§3.5), 좀비의 추정 손익(0/1 redeem 가정)을
-  포함한 보정 P&L과 실현 P&L을 반드시 나란히 제시해라. 실현 통계만 보면 생존편향으로 성과가 과대평가된다.
+- `RESOLVED`의 exact token payout과 settlement assumption을 먼저 집계하고(§3.5), 여전히
+  `HOLDING`인데 market_end_date가 지난 legacy/evidence-gap 행을 별도로 조사해라. 해결 행의
+  settlement assumption은 실제 redeem cashflow나 realized P&L로 부르지 않는다.
 - 상관 클러스터: 같은 이벤트에서 파생된 시장들(예: 같은 선거의 후보별 시장)은 이벤트 단위로 묶어
   유효 n을 별도 계산해라 (§5).
 - 코호트 분리: 운영 첫 며칠의 백로그 일괄 진입(30일 진입창 → 초기 burst)과 이후 정상 신호 진입을
@@ -161,7 +162,8 @@ find /Users/jongwoopark/.jenkins/workspace -path "*golden-cherry/data*" -name "t
 | `realized_pnl` | 2026-08-14 이전 legacy 행은 요청 가격×요청 수량 가정일 수 있어 **성과 지표로 쓰지 말 것**. 이후 exact lifecycle 행도 `pnl_basis='exact_reconciled_buy_sell_confirmed_fills_net_known_fees'`와 양쪽 confirmed coverage를 함께 확인한다 |
 | `buy_shares` | exact BUY fill 후 실제 confirmed size로 보정된다. 부분 SELL이 확정되면 미매도 잔량으로 덮어써질 수 있으므로 원래 매수량은 `buy_confirmed_size`를 사용한다 |
 | `buy_confirmed_*`, `sell_confirmed_*`, `pnl_basis` | exact order fill의 size/VWAP/known fee와 P&L 근거. null을 0으로 추정하지 않는다 |
-| `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `SKIPPED` / `UNFILLED` / `QUARANTINED` |
+| `status` | **대문자 enum 이름으로 저장**: `PENDING_BUY` / `HOLDING` / `PENDING_SELL` / `COMPLETED` / `RESOLVED` / `SKIPPED` / `UNFILLED` / `QUARANTINED` |
+| `resolution_*`, `settlement_pnl_assumption` | Gamma closed one-hot 0/1과 exact token identity로 확인한 payout, exact BUY 근거, 해결 당시 실제 잔여수량과 payout 가정. synthetic SELL/redeem cashflow가 아님 |
 | `entry_reason` | 비스포츠 `time_based_<잔여h>h`, 스포츠 경기 전 `game_start_<잔여h>h`, 인플레이 `game_in_play_<경과분>m`, 또는 `probability_only` |
 | `exit_reason` | 정상 청산 `take_profit` / `stop_loss` / `trailing_stop` / `time_exit`. 부분 매도면 같은 값에 `partial_` 접두사가 붙는다(`partial_stop_loss` 등) — **`GROUP BY exit_reason`이 조용히 쪼개지므로 집계 시 접두사를 제거할 것**. 그 밖에 체결된 적 없는 매수는 `buy_unfilled`, CLOB에서 주문이 사라지면 `zero_balance_order_unavailable`, ledger가 되돌린 경우 `buy_trade_failed` |
 | `max_price` | 진입 후 최고가 (트레일링 추적용, 매수가로 초기화됨) |
@@ -327,12 +329,26 @@ GROUP BY ttr_bucket ORDER BY ttr_bucket;
 인플레이 행은 잔여시간이 음수이므로 시간 버킷 평균에 섞지 말고 `sports_phase_at_buy='in_play'`
 별도 cohort로 집계한다. `gameStartTime`만으로 경기 종료까지 남은 시간은 알 수 없다.
 
-### 3.5 좀비 포지션 + 보정 P&L (실현 통계의 생존편향 교정 — 필수)
+### 3.5 해결 증거 + 잔여 좀비 후보 (실현 통계의 생존편향 교정 — 필수)
 
-봇은 해결된 시장을 처리하지 못한다: 보유 중 시장이 해결되면 영구 HOLDING으로 남는다. **패배 포지션일수록 좀비로 남기 쉬우므로, COMPLETED만 집계하면 성과가 과대평가된다.**
+2026-08-24 이후 봇은 Gamma `closed=true`, final one-hot `0/1`, exact CLOB token identity와
+confirmed BUY가 모두 일치할 때 `RESOLVED`를 기록한다. 부분 SELL 뒤에는 원래 BUY 수량이
+아니라 실제 잔여 `buy_shares`만 payout 대상으로 쓴다. `settlement_pnl_assumption`은 경제적
+terminal 값을 보존하지만 실제 redeem cashflow는 아니므로 confirmed SELL realized P&L과
+분리한다. 이전 코드 구간이나 exact evidence가 없는 행은 계속 `HOLDING`일 수 있다.
 
 ```sql
--- 좀비 후보: HOLDING인데 해결 예정 시각이 지난 포지션
+SELECT id, substr(question, 1, 50) AS q, outcome,
+       resolution_outcome, resolution_value, resolution_position_size,
+       settlement_pnl_assumption, settlement_assumption_basis,
+       realized_pnl, pnl_basis, resolution_observed_at
+FROM trades
+WHERE status = 'RESOLVED'
+ORDER BY resolution_observed_at;
+```
+
+```sql
+-- 잔여 좀비 후보: endDate 경과 자체는 resolution 증거가 아니다.
 SELECT id, substr(question, 1, 50) AS q, outcome, buy_price,
        ROUND(buy_amount, 2) AS cost,
        buy_timestamp, market_end_date,
@@ -352,7 +368,9 @@ WHERE status = 'HOLDING' AND (market_end_date IS NULL OR market_end_date >= date
 ORDER BY market_end_date;
 ```
 
-좀비 각각에 대해 Polymarket에서 해결 결과를 확인하고(승리 → +$ (1-buy_price)×buy_shares 상당의 redeem 가치, 패배 → -buy_amount 전액 손실), 보정 P&L = 실현 P&L + 좀비 추정 P&L을 §6에 나란히 제시한다.
+잔여 후보는 current Gamma/CLOB의 exact condition·token payout, execution ledger와 wallet을
+대사한다. `endDate` 경과만으로 승패나 0/1을 채우지 않는다. 전체 경제 결과는 confirmed SELL
+realized P&L, `RESOLVED` settlement assumption, 아직 미확정 HOLDING을 세 열로 나눠 제시한다.
 
 ### 3.6 side(Yes/No)·태그별 성과, rapid_jump 통계
 
@@ -516,7 +534,9 @@ Git commit을 확인해 이전 cohort와 분리한다.
 2. 2차(4주 후): 같은 문서로 재실행, 1차 제안값의 실측 검증. 이때 1차 교정 전/후 코호트를 `buy_timestamp`로 분리할 것.
 3. 3차: 수렴하고 별도 실험군이 있으면 다음 단일 노브 실험에 재할당한다.
 
-교정과 별개로, 좀비 포지션(§3.5)이 다수 확인되면 파라미터 교정보다 **해결/redeem 처리 자동화**(개선 아이디어는 `golden-cherry/STRATEGY_ANALYSIS.md` §7-2)를 우선 과제로 보고한다 — 회계가 틀리면 다음 회고의 근거 수치도 틀린다.
+교정과 별개로, `RESOLVED` 전환 실패나 잔여 좀비 후보(§3.5)가 확인되면 파라미터 교정보다
+**exact resolution evidence 복구와 redeem 대사**를 우선 과제로 보고한다. 자동 전환은 DB
+open cap을 해제하지만 account cash 입금을 증명하지는 않는다.
 
 ## 7. 기준 정보
 
@@ -526,7 +546,8 @@ Git commit을 확인해 이전 cohort와 분리한다.
   `eaaf560`(환경변수·preflight 문서화). 실제 회고에서는 commit만 보지 말고 config hash도 함께 쓴다.
 - 전략 문서: `golden-cherry/STRATEGY_ANALYSIS.md` (정밀 명세·알려진 약점 §6.2·개선 아이디어 §7 — 이 회고의 보조 근거), `golden-cherry/docs/polymarket-strategy-last.md` (Resolution Momentum 원 논지)
 - 그라운딩 코드: `golden-cherry/config.yaml`, `src/polybot/config.py`, `src/polybot/db/models.py`, `src/polybot/strategy/trader.py`, `src/polybot/strategy/scanner.py`
-- cherry에는 별도 `STRATEGY.md`/`AGENTS.md`가 없다 (신규 봇들과 달리 원조 3봇 구조). 전략 근거는 위 STRATEGY_ANALYSIS.md가 대신한다.
+- cherry에는 별도 `STRATEGY.md`는 없지만 L3 `golden-cherry/AGENTS.md`가 있다. 전략 근거는
+  위 STRATEGY_ANALYSIS.md와 현재 코드·AGENTS 운영 계약을 함께 따른다.
 - 과거 운영 슬롯 정보(2026-07-07)는 config hash별 historical cohort로만 사용한다. 현재 분석
   대상은 golden-banana 계좌의 golden-cherry `--yes-only` job이며 Jenkins 이름이 아니라
   workspace/DB/run audit를 함께 확인한다. **`polybot-cherry` job은 elderberry 워크스페이스이니

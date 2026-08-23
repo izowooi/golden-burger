@@ -58,6 +58,7 @@ stateDiagram-v2
     Holding --> SellCheck: 매 사이클
     SellCheck --> Holding: 청산 조건 미충족
     SellCheck --> Sell: +10% or -8% or 트레일링 -5%<br/>(시간 청산 기본 비활성)
+    SellCheck --> Resolved: Gamma closed + exact token 0/1 payout<br/>+ exact confirmed BUY evidence
 
     Sell --> PendingSell: GTC 주문 접수
     PendingSell --> Completed: exact confirmed SELL full fill + fee
@@ -65,7 +66,14 @@ stateDiagram-v2
 
     Skip --> [*]
     Completed --> [*]
+    Resolved --> [*]
 ```
+
+`RESOLVED`는 가상의 SELL이 아니다. Gamma의 closed market에서 outcome·token 배열을
+정확히 맞춘 최종 0/1 payout과 execution ledger의 confirmed BUY를 함께 확인한 경우에만
+open position에서 제외한다. payout 기반 값은 `settlement_pnl_assumption`에 별도로 남기고,
+실제 SELL cashflow가 아닌 만큼 `realized_pnl`을 새로 만들지 않는다. 부분 SELL 뒤 남은
+수량은 `resolution_position_size`로 따로 보존한다.
 
 `fee`는 임의로 0을 채우지 않는다. 명시적인 `fee_rate_bps=0`, 또는 builder-fee 주문
 경로가 없는 이 봇의 exact `MAKER` confirmed fill에서 거래소가 rate와 amount를 모두

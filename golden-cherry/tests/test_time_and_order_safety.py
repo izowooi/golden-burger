@@ -12,7 +12,8 @@ from polybot_observability import (
 )
 from polybot.config import GameStartConfig, TimeBasedConfig, TradingConfig
 from polybot.api.clob_client import ClobClientWrapper
-from polybot.db.models import TradeStatus, init_database
+from polybot.db.models import Trade, TradeStatus, init_database
+from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import (
     MarketScanner,
     evaluate_game_start,
@@ -313,7 +314,45 @@ def test_existing_trade_database_gets_game_start_evidence_columns(tmp_path):
         "hours_until_entry_deadline_at_buy",
         "sports_market_type",
         "sports_phase_at_buy",
+        "resolution_outcome",
+        "resolution_value",
+        "resolution_evidence",
+        "resolution_position_size",
+        "settlement_pnl_assumption",
+        "settlement_assumption_basis",
     } <= columns
+
+
+def test_stats_separate_exact_sell_pnl_from_legacy_estimates(tmp_path):
+    Session = init_database(str(tmp_path / "stats.db"))
+    with Session() as session:
+        session.add_all(
+            [
+                Trade(
+                    condition_id="exact",
+                    token_id="token-exact",
+                    status=TradeStatus.COMPLETED,
+                    realized_pnl=1.25,
+                    pnl_basis=(
+                        "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+                    ),
+                ),
+                Trade(
+                    condition_id="legacy",
+                    token_id="token-legacy",
+                    status=TradeStatus.COMPLETED,
+                    realized_pnl=9.0,
+                    pnl_basis=None,
+                ),
+            ]
+        )
+        session.commit()
+
+        stats = TradeRepository(session).get_stats()
+
+        assert stats["total_pnl"] == 1.25
+        assert stats["unproven_pnl"] == 9.0
+        assert stats["unproven_pnl_count"] == 1
 
 
 def test_reported_token_balance_retries_one_micro_share_below_balance():

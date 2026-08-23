@@ -20,6 +20,7 @@ from .scanner import (
     get_hours_until_resolution,
     is_valid_time_entry,
 )
+from .filters import get_proven_token_resolution
 
 logger = logging.getLogger(__name__)
 
@@ -532,7 +533,7 @@ class Trader:
         if self.simulation_mode:
             return False
         evidence = self.repo.get_exact_buy_fill_evidence(
-            getattr(trade, "buy_order_id", None)
+            getattr(trade, "buy_order_id", None), trade.token_id
         )
         if (
             evidence.order_status != "LIVE"
@@ -565,7 +566,7 @@ class Trader:
             )
             return False
         evidence = self.repo.get_exact_buy_fill_evidence(
-            getattr(trade, "buy_order_id", None)
+            getattr(trade, "buy_order_id", None), trade.token_id
         )
         if evidence.state == "terminal_zero_fill":
             self.repo.update_trade(
@@ -674,7 +675,7 @@ class Trader:
             )
             return False
         sell_evidence = self.repo.get_exact_sell_fill_evidence(
-            getattr(trade, "sell_order_id", None)
+            getattr(trade, "sell_order_id", None), trade.token_id
         )
         pending_reason = str(getattr(trade, "exit_reason", "") or "")
         base_reason = pending_reason.removesuffix("_pending_confirmed_fill")
@@ -711,7 +712,7 @@ class Trader:
             return False
 
         buy_evidence = self.repo.get_exact_buy_fill_evidence(
-            getattr(trade, "buy_order_id", None)
+            getattr(trade, "buy_order_id", None), trade.token_id
         )
         realized_pnl = None
         pnl_basis = "exact_sell_confirmed_fill_buy_evidence_unavailable"
@@ -804,6 +805,189 @@ class Trader:
         )
         return False
 
+    def _record_proven_resolution(
+        self,
+        trade,
+        market: dict,
+        fill_evidence: Optional[ExactFillEvidence] = None,
+    ) -> bool:
+        """Persist exact token payout without inventing a SELL cashflow."""
+        proof = get_proven_token_resolution(market, trade.token_id)
+        if proof is None:
+            return False
+
+        position_size = float(getattr(trade, "buy_shares", None) or 0.0)
+        if not math.isfinite(position_size) or position_size <= 0:
+            logger.error(
+                "resolution position size가 유효하지 않아 HOLDING 유지: "
+                "Trade #%s size=%s",
+                trade.id,
+                position_size,
+            )
+            return False
+
+        payout = float(proof["token_payout"])
+        observed_at = _utcnow_naive()
+        if fill_evidence is not None:
+            confirmed_size = fill_evidence.confirmed_size
+            confirmed_vwap = fill_evidence.confirmed_vwap
+            confirmed_fee = fill_evidence.confirmed_fee_usdc
+            if (
+                not fill_evidence.has_reconciled_matched_fill
+                or confirmed_size is None
+                or not math.isfinite(confirmed_size)
+                or confirmed_size <= 0
+                or confirmed_vwap is None
+                or not math.isfinite(confirmed_vwap)
+                or not 0 < confirmed_vwap <= 1
+                or position_size > confirmed_size + 0.010001
+            ):
+                logger.error(
+                    "resolved payout은 확인했지만 exact BUY/잔여 수량 증거가 "
+                    "유효하지 않아 HOLDING 유지: Trade #%s state=%s "
+                    "buy_size=%s remaining=%s",
+                    trade.id,
+                    fill_evidence.state,
+                    confirmed_size,
+                    position_size,
+                )
+                return False
+            assumption = (payout - confirmed_vwap) * position_size
+            if fill_evidence.fee_complete and confirmed_fee is not None:
+                remaining_fee = confirmed_fee * min(
+                    1.0, position_size / confirmed_size
+                )
+                assumption -= remaining_fee
+                assumption_basis = (
+                    "exact_confirmed_buy_remaining_position_net_known_buy_fee"
+                )
+            else:
+                assumption_basis = (
+                    "exact_confirmed_buy_remaining_position_gross_fee_unproven"
+                )
+            resolution_evidence = (
+                f"{proof['evidence']}+execution_ledger_exact_confirmed_buy"
+            )
+        else:
+            confirmed_size = None
+            confirmed_vwap = float(getattr(trade, "buy_price", None) or 0.0)
+            confirmed_fee = None
+            if not math.isfinite(confirmed_vwap) or not 0 < confirmed_vwap <= 1:
+                return False
+            assumption = (payout - confirmed_vwap) * position_size
+            assumption_basis = "simulation_requested_remaining_position_assumption"
+            resolution_evidence = f"{proof['evidence']}+simulation_order"
+
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.RESOLVED,
+            exit_reason="resolved_with_exact_token_payout_evidence",
+            resolution_outcome=proof["winner_outcome"],
+            resolution_value=payout,
+            resolution_status=proof["status"],
+            resolution_observed_at=observed_at,
+            resolution_source_updated_at=market.get("updatedAt"),
+            resolution_evidence=resolution_evidence,
+            resolution_confirmed_buy_size=confirmed_size,
+            resolution_confirmed_buy_vwap=confirmed_vwap,
+            resolution_confirmed_buy_fee_usdc=confirmed_fee,
+            resolution_position_size=position_size,
+            settlement_pnl_assumption=assumption,
+            settlement_assumption_basis=assumption_basis,
+        )
+        logger.warning(
+            "Gamma exact token payout으로 RESOLVED 기록: Trade #%s "
+            "winner=%s token_payout=%.2f remaining=%.6f "
+            "(settlement assumption=%.6f, realized_pnl은 실제 SELL만 유지)",
+            trade.id,
+            proof["winner_outcome"],
+            payout,
+            position_size,
+            assumption,
+        )
+        return True
+
+    def _settle_from_market_if_proven(self, trade, market: dict) -> bool:
+        proof = get_proven_token_resolution(market, trade.token_id)
+        if proof is None:
+            return False
+        if self.simulation_mode:
+            return self._record_proven_resolution(trade, market)
+        evidence = self.repo.get_exact_buy_fill_evidence(
+            getattr(trade, "buy_order_id", None), trade.token_id
+        )
+        if evidence.state == "terminal_zero_fill":
+            prior_sell_size = float(getattr(trade, "sell_shares", None) or 0.0)
+            prior_realized_pnl = getattr(trade, "realized_pnl", None)
+            prior_pnl_basis = str(getattr(trade, "pnl_basis", "") or "")
+            if (
+                prior_sell_size > 0
+                or prior_realized_pnl is not None
+                or prior_pnl_basis
+            ):
+                logger.error(
+                    "resolved market에서 BUY zero-fill과 기존 SELL/P&L 증거가 "
+                    "모순되어 HOLDING 유지: Trade #%s sold=%s pnl=%s basis=%s",
+                    trade.id,
+                    prior_sell_size,
+                    prior_realized_pnl,
+                    prior_pnl_basis or "none",
+                )
+                return False
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.UNFILLED,
+                exit_reason="resolution_terminal_zero_fill",
+                realized_pnl=None,
+                pnl_basis=None,
+            )
+            logger.warning(
+                "resolved market의 terminal zero-fill BUY 증거로 UNFILLED: "
+                "Trade #%s",
+                trade.id,
+            )
+            return True
+        if self._record_proven_resolution(trade, market, fill_evidence=evidence):
+            return True
+        logger.warning(
+            "resolved payout은 확인했지만 exact CONFIRMED BUY fill 증거가 "
+            "없어 HOLDING 유지: Trade #%s state=%s detail=%s",
+            trade.id,
+            evidence.state,
+            evidence.detail,
+        )
+        return False
+
+    def _handle_midpoint_unavailable(self, trade, error: Exception) -> None:
+        if self.gamma is None:
+            logger.warning(
+                "midpoint unavailable and Gamma client not injected - "
+                "trade=%s error=%s",
+                trade.id,
+                type(error).__name__,
+            )
+            return
+        try:
+            market = self.gamma.get_market_by_condition_id(trade.condition_id)
+        except Exception as gamma_error:  # noqa: BLE001 - fail closed
+            logger.warning(
+                "Gamma resolution lookup 실패 - condition=%s error=%s",
+                trade.condition_id,
+                type(gamma_error).__name__,
+            )
+            return
+        if market is not None and get_proven_token_resolution(
+            market, trade.token_id
+        ) is not None:
+            self._settle_from_market_if_proven(trade, market)
+            return
+        logger.warning(
+            "midpoint unavailable; closed+final exact token payout 증거 없음 - "
+            "condition=%s error=%s",
+            trade.condition_id,
+            type(error).__name__,
+        )
+
     def execute_sell(self, trade) -> bool:
         """Execute sell order for a holding position.
 
@@ -834,6 +1018,11 @@ class Trader:
                     type(error).__name__,
                 )
                 market = None
+            if market is not None and get_proven_token_resolution(
+                market, trade.token_id
+            ) is not None:
+                self._settle_from_market_if_proven(trade, market)
+                return False
             if market is not None and (
                 market.get("closed") is True
                 or market.get("active") is False
@@ -850,7 +1039,7 @@ class Trader:
         try:
             current_price = self.clob.get_midpoint(token_id)
         except Exception as e:
-            logger.warning(f"가격 조회 실패 - condition: {condition_id}: {e}")
+            self._handle_midpoint_unavailable(trade, e)
             return False
 
         # Update max_price if current price is higher

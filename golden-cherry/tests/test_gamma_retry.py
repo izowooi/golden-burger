@@ -45,6 +45,28 @@ class MidSweepForbiddenSession:
         return Response({"markets": []})
 
 
+class ClosedMarketFallbackSession:
+    def __init__(self, *, returned_condition="condition"):
+        self.calls = []
+        self.returned_condition = returned_condition
+
+    def get(self, url, params, timeout):
+        self.calls.append((url, dict(params), timeout))
+        if params.get("closed") != "true":
+            return Response([])
+        return Response(
+            [
+                {
+                    "conditionId": self.returned_condition,
+                    "closed": True,
+                    "outcomes": '["Home", "Away"]',
+                    "outcomePrices": '["1", "0"]',
+                    "clobTokenIds": '["home", "away"]',
+                }
+            ]
+        )
+
+
 def test_gamma_retries_mid_sweep_forbidden_on_same_cursor(monkeypatch):
     sleeps = []
     monkeypatch.setattr("polybot.utils.retry.random.uniform", lambda _a, _b: 0.0)
@@ -77,3 +99,25 @@ def test_forbidden_is_not_retried_without_explicit_opt_in(monkeypatch):
 
     assert attempts == [1]
     assert sleeps == []
+
+
+def test_condition_lookup_retries_explicit_closed_market_and_parses_identity():
+    client = GammaClient()
+    session = ClosedMarketFallbackSession()
+    client.session = session
+
+    market = client.get_market_by_condition_id("condition")
+
+    assert market["conditionId"] == "condition"
+    assert market["outcomes"] == ["Home", "Away"]
+    assert [call[1] for call in session.calls] == [
+        {"condition_ids": "condition", "limit": 1},
+        {"condition_ids": "condition", "limit": 1, "closed": "true"},
+    ]
+
+
+def test_condition_lookup_rejects_mismatched_closed_market_identity():
+    client = GammaClient()
+    client.session = ClosedMarketFallbackSession(returned_condition="other")
+
+    assert client.get_market_by_condition_id("condition") is None

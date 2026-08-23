@@ -16,6 +16,7 @@ class TradeStatus(enum.Enum):
     HOLDING = "holding"              # Position held
     PENDING_SELL = "pending_sell"    # Waiting for sell order to fill
     COMPLETED = "completed"          # Trade closed with profit/loss
+    RESOLVED = "resolved"            # Closed market with exact 0/1 payout proof
     SKIPPED = "skipped"              # Skipped due to rapid price jump
     UNFILLED = "unfilled"            # 매수 GTC가 체결된 적 없음이 확인된 유령 포지션
                                      # (매도 시 balance 0 거절 -> 재시도 중단, P&L 제외)
@@ -61,6 +62,20 @@ class Trade(Base):
     # Profit/Loss
     realized_pnl = Column(Float, nullable=True)
     pnl_basis = Column(String, nullable=True)
+
+    # A market resolution is economic terminal evidence, not a synthetic SELL.
+    resolution_outcome = Column(String, nullable=True)
+    resolution_value = Column(Float, nullable=True)
+    resolution_status = Column(String, nullable=True)
+    resolution_observed_at = Column(DateTime, nullable=True)
+    resolution_source_updated_at = Column(String, nullable=True)
+    resolution_evidence = Column(String, nullable=True)
+    resolution_confirmed_buy_size = Column(Float, nullable=True)
+    resolution_confirmed_buy_vwap = Column(Float, nullable=True)
+    resolution_confirmed_buy_fee_usdc = Column(Float, nullable=True)
+    resolution_position_size = Column(Float, nullable=True)
+    settlement_pnl_assumption = Column(Float, nullable=True)
+    settlement_assumption_basis = Column(String, nullable=True)
 
     # Status
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY)
@@ -156,6 +171,18 @@ def init_database(
         "sell_fill_matched_at": "TEXT",
         "pending_sell_remaining_shares": "FLOAT",
         "pnl_basis": "TEXT",
+        "resolution_outcome": "TEXT",
+        "resolution_value": "FLOAT",
+        "resolution_status": "TEXT",
+        "resolution_observed_at": "DATETIME",
+        "resolution_source_updated_at": "TEXT",
+        "resolution_evidence": "TEXT",
+        "resolution_confirmed_buy_size": "FLOAT",
+        "resolution_confirmed_buy_vwap": "FLOAT",
+        "resolution_confirmed_buy_fee_usdc": "FLOAT",
+        "resolution_position_size": "FLOAT",
+        "settlement_pnl_assumption": "FLOAT",
+        "settlement_assumption_basis": "TEXT",
     }
     with engine.begin() as conn:
         existing = {

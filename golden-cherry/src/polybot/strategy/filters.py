@@ -1,5 +1,8 @@
-"""Market filtering functions."""
-from typing import List, Dict
+"""Market filtering and fail-closed resolution helpers."""
+
+import json
+import math
+from typing import Any, Dict, List, Optional
 
 # Sports-related keywords for filtering
 SPORTS_KEYWORDS = [
@@ -20,6 +23,73 @@ SPORTS_KEYWORDS = [
     "playoff", "finals", "championship", "tournament", "match", "game",
     "win the", "beat", "defeat", "score", "goal", "touchdown", "home run",
 ]
+
+
+def _list_value(value: Any) -> Optional[list]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, list) else None
+    return None
+
+
+def get_proven_token_resolution(
+    market: Optional[Dict[str, Any]], token_id: str
+) -> Optional[Dict[str, Any]]:
+    """Return a token-aligned payout only from a closed final Gamma market.
+
+    Golden Cherry can trade named sports outcomes and Over/Under markets, not
+    only standard Yes/No markets. Resolution therefore follows the exact CLOB
+    token identity instead of assuming that array index zero means YES.
+    """
+    if not market or market.get("closed") is not True:
+        return None
+    outcomes = _list_value(market.get("outcomes"))
+    prices = _list_value(market.get("outcomePrices"))
+    token_ids = _list_value(market.get("clobTokenIds"))
+    if (
+        outcomes is None
+        or prices is None
+        or token_ids is None
+        or len(outcomes) != len(prices)
+        or len(prices) != len(token_ids)
+        or len(prices) < 2
+    ):
+        return None
+    normalized_tokens = [str(value or "").strip() for value in token_ids]
+    normalized_target = str(token_id or "").strip()
+    if (
+        not normalized_target
+        or any(not value for value in normalized_tokens)
+        or len(set(normalized_tokens)) != len(normalized_tokens)
+        or normalized_tokens.count(normalized_target) != 1
+    ):
+        return None
+    try:
+        normalized_prices = [float(value) for value in prices]
+    except (TypeError, ValueError):
+        return None
+    if any(
+        not math.isfinite(value) or value not in {0.0, 1.0}
+        for value in normalized_prices
+    ):
+        return None
+    if normalized_prices.count(1.0) != 1:
+        return None
+    token_index = normalized_tokens.index(normalized_target)
+    winner_index = normalized_prices.index(1.0)
+    return {
+        "token_index": token_index,
+        "token_payout": normalized_prices[token_index],
+        "winner_index": winner_index,
+        "winner_outcome": str(outcomes[winner_index]),
+        "status": str(market.get("umaResolutionStatus") or "closed_final_prices"),
+        "evidence": "gamma_closed_final_outcome_prices_exact_token",
+    }
 
 
 def is_sports_market(market: Dict, excluded_categories: List[str]) -> bool:

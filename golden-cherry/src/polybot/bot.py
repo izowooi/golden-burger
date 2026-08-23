@@ -222,7 +222,19 @@ class PolymarketBot:
                 db_stats["holding"],
                 db_stats["pending_sell"],
             )
-            logger.info(f"총 P&L: ${db_stats['total_pnl']:.4f}")
+            logger.info(
+                "해결 증거: %s개, settlement assumption=$%.4f",
+                db_stats.get("resolved", 0),
+                db_stats.get("settlement_pnl_assumption", 0.0),
+            )
+            logger.info(f"확정 SELL realized P&L: ${db_stats['total_pnl']:.4f}")
+            if db_stats.get("unproven_pnl_count", 0):
+                logger.warning(
+                    "legacy/미확정 realized_pnl: %s개 합계 $%.4f "
+                    "(확정 SELL 통계에서 제외)",
+                    db_stats["unproven_pnl_count"],
+                    db_stats.get("unproven_pnl", 0.0),
+                )
 
             return stats
 

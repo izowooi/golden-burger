@@ -8,6 +8,7 @@ import pytest
 from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus
 from polybot.db.repository import ExactFillEvidence
+from polybot.strategy.filters import get_proven_token_resolution
 from polybot.strategy.trader import Trader
 
 
@@ -15,6 +16,7 @@ def full_fill(
     order_id,
     *,
     side,
+    token_id="token",
     size=5.2,
     price=0.90,
     fee=0.0,
@@ -22,6 +24,7 @@ def full_fill(
     return ExactFillEvidence(
         "confirmed",
         order_id,
+        token_id=token_id,
         order_status="MATCHED",
         side=side,
         requested_size=size,
@@ -46,10 +49,21 @@ class FakeRepo:
         self.updates = []
         self.created = []
 
-    def get_exact_buy_fill_evidence(self, order_id):
+    def get_exact_buy_fill_evidence(self, order_id, token_id=None):
+        if (
+            token_id
+            and self.buy_evidence is not None
+            and self.buy_evidence.token_id != token_id
+        ):
+            return ExactFillEvidence(
+                "unavailable",
+                order_id,
+                token_id=self.buy_evidence.token_id,
+                detail="submission_token_id_mismatch",
+            )
         return self.buy_evidence
 
-    def get_exact_sell_fill_evidence(self, order_id):
+    def get_exact_sell_fill_evidence(self, order_id, token_id=None):
         return self.sell_evidence
 
     def update_trade(self, trade_id, **kwargs):
@@ -142,6 +156,22 @@ def trade(**overrides):
     return SimpleNamespace(**values)
 
 
+def test_token_resolution_requires_closed_one_hot_and_exact_identity():
+    market = {
+        "closed": True,
+        "outcomes": ["Home", "Away"],
+        "outcomePrices": ["0", "1"],
+        "clobTokenIds": ["home-token", "away-token"],
+    }
+    proof = get_proven_token_resolution(market, "home-token")
+    assert proof["token_payout"] == 0.0
+    assert proof["winner_outcome"] == "Away"
+    assert get_proven_token_resolution(market, "unknown-token") is None
+    assert get_proven_token_resolution(
+        {**market, "outcomePrices": ["0.01", "0.99"]}, "home-token"
+    ) is None
+
+
 def test_live_buy_acceptance_creates_pending_buy():
     repo = FakeRepo()
     trader = Trader(repo, FakeClob(), TradingConfig())
@@ -177,6 +207,7 @@ def test_terminal_partial_buy_activates_only_confirmed_shares():
     evidence = ExactFillEvidence(
         "confirmed",
         "buy-order",
+        token_id="token",
         order_status="CANCELED_MARKET_RESOLVED",
         side="BUY",
         requested_size=5.780347,
@@ -204,6 +235,7 @@ def test_expired_exact_live_zero_fill_is_cancelled_and_unfilled():
     evidence = ExactFillEvidence(
         "pending",
         "buy-order",
+        token_id="token",
         order_status="LIVE",
         side="BUY",
         requested_size=5.2,
@@ -250,6 +282,7 @@ def test_legacy_live_buy_without_full_fill_is_reclassified():
     evidence = ExactFillEvidence(
         "pending",
         "buy-order",
+        token_id="token",
         order_status="LIVE",
         side="BUY",
         requested_size=5.2,
@@ -411,4 +444,155 @@ def test_explicit_closed_market_blocks_dead_book_sell():
     )
     assert trader.execute_sell(trade()) is False
     assert clob.orders == []
+    assert repo.updates == []
+
+
+def test_closed_final_market_records_exact_token_resolution_without_sell():
+    class ResolvedGamma:
+        def get_market_by_condition_id(self, condition_id):
+            return {
+                "conditionId": condition_id,
+                "closed": True,
+                "active": True,
+                "acceptingOrders": False,
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["1", "0"],
+                "clobTokenIds": ["token", "other-token"],
+                "updatedAt": "2026-08-24T00:00:00Z",
+            }
+
+    repo = FakeRepo(
+        buy_evidence=full_fill(
+            "buy-order", side="BUY", size=5.2, price=0.90, fee=0.01
+        )
+    )
+    clob = FakeClob(midpoint=0.50)
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=ResolvedGamma(),
+    )
+
+    assert trader.execute_sell(trade()) is False
+    update = repo.updates[-1][1]
+    assert update["status"] == TradeStatus.RESOLVED
+    assert update["resolution_outcome"] == "Yes"
+    assert update["resolution_value"] == 1.0
+    assert update["resolution_position_size"] == pytest.approx(5.2)
+    assert update["settlement_pnl_assumption"] == pytest.approx(
+        (1.0 - 0.90) * 5.2 - 0.01
+    )
+    assert "realized_pnl" not in update
+    assert clob.orders == []
+
+
+def test_resolution_uses_partial_sell_remainder_and_preserves_realized_pnl():
+    class LosingResolutionGamma:
+        def get_market_by_condition_id(self, condition_id):
+            return {
+                "conditionId": condition_id,
+                "closed": True,
+                "active": True,
+                "acceptingOrders": False,
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["0", "1"],
+                "clobTokenIds": ["token", "other-token"],
+            }
+
+    repo = FakeRepo(
+        buy_evidence=full_fill(
+            "buy-order", side="BUY", size=5.84, price=0.86, fee=0.02
+        )
+    )
+    trader = Trader(
+        repo,
+        FakeClob(midpoint=0.50),
+        TradingConfig(),
+        gamma_client=LosingResolutionGamma(),
+    )
+    partially_sold = trade(
+        buy_shares=0.84,
+        realized_pnl=-3.15,
+        pnl_basis="exact_reconciled_buy_sell_confirmed_fills_net_known_fees",
+    )
+
+    assert trader.execute_sell(partially_sold) is False
+    update = repo.updates[-1][1]
+    allocated_fee = 0.02 * 0.84 / 5.84
+    assert update["status"] == TradeStatus.RESOLVED
+    assert update["resolution_outcome"] == "No"
+    assert update["resolution_value"] == 0.0
+    assert update["resolution_confirmed_buy_size"] == pytest.approx(5.84)
+    assert update["resolution_position_size"] == pytest.approx(0.84)
+    assert update["settlement_pnl_assumption"] == pytest.approx(
+        -0.86 * 0.84 - allocated_fee
+    )
+    assert "realized_pnl" not in update
+    assert "pnl_basis" not in update
+
+
+def test_resolution_rejects_buy_evidence_for_another_token():
+    class ResolvedGamma:
+        def get_market_by_condition_id(self, condition_id):
+            return {
+                "conditionId": condition_id,
+                "closed": True,
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["1", "0"],
+                "clobTokenIds": ["token", "other-token"],
+            }
+
+    repo = FakeRepo(
+        buy_evidence=full_fill(
+            "buy-order", side="BUY", token_id="wrong-token"
+        )
+    )
+    trader = Trader(
+        repo,
+        FakeClob(midpoint=0.50),
+        TradingConfig(),
+        gamma_client=ResolvedGamma(),
+    )
+
+    assert trader.execute_sell(trade()) is False
+    assert repo.updates == []
+
+
+def test_resolution_zero_fill_never_erases_partial_sell_history():
+    class ResolvedGamma:
+        def get_market_by_condition_id(self, condition_id):
+            return {
+                "conditionId": condition_id,
+                "closed": True,
+                "outcomes": ["Yes", "No"],
+                "outcomePrices": ["0", "1"],
+                "clobTokenIds": ["token", "other-token"],
+            }
+
+    zero = ExactFillEvidence(
+        "terminal_zero_fill",
+        "buy-order",
+        token_id="token",
+        order_status="CANCELED",
+        side="BUY",
+        latest_size_matched=0.0,
+        needs_reconciliation=False,
+        confirmed_size=0.0,
+    )
+    repo = FakeRepo(buy_evidence=zero)
+    trader = Trader(
+        repo,
+        FakeClob(midpoint=0.50),
+        TradingConfig(),
+        gamma_client=ResolvedGamma(),
+    )
+
+    assert trader.execute_sell(
+        trade(
+            sell_shares=5.0,
+            realized_pnl=-3.15,
+            pnl_basis="exact_reconciled_buy_sell_confirmed_fills_net_known_fees",
+        )
+    ) is False
     assert repo.updates == []
