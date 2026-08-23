@@ -30,6 +30,7 @@ class EventSweep:
 
 class GammaClient:
     ENDPOINT = "/events/keyset"
+    # Legacy v3 used tag_slug; v3a deliberately sends only numeric tag_id.
 
     def __init__(self, config: GammaConfig, transport: PublicJsonTransport) -> None:
         self.config = config
@@ -51,7 +52,8 @@ class GammaClient:
                 "limit": self.config.page_size,
                 "closed": "false",
                 "live": "true",
-                "tag_slug": self.config.tag_slug,
+                "tag_id": self.config.tag_id,
+                "related_tags": "false",
             }
             if after_cursor:
                 params["after_cursor"] = after_cursor

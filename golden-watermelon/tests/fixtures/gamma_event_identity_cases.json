@@ -1,0 +1,129 @@
+{
+  "provenance": {
+    "captured_at_utc": "2026-08-23T15:17:02Z",
+    "source_template": "https://gamma-api.polymarket.com/events/{event_id}",
+    "note": "Verbatim authority-field excerpts from public Gamma event responses; unrelated market and media fields omitted."
+  },
+  "cases": [
+    {
+      "name": "epl",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "epl",
+      "event": {
+        "id": "818999",
+        "title": "Brentford FC vs. Tottenham Hotspur FC",
+        "slug": "epl-bre-tot-2026-08-22",
+        "seriesSlug": "premier-league-2025",
+        "sport": {"id": 2, "sport": "epl", "name": "Premier League", "tags": "1,82,306,100639,100350", "primaryTagId": 306, "series": "10188"},
+        "tags": [{"id": "82", "label": "Premier League", "slug": "premier-league"}, {"id": "1", "label": "Sports", "slug": "sports"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "306", "label": "EPL", "slug": "EPL"}],
+        "series": [{"id": "10188", "slug": "premier-league-2025", "title": "Premier League 2025"}],
+        "teams": [{"id": 100008, "name": "Brentford FC", "league": "epl", "abbreviation": "bre"}, {"id": 100018, "name": "Tottenham Hotspur FC", "league": "epl", "abbreviation": "tot"}]
+      }
+    },
+    {
+      "name": "bundesliga",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "bun",
+      "event": {
+        "id": "863009",
+        "title": "FC Augsburg vs. FC Schalke 04",
+        "slug": "bun-aug-s04-2026-08-30",
+        "seriesSlug": "bundesliga-2025",
+        "sport": {"id": 7, "sport": "bun", "name": "Bundesliga", "tags": "1,1494,100639,100350", "primaryTagId": 1494, "series": "10194"},
+        "tags": [{"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "1494", "label": "bundesliga", "slug": "bundesliga"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "1", "label": "Sports", "slug": "sports"}],
+        "series": [{"id": "10194", "slug": "bundesliga-2025", "title": "Bundesliga 2025"}],
+        "teams": [{"id": 101137, "name": "FC Augsburg", "league": "bun", "abbreviation": "aug"}, {"id": 3285565, "name": "FC Schalke 04", "league": "bun", "abbreviation": "s04"}]
+      }
+    },
+    {
+      "name": "ligue1",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "fl1",
+      "event": {
+        "id": "818966",
+        "title": "Racing Club de Lens vs. AJ Auxerre",
+        "slug": "fl1-rcl-aja-2026-08-22",
+        "seriesSlug": "ligue-1-2025",
+        "sport": {"id": 11, "sport": "fl1", "name": "Ligue 1", "tags": "1,100639,102070,100350", "primaryTagId": 102070, "series": "10195"},
+        "tags": [{"id": "100639", "label": "Games", "slug": "games"}, {"id": "1", "label": "Sports", "slug": "sports"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "102070", "label": "Ligue 1", "slug": "ligue-1"}],
+        "series": [{"id": "10195", "slug": "ligue-1-2025", "title": "Ligue 1 2025"}],
+        "teams": [{"id": 114306, "name": "Racing Club de Lens", "league": "fl1", "abbreviation": "rcl"}, {"id": 114303, "name": "AJ Auxerre", "league": "fl1", "abbreviation": "aja"}]
+      }
+    },
+    {
+      "name": "laliga",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "lal",
+      "event": {
+        "id": "819506",
+        "title": "Athletic Club vs. Sevilla FC",
+        "slug": "lal-bil-sev-2026-08-22",
+        "seriesSlug": "la-liga-2025",
+        "sport": {"id": 3, "sport": "lal", "name": "LaLiga", "tags": "1,780,100639,100350", "primaryTagId": 780, "series": "10193"},
+        "tags": [{"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "1", "label": "Sports", "slug": "sports"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "780", "label": "La Liga", "slug": "la-liga"}],
+        "series": [{"id": "10193", "slug": "la-liga-2025", "title": "La Liga 2025"}],
+        "teams": [{"id": 101047, "name": "Athletic Club", "league": "lal", "abbreviation": "bil"}, {"id": 101040, "name": "Sevilla FC", "league": "lal", "abbreviation": "sev"}]
+      }
+    },
+    {
+      "name": "mls",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "mls",
+      "event": {
+        "id": "821889",
+        "title": "Nashville SC vs. Columbus Crew",
+        "slug": "mls-nas-clb-2026-08-22",
+        "seriesSlug": "mls-2025",
+        "sport": {"id": 33, "sport": "mls", "name": "MLS", "tags": "1,100639,100350,100100", "primaryTagId": 100100, "series": "10189"},
+        "tags": [{"id": "100639", "label": "Games", "slug": "games"}, {"id": "1", "label": "Sports", "slug": "sports"}, {"id": "100100", "label": "MLS", "slug": "mls"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}],
+        "series": [{"id": "10189", "slug": "mls-2025", "title": "MLS 2025"}],
+        "teams": [{"id": 115080, "name": "Nashville SC", "league": "mls", "abbreviation": "nas"}, {"id": 115057, "name": "Columbus Crew", "league": "mls", "abbreviation": "clb"}]
+      }
+    },
+    {
+      "name": "cup",
+      "expected_status": "REJECTED",
+      "expected_reason": "LEAGUE_NOT_ALLOWED",
+      "event": {
+        "id": "48340",
+        "title": "CD Getxo vs. Betis CF",
+        "slug": "cdr-gtx-bet1-2025-09-27",
+        "seriesSlug": "copa-del-rey",
+        "sport": {"id": 49, "sport": "cdr", "name": "Copa del Rey", "tags": "1,100639,100350,101783", "primaryTagId": 101783, "series": "10316"},
+        "tags": [{"id": "101783", "label": "Copa Del Rey", "slug": "copa-del-rey"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "1", "label": "Sports", "slug": "sports"}],
+        "series": [{"id": "10316", "slug": "copa-del-rey", "title": "Copa del Rey"}],
+        "teams": [{"id": 118968, "name": "CD Getxo", "league": "cdr", "abbreviation": "gtx"}, {"id": 118989, "name": "Betis CF", "league": "cdr", "abbreviation": "bet1"}]
+      }
+    },
+    {
+      "name": "second_division",
+      "expected_status": "REJECTED",
+      "expected_reason": "LEAGUE_NOT_ALLOWED",
+      "event": {
+        "id": "84376",
+        "title": "TSV Fortuna 95 Düsseldorf vs. 1. FC Magdeburg",
+        "slug": "bl2-dus-fcm-2025-11-22",
+        "seriesSlug": "bundesliga-2",
+        "sport": {"id": 177, "sport": "bl2", "name": "2. Bundesliga", "tags": "1,100639,100350,102864", "primaryTagId": 102864, "series": "10670"},
+        "tags": [{"id": "1", "label": "Sports", "slug": "sports"}, {"id": "102864", "label": "Bundesliga 2", "slug": "bundesliga-2"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}],
+        "series": [{"id": "10670", "slug": "bundesliga-2", "title": "Bundesliga 2"}],
+        "teams": [{"id": 218391, "name": "TSV Fortuna 95 Düsseldorf", "league": "bl2", "abbreviation": "dus"}, {"id": 218399, "name": "1. FC Magdeburg", "league": "bl2", "abbreviation": "fcm"}]
+      }
+    },
+    {
+      "name": "esports",
+      "expected_status": "REJECTED",
+      "expected_reason": "ESPORTS_EXCLUDED",
+      "event": {
+        "id": "10768",
+        "title": "Founding Fathers LAN Winner",
+        "slug": "founding-fathers-lan-winner",
+        "seriesSlug": null,
+        "sport": null,
+        "tags": [{"id": "3", "label": "video games", "slug": "video-games"}, {"id": "64", "label": "Esports", "slug": "esports"}, {"id": "100231", "label": "100thieves", "slug": "100thieves"}, {"id": "596", "label": "Culture", "slug": "pop-culture"}],
+        "series": [],
+        "teams": []
+      }
+    }
+  ]
+}

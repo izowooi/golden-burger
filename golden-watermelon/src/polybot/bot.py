@@ -13,7 +13,7 @@ from uuid import uuid4
 from .api.clob_client import ClobClient
 from .api.gamma_client import GammaClient
 from .collector import Collector
-from .config import BotConfig, assert_no_credentials
+from .config import BotConfig, assert_no_credentials, league_registry_payload
 from .db.repository import ResearchRepository
 from .run_audit import ResearchRunAudit
 from .utils.retry import PublicJsonTransport, iso_utc
@@ -52,7 +52,27 @@ class ResearchBot:
                 self.config.db_path,
                 busy_timeout_ms=storage.busy_timeout_ms,
                 data_contract=self.config.trading.data_contract,
+                schema_profile=self.config.trading.schema_profile,
+                universe_profile=self.config.trading.universe_profile,
+                classifier_version=self.config.trading.classifier_version,
+                league_mapping_sha256=self.config.trading.league_mapping_sha256,
+                league_mapping_json=json.dumps(
+                    league_registry_payload(self.config.trading.gamma.league_mapping),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
             )
+            repository.record_league_registry({
+                "league_mapping_sha256": self.config.trading.league_mapping_sha256,
+                "classifier_version": self.config.trading.classifier_version,
+                "universe_profile": self.config.trading.universe_profile,
+                "mapping_json": json.dumps(
+                    league_registry_payload(self.config.trading.gamma.league_mapping),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+                "first_seen_at": iso_utc(),
+            })
             repository.record_config({
                 "config_hash": self.config.config_hash,
                 "strategy_source_digest": self.config.trading.strategy_source_digest,

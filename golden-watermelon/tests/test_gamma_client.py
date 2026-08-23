@@ -1,10 +1,15 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 from polybot.api.gamma_client import GammaClient
-from polybot.config import GammaConfig
+from polybot.config import GammaConfig, load_config
+
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeTransport:
@@ -25,20 +30,13 @@ class FakeTransport:
 
 
 def config(max_pages: int = 4) -> GammaConfig:
-    return GammaConfig(
-        "https://gamma-api.polymarket.com",
-        500,
-        max_pages,
-        "soccer",
-        True,
-        "soccer",
-        ("epl", "bun", "fl1", "lal", "mls"),
-        ("moneyline",),
-        3.05,
-        30,
-        0,
-        1,
-        2,
+    gamma = load_config(
+        ROOT / "config.yaml", "watermelon-white-1m-v3a"
+    ).trading.gamma
+    return replace(
+        gamma,
+        max_pages=max_pages,
+        max_retries=0,
     )
 
 
@@ -52,7 +50,9 @@ def test_server_filters_live_sports_events_without_volume_or_liquidity_gate() ->
     params = kwargs["params"]
     assert method == "GET"
     assert url.endswith("/events/keyset")
-    assert params["tag_slug"] == "soccer"
+    assert params["tag_id"] == 100350
+    assert params["related_tags"] == "false"
+    assert "tag_slug" not in params
     assert params["live"] == "true"
     assert params["closed"] == "false"
     assert params["limit"] == 500

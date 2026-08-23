@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+import json
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ from polybot.collector import (
     classify_match_winner,
     classify_soccer_league,
 )
-from polybot.config import load_config
+from polybot.config import league_registry_payload, load_config
 from polybot.db.repository import ResearchRepository
 
 
@@ -33,14 +34,23 @@ def event(*, live=True, ended=False):
         "live": live,
         "ended": ended,
         "gameStatus": "2H",
-        "sport": {"id": 2, "sport": "epl", "name": "Premier League"},
-        "seriesSlug": "premier-league-2026",
+        "sport": {
+            "id": 2,
+            "sport": "epl",
+            "name": "Premier League",
+            "tags": "1,82,306,100639,100350",
+            "primaryTagId": 306,
+            "series": "10188",
+        },
+        "seriesSlug": "premier-league-2025",
         "tags": [
-            {"slug": "sports"},
-            {"slug": "soccer"},
-            {"slug": "premier-league"},
-            {"slug": "EPL"},
+            {"id": "1", "slug": "sports"},
+            {"id": "100639", "slug": "games"},
+            {"id": "100350", "slug": "soccer"},
+            {"id": "82", "slug": "premier-league"},
+            {"id": "306", "slug": "EPL"},
         ],
+        "series": [{"id": "10188", "slug": "premier-league-2025"}],
         "teams": [
             {"name": "Team A", "abbreviation": "A", "league": "epl"},
             {"name": "Team B", "abbreviation": "B", "league": "epl"},
@@ -151,7 +161,7 @@ class FakeClob:
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3a")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -180,6 +190,15 @@ def repository_for(config):
         config.db_path,
         busy_timeout_ms=1000,
         data_contract=config.trading.data_contract,
+        schema_profile=config.trading.schema_profile,
+        universe_profile=config.trading.universe_profile,
+        classifier_version=config.trading.classifier_version,
+        league_mapping_sha256=config.trading.league_mapping_sha256,
+        league_mapping_json=json.dumps(
+            league_registry_payload(config.trading.gamma.league_mapping),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
     )
 
 
@@ -224,12 +243,10 @@ def test_soccer_league_classifier_rejects_esports_and_non_allowlisted_leagues(
     }
     _, esports_reasons = classify_soccer_league(esports, gamma)
     assert "ESPORTS_EXCLUDED" in esports_reasons
-    assert "LEAGUE_NOT_ALLOWED" in esports_reasons
-    assert "SOCCER_TAG_MISSING" in esports_reasons
 
     championship = {
         **event(),
-        "sport": {"sport": "efl", "name": "Championship"},
+        "sport": {"id": 178, "sport": "efl", "name": "Championship"},
         "teams": [
             {"name": "Team A", "league": "efl"},
             {"name": "Team B", "league": "efl"},
@@ -278,9 +295,10 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
     assert result["stop_exits"] == 0
     with repository.connect() as connection:
         market_row = connection.execute(
-            "SELECT sports_market_type,match_winner_class,liquidity,volume_total,"
-            "sport_family,league_code,league_name "
-            "FROM market_observations WHERE eligible=1"
+            "SELECT m.sports_market_type,m.match_winner_class,m.liquidity,m.volume_total,"
+            "e.sport_code,e.league_code,e.league_name "
+            "FROM market_observations m JOIN event_observations e "
+            "ON e.event_observation_id=m.event_observation_id WHERE m.eligible=1"
         ).fetchone()
         episodes = connection.execute(
             "SELECT threshold,entry_provenance,cadence_arm "
@@ -294,7 +312,7 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
         ).fetchone()[0]
     assert tuple(market_row) == (
         "moneyline", "ALIGNED_TWO_TEAM_MONEYLINE", 25, 0,
-        "soccer", "epl", "Premier League",
+        "epl", "epl", "Premier League",
     )
     assert [row[0] for row in episodes] == [0.95, 0.96, 0.97]
     assert {row[1] for row in episodes} == {"FIRST_FULL_DEPTH_ABOVE"}
@@ -312,7 +330,7 @@ def test_incomplete_event_cursor_preserves_raw_failure_evidence(tmp_path) -> Non
         )
     with repository.connect() as connection:
         sweep = connection.execute(
-            "SELECT page_count,event_count,market_count,cursor_complete "
+            "SELECT page_count,event_count,source_market_count,market_count,cursor_complete "
             "FROM market_sweeps WHERE run_id='run-incomplete'"
         ).fetchone()
         payloads = connection.execute(
@@ -322,9 +340,79 @@ def test_incomplete_event_cursor_preserves_raw_failure_evidence(tmp_path) -> Non
             "SELECT severity,issue_type FROM data_quality_issues "
             "WHERE run_id='run-incomplete'"
         ).fetchone()
-    assert tuple(sweep) == (1, 1, 1, 0)
+    assert tuple(sweep) == (1, 1, 1, 0, 0)
     assert payloads == 1
     assert tuple(issue) == ("CRITICAL", "GAMMA_CURSOR_INCOMPLETE")
+
+
+def test_identity_drift_is_persisted_once_and_blocks_market_and_book(tmp_path) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    drift_event = event()
+    drift_event["sport"] = {**drift_event["sport"], "primaryTagId": 999}
+    result = Collector(
+        config,
+        repository,
+        FakeGamma(market(events=[drift_event])),
+        FakeClob(),
+    ).collect("run-drift", now=NOW)
+    assert result["drift_events"] == 1
+    assert result["markets"] == 0
+    assert result["book_tokens"] == 0
+    with repository.connect() as connection:
+        event_row = connection.execute(
+            """
+            SELECT classification_status,rejection_reason,league_code,
+                   classifier_version,league_mapping_sha256
+            FROM event_observations WHERE run_id='run-drift'
+            """
+        ).fetchone()
+        issue = connection.execute(
+            "SELECT severity,issue_type FROM data_quality_issues WHERE run_id='run-drift'"
+        ).fetchone()
+    assert event_row[0] == "DRIFT"
+    assert "PRIMARY_TAG_ID_MISMATCH" in event_row[1]
+    assert event_row[2] == "epl"
+    assert event_row[3:] == (
+        config.trading.classifier_version,
+        config.trading.league_mapping_sha256,
+    )
+    assert tuple(issue) == ("HIGH", "LEAGUE_IDENTITY_DRIFT")
+
+
+def test_nonallowlisted_cup_is_rejected_without_market_json_duplication(tmp_path) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    cup_event = event()
+    cup_event.update(
+        {
+            "sport": {"id": 49, "sport": "cdr", "name": "Copa del Rey"},
+            "seriesSlug": "copa-del-rey",
+            "tags": [{"id": "100350", "slug": "soccer"}],
+            "series": [{"id": "10316", "slug": "copa-del-rey"}],
+            "teams": [
+                {"name": "Team A", "league": "cdr"},
+                {"name": "Team B", "league": "cdr"},
+            ],
+        }
+    )
+    result = Collector(
+        config,
+        repository,
+        FakeGamma(market(events=[cup_event])),
+        FakeClob(),
+    ).collect("run-cup", now=NOW)
+    assert result["rejected_events"] == 1
+    assert result["markets"] == 0
+    with repository.connect() as connection:
+        event_row = connection.execute(
+            "SELECT classification_status,rejection_reason FROM event_observations"
+        ).fetchone()
+        market_count = connection.execute(
+            "SELECT COUNT(*) FROM market_observations"
+        ).fetchone()[0]
+    assert tuple(event_row) == ("REJECTED", "LEAGUE_NOT_ALLOWED")
+    assert market_count == 0
 
 
 def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:

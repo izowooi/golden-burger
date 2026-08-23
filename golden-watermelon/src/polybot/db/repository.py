@@ -15,7 +15,9 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 
-SCHEMA = """
+# Frozen legacy v3 schema reference. It is deliberately never executed by the
+# v3a runtime; new databases are created only from MIGRATION_PATH below.
+LEGACY_V3_SCHEMA_REFERENCE = """
 PRAGMA foreign_keys=ON;
 
 CREATE TABLE IF NOT EXISTS schema_metadata (
@@ -390,9 +392,15 @@ CREATE INDEX IF NOT EXISTS database_check_time_idx
 ON database_checks(check_type, completed_at);
 """
 
+MIGRATION_PATH = Path(__file__).with_name("migrations") / "0001_soccer_major_league_v3a.sql"
+APPLICATION_ID = 1196903731  # ASCII "GWM3"
+SCHEMA_USER_VERSION = 301
+EXPECTED_SCHEMA_SHA256 = "70baef885a69b0200bb11c8325530cc88a49be2f1b78e27fb046c097a1716e32"
+
 APPEND_ONLY_TABLES = (
-    "research_config_versions", "research_run_events", "api_requests", "raw_payloads",
-    "market_sweeps", "market_observations", "outcome_observations",
+    "schema_metadata", "league_registry_versions", "research_config_versions",
+    "research_run_events", "api_requests", "raw_payloads",
+    "market_sweeps", "event_observations", "market_observations", "outcome_observations",
     "orderbook_token_attempts", "orderbook_snapshots", "orderbook_levels",
     "signal_decisions", "hypothetical_episodes", "episode_path_observations",
     "counterfactual_exit_policies", "stop_execution_attempts",
@@ -408,40 +416,212 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
+def _migration_sha256() -> str:
+    return hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
+
+
+def _schema_sha256(connection: sqlite3.Connection) -> str:
+    rows = connection.execute(
+        """
+        SELECT type,name,tbl_name,sql
+        FROM sqlite_master
+        WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+        ORDER BY type,name,tbl_name
+        """
+    ).fetchall()
+    payload = [tuple(str(value) for value in row) for row in rows]
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
 class ResearchRepository:
-    def __init__(self, path: Path, *, busy_timeout_ms: int, data_contract: str) -> None:
+    def __init__(
+        self,
+        path: Path,
+        *,
+        busy_timeout_ms: int,
+        data_contract: str,
+        schema_profile: str,
+        universe_profile: str,
+        classifier_version: str,
+        league_mapping_sha256: str,
+        league_mapping_json: str,
+    ) -> None:
         self.path = path
         self.busy_timeout_ms = busy_timeout_ms
         self.data_contract = data_contract
-        path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as connection:
-            connection.executescript(SCHEMA)
-            market_columns = {
-                str(row[1])
-                for row in connection.execute(
-                    "PRAGMA table_info(market_observations)"
-                )
-            }
-            if "neg_risk" not in market_columns:
-                # The pre-entry-window build used the same two-outcome
-                # population but retained negRisk only in raw payloads.  Add a
-                # normalized stratum without rewriting append-only rows.
-                connection.execute(
-                    "ALTER TABLE market_observations ADD COLUMN neg_risk INTEGER"
-                )
-            connection.execute(
-                "INSERT OR IGNORE INTO schema_metadata(data_contract,created_at) VALUES(?,?)",
-                (data_contract, _now()),
-            )
-            actual = connection.execute("SELECT data_contract FROM schema_metadata").fetchone()
-            if actual is None or actual[0] != data_contract:
-                raise RuntimeError(f"database contract mismatch: {actual}")
+        self.schema_profile = schema_profile
+        self.universe_profile = universe_profile
+        self.classifier_version = classifier_version
+        self.league_mapping_sha256 = league_mapping_sha256
+        try:
+            mapping_payload = json.loads(league_mapping_json)
+        except (TypeError, json.JSONDecodeError) as error:
+            raise ValueError("league mapping must be valid JSON") from error
+        if not isinstance(mapping_payload, dict):
+            raise ValueError("league mapping JSON must be an object")
+        if "classifier_version" in mapping_payload:
+            raise ValueError("league mapping JSON contains a reserved key")
+        self.league_mapping_json = json.dumps(
+            mapping_payload, sort_keys=True, separators=(",", ":")
+        )
+        mapping_digest = hashlib.sha256(
+            json.dumps(
+                {**mapping_payload, "classifier_version": classifier_version},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest()
+        if mapping_digest != league_mapping_sha256:
+            raise ValueError("league mapping JSON does not match league_mapping_sha256")
+        if path.is_symlink():
+            raise RuntimeError("database path cannot be a symlink")
+        if path.exists():
+            if not path.is_file():
+                raise RuntimeError("database path must be a regular file")
+            self._validate_existing_read_only()
+        else:
+            self._bootstrap_new_database()
+            self._validate_existing_read_only()
+
+    def _expected_metadata(self) -> tuple[object, ...]:
+        return (
+            1,
+            self.data_contract,
+            self.schema_profile,
+            self.universe_profile,
+            self.classifier_version,
+            self.league_mapping_sha256,
+            _migration_sha256(),
+        )
+
+    def _bootstrap_new_database(self) -> None:
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            with self.path.open("xb"):
+                pass
+        except FileExistsError:
+            self._validate_existing_read_only()
+            return
+        connection: sqlite3.Connection | None = None
+        try:
+            connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000)
+            connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+            connection.execute("PRAGMA synchronous=FULL")
+            connection.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
             for table in APPEND_ONLY_TABLES:
                 for operation in ("UPDATE", "DELETE"):
                     trigger = f"{table}_forbid_{operation.lower()}"
                     connection.execute(
-                        f"CREATE TRIGGER IF NOT EXISTS {trigger} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only evidence'); END"
+                        f"CREATE TRIGGER {trigger} BEFORE {operation} ON {table} "
+                        "BEGIN SELECT RAISE(ABORT, 'append-only evidence'); END"
                     )
+            schema_sha256 = _schema_sha256(connection)
+            if schema_sha256 != EXPECTED_SCHEMA_SHA256:
+                raise RuntimeError("migration produced an unexpected v3a schema fingerprint")
+            connection.execute(
+                """
+                INSERT INTO schema_metadata(
+                    singleton,data_contract,schema_profile,universe_profile,
+                    classifier_version,league_mapping_sha256,migration_sha256,
+                    schema_sha256,created_at
+                ) VALUES(?,?,?,?,?,?,?,?,?)
+                """,
+                (*self._expected_metadata(), EXPECTED_SCHEMA_SHA256, _now()),
+            )
+            connection.execute(
+                """
+                INSERT INTO league_registry_versions(
+                    league_mapping_sha256,classifier_version,universe_profile,
+                    mapping_json,first_seen_at
+                ) VALUES(?,?,?,?,?)
+                """,
+                (
+                    self.league_mapping_sha256,
+                    self.classifier_version,
+                    self.universe_profile,
+                    self.league_mapping_json,
+                    _now(),
+                ),
+            )
+            result = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+            if result != "ok":
+                raise RuntimeError(f"new SQLite bootstrap quick_check failed: {result}")
+            connection.commit()
+        except BaseException:
+            if connection is not None:
+                connection.rollback()
+                connection.close()
+                connection = None
+            for candidate in (
+                self.path,
+                Path(f"{self.path}-wal"),
+                Path(f"{self.path}-shm"),
+                Path(f"{self.path}-journal"),
+            ):
+                if candidate.exists():
+                    candidate.unlink()
+            raise
+        finally:
+            if connection is not None:
+                connection.close()
+
+    def _validate_existing_read_only(self) -> None:
+        uri = self.path.resolve().as_uri() + "?mode=ro"
+        try:
+            connection = sqlite3.connect(uri, uri=True, timeout=self.busy_timeout_ms / 1000)
+        except sqlite3.Error as error:
+            raise RuntimeError("database read-only preflight failed") from error
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA query_only=ON")
+            application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
+            user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+            if (application_id, user_version) != (APPLICATION_ID, SCHEMA_USER_VERSION):
+                raise RuntimeError(
+                    "database epoch mismatch before writable open: "
+                    f"application_id={application_id}, user_version={user_version}"
+                )
+            rows = connection.execute(
+                """
+                SELECT singleton,data_contract,schema_profile,universe_profile,
+                       classifier_version,league_mapping_sha256,migration_sha256,
+                       schema_sha256
+                FROM schema_metadata
+                """
+            ).fetchall()
+            if len(rows) != 1:
+                raise RuntimeError("database must contain exactly one schema metadata row")
+            row = rows[0]
+            actual = tuple(row[index] for index in range(7))
+            if actual != self._expected_metadata():
+                raise RuntimeError(f"database contract/schema/mapping mismatch: {actual}")
+            live_schema_sha256 = _schema_sha256(connection)
+            if (
+                str(row["schema_sha256"]) != EXPECTED_SCHEMA_SHA256
+                or live_schema_sha256 != EXPECTED_SCHEMA_SHA256
+            ):
+                raise RuntimeError("database schema fingerprint mismatch")
+            registry_rows = connection.execute(
+                """
+                SELECT league_mapping_sha256,classifier_version,universe_profile,
+                       mapping_json
+                FROM league_registry_versions
+                """
+            ).fetchall()
+            expected_registry = (
+                self.league_mapping_sha256,
+                self.classifier_version,
+                self.universe_profile,
+                self.league_mapping_json,
+            )
+            if len(registry_rows) != 1 or tuple(registry_rows[0]) != expected_registry:
+                raise RuntimeError("database league mapping registry mismatch")
+        except sqlite3.Error as error:
+            raise RuntimeError("database schema preflight failed before writable open") from error
+        finally:
+            connection.close()
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
@@ -466,6 +646,36 @@ class ResearchRepository:
                 "INSERT OR IGNORE INTO research_config_versions VALUES(?,?,?,?,?,?,?)",
                 tuple(row[key] for key in ("config_hash","strategy_source_digest","preregistration_sha256","job_name","mode","config_json","first_seen_at")),
             )
+
+    def record_league_registry(self, row: Mapping[str, Any]) -> None:
+        with self.connect() as c:
+            existing = c.execute(
+                """
+                SELECT league_mapping_sha256,classifier_version,universe_profile,
+                       mapping_json
+                FROM league_registry_versions
+                """
+            ).fetchall()
+            expected = (
+                self.league_mapping_sha256,
+                self.classifier_version,
+                self.universe_profile,
+                self.league_mapping_json,
+            )
+            if len(existing) != 1 or tuple(existing[0]) != expected:
+                raise RuntimeError("league mapping registry changed after preflight")
+            supplied = (
+                row.get("league_mapping_sha256"),
+                row.get("classifier_version"),
+                row.get("universe_profile"),
+                json.dumps(
+                    json.loads(str(row.get("mapping_json"))),
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ),
+            )
+            if supplied != expected:
+                raise RuntimeError("runtime league mapping conflicts with frozen registry")
 
     def record_run_event(self, row: Mapping[str, Any]) -> None:
         with self.connect() as c:
@@ -494,6 +704,7 @@ class ResearchRepository:
         *,
         sweep: Mapping[str, Any],
         payloads: Iterable[Mapping[str, Any]],
+        events: Iterable[Mapping[str, Any]],
         markets: Iterable[Mapping[str, Any]],
         outcomes: Iterable[Mapping[str, Any]],
         attempts: Iterable[Mapping[str, Any]],
@@ -509,6 +720,7 @@ class ResearchRepository:
         with self.connect() as c:
             self._insert(c, "market_sweeps", sweep)
             self._insert_many(c, "raw_payloads", payloads)
+            self._insert_many(c, "event_observations", events)
             self._insert_many(c, "market_observations", markets)
             self._insert_many(c, "outcome_observations", outcomes)
             self._insert_many(c, "orderbook_token_attempts", attempts)
@@ -753,10 +965,15 @@ class ResearchRepository:
 
     def summary(self) -> dict[str, Any]:
         with self.connect() as c:
+            metadata = c.execute(
+                "SELECT * FROM schema_metadata WHERE singleton=1"
+            ).fetchone()
             result = {
                 "quick_check": c.execute("PRAGMA quick_check").fetchone()[0],
+                "schema_metadata": dict(metadata) if metadata is not None else None,
                 "runs": c.execute("SELECT COUNT(DISTINCT run_id) FROM research_run_events WHERE event_type='SUCCEEDED'").fetchone()[0],
                 "sweeps": c.execute("SELECT COUNT(*) FROM market_sweeps").fetchone()[0],
+                "events": c.execute("SELECT COUNT(*) FROM event_observations").fetchone()[0],
                 "episodes": c.execute("SELECT COUNT(*) FROM hypothetical_episodes").fetchone()[0],
                 "exit_policies": c.execute("SELECT COUNT(*) FROM counterfactual_exit_policies").fetchone()[0],
                 "stop_attempts": c.execute("SELECT COUNT(*) FROM stop_execution_attempts").fetchone()[0],
@@ -764,6 +981,13 @@ class ResearchRepository:
                 "resolutions": c.execute("SELECT COUNT(*) FROM resolution_observations").fetchone()[0],
                 "issues": c.execute("SELECT COUNT(*) FROM data_quality_issues").fetchone()[0],
                 "db_bytes": self.path.stat().st_size if self.path.exists() else 0,
+            }
+            result["event_classification"] = {
+                str(row[0]): int(row[1])
+                for row in c.execute(
+                    "SELECT classification_status,COUNT(*) FROM event_observations "
+                    "GROUP BY classification_status ORDER BY classification_status"
+                )
             }
             result["arms"] = {str(row[0]): {"episodes": row[1], "resolved": row[2]} for row in c.execute(
                 """SELECT e.threshold,COUNT(*),SUM(CASE WHEN r.condition_id IS NOT NULL THEN 1 ELSE 0 END)

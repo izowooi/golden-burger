@@ -23,29 +23,93 @@ from .source_digest import (
     PROJECT_ROOT,
     compute_strategy_source_digest,
     preregistration_sha256,
+    verify_frozen_manifest,
 )
 
 
-DATA_CONTRACT = "soccer-inplay-major-league-match-winner-v1"
-CANONICAL_JOB = "watermelon-white-1m-v3"
+DATA_CONTRACT = "soccer-inplay-major-league-match-winner-v2"
+SCHEMA_PROFILE = "golden-watermelon-v3a-schema-v1"
+UNIVERSE_PROFILE = "soccer-major-leagues-2026-08-v3a"
+CLASSIFIER_VERSION = "soccer-major-league-identity-v1"
+CANONICAL_JOB = "watermelon-white-1m-v3a"
 LIFECYCLE_MODES = frozenset({"archive_only"})
+SOCCER_TAG_ID = 100350
+ESPORTS_TAG_ID = 64
+REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
 
-# Gamma's authoritative /sports metadata uses these stable sport codes.  The
-# code/name pair and the soccer event tag must all agree; unknown or renamed
-# metadata fails closed instead of silently widening the experiment.
-MAJOR_SOCCER_LEAGUES: dict[str, str] = {
-    "epl": "Premier League",
-    "bun": "Bundesliga",
-    "fl1": "Ligue 1",
-    "lal": "LaLiga",
-    "mls": "MLS",
-}
+# Immutable legacy epochs. The v3a runtime never accepts these jobs/contracts.
+# The literals also keep repository-wide discovery aware of preserved evidence.
+LEGACY_DATA_CONTRACT_V3 = "soccer-inplay-major-league-match-winner-v1"
+LEGACY_RUNTIME_JOBS = ("watermelon-white-1m-v3", "watermelon-grey-5m-v3")
 
-# The first successful Jenkins run remains the actual source cutoff. This
-# boundary prevents a delayed deploy from silently creating a different cohort.
-FROZEN_START = datetime(2026, 8, 23, 15, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 8, 30, 15, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 6, 15, 0, tzinfo=timezone.utc)
+
+@dataclass(frozen=True)
+class LeagueIdentity:
+    code: str
+    sport_id: int
+    name: str
+    primary_tag_id: int
+    series_id: str
+    series_slug: str
+    team_league: str
+    required_tag_ids: tuple[int, ...]
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "name": self.name,
+            "primary_tag_id": self.primary_tag_id,
+            "required_tag_ids": list(self.required_tag_ids),
+            "series_id": self.series_id,
+            "series_slug": self.series_slug,
+            "sport_id": self.sport_id,
+            "team_league": self.team_league,
+        }
+
+
+FROZEN_LEAGUE_IDENTITIES = (
+    LeagueIdentity("epl", 2, "Premier League", 306, "10188", "premier-league-2025", "epl", (82, 306)),
+    LeagueIdentity("bun", 7, "Bundesliga", 1494, "10194", "bundesliga-2025", "bun", (1494,)),
+    LeagueIdentity("fl1", 11, "Ligue 1", 102070, "10195", "ligue-1-2025", "fl1", (102070,)),
+    LeagueIdentity("lal", 3, "LaLiga", 780, "10193", "la-liga-2025", "lal", (780,)),
+    LeagueIdentity("mls", 33, "MLS", 100100, "10189", "mls-2025", "mls", (100100,)),
+)
+
+# Compatibility name retained for the root contract verifier. Unlike the old
+# dict, this freezes every authoritative Gamma identity field.
+MAJOR_SOCCER_LEAGUES = FROZEN_LEAGUE_IDENTITIES
+
+
+def league_registry_payload(
+    identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+) -> dict[str, Any]:
+    return {
+        "related_tags": False,
+        "required_common_tag_ids": list(REQUIRED_COMMON_TAG_IDS),
+        "soccer_tag_id": SOCCER_TAG_ID,
+        "leagues": [identity.canonical_dict() for identity in identities],
+    }
+
+
+def league_mapping_sha256(
+    identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+) -> str:
+    payload = {
+        "classifier_version": CLASSIFIER_VERSION,
+        **league_registry_payload(identities),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
+
+# Entry begins well after this source edit; first successful source receipt is
+# provenance, not permission to backdate the preregistered statistical window.
+FROZEN_START = datetime(2026, 8, 23, 16, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 8, 30, 16, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 6, 16, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 
@@ -57,26 +121,19 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v3": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v3": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v3a": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v3a": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(
     {
-        "POLYMARKET_PRIVATE_KEY",
-        "POLYMARKET_FUNDER_ADDRESS",
-        "POLYMARKET_SIGNATURE_TYPE",
-        "POLYMARKET_API_KEY",
-        "POLYMARKET_API_SECRET",
-        "POLYMARKET_API_PASSPHRASE",
-        "CLOB_API_KEY",
-        "CLOB_SECRET",
-        "CLOB_PASSPHRASE",
+        "POLYMARKET_PRIVATE_KEY", "POLYMARKET_FUNDER_ADDRESS",
+        "POLYMARKET_SIGNATURE_TYPE", "POLYMARKET_API_KEY",
+        "POLYMARKET_API_SECRET", "POLYMARKET_API_PASSPHRASE",
+        "CLOB_API_KEY", "CLOB_SECRET", "CLOB_PASSPHRASE",
     }
 )
-_ALLOWED_POLYBOT_ENV_KEYS = frozenset(
-    {"POLYBOT_LIFECYCLE_MODE", "POLYBOT_SIMULATION_MODE"}
-)
+_ALLOWED_POLYBOT_ENV_KEYS = frozenset({"POLYBOT_LIFECYCLE_MODE", "POLYBOT_SIMULATION_MODE"})
 
 
 def assert_no_credentials(env: Mapping[str, str] | None = None) -> None:
@@ -134,13 +191,9 @@ def _public_origin(value: Any, name: str) -> str:
     text = str(value).strip().rstrip("/")
     parsed = urlsplit(text)
     if (
-        parsed.scheme != "https"
-        or not parsed.hostname
-        or parsed.username is not None
-        or parsed.password is not None
-        or parsed.path not in {"", "/"}
-        or parsed.query
-        or parsed.fragment
+        parsed.scheme != "https" or not parsed.hostname
+        or parsed.username is not None or parsed.password is not None
+        or parsed.path not in {"", "/"} or parsed.query or parsed.fragment
     ):
         raise ValueError(f"{name} must be a credential-free HTTPS origin")
     return text
@@ -153,22 +206,69 @@ def _mapping(parent: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     return value
 
 
-def _float_tuple(value: Any, name: str) -> tuple[float, ...]:
+def _sequence(value: Any, name: str) -> Sequence[Any]:
     if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
         raise ValueError(f"{name} must be an array")
-    result = tuple(_finite(item, name) for item in value)
+    return value
+
+
+def _float_tuple(value: Any, name: str) -> tuple[float, ...]:
+    result = tuple(_finite(item, name) for item in _sequence(value, name))
     if not result or len(result) != len(set(result)):
         raise ValueError(f"{name} must contain unique values")
     return result
 
 
 def _string_tuple(value: Any, name: str) -> tuple[str, ...]:
-    if isinstance(value, (str, bytes)) or not isinstance(value, Sequence):
-        raise ValueError(f"{name} must be an array")
-    result = tuple(str(item).strip() for item in value)
+    result = tuple(str(item).strip() for item in _sequence(value, name))
     if not result or any(not item for item in result) or len(result) != len(set(result)):
         raise ValueError(f"{name} must contain unique non-empty values")
     return result
+
+
+def _integer_tuple(value: Any, name: str) -> tuple[int, ...]:
+    result = tuple(_integer(item, name) for item in _sequence(value, name))
+    if not result or len(result) != len(set(result)):
+        raise ValueError(f"{name} must contain unique values")
+    return result
+
+
+def _league_identities(value: Any) -> tuple[LeagueIdentity, ...]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("gamma.league_mapping must be a non-empty mapping")
+    identities: list[LeagueIdentity] = []
+    allowed = {
+        "sport_id", "name", "primary_tag_id", "series_id",
+        "series_slug", "team_league", "required_tag_ids",
+    }
+    for raw_code, raw_identity in value.items():
+        raw_code_text = str(raw_code).strip()
+        code = raw_code_text.casefold()
+        if raw_code_text != code:
+            raise ValueError("gamma.league_mapping codes must use exact lowercase values")
+        if not isinstance(raw_identity, Mapping):
+            raise ValueError(f"gamma.league_mapping.{code} must be a mapping")
+        unknown = set(raw_identity) - allowed
+        if unknown:
+            raise ValueError(
+                f"unknown gamma.league_mapping.{code} keys: {sorted(map(str, unknown))}"
+            )
+        identity = LeagueIdentity(
+            code=code,
+            sport_id=_integer(raw_identity.get("sport_id"), f"league_mapping.{code}.sport_id"),
+            name=str(raw_identity.get("name") or "").strip(),
+            primary_tag_id=_integer(raw_identity.get("primary_tag_id"), f"league_mapping.{code}.primary_tag_id"),
+            series_id=str(raw_identity.get("series_id") or "").strip(),
+            series_slug=str(raw_identity.get("series_slug") or "").strip(),
+            team_league=str(raw_identity.get("team_league") or "").strip(),
+            required_tag_ids=_integer_tuple(raw_identity.get("required_tag_ids"), f"league_mapping.{code}.required_tag_ids"),
+        )
+        if not all((identity.name, identity.series_id, identity.series_slug, identity.team_league)):
+            raise ValueError(f"gamma.league_mapping.{code} strings cannot be empty")
+        if identity.team_league != identity.team_league.casefold():
+            raise ValueError(f"gamma.league_mapping.{code}.team_league must be exact lowercase")
+        identities.append(identity)
+    return tuple(identities)
 
 
 @dataclass(frozen=True)
@@ -176,16 +276,26 @@ class GammaConfig:
     base_url: str
     page_size: int
     max_pages: int
-    tag_slug: str
+    tag_id: int
+    related_tags: bool
     live_only: bool
     sport_family: str
-    league_codes: tuple[str, ...]
+    required_common_tag_ids: tuple[int, ...]
+    league_mapping: tuple[LeagueIdentity, ...]
     sports_market_types: tuple[str, ...]
     connect_timeout_seconds: float
     read_timeout_seconds: float
     max_retries: int
     retry_base_seconds: float
     retry_max_seconds: float
+
+    @property
+    def league_codes(self) -> tuple[str, ...]:
+        return tuple(identity.code for identity in self.league_mapping)
+
+    @property
+    def identities_by_code(self) -> dict[str, LeagueIdentity]:
+        return {identity.code: identity for identity in self.league_mapping}
 
 
 @dataclass(frozen=True)
@@ -218,6 +328,10 @@ class StorageConfig:
 class TradingConfig:
     lifecycle_mode: str
     data_contract: str
+    schema_profile: str
+    universe_profile: str
+    classifier_version: str
+    league_mapping_sha256: str
     cadence_arm: str
     cadence_minutes: int
     gamma: GammaConfig
@@ -253,24 +367,30 @@ def _validate_config(config: BotConfig) -> None:
     trading = config.trading
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError("lifecycle_mode must be archive_only")
-    if trading.data_contract != DATA_CONTRACT:
-        raise ValueError(f"data_contract must be {DATA_CONTRACT}")
-    if (trading.cadence_arm, trading.cadence_minutes) != (
-        profile.cadence_arm,
-        profile.cadence_minutes,
-    ):
+    exact_metadata = (
+        trading.data_contract == DATA_CONTRACT
+        and trading.schema_profile == SCHEMA_PROFILE
+        and trading.universe_profile == UNIVERSE_PROFILE
+        and trading.classifier_version == CLASSIFIER_VERSION
+        and trading.league_mapping_sha256 == LEAGUE_MAPPING_SHA256
+    )
+    if not exact_metadata:
+        raise ValueError("data/schema/universe/classifier mapping contract differs")
+    if (trading.cadence_arm, trading.cadence_minutes) != (profile.cadence_arm, profile.cadence_minutes):
         raise ValueError("cadence treatment must match the frozen job profile")
     gamma = trading.gamma
     if gamma.base_url != "https://gamma-api.polymarket.com":
         raise ValueError("Gamma origin is frozen")
     if gamma.page_size != 500 or not 1 <= gamma.max_pages <= 4:
         raise ValueError("Gamma event keyset envelope must remain 500 × at most 4 pages")
-    if gamma.tag_slug != "soccer" or gamma.live_only is not True:
-        raise ValueError("Gamma discovery must remain live soccer only")
+    if gamma.tag_id != SOCCER_TAG_ID or gamma.related_tags is not False or gamma.live_only is not True:
+        raise ValueError("Gamma discovery must remain exact numeric soccer tag only")
     if gamma.sport_family != "soccer":
         raise ValueError("sport_family must remain soccer")
-    if gamma.league_codes != tuple(MAJOR_SOCCER_LEAGUES):
-        raise ValueError("league_codes must remain EPL/Bundesliga/Ligue 1/LaLiga/MLS")
+    if gamma.required_common_tag_ids != REQUIRED_COMMON_TAG_IDS:
+        raise ValueError("required common sport/games/soccer tag IDs differ")
+    if gamma.league_mapping != FROZEN_LEAGUE_IDENTITIES:
+        raise ValueError("league mapping differs from the frozen authoritative tuple")
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:
@@ -280,10 +400,8 @@ def _validate_config(config: BotConfig) -> None:
     if not 1 <= trading.orderbook.batch_token_limit <= 500:
         raise ValueError("orderbook batch size is invalid")
     experiment = trading.experiment
-    if (
-        experiment.start_utc != FROZEN_START
-        or experiment.entry_end_utc != FROZEN_ENTRY_END
-        or experiment.followup_end_utc != FROZEN_FOLLOWUP_END
+    if (experiment.start_utc, experiment.entry_end_utc, experiment.followup_end_utc) != (
+        FROZEN_START, FROZEN_ENTRY_END, FROZEN_FOLLOWUP_END,
     ):
         raise ValueError("experiment dates differ from frozen preregistration")
     if experiment.entry_thresholds != ENTRY_THRESHOLDS:
@@ -308,9 +426,9 @@ def load_config(
     simulation_mode: bool | None = None,
 ) -> BotConfig:
     assert_no_credentials()
+    verify_frozen_manifest()
     unknown = sorted(
-        key
-        for key in os.environ
+        key for key in os.environ
         if key.startswith("POLYBOT_") and key not in _ALLOWED_POLYBOT_ENV_KEYS
     )
     if unknown:
@@ -337,75 +455,46 @@ def load_config(
         base_url=_public_origin(gamma_raw["base_url"], "gamma.base_url"),
         page_size=_integer(gamma_raw["page_size"], "gamma.page_size"),
         max_pages=_integer(gamma_raw["max_pages"], "gamma.max_pages"),
-        tag_slug=str(gamma_raw["tag_slug"]).strip(),
+        tag_id=_integer(gamma_raw["tag_id"], "gamma.tag_id"),
+        related_tags=_boolean(gamma_raw["related_tags"], "gamma.related_tags"),
         live_only=_boolean(gamma_raw["live_only"], "gamma.live_only"),
         sport_family=str(gamma_raw["sport_family"]).strip().casefold(),
-        league_codes=_string_tuple(
-            gamma_raw["league_codes"], "gamma.league_codes"
-        ),
-        sports_market_types=_string_tuple(
-            gamma_raw["sports_market_types"], "gamma.sports_market_types"
-        ),
-        connect_timeout_seconds=_finite(
-            gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"
-        ),
-        read_timeout_seconds=_finite(
-            gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"
-        ),
+        required_common_tag_ids=_integer_tuple(gamma_raw["required_common_tag_ids"], "gamma.required_common_tag_ids"),
+        league_mapping=_league_identities(gamma_raw["league_mapping"]),
+        sports_market_types=_string_tuple(gamma_raw["sports_market_types"], "gamma.sports_market_types"),
+        connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
+        read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),
         max_retries=_integer(gamma_raw["max_retries"], "gamma.max_retries"),
-        retry_base_seconds=_finite(
-            gamma_raw["retry_base_seconds"], "gamma.retry_base_seconds"
-        ),
-        retry_max_seconds=_finite(
-            gamma_raw["retry_max_seconds"], "gamma.retry_max_seconds"
-        ),
+        retry_base_seconds=_finite(gamma_raw["retry_base_seconds"], "gamma.retry_base_seconds"),
+        retry_max_seconds=_finite(gamma_raw["retry_max_seconds"], "gamma.retry_max_seconds"),
     )
     orderbook = OrderBookConfig(
         base_url=_public_origin(orderbook_raw["base_url"], "orderbook.base_url"),
-        batch_token_limit=_integer(
-            orderbook_raw["batch_token_limit"], "orderbook.batch_token_limit"
-        ),
+        batch_token_limit=_integer(orderbook_raw["batch_token_limit"], "orderbook.batch_token_limit"),
     )
     experiment = ExperimentConfig(
         start_utc=_utc(experiment_raw["start_utc"], "experiment.start_utc"),
         entry_end_utc=_utc(experiment_raw["entry_end_utc"], "experiment.entry_end_utc"),
-        followup_end_utc=_utc(
-            experiment_raw["followup_end_utc"], "experiment.followup_end_utc"
-        ),
-        entry_thresholds=_float_tuple(
-            experiment_raw["entry_thresholds"], "experiment.entry_thresholds"
-        ),
-        stop_levels=_float_tuple(
-            experiment_raw["stop_levels"], "experiment.stop_levels"
-        ),
-        simulated_notional_usdc=_finite(
-            experiment_raw["simulated_notional_usdc"],
-            "experiment.simulated_notional_usdc",
-        ),
-        fee_rate_fallback=_finite(
-            experiment_raw["fee_rate_fallback"], "experiment.fee_rate_fallback"
-        ),
+        followup_end_utc=_utc(experiment_raw["followup_end_utc"], "experiment.followup_end_utc"),
+        entry_thresholds=_float_tuple(experiment_raw["entry_thresholds"], "experiment.entry_thresholds"),
+        stop_levels=_float_tuple(experiment_raw["stop_levels"], "experiment.stop_levels"),
+        simulated_notional_usdc=_finite(experiment_raw["simulated_notional_usdc"], "experiment.simulated_notional_usdc"),
+        fee_rate_fallback=_finite(experiment_raw["fee_rate_fallback"], "experiment.fee_rate_fallback"),
         preregistration_sha256=preregistration_sha256(),
     )
     storage = StorageConfig(
-        busy_timeout_ms=_integer(
-            storage_raw["busy_timeout_ms"], "storage.busy_timeout_ms"
-        ),
+        busy_timeout_ms=_integer(storage_raw["busy_timeout_ms"], "storage.busy_timeout_ms"),
         min_free_gib=_finite(storage_raw["min_free_gib"], "storage.min_free_gib"),
-        stop_used_ratio=_finite(
-            storage_raw["stop_used_ratio"], "storage.stop_used_ratio"
-        ),
-        bot_log_retention_days=_integer(
-            storage_raw["bot_log_retention_days"], "storage.bot_log_retention_days"
-        ),
+        stop_used_ratio=_finite(storage_raw["stop_used_ratio"], "storage.stop_used_ratio"),
+        bot_log_retention_days=_integer(storage_raw["bot_log_retention_days"], "storage.bot_log_retention_days"),
     )
     trading = TradingConfig(
-        lifecycle_mode=str(
-            os.environ.get(
-                "POLYBOT_LIFECYCLE_MODE", trading_raw.get("lifecycle_mode", "")
-            )
-        ).strip(),
+        lifecycle_mode=str(os.environ.get("POLYBOT_LIFECYCLE_MODE", trading_raw.get("lifecycle_mode", ""))).strip(),
         data_contract=str(trading_raw.get("data_contract", "")).strip(),
+        schema_profile=str(trading_raw.get("schema_profile", "")).strip(),
+        universe_profile=str(trading_raw.get("universe_profile", "")).strip(),
+        classifier_version=str(trading_raw.get("classifier_version", "")).strip(),
+        league_mapping_sha256=league_mapping_sha256(gamma.league_mapping),
         cadence_arm=profile.cadence_arm,
         cadence_minutes=profile.cadence_minutes,
         gamma=gamma,

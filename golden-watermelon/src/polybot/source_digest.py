@@ -8,14 +8,16 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-24-soccer/PREREGISTRATION.md"
+    "research/frozen-2026-08-24-soccer-v3a/PREREGISTRATION.md"
 )
+ACTIVE_MANIFEST = "research/frozen-2026-08-24-soccer-v3a/MANIFEST.sha256"
 SOURCE_PATHS = (
     "pyproject.toml",
     "uv.lock",
     "config.yaml",
     "STRATEGY.md",
     ACTIVE_PREREGISTRATION,
+    ACTIVE_MANIFEST,
     "scripts/analyze_experiment.py",
     "scripts/verify_external_workspace.py",
     "src/polybot/main.py",
@@ -27,7 +29,9 @@ SOURCE_PATHS = (
     "src/polybot/api/gamma_client.py",
     "src/polybot/api/clob_client.py",
     "src/polybot/collector.py",
+    "src/polybot/league_classifier.py",
     "src/polybot/db/repository.py",
+    "src/polybot/db/migrations/0001_soccer_major_league_v3a.sql",
     "src/polybot/utils/retry.py",
 )
 
@@ -53,3 +57,30 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
 
 def preregistration_sha256(root: Path = PROJECT_ROOT) -> str:
     return sha256_file(root / ACTIVE_PREREGISTRATION)
+
+
+def verify_frozen_manifest(root: Path = PROJECT_ROOT) -> None:
+    manifest = root / ACTIVE_MANIFEST
+    base = manifest.parent
+    lines = manifest.read_text(encoding="utf-8").splitlines()
+    if not lines:
+        raise ValueError("active frozen manifest is empty")
+    verified: set[Path] = set()
+    for line in lines:
+        digest, separator, relative = line.partition("  ")
+        if separator != "  " or len(digest) != 64:
+            raise ValueError("active frozen manifest has an invalid line")
+        try:
+            int(digest, 16)
+        except ValueError as error:
+            raise ValueError("active frozen manifest has a non-hex digest") from error
+        path = (base / relative).resolve()
+        try:
+            path.relative_to(root.resolve())
+        except ValueError as error:
+            raise ValueError("active frozen manifest escapes the project root") from error
+        if path in verified or not path.is_file() or path.is_symlink():
+            raise ValueError("active frozen manifest target is missing, duplicate, or symlinked")
+        if sha256_file(path) != digest:
+            raise ValueError(f"active frozen manifest mismatch: {relative}")
+        verified.add(path)

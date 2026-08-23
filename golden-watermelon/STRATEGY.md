@@ -26,21 +26,34 @@ fee·spread·급반전 시 실제 bid depth를 반영해도 resolution까지 보
 
 같은 condition/token/threshold를 paired하고 event-cluster 단위로 집계해 이를 구분한다.
 
-## Universe — soccer major leagues v3
+## Universe — soccer major leagues v3a
 
 - Source: Gamma `/events/keyset`, keyset cursor complete.
-- Server envelope: `closed=false`, `live=true`, `tag_slug=soccer`, page 500,
+- Server envelope: `closed=false`, `live=true`, numeric `tag_id=100350`,
+  `related_tags=false`, page 500,
   max 4. nested market에서 `sportsMarketType=moneyline`을 client-side로 재검증한다.
 - Frozen league allowlist: EPL(`epl`), Bundesliga(`bun`), Ligue 1(`fl1`),
-  LaLiga(`lal`), MLS(`mls`). Gamma `event.sport.sport/name`, `soccer` tag와 allowlist가
-  모두 일치해야 한다. e-sports와 그 밖의 league는 fail closed한다.
-- `sport_family`, `league_code`, `league_name`, `series_slug`, event tags와 team league
-  metadata를 저장해 리그별 고확률 역전과 resolution을 비교한다.
+  LaLiga(`lal`), MLS(`mls`). authority는 title/slug 추정이 아니라 아래 exact tuple이다.
+- 공통 numeric tags `1/100639/100350`과 league별 required tag가 event tags와
+  `sport.tags` 양쪽에 있어야 한다. e-sports tag `64`, cup, 2부와 다른 league는
+  `REJECTED`; 허용 code의 authority 충돌은 `DRIFT`다.
 - volume/liquidity 하한: **none**. 두 값은 feature로 저장하고 selection gate로 쓰지 않는다.
 - Execution availability: active, not closed, accepting orders, order book enabled.
 - Clock: `gameStartTime <= receipt time`; `event.ended=true` 또는 명시적
   `event.live=false`면 제외.
 - 정확히 두 team과 두 outcome token을 요구한다.
+
+| code | sport id/name/primaryTagId | series id/slug | team league | extra tags |
+|---|---|---|---|---|
+| `epl` | `2 / Premier League / 306` | `10188 / premier-league-2025` | `epl` | `82,306` |
+| `bun` | `7 / Bundesliga / 1494` | `10194 / bundesliga-2025` | `bun` | `1494` |
+| `fl1` | `11 / Ligue 1 / 102070` | `10195 / ligue-1-2025` | `fl1` | `102070` |
+| `lal` | `3 / LaLiga / 780` | `10193 / la-liga-2025` | `lal` | `780` |
+| `mls` | `33 / MLS / 100100` | `10189 / mls-2025` | `mls` | `100100` |
+
+각 event의 raw page와 normalized authority/rejection reason은 `event_observations` 한 row가
+소유하고 market은 `event_observation_id`만 참조한다. event sport/tag/series/team JSON을
+market마다 복제하지 않는다.
 
 ### Whole-match winner 분류
 
@@ -98,8 +111,8 @@ closed이며 두 token 중 winner가 정확히 하나일 때만 인정한다.
 
 | Jenkins | runtime job | arm | timer |
 |---|---|---|---|
-| `polybot-white` | `watermelon-white-1m-v3` | `FAST_1M` | 매분 |
-| `polybot-grey` | `watermelon-grey-5m-v3` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v3a` | `FAST_1M` | 매분 |
+| `polybot-grey` | `watermelon-grey-5m-v3a` | `CONTROL_5M` | 5분 |
 
 두 job은 cadence 외 config/source/universe/grid가 같다. 동일 episode key를 paired하고,
 entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI 차이를 비교한다.
@@ -107,9 +120,11 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 ## Frozen timeline
 
-- Entry: `[2026-08-23T15:00:00Z, 2026-08-30T15:00:00Z)` (7일).
+- Freeze decision: `2026-08-23T15:07:00Z`.
+- Entry: `[2026-08-23T16:00:00Z, 2026-08-30T16:00:00Z)` (7일,
+  `2026-08-24 01:00 KST` 즉시 시작).
 - Calibration/confirmation descriptive split: entry window midpoint.
-- Resolution follow-up: `2026-09-06T15:00:00Z`까지.
+- Resolution follow-up: `2026-09-06T16:00:00Z`까지.
 - 실제 수집 시작은 각 Jenkins의 첫 successful build와 DB source receipt time으로 보고한다.
 
 첫 7일은 collection health와 리그 coverage를 우선한다. threshold/stop을 선택하거나
@@ -122,11 +137,12 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 수익성이나 parameter를 판단하지 않는다.
 
-- 두 DB `quick_check=ok`, data contract/config/source digest 일치.
+- 두 DB `quick_check=ok`; application/user version, data/schema/universe/classifier/mapping/
+  migration/schema hash와 source digest exact 일치.
 - cursor-complete sweep 100%.
 - successful cadence coverage: FAST ≥95%, CONTROL ≥90%.
 - eligible outcome의 CLOB attempt coverage ≥95%.
-- incomplete cursor, credential, DB lock, storage CRITICAL/HIGH issue 0.
+- `DRIFT`, incomplete cursor, credential, DB lock, storage CRITICAL/HIGH issue 0.
 - 외장 volume free space ≥50GiB, used ratio <90%.
 - FAST natural build p95가 45초 미만. 초과하면 timer를 끄고 범위를 조용히 자르지 않은 채
   runtime 원인을 수정한다.
@@ -135,7 +151,10 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 entry와 follow-up이 끝난 뒤에만 X/Y 후보를 고른다.
 
-- 각 X의 confirmation 구간 resolved unique event ≥100.
+- primary는 event 안 episode equal → league 안 event equal → 다섯 league 각각 20%의
+  league-macro fee-net ROI다. league 하나라도 evaluable resolution이 없으면 estimate/CI는
+  `null`이다. deterministic 2,000회 league-stratified event bootstrap을 사용한다.
+- 각 X의 confirmation 구간 resolved unique event ≥100, league별 ≥20.
 - resolution coverage ≥90%, exact $5 entry quote 100%.
 - event-cluster bootstrap 95% lower bound가 fee 후 ROI 0보다 커야 한다.
 - calibration에서만 좋고 confirmation에서 0 이하인 조합은 폐기한다.

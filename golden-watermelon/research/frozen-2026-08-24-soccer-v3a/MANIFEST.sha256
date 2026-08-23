@@ -1,0 +1,7 @@
+d3bf739953d91e64dccaf356589e66475a82b9de8ea8eb1cd612fea5d3a17bed  ../../config.yaml
+0e9d1cd33e01050e38deb75d6637a866bab8edcdfbb5c6794b53638f9e639447  ../../STRATEGY.md
+08b23dff61b37e76c6d76d597b70e7be985b491545efefcbb7f0d3de1e399aec  PREREGISTRATION.md
+cf9cc8b42edcbcedbb95e8ceb9305c55cb15bba9b4727f55ed525b7f7e7a11bf  ../../src/polybot/config.py
+24df6be9bc5c59ac926164db8f007daf38f4c94472683e16c84b7f6c4c8f5f71  ../../src/polybot/league_classifier.py
+4db0d366f41db06e18059a2b05d9007073356d160eb8222725cc51df549b484c  ../../src/polybot/db/migrations/0001_soccer_major_league_v3a.sql
+c32ee20e302e3b9269ac0e3753517ab76310478e9e695b5f1dc2b0e2ce1fce9c  ../../src/polybot/source_digest.py

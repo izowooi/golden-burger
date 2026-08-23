@@ -6,8 +6,8 @@
 
 | Jenkins | exact custom workspace | runtime job | schedule |
 |---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3` | `H/5 * * * *` |
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3a` | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3a` | `H/5 * * * *` |
 
 concurrent build는 비활성화하고 Jenkins build discard는 14일로 둔다. Clean before checkout,
 workspace wipe, credential binding은 사용하지 않는다. DB는 workspace의
@@ -43,27 +43,31 @@ UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
 "${UV}" run python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot config --simulate --job watermelon-white-1m-v3
-"${UV}" run polybot run --simulate --job watermelon-white-1m-v3
+"${UV}" run polybot config --simulate --job watermelon-white-1m-v3a
+"${UV}" run polybot run --simulate --job watermelon-white-1m-v3a
 ```
 
-Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v3`로 바꾼다. 실험 parameter는 Jenkins
+Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v3a`로 바꾼다. 실험 parameter는 Jenkins
 env로 override하지 않는다.
 
-같은 external workspace를 유지하되 runtime job이 달라 `data/watermelon-*-v3/`에 새 DB가
-생긴다. `data/watermelon-*-v2/`는 삭제·이동·migration하지 않는다.
+같은 external workspace를 유지하되 runtime job이 달라 `data/watermelon-*-v3a/`에 새 DB가
+생긴다. `data/watermelon-*-v2/`와 `data/watermelon-*-v3/`는 삭제·이동·migration·copy하지
+않는다. frozen prereg directory도 수정하지 않는다.
 
 ## 최초 배포
 
 1. timer 없이 각 job을 수동 1회 실행한다.
-2. console에서 `cursor_complete=true`, page 수 ≤4, `cadence_arm`,
+2. 첫 request receipt의 params가 exact `tag_id=100350`, `related_tags=false`,
+   `closed=false`, `live=true`인지 확인하고 `cursor_complete=true`, page 수 ≤4, `cadence_arm`,
    `quick_check=ok` 또는 scheduled lightweight/full check, external free space를 확인한다.
-3. `polybot status`로 DB contract, episode/policy count를 확인한다.
+3. `polybot status`로 application/user version, schema/universe/classifier/mapping/migration/
+   schema hash, event `ACCEPTED/REJECTED/DRIFT`, league coverage와 episode/policy count를 확인한다.
 4. White runtime이 45초 미만, Grey runtime이 240초 미만일 때만 timer를 켠다.
 5. 최소 White 2회, Grey 2회의 자연 build를 확인한다.
 
-실패하면 DB를 clean하지 않는다. timer를 끄고 schema/API/runtime 원인을 고친 뒤 같은 DB에서
-재개한다. source/config identity를 바꾸는 수정이면 새 epoch를 만든다.
+실패하면 DB를 clean하지 않는다. timer를 끄고 raw evidence로 원인을 조사한다. schema,
+mapping, classifier, prereg identity를 바꾸는 수정이면 기존 file을 ALTER/migrate하지 않고 새
+runtime job·DB·frozen prereg epoch를 만든다.
 
 ## Cadence 장애 기준
 
@@ -75,8 +79,7 @@ env로 override하지 않는다.
 
 ## 다음 health review
 
-첫 24시간 review 권장 시각은 `2026-08-25 01:00 KST`
-(`2026-08-24T16:00:00Z`) 이후다. 그때까지는 수익성과 X/Y 선택을 판단하지 않고
+첫 health review는 `2026-08-24T16:00:00Z` 이후다. 그때까지는 수익성과 X/Y 선택을 판단하지 않고
 collection health와 league metadata coverage만 확인한다.
 
 ```bash
@@ -95,13 +98,14 @@ uv run daily-rsync locate --job polybot-grey --strategy golden-watermelon
 
 ```bash
 cd ../golden-watermelon
-uv run polybot analyze --simulate --job watermelon-white-1m-v3 \
+uv run polybot analyze --simulate --job watermelon-white-1m-v3a \
   --db /absolute/white/trades_sim.db \
   --db /absolute/grey/trades_sim.db \
   --output /tmp/golden-watermelon-health.json
 ```
 
-24시간 review 항목은 cadence, cursor completeness, strict moneyline classification,
+24시간 review 항목은 cadence, cursor completeness, exact authority classifier와 drift,
+5-league coverage, strict moneyline classification,
 book/full-depth coverage, path/stop retry, resolution attempt, cohort, DB integrity와 storage
 growth다. ROI·best threshold·best stop은 보고하지 않는다.
 
@@ -110,6 +114,11 @@ growth다. ROI·best threshold·best stop은 보고하지 않는다.
 - credential rejection: Jenkins binding/inline export를 제거한다.
 - `EVENT_RELATION_NOT_UNIQUE` 또는 team metadata 부족: raw Gamma evidence를 확인하고
   fail-closed classifier를 완화하지 않는다.
+- `LEAGUE_IDENTITY_DRIFT`: CLOB/episode가 0인지 확인하고 sport id/code/name/primaryTagId,
+  series id+slug, required common/league tags, team league 중 충돌 field를 보고한다. runtime
+  mapping을 자동 갱신하지 않는다.
+- `database epoch mismatch`: 해당 file을 절대 열어 쓰지 않는다. v2/v3 archive인지 catalog로
+  확인하고 v3a exact path를 고친다.
 - `EVENT_LIVE_FALSE`만 비정상적으로 많음: source 의미를 raw payload/공식 schema로 확인한 뒤
   새 preregistration 없이 eligibility 의미를 바꾸지 않는다.
 - stop gap: trigger와 actual displayed VWAP 차이는 관측값이다.

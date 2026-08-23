@@ -18,9 +18,14 @@ from .api.clob_client import (
     walk_bids_partial,
 )
 from .api.gamma_client import GammaClient
-from .config import BotConfig, GammaConfig, MAJOR_SOCCER_LEAGUES
+from .config import BotConfig, GammaConfig
 from .db.repository import ResearchRepository
+from .league_classifier import LeagueClassification, classify_soccer_event
 from .utils.retry import canonical_json, iso_utc
+
+
+# Stable event-level rejection vocabulary used by reports and the repository
+# contract verifier: ESPORTS_EXCLUDED, LEAGUE_NOT_ALLOWED.
 
 
 def _array(value: Any) -> list[Any] | None:
@@ -100,65 +105,21 @@ def _select_event(
     return (events[0] if events else {}), ["EVENT_RELATION_NOT_UNIQUE"], len(events)
 
 
-def _event_tag_slugs(event: Mapping[str, Any]) -> tuple[str, ...]:
-    values: list[str] = []
-    raw_tags = event.get("tags")
-    if isinstance(raw_tags, list):
-        for item in raw_tags:
-            value = item.get("slug") if isinstance(item, Mapping) else item
-            normalized = str(value or "").strip().casefold()
-            if normalized:
-                values.append(normalized)
-    return tuple(dict.fromkeys(values))
-
-
 def classify_soccer_league(
     event: Mapping[str, Any], gamma: GammaConfig
 ) -> tuple[dict[str, Any], list[str]]:
-    """Require authoritative soccer metadata and a frozen major-league code."""
-    reasons: list[str] = []
-    raw_sport = event.get("sport")
-    sport = dict(raw_sport) if isinstance(raw_sport, Mapping) else {}
-    league_code = str(sport.get("sport") or "").strip().casefold()
-    league_name = str(sport.get("name") or "").strip()
-    tag_slugs = _event_tag_slugs(event)
-    series_slug = str(event.get("seriesSlug") or "").strip() or None
-    teams = [
-        item
-        for item in (event.get("teams") or [])
-        if isinstance(item, Mapping)
-    ] if isinstance(event.get("teams"), list) else []
-    team_leagues = tuple(
-        dict.fromkeys(
-            str(team.get("league") or "").strip().casefold()
-            for team in teams
-            if str(team.get("league") or "").strip()
-        )
-    )
-
-    if not sport or not league_code or not league_name:
-        reasons.append("SPORT_METADATA_MISSING")
-    if gamma.sport_family not in tag_slugs:
-        reasons.append("SOCCER_TAG_MISSING")
-    if {"esports", "e-sports"} & set(tag_slugs):
-        reasons.append("ESPORTS_EXCLUDED")
-    if league_code not in gamma.league_codes:
-        reasons.append("LEAGUE_NOT_ALLOWED")
-    else:
-        expected_name = MAJOR_SOCCER_LEAGUES[league_code]
-        if league_name != expected_name:
-            reasons.append("LEAGUE_NAME_MISMATCH")
-        if team_leagues and team_leagues != (league_code,):
-            reasons.append("TEAM_LEAGUE_MISMATCH")
-
+    """Compatibility wrapper around the exact numeric identity classifier."""
+    result = classify_soccer_event(event, gamma)
     return {
-        "sport_family": gamma.sport_family if gamma.sport_family in tag_slugs else None,
-        "league_code": league_code or None,
-        "league_name": league_name or None,
-        "series_slug": series_slug,
-        "event_tag_slugs": list(tag_slugs),
-        "team_leagues": list(team_leagues),
-    }, reasons
+        "sport_family": gamma.sport_family if result.accepted else None,
+        "league_code": result.league_code,
+        "league_name": result.league_name,
+        "series_slug": result.evidence["series_slug"],
+        "event_tag_slugs": result.evidence["tag_slugs"],
+        "team_leagues": result.evidence["team_leagues"],
+        "classification_status": result.status,
+        "league_mapping_sha256": result.evidence["league_mapping_sha256"],
+    }, list(result.reasons)
 
 
 def classify_match_winner(
@@ -280,12 +241,14 @@ def _stop_policy_key(stop: float) -> str:
 def _parse_market(
     market: Mapping[str, Any],
     *,
+    event: Mapping[str, Any],
+    event_observation_id: str,
+    league: LeagueClassification,
     sweep_id: str,
     run_id: str,
     observed_at: datetime,
     config: BotConfig,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
-    event, event_reasons, event_relation_count = _select_event(market)
     event_id = str(event.get("id") or "")
     condition_id = str(market.get("conditionId") or market.get("condition_id") or "")
     labels = _array(market.get("outcomes")) or []
@@ -297,7 +260,6 @@ def _parse_market(
     match_class, eligible_indices, classification, classification_reasons = (
         classify_match_winner(event, market, labels, tokens, probability_values)
     )
-    league, league_reasons = classify_soccer_league(event, config.trading.gamma)
     end_date = _utc(market.get("endDate") or market.get("end_date") or event.get("endDate"))
     game_start = _utc(
         market.get("gameStartTime")
@@ -315,11 +277,9 @@ def _parse_market(
     event_live = _boolean(event.get("live"))
     event_ended = _boolean(event.get("ended"))
     event_game_status = str(event.get("gameStatus") or "") or None
-    reasons: list[str] = [
-        *event_reasons,
-        *league_reasons,
-        *classification_reasons,
-    ]
+    reasons: list[str] = [*classification_reasons]
+    if not league.accepted:
+        reasons.append("EVENT_LEAGUE_NOT_ACCEPTED")
     if not event_id or not condition_id:
         reasons.append("MISSING_ID")
     if active is not True or closed is not False or accepting is not True or book_enabled is not True:
@@ -343,18 +303,14 @@ def _parse_market(
     fee_rate, fee_schedule = _fee_rate(market, config.trading.experiment.fee_rate_fallback)
     observation_id = uuid4().hex
     market_row = {
-        "observation_id": observation_id, "sweep_id": sweep_id, "run_id": run_id,
+        "observation_id": observation_id,
+        "event_observation_id": event_observation_id,
+        "sweep_id": sweep_id, "run_id": run_id,
         "event_id": event_id, "event_title": str(event.get("title") or "") or None,
         "condition_id": condition_id or None, "market_id": str(market.get("id") or "") or None,
         "question": str(market.get("question") or "") or None,
         "group_item_title": str(market.get("groupItemTitle") or "") or None,
         "sports_market_type": str(market.get("sportsMarketType") or "") or None,
-        "sport_family": league["sport_family"],
-        "league_code": league["league_code"],
-        "league_name": league["league_name"],
-        "series_slug": league["series_slug"],
-        "event_tag_slugs_json": canonical_json(league["event_tag_slugs"]),
-        "team_leagues_json": canonical_json(league["team_leagues"]),
         "observed_at": iso_utc(observed_at),
         "end_date": iso_utc(end_date) if end_date else None,
         "game_start_time": iso_utc(game_start) if game_start else None,
@@ -370,11 +326,7 @@ def _parse_market(
         "neg_risk": int(neg_risk) if neg_risk is not None else None,
         "match_winner_class": match_class,
         "eligible_outcome_indices_json": canonical_json(list(eligible_indices)),
-        "classification_evidence_json": canonical_json({
-            **classification,
-            **league,
-            "event_relation_count": event_relation_count,
-        }),
+        "classification_evidence_json": canonical_json(classification),
         "cadence_arm": config.trading.cadence_arm,
         "fee_rate": fee_rate, "fee_schedule_json": canonical_json(fee_schedule),
         "outcome_labels_json": canonical_json(labels), "token_ids_json": canonical_json(tokens),
@@ -388,7 +340,6 @@ def _parse_market(
             "liquidity": liquidity, "volume_total": volume,
             "neg_risk": neg_risk, "fee_rate": fee_rate,
             "sports_market_type": market.get("sportsMarketType"),
-            **league,
             "match_winner_class": match_class,
             "eligible_outcome_indices": list(eligible_indices),
             "event_live": event_live, "event_ended": event_ended,
@@ -414,12 +365,66 @@ def _parse_market(
         "probabilities": probability_values, "fee_rate": fee_rate,
         "end_date": end_date, "game_start": game_start, "phase": phase,
         "liquidity": liquidity, "volume": volume,
-        "sport_family": league["sport_family"],
-        "league_code": league["league_code"],
-        "league_name": league["league_name"],
-        "series_slug": league["series_slug"],
+        "event_observation_id": event_observation_id,
+        "league_code": league.league_code,
+        "league_name": league.league_name,
+        "classifier_version": config.trading.classifier_version,
+        "league_mapping_sha256": config.trading.league_mapping_sha256,
     }
     return market_row, outcome_rows, context
+
+
+def _event_observation_row(
+    event: Mapping[str, Any],
+    classification: LeagueClassification,
+    *,
+    event_observation_id: str,
+    sweep_id: str,
+    run_id: str,
+    source_payload_id: str,
+    page_number: int,
+    request_id: str,
+    observed_at: datetime,
+) -> dict[str, Any]:
+    canonical_event = canonical_json(event)
+    fields = classification.event_row_fields()
+    return {
+        "event_observation_id": event_observation_id,
+        "sweep_id": sweep_id,
+        "run_id": run_id,
+        "source_payload_id": source_payload_id,
+        "page_number": page_number,
+        "request_id": request_id,
+        "observed_at": iso_utc(observed_at),
+        "event_id": str(event.get("id") or "MISSING:" + hashlib.sha256(canonical_event.encode()).hexdigest()),
+        "event_title": str(event.get("title") or "") or None,
+        "event_slug": str(event.get("slug") or "") or None,
+        "canonical_event_sha256": hashlib.sha256(canonical_event.encode()).hexdigest(),
+        **fields,
+        "sport_json": canonical_json(event.get("sport") if isinstance(event.get("sport"), Mapping) else {}),
+        "tags_json": canonical_json(event.get("tags") if isinstance(event.get("tags"), list) else []),
+        "series_json": canonical_json(event.get("series") if isinstance(event.get("series"), list) else []),
+        "teams_json": canonical_json(event.get("teams") if isinstance(event.get("teams"), list) else []),
+    }
+
+
+def _request_envelope(config: BotConfig) -> dict[str, Any]:
+    gamma = config.trading.gamma
+    return {
+        "closed": False,
+        "live": True,
+        "tag_id": gamma.tag_id,
+        "related_tags": gamma.related_tags,
+        "sport_family": gamma.sport_family,
+        "required_common_tag_ids": list(gamma.required_common_tag_ids),
+        "league_codes": list(gamma.league_codes),
+        "league_mapping_sha256": config.trading.league_mapping_sha256,
+        "classifier_version": config.trading.classifier_version,
+        "client_sports_market_types": list(gamma.sports_market_types),
+        "liquidity_filter": None,
+        "volume_filter": None,
+        "page_size": gamma.page_size,
+    }
 
 
 class Collector:
@@ -433,16 +438,18 @@ class Collector:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         sweep_id = uuid4().hex
         sweep = self.gamma.fetch_live_events(run_id, observed_at=now)
-        payloads = [
-            self.repository.payload_row(
+        payloads: list[dict[str, Any]] = []
+        payload_by_request: dict[str, dict[str, Any]] = {}
+        for page in sweep.pages:
+            payload = self.repository.payload_row(
                 run_id=run_id,
                 kind="GAMMA_EVENT_PAGE",
                 request_id=page.request_id,
                 observed_at=page.received_at,
                 raw=page.raw,
             )
-            for page in sweep.pages
-        ]
+            payloads.append(payload)
+            payload_by_request[page.request_id] = payload
         source_event_count = sum(len(page.events) for page in sweep.pages)
         source_market_count = sum(
             len(markets)
@@ -450,6 +457,44 @@ class Collector:
             for event in page.events
             if isinstance((markets := event.get("markets")), list)
         )
+        event_rows: list[dict[str, Any]] = []
+        classified_events: list[
+            tuple[Mapping[str, Any], datetime, LeagueClassification, str]
+        ] = []
+        for page in sweep.pages:
+            observed = _utc(page.received_at) or now
+            for event in page.events:
+                classification = classify_soccer_event(event, self.config.trading.gamma)
+                if not str(event.get("id") or "") and classification.accepted:
+                    classification = LeagueClassification(
+                        "DRIFT",
+                        classification.league_code,
+                        classification.league_name,
+                        ("EVENT_ID_MISSING",),
+                        classification.evidence,
+                    )
+                event_observation_id = uuid4().hex
+                event_rows.append(
+                    _event_observation_row(
+                        event,
+                        classification,
+                        event_observation_id=event_observation_id,
+                        sweep_id=sweep_id,
+                        run_id=run_id,
+                        source_payload_id=str(
+                            payload_by_request[page.request_id]["payload_id"]
+                        ),
+                        page_number=page.page_number,
+                        request_id=page.request_id,
+                        observed_at=observed,
+                    )
+                )
+                classified_events.append(
+                    (event, observed, classification, event_observation_id)
+                )
+        accepted_event_count = sum(row["classification_status"] == "ACCEPTED" for row in event_rows)
+        rejected_event_count = sum(row["classification_status"] == "REJECTED" for row in event_rows)
+        drift_event_count = sum(row["classification_status"] == "DRIFT" for row in event_rows)
         if not sweep.cursor_complete:
             self.repository.record_collection(
                 sweep={
@@ -459,26 +504,18 @@ class Collector:
                     "completed_at": iso_utc(),
                     "page_count": len(sweep.pages),
                     "event_count": source_event_count,
-                    "market_count": source_market_count,
+                    "accepted_event_count": accepted_event_count,
+                    "rejected_event_count": rejected_event_count,
+                    "drift_event_count": drift_event_count,
+                    "source_market_count": source_market_count,
+                    "market_count": 0,
                     "eligible_market_count": 0,
                     "eligible_outcome_count": 0,
                     "cursor_complete": 0,
-                    "request_envelope_json": canonical_json(
-                        {
-                            "closed": False,
-                            "live": True,
-                            "tag_slug": self.config.trading.gamma.tag_slug,
-                            "sport_family": self.config.trading.gamma.sport_family,
-                            "league_codes": list(
-                                self.config.trading.gamma.league_codes
-                            ),
-                            "page_size": self.config.trading.gamma.page_size,
-                            "liquidity_filter": None,
-                            "volume_filter": None,
-                        }
-                    ),
+                    "request_envelope_json": canonical_json(_request_envelope(self.config)),
                 },
                 payloads=payloads,
+                events=event_rows,
                 markets=(),
                 outcomes=(),
                 attempts=(),
@@ -504,29 +541,30 @@ class Collector:
         market_rows: list[dict[str, Any]] = []
         outcome_rows: list[dict[str, Any]] = []
         contexts: list[dict[str, Any]] = []
-        for page in sweep.pages:
-            observed = _utc(page.received_at) or now
-            for event in page.events:
-                event_markets = event.get("markets")
-                if not isinstance(event_markets, list):
+        for event, observed, classification, event_observation_id in classified_events:
+            if not classification.accepted:
+                continue
+            event_markets = event.get("markets")
+            if not isinstance(event_markets, list):
+                continue
+            event_relation = dict(event)
+            event_relation.pop("markets", None)
+            for source_market in event_markets:
+                if not isinstance(source_market, Mapping):
                     continue
-                event_relation = dict(event)
-                event_relation.pop("markets", None)
-                for source_market in event_markets:
-                    if not isinstance(source_market, Mapping):
-                        continue
-                    market = dict(source_market)
-                    market["events"] = [event_relation]
-                    row, outcomes, context = _parse_market(
-                        market,
-                        sweep_id=sweep_id,
-                        run_id=run_id,
-                        observed_at=observed,
-                        config=self.config,
-                    )
-                    market_rows.append(row)
-                    outcome_rows.extend(outcomes)
-                    contexts.append(context)
+                row, outcomes, context = _parse_market(
+                    dict(source_market),
+                    event=event_relation,
+                    event_observation_id=event_observation_id,
+                    league=classification,
+                    sweep_id=sweep_id,
+                    run_id=run_id,
+                    observed_at=observed,
+                    config=self.config,
+                )
+                market_rows.append(row)
+                outcome_rows.extend(outcomes)
+                contexts.append(context)
 
         open_before = self.repository.open_episodes()
         active_stop_before = self.repository.active_stop_policies()
@@ -646,16 +684,17 @@ class Collector:
                     if episode_id and walk and context["end_date"]:
                         episode = {
                             "episode_id": episode_id, "decision_id": decision_id, "run_id": run_id,
+                            "event_observation_id": context["event_observation_id"],
                             "condition_id": market_row["condition_id"], "event_id": market_row["event_id"],
                             "event_title": market_row["event_title"], "question": market_row["question"],
                             "token_id": token, "outcome_index": outcome["outcome_index"],
                             "outcome_label": outcome["outcome_label"], "threshold": threshold,
                             "cadence_arm": self.config.trading.cadence_arm,
                             "match_winner_class": context["match_winner_class"],
-                            "sport_family": context["sport_family"],
                             "league_code": context["league_code"],
                             "league_name": context["league_name"],
-                            "series_slug": context["series_slug"],
+                            "classifier_version": context["classifier_version"],
+                            "league_mapping_sha256": context["league_mapping_sha256"],
                             "entry_provenance": str(provenance),
                             "entered_at": iso_utc(now), "end_date": iso_utc(context["end_date"]),
                             "game_start_time": iso_utc(context["game_start"]) if context["game_start"] else None,
@@ -803,30 +842,33 @@ class Collector:
             sweep={
                 "sweep_id": sweep_id, "run_id": run_id, "started_at": iso_utc(now),
                 "completed_at": iso_utc(), "page_count": len(sweep.pages), "event_count": event_count,
+                "accepted_event_count": accepted_event_count,
+                "rejected_event_count": rejected_event_count,
+                "drift_event_count": drift_event_count,
+                "source_market_count": source_market_count,
                 "market_count": len(market_rows), "eligible_market_count": sum(row["eligible"] for row in market_rows),
                 "eligible_outcome_count": eligible_outcome_count,
                 "cursor_complete": 1,
-                "request_envelope_json": canonical_json({
-                    "closed": False,
-                    "live": True,
-                    "tag_slug": self.config.trading.gamma.tag_slug,
-                    "sport_family": self.config.trading.gamma.sport_family,
-                    "league_codes": list(
-                        self.config.trading.gamma.league_codes
-                    ),
-                    "client_sports_market_types": list(
-                        self.config.trading.gamma.sports_market_types
-                    ),
-                    "liquidity_filter": None,
-                    "volume_filter": None,
-                    "page_size": self.config.trading.gamma.page_size,
-                }),
+                "request_envelope_json": canonical_json(_request_envelope(self.config)),
             },
-            payloads=payloads, markets=market_rows, outcomes=outcome_rows,
+            payloads=payloads, events=event_rows, markets=market_rows, outcomes=outcome_rows,
             attempts=attempt_rows, snapshots=snapshot_rows, levels=level_rows,
             decisions=decisions, episodes=episodes, policies=policies, paths=paths,
             stop_attempts=stop_attempts, stop_exits=stop_exits,
         )
+        for event_row in event_rows:
+            if event_row["classification_status"] == "DRIFT":
+                self.repository.record_issue(
+                    run_id=run_id,
+                    severity="HIGH",
+                    issue_type="LEAGUE_IDENTITY_DRIFT",
+                    detail={
+                        "event_id": event_row["event_id"],
+                        "sport_code": event_row["sport_code"],
+                        "reason": event_row["rejection_reason"],
+                        "league_mapping_sha256": event_row["league_mapping_sha256"],
+                    },
+                )
 
         resolved = 0
         open_by_condition: dict[str, dict[str, Any]] = {}
@@ -869,6 +911,10 @@ class Collector:
 
         return {
             "events": event_count, "markets": len(market_rows),
+            "accepted_events": accepted_event_count,
+            "rejected_events": rejected_event_count,
+            "drift_events": drift_event_count,
+            "source_markets": source_market_count,
             "eligible_markets": sum(row["eligible"] for row in market_rows),
             "eligible_outcomes": eligible_outcome_count,
             "exclusions": dict(sorted(exclusion_counts.items())),

@@ -11,7 +11,12 @@ import sys
 
 from .analyzer import analyze_database, analyze_databases
 from .bot import ResearchBot
-from .config import CANONICAL_JOB, assert_no_credentials, load_config
+from .config import (
+    CANONICAL_JOB,
+    assert_no_credentials,
+    league_registry_payload,
+    load_config,
+)
 from .db.repository import ResearchRepository
 
 
@@ -60,17 +65,6 @@ def main(argv: list[str] | None = None) -> int:
         logging.info("Golden Watermelon cycle completed: %s", json.dumps(result, sort_keys=True))
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
-    repository = ResearchRepository(
-        config.db_path,
-        busy_timeout_ms=config.trading.storage.busy_timeout_ms,
-        data_contract=config.trading.data_contract,
-    )
-    if args.command == "health":
-        print(json.dumps({"quick_check": repository.quick_check(), "data_contract": config.trading.data_contract, "db": str(config.db_path)}, sort_keys=True))
-        return 0
-    if args.command == "status":
-        print(json.dumps(repository.summary(), ensure_ascii=False, indent=2, sort_keys=True))
-        return 0
     if args.command == "analyze":
         databases = args.db or [config.db_path]
         result = (
@@ -82,6 +76,26 @@ def main(argv: list[str] | None = None) -> int:
         if args.output:
             args.output.write_text(rendered + "\n", encoding="utf-8")
         print(rendered)
+        return 0
+    repository = ResearchRepository(
+        config.db_path,
+        busy_timeout_ms=config.trading.storage.busy_timeout_ms,
+        data_contract=config.trading.data_contract,
+        schema_profile=config.trading.schema_profile,
+        universe_profile=config.trading.universe_profile,
+        classifier_version=config.trading.classifier_version,
+        league_mapping_sha256=config.trading.league_mapping_sha256,
+        league_mapping_json=json.dumps(
+            league_registry_payload(config.trading.gamma.league_mapping),
+            sort_keys=True,
+            separators=(",", ":"),
+        ),
+    )
+    if args.command == "health":
+        print(json.dumps({"quick_check": repository.quick_check(), "data_contract": config.trading.data_contract, "db": str(config.db_path)}, sort_keys=True))
+        return 0
+    if args.command == "status":
+        print(json.dumps(repository.summary(), ensure_ascii=False, indent=2, sort_keys=True))
         return 0
     return 2
 

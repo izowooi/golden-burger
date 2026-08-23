@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -11,6 +12,31 @@ import random
 import sqlite3
 import statistics
 from typing import Any, Iterable
+
+from polybot.config import (
+    CLASSIFIER_VERSION,
+    DATA_CONTRACT,
+    FROZEN_LEAGUE_IDENTITIES,
+    LEAGUE_MAPPING_SHA256,
+    SCHEMA_PROFILE,
+    UNIVERSE_PROFILE,
+    league_registry_payload,
+)
+from polybot.db.repository import (
+    APPLICATION_ID,
+    EXPECTED_SCHEMA_SHA256,
+    MIGRATION_PATH,
+    SCHEMA_USER_VERSION,
+)
+
+
+ANALYZER_CONTRACT = "soccer-major-league-analyzer-v3a"
+PAIR_ANALYZER_CONTRACT = "soccer-major-league-cadence-pair-v3a"
+# Legacy strings remain explicit so existing v2/v3 evidence can be identified in
+# reports without being opened by the v3a writer.
+LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
+LEGACY_PAIR_ANALYZER_CONTRACT = "inplay-match-winner-cadence-pair-v2"
+REQUIRED_LEAGUE_CODES = tuple(identity.code for identity in FROZEN_LEAGUE_IDENTITIES)
 
 
 def _utc(value: str) -> datetime:
@@ -67,6 +93,92 @@ def _bootstrap_mean_ci(
         means[int(samples * 0.025)] * 100,
         means[min(samples - 1, int(samples * 0.975))] * 100,
     ]
+
+
+def _league_macro(
+    event_roi_by_league: dict[str, list[float]], *, seed: int
+) -> dict[str, Any]:
+    missing = [
+        code for code in REQUIRED_LEAGUE_CODES if not event_roi_by_league.get(code)
+    ]
+    by_league = {
+        code: statistics.fmean(event_roi_by_league[code]) * 100
+        for code in REQUIRED_LEAGUE_CODES
+        if event_roi_by_league.get(code)
+    }
+    if missing:
+        return {
+            "league_event_equal_fee_net_roi_pct": by_league,
+            "macro_league_equal_fee_net_roi_pct": None,
+            "macro_league_equal_fee_net_roi_bootstrap_95ci_pct": None,
+            "macro_estimable": False,
+            "missing_leagues": missing,
+        }
+
+    macro = statistics.fmean(by_league.values())
+    generator = random.Random(seed)
+    samples = 2_000
+    draws: list[float] = []
+    for _ in range(samples):
+        league_means: list[float] = []
+        for code in REQUIRED_LEAGUE_CODES:
+            values = event_roi_by_league[code]
+            count = len(values)
+            league_means.append(
+                statistics.fmean(values[generator.randrange(count)] for _ in range(count))
+            )
+        draws.append(statistics.fmean(league_means))
+    draws.sort()
+    return {
+        "league_event_equal_fee_net_roi_pct": by_league,
+        "macro_league_equal_fee_net_roi_pct": macro,
+        "macro_league_equal_fee_net_roi_bootstrap_95ci_pct": [
+            draws[int(samples * 0.025)] * 100,
+            draws[min(samples - 1, int(samples * 0.975))] * 100,
+        ],
+        "macro_estimable": True,
+        "missing_leagues": [],
+    }
+
+
+def _table_columns(connection: sqlite3.Connection, table: str) -> set[str]:
+    return {str(row[1]) for row in connection.execute(f"PRAGMA table_info({table})")}
+
+
+def _table_exists(connection: sqlite3.Connection, table: str) -> bool:
+    return (
+        connection.execute(
+            "SELECT 1 FROM sqlite_schema WHERE type='table' AND name=?", (table,)
+        ).fetchone()
+        is not None
+    )
+
+
+def _live_schema_sha256(connection: sqlite3.Connection) -> str:
+    rows = connection.execute(
+        """
+        SELECT type,name,tbl_name,sql FROM sqlite_master
+        WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
+        ORDER BY type,name,tbl_name
+        """
+    ).fetchall()
+    payload = [tuple(str(value) for value in row) for row in rows]
+    return hashlib.sha256(
+        json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
+    ).hexdigest()
+
+
+def _paired_config_sha256(config_json: dict[str, Any]) -> str:
+    payload = json.loads(json.dumps(config_json))
+    for key in ("config_hash", "db_path", "job_name"):
+        payload.pop(key, None)
+    trading = payload.get("trading")
+    if isinstance(trading, dict):
+        trading.pop("cadence_arm", None)
+        trading.pop("cadence_minutes", None)
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
 
 
 def _entry_total_cost(row: sqlite3.Row) -> float:
@@ -137,17 +249,61 @@ def _safe_ratio(numerator: int, denominator: int) -> float | None:
     return numerator / denominator * 100 if denominator else None
 
 
+def _optional_int(value: Any) -> int | None:
+    return None if value is None else int(value)
+
+
 def analyze_database(path: Path) -> dict[str, Any]:
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
-        contract = connection.execute(
-            "SELECT data_contract FROM schema_metadata"
-        ).fetchone()
+        application_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
+        if metadata_row is None:
+            raise ValueError("database has no schema_metadata")
+        metadata = {key: metadata_row[key] for key in metadata_row.keys()}
+        if metadata.get("schema_profile") is not None:
+            expected_metadata = {
+                "data_contract": DATA_CONTRACT,
+                "schema_profile": SCHEMA_PROFILE,
+                "universe_profile": UNIVERSE_PROFILE,
+                "classifier_version": CLASSIFIER_VERSION,
+                "league_mapping_sha256": LEAGUE_MAPPING_SHA256,
+            }
+            actual_metadata = {
+                key: metadata.get(key) for key in expected_metadata
+            }
+            if actual_metadata != expected_metadata:
+                raise ValueError(
+                    f"v3a analyzer metadata contract mismatch: {actual_metadata!r}"
+                )
+            migration_sha256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
+            if (
+                (application_id, user_version) != (APPLICATION_ID, SCHEMA_USER_VERSION)
+                or str(metadata.get("migration_sha256")) != migration_sha256
+                or str(metadata.get("schema_sha256")) != EXPECTED_SCHEMA_SHA256
+                or _live_schema_sha256(connection) != EXPECTED_SCHEMA_SHA256
+            ):
+                raise ValueError("v3a analyzer application/migration/schema contract mismatch")
+            registry_row = connection.execute(
+                "SELECT * FROM league_registry_versions WHERE league_mapping_sha256=?",
+                (LEAGUE_MAPPING_SHA256,),
+            ).fetchone()
+            if registry_row is None:
+                raise ValueError("v3a database has no exact frozen league registry")
+            expected_registry = league_registry_payload()
+            if (
+                str(registry_row["classifier_version"]) != CLASSIFIER_VERSION
+                or str(registry_row["universe_profile"]) != UNIVERSE_PROFILE
+                or json.loads(str(registry_row["mapping_json"])) != expected_registry
+            ):
+                raise ValueError("v3a database league registry content drift")
         config_row = connection.execute(
             """
-            SELECT config_hash,strategy_source_digest,job_name,config_json,first_seen_at
+            SELECT config_hash,strategy_source_digest,preregistration_sha256,
+                   job_name,config_json,first_seen_at
             FROM research_config_versions
             ORDER BY first_seen_at DESC LIMIT 1
             """
@@ -199,19 +355,46 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 "ORDER BY observed_at"
             )
         ]
-        sweep = connection.execute(
-            """
-            SELECT COUNT(*) AS sweeps,
-                   COALESCE(SUM(cursor_complete),0) AS cursor_complete,
-                   COALESCE(SUM(event_count),0) AS events,
-                   COALESCE(SUM(market_count),0) AS markets,
-                   COALESCE(SUM(eligible_market_count),0) AS eligible_markets,
-                   COALESCE(SUM(eligible_outcome_count),0) AS eligible_outcomes,
-                   COALESCE(MAX(page_count),0) AS max_pages
-            FROM market_sweeps
-            WHERE run_id IN (SELECT run_id FROM cohort_runs)
-            """
-        ).fetchone()
+        sweep_columns = _table_columns(connection, "market_sweeps")
+        if {
+            "accepted_event_count",
+            "rejected_event_count",
+            "drift_event_count",
+            "source_market_count",
+        } <= sweep_columns:
+            sweep = connection.execute(
+                """
+                SELECT COUNT(*) AS sweeps,
+                       COALESCE(SUM(cursor_complete),0) AS cursor_complete,
+                       COALESCE(SUM(event_count),0) AS events,
+                       COALESCE(SUM(accepted_event_count),0) AS accepted_events,
+                       COALESCE(SUM(rejected_event_count),0) AS rejected_events,
+                       COALESCE(SUM(drift_event_count),0) AS drift_events,
+                       COALESCE(SUM(source_market_count),0) AS source_markets,
+                       COALESCE(SUM(market_count),0) AS markets,
+                       COALESCE(SUM(eligible_market_count),0) AS eligible_markets,
+                       COALESCE(SUM(eligible_outcome_count),0) AS eligible_outcomes,
+                       COALESCE(MAX(page_count),0) AS max_pages
+                FROM market_sweeps
+                WHERE run_id IN (SELECT run_id FROM cohort_runs)
+                """
+            ).fetchone()
+        else:
+            sweep = connection.execute(
+                """
+                SELECT COUNT(*) AS sweeps,
+                       COALESCE(SUM(cursor_complete),0) AS cursor_complete,
+                       COALESCE(SUM(event_count),0) AS events,
+                       NULL AS accepted_events,NULL AS rejected_events,
+                       NULL AS drift_events,NULL AS source_markets,
+                       COALESCE(SUM(market_count),0) AS markets,
+                       COALESCE(SUM(eligible_market_count),0) AS eligible_markets,
+                       COALESCE(SUM(eligible_outcome_count),0) AS eligible_outcomes,
+                       COALESCE(MAX(page_count),0) AS max_pages
+                FROM market_sweeps
+                WHERE run_id IN (SELECT run_id FROM cohort_runs)
+                """
+            ).fetchone()
         eligible_observations = int(
             connection.execute(
                 "SELECT COUNT(*) FROM outcome_observations "
@@ -253,16 +436,41 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ORDER BY match_winner_class,eligible
             """
         ).fetchall()
-        market_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(market_observations)")
-        }
-        episode_columns = {
-            str(row[1])
-            for row in connection.execute("PRAGMA table_info(hypothetical_episodes)")
-        }
-        league_observation_rows = (
+        market_columns = _table_columns(connection, "market_observations")
+        episode_columns = _table_columns(connection, "hypothetical_episodes")
+        has_event_observations = _table_exists(connection, "event_observations")
+        event_classification_rows = (
             connection.execute(
+                """
+                SELECT classification_status,rejection_reason,league_code,league_name,
+                       COUNT(*) AS observations,COUNT(DISTINCT event_id) AS events
+                FROM event_observations
+                WHERE run_id IN (SELECT run_id FROM cohort_runs)
+                GROUP BY classification_status,rejection_reason,league_code,league_name
+                ORDER BY classification_status,rejection_reason,league_code
+                """
+            ).fetchall()
+            if has_event_observations
+            else []
+        )
+        if has_event_observations:
+            league_observation_rows = connection.execute(
+                """
+                SELECT e.league_code,e.league_name,
+                       COUNT(m.observation_id) AS observations,
+                       COALESCE(SUM(m.eligible),0) AS eligible_observations,
+                       COUNT(DISTINCT e.event_id) AS events
+                FROM event_observations e
+                LEFT JOIN market_observations m
+                  ON m.event_observation_id=e.event_observation_id
+                WHERE e.classification_status='ACCEPTED'
+                  AND e.run_id IN (SELECT run_id FROM cohort_runs)
+                GROUP BY e.league_code,e.league_name
+                ORDER BY e.league_code,e.league_name
+                """
+            ).fetchall()
+        elif {"league_code", "league_name"} <= market_columns:
+            league_observation_rows = connection.execute(
                 """
                 SELECT league_code,league_name,
                        COUNT(*) AS observations,
@@ -274,9 +482,8 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 ORDER BY league_code,league_name
                 """
             ).fetchall()
-            if {"league_code", "league_name"} <= market_columns
-            else []
-        )
+        else:
+            league_observation_rows = []
         league_episode_rows = (
             connection.execute(
                 """
@@ -338,6 +545,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 e.episode_id,e.event_id,e.condition_id,e.token_id,e.outcome_index,
                 e.threshold,e.entered_at,e.entry_vwap,e.entry_shares,e.entry_cost,
                 e.fee_rate,e.cadence_arm,e.entry_provenance,
+                e.league_code,
                 r.winner_index,
                 COUNT(a.attempt_id) AS stop_attempt_count,
                 COALESCE(SUM(a.filled_shares),0) AS stop_filled_shares,
@@ -359,6 +567,31 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ORDER BY e.entered_at,p.policy_key
             """
         ).fetchall()
+        if metadata.get("schema_profile") is not None:
+            for table in ("event_observations", "hypothetical_episodes"):
+                contract_rows = connection.execute(
+                    f"""
+                    SELECT DISTINCT classifier_version,league_mapping_sha256
+                    FROM {table}
+                    WHERE run_id IN (SELECT run_id FROM cohort_runs)
+                    """
+                ).fetchall()
+                if any(
+                    str(row["classifier_version"]) != CLASSIFIER_VERSION
+                    or str(row["league_mapping_sha256"]) != LEAGUE_MAPPING_SHA256
+                    for row in contract_rows
+                ):
+                    raise ValueError(f"{table} classifier/mapping contract drift")
+            observed_episode_leagues = {
+                str(row["league_code"]) for row in episode_rows
+            }
+            unknown_leagues = observed_episode_leagues - set(REQUIRED_LEAGUE_CODES)
+            if unknown_leagues:
+                raise ValueError(
+                    f"hypothetical_episodes contains unknown leagues: {unknown_leagues!r}"
+                )
+            if any(str(row["cadence_arm"]) != cadence_arm for row in episode_rows):
+                raise ValueError("hypothetical_episodes cadence arm contract drift")
     finally:
         connection.close()
 
@@ -387,15 +620,25 @@ def analyze_database(path: Path) -> dict[str, Any]:
         storage = {"samples": 0}
 
     result: dict[str, Any] = {
-        "analyzer_contract": "inplay-match-winner-analyzer-v2",
+        "analyzer_contract": ANALYZER_CONTRACT,
         "db": str(path.resolve()),
         "quick_check": quick_check,
-        "data_contract": str(contract[0]) if contract else None,
+        "application_id": application_id,
+        "user_version": user_version,
+        "data_contract": metadata.get("data_contract"),
+        "schema_profile": metadata.get("schema_profile"),
+        "universe_profile": metadata.get("universe_profile"),
+        "classifier_version": metadata.get("classifier_version"),
+        "league_mapping_sha256": metadata.get("league_mapping_sha256"),
+        "migration_sha256": metadata.get("migration_sha256"),
+        "schema_sha256": metadata.get("schema_sha256"),
         "job_name": str(config_row["job_name"]),
         "cadence_arm": cadence_arm,
         "cadence_minutes": cadence_minutes,
         "config_hash": str(config_row["config_hash"]),
         "strategy_source_digest": str(config_row["strategy_source_digest"]),
+        "preregistration_sha256": str(config_row["preregistration_sha256"]),
+        "paired_config_sha256": _paired_config_sha256(config_json),
         "config_first_seen_at": str(config_row["first_seen_at"]),
         "cohort_run_count": cohort_run_count,
         "run_events": {str(row["event_type"]): int(row["count"]) for row in run_rows},
@@ -407,6 +650,10 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 int(sweep["cursor_complete"]), int(sweep["sweeps"])
             ),
             "events": int(sweep["events"]),
+            "accepted_events": _optional_int(sweep["accepted_events"]),
+            "rejected_events": _optional_int(sweep["rejected_events"]),
+            "drift_events": _optional_int(sweep["drift_events"]),
+            "source_markets": _optional_int(sweep["source_markets"]),
             "markets": int(sweep["markets"]),
             "eligible_markets": int(sweep["eligible_markets"]),
             "eligible_outcomes": int(sweep["eligible_outcomes"]),
@@ -424,6 +671,17 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ),
         },
         "classification": {
+            "event_rows": [
+                {
+                    "status": str(row["classification_status"]),
+                    "reason": str(row["rejection_reason"]),
+                    "league_code": row["league_code"],
+                    "league_name": row["league_name"],
+                    "observations": int(row["observations"]),
+                    "events": int(row["events"]),
+                }
+                for row in event_classification_rows
+            ],
             "rows": [
                 {
                     "match_winner_class": str(row["match_winner_class"]),
@@ -435,6 +693,24 @@ def analyze_database(path: Path) -> dict[str, Any]:
             "exclusions": dict(sorted(exclusion_counter.items())),
         },
         "league_coverage": {
+            "required_leagues": list(REQUIRED_LEAGUE_CODES),
+            "observed_accepted_leagues": sorted(
+                {
+                    str(row["league_code"])
+                    for row in league_observation_rows
+                    if row["league_code"] is not None
+                }
+            ),
+            "missing_accepted_leagues": [
+                code
+                for code in REQUIRED_LEAGUE_CODES
+                if code
+                not in {
+                    str(row["league_code"])
+                    for row in league_observation_rows
+                    if row["league_code"] is not None
+                }
+            ],
             "market_observations": [
                 {
                     "league_code": row["league_code"],
@@ -483,6 +759,14 @@ def analyze_database(path: Path) -> dict[str, Any]:
         "storage": storage,
         "entry_thresholds": {},
         "stop_policy_comparison": {},
+        "estimator_contract": {
+            "unit": "condition_id × token_id × entry_threshold paired across cadence arms",
+            "within_event": "equal weight across eligible outcome episodes",
+            "within_league": "equal weight across resolved events",
+            "macro": "equal weight across EPL, Bundesliga, Ligue 1, La Liga, MLS",
+            "macro_requires_all_five_leagues": True,
+            "required_league_codes": list(REQUIRED_LEAGUE_CODES),
+        },
         "interpretation": "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
         "actual_fill_or_realized_pnl": False,
     }
@@ -515,19 +799,27 @@ def analyze_database(path: Path) -> dict[str, Any]:
             )
         ):
             resolved = [row for row in subset if row["winner_index"] is not None]
-            by_event: defaultdict[str, list[float]] = defaultdict(list)
+            by_event: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
             wins = 0
             for row in resolved:
                 won = int(row["outcome_index"]) == int(row["winner_index"])
                 wins += int(won)
                 settlement = float(row["entry_shares"]) if won else 0.0
                 roi = settlement / _entry_total_cost(row) - 1
-                by_event[str(row["event_id"])].append(roi)
+                by_event[(str(row["league_code"]), str(row["event_id"]))].append(roi)
             event_roi = [statistics.fmean(values) for values in by_event.values()]
+            event_roi_by_league: defaultdict[str, list[float]] = defaultdict(list)
+            for (league_code, _event_id), values in by_event.items():
+                event_roi_by_league[league_code].append(statistics.fmean(values))
             seed = 20_260_823 + int(round(threshold * 100)) * 10 + partition_index
             partitions[label] = {
                 "episodes": len(subset),
-                "events": len({str(row["event_id"]) for row in subset}),
+                "events": len(
+                    {
+                        (str(row["league_code"]), str(row["event_id"]))
+                        for row in subset
+                    }
+                ),
                 "resolved": len(resolved),
                 "resolution_coverage_pct": _safe_ratio(len(resolved), len(subset)),
                 "wins": wins,
@@ -539,6 +831,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 "event_equal_fee_net_roi_bootstrap_95ci_pct": _bootstrap_mean_ci(
                     event_roi, seed=seed
                 ),
+                **_league_macro(dict(event_roi_by_league), seed=seed + 500_000),
                 "entry_provenance": dict(
                     Counter(str(row["entry_provenance"]) for row in subset)
                 ),
@@ -563,12 +856,20 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 outcome = _policy_roi(row)
                 if outcome is not None:
                     evaluated.append((row, outcome[0], outcome[1]))
-            by_event: defaultdict[str, list[float]] = defaultdict(list)
+            by_event: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
             exit_kinds: Counter[str] = Counter()
             for row, roi, kind in evaluated:
-                by_event[str(row["event_id"])].append(roi)
+                by_event[(str(row["league_code"]), str(row["event_id"]))].append(roi)
                 exit_kinds[kind] += 1
             event_roi = [statistics.fmean(values) for values in by_event.values()]
+            event_roi_by_league: defaultdict[str, list[float]] = defaultdict(list)
+            for (league_code, _event_id), values in by_event.items():
+                event_roi_by_league[league_code].append(statistics.fmean(values))
+            seed = (
+                20_260_823
+                + int(round(threshold * 100)) * 100
+                + sum(ord(character) for character in policy_key)
+            )
             gaps = [
                 float(row["completed_gap_from_stop"])
                 for row in selected
@@ -600,10 +901,9 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 ),
                 "event_equal_fee_net_roi_bootstrap_95ci_pct": _bootstrap_mean_ci(
                     event_roi,
-                    seed=20_260_823
-                    + int(round(threshold * 100)) * 100
-                    + sum(ord(character) for character in policy_key),
+                    seed=seed,
                 ),
+                **_league_macro(dict(event_roi_by_league), seed=seed + 500_000),
                 "gap_below_stop_p50": _percentile(gaps, 0.50),
                 "gap_below_stop_p95": _percentile(gaps, 0.95),
             }
@@ -623,7 +923,8 @@ def _episode_index(path: Path) -> dict[tuple[str, str, float], sqlite3.Row]:
             return {}
         rows = connection.execute(
             """
-            SELECT condition_id,token_id,threshold,entered_at,entry_vwap
+            SELECT condition_id,token_id,threshold,entered_at,entry_vwap,
+                   league_code,cadence_arm,classifier_version,league_mapping_sha256
             FROM hypothetical_episodes
             WHERE run_id IN (
                 SELECT DISTINCT run_id FROM research_run_events
@@ -642,18 +943,59 @@ def _episode_index(path: Path) -> dict[tuple[str, str, float], sqlite3.Row]:
 
 def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     resolved_paths = [Path(path).resolve() for path in paths]
+    if len(resolved_paths) != 2:
+        raise ValueError("cadence pair analysis requires exactly two databases")
     databases = [analyze_database(path) for path in resolved_paths]
     result: dict[str, Any] = {
-        "analyzer_contract": "inplay-match-winner-cadence-pair-v2",
+        "analyzer_contract": PAIR_ANALYZER_CONTRACT,
         "databases": databases,
         "pairing": None,
         "interpretation": "CADENCE_PAIRED_DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
     }
-    if len(resolved_paths) != 2:
-        return result
+    exact_pair_fields = (
+        "data_contract",
+        "schema_profile",
+        "universe_profile",
+        "classifier_version",
+        "league_mapping_sha256",
+        "migration_sha256",
+        "schema_sha256",
+        "application_id",
+        "user_version",
+        "strategy_source_digest",
+        "preregistration_sha256",
+        "paired_config_sha256",
+    )
+    for field in exact_pair_fields:
+        values = [database.get(field) for database in databases]
+        if any(value is None for value in values) or values[0] != values[1]:
+            raise ValueError(f"cadence pair {field} mismatch: {values!r}")
+    arms = {str(database["cadence_arm"]) for database in databases}
+    if arms != {"FAST_1M", "CONTROL_5M"}:
+        raise ValueError(f"cadence pair must contain FAST_1M and CONTROL_5M: {arms!r}")
+    jobs = {str(database["job_name"]) for database in databases}
+    if jobs != {"watermelon-white-1m-v3a", "watermelon-grey-5m-v3a"}:
+        raise ValueError(f"cadence pair contains wrong v3a jobs: {jobs!r}")
+
     left_index = _episode_index(resolved_paths[0])
     right_index = _episode_index(resolved_paths[1])
     common = sorted(set(left_index) & set(right_index))
+    expected_classifier = str(databases[0]["classifier_version"])
+    expected_mapping = str(databases[0]["league_mapping_sha256"])
+    for side_index, (side, index) in enumerate(
+        (("left", left_index), ("right", right_index))
+    ):
+        expected_arm = str(databases[side_index]["cadence_arm"])
+        for key, row in index.items():
+            if (
+                str(row["cadence_arm"]) != expected_arm
+                or str(row["classifier_version"]) != expected_classifier
+                or str(row["league_mapping_sha256"]) != expected_mapping
+            ):
+                raise ValueError(f"{side} episode classifier/mapping drift at {key!r}")
+    for key in common:
+        if str(left_index[key]["league_code"]) != str(right_index[key]["league_code"]):
+            raise ValueError(f"paired episode league mismatch at {key!r}")
     time_deltas = [
         abs(
             (
@@ -679,6 +1021,15 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         "matched_pct_of_smaller_arm": _safe_ratio(
             len(common), min(len(left_index), len(right_index))
         ),
+        "matched_by_league": {
+            code: sum(str(left_index[key]["league_code"]) == code for key in common)
+            for code in REQUIRED_LEAGUE_CODES
+        },
+        "missing_pair_leagues": [
+            code
+            for code in REQUIRED_LEAGUE_CODES
+            if not any(str(left_index[key]["league_code"]) == code for key in common)
+        ],
         "entry_time_delta_seconds_p50": _percentile(time_deltas, 0.50),
         "entry_time_delta_seconds_p95": _percentile(time_deltas, 0.95),
         "entry_vwap_absolute_delta_p50": _percentile(price_deltas, 0.50),
