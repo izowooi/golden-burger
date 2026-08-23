@@ -61,6 +61,69 @@ def test_seed_and_anchor_hash_are_deterministic(config, followup_config):
     assert reader.validate_stored_anchor(persisted)["anchor_sha256"] == first.anchor_sha256
 
 
+def test_threshold_seed_round_trip_preserves_all_source_fields(
+    config, followup_config
+):
+    build_v1_handoff(config)
+    with sqlite3.connect(config.db_path) as connection:
+        connection.row_factory = sqlite3.Row
+        path = connection.execute(
+            """
+            SELECT path_observation_id,episode_id,sweep_id,observed_at,
+                   exit_bid_vwap,prior_executable_bid_vwap
+            FROM episode_path_observations
+            WHERE path_status='EXECUTABLE' AND exit_bid_vwap IS NOT NULL
+            ORDER BY observed_at,path_observation_id LIMIT 1
+            """
+        ).fetchone()
+        assert path is not None
+        connection.execute(
+            """
+            INSERT INTO episode_threshold_events(
+                threshold_event_id,episode_id,path_observation_id,sweep_id,
+                event_kind,threshold,observed_at,executable_bid_vwap,
+                prior_executable_bid_vwap,interval_censored,conservative_priority
+            ) VALUES(?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "threshold-round-trip",
+                path["episode_id"],
+                path["path_observation_id"],
+                path["sweep_id"],
+                "STOP",
+                0.123456,
+                path["observed_at"],
+                path["exit_bid_vwap"],
+                path["prior_executable_bid_vwap"],
+                1,
+                7,
+            ),
+        )
+        connection.commit()
+
+    snapshot = V1SourceReader(followup_config.trading.v1_source).capture()
+    repository = FollowupRepository(followup_config.db_path)
+    repository.initialize(followup_config)
+    anchor = repository.ensure_seed(snapshot)
+    integrity = repository.verify_seed_integrity(anchor)
+
+    assert integrity["healthy"] is True
+    with repository.read_connect() as connection:
+        persisted = connection.execute(
+            """
+            SELECT path_observation_id,sweep_id,interval_censored,
+                   conservative_priority
+            FROM imported_threshold_events
+            WHERE source_threshold_event_id='threshold-round-trip'
+            """
+        ).fetchone()
+    assert persisted is not None
+    assert persisted["path_observation_id"] == path["path_observation_id"]
+    assert persisted["sweep_id"] == path["sweep_id"]
+    assert persisted["interval_censored"] == 1
+    assert persisted["conservative_priority"] == 7
+
+
 def test_pinned_anchor_validation_does_not_rescan_seed_rows(
     config, followup_config, monkeypatch
 ):

@@ -24,7 +24,7 @@ from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 
 
 GIB = 1024**3
-FOLLOWUP_SCHEMA_VERSION = 3
+FOLLOWUP_SCHEMA_VERSION = 4
 
 
 def _chunks(values: Sequence[str], size: int = 400) -> Iterator[Sequence[str]]:
@@ -156,11 +156,15 @@ CREATE TABLE IF NOT EXISTS imported_threshold_events (
     source_threshold_event_id TEXT PRIMARY KEY,
     anchor_id TEXT NOT NULL REFERENCES source_anchors(anchor_id),
     episode_id TEXT NOT NULL REFERENCES imported_episodes(episode_id),
+    path_observation_id TEXT NOT NULL,
+    sweep_id TEXT NOT NULL,
     event_kind TEXT NOT NULL CHECK (event_kind IN ('STOP','TARGET')),
     threshold REAL NOT NULL,
     observed_at TEXT NOT NULL,
     executable_bid_vwap REAL NOT NULL,
     prior_executable_bid_vwap REAL,
+    interval_censored INTEGER NOT NULL CHECK (interval_censored IN (0,1)),
+    conservative_priority INTEGER NOT NULL,
     seed_row_sha256 TEXT NOT NULL UNIQUE,
     UNIQUE (episode_id,event_kind,threshold)
 );
@@ -630,11 +634,15 @@ class FollowupRepository:
             "source_threshold_event_id": row["threshold_event_id"],
             "anchor_id": "v1-seed",
             "episode_id": row["episode_id"],
+            "path_observation_id": row["path_observation_id"],
+            "sweep_id": row["sweep_id"],
             "event_kind": row["event_kind"],
             "threshold": row["threshold"],
             "observed_at": row["observed_at"],
             "executable_bid_vwap": row["executable_bid_vwap"],
             "prior_executable_bid_vwap": row["prior_executable_bid_vwap"],
+            "interval_censored": row["interval_censored"],
+            "conservative_priority": row["conservative_priority"],
             "seed_row_sha256": row["seed_row_sha256"],
         }
 
