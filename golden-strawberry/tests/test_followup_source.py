@@ -58,6 +58,27 @@ def test_seed_and_anchor_hash_are_deterministic(config, followup_config):
     persisted = repository.ensure_seed(first)
     assert repository.ensure_seed(second)["anchor_sha256"] == first.anchor_sha256
     assert persisted["anchor_sha256"] == first.anchor_sha256
+    assert reader.validate_stored_anchor(persisted)["anchor_sha256"] == first.anchor_sha256
+
+
+def test_pinned_anchor_validation_does_not_rescan_seed_rows(
+    config, followup_config, monkeypatch
+):
+    build_v1_handoff(config)
+    reader = V1SourceReader(followup_config.trading.v1_source)
+    snapshot = reader.capture()
+    repository = FollowupRepository(followup_config.db_path)
+    repository.initialize(followup_config)
+    persisted = repository.ensure_seed(snapshot)
+
+    def forbidden(*args, **kwargs):
+        raise AssertionError("pinned validation rescanned v1 episode evidence")
+
+    monkeypatch.setattr(reader, "_latest_paths", forbidden)
+    monkeypatch.setattr(reader, "_threshold_rows", forbidden)
+    monkeypatch.setattr(reader, "_resolved_conditions", forbidden)
+    validated = reader.validate_stored_anchor(persisted)
+    assert validated["source_sweep_id"] == snapshot.anchor["source_sweep_id"]
 
 
 def test_v1_new_successful_sweep_fails_anchor_closed(config, followup_config):
@@ -75,6 +96,8 @@ def test_v1_new_successful_sweep_fails_anchor_closed(config, followup_config):
     drifted = reader.capture()
     with pytest.raises(RuntimeError, match="v1 source anchor drift"):
         repository.ensure_seed(drifted)
+    with pytest.raises(RuntimeError, match="v1 source anchor drift"):
+        reader.validate_stored_anchor(repository.stored_anchor())
 
 
 def test_v1_sidecar_fails_before_read(config, followup_config):

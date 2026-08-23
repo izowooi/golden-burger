@@ -57,6 +57,9 @@ already records terminal event, storage guard, phase timings and atomic-publicat
 v1 `status`/`health` remain deep diagnostics; at 12GiB they added about 19 minutes per build, and they
 must never be run automatically against the roughly 30GB source. Use the combined analyzer on
 daily-rsync verified immutable copies; invoke `--deep-v1` only in an explicit maintenance window.
+The first v2 cycle performs one full deterministic seed scan. Later cycles require
+`validation_mode=PINNED_FAST`: exact file stat fingerprint, schema, contract and latest successful
+sweep are revalidated without rescanning the multi-million-row v1 path evidence.
 
 Do not add `clean`, workspace wipe, DB deletion, credentials, `--live`, or a different runtime job.
 Do not restore `polybot run`, `/sampling-markets`, crossing detection, candidate metadata calls, or

@@ -104,19 +104,27 @@ class FollowupBot:
         with exclusive_job_run_lock(lock_path):
             anchor_started_at = iso_utc()
             anchor_started = self.monotonic()
-            snapshot = self.source_reader.capture()
+            stored_anchor = self.repository.stored_anchor()
+            if stored_anchor is None:
+                snapshot = self.source_reader.capture()
+                anchor_validation_mode = "FULL_SEED"
+                self.repository.initialize(self.config)
+                anchor = self.repository.ensure_seed(snapshot)
+            else:
+                anchor = self.source_reader.validate_stored_anchor(stored_anchor)
+                anchor_validation_mode = "PINNED_FAST"
+                self.repository.initialize(self.config)
             anchor_phase = PhaseRecord(
                 name="v1_anchor_validation",
                 started_at=anchor_started_at,
                 completed_at=iso_utc(),
                 elapsed_seconds=max(0.0, self.monotonic() - anchor_started),
                 details={
-                    "source_cycle_number": snapshot.anchor["source_cycle_number"],
-                    "source_sweep_id": snapshot.anchor["source_sweep_id"],
+                    "validation_mode": anchor_validation_mode,
+                    "source_cycle_number": anchor["source_cycle_number"],
+                    "source_sweep_id": anchor["source_sweep_id"],
                 },
             )
-            self.repository.initialize(self.config)
-            anchor = self.repository.ensure_seed(snapshot)
             preflight = self.repository.record_storage_metric(
                 phase="preflight",
                 storage=self.config.trading.storage,

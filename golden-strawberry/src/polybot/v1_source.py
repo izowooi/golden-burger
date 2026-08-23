@@ -497,6 +497,113 @@ class V1SourceReader:
             threshold_events=tuple(threshold_events),
         )
 
+    def validate_stored_anchor(
+        self, stored: Mapping[str, Any]
+    ) -> Mapping[str, Any]:
+        """Revalidate an already-seeded immutable source without rescanning evidence.
+
+        The first v2 cycle computes every seed row and its hashes. Later cycles pin
+        the exact source file identity plus schema, contract and latest successful
+        sweep. An unchanged file fingerprint makes another multi-million-row path
+        scan redundant; any normal SQLite write changes size or nanosecond mtime and
+        fails before public HTTP.
+        """
+
+        source = self._assert_path()
+        before = _stat_payload(source)
+        file_fingerprint = _sha256_json({"path": str(source), **before})
+        with self._connect(source) as connection:
+            schema_sha256, tables = self._schema_hash(connection)
+            missing = sorted(_REQUIRED_TABLES - tables)
+            if missing:
+                raise RuntimeError(
+                    "v1 source schema is missing: " + ", ".join(missing)
+                )
+            metadata = dict(
+                connection.execute("SELECT key,value FROM schema_metadata")
+            )
+            contract_rows = connection.execute(
+                "SELECT * FROM experiment_contracts"
+            ).fetchall()
+            if len(contract_rows) != 1:
+                raise RuntimeError(
+                    "v1 source must contain exactly one experiment contract"
+                )
+            contract = dict(contract_rows[0])
+            latest_success = connection.execute(
+                """
+                WITH terminal AS (
+                    SELECT run_id,MAX(event_at) AS succeeded_at
+                    FROM research_run_events WHERE event_type='SUCCEEDED'
+                    GROUP BY run_id
+                )
+                SELECT s.*,t.succeeded_at,
+                       c.strategy_source_digest AS config_strategy_source_digest,
+                       c.job_name AS config_job_name,
+                       c.data_contract AS config_contract
+                FROM market_sweeps s
+                JOIN terminal t ON t.run_id=s.run_id
+                JOIN research_config_versions c ON c.config_hash=s.config_hash
+                ORDER BY s.cycle_number DESC LIMIT 1
+                """
+            ).fetchone()
+            if latest_success is None:
+                raise RuntimeError("v1 source has no successful sweep")
+            sweep = dict(latest_success)
+            latest_published_cycle = int(
+                connection.execute(
+                    "SELECT MAX(cycle_number) FROM market_sweeps"
+                ).fetchone()[0]
+            )
+
+        after = _stat_payload(source)
+        if before != after:
+            raise RuntimeError("v1 source changed during anchor validation")
+        if self.config.require_no_sidecars and any(
+            path.exists() for path in _sidecars(source)
+        ):
+            raise RuntimeError("v1 source created a SQLite sidecar during read")
+
+        observed = {
+            "source_path": str(source),
+            "source_file_fingerprint_sha256": file_fingerprint,
+            "source_db_size_bytes": after["size_bytes"],
+            "source_db_mtime_ns": after["mtime_ns"],
+            "source_schema_version": int(metadata.get("schema_version", -1)),
+            "source_schema_sha256": schema_sha256,
+            "source_data_contract": metadata.get("data_contract"),
+            "source_job_name": contract.get("job_name"),
+            "source_entry_start": contract.get("entry_start"),
+            "source_entry_end": contract.get("entry_end"),
+            "source_followup_end": contract.get("followup_end"),
+            "source_sweep_id": sweep.get("sweep_id"),
+            "source_cycle_number": int(sweep["cycle_number"]),
+            "source_sweep_completed_at": sweep.get("completed_at"),
+            "source_successful_at": sweep.get("succeeded_at"),
+            "source_config_hash": sweep.get("config_hash"),
+            "source_strategy_digest": sweep.get("strategy_source_digest"),
+        }
+        if latest_published_cycle != observed["source_cycle_number"]:
+            raise RuntimeError(
+                "v1 source contains a published sweep after the last successful run"
+            )
+        if sweep.get("config_job_name") != self.config.expected_job_name:
+            raise RuntimeError("v1 source config runtime job changed")
+        if sweep.get("config_contract") != self.config.expected_data_contract:
+            raise RuntimeError("v1 source config data contract changed")
+        if sweep.get("strategy_source_digest") != sweep.get(
+            "config_strategy_source_digest"
+        ):
+            raise RuntimeError("v1 sweep/config source digest mismatch")
+        changed = sorted(
+            key
+            for key, value in observed.items()
+            if str(stored.get(key)) != str(value)
+        )
+        if changed:
+            raise RuntimeError("v1 source anchor drift: " + ", ".join(changed))
+        return dict(stored)
+
 
 def compare_anchor(
     stored: Mapping[str, Any],
