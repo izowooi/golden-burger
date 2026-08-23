@@ -527,9 +527,28 @@ def test_audit_requires_full_fill_size_and_reports_confirmed_pnl(tmp_path: Path)
     assert complete["fill_ledger"]["confirmed_fill_gross_pnl_usdc"] == 2.0
     assert complete["fill_ledger"]["confirmed_fill_net_pnl_usdc"] == 2.0
 
+    # Polymarket omits both fee fields for exact CONFIRMED maker fills.  The
+    # venue role is authoritative zero-fee evidence for this narrow case.
     with sqlite3.connect(db_path) as connection:
         connection.execute(
-            "UPDATE order_fills SET fee_rate_bps = 30, fee_amount_usdc = NULL "
+            "UPDATE order_fills SET liquidity_role = 'MAKER', "
+            "fee_rate_bps = NULL, fee_amount_usdc = NULL"
+        )
+    maker_zero = audit_database(
+        db_path,
+        days=30,
+        as_of=datetime(2026, 7, 31, tzinfo=timezone.utc),
+    )
+    assert maker_zero["fill_ledger"]["fee_known_ratio"] == 1.0
+    assert maker_zero["fill_ledger"]["confirmed_fill_net_pnl_usdc"] == 2.0
+    assert not any(
+        issue["code"] == "fill_fee_missing" for issue in maker_zero["issues"]
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_fills SET liquidity_role = 'TAKER', "
+            "fee_rate_bps = 30, fee_amount_usdc = NULL "
             "WHERE order_id = 'sell-1'"
         )
     gross_only = audit_database(

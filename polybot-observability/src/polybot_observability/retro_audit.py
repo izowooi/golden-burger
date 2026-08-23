@@ -2368,10 +2368,20 @@ def _fill_ledger_summary(
         SELECT COUNT(*),
                SUM(CASE WHEN f.status = 'CONFIRMED' THEN 1 ELSE 0 END),
                SUM(CASE WHEN f.status = 'CONFIRMED'
-                              AND f.fee_rate_bps IS NOT NULL THEN 1 ELSE 0 END),
+                              AND (f.fee_rate_bps IS NOT NULL
+                                   OR (f.fee_rate_bps IS NULL
+                                       AND f.fee_amount_usdc IS NULL
+                                       AND f.liquidity_role = 'MAKER'
+                                       AND f.domain_error IS NULL))
+                        THEN 1 ELSE 0 END),
                SUM(CASE WHEN f.status = 'CONFIRMED'
                               AND (f.fee_amount_usdc IS NOT NULL
-                                   OR f.fee_rate_bps = 0) THEN 1 ELSE 0 END),
+                                   OR f.fee_rate_bps = 0
+                                   OR (f.fee_rate_bps IS NULL
+                                       AND f.fee_amount_usdc IS NULL
+                                       AND f.liquidity_role = 'MAKER'
+                                       AND f.domain_error IS NULL))
+                        THEN 1 ELSE 0 END),
                SUM(CASE WHEN f.status = 'CONFIRMED'
                               AND f.liquidity_role IN ('MAKER', 'TAKER')
                         THEN 1 ELSE 0 END)
@@ -2538,6 +2548,10 @@ def _fill_ledger_summary(
                        COUNT(*) AS fill_count,
                        SUM(CASE WHEN f.fee_amount_usdc IS NOT NULL
                                      OR f.fee_rate_bps = 0
+                                     OR (f.fee_rate_bps IS NULL
+                                         AND f.fee_amount_usdc IS NULL
+                                         AND f.liquidity_role = 'MAKER'
+                                         AND f.domain_error IS NULL)
                                 THEN 1 ELSE 0 END) AS fee_known_count
                        ,SUM(CASE WHEN f.domain_error IS NOT NULL
                                       OR f.size IS NULL OR f.size <= 0
