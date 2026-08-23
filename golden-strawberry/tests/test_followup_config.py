@@ -13,11 +13,11 @@ from polybot.followup_config import (
 )
 
 
-def test_followup_config_pins_epoch_source_batches_and_sla(monkeypatch):
+def test_followup_config_pins_v2a_epoch_source_batches_and_deadlines(monkeypatch):
     for key in list(__import__("os").environ):
         if key.startswith("POLYBOT_"):
             monkeypatch.delenv(key, raising=False)
-    config = load_followup_config(PROJECT_ROOT / "config.followup-v2.yaml")
+    config = load_followup_config(PROJECT_ROOT / "config.followup-v2a.yaml")
     assert config.job_name == FOLLOWUP_CANONICAL_JOB
     assert config.trading.data_contract == FOLLOWUP_DATA_CONTRACT
     assert config.db_path.name == "trades_sim.db"
@@ -26,7 +26,14 @@ def test_followup_config_pins_epoch_source_batches_and_sla(monkeypatch):
     assert config.trading.orderbook.batch_token_limit == 250
     assert config.trading.gamma.resolution_batch_size == 50
     assert config.trading.cadence_minutes == 10
-    assert config.trading.runtime.sla_seconds == 480
+    assert config.trading.runtime.network_cycle_deadline_seconds == 450
+    assert config.trading.runtime.pinned_fast_hard_sla_seconds == 480
+    assert config.trading.runtime.full_seed_budget_seconds == 1800
+    assert (
+        config.trading.runtime.network_cycle_deadline_seconds
+        < config.trading.runtime.pinned_fast_hard_sla_seconds
+        < config.trading.cadence_minutes * 60
+    )
 
 
 def test_followup_config_rejects_unknown_shape(tmp_path, monkeypatch):
@@ -34,7 +41,7 @@ def test_followup_config_rejects_unknown_shape(tmp_path, monkeypatch):
         if key.startswith("POLYBOT_"):
             monkeypatch.delenv(key, raising=False)
     source = yaml.safe_load(
-        (PROJECT_ROOT / "config.followup-v2.yaml").read_text(encoding="utf-8")
+        (PROJECT_ROOT / "config.followup-v2a.yaml").read_text(encoding="utf-8")
     )
     source["followup"]["sampling"] = {"forbidden": True}
     path = tmp_path / "bad-followup.yaml"
@@ -43,8 +50,8 @@ def test_followup_config_rejects_unknown_shape(tmp_path, monkeypatch):
         load_followup_config(path)
 
 
-def test_followup_preregistration_manifest_matches():
-    frozen = PROJECT_ROOT / "research/frozen-2026-08-23-followup-v2"
+def test_followup_v2a_preregistration_manifest_matches():
+    frozen = PROJECT_ROOT / "research/frozen-2026-08-24-followup-v2a"
     expected, filename = (frozen / "MANIFEST.sha256").read_text(
         encoding="utf-8"
     ).split()

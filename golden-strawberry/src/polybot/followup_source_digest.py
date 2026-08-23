@@ -1,4 +1,4 @@
-"""Stable source and preregistration digests for the follow-up v2 epoch."""
+"""Stable source and preregistration digests for the follow-up v2a epoch."""
 
 from __future__ import annotations
 
@@ -9,12 +9,16 @@ from .source_digest import PROJECT_ROOT, sha256_file
 
 
 FOLLOWUP_PREREGISTRATION = (
-    "research/frozen-2026-08-23-followup-v2/PREREGISTRATION.md"
+    "research/frozen-2026-08-24-followup-v2a/PREREGISTRATION.md"
 )
 FOLLOWUP_SOURCE_PATHS = (
+    "AGENTS.md",
+    "README.md",
+    "OPERATIONS.md",
+    "STRATEGY.md",
     "pyproject.toml",
     "uv.lock",
-    "config.followup-v2.yaml",
+    "config.followup-v2a.yaml",
     FOLLOWUP_PREREGISTRATION,
     "scripts/verify_external_workspace.py",
     "src/polybot/analyzer.py",

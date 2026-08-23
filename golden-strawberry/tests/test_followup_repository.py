@@ -98,6 +98,7 @@ def test_schema_is_append_only_and_cycle_failure_rolls_back(
             "strategy_source_digest": followup_config.trading.strategy_source_digest,
             "anchor_id": "v1-seed",
             "anchor_sha256": snapshot.anchor_sha256,
+            "validation_mode": "PINNED_FAST",
             "started_at": now,
             "completed_at": now,
             "published_at": now,
@@ -124,7 +125,13 @@ def test_schema_is_append_only_and_cycle_failure_rolls_back(
         ],
     }
     with pytest.raises(sqlite3.IntegrityError):
-        repository.publish_cycle(bundle)
+        repository.publish_successful_cycle(
+            bundle,
+            storage=followup_config.trading.storage,
+            finalize=lambda _seconds, _storage: pytest.fail(
+                "invalid cycle evidence reached successful finalization"
+            ),
+        )
     with repository.read_connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM followup_cycles").fetchone()[0] == 0
         trigger_count = connection.execute(

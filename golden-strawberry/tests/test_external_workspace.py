@@ -64,7 +64,7 @@ def test_reuses_existing_raspberry_anchors_and_writes_exact_marker(
         "job": "polybot-shadow-one",
         "workspace": str(workspace),
     }
-    assert result["runtime_job"] == "strawberry-shadow-one-followup-v2"
+    assert result["runtime_job"] == "strawberry-shadow-one-followup-v2a"
     assert result["trust_anchor_reused_from"] == "golden-raspberry"
     assert sentinel.exists() and pin.exists()
 

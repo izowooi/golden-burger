@@ -1,13 +1,17 @@
-"""Compact append-only SQLite store for Last Mile follow-up v2."""
+"""Compact append-only SQLite store for Last Mile follow-up v2a."""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
+import hashlib
+import json
 from pathlib import Path
 import shutil
 import sqlite3
-from typing import Any, Iterable, Iterator, Mapping, Sequence
+import time
+from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import quote
+from uuid import uuid4
 
 from ..config import StorageConfig
 from ..followup_config import (
@@ -16,16 +20,20 @@ from ..followup_config import (
     FollowupConfig,
 )
 from ..utils.retry import canonical_json, iso_utc
-from ..v1_source import V1SeedSnapshot, compare_anchor
+from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 
 
 GIB = 1024**3
-FOLLOWUP_SCHEMA_VERSION = 2
+FOLLOWUP_SCHEMA_VERSION = 3
 
 
 def _chunks(values: Sequence[str], size: int = 400) -> Iterator[Sequence[str]]:
     for offset in range(0, len(values), size):
         yield values[offset : offset + size]
+
+
+def _sha256_json(value: Any) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
 SCHEMA = r"""
@@ -35,9 +43,9 @@ CREATE TABLE IF NOT EXISTS schema_metadata (
 );
 
 CREATE TABLE IF NOT EXISTS followup_contracts (
-    job_name TEXT PRIMARY KEY CHECK (job_name = 'strawberry-shadow-one-followup-v2'),
+    job_name TEXT PRIMARY KEY CHECK (job_name = 'strawberry-shadow-one-followup-v2a'),
     strategy_name TEXT NOT NULL CHECK (strategy_name = 'golden-strawberry'),
-    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-followup-v2'),
+    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-followup-v2a'),
     lifecycle_mode TEXT NOT NULL CHECK (lifecycle_mode = 'archive_only'),
     cadence_minutes INTEGER NOT NULL CHECK (cadence_minutes = 10),
     cadence_offset_minute INTEGER NOT NULL CHECK (cadence_offset_minute = 7),
@@ -52,10 +60,10 @@ CREATE TABLE IF NOT EXISTS followup_contracts (
 CREATE TABLE IF NOT EXISTS research_config_versions (
     config_hash TEXT PRIMARY KEY,
     strategy_name TEXT NOT NULL CHECK (strategy_name = 'golden-strawberry'),
-    job_name TEXT NOT NULL CHECK (job_name = 'strawberry-shadow-one-followup-v2'),
+    job_name TEXT NOT NULL CHECK (job_name = 'strawberry-shadow-one-followup-v2a'),
     mode TEXT NOT NULL CHECK (mode = 'sim'),
     lifecycle_mode TEXT NOT NULL CHECK (lifecycle_mode = 'archive_only'),
-    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-followup-v2'),
+    data_contract TEXT NOT NULL CHECK (data_contract = 'last-mile-clob-followup-v2a'),
     strategy_source_digest TEXT NOT NULL,
     preregistration_sha256 TEXT NOT NULL,
     config_json TEXT NOT NULL,
@@ -162,7 +170,7 @@ CREATE TABLE IF NOT EXISTS research_run_events (
     run_id TEXT NOT NULL,
     config_hash TEXT NOT NULL REFERENCES research_config_versions(config_hash),
     strategy_name TEXT NOT NULL CHECK (strategy_name = 'golden-strawberry'),
-    job_name TEXT NOT NULL CHECK (job_name = 'strawberry-shadow-one-followup-v2'),
+    job_name TEXT NOT NULL CHECK (job_name = 'strawberry-shadow-one-followup-v2a'),
     mode TEXT NOT NULL CHECK (mode = 'sim'),
     event_type TEXT NOT NULL CHECK (event_type IN ('STARTED','SUCCEEDED','FAILED')),
     event_at TEXT NOT NULL,
@@ -207,6 +215,7 @@ CREATE TABLE IF NOT EXISTS followup_cycles (
     strategy_source_digest TEXT NOT NULL,
     anchor_id TEXT NOT NULL REFERENCES source_anchors(anchor_id),
     anchor_sha256 TEXT NOT NULL,
+    validation_mode TEXT NOT NULL CHECK (validation_mode IN ('FULL_SEED','PINNED_FAST')),
     started_at TEXT NOT NULL,
     completed_at TEXT NOT NULL,
     published_at TEXT NOT NULL,
@@ -708,6 +717,167 @@ class FollowupRepository:
             ).fetchone()
             return dict(row) if row is not None else None
 
+    def full_seed_succeeded(self) -> bool:
+        """Return true only after the atomic deployment cycle committed success."""
+
+        if not self.db_path.is_file():
+            return False
+        with self.read_connect() as connection:
+            return bool(
+                connection.execute(
+                    """
+                    SELECT EXISTS(
+                      SELECT 1 FROM followup_cycles c
+                      WHERE c.validation_mode='FULL_SEED'
+                        AND EXISTS (
+                          SELECT 1 FROM research_run_events e
+                          WHERE e.run_id=c.run_id AND e.event_type='SUCCEEDED'
+                        )
+                    )
+                    """
+                ).fetchone()[0]
+            )
+
+    def verify_seed_integrity(
+        self, anchor: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Rehash every imported canonical seed row before public follow-up work."""
+
+        with self.read_connect() as connection:
+            anchor_rows = connection.execute("SELECT * FROM source_anchors").fetchall()
+            if len(anchor_rows) != 1:
+                raise RuntimeError("follow-up source anchor count drift")
+            stored = dict(anchor_rows[0])
+            compare_anchor(stored, anchor)
+            if anchor_sha256(stored) != str(stored.get("anchor_sha256")):
+                raise RuntimeError("follow-up source anchor SHA-256 drift")
+
+            episodes: list[dict[str, Any]] = []
+            row_hash_errors: list[str] = []
+            column_errors: list[str] = []
+            for persisted in connection.execute(
+                "SELECT * FROM imported_episodes ORDER BY episode_id"
+            ):
+                persisted_row = dict(persisted)
+                try:
+                    payload = json.loads(str(persisted_row["episode_json"]))
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    row_hash_errors.append(str(persisted_row["episode_id"]))
+                    continue
+                if not isinstance(payload, dict):
+                    row_hash_errors.append(str(persisted_row["episode_id"]))
+                    continue
+                seed_hash = payload.get("seed_row_sha256")
+                unhashed = dict(payload)
+                unhashed.pop("seed_row_sha256", None)
+                if (
+                    seed_hash != persisted_row["seed_row_sha256"]
+                    or _sha256_json(unhashed) != seed_hash
+                ):
+                    row_hash_errors.append(str(persisted_row["episode_id"]))
+                try:
+                    expected_row = self._episode_row(payload)
+                except (KeyError, TypeError, ValueError):
+                    column_errors.append(str(persisted_row["episode_id"]))
+                else:
+                    if any(
+                        str(persisted_row[key]) != str(expected_row[key])
+                        for key in expected_row
+                        if key != "anchor_id"
+                    ):
+                        column_errors.append(str(persisted_row["episode_id"]))
+                episodes.append(payload)
+
+            conditions: list[dict[str, Any]] = []
+            for persisted in connection.execute(
+                "SELECT * FROM imported_condition_status ORDER BY condition_id"
+            ):
+                payload = dict(persisted)
+                payload.pop("anchor_id")
+                seed_hash = payload.get("seed_row_sha256")
+                unhashed = dict(payload)
+                unhashed.pop("seed_row_sha256", None)
+                if _sha256_json(unhashed) != seed_hash:
+                    row_hash_errors.append(f"condition:{payload['condition_id']}")
+                conditions.append(payload)
+
+            thresholds: list[dict[str, Any]] = []
+            for persisted in connection.execute(
+                """
+                SELECT * FROM imported_threshold_events
+                ORDER BY episode_id,event_kind,threshold,observed_at,
+                         source_threshold_event_id
+                """
+            ):
+                payload = dict(persisted)
+                payload["threshold_event_id"] = payload.pop(
+                    "source_threshold_event_id"
+                )
+                payload.pop("anchor_id")
+                seed_hash = payload.get("seed_row_sha256")
+                unhashed = dict(payload)
+                unhashed.pop("seed_row_sha256", None)
+                if _sha256_json(unhashed) != seed_hash:
+                    row_hash_errors.append(
+                        f"threshold:{payload['threshold_event_id']}"
+                    )
+                thresholds.append(payload)
+
+        terminal_conditions = sum(
+            int(row["terminal_at_handoff"]) for row in conditions
+        )
+        observed = {
+            "episode_count": len(episodes),
+            "condition_count": len(conditions),
+            "terminal_condition_count": terminal_conditions,
+            "threshold_count": len(thresholds),
+            "episode_seed_sha256": _sha256_json(episodes),
+            "condition_seed_sha256": _sha256_json(conditions),
+            "threshold_seed_sha256": _sha256_json(thresholds),
+        }
+        expected = {
+            "episode_count": int(anchor["executable_episode_count"]),
+            "condition_count": int(anchor["condition_count"]),
+            "terminal_condition_count": int(anchor["terminal_condition_count"]),
+            "threshold_count": int(anchor["threshold_event_count"]),
+            "episode_seed_sha256": str(anchor["episode_seed_sha256"]),
+            "condition_seed_sha256": str(anchor["condition_seed_sha256"]),
+            "threshold_seed_sha256": str(anchor["threshold_seed_sha256"]),
+        }
+        try:
+            source_counts = json.loads(str(anchor["source_counts_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("follow-up source count anchor is malformed") from error
+        source_count_match = bool(
+            isinstance(source_counts, dict)
+            and source_counts.get("executable_episodes") == observed["episode_count"]
+            and source_counts.get("imported_conditions") == observed["condition_count"]
+            and source_counts.get("terminal_conditions")
+            == observed["terminal_condition_count"]
+            and source_counts.get("episode_threshold_events")
+            == observed["threshold_count"]
+        )
+        healthy = bool(
+            observed == expected
+            and source_count_match
+            and not row_hash_errors
+            and not column_errors
+        )
+        report = {
+            "healthy": healthy,
+            "observed": observed,
+            "expected": expected,
+            "source_count_anchor_matches": source_count_match,
+            "row_hash_errors": row_hash_errors,
+            "column_errors": column_errors,
+        }
+        if not healthy:
+            raise RuntimeError(
+                "follow-up imported seed integrity drift: "
+                + canonical_json(report)
+            )
+        return report
+
     def record_research_run_event(self, row: Mapping[str, Any]) -> None:
         self._insert_one("research_run_events", row)
 
@@ -806,7 +976,8 @@ class FollowupRepository:
                     )
         return result
 
-    def publish_cycle(self, bundle: Mapping[str, Any]) -> None:
+    @staticmethod
+    def _validate_cycle_bundle(bundle: Mapping[str, Any]) -> None:
         expected_tokens = tuple(bundle["expected_tokens"])
         expected_conditions = tuple(bundle["expected_conditions"])
         expected_episodes = tuple(bundle["expected_episode_ids"])
@@ -837,34 +1008,42 @@ class FollowupRepository:
             raise ValueError("follow-up resolutions do not cover every condition")
         if len(resolutions) != len(expected_conditions):
             raise ValueError("follow-up resolutions contain duplicate conditions")
-        cycle = dict(bundle["cycle"])
-        with self._connect() as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            try:
-                self._insert_many(connection, "followup_cycles", [cycle])
-                self._insert_many(connection, "book_token_attempts", attempts)
-                self._insert_many(connection, "compact_books", books)
-                self._insert_many(connection, "episode_path_observations", paths)
-                self._insert_many(
-                    connection,
-                    "episode_threshold_events",
-                    bundle.get("threshold_events", ()),
-                )
-                self._insert_many(connection, "resolution_observations", resolutions)
-                self._insert_many(
-                    connection, "data_quality_issues", bundle.get("quality_issues", ())
-                )
-                connection.commit()
-            except BaseException:
-                connection.rollback()
-                raise
 
-    def record_phase_timings(self, rows: Iterable[Mapping[str, Any]]) -> None:
-        with self._connect() as connection:
-            self._insert_many(connection, "phase_timings", rows)
-            connection.commit()
+    def _insert_cycle_evidence(
+        self,
+        connection: sqlite3.Connection,
+        bundle: Mapping[str, Any],
+    ) -> None:
+        self._insert_many(connection, "followup_cycles", [dict(bundle["cycle"])])
+        self._insert_many(
+            connection, "book_token_attempts", bundle.get("book_attempts", ())
+        )
+        self._insert_many(
+            connection, "compact_books", bundle.get("compact_books", ())
+        )
+        self._insert_many(
+            connection, "episode_path_observations", bundle.get("paths", ())
+        )
+        self._insert_many(
+            connection,
+            "episode_threshold_events",
+            bundle.get("threshold_events", ()),
+        )
+        self._insert_many(
+            connection, "resolution_observations", bundle.get("resolutions", ())
+        )
+        self._insert_many(
+            connection, "data_quality_issues", bundle.get("quality_issues", ())
+        )
 
-    def record_storage_metric(
+    def _before_success_finalize(
+        self,
+        connection: sqlite3.Connection,
+        bundle: Mapping[str, Any],
+    ) -> None:
+        """Testable no-op at the post-evidence, pre-success transaction boundary."""
+
+    def _storage_metric_row(
         self,
         *,
         phase: str,
@@ -884,7 +1063,7 @@ class FollowupRepository:
         else:
             state = "OK"
         journal = self.db_path.with_name(self.db_path.name + "-journal")
-        row = {
+        return {
             "metric_id": metric_id,
             "run_id": run_id,
             "phase": phase,
@@ -897,6 +1076,76 @@ class FollowupRepository:
             "filesystem_used_ratio": used_ratio,
             "guard_state": state,
         }
+
+    def publish_successful_cycle(
+        self,
+        bundle: Mapping[str, Any],
+        *,
+        storage: StorageConfig,
+        finalize: Callable[[float, Mapping[str, Any]], Mapping[str, Any]],
+        monotonic: Callable[[], float] = time.monotonic,
+    ) -> dict[str, Any]:
+        """Commit cycle state, timings, storage, and SUCCEEDED as one fact."""
+
+        self._validate_cycle_bundle(bundle)
+        publication_started = monotonic()
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            try:
+                self._insert_cycle_evidence(connection, bundle)
+                self._before_success_finalize(connection, bundle)
+                storage_row = self._storage_metric_row(
+                    phase="successful_publication_precommit",
+                    storage=storage,
+                    metric_id=uuid4().hex,
+                    run_id=str(bundle["cycle"]["run_id"]),
+                )
+                if storage_row["guard_state"] == "STOP":
+                    raise RuntimeError(
+                        "disk guard reached STOP before successful v2a commit"
+                    )
+                publication_seconds = max(0.0, monotonic() - publication_started)
+                finalization = dict(finalize(publication_seconds, storage_row))
+                summary = dict(finalization["summary"])
+                phase_rows = list(finalization["phase_timings"])
+                terminal_event = dict(finalization["terminal_event"])
+                cycle_id = str(bundle["cycle"]["cycle_id"])
+                run_id = str(bundle["cycle"]["run_id"])
+                if terminal_event.get("event_type") != "SUCCEEDED":
+                    raise ValueError("atomic terminal event must be SUCCEEDED")
+                if terminal_event.get("run_id") != run_id:
+                    raise ValueError("atomic terminal event run_id mismatch")
+                if {
+                    str(row.get("cycle_id")) for row in phase_rows
+                } != {cycle_id}:
+                    raise ValueError("atomic phase timing cycle_id mismatch")
+                if {str(row.get("run_id")) for row in phase_rows} != {run_id}:
+                    raise ValueError("atomic phase timing run_id mismatch")
+                self._insert_many(connection, "phase_timings", phase_rows)
+                self._insert_many(connection, "storage_metrics", [storage_row])
+                self._insert_many(
+                    connection, "research_run_events", [terminal_event]
+                )
+                connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+        return summary
+
+    def record_storage_metric(
+        self,
+        *,
+        phase: str,
+        storage: StorageConfig,
+        metric_id: str,
+        run_id: str | None = None,
+    ) -> dict[str, Any]:
+        row = self._storage_metric_row(
+            phase=phase,
+            storage=storage,
+            metric_id=metric_id,
+            run_id=run_id,
+        )
         self._insert_one("storage_metrics", row)
         return row
 

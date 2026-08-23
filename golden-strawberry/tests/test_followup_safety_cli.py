@@ -61,7 +61,7 @@ def test_v1_run_is_retired_while_read_only_commands_remain(project_root):
 
 def test_followup_console_script_and_runtime_are_separate(project_root):
     pyproject = (project_root / "pyproject.toml").read_text(encoding="utf-8")
-    config = (project_root / "config.followup-v2.yaml").read_text(encoding="utf-8")
+    config = (project_root / "config.followup-v2a.yaml").read_text(encoding="utf-8")
     assert 'polybot-followup = "polybot.followup_main:main"' in pyproject
-    assert "strawberry-shadow-one-followup-v2" not in config  # CLI pins it.
-    assert "last-mile-clob-followup-v2" in config
+    assert "strawberry-shadow-one-followup-v2a" not in config  # CLI pins it.
+    assert "last-mile-clob-followup-v2a" in config

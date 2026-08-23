@@ -6,7 +6,11 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..config import OrderBookConfig
-from ..utils.retry import PublicApiError, PublicJsonTransport
+from ..utils.retry import (
+    CooperativeDeadline,
+    PublicApiError,
+    PublicJsonTransport,
+)
 
 
 @dataclass(frozen=True)
@@ -42,7 +46,13 @@ class ClobBookClient:
         self.config = config
         self.transport = transport
 
-    def fetch_books(self, run_id: str, token_ids: list[str]) -> BookCollection:
+    def fetch_books(
+        self,
+        run_id: str,
+        token_ids: list[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> BookCollection:
         unique = list(dict.fromkeys(str(token) for token in token_ids if str(token)))
         books: dict[str, dict[str, Any]] = {}
         attempts: dict[str, BookAttempt] = {}
@@ -57,6 +67,7 @@ class ClobBookClient:
                     run_id=run_id,
                     page_number=offset // self.config.batch_token_limit + 1,
                     json_body=[{"token_id": token} for token in chunk],
+                    deadline=deadline,
                 )
             except PublicApiError as error:
                 for token in chunk:

@@ -8,6 +8,7 @@ from polybot.api.sampling_client import SamplingMarketClient
 from polybot.db.followup_repository import FollowupRepository
 from polybot.followup_collector import FollowupCollector
 from polybot.followup_run_audit import FollowupRunAudit
+from polybot.utils.retry import CooperativeDeadline
 from polybot.v1_source import V1SourceReader
 from tests.followup_support import (
     FollowupBooks,
@@ -29,7 +30,7 @@ def test_followup_never_invokes_sampling_client(
     snapshot = _snapshot(config, followup_config)
 
     def forbidden(*args, **kwargs):
-        raise AssertionError("/sampling-markets must not be invoked by follow-up v2")
+        raise AssertionError("/sampling-markets must not be invoked by follow-up v2a")
 
     monkeypatch.setattr(SamplingMarketClient, "collect_market_sweep", forbidden)
     evidence = build_followup_evidence(followup_config, snapshot)
@@ -44,6 +45,8 @@ def test_runtime_sla_fixture_and_phase_timing_are_end_to_end(
     summary = evidence.summaries[0]
     assert summary["runtime_sla_met"] is True
     assert summary["total_seconds"] < 480
+    assert summary["validation_mode"] == "PINNED_FAST"
+    assert summary["network_cycle_deadline_seconds"] == 450
     assert summary["phase_seconds"]["v1_anchor_validation"] == 0.01
     assert summary["phase_seconds"]["total"] >= 0.01
     assert {
@@ -67,7 +70,7 @@ def test_failed_run_keeps_api_receipt_without_partial_cycle(
     repository.ensure_seed(snapshot)
 
     class ReceiptThenFailure(FollowupBooks):
-        def fetch_books(self, run_id, token_ids):
+        def fetch_books(self, run_id, token_ids, *, deadline=None):
             api_receipt(
                 self.repository,
                 run_id=run_id,
@@ -87,9 +90,16 @@ def test_failed_run_keeps_api_receipt_without_partial_cycle(
         followup_config,
         repository=repository,
         anchor_sha256=snapshot.anchor_sha256,
+        validation_mode="PINNED_FAST",
     )
     with pytest.raises(RuntimeError, match="injected") as caught:
-        collector.run_cycle(audit.run_id, anchor=snapshot.anchor)
+        collector.run_cycle(
+            audit.run_id,
+            anchor=snapshot.anchor,
+            audit=audit,
+            deadline=CooperativeDeadline.after(450),
+            validation_mode="PINNED_FAST",
+        )
     audit.fail(caught.value)
     with repository.read_connect() as connection:
         assert connection.execute("SELECT COUNT(*) FROM api_requests").fetchone()[0] == 1

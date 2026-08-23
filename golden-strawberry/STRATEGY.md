@@ -26,10 +26,14 @@ or outcome-price filter. Source tradability is the only gate.
 The entry window is `[2026-08-15T04:00:00Z, 2026-08-22T04:00:00Z)` at minute
 `7,17,27,37,47,57`. Follow-up resolution evidence ends `2026-09-21T04:00:00Z`.
 
-The entry window is closed. `last-mile-clob-followup-v2` does not traverse that population again.
+The entry window is closed. `last-mile-clob-followup-v2a` does not traverse that population again.
 It deterministically imports only v1 executable episode definitions and terminal state from the
 pinned, immutable v1 database, then polls distinct unresolved tokens/conditions. This is a storage
 and collection epoch boundary, not a new cohort or a change to the hypothesis.
+
+The attempted `last-mile-clob-followup-v2` rollout produced no database in Jenkins build `#761`.
+Its provenance remains untouched; v2a has an independent contract, runtime, database, schema,
+preregistration, source digest, and config hash while following the same immutable v1 cohort.
 
 ## Measurement contract
 
@@ -58,10 +62,13 @@ books/levels, episodes, path observations, metadata, and resolution observations
 published atomically. Full parsed rows are retained only for nontrivial decisions; the mutable
 `latest_outcome_state` table is a labeled crossing cache with raw-page lineage.
 
-Those raw v1 rows stay only in v1. Follow-up v2 stores one canonical gzip full-book blob per
+Those raw v1 rows stay only in v1. Follow-up v2a stores one canonical gzip full-book blob per
 token/cycle, shared by all threshold episodes for that token, plus fixed-share paths, first threshold
 transitions, unique one-hot resolution evidence, API receipts, run/storage/phase timings, and the v1
-seed anchor. Row-per-level book storage and new sampling/crossing evidence are forbidden in v2.
+seed anchor. Row-per-level book storage and new sampling/crossing evidence are forbidden in v2a.
+Each recurring cycle first verifies the exact v1 anchor and every imported canonical seed hash/count.
+Cycle evidence, timings, successful storage measurement, and `SUCCEEDED` are atomic; failed
+publication cannot change later path, resolution, or threshold state.
 
 The predeployment probe saw about 12.5k markets and 25k tokens over 13 pages. Two full cycles took
 5.5–6.3 seconds. The first DB was 31.7MB and the second added 6.46MB, planning roughly 6–7GB for week
@@ -76,5 +83,5 @@ resolution coverage. Even then, no profitability or live recommendation is allow
 healthy, frozen 30-day out-of-sample cohort.
 
 The v1 checksum authority is `research/frozen-2026-08-15-clob/PREREGISTRATION.md`; the active
-follow-up authority is `research/frozen-2026-08-23-followup-v2/PREREGISTRATION.md` plus its
+follow-up authority is `research/frozen-2026-08-24-followup-v2a/PREREGISTRATION.md` plus its
 `MANIFEST.sha256`.

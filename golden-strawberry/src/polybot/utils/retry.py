@@ -51,6 +51,87 @@ class PublicApiError(RuntimeError):
         self.request_id = request_id
 
 
+class CycleDeadlineExceeded(RuntimeError):
+    """The shared cooperative follow-up cycle budget was exhausted."""
+
+
+class CooperativeDeadline:
+    """One monotonic budget shared by validation, batches, retries, and sleeps."""
+
+    _MIN_HEADROOM_SECONDS = 0.01
+    _MIN_SOCKET_TIMEOUT_SECONDS = 0.001
+
+    def __init__(
+        self,
+        *,
+        expires_at: float,
+        monotonic: Callable[[], float] = time.monotonic,
+        label: str = "follow-up network cycle",
+    ) -> None:
+        if not math.isfinite(expires_at):
+            raise ValueError("deadline expiry must be finite")
+        self.expires_at = float(expires_at)
+        self.monotonic = monotonic
+        self.label = label
+
+    @classmethod
+    def after(
+        cls,
+        seconds: float,
+        *,
+        monotonic: Callable[[], float] = time.monotonic,
+        label: str = "follow-up network cycle",
+    ) -> "CooperativeDeadline":
+        budget = float(seconds)
+        if not math.isfinite(budget) or budget <= 0:
+            raise ValueError("deadline budget must be finite and positive")
+        return cls(
+            expires_at=monotonic() + budget,
+            monotonic=monotonic,
+            label=label,
+        )
+
+    def remaining_seconds(self) -> float:
+        return max(0.0, self.expires_at - self.monotonic())
+
+    def check(self, context: str) -> float:
+        remaining = self.remaining_seconds()
+        if remaining <= self._MIN_HEADROOM_SECONDS:
+            raise CycleDeadlineExceeded(
+                f"{self.label} deadline exhausted before {context}"
+            )
+        return remaining
+
+    def request_timeouts(
+        self,
+        connect_timeout_seconds: float,
+        read_timeout_seconds: float,
+        *,
+        context: str,
+    ) -> tuple[float, float]:
+        remaining = self.check(context)
+        available = remaining - self._MIN_HEADROOM_SECONDS
+        minimum = self._MIN_SOCKET_TIMEOUT_SECONDS
+        if available <= minimum * 2:
+            raise CycleDeadlineExceeded(
+                f"{self.label} deadline has no socket-timeout headroom for {context}"
+            )
+        connect = min(float(connect_timeout_seconds), available - minimum)
+        connect = max(minimum, connect)
+        read = min(float(read_timeout_seconds), available - connect)
+        read = max(minimum, read)
+        return connect, read
+
+    def require_retry_delay(self, delay_seconds: float, *, context: str) -> float:
+        delay = max(0.0, float(delay_seconds))
+        remaining = self.check(context)
+        if delay + self._MIN_HEADROOM_SECONDS >= remaining:
+            raise CycleDeadlineExceeded(
+                f"{self.label} deadline cannot fit retry delay for {context}"
+            )
+        return delay
+
+
 @dataclass(frozen=True)
 class JsonResponse:
     payload: Any
@@ -98,6 +179,7 @@ class PublicJsonTransport:
         receipt_sink: Callable[[Mapping[str, Any]], None],
         session: requests.Session | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        monotonic: Callable[[], float] = time.monotonic,
     ) -> None:
         self.connect_timeout_seconds = connect_timeout_seconds
         self.read_timeout_seconds = read_timeout_seconds
@@ -106,6 +188,7 @@ class PublicJsonTransport:
         self.retry_max_seconds = retry_max_seconds
         self.receipt_sink = receipt_sink
         self.sleep = sleep
+        self.monotonic = monotonic
         self.session = session or requests.Session()
         # Public collection must not inherit .netrc credentials or proxy auth.
         self.session.trust_env = False
@@ -126,6 +209,7 @@ class PublicJsonTransport:
         page_number: int | None = None,
         params: Mapping[str, Any] | None = None,
         json_body: Any | None = None,
+        deadline: CooperativeDeadline | None = None,
     ) -> JsonResponse:
         method = method.upper()
         body_bytes = (
@@ -146,8 +230,20 @@ class PublicJsonTransport:
         last_status: int | None = None
 
         for attempt_number in range(1, self.max_retries + 2):
+            timeout = (
+                deadline.request_timeouts(
+                    self.connect_timeout_seconds,
+                    self.read_timeout_seconds,
+                    context=f"{request_kind} attempt {attempt_number}",
+                )
+                if deadline is not None
+                else (
+                    self.connect_timeout_seconds,
+                    self.read_timeout_seconds,
+                )
+            )
             request_id = uuid4().hex
-            started_clock = time.monotonic()
+            started_clock = self.monotonic()
             started_at = iso_utc()
             response: Response | None = None
             raw = b""
@@ -161,10 +257,7 @@ class PublicJsonTransport:
                     url,
                     params=dict(params or {}),
                     json=json_body,
-                    timeout=(
-                        self.connect_timeout_seconds,
-                        self.read_timeout_seconds,
-                    ),
+                    timeout=timeout,
                 )
                 last_status = response.status_code
                 raw = response.content
@@ -181,6 +274,8 @@ class PublicJsonTransport:
                     raise ValueError(
                         "public endpoint returned malformed JSON"
                     ) from error
+                if deadline is not None:
+                    deadline.check(f"{request_kind} attempt {attempt_number} response")
                 received_at = iso_utc()
                 response_sha256 = hashlib.sha256(raw).hexdigest()
                 self.receipt_sink(
@@ -202,7 +297,7 @@ class PublicJsonTransport:
                         "started_at": started_at,
                         "completed_at": received_at,
                         "elapsed_ms": round(
-                            (time.monotonic() - started_clock) * 1000, 3
+                            (self.monotonic() - started_clock) * 1000, 3
                         ),
                         "status": "SUCCESS",
                         "http_status": response.status_code,
@@ -223,11 +318,16 @@ class PublicJsonTransport:
                     received_at=received_at,
                     response_sha256=response_sha256,
                 )
-            except (ChunkedEncodingError, RequestException, ValueError) as error:
+            except (
+                ChunkedEncodingError,
+                RequestException,
+                ValueError,
+                CycleDeadlineExceeded,
+            ) as error:
                 last_error = error
                 status = response.status_code if response is not None else None
                 last_status = status
-                retryable = (
+                retryable = not isinstance(error, CycleDeadlineExceeded) and (
                     status is None
                     or status == 429
                     or (status is not None and 500 <= status < 600)
@@ -256,7 +356,7 @@ class PublicJsonTransport:
                         "started_at": started_at,
                         "completed_at": completed_at,
                         "elapsed_ms": round(
-                            (time.monotonic() - started_clock) * 1000, 3
+                            (self.monotonic() - started_clock) * 1000, 3
                         ),
                         "status": "ERROR",
                         "http_status": status,
@@ -275,7 +375,18 @@ class PublicJsonTransport:
             delay = retry_after_seconds
             if delay is None:
                 delay = self.retry_base_seconds * (2 ** (attempt_number - 1))
-            self.sleep(min(self.retry_max_seconds, max(0.0, delay)))
+            bounded_delay = min(self.retry_max_seconds, max(0.0, delay))
+            if deadline is not None:
+                bounded_delay = deadline.require_retry_delay(
+                    bounded_delay,
+                    context=f"{request_kind} attempt {attempt_number + 1}",
+                )
+            self.sleep(bounded_delay)
+            if deadline is not None:
+                deadline.check(f"{request_kind} attempt {attempt_number + 1}")
+
+        if isinstance(last_error, CycleDeadlineExceeded):
+            raise last_error
 
         raise PublicApiError(
             f"{request_kind} failed after bounded retries: "
@@ -287,6 +398,8 @@ class PublicJsonTransport:
 
 __all__ = [
     "JsonResponse",
+    "CooperativeDeadline",
+    "CycleDeadlineExceeded",
     "PublicApiError",
     "PublicJsonTransport",
     "canonical_json",

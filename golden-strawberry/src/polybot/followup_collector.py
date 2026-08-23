@@ -1,4 +1,4 @@
-"""Compact unresolved-episode collector for Last Mile follow-up v2."""
+"""Compact unresolved-episode collector for Last Mile follow-up v2a."""
 
 from __future__ import annotations
 
@@ -17,7 +17,14 @@ from .api.gamma_client import GammaClient, ResolutionLookup
 from .collector import _resolution_result, normalize_book, walk_bids
 from .db.followup_repository import FollowupRepository
 from .followup_config import FollowupConfig
-from .utils.retry import PublicJsonTransport, canonical_json, iso_utc
+from .followup_run_audit import FollowupRunAudit
+from .utils.retry import (
+    CooperativeDeadline,
+    CycleDeadlineExceeded,
+    PublicJsonTransport,
+    canonical_json,
+    iso_utc,
+)
 
 
 BOOK_ENCODING = "gzip-json-v1"
@@ -146,6 +153,7 @@ class FollowupCollector:
                 retry_base_seconds=gamma.retry_base_seconds,
                 retry_max_seconds=gamma.retry_max_seconds,
                 receipt_sink=repository.record_api_request,
+                monotonic=monotonic,
             )
             clob_client = clob_client or ClobBookClient(
                 config.trading.orderbook, transport
@@ -154,15 +162,20 @@ class FollowupCollector:
         self.clob_client = clob_client
         self.gamma_client = gamma_client
         self._phases: list[PhaseRecord] = []
+        self._deadline: CooperativeDeadline | None = None
 
     @contextmanager
     def _phase(
         self, name: str, details: Mapping[str, Any] | None = None
     ) -> Iterator[None]:
+        if self._deadline is not None:
+            self._deadline.check(f"{name} phase")
         started_at = iso_utc()
         started = self.monotonic()
+        succeeded = False
         try:
             yield
+            succeeded = True
         finally:
             self._phases.append(
                 PhaseRecord(
@@ -173,6 +186,8 @@ class FollowupCollector:
                     details=dict(details or {}),
                 )
             )
+        if succeeded and self._deadline is not None:
+            self._deadline.check(f"{name} phase completion")
 
     @staticmethod
     def _response_sha_by_request(books: BookCollection) -> dict[str, str]:
@@ -206,8 +221,15 @@ class FollowupCollector:
         run_id: str,
         *,
         anchor: Mapping[str, Any],
+        audit: FollowupRunAudit,
+        deadline: CooperativeDeadline,
+        validation_mode: str,
+        seed_integrity: Mapping[str, Any] | None = None,
         initial_phases: Sequence[PhaseRecord] = (),
     ) -> dict[str, Any]:
+        if validation_mode not in {"FULL_SEED", "PINNED_FAST"}:
+            raise ValueError("follow-up validation mode is invalid")
+        self._deadline = deadline
         self._phases = list(initial_phases)
         cycle_started_at = iso_utc()
         total_started = self.monotonic()
@@ -224,7 +246,9 @@ class FollowupCollector:
             conditions = sorted({str(row["condition_id"]) for row in episodes})
 
         with self._phase("clob_books", {"token_count": len(tokens)}):
-            books = self.clob_client.fetch_books(run_id, tokens)
+            books = self.clob_client.fetch_books(
+                run_id, tokens, deadline=deadline
+            )
         response_sha = self._response_sha_by_request(books)
         normalized = {}
         compact_rows: list[dict[str, Any]] = []
@@ -400,7 +424,9 @@ class FollowupCollector:
                         existing_keys.add(key)
 
         with self._phase("gamma_resolutions", {"condition_count": len(conditions)}):
-            lookups = self.gamma_client.fetch_resolutions(run_id, conditions)
+            lookups = self.gamma_client.fetch_resolutions(
+                run_id, conditions, deadline=deadline
+            )
         episodes_by_condition: dict[str, list[Mapping[str, Any]]] = {}
         for episode in episodes:
             episodes_by_condition.setdefault(str(episode["condition_id"]), []).append(
@@ -510,6 +536,7 @@ class FollowupCollector:
         summary_base = {
             "cycle_number": cycle_number,
             "anchor_sha256": anchor["anchor_sha256"],
+            "validation_mode": validation_mode,
             "unresolved_episodes": len(episodes),
             "distinct_tokens": len(tokens),
             "distinct_conditions": len(conditions),
@@ -531,6 +558,7 @@ class FollowupCollector:
                 "strategy_source_digest": self.config.trading.strategy_source_digest,
                 "anchor_id": "v1-seed",
                 "anchor_sha256": anchor["anchor_sha256"],
+                "validation_mode": validation_mode,
                 "started_at": cycle_started_at,
                 "completed_at": completed_at,
                 "published_at": iso_utc(),
@@ -551,58 +579,135 @@ class FollowupCollector:
             "resolutions": resolution_rows,
             "quality_issues": quality_rows,
         }
-        with self._phase("atomic_publication"):
-            self.repository.publish_cycle(bundle)
-        collector_seconds = max(0.0, self.monotonic() - total_started)
-        total_seconds = initial_elapsed_seconds + collector_seconds
-        phase_rows = [
-            {
-                "phase_timing_id": uuid4().hex,
-                "cycle_id": cycle_id,
-                "run_id": run_id,
-                "phase_name": phase.name,
-                "started_at": phase.started_at,
-                "completed_at": phase.completed_at,
-                "elapsed_seconds": phase.elapsed_seconds,
-                "details_json": canonical_json(dict(phase.details)),
+        deadline.check("atomic successful publication")
+        publication_started_at = iso_utc()
+
+        def finalize(
+            publication_seconds: float,
+            storage_row: Mapping[str, Any],
+        ) -> Mapping[str, Any]:
+            deadline.check("atomic successful publication finalization")
+            collector_seconds = max(0.0, self.monotonic() - total_started)
+            total_seconds = initial_elapsed_seconds + collector_seconds
+            runtime = self.config.trading.runtime
+            if (
+                validation_mode == "PINNED_FAST"
+                and total_seconds >= runtime.pinned_fast_hard_sla_seconds
+            ):
+                raise CycleDeadlineExceeded(
+                    "PINNED_FAST cycle reached the 480-second hard SLA before commit"
+                )
+            if (
+                validation_mode == "FULL_SEED"
+                and total_seconds >= runtime.full_seed_budget_seconds
+            ):
+                raise CycleDeadlineExceeded(
+                    "FULL_SEED cycle reached the 1800-second maintenance budget "
+                    "before commit"
+                )
+            phases = list(self._phases)
+            phases.append(
+                PhaseRecord(
+                    name="atomic_publication",
+                    started_at=publication_started_at,
+                    completed_at=iso_utc(),
+                    elapsed_seconds=publication_seconds,
+                    details={
+                        "transaction_boundary": (
+                            "cycle_evidence+phase_timings+storage+SUCCEEDED"
+                        )
+                    },
+                )
+            )
+            phase_rows = [
+                {
+                    "phase_timing_id": uuid4().hex,
+                    "cycle_id": cycle_id,
+                    "run_id": run_id,
+                    "phase_name": phase.name,
+                    "started_at": phase.started_at,
+                    "completed_at": phase.completed_at,
+                    "elapsed_seconds": phase.elapsed_seconds,
+                    "details_json": canonical_json(dict(phase.details)),
+                }
+                for phase in phases
+            ]
+            phase_rows.append(
+                {
+                    "phase_timing_id": uuid4().hex,
+                    "cycle_id": cycle_id,
+                    "run_id": run_id,
+                    "phase_name": "total",
+                    "started_at": (
+                        initial_phases[0].started_at
+                        if initial_phases
+                        else cycle_started_at
+                    ),
+                    "completed_at": iso_utc(),
+                    "elapsed_seconds": total_seconds,
+                    "details_json": canonical_json(
+                        {
+                            "collector_seconds": collector_seconds,
+                            "initial_phase_seconds": initial_elapsed_seconds,
+                            "measurement": (
+                                "v1_anchor_start_to_success_transaction_precommit"
+                            ),
+                            "validation_mode": validation_mode,
+                            "network_cycle_deadline_seconds": (
+                                runtime.network_cycle_deadline_seconds
+                            ),
+                            "pinned_fast_hard_sla_seconds": (
+                                runtime.pinned_fast_hard_sla_seconds
+                            ),
+                            "full_seed_budget_seconds": (
+                                runtime.full_seed_budget_seconds
+                            ),
+                        }
+                    ),
+                }
+            )
+            storage_summary = {
+                "db_bytes": storage_row["db_bytes"],
+                "journal_bytes": storage_row["journal_bytes"],
+                "filesystem_free_bytes": storage_row["filesystem_free_bytes"],
+                "filesystem_used_ratio": storage_row["filesystem_used_ratio"],
+                "guard_state": storage_row["guard_state"],
+                "measurement_phase": storage_row["phase"],
             }
-            for phase in self._phases
-        ]
-        phase_rows.append(
-            {
-                "phase_timing_id": uuid4().hex,
-                "cycle_id": cycle_id,
-                "run_id": run_id,
-                "phase_name": "total",
-                "started_at": (
-                    initial_phases[0].started_at
-                    if initial_phases
-                    else cycle_started_at
+            summary = {
+                **summary_base,
+                "seed_integrity": dict(seed_integrity or {}),
+                "total_seconds": round(total_seconds, 6),
+                "network_cycle_deadline_seconds": (
+                    runtime.network_cycle_deadline_seconds
                 ),
-                "completed_at": iso_utc(),
-                "elapsed_seconds": total_seconds,
-                "details_json": canonical_json(
-                    {
-                        "collector_seconds": collector_seconds,
-                        "initial_phase_seconds": initial_elapsed_seconds,
-                        "measurement": "v1_anchor_start_to_phase_persistence",
-                        "sla_seconds": self.config.trading.runtime.sla_seconds,
-                    }
+                "runtime_sla_seconds": runtime.pinned_fast_hard_sla_seconds,
+                "runtime_sla_met": (
+                    total_seconds < runtime.pinned_fast_hard_sla_seconds
+                    if validation_mode == "PINNED_FAST"
+                    else None
                 ),
+                "full_seed_budget_seconds": runtime.full_seed_budget_seconds,
+                "storage": storage_summary,
+                "phase_seconds": {
+                    row["phase_name"]: round(float(row["elapsed_seconds"]), 6)
+                    for row in phase_rows
+                },
             }
+            return {
+                "summary": summary,
+                "phase_timings": phase_rows,
+                "terminal_event": audit.success_event_row(summary),
+            }
+
+        summary = self.repository.publish_successful_cycle(
+            bundle,
+            storage=self.config.trading.storage,
+            finalize=finalize,
+            monotonic=self.monotonic,
         )
-        self.repository.record_phase_timings(phase_rows)
-        return {
-            **summary_base,
-            "total_seconds": round(total_seconds, 6),
-            "runtime_sla_seconds": self.config.trading.runtime.sla_seconds,
-            "runtime_sla_met": total_seconds
-            < self.config.trading.runtime.sla_seconds,
-            "phase_seconds": {
-                row["phase_name"]: round(float(row["elapsed_seconds"]), 6)
-                for row in phase_rows
-            },
-        }
+        audit.mark_succeeded()
+        return summary
 
 
 __all__ = [

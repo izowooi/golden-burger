@@ -59,3 +59,18 @@ def test_retro_invokes_evidence_contract_and_primary_research_analyzer(project_r
     assert "immutable" in retro
     assert "Primary" in retro
     assert "secondary" in retro
+
+
+def test_active_followup_docs_point_only_to_v2a_identity(project_root):
+    readme = (project_root / "README.md").read_text(encoding="utf-8")
+    operations = (project_root / "OPERATIONS.md").read_text(encoding="utf-8")
+    agents = (project_root / "AGENTS.md").read_text(encoding="utf-8")
+    active = "research/frozen-2026-08-24-followup-v2a/PREREGISTRATION.md"
+    assert f"]({active})" in readme
+    assert active in operations
+    assert active in agents
+    for text in (readme, operations, agents):
+        assert "strawberry-shadow-one-followup-v2a" in text
+        assert "last-mile-clob-followup-v2a" in text
+    assert "first successful natural `PINNED_FAST`" in readme
+    assert "FULL_SEED" in readme and "recurring 480-second" in readme

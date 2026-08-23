@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -12,7 +13,12 @@ from typing import Any, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 
 from .followup_config import V1SourceConfig
-from .utils.retry import canonical_json, iso_utc
+from .utils.retry import (
+    CooperativeDeadline,
+    CycleDeadlineExceeded,
+    canonical_json,
+    iso_utc,
+)
 
 
 _REQUIRED_TABLES = frozenset(
@@ -84,10 +90,44 @@ _THRESHOLD_FIELDS = (
     "interval_censored",
     "conservative_priority",
 )
+ANCHOR_CORE_FIELDS = (
+    "source_path",
+    "source_file_fingerprint_sha256",
+    "source_db_size_bytes",
+    "source_db_mtime_ns",
+    "source_schema_version",
+    "source_schema_sha256",
+    "source_data_contract",
+    "source_job_name",
+    "source_entry_start",
+    "source_entry_end",
+    "source_followup_end",
+    "source_sweep_id",
+    "source_cycle_number",
+    "source_sweep_completed_at",
+    "source_successful_at",
+    "source_config_hash",
+    "source_strategy_digest",
+    "source_counts_json",
+    "episode_seed_sha256",
+    "condition_seed_sha256",
+    "threshold_seed_sha256",
+    "executable_episode_count",
+    "condition_count",
+    "terminal_condition_count",
+    "threshold_event_count",
+)
 
 
 def _sha256_json(value: Any) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def anchor_sha256(value: Mapping[str, Any]) -> str:
+    missing = [field for field in ANCHOR_CORE_FIELDS if field not in value]
+    if missing:
+        raise RuntimeError("v1 source anchor fields are missing: " + ", ".join(missing))
+    return _sha256_json({field: value[field] for field in ANCHOR_CORE_FIELDS})
 
 
 def _chunks(values: Sequence[str], size: int = 400) -> Iterator[Sequence[str]]:
@@ -149,12 +189,33 @@ class V1SourceReader:
                 raise RuntimeError("v1 source has SQLite sidecars: " + ", ".join(present))
         return resolved
 
-    def _connect(self, path: Path) -> sqlite3.Connection:
+    @contextmanager
+    def _connect(
+        self,
+        path: Path,
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> Iterator[sqlite3.Connection]:
         uri = f"file:{quote(str(path))}?mode=ro"
         connection = sqlite3.connect(uri, uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
-        return connection
+        if deadline is not None:
+            connection.set_progress_handler(
+                lambda: int(deadline.remaining_seconds() <= 0.01),
+                10_000,
+            )
+        try:
+            yield connection
+        except sqlite3.OperationalError as error:
+            if deadline is not None and deadline.remaining_seconds() <= 0.01:
+                raise CycleDeadlineExceeded(
+                    f"{deadline.label} deadline exhausted during v1 read-only validation"
+                ) from error
+            raise
+        finally:
+            connection.set_progress_handler(None, 0)
+            connection.close()
 
     @staticmethod
     def _schema_hash(connection: sqlite3.Connection) -> tuple[str, set[str]]:
@@ -277,10 +338,16 @@ class V1SourceReader:
                 }
         return result
 
-    def capture(self) -> V1SeedSnapshot:
+    def capture(
+        self,
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> V1SeedSnapshot:
+        if deadline is not None:
+            deadline.check("FULL_SEED source path validation")
         source = self._assert_path()
         before = _stat_payload(source)
-        with self._connect(source) as connection:
+        with self._connect(source, deadline=deadline) as connection:
             schema_sha256, tables = self._schema_hash(connection)
             missing = sorted(_REQUIRED_TABLES - tables)
             if missing:
@@ -386,6 +453,8 @@ class V1SourceReader:
             ]
             if not episode_rows:
                 raise RuntimeError("v1 source has no executable episodes to follow")
+            if deadline is not None:
+                deadline.check("FULL_SEED executable episode scan")
             episode_ids = [str(row["episode_id"]) for row in episode_rows]
             latest_paths = self._latest_paths(connection, episode_ids)
             episodes: list[dict[str, Any]] = []
@@ -408,10 +477,14 @@ class V1SourceReader:
                 episodes.append(row)
 
             threshold_events = self._threshold_rows(connection, episode_ids)
+            if deadline is not None:
+                deadline.check("FULL_SEED threshold scan")
             for row in threshold_events:
                 row["seed_row_sha256"] = _sha256_json(row)
             condition_ids = sorted({str(row["condition_id"]) for row in episodes})
             resolved = self._resolved_conditions(connection, condition_ids)
+            if deadline is not None:
+                deadline.check("FULL_SEED resolution scan")
             condition_statuses: list[dict[str, Any]] = []
             for condition_id in condition_ids:
                 row = resolved.get(
@@ -487,7 +560,7 @@ class V1SourceReader:
         }
         anchor = {
             **anchor_core,
-            "anchor_sha256": _sha256_json(anchor_core),
+            "anchor_sha256": anchor_sha256(anchor_core),
             "captured_at": iso_utc(),
         }
         return V1SeedSnapshot(
@@ -498,21 +571,28 @@ class V1SourceReader:
         )
 
     def validate_stored_anchor(
-        self, stored: Mapping[str, Any]
+        self,
+        stored: Mapping[str, Any],
+        *,
+        deadline: CooperativeDeadline | None = None,
     ) -> Mapping[str, Any]:
         """Revalidate an already-seeded immutable source without rescanning evidence.
 
-        The first v2 cycle computes every seed row and its hashes. Later cycles pin
+        The first v2a cycle computes every seed row and its hashes. Later cycles pin
         the exact source file identity plus schema, contract and latest successful
         sweep. An unchanged file fingerprint makes another multi-million-row path
         scan redundant; any normal SQLite write changes size or nanosecond mtime and
         fails before public HTTP.
         """
 
+        if anchor_sha256(stored) != str(stored.get("anchor_sha256")):
+            raise RuntimeError("stored v1 source anchor SHA-256 drift")
+        if deadline is not None:
+            deadline.check("PINNED_FAST source path validation")
         source = self._assert_path()
         before = _stat_payload(source)
         file_fingerprint = _sha256_json({"path": str(source), **before})
-        with self._connect(source) as connection:
+        with self._connect(source, deadline=deadline) as connection:
             schema_sha256, tables = self._schema_hash(connection)
             missing = sorted(_REQUIRED_TABLES - tables)
             if missing:
@@ -530,6 +610,30 @@ class V1SourceReader:
                     "v1 source must contain exactly one experiment contract"
                 )
             contract = dict(contract_rows[0])
+            if metadata.get("schema_version") != str(
+                self.config.expected_schema_version
+            ):
+                raise RuntimeError("v1 source schema version changed")
+            if metadata.get("data_contract") != self.config.expected_data_contract:
+                raise RuntimeError("v1 source data contract changed")
+            if contract.get("job_name") != self.config.expected_job_name:
+                raise RuntimeError("v1 source runtime job changed")
+            if contract.get("data_contract") != self.config.expected_data_contract:
+                raise RuntimeError("v1 experiment data contract changed")
+            expected_clocks = {
+                "entry_start": self.config.expected_entry_start_utc,
+                "entry_end": self.config.expected_entry_end_utc,
+                "followup_end": self.config.expected_followup_end_utc,
+            }
+            changed_clocks = [
+                key
+                for key, expected in expected_clocks.items()
+                if _parse_utc(str(contract.get(key))) != expected
+            ]
+            if changed_clocks:
+                raise RuntimeError(
+                    "v1 experiment window changed: " + ", ".join(changed_clocks)
+                )
             latest_success = connection.execute(
                 """
                 WITH terminal AS (
@@ -555,6 +659,16 @@ class V1SourceReader:
                     "SELECT MAX(cycle_number) FROM market_sweeps"
                 ).fetchone()[0]
             )
+            if _parse_utc(str(sweep["succeeded_at"])) < (
+                self.config.minimum_successful_cutoff_utc
+            ):
+                raise RuntimeError("v1 source cutoff predates the frozen entry-window end")
+            if _parse_utc(str(sweep["completed_at"])) < (
+                self.config.minimum_successful_cutoff_utc
+            ):
+                raise RuntimeError(
+                    "v1 successful sweep completed before the frozen entry-window end"
+                )
 
         after = _stat_payload(source)
         if before != after:
@@ -563,6 +677,8 @@ class V1SourceReader:
             path.exists() for path in _sidecars(source)
         ):
             raise RuntimeError("v1 source created a SQLite sidecar during read")
+        if deadline is not None:
+            deadline.check("PINNED_FAST source anchor comparison")
 
         observed = {
             "source_path": str(source),
@@ -649,4 +765,10 @@ def compare_anchor(
         raise RuntimeError("v1 source anchor drift: " + ", ".join(changed))
 
 
-__all__ = ["V1SeedSnapshot", "V1SourceReader", "compare_anchor"]
+__all__ = [
+    "ANCHOR_CORE_FIELDS",
+    "V1SeedSnapshot",
+    "V1SourceReader",
+    "anchor_sha256",
+    "compare_anchor",
+]

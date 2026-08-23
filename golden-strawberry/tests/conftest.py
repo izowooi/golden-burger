@@ -39,7 +39,7 @@ def followup_config(tmp_path, monkeypatch):
             or key.startswith("CLOB_")
         ):
             monkeypatch.delenv(key, raising=False)
-    loaded = load_followup_config(PROJECT_ROOT / "config.followup-v2.yaml")
+    loaded = load_followup_config(PROJECT_ROOT / "config.followup-v2a.yaml")
     source = replace(
         loaded.trading.v1_source,
         db_path=tmp_path / "data" / "strawberry-shadow-one" / "trades_sim.db",
@@ -50,7 +50,7 @@ def followup_config(tmp_path, monkeypatch):
         db_path=(
             tmp_path
             / "data"
-            / "strawberry-shadow-one-followup-v2"
+            / "strawberry-shadow-one-followup-v2a"
             / "trades_sim.db"
         ),
         trading=trading,

@@ -141,7 +141,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.command == "run":
         print(
             "last-mile-clob-v1 collection is retired; use polybot-followup with "
-            "strawberry-shadow-one-followup-v2",
+            "strawberry-shadow-one-followup-v2a",
             file=sys.stderr,
         )
         return 2

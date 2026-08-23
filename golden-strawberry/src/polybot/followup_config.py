@@ -1,4 +1,4 @@
-"""Strict configuration for the compact Last Mile follow-up v2 epoch."""
+"""Strict configuration for the compact Last Mile follow-up v2a epoch."""
 
 from __future__ import annotations
 
@@ -40,14 +40,14 @@ from .followup_source_digest import (
 from .source_digest import PROJECT_ROOT
 
 
-FOLLOWUP_DATA_CONTRACT = "last-mile-clob-followup-v2"
-FOLLOWUP_CANONICAL_JOB = "strawberry-shadow-one-followup-v2"
+FOLLOWUP_DATA_CONTRACT = "last-mile-clob-followup-v2a"
+FOLLOWUP_CANONICAL_JOB = "strawberry-shadow-one-followup-v2a"
 V1_DATA_CONTRACT = "last-mile-clob-v1"
 V1_SCHEMA_VERSION = 1
 V1_CANONICAL_JOB = "strawberry-shadow-one"
 V1_SOURCE_RELATIVE_PATH = Path("data/strawberry-shadow-one/trades_sim.db")
 FOLLOWUP_DB_RELATIVE_PATH = Path(
-    "data/strawberry-shadow-one-followup-v2/trades_sim.db"
+    "data/strawberry-shadow-one-followup-v2a/trades_sim.db"
 )
 LIFECYCLE_MODE = "archive_only"
 _ALLOWED_POLYBOT_ENV_KEYS = frozenset(
@@ -104,7 +104,9 @@ class FollowupExperimentConfig:
 
 @dataclass(frozen=True)
 class FollowupRuntimeConfig:
-    sla_seconds: float
+    network_cycle_deadline_seconds: float
+    pinned_fast_hard_sla_seconds: float
+    full_seed_budget_seconds: float
 
 
 @dataclass(frozen=True)
@@ -132,9 +134,12 @@ class FollowupConfig:
 
     def redacted_dict(self) -> dict[str, Any]:
         payload = asdict(self)
-        payload["db_path"] = str(self.db_path)
-        payload["trading"]["v1_source"]["db_path"] = str(
-            self.trading.v1_source.db_path
+        # Cohort identity must be stable across the local checkout and the
+        # pinned Jenkins workspace. Runtime resolution still uses absolute
+        # Path fields, while persisted config identity uses frozen relatives.
+        payload["db_path"] = FOLLOWUP_DB_RELATIVE_PATH.as_posix()
+        payload["trading"]["v1_source"]["db_path"] = (
+            self.trading.v1_source.configured_path
         )
         experiment = payload["trading"]["experiment"]
         for key in ("entry_start_utc", "entry_end_utc", "followup_end_utc"):
@@ -184,14 +189,19 @@ def _validate(config: FollowupConfig) -> None:
     if source.db_path == config.db_path:
         raise ValueError("v1 source DB and follow-up DB must be distinct")
     gamma = trading.gamma
-    if not (1 <= gamma.resolution_batch_size <= 100):
-        raise ValueError("resolution_batch_size must be between 1 and 100")
+    if gamma.resolution_batch_size != 50:
+        raise ValueError("resolution_batch_size must remain 50")
+    if (
+        gamma.connect_timeout_seconds != 3.05
+        or gamma.read_timeout_seconds != 30
+    ):
+        raise ValueError("follow-up public timeouts must remain 3.05/30 seconds")
     if gamma.max_retries != 4:
         raise ValueError("follow-up retry budget must remain four retries")
     if not (0 < gamma.retry_base_seconds <= gamma.retry_max_seconds <= 20):
         raise ValueError("follow-up retry delay envelope changed")
-    if not (1 <= trading.orderbook.batch_token_limit <= 500):
-        raise ValueError("orderbook batch_token_limit must be between 1 and 500")
+    if trading.orderbook.batch_token_limit != 250:
+        raise ValueError("orderbook batch_token_limit must remain 250")
     experiment = trading.experiment
     if (
         experiment.entry_start_utc != FROZEN_ENTRY_START
@@ -211,8 +221,20 @@ def _validate(config: FollowupConfig) -> None:
         or experiment.simulated_notional_usdc != 5
     ):
         raise ValueError("follow-up policy must preserve v1 primary parameters")
-    if not (0 < trading.runtime.sla_seconds < trading.cadence_minutes * 60):
-        raise ValueError("runtime SLA must retain margin inside the cadence")
+    runtime = trading.runtime
+    if runtime.network_cycle_deadline_seconds != 450:
+        raise ValueError("network cycle deadline must remain 450 seconds")
+    if runtime.pinned_fast_hard_sla_seconds != 480:
+        raise ValueError("PINNED_FAST hard SLA must remain 480 seconds")
+    if runtime.full_seed_budget_seconds != 1800:
+        raise ValueError("FULL_SEED maintenance budget must remain 1800 seconds")
+    if not (
+        0
+        < runtime.network_cycle_deadline_seconds
+        < runtime.pinned_fast_hard_sla_seconds
+        < trading.cadence_minutes * 60
+    ):
+        raise ValueError("runtime deadlines must retain fail-recording cadence margin")
     storage = trading.storage
     if storage.min_free_gib < 100:
         raise ValueError("storage free-space floor cannot be loosened")
@@ -223,7 +245,7 @@ def _validate(config: FollowupConfig) -> None:
 
 
 def load_followup_config(
-    path: str | Path = "config.followup-v2.yaml",
+    path: str | Path = "config.followup-v2a.yaml",
     job_name: str = FOLLOWUP_CANONICAL_JOB,
     *,
     simulation_mode: bool | None = None,
@@ -416,9 +438,28 @@ def load_followup_config(
         preregistration_sha256=followup_preregistration_sha256(),
     )
     runtime_raw = _mapping(followup, "runtime")
-    _exact_keys(runtime_raw, {"sla_seconds"}, "followup.runtime")
+    _exact_keys(
+        runtime_raw,
+        {
+            "network_cycle_deadline_seconds",
+            "pinned_fast_hard_sla_seconds",
+            "full_seed_budget_seconds",
+        },
+        "followup.runtime",
+    )
     runtime = FollowupRuntimeConfig(
-        sla_seconds=_finite(runtime_raw.get("sla_seconds"), "runtime.sla_seconds")
+        network_cycle_deadline_seconds=_finite(
+            runtime_raw.get("network_cycle_deadline_seconds"),
+            "runtime.network_cycle_deadline_seconds",
+        ),
+        pinned_fast_hard_sla_seconds=_finite(
+            runtime_raw.get("pinned_fast_hard_sla_seconds"),
+            "runtime.pinned_fast_hard_sla_seconds",
+        ),
+        full_seed_budget_seconds=_finite(
+            runtime_raw.get("full_seed_budget_seconds"),
+            "runtime.full_seed_budget_seconds",
+        ),
     )
     storage_raw = _mapping(followup, "storage")
     _exact_keys(

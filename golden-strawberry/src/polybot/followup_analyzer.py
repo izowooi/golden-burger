@@ -1,10 +1,9 @@
-"""Read-only combined health analyzer for Last Mile v1 and follow-up v2."""
+"""Read-only combined health analyzer for Last Mile v1 and follow-up v2a."""
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
 from datetime import datetime, timezone
-import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -21,7 +20,11 @@ from .analyzer import (
     _storage_report,
     parse_utc,
 )
-from .db.followup_repository import APPEND_ONLY_TABLES
+from .db.followup_repository import (
+    APPEND_ONLY_TABLES,
+    FOLLOWUP_SCHEMA_VERSION,
+    FollowupRepository,
+)
 from .followup_collector import BOOK_ENCODING, decode_compact_book
 from .followup_config import (
     FOLLOWUP_CANONICAL_JOB,
@@ -35,7 +38,7 @@ from .utils.retry import canonical_json, iso_utc
 from .v1_source import V1SourceReader, compare_anchor
 
 
-ANALYSIS_SCHEMA = "golden-strawberry-followup-health-v2"
+ANALYSIS_SCHEMA = "golden-strawberry-followup-health-v2a"
 REQUIRED_V2_TABLES = frozenset(
     {
         "schema_metadata",
@@ -74,66 +77,12 @@ EXPECTED_PHASES = frozenset(
 )
 
 
-def _sha256_json(value: Any) -> str:
-    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
-
-
 def _schema_tables(connection: sqlite3.Connection) -> set[str]:
     return {
         str(row[0])
         for row in connection.execute(
             "SELECT name FROM sqlite_master WHERE type='table'"
         )
-    }
-
-
-def _seed_integrity(connection: sqlite3.Connection, anchor: Mapping[str, Any]) -> dict:
-    episodes = [
-        json.loads(str(row[0]))
-        for row in connection.execute(
-            "SELECT episode_json FROM imported_episodes ORDER BY episode_id"
-        )
-    ]
-    conditions = []
-    for row in connection.execute(
-        "SELECT * FROM imported_condition_status ORDER BY condition_id"
-    ):
-        materialized = dict(row)
-        materialized.pop("anchor_id")
-        conditions.append(materialized)
-    thresholds = []
-    for row in connection.execute(
-        """
-        SELECT * FROM imported_threshold_events
-        ORDER BY episode_id,event_kind,threshold,observed_at,source_threshold_event_id
-        """
-    ):
-        materialized = dict(row)
-        materialized["threshold_event_id"] = materialized.pop(
-            "source_threshold_event_id"
-        )
-        materialized.pop("anchor_id")
-        thresholds.append(materialized)
-    observed = {
-        "episode_count": len(episodes),
-        "condition_count": len(conditions),
-        "threshold_count": len(thresholds),
-        "episode_seed_sha256": _sha256_json(episodes),
-        "condition_seed_sha256": _sha256_json(conditions),
-        "threshold_seed_sha256": _sha256_json(thresholds),
-    }
-    expected = {
-        "episode_count": int(anchor["executable_episode_count"]),
-        "condition_count": int(anchor["condition_count"]),
-        "threshold_count": int(anchor["threshold_event_count"]),
-        "episode_seed_sha256": str(anchor["episode_seed_sha256"]),
-        "condition_seed_sha256": str(anchor["condition_seed_sha256"]),
-        "threshold_seed_sha256": str(anchor["threshold_seed_sha256"]),
-    }
-    return {
-        "healthy": observed == expected,
-        "observed": observed,
-        "expected": expected,
     }
 
 
@@ -241,7 +190,13 @@ def _terminal_runs(
                 SELECT e.*,
                        ROW_NUMBER() OVER (
                            PARTITION BY e.run_id
-                           ORDER BY e.event_at DESC,e.event_id DESC
+                           ORDER BY e.event_at DESC,
+                                    CASE e.event_type
+                                      WHEN 'SUCCEEDED' THEN 2
+                                      WHEN 'FAILED' THEN 2
+                                      ELSE 1
+                                    END DESC,
+                                    e.event_id DESC
                        ) AS position
                 FROM research_run_events e JOIN scoped s ON s.run_id=e.run_id
             )
@@ -370,30 +325,30 @@ def _v2_report(
         tables = _schema_tables(connection)
         missing = sorted(REQUIRED_V2_TABLES - tables)
         if missing:
-            raise ValueError("v2 database is missing tables: " + ", ".join(missing))
+            raise ValueError("v2a database is missing tables: " + ", ".join(missing))
         if "clob_levels" in tables:
-            raise ValueError("v2 row-per-level table is forbidden")
+            raise ValueError("v2a row-per-level table is forbidden")
         metadata = dict(connection.execute("SELECT key,value FROM schema_metadata"))
         expected_metadata = {
-            "schema_version": "2",
+            "schema_version": str(FOLLOWUP_SCHEMA_VERSION),
             "data_contract": FOLLOWUP_DATA_CONTRACT,
             "book_storage": "canonical-gzip-one-row-per-token-cycle",
             "v1_source_access": "mode=ro",
         }
         if metadata != expected_metadata:
-            raise ValueError("v2 schema metadata changed")
+            raise ValueError("v2a schema metadata changed")
         contracts = connection.execute("SELECT * FROM followup_contracts").fetchall()
         if len(contracts) != 1:
-            raise ValueError("v2 must contain exactly one follow-up contract")
+            raise ValueError("v2a must contain exactly one follow-up contract")
         contract = dict(contracts[0])
         if (
             contract["job_name"] != FOLLOWUP_CANONICAL_JOB
             or contract["data_contract"] != FOLLOWUP_DATA_CONTRACT
         ):
-            raise ValueError("v2 runtime/data contract changed")
+            raise ValueError("v2a runtime/data contract changed")
         anchor_rows = connection.execute("SELECT * FROM source_anchors").fetchall()
         if len(anchor_rows) != 1:
-            raise ValueError("v2 must contain exactly one source anchor")
+            raise ValueError("v2a must contain exactly one source anchor")
         anchor = dict(anchor_rows[0])
         quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
         foreign_key_errors = [
@@ -406,41 +361,44 @@ def _v2_report(
                 "OR name LIKE '%_no_delete')"
             ).fetchone()[0]
         )
-        seed_integrity = _seed_integrity(connection, anchor)
+        try:
+            seed_integrity = FollowupRepository(path).verify_seed_integrity(anchor)
+        except RuntimeError as error:
+            seed_integrity = {
+                "healthy": False,
+                "error": str(error),
+            }
         terminals, terminal_counts = _terminal_runs(connection, start_text, end_text)
         success_run_ids = {
             str(row["run_id"])
             for row in terminals
             if row["event_type"] == "SUCCEEDED"
         }
-        started_rows = connection.execute(
+        started_rows = [
+            dict(row)
+            for row in connection.execute(
             """
-            SELECT run_id,event_at FROM research_run_events
+            SELECT run_id,event_at,details_json FROM research_run_events
             WHERE event_type='STARTED' AND event_at>=? AND event_at<?
             ORDER BY event_at,run_id
             """,
             (start_text, end_text),
-        ).fetchall()
-        cadence_minutes = int(contract["cadence_minutes"])
-        offset_minute = int(contract["cadence_offset_minute"])
-        expected_slots = _expected_slots(start, end, cadence_minutes, offset_minute)
-        slot_counts: Counter[str] = Counter()
-        success_slots: set[str] = set()
-        off_slot = 0
-        for row in started_rows:
-            slot, delay = _slot(
-                parse_utc(str(row["event_at"])), cadence_minutes, offset_minute
             )
-            slot_key = iso_utc(slot)
-            slot_counts[slot_key] += 1
-            if delay > 120:
-                off_slot += 1
-            if str(row["run_id"]) in success_run_ids:
-                success_slots.add(slot_key)
-        duplicate_runs = sum(max(0, count - 1) for count in slot_counts.values())
-        success_coverage = _ratio(len(success_slots), len(expected_slots))
-        off_slot_ratio = _ratio(off_slot, len(started_rows))
-
+        ]
+        validation_mode_by_run: dict[str, str] = {}
+        for row in started_rows:
+            try:
+                details = json.loads(str(row["details_json"]))
+            except (TypeError, ValueError, json.JSONDecodeError):
+                details = {}
+            validation_mode_by_run[str(row["run_id"])] = str(
+                details.get("validation_mode") or "UNKNOWN"
+            )
+        full_seed_started_run_ids = {
+            run_id
+            for run_id, validation_mode in validation_mode_by_run.items()
+            if validation_mode == "FULL_SEED"
+        }
         cycles = [
             dict(row)
             for row in connection.execute(
@@ -450,8 +408,84 @@ def _v2_report(
                 """,
                 (start_text, end_text),
             )
-            if str(row["run_id"]) in success_run_ids
         ]
+        pinned_cycle_run_ids = {
+            str(row["run_id"])
+            for row in cycles
+            if row["validation_mode"] == "PINNED_FAST"
+        }
+        full_seed_cycle_run_ids = {
+            str(row["run_id"])
+            for row in cycles
+            if row["validation_mode"] == "FULL_SEED"
+        }
+        cycle_without_success = sorted(
+            str(row["run_id"])
+            for row in cycles
+            if str(row["run_id"]) not in success_run_ids
+        )
+        success_without_cycle = sorted(
+            success_run_ids - {str(row["run_id"]) for row in cycles}
+        )
+        pinned_success_run_ids = pinned_cycle_run_ids & success_run_ids
+        full_seed_success_run_ids = full_seed_cycle_run_ids & success_run_ids
+        cadence_minutes = int(contract["cadence_minutes"])
+        offset_minute = int(contract["cadence_offset_minute"])
+
+        natural_pinned_slots: list[datetime] = []
+        for row in connection.execute(
+            """
+            SELECT c.run_id,e.event_at FROM followup_cycles c
+            JOIN research_run_events e ON e.run_id=c.run_id
+            WHERE c.validation_mode='PINNED_FAST' AND e.event_type='STARTED'
+              AND EXISTS (
+                SELECT 1 FROM research_run_events terminal
+                WHERE terminal.run_id=c.run_id AND terminal.event_type='SUCCEEDED'
+              )
+            ORDER BY e.event_at,c.cycle_number
+            """
+        ):
+            slot, delay = _slot(
+                parse_utc(str(row["event_at"])), cadence_minutes, offset_minute
+            )
+            if delay <= 120:
+                natural_pinned_slots.append(slot)
+        rollout_start = min(natural_pinned_slots) if natural_pinned_slots else None
+        effective_start = (
+            max(start, rollout_start)
+            if rollout_start is not None and rollout_start < end
+            else None
+        )
+        expected_slots = (
+            _expected_slots(
+                effective_start, end, cadence_minutes, offset_minute
+            )
+            if effective_start is not None
+            else []
+        )
+        slot_counts: Counter[str] = Counter()
+        success_slots: set[str] = set()
+        off_slot = 0
+        recurring_started_rows = [
+            row
+            for row in started_rows
+            if validation_mode_by_run.get(str(row["run_id"])) == "PINNED_FAST"
+            and effective_start is not None
+            and parse_utc(str(row["event_at"])) >= effective_start
+        ]
+        for row in recurring_started_rows:
+            slot, delay = _slot(
+                parse_utc(str(row["event_at"])), cadence_minutes, offset_minute
+            )
+            slot_key = iso_utc(slot)
+            slot_counts[slot_key] += 1
+            if delay > 120:
+                off_slot += 1
+            if str(row["run_id"]) in pinned_success_run_ids:
+                success_slots.add(slot_key)
+        duplicate_runs = sum(max(0, count - 1) for count in slot_counts.values())
+        success_coverage = _ratio(len(success_slots), len(expected_slots))
+        off_slot_ratio = _ratio(off_slot, len(recurring_started_rows))
         cycle_ids = {str(row["cycle_id"]) for row in cycles}
         counts = {
             table: sum(
@@ -548,10 +582,23 @@ def _v2_report(
                 """
             ).fetchone()[0]
         )
-        phase_report, runs_missing_phases = _phase_report(
-            connection, success_run_ids
+        recurring_success_run_ids = {
+            str(row["run_id"])
+            for row in recurring_started_rows
+            if str(row["run_id"]) in pinned_success_run_ids
+        }
+        recurring_phase_report, recurring_missing_phases = _phase_report(
+            connection, recurring_success_run_ids
         )
-        total_stats = phase_report["by_phase"].get("total", {})
+        full_seed_phase_report, full_seed_missing_phases = _phase_report(
+            connection, full_seed_success_run_ids
+        )
+        recurring_total_stats = recurring_phase_report["by_phase"].get(
+            "total", {}
+        )
+        full_seed_total_stats = full_seed_phase_report["by_phase"].get(
+            "total", {}
+        )
         blob_integrity = _blob_report(connection, start_text, end_text)
         one_hot = _one_hot_report(connection, start_text, end_text)
         quality_counts = {
@@ -579,6 +626,20 @@ def _v2_report(
             )
         ]
         storage = _storage_report(connection, start, end)
+        try:
+            contract_payload = json.loads(str(contract["contract_json"]))
+            runtime_contract = contract_payload["trading"]["runtime"]
+            network_deadline_seconds = float(
+                runtime_contract["network_cycle_deadline_seconds"]
+            )
+            pinned_fast_hard_sla_seconds = float(
+                runtime_contract["pinned_fast_hard_sla_seconds"]
+            )
+            full_seed_budget_seconds = float(
+                runtime_contract["full_seed_budget_seconds"]
+            )
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("v2a runtime contract is malformed") from error
     finally:
         connection.close()
 
@@ -587,10 +648,28 @@ def _v2_report(
         for key, item in coverage.items()
         if key != "displayed_book_observation" and item["expected"] > 0
     )
-    runtime_p95 = total_stats.get("p95")
-    runtime_max = total_stats.get("max")
+    recurring_runtime_count = int(recurring_total_stats.get("count", 0))
+    recurring_runtime_p95 = recurring_total_stats.get("p95")
+    recurring_runtime_max = recurring_total_stats.get("max")
+    full_seed_runtime_count = int(full_seed_total_stats.get("count", 0))
+    full_seed_runtime_max = full_seed_total_stats.get("max")
+    recurring_runtime_healthy = bool(
+        recurring_runtime_count > 0
+        and recurring_runtime_p95 is not None
+        and recurring_runtime_p95 < pinned_fast_hard_sla_seconds
+        and recurring_runtime_max is not None
+        and recurring_runtime_max < pinned_fast_hard_sla_seconds
+    )
+    full_seed_runtime_healthy = bool(
+        full_seed_runtime_count == 0
+        or (
+            full_seed_runtime_max is not None
+            and full_seed_runtime_max < full_seed_budget_seconds
+        )
+    )
     cadence_healthy = bool(
-        success_coverage is not None
+        rollout_start is not None
+        and success_coverage is not None
         and success_coverage >= 0.90
         and duplicate_runs == 0
         and (off_slot_ratio is None or off_slot_ratio <= 0.05)
@@ -609,11 +688,12 @@ def _v2_report(
         and later_book_requests == 0
         and blob_integrity["healthy"]
         and one_hot["healthy"]
-        and not runs_missing_phases
-        and runtime_p95 is not None
-        and runtime_p95 < 480
-        and runtime_max is not None
-        and runtime_max < 600
+        and not cycle_without_success
+        and not success_without_cycle
+        and not recurring_missing_phases
+        and not full_seed_missing_phases
+        and recurring_runtime_healthy
+        and full_seed_runtime_healthy
         and quality_counts.get("HIGH", 0) == 0
         and quality_counts.get("CRITICAL", 0) == 0
         and len(cohort_rows) == 1
@@ -635,6 +715,14 @@ def _v2_report(
             "seed_integrity": seed_integrity,
             "cadence": {
                 "healthy": cadence_healthy,
+                "rollout_health_start": (
+                    iso_utc(rollout_start) if rollout_start is not None else None
+                ),
+                "effective_review_start": (
+                    iso_utc(effective_start) if effective_start is not None else None
+                ),
+                "full_seed_runs_excluded": len(full_seed_started_run_ids),
+                "successful_full_seed_runs": len(full_seed_success_run_ids),
                 "expected_slots": len(expected_slots),
                 "successful_unique_slots": len(success_slots),
                 "success_coverage": success_coverage,
@@ -642,6 +730,11 @@ def _v2_report(
                 "duplicate_runs": duplicate_runs,
                 "off_slot_runs": off_slot,
                 "off_slot_ratio": off_slot_ratio,
+            },
+            "atomic_success_boundary": {
+                "healthy": not cycle_without_success and not success_without_cycle,
+                "cycles_without_succeeded": cycle_without_success,
+                "succeeded_without_cycle": success_without_cycle,
             },
             "followup_coverage": coverage,
             "request_lineage": {
@@ -658,16 +751,26 @@ def _v2_report(
             },
             "compact_book_integrity": blob_integrity,
             "unique_one_hot_resolution": one_hot,
-            "phase_timings": phase_report,
+            "phase_timings": {
+                "recurring_pinned_fast": recurring_phase_report,
+                "full_seed_maintenance": full_seed_phase_report,
+            },
             "runtime_sla": {
-                "seconds": 480,
-                "p95": runtime_p95,
-                "max": runtime_max,
-                "p95_met": runtime_p95 is not None and runtime_p95 < 480,
-                "cadence_hard_boundary_met": (
-                    runtime_max is not None and runtime_max < 600
+                "network_cycle_deadline_seconds": network_deadline_seconds,
+                "pinned_fast_hard_sla_seconds": pinned_fast_hard_sla_seconds,
+                "full_seed_budget_seconds": full_seed_budget_seconds,
+                "recurring_pinned_fast": {
+                    **recurring_total_stats,
+                    "healthy": recurring_runtime_healthy,
+                },
+                "full_seed_maintenance": {
+                    **full_seed_total_stats,
+                    "healthy": full_seed_runtime_healthy,
+                },
+                "full_seed_counts_as_recurring_sla_violation": False,
+                "measurement": (
+                    "v1_anchor_start_to_success_transaction_precommit"
                 ),
-                "measurement": "v1_anchor_start_to_phase_persistence",
             },
             "quality_issue_counts": quality_counts,
             "cohorts": cohort_rows,
@@ -679,7 +782,7 @@ def _v2_report(
 
 def analyze_followup(
     v1_db_path: str | Path,
-    v2_db_path: str | Path,
+    v2a_db_path: str | Path,
     *,
     start: datetime,
     end: datetime,
@@ -692,12 +795,12 @@ def analyze_followup(
     if start >= end:
         raise ValueError("analysis range must satisfy start < end")
     v1_path = _canonical_db(v1_db_path)
-    v2_path = _canonical_db(v2_db_path)
-    if v1_path == v2_path:
-        raise ValueError("v1 and v2 analysis databases must be distinct")
-    v2, anchor = _v2_report(v2_path, start=start, end=end)
+    v2a_path = _canonical_db(v2a_db_path)
+    if v1_path == v2a_path:
+        raise ValueError("v1 and v2a analysis databases must be distinct")
+    v2a, anchor = _v2_report(v2a_path, start=start, end=end)
     v1 = _v1_report(v1_path, stored_anchor=anchor, deep_check=deep_v1)
-    healthy = bool(v1["healthy"] and v2["healthy"])
+    healthy = bool(v1["healthy"] and v2a["healthy"])
     return {
         "schema": ANALYSIS_SCHEMA,
         "generated_at": iso_utc(),
@@ -709,7 +812,7 @@ def analyze_followup(
             "duration_days": (end - start).total_seconds() / 86400,
         },
         "v1": v1,
-        "v2": v2,
+        "v2a": v2a,
         "interpretation": {
             "verdict": "HEALTH_ONLY",
             "profitability_claim_allowed": False,
@@ -723,7 +826,7 @@ def analyze_followup(
 
 def write_followup_analysis(
     v1_db_path: str | Path,
-    v2_db_path: str | Path,
+    v2a_db_path: str | Path,
     *,
     start: str | datetime,
     end: str | datetime,
@@ -734,7 +837,7 @@ def write_followup_analysis(
     end_clock = parse_utc(end) if isinstance(end, str) else end
     result = analyze_followup(
         v1_db_path,
-        v2_db_path,
+        v2a_db_path,
         start=start_clock,
         end=end_clock,
         deep_v1=deep_v1,

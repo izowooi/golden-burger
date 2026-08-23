@@ -1,4 +1,4 @@
-"""Fail-closed orchestration for the compact Last Mile follow-up v2."""
+"""Fail-closed orchestration for the compact Last Mile follow-up v2a."""
 
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from .db.followup_repository import GIB, FollowupRepository
 from .followup_collector import FollowupCollector, PhaseRecord
 from .followup_config import FollowupConfig
 from .followup_run_audit import FollowupRunAudit
-from .utils.retry import iso_utc
+from .utils.retry import CooperativeDeadline, iso_utc
 from .v1_source import V1SourceReader
 
 
@@ -34,6 +34,7 @@ class FollowupBot:
         collector: FollowupCollector | None = None,
         source_reader: V1SourceReader | None = None,
         monotonic: Any = time.monotonic,
+        utcnow: Any = lambda: datetime.now(timezone.utc),
     ) -> None:
         if not config.simulation_mode:
             raise ValueError("Golden Strawberry follow-up can never run live")
@@ -47,6 +48,7 @@ class FollowupBot:
         self.collector = collector
         self.source_reader = source_reader or V1SourceReader(config.trading.v1_source)
         self.monotonic = monotonic
+        self.utcnow = utcnow
 
     def _precreation_disk_guard(self) -> None:
         storage = self.config.trading.storage
@@ -98,22 +100,68 @@ class FollowupBot:
         assert_no_credentials()
         self._assert_runtime_workspace()
         self._precreation_disk_guard()
-        if datetime.now(timezone.utc) >= self.config.trading.experiment.followup_end_utc:
+        if self.utcnow() >= self.config.trading.experiment.followup_end_utc:
             raise RuntimeError("follow-up window has ended; public source access is disabled")
-        lock_path = self.config.db_path.parent / ".strawberry-followup-v2.lock"
+        lock_path = self.config.db_path.parent / ".strawberry-followup-v2a.lock"
         with exclusive_job_run_lock(lock_path):
+            self.repository.initialize(self.config)
             anchor_started_at = iso_utc()
             anchor_started = self.monotonic()
             stored_anchor = self.repository.stored_anchor()
-            if stored_anchor is None:
-                snapshot = self.source_reader.capture()
+            if stored_anchor is None or not self.repository.full_seed_succeeded():
                 anchor_validation_mode = "FULL_SEED"
-                self.repository.initialize(self.config)
+                maintenance_deadline = CooperativeDeadline.after(
+                    self.config.trading.runtime.full_seed_budget_seconds,
+                    monotonic=self.monotonic,
+                    label="FULL_SEED maintenance",
+                )
+                snapshot = self.source_reader.capture(deadline=maintenance_deadline)
+                maintenance_deadline.check("FULL_SEED seed publication")
                 anchor = self.repository.ensure_seed(snapshot)
+                audit = FollowupRunAudit.start(
+                    self.config,
+                    repository=self.repository,
+                    anchor_sha256=str(anchor["anchor_sha256"]),
+                    validation_mode=anchor_validation_mode,
+                )
+                try:
+                    seed_integrity = self.repository.verify_seed_integrity(anchor)
+                    maintenance_deadline.check("FULL_SEED canonical seed verification")
+                except BaseException as error:
+                    audit.fail(error)
+                    raise
+                network_deadline = CooperativeDeadline(
+                    expires_at=min(
+                        maintenance_deadline.expires_at,
+                        self.monotonic()
+                        + self.config.trading.runtime.network_cycle_deadline_seconds,
+                    ),
+                    monotonic=self.monotonic,
+                    label="FULL_SEED follow-up network cycle",
+                )
             else:
-                anchor = self.source_reader.validate_stored_anchor(stored_anchor)
                 anchor_validation_mode = "PINNED_FAST"
-                self.repository.initialize(self.config)
+                network_deadline = CooperativeDeadline.after(
+                    self.config.trading.runtime.network_cycle_deadline_seconds,
+                    monotonic=self.monotonic,
+                    label="PINNED_FAST follow-up cycle",
+                )
+                audit = FollowupRunAudit.start(
+                    self.config,
+                    repository=self.repository,
+                    anchor_sha256=str(stored_anchor["anchor_sha256"]),
+                    validation_mode=anchor_validation_mode,
+                )
+                try:
+                    anchor = self.source_reader.validate_stored_anchor(
+                        stored_anchor,
+                        deadline=network_deadline,
+                    )
+                    seed_integrity = self.repository.verify_seed_integrity(anchor)
+                    network_deadline.check("PINNED_FAST canonical seed verification")
+                except BaseException as error:
+                    audit.fail(error)
+                    raise
             anchor_phase = PhaseRecord(
                 name="v1_anchor_validation",
                 started_at=anchor_started_at,
@@ -123,21 +171,20 @@ class FollowupBot:
                     "validation_mode": anchor_validation_mode,
                     "source_cycle_number": anchor["source_cycle_number"],
                     "source_sweep_id": anchor["source_sweep_id"],
+                    "source_successful_at": anchor["source_successful_at"],
+                    "seed_counts_and_hashes_verified": seed_integrity["healthy"],
                 },
             )
-            preflight = self.repository.record_storage_metric(
-                phase="preflight",
-                storage=self.config.trading.storage,
-                metric_id=uuid4().hex,
-            )
-            if preflight["guard_state"] == "STOP":
-                raise RuntimeError("disk guard STOP before public source collection")
-            audit = FollowupRunAudit.start(
-                self.config,
-                repository=self.repository,
-                anchor_sha256=str(anchor["anchor_sha256"]),
-            )
             try:
+                preflight = self.repository.record_storage_metric(
+                    phase="preflight",
+                    storage=self.config.trading.storage,
+                    metric_id=uuid4().hex,
+                    run_id=audit.run_id,
+                )
+                if preflight["guard_state"] == "STOP":
+                    raise RuntimeError("disk guard STOP before public source collection")
+                network_deadline.check("follow-up client construction")
                 collector = self.collector or FollowupCollector(
                     self.config,
                     repository=self.repository,
@@ -146,27 +193,15 @@ class FollowupBot:
                 summary = collector.run_cycle(
                     audit.run_id,
                     anchor=anchor,
+                    audit=audit,
+                    deadline=network_deadline,
+                    validation_mode=anchor_validation_mode,
+                    seed_integrity=seed_integrity,
                     initial_phases=(anchor_phase,),
                 )
-                post = self.repository.record_storage_metric(
-                    phase="post_publish",
-                    storage=self.config.trading.storage,
-                    metric_id=uuid4().hex,
-                    run_id=audit.run_id,
-                )
-                summary["storage"] = {
-                    "db_bytes": post["db_bytes"],
-                    "journal_bytes": post["journal_bytes"],
-                    "filesystem_free_bytes": post["filesystem_free_bytes"],
-                    "filesystem_used_ratio": post["filesystem_used_ratio"],
-                    "guard_state": post["guard_state"],
-                }
-                if post["guard_state"] == "STOP":
-                    raise RuntimeError("disk guard reached STOP after v2 publication")
             except BaseException as error:
                 audit.fail(error)
                 raise
-            audit.succeed(summary)
             return summary
 
     def status(self) -> dict[str, Any]:
@@ -182,7 +217,7 @@ class FollowupBot:
         if latest_at:
             observed = datetime.fromisoformat(str(latest_at).replace("Z", "+00:00"))
             age_minutes = (
-                datetime.now(timezone.utc) - observed.astimezone(timezone.utc)
+                self.utcnow() - observed.astimezone(timezone.utc)
             ).total_seconds() / 60
         latest_total = None
         with self.repository.read_connect() as connection:
@@ -199,14 +234,21 @@ class FollowupBot:
             and age_minutes is not None
             and age_minutes <= self.config.trading.cadence_minutes * 2.5
             and latest_total is not None
-            and latest_total < self.config.trading.runtime.sla_seconds
+            and latest.get("validation_mode") == "PINNED_FAST"
+            and latest_total
+            < self.config.trading.runtime.pinned_fast_hard_sla_seconds
         )
         return {
             **status,
             "healthy": healthy,
             "latest_success_age_minutes": age_minutes,
             "latest_total_seconds": latest_total,
-            "runtime_sla_seconds": self.config.trading.runtime.sla_seconds,
+            "runtime_sla_seconds": (
+                self.config.trading.runtime.pinned_fast_hard_sla_seconds
+            ),
+            "network_cycle_deadline_seconds": (
+                self.config.trading.runtime.network_cycle_deadline_seconds
+            ),
             "deep_check_performed": False,
         }
 

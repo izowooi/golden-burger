@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Any, Mapping
 
 from ..config import SamplingConfig
-from ..utils.retry import PublicJsonTransport, iso_utc
+from ..utils.retry import CooperativeDeadline, PublicJsonTransport, iso_utc
 
 
 @dataclass(frozen=True)
@@ -54,7 +54,12 @@ class SamplingMarketClient:
         self.config = config
         self.transport = transport
 
-    def collect_market_sweep(self, run_id: str) -> SamplingSweep:
+    def collect_market_sweep(
+        self,
+        run_id: str,
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> SamplingSweep:
         started_at = iso_utc()
         cursor: str | None = None
         seen_cursors: set[str] = set()
@@ -70,6 +75,7 @@ class SamplingMarketClient:
                 run_id=run_id,
                 page_number=page_number,
                 params=params,
+                deadline=deadline,
             )
             payload = response.payload
             if not isinstance(payload, Mapping):

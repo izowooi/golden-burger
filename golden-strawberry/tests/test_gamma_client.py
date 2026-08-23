@@ -7,7 +7,7 @@ import pytest
 from polybot.api.gamma_client import GammaClient
 from polybot.api.sampling_client import SamplingMarketClient
 from polybot.config import SamplingConfig
-from polybot.utils.retry import JsonResponse
+from polybot.utils.retry import CooperativeDeadline, JsonResponse
 
 
 class Transport:
@@ -115,13 +115,15 @@ def test_sampling_full_terminal_page_is_rejected(config):
 
 def test_resolution_lookup_explicit_missing_and_closed_filter(config):
     transport = Transport([[{"conditionId": "condition-a", "closed": True}]])
+    deadline = CooperativeDeadline.after(450)
     rows = GammaClient(config.trading.gamma, transport).fetch_resolutions(
-        "run", ["condition-a", "condition-b"]
+        "run", ["condition-a", "condition-b"], deadline=deadline
     )
     assert [row.lookup_status for row in rows] == ["OBSERVED", "MISSING"]
     params = transport.calls[0][2]["params"]
     assert params["closed"] == "true"
     assert params["condition_ids"] == ["condition-a", "condition-b"]
+    assert transport.calls[0][2]["deadline"] is deadline
 
 
 def test_metadata_lookup_is_open_and_tag_enriched(config):

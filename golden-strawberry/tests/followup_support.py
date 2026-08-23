@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import json
-from typing import Sequence
+from typing import Callable, Sequence
 
 from polybot.api.clob_client import BookAttempt, BookCollection, RawBookPayload
 from polybot.api.gamma_client import ResolutionLookup
@@ -13,7 +13,7 @@ from polybot.db.repository import ResearchRepository
 from polybot.followup_collector import FollowupCollector, PhaseRecord
 from polybot.followup_run_audit import FollowupRunAudit
 from polybot.run_audit import ResearchRunAudit
-from polybot.utils.retry import iso_utc
+from polybot.utils.retry import CooperativeDeadline, iso_utc
 from tests.integration_support import FakeBooks, FakeGamma, FakeSampling
 from tests.support import api_receipt
 
@@ -52,7 +52,13 @@ class FollowupBooks:
         self.calls: list[tuple[str, ...]] = []
         self.counter = 0
 
-    def fetch_books(self, run_id: str, token_ids: list[str]) -> BookCollection:
+    def fetch_books(
+        self,
+        run_id: str,
+        token_ids: list[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> BookCollection:
         tokens = tuple(token_ids)
         self.calls.append(tokens)
         if not tokens:
@@ -116,7 +122,11 @@ class FollowupGamma:
         self.counter = 0
 
     def fetch_resolutions(
-        self, run_id: str, condition_ids: Sequence[str]
+        self,
+        run_id: str,
+        condition_ids: Sequence[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
     ) -> list[ResolutionLookup]:
         conditions = tuple(condition_ids)
         self.calls.append(conditions)
@@ -171,7 +181,15 @@ class FollowupEvidence:
     summaries: list[dict]
 
 
-def build_followup_evidence(config, snapshot, *, cycles: int = 1) -> FollowupEvidence:
+def build_followup_evidence(
+    config,
+    snapshot,
+    *,
+    cycles: int = 1,
+    validation_modes: Sequence[str] | None = None,
+    anchor_elapsed_seconds: Sequence[float] | None = None,
+    before_cycle: Callable[[int], None] | None = None,
+) -> FollowupEvidence:
     repository = FollowupRepository(config.db_path)
     repository.initialize(config)
     repository.ensure_seed(snapshot)
@@ -184,25 +202,38 @@ def build_followup_evidence(config, snapshot, *, cycles: int = 1) -> FollowupEvi
         gamma_client=gamma,
     )
     summaries = []
-    for _ in range(cycles):
+    modes = tuple(validation_modes or ("PINNED_FAST",) * cycles)
+    if len(modes) != cycles:
+        raise ValueError("validation_modes must match cycles")
+    anchor_elapsed = tuple(anchor_elapsed_seconds or (0.01,) * cycles)
+    if len(anchor_elapsed) != cycles:
+        raise ValueError("anchor_elapsed_seconds must match cycles")
+    for index, validation_mode in enumerate(modes):
+        if before_cycle is not None:
+            before_cycle(index)
         audit = FollowupRunAudit.start(
             config,
             repository=repository,
             anchor_sha256=snapshot.anchor_sha256,
+            validation_mode=validation_mode,
         )
         summary = collector.run_cycle(
             audit.run_id,
             anchor=snapshot.anchor,
+            audit=audit,
+            deadline=CooperativeDeadline.after(
+                config.trading.runtime.network_cycle_deadline_seconds
+            ),
+            validation_mode=validation_mode,
             initial_phases=(
                 PhaseRecord(
                     name="v1_anchor_validation",
                     started_at=iso_utc(),
                     completed_at=iso_utc(),
-                    elapsed_seconds=0.01,
-                    details={},
+                    elapsed_seconds=anchor_elapsed[index],
+                    details={"validation_mode": validation_mode},
                 ),
             ),
         )
-        audit.succeed(summary)
         summaries.append(summary)
     return FollowupEvidence(repository, collector, books, gamma, summaries)

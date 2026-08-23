@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 
 from polybot.api.clob_client import ClobBookClient
-from polybot.utils.retry import JsonResponse
+from polybot.utils.retry import CooperativeDeadline, JsonResponse
 
 
 class Transport:
@@ -34,8 +34,9 @@ def test_clob_records_observed_missing_and_full_request(config):
         }
     ]
     transport = Transport(payload)
+    deadline = CooperativeDeadline.after(450)
     result = ClobBookClient(config.trading.orderbook, transport).fetch_books(
-        "run", ["token-a", "token-b"]
+        "run", ["token-a", "token-b"], deadline=deadline
     )
     assert result.attempts["token-a"].status == "OBSERVED"
     assert result.attempts["token-b"].status == "MISSING"
@@ -44,6 +45,7 @@ def test_clob_records_observed_missing_and_full_request(config):
         {"token_id": "token-a"},
         {"token_id": "token-b"},
     ]
+    assert transport.calls[0][2]["deadline"] is deadline
 
 
 def test_clob_malformed_book_is_explicit(config):

@@ -6,7 +6,12 @@ from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
 from ..config import GammaConfig
-from ..utils.retry import PublicApiError, PublicJsonTransport, iso_utc
+from ..utils.retry import (
+    CooperativeDeadline,
+    PublicApiError,
+    PublicJsonTransport,
+    iso_utc,
+)
 
 
 @dataclass(frozen=True)
@@ -37,6 +42,7 @@ class GammaClient:
         *,
         closed: bool,
         request_kind: str,
+        deadline: CooperativeDeadline | None = None,
     ) -> list[ResolutionLookup]:
         unique = list(
             dict.fromkeys(str(value) for value in condition_ids if str(value))
@@ -59,6 +65,7 @@ class GammaClient:
                         "include_tag": "true",
                         "limit": len(chunk),
                     },
+                    deadline=deadline,
                 )
                 payload = response.payload
                 markets_raw = (
@@ -121,23 +128,33 @@ class GammaClient:
         return rows
 
     def fetch_metadata(
-        self, run_id: str, condition_ids: Sequence[str]
+        self,
+        run_id: str,
+        condition_ids: Sequence[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
     ) -> list[ResolutionLookup]:
         return self._fetch_markets(
             run_id,
             condition_ids,
             closed=False,
             request_kind="gamma_candidate_metadata",
+            deadline=deadline,
         )
 
     def fetch_resolutions(
-        self, run_id: str, condition_ids: Sequence[str]
+        self,
+        run_id: str,
+        condition_ids: Sequence[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
     ) -> list[ResolutionLookup]:
         return self._fetch_markets(
             run_id,
             condition_ids,
             closed=True,
             request_kind="gamma_resolution_lookup",
+            deadline=deadline,
         )
 
 

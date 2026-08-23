@@ -1,4 +1,4 @@
-"""Command-line interface for Golden Strawberry follow-up v2."""
+"""Command-line interface for Golden Strawberry follow-up v2a."""
 
 from __future__ import annotations
 
@@ -21,12 +21,12 @@ from .main import _json_default, setup_logging
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Golden Strawberry compact Last Mile follow-up v2"
+        description="Golden Strawberry compact Last Mile follow-up v2a"
     )
     commands = parser.add_subparsers(dest="command", required=True)
 
     def common(command: argparse.ArgumentParser) -> None:
-        command.add_argument("--config", "-c", default="config.followup-v2.yaml")
+        command.add_argument("--config", "-c", default="config.followup-v2a.yaml")
         command.add_argument("--job", "-j", default=FOLLOWUP_CANONICAL_JOB)
         modes = command.add_mutually_exclusive_group(required=True)
         modes.add_argument("--simulate", action="store_true")
@@ -37,10 +37,10 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--verbose", action="store_true")
     for name in ("config", "status", "health"):
         common(commands.add_parser(name))
-    analyze = commands.add_parser("analyze", help="Combine immutable v1/v2 health")
+    analyze = commands.add_parser("analyze", help="Combine immutable v1/v2a health")
     common(analyze)
     analyze.add_argument("--v1-db", required=True)
-    analyze.add_argument("--v2-db", required=True)
+    analyze.add_argument("--v2a-db", required=True)
     analyze.add_argument("--start", required=True)
     analyze.add_argument("--end", required=True, help="Exclusive UTC boundary")
     analyze.add_argument("--output", required=True)
@@ -76,7 +76,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         try:
             result = write_followup_analysis(
                 args.v1_db,
-                args.v2_db,
+                args.v2a_db,
                 start=args.start,
                 end=args.end,
                 output=args.output,
@@ -104,7 +104,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 2
     log_path = setup_logging(config, verbose=args.verbose)  # type: ignore[arg-type]
     logging.getLogger(__name__).info(
-        "starting Last Mile follow-up v2 job=%s source=%s v1=%s db=%s log=%s",
+        "starting Last Mile follow-up v2a job=%s source=%s v1=%s db=%s log=%s",
         config.job_name,
         config.trading.strategy_source_digest[:12],
         config.trading.v1_source.db_path,
@@ -115,7 +115,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         result = bot.run()
     except BaseException as error:
         logging.getLogger(__name__).exception(
-            "Last Mile follow-up v2 cycle failed: %s", error
+            "Last Mile follow-up v2a cycle failed: %s", error
         )
         return 1
     print(json.dumps(result, indent=2, sort_keys=True))
