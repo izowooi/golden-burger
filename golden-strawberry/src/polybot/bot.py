@@ -21,6 +21,7 @@ from .run_audit import ResearchRunAudit
 logger = logging.getLogger(__name__)
 _EXPECTED_JENKINS_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-shadow-one")
 _WORKSPACE_MARKER = ".daily-rsync-workspace.json"
+V1_COLLECTION_RETIRED = True
 
 
 @contextmanager
@@ -110,6 +111,10 @@ class PolymarketResearchBot:
             raise RuntimeError("Strawberry project is not on the workspace device")
 
     def run(self) -> dict:
+        if V1_COLLECTION_RETIRED:
+            raise RuntimeError(
+                "last-mile-clob-v1 collection is retired and read-only"
+            )
         # Repeat immediately before the first filesystem write. This catches a
         # credential injected after configuration resolution and precedes the
         # lock, database, logger, and public HTTP session.
@@ -184,4 +189,8 @@ class PolymarketResearchBot:
         )
 
 
-__all__ = ["PolymarketResearchBot", "exclusive_job_run_lock"]
+__all__ = [
+    "PolymarketResearchBot",
+    "V1_COLLECTION_RETIRED",
+    "exclusive_job_run_lock",
+]

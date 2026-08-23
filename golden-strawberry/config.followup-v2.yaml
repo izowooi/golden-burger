@@ -1,0 +1,52 @@
+simulation_mode: true
+
+followup:
+  lifecycle_mode: archive_only
+  data_contract: last-mile-clob-followup-v2
+  cadence_minutes: 10
+  cadence_offset_minute: 7
+
+  v1_source:
+    db_path: data/strawberry-shadow-one/trades_sim.db
+    expected_schema_version: 1
+    expected_data_contract: last-mile-clob-v1
+    expected_job_name: strawberry-shadow-one
+    expected_entry_start_utc: 2026-08-15T04:00:00Z
+    expected_entry_end_utc: 2026-08-22T04:00:00Z
+    expected_followup_end_utc: 2026-09-21T04:00:00Z
+    minimum_successful_cutoff_utc: 2026-08-22T04:00:00Z
+    require_no_sidecars: true
+
+  gamma:
+    base_url: https://gamma-api.polymarket.com
+    connect_timeout_seconds: 3.05
+    read_timeout_seconds: 30
+    max_retries: 4
+    retry_base_seconds: 1
+    retry_max_seconds: 20
+    resolution_batch_size: 50
+
+  orderbook:
+    base_url: https://clob.polymarket.com
+    batch_token_limit: 250
+
+  experiment:
+    entry_start_utc: 2026-08-15T04:00:00Z
+    entry_end_utc: 2026-08-22T04:00:00Z
+    followup_end_utc: 2026-09-21T04:00:00Z
+    entry_thresholds: [0.90, 0.92, 0.95, 0.97]
+    stop_thresholds: [0.80, 0.85, 0.90]
+    target_thresholds: [0.98, 0.99]
+    primary_entry_threshold: 0.95
+    primary_stop_threshold: 0.85
+    simulated_notional_usdc: 5
+
+  runtime:
+    sla_seconds: 480
+
+  storage:
+    busy_timeout_ms: 30000
+    min_free_gib: 100
+    warn_used_ratio: 0.80
+    stop_used_ratio: 0.90
+    bot_log_retention_days: 45

@@ -26,6 +26,11 @@ or outcome-price filter. Source tradability is the only gate.
 The entry window is `[2026-08-15T04:00:00Z, 2026-08-22T04:00:00Z)` at minute
 `7,17,27,37,47,57`. Follow-up resolution evidence ends `2026-09-21T04:00:00Z`.
 
+The entry window is closed. `last-mile-clob-followup-v2` does not traverse that population again.
+It deterministically imports only v1 executable episode definitions and terminal state from the
+pinned, immutable v1 database, then polls distinct unresolved tokens/conditions. This is a storage
+and collection epoch boundary, not a new cohort or a change to the hypothesis.
+
 ## Measurement contract
 
 - The sampling endpoint token `price` is only a crossing signal; its microstructure meaning is not
@@ -53,6 +58,11 @@ books/levels, episodes, path observations, metadata, and resolution observations
 published atomically. Full parsed rows are retained only for nontrivial decisions; the mutable
 `latest_outcome_state` table is a labeled crossing cache with raw-page lineage.
 
+Those raw v1 rows stay only in v1. Follow-up v2 stores one canonical gzip full-book blob per
+token/cycle, shared by all threshold episodes for that token, plus fixed-share paths, first threshold
+transitions, unique one-hot resolution evidence, API receipts, run/storage/phase timings, and the v1
+seed anchor. Row-per-level book storage and new sampling/crossing evidence are forbidden in v2.
+
 The predeployment probe saw about 12.5k markets and 25k tokens over 13 pages. Two full cycles took
 5.5–6.3 seconds. The first DB was 31.7MB and the second added 6.46MB, planning roughly 6–7GB for week
 one and about 35GB through follow-up. Runtime metrics, not this dated estimate, are authoritative.
@@ -65,5 +75,6 @@ The one-week review can be only `HEALTH_ONLY`, `PILOT_UNDERPOWERED`, or `PILOT_C
 resolution coverage. Even then, no profitability or live recommendation is allowed without a new,
 healthy, frozen 30-day out-of-sample cohort.
 
-The checksum authority is
-`research/frozen-2026-08-15-clob/PREREGISTRATION.md` plus its `MANIFEST.sha256`.
+The v1 checksum authority is `research/frozen-2026-08-15-clob/PREREGISTRATION.md`; the active
+follow-up authority is `research/frozen-2026-08-23-followup-v2/PREREGISTRATION.md` plus its
+`MANIFEST.sha256`.

@@ -17,6 +17,7 @@ dev = [
 
 [project.scripts]
 polybot = "polybot.main:main"
+polybot-followup = "polybot.followup_main:main"
 
 [tool.uv.sources]
 polybot-observability = { path = "../polybot-observability", editable = true }

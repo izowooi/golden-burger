@@ -16,7 +16,7 @@ from typing import Any
 
 MARKER_NAME = ".daily-rsync-workspace.json"
 JENKINS_JOB = "polybot-shadow-one"
-RUNTIME_JOB = "strawberry-shadow-one"
+RUNTIME_JOB = "strawberry-shadow-one-followup-v2"
 VOLUME_PROFILE = "golden-raspberry-apfs-v1"
 DEFAULT_MOUNT_ROOT = Path("/Volumes/t7")
 DEFAULT_EXPECTED_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-shadow-one")

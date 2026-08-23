@@ -138,6 +138,13 @@ def main(argv: Sequence[str] | None = None) -> int:
             return 2
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
+    if args.command == "run":
+        print(
+            "last-mile-clob-v1 collection is retired; use polybot-followup with "
+            "strawberry-shadow-one-followup-v2",
+            file=sys.stderr,
+        )
+        return 2
     bot = PolymarketResearchBot(config)
     if args.command == "status":
         result = bot.status()

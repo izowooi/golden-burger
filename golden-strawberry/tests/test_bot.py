@@ -25,13 +25,9 @@ def test_100_gib_guard_stops_before_repository_initialization(config, monkeypatc
         lambda path: DiskUsage(400 * GIB, 301 * GIB, 99 * GIB),
     )
 
-    class Repository:
-        def initialize(self, config):
-            raise AssertionError("database initialized after failed disk guard")
-
-    bot = PolymarketResearchBot(config, repository=Repository())
+    bot = PolymarketResearchBot(config)
     with pytest.raises(RuntimeError, match="below 100 GiB"):
-        bot.run()
+        bot._precreation_disk_guard()
 
 
 def test_90_percent_guard_stops_before_repository_initialization(config, monkeypatch):
@@ -42,10 +38,16 @@ def test_90_percent_guard_stops_before_repository_initialization(config, monkeyp
         lambda path: DiskUsage(2_000 * GIB, 1_800 * GIB, 200 * GIB),
     )
 
+    bot = PolymarketResearchBot(config)
+    with pytest.raises(RuntimeError, match="reached 90%"):
+        bot._precreation_disk_guard()
+
+
+def test_v1_bot_run_is_hard_retired_before_db_or_network(config):
     class Repository:
         def initialize(self, config):
-            raise AssertionError("database initialized after failed disk guard")
+            raise AssertionError("retired v1 touched the database")
 
     bot = PolymarketResearchBot(config, repository=Repository())
-    with pytest.raises(RuntimeError, match="reached 90%"):
+    with pytest.raises(RuntimeError, match="retired and read-only"):
         bot.run()

@@ -45,7 +45,7 @@
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
-| **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 10분 full census, outcome-token threshold grid | **research-only · 1주 pilot health only · live/order 금지** |
+| **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 | **golden-watermelon** | In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 1분 vs 5분 paired cadence | **research-only · 2026-08-23 즉시 수집 · live/order 금지** |
 
@@ -303,7 +303,7 @@ order path는 source-level로 금지하며 통과 판정도 `SHADOW_REVIEW_ONLY`
 
 ### golden-strawberry — Last Mile
 
-10분마다 public CLOB `/sampling-markets` full census를 cursor 끝까지 수집하고, 각 outcome token의
+Entry window에는 10분마다 public CLOB `/sampling-markets` full census를 cursor 끝까지 수집하고, 각 outcome token의
 first-observed upward crossing을 entry `0.90/0.92/0.95/0.97` grid로 interval-censoring한다.
 CLOB displayed book에서 정확히 `$5`의 ask 진입과 이후 bid 또는 proven terminal payout만
 append-only 반사실 evidence로 남기는 **accountless research-only** collector다.
@@ -312,7 +312,9 @@ Primary는 `0.95` entry, `0.85` stop, price target 없이 terminal resolution까
 정책 하나다. stop `none/0.80/0.85/0.90`과 target `none/0.98/0.99`는 sensitivity일 뿐이며,
 첫 1주 pilot은 collection health만 판정한다. credential, wallet, order/fill path와 `--live`는
 source-level로 금지한다. Gamma는 crossing-time volume/liquidity/event metadata와 terminal
-resolution 확인에만 사용한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
+resolution 확인에만 사용한다. 2026-08-22 entry 종료 뒤 v1은 immutable source로 동결하고,
+`strawberry-shadow-one-followup-v2`가 unresolved episode만 10분 cadence와 compact full-book으로
+추적한다. 상세는 `golden-strawberry/STRATEGY.md`, frozen 계약은
 `golden-strawberry/research/frozen-2026-08-15-clob/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-strawberry.md`를 따른다.
 

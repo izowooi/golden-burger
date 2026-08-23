@@ -39,13 +39,20 @@ def market(probability: float):
 
 
 class FakeSampling:
-    def __init__(self, repository):
+    def __init__(
+        self,
+        repository,
+        probabilities=(0.94, 0.96, 0.99),
+        sweep_completed_times=None,
+    ):
         self.repository = repository
+        self.probabilities = tuple(probabilities)
+        self.sweep_completed_times = tuple(sweep_completed_times or TIMES)
         self.cycle = 0
 
     def collect_market_sweep(self, run_id):
         self.cycle += 1
-        probability = (0.94, 0.96, 0.99)[self.cycle - 1]
+        probability = self.probabilities[self.cycle - 1]
         payload = {"data": [market(probability)], "next_cursor": "LTE="}
         raw = json.dumps(payload, sort_keys=True).encode()
         request_id = f"sampling-{self.cycle}"
@@ -69,7 +76,7 @@ class FakeSampling:
         )
         return SamplingSweep(
             started_at=TIMES[self.cycle - 1],
-            completed_at=TIMES[self.cycle - 1],
+            completed_at=self.sweep_completed_times[self.cycle - 1],
             pages=(page,),
             cursor_complete=True,
         )

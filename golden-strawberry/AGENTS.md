@@ -8,7 +8,9 @@
 
 Golden Strawberry는 고확률 outcome token이 처음 임계값을 상향 교차한 뒤 terminal `0/1`
 payout까지 어떤 경로를 보이는지 검정하는 accountless, simulation-only collector다. 주문이나
-지갑을 사용하지 않고 CLOB displayed book으로 `$5` counterfactual entry/exit만 기록한다.
+지갑을 사용하지 않고 CLOB displayed book으로 `$5` counterfactual entry/exit만 기록한다. Entry
+window가 끝난 뒤에는 v1을 동결된 read-only source로 두고 compact follow-up v2가 이미 생성된
+episode만 추적한다.
 
 Primary policy는 `0.95` entry, `0.85` stop, 아니면 proven resolution까지 보유다. 다른
 entry/stop/target과 sports, outcome type, negRisk, liquidity, total/24h volume은 같은 frozen
@@ -17,31 +19,42 @@ Category는 crossing-time Gamma metadata로 보존하지만 현재 analyzer의 b
 
 ## 고정 계약
 
-- Data contract: `last-mile-clob-v1`.
-- Jenkins job: `polybot-shadow-one`; runtime job: `strawberry-shadow-one`.
+- Frozen source contract: `last-mile-clob-v1`; retired runtime job: `strawberry-shadow-one`.
+- Active follow-up contract: `last-mile-clob-followup-v2`; runtime job:
+  `strawberry-shadow-one-followup-v2`.
+- Jenkins job: `polybot-shadow-one`.
 - Workspace: `/Volumes/t7/jenkins/polybot-shadow-one`.
 - Cadence: `7-59/10 * * * *`.
 - Entry window: `[2026-08-15T04:00:00Z, 2026-08-22T04:00:00Z)`.
 - Follow-up end: `2026-09-21T04:00:00Z`.
-- Active preregistration: `research/frozen-2026-08-15-clob/PREREGISTRATION.md`와 같은 폴더의
+- Frozen v1 preregistration: `research/frozen-2026-08-15-clob/PREREGISTRATION.md`.
+- Active follow-up preregistration:
+  `research/frozen-2026-08-23-followup-v2/PREREGISTRATION.md`와 같은 폴더의
   `MANIFEST.sha256`.
+- v1 DB: `data/strawberry-shadow-one/trades_sim.db` — 영구 read-only source.
+- v2 DB: `data/strawberry-shadow-one-followup-v2/trades_sim.db` — append-only follow-up evidence.
 
 Source population, clock, threshold, cadence 또는 interpretation처럼 experiment identity를
-바꾸면 새 frozen directory, data contract, source digest, config hash, DB와 entry window로 모두
-분리한다. Jenkins job/workspace 같은 운영 topology를 옮길 때는 새 DB를 조용히 합치지 말고
+바꾸면 새 frozen directory, data contract, source digest, config hash와 DB로 분리한다. v2는 새
+entry cohort가 아니라 frozen v1 executable episode의 follow-up epoch이며 새 crossing을 만들 수
+없다. Jenkins job/workspace 같은 운영 topology를 옮길 때는 새 DB를 조용히 합치지 말고
 daily-rsync workspace epoch·marker·routing을 별도로 갱신한다. Git commit은 provenance일 뿐
 cohort key가 아니다. Cohort는 `config_hash × strategy_source_digest × mode × job_name`이다.
 
 ## 기술 스택과 주요 파일
 
 - Python 3.11+, uv, requests, PyYAML, SQLite, pytest, hatchling.
-- `config.yaml`, `src/polybot/config.py`: frozen clocks, thresholds, storage/API contract.
-- `src/polybot/api/sampling_client.py`: complete CLOB `/sampling-markets` cursor traversal.
+- `config.yaml`, `src/polybot/config.py`: retired v1 collection contract와 read-only 분석.
+- `config.followup-v2.yaml`, `src/polybot/followup_config.py`: active v2 contract와 pinned v1 source.
+- `src/polybot/api/sampling_client.py`: v1 전용 complete CLOB `/sampling-markets` traversal; v2 금지.
 - `src/polybot/api/clob_client.py`: crossing/episode displayed books.
 - `src/polybot/api/gamma_client.py`: post-selection metadata와 terminal payout evidence.
-- `src/polybot/collector.py`: crossing, censoring, book path, resolution orchestration.
-- `src/polybot/db/repository.py`: append-only schema와 atomic publication.
-- `src/polybot/analyzer.py`: immutable verified DB의 health/pilot 분석.
+- `src/polybot/collector.py`, `src/polybot/db/repository.py`: retired v1 collection/schema.
+- `src/polybot/v1_source.py`: v1 `mode=ro` validation, deterministic seed와 anchor drift detection.
+- `src/polybot/followup_collector.py`, `src/polybot/db/followup_repository.py`: token-shared compact
+  book, fixed-share path, resolution과 atomic v2 publication.
+- `src/polybot/analyzer.py`: immutable v1 health/pilot 분석.
+- `src/polybot/followup_analyzer.py`: v1 collection + v2 follow-up 결합 health 분석.
 - `scripts/verify_external_workspace.py`: T7 APFS identity, UUID pin, marker 검증.
 - `OPERATIONS.md`: Jenkins shell, first deployment, daily-rsync, failure handling.
 
@@ -52,34 +65,40 @@ cohort key가 아니다. Cohort는 `config_hash × strategy_source_digest × mod
 ```bash
 uv sync --frozen --extra dev
 (cd research/frozen-2026-08-15-clob && shasum -a 256 -c MANIFEST.sha256)
+(cd research/frozen-2026-08-23-followup-v2 && shasum -a 256 -c MANIFEST.sha256)
 uv run pytest
 uv build
 ```
 
 ```bash
 POLYBOT_LIFECYCLE_MODE=archive_only POLYBOT_SIMULATION_MODE=true \
-  uv run polybot config --simulate --job strawberry-shadow-one
+  uv run polybot-followup config --simulate \
+  --job strawberry-shadow-one-followup-v2
 ```
 
-실제 public-data cycle은 Jenkins 외장 workspace에서 `OPERATIONS.md`의 shell 그대로 실행한다.
+실제 public-data cycle은 Jenkins 외장 workspace에서 `OPERATIONS.md`의 v2 shell 그대로 실행한다.
 CLI에는 DB override가 없으므로 로컬에서는 `run` smoke를 만들지 않고 config, mock 기반 test,
-manifest와 build까지만 검증한다.
+manifest와 build까지만 검증한다. v1 `polybot run`은 retired 오류로 종료되어야 한다.
 
 ## Fail-closed 안전 규칙
 
 - `--live`와 wallet/order code를 허용하지 않는다. `src/polybot/config.py`의 정확한 9개
   supported Polymarket/CLOB credential key는 빈 값이어도 DB, log, HTTP session 전에 거절한다.
 - lifecycle은 `archive_only`, simulation은 `true`, runtime job은 canonical 값만 허용한다.
+- 매 v2 cycle은 HTTP 전에 canonical v1 DB를 SQLite `mode=ro`로 열어 schema/data contract/window/job,
+  latest successful sweep, source config/digest/count/canonical seed hash와 file identity를 anchor에
+  대조한다. Sidecar 또는 drift가 있으면 중단하며 v1에 DDL/DML/VACUUM/ALTER를 실행하지 않는다.
 - Jenkins `WORKSPACE`, T7 APFS UUID, off-volume UUID pin, sentinel, daily-rsync marker를 DB/log/network
   전에 검증한다.
 - 100GiB 미만 free space, 90% 이상 filesystem usage, overlapping writer, partial/repeated cursor,
   malformed source, manifest/config/source digest drift는 publish 전에 중단한다.
 - Jenkins에 `clean`, workspace wipe, DB 삭제, credential binding, concurrent build를 추가하지 않는다.
-- timed Jenkins shell에는 `run` 뒤에 `status`/`health`를 붙이지 않는다. 두 명령은 대형
+- retired v1 timed shell에는 `run`을 남기지 않는다. v1 `status`/`health`는 대형
   append-only DB 전체 `quick_check`와 exact count를 수행하는 maintenance 진단이며, 12GiB에서
   함께 약 19분이 걸려 10분 cadence를 붕괴시켰다. 정기 cycle의 성공·storage guard는 run
-  audit로 확인한다. CLI deep check는 job을 멈춘 maintenance window에서만 실행하고, 정기
-  무결성·분석은 daily-rsync로 검증한 immutable copy에 `quick_check`와 analyzer를 적용한다.
+  audit로 확인한다. v2 `status`/`health`는 quick check 없는 lightweight 진단이지만 periodic
+  shell에는 넣지 않는다. v1 `quick_check`는 명시적인 maintenance 또는 combined analyzer의
+  `--deep-v1`에서만 실행한다.
 - 이 프로젝트 작업으로 다른 Jenkins job이나 live strategy를 수정하지 않는다.
 
 ## Evidence 규칙
@@ -95,6 +114,12 @@ manifest와 build까지만 검증한다.
 - Source pages, compact membership, request receipts, crossings, books/levels, episodes, paths,
   metadata, resolution, quality issues, run provenance, storage metrics는 append-only로 보존한다.
   `latest_outcome_state`만 명시적인 mutable cache다.
+- v2는 v1 raw evidence를 복제하지 않는다. Imported canonical seed/anchor, API receipts, cycle마다
+  distinct token당 canonical gzip full-book 한 row, episode path/threshold, unique one-hot Gamma
+  resolution, run/storage/phase timing만 append한다. `clob_levels`와 row-per-level 저장은 금지한다.
+- v2는 imported unresolved episode의 distinct token/condition만 요청한다. `/sampling-markets`,
+  crossing detection, Gamma candidate metadata, 새 entry는 금지하고 resolved condition은 이후
+  book/resolution 요청에서 제외한다.
 - Partial cycle을 성공으로 추정하거나 missing evidence를 합성하지 않는다.
 
 ## 분석과 판정
@@ -104,6 +129,9 @@ manifest와 build까지만 검증한다.
 `polybot-retro audit --strict`는 secondary 참고일 뿐이며 trade/fill/P&L table 부재는 이
 accountless collector의 evidence gap이 아니다. 분석 range는 UTC half-open interval로 고정하고
 DB SHA-256, sync/source cutoff, config hash, source digest, runtime job을 보고서에 남긴다.
+Follow-up 전환 뒤에는 검증된 v1/v2 두 DB를 `polybot-followup analyze`에 함께 넘긴다. 기본값은
+30GB v1 `quick_check`를 생략하며, health-only 분석은 수익성·parameter 선택·live 승격을 계산하지
+않는다.
 
 1주 차 판정은 세 가지뿐이다. Health 또는 `quick_check` 실패는 `HEALTH_ONLY`다. Health는
 통과했지만 50 executable episodes, 30 resolved known event clusters, metadata/path/resolution 각각

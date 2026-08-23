@@ -88,7 +88,10 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   stop 또는 terminal `0/1` payout까지 반사실 경로를 기록한다. 스포츠·비(非)스포츠와
   `0.90/0.92/0.95/0.97` entry, `none/0.80/0.85/0.90` stop, `none/0.98/0.99` target을 같은
   frozen cohort에서 측정하되 1주 차에는 collection health만 판정한다. 주문·credential·
-  `--live`는 source-level로 금지하고 `last-mile-clob-v1` append-only 계약을 따른다.
+  `--live`는 source-level로 금지한다. 7일 entry 수집을 마친 `last-mile-clob-v1`은
+  immutable source로 동결하고, `strawberry-shadow-one-followup-v2`가 unresolved episode만
+  10분마다 추적한다. v2는 token/cycle당 canonical gzip full-book 한 행을 공유하는
+  `last-mile-clob-followup-v2` append-only 계약이며 v1 census·신규 crossing을 재실행하지 않는다.
 - `golden-watermelon/`: **In-Play Match Winner** — 경기 시작 후 strict whole-match
   `moneyline`의 exact `$5` ask VWAP가 `0.95/0.96/0.97/0.98/0.99`를 통과한 시점을
   수집하고 resolution hold와 `0.95/0.93/0.90/0.85/0.80/0.70` stop을 동시
@@ -138,10 +141,11 @@ whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L ev
 고정 hash-shard DB다. 세 DB의 `queue-echo-v1` raw Gamma/CLOB evidence를 함께 검증하고,
 표시 호가 반사실을 actual fill이나 realized P&L로 해석하지 않는다.
 
-`golden-strawberry`는 단일 `data/strawberry-shadow-one/trades_sim.db`에 10분 CLOB sampling
-census와 crossing-time book/Gamma evidence를 원자적으로 적재한다. `latest_outcome_state`만
-mutable cache이고 나머지 review evidence는 append-only다. 이 DB도 actual fill 또는 realized
-P&L로 해석하지 않으며, 1주 차 결과로 parameter를 선택하지 않는다.
+`golden-strawberry`의 동결 v1은 `data/strawberry-shadow-one/trades_sim.db`에 10분 CLOB
+sampling census와 crossing-time book/Gamma evidence를 보존한다. entry 종료 뒤에는 이 파일을
+read-only seed source로만 열고 `data/strawberry-shadow-one-followup-v2/trades_sim.db`가 unresolved
+episode의 compact book/path/resolution만 적재한다. 두 epoch를 merge하거나 하나의 DB로 덮지
+않으며, 둘 다 actual fill 또는 realized P&L로 해석하지 않는다.
 
 `golden-black`은 단일 `data/black-shadow-paired/trades_sim.db`에 server-filtered sports event
 keyset, exact `$5` books, `0.92/0.94` paired episode, 무손절·0.80·0.70·0.60 stop path와 one-hot
@@ -202,10 +206,12 @@ Golden Pomegranate는 trade/fill retro 대상이 아니다. active `trades_sim.d
 cursor-complete census, source-component coverage, watermark gap과 manifest checksum을 검사한다.
 `polybot-retro audit`의 order/fill 계약을 여기에 적용하지 않는다.
 
-Golden Strawberry도 trade/fill retro 대상이 아니다. `daily-rsync verify`를 통과한 단일
-`trades_sim.db`를 절대 경로로 지정하고 자체 `polybot analyze`로 sampling cursor/membership,
-crossing book, metadata, path/resolution coverage, cohort, DB 무결성과 storage growth를 검사한다.
-1주 health gate에서 수익성·parameter tuning·live 승격을 결론내리지 않는다.
+Golden Strawberry도 trade/fill retro 대상이 아니다. `daily-rsync verify`를 각각 통과한 frozen
+v1과 follow-up v2 `trades_sim.db`의 절대 경로를 함께 지정한다. v1-only analyzer로 sampling
+cursor/membership, crossing book과 metadata를 확인하고 `polybot-followup analyze`로 v1 anchor,
+v2 cadence, compact book/path/resolution coverage, cohort, DB 무결성과 storage/SLA를 검사한다.
+두 epoch를 합쳐 actual fill/P&L로 해석하지 않으며 parameter tuning·live 승격은 별도 healthy
+out-of-sample gate 전까지 결론내리지 않는다.
 
 Golden Watermelon도 trade/fill retro 대상이 아니다. `polybot-white`와
 `polybot-grey`를 각각 `daily-rsync scan`한 뒤 독립 plan으로 sync/verify하고,

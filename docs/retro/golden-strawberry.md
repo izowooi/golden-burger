@@ -18,7 +18,8 @@ REVIEW_START=<YYYY-MM-DDTHH:MM:SSZ>
 REVIEW_END=<YYYY-MM-DDTHH:MM:SSZ>  # exclusive
 TIMEZONE=UTC
 JENKINS_JOB=polybot-shadow-one
-RUNTIME_JOB=strawberry-shadow-one
+FROZEN_RUNTIME_JOB=strawberry-shadow-one
+FOLLOWUP_RUNTIME_JOB=strawberry-shadow-one-followup-v2
 EXPECTED_CADENCE_MINUTES=10
 ```
 
@@ -27,7 +28,7 @@ sync, locate, verify를 수행한다. 보고서 첫머리에 canonical DB 절대
 path, latest successful sync 시각, DB `synced_at`, source cutoff를 기록한다. verify 실패,
 `SOURCE_MISSING` cutoff 초과, retention skip, runtime/strategy 불일치가 있으면 분석을 중단한다.
 
-## Primary 분석
+## Frozen v1 entry 수집 분석
 
 ```bash
 cd golden-strawberry
@@ -50,6 +51,30 @@ uv run python scripts/analyze_experiment.py \
 - resolution lookup/payout 및 resolution jump와 price target의 구분
 - sports/non-sports, binary/multi, negRisk, liquidity/volume strata
 
+2026-08-22T04:00:00Z entry 종료 뒤 v1 collector는 다시 실행하지 않는다. v1은 crossing과
+membership의 immutable source이고, 이후 unresolved episode의 path/resolution은 별도
+`last-mile-clob-followup-v2` DB가 이어받는다.
+
+## Compact follow-up v2 분석
+
+두 epoch를 각각 `daily-rsync verify`한 절대 경로로 지정한다.
+
+```bash
+cd golden-strawberry
+uv run polybot-followup analyze --simulate \
+  --job strawberry-shadow-one-followup-v2 \
+  --v1-db /absolute/verified/v1/trades_sim.db \
+  --v2-db /absolute/verified/v2/trades_sim.db \
+  --start "$REVIEW_START" \
+  --end "$REVIEW_END" \
+  --output /absolute/review/golden-strawberry-followup-health.json
+```
+
+v2는 신규 census/crossing/Gamma candidate metadata를 수집하지 않는다. v1 source anchor와 seed
+hash, 10분 cadence, token/cycle당 하나인 canonical gzip full-book, imported episode path와
+resolution attempt coverage, resolved-condition 제외, phase SLA, DB growth와 외장 디스크 guard를
+판정한다. `--deep-v1`은 별도 maintenance window에서만 사용한다.
+
 2026-08-15 predeployment CLOB probe의 약 12.5k market/25k token/13 page와 first DB 31.7MB,
 subsequent growth 6.46MB는 dated estimate다. 이를 contract denominator로 쓰지 않고 review DB의
 actual membership/runtime/growth를 사용한다.
@@ -69,7 +94,7 @@ conservative stop-first를 적용한다.
 
 - collection health 실패: `HEALTH_ONLY`
 - health 통과지만 executable episode 50개, resolved known event cluster 30개, path coverage 90%,
-  resolution coverage 90%, crossing-time metadata coverage 90% 중 하나라도 부족:
+resolution coverage 90%, crossing-time metadata coverage 90% 중 하나라도 부족:
   `PILOT_UNDERPOWERED`
 - 모두 충족: 최대 `PILOT_CANDIDATE`
 
