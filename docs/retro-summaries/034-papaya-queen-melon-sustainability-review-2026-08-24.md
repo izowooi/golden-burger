@@ -9,10 +9,10 @@
 
 | 전략 | 운영 판정 | 핵심 이유 | 권고 |
 |---|---|---|---|
-| Golden Papaya | **수익 목적 live 중단** | 완결 3건은 모두 손실, 종료된 시장 20건이 `HOLDING`에 남고, 전부 승리로 보는 상한도 목표 미달 | Cat·Dog 신규 진입 중지, resolution/redeem과 cap 해제 복구 후 연구만 재개. 파라미터·금액 증액 금지 |
-| Golden Queen | **수익 목적 live 중단** | 현재 `$5` cohort가 양쪽 모두 음수이고 `0.85` stop이 실제 `0.41~0.69`에 체결됨 | Queen·King 모두 증액·필터 완화 금지. 연구를 계속하면 새 simulation cohort로 분리 |
-| Golden Melon High | **폐쇄 권고** | 19일에 체결 1건뿐이고 `$150k` volume arm은 표본이 생성되지 않음 | `polybot-fruit` 종료 |
-| Golden Melon Mid·Low | **수익 운영 중단, 연구용 조건부 유지** | 전 거래가 이익이지만 독립 event 5개뿐이고 계좌 주간 환산은 목표에 크게 미달 | `$5` 고정 연구만 가능. 증액·TP/SL·volume 변경 금지. 기다리지 않을 것이면 함께 폐쇄 |
+| Golden Papaya | **폐쇄 확정** | 완결 3건은 모두 손실, 종료된 시장 20건이 `HOLDING`에 남고, 전부 승리로 보는 상한도 목표 미달 | Cat·Dog timer 제거 완료. 잔여 포지션은 운영자가 수동 종료 |
+| Golden Queen | **폐쇄 확정** | 현재 `$5` cohort가 양쪽 모두 음수이고 `0.85` stop이 실제 `0.41~0.69`에 체결됨 | Queen·King timer 제거 완료. 잔여 포지션은 운영자가 수동 종료 |
+| Golden Melon High | **폐쇄 확정** | 19일에 체결 1건뿐이고 `$150k` volume arm은 표본이 생성되지 않음 | Fruit timer 제거 완료 |
+| Golden Melon Mid·Low | **폐쇄 확정** | 전 거래가 이익이지만 독립 event 5개뿐이고 계좌 주간 환산은 목표에 크게 미달 | Lime·Wolf timer 제거 완료 |
 
 이는 “전략 가설이 통계적으로 완전히 기각됐다”는 뜻과는 다르다. Papaya·Queen은
 first-crossing archive와 운영 evidence가 불완전하고, Melon은 손실 표본이 한 건도 없어
@@ -21,6 +21,7 @@ tail risk가 검증되지 않았다. 다만 **현재 live 배포를 수익원으
 
 이번 검토에서는 code·Jenkins 설정을 변경하지 않았다. 결과를 보고 parameter를 사후 선택하면
 기존 cohort가 오염되며, 현재 evidence는 live 변경을 정당화하지 못한다.
+이후 사용자가 세 전략 모두 폐쇄를 확정해 아래 7절의 Jenkins timer 중단을 별도 실행했다.
 
 ## 1. Evidence 경계
 
@@ -250,3 +251,26 @@ global max position이나 open-notional cap에 막힌 사례는 없었다. 같�
 
 현재 수익 목표를 우선한다면 가장 단순한 결론은 **Papaya·Queen·Melon High를 폐쇄하고,
 Melon Mid·Low도 연구 가치가 비용보다 크다고 판단할 때만 소액으로 남기는 것**이다.
+
+## 7. 사용자 폐쇄 결정과 Jenkins timer 중단 — 2026-08-24
+
+사용자가 Papaya·Queen·Melon 세 전략의 종료를 확정했다. Jenkins job 자체를 disable하거나
+workspace를 지우지 않고, 신규 자동 cycle만 막기 위해 각 config에서 `TimerTrigger` 하나만
+제거했다. shell, SCM, credential reference, build retention, DB·log·workspace는 변경하지 않았다.
+
+| 전략 | Jenkins job | 기존 주기 | 변경 후 | 마지막 확인 build | 변경 후 config SHA-256 |
+|---|---|---|---|---|---|
+| Papaya | `polybot-cat` | `H/10 * * * *` | timer 없음 | `#5154 SUCCESS` | `4e30998ef6be3778d97e1839b7a274dc8ea7cc4237c3e5f0c0ded627db00eadf` |
+| Papaya | `polybot-dog` | `H/10 * * * *` | timer 없음 | `#5049 SUCCESS` | `71e22cc539a67b3ad5bd9fc030de51168478c7359bba35ff65467d9f2ade53c2` |
+| Queen | `polybot-queen` | `H/5 * * * *` | timer 없음 | `#5032 SUCCESS` | `579cc6306fbb4736fd34aaf360651e1cbbd06381ed17a52360c8f19d2f5b6441` |
+| Queen | `polybot-king` | `H/5 * * * *` | timer 없음 | `#5033 SUCCESS` | `a2fabf4c9b71382850f7a499ac246c659a98f597dde36ccc05ae73e1710bcdf6` |
+| Melon | `polybot-fruit` | `H/5 * * * *` | timer 없음 | `#5419 SUCCESS` | `8ca3f56e75bfef7cb48fcaef6348babd1d29c126a8ed672158d77fb0704adf41` |
+| Melon | `polybot-lime` | `H/5 * * * *` | timer 없음 | `#12185 SUCCESS` | `0a1d91ef1a6c279dec8fb9c674823199be059282a309d677c25c3c644fb8c7b1` |
+| Melon | `polybot-wolf` | `H/5 * * * *` | timer 없음 | `#11034 SUCCESS` | `66a66af8870329773df83000c9058ac29feb028509a9270a006775d040f422b7` |
+
+변경 직전에 이미 실행 중이던 Dog `#5049`와 Wolf `#11034`는 강제 중단하지 않았고 둘 다
+자연스럽게 `SUCCESS`로 끝났다. 2026-08-24 21:41 KST 재조회에서 7개 모두
+`disabled=false`, `buildable=true`, `concurrent=false`, `TimerTrigger=0`, queue 0,
+running build 0이었다. 따라서 예약 실행은 더 생기지 않지만 사용자가 수동으로 Build Now를
+누르면 여전히 실행된다. Jenkins description에 남은 과거 cron 문구는 표시용 텍스트일 뿐
+실제 trigger가 아니다.
