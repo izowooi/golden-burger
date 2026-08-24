@@ -1,0 +1,64 @@
+# Golden Watermelon Live
+
+`golden-watermelon`의 White/Grey accountless 관측 결과를 실제 최소 금액으로 확인하는 독립
+live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된 `polybot-cat`과
+`polybot-dog` wallet만 재사용한다.
+
+| arm | Jenkins | runtime job | exact `$5` ask VWAP |
+|---|---|---|---:|
+| Cat | `polybot-cat` | `watermelon-live-cat-98` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99` | `[0.99, 0.999]` |
+
+두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
+보존하며, 분석은 job별 cohort로 분리한다.
+
+## 동결된 거래 계약
+
+- EPL, Bundesliga, Ligue 1, LaLiga, MLS의 명시적 league identity만 허용
+- 경기 시작 후 0~4시간, `live=true`, `ended=false`인 top-level whole-match event만 허용
+- home/draw/away moneyline proposition의 **YES token**만 검사
+- 한 경기에서 한 결과의 exact `$5` ask VWAP가 arm threshold에 처음 도달했을 때만 진입
+- threshold에 도달한 결과가 없는 경기는 주문하지 않음. “전 경기”는 임의 결과를 강제
+  선택한다는 뜻이 아니라, 조건을 충족한 모든 대상 경기를 빠뜨리지 않는다는 뜻이다.
+- 진입 직전 full ask depth를 다시 walk하고 marketable FOK BUY 제출
+- 결과 token의 fresh best bid가 `0.70` 이하이면 전체 보유 수량의 displayed bid depth를
+  walk한 뒤 가장 낮은 소비 bid를 limit으로 marketable FOK SELL 제출
+- stop이 체결되지 않거나 depth가 부족하면 손실을 추정해 종결하지 않고 보유·대사 상태 유지
+- stop 전에는 resolution까지 보유하며 TP와 time exit는 없음
+- account 최대 20개, event당 1개, cycle당 최대 20개, 주문당 정확히 `$5`
+- 봇 DB가 만든 trade만 관리하며 wallet의 수동 position은 편입하거나 청산하지 않음
+
+Gamma liquidity/volume 숫자는 진입 gate로 쓰지 않는다. 매수는 정확히 `$5`를 전량 소진할 수
+있는 displayed ask depth, 매도는 전체 보유 수량을 전량 소진할 수 있는 displayed bid depth가
+필수이므로 실행 가능성은 CLOB에서 직접 검증한다.
+
+5분 Jenkins cadence는 연속 stop daemon이 아니다. 가격이 두 cycle 사이에 급락하면 `0.70`보다
+훨씬 낮은 가격에 체결되거나 depth 부족으로 체결되지 않을 수 있다. 이번 최소금액 pilot은 이
+execution gap도 실제 증거로 수집한다.
+
+entry window는 `[2026-08-24T13:00:00Z, 2026-08-31T13:00:00Z)`, follow-up cutoff는
+`2026-09-07T13:00:00Z`다. 이 값은 source에서 fail-closed하게 고정된다. White/Grey의 작은
+표본 때문에 0.98/0.99를 “최적값”이라고 부르지 않으며, 보수적인 첫 prospective A/B로만
+해석한다. 근거와 판정 기준은 [STRATEGY.md](STRATEGY.md), Jenkins 절차는
+[OPERATIONS.md](OPERATIONS.md)를 따른다.
+
+성과 cohort는 `config_hash × strategy_source_digest × mode × job_name`이다. Git commit은
+배포 provenance로만 사용한다.
+
+## 로컬 검증
+
+```bash
+cd golden-watermelon-live
+uv sync --frozen --extra dev
+uv run pytest
+
+# 실제 값은 untracked .env 또는 Jenkins credential에서만 제공한다.
+uv run polybot config --simulate --job watermelon-local
+uv run polybot run --simulate --job watermelon-local
+uv run polybot status --simulate --job watermelon-local
+```
+
+실주문은 매번 명시적인 `--live`가 있어야 한다. 기본 `config.yaml`은 simulation이다.
+`POLYBOT_LIFECYCLE_MODE`는 `active`, `close_only`, `archive_only`를 지원한다. 중단·청산은
+[공통 wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따르며 clean build, workspace
+wipe, 기존 DB 삭제는 사용하지 않는다.

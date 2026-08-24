@@ -1,13 +1,13 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 24개 `golden-*` 프로젝트의 전체 지도다. 이 중 23개는 수익 가설을 검정하고,
+총 25개 `golden-*` 프로젝트의 전체 지도다. 이 중 24개는 수익 가설을 검정하고,
 `golden-pomegranate` 하나는 미래 전략을 만들기 위한 범용 accountless market observatory다.
 `golden-black`, `golden-raspberry`, `golden-strawberry`, `golden-watermelon`은 수익 가설이지만 주문 없이 displayed-book
 반사실만 수집한다. 현재 운영 상태는
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-23 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-24 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -48,8 +48,9 @@
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 | **golden-watermelon** | In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 1분 vs 5분 paired cadence | **research-only · 2026-08-23 즉시 수집 · live/order 금지** |
+| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 home/draw/away의 terminal 수렴 | exact `$5` FOK BUY, 0.70 full-depth FOK stop | Cat 0.98 vs Dog 0.99, 5개 축구 리그 | **최소금액 prospective live A/B · 2026-08-24 시작** |
 
-상태 합계는 운영 7, 구현만 완료 5, research/simulation 전용 6, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 8, 구현만 완료 5, research/simulation 전용 6, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -365,6 +366,27 @@ credential, actual fill, `--live`는 source-level로 금지한다. 상세는
 `golden-watermelon/STRATEGY.md`, frozen 계약은
 `golden-watermelon/research/frozen-2026-08-23/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-watermelon.md`를 따른다.
+
+### golden-watermelon-live — In-Play Match Result Live
+
+White/Grey의 첫 prospective 관측에서 0.95~0.97 hold 경로는 축구 역전패 한 건으로 fee-net
+음수였고, 0.98은 3/3, 0.99는 1/1이었다. 표본이 작고 Bundesliga가 없으므로 이를 최적값으로
+해석하지 않고 Cat `[0.98,0.999]` 대 Dog `[0.99,0.999]`의 보수적 최소금액 pilot으로
+분리했다.
+
+EPL, Bundesliga, Ligue 1, LaLiga, MLS의 top-level whole-match home/draw/away proposition
+YES token만 허용한다. exact `$5` ask depth를 진입 직전에 재검증해 FOK BUY하고, fresh best
+bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 limit으로 FOK SELL한다.
+5분 polling 사이 gap과 depth 부족은 stop shortfall evidence로 남기며 0.70 체결을 보장하지
+않는다. threshold가 없는 경기에 임의 주문을 강제하지 않고, 조건을 충족한 대상 event만 모두
+처리한다.
+
+`golden-watermelon` collector는 accountless 상태로 그대로 유지한다. live cohort는
+`polybot-cat/watermelon-live-cat-98`과
+`polybot-dog/watermelon-live-dog-99`이며 수동 wallet position을 관리하지 않는다.
+상세는 `golden-watermelon-live/STRATEGY.md`, frozen 계약은
+`golden-watermelon-live/research/frozen-2026-08-24/PREREGISTRATION.md`, 회고는
+`docs/retro/golden-watermelon-live.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 

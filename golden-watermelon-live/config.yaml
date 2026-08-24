@@ -1,0 +1,46 @@
+# Golden Watermelon Live — five-league in-play home/draw/away A/B.
+# env > config.yaml > defaults. Real orders always require explicit --live.
+
+trading:
+  lifecycle_mode: active
+
+  # The experiment's only order notional.
+  buy_amount_usdc: 5.0
+
+  # No Gamma liquidity/volume cutoff: a complete exact-$5 ask walk is the
+  # executable liquidity gate. Missing/partial books fail closed.
+  min_liquidity: 0
+  min_volume_24h: 0
+  min_cumulative_volume: 0
+
+  # At most $100 requested notional open, and never more than one result per game.
+  max_positions: 20
+  max_event_positions: 1
+  max_new_positions_per_cycle: 20
+  reentry_cooldown_hours: 720
+  max_snapshot_gap_minutes: 15
+
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.0
+  yes_only_mode: true
+
+  experiment_start_utc: 2026-08-24T13:00:00Z
+  experiment_entry_end_utc: 2026-08-31T13:00:00Z
+  experiment_followup_end_utc: 2026-09-07T13:00:00Z
+
+  # Cat is arm A. Dog overrides only prob_min=0.99 in Jenkins.
+  entry:
+    prob_min: 0.98
+    prob_max: 0.999
+    stop_price: 0.70
+    hours_min: 0
+    hours_max: 4
+
+  archive:
+    prob_min: 0.0
+    hours_max: 4
+    retention_days: 60
+
+  excluded_categories: []
+
+simulation_mode: true

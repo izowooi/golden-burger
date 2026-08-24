@@ -55,6 +55,7 @@ _SUPPORTED_STRATEGIES = frozenset(
         "golden-queen",
         "golden-quince",
         "golden-tangerine",
+        "golden-watermelon-live",
     }
 )
 
@@ -273,6 +274,7 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
         "golden-queen",
         "golden-quince",
         "golden-tangerine",
+        "golden-watermelon-live",
     }:
         default_gap_minutes = (
             15.0
@@ -282,6 +284,7 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
                 "golden-melon",
                 "golden-queen",
                 "golden-quince",
+                "golden-watermelon-live",
             }
             else 30.0
         )
@@ -345,6 +348,7 @@ def policy_for(
         "golden-queen": 1.0,
         "golden-quince": 1.0,
         "golden-tangerine": 1.0,
+        "golden-watermelon-live": 1.0,
     }
     retention_defaults = {
         "golden-blueberry": 60.0,
@@ -357,6 +361,7 @@ def policy_for(
         "golden-queen": 60.0,
         "golden-quince": 60.0,
         "golden-tangerine": 60.0,
+        "golden-watermelon-live": 60.0,
     }
     selector = "latest"
     if normalized == "golden-nectarine":
@@ -369,6 +374,7 @@ def policy_for(
         "golden-queen",
         "golden-quince",
         "golden-tangerine",
+        "golden-watermelon-live",
     }:
         selector = "extrema"
     policy = SQLiteMaintenancePolicy(

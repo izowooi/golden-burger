@@ -1,0 +1,241 @@
+"""Fail-closed whole-match home/draw/away market filters."""
+
+from __future__ import annotations
+
+import json
+import math
+from typing import Any, Dict, List, Mapping, Optional
+
+
+def _list_value(value: Any) -> Optional[list]:
+    if isinstance(value, list):
+        return value
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        return parsed if isinstance(parsed, list) else None
+    return None
+
+
+def _normalized_name(value: Any) -> str:
+    if value in (None, ""):
+        return ""
+    return " ".join(
+        "".join(
+            character if character.isalnum() else " " for character in str(value)
+        )
+        .casefold()
+        .split()
+    )
+
+
+def _team_forms(team: Mapping[str, Any]) -> set[str]:
+    return {
+        normalized
+        for normalized in (
+            _normalized_name(team.get("name")),
+            _normalized_name(team.get("alias")),
+            _normalized_name(team.get("abbreviation")),
+        )
+        if normalized
+    }
+
+
+def aligned_binary_reason(market: Dict[str, Any]) -> str:
+    """Validate the exact Yes/No token alignment used by result propositions."""
+    outcomes = _list_value(market.get("outcomes"))
+    prices = _list_value(market.get("outcomePrices"))
+    token_ids = _list_value(market.get("clobTokenIds"))
+    if outcomes is None or [str(item).strip() for item in outcomes] != ["Yes", "No"]:
+        return "not_exact_yes_no_labels"
+    if prices is None or len(prices) != 2:
+        return "not_two_outcome_prices"
+    if token_ids is None or len(token_ids) != 2:
+        return "not_two_token_ids"
+    normalized_tokens = [str(token or "").strip() for token in token_ids]
+    if any(not token for token in normalized_tokens):
+        return "empty_token_id"
+    if len(set(normalized_tokens)) != 2:
+        return "non_distinct_token_ids"
+    try:
+        normalized_prices = [float(price) for price in prices]
+    except (TypeError, ValueError):
+        return "invalid_outcome_price"
+    if any(
+        not math.isfinite(price) or not 0 <= price <= 1
+        for price in normalized_prices
+    ):
+        return "invalid_outcome_price"
+    if market.get("negRisk") is not True:
+        return "not_explicit_negrisk_result_market"
+    return "ok"
+
+
+def get_event(market: Dict[str, Any]) -> Dict[str, Any]:
+    events = market.get("events") or []
+    if not isinstance(events, list) or len(events) != 1 or not isinstance(events[0], dict):
+        return {}
+    return events[0]
+
+
+def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
+    """Return ``(ok, HOME|DRAW|AWAY)`` only for whole-match result propositions."""
+    reason = aligned_binary_reason(market)
+    if reason != "ok":
+        return reason, None
+    if str(market.get("sportsMarketType") or "").strip() != "moneyline":
+        return "not_top_level_moneyline", None
+    event = get_event(market)
+    if not event:
+        return "event_relation_not_unique", None
+    if event.get("parentEventId") not in (None, ""):
+        return "child_event_not_whole_match", None
+    raw_teams = event.get("teams")
+    teams = (
+        [dict(item) for item in raw_teams if isinstance(item, Mapping)]
+        if isinstance(raw_teams, list)
+        else []
+    )
+    if len(teams) != 2:
+        return "exactly_two_teams_required", None
+    home_forms, away_forms = _team_forms(teams[0]), _team_forms(teams[1])
+    if not home_forms or not away_forms or home_forms & away_forms:
+        return "team_identity_ambiguous", None
+    descriptor = _normalized_name(market.get("groupItemTitle"))
+    if not descriptor:
+        return "group_item_title_missing", None
+    if descriptor == "draw" or descriptor.startswith("draw "):
+        return "ok", "DRAW"
+    if descriptor in home_forms:
+        return "ok", "HOME"
+    if descriptor in away_forms:
+        return "ok", "AWAY"
+    return "result_proposition_not_identified", None
+
+
+def get_match_result_yes(market: Dict[str, Any]) -> Dict[str, Any]:
+    reason, result_kind = match_result_reason(market)
+    if reason != "ok" or result_kind is None:
+        return {}
+    prices = _list_value(market.get("outcomePrices")) or []
+    token_ids = _list_value(market.get("clobTokenIds")) or []
+    return {
+        "outcome": "Yes",
+        "probability": float(prices[0]),
+        "token_id": str(token_ids[0]).strip(),
+        "token_index": 0,
+        "no_probability": float(prices[1]),
+        "no_token_id": str(token_ids[1]).strip(),
+        "result_kind": result_kind,
+    }
+
+
+def get_strict_binary_yes(market: Dict[str, Any]) -> Dict[str, Any]:
+    """Compatibility alias with the stricter whole-match result contract."""
+    return get_match_result_yes(market)
+
+
+def get_aligned_binary_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return both exact Yes/No paths for settlement proof."""
+    if aligned_binary_reason(market) != "ok":
+        return []
+    labels = _list_value(market.get("outcomes")) or []
+    prices = _list_value(market.get("outcomePrices")) or []
+    token_ids = _list_value(market.get("clobTokenIds")) or []
+    return [
+        {
+            "outcome": str(label).strip(),
+            "probability": float(price),
+            "token_id": str(token_id).strip(),
+            "token_index": index,
+        }
+        for index, (label, price, token_id) in enumerate(
+            zip(labels, prices, token_ids)
+        )
+    ]
+
+
+def get_event_metadata(market: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    event = get_event(market)
+    event_id = event.get("id") or market.get("eventId")
+    event_slug = event.get("slug") or market.get("eventSlug")
+    return {
+        "event_id": str(event_id).strip() if event_id not in (None, "") else None,
+        "event_slug": str(event_slug).strip() if event_slug not in (None, "") else None,
+    }
+
+
+def get_proven_resolution(
+    market: Optional[Dict[str, Any]],
+) -> Optional[Dict[str, Any]]:
+    """Return payout evidence only for a closed exact Yes/No market."""
+    if not market or market.get("closed") is not True:
+        return None
+    outcomes = get_aligned_binary_outcomes(market)
+    if len(outcomes) != 2:
+        return None
+    labels = [str(item["outcome"]) for item in outcomes]
+    prices = [float(item["probability"]) for item in outcomes]
+    payouts = dict(zip(labels, prices))
+    if prices == [1.0, 0.0]:
+        outcome, winner_index = labels[0], 0
+    elif prices == [0.0, 1.0]:
+        outcome, winner_index = labels[1], 1
+    elif prices == [0.5, 0.5]:
+        outcome, winner_index = "Ambiguous", None
+    else:
+        return None
+    return {
+        "outcome": outcome,
+        "winner_index": winner_index,
+        "first_outcome_payout": prices[0],
+        "yes_payout": prices[0],
+        "payouts_by_outcome": payouts,
+        "status": str(market.get("umaResolutionStatus") or "closed_final_prices"),
+        "evidence": "gamma_closed_final_outcome_prices",
+    }
+
+
+def passes_liquidity_filter(market: Dict[str, Any], minimum: float) -> bool:
+    raw = market.get("liquidity")
+    if raw is None or isinstance(raw, bool):
+        return False
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(value) and value >= minimum
+
+
+def passes_volume_filter(market: Dict[str, Any], minimum: float) -> bool:
+    raw = market.get("volume24hr")
+    if raw is None or isinstance(raw, bool):
+        return False
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        return False
+    return math.isfinite(value) and value >= minimum
+
+
+def is_excluded_market(market: Dict[str, Any], categories: List[str]) -> bool:
+    return bool(categories)
+
+
+is_sports_market = is_excluded_market
+
+
+def is_sports_category(tags: List, excluded_categories: List[str]) -> bool:
+    return bool(excluded_categories)
+
+
+def get_high_probability_outcome(
+    market: Dict[str, Any], yes_only: bool = True
+) -> Dict[str, Any]:
+    return get_match_result_yes(market) if yes_only else {}
+
+
+strict_binary_reason = aligned_binary_reason
+get_strict_binary_outcomes = get_aligned_binary_outcomes

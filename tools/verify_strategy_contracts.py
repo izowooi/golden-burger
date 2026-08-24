@@ -40,6 +40,7 @@ CURRENT_STRATEGIES = {
     "golden-strawberry",
     "golden-tangerine",
     "golden-watermelon",
+    "golden-watermelon-live",
 }
 RESEARCH_ONLY_STRATEGIES = {
     "golden-black",
@@ -3547,6 +3548,234 @@ def _validate_tangerine_strategy(
     )
 
 
+def _validate_watermelon_live_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate the isolated Cat/Dog in-play soccer live pilot."""
+
+    contracts = {
+        "README.md": (
+            "polybot-cat",
+            "polybot-dog",
+            "watermelon-live-cat-98",
+            "watermelon-live-dog-99",
+            "EPL",
+            "Bundesliga",
+            "Ligue 1",
+            "LaLiga",
+            "MLS",
+            "close_only",
+            "archive_only",
+            "strategy-wind-down-playbook.md",
+        ),
+        "STRATEGY.md": (
+            "[0.98, 0.999]",
+            "[0.99, 0.999]",
+            "HOME/DRAW/AWAY",
+            "FOK BUY",
+            "FOK SELL",
+            "full depth",
+            "0.70",
+            "PENDING_SELL",
+        ),
+        "OPERATIONS.md": (
+            "H/5 * * * *",
+            "Clean before checkout",
+            "watermelon-live-cat-98",
+            "watermelon-live-dog-99",
+            "daily-rsync verify",
+        ),
+        "src/polybot/config.py": (
+            "FROZEN_ARMS",
+            "FROZEN_START_UTC",
+            "FROZEN_ENTRY_END_UTC",
+            "FROZEN_FOLLOWUP_END_UTC",
+            "FROZEN_LEAGUE_IDENTITIES",
+            "LEAGUE_MAPPING_SHA256",
+            "strategy_source_digest",
+            "preregistration_sha256",
+            "live notional must remain exactly $5",
+            "exposure limits are frozen at 20/1/20",
+            "emergency stop_price is frozen at 0.70",
+            "only YES tokens of home/draw/away",
+        ),
+        "src/polybot/league_classifier.py": (
+            "classify_soccer_event",
+            "ESPORTS_TAG_ID",
+            "LEAGUE_MAPPING_SHA256",
+        ),
+        "src/polybot/api/gamma_client.py": (
+            "/events/keyset",
+            '"live": "true"',
+            "tag_id",
+            "related_tags",
+            "after_cursor",
+            "next_cursor",
+            "cursor_complete",
+            "membership_digest_sha256",
+            "outside_in_play_window",
+        ),
+        "src/polybot/api/clob_client.py": (
+            "BuyBookWalk",
+            "SellBookWalk",
+            "full $5 displayed ask depth is unavailable",
+            "full displayed bid depth for stop shares is unavailable",
+            "get_sell_book_walk",
+            "OrderType.FOK",
+        ),
+        "src/polybot/strategy/filters.py": (
+            "match_result_reason",
+            "get_match_result_yes",
+            "sportsMarketType",
+            "parentEventId",
+            "HOME",
+            "DRAW",
+            "AWAY",
+        ),
+        "src/polybot/strategy/scanner.py": (
+            "claim_entry_episode",
+            "not_first_in_arm_observation",
+            "multiple_result_tokens_above_threshold",
+            "get_buy_book_walks",
+            "entry_period_open",
+        ),
+        "src/polybot/strategy/trader.py": (
+            "place_fok_buy",
+            "get_sell_book_walk",
+            'order_type="FOK"',
+            "absolute_stop_pending_confirmed_fill",
+            "stop_sell_terminal_zero_fill",
+            "get_exact_buy_fill_evidence",
+            "get_exact_sell_fill_evidence",
+        ),
+        "src/polybot/source_digest.py": (
+            "compute_strategy_source_digest",
+            "ACTIVE_PREREGISTRATION",
+            "polybot_observability",
+        ),
+        "tests/test_scanner.py": (
+            "test_cat_claims_only_first_exact_yes_book_observation",
+            "test_dog_99_arm_accepts_draw_yes_and_never_no_token",
+            "test_multiple_results_above_threshold_for_one_event_fail_closed",
+        ),
+        "tests/test_trader.py": (
+            "test_buy_revalidates_exact_five_and_submits_fok",
+            "test_stop_uses_fresh_bid_and_submits_fok_sell",
+            "test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade",
+        ),
+        "tests/test_api_contracts.py": (
+            "test_full_share_sell_walk_uses_deeper_bids_and_market_limit",
+            "test_shallow_stop_book_is_censored_not_partially_sold",
+        ),
+    }
+    for relative_path, tokens in contracts.items():
+        content = _require_file(findings, strategy, directory / relative_path)
+        _require_tokens(findings, strategy, relative_path, content, tokens)
+
+    for relative_path in (
+        ".env.example",
+        "config.yaml",
+        "tests/test_config.py",
+        "tests/test_filters_signals.py",
+        "tests/test_lifecycle_mode.py",
+        "tests/test_source_digest.py",
+        "research/frozen-2026-08-24/PREREGISTRATION.md",
+        "research/frozen-2026-08-24/MANIFEST.sha256",
+    ):
+        _require_file(findings, strategy, directory / relative_path)
+
+    config_yaml = _read(directory / "config.yaml")
+    for key, expected in (
+        ("buy_amount_usdc", 5.0),
+        ("min_liquidity", 0),
+        ("min_volume_24h", 0),
+        ("min_cumulative_volume", 0),
+        ("max_positions", 20),
+        ("max_event_positions", 1),
+        ("max_new_positions_per_cycle", 20),
+        ("stop_price", 0.70),
+    ):
+        _require_yaml_value(
+            findings, strategy, "config.yaml", config_yaml, key, expected
+        )
+
+    trader_content = _read(directory / "src/polybot/strategy/trader.py")
+    if "_place_sell_with_balance_retry" in trader_content:
+        findings.append(
+            Finding(
+                strategy,
+                "unsafe_contract",
+                "stop must not shrink a SELL and strand a residual position",
+            )
+        )
+    combined = "\n".join(
+        _read(path)
+        for path in (
+            directory / "src/polybot/bot.py",
+            directory / "src/polybot/strategy/scanner.py",
+            directory / "src/polybot/strategy/trader.py",
+        )
+    )
+    for token in ("get_positions(", "wallet_position", "account_wide"):
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_wallet_adoption_path",
+                    f"live runtime contains {token}",
+                )
+            )
+
+    prereg_path = (
+        directory / "research/frozen-2026-08-24/PREREGISTRATION.md"
+    )
+    manifest_path = directory / "research/frozen-2026-08-24/MANIFEST.sha256"
+    preregistration = _read(prereg_path)
+    manifest = _read(manifest_path)
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-08-24/PREREGISTRATION.md",
+        preregistration,
+        (
+            "2026-08-24T13:00:00Z",
+            "2026-08-31T13:00:00Z",
+            "2026-09-07T13:00:00Z",
+            "[0.98,0.999]",
+            "[0.99,0.999]",
+            "0.70",
+            "full-holding bid walk",
+            "sample is too small to claim optimality",
+        ),
+    )
+    if preregistration and manifest:
+        digest = hashlib.sha256(prereg_path.read_bytes()).hexdigest()
+        pinned = any(
+            len(fields := line.strip().split()) >= 2
+            and fields[0].lower() == digest
+            and fields[-1].lstrip("*").endswith("PREREGISTRATION.md")
+            for line in manifest.splitlines()
+        )
+        if not pinned:
+            findings.append(
+                Finding(
+                    strategy,
+                    "invalid_manifest",
+                    "research/frozen-2026-08-24/MANIFEST.sha256",
+                )
+            )
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -3582,6 +3811,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     if strategy == "golden-tangerine":
         _validate_tangerine_strategy(findings, strategy, directory)
+        return findings
+
+    if strategy == "golden-watermelon-live":
+        _validate_watermelon_live_strategy(findings, strategy, directory)
         return findings
 
     config = _require_file(findings, strategy, directory / "src/polybot/config.py")
