@@ -67,8 +67,26 @@ coverage가 더 완전한 cadence를 선택한 것이며 1분의 수익 최적�
 
 `0.999`는 세 번째 threshold가 아니라 terminal `1.000`을 제외하는 공통 상한이다. White의
 0.98 결과는 3건, 0.99 결과는 1건뿐이므로 두 하한은 계속 보수적 최소금액 pilot로만
-해석한다. 새 v2a 배포 build/config SHA와 verified DB checksum은 배포 검증 뒤 이 절에
-추가한다.
+해석한다.
+
+배포 commit은 `0ad9442`, source/preregistration digest는
+`54cc0abe48f1…` / `c2dc95cfb591…`다. Jenkins config SHA-256은 Cat
+`a6ec5dfc4757…`, Dog `c4478b128eeb…`이며 clean 없이 non-concurrent
+`TimerTrigger=* * * * *`로 확인했다. 첫 두 자연 실행은 Cat `#5165/#5166`, Dog
+`#5060/#5061`이고 모두 `SUCCESS`였다. 실행시간은 Cat 5.264s/3.612s, Dog
+5.122s/3.806s였다.
+
+새 verified DB는 다음과 같다.
+
+- Cat: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-cat/strategies/golden-watermelon-live/runtime/watermelon-live-cat-98-1m-v2a/databases/latest/trades.db`
+  (`SHA-256 c3af29f889f1…`, source cutoff `2026-08-24T15:00:35.474990Z`)
+- Dog: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-dog/strategies/golden-watermelon-live/runtime/watermelon-live-dog-99-1m-v2a/databases/latest/trades.db`
+  (`SHA-256 4b43663e3973…`, source cutoff `2026-08-24T15:00:44.960287Z`)
+
+`daily-rsync verify`는 job별 17개 artifact를 failure/conflict/retention skip 0으로
+`SUCCESS` 처리했다. 두 DB 모두 `quick_check=ok`, FK 위반 0, SUCCESS run 2/2,
+cursor-complete sweep 2/2, trade/order/fill/open state 0이다. 첫 run 간격은 Cat 58.762초,
+Dog 68.215초였다.
 
 24시간 점검에서는 cadence, cursor completion, five-league identity, whole-match
 HOME/DRAW/AWAY YES membership, exact `$5` ask depth, first episode, FOK submission,
