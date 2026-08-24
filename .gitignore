@@ -204,3 +204,6 @@ docs/logs/
 
 # Golden Watermelon accountless cadence experiment evidence is runtime state.
 /golden-watermelon/data/
+
+# Browser automation snapshots/console captures are local operational evidence.
+/.playwright-mcp/

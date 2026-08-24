@@ -453,8 +453,14 @@ class ClobClientWrapper:
                 funder=self.config.funder_address,
             )
 
-            # Create or derive API credentials (v2: create_or_derive_api_key)
-            api_creds = self._client.create_or_derive_api_key()
+            # Cat/Dog are existing wallets with an already-provisioned API key.
+            # `create_or_derive_api_key()` tries POST /auth/api-key first, which
+            # emits a 400 error on every five-minute cycle before successfully
+            # deriving the same key.  Derive directly so initialization is
+            # read-only with respect to the wallet's API-key inventory.  If the
+            # existing key cannot be derived, fail closed instead of silently
+            # creating a replacement credential during a live cycle.
+            api_creds = self._client.derive_api_key()
             self._client.set_api_creds(api_creds)
             self._initialized = True
             logger.info("CLOB client 초기화 완료 (v2)")

@@ -348,6 +348,42 @@ def test_live_fok_uses_venue_tick_and_fok_order_type() -> None:
     assert "FOK" in str(captured["order_type"])
 
 
+def test_live_client_derives_existing_api_key_without_create_attempt(
+    monkeypatch,
+) -> None:
+    calls = []
+    creds = object()
+
+    class _Client:
+        def __init__(self, **kwargs):
+            calls.append(("init", kwargs))
+
+        def derive_api_key(self):
+            calls.append(("derive", None))
+            return creds
+
+        def create_api_key(self):
+            raise AssertionError("live cycle must not create a replacement API key")
+
+        def create_or_derive_api_key(self):
+            raise AssertionError("create-first credential flow must not be used")
+
+        def set_api_creds(self, value):
+            calls.append(("set", value))
+
+    monkeypatch.setattr("py_clob_client_v2.ClobClient", _Client)
+    wrapper = ClobClientWrapper(
+        ApiConfig("private-key", "funder", signature_type=3),
+        simulation_mode=False,
+    )
+
+    wrapper._ensure_initialized()
+
+    assert wrapper._initialized is True
+    assert [name for name, _value in calls] == ["init", "derive", "set"]
+    assert calls[-1][1] is creds
+
+
 def test_live_exact_usdc_fok_buy_uses_two_decimal_maker_envelope() -> None:
     captured = {}
 

@@ -9,6 +9,8 @@
 - build discard는 14일 경과 기준 유지
 - `Clean before checkout`, workspace wipe, 기존 DB 삭제 금지
 - 새 runtime job 이름을 사용하므로 과거 Papaya DB와 자동 분리
+- 기존 Cat/Dog wallet의 API credential은 `derive_api_key()`로만 읽는다. live cycle에서
+  API key 신규 생성이나 교체를 시도하지 않으며 derive 실패 시 fail closed한다.
 
 ## Cat — 0.98 arm
 
