@@ -37,3 +37,4 @@
 | 031 | [031-golden-pomegranate-sports-favorite-grid-2026-08-19.md](031-golden-pomegranate-sports-favorite-grid-2026-08-19.md) | Pomegranate 스포츠 endDate 6h 고확률 0.75~0.97 진입·목표가·resolution grid, anchor 기각과 0.94 사후 후보 | 2026-08-19 |
 | 032 | [032-golden-black-evidence-and-design-2026-08-19.md](032-golden-black-evidence-and-design-2026-08-19.md) | 전 Jenkins·local archive 확장 검증, 0.94 비보장 판정, 0.92 대조군과 Golden Black prospective collector 설계 | 2026-08-19 |
 | 033 | [033-fleet-watermelon-strawberry-raspberry-review-2026-08-24.md](033-fleet-watermelon-strawberry-raspberry-review-2026-08-24.md) | 29개 전략·연구 job 현황, Watermelon 축구 v3a, Strawberry follow-up, Raspberry cadence 재시작과 14일 gate | 2026-08-24 |
+| 034 | [034-papaya-queen-melon-sustainability-review-2026-08-24.md](034-papaya-queen-melon-sustainability-review-2026-08-24.md) | Papaya·Queen·Melon 7개 live job의 confirmed-fill 지속가능성, lifecycle 결함과 수익 운영 중단 판정 | 2026-08-24 |
