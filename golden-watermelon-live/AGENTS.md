@@ -8,8 +8,8 @@
 `golden-watermelon` White/Grey accountless evidence에서 파생한 in-play soccer
 home/draw/away 전략을 기존 `polybot-cat`과 `polybot-dog` wallet에서 exact `$5`로
 prospective 검증한다. collector 프로젝트와 DB는 수정·병합하지 않는다. 현재 active
-epoch는 White/Grey cadence pair에서 1분이 5분의 모든 episode와 추가 episode를 관측한
-결과를 반영한 `1m-v2a`다.
+epoch는 White/Grey cadence 근거와 v2a의 zero-opportunity 운영 증거를 유지하면서 execution
+capacity와 pending-state guard를 보강한 `1m-v2b`다.
 
 ## 기술과 주요 파일
 
@@ -20,13 +20,13 @@ epoch는 White/Grey cadence pair에서 1분이 5분의 모든 episode와 추가 
   `src/polybot/api/gamma_client.py`, `src/polybot/strategy/filters.py`
 - execution: `src/polybot/api/clob_client.py`, `src/polybot/strategy/trader.py`
 - protocol: `STRATEGY.md`,
-  `research/frozen-2026-08-24/PREREGISTRATION.md`
+  `research/frozen-2026-08-25-safety-v2b/PREREGISTRATION.md`
 - Jenkins runbook: `OPERATIONS.md`
 
 ## 불변 조건
 
-- Cat `watermelon-live-cat-98-1m-v2a` `[0.98,0.999]`, Dog
-  `watermelon-live-dog-99-1m-v2a` `[0.99,0.999]`; threshold 외 처치 차이 금지
+- Cat `watermelon-live-cat-98-1m-v2b` `[0.98,0.999]`, Dog
+  `watermelon-live-dog-99-1m-v2b` `[0.99,0.999]`; threshold 외 처치 차이 금지
 - 두 Jenkins 모두 `* * * * *`, non-concurrent. cadence를 한 arm만 바꾸지 않음
 - EPL, Bundesliga, Ligue 1, LaLiga, MLS의 frozen numeric identity만 허용
 - top-level whole-match moneyline의 HOME/DRAW/AWAY YES token만 허용
@@ -37,6 +37,11 @@ epoch는 White/Grey cadence pair에서 1분이 5분의 모든 episode와 추가 
 - 주문/account 최대 `$5/20`, event 1, cycle 신규 20, 720h 재진입 제한
 - bot DB가 만든 trade만 관리. wallet 수동 position의 조회·편입·청산 금지
 - accepted order는 fill이 아님. exact terminal fill/fee 대사 전 상태 확정 금지
+- open state와 미추적 unresolved BUY intent를 합산해 max-position capacity를 계산
+- unresolved `PENDING_BUY`/`PENDING_SELL` 또는 SELL evidence gap이 있으면 후보는 기록하되
+  신규 BUY 실행은 차단
+- detail checkpoint에는 qualified와 excluded condition을 모두 저장하고, classifier 제외에는
+  normalized source sport code/status를 남김
 - entry `[2026-08-24T13:00:00Z,2026-08-31T13:00:00Z)`,
   follow-up `2026-09-07T13:00:00Z`
 - cohort는 `config_hash × strategy_source_digest × mode × job_name`;

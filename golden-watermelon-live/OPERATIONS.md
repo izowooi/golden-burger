@@ -44,9 +44,9 @@ export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-07T13:00:00Z
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2a
-"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2a
-"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2a
+"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2b
+"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2b
+"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2b
 ```
 
 ## Dog — 0.99 arm
@@ -59,9 +59,9 @@ export POLYBOT_ENTRY_PROB_MIN=0.99
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2a
-"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2a
-"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2a
+"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2b
+"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2b
+"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2b
 ```
 
 ## 배포 검증 순서
@@ -88,7 +88,8 @@ uv run daily-rsync verify --job polybot-dog --strategy golden-watermelon-live
 uv run daily-rsync locate --job polybot-dog --strategy golden-watermelon-live
 ```
 
-24시간 health checkpoint는 `2026-08-25T13:00:00Z`, entry 종료는
-`2026-08-31T13:00:00Z`, resolution/stop follow-up cutoff는 `2026-09-07T13:00:00Z`다.
+v2b 24시간 health checkpoint는 첫 성공 build의 UTC 완료시각부터 정확히 24시간 뒤이며,
+entry 종료는 `2026-08-31T13:00:00Z`, resolution/stop follow-up cutoff는
+`2026-09-07T13:00:00Z`다.
 entry 종료 뒤에는 `close_only`로 전환해 신규 BUY를 막고 own open trade 대사만 지속한다.
 긴급 중단은 공통 [wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따른다.

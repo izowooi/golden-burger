@@ -18,7 +18,7 @@ from polybot.config import TradingConfig
 from polybot.db.models import TradeStatus, init_database
 from polybot.db.repository import TradeRepository
 from polybot.strategy.trader import Trader
-from polybot_observability import ExecutionLedger
+from polybot_observability import ExecutionLedger, SubmissionEvidenceError
 
 
 def _record_accepted_order(
@@ -246,4 +246,48 @@ def test_pending_sell_completes_from_real_buy_and_sell_ledger_rows(tmp_path):
     assert completed.pnl_basis == (
         "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
     )
+    session.close()
+
+
+def test_entry_capacity_reserves_untracked_live_buy_intents_without_double_count(
+    tmp_path,
+):
+    db_path = tmp_path / "watermelon-capacity.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    _record_accepted_order(ledger, "OID-tracked", side="BUY")
+    _record_accepted_order(ledger, "OID-orphan", side="BUY")
+    with pytest.raises(SubmissionEvidenceError, match="representation"):
+        ledger.submit_and_record(
+            token_id="token-uncertain",
+            side="BUY",
+            requested_price=0.98,
+            requested_size=5.1,
+            submit=lambda: object(),
+        )
+
+    session = Session()
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="tracked-condition",
+        outcome="Yes",
+        token_id="token-OID-tracked",
+        buy_order_id="OID-tracked",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+
+    assert repo.get_entry_capacity_state() == {
+        "open_positions": 1,
+        "untracked_buy_reservations": 2,
+        "total_reserved": 3,
+    }
+
+    repo.update_trade(1, status=TradeStatus.UNFILLED)
+    assert repo.get_entry_capacity_state() == {
+        "open_positions": 0,
+        "untracked_buy_reservations": 3,
+        "total_reserved": 3,
+    }
     session.close()

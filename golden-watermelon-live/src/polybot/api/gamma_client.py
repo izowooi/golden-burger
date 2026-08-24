@@ -112,10 +112,26 @@ class GammaClient:
             return "missing_condition_id"
         classification = classify_soccer_event(event)
         if not classification.accepted:
-            return (
+            base_reason = (
                 str(classification.reasons[0]).lower()
                 if classification.reasons
                 else "league_not_allowed"
+            )
+            # Keep a bounded, normalized sport identity in the exclusion
+            # bucket.  A bare ``league_not_allowed`` count cannot distinguish
+            # a legitimately quiet five-league window from a source/classifier
+            # drift that accidentally rejects EPL (or another frozen league).
+            raw_sport_code = str(
+                classification.evidence.get("sport_code") or "missing"
+            ).strip().casefold()
+            sport_code = "".join(
+                character
+                for character in raw_sport_code[:40]
+                if character.isalnum() or character in {"-", "_"}
+            ) or "missing"
+            return (
+                f"{base_reason}:sport={sport_code}:"
+                f"status={classification.status.casefold()}"
             )
         if event.get("parentEventId") not in (None, ""):
             return "child_event_not_whole_match"

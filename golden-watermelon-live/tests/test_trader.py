@@ -41,6 +41,13 @@ class _Repo:
     def get_position_count(self):
         return 0
 
+    def get_entry_capacity_state(self):
+        return {
+            "open_positions": 0,
+            "untracked_buy_reservations": 0,
+            "total_reserved": 0,
+        }
+
     def get_event_position_count(self, _event_id):
         return 0
 

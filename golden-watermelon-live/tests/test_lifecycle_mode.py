@@ -37,6 +37,11 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "quarantined": 0,
         "total_pnl": 0.0,
     }
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": len(holdings),
+        "untracked_buy_reservations": 0,
+        "total_reserved": len(holdings),
+    }
     session = MagicMock()
 
     monkeypatch.setattr(bot_module, "MarketScanner", lambda *args, **kwargs: scanner)
@@ -129,6 +134,68 @@ def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     assert stats["bought"] == 1
     scanner.scan_buy_candidates.assert_called_once()
     trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
+def test_active_scans_but_blocks_new_buy_while_pending_buy_is_unresolved(
+    monkeypatch, tmp_path
+):
+    pending = SimpleNamespace(id=8, token_id="yes-token")
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_pending_buy_trades.return_value = [pending]
+    trader.reconcile_pending_buy.return_value = False
+    repo.get_stats.return_value = {
+        "holding": 0,
+        "pending_buy": 1,
+        "pending_sell": 0,
+        "resolved": 0,
+        "expired": 0,
+        "unfilled": 0,
+        "quarantined": 0,
+        "total_pnl": 0.0,
+    }
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 1,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 1,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["buy_candidates"] == 1
+    assert stats["entry_blocked_candidates"] == 1
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "pending_buy_unresolved"
+    ]
+    scanner.scan_buy_candidates.assert_called_once()
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_blocks_new_buy_when_sell_intent_outcome_is_uncertain(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, _repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+
+    stats = bot.run_cycle(
+        order_reconciliation={"unresolved_sell_outcomes": 1}
+    )
+
+    assert stats["entry_blocked_candidates"] == 1
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "unresolved_sell_outcome"
+    ]
+    trader.execute_buy.assert_not_called()
     session.close.assert_called_once()
 
 

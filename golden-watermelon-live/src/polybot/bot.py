@@ -81,8 +81,9 @@ class PolymarketBot:
             archive.retention_days,
         )
 
-    def run_cycle(self) -> dict:
+    def run_cycle(self, *, order_reconciliation: dict | None = None) -> dict:
         trading = self.config.trading
+        order_reconciliation = order_reconciliation or {}
         session = self.Session()
         repo = TradeRepository(session)
         scanner = MarketScanner(
@@ -109,6 +110,7 @@ class PolymarketBot:
             "resolved": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "entry_blocked_candidates": 0,
         }
         try:
             self._log_strategy_config()
@@ -156,10 +158,75 @@ class PolymarketBot:
                 logger.info("=== Phase 2: frozen exact-VWAP arm scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
-                logger.info("=== Phase 3: fresh-book FOK BUY execution ===")
-                for candidate in candidates[: trading.max_new_positions_per_cycle]:
-                    if trader.execute_buy(candidate) is not None:
-                        stats["bought"] += 1
+                state_before_entry = repo.get_stats()
+                capacity = repo.get_entry_capacity_state()
+                blocking_reasons = []
+                degraded_reasons = []
+                if state_before_entry["pending_buy"]:
+                    blocking_reasons.append("pending_buy_unresolved")
+                if state_before_entry["pending_sell"]:
+                    blocking_reasons.append("pending_sell_unresolved")
+                if int(order_reconciliation.get("unresolved_sell_outcomes", 0)):
+                    blocking_reasons.append("unresolved_sell_outcome")
+                if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
+                    blocking_reasons.append("sell_reconciliation_gap")
+                if capacity["total_reserved"] >= trading.max_positions:
+                    blocking_reasons.append("max_capacity_reserved")
+                if int(order_reconciliation.get("unresolved_buy_outcomes", 0)):
+                    degraded_reasons.append("unresolved_buy_outcome_reserved")
+                if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
+                    degraded_reasons.append("buy_reconciliation_gap_reserved")
+                if int(order_reconciliation.get("errors", 0)):
+                    degraded_reasons.append("order_reconciliation_error")
+                entry_guard = {
+                    "blocked": bool(blocking_reasons),
+                    "blocking_reasons": blocking_reasons,
+                    "degraded_reasons": degraded_reasons,
+                    "open_positions": capacity["open_positions"],
+                    "untracked_buy_reservations": capacity[
+                        "untracked_buy_reservations"
+                    ],
+                    "total_reserved": capacity["total_reserved"],
+                    "max_positions": trading.max_positions,
+                    "capacity_remaining": max(
+                        0, trading.max_positions - capacity["total_reserved"]
+                    ),
+                    "pending_buy": state_before_entry["pending_buy"],
+                    "pending_sell": state_before_entry["pending_sell"],
+                    "unresolved_buy_outcomes": int(
+                        order_reconciliation.get("unresolved_buy_outcomes", 0)
+                    ),
+                    "unresolved_sell_outcomes": int(
+                        order_reconciliation.get("unresolved_sell_outcomes", 0)
+                    ),
+                    "reconciliation_buy_gaps": int(
+                        order_reconciliation.get("reconciliation_buy_gaps", 0)
+                    ),
+                    "reconciliation_sell_gaps": int(
+                        order_reconciliation.get("reconciliation_sell_gaps", 0)
+                    ),
+                    "reconciliation_errors": int(
+                        order_reconciliation.get("errors", 0)
+                    ),
+                }
+                stats["entry_guard"] = entry_guard
+                if blocking_reasons:
+                    stats["entry_blocked_candidates"] = len(candidates)
+                    logger.warning(
+                        "entry guard가 신규 BUY를 차단합니다 - reasons=%s "
+                        "candidates=%s reserved=%s/%s",
+                        ",".join(blocking_reasons),
+                        len(candidates),
+                        capacity["total_reserved"],
+                        trading.max_positions,
+                    )
+                else:
+                    logger.info("=== Phase 3: fresh-book FOK BUY execution ===")
+                    for candidate in candidates[
+                        : trading.max_new_positions_per_cycle
+                    ]:
+                        if trader.execute_buy(candidate) is not None:
+                            stats["bought"] += 1
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 
@@ -206,7 +273,7 @@ class PolymarketBot:
             self.gamma.sweep_attestations.clear()
             reconciliation = self.clob.reconcile_order_ledger()
             log_reconciliation_continuity(reconciliation, logger=logger)
-            stats = self.run_cycle()
+            stats = self.run_cycle(order_reconciliation=reconciliation)
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()
             stats["order_reconciliation"] = reconciliation
             audit.succeed(stats)

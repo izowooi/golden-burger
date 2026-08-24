@@ -58,8 +58,8 @@ def _market(
     }
 
 
-def _event(event_id: str, markets, *, parent_event_id=None):
-    return {
+def _event(event_id: str, markets, *, parent_event_id=None, sport_code="epl"):
+    event = {
         "id": event_id,
         "slug": event_id,
         "title": "Home FC vs. Away FC",
@@ -92,6 +92,22 @@ def _event(event_id: str, markets, *, parent_event_id=None):
         ],
         "markets": markets,
     }
+    if sport_code != "epl":
+        event["sport"] = {
+            **event["sport"],
+            "id": 999,
+            "sport": sport_code,
+            "name": "Unlisted League",
+            "primaryTagId": 999,
+            "series": "999",
+        }
+        event["seriesSlug"] = "unlisted-league"
+        event["series"] = [{"id": "999", "slug": "unlisted-league"}]
+        event["teams"] = [
+            {"name": "Home FC", "league": sport_code},
+            {"name": "Away FC", "league": sport_code},
+        ]
+    return event
 
 
 class _Session:
@@ -167,6 +183,24 @@ def test_gamma_rejects_out_of_range_probability() -> None:
     }
 
 
+def test_gamma_exclusion_bucket_preserves_rejected_sport_identity() -> None:
+    client = GammaClient()
+    client.session = _Session(
+        [
+            {
+                "events": [
+                    _event("event", [_market("other")], sport_code="eredivisie")
+                ]
+            }
+        ]
+    )
+
+    assert client.get_all_tradable_markets(0, 0) == []
+    assert client.last_sweep_attestation["exclusion_counts"] == {
+        "league_not_allowed:sport=eredivisie:status=rejected": 1
+    }
+
+
 def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     client = GammaClient()
     client.MAX_SWEEP_PAGES = 1
@@ -176,6 +210,30 @@ def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     with pytest.raises(RuntimeError, match="page cap"):
         client.get_all_tradable_markets(0, 0)
     assert client.last_sweep_attestation is None
+
+
+def test_order_reconciliation_reports_side_specific_health(monkeypatch) -> None:
+    class _Ledger:
+        def pending_submissions(self):
+            return []
+
+        def unresolved_submission_count(self, *, side):
+            return {"BUY": 2, "SELL": 1}[side]
+
+        def reconciliation_gap_count(self, *, side):
+            return {"BUY": 3, "SELL": 4}[side]
+
+    wrapper = object.__new__(ClobClientWrapper)
+    wrapper.simulation_mode = False
+    wrapper.execution_ledger = _Ledger()
+    monkeypatch.setenv("POLYBOT_INTENT_AUTORESOLVE", "false")
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats["unresolved_buy_outcomes"] == 2
+    assert stats["unresolved_sell_outcomes"] == 1
+    assert stats["reconciliation_buy_gaps"] == 3
+    assert stats["reconciliation_sell_gaps"] == 4
 
 
 def test_exact_five_dollar_walk_uses_all_required_ask_levels() -> None:

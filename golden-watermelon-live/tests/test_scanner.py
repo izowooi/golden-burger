@@ -2,7 +2,15 @@ from datetime import datetime, timedelta, timezone
 
 from polybot.api.clob_client import BuyBookWalk
 from polybot.config import TradingConfig, WatermelonLiveEntryConfig
-from polybot.db.models import EntryEpisode, MarketSnapshot, init_database
+from sqlalchemy import text
+
+from polybot.db.models import (
+    EntryEpisode,
+    MarketSnapshot,
+    MarketSweep,
+    MarketSweepMembership,
+    init_database,
+)
 from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import MarketScanner
 
@@ -185,4 +193,95 @@ def test_multiple_results_above_threshold_for_one_event_fail_closed(tmp_path) ->
     )
     scanner.save_market_snapshots([home, away], now=NOW)
     assert scanner.scan_buy_candidates([home, away], now=NOW) == []
+    session.close()
+
+
+def test_detail_checkpoint_keeps_excluded_identity_and_repairs_legacy_gap(
+    tmp_path,
+) -> None:
+    import hashlib
+    import json
+
+    Session = init_database(str(tmp_path / "membership.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    qualified = {
+        "condition_id": "qualified",
+        "raw_seen_count": 1,
+        "qualified": True,
+        "qualification_reason": "qualified",
+    }
+    excluded = {
+        "condition_id": "excluded",
+        "raw_seen_count": 1,
+        "qualified": False,
+        "qualification_reason": "league_not_allowed",
+    }
+
+    def attestation(sweep_id, minute):
+        digest = hashlib.sha256(
+            json.dumps(
+                [qualified], sort_keys=True, separators=(",", ":")
+            ).encode()
+        ).hexdigest()
+        return {
+            "schema_version": 2,
+            "sweep_id": sweep_id,
+            "started_at": (NOW + timedelta(minutes=minute)).isoformat(),
+            "completed_at": (
+                NOW + timedelta(minutes=minute, seconds=1)
+            ).isoformat(),
+            "cursor_complete": True,
+            "pages": 1,
+            "raw_market_count": 2,
+            "unique_condition_count": 2,
+            "qualified_market_count": 1,
+            "excluded_condition_count": 1,
+            "exclusion_counts": {"league_not_allowed": 1},
+            "missing_condition_id_count": 0,
+            "duplicate_raw_count": 0,
+            "min_liquidity": 0,
+            "min_volume": 0,
+            "membership_digest_sha256": digest,
+            "membership_digest_scope": "qualified_only",
+            "memberships": [qualified, excluded],
+        }
+
+    snapshots = {
+        "qualified": {
+            "snapshot_eligible": True,
+            "snapshotted": False,
+            "snapshot_reason": "no_full_exact_5_usdc_yes_book",
+        }
+    }
+    repo.record_market_sweep(attestation("sweep-1", 0), snapshots, commit=True)
+    first = session.get(MarketSweep, "sweep-1")
+    assert first.membership_detail_stored == 1
+    rows = (
+        session.query(MarketSweepMembership)
+        .filter(MarketSweepMembership.sweep_id == "sweep-1")
+        .order_by(MarketSweepMembership.condition_id)
+        .all()
+    )
+    assert [(row.condition_id, row.qualified, row.snapshot_reason) for row in rows] == [
+        ("excluded", 0, "not_qualified:league_not_allowed"),
+        ("qualified", 1, "no_full_exact_5_usdc_yes_book"),
+    ]
+
+    # Recreate the old production defect: a sweep claimed detail coverage but
+    # persisted no membership rows. The next run must repair immediately rather
+    # than waiting for the normal 24-hour checkpoint.
+    session.execute(
+        text("DELETE FROM market_sweep_memberships WHERE sweep_id='sweep-1'")
+    )
+    session.commit()
+    repo.record_market_sweep(attestation("sweep-2", 1), snapshots, commit=True)
+    second = session.get(MarketSweep, "sweep-2")
+    assert second.membership_detail_stored == 1
+    assert (
+        session.query(MarketSweepMembership)
+        .filter(MarketSweepMembership.sweep_id == "sweep-2")
+        .count()
+        == 2
+    )
     session.close()

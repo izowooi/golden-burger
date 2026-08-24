@@ -1117,6 +1117,10 @@ class ClobClientWrapper:
             "completed": 0,
             "legacy_unavailable": 0,
             "errors": 0,
+            "unresolved_buy_outcomes": 0,
+            "unresolved_sell_outcomes": 0,
+            "reconciliation_buy_gaps": 0,
+            "reconciliation_sell_gaps": 0,
         }
         if self.simulation_mode or self.execution_ledger is None:
             return stats
@@ -1387,6 +1391,35 @@ class ClobClientWrapper:
                 f"주문 원장 대사 - 확인 {stats['checked']}, fill {stats['fills']}, "
                 f"완료 {stats['completed']}, legacy gap "
                 f"{stats['legacy_unavailable']}, 오류 {stats['errors']}"
+            )
+        stats["unresolved_buy_outcomes"] = (
+            self.execution_ledger.unresolved_submission_count(side="BUY")
+        )
+        stats["unresolved_sell_outcomes"] = (
+            self.execution_ledger.unresolved_submission_count(side="SELL")
+        )
+        stats["reconciliation_buy_gaps"] = (
+            self.execution_ledger.reconciliation_gap_count(side="BUY")
+        )
+        stats["reconciliation_sell_gaps"] = (
+            self.execution_ledger.reconciliation_gap_count(side="SELL")
+        )
+        if any(
+            stats[key]
+            for key in (
+                "unresolved_buy_outcomes",
+                "unresolved_sell_outcomes",
+                "reconciliation_buy_gaps",
+                "reconciliation_sell_gaps",
+            )
+        ):
+            logger.warning(
+                "order health degraded - unresolved_buy=%s unresolved_sell=%s "
+                "buy_gaps=%s sell_gaps=%s",
+                stats["unresolved_buy_outcomes"],
+                stats["unresolved_sell_outcomes"],
+                stats["reconciliation_buy_gaps"],
+                stats["reconciliation_sell_gaps"],
             )
         return stats
 

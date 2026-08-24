@@ -28,8 +28,8 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2a` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2a` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2b` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2b` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
@@ -76,13 +76,23 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
 3. arm band의 첫 관측만 append-only `entry_episodes`로 claim한다.
 4. 한 event에서 여러 result가 동시에 threshold를 넘으면 identity/market anomaly로 보고 event
    전체를 fail closed한다.
-5. DB open state 최대 20, event당 1, cycle당 신규 최대 20을 확인한다.
+5. DB open state와 trade에 연결되지 않은 unresolved live BUY intent를 합산해 capacity 최대
+   20을 확인한다. event당 1, cycle당 신규 최대 20이다.
 6. 주문 직전 exact `$5` walk와 in-play clock을 다시 검증한다.
 7. venue tick에 맞춘 marketable FOK BUY를 제출한다. accepted 응답만으로 HOLDING으로 바꾸지
    않고 exact order/fill ledger가 terminal executed fill을 대사해야 한다.
 
 20개 한도는 현재 보유 수가 아니라 최대 동시 open request notional `$100`의 safety cap이다.
 한 경기당 한 건이므로 하루 경기 수를 임의로 제한하지 않는다.
+
+Phase 1 뒤 `PENDING_BUY` 또는 `PENDING_SELL`이 남아 있거나 SELL intent/fill 대사 gap이 있으면
+그 cycle의 신규 BUY를 전부 차단한다. 단, Gamma/CLOB 후보 scan은 계속 수행해 “안전장치가
+막은 것”과 “조건에 맞는 시장이 없었던 것”을 분리한다. 불확실한 BUY intent는 token/side
+격리를 유지하면서 capacity 한 칸을 예약하고 운영자가 증거로 해제하기 전 삭제하지 않는다.
+
+하루 한 번의 membership detail checkpoint는 qualified뿐 아니라 excluded condition도 저장한다.
+classifier 제외 reason에는 bounded source sport code/status를 포함하므로, 후보 0건이 실제로
+허용 리그 경기 부재인지 frozen identity drift인지 사후 검증할 수 있다.
 
 ## Stop과 resolution
 

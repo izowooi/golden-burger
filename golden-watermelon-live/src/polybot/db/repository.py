@@ -346,6 +346,57 @@ class TradeRepository:
             or 0
         )
 
+    def get_untracked_buy_reservation_count(self) -> int:
+        """Count unresolved live BUY submissions not represented by an open trade.
+
+        An accepted/uncertain venue request can exist in the execution ledger even
+        when process failure prevented ``trades`` from being written.  Ignoring
+        those rows would let the bot exceed the nominal max-position exposure.
+        Rows already represented by an economically open trade are excluded to
+        avoid counting one request twice.
+        """
+        result = self.session.execute(
+            text(
+                """
+                SELECT COUNT(*)
+                FROM order_submissions AS submission
+                WHERE submission.simulation = 0
+                  AND UPPER(submission.side) = 'BUY'
+                  AND (
+                        submission.needs_reconciliation = 1
+                        OR (
+                            submission.order_id IS NULL
+                            AND submission.response_status IN (
+                                'INTENT',
+                                'SUBMIT_OUTCOME_UNKNOWN',
+                                'EVIDENCE_WRITE_FAILED'
+                            )
+                            AND submission.outcome_resolved_at IS NULL
+                        )
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM trades AS trade
+                      WHERE trade.buy_order_id = submission.order_id
+                        AND trade.status IN (
+                            'PENDING_BUY', 'HOLDING', 'PENDING_SELL'
+                        )
+                  )
+                """
+            )
+        ).scalar()
+        return int(result or 0)
+
+    def get_entry_capacity_state(self) -> Dict[str, int]:
+        """Return the conservative max-position reservation denominator."""
+        open_positions = self.get_position_count()
+        untracked_buy_reservations = self.get_untracked_buy_reservation_count()
+        return {
+            "open_positions": open_positions,
+            "untracked_buy_reservations": untracked_buy_reservations,
+            "total_reserved": open_positions + untracked_buy_reservations,
+        }
+
     def get_event_position_count(self, event_id: Optional[str]) -> int:
         if not event_id:
             return 0
@@ -1006,13 +1057,18 @@ class TradeRepository:
                 raise ValueError(f"Gamma {field} mismatch")
 
         enriched = []
-        for membership in qualified_rows:
-            result = snapshot_results[membership["condition_id"]]
-            eligible = result.get("snapshot_eligible") is True
-            snapshotted = result.get("snapshotted") is True
-            reason = str(result.get("snapshot_reason") or "")
-            if not reason or (snapshotted and not eligible):
-                raise ValueError("invalid derived snapshot evidence")
+        for membership in canonical:
+            if membership["qualified"]:
+                result = snapshot_results[membership["condition_id"]]
+                eligible = result.get("snapshot_eligible") is True
+                snapshotted = result.get("snapshotted") is True
+                reason = str(result.get("snapshot_reason") or "")
+                if not reason or (snapshotted and not eligible):
+                    raise ValueError("invalid derived snapshot evidence")
+            else:
+                eligible = False
+                snapshotted = False
+                reason = f"not_qualified:{membership['qualification_reason']}"
             enriched.append((membership, eligible, snapshotted, reason))
 
         started = self._attestation_datetime(attestation["started_at"])
@@ -1033,6 +1089,29 @@ class TradeRepository:
             self.session,
             "golden-watermelon-live",
         )
+        if not store_membership_details:
+            latest_detail = (
+                self.session.query(MarketSweep)
+                .filter(MarketSweep.membership_detail_stored == 1)
+                .order_by(MarketSweep.completed_at.desc())
+                .first()
+            )
+            if latest_detail is not None:
+                stored_rows = (
+                    self.session.query(func.count(MarketSweepMembership.condition_id))
+                    .filter(MarketSweepMembership.sweep_id == latest_detail.sweep_id)
+                    .scalar()
+                    or 0
+                )
+                if int(stored_rows) != int(latest_detail.unique_condition_count):
+                    logger.warning(
+                        "incomplete membership checkpoint를 즉시 복구합니다 - "
+                        "sweep=%s expected=%s stored=%s",
+                        latest_detail.sweep_id,
+                        latest_detail.unique_condition_count,
+                        stored_rows,
+                    )
+                    store_membership_details = True
 
         sweep = MarketSweep(
             sweep_id=sweep_id,
@@ -1064,7 +1143,7 @@ class TradeRepository:
                         sweep_id=sweep_id,
                         condition_id=membership["condition_id"],
                         raw_seen_count=membership["raw_seen_count"],
-                        qualified=1,
+                        qualified=int(membership["qualified"]),
                         qualification_reason=membership["qualification_reason"],
                         snapshot_eligible=int(eligible),
                         snapshotted=int(snapshotted),

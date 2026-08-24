@@ -29,7 +29,7 @@ trading:
   experiment_followup_end_utc: 2026-09-07T13:00:00Z
 
   # Cat is arm A. Dog overrides only prob_min=0.99 in Jenkins. Both active
-  # v2a runtime jobs are scheduled every minute; cadence is a Jenkins concern.
+  # v2b runtime jobs are scheduled every minute; cadence is a Jenkins concern.
   entry:
     prob_min: 0.98
     prob_max: 0.999

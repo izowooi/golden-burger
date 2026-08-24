@@ -130,6 +130,7 @@ class Trader:
             simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
         self.mode = "sim" if simulation_mode else "live"
         self.buying_disabled = False
+        self.local_untracked_buy_reservations = 0
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Revalidate the exact $5 walk, then submit a FOK BUY."""
@@ -166,8 +167,19 @@ class Trader:
         if not can_enter:
             logger.info("재진입 skip - condition=%s reason=%s", condition_id, reason)
             return None
-        if self.repo.get_position_count() >= self.config.max_positions:
-            logger.info("최대 포지션 수 %s 도달", self.config.max_positions)
+        capacity = self.repo.get_entry_capacity_state()
+        total_reserved = (
+            capacity["total_reserved"] + self.local_untracked_buy_reservations
+        )
+        if total_reserved >= self.config.max_positions:
+            logger.info(
+                "최대 진입 capacity %s 도달 - open=%s untracked_buy=%s "
+                "local_untracked=%s",
+                self.config.max_positions,
+                capacity["open_positions"],
+                capacity["untracked_buy_reservations"],
+                self.local_untracked_buy_reservations,
+            )
             return None
         raw_event_id = candidate.get("event_id")
         if raw_event_id is None or not str(raw_event_id).strip():
@@ -270,6 +282,8 @@ class Trader:
             limit_price=walk.limit_price,
         )
         if not (result.get("success") or result.get("orderID")):
+            if result.get("submission_outcome_unknown"):
+                self.local_untracked_buy_reservations += 1
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
                 logger.warning(
