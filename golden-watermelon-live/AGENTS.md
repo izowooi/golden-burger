@@ -7,7 +7,9 @@
 
 `golden-watermelon` White/Grey accountless evidence에서 파생한 in-play soccer
 home/draw/away 전략을 기존 `polybot-cat`과 `polybot-dog` wallet에서 exact `$5`로
-prospective 검증한다. collector 프로젝트와 DB는 수정·병합하지 않는다.
+prospective 검증한다. collector 프로젝트와 DB는 수정·병합하지 않는다. 현재 active
+epoch는 White/Grey cadence pair에서 1분이 5분의 모든 episode와 추가 episode를 관측한
+결과를 반영한 `1m-v2a`다.
 
 ## 기술과 주요 파일
 
@@ -23,7 +25,9 @@ prospective 검증한다. collector 프로젝트와 DB는 수정·병합하지 �
 
 ## 불변 조건
 
-- Cat `[0.98,0.999]`, Dog `[0.99,0.999]`; threshold 외 처치 차이 금지
+- Cat `watermelon-live-cat-98-1m-v2a` `[0.98,0.999]`, Dog
+  `watermelon-live-dog-99-1m-v2a` `[0.99,0.999]`; threshold 외 처치 차이 금지
+- 두 Jenkins 모두 `* * * * *`, non-concurrent. cadence를 한 arm만 바꾸지 않음
 - EPL, Bundesliga, Ligue 1, LaLiga, MLS의 frozen numeric identity만 허용
 - top-level whole-match moneyline의 HOME/DRAW/AWAY YES token만 허용
 - 경기 시작 후 `[0h,4h]`, explicit `live=true`, `ended=false`
@@ -53,10 +57,10 @@ cursor, league identity, token alignment, book depth, fill, fee, payout이 불�
 ## Jenkins 변경
 
 live 코드를 바꿀 때는 Cat/Dog timer를 먼저 끄고 unit/contract test와 수동 build를 통과한 뒤
-`H/5 * * * *`를 복원한다. clean build, workspace wipe, DB migration/import를 하지 않는다.
+`* * * * *`를 복원한다. clean build, workspace wipe, DB migration/import를 하지 않는다.
 새 runtime job으로 과거 Papaya DB와 분리한다. 배포 뒤 console과 `daily-rsync` verified DB에서
 두 번 이상의 cycle, source digest, order/open state를 확인한다.
 
-5분 polling은 연속 stop 보장이 아니다. `0.70`과 실제 full-depth sell VWAP의 gap을 숨기거나
+1분 polling도 연속 stop 보장이 아니다. `0.70`과 실제 full-depth sell VWAP의 gap을 숨기거나
 trigger 가격 체결로 기록하지 않는다. 24시간 health 전 수익성, 7일 전 arm 승자나 scale-up을
 주장하지 않는다.

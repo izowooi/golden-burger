@@ -47,6 +47,29 @@ FOLLOWUP_END=2026-09-07T13:00:00Z
 해석하지 않는다. 24시간 collection health에서 실제 리그 membership과 crossing/book
 coverage를 다시 확인한다.
 
+## 2026-08-24 1분 v2a cadence amendment
+
+White/Grey v3a를 source cutoff `2026-08-24T14:45:46.728151Z` /
+`2026-08-24T14:42:34.475880Z`까지 다시 동기화해 비교했다. `daily-rsync verify`는 White
+1,105개, Grey 276개 artifact를 failed/conflict/retention skip 0으로 통과했다.
+
+- White FAST_1M은 1,373/1,374 slot, Grey CONTROL_5M은 275/275 slot이 성공했다.
+- Grey episode key 11개는 모두 White에도 있었고 White는 추가 8개를 관측했다.
+- paired entry 시각 차이 p95는 1,108.52초였다.
+- 5분 live epoch의 Cat/Dog DB는 각각 SUCCESS run 9개, cursor-complete sweep 9개였고
+  eligible snapshot, trade, order, fill, open state가 모두 0이었다.
+
+따라서 기존 5분 DB를 변경하지 않고 active preregistration을
+`research/frozen-2026-08-24-1m-v2a`로 전환한다. 새 runtime은
+`watermelon-live-cat-98-1m-v2a` / `watermelon-live-dog-99-1m-v2a`, 두 Jenkins timer는
+모두 `* * * * *`다. threshold 외 treatment 차이는 없다. 이 변경은 시험한 1분/5분 중
+coverage가 더 완전한 cadence를 선택한 것이며 1분의 수익 최적성을 확정한 것은 아니다.
+
+`0.999`는 세 번째 threshold가 아니라 terminal `1.000`을 제외하는 공통 상한이다. White의
+0.98 결과는 3건, 0.99 결과는 1건뿐이므로 두 하한은 계속 보수적 최소금액 pilot로만
+해석한다. 새 v2a 배포 build/config SHA와 verified DB checksum은 배포 검증 뒤 이 절에
+추가한다.
+
 24시간 점검에서는 cadence, cursor completion, five-league identity, whole-match
 HOME/DRAW/AWAY YES membership, exact `$5` ask depth, first episode, FOK submission,
 order/fill/fee reconciliation, stop bid-depth evidence, DB integrity만 확인한다. 수익성이나

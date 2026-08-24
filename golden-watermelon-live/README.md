@@ -6,8 +6,8 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 
 | arm | Jenkins | runtime job | exact `$5` ask VWAP |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2a` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2a` | `[0.99, 0.999]` |
 
 두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
 보존하며, 분석은 job별 cohort로 분리한다.
@@ -32,13 +32,19 @@ Gamma liquidity/volume 숫자는 진입 gate로 쓰지 않는다. 매수는 정�
 있는 displayed ask depth, 매도는 전체 보유 수량을 전량 소진할 수 있는 displayed bid depth가
 필수이므로 실행 가능성은 CLOB에서 직접 검증한다.
 
-5분 Jenkins cadence는 연속 stop daemon이 아니다. 가격이 두 cycle 사이에 급락하면 `0.70`보다
+White/Grey paired evidence에서 5분 Grey episode 11개는 모두 1분 White에도 있었지만,
+White는 추가 8개를 관측했다. 실제 live cycle도 약 7초 안에 끝났으므로 두 arm은 동일한
+1분 cadence를 쓴다. 이는 시험한 1분/5분 중 coverage가 더 완전한 선택이지, 수익성 기준의
+최적 cadence 확정은 아니다.
+
+1분 Jenkins cadence도 연속 stop daemon이 아니다. 가격이 두 cycle 사이에 급락하면 `0.70`보다
 훨씬 낮은 가격에 체결되거나 depth 부족으로 체결되지 않을 수 있다. 이번 최소금액 pilot은 이
 execution gap도 실제 증거로 수집한다.
 
 entry window는 `[2026-08-24T13:00:00Z, 2026-08-31T13:00:00Z)`, follow-up cutoff는
-`2026-09-07T13:00:00Z`다. 이 값은 source에서 fail-closed하게 고정된다. White/Grey의 작은
-표본 때문에 0.98/0.99를 “최적값”이라고 부르지 않으며, 보수적인 첫 prospective A/B로만
+`2026-09-07T13:00:00Z`다. 이 값은 source에서 fail-closed하게 고정된다. `0.999`는 세 번째
+진입 threshold가 아니라 terminal `1.000`을 제외하는 두 arm의 공통 상한이다. White/Grey의
+작은 표본 때문에 0.98/0.99를 “최적값”이라고 부르지 않으며, 보수적인 첫 prospective A/B로만
 해석한다. 근거와 판정 기준은 [STRATEGY.md](STRATEGY.md), Jenkins 절차는
 [OPERATIONS.md](OPERATIONS.md)를 따른다.
 

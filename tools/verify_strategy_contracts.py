@@ -3557,8 +3557,8 @@ def _validate_watermelon_live_strategy(
         "README.md": (
             "polybot-cat",
             "polybot-dog",
-            "watermelon-live-cat-98",
-            "watermelon-live-dog-99",
+            "watermelon-live-cat-98-1m-v2a",
+            "watermelon-live-dog-99-1m-v2a",
             "EPL",
             "Bundesliga",
             "Ligue 1",
@@ -3579,10 +3579,10 @@ def _validate_watermelon_live_strategy(
             "PENDING_SELL",
         ),
         "OPERATIONS.md": (
-            "H/5 * * * *",
+            "* * * * *",
             "Clean before checkout",
-            "watermelon-live-cat-98",
-            "watermelon-live-dog-99",
+            "watermelon-live-cat-98-1m-v2a",
+            "watermelon-live-dog-99-1m-v2a",
             "daily-rsync verify",
         ),
         "src/polybot/config.py": (
@@ -3681,6 +3681,8 @@ def _validate_watermelon_live_strategy(
         "tests/test_source_digest.py",
         "research/frozen-2026-08-24/PREREGISTRATION.md",
         "research/frozen-2026-08-24/MANIFEST.sha256",
+        "research/frozen-2026-08-24-1m-v2a/PREREGISTRATION.md",
+        "research/frozen-2026-08-24-1m-v2a/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -3727,15 +3729,19 @@ def _validate_watermelon_live_strategy(
             )
 
     prereg_path = (
-        directory / "research/frozen-2026-08-24/PREREGISTRATION.md"
+        directory
+        / "research/frozen-2026-08-24-1m-v2a/PREREGISTRATION.md"
     )
-    manifest_path = directory / "research/frozen-2026-08-24/MANIFEST.sha256"
+    manifest_path = (
+        directory
+        / "research/frozen-2026-08-24-1m-v2a/MANIFEST.sha256"
+    )
     preregistration = _read(prereg_path)
     manifest = _read(manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-24/PREREGISTRATION.md",
+        "research/frozen-2026-08-24-1m-v2a/PREREGISTRATION.md",
         preregistration,
         (
             "2026-08-24T13:00:00Z",
@@ -3745,7 +3751,9 @@ def _validate_watermelon_live_strategy(
             "[0.99,0.999]",
             "0.70",
             "full-holding bid walk",
-            "sample is too small to claim optimality",
+            "do not establish an optimal entry",
+            "watermelon-live-cat-98-1m-v2a",
+            "watermelon-live-dog-99-1m-v2a",
         ),
     )
     if preregistration and manifest:
@@ -3761,7 +3769,7 @@ def _validate_watermelon_live_strategy(
                 Finding(
                     strategy,
                     "invalid_manifest",
-                    "research/frozen-2026-08-24/MANIFEST.sha256",
+                    "research/frozen-2026-08-24-1m-v2a/MANIFEST.sha256",
                 )
             )
 

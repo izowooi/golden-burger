@@ -111,8 +111,9 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   home/draw/away YES만 대상으로 `polybot-cat`은 exact `$5` ask VWAP
   `[0.98,0.999]`, `polybot-dog`은 `[0.99,0.999]`에서 FOK BUY한다. best bid `<=0.70`
   시 전체 보유 수량의 displayed bid depth를 walk해 FOK SELL하며, event당 1개·account당
-  20개로 제한한다. 수동 wallet position은 편입·청산하지 않고 5분 cadence의 stop gap을
-  보장 체결가로 해석하지 않는다.
+  20개로 제한한다. active runtime은 `watermelon-live-cat-98-1m-v2a`와
+  `watermelon-live-dog-99-1m-v2a`이며 두 arm 모두 1분 cadence다. 수동 wallet position은
+  편입·청산하지 않고 stop trigger를 보장 체결가로 해석하지 않는다.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runbook.md`(자립형 런북 — 팔 구성·금액·예산·기간·day-1 kill-check·무효화 조건)를 단독으로 따른다.
 
@@ -174,10 +175,10 @@ grid를 적재한다. 같은 `condition_id × token_id × entry_threshold`는 pa
 retry와 unique one-hot resolution을 append-only로 보존한다. actual fill/P&L evidence가
 아니며, 첫 health review에서는 cadence·cursor·classification·book·DB·storage만 판정한다.
 
-`golden-watermelon-live`은 `polybot-cat/watermelon-live-cat-98`과
-`polybot-dog/watermelon-live-dog-99`의 독립 `trades.db`를 사용한다. exact `$5` FOK
+`golden-watermelon-live`은 `polybot-cat/watermelon-live-cat-98-1m-v2a`과
+`polybot-dog/watermelon-live-dog-99-1m-v2a`의 독립 `trades.db`를 사용한다. exact `$5` FOK
 BUY와 full-holding FOK stop SELL은 order/fill/fee ledger로만 확정하며, 과거 Papaya DB나
-White/Grey simulation DB와 merge하지 않는다.
+White/Grey simulation DB 또는 초기 5분 zero-opportunity live DB와 merge하지 않는다.
 
 매도 거절은 trade 상태를 바꾸지 않으므로 `HOLDING`으로 남아 매 사이클 반복 제출된다. 이 루프가 `max_positions`를 잠식해 봇을 정지시킨 사례가 있다(cherry 2026-07-22~28). 전 전략에 거절 사유 분류 로그(`매도 실패 진단`)와 축소 재시도 방어가 들어 있다 — 상세는 `docs/sell-retry-loop-defense.md`.
 

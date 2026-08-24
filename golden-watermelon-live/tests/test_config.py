@@ -18,10 +18,14 @@ def _credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     _credentials(monkeypatch)
-    config = load_config("config.yaml", "watermelon-live-cat-98", simulation_mode=False)
+    config = load_config(
+        "config.yaml", "watermelon-live-cat-98-1m-v2a", simulation_mode=False
+    )
 
     assert config.simulation_mode is False
-    assert config.db_path == Path("data/watermelon-live-cat-98/trades.db")
+    assert config.db_path == Path(
+        "data/watermelon-live-cat-98-1m-v2a/trades.db"
+    )
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == (
         0.98,
         0.999,
@@ -56,7 +60,9 @@ def test_only_arm_b_threshold_override_is_accepted(
     _credentials(monkeypatch)
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MIN", "0.99")
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MAX", "0.999")
-    config = load_config("config.yaml", "watermelon-live-dog-99", simulation_mode=False)
+    config = load_config(
+        "config.yaml", "watermelon-live-dog-99-1m-v2a", simulation_mode=False
+    )
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == (
         0.99,
         0.999,

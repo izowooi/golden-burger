@@ -8,14 +8,16 @@ confirmed fill·fee 이후 양의 기대값이 있는가?
 
 ## 선행 증거와 보수적 선택
 
-배포 직전 verified White/Grey DB에서 White 1분 cadence는 1,274/1,275 interval이 정상이고,
-대상 event observation은 48개였다. 리그 분포는 EPL 6, Ligue 1 12, LaLiga 18, MLS 12,
-Bundesliga 0으로 좁다. White hold-to-resolution은 0.95/0.96/0.97에서 동일한 축구 역전패
-한 건을 포함해 fee-net 음수였고, 0.98은 3/3, 0.99는 1/1 양수였다. Grey의 양수 결과는 EPL
-패배 표본을 놓친 selection bias가 있어 threshold 선택 근거로 단독 사용하지 않는다.
+1m-v2a freeze 직전 verified White/Grey DB에서 White 1분 cadence는 1,373/1,374 interval,
+Grey 5분 cadence는 275/275 interval이 정상이었다. 대상 unique event는 48개였고 리그 분포는
+EPL 6, Ligue 1 12, LaLiga 18, MLS 12, Bundesliga 0으로 좁다. White
+hold-to-resolution은 0.95/0.96/0.97에서 동일한 축구 역전패 한 건을 포함해 fee-net
+음수였고, 0.98은 3/3, 0.99는 1/1 양수였다. Grey의 양수 결과는 EPL 패배 표본을 놓쳐
+threshold 선택 근거로 단독 사용하지 않는다.
 
 따라서 Cat `0.98`, Dog `0.99`는 최적화 결과가 아니라 손실 사례를 포함한 작은 표본에서
-보수적으로 정한 prospective pilot이다. 7일 안에 Bundesliga가 관측되지 않거나 unique event가
+보수적으로 정한 prospective pilot이다. `0.999`는 세 번째 arm이 아니라 이미 terminal인
+`1.000`을 제외하기 위한 공통 상한이다. 7일 안에 Bundesliga가 관측되지 않거나 unique event가
 부족하면 승자를 고르지 않는다.
 
 White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘랐고, `0.70`이 그중 가장 덜
@@ -26,11 +28,21 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2a` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2a` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
+
+## Cadence 선택
+
+같은 `condition × token × threshold`를 비교했을 때 Grey 5분의 episode key 11개는 모두
+White 1분에도 있었고 White에는 추가 8개가 있었다. paired entry 시각 차이 p95는 약
+1,109초였으며, 5분 job은 EPL 손실 episode와 0.99 episode를 놓쳤다. Cat/Dog cycle은 약
+7초라 1분 timer 안에서 충분히 종료된다. 따라서 시험한 두 cadence 중 coverage가 완전한
+1분을 두 live arm에 공통 적용한다. 이 선택은 더 많은 진입과 더 빠른 stop 관측을 위한
+운영 선택이며, 1분이 fee-net 수익을 최대화한다는 판정은 아니다. White/Grey는 계속 1분/5분
+pair로 남아 이 차이를 prospective하게 측정한다.
 
 ## Universe와 identity
 
@@ -78,7 +90,7 @@ HOLDING마다 전체 보유 shares를 fresh order book의 bid depth에 걸어 �
 초과면 보유한다. `0.70` 이하면 전체 shares를 소진하는 데 필요한 가장 낮은 bid를 limit으로
 FOK SELL한다. 일부 수량만 임의로 팔지 않으며 full depth가 없으면 주문하지 않는다.
 
-5분 polling 때문에 trigger와 주문 사이, 또는 두 cycle 사이에 gap이 생길 수 있다. stop은
+1분 polling에서도 trigger와 주문 사이, 또는 두 cycle 사이에 gap이 생길 수 있다. stop은
 `0.70` 체결을 보장하지 않는다. 손절 속도를 보장하려면 이 실험과 별도로 장기 실행 daemon이나
 venue-native order 지원 여부를 설계해야 한다.
 

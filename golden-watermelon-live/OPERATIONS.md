@@ -5,7 +5,7 @@
 - `polybot-cat`, `polybot-dog`의 기존 private key, funder address, signature type은 그대로 보존
 - secret 참조 전 `set +x`; credential 값을 console·문서·Git에 출력하지 않음
 - concurrent build 비활성화
-- 수동 build 검증 뒤 `H/5 * * * *`
+- 수동 build 검증 뒤 `* * * * *`
 - build discard는 14일 경과 기준 유지
 - `Clean before checkout`, workspace wipe, 기존 DB 삭제 금지
 - 새 runtime job 이름을 사용하므로 과거 Papaya DB와 자동 분리
@@ -44,9 +44,9 @@ export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-07T13:00:00Z
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-98
-"${UV}" run polybot run --live --job watermelon-live-cat-98
-"${UV}" run polybot status --live --job watermelon-live-cat-98
+"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2a
+"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2a
+"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2a
 ```
 
 ## Dog — 0.99 arm
@@ -59,9 +59,9 @@ export POLYBOT_ENTRY_PROB_MIN=0.99
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-dog-99
-"${UV}" run polybot run --live --job watermelon-live-dog-99
-"${UV}" run polybot status --live --job watermelon-live-dog-99
+"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2a
+"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2a
+"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2a
 ```
 
 ## 배포 검증 순서
@@ -71,7 +71,7 @@ UV=/Users/jongwoopark/.local/bin/uv
    FOK-only, lifecycle `active`를 확인한다.
 3. console에 secret, Papaya 경로, clean option, concurrent overlap이 없는지 확인한다.
 4. 같은 job을 한 번 더 수동 실행해 기존 DB가 이어지고 sweep/run audit가 증가하는지 확인한다.
-5. `H/5`를 활성화하고 최소 한 번의 자연 build 성공과 실행시간 `<5m`를 확인한다.
+5. `* * * * *`를 활성화하고 최소 두 번의 자연 build 성공과 실행시간 `<45s`를 확인한다.
 6. `daily-rsync`로 새 strategy/runtime epoch를 scan·sync·verify한다.
 
 ```bash
