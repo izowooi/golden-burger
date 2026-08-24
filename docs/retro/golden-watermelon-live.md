@@ -88,7 +88,66 @@ coverage가 더 완전한 cadence를 선택한 것이며 1분의 수익 최적�
 cursor-complete sweep 2/2, trade/order/fill/open state 0이다. 첫 run 간격은 Cat 58.762초,
 Dog 68.215초였다.
 
-24시간 점검에서는 cadence, cursor completion, five-league identity, whole-match
+## 2026-08-25 v2b execution safety amendment
+
+함대의 과거 max-position 고착과 order/fill evidence 장애가 재발하지 않도록 timer를 먼저
+끄고 `research/frozen-2026-08-25-safety-v2b`를 동결했다. threshold, `$5`, stop, 1분 cadence,
+5개 리그, 실험 clock과 `20/1/20` exposure 값은 바꾸지 않았다.
+
+- commit `5244ed2`, source digest `cef3150612d2…`, preregistration SHA-256
+  `9e1852c2e57d…`
+- runtime: Cat `watermelon-live-cat-98-1m-v2b`, Dog
+  `watermelon-live-dog-99-1m-v2b`
+- capacity denominator를 open trade + open trade에 연결되지 않은 unresolved live BUY intent로
+  바꿨다. tracked pending BUY/SELL 또는 SELL reconciliation gap이 있으면 후보는 계속
+  수집하되 신규 BUY 실행을 막는다.
+- BUY/SELL별 unresolved intent와 reconciliation gap, entry guard reason, reserved capacity를
+  `run_audits.cycle_stats_json`에 남긴다.
+- membership detail checkpoint에 excluded condition도 저장하고 classifier 제외 reason에
+  normalized source sport code/status를 남긴다. detail row count가 선언된 unique condition과
+  다르면 다음 cycle에 즉시 repair checkpoint를 만든다.
+
+최종 v2a DB는 Cat/Dog 각각 run/sweep `61/61 SUCCESS`, trade/entry/order/fill/open state 0이다.
+한 detail sweep이 선언됐지만 excluded-only 4,478 condition 중 membership row가 0인 과거
+계측 결함이 확인됐다. 따라서 v2a는 immutable zero-opportunity 배포 증거로 보존하고 v2b와
+합치지 않는다.
+
+배포 검증 결과는 다음과 같다.
+
+- Jenkins config SHA-256: Cat `d678248262c4…`, Dog `02b2cbdc4324…`; 두 job 모두
+  `TimerTrigger=* * * * *`, non-concurrent, clean 없음, lifecycle `active`다.
+- 수동 Cat `#5226/#5227`, Dog `#5121/#5122`; 자연 timer Cat `#5228/#5229`, Dog
+  `#5123/#5124`가 모두 commit `5244ed2`로 `SUCCESS`였다. 자연 실행시간은 Cat
+  5.427s/7.063s, Dog 5.412s/7.289s이고 두 번째 자연 run 시작 간격은 각각
+  61.162s/61.218s다.
+- 두 DB 모두 단일 config/source cohort의 run/sweep `4/4 SUCCESS`, cursor complete `4/4`,
+  pages `1/1/1/1`, `quick_check=ok`, FK 위반 0이다. bot log와 8개 Jenkins console에서
+  ERROR/CRITICAL/Traceback/WARNING 0이다.
+- 매 sweep은 event 29, unique market 277, qualified 0이었다. detail checkpoint는
+  277/277 row를 저장했고 제외 분포는 `dfb` 186, `grc` 62, `rou1` 29였다. 이 시점의
+  후보 0은 max-position 또는 0.98/0.99 gate가 아니라 허용 5개 리그의 진행 중 경기 부재다.
+- 모든 run에서 reserved/open/pending BUY/pending SELL, unresolved BUY/SELL intent,
+  reconciliation BUY/SELL gap과 error가 0이다. trade/entry/order/fill/snapshot도 0이다.
+- 최종 `daily-rsync verify`는 job별 82 artifact를 검사해 failed, retention skip,
+  conflict가 모두 0인 `SUCCESS`였다.
+
+최종 verified v2b DB:
+
+- Cat: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-cat/strategies/golden-watermelon-live/runtime/watermelon-live-cat-98-1m-v2b/databases/latest/trades.db`
+  (`SHA-256 8a040449d5c6…`, source cutoff `2026-08-24T16:20:38.759987Z`, sync cutoff
+  `2026-08-24T16:21:08.625444Z`)
+- Dog: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-dog/strategies/golden-watermelon-live/runtime/watermelon-live-dog-99-1m-v2b/databases/latest/trades.db`
+  (`SHA-256 33c29df73177…`, source cutoff `2026-08-24T16:20:38.902578Z`, sync cutoff
+  `2026-08-24T16:21:18.515982Z`)
+
+첫 24시간 health의 공통 half-open range는
+`[2026-08-24T16:15:37Z, 2026-08-25T16:15:37Z)`
+(`2026-08-25 01:15:37`–`2026-08-26 01:15:37 KST`)다. generic day-level
+`polybot-retro --days 1`은 UTC 00:00부터 v2b 배포 전 시간을 포함해 schedule gap을
+오탐하고 catalog의 별도 bot/Jenkins log 경로를 연결하지 못하므로, 이 health gate에서는
+verified v2b DB와 동기화된 두 종류의 로그를 위 exact range로 직접 검사한다.
+
+v2b 24시간 점검에서는 cadence, cursor completion, five-league identity, whole-match
 HOME/DRAW/AWAY YES membership, exact `$5` ask depth, first episode, FOK submission,
 order/fill/fee reconciliation, stop bid-depth evidence, DB integrity만 확인한다. 수익성이나
 threshold 승자를 판단하지 않는다.
