@@ -3,6 +3,7 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from polybot.api.clob_client import (
     ClobClientWrapper,
@@ -211,6 +212,34 @@ def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     )
     with pytest.raises(RuntimeError, match="page cap"):
         client.get_all_tradable_markets(0, 0)
+    assert client.last_sweep_attestation is None
+
+
+def test_gamma_rate_limit_fails_fast_without_in_process_retry(monkeypatch) -> None:
+    class RateLimitedSession:
+        def __init__(self):
+            self.calls = []
+
+        def get(self, url, params, timeout):
+            self.calls.append((url, dict(params), timeout))
+            response = requests.Response()
+            response.status_code = 429
+            response.url = url
+            response.headers["Retry-After"] = "60"
+            response._content = b'{"error":"rate limited"}'
+            return response
+
+    sleeps = []
+    monkeypatch.setattr("polybot.utils.retry.time.sleep", sleeps.append)
+    client = GammaClient()
+    client.session = RateLimitedSession()
+
+    with pytest.raises(requests.HTTPError):
+        client.get_all_tradable_markets(0, 0)
+
+    assert len(client.session.calls) == 1
+    assert client.session.calls[0][2] == (2.0, 5.0)
+    assert sleeps == []
     assert client.last_sweep_attestation is None
 
 

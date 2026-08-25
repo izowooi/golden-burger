@@ -3557,8 +3557,8 @@ def _validate_watermelon_live_strategy(
         "README.md": (
             "polybot-cat",
             "polybot-dog",
-            "watermelon-live-cat-98-1m-v2e",
-            "watermelon-live-dog-99-1m-v2e",
+            "watermelon-live-cat-98-1m-v2f",
+            "watermelon-live-dog-99-1m-v2f",
             "EPL",
             "Bundesliga",
             "Ligue 1",
@@ -3581,8 +3581,8 @@ def _validate_watermelon_live_strategy(
         "OPERATIONS.md": (
             "* * * * *",
             "Clean before checkout",
-            "watermelon-live-cat-98-1m-v2e",
-            "watermelon-live-dog-99-1m-v2e",
+            "watermelon-live-cat-98-1m-v2f",
+            "watermelon-live-dog-99-1m-v2f",
             "daily-rsync verify",
         ),
         "src/polybot/bot.py": (
@@ -3603,6 +3603,8 @@ def _validate_watermelon_live_strategy(
             "incomplete membership checkpoint",
             "fee_taker_only",
             "legacy fee_rate_bps=0 placeholder",
+            "self.session.rollback()",
+            "response_status",
         ),
         "src/polybot/config.py": (
             "FROZEN_ARMS",
@@ -3633,6 +3635,8 @@ def _validate_watermelon_live_strategy(
             "cursor_complete",
             "membership_digest_sha256",
             "outside_in_play_window",
+            "max_retries=1",
+            "READ_TIMEOUT_SECONDS = 5.0",
         ),
         "src/polybot/api/clob_client.py": (
             "BuyBookWalk",
@@ -3674,6 +3678,8 @@ def _validate_watermelon_live_strategy(
             "recover_orphan_buys",
             "sell_residual_shares",
             "_resolution_fill_ready",
+            "_sdk_sellable_shares",
+            "_orphan_catalog_identity_matches",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",
@@ -3689,12 +3695,15 @@ def _validate_watermelon_live_strategy(
         "tests/test_trader.py": (
             "test_buy_revalidates_exact_five_and_submits_fok",
             "test_stop_uses_fresh_bid_and_submits_fok_sell",
+            "test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust",
+            "test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment",
             "test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade",
         ),
         "tests/test_api_contracts.py": (
             "test_full_share_sell_walk_uses_deeper_bids_and_market_limit",
             "test_shallow_stop_book_is_censored_not_partially_sold",
             "test_gamma_exclusion_bucket_preserves_rejected_sport_identity",
+            "test_gamma_rate_limit_fails_fast_without_in_process_retry",
             "test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve",
             "test_live_sell_ledger_uses_signed_two_decimal_share_quantity",
         ),
@@ -3767,18 +3776,18 @@ def _validate_watermelon_live_strategy(
 
     prereg_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2e/PREREGISTRATION.md"
+        / "research/frozen-2026-08-25-safety-v2f/PREREGISTRATION.md"
     )
     manifest_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2e/MANIFEST.sha256"
+        / "research/frozen-2026-08-25-safety-v2f/MANIFEST.sha256"
     )
     preregistration = _read(prereg_path)
     manifest = _read(manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-25-safety-v2e/PREREGISTRATION.md",
+        "research/frozen-2026-08-25-safety-v2f/PREREGISTRATION.md",
         preregistration,
         (
             "2026-08-24T13:00:00Z",
@@ -3789,13 +3798,17 @@ def _validate_watermelon_live_strategy(
             "0.70",
             "full-holding FOK stop SELL",
             "does not select a threshold winner",
-            "watermelon-live-cat-98-1m-v2e",
-            "watermelon-live-dog-99-1m-v2e",
+            "watermelon-live-cat-98-1m-v2f",
+            "watermelon-live-dog-99-1m-v2f",
             "QUARANTINED",
             "operator proof of no order",
             "signed maker/taker amounts",
             "0.5/0.5",
             "does not select a threshold winner",
+            "Session rollback",
+            "SDK SELL dust",
+            "catalog identity",
+            "60-second Retry-After",
         ),
     )
     if preregistration and manifest:

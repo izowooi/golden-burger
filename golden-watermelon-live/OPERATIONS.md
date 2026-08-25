@@ -44,9 +44,9 @@ export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-07T13:00:00Z
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2e
-"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2e
-"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2e
+"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2f
+"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2f
+"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2f
 ```
 
 ## Dog — 0.99 arm
@@ -59,9 +59,9 @@ export POLYBOT_ENTRY_PROB_MIN=0.99
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2e
-"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2e
-"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2e
+"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2f
+"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2f
+"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2f
 ```
 
 ## 배포 검증 순서
@@ -88,8 +88,8 @@ uv run daily-rsync verify --job polybot-dog --strategy golden-watermelon-live
 uv run daily-rsync locate --job polybot-dog --strategy golden-watermelon-live
 ```
 
-v2e 24시간 health checkpoint는 각 arm 첫 성공 run의 UTC 시작시각부터 정확히 24시간 뒤이며,
-v2a/v2b/v2c/v2d와 합치지 않는다. 첫 run의 정확한 시각은 배포 후 `strategy_runs.started_at`에서
+v2f 24시간 health checkpoint는 각 arm 첫 성공 run의 UTC 시작시각부터 정확히 24시간 뒤이며,
+v2a/v2b/v2c/v2d/v2e와 합치지 않는다. 첫 run의 정확한 시각은 배포 후 `run_audits.started_at`에서
 고정한다. 이 checkpoint에서는 수익성이나 0.98/0.99 우열을 판정하지 않는다.
 entry 종료는 `2026-08-31T13:00:00Z`, resolution/stop follow-up cutoff는
 `2026-09-07T13:00:00Z`다.

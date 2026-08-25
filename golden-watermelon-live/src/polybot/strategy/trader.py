@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from decimal import Decimal, ROUND_DOWN
 import logging
 import math
 import re
@@ -56,6 +57,77 @@ def locked_in_own_orders(result: dict) -> bool:
 _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 _MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
+
+
+def _sdk_sellable_shares(holding_shares: float) -> float:
+    """Return the two-decimal SELL envelope the current SDK can sign.
+
+    The live SDK floors SELL shares to two decimals. Walking the book for the
+    finer BUY fill first can falsely report insufficient depth even when every
+    signable share is executable. The sub-cent-share remainder is explicit
+    unsellable dust and is handled by the existing lifecycle evidence path.
+    """
+    if not math.isfinite(holding_shares) or holding_shares <= 0:
+        raise ValueError("holding shares must be finite and positive")
+    sellable = float(
+        Decimal(str(holding_shares)).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN
+        )
+    )
+    residual = holding_shares - sellable
+    if (
+        sellable <= 0
+        or residual < -_FILL_SIZE_TOLERANCE
+        or residual >= _MAX_SIGNED_SELL_DUST_SHARES
+    ):
+        raise ValueError("holding cannot be represented by one safe SDK SELL")
+    return sellable
+
+
+def _orphan_catalog_identity_matches(
+    *,
+    token_id: str,
+    episode: object,
+    snapshot: object,
+    catalog: object,
+) -> bool:
+    """Prove selected YES token, condition, event, and snapshot alignment."""
+    aligned = get_aligned_binary_outcomes(
+        {
+            "outcomes": getattr(catalog, "outcomes_json", None),
+            "outcomePrices": getattr(catalog, "outcome_prices_json", None),
+            "clobTokenIds": getattr(catalog, "token_ids_json", None),
+            "negRisk": getattr(catalog, "neg_risk", None) in (1, True),
+        }
+    )
+    selected = [
+        item
+        for item in aligned
+        if item["token_id"] == token_id and item["outcome"] == "Yes"
+    ]
+    episode_condition = str(
+        getattr(episode, "condition_id", "") or ""
+    ).strip()
+    episode_event = str(getattr(episode, "event_id", "") or "").strip()
+    episode_outcome = str(getattr(episode, "outcome", "") or "").strip()
+    return (
+        len(aligned) == 2
+        and len(selected) == 1
+        and episode_condition
+        and episode_event
+        and episode_outcome == "Yes"
+        and str(getattr(catalog, "condition_id", "") or "").strip()
+        == episode_condition
+        and str(getattr(catalog, "event_id", "") or "").strip()
+        == episode_event
+        and str(getattr(snapshot, "condition_id", "") or "").strip()
+        == episode_condition
+        and str(getattr(snapshot, "token_id", "") or "").strip() == token_id
+        and str(getattr(snapshot, "outcome", "") or "").strip()
+        == episode_outcome
+        and getattr(snapshot, "id", None)
+        == getattr(episode, "entry_snapshot_id", None)
+    )
 
 
 def _ledger_timestamp(value: object, fallback: datetime) -> datetime:
@@ -448,12 +520,35 @@ class Trader:
             catalog = self.repo.get_market_catalog_by_condition_id(
                 episode.condition_id
             )
+            try:
+                signed_maker_usdc = float(submission.get("making_amount"))
+                submitted_size = float(submission.get("requested_size"))
+            except (TypeError, ValueError):
+                signed_maker_usdc = math.nan
+                submitted_size = math.nan
             if (
                 snapshot is None
                 or catalog is None
-                or str(snapshot.token_id) != token_id
-                or str(snapshot.condition_id) != str(episode.condition_id)
+                or not _orphan_catalog_identity_matches(
+                    token_id=token_id,
+                    episode=episode,
+                    snapshot=snapshot,
+                    catalog=catalog,
+                )
                 or str(submission.get("strategy_name") or "") != STRATEGY_NAME
+                or not math.isclose(
+                    signed_maker_usdc,
+                    self.config.buy_amount_usdc,
+                    rel_tol=0,
+                    abs_tol=1e-6,
+                )
+                or evidence.requested_size is None
+                or not math.isclose(
+                    submitted_size,
+                    float(evidence.requested_size),
+                    rel_tol=0,
+                    abs_tol=_FILL_SIZE_TOLERANCE,
+                )
                 or not math.isclose(
                     float(episode.arm_prob_min),
                     self.config.entry.prob_min,
@@ -1095,11 +1190,12 @@ class Trader:
         return True
 
     def execute_sell(self, trade) -> bool:
-        """Submit one full-depth marketable FOK stop, else hold to payout."""
+        """Submit one full-depth marketable FOK stop, except proven SDK dust."""
         try:
+            sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
             walk = self.clob.get_sell_book_walk(
                 trade.token_id,
-                shares=float(trade.buy_shares),
+                shares=sellable_shares,
             )
         except Exception as error:
             logger.warning(

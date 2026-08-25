@@ -222,6 +222,67 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert repo.updated == []
 
 
+def test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders[0]["size"] == pytest.approx(5.10)
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.PENDING_SELL
+    assert update["sell_shares"] == pytest.approx(5.10)
+    assert update["sell_residual_shares"] == pytest.approx(0.002)
+
+
+def test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment():
+    episode = SimpleNamespace(
+        condition_id="condition-1",
+        event_id="event-1",
+        outcome="Yes",
+        entry_snapshot_id=11,
+    )
+    snapshot = SimpleNamespace(
+        id=11,
+        condition_id="condition-1",
+        token_id="yes-token",
+        outcome="Yes",
+    )
+    catalog = SimpleNamespace(
+        condition_id="condition-1",
+        event_id="event-1",
+        outcomes_json='["Yes","No"]',
+        outcome_prices_json='["0.98","0.02"]',
+        token_ids_json='["yes-token","no-token"]',
+        neg_risk=1,
+    )
+
+    assert trader_module._orphan_catalog_identity_matches(
+        token_id="yes-token",
+        episode=episode,
+        snapshot=snapshot,
+        catalog=catalog,
+    )
+    catalog.token_ids_json = '["no-token","yes-token"]'
+    assert not trader_module._orphan_catalog_identity_matches(
+        token_id="yes-token",
+        episode=episode,
+        snapshot=snapshot,
+        catalog=catalog,
+    )
+
+
 def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
     repo, clob = _Repo(), _Clob()
     gamma = SimpleNamespace(
@@ -420,7 +481,7 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
         {
             "token_id": "away-yes-token",
             "price": 0.23,
-            "size": 5.076142,
+            "size": 5.07,
             "side": "SELL",
             "order_type": "FOK",
         }
@@ -429,3 +490,4 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
     assert update["status"] is TradeStatus.PENDING_SELL
     assert update["exit_reason"] == "absolute_stop_pending_confirmed_fill"
     assert update["sell_price"] == 0.25
+    assert update["sell_residual_shares"] == pytest.approx(0.006142)

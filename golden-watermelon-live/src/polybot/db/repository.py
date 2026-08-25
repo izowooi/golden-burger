@@ -230,21 +230,34 @@ class TradeRepository:
         Trade and EntryEpisode in two transactions would leave a real position
         with an unlinked experimental denominator if the second commit failed.
         """
-        trade = Trade(**kwargs)
-        self.session.add(trade)
-        self.session.flush()
-        if entry_episode_id is not None:
-            episode = self.session.get(EntryEpisode, int(entry_episode_id))
-            if episode is None:
-                raise ValueError(f"entry episode not found: {entry_episode_id}")
-            if episode.trade_id not in (None, trade.id):
-                raise ValueError("entry episode is already linked to another trade")
-            episode.trade_id = trade.id
-            episode.execution_state = "TRADE_CREATED"
-            episode.execution_reason = "exact_order_submission_linked"
-            episode.last_attempted_at = datetime.utcnow()
-        self.session.commit()
-        return trade
+        try:
+            episode = None
+            if entry_episode_id is not None:
+                episode = self.session.get(EntryEpisode, int(entry_episode_id))
+                if episode is None:
+                    raise ValueError(
+                        f"entry episode not found: {entry_episode_id}"
+                    )
+                if episode.trade_id is not None:
+                    raise ValueError(
+                        "entry episode is already linked to another trade"
+                    )
+
+            trade = Trade(**kwargs)
+            self.session.add(trade)
+            self.session.flush()
+            if episode is not None:
+                episode.trade_id = trade.id
+                episode.execution_state = "TRADE_CREATED"
+                episode.execution_reason = "exact_order_submission_linked"
+                episode.last_attempted_at = datetime.utcnow()
+            self.session.commit()
+            return trade
+        except Exception:
+            # A failed flush/episode link/commit must not remain pending in the
+            # Session and later be committed by the caller's failure annotation.
+            self.session.rollback()
+            raise
 
     def update_trade(self, trade_id: int, **kwargs) -> Trade:
         trade = self.session.get(Trade, trade_id)
@@ -464,6 +477,7 @@ class TradeRepository:
                        submission.token_id, submission.requested_price,
                        submission.requested_size, submission.submitted_at,
                        submission.response_status,
+                       submission.making_amount, submission.taking_amount,
                        submission.latest_order_status,
                        submission.latest_size_matched,
                        submission.needs_reconciliation,
@@ -994,30 +1008,38 @@ class TradeRepository:
         self, episode_id: int, **trade_values: Any
     ) -> Trade:
         """Atomically reconstruct a ledger-proven orphan BUY and link its episode."""
-        episode = self.session.get(EntryEpisode, int(episode_id))
-        if episode is None:
-            raise ValueError(f"entry episode not found: {episode_id}")
-        if episode.trade_id is not None:
-            raise ValueError("entry episode already has a linked trade")
-        order_id = str(trade_values.get("buy_order_id") or "").strip()
-        if not order_id:
-            raise ValueError("recovered orphan trade requires an exact order ID")
-        existing = (
-            self.session.query(Trade)
-            .filter(Trade.buy_order_id == order_id)
-            .first()
-        )
-        if existing is not None:
-            raise ValueError("orphan order is already represented by a trade")
-        trade = Trade(**trade_values)
-        self.session.add(trade)
-        self.session.flush()
-        episode.trade_id = trade.id
-        episode.execution_state = "ORPHAN_RECOVERED"
-        episode.execution_reason = "reconciled_positive_buy_fill_reconstructed"
-        episode.last_attempted_at = datetime.utcnow()
-        self.session.commit()
-        return trade
+        try:
+            episode = self.session.get(EntryEpisode, int(episode_id))
+            if episode is None:
+                raise ValueError(f"entry episode not found: {episode_id}")
+            if episode.trade_id is not None:
+                raise ValueError("entry episode already has a linked trade")
+            order_id = str(trade_values.get("buy_order_id") or "").strip()
+            if not order_id:
+                raise ValueError(
+                    "recovered orphan trade requires an exact order ID"
+                )
+            existing = (
+                self.session.query(Trade)
+                .filter(Trade.buy_order_id == order_id)
+                .first()
+            )
+            if existing is not None:
+                raise ValueError("orphan order is already represented by a trade")
+            trade = Trade(**trade_values)
+            self.session.add(trade)
+            self.session.flush()
+            episode.trade_id = trade.id
+            episode.execution_state = "ORPHAN_RECOVERED"
+            episode.execution_reason = (
+                "reconciled_positive_buy_fill_reconstructed"
+            )
+            episode.last_attempted_at = datetime.utcnow()
+            self.session.commit()
+            return trade
+        except Exception:
+            self.session.rollback()
+            raise
 
     def get_snapshots_since(
         self, condition_id: str, since: datetime

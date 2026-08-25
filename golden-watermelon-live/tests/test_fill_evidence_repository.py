@@ -558,6 +558,7 @@ def test_reconciled_positive_orphan_buy_is_atomically_recovered(tmp_path):
             outcome_prices_json='["0.98","0.02"]',
             token_ids_json='["token-recover","token-no"]',
             tags_json="[]",
+            neg_risk=1,
         )
     )
     session.add(
@@ -578,7 +579,8 @@ def test_reconciled_positive_orphan_buy_is_atomically_recovered(tmp_path):
     session.execute(
         text(
             "UPDATE order_submissions SET latest_order_status='MATCHED', "
-            "latest_size_matched=5.102, needs_reconciliation=0 "
+            "latest_size_matched=5.102, making_amount=5.0, "
+            "needs_reconciliation=0 "
             "WHERE order_id='OID-recover'"
         )
     )
@@ -665,6 +667,62 @@ def test_normal_trade_and_entry_episode_link_commit_atomically(tmp_path):
     assert linked.trade_id == trade.id
     assert linked.execution_state == "TRADE_CREATED"
     assert linked.execution_reason == "exact_order_submission_linked"
+    session.close()
+
+
+def test_failed_entry_link_rolls_back_trade_before_failure_annotation(tmp_path):
+    db_path = tmp_path / "watermelon-entry-link-rollback.db"
+    Session = init_database(str(db_path))
+    session = Session()
+    repo = TradeRepository(session)
+    existing = repo.create_trade(
+        condition_id="condition-existing",
+        event_id="event-existing",
+        outcome="Yes",
+        token_id="token-existing",
+        buy_order_id="OID-existing",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+    episode = EntryEpisode(
+        token_id="token-claimed",
+        condition_id="condition-claimed",
+        event_id="event-claimed",
+        outcome="Yes",
+        entry_snapshot_id=1,
+        exact_vwap=0.98,
+        arm_prob_min=0.98,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+        trade_id=existing.id,
+    )
+    session.add(episode)
+    session.commit()
+
+    with pytest.raises(ValueError, match="already linked"):
+        repo.create_trade(
+            entry_episode_id=episode.id,
+            condition_id="condition-ghost",
+            event_id="event-ghost",
+            outcome="Yes",
+            token_id="token-ghost",
+            buy_order_id="OID-ghost",
+            buy_timestamp=datetime.utcnow(),
+            status=TradeStatus.PENDING_BUY,
+            mode="live",
+        )
+
+    # This mirrors Bot.run_cycle's exception annotation. It must not commit a
+    # Trade left pending by the failed atomic link.
+    repo.mark_entry_episode_execution(
+        episode.id,
+        state="EXECUTION_EXCEPTION",
+        reason="ValueError",
+    )
+    assert [trade.token_id for trade in repo.get_all_trades()] == [
+        "token-existing"
+    ]
     session.close()
 
 

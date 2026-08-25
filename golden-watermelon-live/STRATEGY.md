@@ -28,8 +28,8 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2e` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2e` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2f` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2f` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
@@ -85,6 +85,10 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
 8. venue tick에 맞춘 marketable FOK BUY를 제출한다. accepted 응답만으로 HOLDING으로 바꾸지
    않고 exact order/fill ledger가 terminal executed fill을 대사해야 한다.
 
+Trade와 episode 연결은 validation·flush·commit 어느 단계에서든 실패하면 Session 전체를
+rollback한다. 이후 실패 사유 annotation이 commit되더라도 unlinked ghost Trade가 함께
+commit될 수 없다.
+
 20개 한도는 현재 보유 수가 아니라 최대 동시 open request notional `$100`의 safety cap이다.
 한 경기당 한 건이므로 하루 경기 수를 임의로 제한하지 않는다.
 
@@ -93,7 +97,9 @@ order reconciliation gap이 하나라도 남으면 그 cycle의 신규 BUY를 �
 Gamma/CLOB 후보 scan은 계속 수행해 “안전장치가 막은 것”과 “조건에 맞는 시장이 없었던 것”을
 분리한다. 불확실한 BUY intent는 token/side 격리와 capacity 예약을 유지한다. 열린 주문 목록에
 없다는 사실만으로 해제하지 않으며, exact zero-fill/no-order 증거나 exact terminal fill과
-완전한 fee/episode identity가 있어야 해제 또는 Trade 복구한다. 단, 동기 응답이 `FAILED`이고
+완전한 fee/episode identity가 있어야 해제 또는 Trade 복구한다. orphan 복구는 current sweep이
+갱신한 catalog의 condition/event와 exact `[Yes,No]` token alignment, entry snapshot outcome,
+signed `$5` maker amount도 모두 일치해야 한다. 단, 동기 응답이 `FAILED`이고
 order ID가 없으며 reconciliation도 필요하지 않다고 ledger가 증명한 명시적 거절은 실제
 노출이 아니므로 capacity에서 즉시 제외한다. 해석 불가능한 응답, timeout, 5xx,
 evidence-write failure는 이 예외에 포함하지 않는다.
@@ -108,9 +114,14 @@ classifier 제외 reason에는 bounded source sport code/status를 포함하므�
 
 ## Stop과 resolution
 
-HOLDING마다 전체 보유 shares를 fresh order book의 bid depth에 걸어 본다. best bid가 `0.70`
-초과면 보유한다. `0.70` 이하면 전체 shares를 소진하는 데 필요한 가장 낮은 bid를 limit으로
+HOLDING마다 SDK가 실제로 서명 가능한 소수 둘째 자리 내림 수량을 먼저 계산하고, 그 수량을
+fresh order book의 bid depth에 걸어 본다. 원래 BUY fill과의 `0.01` share 미만 차이는 명시적
+SDK dust로 남긴다. best bid가 `0.70`
+초과면 보유한다. `0.70` 이하면 서명 가능 shares를 소진하는 데 필요한 가장 낮은 bid를 limit으로
 FOK SELL한다. 일부 수량만 임의로 팔지 않으며 full depth가 없으면 주문하지 않는다.
+
+Gamma keyset은 페이지당 connect/read `2s/5s`, 최대 4페이지, in-process retry 0회로
+fail-fast한다. 429의 60초 `Retry-After`를 기다리지 않고 다음 1분 Jenkins cycle을 retry로 쓴다.
 
 1분 polling에서도 trigger와 주문 사이, 또는 두 cycle 사이에 gap이 생길 수 있다. stop은
 `0.70` 체결을 보장하지 않는다. 손절 속도를 보장하려면 이 실험과 별도로 장기 실행 daemon이나
