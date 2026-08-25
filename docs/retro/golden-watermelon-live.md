@@ -186,3 +186,140 @@ uv run --project polybot-observability polybot-retro audit \
   --output-dir <output-dir> \
   --strict
 ```
+
+## 2026-08-25 v2b 첫 health gate와 v2f 안전성 배포
+
+### 검토 경계와 evidence cutoff
+
+- 고정 범위: `[2026-08-24T16:15:37Z, 2026-08-25T16:15:37Z)`
+  (`2026-08-25 01:15:37`–`2026-08-26 01:15:37 KST`). SQL 비교는 저장 문자열의
+  `+00:00`/`Z` 표기 차이 때문에 lexical compare가 아니라 `julianday()`를 사용했다.
+- 이 범위 안 v2b 실제 수집은 두 arm 모두 첫 run `16:15:37Z`부터 마지막 run 종료
+  `2026-08-25T11:30:42Z`까지 약 19시간 15분이다. 수수료·lifecycle 결함을 고치기 위해
+  timer를 선제 중지하고 새 epoch로 전환했으므로 나머지 약 4시간 45분은 v2b cadence
+  coverage가 없다. 따라서 이를 완전한 24시간 성과 표본으로 부르지 않는다.
+- 종료 시각 이후 final sync는 Cat `9d7e603a85bb4546abe0ab514fbe73cb`
+  (`16:16:56Z`–`16:17:50Z`), Dog `fcc3072fcd4e4bfb8634c07c3dae1f6d`
+  (`16:18:37Z`–`16:19:30Z`)다. 두 sync/verify는 고정 종료 뒤 `SUCCESS`였고
+  각각 1,444/1,446 artifact에서 failed/conflict/retention skip이 0이다.
+- immutable v2b DB:
+  - Cat: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-cat/strategies/golden-watermelon-live/runtime/watermelon-live-cat-98-1m-v2b/databases/latest/trades.db`
+    (`SHA-256 bc5226d2bbf1715bfda7a99610a3e10587205e06c6627664ad33e67b51c38efb`,
+    source cutoff `2026-08-25T11:30:43.791966Z`)
+  - Dog: `/Users/izowooi/git/t1/daily-rsync/data/sources/macmini-m5/jobs/polybot-dog/strategies/golden-watermelon-live/runtime/watermelon-live-dog-99-1m-v2b/databases/latest/trades.db`
+    (`SHA-256 c0c6c52133589e0c703b62763ad5dfcced766c36678a063b78965b3d1b64b0d8`,
+    source cutoff `2026-08-25T11:30:43.722251Z`)
+
+### v2b collection/execution health
+
+| 항목 | Cat 0.98 | Dog 0.99 |
+|---|---:|---:|
+| SUCCESS run / sweep | 1,154 / 1,154 | 1,154 / 1,154 |
+| run 초 min / avg / max | 0.783 / 1.074 / 3.030 | 0.796 / 1.055 / 2.355 |
+| 시작 간격 초 min / avg / max | 52.797 / 60.107 / 158.393 | 47.906 / 60.107 / 162.532 |
+| cursor-complete / pages | 1,154 / 모두 1 page | 1,154 / 모두 1 page |
+| raw=unique / qualified / exact-book 저장 | 201,337 / 1,020 / 978 | 201,337 / 1,020 / 978 |
+| trade / entry / order / confirmed fill / resolution | 1 / 1 / 1 / 1 / 1 | 0 / 0 / 0 / 0 / 0 |
+| 최대 reserved / 최소 remaining capacity | 1 / 19 | 0 / 20 |
+| blocked / untracked BUY / reconciliation error | 0 / 0 / 0 | 0 / 0 / 0 |
+
+- 두 DB 모두 `quick_check=ok`, FK 위반 0, missing condition ID 0, duplicate raw 0이다.
+  1,020개 exact-book 대상 중 978개가 저장돼 95.88% coverage다. 나머지 42개는 16개
+  sweep에서 CLOB book이 없었던 경우이며 candidate나 체결로 추정하지 않았다.
+- 허용 리그에서 전체 HOME/DRAW/AWAY YES 세트를 확인한 경기는 오사수나–레반테,
+  풀럼–첼시, 말라가–데포르티보 세 경기다. 볼로냐–라치오와 로마–피오렌티나는 frozen
+  five-league 계약에 없는 Serie A라 `sport=sea`로 정상 제외됐다.
+- 확인된 최고 exact `$5` ask VWAP은 오사수나 무승부 `0.98`, 첼시 승 `0.97`, 말라가
+  무승부 `0.96`이었다. 따라서 “경기 5개이면 주문 5개”가 아니라, 리그·완전한 result
+  membership·해당 arm 가격 범위를 모두 통과한 오사수나 무승부 한 건만 Cat 후보였다.
+  Dog의 `0.99` 후보는 없었다.
+- Cat은 오사수나–레반테 DRAW YES를 `2026-08-24T19:19:36Z`에 exact `$5` FOK로
+  매수했고 `5.102 @ 0.98`이 `MATCHED`/`CONFIRMED`됐다. partial fill, pending 고착,
+  reconciliation gap은 없다. `19:50:38Z` unique one-hot resolution에서 DRAW가 승리해
+  `RESOLVED`됐다.
+- v2b는 이 체결의 taker fee를 `0`으로 잘못 저장했다. 그래서 DB의
+  `settlement_pnl_assumption=+0.10204`는 fee-aware 성과가 아니다. CLOB이 반환한 fee
+  parameter로 재계산한 매수 fee는 `$0.00500`, 정정 순증가액은 약 `$0.09704`다. 원본
+  v2b DB는 수정하지 않고 v2c 이후 dynamic fee evidence 계약으로 고쳤다.
+- Cat bot log에는 resolution 직전 full-depth stop book 부재와 CLOB `404 no orderbook`이
+  기록됐지만, 없는 book을 체결로 꾸미지 않고 unique one-hot resolution까지 fail-closed로
+  유지했다. Dog bot log에는 같은 오류가 없다. 두 Jenkins 모두 해당 v2b build 1,154개가
+  `SUCCESS`, overlap 0이며 traceback/build failure는 없다.
+- 초기 DB 대비 증가는 Cat 약 5.855 MiB, Dog 약 5.867 MiB였다. bot log는 각각 약
+  5.55 MB/5.52 MB, Jenkins console은 약 9.24 MB/9.20 MB다. 관측된 비율의 단순 외삽은
+  DB당 약 7.3 MiB/day, 60일 약 438–439 MiB이며 retention과 경기 밀도에 따라 달라진다.
+
+### v2f 재발 방지 변경과 배포 판정
+
+v2b 수수료 결함을 고친 v2c를 다시 함대 장애 패턴에 대해 정적 감사했고, treatment를
+바꾸지 않은 safety epoch v2d→v2e→v2f로 순차 배포했다. 최종 운영 기준은 v2f만이다.
+
+- 기존 방어인 derive-only API key, exact `$5` signed FOK, top-level 경기의 완전한
+  HOME/DRAW/AWAY YES membership, e-sports/비허용 리그 제외, no-clean DB epoch와
+  non-concurrent Jenkins 실행도 그대로 유지했다.
+- capacity는 정상 open state뿐 아니라 `QUARANTINED`와 아직 trade에 연결되지 않은
+  불확실 live BUY를 포함한다. 동기식으로 명백히 거절된 `FAILED` BUY만 즉시 해제하고,
+  timeout·5xx·malformed response처럼 거래소 결과가 불명확한 POST는 대사 전까지 계속
+  예약한다. event cap도 같은 untracked BUY를 센다.
+- pending BUY/SELL, unresolved intent, reconciliation gap/error가 있으면 시장 수집은
+  계속하지만 신규 BUY는 fail-closed한다. 모든 candidate에 실행/차단 상태와 사유를 남겨
+  “후보가 없었음”과 “용량·guard에 막힘”을 구분한다.
+- Trade와 EntryEpisode 생성, orphan recovery는 한 transaction으로 commit/rollback한다.
+  중간 annotation 실패가 ghost Trade를 남기지 않는다.
+- orphan BUY 복구는 condition/event/token/outcome/snapshot identity와 signed exact `$5`
+  금액까지 모두 일치할 때만 허용한다. 다른 수동 지갑 포지션을 봇 trade로 편입하지 않는다.
+- BUY/SELL 전에 Gamma와 CLOB의 dynamic fee parameter를 일치시킨다. SELL은 먼저 SDK가
+  실제 서명 가능한 2-decimal share를 확정한 뒤 그 수량으로 full-depth book을 다시 걷고,
+  남는 sub-cent share는 `sell_residual_shares`로 보존한다.
+- resolution은 exact condition/event/token catalog identity와 unique one-hot payout을 모두
+  요구한다. 닫힌 `[0.5, 0.5]`를 resolution으로 오인하지 않는다.
+- Gamma request는 connect 2초/read 5초, cycle당 단일 시도, 최대 4 page로 제한했다.
+  긴 `Retry-After`를 같은 1분 build에서 기다리지 않고 다음 build가 재시도한다.
+
+최종 commit은 `7aba490`, runtime은
+`watermelon-live-cat-98-1m-v2f` / `watermelon-live-dog-99-1m-v2f`, source digest는
+`c3a46fabcf83170017d97d72463bfc59eb59a4bae42af8137730a173ceb6b548`, frozen
+preregistration SHA-256은
+`59827f149c2666ac764ca81c92a76ccff1df41b0688b7916e979b8ce01e3a311`다.
+Cat `[0.98,0.999]`, Dog `[0.99,0.999]`, exact `$5`, stop `0.70`, 5개 리그,
+`20/1/20`, 1분 cadence는 그대로다.
+
+- project test 114개, shared observability test 216개, strategy contract verifier의
+  25개 전략 검사가 모두 통과했다.
+- Jenkins timer를 코드 변경 전에 끄고 manual build 두 번씩 성공한 뒤 복구했다. 이후
+  자연 build도 두 번 이상 arm별로 `SUCCESS`였고 checkout commit, v2f runtime,
+  non-concurrent, no-clean, 매분 timer를 확인했다.
+- 종료 직후 동기화된 v2f DB는 Cat run/sweep `136/136`, Dog `137/137`이 전부
+  `SUCCESS`이고 cursor-complete 100%, 모두 1 page다. raw=unique 누계는
+  Cat 1,488, Dog 1,674이며 전부 비허용 `spl`/`uwcl` source라 qualified/candidate/trade/
+  episode/order/fill/resolution은 0이다. 두 arm 모두 최대 reserved 0, 최소 remaining
+  capacity 20, blocked/pending/quarantined/untracked BUY/open BUY evidence gap/reconciliation
+  error/metadata drift 0이다.
+- Cat DB는 933,888 bytes, SHA-256
+  `dbb26e1489e0d134850260a8a9bc9c673516755d0922caa113e22261f0cc5329`, source cutoff
+  `2026-08-25T16:16:46.226304Z`; Dog DB는 942,080 bytes, SHA-256
+  `e5ecaf4724944b0939933f730062f640e9d7c08828dc6a8c4d61b73faaf35dab`, source cutoff
+  `2026-08-25T16:17:46.317662Z`다. 둘 다 `quick_check=ok`, FK 위반 0, single
+  config/source/runtime cohort다.
+- 동기화된 v2f bot log 4개 5,208행에는 WARNING/ERROR/CRITICAL/Traceback과 guard 문제
+  신호가 0이다. Jenkins console은 Cat `#6448–#6582` 135개, Dog `#6343–#6479`
+  137개가 모두 `SUCCESS`; arm별 수동 2개 외에는 timer이며 commit/runtime marker가 모두
+  v2f와 일치하고 secret assignment 출력은 0이다. 독립 12회 표본과 후속 102개 build
+  전수 검사에서도 같은 결과였고, 마지막 현장 재확인 Cat `#6591`/Dog `#6486`도
+  각각 5.153s/5.200s `SUCCESS`, queue 0이다.
+- Jenkins description 텍스트만 여전히 `v2d`라고 표시되지만 shell, DB runtime, commit,
+  config hash는 v2f다. secret-bearing config 전체를 단순 라벨 수정 때문에 다시 POST하지
+  않고 이 비기능성 metadata mismatch를 기록했다.
+
+초기 v2f 구간에는 허용 리그 source/candidate 자체가 없어 capacity 20, pending/untracked/
+reconciliation gap 0, DB integrity 정상까지만 자연 증명됐다. 실제 candidate가 발생하지 않은
+상태에서 fee/order/SELL 경로가 “실전에서 검증됐다”고 과장하지 않는다. 다음 24시간 health에서
+첫 candidate/fill이 있으면 해당 동적 경로를 검증하고, 없으면 opportunity 0을 명시한다.
+이 health gate로 수익성이나 `0.98`/`0.99` 우열을 선택하지 않는다.
+
+v2f 첫 24시간 health는 arm별 첫 성공 run을 기준으로 따로 고정한다.
+
+- Cat: `[2026-08-25T13:59:54.753889Z, 2026-08-26T13:59:54.753889Z)`
+- Dog: `[2026-08-25T13:59:54.767125Z, 2026-08-26T13:59:54.767125Z)`
+
+두 종료 시각과 자연 build 완료 여유를 둔 `2026-08-26 23:05 KST` 이후 점검한다.
