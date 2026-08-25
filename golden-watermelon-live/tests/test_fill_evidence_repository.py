@@ -15,20 +15,31 @@ from sqlalchemy import text
 import pytest
 
 from polybot.config import TradingConfig
-from polybot.db.models import TradeStatus, init_database
+from polybot.db.models import (
+    EntryEpisode,
+    MarketCatalog,
+    MarketSnapshot,
+    TradeStatus,
+    init_database,
+)
 from polybot.db.repository import TradeRepository
 from polybot.strategy.trader import Trader
 from polybot_observability import ExecutionLedger, SubmissionEvidenceError
 
 
 def _record_accepted_order(
-    ledger: ExecutionLedger, order_id: str, *, side: str = "BUY"
+    ledger: ExecutionLedger,
+    order_id: str,
+    *,
+    side: str = "BUY",
+    token_id: str | None = None,
+    requested_size: float = 5.0,
 ) -> str:
     return ledger.record_submission(
-        token_id=f"token-{order_id}",
+        token_id=token_id or f"token-{order_id}",
         side=side,
         requested_price=0.96,
-        requested_size=5.0,
+        requested_size=requested_size,
         result={"success": True, "orderID": order_id, "status": "live"},
         simulation=False,
     )
@@ -249,6 +260,88 @@ def test_pending_sell_completes_from_real_buy_and_sell_ledger_rows(tmp_path):
     session.close()
 
 
+def test_pending_sell_records_unavoidable_two_decimal_sdk_dust(tmp_path):
+    db_path = tmp_path / "watermelon-pending-sell-dust.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    buy_submission = _record_accepted_order(
+        ledger,
+        "OID-buy-dust",
+        side="BUY",
+        requested_size=5.102,
+    )
+    sell_submission = _record_accepted_order(
+        ledger,
+        "OID-sell-dust",
+        side="SELL",
+        requested_size=5.10,
+    )
+
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "needs_reconciliation=0, latest_size_matched=CASE "
+            "WHEN order_id='OID-buy-dust' THEN 5.102 ELSE 5.10 END "
+            "WHERE order_id IN ('OID-buy-dust', 'OID-sell-dust')"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:buy_submission, 'OID-buy-dust', 'buy-dust-fill', 0, "
+            "'CONFIRMED', 'BUY', 5.102, 0.98, 0.005, "
+            "'2026-08-25T00:00:00Z', NULL), "
+            "(:sell_submission, 'OID-sell-dust', 'sell-dust-fill', 0, "
+            "'CONFIRMED', 'SELL', 5.10, 0.70, 0.05355, "
+            "'2026-08-25T00:01:00Z', NULL)"
+        ),
+        {
+            "buy_submission": buy_submission,
+            "sell_submission": sell_submission,
+        },
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    trade = repo.create_trade(
+        condition_id="condition-dust",
+        outcome="Yes",
+        token_id="token-dust",
+        buy_price=0.98,
+        buy_shares=5.102,
+        buy_order_id="OID-buy-dust",
+        buy_timestamp=datetime.utcnow(),
+        sell_price=0.70,
+        sell_shares=5.10,
+        sell_order_id="OID-sell-dust",
+        sell_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_SELL,
+        mode="live",
+    )
+    trader = Trader(
+        repo,
+        SimpleNamespace(simulation_mode=False),
+        TradingConfig(),
+        simulation_mode=False,
+    )
+
+    assert trader.reconcile_pending_sell(trade) is True
+    completed = repo.get_by_id(trade.id)
+    assert completed.status == TradeStatus.COMPLETED
+    assert completed.sell_confirmed_size == pytest.approx(5.10)
+    assert completed.sell_residual_shares == pytest.approx(0.002)
+    assert completed.exit_reason.endswith("recorded_sdk_dust")
+    allocated_buy_fee = 0.005 * 5.10 / 5.102
+    assert completed.realized_pnl == pytest.approx(
+        (0.70 - 0.98) * 5.10 - allocated_buy_fee - 0.05355
+    )
+    assert "excluding_recorded_unsellable_dust" in completed.pnl_basis
+    session.close()
+
+
 def test_entry_capacity_reserves_untracked_live_buy_intents_without_double_count(
     tmp_path,
 ):
@@ -287,7 +380,290 @@ def test_entry_capacity_reserves_untracked_live_buy_intents_without_double_count
     repo.update_trade(1, status=TradeStatus.UNFILLED)
     assert repo.get_entry_capacity_state() == {
         "open_positions": 0,
-        "untracked_buy_reservations": 3,
-        "total_reserved": 3,
+        # The terminal Trade still represents OID-tracked; it is not an orphan.
+        "untracked_buy_reservations": 2,
+        "total_reserved": 2,
     }
+    session.close()
+
+
+def test_capacity_keeps_reconciled_orphan_and_quarantined_exposure(tmp_path):
+    db_path = tmp_path / "watermelon-conservative-capacity.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    positive_submission = _record_accepted_order(
+        ledger,
+        "OID-positive-orphan",
+        token_id="token-positive",
+        requested_size=5.102,
+    )
+    _record_accepted_order(
+        ledger,
+        "OID-zero-orphan",
+        token_id="token-zero",
+        requested_size=5.102,
+    )
+
+    session = Session()
+    session.add_all(
+        [
+            EntryEpisode(
+                token_id="token-positive",
+                condition_id="condition-positive",
+                event_id="event-positive",
+                outcome="Yes",
+                entry_snapshot_id=1,
+                exact_vwap=0.98,
+                arm_prob_min=0.98,
+                arm_prob_max=0.999,
+                observed_at=datetime.utcnow(),
+            ),
+            EntryEpisode(
+                token_id="token-zero",
+                condition_id="condition-zero",
+                event_id="event-zero",
+                outcome="Yes",
+                entry_snapshot_id=2,
+                exact_vwap=0.98,
+                arm_prob_min=0.98,
+                arm_prob_max=0.999,
+                observed_at=datetime.utcnow(),
+            ),
+        ]
+    )
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.102, needs_reconciliation=0 "
+            "WHERE order_id='OID-positive-orphan'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-positive-orphan', 'orphan-fill', 0, "
+            "'CONFIRMED', 'BUY', 5.102, 0.98, 0.005, "
+            "'2026-08-25T00:00:00Z', NULL)"
+        ),
+        {"submission_id": positive_submission},
+    )
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='CANCELED', "
+            "latest_size_matched=0, needs_reconciliation=0 "
+            "WHERE order_id='OID-zero-orphan'"
+        )
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="condition-quarantined",
+        event_id="event-quarantined",
+        outcome="Yes",
+        token_id="token-quarantined",
+        buy_order_id="OID-quarantined",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.QUARANTINED,
+        mode="live",
+    )
+
+    assert repo.get_entry_capacity_state() == {
+        "open_positions": 1,
+        "untracked_buy_reservations": 1,
+        "total_reserved": 2,
+    }
+    assert repo.get_event_position_count("event-positive") == 1
+    assert repo.get_event_position_count("event-zero") == 0
+    assert repo.get_event_position_count("event-quarantined") == 1
+    session.close()
+
+
+def test_reconciled_positive_orphan_buy_is_atomically_recovered(tmp_path):
+    db_path = tmp_path / "watermelon-orphan-recovery.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    submission_id = _record_accepted_order(
+        ledger,
+        "OID-recover",
+        token_id="token-recover",
+        requested_size=5.102,
+    )
+    session = Session()
+    snapshot = MarketSnapshot(
+        condition_id="condition-recover",
+        token_id="token-recover",
+        outcome="Yes",
+        probability=0.98,
+        liquidity=1000,
+        volume_24h=2000,
+        best_bid=0.97,
+        best_ask=0.98,
+        spread=0.01,
+    )
+    session.add(snapshot)
+    session.flush()
+    session.add(
+        MarketCatalog(
+            condition_id="condition-recover",
+            market_slug="recover-market",
+            question="Will the home team win?",
+            event_id="event-recover",
+            event_slug="recover-event",
+            outcomes_json='["Yes","No"]',
+            outcome_prices_json='["0.98","0.02"]',
+            token_ids_json='["token-recover","token-no"]',
+            tags_json="[]",
+        )
+    )
+    session.add(
+        EntryEpisode(
+            token_id="token-recover",
+            condition_id="condition-recover",
+            event_id="event-recover",
+            outcome="Yes",
+            entry_snapshot_id=snapshot.id,
+            exact_vwap=0.98,
+            arm_prob_min=0.98,
+            arm_prob_max=0.999,
+            observed_at=datetime.utcnow(),
+            game_start_time=datetime.utcnow(),
+            in_play_hours=1.0,
+        )
+    )
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.102, needs_reconciliation=0 "
+            "WHERE order_id='OID-recover'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-recover', 'recover-fill', 0, "
+            "'CONFIRMED', 'BUY', 5.102, 0.98, 0.005, "
+            "'2026-08-25T00:00:00Z', NULL)"
+        ),
+        {"submission_id": submission_id},
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    trader = Trader(
+        repo,
+        SimpleNamespace(simulation_mode=False),
+        TradingConfig(),
+        simulation_mode=False,
+    )
+    stats = trader.recover_orphan_buys()
+
+    assert stats == {
+        "checked": 1,
+        "recovered": 1,
+        "evidence_gaps": 0,
+        "identity_gaps": 0,
+        "duplicate_token_submissions": 0,
+    }
+    trade = repo.get_all_trades()[0]
+    assert trade.status == TradeStatus.HOLDING
+    assert trade.buy_order_id == "OID-recover"
+    assert trade.buy_shares == pytest.approx(5.102)
+    assert trade.buy_confirmed_fee_usdc == pytest.approx(0.005)
+    episode = repo.get_entry_episode_by_token("token-recover")
+    assert episode.trade_id == trade.id
+    assert episode.execution_state == "ORPHAN_RECOVERED"
+    assert repo.get_entry_capacity_state() == {
+        "open_positions": 1,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 1,
+    }
+    session.close()
+
+
+def test_normal_trade_and_entry_episode_link_commit_atomically(tmp_path):
+    db_path = tmp_path / "watermelon-entry-link.db"
+    Session = init_database(str(db_path))
+    session = Session()
+    session.add(
+        EntryEpisode(
+            token_id="token-linked",
+            condition_id="condition-linked",
+            event_id="event-linked",
+            outcome="Yes",
+            entry_snapshot_id=1,
+            exact_vwap=0.98,
+            arm_prob_min=0.98,
+            arm_prob_max=0.999,
+            observed_at=datetime.utcnow(),
+        )
+    )
+    session.commit()
+    episode = session.query(EntryEpisode).one()
+    repo = TradeRepository(session)
+
+    trade = repo.create_trade(
+        entry_episode_id=episode.id,
+        condition_id="condition-linked",
+        event_id="event-linked",
+        outcome="Yes",
+        token_id="token-linked",
+        buy_order_id="OID-linked",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+
+    session.expire_all()
+    linked = repo.get_entry_episode_by_token("token-linked")
+    assert linked.trade_id == trade.id
+    assert linked.execution_state == "TRADE_CREATED"
+    assert linked.execution_reason == "exact_order_submission_linked"
+    session.close()
+
+
+def test_open_buy_evidence_gap_counts_only_incomplete_owned_exposure(tmp_path):
+    db_path = tmp_path / "watermelon-open-buy-evidence.db"
+    Session = init_database(str(db_path))
+    session = Session()
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="condition-complete",
+        outcome="Yes",
+        token_id="token-complete",
+        buy_order_id="OID-complete",
+        buy_timestamp=datetime.utcnow(),
+        buy_confirmed_size=5.1,
+        buy_confirmed_vwap=0.98,
+        buy_confirmed_fee_usdc=0.0,
+        status=TradeStatus.HOLDING,
+        mode="live",
+    )
+    repo.create_trade(
+        condition_id="condition-gap",
+        outcome="Yes",
+        token_id="token-gap",
+        buy_order_id="OID-gap",
+        buy_timestamp=datetime.utcnow(),
+        buy_confirmed_size=5.1,
+        buy_confirmed_vwap=0.98,
+        buy_confirmed_fee_usdc=None,
+        status=TradeStatus.HOLDING,
+        mode="live",
+    )
+    repo.create_trade(
+        condition_id="condition-resolved",
+        outcome="Yes",
+        token_id="token-resolved",
+        buy_order_id="OID-resolved",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.RESOLVED,
+        mode="live",
+    )
+
+    assert repo.get_open_buy_evidence_gap_count() == 1
     session.close()

@@ -28,8 +28,8 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2c` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2c` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2d` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2d` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
@@ -76,8 +76,9 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
 3. arm band의 첫 관측만 append-only `entry_episodes`로 claim한다.
 4. 한 event에서 여러 result가 동시에 threshold를 넘으면 identity/market anomaly로 보고 event
    전체를 fail closed한다.
-5. DB open state와 trade에 연결되지 않은 unresolved live BUY intent를 합산해 capacity 최대
-   20을 확인한다. event당 1, cycle당 신규 최대 20이다.
+5. `QUARANTINED`를 포함한 DB open state와 trade에 연결되지 않은 모든 live BUY intent를
+   합산해 capacity 최대 20을 확인한다. 동일한 orphan reservation을 event당 1개 한도에도
+   적용하며, cycle당 신규 최대 20이다.
 6. 주문 직전 exact `$5` walk와 in-play clock을 다시 검증한다.
 7. 저장된 Gamma fee rate/exponent/taker-only와 CLOB v2 market-info의 condition/token/fee
    identity가 완전히 일치하는지 확인한다. 누락·불일치면 주문 전에 실패한다.
@@ -87,10 +88,16 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
 20개 한도는 현재 보유 수가 아니라 최대 동시 open request notional `$100`의 safety cap이다.
 한 경기당 한 건이므로 하루 경기 수를 임의로 제한하지 않는다.
 
-Phase 1 뒤 `PENDING_BUY` 또는 `PENDING_SELL`이 남아 있거나 SELL intent/fill 대사 gap이 있으면
-그 cycle의 신규 BUY를 전부 차단한다. 단, Gamma/CLOB 후보 scan은 계속 수행해 “안전장치가
-막은 것”과 “조건에 맞는 시장이 없었던 것”을 분리한다. 불확실한 BUY intent는 token/side
-격리를 유지하면서 capacity 한 칸을 예약하고 운영자가 증거로 해제하기 전 삭제하지 않는다.
+Phase 1 뒤 `PENDING_BUY`, `PENDING_SELL`, `QUARANTINED`, untracked BUY, open BUY fill/fee gap,
+order reconciliation gap이 하나라도 남으면 그 cycle의 신규 BUY를 전부 차단한다. 단,
+Gamma/CLOB 후보 scan은 계속 수행해 “안전장치가 막은 것”과 “조건에 맞는 시장이 없었던 것”을
+분리한다. 불확실한 BUY intent는 token/side 격리와 capacity 예약을 유지한다. 열린 주문 목록에
+없다는 사실만으로 해제하지 않으며, exact zero-fill/no-order 증거나 exact terminal fill과
+완전한 fee/episode identity가 있어야 해제 또는 Trade 복구한다.
+
+첫 in-arm 관측은 guard나 fresh-book 재검증에서 주문되지 않아도 재시도하지 않는다. 대신
+`entry_episodes.execution_state/reason`에 차단·거절 사유를 남겨 희소 신호와 운영 병목을
+분리한다. 주문 성공 뒤 Trade와 episode link는 한 transaction으로 commit한다.
 
 하루 한 번의 membership detail checkpoint는 qualified뿐 아니라 excluded condition도 저장한다.
 classifier 제외 reason에는 bounded source sport code/status를 포함하므로, 후보 0건이 실제로
@@ -106,9 +113,10 @@ FOK SELL한다. 일부 수량만 임의로 팔지 않으며 full depth가 없으
 `0.70` 체결을 보장하지 않는다. 손절 속도를 보장하려면 이 실험과 별도로 장기 실행 daemon이나
 venue-native order 지원 여부를 설계해야 한다.
 
-stop SELL은 exact full BUY/SELL fill과 fee를 모두 대사한 뒤에만 `COMPLETED`와 realized P&L을
-기록한다. FOK zero-fill은 `HOLDING`으로 되돌려 다음 cycle에 다시 평가한다. 부분 수량으로 줄여
-재시도해 PENDING_SELL을 만드는 경로는 사용하지 않는다.
+stop SELL은 exact BUY/SELL fill과 fee를 모두 대사한 뒤에만 `COMPLETED`와 realized P&L을
+기록한다. FOK zero-fill은 `HOLDING`으로 되돌려 다음 cycle에 다시 평가한다. SDK가 SELL
+share를 소수 둘째 자리로 내림해 만든 `0.01` share 미만 잔여는 명시적으로 기록하고 팔린
+부분의 P&L에서 제외한다. 그 이상 수량 차이는 `PENDING_SELL`을 유지하며 fail closed한다.
 
 CLOB v2의 signed order/trade payload에 남은 legacy `fee_rate_bps=0`은 taker zero-fee 증거가
 아니다. exact authenticated fill의 maker/taker role·size·price와 해당 token의 동적 CLOB fee
@@ -116,8 +124,9 @@ schedule로 5-decimal fee amount를 계산해 명시적으로 저장한다. Gamm
 다르거나 fee evidence가 불완전하면 fee-net 성과와 lifecycle 종결을 fail closed한다.
 
 book이 사라지면 Gamma exact one-hot payout을 먼저 확인하고, 부족하면 CLOB exact condition의
-closed two-token unique winner와 exact `0/1`을 확인한다. confirmed BUY fill이 있는 bot-owned
-trade만 `RESOLVED`로 기록하며 synthetic SELL/redeem이나 wallet-wide mutation은 하지 않는다.
+closed two-token unique winner와 exact `0/1`을 확인한다. `0.5/0.5`는 resolution이 아니다.
+condition/token/outcome identity와 terminal BUY fill/fee가 모두 맞는 bot-owned trade만
+`RESOLVED`로 기록하며 synthetic SELL/redeem이나 wallet-wide mutation은 하지 않는다.
 
 ## 판정
 

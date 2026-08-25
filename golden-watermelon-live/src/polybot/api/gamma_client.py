@@ -24,7 +24,10 @@ logger = logging.getLogger(__name__)
 class GammaClient:
     BASE_URL = "https://gamma-api.polymarket.com"
     CONNECT_TIMEOUT_SECONDS = 3.05
-    READ_TIMEOUT_SECONDS = 30.0
+    # The Jenkins cadence is one minute.  A single page may retry twice, but a
+    # degraded Gamma endpoint must fail the build before queued non-concurrent
+    # runs accumulate for minutes.
+    READ_TIMEOUT_SECONDS = 10.0
     PAGE_SIZE = 500
     MAX_SWEEP_PAGES = 4
     MAX_IN_PLAY_HOURS = 4.0
@@ -47,7 +50,7 @@ class GammaClient:
             timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
         )
 
-    @rate_limit_handler(max_retries=4, base_delay=1.0, retry_forbidden=True)
+    @rate_limit_handler(max_retries=2, base_delay=1.0, retry_forbidden=True)
     def _get_keyset_page(self, params: Dict[str, Any]):
         response = self._get("/events/keyset", params=params)
         response.raise_for_status()

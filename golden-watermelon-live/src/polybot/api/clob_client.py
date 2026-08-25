@@ -8,7 +8,6 @@ import hashlib
 import json
 import logging
 import math
-import os
 import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -1385,6 +1384,7 @@ class ClobClientWrapper:
                 "orderID": f"SIM_{side}_{token_id[:8]}",
                 "simulated": True,
                 "price": rounded_price,
+                "requested_size": float(size),
             }
             self._record_limit_submission(token_id, rounded_price, size, side, result)
             return result
@@ -1404,11 +1404,45 @@ class ClobClientWrapper:
                     token_id=token_id,
                     side=order_side,
                 )
+                # STOP SELLs are taker orders too.  Prove the exact token's
+                # Gamma/CLOB dynamic-fee identity before an irreversible POST,
+                # just as the FOK BUY path does.
+                self._clob_v2_fee_schedule(str(token_id))
 
             # create_order performs signing and read-only preflight such as
             # tick-size/neg-risk lookups. Finish it before recording an intent
             # so a GET timeout cannot be mistaken for an uncertain POST.
             signed_order = self.client.create_order(order_args)
+            ledger_requested_size = float(size)
+            signed_making_amount = None
+            signed_taking_amount = None
+            if self.execution_ledger is not None:
+                try:
+                    signed_making_amount = int(str(signed_order.makerAmount))
+                    signed_taking_amount = int(str(signed_order.takerAmount))
+                except (AttributeError, TypeError, ValueError) as error:
+                    raise ClobResponseContractError(
+                        "signed limit order amount evidence is unavailable"
+                    ) from error
+                if signed_making_amount <= 0 or signed_taking_amount <= 0:
+                    raise ClobResponseContractError(
+                        "signed limit order amounts must be positive"
+                    )
+                signed_share_micros = (
+                    signed_making_amount
+                    if order_side == "SELL"
+                    else signed_taking_amount
+                )
+                ledger_requested_size = signed_share_micros / 1_000_000
+                residual = float(size) - ledger_requested_size
+                if (
+                    ledger_requested_size <= 0
+                    or residual < -_MARKET_BUY_QUANTITY_TOLERANCE
+                    or residual >= 0.01 + _MARKET_BUY_QUANTITY_TOLERANCE
+                ):
+                    raise ClobResponseContractError(
+                        "signed limit order share quantity drift exceeds one SDK quantum"
+                    )
 
             venue_order_type = (
                 OrderType.FOK if normalized_order_type == "FOK" else OrderType.GTC
@@ -1426,9 +1460,11 @@ class ClobClientWrapper:
                     token_id=token_id,
                     side=order_side,
                     requested_price=rounded_price,
-                    requested_size=size,
+                    requested_size=ledger_requested_size,
                     submit=submit_order,
                     cancel=lambda order_id: self.client.cancel_orders([order_id]),
+                    signed_making_amount=signed_making_amount,
+                    signed_taking_amount=signed_taking_amount,
                 )
 
             logger.info(
@@ -1438,7 +1474,14 @@ class ClobClientWrapper:
                 rounded_price,
                 response,
             )
-            return dict(response)
+            result = dict(response)
+            result.update(
+                {
+                    "price": rounded_price,
+                    "requested_size": ledger_requested_size,
+                }
+            )
+            return result
 
         except SubmissionOutcomeQuarantinedError as error:
             logger.warning(
@@ -1490,6 +1533,9 @@ class ClobClientWrapper:
             "unresolved_sell_outcomes": 0,
             "reconciliation_buy_gaps": 0,
             "reconciliation_sell_gaps": 0,
+            # Uncertain POST outcomes require exact venue/operator proof.  An
+            # absent open order cannot distinguish no order from a filled FOK.
+            "intent_autoresolved": 0,
         }
         if self.simulation_mode or self.execution_ledger is None:
             return stats
@@ -1722,43 +1768,6 @@ class ClobClientWrapper:
                     phase,
                     type(error).__name__,
                     response_shape,
-                )
-
-        # 격리 자가 해제. CLOB POST가 5xx/timeout으로 끝나면 그 token/side의 주문이
-        # 영구히 막히는데 시간 기반 해제가 없다. 거래소 열린 주문 목록에 없으면
-        # 주문이 만들어지지 않은 것이 확인되므로 안전하게 풀 수 있다.
-        # 조회 실패 시에는 절대 해제하지 않는다(빈 목록과 구분 불가).
-        if os.environ.get("POLYBOT_INTENT_AUTORESOLVE", "true").lower() not in (
-            "false", "0", "no", "off"
-        ):
-            try:
-                raw_open = self.client.get_open_orders()
-                open_orders = normalize_clob_response_list(
-                    raw_open, response_type="order"
-                )
-                live_keys = {
-                    (
-                        str(o.get("asset_id") or o.get("token_id") or ""),
-                        str(o.get("side", "")).upper(),
-                    )
-                    for o in (open_orders or [])
-                }
-                heal = self.execution_ledger.autoresolve_stale_sell_intents(
-                    live_order_keys=live_keys
-                )
-                stats["intent_autoresolved"] = heal["resolved"]
-                if heal["resolved"] or heal["kept_live_order"]:
-                    logger.info(
-                        "격리 자가 해제 - 해제 %s건, 거래소 주문 실재로 보류 %s건, "
-                        "최근이라 보류 %s건",
-                        heal["resolved"],
-                        heal["kept_live_order"],
-                        heal["too_recent"],
-                    )
-            except Exception as heal_error:  # noqa: BLE001
-                logger.warning(
-                    "격리 자가 해제 생략 - 거래소 열린 주문 조회 실패: %s",
-                    heal_error,
                 )
 
         if stats["checked"]:

@@ -85,7 +85,7 @@ def test_yes_no_negrisk_alignment_and_settlement_paths() -> None:
     ambiguous = get_proven_resolution(_binary((0.5, 0.5), closed=True))
     assert yes["payouts_by_outcome"] == {"Yes": 1.0, "No": 0.0}
     assert no["payouts_by_outcome"] == {"Yes": 0.0, "No": 1.0}
-    assert ambiguous["outcome"] == "Ambiguous"
+    assert ambiguous is None
 
 
 @pytest.mark.parametrize(

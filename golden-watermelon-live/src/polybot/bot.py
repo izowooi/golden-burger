@@ -111,6 +111,13 @@ class PolymarketBot:
             "buy_candidates": 0,
             "bought": 0,
             "entry_blocked_candidates": 0,
+            "orphan_buy_recovery": {
+                "checked": 0,
+                "recovered": 0,
+                "evidence_gaps": 0,
+                "identity_gaps": 0,
+                "duplicate_token_submissions": 0,
+            },
         }
         try:
             self._log_strategy_config()
@@ -118,12 +125,30 @@ class PolymarketBot:
 
             logger.info("=== Phase 0: exact-book sports archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            sweep = self.gamma.last_sweep_attestation
+            if not isinstance(sweep, dict):
+                sweep = {}
+            exclusion_counts = sweep.get("exclusion_counts") or {}
+            drift_excluded = sum(
+                int(count)
+                for reason, count in exclusion_counts.items()
+                if ":status=drift" in str(reason)
+            )
+            stats["universe_health"] = {
+                "raw_market_count": int(sweep.get("raw_market_count", 0)),
+                "qualified_market_count": int(
+                    sweep.get("qualified_market_count", 0)
+                ),
+                "drift_excluded_count": drift_excluded,
+                "metadata_drift_suspected": drift_excluded > 0,
+            }
             lifecycle_mode = trading.lifecycle_mode
 
             if lifecycle_mode == "archive_only":
                 logger.warning("archive_only: 주문 및 포지션 mutation을 건너뜁니다")
             else:
                 logger.info("=== Phase 1: own-order reconciliation / resolution ===")
+                stats["orphan_buy_recovery"] = trader.recover_orphan_buys()
                 pending_buys = repo.get_pending_buy_trades()
                 stats["pending_buys_checked"] = len(pending_buys)
                 for pending_trade in pending_buys:
@@ -160,24 +185,33 @@ class PolymarketBot:
                 stats["buy_candidates"] = len(candidates)
                 state_before_entry = repo.get_stats()
                 capacity = repo.get_entry_capacity_state()
+                open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
                     blocking_reasons.append("pending_buy_unresolved")
                 if state_before_entry["pending_sell"]:
                     blocking_reasons.append("pending_sell_unresolved")
+                if state_before_entry["quarantined"]:
+                    blocking_reasons.append("quarantined_position")
                 if int(order_reconciliation.get("unresolved_sell_outcomes", 0)):
                     blocking_reasons.append("unresolved_sell_outcome")
                 if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
                     blocking_reasons.append("sell_reconciliation_gap")
                 if capacity["total_reserved"] >= trading.max_positions:
                     blocking_reasons.append("max_capacity_reserved")
+                if capacity["untracked_buy_reservations"]:
+                    blocking_reasons.append("untracked_buy_exposure")
+                if open_buy_evidence_gaps:
+                    blocking_reasons.append("open_buy_fill_or_fee_evidence_gap")
                 if int(order_reconciliation.get("unresolved_buy_outcomes", 0)):
-                    degraded_reasons.append("unresolved_buy_outcome_reserved")
+                    blocking_reasons.append("unresolved_buy_outcome")
                 if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
-                    degraded_reasons.append("buy_reconciliation_gap_reserved")
+                    blocking_reasons.append("buy_reconciliation_gap")
                 if int(order_reconciliation.get("errors", 0)):
-                    degraded_reasons.append("order_reconciliation_error")
+                    blocking_reasons.append("order_reconciliation_error")
+                if stats["universe_health"]["metadata_drift_suspected"]:
+                    blocking_reasons.append("league_identity_metadata_drift")
                 entry_guard = {
                     "blocked": bool(blocking_reasons),
                     "blocking_reasons": blocking_reasons,
@@ -187,12 +221,14 @@ class PolymarketBot:
                         "untracked_buy_reservations"
                     ],
                     "total_reserved": capacity["total_reserved"],
+                    "open_buy_evidence_gaps": open_buy_evidence_gaps,
                     "max_positions": trading.max_positions,
                     "capacity_remaining": max(
                         0, trading.max_positions - capacity["total_reserved"]
                     ),
                     "pending_buy": state_before_entry["pending_buy"],
                     "pending_sell": state_before_entry["pending_sell"],
+                    "quarantined": state_before_entry["quarantined"],
                     "unresolved_buy_outcomes": int(
                         order_reconciliation.get("unresolved_buy_outcomes", 0)
                     ),
@@ -212,6 +248,18 @@ class PolymarketBot:
                 stats["entry_guard"] = entry_guard
                 if blocking_reasons:
                     stats["entry_blocked_candidates"] = len(candidates)
+                    block_reason = ",".join(blocking_reasons)
+                    for candidate in candidates:
+                        episode_id = candidate.get("entry_episode_id")
+                        if (
+                            not isinstance(episode_id, bool)
+                            and isinstance(episode_id, int)
+                        ):
+                            repo.mark_entry_episode_execution(
+                                episode_id,
+                                state="BLOCKED_GUARD",
+                                reason=block_reason,
+                            )
                     logger.warning(
                         "entry guard가 신규 BUY를 차단합니다 - reasons=%s "
                         "candidates=%s reserved=%s/%s",
@@ -225,8 +273,34 @@ class PolymarketBot:
                     for candidate in candidates[
                         : trading.max_new_positions_per_cycle
                     ]:
-                        if trader.execute_buy(candidate) is not None:
+                        episode_id = candidate.get("entry_episode_id")
+                        try:
+                            trade_id = trader.execute_buy(candidate)
+                        except Exception as error:
+                            if (
+                                not isinstance(episode_id, bool)
+                                and isinstance(episode_id, int)
+                            ):
+                                repo.mark_entry_episode_execution(
+                                    episode_id,
+                                    state="EXECUTION_EXCEPTION",
+                                    reason=type(error).__name__,
+                                )
+                            raise
+                        if trade_id is not None:
                             stats["bought"] += 1
+                        elif (
+                            not isinstance(episode_id, bool)
+                            and isinstance(episode_id, int)
+                        ):
+                            repo.mark_entry_episode_execution(
+                                episode_id,
+                                state="NOT_EXECUTED",
+                                reason=(
+                                    trader.last_entry_outcome_reason
+                                    or "unspecified_fail_closed_rejection"
+                                ),
+                            )
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 
@@ -239,16 +313,18 @@ class PolymarketBot:
                 "pending_buy": db_stats["pending_buy"],
                 "holding": db_stats["holding"],
                 "pending_sell": db_stats["pending_sell"],
+                "quarantined": db_stats["quarantined"],
                 "total": (
                     db_stats["pending_buy"]
                     + db_stats["holding"]
                     + db_stats["pending_sell"]
+                    + db_stats["quarantined"]
                 ),
             }
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
-                "pending_sell=%s) realized_pnl=$%.4f",
+                "pending_sell=%s quarantined=%s) realized_pnl=$%.4f",
                 stats["snapshots_saved"],
                 stats["checked_holdings"],
                 stats["sold"],
@@ -260,6 +336,7 @@ class PolymarketBot:
                 db_stats["pending_buy"],
                 db_stats["holding"],
                 db_stats["pending_sell"],
+                db_stats["quarantined"],
                 db_stats["total_pnl"],
             )
             return stats

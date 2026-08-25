@@ -183,9 +183,10 @@ def get_proven_resolution(
         outcome, winner_index = labels[0], 0
     elif prices == [0.0, 1.0]:
         outcome, winner_index = labels[1], 1
-    elif prices == [0.5, 0.5]:
-        outcome, winner_index = "Ambiguous", None
     else:
+        # A closed market with 0.5/0.5 (or any non-one-hot pair) is not a
+        # terminal payout.  Recording it as RESOLVED would prematurely release
+        # capacity and invent a settlement value.
         return None
     return {
         "outcome": outcome,

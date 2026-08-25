@@ -52,7 +52,10 @@ class _Repo:
         return 0
 
     def create_trade(self, **values):
+        episode_id = values.pop("entry_episode_id", None)
         self.created.append(values)
+        if episode_id is not None:
+            self.linked.append((episode_id, 7))
         return SimpleNamespace(id=7)
 
     def link_entry_episode_trade(self, episode_id, trade_id):
@@ -252,6 +255,78 @@ def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
         (1 - 0.985) * (5 / 0.985) - 0.01
     )
     assert clob.orders == []
+
+
+def test_resolution_waits_for_complete_buy_fee_evidence() -> None:
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(
+        "confirmed",
+        "buy-1",
+        order_status="MATCHED",
+        side="BUY",
+        requested_size=5.102,
+        latest_size_matched=5.102,
+        needs_reconciliation=False,
+        reconciled_full_fill=True,
+        confirmed_size=5.102,
+        confirmed_vwap=0.98,
+        confirmed_fee_usdc=None,
+        fee_complete=False,
+    )
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "condition-1",
+            "closed": True,
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": [1, 0],
+            "clobTokenIds": ["away-yes-token", "away-no-token"],
+            "negRisk": True,
+        }
+    )
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        buy_order_id="buy-1",
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    trader = Trader(
+        repo, clob, TradingConfig(), gamma_client=gamma, simulation_mode=False
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    assert repo.updated == []
+
+
+def test_gamma_resolution_requires_exact_condition_and_token_identity() -> None:
+    repo, clob = _Repo(), _Clob()
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "wrong-condition",
+            "closed": True,
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": [1, 0],
+            "clobTokenIds": ["away-yes-token", "away-no-token"],
+            "negRisk": True,
+        }
+    )
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        buy_order_id="buy-1",
+        buy_shares=5 / 0.985,
+        buy_price=0.985,
+    )
+    trader = Trader(
+        repo, clob, TradingConfig(), gamma_client=gamma, simulation_mode=False
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    assert repo.updated == []
 
 
 def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:

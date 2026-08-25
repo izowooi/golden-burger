@@ -20,6 +20,13 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     )
     trader = MagicMock()
     trader.execute_sell.return_value = False
+    trader.recover_orphan_buys.return_value = {
+        "checked": 0,
+        "recovered": 0,
+        "evidence_gaps": 0,
+        "identity_gaps": 0,
+        "duplicate_token_submissions": 0,
+    }
     trader.execute_buy.side_effect = AssertionError(
         "inactive entry path must never buy"
     )
@@ -42,6 +49,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "untracked_buy_reservations": 0,
         "total_reserved": len(holdings),
     }
+    repo.get_open_buy_evidence_gap_count.return_value = 0
     session = MagicMock()
 
     monkeypatch.setattr(bot_module, "MarketScanner", lambda *args, **kwargs: scanner)
@@ -50,6 +58,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
 
     gamma = MagicMock()
     gamma.get_all_tradable_markets.return_value = [{"conditionId": "market-1"}]
+    gamma.last_sweep_attestation = None
     bot = object.__new__(PolymarketBot)
     bot.config = SimpleNamespace(
         trading=TradingConfig(lifecycle_mode=mode),
@@ -195,6 +204,110 @@ def test_active_blocks_new_buy_when_sell_intent_outcome_is_uncertain(
     assert stats["entry_guard"]["blocking_reasons"] == [
         "unresolved_sell_outcome"
     ]
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_blocks_and_labels_first_episode_for_untracked_buy_exposure(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {
+        "condition_id": "market-1",
+        "event_id": "event-1",
+        "entry_episode_id": 17,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 0,
+        "untracked_buy_reservations": 1,
+        "total_reserved": 1,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "untracked_buy_exposure"
+    ]
+    repo.mark_entry_episode_execution.assert_called_once_with(
+        17,
+        state="BLOCKED_GUARD",
+        reason="untracked_buy_exposure",
+    )
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_blocks_new_buy_when_owned_buy_fee_evidence_is_incomplete(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {
+        "condition_id": "market-1",
+        "event_id": "event-1",
+        "entry_episode_id": 19,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_open_buy_evidence_gap_count.return_value = 1
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["open_buy_evidence_gaps"] == 1
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "open_buy_fill_or_fee_evidence_gap"
+    ]
+    repo.mark_entry_episode_execution.assert_called_once_with(
+        19,
+        state="BLOCKED_GUARD",
+        reason="open_buy_fill_or_fee_evidence_gap",
+    )
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_blocks_entry_when_allowed_league_metadata_drifts(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {
+        "condition_id": "market-1",
+        "event_id": "event-1",
+        "entry_episode_id": 18,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    gamma.last_sweep_attestation = {
+        "raw_market_count": 9,
+        "qualified_market_count": 0,
+        "exclusion_counts": {
+            "sport_name_mismatch:sport=epl:status=drift": 9
+        },
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["universe_health"] == {
+        "raw_market_count": 9,
+        "qualified_market_count": 0,
+        "drift_excluded_count": 9,
+        "metadata_drift_suspected": True,
+    }
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "league_identity_metadata_drift"
+    ]
+    repo.mark_entry_episode_execution.assert_called_once_with(
+        18,
+        state="BLOCKED_GUARD",
+        reason="league_identity_metadata_drift",
+    )
     trader.execute_buy.assert_not_called()
     session.close.assert_called_once()
 

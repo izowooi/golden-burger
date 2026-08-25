@@ -18,7 +18,7 @@ from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.models import STRATEGY_NAME, TradeStatus
 from ..db.repository import ExactFillEvidence, TradeRepository
-from .filters import get_proven_resolution
+from .filters import get_aligned_binary_outcomes, get_proven_resolution
 from .scanner import get_hours_since_game_start, parse_end_date
 
 
@@ -55,6 +55,17 @@ def locked_in_own_orders(result: dict) -> bool:
     return balance > 0 and active >= balance
 _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
+_MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
+
+
+def _ledger_timestamp(value: object, fallback: datetime) -> datetime:
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return fallback
+    if parsed.tzinfo is not None:
+        return parsed.astimezone(timezone.utc).replace(tzinfo=None)
+    return parsed
 
 
 def is_zero_balance_error(result: dict) -> bool:
@@ -131,11 +142,17 @@ class Trader:
         self.mode = "sim" if simulation_mode else "live"
         self.buying_disabled = False
         self.local_untracked_buy_reservations = 0
+        self.last_entry_outcome_reason: Optional[str] = None
+
+    def _reject_entry(self, reason: str) -> None:
+        self.last_entry_outcome_reason = str(reason)
+        return None
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Revalidate the exact $5 walk, then submit a FOK BUY."""
+        self.last_entry_outcome_reason = None
         if self.buying_disabled:
-            return None
+            return self._reject_entry("cycle_buying_disabled")
         condition_id = str(candidate["condition_id"])
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
@@ -147,7 +164,7 @@ class Trader:
                 outcome,
                 result_kind,
             )
-            return None
+            return self._reject_entry("whole_match_result_identity_missing")
         entry_snapshot_id = candidate.get("entry_snapshot_id")
         if (
             isinstance(entry_snapshot_id, bool)
@@ -160,13 +177,13 @@ class Trader:
                 condition_id,
                 entry_snapshot_id,
             )
-            return None
+            return self._reject_entry("current_run_entry_snapshot_missing")
         can_enter, reason = self.repo.can_reenter(
             condition_id, self.config.reentry_cooldown_hours
         )
         if not can_enter:
             logger.info("재진입 skip - condition=%s reason=%s", condition_id, reason)
-            return None
+            return self._reject_entry(f"reentry_{reason}")
         capacity = self.repo.get_entry_capacity_state()
         total_reserved = (
             capacity["total_reserved"] + self.local_untracked_buy_reservations
@@ -180,14 +197,14 @@ class Trader:
                 capacity["untracked_buy_reservations"],
                 self.local_untracked_buy_reservations,
             )
-            return None
+            return self._reject_entry("max_capacity_reserved")
         raw_event_id = candidate.get("event_id")
         if raw_event_id is None or not str(raw_event_id).strip():
             logger.warning(
                 "event_id 없는 진입 후보를 fail-closed 처리합니다 - condition=%s",
                 condition_id,
             )
-            return None
+            return self._reject_entry("event_id_missing")
         event_id = str(raw_event_id).strip()
         if (
             self.repo.get_event_position_count(event_id)
@@ -198,7 +215,7 @@ class Trader:
                 event_id,
                 self.config.max_event_positions,
             )
-            return None
+            return self._reject_entry("event_capacity_reserved")
 
         now = datetime.now(timezone.utc)
         experiment_start = parse_end_date(self.config.experiment_start_utc)
@@ -209,7 +226,7 @@ class Trader:
             or not (experiment_start <= now < experiment_end)
         ):
             logger.info("frozen entry period is closed - condition=%s", condition_id)
-            return None
+            return self._reject_entry("frozen_entry_period_closed")
         in_play_hours = get_hours_since_game_start(
             candidate.get("game_start_time"), now=now
         )
@@ -224,7 +241,7 @@ class Trader:
                 condition_id,
                 in_play_hours,
             )
-            return None
+            return self._reject_entry("in_play_window_revalidation_failed")
         try:
             walk = self.clob.get_buy_book_walk(
                 token_id, notional_usdc=self.config.buy_amount_usdc
@@ -235,7 +252,9 @@ class Trader:
                 condition_id,
                 type(error).__name__,
             )
-            return None
+            return self._reject_entry(
+                f"fresh_exact_book_{type(error).__name__}"
+            )
         if not (
             self.config.entry.prob_min - 1e-9
             <= walk.vwap
@@ -248,7 +267,7 @@ class Trader:
                 self.config.entry.prob_min,
                 self.config.entry.prob_max,
             )
-            return None
+            return self._reject_entry("fresh_exact_vwap_left_arm")
         required = self.config.min_order_size + self.config.min_order_buffer_shares
         if walk.shares + 1e-9 < required:
             logger.warning(
@@ -257,14 +276,14 @@ class Trader:
                 walk.shares,
                 required,
             )
-            return None
+            return self._reject_entry("minimum_order_shares_unavailable")
         if not 0 < walk.limit_price < 1:
             logger.warning(
                 "FOK limit price is not orderable - condition=%s price=%s",
                 condition_id,
                 walk.limit_price,
             )
-            return None
+            return self._reject_entry("fok_limit_not_orderable")
 
         logger.info(
             "Golden Watermelon Live FOK BUY: '%s' result=%s exact_vwap=%.2f%% "
@@ -284,6 +303,9 @@ class Trader:
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
                 self.local_untracked_buy_reservations += 1
+                rejection_reason = "buy_submission_outcome_unknown"
+            else:
+                rejection_reason = "buy_order_rejected"
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
                 logger.warning(
@@ -291,20 +313,27 @@ class Trader:
                 )
             else:
                 logger.error("매수 주문 실패: %s", result)
-            return None
+            return self._reject_entry(rejection_reason)
         try:
             submitted_shares = float(result["requested_size"])
         except (KeyError, TypeError, ValueError):
             logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
-            return None
+            return self._reject_entry("buy_requested_size_evidence_missing")
         if not math.isfinite(submitted_shares) or submitted_shares <= 0:
             logger.error(
                 "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
                 submitted_shares,
             )
-            return None
+            return self._reject_entry("buy_requested_size_invalid")
 
+        episode_id = candidate.get("entry_episode_id")
+        normalized_episode_id = (
+            episode_id
+            if not isinstance(episode_id, bool) and isinstance(episode_id, int)
+            else None
+        )
         trade = self.repo.create_trade(
+            entry_episode_id=normalized_episode_id,
             condition_id=condition_id,
             market_slug=candidate.get("market_slug", ""),
             question=candidate.get("question", ""),
@@ -352,10 +381,155 @@ class Trader:
         logger.info(
             "매수 주문 접수: Trade #%s Order=%s", trade.id, result.get("orderID")
         )
-        episode_id = candidate.get("entry_episode_id")
-        if not isinstance(episode_id, bool) and isinstance(episode_id, int):
-            self.repo.link_entry_episode_trade(episode_id, trade.id)
+        self.last_entry_outcome_reason = "trade_created"
         return trade.id
+
+    def recover_orphan_buys(self) -> dict:
+        """Reconstruct one ledger-proven BUY lost between POST and Trade commit.
+
+        The recovery is deliberately narrow: one submission per token, a
+        pre-existing first-observation episode, exact condition/token/snapshot
+        identity, terminal positive fill evidence, and complete fee evidence.
+        Anything else remains reserved and blocks new entry for operator review.
+        """
+        stats = {
+            "checked": 0,
+            "recovered": 0,
+            "evidence_gaps": 0,
+            "identity_gaps": 0,
+            "duplicate_token_submissions": 0,
+        }
+        submissions = self.repo.get_untracked_buy_submissions()
+        counts: dict[str, int] = {}
+        for submission in submissions:
+            token_id = str(submission.get("token_id") or "")
+            counts[token_id] = counts.get(token_id, 0) + 1
+
+        for submission in submissions:
+            stats["checked"] += 1
+            token_id = str(submission.get("token_id") or "").strip()
+            order_id = str(submission.get("order_id") or "").strip()
+            if counts.get(token_id, 0) != 1:
+                stats["duplicate_token_submissions"] += 1
+                logger.critical(
+                    "동일 token의 orphan BUY submission이 복수라 자동 복구를 "
+                    "중단합니다 - token=%s count=%s",
+                    token_id[:16],
+                    counts.get(token_id, 0),
+                )
+                continue
+            if not order_id:
+                stats["evidence_gaps"] += 1
+                continue
+            evidence = self.repo.get_exact_buy_fill_evidence(order_id)
+            if not (
+                evidence.has_reconciled_executed_fill
+                and evidence.fee_complete
+                and evidence.confirmed_size is not None
+                and evidence.confirmed_vwap is not None
+                and evidence.confirmed_fee_usdc is not None
+            ):
+                stats["evidence_gaps"] += 1
+                logger.warning(
+                    "orphan BUY는 capacity에 예약하지만 자동 복구 증거가 "
+                    "불완전합니다 - order=%s state=%s executed=%s fee=%s",
+                    order_id,
+                    evidence.state,
+                    evidence.has_reconciled_executed_fill,
+                    evidence.fee_complete,
+                )
+                continue
+
+            episode = self.repo.get_entry_episode_by_token(token_id)
+            if episode is None or episode.trade_id is not None:
+                stats["identity_gaps"] += 1
+                continue
+            snapshot = self.repo.get_snapshot_by_id(episode.entry_snapshot_id)
+            catalog = self.repo.get_market_catalog_by_condition_id(
+                episode.condition_id
+            )
+            if (
+                snapshot is None
+                or catalog is None
+                or str(snapshot.token_id) != token_id
+                or str(snapshot.condition_id) != str(episode.condition_id)
+                or str(submission.get("strategy_name") or "") != STRATEGY_NAME
+                or not math.isclose(
+                    float(episode.arm_prob_min),
+                    self.config.entry.prob_min,
+                    rel_tol=0,
+                    abs_tol=1e-9,
+                )
+                or not math.isclose(
+                    float(episode.arm_prob_max),
+                    self.config.entry.prob_max,
+                    rel_tol=0,
+                    abs_tol=1e-9,
+                )
+            ):
+                stats["identity_gaps"] += 1
+                logger.critical(
+                    "orphan BUY episode/catalog/config identity 불일치로 자동 "
+                    "복구를 중단합니다 - order=%s token=%s",
+                    order_id,
+                    token_id[:16],
+                )
+                continue
+
+            trade = self.repo.create_recovered_orphan_trade(
+                episode.id,
+                condition_id=str(episode.condition_id),
+                market_slug=catalog.market_slug,
+                question=catalog.question,
+                event_id=episode.event_id,
+                event_slug=catalog.event_slug,
+                outcome=str(episode.outcome),
+                token_id=token_id,
+                buy_price=evidence.confirmed_vwap,
+                buy_amount=self.config.buy_amount_usdc,
+                buy_shares=evidence.confirmed_size,
+                buy_order_id=order_id,
+                buy_timestamp=_ledger_timestamp(
+                    submission.get("submitted_at"), episode.observed_at
+                ),
+                buy_probability=episode.exact_vwap,
+                buy_confirmed_size=evidence.confirmed_size,
+                buy_confirmed_vwap=evidence.confirmed_vwap,
+                buy_confirmed_fee_usdc=evidence.confirmed_fee_usdc,
+                status=TradeStatus.HOLDING,
+                entry_reason=(
+                    "recovered_orphan_exact_fok_buy:"
+                    "first_observed_in_play_match_result"
+                ),
+                strategy_name=STRATEGY_NAME,
+                mode=self.mode,
+                market_end_date=episode.game_start_time,
+                hours_until_resolution_at_buy=episode.in_play_hours,
+                liquidity_at_buy=snapshot.liquidity,
+                volume_24h_at_buy=snapshot.volume_24h,
+                market_tags=catalog.tags_json,
+                prior_yes_price_at_entry=None,
+                yes_price_at_buy=episode.exact_vwap,
+                stop_price_at_entry=self.config.entry.stop_price,
+                entry_prob_min_at_buy=episode.arm_prob_min,
+                entry_prob_max_at_buy=episode.arm_prob_max,
+                entry_hours_min_at_buy=self.config.entry.hours_min,
+                entry_hours_max_at_buy=self.config.entry.hours_max,
+                prior_snapshot_id_at_entry=None,
+                entry_snapshot_id=episode.entry_snapshot_id,
+                best_bid_at_buy=snapshot.best_bid,
+                best_ask_at_buy=snapshot.best_ask,
+                spread_at_buy=snapshot.spread,
+            )
+            stats["recovered"] += 1
+            logger.warning(
+                "ledger-proven orphan BUY를 Trade로 원자적 복구했습니다 - "
+                "trade=%s order=%s size=%.6f",
+                trade.id,
+                order_id,
+                evidence.confirmed_size,
+            )
+        return stats
 
     def _record_resolution_values(
         self,
@@ -439,12 +613,49 @@ class Trader:
         proof = get_proven_resolution(market)
         if proof is None:
             return False
+        returned_condition_id = str(
+            market.get("conditionId") or market.get("condition_id") or ""
+        ).strip()
+        if returned_condition_id != str(trade.condition_id):
+            logger.error(
+                "Gamma resolution condition mismatch - trade=%s expected=%s got=%s",
+                trade.id,
+                trade.condition_id,
+                returned_condition_id,
+            )
+            return False
+        aligned = get_aligned_binary_outcomes(market)
+        selected = [
+            item
+            for item in aligned
+            if str(item.get("token_id") or "") == str(trade.token_id)
+            and str(item.get("outcome") or "") == str(trade.outcome)
+        ]
+        if len(selected) != 1:
+            logger.error(
+                "Gamma resolution token/outcome mismatch - trade=%s token=%s outcome=%s",
+                trade.id,
+                trade.token_id,
+                trade.outcome,
+            )
+            return False
         payouts = proof.get("payouts_by_outcome") or {}
         if trade.outcome not in payouts:
             logger.error(
                 "resolution payout lacks selected outcome - trade=%s outcome=%s",
                 trade.id,
                 trade.outcome,
+            )
+            return False
+        if not math.isclose(
+            float(payouts[trade.outcome]),
+            float(selected[0]["probability"]),
+            rel_tol=0,
+            abs_tol=1e-12,
+        ):
+            logger.error(
+                "Gamma resolution selected-token payout mismatch - trade=%s",
+                trade.id,
             )
             return False
         # Preserve the Gamma catalog evidence as well as the trade-local proof.
@@ -528,7 +739,7 @@ class Trader:
         evidence = self.repo.get_exact_buy_fill_evidence(
             getattr(trade, "buy_order_id", None)
         )
-        if evidence.state == "confirmed":
+        if self._resolution_fill_ready(evidence):
             recorder(evidence)
             return False
         if evidence.state == "terminal_zero_fill":
@@ -547,10 +758,13 @@ class Trader:
             )
             return False
         logger.warning(
-            "resolved payout은 확인했지만 exact CONFIRMED BUY fill 증거가 "
-            "없어 HOLDING 유지: Trade #%s state=%s detail=%s",
+            "resolved payout은 확인했지만 terminal BUY fill/fee 증거가 "
+            "완전하지 않아 HOLDING 유지: Trade #%s state=%s executed=%s "
+            "fee=%s detail=%s",
             trade.id,
             evidence.state,
+            evidence.has_reconciled_executed_fill,
+            evidence.fee_complete,
             evidence.detail,
         )
         return False
@@ -603,6 +817,17 @@ class Trader:
     def _actual_fill_ready(evidence: ExactFillEvidence) -> bool:
         return (
             evidence.has_reconciled_full_fill
+            and evidence.fee_complete
+            and evidence.confirmed_size is not None
+            and evidence.confirmed_vwap is not None
+            and evidence.confirmed_fee_usdc is not None
+        )
+
+    @staticmethod
+    def _resolution_fill_ready(evidence: ExactFillEvidence) -> bool:
+        """Resolution may settle a proven terminal partial FOK, never unknown fee."""
+        return (
+            evidence.has_reconciled_executed_fill
             and evidence.fee_complete
             and evidence.confirmed_size is not None
             and evidence.confirmed_vwap is not None
@@ -748,6 +973,7 @@ class Trader:
                 sell_confirmed_vwap=None,
                 sell_confirmed_fee_usdc=None,
                 sell_fill_matched_at=None,
+                sell_residual_shares=None,
             )
             logger.warning(
                 "exact terminal zero-fill SELL 증거로 HOLDING 복귀: Trade #%s order=%s",
@@ -770,47 +996,84 @@ class Trader:
         buy_evidence = self.repo.get_exact_buy_fill_evidence(
             getattr(trade, "buy_order_id", None)
         )
-        if not self._actual_fill_ready(buy_evidence):
+        if not self._resolution_fill_ready(buy_evidence):
             logger.error(
-                "SELL은 full fill이지만 BUY full-fill/fee 증거가 없어 "
-                "PENDING_SELL 유지: Trade #%s state=%s full=%s fee=%s detail=%s",
+                "SELL은 full fill이지만 BUY terminal-fill/fee 증거가 없어 "
+                "PENDING_SELL 유지: Trade #%s state=%s executed=%s fee=%s detail=%s",
                 trade.id,
                 buy_evidence.state,
-                buy_evidence.has_reconciled_full_fill,
+                buy_evidence.has_reconciled_executed_fill,
                 buy_evidence.fee_complete,
                 buy_evidence.detail,
             )
             return False
-        if not math.isclose(
-            sell_evidence.confirmed_size,
-            buy_evidence.confirmed_size,
-            rel_tol=1e-9,
-            abs_tol=_FILL_SIZE_TOLERANCE,
+        expected_sell_size = getattr(trade, "sell_shares", None)
+        if (
+            expected_sell_size is None
+            or not math.isfinite(float(expected_sell_size))
+            or not math.isclose(
+                sell_evidence.confirmed_size,
+                float(expected_sell_size),
+                rel_tol=1e-9,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            )
         ):
             logger.error(
-                "BUY/SELL confirmed size 불일치로 PENDING_SELL 유지: "
-                "Trade #%s buy=%.6f sell=%.6f",
+                "signed SELL requested/confirmed size 불일치로 PENDING_SELL 유지: "
+                "Trade #%s requested=%s confirmed=%.6f",
                 trade.id,
-                buy_evidence.confirmed_size,
+                expected_sell_size,
                 sell_evidence.confirmed_size,
             )
             return False
+        residual_shares = (
+            buy_evidence.confirmed_size - sell_evidence.confirmed_size
+        )
+        if (
+            residual_shares < -_FILL_SIZE_TOLERANCE
+            or residual_shares >= _MAX_SIGNED_SELL_DUST_SHARES
+        ):
+            logger.error(
+                "BUY/SELL residual이 SDK 0.01-share quantum을 초과해 "
+                "PENDING_SELL 유지: Trade #%s buy=%.6f sell=%.6f residual=%.6f",
+                trade.id,
+                buy_evidence.confirmed_size,
+                sell_evidence.confirmed_size,
+                residual_shares,
+            )
+            return False
+        residual_shares = max(0.0, residual_shares)
 
         size = sell_evidence.confirmed_size
+        allocated_buy_fee = (
+            buy_evidence.confirmed_fee_usdc
+            * size
+            / buy_evidence.confirmed_size
+        )
         realized_pnl = (
             (sell_evidence.confirmed_vwap - buy_evidence.confirmed_vwap) * size
-            - buy_evidence.confirmed_fee_usdc
+            - allocated_buy_fee
             - sell_evidence.confirmed_fee_usdc
         )
+        has_dust = residual_shares > _FILL_SIZE_TOLERANCE
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.COMPLETED,
-            exit_reason="absolute_stop_confirmed_fill",
+            exit_reason=(
+                "absolute_stop_confirmed_fill_with_recorded_sdk_dust"
+                if has_dust
+                else "absolute_stop_confirmed_fill"
+            ),
             sell_price=sell_evidence.confirmed_vwap,
             sell_shares=size,
             realized_pnl=realized_pnl,
             hypothetical_pnl=None,
-            pnl_basis="exact_reconciled_buy_sell_confirmed_fills_net_known_fees",
+            pnl_basis=(
+                "exact_reconciled_buy_sell_confirmed_fills_net_allocated_fees_"
+                "excluding_recorded_unsellable_dust"
+                if has_dust
+                else "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+            ),
             buy_confirmed_size=buy_evidence.confirmed_size,
             buy_confirmed_vwap=buy_evidence.confirmed_vwap,
             buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
@@ -818,11 +1081,14 @@ class Trader:
             sell_confirmed_vwap=sell_evidence.confirmed_vwap,
             sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
             sell_fill_matched_at=sell_evidence.matched_at,
+            sell_residual_shares=residual_shares,
         )
         logger.info(
-            "confirmed stop SELL 완료: Trade #%s size=%.6f vwap=%.4f actual P&L=$%.4f",
+            "confirmed stop SELL 완료: Trade #%s size=%.6f residual=%.6f "
+            "vwap=%.4f actual sold-portion P&L=$%.4f",
             trade.id,
             size,
+            residual_shares,
             sell_evidence.confirmed_vwap,
             realized_pnl,
         )
@@ -880,7 +1146,31 @@ class Trader:
             side="SELL",
             order_type="FOK",
         )
-        sell_shares = walk.shares
+        try:
+            sell_shares = float(result.get("requested_size", walk.shares))
+        except (TypeError, ValueError):
+            logger.critical(
+                "signed SELL requested size evidence is invalid - trade=%s",
+                trade.id,
+            )
+            return False
+        residual_shares = float(trade.buy_shares) - sell_shares
+        if (
+            not math.isfinite(sell_shares)
+            or sell_shares <= 0
+            or residual_shares < -_FILL_SIZE_TOLERANCE
+            or residual_shares >= _MAX_SIGNED_SELL_DUST_SHARES
+        ):
+            logger.critical(
+                "signed SELL size drift is unsafe - trade=%s bought=%.6f "
+                "signed=%.6f residual=%.6f",
+                trade.id,
+                float(trade.buy_shares),
+                sell_shares,
+                residual_shares,
+            )
+            return False
+        residual_shares = max(0.0, residual_shares)
         if result.get("success") or result.get("orderID"):
             common = {
                 "sell_price": walk.vwap,
@@ -896,6 +1186,7 @@ class Trader:
                 "sell_confirmed_vwap": None,
                 "sell_confirmed_fee_usdc": None,
                 "sell_fill_matched_at": None,
+                "sell_residual_shares": residual_shares,
             }
             if self.mode == "sim":
                 hypothetical_pnl = (best_bid - trade.buy_price) * sell_shares

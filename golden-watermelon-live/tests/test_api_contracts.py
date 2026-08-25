@@ -214,7 +214,9 @@ def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     assert client.last_sweep_attestation is None
 
 
-def test_order_reconciliation_reports_side_specific_health(monkeypatch) -> None:
+def test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve(
+    monkeypatch,
+) -> None:
     class _Ledger:
         def pending_submissions(self):
             return []
@@ -225,10 +227,13 @@ def test_order_reconciliation_reports_side_specific_health(monkeypatch) -> None:
         def reconciliation_gap_count(self, *, side):
             return {"BUY": 3, "SELL": 4}[side]
 
+        def autoresolve_stale_sell_intents(self, **_kwargs):
+            raise AssertionError("open-order absence must never resolve an intent")
+
     wrapper = object.__new__(ClobClientWrapper)
     wrapper.simulation_mode = False
     wrapper.execution_ledger = _Ledger()
-    monkeypatch.setenv("POLYBOT_INTENT_AUTORESOLVE", "false")
+    monkeypatch.setenv("POLYBOT_INTENT_AUTORESOLVE", "true")
 
     stats = wrapper.reconcile_order_ledger()
 
@@ -236,6 +241,7 @@ def test_order_reconciliation_reports_side_specific_health(monkeypatch) -> None:
     assert stats["unresolved_sell_outcomes"] == 1
     assert stats["reconciliation_buy_gaps"] == 3
     assert stats["reconciliation_sell_gaps"] == 4
+    assert stats["intent_autoresolved"] == 0
 
 
 def _fee_evidence_wrapper(tmp_path, *, clob_rate="0.05"):
@@ -520,6 +526,55 @@ def test_live_fok_uses_venue_tick_and_fok_order_type() -> None:
     assert result["orderID"] == "order-1"
     assert float(captured["order"].price) == 0.945
     assert "FOK" in str(captured["order_type"])
+
+
+def test_live_sell_ledger_uses_signed_two_decimal_share_quantity(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    captured = {}
+
+    class _Client:
+        def get_clob_market_info(self, condition_id):
+            assert condition_id == "condition-fee"
+            return {
+                "c": "condition-fee",
+                "t": [
+                    {"t": "token-fee", "o": "Yes"},
+                    {"t": "token-no", "o": "No"},
+                ],
+                "fd": {"r": "0.05", "e": 1, "to": True},
+            }
+
+        def get_tick_size(self, token_id):
+            assert token_id == "token-fee"
+            return "0.01"
+
+        def create_order(self, order):
+            captured["order"] = order
+            return SimpleNamespace(makerAmount="5100000", takerAmount="3570000")
+
+        def post_order(self, _signed, order_type):
+            captured["order_type"] = order_type
+            return {"success": True, "orderID": "sell-signed", "status": "live"}
+
+        def cancel_orders(self, _order_ids):
+            return {"canceled": []}
+
+    wrapper._client = _Client()
+    result = wrapper.place_limit_order(
+        "token-fee", price=0.70, size=5.102, side="SELL", order_type="FOK"
+    )
+
+    assert result["requested_size"] == pytest.approx(5.10)
+    assert float(captured["order"].size) == pytest.approx(5.102)
+    assert "FOK" in str(captured["order_type"])
+    with wrapper._open_evidence_db_read_only() as connection:
+        row = connection.execute(
+            "SELECT requested_size, making_amount, taking_amount "
+            "FROM order_submissions WHERE order_id='sell-signed'"
+        ).fetchone()
+    assert row["requested_size"] == pytest.approx(5.10)
+    assert row["making_amount"] == pytest.approx(5.10)
+    assert row["taking_amount"] == pytest.approx(3.57)
 
 
 def test_live_client_derives_existing_api_key_without_create_attempt(

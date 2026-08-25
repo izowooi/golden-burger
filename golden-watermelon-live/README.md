@@ -6,8 +6,8 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 
 | arm | Jenkins | runtime job | exact `$5` ask VWAP |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2c` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2c` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2d` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2d` | `[0.99, 0.999]` |
 
 두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
 보존하며, 분석은 job별 cohort로 분리한다.
@@ -26,8 +26,11 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 - stop이 체결되지 않거나 depth가 부족하면 손실을 추정해 종결하지 않고 보유·대사 상태 유지
 - stop 전에는 resolution까지 보유하며 TP와 time exit는 없음
 - account 최대 20개, event당 1개, cycle당 최대 20개, 주문당 정확히 `$5`
-- max-position capacity는 open trade와 trade에 연결되지 않은 unresolved BUY intent를 함께 계산
+- max-position capacity는 `QUARANTINED`를 포함한 open trade와 trade에 연결되지 않은 모든
+  live BUY intent를 함께 계산하며, 같은 예약을 event cap에도 반영
 - unresolved pending state 또는 SELL evidence gap 중에는 후보를 계속 기록하되 신규 BUY를 중지
+- 첫 후보가 guard·fresh-book·주문 단계에서 실행되지 않은 이유를 episode에 보존하고,
+  ledger로 증명된 orphan BUY만 원자적으로 Trade에 복구
 - live 주문 전 Gamma와 CLOB의 token/condition 및 동적 fee schedule이 정확히 일치해야 함
 - confirmed taker fill은 legacy `fee_rate_bps=0`이 아니라 exact fill과 CLOB v2 schedule로
   계산한 5-decimal fee amount를 저장해야 함
@@ -58,8 +61,10 @@ entry window는 `[2026-08-24T13:00:00Z, 2026-08-31T13:00:00Z)`, follow-up cutoff
 
 v2b는 과거 함대의 max-position 우회/고착과 불완전한 후보 근거를 막은 safety epoch다.
 첫 Cat 체결에서 CLOB v2의 동적 taker fee를 legacy 0-rate로 오판한 결함이 발견되어 v2c가
-fee metadata preflight와 exact fee amount 증거를 추가했다. threshold·stop·cadence는 바뀌지
-않았다. v2a/v2b DB는 immutable 배포 증거로 보존하고 v2c DB와 합치지 않는다.
+fee metadata preflight와 exact fee amount 증거를 추가했다. 이후 함대 장애 이력 정적 감사에서
+orphan BUY capacity, `QUARANTINED`, signed SELL 수량, exact resolution identity 등 잠재 경로가
+발견되어 v2d가 lifecycle 방어와 episode별 실행 사유를 추가했다. threshold·stop·cadence는
+바뀌지 않았다. v2a/v2b/v2c DB는 immutable 배포 증거로 보존하고 v2d DB와 합치지 않는다.
 
 ## 로컬 검증
 

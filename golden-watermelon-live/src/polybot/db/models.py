@@ -75,6 +75,10 @@ class Trade(Base):
     sell_confirmed_vwap = Column(Float)
     sell_confirmed_fee_usdc = Column(Float)
     sell_fill_matched_at = Column(String)
+    # py-clob-client-v2 signs SELL maker size at two decimal shares.  Exact-$5
+    # BUYs can create finer share precision, so an unavoidable sub-cent-share
+    # residual must be explicit rather than disguised as a full close.
+    sell_residual_shares = Column(Float)
 
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY, index=True)
     entry_reason = Column(String)
@@ -166,6 +170,11 @@ class EntryEpisode(Base):
     arm_prob_max = Column(Float, nullable=False)
     observed_at = Column(DateTime, nullable=False)
     trade_id = Column(Integer)
+    game_start_time = Column(DateTime)
+    in_play_hours = Column(Float)
+    execution_state = Column(String, nullable=False, default="OBSERVED")
+    execution_reason = Column(String)
+    last_attempted_at = Column(DateTime)
 
 
 class ResolutionObservation(Base):
@@ -297,6 +306,7 @@ _TRADE_MIGRATION_COLUMNS = {
     "sell_confirmed_vwap": "REAL",
     "sell_confirmed_fee_usdc": "REAL",
     "sell_fill_matched_at": "TEXT",
+    "sell_residual_shares": "REAL",
     "prior_yes_price_at_entry": "REAL",
     "yes_price_at_buy": "REAL",
     "stop_price_at_entry": "REAL",
@@ -361,6 +371,20 @@ def init_database(
             try:
                 connection.execute(
                     text(f"ALTER TABLE market_snapshots ADD COLUMN {name} {sql_type}")
+                )
+                connection.commit()
+            except Exception:
+                pass
+        for name, sql_type in {
+            "game_start_time": "DATETIME",
+            "in_play_hours": "REAL",
+            "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
+            "execution_reason": "TEXT",
+            "last_attempted_at": "DATETIME",
+        }.items():
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE entry_episodes ADD COLUMN {name} {sql_type}")
                 )
                 connection.commit()
             except Exception:

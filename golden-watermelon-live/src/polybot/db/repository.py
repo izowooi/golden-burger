@@ -41,7 +41,43 @@ _OPEN_STATUSES = (
     TradeStatus.PENDING_BUY,
     TradeStatus.HOLDING,
     TradeStatus.PENDING_SELL,
+    # QUARANTINED means economic exposure is unknown, not zero.  It must keep
+    # consuming capacity until an operator/evidence-backed transition proves
+    # otherwise.
+    TradeStatus.QUARANTINED,
 )
+
+_UNTRACKED_BUY_RESERVATION_PREDICATE = """
+    submission.simulation = 0
+    AND UPPER(submission.side) = 'BUY'
+    AND NOT EXISTS (
+        SELECT 1
+        FROM trades AS linked_trade
+        WHERE linked_trade.buy_order_id = submission.order_id
+    )
+    AND NOT (
+        submission.outcome_resolution = 'NO_ORDER_CREATED'
+        AND submission.order_id IS NULL
+        AND submission.outcome_resolved_at IS NOT NULL
+        AND NULLIF(TRIM(submission.outcome_resolution_reason), '') IS NOT NULL
+    )
+    AND NOT (
+        submission.order_id IS NOT NULL
+        AND submission.needs_reconciliation = 0
+        AND REPLACE(UPPER(COALESCE(submission.latest_order_status, '')),
+                    'ORDER_STATUS_', '') IN (
+            'CANCELED', 'CANCELLED', 'CANCELED_MARKET_RESOLVED', 'INVALID'
+        )
+        AND COALESCE(submission.latest_size_matched, 0) <= 0.000001
+        AND NOT EXISTS (
+            SELECT 1
+            FROM order_fills AS positive_fill
+            WHERE positive_fill.submission_id = submission.submission_id
+              AND UPPER(COALESCE(positive_fill.status, '')) = 'CONFIRMED'
+              AND COALESCE(positive_fill.size, 0) > 0.000001
+        )
+    )
+"""
 
 _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED",
@@ -176,9 +212,31 @@ class TradeRepository:
         allowed, _ = self.can_reenter(condition_id, cooldown_hours)
         return not allowed
 
-    def create_trade(self, **kwargs) -> Trade:
+    def create_trade(
+        self,
+        *,
+        entry_episode_id: Optional[int] = None,
+        **kwargs: Any,
+    ) -> Trade:
+        """Create a trade and link its first-observation episode atomically.
+
+        A live POST can succeed immediately before this write.  Committing the
+        Trade and EntryEpisode in two transactions would leave a real position
+        with an unlinked experimental denominator if the second commit failed.
+        """
         trade = Trade(**kwargs)
         self.session.add(trade)
+        self.session.flush()
+        if entry_episode_id is not None:
+            episode = self.session.get(EntryEpisode, int(entry_episode_id))
+            if episode is None:
+                raise ValueError(f"entry episode not found: {entry_episode_id}")
+            if episode.trade_id not in (None, trade.id):
+                raise ValueError("entry episode is already linked to another trade")
+            episode.trade_id = trade.id
+            episode.execution_state = "TRADE_CREATED"
+            episode.execution_reason = "exact_order_submission_linked"
+            episode.last_attempted_at = datetime.utcnow()
         self.session.commit()
         return trade
 
@@ -346,7 +404,9 @@ class TradeRepository:
             or 0
         )
 
-    def get_untracked_buy_reservation_count(self) -> int:
+    def get_untracked_buy_reservation_count(
+        self, *, event_id: Optional[str] = None
+    ) -> int:
         """Count unresolved live BUY submissions not represented by an open trade.
 
         An accepted/uncertain venue request can exist in the execution ledger even
@@ -355,37 +415,58 @@ class TradeRepository:
         Rows already represented by an economically open trade are excluded to
         avoid counting one request twice.
         """
+        event_clause = ""
+        parameters: Dict[str, Any] = {}
+        if event_id is not None:
+            normalized_event_id = str(event_id).strip()
+            if not normalized_event_id:
+                return 0
+            event_clause = """
+                AND EXISTS (
+                    SELECT 1
+                    FROM entry_episodes AS episode
+                    WHERE episode.token_id = submission.token_id
+                      AND episode.event_id = :event_id
+                )
+            """
+            parameters["event_id"] = normalized_event_id
         result = self.session.execute(
             text(
-                """
-                SELECT COUNT(*)
-                FROM order_submissions AS submission
-                WHERE submission.simulation = 0
-                  AND UPPER(submission.side) = 'BUY'
-                  AND (
-                        submission.needs_reconciliation = 1
-                        OR (
-                            submission.order_id IS NULL
-                            AND submission.response_status IN (
-                                'INTENT',
-                                'SUBMIT_OUTCOME_UNKNOWN',
-                                'EVIDENCE_WRITE_FAILED'
-                            )
-                            AND submission.outcome_resolved_at IS NULL
-                        )
-                  )
-                  AND NOT EXISTS (
-                      SELECT 1
-                      FROM trades AS trade
-                      WHERE trade.buy_order_id = submission.order_id
-                        AND trade.status IN (
-                            'PENDING_BUY', 'HOLDING', 'PENDING_SELL'
-                        )
-                  )
-                """
-            )
+                "SELECT COUNT(*) FROM order_submissions AS submission WHERE "
+                + _UNTRACKED_BUY_RESERVATION_PREDICATE
+                + event_clause
+            ),
+            parameters,
         ).scalar()
         return int(result or 0)
+
+    def get_untracked_buy_submissions(self) -> List[Dict[str, Any]]:
+        """Return every live orphan/uncertain BUY that can still be exposure.
+
+        A reconciled positive orphan fill remains here even when
+        ``needs_reconciliation=0``.  Only an exact linked Trade, explicit
+        operator proof of no order, or terminal zero-fill proof releases it.
+        """
+        rows = self.session.execute(
+            text(
+                """
+                SELECT submission.submission_id, submission.run_id,
+                       submission.strategy_name, submission.order_id,
+                       submission.token_id, submission.requested_price,
+                       submission.requested_size, submission.submitted_at,
+                       submission.response_status,
+                       submission.latest_order_status,
+                       submission.latest_size_matched,
+                       submission.needs_reconciliation,
+                       submission.outcome_resolution
+                FROM order_submissions AS submission
+                WHERE
+                """
+                + _UNTRACKED_BUY_RESERVATION_PREDICATE
+                + " ORDER BY submission.submitted_at, submission.submission_id"
+            )
+        ).mappings()
+        return [dict(row) for row in rows]
 
     def get_entry_capacity_state(self) -> Dict[str, int]:
         """Return the conservative max-position reservation denominator."""
@@ -397,10 +478,30 @@ class TradeRepository:
             "total_reserved": open_positions + untracked_buy_reservations,
         }
 
+    def get_open_buy_evidence_gap_count(self) -> int:
+        """Count owned open positions missing exact BUY fill or fee evidence."""
+        result = (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.status.in_(
+                    (TradeStatus.HOLDING, TradeStatus.PENDING_SELL)
+                ),
+                or_(
+                    Trade.buy_order_id.is_(None),
+                    Trade.buy_confirmed_size.is_(None),
+                    Trade.buy_confirmed_vwap.is_(None),
+                    Trade.buy_confirmed_fee_usdc.is_(None),
+                ),
+            )
+            .scalar()
+            or 0
+        )
+        return int(result)
+
     def get_event_position_count(self, event_id: Optional[str]) -> int:
         if not event_id:
             return 0
-        return (
+        open_trades = (
             self.session.query(func.count(Trade.id))
             .filter(
                 Trade.event_id == event_id,
@@ -408,6 +509,9 @@ class TradeRepository:
             )
             .scalar()
             or 0
+        )
+        return int(open_trades) + self.get_untracked_buy_reservation_count(
+            event_id=str(event_id)
         )
 
     get_open_event_position_count = get_event_position_count
@@ -803,6 +907,8 @@ class TradeRepository:
         arm_prob_min: float,
         arm_prob_max: float,
         observed_at: datetime,
+        game_start_time: Optional[datetime] = None,
+        in_play_hours: Optional[float] = None,
     ) -> Optional[EntryEpisode]:
         """Persist and return only the token's first in-arm observation."""
         existing = (
@@ -822,10 +928,46 @@ class TradeRepository:
             arm_prob_min=arm_prob_min,
             arm_prob_max=arm_prob_max,
             observed_at=observed_at,
+            game_start_time=game_start_time,
+            in_play_hours=in_play_hours,
+            execution_state="OBSERVED",
         )
         self.session.add(episode)
         self.session.flush()
         return episode
+
+    def get_entry_episode_by_token(self, token_id: str) -> Optional[EntryEpisode]:
+        return (
+            self.session.query(EntryEpisode)
+            .filter(EntryEpisode.token_id == str(token_id))
+            .first()
+        )
+
+    def get_snapshot_by_id(self, snapshot_id: int) -> Optional[MarketSnapshot]:
+        return self.session.get(MarketSnapshot, int(snapshot_id))
+
+    def get_market_catalog_by_condition_id(
+        self, condition_id: str
+    ) -> Optional[MarketCatalog]:
+        return self.session.get(MarketCatalog, str(condition_id))
+
+    def mark_entry_episode_execution(
+        self,
+        episode_id: int,
+        *,
+        state: str,
+        reason: Optional[str] = None,
+    ) -> None:
+        episode = self.session.get(EntryEpisode, int(episode_id))
+        if episode is None:
+            raise ValueError(f"entry episode not found: {episode_id}")
+        normalized_state = str(state or "").strip().upper()
+        if not normalized_state:
+            raise ValueError("entry episode execution state is empty")
+        episode.execution_state = normalized_state
+        episode.execution_reason = str(reason or "").strip() or None
+        episode.last_attempted_at = datetime.utcnow()
+        self.session.commit()
 
     def link_entry_episode_trade(self, episode_id: int, trade_id: int) -> None:
         episode = self.session.get(EntryEpisode, episode_id)
@@ -834,7 +976,39 @@ class TradeRepository:
         if episode.trade_id not in (None, trade_id):
             raise ValueError("entry episode is already linked to another trade")
         episode.trade_id = trade_id
+        episode.execution_state = "TRADE_CREATED"
+        episode.execution_reason = "exact_order_submission_linked"
+        episode.last_attempted_at = datetime.utcnow()
         self.session.commit()
+
+    def create_recovered_orphan_trade(
+        self, episode_id: int, **trade_values: Any
+    ) -> Trade:
+        """Atomically reconstruct a ledger-proven orphan BUY and link its episode."""
+        episode = self.session.get(EntryEpisode, int(episode_id))
+        if episode is None:
+            raise ValueError(f"entry episode not found: {episode_id}")
+        if episode.trade_id is not None:
+            raise ValueError("entry episode already has a linked trade")
+        order_id = str(trade_values.get("buy_order_id") or "").strip()
+        if not order_id:
+            raise ValueError("recovered orphan trade requires an exact order ID")
+        existing = (
+            self.session.query(Trade)
+            .filter(Trade.buy_order_id == order_id)
+            .first()
+        )
+        if existing is not None:
+            raise ValueError("orphan order is already represented by a trade")
+        trade = Trade(**trade_values)
+        self.session.add(trade)
+        self.session.flush()
+        episode.trade_id = trade.id
+        episode.execution_state = "ORPHAN_RECOVERED"
+        episode.execution_reason = "reconciled_positive_buy_fill_reconstructed"
+        episode.last_attempted_at = datetime.utcnow()
+        self.session.commit()
+        return trade
 
     def get_snapshots_since(
         self, condition_id: str, since: datetime

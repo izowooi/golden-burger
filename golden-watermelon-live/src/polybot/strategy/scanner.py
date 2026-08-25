@@ -165,7 +165,9 @@ class MarketScanner:
                 if not condition_id:
                     raise ValueError("qualified Gamma market has no conditionId")
                 self.repo.save_market_catalog(condition_id, market, commit=False)
-                eligible, reason, _, _ = self._market_eligible(market, reference)
+                eligible, reason, game_start, in_play_hours = self._market_eligible(
+                    market, reference
+                )
                 if not eligible:
                     snapshot_results[condition_id] = {
                         "snapshot_eligible": False,
@@ -230,6 +232,12 @@ class MarketScanner:
                         observed_at=reference.astimezone(timezone.utc).replace(
                             tzinfo=None
                         ),
+                        game_start_time=(
+                            game_start.astimezone(timezone.utc).replace(tzinfo=None)
+                            if game_start is not None
+                            else None
+                        ),
+                        in_play_hours=in_play_hours,
                     )
                     if episode is not None:
                         self._first_episode_ids[token_id] = episode.id
