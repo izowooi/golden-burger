@@ -635,9 +635,12 @@ class TradeRepository:
                 raw_fee = row["fee_amount_usdc"]
                 if raw_fee is None:
                     liquidity_role = str(row["liquidity_role"] or "").strip().upper()
-                    known_zero_fee = fee_rate == 0.0 or (
-                        fee_rate is None and liquidity_role == "MAKER"
-                    )
+                    # CLOB V2 keeps a legacy fee_rate_bps=0 placeholder even
+                    # when a dynamic taker fee is charged at match time.  Only
+                    # an explicit fee amount, or a maker role under the current
+                    # maker-free contract, proves the fee.  Never promote a
+                    # taker fill from the legacy zero-rate field alone.
+                    known_zero_fee = liquidity_role == "MAKER"
                     if not known_zero_fee:
                         fee_complete = False
                 else:
@@ -933,6 +936,12 @@ class TradeRepository:
             "enable_order_book": bool_int(market.get("enableOrderBook")),
             "fees_enabled": bool_int(market.get("feesEnabled")),
             "fee_rate": fee_schedule.get("rate")
+            if isinstance(fee_schedule, dict)
+            else None,
+            "fee_exponent": fee_schedule.get("exponent")
+            if isinstance(fee_schedule, dict)
+            else None,
+            "fee_taker_only": bool_int(fee_schedule.get("takerOnly"))
             if isinstance(fee_schedule, dict)
             else None,
             "resolution_status": (

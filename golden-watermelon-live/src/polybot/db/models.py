@@ -214,6 +214,8 @@ class MarketCatalog(Base):
     enable_order_book = Column(Integer)
     fees_enabled = Column(Integer)
     fee_rate = Column(Float)
+    fee_exponent = Column(Integer)
+    fee_taker_only = Column(Integer)
     resolution_status = Column(String)
     resolved_outcome = Column(String)
     resolved_value = Column(Float)
@@ -373,6 +375,19 @@ def init_database(
             connection.commit()
         except Exception:
             pass
+        for name, sql_type in {
+            "fee_exponent": "INTEGER",
+            "fee_taker_only": "INTEGER",
+        }.items():
+            try:
+                connection.execute(
+                    text(
+                        f"ALTER TABLE market_catalog ADD COLUMN {name} {sql_type}"
+                    )
+                )
+                connection.commit()
+            except Exception:
+                pass
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "

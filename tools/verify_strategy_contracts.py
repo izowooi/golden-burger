@@ -3557,8 +3557,8 @@ def _validate_watermelon_live_strategy(
         "README.md": (
             "polybot-cat",
             "polybot-dog",
-            "watermelon-live-cat-98-1m-v2b",
-            "watermelon-live-dog-99-1m-v2b",
+            "watermelon-live-cat-98-1m-v2c",
+            "watermelon-live-dog-99-1m-v2c",
             "EPL",
             "Bundesliga",
             "Ligue 1",
@@ -3581,8 +3581,8 @@ def _validate_watermelon_live_strategy(
         "OPERATIONS.md": (
             "* * * * *",
             "Clean before checkout",
-            "watermelon-live-cat-98-1m-v2b",
-            "watermelon-live-dog-99-1m-v2b",
+            "watermelon-live-cat-98-1m-v2c",
+            "watermelon-live-dog-99-1m-v2c",
             "daily-rsync verify",
         ),
         "src/polybot/bot.py": (
@@ -3596,6 +3596,8 @@ def _validate_watermelon_live_strategy(
             "get_untracked_buy_reservation_count",
             "untracked_buy_reservations",
             "incomplete membership checkpoint",
+            "fee_taker_only",
+            "legacy fee_rate_bps=0 placeholder",
         ),
         "src/polybot/config.py": (
             "FROZEN_ARMS",
@@ -3630,6 +3632,9 @@ def _validate_watermelon_live_strategy(
         "src/polybot/api/clob_client.py": (
             "BuyBookWalk",
             "SellBookWalk",
+            "Gamma and CLOB dynamic fee parameters do not match",
+            "resolve_dynamic_fee_evidence",
+            "fee_amount_usdc",
             "full $5 displayed ask depth is unavailable",
             "full displayed bid depth for stop shares is unavailable",
             "get_sell_book_walk",
@@ -3700,6 +3705,8 @@ def _validate_watermelon_live_strategy(
         "research/frozen-2026-08-24-1m-v2a/MANIFEST.sha256",
         "research/frozen-2026-08-25-safety-v2b/PREREGISTRATION.md",
         "research/frozen-2026-08-25-safety-v2b/MANIFEST.sha256",
+        "research/frozen-2026-08-25-fee-v2c/PREREGISTRATION.md",
+        "research/frozen-2026-08-25-fee-v2c/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -3747,18 +3754,18 @@ def _validate_watermelon_live_strategy(
 
     prereg_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2b/PREREGISTRATION.md"
+        / "research/frozen-2026-08-25-fee-v2c/PREREGISTRATION.md"
     )
     manifest_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2b/MANIFEST.sha256"
+        / "research/frozen-2026-08-25-fee-v2c/MANIFEST.sha256"
     )
     preregistration = _read(prereg_path)
     manifest = _read(manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-25-safety-v2b/PREREGISTRATION.md",
+        "research/frozen-2026-08-25-fee-v2c/PREREGISTRATION.md",
         preregistration,
         (
             "2026-08-24T13:00:00Z",
@@ -3768,13 +3775,13 @@ def _validate_watermelon_live_strategy(
             "[0.99,0.999]",
             "0.70",
             "full-holding FOK stop SELL",
-            "Neither threshold is claimed",
-            "watermelon-live-cat-98-1m-v2b",
-            "watermelon-live-dog-99-1m-v2b",
-            "unresolved live BUY",
-            "PENDING_BUY",
-            "SELL reconciliation gap",
-            "excluded conditions",
+            "does not select a threshold winner",
+            "watermelon-live-cat-98-1m-v2c",
+            "watermelon-live-dog-99-1m-v2c",
+            "fee_rate_bps=0",
+            "getClobMarketInfo()",
+            "five decimal USDC",
+            "fails closed before order submission",
         ),
     )
     if preregistration and manifest:
@@ -3790,7 +3797,7 @@ def _validate_watermelon_live_strategy(
                 Finding(
                     strategy,
                     "invalid_manifest",
-                    "research/frozen-2026-08-25-safety-v2b/MANIFEST.sha256",
+                    "research/frozen-2026-08-25-fee-v2c/MANIFEST.sha256",
                 )
             )
 

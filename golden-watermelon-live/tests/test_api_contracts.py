@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
@@ -11,6 +12,7 @@ from polybot.api.clob_client import (
 )
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
+from polybot.db.models import MarketCatalog, init_database
 from polybot_observability import (
     ClobResponseContractError,
     ClobResponseUnavailableError,
@@ -234,6 +236,120 @@ def test_order_reconciliation_reports_side_specific_health(monkeypatch) -> None:
     assert stats["unresolved_sell_outcomes"] == 1
     assert stats["reconciliation_buy_gaps"] == 3
     assert stats["reconciliation_sell_gaps"] == 4
+
+
+def _fee_evidence_wrapper(tmp_path, *, clob_rate="0.05"):
+    db_path = tmp_path / "fee-evidence.db"
+    Session = init_database(str(db_path))
+    with Session() as session:
+        session.add(
+            MarketCatalog(
+                condition_id="condition-fee",
+                token_ids_json='["token-fee", "token-no"]',
+                outcomes_json='["Yes", "No"]',
+                outcome_prices_json='["0.98", "0.02"]',
+                tags_json="[]",
+                fees_enabled=1,
+                fee_rate=0.05,
+                fee_exponent=1,
+                fee_taker_only=1,
+            )
+        )
+        session.commit()
+
+    class _Client:
+        def get_clob_market_info(self, condition_id):
+            assert condition_id == "condition-fee"
+            return {
+                "c": "condition-fee",
+                "t": [
+                    {"t": "token-fee", "o": "Yes"},
+                    {"t": "token-no", "o": "No"},
+                ],
+                "fd": {"r": clob_rate, "e": 1, "to": True},
+            }
+
+    wrapper = ClobClientWrapper(
+        ApiConfig("key", "funder"),
+        simulation_mode=False,
+        audit_db_path=db_path,
+        strategy_name="golden-watermelon-live",
+    )
+    wrapper._client = _Client()
+    wrapper._initialized = True
+    return wrapper
+
+
+def test_clob_v2_dynamic_taker_fee_is_persisted_from_exact_fill(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    submission_id = wrapper.execution_ledger.record_submission(
+        token_id="token-fee",
+        side="BUY",
+        requested_price=0.98,
+        requested_size=5.102,
+        result={"success": True, "orderID": "order-fee", "status": "matched"},
+        simulation=False,
+    )
+    pending = wrapper.execution_ledger.pending_submissions()[0]
+    trade = {
+        "id": "trade-fee",
+        "status": "CONFIRMED",
+        "taker_order_id": "order-fee",
+        "trader_side": "TAKER",
+        "side": "BUY",
+        "size": "5102000",
+        "price": "0.98",
+        # CLOB V2 can retain this legacy placeholder even though the protocol
+        # applies an operator-set fee at match time.
+        "fee_rate_bps": 0,
+        "maker_orders": [],
+    }
+
+    enriched = wrapper._attach_clob_v2_fee_evidence(
+        trade,
+        pending=pending,
+        order_id="order-fee",
+    )
+    wrapper.execution_ledger.record_fill(
+        submission_id,
+        "order-fee",
+        enriched,
+    )
+
+    assert enriched["fee_rate_bps"] is None
+    assert enriched["fee_amount_usdc"] == "5000"
+    with wrapper._open_evidence_db_read_only() as connection:
+        row = connection.execute(
+            "SELECT size, price, liquidity_role, fee_rate_bps, fee_amount_usdc "
+            "FROM order_fills WHERE submission_id = ?",
+            (submission_id,),
+        ).fetchone()
+    assert row["size"] == pytest.approx(5.102)
+    assert row["price"] == pytest.approx(0.98)
+    assert row["liquidity_role"] == "TAKER"
+    assert row["fee_rate_bps"] is None
+    assert row["fee_amount_usdc"] == pytest.approx(0.005)
+
+
+def test_clob_v2_fee_schedule_mismatch_fails_closed(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path, clob_rate="0.04")
+
+    with pytest.raises(
+        ClobResponseContractError,
+        match="Gamma and CLOB dynamic fee parameters do not match",
+    ):
+        wrapper._clob_v2_fee_schedule("token-fee")
+
+
+def test_clob_v2_fee_formula_matches_documented_sports_example(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    schedule = wrapper._clob_v2_fee_schedule("token-fee")
+    shares = Decimal("5.102")
+    price = Decimal("0.98")
+
+    fee = shares * schedule.rate * (price * (1 - price)) ** schedule.exponent
+
+    assert fee.quantize(Decimal("0.00001")) == Decimal("0.00500")
 
 
 def test_exact_five_dollar_walk_uses_all_required_ask_levels() -> None:

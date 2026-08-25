@@ -6,8 +6,8 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 
 | arm | Jenkins | runtime job | exact `$5` ask VWAP |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2b` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2b` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2c` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2c` | `[0.99, 0.999]` |
 
 두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
 보존하며, 분석은 job별 cohort로 분리한다.
@@ -28,6 +28,9 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 - account 최대 20개, event당 1개, cycle당 최대 20개, 주문당 정확히 `$5`
 - max-position capacity는 open trade와 trade에 연결되지 않은 unresolved BUY intent를 함께 계산
 - unresolved pending state 또는 SELL evidence gap 중에는 후보를 계속 기록하되 신규 BUY를 중지
+- live 주문 전 Gamma와 CLOB의 token/condition 및 동적 fee schedule이 정확히 일치해야 함
+- confirmed taker fill은 legacy `fee_rate_bps=0`이 아니라 exact fill과 CLOB v2 schedule로
+  계산한 5-decimal fee amount를 저장해야 함
 - 봇 DB가 만든 trade만 관리하며 wallet의 수동 position은 편입하거나 청산하지 않음
 
 Gamma liquidity/volume 숫자는 진입 gate로 쓰지 않는다. 매수는 정확히 `$5`를 전량 소진할 수
@@ -53,9 +56,10 @@ entry window는 `[2026-08-24T13:00:00Z, 2026-08-31T13:00:00Z)`, follow-up cutoff
 성과 cohort는 `config_hash × strategy_source_digest × mode × job_name`이다. Git commit은
 배포 provenance로만 사용한다.
 
-현재 v2b는 threshold·stop·cadence를 바꾼 실험이 아니라 과거 함대에서 발생한 max-position
-우회/고착과 불완전한 후보 근거가 재발하지 않도록 보강한 safety epoch다. v2a DB는 거래와
-오픈 상태가 0인 immutable 배포 증거로 보존하고 v2b DB와 합치지 않는다.
+v2b는 과거 함대의 max-position 우회/고착과 불완전한 후보 근거를 막은 safety epoch다.
+첫 Cat 체결에서 CLOB v2의 동적 taker fee를 legacy 0-rate로 오판한 결함이 발견되어 v2c가
+fee metadata preflight와 exact fee amount 증거를 추가했다. threshold·stop·cadence는 바뀌지
+않았다. v2a/v2b DB는 immutable 배포 증거로 보존하고 v2c DB와 합치지 않는다.
 
 ## 로컬 검증
 

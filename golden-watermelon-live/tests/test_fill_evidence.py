@@ -266,7 +266,7 @@ def test_confirmed_fill_with_unknown_fee_preserves_gross_only_evidence(tmp_path)
     session.close()
 
 
-def test_explicit_zero_fee_rate_proves_zero_fee_when_amount_is_omitted(tmp_path):
+def test_legacy_zero_fee_rate_does_not_prove_taker_fee_is_zero(tmp_path):
     session, repo = make_repo(tmp_path)
     create_ledger_tables(session)
     insert_submission(session, order_id="zero-fee", status="MATCHED", matched=1)
@@ -275,8 +275,8 @@ def test_explicit_zero_fee_rate_proves_zero_fee_when_amount_is_omitted(tmp_path)
     evidence = repo.get_exact_buy_fill_evidence("zero-fee")
 
     assert evidence.state == "confirmed"
-    assert evidence.confirmed_fee_usdc == 0.0
-    assert evidence.fee_complete is True
+    assert evidence.confirmed_fee_usdc is None
+    assert evidence.fee_complete is False
     session.close()
 
 

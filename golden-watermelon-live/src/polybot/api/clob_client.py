@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,6 +46,18 @@ _TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
 # exact values and permit at most one signed-share quantum during status audit.
 _MARKET_BUY_QUANTITY_TOLERANCE = 0.0001
 _MARKET_BUY_TAKER_QUANTUM_MICROS = 100
+_FIXED_6 = Decimal(1_000_000)
+_FEE_QUANTUM_USDC = Decimal("0.00001")
+
+
+@dataclass(frozen=True)
+class ClobV2FeeSchedule:
+    """Authoritative dynamic fee parameters for one CLOB token."""
+
+    condition_id: str
+    rate: Decimal
+    exponent: int
+    taker_only: bool
 
 
 @dataclass(frozen=True)
@@ -431,11 +444,363 @@ class ClobClientWrapper:
         self._client = None
         self._initialized = False
         self._midpoint_snapshot: Optional[Dict[str, Optional[float]]] = None
+        self._fee_schedules_by_token: Dict[str, ClobV2FeeSchedule] = {}
         self.execution_ledger = (
             ExecutionLedger(audit_db_path, strategy_name=strategy_name)
             if audit_db_path is not None
             else None
         )
+
+    @staticmethod
+    def _positive_fill_quantity(raw_size: Any, requested_size: Any) -> Decimal:
+        """Decode an SDK-human or raw fixed-6 fill quantity fail-closed."""
+        try:
+            raw = Decimal(str(raw_size))
+            requested = Decimal(str(requested_size))
+        except Exception as error:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill quantity is not numeric"
+            ) from error
+        if (
+            not raw.is_finite()
+            or not requested.is_finite()
+            or raw <= 0
+            or requested <= 0
+        ):
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill quantity is not positive"
+            )
+        if raw > requested * Decimal(1_000):
+            normalized = raw / _FIXED_6
+        elif raw <= requested * Decimal("1.05"):
+            normalized = raw
+        else:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill quantity representation is ambiguous"
+            )
+        if normalized <= 0 or normalized > requested * Decimal("1.05"):
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill quantity exceeds the order envelope"
+            )
+        return normalized
+
+    def _open_evidence_db_read_only(self) -> sqlite3.Connection:
+        """Open this runtime's already-created SQLite evidence DB read-only."""
+        ledger = self.execution_ledger
+        db_path = getattr(ledger, "db_path", None)
+        if db_path is None:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence database identity is unavailable"
+            )
+        resolved = db_path.expanduser().resolve()
+        if not resolved.is_file():
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence database does not exist"
+            )
+        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        connection.row_factory = sqlite3.Row
+        return connection
+
+    def _catalog_fee_schedule(self, token_id: str) -> ClobV2FeeSchedule:
+        """Resolve the exact Gamma catalog row that owns a token."""
+        normalized_token = str(token_id or "").strip()
+        if not normalized_token:
+            raise ClobResponseContractError("CLOB v2 fee evidence token ID is empty")
+        try:
+            with self._open_evidence_db_read_only() as connection:
+                rows = connection.execute(
+                    "SELECT condition_id, token_ids_json, fees_enabled, fee_rate, "
+                    "fee_exponent, fee_taker_only FROM market_catalog"
+                ).fetchall()
+        except ClobResponseContractError:
+            raise
+        except Exception as error:
+            raise ClobResponseContractError(
+                "Gamma fee catalog could not be read"
+            ) from error
+
+        matches = []
+        for row in rows:
+            try:
+                token_ids = json.loads(row["token_ids_json"] or "[]")
+            except (TypeError, ValueError, json.JSONDecodeError) as error:
+                raise ClobResponseContractError(
+                    "Gamma fee catalog contains malformed token identity"
+                ) from error
+            if not isinstance(token_ids, list):
+                raise ClobResponseContractError(
+                    "Gamma fee catalog token identity is not a list"
+                )
+            if normalized_token in {str(item).strip() for item in token_ids}:
+                matches.append(row)
+        if len(matches) != 1:
+            raise ClobResponseContractError(
+                "Gamma fee catalog does not bind the token to exactly one market"
+            )
+
+        row = matches[0]
+        condition_id = str(row["condition_id"] or "").strip()
+        try:
+            rate = Decimal(str(row["fee_rate"]))
+            exponent_decimal = Decimal(str(row["fee_exponent"]))
+            fees_enabled = int(row["fees_enabled"])
+            taker_only_int = int(row["fee_taker_only"])
+        except Exception as error:
+            raise ClobResponseContractError(
+                "Gamma fee catalog omitted explicit fee parameters"
+            ) from error
+        if (
+            not condition_id
+            or not rate.is_finite()
+            or rate < 0
+            or rate > 1
+            or not exponent_decimal.is_finite()
+            or exponent_decimal < 0
+            or exponent_decimal != exponent_decimal.to_integral_value()
+            or exponent_decimal > 10
+            or fees_enabled not in {0, 1}
+            or taker_only_int not in {0, 1}
+            or bool(rate) != bool(fees_enabled)
+        ):
+            raise ClobResponseContractError(
+                "Gamma fee catalog parameters are outside the contract"
+            )
+        return ClobV2FeeSchedule(
+            condition_id=condition_id,
+            rate=rate,
+            exponent=int(exponent_decimal),
+            taker_only=bool(taker_only_int),
+        )
+
+    def _clob_v2_fee_schedule(self, token_id: str) -> ClobV2FeeSchedule:
+        """Cross-check Gamma and authoritative CLOB dynamic fee parameters."""
+        normalized_token = str(token_id or "").strip()
+        if not normalized_token:
+            raise ClobResponseContractError("CLOB v2 fee evidence token ID is empty")
+        cache = getattr(self, "_fee_schedules_by_token", None)
+        if cache is None:
+            cache = {}
+            self._fee_schedules_by_token = cache
+        cached = cache.get(normalized_token)
+        if cached is not None:
+            return cached
+
+        catalog_schedule = self._catalog_fee_schedule(normalized_token)
+        market_info = self.client.get_clob_market_info(
+            catalog_schedule.condition_id
+        )
+        if not isinstance(market_info, Mapping):
+            raise ClobResponseContractError("CLOB market-info response is not an object")
+        returned_condition = str(
+            market_info.get("c") or market_info.get("condition_id") or ""
+        ).strip()
+        market_tokens = {
+            str(item.get("t") or item.get("token_id") or "").strip()
+            for item in (market_info.get("t") or market_info.get("tokens") or [])
+            if isinstance(item, Mapping)
+        }
+        if (
+            returned_condition != catalog_schedule.condition_id
+            or normalized_token not in market_tokens
+        ):
+            raise ClobResponseContractError(
+                "CLOB market-info identity does not match the requested token"
+            )
+        fee_details = market_info.get("fd") or market_info.get("fee_details")
+        if not isinstance(fee_details, Mapping):
+            raise ClobResponseContractError(
+                "CLOB market-info omitted dynamic fee parameters"
+            )
+        try:
+            rate = Decimal(str(fee_details.get("r")))
+            exponent_decimal = Decimal(str(fee_details.get("e")))
+        except Exception as error:
+            raise ClobResponseContractError(
+                "CLOB market-info fee parameters are not numeric"
+            ) from error
+        taker_only = fee_details.get("to")
+        if (
+            not rate.is_finite()
+            or rate < 0
+            or rate > 1
+            or not exponent_decimal.is_finite()
+            or exponent_decimal < 0
+            or exponent_decimal != exponent_decimal.to_integral_value()
+            or exponent_decimal > 10
+            or not isinstance(taker_only, bool)
+        ):
+            raise ClobResponseContractError(
+                "CLOB market-info dynamic fee parameters are outside the contract"
+            )
+        schedule = ClobV2FeeSchedule(
+            condition_id=catalog_schedule.condition_id,
+            rate=rate,
+            exponent=int(exponent_decimal),
+            taker_only=taker_only,
+        )
+        if schedule != catalog_schedule:
+            raise ClobResponseContractError(
+                "Gamma and CLOB dynamic fee parameters do not match"
+            )
+        cache[normalized_token] = schedule
+        return schedule
+
+    def _submission_requested_size(
+        self,
+        pending: Mapping[str, Any],
+        *,
+        order_id: str,
+    ) -> Decimal:
+        """Read and identity-check the persisted order quantity."""
+        submission_id = str(pending.get("submission_id") or "").strip()
+        if not submission_id:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence submission ID is empty"
+            )
+        try:
+            with self._open_evidence_db_read_only() as connection:
+                rows = connection.execute(
+                    "SELECT order_id, token_id, side, requested_size "
+                    "FROM order_submissions WHERE submission_id = ?",
+                    (submission_id,),
+                ).fetchall()
+        except ClobResponseContractError:
+            raise
+        except Exception as error:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence submission could not be read"
+            ) from error
+        if len(rows) != 1:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence submission identity is not unique"
+            )
+        row = rows[0]
+        if (
+            str(row["order_id"] or "") != str(order_id)
+            or str(row["token_id"] or "") != str(pending.get("token_id") or "")
+            or str(row["side"] or "").strip().upper() not in {"BUY", "SELL"}
+        ):
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence submission identity does not match"
+            )
+        try:
+            requested_size = Decimal(str(row["requested_size"]))
+        except Exception as error:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence requested quantity is not numeric"
+            ) from error
+        if not requested_size.is_finite() or requested_size <= 0:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence requested quantity is not positive"
+            )
+        return requested_size
+
+    def _attach_clob_v2_fee_evidence(
+        self,
+        trade: Mapping[str, Any],
+        *,
+        pending: Mapping[str, Any],
+        order_id: str,
+    ) -> Dict[str, Any]:
+        """Replace the V2 legacy zero-rate placeholder with exact fee evidence."""
+        enriched: Dict[str, Any] = dict(trade)
+        status = str(enriched.get("status") or "").strip().upper()
+        for prefix in ("TRADE_STATUS_", "ORDER_STATUS_"):
+            if status.startswith(prefix):
+                status = status[len(prefix) :]
+        if status != "CONFIRMED":
+            return enriched
+
+        maker_orders = [
+            dict(item)
+            for item in (enriched.get("maker_orders") or [])
+            if isinstance(item, Mapping)
+        ]
+        enriched["maker_orders"] = maker_orders
+        maker_match = next(
+            (
+                item
+                for item in maker_orders
+                if str(item.get("order_id") or "") == str(order_id)
+            ),
+            None,
+        )
+        reported_role = str(enriched.get("trader_side") or "").strip().upper()
+        taker_match = (
+            bool(enriched.get("taker_order_id"))
+            and str(enriched.get("taker_order_id")) == str(order_id)
+        ) or (reported_role == "TAKER" and maker_match is None)
+        if (maker_match is None) == (not taker_match):
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence cannot determine one liquidity role"
+            )
+        if maker_match is not None:
+            fee_target = maker_match
+            raw_size = maker_match.get("matched_amount")
+            raw_price = maker_match.get("price")
+            liquidity_role = "MAKER"
+        else:
+            fee_target = enriched
+            raw_size = enriched.get("size")
+            raw_price = enriched.get("price")
+            liquidity_role = "TAKER"
+
+        requested_size = self._submission_requested_size(
+            pending, order_id=order_id
+        )
+        size = self._positive_fill_quantity(raw_size, requested_size)
+        try:
+            price = Decimal(str(raw_price))
+        except Exception as error:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill price is not numeric"
+            ) from error
+        if not price.is_finite() or not 0 < price < 1:
+            raise ClobResponseContractError(
+                "CLOB v2 fee evidence fill price is outside (0, 1)"
+            )
+
+        schedule = self._clob_v2_fee_schedule(str(pending.get("token_id") or ""))
+        fee = Decimal(0)
+        if liquidity_role == "TAKER" or not schedule.taker_only:
+            fee = (
+                size
+                * schedule.rate
+                * (price * (Decimal(1) - price)) ** schedule.exponent
+            )
+        # The venue's documented platform-fee precision is five decimals.
+        fee = fee.quantize(_FEE_QUANTUM_USDC, rounding=ROUND_HALF_UP)
+        fee_micros = int(fee * _FIXED_6)
+
+        raw_reported_fee = fee_target.get("fee_amount_usdc")
+        if raw_reported_fee not in (None, ""):
+            try:
+                reported_fee = Decimal(str(raw_reported_fee)) / _FIXED_6
+            except Exception as error:
+                raise ClobResponseContractError(
+                    "CLOB v2 trade fee amount is not fixed-6 numeric evidence"
+                ) from error
+            if abs(reported_fee - fee) > _FEE_QUANTUM_USDC:
+                raise ClobResponseContractError(
+                    "CLOB v2 trade fee conflicts with market-info fee parameters"
+                )
+
+        # CLOB V2 keeps a legacy fee_rate_bps field in some trade payloads even
+        # though fees are operator-set at match time.  A reported zero is not a
+        # zero-fee proof.  Persist the fee amount derived from exact fill and
+        # authoritative market-info; the shared ledger decodes fixed-6 amounts.
+        fee_target["fee_rate_bps"] = None
+        fee_target["fee_amount_usdc"] = str(fee_micros)
+        logger.info(
+            "CLOB v2 fee evidence - condition=%s role=%s rate=%s exponent=%s "
+            "fee_usdc=%s",
+            schedule.condition_id[:14],
+            liquidity_role,
+            schedule.rate,
+            schedule.exponent,
+            fee,
+        )
+        return enriched
 
     def _ensure_initialized(self):
         """Lazy initialization of the CLOB client."""
@@ -876,6 +1241,10 @@ class ClobClientWrapper:
                     token_id=token_id,
                     side="BUY",
                 )
+                # Dynamic fees are operator-set at CLOB V2 match time.  Prove
+                # that Gamma's persisted schedule and the current CLOB market
+                # info agree before an irreversible live order is submitted.
+                self._clob_v2_fee_schedule(str(token_id))
 
             # Complete signing and its read-only market-info lookups before an
             # intent is persisted.  The signed integer amounts are the exact
@@ -1313,6 +1682,12 @@ class ClobClientWrapper:
                                 "exact trade 재조회 결과가 pending order ID를 "
                                 "참조하지 않습니다"
                             )
+                        phase = "resolve_dynamic_fee_evidence"
+                        trade = self._attach_clob_v2_fee_evidence(
+                            trade,
+                            pending=pending,
+                            order_id=str(order_id),
+                        )
                         phase = "persist_fill"
                         self.execution_ledger.record_fill(
                             submission_id, order_id, trade

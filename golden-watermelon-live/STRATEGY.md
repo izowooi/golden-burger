@@ -28,8 +28,8 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2b` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2b` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2c` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2c` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
@@ -79,7 +79,9 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
 5. DB open state와 trade에 연결되지 않은 unresolved live BUY intent를 합산해 capacity 최대
    20을 확인한다. event당 1, cycle당 신규 최대 20이다.
 6. 주문 직전 exact `$5` walk와 in-play clock을 다시 검증한다.
-7. venue tick에 맞춘 marketable FOK BUY를 제출한다. accepted 응답만으로 HOLDING으로 바꾸지
+7. 저장된 Gamma fee rate/exponent/taker-only와 CLOB v2 market-info의 condition/token/fee
+   identity가 완전히 일치하는지 확인한다. 누락·불일치면 주문 전에 실패한다.
+8. venue tick에 맞춘 marketable FOK BUY를 제출한다. accepted 응답만으로 HOLDING으로 바꾸지
    않고 exact order/fill ledger가 terminal executed fill을 대사해야 한다.
 
 20개 한도는 현재 보유 수가 아니라 최대 동시 open request notional `$100`의 safety cap이다.
@@ -107,6 +109,11 @@ venue-native order 지원 여부를 설계해야 한다.
 stop SELL은 exact full BUY/SELL fill과 fee를 모두 대사한 뒤에만 `COMPLETED`와 realized P&L을
 기록한다. FOK zero-fill은 `HOLDING`으로 되돌려 다음 cycle에 다시 평가한다. 부분 수량으로 줄여
 재시도해 PENDING_SELL을 만드는 경로는 사용하지 않는다.
+
+CLOB v2의 signed order/trade payload에 남은 legacy `fee_rate_bps=0`은 taker zero-fee 증거가
+아니다. exact authenticated fill의 maker/taker role·size·price와 해당 token의 동적 CLOB fee
+schedule로 5-decimal fee amount를 계산해 명시적으로 저장한다. Gamma와 CLOB schedule이
+다르거나 fee evidence가 불완전하면 fee-net 성과와 lifecycle 종결을 fail closed한다.
 
 book이 사라지면 Gamma exact one-hot payout을 먼저 확인하고, 부족하면 CLOB exact condition의
 closed two-token unique winner와 exact `0/1`을 확인한다. confirmed BUY fill이 있는 bot-owned
