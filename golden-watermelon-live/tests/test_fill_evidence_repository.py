@@ -387,6 +387,48 @@ def test_entry_capacity_reserves_untracked_live_buy_intents_without_double_count
     session.close()
 
 
+def test_entry_capacity_releases_proven_synchronous_buy_rejection(tmp_path):
+    db_path = tmp_path / "watermelon-rejected-buy.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+
+    result = ledger.submit_and_record(
+        token_id="token-rejected",
+        side="BUY",
+        requested_price=0.98,
+        requested_size=5.102,
+        submit=lambda: {
+            "success": False,
+            "status": "FAILED",
+            "error": "FOK order rejected",
+        },
+    )
+    assert result["success"] is False
+
+    session = Session()
+    row = session.execute(
+        text(
+            "SELECT order_id, success, response_status, needs_reconciliation "
+            "FROM order_submissions WHERE token_id='token-rejected'"
+        )
+    ).mappings().one()
+    assert dict(row) == {
+        "order_id": None,
+        "success": 0,
+        "response_status": "FAILED",
+        "needs_reconciliation": 0,
+    }
+
+    repo = TradeRepository(session)
+    assert repo.get_entry_capacity_state() == {
+        "open_positions": 0,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 0,
+    }
+    assert repo.get_untracked_buy_submissions() == []
+    session.close()
+
+
 def test_capacity_keeps_reconciled_orphan_and_quarantined_exposure(tmp_path):
     db_path = tmp_path / "watermelon-conservative-capacity.db"
     Session = init_database(str(db_path))

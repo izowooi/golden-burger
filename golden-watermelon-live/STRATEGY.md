@@ -28,8 +28,8 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2d` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2d` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2e` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2e` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
@@ -93,7 +93,10 @@ order reconciliation gap이 하나라도 남으면 그 cycle의 신규 BUY를 �
 Gamma/CLOB 후보 scan은 계속 수행해 “안전장치가 막은 것”과 “조건에 맞는 시장이 없었던 것”을
 분리한다. 불확실한 BUY intent는 token/side 격리와 capacity 예약을 유지한다. 열린 주문 목록에
 없다는 사실만으로 해제하지 않으며, exact zero-fill/no-order 증거나 exact terminal fill과
-완전한 fee/episode identity가 있어야 해제 또는 Trade 복구한다.
+완전한 fee/episode identity가 있어야 해제 또는 Trade 복구한다. 단, 동기 응답이 `FAILED`이고
+order ID가 없으며 reconciliation도 필요하지 않다고 ledger가 증명한 명시적 거절은 실제
+노출이 아니므로 capacity에서 즉시 제외한다. 해석 불가능한 응답, timeout, 5xx,
+evidence-write failure는 이 예외에 포함하지 않는다.
 
 첫 in-arm 관측은 guard나 fresh-book 재검증에서 주문되지 않아도 재시도하지 않는다. 대신
 `entry_episodes.execution_state/reason`에 차단·거절 사유를 남겨 희소 신호와 운영 병목을

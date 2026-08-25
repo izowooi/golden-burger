@@ -6,8 +6,8 @@ live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된
 
 | arm | Jenkins | runtime job | exact `$5` ask VWAP |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2d` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2d` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2e` | `[0.98, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2e` | `[0.99, 0.999]` |
 
 두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
 보존하며, 분석은 job별 cohort로 분리한다.
@@ -63,8 +63,11 @@ v2b는 과거 함대의 max-position 우회/고착과 불완전한 후보 근거
 첫 Cat 체결에서 CLOB v2의 동적 taker fee를 legacy 0-rate로 오판한 결함이 발견되어 v2c가
 fee metadata preflight와 exact fee amount 증거를 추가했다. 이후 함대 장애 이력 정적 감사에서
 orphan BUY capacity, `QUARANTINED`, signed SELL 수량, exact resolution identity 등 잠재 경로가
-발견되어 v2d가 lifecycle 방어와 episode별 실행 사유를 추가했다. threshold·stop·cadence는
-바뀌지 않았다. v2a/v2b/v2c DB는 immutable 배포 증거로 보존하고 v2d DB와 합치지 않는다.
+발견되어 v2d가 lifecycle 방어와 episode별 실행 사유를 추가했다. 배포 후 정적 감사에서
+명시적으로 거절된 BUY까지 orphan capacity로 계속 예약되는 경로를 발견해 v2e가 이를
+교정했다. 불확실한 POST는 계속 예약하고, 동기적 `FAILED`·order ID 없음·reconciliation 불필요가
+동시에 증명된 거절만 해제한다. threshold·stop·cadence는 바뀌지 않았다. v2a~v2d DB는
+immutable 배포 증거로 보존하고 v2e DB와 합치지 않는다.
 
 ## 로컬 검증
 

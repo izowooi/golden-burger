@@ -3557,8 +3557,8 @@ def _validate_watermelon_live_strategy(
         "README.md": (
             "polybot-cat",
             "polybot-dog",
-            "watermelon-live-cat-98-1m-v2d",
-            "watermelon-live-dog-99-1m-v2d",
+            "watermelon-live-cat-98-1m-v2e",
+            "watermelon-live-dog-99-1m-v2e",
             "EPL",
             "Bundesliga",
             "Ligue 1",
@@ -3581,8 +3581,8 @@ def _validate_watermelon_live_strategy(
         "OPERATIONS.md": (
             "* * * * *",
             "Clean before checkout",
-            "watermelon-live-cat-98-1m-v2d",
-            "watermelon-live-dog-99-1m-v2d",
+            "watermelon-live-cat-98-1m-v2e",
+            "watermelon-live-dog-99-1m-v2e",
             "daily-rsync verify",
         ),
         "src/polybot/bot.py": (
@@ -3767,18 +3767,18 @@ def _validate_watermelon_live_strategy(
 
     prereg_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2d/PREREGISTRATION.md"
+        / "research/frozen-2026-08-25-safety-v2e/PREREGISTRATION.md"
     )
     manifest_path = (
         directory
-        / "research/frozen-2026-08-25-safety-v2d/MANIFEST.sha256"
+        / "research/frozen-2026-08-25-safety-v2e/MANIFEST.sha256"
     )
     preregistration = _read(prereg_path)
     manifest = _read(manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-25-safety-v2d/PREREGISTRATION.md",
+        "research/frozen-2026-08-25-safety-v2e/PREREGISTRATION.md",
         preregistration,
         (
             "2026-08-24T13:00:00Z",
@@ -3789,8 +3789,8 @@ def _validate_watermelon_live_strategy(
             "0.70",
             "full-holding FOK stop SELL",
             "does not select a threshold winner",
-            "watermelon-live-cat-98-1m-v2d",
-            "watermelon-live-dog-99-1m-v2d",
+            "watermelon-live-cat-98-1m-v2e",
+            "watermelon-live-dog-99-1m-v2e",
             "QUARANTINED",
             "operator proof of no order",
             "signed maker/taker amounts",

@@ -62,6 +62,12 @@ _UNTRACKED_BUY_RESERVATION_PREDICATE = """
         AND NULLIF(TRIM(submission.outcome_resolution_reason), '') IS NOT NULL
     )
     AND NOT (
+        submission.order_id IS NULL
+        AND submission.success = 0
+        AND submission.needs_reconciliation = 0
+        AND UPPER(COALESCE(submission.response_status, '')) = 'FAILED'
+    )
+    AND NOT (
         submission.order_id IS NOT NULL
         AND submission.needs_reconciliation = 0
         AND REPLACE(UPPER(COALESCE(submission.latest_order_status, '')),
@@ -413,7 +419,10 @@ class TradeRepository:
         when process failure prevented ``trades`` from being written.  Ignoring
         those rows would let the bot exceed the nominal max-position exposure.
         Rows already represented by an economically open trade are excluded to
-        avoid counting one request twice.
+        avoid counting one request twice. A synchronous, unambiguous venue
+        rejection (``FAILED``, no order ID, no reconciliation requirement) is
+        also terminal no-exposure evidence; unknown POST outcomes remain
+        reserved until explicit proof resolves them.
         """
         event_clause = ""
         parameters: Dict[str, Any] = {}
