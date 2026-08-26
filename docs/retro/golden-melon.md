@@ -1,5 +1,11 @@
 # golden-melon 회고 가이드 — Resolution Sprint
 
+> **운영 판정 — 2026-08-24 확정, 2026-08-27 종료 방어 검증:** 세 live arm은 폐쇄됐다.
+> 19일간 CONFIRMED BUY 1/5/5건과 5개 독립 event만 생성돼 월 10% 목표에 구조적으로
+> 미달했다. 2026-08-27 shell도 모두 `close_only`로 고정하고 no timer·open 0을
+> 재동기화했다. 최종 근거는
+> [035 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md)를 따른다.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽는다.
 > UTC half-open range `[REVIEW_START, REVIEW_END_EXCLUSIVE)`를 고정하고,
 > `polybot-retro audit --strict`의 `CRITICAL`/`HIGH` issue가 0이 되기 전에는

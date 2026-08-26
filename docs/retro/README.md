@@ -27,13 +27,13 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-kiwi | [golden-kiwi.md](golden-kiwi.md) · [과거 증거 정정](../../golden-kiwi/research/2026-07-30-cohort-correction.md) | **Micro-Cascade, research/simulation 전용, live 금지**, 4-arm 5분 독립 검정 |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
 | golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
-| golden-melon | [golden-melon.md](golden-melon.md) | **Resolution Sprint**, cherry 재설계, 거래량 gate가 A/B/C 처치축 |
+| golden-melon | [golden-melon.md](golden-melon.md) · **⛔ 운영 폐쇄 (2026-08-24, close-only 검증 2026-08-27)** → [최종 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | **Resolution Sprint**, 1/5/5 fills로 월 10% throughput 미달 |
 | golden-nectarine | [golden-nectarine.md](golden-nectarine.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-nectarine-2026-07-verdict.md) | Bottom Fisher, archive 보존 |
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
 | golden-pomegranate | [golden-pomegranate.md](golden-pomegranate.md) | **Market Observatory**, accountless `research-full-v1` collector; trading P&L은 N/A |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
-| golden-quince | [golden-quince.md](golden-quince.md) | **Spread Harvest**, BUY 실행 측면이 처치축, $5·24h·A/B/C 3팔 사전 등록 |
+| golden-quince | [golden-quince.md](golden-quince.md) · **⛔ 운영 폐쇄 (2026-08-27)** → [최종 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | **Spread Harvest**, 실행 처치 순서는 성립했으나 표본·손익·throughput gate 실패 |
 | golden-raspberry | [golden-raspberry.md](golden-raspberry.md) | **Queue Echo**, accountless `queue-echo-v1`; MI primary와 DO/RE sensitivity를 세 hash shard에서 동시 수집 |
 | golden-strawberry | [golden-strawberry.md](golden-strawberry.md) | **Last Mile**, accountless `last-mile-clob-v1`; 10분 CLOB sampling census, 0.95/0.85/terminal primary, 1주 pilot health only |
 | golden-tangerine | [golden-tangerine.md](golden-tangerine.md) | Sports Resolution Hold 최소금액 live A/B |

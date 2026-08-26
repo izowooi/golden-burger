@@ -1,5 +1,11 @@
 # golden-quince 30일 실행 실험 회고 가이드
 
+> **운영 판정 — 2026-08-27:** 현재 live A/B/C는 폐쇄됐다. 실행 처치의 관측 순서는
+> 사전 예측과 일치했지만 passive CONFIRMED BUY 4건으로 판정 기준 30건에 미달했고,
+> 세 arm 경제손익과 월 10% throughput 상한을 함께 검토해 parameter 조정·증액 없이
+> `close_only` + no timer로 종료했다. 최종 증거와 배포 검증은
+> [035 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md)를 따른다.
+
 > **필수 선행 계약**: [Evidence Contract](EVIDENCE_CONTRACT.md)를 먼저 읽는다.
 > UTC half-open range `[REVIEW_START, REVIEW_END_EXCLUSIVE)`를 고정하고,
 > `polybot-retro audit --strict`의 `CRITICAL`/`HIGH` issue가 0이 되기 전에는

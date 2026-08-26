@@ -37,13 +37,13 @@
 | **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-mango~~ | Patience Premium | 자본 잠김 회피 → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | **⛔ 폐쇄 완료 2026-07-28** |
-| **golden-melon** | Resolution Sprint | 마감 임박 수렴의 거래량 선별 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B/C 시작 evidence 없음** |
+| ~~golden-melon~~ | Resolution Sprint | 마감 임박 수렴의 거래량 선별 | strict binary YES 편승 | 0.85–0.93, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · close-only 검증 2026-08-27** |
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
-| golden-quince | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **구현 완료 · 3-arm 시작 evidence 없음** |
+| ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
