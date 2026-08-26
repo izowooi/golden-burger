@@ -136,7 +136,8 @@ def main() -> None:
     )
     print(
         "Server universe: live soccer tag 100350; EPL/Bundesliga/Ligue 1/"
-        "LaLiga/MLS; exact $5 executable CLOB book is the liquidity gate"
+        "LaLiga/MLS/Serie A/UCL/UEL; exact $5 executable CLOB book is the "
+        "liquidity gate"
     )
     print(
         f"Limits: {trading.max_positions} total, "
