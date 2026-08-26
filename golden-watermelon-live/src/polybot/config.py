@@ -22,14 +22,14 @@ from .source_digest import compute_strategy_source_digest, preregistration_sha25
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
-FROZEN_START_UTC = "2026-08-24T13:00:00Z"
-FROZEN_ENTRY_END_UTC = "2026-08-31T13:00:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-07T13:00:00Z"
-FROZEN_ARMS = frozenset({(0.98, 0.999), (0.99, 0.999)})
+FROZEN_START_UTC = "2026-08-26T15:00:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-02T15:00:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-09-09T15:00:00Z"
+FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
 SOCCER_TAG_ID = 100350
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "soccer-major-league-identity-v1"
+CLASSIFIER_VERSION = "soccer-major-league-identity-v2"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -77,6 +77,10 @@ FROZEN_LEAGUE_IDENTITIES = (
     LeagueIdentity(
         "mls", 33, "MLS", 100100, "10189",
         "mls-2025", "mls", (100100,),
+    ),
+    LeagueIdentity(
+        "sea", 12, "Serie A", 100618, "10203",
+        "serie-a-2025", "sea", (101962,),
     ),
 )
 
@@ -205,7 +209,7 @@ def _get_datetime_config_value(
 class WatermelonLiveEntryConfig:
     """One frozen exact-$5 in-play arm and its emergency stop."""
 
-    prob_min: float = 0.98
+    prob_min: float = 0.96
     prob_max: float = 0.999
     stop_price: float = 0.70
     hours_min: float = 0.0
@@ -333,7 +337,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if not trading.yes_only_mode:
         raise ValueError("only YES tokens of home/draw/away result propositions are allowed")
     if (entry.prob_min, entry.prob_max) not in FROZEN_ARMS:
-        raise ValueError("entry band must be exactly 0.98-0.999 or 0.99-0.999")
+        raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
     if entry.stop_price != 0.70:
         raise ValueError("emergency stop_price is frozen at 0.70")
     if entry.hours_min != 0 or entry.hours_max != 4:
@@ -400,7 +404,7 @@ def load_config(
 
     entry = WatermelonLiveEntryConfig(
         prob_min=_get_config_value(
-            "POLYBOT_ENTRY_PROB_MIN", entry_cfg.get("prob_min"), 0.98
+            "POLYBOT_ENTRY_PROB_MIN", entry_cfg.get("prob_min"), 0.96
         ),
         prob_max=_get_config_value(
             "POLYBOT_ENTRY_PROB_MAX", entry_cfg.get("prob_max"), 0.999

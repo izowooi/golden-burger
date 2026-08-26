@@ -12,7 +12,7 @@
 - 기존 Cat/Dog wallet의 API credential은 `derive_api_key()`로만 읽는다. live cycle에서
   API key 신규 생성이나 교체를 시도하지 않으며 derive 실패 시 fail closed한다.
 
-## Cat — 0.98 arm
+## Cat — 0.96 arm
 
 기존 credential export/binding 다음에 아래 shell을 사용한다.
 
@@ -32,21 +32,21 @@ export POLYBOT_MAX_POSITIONS=20
 export POLYBOT_MAX_EVENT_POSITIONS=1
 export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=20
 export POLYBOT_YES_ONLY=true
-export POLYBOT_ENTRY_PROB_MIN=0.98
+export POLYBOT_ENTRY_PROB_MIN=0.96
 export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=4
 export POLYBOT_STOP_PRICE=0.70
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-24T13:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-08-31T13:00:00Z
-export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-07T13:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-26T15:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-02T15:00:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-09T15:00:00Z
 
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-98-1m-v2f
-"${UV}" run polybot run --live --job watermelon-live-cat-98-1m-v2f
-"${UV}" run polybot status --live --job watermelon-live-cat-98-1m-v2f
+"${UV}" run polybot config --live --job watermelon-live-cat-96-1m-v2g
+"${UV}" run polybot run --live --job watermelon-live-cat-96-1m-v2g
+"${UV}" run polybot status --live --job watermelon-live-cat-96-1m-v2g
 ```
 
 ## Dog — 0.99 arm
@@ -59,9 +59,9 @@ export POLYBOT_ENTRY_PROB_MIN=0.99
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2f
-"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2f
-"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2f
+"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2g
+"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2g
+"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2g
 ```
 
 ## 배포 검증 순서
@@ -88,10 +88,12 @@ uv run daily-rsync verify --job polybot-dog --strategy golden-watermelon-live
 uv run daily-rsync locate --job polybot-dog --strategy golden-watermelon-live
 ```
 
-v2f 24시간 health checkpoint는 각 arm 첫 성공 run의 UTC 시작시각부터 정확히 24시간 뒤이며,
-v2a/v2b/v2c/v2d/v2e와 합치지 않는다. 첫 run의 정확한 시각은 배포 후 `run_audits.started_at`에서
-고정한다. 이 checkpoint에서는 수익성이나 0.98/0.99 우열을 판정하지 않는다.
-entry 종료는 `2026-08-31T13:00:00Z`, resolution/stop follow-up cutoff는
-`2026-09-07T13:00:00Z`다.
+v2g 24시간 health checkpoint는 각 arm 첫 성공 run의 UTC 시작시각부터 정확히 24시간 뒤이며,
+v2a~v2f와 합치지 않는다. 첫 run의 정확한 시각은 배포 후 `run_audits.started_at`에서
+고정한다. 이 checkpoint에서는 수익성이나 0.96/0.99 우열을 판정하지 않는다.
+archive-only인 `watermelon-live-cat-98-1m-v2f`와
+`watermelon-live-dog-99-1m-v2f`는 분석용으로만 보존하고 Jenkins에서 재사용하지 않는다.
+entry 종료는 `2026-09-02T15:00:00Z`, resolution/stop follow-up cutoff는
+`2026-09-09T15:00:00Z`다.
 entry 종료 뒤에는 `close_only`로 전환해 신규 BUY를 막고 own open trade 대사만 지속한다.
 긴급 중단은 공통 [wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따른다.

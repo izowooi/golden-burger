@@ -4,8 +4,8 @@ trading:
   lifecycle_mode: archive_only
   data_contract: soccer-inplay-major-league-match-winner-v2
   schema_profile: golden-watermelon-v3a-schema-v1
-  universe_profile: soccer-major-leagues-2026-08-v3a
-  classifier_version: soccer-major-league-identity-v1
+  universe_profile: soccer-major-leagues-2026-08-v3b
+  classifier_version: soccer-major-league-identity-v2
 
   gamma:
     base_url: https://gamma-api.polymarket.com
@@ -57,6 +57,14 @@ trading:
         series_slug: mls-2025
         team_league: mls
         required_tag_ids: [100100]
+      sea:
+        sport_id: 12
+        name: Serie A
+        primary_tag_id: 100618
+        series_id: "10203"
+        series_slug: serie-a-2025
+        team_league: sea
+        required_tag_ids: [101962]
     sports_market_types: [moneyline]
     connect_timeout_seconds: 3.05
     read_timeout_seconds: 30
@@ -69,9 +77,9 @@ trading:
     batch_token_limit: 250
 
   experiment:
-    start_utc: 2026-08-23T16:00:00Z
-    entry_end_utc: 2026-08-30T16:00:00Z
-    followup_end_utc: 2026-09-06T16:00:00Z
+    start_utc: 2026-08-26T15:00:00Z
+    entry_end_utc: 2026-09-02T15:00:00Z
+    followup_end_utc: 2026-09-09T15:00:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5

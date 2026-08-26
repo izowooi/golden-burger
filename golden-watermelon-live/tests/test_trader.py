@@ -15,7 +15,7 @@ from polybot.db.repository import ExactFillEvidence
 from polybot.strategy.trader import Trader
 
 
-NOW = datetime(2026, 8, 24, 14, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
 
 
 class _FixedDatetime(datetime):
@@ -200,6 +200,58 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert created["yes_price_at_buy"] == 0.985
     assert created["stop_price_at_entry"] == 0.70
     assert repo.linked == [(3, 7)]
+
+
+def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob()
+    submissions = []
+
+    def uncertain_buy(**order):
+        submissions.append(order)
+        return {
+            "success": False,
+            "submission_outcome_unknown": True,
+            "quarantined": True,
+        }
+
+    clob.place_fok_buy = uncertain_buy
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.execute_buy(_candidate()) is None
+    assert trader.last_entry_outcome_reason == "buy_submission_outcome_unknown"
+    assert trader.local_untracked_buy_reservations == 1
+    assert trader.buying_disabled is True
+    assert trader.execute_buy({**_candidate(), "condition_id": "condition-2"}) is None
+    assert trader.last_entry_outcome_reason == "cycle_buying_disabled"
+    assert len(submissions) == 1
+
+
+def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(
+        "confirmed",
+        "buy-1",
+        order_status="MATCHED",
+        side="BUY",
+        requested_size=5.102,
+        latest_size_matched=5.102,
+        needs_reconciliation=False,
+        reconciled_full_fill=True,
+        confirmed_size=5.102,
+        confirmed_vwap=0.98,
+        confirmed_fee_usdc=None,
+        fee_complete=False,
+    )
+    trade = SimpleNamespace(
+        id=9,
+        buy_order_id="buy-1",
+        buy_timestamp=NOW.replace(tzinfo=None),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_buy(trade, now=NOW.replace(tzinfo=None)) is False
+    assert repo.updated == []
 
 
 def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:

@@ -569,7 +569,7 @@ def test_reconciled_positive_orphan_buy_is_atomically_recovered(tmp_path):
             outcome="Yes",
             entry_snapshot_id=snapshot.id,
             exact_vwap=0.98,
-            arm_prob_min=0.98,
+            arm_prob_min=0.96,
             arm_prob_max=0.999,
             observed_at=datetime.utcnow(),
             game_start_time=datetime.utcnow(),

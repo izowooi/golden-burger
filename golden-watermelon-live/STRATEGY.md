@@ -2,23 +2,24 @@
 
 ## 검정 질문
 
-5개 축구 리그의 경기 중 home/draw/away 결과 YES token이 매우 높은 가격에 도달했을 때,
+6개 축구 리그의 경기 중 home/draw/away 결과 YES token이 매우 높은 가격에 도달했을 때,
 exact `$5` FOK로 진입하고 `0.70` emergency stop 또는 proven resolution까지 관리하면 실제
 confirmed fill·fee 이후 양의 기대값이 있는가?
 
 ## 선행 증거와 보수적 선택
 
-1m-v2a freeze 직전 verified White/Grey DB에서 White 1분 cadence는 1,373/1,374 interval,
-Grey 5분 cadence는 275/275 interval이 정상이었다. 대상 unique event는 48개였고 리그 분포는
-EPL 6, Ligue 1 12, LaLiga 18, MLS 12, Bundesliga 0으로 좁다. White
-hold-to-resolution은 0.95/0.96/0.97에서 동일한 축구 역전패 한 건을 포함해 fee-net
-음수였고, 0.98은 3/3, 0.99는 1/1 양수였다. Grey의 양수 결과는 EPL 패배 표본을 놓쳐
-threshold 선택 근거로 단독 사용하지 않는다.
+v3a 종료 전 verified White/Grey DB에서 White 1분 cadence는 4,001 run, Grey 5분 cadence는
+801 run이었고 각각 99.98%/100% coverage였다. White의 0.96 episode는 7건(6승 1패),
+0.99는 1건(1승)이었다. 발렌시아–베티스의 승리 결과는 exact ask 0.97에서 0.96 arm에
+포착됐지만 0.98/0.99 arm에는 없었다. 반대로 뉴캐슬–리버풀에서는 0.97 진입 직후 executable
+bid가 약 0.27로 급락해 0.96의 tail risk도 확인됐다. 표본은 threshold 우열을 확정하기에 작다.
 
-따라서 Cat `0.98`, Dog `0.99`는 최적화 결과가 아니라 손실 사례를 포함한 작은 표본에서
-보수적으로 정한 prospective pilot이다. `0.999`는 세 번째 arm이 아니라 이미 terminal인
+따라서 Cat `0.96`, Dog `0.99`는 신호량과 tail risk를 직접 비교하는 prospective pilot이다.
+`0.999`는 세 번째 arm이 아니라 이미 terminal인
 `1.000`을 제외하기 위한 공통 상한이다. 7일 안에 Bundesliga가 관측되지 않거나 unique event가
 부족하면 승자를 고르지 않는다.
+직전 v2f Cat의 `[0.98, 0.999]` arm은 immutable historical cohort이며 v2g 결과에 합산하지
+않는다.
 
 White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘랐고, `0.70`이 그중 가장 덜
 해로웠다. 실제 패배 event는 threshold 부근에서 다음 실행 가능한 bid 약 `0.27`까지 gap이
@@ -28,18 +29,18 @@ White replay에서 `0.80` 이상 stop은 최종 승자를 여러 번 잘못 잘�
 
 | arm | Jenkins | runtime job | 진입 band |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-98-1m-v2f` | `[0.98, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2f` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-96-1m-v2g` | `[0.96, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2g` | `[0.99, 0.999]` |
 
 threshold 외 universe, notional, cadence, entry/exit, exposure, clock은 같다. wallet 차이는
 무작위 배정이 아니므로 결과는 job/account별로도 보고한다.
 
 ## Cadence 선택
 
-같은 `condition × token × threshold`를 비교했을 때 Grey 5분의 episode key 11개는 모두
-White 1분에도 있었고 White에는 추가 8개가 있었다. paired entry 시각 차이 p95는 약
-1,109초였으며, 5분 job은 EPL 손실 episode와 0.99 episode를 놓쳤다. Cat/Dog cycle은 약
-7초라 1분 timer 안에서 충분히 종료된다. 따라서 시험한 두 cadence 중 coverage가 완전한
+같은 `condition × token × threshold`를 비교했을 때 Grey 5분의 episode key 15개는 모두
+White 1분에도 있었고 White에는 총 26개가 있었다. paired entry 시각 차이 p95는 약
+856초였으며, 5분 job은 일부 막판 episode를 놓쳤다. Cat/Dog cycle은 약
+8초라 1분 timer 안에서 충분히 종료된다. 따라서 시험한 두 cadence 중 coverage가 완전한
 1분을 두 live arm에 공통 적용한다. 이 선택은 더 많은 진입과 더 빠른 stop 관측을 위한
 운영 선택이며, 1분이 fee-net 수익을 최대화한다는 판정은 아니다. White/Grey는 계속 1분/5분
 pair로 남아 이 차이를 prospective하게 측정한다.
@@ -59,6 +60,7 @@ cursor가 반복되면 cycle 전체를 실패시킨다.
 | Ligue 1 | 11 | 102070 | 10195 |
 | LaLiga | 3 | 780 | 10193 |
 | MLS | 33 | 100100 | 10189 |
+| Serie A | 12 | 100618 | 10203 |
 
 e-sports tag, child/halftime event, 비축구, parent event, 비명시적 live 상태를 거부한다. market은
 `sportsMarketType=moneyline`, `[Yes, No]`, `negRisk=true`, 서로 다른 두 token, active/open,
@@ -67,6 +69,13 @@ HOME/DRAW/AWAY를 결정하며 NO token은 거래하지 않는다.
 
 Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`/`gameStartTime`을 기준으로
 경기 시작 후 `[0h,4h]`만 허용한다.
+market description이 정규 90분과 stoppage time만 settlement에 포함한다고 명시해야 한다.
+같은 description의 다른 절이 연장전·승부차기 포함을 말하면 모순으로 거절한다. 따라서
+연장전과 승부차기는 이 moneyline payout에 포함되지 않으며, 범위가 누락되거나 다른 규칙이면
+주문 전에 fail closed한다. `Draw No Bet`은 무승부 결과로 간주하지 않는다. 4시간 envelope는
+정규시간·하프타임·stoppage time과 source 지연보다
+넓으므로 발렌시아–베티스의 0.97 이후 관측이 끊긴 원인은 clock filter가 아니라 CLOB book
+제거였다.
 
 ## Entry와 exposure
 
@@ -84,6 +93,11 @@ Gamma `endDate`를 경기 종료시각으로 가정하지 않는다. `startTime`
    identity가 완전히 일치하는지 확인한다. 누락·불일치면 주문 전에 실패한다.
 8. venue tick에 맞춘 marketable FOK BUY를 제출한다. accepted 응답만으로 HOLDING으로 바꾸지
    않고 exact order/fill ledger가 terminal executed fill을 대사해야 한다.
+
+매수 walk는 실행에 필요한 ask만 있으면 유효하고 bid 부재를 이유로 버리지 않는다. 반대로
+stop walk는 실행에 필요한 bid만 있으면 유효하며 ask 부재를 이유로 버리지 않는다. 불확실한
+BUY POST가 한 건이라도 발생하면 해당 cycle의 남은 BUY를 즉시 비활성화한다. terminal BUY
+fill도 완전한 fee 증거가 없으면 `PENDING_BUY`에 유지하고 stop/resolution 관리로 넘기지 않는다.
 
 Trade와 episode 연결은 validation·flush·commit 어느 단계에서든 실패하면 Session 전체를
 rollback한다. 이후 실패 사유 annotation이 commit되더라도 unlinked ghost Trade가 함께
@@ -154,6 +168,6 @@ condition/token/outcome identity와 terminal BUY fill/fee가 모두 맞는 bot-o
   수익성·scale-up 판단 중단
 - 사용자가 기대한 계정 잔고 증가는 목표일 뿐 보장값이나 promotion gate가 아니다.
 
-실험 clock은 entry `[2026-08-24T13:00:00Z, 2026-08-31T13:00:00Z)`, follow-up
-`2026-09-07T13:00:00Z`다. cohort key는
+실험 clock은 entry `[2026-08-26T15:00:00Z, 2026-09-02T15:00:00Z)`, follow-up
+`2026-09-09T15:00:00Z`다. cohort key는
 `config_hash × strategy_source_digest × mode × job_name`이며 Git commit은 provenance다.

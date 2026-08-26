@@ -6,8 +6,8 @@
 
 | Jenkins | exact custom workspace | runtime job | schedule |
 |---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3a` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3a` | `H/5 * * * *` |
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3b` | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3b` | `H/5 * * * *` |
 
 concurrent build는 비활성화하고 Jenkins build discard는 14일로 둔다. Clean before checkout,
 workspace wipe, credential binding은 사용하지 않는다. DB는 workspace의
@@ -43,15 +43,16 @@ UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
 "${UV}" run python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot config --simulate --job watermelon-white-1m-v3a
-"${UV}" run polybot run --simulate --job watermelon-white-1m-v3a
+"${UV}" run polybot config --simulate --job watermelon-white-1m-v3b
+"${UV}" run polybot run --simulate --job watermelon-white-1m-v3b
 ```
 
-Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v3a`로 바꾼다. 실험 parameter는 Jenkins
+Grey는 마지막 두 command의 job만 `watermelon-grey-5m-v3b`로 바꾼다. 실험 parameter는 Jenkins
 env로 override하지 않는다.
 
-같은 external workspace를 유지하되 runtime job이 달라 `data/watermelon-*-v3a/`에 새 DB가
-생긴다. `data/watermelon-*-v2/`와 `data/watermelon-*-v3/`는 삭제·이동·migration·copy하지
+같은 external workspace를 유지하되 runtime job이 달라 `data/watermelon-*-v3b/`에 새 DB가
+생긴다. `data/watermelon-*-v2/`, `data/watermelon-*-v3/`, `data/watermelon-*-v3a/`는
+삭제·이동·migration·copy하지
 않는다. frozen prereg directory도 수정하지 않는다.
 
 ## 최초 배포
@@ -79,7 +80,7 @@ runtime job·DB·frozen prereg epoch를 만든다.
 
 ## 다음 health review
 
-첫 health review는 `2026-08-24T16:00:00Z` 이후다. 그때까지는 수익성과 X/Y 선택을 판단하지 않고
+첫 health review는 `2026-08-27T15:00:00Z` 이후다. 그때까지는 수익성과 X/Y 선택을 판단하지 않고
 collection health와 league metadata coverage만 확인한다.
 
 ```bash
@@ -98,14 +99,14 @@ uv run daily-rsync locate --job polybot-grey --strategy golden-watermelon
 
 ```bash
 cd ../golden-watermelon
-uv run polybot analyze --simulate --job watermelon-white-1m-v3a \
+uv run polybot analyze --simulate --job watermelon-white-1m-v3b \
   --db /absolute/white/trades_sim.db \
   --db /absolute/grey/trades_sim.db \
   --output /tmp/golden-watermelon-health.json
 ```
 
 24시간 review 항목은 cadence, cursor completeness, exact authority classifier와 drift,
-5-league coverage, strict moneyline classification,
+6-league coverage, strict regular-time moneyline classification,
 book/full-depth coverage, path/stop retry, resolution attempt, cohort, DB integrity와 storage
 growth다. ROI·best threshold·best stop은 보고하지 않는다.
 
@@ -118,7 +119,7 @@ growth다. ROI·best threshold·best stop은 보고하지 않는다.
   series id+slug, required common/league tags, team league 중 충돌 field를 보고한다. runtime
   mapping을 자동 갱신하지 않는다.
 - `database epoch mismatch`: 해당 file을 절대 열어 쓰지 않는다. v2/v3 archive인지 catalog로
-  확인하고 v3a exact path를 고친다.
+  확인하고 v3b exact path를 고친다.
 - `EVENT_LIVE_FALSE`만 비정상적으로 많음: source 의미를 raw payload/공식 schema로 확인한 뒤
   새 preregistration 없이 eligibility 의미를 바꾸지 않는다.
 - stop gap: trigger와 actual displayed VWAP 차이는 관측값이다.

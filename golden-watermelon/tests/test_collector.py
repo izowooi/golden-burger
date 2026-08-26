@@ -27,12 +27,15 @@ ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 8, 22, 16, 16, tzinfo=timezone.utc)
 
 
-def event(*, live=True, ended=False):
+def event(*, live=True, ended=False, parent_event_id=None):
     return {
         "id": "event-1",
         "title": "Team A vs Team B",
+        "active": True,
+        "closed": False,
         "live": live,
         "ended": ended,
+        "parentEventId": parent_event_id,
         "gameStatus": "2H",
         "sport": {
             "id": 2,
@@ -62,11 +65,15 @@ def market(**overrides):
     result = {
         "id": "market-1",
         "conditionId": "condition-1",
-        "question": "Team A vs Team B",
-        "groupItemTitle": "",
+        "question": "Will Team A win?",
+        "groupItemTitle": "Team A",
         "sportsMarketType": "moneyline",
-        "outcomes": '["Team A","Team B"]',
-        "clobTokenIds": '["team-a","team-b"]',
+        "description": (
+            "This market refers only to the outcome within the first 90 minutes "
+            "of regular play plus stoppage time."
+        ),
+        "outcomes": '["Yes","No"]',
+        "clobTokenIds": '["team-a","team-a-no"]',
         "outcomePrices": '["0.97","0.03"]',
         "endDate": "2026-08-22T20:00:00Z",
         "gameStartTime": "2026-08-22T15:00:00Z",
@@ -77,7 +84,7 @@ def market(**overrides):
         "acceptingOrders": True,
         "enableOrderBook": True,
         "feesEnabled": True,
-        "negRisk": False,
+        "negRisk": True,
         "feeSchedule": {"rate": 0.05, "takerOnly": True},
         "events": [event()],
     }
@@ -161,7 +168,7 @@ class FakeClob:
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3a")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3b")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -204,14 +211,14 @@ def repository_for(config):
 
 def test_classifier_accepts_only_whole_match_winners() -> None:
     source = market()
-    labels = ["Team A", "Team B"]
-    tokens = ["a", "b"]
+    labels = ["Yes", "No"]
+    tokens = ["team-a", "team-a-no"]
     probabilities = [0.97, 0.03]
     match_class, eligible, _, reasons = classify_match_winner(
         event(), source, labels, tokens, probabilities
     )
-    assert match_class == "ALIGNED_TWO_TEAM_MONEYLINE"
-    assert eligible == (0, 1)
+    assert match_class == "NEGRISK_TEAM_WIN_YES"
+    assert eligible == (0,)
     assert reasons == []
 
     for market_type in ("child_moneyline", "spreads", "totals"):
@@ -221,6 +228,49 @@ def test_classifier_accepts_only_whole_match_winners() -> None:
         )
         assert indices == ()
         assert "NOT_TOP_LEVEL_MONEYLINE" in rejected_reasons
+
+    missing_scope = {**source, "description": "Winner including extra time."}
+    _, indices, evidence, rejected_reasons = classify_match_winner(
+        event(), missing_scope, labels, tokens, probabilities
+    )
+    assert indices == ()
+    assert "SETTLEMENT_SCOPE_UNPROVEN" in rejected_reasons
+    assert evidence["settlement_scope"] == "UNPROVEN"
+
+    contradictory = {
+        **source,
+        "description": source["description"] + " Extra time and penalties are included.",
+    }
+    _, indices, _, rejected_reasons = classify_match_winner(
+        event(), contradictory, labels, tokens, probabilities
+    )
+    assert indices == ()
+    assert "SETTLEMENT_SCOPE_CONTRADICTORY" in rejected_reasons
+
+    for contradictory_description in (
+        " Extra time is not excluded but penalties are excluded.",
+        " Extra time is considered, while penalty shoot-outs are excluded.",
+    ):
+        contradictory_scope = {
+            **source,
+            "description": source["description"] + contradictory_description,
+        }
+        _, indices, _, rejected_reasons = classify_match_winner(
+            event(), contradictory_scope, labels, tokens, probabilities
+        )
+        assert indices == ()
+        assert "SETTLEMENT_SCOPE_CONTRADICTORY" in rejected_reasons
+
+    mixed_contradiction = {
+        **source,
+        "description": source["description"]
+        + " Extra time is included but penalties are excluded.",
+    }
+    _, indices, _, rejected_reasons = classify_match_winner(
+        event(), mixed_contradiction, labels, tokens, probabilities
+    )
+    assert indices == ()
+    assert "SETTLEMENT_SCOPE_CONTRADICTORY" in rejected_reasons
 
 
 def test_soccer_league_classifier_rejects_esports_and_non_allowlisted_leagues(
@@ -256,7 +306,7 @@ def test_soccer_league_classifier_rejects_esports_and_non_allowlisted_leagues(
     assert championship_reasons == ["LEAGUE_NOT_ALLOWED"]
 
 
-def test_classifier_keeps_only_yes_for_negrisk_team_and_excludes_draw() -> None:
+def test_classifier_keeps_only_yes_for_negrisk_home_draw_away() -> None:
     team_market = market(
         question="Will Team A win on 2026-08-22?",
         groupItemTitle="Team A",
@@ -270,14 +320,85 @@ def test_classifier_keeps_only_yes_for_negrisk_team_and_excludes_draw() -> None:
     )
     assert result[0] == "NEGRISK_TEAM_WIN_YES"
     assert result[1] == (0,)
+    assert result[2]["result_kind"] == "HOME"
     assert result[3] == []
 
     draw_market = {**team_market, "groupItemTitle": "Draw", "question": "Draw?"}
     result = classify_match_winner(
         event(), draw_market, ["Yes", "No"], ["yes", "no"], [0.20, 0.80]
     )
+    assert result[0] == "NEGRISK_DRAW_YES"
+    assert result[1] == (0,)
+    assert result[2]["result_kind"] == "DRAW"
+    assert result[3] == []
+
+    draw_no_bet = {**team_market, "groupItemTitle": "Draw No Bet"}
+    result = classify_match_winner(
+        event(), draw_no_bet, ["Yes", "No"], ["yes", "no"], [0.20, 0.80]
+    )
     assert result[1] == ()
-    assert "DRAW_OUTCOME_EXCLUDED" in result[3]
+    assert "DRAW_NO_BET_EXCLUDED" in result[3]
+
+    reversed_labels = classify_match_winner(
+        event(),
+        team_market,
+        ["No", "Yes"],
+        ["no", "yes"],
+        [0.03, 0.97],
+    )
+    assert reversed_labels[1] == ()
+    assert "NOT_ALIGNED_TWO_OUTCOME" in reversed_labels[3]
+
+    integer_negrisk = classify_match_winner(
+        event(),
+        {**team_market, "negRisk": 1},
+        ["Yes", "No"],
+        ["yes", "no"],
+        [0.97, 0.03],
+    )
+    assert integer_negrisk[1] == ()
+    assert "NOT_EXPLICIT_NEGRISK_RESULT_MARKET" in integer_negrisk[3]
+
+    dnb_question = {
+        **team_market,
+        "groupItemTitle": "Team A",
+        "question": "Team A Draw No Bet",
+    }
+    result = classify_match_winner(
+        event(), dnb_question, ["Yes", "No"], ["yes", "no"], [0.20, 0.80]
+    )
+    assert result[1] == ()
+    assert "DRAW_NO_BET_EXCLUDED" in result[3]
+
+
+def test_draw_yes_is_persisted_and_opens_the_same_threshold_grid(tmp_path) -> None:
+    draw_market = market(
+        question="Will Team A vs. Team B end in a draw?",
+        groupItemTitle="Draw (Team A vs. Team B)",
+        outcomes='["Yes","No"]',
+        clobTokenIds='["team-a","draw-no"]',
+        outcomePrices='["0.97","0.03"]',
+        negRisk=True,
+    )
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    result = Collector(
+        config, repository, FakeGamma(draw_market), FakeClob()
+    ).collect("draw-run", now=NOW)
+
+    assert result["eligible_markets"] == 1
+    assert result["eligible_outcomes"] == 1
+    assert result["episodes_opened"] == 3
+    with repository.connect() as connection:
+        market_class = connection.execute(
+            "SELECT match_winner_class FROM market_observations WHERE eligible=1"
+        ).fetchone()[0]
+        outcome = connection.execute(
+            "SELECT outcome_label,entry_eligible FROM outcome_observations "
+            "WHERE entry_eligible=1"
+        ).fetchone()
+    assert market_class == "NEGRISK_DRAW_YES"
+    assert tuple(outcome) == ("Yes", 1)
 
 
 def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
@@ -289,7 +410,7 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
         "run-1", now=NOW
     )
     assert result["eligible_markets"] == 1
-    assert result["eligible_outcomes"] == 2
+    assert result["eligible_outcomes"] == 1
     assert result["episodes_opened"] == 3
     assert result["stop_attempts"] == 0
     assert result["stop_exits"] == 0
@@ -311,7 +432,7 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
             "SELECT COUNT(*) FROM episode_path_observations"
         ).fetchone()[0]
     assert tuple(market_row) == (
-        "moneyline", "ALIGNED_TWO_TEAM_MONEYLINE", 25, 0,
+        "moneyline", "NEGRISK_TEAM_WIN_YES", 25, 0,
         "epl", "epl", "Premier League",
     )
     assert [row[0] for row in episodes] == [0.95, 0.96, 0.97]
@@ -457,6 +578,44 @@ def test_pre_game_and_finished_markets_are_excluded(tmp_path) -> None:
         ).collect(f"run-{index}", now=NOW)
         assert result["eligible_markets"] == 0
         assert result["episodes_opened"] == 0
+
+
+def test_child_missing_live_and_late_events_are_excluded(tmp_path) -> None:
+    config = configured(tmp_path)
+    sources = (
+        market(events=[event(parent_event_id=99)]),
+        market(events=[event(live=None)]),
+        market(events=[{**event(), "live": 1}]),
+        market(gameStartTime="2026-08-22T10:00:00Z"),
+    )
+    for index, source in enumerate(sources):
+        adjusted = replace(
+            config, db_path=tmp_path / f"aligned-{index}" / "trades_sim.db"
+        )
+        repository = repository_for(adjusted)
+        result = Collector(
+            adjusted, repository, FakeGamma(source), FakeClob()
+        ).collect(f"aligned-run-{index}", now=NOW)
+        assert result["eligible_markets"] == 0
+        assert result["episodes_opened"] == 0
+
+
+def test_game_start_fallback_matches_live_start_time_precedence(tmp_path) -> None:
+    config = configured(tmp_path)
+    source_event = {
+        **event(),
+        "startTime": "2026-08-22T15:00:00Z",
+        "eventDate": "2026-08-22T10:00:00Z",
+    }
+    source = market(gameStartTime=None, events=[source_event])
+    repository = repository_for(config)
+
+    result = Collector(
+        config, repository, FakeGamma(source), FakeClob()
+    ).collect("fallback-run", now=NOW)
+
+    assert result["eligible_markets"] == 1
+    assert result["episodes_opened"] == 3
 
 
 def test_stop_trigger_records_exact_depth_gap(tmp_path) -> None:

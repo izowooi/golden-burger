@@ -15,7 +15,7 @@ from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import MarketScanner
 
 
-NOW = datetime(2026, 8, 24, 14, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
 
 
 def _event(event_id="event-1"):
@@ -49,6 +49,10 @@ def _market(
         "question": f"Will {result} win?",
         "groupItemTitle": result,
         "sportsMarketType": "moneyline",
+        "description": (
+            "This market refers only to the outcome within the first 90 minutes "
+            "of regular play plus stoppage time."
+        ),
         "gameStartTime": (NOW - timedelta(hours=1)).isoformat(),
         "active": True,
         "closed": False,

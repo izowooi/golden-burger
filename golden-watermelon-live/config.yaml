@@ -1,4 +1,4 @@
-# Golden Watermelon Live — five-league in-play home/draw/away A/B.
+# Golden Watermelon Live — six-league in-play home/draw/away A/B.
 # env > config.yaml > defaults. Real orders always require explicit --live.
 
 trading:
@@ -24,14 +24,14 @@ trading:
   min_order_buffer_shares: 0.0
   yes_only_mode: true
 
-  experiment_start_utc: 2026-08-24T13:00:00Z
-  experiment_entry_end_utc: 2026-08-31T13:00:00Z
-  experiment_followup_end_utc: 2026-09-07T13:00:00Z
+  experiment_start_utc: 2026-08-26T15:00:00Z
+  experiment_entry_end_utc: 2026-09-02T15:00:00Z
+  experiment_followup_end_utc: 2026-09-09T15:00:00Z
 
   # Cat is arm A. Dog overrides only prob_min=0.99 in Jenkins. Both active
-  # v2f runtime jobs are scheduled every minute; cadence is a Jenkins concern.
+  # v2g runtime jobs are scheduled every minute; cadence is a Jenkins concern.
   entry:
-    prob_min: 0.98
+    prob_min: 0.96
     prob_max: 0.999
     stop_price: 0.70
     hours_min: 0

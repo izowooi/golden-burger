@@ -26,6 +26,12 @@ def test_frozen_manifest_verifies_every_declared_file() -> None:
         (manifest.parent / line.split("  ", 1)[1]).resolve()
         for line in manifest.read_text(encoding="utf-8").splitlines()
     }
+    expected = {
+        (PROJECT_ROOT / relative).resolve()
+        for relative in SOURCE_PATHS
+        if relative != ACTIVE_MANIFEST
+    }
+    assert targets == expected
     assert PROJECT_ROOT / "config.yaml" in targets
     assert PROJECT_ROOT / "STRATEGY.md" in targets
     assert PROJECT_ROOT / "src/polybot/league_classifier.py" in targets

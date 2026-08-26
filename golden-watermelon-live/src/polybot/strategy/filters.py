@@ -4,7 +4,14 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from typing import Any, Dict, List, Mapping, Optional
+
+
+REGULATION_SCOPE_CLAUSE = (
+    "this market refers only to the outcome within the first 90 minutes "
+    "of regular play plus stoppage time"
+)
 
 
 def _list_value(value: Any) -> Optional[list]:
@@ -80,6 +87,94 @@ def get_event(market: Dict[str, Any]) -> Dict[str, Any]:
     return events[0]
 
 
+def settlement_scope_reason(market: Mapping[str, Any]) -> str:
+    """Prove that extra time and shoot-outs are outside the payout contract."""
+    description = " ".join(
+        str(market.get("description") or "").casefold().split()
+    )
+    if not description:
+        return "settlement_description_missing"
+    if REGULATION_SCOPE_CLAUSE not in description:
+        return "settlement_scope_unproven"
+    scope_groups = (
+        ("extra time",),
+        ("penalty shoot-outs", "penalty shoot-out", "penalty shootouts", "penalty shootout", "penalties", "penalty"),
+    )
+    for clause in re.split(r"[.;]", description):
+        mentioned_groups = [
+            aliases for aliases in scope_groups if any(alias in clause for alias in aliases)
+        ]
+        if not mentioned_groups:
+            continue
+        # A negated exclusion (for example ``extra time is not excluded``) is
+        # inclusion evidence, not an exclusion.  Reject it before looking for
+        # otherwise valid exclusion phrases.
+        if re.search(
+            r"\b(?:not|never)\s+(?:explicitly\s+)?"
+            r"(?:exclude|excluded|excluding|outside)\b",
+            clause,
+        ):
+            return "settlement_scope_contradictory"
+        masked = clause
+        for negative in (
+            "does not include",
+            "do not include",
+            "not included",
+            "does not count",
+            "do not count",
+            "not count",
+            "does not apply",
+            "do not apply",
+        ):
+            masked = masked.replace(negative, " excluded ")
+        if re.search(
+            r"\b(include|includes|included|including|count|counts|counted|"
+            r"counting|apply|applies|applied)\b",
+            masked,
+        ):
+            return "settlement_scope_contradictory"
+        for aliases in mentioned_groups:
+            alias_pattern = "(?:" + "|".join(
+                re.escape(alias) for alias in sorted(aliases, key=len, reverse=True)
+            ) + ")"
+            explicitly_excluded = any(
+                re.search(pattern, clause)
+                for pattern in (
+                    rf"\b{alias_pattern}(?:\s+(?:and|or)\s+[a-z -]+)?\s+"
+                    rf"(?:is|are|will be|shall be)\s+(?:explicitly\s+)?excluded\b",
+                    rf"\b{alias_pattern}(?:\s+(?:and|or)\s+[a-z -]+)?\s+"
+                    rf"(?:does|do|will|shall)\s+not\s+(?:count|apply)\b",
+                    rf"\b{alias_pattern}\s+(?:is|are)\s+not\s+included\b",
+                    rf"\b{alias_pattern}\s+(?:is|are)\s+outside\b",
+                    rf"\b(?:excluding|exclude|excludes)\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\b(?:does|do)\s+not\s+include\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\bwithout\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\bneither\b[^.;]{{0,80}}\b{alias_pattern}\b[^.;]{{0,80}}\b"
+                    rf"(?:counts?|applies?|is included|are included)\b",
+                )
+            )
+            if not explicitly_excluded:
+                return "settlement_scope_contradictory"
+    return "ok"
+
+
+def _is_exact_draw_descriptor(
+    descriptor: str,
+    home_forms: set[str],
+    away_forms: set[str],
+) -> bool:
+    if descriptor in {"draw", "tie"}:
+        return True
+    exact = {
+        f"{prefix} {home} {separator} {away}"
+        for prefix in ("draw", "tie")
+        for separator in ("vs", "v")
+        for home in home_forms
+        for away in away_forms
+    }
+    return descriptor in exact
+
+
 def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
     """Return ``(ok, HOME|DRAW|AWAY)`` only for whole-match result propositions."""
     reason = aligned_binary_reason(market)
@@ -87,6 +182,15 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
         return reason, None
     if str(market.get("sportsMarketType") or "").strip() != "moneyline":
         return "not_top_level_moneyline", None
+    identity_text = " ".join(
+        _normalized_name(market.get(field))
+        for field in ("groupItemTitle", "question", "slug")
+    )
+    if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
+        return "draw_no_bet_excluded", None
+    scope_reason = settlement_scope_reason(market)
+    if scope_reason != "ok":
+        return scope_reason, None
     event = get_event(market)
     if not event:
         return "event_relation_not_unique", None
@@ -106,7 +210,7 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
     descriptor = _normalized_name(market.get("groupItemTitle"))
     if not descriptor:
         return "group_item_title_missing", None
-    if descriptor == "draw" or descriptor.startswith("draw "):
+    if _is_exact_draw_descriptor(descriptor, home_forms, away_forms):
         return "ok", "DRAW"
     if descriptor in home_forms:
         return "ok", "HOME"

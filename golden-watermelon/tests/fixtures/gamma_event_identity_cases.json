@@ -81,6 +81,21 @@
       }
     },
     {
+      "name": "serie_a",
+      "expected_status": "ACCEPTED",
+      "expected_league_code": "sea",
+      "event": {
+        "id": "830315",
+        "title": "AS Roma vs. ACF Fiorentina",
+        "slug": "sea-rom-fio-2026-08-24",
+        "seriesSlug": "serie-a-2025",
+        "sport": {"id": 12, "sport": "sea", "name": "Serie A", "tags": "1,100639,101962,100350,100618", "primaryTagId": 100618, "series": "10203"},
+        "tags": [{"id": "1", "label": "Sports", "slug": "sports"}, {"id": "100639", "label": "Games", "slug": "games"}, {"id": "100350", "label": "Soccer", "slug": "soccer"}, {"id": "101962", "label": "sea", "slug": "sea"}],
+        "series": [{"id": "10203", "slug": "serie-a-2025", "title": "Serie A 2025"}],
+        "teams": [{"id": 101127, "name": "AS Roma", "league": "sea", "abbreviation": "rom"}, {"id": 101110, "name": "ACF Fiorentina", "league": "sea", "abbreviation": "fio"}]
+      }
+    },
+    {
       "name": "cup",
       "expected_status": "REJECTED",
       "expected_reason": "LEAGUE_NOT_ALLOWED",

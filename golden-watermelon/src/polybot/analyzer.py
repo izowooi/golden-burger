@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -18,6 +19,7 @@ from polybot.config import (
     DATA_CONTRACT,
     FROZEN_LEAGUE_IDENTITIES,
     LEAGUE_MAPPING_SHA256,
+    LeagueIdentity,
     SCHEMA_PROFILE,
     UNIVERSE_PROFILE,
     league_registry_payload,
@@ -30,13 +32,108 @@ from polybot.db.repository import (
 )
 
 
-ANALYZER_CONTRACT = "soccer-major-league-analyzer-v3a"
-PAIR_ANALYZER_CONTRACT = "soccer-major-league-cadence-pair-v3a"
+ANALYZER_CONTRACT = "soccer-major-league-analyzer-v3b"
+PAIR_ANALYZER_CONTRACT = "soccer-major-league-cadence-pair-v3b"
 # Legacy strings remain explicit so existing v2/v3 evidence can be identified in
-# reports without being opened by the v3a writer.
+# reports without being opened by the v3b writer.
 LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
 LEGACY_PAIR_ANALYZER_CONTRACT = "inplay-match-winner-cadence-pair-v2"
-REQUIRED_LEAGUE_CODES = tuple(identity.code for identity in FROZEN_LEAGUE_IDENTITIES)
+
+
+@dataclass(frozen=True)
+class AnalyzerProfile:
+    universe_profile: str
+    classifier_version: str
+    identities: tuple[LeagueIdentity, ...]
+    league_mapping_sha256: str
+    analyzer_contract: str
+    pair_analyzer_contract: str
+    fast_job: str
+    control_job: str
+
+    @property
+    def league_codes(self) -> tuple[str, ...]:
+        return tuple(identity.code for identity in self.identities)
+
+    @property
+    def jobs(self) -> frozenset[str]:
+        return frozenset((self.fast_job, self.control_job))
+
+    def expected_treatment(self, job_name: str) -> tuple[str, int] | None:
+        return {
+            self.fast_job: ("FAST_1M", 1),
+            self.control_job: ("CONTROL_5M", 5),
+        }.get(job_name)
+
+
+def _mapping_sha256(
+    classifier_version: str,
+    identities: tuple[LeagueIdentity, ...],
+) -> str:
+    payload = {
+        "classifier_version": classifier_version,
+        **league_registry_payload(identities),
+    }
+    return hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+
+
+V3A_IDENTITIES = (
+    LeagueIdentity(
+        "epl", 2, "Premier League", 306, "10188",
+        "premier-league-2025", "epl", (82, 306),
+    ),
+    LeagueIdentity(
+        "bun", 7, "Bundesliga", 1494, "10194",
+        "bundesliga-2025", "bun", (1494,),
+    ),
+    LeagueIdentity(
+        "fl1", 11, "Ligue 1", 102070, "10195",
+        "ligue-1-2025", "fl1", (102070,),
+    ),
+    LeagueIdentity(
+        "lal", 3, "LaLiga", 780, "10193",
+        "la-liga-2025", "lal", (780,),
+    ),
+    LeagueIdentity(
+        "mls", 33, "MLS", 100100, "10189",
+        "mls-2025", "mls", (100100,),
+    ),
+)
+V3A_PROFILE = AnalyzerProfile(
+    universe_profile="soccer-major-leagues-2026-08-v3a",
+    classifier_version="soccer-major-league-identity-v1",
+    identities=V3A_IDENTITIES,
+    league_mapping_sha256=_mapping_sha256(
+        "soccer-major-league-identity-v1", V3A_IDENTITIES
+    ),
+    analyzer_contract="soccer-major-league-analyzer-v3a",
+    pair_analyzer_contract="soccer-major-league-cadence-pair-v3a",
+    fast_job="watermelon-white-1m-v3a",
+    control_job="watermelon-grey-5m-v3a",
+)
+V3B_PROFILE = AnalyzerProfile(
+    universe_profile=UNIVERSE_PROFILE,
+    classifier_version=CLASSIFIER_VERSION,
+    identities=FROZEN_LEAGUE_IDENTITIES,
+    league_mapping_sha256=LEAGUE_MAPPING_SHA256,
+    analyzer_contract=ANALYZER_CONTRACT,
+    pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
+    fast_job="watermelon-white-1m-v3b",
+    control_job="watermelon-grey-5m-v3b",
+)
+ANALYZER_PROFILES = {
+    profile.universe_profile: profile for profile in (V3A_PROFILE, V3B_PROFILE)
+}
+
+
+def _analyzer_profile(metadata: dict[str, Any]) -> AnalyzerProfile:
+    universe_profile = str(metadata.get("universe_profile") or "")
+    profile = ANALYZER_PROFILES.get(universe_profile)
+    if profile is None:
+        raise ValueError(f"unsupported analyzer universe profile: {universe_profile!r}")
+    return profile
 
 
 def _utc(value: str) -> datetime:
@@ -96,14 +193,17 @@ def _bootstrap_mean_ci(
 
 
 def _league_macro(
-    event_roi_by_league: dict[str, list[float]], *, seed: int
+    event_roi_by_league: dict[str, list[float]],
+    *,
+    required_league_codes: tuple[str, ...],
+    seed: int,
 ) -> dict[str, Any]:
     missing = [
-        code for code in REQUIRED_LEAGUE_CODES if not event_roi_by_league.get(code)
+        code for code in required_league_codes if not event_roi_by_league.get(code)
     ]
     by_league = {
         code: statistics.fmean(event_roi_by_league[code]) * 100
-        for code in REQUIRED_LEAGUE_CODES
+        for code in required_league_codes
         if event_roi_by_league.get(code)
     }
     if missing:
@@ -121,7 +221,7 @@ def _league_macro(
     draws: list[float] = []
     for _ in range(samples):
         league_means: list[float] = []
-        for code in REQUIRED_LEAGUE_CODES:
+        for code in required_league_codes:
             values = event_roi_by_league[code]
             count = len(values)
             league_means.append(
@@ -264,20 +364,22 @@ def analyze_database(path: Path) -> dict[str, Any]:
         if metadata_row is None:
             raise ValueError("database has no schema_metadata")
         metadata = {key: metadata_row[key] for key in metadata_row.keys()}
+        profile = _analyzer_profile(metadata)
+        required_league_codes = profile.league_codes
         if metadata.get("schema_profile") is not None:
             expected_metadata = {
                 "data_contract": DATA_CONTRACT,
                 "schema_profile": SCHEMA_PROFILE,
-                "universe_profile": UNIVERSE_PROFILE,
-                "classifier_version": CLASSIFIER_VERSION,
-                "league_mapping_sha256": LEAGUE_MAPPING_SHA256,
+                "universe_profile": profile.universe_profile,
+                "classifier_version": profile.classifier_version,
+                "league_mapping_sha256": profile.league_mapping_sha256,
             }
             actual_metadata = {
                 key: metadata.get(key) for key in expected_metadata
             }
             if actual_metadata != expected_metadata:
                 raise ValueError(
-                    f"v3a analyzer metadata contract mismatch: {actual_metadata!r}"
+                    f"analyzer metadata contract mismatch: {actual_metadata!r}"
                 )
             migration_sha256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
             if (
@@ -286,20 +388,20 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 or str(metadata.get("schema_sha256")) != EXPECTED_SCHEMA_SHA256
                 or _live_schema_sha256(connection) != EXPECTED_SCHEMA_SHA256
             ):
-                raise ValueError("v3a analyzer application/migration/schema contract mismatch")
+                raise ValueError("analyzer application/migration/schema contract mismatch")
             registry_row = connection.execute(
                 "SELECT * FROM league_registry_versions WHERE league_mapping_sha256=?",
-                (LEAGUE_MAPPING_SHA256,),
+                (profile.league_mapping_sha256,),
             ).fetchone()
             if registry_row is None:
-                raise ValueError("v3a database has no exact frozen league registry")
-            expected_registry = league_registry_payload()
+                raise ValueError("database has no exact frozen league registry")
+            expected_registry = league_registry_payload(profile.identities)
             if (
-                str(registry_row["classifier_version"]) != CLASSIFIER_VERSION
-                or str(registry_row["universe_profile"]) != UNIVERSE_PROFILE
+                str(registry_row["classifier_version"]) != profile.classifier_version
+                or str(registry_row["universe_profile"]) != profile.universe_profile
                 or json.loads(str(registry_row["mapping_json"])) != expected_registry
             ):
-                raise ValueError("v3a database league registry content drift")
+                raise ValueError("database league registry content drift")
         config_row = connection.execute(
             """
             SELECT config_hash,strategy_source_digest,preregistration_sha256,
@@ -332,6 +434,14 @@ def analyze_database(path: Path) -> dict[str, Any]:
         trading = config_json["trading"]
         cadence_minutes = int(trading["cadence_minutes"])
         cadence_arm = str(trading["cadence_arm"])
+        job_name = str(config_row["job_name"])
+        expected_treatment = profile.expected_treatment(job_name)
+        if expected_treatment is None or (cadence_arm, cadence_minutes) != expected_treatment:
+            raise ValueError(
+                "analyzer job/cadence contract mismatch: "
+                f"job={job_name!r} cadence={(cadence_arm, cadence_minutes)!r} "
+                f"expected={expected_treatment!r}"
+            )
         experiment = trading.get("experiment", {})
         experiment_start = _utc(
             str(experiment.get("start_utc", config_row["first_seen_at"]))
@@ -577,15 +687,16 @@ def analyze_database(path: Path) -> dict[str, Any]:
                     """
                 ).fetchall()
                 if any(
-                    str(row["classifier_version"]) != CLASSIFIER_VERSION
-                    or str(row["league_mapping_sha256"]) != LEAGUE_MAPPING_SHA256
+                    str(row["classifier_version"]) != profile.classifier_version
+                    or str(row["league_mapping_sha256"])
+                    != profile.league_mapping_sha256
                     for row in contract_rows
                 ):
                     raise ValueError(f"{table} classifier/mapping contract drift")
             observed_episode_leagues = {
                 str(row["league_code"]) for row in episode_rows
             }
-            unknown_leagues = observed_episode_leagues - set(REQUIRED_LEAGUE_CODES)
+            unknown_leagues = observed_episode_leagues - set(required_league_codes)
             if unknown_leagues:
                 raise ValueError(
                     f"hypothetical_episodes contains unknown leagues: {unknown_leagues!r}"
@@ -620,7 +731,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         storage = {"samples": 0}
 
     result: dict[str, Any] = {
-        "analyzer_contract": ANALYZER_CONTRACT,
+        "analyzer_contract": profile.analyzer_contract,
         "db": str(path.resolve()),
         "quick_check": quick_check,
         "application_id": application_id,
@@ -632,7 +743,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         "league_mapping_sha256": metadata.get("league_mapping_sha256"),
         "migration_sha256": metadata.get("migration_sha256"),
         "schema_sha256": metadata.get("schema_sha256"),
-        "job_name": str(config_row["job_name"]),
+        "job_name": job_name,
         "cadence_arm": cadence_arm,
         "cadence_minutes": cadence_minutes,
         "config_hash": str(config_row["config_hash"]),
@@ -693,7 +804,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
             "exclusions": dict(sorted(exclusion_counter.items())),
         },
         "league_coverage": {
-            "required_leagues": list(REQUIRED_LEAGUE_CODES),
+            "required_leagues": list(required_league_codes),
             "observed_accepted_leagues": sorted(
                 {
                     str(row["league_code"])
@@ -703,7 +814,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ),
             "missing_accepted_leagues": [
                 code
-                for code in REQUIRED_LEAGUE_CODES
+                for code in required_league_codes
                 if code
                 not in {
                     str(row["league_code"])
@@ -763,9 +874,9 @@ def analyze_database(path: Path) -> dict[str, Any]:
             "unit": "condition_id × token_id × entry_threshold paired across cadence arms",
             "within_event": "equal weight across eligible outcome episodes",
             "within_league": "equal weight across resolved events",
-            "macro": "equal weight across EPL, Bundesliga, Ligue 1, La Liga, MLS",
-            "macro_requires_all_five_leagues": True,
-            "required_league_codes": list(REQUIRED_LEAGUE_CODES),
+            "macro": "equal weight across every frozen league",
+            "macro_requires_all_leagues": True,
+            "required_league_codes": list(required_league_codes),
         },
         "interpretation": "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
         "actual_fill_or_realized_pnl": False,
@@ -831,7 +942,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 "event_equal_fee_net_roi_bootstrap_95ci_pct": _bootstrap_mean_ci(
                     event_roi, seed=seed
                 ),
-                **_league_macro(dict(event_roi_by_league), seed=seed + 500_000),
+                **_league_macro(
+                    dict(event_roi_by_league),
+                    required_league_codes=required_league_codes,
+                    seed=seed + 500_000,
+                ),
                 "entry_provenance": dict(
                     Counter(str(row["entry_provenance"]) for row in subset)
                 ),
@@ -903,7 +1018,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
                     event_roi,
                     seed=seed,
                 ),
-                **_league_macro(dict(event_roi_by_league), seed=seed + 500_000),
+                **_league_macro(
+                    dict(event_roi_by_league),
+                    required_league_codes=required_league_codes,
+                    seed=seed + 500_000,
+                ),
                 "gap_below_stop_p50": _percentile(gaps, 0.50),
                 "gap_below_stop_p95": _percentile(gaps, 0.95),
             }
@@ -947,7 +1066,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         raise ValueError("cadence pair analysis requires exactly two databases")
     databases = [analyze_database(path) for path in resolved_paths]
     result: dict[str, Any] = {
-        "analyzer_contract": PAIR_ANALYZER_CONTRACT,
+        "analyzer_contract": None,
         "databases": databases,
         "pairing": None,
         "interpretation": "CADENCE_PAIRED_DISPLAYED_BOOK_COUNTERFACTUAL_ONLY",
@@ -970,12 +1089,17 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         values = [database.get(field) for database in databases]
         if any(value is None for value in values) or values[0] != values[1]:
             raise ValueError(f"cadence pair {field} mismatch: {values!r}")
+    profile = _analyzer_profile(
+        {"universe_profile": databases[0]["universe_profile"]}
+    )
+    required_league_codes = profile.league_codes
+    result["analyzer_contract"] = profile.pair_analyzer_contract
     arms = {str(database["cadence_arm"]) for database in databases}
     if arms != {"FAST_1M", "CONTROL_5M"}:
         raise ValueError(f"cadence pair must contain FAST_1M and CONTROL_5M: {arms!r}")
     jobs = {str(database["job_name"]) for database in databases}
-    if jobs != {"watermelon-white-1m-v3a", "watermelon-grey-5m-v3a"}:
-        raise ValueError(f"cadence pair contains wrong v3a jobs: {jobs!r}")
+    if jobs != profile.jobs:
+        raise ValueError(f"cadence pair contains wrong jobs: {jobs!r}")
 
     left_index = _episode_index(resolved_paths[0])
     right_index = _episode_index(resolved_paths[1])
@@ -1023,11 +1147,11 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         ),
         "matched_by_league": {
             code: sum(str(left_index[key]["league_code"]) == code for key in common)
-            for code in REQUIRED_LEAGUE_CODES
+            for code in required_league_codes
         },
         "missing_pair_leagues": [
             code
-            for code in REQUIRED_LEAGUE_CODES
+            for code in required_league_codes
             if not any(str(left_index[key]["league_code"]) == code for key in common)
         ],
         "entry_time_delta_seconds_p50": _percentile(time_deltas, 0.50),

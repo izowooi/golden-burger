@@ -53,6 +53,10 @@ def _market(
         "question": f"Will {result} win?",
         "groupItemTitle": result,
         "sportsMarketType": "moneyline",
+        "description": (
+            "This market refers only to the outcome within the first 90 minutes "
+            "of regular play plus stoppage time."
+        ),
         "gameStartTime": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
         "outcomes": ["Yes", "No"],
         "outcomePrices": ["0.98", "0.02"],
@@ -95,7 +99,28 @@ def _event(event_id: str, markets, *, parent_event_id=None, sport_code="epl"):
         ],
         "markets": markets,
     }
-    if sport_code != "epl":
+    if sport_code == "sea":
+        event["seriesSlug"] = "serie-a-2025"
+        event["sport"] = {
+            "id": 12,
+            "sport": "sea",
+            "name": "Serie A",
+            "primaryTagId": 100618,
+            "series": "10203",
+            "tags": "1,100639,100350,100618,101962",
+        }
+        event["tags"] = [
+            {"id": "1", "slug": "sports"},
+            {"id": "100639", "slug": "games"},
+            {"id": "100350", "slug": "soccer"},
+            {"id": "101962", "slug": "sea"},
+        ]
+        event["series"] = [{"id": "10203", "slug": "serie-a-2025"}]
+        event["teams"] = [
+            {"name": "Home FC", "league": "sea"},
+            {"name": "Away FC", "league": "sea"},
+        ]
+    elif sport_code != "epl":
         event["sport"] = {
             **event["sport"],
             "id": 999,
@@ -172,6 +197,19 @@ def test_gamma_accepts_only_whole_match_home_draw_away_yes_markets() -> None:
     assert client.last_sweep_attestation["exclusion_counts"] == {
         "result_proposition_not_identified": 1
     }
+
+
+def test_gamma_accepts_exact_serie_a_identity() -> None:
+    client = GammaClient()
+    client.session = _Session(
+        [{"events": [_event("serie-a", [_market("serie-a")], sport_code="sea")]}]
+    )
+
+    markets = client.get_all_tradable_markets(0, 0)
+
+    assert len(markets) == 1
+    assert markets[0]["leagueCode"] == "sea"
+    assert markets[0]["leagueName"] == "Serie A"
 
 
 def test_gamma_rejects_out_of_range_probability() -> None:
@@ -405,6 +443,21 @@ def test_exact_five_dollar_walk_uses_all_required_ask_levels() -> None:
     assert walk.best_ask == 0.92
 
 
+def test_buy_walk_accepts_executable_ask_only_book() -> None:
+    walk = _walk_buy_book(
+        {
+            "bids": [],
+            "asks": [{"price": "0.98", "size": "20"}],
+        },
+        "token",
+        5.0,
+    )
+    assert walk.best_bid is None
+    assert walk.best_ask == 0.98
+    assert walk.spread is None
+    assert walk.vwap == pytest.approx(0.98)
+
+
 def test_shallow_book_is_censored_not_imputed() -> None:
     book = {
         "bids": [{"price": "0.91", "size": "20"}],
@@ -429,6 +482,21 @@ def test_full_share_sell_walk_uses_deeper_bids_and_market_limit() -> None:
     assert walk.levels_used == 2
     assert walk.proceeds == pytest.approx(2 * 0.70 + 3 * 0.60)
     assert walk.vwap == pytest.approx((2 * 0.70 + 3 * 0.60) / 5)
+
+
+def test_sell_walk_accepts_executable_bid_only_book() -> None:
+    walk = _walk_sell_book(
+        {
+            "bids": [{"price": "0.69", "size": "20"}],
+            "asks": [],
+        },
+        "token",
+        5.0,
+    )
+    assert walk.best_bid == 0.69
+    assert walk.best_ask is None
+    assert walk.spread is None
+    assert walk.vwap == pytest.approx(0.69)
 
 
 def test_shallow_stop_book_is_censored_not_partially_sold() -> None:

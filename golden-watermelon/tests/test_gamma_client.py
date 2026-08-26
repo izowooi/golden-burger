@@ -31,7 +31,7 @@ class FakeTransport:
 
 def config(max_pages: int = 4) -> GammaConfig:
     gamma = load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v3a"
+        ROOT / "config.yaml", "watermelon-white-1m-v3b"
     ).trading.gamma
     return replace(
         gamma,

@@ -33,6 +33,10 @@ def _binary(
     return {
         "sportsMarketType": "moneyline",
         "groupItemTitle": group,
+        "description": (
+            "This market refers only to the outcome within the first 90 minutes "
+            "of regular play plus stoppage time."
+        ),
         "outcomes": ["Yes", "No"],
         "outcomePrices": list(prices),
         "clobTokenIds": ["yes", "no"],
@@ -71,6 +75,50 @@ def test_child_event_and_unrelated_proposition_fail_closed() -> None:
     assert match_result_reason(_binary(group="Both Teams to Score"))[0] == (
         "result_proposition_not_identified"
     )
+    assert match_result_reason(_binary(group="Draw No Bet"))[0] == (
+        "draw_no_bet_excluded"
+    )
+    dnb_question = _binary(group="Home FC")
+    dnb_question["question"] = "Home FC Draw No Bet"
+    assert match_result_reason(dnb_question)[0] == "draw_no_bet_excluded"
+
+
+def test_unproven_extra_time_or_penalty_scope_fails_closed() -> None:
+    missing = _binary()
+    missing.pop("description")
+    ambiguous = _binary()
+    ambiguous["description"] = "Winner including extra time and penalties."
+    contradictory = _binary()
+    contradictory["description"] += " Extra time and penalties are included."
+    mixed_contradiction = _binary()
+    mixed_contradiction["description"] += (
+        " Extra time is included but penalties are excluded."
+    )
+    explicit_exclusion = _binary()
+    explicit_exclusion["description"] += (
+        " Extra time and penalty shoot-outs are excluded."
+    )
+    negated_exclusion = _binary()
+    negated_exclusion["description"] += (
+        " Extra time is not excluded but penalties are excluded."
+    )
+    considered_extra_time = _binary()
+    considered_extra_time["description"] += (
+        " Extra time is considered, while penalty shoot-outs are excluded."
+    )
+    assert match_result_reason(missing)[0] == "settlement_description_missing"
+    assert match_result_reason(ambiguous)[0] == "settlement_scope_unproven"
+    assert match_result_reason(contradictory)[0] == "settlement_scope_contradictory"
+    assert match_result_reason(mixed_contradiction)[0] == (
+        "settlement_scope_contradictory"
+    )
+    assert match_result_reason(explicit_exclusion)[0] == "ok"
+    assert match_result_reason(negated_exclusion)[0] == (
+        "settlement_scope_contradictory"
+    )
+    assert match_result_reason(considered_extra_time)[0] == (
+        "settlement_scope_contradictory"
+    )
 
 
 def test_yes_no_negrisk_alignment_and_settlement_paths() -> None:
@@ -105,12 +153,12 @@ def test_malformed_result_market_fails_closed(field, value) -> None:
 
 
 def test_entry_is_first_current_exact_band_during_in_play() -> None:
-    params = SimpleNamespace(prob_min=0.98, prob_max=0.999, hours_min=0, hours_max=4)
-    assert evaluate_entry(None, 0.98, 0, params).entry is True
+    params = SimpleNamespace(prob_min=0.96, prob_max=0.999, hours_min=0, hours_max=4)
+    assert evaluate_entry(None, 0.96, 0, params).entry is True
     assert evaluate_entry(0.99, 0.995, 3.99, params).entry is True
-    assert evaluate_entry(None, 0.979, 2, params).entry is False
+    assert evaluate_entry(None, 0.959, 2, params).entry is False
     assert evaluate_entry(None, 1.0, 2, params).entry is False
-    assert evaluate_entry(None, 0.98, 4.001, params).entry is False
+    assert evaluate_entry(None, 0.96, 4.001, params).entry is False
 
 
 def test_emergency_stop_is_the_only_discretionary_exit() -> None:

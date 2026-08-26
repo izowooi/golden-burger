@@ -9,14 +9,15 @@ def test_documents_preserve_frozen_contract() -> None:
     for token in (
         "soccer-inplay-major-league-match-winner-v2",
         "soccer-inplay-major-league-match-winner-v1",
-        "watermelon-white-1m-v3a", "watermelon-grey-5m-v3a",
+        "watermelon-white-1m-v3b", "watermelon-grey-5m-v3b",
         "tag_id=100350", "related_tags=false", "primaryTagId",
         "event_observations", "DRIFT", "application", "user version",
         "macro", "null", "migration", "ALTER TABLE",
         "0.95", "0.97", "0.99", "0.80", "0.70",
         "HOLD_TO_RESOLUTION", "FAST_1M", "CONTROL_5M", "moneyline",
         "child_moneyline", "archive_only", "--live", "* * * * *", "daily-rsync",
-        "epl", "bun", "fl1", "lal", "mls", "e-sports",
+        "epl", "bun", "fl1", "lal", "mls", "sea", "Serie A", "e-sports",
+        "stoppage time", "extra time", "penalty",
     ):
         assert token in combined
 

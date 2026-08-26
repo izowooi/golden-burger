@@ -375,6 +375,10 @@ class Trader:
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
                 self.local_untracked_buy_reservations += 1
+                # An unknown POST can already be real exposure.  Reserve it
+                # immediately and prevent every later candidate in this cycle
+                # from issuing another irreversible BUY.
+                self.buying_disabled = True
                 rejection_reason = "buy_submission_outcome_unknown"
             else:
                 rejection_reason = "buy_order_rejected"
@@ -1011,6 +1015,16 @@ class Trader:
                 evidence.detail,
             )
             return False
+        if not evidence.fee_complete or evidence.confirmed_fee_usdc is None:
+            logger.warning(
+                "BUY terminal fill의 fee 증거가 불완전해 PENDING_BUY 유지: "
+                "Trade #%s state=%s size=%.6f vwap=%.4f",
+                trade.id,
+                evidence.state,
+                evidence.confirmed_size,
+                evidence.confirmed_vwap,
+            )
+            return False
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.HOLDING,
@@ -1018,9 +1032,7 @@ class Trader:
             buy_shares=evidence.confirmed_size,
             buy_confirmed_size=evidence.confirmed_size,
             buy_confirmed_vwap=evidence.confirmed_vwap,
-            buy_confirmed_fee_usdc=(
-                evidence.confirmed_fee_usdc if evidence.fee_complete else None
-            ),
+            buy_confirmed_fee_usdc=evidence.confirmed_fee_usdc,
         )
         logger.info(
             "exact terminal BUY fill로 HOLDING 활성화: Trade #%s size=%.6f "

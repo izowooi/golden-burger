@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 import math
+import re
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -26,6 +27,15 @@ from .utils.retry import canonical_json, iso_utc
 
 # Stable event-level rejection vocabulary used by reports and the repository
 # contract verifier: ESPORTS_EXCLUDED, LEAGUE_NOT_ALLOWED.
+REGULATION_SCOPE_CLAUSE = (
+    "this market refers only to the outcome within the first 90 minutes "
+    "of regular play plus stoppage time"
+)
+MAX_IN_PLAY_HOURS = 4.0
+# Read-only analyzers and repository discovery still identify this immutable
+# v3a rejection reason. v3b never emits it because explicit Draw YES is eligible.
+LEGACY_DRAW_EXCLUSION_REASON = "DRAW_OUTCOME_EXCLUDED"
+LEGACY_ALIGNED_TWO_TEAM_CLASS = "ALIGNED_TWO_TEAM_MONEYLINE"
 
 
 def _array(value: Any) -> list[Any] | None:
@@ -92,6 +102,97 @@ def _team_forms(team: Mapping[str, Any]) -> set[str]:
     }
 
 
+def _settlement_scope_reason(market: Mapping[str, Any]) -> str | None:
+    """Require an explicit regular-time settlement rule before using a market."""
+    description = " ".join(
+        str(market.get("description") or "").casefold().split()
+    )
+    if not description:
+        return "SETTLEMENT_DESCRIPTION_MISSING"
+    if REGULATION_SCOPE_CLAUSE not in description:
+        return "SETTLEMENT_SCOPE_UNPROVEN"
+    # The canonical ``only ... 90 minutes ... stoppage`` clause is sufficient
+    # when extra time is not mentioned.  If it is mentioned elsewhere, every
+    # such clause must explicitly exclude it.  This rejects internally
+    # contradictory descriptions instead of accepting the first matching
+    # substring.
+    scope_groups = (
+        ("extra time",),
+        ("penalty shoot-outs", "penalty shoot-out", "penalty shootouts", "penalty shootout", "penalties", "penalty"),
+    )
+    for clause in re.split(r"[.;]", description):
+        mentioned_groups = [
+            aliases for aliases in scope_groups if any(alias in clause for alias in aliases)
+        ]
+        if not mentioned_groups:
+            continue
+        if re.search(
+            r"\b(?:not|never)\s+(?:explicitly\s+)?"
+            r"(?:exclude|excluded|excluding|outside)\b",
+            clause,
+        ):
+            return "SETTLEMENT_SCOPE_CONTRADICTORY"
+        masked = clause
+        for negative in (
+            "does not include",
+            "do not include",
+            "not included",
+            "does not count",
+            "do not count",
+            "not count",
+            "does not apply",
+            "do not apply",
+        ):
+            masked = masked.replace(negative, " excluded ")
+        if re.search(
+            r"\b(include|includes|included|including|count|counts|counted|"
+            r"counting|apply|applies|applied)\b",
+            masked,
+        ):
+            return "SETTLEMENT_SCOPE_CONTRADICTORY"
+        for aliases in mentioned_groups:
+            alias_pattern = "(?:" + "|".join(
+                re.escape(alias) for alias in sorted(aliases, key=len, reverse=True)
+            ) + ")"
+            explicitly_excluded = any(
+                re.search(pattern, clause)
+                for pattern in (
+                    rf"\b{alias_pattern}(?:\s+(?:and|or)\s+[a-z -]+)?\s+"
+                    rf"(?:is|are|will be|shall be)\s+(?:explicitly\s+)?excluded\b",
+                    rf"\b{alias_pattern}(?:\s+(?:and|or)\s+[a-z -]+)?\s+"
+                    rf"(?:does|do|will|shall)\s+not\s+(?:count|apply)\b",
+                    rf"\b{alias_pattern}\s+(?:is|are)\s+not\s+included\b",
+                    rf"\b{alias_pattern}\s+(?:is|are)\s+outside\b",
+                    rf"\b(?:excluding|exclude|excludes)\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\b(?:does|do)\s+not\s+include\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\bwithout\b[^.;]{{0,80}}\b{alias_pattern}\b",
+                    rf"\bneither\b[^.;]{{0,80}}\b{alias_pattern}\b[^.;]{{0,80}}\b"
+                    rf"(?:counts?|applies?|is included|are included)\b",
+                )
+            )
+            if not explicitly_excluded:
+                return "SETTLEMENT_SCOPE_CONTRADICTORY"
+    return None
+
+
+def _is_exact_draw_descriptor(
+    descriptor: str,
+    team_forms: list[set[str]],
+) -> bool:
+    if descriptor in {"draw", "tie"}:
+        return True
+    if len(team_forms) != 2:
+        return False
+    exact = {
+        f"{prefix} {home} {separator} {away}"
+        for prefix in ("draw", "tie")
+        for separator in ("vs", "v")
+        for home in team_forms[0]
+        for away in team_forms[1]
+    }
+    return descriptor in exact
+
+
 def _select_event(
     market: Mapping[str, Any],
 ) -> tuple[Mapping[str, Any], list[str], int]:
@@ -134,10 +235,18 @@ def classify_match_winner(
     sports_market_type = str(market.get("sportsMarketType") or "").strip()
     if sports_market_type != "moneyline":
         reasons.append("NOT_TOP_LEVEL_MONEYLINE")
+    identity_text = " ".join(
+        _normalized_name(market.get(field))
+        for field in ("groupItemTitle", "question", "slug")
+    )
+    if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
+        reasons.append("DRAW_NO_BET_EXCLUDED")
+    settlement_reason = _settlement_scope_reason(market)
+    if settlement_reason is not None:
+        reasons.append(settlement_reason)
     aligned = (
         len(labels) == len(tokens) == len(probabilities) == 2
-        and all(labels)
-        and len(set(labels)) == 2
+        and labels == ["Yes", "No"]
         and all(tokens)
         and len(set(tokens)) == 2
         and all(value is not None and 0 <= value <= 1 for value in probabilities)
@@ -157,51 +266,34 @@ def classify_match_winner(
     if len(forms) == 2 and (not forms[0] or not forms[1] or forms[0] & forms[1]):
         reasons.append("TEAM_IDENTITY_AMBIGUOUS")
 
-    neg_risk = _boolean(market.get("negRisk"))
-    if neg_risk is None:
-        reasons.append("NEG_RISK_UNKNOWN")
+    neg_risk = market.get("negRisk") if isinstance(market.get("negRisk"), bool) else None
+    if neg_risk is not True:
+        reasons.append("NOT_EXPLICIT_NEGRISK_RESULT_MARKET")
 
     match_class = "REJECTED"
     eligible_indices: tuple[int, ...] = ()
     selected_team_index: int | None = None
-    if not reasons and neg_risk is False:
-        label_forms = [_normalized_name(label) for label in labels]
-        matched = [
-            [index for index, candidates in enumerate(forms) if label in candidates]
-            for label in label_forms
-        ]
-        if all(len(item) == 1 for item in matched) and matched[0][0] != matched[1][0]:
-            match_class = "ALIGNED_TWO_TEAM_MONEYLINE"
-            eligible_indices = (0, 1)
+    result_kind: str | None = None
+    if not reasons:
+        descriptor = _normalized_name(market.get("groupItemTitle"))
+        if not descriptor:
+            reasons.append("GROUP_ITEM_TITLE_MISSING")
+        elif _is_exact_draw_descriptor(descriptor, forms):
+            match_class = "NEGRISK_DRAW_YES"
+            eligible_indices = (0,)
+            result_kind = "DRAW"
         else:
-            reasons.append("OUTCOME_LABELS_DO_NOT_MATCH_TEAMS")
-    elif not reasons and neg_risk is True:
-        normalized_labels = [_normalized_name(label) for label in labels]
-        if set(normalized_labels) != {"yes", "no"}:
-            reasons.append("NEGRISK_OUTCOMES_NOT_YES_NO")
-        else:
-            descriptor = _normalized_name(market.get("groupItemTitle"))
-            if not descriptor:
-                question = str(market.get("question") or "")
-                lowered = question.casefold()
-                descriptor = _normalized_name(
-                    question[5 : lowered.index(" win")]
-                    if lowered.startswith("will ") and " win" in lowered
-                    else ""
-                )
-            if descriptor in {"draw", "tie"} or descriptor.startswith("draw "):
-                reasons.append("DRAW_OUTCOME_EXCLUDED")
+            matched_teams = [
+                index for index, candidates in enumerate(forms)
+                if descriptor in candidates
+            ]
+            if len(matched_teams) != 1:
+                reasons.append("TEAM_PROPOSITION_NOT_IDENTIFIED")
             else:
-                matched_teams = [
-                    index for index, candidates in enumerate(forms)
-                    if descriptor in candidates
-                ]
-                if len(matched_teams) != 1:
-                    reasons.append("TEAM_PROPOSITION_NOT_IDENTIFIED")
-                else:
-                    selected_team_index = matched_teams[0]
-                    match_class = "NEGRISK_TEAM_WIN_YES"
-                    eligible_indices = (normalized_labels.index("yes"),)
+                selected_team_index = matched_teams[0]
+                match_class = "NEGRISK_TEAM_WIN_YES"
+                eligible_indices = (0,)
+                result_kind = "HOME" if selected_team_index == 0 else "AWAY"
 
     evidence = {
         "sports_market_type": sports_market_type,
@@ -211,7 +303,16 @@ def classify_match_winner(
         "team_aliases": [str(team.get("alias") or "") or None for team in teams],
         "outcome_labels": labels,
         "selected_team_index": selected_team_index,
+        "result_kind": result_kind,
         "eligible_outcome_indices": list(eligible_indices),
+        "settlement_scope": (
+            "REGULATION_90_PLUS_STOPPAGE"
+            if settlement_reason is None
+            else "UNPROVEN"
+        ),
+        "description_sha256": hashlib.sha256(
+            str(market.get("description") or "").encode("utf-8")
+        ).hexdigest(),
     }
     return match_class, eligible_indices, evidence, reasons
 
@@ -263,25 +364,39 @@ def _parse_market(
     end_date = _utc(market.get("endDate") or market.get("end_date") or event.get("endDate"))
     game_start = _utc(
         market.get("gameStartTime")
-        or event.get("eventDate")
         or event.get("startTime")
+        or event.get("eventDate")
     )
     hours_until_end = (end_date - observed_at).total_seconds() / 3600 if end_date else None
     liquidity = _number(market.get("liquidityNum", market.get("liquidity")))
     volume = _number(market.get("volumeNum", market.get("volume")))
-    active = _boolean(market.get("active"))
-    closed = _boolean(market.get("closed"))
-    accepting = _boolean(market.get("acceptingOrders"))
-    book_enabled = _boolean(market.get("enableOrderBook"))
-    neg_risk = _boolean(market.get("negRisk"))
-    event_live = _boolean(event.get("live"))
-    event_ended = _boolean(event.get("ended"))
+    active = market.get("active") if isinstance(market.get("active"), bool) else None
+    closed = market.get("closed") if isinstance(market.get("closed"), bool) else None
+    accepting = (
+        market.get("acceptingOrders")
+        if isinstance(market.get("acceptingOrders"), bool)
+        else None
+    )
+    book_enabled = (
+        market.get("enableOrderBook")
+        if isinstance(market.get("enableOrderBook"), bool)
+        else None
+    )
+    neg_risk = market.get("negRisk") if isinstance(market.get("negRisk"), bool) else None
+    event_live = event.get("live") if isinstance(event.get("live"), bool) else None
+    event_ended = event.get("ended") if isinstance(event.get("ended"), bool) else None
+    event_active = event.get("active") if isinstance(event.get("active"), bool) else None
+    event_closed = event.get("closed") if isinstance(event.get("closed"), bool) else None
     event_game_status = str(event.get("gameStatus") or "") or None
     reasons: list[str] = [*classification_reasons]
     if not league.accepted:
         reasons.append("EVENT_LEAGUE_NOT_ACCEPTED")
     if not event_id or not condition_id:
         reasons.append("MISSING_ID")
+    if event.get("parentEventId") not in (None, ""):
+        reasons.append("CHILD_EVENT_NOT_WHOLE_MATCH")
+    if event_active is not True or event_closed is not False:
+        reasons.append("EVENT_NOT_OPEN")
     if active is not True or closed is not False or accepting is not True or book_enabled is not True:
         reasons.append("NOT_OPEN_TRADABLE")
     phase = "UNKNOWN"
@@ -290,16 +405,14 @@ def _parse_market(
     elif observed_at < game_start:
         phase = "PRE_GAME"
         reasons.append("NOT_IN_PLAY")
-    elif event_ended is True:
-        phase = "FINISHED"
-        reasons.append("EVENT_ENDED")
-    elif event_live is False:
-        phase = "POST_START_LIVE_FALSE"
-        reasons.append("EVENT_LIVE_FALSE")
+    elif event_live is not True or event_ended is not False:
+        phase = "FINISHED" if event_ended is True else "NOT_EXPLICITLY_LIVE"
+        reasons.append("EVENT_NOT_EXPLICITLY_IN_PLAY")
+    elif (observed_at - game_start).total_seconds() / 3600 > MAX_IN_PLAY_HOURS:
+        phase = "OUTSIDE_IN_PLAY_WINDOW"
+        reasons.append("OUTSIDE_IN_PLAY_WINDOW")
     else:
-        phase = "IN_PLAY_EXPLICIT" if event_live is True else "IN_PLAY_INFERRED"
-    if end_date is None:
-        reasons.append("END_DATE_MISSING")
+        phase = "IN_PLAY_EXPLICIT"
     fee_rate, fee_schedule = _fee_rate(market, config.trading.experiment.fee_rate_fallback)
     observation_id = uuid4().hex
     market_row = {

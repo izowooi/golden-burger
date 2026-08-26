@@ -29,18 +29,23 @@ from .source_digest import (
 
 DATA_CONTRACT = "soccer-inplay-major-league-match-winner-v2"
 SCHEMA_PROFILE = "golden-watermelon-v3a-schema-v1"
-UNIVERSE_PROFILE = "soccer-major-leagues-2026-08-v3a"
-CLASSIFIER_VERSION = "soccer-major-league-identity-v1"
-CANONICAL_JOB = "watermelon-white-1m-v3a"
+UNIVERSE_PROFILE = "soccer-major-leagues-2026-08-v3b"
+CLASSIFIER_VERSION = "soccer-major-league-identity-v2"
+CANONICAL_JOB = "watermelon-white-1m-v3b"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 SOCCER_TAG_ID = 100350
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
 
-# Immutable legacy epochs. The v3a runtime never accepts these jobs/contracts.
+# Immutable legacy epochs. The v3b runtime never accepts these jobs/contracts.
 # The literals also keep repository-wide discovery aware of preserved evidence.
 LEGACY_DATA_CONTRACT_V3 = "soccer-inplay-major-league-match-winner-v1"
-LEGACY_RUNTIME_JOBS = ("watermelon-white-1m-v3", "watermelon-grey-5m-v3")
+LEGACY_RUNTIME_JOBS = (
+    "watermelon-white-1m-v3",
+    "watermelon-grey-5m-v3",
+    "watermelon-white-1m-v3a",
+    "watermelon-grey-5m-v3a",
+)
 
 
 @dataclass(frozen=True)
@@ -73,6 +78,7 @@ FROZEN_LEAGUE_IDENTITIES = (
     LeagueIdentity("fl1", 11, "Ligue 1", 102070, "10195", "ligue-1-2025", "fl1", (102070,)),
     LeagueIdentity("lal", 3, "LaLiga", 780, "10193", "la-liga-2025", "lal", (780,)),
     LeagueIdentity("mls", 33, "MLS", 100100, "10189", "mls-2025", "mls", (100100,)),
+    LeagueIdentity("sea", 12, "Serie A", 100618, "10203", "serie-a-2025", "sea", (101962,)),
 )
 
 # Compatibility name retained for the root contract verifier. Unlike the old
@@ -107,9 +113,9 @@ LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
 
 # Entry begins well after this source edit; first successful source receipt is
 # provenance, not permission to backdate the preregistered statistical window.
-FROZEN_START = datetime(2026, 8, 23, 16, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 8, 30, 16, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 6, 16, 0, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 26, 15, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 2, 15, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 9, 15, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 
@@ -121,8 +127,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v3a": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v3a": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v3b": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v3b": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(

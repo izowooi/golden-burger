@@ -8,9 +8,9 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-24-soccer-v3a/PREREGISTRATION.md"
+    "research/frozen-2026-08-26-serie-a-v3b/PREREGISTRATION.md"
 )
-ACTIVE_MANIFEST = "research/frozen-2026-08-24-soccer-v3a/MANIFEST.sha256"
+ACTIVE_MANIFEST = "research/frozen-2026-08-26-serie-a-v3b/MANIFEST.sha256"
 SOURCE_PATHS = (
     "pyproject.toml",
     "uv.lock",
@@ -84,3 +84,15 @@ def verify_frozen_manifest(root: Path = PROJECT_ROOT) -> None:
         if sha256_file(path) != digest:
             raise ValueError(f"active frozen manifest mismatch: {relative}")
         verified.add(path)
+    expected = {
+        (root / relative).resolve()
+        for relative in SOURCE_PATHS
+        if relative != ACTIVE_MANIFEST
+    }
+    if verified != expected:
+        missing = sorted(path.relative_to(root).as_posix() for path in expected - verified)
+        extra = sorted(path.relative_to(root).as_posix() for path in verified - expected)
+        raise ValueError(
+            "active frozen manifest target coverage mismatch: "
+            f"missing={missing!r} extra={extra!r}"
+        )

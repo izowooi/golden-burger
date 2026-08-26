@@ -64,9 +64,9 @@ class BuyBookWalk:
     """A full displayed-ask walk for one fixed USDC notional."""
 
     token_id: str
-    best_bid: float
+    best_bid: Optional[float]
     best_ask: float
-    spread: float
+    spread: Optional[float]
     vwap: float
     shares: float
     cost: float
@@ -80,8 +80,8 @@ class SellBookWalk:
 
     token_id: str
     best_bid: float
-    best_ask: float
-    spread: float
+    best_ask: Optional[float]
+    spread: Optional[float]
     vwap: float
     shares: float
     proceeds: float
@@ -116,7 +116,12 @@ def _book_field(value: Any, name: str) -> Any:
     return value.get(name) if isinstance(value, Mapping) else getattr(value, name, None)
 
 
-def _normalize_book_levels(value: Any, side: str) -> list[tuple[float, float]]:
+def _normalize_book_levels(
+    value: Any,
+    side: str,
+    *,
+    allow_empty: bool = False,
+) -> list[tuple[float, float]]:
     if not isinstance(value, (list, tuple)):
         raise ClobResponseContractError(f"CLOB {side} levels must be a sequence")
     levels: list[tuple[float, float]] = []
@@ -138,7 +143,7 @@ def _normalize_book_levels(value: Any, side: str) -> list[tuple[float, float]]:
                 f"CLOB {side} level price/size is outside its domain"
             )
         levels.append((price, size))
-    if not levels:
+    if not levels and not allow_empty:
         raise ClobResponseUnavailableError(f"CLOB {side} side is empty")
     return sorted(levels, key=lambda row: row[0], reverse=side == "bid")
 
@@ -146,11 +151,13 @@ def _normalize_book_levels(value: Any, side: str) -> list[tuple[float, float]]:
 def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWalk:
     if not math.isfinite(notional_usdc) or notional_usdc <= 0:
         raise ValueError("notional_usdc must be finite and positive")
-    bids = _normalize_book_levels(_book_field(book, "bids"), "bid")
+    bids = _normalize_book_levels(
+        _book_field(book, "bids"), "bid", allow_empty=True
+    )
     asks = _normalize_book_levels(_book_field(book, "asks"), "ask")
-    best_bid = bids[0][0]
+    best_bid = bids[0][0] if bids else None
     best_ask = asks[0][0]
-    if best_bid > best_ask + 1e-9:
+    if best_bid is not None and best_bid > best_ask + 1e-9:
         raise ClobResponseContractError("CLOB order book is crossed")
     remaining = notional_usdc
     shares = 0.0
@@ -171,7 +178,7 @@ def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWal
         token_id=str(token_id),
         best_bid=best_bid,
         best_ask=best_ask,
-        spread=best_ask - best_bid,
+        spread=(best_ask - best_bid if best_bid is not None else None),
         vwap=notional_usdc / shares,
         shares=shares,
         cost=notional_usdc,
@@ -185,10 +192,12 @@ def _walk_sell_book(book: Any, token_id: str, shares: float) -> SellBookWalk:
     if not math.isfinite(shares) or shares <= 0:
         raise ValueError("shares must be finite and positive")
     bids = _normalize_book_levels(_book_field(book, "bids"), "bid")
-    asks = _normalize_book_levels(_book_field(book, "asks"), "ask")
+    asks = _normalize_book_levels(
+        _book_field(book, "asks"), "ask", allow_empty=True
+    )
     best_bid = bids[0][0]
-    best_ask = asks[0][0]
-    if best_bid > best_ask + 1e-9:
+    best_ask = asks[0][0] if asks else None
+    if best_ask is not None and best_bid > best_ask + 1e-9:
         raise ClobResponseContractError("CLOB order book is crossed")
     remaining = shares
     proceeds = 0.0
@@ -210,7 +219,7 @@ def _walk_sell_book(book: Any, token_id: str, shares: float) -> SellBookWalk:
         token_id=str(token_id),
         best_bid=best_bid,
         best_ask=best_ask,
-        spread=best_ask - best_bid,
+        spread=(best_ask - best_bid if best_ask is not None else None),
         vwap=proceeds / shares,
         shares=shares,
         proceeds=proceeds,

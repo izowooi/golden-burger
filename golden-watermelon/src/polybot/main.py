@@ -48,6 +48,19 @@ def _configure_log(config) -> None:
     )
 
 
+def _run_analysis(databases: list[Path], output: Path | None) -> int:
+    result = (
+        analyze_database(databases[0])
+        if len(databases) == 1
+        else analyze_databases(databases)
+    )
+    rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
+    if output:
+        output.write_text(rendered + "\n", encoding="utf-8")
+    print(rendered)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     arguments = list(sys.argv[1:] if argv is None else argv)
     assert_no_credentials()
@@ -55,6 +68,10 @@ def main(argv: list[str] | None = None) -> int:
         print("Golden Watermelon is accountless simulation-only; --live is forbidden", file=sys.stderr)
         return 2
     args = _parser().parse_args(arguments)
+    # Explicit DB analysis is read-only and must remain usable for immutable
+    # historical epochs whose runtime job is deliberately no longer runnable.
+    if args.command == "analyze" and args.db:
+        return _run_analysis(args.db, args.output)
     config = load_config(args.config, args.job, simulation_mode=True)
     if args.command == "config":
         print(json.dumps(config.redacted_dict(), ensure_ascii=False, indent=2, sort_keys=True))
@@ -66,17 +83,7 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(result, ensure_ascii=False, sort_keys=True))
         return 0
     if args.command == "analyze":
-        databases = args.db or [config.db_path]
-        result = (
-            analyze_database(databases[0])
-            if len(databases) == 1
-            else analyze_databases(databases)
-        )
-        rendered = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True)
-        if args.output:
-            args.output.write_text(rendered + "\n", encoding="utf-8")
-        print(rendered)
-        return 0
+        return _run_analysis([config.db_path], args.output)
     repository = ResearchRepository(
         config.db_path,
         busy_timeout_ms=config.trading.storage.busy_timeout_ms,

@@ -26,21 +26,22 @@ fee·spread·급반전 시 실제 bid depth를 반영해도 resolution까지 보
 
 같은 condition/token/threshold를 paired하고 event-cluster 단위로 집계해 이를 구분한다.
 
-## Universe — soccer major leagues v3a
+## Universe — soccer major leagues v3b
 
 - Source: Gamma `/events/keyset`, keyset cursor complete.
 - Server envelope: `closed=false`, `live=true`, numeric `tag_id=100350`,
   `related_tags=false`, page 500,
   max 4. nested market에서 `sportsMarketType=moneyline`을 client-side로 재검증한다.
 - Frozen league allowlist: EPL(`epl`), Bundesliga(`bun`), Ligue 1(`fl1`),
-  LaLiga(`lal`), MLS(`mls`). authority는 title/slug 추정이 아니라 아래 exact tuple이다.
+  LaLiga(`lal`), MLS(`mls`), Serie A(`sea`). authority는 title/slug 추정이 아니라 아래 exact tuple이다.
 - 공통 numeric tags `1/100639/100350`과 league별 required tag가 event tags와
   `sport.tags` 양쪽에 있어야 한다. e-sports tag `64`, cup, 2부와 다른 league는
   `REJECTED`; 허용 code의 authority 충돌은 `DRIFT`다.
 - volume/liquidity 하한: **none**. 두 값은 feature로 저장하고 selection gate로 쓰지 않는다.
 - Execution availability: active, not closed, accepting orders, order book enabled.
-- Clock: `gameStartTime <= receipt time`; `event.ended=true` 또는 명시적
-  `event.live=false`면 제외.
+- Clock: event가 명시적으로 `active=true/closed=false/live=true/ended=false`이고
+  parent event가 없으며, `gameStartTime` 후 `[0h,4h]`일 때만 허용한다. 상태 누락도
+  inferred-live로 보정하지 않고 제외한다.
 - 정확히 두 team과 두 outcome token을 요구한다.
 
 | code | sport id/name/primaryTagId | series id/slug | team league | extra tags |
@@ -50,6 +51,7 @@ fee·spread·급반전 시 실제 bid depth를 반영해도 resolution까지 보
 | `fl1` | `11 / Ligue 1 / 102070` | `10195 / ligue-1-2025` | `fl1` | `102070` |
 | `lal` | `3 / LaLiga / 780` | `10193 / la-liga-2025` | `lal` | `780` |
 | `mls` | `33 / MLS / 100100` | `10189 / mls-2025` | `mls` | `100100` |
+| `sea` | `12 / Serie A / 100618` | `10203 / serie-a-2025` | `sea` | `101962` |
 
 각 event의 raw page와 normalized authority/rejection reason은 `event_observations` 한 row가
 소유하고 market은 `event_observation_id`만 참조한다. event sport/tag/series/team JSON을
@@ -59,18 +61,25 @@ market마다 복제하지 않는다.
 
 - `sportsMarketType=moneyline`만 허용한다.
 - `child_moneyline`은 이름에 winner가 있어도 map/game/set 부분경기이므로 제외한다.
-- non-negRisk는 두 outcome label이 event의 두 team name/alias에 각각 정확히 대응해야 한다.
-- negRisk는 `groupItemTitle`이 event team 하나에 정확히 대응하는 team-win market의
-  `YES`만 허용한다.
-- Draw/Tie, negRisk `NO`, score, spread, totals, goal, foul, corners, player prop은 제외한다.
+- exact negRisk `[Yes,No]`만 허용한다. `groupItemTitle`이 event team 하나 또는 명시적인
+  Draw/Tie와 두 team 이름의 정확한 조합에 대응하는
+  home/draw/away result proposition의 `YES`만 허용한다.
+- `Draw No Bet`처럼 `Draw`로 시작하지만 whole-match 무승부 결과가 아닌 상품은 제외한다.
+- negRisk `NO`, score, spread, totals, goal, foul, corners, player prop은 제외한다.
+- description이 `this market refers only ... first 90 minutes of regular play plus stoppage
+  time` 범위를 명시해야 한다. 같은 description의 다른 절이 연장전·승부차기 포함을 말하면
+  모순으로 제외하며, 명시적인 excluded 문구만 허용한다.
+  In contract terms, extra time and penalty shoot-outs are excluded.
 
-축구에는 무승부가 있으므로 “모든 스포츠는 반드시 승/패”라는 전제를 데이터에 강제로
-넣지 않는다. 무승부 outcome은 이 가설의 team winner가 아니므로 제외하고 exclusion count를
-남긴다.
+축구의 정규시간 결과는 home/draw/away 중 하나다. 따라서 명시적인 Draw proposition의
+`YES`도 team-win `YES`와 같은 방식으로 수집한다. 다만 최종 결과가 존재한다는 사실만으로
+종료 직전 executable ask가 반드시 관측된다고 가정하지는 않는다.
 
 Gamma `endDate`는 실제 종료시각으로 가정하지 않는다. 어떤 종목은 `endDate`와
 `gameStartTime`이 같기 때문이다. endDate는 bounded discovery에만 쓰고, phase와 resolution은
 `gameStartTime`, event live/ended/status, CLOB one-hot winner로 판단한다.
+허용 moneyline의 승패는 정규 90분과 후반 추가시간까지만 결정되므로 연장전·승부차기까지
+기다리지 않는다. `[0h,4h]` 관측 envelope는 추가시간과 source 지연을 포함하기에 충분히 넓다.
 
 ## Entry
 
@@ -111,20 +120,24 @@ closed이며 두 token 중 winner가 정확히 하나일 때만 인정한다.
 
 | Jenkins | runtime job | arm | timer |
 |---|---|---|---|
-| `polybot-white` | `watermelon-white-1m-v3a` | `FAST_1M` | 매분 |
-| `polybot-grey` | `watermelon-grey-5m-v3a` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v3b` | `FAST_1M` | 매분 |
+| `polybot-grey` | `watermelon-grey-5m-v3b` | `CONTROL_5M` | 5분 |
 
 두 job은 cadence 외 config/source/universe/grid가 같다. 동일 episode key를 paired하고,
 entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI 차이를 비교한다.
 두 DB를 합쳐 표본을 두 배로 만들지 않는다.
 
+수집기와 live A/B는 parent/open/live/ended, `[0h,4h]`, exact negRisk home/draw/away,
+settlement scope를 같은 방식으로 fail closed한다. shadow가 더 넓은 모집단을 사용해 live
+parameter를 왜곡하지 않도록 이 경계를 v3b에서 일치시켰다.
+
 ## Frozen timeline
 
-- Freeze decision: `2026-08-23T15:07:00Z`.
-- Entry: `[2026-08-23T16:00:00Z, 2026-08-30T16:00:00Z)` (7일,
-  `2026-08-24 01:00 KST` 즉시 시작).
+- Freeze decision: `2026-08-26T10:58:44Z`.
+- Entry: `[2026-08-26T15:00:00Z, 2026-09-02T15:00:00Z)` (7일,
+  `2026-08-27 00:00 KST` 시작).
 - Calibration/confirmation descriptive split: entry window midpoint.
-- Resolution follow-up: `2026-09-06T16:00:00Z`까지.
+- Resolution follow-up: `2026-09-09T15:00:00Z`까지.
 - 실제 수집 시작은 각 Jenkins의 첫 successful build와 DB source receipt time으로 보고한다.
 
 첫 7일은 collection health와 리그 coverage를 우선한다. threshold/stop을 선택하거나
@@ -151,7 +164,7 @@ entry time·VWAP 차이, stop first-trigger delay, executable exit gap과 ROI �
 
 entry와 follow-up이 끝난 뒤에만 X/Y 후보를 고른다.
 
-- primary는 event 안 episode equal → league 안 event equal → 다섯 league 각각 20%의
+- primary는 event 안 episode equal → league 안 event equal → 여섯 league 동일 가중의
   league-macro fee-net ROI다. league 하나라도 evaluable resolution이 없으면 estimate/CI는
   `null`이다. deterministic 2,000회 league-stratified event bootstrap을 사용한다.
 - 각 X의 confirmation 구간 resolved unique event ≥100, league별 ≥20.
