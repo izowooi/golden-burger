@@ -609,6 +609,112 @@ class Trader:
         )
         return True
 
+    def _record_proven_resolution_after_partial_sell(
+        self,
+        trade,
+        buy_evidence: ExactFillEvidence,
+        sell_evidence: ExactFillEvidence,
+    ) -> bool:
+        """Close a terminal partial-SELL position from exact payout evidence.
+
+        A fully reconciled SELL order can still cover fewer shares than the
+        corresponding BUY (for example, when the wallet exposed a smaller
+        sellable balance).  The confirmed SELL must remain actual execution
+        evidence, while only the unsold residual may use a proven Gamma payout.
+        Until Gamma proves a closed final 0/0.5/1 outcome, the trade remains
+        ``PENDING_SELL`` and continues to consume open-position capacity.
+        """
+        if self.gamma is None:
+            logger.warning(
+                "partial SELL resolution lookup 보류 - Gamma client 없음: "
+                "Trade #%s",
+                trade.id,
+            )
+            return False
+        try:
+            market = self.gamma.get_market_by_condition_id(trade.condition_id)
+        except Exception as error:
+            logger.warning(
+                "partial SELL Gamma resolution lookup 실패 - condition=%s "
+                "error=%s",
+                trade.condition_id,
+                error,
+            )
+            return False
+        proof = get_proven_resolution(market) if market else None
+        if proof is None:
+            logger.warning(
+                "partial SELL은 확인됐지만 closed+final payout 증거가 없어 "
+                "PENDING_SELL 유지: Trade #%s buy=%.6f sell=%.6f",
+                trade.id,
+                buy_evidence.confirmed_size,
+                sell_evidence.confirmed_size,
+            )
+            return False
+
+        buy_size = float(buy_evidence.confirmed_size)
+        sell_size = float(sell_evidence.confirmed_size)
+        residual_size = max(buy_size - sell_size, 0.0)
+        payout = float(proof["yes_payout"])
+        settlement_pnl = (
+            sell_evidence.confirmed_vwap * sell_size
+            + payout * residual_size
+            - buy_evidence.confirmed_vwap * buy_size
+            - buy_evidence.confirmed_fee_usdc
+            - sell_evidence.confirmed_fee_usdc
+        )
+        observed_at = datetime.utcnow()
+        assumption_basis = (
+            "confirmed_buy_partial_sell_net_known_fees_plus_"
+            "gamma_residual_payout"
+        )
+        self.repo.save_market_catalog(trade.condition_id, market, commit=True)
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.RESOLVED,
+            exit_reason="partial_sell_then_resolved_with_payout_evidence",
+            yes_price_at_exit=payout,
+            resolution_outcome=proof["outcome"],
+            resolution_value=payout,
+            resolution_status=proof["status"],
+            resolution_observed_at=observed_at,
+            resolution_source_updated_at=market.get("updatedAt"),
+            resolution_evidence=(
+                f"{proof['evidence']}+execution_ledger_exact_confirmed_"
+                "buy_partial_sell"
+            ),
+            resolution_confirmed_buy_size=buy_size,
+            resolution_confirmed_buy_vwap=buy_evidence.confirmed_vwap,
+            resolution_confirmed_buy_fee_usdc=(
+                buy_evidence.confirmed_fee_usdc
+            ),
+            settlement_pnl_assumption=settlement_pnl,
+            settlement_assumption_basis=assumption_basis,
+            buy_confirmed_size=buy_size,
+            buy_confirmed_vwap=buy_evidence.confirmed_vwap,
+            buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
+            sell_price=sell_evidence.confirmed_vwap,
+            sell_shares=sell_size,
+            sell_confirmed_size=sell_size,
+            sell_confirmed_vwap=sell_evidence.confirmed_vwap,
+            sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
+            sell_fill_matched_at=sell_evidence.matched_at,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.warning(
+            "confirmed partial SELL + Gamma residual payout으로 RESOLVED: "
+            "Trade #%s sold=%.6f residual=%.6f payout=%.2f "
+            "(settlement assumption=$%.6f, realized_pnl=NULL)",
+            trade.id,
+            sell_size,
+            residual_size,
+            payout,
+            settlement_pnl,
+        )
+        return True
+
     def _handle_midpoint_unavailable(self, trade, error) -> bool:
         if self.gamma is None:
             logger.warning(
@@ -887,18 +993,33 @@ class Trader:
                 buy_evidence.detail,
             )
             return False
+        buy_size = float(buy_evidence.confirmed_size)
+        sell_size = float(sell_evidence.confirmed_size)
         if not math.isclose(
-            sell_evidence.confirmed_size,
-            buy_evidence.confirmed_size,
+            sell_size,
+            buy_size,
             rel_tol=1e-9,
             abs_tol=_FILL_SIZE_TOLERANCE,
         ):
+            if sell_size > buy_size + _FILL_SIZE_TOLERANCE:
+                logger.error(
+                    "SELL confirmed size가 BUY를 초과해 PENDING_SELL 유지: "
+                    "Trade #%s buy=%.6f sell=%.6f",
+                    trade.id,
+                    buy_size,
+                    sell_size,
+                )
+                return False
+            if self._record_proven_resolution_after_partial_sell(
+                trade, buy_evidence, sell_evidence
+            ):
+                return True
             logger.error(
                 "BUY/SELL confirmed size 불일치로 PENDING_SELL 유지: "
                 "Trade #%s buy=%.6f sell=%.6f",
                 trade.id,
-                buy_evidence.confirmed_size,
-                sell_evidence.confirmed_size,
+                buy_size,
+                sell_size,
             )
             return False
 

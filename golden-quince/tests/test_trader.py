@@ -848,6 +848,141 @@ class TestPendingSellReconciliation:
         assert trader.reconcile_pending_sell(make_trade()) is False
         assert repo.updates == []
 
+    def test_partial_sell_and_final_no_resolve_only_the_residual_with_payout(self):
+        sell = ExactFillEvidence(
+            "confirmed",
+            "0xSELL",
+            order_status="MATCHED",
+            side="SELL",
+            requested_size=4.0,
+            latest_size_matched=4.0,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            confirmed_size=4.0,
+            confirmed_vwap=0.885,
+            confirmed_fee_usdc=0.01,
+            fee_complete=True,
+            matched_at="2026-08-22T00:01:00Z",
+        )
+        gamma = FakeGamma(resolved_market(0.0))
+        repo = FakeRepo(sell_fill_evidence=sell)
+        trader, _, _ = make_trader(repo=repo, gamma=gamma)
+
+        assert trader.reconcile_pending_sell(make_trade()) is True
+
+        assert gamma.calls == ["0xcondition"]
+        assert repo.catalog == [("0xcondition", gamma.market, True)]
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.RESOLVED
+        assert update["exit_reason"] == (
+            "partial_sell_then_resolved_with_payout_evidence"
+        )
+        assert update["sell_confirmed_size"] == 4.0
+        assert update["sell_confirmed_vwap"] == 0.885
+        assert update["resolution_value"] == 0.0
+        assert update["settlement_pnl_assumption"] == pytest.approx(
+            0.885 * 4.0 - 0.955 * 5.2 - 0.01
+        )
+        assert update["settlement_assumption_basis"] == (
+            "confirmed_buy_partial_sell_net_known_fees_plus_"
+            "gamma_residual_payout"
+        )
+        assert update["realized_pnl"] is None
+
+    def test_near_full_sell_and_final_yes_include_only_dust_residual_payout(self):
+        buy = ExactFillEvidence(
+            "confirmed",
+            "0xBUY",
+            order_status="MATCHED",
+            side="BUY",
+            requested_size=5.2,
+            latest_size_matched=5.2,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            confirmed_size=5.2,
+            confirmed_vwap=0.919,
+            confirmed_fee_usdc=0.0,
+            fee_complete=True,
+        )
+        sell = ExactFillEvidence(
+            "confirmed",
+            "0xSELL",
+            order_status="MATCHED",
+            side="SELL",
+            requested_size=5.192807,
+            latest_size_matched=5.192807,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            confirmed_size=5.192807,
+            confirmed_vwap=0.99,
+            confirmed_fee_usdc=0.0,
+            fee_complete=True,
+            matched_at="2026-08-26T00:01:00Z",
+        )
+        gamma = FakeGamma(resolved_market(1.0))
+        repo = FakeRepo(fill_evidence=buy, sell_fill_evidence=sell)
+        trader, _, _ = make_trader(repo=repo, gamma=gamma)
+
+        assert trader.reconcile_pending_sell(make_trade()) is True
+
+        update = repo.updates[-1][1]
+        residual = 5.2 - 5.192807
+        assert update["status"] == TradeStatus.RESOLVED
+        assert update["resolution_value"] == 1.0
+        assert update["sell_shares"] == pytest.approx(5.192807)
+        assert update["settlement_pnl_assumption"] == pytest.approx(
+            0.99 * 5.192807 + residual - 0.919 * 5.2
+        )
+
+    def test_partial_sell_with_unproven_resolution_stays_pending(self):
+        sell = ExactFillEvidence(
+            "confirmed",
+            "0xSELL",
+            order_status="MATCHED",
+            side="SELL",
+            requested_size=4.0,
+            latest_size_matched=4.0,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            confirmed_size=4.0,
+            confirmed_vwap=0.885,
+            confirmed_fee_usdc=0.01,
+            fee_complete=True,
+        )
+        market = {**resolved_market(0.0), "closed": False}
+        gamma = FakeGamma(market)
+        repo = FakeRepo(sell_fill_evidence=sell)
+        trader, _, _ = make_trader(repo=repo, gamma=gamma)
+
+        assert trader.reconcile_pending_sell(make_trade()) is False
+        assert gamma.calls == ["0xcondition"]
+        assert repo.catalog == []
+        assert repo.updates == []
+
+    def test_sell_size_over_buy_never_uses_resolution_to_hide_overfill(self):
+        sell = ExactFillEvidence(
+            "confirmed",
+            "0xSELL",
+            order_status="MATCHED",
+            side="SELL",
+            requested_size=5.3,
+            latest_size_matched=5.3,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            confirmed_size=5.3,
+            confirmed_vwap=0.885,
+            confirmed_fee_usdc=0.01,
+            fee_complete=True,
+        )
+        gamma = FakeGamma(resolved_market(1.0))
+        repo = FakeRepo(sell_fill_evidence=sell)
+        trader, _, _ = make_trader(repo=repo, gamma=gamma)
+
+        assert trader.reconcile_pending_sell(make_trade()) is False
+        assert gamma.calls == []
+        assert repo.catalog == []
+        assert repo.updates == []
+
 
 def resolved_market(yes_payout=1.0):
     return {
