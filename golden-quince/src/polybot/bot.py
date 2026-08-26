@@ -10,7 +10,7 @@ from polybot_observability import SQLiteMaintenanceRequirements
 from .api.clob_client import ClobClientWrapper
 from .api.gamma_client import GammaClient
 from .config import BotConfig
-from .db.models import init_database
+from .db.models import TradeStatus, init_database
 from .db.repository import TradeRepository
 from .strategy.scanner import MarketScanner
 from .strategy.trader import Trader
@@ -145,11 +145,20 @@ class PolymarketBot:
                 stats["pending_sells_checked"] = len(pending_sells)
                 for pending_trade in pending_sells:
                     if trader.reconcile_pending_sell(pending_trade):
-                        stats["sold"] += 1
-                        completed = repo.get_by_id(pending_trade.id)
-                        if completed is not None:
+                        finalized = repo.get_by_id(pending_trade.id)
+                        if (
+                            finalized is not None
+                            and finalized.status == TradeStatus.RESOLVED
+                        ):
+                            stats["resolved"] += 1
+                        else:
+                            stats["sold"] += 1
+                        if (
+                            finalized is not None
+                            and finalized.status == TradeStatus.COMPLETED
+                        ):
                             repo.append_trade_to_csv(
-                                completed, self.config.db_path.parent
+                                finalized, self.config.db_path.parent
                             )
                 holdings = repo.get_holding_trades()
                 stats["checked_holdings"] = len(holdings)
@@ -166,7 +175,7 @@ class PolymarketBot:
                                     repo.append_trade_to_csv(
                                         updated, self.config.db_path.parent
                                     )
-                stats["resolved"] = max(
+                stats["resolved"] += max(
                     0, repo.get_stats()["resolved"] - resolved_before
                 )
 

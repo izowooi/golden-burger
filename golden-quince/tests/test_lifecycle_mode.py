@@ -9,6 +9,7 @@ from unittest.mock import MagicMock
 import polybot.bot as bot_module
 from polybot.bot import PolymarketBot
 from polybot.config import TradingConfig
+from polybot.db.models import TradeStatus
 
 
 def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
@@ -133,7 +134,9 @@ def test_close_only_reconciles_pending_sell_before_holding_checks(
     monkeypatch, tmp_path
 ):
     pending = SimpleNamespace(id=9, token_id="yes-token")
-    completed = SimpleNamespace(id=9, token_id="yes-token")
+    completed = SimpleNamespace(
+        id=9, token_id="yes-token", status=TradeStatus.COMPLETED
+    )
     bot, scanner, trader, repo, session, _gamma = _build_bot(
         monkeypatch, tmp_path, "close_only", []
     )
@@ -147,5 +150,29 @@ def test_close_only_reconciles_pending_sell_before_holding_checks(
     assert stats["sold"] == 1
     trader.reconcile_pending_sell.assert_called_once_with(pending)
     repo.append_trade_to_csv.assert_called_once_with(completed, tmp_path)
+    scanner.scan_buy_candidates.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_close_only_counts_partial_sell_resolution_without_exporting_sell_csv(
+    monkeypatch, tmp_path
+):
+    pending = SimpleNamespace(id=10, token_id="yes-token")
+    resolved = SimpleNamespace(
+        id=10, token_id="yes-token", status=TradeStatus.RESOLVED
+    )
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "close_only", []
+    )
+    repo.get_pending_sell_trades.return_value = [pending]
+    trader.reconcile_pending_sell.return_value = True
+    repo.get_by_id.return_value = resolved
+
+    stats = bot.run_cycle()
+
+    assert stats["pending_sells_checked"] == 1
+    assert stats["sold"] == 0
+    assert stats["resolved"] == 1
+    repo.append_trade_to_csv.assert_not_called()
     scanner.scan_buy_candidates.assert_not_called()
     session.close.assert_called_once()
