@@ -2,10 +2,10 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: soccer-inplay-major-league-match-winner-v2
+  data_contract: soccer-inplay-elite-competition-match-winner-v3
   schema_profile: golden-watermelon-v3a-schema-v1
-  universe_profile: soccer-major-leagues-2026-08-v3b
-  classifier_version: soccer-major-league-identity-v2
+  universe_profile: soccer-elite-leagues-uefa-2026-08-v3c
+  classifier_version: soccer-elite-competition-identity-v3
 
   gamma:
     base_url: https://gamma-api.polymarket.com
@@ -65,6 +65,21 @@ trading:
         series_slug: serie-a-2025
         team_league: sea
         required_tag_ids: [101962]
+    cup_mapping:
+      ucl:
+        name: UEFA Champions League
+        tag_id: 100977
+        series_id: "10204"
+        series_slug: ucl-2025
+        event_slug_prefix: ucl-
+        resolution_source_host: www.uefa.com
+      uel:
+        name: UEFA Europa League
+        tag_id: 101787
+        series_id: "10209"
+        series_slug: uel-2025
+        event_slug_prefix: uel-
+        resolution_source_host: www.uefa.com
     sports_market_types: [moneyline]
     connect_timeout_seconds: 3.05
     read_timeout_seconds: 30
@@ -76,13 +91,21 @@ trading:
     base_url: https://clob.polymarket.com
     batch_token_limit: 250
 
+  sports_feed:
+    websocket_url: wss://sports-api.polymarket.com/ws
+    connect_timeout_seconds: 5
+    receive_window_seconds: 10
+    max_messages: 10000
+
   experiment:
-    start_utc: 2026-08-26T15:00:00Z
-    entry_end_utc: 2026-09-02T15:00:00Z
-    followup_end_utc: 2026-09-09T15:00:00Z
+    start_utc: 2026-08-26T18:30:00Z
+    entry_end_utc: 2026-09-02T18:30:00Z
+    followup_end_utc: 2026-09-09T18:30:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5
+    notional_ladder_usdc: [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 250, 500]
+    late_entry_minute_floors: [75, 80, 85]
     fee_rate_fallback: 0.05
 
   storage:

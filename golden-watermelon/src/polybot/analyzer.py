@@ -17,8 +17,12 @@ from typing import Any, Iterable
 from polybot.config import (
     CLASSIFIER_VERSION,
     DATA_CONTRACT,
+    FROZEN_CUP_IDENTITIES,
     FROZEN_LEAGUE_IDENTITIES,
+    LATE_ENTRY_MINUTE_FLOORS,
     LEAGUE_MAPPING_SHA256,
+    NOTIONAL_LADDER_USDC,
+    CupIdentity,
     LeagueIdentity,
     SCHEMA_PROFILE,
     UNIVERSE_PROFILE,
@@ -32,19 +36,21 @@ from polybot.db.repository import (
 )
 
 
-ANALYZER_CONTRACT = "soccer-major-league-analyzer-v3b"
-PAIR_ANALYZER_CONTRACT = "soccer-major-league-cadence-pair-v3b"
+ANALYZER_CONTRACT = "soccer-elite-competition-analyzer-v3c"
+PAIR_ANALYZER_CONTRACT = "soccer-elite-competition-cadence-pair-v3c"
 # Legacy strings remain explicit so existing v2/v3 evidence can be identified in
-# reports without being opened by the v3b writer.
+# reports without being opened by the v3c writer.
 LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
 LEGACY_PAIR_ANALYZER_CONTRACT = "inplay-match-winner-cadence-pair-v2"
 
 
 @dataclass(frozen=True)
 class AnalyzerProfile:
+    data_contract: str
     universe_profile: str
     classifier_version: str
     identities: tuple[LeagueIdentity, ...]
+    cup_identities: tuple[CupIdentity, ...]
     league_mapping_sha256: str
     analyzer_contract: str
     pair_analyzer_contract: str
@@ -53,7 +59,10 @@ class AnalyzerProfile:
 
     @property
     def league_codes(self) -> tuple[str, ...]:
-        return tuple(identity.code for identity in self.identities)
+        return (
+            *(identity.code for identity in self.identities),
+            *(identity.code for identity in self.cup_identities),
+        )
 
     @property
     def jobs(self) -> frozenset[str]:
@@ -69,11 +78,12 @@ class AnalyzerProfile:
 def _mapping_sha256(
     classifier_version: str,
     identities: tuple[LeagueIdentity, ...],
+    cup_identities: tuple[CupIdentity, ...] = (),
 ) -> str:
-    payload = {
-        "classifier_version": classifier_version,
-        **league_registry_payload(identities),
-    }
+    registry = league_registry_payload(identities, cup_identities)
+    if not cup_identities:
+        registry.pop("uefa_competitions", None)
+    payload = {"classifier_version": classifier_version, **registry}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
@@ -102,9 +112,11 @@ V3A_IDENTITIES = (
     ),
 )
 V3A_PROFILE = AnalyzerProfile(
+    data_contract="soccer-inplay-major-league-match-winner-v2",
     universe_profile="soccer-major-leagues-2026-08-v3a",
     classifier_version="soccer-major-league-identity-v1",
     identities=V3A_IDENTITIES,
+    cup_identities=(),
     league_mapping_sha256=_mapping_sha256(
         "soccer-major-league-identity-v1", V3A_IDENTITIES
     ),
@@ -114,17 +126,34 @@ V3A_PROFILE = AnalyzerProfile(
     control_job="watermelon-grey-5m-v3a",
 )
 V3B_PROFILE = AnalyzerProfile(
-    universe_profile=UNIVERSE_PROFILE,
-    classifier_version=CLASSIFIER_VERSION,
+    data_contract="soccer-inplay-major-league-match-winner-v2",
+    universe_profile="soccer-major-leagues-2026-08-v3b",
+    classifier_version="soccer-major-league-identity-v2",
     identities=FROZEN_LEAGUE_IDENTITIES,
-    league_mapping_sha256=LEAGUE_MAPPING_SHA256,
-    analyzer_contract=ANALYZER_CONTRACT,
-    pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
+    cup_identities=(),
+    league_mapping_sha256=_mapping_sha256(
+        "soccer-major-league-identity-v2", FROZEN_LEAGUE_IDENTITIES, ()
+    ),
+    analyzer_contract="soccer-major-league-analyzer-v3b",
+    pair_analyzer_contract="soccer-major-league-cadence-pair-v3b",
     fast_job="watermelon-white-1m-v3b",
     control_job="watermelon-grey-5m-v3b",
 )
+V3C_PROFILE = AnalyzerProfile(
+    data_contract=DATA_CONTRACT,
+    universe_profile=UNIVERSE_PROFILE,
+    classifier_version=CLASSIFIER_VERSION,
+    identities=FROZEN_LEAGUE_IDENTITIES,
+    cup_identities=FROZEN_CUP_IDENTITIES,
+    league_mapping_sha256=LEAGUE_MAPPING_SHA256,
+    analyzer_contract=ANALYZER_CONTRACT,
+    pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
+    fast_job="watermelon-white-1m-v3c",
+    control_job="watermelon-grey-5m-v3c",
+)
 ANALYZER_PROFILES = {
-    profile.universe_profile: profile for profile in (V3A_PROFILE, V3B_PROFILE)
+    profile.universe_profile: profile
+    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE)
 }
 
 
@@ -353,6 +382,261 @@ def _optional_int(value: Any) -> int | None:
     return None if value is None else int(value)
 
 
+def _elapsed_seconds(value: Any) -> float | None:
+    text = str(value or "").strip()
+    if not text:
+        return None
+    parts = text.split(":")
+    try:
+        numbers = [float(part) for part in parts]
+    except ValueError:
+        return None
+    if any(not math.isfinite(number) or number < 0 for number in numbers):
+        return None
+    if len(numbers) == 1:
+        return numbers[0] * 60
+    if len(numbers) == 2 and 0 <= numbers[1] < 60:
+        return numbers[0] * 60 + numbers[1]
+    if len(numbers) == 3 and 0 <= numbers[1] < 60 and 0 <= numbers[2] < 60:
+        return numbers[0] * 3600 + numbers[1] * 60 + numbers[2]
+    return None
+
+
+def _regulation_minute(period: Any, elapsed_raw: Any) -> tuple[float | None, str]:
+    """Normalize source elapsed while preserving which interpretation was used."""
+    seconds = _elapsed_seconds(elapsed_raw)
+    normalized_period = str(period or "").strip().casefold()
+    if seconds is None:
+        return None, "SOURCE_ELAPSED_MISSING_OR_INVALID"
+    elapsed_minutes = seconds / 60
+    if normalized_period in {"1h", "first half", "first_half"}:
+        return elapsed_minutes, "SOURCE_TOTAL_OR_FIRST_HALF_ELAPSED"
+    if normalized_period in {"2h", "second half", "second_half"}:
+        if elapsed_minutes < 45:
+            return 45 + elapsed_minutes, "SECOND_HALF_PERIOD_OFFSET"
+        return elapsed_minutes, "SOURCE_TOTAL_ELAPSED"
+    return None, "UNSUPPORTED_PERIOD"
+
+
+def _sports_clock_summary(
+    connection: sqlite3.Connection,
+    minute_floors: tuple[int, ...],
+) -> dict[str, Any]:
+    rows = connection.execute(
+        """
+        SELECT m.run_id,m.event_id,e.league_code,m.normalized_json
+        FROM market_observations m
+        JOIN event_observations e
+          ON e.event_observation_id=m.event_observation_id
+        WHERE m.eligible=1 AND m.run_id IN (SELECT run_id FROM cohort_runs)
+        GROUP BY m.run_id,m.event_id,e.league_code
+        """
+    ).fetchall()
+    observed = 0
+    elapsed = 0
+    events: set[str] = set()
+    observed_events: set[str] = set()
+    methods: Counter[str] = Counter()
+    periods: Counter[str] = Counter()
+    competition_total: Counter[str] = Counter()
+    competition_observed: Counter[str] = Counter()
+    floor_observations: Counter[int] = Counter()
+    floor_events: defaultdict[int, set[str]] = defaultdict(set)
+    for row in rows:
+        event_id = str(row["event_id"])
+        competition = str(row["league_code"] or "UNKNOWN")
+        events.add(event_id)
+        competition_total[competition] += 1
+        try:
+            normalized = json.loads(str(row["normalized_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            continue
+        clock = normalized.get("sports_clock")
+        if not isinstance(clock, dict) or clock.get("join_status") != "OBSERVED":
+            continue
+        observed += 1
+        observed_events.add(event_id)
+        competition_observed[competition] += 1
+        period = str(clock.get("period") or "MISSING")
+        periods[period] += 1
+        minute, method = _regulation_minute(period, clock.get("elapsed_raw"))
+        methods[method] += 1
+        if minute is None:
+            continue
+        elapsed += 1
+        for floor in minute_floors:
+            if minute >= floor:
+                floor_observations[floor] += 1
+                floor_events[floor].add(event_id)
+    return {
+        "eligible_event_snapshots": len(rows),
+        "unique_events": len(events),
+        "sports_ws_observations": observed,
+        "sports_ws_coverage_pct": _safe_ratio(observed, len(rows)),
+        "sports_ws_unique_events": len(observed_events),
+        "elapsed_parseable": elapsed,
+        "elapsed_parseable_pct": _safe_ratio(elapsed, observed),
+        "periods": dict(sorted(periods.items())),
+        "normalization_methods": dict(sorted(methods.items())),
+        "by_competition": {
+            code: {
+                "eligible_event_snapshots": competition_total[code],
+                "sports_ws_observations": competition_observed[code],
+                "coverage_pct": _safe_ratio(
+                    competition_observed[code], competition_total[code]
+                ),
+            }
+            for code in sorted(competition_total)
+        },
+        "late_entry_replay_floors": {
+            str(floor): {
+                "source_clock_observations_at_or_after": floor_observations[floor],
+                "unique_events": len(floor_events[floor]),
+            }
+            for floor in minute_floors
+        },
+        "clock_contract": (
+            "SOURCE_ELAPSED_WITH_PERIOD; no kickoff-wall-time substitution"
+        ),
+    }
+
+
+def _walk_ask_levels(
+    levels: list[tuple[float, float]], notional: float
+) -> tuple[float, float, float, int] | None:
+    remaining = notional
+    shares = 0.0
+    cost = 0.0
+    worst = 0.0
+    used = 0
+    for price, size in levels:
+        if price <= 0 or size <= 0:
+            continue
+        available_cost = price * size
+        consumed_cost = min(remaining, available_cost)
+        consumed_shares = consumed_cost / price
+        shares += consumed_shares
+        cost += consumed_cost
+        remaining -= consumed_cost
+        worst = price
+        used += 1
+        if remaining <= 1e-9:
+            return shares, cost / shares, worst, used
+    return None
+
+
+def _walk_bid_levels(
+    levels: list[tuple[float, float]], shares: float
+) -> tuple[float, float, float, int] | None:
+    remaining = shares
+    proceeds = 0.0
+    worst = 0.0
+    used = 0
+    for price, size in levels:
+        if price < 0 or size <= 0:
+            continue
+        consumed = min(remaining, size)
+        proceeds += consumed * price
+        remaining -= consumed
+        worst = price
+        used += 1
+        if remaining <= 1e-9:
+            return proceeds, proceeds / shares, worst, used
+    return None
+
+
+def _notional_depth_summary(
+    connection: sqlite3.Connection,
+    ladder: tuple[float, ...],
+) -> dict[str, Any]:
+    rows = connection.execute(
+        """
+        WITH candidates AS (
+            SELECT snapshot_id,MIN(event_id) AS event_id
+            FROM signal_decisions
+            WHERE snapshot_id IS NOT NULL AND entry_vwap>=0.95
+              AND run_id IN (SELECT run_id FROM cohort_runs)
+            GROUP BY snapshot_id
+        )
+        SELECT c.snapshot_id,c.event_id,l.side,l.level_index,l.price,l.size
+        FROM candidates c
+        JOIN orderbook_levels l USING(snapshot_id)
+        ORDER BY c.snapshot_id,l.side,l.level_index
+        """
+    )
+    snapshots: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        snapshot = snapshots.setdefault(
+            str(row["snapshot_id"]),
+            {"event_id": str(row["event_id"]), "ASK": [], "BID": []},
+        )
+        snapshot[str(row["side"])].append(
+            (float(row["price"]), float(row["size"]))
+        )
+    result: dict[str, Any] = {}
+    baselines: dict[str, float] = {}
+    for snapshot_id, snapshot in snapshots.items():
+        baseline = _walk_ask_levels(snapshot["ASK"], ladder[0])
+        if baseline is not None:
+            baselines[snapshot_id] = baseline[1]
+    for notional in ladder:
+        full_ask = 0
+        full_bid = 0
+        events: set[str] = set()
+        ask_vwaps: list[float] = []
+        worst_asks: list[float] = []
+        slippage_bps: list[float] = []
+        round_trip_returns: list[float] = []
+        for snapshot_id, snapshot in snapshots.items():
+            ask = _walk_ask_levels(snapshot["ASK"], notional)
+            if ask is None:
+                continue
+            full_ask += 1
+            events.add(str(snapshot["event_id"]))
+            shares, vwap, worst, _levels_used = ask
+            ask_vwaps.append(vwap)
+            worst_asks.append(worst)
+            baseline = baselines.get(snapshot_id)
+            if baseline and baseline > 0:
+                slippage_bps.append((vwap / baseline - 1) * 10_000)
+            bid = _walk_bid_levels(snapshot["BID"], shares)
+            if bid is not None:
+                full_bid += 1
+                proceeds, _bid_vwap, _worst_bid, _bid_levels = bid
+                round_trip_returns.append(proceeds / notional - 1)
+        result[f"{notional:g}"] = {
+            "candidate_snapshots": len(snapshots),
+            "unique_events_with_full_ask": len(events),
+            "full_ask_depth": full_ask,
+            "full_ask_depth_pct": _safe_ratio(full_ask, len(snapshots)),
+            "full_immediate_bid_depth": full_bid,
+            "full_immediate_bid_depth_pct_of_full_ask": _safe_ratio(
+                full_bid, full_ask
+            ),
+            "ask_vwap_p50": _percentile(ask_vwaps, 0.50),
+            "ask_vwap_p95": _percentile(ask_vwaps, 0.95),
+            "worst_ask_p95": _percentile(worst_asks, 0.95),
+            "vwap_increase_vs_5_usdc_bps_p95": _percentile(
+                slippage_bps, 0.95
+            ),
+            "instant_round_trip_return_pct_p05": (
+                _percentile(round_trip_returns, 0.05) * 100
+                if round_trip_returns else None
+            ),
+            "instant_round_trip_return_pct_p50": (
+                _percentile(round_trip_returns, 0.50) * 100
+                if round_trip_returns else None
+            ),
+        }
+    return {
+        "ladder_usdc": list(ladder),
+        "candidate_definition": "exact-book entry_vwap >= 0.95",
+        "snapshot_count": len(snapshots),
+        "levels_are_displayed_not_guaranteed_fills": True,
+        "by_notional_usdc": result,
+    }
+
+
 def analyze_database(path: Path) -> dict[str, Any]:
     connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
@@ -368,7 +652,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         required_league_codes = profile.league_codes
         if metadata.get("schema_profile") is not None:
             expected_metadata = {
-                "data_contract": DATA_CONTRACT,
+                "data_contract": profile.data_contract,
                 "schema_profile": SCHEMA_PROFILE,
                 "universe_profile": profile.universe_profile,
                 "classifier_version": profile.classifier_version,
@@ -395,7 +679,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
             ).fetchone()
             if registry_row is None:
                 raise ValueError("database has no exact frozen league registry")
-            expected_registry = league_registry_payload(profile.identities)
+            expected_registry = league_registry_payload(
+                profile.identities, profile.cup_identities
+            )
+            if not profile.cup_identities:
+                expected_registry.pop("uefa_competitions", None)
             if (
                 str(registry_row["classifier_version"]) != profile.classifier_version
                 or str(registry_row["universe_profile"]) != profile.universe_profile
@@ -443,6 +731,19 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 f"expected={expected_treatment!r}"
             )
         experiment = trading.get("experiment", {})
+        configured_notional_ladder = tuple(
+            float(value)
+            for value in experiment.get("notional_ladder_usdc", ())
+        )
+        configured_minute_floors = tuple(
+            int(value)
+            for value in experiment.get("late_entry_minute_floors", ())
+        )
+        if profile is V3C_PROFILE and (
+            configured_notional_ladder != NOTIONAL_LADDER_USDC
+            or configured_minute_floors != LATE_ENTRY_MINUTE_FLOORS
+        ):
+            raise ValueError("timing/notional evidence grid differs from v3c contract")
         experiment_start = _utc(
             str(experiment.get("start_utc", config_row["first_seen_at"]))
         )
@@ -703,6 +1004,20 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 )
             if any(str(row["cadence_arm"]) != cadence_arm for row in episode_rows):
                 raise ValueError("hypothetical_episodes cadence arm contract drift")
+        if profile is V3C_PROFILE:
+            sports_clock_evidence = _sports_clock_summary(
+                connection, configured_minute_floors
+            )
+            notional_depth_evidence = _notional_depth_summary(
+                connection, configured_notional_ladder
+            )
+        else:
+            sports_clock_evidence = {
+                "status": "NOT_COLLECTED_IN_IMMUTABLE_LEGACY_EPOCH"
+            }
+            notional_depth_evidence = {
+                "status": "FULL_BOOK_LEVELS_EXIST_BUT_NO_FROZEN_LADDER_IN_LEGACY_EPOCH"
+            }
     finally:
         connection.close()
 
@@ -868,6 +1183,8 @@ def analyze_database(path: Path) -> dict[str, Any]:
             for row in check_rows
         ],
         "storage": storage,
+        "sports_clock_evidence": sports_clock_evidence,
+        "notional_depth_evidence": notional_depth_evidence,
         "entry_thresholds": {},
         "stop_policy_comparison": {},
         "estimator_contract": {

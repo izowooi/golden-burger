@@ -101,7 +101,7 @@ def test_create_only_schema_identity_registry_and_append_only(tmp_path) -> None:
             "config_hash": "c",
             "strategy_source_digest": "s",
             "preregistration_sha256": "p",
-            "job_name": "watermelon-white-1m-v3b",
+            "job_name": "watermelon-white-1m-v3c",
             "mode": "sim",
             "config_json": "{}",
             "first_seen_at": "2026-08-24T00:00:00Z",

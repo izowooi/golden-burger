@@ -27,17 +27,17 @@ from .source_digest import (
 )
 
 
-DATA_CONTRACT = "soccer-inplay-major-league-match-winner-v2"
+DATA_CONTRACT = "soccer-inplay-elite-competition-match-winner-v3"
 SCHEMA_PROFILE = "golden-watermelon-v3a-schema-v1"
-UNIVERSE_PROFILE = "soccer-major-leagues-2026-08-v3b"
-CLASSIFIER_VERSION = "soccer-major-league-identity-v2"
-CANONICAL_JOB = "watermelon-white-1m-v3b"
+UNIVERSE_PROFILE = "soccer-elite-leagues-uefa-2026-08-v3c"
+CLASSIFIER_VERSION = "soccer-elite-competition-identity-v3"
+CANONICAL_JOB = "watermelon-white-1m-v3c"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 SOCCER_TAG_ID = 100350
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
 
-# Immutable legacy epochs. The v3b runtime never accepts these jobs/contracts.
+# Immutable legacy epochs. The v3c runtime never accepts these jobs/contracts.
 # The literals also keep repository-wide discovery aware of preserved evidence.
 LEGACY_DATA_CONTRACT_V3 = "soccer-inplay-major-league-match-winner-v1"
 LEGACY_RUNTIME_JOBS = (
@@ -45,6 +45,8 @@ LEGACY_RUNTIME_JOBS = (
     "watermelon-grey-5m-v3",
     "watermelon-white-1m-v3a",
     "watermelon-grey-5m-v3a",
+    "watermelon-white-1m-v3b",
+    "watermelon-grey-5m-v3b",
 )
 
 
@@ -72,6 +74,35 @@ class LeagueIdentity:
         }
 
 
+@dataclass(frozen=True)
+class CupIdentity:
+    """Authoritative identity for a cross-league UEFA competition.
+
+    Participating teams legitimately have different domestic ``league`` codes,
+    so cup identity is anchored to numeric Gamma tag and series relations rather
+    than pretending that the cup is a domestic sport row.
+    """
+
+    code: str
+    name: str
+    tag_id: int
+    series_id: str
+    series_slug: str
+    event_slug_prefix: str
+    resolution_source_host: str
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "event_slug_prefix": self.event_slug_prefix,
+            "name": self.name,
+            "resolution_source_host": self.resolution_source_host,
+            "series_id": self.series_id,
+            "series_slug": self.series_slug,
+            "tag_id": self.tag_id,
+        }
+
+
 FROZEN_LEAGUE_IDENTITIES = (
     LeagueIdentity("epl", 2, "Premier League", 306, "10188", "premier-league-2025", "epl", (82, 306)),
     LeagueIdentity("bun", 7, "Bundesliga", 1494, "10194", "bundesliga-2025", "bun", (1494,)),
@@ -81,6 +112,17 @@ FROZEN_LEAGUE_IDENTITIES = (
     LeagueIdentity("sea", 12, "Serie A", 100618, "10203", "serie-a-2025", "sea", (101962,)),
 )
 
+FROZEN_CUP_IDENTITIES = (
+    CupIdentity(
+        "ucl", "UEFA Champions League", 100977, "10204", "ucl-2025",
+        "ucl-", "www.uefa.com",
+    ),
+    CupIdentity(
+        "uel", "UEFA Europa League", 101787, "10209", "uel-2025",
+        "uel-", "www.uefa.com",
+    ),
+)
+
 # Compatibility name retained for the root contract verifier. Unlike the old
 # dict, this freezes every authoritative Gamma identity field.
 MAJOR_SOCCER_LEAGUES = FROZEN_LEAGUE_IDENTITIES
@@ -88,21 +130,26 @@ MAJOR_SOCCER_LEAGUES = FROZEN_LEAGUE_IDENTITIES
 
 def league_registry_payload(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+    cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
 ) -> dict[str, Any]:
     return {
         "related_tags": False,
         "required_common_tag_ids": list(REQUIRED_COMMON_TAG_IDS),
         "soccer_tag_id": SOCCER_TAG_ID,
         "leagues": [identity.canonical_dict() for identity in identities],
+        "uefa_competitions": [
+            identity.canonical_dict() for identity in cup_identities
+        ],
     }
 
 
 def league_mapping_sha256(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+    cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
 ) -> str:
     payload = {
         "classifier_version": CLASSIFIER_VERSION,
-        **league_registry_payload(identities),
+        **league_registry_payload(identities, cup_identities),
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -113,11 +160,16 @@ LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
 
 # Entry begins well after this source edit; first successful source receipt is
 # provenance, not permission to backdate the preregistered statistical window.
-FROZEN_START = datetime(2026, 8, 26, 15, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 2, 15, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 9, 15, 0, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 26, 18, 30, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 2, 18, 30, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 9, 18, 30, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
+LATE_ENTRY_MINUTE_FLOORS = (75, 80, 85)
+NOTIONAL_LADDER_USDC = (
+    5.0, 10.0, 15.0, 20.0, 25.0, 30.0,
+    40.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0,
+)
 
 
 @dataclass(frozen=True)
@@ -127,8 +179,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v3b": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v3b": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v3c": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v3c": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(
@@ -205,6 +257,18 @@ def _public_origin(value: Any, name: str) -> str:
     return text
 
 
+def _public_websocket(value: Any, name: str) -> str:
+    text = str(value).strip().rstrip("/")
+    parsed = urlsplit(text)
+    if (
+        parsed.scheme != "wss" or not parsed.hostname
+        or parsed.username is not None or parsed.password is not None
+        or parsed.path != "/ws" or parsed.query or parsed.fragment
+    ):
+        raise ValueError(f"{name} must be a credential-free WSS /ws endpoint")
+    return text
+
+
 def _mapping(parent: Mapping[str, Any], name: str) -> Mapping[str, Any]:
     value = parent.get(name)
     if not isinstance(value, Mapping):
@@ -277,6 +341,55 @@ def _league_identities(value: Any) -> tuple[LeagueIdentity, ...]:
     return tuple(identities)
 
 
+def _cup_identities(value: Any) -> tuple[CupIdentity, ...]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("gamma.cup_mapping must be a non-empty mapping")
+    identities: list[CupIdentity] = []
+    allowed = {
+        "name", "tag_id", "series_id", "series_slug",
+        "event_slug_prefix", "resolution_source_host",
+    }
+    for raw_code, raw_identity in value.items():
+        raw_code_text = str(raw_code).strip()
+        code = raw_code_text.casefold()
+        if raw_code_text != code:
+            raise ValueError("gamma.cup_mapping codes must use exact lowercase values")
+        if not isinstance(raw_identity, Mapping):
+            raise ValueError(f"gamma.cup_mapping.{code} must be a mapping")
+        unknown = set(raw_identity) - allowed
+        if unknown:
+            raise ValueError(
+                f"unknown gamma.cup_mapping.{code} keys: "
+                f"{sorted(map(str, unknown))}"
+            )
+        identity = CupIdentity(
+            code=code,
+            name=str(raw_identity.get("name") or "").strip(),
+            tag_id=_integer(raw_identity.get("tag_id"), f"cup_mapping.{code}.tag_id"),
+            series_id=str(raw_identity.get("series_id") or "").strip(),
+            series_slug=str(raw_identity.get("series_slug") or "").strip(),
+            event_slug_prefix=str(
+                raw_identity.get("event_slug_prefix") or ""
+            ).strip(),
+            resolution_source_host=str(
+                raw_identity.get("resolution_source_host") or ""
+            ).strip().casefold(),
+        )
+        if not all(
+            (
+                identity.name, identity.series_id, identity.series_slug,
+                identity.event_slug_prefix, identity.resolution_source_host,
+            )
+        ):
+            raise ValueError(f"gamma.cup_mapping.{code} strings cannot be empty")
+        if identity.event_slug_prefix != f"{code}-":
+            raise ValueError(
+                f"gamma.cup_mapping.{code}.event_slug_prefix must be {code}-"
+            )
+        identities.append(identity)
+    return tuple(identities)
+
+
 @dataclass(frozen=True)
 class GammaConfig:
     base_url: str
@@ -288,6 +401,7 @@ class GammaConfig:
     sport_family: str
     required_common_tag_ids: tuple[int, ...]
     league_mapping: tuple[LeagueIdentity, ...]
+    cup_mapping: tuple[CupIdentity, ...]
     sports_market_types: tuple[str, ...]
     connect_timeout_seconds: float
     read_timeout_seconds: float
@@ -303,11 +417,27 @@ class GammaConfig:
     def identities_by_code(self) -> dict[str, LeagueIdentity]:
         return {identity.code: identity for identity in self.league_mapping}
 
+    @property
+    def cups_by_code(self) -> dict[str, CupIdentity]:
+        return {identity.code: identity for identity in self.cup_mapping}
+
+    @property
+    def competition_codes(self) -> tuple[str, ...]:
+        return (*self.league_codes, *(identity.code for identity in self.cup_mapping))
+
 
 @dataclass(frozen=True)
 class OrderBookConfig:
     base_url: str
     batch_token_limit: int
+
+
+@dataclass(frozen=True)
+class SportsFeedConfig:
+    websocket_url: str
+    connect_timeout_seconds: float
+    receive_window_seconds: float
+    max_messages: int
 
 
 @dataclass(frozen=True)
@@ -318,6 +448,8 @@ class ExperimentConfig:
     entry_thresholds: tuple[float, ...]
     stop_levels: tuple[float, ...]
     simulated_notional_usdc: float
+    notional_ladder_usdc: tuple[float, ...]
+    late_entry_minute_floors: tuple[int, ...]
     fee_rate_fallback: float
     preregistration_sha256: str
 
@@ -342,6 +474,7 @@ class TradingConfig:
     cadence_minutes: int
     gamma: GammaConfig
     orderbook: OrderBookConfig
+    sports_feed: SportsFeedConfig
     experiment: ExperimentConfig
     storage: StorageConfig
     strategy_source_digest: str
@@ -397,6 +530,8 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError("required common sport/games/soccer tag IDs differ")
     if gamma.league_mapping != FROZEN_LEAGUE_IDENTITIES:
         raise ValueError("league mapping differs from the frozen authoritative tuple")
+    if gamma.cup_mapping != FROZEN_CUP_IDENTITIES:
+        raise ValueError("UEFA cup mapping differs from the frozen authoritative tuple")
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:
@@ -405,6 +540,15 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError("CLOB origin is frozen")
     if not 1 <= trading.orderbook.batch_token_limit <= 500:
         raise ValueError("orderbook batch size is invalid")
+    sports_feed = trading.sports_feed
+    if sports_feed.websocket_url != "wss://sports-api.polymarket.com/ws":
+        raise ValueError("sports clock websocket origin is frozen")
+    if not 0 < sports_feed.connect_timeout_seconds <= 10:
+        raise ValueError("sports clock connect timeout is invalid")
+    if not 5 <= sports_feed.receive_window_seconds <= 20:
+        raise ValueError("sports clock receive window must remain bounded")
+    if not 100 <= sports_feed.max_messages <= 20_000:
+        raise ValueError("sports clock message cap is invalid")
     experiment = trading.experiment
     if (experiment.start_utc, experiment.entry_end_utc, experiment.followup_end_utc) != (
         FROZEN_START, FROZEN_ENTRY_END, FROZEN_FOLLOWUP_END,
@@ -418,6 +562,14 @@ def _validate_config(config: BotConfig) -> None:
         raise ValueError("probability grid must remain within (0,1)")
     if experiment.simulated_notional_usdc != 5:
         raise ValueError("simulated notional must remain $5")
+    if experiment.notional_ladder_usdc != NOTIONAL_LADDER_USDC:
+        raise ValueError("counterfactual notional ladder differs from preregistration")
+    if experiment.late_entry_minute_floors != LATE_ENTRY_MINUTE_FLOORS:
+        raise ValueError("late-entry replay minute floors differ from preregistration")
+    if tuple(sorted(experiment.notional_ladder_usdc)) != experiment.notional_ladder_usdc:
+        raise ValueError("counterfactual notional ladder must increase strictly")
+    if experiment.notional_ladder_usdc[0] != experiment.simulated_notional_usdc:
+        raise ValueError("notional ladder must begin at the live pilot's $5 floor")
     if experiment.fee_rate_fallback != 0.05:
         raise ValueError("sports taker fee fallback must remain 0.05")
     storage = trading.storage
@@ -455,6 +607,7 @@ def load_config(
 
     gamma_raw = _mapping(trading_raw, "gamma")
     orderbook_raw = _mapping(trading_raw, "orderbook")
+    sports_feed_raw = _mapping(trading_raw, "sports_feed")
     experiment_raw = _mapping(trading_raw, "experiment")
     storage_raw = _mapping(trading_raw, "storage")
     gamma = GammaConfig(
@@ -467,6 +620,7 @@ def load_config(
         sport_family=str(gamma_raw["sport_family"]).strip().casefold(),
         required_common_tag_ids=_integer_tuple(gamma_raw["required_common_tag_ids"], "gamma.required_common_tag_ids"),
         league_mapping=_league_identities(gamma_raw["league_mapping"]),
+        cup_mapping=_cup_identities(gamma_raw["cup_mapping"]),
         sports_market_types=_string_tuple(gamma_raw["sports_market_types"], "gamma.sports_market_types"),
         connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
         read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),
@@ -478,6 +632,22 @@ def load_config(
         base_url=_public_origin(orderbook_raw["base_url"], "orderbook.base_url"),
         batch_token_limit=_integer(orderbook_raw["batch_token_limit"], "orderbook.batch_token_limit"),
     )
+    sports_feed = SportsFeedConfig(
+        websocket_url=_public_websocket(
+            sports_feed_raw["websocket_url"], "sports_feed.websocket_url"
+        ),
+        connect_timeout_seconds=_finite(
+            sports_feed_raw["connect_timeout_seconds"],
+            "sports_feed.connect_timeout_seconds",
+        ),
+        receive_window_seconds=_finite(
+            sports_feed_raw["receive_window_seconds"],
+            "sports_feed.receive_window_seconds",
+        ),
+        max_messages=_integer(
+            sports_feed_raw["max_messages"], "sports_feed.max_messages"
+        ),
+    )
     experiment = ExperimentConfig(
         start_utc=_utc(experiment_raw["start_utc"], "experiment.start_utc"),
         entry_end_utc=_utc(experiment_raw["entry_end_utc"], "experiment.entry_end_utc"),
@@ -485,6 +655,14 @@ def load_config(
         entry_thresholds=_float_tuple(experiment_raw["entry_thresholds"], "experiment.entry_thresholds"),
         stop_levels=_float_tuple(experiment_raw["stop_levels"], "experiment.stop_levels"),
         simulated_notional_usdc=_finite(experiment_raw["simulated_notional_usdc"], "experiment.simulated_notional_usdc"),
+        notional_ladder_usdc=_float_tuple(
+            experiment_raw["notional_ladder_usdc"],
+            "experiment.notional_ladder_usdc",
+        ),
+        late_entry_minute_floors=_integer_tuple(
+            experiment_raw["late_entry_minute_floors"],
+            "experiment.late_entry_minute_floors",
+        ),
         fee_rate_fallback=_finite(experiment_raw["fee_rate_fallback"], "experiment.fee_rate_fallback"),
         preregistration_sha256=preregistration_sha256(),
     )
@@ -500,11 +678,14 @@ def load_config(
         schema_profile=str(trading_raw.get("schema_profile", "")).strip(),
         universe_profile=str(trading_raw.get("universe_profile", "")).strip(),
         classifier_version=str(trading_raw.get("classifier_version", "")).strip(),
-        league_mapping_sha256=league_mapping_sha256(gamma.league_mapping),
+        league_mapping_sha256=league_mapping_sha256(
+            gamma.league_mapping, gamma.cup_mapping
+        ),
         cadence_arm=profile.cadence_arm,
         cadence_minutes=profile.cadence_minutes,
         gamma=gamma,
         orderbook=orderbook,
+        sports_feed=sports_feed,
         experiment=experiment,
         storage=storage,
         strategy_source_digest=compute_strategy_source_digest(),

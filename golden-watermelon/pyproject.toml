@@ -7,6 +7,7 @@ dependencies = [
     "polybot-observability",
     "PyYAML>=6.0",
     "requests>=2.31.0",
+    "websockets>=15.0,<16",
 ]
 
 [project.optional-dependencies]

@@ -47,8 +47,8 @@
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
-| **golden-watermelon** | In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 1분 vs 5분 paired cadence | **research-only · 2026-08-23 즉시 수집 · live/order 금지** |
-| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 home/draw/away의 terminal 수렴 | exact `$5` FOK BUY, 0.70 full-depth FOK stop | Cat 0.98 vs Dog 0.99, 5개 축구 리그 | **최소금액 prospective live A/B · 2026-08-24 시작** |
+| **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$500`, 1분 vs 5분 | **research-only v3c · 6개 리그+UCL/UEL · live/order 금지** |
+| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 home/draw/away의 terminal 수렴 | exact `$5` FOK BUY, 0.70 full-depth FOK stop | Cat 0.96 vs Dog 0.99, 6개 리그+UCL/UEL | **최소금액 prospective live A/B v2h** |
 
 상태 합계는 운영 8, 구현만 완료 5, research/simulation 전용 6, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
@@ -341,16 +341,15 @@ walk한다. gap-down VWAP, partial fill, 남은 수량과 다음 cycle retry를 
 `golden-black/research/frozen-2026-08-20/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-black.md`를 따른다.
 
-## 12차 설계 — 경기 중 whole-match winner의 cadence 검정
+## 12차 설계 — elite soccer whole-match winner의 cadence·timing·capacity 검정
 
 ### golden-watermelon — In-Play Match Winner
 
-Gamma `/events/keyset`에 `tag_slug=sports`, `live=true`를 적용하되 volume/liquidity
-하한은 두지 않는다. nested market의 `sportsMarketType=moneyline`을 재검증하고,
-경기 시작 후이고 종료되지 않은 market 중 exactly two
-event teams와 outcome label이 일치하는 top-level whole-match winner만 남긴다.
-`child_moneyline`, Draw/Tie, map/game/set winner, spread/total/player prop은 fail closed로
-제외한다. negRisk에서는 team-name market의 Yes만 같은 의미로 편입한다.
+Gamma `/events/keyset`에 numeric soccer tag와 `live=true`를 적용하되 volume/liquidity 하한은
+두지 않는다. EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A와 UCL/UEL의 exact numeric
+identity만 허용하고 nested `sportsMarketType=moneyline`을 재검증한다. exactly two teams의
+HOME/DRAW/AWAY regular-time YES만 남기며 `child_moneyline`, advancement, extra time, penalty,
+spread/total/player prop과 e-sports는 fail closed한다.
 
 exact `$5` ask VWAP가 X `0.95/0.96/0.97/0.98/0.99`를 처음 넘은 episode에서
 resolution hold와 Y `0.95/0.93/0.90/0.85/0.80/0.70` stop을 같은 path에서 동시
@@ -358,34 +357,38 @@ resolution hold와 Y `0.95/0.93/0.90/0.85/0.80/0.70` stop을 같은 path에서 �
 분리하고 gap, partial, remaining retry, fee를 보존한다. unique one-hot CLOB winner만
 terminal payout으로 인정한다.
 
-`polybot-white` 1분(`FAST_1M`)과 `polybot-grey` 5분(`CONTROL_5M`)은 같은 grid의
+public Sports WebSocket의 raw `period/elapsed`를 Gamma event slug와 join해 regulation minute
+75/80/85 이후 replay를 가능하게 한다. full ask/bid levels는 `$5/$10/$15/$20/$25/$30/$40/
+$50/$75/$100/$150/$250/$500` ladder의 depth·VWAP·slippage를 사후 계산한다. 이 데이터로
+timing이나 live scale을 지금 선택하지 않는다.
+
+`polybot-white/watermelon-white-1m-v3c` 1분(`FAST_1M`)과
+`polybot-grey/watermelon-grey-5m-v3c` 5분(`CONTROL_5M`)은 같은 grid의
 paired cadence 실험이다. 두 DB의 같은 episode를 독립 표본으로 세지 않으며,
-첫 성공 Jenkins build를 실제 source cutoff로 삼는다. 2026-08-24 19:00 KST
-첫 점검은 collection health만 판정하고 X/Y 수익성을 선택하지 않는다. 주문,
+첫 성공 Jenkins build를 실제 source cutoff로 삼는다. 첫 24시간은 collection health만
+판정하고 X/Y, timing, notional 수익성을 선택하지 않는다. 주문,
 credential, actual fill, `--live`는 source-level로 금지한다. 상세는
 `golden-watermelon/STRATEGY.md`, frozen 계약은
-`golden-watermelon/research/frozen-2026-08-23/PREREGISTRATION.md`, 회고는
+`golden-watermelon/research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-watermelon.md`를 따른다.
 
 ### golden-watermelon-live — In-Play Match Result Live
 
-White/Grey의 첫 prospective 관측에서 0.95~0.97 hold 경로는 축구 역전패 한 건으로 fee-net
-음수였고, 0.98은 3/3, 0.99는 1/1이었다. 표본이 작고 Bundesliga가 없으므로 이를 최적값으로
-해석하지 않고 Cat `[0.98,0.999]` 대 Dog `[0.99,0.999]`의 보수적 최소금액 pilot으로
-분리했다.
+White/Grey의 선행 관측은 표본이 작아 threshold 최적값을 확정하지 못했다. v2h는 Cat
+`[0.96,0.999]` 대 Dog `[0.99,0.999]`의 signal-quantity/tail-risk 최소금액 pilot이다.
 
-EPL, Bundesliga, Ligue 1, LaLiga, MLS의 top-level whole-match home/draw/away proposition
-YES token만 허용한다. exact `$5` ask depth를 진입 직전에 재검증해 FOK BUY하고, fresh best
+EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A와 exact UCL/UEL의 top-level regular-time
+home/draw/away YES token만 허용한다. exact `$5` ask depth를 진입 직전에 재검증해 FOK BUY하고, fresh best
 bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 limit으로 FOK SELL한다.
-5분 polling 사이 gap과 depth 부족은 stop shortfall evidence로 남기며 0.70 체결을 보장하지
+1분 polling 사이 gap과 depth 부족은 stop shortfall evidence로 남기며 0.70 체결을 보장하지
 않는다. threshold가 없는 경기에 임의 주문을 강제하지 않고, 조건을 충족한 대상 event만 모두
 처리한다.
 
 `golden-watermelon` collector는 accountless 상태로 그대로 유지한다. live cohort는
-`polybot-cat/watermelon-live-cat-98`과
-`polybot-dog/watermelon-live-dog-99`이며 수동 wallet position을 관리하지 않는다.
+`polybot-cat/watermelon-live-cat-96-1m-v2h`과
+`polybot-dog/watermelon-live-dog-99-1m-v2h`이며 수동 wallet position을 관리하지 않는다.
 상세는 `golden-watermelon-live/STRATEGY.md`, frozen 계약은
-`golden-watermelon-live/research/frozen-2026-08-24/PREREGISTRATION.md`, 회고는
+`golden-watermelon-live/research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-watermelon-live.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)

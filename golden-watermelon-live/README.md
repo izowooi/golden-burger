@@ -1,99 +1,57 @@
 # Golden Watermelon Live
 
-`golden-watermelon`의 White/Grey accountless 관측 결과를 실제 최소 금액으로 확인하는 독립
-live A/B 프로젝트다. 기존 collector 코드는 그대로 두고, 폐쇄된 `polybot-cat`과
-`polybot-dog` wallet만 재사용한다.
+`golden-watermelon`의 accountless evidence를 Cat/Dog wallet에서 exact `$5`로 검정하는 독립
+live A/B다. 기존 wallet credential과 수동 position은 건드리지 않는다.
 
-| arm | Jenkins | runtime job | exact `$5` ask VWAP |
+| arm | Jenkins | runtime | exact `$5` ask VWAP |
 |---|---|---|---:|
-| Cat | `polybot-cat` | `watermelon-live-cat-96-1m-v2g` | `[0.96, 0.999]` |
-| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2g` | `[0.99, 0.999]` |
+| Cat | `polybot-cat` | `watermelon-live-cat-96-1m-v2h` | `[0.96, 0.999]` |
+| Dog | `polybot-dog` | `watermelon-live-dog-99-1m-v2h` | `[0.99, 0.999]` |
 
-두 arm의 유일한 처치 차이는 진입 하한이다. 계정·signature type은 각 Jenkins의 기존 값을
-보존하며, 분석은 job별 cohort로 분리한다.
+두 arm의 유일한 treatment 차이는 진입 하한이다. cadence는 모두 매분이고 주문은 계속 `$5`다.
+White/Grey의 timing·notional evidence가 충분해질 때까지 live 시간 gate나 금액을 바꾸지 않는다.
 
-## 동결된 거래 계약
+## 거래 계약
 
-- EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A의 명시적 league identity만 허용
-- 경기 시작 후 0~4시간, `live=true`, `ended=false`인 top-level whole-match event만 허용
-- home/draw/away moneyline proposition의 **YES token**만 검사
-- settlement description이 정규 90분과 stoppage time만 포함한다고 명시해야 하며
-  연장전·승부차기 포함 여부가 불명확하거나 다른 절과 모순되면 주문 전에 제외
-- 한 경기에서 한 결과의 exact `$5` ask VWAP가 arm threshold에 처음 도달했을 때만 진입
-- threshold에 도달한 결과가 없는 경기는 주문하지 않음. “전 경기”는 임의 결과를 강제
-  선택한다는 뜻이 아니라, 조건을 충족한 모든 대상 경기를 빠뜨리지 않는다는 뜻이다.
-- 진입 직전 full ask depth를 다시 walk하고 marketable FOK BUY 제출
-- 결과 token의 fresh best bid가 `0.70` 이하이면 전체 보유 수량의 displayed bid depth를
-  walk한 뒤 가장 낮은 소비 bid를 limit으로 marketable FOK SELL 제출
-- stop이 체결되지 않거나 depth가 부족하면 손실을 추정해 종결하지 않고 보유·대사 상태 유지
-- stop 전에는 resolution까지 보유하며 TP와 time exit는 없음
-- account 최대 20개, event당 1개, cycle당 최대 20개, 주문당 정확히 `$5`
-- max-position capacity는 `QUARANTINED`를 포함한 open trade와 trade에 연결되지 않은 모든
-  live BUY intent를 함께 계산하며, 같은 예약을 event cap에도 반영
-- unresolved pending state 또는 SELL evidence gap 중에는 후보를 계속 기록하되 신규 BUY를 중지
-- 첫 후보가 guard·fresh-book·주문 단계에서 실행되지 않은 이유를 episode에 보존하고,
-  ledger로 증명된 orphan BUY만 원자적으로 Trade에 복구
-- live 주문 전 Gamma와 CLOB의 token/condition 및 동적 fee schedule이 정확히 일치해야 함
-- confirmed taker fill은 legacy `fee_rate_bps=0`이 아니라 exact fill과 CLOB v2 schedule로
-  계산한 5-decimal fee amount를 저장해야 함
-- 봇 DB가 만든 trade만 관리하며 wallet의 수동 position은 편입하거나 청산하지 않음
+- EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A, UEFA Champions League, UEFA Europa League의
+  exact numeric identity만 허용.
+- UEFA는 competition tag/series/prefix/UEFA resolution host를 모두 요구하며 다른 국내 league
+  소속 두 팀을 정상적으로 허용.
+- 경기 시작 후 `[0h,4h]`, explicit `live=true`, `ended=false`인 top-level event만 허용.
+- 정규 90분과 stoppage time만 payout인 HOME/DRAW/AWAY whole-match moneyline YES만 허용.
+- child/advancement/extra time/penalty market, e-sports와 다른 대회는 주문 전 제외.
+- exact `$5` full ask-depth prewalk 후 fresh marketable FOK BUY.
+- best bid `<=0.70`이면 전체 signable shares의 full bid-depth를 확인하고 FOK SELL.
+- accepted order는 fill이 아니다. terminal fill과 fee 대사 전 lifecycle을 확정하지 않음.
+- account 20/event 1/cycle 20, manual wallet position 편입·청산 금지.
+- PENDING/QUARANTINED/orphan/fill·fee gap이 있으면 후보는 기록하되 신규 BUY fail closed.
 
-BUY에는 ask depth만, stop SELL에는 bid depth만 실행 필수 조건이다. 반대편 book이 비어 있어도
-필요한 쪽의 full depth가 있으면 주문 가능성을 버리지 않는다. 불확실한 BUY POST는 같은 cycle의
-후속 BUY를 차단하며, terminal fill의 fee 증거가 완전하지 않으면 `PENDING_BUY`를 유지한다.
-`Draw No Bet`은 whole-match Draw로 간주하지 않는다.
+Gamma liquidity/volume 숫자는 gate가 아니다. 실제 실행 가능성은 주문에 필요한 CLOB 쪽의 full
+depth로 직접 검증한다. 20개 제한은 현재 wallet position 수가 아니라 bot-owned open exposure와
+unresolved BUY reservation의 최대치다.
 
-Gamma liquidity/volume 숫자는 진입 gate로 쓰지 않는다. 매수는 정확히 `$5`를 전량 소진할 수
-있는 displayed ask depth, 매도는 전체 보유 수량을 전량 소진할 수 있는 displayed bid depth가
-필수이므로 실행 가능성은 CLOB에서 직접 검증한다.
+1분 polling은 0.97 체결이나 0.70 stop 가격을 보장하지 않는다. 두 cycle 사이에 가격이 jump하거나
+book이 닫힐 수 있고 FOK는 full fill이 불가능하면 0 fill이다. 이런 miss/gap도 실행 evidence로
+남긴다.
 
-최신 White/Grey paired evidence에서 5분 Grey episode key 15개는 모두 1분 White에도 있었지만,
-White는 총 26개를 관측했다. 실제 live cycle도 약 8초 안에 끝났으므로 두 arm은 동일한
-1분 cadence를 쓴다. 이는 시험한 1분/5분 중 coverage가 더 완전한 선택이지, 수익성 기준의
-최적 cadence 확정은 아니다.
+entry는 `[2026-08-26T18:30:00Z, 2026-09-02T18:30:00Z)`, follow-up은
+`2026-09-09T18:30:00Z`까지다. cohort는
+`config_hash × strategy_source_digest × mode × job_name`이며 Git commit은 provenance다.
 
-1분 Jenkins cadence도 연속 stop daemon이 아니다. 가격이 두 cycle 사이에 급락하면 `0.70`보다
-훨씬 낮은 가격에 체결되거나 depth 부족으로 체결되지 않을 수 있다. 이번 최소금액 pilot은 이
-execution gap도 실제 증거로 수집한다.
+v2g와 이전 DB는 immutable archive다. 마지막 v2f runtime
+`watermelon-live-cat-98-1m-v2f`/`watermelon-live-dog-99-1m-v2f` 및 v2g를 v2h와 합치거나
+재실행하지 않는다.
 
-entry window는 `[2026-08-26T15:00:00Z, 2026-09-02T15:00:00Z)`, follow-up cutoff는
-`2026-09-09T15:00:00Z`다. 이 값은 source에서 fail-closed하게 고정된다. `0.999`는 세 번째
-진입 threshold가 아니라 terminal `1.000`을 제외하는 두 arm의 공통 상한이다. White/Grey의
-작은 표본 때문에 0.96/0.99를 “최적값”이라고 부르지 않으며, 신호량과 tail risk를 함께 재는
-prospective A/B로만 해석한다. 근거와 판정 기준은 [STRATEGY.md](STRATEGY.md), Jenkins 절차는
-[OPERATIONS.md](OPERATIONS.md)를 따른다.
-
-성과 cohort는 `config_hash × strategy_source_digest × mode × job_name`이다. Git commit은
-배포 provenance로만 사용한다.
-
-v2b는 과거 함대의 max-position 우회/고착과 불완전한 후보 근거를 막은 safety epoch다.
-첫 Cat 체결에서 CLOB v2의 동적 taker fee를 legacy 0-rate로 오판한 결함이 발견되어 v2c가
-fee metadata preflight와 exact fee amount 증거를 추가했다. 이후 함대 장애 이력 정적 감사에서
-orphan BUY capacity, `QUARANTINED`, signed SELL 수량, exact resolution identity 등 잠재 경로가
-발견되어 v2d가 lifecycle 방어와 episode별 실행 사유를 추가했다. 배포 후 정적 감사에서
-명시적으로 거절된 BUY까지 orphan capacity로 계속 예약되는 경로를 발견해 v2e가 이를
-교정했다. 불확실한 POST는 계속 예약하고, 동기적 `FAILED`·order ID 없음·reconciliation 불필요가
-동시에 증명된 거절만 해제한다. 독립 리뷰에서 Trade/episode rollback, SDK SELL dust의
-pre-walk 처리, orphan catalog identity, Gamma 60초 retry 경로가 추가로 발견되어 v2f가
-보강했다. v2f 첫 24시간 health 종료 뒤 Serie A와 0.96/0.99 prospective treatment를 추가한
-새 v2g epoch로 전환한다. v2a~v2f DB는 immutable 배포 증거로 보존하고 v2g DB와 합치지 않는다.
-마지막 v2f runtime은 `watermelon-live-cat-98-1m-v2f`와
-`watermelon-live-dog-99-1m-v2f`였으며 재실행하지 않는다.
-
-## 로컬 검증
+## 검증과 lifecycle
 
 ```bash
 cd golden-watermelon-live
 uv sync --frozen --extra dev
 uv run pytest
-
-# 실제 값은 untracked .env 또는 Jenkins credential에서만 제공한다.
-uv run polybot config --simulate --job watermelon-local
-uv run polybot run --simulate --job watermelon-local
-uv run polybot status --simulate --job watermelon-local
+uv build
 ```
 
-실주문은 매번 명시적인 `--live`가 있어야 한다. 기본 `config.yaml`은 simulation이다.
+실주문은 Jenkins에서 명시적 `--live`와 기존 credential이 모두 있을 때만 허용한다.
 `POLYBOT_LIFECYCLE_MODE`는 `active`, `close_only`, `archive_only`를 지원한다. 중단·청산은
 [공통 wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따르며 clean build, workspace
-wipe, 기존 DB 삭제는 사용하지 않는다.
+wipe, 기존 DB 삭제를 사용하지 않는다.

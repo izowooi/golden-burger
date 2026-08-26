@@ -19,6 +19,7 @@ from .api.clob_client import (
     walk_bids_partial,
 )
 from .api.gamma_client import GammaClient
+from .api.sports_client import SportsClockClient, SportsClockUpdate
 from .config import BotConfig, GammaConfig
 from .db.repository import ResearchRepository
 from .league_classifier import LeagueClassification, classify_soccer_event
@@ -349,6 +350,7 @@ def _parse_market(
     run_id: str,
     observed_at: datetime,
     config: BotConfig,
+    sports_clock: SportsClockUpdate | None,
 ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
     event_id = str(event.get("id") or "")
     condition_id = str(market.get("conditionId") or market.get("condition_id") or "")
@@ -388,6 +390,21 @@ def _parse_market(
     event_active = event.get("active") if isinstance(event.get("active"), bool) else None
     event_closed = event.get("closed") if isinstance(event.get("closed"), bool) else None
     event_game_status = str(event.get("gameStatus") or "") or None
+    clock_payload = dict(sports_clock.payload) if sports_clock else {}
+    clock_evidence = {
+        "join_status": "OBSERVED" if sports_clock else "NOT_OBSERVED",
+        "source": "POLYMARKET_SPORTS_WEBSOCKET" if sports_clock else None,
+        "received_at": sports_clock.received_at if sports_clock else None,
+        "slug": str(clock_payload.get("slug") or "") or None,
+        "live": clock_payload.get("live")
+        if isinstance(clock_payload.get("live"), bool) else None,
+        "ended": clock_payload.get("ended")
+        if isinstance(clock_payload.get("ended"), bool) else None,
+        "score": str(clock_payload.get("score") or "") or None,
+        "period": str(clock_payload.get("period") or "") or None,
+        "elapsed_raw": str(clock_payload.get("elapsed") or "") or None,
+        "last_update": str(clock_payload.get("last_update") or "") or None,
+    }
     reasons: list[str] = [*classification_reasons]
     if not league.accepted:
         reasons.append("EVENT_LEAGUE_NOT_ACCEPTED")
@@ -457,6 +474,7 @@ def _parse_market(
             "eligible_outcome_indices": list(eligible_indices),
             "event_live": event_live, "event_ended": event_ended,
             "event_game_status": event_game_status,
+            "sports_clock": clock_evidence,
         }),
     }
     outcome_rows: list[dict[str, Any]] = []
@@ -483,6 +501,7 @@ def _parse_market(
         "league_name": league.league_name,
         "classifier_version": config.trading.classifier_version,
         "league_mapping_sha256": config.trading.league_mapping_sha256,
+        "sports_clock": clock_evidence,
     }
     return market_row, outcome_rows, context
 
@@ -530,22 +549,40 @@ def _request_envelope(config: BotConfig) -> dict[str, Any]:
         "related_tags": gamma.related_tags,
         "sport_family": gamma.sport_family,
         "required_common_tag_ids": list(gamma.required_common_tag_ids),
-        "league_codes": list(gamma.league_codes),
+        "competition_codes": list(gamma.competition_codes),
         "league_mapping_sha256": config.trading.league_mapping_sha256,
         "classifier_version": config.trading.classifier_version,
         "client_sports_market_types": list(gamma.sports_market_types),
         "liquidity_filter": None,
         "volume_filter": None,
         "page_size": gamma.page_size,
+        "sports_clock_websocket": config.trading.sports_feed.websocket_url,
+        "sports_clock_receive_window_seconds": (
+            config.trading.sports_feed.receive_window_seconds
+        ),
+        "late_entry_minute_floors": list(
+            config.trading.experiment.late_entry_minute_floors
+        ),
+        "notional_ladder_usdc": list(
+            config.trading.experiment.notional_ladder_usdc
+        ),
     }
 
 
 class Collector:
-    def __init__(self, config: BotConfig, repository: ResearchRepository, gamma: GammaClient, clob: ClobClient) -> None:
+    def __init__(
+        self,
+        config: BotConfig,
+        repository: ResearchRepository,
+        gamma: GammaClient,
+        clob: ClobClient,
+        sports_clock: SportsClockClient,
+    ) -> None:
         self.config = config
         self.repository = repository
         self.gamma = gamma
         self.clob = clob
+        self.sports_clock = sports_clock
 
     def collect(self, run_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
@@ -651,6 +688,34 @@ class Collector:
                 "Gamma live sports event keyset sweep exceeded the frozen page cap"
             )
 
+        target_slugs = {
+            str(event.get("slug") or "").strip()
+            for event, _observed, classification, _observation_id in classified_events
+            if (
+                classification.accepted
+                and event.get("parentEventId") in (None, "")
+                and event.get("live") is True
+                and event.get("ended") is False
+                and str(event.get("slug") or "").strip()
+            )
+        }
+        clock_batch = self.sports_clock.collect(run_id, target_slugs)
+        seen_clock_payloads: set[str] = set()
+        for raw in clock_batch.matched_raw_messages:
+            digest = hashlib.sha256(raw).hexdigest()
+            if digest in seen_clock_payloads:
+                continue
+            seen_clock_payloads.add(digest)
+            payloads.append(
+                self.repository.payload_row(
+                    run_id=run_id,
+                    kind="SPORTS_CLOCK_UPDATE",
+                    request_id=clock_batch.request_id,
+                    observed_at=clock_batch.completed_at,
+                    raw=raw,
+                )
+            )
+
         market_rows: list[dict[str, Any]] = []
         outcome_rows: list[dict[str, Any]] = []
         contexts: list[dict[str, Any]] = []
@@ -674,6 +739,9 @@ class Collector:
                     run_id=run_id,
                     observed_at=observed,
                     config=self.config,
+                    sports_clock=clock_batch.updates.get(
+                        str(event_relation.get("slug") or "").strip()
+                    ),
                 )
                 market_rows.append(row)
                 outcome_rows.extend(outcomes)
@@ -790,6 +858,13 @@ class Collector:
                             "rule": "first full-depth observation or upward threshold cross",
                             "levels_used": walk.levels_used if walk else None,
                             "cadence_arm": self.config.trading.cadence_arm,
+                            "sports_clock": context["sports_clock"],
+                            "late_entry_minute_floors": list(
+                                experiment.late_entry_minute_floors
+                            ),
+                            "notional_ladder_usdc": list(
+                                experiment.notional_ladder_usdc
+                            ),
                         }),
                         "episode_id": episode_id,
                     }
@@ -982,6 +1057,19 @@ class Collector:
                         "league_mapping_sha256": event_row["league_mapping_sha256"],
                     },
                 )
+        if clock_batch.target_count and clock_batch.status != "OBSERVED":
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="HIGH",
+                issue_type="SPORTS_CLOCK_COVERAGE_GAP",
+                detail={
+                    "status": clock_batch.status,
+                    "target_count": clock_batch.target_count,
+                    "matched_count": clock_batch.matched_count,
+                    "message_count": clock_batch.message_count,
+                    "error_type": clock_batch.error_type,
+                },
+            )
 
         resolved = 0
         open_by_condition: dict[str, dict[str, Any]] = {}
@@ -1035,4 +1123,7 @@ class Collector:
             "book_tokens": len(books.attempts), "episodes_opened": len(episodes),
             "stop_attempts": len(stop_attempts), "stop_exits": len(stop_exits),
             "resolutions_added": resolved, "pages": len(sweep.pages), "cursor_complete": True,
+            "sports_clock_status": clock_batch.status,
+            "sports_clock_targets": clock_batch.target_count,
+            "sports_clock_matched": clock_batch.matched_count,
         }

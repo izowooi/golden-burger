@@ -14,6 +14,7 @@ from polybot.api.clob_client import (
     ResolutionResult,
 )
 from polybot.api.gamma_client import EventPage, EventSweep
+from polybot.api.sports_client import SportsClockBatch, SportsClockUpdate
 from polybot.collector import (
     Collector,
     classify_match_winner,
@@ -31,6 +32,7 @@ def event(*, live=True, ended=False, parent_event_id=None):
     return {
         "id": "event-1",
         "title": "Team A vs Team B",
+        "slug": "epl-team-a-team-b-2026-08-22",
         "active": True,
         "closed": False,
         "live": live,
@@ -167,8 +169,54 @@ class FakeClob:
         )
 
 
+class FakeSportsClock:
+    def __init__(self, *, elapsed: str = "82:30", period: str = "2H"):
+        self.elapsed = elapsed
+        self.period = period
+
+    def collect(self, run_id, target_slugs):
+        updates = {
+            slug: SportsClockUpdate(
+                slug=slug,
+                received_at="2026-08-22T16:16:00Z",
+                payload={
+                    "slug": slug,
+                    "live": True,
+                    "ended": False,
+                    "score": "1-0",
+                    "period": self.period,
+                    "elapsed": self.elapsed,
+                    "last_update": "2026-08-22T16:15:59Z",
+                },
+            )
+            for slug in target_slugs
+        }
+        status = "OBSERVED" if target_slugs else "NO_TARGETS"
+        return SportsClockBatch(
+            request_id=f"sports-{run_id}",
+            started_at="2026-08-22T16:15:59Z",
+            completed_at="2026-08-22T16:16:00Z",
+            status=status,
+            target_count=len(target_slugs),
+            matched_count=len(updates),
+            message_count=len(updates),
+            updates=updates,
+            matched_raw_messages=(),
+        )
+
+
+def collector(config, repository, gamma, clob, sports_clock=None):
+    return Collector(
+        config,
+        repository,
+        gamma,
+        clob,
+        sports_clock or FakeSportsClock(),
+    )
+
+
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3b")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3c")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -202,7 +250,10 @@ def repository_for(config):
         classifier_version=config.trading.classifier_version,
         league_mapping_sha256=config.trading.league_mapping_sha256,
         league_mapping_json=json.dumps(
-            league_registry_payload(config.trading.gamma.league_mapping),
+            league_registry_payload(
+                config.trading.gamma.league_mapping,
+                config.trading.gamma.cup_mapping,
+            ),
             sort_keys=True,
             separators=(",", ":"),
         ),
@@ -382,7 +433,7 @@ def test_draw_yes_is_persisted_and_opens_the_same_threshold_grid(tmp_path) -> No
     )
     config = configured(tmp_path)
     repository = repository_for(config)
-    result = Collector(
+    result = collector(
         config, repository, FakeGamma(draw_market), FakeClob()
     ).collect("draw-run", now=NOW)
 
@@ -406,7 +457,7 @@ def test_low_volume_is_not_an_entry_exclusion_and_initial_grid_opens(
 ) -> None:
     config = configured(tmp_path)
     repository = repository_for(config)
-    result = Collector(config, repository, FakeGamma(), FakeClob()).collect(
+    result = collector(config, repository, FakeGamma(), FakeClob()).collect(
         "run-1", now=NOW
     )
     assert result["eligible_markets"] == 1
@@ -446,7 +497,7 @@ def test_incomplete_event_cursor_preserves_raw_failure_evidence(tmp_path) -> Non
     config = configured(tmp_path)
     repository = repository_for(config)
     with pytest.raises(RuntimeError, match="event keyset"):
-        Collector(config, repository, IncompleteGamma(), FakeClob()).collect(
+        collector(config, repository, IncompleteGamma(), FakeClob()).collect(
             "run-incomplete", now=NOW
         )
     with repository.connect() as connection:
@@ -471,7 +522,7 @@ def test_identity_drift_is_persisted_once_and_blocks_market_and_book(tmp_path) -
     repository = repository_for(config)
     drift_event = event()
     drift_event["sport"] = {**drift_event["sport"], "primaryTagId": 999}
-    result = Collector(
+    result = collector(
         config,
         repository,
         FakeGamma(market(events=[drift_event])),
@@ -517,7 +568,7 @@ def test_nonallowlisted_cup_is_rejected_without_market_json_duplication(tmp_path
             ],
         }
     )
-    result = Collector(
+    result = collector(
         config,
         repository,
         FakeGamma(market(events=[cup_event])),
@@ -536,14 +587,68 @@ def test_nonallowlisted_cup_is_rejected_without_market_json_duplication(tmp_path
     assert market_count == 0
 
 
+@pytest.mark.parametrize(
+    ("code", "name", "tag_id", "series_id", "series_slug"),
+    [
+        ("ucl", "UEFA Champions League", "100977", "10204", "ucl-2025"),
+        ("uel", "UEFA Europa League", "101787", "10209", "uel-2025"),
+    ],
+)
+def test_exact_uefa_cup_identity_and_sports_clock_are_persisted(
+    tmp_path, code, name, tag_id, series_id, series_slug
+) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    cup_event = {
+        **event(),
+        "slug": f"{code}-aaa-bbb-2026-08-22",
+        "sport": None,
+        "seriesSlug": series_slug,
+        "resolutionSource": "https://www.uefa.com/",
+        "tags": [
+            {"id": "1", "slug": "sports"},
+            {"id": "100639", "slug": "games"},
+            {"id": "100350", "slug": "soccer"},
+            {"id": tag_id, "slug": code},
+        ],
+        "series": [{"id": series_id, "slug": series_slug}],
+        "teams": [
+            {"name": "Team A", "league": "epl"},
+            {"name": "Team B", "league": "lal"},
+        ],
+    }
+    result = collector(
+        config,
+        repository,
+        FakeGamma(market(events=[cup_event])),
+        FakeClob(),
+    ).collect(f"run-{code}", now=NOW)
+    assert result["accepted_events"] == 1
+    assert result["eligible_markets"] == 1
+    assert result["sports_clock_status"] == "OBSERVED"
+    with repository.connect() as connection:
+        event_row = connection.execute(
+            "SELECT league_code,league_name,classification_evidence_json "
+            "FROM event_observations"
+        ).fetchone()
+        normalized = json.loads(
+            connection.execute(
+                "SELECT normalized_json FROM market_observations WHERE eligible=1"
+            ).fetchone()[0]
+        )
+    assert tuple(event_row[:2]) == (code, name)
+    assert json.loads(event_row[2])["identity_kind"] == "UEFA_CUP"
+    assert normalized["sports_clock"]["elapsed_raw"] == "82:30"
+
+
 def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:
     config = configured(tmp_path)
     repository = repository_for(config)
-    first = Collector(
+    first = collector(
         config, repository, FakeGamma(), FakeClob(ask=0.94, bid=0.93)
     ).collect("run-1", now=NOW)
     assert first["episodes_opened"] == 0
-    second = Collector(
+    second = collector(
         config, repository, FakeGamma(), FakeClob(ask=0.97, bid=0.96)
     ).collect(
         "run-2",
@@ -573,7 +678,7 @@ def test_pre_game_and_finished_markets_are_excluded(tmp_path) -> None:
         path = tmp_path / str(index)
         adjusted = replace(config, db_path=path / "trades_sim.db")
         repository = repository_for(adjusted)
-        result = Collector(
+        result = collector(
             adjusted, repository, FakeGamma(source), FakeClob()
         ).collect(f"run-{index}", now=NOW)
         assert result["eligible_markets"] == 0
@@ -593,7 +698,7 @@ def test_child_missing_live_and_late_events_are_excluded(tmp_path) -> None:
             config, db_path=tmp_path / f"aligned-{index}" / "trades_sim.db"
         )
         repository = repository_for(adjusted)
-        result = Collector(
+        result = collector(
             adjusted, repository, FakeGamma(source), FakeClob()
         ).collect(f"aligned-run-{index}", now=NOW)
         assert result["eligible_markets"] == 0
@@ -610,7 +715,7 @@ def test_game_start_fallback_matches_live_start_time_precedence(tmp_path) -> Non
     source = market(gameStartTime=None, events=[source_event])
     repository = repository_for(config)
 
-    result = Collector(
+    result = collector(
         config, repository, FakeGamma(source), FakeClob()
     ).collect("fallback-run", now=NOW)
 
@@ -621,10 +726,10 @@ def test_game_start_fallback_matches_live_start_time_precedence(tmp_path) -> Non
 def test_stop_trigger_records_exact_depth_gap(tmp_path) -> None:
     config = configured(tmp_path, compact_grid=True)
     repository = repository_for(config)
-    Collector(config, repository, FakeGamma(), FakeClob()).collect(
+    collector(config, repository, FakeGamma(), FakeClob()).collect(
         "run-1", now=NOW
     )
-    result = Collector(
+    result = collector(
         config,
         repository,
         FakeGamma(),
@@ -655,10 +760,10 @@ def test_stop_trigger_records_exact_depth_gap(tmp_path) -> None:
 def test_partial_stop_retries_only_remaining_shares(tmp_path) -> None:
     config = configured(tmp_path, compact_grid=True)
     repository = repository_for(config)
-    Collector(config, repository, FakeGamma(), FakeClob()).collect(
+    collector(config, repository, FakeGamma(), FakeClob()).collect(
         "run-1", now=NOW
     )
-    partial = Collector(
+    partial = collector(
         config,
         repository,
         FakeGamma(),
@@ -671,7 +776,7 @@ def test_partial_stop_retries_only_remaining_shares(tmp_path) -> None:
     )
     assert partial["stop_attempts"] == 1
     assert partial["stop_exits"] == 0
-    completed = Collector(
+    completed = collector(
         config,
         repository,
         FakeGamma(),

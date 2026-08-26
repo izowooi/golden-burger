@@ -1,71 +1,47 @@
-# L4 AGENTS.md — golden-watermelon-live
+# L4 AGENTS.md — Golden Watermelon Live
 
-상위 `/Users/izowooi/git/t1/AGENTS.md`를 따른다. 이 문서는 Cat/Dog 최소금액 live A/B의
-프로젝트 전용 안전 계약이다.
+상위 `../AGENTS.md`를 따른다. Cat/Dog real-money A/B의 project safety contract다.
 
-## 목적
+## Active contract
 
-`golden-watermelon` White/Grey accountless evidence에서 파생한 in-play soccer
-home/draw/away 전략을 기존 `polybot-cat`과 `polybot-dog` wallet에서 exact `$5`로
-prospective 검증한다. collector 프로젝트와 DB는 수정·병합하지 않는다. 현재 active
-epoch는 White/Grey cadence 근거와 v2a의 zero-opportunity 운영 증거를 유지하면서 execution
-capacity와 pending-state guard를 보강한 `1m-v2b`다.
-
-## 기술과 주요 파일
-
-- Python 3.11+, uv, SQLAlchemy/SQLite, `py-clob-client-v2`
-- entrypoint: `src/polybot/main.py`의 `polybot`
-- frozen config: `config.yaml`, `src/polybot/config.py`
-- universe identity: `src/polybot/league_classifier.py`,
-  `src/polybot/api/gamma_client.py`, `src/polybot/strategy/filters.py`
-- execution: `src/polybot/api/clob_client.py`, `src/polybot/strategy/trader.py`
-- protocol: `STRATEGY.md`,
-  `research/frozen-2026-08-25-safety-v2b/PREREGISTRATION.md`
-- Jenkins runbook: `OPERATIONS.md`
+- Cat: `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / `[0.96,0.999]`.
+- Dog: `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / `[0.99,0.999]`.
+- 두 잡 모두 non-concurrent `* * * * *`, exact `$5`.
+- Entry `[2026-08-26T18:30:00Z,2026-09-02T18:30:00Z)`, follow-up
+  `2026-09-09T18:30:00Z`.
+- Cohort: `config_hash × strategy_source_digest × mode × job_name`.
+- Active preregistration: `research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md`.
 
 ## 불변 조건
 
-- Cat `watermelon-live-cat-98-1m-v2b` `[0.98,0.999]`, Dog
-  `watermelon-live-dog-99-1m-v2b` `[0.99,0.999]`; threshold 외 처치 차이 금지
-- 두 Jenkins 모두 `* * * * *`, non-concurrent. cadence를 한 arm만 바꾸지 않음
-- EPL, Bundesliga, Ligue 1, LaLiga, MLS의 frozen numeric identity만 허용
-- top-level whole-match moneyline의 HOME/DRAW/AWAY YES token만 허용
-- 경기 시작 후 `[0h,4h]`, explicit `live=true`, `ended=false`
-- exact `$5` full-depth ask walk와 FOK BUY
-- best-bid `<=0.70` trigger, 전체 보유 shares의 full-depth bid walk와 FOK SELL
-- full bid depth가 없으면 부분 수량으로 줄여 팔지 않음
-- 주문/account 최대 `$5/20`, event 1, cycle 신규 20, 720h 재진입 제한
-- bot DB가 만든 trade만 관리. wallet 수동 position의 조회·편입·청산 금지
-- accepted order는 fill이 아님. exact terminal fill/fee 대사 전 상태 확정 금지
-- open state와 미추적 unresolved BUY intent를 합산해 max-position capacity를 계산
-- unresolved `PENDING_BUY`/`PENDING_SELL` 또는 SELL evidence gap이 있으면 후보는 기록하되
-  신규 BUY 실행은 차단
-- detail checkpoint에는 qualified와 excluded condition을 모두 저장하고, classifier 제외에는
-  normalized source sport code/status를 남김
-- entry `[2026-08-24T13:00:00Z,2026-08-31T13:00:00Z)`,
-  follow-up `2026-09-07T13:00:00Z`
-- cohort는 `config_hash × strategy_source_digest × mode × job_name`;
-  Git commit은 provenance만 담당
+- EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A exact domestic identity와 UCL/UEL exact
+  competition identity만 허용한다.
+- UCL/UEL는 competition tag/series/prefix/UEFA resolution host를 모두 요구하고 team domestic
+  league equality는 적용하지 않는다.
+- top-level regular-time HOME/DRAW/AWAY moneyline YES만 허용한다. e-sports, child,
+  advancement, extra time, penalty market은 주문 전에 fail closed한다.
+- 경기 시작 뒤 `[0h,4h]`, explicit live/not-ended.
+- exact `$5` full ask walk와 FOK BUY; best bid `<=0.70` trigger 뒤 full shares bid walk와 FOK SELL.
+- account/open 20, event 1, cycle 20; manual wallet position 편입·청산 금지.
+- accepted order는 fill이 아니다. exact fill/fee 전 lifecycle 확정 금지.
+- open state와 unresolved BUY reservation을 함께 max-position capacity에 계산한다.
+- PENDING_BUY/PENDING_SELL/QUARANTINED/orphan/fill-fee gap이 있으면 신규 BUY를 막는다.
+- future timing/notional 선택은 White/Grey evidence에서 하며 v2h live 금액은 `$5`로 유지한다.
 
-## 실행과 검증
+## 검증과 Jenkins
 
 ```bash
 uv sync --frozen --extra dev
 uv run pytest
-uv run polybot config --simulate --job watermelon-test
+uv build
 ```
 
-실주문은 Jenkins에서 명시적 `--live`와 기존 credential을 모두 제공할 때만 허용한다.
-`.env.example`에는 key 이름만 두고 실제 값은 커밋하지 않는다. Gamma/CLOB 외부 응답의
-cursor, league identity, token alignment, book depth, fill, fee, payout이 불명확하면 fail closed한다.
+live 코드 변경 전 Cat/Dog timer를 먼저 끈다. test와 timer 없는 수동 build가 성공하고 console,
+DB, pending state, source digest를 확인한 뒤에만 timer를 복원한다. clean/wipe/migration/import를
+하지 않는다. 자연 build 각 2회와 daily-rsync verified DB를 확인한다.
 
-## Jenkins 변경
+1분 polling은 연속 stop 또는 threshold fill을 보장하지 않는다. trigger와 actual full-depth
+VWAP gap, zero fill과 book closure를 숨기지 않는다. 24시간 health 전 수익성, follow-up 전 arm
+winner, White/Grey gate 전 scale-up을 주장하지 않는다.
 
-live 코드를 바꿀 때는 Cat/Dog timer를 먼저 끄고 unit/contract test와 수동 build를 통과한 뒤
-`* * * * *`를 복원한다. clean build, workspace wipe, DB migration/import를 하지 않는다.
-새 runtime job으로 과거 Papaya DB와 분리한다. 배포 뒤 console과 `daily-rsync` verified DB에서
-두 번 이상의 cycle, source digest, order/open state를 확인한다.
-
-1분 polling도 연속 stop 보장이 아니다. `0.70`과 실제 full-depth sell VWAP의 gap을 숨기거나
-trigger 가격 체결로 기록하지 않는다. 24시간 health 전 수익성, 7일 전 arm 승자나 scale-up을
-주장하지 않는다.
+v2f/v2g와 과거 Papaya DB는 immutable archive다. active v2h와 copy/merge/backfill하지 않는다.

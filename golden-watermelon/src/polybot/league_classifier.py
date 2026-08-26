@@ -5,12 +5,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from typing import Any, Mapping, Sequence
+from urllib.parse import urlsplit
 
 from .config import (
     CLASSIFIER_VERSION,
     ESPORTS_TAG_ID,
     GammaConfig,
     LEAGUE_MAPPING_SHA256,
+    CupIdentity,
     LeagueIdentity,
 )
 
@@ -144,8 +146,41 @@ def _identity_mismatch_reasons(
     return reasons
 
 
+def _cup_identity_mismatch_reasons(
+    identity: CupIdentity,
+    *,
+    event: Mapping[str, Any],
+    tag_ids: tuple[str, ...],
+    series_ids: tuple[str, ...],
+    series_slugs: tuple[str, ...],
+    series_slug: str | None,
+    team_count: int,
+    common_tag_ids: tuple[str, ...],
+) -> list[str]:
+    reasons: list[str] = []
+    required_tags = {*common_tag_ids, str(identity.tag_id)}
+    if not required_tags <= set(tag_ids):
+        reasons.append("EVENT_REQUIRED_TAG_IDS_MISSING")
+    if series_ids != (identity.series_id,):
+        reasons.append("EVENT_SERIES_ID_MISMATCH")
+    if series_slugs != (identity.series_slug,):
+        reasons.append("EVENT_SERIES_RELATION_SLUG_MISMATCH")
+    if series_slug != identity.series_slug:
+        reasons.append("EVENT_SERIES_SLUG_MISMATCH")
+    event_slug = str(event.get("slug") or "").strip()
+    if not event_slug.startswith(identity.event_slug_prefix):
+        reasons.append("EVENT_COMPETITION_SLUG_PREFIX_MISMATCH")
+    resolution_source = str(event.get("resolutionSource") or "").strip()
+    source_host = (urlsplit(resolution_source).hostname or "").casefold()
+    if source_host != identity.resolution_source_host:
+        reasons.append("EVENT_RESOLUTION_SOURCE_MISMATCH")
+    if team_count != 2:
+        reasons.append("EXACTLY_TWO_TEAMS_REQUIRED")
+    return reasons
+
+
 def classify_soccer_event(event: Mapping[str, Any], gamma: GammaConfig) -> LeagueClassification:
-    """Classify one source event without consulting titles, slugs, or market text."""
+    """Classify one source event using frozen numeric league/cup authority."""
     raw_sport = event.get("sport")
     sport = dict(raw_sport) if isinstance(raw_sport, Mapping) else {}
     sport_code = str(sport.get("sport") or "").strip() or None
@@ -176,6 +211,7 @@ def classify_soccer_event(event: Mapping[str, Any], gamma: GammaConfig) -> Leagu
         "series_slugs": list(series_slugs),
         "team_leagues": list(team_leagues),
         "team_count": len(teams),
+        "identity_kind": None,
         "required_common_tag_ids": list(common_tag_ids),
         "classifier_version": CLASSIFIER_VERSION,
         "league_mapping_sha256": LEAGUE_MAPPING_SHA256,
@@ -183,6 +219,37 @@ def classify_soccer_event(event: Mapping[str, Any], gamma: GammaConfig) -> Leagu
 
     if str(ESPORTS_TAG_ID) in tag_ids or {"esports", "e-sports"} & set(tag_slugs):
         return LeagueClassification("REJECTED", None, None, ("ESPORTS_EXCLUDED",), evidence)
+
+    cup_candidates = [
+        identity for identity in gamma.cup_mapping
+        if str(identity.tag_id) in tag_ids
+    ]
+    if len(cup_candidates) > 1:
+        evidence["identity_kind"] = "UEFA_CUP"
+        return LeagueClassification(
+            "DRIFT", None, None, ("CUP_IDENTITY_AMBIGUOUS",), evidence
+        )
+    if len(cup_candidates) == 1:
+        identity = cup_candidates[0]
+        evidence["identity_kind"] = "UEFA_CUP"
+        reasons = _cup_identity_mismatch_reasons(
+            identity,
+            event=event,
+            tag_ids=tag_ids,
+            series_ids=series_ids,
+            series_slugs=series_slugs,
+            series_slug=series_slug,
+            team_count=len(teams),
+            common_tag_ids=common_tag_ids,
+        )
+        if reasons:
+            return LeagueClassification(
+                "DRIFT", identity.code, identity.name, tuple(reasons), evidence
+            )
+        return LeagueClassification(
+            "ACCEPTED", identity.code, identity.name, (), evidence
+        )
+
     if not sport or not sport_code:
         return LeagueClassification("DRIFT", None, None, ("SPORT_METADATA_MISSING",), evidence)
     identity = gamma.identities_by_code.get(sport_code)
@@ -193,6 +260,8 @@ def classify_soccer_event(event: Mapping[str, Any], gamma: GammaConfig) -> Leagu
         )
     if identity is None:
         return LeagueClassification("REJECTED", None, None, ("LEAGUE_NOT_ALLOWED",), evidence)
+
+    evidence["identity_kind"] = "DOMESTIC_LEAGUE"
 
     reasons = _identity_mismatch_reasons(
         identity,

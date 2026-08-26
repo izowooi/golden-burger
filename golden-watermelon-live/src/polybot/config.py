@@ -22,14 +22,14 @@ from .source_digest import compute_strategy_source_digest, preregistration_sha25
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
-FROZEN_START_UTC = "2026-08-26T15:00:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-02T15:00:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-09T15:00:00Z"
+FROZEN_START_UTC = "2026-08-26T18:30:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-02T18:30:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-09-09T18:30:00Z"
 FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
 SOCCER_TAG_ID = 100350
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "soccer-major-league-identity-v2"
+CLASSIFIER_VERSION = "soccer-elite-competition-identity-v3"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -54,6 +54,28 @@ class LeagueIdentity:
             "series_slug": self.series_slug,
             "sport_id": self.sport_id,
             "team_league": self.team_league,
+        }
+
+
+@dataclass(frozen=True)
+class CupIdentity:
+    code: str
+    name: str
+    tag_id: int
+    series_id: str
+    series_slug: str
+    event_slug_prefix: str
+    resolution_source_host: str
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "event_slug_prefix": self.event_slug_prefix,
+            "name": self.name,
+            "resolution_source_host": self.resolution_source_host,
+            "series_id": self.series_id,
+            "series_slug": self.series_slug,
+            "tag_id": self.tag_id,
         }
 
 
@@ -84,24 +106,40 @@ FROZEN_LEAGUE_IDENTITIES = (
     ),
 )
 
+FROZEN_CUP_IDENTITIES = (
+    CupIdentity(
+        "ucl", "UEFA Champions League", 100977, "10204", "ucl-2025",
+        "ucl-", "www.uefa.com",
+    ),
+    CupIdentity(
+        "uel", "UEFA Europa League", 101787, "10209", "uel-2025",
+        "uel-", "www.uefa.com",
+    ),
+)
+
 
 def league_registry_payload(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+    cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
 ) -> dict[str, Any]:
     return {
         "related_tags": False,
         "required_common_tag_ids": list(REQUIRED_COMMON_TAG_IDS),
         "soccer_tag_id": SOCCER_TAG_ID,
         "leagues": [identity.canonical_dict() for identity in identities],
+        "uefa_competitions": [
+            identity.canonical_dict() for identity in cup_identities
+        ],
     }
 
 
 def league_mapping_sha256(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
+    cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
 ) -> str:
     payload = {
         "classifier_version": CLASSIFIER_VERSION,
-        **league_registry_payload(identities),
+        **league_registry_payload(identities, cup_identities),
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()

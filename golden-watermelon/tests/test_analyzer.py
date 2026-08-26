@@ -8,14 +8,18 @@ import pytest
 from polybot.analyzer import (
     V3A_PROFILE,
     V3B_PROFILE,
+    V3C_PROFILE,
     analyze_database,
     analyze_databases,
 )
 from polybot.config import (
     CLASSIFIER_VERSION,
     DATA_CONTRACT,
+    FROZEN_CUP_IDENTITIES,
     FROZEN_LEAGUE_IDENTITIES,
+    LATE_ENTRY_MINUTE_FLOORS,
     LEAGUE_MAPPING_SHA256,
+    NOTIONAL_LADDER_USDC,
     SCHEMA_PROFILE,
     UNIVERSE_PROFILE,
     league_registry_payload,
@@ -30,20 +34,25 @@ def seeded_database(
     cadence: int,
     arm: str,
     *,
-    source_digest: str = "source-v3b",
+    source_digest: str = "source-v3c",
     entry_end_utc: str = "2026-08-31T00:00:00Z",
-    profile=V3B_PROFILE,
+    profile=V3C_PROFILE,
 ) -> ResearchRepository:
+    registry = league_registry_payload(
+        profile.identities, profile.cup_identities
+    )
+    if not profile.cup_identities:
+        registry.pop("uefa_competitions", None)
     repository = ResearchRepository(
         tmp_path / name,
         busy_timeout_ms=1000,
-        data_contract=DATA_CONTRACT,
+        data_contract=profile.data_contract,
         schema_profile=SCHEMA_PROFILE,
         universe_profile=profile.universe_profile,
         classifier_version=profile.classifier_version,
         league_mapping_sha256=profile.league_mapping_sha256,
         league_mapping_json=json.dumps(
-            league_registry_payload(profile.identities),
+            registry,
             sort_keys=True,
             separators=(",", ":"),
         ),
@@ -63,6 +72,10 @@ def seeded_database(
                         "experiment": {
                             "start_utc": "2026-08-24T00:00:00Z",
                             "entry_end_utc": entry_end_utc,
+                            "notional_ladder_usdc": list(NOTIONAL_LADDER_USDC),
+                            "late_entry_minute_floors": list(
+                                LATE_ENTRY_MINUTE_FLOORS
+                            ),
                         },
                     }
                 }
@@ -104,7 +117,9 @@ def add_winning_episode(
     episode_key_suffix: str | None = None,
 ) -> None:
     identity = next(
-        identity for identity in FROZEN_LEAGUE_IDENTITIES if identity.code == league_code
+        identity
+        for identity in (*FROZEN_LEAGUE_IDENTITIES, *FROZEN_CUP_IDENTITIES)
+        if identity.code == league_code
     )
     suffix = episode_key_suffix or league_code
     shares = 5 / 0.97
@@ -129,10 +144,12 @@ def add_winning_episode(
                 "event_title": f"Home vs Away {suffix}",
                 "event_slug": f"{suffix}-home-away",
                 "canonical_event_sha256": "a" * 64,
-                "sport_id": str(identity.sport_id),
+                "sport_id": str(getattr(identity, "sport_id", "")) or None,
                 "sport_code": identity.code,
                 "sport_name": identity.name,
-                "sport_primary_tag_id": str(identity.primary_tag_id),
+                "sport_primary_tag_id": str(
+                    getattr(identity, "primary_tag_id", "")
+                ) or None,
                 "sport_series_id": identity.series_id,
                 "series_slug": identity.series_slug,
                 "tag_ids_json": "[]",
@@ -287,14 +304,14 @@ def test_analyzer_uses_fee_resolution_stop_depth_and_null_macro(tmp_path) -> Non
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
     add_winning_episode(repository, include_stop=True)
     result = analyze_database(repository.path)
     assert result["quick_check"] == "ok"
-    assert result["analyzer_contract"] == "soccer-major-league-analyzer-v3b"
+    assert result["analyzer_contract"] == "soccer-elite-competition-analyzer-v3c"
     assert result["classifier_version"] == CLASSIFIER_VERSION
     assert result["league_mapping_sha256"] == LEAGUE_MAPPING_SHA256
     assert result["league_coverage"]["episodes"][0]["league_code"] == "epl"
@@ -304,13 +321,153 @@ def test_analyzer_uses_fee_resolution_stop_depth_and_null_macro(tmp_path) -> Non
     assert threshold["event_equal_fee_net_roi_pct"] > 0
     assert threshold["macro_estimable"] is False
     assert set(threshold["missing_leagues"]) == {
-        "bun", "fl1", "lal", "mls", "sea"
+        "bun", "fl1", "lal", "mls", "sea", "ucl", "uel"
     }
     assert threshold["macro_league_equal_fee_net_roi_pct"] is None
     policies = result["stop_policy_comparison"]["0.97"]
     assert policies["HOLD_TO_RESOLUTION"]["event_equal_fee_net_roi_pct"] > 0
     assert policies["STOP_0.80"]["event_equal_fee_net_roi_pct"] < 0
     assert policies["STOP_0.80"]["gap_below_stop_p50"] == pytest.approx(0.02)
+
+
+def test_v3c_analyzer_reports_source_clock_strata_and_notional_depth(tmp_path) -> None:
+    repository = seeded_database(
+        tmp_path,
+        "clock-depth.db",
+        "watermelon-white-1m-v3c",
+        1,
+        "FAST_1M",
+    )
+    add_winning_episode(repository)
+    with sqlite3.connect(repository.path) as connection:
+        connection.execute("PRAGMA foreign_keys=OFF")
+        _insert(
+            connection,
+            "market_observations",
+            {
+                "observation_id": "market-clock",
+                "event_observation_id": "event-observation-epl",
+                "sweep_id": "sweep-clock",
+                "run_id": "run",
+                "event_id": "event-epl",
+                "event_title": "Home vs Away",
+                "condition_id": "condition-epl",
+                "market_id": "market-epl",
+                "question": "Will Home win?",
+                "group_item_title": "Home",
+                "sports_market_type": "moneyline",
+                "observed_at": "2026-08-26T01:22:31Z",
+                "end_date": "2026-08-26T04:00:00Z",
+                "game_start_time": "2026-08-26T00:00:00Z",
+                "hours_until_end": 2.6,
+                "sports_phase": "IN_PLAY_EXPLICIT",
+                "event_live": 1,
+                "event_ended": 0,
+                "event_game_status": "2H",
+                "liquidity": 1000,
+                "volume_total": 1000,
+                "active": 1,
+                "closed": 0,
+                "accepting_orders": 1,
+                "enable_order_book": 1,
+                "neg_risk": 1,
+                "match_winner_class": "ALIGNED_TWO_TEAM_MONEYLINE",
+                "eligible_outcome_indices_json": "[0]",
+                "classification_evidence_json": "{}",
+                "cadence_arm": "FAST_1M",
+                "fee_rate": 0.05,
+                "fee_schedule_json": "{}",
+                "outcome_labels_json": '["Home","Away"]',
+                "token_ids_json": '["token-epl","token-away"]',
+                "outcome_prices_json": "[0.96,0.04]",
+                "eligible": 1,
+                "exclusion_reason": "ELIGIBLE",
+                "normalized_json": json.dumps(
+                    {
+                        "sports_clock": {
+                            "join_status": "OBSERVED",
+                            "period": "2H",
+                            "elapsed_raw": "82:31",
+                        }
+                    }
+                ),
+            },
+        )
+        _insert(
+            connection,
+            "orderbook_snapshots",
+            {
+                "snapshot_id": "snapshot-depth",
+                "run_id": "run",
+                "token_id": "token-epl",
+                "request_id": "book-request",
+                "observed_at": "2026-08-26T01:22:31Z",
+                "raw_book_sha256": "c" * 64,
+                "best_bid": 0.95,
+                "best_ask": 0.96,
+                "bid_level_count": 1,
+                "ask_level_count": 2,
+                "source_timestamp": "1",
+                "tick_size": 0.01,
+                "min_order_size": 5,
+            },
+        )
+        for level_id, side, index, price, size in (
+            ("ask-0", "ASK", 0, 0.96, 10),
+            ("ask-1", "ASK", 1, 0.97, 100),
+            ("bid-0", "BID", 0, 0.95, 200),
+        ):
+            _insert(
+                connection,
+                "orderbook_levels",
+                {
+                    "level_id": level_id,
+                    "snapshot_id": "snapshot-depth",
+                    "side": side,
+                    "level_index": index,
+                    "price": price,
+                    "size": size,
+                },
+            )
+        _insert(
+            connection,
+            "signal_decisions",
+            {
+                "decision_id": "decision-depth",
+                "run_id": "run",
+                "market_observation_id": "market-clock",
+                "snapshot_id": "snapshot-depth",
+                "condition_id": "condition-epl",
+                "event_id": "event-epl",
+                "token_id": "token-epl",
+                "outcome_index": 0,
+                "threshold": 0.95,
+                "decided_at": "2026-08-26T01:22:31Z",
+                "best_ask": 0.96,
+                "entry_vwap": 0.96,
+                "entry_shares": 5 / 0.96,
+                "entry_cost": 5,
+                "prior_entry_vwap": 0.94,
+                "entry_provenance": "UPWARD_CROSS",
+                "decision_status": "OPENED_UPWARD_CROSS",
+                "details_json": "{}",
+                "episode_id": None,
+            },
+        )
+
+    result = analyze_database(repository.path)
+    clock = result["sports_clock_evidence"]
+    assert clock["sports_ws_observations"] == 1
+    assert clock["elapsed_parseable"] == 1
+    assert clock["late_entry_replay_floors"]["75"]["unique_events"] == 1
+    assert clock["late_entry_replay_floors"]["80"]["unique_events"] == 1
+    assert clock["late_entry_replay_floors"]["85"]["unique_events"] == 0
+
+    depth = result["notional_depth_evidence"]["by_notional_usdc"]
+    assert depth["5"]["full_ask_depth"] == 1
+    assert depth["100"]["full_ask_depth"] == 1
+    assert depth["150"]["full_ask_depth"] == 0
+    assert depth["10"]["vwap_increase_vs_5_usdc_bps_p95"] > 0
 
 
 def test_analyzer_keeps_v3a_archive_readable(tmp_path) -> None:
@@ -338,10 +495,30 @@ def test_analyzer_keeps_v3a_archive_readable(tmp_path) -> None:
     ]
 
 
+def test_analyzer_keeps_v3b_archive_readable(tmp_path) -> None:
+    repository = seeded_database(
+        tmp_path,
+        "legacy-v3b.db",
+        "watermelon-white-1m-v3b",
+        1,
+        "FAST_1M",
+        source_digest="source-v3b",
+        profile=V3B_PROFILE,
+    )
+    add_winning_episode(
+        repository,
+        classifier_version=V3B_PROFILE.classifier_version,
+        mapping_sha256=V3B_PROFILE.league_mapping_sha256,
+    )
+    result = analyze_database(repository.path)
+    assert result["analyzer_contract"] == "soccer-major-league-analyzer-v3b"
+    assert result["sports_clock_evidence"]["status"].startswith("NOT_COLLECTED")
+
+
 @pytest.mark.parametrize(
     ("job", "cadence", "arm"),
     [
-        ("watermelon-white-1m-v3b", 5, "CONTROL_5M"),
+        ("watermelon-white-1m-v3c", 5, "CONTROL_5M"),
         ("unexpected-job", 1, "FAST_1M"),
     ],
 )
@@ -359,15 +536,15 @@ def test_single_database_analyzer_rejects_job_cadence_drift(
         analyze_database(repository.path)
 
 
-def test_macro_estimator_requires_and_equal_weights_all_six_leagues(tmp_path) -> None:
+def test_macro_estimator_requires_and_equal_weights_all_eight_competitions(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
-    for identity in FROZEN_LEAGUE_IDENTITIES:
+    for identity in (*FROZEN_LEAGUE_IDENTITIES, *FROZEN_CUP_IDENTITIES):
         add_winning_episode(repository, league_code=identity.code)
     threshold = analyze_database(repository.path)["entry_thresholds"]["0.97"]["all"]
     assert threshold["macro_estimable"] is True
@@ -379,6 +556,8 @@ def test_macro_estimator_requires_and_equal_weights_all_six_leagues(tmp_path) ->
         "lal",
         "mls",
         "sea",
+        "ucl",
+        "uel",
     }
     assert threshold["macro_league_equal_fee_net_roi_pct"] == pytest.approx(
         threshold["event_equal_fee_net_roi_pct"]
@@ -390,7 +569,7 @@ def test_analyzer_rejects_row_classifier_or_mapping_drift(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
@@ -403,7 +582,7 @@ def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
@@ -434,21 +613,21 @@ def test_multi_database_analyzer_enforces_pair_contract_and_episode_league(tmp_p
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3b",
+        "watermelon-grey-5m-v3c",
         5,
         "CONTROL_5M",
     )
     add_winning_episode(white, entered_at="2026-08-26T00:01:00Z")
     add_winning_episode(grey, entered_at="2026-08-26T00:05:00Z")
     result = analyze_databases([white.path, grey.path])
-    assert result["analyzer_contract"] == "soccer-major-league-cadence-pair-v3b"
+    assert result["analyzer_contract"] == "soccer-elite-competition-cadence-pair-v3c"
     assert result["pairing"]["matched_episode_keys"] == 1
     assert result["pairing"]["entry_time_delta_seconds_p50"] == 240
     assert result["pairing"]["matched_by_league"]["epl"] == 1
@@ -458,7 +637,7 @@ def test_multi_database_analyzer_rejects_source_digest_mismatch(tmp_path) -> Non
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
         source_digest="source-a",
@@ -466,7 +645,7 @@ def test_multi_database_analyzer_rejects_source_digest_mismatch(tmp_path) -> Non
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3b",
+        "watermelon-grey-5m-v3c",
         5,
         "CONTROL_5M",
         source_digest="source-b",
@@ -479,14 +658,14 @@ def test_multi_database_analyzer_rejects_non_cadence_config_mismatch(tmp_path) -
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3b",
+        "watermelon-grey-5m-v3c",
         5,
         "CONTROL_5M",
         entry_end_utc="2026-09-01T00:00:00Z",
@@ -499,14 +678,14 @@ def test_multi_database_analyzer_rejects_paired_episode_league_mismatch(tmp_path
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3b",
+        "watermelon-white-1m-v3c",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3b",
+        "watermelon-grey-5m-v3c",
         5,
         "CONTROL_5M",
     )

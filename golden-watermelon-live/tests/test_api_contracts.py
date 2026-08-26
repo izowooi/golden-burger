@@ -138,6 +138,31 @@ def _event(event_id: str, markets, *, parent_event_id=None, sport_code="epl"):
     return event
 
 
+def _uefa_event(code: str, markets):
+    identities = {
+        "ucl": ("100977", "10204", "ucl-2025", "UEFA Champions League"),
+        "uel": ("101787", "10209", "uel-2025", "UEFA Europa League"),
+    }
+    tag_id, series_id, series_slug, name = identities[code]
+    event = _event(f"{code}-home-away-2026-08-27", markets)
+    event["seriesSlug"] = series_slug
+    event["resolutionSource"] = "https://www.uefa.com/example/match/"
+    event["sport"] = {}
+    event["tags"] = [
+        {"id": "1", "slug": "sports"},
+        {"id": "100639", "slug": "games"},
+        {"id": "100350", "slug": "soccer"},
+        {"id": tag_id, "slug": code},
+    ]
+    event["series"] = [{"id": series_id, "slug": series_slug}]
+    event["teams"] = [
+        {"name": "Home FC", "league": "epl"},
+        {"name": "Away FC", "league": "lal"},
+    ]
+    event["title"] = f"{name}: Home FC vs. Away FC"
+    return event
+
+
 class _Session:
     def __init__(self, pages):
         self.pages = list(pages)
@@ -210,6 +235,43 @@ def test_gamma_accepts_exact_serie_a_identity() -> None:
     assert len(markets) == 1
     assert markets[0]["leagueCode"] == "sea"
     assert markets[0]["leagueName"] == "Serie A"
+
+
+@pytest.mark.parametrize(
+    ("code", "name"),
+    [
+        ("ucl", "UEFA Champions League"),
+        ("uel", "UEFA Europa League"),
+    ],
+)
+def test_gamma_accepts_exact_cross_league_uefa_identity(code, name) -> None:
+    client = GammaClient()
+    client.session = _Session(
+        [{"events": [_uefa_event(code, [_market(f"{code}-market")])]}]
+    )
+
+    markets = client.get_all_tradable_markets(0, 0)
+
+    assert len(markets) == 1
+    assert markets[0]["leagueCode"] == code
+    assert markets[0]["leagueName"] == name
+
+
+def test_gamma_rejects_uefa_advancement_scope_before_trading() -> None:
+    advancement = _market("ucl-advance")
+    advancement["description"] = (
+        "This market resolves based on which team advances, including extra time "
+        "and penalty shoot-outs."
+    )
+    client = GammaClient()
+    client.session = _Session(
+        [{"events": [_uefa_event("ucl", [advancement])]}]
+    )
+
+    assert client.get_all_tradable_markets(0, 0) == []
+    assert client.last_sweep_attestation["exclusion_counts"] == {
+        "settlement_scope_unproven": 1
+    }
 
 
 def test_gamma_rejects_out_of_range_probability() -> None:

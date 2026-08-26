@@ -1,20 +1,16 @@
-# Golden Watermelon Live 운영 절차
+# Golden Watermelon Live v2h 운영 절차
 
-## Jenkins 공통 안전 설정
+## Jenkins 안전 설정
 
-- `polybot-cat`, `polybot-dog`의 기존 private key, funder address, signature type은 그대로 보존
-- secret 참조 전 `set +x`; credential 값을 console·문서·Git에 출력하지 않음
-- concurrent build 비활성화
-- 수동 build 검증 뒤 `* * * * *`
-- build discard는 14일 경과 기준 유지
-- `Clean before checkout`, workspace wipe, 기존 DB 삭제 금지
-- 새 runtime job 이름을 사용하므로 과거 Papaya DB와 자동 분리
-- 기존 Cat/Dog wallet의 API credential은 `derive_api_key()`로만 읽는다. live cycle에서
-  API key 신규 생성이나 교체를 시도하지 않으며 derive 실패 시 fail closed한다.
+- `polybot-cat`, `polybot-dog` 기존 private key/funder/signature type을 그대로 보존한다.
+- secret 참조 전 `set +x`; console·문서·Git에 값을 출력하지 않는다.
+- concurrent build와 `Clean before checkout`을 끄고 build discard 14일을 유지한다.
+- config/test/manual build가 끝나기 전 timer를 켜지 않는다.
+- workspace wipe, 기존 DB 삭제·migration/import 금지.
 
-## Cat — 0.96 arm
+## Cat — 0.96
 
-기존 credential export/binding 다음에 아래 shell을 사용한다.
+기존 credential export/binding 뒤 아래 shell을 사용한다.
 
 ```bash
 #!/bin/bash
@@ -37,46 +33,34 @@ export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_ENTRY_HOURS_MAX=4
 export POLYBOT_STOP_PRICE=0.70
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-26T15:00:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-09-02T15:00:00Z
-export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-09T15:00:00Z
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-26T18:30:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-02T18:30:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-09T18:30:00Z
 
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-96-1m-v2g
-"${UV}" run polybot run --live --job watermelon-live-cat-96-1m-v2g
-"${UV}" run polybot status --live --job watermelon-live-cat-96-1m-v2g
+"${UV}" run polybot config --live --job watermelon-live-cat-96-1m-v2h
+"${UV}" run polybot run --live --job watermelon-live-cat-96-1m-v2h
+"${UV}" run polybot status --live --job watermelon-live-cat-96-1m-v2h
 ```
 
-## Dog — 0.99 arm
+Dog는 `POLYBOT_ENTRY_PROB_MIN=0.99`와 runtime
+`watermelon-live-dog-99-1m-v2h`만 다르고 나머지는 exact 동일하다.
 
-Cat과 공통 env를 모두 동일하게 두고 아래 두 값만 바꾼다.
+## 배포 검증
 
-```bash
-export POLYBOT_ENTRY_PROB_MIN=0.99
-
-cd ./golden-watermelon-live
-UV=/Users/jongwoopark/.local/bin/uv
-"${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-dog-99-1m-v2g
-"${UV}" run polybot run --live --job watermelon-live-dog-99-1m-v2g
-"${UV}" run polybot status --live --job watermelon-live-dog-99-1m-v2g
-```
-
-## 배포 검증 순서
-
-1. timer 없이 두 config를 저장하고 config SHA, SCM, workspace, no-clean을 확인한다.
-2. Cat/Dog를 각각 수동 build한다. resolved threshold, `$5`, league hash, DB path,
-   FOK-only, lifecycle `active`를 확인한다.
-3. console에 secret, Papaya 경로, clean option, concurrent overlap이 없는지 확인한다.
-4. 같은 job을 한 번 더 수동 실행해 기존 DB가 이어지고 sweep/run audit가 증가하는지 확인한다.
-5. `* * * * *`를 활성화하고 최소 두 번의 자연 build 성공과 실행시간 `<45s`를 확인한다.
-6. `daily-rsync`로 새 strategy/runtime epoch를 scan·sync·verify한다.
+1. timer 없이 config SHA/SCM/no-clean/secret redaction을 확인한다.
+2. Cat/Dog를 수동 1회씩 실행해 `$5`, threshold, v2h DB path, league hash, FOK-only,
+   lifecycle `active`를 확인한다.
+3. UCL/UEL가 live이면 exact identity와 regular-time HOME/DRAW/AWAY만 candidate인지 확인한다.
+4. open/pending/quarantined/orphan/fill-fee guards가 0이거나 증거 기반으로 설명되는지 확인한다.
+5. 같은 DB를 이어 쓰는 수동 2회째를 검증한다.
+6. 둘 다 runtime <45초, CRITICAL/HIGH 0이면 `* * * * *`를 활성화한다.
+7. 자연 build 각 2회 뒤 daily-rsync로 새 epoch를 scan/sync/verify한다.
 
 ```bash
 cd ../daily-rsync
-
 uv run daily-rsync scan --job polybot-cat
 uv run daily-rsync sync-job --job polybot-cat --strategy golden-watermelon-live --days 2
 uv run daily-rsync verify --job polybot-cat --strategy golden-watermelon-live
@@ -88,12 +72,12 @@ uv run daily-rsync verify --job polybot-dog --strategy golden-watermelon-live
 uv run daily-rsync locate --job polybot-dog --strategy golden-watermelon-live
 ```
 
-v2g 24시간 health checkpoint는 각 arm 첫 성공 run의 UTC 시작시각부터 정확히 24시간 뒤이며,
-v2a~v2f와 합치지 않는다. 첫 run의 정확한 시각은 배포 후 `run_audits.started_at`에서
-고정한다. 이 checkpoint에서는 수익성이나 0.96/0.99 우열을 판정하지 않는다.
-archive-only인 `watermelon-live-cat-98-1m-v2f`와
-`watermelon-live-dog-99-1m-v2f`는 분석용으로만 보존하고 Jenkins에서 재사용하지 않는다.
-entry 종료는 `2026-09-02T15:00:00Z`, resolution/stop follow-up cutoff는
-`2026-09-09T15:00:00Z`다.
-entry 종료 뒤에는 `close_only`로 전환해 신규 BUY를 막고 own open trade 대사만 지속한다.
-긴급 중단은 공통 [wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따른다.
+첫 24시간 checkpoint는 각 v2h 첫 successful `run_audits.started_at`부터 exact half-open range로
+고정한다. 이때 수익성, 0.96/0.99 우열, late-entry minute 또는 scale-up을 판정하지 않는다.
+
+entry 종료 후 `close_only`로 바꿔 신규 BUY를 막고 bot-owned open trade만 관리한다. 모두
+종결되면 `archive_only`로 전환한다. 긴급 중단은
+[strategy-wind-down-playbook.md](../docs/strategy-wind-down-playbook.md)를 따른다.
+
+과거 `watermelon-live-cat-98-1m-v2f`, `watermelon-live-dog-99-1m-v2f`와 v2g DB는 분석용
+immutable archive이며 Jenkins에서 재사용하지 않는다.

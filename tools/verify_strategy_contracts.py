@@ -3245,6 +3245,7 @@ def _validate_inplay_match_winner_research_strategy(
         "src/polybot/analyzer.py",
         "src/polybot/api/gamma_client.py",
         "src/polybot/api/clob_client.py",
+        "src/polybot/api/sports_client.py",
         "src/polybot/db/repository.py",
         "src/polybot/utils/retry.py",
         "src/polybot/source_digest.py",
@@ -3258,14 +3259,22 @@ def _validate_inplay_match_winner_research_strategy(
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
             "POLYMARKET_PRIVATE_KEY",
+            "soccer-inplay-elite-competition-match-winner-v3",
             "soccer-inplay-major-league-match-winner-v1",
             "watermelon-white-1m-v3",
             "watermelon-grey-5m-v3",
+            "watermelon-white-1m-v3c",
+            "watermelon-grey-5m-v3c",
             "MAJOR_SOCCER_LEAGUES",
+            "FROZEN_CUP_IDENTITIES",
+            "UEFA Champions League",
+            "UEFA Europa League",
             "FAST_1M",
             "CONTROL_5M",
             "ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)",
             "STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)",
+            "LATE_ENTRY_MINUTE_FLOORS = (75, 80, 85)",
+            "NOTIONAL_LADDER_USDC",
             "archive_only",
             "can never run live",
             "math.isfinite",
@@ -3292,10 +3301,16 @@ def _validate_inplay_match_winner_research_strategy(
             "ESPORTS_EXCLUDED", "LEAGUE_NOT_ALLOWED",
             "NOT_TOP_LEVEL_MONEYLINE",
             "ALIGNED_TWO_TEAM_MONEYLINE", "NEGRISK_TEAM_WIN_YES",
-            "DRAW_OUTCOME_EXCLUDED", "FIRST_FULL_DEPTH_ABOVE",
+            "FIRST_FULL_DEPTH_ABOVE",
             "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
             "gap_from_stop", "resolution_due", "GAMMA_CURSOR_INCOMPLETE",
+            "SPORTS_CLOCK_COVERAGE_GAP", "SPORTS_CLOCK_UPDATE",
+            "late_entry_minute_floors", "notional_ladder_usdc",
             "Entry and exit cannot use the same displayed book",
+        ),
+        "src/polybot/api/sports_client.py": (
+            "SportsClockClient", "SportsClockBatch", "elapsed", "period",
+            "sports_clock_websocket_snapshot", 'websocket.send("pong")',
         ),
         "src/polybot/db/repository.py": (
             "research_config_versions", "research_run_events", "api_requests",
@@ -3309,10 +3324,11 @@ def _validate_inplay_match_winner_research_strategy(
             "storage_metrics", "append-only evidence",
         ),
         "src/polybot/analyzer.py": (
-            "inplay-match-winner-analyzer-v2",
-            "inplay-match-winner-cadence-pair-v2", "league_coverage",
+            "soccer-elite-competition-analyzer-v3c",
+            "soccer-elite-competition-cadence-pair-v3c", "league_coverage",
             "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
             "stop_policy_comparison", "matched_episode_keys",
+            "sports_clock_evidence", "notional_depth_evidence",
             "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY", "cohort_runs",
         ),
         "src/polybot/utils/retry.py": (
@@ -3361,9 +3377,12 @@ def _validate_inplay_match_winner_research_strategy(
         "README.md",
         readme,
         (
+            "soccer-inplay-elite-competition-match-winner-v3",
             "soccer-inplay-major-league-match-winner-v1",
-            "watermelon-white-1m-v3", "watermelon-grey-5m-v3",
-            "child_moneyline", "--simulate", "--live", "e-sports",
+            "watermelon-white-1m-v3c", "watermelon-grey-5m-v3c",
+            "child moneyline", "--simulate", "--live", "e-sports",
+            "UEFA Champions League", "UEFA Europa League",
+            "SPORTS_CLOCK_UPDATE", "$500",
         ),
     )
     env_example = _read(directory / ".env.example")
@@ -3377,24 +3396,25 @@ def _validate_inplay_match_winner_research_strategy(
     preregistration = _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-24-soccer/PREREGISTRATION.md",
+        directory / "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md",
     )
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-24-soccer/PREREGISTRATION.md",
+        "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md",
         preregistration,
         (
-            "2026-08-23T15:00:00Z", "2026-08-30T15:00:00Z",
+            "2026-08-26T18:30:00Z", "2026-09-02T18:30:00Z",
             "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
             "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
-            "epl", "bun", "fl1", "lal", "mls", "e-sports",
+            "epl", "bun", "fl1", "lal", "mls", "sea", "e-sports",
+            "ucl", "uel", "75/80/85", "$500",
         ),
     )
     _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-24-soccer/MANIFEST.sha256",
+        directory / "research/frozen-2026-08-26-uefa-clock-scale-v3c/MANIFEST.sha256",
     )
     _require_file(
         findings,
@@ -3407,6 +3427,7 @@ def _validate_inplay_match_winner_research_strategy(
         "tests/test_repository.py", "tests/test_safety_cli.py",
         "tests/test_analyzer.py", "tests/test_external_workspace.py",
         "tests/test_document_contract.py",
+        "tests/test_sports_client.py",
     ):
         _require_file(findings, strategy, directory / relative)
 
@@ -3557,6 +3578,8 @@ def _validate_watermelon_live_strategy(
         "README.md": (
             "polybot-cat",
             "polybot-dog",
+            "watermelon-live-cat-96-1m-v2h",
+            "watermelon-live-dog-99-1m-v2h",
             "watermelon-live-cat-98-1m-v2f",
             "watermelon-live-dog-99-1m-v2f",
             "EPL",
@@ -3564,12 +3587,15 @@ def _validate_watermelon_live_strategy(
             "Ligue 1",
             "LaLiga",
             "MLS",
+            "Serie A",
+            "UEFA Champions League",
+            "UEFA Europa League",
             "close_only",
             "archive_only",
             "strategy-wind-down-playbook.md",
         ),
         "STRATEGY.md": (
-            "[0.98, 0.999]",
+            "[0.96, 0.999]",
             "[0.99, 0.999]",
             "HOME/DRAW/AWAY",
             "FOK BUY",
@@ -3581,6 +3607,8 @@ def _validate_watermelon_live_strategy(
         "OPERATIONS.md": (
             "* * * * *",
             "Clean before checkout",
+            "watermelon-live-cat-96-1m-v2h",
+            "watermelon-live-dog-99-1m-v2h",
             "watermelon-live-cat-98-1m-v2f",
             "watermelon-live-dog-99-1m-v2f",
             "daily-rsync verify",
@@ -3612,6 +3640,7 @@ def _validate_watermelon_live_strategy(
             "FROZEN_ENTRY_END_UTC",
             "FROZEN_FOLLOWUP_END_UTC",
             "FROZEN_LEAGUE_IDENTITIES",
+            "FROZEN_CUP_IDENTITIES",
             "LEAGUE_MAPPING_SHA256",
             "strategy_source_digest",
             "preregistration_sha256",
@@ -3624,6 +3653,7 @@ def _validate_watermelon_live_strategy(
             "classify_soccer_event",
             "ESPORTS_TAG_ID",
             "LEAGUE_MAPPING_SHA256",
+            "UEFA_CUP",
         ),
         "src/polybot/api/gamma_client.py": (
             "/events/keyset",
@@ -3706,6 +3736,8 @@ def _validate_watermelon_live_strategy(
             "test_gamma_rate_limit_fails_fast_without_in_process_retry",
             "test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve",
             "test_live_sell_ledger_uses_signed_two_decimal_share_quantity",
+            "test_gamma_accepts_exact_cross_league_uefa_identity",
+            "test_gamma_rejects_uefa_advancement_scope_before_trading",
         ),
     }
     for relative_path, tokens in contracts.items():
@@ -3729,6 +3761,8 @@ def _validate_watermelon_live_strategy(
         "research/frozen-2026-08-25-fee-v2c/MANIFEST.sha256",
         "research/frozen-2026-08-25-safety-v2d/PREREGISTRATION.md",
         "research/frozen-2026-08-25-safety-v2d/MANIFEST.sha256",
+        "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md",
+        "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -3825,6 +3859,45 @@ def _validate_watermelon_live_strategy(
                     strategy,
                     "invalid_manifest",
                     "research/frozen-2026-08-25-safety-v2d/MANIFEST.sha256",
+                )
+            )
+
+    active_prereg_path = (
+        directory / "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md"
+    )
+    active_manifest_path = (
+        directory / "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256"
+    )
+    active_preregistration = _read(active_prereg_path)
+    active_manifest = _read(active_manifest_path)
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md",
+        active_preregistration,
+        (
+            "2026-08-26T18:30:00Z", "2026-09-02T18:30:00Z",
+            "watermelon-live-cat-96-1m-v2h",
+            "watermelon-live-dog-99-1m-v2h",
+            "[0.96,0.999]", "[0.99,0.999]",
+            "UEFA Champions League", "UEFA Europa League",
+            "exact `$5`", "0.70", "CRITICAL/HIGH",
+        ),
+    )
+    if active_preregistration and active_manifest:
+        digest = hashlib.sha256(active_prereg_path.read_bytes()).hexdigest()
+        pinned = any(
+            len(fields := line.strip().split()) >= 2
+            and fields[0].lower() == digest
+            and fields[-1].lstrip("*").endswith("PREREGISTRATION.md")
+            for line in active_manifest.splitlines()
+        )
+        if not pinned:
+            findings.append(
+                Finding(
+                    strategy,
+                    "invalid_manifest",
+                    "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256",
                 )
             )
 

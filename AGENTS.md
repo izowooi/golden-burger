@@ -97,22 +97,24 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   재검증하고 token/cycle당 canonical gzip full-book 한 행을 공유하는
   `last-mile-clob-followup-v2a` 계약이다. cycle evidence와 `SUCCEEDED`는 한 transaction으로
   게시하며 v1 census·신규 crossing을 재실행하지 않는다.
-- `golden-watermelon/`: **In-Play Match Winner** — 경기 시작 후 strict whole-match
+- `golden-watermelon/`: **Elite Soccer In-Play Match Winner** — 경기 시작 후 strict whole-match
   `moneyline`의 exact `$5` ask VWAP가 `0.95/0.96/0.97/0.98/0.99`를 통과한 시점을
   수집하고 resolution hold와 `0.95/0.93/0.90/0.85/0.80/0.70` stop을 동시
-  재생한다. 현재 v3a official universe는 EPL·Bundesliga·Ligue 1·LaLiga·MLS의 top-level
-  축구 moneyline만 허용하며 exact sport/tag/series/team identity가 맞아야 한다. e-sports,
-  cup, 2부 리그, Draw·prop·child market은 CLOB 조회 전에 제외한다. `polybot-white` 1분과
+  재생한다. 현재 v3c universe는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A와 exact
+  UCL/UEL competition identity의 regular-time home/draw/away moneyline을 허용한다. e-sports,
+  허용되지 않은 cup/league, advancement·prop·child market은 CLOB 전에 제외한다. public
+  Sports WebSocket의 raw period/elapsed를 보존해 75/80/85분 timing strata를 만들고, full
+  book으로 `$5`~`$500` notional ladder를 replay한다. `polybot-white` 1분과
   `polybot-grey` 5분은 같은 population/grid의 paired cadence 처치이며, 두 DB를 독립 거래로
-  세지 않는다. `soccer-inplay-major-league-match-winner-v2` append-only evidence를 쓰고
+  세지 않는다. `soccer-inplay-elite-competition-match-winner-v3` append-only evidence를 쓰고
   accountless simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
 - `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Watermelon White/Grey
-  evidence에서 파생한 별도 live 프로젝트다. EPL·Bundesliga·Ligue 1·LaLiga·MLS의 top-level
+  evidence에서 파생한 별도 live 프로젝트다. 위 6개 리그와 UCL/UEL의 top-level
   home/draw/away YES만 대상으로 `polybot-cat`은 exact `$5` ask VWAP
-  `[0.98,0.999]`, `polybot-dog`은 `[0.99,0.999]`에서 FOK BUY한다. best bid `<=0.70`
+  `[0.96,0.999]`, `polybot-dog`은 `[0.99,0.999]`에서 FOK BUY한다. best bid `<=0.70`
   시 전체 보유 수량의 displayed bid depth를 walk해 FOK SELL하며, event당 1개·account당
-  20개로 제한한다. active runtime은 `watermelon-live-cat-98-1m-v2b`와
-  `watermelon-live-dog-99-1m-v2b`이며 두 arm 모두 1분 cadence다. v2b는 open trade뿐 아니라
+  20개로 제한한다. active runtime은 `watermelon-live-cat-96-1m-v2h`와
+  `watermelon-live-dog-99-1m-v2h`이며 두 arm 모두 1분 cadence다. open trade뿐 아니라
   미추적 BUY intent도 capacity에 예약하고, unresolved pending/SELL evidence가 있으면 신규
   BUY를 차단한다. 수동 wallet position은 편입·청산하지 않고 stop trigger를 보장 체결가로
   해석하지 않는다.
@@ -170,15 +172,17 @@ resolution을 append-only로 저장한다. stop 기준가는 체결가로 간주
 VWAP·부분 fill·retry를 따로 보존한다. actual fill/P&L evidence가 아니며, Gamma `endDate`를 실제
 경기 종료 시각으로 가정하지 않는다. 24시간/7일 review는 collection health와 coverage만 판정한다.
 
-`golden-watermelon`은 `polybot-white` 1분과 `polybot-grey` 5분의 독립
+`golden-watermelon`은 `polybot-white/watermelon-white-1m-v3c` 1분과
+`polybot-grey/watermelon-grey-5m-v3c` 5분의 독립
 `data/<runtime-job>/trades_sim.db`에 같은 in-play whole-match moneyline population과 X/Y
 grid를 적재한다. 같은 `condition_id × token_id × entry_threshold`는 paired unit이며
 두 거래로 세지 않는다. exact `$5` ask/bid depth, crossing provenance, stop gap·partial·
-retry와 unique one-hot resolution을 append-only로 보존한다. actual fill/P&L evidence가
-아니며, 첫 health review에서는 cadence·cursor·classification·book·DB·storage만 판정한다.
+retry와 unique one-hot resolution, Sports WS period/elapsed, `$5`~`$500` full-book capacity를
+append-only로 보존한다. actual fill/P&L evidence가 아니며, 첫 health review에서는
+cadence·cursor·classification·book·clock·DB·storage만 판정한다.
 
-`golden-watermelon-live`은 `polybot-cat/watermelon-live-cat-98-1m-v2b`과
-`polybot-dog/watermelon-live-dog-99-1m-v2b`의 독립 `trades.db`를 사용한다. exact `$5` FOK
+`golden-watermelon-live`은 `polybot-cat/watermelon-live-cat-96-1m-v2h`과
+`polybot-dog/watermelon-live-dog-99-1m-v2h`의 독립 `trades.db`를 사용한다. exact `$5` FOK
 BUY와 full-holding FOK stop SELL은 order/fill/fee ledger로만 확정하며, 과거 Papaya DB나
 White/Grey simulation DB 또는 초기 5분/v2a zero-opportunity live DB와 merge하지 않는다.
 

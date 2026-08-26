@@ -9,10 +9,13 @@ import yaml
 from polybot.config import (
     ENTRY_THRESHOLDS,
     FROZEN_ENTRY_END,
+    FROZEN_CUP_IDENTITIES,
     FROZEN_FOLLOWUP_END,
     FROZEN_START,
     JOB_PROFILES,
     LEAGUE_MAPPING_SHA256,
+    LATE_ENTRY_MINUTE_FLOORS,
+    NOTIONAL_LADDER_USDC,
     REQUIRED_COMMON_TAG_IDS,
     SOCCER_TAG_ID,
     STOP_LEVELS,
@@ -27,8 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize(
     ("job", "arm", "minutes"),
     [
-        ("watermelon-white-1m-v3b", "FAST_1M", 1),
-        ("watermelon-grey-5m-v3b", "CONTROL_5M", 5),
+        ("watermelon-white-1m-v3c", "FAST_1M", 1),
+        ("watermelon-grey-5m-v3c", "CONTROL_5M", 5),
     ],
 )
 def test_frozen_job_profiles_load(
@@ -51,9 +54,15 @@ def test_frozen_job_profiles_load(
     assert config.trading.gamma.league_codes == (
         "epl", "bun", "fl1", "lal", "mls", "sea"
     )
+    assert tuple(item.code for item in FROZEN_CUP_IDENTITIES) == ("ucl", "uel")
+    assert config.trading.gamma.competition_codes == (
+        "epl", "bun", "fl1", "lal", "mls", "sea", "ucl", "uel"
+    )
     assert config.trading.gamma.required_common_tag_ids == REQUIRED_COMMON_TAG_IDS
     assert config.trading.league_mapping_sha256 == LEAGUE_MAPPING_SHA256
-    assert LEAGUE_MAPPING_SHA256 == "fdec6c9f49fff8aae0d8009233cbe0ca0324c385b2c4a49e1486e1cc1cdf7024"
+    assert LEAGUE_MAPPING_SHA256 == "ead9a8f7527b48a35220c2bfd06dfcee47bcec32c8228581d9dce6194b1f79b0"
+    assert config.trading.experiment.notional_ladder_usdc == NOTIONAL_LADDER_USDC
+    assert config.trading.experiment.late_entry_minute_floors == LATE_ENTRY_MINUTE_FLOORS
     assert config.trading.gamma.sports_market_types == ("moneyline",)
     assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=7)
     assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=7)
@@ -61,14 +70,15 @@ def test_frozen_job_profiles_load(
 
 def test_job_is_the_only_cadence_treatment() -> None:
     assert set(JOB_PROFILES) == {
-        "watermelon-white-1m-v3b",
-        "watermelon-grey-5m-v3b",
+        "watermelon-white-1m-v3c",
+        "watermelon-grey-5m-v3c",
     }
-    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3b")
-    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v3b")
+    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3c")
+    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v3c")
     assert white.trading.experiment == grey.trading.experiment
     assert white.trading.gamma == grey.trading.gamma
     assert white.trading.orderbook == grey.trading.orderbook
+    assert white.trading.sports_feed == grey.trading.sports_feed
     assert white.config_hash != grey.config_hash
 
 
@@ -116,4 +126,4 @@ def test_frozen_server_envelope_and_mapping_fail_closed(tmp_path, mutation: str)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="mapping|numeric soccer"):
-        load_config(path, "watermelon-white-1m-v3b")
+        load_config(path, "watermelon-white-1m-v3c")

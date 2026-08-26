@@ -1,4 +1,4 @@
-"""Cursor-complete six-league in-play soccer discovery for live trading."""
+"""Cursor-complete elite-league and UEFA in-play soccer discovery."""
 
 from __future__ import annotations
 
@@ -122,7 +122,7 @@ class GammaClient:
             )
             # Keep a bounded, normalized sport identity in the exclusion
             # bucket.  A bare ``league_not_allowed`` count cannot distinguish
-            # a legitimately quiet six-league window from a source/classifier
+            # a legitimately quiet elite-soccer window from a source/classifier
             # drift that accidentally rejects EPL (or another frozen league).
             raw_sport_code = str(
                 classification.evidence.get("sport_code") or "missing"

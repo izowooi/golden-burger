@@ -26,7 +26,7 @@ def cases() -> list[dict[str, object]]:
 @pytest.fixture(scope="module")
 def gamma():
     return load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v3b"
+        ROOT / "config.yaml", "watermelon-white-1m-v3c"
     ).trading.gamma
 
 
@@ -110,3 +110,43 @@ def test_missing_sport_authority_is_drift_not_an_inferred_league(cases, gamma) -
     assert result.status == "DRIFT"
     assert result.league_code is None
     assert result.reasons == ("SPORT_METADATA_MISSING",)
+
+
+@pytest.mark.parametrize(
+    ("code", "tag_id", "series_id", "series_slug", "name"),
+    [
+        ("ucl", "100977", "10204", "ucl-2025", "UEFA Champions League"),
+        ("uel", "101787", "10209", "uel-2025", "UEFA Europa League"),
+    ],
+)
+def test_cross_league_uefa_competitions_use_numeric_tag_and_series_authority(
+    gamma, code, tag_id, series_id, series_slug, name
+) -> None:
+    event = {
+        "id": "uefa-event",
+        "slug": f"{code}-aaa-bbb-2026-08-26",
+        "resolutionSource": "https://www.uefa.com/",
+        "seriesSlug": series_slug,
+        "sport": None,
+        "tags": [
+            {"id": "1", "slug": "sports"},
+            {"id": "100639", "slug": "games"},
+            {"id": "100350", "slug": "soccer"},
+            {"id": tag_id, "slug": code},
+        ],
+        "series": [{"id": series_id, "slug": series_slug}],
+        "teams": [
+            {"name": "A", "league": "epl"},
+            {"name": "B", "league": "lal"},
+        ],
+    }
+    result = classify_soccer_event(event, gamma)
+    assert result.status == "ACCEPTED"
+    assert (result.league_code, result.league_name) == (code, name)
+    assert result.evidence["identity_kind"] == "UEFA_CUP"
+
+    drifted = deepcopy(event)
+    drifted["resolutionSource"] = "https://example.com/"
+    result = classify_soccer_event(drifted, gamma)
+    assert result.status == "DRIFT"
+    assert "EVENT_RESOLUTION_SOURCE_MISMATCH" in result.reasons

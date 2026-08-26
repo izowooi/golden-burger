@@ -12,6 +12,7 @@ from uuid import uuid4
 
 from .api.clob_client import ClobClient
 from .api.gamma_client import GammaClient
+from .api.sports_client import SportsClockClient
 from .collector import Collector
 from .config import BotConfig, assert_no_credentials, league_registry_payload
 from .db.repository import ResearchRepository
@@ -57,7 +58,10 @@ class ResearchBot:
                 classifier_version=self.config.trading.classifier_version,
                 league_mapping_sha256=self.config.trading.league_mapping_sha256,
                 league_mapping_json=json.dumps(
-                    league_registry_payload(self.config.trading.gamma.league_mapping),
+                    league_registry_payload(
+                        self.config.trading.gamma.league_mapping,
+                        self.config.trading.gamma.cup_mapping,
+                    ),
                     sort_keys=True,
                     separators=(",", ":"),
                 ),
@@ -67,7 +71,10 @@ class ResearchBot:
                 "classifier_version": self.config.trading.classifier_version,
                 "universe_profile": self.config.trading.universe_profile,
                 "mapping_json": json.dumps(
-                    league_registry_payload(self.config.trading.gamma.league_mapping),
+                    league_registry_payload(
+                        self.config.trading.gamma.league_mapping,
+                        self.config.trading.gamma.cup_mapping,
+                    ),
                     sort_keys=True,
                     separators=(",", ":"),
                 ),
@@ -97,6 +104,10 @@ class ResearchBot:
                     self.config, repository,
                     GammaClient(gamma_config, transport),
                     ClobClient(self.config.trading.orderbook, transport),
+                    SportsClockClient(
+                        self.config.trading.sports_feed,
+                        repository.record_api_request,
+                    ),
                 )
                 result = collector.collect(run_id)
                 metric = repository.record_storage_metric(run_id)
