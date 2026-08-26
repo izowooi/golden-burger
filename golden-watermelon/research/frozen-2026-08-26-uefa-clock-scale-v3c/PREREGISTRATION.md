@@ -1,6 +1,7 @@
 # Frozen preregistration — Elite Soccer + UEFA Clock/Scale Evidence v3c
 
 - Frozen decision timestamp: `2026-08-26T14:41:00Z`.
+- Pre-entry operational contract correction: `2026-08-26T15:37:00Z`.
 - Entry window: `[2026-08-26T18:30:00Z, 2026-09-02T18:30:00Z)`.
 - Resolution follow-up end: `2026-09-09T18:30:00Z`.
 - First collection-health review: after `2026-08-27T18:30:00Z`.
@@ -46,9 +47,12 @@ e-sports와 UEFA Conference League를 포함한 사전 등록 밖 대회는 제�
 ## Sports clock evidence
 
 Gamma event의 kickoff wall time을 실제 match minute로 치환하지 않는다. Polymarket 공식 public
-Sports WebSocket `wss://sports-api.polymarket.com/ws`를 각 bounded cycle에서 최대 10초 관측하고,
-대상 event slug와 일치하는 source `period`, `elapsed`, `score`, `live`, `ended`,
-`last_update` 원문을 같은 run에 보존한다. 연결 실패·부분 coverage는 숨기지 않고 HIGH
+Sports WebSocket `wss://sports-api.polymarket.com/ws`를 각 bounded cycle에서 최대 10초 관측한다.
+실험 시작 전 Jenkins probe #5334–#5337에서 production stream은 문서형 `slug`가 아니라
+numeric `gameId`와 camelCase `eventState`를 보내는 것을 확인했다. 따라서 Gamma event의
+numeric `gameId`와 WSS `gameId`를 exact join하고, 문서형 `slug`는 fallback으로만 허용한다.
+source `period`, `elapsed` 또는 `clock`, `score`, `live`, `ended`, update time 원문을 같은 run에
+보존한다. `gameId` 누락·충돌, minute field 누락, 연결 실패·부분 coverage는 숨기지 않고 HIGH
 collection gap으로 기록한다. raw `elapsed`와 normalization method를 함께 남기며 하프타임,
 source lag, stoppage time 때문에 이를 “정확히 종료까지 남은 분”이라고 부르지 않는다.
 

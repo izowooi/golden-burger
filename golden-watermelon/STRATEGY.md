@@ -63,9 +63,11 @@ stoppage time만 settlement에 포함한다고 명시해야 한다.
 ## 경기 시계 evidence
 
 public Sports WebSocket `wss://sports-api.polymarket.com/ws`는 subscription 없이 active sports
-updates를 제공한다. 매 bounded cycle에서 target event slug와 일치하는 raw message를
-`SPORTS_CLOCK_UPDATE`로 저장하고 `period + elapsed`를 정규화한다. 연결/coverage 실패는
-kickoff 추정으로 메우지 않는다.
+updates를 제공한다. 실제 운영 payload는 문서 예시와 달리 `slug` 대신 `gameId`와 camelCase
+`eventState`를 사용하므로 Gamma event의 numeric `gameId`로 exact join한다. 문서형 `slug`는
+fallback일 뿐이다. 일치한 raw message를 `SPORTS_CLOCK_UPDATE`로 저장하고 source
+`period + elapsed/clock`를 정규화한다. `gameId` 누락·충돌, 연결/coverage 또는 minute-field
+실패는 kickoff 추정으로 메우지 않는다.
 
 late-entry replay floors는 source regulation minute `>=75`, `>=80`, `>=85`다. 하프타임,
 stoppage time과 source lag 때문에 이를 “실제 종료 15/10/5분 전”이라고 단정하지 않는다.

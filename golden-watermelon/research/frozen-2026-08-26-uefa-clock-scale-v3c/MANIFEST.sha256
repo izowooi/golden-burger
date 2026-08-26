@@ -1,8 +1,8 @@
 f2305969318939421d5faf8b5316177242dd721c01fb1902ce1b2ab5208de456  ../../pyproject.toml
 3b74dd49ab13070847671f346905d3b30cad2a42ec1925dc8e1c3f0ea2b7fdfd  ../../uv.lock
 b7d5d17da4a979dfd1e38d2868752ef418f4943df9370b140d2c98cdddf1a386  ../../config.yaml
-ad5e1dcde1b023dbad18251a9600dafb4d397628620e48fae4b7262ff4a95d55  ../../STRATEGY.md
-d299cfc480eb5334fb1b3ece28d0fe52c276f3f1e2bcd7c5d49d2cbb33918b33  PREREGISTRATION.md
+2bb1bcd71d8b63b393e293474814c3604416435741e7d5a18da99a518292ab24  ../../STRATEGY.md
+e813ef490037de4e7a16759198e7654cfe23745f4b31ce5831cc7fc219dfc742  PREREGISTRATION.md
 4e141cf36bca98204eaae5405d3f85c856c9278d8ccd987b2af291be6d4aec01  ../../scripts/analyze_experiment.py
 5f301a4b44372bd4af408e999ae1f1036e3722753b2a0d724da9690f954cb35e  ../../scripts/verify_external_workspace.py
 049124a79d064d15a8296a0e57fda46f25b54e5fb7050f6223a38c22b37a1f8f  ../../src/polybot/main.py
@@ -13,8 +13,8 @@ c4e03a756fb1020d65685e57cd0abd772750ff154b888dd62cdd57d4c1ffb51b  ../../src/poly
 051c649606efc76784eef50b3f1b7f4596961049893662f7570f1b67175c6452  ../../src/polybot/source_digest.py
 802afbe8d5cde2d1537368d2fe4af0a471869bab293cff17704cd9eba57a9d5f  ../../src/polybot/api/gamma_client.py
 167cdf154014609571b02f0b35edfdca9c7fa4a06157fef3007a0b20d31eac55  ../../src/polybot/api/clob_client.py
-b317e22883c2ad7c422a1273d85b73e5599a16742b35e2955bc68a025e819b43  ../../src/polybot/api/sports_client.py
-83481fef4ca7a7f21e4bddaa2d9ccd35d59b30fd8e9425bc935e0cbe593b1ceb  ../../src/polybot/collector.py
+f8f5c0b20db7c3d93e6ab60a93f67515bf93194b74cc5af7d770d073a6d56e1b  ../../src/polybot/api/sports_client.py
+d4cf3a82131c69b073743d3ee54a6ebcb6e0a2d3482e733db173089e4467b515  ../../src/polybot/collector.py
 14740f4277f8408de58ad27b55e89179f545e2f36e983243299a3bd1da51306b  ../../src/polybot/league_classifier.py
 c49cd4e9408bf5d1afb7c0436ce9ebe26aa4673020287b78d79fdef616594ad0  ../../src/polybot/db/repository.py
 4db0d366f41db06e18059a2b05d9007073356d160eb8222725cc51df549b484c  ../../src/polybot/db/migrations/0001_soccer_major_league_v3a.sql

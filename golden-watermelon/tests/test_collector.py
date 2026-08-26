@@ -17,6 +17,7 @@ from polybot.api.gamma_client import EventPage, EventSweep
 from polybot.api.sports_client import SportsClockBatch, SportsClockUpdate
 from polybot.collector import (
     Collector,
+    _source_elapsed,
     classify_match_winner,
     classify_soccer_league,
 )
@@ -28,11 +29,29 @@ ROOT = Path(__file__).resolve().parents[1]
 NOW = datetime(2026, 8, 22, 16, 16, tzinfo=timezone.utc)
 
 
+@pytest.mark.parametrize(
+    ("payload", "expected"),
+    [
+        ({"elapsed": "82:31"}, ("82:31", "elapsed")),
+        ({"clock": "37:05"}, ("37:05", "clock")),
+        (
+            {"clock": {"minute": 82, "second": 7}},
+            ("82:07", "clock.minute_second"),
+        ),
+        ({"clock": {"display": "90:00"}}, ("90:00", "clock.display")),
+        ({"period": "2H"}, (None, None)),
+    ],
+)
+def test_source_elapsed_requires_explicit_source_clock(payload, expected) -> None:
+    assert _source_elapsed(payload) == expected
+
+
 def event(*, live=True, ended=False, parent_event_id=None):
     return {
         "id": "event-1",
         "title": "Team A vs Team B",
         "slug": "epl-team-a-team-b-2026-08-22",
+        "gameId": 1001,
         "active": True,
         "closed": False,
         "live": live,
@@ -174,13 +193,14 @@ class FakeSportsClock:
         self.elapsed = elapsed
         self.period = period
 
-    def collect(self, run_id, target_slugs):
+    def collect(self, run_id, target_games):
         updates = {
             slug: SportsClockUpdate(
                 slug=slug,
                 received_at="2026-08-22T16:16:00Z",
                 payload={
-                    "slug": slug,
+                    "gameId": game_id,
+                    "leagueAbbreviation": "epl",
                     "live": True,
                     "ended": False,
                     "score": "1-0",
@@ -188,16 +208,17 @@ class FakeSportsClock:
                     "elapsed": self.elapsed,
                     "last_update": "2026-08-22T16:15:59Z",
                 },
+                game_id=str(game_id),
             )
-            for slug in target_slugs
+            for game_id, slug in target_games.items()
         }
-        status = "OBSERVED" if target_slugs else "NO_TARGETS"
+        status = "OBSERVED" if target_games else "NO_TARGETS"
         return SportsClockBatch(
             request_id=f"sports-{run_id}",
             started_at="2026-08-22T16:15:59Z",
             completed_at="2026-08-22T16:16:00Z",
             status=status,
-            target_count=len(target_slugs),
+            target_count=len(target_games),
             matched_count=len(updates),
             message_count=len(updates),
             updates=updates,
@@ -639,6 +660,33 @@ def test_exact_uefa_cup_identity_and_sports_clock_are_persisted(
     assert tuple(event_row[:2]) == (code, name)
     assert json.loads(event_row[2])["identity_kind"] == "UEFA_CUP"
     assert normalized["sports_clock"]["elapsed_raw"] == "82:30"
+    assert normalized["sports_clock"]["game_id"] == "1001"
+    assert normalized["sports_clock"]["elapsed_source_field"] == "elapsed"
+
+
+def test_missing_gamma_game_id_is_a_high_clock_coverage_gap(tmp_path) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    source_event = event()
+    source_event["gameId"] = None
+    result = collector(
+        config,
+        repository,
+        FakeGamma(market(events=[source_event])),
+        FakeClob(),
+    ).collect("run-missing-game-id", now=NOW)
+    assert result["sports_clock_expected"] == 1
+    assert result["sports_clock_targets"] == 0
+    assert result["sports_clock_status"] == "NO_TARGETS"
+    with repository.connect() as connection:
+        issue = connection.execute(
+            "SELECT severity,issue_type,detail_json FROM data_quality_issues "
+            "WHERE issue_type='SPORTS_CLOCK_COVERAGE_GAP'"
+        ).fetchone()
+    assert tuple(issue[:2]) == ("HIGH", "SPORTS_CLOCK_COVERAGE_GAP")
+    assert json.loads(issue[2])["missing_game_id_slugs"] == [
+        "epl-team-a-team-b-2026-08-22"
+    ]
 
 
 def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:

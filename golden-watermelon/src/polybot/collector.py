@@ -69,6 +69,30 @@ def _boolean(value: Any) -> bool | None:
     return None
 
 
+def _source_elapsed(payload: Mapping[str, Any]) -> tuple[Any | None, str | None]:
+    """Extract only source-explicit clock values without wall-time inference."""
+    for field in ("elapsed", "clock"):
+        raw = payload.get(field)
+        if raw in (None, ""):
+            continue
+        if not isinstance(raw, Mapping):
+            return raw, field
+        for nested in ("elapsed", "display", "time", "value"):
+            value = raw.get(nested)
+            if value not in (None, ""):
+                return value, f"{field}.{nested}"
+        minute = raw.get("minute", raw.get("minutes"))
+        second = raw.get("second", raw.get("seconds"))
+        if minute not in (None, "") and second not in (None, ""):
+            try:
+                seconds = float(second)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(seconds) and 0 <= seconds < 60:
+                return f"{minute}:{seconds:02.0f}", f"{field}.minute_second"
+    return None, None
+
+
 def _utc(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
@@ -391,19 +415,32 @@ def _parse_market(
     event_closed = event.get("closed") if isinstance(event.get("closed"), bool) else None
     event_game_status = str(event.get("gameStatus") or "") or None
     clock_payload = dict(sports_clock.payload) if sports_clock else {}
+    elapsed_raw, elapsed_source_field = _source_elapsed(clock_payload)
     clock_evidence = {
         "join_status": "OBSERVED" if sports_clock else "NOT_OBSERVED",
         "source": "POLYMARKET_SPORTS_WEBSOCKET" if sports_clock else None,
         "received_at": sports_clock.received_at if sports_clock else None,
-        "slug": str(clock_payload.get("slug") or "") or None,
+        "slug": sports_clock.slug if sports_clock else None,
+        "source_slug": str(clock_payload.get("slug") or "") or None,
+        "game_id": sports_clock.game_id if sports_clock else None,
+        "league_abbreviation": str(
+            clock_payload.get("leagueAbbreviation") or ""
+        ) or None,
+        "status": str(clock_payload.get("status") or "") or None,
         "live": clock_payload.get("live")
         if isinstance(clock_payload.get("live"), bool) else None,
         "ended": clock_payload.get("ended")
         if isinstance(clock_payload.get("ended"), bool) else None,
         "score": str(clock_payload.get("score") or "") or None,
         "period": str(clock_payload.get("period") or "") or None,
-        "elapsed_raw": str(clock_payload.get("elapsed") or "") or None,
-        "last_update": str(clock_payload.get("last_update") or "") or None,
+        "elapsed_raw": elapsed_raw,
+        "elapsed_source_field": elapsed_source_field,
+        "clock_raw": clock_payload.get("clock"),
+        "last_update": str(
+            clock_payload.get("last_update")
+            or clock_payload.get("updatedAt")
+            or ""
+        ) or None,
     }
     reasons: list[str] = [*classification_reasons]
     if not league.accepted:
@@ -688,18 +725,35 @@ class Collector:
                 "Gamma live sports event keyset sweep exceeded the frozen page cap"
             )
 
-        target_slugs = {
-            str(event.get("slug") or "").strip()
-            for event, _observed, classification, _observation_id in classified_events
-            if (
+        clock_expected_slugs: set[str] = set()
+        clock_target_games: dict[str, str] = {}
+        clock_missing_game_ids: list[str] = []
+        clock_game_id_conflicts: list[dict[str, str]] = []
+        for event, _observed, classification, _observation_id in classified_events:
+            slug = str(event.get("slug") or "").strip()
+            if not (
                 classification.accepted
                 and event.get("parentEventId") in (None, "")
                 and event.get("live") is True
                 and event.get("ended") is False
-                and str(event.get("slug") or "").strip()
-            )
-        }
-        clock_batch = self.sports_clock.collect(run_id, target_slugs)
+                and slug
+            ):
+                continue
+            clock_expected_slugs.add(slug)
+            game_id = str(
+                event.get("gameId") or event.get("game_id") or ""
+            ).strip()
+            if not game_id:
+                clock_missing_game_ids.append(slug)
+                continue
+            prior_slug = clock_target_games.get(game_id)
+            if prior_slug is not None and prior_slug != slug:
+                clock_game_id_conflicts.append(
+                    {"game_id": game_id, "first_slug": prior_slug, "slug": slug}
+                )
+                continue
+            clock_target_games[game_id] = slug
+        clock_batch = self.sports_clock.collect(run_id, clock_target_games)
         seen_clock_payloads: set[str] = set()
         for raw in clock_batch.matched_raw_messages:
             digest = hashlib.sha256(raw).hexdigest()
@@ -1057,18 +1111,41 @@ class Collector:
                         "league_mapping_sha256": event_row["league_mapping_sha256"],
                     },
                 )
-        if clock_batch.target_count and clock_batch.status != "OBSERVED":
+        if clock_expected_slugs and (
+            clock_batch.status != "OBSERVED"
+            or clock_missing_game_ids
+            or clock_game_id_conflicts
+            or set(clock_batch.updates) != clock_expected_slugs
+        ):
             self.repository.record_issue(
                 run_id=run_id,
                 severity="HIGH",
                 issue_type="SPORTS_CLOCK_COVERAGE_GAP",
                 detail={
                     "status": clock_batch.status,
+                    "expected_count": len(clock_expected_slugs),
                     "target_count": clock_batch.target_count,
                     "matched_count": clock_batch.matched_count,
                     "message_count": clock_batch.message_count,
                     "error_type": clock_batch.error_type,
+                    "missing_game_id_slugs": clock_missing_game_ids,
+                    "game_id_conflicts": clock_game_id_conflicts,
+                    "unmatched_slugs": sorted(
+                        clock_expected_slugs - set(clock_batch.updates)
+                    ),
                 },
+            )
+        clock_minute_field_gaps = sorted(
+            slug
+            for slug, update in clock_batch.updates.items()
+            if _source_elapsed(update.payload)[0] is None
+        )
+        if clock_minute_field_gaps:
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="HIGH",
+                issue_type="SPORTS_CLOCK_MINUTE_FIELD_GAP",
+                detail={"slugs": clock_minute_field_gaps},
             )
 
         resolved = 0
@@ -1124,6 +1201,7 @@ class Collector:
             "stop_attempts": len(stop_attempts), "stop_exits": len(stop_exits),
             "resolutions_added": resolved, "pages": len(sweep.pages), "cursor_complete": True,
             "sports_clock_status": clock_batch.status,
+            "sports_clock_expected": len(clock_expected_slugs),
             "sports_clock_targets": clock_batch.target_count,
             "sports_clock_matched": clock_batch.matched_count,
         }

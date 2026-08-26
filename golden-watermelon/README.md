@@ -30,8 +30,10 @@ volume/liquidity 하한은 없다. 각 eligible outcome의 full-depth CLOB ask/b
 
 ## 보강된 증거
 
-Polymarket public Sports WebSocket의 event `slug`, `period`, raw `elapsed`, `score`, `live`,
-`ended`, `last_update`를 Gamma event와 exact join한다. 원문은 `SPORTS_CLOCK_UPDATE`로,
+Polymarket public Sports WebSocket의 production `gameId`/camelCase `eventState`를 Gamma
+event의 numeric `gameId`와 exact join하고 `period`, raw `elapsed` 또는 `clock`, `score`,
+`live`, `ended`, source update time을 보존한다. 문서형 `slug` payload도 fallback으로만
+지원한다. 원문은 `SPORTS_CLOCK_UPDATE`로,
 정규화 결과는 market/decision JSON으로 보존한다. kickoff wall time으로 경기 분을 추정하지
 않는다. 사후 timing strata는 source regulation minute `75/80/85`이며, 이는 정규 90분 기준
 마지막 15/10/5분 가설이지 실제 종료까지 남은 wall-clock time의 보장은 아니다.

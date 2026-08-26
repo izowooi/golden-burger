@@ -30,8 +30,9 @@
 - volume/liquidity gate를 추가하지 않는다. exact full book depth 자체를 측정한다.
 - entry `0.95/0.96/0.97/0.98/0.99`, stop
   `0.95/0.93/0.90/0.85/0.80/0.70`, primary `$5`를 유지한다.
-- source `period/elapsed`만 timing evidence로 쓰며 kickoff time으로 match minute를 추정하지
-  않는다. late replay grid는 `75/80/85`다.
+- Gamma numeric `gameId`와 production WSS `gameId`를 exact join한다. 문서형 `slug`는
+  fallback일 뿐이다. source `period/elapsed/clock`만 timing evidence로 쓰며 kickoff time으로
+  match minute를 추정하지 않는다. late replay grid는 `75/80/85`다.
 - notional replay grid는 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500`다.
 - `--live`, credential, signer, order SDK를 HTTP/DB 전에 거절하고 lifecycle은 `archive_only`다.
 

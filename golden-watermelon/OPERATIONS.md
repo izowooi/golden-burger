@@ -56,13 +56,15 @@ override하지 않는다.
    application/user version, external storage gate를 확인한다.
 4. UCL/UEL가 존재하면 exact identity로 ACCEPTED되고 advancement/extra time/penalty 시장은
    제외되는지 확인한다.
-5. `sports_clock_websocket` request와 `SPORTS_CLOCK_UPDATE` raw evidence, target/matched coverage,
-   `75/80/85` minute grid, `$5..$500` ladder가 config/decision에 기록되는지 확인한다.
+5. Gamma `gameId` ↔ production WSS `gameId` exact join, camelCase `eventState`,
+   `sports_clock_websocket` request와 `SPORTS_CLOCK_UPDATE` raw evidence, target/matched/minute-field
+   coverage, `75/80/85` minute grid, `$5..$500` ladder가 기록되는지 확인한다.
 6. White runtime <45초, Grey runtime <240초이고 CRITICAL/HIGH 원인이 없을 때만 timer를 켠다.
 7. White/Grey 각각 자연 실행 2회 이상을 확인하고 daily-rsync로 새 epoch를 동기화한다.
 
-Sports WebSocket에 target이 있는데 update가 하나도 없거나 연결이 실패하면 timer를 복원하지
-않는다. kickoff wall time으로 elapsed를 만들어내지 말고 source behavior를 먼저 수정한다.
+Sports WebSocket에 target이 있는데 update가 하나도 없거나 Gamma `gameId`가 없거나 source
+`elapsed/clock`가 없거나 연결이 실패하면 timer를 복원하지 않는다. kickoff wall time으로
+elapsed를 만들어내지 말고 source behavior를 먼저 수정한다.
 
 ## Daily-rsync 및 analyzer
 
@@ -96,7 +98,10 @@ DB integrity, notional depth와 storage growth만 본다. ROI·best threshold/st
 ## 장애 대응
 
 - `LEAGUE_IDENTITY_DRIFT`: exact numeric tag/series/team/source field를 raw payload와 대조한다.
-- `SPORTS_CLOCK_COVERAGE_GAP`: WSS request receipt와 matched slug를 보고 source 연결을 복구한다.
+- `SPORTS_CLOCK_COVERAGE_GAP`: WSS request receipt와 Gamma/WSS `gameId`, unmatched event를 보고
+  source join을 복구한다.
+- `SPORTS_CLOCK_MINUTE_FIELD_GAP`: source `elapsed/clock` 계약을 확인하며 kickoff 추정으로
+  대체하지 않는다.
 - incomplete cursor: partial universe를 사용하지 않는다.
 - database epoch mismatch: v3b archive를 쓰지 말고 v3c path를 고친다.
 - White p95 ≥45초 또는 queue 발생: timer를 끄고 병목을 고친다.

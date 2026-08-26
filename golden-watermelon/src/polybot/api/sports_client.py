@@ -24,22 +24,30 @@ def _bounded_error(error: BaseException) -> str:
 
 
 def _candidate_updates(payload: Any) -> list[dict[str, Any]]:
-    """Accept the documented direct object and known envelope variants."""
+    """Normalize documented and observed production envelope variants."""
     if isinstance(payload, list):
-        return [dict(item) for item in payload if isinstance(item, Mapping)]
+        return [
+            candidate
+            for item in payload
+            for candidate in _candidate_updates(item)
+        ]
     if not isinstance(payload, Mapping):
         return []
     nested = payload.get("payload")
     if isinstance(nested, list):
-        return [dict(item) for item in nested if isinstance(item, Mapping)]
+        return [
+            candidate
+            for item in nested
+            for candidate in _candidate_updates(item)
+        ]
     if isinstance(nested, Mapping):
-        return [dict(nested)]
-    event_state = payload.get("event_state")
+        return _candidate_updates(nested)
+    event_state = payload.get("event_state") or payload.get("eventState")
     if isinstance(event_state, Mapping):
         merged = dict(event_state)
-        for key in ("slug", "game_id", "gameId"):
-            if key in payload and key not in merged:
-                merged[key] = payload[key]
+        for key, value in payload.items():
+            if key not in {"event_state", "eventState"}:
+                merged[key] = value
         return [merged]
     return [dict(payload)]
 
@@ -49,6 +57,7 @@ class SportsClockUpdate:
     slug: str
     received_at: str
     payload: dict[str, Any]
+    game_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -82,11 +91,20 @@ class SportsClockClient:
         self.config = config
         self.receipt_sink = receipt_sink
 
-    def collect(self, run_id: str, target_slugs: set[str]) -> SportsClockBatch:
+    def collect(
+        self,
+        run_id: str,
+        target_games: Mapping[str, str],
+    ) -> SportsClockBatch:
         request_id = uuid4().hex
         started_at = _iso_now()
         monotonic_start = time.monotonic()
-        targets = {slug.strip() for slug in target_slugs if slug.strip()}
+        targets = {
+            str(game_id).strip(): str(slug).strip()
+            for game_id, slug in target_games.items()
+            if str(game_id).strip() and str(slug).strip()
+        }
+        target_slugs = set(targets.values())
         updates: dict[str, SportsClockUpdate] = {}
         matched_raw: list[bytes] = []
         message_count = 0
@@ -113,7 +131,7 @@ class SportsClockClient:
                 while (
                     time.monotonic() < deadline
                     and message_count < self.config.max_messages
-                    and len(updates) < len(targets)
+                    and len(updates) < len(target_slugs)
                 ):
                     remaining = max(0.05, deadline - time.monotonic())
                     try:
@@ -137,14 +155,22 @@ class SportsClockClient:
                     matched_message = False
                     received_at = _iso_now()
                     for candidate in _candidate_updates(payload):
-                        slug = str(candidate.get("slug") or "").strip()
-                        if slug not in targets:
+                        game_id = str(
+                            candidate.get("gameId")
+                            or candidate.get("game_id")
+                            or ""
+                        ).strip()
+                        source_slug = str(candidate.get("slug") or "").strip()
+                        slug = targets.get(game_id)
+                        if slug is None and source_slug in target_slugs:
+                            slug = source_slug
+                        if slug is None:
                             continue
                         if not any(
                             key in candidate
                             for key in (
                                 "live", "ended", "score", "period", "elapsed",
-                                "last_update",
+                                "clock", "last_update", "updatedAt",
                             )
                         ):
                             continue
@@ -152,6 +178,7 @@ class SportsClockClient:
                             slug=slug,
                             received_at=received_at,
                             payload=candidate,
+                            game_id=game_id or None,
                         )
                         matched_message = True
                     if matched_message:
@@ -163,7 +190,7 @@ class SportsClockClient:
         completed_at = _iso_now()
         if error_type is not None:
             status = "FAILED"
-        elif len(updates) == len(targets):
+        elif len(updates) == len(target_slugs):
             status = "OBSERVED"
         elif updates:
             status = "PARTIAL"
@@ -174,7 +201,7 @@ class SportsClockClient:
             started_at=started_at,
             completed_at=completed_at,
             status=status,
-            target_count=len(targets),
+            target_count=len(target_slugs),
             matched_count=len(updates),
             message_count=message_count,
             updates=updates,

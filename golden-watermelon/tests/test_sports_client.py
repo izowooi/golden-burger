@@ -35,7 +35,7 @@ def config() -> SportsFeedConfig:
     )
 
 
-def test_public_sports_snapshot_joins_only_requested_slugs(monkeypatch) -> None:
+def test_public_sports_snapshot_accepts_documented_slug_fallback(monkeypatch) -> None:
     websocket = FakeWebSocket(
         [
             "ping",
@@ -50,7 +50,7 @@ def test_public_sports_snapshot_joins_only_requested_slugs(monkeypatch) -> None:
     )
     receipts = []
     batch = SportsClockClient(config(), receipts.append).collect(
-        "run-1", {"ucl-a-b-2026-08-26"}
+        "run-1", {"1001": "ucl-a-b-2026-08-26"}
     )
     assert batch.status == "OBSERVED"
     assert batch.matched_count == 1
@@ -58,6 +58,34 @@ def test_public_sports_snapshot_joins_only_requested_slugs(monkeypatch) -> None:
     assert websocket.sent == ["pong"]
     assert receipts[0]["request_kind"] == "sports_clock_websocket_snapshot"
     assert receipts[0]["status"] == "OBSERVED"
+
+
+def test_public_sports_snapshot_joins_observed_game_id_and_camel_event_state(
+    monkeypatch,
+) -> None:
+    websocket = FakeWebSocket(
+        [
+            '{"gameId":999,"leagueAbbreviation":"lol","live":true}',
+            '{"gameId":6088527,"leagueAbbreviation":"ucl",'
+            '"homeTeam":"Team A","awayTeam":"Team B",'
+            '"status":"inprogress","score":"1-0","period":"2H",'
+            '"live":true,"ended":false,"eventState":{'
+            '"type":"soccer","elapsed":"82:31",'
+            '"updatedAt":"2026-08-26T20:12:00Z"}}',
+        ]
+    )
+    monkeypatch.setattr(
+        "polybot.api.sports_client.connect", lambda *_args, **_kwargs: websocket
+    )
+    batch = SportsClockClient(config(), lambda _receipt: None).collect(
+        "run-operational", {"6088527": "ucl-a-b-2026-08-26"}
+    )
+    assert batch.status == "OBSERVED"
+    update = batch.updates["ucl-a-b-2026-08-26"]
+    assert update.game_id == "6088527"
+    assert update.payload["elapsed"] == "82:31"
+    assert update.payload["leagueAbbreviation"] == "ucl"
+    assert update.payload["updatedAt"] == "2026-08-26T20:12:00Z"
 
 
 def test_sports_snapshot_failure_is_evidence_not_an_unbounded_retry(
@@ -69,7 +97,7 @@ def test_sports_snapshot_failure_is_evidence_not_an_unbounded_retry(
     monkeypatch.setattr("polybot.api.sports_client.connect", fail)
     receipts = []
     batch = SportsClockClient(config(), receipts.append).collect(
-        "run-2", {"uel-a-b-2026-08-27"}
+        "run-2", {"2002": "uel-a-b-2026-08-27"}
     )
     assert batch.status == "FAILED"
     assert batch.error_type == "RuntimeError"
