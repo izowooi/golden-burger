@@ -1,15 +1,15 @@
-# Golden Watermelon v3c 운영 절차
+# Golden Watermelon v3d 운영 절차
 
 ## Jenkins 경계
 
 | Jenkins | exact workspace | runtime | schedule |
 |---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3c` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3c` | `H/5 * * * *` |
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v3d` | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v3d` | `H/5 * * * *` |
 
 concurrent build는 끄고 build discard는 14일로 둔다. `Clean before checkout`, workspace wipe,
-credential binding, 기존 DB migration/import를 사용하지 않는다. v3b와 이전 DB는 그대로 두고
-`data/watermelon-*-v3c/trades_sim.db`를 새로 만든다.
+credential binding, 기존 DB migration/import를 사용하지 않는다. v3c와 이전 DB는 그대로 두고
+`data/watermelon-*-v3d/trades_sim.db`를 새로 만든다.
 
 ## Execute shell
 
@@ -40,12 +40,12 @@ UV=/Users/jongwoopark/.local/bin/uv
 "${UV}" sync --frozen
 "${UV}" run python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot config --simulate --job watermelon-white-1m-v3c
-"${UV}" run polybot run --simulate --job watermelon-white-1m-v3c
-"${UV}" run polybot status --simulate --job watermelon-white-1m-v3c
+"${UV}" run polybot config --simulate --job watermelon-white-1m-v3d
+"${UV}" run polybot run --simulate --job watermelon-white-1m-v3d
+"${UV}" run polybot status --simulate --job watermelon-white-1m-v3d
 ```
 
-Grey는 runtime만 `watermelon-grey-5m-v3c`로 바꾼다. 실험 parameter를 Jenkins env로
+Grey는 runtime만 `watermelon-grey-5m-v3d`로 바꾼다. 실험 parameter를 Jenkins env로
 override하지 않는다.
 
 ## 배포 순서
@@ -57,14 +57,17 @@ override하지 않는다.
 4. UCL/UEL가 존재하면 exact identity로 ACCEPTED되고 advancement/extra time/penalty 시장은
    제외되는지 확인한다.
 5. Gamma `gameId` ↔ production WSS `gameId` exact join, camelCase `eventState`,
-   `sports_clock_websocket` request와 `SPORTS_CLOCK_UPDATE` raw evidence, target/matched/minute-field
-   coverage, `75/80/85` minute grid, `$5..$500` ladder가 기록되는지 확인한다.
-6. White runtime <45초, Grey runtime <240초이고 CRITICAL/HIGH 원인이 없을 때만 timer를 켠다.
-7. White/Grey 각각 자연 실행 2회 이상을 확인하고 daily-rsync로 새 epoch를 동기화한다.
+   `sports_clock_websocket` request와 `SPORTS_CLOCK_UPDATE` raw evidence를 확인한다. WSS update가
+   없는 cycle은 same-cycle Gamma explicit clock fallback과 source provenance가 저장되는지 본다.
+6. accepted event마다 distinct HOME/DRAW/AWAY triad가 완전하고, `75/80/85` minute grid와
+   `$5..$1000` ladder가 기록되는지 확인한다.
+7. White runtime <45초, Grey runtime <240초이고 CRITICAL/HIGH 원인이 없을 때만 timer를 켠다.
+8. White/Grey 각각 자연 실행 2회 이상을 확인하고 daily-rsync로 새 epoch를 동기화한다.
 
-Sports WebSocket에 target이 있는데 update가 하나도 없거나 Gamma `gameId`가 없거나 source
-`elapsed/clock`가 없거나 연결이 실패하면 timer를 복원하지 않는다. kickoff wall time으로
-elapsed를 만들어내지 말고 source behavior를 먼저 수정한다.
+Sports WebSocket에 target update가 없어도 같은 cycle Gamma event의 explicit source clock이
+있으면 collection을 계속할 수 있다. 두 source 모두 `elapsed/clock`를 제공하지 않거나 result
+triad가 불완전하면 timer를 복원하지 않는다. kickoff wall time으로 elapsed를 만들어내지 말고
+source behavior를 먼저 수정한다.
 
 ## Daily-rsync 및 analyzer
 
@@ -84,10 +87,10 @@ uv run daily-rsync locate --job polybot-grey --strategy golden-watermelon
 
 ```bash
 cd ../golden-watermelon
-uv run polybot analyze --simulate --job watermelon-white-1m-v3c \
+uv run polybot analyze --simulate --job watermelon-white-1m-v3d \
   --db /absolute/white/trades_sim.db \
   --db /absolute/grey/trades_sim.db \
-  --output /tmp/golden-watermelon-v3c-health.json
+  --output /tmp/golden-watermelon-v3d-health.json
 ```
 
 ### Read-only depth ladder sidecar
@@ -101,7 +104,7 @@ uv run python scripts/analyze_depth_ladder.py \
   --config-hash <config-hash> \
   --strategy-source-digest <strategy-source-digest> \
   --mode sim \
-  --job-name watermelon-white-1m-v3c \
+  --job-name watermelon-white-1m-v3d \
   --output /tmp/golden-watermelon-depth-ladder.json
 ```
 
@@ -109,7 +112,7 @@ DB가 단일 cohort면 selector를 생략할 수 있다. 여러 cohort에서 의
 고를 때만 `--latest-cohort`를 사용한다. White/Grey를 함께 넘길 때는 `--db` 순서대로 네
 selector flag를 각각 반복하며 두 DB의 `strategy_source_digest`가 다르면 실패한다.
 
-첫 health review는 `2026-08-27T18:30:00Z` 이후다. cadence, cursor completeness, domestic/UEFA
+첫 health review는 `2026-08-28T17:00:00Z` 이후다. cadence, cursor completeness, domestic/UEFA
 identity, strict regular-time moneyline, book/full-depth, Sports clock, path/resolution, cohort,
 DB integrity, notional depth와 storage growth만 본다. ROI·best threshold/stop/minute/notional은
 판정하지 않는다.
@@ -117,12 +120,14 @@ DB integrity, notional depth와 storage growth만 본다. ROI·best threshold/st
 ## 장애 대응
 
 - `LEAGUE_IDENTITY_DRIFT`: exact numeric tag/series/team/source field를 raw payload와 대조한다.
-- `SPORTS_CLOCK_COVERAGE_GAP`: WSS request receipt와 Gamma/WSS `gameId`, unmatched event를 보고
-  source join을 복구한다.
-- `SPORTS_CLOCK_MINUTE_FIELD_GAP`: source `elapsed/clock` 계약을 확인하며 kickoff 추정으로
-  대체하지 않는다.
+- `SPORTS_WEBSOCKET_COVERAGE_GAP`: WSS request receipt와 Gamma/WSS `gameId`, unmatched event를
+  확인한다. Gamma explicit clock fallback이 있으면 MEDIUM 관측성 gap이다.
+- `SOURCE_CLOCK_COVERAGE_GAP` / `SOURCE_CLOCK_MINUTE_FIELD_GAP`: 두 public source의
+  `elapsed/clock` 계약을 확인하며 kickoff 추정으로 대체하지 않는다.
+- `RESULT_TRIAD_COVERAGE_GAP`: accepted event의 HOME/DRAW/AWAY condition/token 누락·중복을
+  raw Gamma event와 대조하고 partial universe를 사용하지 않는다.
 - incomplete cursor: partial universe를 사용하지 않는다.
-- database epoch mismatch: v3b archive를 쓰지 말고 v3c path를 고친다.
+- database epoch mismatch: v3c archive를 쓰지 말고 v3d path를 고친다.
 - White p95 ≥45초 또는 queue 발생: timer를 끄고 병목을 고친다.
 - storage gate: external mount를 복구하며 내부 disk fallback이나 DB 삭제를 하지 않는다.
 - schema/identity 변경: 기존 DB에 `ALTER TABLE`하지 않고 새 prereg/runtime epoch를 만든다.

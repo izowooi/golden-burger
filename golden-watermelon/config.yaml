@@ -2,9 +2,9 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: soccer-inplay-elite-competition-match-winner-v3
+  data_contract: soccer-inplay-elite-competition-match-winner-v4
   schema_profile: golden-watermelon-v3a-schema-v1
-  universe_profile: soccer-elite-leagues-uefa-2026-08-v3c
+  universe_profile: soccer-elite-leagues-uefa-2026-08-v3d
   classifier_version: soccer-elite-competition-identity-v3
 
   gamma:
@@ -98,13 +98,13 @@ trading:
     max_messages: 10000
 
   experiment:
-    start_utc: 2026-08-26T18:30:00Z
-    entry_end_utc: 2026-09-02T18:30:00Z
-    followup_end_utc: 2026-09-09T18:30:00Z
+    start_utc: 2026-08-27T17:00:00Z
+    entry_end_utc: 2026-09-03T17:00:00Z
+    followup_end_utc: 2026-09-10T17:00:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5
-    notional_ladder_usdc: [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 250, 500]
+    notional_ladder_usdc: [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 250, 500, 750, 1000]
     late_entry_minute_floors: [75, 80, 85]
     fee_rate_fallback: 0.05
 

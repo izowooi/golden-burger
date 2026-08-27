@@ -93,6 +93,135 @@ def _source_elapsed(payload: Mapping[str, Any]) -> tuple[Any | None, str | None]
     return None, None
 
 
+def _result_triad_gap(
+    rows: list[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Return exact HOME/DRAW/AWAY identity gaps for one whole-match event."""
+    expected = ("HOME", "DRAW", "AWAY")
+    counts = Counter(str(row.get("result_kind") or "") for row in rows)
+    slot_counts = {slot: counts.get(slot, 0) for slot in sorted(expected)}
+    conditions = {
+        str(row.get("condition_id") or "").strip()
+        for row in rows
+        if str(row.get("condition_id") or "").strip()
+    }
+    tokens = {
+        str(row.get("token_id") or "").strip()
+        for row in rows
+        if str(row.get("token_id") or "").strip()
+    }
+    complete = (
+        slot_counts == {"AWAY": 1, "DRAW": 1, "HOME": 1}
+        and len(rows) == 3
+        and len(conditions) == 3
+        and len(tokens) == 3
+    )
+    if complete:
+        return None
+    return {
+        "slot_counts": slot_counts,
+        "row_count": len(rows),
+        "distinct_condition_count": len(conditions),
+        "distinct_token_count": len(tokens),
+    }
+
+
+def _source_clock_evidence(
+    event: Mapping[str, Any],
+    sports_clock: SportsClockUpdate | None,
+    *,
+    observed_at: datetime,
+) -> dict[str, Any]:
+    """Prefer WSS time fields, then use explicit same-cycle Gamma fields.
+
+    Both sources are public Polymarket evidence already preserved as raw payloads.
+    This deliberately never estimates match time from kickoff wall time.
+    """
+    websocket_payload = dict(sports_clock.payload) if sports_clock else {}
+    websocket_elapsed, websocket_elapsed_field = _source_elapsed(websocket_payload)
+    gamma_payload = dict(event)
+    gamma_elapsed, gamma_elapsed_field = _source_elapsed(gamma_payload)
+    gamma_has_clock = gamma_elapsed is not None or any(
+        gamma_payload.get(field) not in (None, "")
+        for field in ("period", "score", "gameStatus")
+    )
+
+    if sports_clock is not None and websocket_elapsed is not None:
+        payload = websocket_payload
+        source = "POLYMARKET_SPORTS_WEBSOCKET"
+        elapsed_raw = websocket_elapsed
+        elapsed_source_field = websocket_elapsed_field
+        received_at = sports_clock.received_at
+        selected_slug = sports_clock.slug
+        selected_game_id = sports_clock.game_id
+    elif gamma_has_clock:
+        payload = gamma_payload
+        source = "POLYMARKET_GAMMA_EVENT"
+        elapsed_raw = gamma_elapsed
+        elapsed_source_field = gamma_elapsed_field
+        received_at = iso_utc(observed_at)
+        selected_slug = str(event.get("slug") or "") or None
+        selected_game_id = str(
+            event.get("gameId") or event.get("game_id") or ""
+        ) or None
+    elif sports_clock is not None:
+        payload = websocket_payload
+        source = "POLYMARKET_SPORTS_WEBSOCKET"
+        elapsed_raw = websocket_elapsed
+        elapsed_source_field = websocket_elapsed_field
+        received_at = sports_clock.received_at
+        selected_slug = sports_clock.slug
+        selected_game_id = sports_clock.game_id
+    else:
+        payload = {}
+        source = None
+        elapsed_raw = None
+        elapsed_source_field = None
+        received_at = None
+        selected_slug = None
+        selected_game_id = None
+
+    return {
+        "join_status": "OBSERVED" if source else "NOT_OBSERVED",
+        "source": source,
+        "received_at": received_at,
+        "slug": selected_slug,
+        "source_slug": str(payload.get("slug") or "") or None,
+        "game_id": selected_game_id,
+        "league_abbreviation": str(
+            payload.get("leagueAbbreviation") or ""
+        ) or None,
+        "status": str(payload.get("status") or payload.get("gameStatus") or "")
+        or None,
+        "live": payload.get("live")
+        if isinstance(payload.get("live"), bool)
+        else None,
+        "ended": payload.get("ended")
+        if isinstance(payload.get("ended"), bool)
+        else None,
+        "score": str(payload.get("score") or "") or None,
+        "period": str(payload.get("period") or "") or None,
+        "elapsed_raw": elapsed_raw,
+        "elapsed_source_field": elapsed_source_field,
+        "clock_raw": payload.get("clock"),
+        "last_update": str(
+            payload.get("last_update")
+            or payload.get("updatedAt")
+            or payload.get("updated_at")
+            or ""
+        )
+        or None,
+        "websocket_join_status": (
+            "OBSERVED" if sports_clock is not None else "NOT_OBSERVED"
+        ),
+        "websocket_elapsed_raw": websocket_elapsed,
+        "websocket_elapsed_source_field": websocket_elapsed_field,
+        "gamma_clock_available": gamma_has_clock,
+        "gamma_elapsed_raw": gamma_elapsed,
+        "gamma_elapsed_source_field": gamma_elapsed_field,
+    }
+
+
 def _utc(value: Any) -> datetime | None:
     if value is None or value == "":
         return None
@@ -414,34 +543,9 @@ def _parse_market(
     event_active = event.get("active") if isinstance(event.get("active"), bool) else None
     event_closed = event.get("closed") if isinstance(event.get("closed"), bool) else None
     event_game_status = str(event.get("gameStatus") or "") or None
-    clock_payload = dict(sports_clock.payload) if sports_clock else {}
-    elapsed_raw, elapsed_source_field = _source_elapsed(clock_payload)
-    clock_evidence = {
-        "join_status": "OBSERVED" if sports_clock else "NOT_OBSERVED",
-        "source": "POLYMARKET_SPORTS_WEBSOCKET" if sports_clock else None,
-        "received_at": sports_clock.received_at if sports_clock else None,
-        "slug": sports_clock.slug if sports_clock else None,
-        "source_slug": str(clock_payload.get("slug") or "") or None,
-        "game_id": sports_clock.game_id if sports_clock else None,
-        "league_abbreviation": str(
-            clock_payload.get("leagueAbbreviation") or ""
-        ) or None,
-        "status": str(clock_payload.get("status") or "") or None,
-        "live": clock_payload.get("live")
-        if isinstance(clock_payload.get("live"), bool) else None,
-        "ended": clock_payload.get("ended")
-        if isinstance(clock_payload.get("ended"), bool) else None,
-        "score": str(clock_payload.get("score") or "") or None,
-        "period": str(clock_payload.get("period") or "") or None,
-        "elapsed_raw": elapsed_raw,
-        "elapsed_source_field": elapsed_source_field,
-        "clock_raw": clock_payload.get("clock"),
-        "last_update": str(
-            clock_payload.get("last_update")
-            or clock_payload.get("updatedAt")
-            or ""
-        ) or None,
-    }
+    clock_evidence = _source_clock_evidence(
+        event, sports_clock, observed_at=observed_at
+    )
     reasons: list[str] = [*classification_reasons]
     if not league.accepted:
         reasons.append("EVENT_LEAGUE_NOT_ACCEPTED")
@@ -508,6 +612,7 @@ def _parse_market(
             "neg_risk": neg_risk, "fee_rate": fee_rate,
             "sports_market_type": market.get("sportsMarketType"),
             "match_winner_class": match_class,
+            "result_kind": classification.get("result_kind"),
             "eligible_outcome_indices": list(eligible_indices),
             "event_live": event_live, "event_ended": event_ended,
             "event_game_status": event_game_status,
@@ -529,6 +634,7 @@ def _parse_market(
         "market_row": market_row, "outcomes": outcome_rows, "eligible": not reasons,
         "eligible_indices": eligible_indices,
         "match_winner_class": match_class,
+        "result_kind": classification.get("result_kind"),
         "event": event, "market": market, "labels": labels, "tokens": tokens,
         "probabilities": probability_values, "fee_rate": fee_rate,
         "end_date": end_date, "game_start": game_start, "phase": phase,
@@ -726,6 +832,7 @@ class Collector:
             )
 
         clock_expected_slugs: set[str] = set()
+        clock_expected_event_ids: dict[str, str] = {}
         clock_target_games: dict[str, str] = {}
         clock_missing_game_ids: list[str] = []
         clock_game_id_conflicts: list[dict[str, str]] = []
@@ -740,6 +847,7 @@ class Collector:
             ):
                 continue
             clock_expected_slugs.add(slug)
+            clock_expected_event_ids[slug] = str(event.get("id") or "")
             game_id = str(
                 event.get("gameId") or event.get("game_id") or ""
             ).strip()
@@ -800,6 +908,34 @@ class Collector:
                 market_rows.append(row)
                 outcome_rows.extend(outcomes)
                 contexts.append(context)
+
+        source_clock_by_slug: dict[str, dict[str, Any]] = {}
+        result_rows_by_event: dict[str, list[dict[str, Any]]] = {}
+        for context in contexts:
+            slug = str(context["event"].get("slug") or "").strip()
+            clock = dict(context["sports_clock"])
+            if slug and clock.get("join_status") == "OBSERVED":
+                source_clock_by_slug[slug] = clock
+            if not context["eligible"] or not context.get("result_kind"):
+                continue
+            event_id = str(context["market_row"]["event_id"] or "")
+            condition_id = str(context["market_row"]["condition_id"] or "")
+            for outcome in context["outcomes"]:
+                if not outcome["entry_eligible"]:
+                    continue
+                result_rows_by_event.setdefault(event_id, []).append(
+                    {
+                        "result_kind": context["result_kind"],
+                        "condition_id": condition_id,
+                        "token_id": str(outcome["token_id"]),
+                    }
+                )
+        result_triad_gaps = {
+            event_id: gap
+            for event_id in clock_expected_event_ids.values()
+            if (gap := _result_triad_gap(result_rows_by_event.get(event_id, [])))
+            is not None
+        }
 
         open_before = self.repository.open_episodes()
         active_stop_before = self.repository.active_stop_policies()
@@ -1111,6 +1247,13 @@ class Collector:
                         "league_mapping_sha256": event_row["league_mapping_sha256"],
                     },
                 )
+        for event_id, gap in sorted(result_triad_gaps.items()):
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="HIGH",
+                issue_type="RESULT_TRIAD_COVERAGE_GAP",
+                detail={"event_id": event_id, **gap},
+            )
         if clock_expected_slugs and (
             clock_batch.status != "OBSERVED"
             or clock_missing_game_ids
@@ -1119,8 +1262,8 @@ class Collector:
         ):
             self.repository.record_issue(
                 run_id=run_id,
-                severity="HIGH",
-                issue_type="SPORTS_CLOCK_COVERAGE_GAP",
+                severity="MEDIUM",
+                issue_type="SPORTS_WEBSOCKET_COVERAGE_GAP",
                 detail={
                     "status": clock_batch.status,
                     "expected_count": len(clock_expected_slugs),
@@ -1135,16 +1278,30 @@ class Collector:
                     ),
                 },
             )
+        source_clock_gaps = sorted(
+            clock_expected_slugs - set(source_clock_by_slug)
+        )
+        if source_clock_gaps:
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="HIGH",
+                issue_type="SOURCE_CLOCK_COVERAGE_GAP",
+                detail={
+                    "expected_count": len(clock_expected_slugs),
+                    "observed_count": len(source_clock_by_slug),
+                    "unmatched_slugs": source_clock_gaps,
+                },
+            )
         clock_minute_field_gaps = sorted(
             slug
-            for slug, update in clock_batch.updates.items()
-            if _source_elapsed(update.payload)[0] is None
+            for slug, clock in source_clock_by_slug.items()
+            if clock.get("elapsed_raw") in (None, "")
         )
         if clock_minute_field_gaps:
             self.repository.record_issue(
                 run_id=run_id,
                 severity="HIGH",
-                issue_type="SPORTS_CLOCK_MINUTE_FIELD_GAP",
+                issue_type="SOURCE_CLOCK_MINUTE_FIELD_GAP",
                 detail={"slugs": clock_minute_field_gaps},
             )
 
@@ -1204,4 +1361,6 @@ class Collector:
             "sports_clock_expected": len(clock_expected_slugs),
             "sports_clock_targets": clock_batch.target_count,
             "sports_clock_matched": clock_batch.matched_count,
+            "source_clock_observed": len(source_clock_by_slug),
+            "result_triad_gaps": len(result_triad_gaps),
         }

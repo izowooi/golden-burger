@@ -108,13 +108,14 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-watermelon/`: **Elite Soccer In-Play Match Winner** — 경기 시작 후 strict whole-match
   `moneyline`의 exact `$5` ask VWAP가 `0.95/0.96/0.97/0.98/0.99`를 통과한 시점을
   수집하고 resolution hold와 `0.95/0.93/0.90/0.85/0.80/0.70` stop을 동시
-  재생한다. 현재 v3c universe는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A와 exact
+  재생한다. 현재 v3d universe는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A와 exact
   UCL/UEL competition identity의 regular-time home/draw/away moneyline을 허용한다. e-sports,
   허용되지 않은 cup/league, advancement·prop·child market은 CLOB 전에 제외한다. public
-  Sports WebSocket의 raw period/elapsed를 보존해 75/80/85분 timing strata를 만들고, full
-  book으로 `$5`~`$500` notional ladder를 replay한다. `polybot-white` 1분과
+  Sports WebSocket을 우선하고 same-cycle Gamma explicit clock을 fallback으로 보존해
+  75/80/85분 timing strata를 만든다. accepted event의 distinct HOME/DRAW/AWAY triad를
+  fail-closed로 검사하고 full book으로 `$5`~`$1000` notional ladder를 replay한다. `polybot-white` 1분과
   `polybot-grey` 5분은 같은 population/grid의 paired cadence 처치이며, 두 DB를 독립 거래로
-  세지 않는다. `soccer-inplay-elite-competition-match-winner-v3` append-only evidence를 쓰고
+  세지 않는다. `soccer-inplay-elite-competition-match-winner-v4` append-only evidence를 쓰고
   accountless simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
 - `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Watermelon White/Grey
   evidence에서 파생한 별도 live 프로젝트다. 위 6개 리그와 UCL/UEL의 top-level
@@ -186,12 +187,13 @@ resolution을 append-only로 저장한다. stop 기준가는 체결가로 간주
 VWAP·부분 fill·retry를 따로 보존한다. actual fill/P&L evidence가 아니며, Gamma `endDate`를 실제
 경기 종료 시각으로 가정하지 않는다. 24시간/7일 review는 collection health와 coverage만 판정한다.
 
-`golden-watermelon`은 `polybot-white/watermelon-white-1m-v3c` 1분과
-`polybot-grey/watermelon-grey-5m-v3c` 5분의 독립
+`golden-watermelon`은 `polybot-white/watermelon-white-1m-v3d` 1분과
+`polybot-grey/watermelon-grey-5m-v3d` 5분의 독립
 `data/<runtime-job>/trades_sim.db`에 같은 in-play whole-match moneyline population과 X/Y
 grid를 적재한다. 같은 `condition_id × token_id × entry_threshold`는 paired unit이며
 두 거래로 세지 않는다. exact `$5` ask/bid depth, crossing provenance, stop gap·partial·
-retry와 unique one-hot resolution, Sports WS period/elapsed, `$5`~`$500` full-book capacity를
+retry와 unique one-hot resolution, WSS/Gamma explicit source clock, exact result triad,
+`$5`~`$1000` full-book capacity를
 append-only로 보존한다. actual fill/P&L evidence가 아니며, 첫 health review에서는
 cadence·cursor·classification·book·clock·DB·storage만 판정한다.
 

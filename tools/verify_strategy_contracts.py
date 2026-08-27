@@ -3498,12 +3498,15 @@ def _validate_inplay_match_winner_research_strategy(
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
             "POLYMARKET_PRIVATE_KEY",
+            "soccer-inplay-elite-competition-match-winner-v4",
             "soccer-inplay-elite-competition-match-winner-v3",
             "soccer-inplay-major-league-match-winner-v1",
             "watermelon-white-1m-v3",
             "watermelon-grey-5m-v3",
             "watermelon-white-1m-v3c",
             "watermelon-grey-5m-v3c",
+            "watermelon-white-1m-v3d",
+            "watermelon-grey-5m-v3d",
             "MAJOR_SOCCER_LEAGUES",
             "FROZEN_CUP_IDENTITIES",
             "UEFA Champions League",
@@ -3543,7 +3546,9 @@ def _validate_inplay_match_winner_research_strategy(
             "FIRST_FULL_DEPTH_ABOVE",
             "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
             "gap_from_stop", "resolution_due", "GAMMA_CURSOR_INCOMPLETE",
-            "SPORTS_CLOCK_COVERAGE_GAP", "SPORTS_CLOCK_UPDATE",
+            "SPORTS_WEBSOCKET_COVERAGE_GAP", "SPORTS_CLOCK_UPDATE",
+            "SOURCE_CLOCK_COVERAGE_GAP", "SOURCE_CLOCK_MINUTE_FIELD_GAP",
+            "RESULT_TRIAD_COVERAGE_GAP",
             "late_entry_minute_floors", "notional_ladder_usdc",
             "Entry and exit cannot use the same displayed book",
         ),
@@ -3563,11 +3568,12 @@ def _validate_inplay_match_winner_research_strategy(
             "storage_metrics", "append-only evidence",
         ),
         "src/polybot/analyzer.py": (
-            "soccer-elite-competition-analyzer-v3c",
-            "soccer-elite-competition-cadence-pair-v3c", "league_coverage",
+            "soccer-elite-competition-analyzer-v3d",
+            "soccer-elite-competition-cadence-pair-v3d", "league_coverage",
             "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
             "stop_policy_comparison", "matched_episode_keys",
-            "sports_clock_evidence", "notional_depth_evidence",
+            "sports_clock_evidence", "result_triad_evidence",
+            "notional_depth_evidence",
             "DISPLAYED_BOOK_COUNTERFACTUAL_ONLY", "cohort_runs",
         ),
         "src/polybot/utils/retry.py": (
@@ -3616,12 +3622,15 @@ def _validate_inplay_match_winner_research_strategy(
         "README.md",
         readme,
         (
+            "soccer-inplay-elite-competition-match-winner-v4",
             "soccer-inplay-elite-competition-match-winner-v3",
             "soccer-inplay-major-league-match-winner-v1",
+            "watermelon-white-1m-v3d", "watermelon-grey-5m-v3d",
             "watermelon-white-1m-v3c", "watermelon-grey-5m-v3c",
             "child moneyline", "--simulate", "--live", "e-sports",
             "UEFA Champions League", "UEFA Europa League",
-            "SPORTS_CLOCK_UPDATE", "$500",
+            "SPORTS_CLOCK_UPDATE", "SOURCE_CLOCK_COVERAGE_GAP",
+            "RESULT_TRIAD_COVERAGE_GAP", "$500", "$1000",
         ),
     )
     env_example = _read(directory / ".env.example")
@@ -3635,25 +3644,31 @@ def _validate_inplay_match_winner_research_strategy(
     preregistration = _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md",
+        directory / "research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md",
     )
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md",
+        "research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md",
         preregistration,
         (
-            "2026-08-26T18:30:00Z", "2026-09-02T18:30:00Z",
+            "2026-08-27T17:00:00Z", "2026-09-03T17:00:00Z",
             "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
             "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
             "epl", "bun", "fl1", "lal", "mls", "sea", "e-sports",
-            "ucl", "uel", "75/80/85", "$500",
+            "ucl", "uel", "75/80/85", "$500", "$1000",
+            "SOURCE_CLOCK_COVERAGE_GAP", "RESULT_TRIAD_COVERAGE_GAP",
         ),
     )
     _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-26-uefa-clock-scale-v3c/MANIFEST.sha256",
+        directory / "research/frozen-2026-08-27-source-clock-triad-scale-v3d/MANIFEST.sha256",
+    )
+    _require_file(
+        findings,
+        strategy,
+        directory / "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md",
     )
     _require_file(
         findings,

@@ -26,7 +26,7 @@ def cases() -> list[dict[str, object]]:
 @pytest.fixture(scope="module")
 def gamma():
     return load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v3c"
+        ROOT / "config.yaml", "watermelon-white-1m-v3d"
     ).trading.gamma
 
 

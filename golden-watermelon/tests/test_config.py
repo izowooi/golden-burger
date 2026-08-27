@@ -30,8 +30,8 @@ ROOT = Path(__file__).resolve().parents[1]
 @pytest.mark.parametrize(
     ("job", "arm", "minutes"),
     [
-        ("watermelon-white-1m-v3c", "FAST_1M", 1),
-        ("watermelon-grey-5m-v3c", "CONTROL_5M", 5),
+        ("watermelon-white-1m-v3d", "FAST_1M", 1),
+        ("watermelon-grey-5m-v3d", "CONTROL_5M", 5),
     ],
 )
 def test_frozen_job_profiles_load(
@@ -70,11 +70,11 @@ def test_frozen_job_profiles_load(
 
 def test_job_is_the_only_cadence_treatment() -> None:
     assert set(JOB_PROFILES) == {
-        "watermelon-white-1m-v3c",
-        "watermelon-grey-5m-v3c",
+        "watermelon-white-1m-v3d",
+        "watermelon-grey-5m-v3d",
     }
-    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3c")
-    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v3c")
+    white = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3d")
+    grey = load_config(ROOT / "config.yaml", "watermelon-grey-5m-v3d")
     assert white.trading.experiment == grey.trading.experiment
     assert white.trading.gamma == grey.trading.gamma
     assert white.trading.orderbook == grey.trading.orderbook
@@ -126,4 +126,4 @@ def test_frozen_server_envelope_and_mapping_fail_closed(tmp_path, mutation: str)
     path = tmp_path / "config.yaml"
     path.write_text(yaml.safe_dump(raw), encoding="utf-8")
     with pytest.raises(ValueError, match="mapping|numeric soccer"):
-        load_config(path, "watermelon-white-1m-v3c")
+        load_config(path, "watermelon-white-1m-v3d")

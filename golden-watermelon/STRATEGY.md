@@ -12,7 +12,7 @@ loss가 줄어드는가? displayed depth는 어느 주문 규모까지 급격한
 0.97 체결 보장이 아니며, 두 cycle 사이 가격이 0.96에서 1.00으로 jump하거나 book이 닫힐 수
 있다.
 
-## Frozen universe v3c
+## Frozen universe v3d
 
 Gamma `/events/keyset`을 page 500, 최대 4페이지로 cursor-complete하게 읽는다. server envelope은
 `closed=false`, `live=true`, numeric `tag_id=100350`, `related_tags=false`다. liquidity/volume은
@@ -44,7 +44,9 @@ e-sports tag 64, 비축구, 허용되지 않은 cup/league는 `REJECTED`; 허용
 market은 top-level `moneyline`, exact `[Yes,No]`, `negRisk=true`, open/orderbook/accepting이며
 event team 또는 명시적 Draw에 해당하는 HOME/DRAW/AWAY YES만 허용한다. `child_moneyline`, Draw
 No Bet, prop, advancement, extra time, penalty market은 제외한다. description은 첫 90분과
-stoppage time만 settlement에 포함한다고 명시해야 한다.
+stoppage time만 settlement에 포함한다고 명시해야 한다. accepted event/run마다 HOME/DRAW/AWAY
+YES가 정확히 하나씩이고 condition/token이 각각 세 개의 distinct identity인지 검사하며,
+누락·중복은 `RESULT_TRIAD_COVERAGE_GAP` HIGH다.
 
 ## Entry와 path
 
@@ -64,10 +66,12 @@ stoppage time만 settlement에 포함한다고 명시해야 한다.
 
 public Sports WebSocket `wss://sports-api.polymarket.com/ws`는 subscription 없이 active sports
 updates를 제공한다. 실제 운영 payload는 문서 예시와 달리 `slug` 대신 `gameId`와 camelCase
-`eventState`를 사용하므로 Gamma event의 numeric `gameId`로 exact join한다. 문서형 `slug`는
-fallback일 뿐이다. 일치한 raw message를 `SPORTS_CLOCK_UPDATE`로 저장하고 source
-`period + elapsed/clock`를 정규화한다. `gameId` 누락·충돌, 연결/coverage 또는 minute-field
-실패는 kickoff 추정으로 메우지 않는다.
+`eventState`를 사용하므로 Gamma event의 numeric `gameId`로 exact join한다. 일치한 raw message를
+`SPORTS_CLOCK_UPDATE`로 저장하고 source `period + elapsed/clock`를 정규화한다. bounded WSS 창에
+target update가 없으면 같은 cycle Gamma event가 명시한 `elapsed/clock`, period, score와 update
+time을 보존해 사용한다. 두 source 모두 minute evidence가 없으면
+`SOURCE_CLOCK_COVERAGE_GAP`/`SOURCE_CLOCK_MINUTE_FIELD_GAP` HIGH다. `gameId` 누락·충돌과 WSS
+coverage 자체는 MEDIUM으로 별도 보존한다. 실패를 kickoff 추정으로 메우지 않는다.
 
 late-entry replay floors는 source regulation minute `>=75`, `>=80`, `>=85`다. 하프타임,
 stoppage time과 source lag 때문에 이를 “실제 종료 15/10/5분 전”이라고 단정하지 않는다.
@@ -78,7 +82,7 @@ event-cluster 단위로 평가한다.
 
 모든 eligible token의 full ask/bid levels를 저장하고 다음 ladder를 같은 snapshot에서 walk한다.
 
-`$5, $10, $15, $20, $25, $30, $40, $50, $75, $100, $150, $250, $500`
+`$5, $10, $15, $20, $25, $30, $40, $50, $75, $100, $150, $250, $500, $750, $1000`
 
 각 rung의 full ask coverage, VWAP, worst ask, `$5` 대비 slippage, 같은 시점 full bid coverage와
 instant haircut을 보고한다. displayed depth는 fill 보장도, 미래 stop depth의 대체물도 아니다.
@@ -90,16 +94,16 @@ instant haircut을 보고한다. displayed depth는 fill 보장도, 미래 stop 
 
 | Jenkins | runtime | arm | cadence |
 |---|---|---|---:|
-| `polybot-white` | `watermelon-white-1m-v3c` | `FAST_1M` | 1분 |
-| `polybot-grey` | `watermelon-grey-5m-v3c` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v3d` | `FAST_1M` | 1분 |
+| `polybot-grey` | `watermelon-grey-5m-v3d` | `CONTROL_5M` | 5분 |
 
 두 DB는 config/source/universe/grid가 같고 cadence만 다르다. paired entry time/VWAP, stop delay,
 coverage를 비교한다.
 
-- Freeze decision: `2026-08-26T14:41:00Z`.
-- Entry: `[2026-08-26T18:30:00Z, 2026-09-02T18:30:00Z)`.
-- Follow-up end: `2026-09-09T18:30:00Z`.
-- 첫 24시간 review: `2026-08-27T18:30:00Z` 이후.
+- Freeze decision: `2026-08-27T14:55:00Z`.
+- Entry: `[2026-08-27T17:00:00Z, 2026-09-03T17:00:00Z)`.
+- Follow-up end: `2026-09-10T17:00:00Z`.
+- 첫 24시간 review: `2026-08-28T17:00:00Z` 이후.
 
 ## 판정 gate
 
@@ -112,5 +116,6 @@ storage만 판정한다. 수익성, threshold/stop, late minute, 주문 규모�
 100%, event-cluster bootstrap lower bound >0을 요구한다. 표본 부족은 성공도 실패도 아니며 같은
 cohort에서 gate나 grid를 사후 변경하지 않는다.
 
-이전 `soccer-inplay-major-league-match-winner-v2`/v1과 v3b DB는 immutable archive다. v3c에
+이전 `soccer-inplay-elite-competition-match-winner-v3`,
+`soccer-inplay-major-league-match-winner-v2`/v1과 v3c/v3b DB는 immutable archive다. v3d에
 migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.

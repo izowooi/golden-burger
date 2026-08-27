@@ -17,6 +17,7 @@ from polybot.api.gamma_client import EventPage, EventSweep
 from polybot.api.sports_client import SportsClockBatch, SportsClockUpdate
 from polybot.collector import (
     Collector,
+    _result_triad_gap,
     _source_elapsed,
     classify_match_winner,
     classify_soccer_league,
@@ -226,6 +227,21 @@ class FakeSportsClock:
         )
 
 
+class NoMatchSportsClock:
+    def collect(self, run_id, target_games):
+        return SportsClockBatch(
+            request_id=f"sports-{run_id}",
+            started_at="2026-08-22T16:15:59Z",
+            completed_at="2026-08-22T16:16:09Z",
+            status="NO_MATCH",
+            target_count=len(target_games),
+            matched_count=0,
+            message_count=2,
+            updates={},
+            matched_raw_messages=(),
+        )
+
+
 def collector(config, repository, gamma, clob, sports_clock=None):
     return Collector(
         config,
@@ -237,7 +253,7 @@ def collector(config, repository, gamma, clob, sports_clock=None):
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3c")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3d")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -441,6 +457,29 @@ def test_classifier_keeps_only_yes_for_negrisk_home_draw_away() -> None:
     )
     assert result[1] == ()
     assert "DRAW_NO_BET_EXCLUDED" in result[3]
+
+
+def test_result_triad_requires_exact_distinct_home_draw_away() -> None:
+    complete = [
+        {"result_kind": "HOME", "condition_id": "c-home", "token_id": "t-home"},
+        {"result_kind": "DRAW", "condition_id": "c-draw", "token_id": "t-draw"},
+        {"result_kind": "AWAY", "condition_id": "c-away", "token_id": "t-away"},
+    ]
+    assert _result_triad_gap(complete) is None
+
+    missing = _result_triad_gap(complete[:2])
+    assert missing is not None
+    assert missing["slot_counts"] == {"AWAY": 0, "DRAW": 1, "HOME": 1}
+
+    duplicate = _result_triad_gap([*complete, complete[0]])
+    assert duplicate is not None
+    assert duplicate["slot_counts"]["HOME"] == 2
+
+    duplicate_identity = [dict(row) for row in complete]
+    duplicate_identity[2]["token_id"] = "t-home"
+    gap = _result_triad_gap(duplicate_identity)
+    assert gap is not None
+    assert gap["distinct_token_count"] == 2
 
 
 def test_draw_yes_is_persisted_and_opens_the_same_threshold_grid(tmp_path) -> None:
@@ -664,7 +703,58 @@ def test_exact_uefa_cup_identity_and_sports_clock_are_persisted(
     assert normalized["sports_clock"]["elapsed_source_field"] == "elapsed"
 
 
-def test_missing_gamma_game_id_is_a_high_clock_coverage_gap(tmp_path) -> None:
+def test_gamma_event_clock_is_used_when_websocket_snapshot_has_no_match(
+    tmp_path,
+) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    source_event = event()
+    source_event.update(
+        {
+            "elapsed": "86:14",
+            "period": "2H",
+            "score": "2-0",
+            "updatedAt": "2026-08-22T16:15:58Z",
+        }
+    )
+    result = collector(
+        config,
+        repository,
+        FakeGamma(market(events=[source_event])),
+        FakeClob(),
+        NoMatchSportsClock(),
+    ).collect("run-gamma-clock", now=NOW)
+
+    assert result["sports_clock_status"] == "NO_MATCH"
+    assert result["source_clock_observed"] == 1
+    with repository.connect() as connection:
+        normalized = json.loads(
+            connection.execute(
+                "SELECT normalized_json FROM market_observations WHERE eligible=1"
+            ).fetchone()[0]
+        )
+        high_source_gaps = connection.execute(
+            "SELECT COUNT(*) FROM data_quality_issues "
+            "WHERE severity='HIGH' AND issue_type='SOURCE_CLOCK_COVERAGE_GAP'"
+        ).fetchone()[0]
+        websocket_gaps = connection.execute(
+            "SELECT COUNT(*) FROM data_quality_issues "
+            "WHERE severity='MEDIUM' "
+            "AND issue_type='SPORTS_WEBSOCKET_COVERAGE_GAP'"
+        ).fetchone()[0]
+    clock = normalized["sports_clock"]
+    assert clock["join_status"] == "OBSERVED"
+    assert clock["source"] == "POLYMARKET_GAMMA_EVENT"
+    assert clock["elapsed_raw"] == "86:14"
+    assert clock["elapsed_source_field"] == "elapsed"
+    assert clock["websocket_join_status"] == "NOT_OBSERVED"
+    assert high_source_gaps == 0
+    assert websocket_gaps == 1
+
+
+def test_missing_game_id_with_gamma_status_keeps_medium_ws_and_high_minute_gap(
+    tmp_path,
+) -> None:
     config = configured(tmp_path)
     repository = repository_for(config)
     source_event = event()
@@ -678,13 +768,26 @@ def test_missing_gamma_game_id_is_a_high_clock_coverage_gap(tmp_path) -> None:
     assert result["sports_clock_expected"] == 1
     assert result["sports_clock_targets"] == 0
     assert result["sports_clock_status"] == "NO_TARGETS"
+    assert result["source_clock_observed"] == 1
     with repository.connect() as connection:
-        issue = connection.execute(
+        minute_issue = connection.execute(
             "SELECT severity,issue_type,detail_json FROM data_quality_issues "
-            "WHERE issue_type='SPORTS_CLOCK_COVERAGE_GAP'"
+            "WHERE issue_type='SOURCE_CLOCK_MINUTE_FIELD_GAP'"
         ).fetchone()
-    assert tuple(issue[:2]) == ("HIGH", "SPORTS_CLOCK_COVERAGE_GAP")
-    assert json.loads(issue[2])["missing_game_id_slugs"] == [
+        websocket_issue = connection.execute(
+            "SELECT severity,issue_type,detail_json FROM data_quality_issues "
+            "WHERE issue_type='SPORTS_WEBSOCKET_COVERAGE_GAP'"
+        ).fetchone()
+    assert tuple(minute_issue[:2]) == (
+        "HIGH", "SOURCE_CLOCK_MINUTE_FIELD_GAP"
+    )
+    assert json.loads(minute_issue[2])["slugs"] == [
+        "epl-team-a-team-b-2026-08-22"
+    ]
+    assert tuple(websocket_issue[:2]) == (
+        "MEDIUM", "SPORTS_WEBSOCKET_COVERAGE_GAP"
+    )
+    assert json.loads(websocket_issue[2])["missing_game_id_slugs"] == [
         "epl-team-a-team-b-2026-08-22"
     ]
 

@@ -5,17 +5,17 @@
 ## Active contract
 
 - Data/schema/universe/classifier:
-  `soccer-inplay-elite-competition-match-winner-v3` /
+  `soccer-inplay-elite-competition-match-winner-v4` /
   `golden-watermelon-v3a-schema-v1` /
-  `soccer-elite-leagues-uefa-2026-08-v3c` /
+  `soccer-elite-leagues-uefa-2026-08-v3d` /
   `soccer-elite-competition-identity-v3`.
-- White `watermelon-white-1m-v3c`: `FAST_1M`, 1분.
-- Grey `watermelon-grey-5m-v3c`: `CONTROL_5M`, 5분.
-- Entry `[2026-08-26T18:30:00Z,2026-09-02T18:30:00Z)`, follow-up
-  `2026-09-09T18:30:00Z`.
+- White `watermelon-white-1m-v3d`: `FAST_1M`, 1분.
+- Grey `watermelon-grey-5m-v3d`: `CONTROL_5M`, 5분.
+- Entry `[2026-08-27T17:00:00Z,2026-09-03T17:00:00Z)`, follow-up
+  `2026-09-10T17:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md`.
+  `research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md`.
 
 ## 불변 조건
 
@@ -31,24 +31,28 @@
 - entry `0.95/0.96/0.97/0.98/0.99`, stop
   `0.95/0.93/0.90/0.85/0.80/0.70`, primary `$5`를 유지한다.
 - Gamma numeric `gameId`와 production WSS `gameId`를 exact join한다. 문서형 `slug`는
-  fallback일 뿐이다. source `period/elapsed/clock`만 timing evidence로 쓰며 kickoff time으로
+  join 보조 identity일 뿐이다. WSS update가 없는 cycle은 같은 Gamma event의 explicit
+  `period/elapsed/clock`를 사용할 수 있다. 두 source 모두 없으면 HIGH이며 kickoff time으로
   match minute를 추정하지 않는다. late replay grid는 `75/80/85`다.
-- notional replay grid는 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500`다.
+- accepted event/run마다 HOME/DRAW/AWAY YES condition/token triad가 정확히 하나씩이어야 한다.
+- notional replay grid는 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500/$750/$1000`다.
 - `--live`, credential, signer, order SDK를 HTTP/DB 전에 거절하고 lifecycle은 `archive_only`다.
 
 ## Evidence와 저장소
 
 Gamma requests/raw pages/cursor, `event_observations`, market/outcome, CLOB full levels,
 `SPORTS_CLOCK_UPDATE`, signal/episode/path/stop/resolution, config/source/run/storage/DB check를
-append-only로 보존한다. WSS failure와 coverage gap은 숨기지 않고 HIGH evidence issue로 남긴다.
+append-only로 보존한다. WSS-only coverage gap은 MEDIUM, source clock 또는 result triad gap은
+HIGH evidence issue로 숨기지 않고 남긴다.
 displayed book은 actual fill이나 realized P&L이 아니다.
 
 새 DB는 CREATE-only migration으로 만든다. 기존 DB는 writable open 전에 application ID, user
 version, schema/universe/classifier/mapping/migration/schema hash를 exact preflight한다. runtime
 `ALTER TABLE`, migration/import/copy/merge/backfill/delete/clean을 금지한다.
 
-`watermelon-white-1m-v3b`, `watermelon-grey-5m-v3b`와 data contract
-`soccer-inplay-major-league-match-winner-v2`, v1은 immutable archive다. active v3c에 합치지
+`watermelon-white-1m-v3c`, `watermelon-grey-5m-v3c`, v3b와 data contract
+`soccer-inplay-elite-competition-match-winner-v3`,
+`soccer-inplay-major-league-match-winner-v2`, v1은 immutable archive다. active v3d에 합치지
 않는다.
 
 ## 검증과 배포

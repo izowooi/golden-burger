@@ -36,10 +36,10 @@ from polybot.db.repository import (
 )
 
 
-ANALYZER_CONTRACT = "soccer-elite-competition-analyzer-v3c"
-PAIR_ANALYZER_CONTRACT = "soccer-elite-competition-cadence-pair-v3c"
+ANALYZER_CONTRACT = "soccer-elite-competition-analyzer-v3d"
+PAIR_ANALYZER_CONTRACT = "soccer-elite-competition-cadence-pair-v3d"
 # Legacy strings remain explicit so existing v2/v3 evidence can be identified in
-# reports without being opened by the v3c writer.
+# reports without being opened by the v3d writer.
 LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
 LEGACY_PAIR_ANALYZER_CONTRACT = "inplay-match-winner-cadence-pair-v2"
 
@@ -139,7 +139,23 @@ V3B_PROFILE = AnalyzerProfile(
     fast_job="watermelon-white-1m-v3b",
     control_job="watermelon-grey-5m-v3b",
 )
+V3C_NOTIONAL_LADDER_USDC = (
+    5.0, 10.0, 15.0, 20.0, 25.0, 30.0,
+    40.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0,
+)
 V3C_PROFILE = AnalyzerProfile(
+    data_contract="soccer-inplay-elite-competition-match-winner-v3",
+    universe_profile="soccer-elite-leagues-uefa-2026-08-v3c",
+    classifier_version=CLASSIFIER_VERSION,
+    identities=FROZEN_LEAGUE_IDENTITIES,
+    cup_identities=FROZEN_CUP_IDENTITIES,
+    league_mapping_sha256=LEAGUE_MAPPING_SHA256,
+    analyzer_contract="soccer-elite-competition-analyzer-v3c",
+    pair_analyzer_contract="soccer-elite-competition-cadence-pair-v3c",
+    fast_job="watermelon-white-1m-v3c",
+    control_job="watermelon-grey-5m-v3c",
+)
+V3D_PROFILE = AnalyzerProfile(
     data_contract=DATA_CONTRACT,
     universe_profile=UNIVERSE_PROFILE,
     classifier_version=CLASSIFIER_VERSION,
@@ -148,12 +164,12 @@ V3C_PROFILE = AnalyzerProfile(
     league_mapping_sha256=LEAGUE_MAPPING_SHA256,
     analyzer_contract=ANALYZER_CONTRACT,
     pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
-    fast_job="watermelon-white-1m-v3c",
-    control_job="watermelon-grey-5m-v3c",
+    fast_job="watermelon-white-1m-v3d",
+    control_job="watermelon-grey-5m-v3d",
 )
 ANALYZER_PROFILES = {
     profile.universe_profile: profile
-    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE)
+    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE, V3D_PROFILE)
 }
 
 
@@ -438,6 +454,7 @@ def _sports_clock_summary(
     observed_events: set[str] = set()
     methods: Counter[str] = Counter()
     periods: Counter[str] = Counter()
+    sources: Counter[str] = Counter()
     competition_total: Counter[str] = Counter()
     competition_observed: Counter[str] = Counter()
     floor_observations: Counter[int] = Counter()
@@ -457,6 +474,7 @@ def _sports_clock_summary(
         observed += 1
         observed_events.add(event_id)
         competition_observed[competition] += 1
+        sources[str(clock.get("source") or "UNKNOWN")] += 1
         period = str(clock.get("period") or "MISSING")
         periods[period] += 1
         minute, method = _regulation_minute(period, clock.get("elapsed_raw"))
@@ -471,6 +489,13 @@ def _sports_clock_summary(
     return {
         "eligible_event_snapshots": len(rows),
         "unique_events": len(events),
+        "source_clock_observations": observed,
+        "source_clock_coverage_pct": _safe_ratio(observed, len(rows)),
+        "source_clock_unique_events": len(observed_events),
+        "source_counts": dict(sorted(sources.items())),
+        # Compatibility aliases for immutable v3c reports. In v3d these values
+        # include the explicit same-cycle Gamma fallback and are therefore not
+        # WebSocket-only metrics.
         "sports_ws_observations": observed,
         "sports_ws_coverage_pct": _safe_ratio(observed, len(rows)),
         "sports_ws_unique_events": len(observed_events),
@@ -481,6 +506,7 @@ def _sports_clock_summary(
         "by_competition": {
             code: {
                 "eligible_event_snapshots": competition_total[code],
+                "source_clock_observations": competition_observed[code],
                 "sports_ws_observations": competition_observed[code],
                 "coverage_pct": _safe_ratio(
                     competition_observed[code], competition_total[code]
@@ -497,6 +523,40 @@ def _sports_clock_summary(
         },
         "clock_contract": (
             "SOURCE_ELAPSED_WITH_PERIOD; no kickoff-wall-time substitution"
+        ),
+    }
+
+
+def _result_triad_summary(connection: sqlite3.Connection) -> dict[str, Any]:
+    expected = int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM event_observations
+            WHERE classification_status='ACCEPTED'
+              AND run_id IN (SELECT run_id FROM cohort_runs)
+            """
+        ).fetchone()[0]
+    )
+    gaps = int(
+        connection.execute(
+            """
+            SELECT COUNT(*)
+            FROM data_quality_issues
+            WHERE issue_type='RESULT_TRIAD_COVERAGE_GAP'
+              AND run_id IN (SELECT run_id FROM cohort_runs)
+            """
+        ).fetchone()[0]
+    )
+    complete = max(expected - gaps, 0)
+    return {
+        "accepted_event_snapshots": expected,
+        "complete_home_draw_away_triads": complete,
+        "triad_gaps": gaps,
+        "complete_pct": _safe_ratio(complete, expected),
+        "contract": (
+            "exactly one distinct HOME/DRAW/AWAY YES condition and token per "
+            "accepted event/run"
         ),
     }
 
@@ -739,11 +799,17 @@ def analyze_database(path: Path) -> dict[str, Any]:
             int(value)
             for value in experiment.get("late_entry_minute_floors", ())
         )
-        if profile is V3C_PROFILE and (
-            configured_notional_ladder != NOTIONAL_LADDER_USDC
+        expected_grid = {
+            V3C_PROFILE.universe_profile: V3C_NOTIONAL_LADDER_USDC,
+            V3D_PROFILE.universe_profile: NOTIONAL_LADDER_USDC,
+        }.get(profile.universe_profile)
+        if expected_grid is not None and (
+            configured_notional_ladder != expected_grid
             or configured_minute_floors != LATE_ENTRY_MINUTE_FLOORS
         ):
-            raise ValueError("timing/notional evidence grid differs from v3c contract")
+            raise ValueError(
+                "timing/notional evidence grid differs from active epoch contract"
+            )
         experiment_start = _utc(
             str(experiment.get("start_utc", config_row["first_seen_at"]))
         )
@@ -1004,19 +1070,23 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 )
             if any(str(row["cadence_arm"]) != cadence_arm for row in episode_rows):
                 raise ValueError("hypothetical_episodes cadence arm contract drift")
-        if profile is V3C_PROFILE:
+        if profile in (V3C_PROFILE, V3D_PROFILE):
             sports_clock_evidence = _sports_clock_summary(
                 connection, configured_minute_floors
             )
             notional_depth_evidence = _notional_depth_summary(
                 connection, configured_notional_ladder
             )
+            result_triad_evidence = _result_triad_summary(connection)
         else:
             sports_clock_evidence = {
                 "status": "NOT_COLLECTED_IN_IMMUTABLE_LEGACY_EPOCH"
             }
             notional_depth_evidence = {
                 "status": "FULL_BOOK_LEVELS_EXIST_BUT_NO_FROZEN_LADDER_IN_LEGACY_EPOCH"
+            }
+            result_triad_evidence = {
+                "status": "NOT_ENFORCED_IN_IMMUTABLE_LEGACY_EPOCH"
             }
     finally:
         connection.close()
@@ -1184,6 +1254,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         ],
         "storage": storage,
         "sports_clock_evidence": sports_clock_evidence,
+        "result_triad_evidence": result_triad_evidence,
         "notional_depth_evidence": notional_depth_evidence,
         "entry_thresholds": {},
         "stop_policy_comparison": {},

@@ -196,8 +196,8 @@ def _single_cohort_repository(
     tmp_path: Path,
     name: str = "evidence.db",
     *,
-    source_digest: str = "source-v3c",
-    job_name: str = "watermelon-white-1m-v3c",
+    source_digest: str = "source-v3d",
+    job_name: str = "watermelon-white-1m-v3d",
 ) -> ResearchRepository:
     repository = _repository(tmp_path, name)
     _add_cohort(
@@ -225,7 +225,7 @@ def _row(report: dict[str, object], token_id: str, notional: int = 5) -> dict[st
 
 def test_depth_states_arithmetic_and_denominators(tmp_path: Path) -> None:
     repository = _single_cohort_repository(tmp_path)
-    run_id = "run-watermelon-white-1m-v3c"
+    run_id = "run-watermelon-white-1m-v3d"
     _add_eligible_token(
         repository,
         run_id=run_id,
@@ -372,7 +372,7 @@ def test_five_threshold_decisions_collapse_to_one_run_token_notional_row(
     repository = _single_cohort_repository(tmp_path)
     _add_eligible_token(
         repository,
-        run_id="run-watermelon-white-1m-v3c",
+        run_id="run-watermelon-white-1m-v3d",
         token_id="dedupe",
         asks=((0.96, 2000.0),),
         bids=((0.95, 2000.0),),
@@ -395,7 +395,7 @@ def test_cohort_ambiguity_explicit_selection_and_latest_flag(tmp_path: Path) -> 
         config_hash="config-a",
         source_digest="source-a",
         mode="sim",
-        job_name="watermelon-white-1m-v3c",
+        job_name="watermelon-white-1m-v3d",
         run_id="run-a",
         first_seen_at="2026-08-27T00:00:00Z",
         run_observed_at="2026-08-27T00:01:00Z",
@@ -412,7 +412,7 @@ def test_cohort_ambiguity_explicit_selection_and_latest_flag(tmp_path: Path) -> 
         config_hash="config-b",
         source_digest="source-b",
         mode="sim",
-        job_name="watermelon-white-1m-v3c",
+        job_name="watermelon-white-1m-v3d",
         run_id="run-b",
         first_seen_at="2026-08-27T01:00:00Z",
         run_observed_at="2026-08-27T01:01:00Z",
@@ -435,7 +435,7 @@ def test_cohort_ambiguity_explicit_selection_and_latest_flag(tmp_path: Path) -> 
         config_hash="config-a",
         strategy_source_digest="source-a",
         mode="sim",
-        job_name="watermelon-white-1m-v3c",
+        job_name="watermelon-white-1m-v3d",
     )
     assert explicit["cohort"]["selection"] == "EXPLICIT"
     assert explicit["cohort"]["config_hash"] == "config-a"
@@ -454,24 +454,24 @@ def test_paired_databases_require_the_same_strategy_source_digest(
         tmp_path,
         "white.db",
         source_digest="source-a",
-        job_name="watermelon-white-1m-v3c",
+        job_name="watermelon-white-1m-v3d",
     )
     grey = _single_cohort_repository(
         tmp_path,
         "grey.db",
         source_digest="source-b",
-        job_name="watermelon-grey-5m-v3c",
+        job_name="watermelon-grey-5m-v3d",
     )
     _add_eligible_token(
         white,
-        run_id="run-watermelon-white-1m-v3c",
+        run_id="run-watermelon-white-1m-v3d",
         token_id="white-token",
         asks=((0.95, 100.0),),
         bids=((0.94, 100.0),),
     )
     _add_eligible_token(
         grey,
-        run_id="run-watermelon-grey-5m-v3c",
+        run_id="run-watermelon-grey-5m-v3d",
         token_id="grey-token",
         asks=((0.95, 100.0),),
         bids=((0.94, 100.0),),
@@ -487,7 +487,7 @@ def test_read_only_query_only_source_hash_and_independent_sidecar_digest(
     repository = _single_cohort_repository(tmp_path)
     _add_eligible_token(
         repository,
-        run_id="run-watermelon-white-1m-v3c",
+        run_id="run-watermelon-white-1m-v3d",
         token_id="immutable-source",
         asks=((0.95, 100.0),),
         bids=((0.94, 100.0),),

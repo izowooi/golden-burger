@@ -8,10 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-26-uefa-clock-scale-v3c/PREREGISTRATION.md"
+    "research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md"
 )
 ACTIVE_MANIFEST = (
-    "research/frozen-2026-08-26-uefa-clock-scale-v3c/MANIFEST.sha256"
+    "research/frozen-2026-08-27-source-clock-triad-scale-v3d/MANIFEST.sha256"
 )
 SOURCE_PATHS = (
     "pyproject.toml",
