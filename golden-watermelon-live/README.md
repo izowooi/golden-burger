@@ -42,6 +42,18 @@ v2g와 이전 DB는 immutable archive다. 마지막 v2f runtime
 `watermelon-live-cat-98-1m-v2f`/`watermelon-live-dog-99-1m-v2f` 및 v2g를 v2h와 합치거나
 재실행하지 않는다.
 
+## 2026-08-27 execution-contract hotfix
+
+Gamma의 `outcomes`, `outcomePrices`, `clobTokenIds`가 JSON string으로 오는 production shape를
+catalog에 한 번만 encoding한다. 이미 v2h DB에 저장된 한 겹의 legacy double encoding은 읽기
+호환하되, 다음 catalog upsert에서 canonical array로 교정한다.
+
+fee/token identity나 signed amount처럼 **주문 POST 전에** 검증되는 계약 오류는 일반 주문 거절로
+숨기지 않는다. run audit와 Jenkins build를 실패시키고, 실제 주문이 전송되지 않았음이 증명된
+`PRE_SUBMISSION_CONTRACT_ERROR` 및 global `BLOCKED_GUARD` episode만 fresh in-band book에서
+재시도한다. POST 가능성이 있는 오류와 명시적 FOK 결과는 이 경로로 재시도하지 않아 중복 주문을
+막는다. 핫픽스 전 v2h의 `NOT_EXECUTED` episode는 실제 fill로 해석하지 않는다.
+
 ## 검증과 lifecycle
 
 ```bash

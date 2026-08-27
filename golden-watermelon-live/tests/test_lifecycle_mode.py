@@ -7,6 +7,8 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock
 
 import polybot.bot as bot_module
+import pytest
+from polybot.api.clob_client import PreSubmissionContractError
 from polybot.bot import PolymarketBot
 from polybot.config import TradingConfig
 
@@ -143,6 +145,35 @@ def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     assert stats["bought"] == 1
     scanner.scan_buy_candidates.assert_called_once()
     trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
+def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
+    monkeypatch,
+    tmp_path,
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {
+        "condition_id": "market-1",
+        "event_id": "event-1",
+        "entry_episode_id": 21,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    trader.execute_buy.side_effect = PreSubmissionContractError(
+        "fee catalog contract failed"
+    )
+
+    with pytest.raises(PreSubmissionContractError):
+        bot.run_cycle()
+
+    repo.mark_entry_episode_execution.assert_called_once_with(
+        21,
+        state="PRE_SUBMISSION_CONTRACT_ERROR",
+        reason="PreSubmissionContractError",
+    )
     session.close.assert_called_once()
 
 

@@ -91,6 +91,33 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+
+
+def _canonical_json_list(value: Any, *, field_name: str) -> str:
+    """Persist Gamma list fields exactly once, regardless of wire representation.
+
+    Gamma currently returns some array-valued fields as JSON strings. Calling
+    ``json.dumps`` on those strings produces a JSON scalar whose contents happen
+    to be JSON, which breaks every later identity check. Accept the two wire
+    representations we have observed and reject every other shape before it can
+    enter the evidence catalog.
+    """
+    if value is None:
+        parsed: Any = []
+    elif isinstance(value, list):
+        parsed = value
+    elif isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError(f"{field_name} must contain a JSON list") from error
+    else:
+        raise ValueError(f"{field_name} must be a list or JSON-list string")
+    if not isinstance(parsed, list):
+        raise ValueError(f"{field_name} must decode to a list")
+    return json.dumps(parsed, ensure_ascii=False, separators=(",", ":"))
+
+
 _TERMINAL_ORDER_STATUSES = _TERMINAL_ZERO_FILL_ORDER_STATUSES | {"MATCHED"}
 
 
@@ -933,13 +960,37 @@ class TradeRepository:
         game_start_time: Optional[datetime] = None,
         in_play_hours: Optional[float] = None,
     ) -> Optional[EntryEpisode]:
-        """Persist and return only the token's first in-arm observation."""
+        """Persist the first in-arm observation or reclaim a proven no-POST miss.
+
+        A global entry guard and a pre-submission contract error both happen
+        before an order can reach the venue. Those two states may be retried on
+        a later fresh in-band snapshot. Every state that could follow a POST is
+        deliberately terminal here to prevent duplicate live orders.
+        """
         existing = (
             self.session.query(EntryEpisode)
             .filter(EntryEpisode.token_id == token_id)
             .first()
         )
         if existing is not None:
+            if (
+                existing.trade_id is None
+                and str(existing.execution_state or "").upper()
+                in {"BLOCKED_GUARD", "PRE_SUBMISSION_CONTRACT_ERROR"}
+            ):
+                existing.condition_id = condition_id
+                existing.event_id = event_id
+                existing.outcome = outcome
+                existing.entry_snapshot_id = entry_snapshot_id
+                existing.exact_vwap = exact_vwap
+                existing.arm_prob_min = arm_prob_min
+                existing.arm_prob_max = arm_prob_max
+                existing.game_start_time = game_start_time
+                existing.in_play_hours = in_play_hours
+                existing.execution_state = "RETRY_OBSERVED"
+                existing.execution_reason = "fresh_in_band_retry_after_proven_no_post"
+                self.session.flush()
+                return existing
             return None
         episode = EntryEpisode(
             token_id=token_id,
@@ -1117,11 +1168,15 @@ class TradeRepository:
             "event_title": event.get("title"),
             "event_market_count": len(event.get("markets") or []) or None,
             "end_date": market.get("endDate"),
-            "outcomes_json": json.dumps(
-                market.get("outcomes") or [], ensure_ascii=False
+            "outcomes_json": _canonical_json_list(
+                market.get("outcomes"), field_name="outcomes"
             ),
-            "outcome_prices_json": json.dumps(market.get("outcomePrices") or []),
-            "token_ids_json": json.dumps(market.get("clobTokenIds") or []),
+            "outcome_prices_json": _canonical_json_list(
+                market.get("outcomePrices"), field_name="outcomePrices"
+            ),
+            "token_ids_json": _canonical_json_list(
+                market.get("clobTokenIds"), field_name="clobTokenIds"
+            ),
             "tags_json": json.dumps(
                 [
                     {

@@ -59,6 +59,38 @@ class ClobV2FeeSchedule:
     taker_only: bool
 
 
+class PreSubmissionContractError(ClobResponseContractError):
+    """A deterministic live-order contract failure proven to precede POST."""
+
+
+def _decode_catalog_token_ids(value: Any) -> tuple[list[str], bool]:
+    """Decode canonical token IDs plus the one known legacy double encoding."""
+    try:
+        parsed = json.loads(value or "[]")
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ClobResponseContractError(
+            "Gamma fee catalog contains malformed token identity"
+        ) from error
+    legacy_double_encoded = isinstance(parsed, str)
+    if legacy_double_encoded:
+        try:
+            parsed = json.loads(parsed)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ClobResponseContractError(
+                "Gamma fee catalog contains malformed legacy token identity"
+            ) from error
+    if not isinstance(parsed, list):
+        raise ClobResponseContractError(
+            "Gamma fee catalog token identity is not a list"
+        )
+    normalized = [str(item or "").strip() for item in parsed]
+    if any(not item for item in normalized) or len(set(normalized)) != len(normalized):
+        raise ClobResponseContractError(
+            "Gamma fee catalog token identity is empty or duplicated"
+        )
+    return normalized, legacy_double_encoded
+
+
 @dataclass(frozen=True)
 class BuyBookWalk:
     """A full displayed-ask walk for one fixed USDC notional."""
@@ -528,19 +560,20 @@ class ClobClientWrapper:
             ) from error
 
         matches = []
+        legacy_rows = 0
         for row in rows:
-            try:
-                token_ids = json.loads(row["token_ids_json"] or "[]")
-            except (TypeError, ValueError, json.JSONDecodeError) as error:
-                raise ClobResponseContractError(
-                    "Gamma fee catalog contains malformed token identity"
-                ) from error
-            if not isinstance(token_ids, list):
-                raise ClobResponseContractError(
-                    "Gamma fee catalog token identity is not a list"
-                )
-            if normalized_token in {str(item).strip() for item in token_ids}:
+            token_ids, legacy_double_encoded = _decode_catalog_token_ids(
+                row["token_ids_json"]
+            )
+            legacy_rows += int(legacy_double_encoded)
+            if normalized_token in set(token_ids):
                 matches.append(row)
+        if legacy_rows:
+            logger.warning(
+                "Gamma fee catalog의 legacy double-encoded token row %s건을 "
+                "읽기 호환 처리했습니다; 다음 catalog upsert에서 canonicalize됩니다",
+                legacy_rows,
+            )
         if len(matches) != 1:
             raise ClobResponseContractError(
                 "Gamma fee catalog does not bind the token to exactly one market"
@@ -1252,7 +1285,10 @@ class ClobClientWrapper:
                 # Dynamic fees are operator-set at CLOB V2 match time.  Prove
                 # that Gamma's persisted schedule and the current CLOB market
                 # info agree before an irreversible live order is submitted.
-                self._clob_v2_fee_schedule(str(token_id))
+                try:
+                    self._clob_v2_fee_schedule(str(token_id))
+                except ClobResponseContractError as error:
+                    raise PreSubmissionContractError(str(error)) from error
 
             # Complete signing and its read-only market-info lookups before an
             # intent is persisted.  The signed integer amounts are the exact
@@ -1279,16 +1315,16 @@ class ClobClientWrapper:
                 maker_micros = int(str(signed_order.makerAmount))
                 taker_micros = int(str(signed_order.takerAmount))
             except (AttributeError, TypeError, ValueError) as error:
-                raise ClobResponseContractError(
+                raise PreSubmissionContractError(
                     "signed FOK BUY amount evidence is unavailable"
                 ) from error
             expected_maker_micros = int(amount * Decimal(1_000_000))
             if maker_micros != expected_maker_micros or taker_micros <= 0:
-                raise ClobResponseContractError(
+                raise PreSubmissionContractError(
                     "signed FOK BUY does not preserve exact maker USDC"
                 )
             if taker_micros % _MARKET_BUY_TAKER_QUANTUM_MICROS != 0:
-                raise ClobResponseContractError(
+                raise PreSubmissionContractError(
                     "signed FOK BUY taker shares exceed four decimal places"
                 )
             requested_size = taker_micros / 1_000_000
@@ -1338,6 +1374,12 @@ class ClobClientWrapper:
             }
         except SubmissionEvidenceError:
             logger.critical("BUY execution ledger 정합성 유지 실패", exc_info=True)
+            raise
+        except ClobResponseContractError:
+            logger.critical(
+                "BUY contract 검증 실패; Jenkins cycle을 실패 처리합니다",
+                exc_info=True,
+            )
             raise
         except Exception as error:
             logger.error("Exact-USDC FOK BUY 주문 실패: %s", error)

@@ -7,7 +7,7 @@ import logging
 from polybot_observability import RunAudit, log_reconciliation_continuity
 from polybot_observability import SQLiteMaintenanceRequirements
 
-from .api.clob_client import ClobClientWrapper
+from .api.clob_client import ClobClientWrapper, PreSubmissionContractError
 from .api.gamma_client import GammaClient
 from .config import BotConfig
 from .db.models import init_database
@@ -281,9 +281,16 @@ class PolymarketBot:
                                 not isinstance(episode_id, bool)
                                 and isinstance(episode_id, int)
                             ):
+                                retryable_pre_submission = isinstance(
+                                    error, PreSubmissionContractError
+                                )
                                 repo.mark_entry_episode_execution(
                                     episode_id,
-                                    state="EXECUTION_EXCEPTION",
+                                    state=(
+                                        "PRE_SUBMISSION_CONTRACT_ERROR"
+                                        if retryable_pre_submission
+                                        else "EXECUTION_EXCEPTION"
+                                    ),
                                     reason=type(error).__name__,
                                 )
                             raise

@@ -670,6 +670,91 @@ def test_normal_trade_and_entry_episode_link_commit_atomically(tmp_path):
     session.close()
 
 
+def test_market_catalog_canonicalizes_gamma_json_string_arrays(tmp_path):
+    Session = init_database(str(tmp_path / "watermelon-catalog.db"))
+    session = Session()
+    repo = TradeRepository(session)
+
+    repo.save_market_catalog(
+        "condition-canonical",
+        {
+            "id": "market-canonical",
+            "outcomes": '["Yes", "No"]',
+            "outcomePrices": '["0.98", "0.02"]',
+            "clobTokenIds": '["yes-token", "no-token"]',
+            "negRisk": True,
+            "feesEnabled": True,
+            "feeSchedule": {"rate": 0.05, "exponent": 1, "takerOnly": True},
+        },
+        commit=True,
+    )
+
+    catalog = session.get(MarketCatalog, "condition-canonical")
+    assert catalog.outcomes_json == '["Yes","No"]'
+    assert catalog.outcome_prices_json == '["0.98","0.02"]'
+    assert catalog.token_ids_json == '["yes-token","no-token"]'
+    session.close()
+
+
+@pytest.mark.parametrize(
+    "retryable_state",
+    ["BLOCKED_GUARD", "PRE_SUBMISSION_CONTRACT_ERROR"],
+)
+def test_entry_episode_retries_only_states_proven_to_precede_post(
+    tmp_path,
+    retryable_state,
+):
+    Session = init_database(str(tmp_path / f"watermelon-{retryable_state}.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    first = repo.claim_entry_episode(
+        token_id="retry-token",
+        condition_id="condition-retry",
+        event_id="event-retry",
+        outcome="Yes",
+        entry_snapshot_id=1,
+        exact_vwap=0.98,
+        arm_prob_min=0.96,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+    )
+    repo.commit()
+    repo.mark_entry_episode_execution(first.id, state=retryable_state)
+
+    retried = repo.claim_entry_episode(
+        token_id="retry-token",
+        condition_id="condition-retry",
+        event_id="event-retry",
+        outcome="Yes",
+        entry_snapshot_id=2,
+        exact_vwap=0.97,
+        arm_prob_min=0.96,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+    )
+
+    assert retried.id == first.id
+    assert retried.entry_snapshot_id == 2
+    assert retried.exact_vwap == pytest.approx(0.97)
+    assert retried.execution_state == "RETRY_OBSERVED"
+    repo.mark_entry_episode_execution(retried.id, state="NOT_EXECUTED")
+    assert (
+        repo.claim_entry_episode(
+            token_id="retry-token",
+            condition_id="condition-retry",
+            event_id="event-retry",
+            outcome="Yes",
+            entry_snapshot_id=3,
+            exact_vwap=0.98,
+            arm_prob_min=0.96,
+            arm_prob_max=0.999,
+            observed_at=datetime.utcnow(),
+        )
+        is None
+    )
+    session.close()
+
+
 def test_failed_entry_link_rolls_back_trade_before_failure_annotation(tmp_path):
     db_path = tmp_path / "watermelon-entry-link-rollback.db"
     Session = init_database(str(db_path))

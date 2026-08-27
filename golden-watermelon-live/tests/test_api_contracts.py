@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -7,6 +8,7 @@ import requests
 
 from polybot.api.clob_client import (
     ClobClientWrapper,
+    PreSubmissionContractError,
     _normalize_clob_resolution,
     _walk_buy_book,
     _walk_sell_book,
@@ -373,14 +375,23 @@ def test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve(
     assert stats["intent_autoresolved"] == 0
 
 
-def _fee_evidence_wrapper(tmp_path, *, clob_rate="0.05"):
+def _fee_evidence_wrapper(
+    tmp_path,
+    *,
+    clob_rate="0.05",
+    legacy_double_encoded_tokens=False,
+):
     db_path = tmp_path / "fee-evidence.db"
     Session = init_database(str(db_path))
     with Session() as session:
         session.add(
             MarketCatalog(
                 condition_id="condition-fee",
-                token_ids_json='["token-fee", "token-no"]',
+                token_ids_json=(
+                    json.dumps('["token-fee", "token-no"]')
+                    if legacy_double_encoded_tokens
+                    else '["token-fee", "token-no"]'
+                ),
                 outcomes_json='["Yes", "No"]',
                 outcome_prices_json='["0.98", "0.02"]',
                 tags_json="[]",
@@ -474,6 +485,42 @@ def test_clob_v2_fee_schedule_mismatch_fails_closed(tmp_path) -> None:
         match="Gamma and CLOB dynamic fee parameters do not match",
     ):
         wrapper._clob_v2_fee_schedule("token-fee")
+
+
+def test_clob_v2_fee_schedule_reads_one_known_legacy_double_encoding(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(
+        tmp_path,
+        legacy_double_encoded_tokens=True,
+    )
+
+    schedule = wrapper._clob_v2_fee_schedule("token-fee")
+
+    assert schedule.condition_id == "condition-fee"
+    assert schedule.rate == Decimal("0.05")
+
+
+def test_live_fok_fee_contract_failure_is_raised_before_post(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    posted = []
+
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.01"
+
+        def get_clob_market_info(self, _condition_id):
+            return {"unexpected": "shape"}
+
+        def post_order(self, *_args, **_kwargs):
+            posted.append(True)
+            raise AssertionError("fee contract failure must precede POST")
+
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    with pytest.raises(PreSubmissionContractError):
+        wrapper.place_fok_buy("token-fee", amount_usdc=5, limit_price=0.98)
+
+    assert posted == []
 
 
 def test_clob_v2_fee_formula_matches_documented_sports_example(tmp_path) -> None:
@@ -874,10 +921,11 @@ def test_live_exact_usdc_fok_buy_rejects_excess_taker_precision_before_post() ->
     wrapper._client = _Client()
     wrapper._initialized = True
 
-    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.935)
-
-    assert result["success"] is False
-    assert "four decimal places" in result["error"]
+    with pytest.raises(
+        PreSubmissionContractError,
+        match="four decimal places",
+    ):
+        wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.935)
 
 
 def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
@@ -895,10 +943,11 @@ def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
     wrapper._client = _Client()
     wrapper._initialized = True
 
-    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.94)
-
-    assert result["success"] is False
-    assert "exact maker USDC" in result["error"]
+    with pytest.raises(
+        PreSubmissionContractError,
+        match="exact maker USDC",
+    ):
+        wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.94)
 
 
 def test_stale_delayed_fok_uses_terminal_absence_ledger_proof() -> None:
