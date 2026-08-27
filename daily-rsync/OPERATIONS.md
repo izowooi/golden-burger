@@ -106,6 +106,11 @@ source main/WAL fingerprint가 backup 전후 완전히 같고 snapshot `quick_ch
 성공할 때만 유효하다. source가 한 번이라도 바뀌거나 WAL이 존재하면 snapshot을 폐기하고
 fail closed한다. 원격 workspace에는 journal·sidecar를 만들지 않는다.
 
+`research-full-v1` online snapshot은 collector rotation과 같은 advisory lock을 공유한다.
+strategy directory별 exact mapping은 `golden-pomegranate=.pomegranate.lock`,
+`golden-coconut=.coconut-cycle.lock`이다. 다른 strategy/lock 조합, symlink, non-regular
+lock은 snapshot을 시작하기 전에 fail closed한다.
+
 ## 실패 처리
 
 - SSH 실패: local latest와 catalog 완료 상태를 변경하지 않는다.

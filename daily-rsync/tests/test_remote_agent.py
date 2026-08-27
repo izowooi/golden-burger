@@ -1217,6 +1217,56 @@ def test_research_archive_completed_at_uses_publication_ctime(tmp_path: Path) ->
     assert record["completed_at"] > remote_agent.iso_from_ns(old_timestamp_ns)
 
 
+def test_coconut_research_snapshot_uses_coconut_cycle_lock(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job = "polybot-gold"
+    database = (
+        home
+        / "workspace"
+        / job
+        / "golden-coconut"
+        / "data"
+        / "coconut-major-sports-lifecycle-5m-v2"
+        / "trades_sim.db"
+    )
+    make_research_db(database)
+    staging = tmp_path / ".cache" / "daily-rsync"
+    command = [
+        sys.executable,
+        str(Path(remote_agent.__file__)),
+        "snapshot",
+        "--jenkins-home",
+        str(home),
+        *snapshot_identity_arguments(home, job),
+        "--source",
+        str(database),
+        "--staging-root",
+        str(staging),
+        "--expected-data-contract",
+        "research-full-v1",
+        "--expected-database-utc-date",
+        "2026-08-06",
+    ]
+
+    (database.parent / ".pomegranate.lock").touch()
+    rejected = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert rejected.returncode != 0
+    assert ".coconut-cycle.lock" in rejected.stderr
+
+    (database.parent / ".coconut-cycle.lock").touch()
+    accepted = subprocess.run(command, capture_output=True, text=True, check=False)
+    assert accepted.returncode == 0, accepted.stderr
+    payload = json.loads(accepted.stdout)
+    assert payload["data_contract"] == "research-full-v1"
+    invoke(
+        "cleanup",
+        "--staging-root",
+        str(staging),
+        "--path",
+        str(Path(payload["snapshot"]).parent),
+    )
+
+
 def test_snapshot_accepts_external_allowlisted_workspace_and_rejects_outside(
     tmp_path: Path,
 ) -> None:

@@ -973,10 +973,20 @@ def validate_workspace(args):
     )
 
 
+RESEARCH_COLLECTOR_LOCKS = {
+    "golden-pomegranate": ".pomegranate.lock",
+    "golden-coconut": ".coconut-cycle.lock",
+}
+
+
 @contextmanager
-def snapshot_read_lock(source, timeout_seconds=30.0, required=False):
+def snapshot_read_lock(
+    source, timeout_seconds=30.0, required=False, lock_name=None
+):
     """Share the collector lock so rotation cannot race an online backup."""
-    lock_path = source.parent / ".pomegranate.lock"
+    if required and lock_name not in set(RESEARCH_COLLECTOR_LOCKS.values()):
+        raise RuntimeError("research collector snapshot lock contract is unsupported")
+    lock_path = source.parent / (lock_name or ".pomegranate.lock")
     if not lock_path.exists():
         if required:
             raise RuntimeError("collector snapshot lock is required: {}".format(lock_path))
@@ -1020,6 +1030,7 @@ def snapshot(args):
         raise RuntimeError("database source must be a regular file")
     source = source_path.resolve()
     allowed = False
+    strategy_directory = None
     for root in roots:
         try:
             lexical_relative = source_path.relative_to(root["path"])
@@ -1043,6 +1054,7 @@ def snapshot(args):
         if lexical_relative.parts[2] != "data" or not supported_database_name(source.name):
             continue
         _validate_job_workspace(root["path"] / job, root, job)
+        strategy_directory = lexical_relative.parts[1]
         allowed = True
         break
     if not allowed:
@@ -1051,6 +1063,11 @@ def snapshot(args):
     with snapshot_read_lock(
         source,
         required=args.expected_data_contract == "research-full-v1",
+        lock_name=(
+            RESEARCH_COLLECTOR_LOCKS.get(strategy_directory)
+            if args.expected_data_contract == "research-full-v1"
+            else None
+        ),
     ):
         # The marker and st_dev values are re-read in this same SSH helper
         # immediately before opening SQLite, closing the scan/plan TOCTOU gap.

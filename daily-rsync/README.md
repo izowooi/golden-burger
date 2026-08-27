@@ -261,6 +261,10 @@ evidence gap으로 다뤄야 합니다.
 - Research current day: `collection_contracts.database_utc_date`가 현재 UTC day와 일치할
   때만 active `trades_sim.db`를 partial evidence로 전송한다. 완료된 하루 coverage는
   rollover 후의 dated archive만 인정한다.
+- Research snapshot lock: strategy directory와 lock filename을 고정 대응한다.
+  `golden-pomegranate=.pomegranate.lock`,
+  `golden-coconut=.coconut-cycle.lock`이며 다른 이름이나 미지원 research strategy는
+  snapshot 전에 중단한다.
 - DB 이력: latest 1개, 수동 pin
 - 로그: 원문 gzip, redaction 없음
 - 원격 쓰기: `~/.cache/daily-rsync`의 일회성 SQLite snapshot만 허용
