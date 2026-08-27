@@ -399,11 +399,12 @@ bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 
 
 ### golden-coconut — Five-Family Major Sports Observatory
 
-`polybot-gold/coconut-major-sports-lifecycle-5m-v6`는 external APFS workspace에서
+`polybot-gold/coconut-major-sports-lifecycle-5m-v7`는 external APFS workspace에서
 soccer·MLB·NBA·NFL·NHL의 exact major-league top-level whole-game moneyline을 경기 전부터
 terminal lifecycle까지 5분마다 수집한다. Soccer는 frozen 8개 대회 query tag로 fan-out하고,
 미국 4종목은 각 family tag를 `closed=false`, `slot-24h..slot+48h`에서 terminal cursor까지
-읽은 뒤 Gamma event ID로 추적한다.
+읽는다. 다섯 family는 격리된 public HTTP session에서 동시에 시작하고 frozen family order로
+정규화한 뒤 Gamma event ID로 추적한다.
 축구는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 regular-time result Yes token,
 미국 4종목은 official major identity의 direct two-team outcome만 허용한다. minor, G League,
 AHL/ECHL, NCAA, e-sports, period, spread/total, prop, future, advancement는 fail closed한다.
@@ -412,11 +413,12 @@ AHL/ECHL, NCAA, e-sports, period, spread/total, prop, future, advancement는 fai
 같은 full CLOB book에서 계산한다. liquidity·누적/24시간 volume은 후보를 선별하는 gate가 아니라
 sport/season별 strata이며, official preseason은 `PRESEASON`으로 분리한다. append-only UTC daily
 shard와 game cluster를 사용해 같은 경기를 독립 표본으로 중복 계산하지 않는다. 계좌·주문·P&L은
-없다. socket read와 별개로 response attempt 전체를 15초로 제한해 slow streaming response가
-90초 same-cycle receipt 경계를 소진하지 못하게 하며, exhausted retry는 cycle failure로 보존한다.
+없다. socket read와 별개로 response attempt 전체를 15초로 제한하고 다섯 family를 병렬 취득해
+slow source 하나가 90초 same-cycle receipt 경계를 순차적으로 소진하지 못하게 한다. exhausted
+retry는 cycle failure로 보존한다.
 첫 review에서는 collection health와 coverage만 판정한다. 상세는
 `golden-coconut/STRATEGY.md`, frozen 계약은
-`golden-coconut/research/frozen-2026-08-28-v6/PREREGISTRATION.md`, 회고는
+`golden-coconut/research/frozen-2026-08-28-v7/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-coconut.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)

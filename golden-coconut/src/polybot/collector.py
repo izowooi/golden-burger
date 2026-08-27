@@ -18,7 +18,7 @@ from .api.clob_client import (
     walk_asks,
     walk_bids,
 )
-from .api.gamma_client import EventSweep, GammaClient
+from .api.gamma_client import EventSweep, GammaClient, GammaFamilyPool, TimedEventSweep
 from .api.sports_client import (
     ClockBatch,
     ClockTarget,
@@ -138,7 +138,7 @@ class Collector:
         self,
         config: BotConfig,
         repository: ResearchRepository,
-        gamma: GammaClient,
+        gamma: GammaClient | GammaFamilyPool,
         clob: ClobClient,
         sports_clock: SportsClockClient,
     ) -> None:
@@ -463,12 +463,30 @@ class Collector:
                 )
             return classification
 
-        sweep_results: list[EventSweep] = []
-        for family in self.config.registry.families:
-            family_started = iso_utc()
-            sweep = self.gamma.fetch_family_events(
-                run_id, family, budget=budget, slot_start=slot_start
+        if isinstance(self.gamma, GammaFamilyPool):
+            timed_sweeps = self.gamma.fetch_families_events(
+                run_id,
+                self.config.registry.families,
+                budget=budget,
+                slot_start=slot_start,
             )
+        else:
+            timed_sweeps = tuple(
+                TimedEventSweep(
+                    family,
+                    iso_utc(),
+                    self.gamma.fetch_family_events(
+                        run_id, family, budget=budget, slot_start=slot_start
+                    ),
+                )
+                for family in self.config.registry.families
+            )
+
+        sweep_results: list[EventSweep] = []
+        for timed_sweep in timed_sweeps:
+            family = timed_sweep.family
+            family_started = timed_sweep.started_at
+            sweep = timed_sweep.sweep
             sweep_results.append(sweep)
             sweep_id = uuid4().hex
             window_min = parse_source_utc(sweep.start_time_min)
@@ -638,7 +656,7 @@ class Collector:
         if not followup_complete and fatal_error is None:
             fatal_error = "one or more carried games lacked an explicit Gamma follow-up"
         if identity_fatal and fatal_error is None:
-            fatal_error = "canonical game identity changed inside the immutable v6 epoch"
+            fatal_error = "canonical game identity changed inside the immutable active epoch"
 
         census_healthy = all_complete and followup_complete and not identity_fatal
         empty_clock = ClockBatch(

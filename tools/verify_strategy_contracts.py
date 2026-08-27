@@ -3268,8 +3268,8 @@ def _validate_major_sports_research_strategy(
     }
     contracts = {
         "src/polybot/config.py": (
-            "coconut-major-sports-lifecycle-5m-v6",
-            "major-sports-lifecycle-census-v6",
+            "coconut-major-sports-lifecycle-5m-v7",
+            "major-sports-lifecycle-census-v7",
             "major-sports-five-family-lifecycle-2026-08-v6",
             "major-sports-exact-identity-lifecycle-v6",
             "POLYMARKET_",
@@ -3315,6 +3315,8 @@ def _validate_major_sports_research_strategy(
             '"include_children": "false"',
             '"related_tags": "false"',
             "query_tag_ids",
+            "GammaFamilyPool",
+            "ThreadPoolExecutor",
         ),
         "src/polybot/lifecycle.py": (
             "DISCOVERED_OPEN",
@@ -3389,7 +3391,8 @@ def _validate_major_sports_research_strategy(
         ),
         "src/polybot/source_digest.py": (
             "research/EPOCHS.json",
-            "frozen-2026-08-28-v6",
+            "frozen-2026-08-28-v7",
+            "research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json",
             "SPORTS_REGISTRY.json",
             "MANIFEST.sha256",
             "verify_external_workspace.py",
@@ -3398,7 +3401,7 @@ def _validate_major_sports_research_strategy(
         ),
         "scripts/verify_external_workspace.py": (
             "/Volumes/t7/jenkins/polybot-gold",
-            "coconut-major-sports-lifecycle-5m-v6",
+            "coconut-major-sports-lifecycle-5m-v7",
             ".daily-rsync-workspace.json",
             '"schema_version": 1',
             '"job": "polybot-gold"',
@@ -3448,7 +3451,7 @@ def _validate_major_sports_research_strategy(
 
     for relative, tokens in {
         "README.md": (
-            "coconut-major-sports-lifecycle-5m-v6",
+            "coconut-major-sports-lifecycle-5m-v7",
             "polybot-gold",
             "soccer",
             "MLB",
@@ -3477,7 +3480,7 @@ def _validate_major_sports_research_strategy(
             "H/5 * * * *",
             "scan/plan/sync/verify",
             "profitability",
-            "coconut-major-sports-lifecycle-5m-v6",
+            "coconut-major-sports-lifecycle-5m-v7",
         ),
         ".env.example": (
             "POLYBOT_LIFECYCLE_MODE=archive_only",
@@ -3502,6 +3505,19 @@ def _validate_major_sports_research_strategy(
             "unique `SUCCEEDED`",
             "query tags",
             "root or season series",
+        ),
+        "research/frozen-2026-08-28-v7/PREREGISTRATION.md": (
+            "coconut-major-sports-lifecycle-5m-v7",
+            "isolated Gamma workers",
+            "109 seconds",
+            "90 seconds",
+            "Profitability",
+        ),
+        "research/frozen-2026-08-28-v7/DATA_CONTRACT.md": (
+            "major-sports-lifecycle-census-v7",
+            "parallel_family_workers",
+            "PRAGMA user_version=6",
+            "unique `research_run_events.event_type='SUCCEEDED'`",
         ),
     }.items():
         content = _require_file(findings, strategy, directory / relative)
@@ -3533,10 +3549,14 @@ def _validate_major_sports_research_strategy(
         "research/frozen-2026-08-28-v6/MANIFEST.sha256",
         "research/frozen-2026-08-28-v6/PREREGISTRATION.md",
         "research/frozen-2026-08-28-v6/DATA_CONTRACT.md",
+        "research/frozen-2026-08-28-v7/MANIFEST.sha256",
+        "research/frozen-2026-08-28-v7/PREREGISTRATION.md",
+        "research/frozen-2026-08-28-v7/DATA_CONTRACT.md",
         "tests/fixtures/major_sports_lifecycle_cases.json",
         "tests/test_config_safety.py",
         "tests/test_registry_classifier.py",
         "tests/test_gamma_client.py",
+        "tests/test_gamma_family_pool.py",
         "tests/test_books_crossings_resolution.py",
         "tests/test_repository.py",
         "tests/test_collector_analyzer.py",

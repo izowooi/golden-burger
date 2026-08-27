@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import timedelta
-from typing import Any, Mapping
+from typing import Any, Mapping, Sequence
 
 from ..config import GammaConfig
 from ..lifecycle import parse_source_utc
@@ -44,6 +45,59 @@ class EventFollowup:
     response_sha256: str
     raw: bytes
     event: Mapping[str, Any]
+
+
+@dataclass(frozen=True)
+class TimedEventSweep:
+    family: SportFamily
+    started_at: str
+    sweep: EventSweep
+
+
+class GammaFamilyPool:
+    """Fetch each family concurrently through its own isolated HTTP client."""
+
+    def __init__(
+        self,
+        clients: Mapping[str, "GammaClient"],
+        *,
+        max_workers: int,
+    ) -> None:
+        self.clients = dict(clients)
+        self.max_workers = max_workers
+
+    def fetch_families_events(
+        self,
+        run_id: str,
+        families: Sequence[SportFamily],
+        *,
+        budget: CycleBudget,
+        slot_start: str,
+    ) -> tuple[TimedEventSweep, ...]:
+        family_codes = tuple(family.code for family in families)
+        if len(family_codes) != len(set(family_codes)):
+            raise ValueError("Gamma family pool received duplicate family codes")
+        if set(self.clients) != set(family_codes):
+            raise ValueError("Gamma family pool clients differ from the frozen registry")
+        if self.max_workers != len(family_codes):
+            raise ValueError("Gamma family pool must isolate every family in one worker")
+
+        def fetch(family: SportFamily) -> TimedEventSweep:
+            started_at = iso_utc()
+            sweep = self.clients[family.code].fetch_family_events(
+                run_id,
+                family,
+                budget=budget,
+                slot_start=slot_start,
+            )
+            return TimedEventSweep(family, started_at, sweep)
+
+        with ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="coconut-gamma-family",
+        ) as executor:
+            futures = {family.code: executor.submit(fetch, family) for family in families}
+            return tuple(futures[family.code].result() for family in families)
 
 
 class GammaClient:

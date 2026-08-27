@@ -8,10 +8,12 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EPOCH_CATALOG = "research/EPOCHS.json"
-FROZEN_DIRECTORY = "research/frozen-2026-08-28-v6"
+FROZEN_DIRECTORY = "research/frozen-2026-08-28-v7"
 ACTIVE_PREREGISTRATION = f"{FROZEN_DIRECTORY}/PREREGISTRATION.md"
 ACTIVE_DATA_CONTRACT = f"{FROZEN_DIRECTORY}/DATA_CONTRACT.md"
-ACTIVE_REGISTRY = f"{FROZEN_DIRECTORY}/SPORTS_REGISTRY.json"
+# v7 changes only acquisition scheduling. It deliberately reuses the exact
+# immutable v6 classification registry rather than minting new sport semantics.
+ACTIVE_REGISTRY = "research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json"
 ACTIVE_MANIFEST = f"{FROZEN_DIRECTORY}/MANIFEST.sha256"
 
 SOURCE_PATHS = (

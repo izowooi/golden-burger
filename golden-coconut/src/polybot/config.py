@@ -24,8 +24,8 @@ from .source_digest import (
 )
 
 
-CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v6"
-DATA_CONTRACT = "major-sports-lifecycle-census-v6"
+CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v7"
+DATA_CONTRACT = "major-sports-lifecycle-census-v7"
 COLLECTION_CONTRACT = "research-full-v1"
 SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v6"
 UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v6"
@@ -191,6 +191,7 @@ class GammaConfig:
     include_children: bool
     discovery_lookback_hours: int
     discovery_lookahead_hours: int
+    parallel_family_workers: int
     connect_timeout_seconds: float
     read_timeout_seconds: float
     attempt_wall_seconds: float
@@ -334,6 +335,8 @@ def _validate(config: BotConfig) -> None:
         raise ValueError(
             "Gamma scheduled-start discovery window must remain slot-24h through slot+48h"
         )
+    if gamma.parallel_family_workers != 5:
+        raise ValueError("Gamma must acquire the five families in five isolated workers")
     if (
         gamma.connect_timeout_seconds,
         gamma.read_timeout_seconds,
@@ -399,7 +402,8 @@ def load_config(
         {
             "base_url", "endpoint", "followup_endpoint_template", "page_size",
             "max_pages_per_family", "related_tags", "include_children",
-            "discovery_lookback_hours", "discovery_lookahead_hours", "connect_timeout_seconds",
+            "discovery_lookback_hours", "discovery_lookahead_hours",
+            "parallel_family_workers", "connect_timeout_seconds",
             "read_timeout_seconds", "attempt_wall_seconds", "max_retries", "retry_base_seconds",
             "retry_max_seconds",
         },
@@ -442,6 +446,9 @@ def load_config(
         ),
         discovery_lookahead_hours=_integer(
             gamma_raw["discovery_lookahead_hours"], "gamma.discovery_lookahead_hours"
+        ),
+        parallel_family_workers=_integer(
+            gamma_raw["parallel_family_workers"], "gamma.parallel_family_workers"
         ),
         connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
         read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),

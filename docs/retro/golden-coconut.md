@@ -27,12 +27,19 @@ cycle을 성공시켰다. 그러나 Gamma의 한 200 응답이 58.8초 동안 �
 estimand를 새 DB에서 유지하면서 socket read 5초, 전체 HTTP attempt 15초, 최대 2회 bounded retry와
 partial-response receipt를 강제한다. 아직 profitability verdict는 없다.
 
+v6 첫 운영 build #29에서 개별 attempt 제한은 정상 작동했지만, five-family sweep 자체가
+순차 실행되어 Gamma 첫 receipt부터 CLOB 마지막 receipt까지 약 109초가 걸렸다. 90초 gate가
+이를 올바르게 차단했고 episode는 승인되지 않았다. v6는 immutable invalidated receipt-skew
+evidence로 보존한다. v7은 universe·classifier·schema·estimand를 바꾸지 않고 다섯 family를
+각기 격리된 HTTP session에서 동시에 시작한다. 결과는 frozen family order로 정규화하며 worker
+하나라도 실패하면 partial census를 publish하지 않는다.
+
 ## Frozen cohort
 
-- data contract: `major-sports-lifecycle-census-v6`
-- runtime: `coconut-major-sports-lifecycle-5m-v6`
+- data contract: `major-sports-lifecycle-census-v7`
+- runtime: `coconut-major-sports-lifecycle-5m-v7`
 - Jenkins: `polybot-gold`
-- active DB: `data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v7/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only

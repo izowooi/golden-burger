@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 import importlib.util
 import json
@@ -146,6 +147,44 @@ def test_atomic_slot_claim_rejects_duplicate(config):
     assert repository.claim_slot(run_id="run-a", now=now) == "2026-08-27T00:00:00Z"
     with pytest.raises(SlotAlreadyClaimed):
         repository.claim_slot(run_id="run-b", now=now)
+
+
+def test_parallel_family_receipts_commit_through_independent_connections(config):
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+
+    def record(index: int) -> None:
+        repository.record_api_request(
+            {
+                "api_attempt_id": f"attempt-{index}",
+                "logical_request_id": f"logical-{index}",
+                "run_id": "parallel-run",
+                "request_kind": "gamma_events_keyset",
+                "sport_family": FAMILY_ORDER[index % len(FAMILY_ORDER)],
+                "page_number": 1,
+                "attempt_number": 1,
+                "method": "GET",
+                "url": "https://gamma-api.polymarket.com/events/keyset",
+                "params_json": "{}",
+                "body_sha256": None,
+                "started_at": "2026-08-27T00:00:00Z",
+                "completed_at": "2026-08-27T00:00:01Z",
+                "elapsed_ms": 1000.0,
+                "status": "SUCCESS",
+                "http_status": 200,
+                "response_sha256": "0" * 64,
+                "response_bytes": 2,
+                "error_type": None,
+                "error_message": None,
+            }
+        )
+
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        list(executor.map(record, range(25)))
+
+    with repository.read_connect() as connection:
+        assert connection.execute(
+            "SELECT COUNT(*) FROM api_requests WHERE run_id='parallel-run'"
+        ).fetchone()[0] == 25
 
 
 def test_atomic_bundle_rolls_back_all_rows_on_precommit_failure(config, monkeypatch):

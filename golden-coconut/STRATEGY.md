@@ -12,7 +12,7 @@ completeness와 evidence health다.
 
 ## Frozen treatment
 
-- runtime/cadence: `coconut-major-sports-lifecycle-5m-v6`, 5분
+- runtime/cadence: `coconut-major-sports-lifecycle-5m-v7`, 5분
 - families: soccer, MLB, NBA, NFL, NHL을 동일 가중 macro 대상에 포함
 - discovery: 미국 4종목은 family별 exact numeric tag, soccer는 frozen 8개 대회 query tag fan-out,
   `closed=false`, 실제 경기 시작 시각 `start_time_min/max=slot-24h..slot+48h`, 모든 physical
@@ -27,7 +27,8 @@ completeness와 evidence health다.
 - crossing interval: 최대 450초
 - liquidity/volume: feature와 strata일 뿐 discovery gate 아님
 - fee: optional public observation만; missing fee를 0 또는 임의 rate로 대체하지 않음
-- transport: socket read 5초와 별도로 HTTP attempt 전체 15초 wall-clock 경계, 최대 2회 retry
+- transport: 다섯 family의 격리 session을 동시에 시작하고, socket read 5초와 별도로 HTTP attempt
+  전체 15초 wall-clock 경계, 최대 2회 retry
 
 Soccer result-specific Yes/No negRisk와 미국 direct two-team non-negRisk는 별도 structure로 저장한다.
 같은 game의 market/outcome/threshold는 독립 사건으로 세지 않고 `event_cluster_id`로 묶는다.

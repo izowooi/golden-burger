@@ -6,9 +6,9 @@
 |---|---|
 | Jenkins job | `polybot-gold` |
 | workspace | `/Volumes/t7/jenkins/polybot-gold` |
-| runtime | `coconut-major-sports-lifecycle-5m-v6` |
+| runtime | `coconut-major-sports-lifecycle-5m-v7` |
 | schedule | `H/5 * * * *` |
-| active DB | `data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db` |
+| active DB | `data/coconut-major-sports-lifecycle-5m-v7/trades_sim.db` |
 
 concurrent build와 workspace clean을 끈다. collector는 외장 APFS volume, exact mount/device UUID,
 shared Raspberry sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
@@ -47,9 +47,10 @@ network 전에 실패한다. credential을 `unset`해 숨기지 않는다.
 3. `polybot config --simulate`
 4. storage preflight: free 150 GiB, warn 70%, stop 80%
 5. atomic UTC 5분 slot claim
-6. soccer의 frozen 8개 대회 tag fan-out과 MLB/NBA/NFL/NHL 단일 tag를 `closed=false`, 실제 경기
-   시작 시각 `start_time_min/max=slot-24h..slot+48h`로 읽고, 모든 physical cursor completion과
-   client-side schedule을 재검증
+6. 서로 격리된 worker 다섯 개에서 soccer의 frozen 8개 대회 tag fan-out과
+   MLB/NBA/NFL/NHL 단일 tag를 동시에 시작한다. `closed=false`, 실제 경기 시작 시각
+   `start_time_min/max=slot-24h..slot+48h`로 읽고, 모든 physical cursor completion과
+   client-side schedule을 재검증한 뒤 frozen family order로 정규화
 7. discovery에서 빠진 tracked game의 Gamma event-by-ID lifecycle follow-up
 8. public sports clock, same-cycle Gamma fallback, full books, optional public fee, resolution observation
 9. atomic evidence publication과 `SUCCEEDED` 또는 evidence-backed `FAILED`
@@ -62,11 +63,11 @@ deadline/cursor/skew/attempt exhaustion에서는 episode를 승인하지 않는�
 ## Daily-rsync와 analyzer
 
 parent가 inventory/Jenkins routing을 통합한 뒤 `polybot-gold × golden-coconut ×
-coconut-major-sports-lifecycle-5m-v6` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
+coconut-major-sports-lifecycle-5m-v7` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
 `trades_sim.db`와 필요한 `trades_sim_YYYYMMDD.db`만 analyzer에 넘긴다.
 
 ```bash
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v6 \
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v7 \
   --db /absolute/verified/trades_sim_20260827.db \
   --db /absolute/verified/trades_sim.db \
   --output /tmp/golden-coconut-health.json
@@ -80,6 +81,8 @@ health-only 결과로 profitability를 주장하지 않는다.
 ## 장애 대응
 
 - family cursor incomplete: partial family census를 사용하지 않고 next cycle에서 source envelope 확인
+- family worker failure: 다른 worker 결과를 partial census로 publish하지 않고 attempt receipt와
+  FAILED run만 보존한 뒤 다음 slot에서 재시도
 - attempt wall timeout: partial response receipt를 확인하고 bounded retry exhaustion이면 해당 cycle을
   제외한다. socket read가 이어져도 15초 전체 경계를 우회할 수 없다.
 - lifecycle follow-up failure: 해당 cycle을 실패시키고 event ID/slug raw receipt를 보존한 뒤 다음

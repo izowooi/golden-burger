@@ -2,7 +2,7 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: major-sports-lifecycle-census-v6
+  data_contract: major-sports-lifecycle-census-v7
   collection_contract: research-full-v1
   schema_profile: golden-coconut-create-only-lifecycle-v6
   universe_profile: major-sports-five-family-lifecycle-2026-08-v6
@@ -25,6 +25,7 @@ trading:
     include_children: false
     discovery_lookback_hours: 24
     discovery_lookahead_hours: 48
+    parallel_family_workers: 5
     connect_timeout_seconds: 3
     read_timeout_seconds: 5
     attempt_wall_seconds: 15

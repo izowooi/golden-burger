@@ -11,7 +11,7 @@ from typing import Any, Iterator
 from uuid import uuid4
 
 from .api.clob_client import ClobClient
-from .api.gamma_client import GammaClient
+from .api.gamma_client import GammaClient, GammaFamilyPool
 from .api.sports_client import SportsClockClient
 from .api.transport import CycleBudget, PublicJsonTransport
 from .collector import Collector
@@ -77,20 +77,29 @@ class ResearchBot:
                 hard_seconds=self.config.trading.hard_cycle_seconds,
             )
             gamma_config = self.config.trading.gamma
-            transport = PublicJsonTransport(
-                connect_timeout_seconds=gamma_config.connect_timeout_seconds,
-                read_timeout_seconds=gamma_config.read_timeout_seconds,
-                attempt_wall_seconds=gamma_config.attempt_wall_seconds,
-                max_retries=gamma_config.max_retries,
-                retry_base_seconds=gamma_config.retry_base_seconds,
-                retry_max_seconds=gamma_config.retry_max_seconds,
-                receipt_sink=repository.record_api_request,
+            def new_transport() -> PublicJsonTransport:
+                return PublicJsonTransport(
+                    connect_timeout_seconds=gamma_config.connect_timeout_seconds,
+                    read_timeout_seconds=gamma_config.read_timeout_seconds,
+                    attempt_wall_seconds=gamma_config.attempt_wall_seconds,
+                    max_retries=gamma_config.max_retries,
+                    retry_base_seconds=gamma_config.retry_base_seconds,
+                    retry_max_seconds=gamma_config.retry_max_seconds,
+                    receipt_sink=repository.record_api_request,
+                )
+
+            gamma_pool = GammaFamilyPool(
+                {
+                    family.code: GammaClient(gamma_config, new_transport())
+                    for family in self.config.registry.families
+                },
+                max_workers=gamma_config.parallel_family_workers,
             )
             collector = Collector(
                 self.config,
                 repository,
-                GammaClient(gamma_config, transport),
-                ClobClient(self.config.trading.clob, transport),
+                gamma_pool,
+                ClobClient(self.config.trading.clob, new_transport()),
                 SportsClockClient(
                     self.config.trading.sports_feed, repository.record_api_request
                 ),
