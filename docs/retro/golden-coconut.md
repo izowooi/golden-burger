@@ -20,15 +20,19 @@ EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 frozen 8-tag union�
 fan-out해 cursor·book 수집에는 성공했다. 하지만 실제 NFL 14건의 season series
 `12185/nfl-2026`을 sport root `10187`과 다르다는 이유로 HIGH drift 처리했고, production draw
 descriptor `Draw (<event title>)`도 모두 거절했다. v4 역시 immutable invalidated collection이다.
-v5는 semantic root-or-season identity와 exact parenthetical draw를 새 DB에서 검증한다. 아직
-profitability verdict는 없다.
+v5는 semantic root-or-season identity와 exact parenthetical draw를 새 DB에서 검증해 첫 두
+cycle을 성공시켰다. 그러나 Gamma의 한 200 응답이 58.8초 동안 작은 chunk로 이어지며 per-read
+12초 timeout을 우회했고, 자연 실행 #27/#28이 연속으로 90초 receipt-skew gate를 초과했다.
+두 실패 cycle은 estimand에 들어가지 않았고 v5 DB는 immutable 보존한다. v6는 동일 universe와
+estimand를 새 DB에서 유지하면서 socket read 5초, 전체 HTTP attempt 15초, 최대 2회 bounded retry와
+partial-response receipt를 강제한다. 아직 profitability verdict는 없다.
 
 ## Frozen cohort
 
-- data contract: `major-sports-lifecycle-census-v5`
-- runtime: `coconut-major-sports-lifecycle-5m-v5`
+- data contract: `major-sports-lifecycle-census-v6`
+- runtime: `coconut-major-sports-lifecycle-5m-v6`
 - Jenkins: `polybot-gold`
-- active DB: `data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only
@@ -48,7 +52,7 @@ cutoff를 기록한다. active와 UTC archive가 같은 inode인 handoff 순간�
 - event-by-ID follow-up, explicit lifecycle terminal coverage, schedule revision, WSS/Gamma provenance
 - T-24h/T-60m/last-prestart anchor의 measured missingness와 no-imputation
 - `$5..$1000` 각 notional별 ladder/vector 완전성
-- 5분 atomic slot, 225/30/240초 deadline, receipt skew 90초
+- 5분 atomic slot, 225/30/240초 deadline, receipt skew 90초, HTTP attempt wall 15초
 - append-only trigger, create-only schema, rollback, `PRAGMA quick_check=ok`
 - external APFS marker, 150 GiB/70%/80% storage gate
 - sport별 missing cell과 macro null behavior

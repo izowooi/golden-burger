@@ -302,7 +302,7 @@ def test_five_family_collection_crossing_and_analyzer(
     publish(repository, config, second, "run-2")
 
     analysis = analyze_database(repository.path)
-    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v5"
+    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v6"
     assert analysis["cycle_selection"]["selected_cycles"] == 2
     assert analysis["sport_coverage"]["missing_sports"] == []
     assert analysis["sport_coverage"]["sport_equal_macro_public_book_coverage_pct"] == 100
@@ -696,7 +696,7 @@ def test_discovery_lower_time_bound_is_inclusive(
     assert evidence["discovery_window_validation"]["status"] == "WITHIN_WINDOW"
 
 
-@pytest.mark.parametrize("version", [2, 3, 4])
+@pytest.mark.parametrize("version", [2, 3, 4, 5])
 def test_analyzer_rejects_historical_schema(tmp_path, version):
     root = Path(__file__).resolve().parents[1]
     database = tmp_path / "trades_sim.db"
@@ -707,7 +707,7 @@ def test_analyzer_rejects_historical_schema(tmp_path, version):
     )
     with sqlite3.connect(database) as connection:
         connection.executescript(migration.read_text(encoding="utf-8"))
-    with pytest.raises(ValueError, match="schema epoch must be v5"):
+    with pytest.raises(ValueError, match="schema epoch must be v6"):
         analyze_database(database)
 
 

@@ -16,7 +16,7 @@ from typing import Any
 
 MARKER_NAME = ".daily-rsync-workspace.json"
 JENKINS_JOB = "polybot-gold"
-RUNTIME_JOB = "coconut-major-sports-lifecycle-5m-v5"
+RUNTIME_JOB = "coconut-major-sports-lifecycle-5m-v6"
 DEFAULT_MOUNT_ROOT = Path("/Volumes/t7")
 DEFAULT_EXPECTED_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-gold")
 # Coconut reuses the already-pinned Raspberry T7 identity read-only.  The

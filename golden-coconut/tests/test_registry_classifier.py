@@ -17,16 +17,16 @@ FIXTURE = json.loads(
 )
 
 
-def test_active_registry_is_v5_and_uses_v5_profiles():
+def test_active_registry_is_v6_and_uses_v6_profiles():
     root = Path(__file__).resolve().parents[1]
     registry = json.loads(
-        (root / "research/frozen-2026-08-28-v5/SPORTS_REGISTRY.json").read_text(
+        (root / "research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json").read_text(
             encoding="utf-8"
         )
     )
-    assert registry["schema_version"] == 5
-    assert registry["registry_profile"].endswith("-v5")
-    assert registry["classifier_version"].endswith("-v5")
+    assert registry["schema_version"] == 6
+    assert registry["registry_profile"].endswith("-v6")
+    assert registry["classifier_version"].endswith("-v6")
 
 
 def test_registry_contains_exact_five_family_tags(config):

@@ -54,8 +54,8 @@ def load_registry(
         raise ValueError("SPORTS_REGISTRY.json is invalid JSON") from error
     if not isinstance(raw, Mapping):
         raise ValueError("SPORTS_REGISTRY.json root must be an object")
-    if raw.get("schema_version") != 5:
-        raise ValueError("SPORTS_REGISTRY.json schema_version must be 5")
+    if raw.get("schema_version") != 6:
+        raise ValueError("SPORTS_REGISTRY.json schema_version must be 6")
     profile = str(raw.get("registry_profile") or "")
     classifier = str(raw.get("classifier_version") or "")
     family_payloads = raw.get("sport_families")
@@ -116,7 +116,7 @@ def load_registry(
         "nhl": 899,
     }
     if {item.code: item.tag_id for item in families} != expected_tags:
-        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v5")
+        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v6")
     expected_query_tags = {
         "soccer": (306, 1494, 102070, 780, 100100, 101962, 100977, 101787),
         "mlb": (100381,),
@@ -125,7 +125,7 @@ def load_registry(
         "nhl": (899,),
     }
     if {item.code: item.query_tag_ids for item in families} != expected_query_tags:
-        raise ValueError("SPORTS_REGISTRY.json query tags differ from v5")
+        raise ValueError("SPORTS_REGISTRY.json query tags differ from v6")
     for item in families:
         if item.code == "soccer":
             continue

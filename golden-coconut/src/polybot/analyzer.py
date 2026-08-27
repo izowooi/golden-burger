@@ -1,4 +1,4 @@
-"""Read-only v5 collection-health and preregistered strata analysis."""
+"""Read-only v6 collection-health and preregistered strata analysis."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .config import (
 from .registry import FAMILY_ORDER
 
 
-ANALYZER_CONTRACT = "major-sports-lifecycle-health-v5"
+ANALYZER_CONTRACT = "major-sports-lifecycle-health-v6"
 SEASON_PHASES = (
     "PRESEASON",
     "REGULAR",
@@ -96,8 +96,8 @@ def _read_shard(path: Path) -> dict[str, Any]:
     try:
         quick = str(connection.execute("PRAGMA quick_check").fetchone()[0])
         user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version != 5:
-            raise ValueError("analyzer database schema epoch must be v5")
+        if user_version != 6:
+            raise ValueError("analyzer database schema epoch must be v6")
         metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
         if metadata_row is None:
             raise ValueError("analyzer database has no schema metadata")
@@ -130,7 +130,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
             "start_date_min",
             "start_date_max",
         } & sweep_columns:
-            raise ValueError("analyzer sport_sweeps schedule columns are not v5")
+            raise ValueError("analyzer sport_sweeps schedule columns are not v6")
         result = {
             "path": str(path.resolve()),
             "file_bytes": path.stat().st_size,

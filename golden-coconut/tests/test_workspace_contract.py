@@ -28,7 +28,7 @@ def test_marker_has_exact_three_daily_rsync_keys(tmp_path):
 
 
 def test_workspace_report_uses_current_runtime_without_changing_marker_schema():
-    assert workspace_module.RUNTIME_JOB == "coconut-major-sports-lifecycle-5m-v5"
+    assert workspace_module.RUNTIME_JOB == "coconut-major-sports-lifecycle-5m-v6"
     assert workspace_module.JENKINS_JOB == "polybot-gold"
 
 

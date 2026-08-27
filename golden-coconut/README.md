@@ -3,7 +3,7 @@
 Golden Coconut은 계좌·주문 경로가 없는 major-sports lifecycle moneyline research collector다.
 축구(EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A, UCL, UEL), MLB, NBA, NFL, NHL을
 동일한 5분 cadence에서 경기 전부터 종료·해결까지 관측한다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v5`, Jenkins job은 `polybot-gold`다.
+`coconut-major-sports-lifecycle-5m-v6`, Jenkins job은 `polybot-gold`다.
 
 `--simulate`와 `--shadow`는 실제 공개 Gamma/CLOB/Sports feed를 읽는 accountless mode를
 뜻한다. 가짜 가격이나 체결을 만들지 않는다. `--live`, `active`, `close_only`, credential,
@@ -31,6 +31,11 @@ canonical schedule도 UTC half-open interval로 재검증하며 누락·오염·
 payload를 보존한 채 거절한다. liquidity와 `volumeNum`,
 `volume24hr`는 selection gate가 아니라 strata로만 저장된다. 다섯 family 중 하나라도 cursor가
 미완결이면 그 cycle은 health failure이며 threshold episode를 해석하지 않는다.
+
+HTTP 응답은 socket connect/read timeout과 별개로 attempt당 15초의 전체 wall-clock 경계를
+적용한다. 작은 chunk가 계속 도착해 read timeout을 우회하더라도 partial bytes와 timeout receipt를
+남기고 응답을 닫은 뒤 최대 2회만 재시도한다. 모두 실패하면 page를 누락시키지 않고 cycle을
+fail closed한다.
 
 Soccer는 exact top-level `moneyline`의 result-specific `[Yes, No]`, `negRisk=true` 구조에서
 HOME/DRAW/AWAY의 Yes token만 관측한다. 미국 4종목은 official major identity의 exact direct
@@ -69,7 +74,7 @@ threshold grid는 `0.75`부터 `0.99`까지 `0.01` 간격이다. token/cycle마�
 daily-rsync 통합 때문에 active DB 이름은 반드시 다음과 같다.
 
 ```text
-data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db
+data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db
 ```
 
 `trades_sim.db`는 filename 호환 계약일 뿐이다. SQLite에는 `orders`, `fills`, `positions`,
@@ -85,10 +90,10 @@ uv sync --frozen --extra dev
 uv run pytest
 uv build
 
-uv run polybot config --simulate --job coconut-major-sports-lifecycle-5m-v5
-uv run polybot status --simulate --job coconut-major-sports-lifecycle-5m-v5
-uv run polybot health --simulate --job coconut-major-sports-lifecycle-5m-v5
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v5 \
+uv run polybot config --simulate --job coconut-major-sports-lifecycle-5m-v6
+uv run polybot status --simulate --job coconut-major-sports-lifecycle-5m-v6
+uv run polybot health --simulate --job coconut-major-sports-lifecycle-5m-v6
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v6 \
   --db /absolute/path/to/trades_sim.db
 ```
 

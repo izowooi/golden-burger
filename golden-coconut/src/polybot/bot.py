@@ -80,6 +80,7 @@ class ResearchBot:
             transport = PublicJsonTransport(
                 connect_timeout_seconds=gamma_config.connect_timeout_seconds,
                 read_timeout_seconds=gamma_config.read_timeout_seconds,
+                attempt_wall_seconds=gamma_config.attempt_wall_seconds,
                 max_retries=gamma_config.max_retries,
                 retry_base_seconds=gamma_config.retry_base_seconds,
                 retry_max_seconds=gamma_config.retry_max_seconds,

@@ -8,7 +8,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EPOCH_CATALOG = "research/EPOCHS.json"
-FROZEN_DIRECTORY = "research/frozen-2026-08-28-v5"
+FROZEN_DIRECTORY = "research/frozen-2026-08-28-v6"
 ACTIVE_PREREGISTRATION = f"{FROZEN_DIRECTORY}/PREREGISTRATION.md"
 ACTIVE_DATA_CONTRACT = f"{FROZEN_DIRECTORY}/DATA_CONTRACT.md"
 ACTIVE_REGISTRY = f"{FROZEN_DIRECTORY}/SPORTS_REGISTRY.json"
@@ -44,7 +44,7 @@ SOURCE_PATHS = (
     "src/polybot/api/clob_client.py",
     "src/polybot/api/sports_client.py",
     "src/polybot/db/repository.py",
-    "src/polybot/db/migrations/0005_major_sports_lifecycle_v5.sql",
+    "src/polybot/db/migrations/0006_major_sports_lifecycle_v6.sql",
     "tests/fixtures/major_sports_lifecycle_cases.json",
 )
 

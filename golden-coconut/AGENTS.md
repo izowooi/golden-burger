@@ -8,7 +8,7 @@
 
 Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneyline을 경기 전부터
 종료·해결까지 5분마다 추적하는 accountless research collector다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v5`, Jenkins job은 `polybot-gold`다.
+`coconut-major-sports-lifecycle-5m-v6`, Jenkins job은 `polybot-gold`다.
 
 - `archive_only`, simulation/shadow only다.
 - wallet, account, signing, credential, private endpoint, order path를 추가하지 않는다.
@@ -22,7 +22,7 @@ Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneylin
 우선순위는 다음과 같다.
 
 1. `research/EPOCHS.json`의 active epoch와
-   `research/frozen-2026-08-28-v5/SPORTS_REGISTRY.json` + SHA-256
+   `research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json` + SHA-256
 2. 같은 directory의 `PREREGISTRATION.md`, `DATA_CONTRACT.md`, `MANIFEST.sha256`
 3. `config.yaml`, `STRATEGY.md`
 4. runtime source와 tests
@@ -55,7 +55,7 @@ registry/schema/universe/threshold/cadence를 바꿀 때 기존 DB에 migration�
 - health-only analysis에서 profitability는 `null`이다.
 
 DB는 append-only/create-only UTC daily shard다. daily-rsync 호환 때문에 active filename은
-`data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
+`data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
 `positions`, `wallets`, `trades`, P&L을 만들지 않는다.
 
 ## 작업과 검증

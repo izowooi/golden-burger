@@ -165,12 +165,14 @@ lineage가 달라 자체 archive/catalog를 주 source로 사용한다. "중앙 
 whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L evidence로 해석하지 않는다.
 
 `golden-coconut`도 거래 DB가 아닌
-`data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db`와
+`data/coconut-major-sports-lifecycle-5m-v6/trades_sim.db`와
 `trades_sim_YYYYMMDD.db` UTC daily shard를 사용한다. `polybot-gold`의 external APFS workspace,
 exact workspace marker와 150 GiB/70%/80% storage guard를 확인한 뒤 soccer의 frozen 8개 대회
 query-tag fan-out과 MLB·NBA·NFL·NHL의 semantic root-or-season identity census, event-by-ID lifecycle, full book,
 crossing/path/resolution을 저장한다. liquidity·volume과 official
-preseason은 selection이 아니라 독립 strata이며, 이 DB를 actual fill/P&L evidence로 해석하지 않는다.
+preseason은 selection이 아니라 독립 strata다. HTTP body는 15초 total-attempt 경계를 적용해
+socket read가 이어지는 slow stream도 bounded retry/fail-closed하며, 이 DB를 actual fill/P&L
+evidence로 해석하지 않는다. v1–v5 DB는 current v6 cohort와 합치지 않는다.
 
 `golden-raspberry`도 `data/<runtime-job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의
 고정 hash-shard DB다. 현재 `raspberry-do/re/mi-v3-shard-*`의 `queue-echo-v3` raw Gamma/CLOB

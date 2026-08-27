@@ -70,6 +70,10 @@ class DeadlineExceeded(RuntimeError):
     """The bounded Jenkins cycle no longer has a safe request window."""
 
 
+class AttemptWallTimeout(requests.Timeout):
+    """One HTTP attempt exceeded its total wall-clock response budget."""
+
+
 class PublicApiError(RuntimeError):
     def __init__(self, message: str, *, request_id: str | None = None) -> None:
         super().__init__(message)
@@ -98,6 +102,7 @@ class PublicJsonTransport:
         *,
         connect_timeout_seconds: float,
         read_timeout_seconds: float,
+        attempt_wall_seconds: float,
         max_retries: int,
         retry_base_seconds: float,
         retry_max_seconds: float,
@@ -108,6 +113,7 @@ class PublicJsonTransport:
     ) -> None:
         self.connect_timeout_seconds = connect_timeout_seconds
         self.read_timeout_seconds = read_timeout_seconds
+        self.attempt_wall_seconds = attempt_wall_seconds
         self.max_retries = max_retries
         self.retry_base_seconds = retry_base_seconds
         self.retry_max_seconds = retry_max_seconds
@@ -175,8 +181,10 @@ class PublicJsonTransport:
             started_at = iso_utc()
             started_clock = self.monotonic()
             response: requests.Response | None = None
+            raw_buffer = bytearray()
             raw = b""
             status = "ERROR"
+            retryable_transport_error = False
             error_type: str | None = None
             error_message: str | None = None
             response_sha256: str | None = None
@@ -190,9 +198,8 @@ class PublicJsonTransport:
                         self.connect_timeout_seconds, self.read_timeout_seconds
                     ),
                     allow_redirects=False,
+                    stream=True,
                 )
-                raw = bytes(response.content)
-                response_sha256 = hashlib.sha256(raw).hexdigest()
                 if 300 <= response.status_code < 400:
                     raise PublicApiError("public endpoint redirect is forbidden", request_id=logical_request_id)
                 if response.status_code >= 400:
@@ -200,13 +207,35 @@ class PublicJsonTransport:
                         f"public endpoint returned HTTP {response.status_code}",
                         request_id=logical_request_id,
                     )
+                attempt_deadline = min(
+                    started_clock + self.attempt_wall_seconds,
+                    budget.cooperative_deadline,
+                )
+                for chunk in response.iter_content(chunk_size=64 * 1024):
+                    if self.monotonic() > attempt_deadline:
+                        raise AttemptWallTimeout(
+                            "public response exceeded the total attempt wall-clock boundary"
+                        )
+                    if chunk:
+                        raw_buffer.extend(chunk)
+                if self.monotonic() > attempt_deadline:
+                    raise AttemptWallTimeout(
+                        "public response exceeded the total attempt wall-clock boundary"
+                    )
+                raw = bytes(raw_buffer)
+                response_sha256 = hashlib.sha256(raw).hexdigest()
                 payload = json.loads(raw.decode("utf-8"))
                 status = "SUCCESS"
             except (requests.RequestException, UnicodeDecodeError, json.JSONDecodeError, PublicApiError) as error:
                 last_error = error
+                retryable_transport_error = isinstance(error, requests.RequestException)
                 error_type = type(error).__name__
                 error_message = _bounded_error(error)
                 payload = None
+                raw = bytes(raw_buffer)
+            finally:
+                if response is not None:
+                    response.close()
             completed_at = iso_utc()
             self.receipt_sink(
                 {
@@ -241,7 +270,11 @@ class PublicJsonTransport:
                     payload=payload,
                     http_status=int(response.status_code),
                 )
-            retryable = response is None or response.status_code in {408, 425, 429, 500, 502, 503, 504}
+            retryable = (
+                retryable_transport_error
+                or response is None
+                or response.status_code in {408, 425, 429, 500, 502, 503, 504}
+            )
             if not retryable or attempt_number > self.max_retries:
                 break
             retry_after = self._retry_after(response) if response is not None else None

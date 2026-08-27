@@ -24,12 +24,12 @@ from .source_digest import (
 )
 
 
-CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v5"
-DATA_CONTRACT = "major-sports-lifecycle-census-v5"
+CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v6"
+DATA_CONTRACT = "major-sports-lifecycle-census-v6"
 COLLECTION_CONTRACT = "research-full-v1"
-SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v5"
-UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v5"
-CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v5"
+SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v6"
+UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v6"
+CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v6"
 THRESHOLD_GRID = tuple(Decimal(value) / 100 for value in range(75, 100))
 NOTIONAL_LADDER = (
     5.0,
@@ -193,6 +193,7 @@ class GammaConfig:
     discovery_lookahead_hours: int
     connect_timeout_seconds: float
     read_timeout_seconds: float
+    attempt_wall_seconds: float
     max_retries: int
     retry_base_seconds: float
     retry_max_seconds: float
@@ -333,6 +334,12 @@ def _validate(config: BotConfig) -> None:
         raise ValueError(
             "Gamma scheduled-start discovery window must remain slot-24h through slot+48h"
         )
+    if (
+        gamma.connect_timeout_seconds,
+        gamma.read_timeout_seconds,
+        gamma.attempt_wall_seconds,
+    ) != (3.0, 5.0, 15.0):
+        raise ValueError("Gamma connect/read/total-attempt timeout contract drift")
     if not 0 <= gamma.max_retries <= 4:
         raise ValueError("Gamma retry count is outside the bounded envelope")
     if trading.clob.base_url != "https://clob.polymarket.com":
@@ -393,7 +400,7 @@ def load_config(
             "base_url", "endpoint", "followup_endpoint_template", "page_size",
             "max_pages_per_family", "related_tags", "include_children",
             "discovery_lookback_hours", "discovery_lookahead_hours", "connect_timeout_seconds",
-            "read_timeout_seconds", "max_retries", "retry_base_seconds",
+            "read_timeout_seconds", "attempt_wall_seconds", "max_retries", "retry_base_seconds",
             "retry_max_seconds",
         },
         "trading.gamma",
@@ -438,6 +445,9 @@ def load_config(
         ),
         connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
         read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),
+        attempt_wall_seconds=_finite(
+            gamma_raw["attempt_wall_seconds"], "gamma.attempt_wall_seconds"
+        ),
         max_retries=_integer(gamma_raw["max_retries"], "gamma.max_retries"),
         retry_base_seconds=_finite(gamma_raw["retry_base_seconds"], "gamma.retry_base_seconds"),
         retry_max_seconds=_finite(gamma_raw["retry_max_seconds"], "gamma.retry_max_seconds"),
