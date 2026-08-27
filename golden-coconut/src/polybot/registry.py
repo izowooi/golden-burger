@@ -53,8 +53,8 @@ def load_registry(
         raise ValueError("SPORTS_REGISTRY.json is invalid JSON") from error
     if not isinstance(raw, Mapping):
         raise ValueError("SPORTS_REGISTRY.json root must be an object")
-    if raw.get("schema_version") != 1:
-        raise ValueError("SPORTS_REGISTRY.json schema_version must be 1")
+    if raw.get("schema_version") != 2:
+        raise ValueError("SPORTS_REGISTRY.json schema_version must be 2")
     profile = str(raw.get("registry_profile") or "")
     classifier = str(raw.get("classifier_version") or "")
     family_payloads = raw.get("sport_families")
@@ -70,7 +70,22 @@ def load_registry(
         discovery = payload.get("discovery")
         if not isinstance(discovery, Mapping):
             raise ValueError(f"registry family {code} discovery is missing")
-        if discovery.get("live") is not True or discovery.get("related_tags") is not False:
+        if set(discovery) != {
+            "closed",
+            "include_children",
+            "related_tags",
+            "start_hours_after_slot",
+            "start_hours_before_slot",
+            "tag_id",
+        }:
+            raise ValueError(f"registry family {code} discovery keys differ")
+        if (
+            discovery.get("closed") is not False
+            or discovery.get("include_children") is not False
+            or discovery.get("related_tags") is not False
+            or discovery.get("start_hours_before_slot") != 24
+            or discovery.get("start_hours_after_slot") != 48
+        ):
             raise ValueError(f"registry family {code} discovery envelope drift")
         tag_id = discovery.get("tag_id")
         if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id <= 0:
@@ -87,7 +102,7 @@ def load_registry(
         "nhl": 899,
     }
     if {item.code: item.tag_id for item in families} != expected_tags:
-        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v1")
+        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v2")
     return SportsRegistry(
         path=path,
         sha256=actual_sha256,

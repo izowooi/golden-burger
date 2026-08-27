@@ -8,6 +8,7 @@ import re
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
+from .lifecycle import lifecycle_identity, raw_lifecycle_json
 from .registry import SportFamily, SportsRegistry
 
 
@@ -176,6 +177,7 @@ class EventClassification:
 @dataclass(frozen=True)
 class MarketClassification:
     eligible: bool
+    structure_eligible: bool
     family: str
     structure: str
     result_kind: str | None
@@ -194,6 +196,7 @@ def _base_event_evidence(event: Mapping[str, Any]) -> dict[str, Any]:
     teams = [dict(item) for item in event.get("teams", []) if isinstance(item, Mapping)] if isinstance(event.get("teams"), list) else []
     return {
         "event_id": str(event.get("id") or "") or None,
+        "canonical_game_slug": str(event.get("slug") or "").strip().casefold() or None,
         "game_id": str(event.get("gameId") or event.get("game_id") or "") or None,
         "sport_id": _integer_id(sport.get("id")),
         "sport_code": str(sport.get("sport") or "") or None,
@@ -345,18 +348,28 @@ def _classify_soccer_event(
 def classify_event(
     event: Mapping[str, Any], family: SportFamily, registry: SportsRegistry
 ) -> EventClassification:
+    identity = lifecycle_identity(event, family.code)
     evidence = _base_event_evidence(event)
     evidence["season_phase"] = classify_season_phase(event, family.code)
-    event_id = str(event.get("id") or "MISSING")
-    game_id = str(event.get("gameId") or event.get("game_id") or "")
-    cluster_id = f"{family.code}:{game_id or event_id}"
+    evidence.update(
+        {
+            "lifecycle_state": identity.lifecycle_state,
+            "lifecycle_reason": identity.lifecycle_reason,
+            "scheduled_start_field": identity.scheduled_start_field,
+            "scheduled_start_raw": identity.scheduled_start_raw,
+            "scheduled_start_utc": identity.scheduled_start_utc,
+            "raw_lifecycle_json": raw_lifecycle_json(event),
+        }
+    )
+    event_id = identity.event_id or "MISSING"
+    cluster_id = identity.event_cluster_id
     negative = _negative_event_reasons(event, evidence, registry)
     if negative:
         return EventClassification("REJECTED", family.code, None, None, tuple(negative), cluster_id, evidence)
-    if event.get("live") is not True or event.get("ended") is not False:
-        return EventClassification("REJECTED", family.code, None, None, ("EVENT_NOT_EXPLICITLY_IN_PLAY",), cluster_id, evidence)
     if not event_id or event_id == "MISSING":
         return EventClassification("DRIFT", family.code, None, None, ("EVENT_ID_MISSING",), cluster_id, evidence)
+    if not identity.canonical_slug:
+        return EventClassification("DRIFT", family.code, None, None, ("EVENT_CANONICAL_SLUG_MISSING",), cluster_id, evidence)
     if family.code == "soccer":
         status, code, name, reasons = _classify_soccer_event(event, family, evidence)
     else:
@@ -387,42 +400,43 @@ def classify_market(
     labels = tuple(str(item).strip() for item in (_array(market.get("outcomes")) or []))
     tokens = tuple(str(item).strip() for item in (_array(market.get("clobTokenIds")) or []))
     probabilities = _probabilities(market.get("outcomePrices"))
-    reasons: list[str] = []
+    identity_reasons: list[str] = []
+    availability_reasons: list[str] = []
     sports_type = market.get("sportsMarketType")
     if sports_type != "moneyline":
-        reasons.append("NOT_EXACT_TOP_LEVEL_MONEYLINE")
+        identity_reasons.append("NOT_EXACT_TOP_LEVEL_MONEYLINE")
     if market.get("parentMarketId") not in (None, "") or market.get("childMarkets") not in (None, [], ""):
-        reasons.append("CHILD_MARKET_EXCLUDED")
+        identity_reasons.append("CHILD_MARKET_EXCLUDED")
     if any(
         market.get(key) is True
         for key in ("isFuture", "future", "isProp", "prop", "isAdvancement", "advancement")
     ):
-        reasons.append("PROP_FUTURE_OR_ADVANCEMENT_EXCLUDED")
+        identity_reasons.append("PROP_FUTURE_OR_ADVANCEMENT_EXCLUDED")
     period_values = [
         market.get(key)
         for key in ("period", "periodType", "gamePeriod", "inning", "quarter", "half")
         if key in market and market.get(key) is not None
     ]
     if any(_normalize(value) not in _WHOLE_GAME_PERIOD_VALUES for value in period_values):
-        reasons.append("NON_WHOLE_GAME_PERIOD_EXCLUDED")
+        identity_reasons.append("NON_WHOLE_GAME_PERIOD_EXCLUDED")
     identity_text = " ".join(
         str(market.get(field) or "") for field in ("question", "groupItemTitle", "slug")
     )
     if _NON_WHOLE_GAME_MARKET.search(identity_text):
-        reasons.append("NON_WHOLE_GAME_OR_PROP_EXCLUDED")
+        identity_reasons.append("NON_WHOLE_GAME_OR_PROP_EXCLUDED")
     if event_classification.accepted is not True:
-        reasons.append("EVENT_IDENTITY_NOT_ACCEPTED")
+        identity_reasons.append("EVENT_IDENTITY_NOT_ACCEPTED")
     if market.get("active") is not True or market.get("closed") is not False:
-        reasons.append("MARKET_NOT_OPEN")
+        availability_reasons.append("MARKET_NOT_OPEN")
     if market.get("enableOrderBook") is not True or market.get("acceptingOrders") is not True:
-        reasons.append("PUBLIC_BOOK_NOT_ENABLED")
+        availability_reasons.append("PUBLIC_BOOK_NOT_ENABLED")
     if not (
         len(labels) == len(tokens) == len(probabilities) == 2
         and all(tokens)
         and len(set(tokens)) == 2
         and all(value is not None for value in probabilities)
     ):
-        reasons.append("TWO_OUTCOME_ALIGNMENT_REQUIRED")
+        identity_reasons.append("TWO_OUTCOME_ALIGNMENT_REQUIRED")
     teams = [dict(item) for item in event.get("teams", []) if isinstance(item, Mapping)] if isinstance(event.get("teams"), list) else []
     forms = [_team_forms(team) for team in teams]
     eligible_indices: tuple[int, ...] = ()
@@ -431,28 +445,28 @@ def classify_market(
     neg_risk = market.get("negRisk") if isinstance(market.get("negRisk"), bool) else None
     if family == "soccer":
         if labels != ("Yes", "No"):
-            reasons.append("SOCCER_YES_NO_STRUCTURE_REQUIRED")
+            identity_reasons.append("SOCCER_YES_NO_STRUCTURE_REQUIRED")
         if neg_risk is not True:
-            reasons.append("SOCCER_NEGRISK_REQUIRED")
+            identity_reasons.append("SOCCER_NEGRISK_REQUIRED")
         descriptor = _normalize(market.get("groupItemTitle"))
         if not descriptor:
-            reasons.append("SOCCER_RESULT_DESCRIPTOR_MISSING")
+            identity_reasons.append("SOCCER_RESULT_DESCRIPTOR_MISSING")
         elif descriptor in {"draw", "tie"}:
             result_kind = "DRAW"
         else:
             matches = [index for index, candidates in enumerate(forms) if descriptor in candidates]
             if len(matches) != 1:
-                reasons.append("SOCCER_RESULT_DESCRIPTOR_NOT_EXACT")
+                identity_reasons.append("SOCCER_RESULT_DESCRIPTOR_NOT_EXACT")
             else:
                 result_kind = "HOME" if matches[0] == 0 else "AWAY"
-        if not reasons:
+        if not identity_reasons:
             structure = "SOCCER_RESULT_YES_NO_NEGRISK"
             eligible_indices = (0,)
     else:
         if neg_risk is not False:
-            reasons.append("US_DIRECT_NEGRISK_FALSE_REQUIRED")
+            identity_reasons.append("US_DIRECT_NEGRISK_FALSE_REQUIRED")
         if labels == ("Yes", "No"):
-            reasons.append("US_DIRECT_TEAM_LABELS_REQUIRED")
+            identity_reasons.append("US_DIRECT_TEAM_LABELS_REQUIRED")
         matched: list[int] = []
         if len(forms) == 2 and len(labels) == 2:
             for label in labels:
@@ -460,8 +474,8 @@ def classify_market(
                 candidates = [index for index, values in enumerate(forms) if normalized in values]
                 matched.append(candidates[0] if len(candidates) == 1 else -1)
         if sorted(matched) != [0, 1]:
-            reasons.append("US_DIRECT_OUTCOMES_NOT_EXACT_TEAMS")
-        if not reasons:
+            identity_reasons.append("US_DIRECT_OUTCOMES_NOT_EXACT_TEAMS")
+        if not identity_reasons:
             structure = "US_DIRECT_TWO_TEAM_NON_NEGRISK"
             eligible_indices = (0, 1)
             result_kind = "DIRECT_TWO_TEAM"
@@ -474,8 +488,10 @@ def classify_market(
         "event_cluster_id": event_classification.cluster_id,
         "competition_code": event_classification.competition_code,
     }
+    reasons = tuple(dict.fromkeys((*identity_reasons, *availability_reasons)))
     return MarketClassification(
         eligible=not reasons,
+        structure_eligible=not identity_reasons,
         family=family,
         structure=structure,
         result_kind=result_kind,
@@ -483,6 +499,6 @@ def classify_market(
         labels=labels,
         token_ids=tokens,
         probabilities=probabilities,
-        reasons=tuple(dict.fromkeys(reasons)),
+        reasons=reasons,
         evidence=evidence,
     )

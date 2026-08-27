@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from copy import deepcopy
+import json
+from pathlib import Path
+
 import pytest
 
 from polybot.classifier import classify_event, classify_market
 from polybot.registry import FAMILY_ORDER
+
+
+FIXTURE = json.loads(
+    (Path(__file__).parent / "fixtures/major_sports_lifecycle_cases.json").read_text(
+        encoding="utf-8"
+    )
+)
 
 
 def test_registry_contains_exact_five_family_tags(config):
@@ -114,3 +125,42 @@ def test_us_non_whole_or_wrong_structure_is_rejected(
     source = make_us_market("nfl")
     source[field] = value
     assert not classify_market(event, source, event_result).eligible
+
+
+@pytest.mark.parametrize("family", list(FAMILY_ORDER))
+def test_sanitized_production_shaped_positive_fixtures(config, family):
+    event = deepcopy(FIXTURE["positive"][family])
+    event_result = classify_event(
+        event, config.registry.by_code[family], config.registry
+    )
+    assert event_result.accepted, event_result.reasons
+    market_results = [
+        classify_market(event, market, event_result) for market in event["markets"]
+    ]
+    assert all(result.eligible for result in market_results)
+    assert (
+        {result.result_kind for result in market_results}
+        == {"HOME", "DRAW", "AWAY"}
+        if family == "soccer"
+        else all(result.structure == "US_DIRECT_TWO_TEAM_NON_NEGRISK" for result in market_results)
+    )
+
+
+@pytest.mark.parametrize("case", FIXTURE["negative"], ids=lambda case: case["name"])
+def test_sanitized_production_shaped_negative_fixtures(config, case):
+    family = case["base_family"]
+    event = deepcopy(FIXTURE["positive"][family])
+    if case["target"] == "event":
+        event.update(case["patch"])
+    elif case["target"] == "event_add_tag":
+        event["tags"].append(case["patch"])
+    event_result = classify_event(
+        event, config.registry.by_code[family], config.registry
+    )
+    if case["target"].startswith("event"):
+        assert not event_result.accepted
+        return
+    assert event_result.accepted
+    market = deepcopy(event["markets"][0])
+    market.update(case["patch"])
+    assert not classify_market(event, market, event_result).eligible

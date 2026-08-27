@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime, timezone
 
 import pytest
 
@@ -40,17 +41,23 @@ def test_cursor_completion_and_exact_envelope(config):
     )
     client = GammaClient(config.trading.gamma, transport)
     sweep = client.fetch_family_events(
-        "run", config.registry.by_code["nba"], budget=budget()
+        "run",
+        config.registry.by_code["nba"],
+        budget=budget(),
+        slot_start="2026-08-27T00:00:00Z",
     )
     assert sweep.cursor_complete is True
     assert len(sweep.pages) == 2
     assert transport.calls[0][2]["params"] == {
         "limit": 500,
         "closed": "false",
-        "live": "true",
+        "include_children": "false",
         "tag_id": 745,
         "related_tags": "false",
+        "start_date_min": "2026-08-26T00:00:00Z",
+        "start_date_max": "2026-08-29T00:00:00Z",
     }
+    assert "live" not in transport.calls[0][2]["params"]
     assert transport.calls[1][2]["params"]["after_cursor"] == "next"
 
 
@@ -63,7 +70,10 @@ def test_repeated_cursor_fails(config):
     )
     with pytest.raises(ValueError, match="cursor repeated"):
         GammaClient(config.trading.gamma, transport).fetch_family_events(
-            "run", config.registry.by_code["nhl"], budget=budget()
+            "run",
+            config.registry.by_code["nhl"],
+            budget=budget(),
+            slot_start="2026-08-27T00:00:00Z",
         )
 
 
@@ -77,7 +87,10 @@ def test_page_cap_returns_incomplete(config):
         ]
     )
     sweep = GammaClient(gamma, transport).fetch_family_events(
-        "run", config.registry.by_code["mlb"], budget=budget()
+        "run",
+        config.registry.by_code["mlb"],
+        budget=budget(),
+        slot_start="2026-08-27T00:00:00Z",
     )
     assert sweep.cursor_complete is False
     assert sweep.terminal_cursor == "b"
@@ -87,5 +100,28 @@ def test_malformed_page_rejected(config):
     transport = FakeTransport([{"events": "not-an-array", "next_cursor": None}])
     with pytest.raises(ValueError, match="array"):
         GammaClient(config.trading.gamma, transport).fetch_family_events(
-            "run", config.registry.by_code["soccer"], budget=budget()
+            "run",
+            config.registry.by_code["soccer"],
+            budget=budget(),
+            slot_start="2026-08-27T00:00:00Z",
+        )
+
+
+def test_followup_is_event_by_decimal_id(config):
+    transport = FakeTransport([{"id": "910001", "closed": True}])
+    result = GammaClient(config.trading.gamma, transport).fetch_event(
+        "run", "910001", "soccer", budget=budget()
+    )
+    assert result.event_id == "910001"
+    assert transport.calls[0][1].endswith("/events/910001")
+    assert transport.calls[0][2]["params"] == {}
+
+
+def test_discovery_requires_exact_utc_slot(config):
+    with pytest.raises(ValueError, match="exact UTC"):
+        GammaClient(config.trading.gamma, FakeTransport([])).fetch_family_events(
+            "run",
+            config.registry.by_code["nba"],
+            budget=budget(),
+            slot_start="2026-08-27T00:00:00",
         )

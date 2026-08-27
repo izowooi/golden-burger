@@ -2,20 +2,23 @@
 
 ## 연구 질문
 
-major-sports in-play moneyline에서 executable ask probability, displayed depth, liquidity와 volume
-strata가 sport family·season phase·game cluster에 따라 어떻게 다른가? `0.75..0.99`의 genuine
-upward crossing 이후 path와 terminal resolution을 prospectively 보존할 수 있는가?
+major-sports whole-game moneyline에서 pregame부터 terminal lifecycle까지 executable ask probability,
+displayed depth, liquidity와 volume strata가 sport family·season phase·game cluster에 따라 어떻게
+다른가? `0.75..0.99`의 genuine upward crossing 이후 path와 terminal resolution을 prospectively
+보존할 수 있는가?
 
 이 질문은 매매 규칙이나 수익성 주장이 아니다. primary 5분 collector의 첫 gate는 census
 completeness와 evidence health다.
 
 ## Frozen treatment
 
-- runtime/cadence: `coconut-major-sports-5m-v1`, 5분
+- runtime/cadence: `coconut-major-sports-lifecycle-5m-v2`, 5분
 - families: soccer, MLB, NBA, NFL, NHL을 동일 가중 macro 대상에 포함
-- discovery: family별 exact numeric tag, `live=true`, `related_tags=false`, terminal cursor
+- discovery: family별 exact numeric tag, `closed=false`, `slot-24h..slot+48h`, terminal cursor
+- lifecycle: immutable Gamma event ID/canonical slug follow-up; WSS no-message와 wall time으로 상태를
+  추정하지 않음
 - market: top-level whole-game `moneyline`만
-- ladder: `$5/$10/$25/$50/$100/$250/$500`
+- ladder: `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500/$750/$1000`
 - thresholds: `0.75..0.99`, step `0.01`
 - crossing interval: 최대 450초
 - liquidity/volume: feature와 strata일 뿐 discovery gate 아님
@@ -47,6 +50,8 @@ resolution은 public CLOB market이 closed이고 unique one-hot일 때만 `RESOL
 - full-book canonical blob 및 ladder coverage
 - threshold vector/censoring/episode uniqueness
 - sports clock source coverage
+- event-by-ID follow-up, terminal lifecycle, schedule revision, T-24h/T-60m/last-prestart anchor missingness
+- 단일 cohort와 unique `SUCCEEDED`·five-family cursor-complete cycle selection
 - append-only/create-only DB와 UTC shard handoff
 - external APFS storage와 150 GiB/70%/80% guard
 - sport family와 season phase별 missing cell

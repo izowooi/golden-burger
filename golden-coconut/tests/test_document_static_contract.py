@@ -29,7 +29,7 @@ def test_no_transaction_sdk_or_authenticated_dependency():
 
 def test_sql_has_no_forbidden_transaction_table_names_and_no_alter():
     sql = (
-        ROOT / "src/polybot/db/migrations/0001_major_sports_v1.sql"
+        ROOT / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
     ).read_text(encoding="utf-8")
     tables = {
         match.casefold()

@@ -28,7 +28,7 @@ market observatory다.
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
 | **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | 0.92/0.94 × hold/0.80/0.70/0.60 stop, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
-| **golden-coconut** | Five-Family Major Sports Observatory | 종목별 in-play 유동성·거래량·고확률 crossing의 구조 측정 | 주문 없는 full-book/path/resolution census | soccer·MLB·NBA·NFL·NHL, 0.75–0.99, `$5`–`$500`, 5분 | **research-only · polybot-gold · live/order 금지** |
+| **golden-coconut** | Five-Family Major Sports Observatory | 종목별 lifecycle·유동성·거래량·고확률 crossing의 구조 측정 | 주문 없는 full-book/path/resolution census | soccer·MLB·NBA·NFL·NHL, 0.75–0.99, `$5`–`$1000`, 5분 | **research-only · polybot-gold · live/order 금지** |
 | **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B 시작 evidence 없음** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
@@ -399,19 +399,21 @@ bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 
 
 ### golden-coconut — Five-Family Major Sports Observatory
 
-`polybot-gold/coconut-major-sports-5m-v1`은 external APFS workspace에서 soccer·MLB·NBA·NFL·NHL의
-exact major-league top-level whole-game moneyline을 family별 terminal cursor로 5분마다 수집한다.
+`polybot-gold/coconut-major-sports-lifecycle-5m-v2`는 external APFS workspace에서
+soccer·MLB·NBA·NFL·NHL의 exact major-league top-level whole-game moneyline을 경기 전부터
+terminal lifecycle까지 5분마다 수집한다. family별 `closed=false`, `slot-24h..slot+48h`
+terminal cursor discovery 뒤 Gamma event ID로 추적한다.
 축구는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 regular-time result Yes token,
 미국 4종목은 official major identity의 direct two-team outcome만 허용한다. minor, G League,
 AHL/ECHL, NCAA, e-sports, period, spread/total, prop, future, advancement는 fail closed한다.
 
-`0.75..0.99`의 1%p threshold crossing과 `$5/$10/$25/$50/$100/$250/$500` displayed-depth ladder를
+`0.75..0.99`의 1%p threshold crossing과 `$5..$1000` displayed-depth ladder를
 같은 full CLOB book에서 계산한다. liquidity·누적/24시간 volume은 후보를 선별하는 gate가 아니라
 sport/season별 strata이며, official preseason은 `PRESEASON`으로 분리한다. append-only UTC daily
 shard와 game cluster를 사용해 같은 경기를 독립 표본으로 중복 계산하지 않는다. 계좌·주문·P&L은
 없으며 첫 review에서는 collection health와 coverage만 판정한다. 상세는
 `golden-coconut/STRATEGY.md`, frozen 계약은
-`golden-coconut/research/frozen-2026-08-27-v1/PREREGISTRATION.md`, 회고는
+`golden-coconut/research/frozen-2026-08-27-v2/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-coconut.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)

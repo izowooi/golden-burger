@@ -21,12 +21,15 @@ from ..config import BotConfig, StorageConfig
 from ..registry import FAMILY_ORDER
 
 
-MIGRATION_PATH = Path(__file__).with_name("migrations") / "0001_major_sports_v1.sql"
+MIGRATION_PATH = (
+    Path(__file__).with_name("migrations") / "0002_major_sports_lifecycle_v2.sql"
+)
 APPLICATION_ID = 1195593521
-SCHEMA_USER_VERSION = 1
+SCHEMA_USER_VERSION = 2
 GIB = 1024**3
 
 APPEND_ONLY_TABLES = (
+    "collection_contracts",
     "schema_metadata",
     "sports_registry_versions",
     "research_config_versions",
@@ -37,6 +40,9 @@ APPEND_ONLY_TABLES = (
     "api_requests",
     "raw_payloads",
     "event_observations",
+    "game_lifecycle_observations",
+    "tracked_game_carryovers",
+    "schedule_revision_observations",
     "event_tag_observations",
     "event_series_observations",
     "event_team_observations",
@@ -50,6 +56,7 @@ APPEND_ONLY_TABLES = (
     "threshold_episodes",
     "episode_carryovers",
     "episode_path_observations",
+    "game_anchor_observations",
     "resolution_attempts",
     "resolution_observations",
     "sports_clock_observations",
@@ -62,6 +69,8 @@ BUNDLE_TABLE_ORDER = (
     ("sweeps", "sport_sweeps"),
     ("raw_payloads", "raw_payloads"),
     ("events", "event_observations"),
+    ("game_lifecycle", "game_lifecycle_observations"),
+    ("schedule_revisions", "schedule_revision_observations"),
     ("tags", "event_tag_observations"),
     ("series", "event_series_observations"),
     ("teams", "event_team_observations"),
@@ -73,6 +82,7 @@ BUNDLE_TABLE_ORDER = (
     ("threshold_vectors", "threshold_vectors"),
     ("episodes", "threshold_episodes"),
     ("paths", "episode_path_observations"),
+    ("anchors", "game_anchor_observations"),
     ("resolution_attempts", "resolution_attempts"),
     ("resolutions", "resolution_observations"),
     ("sports_clock", "sports_clock_observations"),
@@ -258,6 +268,7 @@ class ResearchRepository:
             1,
             self.database_utc_date,
             trading.data_contract,
+            trading.collection_contract,
             trading.schema_profile,
             trading.universe_profile,
             trading.classifier_version,
@@ -285,7 +296,15 @@ class ResearchRepository:
             _append_only_triggers(connection)
             schema_sha256 = _schema_sha256(connection)
             connection.execute(
-                "INSERT INTO schema_metadata VALUES(?,?,?,?,?,?,?,?,?,?)",
+                "INSERT INTO collection_contracts VALUES(?,?,?)",
+                (
+                    1,
+                    self.config.trading.collection_contract,
+                    self.database_utc_date,
+                ),
+            )
+            connection.execute(
+                "INSERT INTO schema_metadata VALUES(?,?,?,?,?,?,?,?,?,?,?)",
                 self._metadata_values(schema_sha256),
             )
             connection.execute(
@@ -344,6 +363,7 @@ class ResearchRepository:
             expected = {
                 "database_utc_date": self.database_utc_date,
                 "data_contract": self.config.trading.data_contract,
+                "collection_contract": self.config.trading.collection_contract,
                 "schema_profile": self.config.trading.schema_profile,
                 "universe_profile": self.config.trading.universe_profile,
                 "classifier_version": self.config.trading.classifier_version,
@@ -353,6 +373,19 @@ class ResearchRepository:
             actual = {key: str(row[key]) for key in expected}
             if actual != expected:
                 raise RuntimeError(f"database contract mismatch: {actual!r}")
+            contracts = connection.execute(
+                "SELECT * FROM collection_contracts"
+            ).fetchall()
+            if len(contracts) != 1:
+                raise RuntimeError("database must contain one collection contract")
+            contract = contracts[0]
+            if (
+                int(contract["singleton"]) != 1
+                or str(contract["contract_name"])
+                != self.config.trading.collection_contract
+                or str(contract["database_utc_date"]) != self.database_utc_date
+            ):
+                raise RuntimeError("daily-rsync collection contract differs")
             if str(row["schema_sha256"]) != _schema_sha256(connection):
                 raise RuntimeError("database live schema fingerprint changed")
             registry = connection.execute(
@@ -535,10 +568,19 @@ class ResearchRepository:
         families = [str(row.get("sport_family")) for row in sweeps]
         if tuple(sorted(families)) != tuple(sorted(FAMILY_ORDER)) or len(families) != len(set(families)):
             raise ValueError("collection bundle must contain exactly five independent family sweeps")
-        for key in ("book_snapshots", "threshold_vectors"):
-            tokens = [str(row.get("token_id")) for row in bundle.get(key, ())]
-            if len(tokens) != len(set(tokens)):
-                raise ValueError(f"{key} must contain at most one row per token per cycle")
+        tokens = [
+            str(row.get("token_id")) for row in bundle.get("book_snapshots", ())
+        ]
+        if len(tokens) != len(set(tokens)):
+            raise ValueError("book_snapshots must contain one canonical row per token")
+        vector_keys = [
+            (str(row.get("token_id")), float(row.get("notional_usdc")))
+            for row in bundle.get("threshold_vectors", ())
+        ]
+        if len(vector_keys) != len(set(vector_keys)):
+            raise ValueError(
+                "threshold_vectors must contain one row per token/notional per cycle"
+            )
         snapshot_ids = [str(row.get("book_snapshot_id")) for row in bundle.get("book_snapshots", ())]
         if len(snapshot_ids) != len(set(snapshot_ids)):
             raise ValueError("book snapshots contain duplicate primary evidence")
@@ -572,13 +614,14 @@ class ResearchRepository:
                 connection.rollback()
                 raise
 
-    def latest_threshold_states(self) -> dict[str, dict[str, Any]]:
+    def latest_threshold_states(self) -> dict[tuple[str, float], dict[str, Any]]:
         with self.read_connect() as connection:
             vectors = connection.execute(
                 """
                 WITH ranked AS (
                     SELECT v.*,ROW_NUMBER() OVER (
-                        PARTITION BY token_id ORDER BY observed_at DESC,threshold_vector_id DESC
+                        PARTITION BY token_id,notional_usdc
+                        ORDER BY observed_at DESC,threshold_vector_id DESC
                     ) AS position
                     FROM threshold_vectors v
                 )
@@ -588,20 +631,31 @@ class ResearchRepository:
             carries = connection.execute(
                 "SELECT * FROM threshold_state_carryovers"
             ).fetchall()
-        result = {str(row["token_id"]): dict(row) for row in carries}
-        result.update({str(row["token_id"]): dict(row) for row in vectors})
+        result = {
+            (str(row["token_id"]), float(row["notional_usdc"])): dict(row)
+            for row in carries
+        }
+        result.update(
+            {
+                (str(row["token_id"]), float(row["notional_usdc"])): dict(row)
+                for row in vectors
+            }
+        )
         return result
 
-    def existing_episode_keys(self) -> set[tuple[str, str, float]]:
+    def existing_episode_keys(self) -> set[tuple[str, str, float, float]]:
         with self.read_connect() as connection:
             rows = connection.execute(
                 """
-                SELECT condition_id,token_id,threshold FROM threshold_episodes
+                SELECT condition_id,token_id,notional_usdc,threshold FROM threshold_episodes
                 UNION ALL
-                SELECT condition_id,token_id,threshold FROM episode_carryovers
+                SELECT condition_id,token_id,notional_usdc,threshold FROM episode_carryovers
                 """
             ).fetchall()
-        return {(str(row[0]), str(row[1]), float(row[2])) for row in rows}
+        return {
+            (str(row[0]), str(row[1]), float(row[2]), float(row[3]))
+            for row in rows
+        }
 
     def open_episodes(self) -> list[dict[str, Any]]:
         with self.read_connect() as connection:
@@ -609,16 +663,16 @@ class ResearchRepository:
                 """
                 WITH all_episode_rows AS (
                     SELECT episode_id,origin_utc_date,created_run_id,sport_family,
-                           season_phase,competition_code,event_id,event_cluster_id,
-                           condition_id,token_id,outcome_index,outcome_label,threshold,
-                           crossed_at,entry_ask_vwap,entry_shares_5,liquidity,
+                           season_phase,lifecycle_state,competition_code,event_id,event_cluster_id,
+                           condition_id,token_id,outcome_index,outcome_label,notional_usdc,threshold,
+                           crossed_at,entry_ask_vwap,entry_shares,liquidity,
                            volume_num,volume_24hr
                     FROM threshold_episodes
                     UNION ALL
                     SELECT episode_id,origin_utc_date,created_run_id,sport_family,
-                           season_phase,competition_code,event_id,event_cluster_id,
-                           condition_id,token_id,outcome_index,outcome_label,threshold,
-                           crossed_at,entry_ask_vwap,entry_shares_5,liquidity,
+                           season_phase,lifecycle_state,competition_code,event_id,event_cluster_id,
+                           condition_id,token_id,outcome_index,outcome_label,notional_usdc,threshold,
+                           crossed_at,entry_ask_vwap,entry_shares,liquidity,
                            volume_num,volume_24hr
                     FROM episode_carryovers
                 )
@@ -632,6 +686,58 @@ class ResearchRepository:
                 """
             ).fetchall()
         return [dict(row) for row in rows]
+
+    def latest_game_states(self) -> dict[str, dict[str, Any]]:
+        with self.read_connect() as connection:
+            rows = connection.execute(
+                """
+                WITH history AS (
+                    SELECT sport_family,event_id,canonical_game_slug,game_id_alias,
+                           event_cluster_id,lifecycle_state,scheduled_start_field,
+                           scheduled_start_raw,scheduled_start_utc,observed_at,
+                           game_lifecycle_observation_id AS identity
+                    FROM game_lifecycle_observations
+                    UNION ALL
+                    SELECT sport_family,event_id,canonical_game_slug,game_id_alias,
+                           event_cluster_id,lifecycle_state,scheduled_start_field,
+                           scheduled_start_raw,scheduled_start_utc,carried_at AS observed_at,
+                           tracked_game_carryover_id AS identity
+                    FROM tracked_game_carryovers
+                ), ranked AS (
+                    SELECT history.*,ROW_NUMBER() OVER (
+                        PARTITION BY event_cluster_id
+                        ORDER BY observed_at DESC,identity DESC
+                    ) AS position
+                    FROM history
+                )
+                SELECT * FROM ranked WHERE position=1
+                """
+            ).fetchall()
+        return {str(row["event_cluster_id"]): dict(row) for row in rows}
+
+    def tracked_games(self) -> list[dict[str, Any]]:
+        terminal = {"CANCELLED", "RESOLVED", "VOID", "TIE"}
+        return [
+            row
+            for row in self.latest_game_states().values()
+            if str(row["lifecycle_state"]) not in terminal
+        ]
+
+    def latest_resolution_statuses(self) -> dict[str, str]:
+        with self.read_connect() as connection:
+            rows = connection.execute(
+                """
+                WITH ranked AS (
+                    SELECT condition_id,resolution_status,ROW_NUMBER() OVER (
+                        PARTITION BY condition_id
+                        ORDER BY observed_at DESC,resolution_observation_id DESC
+                    ) AS position
+                    FROM resolution_observations
+                )
+                SELECT condition_id,resolution_status FROM ranked WHERE position=1
+                """
+            ).fetchall()
+        return {str(row[0]): str(row[1]) for row in rows}
 
     def resolution_due(
         self, condition_id: str, *, now: datetime, interval_minutes: int
@@ -660,9 +766,11 @@ class ResearchRepository:
                 table: int(connection.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
                 for table in (
                     "research_run_events", "collection_cycles", "sport_sweeps",
-                    "event_observations", "market_observations", "book_snapshots",
+                    "event_observations", "game_lifecycle_observations",
+                    "schedule_revision_observations", "market_observations", "book_snapshots",
                     "threshold_vectors", "threshold_episodes", "episode_path_observations",
-                    "resolution_observations", "data_quality_issues",
+                    "game_anchor_observations", "resolution_observations",
+                    "data_quality_issues",
                 )
             }
             metadata = dict(connection.execute("SELECT * FROM schema_metadata").fetchone())
@@ -691,24 +799,30 @@ class ResearchRepository:
             "database": str(self.path),
             "storage": storage,
             "daily_rsync_canonical_filename": self.path.name == "trades_sim.db",
+            "daily_rsync_collection_contract": self.config.trading.collection_contract,
         }
 
     @classmethod
     def _rotation_carries(
         cls, repository: "ResearchRepository", old_date: str
-    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    ) -> tuple[
+        list[dict[str, Any]], list[dict[str, Any]], list[dict[str, Any]]
+    ]:
         now = iso_utc()
         threshold_rows: list[dict[str, Any]] = []
-        for token, row in repository.latest_threshold_states().items():
+        for (token, notional), row in repository.latest_threshold_states().items():
             prior_payload = {
                 "token_id": token,
+                "notional_usdc": notional,
                 "condition_id": row["condition_id"],
                 "sport_family": row["sport_family"],
                 "season_phase": row["season_phase"],
+                "lifecycle_state": row["lifecycle_state"],
                 "event_cluster_id": row["event_cluster_id"],
                 "observed_at": row["observed_at"],
                 "observation_status": row["observation_status"],
-                "executable_ask_vwap_5": row["executable_ask_vwap_5"],
+                "executable_ask_vwap": row["executable_ask_vwap"],
+                "executable_ask_shares": row["executable_ask_shares"],
             }
             threshold_rows.append(
                 {
@@ -730,6 +844,7 @@ class ResearchRepository:
                 "created_run_id": row["created_run_id"],
                 "sport_family": row["sport_family"],
                 "season_phase": row["season_phase"],
+                "lifecycle_state": row["lifecycle_state"],
                 "competition_code": row["competition_code"],
                 "event_id": row["event_id"],
                 "event_cluster_id": row["event_cluster_id"],
@@ -737,10 +852,11 @@ class ResearchRepository:
                 "token_id": row["token_id"],
                 "outcome_index": row["outcome_index"],
                 "outcome_label": row["outcome_label"],
+                "notional_usdc": row["notional_usdc"],
                 "threshold": row["threshold"],
                 "crossed_at": row["crossed_at"],
                 "entry_ask_vwap": row["entry_ask_vwap"],
-                "entry_shares_5": row["entry_shares_5"],
+                "entry_shares": row["entry_shares"],
                 "liquidity": row["liquidity"],
                 "volume_num": row["volume_num"],
                 "volume_24hr": row["volume_24hr"],
@@ -748,13 +864,39 @@ class ResearchRepository:
             }
             for row in repository.open_episodes()
         ]
-        return threshold_rows, episode_rows
+        game_rows: list[dict[str, Any]] = []
+        for row in repository.tracked_games():
+            prior_payload = {
+                "sport_family": row["sport_family"],
+                "event_id": row["event_id"],
+                "canonical_game_slug": row["canonical_game_slug"],
+                "game_id_alias": row["game_id_alias"],
+                "event_cluster_id": row["event_cluster_id"],
+                "lifecycle_state": row["lifecycle_state"],
+                "scheduled_start_field": row["scheduled_start_field"],
+                "scheduled_start_raw": row["scheduled_start_raw"],
+                "scheduled_start_utc": row["scheduled_start_utc"],
+            }
+            game_rows.append(
+                {
+                    "tracked_game_carryover_id": uuid4().hex,
+                    "carried_from_utc_date": old_date,
+                    **prior_payload,
+                    "prior_lifecycle_sha256": hashlib.sha256(
+                        canonical_json(prior_payload).encode("utf-8")
+                    ).hexdigest(),
+                    "carried_at": now,
+                }
+            )
+        return threshold_rows, episode_rows, game_rows
 
     @classmethod
     def _rotate(cls, config: BotConfig, *, old_date: str, new_date: str) -> None:
         path = config.db_path
         old_repository = cls(config, database_utc_date=old_date)
-        threshold_carries, episode_carries = cls._rotation_carries(old_repository, old_date)
+        threshold_carries, episode_carries, game_carries = cls._rotation_carries(
+            old_repository, old_date
+        )
         if old_repository.quick_check() != "ok":
             raise RuntimeError("refusing to rotate a corrupt active database")
         with old_repository.write_connect() as connection:
@@ -787,6 +929,7 @@ class ResearchRepository:
                 connection.execute("BEGIN IMMEDIATE")
                 cls._insert_many(connection, "threshold_state_carryovers", threshold_carries)
                 cls._insert_many(connection, "episode_carryovers", episode_carries)
+                cls._insert_many(connection, "tracked_game_carryovers", game_carries)
                 connection.commit()
             if next_repository.quick_check() != "ok":
                 raise RuntimeError("new UTC shard quick_check failed")

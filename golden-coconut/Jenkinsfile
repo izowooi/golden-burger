@@ -77,7 +77,7 @@ PY
 
 cd golden-coconut
 UV=/Users/jongwoopark/.local/bin/uv
-RUNTIME=coconut-major-sports-5m-v1
+RUNTIME=coconut-major-sports-lifecycle-5m-v2
 "${UV}" sync --frozen
 "${UV}" run polybot config --simulate --job "${RUNTIME}"
 "${UV}" run polybot run --simulate --job "${RUNTIME}"

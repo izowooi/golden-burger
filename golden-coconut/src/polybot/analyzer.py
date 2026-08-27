@@ -1,8 +1,9 @@
-"""Read-only collection health and predeclared strata analysis."""
+"""Read-only v2 collection-health and preregistered strata analysis."""
 
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 import json
 import math
 from pathlib import Path
@@ -14,8 +15,15 @@ from .config import DATA_CONTRACT, NOTIONAL_LADDER, THRESHOLD_GRID
 from .registry import FAMILY_ORDER
 
 
-ANALYZER_CONTRACT = "major-sports-five-family-health-v1"
-SEASON_PHASES = ("PRESEASON", "REGULAR", "POSTSEASON", "UNKNOWN", "NOT_APPLICABLE")
+ANALYZER_CONTRACT = "major-sports-lifecycle-health-v2"
+SEASON_PHASES = (
+    "PRESEASON",
+    "REGULAR",
+    "POSTSEASON",
+    "UNKNOWN",
+    "NOT_APPLICABLE",
+)
+TERMINAL_STATES = frozenset({"CANCELLED", "RESOLVED", "VOID", "TIE"})
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -41,7 +49,10 @@ def _bin(value: Any, boundaries: tuple[float, ...]) -> str:
     number = float(value)
     labels = [
         f"LT_{boundaries[0]:g}",
-        *(f"{left:g}_TO_LT_{right:g}" for left, right in zip(boundaries, boundaries[1:])),
+        *(
+            f"{left:g}_TO_LT_{right:g}"
+            for left, right in zip(boundaries, boundaries[1:])
+        ),
         f"GE_{boundaries[-1]:g}",
     ]
     for index, boundary in enumerate(boundaries):
@@ -73,7 +84,8 @@ def _read_shard(path: Path) -> dict[str, Any]:
         table_names = {
             str(row[0])
             for row in connection.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+                "SELECT name FROM sqlite_master "
+                "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
         forbidden = {"orders", "fills", "positions", "wallets", "trades", "pnl", "p&l"}
@@ -81,15 +93,32 @@ def _read_shard(path: Path) -> dict[str, Any]:
             raise ValueError("analyzer found a forbidden transactional table")
         result = {
             "path": str(path.resolve()),
+            "file_bytes": path.stat().st_size,
             "quick_check": quick,
             "metadata": dict(metadata_row),
         }
         for table in (
-            "research_run_events", "collection_cycles", "sport_sweeps",
-            "event_observations", "market_observations", "outcome_observations",
-            "book_token_attempts", "book_snapshots", "book_ladder_observations",
-            "threshold_vectors", "threshold_episodes", "episode_path_observations",
-            "resolution_observations", "data_quality_issues", "storage_metrics",
+            "research_config_versions",
+            "research_run_events",
+            "collection_cycles",
+            "sport_sweeps",
+            "event_observations",
+            "game_lifecycle_observations",
+            "schedule_revision_observations",
+            "market_observations",
+            "outcome_observations",
+            "book_token_attempts",
+            "book_snapshots",
+            "book_ladder_observations",
+            "threshold_vectors",
+            "threshold_episodes",
+            "episode_path_observations",
+            "game_anchor_observations",
+            "resolution_attempts",
+            "resolution_observations",
+            "sports_clock_observations",
+            "data_quality_issues",
+            "storage_metrics",
         ):
             result[table] = _read_rows(connection, table)
         return result
@@ -120,6 +149,153 @@ def _metric_strata(
     }
 
 
+def _cohort(config_rows: list[dict[str, Any]]) -> dict[str, str]:
+    keys = {
+        (
+            str(row["config_hash"]),
+            str(row["strategy_source_digest"]),
+            str(row["mode"]),
+            str(row["job_name"]),
+        )
+        for row in config_rows
+    }
+    if len(keys) != 1:
+        raise ValueError(
+            "analyzer inputs must contain exactly one "
+            "config_hash x strategy_source_digest x mode x job_name cohort"
+        )
+    config_hash, source_digest, mode, job_name = next(iter(keys))
+    return {
+        "config_hash": config_hash,
+        "strategy_source_digest": source_digest,
+        "mode": mode,
+        "job_name": job_name,
+    }
+
+
+def _successful_cycle_selection(
+    cycles: list[dict[str, Any]],
+    sweeps: list[dict[str, Any]],
+    run_events: list[dict[str, Any]],
+) -> tuple[set[str], dict[str, Any]]:
+    cycle_ids = [str(row["cycle_id"]) for row in cycles]
+    if len(cycle_ids) != len(set(cycle_ids)):
+        raise ValueError("analyzer inputs contain duplicate cycle identities across shards")
+    terminal_counts: defaultdict[str, Counter[str]] = defaultdict(Counter)
+    for row in run_events:
+        terminal_counts[str(row["run_id"])][str(row["event_type"])] += 1
+    successful_runs = {
+        run_id
+        for run_id, counts in terminal_counts.items()
+        if counts["SUCCEEDED"] == 1 and counts["FAILED"] == 0
+    }
+    sweeps_by_cycle: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in sweeps:
+        sweeps_by_cycle[str(row["cycle_id"])].append(row)
+    selected: set[str] = set()
+    rejection_counts: Counter[str] = Counter()
+    for cycle in cycles:
+        cycle_id = str(cycle["cycle_id"])
+        run_id = str(cycle["run_id"])
+        if run_id not in successful_runs:
+            rejection_counts["NOT_UNIQUELY_SUCCEEDED"] += 1
+            continue
+        rows = sweeps_by_cycle[cycle_id]
+        family_set = {str(row["sport_family"]) for row in rows}
+        sweep_contract = (
+            len(rows) == len(FAMILY_ORDER)
+            and family_set == set(FAMILY_ORDER)
+            and all(int(row["cursor_complete"]) == 1 for row in rows)
+        )
+        if not sweep_contract or int(cycle["all_families_cursor_complete"]) != 1:
+            rejection_counts["FIVE_FAMILY_CURSOR_INCOMPLETE"] += 1
+            continue
+        selected.add(cycle_id)
+    return selected, {
+        "all_published_cycles": len(cycles),
+        "uniquely_succeeded_runs": len(successful_runs),
+        "selected_cycles": len(selected),
+        "excluded_cycles": len(cycles) - len(selected),
+        "exclusion_reasons": dict(sorted(rejection_counts.items())),
+    }
+
+
+def _selected(rows: list[dict[str, Any]], cycle_ids: set[str]) -> list[dict[str, Any]]:
+    return [row for row in rows if str(row.get("cycle_id") or "") in cycle_ids]
+
+
+def _anchor_report(
+    anchors: list[dict[str, Any]], outcomes: list[dict[str, Any]]
+) -> dict[str, Any]:
+    denominator = {
+        (str(row["event_cluster_id"]), str(row["token_id"]))
+        for row in outcomes
+        if row["threshold_eligible"] and str(row["lifecycle_state"]) == "PREGAME"
+    }
+    grouped: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
+    for row in anchors:
+        grouped[(str(row["event_cluster_id"]), str(row["token_id"]))].append(row)
+
+    def target_summary(target_minutes: float, *, last: bool = False) -> dict[str, Any]:
+        errors: list[float] = []
+        selected_count = 0
+        for key in denominator:
+            candidates = grouped.get(key, [])
+            if not candidates:
+                continue
+            chosen = min(
+                candidates,
+                key=lambda row: (
+                    float(row["minutes_to_scheduled_start"])
+                    if last
+                    else abs(float(row["minutes_to_scheduled_start"]) - target_minutes),
+                    str(row["observed_at"]),
+                ),
+            )
+            selected_count += 1
+            observed = float(chosen["minutes_to_scheduled_start"])
+            errors.append(observed if last else abs(observed - target_minutes))
+        return {
+            "eligible_token_games": len(denominator),
+            "selected": selected_count,
+            "missing": len(denominator) - selected_count,
+            "coverage_pct": _ratio(selected_count, len(denominator)),
+            "absolute_error_minutes_p50": _percentile(errors, 0.50),
+            "absolute_error_minutes_p95": _percentile(errors, 0.95),
+        }
+
+    return {
+        "sample_unit": "unique_event_cluster_x_token",
+        "t_minus_24h": target_summary(1440.0),
+        "t_minus_60m": target_summary(60.0),
+        "last_prestart": target_summary(0.0, last=True),
+        "missingness_is_reported_and_never_imputed": True,
+    }
+
+
+def _storage_growth(shards: list[dict[str, Any]]) -> dict[str, Any]:
+    by_database: list[dict[str, Any]] = []
+    for shard in shards:
+        rows = sorted(shard["storage_metrics"], key=lambda row: str(row["observed_at"]))
+        first = int(rows[0]["database_bytes"]) if rows else None
+        last = int(rows[-1]["database_bytes"]) if rows else None
+        by_database.append(
+            {
+                "path": shard["path"],
+                "database_utc_date": shard["metadata"]["database_utc_date"],
+                "file_bytes_at_analysis": shard["file_bytes"],
+                "first_metric_database_bytes": first,
+                "last_metric_database_bytes": last,
+                "metric_growth_bytes": last - first if first is not None and last is not None else None,
+                "metric_observations": len(rows),
+            }
+        )
+    return {
+        "total_file_bytes_at_analysis": sum(int(shard["file_bytes"]) for shard in shards),
+        "by_database": by_database,
+    }
+
+
 def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     resolved = [Path(path).resolve() for path in paths]
     if not resolved:
@@ -134,13 +310,37 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             if isinstance(value, list):
                 combined[key].extend(value)
 
-    events = combined["event_observations"]
-    markets = combined["market_observations"]
-    outcomes = combined["outcome_observations"]
-    attempts = combined["book_token_attempts"]
-    ladders = combined["book_ladder_observations"]
-    vectors = combined["threshold_vectors"]
-    episodes = combined["threshold_episodes"]
+    cohort = _cohort(combined["research_config_versions"])
+    selected_cycle_ids, selection = _successful_cycle_selection(
+        combined["collection_cycles"],
+        combined["sport_sweeps"],
+        combined["research_run_events"],
+    )
+    cycles = _selected(combined["collection_cycles"], selected_cycle_ids)
+    sweeps = _selected(combined["sport_sweeps"], selected_cycle_ids)
+    events = _selected(combined["event_observations"], selected_cycle_ids)
+    lifecycle = _selected(combined["game_lifecycle_observations"], selected_cycle_ids)
+    schedule_revisions = _selected(
+        combined["schedule_revision_observations"], selected_cycle_ids
+    )
+    markets = _selected(combined["market_observations"], selected_cycle_ids)
+    outcomes = _selected(combined["outcome_observations"], selected_cycle_ids)
+    attempts = _selected(combined["book_token_attempts"], selected_cycle_ids)
+    snapshots = _selected(combined["book_snapshots"], selected_cycle_ids)
+    ladders = _selected(combined["book_ladder_observations"], selected_cycle_ids)
+    vectors = _selected(combined["threshold_vectors"], selected_cycle_ids)
+    episodes = _selected(combined["threshold_episodes"], selected_cycle_ids)
+    anchors = _selected(combined["game_anchor_observations"], selected_cycle_ids)
+    resolutions = _selected(combined["resolution_observations"], selected_cycle_ids)
+    clocks = _selected(combined["sports_clock_observations"], selected_cycle_ids)
+    selected_run_ids = {str(row["run_id"]) for row in cycles}
+    issues = [
+        row
+        for row in combined["data_quality_issues"]
+        if str(row.get("cycle_id") or "") in selected_cycle_ids
+        or str(row.get("run_id") or "") in selected_run_ids
+    ]
+
     accepted_events = [row for row in events if row["classification_status"] == "ACCEPTED"]
     eligible_outcomes = [row for row in outcomes if row["threshold_eligible"]]
     observed_book_keys = {
@@ -153,7 +353,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     missing_sports: list[str] = []
     family_book_percentages: list[float] = []
     for family in FAMILY_ORDER:
-        family_sweeps = [row for row in combined["sport_sweeps"] if row["sport_family"] == family]
+        family_sweeps = [row for row in sweeps if row["sport_family"] == family]
         family_events = [row for row in accepted_events if row["sport_family"] == family]
         family_outcomes = [row for row in eligible_outcomes if row["sport_family"] == family]
         observed = sum(
@@ -169,7 +369,8 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "sweeps": len(family_sweeps),
             "cursor_complete_sweeps": sum(int(row["cursor_complete"]) for row in family_sweeps),
             "cursor_complete_pct": _ratio(
-                sum(int(row["cursor_complete"]) for row in family_sweeps), len(family_sweeps)
+                sum(int(row["cursor_complete"]) for row in family_sweeps),
+                len(family_sweeps),
             ),
             "accepted_event_observations": len(family_events),
             "unique_event_clusters": len({row["event_cluster_id"] for row in family_events}),
@@ -178,11 +379,18 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "public_book_coverage_pct": book_pct,
             "by_season_phase": {
                 phase: {
-                    "accepted_event_observations": sum(row["season_phase"] == phase for row in family_events),
-                    "eligible_outcome_observations": sum(row["season_phase"] == phase for row in family_outcomes),
+                    "accepted_event_observations": sum(
+                        row["season_phase"] == phase for row in family_events
+                    ),
+                    "eligible_outcome_observations": sum(
+                        row["season_phase"] == phase for row in family_outcomes
+                    ),
                 }
                 for phase in SEASON_PHASES
-                if any(row["season_phase"] == phase for row in [*family_events, *family_outcomes])
+                if any(
+                    row["season_phase"] == phase
+                    for row in [*family_events, *family_outcomes]
+                )
             },
         }
     macro_coverage = (
@@ -191,43 +399,48 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         else None
     )
 
+    vector_context = {
+        (str(row["cycle_id"]), str(row["token_id"]), float(row["notional_usdc"])): (
+            str(row["sport_family"]),
+            str(row["season_phase"]),
+        )
+        for row in vectors
+    }
     depth: dict[str, Any] = {}
     for notional in NOTIONAL_LADDER:
         rows = [row for row in ladders if float(row["notional_usdc"]) == notional]
         depth[f"{notional:g}"] = {
             family: {
                 phase: {
-                    "observations": len(selected),
-                    "full_ask": sum(row["ask_status"] == "FULL" for row in selected),
+                    "observations": len(selected_rows),
+                    "full_ask": sum(row["ask_status"] == "FULL" for row in selected_rows),
                     "full_ask_pct": _ratio(
-                        sum(row["ask_status"] == "FULL" for row in selected), len(selected)
+                        sum(row["ask_status"] == "FULL" for row in selected_rows),
+                        len(selected_rows),
                     ),
                 }
                 for phase in SEASON_PHASES
-                if (selected := [
-                    row for row in rows
-                    if next(
-                        (
-                            vector["season_phase"]
-                            for vector in vectors
-                            if vector["cycle_id"] == row["cycle_id"] and vector["token_id"] == row["token_id"]
-                        ),
-                        None,
-                    ) == phase
-                    and next(
-                        (
-                            vector["sport_family"]
-                            for vector in vectors
-                            if vector["cycle_id"] == row["cycle_id"] and vector["token_id"] == row["token_id"]
-                        ),
-                        None,
-                    ) == family
-                ])
+                if (
+                    selected_rows := [
+                        row
+                        for row in rows
+                        if vector_context.get(
+                            (
+                                str(row["cycle_id"]),
+                                str(row["token_id"]),
+                                float(row["notional_usdc"]),
+                            )
+                        )
+                        == (family, phase)
+                    ]
+                )
             }
             for family in FAMILY_ORDER
         }
 
-    threshold_counts: defaultdict[tuple[str, str, str], Counter[str]] = defaultdict(Counter)
+    threshold_counts: defaultdict[tuple[str, str, float, str], Counter[str]] = (
+        defaultdict(Counter)
+    )
     for vector in vectors:
         try:
             states = json.loads(str(vector["states_json"]))
@@ -236,18 +449,42 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         if not isinstance(states, Mapping):
             continue
         for threshold, state in states.items():
-            threshold_counts[(str(vector["sport_family"]), str(vector["season_phase"]), str(threshold))][str(state)] += 1
+            threshold_counts[
+                (
+                    str(vector["sport_family"]),
+                    str(vector["season_phase"]),
+                    float(vector["notional_usdc"]),
+                    str(threshold),
+                )
+            ][str(state)] += 1
     thresholds = {
         family: {
             phase: {
-                f"{threshold:.2f}": dict(
-                    sorted(threshold_counts[(family, phase, f"{threshold:.2f}")].items())
+                f"{notional:g}": {
+                    f"{threshold:.2f}": dict(
+                        sorted(
+                            threshold_counts[
+                                (family, phase, notional, f"{threshold:.2f}")
+                            ].items()
+                        )
+                    )
+                    for threshold in THRESHOLD_GRID
+                    if threshold_counts[
+                        (family, phase, notional, f"{threshold:.2f}")
+                    ]
+                }
+                for notional in NOTIONAL_LADDER
+                if any(
+                    threshold_counts[(family, phase, notional, f"{threshold:.2f}")]
+                    for threshold in THRESHOLD_GRID
                 )
-                for threshold in THRESHOLD_GRID
-                if threshold_counts[(family, phase, f"{threshold:.2f}")]
             }
             for phase in SEASON_PHASES
-            if any(threshold_counts[(family, phase, f"{threshold:.2f}")] for threshold in THRESHOLD_GRID)
+            if any(
+                threshold_counts[(family, phase, notional, f"{threshold:.2f}")]
+                for notional in NOTIONAL_LADDER
+                for threshold in THRESHOLD_GRID
+            )
         }
         for family in FAMILY_ORDER
     }
@@ -255,7 +492,13 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     clusters: defaultdict[tuple[str, str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in markets:
         if row["eligible"]:
-            clusters[(str(row["sport_family"]), str(row["season_phase"]), str(row["event_cluster_id"]))].append(row)
+            clusters[
+                (
+                    str(row["sport_family"]),
+                    str(row["season_phase"]),
+                    str(row["event_cluster_id"]),
+                )
+            ].append(row)
     cluster_sizes = [len(rows) for rows in clusters.values()]
     soccer_incomplete = 0
     us_invalid = 0
@@ -263,34 +506,137 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         result_kinds = {str(row["result_kind"]) for row in rows}
         if family == "soccer" and not {"HOME", "DRAW", "AWAY"} <= result_kinds:
             soccer_incomplete += 1
-        if family != "soccer" and any(row["structure_kind"] != "US_DIRECT_TWO_TEAM_NON_NEGRISK" for row in rows):
+        if family != "soccer" and any(
+            row["structure_kind"] != "US_DIRECT_TWO_TEAM_NON_NEGRISK" for row in rows
+        ):
             us_invalid += 1
 
+    all_notional_values = {float(value) for value in NOTIONAL_LADDER}
+    vector_keys: defaultdict[tuple[str, str], set[float]] = defaultdict(set)
+    ladder_keys: defaultdict[tuple[str, str], set[float]] = defaultdict(set)
+    for row in vectors:
+        vector_keys[(str(row["cycle_id"]), str(row["token_id"]))].add(
+            float(row["notional_usdc"])
+        )
+    for row in ladders:
+        ladder_keys[(str(row["cycle_id"]), str(row["token_id"]))].add(
+            float(row["notional_usdc"])
+        )
+    snapshot_keys = {
+        (str(row["cycle_id"]), str(row["token_id"])) for row in snapshots
+    }
+    complete_vectors = sum(vector_keys[key] == all_notional_values for key in snapshot_keys)
+    complete_ladders = sum(ladder_keys[key] == all_notional_values for key in snapshot_keys)
+    notional_completeness = {
+        "frozen_ladder_usdc": list(NOTIONAL_LADDER),
+        "canonical_books": len(snapshot_keys),
+        "books_with_complete_ladder_rows": complete_ladders,
+        "books_with_complete_threshold_vectors": complete_vectors,
+        "ladder_complete_pct": _ratio(complete_ladders, len(snapshot_keys)),
+        "threshold_vector_complete_pct": _ratio(complete_vectors, len(snapshot_keys)),
+    }
+
+    lifecycle_by_cluster: defaultdict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in lifecycle:
+        lifecycle_by_cluster[str(row["event_cluster_id"])].append(row)
+    ended_clusters = {
+        cluster
+        for cluster, rows in lifecycle_by_cluster.items()
+        if any(str(row["lifecycle_state"]) == "ENDED" for row in rows)
+        or any(str(row["lifecycle_state"]) in TERMINAL_STATES for row in rows)
+    }
+    terminal_clusters = {
+        cluster
+        for cluster, rows in lifecycle_by_cluster.items()
+        if any(str(row["lifecycle_state"]) in TERMINAL_STATES for row in rows)
+    }
+    accepted_clusters = {str(row["event_cluster_id"]) for row in accepted_events}
+    clock_by_source = Counter(str(row["source_kind"]) for row in clocks)
+    lifecycle_health = {
+        "accepted_unique_games": len(accepted_clusters),
+        "followup_event_observations": sum(
+            str(row["source_kind"]) == "FOLLOWUP" for row in accepted_events
+        ),
+        "cycles_followup_complete": sum(int(row["followup_complete"]) for row in cycles),
+        "cycles_followup_complete_pct": _ratio(
+            sum(int(row["followup_complete"]) for row in cycles), len(cycles)
+        ),
+        "lifecycle_state_observations": dict(
+            sorted(Counter(str(row["lifecycle_state"]) for row in lifecycle).items())
+        ),
+        "ended_or_terminal_unique_games": len(ended_clusters),
+        "explicit_terminal_unique_games": len(terminal_clusters),
+        "terminal_coverage_for_ended_games_pct": _ratio(
+            len(terminal_clusters & ended_clusters), len(ended_clusters)
+        ),
+        "schedule_revision_observations": len(schedule_revisions),
+        "sports_clock_observations_by_source": dict(sorted(clock_by_source.items())),
+        "sports_clock_unique_games": len(
+            {str(row["event_cluster_id"]) for row in clocks}
+        ),
+        "wall_time_is_never_used_as_match_clock": True,
+    }
+
     issue_counts = Counter(
-        (str(row["severity"]), str(row["issue_type"]))
-        for row in combined["data_quality_issues"]
+        (str(row["severity"]), str(row["issue_type"])) for row in issues
     )
-    result = {
+    critical_or_high = sum(
+        count
+        for (severity, _kind), count in issue_counts.items()
+        if severity in {"CRITICAL", "HIGH"}
+    )
+    collection_dates = {
+        str(row["slot_start_utc"])[:10]
+        for row in cycles
+        if str(row.get("slot_start_utc") or "")
+    }
+    all_quick = all(shard["quick_check"] == "ok" for shard in shards)
+    five_family_games = all(
+        family_coverage[family]["unique_event_clusters"] > 0 for family in FAMILY_ORDER
+    )
+    complete_notional = bool(snapshot_keys) and (
+        complete_vectors == len(snapshot_keys) == complete_ladders
+    )
+    terminal_complete = not ended_clusters or terminal_clusters >= ended_clusters
+    health_gate_checks = {
+        "single_cohort": True,
+        "has_selected_successful_cycle": bool(cycles),
+        "all_shards_quick_check_ok": all_quick,
+        "selected_cycle_critical_or_high_issues_zero": critical_or_high == 0,
+        "minimum_seven_distinct_utc_dates": len(collection_dates) >= 7,
+        "at_least_one_unique_game_per_sport": five_family_games,
+        "complete_notional_rows_per_canonical_book": complete_notional,
+        "explicit_terminal_coverage_for_discovered_ended_games": terminal_complete,
+        "anchor_missingness_reported_without_imputation": True,
+    }
+
+    return {
         "analyzer_contract": ANALYZER_CONTRACT,
+        "cohort": cohort,
         "databases": [
             {
                 "path": shard["path"],
                 "database_utc_date": shard["metadata"]["database_utc_date"],
                 "quick_check": shard["quick_check"],
+                "file_bytes": shard["file_bytes"],
             }
             for shard in shards
         ],
+        "cycle_selection": selection,
         "health": {
-            "all_quick_check_ok": all(shard["quick_check"] == "ok" for shard in shards),
-            "run_events": dict(Counter(row["event_type"] for row in combined["research_run_events"])),
-            "cycles": len(combined["collection_cycles"]),
-            "critical_or_high_issues": sum(
-                count for (severity, _kind), count in issue_counts.items() if severity in {"CRITICAL", "HIGH"}
+            "all_quick_check_ok": all_quick,
+            "run_events": dict(
+                Counter(row["event_type"] for row in combined["research_run_events"])
             ),
+            "selected_cycles": len(cycles),
+            "selected_distinct_utc_dates": len(collection_dates),
+            "critical_or_high_issues": critical_or_high,
             "issues": [
                 {"severity": severity, "type": kind, "count": count}
                 for (severity, kind), count in sorted(issue_counts.items())
             ],
+            "gate_checks": health_gate_checks,
+            "first_health_gate_passed": all(health_gate_checks.values()),
         },
         "sport_coverage": {
             "required_sports": list(FAMILY_ORDER),
@@ -300,15 +646,35 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "macro_is_null_when_any_sport_is_missing": True,
         },
         "season_phase_contract": {
-            "official_major_league_preseason_is_collected": True,
+            "official_major_league_preseason_policy": "INCLUDED_AS_SEPARATE_STRATUM",
             "phases_are_never_pooled": True,
             "phases": list(SEASON_PHASES),
+            "observed_preseason_unique_games_by_sport": {
+                family: len(
+                    {
+                        str(row["event_cluster_id"])
+                        for row in accepted_events
+                        if row["sport_family"] == family
+                        and row["season_phase"] == "PRESEASON"
+                    }
+                )
+                for family in FAMILY_ORDER
+            },
         },
-        "liquidity_strata": _metric_strata(markets, "liquidity_num", (10_000, 50_000, 100_000)),
-        "volume_total_strata": _metric_strata(markets, "volume_num", (5_000, 25_000, 100_000)),
-        "volume_24hr_strata": _metric_strata(markets, "volume_24hr", (1_000, 10_000, 50_000)),
+        "lifecycle_health": lifecycle_health,
+        "pregame_anchor_health": _anchor_report(anchors, outcomes),
+        "liquidity_strata": _metric_strata(
+            markets, "liquidity_num", (10_000, 50_000, 100_000)
+        ),
+        "volume_total_strata": _metric_strata(
+            markets, "volume_num", (5_000, 25_000, 100_000)
+        ),
+        "volume_24hr_strata": _metric_strata(
+            markets, "volume_24hr", (1_000, 10_000, 50_000)
+        ),
+        "notional_evidence_completeness": notional_completeness,
         "displayed_depth_ladder": depth,
-        "threshold_state_strata": thresholds,
+        "threshold_state_strata_by_notional": thresholds,
         "event_clustering": {
             "unique_game_clusters": len(clusters),
             "markets_per_cluster_p50": _percentile(cluster_sizes, 0.50),
@@ -317,7 +683,9 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "us_clusters_with_non_direct_structure": us_invalid,
             "by_sport_and_phase": {
                 family: {
-                    phase: sum(key[0] == family and key[1] == phase for key in clusters)
+                    phase: sum(
+                        key[0] == family and key[1] == phase for key in clusters
+                    )
                     for phase in SEASON_PHASES
                     if any(key[0] == family and key[1] == phase for key in clusters)
                 }
@@ -327,16 +695,27 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         "crossing_evidence": {
             "origin_episode_count": len({row["episode_id"] for row in episodes}),
             "left_and_gap_censored_are_not_episodes": True,
+            "notional_and_threshold_rows_from_one_game_are_correlated": True,
         },
+        "resolution_evidence": {
+            "observations": len(resolutions),
+            "statuses": dict(
+                sorted(Counter(str(row["resolution_status"]) for row in resolutions).items())
+            ),
+        },
+        "storage_growth": _storage_growth(shards),
         "selection_contract": {
             "liquidity_discovery_gate": None,
             "volume_discovery_gate": None,
+            "best_sport": None,
+            "best_threshold": None,
+            "best_notional": None,
         },
         "interpretation": "HEALTH_AND_DISPLAYED_BOOK_RESEARCH_EVIDENCE_ONLY",
         "profitability_conclusion": None,
         "actual_execution_evidence": False,
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
-    return result
 
 
 def analyze_database(path: Path) -> dict[str, Any]:

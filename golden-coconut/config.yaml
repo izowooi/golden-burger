@@ -2,11 +2,12 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: major-sports-inplay-moneyline-census-v1
-  schema_profile: golden-coconut-create-only-v1
-  universe_profile: major-sports-five-family-2026-08-v1
-  classifier_version: major-sports-exact-identity-v1
-  sports_registry_sha256: 9f133bf18b327a238781b9673a1f58ba1bcfd6d198193b9ee4c88267e7fab67a
+  data_contract: major-sports-lifecycle-census-v2
+  collection_contract: research-full-v1
+  schema_profile: golden-coconut-create-only-lifecycle-v2
+  universe_profile: major-sports-five-family-lifecycle-2026-08-v2
+  classifier_version: major-sports-exact-identity-lifecycle-v2
+  sports_registry_sha256: 5f5c9c4a837b6d4844e0ad142d7457d17f47f8eba0189f240677c37f649db9a9
   cadence_minutes: 5
   cooperative_budget_seconds: 225
   stop_margin_seconds: 30
@@ -17,10 +18,13 @@ trading:
   gamma:
     base_url: https://gamma-api.polymarket.com
     endpoint: /events/keyset
+    followup_endpoint_template: /events/{event_id}
     page_size: 500
     max_pages_per_family: 20
     related_tags: false
-    live_only: true
+    include_children: false
+    discovery_lookback_hours: 24
+    discovery_lookahead_hours: 48
     connect_timeout_seconds: 3
     read_timeout_seconds: 12
     max_retries: 2
@@ -65,8 +69,9 @@ trading:
       - 0.97
       - 0.98
       - 0.99
-    executable_notional_ladder_usdc: [5, 10, 25, 50, 100, 250, 500]
+    executable_notional_ladder_usdc: [5, 10, 15, 20, 25, 30, 40, 50, 75, 100, 150, 250, 500, 750, 1000]
     resolution_retry_minutes: 15
+    minimum_health_days: 7
 
   storage:
     database_name: trades_sim.db

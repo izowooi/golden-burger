@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import importlib.util
 import json
+from pathlib import Path
 import sqlite3
 from uuid import uuid4
 
@@ -32,6 +34,7 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
         "elapsed_seconds": 10,
         "receipt_skew_seconds": 2,
         "all_families_cursor_complete": 1,
+        "followup_complete": 1,
         "request_envelope_json": "{}",
         "summary_json": "{}",
     }
@@ -51,6 +54,8 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
             "drift_event_count": 0,
             "cursor_complete": 1,
             "terminal_cursor": None,
+            "start_date_min": "2026-08-26T00:00:00Z",
+            "start_date_max": "2026-08-29T00:00:00Z",
             "request_envelope_json": "{}",
         }
         for family in FAMILY_ORDER
@@ -60,6 +65,8 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
         "sweeps": sweeps,
         "raw_payloads": [],
         "events": [],
+        "game_lifecycle": [],
+        "schedule_revisions": [],
         "tags": [],
         "series": [],
         "teams": [],
@@ -71,6 +78,7 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
         "threshold_vectors": [],
         "episodes": [],
         "paths": [],
+        "anchors": [],
         "resolution_attempts": [],
         "resolutions": [],
         "sports_clock": [],
@@ -166,3 +174,15 @@ def test_utc_rotation_archives_whole_canonical_file_and_creates_new_active(confi
     assert current.path.stat().st_ino != active_inode
     assert current.database_utc_date == "2026-08-27"
     assert current.quick_check() == "ok"
+    with sqlite3.connect(archive) as connection:
+        assert connection.execute(
+            "SELECT contract_name,database_utc_date FROM collection_contracts"
+        ).fetchall() == [("research-full-v1", "2026-08-26")]
+
+    remote_agent = Path(__file__).resolve().parents[2] / "daily-rsync/src/daily_rsync/remote_agent.py"
+    spec = importlib.util.spec_from_file_location("daily_rsync_remote_agent", remote_agent)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    identity = module.database_identity(archive)
+    assert identity[3:] == ("research-full-v1", "2026-08-26")

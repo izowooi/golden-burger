@@ -1,0 +1,23 @@
+{
+  "active_epoch": "coconut-major-sports-lifecycle-5m-v2",
+  "epochs": [
+    {
+      "data_contract": "major-sports-inplay-moneyline-census-v1",
+      "frozen_directory": "research/frozen-2026-08-27-v1",
+      "mutable": false,
+      "runtime": "coconut-major-sports-5m-v1",
+      "schema_profile": "golden-coconut-create-only-v1",
+      "status": "IMMUTABLE_LEGACY"
+    },
+    {
+      "collection_contract": "research-full-v1",
+      "data_contract": "major-sports-lifecycle-census-v2",
+      "frozen_directory": "research/frozen-2026-08-27-v2",
+      "mutable": false,
+      "runtime": "coconut-major-sports-lifecycle-5m-v2",
+      "schema_profile": "golden-coconut-create-only-lifecycle-v2",
+      "status": "ACTIVE"
+    }
+  ],
+  "schema_version": 1
+}

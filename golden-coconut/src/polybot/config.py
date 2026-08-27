@@ -24,13 +24,30 @@ from .source_digest import (
 )
 
 
-CANONICAL_JOB = "coconut-major-sports-5m-v1"
-DATA_CONTRACT = "major-sports-inplay-moneyline-census-v1"
-SCHEMA_PROFILE = "golden-coconut-create-only-v1"
-UNIVERSE_PROFILE = "major-sports-five-family-2026-08-v1"
-CLASSIFIER_VERSION = "major-sports-exact-identity-v1"
+CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v2"
+DATA_CONTRACT = "major-sports-lifecycle-census-v2"
+COLLECTION_CONTRACT = "research-full-v1"
+SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v2"
+UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v2"
+CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v2"
 THRESHOLD_GRID = tuple(Decimal(value) / 100 for value in range(75, 100))
-NOTIONAL_LADDER = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0)
+NOTIONAL_LADDER = (
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    40.0,
+    50.0,
+    75.0,
+    100.0,
+    150.0,
+    250.0,
+    500.0,
+    750.0,
+    1000.0,
+)
 
 _ALLOWED_POLYBOT_KEYS = frozenset(
     {"POLYBOT_LIFECYCLE_MODE", "POLYBOT_SIMULATION_MODE"}
@@ -167,10 +184,13 @@ def _decimal_grid(value: Any) -> tuple[Decimal, ...]:
 class GammaConfig:
     base_url: str
     endpoint: str
+    followup_endpoint_template: str
     page_size: int
     max_pages_per_family: int
     related_tags: bool
-    live_only: bool
+    include_children: bool
+    discovery_lookback_hours: int
+    discovery_lookahead_hours: int
     connect_timeout_seconds: float
     read_timeout_seconds: float
     max_retries: int
@@ -198,6 +218,7 @@ class ResearchConfig:
     threshold_grid: tuple[Decimal, ...]
     executable_notional_ladder_usdc: tuple[float, ...]
     resolution_retry_minutes: int
+    minimum_health_days: int
 
 
 @dataclass(frozen=True)
@@ -214,6 +235,7 @@ class StorageConfig:
 class TradingConfig:
     lifecycle_mode: str
     data_contract: str
+    collection_contract: str
     schema_profile: str
     universe_profile: str
     classifier_version: str
@@ -269,10 +291,17 @@ def _validate(config: BotConfig) -> None:
         raise ValueError("lifecycle_mode must be archive_only")
     if (
         trading.data_contract,
+        trading.collection_contract,
         trading.schema_profile,
         trading.universe_profile,
         trading.classifier_version,
-    ) != (DATA_CONTRACT, SCHEMA_PROFILE, UNIVERSE_PROFILE, CLASSIFIER_VERSION):
+    ) != (
+        DATA_CONTRACT,
+        COLLECTION_CONTRACT,
+        SCHEMA_PROFILE,
+        UNIVERSE_PROFILE,
+        CLASSIFIER_VERSION,
+    ):
         raise ValueError("data/schema/universe/classifier contract drift")
     if trading.sports_registry_sha256 != config.registry.sha256:
         raise ValueError("sports registry hash drift")
@@ -296,14 +325,20 @@ def _validate(config: BotConfig) -> None:
         raise ValueError("Gamma endpoint drift")
     if gamma.page_size != 500 or not 1 <= gamma.max_pages_per_family <= 20:
         raise ValueError("Gamma page envelope drift")
-    if gamma.related_tags is not False or gamma.live_only is not True:
-        raise ValueError("Gamma must use related_tags=false and live=true")
+    if gamma.followup_endpoint_template != "/events/{event_id}":
+        raise ValueError("Gamma follow-up endpoint drift")
+    if gamma.related_tags is not False or gamma.include_children is not False:
+        raise ValueError("Gamma must use related_tags=false and include_children=false")
+    if (gamma.discovery_lookback_hours, gamma.discovery_lookahead_hours) != (24, 48):
+        raise ValueError("Gamma discovery start window must remain slot-24h through slot+48h")
     if not 0 <= gamma.max_retries <= 4:
         raise ValueError("Gamma retry count is outside the bounded envelope")
     if trading.clob.base_url != "https://clob.polymarket.com":
         raise ValueError("CLOB endpoint drift")
     if not 1 <= trading.clob.batch_token_limit <= 500:
         raise ValueError("CLOB batch_token_limit is invalid")
+    if trading.research.minimum_health_days != 7:
+        raise ValueError("minimum health gate must remain seven UTC dates")
     if trading.sports_feed.websocket_url != "wss://sports-api.polymarket.com/ws":
         raise ValueError("sports feed endpoint drift")
     storage = trading.storage
@@ -336,7 +371,7 @@ def load_config(
     _exact_keys(
         trading_raw,
         {
-            "lifecycle_mode", "data_contract", "schema_profile",
+            "lifecycle_mode", "data_contract", "collection_contract", "schema_profile",
             "universe_profile", "classifier_version", "sports_registry_sha256",
             "cadence_minutes", "cooperative_budget_seconds", "stop_margin_seconds",
             "hard_cycle_seconds", "max_receipt_skew_seconds",
@@ -353,8 +388,9 @@ def load_config(
     _exact_keys(
         gamma_raw,
         {
-            "base_url", "endpoint", "page_size", "max_pages_per_family",
-            "related_tags", "live_only", "connect_timeout_seconds",
+            "base_url", "endpoint", "followup_endpoint_template", "page_size",
+            "max_pages_per_family", "related_tags", "include_children",
+            "discovery_lookback_hours", "discovery_lookahead_hours", "connect_timeout_seconds",
             "read_timeout_seconds", "max_retries", "retry_base_seconds",
             "retry_max_seconds",
         },
@@ -368,7 +404,10 @@ def load_config(
     )
     _exact_keys(
         research_raw,
-        {"threshold_grid", "executable_notional_ladder_usdc", "resolution_retry_minutes"},
+        {
+            "threshold_grid", "executable_notional_ladder_usdc",
+            "resolution_retry_minutes", "minimum_health_days",
+        },
         "trading.research",
     )
     _exact_keys(
@@ -384,10 +423,17 @@ def load_config(
     gamma = GammaConfig(
         base_url=_origin(gamma_raw["base_url"], "gamma.base_url"),
         endpoint=str(gamma_raw["endpoint"]).strip(),
+        followup_endpoint_template=str(gamma_raw["followup_endpoint_template"]).strip(),
         page_size=_integer(gamma_raw["page_size"], "gamma.page_size"),
         max_pages_per_family=_integer(gamma_raw["max_pages_per_family"], "gamma.max_pages_per_family"),
         related_tags=_parse_bool(gamma_raw["related_tags"], "gamma.related_tags"),
-        live_only=_parse_bool(gamma_raw["live_only"], "gamma.live_only"),
+        include_children=_parse_bool(gamma_raw["include_children"], "gamma.include_children"),
+        discovery_lookback_hours=_integer(
+            gamma_raw["discovery_lookback_hours"], "gamma.discovery_lookback_hours"
+        ),
+        discovery_lookahead_hours=_integer(
+            gamma_raw["discovery_lookahead_hours"], "gamma.discovery_lookahead_hours"
+        ),
         connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
         read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),
         max_retries=_integer(gamma_raw["max_retries"], "gamma.max_retries"),
@@ -418,6 +464,9 @@ def load_config(
         threshold_grid=_decimal_grid(research_raw["threshold_grid"]),
         executable_notional_ladder_usdc=ladder,
         resolution_retry_minutes=_integer(research_raw["resolution_retry_minutes"], "research.resolution_retry_minutes"),
+        minimum_health_days=_integer(
+            research_raw["minimum_health_days"], "research.minimum_health_days"
+        ),
     )
     storage = StorageConfig(
         database_name=str(storage_raw["database_name"]).strip(),
@@ -438,6 +487,7 @@ def load_config(
     trading = TradingConfig(
         lifecycle_mode=resolved_lifecycle,
         data_contract=str(trading_raw["data_contract"]).strip(),
+        collection_contract=str(trading_raw["collection_contract"]).strip(),
         schema_profile=str(trading_raw["schema_profile"]).strip(),
         universe_profile=str(trading_raw["universe_profile"]).strip(),
         classifier_version=str(trading_raw["classifier_version"]).strip(),

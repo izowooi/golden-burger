@@ -3245,6 +3245,7 @@ def _validate_major_sports_research_strategy(
         "src/polybot/collector.py",
         "src/polybot/analyzer.py",
         "src/polybot/classifier.py",
+        "src/polybot/lifecycle.py",
         "src/polybot/crossings.py",
         "src/polybot/registry.py",
         "src/polybot/run_audit.py",
@@ -3254,7 +3255,7 @@ def _validate_major_sports_research_strategy(
         "src/polybot/api/clob_client.py",
         "src/polybot/api/sports_client.py",
         "src/polybot/db/repository.py",
-        "src/polybot/db/migrations/0001_major_sports_v1.sql",
+        "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql",
         "scripts/verify_external_workspace.py",
     )
     sources = {
@@ -3263,10 +3264,10 @@ def _validate_major_sports_research_strategy(
     }
     contracts = {
         "src/polybot/config.py": (
-            "coconut-major-sports-5m-v1",
-            "major-sports-inplay-moneyline-census-v1",
-            "major-sports-five-family-2026-08-v1",
-            "major-sports-exact-identity-v1",
+            "coconut-major-sports-lifecycle-5m-v2",
+            "major-sports-lifecycle-census-v2",
+            "major-sports-five-family-lifecycle-2026-08-v2",
+            "major-sports-exact-identity-lifecycle-v2",
             "POLYMARKET_",
             "CLOB_",
             "archive_only",
@@ -3274,6 +3275,7 @@ def _validate_major_sports_research_strategy(
             "database_name must remain daily-rsync canonical trades_sim.db",
             "minimum free space must remain 150 GiB",
             "storage warn/stop ratios must remain 70/80 percent",
+            "1000.0",
         ),
         "src/polybot/main.py": (
             "assert_safe_environment",
@@ -3297,11 +3299,24 @@ def _validate_major_sports_research_strategy(
         ),
         "src/polybot/api/gamma_client.py": (
             "/events/keyset",
+            "fetch_event",
+            "start_date_min",
+            "start_date_max",
             "after_cursor",
             "next_cursor",
             "cursor_complete",
-            '"live": "true"',
+            '"closed": "false"',
+            '"include_children": "false"',
             '"related_tags": "false"',
+        ),
+        "src/polybot/lifecycle.py": (
+            "DISCOVERED_OPEN",
+            "PREGAME",
+            "IN_PLAY",
+            "POSTPONED",
+            "RESOLVED",
+            "wall time is intentionally not an input",
+            "minutes_to_scheduled_start",
         ),
         "src/polybot/classifier.py": (
             "PRESEASON",
@@ -3316,11 +3331,14 @@ def _validate_major_sports_research_strategy(
         ),
         "src/polybot/collector.py": (
             "all_complete",
+            "followup_complete",
             "liquidity_gate",
             "volume_gate",
             "threshold_vectors",
             '"episodes": episodes',
             '"paths": paths',
+            '"anchors": anchors',
+            '"sports_clock": sports_clock_rows',
             "resolution_observations",
             "storage safety gate reached STOP",
         ),
@@ -3328,23 +3346,30 @@ def _validate_major_sports_research_strategy(
             "trades_sim_????????.db",
             "threshold_state_carryovers",
             "episode_carryovers",
+            "tracked_game_carryovers",
             "append-only",
             "daily_rsync_canonical_filename",
             "PRAGMA quick_check",
         ),
         "src/polybot/analyzer.py": (
-            "major-sports-five-family-health-v1",
+            "major-sports-lifecycle-health-v2",
+            "config_hash x strategy_source_digest x mode x job_name cohort",
+            "NOT_UNIQUELY_SUCCEEDED",
+            "FIVE_FAMILY_CURSOR_INCOMPLETE",
             "PRESEASON",
+            "threshold_state_strata_by_notional",
+            "pregame_anchor_health",
             "liquidity_discovery_gate",
             "volume_discovery_gate",
             "profitability_conclusion",
         ),
         "src/polybot/source_digest.py": (
-            "frozen-2026-08-27-v1",
+            "research/EPOCHS.json",
+            "frozen-2026-08-27-v2",
             "SPORTS_REGISTRY.json",
             "MANIFEST.sha256",
             "verify_external_workspace.py",
-            "0001_major_sports_v1.sql",
+            "0002_major_sports_lifecycle_v2.sql",
             "verify_frozen_manifest",
         ),
         "scripts/verify_external_workspace.py": (
@@ -3396,7 +3421,7 @@ def _validate_major_sports_research_strategy(
 
     for relative, tokens in {
         "README.md": (
-            "coconut-major-sports-5m-v1",
+            "coconut-major-sports-lifecycle-5m-v2",
             "polybot-gold",
             "soccer",
             "MLB",
@@ -3408,6 +3433,7 @@ def _validate_major_sports_research_strategy(
             "0.75",
             "0.99",
             "$500",
+            "$1000",
             "--live",
         ),
         "STRATEGY.md": (
@@ -3416,37 +3442,48 @@ def _validate_major_sports_research_strategy(
             "UPWARD_CROSSING",
             "150 GiB/70%/80%",
             "health-only",
+            "event-by-ID follow-up",
         ),
         "OPERATIONS.md": (
             "/Volumes/t7/jenkins/polybot-gold",
             "H/5 * * * *",
             "scan/plan/sync/verify",
             "profitability",
+            "coconut-major-sports-lifecycle-5m-v2",
         ),
         ".env.example": (
             "POLYBOT_LIFECYCLE_MODE=archive_only",
             "POLYBOT_SIMULATION_MODE=true",
         ),
-        "research/frozen-2026-08-27-v1/PREREGISTRATION.md": (
-            "soccer, MLB, NBA, NFL",
+        "research/frozen-2026-08-27-v2/PREREGISTRATION.md": (
+            "soccer, MLB",
+            "NBA, NFL",
             "NHL",
             "0.75",
             "0.99",
             "PRESEASON",
-            "Displayed books are not fills",
+            "1,000 USDC",
+            "displayed-book research",
         ),
-        "research/frozen-2026-08-27-v1/DATA_CONTRACT.md": (
-            "major-sports-inplay-moneyline-census-v1",
+        "research/frozen-2026-08-27-v2/DATA_CONTRACT.md": (
+            "major-sports-lifecycle-census-v2",
             "trades_sim_YYYYMMDD.db",
-            "150 GiB",
+            "$1000",
+            "unique `SUCCEEDED`",
         ),
     }.items():
         content = _require_file(findings, strategy, directory / relative)
         _require_tokens(findings, strategy, relative, content, tokens)
 
     for relative in (
+        "research/EPOCHS.json",
+        "research/frozen-2026-08-27-v1/PREREGISTRATION.md",
+        "research/frozen-2026-08-27-v1/DATA_CONTRACT.md",
         "research/frozen-2026-08-27-v1/SPORTS_REGISTRY.json",
         "research/frozen-2026-08-27-v1/MANIFEST.sha256",
+        "research/frozen-2026-08-27-v2/SPORTS_REGISTRY.json",
+        "research/frozen-2026-08-27-v2/MANIFEST.sha256",
+        "tests/fixtures/major_sports_lifecycle_cases.json",
         "tests/test_config_safety.py",
         "tests/test_registry_classifier.py",
         "tests/test_gamma_client.py",

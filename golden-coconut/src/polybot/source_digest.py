@@ -7,13 +7,15 @@ from pathlib import Path
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-FROZEN_DIRECTORY = "research/frozen-2026-08-27-v1"
+EPOCH_CATALOG = "research/EPOCHS.json"
+FROZEN_DIRECTORY = "research/frozen-2026-08-27-v2"
 ACTIVE_PREREGISTRATION = f"{FROZEN_DIRECTORY}/PREREGISTRATION.md"
 ACTIVE_DATA_CONTRACT = f"{FROZEN_DIRECTORY}/DATA_CONTRACT.md"
 ACTIVE_REGISTRY = f"{FROZEN_DIRECTORY}/SPORTS_REGISTRY.json"
 ACTIVE_MANIFEST = f"{FROZEN_DIRECTORY}/MANIFEST.sha256"
 
 SOURCE_PATHS = (
+    "AGENTS.md",
     "pyproject.toml",
     "uv.lock",
     "config.yaml",
@@ -21,6 +23,7 @@ SOURCE_PATHS = (
     "STRATEGY.md",
     "OPERATIONS.md",
     "Jenkinsfile",
+    EPOCH_CATALOG,
     ACTIVE_PREREGISTRATION,
     ACTIVE_DATA_CONTRACT,
     ACTIVE_REGISTRY,
@@ -29,6 +32,7 @@ SOURCE_PATHS = (
     "src/polybot/config.py",
     "src/polybot/registry.py",
     "src/polybot/classifier.py",
+    "src/polybot/lifecycle.py",
     "src/polybot/crossings.py",
     "src/polybot/analyzer.py",
     "src/polybot/bot.py",
@@ -40,7 +44,8 @@ SOURCE_PATHS = (
     "src/polybot/api/clob_client.py",
     "src/polybot/api/sports_client.py",
     "src/polybot/db/repository.py",
-    "src/polybot/db/migrations/0001_major_sports_v1.sql",
+    "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql",
+    "tests/fixtures/major_sports_lifecycle_cases.json",
 )
 
 

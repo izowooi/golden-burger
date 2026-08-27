@@ -8,14 +8,15 @@ Evidence 해석은 [`EVIDENCE_CONTRACT.md`](EVIDENCE_CONTRACT.md)를 따른다.
 
 ## 상태
 
-2026-08-27 신규 prospective collector 구현. 아직 실측 cohort와 profitability verdict는 없다.
+2026-08-27 v1을 immutable archive로 남기고 lifecycle v2 prospective collector를 구현했다. 아직
+v2 실측 cohort와 profitability verdict는 없다.
 
 ## Frozen cohort
 
-- data contract: `major-sports-inplay-moneyline-census-v1`
-- runtime: `coconut-major-sports-5m-v1`
-- Jenkins: `polybot-gold` (parent integration 예정)
-- active DB: `data/coconut-major-sports-5m-v1/trades_sim.db`
+- data contract: `major-sports-lifecycle-census-v2`
+- runtime: `coconut-major-sports-lifecycle-5m-v2`
+- Jenkins: `polybot-gold`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v2/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only
@@ -32,6 +33,9 @@ cutoff를 기록한다. active와 UTC archive가 같은 inode인 handoff 순간�
 - eligible token의 book attempt, canonical gzip uniqueness, ladder completeness
 - threshold vector uniqueness와 left/gap censoring 계약
 - unique/void/tie resolution 분리
+- event-by-ID follow-up, explicit lifecycle terminal coverage, schedule revision, WSS/Gamma provenance
+- T-24h/T-60m/last-prestart anchor의 measured missingness와 no-imputation
+- `$5..$1000` 각 notional별 ladder/vector 완전성
 - 5분 atomic slot, 225/30/240초 deadline, receipt skew 90초
 - append-only trigger, create-only schema, rollback, `PRAGMA quick_check=ok`
 - external APFS marker, 150 GiB/70%/80% storage gate
