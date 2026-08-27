@@ -29,7 +29,7 @@ def test_no_transaction_sdk_or_authenticated_dependency():
 
 def test_sql_has_no_forbidden_transaction_table_names_and_no_alter():
     sql = (
-        ROOT / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
+        ROOT / "src/polybot/db/migrations/0003_major_sports_lifecycle_v3.sql"
     ).read_text(encoding="utf-8")
     tables = {
         match.casefold()
@@ -38,6 +38,22 @@ def test_sql_has_no_forbidden_transaction_table_names_and_no_alter():
     assert tables.isdisjoint({"orders", "fills", "positions", "wallets", "trades", "pnl"})
     assert "ALTER TABLE" not in sql.upper()
     assert "IF NOT EXISTS" not in sql.upper()
+
+
+def test_v2_migration_is_preserved_beside_create_only_v3():
+    v2 = (
+        ROOT / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
+    ).read_text(encoding="utf-8")
+    v3 = (
+        ROOT / "src/polybot/db/migrations/0003_major_sports_lifecycle_v3.sql"
+    ).read_text(encoding="utf-8")
+    assert "PRAGMA user_version=2" in v2
+    assert "start_date_min TEXT NOT NULL" in v2
+    assert "start_date_max TEXT NOT NULL" in v2
+    assert "PRAGMA user_version=3" in v3
+    assert "start_time_min TEXT NOT NULL" in v3
+    assert "start_time_max TEXT NOT NULL" in v3
+    assert "ALTER TABLE" not in v3.upper()
 
 
 def test_docs_and_config_use_daily_rsync_canonical_path_and_preseason_contract():

@@ -17,6 +17,18 @@ FIXTURE = json.loads(
 )
 
 
+def test_active_registry_is_v3_and_uses_v3_profiles():
+    root = Path(__file__).resolve().parents[1]
+    registry = json.loads(
+        (root / "research/frozen-2026-08-28-v3/SPORTS_REGISTRY.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert registry["schema_version"] == 3
+    assert registry["registry_profile"].endswith("-v3")
+    assert registry["classifier_version"].endswith("-v3")
+
+
 def test_registry_contains_exact_five_family_tags(config):
     assert tuple(config.registry.by_code) == FAMILY_ORDER
     assert {code: item.tag_id for code, item in config.registry.by_code.items()} == {

@@ -8,15 +8,18 @@ Evidence 해석은 [`EVIDENCE_CONTRACT.md`](EVIDENCE_CONTRACT.md)를 따른다.
 
 ## 상태
 
-2026-08-27 v1을 immutable archive로 남기고 lifecycle v2 prospective collector를 구현했다. 아직
-v2 실측 cohort와 profitability verdict는 없다.
+2026-08-27 v1을 immutable archive로 남기고 lifecycle v2 collector를 구현했으나,
+`start_date_*`가 경기 시작이 아니라 event 생성일을 제한해 범위 밖 경기가 유입됐고
+`DISCOVERED_OPEN` gate 때문에 book evidence가 0이었다. v2는 immutable invalidated collection으로
+보존하고 2026-08-28 v3 prospective collector를 새 DB로 시작한다. 아직 v3 실측 cohort와
+profitability verdict는 없다.
 
 ## Frozen cohort
 
-- data contract: `major-sports-lifecycle-census-v2`
-- runtime: `coconut-major-sports-lifecycle-5m-v2`
+- data contract: `major-sports-lifecycle-census-v3`
+- runtime: `coconut-major-sports-lifecycle-5m-v3`
 - Jenkins: `polybot-gold`
-- active DB: `data/coconut-major-sports-lifecycle-5m-v2/trades_sim.db`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only

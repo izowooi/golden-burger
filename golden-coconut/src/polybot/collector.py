@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -34,6 +34,7 @@ from .lifecycle import (
     classify_gamma_lifecycle,
     gamma_clock_fallback,
     minutes_to_scheduled_start,
+    parse_source_utc,
     raw_lifecycle_json,
 )
 
@@ -72,6 +73,47 @@ def _clock_raw(value: Any) -> str | None:
     if isinstance(value, (Mapping, list)):
         return canonical_json(value)
     return str(value)
+
+
+def _validate_discovery_window(
+    classification: EventClassification,
+    *,
+    window_min: datetime,
+    window_max: datetime,
+    tracked_event: bool,
+) -> EventClassification:
+    evidence = dict(classification.evidence)
+    scheduled_start_raw = evidence.get("scheduled_start_raw")
+    scheduled_start = parse_source_utc(evidence.get("scheduled_start_utc"))
+    if scheduled_start_raw in (None, ""):
+        status = "MISSING"
+    elif scheduled_start is None:
+        status = "INVALID"
+    elif window_min <= scheduled_start < window_max:
+        status = "WITHIN_WINDOW"
+    else:
+        status = "OUTSIDE_WINDOW"
+    evidence["discovery_window_validation"] = {
+        "status": status,
+        "tracked_event": tracked_event,
+        "half_open": True,
+        "start_time_min": iso_utc(window_min),
+        "start_time_max": iso_utc(window_max),
+    }
+    if tracked_event or status == "WITHIN_WINDOW":
+        return replace(classification, evidence=evidence)
+    reason = {
+        "MISSING": "DISCOVERY_SCHEDULE_MISSING",
+        "INVALID": "DISCOVERY_SCHEDULE_INVALID",
+        "OUTSIDE_WINDOW": "DISCOVERY_SCHEDULE_OUTSIDE_WINDOW",
+    }[status]
+    reasons = tuple(dict.fromkeys((*classification.reasons, reason)))
+    return replace(
+        classification,
+        status="REJECTED",
+        reasons=reasons,
+        evidence=evidence,
+    )
 
 
 @dataclass(frozen=True)
@@ -294,6 +336,11 @@ class Collector:
             (str(row["sport_family"]), str(row["event_id"])): row
             for row in prior_games.values()
         }
+        tracked_event_keys = {
+            key
+            for key, row in prior_by_event.items()
+            if str(row["lifecycle_state"]) not in TERMINAL_LIFECYCLE_STATES
+        }
         identity_fatal = False
 
         def append_event(
@@ -304,10 +351,19 @@ class Collector:
             observed_at: str,
             source_kind: str,
             logical_request_id: str,
+            discovery_window: tuple[datetime, datetime] | None = None,
+            tracked_discovery: bool = False,
         ) -> EventClassification:
             nonlocal identity_fatal
             family = self.config.registry.by_code[family_code]
             classification = classify_event(source_event, family, self.config.registry)
+            if discovery_window is not None:
+                classification = _validate_discovery_window(
+                    classification,
+                    window_min=discovery_window[0],
+                    window_max=discovery_window[1],
+                    tracked_event=tracked_discovery,
+                )
             event_row, event_tags, event_series, event_teams, lifecycle_row = self._event_rows(
                 event=source_event,
                 classification=classification,
@@ -415,6 +471,10 @@ class Collector:
             )
             sweep_results.append(sweep)
             sweep_id = uuid4().hex
+            window_min = parse_source_utc(sweep.start_time_min)
+            window_max = parse_source_utc(sweep.start_time_max)
+            if window_min is None or window_max is None or window_min >= window_max:
+                raise ValueError("Gamma discovery sweep must carry an exact UTC time window")
             accepted = rejected = drift = 0
             for page in sweep.pages:
                 receipts.append(page.received_at)
@@ -452,6 +512,8 @@ class Collector:
                         page.received_at,
                         "DISCOVERY",
                         page.request_id,
+                        (window_min, window_max),
+                        event_key in tracked_event_keys,
                     )
                     accepted += int(classification.status == "ACCEPTED")
                     rejected += int(classification.status == "REJECTED")
@@ -472,8 +534,8 @@ class Collector:
                     "drift_event_count": drift,
                     "cursor_complete": int(sweep.cursor_complete),
                     "terminal_cursor": sweep.terminal_cursor,
-                    "start_date_min": sweep.start_date_min,
-                    "start_date_max": sweep.start_date_max,
+                    "start_time_min": sweep.start_time_min,
+                    "start_time_max": sweep.start_time_max,
                     "request_envelope_json": canonical_json(
                         {
                             "endpoint": self.config.trading.gamma.endpoint,
@@ -481,8 +543,8 @@ class Collector:
                             "include_children": False,
                             "tag_id": family.tag_id,
                             "related_tags": False,
-                            "start_date_min": sweep.start_date_min,
-                            "start_date_max": sweep.start_date_max,
+                            "start_time_min": sweep.start_time_min,
+                            "start_time_max": sweep.start_time_max,
                             "page_size": self.config.trading.gamma.page_size,
                             "live": None,
                             "liquidity_gate": None,
@@ -570,7 +632,7 @@ class Collector:
         if not followup_complete and fatal_error is None:
             fatal_error = "one or more carried games lacked an explicit Gamma follow-up"
         if identity_fatal and fatal_error is None:
-            fatal_error = "canonical game identity changed inside the immutable v2 epoch"
+            fatal_error = "canonical game identity changed inside the immutable v3 epoch"
 
         census_healthy = all_complete and followup_complete and not identity_fatal
         empty_clock = ClockBatch(
@@ -776,6 +838,7 @@ class Collector:
                     if not condition_id or not market_id:
                         extra_reasons.append("MARKET_IDENTITY_MISSING")
                     phase_eligible = event_row["lifecycle_state"] in {
+                        "DISCOVERED_OPEN",
                         "PREGAME",
                         "IN_PLAY",
                     }
@@ -1044,11 +1107,14 @@ class Collector:
             outcome = context["outcome"]
             market = context["market"]
             event = context["event"]
-            if snapshot is not None and event["lifecycle_state"] == "PREGAME":
+            if snapshot is not None and event["lifecycle_state"] in {
+                "DISCOVERED_OPEN",
+                "PREGAME",
+            }:
                 minutes = minutes_to_scheduled_start(
                     str(snapshot["observed_at"]), event.get("scheduled_start_utc")
                 )
-                if minutes is not None and minutes >= 0:
+                if minutes is not None and minutes > 0:
                     anchors.append(
                         {
                             "game_anchor_observation_id": uuid4().hex,
@@ -1476,8 +1542,8 @@ class Collector:
                         }
                         for item in self.config.registry.families
                     },
-                    "start_date_min": sweeps[0]["start_date_min"],
-                    "start_date_max": sweeps[0]["start_date_max"],
+                    "start_time_min": sweeps[0]["start_time_min"],
+                    "start_time_max": sweeps[0]["start_time_max"],
                     "liquidity_gate": None,
                     "volume_gate": None,
                     "cadence_minutes": 5,

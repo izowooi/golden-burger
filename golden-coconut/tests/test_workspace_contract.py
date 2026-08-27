@@ -27,6 +27,11 @@ def test_marker_has_exact_three_daily_rsync_keys(tmp_path):
     assert set(payload) == {"schema_version", "job", "workspace"}
 
 
+def test_workspace_report_uses_current_runtime_without_changing_marker_schema():
+    assert workspace_module.RUNTIME_JOB == "coconut-major-sports-lifecycle-5m-v3"
+    assert workspace_module.JENKINS_JOB == "polybot-gold"
+
+
 def test_wrong_jenkins_job_fails_before_mount_access(tmp_path):
     with pytest.raises(workspace_module.WorkspaceVerificationError, match="polybot-gold"):
         workspace_module.verify_external_workspace(

@@ -1217,7 +1217,16 @@ def test_research_archive_completed_at_uses_publication_ctime(tmp_path: Path) ->
     assert record["completed_at"] > remote_agent.iso_from_ns(old_timestamp_ns)
 
 
-def test_coconut_research_snapshot_uses_coconut_cycle_lock(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "runtime_job",
+    (
+        "coconut-major-sports-lifecycle-5m-v2",
+        "coconut-major-sports-lifecycle-5m-v3",
+    ),
+)
+def test_coconut_research_snapshot_uses_coconut_cycle_lock(
+    tmp_path: Path, runtime_job: str
+) -> None:
     home = tmp_path / ".jenkins"
     job = "polybot-gold"
     database = (
@@ -1226,7 +1235,7 @@ def test_coconut_research_snapshot_uses_coconut_cycle_lock(tmp_path: Path) -> No
         / job
         / "golden-coconut"
         / "data"
-        / "coconut-major-sports-lifecycle-5m-v2"
+        / runtime_job
         / "trades_sim.db"
     )
     make_research_db(database)

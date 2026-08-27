@@ -32,8 +32,8 @@ class EventSweep:
     pages: tuple[EventPage, ...]
     cursor_complete: bool
     terminal_cursor: str | None
-    start_date_min: str
-    start_date_max: str
+    start_time_min: str
+    start_time_max: str
 
 
 @dataclass(frozen=True)
@@ -62,10 +62,10 @@ class GammaClient:
         slot = parse_source_utc(slot_start)
         if slot is None:
             raise ValueError("Gamma discovery slot_start must be exact UTC")
-        start_date_min = iso_utc(
+        start_time_min = iso_utc(
             slot - timedelta(hours=self.config.discovery_lookback_hours)
         )
-        start_date_max = iso_utc(
+        start_time_max = iso_utc(
             slot + timedelta(hours=self.config.discovery_lookahead_hours)
         )
         after_cursor: str | None = None
@@ -78,8 +78,8 @@ class GammaClient:
                 "include_children": "false",
                 "tag_id": family.tag_id,
                 "related_tags": "false",
-                "start_date_min": start_date_min,
-                "start_date_max": start_date_max,
+                "start_time_min": start_time_min,
+                "start_time_max": start_time_max,
             }
             if after_cursor is not None:
                 params["after_cursor"] = after_cursor
@@ -123,8 +123,8 @@ class GammaClient:
                     tuple(pages),
                     True,
                     after_cursor,
-                    start_date_min,
-                    start_date_max,
+                    start_time_min,
+                    start_time_max,
                 )
             if next_cursor == after_cursor or next_cursor in seen:
                 raise ValueError(f"Gamma {family.code} keyset cursor repeated")
@@ -136,8 +136,8 @@ class GammaClient:
             tuple(pages),
             False,
             after_cursor,
-            start_date_min,
-            start_date_max,
+            start_time_min,
+            start_time_max,
         )
 
     def fetch_event(

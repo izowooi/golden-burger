@@ -2,8 +2,13 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+import gzip
 import hashlib
 import json
+from pathlib import Path
+import sqlite3
+
+import pytest
 
 from polybot.analyzer import analyze_database
 from polybot.api.clob_client import (
@@ -222,12 +227,14 @@ def source_events(config, make_us_event, make_us_market, make_soccer_event, make
         make_soccer_market("Draw", 2),
         make_soccer_market("Away FC", 3),
     ]
+    soccer["startTime"] = "2026-08-27T12:00:00Z"
     events["soccer"] = soccer
     for family in ("mlb", "nba", "nfl", "nhl"):
         event = make_us_event(
             family, phase="PRESEASON" if family == "nfl" else None
         )
         event["markets"] = [make_us_market(family)]
+        event["startTime"] = "2026-08-27T12:00:00Z"
         events[family] = event
     return events
 
@@ -295,10 +302,14 @@ def test_five_family_collection_crossing_and_analyzer(
     publish(repository, config, second, "run-2")
 
     analysis = analyze_database(repository.path)
-    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v2"
+    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v3"
     assert analysis["cycle_selection"]["selected_cycles"] == 2
     assert analysis["sport_coverage"]["missing_sports"] == []
     assert analysis["sport_coverage"]["sport_equal_macro_public_book_coverage_pct"] == 100
+    assert analysis["sport_coverage"]["lifecycle_states_are_never_pooled"] is True
+    assert analysis["schedule_window_accounting"]["gate_passed"] is True
+    assert analysis["schedule_window_accounting"]["accounted_observations"] == 10
+    assert analysis["health"]["gate_checks"]["schedule_window_accounting"] is True
     assert analysis["season_phase_contract"]["phases_are_never_pooled"] is True
     assert analysis["sport_coverage"]["by_sport"]["nfl"]["by_season_phase"]["PRESEASON"]
     assert analysis["event_clustering"]["soccer_clusters_missing_home_draw_away"] == 0
@@ -436,3 +447,260 @@ def test_discovered_games_are_followed_to_explicit_terminal_state(
         analysis["lifecycle_health"]["terminal_coverage_for_ended_games_pct"]
         == 100
     )
+
+
+@pytest.mark.parametrize(
+    ("scheduled_start", "expected_reason"),
+    [
+        (None, "DISCOVERY_SCHEDULE_MISSING"),
+        ("not-a-timestamp", "DISCOVERY_SCHEDULE_INVALID"),
+        ("2026-08-29T00:00:00Z", "DISCOVERY_SCHEDULE_OUTSIDE_WINDOW"),
+    ],
+    ids=("missing", "invalid", "upper-bound-exclusive"),
+)
+def test_new_discovery_schedule_is_revalidated_and_raw_evidence_is_preserved(
+    config,
+    make_us_event,
+    make_us_market,
+    make_soccer_event,
+    make_soccer_market,
+    monkeypatch,
+    scheduled_start,
+    expected_reason,
+):
+    monkeypatch.setattr("polybot.collector.storage_metric_row", fake_storage_metric)
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+    repository.register_config()
+    events = source_events(
+        config, make_us_event, make_us_market, make_soccer_event, make_soccer_market
+    )
+    if scheduled_start is None:
+        events["nba"].pop("startTime")
+    else:
+        events["nba"]["startTime"] = scheduled_start
+
+    observed_at = "2026-08-27T00:00:00Z"
+    product = Collector(
+        config,
+        repository,
+        FakeGamma(events, observed_at),
+        FakeClob(0.80, observed_at),
+        FakeClockNoMessage(observed_at),
+    ).collect(
+        f"run-schedule-{expected_reason}",
+        slot_start=observed_at,
+        budget=CycleBudget(0, monotonic=lambda: 0),
+        now=datetime(2026, 8, 27, tzinfo=timezone.utc),
+    )
+
+    assert product.fatal_error is None
+    event = next(
+        row for row in product.bundle["events"] if row["sport_family"] == "nba"
+    )
+    assert event["classification_status"] == "REJECTED"
+    assert expected_reason in event["classification_reason"].split(";")
+    assert not any(
+        row["sport_family"] == "nba" for row in product.bundle["outcomes"]
+    )
+
+    raw_payload = next(
+        row
+        for row in product.bundle["raw_payloads"]
+        if row["raw_payload_id"] == event["raw_payload_id"]
+    )
+    decoded = json.loads(gzip.decompress(raw_payload["payload_gzip"]))
+    assert decoded["events"][0]["id"] == events["nba"]["id"]
+    if scheduled_start is not None:
+        assert decoded["events"][0]["startTime"] == scheduled_start
+
+    run_id = f"run-schedule-{expected_reason}"
+    publish(repository, config, product, run_id)
+    analysis = analyze_database(repository.path)
+    family = analysis["schedule_window_accounting"]["by_sport"]["nba"]
+    assert family["schedule_rejection_reasons"][expected_reason] == 1
+    assert analysis["schedule_window_accounting"]["gate_passed"] is True
+
+
+def test_tracked_event_reappearing_outside_window_keeps_followup_tracking(
+    config,
+    make_us_event,
+    make_us_market,
+    make_soccer_event,
+    make_soccer_market,
+    monkeypatch,
+):
+    monkeypatch.setattr("polybot.collector.storage_metric_row", fake_storage_metric)
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+    repository.register_config()
+    events = source_events(
+        config, make_us_event, make_us_market, make_soccer_event, make_soccer_market
+    )
+    first_time = "2026-08-27T00:00:00Z"
+    first = Collector(
+        config,
+        repository,
+        FakeGamma(events, first_time),
+        FakeClob(0.80, first_time),
+        FakeClockNoMessage(first_time),
+    ).collect(
+        "run-tracked-window-1",
+        slot_start=first_time,
+        budget=CycleBudget(0, monotonic=lambda: 0),
+        now=datetime(2026, 8, 27, tzinfo=timezone.utc),
+    )
+    publish(repository, config, first, "run-tracked-window-1")
+
+    events["nba"]["startTime"] = "2026-09-01T00:00:00Z"
+    second_time = "2026-08-27T00:05:00Z"
+    second = Collector(
+        config,
+        repository,
+        FakeGamma(events, second_time),
+        FakeClob(0.81, second_time),
+        FakeClockNoMessage(second_time),
+    ).collect(
+        "run-tracked-window-2",
+        slot_start=second_time,
+        budget=CycleBudget(0, monotonic=lambda: 0),
+        now=datetime(2026, 8, 27, 0, 5, tzinfo=timezone.utc),
+    )
+
+    event = next(
+        row for row in second.bundle["events"] if row["sport_family"] == "nba"
+    )
+    validation = json.loads(event["classification_evidence_json"])[
+        "discovery_window_validation"
+    ]
+    assert event["classification_status"] == "ACCEPTED"
+    assert validation["status"] == "OUTSIDE_WINDOW"
+    assert validation["tracked_event"] is True
+    assert any(
+        row["sport_family"] == "nba"
+        and row["source_kind"] == "GAMMA_DISCOVERY"
+        for row in second.bundle["game_lifecycle"]
+    )
+
+
+def test_discovered_open_collects_books_vectors_and_future_prestart_anchor(
+    config,
+    make_us_event,
+    make_us_market,
+    make_soccer_event,
+    make_soccer_market,
+    monkeypatch,
+):
+    monkeypatch.setattr("polybot.collector.storage_metric_row", fake_storage_metric)
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+    repository.register_config()
+    events = source_events(
+        config, make_us_event, make_us_market, make_soccer_event, make_soccer_market
+    )
+    events["nba"].pop("live")
+    events["nba"].pop("ended")
+    events["nba"]["startTime"] = "2026-08-27T01:00:00Z"
+    observed_at = "2026-08-27T00:00:00Z"
+
+    product = Collector(
+        config,
+        repository,
+        FakeGamma(events, observed_at),
+        FakeClob(0.80, observed_at),
+        FakeClockNoMessage(observed_at),
+    ).collect(
+        "run-discovered-open",
+        slot_start=observed_at,
+        budget=CycleBudget(0, monotonic=lambda: 0),
+        now=datetime(2026, 8, 27, tzinfo=timezone.utc),
+    )
+
+    nba_event = next(
+        row for row in product.bundle["events"] if row["sport_family"] == "nba"
+    )
+    nba_tokens = {"nba-token-a", "nba-token-b"}
+    assert nba_event["classification_status"] == "ACCEPTED"
+    assert nba_event["lifecycle_state"] == "DISCOVERED_OPEN"
+    assert {
+        row["lifecycle_state"]
+        for row in product.bundle["markets"]
+        if row["sport_family"] == "nba"
+    } == {"DISCOVERED_OPEN"}
+    assert {
+        row["token_id"]
+        for row in product.bundle["book_snapshots"]
+        if row["token_id"] in nba_tokens
+    } == nba_tokens
+    assert sum(
+        row["token_id"] in nba_tokens for row in product.bundle["book_ladder"]
+    ) == len(nba_tokens) * len(
+        config.trading.research.executable_notional_ladder_usdc
+    )
+    assert sum(
+        row["token_id"] in nba_tokens for row in product.bundle["threshold_vectors"]
+    ) == len(nba_tokens) * len(
+        config.trading.research.executable_notional_ladder_usdc
+    )
+    assert {
+        row["lifecycle_state"]
+        for row in product.bundle["threshold_vectors"]
+        if row["token_id"] in nba_tokens
+    } == {"DISCOVERED_OPEN"}
+    assert {
+        row["token_id"] for row in product.bundle["anchors"]
+    } == nba_tokens
+    assert all(
+        row["minutes_to_scheduled_start"] == 60
+        and row["anchor_role"] == "PRESTART_CANDIDATE"
+        for row in product.bundle["anchors"]
+    )
+    publish(repository, config, product, "run-discovered-open")
+    analysis = analyze_database(repository.path)
+    nba = analysis["sport_coverage"]["by_sport"]["nba"]["by_lifecycle_state"]
+    assert nba["DISCOVERED_OPEN"]["public_book_coverage_pct"] == 100
+    assert nba["PREGAME"]["public_book_coverage_pct"] is None
+    assert analysis["schedule_anchor_health"]["lifecycle_strata_are_never_pooled"] is True
+
+
+def test_discovery_lower_time_bound_is_inclusive(
+    config,
+    make_us_event,
+    make_us_market,
+    make_soccer_event,
+    make_soccer_market,
+    monkeypatch,
+):
+    monkeypatch.setattr("polybot.collector.storage_metric_row", fake_storage_metric)
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+    repository.register_config()
+    events = source_events(
+        config, make_us_event, make_us_market, make_soccer_event, make_soccer_market
+    )
+    events["nba"]["startTime"] = "2026-08-26T00:00:00Z"
+    observed_at = "2026-08-27T00:00:00Z"
+    product = Collector(
+        config,
+        repository,
+        FakeGamma(events, observed_at),
+        FakeClob(0.80, observed_at),
+        FakeClockNoMessage(observed_at),
+    ).collect(
+        "run-lower-inclusive",
+        slot_start=observed_at,
+        budget=CycleBudget(0, monotonic=lambda: 0),
+        now=datetime(2026, 8, 27, tzinfo=timezone.utc),
+    )
+    event = next(
+        row for row in product.bundle["events"] if row["sport_family"] == "nba"
+    )
+    evidence = json.loads(event["classification_evidence_json"])
+    assert event["classification_status"] == "ACCEPTED"
+    assert evidence["discovery_window_validation"]["status"] == "WITHIN_WINDOW"
+
+
+def test_analyzer_rejects_historical_v2_schema(tmp_path):
+    root = Path(__file__).resolve().parents[1]
+    database = tmp_path / "trades_sim.db"
+    migration = root / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
+    with sqlite3.connect(database) as connection:
+        connection.executescript(migration.read_text(encoding="utf-8"))
+    with pytest.raises(ValueError, match="schema epoch must be v3"):
+        analyze_database(database)

@@ -24,12 +24,12 @@ from .source_digest import (
 )
 
 
-CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v2"
-DATA_CONTRACT = "major-sports-lifecycle-census-v2"
+CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v3"
+DATA_CONTRACT = "major-sports-lifecycle-census-v3"
 COLLECTION_CONTRACT = "research-full-v1"
-SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v2"
-UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v2"
-CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v2"
+SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v3"
+UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v3"
+CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v3"
 THRESHOLD_GRID = tuple(Decimal(value) / 100 for value in range(75, 100))
 NOTIONAL_LADDER = (
     5.0,
@@ -330,7 +330,9 @@ def _validate(config: BotConfig) -> None:
     if gamma.related_tags is not False or gamma.include_children is not False:
         raise ValueError("Gamma must use related_tags=false and include_children=false")
     if (gamma.discovery_lookback_hours, gamma.discovery_lookahead_hours) != (24, 48):
-        raise ValueError("Gamma discovery start window must remain slot-24h through slot+48h")
+        raise ValueError(
+            "Gamma scheduled-start discovery window must remain slot-24h through slot+48h"
+        )
     if not 0 <= gamma.max_retries <= 4:
         raise ValueError("Gamma retry count is outside the bounded envelope")
     if trading.clob.base_url != "https://clob.polymarket.com":

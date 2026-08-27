@@ -6,9 +6,9 @@
 |---|---|
 | Jenkins job | `polybot-gold` |
 | workspace | `/Volumes/t7/jenkins/polybot-gold` |
-| runtime | `coconut-major-sports-lifecycle-5m-v2` |
+| runtime | `coconut-major-sports-lifecycle-5m-v3` |
 | schedule | `H/5 * * * *` |
-| active DB | `data/coconut-major-sports-lifecycle-5m-v2/trades_sim.db` |
+| active DB | `data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db` |
 
 concurrent build와 workspace clean을 끈다. collector는 외장 APFS volume, exact mount/device UUID,
 shared Raspberry sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
@@ -47,7 +47,8 @@ network 전에 실패한다. credential을 `unset`해 숨기지 않는다.
 3. `polybot config --simulate`
 4. storage preflight: free 150 GiB, warn 70%, stop 80%
 5. atomic UTC 5분 slot claim
-6. soccer/MLB/NBA/NFL/NHL의 `closed=false`, `slot-24h..slot+48h` 독립 cursor-complete sweep
+6. soccer/MLB/NBA/NFL/NHL의 `closed=false`, 실제 경기 시작 시각
+   `start_time_min/max=slot-24h..slot+48h` 독립 cursor-complete sweep과 client-side schedule 재검증
 7. discovery에서 빠진 tracked game의 Gamma event-by-ID lifecycle follow-up
 8. public sports clock, same-cycle Gamma fallback, full books, optional public fee, resolution observation
 9. atomic evidence publication과 `SUCCEEDED` 또는 evidence-backed `FAILED`
@@ -59,11 +60,11 @@ cooperative budget은 225초, 새 request stop margin은 30초, hard cycle은 24
 ## Daily-rsync와 analyzer
 
 parent가 inventory/Jenkins routing을 통합한 뒤 `polybot-gold × golden-coconut ×
-coconut-major-sports-lifecycle-5m-v2` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
+coconut-major-sports-lifecycle-5m-v3` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
 `trades_sim.db`와 필요한 `trades_sim_YYYYMMDD.db`만 analyzer에 넘긴다.
 
 ```bash
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v2 \
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v3 \
   --db /absolute/verified/trades_sim_20260827.db \
   --db /absolute/verified/trades_sim.db \
   --output /tmp/golden-coconut-health.json
@@ -79,6 +80,8 @@ health-only 결과로 profitability를 주장하지 않는다.
 - family cursor incomplete: partial family census를 사용하지 않고 next cycle에서 source envelope 확인
 - lifecycle follow-up failure: 해당 cycle을 실패시키고 event ID/slug raw receipt를 보존한 뒤 다음
   cycle에서 재시도
+- schedule envelope drift: raw page는 보존하되 신규 event를 거절하고 `start_time_*` 요청과
+  canonical scheduled start의 half-open 판정을 대조
 - identity drift: compressed Gamma raw와 frozen `SPORTS_REGISTRY.json` hash 대조
 - book malformed/partial: full로 보간하지 않고 상태 보존
 - fee unavailable: fallback 금지

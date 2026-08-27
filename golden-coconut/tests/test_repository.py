@@ -54,8 +54,8 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
             "drift_event_count": 0,
             "cursor_complete": 1,
             "terminal_cursor": None,
-            "start_date_min": "2026-08-26T00:00:00Z",
-            "start_date_max": "2026-08-29T00:00:00Z",
+            "start_time_min": "2026-08-26T00:00:00Z",
+            "start_time_max": "2026-08-29T00:00:00Z",
             "request_envelope_json": "{}",
         }
         for family in FAMILY_ORDER
@@ -91,15 +91,33 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
 def test_create_only_schema_has_required_domains_and_no_transaction_tables(config):
     repository = ResearchRepository(config, database_utc_date="2026-08-27")
     with repository.read_connect() as connection:
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
         tables = {
             row[0]
             for row in connection.execute(
                 "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             )
         }
+        sweep_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(sport_sweeps)")
+        }
     assert set(APPEND_ONLY_TABLES) == tables
     assert tables.isdisjoint({"orders", "fills", "positions", "wallets", "trades", "pnl"})
+    assert {"start_time_min", "start_time_max"} <= sweep_columns
+    assert {"start_date_min", "start_date_max"}.isdisjoint(sweep_columns)
     assert repository.path.name == "trades_sim.db"
+
+
+def test_v3_repository_rejects_a_v2_database(config):
+    config.db_path.parent.mkdir(parents=True, exist_ok=True)
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
+    )
+    with sqlite3.connect(config.db_path) as connection:
+        connection.executescript(migration.read_text(encoding="utf-8"))
+    with pytest.raises(RuntimeError, match="application/user version epoch mismatch"):
+        ResearchRepository(config, database_utc_date="2026-08-27")
 
 
 def test_every_evidence_table_rejects_update_and_delete(config):
@@ -158,6 +176,21 @@ def test_success_bundle_commits_cycle_and_terminal_event(config):
         assert connection.execute(
             "SELECT event_type FROM research_run_events"
         ).fetchone()[0] == "SUCCEEDED"
+
+
+def test_stale_v2_sweep_payload_cannot_publish_into_v3(config):
+    repository = ResearchRepository(config, database_utc_date="2026-08-27")
+    bundle = minimal_bundle(config)
+    for sweep in bundle["sweeps"]:
+        sweep["start_date_min"] = sweep.pop("start_time_min")
+        sweep["start_date_max"] = sweep.pop("start_time_max")
+    audit = ResearchRunAudit(config, "run-1")
+    with pytest.raises(sqlite3.OperationalError, match="start_date_min"):
+        repository.publish_cycle(
+            bundle, terminal_event=audit.event_row("SUCCEEDED")
+        )
+    with repository.read_connect() as connection:
+        assert connection.execute("SELECT COUNT(*) FROM collection_cycles").fetchone()[0] == 0
 
 
 def test_utc_rotation_archives_whole_canonical_file_and_creates_new_active(config):

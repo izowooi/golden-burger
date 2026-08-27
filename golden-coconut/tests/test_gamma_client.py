@@ -54,9 +54,15 @@ def test_cursor_completion_and_exact_envelope(config):
         "include_children": "false",
         "tag_id": 745,
         "related_tags": "false",
-        "start_date_min": "2026-08-26T00:00:00Z",
-        "start_date_max": "2026-08-29T00:00:00Z",
+        "start_time_min": "2026-08-26T00:00:00Z",
+        "start_time_max": "2026-08-29T00:00:00Z",
     }
+    assert sweep.start_time_min == "2026-08-26T00:00:00Z"
+    assert sweep.start_time_max == "2026-08-29T00:00:00Z"
+    assert not {
+        "start_date_min",
+        "start_date_max",
+    } & transport.calls[0][2]["params"].keys()
     assert "live" not in transport.calls[0][2]["params"]
     assert transport.calls[1][2]["params"]["after_cursor"] == "next"
 

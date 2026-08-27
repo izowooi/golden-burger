@@ -1,4 +1,4 @@
-"""Read-only v2 collection-health and preregistered strata analysis."""
+"""Read-only v3 collection-health and preregistered strata analysis."""
 
 from __future__ import annotations
 
@@ -11,11 +11,19 @@ import sqlite3
 import statistics
 from typing import Any, Iterable, Mapping
 
-from .config import DATA_CONTRACT, NOTIONAL_LADDER, THRESHOLD_GRID
+from .config import (
+    CLASSIFIER_VERSION,
+    COLLECTION_CONTRACT,
+    DATA_CONTRACT,
+    NOTIONAL_LADDER,
+    SCHEMA_PROFILE,
+    THRESHOLD_GRID,
+    UNIVERSE_PROFILE,
+)
 from .registry import FAMILY_ORDER
 
 
-ANALYZER_CONTRACT = "major-sports-lifecycle-health-v2"
+ANALYZER_CONTRACT = "major-sports-lifecycle-health-v3"
 SEASON_PHASES = (
     "PRESEASON",
     "REGULAR",
@@ -24,6 +32,15 @@ SEASON_PHASES = (
     "NOT_APPLICABLE",
 )
 TERMINAL_STATES = frozenset({"CANCELLED", "RESOLVED", "VOID", "TIE"})
+BOOK_LIFECYCLE_STATES = ("DISCOVERED_OPEN", "PREGAME", "IN_PLAY")
+SCHEDULE_WINDOW_STATUSES = frozenset(
+    {"MISSING", "INVALID", "WITHIN_WINDOW", "OUTSIDE_WINDOW"}
+)
+SCHEDULE_REASONS = {
+    "MISSING": "DISCOVERY_SCHEDULE_MISSING",
+    "INVALID": "DISCOVERY_SCHEDULE_INVALID",
+    "OUTSIDE_WINDOW": "DISCOVERY_SCHEDULE_OUTSIDE_WINDOW",
+}
 
 
 def _ratio(numerator: int, denominator: int) -> float | None:
@@ -78,8 +95,23 @@ def _read_shard(path: Path) -> dict[str, Any]:
     connection = _open(path)
     try:
         quick = str(connection.execute("PRAGMA quick_check").fetchone()[0])
+        user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
+        if user_version != 3:
+            raise ValueError("analyzer database schema epoch must be v3")
         metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
-        if metadata_row is None or str(metadata_row["data_contract"]) != DATA_CONTRACT:
+        if metadata_row is None:
+            raise ValueError("analyzer database has no schema metadata")
+        expected_metadata = {
+            "data_contract": DATA_CONTRACT,
+            "collection_contract": COLLECTION_CONTRACT,
+            "schema_profile": SCHEMA_PROFILE,
+            "universe_profile": UNIVERSE_PROFILE,
+            "classifier_version": CLASSIFIER_VERSION,
+        }
+        actual_metadata = {
+            key: str(metadata_row[key]) for key in expected_metadata
+        }
+        if actual_metadata != expected_metadata:
             raise ValueError("analyzer database contract mismatch")
         table_names = {
             str(row[0])
@@ -91,11 +123,20 @@ def _read_shard(path: Path) -> dict[str, Any]:
         forbidden = {"orders", "fills", "positions", "wallets", "trades", "pnl", "p&l"}
         if {name.casefold() for name in table_names} & forbidden:
             raise ValueError("analyzer found a forbidden transactional table")
+        sweep_columns = {
+            str(row[1]) for row in connection.execute("PRAGMA table_info(sport_sweeps)")
+        }
+        if not {"start_time_min", "start_time_max"} <= sweep_columns or {
+            "start_date_min",
+            "start_date_max",
+        } & sweep_columns:
+            raise ValueError("analyzer sport_sweeps schedule columns are not v3")
         result = {
             "path": str(path.resolve()),
             "file_bytes": path.stat().st_size,
             "quick_check": quick,
             "metadata": dict(metadata_row),
+            "user_version": user_version,
         }
         for table in (
             "research_config_versions",
@@ -227,16 +268,25 @@ def _selected(rows: list[dict[str, Any]], cycle_ids: set[str]) -> list[dict[str,
 def _anchor_report(
     anchors: list[dict[str, Any]], outcomes: list[dict[str, Any]]
 ) -> dict[str, Any]:
-    denominator = {
-        (str(row["event_cluster_id"]), str(row["token_id"]))
-        for row in outcomes
-        if row["threshold_eligible"] and str(row["lifecycle_state"]) == "PREGAME"
+    denominators = {
+        lifecycle_state: {
+            (str(row["event_cluster_id"]), str(row["token_id"]))
+            for row in outcomes
+            if row["threshold_eligible"]
+            and str(row["lifecycle_state"]) == lifecycle_state
+        }
+        for lifecycle_state in ("PREGAME", "DISCOVERED_OPEN")
     }
     grouped: defaultdict[tuple[str, str], list[dict[str, Any]]] = defaultdict(list)
     for row in anchors:
         grouped[(str(row["event_cluster_id"]), str(row["token_id"]))].append(row)
 
-    def target_summary(target_minutes: float, *, last: bool = False) -> dict[str, Any]:
+    def target_summary(
+        denominator: set[tuple[str, str]],
+        target_minutes: float,
+        *,
+        last: bool = False,
+    ) -> dict[str, Any]:
         errors: list[float] = []
         selected_count = 0
         for key in denominator:
@@ -266,10 +316,92 @@ def _anchor_report(
 
     return {
         "sample_unit": "unique_event_cluster_x_token",
-        "t_minus_24h": target_summary(1440.0),
-        "t_minus_60m": target_summary(60.0),
-        "last_prestart": target_summary(0.0, last=True),
+        "by_lifecycle_state": {
+            lifecycle_state: {
+                "t_minus_24h": target_summary(denominator, 1440.0),
+                "t_minus_60m": target_summary(denominator, 60.0),
+                "last_prestart": target_summary(denominator, 0.0, last=True),
+            }
+            for lifecycle_state, denominator in denominators.items()
+        },
+        "lifecycle_strata_are_never_pooled": True,
         "missingness_is_reported_and_never_imputed": True,
+    }
+
+
+def _schedule_window_accounting(events: list[dict[str, Any]]) -> dict[str, Any]:
+    discovery = [row for row in events if str(row["source_kind"]) == "DISCOVERY"]
+    by_family: dict[str, Any] = {}
+    violations: Counter[str] = Counter()
+    accounted = 0
+
+    for family in FAMILY_ORDER:
+        rows = [row for row in discovery if str(row["sport_family"]) == family]
+        statuses: Counter[str] = Counter()
+        classifications: Counter[str] = Counter()
+        rejection_reasons: Counter[str] = Counter()
+        tracked_outside = 0
+        family_accounted = 0
+
+        for row in rows:
+            classification = str(row["classification_status"])
+            classifications[classification] += 1
+            reasons = {
+                reason
+                for reason in str(row.get("classification_reason") or "").split(";")
+                if reason
+            }
+            for reason in reasons & set(SCHEDULE_REASONS.values()):
+                rejection_reasons[reason] += 1
+            try:
+                evidence = json.loads(str(row["classification_evidence_json"]))
+            except (json.JSONDecodeError, TypeError):
+                evidence = None
+            validation = (
+                evidence.get("discovery_window_validation")
+                if isinstance(evidence, Mapping)
+                else None
+            )
+            if not isinstance(validation, Mapping):
+                violations["MISSING_DISCOVERY_WINDOW_VALIDATION"] += 1
+                continue
+            status = str(validation.get("status") or "")
+            tracked = validation.get("tracked_event") is True
+            half_open = validation.get("half_open") is True
+            if status not in SCHEDULE_WINDOW_STATUSES or not half_open:
+                violations["INVALID_DISCOVERY_WINDOW_VALIDATION"] += 1
+                continue
+            family_accounted += 1
+            accounted += 1
+            statuses[status] += 1
+            if tracked and status == "OUTSIDE_WINDOW":
+                tracked_outside += 1
+            expected_reason = SCHEDULE_REASONS.get(status)
+            if not tracked and status != "WITHIN_WINDOW":
+                if classification != "REJECTED":
+                    violations["NEW_OUT_OF_WINDOW_EVENT_NOT_REJECTED"] += 1
+                if expected_reason not in reasons:
+                    violations["SCHEDULE_REJECTION_REASON_MISSING"] += 1
+
+        by_family[family] = {
+            "discovery_event_observations": len(rows),
+            "accounted_observations": family_accounted,
+            "accounting_coverage_pct": _ratio(family_accounted, len(rows)),
+            "window_statuses": dict(sorted(statuses.items())),
+            "classification_statuses": dict(sorted(classifications.items())),
+            "schedule_rejection_reasons": dict(sorted(rejection_reasons.items())),
+            "tracked_outside_window_observations": tracked_outside,
+        }
+
+    return {
+        "contract": "UTC_HALF_OPEN_START_TIME_V3",
+        "discovery_event_observations": len(discovery),
+        "accounted_observations": accounted,
+        "accounting_coverage_pct": _ratio(accounted, len(discovery)),
+        "by_sport": by_family,
+        "violations": dict(sorted(violations.items())),
+        "gate_passed": accounted == len(discovery) and not violations,
+        "tracked_events_may_remain_followed_outside_window": True,
     }
 
 
@@ -342,6 +474,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     ]
 
     accepted_events = [row for row in events if row["classification_status"] == "ACCEPTED"]
+    schedule_accounting = _schedule_window_accounting(events)
     eligible_outcomes = [row for row in outcomes if row["threshold_eligible"]]
     observed_book_keys = {
         (str(row["cycle_id"]), str(row["token_id"]))
@@ -361,6 +494,24 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             for row in family_outcomes
         )
         book_pct = _ratio(observed, len(family_outcomes))
+        lifecycle_book_coverage = {}
+        for lifecycle_state in BOOK_LIFECYCLE_STATES:
+            state_outcomes = [
+                row
+                for row in family_outcomes
+                if str(row["lifecycle_state"]) == lifecycle_state
+            ]
+            state_observed = sum(
+                (str(row["cycle_id"]), str(row["token_id"])) in observed_book_keys
+                for row in state_outcomes
+            )
+            lifecycle_book_coverage[lifecycle_state] = {
+                "eligible_outcome_observations": len(state_outcomes),
+                "observed_public_books": state_observed,
+                "public_book_coverage_pct": _ratio(
+                    state_observed, len(state_outcomes)
+                ),
+            }
         if not family_events:
             missing_sports.append(family)
         if book_pct is not None:
@@ -377,6 +528,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "eligible_outcome_observations": len(family_outcomes),
             "observed_public_books": observed,
             "public_book_coverage_pct": book_pct,
+            "by_lifecycle_state": lifecycle_book_coverage,
             "by_season_phase": {
                 phase: {
                     "accepted_event_observations": sum(
@@ -398,6 +550,22 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         if not missing_sports and len(family_book_percentages) == len(FAMILY_ORDER)
         else None
     )
+    lifecycle_macro_coverage = {
+        lifecycle_state: (
+            statistics.fmean(percentages)
+            if len(percentages) == len(FAMILY_ORDER)
+            else None
+        )
+        for lifecycle_state in BOOK_LIFECYCLE_STATES
+        if (
+            percentages := [
+                float(family_coverage[family]["by_lifecycle_state"][lifecycle_state]["public_book_coverage_pct"])
+                for family in FAMILY_ORDER
+                if family_coverage[family]["by_lifecycle_state"][lifecycle_state]["public_book_coverage_pct"]
+                is not None
+            ]
+        )
+    }
 
     vector_context = {
         (str(row["cycle_id"]), str(row["token_id"]), float(row["notional_usdc"])): (
@@ -605,6 +773,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         "selected_cycle_critical_or_high_issues_zero": critical_or_high == 0,
         "minimum_seven_distinct_utc_dates": len(collection_dates) >= 7,
         "at_least_one_unique_game_per_sport": five_family_games,
+        "schedule_window_accounting": bool(schedule_accounting["gate_passed"]),
         "complete_notional_rows_per_canonical_book": complete_notional,
         "explicit_terminal_coverage_for_discovered_ended_games": terminal_complete,
         "anchor_missingness_reported_without_imputation": True,
@@ -643,6 +812,8 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             "by_sport": family_coverage,
             "missing_sports": missing_sports,
             "sport_equal_macro_public_book_coverage_pct": macro_coverage,
+            "macro_public_book_coverage_pct_by_lifecycle_state": lifecycle_macro_coverage,
+            "lifecycle_states_are_never_pooled": True,
             "macro_is_null_when_any_sport_is_missing": True,
         },
         "season_phase_contract": {
@@ -662,7 +833,8 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             },
         },
         "lifecycle_health": lifecycle_health,
-        "pregame_anchor_health": _anchor_report(anchors, outcomes),
+        "schedule_window_accounting": schedule_accounting,
+        "schedule_anchor_health": _anchor_report(anchors, outcomes),
         "liquidity_strata": _metric_strata(
             markets, "liquidity_num", (10_000, 50_000, 100_000)
         ),

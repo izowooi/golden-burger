@@ -12,11 +12,14 @@ completeness와 evidence health다.
 
 ## Frozen treatment
 
-- runtime/cadence: `coconut-major-sports-lifecycle-5m-v2`, 5분
+- runtime/cadence: `coconut-major-sports-lifecycle-5m-v3`, 5분
 - families: soccer, MLB, NBA, NFL, NHL을 동일 가중 macro 대상에 포함
-- discovery: family별 exact numeric tag, `closed=false`, `slot-24h..slot+48h`, terminal cursor
+- discovery: family별 exact numeric tag, `closed=false`, 실제 경기 시작 시각
+  `start_time_min/max=slot-24h..slot+48h`, terminal cursor와 client-side half-open schedule 재검증
 - lifecycle: immutable Gamma event ID/canonical slug follow-up; WSS no-message와 wall time으로 상태를
   추정하지 않음
+- unknown phase: `DISCOVERED_OPEN` book/ladder/vector는 별도 stratum으로 보존하고
+  `PREGAME`/`IN_PLAY`와 합치지 않음
 - market: top-level whole-game `moneyline`만
 - ladder: `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500/$750/$1000`
 - thresholds: `0.75..0.99`, step `0.01`
