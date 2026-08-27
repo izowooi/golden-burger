@@ -68,10 +68,20 @@ def make_us_event(config):
             "tags": [
                 {"id": value, "slug": f"tag-{value}"} for value in tag_ids
             ],
-            "series": [{"id": identity["root_id"], "slug": f"{family}-root"}],
+            "series": [
+                {
+                    "id": identity["root_id"],
+                    "ticker": family,
+                    "slug": family,
+                    "title": identity["name"],
+                    "seriesType": "single",
+                    "recurrence": "daily",
+                }
+            ],
+            "seriesSlug": family,
             "teams": [
-                {"id": "a", "name": "Team A", "alias": "A", "abbreviation": "A"},
-                {"id": "b", "name": "Team B", "alias": "B", "abbreviation": "B"},
+                {"id": "a", "name": "Team A", "alias": "A", "abbreviation": "A", "league": family},
+                {"id": "b", "name": "Team B", "alias": "B", "abbreviation": "B", "league": family},
             ],
             "volumeNum": 25000,
             "volume24hr": 5000,
@@ -153,7 +163,9 @@ def make_soccer_market():
             "id": f"soccer-market-{index}",
             "conditionId": f"soccer-condition-{index}",
             "question": f"Will {result} be the match result?",
-            "groupItemTitle": result,
+            "groupItemTitle": (
+                "Draw (Home FC vs Away FC)" if result == "Draw" else result
+            ),
             "slug": f"soccer-{slug}-{index}",
             "sportsMarketType": "moneyline",
             "outcomes": ["Yes", "No"],

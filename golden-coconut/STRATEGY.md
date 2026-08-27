@@ -12,7 +12,7 @@ completeness와 evidence health다.
 
 ## Frozen treatment
 
-- runtime/cadence: `coconut-major-sports-lifecycle-5m-v4`, 5분
+- runtime/cadence: `coconut-major-sports-lifecycle-5m-v5`, 5분
 - families: soccer, MLB, NBA, NFL, NHL을 동일 가중 macro 대상에 포함
 - discovery: 미국 4종목은 family별 exact numeric tag, soccer는 frozen 8개 대회 query tag fan-out,
   `closed=false`, 실제 경기 시작 시각 `start_time_min/max=slot-24h..slot+48h`, 모든 physical
@@ -30,6 +30,8 @@ completeness와 evidence health다.
 
 Soccer result-specific Yes/No negRisk와 미국 direct two-team non-negRisk는 별도 structure로 저장한다.
 같은 game의 market/outcome/threshold는 독립 사건으로 세지 않고 `event_cluster_id`로 묶는다.
+미국 event series는 root ID와 season series ID를 동일시하지 않고 exact semantic root/season shape로
+검증한다. Soccer draw는 exact event title을 괄호에 포함하는 production descriptor까지 허용한다.
 
 공식 미국 major-league preseason은 `PRESEASON`으로 허용한다. `PRESEASON`, `REGULAR`,
 `POSTSEASON`, `UNKNOWN`을 같은 estimator에 섞지 않는다. minor/G League/AHL/ECHL/NCAA는 exact

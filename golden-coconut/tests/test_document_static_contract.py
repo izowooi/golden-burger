@@ -29,7 +29,7 @@ def test_no_transaction_sdk_or_authenticated_dependency():
 
 def test_sql_has_no_forbidden_transaction_table_names_and_no_alter():
     sql = (
-        ROOT / "src/polybot/db/migrations/0004_major_sports_lifecycle_v4.sql"
+        ROOT / "src/polybot/db/migrations/0005_major_sports_lifecycle_v5.sql"
     ).read_text(encoding="utf-8")
     tables = {
         match.casefold()
@@ -40,7 +40,7 @@ def test_sql_has_no_forbidden_transaction_table_names_and_no_alter():
     assert "IF NOT EXISTS" not in sql.upper()
 
 
-def test_v2_and_v3_migrations_are_preserved_beside_create_only_v4():
+def test_v2_v3_and_v4_migrations_are_preserved_beside_create_only_v5():
     v2 = (
         ROOT / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
     ).read_text(encoding="utf-8")
@@ -49,6 +49,9 @@ def test_v2_and_v3_migrations_are_preserved_beside_create_only_v4():
     ).read_text(encoding="utf-8")
     v4 = (
         ROOT / "src/polybot/db/migrations/0004_major_sports_lifecycle_v4.sql"
+    ).read_text(encoding="utf-8")
+    v5 = (
+        ROOT / "src/polybot/db/migrations/0005_major_sports_lifecycle_v5.sql"
     ).read_text(encoding="utf-8")
     assert "PRAGMA user_version=2" in v2
     assert "start_date_min TEXT NOT NULL" in v2
@@ -61,6 +64,10 @@ def test_v2_and_v3_migrations_are_preserved_beside_create_only_v4():
     assert "start_time_min TEXT NOT NULL" in v4
     assert "start_time_max TEXT NOT NULL" in v4
     assert "ALTER TABLE" not in v4.upper()
+    assert "PRAGMA user_version=5" in v5
+    assert "start_time_min TEXT NOT NULL" in v5
+    assert "start_time_max TEXT NOT NULL" in v5
+    assert "ALTER TABLE" not in v5.upper()
 
 
 def test_docs_and_config_use_daily_rsync_canonical_path_and_preseason_contract():

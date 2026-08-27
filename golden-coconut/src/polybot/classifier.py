@@ -8,7 +8,7 @@ import re
 from typing import Any, Mapping, Sequence
 from urllib.parse import urlsplit
 
-from .lifecycle import lifecycle_identity, raw_lifecycle_json
+from .lifecycle import lifecycle_identity, parse_source_utc, raw_lifecycle_json
 from .registry import SportFamily, SportsRegistry
 
 
@@ -192,7 +192,7 @@ class MarketClassification:
 def _base_event_evidence(event: Mapping[str, Any]) -> dict[str, Any]:
     sport = dict(event.get("sport")) if isinstance(event.get("sport"), Mapping) else {}
     tag_ids, tag_slugs, _ = _tag_data(event)
-    series_ids, series_slugs, _ = _series_data(event)
+    series_ids, series_slugs, series = _series_data(event)
     teams = [dict(item) for item in event.get("teams", []) if isinstance(item, Mapping)] if isinstance(event.get("teams"), list) else []
     return {
         "event_id": str(event.get("id") or "") or None,
@@ -208,6 +208,17 @@ def _base_event_evidence(event: Mapping[str, Any]) -> dict[str, Any]:
         "tag_slugs": list(tag_slugs),
         "series_ids": list(series_ids),
         "series_slugs": list(series_slugs),
+        "series_items": [
+            {
+                "id": _integer_id(item.get("id")),
+                "slug": str(item.get("slug") or "").strip(),
+                "ticker": str(item.get("ticker") or "").strip(),
+                "title": str(item.get("title") or "").strip(),
+                "series_type": str(item.get("seriesType") or "").strip(),
+                "recurrence": str(item.get("recurrence") or "").strip(),
+            }
+            for item in series
+        ],
         "series_slug": str(event.get("seriesSlug") or "") or None,
         "team_count": len(teams),
         "team_leagues": [str(team.get("league") or "") for team in teams],
@@ -226,6 +237,58 @@ def _negative_event_reasons(event: Mapping[str, Any], evidence: Mapping[str, Any
         return ["MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"]
     if event.get("parentEventId") not in (None, ""):
         return ["CHILD_EVENT_EXCLUDED"]
+    return []
+
+
+def _us_event_series_reasons(
+    evidence: Mapping[str, Any], identity: Mapping[str, Any], policy: Mapping[str, Any]
+) -> list[str]:
+    items = evidence.get("series_items")
+    if not isinstance(items, list) or len(items) != 1 or not isinstance(items[0], Mapping):
+        return ["EVENT_SERIES_EXACTLY_ONE_REQUIRED"]
+    item = items[0]
+    series_id = str(item.get("id") or "")
+    slug = str(item.get("slug") or "")
+    ticker = str(item.get("ticker") or "")
+    title = str(item.get("title") or "")
+    if not series_id.isdecimal() or int(series_id) <= 0:
+        return ["EVENT_SERIES_NUMERIC_ID_REQUIRED"]
+    if str(evidence.get("series_slug") or "") != slug:
+        return ["EVENT_PRIMARY_SERIES_SLUG_MISMATCH"]
+    if (
+        str(item.get("series_type") or "") != str(policy.get("series_type") or "")
+        or str(item.get("recurrence") or "") != str(policy.get("recurrence") or "")
+    ):
+        return ["EVENT_SERIES_SHAPE_MISMATCH"]
+
+    root_slug = str(policy.get("root_slug") or "")
+    if slug == root_slug:
+        if (
+            series_id != str(identity.get("root_id"))
+            or ticker != root_slug
+            or title != str(policy.get("root_title") or "")
+        ):
+            return ["EVENT_ROOT_SERIES_IDENTITY_MISMATCH"]
+        return []
+
+    prefix = str(policy.get("season_slug_prefix") or "")
+    match = re.fullmatch(re.escape(prefix) + r"([0-9]{4})", slug)
+    if match is None:
+        return ["EVENT_SEASON_SERIES_SLUG_MISMATCH"]
+    season_year = int(match.group(1))
+    if (
+        ticker != slug
+        or title != f'{policy.get("season_title_prefix")}{season_year}'
+    ):
+        return ["EVENT_SEASON_SERIES_METADATA_MISMATCH"]
+    scheduled = parse_source_utc(evidence.get("scheduled_start_utc"))
+    allowed_lags = policy.get("allowed_schedule_year_lags")
+    if (
+        scheduled is None
+        or not isinstance(allowed_lags, list)
+        or scheduled.year - season_year not in allowed_lags
+    ):
+        return ["EVENT_SEASON_SERIES_SCHEDULE_YEAR_MISMATCH"]
     return []
 
 
@@ -253,10 +316,19 @@ def _classify_us_event(
         reasons.append("EVENT_REQUIRED_TAG_IDS_MISSING")
     if not required_tags <= set(evidence["sport_tag_ids"]):
         reasons.append("SPORT_REQUIRED_TAG_IDS_MISSING")
-    if tuple(evidence["series_ids"]) != (str(identity["root_id"]),):
-        reasons.append("EVENT_ROOT_RELATION_MISMATCH")
+    series_policy = payload.get("event_series_identity")
+    if not isinstance(series_policy, Mapping):
+        reasons.append("REGISTRY_EVENT_SERIES_POLICY_MISSING")
+    else:
+        reasons.extend(_us_event_series_reasons(evidence, identity, series_policy))
     if evidence["team_count"] != 2:
         reasons.append("EXACTLY_TWO_TEAMS_REQUIRED")
+    expected_team_league = str(identity.get("team_league") or "")
+    if evidence["team_count"] == 2 and evidence["team_leagues"] != [
+        expected_team_league,
+        expected_team_league,
+    ]:
+        reasons.append("TEAM_LEAGUE_MISMATCH")
     if reasons:
         identity_fields = {
             "SPORT_ID_MISMATCH",
@@ -449,9 +521,15 @@ def classify_market(
         if neg_risk is not True:
             identity_reasons.append("SOCCER_NEGRISK_REQUIRED")
         descriptor = _normalize(market.get("groupItemTitle"))
+        event_title = _normalize(event.get("title"))
+        draw_descriptors = {"draw", "tie"}
+        if event_title:
+            draw_descriptors.update(
+                {f"draw {event_title}", f"tie {event_title}"}
+            )
         if not descriptor:
             identity_reasons.append("SOCCER_RESULT_DESCRIPTOR_MISSING")
-        elif descriptor in {"draw", "tie"}:
+        elif descriptor in draw_descriptors:
             result_kind = "DRAW"
         else:
             matches = [index for index, candidates in enumerate(forms) if descriptor in candidates]

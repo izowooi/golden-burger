@@ -638,7 +638,7 @@ class Collector:
         if not followup_complete and fatal_error is None:
             fatal_error = "one or more carried games lacked an explicit Gamma follow-up"
         if identity_fatal and fatal_error is None:
-            fatal_error = "canonical game identity changed inside the immutable v4 epoch"
+            fatal_error = "canonical game identity changed inside the immutable v5 epoch"
 
         census_healthy = all_complete and followup_complete and not identity_fatal
         empty_clock = ClockBatch(

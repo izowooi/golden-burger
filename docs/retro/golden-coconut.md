@@ -17,16 +17,18 @@ invalidated collection으로 보존한다.
 
 2026-08-28 v4는 같은 source window에서 broad-v3가 수락한 30개 soccer event를 모두 포함했던
 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 frozen 8-tag union으로 discovery를
-fan-out한다. 당시 read-only probe는 230 unique events/8 terminal pages였다. 이 수치는 v4의
-prospective health 결과가 아니며, v4 새 DB에서 다시 검증해야 한다. 아직 profitability verdict는
-없다.
+fan-out해 cursor·book 수집에는 성공했다. 하지만 실제 NFL 14건의 season series
+`12185/nfl-2026`을 sport root `10187`과 다르다는 이유로 HIGH drift 처리했고, production draw
+descriptor `Draw (<event title>)`도 모두 거절했다. v4 역시 immutable invalidated collection이다.
+v5는 semantic root-or-season identity와 exact parenthetical draw를 새 DB에서 검증한다. 아직
+profitability verdict는 없다.
 
 ## Frozen cohort
 
-- data contract: `major-sports-lifecycle-census-v4`
-- runtime: `coconut-major-sports-lifecycle-5m-v4`
+- data contract: `major-sports-lifecycle-census-v5`
+- runtime: `coconut-major-sports-lifecycle-5m-v5`
 - Jenkins: `polybot-gold`
-- active DB: `data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only

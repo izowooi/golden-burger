@@ -6,9 +6,9 @@
 |---|---|
 | Jenkins job | `polybot-gold` |
 | workspace | `/Volumes/t7/jenkins/polybot-gold` |
-| runtime | `coconut-major-sports-lifecycle-5m-v4` |
+| runtime | `coconut-major-sports-lifecycle-5m-v5` |
 | schedule | `H/5 * * * *` |
-| active DB | `data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db` |
+| active DB | `data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db` |
 
 concurrent build와 workspace clean을 끈다. collector는 외장 APFS volume, exact mount/device UUID,
 shared Raspberry sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
@@ -61,11 +61,11 @@ cooperative budget은 225초, 새 request stop margin은 30초, hard cycle은 24
 ## Daily-rsync와 analyzer
 
 parent가 inventory/Jenkins routing을 통합한 뒤 `polybot-gold × golden-coconut ×
-coconut-major-sports-lifecycle-5m-v4` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
+coconut-major-sports-lifecycle-5m-v5` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
 `trades_sim.db`와 필요한 `trades_sim_YYYYMMDD.db`만 analyzer에 넘긴다.
 
 ```bash
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v4 \
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v5 \
   --db /absolute/verified/trades_sim_20260827.db \
   --db /absolute/verified/trades_sim.db \
   --output /tmp/golden-coconut-health.json

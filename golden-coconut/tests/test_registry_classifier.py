@@ -17,16 +17,16 @@ FIXTURE = json.loads(
 )
 
 
-def test_active_registry_is_v4_and_uses_v4_profiles():
+def test_active_registry_is_v5_and_uses_v5_profiles():
     root = Path(__file__).resolve().parents[1]
     registry = json.loads(
-        (root / "research/frozen-2026-08-28-v4/SPORTS_REGISTRY.json").read_text(
+        (root / "research/frozen-2026-08-28-v5/SPORTS_REGISTRY.json").read_text(
             encoding="utf-8"
         )
     )
-    assert registry["schema_version"] == 4
-    assert registry["registry_profile"].endswith("-v4")
-    assert registry["classifier_version"].endswith("-v4")
+    assert registry["schema_version"] == 5
+    assert registry["registry_profile"].endswith("-v5")
+    assert registry["classifier_version"].endswith("-v5")
 
 
 def test_registry_contains_exact_five_family_tags(config):
@@ -51,6 +51,10 @@ def test_registry_contains_exact_five_family_tags(config):
     for family in ("mlb", "nba", "nfl", "nhl"):
         entry = config.registry.by_code[family]
         assert entry.query_tag_ids == (entry.tag_id,)
+        assert entry.payload["sport"]["team_league"] == family
+        assert entry.payload["event_series_identity"][
+            "allowed_schedule_year_lags"
+        ] == [0, 1]
 
 
 @pytest.mark.parametrize("family", ["mlb", "nba", "nfl", "nhl"])
@@ -101,6 +105,59 @@ def test_wrong_root_is_rejected(config, make_us_event):
     assert "SPORT_ROOT_ID_MISMATCH" in result.reasons
 
 
+def test_nfl_production_season_series_is_not_equated_with_sport_root(
+    config, make_us_event
+):
+    event = make_us_event("nfl")
+    event["startTime"] = "2026-08-27T23:00:00Z"
+    event["series"] = [
+        {
+            "id": 12185,
+            "ticker": "nfl-2026",
+            "slug": "nfl-2026",
+            "title": "NFL 2026",
+            "seriesType": "single",
+            "recurrence": "daily",
+        }
+    ]
+    event["seriesSlug"] = "nfl-2026"
+    result = classify_event(
+        event, config.registry.by_code["nfl"], config.registry
+    )
+    assert result.accepted, result.reasons
+
+
+def test_us_season_series_must_match_scheduled_year_window(config, make_us_event):
+    event = make_us_event("nfl")
+    event["startTime"] = "2026-08-27T23:00:00Z"
+    event["series"] = [
+        {
+            "id": 12185,
+            "ticker": "nfl-2024",
+            "slug": "nfl-2024",
+            "title": "NFL 2024",
+            "seriesType": "single",
+            "recurrence": "daily",
+        }
+    ]
+    event["seriesSlug"] = "nfl-2024"
+    result = classify_event(
+        event, config.registry.by_code["nfl"], config.registry
+    )
+    assert not result.accepted
+    assert "EVENT_SEASON_SERIES_SCHEDULE_YEAR_MISMATCH" in result.reasons
+
+
+def test_us_exact_team_league_is_required(config, make_us_event):
+    event = make_us_event("nhl")
+    event["teams"][1]["league"] = "ahl"
+    result = classify_event(
+        event, config.registry.by_code["nhl"], config.registry
+    )
+    assert not result.accepted
+    assert "TEAM_LEAGUE_MISMATCH" in result.reasons
+
+
 def test_soccer_domestic_exact_identity(config, make_soccer_event):
     result = classify_event(
         make_soccer_event(), config.registry.by_code["soccer"], config.registry
@@ -116,6 +173,20 @@ def test_soccer_result_specific_market(config, make_soccer_event, make_soccer_ma
     draw = classify_market(event, make_soccer_market("Draw", 2), event_result)
     assert home.eligible and home.eligible_indices == (0,) and home.result_kind == "HOME"
     assert draw.eligible and draw.result_kind == "DRAW"
+
+
+def test_soccer_draw_parenthetical_must_equal_exact_event_title(
+    config, make_soccer_event, make_soccer_market
+):
+    event = make_soccer_event()
+    event_result = classify_event(
+        event, config.registry.by_code["soccer"], config.registry
+    )
+    draw = make_soccer_market("Draw", 2)
+    draw["groupItemTitle"] = "Draw (Different FC vs Other FC)"
+    result = classify_market(event, draw, event_result)
+    assert not result.eligible
+    assert "SOCCER_RESULT_DESCRIPTOR_NOT_EXACT" in result.reasons
 
 
 def test_us_direct_market_structure(config, make_us_event, make_us_market):

@@ -51,7 +51,7 @@ def test_load_config_freezes_runtime_and_daily_rsync_filename():
     assert config.simulation_mode is True
     assert config.trading.lifecycle_mode == "archive_only"
     assert config.db_path.as_posix().endswith(
-        "/data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db"
+        "/data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db"
     )
 
 

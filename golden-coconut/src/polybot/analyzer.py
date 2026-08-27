@@ -1,4 +1,4 @@
-"""Read-only v4 collection-health and preregistered strata analysis."""
+"""Read-only v5 collection-health and preregistered strata analysis."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .config import (
 from .registry import FAMILY_ORDER
 
 
-ANALYZER_CONTRACT = "major-sports-lifecycle-health-v4"
+ANALYZER_CONTRACT = "major-sports-lifecycle-health-v5"
 SEASON_PHASES = (
     "PRESEASON",
     "REGULAR",
@@ -96,8 +96,8 @@ def _read_shard(path: Path) -> dict[str, Any]:
     try:
         quick = str(connection.execute("PRAGMA quick_check").fetchone()[0])
         user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version != 4:
-            raise ValueError("analyzer database schema epoch must be v4")
+        if user_version != 5:
+            raise ValueError("analyzer database schema epoch must be v5")
         metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
         if metadata_row is None:
             raise ValueError("analyzer database has no schema metadata")
@@ -130,7 +130,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
             "start_date_min",
             "start_date_max",
         } & sweep_columns:
-            raise ValueError("analyzer sport_sweeps schedule columns are not v4")
+            raise ValueError("analyzer sport_sweeps schedule columns are not v5")
         result = {
             "path": str(path.resolve()),
             "file_bytes": path.stat().st_size,
@@ -395,7 +395,7 @@ def _schedule_window_accounting(events: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     return {
-        "contract": "UTC_HALF_OPEN_START_TIME_V4",
+        "contract": "UTC_HALF_OPEN_START_TIME_V5",
         "discovery_event_observations": len(discovery),
         "accounted_observations": accounted,
         "accounting_coverage_pct": _ratio(accounted, len(discovery)),

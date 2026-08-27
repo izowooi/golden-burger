@@ -8,7 +8,7 @@
 
 Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneyline을 경기 전부터
 종료·해결까지 5분마다 추적하는 accountless research collector다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v4`, Jenkins job은 `polybot-gold`다.
+`coconut-major-sports-lifecycle-5m-v5`, Jenkins job은 `polybot-gold`다.
 
 - `archive_only`, simulation/shadow only다.
 - wallet, account, signing, credential, private endpoint, order path를 추가하지 않는다.
@@ -22,7 +22,7 @@ Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneylin
 우선순위는 다음과 같다.
 
 1. `research/EPOCHS.json`의 active epoch와
-   `research/frozen-2026-08-28-v4/SPORTS_REGISTRY.json` + SHA-256
+   `research/frozen-2026-08-28-v5/SPORTS_REGISTRY.json` + SHA-256
 2. 같은 directory의 `PREREGISTRATION.md`, `DATA_CONTRACT.md`, `MANIFEST.sha256`
 3. `config.yaml`, `STRATEGY.md`
 4. runtime source와 tests
@@ -43,6 +43,9 @@ registry/schema/universe/threshold/cadence를 바꿀 때 기존 DB에 migration�
   합치지 않는다.
 - liquidity/volume은 discovery gate가 아니라 strata다.
 - soccer Yes/No negRisk와 미국 direct two-outcome non-negRisk를 섞지 않는다.
+- 미국 event series ID를 sport root ID와 동일시하지 않는다. Frozen semantic root-or-season shape와
+  exact same-league two-team identity를 검증한다. Soccer draw는 bare form 또는 exact event-title
+  parenthetical만 허용한다.
 - official 미국 major-league preseason은 `PRESEASON`으로 수집하되 다른 season phase와 합치지 않는다.
 - minor/G League/AHL/ECHL/NCAA/e-sports/child/period/spread/total/prop/future/advancement는 제외한다.
 - canonical full-book gzip은 token/cycle당 한 행이며, `$5..$1000`의 frozen notional마다 독립
@@ -52,7 +55,7 @@ registry/schema/universe/threshold/cadence를 바꿀 때 기존 DB에 migration�
 - health-only analysis에서 profitability는 `null`이다.
 
 DB는 append-only/create-only UTC daily shard다. daily-rsync 호환 때문에 active filename은
-`data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
+`data/coconut-major-sports-lifecycle-5m-v5/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
 `positions`, `wallets`, `trades`, P&L을 만들지 않는다.
 
 ## 작업과 검증

@@ -3258,6 +3258,7 @@ def _validate_major_sports_research_strategy(
         "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql",
         "src/polybot/db/migrations/0003_major_sports_lifecycle_v3.sql",
         "src/polybot/db/migrations/0004_major_sports_lifecycle_v4.sql",
+        "src/polybot/db/migrations/0005_major_sports_lifecycle_v5.sql",
         "scripts/verify_external_workspace.py",
     )
     sources = {
@@ -3266,10 +3267,10 @@ def _validate_major_sports_research_strategy(
     }
     contracts = {
         "src/polybot/config.py": (
-            "coconut-major-sports-lifecycle-5m-v4",
-            "major-sports-lifecycle-census-v4",
-            "major-sports-five-family-lifecycle-2026-08-v4",
-            "major-sports-exact-identity-lifecycle-v4",
+            "coconut-major-sports-lifecycle-5m-v5",
+            "major-sports-lifecycle-census-v5",
+            "major-sports-five-family-lifecycle-2026-08-v5",
+            "major-sports-exact-identity-lifecycle-v5",
             "POLYMARKET_",
             "CLOB_",
             "archive_only",
@@ -3326,11 +3327,15 @@ def _validate_major_sports_research_strategy(
             "moneyline",
             "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED",
             "ESPORTS",
+            "EVENT_SEASON_SERIES_SCHEDULE_YEAR_MISMATCH",
+            "TEAM_LEAGUE_MISMATCH",
+            "draw_descriptors",
         ),
         "src/polybot/registry.py": (
-            "schema_version must be 4",
-            "discovery tags differ from v4",
-            "query tags differ from v4",
+            "schema_version must be 5",
+            "discovery tags differ from v5",
+            "query tags differ from v5",
+            "event series policy differs",
             "101962",
             "101787",
         ),
@@ -3366,7 +3371,7 @@ def _validate_major_sports_research_strategy(
             "PRAGMA quick_check",
         ),
         "src/polybot/analyzer.py": (
-            "major-sports-lifecycle-health-v4",
+            "major-sports-lifecycle-health-v5",
             "config_hash x strategy_source_digest x mode x job_name cohort",
             "NOT_UNIQUELY_SUCCEEDED",
             "FIVE_FAMILY_CURSOR_INCOMPLETE",
@@ -3381,16 +3386,16 @@ def _validate_major_sports_research_strategy(
         ),
         "src/polybot/source_digest.py": (
             "research/EPOCHS.json",
-            "frozen-2026-08-28-v4",
+            "frozen-2026-08-28-v5",
             "SPORTS_REGISTRY.json",
             "MANIFEST.sha256",
             "verify_external_workspace.py",
-            "0004_major_sports_lifecycle_v4.sql",
+            "0005_major_sports_lifecycle_v5.sql",
             "verify_frozen_manifest",
         ),
         "scripts/verify_external_workspace.py": (
             "/Volumes/t7/jenkins/polybot-gold",
-            "coconut-major-sports-lifecycle-5m-v4",
+            "coconut-major-sports-lifecycle-5m-v5",
             ".daily-rsync-workspace.json",
             '"schema_version": 1',
             '"job": "polybot-gold"',
@@ -3440,7 +3445,7 @@ def _validate_major_sports_research_strategy(
 
     for relative, tokens in {
         "README.md": (
-            "coconut-major-sports-lifecycle-5m-v4",
+            "coconut-major-sports-lifecycle-5m-v5",
             "polybot-gold",
             "soccer",
             "MLB",
@@ -3469,13 +3474,13 @@ def _validate_major_sports_research_strategy(
             "H/5 * * * *",
             "scan/plan/sync/verify",
             "profitability",
-            "coconut-major-sports-lifecycle-5m-v4",
+            "coconut-major-sports-lifecycle-5m-v5",
         ),
         ".env.example": (
             "POLYBOT_LIFECYCLE_MODE=archive_only",
             "POLYBOT_SIMULATION_MODE=true",
         ),
-        "research/frozen-2026-08-28-v4/PREREGISTRATION.md": (
+        "research/frozen-2026-08-28-v5/PREREGISTRATION.md": (
             "soccer, MLB",
             "NBA, NFL",
             "NHL",
@@ -3485,13 +3490,15 @@ def _validate_major_sports_research_strategy(
             "1,000 USDC",
             "displayed-book research",
             "query tags",
+            "semantic event series",
         ),
-        "research/frozen-2026-08-28-v4/DATA_CONTRACT.md": (
-            "major-sports-lifecycle-census-v4",
+        "research/frozen-2026-08-28-v5/DATA_CONTRACT.md": (
+            "major-sports-lifecycle-census-v5",
             "trades_sim_YYYYMMDD.db",
             "$1000",
             "unique `SUCCEEDED`",
             "query tags",
+            "root or season series",
         ),
     }.items():
         content = _require_file(findings, strategy, directory / relative)
@@ -3515,6 +3522,10 @@ def _validate_major_sports_research_strategy(
         "research/frozen-2026-08-28-v4/MANIFEST.sha256",
         "research/frozen-2026-08-28-v4/PREREGISTRATION.md",
         "research/frozen-2026-08-28-v4/DATA_CONTRACT.md",
+        "research/frozen-2026-08-28-v5/SPORTS_REGISTRY.json",
+        "research/frozen-2026-08-28-v5/MANIFEST.sha256",
+        "research/frozen-2026-08-28-v5/PREREGISTRATION.md",
+        "research/frozen-2026-08-28-v5/DATA_CONTRACT.md",
         "tests/fixtures/major_sports_lifecycle_cases.json",
         "tests/test_config_safety.py",
         "tests/test_registry_classifier.py",

@@ -1,5 +1,5 @@
 {
-  "fixture_profile": "sanitized-production-shaped-major-sports-lifecycle-v4",
+  "fixture_profile": "sanitized-production-shaped-major-sports-lifecycle-v5",
   "positive": {
     "soccer": {
       "id": "910001",
@@ -62,7 +62,7 @@
           "conditionId": "0xsoccerdraw",
           "slug": "epl-home-fc-away-fc-draw",
           "question": "Will the match end in a draw?",
-          "groupItemTitle": "Draw",
+          "groupItemTitle": "Draw (Home FC vs. Away FC)",
           "sportsMarketType": "moneyline",
           "outcomes": ["Yes", "No"],
           "clobTokenIds": ["soccer-draw-yes", "soccer-draw-no"],
@@ -105,8 +105,9 @@
       "gameId": "sports-feed-mlb-9002",
       "sport": {"id": 8, "sport": "mlb", "name": "MLB", "primaryTagId": 100381, "series": 3, "tags": "1,100381,100639"},
       "tags": [{"id": 1, "slug": "sports"}, {"id": 100381, "slug": "mlb"}, {"id": 100639, "slug": "games"}],
-      "series": [{"id": 3, "slug": "mlb"}],
-      "teams": [{"id": 801, "name": "City A", "alias": "A", "abbreviation": "CTA"}, {"id": 802, "name": "City B", "alias": "B", "abbreviation": "CTB"}],
+      "series": [{"id": 3, "ticker": "mlb", "slug": "mlb", "title": "MLB", "seriesType": "single", "recurrence": "daily"}],
+      "seriesSlug": "mlb",
+      "teams": [{"id": 801, "name": "City A", "alias": "A", "abbreviation": "CTA", "league": "mlb"}, {"id": 802, "name": "City B", "alias": "B", "abbreviation": "CTB", "league": "mlb"}],
       "seasonPhase": "REGULAR",
       "markets": [{"id": "930002", "conditionId": "0xmlb", "question": "City A vs City B", "sportsMarketType": "moneyline", "outcomes": ["City A", "City B"], "clobTokenIds": ["mlb-a", "mlb-b"], "outcomePrices": ["0.52", "0.48"], "negRisk": false, "active": true, "closed": false, "enableOrderBook": true, "acceptingOrders": true}]
     },
@@ -122,8 +123,9 @@
       "gameId": "sports-feed-nba-9003",
       "sport": {"id": 34, "sport": "nba", "name": "NBA", "primaryTagId": 745, "series": 10345, "tags": "1,745,100639"},
       "tags": [{"id": 1, "slug": "sports"}, {"id": 745, "slug": "nba"}, {"id": 100639, "slug": "games"}],
-      "series": [{"id": 10345, "slug": "nba"}],
-      "teams": [{"id": 901, "name": "Club A", "alias": "A", "abbreviation": "CLA"}, {"id": 902, "name": "Club B", "alias": "B", "abbreviation": "CLB"}],
+      "series": [{"id": 10345, "ticker": "nba", "slug": "nba", "title": "NBA", "seriesType": "single", "recurrence": "daily"}],
+      "seriesSlug": "nba",
+      "teams": [{"id": 901, "name": "Club A", "alias": "A", "abbreviation": "CLA", "league": "nba"}, {"id": 902, "name": "Club B", "alias": "B", "abbreviation": "CLB", "league": "nba"}],
       "seasonType": "REGULAR",
       "markets": [{"id": "930003", "conditionId": "0xnba", "question": "Club A vs Club B", "sportsMarketType": "moneyline", "outcomes": ["Club A", "Club B"], "clobTokenIds": ["nba-a", "nba-b"], "outcomePrices": ["0.5", "0.5"], "negRisk": false, "active": true, "closed": false, "enableOrderBook": true, "acceptingOrders": true}]
     },
@@ -139,8 +141,9 @@
       "gameId": "sports-feed-nfl-9004",
       "sport": {"id": 10, "sport": "nfl", "name": "NFL", "primaryTagId": 450, "series": 10187, "tags": "1,450,100639"},
       "tags": [{"id": 1, "slug": "sports"}, {"id": 450, "slug": "nfl"}, {"id": 100639, "slug": "games"}, {"id": 100001, "slug": "preseason"}],
-      "series": [{"id": 10187, "slug": "nfl"}],
-      "teams": [{"id": 1001, "name": "Team A", "alias": "A", "abbreviation": "TMA"}, {"id": 1002, "name": "Team B", "alias": "B", "abbreviation": "TMB"}],
+      "series": [{"id": 12185, "ticker": "nfl-2026", "slug": "nfl-2026", "title": "NFL 2026", "seriesType": "single", "recurrence": "daily"}],
+      "seriesSlug": "nfl-2026",
+      "teams": [{"id": 1001, "name": "Team A", "alias": "A", "abbreviation": "TMA", "league": "nfl"}, {"id": 1002, "name": "Team B", "alias": "B", "abbreviation": "TMB", "league": "nfl"}],
       "seasonPhase": "PRESEASON",
       "markets": [{"id": "930004", "conditionId": "0xnfl", "question": "Team A vs Team B", "sportsMarketType": "moneyline", "outcomes": ["Team A", "Team B"], "clobTokenIds": ["nfl-a", "nfl-b"], "outcomePrices": ["0.54", "0.46"], "negRisk": false, "active": true, "closed": false, "enableOrderBook": true, "acceptingOrders": true}]
     },
@@ -156,8 +159,9 @@
       "gameId": "sports-feed-nhl-9005",
       "sport": {"id": 35, "sport": "nhl", "name": "NHL", "primaryTagId": 899, "series": 10346, "tags": "1,899,100639"},
       "tags": [{"id": 1, "slug": "sports"}, {"id": 899, "slug": "nhl"}, {"id": 100639, "slug": "games"}],
-      "series": [{"id": 10346, "slug": "nhl"}],
-      "teams": [{"id": 1101, "name": "Skating A", "alias": "A", "abbreviation": "SKA"}, {"id": 1102, "name": "Skating B", "alias": "B", "abbreviation": "SKB"}],
+      "series": [{"id": 10346, "ticker": "nhl-2026", "slug": "nhl-2026", "title": "NHL 2026", "seriesType": "single", "recurrence": "daily"}],
+      "seriesSlug": "nhl-2026",
+      "teams": [{"id": 1101, "name": "Skating A", "alias": "A", "abbreviation": "SKA", "league": "nhl"}, {"id": 1102, "name": "Skating B", "alias": "B", "abbreviation": "SKB", "league": "nhl"}],
       "seasonType": "REGULAR",
       "markets": [{"id": "930005", "conditionId": "0xnhl", "question": "Skating A vs Skating B", "sportsMarketType": "moneyline", "outcomes": ["Skating A", "Skating B"], "clobTokenIds": ["nhl-a", "nhl-b"], "outcomePrices": ["0.49", "0.51"], "negRisk": false, "active": true, "closed": false, "enableOrderBook": true, "acceptingOrders": true}]
     }

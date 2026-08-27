@@ -54,8 +54,8 @@ def load_registry(
         raise ValueError("SPORTS_REGISTRY.json is invalid JSON") from error
     if not isinstance(raw, Mapping):
         raise ValueError("SPORTS_REGISTRY.json root must be an object")
-    if raw.get("schema_version") != 4:
-        raise ValueError("SPORTS_REGISTRY.json schema_version must be 4")
+    if raw.get("schema_version") != 5:
+        raise ValueError("SPORTS_REGISTRY.json schema_version must be 5")
     profile = str(raw.get("registry_profile") or "")
     classifier = str(raw.get("classifier_version") or "")
     family_payloads = raw.get("sport_families")
@@ -116,7 +116,7 @@ def load_registry(
         "nhl": 899,
     }
     if {item.code: item.tag_id for item in families} != expected_tags:
-        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v4")
+        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v5")
     expected_query_tags = {
         "soccer": (306, 1494, 102070, 780, 100100, 101962, 100977, 101787),
         "mlb": (100381,),
@@ -125,7 +125,33 @@ def load_registry(
         "nhl": (899,),
     }
     if {item.code: item.query_tag_ids for item in families} != expected_query_tags:
-        raise ValueError("SPORTS_REGISTRY.json query tags differ from v4")
+        raise ValueError("SPORTS_REGISTRY.json query tags differ from v5")
+    for item in families:
+        if item.code == "soccer":
+            continue
+        identity = item.payload.get("sport")
+        policy = item.payload.get("event_series_identity")
+        if not isinstance(identity, Mapping) or not isinstance(policy, Mapping):
+            raise ValueError(
+                f"SPORTS_REGISTRY.json {item.code} event series policy is missing"
+            )
+        expected_policy = {
+            "allowed_schedule_year_lags": [0, 1],
+            "recurrence": "daily",
+            "root_slug": item.code,
+            "root_title": str(identity["name"]),
+            "season_slug_prefix": f"{item.code}-",
+            "season_title_prefix": f'{identity["name"]} ',
+            "series_type": "single",
+        }
+        if dict(policy) != expected_policy:
+            raise ValueError(
+                f"SPORTS_REGISTRY.json {item.code} event series policy differs"
+            )
+        if str(identity.get("team_league") or "") != item.code:
+            raise ValueError(
+                f"SPORTS_REGISTRY.json {item.code} team league differs"
+            )
     return SportsRegistry(
         path=path,
         sha256=actual_sha256,
