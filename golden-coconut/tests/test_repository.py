@@ -91,7 +91,7 @@ def minimal_bundle(config, *, run_id="run-1", cycle_id="cycle-1", slot="2026-08-
 def test_create_only_schema_has_required_domains_and_no_transaction_tables(config):
     repository = ResearchRepository(config, database_utc_date="2026-08-27")
     with repository.read_connect() as connection:
-        assert connection.execute("PRAGMA user_version").fetchone()[0] == 3
+        assert connection.execute("PRAGMA user_version").fetchone()[0] == 4
         tables = {
             row[0]
             for row in connection.execute(
@@ -108,7 +108,7 @@ def test_create_only_schema_has_required_domains_and_no_transaction_tables(confi
     assert repository.path.name == "trades_sim.db"
 
 
-def test_v3_repository_rejects_a_v2_database(config):
+def test_v4_repository_rejects_a_v2_database(config):
     config.db_path.parent.mkdir(parents=True, exist_ok=True)
     migration = (
         Path(__file__).resolve().parents[1]
@@ -178,7 +178,7 @@ def test_success_bundle_commits_cycle_and_terminal_event(config):
         ).fetchone()[0] == "SUCCEEDED"
 
 
-def test_stale_v2_sweep_payload_cannot_publish_into_v3(config):
+def test_stale_v2_sweep_payload_cannot_publish_into_v4(config):
     repository = ResearchRepository(config, database_utc_date="2026-08-27")
     bundle = minimal_bundle(config)
     for sweep in bundle["sweeps"]:

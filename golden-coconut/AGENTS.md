@@ -8,7 +8,7 @@
 
 Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneyline을 경기 전부터
 종료·해결까지 5분마다 추적하는 accountless research collector다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v3`, Jenkins job은 `polybot-gold`다.
+`coconut-major-sports-lifecycle-5m-v4`, Jenkins job은 `polybot-gold`다.
 
 - `archive_only`, simulation/shadow only다.
 - wallet, account, signing, credential, private endpoint, order path를 추가하지 않는다.
@@ -22,7 +22,7 @@ Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneylin
 우선순위는 다음과 같다.
 
 1. `research/EPOCHS.json`의 active epoch와
-   `research/frozen-2026-08-28-v3/SPORTS_REGISTRY.json` + SHA-256
+   `research/frozen-2026-08-28-v4/SPORTS_REGISTRY.json` + SHA-256
 2. 같은 directory의 `PREREGISTRATION.md`, `DATA_CONTRACT.md`, `MANIFEST.sha256`
 3. `config.yaml`, `STRATEGY.md`
 4. runtime source와 tests
@@ -32,8 +32,9 @@ registry/schema/universe/threshold/cadence를 바꿀 때 기존 DB에 migration�
 
 ## Evidence 계약
 
-- family별 Gamma `/events/keyset` sweep은 `closed=false`, 실제 경기 시작 시각
-  `start_time_min/max=slot-24h..slot+48h` 범위에서 서로 독립이며 terminal cursor가 필수다.
+- family별 logical Gamma `/events/keyset` sweep은 `closed=false`, 실제 경기 시작 시각
+  `start_time_min/max=slot-24h..slot+48h` 범위에서 서로 독립이다. Soccer는 frozen 8개 대회
+  query tag로 fan-out하며 모든 physical cursor가 끝나야 logical cursor-complete다.
   `live=true` discovery gate는 쓰지 않는다. 신규 event는 응답 후에도 canonical schedule을
   UTC half-open interval로 재검증하고, 누락·오염·범위 밖 응답은 raw evidence와 함께 거절한다.
 - accepted game은 Gamma event ID와 canonical slug로 terminal lifecycle까지 추적한다. WSS
@@ -51,7 +52,7 @@ registry/schema/universe/threshold/cadence를 바꿀 때 기존 DB에 migration�
 - health-only analysis에서 profitability는 `null`이다.
 
 DB는 append-only/create-only UTC daily shard다. daily-rsync 호환 때문에 active filename은
-`data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
+`data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db`지만 SQLite table에는 `orders`, `fills`,
 `positions`, `wallets`, `trades`, P&L을 만들지 않는다.
 
 ## 작업과 검증

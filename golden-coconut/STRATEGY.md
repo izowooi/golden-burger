@@ -12,10 +12,11 @@ completeness와 evidence health다.
 
 ## Frozen treatment
 
-- runtime/cadence: `coconut-major-sports-lifecycle-5m-v3`, 5분
+- runtime/cadence: `coconut-major-sports-lifecycle-5m-v4`, 5분
 - families: soccer, MLB, NBA, NFL, NHL을 동일 가중 macro 대상에 포함
-- discovery: family별 exact numeric tag, `closed=false`, 실제 경기 시작 시각
-  `start_time_min/max=slot-24h..slot+48h`, terminal cursor와 client-side half-open schedule 재검증
+- discovery: 미국 4종목은 family별 exact numeric tag, soccer는 frozen 8개 대회 query tag fan-out,
+  `closed=false`, 실제 경기 시작 시각 `start_time_min/max=slot-24h..slot+48h`, 모든 physical
+  terminal cursor와 client-side half-open schedule 재검증
 - lifecycle: immutable Gamma event ID/canonical slug follow-up; WSS no-message와 wall time으로 상태를
   추정하지 않음
 - unknown phase: `DISCOVERED_OPEN` book/ladder/vector는 별도 stratum으로 보존하고

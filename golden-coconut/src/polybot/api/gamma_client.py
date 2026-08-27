@@ -1,4 +1,4 @@
-"""Five independent cursor-complete Gamma event keyset sweeps."""
+"""Five logical cursor-complete Gamma sweeps with frozen query-tag fan-out."""
 
 from __future__ import annotations
 
@@ -68,74 +68,83 @@ class GammaClient:
         start_time_max = iso_utc(
             slot + timedelta(hours=self.config.discovery_lookahead_hours)
         )
-        after_cursor: str | None = None
-        seen: set[str] = set()
         pages: list[EventPage] = []
-        for page_number in range(1, self.config.max_pages_per_family + 1):
-            params: dict[str, Any] = {
-                "limit": self.config.page_size,
-                "closed": "false",
-                "include_children": "false",
-                "tag_id": family.tag_id,
-                "related_tags": "false",
-                "start_time_min": start_time_min,
-                "start_time_max": start_time_max,
-            }
-            if after_cursor is not None:
-                params["after_cursor"] = after_cursor
-            response = self.transport.request_json(
-                "GET",
-                f"{self.config.base_url}{self.config.endpoint}",
-                request_kind="gamma_events_keyset",
-                run_id=run_id,
-                family=family.code,
-                page_number=page_number,
-                params=params,
-                budget=budget,
-            )
-            payload = response.payload
-            if not isinstance(payload, Mapping):
-                raise ValueError("Gamma /events/keyset response must be an object")
-            raw_events = payload.get("events")
-            if not isinstance(raw_events, list) or any(
-                not isinstance(item, Mapping) for item in raw_events
-            ):
-                raise ValueError("Gamma keyset events must be an array of objects")
-            raw_next = payload.get("next_cursor")
-            next_cursor = str(raw_next).strip() if raw_next not in (None, "") else None
-            pages.append(
-                EventPage(
+        page_number = 0
+        for query_tag_id in family.query_tag_ids:
+            after_cursor: str | None = None
+            seen: set[str] = set()
+            while True:
+                if page_number >= self.config.max_pages_per_family:
+                    return EventSweep(
+                        family.code,
+                        family.tag_id,
+                        tuple(pages),
+                        False,
+                        f"tag_id={query_tag_id};after_cursor={after_cursor or ''}",
+                        start_time_min,
+                        start_time_max,
+                    )
+                page_number += 1
+                params: dict[str, Any] = {
+                    "limit": self.config.page_size,
+                    "closed": "false",
+                    "include_children": "false",
+                    "tag_id": query_tag_id,
+                    "related_tags": "false",
+                    "start_time_min": start_time_min,
+                    "start_time_max": start_time_max,
+                }
+                if after_cursor is not None:
+                    params["after_cursor"] = after_cursor
+                response = self.transport.request_json(
+                    "GET",
+                    f"{self.config.base_url}{self.config.endpoint}",
+                    request_kind="gamma_events_keyset",
+                    run_id=run_id,
                     family=family.code,
                     page_number=page_number,
-                    request_id=response.request_id,
-                    received_at=response.received_at,
-                    response_sha256=response.response_sha256,
-                    raw=response.raw,
-                    events=tuple(dict(item) for item in raw_events),
-                    after_cursor=after_cursor,
-                    next_cursor=next_cursor,
+                    params=params,
+                    budget=budget,
                 )
-            )
-            if next_cursor is None:
-                return EventSweep(
-                    family.code,
-                    family.tag_id,
-                    tuple(pages),
-                    True,
-                    after_cursor,
-                    start_time_min,
-                    start_time_max,
+                payload = response.payload
+                if not isinstance(payload, Mapping):
+                    raise ValueError("Gamma /events/keyset response must be an object")
+                raw_events = payload.get("events")
+                if not isinstance(raw_events, list) or any(
+                    not isinstance(item, Mapping) for item in raw_events
+                ):
+                    raise ValueError("Gamma keyset events must be an array of objects")
+                raw_next = payload.get("next_cursor")
+                next_cursor = (
+                    str(raw_next).strip() if raw_next not in (None, "") else None
                 )
-            if next_cursor == after_cursor or next_cursor in seen:
-                raise ValueError(f"Gamma {family.code} keyset cursor repeated")
-            seen.add(next_cursor)
-            after_cursor = next_cursor
+                pages.append(
+                    EventPage(
+                        family=family.code,
+                        page_number=page_number,
+                        request_id=response.request_id,
+                        received_at=response.received_at,
+                        response_sha256=response.response_sha256,
+                        raw=response.raw,
+                        events=tuple(dict(item) for item in raw_events),
+                        after_cursor=after_cursor,
+                        next_cursor=next_cursor,
+                    )
+                )
+                if next_cursor is None:
+                    break
+                if next_cursor == after_cursor or next_cursor in seen:
+                    raise ValueError(
+                        f"Gamma {family.code} tag {query_tag_id} keyset cursor repeated"
+                    )
+                seen.add(next_cursor)
+                after_cursor = next_cursor
         return EventSweep(
             family.code,
             family.tag_id,
             tuple(pages),
-            False,
-            after_cursor,
+            True,
+            None,
             start_time_min,
             start_time_max,
         )

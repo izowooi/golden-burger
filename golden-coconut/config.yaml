@@ -2,12 +2,12 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: major-sports-lifecycle-census-v3
+  data_contract: major-sports-lifecycle-census-v4
   collection_contract: research-full-v1
-  schema_profile: golden-coconut-create-only-lifecycle-v3
-  universe_profile: major-sports-five-family-lifecycle-2026-08-v3
-  classifier_version: major-sports-exact-identity-lifecycle-v3
-  sports_registry_sha256: e8a8bc9c1be5a9cbaac920f20bed4e81de72daf0e50cb1e12a27f6a0d0afdf7c
+  schema_profile: golden-coconut-create-only-lifecycle-v4
+  universe_profile: major-sports-five-family-lifecycle-2026-08-v4
+  classifier_version: major-sports-exact-identity-lifecycle-v4
+  sports_registry_sha256: d5cc5dcab3fb572d10f66c56436a9b64069b49e711c4cf1d5c3d2bdd3534202c
   cadence_minutes: 5
   cooperative_budget_seconds: 225
   stop_margin_seconds: 30

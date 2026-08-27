@@ -6,9 +6,9 @@
 |---|---|
 | Jenkins job | `polybot-gold` |
 | workspace | `/Volumes/t7/jenkins/polybot-gold` |
-| runtime | `coconut-major-sports-lifecycle-5m-v3` |
+| runtime | `coconut-major-sports-lifecycle-5m-v4` |
 | schedule | `H/5 * * * *` |
-| active DB | `data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db` |
+| active DB | `data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db` |
 
 concurrent build와 workspace clean을 끈다. collector는 외장 APFS volume, exact mount/device UUID,
 shared Raspberry sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
@@ -47,8 +47,9 @@ network 전에 실패한다. credential을 `unset`해 숨기지 않는다.
 3. `polybot config --simulate`
 4. storage preflight: free 150 GiB, warn 70%, stop 80%
 5. atomic UTC 5분 slot claim
-6. soccer/MLB/NBA/NFL/NHL의 `closed=false`, 실제 경기 시작 시각
-   `start_time_min/max=slot-24h..slot+48h` 독립 cursor-complete sweep과 client-side schedule 재검증
+6. soccer의 frozen 8개 대회 tag fan-out과 MLB/NBA/NFL/NHL 단일 tag를 `closed=false`, 실제 경기
+   시작 시각 `start_time_min/max=slot-24h..slot+48h`로 읽고, 모든 physical cursor completion과
+   client-side schedule을 재검증
 7. discovery에서 빠진 tracked game의 Gamma event-by-ID lifecycle follow-up
 8. public sports clock, same-cycle Gamma fallback, full books, optional public fee, resolution observation
 9. atomic evidence publication과 `SUCCEEDED` 또는 evidence-backed `FAILED`
@@ -60,11 +61,11 @@ cooperative budget은 225초, 새 request stop margin은 30초, hard cycle은 24
 ## Daily-rsync와 analyzer
 
 parent가 inventory/Jenkins routing을 통합한 뒤 `polybot-gold × golden-coconut ×
-coconut-major-sports-lifecycle-5m-v3` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
+coconut-major-sports-lifecycle-5m-v4` 경계로 scan/plan/sync/verify한다. daily-rsync가 검증한 exact absolute
 `trades_sim.db`와 필요한 `trades_sim_YYYYMMDD.db`만 analyzer에 넘긴다.
 
 ```bash
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v3 \
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v4 \
   --db /absolute/verified/trades_sim_20260827.db \
   --db /absolute/verified/trades_sim.db \
   --output /tmp/golden-coconut-health.json

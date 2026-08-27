@@ -399,10 +399,11 @@ bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 
 
 ### golden-coconut — Five-Family Major Sports Observatory
 
-`polybot-gold/coconut-major-sports-lifecycle-5m-v3`는 external APFS workspace에서
+`polybot-gold/coconut-major-sports-lifecycle-5m-v4`는 external APFS workspace에서
 soccer·MLB·NBA·NFL·NHL의 exact major-league top-level whole-game moneyline을 경기 전부터
-terminal lifecycle까지 5분마다 수집한다. family별 `closed=false`, `slot-24h..slot+48h`
-terminal cursor discovery 뒤 Gamma event ID로 추적한다.
+terminal lifecycle까지 5분마다 수집한다. Soccer는 frozen 8개 대회 query tag로 fan-out하고,
+미국 4종목은 각 family tag를 `closed=false`, `slot-24h..slot+48h`에서 terminal cursor까지
+읽은 뒤 Gamma event ID로 추적한다.
 축구는 EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 regular-time result Yes token,
 미국 4종목은 official major identity의 direct two-team outcome만 허용한다. minor, G League,
 AHL/ECHL, NCAA, e-sports, period, spread/total, prop, future, advancement는 fail closed한다.
@@ -413,7 +414,7 @@ sport/season별 strata이며, official preseason은 `PRESEASON`으로 분리한�
 shard와 game cluster를 사용해 같은 경기를 독립 표본으로 중복 계산하지 않는다. 계좌·주문·P&L은
 없으며 첫 review에서는 collection health와 coverage만 판정한다. 상세는
 `golden-coconut/STRATEGY.md`, frozen 계약은
-`golden-coconut/research/frozen-2026-08-28-v3/PREREGISTRATION.md`, 회고는
+`golden-coconut/research/frozen-2026-08-28-v4/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-coconut.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)

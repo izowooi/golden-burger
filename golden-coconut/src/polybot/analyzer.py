@@ -1,4 +1,4 @@
-"""Read-only v3 collection-health and preregistered strata analysis."""
+"""Read-only v4 collection-health and preregistered strata analysis."""
 
 from __future__ import annotations
 
@@ -23,7 +23,7 @@ from .config import (
 from .registry import FAMILY_ORDER
 
 
-ANALYZER_CONTRACT = "major-sports-lifecycle-health-v3"
+ANALYZER_CONTRACT = "major-sports-lifecycle-health-v4"
 SEASON_PHASES = (
     "PRESEASON",
     "REGULAR",
@@ -96,8 +96,8 @@ def _read_shard(path: Path) -> dict[str, Any]:
     try:
         quick = str(connection.execute("PRAGMA quick_check").fetchone()[0])
         user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
-        if user_version != 3:
-            raise ValueError("analyzer database schema epoch must be v3")
+        if user_version != 4:
+            raise ValueError("analyzer database schema epoch must be v4")
         metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
         if metadata_row is None:
             raise ValueError("analyzer database has no schema metadata")
@@ -130,7 +130,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
             "start_date_min",
             "start_date_max",
         } & sweep_columns:
-            raise ValueError("analyzer sport_sweeps schedule columns are not v3")
+            raise ValueError("analyzer sport_sweeps schedule columns are not v4")
         result = {
             "path": str(path.resolve()),
             "file_bytes": path.stat().st_size,
@@ -141,6 +141,7 @@ def _read_shard(path: Path) -> dict[str, Any]:
         for table in (
             "research_config_versions",
             "research_run_events",
+            "api_requests",
             "collection_cycles",
             "sport_sweeps",
             "event_observations",
@@ -394,7 +395,7 @@ def _schedule_window_accounting(events: list[dict[str, Any]]) -> dict[str, Any]:
         }
 
     return {
-        "contract": "UTC_HALF_OPEN_START_TIME_V3",
+        "contract": "UTC_HALF_OPEN_START_TIME_V4",
         "discovery_event_observations": len(discovery),
         "accounted_observations": accounted,
         "accounting_coverage_pct": _ratio(accounted, len(discovery)),
@@ -402,6 +403,92 @@ def _schedule_window_accounting(events: list[dict[str, Any]]) -> dict[str, Any]:
         "violations": dict(sorted(violations.items())),
         "gate_passed": accounted == len(discovery) and not violations,
         "tracked_events_may_remain_followed_outside_window": True,
+    }
+
+
+def _query_tag_accounting(
+    cycles: list[dict[str, Any]],
+    sweeps: list[dict[str, Any]],
+    api_requests: list[dict[str, Any]],
+) -> dict[str, Any]:
+    gamma_requests = [
+        row
+        for row in api_requests
+        if str(row["request_kind"]) == "gamma_events_keyset"
+        and str(row["status"]) == "SUCCESS"
+    ]
+    by_run_family: defaultdict[tuple[str, str], set[int]] = defaultdict(set)
+    violations: Counter[str] = Counter()
+    for row in gamma_requests:
+        try:
+            params = json.loads(str(row["params_json"]))
+            tag_id = params.get("tag_id") if isinstance(params, Mapping) else None
+        except (json.JSONDecodeError, TypeError):
+            tag_id = None
+        if isinstance(tag_id, bool) or not isinstance(tag_id, int):
+            violations["INVALID_GAMMA_QUERY_TAG_EVIDENCE"] += 1
+            continue
+        by_run_family[(str(row["run_id"]), str(row["sport_family"]))].add(tag_id)
+
+    selected_run_ids = {str(row["run_id"]) for row in cycles}
+    by_family: dict[str, Any] = {}
+    exact_sweeps = 0
+    for family in FAMILY_ORDER:
+        rows = [row for row in sweeps if str(row["sport_family"]) == family]
+        expected_union: set[int] = set()
+        observed_union: set[int] = set()
+        family_exact = 0
+        for sweep in rows:
+            try:
+                envelope = json.loads(str(sweep["request_envelope_json"]))
+                query_tags = (
+                    envelope.get("query_tag_ids")
+                    if isinstance(envelope, Mapping)
+                    else None
+                )
+            except (json.JSONDecodeError, TypeError):
+                query_tags = None
+            if (
+                not isinstance(query_tags, list)
+                or not query_tags
+                or any(
+                    isinstance(value, bool) or not isinstance(value, int)
+                    for value in query_tags
+                )
+            ):
+                violations["INVALID_SWEEP_QUERY_TAG_ENVELOPE"] += 1
+                continue
+            expected = set(query_tags)
+            observed = by_run_family[(str(sweep["run_id"]), family)]
+            expected_union.update(expected)
+            observed_union.update(observed)
+            if expected == observed:
+                family_exact += 1
+                exact_sweeps += 1
+            else:
+                violations["QUERY_TAG_SET_MISMATCH"] += 1
+        by_family[family] = {
+            "selected_sweeps": len(rows),
+            "exact_query_tag_sweeps": family_exact,
+            "expected_query_tag_ids": sorted(expected_union),
+            "observed_successful_query_tag_ids": sorted(observed_union),
+        }
+
+    expected_sweeps = len(sweeps)
+    orphan_request_runs = {
+        str(row["run_id"]) for row in gamma_requests
+    } - selected_run_ids
+    if orphan_request_runs:
+        violations["UNSELECTED_RUN_QUERY_EVIDENCE_INCLUDED"] += len(
+            orphan_request_runs
+        )
+    return {
+        "selected_sweeps": expected_sweeps,
+        "exact_query_tag_sweeps": exact_sweeps,
+        "coverage_pct": _ratio(exact_sweeps, expected_sweeps),
+        "by_sport": by_family,
+        "violations": dict(sorted(violations.items())),
+        "gate_passed": exact_sweeps == expected_sweeps and not violations,
     }
 
 
@@ -466,6 +553,11 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
     resolutions = _selected(combined["resolution_observations"], selected_cycle_ids)
     clocks = _selected(combined["sports_clock_observations"], selected_cycle_ids)
     selected_run_ids = {str(row["run_id"]) for row in cycles}
+    api_requests = [
+        row
+        for row in combined["api_requests"]
+        if str(row["run_id"]) in selected_run_ids
+    ]
     issues = [
         row
         for row in combined["data_quality_issues"]
@@ -475,6 +567,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
 
     accepted_events = [row for row in events if row["classification_status"] == "ACCEPTED"]
     schedule_accounting = _schedule_window_accounting(events)
+    query_tag_accounting = _query_tag_accounting(cycles, sweeps, api_requests)
     eligible_outcomes = [row for row in outcomes if row["threshold_eligible"]]
     observed_book_keys = {
         (str(row["cycle_id"]), str(row["token_id"]))
@@ -773,6 +866,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
         "selected_cycle_critical_or_high_issues_zero": critical_or_high == 0,
         "minimum_seven_distinct_utc_dates": len(collection_dates) >= 7,
         "at_least_one_unique_game_per_sport": five_family_games,
+        "query_tag_accounting": bool(query_tag_accounting["gate_passed"]),
         "schedule_window_accounting": bool(schedule_accounting["gate_passed"]),
         "complete_notional_rows_per_canonical_book": complete_notional,
         "explicit_terminal_coverage_for_discovered_ended_games": terminal_complete,
@@ -833,6 +927,7 @@ def analyze_databases(paths: Iterable[Path]) -> dict[str, Any]:
             },
         },
         "lifecycle_health": lifecycle_health,
+        "query_tag_accounting": query_tag_accounting,
         "schedule_window_accounting": schedule_accounting,
         "schedule_anchor_health": _anchor_report(anchors, outcomes),
         "liquidity_strata": _metric_strata(

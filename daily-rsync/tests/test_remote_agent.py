@@ -1222,6 +1222,7 @@ def test_research_archive_completed_at_uses_publication_ctime(tmp_path: Path) ->
     (
         "coconut-major-sports-lifecycle-5m-v2",
         "coconut-major-sports-lifecycle-5m-v3",
+        "coconut-major-sports-lifecycle-5m-v4",
     ),
 )
 def test_coconut_research_snapshot_uses_coconut_cycle_lock(

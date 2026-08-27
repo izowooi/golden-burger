@@ -17,6 +17,7 @@ FAMILY_ORDER = ("soccer", "mlb", "nba", "nfl", "nhl")
 class SportFamily:
     code: str
     tag_id: int
+    query_tag_ids: tuple[int, ...]
     identity_kind: str
     payload: Mapping[str, Any]
 
@@ -53,8 +54,8 @@ def load_registry(
         raise ValueError("SPORTS_REGISTRY.json is invalid JSON") from error
     if not isinstance(raw, Mapping):
         raise ValueError("SPORTS_REGISTRY.json root must be an object")
-    if raw.get("schema_version") != 3:
-        raise ValueError("SPORTS_REGISTRY.json schema_version must be 3")
+    if raw.get("schema_version") != 4:
+        raise ValueError("SPORTS_REGISTRY.json schema_version must be 4")
     profile = str(raw.get("registry_profile") or "")
     classifier = str(raw.get("classifier_version") or "")
     family_payloads = raw.get("sport_families")
@@ -74,6 +75,7 @@ def load_registry(
             "closed",
             "include_children",
             "related_tags",
+            "query_tag_ids",
             "start_hours_after_slot",
             "start_hours_before_slot",
             "tag_id",
@@ -90,10 +92,22 @@ def load_registry(
         tag_id = discovery.get("tag_id")
         if isinstance(tag_id, bool) or not isinstance(tag_id, int) or tag_id <= 0:
             raise ValueError(f"registry family {code} tag_id is invalid")
+        raw_query_tag_ids = discovery.get("query_tag_ids")
+        if (
+            not isinstance(raw_query_tag_ids, list)
+            or not raw_query_tag_ids
+            or any(
+                isinstance(value, bool) or not isinstance(value, int) or value <= 0
+                for value in raw_query_tag_ids
+            )
+            or len(raw_query_tag_ids) != len(set(raw_query_tag_ids))
+        ):
+            raise ValueError(f"registry family {code} query_tag_ids are invalid")
+        query_tag_ids = tuple(raw_query_tag_ids)
         identity_kind = str(payload.get("identity_kind") or "")
         if not identity_kind:
             raise ValueError(f"registry family {code} identity_kind is missing")
-        families.append(SportFamily(code, tag_id, identity_kind, payload))
+        families.append(SportFamily(code, tag_id, query_tag_ids, identity_kind, payload))
     expected_tags = {
         "soccer": 100350,
         "mlb": 100381,
@@ -102,7 +116,16 @@ def load_registry(
         "nhl": 899,
     }
     if {item.code: item.tag_id for item in families} != expected_tags:
-        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v3")
+        raise ValueError("SPORTS_REGISTRY.json discovery tags differ from v4")
+    expected_query_tags = {
+        "soccer": (306, 1494, 102070, 780, 100100, 101962, 100977, 101787),
+        "mlb": (100381,),
+        "nba": (745,),
+        "nfl": (450,),
+        "nhl": (899,),
+    }
+    if {item.code: item.query_tag_ids for item in families} != expected_query_tags:
+        raise ValueError("SPORTS_REGISTRY.json query tags differ from v4")
     return SportsRegistry(
         path=path,
         sha256=actual_sha256,

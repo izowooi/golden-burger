@@ -496,8 +496,8 @@ class Collector:
                             self._quality_row(
                                 cycle_id,
                                 run_id,
-                                "HIGH",
-                                "DUPLICATE_EVENT_IN_FAMILY_SWEEP",
+                                "INFO",
+                                "DUPLICATE_EVENT_ACROSS_QUERY_TAGS_DEDUPED",
                                 family.code,
                                 {"event_id": event_id},
                             )
@@ -542,6 +542,7 @@ class Collector:
                             "closed": False,
                             "include_children": False,
                             "tag_id": family.tag_id,
+                            "query_tag_ids": list(family.query_tag_ids),
                             "related_tags": False,
                             "start_time_min": sweep.start_time_min,
                             "start_time_max": sweep.start_time_max,
@@ -569,6 +570,11 @@ class Collector:
                             sweep.family,
                             {
                                 "pages": len(sweep.pages),
+                                "query_tag_ids": list(
+                                    self.config.registry.by_code[
+                                        sweep.family
+                                    ].query_tag_ids
+                                ),
                                 "terminal_cursor": sweep.terminal_cursor,
                             },
                         )
@@ -632,7 +638,7 @@ class Collector:
         if not followup_complete and fatal_error is None:
             fatal_error = "one or more carried games lacked an explicit Gamma follow-up"
         if identity_fatal and fatal_error is None:
-            fatal_error = "canonical game identity changed inside the immutable v3 epoch"
+            fatal_error = "canonical game identity changed inside the immutable v4 epoch"
 
         census_healthy = all_complete and followup_complete and not identity_fatal
         empty_clock = ClockBatch(
@@ -1535,6 +1541,7 @@ class Collector:
                     "families": {
                         item.code: {
                             "tag_id": item.tag_id,
+                            "query_tag_ids": list(item.query_tag_ids),
                             "closed": False,
                             "include_children": False,
                             "related_tags": False,

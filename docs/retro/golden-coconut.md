@@ -8,18 +8,25 @@ Evidence 해석은 [`EVIDENCE_CONTRACT.md`](EVIDENCE_CONTRACT.md)를 따른다.
 
 ## 상태
 
-2026-08-27 v1을 immutable archive로 남기고 lifecycle v2 collector를 구현했으나,
-`start_date_*`가 경기 시작이 아니라 event 생성일을 제한해 범위 밖 경기가 유입됐고
-`DISCOVERED_OPEN` gate 때문에 book evidence가 0이었다. v2는 immutable invalidated collection으로
-보존하고 2026-08-28 v3 prospective collector를 새 DB로 시작한다. 아직 v3 실측 cohort와
-profitability verdict는 없다.
+2026-08-27 v1은 immutable archive다. Lifecycle v2는 `start_date_*`가 경기 시작이 아니라 event
+생성일을 제한해 범위 밖 경기가 유입됐고, `DISCOVERED_OPEN` gate 때문에 book evidence가 0이었다.
+V3는 실제 경기 시작 시각과 `DISCOVERED_OPEN` book 수집을 바로잡았지만, broad soccer tag 한 개가
+72시간 창에서 2,030개 event/21 pages를 반환해 20-page cap에 걸렸다. `polybot-gold` build #22는
+five-family cursor gate에서 실패했고 book/vector evidence가 0이므로 v2와 v3 모두 immutable
+invalidated collection으로 보존한다.
+
+2026-08-28 v4는 같은 source window에서 broad-v3가 수락한 30개 soccer event를 모두 포함했던
+EPL·Bundesliga·Ligue 1·LaLiga·MLS·Serie A·UCL·UEL의 frozen 8-tag union으로 discovery를
+fan-out한다. 당시 read-only probe는 230 unique events/8 terminal pages였다. 이 수치는 v4의
+prospective health 결과가 아니며, v4 새 DB에서 다시 검증해야 한다. 아직 profitability verdict는
+없다.
 
 ## Frozen cohort
 
-- data contract: `major-sports-lifecycle-census-v3`
-- runtime: `coconut-major-sports-lifecycle-5m-v3`
+- data contract: `major-sports-lifecycle-census-v4`
+- runtime: `coconut-major-sports-lifecycle-5m-v4`
 - Jenkins: `polybot-gold`
-- active DB: `data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db`
+- active DB: `data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db`
 - families: soccer, MLB, NBA, NFL, NHL
 - cadence: 5분
 - estimator stage: collection health only
@@ -30,7 +37,7 @@ cutoff를 기록한다. active와 UTC archive가 같은 inode인 handoff 순간�
 
 ## 첫 health gate
 
-- 다섯 family 각각 terminal cursor이며 repeat/page-cap 위반 0
+- 다섯 logical family 각각 terminal cursor이며 frozen query-tag set 누락·repeat·page-cap 위반 0
 - exact major identity drift와 e-sports/minor false-positive 0
 - 공식 US preseason은 `PRESEASON`으로 존재하고 regular/postseason과 분리
 - eligible token의 book attempt, canonical gzip uniqueness, ladder completeness

@@ -33,8 +33,9 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   금지한다. 30일 prospective cohort 전 수익성이나 exit policy를 판정하지 않는다.
 - `golden-coconut/`: **Five-Family Major Sports Observatory** — soccer·MLB·NBA·NFL·NHL의
   exact major-league whole-game moneyline을 경기 전부터 terminal lifecycle까지 5분마다 추적한다.
-  `closed=false`, `slot-24h..slot+48h` family별 terminal cursor discovery 뒤 event ID로
-  follow-up하며, `0.75..0.99` crossing, full CLOB book, `$5..$1000` depth와
+  `closed=false`, `slot-24h..slot+48h` 범위에서 soccer는 frozen 8개 대회 query tag로 fan-out하고
+  미국 4종목은 각 family tag를 terminal cursor까지 읽은 뒤 event ID로 follow-up한다.
+  `0.75..0.99` crossing, full CLOB book, `$5..$1000` depth와
   liquidity·volume·season phase를 append-only UTC daily shard에 보존한다. liquidity/volume은
   discovery gate가 아니라 strata이며, official preseason은 별도 `PRESEASON` cell로 둔다.
   `polybot-gold`의 external APFS workspace에서만 실행하는 accountless research-only collector로,
@@ -164,10 +165,11 @@ lineage가 달라 자체 archive/catalog를 주 source로 사용한다. "중앙 
 whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L evidence로 해석하지 않는다.
 
 `golden-coconut`도 거래 DB가 아닌
-`data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db`와
+`data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db`와
 `trades_sim_YYYYMMDD.db` UTC daily shard를 사용한다. `polybot-gold`의 external APFS workspace,
-exact workspace marker와 150 GiB/70%/80% storage guard를 확인한 뒤 soccer·MLB·NBA·NFL·NHL의
-family별 census, event-by-ID lifecycle, full book, crossing/path/resolution을 저장한다. liquidity·volume과 official
+exact workspace marker와 150 GiB/70%/80% storage guard를 확인한 뒤 soccer의 frozen 8개 대회
+query-tag fan-out과 MLB·NBA·NFL·NHL의 family census, event-by-ID lifecycle, full book,
+crossing/path/resolution을 저장한다. liquidity·volume과 official
 preseason은 selection이 아니라 독립 strata이며, 이 DB를 actual fill/P&L evidence로 해석하지 않는다.
 
 `golden-raspberry`도 `data/<runtime-job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의

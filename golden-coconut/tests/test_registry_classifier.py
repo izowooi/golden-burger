@@ -17,16 +17,16 @@ FIXTURE = json.loads(
 )
 
 
-def test_active_registry_is_v3_and_uses_v3_profiles():
+def test_active_registry_is_v4_and_uses_v4_profiles():
     root = Path(__file__).resolve().parents[1]
     registry = json.loads(
-        (root / "research/frozen-2026-08-28-v3/SPORTS_REGISTRY.json").read_text(
+        (root / "research/frozen-2026-08-28-v4/SPORTS_REGISTRY.json").read_text(
             encoding="utf-8"
         )
     )
-    assert registry["schema_version"] == 3
-    assert registry["registry_profile"].endswith("-v3")
-    assert registry["classifier_version"].endswith("-v3")
+    assert registry["schema_version"] == 4
+    assert registry["registry_profile"].endswith("-v4")
+    assert registry["classifier_version"].endswith("-v4")
 
 
 def test_registry_contains_exact_five_family_tags(config):
@@ -38,6 +38,19 @@ def test_registry_contains_exact_five_family_tags(config):
         "nfl": 450,
         "nhl": 899,
     }
+    assert config.registry.by_code["soccer"].query_tag_ids == (
+        306,
+        1494,
+        102070,
+        780,
+        100100,
+        101962,
+        100977,
+        101787,
+    )
+    for family in ("mlb", "nba", "nfl", "nhl"):
+        entry = config.registry.by_code[family]
+        assert entry.query_tag_ids == (entry.tag_id,)
 
 
 @pytest.mark.parametrize("family", ["mlb", "nba", "nfl", "nhl"])

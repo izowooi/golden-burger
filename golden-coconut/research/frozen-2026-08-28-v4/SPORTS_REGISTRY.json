@@ -1,0 +1,239 @@
+{
+  "classifier_version": "major-sports-exact-identity-lifecycle-v4",
+  "frozen_at": "2026-08-27T16:20:00Z",
+  "registry_profile": "major-sports-five-family-lifecycle-2026-08-v4",
+  "schema_version": 4,
+  "shared": {
+    "canonical_game_identity": "event_slug",
+    "esports_tag_id": 64,
+    "games_tag_id": 100639,
+    "sports_tag_id": 1
+  },
+  "sport_families": {
+    "mlb": {
+      "discovery": {
+        "closed": false,
+        "include_children": false,
+        "related_tags": false,
+        "start_hours_after_slot": 48,
+        "start_hours_before_slot": 24,
+        "tag_id": 100381,
+        "query_tag_ids": [
+          100381
+        ]
+      },
+      "identity_kind": "US_DIRECT_TWO_OUTCOME",
+      "required_event_tag_ids": [
+        1,
+        100639,
+        100381
+      ],
+      "sport": {
+        "code": "mlb",
+        "id": 8,
+        "name": "MLB",
+        "primary_tag_id": 100381,
+        "root_id": 3
+      }
+    },
+    "nba": {
+      "discovery": {
+        "closed": false,
+        "include_children": false,
+        "related_tags": false,
+        "start_hours_after_slot": 48,
+        "start_hours_before_slot": 24,
+        "tag_id": 745,
+        "query_tag_ids": [
+          745
+        ]
+      },
+      "identity_kind": "US_DIRECT_TWO_OUTCOME",
+      "required_event_tag_ids": [
+        1,
+        100639,
+        745
+      ],
+      "sport": {
+        "code": "nba",
+        "id": 34,
+        "name": "NBA",
+        "primary_tag_id": 745,
+        "root_id": 10345
+      }
+    },
+    "nfl": {
+      "discovery": {
+        "closed": false,
+        "include_children": false,
+        "related_tags": false,
+        "start_hours_after_slot": 48,
+        "start_hours_before_slot": 24,
+        "tag_id": 450,
+        "query_tag_ids": [
+          450
+        ]
+      },
+      "identity_kind": "US_DIRECT_TWO_OUTCOME",
+      "required_event_tag_ids": [
+        1,
+        100639,
+        450
+      ],
+      "sport": {
+        "code": "nfl",
+        "id": 10,
+        "name": "NFL",
+        "primary_tag_id": 450,
+        "root_id": 10187
+      }
+    },
+    "nhl": {
+      "discovery": {
+        "closed": false,
+        "include_children": false,
+        "related_tags": false,
+        "start_hours_after_slot": 48,
+        "start_hours_before_slot": 24,
+        "tag_id": 899,
+        "query_tag_ids": [
+          899
+        ]
+      },
+      "identity_kind": "US_DIRECT_TWO_OUTCOME",
+      "required_event_tag_ids": [
+        1,
+        100639,
+        899
+      ],
+      "sport": {
+        "code": "nhl",
+        "id": 35,
+        "name": "NHL",
+        "primary_tag_id": 899,
+        "root_id": 10346
+      }
+    },
+    "soccer": {
+      "discovery": {
+        "closed": false,
+        "include_children": false,
+        "related_tags": false,
+        "start_hours_after_slot": 48,
+        "start_hours_before_slot": 24,
+        "tag_id": 100350,
+        "query_tag_ids": [
+          306,
+          1494,
+          102070,
+          780,
+          100100,
+          101962,
+          100977,
+          101787
+        ]
+      },
+      "domestic_leagues": [
+        {
+          "code": "epl",
+          "name": "Premier League",
+          "primary_tag_id": 306,
+          "required_tag_ids": [
+            82,
+            306
+          ],
+          "series_id": "10188",
+          "series_slug": "premier-league-2025",
+          "sport_id": 2,
+          "team_league": "epl"
+        },
+        {
+          "code": "bun",
+          "name": "Bundesliga",
+          "primary_tag_id": 1494,
+          "required_tag_ids": [
+            1494
+          ],
+          "series_id": "10194",
+          "series_slug": "bundesliga-2025",
+          "sport_id": 7,
+          "team_league": "bun"
+        },
+        {
+          "code": "fl1",
+          "name": "Ligue 1",
+          "primary_tag_id": 102070,
+          "required_tag_ids": [
+            102070
+          ],
+          "series_id": "10195",
+          "series_slug": "ligue-1-2025",
+          "sport_id": 11,
+          "team_league": "fl1"
+        },
+        {
+          "code": "lal",
+          "name": "LaLiga",
+          "primary_tag_id": 780,
+          "required_tag_ids": [
+            780
+          ],
+          "series_id": "10193",
+          "series_slug": "la-liga-2025",
+          "sport_id": 3,
+          "team_league": "lal"
+        },
+        {
+          "code": "mls",
+          "name": "MLS",
+          "primary_tag_id": 100100,
+          "required_tag_ids": [
+            100100
+          ],
+          "series_id": "10189",
+          "series_slug": "mls-2025",
+          "sport_id": 33,
+          "team_league": "mls"
+        },
+        {
+          "code": "sea",
+          "name": "Serie A",
+          "primary_tag_id": 100618,
+          "required_tag_ids": [
+            101962
+          ],
+          "series_id": "10203",
+          "series_slug": "serie-a-2025",
+          "sport_id": 12,
+          "team_league": "sea"
+        }
+      ],
+      "identity_kind": "SOCCER_RESULT_SPECIFIC_YES_NO_NEGRISK",
+      "required_common_tag_ids": [
+        1,
+        100639,
+        100350
+      ],
+      "uefa_competitions": [
+        {
+          "code": "ucl",
+          "event_slug_prefix": "ucl-",
+          "name": "UEFA Champions League",
+          "resolution_source_host": "www.uefa.com",
+          "series_id": "10204",
+          "series_slug": "ucl-2025",
+          "tag_id": 100977
+        },
+        {
+          "code": "uel",
+          "event_slug_prefix": "uel-",
+          "name": "UEFA Europa League",
+          "resolution_source_host": "www.uefa.com",
+          "series_id": "10209",
+          "series_slug": "uel-2025",
+          "tag_id": 101787
+        }
+      ]
+    }
+  }
+}

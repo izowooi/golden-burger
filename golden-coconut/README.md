@@ -3,7 +3,7 @@
 Golden Coconut은 계좌·주문 경로가 없는 major-sports lifecycle moneyline research collector다.
 축구(EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A, UCL, UEL), MLB, NBA, NFL, NHL을
 동일한 5분 cadence에서 경기 전부터 종료·해결까지 관측한다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v3`, Jenkins job은 `polybot-gold`다.
+`coconut-major-sports-lifecycle-5m-v4`, Jenkins job은 `polybot-gold`다.
 
 `--simulate`와 `--shadow`는 실제 공개 Gamma/CLOB/Sports feed를 읽는 accountless mode를
 뜻한다. 가짜 가격이나 체결을 만들지 않는다. `--live`, `active`, `close_only`, credential,
@@ -11,15 +11,16 @@ wallet, signing, authenticated endpoint와 transaction SDK는 source-level로 �
 
 ## 수집 계약
 
-각 cycle은 다음 5개 Gamma `/events/keyset` sweep을 `closed=false`, 실제 경기 시작 시각
-`start_time_min/max=slot-24h..slot+48h`로
-독립적으로 terminal cursor까지 읽는다. `live=true`를 discovery gate로 사용하지 않으며,
+각 cycle은 다음 5개 logical Gamma `/events/keyset` sweep을 `closed=false`, 실제 경기 시작 시각
+`start_time_min/max=slot-24h..slot+48h`로 독립적으로 terminal cursor까지 읽는다. Soccer logical
+sweep은 아래 8개 대회 query tag로 fan-out하고, 모든 physical cursor가 끝나야 완료된다.
+`live=true`를 discovery gate로 사용하지 않으며,
 discovery 범위를 벗어나거나 closed로 바뀐 accepted game도 event ID로 terminal state까지
 follow-up한다.
 
-| family | exact `tag_id` | exact sport/root identity |
-|---|---:|---|
-| soccer | 100350 | Watermelon v3c의 6개 domestic + UCL/UEL registry |
+| family | physical query tag(s) | exact sport/root identity |
+|---|---|---|
+| soccer | 306, 1494, 102070, 780, 100100, 101962, 100977, 101787 | EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A, UCL, UEL |
 | MLB | 100381 | sport 8, primary tag 100381, root 3 |
 | NBA | 745 | sport 34, primary tag 745, root 10345 |
 | NFL | 450 | sport 10, primary tag 450, root 10187 |
@@ -63,7 +64,7 @@ threshold grid는 `0.75`부터 `0.99`까지 `0.01` 간격이다. token/cycle마�
 daily-rsync 통합 때문에 active DB 이름은 반드시 다음과 같다.
 
 ```text
-data/coconut-major-sports-lifecycle-5m-v3/trades_sim.db
+data/coconut-major-sports-lifecycle-5m-v4/trades_sim.db
 ```
 
 `trades_sim.db`는 filename 호환 계약일 뿐이다. SQLite에는 `orders`, `fills`, `positions`,
@@ -79,10 +80,10 @@ uv sync --frozen --extra dev
 uv run pytest
 uv build
 
-uv run polybot config --simulate --job coconut-major-sports-lifecycle-5m-v3
-uv run polybot status --simulate --job coconut-major-sports-lifecycle-5m-v3
-uv run polybot health --simulate --job coconut-major-sports-lifecycle-5m-v3
-uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v3 \
+uv run polybot config --simulate --job coconut-major-sports-lifecycle-5m-v4
+uv run polybot status --simulate --job coconut-major-sports-lifecycle-5m-v4
+uv run polybot health --simulate --job coconut-major-sports-lifecycle-5m-v4
+uv run polybot analyze --simulate --job coconut-major-sports-lifecycle-5m-v4 \
   --db /absolute/path/to/trades_sim.db
 ```
 

@@ -24,12 +24,12 @@ from .source_digest import (
 )
 
 
-CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v3"
-DATA_CONTRACT = "major-sports-lifecycle-census-v3"
+CANONICAL_JOB = "coconut-major-sports-lifecycle-5m-v4"
+DATA_CONTRACT = "major-sports-lifecycle-census-v4"
 COLLECTION_CONTRACT = "research-full-v1"
-SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v3"
-UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v3"
-CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v3"
+SCHEMA_PROFILE = "golden-coconut-create-only-lifecycle-v4"
+UNIVERSE_PROFILE = "major-sports-five-family-lifecycle-2026-08-v4"
+CLASSIFIER_VERSION = "major-sports-exact-identity-lifecycle-v4"
 THRESHOLD_GRID = tuple(Decimal(value) / 100 for value in range(75, 100))
 NOTIONAL_LADDER = (
     5.0,

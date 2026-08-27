@@ -99,7 +99,33 @@ def test_page_cap_returns_incomplete(config):
         slot_start="2026-08-27T00:00:00Z",
     )
     assert sweep.cursor_complete is False
-    assert sweep.terminal_cursor == "b"
+    assert sweep.terminal_cursor == "tag_id=100381;after_cursor=b"
+
+
+def test_soccer_uses_all_frozen_competition_query_tags(config):
+    soccer = config.registry.by_code["soccer"]
+    transport = FakeTransport(
+        [{"events": [], "next_cursor": None} for _ in soccer.query_tag_ids]
+    )
+    sweep = GammaClient(config.trading.gamma, transport).fetch_family_events(
+        "run",
+        soccer,
+        budget=budget(),
+        slot_start="2026-08-27T00:00:00Z",
+    )
+    assert sweep.cursor_complete is True
+    assert len(sweep.pages) == len(soccer.query_tag_ids) == 8
+    assert tuple(call[2]["params"]["tag_id"] for call in transport.calls) == (
+        306,
+        1494,
+        102070,
+        780,
+        100100,
+        101962,
+        100977,
+        101787,
+    )
+    assert all("start_date_min" not in call[2]["params"] for call in transport.calls)
 
 
 def test_malformed_page_rejected(config):

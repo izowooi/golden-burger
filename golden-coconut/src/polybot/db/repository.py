@@ -22,10 +22,10 @@ from ..registry import FAMILY_ORDER
 
 
 MIGRATION_PATH = (
-    Path(__file__).with_name("migrations") / "0003_major_sports_lifecycle_v3.sql"
+    Path(__file__).with_name("migrations") / "0004_major_sports_lifecycle_v4.sql"
 )
 APPLICATION_ID = 1195593521
-SCHEMA_USER_VERSION = 3
+SCHEMA_USER_VERSION = 4
 GIB = 1024**3
 
 APPEND_ONLY_TABLES = (

@@ -10,7 +10,7 @@ import sqlite3
 
 import pytest
 
-from polybot.analyzer import analyze_database
+from polybot.analyzer import _query_tag_accounting, analyze_database
 from polybot.api.clob_client import (
     BookAttempt,
     BookLevel,
@@ -302,7 +302,7 @@ def test_five_family_collection_crossing_and_analyzer(
     publish(repository, config, second, "run-2")
 
     analysis = analyze_database(repository.path)
-    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v3"
+    assert analysis["analyzer_contract"] == "major-sports-lifecycle-health-v4"
     assert analysis["cycle_selection"]["selected_cycles"] == 2
     assert analysis["sport_coverage"]["missing_sports"] == []
     assert analysis["sport_coverage"]["sport_equal_macro_public_book_coverage_pct"] == 100
@@ -702,5 +702,48 @@ def test_analyzer_rejects_historical_v2_schema(tmp_path):
     migration = root / "src/polybot/db/migrations/0002_major_sports_lifecycle_v2.sql"
     with sqlite3.connect(database) as connection:
         connection.executescript(migration.read_text(encoding="utf-8"))
-    with pytest.raises(ValueError, match="schema epoch must be v3"):
+    with pytest.raises(ValueError, match="schema epoch must be v4"):
         analyze_database(database)
+
+
+def test_query_tag_accounting_requires_exact_family_tag_sets(config):
+    cycles = [{"run_id": "run-1"}]
+    sweeps = []
+    requests = []
+    for family in config.registry.families:
+        sweeps.append(
+            {
+                "run_id": "run-1",
+                "sport_family": family.code,
+                "request_envelope_json": json.dumps(
+                    {"query_tag_ids": list(family.query_tag_ids)}
+                ),
+            }
+        )
+        for tag_id in family.query_tag_ids:
+            requests.append(
+                {
+                    "run_id": "run-1",
+                    "sport_family": family.code,
+                    "request_kind": "gamma_events_keyset",
+                    "status": "SUCCESS",
+                    "params_json": json.dumps({"tag_id": tag_id}),
+                }
+            )
+    result = _query_tag_accounting(cycles, sweeps, requests)
+    assert result["gate_passed"] is True
+    assert result["by_sport"]["soccer"]["expected_query_tag_ids"] == [
+        306,
+        780,
+        1494,
+        100100,
+        100977,
+        101787,
+        101962,
+        102070,
+    ]
+
+    requests.pop()
+    result = _query_tag_accounting(cycles, sweeps, requests)
+    assert result["gate_passed"] is False
+    assert result["violations"] == {"QUERY_TAG_SET_MISMATCH": 1}
