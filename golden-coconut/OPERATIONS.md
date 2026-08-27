@@ -11,7 +11,7 @@
 | active DB | `data/coconut-major-sports-5m-v1/trades_sim.db` |
 
 concurrent build와 workspace clean을 끈다. collector는 외장 APFS volume, exact mount/device UUID,
-shared Pomegranate sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
+shared Raspberry sentinel과 off-volume UUID pin을 검증한다. 내부 disk fallback, symlink workspace,
 credential binding은 허용하지 않는다.
 
 checkout/clean 이후 `scripts/verify_external_workspace.py`가 다음 marker를 atomic replace와 directory

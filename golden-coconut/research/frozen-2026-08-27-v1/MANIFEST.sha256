@@ -3,12 +3,12 @@ bd1551ad5f5a7ea6348ecd2336c24656bb408bdf33f57a26360dfb3788f3aac7  ../../uv.lock
 f0ec84366d9c2f1d90fc6d6c54bb7688e3d40527e2a195fa0755a0069840a73e  ../../config.yaml
 ef38697c8599282a071884fd593ba7d4e499b7e07228d777d1bcf63079a556ab  ../../README.md
 02b0d6913d096a140e82df65df5b33ed6e06b1909232f7470d95fe94fc5de646  ../../STRATEGY.md
-36b3bc54aae7872a9b863dad55aa09ad18017df9b05a9f9f5e516a9a56dfb1af  ../../OPERATIONS.md
-53b571246b827e87f9f455b218c4ef69cfdf8046319e1d0db09b31a8a6782056  ../../Jenkinsfile
+1f7084839e59df47dc7ab36d8a3005c3b2765f9e1e403716408eb38f78167db5  ../../OPERATIONS.md
+47c9f8c16115b9abf04d573a82b9369b99b68a737986d214db75ce38bb3391ed  ../../Jenkinsfile
 bf29bad8c0cb977a06832144d04d4b4918d9e52278659f58d0f7bfab5faa1e76  PREREGISTRATION.md
 bd5b34badab054f399a3a54bb5d71c78f4bd4de9802972272c947d40799284ec  DATA_CONTRACT.md
 9f133bf18b327a238781b9673a1f58ba1bcfd6d198193b9ee4c88267e7fab67a  SPORTS_REGISTRY.json
-e5c9a7f263b7ffce915a37dcfa5029fd01d143fea5e3468c216f305ac1b37479  ../../scripts/verify_external_workspace.py
+a54e8e2ab47df5605a35db50f70c8e6354b0c2fae6636ac00aeaef424abfe743  ../../scripts/verify_external_workspace.py
 110baed5df93167a9579e23584aaeda54e1b4dc5f5ea39e73317a1ba053ab389  ../../src/polybot/main.py
 14d96f680f953fff640b8266308f51f52ed2e558cfcc6276b5886da20a3b04cb  ../../src/polybot/config.py
 b5dc4470294afb9f683987f64f9280bcebe826bff2f3899043b17412e438a62b  ../../src/polybot/registry.py

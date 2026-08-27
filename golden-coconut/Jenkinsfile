@@ -19,8 +19,8 @@ pipeline {
     POLYBOT_SIMULATION_MODE = 'true'
     COCONUT_MOUNT_ROOT = '/Volumes/t7'
     COCONUT_WORKSPACE = '/Volumes/t7/jenkins/polybot-gold'
-    COCONUT_SENTINEL = '/Volumes/t7/.golden-pomegranate-volume'
-    COCONUT_HOST_UUID_PIN = '/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid'
+    COCONUT_SENTINEL = '/Volumes/t7/.golden-raspberry-volume'
+    COCONUT_HOST_UUID_PIN = '/Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid'
   }
 
   stages {

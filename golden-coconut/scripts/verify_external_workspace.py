@@ -19,12 +19,14 @@ JENKINS_JOB = "polybot-gold"
 RUNTIME_JOB = "coconut-major-sports-5m-v1"
 DEFAULT_MOUNT_ROOT = Path("/Volumes/t7")
 DEFAULT_EXPECTED_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-gold")
-# Coconut reuses the already-pinned Pomegranate T7 identity read-only.
-DEFAULT_SENTINEL = Path("/Volumes/t7/.golden-pomegranate-volume")
+# Coconut reuses the already-pinned Raspberry T7 identity read-only.  The
+# three Raspberry shards and Strawberry collector already prove this exact
+# trust anchor on the Jenkins host.
+DEFAULT_SENTINEL = Path("/Volumes/t7/.golden-raspberry-volume")
 DEFAULT_HOST_UUID_PIN = Path(
-    "/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid"
+    "/Users/jongwoopark/.jenkins/golden-raspberry-volume.uuid"
 )
-VOLUME_PROFILE = "golden-pomegranate-apfs-v1"
+VOLUME_PROFILE = "golden-raspberry-apfs-v1"
 _UUID = re.compile(
     r"^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-"
     r"[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$"
@@ -161,7 +163,7 @@ def verify_external_workspace(
         "runtime_job": RUNTIME_JOB,
         "workspace": str(workspace),
         "marker": str(marker),
-        "trust_anchor_reused_from": "golden-pomegranate",
+        "trust_anchor_reused_from": "golden-raspberry",
     }
 
 
