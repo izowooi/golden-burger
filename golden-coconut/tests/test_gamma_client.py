@@ -1,0 +1,91 @@
+from __future__ import annotations
+
+import json
+
+import pytest
+
+from polybot.api.gamma_client import GammaClient
+from polybot.api.transport import CycleBudget, JsonResponse
+
+
+class FakeTransport:
+    def __init__(self, payloads):
+        self.payloads = list(payloads)
+        self.calls = []
+
+    def request_json(self, method, url, **kwargs):
+        self.calls.append((method, url, kwargs))
+        payload = self.payloads.pop(0)
+        raw = json.dumps(payload).encode()
+        return JsonResponse(
+            request_id=f"request-{len(self.calls)}",
+            received_at=f"2026-08-27T00:00:0{len(self.calls)}Z",
+            response_sha256="a" * 64,
+            raw=raw,
+            payload=payload,
+            http_status=200,
+        )
+
+
+def budget():
+    return CycleBudget(started_monotonic=0, monotonic=lambda: 0)
+
+
+def test_cursor_completion_and_exact_envelope(config):
+    transport = FakeTransport(
+        [
+            {"events": [{"id": "1"}], "next_cursor": "next"},
+            {"events": [{"id": "2"}], "next_cursor": None},
+        ]
+    )
+    client = GammaClient(config.trading.gamma, transport)
+    sweep = client.fetch_family_events(
+        "run", config.registry.by_code["nba"], budget=budget()
+    )
+    assert sweep.cursor_complete is True
+    assert len(sweep.pages) == 2
+    assert transport.calls[0][2]["params"] == {
+        "limit": 500,
+        "closed": "false",
+        "live": "true",
+        "tag_id": 745,
+        "related_tags": "false",
+    }
+    assert transport.calls[1][2]["params"]["after_cursor"] == "next"
+
+
+def test_repeated_cursor_fails(config):
+    transport = FakeTransport(
+        [
+            {"events": [], "next_cursor": "same"},
+            {"events": [], "next_cursor": "same"},
+        ]
+    )
+    with pytest.raises(ValueError, match="cursor repeated"):
+        GammaClient(config.trading.gamma, transport).fetch_family_events(
+            "run", config.registry.by_code["nhl"], budget=budget()
+        )
+
+
+def test_page_cap_returns_incomplete(config):
+    gamma = config.trading.gamma
+    object.__setattr__(gamma, "max_pages_per_family", 2)
+    transport = FakeTransport(
+        [
+            {"events": [], "next_cursor": "a"},
+            {"events": [], "next_cursor": "b"},
+        ]
+    )
+    sweep = GammaClient(gamma, transport).fetch_family_events(
+        "run", config.registry.by_code["mlb"], budget=budget()
+    )
+    assert sweep.cursor_complete is False
+    assert sweep.terminal_cursor == "b"
+
+
+def test_malformed_page_rejected(config):
+    transport = FakeTransport([{"events": "not-an-array", "next_cursor": None}])
+    with pytest.raises(ValueError, match="array"):
+        GammaClient(config.trading.gamma, transport).fetch_family_events(
+            "run", config.registry.by_code["soccer"], budget=budget()
+        )

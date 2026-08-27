@@ -1,0 +1,35 @@
+[project]
+name = "golden-coconut"
+version = "0.1.0"
+description = "Accountless five-family major-sports in-play moneyline research collector"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "polybot-observability",
+  "PyYAML>=6.0.2",
+  "requests>=2.32.0",
+  "websockets>=15.0",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.3.0",
+  "pytest-cov>=6.0.0",
+]
+
+[project.scripts]
+polybot = "polybot.main:main"
+
+[tool.uv.sources]
+polybot-observability = { path = "../polybot-observability", editable = true }
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/polybot"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

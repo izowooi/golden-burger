@@ -17,6 +17,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-apple | [golden-apple.md](golden-apple.md) | 운영 2계정 (1)/(2) |
 | golden-banana | [golden-banana.md](golden-banana.md) | 운영 |
 | golden-black | [golden-black.md](golden-black.md) | Sports Resolution Hold, accountless paired collector |
+| golden-coconut | [golden-coconut.md](golden-coconut.md) | **Five-Family Major Sports Observatory**, soccer/MLB/NBA/NFL/NHL 5분 accountless census; health-only 시작 |
 | golden-blueberry | [golden-blueberry.md](golden-blueberry.md) | **Closing Surge**, 72h 첫 급등 +2%p/+5%p A/B, $5 hard cap |
 | golden-cherry | [golden-cherry.md](golden-cherry.md) · **1차 완료** → [2026-07 파라미터 회고](golden-cherry-2026-07-parameter-review.md) | 운영 + 변형 slot |
 | golden-date | [golden-date.md](golden-date.md) · **⛔ 폐쇄 완료 (2026-07-29)** → [판정](golden-date-2026-07-verdict.md) | Conviction Ladder |
@@ -38,7 +39,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-strawberry | [golden-strawberry.md](golden-strawberry.md) | **Last Mile**, accountless `last-mile-clob-v1`; 10분 CLOB sampling census, 0.95/0.85/terminal primary, 1주 pilot health only |
 | golden-tangerine | [golden-tangerine.md](golden-tangerine.md) | Sports Resolution Hold 최소금액 live A/B |
 | golden-watermelon | [golden-watermelon.md](golden-watermelon.md) | 1분/5분 in-play match-result accountless collector |
-| golden-watermelon-live | [golden-watermelon-live.md](golden-watermelon-live.md) | Cat 0.98 / Dog 0.99, exact `$5`, 0.70 full-depth FOK stop |
+| golden-watermelon-live | [golden-watermelon-live.md](golden-watermelon-live.md) | Cat 0.96 / Dog 0.99, exact `$5`, 0.70 full-depth FOK stop |
 
 새 전략은 [새 전략 구현·승격 플레이북](../new-strategy-playbook.md)을 따른다. nectarine의
 position cap은 [전용 회고](../nectarine-max-positions-retro.md)를 함께 참고하되, execution

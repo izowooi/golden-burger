@@ -21,6 +21,7 @@ CURRENT_STRATEGIES = {
     "golden-black",
     "golden-blueberry",
     "golden-cherry",
+    "golden-coconut",
     "golden-date",
     "golden-elderberry",
     "golden-fig",
@@ -44,6 +45,7 @@ CURRENT_STRATEGIES = {
 }
 RESEARCH_ONLY_STRATEGIES = {
     "golden-black",
+    "golden-coconut",
     "golden-pomegranate",
     "golden-raspberry",
     "golden-strawberry",
@@ -3231,6 +3233,243 @@ def _validate_sports_resolution_research_strategy(
     )
 
 
+def _validate_major_sports_research_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate Golden Coconut's accountless five-family observatory."""
+
+    required_sources = (
+        "src/polybot/config.py",
+        "src/polybot/main.py",
+        "src/polybot/bot.py",
+        "src/polybot/collector.py",
+        "src/polybot/analyzer.py",
+        "src/polybot/classifier.py",
+        "src/polybot/crossings.py",
+        "src/polybot/registry.py",
+        "src/polybot/run_audit.py",
+        "src/polybot/source_digest.py",
+        "src/polybot/api/transport.py",
+        "src/polybot/api/gamma_client.py",
+        "src/polybot/api/clob_client.py",
+        "src/polybot/api/sports_client.py",
+        "src/polybot/db/repository.py",
+        "src/polybot/db/migrations/0001_major_sports_v1.sql",
+        "scripts/verify_external_workspace.py",
+    )
+    sources = {
+        relative: _require_file(findings, strategy, directory / relative)
+        for relative in required_sources
+    }
+    contracts = {
+        "src/polybot/config.py": (
+            "coconut-major-sports-5m-v1",
+            "major-sports-inplay-moneyline-census-v1",
+            "major-sports-five-family-2026-08-v1",
+            "major-sports-exact-identity-v1",
+            "POLYMARKET_",
+            "CLOB_",
+            "archive_only",
+            "threshold grid must be exactly 0.75 through 0.99 by 0.01",
+            "database_name must remain daily-rsync canonical trades_sim.db",
+            "minimum free space must remain 150 GiB",
+            "storage warn/stop ratios must remain 70/80 percent",
+        ),
+        "src/polybot/main.py": (
+            "assert_safe_environment",
+            "--live",
+            "--simulate",
+            "--shadow",
+            "config",
+            "run",
+            "status",
+            "health",
+            "analyze",
+            "before argparse, config, logs",
+        ),
+        "src/polybot/api/transport.py": (
+            "CycleBudget",
+            "cooperative_seconds",
+            "hard_seconds",
+            "Retry-After",
+            "trust_env = False",
+            "public transport requires a credential-free HTTPS URL",
+        ),
+        "src/polybot/api/gamma_client.py": (
+            "/events/keyset",
+            "after_cursor",
+            "next_cursor",
+            "cursor_complete",
+            '"live": "true"',
+            '"related_tags": "false"',
+        ),
+        "src/polybot/classifier.py": (
+            "PRESEASON",
+            "moneyline",
+            "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED",
+            "ESPORTS",
+        ),
+        "src/polybot/crossings.py": (
+            "LEFT_CENSORED",
+            "GAP_CENSORED",
+            "UPWARD_CROSSING",
+        ),
+        "src/polybot/collector.py": (
+            "all_complete",
+            "liquidity_gate",
+            "volume_gate",
+            "threshold_vectors",
+            '"episodes": episodes',
+            '"paths": paths',
+            "resolution_observations",
+            "storage safety gate reached STOP",
+        ),
+        "src/polybot/db/repository.py": (
+            "trades_sim_????????.db",
+            "threshold_state_carryovers",
+            "episode_carryovers",
+            "append-only",
+            "daily_rsync_canonical_filename",
+            "PRAGMA quick_check",
+        ),
+        "src/polybot/analyzer.py": (
+            "major-sports-five-family-health-v1",
+            "PRESEASON",
+            "liquidity_discovery_gate",
+            "volume_discovery_gate",
+            "profitability_conclusion",
+        ),
+        "src/polybot/source_digest.py": (
+            "frozen-2026-08-27-v1",
+            "SPORTS_REGISTRY.json",
+            "MANIFEST.sha256",
+            "verify_external_workspace.py",
+            "0001_major_sports_v1.sql",
+            "verify_frozen_manifest",
+        ),
+        "scripts/verify_external_workspace.py": (
+            "/Volumes/t7/jenkins/polybot-gold",
+            ".daily-rsync-workspace.json",
+            '"schema_version": 1',
+            '"job": "polybot-gold"',
+            "external volume UUID differs from both pins",
+        ),
+    }
+    for relative, tokens in contracts.items():
+        _require_tokens(findings, strategy, relative, sources[relative], tokens)
+
+    gamma_source = sources["src/polybot/api/gamma_client.py"]
+    for forbidden in (
+        "liquidity_num_min",
+        "volume_num_min",
+        "liquidity_min",
+        "volume_min",
+        '"offset"',
+        "/markets/keyset",
+    ):
+        if forbidden in gamma_source:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_selection_gate",
+                    f"Gamma collector contains forbidden selector {forbidden}",
+                )
+            )
+
+    combined = "\n".join(sources.values())
+    for token in (
+        "py_clob_client",
+        "OrderArgs",
+        "ApiCreds",
+        "post_order",
+        "place_limit_order",
+        "POLYMARKET_PRIVATE_KEY=",
+    ):
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_research_order_path",
+                    f"research-only source contains {token}",
+                )
+            )
+
+    for relative, tokens in {
+        "README.md": (
+            "coconut-major-sports-5m-v1",
+            "polybot-gold",
+            "soccer",
+            "MLB",
+            "NBA",
+            "NFL",
+            "NHL",
+            "PRESEASON",
+            "trades_sim.db",
+            "0.75",
+            "0.99",
+            "$500",
+            "--live",
+        ),
+        "STRATEGY.md": (
+            "LEFT_CENSORED",
+            "GAP_CENSORED",
+            "UPWARD_CROSSING",
+            "150 GiB/70%/80%",
+            "health-only",
+        ),
+        "OPERATIONS.md": (
+            "/Volumes/t7/jenkins/polybot-gold",
+            "H/5 * * * *",
+            "scan/plan/sync/verify",
+            "profitability",
+        ),
+        ".env.example": (
+            "POLYBOT_LIFECYCLE_MODE=archive_only",
+            "POLYBOT_SIMULATION_MODE=true",
+        ),
+        "research/frozen-2026-08-27-v1/PREREGISTRATION.md": (
+            "soccer, MLB, NBA, NFL",
+            "NHL",
+            "0.75",
+            "0.99",
+            "PRESEASON",
+            "Displayed books are not fills",
+        ),
+        "research/frozen-2026-08-27-v1/DATA_CONTRACT.md": (
+            "major-sports-inplay-moneyline-census-v1",
+            "trades_sim_YYYYMMDD.db",
+            "150 GiB",
+        ),
+    }.items():
+        content = _require_file(findings, strategy, directory / relative)
+        _require_tokens(findings, strategy, relative, content, tokens)
+
+    for relative in (
+        "research/frozen-2026-08-27-v1/SPORTS_REGISTRY.json",
+        "research/frozen-2026-08-27-v1/MANIFEST.sha256",
+        "tests/test_config_safety.py",
+        "tests/test_registry_classifier.py",
+        "tests/test_gamma_client.py",
+        "tests/test_books_crossings_resolution.py",
+        "tests/test_repository.py",
+        "tests/test_collector_analyzer.py",
+        "tests/test_budget_storage_skew.py",
+        "tests/test_workspace_contract.py",
+        "tests/test_document_static_contract.py",
+    ):
+        _require_file(findings, strategy, directory / relative)
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def _validate_inplay_match_winner_research_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
@@ -3931,6 +4170,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
     if strategy in RESEARCH_ONLY_STRATEGIES:
         if strategy == "golden-black":
             _validate_sports_resolution_research_strategy(
+                findings, strategy, directory
+            )
+        elif strategy == "golden-coconut":
+            _validate_major_sports_research_strategy(
                 findings, strategy, directory
             )
         elif strategy == "golden-pomegranate":

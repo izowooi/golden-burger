@@ -1,0 +1,91 @@
+pipeline {
+  agent any
+
+  options {
+    skipDefaultCheckout(true)
+    disableConcurrentBuilds()
+    buildDiscarder(logRotator(daysToKeepStr: '120'))
+    timeout(time: 10, unit: 'MINUTES')
+  }
+
+  triggers {
+    cron('H/5 * * * *')
+  }
+
+  environment {
+    UV_LINK_MODE = 'copy'
+    PYTHONUNBUFFERED = '1'
+    POLYBOT_LIFECYCLE_MODE = 'archive_only'
+    POLYBOT_SIMULATION_MODE = 'true'
+    COCONUT_MOUNT_ROOT = '/Volumes/t7'
+    COCONUT_WORKSPACE = '/Volumes/t7/jenkins/polybot-gold'
+    COCONUT_SENTINEL = '/Volumes/t7/.golden-pomegranate-volume'
+    COCONUT_HOST_UUID_PIN = '/Users/jongwoopark/.jenkins/golden-pomegranate-volume.uuid'
+  }
+
+  stages {
+    stage('Collect one accountless cycle') {
+      steps {
+        ws('/Volumes/t7/jenkins/polybot-gold') {
+          checkout scm
+          sh '''#!/bin/bash
+set +x
+set -euo pipefail
+
+# Reject credential-shaped key presence before uv, config, logs, DB, or network.
+/usr/bin/python3 - <<'PY'
+import os
+allowed = {"POLYBOT_LIFECYCLE_MODE", "POLYBOT_SIMULATION_MODE"}
+aliases = {
+    "PRIVATE_KEY", "POLY_PRIVATE_KEY", "POLYGON_PRIVATE_KEY",
+    "WALLET_PRIVATE_KEY", "FUNDER_ADDRESS", "POLY_FUNDER_ADDRESS",
+    "WALLET_ADDRESS", "SIGNATURE_TYPE", "API_KEY", "API_SECRET",
+    "API_PASSPHRASE", "SECRET_KEY", "ACCESS_TOKEN", "AUTH_TOKEN",
+    "PASSPHRASE", "PK",
+}
+bad = sorted(
+    key for key in os.environ
+    if key.startswith("POLYMARKET_") or key.startswith("CLOB_")
+    or key in aliases or (key.startswith("POLYBOT_") and key not in allowed)
+)
+if bad:
+    raise SystemExit("Golden Coconut refuses unsafe environment keys: " + ", ".join(bad))
+PY
+
+/usr/bin/python3 golden-coconut/scripts/verify_external_workspace.py \
+  --mount-root "${COCONUT_MOUNT_ROOT}" \
+  --workspace "${WORKSPACE}" \
+  --expected-workspace "${COCONUT_WORKSPACE}" \
+  --job polybot-gold \
+  --sentinel "${COCONUT_SENTINEL}" \
+  --host-uuid-pin "${COCONUT_HOST_UUID_PIN}" \
+  --write-daily-rsync-marker
+
+/usr/bin/python3 - "${WORKSPACE}/.daily-rsync-workspace.json" <<'PY'
+import json
+import sys
+from pathlib import Path
+expected = {
+    "schema_version": 1,
+    "job": "polybot-gold",
+    "workspace": "/Volumes/t7/jenkins/polybot-gold",
+}
+payload = json.loads(Path(sys.argv[1]).read_text(encoding="utf-8"))
+if payload != expected or set(payload) != set(expected):
+    raise SystemExit("daily-rsync workspace marker contract differs")
+PY
+
+cd golden-coconut
+UV=/Users/jongwoopark/.local/bin/uv
+RUNTIME=coconut-major-sports-5m-v1
+"${UV}" sync --frozen
+"${UV}" run polybot config --simulate --job "${RUNTIME}"
+"${UV}" run polybot run --simulate --job "${RUNTIME}"
+"${UV}" run polybot status --simulate --job "${RUNTIME}"
+"${UV}" run polybot health --simulate --job "${RUNTIME}"
+'''
+        }
+      }
+    }
+  }
+}

@@ -90,6 +90,25 @@ uv run polybot analyze --simulate --job watermelon-white-1m-v3c \
   --output /tmp/golden-watermelon-v3c-health.json
 ```
 
+### Read-only depth ladder sidecar
+
+`daily-rsync verify`가 확인한 absolute DB와 네 cohort 축을 명시한다. sidecar는
+`mode=ro`/`query_only`로 열고 `$5..$1,000` displayed depth를 별도 source SHA와 함께 출력한다.
+
+```bash
+uv run python scripts/analyze_depth_ladder.py \
+  --db /absolute/white/trades_sim.db \
+  --config-hash <config-hash> \
+  --strategy-source-digest <strategy-source-digest> \
+  --mode sim \
+  --job-name watermelon-white-1m-v3c \
+  --output /tmp/golden-watermelon-depth-ladder.json
+```
+
+DB가 단일 cohort면 selector를 생략할 수 있다. 여러 cohort에서 의도적으로 가장 최근 것을
+고를 때만 `--latest-cohort`를 사용한다. White/Grey를 함께 넘길 때는 `--db` 순서대로 네
+selector flag를 각각 반복하며 두 DB의 `strategy_source_digest`가 다르면 실패한다.
+
 첫 health review는 `2026-08-27T18:30:00Z` 이후다. cadence, cursor completeness, domestic/UEFA
 identity, strict regular-time moneyline, book/full-depth, Sports clock, path/resolution, cohort,
 DB integrity, notional depth와 storage growth만 본다. ROI·best threshold/stop/minute/notional은
