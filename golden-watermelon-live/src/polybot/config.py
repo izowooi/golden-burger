@@ -250,6 +250,12 @@ class WatermelonLiveEntryConfig:
     prob_min: float = 0.96
     prob_max: float = 0.999
     stop_price: float = 0.70
+    # A stop is a stop-limit contract, not permission to cross an arbitrary
+    # post-game/dust book.  The full-depth FOK must remain within five points
+    # of the trigger and inside a ten-point displayed spread.
+    max_stop_slippage: float = 0.05
+    max_stop_spread: float = 0.10
+    max_stop_loss_fraction: float = 0.35
     hours_min: float = 0.0
     hours_max: float = 4.0
 
@@ -278,6 +284,9 @@ class TradingConfig:
     max_positions: int = 20
     max_event_positions: int = 1
     max_new_positions_per_cycle: int = 20
+    max_emergency_sells_per_cycle: int = 1
+    experiment_capital_usdc: float = 100.0
+    max_drawdown_stop: float = 0.10
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 15.0
     min_order_size: float = 5.0
@@ -328,6 +337,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_positions": trading.max_positions,
         "max_event_positions": trading.max_event_positions,
         "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
+        "max_emergency_sells_per_cycle": trading.max_emergency_sells_per_cycle,
+        "experiment_capital_usdc": trading.experiment_capital_usdc,
+        "max_drawdown_stop": trading.max_drawdown_stop,
         "reentry_cooldown_hours": trading.reentry_cooldown_hours,
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "min_order_size": trading.min_order_size,
@@ -335,6 +347,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "entry.prob_min": entry.prob_min,
         "entry.prob_max": entry.prob_max,
         "entry.stop_price": entry.stop_price,
+        "entry.max_stop_slippage": entry.max_stop_slippage,
+        "entry.max_stop_spread": entry.max_stop_spread,
+        "entry.max_stop_loss_fraction": entry.max_stop_loss_fraction,
         "entry.hours_min": entry.hours_min,
         "entry.hours_max": entry.hours_max,
         "archive.prob_min": archive.prob_min,
@@ -364,6 +379,12 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         or trading.max_new_positions_per_cycle != 20
     ):
         raise ValueError("Golden Watermelon exposure limits are frozen at 20/1/20")
+    if trading.max_emergency_sells_per_cycle != 1:
+        raise ValueError("only one emergency SELL may be submitted per cycle")
+    if trading.experiment_capital_usdc != 100:
+        raise ValueError("experiment capital is frozen at $100 requested exposure")
+    if trading.max_drawdown_stop != 0.10:
+        raise ValueError("economic drawdown entry guard is frozen at 10%")
     if trading.max_event_positions > trading.max_positions:
         raise ValueError("max_event_positions must be <= max_positions")
     if trading.reentry_cooldown_hours != 720:
@@ -378,6 +399,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
     if entry.stop_price != 0.70:
         raise ValueError("emergency stop_price is frozen at 0.70")
+    if (
+        entry.max_stop_slippage != 0.05
+        or entry.max_stop_spread != 0.10
+        or entry.max_stop_loss_fraction != 0.35
+    ):
+        raise ValueError(
+            "stop execution safety is frozen at 5pp slippage, 10pp spread, 35% loss"
+        )
     if entry.hours_min != 0 or entry.hours_max != 4:
         raise ValueError("in-play age window must remain [0h, 4h]")
     if archive.prob_min != 0 or archive.hours_max != 4:
@@ -450,6 +479,21 @@ def load_config(
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.70
         ),
+        max_stop_slippage=_get_config_value(
+            "POLYBOT_MAX_STOP_SLIPPAGE",
+            entry_cfg.get("max_stop_slippage"),
+            0.05,
+        ),
+        max_stop_spread=_get_config_value(
+            "POLYBOT_MAX_STOP_SPREAD",
+            entry_cfg.get("max_stop_spread"),
+            0.10,
+        ),
+        max_stop_loss_fraction=_get_config_value(
+            "POLYBOT_MAX_STOP_LOSS_FRACTION",
+            entry_cfg.get("max_stop_loss_fraction"),
+            0.35,
+        ),
         hours_min=_get_config_value(
             "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 0.0
         ),
@@ -509,6 +553,22 @@ def load_config(
             trading_cfg.get("max_new_positions_per_cycle"),
             20,
             int,
+        ),
+        max_emergency_sells_per_cycle=_get_config_value(
+            "POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE",
+            trading_cfg.get("max_emergency_sells_per_cycle"),
+            1,
+            int,
+        ),
+        experiment_capital_usdc=_get_config_value(
+            "POLYBOT_EXPERIMENT_CAPITAL_USDC",
+            trading_cfg.get("experiment_capital_usdc"),
+            100.0,
+        ),
+        max_drawdown_stop=_get_config_value(
+            "POLYBOT_MAX_DRAWDOWN_STOP",
+            trading_cfg.get("max_drawdown_stop"),
+            0.10,
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",

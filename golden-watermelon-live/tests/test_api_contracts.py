@@ -617,6 +617,37 @@ def test_shallow_stop_book_is_censored_not_partially_sold() -> None:
         _walk_sell_book(book, "token", 5.0)
 
 
+def test_holding_books_are_fetched_in_one_batch_and_keep_unavailable_keys() -> None:
+    class Client:
+        def __init__(self):
+            self.calls = []
+
+        def get_order_books(self, params):
+            self.calls.append(params)
+            return [
+                {
+                    "asset_id": "deep",
+                    "bids": [{"price": "0.69", "size": "10"}],
+                    "asks": [{"price": "0.70", "size": "10"}],
+                },
+                {
+                    "asset_id": "shallow",
+                    "bids": [{"price": "0.69", "size": "1"}],
+                    "asks": [{"price": "0.70", "size": "10"}],
+                },
+            ]
+
+    wrapper = object.__new__(ClobClientWrapper)
+    wrapper._client = Client()
+    wrapper._initialized = True
+
+    walks = wrapper.get_sell_book_walks({"deep": 5.1, "shallow": 5.1})
+
+    assert len(wrapper.client.calls) == 1
+    assert walks["deep"].shares == pytest.approx(5.1)
+    assert walks["shallow"] is None
+
+
 def test_clob_resolution_requires_closed_unique_one_hot_winner() -> None:
     proof = _normalize_clob_resolution(
         "condition",

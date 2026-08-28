@@ -34,8 +34,14 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.max_positions == 20
     assert config.trading.max_event_positions == 1
     assert config.trading.max_new_positions_per_cycle == 20
+    assert config.trading.max_emergency_sells_per_cycle == 1
+    assert config.trading.experiment_capital_usdc == 100
+    assert config.trading.max_drawdown_stop == 0.10
     assert config.trading.yes_only_mode is True
     assert config.trading.entry.stop_price == 0.70
+    assert config.trading.entry.max_stop_slippage == 0.05
+    assert config.trading.entry.max_stop_spread == 0.10
+    assert config.trading.entry.max_stop_loss_fraction == 0.35
     assert config.trading.entry.hours_max == 4
     assert config.trading.min_liquidity == 0
     assert config.trading.min_cumulative_volume == 0
@@ -79,6 +85,20 @@ def test_only_arm_b_threshold_override_is_accepted(
         ("POLYBOT_ENTRY_PROB_MIN", "0.97", "entry band"),
         ("POLYBOT_ENTRY_HOURS_MAX", "5", "in-play age window"),
         ("POLYBOT_STOP_PRICE", "0.80", "stop_price"),
+        ("POLYBOT_MAX_STOP_SLIPPAGE", "0.10", "stop execution safety"),
+        ("POLYBOT_MAX_STOP_SPREAD", "0.20", "stop execution safety"),
+        (
+            "POLYBOT_MAX_STOP_LOSS_FRACTION",
+            "0.50",
+            "stop execution safety",
+        ),
+        (
+            "POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE",
+            "2",
+            "one emergency SELL",
+        ),
+        ("POLYBOT_EXPERIMENT_CAPITAL_USDC", "200", "experiment capital"),
+        ("POLYBOT_MAX_DRAWDOWN_STOP", "0.20", "drawdown"),
         ("POLYBOT_YES_ONLY", "false", "YES tokens"),
         ("POLYBOT_EXPERIMENT_END_UTC", "2026-09-01T13:00:00Z", "timestamps"),
     ],

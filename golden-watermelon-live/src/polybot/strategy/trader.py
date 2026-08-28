@@ -7,7 +7,7 @@ from decimal import Decimal, ROUND_DOWN
 import logging
 import math
 import re
-from typing import Optional
+from typing import Iterable, Mapping, Optional
 
 from polybot_observability import (
     ClobResponseUnavailableError,
@@ -228,7 +228,27 @@ class Trader:
         self.mode = "sim" if simulation_mode else "live"
         self.buying_disabled = False
         self.local_untracked_buy_reservations = 0
+        self.emergency_sell_submissions = 0
+        self.emergency_sell_guard_blocks = 0
+        self._cycle_markets: dict[str, dict] = {}
         self.last_entry_outcome_reason: Optional[str] = None
+
+    def set_cycle_markets(self, markets: Iterable[Mapping]) -> None:
+        """Cache the cursor-complete live sweep for stop lifecycle preflight."""
+        indexed: dict[str, dict] = {}
+        for market in markets:
+            if not isinstance(market, Mapping):
+                continue
+            condition_id = str(
+                market.get("conditionId") or market.get("condition_id") or ""
+            ).strip()
+            if condition_id and condition_id not in indexed:
+                indexed[condition_id] = dict(market)
+        self._cycle_markets = indexed
+
+    @staticmethod
+    def signable_sell_shares(trade) -> float:
+        return _sdk_sellable_shares(float(trade.buy_shares))
 
     def _reject_entry(self, reason: str) -> None:
         self.last_entry_outcome_reason = str(reason)
@@ -1215,14 +1235,47 @@ class Trader:
         )
         return True
 
-    def execute_sell(self, trade) -> bool:
+    def execute_sell(
+        self,
+        trade,
+        *,
+        prefetched_walk=None,
+        book_prefetched: bool = False,
+    ) -> bool:
         """Submit one full-depth marketable FOK stop, except proven SDK dust."""
+        if (
+            self.emergency_sell_submissions
+            >= self.config.max_emergency_sells_per_cycle
+        ):
+            self.emergency_sell_guard_blocks += 1
+            logger.critical(
+                "emergency SELL cycle circuit is open; additional holdings are "
+                "left untouched - trade=%s submitted=%s limit=%s",
+                trade.id,
+                self.emergency_sell_submissions,
+                self.config.max_emergency_sells_per_cycle,
+            )
+            return False
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
-            walk = self.clob.get_sell_book_walk(
-                trade.token_id,
-                shares=sellable_shares,
-            )
+            if book_prefetched:
+                if prefetched_walk is None:
+                    raise ClobResponseUnavailableError(
+                        "prefetched holding book has no full executable depth"
+                    )
+                walk = prefetched_walk
+                if not math.isclose(
+                    float(walk.shares),
+                    sellable_shares,
+                    rel_tol=0,
+                    abs_tol=_FILL_SIZE_TOLERANCE,
+                ):
+                    raise ValueError("prefetched holding-book share mismatch")
+            else:
+                walk = self.clob.get_sell_book_walk(
+                    trade.token_id,
+                    shares=sellable_shares,
+                )
         except Exception as error:
             logger.warning(
                 "full-depth stop book unavailable - trade=%s token=%s error=%s",
@@ -1266,6 +1319,36 @@ class Trader:
                 trade, "stop lifecycle not explicitly live"
             )
 
+        # The lifecycle reads above take time.  Never submit against the older
+        # trigger book: re-read exact full depth and re-run every price guard.
+        try:
+            walk = self.clob.get_sell_book_walk(
+                trade.token_id,
+                shares=sellable_shares,
+            )
+        except Exception as error:
+            logger.warning(
+                "fresh post-preflight stop book unavailable - trade=%s error=%s",
+                trade.id,
+                type(error).__name__,
+            )
+            return self._handle_midpoint_unavailable(
+                trade, "fresh post-preflight stop book unavailable"
+            )
+        best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
+        if best_bid > stop_price + 1e-9:
+            logger.info(
+                "stop recovered during lifecycle preflight; no SELL - "
+                "trade=%s fresh_bid=%.4f stop=%.4f",
+                trade.id,
+                best_bid,
+                stop_price,
+            )
+            return False
+        if not self._stop_execution_price_is_safe(trade, walk, stop_price):
+            self.emergency_sell_guard_blocks += 1
+            return False
+
         logger.warning(
             "absolute stop 충족: Trade #%s bid=%.2f%% stop=%.2f%% "
             "gap=%.2fpp full_depth_vwap=%.2f%% limit=%.2f%% levels=%s shares=%.6f",
@@ -1294,6 +1377,7 @@ class Trader:
                 trade.id,
             )
             if accepted:
+                self.emergency_sell_submissions += 1
                 self._bind_uncertain_sell_submission(
                     trade,
                     result=result,
@@ -1321,6 +1405,7 @@ class Trader:
                 residual_shares,
             )
             if accepted:
+                self.emergency_sell_submissions += 1
                 self._bind_uncertain_sell_submission(
                     trade,
                     result=result,
@@ -1338,6 +1423,7 @@ class Trader:
             return False
         residual_shares = max(0.0, residual_shares)
         if accepted:
+            self.emergency_sell_submissions += 1
             common = {
                 "sell_price": walk.vwap,
                 "sell_shares": sell_shares,
@@ -1400,34 +1486,49 @@ class Trader:
         return False
 
     def _stop_execution_is_explicitly_live(self, trade) -> bool:
-        """Require exact event and market lifecycle proof before a live stop."""
-        if self.gamma is None:
-            logger.error(
-                "Gamma client absent; fail-closed stop preflight - trade=%s",
-                trade.id,
-            )
-            return False
+        """Require independent Gamma and CLOB lifecycle proof before a stop."""
         event_id = str(getattr(trade, "event_id", "") or "").strip()
         condition_id = str(getattr(trade, "condition_id", "") or "").strip()
         if not event_id or not condition_id:
             return False
-        try:
-            market = self.gamma.get_market_by_condition_id(condition_id)
-            event = self.gamma.get_event_by_id(event_id)
-        except Exception as error:
-            logger.warning(
-                "stop lifecycle preflight failed - trade=%s error=%s",
-                trade.id,
-                type(error).__name__,
-            )
-            return False
+        market = self._cycle_markets.get(condition_id)
+        event = None
+        if isinstance(market, dict):
+            events = market.get("events")
+            if isinstance(events, list):
+                event = next(
+                    (
+                        item
+                        for item in events
+                        if isinstance(item, Mapping)
+                        and str(item.get("id") or "").strip() == event_id
+                    ),
+                    None,
+                )
+        if market is None or event is None:
+            if self.gamma is None:
+                logger.error(
+                    "Gamma client absent; fail-closed stop preflight - trade=%s",
+                    trade.id,
+                )
+                return False
+            try:
+                market = self.gamma.get_market_by_condition_id(condition_id)
+                event = self.gamma.get_event_by_id(event_id)
+            except Exception as error:
+                logger.warning(
+                    "stop lifecycle preflight failed - trade=%s error=%s",
+                    trade.id,
+                    type(error).__name__,
+                )
+                return False
         if not isinstance(market, dict) or not isinstance(event, dict):
             return False
         observed_condition = str(
             market.get("conditionId") or market.get("condition_id") or ""
         ).strip()
         observed_event = str(event.get("id") or "").strip()
-        return (
+        gamma_live = (
             observed_condition == condition_id
             and observed_event == event_id
             and event.get("active") is True
@@ -1439,6 +1540,60 @@ class Trader:
             and market.get("enableOrderBook") is True
             and market.get("acceptingOrders") is True
         )
+        if not gamma_live:
+            return False
+        try:
+            clob_proof = self.clob.get_market_resolution(condition_id)
+        except Exception as error:
+            logger.warning(
+                "independent CLOB lifecycle preflight failed - trade=%s error=%s",
+                trade.id,
+                type(error).__name__,
+            )
+            return False
+        if clob_proof.status != "OPEN":
+            logger.warning(
+                "independent CLOB lifecycle is not OPEN - trade=%s status=%s",
+                trade.id,
+                clob_proof.status,
+            )
+            return False
+        return True
+
+    def _stop_execution_price_is_safe(self, trade, walk, stop_price: float) -> bool:
+        """Reject a gap/dust liquidation before any irreversible POST."""
+        minimum_price = stop_price - self.config.entry.max_stop_slippage
+        spread = walk.spread
+        try:
+            buy_price = float(trade.buy_price)
+            loss_fraction = max(0.0, (buy_price - walk.vwap) / buy_price)
+        except (TypeError, ValueError, ZeroDivisionError):
+            loss_fraction = math.inf
+        safe = (
+            minimum_price > 0
+            and walk.vwap + 1e-9 >= minimum_price
+            and walk.limit_price + 1e-9 >= minimum_price
+            and spread is not None
+            and spread <= self.config.entry.max_stop_spread + 1e-9
+            and math.isfinite(loss_fraction)
+            and loss_fraction
+            <= self.config.entry.max_stop_loss_fraction + 1e-9
+        )
+        if not safe:
+            logger.critical(
+                "emergency SELL blocked by loss-bounded stop-limit guard - "
+                "trade=%s bid=%.4f ask=%s spread=%s vwap=%.4f limit=%.4f "
+                "minimum=%.4f projected_loss=%s",
+                trade.id,
+                walk.best_bid,
+                f"{walk.best_ask:.4f}" if walk.best_ask is not None else "none",
+                f"{spread:.4f}" if spread is not None else "none",
+                walk.vwap,
+                walk.limit_price,
+                minimum_price,
+                f"{loss_fraction:.2%}" if math.isfinite(loss_fraction) else "invalid",
+            )
+        return safe
 
     def _bind_uncertain_sell_submission(
         self,

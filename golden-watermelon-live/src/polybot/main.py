@@ -128,7 +128,9 @@ def main() -> None:
     )
     print(
         f"Exit: hold to proven resolution; emergency FOK stop at displayed bid "
-        f"<= {trading.entry.stop_price:.2f}; no TP/time-exit"
+        f"<= {trading.entry.stop_price:.2f}, executable floor "
+        f">= {trading.entry.stop_price - trading.entry.max_stop_slippage:.2f}, "
+        f"spread <= {trading.entry.max_stop_spread:.2f}; no TP/time-exit"
     )
     print(
         f"Order: ${trading.buy_amount_usdc:.2f}, min shares "
@@ -143,7 +145,13 @@ def main() -> None:
         f"Limits: {trading.max_positions} total, "
         f"{trading.max_event_positions} per event, "
         f"{trading.max_new_positions_per_cycle} new/cycle, "
+        f"{trading.max_emergency_sells_per_cycle} emergency sell/cycle, "
         f"{trading.reentry_cooldown_hours:.0f}h cooldown"
+    )
+    print(
+        "Economic drawdown entry guard: "
+        f"-${trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f} "
+        "(confirmed SELL + proven resolution P&L)"
     )
     print(
         "Entry period: "

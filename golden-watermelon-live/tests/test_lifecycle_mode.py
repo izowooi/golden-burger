@@ -239,6 +239,43 @@ def test_active_blocks_new_buy_when_sell_intent_outcome_is_uncertain(
     session.close.assert_called_once()
 
 
+def test_active_blocks_new_buy_after_economic_drawdown_limit(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_stats.return_value = {
+        "holding": 0,
+        "pending_buy": 0,
+        "pending_sell": 0,
+        "resolved": 2,
+        "expired": 0,
+        "unfilled": 0,
+        "quarantined": 0,
+        "total_pnl": -4.0,
+        "settlement_pnl_assumption": -6.0,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["drawdown_guard"] == {
+        "triggered": True,
+        "economic_pnl": -10.0,
+        "confirmed_sell_pnl": -4.0,
+        "proven_resolution_pnl": -6.0,
+        "loss_limit_usdc": 10.0,
+    }
+    assert "economic_drawdown_limit_reached" in stats["entry_guard"][
+        "blocking_reasons"
+    ]
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
 def test_active_blocks_and_labels_first_episode_for_untracked_buy_exposure(
     monkeypatch, tmp_path
 ):

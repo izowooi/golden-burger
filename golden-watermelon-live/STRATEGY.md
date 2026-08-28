@@ -57,12 +57,17 @@ position은 조회·편입·청산하지 않는다.
 ## Stop과 resolution
 
 best bid `<=0.70`은 trigger일 뿐 체결가가 아니다. SDK가 sign 가능한 전체 shares를 fresh bid
-levels에 walk하고 full depth가 있을 때만 marketable FOK SELL한다. 단, irreversible SELL 직전에
-Gamma event의 explicit `live=true`/`ended=false`와 market의 active order-taking 상태를 모두
-재확인한다. 경기 종료 후 resolution 직전의 cleanup/dust bid는 adverse in-play move가 아니므로
-stop을 실행하지 않고 proven resolution을 기다린다. 부족하면 부분 수량으로 줄여 팔지 않고
-`PENDING_SELL`/HOLDING evidence를 유지한다. trigger와 executable VWAP gap, zero fill, SDK dust와
-fee를 별도로 기록한다.
+levels에 walk하고 full depth가 있을 때만 marketable FOK SELL한다. irreversible SELL 직전에
+cursor-complete Gamma live sweep과 exact CLOB condition이 각각 live/open임을 독립 확인하고,
+그 확인 뒤 full book을 다시 읽어 TOCTOU stale quote를 배제한다. 최저 실행 level과 full-depth
+VWAP는 모두 `0.65` 이상, spread는 10%p 이하, 매수가 대비 projected gross loss는 35% 이하라야
+한다. 한 cycle에는 emergency SELL 한 건만 제출한다. 따라서 경기 종료 후 cleanup/dust bid,
+얇은 gap book 또는 여러 position의 동시 오매도는 주문 전에 차단된다.
+
+confirmed SELL P&L과 proven-resolution settlement P&L을 안전 판정에서만 합산한 경제손익이
+`$100 × 10% = -$10`에 도달하면 신규 BUY를 자동 차단한다. 기존 position의 resolution·대사는
+계속한다. 이 합계는 근거 등급이 다른 두 P&L을 성과로 혼합한다는 뜻이 아니라, golden-date의
+문서뿐인 중단 기준과 resolution 손실 누락을 반복하지 않기 위한 보수적 kill switch다.
 
 CLOB v2의 legacy `fee_rate_bps=0`은 zero-fee 증거가 아니다. exact authenticated fill의
 maker/taker role과 dynamic fee schedule로 fee amount를 저장한다. closed two-token market에서
@@ -72,8 +77,9 @@ exact one-hot `0/1` winner만 RESOLVED로 인정하며 `0.5/0.5`나 synthetic SE
 ## Cadence와 scale
 
 Cat/Dog는 공통 1분 cadence다. 선행 White 1분이 Grey 5분보다 막판 episode coverage가 높았고
-live cycle은 1분 안에 끝났지만, 이는 1분이 수익 최적이라는 뜻이 아니다. queue 또는 runtime
-p95 ≥45초이면 timer를 끈다.
+live cycle은 1분 안에 끝났지만, 이는 1분이 수익 최적이라는 뜻이 아니다. strategy process
+p95 ≥15초 또는 Jenkins end-to-end p95 ≥45초이면 timer를 끈다. timed job은 검증된 commit을
+pin하고 매 cycle 원격 SCM fetch·`config`·`status` subprocess를 실행하지 않는다.
 
 live notional은 `$5`로 고정한다. White/Grey v3c가 source minute `75/80/85`와 displayed
 notional `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500` evidence를 모은다.

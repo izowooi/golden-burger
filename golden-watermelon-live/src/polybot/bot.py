@@ -66,13 +66,19 @@ class PolymarketBot:
         )
         logger.info(
             "execution - FOK BUY + bid-triggered FOK emergency stop %.2f; "
-            "no TP/time-exit; "
-            "$%.2f positions=%s event=%s new_per_cycle=%s",
+            "stop-limit floor %.2f spread<=%.2f loss<=%.0f%%; "
+            "no TP/time-exit; $%.2f positions=%s event=%s new_per_cycle=%s "
+            "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.stop_price,
+            entry.stop_price - entry.max_stop_slippage,
+            entry.max_stop_spread,
+            entry.max_stop_loss_fraction * 100,
             trading.buy_amount_usdc,
             trading.max_positions,
             trading.max_event_positions,
             trading.max_new_positions_per_cycle,
+            trading.max_emergency_sells_per_cycle,
+            trading.experiment_capital_usdc * trading.max_drawdown_stop,
         )
         logger.info(
             "server envelope - live soccer tag=100350; exact-$5 CLOB depth gate; "
@@ -122,6 +128,7 @@ class PolymarketBot:
         try:
             self._log_strategy_config()
             markets = scanner.fetch_markets()
+            trader.set_cycle_markets(markets)
 
             logger.info("=== Phase 0: exact-book sports archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
@@ -167,8 +174,35 @@ class PolymarketBot:
                 holdings = repo.get_holding_trades()
                 stats["checked_holdings"] = len(holdings)
                 resolved_before = repo.get_stats()["resolved"]
+                sell_walks = {}
+                batch_sell_books = getattr(
+                    self.clob, "get_sell_book_walks", None
+                )
+                if holdings and callable(batch_sell_books):
+                    sell_requests = {}
+                    for trade in holdings:
+                        try:
+                            sell_requests[str(trade.token_id)] = (
+                                trader.signable_sell_shares(trade)
+                            )
+                        except (TypeError, ValueError):
+                            logger.error(
+                                "holding share envelope is invalid; scoped single "
+                                "fallback will fail closed - trade=%s",
+                                trade.id,
+                            )
+                    sell_walks = batch_sell_books(sell_requests)
                 for trade in holdings:
-                    if trader.execute_sell(trade):
+                    token_id = str(trade.token_id)
+                    if token_id in sell_walks:
+                        sold = trader.execute_sell(
+                            trade,
+                            prefetched_walk=sell_walks[token_id],
+                            book_prefetched=True,
+                        )
+                    else:
+                        sold = trader.execute_sell(trade)
+                    if sold:
                         stats["sold"] += 1
                         updated = repo.get_by_id(trade.id)
                         if updated is not None:
@@ -178,12 +212,33 @@ class PolymarketBot:
                 stats["resolved"] = max(
                     0, repo.get_stats()["resolved"] - resolved_before
                 )
+                stats["emergency_sell_guard"] = {
+                    "submitted": trader.emergency_sell_submissions,
+                    "blocked": trader.emergency_sell_guard_blocks,
+                    "per_cycle_limit": trading.max_emergency_sells_per_cycle,
+                }
 
             if lifecycle_mode == "active":
                 logger.info("=== Phase 2: frozen exact-VWAP arm scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
                 state_before_entry = repo.get_stats()
+                realized_pnl = float(state_before_entry.get("total_pnl") or 0.0)
+                settlement_pnl = float(
+                    state_before_entry.get("settlement_pnl_assumption") or 0.0
+                )
+                economic_pnl = realized_pnl + settlement_pnl
+                drawdown_limit = (
+                    trading.experiment_capital_usdc * trading.max_drawdown_stop
+                )
+                drawdown_triggered = economic_pnl <= -drawdown_limit + 1e-9
+                stats["drawdown_guard"] = {
+                    "triggered": drawdown_triggered,
+                    "economic_pnl": economic_pnl,
+                    "confirmed_sell_pnl": realized_pnl,
+                    "proven_resolution_pnl": settlement_pnl,
+                    "loss_limit_usdc": drawdown_limit,
+                }
                 capacity = repo.get_entry_capacity_state()
                 open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
                 blocking_reasons = []
@@ -210,6 +265,8 @@ class PolymarketBot:
                     blocking_reasons.append("buy_reconciliation_gap")
                 if int(order_reconciliation.get("errors", 0)):
                     blocking_reasons.append("order_reconciliation_error")
+                if drawdown_triggered:
+                    blocking_reasons.append("economic_drawdown_limit_reached")
                 if stats["universe_health"]["metadata_drift_suspected"]:
                     blocking_reasons.append("league_identity_metadata_drift")
                 entry_guard = {
@@ -244,6 +301,8 @@ class PolymarketBot:
                     "reconciliation_errors": int(
                         order_reconciliation.get("errors", 0)
                     ),
+                    "economic_pnl": economic_pnl,
+                    "drawdown_loss_limit_usdc": drawdown_limit,
                 }
                 stats["entry_guard"] = entry_guard
                 if blocking_reasons:
@@ -404,6 +463,11 @@ class PolymarketBot:
                     "max_positions": trading.max_positions,
                     "max_event_positions": trading.max_event_positions,
                     "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
+                    "max_emergency_sells_per_cycle": (
+                        trading.max_emergency_sells_per_cycle
+                    ),
+                    "experiment_capital_usdc": trading.experiment_capital_usdc,
+                    "max_drawdown_stop": trading.max_drawdown_stop,
                     "reentry_cooldown_hours": trading.reentry_cooldown_hours,
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
                     "min_order_size": trading.min_order_size,
@@ -413,6 +477,11 @@ class PolymarketBot:
                         "prob_min": trading.entry.prob_min,
                         "prob_max": trading.entry.prob_max,
                         "stop_price": trading.entry.stop_price,
+                        "max_stop_slippage": trading.entry.max_stop_slippage,
+                        "max_stop_spread": trading.entry.max_stop_spread,
+                        "max_stop_loss_fraction": (
+                            trading.entry.max_stop_loss_fraction
+                        ),
                         "hours_min": trading.entry.hours_min,
                         "hours_max": trading.entry.hours_max,
                     },

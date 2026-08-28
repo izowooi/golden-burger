@@ -1515,6 +1515,12 @@ class TradeRepository:
             .scalar()
             or 0.0
         )
+        settlement_pnl_assumption = (
+            self.session.query(func.sum(Trade.settlement_pnl_assumption))
+            .filter(Trade.settlement_pnl_assumption.isnot(None))
+            .scalar()
+            or 0.0
+        )
         return {
             "total_trades": self.session.query(func.count(Trade.id)).scalar() or 0,
             "holding": count(TradeStatus.HOLDING),
@@ -1526,6 +1532,9 @@ class TradeRepository:
             "quarantined": count(TradeStatus.QUARANTINED),
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
             "total_pnl": round(total_pnl, 4),
+            "settlement_pnl_assumption": round(
+                settlement_pnl_assumption, 4
+            ),
         }
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:

@@ -1126,6 +1126,76 @@ class ClobClientWrapper:
         result = self.client.get_order_book(str(token_id))
         return _walk_sell_book(result, str(token_id), shares)
 
+    def get_sell_book_walks(
+        self,
+        token_shares: Mapping[str, float],
+        *,
+        batch_size: int = 250,
+    ) -> Dict[str, Optional[SellBookWalk]]:
+        """Fetch holding books once per cycle instead of one request per trade.
+
+        A key mapped to ``None`` means the batch answered but that exact book
+        could not prove full executable depth.  A missing key means the whole
+        chunk failed and lets the caller use its existing single-read fallback.
+        """
+        normalized: Dict[str, float] = {}
+        for raw_token, raw_shares in token_shares.items():
+            token = str(raw_token or "").strip()
+            try:
+                shares = float(raw_shares)
+            except (TypeError, ValueError):
+                continue
+            if token and math.isfinite(shares) and shares > 0:
+                normalized[token] = shares
+
+        results: Dict[str, Optional[SellBookWalk]] = {}
+        tokens = list(normalized)
+        failed_chunks = 0
+        for offset in range(0, len(tokens), batch_size):
+            chunk = tokens[offset : offset + batch_size]
+            try:
+                response = self.client.get_order_books(
+                    [BookParams(token_id=token) for token in chunk]
+                )
+                if not isinstance(response, (list, tuple)):
+                    raise ClobResponseContractError(
+                        "CLOB batch order-book response must be a sequence"
+                    )
+                seen: set[str] = set()
+                for book in response:
+                    token = str(_book_field(book, "asset_id") or "").strip()
+                    if token not in normalized or token in seen:
+                        continue
+                    seen.add(token)
+                    try:
+                        results[token] = _walk_sell_book(
+                            book, token, normalized[token]
+                        )
+                    except (
+                        ClobResponseContractError,
+                        ClobResponseUnavailableError,
+                    ):
+                        results[token] = None
+                for token in chunk:
+                    results.setdefault(token, None)
+            except Exception as error:
+                failed_chunks += 1
+                logger.warning(
+                    "CLOB holding-book batch failed; scoped single fallback "
+                    "enabled - tokens=%s error=%s",
+                    len(chunk),
+                    type(error).__name__,
+                )
+        logger.info(
+            "CLOB holding-book batch - requested=%s complete=%s unavailable=%s "
+            "failed_chunks=%s",
+            len(tokens),
+            sum(value is not None for value in results.values()),
+            sum(value is None for value in results.values()),
+            failed_chunks,
+        )
+        return results
+
     @rate_limit_handler(max_retries=3)
     def get_best_bid(self, token_id: str) -> float:
         """Get best bid price.

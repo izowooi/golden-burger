@@ -105,7 +105,10 @@ class _Clob:
         self.sell_vwap = best_bid if sell_vwap is None else sell_vwap
         self.sell_limit = best_bid if sell_limit is None else sell_limit
         self.orders = []
-        self.resolution = None
+        self.resolution = _normalize_clob_resolution(
+            "condition-1",
+            {"condition_id": "condition-1", "closed": False},
+        )
 
     def get_buy_book_walk(self, token_id, *, notional_usdc):
         return BuyBookWalk(
@@ -295,7 +298,7 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert repo.updated == []
 
 
-def test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust(
+def test_stop_uses_fresh_bid_and_submits_fok_sell(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
@@ -324,6 +327,14 @@ def test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust(
     assert update["status"] is TradeStatus.PENDING_SELL
     assert update["sell_shares"] == pytest.approx(5.10)
     assert update["sell_residual_shares"] == pytest.approx(0.002)
+
+
+def test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust(
+    monkeypatch,
+) -> None:
+    # Keep the historical execution-contract name explicit: the fresh-stop
+    # test above also proves SDK sizing and residual-dust persistence.
+    test_stop_uses_fresh_bid_and_submits_fok_sell(monkeypatch)
 
 
 def test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment():
@@ -538,7 +549,7 @@ def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:
     assert clob.orders == []
 
 
-def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
+def test_gap_beyond_stop_limit_is_held_instead_of_dumped() -> None:
     repo = _Repo()
     clob = _Clob(
         best_bid=0.27,
@@ -565,20 +576,8 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
     )
 
     assert trader.execute_sell(trade) is False
-    assert clob.orders == [
-        {
-            "token_id": "away-yes-token",
-            "price": 0.23,
-            "size": pytest.approx(5.07),
-            "side": "SELL",
-            "order_type": "FOK",
-        }
-    ]
-    update = repo.updated[-1][1]
-    assert update["status"] is TradeStatus.PENDING_SELL
-    assert update["exit_reason"] == "absolute_stop_pending_confirmed_fill"
-    assert update["sell_price"] == 0.25
-    assert update["sell_residual_shares"] == pytest.approx(0.006142)
+    assert clob.orders == []
+    assert repo.updated == []
 
 
 def test_post_game_cleanup_bid_cannot_trigger_stop() -> None:
@@ -626,6 +625,91 @@ def test_post_game_cleanup_bid_cannot_trigger_stop() -> None:
     assert trader.execute_sell(trade) is False
     assert clob.orders == []
     assert repo.updated == []
+
+
+def test_clob_closed_market_blocks_stop_even_when_gamma_still_says_live() -> None:
+    repo = _Repo()
+    clob = _Clob(best_bid=0.69, best_ask=0.70)
+    clob.resolution = _normalize_clob_resolution(
+        "condition-1",
+        {
+            "condition_id": "condition-1",
+            "closed": True,
+            "tokens": [
+                {
+                    "outcome": "Yes",
+                    "token_id": "own-db-token",
+                    "price": 1,
+                    "winner": True,
+                },
+                {
+                    "outcome": "No",
+                    "token_id": "no-token",
+                    "price": 0,
+                    "winner": False,
+                },
+            ],
+        },
+    )
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        buy_order_id="buy-1",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders == []
+    assert repo.updated[-1][1]["status"] is TradeStatus.RESOLVED
+
+
+def test_only_one_emergency_sell_can_be_submitted_per_cycle() -> None:
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+    first = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    second = SimpleNamespace(
+        id=10,
+        condition_id="condition-2",
+        event_id="event-2",
+        token_id="second-token",
+        outcome="Yes",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+
+    assert trader.execute_sell(first) is False
+    assert trader.execute_sell(second) is False
+    assert len(clob.orders) == 1
+    assert trader.emergency_sell_submissions == 1
+    assert trader.emergency_sell_guard_blocks == 1
 
 
 def test_sdk_sell_submission_nudge_survives_binary_float_double_floor() -> None:

@@ -24,6 +24,9 @@
 - exact `$5` full ask walk와 FOK BUY; best bid `<=0.70` trigger 뒤 full shares bid walk와 FOK SELL.
 - account/open 20, event 1, cycle 20; manual wallet position 편입·청산 금지.
 - accepted order는 fill이 아니다. exact fill/fee 전 lifecycle 확정 금지.
+- emergency SELL은 Gamma+CLOB 독립 open proof, post-proof fresh full book, `0.65` execution
+  floor, 10%p spread, 35% projected-loss cap을 모두 통과해야 하며 cycle당 1건만 허용한다.
+- 경제손익(confirmed SELL + proven resolution)이 `-$10`이면 신규 BUY를 자동 차단한다.
 - open state와 unresolved BUY reservation을 함께 max-position capacity에 계산한다.
 - PENDING_BUY/PENDING_SELL/QUARANTINED/orphan/fill-fee gap이 있으면 신규 BUY를 막는다.
 - future timing/notional 선택은 White/Grey evidence에서 하며 v2h live 금액은 `$5`로 유지한다.
@@ -39,6 +42,10 @@ uv build
 live 코드 변경 전 Cat/Dog timer를 먼저 끈다. test와 timer 없는 수동 build가 성공하고 console,
 DB, pending state, source digest를 확인한 뒤에만 timer를 복원한다. clean/wipe/migration/import를
 하지 않는다. 자연 build 각 2회와 daily-rsync verified DB를 확인한다.
+
+timed build는 검증된 exact commit을 workspace에 pin하고 `NullSCM`으로 실행한다. 원격 checkout,
+`uv sync`, `polybot config`, `polybot status`는 release 배포 단계에서만 수행한다. 새로운 release는
+timer off → GitSCM 수동 build → exact commit/source 검증 → NullSCM pin → timer 복원 순서다.
 
 1분 polling은 연속 stop 또는 threshold fill을 보장하지 않는다. trigger와 actual full-depth
 VWAP gap, zero fill과 book closure를 숨기지 않는다. 24시간 health 전 수익성, follow-up 전 arm

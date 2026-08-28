@@ -48,6 +48,24 @@ stoppage time만 payout으로 명시하는 top-level negRisk moneyline HOME/DRAW
 - exact one-hot `0/1` resolution만 terminal; synthetic wallet mutation 없음
 - Gamma cursor incomplete나 identity drift는 해당 cycle 신규 주문 차단
 
+## Safety amendment — 2026-08-28
+
+Ferencvárosi 승리 market에서 경기 종료 후 남은 `0.001` cleanup bid를 adverse in-play move로
+오인해 Cat/Dog가 각각 약 5 shares를 매도한 incident 때문에 다음 execution-only guard를 양 arm에
+동일하게 추가한다. threshold, universe, `$5`, cadence와 entry window는 바꾸지 않는다.
+
+- current Gamma live sweep과 exact CLOB condition의 independent OPEN proof
+- lifecycle proof 뒤 full book 재조회
+- stop `0.70`, maximum slippage 5%p: full-depth VWAP와 worst limit 모두 `>=0.65`
+- displayed spread `<=0.10`, projected gross loss `<=35%`
+- emergency SELL submission cycle당 1건
+- confirmed SELL + proven-resolution 경제손익 `<=-$10`이면 신규 BUY 자동 차단
+- holding books는 한 번의 batch read로 가져오며 불완전 book을 부분 체결로 보정하지 않음
+
+이는 관측 결과를 보고 arm threshold를 바꾸는 tuning이 아니라 irreversible order의 blast radius를
+제한하는 공통 safety correction이다. amendment 전후는 `strategy_source_digest`로 분리하고,
+incident 이전 execution evidence를 새 guard의 성과처럼 합산하지 않는다.
+
 첫 24시간은 collection/execution health만 본다. 7일 entry 종료 전에는 arm winner, late-entry,
 scale-up 또는 수익성을 판정하지 않는다. CRITICAL/HIGH evidence gap, fill/fee gap, mixed cohort가
 있으면 후속 판단을 중단한다.

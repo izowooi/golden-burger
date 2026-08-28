@@ -21,12 +21,15 @@ White/Grey의 timing·notional evidence가 충분해질 때까지 live 시간 ga
 - 정규 90분과 stoppage time만 payout인 HOME/DRAW/AWAY whole-match moneyline YES만 허용.
 - child/advancement/extra time/penalty market, e-sports와 다른 대회는 주문 전 제외.
 - exact `$5` full ask-depth prewalk 후 fresh marketable FOK BUY.
-- best bid `<=0.70`이고 Gamma event가 여전히 `live=true`, `ended=false`이며 market이
-  order-taking 상태임을 재확인한 경우에만 전체 signable shares의 full bid-depth를 확인하고
-  FOK SELL. 경기 종료 후 resolution 전의 0.001 cleanup bid는 손절로 해석하지 않는다.
+- best bid `<=0.70`이고 Gamma event와 CLOB condition이 각각 live/open이며 market이
+  order-taking 상태임을 재확인한 경우에만 전체 signable shares의 full bid-depth를 다시 읽고
+  FOK SELL. 최저 level/VWAP `>=0.65`, spread `<=0.10`, projected loss `<=35%`를 모두 강제하며
+  한 cycle에 한 건만 제출한다. 경기 종료 후 0.001 cleanup bid는 손절로 해석하지 않는다.
 - accepted order는 fill이 아니다. terminal fill과 fee 대사 전 lifecycle을 확정하지 않음.
 - account 20/event 1/cycle 20, manual wallet position 편입·청산 금지.
 - PENDING/QUARANTINED/orphan/fill·fee gap이 있으면 후보는 기록하되 신규 BUY fail closed.
+- confirmed SELL + proven-resolution 경제손익이 `-$10`에 도달하면 기존 position 관리는
+  계속하되 신규 BUY를 자동 차단한다.
 
 Gamma liquidity/volume 숫자는 gate가 아니다. 실제 실행 가능성은 주문에 필요한 CLOB 쪽의 full
 depth로 직접 검증한다. 20개 제한은 현재 wallet position 수가 아니라 bot-owned open exposure와
@@ -35,6 +38,10 @@ unresolved BUY reservation의 최대치다.
 1분 polling은 0.97 체결이나 0.70 stop 가격을 보장하지 않는다. 두 cycle 사이에 가격이 jump하거나
 book이 닫힐 수 있고 FOK는 full fill이 불가능하면 0 fill이다. 이런 miss/gap도 실행 evidence로
 남긴다.
+
+정기 Jenkins cycle은 검증된 release commit을 workspace에 pin한 뒤 SCM checkout 없이 실행한다.
+매 cycle에는 `polybot run` 하나만 두며 `uv sync`, `polybot config`, `polybot status`는 release
+배포 검증 시에만 실행한다. 이를 통해 1분 signal cadence를 GitHub fetch 지연과 분리한다.
 
 entry는 `[2026-08-26T18:30:00Z, 2026-09-02T18:30:00Z)`, follow-up은
 `2026-09-09T18:30:00Z`까지다. cohort는
