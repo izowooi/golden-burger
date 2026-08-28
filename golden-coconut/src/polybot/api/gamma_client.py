@@ -99,6 +99,34 @@ class GammaFamilyPool:
             futures = {family.code: executor.submit(fetch, family) for family in families}
             return tuple(futures[family.code].result() for family in families)
 
+    def fetch_event(
+        self,
+        run_id: str,
+        event_id: str,
+        family: str,
+        *,
+        budget: CycleBudget,
+    ) -> EventFollowup:
+        """Fetch a carried event through its family's isolated client.
+
+        Discovery uses one client per sport family.  Follow-up collection must
+        preserve that same isolation instead of calling a method that only the
+        underlying ``GammaClient`` implements.
+        """
+        normalized_family = str(family).strip()
+        client = self.clients.get(normalized_family)
+        if client is None:
+            raise ValueError(
+                f"Gamma follow-up family is outside the frozen registry: "
+                f"{normalized_family or '<empty>'}"
+            )
+        return client.fetch_event(
+            run_id,
+            event_id,
+            normalized_family,
+            budget=budget,
+        )
+
 
 class GammaClient:
     def __init__(self, config: GammaConfig, transport: PublicJsonTransport) -> None:

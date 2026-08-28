@@ -21,7 +21,9 @@ White/Grey의 timing·notional evidence가 충분해질 때까지 live 시간 ga
 - 정규 90분과 stoppage time만 payout인 HOME/DRAW/AWAY whole-match moneyline YES만 허용.
 - child/advancement/extra time/penalty market, e-sports와 다른 대회는 주문 전 제외.
 - exact `$5` full ask-depth prewalk 후 fresh marketable FOK BUY.
-- best bid `<=0.70`이면 전체 signable shares의 full bid-depth를 확인하고 FOK SELL.
+- best bid `<=0.70`이고 Gamma event가 여전히 `live=true`, `ended=false`이며 market이
+  order-taking 상태임을 재확인한 경우에만 전체 signable shares의 full bid-depth를 확인하고
+  FOK SELL. 경기 종료 후 resolution 전의 0.001 cleanup bid는 손절로 해석하지 않는다.
 - accepted order는 fill이 아니다. terminal fill과 fee 대사 전 lifecycle을 확정하지 않음.
 - account 20/event 1/cycle 20, manual wallet position 편입·청산 금지.
 - PENDING/QUARANTINED/orphan/fill·fee gap이 있으면 후보는 기록하되 신규 BUY fail closed.

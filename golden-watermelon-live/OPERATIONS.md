@@ -54,10 +54,12 @@ Dog는 `POLYBOT_ENTRY_PROB_MIN=0.99`와 runtime
 2. Cat/Dog를 수동 1회씩 실행해 `$5`, threshold, v2h DB path, league hash, FOK-only,
    lifecycle `active`를 확인한다.
 3. UCL/UEL가 live이면 exact identity와 regular-time HOME/DRAW/AWAY만 candidate인지 확인한다.
-4. open/pending/quarantined/orphan/fill-fee guards가 0이거나 증거 기반으로 설명되는지 확인한다.
-5. 같은 DB를 이어 쓰는 수동 2회째를 검증한다.
-6. 둘 다 runtime <45초, CRITICAL/HIGH 0이면 `* * * * *`를 활성화한다.
-7. 자연 build 각 2회 뒤 daily-rsync로 새 epoch를 scan/sync/verify한다.
+4. stop 후보는 SELL 직전에도 event `live=true`, `ended=false`와 market order-taking이 명시적으로
+   확인돼야 한다. 종료 후 0.001 cleanup bid에서는 SELL이 없어야 한다.
+5. open/pending/quarantined/orphan/fill-fee guards가 0이거나 증거 기반으로 설명되는지 확인한다.
+6. 같은 DB를 이어 쓰는 수동 2회째를 검증한다.
+7. 둘 다 runtime <45초, CRITICAL/HIGH 0이면 `* * * * *`를 활성화한다.
+8. 자연 build 각 2회 뒤 daily-rsync로 새 epoch를 scan/sync/verify한다.
 
 ```bash
 cd ../daily-rsync

@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
 
 import pytest
 
-from polybot.api.gamma_client import GammaClient
+from polybot.api.gamma_client import GammaClient, GammaFamilyPool
 from polybot.api.transport import CycleBudget, JsonResponse
 
 
@@ -147,6 +146,49 @@ def test_followup_is_event_by_decimal_id(config):
     assert result.event_id == "910001"
     assert transport.calls[0][1].endswith("/events/910001")
     assert transport.calls[0][2]["params"] == {}
+
+
+def test_family_pool_routes_followup_to_the_matching_isolated_client(config):
+    transports = {
+        family.code: FakeTransport(
+            [{"id": "910001", "closed": True}]
+            if family.code == "nba"
+            else []
+        )
+        for family in config.registry.families
+    }
+    pool = GammaFamilyPool(
+        {
+            family.code: GammaClient(config.trading.gamma, transports[family.code])
+            for family in config.registry.families
+        },
+        max_workers=len(config.registry.families),
+    )
+
+    result = pool.fetch_event(
+        "run", "910001", "nba", budget=budget()
+    )
+
+    assert result.event_id == "910001"
+    assert len(transports["nba"].calls) == 1
+    assert all(
+        not transport.calls
+        for family, transport in transports.items()
+        if family != "nba"
+    )
+
+
+def test_family_pool_rejects_unknown_followup_family(config):
+    pool = GammaFamilyPool(
+        {
+            family.code: GammaClient(config.trading.gamma, FakeTransport([]))
+            for family in config.registry.families
+        },
+        max_workers=len(config.registry.families),
+    )
+
+    with pytest.raises(ValueError, match="outside the frozen registry"):
+        pool.fetch_event("run", "910001", "wnba", budget=budget())
 
 
 def test_discovery_requires_exact_utc_slot(config):

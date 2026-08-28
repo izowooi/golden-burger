@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import math
 from types import SimpleNamespace
 
 import pytest
@@ -156,6 +157,25 @@ class _Clob:
         return self.resolution
 
 
+def _active_gamma():
+    return SimpleNamespace(
+        get_market_by_condition_id=lambda condition_id: {
+            "conditionId": condition_id,
+            "active": True,
+            "closed": False,
+            "enableOrderBook": True,
+            "acceptingOrders": True,
+        },
+        get_event_by_id=lambda event_id: {
+            "id": event_id,
+            "active": True,
+            "closed": False,
+            "live": True,
+            "ended": False,
+        },
+    )
+
+
 def _candidate():
     return {
         "condition_id": "condition-1",
@@ -261,6 +281,7 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
+        event_id="event-1",
         token_id="own-db-token",
         outcome="Yes",
         stop_price_at_entry=0.70,
@@ -282,13 +303,20 @@ def test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust(
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
+        event_id="event-1",
         token_id="own-db-token",
         outcome="Yes",
         stop_price_at_entry=0.70,
         buy_shares=5.102,
         buy_price=0.98,
     )
-    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
 
     assert trader.execute_sell(trade) is False
     assert clob.orders[0]["size"] == pytest.approx(5.10)
@@ -350,6 +378,7 @@ def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
+        event_id="event-1",
         token_id="away-yes-token",
         outcome="Yes",
         buy_order_id="buy-1",
@@ -520,20 +549,27 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
+        event_id="event-1",
         token_id="away-yes-token",
         outcome="Yes",
         stop_price_at_entry=0.70,
         buy_shares=5.076142,
         buy_price=0.985,
     )
-    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
 
     assert trader.execute_sell(trade) is False
     assert clob.orders == [
         {
             "token_id": "away-yes-token",
             "price": 0.23,
-            "size": 5.07,
+            "size": pytest.approx(5.07),
             "side": "SELL",
             "order_type": "FOK",
         }
@@ -543,3 +579,98 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell() -> None:
     assert update["exit_reason"] == "absolute_stop_pending_confirmed_fill"
     assert update["sell_price"] == 0.25
     assert update["sell_residual_shares"] == pytest.approx(0.006142)
+
+
+def test_post_game_cleanup_bid_cannot_trigger_stop() -> None:
+    repo = _Repo()
+    clob = _Clob(best_bid=0.001, best_ask=1.0)
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda condition_id: {
+            "conditionId": condition_id,
+            "active": True,
+            "closed": False,
+            "enableOrderBook": True,
+            "acceptingOrders": True,
+        },
+        get_event_by_id=lambda event_id: {
+            "id": event_id,
+            "active": True,
+            "closed": False,
+            "live": False,
+            "ended": True,
+        },
+    )
+    clob.resolution = _normalize_clob_resolution(
+        "condition-1",
+        {"condition_id": "condition-1", "closed": False},
+    )
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        buy_order_id="buy-1",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=gamma,
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders == []
+    assert repo.updated == []
+
+
+def test_sdk_sell_submission_nudge_survives_binary_float_double_floor() -> None:
+    sellable = trader_module._sdk_sellable_shares(5.102)
+    submission = trader_module._sdk_sell_submission_shares(sellable)
+
+    assert sellable == 5.10
+    assert submission > sellable
+    assert math.floor(submission * 100) / 100 == 5.10
+
+
+def test_accepted_sell_with_unsafe_signed_size_is_never_orphaned() -> None:
+    repo = _Repo()
+    clob = _Clob(best_bid=0.69, best_ask=0.70)
+
+    def post_with_unsafe_signed_size(**order):
+        clob.orders.append(order)
+        return {
+            "success": True,
+            "orderID": "sell-unsafe",
+            "requested_size": 5.09,
+        }
+
+    clob.place_limit_order = post_with_unsafe_signed_size
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        stop_price_at_entry=0.70,
+        buy_shares=5.102,
+        buy_price=0.98,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.PENDING_SELL
+    assert update["sell_order_id"] == "sell-unsafe"
+    assert update["sell_shares"] == pytest.approx(5.09)
+    assert update["exit_reason"] == "signed_sell_size_drift_unsafe"

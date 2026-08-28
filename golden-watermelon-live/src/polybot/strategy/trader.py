@@ -84,6 +84,20 @@ def _sdk_sellable_shares(holding_shares: float) -> float:
     return sellable
 
 
+def _sdk_sell_submission_shares(sellable_shares: float) -> float:
+    """Nudge a two-decimal SELL envelope above its binary-float boundary.
+
+    py-clob-client-v2 floors SELL shares to two decimals while signing.  A
+    binary float such as ``5.10`` can arrive as ``5.099999...`` and be floored
+    a second time to ``5.09``.  ``nextafter`` keeps the signed order at the
+    intended two-decimal envelope without ever increasing it by a venue share
+    quantum.
+    """
+    if not math.isfinite(sellable_shares) or sellable_shares <= 0:
+        raise ValueError("sellable shares must be finite and positive")
+    return math.nextafter(sellable_shares, math.inf)
+
+
 def _orphan_catalog_identity_matches(
     *,
     token_id: str,
@@ -1235,6 +1249,23 @@ class Trader:
             )
             return False
 
+        # A post-game/pre-resolution book can briefly contain only a 0.001
+        # cleanup bid.  That is not an in-play adverse move.  The strategy is
+        # hold-to-resolution, so a stop is allowed only while both Gamma event
+        # and market lifecycle fields explicitly prove live order-taking.
+        if not self._stop_execution_is_explicitly_live(trade):
+            logger.warning(
+                "absolute stop suppressed because live lifecycle is not "
+                "explicitly proven - trade=%s condition=%s event=%s bid=%.4f",
+                trade.id,
+                trade.condition_id,
+                getattr(trade, "event_id", None),
+                best_bid,
+            )
+            return self._handle_midpoint_unavailable(
+                trade, "stop lifecycle not explicitly live"
+            )
+
         logger.warning(
             "absolute stop 충족: Trade #%s bid=%.2f%% stop=%.2f%% "
             "gap=%.2fpp full_depth_vwap=%.2f%% limit=%.2f%% levels=%s shares=%.6f",
@@ -1250,10 +1281,11 @@ class Trader:
         result = self.clob.place_limit_order(
             token_id=trade.token_id,
             price=walk.limit_price,
-            size=walk.shares,
+            size=_sdk_sell_submission_shares(walk.shares),
             side="SELL",
             order_type="FOK",
         )
+        accepted = bool(result.get("success") or result.get("orderID"))
         try:
             sell_shares = float(result.get("requested_size", walk.shares))
         except (TypeError, ValueError):
@@ -1261,6 +1293,17 @@ class Trader:
                 "signed SELL requested size evidence is invalid - trade=%s",
                 trade.id,
             )
+            if accepted:
+                self._bind_uncertain_sell_submission(
+                    trade,
+                    result=result,
+                    walk=walk,
+                    best_bid=best_bid,
+                    best_ask=best_ask,
+                    spread=spread,
+                    sell_shares=None,
+                    reason="signed_sell_size_evidence_invalid",
+                )
             return False
         residual_shares = float(trade.buy_shares) - sell_shares
         if (
@@ -1277,9 +1320,24 @@ class Trader:
                 sell_shares,
                 residual_shares,
             )
+            if accepted:
+                self._bind_uncertain_sell_submission(
+                    trade,
+                    result=result,
+                    walk=walk,
+                    best_bid=best_bid,
+                    best_ask=best_ask,
+                    spread=spread,
+                    sell_shares=(
+                        sell_shares
+                        if math.isfinite(sell_shares) and sell_shares > 0
+                        else None
+                    ),
+                    reason="signed_sell_size_drift_unsafe",
+                )
             return False
         residual_shares = max(0.0, residual_shares)
-        if result.get("success") or result.get("orderID"):
+        if accepted:
             common = {
                 "sell_price": walk.vwap,
                 "sell_shares": sell_shares,
@@ -1340,6 +1398,93 @@ class Trader:
         )
         logger.error("absolute-stop FOK SELL 실패: %s", result)
         return False
+
+    def _stop_execution_is_explicitly_live(self, trade) -> bool:
+        """Require exact event and market lifecycle proof before a live stop."""
+        if self.gamma is None:
+            logger.error(
+                "Gamma client absent; fail-closed stop preflight - trade=%s",
+                trade.id,
+            )
+            return False
+        event_id = str(getattr(trade, "event_id", "") or "").strip()
+        condition_id = str(getattr(trade, "condition_id", "") or "").strip()
+        if not event_id or not condition_id:
+            return False
+        try:
+            market = self.gamma.get_market_by_condition_id(condition_id)
+            event = self.gamma.get_event_by_id(event_id)
+        except Exception as error:
+            logger.warning(
+                "stop lifecycle preflight failed - trade=%s error=%s",
+                trade.id,
+                type(error).__name__,
+            )
+            return False
+        if not isinstance(market, dict) or not isinstance(event, dict):
+            return False
+        observed_condition = str(
+            market.get("conditionId") or market.get("condition_id") or ""
+        ).strip()
+        observed_event = str(event.get("id") or "").strip()
+        return (
+            observed_condition == condition_id
+            and observed_event == event_id
+            and event.get("active") is True
+            and event.get("closed") is False
+            and event.get("live") is True
+            and event.get("ended") is False
+            and market.get("active") is True
+            and market.get("closed") is False
+            and market.get("enableOrderBook") is True
+            and market.get("acceptingOrders") is True
+        )
+
+    def _bind_uncertain_sell_submission(
+        self,
+        trade,
+        *,
+        result: dict,
+        walk,
+        best_bid: float,
+        best_ask: Optional[float],
+        spread: Optional[float],
+        sell_shares: Optional[float],
+        reason: str,
+    ) -> None:
+        """Never leave an irreversible accepted SELL orphaned from its trade."""
+        residual = None
+        if sell_shares is not None:
+            residual = max(0.0, float(trade.buy_shares) - sell_shares)
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.PENDING_SELL,
+            exit_reason=reason,
+            sell_price=walk.vwap,
+            sell_shares=sell_shares,
+            sell_order_id=result.get("orderID"),
+            sell_timestamp=datetime.utcnow(),
+            sell_probability=walk.vwap,
+            yes_price_at_exit=walk.vwap,
+            best_bid_at_exit=best_bid,
+            best_ask_at_exit=best_ask,
+            spread_at_exit=spread,
+            sell_confirmed_size=None,
+            sell_confirmed_vwap=None,
+            sell_confirmed_fee_usdc=None,
+            sell_fill_matched_at=None,
+            sell_residual_shares=residual,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.critical(
+            "accepted SELL bound to PENDING_SELL after contract violation - "
+            "trade=%s order=%s reason=%s",
+            trade.id,
+            result.get("orderID"),
+            reason,
+        )
 
     def _mark_unfilled(self, trade) -> None:
         if trade.buy_order_id and not str(trade.buy_order_id).startswith("SIM"):
