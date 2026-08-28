@@ -26,7 +26,7 @@ export POLYBOT_MIN_VOLUME_24H=0
 export POLYBOT_MIN_CUMULATIVE_VOLUME=0
 export POLYBOT_MAX_POSITIONS=20
 export POLYBOT_MAX_EVENT_POSITIONS=1
-export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=20
+export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=5
 export POLYBOT_YES_ONLY=true
 export POLYBOT_ENTRY_PROB_MIN=0.96
 export POLYBOT_ENTRY_PROB_MAX=0.999
@@ -73,7 +73,7 @@ launcher alarm은 Python import 이전부터 시작된다. Python이 시작되�
 
 1. timer 없이 config SHA/SCM/no-clean/secret redaction을 확인한다.
 2. Cat/Dog를 수동 1회씩 실행해 `$5`, threshold, v2h DB path, league hash, FOK-only,
-   lifecycle `active`를 확인한다.
+   lifecycle `active`, account/event/cycle `20/1/5`와 cycle 신규 원금 상한 `$25`를 확인한다.
 3. UCL/UEL가 live이면 exact identity와 regular-time HOME/DRAW/AWAY만 candidate인지 확인한다.
 4. stop 후보는 SELL 직전에도 event `live=true`, `ended=false`와 market order-taking이 명시적으로
    확인돼야 한다. 종료 후 0.001 cleanup bid에서는 SELL이 없어야 한다.

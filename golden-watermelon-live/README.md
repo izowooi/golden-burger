@@ -26,7 +26,8 @@ White/Grey의 timing·notional evidence가 충분해질 때까지 live 시간 ga
   FOK SELL. 최저 level/VWAP `>=0.65`, spread `<=0.10`, projected loss `<=35%`를 모두 강제하며
   한 cycle에 한 건만 제출한다. 경기 종료 후 0.001 cleanup bid는 손절로 해석하지 않는다.
 - accepted order는 fill이 아니다. terminal fill과 fee 대사 전 lifecycle을 확정하지 않음.
-- account 20/event 1/cycle 20, manual wallet position 편입·청산 금지.
+- account 20/event 1/cycle 5. exact `$5` 기준 한 cycle 신규 요청 원금은 최대 `$25`이며,
+  manual wallet position 편입·청산 금지.
 - PENDING/QUARANTINED/orphan/fill·fee gap이 있으면 후보는 기록하되 신규 BUY fail closed.
 - confirmed SELL + proven-resolution 경제손익이 `-$10`에 도달하면 기존 position 관리는
   계속하되 신규 BUY를 자동 차단한다.

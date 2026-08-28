@@ -159,6 +159,56 @@ def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     session.close.assert_called_once()
 
 
+def test_active_caps_one_cycle_at_five_new_positions(monkeypatch, tmp_path):
+    bot, scanner, trader, _repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidates = [
+        {"condition_id": f"market-{index}", "event_id": f"event-{index}"}
+        for index in range(7)
+    ]
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = candidates
+    trader.execute_buy.side_effect = [1, 2, 3, 4, 5]
+
+    stats = bot.run_cycle()
+
+    assert stats["buy_candidates"] == 7
+    assert stats["bought"] == 5
+    assert stats["entry_guard"]["new_positions_per_cycle_limit"] == 5
+    assert stats["entry_guard"]["new_notional_per_cycle_limit_usdc"] == 25
+    assert trader.execute_buy.call_count == 5
+    assert [
+        call.args[0] for call in trader.execute_buy.call_args_list
+    ] == candidates[:5]
+    session.close.assert_called_once()
+
+
+def test_active_never_exceeds_remaining_account_capacity(monkeypatch, tmp_path):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidates = [
+        {"condition_id": f"market-{index}", "event_id": f"event-{index}"}
+        for index in range(5)
+    ]
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = candidates
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 18,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 18,
+    }
+    trader.execute_buy.side_effect = [1, 2]
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["capacity_remaining"] == 2
+    assert stats["bought"] == 2
+    assert trader.execute_buy.call_count == 2
+    session.close.assert_called_once()
+
+
 def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
     monkeypatch,
     tmp_path,

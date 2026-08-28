@@ -33,7 +33,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.buy_amount_usdc == 5
     assert config.trading.max_positions == 20
     assert config.trading.max_event_positions == 1
-    assert config.trading.max_new_positions_per_cycle == 20
+    assert config.trading.max_new_positions_per_cycle == 5
     assert config.trading.max_emergency_sells_per_cycle == 1
     assert config.trading.experiment_capital_usdc == 100
     assert config.trading.max_drawdown_stop == 0.10
@@ -80,6 +80,7 @@ def test_only_arm_b_threshold_override_is_accepted(
     [
         ("POLYBOT_BUY_AMOUNT", "5.01", "notional"),
         ("POLYBOT_MAX_POSITIONS", "19", "exposure"),
+        ("POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE", "20", "exposure"),
         ("POLYBOT_MIN_LIQUIDITY", "1", "liquidity gate"),
         ("POLYBOT_MIN_CUMULATIVE_VOLUME", "1", "liquidity gate"),
         ("POLYBOT_ENTRY_PROB_MIN", "0.97", "entry band"),

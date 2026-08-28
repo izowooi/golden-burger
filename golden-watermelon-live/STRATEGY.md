@@ -45,6 +45,10 @@ penalty shoot-out scope면 fail closed한다. e-sports, child/halftime, prop, pa
 5. 주문 직전 market/clock/book/fee identity를 다시 확인한다.
 6. marketable FOK BUY를 제출하고 exact terminal fill·fee가 대사될 때까지 `PENDING_BUY`다.
 
+account/event/cycle capacity는 `20/1/5`다. 따라서 동시에 다섯 경기가 조건을 통과해도 모두
+처리할 수 있지만, 한 faulty cycle이 exact `$5 × 20 = $100` 전체 실험 예산을 한 번에
+노출하지는 못한다. 현재 한 cycle의 신규 요청 원금 상한은 `$25`다.
+
 FOK는 가격 band를 관측했다는 이유만으로 체결되지 않는다. 주문 시점 full depth, tick, signature,
 fee identity가 모두 맞아야 하고, full fill이 아니면 0 fill이다. 첫 episode가 guard나 fresh-book
 재검증에서 막히면 같은 cohort에서 재선택하지 않고 exact reason을 저장한다.
@@ -93,7 +97,9 @@ uncertain-outcome 격리와 다음 cycle 대사를 사용한다.
 
 live notional은 `$5`로 고정한다. White/Grey v3c가 source minute `75/80/85`와 displayed
 notional `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500` evidence를 모은다.
-future scale은 한 rung씩만 검토하며 이 v2h cohort에서 금액을 올리지 않는다.
+future scale은 한 rung씩만 검토하며 이 v2h cohort에서 금액을 올리지 않는다. Jenkins env만으로
+`$5`를 변경하면 config validation이 시작 전에 실패하며, 향후 코드 수준의 scale amendment에서도
+cycle notional blast radius를 별도로 재검토해야 한다.
 
 ## 판정
 

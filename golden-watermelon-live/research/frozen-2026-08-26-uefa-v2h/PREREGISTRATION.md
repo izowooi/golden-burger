@@ -20,7 +20,7 @@ v2h와 합산하지 않는다.
 | B | `polybot-dog` | `watermelon-live-dog-99-1m-v2h` | `[0.99,0.999]` |
 
 두 arm의 유일한 treatment 차이는 lower entry bound다. stop `0.70`, cadence, `$5` notional과
-exposure `20/1/20`은 같다. White/Grey의 late-minute와 scale evidence가 모이기 전에는 live
+current exposure `20/1/5`는 같다. White/Grey의 late-minute와 scale evidence가 모이기 전에는 live
 entry time이나 notional을 변경하지 않는다.
 
 ## Universe amendment
@@ -43,7 +43,7 @@ stoppage time만 payout으로 명시하는 top-level negRisk moneyline HOME/DRAW
 - exact `$5` full ask-depth prewalk 및 fresh marketable FOK BUY
 - confirmed fill과 dynamic fee evidence 전에는 `HOLDING` 전환 금지
 - unresolved PENDING/QUARANTINED/orphan BUY가 있으면 신규 진입 fail closed
-- event당 1개, total 20개, cycle 20개; manual wallet position 미편입
+- event당 1개, total 20개, cycle 5개; manual wallet position 미편입
 - best bid `<=0.70` trigger 뒤 signable full shares bid-depth FOK SELL
 - exact one-hot `0/1` resolution만 terminal; synthetic wallet mutation 없음
 - Gamma cursor incomplete나 identity drift는 해당 cycle 신규 주문 차단
@@ -65,6 +65,8 @@ Ferencvárosi 승리 market에서 경기 종료 후 남은 `0.001` cleanup bid�
 - holding books는 한 번의 batch read로 가져오며 불완전 book을 부분 체결로 보정하지 않음
 - Jenkins launcher부터 50초 hard deadline; Python 진입 뒤 42초부터 새 Gamma/CLOB 요청 금지
 - deadline이 POST와 겹치면 성공으로 추정하지 않고 execution ledger uncertain-outcome으로 격리
+- closed Elderberry의 cycle 폭주 교훈을 반영해 신규 BUY를 cycle당 20개에서 5개로 축소;
+  exact `$5` 기준 한 faulty cycle의 신규 요청 원금을 `$100`이 아니라 `$25`로 제한
 
 이는 관측 결과를 보고 arm threshold를 바꾸는 tuning이 아니라 irreversible order의 blast radius를
 제한하는 공통 safety correction이다. amendment 전후는 `strategy_source_digest`로 분리하고,

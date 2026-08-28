@@ -333,6 +333,13 @@ class PolymarketBot:
                     "capacity_remaining": max(
                         0, trading.max_positions - capacity["total_reserved"]
                     ),
+                    "new_positions_per_cycle_limit": (
+                        trading.max_new_positions_per_cycle
+                    ),
+                    "new_notional_per_cycle_limit_usdc": (
+                        trading.max_new_positions_per_cycle
+                        * trading.buy_amount_usdc
+                    ),
                     "pending_buy": state_before_entry["pending_buy"],
                     "pending_sell": state_before_entry["pending_sell"],
                     "quarantined": state_before_entry["quarantined"],
@@ -379,8 +386,12 @@ class PolymarketBot:
                     )
                 else:
                     logger.info("=== Phase 3: fresh-book FOK BUY execution ===")
+                    cycle_entry_limit = min(
+                        trading.max_new_positions_per_cycle,
+                        entry_guard["capacity_remaining"],
+                    )
                     for candidate in candidates[
-                        : trading.max_new_positions_per_cycle
+                        :cycle_entry_limit
                     ]:
                         episode_id = candidate.get("entry_episode_id")
                         try:

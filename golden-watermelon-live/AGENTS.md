@@ -22,7 +22,8 @@
   advancement, extra time, penalty market은 주문 전에 fail closed한다.
 - 경기 시작 뒤 `[0h,4h]`, explicit live/not-ended.
 - exact `$5` full ask walk와 FOK BUY; best bid `<=0.70` trigger 뒤 full shares bid walk와 FOK SELL.
-- account/open 20, event 1, cycle 20; manual wallet position 편입·청산 금지.
+- account/open 20, event 1, cycle 5; exact `$5` 기준 한 cycle 신규 요청 원금은 최대
+  `$25`이며 manual wallet position 편입·청산 금지.
 - accepted order는 fill이 아니다. exact fill/fee 전 lifecycle 확정 금지.
 - emergency SELL은 Gamma+CLOB 독립 open proof, post-proof fresh full book, `0.65` execution
   floor, 10%p spread, 35% projected-loss cap을 모두 통과해야 하며 cycle당 1건만 허용한다.

@@ -4006,7 +4006,7 @@ def _validate_watermelon_live_strategy(
             "strategy_source_digest",
             "preregistration_sha256",
             "live notional must remain exactly $5",
-            "exposure limits are frozen at 20/1/20",
+            "exposure limits are frozen at 20/1/5",
             "emergency stop_price is frozen at 0.70",
             "only YES tokens of home/draw/away",
         ),
@@ -4135,7 +4135,7 @@ def _validate_watermelon_live_strategy(
         ("min_cumulative_volume", 0),
         ("max_positions", 20),
         ("max_event_positions", 1),
-        ("max_new_positions_per_cycle", 20),
+        ("max_new_positions_per_cycle", 5),
         ("stop_price", 0.70),
     ):
         _require_yaml_value(

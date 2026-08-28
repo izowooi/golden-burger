@@ -283,7 +283,7 @@ class TradingConfig:
     min_cumulative_volume: float = 0.0
     max_positions: int = 20
     max_event_positions: int = 1
-    max_new_positions_per_cycle: int = 20
+    max_new_positions_per_cycle: int = 5
     max_emergency_sells_per_cycle: int = 1
     experiment_capital_usdc: float = 100.0
     max_drawdown_stop: float = 0.10
@@ -376,9 +376,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if (
         trading.max_positions != 20
         or trading.max_event_positions != 1
-        or trading.max_new_positions_per_cycle != 20
+        or trading.max_new_positions_per_cycle != 5
     ):
-        raise ValueError("Golden Watermelon exposure limits are frozen at 20/1/20")
+        raise ValueError("Golden Watermelon exposure limits are frozen at 20/1/5")
+    if (
+        trading.buy_amount_usdc * trading.max_new_positions_per_cycle
+        != 25
+    ):
+        raise ValueError("per-cycle new BUY notional must remain capped at $25")
     if trading.max_emergency_sells_per_cycle != 1:
         raise ValueError("only one emergency SELL may be submitted per cycle")
     if trading.experiment_capital_usdc != 100:
@@ -551,7 +556,7 @@ def load_config(
         max_new_positions_per_cycle=_get_config_value(
             "POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE",
             trading_cfg.get("max_new_positions_per_cycle"),
-            20,
+            5,
             int,
         ),
         max_emergency_sells_per_cycle=_get_config_value(
