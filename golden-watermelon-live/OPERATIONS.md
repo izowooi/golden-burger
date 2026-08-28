@@ -10,7 +10,7 @@
 
 ## Cat — 0.96
 
-기존 credential export/binding 뒤 아래 shell을 사용한다.
+기존 credential export/binding 뒤 아래 shell은 **timer를 끈 release 배포 build에서만** 사용한다.
 
 ```bash
 #!/bin/bash
@@ -47,6 +47,22 @@ UV=/Users/jongwoopark/.local/bin/uv
 
 Dog는 `POLYBOT_ENTRY_PROB_MIN=0.99`와 runtime
 `watermelon-live-dog-99-1m-v2h`만 다르고 나머지는 exact 동일하다.
+
+검증이 끝난 정기 build는 Jenkins SCM을 `NullSCM`으로 바꾸고 아래처럼 workspace의 exact release를
+확인한 뒤 `run` 한 번만 실행한다. `<verified-full-commit-sha>`는 수동 release build가 실제로
+checkout한 전체 SHA로 치환한다. `uv sync`, `config`, `status`, GitHub fetch를 매분 반복하지 않는다.
+
+```bash
+cd ./golden-watermelon-live
+UV=/Users/jongwoopark/.local/bin/uv
+RELEASE_COMMIT=<verified-full-commit-sha>
+ACTUAL_COMMIT="$(/usr/bin/git rev-parse HEAD)"
+if [[ "${ACTUAL_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
+  echo "release commit mismatch" >&2
+  exit 1
+fi
+"${UV}" run --frozen polybot run --live --job watermelon-live-cat-96-1m-v2h
+```
 
 ## 배포 검증
 

@@ -69,6 +69,13 @@ confirmed SELL P&L과 proven-resolution settlement P&L을 안전 판정에서만
 계속한다. 이 합계는 근거 등급이 다른 두 P&L을 성과로 혼합한다는 뜻이 아니라, golden-date의
 문서뿐인 중단 기준과 resolution 손실 누락을 반복하지 않기 위한 보수적 kill switch다.
 
+안전 손익 계산은 `Trade.realized_pnl`/settlement 합계만 신뢰하지 않는다. 모든 live
+`CONFIRMED` SELL을 execution ledger에서 다시 읽고 exact `sell_order_id`, 또는 유일한 token의
+confirmed BUY 근거로 Trade에 연결한다. 실제 SELL 뒤 Trade가 잘못 RESOLVED가 된 legacy 행은
+매도된 shares 비율만 settlement에서 빼고 원장 VWAP·fee 손익으로 대체한다. 중복·모호한 연결,
+fee 결손, 범위 밖 size/price는 추정하지 않고 신규 진입을 차단한다. 원본 DB 행은 회고 증거로
+그대로 둔다.
+
 CLOB v2의 legacy `fee_rate_bps=0`은 zero-fee 증거가 아니다. exact authenticated fill의
 maker/taker role과 dynamic fee schedule로 fee amount를 저장한다. closed two-token market에서
 exact one-hot `0/1` winner만 RESOLVED로 인정하며 `0.5/0.5`나 synthetic SELL/redeem은 허용하지

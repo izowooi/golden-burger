@@ -223,11 +223,17 @@ class PolymarketBot:
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
                 state_before_entry = repo.get_stats()
-                realized_pnl = float(state_before_entry.get("total_pnl") or 0.0)
-                settlement_pnl = float(
-                    state_before_entry.get("settlement_pnl_assumption") or 0.0
+                economic_guard = repo.get_economic_pnl_guard()
+                realized_pnl = float(
+                    economic_guard.get("confirmed_sell_pnl") or 0.0
                 )
-                economic_pnl = realized_pnl + settlement_pnl
+                settlement_pnl = float(
+                    economic_guard.get("proven_resolution_pnl") or 0.0
+                )
+                economic_pnl = float(economic_guard.get("economic_pnl") or 0.0)
+                economic_evidence_gaps = int(
+                    economic_guard.get("evidence_gaps") or 0
+                )
                 drawdown_limit = (
                     trading.experiment_capital_usdc * trading.max_drawdown_stop
                 )
@@ -237,8 +243,41 @@ class PolymarketBot:
                     "economic_pnl": economic_pnl,
                     "confirmed_sell_pnl": realized_pnl,
                     "proven_resolution_pnl": settlement_pnl,
+                    "recorded_realized_pnl": float(
+                        economic_guard.get("recorded_realized_pnl") or 0.0
+                    ),
+                    "recorded_settlement_pnl": float(
+                        economic_guard.get("recorded_settlement_pnl") or 0.0
+                    ),
+                    "execution_adjustment_pnl": float(
+                        economic_guard.get("execution_adjustment_pnl") or 0.0
+                    ),
+                    "invalidated_settlement_pnl": float(
+                        economic_guard.get("invalidated_settlement_pnl") or 0.0
+                    ),
+                    "execution_override_count": int(
+                        economic_guard.get("execution_override_count") or 0
+                    ),
+                    "evidence_gaps": economic_evidence_gaps,
                     "loss_limit_usdc": drawdown_limit,
                 }
+                if (
+                    stats["drawdown_guard"]["execution_override_count"]
+                    or economic_evidence_gaps
+                ):
+                    logger.warning(
+                        "economic P&L guard used execution-ledger truth - "
+                        "economic=$%.4f recorded_realized=$%.4f "
+                        "recorded_settlement=$%.4f execution_adjustment=$%.4f "
+                        "invalidated_settlement=$%.4f overrides=%s gaps=%s",
+                        economic_pnl,
+                        stats["drawdown_guard"]["recorded_realized_pnl"],
+                        stats["drawdown_guard"]["recorded_settlement_pnl"],
+                        stats["drawdown_guard"]["execution_adjustment_pnl"],
+                        stats["drawdown_guard"]["invalidated_settlement_pnl"],
+                        stats["drawdown_guard"]["execution_override_count"],
+                        economic_evidence_gaps,
+                    )
                 capacity = repo.get_entry_capacity_state()
                 open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
                 blocking_reasons = []
@@ -267,6 +306,8 @@ class PolymarketBot:
                     blocking_reasons.append("order_reconciliation_error")
                 if drawdown_triggered:
                     blocking_reasons.append("economic_drawdown_limit_reached")
+                if economic_evidence_gaps:
+                    blocking_reasons.append("economic_pnl_execution_evidence_gap")
                 if stats["universe_health"]["metadata_drift_suspected"]:
                     blocking_reasons.append("league_identity_metadata_drift")
                 entry_guard = {
@@ -390,7 +431,8 @@ class PolymarketBot:
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
-                "pending_sell=%s quarantined=%s) realized_pnl=$%.4f",
+                "pending_sell=%s quarantined=%s) recorded_trade_pnl=$%.4f "
+                "economic_guard_pnl=%s",
                 stats["snapshots_saved"],
                 stats["checked_holdings"],
                 stats["sold"],
@@ -404,6 +446,11 @@ class PolymarketBot:
                 db_stats["pending_sell"],
                 db_stats["quarantined"],
                 db_stats["total_pnl"],
+                (
+                    f"${stats['drawdown_guard']['economic_pnl']:.4f}"
+                    if "drawdown_guard" in stats
+                    else "not_evaluated"
+                ),
             )
             return stats
         finally:
@@ -439,6 +486,7 @@ class PolymarketBot:
                 "lifecycle_mode": trading.lifecycle_mode,
                 "db_path": str(self.config.db_path),
                 "statistics": repo.get_stats(),
+                "economic_pnl_guard": repo.get_economic_pnl_guard(),
                 "holdings": [
                     {
                         "id": trade.id,

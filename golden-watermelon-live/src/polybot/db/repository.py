@@ -91,6 +91,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_FILL_SIZE_TOLERANCE = 1e-6
 
 
 def _canonical_json_list(value: Any, *, field_name: str) -> str:
@@ -1535,6 +1536,247 @@ class TradeRepository:
             "settlement_pnl_assumption": round(
                 settlement_pnl_assumption, 4
             ),
+        }
+
+    def get_economic_pnl_guard(self) -> Dict[str, Any]:
+        """Return a conservative safety P&L with ledger SELL overrides.
+
+        A legacy accepted SELL can have an exact CONFIRMED fill in the shared
+        execution ledger while its Trade row still has no ``sell_order_id``.
+        If that Trade is later marked RESOLVED, summing ``trades`` alone counts
+        a synthetic payout and hides the real sale.  Do not rewrite history;
+        replace that settlement assumption in this safety calculation only.
+        """
+        recorded = self.session.execute(
+            text(
+                "SELECT COALESCE(SUM(realized_pnl), 0) AS realized_pnl, "
+                "COALESCE(SUM(settlement_pnl_assumption), 0) AS settlement_pnl "
+                "FROM trades"
+            )
+        ).mappings().one()
+        realized = float(recorded["realized_pnl"] or 0.0)
+        settlement = float(recorded["settlement_pnl"] or 0.0)
+        if not math.isfinite(realized) or not math.isfinite(settlement):
+            logger.error("economic P&L guard found non-finite Trade aggregates")
+            return {
+                "economic_pnl": 0.0,
+                "recorded_realized_pnl": 0.0,
+                "recorded_settlement_pnl": 0.0,
+                "confirmed_sell_pnl": 0.0,
+                "proven_resolution_pnl": 0.0,
+                "execution_adjustment_pnl": 0.0,
+                "invalidated_settlement_pnl": 0.0,
+                "execution_override_count": 0,
+                "evidence_gaps": 1,
+            }
+        execution_adjustment = 0.0
+        invalidated_settlement = 0.0
+        evidence_gaps = 0
+        override_count = 0
+        try:
+            matched_without_fill = int(
+                self.session.execute(
+                    text(
+                        "SELECT COUNT(*) FROM order_submissions AS submission "
+                        "WHERE submission.simulation = 0 "
+                        "AND UPPER(submission.side) = 'SELL' "
+                        "AND (COALESCE(submission.latest_size_matched, 0) > "
+                        ":tolerance OR REPLACE(UPPER(COALESCE("
+                        "submission.latest_order_status, '')), "
+                        "'ORDER_STATUS_', '') = 'MATCHED') "
+                        "AND NOT EXISTS (SELECT 1 FROM order_fills AS fill "
+                        "WHERE fill.submission_id = submission.submission_id "
+                        "AND UPPER(fill.status) = 'CONFIRMED')"
+                    ),
+                    {"tolerance": _FILL_SIZE_TOLERANCE},
+                ).scalar()
+                or 0
+            )
+            rows = self.session.execute(
+                text(
+                    "SELECT submission.order_id AS order_id, "
+                    "submission.token_id AS token_id, "
+                    "SUM(fill.size) AS confirmed_size, "
+                    "SUM(fill.size * fill.price) AS gross_proceeds, "
+                    "SUM(COALESCE(fill.fee_amount_usdc, 0)) AS sell_fee, "
+                    "SUM(CASE WHEN fill.fee_amount_usdc IS NULL THEN 1 ELSE 0 END) "
+                    "AS fee_gaps, "
+                    "SUM(CASE WHEN UPPER(COALESCE(fill.side, '')) != 'SELL' "
+                    "OR fill.size IS NULL OR fill.size <= 0 "
+                    "OR fill.price IS NULL OR fill.price <= 0 OR fill.price > 1 "
+                    "OR fill.fee_amount_usdc < 0 THEN 1 ELSE 0 END) AS domain_gaps, "
+                    "COUNT(DISTINCT submission.submission_id) AS submissions "
+                    "FROM order_submissions AS submission "
+                    "JOIN order_fills AS fill "
+                    "ON fill.submission_id = submission.submission_id "
+                    "WHERE submission.simulation = 0 "
+                    "AND UPPER(submission.side) = 'SELL' "
+                    "AND UPPER(fill.status) = 'CONFIRMED' "
+                    "GROUP BY submission.order_id, submission.token_id"
+                )
+            ).mappings().all()
+        except Exception as error:
+            logger.error(
+                "economic P&L guard cannot read execution ledger - error=%s",
+                type(error).__name__,
+            )
+            return {
+                "economic_pnl": realized + settlement,
+                "recorded_realized_pnl": realized,
+                "recorded_settlement_pnl": settlement,
+                "confirmed_sell_pnl": realized,
+                "proven_resolution_pnl": settlement,
+                "execution_adjustment_pnl": 0.0,
+                "invalidated_settlement_pnl": 0.0,
+                "execution_override_count": 0,
+                "evidence_gaps": 1,
+            }
+
+        evidence_gaps += matched_without_fill
+
+        matched_by_trade: Dict[int, Dict[str, Any]] = {}
+        for row in rows:
+            order_id = str(row.get("order_id") or "").strip()
+            token_id = str(row.get("token_id") or "").strip()
+            try:
+                confirmed_size = float(row.get("confirmed_size"))
+                gross_proceeds = float(row.get("gross_proceeds"))
+                sell_fee = float(row.get("sell_fee"))
+                fee_gaps = int(row.get("fee_gaps") or 0)
+                domain_gaps = int(row.get("domain_gaps") or 0)
+                submissions = int(row.get("submissions") or 0)
+            except (TypeError, ValueError):
+                evidence_gaps += 1
+                continue
+            if (
+                not order_id
+                or not token_id
+                or fee_gaps
+                or domain_gaps
+                or submissions != 1
+                or not math.isfinite(confirmed_size)
+                or confirmed_size <= 0
+                or not math.isfinite(gross_proceeds)
+                or gross_proceeds <= 0
+                or gross_proceeds > confirmed_size + _FILL_SIZE_TOLERANCE
+                or not math.isfinite(sell_fee)
+                or sell_fee < 0
+            ):
+                evidence_gaps += 1
+                continue
+
+            order_candidates = (
+                self.session.query(Trade)
+                .filter(Trade.sell_order_id == order_id)
+                .all()
+            )
+            if order_candidates:
+                if (
+                    len(order_candidates) != 1
+                    or str(order_candidates[0].token_id) != token_id
+                ):
+                    evidence_gaps += 1
+                    continue
+                candidates = order_candidates
+            else:
+                candidates = (
+                    self.session.query(Trade)
+                    .filter(
+                        Trade.token_id == token_id,
+                        Trade.mode == "live",
+                        Trade.buy_confirmed_size.isnot(None),
+                        Trade.buy_confirmed_vwap.isnot(None),
+                        Trade.buy_confirmed_fee_usdc.isnot(None),
+                    )
+                    .all()
+                )
+            if len(candidates) != 1:
+                # An ambiguous confirmed SELL is real exposure but cannot be
+                # assigned safely.  Block future entry instead of guessing.
+                evidence_gaps += 1
+                continue
+            trade = candidates[0]
+            bucket = matched_by_trade.setdefault(
+                int(trade.id),
+                {
+                    "trade": trade,
+                    "confirmed_size": 0.0,
+                    "gross_proceeds": 0.0,
+                    "sell_fee": 0.0,
+                    "order_ids": set(),
+                },
+            )
+            if order_id in bucket["order_ids"]:
+                evidence_gaps += 1
+                continue
+            bucket["order_ids"].add(order_id)
+            bucket["confirmed_size"] += confirmed_size
+            bucket["gross_proceeds"] += gross_proceeds
+            bucket["sell_fee"] += sell_fee
+
+        for bucket in matched_by_trade.values():
+            trade = bucket["trade"]
+            try:
+                buy_size = float(trade.buy_confirmed_size)
+                buy_vwap = float(trade.buy_confirmed_vwap)
+                buy_fee = float(trade.buy_confirmed_fee_usdc)
+                confirmed_size = float(bucket["confirmed_size"])
+                gross_proceeds = float(bucket["gross_proceeds"])
+                sell_fee = float(bucket["sell_fee"])
+            except (TypeError, ValueError):
+                evidence_gaps += 1
+                continue
+            if (
+                not math.isfinite(buy_size)
+                or buy_size <= 0
+                or confirmed_size > buy_size + _FILL_SIZE_TOLERANCE
+                or not math.isfinite(buy_vwap)
+                or not 0 < buy_vwap < 1
+                or not math.isfinite(buy_fee)
+                or buy_fee < 0
+            ):
+                evidence_gaps += 1
+                continue
+            allocated_buy_fee = buy_fee * confirmed_size / buy_size
+            ledger_pnl = (
+                gross_proceeds
+                - sell_fee
+                - buy_vwap * confirmed_size
+                - allocated_buy_fee
+            )
+            recorded_pnl = float(trade.realized_pnl or 0.0)
+            execution_adjustment += ledger_pnl - recorded_pnl
+            if trade.settlement_pnl_assumption is not None:
+                # Resolution P&L is linear in confirmed shares, including the
+                # allocated BUY fee.  Invalidate only the shares proven sold;
+                # any sub-cent residual keeps its proven payout economics.
+                invalidated_settlement += (
+                    float(trade.settlement_pnl_assumption)
+                    * confirmed_size
+                    / buy_size
+                )
+            if (
+                trade.realized_pnl is None
+                or trade.settlement_pnl_assumption is not None
+                or not math.isclose(
+                    ledger_pnl, recorded_pnl, rel_tol=0, abs_tol=1e-6
+                )
+            ):
+                override_count += 1
+
+        confirmed_sell_pnl = realized + execution_adjustment
+        proven_resolution_pnl = settlement - invalidated_settlement
+        economic = confirmed_sell_pnl + proven_resolution_pnl
+        return {
+            "economic_pnl": economic,
+            "recorded_realized_pnl": realized,
+            "recorded_settlement_pnl": settlement,
+            "confirmed_sell_pnl": confirmed_sell_pnl,
+            "proven_resolution_pnl": proven_resolution_pnl,
+            "execution_adjustment_pnl": execution_adjustment,
+            "invalidated_settlement_pnl": invalidated_settlement,
+            "execution_override_count": override_count,
+            "evidence_gaps": evidence_gaps,
         }
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:

@@ -852,3 +852,179 @@ def test_open_buy_evidence_gap_counts_only_incomplete_owned_exposure(tmp_path):
 
     assert repo.get_open_buy_evidence_gap_count() == 1
     session.close()
+
+
+def test_economic_guard_replaces_legacy_resolution_with_confirmed_sell_ledger(
+    tmp_path,
+):
+    """A confirmed SELL must not disappear behind a later RESOLVED Trade row."""
+    db_path = tmp_path / "watermelon-economic-ledger-override.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    sell_submission = _record_accepted_order(
+        ledger,
+        "OID-legacy-stop",
+        side="SELL",
+        token_id="token-legacy-stop",
+        requested_size=5.09,
+    )
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.09, needs_reconciliation=0 "
+            "WHERE order_id='OID-legacy-stop'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-legacy-stop', 'legacy-stop-fill', 0, "
+            "'CONFIRMED', 'SELL', 5.09, 0.001, 0.00025, "
+            "'2026-08-28T00:00:00Z', NULL)"
+        ),
+        {"submission_id": sell_submission},
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    buy_size = 5.102
+    buy_vwap = 0.98
+    buy_fee = 0.005
+    settlement = (1.0 - buy_vwap) * buy_size - buy_fee
+    trade = repo.create_trade(
+        condition_id="condition-legacy-stop",
+        outcome="Yes",
+        token_id="token-legacy-stop",
+        buy_price=buy_vwap,
+        buy_shares=buy_size,
+        buy_order_id="OID-legacy-buy",
+        buy_timestamp=datetime.utcnow(),
+        buy_confirmed_size=buy_size,
+        buy_confirmed_vwap=buy_vwap,
+        buy_confirmed_fee_usdc=buy_fee,
+        status=TradeStatus.RESOLVED,
+        mode="live",
+        resolution_value=1.0,
+        settlement_pnl_assumption=settlement,
+        settlement_assumption_basis=(
+            "confirmed_buy_fill_net_known_buy_fee"
+        ),
+    )
+
+    guard = repo.get_economic_pnl_guard()
+
+    sold_size = 5.09
+    allocated_buy_fee = buy_fee * sold_size / buy_size
+    ledger_sell_pnl = (
+        sold_size * 0.001
+        - 0.00025
+        - buy_vwap * sold_size
+        - allocated_buy_fee
+    )
+    residual_resolution_pnl = settlement * (buy_size - sold_size) / buy_size
+    assert guard["recorded_realized_pnl"] == 0.0
+    assert guard["recorded_settlement_pnl"] == pytest.approx(settlement)
+    assert guard["confirmed_sell_pnl"] == pytest.approx(ledger_sell_pnl)
+    assert guard["proven_resolution_pnl"] == pytest.approx(
+        residual_resolution_pnl
+    )
+    assert guard["economic_pnl"] == pytest.approx(
+        ledger_sell_pnl + residual_resolution_pnl
+    )
+    assert guard["execution_override_count"] == 1
+    assert guard["evidence_gaps"] == 0
+
+    # This is a read-only safety overlay; historical evidence stays immutable.
+    session.refresh(trade)
+    assert trade.status == TradeStatus.RESOLVED
+    assert trade.sell_order_id is None
+    assert trade.realized_pnl is None
+    assert trade.settlement_pnl_assumption == pytest.approx(settlement)
+    session.close()
+
+
+def test_economic_guard_blocks_on_ambiguous_token_only_sell_mapping(tmp_path):
+    db_path = tmp_path / "watermelon-economic-ledger-ambiguous.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    sell_submission = _record_accepted_order(
+        ledger,
+        "OID-ambiguous-stop",
+        side="SELL",
+        token_id="token-ambiguous-stop",
+        requested_size=5.0,
+    )
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.0, needs_reconciliation=0 "
+            "WHERE order_id='OID-ambiguous-stop'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-ambiguous-stop', 'ambiguous-stop-fill', 0, "
+            "'CONFIRMED', 'SELL', 5.0, 0.70, 0.01, "
+            "'2026-08-28T00:00:00Z', NULL)"
+        ),
+        {"submission_id": sell_submission},
+    )
+    session.commit()
+    repo = TradeRepository(session)
+    for suffix in ("a", "b"):
+        repo.create_trade(
+            condition_id=f"condition-{suffix}",
+            outcome="Yes",
+            token_id="token-ambiguous-stop",
+            buy_order_id=f"OID-buy-{suffix}",
+            buy_timestamp=datetime.utcnow(),
+            buy_confirmed_size=5.0,
+            buy_confirmed_vwap=0.96,
+            buy_confirmed_fee_usdc=0.01,
+            status=TradeStatus.RESOLVED,
+            mode="live",
+            settlement_pnl_assumption=0.19,
+        )
+
+    guard = repo.get_economic_pnl_guard()
+
+    assert guard["execution_override_count"] == 0
+    assert guard["execution_adjustment_pnl"] == 0.0
+    assert guard["evidence_gaps"] == 1
+    session.close()
+
+
+def test_economic_guard_blocks_matched_sell_without_confirmed_fill(tmp_path):
+    db_path = tmp_path / "watermelon-economic-ledger-missing-fill.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    _record_accepted_order(
+        ledger,
+        "OID-matched-without-fill",
+        side="SELL",
+        token_id="token-matched-without-fill",
+        requested_size=5.0,
+    )
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.0, needs_reconciliation=0 "
+            "WHERE order_id='OID-matched-without-fill'"
+        )
+    )
+    session.commit()
+
+    guard = TradeRepository(session).get_economic_pnl_guard()
+
+    assert guard["economic_pnl"] == 0.0
+    assert guard["execution_override_count"] == 0
+    assert guard["evidence_gaps"] == 1
+    session.close()

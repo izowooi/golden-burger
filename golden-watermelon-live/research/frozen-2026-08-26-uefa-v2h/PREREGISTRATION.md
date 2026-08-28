@@ -60,6 +60,8 @@ Ferencvárosi 승리 market에서 경기 종료 후 남은 `0.001` cleanup bid�
 - displayed spread `<=0.10`, projected gross loss `<=35%`
 - emergency SELL submission cycle당 1건
 - confirmed SELL + proven-resolution 경제손익 `<=-$10`이면 신규 BUY 자동 차단
+- live `CONFIRMED` SELL 원장을 Trade 상태보다 우선해 안전 손익을 재계산; legacy RESOLVED
+  overwrite는 매도 shares 비율만 settlement에서 제외하고, 모호한 원장 매핑은 신규 BUY 차단
 - holding books는 한 번의 batch read로 가져오며 불완전 book을 부분 체결로 보정하지 않음
 
 이는 관측 결과를 보고 arm threshold를 바꾸는 tuning이 아니라 irreversible order의 blast radius를

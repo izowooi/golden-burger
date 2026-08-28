@@ -30,6 +30,9 @@ White/Grey의 timing·notional evidence가 충분해질 때까지 live 시간 ga
 - PENDING/QUARANTINED/orphan/fill·fee gap이 있으면 후보는 기록하되 신규 BUY fail closed.
 - confirmed SELL + proven-resolution 경제손익이 `-$10`에 도달하면 기존 position 관리는
   계속하되 신규 BUY를 자동 차단한다.
+- 안전 손익은 `Trade` 상태보다 `order_fills.status='CONFIRMED'` SELL 원장을 우선한다. 과거
+  SELL이 뒤늦게 `RESOLVED`로 덮인 경우 실제 매도분만 settlement에서 제외해 다시 계산하며,
+  원장과 Trade를 유일하게 연결하지 못하면 신규 BUY를 fail closed한다.
 
 Gamma liquidity/volume 숫자는 gate가 아니다. 실제 실행 가능성은 주문에 필요한 CLOB 쪽의 full
 depth로 직접 검증한다. 20개 제한은 현재 wallet position 수가 아니라 bot-owned open exposure와

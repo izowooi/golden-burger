@@ -26,7 +26,9 @@
 - accepted order는 fill이 아니다. exact fill/fee 전 lifecycle 확정 금지.
 - emergency SELL은 Gamma+CLOB 독립 open proof, post-proof fresh full book, `0.65` execution
   floor, 10%p spread, 35% projected-loss cap을 모두 통과해야 하며 cycle당 1건만 허용한다.
-- 경제손익(confirmed SELL + proven resolution)이 `-$10`이면 신규 BUY를 자동 차단한다.
+- 경제손익(confirmed SELL + proven resolution)이 `-$10`이면 신규 BUY를 자동 차단한다. 이때
+  `CONFIRMED` SELL execution ledger가 Trade 상태보다 우선하며 유일하게 매핑되지 않으면 진입을
+  fail closed한다.
 - open state와 unresolved BUY reservation을 함께 max-position capacity에 계산한다.
 - PENDING_BUY/PENDING_SELL/QUARANTINED/orphan/fill-fee gap이 있으면 신규 BUY를 막는다.
 - future timing/notional 선택은 White/Grey evidence에서 하며 v2h live 금액은 `$5`로 유지한다.

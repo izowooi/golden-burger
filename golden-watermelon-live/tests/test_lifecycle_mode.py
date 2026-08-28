@@ -46,6 +46,17 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "quarantined": 0,
         "total_pnl": 0.0,
     }
+    repo.get_economic_pnl_guard.return_value = {
+        "economic_pnl": 0.0,
+        "recorded_realized_pnl": 0.0,
+        "recorded_settlement_pnl": 0.0,
+        "confirmed_sell_pnl": 0.0,
+        "proven_resolution_pnl": 0.0,
+        "execution_adjustment_pnl": 0.0,
+        "invalidated_settlement_pnl": 0.0,
+        "execution_override_count": 0,
+        "evidence_gaps": 0,
+    }
     repo.get_entry_capacity_state.return_value = {
         "open_positions": len(holdings),
         "untracked_buy_reservations": 0,
@@ -248,16 +259,16 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
     candidate = {"condition_id": "market-1", "event_id": "event-1"}
     scanner.scan_buy_candidates.side_effect = None
     scanner.scan_buy_candidates.return_value = [candidate]
-    repo.get_stats.return_value = {
-        "holding": 0,
-        "pending_buy": 0,
-        "pending_sell": 0,
-        "resolved": 2,
-        "expired": 0,
-        "unfilled": 0,
-        "quarantined": 0,
-        "total_pnl": -4.0,
-        "settlement_pnl_assumption": -6.0,
+    repo.get_economic_pnl_guard.return_value = {
+        "economic_pnl": -10.0,
+        "recorded_realized_pnl": -4.0,
+        "recorded_settlement_pnl": -6.0,
+        "confirmed_sell_pnl": -4.0,
+        "proven_resolution_pnl": -6.0,
+        "execution_adjustment_pnl": 0.0,
+        "invalidated_settlement_pnl": 0.0,
+        "execution_override_count": 0,
+        "evidence_gaps": 0,
     }
 
     stats = bot.run_cycle()
@@ -267,11 +278,48 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
         "economic_pnl": -10.0,
         "confirmed_sell_pnl": -4.0,
         "proven_resolution_pnl": -6.0,
+        "recorded_realized_pnl": -4.0,
+        "recorded_settlement_pnl": -6.0,
+        "execution_adjustment_pnl": 0.0,
+        "invalidated_settlement_pnl": 0.0,
+        "execution_override_count": 0,
+        "evidence_gaps": 0,
         "loss_limit_usdc": 10.0,
     }
     assert "economic_drawdown_limit_reached" in stats["entry_guard"][
         "blocking_reasons"
     ]
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_blocks_new_buy_when_confirmed_sell_cannot_map_to_trade(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_economic_pnl_guard.return_value = {
+        "economic_pnl": 0.0,
+        "recorded_realized_pnl": 0.0,
+        "recorded_settlement_pnl": 0.0,
+        "confirmed_sell_pnl": 0.0,
+        "proven_resolution_pnl": 0.0,
+        "execution_adjustment_pnl": 0.0,
+        "invalidated_settlement_pnl": 0.0,
+        "execution_override_count": 0,
+        "evidence_gaps": 1,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["blocking_reasons"] == [
+        "economic_pnl_execution_evidence_gap"
+    ]
+    assert stats["drawdown_guard"]["evidence_gaps"] == 1
     trader.execute_buy.assert_not_called()
     session.close.assert_called_once()
 
