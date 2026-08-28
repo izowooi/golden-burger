@@ -19,7 +19,7 @@ a0e9772f19e4d8351f0fb869e648df924f83aedb3f6e6233556aa71cc0ce62df  ../../src/poly
 43711e8e909f7547f951b1cee2da8dbac3fe721f53daf25e91946640e72f74e0  ../../src/polybot/crossings.py
 57b8e0ad7ff178a26d9e1eff6dd1a33b8aabad4b2d38a06764626ee3bf756afb  ../../src/polybot/analyzer.py
 990b2c52e77927e026109aec12ee59d7e9c3b1b006be209a001ddb3889c703da  ../../src/polybot/bot.py
-b8b9a7b008e48d07517be3023aa5475812d917829637d7b1d45d53e766686e9e  ../../src/polybot/collector.py
+2d9761374b9dced3fa5eaedaeb64cc552cf2d382a3d3801a22a3a54880aadf67  ../../src/polybot/collector.py
 ac4ce3f76cb334cfcd69a862abbc8f2868056018c281462037d6042f1c139d1b  ../../src/polybot/run_audit.py
 670b41c3506c233c7ef043fd9fccb08cc6f0a2f7658e44cc1e896fed3ee86c10  ../../src/polybot/source_digest.py
 e05af9b135950bb8cdaebe1ee2fef2e15034f2d925b1b9db6bbf4467be692364  ../../src/polybot/api/transport.py

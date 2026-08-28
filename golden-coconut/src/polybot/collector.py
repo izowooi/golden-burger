@@ -691,7 +691,7 @@ class Collector:
                     raw=followup.raw,
                 )
                 raw_payloads.append(payload_row)
-                seen_event_keys.add(key)
+                seen_event_keys.add((attempt.family, attempt.event_id))
                 append_event(
                     followup.event,
                     str(tracked["sport_family"]),
