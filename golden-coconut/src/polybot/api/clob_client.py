@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 import gzip
@@ -345,3 +346,89 @@ class ClobClient:
                 condition_id, "ERROR", getattr(error, "request_id", None), None,
                 (), None, None, type(error).__name__, str(error)[:500]
             )
+
+
+class ClobClientPool:
+    """Bounded parallel public CLOB reads with one session per worker."""
+
+    def __init__(
+        self,
+        clients: Sequence[ClobClient],
+        *,
+        max_workers: int,
+    ) -> None:
+        self.clients = tuple(clients)
+        self.max_workers = max_workers
+        if not self.clients or self.max_workers != len(self.clients):
+            raise ValueError("CLOB pool requires one isolated client per worker")
+
+    def fetch_books(
+        self, run_id: str, token_ids: Sequence[str], *, budget: CycleBudget
+    ) -> dict[str, BookAttempt]:
+        return self.clients[0].fetch_books(run_id, token_ids, budget=budget)
+
+    def fetch_fees(
+        self, run_id: str, token_ids: Sequence[str], *, budget: CycleBudget
+    ) -> dict[str, FeeObservation]:
+        unique = tuple(dict.fromkeys(str(token) for token in token_ids if str(token)))
+        buckets: list[list[str]] = [[] for _ in self.clients]
+        for index, token in enumerate(unique):
+            buckets[index % len(buckets)].append(token)
+
+        def fetch_worker(index: int) -> tuple[FeeObservation, ...]:
+            return tuple(
+                self.clients[index].fetch_fee(run_id, token, budget=budget)
+                for token in buckets[index]
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="coconut-clob-fee",
+        ) as executor:
+            futures = {
+                index: executor.submit(fetch_worker, index)
+                for index, bucket in enumerate(buckets)
+                if bucket
+            }
+            by_token = {
+                row.token_id: row
+                for index in sorted(futures)
+                for row in futures[index].result()
+            }
+        return {token: by_token[token] for token in unique}
+
+    def fetch_resolutions(
+        self, run_id: str, condition_ids: Sequence[str], *, budget: CycleBudget
+    ) -> dict[str, ResolutionObservation]:
+        unique = tuple(
+            dict.fromkeys(
+                str(condition) for condition in condition_ids if str(condition)
+            )
+        )
+        buckets: list[list[str]] = [[] for _ in self.clients]
+        for index, condition in enumerate(unique):
+            buckets[index % len(buckets)].append(condition)
+
+        def fetch_worker(index: int) -> tuple[ResolutionObservation, ...]:
+            return tuple(
+                self.clients[index].fetch_resolution(
+                    run_id, condition, budget=budget
+                )
+                for condition in buckets[index]
+            )
+
+        with ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="coconut-clob-resolution",
+        ) as executor:
+            futures = {
+                index: executor.submit(fetch_worker, index)
+                for index, bucket in enumerate(buckets)
+                if bucket
+            }
+            by_condition = {
+                row.condition_id: row
+                for index in sorted(futures)
+                for row in futures[index].result()
+            }
+        return {condition: by_condition[condition] for condition in unique}

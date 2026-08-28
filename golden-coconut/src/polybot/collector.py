@@ -14,11 +14,18 @@ from uuid import uuid4
 from .api.clob_client import (
     BookAttempt,
     ClobClient,
+    ClobClientPool,
     canonical_book_gzip,
     walk_asks,
     walk_bids,
 )
-from .api.gamma_client import EventSweep, GammaClient, GammaFamilyPool, TimedEventSweep
+from .api.gamma_client import (
+    EventFollowupAttempt,
+    EventSweep,
+    GammaClient,
+    GammaFamilyPool,
+    TimedEventSweep,
+)
 from .api.sports_client import (
     ClockBatch,
     ClockTarget,
@@ -139,7 +146,7 @@ class Collector:
         config: BotConfig,
         repository: ResearchRepository,
         gamma: GammaClient | GammaFamilyPool,
-        clob: ClobClient,
+        clob: ClobClient | ClobClientPool,
         sports_clock: SportsClockClient,
     ) -> None:
         self.config = config
@@ -600,21 +607,61 @@ class Collector:
 
         followup_complete = all_complete
         if all_complete:
+            pending_tracks: list[dict[str, Any]] = []
+            pending_keys: set[tuple[str, str]] = set()
             for tracked in sorted(
                 self.repository.tracked_games(),
                 key=lambda row: (str(row["sport_family"]), str(row["event_id"])),
             ):
                 key = (str(tracked["sport_family"]), str(tracked["event_id"]))
-                if key in seen_event_keys:
+                if key in seen_event_keys or key in pending_keys:
                     continue
-                try:
-                    followup = self.gamma.fetch_event(
-                        run_id,
-                        str(tracked["event_id"]),
-                        str(tracked["sport_family"]),
-                        budget=budget,
-                    )
-                except (RuntimeError, ValueError) as error:
+                pending_keys.add(key)
+                pending_tracks.append(tracked)
+
+            if isinstance(self.gamma, GammaFamilyPool):
+                followup_attempts = self.gamma.fetch_events(
+                    run_id,
+                    tuple(
+                        (str(row["sport_family"]), str(row["event_id"]))
+                        for row in pending_tracks
+                    ),
+                    budget=budget,
+                )
+            else:
+                fallback_attempts: list[EventFollowupAttempt] = []
+                for tracked in pending_tracks:
+                    family = str(tracked["sport_family"])
+                    event_id = str(tracked["event_id"])
+                    try:
+                        followup = self.gamma.fetch_event(
+                            run_id,
+                            event_id,
+                            family,
+                            budget=budget,
+                        )
+                    except (RuntimeError, ValueError) as error:
+                        fallback_attempts.append(
+                            EventFollowupAttempt(
+                                family,
+                                event_id,
+                                None,
+                                type(error).__name__,
+                                str(error)[:500],
+                            )
+                        )
+                    else:
+                        fallback_attempts.append(
+                            EventFollowupAttempt(
+                                family, event_id, followup, None, None
+                            )
+                        )
+                followup_attempts = tuple(fallback_attempts)
+
+            for tracked, attempt in zip(
+                pending_tracks, followup_attempts, strict=True
+            ):
+                if attempt.followup is None:
                     followup_complete = False
                     quality.append(
                         self._quality_row(
@@ -626,12 +673,13 @@ class Collector:
                             {
                                 "event_id": tracked["event_id"],
                                 "event_cluster_id": tracked["event_cluster_id"],
-                                "error_type": type(error).__name__,
-                                "error_message": str(error)[:500],
+                                "error_type": attempt.error_type,
+                                "error_message": attempt.error_message,
                             },
                         )
                     )
                     continue
+                followup = attempt.followup
                 receipts.append(followup.received_at)
                 payload_row = self.repository.raw_payload_row(
                     cycle_id=cycle_id,
@@ -1013,6 +1061,22 @@ class Collector:
             book_attempt_objects = self.clob.fetch_books(
                 run_id, book_tokens, budget=budget
             )
+        fee_tokens = tuple(
+            token
+            for token, attempt in book_attempt_objects.items()
+            if attempt.status == "OBSERVED"
+            and attempt.raw is not None
+            and attempt.parsed is not None
+        )
+        if isinstance(self.clob, ClobClientPool):
+            fees_by_token = self.clob.fetch_fees(
+                run_id, fee_tokens, budget=budget
+            )
+        else:
+            fees_by_token = {
+                token: self.clob.fetch_fee(run_id, token, budget=budget)
+                for token in fee_tokens
+            }
         book_attempts: list[dict[str, Any]] = []
         book_snapshots: list[dict[str, Any]] = []
         book_ladder: list[dict[str, Any]] = []
@@ -1041,7 +1105,7 @@ class Collector:
                 or attempt.parsed is None
             ):
                 continue
-            fee = self.clob.fetch_fee(run_id, token, budget=budget)
+            fee = fees_by_token[token]
             if fee.received_at:
                 receipts.append(fee.received_at)
             if fee.raw is not None and fee.received_at is not None:
@@ -1339,16 +1403,28 @@ class Collector:
             if str(context["event"]["lifecycle_state"]) == "ENDED"
         )
         if census_healthy:
-            for condition_id in sorted(resolution_conditions):
-                if not self.repository.resolution_due(
+            due_conditions = tuple(
+                condition_id
+                for condition_id in sorted(resolution_conditions)
+                if self.repository.resolution_due(
                     condition_id,
                     now=current,
                     interval_minutes=self.config.trading.research.resolution_retry_minutes,
-                ):
-                    continue
-                result = self.clob.fetch_resolution(
-                    run_id, condition_id, budget=budget
                 )
+            )
+            if isinstance(self.clob, ClobClientPool):
+                resolution_results = self.clob.fetch_resolutions(
+                    run_id, due_conditions, budget=budget
+                )
+            else:
+                resolution_results = {
+                    condition_id: self.clob.fetch_resolution(
+                        run_id, condition_id, budget=budget
+                    )
+                    for condition_id in due_conditions
+                }
+            for condition_id in due_conditions:
+                result = resolution_results[condition_id]
                 if result.received_at:
                     receipts.append(result.received_at)
                 cluster = condition_to_cluster[condition_id]

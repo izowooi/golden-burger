@@ -51,8 +51,11 @@ network 전에 실패한다. credential을 `unset`해 숨기지 않는다.
    MLB/NBA/NFL/NHL 단일 tag를 동시에 시작한다. `closed=false`, 실제 경기 시작 시각
    `start_time_min/max=slot-24h..slot+48h`로 읽고, 모든 physical cursor completion과
    client-side schedule을 재검증한 뒤 frozen family order로 정규화
-7. discovery에서 빠진 tracked game의 Gamma event-by-ID lifecycle follow-up
-8. public sports clock, same-cycle Gamma fallback, full books, optional public fee, resolution observation
+7. discovery에서 빠진 tracked game의 Gamma event-by-ID lifecycle follow-up. family별 단일
+   session/worker 격리는 유지하고 서로 다른 family의 carryover는 병렬 조회한 뒤 frozen order로 정규화
+8. public sports clock, same-cycle Gamma fallback, full books, optional public fee, resolution observation.
+   fee와 resolution은 다섯 개의 credential-free CLOB session으로 제한 병렬 조회하고 결과는
+   입력 순서로 정규화
 9. atomic evidence publication과 `SUCCEEDED` 또는 evidence-backed `FAILED`
 10. `status`, `health`
 

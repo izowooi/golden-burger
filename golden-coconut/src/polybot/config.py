@@ -205,6 +205,7 @@ class ClobConfig:
     base_url: str
     batch_token_limit: int
     collect_public_fee: bool
+    parallel_read_workers: int
 
 
 @dataclass(frozen=True)
@@ -349,6 +350,8 @@ def _validate(config: BotConfig) -> None:
         raise ValueError("CLOB endpoint drift")
     if not 1 <= trading.clob.batch_token_limit <= 500:
         raise ValueError("CLOB batch_token_limit is invalid")
+    if trading.clob.parallel_read_workers != 5:
+        raise ValueError("CLOB public reads require five isolated workers")
     if trading.research.minimum_health_days != 7:
         raise ValueError("minimum health gate must remain seven UTC dates")
     if trading.sports_feed.websocket_url != "wss://sports-api.polymarket.com/ws":
@@ -409,7 +412,14 @@ def load_config(
         },
         "trading.gamma",
     )
-    _exact_keys(clob_raw, {"base_url", "batch_token_limit", "collect_public_fee"}, "trading.clob")
+    _exact_keys(
+        clob_raw,
+        {
+            "base_url", "batch_token_limit", "collect_public_fee",
+            "parallel_read_workers",
+        },
+        "trading.clob",
+    )
     _exact_keys(
         sports_raw,
         {"websocket_url", "connect_timeout_seconds", "receive_window_seconds", "max_messages"},
@@ -463,6 +473,9 @@ def load_config(
         base_url=_origin(clob_raw["base_url"], "clob.base_url"),
         batch_token_limit=_integer(clob_raw["batch_token_limit"], "clob.batch_token_limit"),
         collect_public_fee=_parse_bool(clob_raw["collect_public_fee"], "clob.collect_public_fee"),
+        parallel_read_workers=_integer(
+            clob_raw["parallel_read_workers"], "clob.parallel_read_workers"
+        ),
     )
     websocket = _origin(
         sports_raw["websocket_url"], "sports_feed.websocket_url", scheme="wss", path="/ws"

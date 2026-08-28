@@ -48,6 +48,15 @@ class EventFollowup:
 
 
 @dataclass(frozen=True)
+class EventFollowupAttempt:
+    family: str
+    event_id: str
+    followup: EventFollowup | None
+    error_type: str | None
+    error_message: str | None
+
+
+@dataclass(frozen=True)
 class TimedEventSweep:
     family: SportFamily
     started_at: str
@@ -126,6 +135,84 @@ class GammaFamilyPool:
             normalized_family,
             budget=budget,
         )
+
+    def fetch_events(
+        self,
+        run_id: str,
+        requests: Sequence[tuple[str, str]],
+        *,
+        budget: CycleBudget,
+    ) -> tuple[EventFollowupAttempt, ...]:
+        """Fetch carried events concurrently across isolated sport families.
+
+        A family still owns exactly one client/session and processes its own
+        event IDs sequentially.  Independent families run concurrently, and
+        results are restored to the caller's deterministic request order.
+        """
+        normalized = tuple(
+            (str(family).strip(), str(event_id).strip())
+            for family, event_id in requests
+        )
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("Gamma follow-up batch contains duplicate family/event keys")
+        unknown = sorted({family for family, _ in normalized} - set(self.clients))
+        if unknown:
+            raise ValueError(
+                "Gamma follow-up families are outside the frozen registry: "
+                + ",".join(unknown)
+            )
+        if self.max_workers != len(self.clients):
+            raise ValueError("Gamma family pool must isolate every family in one worker")
+        if not normalized:
+            return ()
+
+        grouped: dict[str, list[str]] = {family: [] for family in self.clients}
+        for family, event_id in normalized:
+            grouped[family].append(event_id)
+
+        def fetch_family(family: str) -> tuple[EventFollowupAttempt, ...]:
+            attempts: list[EventFollowupAttempt] = []
+            for event_id in grouped[family]:
+                try:
+                    followup = self.fetch_event(
+                        run_id,
+                        event_id,
+                        family,
+                        budget=budget,
+                    )
+                except (RuntimeError, ValueError) as error:
+                    attempts.append(
+                        EventFollowupAttempt(
+                            family,
+                            event_id,
+                            None,
+                            type(error).__name__,
+                            str(error)[:500],
+                        )
+                    )
+                else:
+                    attempts.append(
+                        EventFollowupAttempt(family, event_id, followup, None, None)
+                    )
+            return tuple(attempts)
+
+        active_families = tuple(
+            family for family in self.clients if grouped[family]
+        )
+        with ThreadPoolExecutor(
+            max_workers=self.max_workers,
+            thread_name_prefix="coconut-gamma-followup-family",
+        ) as executor:
+            futures = {
+                family: executor.submit(fetch_family, family)
+                for family in active_families
+            }
+            by_key = {
+                (attempt.family, attempt.event_id): attempt
+                for family in active_families
+                for attempt in futures[family].result()
+            }
+        return tuple(by_key[key] for key in normalized)
 
 
 class GammaClient:

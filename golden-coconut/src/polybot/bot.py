@@ -10,7 +10,7 @@ import time
 from typing import Any, Iterator
 from uuid import uuid4
 
-from .api.clob_client import ClobClient
+from .api.clob_client import ClobClient, ClobClientPool
 from .api.gamma_client import GammaClient, GammaFamilyPool
 from .api.sports_client import SportsClockClient
 from .api.transport import CycleBudget, PublicJsonTransport
@@ -95,11 +95,19 @@ class ResearchBot:
                 },
                 max_workers=gamma_config.parallel_family_workers,
             )
+            clob_config = self.config.trading.clob
+            clob_pool = ClobClientPool(
+                tuple(
+                    ClobClient(clob_config, new_transport())
+                    for _ in range(clob_config.parallel_read_workers)
+                ),
+                max_workers=clob_config.parallel_read_workers,
+            )
             collector = Collector(
                 self.config,
                 repository,
                 gamma_pool,
-                ClobClient(self.config.trading.clob, new_transport()),
+                clob_pool,
                 SportsClockClient(
                     self.config.trading.sports_feed, repository.record_api_request
                 ),

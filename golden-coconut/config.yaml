@@ -37,6 +37,7 @@ trading:
     base_url: https://clob.polymarket.com
     batch_token_limit: 100
     collect_public_fee: true
+    parallel_read_workers: 5
 
   sports_feed:
     websocket_url: wss://sports-api.polymarket.com/ws

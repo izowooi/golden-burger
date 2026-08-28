@@ -17,7 +17,8 @@ completeness와 evidence health다.
 - discovery: 미국 4종목은 family별 exact numeric tag, soccer는 frozen 8개 대회 query tag fan-out,
   `closed=false`, 실제 경기 시작 시각 `start_time_min/max=slot-24h..slot+48h`, 모든 physical
   terminal cursor와 client-side half-open schedule 재검증
-- lifecycle: immutable Gamma event ID/canonical slug follow-up; WSS no-message와 wall time으로 상태를
+- lifecycle: immutable Gamma event ID/canonical slug follow-up. family별 단일 session은 유지하면서
+  서로 다른 family follow-up은 병렬 수집; WSS no-message와 wall time으로 상태를
   추정하지 않음
 - unknown phase: `DISCOVERED_OPEN` book/ladder/vector는 별도 stratum으로 보존하고
   `PREGAME`/`IN_PLAY`와 합치지 않음
@@ -28,7 +29,8 @@ completeness와 evidence health다.
 - liquidity/volume: feature와 strata일 뿐 discovery gate 아님
 - fee: optional public observation만; missing fee를 0 또는 임의 rate로 대체하지 않음
 - transport: 다섯 family의 격리 session을 동시에 시작하고, socket read 5초와 별도로 HTTP attempt
-  전체 15초 wall-clock 경계, 최대 2회 retry
+  전체 15초 wall-clock 경계, 최대 2회 retry. public CLOB fee/resolution은 다섯 개의 격리
+  session으로 제한 병렬 조회하고 deterministic input order로 정규화
 
 Soccer result-specific Yes/No negRisk와 미국 direct two-team non-negRisk는 별도 structure로 저장한다.
 같은 game의 market/outcome/threshold는 독립 사건으로 세지 않고 `event_cluster_id`로 묶는다.

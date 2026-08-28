@@ -4,10 +4,13 @@ from datetime import datetime, timezone
 from decimal import Decimal
 import gzip
 import json
+from threading import Barrier, Lock, get_ident
 
 import pytest
 
 from polybot.api.clob_client import (
+    ClobClientPool,
+    FeeObservation,
     MalformedBookError,
     canonical_book_gzip,
     classify_resolution,
@@ -15,6 +18,7 @@ from polybot.api.clob_client import (
     walk_asks,
     walk_bids,
 )
+from polybot.api.transport import CycleBudget
 from polybot.crossings import PriorThresholdState, evaluate_threshold_vector
 
 
@@ -123,3 +127,39 @@ def test_unique_void_tie_and_open_resolution_classes():
     assert classify_resolution(
         {"closed": False, "tokens": [{}, {}]}
     ) == ("OPEN", ())
+
+
+class BarrierFeeClient:
+    def __init__(self, barrier: Barrier, thread_ids: set[int], lock: Lock) -> None:
+        self.barrier = barrier
+        self.thread_ids = thread_ids
+        self.lock = lock
+
+    def fetch_fee(self, run_id, token_id, *, budget):
+        del run_id, budget
+        with self.lock:
+            self.thread_ids.add(get_ident())
+        self.barrier.wait(timeout=2)
+        return FeeObservation(token_id, "OBSERVED", token_id, "now", 0, b"{}")
+
+
+def test_public_fee_reads_use_isolated_workers_and_restore_input_order():
+    worker_count = 5
+    barrier = Barrier(worker_count)
+    thread_ids: set[int] = set()
+    lock = Lock()
+    pool = ClobClientPool(
+        tuple(
+            BarrierFeeClient(barrier, thread_ids, lock)
+            for _ in range(worker_count)
+        ),
+        max_workers=worker_count,
+    )
+    tokens = tuple(f"token-{index}" for index in range(worker_count))
+
+    observed = pool.fetch_fees(
+        "run", tokens, budget=CycleBudget(0, monotonic=lambda: 0)
+    )
+
+    assert tuple(observed) == tokens
+    assert len(thread_ids) == worker_count
