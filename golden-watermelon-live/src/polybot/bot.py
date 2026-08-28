@@ -14,6 +14,7 @@ from .db.models import init_database
 from .db.repository import TradeRepository
 from .strategy.scanner import MarketScanner
 from .strategy.trader import Trader
+from .utils.deadline import CycleBudget
 
 
 logger = logging.getLogger(__name__)
@@ -22,8 +23,14 @@ logger = logging.getLogger(__name__)
 class PolymarketBot:
     """Archive every cycle; trade only under the resolved lifecycle mode."""
 
-    def __init__(self, config: BotConfig):
+    def __init__(
+        self,
+        config: BotConfig,
+        *,
+        cycle_budget: CycleBudget | None = None,
+    ):
         self.config = config
+        self.cycle_budget = cycle_budget or CycleBudget.start()
         self.Session = init_database(
             str(config.db_path),
             SQLiteMaintenanceRequirements(
@@ -34,12 +41,14 @@ class PolymarketBot:
                 retention_days=float(config.trading.archive.retention_days),
             ),
         )
-        self.gamma = GammaClient()
+        self.cycle_budget.assert_within_hard_deadline("database initialization")
+        self.gamma = GammaClient(cycle_budget=self.cycle_budget)
         self.clob = ClobClientWrapper(
             config.api,
             config.simulation_mode,
             audit_db_path=config.db_path,
             strategy_name="golden-watermelon-live",
+            cycle_budget=self.cycle_budget,
         )
         logger.info(
             "Golden Watermelon Live bot initialized - job=%s simulation=%s lifecycle=%s "
@@ -412,6 +421,11 @@ class PolymarketBot:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 
             logger.info("=== Phase 4: archive retention cleanup ===")
+            cycle_budget = getattr(self, "cycle_budget", None)
+            if cycle_budget is not None:
+                cycle_budget.assert_within_hard_deadline(
+                    "archive retention cleanup"
+                )
             repo.cleanup_old_snapshots(
                 days=self.config.trading.archive.retention_days
             )
@@ -428,6 +442,8 @@ class PolymarketBot:
                     + db_stats["quarantined"]
                 ),
             }
+            if cycle_budget is not None:
+                stats["runtime_budget"] = cycle_budget.evidence()
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
@@ -460,10 +476,15 @@ class PolymarketBot:
         logger.info("트레이딩 사이클 시작 - %s", self.config.job_name)
         audit = RunAudit.start(self.config, strategy_name="golden-watermelon-live")
         try:
+            self.cycle_budget.assert_within_hard_deadline("run start")
             self.gamma.sweep_attestations.clear()
             reconciliation = self.clob.reconcile_order_ledger()
+            self.cycle_budget.assert_within_hard_deadline(
+                "order reconciliation"
+            )
             log_reconciliation_continuity(reconciliation, logger=logger)
             stats = self.run_cycle(order_reconciliation=reconciliation)
+            self.cycle_budget.assert_within_hard_deadline("run audit success")
             stats["market_sweeps"] = self.gamma.get_sweep_summaries()
             stats["order_reconciliation"] = reconciliation
             audit.succeed(stats)

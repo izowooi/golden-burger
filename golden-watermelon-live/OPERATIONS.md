@@ -61,8 +61,13 @@ if [[ "${ACTUAL_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
   echo "release commit mismatch" >&2
   exit 1
 fi
-"${UV}" run --frozen polybot run --live --job watermelon-live-cat-96-1m-v2h
+/usr/bin/perl -e 'alarm shift; exec @ARGV' 50 \
+  ./.venv/bin/polybot run --live --job watermelon-live-cat-96-1m-v2h
 ```
+
+launcher alarm은 Python import 이전부터 시작된다. Python이 시작되면 같은 alarm을 안전 예외로
+받아 execution ledger가 불확실한 POST를 격리한다. 42초 이후에는 새 네트워크 요청을 시작하지
+않고 50초에 cycle을 실패 처리한다. `uv sync`와 `uv run`은 release build에서만 사용한다.
 
 ## 배포 검증
 
@@ -74,7 +79,8 @@ fi
    확인돼야 한다. 종료 후 0.001 cleanup bid에서는 SELL이 없어야 한다.
 5. open/pending/quarantined/orphan/fill-fee guards가 0이거나 증거 기반으로 설명되는지 확인한다.
 6. 같은 DB를 이어 쓰는 수동 2회째를 검증한다.
-7. 둘 다 runtime <45초, CRITICAL/HIGH 0이면 `* * * * *`를 활성화한다.
+7. 둘 다 process runtime <45초, Jenkins duration <60초, CRITICAL/HIGH 0이면 `* * * * *`를
+   활성화한다. 50초 deadline failure는 성공으로 숨기지 않는다.
 8. 자연 build 각 2회 뒤 daily-rsync로 새 epoch를 scan/sync/verify한다.
 
 ```bash

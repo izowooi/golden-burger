@@ -63,6 +63,8 @@ Ferencvárosi 승리 market에서 경기 종료 후 남은 `0.001` cleanup bid�
 - live `CONFIRMED` SELL 원장을 Trade 상태보다 우선해 안전 손익을 재계산; legacy RESOLVED
   overwrite는 매도 shares 비율만 settlement에서 제외하고, 모호한 원장 매핑은 신규 BUY 차단
 - holding books는 한 번의 batch read로 가져오며 불완전 book을 부분 체결로 보정하지 않음
+- Jenkins launcher부터 50초 hard deadline; Python 진입 뒤 42초부터 새 Gamma/CLOB 요청 금지
+- deadline이 POST와 겹치면 성공으로 추정하지 않고 execution ledger uncertain-outcome으로 격리
 
 이는 관측 결과를 보고 arm threshold를 바꾸는 tuning이 아니라 irreversible order의 blast radius를
 제한하는 공통 safety correction이다. amendment 전후는 `strategy_source_digest`로 분리하고,

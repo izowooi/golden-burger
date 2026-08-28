@@ -9,6 +9,7 @@ import sys
 
 from .bot import PolymarketBot
 from .config import load_config
+from .utils.deadline import enforced_cycle_deadline
 from .utils.logger import setup_logger
 
 
@@ -88,7 +89,8 @@ def main() -> None:
         )
         setup_logger(config.job_name, verbose=args.verbose)
         try:
-            PolymarketBot(config).run()
+            with enforced_cycle_deadline() as cycle_budget:
+                PolymarketBot(config, cycle_budget=cycle_budget).run()
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단됨")
             sys.exit(0)

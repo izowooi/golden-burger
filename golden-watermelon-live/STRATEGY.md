@@ -86,7 +86,10 @@ exact one-hot `0/1` winner만 RESOLVED로 인정하며 `0.5/0.5`나 synthetic SE
 Cat/Dog는 공통 1분 cadence다. 선행 White 1분이 Grey 5분보다 막판 episode coverage가 높았고
 live cycle은 1분 안에 끝났지만, 이는 1분이 수익 최적이라는 뜻이 아니다. strategy process
 p95 ≥15초 또는 Jenkins end-to-end p95 ≥45초이면 timer를 끈다. timed job은 검증된 commit을
-pin하고 매 cycle 원격 SCM fetch·`config`·`status` subprocess를 실행하지 않는다.
+pin하고 매 cycle 원격 SCM fetch·`config`·`status` subprocess를 실행하지 않는다. launcher부터
+50초 hard deadline을 적용하고, 8초 margin을 남긴 42초부터 새 network request를 시작하지
+않는다. deadline이 irreversible POST와 겹치면 성공으로 추정하지 않고 execution ledger의
+uncertain-outcome 격리와 다음 cycle 대사를 사용한다.
 
 live notional은 `$5`로 고정한다. White/Grey v3c가 source minute `75/80/85`와 displayed
 notional `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500` evidence를 모은다.

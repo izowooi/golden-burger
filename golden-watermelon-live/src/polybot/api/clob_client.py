@@ -29,6 +29,7 @@ from polybot_observability import (
     safe_clob_response_shape,
 )
 from ..config import ApiConfig
+from ..utils.deadline import CycleBudget
 from ..utils.retry import rate_limit_handler
 
 logger = logging.getLogger(__name__)
@@ -472,6 +473,7 @@ class ClobClientWrapper:
         *,
         audit_db_path=None,
         strategy_name: str = "unknown",
+        cycle_budget: Optional[CycleBudget] = None,
     ):
         """Initialize CLOB client.
 
@@ -485,6 +487,7 @@ class ClobClientWrapper:
         self._initialized = False
         self._midpoint_snapshot: Optional[Dict[str, Optional[float]]] = None
         self._fee_schedules_by_token: Dict[str, ClobV2FeeSchedule] = {}
+        self.cycle_budget = cycle_budget
         self.execution_ledger = (
             ExecutionLedger(audit_db_path, strategy_name=strategy_name)
             if audit_db_path is not None
@@ -878,7 +881,12 @@ class ClobClientWrapper:
     @property
     def client(self):
         """Get initialized CLOB client."""
+        cycle_budget = getattr(self, "cycle_budget", None)
+        if cycle_budget is not None:
+            cycle_budget.ensure_can_start_request("CLOB client request")
         self._ensure_initialized()
+        if cycle_budget is not None:
+            cycle_budget.ensure_can_start_request("CLOB request dispatch")
         return self._client
 
     def _round_to_tick(

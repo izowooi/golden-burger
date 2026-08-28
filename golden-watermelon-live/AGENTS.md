@@ -32,6 +32,9 @@
 - open state와 unresolved BUY reservation을 함께 max-position capacity에 계산한다.
 - PENDING_BUY/PENDING_SELL/QUARANTINED/orphan/fill-fee gap이 있으면 신규 BUY를 막는다.
 - future timing/notional 선택은 White/Grey evidence에서 하며 v2h live 금액은 `$5`로 유지한다.
+- Jenkins launcher와 Python은 하나의 50초 hard deadline을 공유한다. 42초 이후에는 새 Gamma/CLOB
+  요청을 시작하지 않고, deadline 예외가 order POST와 겹치면 execution ledger의 uncertain-outcome
+  격리 경로를 사용한다.
 
 ## 검증과 Jenkins
 
@@ -45,7 +48,8 @@ live 코드 변경 전 Cat/Dog timer를 먼저 끈다. test와 timer 없는 수�
 DB, pending state, source digest를 확인한 뒤에만 timer를 복원한다. clean/wipe/migration/import를
 하지 않는다. 자연 build 각 2회와 daily-rsync verified DB를 확인한다.
 
-timed build는 검증된 exact commit을 workspace에 pin하고 `NullSCM`으로 실행한다. 원격 checkout,
+timed build는 검증된 exact commit을 workspace에 pin하고 `NullSCM`으로 실행한다. `/usr/bin/perl`
+alarm launcher로 interpreter/import 시간까지 50초 안에 묶는다. 원격 checkout,
 `uv sync`, `polybot config`, `polybot status`는 release 배포 단계에서만 수행한다. 새로운 release는
 timer off → GitSCM 수동 build → exact commit/source 검증 → NullSCM pin → timer 복원 순서다.
 

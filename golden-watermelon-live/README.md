@@ -44,7 +44,9 @@ book이 닫힐 수 있고 FOK는 full fill이 불가능하면 0 fill이다. 이�
 
 정기 Jenkins cycle은 검증된 release commit을 workspace에 pin한 뒤 SCM checkout 없이 실행한다.
 매 cycle에는 `polybot run` 하나만 두며 `uv sync`, `polybot config`, `polybot status`는 release
-배포 검증 시에만 실행한다. 이를 통해 1분 signal cadence를 GitHub fetch 지연과 분리한다.
+배포 검증 시에만 실행한다. `/usr/bin/perl` launcher의 50초 alarm은 Python import 이전부터
+시작되고, Python 진입 뒤에는 남은 deadline을 이어받아 42초부터 새 Gamma/CLOB 요청을 막는다.
+이를 통해 1분 signal cadence를 GitHub fetch 지연과 장시간 network stall에서 분리한다.
 
 entry는 `[2026-08-26T18:30:00Z, 2026-09-02T18:30:00Z)`, follow-up은
 `2026-09-09T18:30:00Z`까지다. cohort는

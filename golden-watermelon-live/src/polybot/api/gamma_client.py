@@ -15,6 +15,7 @@ import requests
 from ..config import SOCCER_TAG_ID
 from ..league_classifier import classify_soccer_event
 from ..strategy.filters import match_result_reason
+from ..utils.deadline import CycleBudget
 from ..utils.retry import rate_limit_handler
 
 
@@ -33,7 +34,8 @@ class GammaClient:
     MAX_IN_PLAY_HOURS = 4.0
     SWEEP_SCHEMA_VERSION = 2
 
-    def __init__(self):
+    def __init__(self, *, cycle_budget: Optional[CycleBudget] = None):
+        self.cycle_budget = cycle_budget
         self.session = requests.Session()
         self.sweep_attestations: List[Dict[str, Any]] = []
         self.session.headers.update(
@@ -44,10 +46,17 @@ class GammaClient:
         )
 
     def _get(self, path: str, *, params: Optional[Dict[str, Any]] = None):
+        timeout = (self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS)
+        if self.cycle_budget is not None:
+            timeout = self.cycle_budget.request_timeouts(
+                self.CONNECT_TIMEOUT_SECONDS,
+                self.READ_TIMEOUT_SECONDS,
+                context=f"Gamma {path}",
+            )
         return self.session.get(
             f"{self.BASE_URL}{path}",
             params=params,
-            timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
+            timeout=timeout,
         )
 
     @rate_limit_handler(max_retries=1, base_delay=1.0, retry_forbidden=True)
