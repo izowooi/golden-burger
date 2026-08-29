@@ -2,10 +2,10 @@
 
 ## Jenkins 경계
 
-| Jenkins | exact workspace | runtime | schedule |
-|---|---|---|---|
-| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v4a` | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v4a` | `H/5 * * * *` |
+| Jenkins | exact workspace | runtime | schedule | 시작 offset |
+|---|---|---|---|---:|
+| `polybot-white` | `/Volumes/t7/jenkins/polybot-white` | `watermelon-white-1m-v4a` | `* * * * *` | 30초 |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `watermelon-grey-5m-v4a` | `H/5 * * * *` | 45초 |
 
 concurrent build는 끄고 build discard는 14일로 둔다. `Clean before checkout`, workspace wipe,
 credential binding, 기존 DB migration/import를 사용하지 않는다. v3d 이하 DB는 그대로 두고 새
@@ -31,14 +31,22 @@ export POLYBOT_SIMULATION_MODE=true
 
 cd ./golden-watermelon
 UV=/Users/jongwoopark/.local/bin/uv
-"${UV}" sync --frozen
-"${UV}" run python scripts/verify_external_workspace.py \
+START_OFFSET_SECONDS=30
+LOCK_SHA="$(/usr/bin/shasum -a 256 uv.lock | /usr/bin/awk '{print $1}')"
+STAMP=.venv/.uv-lock-sha256
+if [[ ! -x ./.venv/bin/polybot || ! -f "${STAMP}" || "$(<"${STAMP}")" != "${LOCK_SHA}" ]]; then
+  "${UV}" sync --frozen
+  /usr/bin/printf '%s\n' "${LOCK_SHA}" > "${STAMP}"
+fi
+/bin/sleep "${START_OFFSET_SECONDS}"
+./.venv/bin/python scripts/verify_external_workspace.py \
   --workspace "${WORKSPACE}" --min-free-gib 50
-"${UV}" run polybot run --simulate --job watermelon-white-1m-v4a
+./.venv/bin/polybot run --simulate --job watermelon-white-1m-v4a
 ```
 
-Grey는 runtime만 `watermelon-grey-5m-v4a`로 바꾼다. experiment parameter나 family를 Jenkins
-env로 override하지 않는다.
+Grey는 runtime을 `watermelon-grey-5m-v4a`, offset을 45초로 바꾼다. experiment parameter나
+family를 Jenkins env로 override하지 않는다. release build에서만 Git SCM으로 exact commit을
+checkout하고 검증 뒤 정기 build는 같은 external workspace를 `NullSCM`으로 고정한다.
 
 ## 배포 순서
 

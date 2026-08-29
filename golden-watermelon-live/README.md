@@ -47,10 +47,13 @@ BUY를 막는다. confirmed SELL + proven resolution 경제손익이 `-$10`이�
 경과시간 때문에 Gamma/CLOB 요청이나 주문을 중단하지 않는다. 각 HTTP 요청에 finite socket
 timeout을 적용하고 cycle 50초 초과는 경고 evidence로 남긴다. DB별 nonblocking run lock이 다음
 분 trigger와 겹치면 새 process가 즉시 skip하므로 동일 DB 쓰기와 중복 주문을 방지한다.
+정상 cycle 반환 뒤에는 Gamma keep-alive, CLOB SDK의 process-global HTTP/2 pool, SQLite engine을
+명시적으로 닫아 성공한 Jenkins shell이 열린 연결 때문에 남지 않게 한다.
 
-Jenkins 정기 shell은 lockfile hash가 변했을 때만 `uv sync --frozen`하며, 평소에는
-`uv run --frozen --no-sync polybot run --live --job ...` 하나만 실행한다. `uv sync`, `config`,
-`status`와 release commit 검증은 timer를 끈 배포 build에서 수행한다.
+Jenkins 배포 build만 Git SCM으로 exact commit을 checkout하고, 검증 뒤 정기 build는 그 workspace를
+고정한 `NullSCM`으로 실행한다. 정기 shell은 lockfile hash가 변했을 때만 `uv sync --frozen`하며,
+평소에는 `./.venv/bin/polybot run --live --job ...` 하나만 실행한다. `config`, `status`와 source
+검증은 timer를 끈 배포 build에서 수행한다.
 
 entry는 `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up은
 `2026-09-12T04:00:00Z`까지다. cohort는
