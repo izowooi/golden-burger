@@ -99,7 +99,14 @@ def main() -> None:
                     )
                     return
                 with enforced_cycle_deadline() as cycle_budget:
-                    PolymarketBot(config, cycle_budget=cycle_budget).run()
+                    bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                    try:
+                        bot.run()
+                    finally:
+                        bot.close()
+                        logging.info(
+                            "cycle resources closed - job=%s", config.job_name
+                        )
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단됨")
             sys.exit(0)
@@ -111,7 +118,11 @@ def main() -> None:
     config = _load(args, simulation_override=_inspection_simulation_override(args))
     if args.command == "status":
         setup_logger(config.job_name, level=logging.WARNING)
-        print(json.dumps(PolymarketBot(config).get_status(), indent=2, default=str))
+        bot = PolymarketBot(config)
+        try:
+            print(json.dumps(bot.get_status(), indent=2, default=str))
+        finally:
+            bot.close()
         return
 
     trading = config.trading

@@ -1161,3 +1161,30 @@ def test_stale_delayed_fok_uses_terminal_absence_ledger_proof() -> None:
     assert captured["token_id"] == "token-stale"
     assert captured["authenticated_trades"] == []
     assert captured["minimum_age_minutes"] == 30
+
+
+def test_gamma_close_releases_per_cycle_keepalive_pool(monkeypatch) -> None:
+    client = GammaClient()
+    closed = []
+    monkeypatch.setattr(client.session, "close", lambda: closed.append(True))
+
+    client.close()
+
+    assert closed == [True]
+
+
+def test_clob_close_releases_sdk_process_global_http2_pool(monkeypatch) -> None:
+    from py_clob_client_v2.http_helpers import helpers
+
+    closed = []
+    monkeypatch.setattr(
+        helpers,
+        "_http_client",
+        SimpleNamespace(close=lambda: closed.append(True)),
+    )
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._initialized = True
+
+    wrapper.close()
+
+    assert closed == [True]

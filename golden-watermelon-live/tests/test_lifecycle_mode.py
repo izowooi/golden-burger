@@ -498,3 +498,17 @@ def test_close_only_reconciles_pending_sell_before_holding_checks(
     repo.append_trade_to_csv.assert_called_once_with(completed, tmp_path)
     scanner.scan_buy_candidates.assert_not_called()
     session.close.assert_called_once()
+
+
+def test_bot_close_releases_network_pools_and_database_engine() -> None:
+    bot = object.__new__(PolymarketBot)
+    bot.gamma = MagicMock()
+    bot.clob = MagicMock()
+    engine = MagicMock()
+    bot.Session = SimpleNamespace(kw={"bind": engine})
+
+    bot.close()
+
+    bot.gamma.close.assert_called_once_with()
+    bot.clob.close.assert_called_once_with()
+    engine.dispose.assert_called_once_with()

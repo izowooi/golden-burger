@@ -494,6 +494,27 @@ class ClobClientWrapper:
             else None
         )
 
+    def close(self) -> None:
+        """Close the SDK's process-global HTTP/2 pool at CLI shutdown.
+
+        ``py-clob-client-v2`` keeps one module-level synchronous ``httpx``
+        client.  A one-shot Jenkins process has no later request to reuse that
+        pool, and leaving it open can keep the shell step alive after the run
+        audit has already succeeded.  This method is deliberately called only
+        after the complete reconciliation/trading cycle has returned.
+        """
+        if not self._initialized:
+            return
+        try:
+            from py_clob_client_v2.http_helpers import helpers
+        except ImportError:
+            logger.warning("CLOB v2 HTTP client module is unavailable during shutdown")
+            return
+        http_client = getattr(helpers, "_http_client", None)
+        close = getattr(http_client, "close", None)
+        if callable(close):
+            close()
+
     @staticmethod
     def _positive_fill_quantity(raw_size: Any, requested_size: Any) -> Decimal:
         """Decode an SDK-human or raw fixed-6 fill quantity fail-closed."""

@@ -3996,6 +3996,8 @@ def _validate_watermelon_live_strategy(
             "unresolved_sell_outcome",
             "entry_blocked_candidates",
             "get_entry_capacity_state",
+            "Release all cycle-scoped network and database resources",
+            "engine.dispose()",
         ),
         "src/polybot/db/repository.py": (
             "get_untracked_buy_reservation_count",
@@ -4047,6 +4049,7 @@ def _validate_watermelon_live_strategy(
             "READ_TIMEOUT_SECONDS = 5.0",
             '"liquidity_min"',
             '"volume_min"',
+            "self.session.close()",
         ),
         "src/polybot/api/clob_client.py": (
             "BuyBookWalk",
@@ -4061,6 +4064,8 @@ def _validate_watermelon_live_strategy(
             "signed limit order share quantity drift",
             "signed FOK BUY does not preserve exact maker USDC",
             '"intent_autoresolved": 0',
+            "process-global HTTP/2 pool",
+            'getattr(helpers, "_http_client", None)',
         ),
         "src/polybot/strategy/filters.py": (
             "match_result_reason",
@@ -4122,6 +4127,8 @@ def _validate_watermelon_live_strategy(
             "test_gamma_accepts_exact_cross_league_uefa_identity",
             "test_gamma_rejects_uefa_advancement_scope_before_trading",
             "test_live_exact_usdc_fok_buy_rejects_excess_taker_precision_before_post",
+            "test_gamma_close_releases_per_cycle_keepalive_pool",
+            "test_clob_close_releases_sdk_process_global_http2_pool",
         ),
         "src/polybot/utils/deadline.py": (
             "elapsed_time_can_suppress_requests",
@@ -4137,6 +4144,10 @@ def _validate_watermelon_live_strategy(
         ),
         "tests/test_run_lock.py": (
             "test_second_process_skips_while_runtime_lock_is_held",
+        ),
+        "src/polybot/main.py": (
+            "cycle resources closed",
+            "bot.close()",
         ),
     }
     for relative_path, tokens in contracts.items():

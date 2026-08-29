@@ -55,6 +55,10 @@ class GammaClient:
             }
         )
 
+    def close(self) -> None:
+        """Release the per-cycle keep-alive pool after all evidence is durable."""
+        self.session.close()
+
     def _get(self, path: str, *, params: Optional[Dict[str, Any]] = None):
         timeout = (self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS)
         if self.cycle_budget is not None:

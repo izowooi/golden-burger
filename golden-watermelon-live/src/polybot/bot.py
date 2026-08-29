@@ -65,6 +65,14 @@ class PolymarketBot:
             config.trading.preregistration_sha256[:12],
         )
 
+    def close(self) -> None:
+        """Release all cycle-scoped network and database resources."""
+        self.gamma.close()
+        self.clob.close()
+        engine = self.Session.kw.get("bind")
+        if engine is not None:
+            engine.dispose()
+
     def _log_strategy_config(self) -> None:
         trading = self.config.trading
         entry = trading.entry
