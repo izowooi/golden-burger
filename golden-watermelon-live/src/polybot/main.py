@@ -160,9 +160,10 @@ def main() -> None:
         f"{trading.entry.hours_max:.1f}] hours"
     )
     print(
-        f"Exit: hold to proven resolution; emergency FOK stop at displayed bid "
-        f"<= {trading.entry.stop_price:.2f}, executable floor "
-        f">= {trading.entry.stop_price - trading.entry.max_stop_slippage:.2f}, "
+        "Exit: hold to proven resolution; protective FOK stop at displayed bid "
+        f"<= max({trading.entry.stop_price:.2f}, confirmed entry VWAP - "
+        f"{trading.entry.max_entry_drawdown:.2f}), normal executable floor "
+        f">= effective stop - {trading.entry.max_stop_slippage:.2f}, "
         f"spread <= {trading.entry.max_stop_spread:.2f}; no TP/time-exit"
     )
     print(

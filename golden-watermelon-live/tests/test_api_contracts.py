@@ -1089,6 +1089,37 @@ def test_live_exact_usdc_fok_buy_widens_only_inside_entry_ceiling() -> None:
     assert captured["posted"] is not None
 
 
+def test_lille_cycle_precision_regression_widens_0985_to_099_before_post() -> None:
+    captured = {}
+
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.005"
+
+        def create_market_order(self, order, options=None):
+            captured.setdefault("attempts", []).append((order.price, options))
+            taker = "5076142" if order.price == 0.985 else "5050500"
+            return SimpleNamespace(makerAmount="5000000", takerAmount=taker)
+
+        def post_order(self, signed, _order_type):
+            captured["posted"] = signed
+            return {"success": True, "orderID": "order-lille-regression"}
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy(
+        "token", amount_usdc=5, limit_price=0.985, max_limit_price=0.999
+    )
+
+    assert result["orderID"] == "order-lille-regression"
+    assert result["price"] == 0.99
+    assert result["requested_size"] == pytest.approx(5.0505)
+    assert [price for price, _options in captured["attempts"]] == [0.985, 0.99]
+    assert captured["posted"] is not None
+
+
 def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:
     class _Client:
         def get_tick_size(self, _token_id):

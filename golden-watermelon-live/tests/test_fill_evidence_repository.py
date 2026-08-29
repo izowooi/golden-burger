@@ -698,7 +698,12 @@ def test_market_catalog_canonicalizes_gamma_json_string_arrays(tmp_path):
 
 @pytest.mark.parametrize(
     "retryable_state",
-    ["BLOCKED_GUARD", "PRE_SUBMISSION_CONTRACT_ERROR"],
+    [
+        "BLOCKED_GUARD",
+        "PRE_SUBMISSION_CONTRACT_ERROR",
+        "QUEUED_NO_POST",
+        "NO_POST_RETRYABLE",
+    ],
 )
 def test_entry_episode_retries_only_states_proven_to_precede_post(
     tmp_path,
@@ -752,6 +757,62 @@ def test_entry_episode_retries_only_states_proven_to_precede_post(
         )
         is None
     )
+    session.close()
+
+
+def test_entry_episode_queue_is_durable_and_not_an_attempt(tmp_path):
+    Session = init_database(str(tmp_path / "watermelon-queued-no-post.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    first = repo.claim_entry_episode(
+        token_id="queued-token-1",
+        condition_id="condition-1",
+        event_id="event-1",
+        outcome="Yes",
+        entry_snapshot_id=1,
+        exact_vwap=0.98,
+        arm_prob_min=0.96,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+    )
+    second = repo.claim_entry_episode(
+        token_id="queued-token-2",
+        condition_id="condition-2",
+        event_id="event-2",
+        outcome="Yes",
+        entry_snapshot_id=2,
+        exact_vwap=0.97,
+        arm_prob_min=0.96,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+    )
+    repo.commit()
+
+    repo.mark_entry_episodes_queued_no_post(
+        [first.id, second.id],
+        reason="selected_for_cycle_before_any_submission",
+    )
+
+    session.expire_all()
+    queued = [
+        repo.get_entry_episode_by_token("queued-token-1"),
+        repo.get_entry_episode_by_token("queued-token-2"),
+    ]
+    assert {episode.execution_state for episode in queued} == {"QUEUED_NO_POST"}
+    assert all(episode.last_attempted_at is None for episode in queued)
+    retried = repo.claim_entry_episode(
+        token_id="queued-token-2",
+        condition_id="condition-2",
+        event_id="event-2",
+        outcome="Yes",
+        entry_snapshot_id=3,
+        exact_vwap=0.975,
+        arm_prob_min=0.96,
+        arm_prob_max=0.999,
+        observed_at=datetime.utcnow(),
+    )
+    assert retried.id == second.id
+    assert retried.execution_state == "RETRY_OBSERVED"
     session.close()
 
 

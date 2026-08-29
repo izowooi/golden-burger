@@ -119,16 +119,14 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   `polybot-grey` 5분은 같은 population/grid의 paired cadence 처치이며, 두 DB를 독립 거래로
   세지 않는다. `soccer-inplay-elite-competition-match-winner-v4` append-only evidence를 쓰고
   accountless simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
-- `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Watermelon White/Grey
-  evidence에서 파생한 별도 live 프로젝트다. 위 6개 리그와 UCL/UEL의 top-level
-  home/draw/away YES만 대상으로 `polybot-cat`은 exact `$5` ask VWAP
-  `[0.96,0.999]`, `polybot-dog`은 `[0.99,0.999]`에서 FOK BUY한다. best bid `<=0.70`
-  시 전체 보유 수량의 displayed bid depth를 walk해 FOK SELL하며, event당 1개·account당
-  20개로 제한한다. active runtime은 `watermelon-live-cat-96-1m-v2h`와
-  `watermelon-live-dog-99-1m-v2h`이며 두 arm 모두 1분 cadence다. open trade뿐 아니라
-  미추적 BUY intent도 capacity에 예약하고, unresolved pending/SELL evidence가 있으면 신규
-  BUY를 차단한다. 수동 wallet position은 편입·청산하지 않고 stop trigger를 보장 체결가로
-  해석하지 않는다.
+- `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Soccer/MLB/NHL whole-game
+  winner를 family별 `0.96` 대 `0.99` arm으로 exact `$5` 검정한다. Soccer는 Cat/Dog, MLB는
+  Bear/Tiger, NHL은 Lion/Wolf이고 모두 1분 cadence다. effective stop은
+  `max(0.70, confirmed BUY VWAP-0.05)`이며 event당 1개·account당 20개로 제한한다. 모든 후보를
+  POST 전 proven-no-POST queue에 남겨 앞 후보 오류가 뒤 후보를 영구 누락시키지 않는다. open
+  trade뿐 아니라 미추적 BUY intent도 capacity에 예약하고, unresolved pending/SELL evidence가
+  있으면 신규 BUY를 차단한다. 수동 wallet position은 편입·청산하지 않고 stop trigger를 보장
+  체결가로 해석하지 않는다.
 전략 문서 HTML 버전은 `docs/strategy-pages/`, A/B 회고 절차는 `docs/ab-retro-playbook.md` 참조, 월간 파라미터 회고(전 봇)는 `docs/retro/README.md` 참조.
 quince A/B/C 실험을 실제로 기동할 때는 `docs/golden-quince-abc-runbook.md`(자립형 런북 — 팔 구성·금액·예산·기간·day-1 kill-check·무효화 조건)를 단독으로 따른다.
 

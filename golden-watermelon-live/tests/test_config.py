@@ -39,6 +39,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.max_drawdown_stop == 0.10
     assert config.trading.yes_only_mode is True
     assert config.trading.entry.stop_price == 0.70
+    assert config.trading.entry.max_entry_drawdown == 0.05
     assert config.trading.entry.max_stop_slippage == 0.05
     assert config.trading.entry.max_stop_spread == 0.10
     assert config.trading.entry.max_stop_loss_fraction == 0.35
@@ -86,6 +87,11 @@ def test_only_arm_b_threshold_override_is_accepted(
         ("POLYBOT_ENTRY_PROB_MIN", "0.97", "entry band"),
         ("POLYBOT_ENTRY_HOURS_MAX", "5", "in-play age window"),
         ("POLYBOT_STOP_PRICE", "0.80", "stop_price"),
+        (
+            "POLYBOT_MAX_ENTRY_DRAWDOWN",
+            "0.10",
+            "entry-relative stop",
+        ),
         ("POLYBOT_MAX_STOP_SLIPPAGE", "0.10", "stop execution safety"),
         ("POLYBOT_MAX_STOP_SPREAD", "0.20", "stop execution safety"),
         (

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from contextlib import nullcontext
 from types import SimpleNamespace
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, call
 
 import polybot.bot as bot_module
 import pytest
@@ -32,6 +32,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     trader.execute_buy.side_effect = AssertionError(
         "inactive entry path must never buy"
     )
+    trader.last_entry_may_have_reached_venue = True
     repo = MagicMock()
     repo.get_pending_buy_trades.return_value = []
     repo.get_pending_sell_trades.return_value = []
@@ -230,11 +231,90 @@ def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
     with pytest.raises(PreSubmissionContractError):
         bot.run_cycle()
 
-    repo.mark_entry_episode_execution.assert_called_once_with(
-        21,
-        state="PRE_SUBMISSION_CONTRACT_ERROR",
-        reason="PreSubmissionContractError",
+    repo.mark_entry_episodes_queued_no_post.assert_called_once_with(
+        [21],
+        reason="selected_for_cycle_before_any_submission",
     )
+    assert repo.mark_entry_episode_execution.call_args_list == [
+        call(
+            21,
+            state="PRE_SUBMISSION_CONTRACT_ERROR",
+            reason="PreSubmissionContractError",
+        ),
+    ]
+    session.close.assert_called_once()
+
+
+def test_pre_submission_failure_leaves_later_candidate_retryable_no_post(
+    monkeypatch,
+    tmp_path,
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    first = {
+        "condition_id": "market-1",
+        "event_id": "event-1",
+        "entry_episode_id": 21,
+    }
+    later = {
+        "condition_id": "market-2",
+        "event_id": "event-2",
+        "entry_episode_id": 22,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [first, later]
+    trader.execute_buy.side_effect = PreSubmissionContractError(
+        "signed amount precision"
+    )
+
+    with pytest.raises(PreSubmissionContractError):
+        bot.run_cycle()
+
+    repo.mark_entry_episodes_queued_no_post.assert_called_once_with(
+        [21, 22],
+        reason="selected_for_cycle_before_any_submission",
+    )
+    assert repo.mark_entry_episode_execution.call_args_list == [
+        call(
+            21,
+            state="PRE_SUBMISSION_CONTRACT_ERROR",
+            reason="PreSubmissionContractError",
+        ),
+    ]
+    trader.execute_buy.assert_called_once_with(first)
+    session.close.assert_called_once()
+
+
+def test_event_capacity_no_post_is_retryable_for_opposite_result(
+    monkeypatch,
+    tmp_path,
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {
+        "condition_id": "draw-condition",
+        "event_id": "event-1",
+        "entry_episode_id": 31,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = None
+    trader.last_entry_outcome_reason = "event_capacity_reserved"
+    trader.last_entry_may_have_reached_venue = False
+
+    stats = bot.run_cycle()
+
+    assert stats["bought"] == 0
+    assert repo.mark_entry_episode_execution.call_args_list == [
+        call(
+            31,
+            state="NO_POST_RETRYABLE",
+            reason="event_capacity_reserved",
+        ),
+    ]
     session.close.assert_called_once()
 
 

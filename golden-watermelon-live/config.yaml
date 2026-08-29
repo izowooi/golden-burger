@@ -46,7 +46,9 @@ trading:
     prob_min: 0.96
     prob_max: 0.999
     stop_price: 0.70
-    # Never turn a 0.70 stop into an unrestricted market liquidation.
+    # Effective stop = max(0.70, confirmed entry VWAP - 0.05).
+    max_entry_drawdown: 0.05
+    # Never turn a protective trigger into an unrestricted market liquidation.
     max_stop_slippage: 0.05
     max_stop_spread: 0.10
     max_stop_loss_fraction: 0.35

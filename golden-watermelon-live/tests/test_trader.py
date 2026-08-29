@@ -7,6 +7,7 @@ import pytest
 import polybot.strategy.trader as trader_module
 from polybot.api.clob_client import (
     BuyBookWalk,
+    PreSubmissionContractError,
     SellBookWalk,
     _normalize_clob_resolution,
 )
@@ -34,6 +35,7 @@ class _Repo:
         self.created = []
         self.updated = []
         self.linked = []
+        self.episode_execution = []
         self.resolution_observations = []
 
     def can_reenter(self, *_args):
@@ -61,6 +63,9 @@ class _Repo:
 
     def link_entry_episode_trade(self, episode_id, trade_id):
         self.linked.append((episode_id, trade_id))
+
+    def mark_entry_episode_execution(self, episode_id, *, state, reason=None):
+        self.episode_execution.append((episode_id, state, reason))
 
     def save_market_catalog(self, *_args, **_kwargs):
         return None
@@ -222,8 +227,31 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert created["buy_shares"] == pytest.approx(5 / 0.985)
     assert created["status"] is TradeStatus.PENDING_BUY
     assert created["yes_price_at_buy"] == 0.985
-    assert created["stop_price_at_entry"] == 0.70
+    assert created["stop_price_at_entry"] == pytest.approx(0.935)
     assert repo.linked == [(3, 7)]
+    assert repo.episode_execution == [
+        (3, "SUBMISSION_IN_PROGRESS", "fresh_book_validated_before_submission_wrapper")
+    ]
+    assert trader.last_entry_may_have_reached_venue is True
+
+
+def test_pre_submission_contract_error_is_proven_no_post() -> None:
+    repo, clob = _Repo(), _Clob()
+
+    def reject_before_post(**_order):
+        raise PreSubmissionContractError("signed amount precision")
+
+    clob.place_fok_buy = reject_before_post
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    with pytest.raises(PreSubmissionContractError):
+        trader.execute_buy(_candidate())
+
+    assert trader.last_entry_may_have_reached_venue is False
+    assert repo.created == []
+    assert repo.episode_execution == [
+        (3, "SUBMISSION_IN_PROGRESS", "fresh_book_validated_before_submission_wrapper")
+    ]
 
 
 def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
@@ -248,6 +276,7 @@ def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
     assert trader.buying_disabled is True
     assert trader.execute_buy({**_candidate(), "condition_id": "condition-2"}) is None
     assert trader.last_entry_outcome_reason == "cycle_buying_disabled"
+    assert trader.last_entry_may_have_reached_venue is False
     assert len(submissions) == 1
 
 
@@ -278,9 +307,39 @@ def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
     assert repo.updated == []
 
 
+def test_confirmed_buy_freezes_entry_relative_stop_from_actual_vwap() -> None:
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(
+        "confirmed",
+        "buy-1",
+        order_status="MATCHED",
+        side="BUY",
+        requested_size=5.0505,
+        latest_size_matched=5.0505,
+        needs_reconciliation=False,
+        reconciled_full_fill=True,
+        confirmed_size=5.0505,
+        confirmed_vwap=0.99,
+        confirmed_fee_usdc=0.0,
+        fee_complete=True,
+    )
+    trade = SimpleNamespace(
+        id=9,
+        buy_order_id="buy-1",
+        buy_timestamp=NOW.replace(tzinfo=None),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_buy(trade, now=NOW.replace(tzinfo=None)) is True
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.HOLDING
+    assert update["buy_confirmed_vwap"] == pytest.approx(0.99)
+    assert update["stop_price_at_entry"] == pytest.approx(0.94)
+
+
 def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
-    repo, clob = _Repo(), _Clob(best_bid=0.71, best_ask=0.72)
+    repo, clob = _Repo(), _Clob(best_bid=0.94, best_ask=0.95)
     config = TradingConfig()
     trade = SimpleNamespace(
         id=9,
@@ -297,6 +356,44 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert trader.execute_sell(trade) is False
     assert clob.orders == []
     assert repo.updated == []
+
+
+def test_entry_relative_stop_catches_lille_style_five_point_reversal() -> None:
+    repo = _Repo()
+    clob = _Clob(
+        best_bid=0.94,
+        best_ask=0.95,
+        sell_vwap=0.938,
+        sell_limit=0.935,
+    )
+    # Legacy rows stored only the old absolute 0.70 floor. The deployed source
+    # must still protect an existing 0.99 holding at an effective 0.94 trigger.
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        stop_price_at_entry=0.70,
+        buy_confirmed_vwap=0.99,
+        buy_shares=5.0505,
+        buy_price=0.99,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert Trader.effective_stop_price(trade, TradingConfig()) == pytest.approx(
+        0.94
+    )
+    assert trader.execute_sell(trade) is False
+    assert len(clob.orders) == 1
+    assert clob.orders[0]["side"] == "SELL"
+    assert repo.updated[-1][1]["status"] is TradeStatus.PENDING_SELL
 
 
 def test_stop_uses_fresh_bid_and_submits_fok_sell(

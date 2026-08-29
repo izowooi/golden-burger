@@ -169,7 +169,13 @@ def test_cat_claims_only_first_exact_yes_book_observation(tmp_path) -> None:
 
 def test_dog_99_arm_accepts_draw_yes_and_never_no_token(tmp_path) -> None:
     config = TradingConfig(
-        entry=WatermelonLiveEntryConfig(0.99, 0.999, 0.70, 0, 4)
+        entry=WatermelonLiveEntryConfig(
+            prob_min=0.99,
+            prob_max=0.999,
+            stop_price=0.70,
+            hours_min=0,
+            hours_max=4,
+        )
     )
     market = _market(result="Draw (Home FC vs. Away FC)")
     token = "yes-condition-1"
@@ -192,11 +198,15 @@ def test_multiple_results_above_threshold_for_one_event_fail_closed(tmp_path) ->
         "yes-home": _walk("yes-home", 0.985),
         "yes-away": _walk("yes-away", 0.986),
     }
-    session, _repo, _gamma, scanner = _scanner(
+    session, repo, _gamma, scanner = _scanner(
         tmp_path, config, [home, away], walks
     )
     scanner.save_market_snapshots([home, away], now=NOW)
     assert scanner.scan_buy_candidates([home, away], now=NOW) == []
+    assert {
+        repo.get_entry_episode_by_token(token).execution_state
+        for token in ("yes-home", "yes-away")
+    } == {"BLOCKED_GUARD"}
     session.close()
 
 

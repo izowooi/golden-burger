@@ -50,7 +50,7 @@ market observatory다.
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
-| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 home/draw/away의 terminal 수렴 | exact `$5` FOK BUY, 0.70 full-depth FOK stop | Cat 0.96 vs Dog 0.99, 6개 리그+UCL/UEL | **최소금액 prospective live A/B v2h** |
+| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 prospective live A/B v3b** |
 
 상태 합계는 운영 8, 구현만 완료 5, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
@@ -378,21 +378,22 @@ credential, actual fill, `--live`는 source-level로 금지한다. 상세는
 
 ### golden-watermelon-live — In-Play Match Result Live
 
-White/Grey의 선행 관측은 표본이 작아 threshold 최적값을 확정하지 못했다. v2h는 Cat
-`[0.96,0.999]` 대 Dog `[0.99,0.999]`의 signal-quantity/tail-risk 최소금액 pilot이다.
+White/Grey의 선행 관측은 표본이 작아 threshold 최적값을 확정하지 못했다. Soccer Cat/Dog,
+MLB Bear/Tiger, NHL Lion/Wolf는 family별 `[0.96,0.999]` 대 `[0.99,0.999]`의
+signal-quantity/tail-risk 최소금액 pilot이다.
 
-EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A와 exact UCL/UEL의 top-level regular-time
-home/draw/away YES token만 허용한다. exact `$5` ask depth를 진입 직전에 재검증해 FOK BUY하고, fresh best
-bid가 0.70 이하이면 전체 보유 shares의 displayed bid depth를 walk한 limit으로 FOK SELL한다.
-1분 polling 사이 gap과 depth 부족은 stop shortfall evidence로 남기며 0.70 체결을 보장하지
-않는다. threshold가 없는 경기에 임의 주문을 강제하지 않고, 조건을 충족한 대상 event만 모두
-처리한다.
+Soccer exact regular-time HOME/DRAW/AWAY와 MLB/NHL exact whole-game direct moneyline만 허용한다.
+exact `$5` ask depth를 진입 직전에 재검증해 FOK BUY하고, fresh best bid가
+`max(0.70, confirmed BUY VWAP-0.05)` 이하이면 전체 보유 shares의 displayed bid depth를 walk한
+limit으로 FOK SELL한다. 1분 polling 사이 gap과 depth 부족은 stop shortfall evidence로 남기며
+trigger 가격 체결을 보장하지 않는다. threshold가 없는 경기에 임의 주문을 강제하지 않는다.
 
 `golden-watermelon` collector는 accountless 상태로 그대로 유지한다. live cohort는
 `polybot-cat/watermelon-live-cat-96-1m-v2h`과
-`polybot-dog/watermelon-live-dog-99-1m-v2h`이며 수동 wallet position을 관리하지 않는다.
+`polybot-dog/watermelon-live-dog-99-1m-v2h`이며 MLB/NHL 네 job도 같은 source contract를 쓴다.
+수동 wallet position은 관리하지 않는다.
 상세는 `golden-watermelon-live/STRATEGY.md`, frozen 계약은
-`golden-watermelon-live/research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md`, 회고는
+`golden-watermelon-live/research/frozen-2026-08-29-reversal-safety-v3b/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-watermelon-live.md`를 따른다.
 
 ## 13차 설계 — major sports별 유동성·volume·threshold capacity 관측

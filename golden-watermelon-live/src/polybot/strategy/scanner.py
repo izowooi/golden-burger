@@ -410,6 +410,21 @@ class MarketScanner:
                 rejected["multiple_result_tokens_above_threshold"] = rejected.get(
                     "multiple_result_tokens_above_threshold", 0
                 ) + len(event_candidates)
+                # These fresh claims were deliberately not sent to the
+                # execution layer. Mark that no-POST guard outcome explicitly
+                # so a later cycle can retry if the anomaly clears and exactly
+                # one result remains in-band.
+                for candidate in event_candidates:
+                    episode_id = candidate.get("entry_episode_id")
+                    if (
+                        not isinstance(episode_id, bool)
+                        and isinstance(episode_id, int)
+                    ):
+                        self.repo.mark_entry_episode_execution(
+                            episode_id,
+                            state="BLOCKED_GUARD",
+                            reason="multiple_result_tokens_above_threshold",
+                        )
                 logger.error(
                     "event has multiple threshold-qualified match results; fail closed - "
                     "event=%s candidates=%s",

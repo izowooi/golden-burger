@@ -31,11 +31,17 @@ BUY는 marketable FOK만 사용한다. venue tick grid에서 exact maker `$5`와
 찾되 arm 상한 `0.999`를 넘지 않는다. 주문 accepted는 fill이 아니며 terminal fill과 dynamic fee를
 확인하기 전에는 position lifecycle을 확정하지 않는다.
 
-best bid `<=0.70` stop은 current Gamma event와 CLOB condition의 독립 OPEN proof, 그 proof 뒤
-fresh complete bid book, spread `<=0.10`을 요구한다. 정상 연속 book에는 `0.65` 실행 floor와
-35% projected-loss cap을 적용한다. 반면 OPEN 상태에서 가격이 stop을 한 번에 건너뛴 gap은 이 두
-cap이 손절 자체를 막지 않게 하며 actual worst bid/VWAP/gap을 기록한다. 이미 종료된 market의
-`0.001` cleanup bid는 OPEN proof에서 계속 차단한다.
+effective stop은 `max(0.70, confirmed entry VWAP-0.05)`다. 따라서 0.99 체결은 0.94, 0.96
+체결은 0.91 부근에서 adverse move를 감지한다. current Gamma event와 CLOB condition의 독립 OPEN
+proof, 그 proof 뒤 fresh complete bid book, spread `<=0.10`을 요구한다. 정상 연속 book에는 stop
+대비 5pp 실행 floor와 35% projected-loss cap을 적용한다. 반면 OPEN 상태에서 가격이 stop을 한 번에
+건너뛴 gap은 이 두 cap이 손절 자체를 막지 않게 하며 actual worst bid/VWAP/gap을 기록한다. 이미
+종료된 market의 `0.001` cleanup bid는 OPEN proof에서 계속 차단한다.
+
+한 cycle의 실행 후보는 어떤 주문보다 먼저 `QUEUED_NO_POST`로 기록한다. 로컬 정밀도 검사나
+event capacity처럼 POST가 없었다고 증명된 경우에만 다음 fresh in-band snapshot에서 재시도한다.
+POST 가능성이 있는 예외·응답은 execution ledger 대사 전 재시도하지 않는다. 기존 결과를 stop한
+event의 다른 HOME/DRAW/AWAY 결과는 SELL confirmed 뒤 다음 cycle에 여전히 arm 안이면 진입 가능하다.
 
 account/event/cycle 한도는 `20/1/5`, cycle emergency SELL은 1건이다. PENDING,
 QUARANTINED, orphan BUY, fill/fee gap 또는 모호한 execution ledger가 있으면 후보만 기록하고 신규

@@ -14,7 +14,11 @@ from polybot_observability import (
     SubmissionEvidenceError,
 )
 
-from ..api.clob_client import ClobClientWrapper, ClobResolutionProof
+from ..api.clob_client import (
+    ClobClientWrapper,
+    ClobResolutionProof,
+    PreSubmissionContractError,
+)
 from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.models import STRATEGY_NAME, TradeStatus
@@ -96,6 +100,38 @@ def _sdk_sell_submission_shares(sellable_shares: float) -> float:
     if not math.isfinite(sellable_shares) or sellable_shares <= 0:
         raise ValueError("sellable shares must be finite and positive")
     return math.nextafter(sellable_shares, math.inf)
+
+
+def _entry_stop_price(entry_vwap: float, config: TradingConfig) -> float:
+    """Return the common absolute-or-entry-drawdown protective trigger."""
+    try:
+        normalized_entry = float(entry_vwap)
+    except (TypeError, ValueError):
+        normalized_entry = math.nan
+    if not math.isfinite(normalized_entry) or not 0 < normalized_entry < 1:
+        return float(config.entry.stop_price)
+    return round(
+        max(
+            float(config.entry.stop_price),
+            normalized_entry - float(config.entry.max_entry_drawdown),
+        ),
+        6,
+    )
+
+
+def _effective_stop_price(trade: object, config: TradingConfig) -> float:
+    """Protect legacy holdings without rewriting their historical entry row."""
+    stored = getattr(trade, "stop_price_at_entry", None)
+    try:
+        stored_stop = float(stored)
+    except (TypeError, ValueError):
+        stored_stop = float(config.entry.stop_price)
+    if not math.isfinite(stored_stop) or not 0 < stored_stop < 1:
+        stored_stop = float(config.entry.stop_price)
+    entry_vwap = getattr(trade, "buy_confirmed_vwap", None)
+    if entry_vwap is None:
+        entry_vwap = getattr(trade, "buy_price", None)
+    return max(stored_stop, _entry_stop_price(entry_vwap, config))
 
 
 def _orphan_catalog_identity_matches(
@@ -237,6 +273,10 @@ class Trader:
         self.emergency_sell_guard_blocks = 0
         self._cycle_markets: dict[str, dict] = {}
         self.last_entry_outcome_reason: Optional[str] = None
+        # False means this candidate is proven not to have reached a venue
+        # POST. True is deliberately conservative: the result may need ledger
+        # reconciliation before the first-observation episode can be retried.
+        self.last_entry_may_have_reached_venue = False
 
     def set_cycle_markets(self, markets: Iterable[Mapping]) -> None:
         """Cache the cursor-complete live sweep for stop lifecycle preflight."""
@@ -255,6 +295,10 @@ class Trader:
     def signable_sell_shares(trade) -> float:
         return _sdk_sellable_shares(float(trade.buy_shares))
 
+    @staticmethod
+    def effective_stop_price(trade, config: TradingConfig) -> float:
+        return _effective_stop_price(trade, config)
+
     def _reject_entry(self, reason: str) -> None:
         self.last_entry_outcome_reason = str(reason)
         return None
@@ -262,6 +306,7 @@ class Trader:
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Revalidate the exact $5 walk, then submit a FOK BUY."""
         self.last_entry_outcome_reason = None
+        self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
             return self._reject_entry("cycle_buying_disabled")
         condition_id = str(candidate["condition_id"])
@@ -289,6 +334,12 @@ class Trader:
                 entry_snapshot_id,
             )
             return self._reject_entry("current_run_entry_snapshot_missing")
+        episode_id = candidate.get("entry_episode_id")
+        normalized_episode_id = (
+            episode_id
+            if not isinstance(episode_id, bool) and isinstance(episode_id, int)
+            else None
+        )
         can_enter, reason = self.repo.can_reenter(
             condition_id, self.config.reentry_cooldown_hours
         )
@@ -406,12 +457,26 @@ class Trader:
             walk.limit_price * 100,
             walk.shares,
         )
-        result = self.clob.place_fok_buy(
-            token_id=token_id,
-            amount_usdc=self.config.buy_amount_usdc,
-            limit_price=walk.limit_price,
-            max_limit_price=self.config.entry.prob_max,
-        )
+        # Treat an arbitrary exception from the submission wrapper as possibly
+        # post-POST. Only the explicit local pre-submission contract exception
+        # proves that no order could have reached the venue.
+        if normalized_episode_id is not None:
+            self.repo.mark_entry_episode_execution(
+                normalized_episode_id,
+                state="SUBMISSION_IN_PROGRESS",
+                reason="fresh_book_validated_before_submission_wrapper",
+            )
+        self.last_entry_may_have_reached_venue = True
+        try:
+            result = self.clob.place_fok_buy(
+                token_id=token_id,
+                amount_usdc=self.config.buy_amount_usdc,
+                limit_price=walk.limit_price,
+                max_limit_price=self.config.entry.prob_max,
+            )
+        except PreSubmissionContractError:
+            self.last_entry_may_have_reached_venue = False
+            raise
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
                 self.local_untracked_buy_reservations += 1
@@ -442,12 +507,6 @@ class Trader:
             )
             return self._reject_entry("buy_requested_size_invalid")
 
-        episode_id = candidate.get("entry_episode_id")
-        normalized_episode_id = (
-            episode_id
-            if not isinstance(episode_id, bool) and isinstance(episode_id, int)
-            else None
-        )
         trade = self.repo.create_trade(
             entry_episode_id=normalized_episode_id,
             condition_id=condition_id,
@@ -483,7 +542,7 @@ class Trader:
             market_tags=candidate.get("market_tags", ""),
             prior_yes_price_at_entry=None,
             yes_price_at_buy=candidate.get("yes_probability"),
-            stop_price_at_entry=self.config.entry.stop_price,
+            stop_price_at_entry=_entry_stop_price(walk.vwap, self.config),
             entry_prob_min_at_buy=self.config.entry.prob_min,
             entry_prob_max_at_buy=self.config.entry.prob_max,
             entry_hours_min_at_buy=self.config.entry.hours_min,
@@ -649,7 +708,9 @@ class Trader:
                 market_tags=catalog.tags_json,
                 prior_yes_price_at_entry=None,
                 yes_price_at_buy=episode.exact_vwap,
-                stop_price_at_entry=self.config.entry.stop_price,
+                stop_price_at_entry=_entry_stop_price(
+                    evidence.confirmed_vwap, self.config
+                ),
                 entry_prob_min_at_buy=episode.arm_prob_min,
                 entry_prob_max_at_buy=episode.arm_prob_max,
                 entry_hours_min_at_buy=self.config.entry.hours_min,
@@ -1073,6 +1134,9 @@ class Trader:
             buy_confirmed_size=evidence.confirmed_size,
             buy_confirmed_vwap=evidence.confirmed_vwap,
             buy_confirmed_fee_usdc=evidence.confirmed_fee_usdc,
+            stop_price_at_entry=_entry_stop_price(
+                evidence.confirmed_vwap, self.config
+            ),
         )
         logger.info(
             "exact terminal BUY fill로 HOLDING 활성화: Trade #%s size=%.6f "
@@ -1293,12 +1357,7 @@ class Trader:
                 trade, "full-depth stop book unavailable"
             )
         best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
-        immutable_stop = getattr(trade, "stop_price_at_entry", None)
-        stop_price = (
-            float(immutable_stop)
-            if immutable_stop is not None
-            else self.config.entry.stop_price
-        )
+        stop_price = _effective_stop_price(trade, self.config)
         if best_bid > stop_price + 1e-9:
             logger.debug(
                 "hold to resolution - trade=%s bid=%.4f stop=%.4f",
@@ -1314,7 +1373,7 @@ class Trader:
         # and market lifecycle fields explicitly prove live order-taking.
         if not self._stop_execution_is_explicitly_live(trade):
             logger.warning(
-                "absolute stop suppressed because live lifecycle is not "
+                "protective stop suppressed because live lifecycle is not "
                 "explicitly proven - trade=%s condition=%s event=%s bid=%.4f",
                 trade.id,
                 trade.condition_id,
@@ -1356,7 +1415,7 @@ class Trader:
             return False
 
         logger.warning(
-            "absolute stop 충족: Trade #%s bid=%.2f%% stop=%.2f%% "
+            "protective stop 충족: Trade #%s bid=%.2f%% stop=%.2f%% "
             "gap=%.2fpp full_depth_vwap=%.2f%% limit=%.2f%% levels=%s shares=%.6f",
             trade.id,
             best_bid * 100,

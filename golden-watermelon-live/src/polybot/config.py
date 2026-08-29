@@ -296,6 +296,9 @@ class WatermelonLiveEntryConfig:
     prob_min: float = 0.96
     prob_max: float = 0.999
     stop_price: float = 0.70
+    # Protect a high-probability entry before the absolute 0.70 floor.  The
+    # effective trigger is max(stop_price, confirmed_entry_vwap - 0.05).
+    max_entry_drawdown: float = 0.05
     # A stop is a stop-limit contract, not permission to cross an arbitrary
     # post-game/dust book.  The full-depth FOK must remain within five points
     # of the trigger and inside a ten-point displayed spread.
@@ -394,6 +397,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "entry.prob_min": entry.prob_min,
         "entry.prob_max": entry.prob_max,
         "entry.stop_price": entry.stop_price,
+        "entry.max_entry_drawdown": entry.max_entry_drawdown,
         "entry.max_stop_slippage": entry.max_stop_slippage,
         "entry.max_stop_spread": entry.max_stop_spread,
         "entry.max_stop_loss_fraction": entry.max_stop_loss_fraction,
@@ -456,6 +460,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
     if entry.stop_price != 0.70:
         raise ValueError("emergency stop_price is frozen at 0.70")
+    if entry.max_entry_drawdown != 0.05:
+        raise ValueError("entry-relative stop is frozen at a 5pp drawdown")
     if (
         entry.max_stop_slippage != 0.05
         or entry.max_stop_spread != 0.10
@@ -542,6 +548,11 @@ def load_config(
         ),
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.70
+        ),
+        max_entry_drawdown=_get_config_value(
+            "POLYBOT_MAX_ENTRY_DRAWDOWN",
+            entry_cfg.get("max_entry_drawdown"),
+            0.05,
         ),
         max_stop_slippage=_get_config_value(
             "POLYBOT_MAX_STOP_SLIPPAGE",

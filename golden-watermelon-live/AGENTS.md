@@ -14,7 +14,7 @@
   `2026-09-12T04:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md`.
+  `research/frozen-2026-08-29-reversal-safety-v3b/PREREGISTRATION.md`.
 
 Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 쓴다. 신규 MLB/NHL job만
 새 runtime DB를 만든다. DB clean/wipe/migration/copy/merge/backfill을 하지 않는다.
@@ -35,9 +35,13 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
 - account/open 20, event 1, cycle BUY 5, cycle emergency SELL 1. manual wallet position은
   편입·청산하지 않는다.
 - PENDING/QUARANTINED/orphan/fill-fee gap과 모호한 execution ledger가 있으면 신규 BUY를 막는다.
-- stop `0.70`은 독립 Gamma+CLOB OPEN proof와 proof 뒤 fresh complete book, spread `<=0.10`을
-  요구한다. 정상 연속 book은 `0.65`/35% envelope를 유지하고, 검증된 OPEN 상태의 불연속 gap은
-  envelope가 손절을 무력화하지 않게 한다. 종료 후 cleanup bid는 OPEN proof에서 차단한다.
+- effective stop은 `max(0.70, confirmed entry VWAP-0.05)`다. 독립 Gamma+CLOB OPEN proof와 proof
+  뒤 fresh complete book, spread `<=0.10`을 요구한다. 정상 연속 book은 stop 대비 5pp/35%
+  envelope를 유지하고, 검증된 OPEN 상태의 불연속 gap은 envelope가 손절을 무력화하지 않게 한다.
+  종료 후 cleanup bid는 OPEN proof에서 차단한다.
+- 각 cycle 후보는 POST 전 `QUEUED_NO_POST`로 일괄 기록한다. 명시적인 pre-submission/no-POST만
+  fresh in-band snapshot에서 재시도하며, POST 가능성이 있으면 ledger 대사 전 재시도하지 않는다.
+  같은 event의 반대 결과는 기존 stop SELL confirmed 후 다음 cycle부터만 진입할 수 있다.
 - confirmed SELL + proven resolution 경제손익 `<=-$10`이면 신규 BUY를 자동 차단한다.
 - 경과시간은 거래 조건이 아니다. 42초 이후 요청 금지나 process alarm을 사용하지 않는다.
   각 HTTP 요청은 finite timeout을 사용하고 50초 초과는 telemetry warning으로 남긴다.

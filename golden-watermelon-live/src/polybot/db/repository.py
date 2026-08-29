@@ -92,6 +92,14 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "INVALID",
 }
 _FILL_SIZE_TOLERANCE = 1e-6
+_RETRYABLE_PROVEN_NO_POST_EPISODE_STATES = frozenset(
+    {
+        "BLOCKED_GUARD",
+        "PRE_SUBMISSION_CONTRACT_ERROR",
+        "QUEUED_NO_POST",
+        "NO_POST_RETRYABLE",
+    }
+)
 
 
 def _canonical_json_list(value: Any, *, field_name: str) -> str:
@@ -977,7 +985,7 @@ class TradeRepository:
             if (
                 existing.trade_id is None
                 and str(existing.execution_state or "").upper()
-                in {"BLOCKED_GUARD", "PRE_SUBMISSION_CONTRACT_ERROR"}
+                in _RETRYABLE_PROVEN_NO_POST_EPISODE_STATES
             ):
                 existing.condition_id = condition_id
                 existing.event_id = event_id
@@ -1042,6 +1050,54 @@ class TradeRepository:
         episode.execution_state = normalized_state
         episode.execution_reason = str(reason or "").strip() or None
         episode.last_attempted_at = datetime.utcnow()
+        self.session.commit()
+
+    def mark_entry_episodes_queued_no_post(
+        self,
+        episode_ids: List[int],
+        *,
+        reason: str,
+    ) -> None:
+        """Durably queue fresh candidates before any one of them can POST.
+
+        A cycle may terminate while processing an earlier candidate. Persisting
+        this explicit no-POST state first makes every later candidate safely
+        reclaimable on its next fresh in-band snapshot. The state is accepted
+        only directly from this run's OBSERVED/RETRY_OBSERVED claims.
+        """
+        normalized = {
+            episode_id
+            for episode_id in episode_ids
+            if not isinstance(episode_id, bool)
+            and isinstance(episode_id, int)
+            and episode_id > 0
+        }
+        normalized_ids = sorted(normalized)
+        if not normalized_ids:
+            return
+        episodes = (
+            self.session.query(EntryEpisode)
+            .filter(EntryEpisode.id.in_(normalized_ids))
+            .all()
+        )
+        if len(episodes) != len(normalized_ids):
+            raise ValueError("one or more queued entry episodes are missing")
+        for episode in episodes:
+            current = str(episode.execution_state or "").upper()
+            if episode.trade_id is not None or current not in {
+                "OBSERVED",
+                "RETRY_OBSERVED",
+            }:
+                raise ValueError(
+                    "entry episode cannot enter a proven no-POST queue: "
+                    f"id={episode.id} state={current} trade={episode.trade_id}"
+                )
+        queue_reason = str(reason or "").strip()
+        for episode in episodes:
+            episode.execution_state = "QUEUED_NO_POST"
+            episode.execution_reason = queue_reason or None
+            # Queueing is not an execution attempt. Preserve last_attempted_at
+            # until this specific candidate is actually selected for execution.
         self.session.commit()
 
     def link_entry_episode_trade(self, episode_id: int, trade_id: int) -> None:

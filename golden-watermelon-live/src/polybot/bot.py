@@ -105,12 +105,14 @@ class PolymarketBot:
             entry.hours_max,
         )
         logger.info(
-            "execution - FOK BUY + bid-triggered FOK emergency stop %.2f; "
-            "stop-limit floor %.2f spread<=%.2f loss<=%.0f%%; "
+            "execution - FOK BUY + bid-triggered FOK protective stop "
+            "max(%.2f, entry-%.2f); "
+            "normal stop-limit floor trigger-%.2f spread<=%.2f loss<=%.0f%%; "
             "no TP/time-exit; $%.2f positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.stop_price,
-            entry.stop_price - entry.max_stop_slippage,
+            entry.max_entry_drawdown,
+            entry.max_stop_slippage,
             entry.max_stop_spread,
             entry.max_stop_loss_fraction * 100,
             trading.buy_amount_usdc,
@@ -160,6 +162,7 @@ class PolymarketBot:
             "buy_candidates": 0,
             "bought": 0,
             "entry_blocked_candidates": 0,
+            "entry_queued_no_post": 0,
             "orphan_buy_recovery": {
                 "checked": 0,
                 "recovered": 0,
@@ -265,6 +268,18 @@ class PolymarketBot:
                 logger.info("=== Phase 2: frozen exact-VWAP arm scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
+                queued_episode_ids = [
+                    episode_id
+                    for candidate in candidates
+                    for episode_id in [candidate.get("entry_episode_id")]
+                    if not isinstance(episode_id, bool)
+                    and isinstance(episode_id, int)
+                ]
+                repo.mark_entry_episodes_queued_no_post(
+                    queued_episode_ids,
+                    reason="selected_for_cycle_before_any_submission",
+                )
+                stats["entry_queued_no_post"] = len(set(queued_episode_ids))
                 state_before_entry = repo.get_stats()
                 economic_guard = repo.get_economic_pnl_guard()
                 realized_pnl = float(
@@ -454,9 +469,21 @@ class PolymarketBot:
                             not isinstance(episode_id, bool)
                             and isinstance(episode_id, int)
                         ):
+                            proven_no_post = (
+                                getattr(
+                                    trader,
+                                    "last_entry_may_have_reached_venue",
+                                    True,
+                                )
+                                is False
+                            )
                             repo.mark_entry_episode_execution(
                                 episode_id,
-                                state="NOT_EXECUTED",
+                                state=(
+                                    "NO_POST_RETRYABLE"
+                                    if proven_no_post
+                                    else "NOT_EXECUTED"
+                                ),
                                 reason=(
                                     trader.last_entry_outcome_reason
                                     or "unspecified_fail_closed_rejection"
@@ -569,7 +596,10 @@ class PolymarketBot:
                         "question": trade.question,
                         "buy_price": trade.buy_price,
                         "yes_price_at_buy": trade.yes_price_at_buy,
-                        "stop_price": trade.stop_price_at_entry,
+                        "stored_stop_price": trade.stop_price_at_entry,
+                        "effective_stop_price": Trader.effective_stop_price(
+                            trade, trading
+                        ),
                         "buy_timestamp": (
                             trade.buy_timestamp.isoformat()
                             if trade.buy_timestamp else None
@@ -599,6 +629,9 @@ class PolymarketBot:
                         "prob_min": trading.entry.prob_min,
                         "prob_max": trading.entry.prob_max,
                         "stop_price": trading.entry.stop_price,
+                        "max_entry_drawdown": (
+                            trading.entry.max_entry_drawdown
+                        ),
                         "max_stop_slippage": trading.entry.max_stop_slippage,
                         "max_stop_spread": trading.entry.max_stop_spread,
                         "max_stop_loss_fraction": (

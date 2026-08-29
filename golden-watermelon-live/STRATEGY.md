@@ -1,9 +1,10 @@
-# Golden Watermelon Live — Major Sports A/B v3a
+# Golden Watermelon Live — Major Sports A/B v3b
 
 ## 질문과 treatment
 
-경기 중 승자 token이 높은 executable 가격에 도달했을 때 exact `$5` FOK로 진입하고 `0.70`
-emergency stop 또는 proven resolution까지 관리하면 confirmed fill·fee 후 양의 기대값이 있는가?
+경기 중 승자 token이 높은 executable 가격에 도달했을 때 exact `$5` FOK로 진입하고
+`max(0.70, confirmed entry VWAP-0.05)` protective stop 또는 proven resolution까지 관리하면
+confirmed fill·fee 후 양의 기대값이 있는가?
 
 각 family에서 A는 `[0.96,0.999]`, B는 `[0.99,0.999]`다. Soccer는 Cat/Dog, MLB는
 Bear/Tiger, NHL은 Lion/Wolf가 맡는다. `0.999`는 terminal `1.000`을 제외하는 공통 상한이다.
@@ -36,6 +37,11 @@ spread/total/prop/future/advancement와 settlement scope가 불명확한 soccer 
    가장 낮은 limit을 찾는다. arm 상한을 넘으면 POST 없이 명시적으로 실패한다.
 7. marketable FOK BUY를 제출하고 exact terminal fill·fee가 대사될 때까지 `PENDING_BUY`다.
 
+실행 후보 전체는 첫 주문 전에 `QUEUED_NO_POST`로 남긴다. 앞 후보의 로컬 정밀도 오류로 cycle이
+끝나도 뒤 후보는 다음 fresh in-band snapshot에서 안전하게 재청구된다. 현재 후보는 POST 직전
+`SUBMISSION_IN_PROGRESS`가 되며, `PreSubmissionContractError` 또는 명시적인 no-POST rejection만
+재시도한다. venue POST 가능성이 생긴 뒤의 예외·거절은 ledger 대사 없이 재제출하지 않는다.
+
 account/event/cycle capacity는 `20/1/5`, cycle 신규 요청 원금은 최대 `$25`다. FOK는 full fill이
 불가능하면 zero fill이며, accepted/order ID만으로 체결을 추정하지 않는다. unresolved
 `PENDING_BUY`, `PENDING_SELL`, `QUARANTINED`, orphan BUY, order reconciliation 또는 fill/fee
@@ -43,15 +49,20 @@ evidence gap이 있으면 신규 BUY를 막는다. bot DB가 만든 Trade만 관
 
 ## Stop, gap과 resolution
 
-best bid `<=0.70`은 trigger이지 체결가가 아니다. irreversible SELL 직전에 current Gamma event와
-exact CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다시 읽어 FOK SELL한다.
-spread는 `<=0.10`, cycle SELL은 1건으로 제한한다.
+effective trigger는 `max(0.70, confirmed entry VWAP-0.05)`이고 체결가를 보장하지 않는다. 0.99
+진입은 0.94, 0.96 진입은 0.91 부근이 된다. irreversible SELL 직전에 current Gamma event와 exact
+CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다시 읽어 FOK SELL한다. spread는
+`<=0.10`, cycle SELL은 1건으로 제한한다.
 
-정상적으로 연속 관측된 book에서는 worst level/VWAP `>=0.65`, projected gross loss `<=35%`를
+정상적으로 연속 관측된 book에서는 worst level/VWAP `>= effective stop-0.05`, projected gross loss `<=35%`를
 강제한다. 그러나 PSG–Lille처럼 가격이 두 cycle 사이에서 0.70을 크게 건너뛰어도 event와 CLOB이
 독립적으로 OPEN이고 fresh complete book이면 두 cap이 손절 자체를 영구 차단하지 않는다. 이
 경우 `gap stop`으로 분류해 trigger, prior bid, worst bid, VWAP, spread와 손실을 보존한다. 종료 후
 cleanup/dust `0.001`은 OPEN proof에 실패하므로 팔지 않는다.
+
+동일 event에서는 동시에 한 포지션만 허용한다. stop SELL은 먼저 exact confirmed fill로 종결되어야
+하며, 그 다음 cycle에 다른 HOME/DRAW/AWAY condition이 fresh arm 안에 있으면 진입할 수 있다.
+이는 상호배타 결과의 겹친 노출을 막는 대신 최소 한 cadence의 지연을 감수하는 규칙이다.
 
 confirmed SELL P&L과 proven one-hot resolution settlement P&L을 안전 판정에만 합산해 `-$10`에
 도달하면 신규 BUY를 차단한다. 모든 live `CONFIRMED` SELL은 execution ledger에서 exact order나
