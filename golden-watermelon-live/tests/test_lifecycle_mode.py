@@ -507,8 +507,25 @@ def test_bot_close_releases_network_pools_and_database_engine() -> None:
     engine = MagicMock()
     bot.Session = SimpleNamespace(kw={"bind": engine})
 
-    bot.close()
+    failures = bot.close()
 
+    assert failures == ()
+    bot.gamma.close.assert_called_once_with()
+    bot.clob.close.assert_called_once_with()
+    engine.dispose.assert_called_once_with()
+
+
+def test_bot_close_continues_after_individual_cleanup_failure() -> None:
+    bot = object.__new__(PolymarketBot)
+    bot.gamma = MagicMock()
+    bot.gamma.close.side_effect = RuntimeError("broken gamma pool")
+    bot.clob = MagicMock()
+    engine = MagicMock()
+    bot.Session = SimpleNamespace(kw={"bind": engine})
+
+    failures = bot.close()
+
+    assert failures == ("gamma_session",)
     bot.gamma.close.assert_called_once_with()
     bot.clob.close.assert_called_once_with()
     engine.dispose.assert_called_once_with()

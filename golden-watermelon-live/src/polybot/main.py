@@ -103,10 +103,17 @@ def main() -> None:
                     try:
                         bot.run()
                     finally:
-                        bot.close()
-                        logging.info(
-                            "cycle resources closed - job=%s", config.job_name
-                        )
+                        cleanup_failures = bot.close()
+                        if cleanup_failures:
+                            logging.error(
+                                "cycle resource cleanup incomplete - job=%s failures=%s",
+                                config.job_name,
+                                ",".join(cleanup_failures),
+                            )
+                        else:
+                            logging.info(
+                                "cycle resources closed - job=%s", config.job_name
+                            )
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단됨")
             sys.exit(0)
@@ -122,7 +129,13 @@ def main() -> None:
         try:
             print(json.dumps(bot.get_status(), indent=2, default=str))
         finally:
-            bot.close()
+            cleanup_failures = bot.close()
+            if cleanup_failures:
+                logging.error(
+                    "status resource cleanup incomplete - job=%s failures=%s",
+                    config.job_name,
+                    ",".join(cleanup_failures),
+                )
         return
 
     trading = config.trading

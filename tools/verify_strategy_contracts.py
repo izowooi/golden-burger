@@ -3996,8 +3996,8 @@ def _validate_watermelon_live_strategy(
             "unresolved_sell_outcome",
             "entry_blocked_candidates",
             "get_entry_capacity_state",
-            "Release all cycle-scoped network and database resources",
-            "engine.dispose()",
+            "Release every cycle-scoped resource even if one cleanup fails",
+            "database_engine",
         ),
         "src/polybot/db/repository.py": (
             "get_untracked_buy_reservation_count",

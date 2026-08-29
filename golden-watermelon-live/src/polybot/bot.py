@@ -65,13 +65,31 @@ class PolymarketBot:
             config.trading.preregistration_sha256[:12],
         )
 
-    def close(self) -> None:
-        """Release all cycle-scoped network and database resources."""
-        self.gamma.close()
-        self.clob.close()
+    def close(self) -> tuple[str, ...]:
+        """Release every cycle-scoped resource even if one cleanup fails.
+
+        Cleanup happens after all durable run/order evidence is committed.  A
+        broken keep-alive pool must therefore neither hide a successful cycle
+        nor prevent the remaining pools and SQLite engine from being closed.
+        The caller logs the returned labels so a cleanup defect stays visible
+        without turning into a minute-over-minute Jenkins backlog.
+        """
         engine = self.Session.kw.get("bind")
+        resources = [
+            ("gamma_session", self.gamma.close),
+            ("clob_http_client", self.clob.close),
+        ]
         if engine is not None:
-            engine.dispose()
+            resources.append(("database_engine", engine.dispose))
+
+        failures: list[str] = []
+        for label, close in resources:
+            try:
+                close()
+            except Exception:
+                failures.append(label)
+                logger.exception("cycle resource cleanup failed - resource=%s", label)
+        return tuple(failures)
 
     def _log_strategy_config(self) -> None:
         trading = self.config.trading
