@@ -834,6 +834,99 @@ def test_missing_game_id_with_gamma_status_keeps_medium_ws_and_high_minute_gap(
     ]
 
 
+def test_mlb_period_without_soccer_minute_is_not_a_high_clock_gap(
+    tmp_path,
+) -> None:
+    config = configured(tmp_path)
+    repository = repository_for(config)
+    mlb_event = {
+        **event(),
+        "id": "mlb-event",
+        "title": "Arizona Diamondbacks vs San Francisco Giants",
+        "slug": "mlb-ari-sf-2026-08-22",
+        "gameId": "mlb-game-1",
+        "gameStatus": "Top 7th",
+        "startTime": "2026-08-22T15:00:00Z",
+        "sport": {
+            "id": 8,
+            "sport": "mlb",
+            "name": "MLB",
+            "primaryTagId": 100381,
+            "series": 3,
+            "tags": "1,100639,100381",
+        },
+        "seriesSlug": "mlb-2026",
+        "tags": [
+            {"id": 1, "slug": "sports"},
+            {"id": 100639, "slug": "games"},
+            {"id": 100381, "slug": "mlb"},
+        ],
+        "series": [
+            {
+                "id": 301,
+                "slug": "mlb-2026",
+                "ticker": "mlb-2026",
+                "title": "MLB 2026",
+                "seriesType": "single",
+                "recurrence": "daily",
+            }
+        ],
+        "teams": [
+            {"name": "Arizona Diamondbacks", "league": "mlb"},
+            {"name": "San Francisco Giants", "league": "mlb"},
+        ],
+    }
+    mlb_market = market(
+        question="Arizona Diamondbacks vs San Francisco Giants",
+        groupItemTitle="",
+        outcomes='["Arizona Diamondbacks","San Francisco Giants"]',
+        clobTokenIds='["team-a","team-b"]',
+        outcomePrices='["0.97","0.03"]',
+        negRisk=False,
+        events=[mlb_event],
+    )
+
+    class MlbGamma(FakeGamma):
+        def fetch_live_events(self, run_id, *, observed_at):
+            sweep = super().fetch_live_events(run_id, observed_at=observed_at)
+            return EventSweep(
+                tuple(replace(page, sport_family="mlb") for page in sweep.pages),
+                sweep.cursor_complete,
+            )
+
+    result = collector(
+        config,
+        repository,
+        MlbGamma(mlb_market),
+        FakeClob(),
+        NoMatchSportsClock(),
+    ).collect("run-mlb-period", now=NOW)
+
+    assert result["accepted_events"] == 1
+    assert result["eligible_markets"] == 1
+    assert result["sports_clock_status"] == "NO_MATCH"
+    with repository.connect() as connection:
+        minute_gaps = connection.execute(
+            "SELECT COUNT(*) FROM data_quality_issues "
+            "WHERE issue_type='SOURCE_CLOCK_MINUTE_FIELD_GAP'"
+        ).fetchone()[0]
+        websocket_gaps = connection.execute(
+            "SELECT COUNT(*) FROM data_quality_issues "
+            "WHERE severity='MEDIUM' "
+            "AND issue_type='SPORTS_WEBSOCKET_COVERAGE_GAP'"
+        ).fetchone()[0]
+        normalized = json.loads(
+            connection.execute(
+                "SELECT normalized_json FROM market_observations WHERE eligible=1"
+            ).fetchone()[0]
+        )
+    assert minute_gaps == 0
+    assert websocket_gaps == 1
+    assert normalized["sports_clock"]["source"] == "POLYMARKET_GAMMA_EVENT"
+    assert normalized["sports_clock"]["status"] == "Top 7th"
+    assert normalized["sports_clock"]["elapsed_raw"] is None
+
+
 def test_upward_cross_is_distinguished_from_first_observation(tmp_path) -> None:
     config = configured(tmp_path)
     repository = repository_for(config)

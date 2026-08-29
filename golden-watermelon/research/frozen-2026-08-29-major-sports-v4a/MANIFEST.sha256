@@ -13,7 +13,7 @@ c4e03a756fb1020d65685e57cd0abd772750ff154b888dd62cdd57d4c1ffb51b  ../../src/poly
 804c498ba1929e64ffb66b83db72e5ba2fb3c4ed1368e3c732ffb38917c73d8b  ../../src/polybot/api/gamma_client.py
 167cdf154014609571b02f0b35edfdca9c7fa4a06157fef3007a0b20d31eac55  ../../src/polybot/api/clob_client.py
 f8f5c0b20db7c3d93e6ab60a93f67515bf93194b74cc5af7d770d073a6d56e1b  ../../src/polybot/api/sports_client.py
-6d52fe9d44f12e40aba8b4071dd9b376e491d2cc6cf9d4feaec3526ccda28f08  ../../src/polybot/collector.py
+7e486080b9ad011547bf3b5f9aeef42601c719236bc50fb2f7831cd0df7b6903  ../../src/polybot/collector.py
 511119e2ae4f53904b0d357303b1dd4dc1f3c5add96d1c00d8389f58f0f84e96  ../../src/polybot/league_classifier.py
 9251c9d7710f4e3a861713c37c30bf829e21c24ea529f9e332eecc02247c09e1  ../../src/polybot/db/repository.py
 bedb327be1ff46f9bb76c7da06d37d5006f6bed173ddab331977d9b042db91f9  ../../src/polybot/db/migrations/0002_watermelon_major_sports_v4a.sql

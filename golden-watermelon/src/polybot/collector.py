@@ -959,6 +959,7 @@ class Collector:
             )
 
         clock_expected_slugs: set[str] = set()
+        clock_expected_soccer_slugs: set[str] = set()
         clock_expected_event_ids: dict[str, str] = {}
         clock_target_games: dict[str, str] = {}
         clock_missing_game_ids: list[str] = []
@@ -974,6 +975,8 @@ class Collector:
             ):
                 continue
             clock_expected_slugs.add(slug)
+            if classification.evidence.get("sport_family") == "soccer":
+                clock_expected_soccer_slugs.add(slug)
             clock_expected_event_ids[slug] = str(event.get("id") or "")
             game_id = str(
                 event.get("gameId") or event.get("game_id") or ""
@@ -1430,8 +1433,11 @@ class Collector:
             )
         clock_minute_field_gaps = sorted(
             slug
-            for slug, clock in source_clock_by_slug.items()
-            if clock.get("elapsed_raw") in (None, "")
+            for slug in clock_expected_soccer_slugs
+            if (
+                slug in source_clock_by_slug
+                and source_clock_by_slug[slug].get("elapsed_raw") in (None, "")
+            )
         )
         if clock_minute_field_gaps:
             self.repository.record_issue(
