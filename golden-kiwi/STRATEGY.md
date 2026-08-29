@@ -3,7 +3,9 @@
 ## 1. 결정
 
 Golden Kiwi는 네 개의 독립 simulation 팔로 **짧은 연속 상승의 60분 지속성**을 검증한다.
-현재 상태는 `RESEARCH_ONLY`이며 live execution은 source-level hard block이다.
+2026-08-29 최종 상태는 `STOP / UNRESEARCHABLE`이며 실험은 폐쇄됐다. live execution의
+source-level hard block과 historical DB 보존 계약은 유지한다. cadence·cohort·최소 표본
+근거는 [최종 판정](../docs/retro/2026-08-29-golden-kiwi-verdict.md)에 고정한다.
 
 이 전략을 폐쇄 전략들에서 자동으로 도출된 “최고 수익 전략”이라고 부르지 않는다. 사용
 가능한 DB로 사전 등록 OOS 검정을 했을 때 primary B를 포함한 네 팔이 모두 승격 gate를

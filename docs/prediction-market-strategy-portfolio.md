@@ -36,7 +36,7 @@ market observatory다.
 | ~~golden-fig~~ | Hope Crusher | favorite-longshot bias | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | **⛔ 폐쇄 완료 2026-07-28** |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | **구현 완료 · 시작 evidence 없음** |
 | ~~golden-honeydew~~ | Night Watch | 새벽·주말 attention 희소성 | 무근거 이탈 복원 | 0.30–0.90 | **⛔ 폐쇄 완료 2026-07-30** |
-| **golden-kiwi** | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **research/simulation 전용 · live 금지** |
+| ~~**golden-kiwi**~~ | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **⛔ 실험 폐쇄 2026-08-29 · STOP / UNRESEARCHABLE · live 금지** |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-mango~~ | Patience Premium | 자본 잠김 회피 → settlement discount | favorite 캐리 | 0.85–0.985, ≤14일 | **⛔ 폐쇄 완료 2026-07-28** |
 | ~~golden-melon~~ | Resolution Sprint | 마감 임박 수렴의 거래량 선별 | strict binary YES 편승 | 0.85–0.93, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · close-only 검증 2026-08-27** |

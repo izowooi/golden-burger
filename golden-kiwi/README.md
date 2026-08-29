@@ -1,5 +1,11 @@
 # Golden Kiwi — Micro-Cascade
 
+> **⛔ 2026-08-29 실험 폐쇄 — `STOP / UNRESEARCHABLE`.**
+> A/B/C/D의 cadence coverage, 단일 source/config cohort, primary B 최소 표본 gate가 모두
+> 실패해 Jenkins TimerTrigger를 제거했다. 기존 DB를 더 수집해 confirmatory experiment로
+> 복구하거나 arm/threshold를 사후 선택하지 않는다. 근거는
+> [최종 판정](../docs/retro/2026-08-29-golden-kiwi-verdict.md)을 따른다.
+
 Golden Kiwi는 사람들의 정보 반영이 한 번에 끝나지 않고 짧은 군집 행동으로 이어질 수
 있다는 가설을 검증하는 **5분 주기 research/simulation 전용 봇**이다.
 
@@ -12,7 +18,7 @@ threshold를 합쳐 새 점수를 만든 것이 아니라, 반복하면 안 될 
 [2026-08-13 filtered-universe 4개 Arm 실행 가이드](GOLDEN_KIWI_FILTERED_4_ARM_30_DAY_RUNBOOK_2026-08-13.md)를
 먼저 읽는다.
 
-> **현재 결론: live 금지.**
+> **현재 결론: 폐쇄 및 live 금지.**
 > 동기화된 운영 DB로 사전 등록 후 시간 외 표본(OOS)을 검사했지만 네 실험군 모두 승격
 > 기준을 통과하지 못했다. 그래서 코드가 `--live`를 명시적으로 거부한다. 이 폴더는
 > “수익성이 확인된 새 전략”이 아니라, 다음 30일 독립 데이터로 가설을 기각하거나

@@ -25,7 +25,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-fig | [golden-fig.md](golden-fig.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Hope Crusher |
 | golden-grape | [golden-grape.md](golden-grape.md) | Cascade Rider |
 | golden-honeydew | [golden-honeydew.md](golden-honeydew.md) · **⛔ 폐쇄 완료 (2026-07-30, 운영자 확인)** → [판정](golden-honeydew-2026-07-verdict.md) | Night Watch, archive 보존 |
-| golden-kiwi | [golden-kiwi.md](golden-kiwi.md) · [과거 증거 정정](../../golden-kiwi/research/2026-07-30-cohort-correction.md) | **Micro-Cascade, research/simulation 전용, live 금지**, 4-arm 5분 독립 검정 |
+| golden-kiwi | [golden-kiwi.md](golden-kiwi.md) · **⛔ 실험 폐쇄 (2026-08-29)** → [최종 판정](2026-08-29-golden-kiwi-verdict.md) · [과거 증거 정정](../../golden-kiwi/research/2026-07-30-cohort-correction.md) | **STOP / UNRESEARCHABLE**, cadence·cohort·primary 표본 gate 실패, live 금지 |
 | golden-lime | [golden-lime.md](golden-lime.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [최종 판정](golden-lime-2026-07-backtest-verdict.md) · [진단](golden-lime-2026-07-close-recommendation.md) | Shock Follow |
 | golden-mango | [golden-mango.md](golden-mango.md) · **⛔ 폐쇄 완료 (2026-07-28)** → [판정](golden-mango-fig-2026-07-verdict.md) | Patience Premium |
 | golden-melon | [golden-melon.md](golden-melon.md) · **⛔ 운영 폐쇄 (2026-08-24, close-only 검증 2026-08-27)** → [최종 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | **Resolution Sprint**, 1/5/5 fills로 월 10% throughput 미달 |
