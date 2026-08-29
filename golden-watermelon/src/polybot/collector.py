@@ -22,7 +22,7 @@ from .api.gamma_client import GammaClient
 from .api.sports_client import SportsClockClient, SportsClockUpdate
 from .config import BotConfig, GammaConfig
 from .db.repository import ResearchRepository
-from .league_classifier import LeagueClassification, classify_soccer_event
+from .league_classifier import LeagueClassification, classify_sports_event
 from .utils.retry import canonical_json, iso_utc
 
 
@@ -32,7 +32,15 @@ REGULATION_SCOPE_CLAUSE = (
     "this market refers only to the outcome within the first 90 minutes "
     "of regular play plus stoppage time"
 )
-MAX_IN_PLAY_HOURS = 4.0
+MAX_IN_PLAY_HOURS = {"soccer": 4.0, "mlb": 8.0, "nhl": 5.0}
+_NON_WHOLE_GAME_MARKET = re.compile(
+    r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th)\s+"
+    r"(?:half|quarter|period|inning)|\b(?:spread|handicap|total|over/under|"
+    r"draw no bet|advance(?:ment)?|qualify|penalt(?:y|ies)|corners?|shots?|"
+    r"goalscorer|touchdowns?|runs?|puck line|run line|futures?|season[- ]long|"
+    r"championship winner|conference winner|division winner)\b",
+    re.IGNORECASE,
+)
 # Read-only analyzers and repository discovery still identify this immutable
 # v3a rejection reason. v3b never emits it because explicit Draw YES is eligible.
 LEGACY_DRAW_EXCLUSION_REASON = "DRAW_OUTCOME_EXCLUDED"
@@ -120,6 +128,40 @@ def _result_triad_gap(
         return None
     return {
         "slot_counts": slot_counts,
+        "row_count": len(rows),
+        "distinct_condition_count": len(conditions),
+        "distinct_token_count": len(tokens),
+    }
+
+
+def _result_identity_gap(
+    rows: list[Mapping[str, Any]], sport_family: str
+) -> dict[str, Any] | None:
+    if sport_family == "soccer":
+        return _result_triad_gap(rows)
+    counts = Counter(str(row.get("result_kind") or "") for row in rows)
+    conditions = {
+        str(row.get("condition_id") or "").strip()
+        for row in rows
+        if str(row.get("condition_id") or "").strip()
+    }
+    tokens = {
+        str(row.get("token_id") or "").strip()
+        for row in rows
+        if str(row.get("token_id") or "").strip()
+    }
+    complete = (
+        sport_family in {"mlb", "nhl"}
+        and counts == {"HOME": 1, "AWAY": 1}
+        and len(rows) == 2
+        and len(conditions) == 1
+        and len(tokens) == 2
+    )
+    if complete:
+        return None
+    return {
+        "sport_family": sport_family,
+        "slot_counts": dict(sorted(counts.items())),
         "row_count": len(rows),
         "distinct_condition_count": len(conditions),
         "distinct_token_count": len(tokens),
@@ -364,7 +406,7 @@ def classify_soccer_league(
     event: Mapping[str, Any], gamma: GammaConfig
 ) -> tuple[dict[str, Any], list[str]]:
     """Compatibility wrapper around the exact numeric identity classifier."""
-    result = classify_soccer_event(event, gamma)
+    result = classify_sports_event(event, gamma, "soccer")
     return {
         "sport_family": gamma.sport_family if result.accepted else None,
         "league_code": result.league_code,
@@ -383,24 +425,37 @@ def classify_match_winner(
     labels: list[str],
     tokens: list[str],
     probabilities: list[float | None],
+    sport_family: str = "soccer",
 ) -> tuple[str, tuple[int, ...], dict[str, Any], list[str]]:
     """Fail-closed classifier for whole-match winners, never child games/props."""
     reasons: list[str] = []
     sports_market_type = str(market.get("sportsMarketType") or "").strip()
     if sports_market_type != "moneyline":
         reasons.append("NOT_TOP_LEVEL_MONEYLINE")
+    if market.get("parentMarketId") not in (None, ""):
+        reasons.append("CHILD_MARKET_EXCLUDED")
+    if any(
+        market.get(key) is True
+        for key in (
+            "isFuture", "future", "isProp", "prop", "isAdvancement", "advancement"
+        )
+    ):
+        reasons.append("PROP_FUTURE_OR_ADVANCEMENT_EXCLUDED")
     identity_text = " ".join(
         _normalized_name(market.get(field))
         for field in ("groupItemTitle", "question", "slug")
     )
     if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
         reasons.append("DRAW_NO_BET_EXCLUDED")
-    settlement_reason = _settlement_scope_reason(market)
-    if settlement_reason is not None:
+    if _NON_WHOLE_GAME_MARKET.search(identity_text):
+        reasons.append("NON_WHOLE_GAME_OR_PROP_EXCLUDED")
+    settlement_reason = (
+        _settlement_scope_reason(market) if sport_family == "soccer" else None
+    )
+    if sport_family == "soccer" and settlement_reason is not None:
         reasons.append(settlement_reason)
     aligned = (
         len(labels) == len(tokens) == len(probabilities) == 2
-        and labels == ["Yes", "No"]
         and all(tokens)
         and len(set(tokens)) == 2
         and all(value is not None and 0 <= value <= 1 for value in probabilities)
@@ -421,14 +476,25 @@ def classify_match_winner(
         reasons.append("TEAM_IDENTITY_AMBIGUOUS")
 
     neg_risk = market.get("negRisk") if isinstance(market.get("negRisk"), bool) else None
-    if neg_risk is not True:
-        reasons.append("NOT_EXPLICIT_NEGRISK_RESULT_MARKET")
-
     match_class = "REJECTED"
     eligible_indices: tuple[int, ...] = ()
     selected_team_index: int | None = None
     result_kind: str | None = None
-    if not reasons:
+    result_kinds_by_index: list[str | None] = [None, None]
+    if sport_family == "soccer":
+        if labels != ["Yes", "No"]:
+            reasons.append("SOCCER_YES_NO_STRUCTURE_REQUIRED")
+        if neg_risk is not True:
+            reasons.append("NOT_EXPLICIT_NEGRISK_RESULT_MARKET")
+    elif sport_family in {"mlb", "nhl"}:
+        if labels == ["Yes", "No"]:
+            reasons.append("DIRECT_TEAM_LABELS_REQUIRED")
+        if neg_risk is not False:
+            reasons.append("DIRECT_MONEYLINE_NEGRISK_FALSE_REQUIRED")
+    else:
+        reasons.append("UNSUPPORTED_SPORT_FAMILY")
+
+    if not reasons and sport_family == "soccer":
         descriptor = _normalized_name(market.get("groupItemTitle"))
         if not descriptor:
             reasons.append("GROUP_ITEM_TITLE_MISSING")
@@ -448,6 +514,27 @@ def classify_match_winner(
                 match_class = "NEGRISK_TEAM_WIN_YES"
                 eligible_indices = (0,)
                 result_kind = "HOME" if selected_team_index == 0 else "AWAY"
+        if result_kind is not None:
+            result_kinds_by_index[0] = result_kind
+    elif not reasons:
+        matched_indices: list[int] = []
+        for index, label in enumerate(labels):
+            normalized = _normalized_name(label)
+            matches = [
+                team_index
+                for team_index, candidates in enumerate(forms)
+                if normalized in candidates
+            ]
+            if len(matches) != 1:
+                reasons.append("DIRECT_OUTCOMES_NOT_EXACT_TEAMS")
+                break
+            matched_indices.append(matches[0])
+            result_kinds_by_index[index] = "HOME" if matches[0] == 0 else "AWAY"
+        if not reasons and sorted(matched_indices) == [0, 1]:
+            match_class = "DIRECT_TWO_TEAM_MONEYLINE"
+            eligible_indices = (0, 1)
+        elif not reasons:
+            reasons.append("DIRECT_OUTCOME_TEAM_ALIGNMENT_AMBIGUOUS")
 
     evidence = {
         "sports_market_type": sports_market_type,
@@ -458,11 +545,13 @@ def classify_match_winner(
         "outcome_labels": labels,
         "selected_team_index": selected_team_index,
         "result_kind": result_kind,
+        "result_kinds_by_index": result_kinds_by_index,
+        "sport_family": sport_family,
         "eligible_outcome_indices": list(eligible_indices),
         "settlement_scope": (
             "REGULATION_90_PLUS_STOPPAGE"
-            if settlement_reason is None
-            else "UNPROVEN"
+            if sport_family == "soccer" and settlement_reason is None
+            else ("WHOLE_GAME_DIRECT" if sport_family != "soccer" else "UNPROVEN")
         ),
         "description_sha256": hashlib.sha256(
             str(market.get("description") or "").encode("utf-8")
@@ -513,14 +602,25 @@ def _parse_market(
     labels = [str(value).strip() for value in labels]
     tokens = [str(value).strip() for value in tokens]
     probability_values = [_number(value) for value in probabilities]
+    sport_family = str(league.evidence.get("sport_family") or "soccer")
     match_class, eligible_indices, classification, classification_reasons = (
-        classify_match_winner(event, market, labels, tokens, probability_values)
+        classify_match_winner(
+            event,
+            market,
+            labels,
+            tokens,
+            probability_values,
+            sport_family,
+        )
     )
     end_date = _utc(market.get("endDate") or market.get("end_date") or event.get("endDate"))
     game_start = _utc(
         market.get("gameStartTime")
         or event.get("startTime")
         or event.get("eventDate")
+        or event.get("startDate")
+        or event.get("eventStartTime")
+        or event.get("gameStartTime")
     )
     hours_until_end = (end_date - observed_at).total_seconds() / 3600 if end_date else None
     liquidity = _number(market.get("liquidityNum", market.get("liquidity")))
@@ -566,7 +666,10 @@ def _parse_market(
     elif event_live is not True or event_ended is not False:
         phase = "FINISHED" if event_ended is True else "NOT_EXPLICITLY_LIVE"
         reasons.append("EVENT_NOT_EXPLICITLY_IN_PLAY")
-    elif (observed_at - game_start).total_seconds() / 3600 > MAX_IN_PLAY_HOURS:
+    elif (
+        (observed_at - game_start).total_seconds() / 3600
+        > MAX_IN_PLAY_HOURS[sport_family]
+    ):
         phase = "OUTSIDE_IN_PLAY_WINDOW"
         reasons.append("OUTSIDE_IN_PLAY_WINDOW")
     else:
@@ -630,11 +733,23 @@ def _parse_market(
                 "entry_eligible": int(index in eligible_indices and not reasons),
                 "observed_at": iso_utc(observed_at),
             })
+    contextual_outcomes = [
+        {
+            **row,
+            "result_kind": (
+                classification.get("result_kinds_by_index", [None, None])[index]
+                if index < len(classification.get("result_kinds_by_index", []))
+                else None
+            ),
+        }
+        for index, row in enumerate(outcome_rows)
+    ]
     context = {
         "market_row": market_row, "outcomes": outcome_rows, "eligible": not reasons,
         "eligible_indices": eligible_indices,
         "match_winner_class": match_class,
         "result_kind": classification.get("result_kind"),
+        "sport_family": sport_family,
         "event": event, "market": market, "labels": labels, "tokens": tokens,
         "probabilities": probability_values, "fee_rate": fee_rate,
         "end_date": end_date, "game_start": game_start, "phase": phase,
@@ -646,6 +761,7 @@ def _parse_market(
         "league_mapping_sha256": config.trading.league_mapping_sha256,
         "sports_clock": clock_evidence,
     }
+    context["outcomes"] = contextual_outcomes
     return market_row, outcome_rows, context
 
 
@@ -689,6 +805,8 @@ def _request_envelope(config: BotConfig) -> dict[str, Any]:
         "closed": False,
         "live": True,
         "tag_id": gamma.tag_id,
+        "sport_families": list(gamma.sport_families),
+        "family_tag_ids": gamma.family_tags,
         "related_tags": gamma.related_tags,
         "sport_family": gamma.sport_family,
         "required_common_tag_ids": list(gamma.required_common_tag_ids),
@@ -730,7 +848,12 @@ class Collector:
     def collect(self, run_id: str, *, now: datetime | None = None) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
         sweep_id = uuid4().hex
-        sweep = self.gamma.fetch_live_events(run_id, observed_at=now)
+        multi_family_fetch = getattr(self.gamma, "fetch_live_families", None)
+        sweep = (
+            multi_family_fetch(run_id, observed_at=now)
+            if callable(multi_family_fetch)
+            else self.gamma.fetch_live_events(run_id, observed_at=now)
+        )
         payloads: list[dict[str, Any]] = []
         payload_by_request: dict[str, dict[str, Any]] = {}
         for page in sweep.pages:
@@ -757,7 +880,11 @@ class Collector:
         for page in sweep.pages:
             observed = _utc(page.received_at) or now
             for event in page.events:
-                classification = classify_soccer_event(event, self.config.trading.gamma)
+                classification = classify_sports_event(
+                    event,
+                    self.config.trading.gamma,
+                    page.sport_family,
+                )
                 if not str(event.get("id") or "") and classification.accepted:
                     classification = LeagueClassification(
                         "DRIFT",
@@ -911,21 +1038,23 @@ class Collector:
 
         source_clock_by_slug: dict[str, dict[str, Any]] = {}
         result_rows_by_event: dict[str, list[dict[str, Any]]] = {}
+        sport_family_by_event: dict[str, str] = {}
         for context in contexts:
             slug = str(context["event"].get("slug") or "").strip()
             clock = dict(context["sports_clock"])
             if slug and clock.get("join_status") == "OBSERVED":
                 source_clock_by_slug[slug] = clock
-            if not context["eligible"] or not context.get("result_kind"):
+            if not context["eligible"]:
                 continue
             event_id = str(context["market_row"]["event_id"] or "")
+            sport_family_by_event[event_id] = str(context["sport_family"])
             condition_id = str(context["market_row"]["condition_id"] or "")
             for outcome in context["outcomes"]:
-                if not outcome["entry_eligible"]:
+                if not outcome["entry_eligible"] or not outcome.get("result_kind"):
                     continue
                 result_rows_by_event.setdefault(event_id, []).append(
                     {
-                        "result_kind": context["result_kind"],
+                        "result_kind": outcome["result_kind"],
                         "condition_id": condition_id,
                         "token_id": str(outcome["token_id"]),
                     }
@@ -933,7 +1062,12 @@ class Collector:
         result_triad_gaps = {
             event_id: gap
             for event_id in clock_expected_event_ids.values()
-            if (gap := _result_triad_gap(result_rows_by_event.get(event_id, [])))
+            if (
+                gap := _result_identity_gap(
+                    result_rows_by_event.get(event_id, []),
+                    sport_family_by_event.get(event_id, "unknown"),
+                )
+            )
             is not None
         }
 
@@ -1048,6 +1182,8 @@ class Collector:
                             "rule": "first full-depth observation or upward threshold cross",
                             "levels_used": walk.levels_used if walk else None,
                             "cadence_arm": self.config.trading.cadence_arm,
+                            "sport_family": context["sport_family"],
+                            "result_kind": outcome.get("result_kind"),
                             "sports_clock": context["sports_clock"],
                             "late_entry_minute_floors": list(
                                 experiment.late_entry_minute_floors

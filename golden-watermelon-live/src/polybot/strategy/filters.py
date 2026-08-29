@@ -1,4 +1,4 @@
-"""Fail-closed whole-match home/draw/away market filters."""
+"""Fail-closed whole-game soccer/MLB/NHL winner-market filters."""
 
 from __future__ import annotations
 
@@ -11,6 +11,15 @@ from typing import Any, Dict, List, Mapping, Optional
 REGULATION_SCOPE_CLAUSE = (
     "this market refers only to the outcome within the first 90 minutes "
     "of regular play plus stoppage time"
+)
+_NON_WHOLE_GAME_MARKET = re.compile(
+    r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th)\s+"
+    r"(?:half|quarter|period|inning)|\b(?:spread|handicap|total|over/under|"
+    r"draw no bet|advance(?:ment)?|qualify|penalt(?:y|ies)|corners?|shots?|"
+    r"goalscorer|touchdowns?|runs?|puck line|run line|futures?|season[- ]long|"
+    r"championship winner|conference winner|division winner|"
+    r"win (?:the )?(?:championship|league|division|conference))\b",
+    re.IGNORECASE,
 )
 
 
@@ -51,12 +60,13 @@ def _team_forms(team: Mapping[str, Any]) -> set[str]:
 
 
 def aligned_binary_reason(market: Dict[str, Any]) -> str:
-    """Validate the exact Yes/No token alignment used by result propositions."""
+    """Validate exact two-token alignment for the configured sport family."""
     outcomes = _list_value(market.get("outcomes"))
     prices = _list_value(market.get("outcomePrices"))
     token_ids = _list_value(market.get("clobTokenIds"))
-    if outcomes is None or [str(item).strip() for item in outcomes] != ["Yes", "No"]:
-        return "not_exact_yes_no_labels"
+    labels = [str(item).strip() for item in outcomes] if outcomes is not None else []
+    if len(labels) != 2 or any(not label for label in labels):
+        return "not_two_nonempty_outcome_labels"
     if prices is None or len(prices) != 2:
         return "not_two_outcome_prices"
     if token_ids is None or len(token_ids) != 2:
@@ -75,8 +85,19 @@ def aligned_binary_reason(market: Dict[str, Any]) -> str:
         for price in normalized_prices
     ):
         return "invalid_outcome_price"
-    if market.get("negRisk") is not True:
-        return "not_explicit_negrisk_result_market"
+    family = str(market.get("sportFamily") or "soccer").strip().lower()
+    if family == "soccer":
+        if labels != ["Yes", "No"]:
+            return "not_exact_yes_no_labels"
+        if market.get("negRisk") is not True:
+            return "not_explicit_negrisk_result_market"
+    elif family in {"mlb", "nhl"}:
+        if labels == ["Yes", "No"]:
+            return "direct_team_labels_required"
+        if market.get("negRisk") is not False:
+            return "direct_moneyline_negrisk_false_required"
+    else:
+        return "unsupported_sport_family"
     return "ok"
 
 
@@ -182,15 +203,23 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
         return reason, None
     if str(market.get("sportsMarketType") or "").strip() != "moneyline":
         return "not_top_level_moneyline", None
+    if market.get("parentMarketId") not in (None, ""):
+        return "child_market_excluded", None
+    if any(
+        market.get(key) is True
+        for key in (
+            "isFuture", "future", "isProp", "prop", "isAdvancement", "advancement"
+        )
+    ):
+        return "prop_future_or_advancement_excluded", None
     identity_text = " ".join(
         _normalized_name(market.get(field))
         for field in ("groupItemTitle", "question", "slug")
     )
     if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
         return "draw_no_bet_excluded", None
-    scope_reason = settlement_scope_reason(market)
-    if scope_reason != "ok":
-        return scope_reason, None
+    if _NON_WHOLE_GAME_MARKET.search(identity_text) or re.search(r"\bdnb\b", identity_text):
+        return "non_whole_game_or_prop_excluded", None
     event = get_event(market)
     if not event:
         return "event_relation_not_unique", None
@@ -207,6 +236,28 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
     home_forms, away_forms = _team_forms(teams[0]), _team_forms(teams[1])
     if not home_forms or not away_forms or home_forms & away_forms:
         return "team_identity_ambiguous", None
+    family = str(market.get("sportFamily") or "soccer").strip().lower()
+    if family in {"mlb", "nhl"}:
+        labels = [
+            _normalized_name(item)
+            for item in (_list_value(market.get("outcomes")) or [])
+        ]
+        matched = []
+        for label in labels:
+            matches = [
+                index
+                for index, forms in enumerate((home_forms, away_forms))
+                if label in forms
+            ]
+            matched.append(matches[0] if len(matches) == 1 else -1)
+        if sorted(matched) != [0, 1]:
+            return "direct_outcomes_not_exact_teams", None
+        return "ok", "DIRECT_TWO_TEAM"
+    if family != "soccer":
+        return "unsupported_sport_family", None
+    scope_reason = settlement_scope_reason(market)
+    if scope_reason != "ok":
+        return scope_reason, None
     descriptor = _normalized_name(market.get("groupItemTitle"))
     if not descriptor:
         return "group_item_title_missing", None
@@ -236,13 +287,48 @@ def get_match_result_yes(market: Dict[str, Any]) -> Dict[str, Any]:
     }
 
 
+def get_match_result_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Return every eligible winner token for one exact whole-game market."""
+    reason, result_kind = match_result_reason(market)
+    if reason != "ok" or result_kind is None:
+        return []
+    family = str(market.get("sportFamily") or "soccer").strip().lower()
+    if family == "soccer":
+        selected = get_match_result_yes(market)
+        return [selected] if selected else []
+    labels = _list_value(market.get("outcomes")) or []
+    prices = _list_value(market.get("outcomePrices")) or []
+    token_ids = _list_value(market.get("clobTokenIds")) or []
+    event = get_event(market)
+    teams = [
+        dict(item) for item in event.get("teams", []) if isinstance(item, Mapping)
+    ] if isinstance(event.get("teams"), list) else []
+    forms = [_team_forms(team) for team in teams]
+    selected: List[Dict[str, Any]] = []
+    for index, (label, price, token_id) in enumerate(zip(labels, prices, token_ids)):
+        normalized = _normalized_name(label)
+        matches = [team_index for team_index, values in enumerate(forms) if normalized in values]
+        if len(matches) != 1:
+            return []
+        selected.append(
+            {
+                "outcome": str(label).strip(),
+                "probability": float(price),
+                "token_id": str(token_id).strip(),
+                "token_index": index,
+                "result_kind": "HOME" if matches[0] == 0 else "AWAY",
+            }
+        )
+    return selected
+
+
 def get_strict_binary_yes(market: Dict[str, Any]) -> Dict[str, Any]:
     """Compatibility alias with the stricter whole-match result contract."""
     return get_match_result_yes(market)
 
 
 def get_aligned_binary_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Return both exact Yes/No paths for settlement proof."""
+    """Return both exact aligned payout paths for settlement proof."""
     if aligned_binary_reason(market) != "ok":
         return []
     labels = _list_value(market.get("outcomes")) or []
@@ -339,7 +425,8 @@ def is_sports_category(tags: List, excluded_categories: List[str]) -> bool:
 def get_high_probability_outcome(
     market: Dict[str, Any], yes_only: bool = True
 ) -> Dict[str, Any]:
-    return get_match_result_yes(market) if yes_only else {}
+    outcomes = get_match_result_outcomes(market) if yes_only else []
+    return max(outcomes, key=lambda item: item["probability"]) if outcomes else {}
 
 
 strict_binary_reason = aligned_binary_reason

@@ -105,31 +105,36 @@ def _orphan_catalog_identity_matches(
     snapshot: object,
     catalog: object,
 ) -> bool:
-    """Prove selected YES token, condition, event, and snapshot alignment."""
+    """Prove selected winner token, condition, event, and snapshot alignment."""
+    episode_outcome = str(getattr(episode, "outcome", "") or "").strip()
+    neg_risk = getattr(catalog, "neg_risk", None) in (1, True)
     aligned = get_aligned_binary_outcomes(
         {
             "outcomes": getattr(catalog, "outcomes_json", None),
             "outcomePrices": getattr(catalog, "outcome_prices_json", None),
             "clobTokenIds": getattr(catalog, "token_ids_json", None),
-            "negRisk": getattr(catalog, "neg_risk", None) in (1, True),
+            "negRisk": neg_risk,
+            # Direct MLB/NHL labels share the same two-outcome alignment
+            # contract.  MarketCatalog predates sport_family, but negRisk=false
+            # unambiguously distinguishes these rows from soccer Yes/No rows.
+            "sportFamily": "soccer" if neg_risk else "mlb",
         }
     )
     selected = [
         item
         for item in aligned
-        if item["token_id"] == token_id and item["outcome"] == "Yes"
+        if item["token_id"] == token_id and item["outcome"] == episode_outcome
     ]
     episode_condition = str(
         getattr(episode, "condition_id", "") or ""
     ).strip()
     episode_event = str(getattr(episode, "event_id", "") or "").strip()
-    episode_outcome = str(getattr(episode, "outcome", "") or "").strip()
     return (
         len(aligned) == 2
         and len(selected) == 1
         and episode_condition
         and episode_event
-        and episode_outcome == "Yes"
+        and bool(episode_outcome)
         and str(getattr(catalog, "condition_id", "") or "").strip()
         == episode_condition
         and str(getattr(catalog, "event_id", "") or "").strip()
@@ -263,7 +268,7 @@ class Trader:
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
         result_kind = str(candidate.get("result_kind") or "").strip()
-        if outcome != "Yes" or result_kind not in {"HOME", "DRAW", "AWAY"}:
+        if not outcome or result_kind not in {"HOME", "DRAW", "AWAY"}:
             logger.error(
                 "whole-match result identity missing: condition=%s outcome=%s result=%s",
                 condition_id,
@@ -405,6 +410,7 @@ class Trader:
             token_id=token_id,
             amount_usdc=self.config.buy_amount_usdc,
             limit_price=walk.limit_price,
+            max_limit_price=self.config.entry.prob_max,
         )
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
@@ -1561,39 +1567,81 @@ class Trader:
         return True
 
     def _stop_execution_price_is_safe(self, trade, walk, stop_price: float) -> bool:
-        """Reject a gap/dust liquidation before any irreversible POST."""
+        """Validate a complete live book before any irreversible stop POST.
+
+        The caller has already proven the Gamma event and independent CLOB
+        market are OPEN, then refreshed the book.  Under that dual proof a
+        discontinuous price gap must not turn a stop into an accidental hold.
+        The old 35% loss cap did exactly that during Lille–PSG: the book jumped
+        from roughly 0.95 to 0.058 between one-minute observations.  We retain
+        full-depth and spread bounds, but allow the first executable live gap.
+        """
         minimum_price = stop_price - self.config.entry.max_stop_slippage
         spread = walk.spread
         try:
             buy_price = float(trade.buy_price)
             loss_fraction = max(0.0, (buy_price - walk.vwap) / buy_price)
+            signable_shares = _sdk_sellable_shares(float(trade.buy_shares))
         except (TypeError, ValueError, ZeroDivisionError):
             loss_fraction = math.inf
-        safe = (
-            minimum_price > 0
+            signable_shares = math.nan
+        executable_book = (
+            math.isfinite(float(walk.best_bid))
+            and 0 < float(walk.best_bid) < 1
+            and math.isfinite(float(walk.vwap))
+            and 0 < float(walk.vwap) < 1
+            and math.isfinite(float(walk.limit_price))
+            and 0 < float(walk.limit_price) < 1
+            and math.isfinite(float(walk.shares))
+            and abs(float(walk.shares) - signable_shares) <= _FILL_SIZE_TOLERANCE
+            and spread is not None
+            and math.isfinite(float(spread))
+            and 0 <= float(spread)
+            and spread <= self.config.entry.max_stop_spread + 1e-9
+        )
+        normal_envelope = (
+            executable_book
+            and minimum_price > 0
             and walk.vwap + 1e-9 >= minimum_price
             and walk.limit_price + 1e-9 >= minimum_price
-            and spread is not None
-            and spread <= self.config.entry.max_stop_spread + 1e-9
             and math.isfinite(loss_fraction)
             and loss_fraction
             <= self.config.entry.max_stop_loss_fraction + 1e-9
         )
-        if not safe:
+        if normal_envelope:
+            return True
+        if executable_book:
             logger.critical(
-                "emergency SELL blocked by loss-bounded stop-limit guard - "
+                "live gap-stop allowed after dual lifecycle proof - "
+                "trade=%s bid=%.4f ask=%s spread=%.4f vwap=%.4f limit=%.4f "
+                "normal_minimum=%.4f projected_loss=%s",
+                trade.id,
+                walk.best_bid,
+                f"{walk.best_ask:.4f}" if walk.best_ask is not None else "none",
+                spread,
+                walk.vwap,
+                walk.limit_price,
+                minimum_price,
+                f"{loss_fraction:.2%}" if math.isfinite(loss_fraction) else "invalid",
+            )
+            return True
+        else:
+            logger.critical(
+                "emergency SELL blocked by incomplete/unsafe live book - "
                 "trade=%s bid=%.4f ask=%s spread=%s vwap=%.4f limit=%.4f "
-                "minimum=%.4f projected_loss=%s",
+                "shares=%s expected=%s minimum=%.4f projected_loss=%s",
                 trade.id,
                 walk.best_bid,
                 f"{walk.best_ask:.4f}" if walk.best_ask is not None else "none",
                 f"{spread:.4f}" if spread is not None else "none",
                 walk.vwap,
                 walk.limit_price,
+                getattr(walk, "shares", None),
+                signable_shares,
                 minimum_price,
                 f"{loss_fraction:.2%}" if math.isfinite(loss_fraction) else "invalid",
             )
-        return safe
+        return False
 
     def _bind_uncertain_sell_submission(
         self,

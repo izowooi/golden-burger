@@ -18,11 +18,13 @@ from polybot.config import (
     CLASSIFIER_VERSION,
     DATA_CONTRACT,
     FROZEN_CUP_IDENTITIES,
+    FROZEN_DIRECT_SPORT_IDENTITIES,
     FROZEN_LEAGUE_IDENTITIES,
     LATE_ENTRY_MINUTE_FLOORS,
     LEAGUE_MAPPING_SHA256,
     NOTIONAL_LADDER_USDC,
     CupIdentity,
+    DirectSportIdentity,
     LeagueIdentity,
     SCHEMA_PROFILE,
     UNIVERSE_PROFILE,
@@ -36,8 +38,8 @@ from polybot.db.repository import (
 )
 
 
-ANALYZER_CONTRACT = "soccer-elite-competition-analyzer-v3d"
-PAIR_ANALYZER_CONTRACT = "soccer-elite-competition-cadence-pair-v3d"
+ANALYZER_CONTRACT = "watermelon-major-sports-analyzer-v4a"
+PAIR_ANALYZER_CONTRACT = "watermelon-major-sports-cadence-pair-v4a"
 # Legacy strings remain explicit so existing v2/v3 evidence can be identified in
 # reports without being opened by the v3d writer.
 LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
@@ -56,12 +58,18 @@ class AnalyzerProfile:
     pair_analyzer_contract: str
     fast_job: str
     control_job: str
+    direct_identities: tuple[DirectSportIdentity, ...] = ()
+    schema_profile: str = "golden-watermelon-v3a-schema-v1"
+    application_id: int = 1196903731
+    user_version: int = 301
+    migration_filename: str = "0001_soccer_major_league_v3a.sql"
 
     @property
     def league_codes(self) -> tuple[str, ...]:
         return (
             *(identity.code for identity in self.identities),
             *(identity.code for identity in self.cup_identities),
+            *(identity.code for identity in self.direct_identities),
         )
 
     @property
@@ -79,10 +87,16 @@ def _mapping_sha256(
     classifier_version: str,
     identities: tuple[LeagueIdentity, ...],
     cup_identities: tuple[CupIdentity, ...] = (),
+    direct_identities: tuple[DirectSportIdentity, ...] = (),
 ) -> str:
-    registry = league_registry_payload(identities, cup_identities)
+    registry = league_registry_payload(
+        identities, cup_identities, direct_identities
+    )
     if not cup_identities:
         registry.pop("uefa_competitions", None)
+    if not direct_identities:
+        registry.pop("direct_sports", None)
+        registry.pop("sport_family_tag_ids", None)
     payload = {"classifier_version": classifier_version, **registry}
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -146,30 +160,55 @@ V3C_NOTIONAL_LADDER_USDC = (
 V3C_PROFILE = AnalyzerProfile(
     data_contract="soccer-inplay-elite-competition-match-winner-v3",
     universe_profile="soccer-elite-leagues-uefa-2026-08-v3c",
-    classifier_version=CLASSIFIER_VERSION,
+    classifier_version="soccer-elite-competition-identity-v3",
     identities=FROZEN_LEAGUE_IDENTITIES,
     cup_identities=FROZEN_CUP_IDENTITIES,
-    league_mapping_sha256=LEAGUE_MAPPING_SHA256,
+    league_mapping_sha256=_mapping_sha256(
+        "soccer-elite-competition-identity-v3",
+        FROZEN_LEAGUE_IDENTITIES,
+        FROZEN_CUP_IDENTITIES,
+    ),
     analyzer_contract="soccer-elite-competition-analyzer-v3c",
     pair_analyzer_contract="soccer-elite-competition-cadence-pair-v3c",
     fast_job="watermelon-white-1m-v3c",
     control_job="watermelon-grey-5m-v3c",
 )
 V3D_PROFILE = AnalyzerProfile(
+    data_contract="soccer-inplay-elite-competition-match-winner-v4",
+    universe_profile="soccer-elite-leagues-uefa-2026-08-v3d",
+    classifier_version="soccer-elite-competition-identity-v3",
+    identities=FROZEN_LEAGUE_IDENTITIES,
+    cup_identities=FROZEN_CUP_IDENTITIES,
+    league_mapping_sha256=_mapping_sha256(
+        "soccer-elite-competition-identity-v3",
+        FROZEN_LEAGUE_IDENTITIES,
+        FROZEN_CUP_IDENTITIES,
+    ),
+    analyzer_contract="soccer-elite-competition-analyzer-v3d",
+    pair_analyzer_contract="soccer-elite-competition-cadence-pair-v3d",
+    fast_job="watermelon-white-1m-v3d",
+    control_job="watermelon-grey-5m-v3d",
+)
+V4A_PROFILE = AnalyzerProfile(
     data_contract=DATA_CONTRACT,
     universe_profile=UNIVERSE_PROFILE,
     classifier_version=CLASSIFIER_VERSION,
     identities=FROZEN_LEAGUE_IDENTITIES,
     cup_identities=FROZEN_CUP_IDENTITIES,
+    direct_identities=FROZEN_DIRECT_SPORT_IDENTITIES,
     league_mapping_sha256=LEAGUE_MAPPING_SHA256,
     analyzer_contract=ANALYZER_CONTRACT,
     pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
-    fast_job="watermelon-white-1m-v3d",
-    control_job="watermelon-grey-5m-v3d",
+    fast_job="watermelon-white-1m-v4a",
+    control_job="watermelon-grey-5m-v4a",
+    schema_profile=SCHEMA_PROFILE,
+    application_id=APPLICATION_ID,
+    user_version=SCHEMA_USER_VERSION,
+    migration_filename=MIGRATION_PATH.name,
 )
 ANALYZER_PROFILES = {
     profile.universe_profile: profile
-    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE, V3D_PROFILE)
+    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE, V3D_PROFILE, V4A_PROFILE)
 }
 
 
@@ -437,6 +476,7 @@ def _regulation_minute(period: Any, elapsed_raw: Any) -> tuple[float | None, str
 def _sports_clock_summary(
     connection: sqlite3.Connection,
     minute_floors: tuple[int, ...],
+    minute_floor_competitions: frozenset[str],
 ) -> dict[str, Any]:
     rows = connection.execute(
         """
@@ -482,6 +522,8 @@ def _sports_clock_summary(
         if minute is None:
             continue
         elapsed += 1
+        if competition not in minute_floor_competitions:
+            continue
         for floor in minute_floors:
             if minute >= floor:
                 floor_observations[floor] += 1
@@ -552,11 +594,13 @@ def _result_triad_summary(connection: sqlite3.Connection) -> dict[str, Any]:
     return {
         "accepted_event_snapshots": expected,
         "complete_home_draw_away_triads": complete,
+        "complete_result_identity_sets": complete,
         "triad_gaps": gaps,
+        "result_identity_gaps": gaps,
         "complete_pct": _safe_ratio(complete, expected),
         "contract": (
-            "exactly one distinct HOME/DRAW/AWAY YES condition and token per "
-            "accepted event/run"
+            "soccer requires distinct HOME/DRAW/AWAY YES tokens; MLB/NHL "
+            "require one direct condition with distinct HOME/AWAY tokens"
         ),
     }
 
@@ -713,7 +757,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         if metadata.get("schema_profile") is not None:
             expected_metadata = {
                 "data_contract": profile.data_contract,
-                "schema_profile": SCHEMA_PROFILE,
+                "schema_profile": profile.schema_profile,
                 "universe_profile": profile.universe_profile,
                 "classifier_version": profile.classifier_version,
                 "league_mapping_sha256": profile.league_mapping_sha256,
@@ -725,9 +769,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 raise ValueError(
                     f"analyzer metadata contract mismatch: {actual_metadata!r}"
                 )
-            migration_sha256 = hashlib.sha256(MIGRATION_PATH.read_bytes()).hexdigest()
+            profile_migration = MIGRATION_PATH.parent / profile.migration_filename
+            migration_sha256 = hashlib.sha256(profile_migration.read_bytes()).hexdigest()
             if (
-                (application_id, user_version) != (APPLICATION_ID, SCHEMA_USER_VERSION)
+                (application_id, user_version)
+                != (profile.application_id, profile.user_version)
                 or str(metadata.get("migration_sha256")) != migration_sha256
                 or str(metadata.get("schema_sha256")) != EXPECTED_SCHEMA_SHA256
                 or _live_schema_sha256(connection) != EXPECTED_SCHEMA_SHA256
@@ -740,10 +786,15 @@ def analyze_database(path: Path) -> dict[str, Any]:
             if registry_row is None:
                 raise ValueError("database has no exact frozen league registry")
             expected_registry = league_registry_payload(
-                profile.identities, profile.cup_identities
+                profile.identities,
+                profile.cup_identities,
+                profile.direct_identities,
             )
             if not profile.cup_identities:
                 expected_registry.pop("uefa_competitions", None)
+            if not profile.direct_identities:
+                expected_registry.pop("direct_sports", None)
+                expected_registry.pop("sport_family_tag_ids", None)
             if (
                 str(registry_row["classifier_version"]) != profile.classifier_version
                 or str(registry_row["universe_profile"]) != profile.universe_profile
@@ -1070,9 +1121,14 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 )
             if any(str(row["cadence_arm"]) != cadence_arm for row in episode_rows):
                 raise ValueError("hypothetical_episodes cadence arm contract drift")
-        if profile in (V3C_PROFILE, V3D_PROFILE):
+        if profile in (V3C_PROFILE, V3D_PROFILE, V4A_PROFILE):
             sports_clock_evidence = _sports_clock_summary(
-                connection, configured_minute_floors
+                connection,
+                configured_minute_floors,
+                frozenset(
+                    identity.code
+                    for identity in (*profile.identities, *profile.cup_identities)
+                ),
             )
             notional_depth_evidence = _notional_depth_summary(
                 connection, configured_notional_ladder

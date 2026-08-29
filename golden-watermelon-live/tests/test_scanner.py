@@ -15,7 +15,7 @@ from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import MarketScanner
 
 
-NOW = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 29, 5, 0, tzinfo=timezone.utc)
 
 
 def _event(event_id="event-1"):

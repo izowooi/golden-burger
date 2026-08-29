@@ -1,19 +1,26 @@
-# Golden Watermelon Live v2h 운영 절차
+# Golden Watermelon Live v3a 운영 절차
 
-## Jenkins 안전 설정
+## Jenkins job matrix
 
-- `polybot-cat`, `polybot-dog` 기존 private key/funder/signature type을 그대로 보존한다.
-- secret 참조 전 `set +x`; console·문서·Git에 값을 출력하지 않는다.
-- concurrent build와 `Clean before checkout`을 끄고 build discard 14일을 유지한다.
-- config/test/manual build가 끝나기 전 timer를 켜지 않는다.
-- workspace wipe, 기존 DB 삭제·migration/import 금지.
+기존 private key/funder/signature type은 각 job에 그대로 둔다. 아래 값만 family/arm별로 다르다.
 
-## Cat — 0.96
+| Jenkins | `POLYBOT_SPORT_FAMILY` | `POLYBOT_ENTRY_PROB_MIN` | runtime |
+|---|---|---:|---|
+| `polybot-cat` | `soccer` | `0.96` | `watermelon-live-cat-96-1m-v2h` |
+| `polybot-dog` | `soccer` | `0.99` | `watermelon-live-dog-99-1m-v2h` |
+| `polybot-bear` | `mlb` | `0.96` | `watermelon-live-bear-mlb-96-1m-v3a` |
+| `polybot-tiger` | `mlb` | `0.99` | `watermelon-live-tiger-mlb-99-1m-v3a` |
+| `polybot-lion` | `nhl` | `0.96` | `watermelon-live-lion-nhl-96-1m-v3a` |
+| `polybot-wolf` | `nhl` | `0.99` | `watermelon-live-wolf-nhl-99-1m-v3a` |
 
-기존 credential export/binding 뒤 아래 shell은 **timer를 끈 release 배포 build에서만** 사용한다.
+모두 concurrent build와 `Clean before checkout`을 끄고 build discard 14일을 유지한다. 배포 검증이
+끝날 때까지 timer를 끄며 workspace wipe나 기존 DB 삭제·migration/import를 하지 않는다.
+
+## 공통 환경
+
+Credentials Binding 또는 기존 secret export 다음에 아래를 둔다.
 
 ```bash
-#!/bin/bash
 set +x
 set -euo pipefail
 
@@ -21,87 +28,76 @@ export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
 export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
-export POLYBOT_MIN_LIQUIDITY=0
+export POLYBOT_MIN_LIQUIDITY=5000
 export POLYBOT_MIN_VOLUME_24H=0
-export POLYBOT_MIN_CUMULATIVE_VOLUME=0
+export POLYBOT_MIN_CUMULATIVE_VOLUME=5000
 export POLYBOT_MAX_POSITIONS=20
 export POLYBOT_MAX_EVENT_POSITIONS=1
 export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=5
+export POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE=1
 export POLYBOT_YES_ONLY=true
-export POLYBOT_ENTRY_PROB_MIN=0.96
 export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
-export POLYBOT_ENTRY_HOURS_MAX=4
 export POLYBOT_STOP_PRICE=0.70
-export POLYBOT_EXPERIMENT_START_UTC=2026-08-26T18:30:00Z
-export POLYBOT_EXPERIMENT_END_UTC=2026-09-02T18:30:00Z
-export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-09T18:30:00Z
-
-cd ./golden-watermelon-live
-UV=/Users/jongwoopark/.local/bin/uv
-"${UV}" sync --frozen
-"${UV}" run polybot config --live --job watermelon-live-cat-96-1m-v2h
-"${UV}" run polybot run --live --job watermelon-live-cat-96-1m-v2h
-"${UV}" run polybot status --live --job watermelon-live-cat-96-1m-v2h
+export POLYBOT_EXPERIMENT_START_UTC=2026-08-29T04:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-05T04:00:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-12T04:00:00Z
 ```
 
-Dog는 `POLYBOT_ENTRY_PROB_MIN=0.99`와 runtime
-`watermelon-live-dog-99-1m-v2h`만 다르고 나머지는 exact 동일하다.
+Soccer는 `POLYBOT_ENTRY_HOURS_MAX=4`, MLB는 `8`, NHL은 `5`다. matrix의 family, threshold와
+runtime을 각 job에 넣는다.
 
-검증이 끝난 정기 build는 Jenkins SCM을 `NullSCM`으로 바꾸고 아래처럼 workspace의 exact release를
-확인한 뒤 `run` 한 번만 실행한다. `<verified-full-commit-sha>`는 수동 release build가 실제로
-checkout한 전체 SHA로 치환한다. `uv sync`, `config`, `status`, GitHub fetch를 매분 반복하지 않는다.
+## 빠른 정기 shell
+
+SCM checkout 뒤 다음을 실행한다. dependency hash가 바뀐 release에만 `uv sync`가 실행되고 평소
+cycle은 이미 설치된 console script를 직접 호출한다. process alarm이나 elapsed-time request
+suppression을 넣지 않는다.
 
 ```bash
 cd ./golden-watermelon-live
 UV=/Users/jongwoopark/.local/bin/uv
-RELEASE_COMMIT=<verified-full-commit-sha>
-ACTUAL_COMMIT="$(/usr/bin/git rev-parse HEAD)"
-if [[ "${ACTUAL_COMMIT}" != "${RELEASE_COMMIT}" ]]; then
-  echo "release commit mismatch" >&2
-  exit 1
+STAMP=.venv/.golden-watermelon-lock.sha256
+LOCK_SHA=$(/usr/bin/shasum -a 256 uv.lock pyproject.toml | /usr/bin/shasum -a 256 | /usr/bin/awk '{print $1}')
+CURRENT_SHA=$(/bin/cat "${STAMP}" 2>/dev/null || true)
+
+if [[ ! -x .venv/bin/polybot || "${CURRENT_SHA}" != "${LOCK_SHA}" ]]; then
+  "${UV}" sync --frozen
+  /bin/mkdir -p .venv
+  /usr/bin/printf '%s\n' "${LOCK_SHA}" > "${STAMP}"
 fi
-/usr/bin/perl -e 'alarm shift; exec @ARGV' 50 \
-  ./.venv/bin/polybot run --live --job watermelon-live-cat-96-1m-v2h
+
+./.venv/bin/polybot run --live --job <runtime>
 ```
 
-launcher alarm은 Python import 이전부터 시작된다. Python이 시작되면 같은 alarm을 안전 예외로
-받아 execution ledger가 불확실한 POST를 격리한다. 42초 이후에는 새 네트워크 요청을 시작하지
-않고 50초에 cycle을 실패 처리한다. `uv sync`와 `uv run`은 release build에서만 사용한다.
+DB 내부 `.cycle-run.lock`을 먼저 획득하므로 이전 build가 남아 있으면 새 build가 주문·DB 작업 전
+정상 종료한다. Jenkins 자체 concurrent build도 계속 꺼서 workspace checkout 충돌을 막는다.
 
 ## 배포 검증
 
-1. timer 없이 config SHA/SCM/no-clean/secret redaction을 확인한다.
-2. Cat/Dog를 수동 1회씩 실행해 `$5`, threshold, v2h DB path, league hash, FOK-only,
-   lifecycle `active`, account/event/cycle `20/1/5`와 cycle 신규 원금 상한 `$25`를 확인한다.
-3. UCL/UEL가 live이면 exact identity와 regular-time HOME/DRAW/AWAY만 candidate인지 확인한다.
-4. stop 후보는 SELL 직전에도 event `live=true`, `ended=false`와 market order-taking이 명시적으로
-   확인돼야 한다. 종료 후 0.001 cleanup bid에서는 SELL이 없어야 한다.
-5. open/pending/quarantined/orphan/fill-fee guards가 0이거나 증거 기반으로 설명되는지 확인한다.
-6. 같은 DB를 이어 쓰는 수동 2회째를 검증한다.
-7. 둘 다 process runtime <45초, Jenkins duration <60초, CRITICAL/HIGH 0이면 `* * * * *`를
-   활성화한다. 50초 deadline failure는 성공으로 숨기지 않는다.
-8. 자연 build 각 2회 뒤 daily-rsync로 새 epoch를 scan/sync/verify한다.
+1. 여섯 timer가 모두 꺼졌고 SCM/no-clean/secret redaction/concurrent-off인지 확인한다.
+2. `uv sync --frozen --extra dev`, 전체 test와 build를 통과시킨 exact commit을 push한다.
+3. timer 없는 수동 build를 job별 1회 실행한다. console에서 family, `$5`, threshold, runtime,
+   server gate `$5k/$5k`, FOK-only, lifecycle `active`, limits `20/1/5`, source digest를 확인한다.
+4. Cat/Dog는 기존 v2h DB와 HOLDING position을 보존했는지 확인한다. Bear/Tiger/Lion/Wolf는 새
+   v3a DB가 생성됐는지 확인한다.
+5. `PENDING_BUY/PENDING_SELL/QUARANTINED`, orphan, fill-fee gap과 CRITICAL/HIGH가 없거나 기존
+   evidence로 설명되는지 확인한다.
+6. timer 없이 각 job을 한 번 더 실행해 dependency sync가 반복되지 않고 overlap lock, cursor와
+   lifecycle이 정상인지 확인한다.
+7. process runtime과 Jenkins duration이 1분 아래이고 실패가 없으면 `* * * * *`를 활성화한다.
+8. 자연 build 각 2회 뒤 daily-rsync scan/sync/verify와 DB quick check를 수행한다.
 
 ```bash
 cd ../daily-rsync
-uv run daily-rsync scan --job polybot-cat
-uv run daily-rsync sync-job --job polybot-cat --strategy golden-watermelon-live --days 2
-uv run daily-rsync verify --job polybot-cat --strategy golden-watermelon-live
-uv run daily-rsync locate --job polybot-cat --strategy golden-watermelon-live
-
-uv run daily-rsync scan --job polybot-dog
-uv run daily-rsync sync-job --job polybot-dog --strategy golden-watermelon-live --days 2
-uv run daily-rsync verify --job polybot-dog --strategy golden-watermelon-live
-uv run daily-rsync locate --job polybot-dog --strategy golden-watermelon-live
+uv run daily-rsync scan --job <jenkins-job>
+uv run daily-rsync sync-job --job <jenkins-job> --strategy golden-watermelon-live --days 2
+uv run daily-rsync verify --job <jenkins-job> --strategy golden-watermelon-live
+uv run daily-rsync locate --job <jenkins-job> --strategy golden-watermelon-live
 ```
 
-첫 24시간 checkpoint는 각 v2h 첫 successful `run_audits.started_at`부터 exact half-open range로
-고정한다. 이때 수익성, 0.96/0.99 우열, late-entry minute 또는 scale-up을 판정하지 않는다.
+첫 24시간 checkpoint는 job별 첫 successful 새 source digest `run_audits.started_at`부터 exact
+half-open range로 고정한다. 이때 수익성, arm/sport 우열과 scale-up을 판정하지 않는다.
 
 entry 종료 후 `close_only`로 바꿔 신규 BUY를 막고 bot-owned open trade만 관리한다. 모두
 종결되면 `archive_only`로 전환한다. 긴급 중단은
 [strategy-wind-down-playbook.md](../docs/strategy-wind-down-playbook.md)를 따른다.
-
-과거 `watermelon-live-cat-98-1m-v2f`, `watermelon-live-dog-99-1m-v2f`와 v2g DB는 분석용
-immutable archive이며 Jenkins에서 재사용하지 않는다.

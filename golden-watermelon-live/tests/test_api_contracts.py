@@ -165,6 +165,68 @@ def _uefa_event(code: str, markets):
     return event
 
 
+def _direct_sport_event(family: str, markets, *, postseason=False):
+    identities = {
+        "mlb": (8, "MLB", 100381, 3, "mlb"),
+        "nhl": (35, "NHL", 899, 10346, "nhl-2026"),
+    }
+    sport_id, name, tag_id, root_series, series_slug = identities[family]
+    title = f"{name} {'World Series' if family == 'mlb' else 'Stanley Cup Final'}"
+    event = {
+        "id": f"{family}-event",
+        "slug": f"{family}-home-away-2026-08-29",
+        "title": title if postseason else "Home Club vs. Away Club",
+        "active": True,
+        "closed": False,
+        "live": True,
+        "ended": False,
+        "startTime": (datetime.now(timezone.utc) - timedelta(hours=1)).isoformat(),
+        "seriesSlug": series_slug,
+        "sport": {
+            "id": sport_id,
+            "sport": family,
+            "name": name,
+            "primaryTagId": tag_id,
+            "series": root_series,
+            "tags": f"1,{tag_id},100639",
+        },
+        "tags": [
+            {"id": "1", "slug": "sports"},
+            {"id": str(tag_id), "slug": family},
+            {"id": "100639", "slug": "games"},
+        ],
+        "series": [
+            {
+                "id": str(root_series),
+                "ticker": series_slug,
+                "slug": series_slug,
+                "title": name if series_slug == family else f"{name} 2026",
+                "seriesType": "single",
+                "recurrence": "daily",
+            }
+        ],
+        "teams": [
+            {"name": "Home Club", "alias": "Home", "league": family},
+            {"name": "Away Club", "alias": "Away", "league": family},
+        ],
+        "seasonPhase": "POSTSEASON" if postseason else "REGULAR",
+        "markets": markets,
+    }
+    for market in markets:
+        market.update(
+            {
+                "question": "Home Club vs Away Club",
+                "groupItemTitle": "",
+                "sportsMarketType": "moneyline",
+                "outcomes": ["Home Club", "Away Club"],
+                "outcomePrices": ["0.98", "0.02"],
+                "clobTokenIds": [f"{family}-home", f"{family}-away"],
+                "negRisk": False,
+            }
+        )
+    return event
+
+
 class _Session:
     def __init__(self, pages):
         self.pages = list(pages)
@@ -197,7 +259,8 @@ def test_gamma_uses_soccer_live_keyset_and_terminal_cursor() -> None:
     assert params["tag_id"] == 100350
     assert params["live"] == "true"
     assert params["related_tags"] == "false"
-    assert "liquidity_min" not in params and "volume_min" not in params
+    assert params["liquidity_min"] == 0
+    assert params["volume_min"] == 0
     assert session.calls[1][1]["after_cursor"] == "next"
     proof = client.last_sweep_attestation
     assert proof["cursor_complete"] is True
@@ -237,6 +300,43 @@ def test_gamma_accepts_exact_serie_a_identity() -> None:
     assert len(markets) == 1
     assert markets[0]["leagueCode"] == "sea"
     assert markets[0]["leagueName"] == "Serie A"
+
+
+@pytest.mark.parametrize("family", ["mlb", "nhl"])
+@pytest.mark.parametrize("postseason", [False, True])
+def test_gamma_accepts_exact_direct_major_sport_and_postseason(
+    family, postseason
+) -> None:
+    market = _market(f"{family}-market")
+    client = GammaClient(sport_family=family)
+    client.session = _Session(
+        [{"events": [_direct_sport_event(family, [market], postseason=postseason)]}]
+    )
+
+    markets = client.get_all_tradable_markets(5000, 5000)
+
+    assert len(markets) == 1
+    assert markets[0]["sportFamily"] == family
+    assert markets[0]["leagueCode"] == family
+    assert markets[0]["outcomes"] == ["Home Club", "Away Club"]
+
+
+@pytest.mark.parametrize(
+    ("family", "excluded_title"),
+    [("mlb", "Home Club vs Away Club Minor League"), ("nhl", "AHL Final")],
+)
+def test_gamma_rejects_direct_sport_minor_leagues(family, excluded_title) -> None:
+    market = _market(f"{family}-minor")
+    event = _direct_sport_event(family, [market])
+    event["title"] = excluded_title
+    client = GammaClient(sport_family=family)
+    client.session = _Session([{"events": [event]}])
+
+    assert client.get_all_tradable_markets(5000, 5000) == []
+    assert any(
+        "minor_or_non_major_competition_excluded" in reason
+        for reason in client.last_sweep_attestation["exclusion_counts"]
+    )
 
 
 @pytest.mark.parametrize(
@@ -954,9 +1054,39 @@ def test_live_exact_usdc_fok_buy_rejects_excess_taker_precision_before_post() ->
 
     with pytest.raises(
         PreSubmissionContractError,
-        match="four decimal places",
+        match="no four-decimal",
     ):
         wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.935)
+
+
+def test_live_exact_usdc_fok_buy_widens_only_inside_entry_ceiling() -> None:
+    captured = {}
+
+    class _Client:
+        def get_tick_size(self, _token_id):
+            return "0.005"
+
+        def create_market_order(self, order, options=None):
+            captured.setdefault("attempts", []).append((order.price, options))
+            taker = "5154639" if order.price < 0.975 else "5128200"
+            return SimpleNamespace(makerAmount="5000000", takerAmount=taker)
+
+        def post_order(self, signed, _order_type):
+            captured["posted"] = signed
+            return {"success": True, "orderID": "order-compatible"}
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy(
+        "token", amount_usdc=5, limit_price=0.965, max_limit_price=0.999
+    )
+
+    assert result["orderID"] == "order-compatible"
+    assert result["price"] == 0.975
+    assert [price for price, _options in captured["attempts"]] == [0.965, 0.97, 0.975]
+    assert captured["posted"] is not None
 
 
 def test_live_exact_usdc_fok_buy_rejects_signed_amount_drift() -> None:

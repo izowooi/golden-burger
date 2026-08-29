@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 import sqlite3
 
 import pytest
@@ -11,6 +13,7 @@ from polybot.analyzer import (
     V3C_PROFILE,
     V3C_NOTIONAL_LADDER_USDC,
     V3D_PROFILE,
+    V4A_PROFILE,
     analyze_database,
     analyze_databases,
 )
@@ -18,6 +21,7 @@ from polybot.config import (
     CLASSIFIER_VERSION,
     DATA_CONTRACT,
     FROZEN_CUP_IDENTITIES,
+    FROZEN_DIRECT_SPORT_IDENTITIES,
     FROZEN_LEAGUE_IDENTITIES,
     LATE_ENTRY_MINUTE_FLOORS,
     LEAGUE_MAPPING_SHA256,
@@ -36,20 +40,23 @@ def seeded_database(
     cadence: int,
     arm: str,
     *,
-    source_digest: str = "source-v3d",
+    source_digest: str = "source-v4a",
     entry_end_utc: str = "2026-08-31T00:00:00Z",
-    profile=V3D_PROFILE,
+    profile=V4A_PROFILE,
 ) -> ResearchRepository:
     registry = league_registry_payload(
-        profile.identities, profile.cup_identities
+        profile.identities, profile.cup_identities, profile.direct_identities
     )
     if not profile.cup_identities:
         registry.pop("uefa_competitions", None)
+    if not profile.direct_identities:
+        registry.pop("direct_sports", None)
+        registry.pop("sport_family_tag_ids", None)
     repository = ResearchRepository(
         tmp_path / name,
         busy_timeout_ms=1000,
         data_contract=profile.data_contract,
-        schema_profile=SCHEMA_PROFILE,
+        schema_profile=profile.schema_profile,
         universe_profile=profile.universe_profile,
         classifier_version=profile.classifier_version,
         league_mapping_sha256=profile.league_mapping_sha256,
@@ -100,6 +107,25 @@ def seeded_database(
             "detail_json": "{}",
         }
     )
+    if profile is not V4A_PROFILE:
+        migration = (
+            Path(__file__).resolve().parents[1]
+            / "src" / "polybot" / "db" / "migrations"
+            / profile.migration_filename
+        )
+        with sqlite3.connect(repository.path) as connection:
+            connection.execute("DROP TRIGGER schema_metadata_forbid_update")
+            connection.execute(
+                "UPDATE schema_metadata SET migration_sha256=?",
+                (hashlib.sha256(migration.read_bytes()).hexdigest(),),
+            )
+            connection.execute(f"PRAGMA application_id={profile.application_id}")
+            connection.execute(f"PRAGMA user_version={profile.user_version}")
+            connection.execute(
+                "CREATE TRIGGER schema_metadata_forbid_update "
+                "BEFORE UPDATE ON schema_metadata "
+                "BEGIN SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
     return repository
 
 
@@ -124,7 +150,11 @@ def add_winning_episode(
 ) -> None:
     identity = next(
         identity
-        for identity in (*FROZEN_LEAGUE_IDENTITIES, *FROZEN_CUP_IDENTITIES)
+        for identity in (
+            *FROZEN_LEAGUE_IDENTITIES,
+            *FROZEN_CUP_IDENTITIES,
+            *FROZEN_DIRECT_SPORT_IDENTITIES,
+        )
         if identity.code == league_code
     )
     suffix = episode_key_suffix or league_code
@@ -156,8 +186,10 @@ def add_winning_episode(
                 "sport_primary_tag_id": str(
                     getattr(identity, "primary_tag_id", "")
                 ) or None,
-                "sport_series_id": identity.series_id,
-                "series_slug": identity.series_slug,
+                "sport_series_id": str(
+                    getattr(identity, "series_id", getattr(identity, "root_series_id", ""))
+                ),
+                "series_slug": getattr(identity, "series_slug", f"{identity.code}-2026"),
                 "tag_ids_json": "[]",
                 "tag_slugs_json": "[]",
                 "series_ids_json": "[]",
@@ -310,14 +342,14 @@ def test_analyzer_uses_fee_resolution_stop_depth_and_null_macro(tmp_path) -> Non
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
     add_winning_episode(repository, include_stop=True)
     result = analyze_database(repository.path)
     assert result["quick_check"] == "ok"
-    assert result["analyzer_contract"] == "soccer-elite-competition-analyzer-v3d"
+    assert result["analyzer_contract"] == "watermelon-major-sports-analyzer-v4a"
     assert result["classifier_version"] == CLASSIFIER_VERSION
     assert result["league_mapping_sha256"] == LEAGUE_MAPPING_SHA256
     assert result["league_coverage"]["episodes"][0]["league_code"] == "epl"
@@ -327,7 +359,7 @@ def test_analyzer_uses_fee_resolution_stop_depth_and_null_macro(tmp_path) -> Non
     assert threshold["event_equal_fee_net_roi_pct"] > 0
     assert threshold["macro_estimable"] is False
     assert set(threshold["missing_leagues"]) == {
-        "bun", "fl1", "lal", "mls", "sea", "ucl", "uel"
+        "bun", "fl1", "lal", "mls", "sea", "ucl", "uel", "mlb", "nhl"
     }
     assert threshold["macro_league_equal_fee_net_roi_pct"] is None
     policies = result["stop_policy_comparison"]["0.97"]
@@ -336,11 +368,11 @@ def test_analyzer_uses_fee_resolution_stop_depth_and_null_macro(tmp_path) -> Non
     assert policies["STOP_0.80"]["gap_below_stop_p50"] == pytest.approx(0.02)
 
 
-def test_v3d_analyzer_reports_source_clock_strata_triad_and_notional_depth(tmp_path) -> None:
+def test_v4a_analyzer_reports_source_clock_strata_identity_and_notional_depth(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "clock-depth.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
@@ -533,17 +565,40 @@ def test_analyzer_keeps_v3c_archive_readable(tmp_path) -> None:
         source_digest="source-v3c",
         profile=V3C_PROFILE,
     )
-    add_winning_episode(repository)
+    add_winning_episode(
+        repository,
+        classifier_version=V3C_PROFILE.classifier_version,
+        mapping_sha256=V3C_PROFILE.league_mapping_sha256,
+    )
     result = analyze_database(repository.path)
     assert result["analyzer_contract"] == "soccer-elite-competition-analyzer-v3c"
     assert result["universe_profile"] == V3C_PROFILE.universe_profile
     assert result["notional_depth_evidence"]["ladder_usdc"][-1] == 500
 
 
+def test_analyzer_keeps_v3d_archive_readable(tmp_path) -> None:
+    repository = seeded_database(
+        tmp_path,
+        "legacy-v3d.db",
+        "watermelon-white-1m-v3d",
+        1,
+        "FAST_1M",
+        source_digest="source-v3d",
+        profile=V3D_PROFILE,
+    )
+    add_winning_episode(
+        repository,
+        classifier_version=V3D_PROFILE.classifier_version,
+        mapping_sha256=V3D_PROFILE.league_mapping_sha256,
+    )
+    result = analyze_database(repository.path)
+    assert result["analyzer_contract"] == "soccer-elite-competition-analyzer-v3d"
+
+
 @pytest.mark.parametrize(
     ("job", "cadence", "arm"),
     [
-        ("watermelon-white-1m-v3d", 5, "CONTROL_5M"),
+        ("watermelon-white-1m-v4a", 5, "CONTROL_5M"),
         ("unexpected-job", 1, "FAST_1M"),
     ],
 )
@@ -561,15 +616,19 @@ def test_single_database_analyzer_rejects_job_cadence_drift(
         analyze_database(repository.path)
 
 
-def test_macro_estimator_requires_and_equal_weights_all_eight_competitions(tmp_path) -> None:
+def test_macro_estimator_requires_and_equal_weights_all_ten_competitions(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
-    for identity in (*FROZEN_LEAGUE_IDENTITIES, *FROZEN_CUP_IDENTITIES):
+    for identity in (
+        *FROZEN_LEAGUE_IDENTITIES,
+        *FROZEN_CUP_IDENTITIES,
+        *FROZEN_DIRECT_SPORT_IDENTITIES,
+    ):
         add_winning_episode(repository, league_code=identity.code)
     threshold = analyze_database(repository.path)["entry_thresholds"]["0.97"]["all"]
     assert threshold["macro_estimable"] is True
@@ -583,6 +642,8 @@ def test_macro_estimator_requires_and_equal_weights_all_eight_competitions(tmp_p
         "sea",
         "ucl",
         "uel",
+        "mlb",
+        "nhl",
     }
     assert threshold["macro_league_equal_fee_net_roi_pct"] == pytest.approx(
         threshold["event_equal_fee_net_roi_pct"]
@@ -594,7 +655,7 @@ def test_analyzer_rejects_row_classifier_or_mapping_drift(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
@@ -607,7 +668,7 @@ def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
     repository = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
@@ -638,21 +699,21 @@ def test_multi_database_analyzer_enforces_pair_contract_and_episode_league(tmp_p
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3d",
+        "watermelon-grey-5m-v4a",
         5,
         "CONTROL_5M",
     )
     add_winning_episode(white, entered_at="2026-08-26T00:01:00Z")
     add_winning_episode(grey, entered_at="2026-08-26T00:05:00Z")
     result = analyze_databases([white.path, grey.path])
-    assert result["analyzer_contract"] == "soccer-elite-competition-cadence-pair-v3d"
+    assert result["analyzer_contract"] == "watermelon-major-sports-cadence-pair-v4a"
     assert result["pairing"]["matched_episode_keys"] == 1
     assert result["pairing"]["entry_time_delta_seconds_p50"] == 240
     assert result["pairing"]["matched_by_league"]["epl"] == 1
@@ -662,7 +723,7 @@ def test_multi_database_analyzer_rejects_source_digest_mismatch(tmp_path) -> Non
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
         source_digest="source-a",
@@ -670,7 +731,7 @@ def test_multi_database_analyzer_rejects_source_digest_mismatch(tmp_path) -> Non
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3d",
+        "watermelon-grey-5m-v4a",
         5,
         "CONTROL_5M",
         source_digest="source-b",
@@ -683,14 +744,14 @@ def test_multi_database_analyzer_rejects_non_cadence_config_mismatch(tmp_path) -
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3d",
+        "watermelon-grey-5m-v4a",
         5,
         "CONTROL_5M",
         entry_end_utc="2026-09-01T00:00:00Z",
@@ -703,14 +764,14 @@ def test_multi_database_analyzer_rejects_paired_episode_league_mismatch(tmp_path
     white = seeded_database(
         tmp_path,
         "white.db",
-        "watermelon-white-1m-v3d",
+        "watermelon-white-1m-v4a",
         1,
         "FAST_1M",
     )
     grey = seeded_database(
         tmp_path,
         "grey.db",
-        "watermelon-grey-5m-v3d",
+        "watermelon-grey-5m-v4a",
         5,
         "CONTROL_5M",
     )

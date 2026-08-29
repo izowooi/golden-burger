@@ -11,11 +11,12 @@ from .bot import PolymarketBot
 from .config import load_config
 from .utils.deadline import enforced_cycle_deadline
 from .utils.logger import setup_logger
+from .utils.run_lock import exclusive_job_run_lock
 
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Golden Watermelon Live - in-play soccer match-result strategy"
+        description="Golden Watermelon Live - in-play major-sports winner strategy"
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run one archive/trading cycle")
@@ -89,8 +90,16 @@ def main() -> None:
         )
         setup_logger(config.job_name, verbose=args.verbose)
         try:
-            with enforced_cycle_deadline() as cycle_budget:
-                PolymarketBot(config, cycle_budget=cycle_budget).run()
+            lock_path = config.db_path.parent / ".cycle-run.lock"
+            with exclusive_job_run_lock(lock_path) as acquired:
+                if not acquired:
+                    logging.warning(
+                        "이전 %s cycle이 아직 실행 중이므로 중복 실행을 안전하게 건너뜁니다",
+                        config.job_name,
+                    )
+                    return
+                with enforced_cycle_deadline() as cycle_budget:
+                    PolymarketBot(config, cycle_budget=cycle_budget).run()
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단됨")
             sys.exit(0)
@@ -106,15 +115,13 @@ def main() -> None:
         return
 
     trading = config.trading
-    print("=== Golden Watermelon Live / In-Play Soccer Match Result ===")
+    print("=== Golden Watermelon Live / In-Play Major-Sports Winner ===")
     print(f"Job: {config.job_name}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
+    print(f"Sport Family: {trading.sport_family}")
     print(f"DB: {config.db_path}")
-    print(
-        "Whole-match result propositions: YES token only "
-        f"(yes_only={trading.yes_only_mode})"
-    )
+    print(f"Whole-match winner tokens only (yes_only={trading.yes_only_mode})")
     print(
         "Cohort source/preregistration: "
         f"{trading.strategy_source_digest[:12]}/"
@@ -139,9 +146,9 @@ def main() -> None:
         f"{trading.min_order_size:.2f} + {trading.min_order_buffer_shares:.2f} buffer"
     )
     print(
-        "Server universe: live soccer tag 100350; EPL/Bundesliga/Ligue 1/"
-        "LaLiga/MLS/Serie A/UCL/UEL; exact $5 executable CLOB book is the "
-        "liquidity gate"
+        f"Server universe: live {trading.sport_family}; cumulative volume >= "
+        f"${trading.min_cumulative_volume:.0f}, liquidity >= "
+        f"${trading.min_liquidity:.0f}; fresh exact-$5 CLOB depth is final gate"
     )
     print(
         f"Limits: {trading.max_positions} total, "

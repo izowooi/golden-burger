@@ -27,15 +27,19 @@ from .source_digest import (
 )
 
 
-DATA_CONTRACT = "soccer-inplay-elite-competition-match-winner-v4"
-SCHEMA_PROFILE = "golden-watermelon-v3a-schema-v1"
-UNIVERSE_PROFILE = "soccer-elite-leagues-uefa-2026-08-v3d"
-CLASSIFIER_VERSION = "soccer-elite-competition-identity-v3"
-CANONICAL_JOB = "watermelon-white-1m-v3d"
+DATA_CONTRACT = "watermelon-soccer-mlb-nhl-inplay-match-winner-v5"
+SCHEMA_PROFILE = "golden-watermelon-v4a-schema-v1"
+UNIVERSE_PROFILE = "watermelon-soccer-mlb-nhl-2026-08-v4a"
+CLASSIFIER_VERSION = "watermelon-major-sports-identity-v1"
+CANONICAL_JOB = "watermelon-white-1m-v4a"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 SOCCER_TAG_ID = 100350
+MLB_TAG_ID = 100381
+NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
+SPORT_FAMILY_TAG_IDS = (("soccer", SOCCER_TAG_ID), ("mlb", MLB_TAG_ID), ("nhl", NHL_TAG_ID))
+SPORT_FAMILIES = tuple(item[0] for item in SPORT_FAMILY_TAG_IDS)
 
 # Immutable legacy epochs. The v3d runtime never accepts these jobs/contracts.
 # The literals also keep repository-wide discovery aware of preserved evidence.
@@ -50,6 +54,8 @@ LEGACY_RUNTIME_JOBS = (
     "watermelon-grey-5m-v3b",
     "watermelon-white-1m-v3c",
     "watermelon-grey-5m-v3c",
+    "watermelon-white-1m-v3d",
+    "watermelon-grey-5m-v3d",
 )
 
 
@@ -106,6 +112,26 @@ class CupIdentity:
         }
 
 
+@dataclass(frozen=True)
+class DirectSportIdentity:
+    code: str
+    sport_id: int
+    name: str
+    primary_tag_id: int
+    root_series_id: int
+    team_league: str
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "name": self.name,
+            "primary_tag_id": self.primary_tag_id,
+            "root_series_id": self.root_series_id,
+            "sport_id": self.sport_id,
+            "team_league": self.team_league,
+        }
+
+
 FROZEN_LEAGUE_IDENTITIES = (
     LeagueIdentity("epl", 2, "Premier League", 306, "10188", "premier-league-2025", "epl", (82, 306)),
     LeagueIdentity("bun", 7, "Bundesliga", 1494, "10194", "bundesliga-2025", "bun", (1494,)),
@@ -126,6 +152,11 @@ FROZEN_CUP_IDENTITIES = (
     ),
 )
 
+FROZEN_DIRECT_SPORT_IDENTITIES = (
+    DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
+    DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
+)
+
 # Compatibility name retained for the root contract verifier. Unlike the old
 # dict, this freezes every authoritative Gamma identity field.
 MAJOR_SOCCER_LEAGUES = FROZEN_LEAGUE_IDENTITIES
@@ -134,6 +165,7 @@ MAJOR_SOCCER_LEAGUES = FROZEN_LEAGUE_IDENTITIES
 def league_registry_payload(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
     cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
+    direct_identities: Sequence[DirectSportIdentity] = FROZEN_DIRECT_SPORT_IDENTITIES,
 ) -> dict[str, Any]:
     return {
         "related_tags": False,
@@ -143,16 +175,21 @@ def league_registry_payload(
         "uefa_competitions": [
             identity.canonical_dict() for identity in cup_identities
         ],
+        "sport_family_tag_ids": dict(SPORT_FAMILY_TAG_IDS),
+        "direct_sports": [
+            identity.canonical_dict() for identity in direct_identities
+        ],
     }
 
 
 def league_mapping_sha256(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
     cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
+    direct_identities: Sequence[DirectSportIdentity] = FROZEN_DIRECT_SPORT_IDENTITIES,
 ) -> str:
     payload = {
         "classifier_version": CLASSIFIER_VERSION,
-        **league_registry_payload(identities, cup_identities),
+        **league_registry_payload(identities, cup_identities, direct_identities),
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -163,9 +200,9 @@ LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
 
 # Entry begins well after this source edit; first successful source receipt is
 # provenance, not permission to backdate the preregistered statistical window.
-FROZEN_START = datetime(2026, 8, 27, 17, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 3, 17, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 10, 17, 0, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 8, 29, 4, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 9, 5, 4, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 9, 12, 4, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 LATE_ENTRY_MINUTE_FLOORS = (75, 80, 85)
@@ -182,8 +219,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v3d": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v3d": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v4a": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v4a": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(
@@ -393,6 +430,42 @@ def _cup_identities(value: Any) -> tuple[CupIdentity, ...]:
     return tuple(identities)
 
 
+def _direct_sport_identities(value: Any) -> tuple[DirectSportIdentity, ...]:
+    if not isinstance(value, Mapping) or not value:
+        raise ValueError("gamma.direct_sport_mapping must be a non-empty mapping")
+    identities: list[DirectSportIdentity] = []
+    allowed = {
+        "sport_id", "name", "primary_tag_id", "root_series_id", "team_league"
+    }
+    for raw_code, raw_identity in value.items():
+        code = str(raw_code).strip().casefold()
+        if not code or not isinstance(raw_identity, Mapping):
+            raise ValueError("gamma.direct_sport_mapping entries must be mappings")
+        unknown = set(raw_identity) - allowed
+        if unknown:
+            raise ValueError(
+                f"gamma.direct_sport_mapping.{code} has unknown keys: "
+                + ", ".join(sorted(unknown))
+            )
+        identities.append(
+            DirectSportIdentity(
+                code=code,
+                sport_id=_integer(raw_identity.get("sport_id"), f"direct.{code}.sport_id"),
+                name=str(raw_identity.get("name") or "").strip(),
+                primary_tag_id=_integer(
+                    raw_identity.get("primary_tag_id"),
+                    f"direct.{code}.primary_tag_id",
+                ),
+                root_series_id=_integer(
+                    raw_identity.get("root_series_id"),
+                    f"direct.{code}.root_series_id",
+                ),
+                team_league=str(raw_identity.get("team_league") or "").strip(),
+            )
+        )
+    return tuple(identities)
+
+
 @dataclass(frozen=True)
 class GammaConfig:
     base_url: str
@@ -402,9 +475,12 @@ class GammaConfig:
     related_tags: bool
     live_only: bool
     sport_family: str
+    sport_families: tuple[str, ...]
+    family_tag_ids: tuple[tuple[str, int], ...]
     required_common_tag_ids: tuple[int, ...]
     league_mapping: tuple[LeagueIdentity, ...]
     cup_mapping: tuple[CupIdentity, ...]
+    direct_sport_mapping: tuple[DirectSportIdentity, ...]
     sports_market_types: tuple[str, ...]
     connect_timeout_seconds: float
     read_timeout_seconds: float
@@ -426,7 +502,19 @@ class GammaConfig:
 
     @property
     def competition_codes(self) -> tuple[str, ...]:
-        return (*self.league_codes, *(identity.code for identity in self.cup_mapping))
+        return (
+            *self.league_codes,
+            *(identity.code for identity in self.cup_mapping),
+            *(identity.code for identity in self.direct_sport_mapping),
+        )
+
+    @property
+    def family_tags(self) -> dict[str, int]:
+        return dict(self.family_tag_ids)
+
+    @property
+    def direct_identities_by_code(self) -> dict[str, DirectSportIdentity]:
+        return {identity.code: identity for identity in self.direct_sport_mapping}
 
 
 @dataclass(frozen=True)
@@ -526,15 +614,21 @@ def _validate_config(config: BotConfig) -> None:
     if gamma.page_size != 500 or not 1 <= gamma.max_pages <= 4:
         raise ValueError("Gamma event keyset envelope must remain 500 × at most 4 pages")
     if gamma.tag_id != SOCCER_TAG_ID or gamma.related_tags is not False or gamma.live_only is not True:
-        raise ValueError("Gamma discovery must remain exact numeric soccer tag only")
+        raise ValueError("Gamma canonical tag must remain the exact numeric soccer tag")
     if gamma.sport_family != "soccer":
-        raise ValueError("sport_family must remain soccer")
+        raise ValueError("canonical sport_family must remain soccer")
+    if gamma.sport_families != SPORT_FAMILIES:
+        raise ValueError("sport_families must remain soccer, mlb, nhl")
+    if gamma.family_tag_ids != SPORT_FAMILY_TAG_IDS:
+        raise ValueError("family numeric Gamma tag IDs differ")
     if gamma.required_common_tag_ids != REQUIRED_COMMON_TAG_IDS:
         raise ValueError("required common sport/games/soccer tag IDs differ")
     if gamma.league_mapping != FROZEN_LEAGUE_IDENTITIES:
         raise ValueError("league mapping differs from the frozen authoritative tuple")
     if gamma.cup_mapping != FROZEN_CUP_IDENTITIES:
         raise ValueError("UEFA cup mapping differs from the frozen authoritative tuple")
+    if gamma.direct_sport_mapping != FROZEN_DIRECT_SPORT_IDENTITIES:
+        raise ValueError("MLB/NHL direct sport mapping differs from frozen identity")
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:
@@ -621,9 +715,24 @@ def load_config(
         related_tags=_boolean(gamma_raw["related_tags"], "gamma.related_tags"),
         live_only=_boolean(gamma_raw["live_only"], "gamma.live_only"),
         sport_family=str(gamma_raw["sport_family"]).strip().casefold(),
+        sport_families=_string_tuple(
+            gamma_raw["sport_families"], "gamma.sport_families"
+        ),
+        family_tag_ids=tuple(
+            (
+                str(family).strip().casefold(),
+                _integer(tag_id, f"gamma.family_tag_ids.{family}"),
+            )
+            for family, tag_id in _mapping(
+                gamma_raw, "family_tag_ids"
+            ).items()
+        ),
         required_common_tag_ids=_integer_tuple(gamma_raw["required_common_tag_ids"], "gamma.required_common_tag_ids"),
         league_mapping=_league_identities(gamma_raw["league_mapping"]),
         cup_mapping=_cup_identities(gamma_raw["cup_mapping"]),
+        direct_sport_mapping=_direct_sport_identities(
+            gamma_raw["direct_sport_mapping"]
+        ),
         sports_market_types=_string_tuple(gamma_raw["sports_market_types"], "gamma.sports_market_types"),
         connect_timeout_seconds=_finite(gamma_raw["connect_timeout_seconds"], "gamma.connect_timeout_seconds"),
         read_timeout_seconds=_finite(gamma_raw["read_timeout_seconds"], "gamma.read_timeout_seconds"),
@@ -682,7 +791,9 @@ def load_config(
         universe_profile=str(trading_raw.get("universe_profile", "")).strip(),
         classifier_version=str(trading_raw.get("classifier_version", "")).strip(),
         league_mapping_sha256=league_mapping_sha256(
-            gamma.league_mapping, gamma.cup_mapping
+            gamma.league_mapping,
+            gamma.cup_mapping,
+            gamma.direct_sport_mapping,
         ),
         cadence_arm=profile.cadence_arm,
         cadence_minutes=profile.cadence_minutes,

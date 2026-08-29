@@ -1,11 +1,17 @@
-"""Hard and cooperative runtime limits for one live Jenkins cycle."""
+"""Runtime telemetry and per-request socket bounds for one live cycle.
+
+Elapsed wall time is observability, not a trading signal.  A previous version
+stopped all network work around second 42 so Jenkins could finish before its
+next one-minute trigger.  That can suppress reconciliation or an otherwise
+valid order merely because a prior read was slow.  Concurrency is now handled
+by the job lock; each HTTP request still has its own finite socket timeout.
+"""
 
 from __future__ import annotations
 
 from contextlib import contextmanager
 from dataclasses import dataclass
 import math
-import signal
 import time
 from typing import Callable, Iterator
 
@@ -16,12 +22,12 @@ _MINIMUM_HEADROOM_SECONDS = 0.05
 
 
 class CycleDeadlineExceeded(RuntimeError):
-    """The live cycle no longer has enough time to operate safely."""
+    """Compatibility exception retained for older evidence readers."""
 
 
 @dataclass(frozen=True)
 class CycleBudget:
-    """One monotonic budget shared by discovery, reconciliation, and orders."""
+    """One monotonic runtime observer shared by the complete cycle."""
 
     started_monotonic: float
     hard_limit_seconds: float = HARD_CYCLE_LIMIT_SECONDS
@@ -71,14 +77,12 @@ class CycleBudget:
         )
 
     def ensure_can_start_request(self, context: str) -> None:
-        if self.hard_remaining_seconds <= _MINIMUM_HEADROOM_SECONDS:
-            raise CycleDeadlineExceeded(
-                f"hard cycle deadline exhausted before {context}"
-            )
-        if self.network_remaining_seconds <= _MINIMUM_HEADROOM_SECONDS:
-            raise CycleDeadlineExceeded(
-                f"network request stop reached before {context}"
-            )
+        """Never reject a request based on elapsed cycle time.
+
+        ``context`` remains part of the public API so old callers and evidence
+        formats stay compatible.
+        """
+        _ = context
 
     def request_timeouts(
         self,
@@ -87,7 +91,7 @@ class CycleBudget:
         *,
         context: str,
     ) -> tuple[float, float]:
-        """Fit one requests timeout tuple inside the remaining hard boundary."""
+        """Return fixed finite socket timeouts, independent of cycle age."""
         self.ensure_can_start_request(context)
         connect = float(connect_timeout_seconds)
         read = float(read_timeout_seconds)
@@ -98,23 +102,13 @@ class CycleBudget:
             or read <= 0
         ):
             raise ValueError("request timeouts must be finite and positive")
-        available = self.hard_remaining_seconds - _MINIMUM_HEADROOM_SECONDS
-        minimum = _MINIMUM_HEADROOM_SECONDS
-        if available <= minimum * 2:
-            raise CycleDeadlineExceeded(
-                f"hard cycle deadline has no socket headroom for {context}"
-            )
-        bounded_connect = max(minimum, min(connect, available - minimum))
-        bounded_read = max(minimum, min(read, available - bounded_connect))
-        return bounded_connect, bounded_read
+        return connect, read
 
     def assert_within_hard_deadline(self, context: str) -> None:
-        if self.hard_remaining_seconds <= 0:
-            raise CycleDeadlineExceeded(
-                f"hard cycle deadline exceeded during {context}"
-            )
+        """Compatibility no-op; cycle age cannot change trading decisions."""
+        _ = context
 
-    def evidence(self) -> dict[str, float]:
+    def evidence(self) -> dict[str, float | bool]:
         return {
             "hard_limit_seconds": self.hard_limit_seconds,
             "network_stop_margin_seconds": self.network_stop_margin_seconds,
@@ -123,6 +117,11 @@ class CycleBudget:
                 self.network_remaining_seconds, 6
             ),
             "hard_remaining_seconds": round(self.hard_remaining_seconds, 6),
+            "target_exceeded": self.elapsed_seconds > self.hard_limit_seconds,
+            "over_target_seconds": round(
+                max(0.0, self.elapsed_seconds - self.hard_limit_seconds), 6
+            ),
+            "elapsed_time_can_suppress_requests": False,
         }
 
 
@@ -133,18 +132,7 @@ def enforced_cycle_deadline(
     network_stop_margin_seconds: float = NETWORK_STOP_MARGIN_SECONDS,
     monotonic: Callable[[], float] = time.monotonic,
 ) -> Iterator[CycleBudget]:
-    """Adopt a launcher alarm, or install one, and expose its remaining budget.
-
-    Jenkins starts the Python entry point through a 50-second POSIX alarm so
-    interpreter/import contention is bounded too. Once Python reaches this
-    context, the same inherited timer raises a normal exception. That lets the
-    execution ledger quarantine an order whose POST outcome became uncertain.
-    """
-    if not all(
-        hasattr(signal, name)
-        for name in ("SIGALRM", "ITIMER_REAL", "getitimer", "setitimer")
-    ):
-        raise RuntimeError("POSIX hard cycle deadline support is required")
+    """Expose runtime evidence without installing or adopting a process alarm."""
     hard_limit = float(hard_limit_seconds)
     margin = float(network_stop_margin_seconds)
     if (
@@ -155,34 +143,9 @@ def enforced_cycle_deadline(
     ):
         raise ValueError("cycle deadline ordering is invalid")
 
-    inherited_remaining, _ = signal.getitimer(signal.ITIMER_REAL)
-    effective_hard_limit = (
-        min(hard_limit, inherited_remaining)
-        if inherited_remaining > 0
-        else hard_limit
-    )
-    if effective_hard_limit <= margin + _MINIMUM_HEADROOM_SECONDS:
-        raise CycleDeadlineExceeded(
-            "launcher deadline has no safe network-request window"
-        )
-
     budget = CycleBudget.start(
-        hard_limit_seconds=effective_hard_limit,
+        hard_limit_seconds=hard_limit,
         network_stop_margin_seconds=margin,
         monotonic=monotonic,
     )
-    previous_handler = signal.getsignal(signal.SIGALRM)
-
-    def _deadline_handler(_signum, _frame) -> None:
-        raise CycleDeadlineExceeded(
-            f"hard {effective_hard_limit:.3f}-second cycle deadline exceeded"
-        )
-
-    signal.signal(signal.SIGALRM, _deadline_handler)
-    signal.setitimer(signal.ITIMER_REAL, effective_hard_limit)
-    try:
-        yield budget
-        budget.assert_within_hard_deadline("cycle completion")
-    finally:
-        signal.setitimer(signal.ITIMER_REAL, 0)
-        signal.signal(signal.SIGALRM, previous_handler)
+    yield budget

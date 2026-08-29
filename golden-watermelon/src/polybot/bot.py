@@ -61,6 +61,7 @@ class ResearchBot:
                     league_registry_payload(
                         self.config.trading.gamma.league_mapping,
                         self.config.trading.gamma.cup_mapping,
+                        self.config.trading.gamma.direct_sport_mapping,
                     ),
                     sort_keys=True,
                     separators=(",", ":"),
@@ -74,6 +75,7 @@ class ResearchBot:
                     league_registry_payload(
                         self.config.trading.gamma.league_mapping,
                         self.config.trading.gamma.cup_mapping,
+                        self.config.trading.gamma.direct_sport_mapping,
                     ),
                     sort_keys=True,
                     separators=(",", ":"),

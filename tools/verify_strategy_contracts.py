@@ -3588,6 +3588,7 @@ def _validate_inplay_match_winner_research_strategy(
         "src/polybot/bot.py",
         "src/polybot/run_audit.py",
         "src/polybot/collector.py",
+        "src/polybot/league_classifier.py",
         "src/polybot/analyzer.py",
         "src/polybot/api/gamma_client.py",
         "src/polybot/api/clob_client.py",
@@ -3605,17 +3606,18 @@ def _validate_inplay_match_winner_research_strategy(
             "get_trading_config_mapping",
             "validate_yaml_config_shape",
             "POLYMARKET_PRIVATE_KEY",
-            "soccer-inplay-elite-competition-match-winner-v4",
+            "watermelon-soccer-mlb-nhl-inplay-match-winner-v5",
             "soccer-inplay-elite-competition-match-winner-v3",
             "soccer-inplay-major-league-match-winner-v1",
-            "watermelon-white-1m-v3",
-            "watermelon-grey-5m-v3",
-            "watermelon-white-1m-v3c",
-            "watermelon-grey-5m-v3c",
+            "watermelon-white-1m-v4a",
+            "watermelon-grey-5m-v4a",
             "watermelon-white-1m-v3d",
             "watermelon-grey-5m-v3d",
             "MAJOR_SOCCER_LEAGUES",
             "FROZEN_CUP_IDENTITIES",
+            "FROZEN_DIRECT_SPORT_IDENTITIES",
+            "MLB_TAG_ID",
+            "NHL_TAG_ID",
             "UEFA Champions League",
             "UEFA Europa League",
             "FAST_1M",
@@ -3650,6 +3652,7 @@ def _validate_inplay_match_winner_research_strategy(
             "ESPORTS_EXCLUDED", "LEAGUE_NOT_ALLOWED",
             "NOT_TOP_LEVEL_MONEYLINE",
             "ALIGNED_TWO_TEAM_MONEYLINE", "NEGRISK_TEAM_WIN_YES",
+            "DIRECT_TWO_TEAM_MONEYLINE",
             "FIRST_FULL_DEPTH_ABOVE",
             "UPWARD_CROSS", "HOLD_TO_RESOLUTION", "PARTIAL_FILL",
             "gap_from_stop", "resolution_due", "GAMMA_CURSOR_INCOMPLETE",
@@ -3663,6 +3666,10 @@ def _validate_inplay_match_winner_research_strategy(
             "SportsClockClient", "SportsClockBatch", "elapsed", "period",
             "sports_clock_websocket_snapshot", 'websocket.send("pong")',
         ),
+        "src/polybot/league_classifier.py": (
+            "classify_sports_event", "US_DIRECT_TWO_OUTCOME",
+            "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED", "ESPORTS_EXCLUDED",
+        ),
         "src/polybot/db/repository.py": (
             "research_config_versions", "research_run_events", "api_requests",
             "raw_payloads", "market_sweeps", "market_observations",
@@ -3675,6 +3682,8 @@ def _validate_inplay_match_winner_research_strategy(
             "storage_metrics", "append-only evidence",
         ),
         "src/polybot/analyzer.py": (
+            "watermelon-major-sports-analyzer-v4a",
+            "watermelon-major-sports-cadence-pair-v4a",
             "soccer-elite-competition-analyzer-v3d",
             "soccer-elite-competition-cadence-pair-v3d", "league_coverage",
             "cursor_complete_pct", "observed_book_pct", "entry_thresholds",
@@ -3729,15 +3738,12 @@ def _validate_inplay_match_winner_research_strategy(
         "README.md",
         readme,
         (
-            "soccer-inplay-elite-competition-match-winner-v4",
-            "soccer-inplay-elite-competition-match-winner-v3",
-            "soccer-inplay-major-league-match-winner-v1",
-            "watermelon-white-1m-v3d", "watermelon-grey-5m-v3d",
-            "watermelon-white-1m-v3c", "watermelon-grey-5m-v3c",
-            "child moneyline", "--simulate", "--live", "e-sports",
+            "watermelon-soccer-mlb-nhl-inplay-match-winner-v5",
+            "watermelon-white-1m-v4a", "watermelon-grey-5m-v4a",
+            "Soccer", "MLB", "NHL", "World Series", "Stanley Cup Final",
+            "MiLB", "AHL", "NCAA", "--simulate", "--live", "e-sports",
             "UEFA Champions League", "UEFA Europa League",
-            "SPORTS_CLOCK_UPDATE", "SOURCE_CLOCK_COVERAGE_GAP",
-            "RESULT_TRIAD_COVERAGE_GAP", "$500", "$1000",
+            "75/80/85", "$1000", "actual fill",
         ),
     )
     env_example = _read(directory / ".env.example")
@@ -3751,26 +3757,25 @@ def _validate_inplay_match_winner_research_strategy(
     preregistration = _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md",
+        directory / "research/frozen-2026-08-29-major-sports-v4a/PREREGISTRATION.md",
     )
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md",
+        "research/frozen-2026-08-29-major-sports-v4a/PREREGISTRATION.md",
         preregistration,
         (
-            "2026-08-27T17:00:00Z", "2026-09-03T17:00:00Z",
-            "0.95, 0.96, 0.97, 0.98, 0.99", "STOP_0.95", "STOP_0.70",
+            "2026-08-29T04:00:00Z", "2026-09-05T04:00:00Z",
+            "0.95/0.96/0.97/0.98/0.99", "0.95/0.93/0.90/0.85/0.80/0.70",
             "FAST_1M", "CONTROL_5M", "displayed-book counterfactual",
-            "epl", "bun", "fl1", "lal", "mls", "sea", "e-sports",
-            "ucl", "uel", "75/80/85", "$500", "$1000",
-            "SOURCE_CLOCK_COVERAGE_GAP", "RESULT_TRIAD_COVERAGE_GAP",
+            "Soccer", "MLB", "NHL", "World Series", "Stanley Cup Final",
+            "75/80/85", "$1000", "HIGH",
         ),
     )
     _require_file(
         findings,
         strategy,
-        directory / "research/frozen-2026-08-27-source-clock-triad-scale-v3d/MANIFEST.sha256",
+        directory / "research/frozen-2026-08-29-major-sports-v4a/MANIFEST.sha256",
     )
     _require_file(
         findings,
@@ -3933,7 +3938,7 @@ def _validate_tangerine_strategy(
 def _validate_watermelon_live_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
-    """Validate the isolated Cat/Dog in-play soccer live pilot."""
+    """Validate the shared Soccer/MLB/NHL in-play live A/B contract."""
 
     contracts = {
         "README.md": (
@@ -3941,8 +3946,10 @@ def _validate_watermelon_live_strategy(
             "polybot-dog",
             "watermelon-live-cat-96-1m-v2h",
             "watermelon-live-dog-99-1m-v2h",
-            "watermelon-live-cat-98-1m-v2f",
-            "watermelon-live-dog-99-1m-v2f",
+            "watermelon-live-bear-mlb-96-1m-v3a",
+            "watermelon-live-tiger-mlb-99-1m-v3a",
+            "watermelon-live-lion-nhl-96-1m-v3a",
+            "watermelon-live-wolf-nhl-99-1m-v3a",
             "EPL",
             "Bundesliga",
             "Ligue 1",
@@ -3951,17 +3958,21 @@ def _validate_watermelon_live_strategy(
             "Serie A",
             "UEFA Champions League",
             "UEFA Europa League",
+            "World Series",
+            "Stanley Cup Final",
+            "MiLB",
+            "AHL",
             "close_only",
             "archive_only",
             "strategy-wind-down-playbook.md",
         ),
         "STRATEGY.md": (
-            "[0.96, 0.999]",
-            "[0.99, 0.999]",
+            "[0.96,0.999]",
+            "[0.99,0.999]",
             "HOME/DRAW/AWAY",
             "FOK BUY",
             "FOK SELL",
-            "full depth",
+            "full-depth",
             "0.70",
             "PENDING_SELL",
         ),
@@ -3970,8 +3981,10 @@ def _validate_watermelon_live_strategy(
             "Clean before checkout",
             "watermelon-live-cat-96-1m-v2h",
             "watermelon-live-dog-99-1m-v2h",
-            "watermelon-live-cat-98-1m-v2f",
-            "watermelon-live-dog-99-1m-v2f",
+            "watermelon-live-bear-mlb-96-1m-v3a",
+            "watermelon-live-tiger-mlb-99-1m-v3a",
+            "watermelon-live-lion-nhl-96-1m-v3a",
+            "watermelon-live-wolf-nhl-99-1m-v3a",
             "daily-rsync verify",
         ),
         "src/polybot/bot.py": (
@@ -4002,19 +4015,23 @@ def _validate_watermelon_live_strategy(
             "FROZEN_FOLLOWUP_END_UTC",
             "FROZEN_LEAGUE_IDENTITIES",
             "FROZEN_CUP_IDENTITIES",
+            "DIRECT_SPORT_IDENTITIES",
+            "SPORT_FAMILY_TAG_IDS",
             "LEAGUE_MAPPING_SHA256",
             "strategy_source_digest",
             "preregistration_sha256",
             "live notional must remain exactly $5",
             "exposure limits are frozen at 20/1/5",
             "emergency stop_price is frozen at 0.70",
-            "only YES tokens of home/draw/away",
+            "YES tokens / direct winner tokens must remain winner-only",
         ),
         "src/polybot/league_classifier.py": (
             "classify_soccer_event",
             "ESPORTS_TAG_ID",
             "LEAGUE_MAPPING_SHA256",
             "UEFA_CUP",
+            "US_DIRECT_TWO_OUTCOME",
+            "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED",
         ),
         "src/polybot/api/gamma_client.py": (
             "/events/keyset",
@@ -4028,6 +4045,8 @@ def _validate_watermelon_live_strategy(
             "outside_in_play_window",
             "max_retries=1",
             "READ_TIMEOUT_SECONDS = 5.0",
+            '"liquidity_min"',
+            '"volume_min"',
         ),
         "src/polybot/api/clob_client.py": (
             "BuyBookWalk",
@@ -4040,6 +4059,7 @@ def _validate_watermelon_live_strategy(
             "get_sell_book_walk",
             "OrderType.FOK",
             "signed limit order share quantity drift",
+            "signed FOK BUY does not preserve exact maker USDC",
             '"intent_autoresolved": 0',
         ),
         "src/polybot/strategy/filters.py": (
@@ -4071,6 +4091,7 @@ def _validate_watermelon_live_strategy(
             "_resolution_fill_ready",
             "_sdk_sellable_shares",
             "_orphan_catalog_identity_matches",
+            "live gap-stop allowed after dual lifecycle proof",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",
@@ -4089,6 +4110,7 @@ def _validate_watermelon_live_strategy(
             "test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust",
             "test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment",
             "test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade",
+            "test_live_gap_beyond_normal_stop_limit_uses_first_full_depth_book",
         ),
         "tests/test_api_contracts.py": (
             "test_full_share_sell_walk_uses_deeper_bids_and_market_limit",
@@ -4099,6 +4121,22 @@ def _validate_watermelon_live_strategy(
             "test_live_sell_ledger_uses_signed_two_decimal_share_quantity",
             "test_gamma_accepts_exact_cross_league_uefa_identity",
             "test_gamma_rejects_uefa_advancement_scope_before_trading",
+            "test_live_exact_usdc_fok_buy_rejects_excess_taker_precision_before_post",
+        ),
+        "src/polybot/utils/deadline.py": (
+            "elapsed_time_can_suppress_requests",
+            "fixed finite socket timeouts",
+            "without installing or adopting a process alarm",
+        ),
+        "src/polybot/utils/run_lock.py": (
+            "exclusive_job_run_lock",
+            "LOCK_NB",
+        ),
+        "tests/test_cycle_deadline.py": (
+            "test_cycle_runtime_never_suppresses_network_after_target",
+        ),
+        "tests/test_run_lock.py": (
+            "test_second_process_skips_while_runtime_lock_is_held",
         ),
     }
     for relative_path, tokens in contracts.items():
@@ -4112,6 +4150,8 @@ def _validate_watermelon_live_strategy(
         "tests/test_filters_signals.py",
         "tests/test_lifecycle_mode.py",
         "tests/test_source_digest.py",
+        "tests/test_cycle_deadline.py",
+        "tests/test_run_lock.py",
         "research/frozen-2026-08-24/PREREGISTRATION.md",
         "research/frozen-2026-08-24/MANIFEST.sha256",
         "research/frozen-2026-08-24-1m-v2a/PREREGISTRATION.md",
@@ -4124,15 +4164,17 @@ def _validate_watermelon_live_strategy(
         "research/frozen-2026-08-25-safety-v2d/MANIFEST.sha256",
         "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md",
         "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256",
+        "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md",
+        "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
     config_yaml = _read(directory / "config.yaml")
     for key, expected in (
         ("buy_amount_usdc", 5.0),
-        ("min_liquidity", 0),
+        ("min_liquidity", 5000),
         ("min_volume_24h", 0),
-        ("min_cumulative_volume", 0),
+        ("min_cumulative_volume", 5000),
         ("max_positions", 20),
         ("max_event_positions", 1),
         ("max_new_positions_per_cycle", 5),
@@ -4224,25 +4266,29 @@ def _validate_watermelon_live_strategy(
             )
 
     active_prereg_path = (
-        directory / "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md"
+        directory / "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md"
     )
     active_manifest_path = (
-        directory / "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256"
+        directory / "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256"
     )
     active_preregistration = _read(active_prereg_path)
     active_manifest = _read(active_manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-26-uefa-v2h/PREREGISTRATION.md",
+        "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md",
         active_preregistration,
         (
-            "2026-08-26T18:30:00Z", "2026-09-02T18:30:00Z",
+            "2026-08-29T04:00:00Z", "2026-09-05T04:00:00Z",
             "watermelon-live-cat-96-1m-v2h",
             "watermelon-live-dog-99-1m-v2h",
+            "watermelon-live-bear-mlb-96-1m-v3a",
+            "watermelon-live-tiger-mlb-99-1m-v3a",
+            "watermelon-live-lion-nhl-96-1m-v3a",
+            "watermelon-live-wolf-nhl-99-1m-v3a",
             "[0.96,0.999]", "[0.99,0.999]",
-            "UEFA Champions League", "UEFA Europa League",
-            "exact `$5`", "0.70", "CRITICAL/HIGH",
+            "World Series", "Stanley Cup Final",
+            "exact `$5`", "0.70", "CRITICAL/HIGH", "gap",
         ),
     )
     if active_preregistration and active_manifest:
@@ -4258,7 +4304,7 @@ def _validate_watermelon_live_strategy(
                 Finding(
                     strategy,
                     "invalid_manifest",
-                    "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256",
+                    "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256",
                 )
             )
 

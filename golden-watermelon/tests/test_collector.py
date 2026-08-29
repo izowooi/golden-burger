@@ -253,7 +253,7 @@ def collector(config, repository, gamma, clob, sports_clock=None):
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v3d")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v4a")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -290,6 +290,7 @@ def repository_for(config):
             league_registry_payload(
                 config.trading.gamma.league_mapping,
                 config.trading.gamma.cup_mapping,
+                config.trading.gamma.direct_sport_mapping,
             ),
             sort_keys=True,
             separators=(",", ":"),
@@ -316,6 +317,7 @@ def test_classifier_accepts_only_whole_match_winners() -> None:
         )
         assert indices == ()
         assert "NOT_TOP_LEVEL_MONEYLINE" in rejected_reasons
+
 
     missing_scope = {**source, "description": "Winner including extra time."}
     _, indices, evidence, rejected_reasons = classify_match_winner(
@@ -359,6 +361,46 @@ def test_classifier_accepts_only_whole_match_winners() -> None:
     )
     assert indices == ()
     assert "SETTLEMENT_SCOPE_CONTRADICTORY" in rejected_reasons
+
+
+@pytest.mark.parametrize("sport_family", ["mlb", "nhl"])
+def test_direct_sports_require_exact_two_team_moneyline(sport_family: str) -> None:
+    direct_event = {
+        "teams": [
+            {"name": "Boston Red Sox", "alias": "BOS"},
+            {"name": "New York Yankees", "alias": "NYY"},
+        ]
+    }
+    direct_market = {
+        "sportsMarketType": "moneyline",
+        "negRisk": False,
+        "groupItemTitle": "",
+        "question": "Boston Red Sox vs New York Yankees",
+    }
+    result = classify_match_winner(
+        direct_event,
+        direct_market,
+        ["Boston Red Sox", "New York Yankees"],
+        ["home", "away"],
+        [0.60, 0.40],
+        sport_family,
+    )
+    assert result[0] == "DIRECT_TWO_TEAM_MONEYLINE"
+    assert result[1] == (0, 1)
+    assert result[2]["result_kinds_by_index"] == ["HOME", "AWAY"]
+    assert result[3] == []
+
+    period_market = {**direct_market, "question": "First period winner"}
+    rejected = classify_match_winner(
+        direct_event,
+        period_market,
+        ["Boston Red Sox", "New York Yankees"],
+        ["home", "away"],
+        [0.60, 0.40],
+        sport_family,
+    )
+    assert rejected[1] == ()
+    assert "NON_WHOLE_GAME_OR_PROP_EXCLUDED" in rejected[3]
 
 
 def test_soccer_league_classifier_rejects_esports_and_non_allowlisted_leagues(
@@ -435,7 +477,7 @@ def test_classifier_keeps_only_yes_for_negrisk_home_draw_away() -> None:
         [0.03, 0.97],
     )
     assert reversed_labels[1] == ()
-    assert "NOT_ALIGNED_TWO_OUTCOME" in reversed_labels[3]
+    assert "SOCCER_YES_NO_STRUCTURE_REQUIRED" in reversed_labels[3]
 
     integer_negrisk = classify_match_winner(
         event(),

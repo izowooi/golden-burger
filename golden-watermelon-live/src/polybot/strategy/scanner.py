@@ -1,4 +1,4 @@
-"""Exact-$5 in-play home/draw/away scanner for Golden Watermelon Live."""
+"""Exact-$5 in-play soccer/MLB/NHL winner scanner."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from ..db.repository import TradeRepository
 from .filters import (
     get_event,
     get_event_metadata,
-    get_match_result_yes,
+    get_match_result_outcomes,
     match_result_reason,
 )
 
@@ -119,6 +119,9 @@ class MarketScanner:
             market.get("gameStartTime")
             or event.get("startTime")
             or event.get("eventDate")
+            or event.get("startDate")
+            or event.get("eventStartTime")
+            or event.get("gameStartTime")
         )
         in_play_hours = get_hours_since_game_start(game_start, now)
         if in_play_hours is None:
@@ -146,7 +149,11 @@ class MarketScanner:
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)
 
-        result_outcomes = [get_match_result_yes(market) for market in markets]
+        result_outcomes = [
+            outcome
+            for market in markets
+            for outcome in get_match_result_outcomes(market)
+        ]
         token_ids = [
             str(outcome["token_id"])
             for outcome in result_outcomes
@@ -175,78 +182,89 @@ class MarketScanner:
                         "snapshot_reason": reason,
                     }
                     continue
-                outcome = get_match_result_yes(market)
-                token_id = str(outcome.get("token_id") or "")
-                walk = self._walks.get(token_id)
-                if walk is None:
+                outcomes = get_match_result_outcomes(market)
+                saved_for_condition = 0
+                missing_book_count = 0
+                for outcome in outcomes:
+                    token_id = str(outcome.get("token_id") or "")
+                    walk = self._walks.get(token_id)
+                    if walk is None:
+                        missing_book_count += 1
+                        continue
+                    snapshot = self.repo.save_snapshot(
+                        condition_id=condition_id,
+                        token_id=token_id,
+                        outcome=str(outcome["outcome"]),
+                        probability=walk.vwap,
+                        liquidity=_finite_nonnegative(
+                            market.get("liquidityNum", market.get("liquidity"))
+                        ),
+                        volume_24h=_finite_nonnegative(market.get("volume24hr")),
+                        best_bid=walk.best_bid,
+                        best_ask=walk.best_ask,
+                        spread=walk.spread,
+                        source_updated_at=market.get("updatedAt"),
+                        commit=False,
+                    )
+                    snapshot.timestamp = reference.astimezone(timezone.utc).replace(
+                        tzinfo=None
+                    )
+                    self._snapshot_ids[token_id] = snapshot.id
+                    experiment_start = parse_end_date(self.config.experiment_start_utc)
+                    experiment_end = parse_end_date(
+                        self.config.experiment_entry_end_utc
+                    )
+                    entry_period_open = bool(
+                        experiment_start
+                        and experiment_end
+                        and experiment_start <= reference < experiment_end
+                    )
+                    if (
+                        entry_period_open
+                        and self.config.entry.prob_min - 1e-9
+                        <= walk.vwap
+                        <= self.config.entry.prob_max + 1e-9
+                    ):
+                        event = get_event_metadata(market)
+                        episode = self.repo.claim_entry_episode(
+                            token_id=token_id,
+                            condition_id=condition_id,
+                            event_id=event["event_id"],
+                            outcome=str(outcome["outcome"]),
+                            entry_snapshot_id=snapshot.id,
+                            exact_vwap=walk.vwap,
+                            arm_prob_min=self.config.entry.prob_min,
+                            arm_prob_max=self.config.entry.prob_max,
+                            observed_at=reference.astimezone(timezone.utc).replace(
+                                tzinfo=None
+                            ),
+                            game_start_time=(
+                                game_start.astimezone(timezone.utc).replace(tzinfo=None)
+                                if game_start is not None
+                                else None
+                            ),
+                            in_play_hours=in_play_hours,
+                        )
+                        if episode is not None:
+                            self._first_episode_ids[token_id] = episode.id
+                    saved_for_condition += 1
+                    saved += 1
+                if not outcomes:
                     snapshot_results[condition_id] = {
                         "snapshot_eligible": True,
                         "snapshotted": False,
-                        "snapshot_reason": "no_full_exact_5_usdc_yes_book",
+                        "snapshot_reason": "no_exact_winner_outcome",
                     }
                     continue
-                snapshot = self.repo.save_snapshot(
-                    condition_id=condition_id,
-                    token_id=token_id,
-                    outcome="Yes",
-                    probability=walk.vwap,
-                    liquidity=_finite_nonnegative(
-                        market.get("liquidityNum", market.get("liquidity"))
-                    ),
-                    volume_24h=_finite_nonnegative(market.get("volume24hr")),
-                    best_bid=walk.best_bid,
-                    best_ask=walk.best_ask,
-                    spread=walk.spread,
-                    source_updated_at=market.get("updatedAt"),
-                    commit=False,
-                )
-                snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                    tzinfo=None
-                )
-                self._snapshot_ids[token_id] = snapshot.id
-                experiment_start = parse_end_date(self.config.experiment_start_utc)
-                experiment_end = parse_end_date(
-                    self.config.experiment_entry_end_utc
-                )
-                entry_period_open = bool(
-                    experiment_start
-                    and experiment_end
-                    and experiment_start <= reference < experiment_end
-                )
-                if (
-                    entry_period_open
-                    and self.config.entry.prob_min - 1e-9
-                    <= walk.vwap
-                    <= self.config.entry.prob_max + 1e-9
-                ):
-                    event = get_event_metadata(market)
-                    episode = self.repo.claim_entry_episode(
-                        token_id=token_id,
-                        condition_id=condition_id,
-                        event_id=event["event_id"],
-                        outcome="Yes",
-                        entry_snapshot_id=snapshot.id,
-                        exact_vwap=walk.vwap,
-                        arm_prob_min=self.config.entry.prob_min,
-                        arm_prob_max=self.config.entry.prob_max,
-                        observed_at=reference.astimezone(timezone.utc).replace(
-                            tzinfo=None
-                        ),
-                        game_start_time=(
-                            game_start.astimezone(timezone.utc).replace(tzinfo=None)
-                            if game_start is not None
-                            else None
-                        ),
-                        in_play_hours=in_play_hours,
-                    )
-                    if episode is not None:
-                        self._first_episode_ids[token_id] = episode.id
                 snapshot_results[condition_id] = {
                     "snapshot_eligible": True,
-                    "snapshotted": True,
-                    "snapshot_reason": "exact_5_usdc_yes_book_saved",
+                    "snapshotted": saved_for_condition > 0,
+                    "snapshot_reason": (
+                        f"exact_5_usdc_winner_books_saved:{saved_for_condition}"
+                        if saved_for_condition
+                        else f"no_full_exact_5_usdc_winner_book:{missing_book_count}"
+                    ),
                 }
-                saved += 1
 
             self.repo.record_market_sweep(attestation, snapshot_results, commit=False)
             self.repo.commit()
@@ -306,83 +324,85 @@ class MarketScanner:
             if not event["event_id"]:
                 rejected["missing_event_id"] = rejected.get("missing_event_id", 0) + 1
                 continue
-            outcome = get_match_result_yes(market)
-            token_id = str(outcome["token_id"])
-            walk = self._walks.get(token_id)
-            if walk is None:
-                rejected["no_full_exact_book"] = rejected.get(
-                    "no_full_exact_book", 0
-                ) + 1
-                continue
-            if not (
-                self.config.entry.prob_min - 1e-9
-                <= walk.vwap
-                <= self.config.entry.prob_max + 1e-9
-            ):
-                rejected["outside_entry_band"] = rejected.get(
-                    "outside_entry_band", 0
-                ) + 1
-                continue
-            entry_snapshot_id = self._snapshot_ids.get(token_id)
-            episode_id = self._first_episode_ids.get(token_id)
-            if entry_snapshot_id is None:
-                rejected["missing_entry_snapshot"] = rejected.get(
-                    "missing_entry_snapshot", 0
-                ) + 1
-                continue
-            if episode_id is None:
-                rejected["not_first_in_arm_observation"] = rejected.get(
-                    "not_first_in_arm_observation", 0
-                ) + 1
-                continue
-            tags = market.get("tags") or []
-            tag_text = ", ".join(
-                str(tag.get("label") or tag.get("slug") or "")
-                for tag in tags
-                if isinstance(tag, dict)
-            )
-            candidate = {
-                "condition_id": condition_id,
-                "market_slug": market.get("slug", ""),
-                "question": market.get("question", ""),
-                "event_id": event["event_id"],
-                "event_slug": event["event_slug"],
-                "outcome": "Yes",
-                "outcome_index": 0,
-                "result_kind": outcome["result_kind"],
-                "league_code": market.get("leagueCode"),
-                "league_name": market.get("leagueName"),
-                "token_id": token_id,
-                "probability": walk.vwap,
-                "prior_yes_price": None,
-                "prior_snapshot_id": None,
-                "entry_snapshot_id": entry_snapshot_id,
-                "entry_episode_id": episode_id,
-                "yes_probability": float(outcome["probability"]),
-                "liquidity": _finite_nonnegative(
-                    market.get("liquidityNum", market.get("liquidity"))
-                ),
-                "volume_24h": _finite_nonnegative(market.get("volume24hr")),
-                "best_bid": walk.best_bid,
-                "best_ask": walk.best_ask,
-                "spread": walk.spread,
-                "entry_vwap": walk.vwap,
-                "entry_shares": walk.shares,
-                "entry_limit_price": walk.limit_price,
-                "entry_levels_used": walk.levels_used,
-                "entry_reason": "first_observed_in_play_result_exact_5_usdc_band",
-                "end_date": parse_end_date(market.get("endDate")),
-                "game_start_time": game_start,
-                "in_play_hours": in_play_hours,
-                "hours_until_resolution": in_play_hours,
-                "market_tags": (
-                    f"{tag_text}, league={market.get('leagueCode')}, "
-                    f"result={outcome['result_kind']}"
-                ).strip(", "),
-            }
-            candidates_by_event.setdefault(str(event["event_id"]), []).append(
-                candidate
-            )
+            for outcome in get_match_result_outcomes(market):
+                token_id = str(outcome["token_id"])
+                walk = self._walks.get(token_id)
+                if walk is None:
+                    rejected["no_full_exact_book"] = rejected.get(
+                        "no_full_exact_book", 0
+                    ) + 1
+                    continue
+                if not (
+                    self.config.entry.prob_min - 1e-9
+                    <= walk.vwap
+                    <= self.config.entry.prob_max + 1e-9
+                ):
+                    rejected["outside_entry_band"] = rejected.get(
+                        "outside_entry_band", 0
+                    ) + 1
+                    continue
+                entry_snapshot_id = self._snapshot_ids.get(token_id)
+                episode_id = self._first_episode_ids.get(token_id)
+                if entry_snapshot_id is None:
+                    rejected["missing_entry_snapshot"] = rejected.get(
+                        "missing_entry_snapshot", 0
+                    ) + 1
+                    continue
+                if episode_id is None:
+                    rejected["not_first_in_arm_observation"] = rejected.get(
+                        "not_first_in_arm_observation", 0
+                    ) + 1
+                    continue
+                tags = market.get("tags") or []
+                tag_text = ", ".join(
+                    str(tag.get("label") or tag.get("slug") or "")
+                    for tag in tags
+                    if isinstance(tag, dict)
+                )
+                candidate = {
+                    "condition_id": condition_id,
+                    "market_slug": market.get("slug", ""),
+                    "question": market.get("question", ""),
+                    "event_id": event["event_id"],
+                    "event_slug": event["event_slug"],
+                    "outcome": outcome["outcome"],
+                    "outcome_index": outcome["token_index"],
+                    "result_kind": outcome["result_kind"],
+                    "league_code": market.get("leagueCode"),
+                    "league_name": market.get("leagueName"),
+                    "token_id": token_id,
+                    "probability": walk.vwap,
+                    "prior_yes_price": None,
+                    "prior_snapshot_id": None,
+                    "entry_snapshot_id": entry_snapshot_id,
+                    "entry_episode_id": episode_id,
+                    "yes_probability": float(outcome["probability"]),
+                    "liquidity": _finite_nonnegative(
+                        market.get("liquidityNum", market.get("liquidity"))
+                    ),
+                    "volume_24h": _finite_nonnegative(market.get("volume24hr")),
+                    "best_bid": walk.best_bid,
+                    "best_ask": walk.best_ask,
+                    "spread": walk.spread,
+                    "entry_vwap": walk.vwap,
+                    "entry_shares": walk.shares,
+                    "entry_limit_price": walk.limit_price,
+                    "entry_levels_used": walk.levels_used,
+                    "entry_reason": (
+                        "first_observed_in_play_result_exact_5_usdc_band"
+                    ),
+                    "end_date": parse_end_date(market.get("endDate")),
+                    "game_start_time": game_start,
+                    "in_play_hours": in_play_hours,
+                    "hours_until_resolution": in_play_hours,
+                    "market_tags": (
+                        f"{tag_text}, league={market.get('leagueCode')}, "
+                        f"result={outcome['result_kind']}"
+                    ).strip(", "),
+                }
+                candidates_by_event.setdefault(str(event["event_id"]), []).append(
+                    candidate
+                )
 
         candidates: List[Dict[str, Any]] = []
         for event_id, event_candidates in candidates_by_event.items():

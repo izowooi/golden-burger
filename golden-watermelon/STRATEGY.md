@@ -1,121 +1,74 @@
-# Golden Watermelon — Elite Soccer In-Play Match Winner
+# Golden Watermelon — Major Sports In-Play Evidence v4a
 
 ## 검정 질문
 
-축구 경기 중 HOME/DRAW/AWAY 결과의 executable ask가 0.95 이상으로 올라갔을 때, fee·spread·
-급반전과 실제 bid depth를 반영한 `$5` counterfactual은 resolution 보유 또는 stop 정책에서
-양의 event-equal 기대값을 보이는가? 진입을 regulation minute 75/80/85 이후로 늦추면 tail
-loss가 줄어드는가? displayed depth는 어느 주문 규모까지 급격한 VWAP 악화 없이 유지되는가?
+Soccer, MLB, NHL 경기 중 승자 outcome의 executable ask가 `0.95..0.99`에 도달했을 때 fee,
+spread, 급반전과 actual displayed bid depth를 반영한 `$5` counterfactual은 resolution hold 또는
+stop 정책에서 양의 event-equal 기대값을 보이는가? 동일 snapshot의 depth는 어느 notional까지
+급격한 VWAP 악화 없이 유지되는가? 1분 cadence는 5분보다 얼마나 많은 crossing/path를 포착하는가?
 
-가격 0.98은 승리를 보장하지 않는다. 0.98 무손절 매수도 fee 전 실제 승률이 98%를 넘어야
-손익분기이고, 희귀 역전패 한 번이 여러 작은 승리를 지울 수 있다. 1분 polling도 연속 감시나
-0.97 체결 보장이 아니며, 두 cycle 사이 가격이 0.96에서 1.00으로 jump하거나 book이 닫힐 수
-있다.
+높은 가격은 승리를 보장하지 않는다. 0.98 무손절 매수도 fee 전 실제 승률이 98%를 넘어야
+손익분기고 희귀 역전패 한 번이 여러 작은 승리를 지울 수 있다. polling 사이 jump와 closed book을
+실제 체결로 보정하지 않는다.
 
-## Frozen universe v3d
+## Frozen universe
 
-Gamma `/events/keyset`을 page 500, 최대 4페이지로 cursor-complete하게 읽는다. server envelope은
-`closed=false`, `live=true`, numeric `tag_id=100350`, `related_tags=false`다. liquidity/volume은
-feature로 저장하지만 selection gate로 쓰지 않는다.
+각 family를 Gamma `/events/keyset`, page 500, 최대 4페이지, `closed=false`, `live=true`, exact
+numeric tag, `related_tags=false`로 독립 수집한다.
 
-국내 리그 identity는 다음 exact tuple이다.
+| family | exact authority | result identity | in-play age |
+|---|---|---|---:|
+| Soccer | tag 100350 + EPL/Bundesliga/Ligue 1/LaLiga/MLS/Serie A/UCL/UEL tuple | 3 distinct regulation HOME/DRAW/AWAY YES | 4h |
+| MLB | tag 100381 + sport 8 + root series 3 + exact MLB teams | one condition, direct HOME/AWAY tokens | 8h |
+| NHL | tag 899 + sport 35 + root series 10346 + exact NHL teams | one condition, direct HOME/AWAY tokens | 5h |
 
-| code | sport id/name/primaryTagId | series id/slug | team league |
-|---|---|---|---|
-| `epl` | `2 / Premier League / 306` | `10188 / premier-league-2025` | `epl` |
-| `bun` | `7 / Bundesliga / 1494` | `10194 / bundesliga-2025` | `bun` |
-| `fl1` | `11 / Ligue 1 / 102070` | `10195 / ligue-1-2025` | `fl1` |
-| `lal` | `3 / LaLiga / 780` | `10193 / la-liga-2025` | `lal` |
-| `mls` | `33 / MLS / 100100` | `10189 / mls-2025` | `mls` |
-| `sea` | `12 / Serie A / 100618` | `10203 / serie-a-2025` | `sea` |
+World Series와 Stanley Cup Final은 exact major-league season/root/team identity를 통과하면 포함한다.
+title로 추정하지 않는다. e-sports, MiLB/AHL/ECHL/NCAA, child/period/spread/total/prop/future/
+advancement는 `REJECTED`; frozen identity의 누락·충돌은 `DRIFT`로 기록하고 CLOB/episode를 막는다.
 
-UEFA cross-league competition은 team domestic league equality를 적용하지 않고 다음 exact
-authority를 모두 요구한다.
+research universe에는 volume/liquidity 하한을 두지 않는다. 이 값과 full book 자체가 미래 live
+eligibility 연구의 feature다.
 
-| code | competition tag | series id/slug | event prefix | resolution host |
-|---|---:|---|---|---|
-| `ucl` | 100977 | `10204/ucl-2025` | `ucl-` | `www.uefa.com` |
-| `uel` | 101787 | `10209/uel-2025` | `uel-` | `www.uefa.com` |
-
-공통 numeric tags `1/100639/100350`, exactly two teams, exact single series relation이 필요하다.
-e-sports tag 64, 비축구, 허용되지 않은 cup/league는 `REJECTED`; 허용 identity의 누락·충돌은
-`DRIFT`이며 CLOB 조회와 episode 생성을 막고 HIGH issue를 남긴다.
-
-market은 top-level `moneyline`, exact `[Yes,No]`, `negRisk=true`, open/orderbook/accepting이며
-event team 또는 명시적 Draw에 해당하는 HOME/DRAW/AWAY YES만 허용한다. `child_moneyline`, Draw
-No Bet, prop, advancement, extra time, penalty market은 제외한다. description은 첫 90분과
-stoppage time만 settlement에 포함한다고 명시해야 한다. accepted event/run마다 HOME/DRAW/AWAY
-YES가 정확히 하나씩이고 condition/token이 각각 세 개의 distinct identity인지 검사하며,
-누락·중복은 `RESULT_TRIAD_COVERAGE_GAP` HIGH다.
-
-## Entry와 path
+## Entry, path와 depth
 
 - Entry threshold: `0.95/0.96/0.97/0.98/0.99`.
 - Primary counterfactual notional: exact `$5`.
-- 첫 full-depth ask VWAP가 X 이상이면 `FIRST_FULL_DEPTH_ABOVE`.
-- 직전 VWAP가 X 미만이고 현재 X 이상이면 `UPWARD_CROSS`.
+- Notional ladder: `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500/$750/$1000`.
+- `FIRST_FULL_DEPTH_ABOVE`와 진짜 `UPWARD_CROSS`를 구분한다.
 - `condition × token × threshold`당 episode 하나.
-- 기본 `HOLD_TO_RESOLUTION`; stop은 `0.95/0.93/0.90/0.85/0.80/0.70`을 같은 path에서 replay.
-- entry와 같은 book의 bid는 stop으로 쓰지 않고 다음 natural cycle부터 관측.
-- trigger와 executable bid VWAP, gap, partial fill, remaining retry를 분리.
-- CLOB closed와 exactly one winning token의 one-hot `0/1`만 resolution으로 인정.
+- `HOLD_TO_RESOLUTION`과 stop `0.95/0.93/0.90/0.85/0.80/0.70`을 같은 path에서 replay한다.
+- trigger bid, actual full-depth VWAP, gap, partial fill과 remaining retry를 분리한다.
+- CLOB closed와 exactly one winning token의 one-hot `0/1`만 resolution으로 인정한다.
 
-각 threshold/stop은 같은 사건의 counterfactual이며 독립 거래로 합산하지 않는다.
+각 threshold/stop/notional은 같은 사건의 counterfactual이며 독립 거래로 합산하지 않는다.
 
-## 경기 시계 evidence
-
-public Sports WebSocket `wss://sports-api.polymarket.com/ws`는 subscription 없이 active sports
-updates를 제공한다. 실제 운영 payload는 문서 예시와 달리 `slug` 대신 `gameId`와 camelCase
-`eventState`를 사용하므로 Gamma event의 numeric `gameId`로 exact join한다. 일치한 raw message를
-`SPORTS_CLOCK_UPDATE`로 저장하고 source `period + elapsed/clock`를 정규화한다. bounded WSS 창에
-target update가 없으면 같은 cycle Gamma event가 명시한 `elapsed/clock`, period, score와 update
-time을 보존해 사용한다. 두 source 모두 minute evidence가 없으면
-`SOURCE_CLOCK_COVERAGE_GAP`/`SOURCE_CLOCK_MINUTE_FIELD_GAP` HIGH다. `gameId` 누락·충돌과 WSS
-coverage 자체는 MEDIUM으로 별도 보존한다. 실패를 kickoff 추정으로 메우지 않는다.
-
-late-entry replay floors는 source regulation minute `>=75`, `>=80`, `>=85`다. 하프타임,
-stoppage time과 source lag 때문에 이를 “실제 종료 15/10/5분 전”이라고 단정하지 않는다.
-각 floor의 threshold observation을 후속 displayed path와 one-hot resolution에 join해
-event-cluster 단위로 평가한다.
-
-## 주문 규모 evidence
-
-모든 eligible token의 full ask/bid levels를 저장하고 다음 ladder를 같은 snapshot에서 walk한다.
-
-`$5, $10, $15, $20, $25, $30, $40, $50, $75, $100, $150, $250, $500, $750, $1000`
-
-각 rung의 full ask coverage, VWAP, worst ask, `$5` 대비 slippage, 같은 시점 full bid coverage와
-instant haircut을 보고한다. displayed depth는 fill 보장도, 미래 stop depth의 대체물도 아니다.
-향후 live scale은 한 rung씩만 올리며 최소 7일과 current-rung confirmed entry 30건 중 늦은
-시점, fill/fee 100%, PENDING/QUARANTINED 0, CRITICAL/HIGH 0과 다음-rung path depth evidence를
-별도로 통과해야 한다.
+Soccer는 public source의 regulation minute `>=75/>=80/>=85`만 late-entry replay에 사용한다.
+kickoff wall clock으로 minute를 만들지 않는다. MLB/NHL의 period/inning/clock은 raw provenance로
+보존하지만 Soccer minute strata와 합치지 않는다.
 
 ## Cadence와 timeline
 
 | Jenkins | runtime | arm | cadence |
 |---|---|---|---:|
-| `polybot-white` | `watermelon-white-1m-v3d` | `FAST_1M` | 1분 |
-| `polybot-grey` | `watermelon-grey-5m-v3d` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v4a` | `FAST_1M` | 1분 |
+| `polybot-grey` | `watermelon-grey-5m-v4a` | `CONTROL_5M` | 5분 |
 
-두 DB는 config/source/universe/grid가 같고 cadence만 다르다. paired entry time/VWAP, stop delay,
-coverage를 비교한다.
+두 DB는 config/source/universe/grid가 같고 cadence만 다르다.
 
-- Freeze decision: `2026-08-27T14:55:00Z`.
-- Entry: `[2026-08-27T17:00:00Z, 2026-09-03T17:00:00Z)`.
-- Follow-up end: `2026-09-10T17:00:00Z`.
-- 첫 24시간 review: `2026-08-28T17:00:00Z` 이후.
+- Freeze decision: `2026-08-29T00:00:00Z`.
+- Entry: `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`.
+- Follow-up end: `2026-09-12T04:00:00Z`.
+- 첫 24시간 review: `2026-08-30T04:00:00Z` 이후.
 
 ## 판정 gate
 
-24시간에는 cadence, cursor, exact identity, CLOB book, Sports clock join, cohort, DB integrity와
-storage만 판정한다. 수익성, threshold/stop, late minute, 주문 규모는 고르지 않는다.
+24시간에는 family별 cursor, exact identity, market structure, CLOB full book, source clock,
+cohort, DB integrity, runtime과 storage만 판정한다. 수익성, best family/threshold/stop/minute/notional은
+고르지 않는다.
 
-성과 판정은 follow-up과 resolution coverage 이후 event 내 equal → competition 내 event-equal →
-8개 competition 동일 가중 macro로 한다. 하나라도 evaluable resolution이 없으면 macro와 CI는
-`null`이다. confirmation에서 unique event 100, competition별 20, resolution ≥90%, exact book
-100%, event-cluster bootstrap lower bound >0을 요구한다. 표본 부족은 성공도 실패도 아니며 같은
-cohort에서 gate나 grid를 사후 변경하지 않는다.
+성과 판정은 follow-up과 resolution coverage 이후 family를 분리해 event-cluster 단위로 수행한다.
+표본 부족은 성공도 실패도 아니다. CRITICAL/HIGH, mixed cohort, cursor/identity/path/resolution gap이
+있으면 수익성·parameter 판단을 중단한다. live scale은 accountless displayed depth만으로 승인하지
+않고 confirmed live fill/fee evidence와 함께 한 rung씩 검토한다.
 
-이전 `soccer-inplay-elite-competition-match-winner-v3`,
-`soccer-inplay-major-league-match-winner-v2`/v1과 v3c/v3b DB는 immutable archive다. v3d에
-migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.
+v3d 이하 DB는 immutable archive다. v4a와 migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.

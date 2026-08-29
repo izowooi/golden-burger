@@ -5,55 +5,44 @@
 ## Active contract
 
 - Data/schema/universe/classifier:
-  `soccer-inplay-elite-competition-match-winner-v4` /
-  `golden-watermelon-v3a-schema-v1` /
-  `soccer-elite-leagues-uefa-2026-08-v3d` /
-  `soccer-elite-competition-identity-v3`.
-- White `watermelon-white-1m-v3d`: `FAST_1M`, 1분.
-- Grey `watermelon-grey-5m-v3d`: `CONTROL_5M`, 5분.
-- Entry `[2026-08-27T17:00:00Z,2026-09-03T17:00:00Z)`, follow-up
-  `2026-09-10T17:00:00Z`.
+  `watermelon-soccer-mlb-nhl-inplay-match-winner-v5` /
+  `golden-watermelon-v4a-schema-v1` /
+  `watermelon-soccer-mlb-nhl-2026-08-v4a` /
+  `watermelon-major-sports-identity-v1`.
+- White `watermelon-white-1m-v4a`: `FAST_1M`, 1분.
+- Grey `watermelon-grey-5m-v4a`: `CONTROL_5M`, 5분.
+- Entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up
+  `2026-09-12T04:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-08-27-source-clock-triad-scale-v3d/PREREGISTRATION.md`.
+  `research/frozen-2026-08-29-major-sports-v4a/PREREGISTRATION.md`.
 
 ## 불변 조건
 
-- EPL/epl, Bundesliga/bun, Ligue 1/fl1, LaLiga/lal, MLS/mls, Serie A/sea의 exact sport
-  id/name/primaryTagId/series/team identity만 허용한다.
-- UEFA Champions League/ucl와 UEFA Europa League/uel는 exact competition tag, single
-  series, slug prefix, UEFA resolution host와 two-team relation으로 분류한다. team domestic
-  league equality는 적용하지 않는다.
-- e-sports, 허용되지 않은 cup/league, child market, advancement, extra time, penalty market은
-  제외한다.
-- top-level regular-time moneyline의 HOME/DRAW/AWAY YES만 허용한다.
-- volume/liquidity gate를 추가하지 않는다. exact full book depth 자체를 측정한다.
-- entry `0.95/0.96/0.97/0.98/0.99`, stop
-  `0.95/0.93/0.90/0.85/0.80/0.70`, primary `$5`를 유지한다.
-- Gamma numeric `gameId`와 production WSS `gameId`를 exact join한다. 문서형 `slug`는
-  join 보조 identity일 뿐이다. WSS update가 없는 cycle은 같은 Gamma event의 explicit
-  `period/elapsed/clock`를 사용할 수 있다. 두 source 모두 없으면 HIGH이며 kickoff time으로
-  match minute를 추정하지 않는다. late replay grid는 `75/80/85`다.
-- accepted event/run마다 HOME/DRAW/AWAY YES condition/token triad가 정확히 하나씩이어야 한다.
-- notional replay grid는 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$250/$500/$750/$1000`다.
+- Soccer는 EPL/Bundesliga/Ligue 1/LaLiga/MLS/Serie A/UCL/UEL exact identity와 정규시간
+  HOME/DRAW/AWAY YES를 수집한다.
+- MLB/NHL은 exact major-league root/season, 두 팀, direct top-level whole-game moneyline을
+  수집한다. World Series와 Stanley Cup Final은 exact identity일 때 포함한다.
+- e-sports, MiLB/AHL/ECHL/NCAA, child/period/spread/total/prop/future/advancement는 제외한다.
+- 세 family를 numeric Gamma tag `100350/100381/899`로 각각 독립 cursor-complete하게 읽는다.
+  research collector에는 volume/liquidity selection gate를 넣지 않는다.
+- entry grid `0.95/0.96/0.97/0.98/0.99`, stop grid
+  `0.95/0.93/0.90/0.85/0.80/0.70`, notional ladder `$5..$1000`을 유지한다.
+- Soccer source minute `75/80/85`만 late-entry replay에 사용한다. MLB/NHL clock은 raw evidence로
+  보존하되 soccer minute strata와 합치지 않는다.
+- accepted Soccer event는 distinct HOME/DRAW/AWAY condition/token 3개, MLB/NHL event는 한
+  condition의 HOME/AWAY token 2개가 정확히 있어야 한다. gap은 HIGH다.
 - `--live`, credential, signer, order SDK를 HTTP/DB 전에 거절하고 lifecycle은 `archive_only`다.
 
 ## Evidence와 저장소
 
-Gamma requests/raw pages/cursor, `event_observations`, market/outcome, CLOB full levels,
-`SPORTS_CLOCK_UPDATE`, signal/episode/path/stop/resolution, config/source/run/storage/DB check를
-append-only로 보존한다. WSS-only coverage gap은 MEDIUM, source clock 또는 result triad gap은
-HIGH evidence issue로 숨기지 않고 남긴다.
-displayed book은 actual fill이나 realized P&L이 아니다.
+Gamma request/raw page/family cursor, event/market/outcome identity, full CLOB levels, source clock,
+signal/episode/path/stop/resolution, config/source/run/storage/DB check를 append-only로 보존한다.
+displayed book은 actual fill이나 realized P&L이 아니다. family·threshold·stop·notional rung을 독립
+거래처럼 합산하지 않는다.
 
-새 DB는 CREATE-only migration으로 만든다. 기존 DB는 writable open 전에 application ID, user
-version, schema/universe/classifier/mapping/migration/schema hash를 exact preflight한다. runtime
-`ALTER TABLE`, migration/import/copy/merge/backfill/delete/clean을 금지한다.
-
-`watermelon-white-1m-v3c`, `watermelon-grey-5m-v3c`, v3b와 data contract
-`soccer-inplay-elite-competition-match-winner-v3`,
-`soccer-inplay-major-league-match-winner-v2`, v1은 immutable archive다. active v3d에 합치지
-않는다.
+v3d 이하 DB는 immutable archive다. v4a는 CREATE-only migration과 새 runtime DB를 사용한다.
+기존 DB에 `ALTER TABLE`, migration/import/copy/merge/backfill/delete/clean을 하지 않는다.
 
 ## 검증과 배포
 
@@ -63,10 +52,9 @@ uv run pytest
 uv build
 ```
 
-코드 변경 시 White/Grey timer를 먼저 끈다. unit/contract test와 timer 없는 수동 build에서
-Gamma cursor, exact identity, WSS clock coverage, DB/storage를 확인한 뒤에만 `* * * * *`와
-`H/5 * * * *`를 복원한다. 각 자연 실행 2회와 daily-rsync verified DB를 확인한다.
+코드 변경 시 White/Grey timer를 먼저 끈다. timer 없는 수동 build에서 family별 cursor, exact
+identity, market structure, CLOB book, DB/storage를 확인한 뒤 `* * * * *`와 `H/5 * * * *`를
+복원한다. 각 자연 실행 2회와 daily-rsync verified DB를 확인한다.
 
-24시간에는 collection health만 본다. follow-up과 사전 표본 gate 전 수익성, best threshold,
-late-entry minute, live notional, scale-up을 주장하지 않는다. 8개 competition 중 하나라도
-evaluable resolution이 없으면 macro estimate/CI는 `null`이다.
+24시간에는 collection health만 본다. follow-up과 사전 표본 gate 전 수익성, best family,
+threshold/stop, late-entry minute, live notional이나 scale-up을 주장하지 않는다.

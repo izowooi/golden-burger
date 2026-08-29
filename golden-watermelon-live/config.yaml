@@ -1,17 +1,18 @@
-# Golden Watermelon Live — elite-league/UEFA in-play home/draw/away A/B.
+# Golden Watermelon Live — env-selected soccer/MLB/NHL in-play winner A/B.
 # env > config.yaml > defaults. Real orders always require explicit --live.
 
 trading:
   lifecycle_mode: active
+  sport_family: soccer
 
   # The experiment's only order notional.
   buy_amount_usdc: 5.0
 
-  # No Gamma liquidity/volume cutoff: a complete exact-$5 ask walk is the
-  # executable liquidity gate. Missing/partial books fail closed.
-  min_liquidity: 0
+  # Gamma applies these cumulative server-side gates before Python sees an
+  # event. A fresh complete exact-$5 ask walk remains the final execution gate.
+  min_liquidity: 5000
   min_volume_24h: 0
-  min_cumulative_volume: 0
+  min_cumulative_volume: 5000
 
   # At most $100 requested notional open, and never more than one result per game.
   max_positions: 20
@@ -34,12 +35,13 @@ trading:
   min_order_buffer_shares: 0.0
   yes_only_mode: true
 
-  experiment_start_utc: 2026-08-26T18:30:00Z
-  experiment_entry_end_utc: 2026-09-02T18:30:00Z
-  experiment_followup_end_utc: 2026-09-09T18:30:00Z
+  experiment_start_utc: 2026-08-29T04:00:00Z
+  experiment_entry_end_utc: 2026-09-05T04:00:00Z
+  experiment_followup_end_utc: 2026-09-12T04:00:00Z
 
   # Cat is arm A. Dog overrides only prob_min=0.99 in Jenkins. Both active
-  # v2h runtime jobs are scheduled every minute; cadence is a Jenkins concern.
+  # Cat keeps its v2h runtime to manage existing positions; Dog and the new
+  # MLB/NHL jobs share this source contract. Cadence is a Jenkins concern.
   entry:
     prob_min: 0.96
     prob_max: 0.999

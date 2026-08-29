@@ -13,7 +13,7 @@ from polybot.source_digest import (
 
 
 def test_source_digest_includes_create_only_migration_and_frozen_manifest() -> None:
-    assert "src/polybot/db/migrations/0001_soccer_major_league_v3a.sql" in SOURCE_PATHS
+    assert "src/polybot/db/migrations/0002_watermelon_major_sports_v4a.sql" in SOURCE_PATHS
     assert ACTIVE_PREREGISTRATION in SOURCE_PATHS
     assert ACTIVE_MANIFEST in SOURCE_PATHS
     assert len(compute_strategy_source_digest()) == 64
@@ -37,6 +37,6 @@ def test_frozen_manifest_verifies_every_declared_file() -> None:
     assert PROJECT_ROOT / "src/polybot/league_classifier.py" in targets
     assert (
         PROJECT_ROOT
-        / "src/polybot/db/migrations/0001_soccer_major_league_v3a.sql"
+        / "src/polybot/db/migrations/0002_watermelon_major_sports_v4a.sql"
     ) in targets
     assert all(path.is_file() for path in targets)

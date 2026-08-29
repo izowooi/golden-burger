@@ -1,4 +1,4 @@
-"""Cursor-complete elite-league and UEFA in-play soccer discovery."""
+"""Cursor-complete, server-filtered in-play sports discovery."""
 
 from __future__ import annotations
 
@@ -12,8 +12,8 @@ from uuid import uuid4
 
 import requests
 
-from ..config import SOCCER_TAG_ID
-from ..league_classifier import classify_soccer_event
+from ..config import SPORT_FAMILY_MAX_IN_PLAY_HOURS, SPORT_FAMILY_TAG_IDS
+from ..league_classifier import classify_sports_event
 from ..strategy.filters import match_result_reason
 from ..utils.deadline import CycleBudget
 from ..utils.retry import rate_limit_handler
@@ -31,10 +31,20 @@ class GammaClient:
     READ_TIMEOUT_SECONDS = 5.0
     PAGE_SIZE = 500
     MAX_SWEEP_PAGES = 4
-    MAX_IN_PLAY_HOURS = 4.0
     SWEEP_SCHEMA_VERSION = 2
 
-    def __init__(self, *, cycle_budget: Optional[CycleBudget] = None):
+    def __init__(
+        self,
+        *,
+        sport_family: str = "soccer",
+        cycle_budget: Optional[CycleBudget] = None,
+    ):
+        normalized_family = str(sport_family or "").strip().lower()
+        if normalized_family not in SPORT_FAMILY_TAG_IDS:
+            raise ValueError("unsupported Golden Watermelon sport family")
+        self.sport_family = normalized_family
+        self.tag_id = SPORT_FAMILY_TAG_IDS[normalized_family]
+        self.max_in_play_hours = SPORT_FAMILY_MAX_IN_PLAY_HOURS[normalized_family]
         self.cycle_budget = cycle_budget
         self.session = requests.Session()
         self.sweep_attestations: List[Dict[str, Any]] = []
@@ -109,9 +119,8 @@ class GammaClient:
             parsed = parsed.replace(tzinfo=timezone.utc)
         return parsed.astimezone(timezone.utc)
 
-    @classmethod
     def _qualification_reason(
-        cls,
+        self,
         event: Mapping[str, Any],
         market: Mapping[str, Any],
         *,
@@ -122,7 +131,7 @@ class GammaClient:
         ).strip()
         if not condition_id:
             return "missing_condition_id"
-        classification = classify_soccer_event(event)
+        classification = classify_sports_event(event, self.sport_family)
         if not classification.accepted:
             base_reason = (
                 str(classification.reasons[0]).lower()
@@ -151,15 +160,18 @@ class GammaClient:
             return "event_inactive_or_closed"
         if event.get("live") is not True or event.get("ended") is not False:
             return "event_not_explicitly_in_play"
-        game_start = cls._utc(
+        game_start = self._utc(
             market.get("gameStartTime")
             or event.get("startTime")
             or event.get("eventDate")
+            or event.get("startDate")
+            or event.get("eventStartTime")
+            or event.get("gameStartTime")
         )
         if game_start is None:
             return "game_start_time_missing"
         in_play_hours = (observed_at - game_start).total_seconds() / 3600.0
-        if not 0 <= in_play_hours <= cls.MAX_IN_PLAY_HOURS:
+        if not 0 <= in_play_hours <= self.max_in_play_hours:
             return "outside_in_play_window"
         if market.get("active") is not True or market.get("closed") is not False:
             return "market_inactive_or_closed"
@@ -167,21 +179,21 @@ class GammaClient:
             return "order_book_disabled"
         if market.get("acceptingOrders") is not True:
             return "orders_not_accepted"
-        result_reason, _ = match_result_reason(cls._enrich_market(event, market))
+        result_reason, _ = match_result_reason(self._enrich_market(event, market))
         if result_reason != "ok":
             return result_reason
         return "qualified"
 
-    @staticmethod
     def _enrich_market(
-        event: Mapping[str, Any], market: Mapping[str, Any]
+        self, event: Mapping[str, Any], market: Mapping[str, Any]
     ) -> Dict[str, Any]:
         result = dict(market)
         if not result.get("endDate") and event.get("endDate"):
             result["endDate"] = event.get("endDate")
         if not result.get("tags") and event.get("tags"):
             result["tags"] = event.get("tags")
-        classification = classify_soccer_event(event)
+        classification = classify_sports_event(event, self.sport_family)
+        result["sportFamily"] = self.sport_family
         result["leagueCode"] = classification.league_code
         result["leagueName"] = classification.league_name
         result["leagueClassifierStatus"] = classification.status
@@ -223,11 +235,16 @@ class GammaClient:
     ) -> List[Dict[str, Any]]:
         """Return cursor-complete in-play whole-match result propositions.
 
-        The frozen Gamma liquidity/volume values are zero. Exact executable
-        `$5` CLOB depth is the final and stricter liquidity gate.
+        Gamma applies cumulative volume/liquidity bounds before returning an
+        event. Exact executable `$5` CLOB depth is the final, stricter gate.
         """
-        if float(min_liquidity) != 0 or float(min_volume) != 0:
-            raise ValueError("server liquidity and volume gates are frozen at zero")
+        if (
+            not math.isfinite(float(min_liquidity))
+            or not math.isfinite(float(min_volume))
+            or float(min_liquidity) < 0
+            or float(min_volume) < 0
+        ):
+            raise ValueError("server liquidity and volume gates must be nonnegative")
 
         observed_at = datetime.now(timezone.utc)
         sweep_id = str(uuid4())
@@ -246,8 +263,10 @@ class GammaClient:
                 "limit": self.PAGE_SIZE,
                 "closed": "false",
                 "live": "true",
-                "tag_id": SOCCER_TAG_ID,
+                "tag_id": self.tag_id,
                 "related_tags": "false",
+                "liquidity_min": float(min_liquidity),
+                "volume_min": float(min_volume),
             }
             if after_cursor:
                 params["after_cursor"] = after_cursor
@@ -347,21 +366,23 @@ class GammaClient:
                 max(0, int(item["raw_seen_count"]) - 1)
                 for item in ordered_memberships
             ),
-            "min_liquidity": 0.0,
-            "min_volume": 0.0,
+            "min_liquidity": float(min_liquidity),
+            "min_volume": float(min_volume),
             "membership_digest_sha256": digest,
             "membership_digest_scope": "qualified_only",
             "memberships": ordered_memberships,
             "request_endpoint": "/events/keyset",
-            "tag_id": SOCCER_TAG_ID,
+            "tag_id": self.tag_id,
+            "sport_family": self.sport_family,
             "related_tags": False,
             "live_only": True,
-            "max_in_play_hours": self.MAX_IN_PLAY_HOURS,
+            "max_in_play_hours": self.max_in_play_hours,
         }
         self.sweep_attestations.append(attestation)
         logger.info(
-            "Golden Watermelon Live soccer sweep - events=%s markets=%s "
+            "Golden Watermelon Live %s sweep - events=%s markets=%s "
             "eligible_result_markets=%s pages=%s",
+            self.sport_family,
             event_count,
             raw_market_count,
             len(qualified),

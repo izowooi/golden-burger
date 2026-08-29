@@ -16,7 +16,7 @@ from uuid import uuid4
 
 
 # Frozen legacy v3 schema reference. It is deliberately never executed by the
-# v3a runtime; new databases are created only from MIGRATION_PATH below.
+# v4a runtime; new databases are created only from MIGRATION_PATH below.
 LEGACY_V3_SCHEMA_REFERENCE = """
 PRAGMA foreign_keys=ON;
 
@@ -392,9 +392,9 @@ CREATE INDEX IF NOT EXISTS database_check_time_idx
 ON database_checks(check_type, completed_at);
 """
 
-MIGRATION_PATH = Path(__file__).with_name("migrations") / "0001_soccer_major_league_v3a.sql"
-APPLICATION_ID = 1196903731  # ASCII "GWM3"
-SCHEMA_USER_VERSION = 301
+MIGRATION_PATH = Path(__file__).with_name("migrations") / "0002_watermelon_major_sports_v4a.sql"
+APPLICATION_ID = 1196903732  # ASCII "GWM4"
+SCHEMA_USER_VERSION = 401
 EXPECTED_SCHEMA_SHA256 = "70baef885a69b0200bb11c8325530cc88a49be2f1b78e27fb046c097a1716e32"
 
 APPEND_ONLY_TABLES = (

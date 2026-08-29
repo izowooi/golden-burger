@@ -43,8 +43,8 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.entry.max_stop_spread == 0.10
     assert config.trading.entry.max_stop_loss_fraction == 0.35
     assert config.trading.entry.hours_max == 4
-    assert config.trading.min_liquidity == 0
-    assert config.trading.min_cumulative_volume == 0
+    assert config.trading.min_liquidity == 5000
+    assert config.trading.min_cumulative_volume == 5000
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC

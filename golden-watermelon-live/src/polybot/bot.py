@@ -42,7 +42,10 @@ class PolymarketBot:
             ),
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")
-        self.gamma = GammaClient(cycle_budget=self.cycle_budget)
+        self.gamma = GammaClient(
+            sport_family=config.trading.sport_family,
+            cycle_budget=self.cycle_budget,
+        )
         self.clob = ClobClientWrapper(
             config.api,
             config.simulation_mode,
@@ -52,10 +55,11 @@ class PolymarketBot:
         )
         logger.info(
             "Golden Watermelon Live bot initialized - job=%s simulation=%s lifecycle=%s "
-            "match_result_yes_only=%s source=%s preregistration=%s",
+            "sport=%s winner_only=%s source=%s preregistration=%s",
             config.job_name,
             config.simulation_mode,
             config.trading.lifecycle_mode,
+            config.trading.sport_family,
             config.trading.yes_only_mode,
             config.trading.strategy_source_digest[:12],
             config.trading.preregistration_sha256[:12],
@@ -66,8 +70,9 @@ class PolymarketBot:
         entry = trading.entry
         archive = trading.archive
         logger.info(
-            "Golden Watermelon Live exact $5 result-YES VWAP [%.3f, %.3f], "
+            "Golden Watermelon Live %s exact $5 winner VWAP [%.3f, %.3f], "
             "in-play age [%.1f, %.1f]h, hold-to-resolution",
+            trading.sport_family,
             entry.prob_min,
             entry.prob_max,
             entry.hours_min,
@@ -90,8 +95,11 @@ class PolymarketBot:
             trading.experiment_capital_usdc * trading.max_drawdown_stop,
         )
         logger.info(
-            "server envelope - live soccer tag=100350; exact-$5 CLOB depth gate; "
-            "in_play_hours<=%.0f retention=%sd",
+            "server envelope - live %s; Gamma liquidity>=%.0f volume>=%.0f; "
+            "exact-$5 CLOB depth gate; in_play_hours<=%.0f retention=%sd",
+            trading.sport_family,
+            trading.min_liquidity,
+            trading.min_cumulative_volume,
             archive.hours_max,
             archive.retention_days,
         )
@@ -455,6 +463,13 @@ class PolymarketBot:
             }
             if cycle_budget is not None:
                 stats["runtime_budget"] = cycle_budget.evidence()
+                if bool(stats["runtime_budget"]["target_exceeded"]):
+                    logger.warning(
+                        "cycle runtime target exceeded but requests were not suppressed - "
+                        "elapsed=%.3fs target=%.1fs",
+                        float(stats["runtime_budget"]["elapsed_seconds"]),
+                        float(stats["runtime_budget"]["hard_limit_seconds"]),
+                    )
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
@@ -516,6 +531,7 @@ class PolymarketBot:
                 "job_name": self.config.job_name,
                 "simulation_mode": self.config.simulation_mode,
                 "lifecycle_mode": trading.lifecycle_mode,
+                "sport_family": trading.sport_family,
                 "db_path": str(self.config.db_path),
                 "statistics": repo.get_stats(),
                 "economic_pnl_guard": repo.get_economic_pnl_guard(),
@@ -574,3 +590,4 @@ class PolymarketBot:
             }
         finally:
             session.close()
+            trading.sport_family,

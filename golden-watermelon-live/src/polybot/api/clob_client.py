@@ -1302,6 +1302,7 @@ class ClobClientWrapper:
         token_id: str,
         amount_usdc: float,
         limit_price: float,
+        max_limit_price: Optional[float] = None,
     ) -> Dict[str, Any]:
         """Submit an exact-USDC FOK BUY with an explicit fresh-book limit.
 
@@ -1319,6 +1320,11 @@ class ClobClientWrapper:
             raise ValueError("FOK BUY maker amount must have at most two decimals")
         if not math.isfinite(limit_price) or not 0 < limit_price < 1:
             raise ValueError("limit_price must be finite and inside (0, 1)")
+        maximum = limit_price if max_limit_price is None else float(max_limit_price)
+        if not math.isfinite(maximum) or not 0 < maximum < 1:
+            raise ValueError("max_limit_price must be finite and inside (0, 1)")
+        if maximum + 1e-12 < limit_price:
+            raise ValueError("max_limit_price cannot be below limit_price")
 
         tick_size = self.DEFAULT_TICK_SIZE
         if not self.simulation_mode:
@@ -1328,6 +1334,15 @@ class ClobClientWrapper:
             tick_size,
             direction="up",
         )
+        rounded_maximum = self._round_to_tick(
+            maximum,
+            tick_size,
+            direction="down",
+        )
+        if rounded_price > rounded_maximum + 1e-12:
+            raise PreSubmissionContractError(
+                "fresh book limit exceeds the preregistered entry ceiling"
+            )
 
         if self.simulation_mode:
             requested_size = float(amount / Decimal(str(rounded_price)))
@@ -1348,13 +1363,6 @@ class ClobClientWrapper:
             from py_clob_client_v2 import MarketOrderArgs, OrderType
             from py_clob_client_v2.clob_types import PartialCreateOrderOptions
 
-            order_args = MarketOrderArgs(
-                token_id=token_id,
-                amount=float(amount),
-                side="BUY",
-                price=rounded_price,
-                order_type=OrderType.FOK,
-            )
             if self.execution_ledger is not None:
                 self.execution_ledger.assert_submission_allowed(
                     token_id=token_id,
@@ -1368,43 +1376,75 @@ class ClobClientWrapper:
                 except ClobResponseContractError as error:
                     raise PreSubmissionContractError(str(error)) from error
 
-            # Complete signing and its read-only market-info lookups before an
-            # intent is persisted.  The signed integer amounts are the exact
-            # values the venue will validate, so use them as ledger evidence.
-            # py-clob-client-v2 permits five or six taker decimals for fine-tick
-            # markets, while the venue accepts at most four for market BUYs.
-            # A cent-aligned limit remains on every finer venue grid, so ask the
-            # signer to use the coarser cent grid without changing the price or
-            # the exact maker notional.  Non-cent limits cannot be widened or
-            # narrowed without changing the preregistered execution envelope.
-            price_decimal = Decimal(str(rounded_price))
-            cent_aligned = price_decimal == price_decimal.quantize(Decimal("0.01"))
-            signing_options = None
-            if Decimal(str(tick_size)) < Decimal("0.01") and cent_aligned:
-                signing_options = PartialCreateOrderOptions(tick_size="0.01")
-            if signing_options is None:
-                signed_order = self.client.create_market_order(order_args)
-            else:
-                signed_order = self.client.create_market_order(
-                    order_args,
-                    options=signing_options,
-                )
-            try:
-                maker_micros = int(str(signed_order.makerAmount))
-                taker_micros = int(str(signed_order.takerAmount))
-            except (AttributeError, TypeError, ValueError) as error:
-                raise PreSubmissionContractError(
-                    "signed FOK BUY amount evidence is unavailable"
-                ) from error
+            # Sign locally before persisting an intent.  Some valid fine-tick
+            # prices cause the SDK to emit five-decimal taker shares although
+            # the venue accepts only four.  Walk upward on the *venue tick grid*
+            # only as far as the frozen arm ceiling and select the first signed
+            # envelope that preserves exact $5 maker amount and venue precision.
+            # This avoids losing a valid opportunity at (for example) 0.965,
+            # while never widening outside the preregistered entry band.
             expected_maker_micros = int(amount * Decimal(1_000_000))
-            if maker_micros != expected_maker_micros or taker_micros <= 0:
-                raise PreSubmissionContractError(
-                    "signed FOK BUY does not preserve exact maker USDC"
+            tick_decimal = Decimal(str(tick_size))
+            price_decimal = Decimal(str(rounded_price))
+            maximum_decimal = Decimal(str(rounded_maximum))
+            signed_order = None
+            maker_micros = 0
+            taker_micros = 0
+            selected_price = None
+            while price_decimal <= maximum_decimal:
+                candidate_price = float(price_decimal)
+                order_args = MarketOrderArgs(
+                    token_id=token_id,
+                    amount=float(amount),
+                    side="BUY",
+                    price=candidate_price,
+                    order_type=OrderType.FOK,
                 )
-            if taker_micros % _MARKET_BUY_TAKER_QUANTUM_MICROS != 0:
-                raise PreSubmissionContractError(
-                    "signed FOK BUY taker shares exceed four decimal places"
+                cent_aligned = (
+                    price_decimal == price_decimal.quantize(Decimal("0.01"))
                 )
+                signing_options = None
+                if tick_decimal < Decimal("0.01") and cent_aligned:
+                    signing_options = PartialCreateOrderOptions(tick_size="0.01")
+                if signing_options is None:
+                    candidate_order = self.client.create_market_order(order_args)
+                else:
+                    candidate_order = self.client.create_market_order(
+                        order_args,
+                        options=signing_options,
+                    )
+                try:
+                    candidate_maker = int(str(candidate_order.makerAmount))
+                    candidate_taker = int(str(candidate_order.takerAmount))
+                except (AttributeError, TypeError, ValueError) as error:
+                    raise PreSubmissionContractError(
+                        "signed FOK BUY amount evidence is unavailable"
+                    ) from error
+                if candidate_maker != expected_maker_micros or candidate_taker <= 0:
+                    raise PreSubmissionContractError(
+                        "signed FOK BUY does not preserve exact maker USDC"
+                    )
+                if candidate_taker % _MARKET_BUY_TAKER_QUANTUM_MICROS == 0:
+                    signed_order = candidate_order
+                    maker_micros = candidate_maker
+                    taker_micros = candidate_taker
+                    selected_price = candidate_price
+                    break
+                price_decimal += tick_decimal
+            if signed_order is None or selected_price is None:
+                raise PreSubmissionContractError(
+                    "no four-decimal exact-$5 FOK BUY envelope inside entry ceiling"
+                )
+            if selected_price > rounded_price + 1e-12:
+                logger.warning(
+                    "FOK BUY signer-compatible limit widened within frozen band - "
+                    "token=%s book_limit=%.4f signed_limit=%.4f ceiling=%.4f",
+                    str(token_id)[:16],
+                    rounded_price,
+                    selected_price,
+                    rounded_maximum,
+                )
+            rounded_price = selected_price
             requested_size = taker_micros / 1_000_000
 
             def submit_order() -> Dict[str, Any]:

@@ -1,4 +1,4 @@
-"""Resolved configuration for the Golden Watermelon live soccer strategy."""
+"""Resolved configuration for the Golden Watermelon live sports strategy."""
 
 from __future__ import annotations
 
@@ -22,15 +22,55 @@ from .source_digest import compute_strategy_source_digest, preregistration_sha25
 
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
-FROZEN_START_UTC = "2026-08-26T18:30:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-02T18:30:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-09T18:30:00Z"
+FROZEN_START_UTC = "2026-08-29T04:00:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-05T04:00:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-09-12T04:00:00Z"
 FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
 SOCCER_TAG_ID = 100350
+MLB_TAG_ID = 100381
+NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "soccer-elite-competition-identity-v3"
+CLASSIFIER_VERSION = "watermelon-major-sports-identity-v1"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+
+
+@dataclass(frozen=True)
+class DirectSportIdentity:
+    """Exact Gamma identity for a US two-team direct moneyline family."""
+
+    code: str
+    sport_id: int
+    name: str
+    primary_tag_id: int
+    root_series_id: int
+    team_league: str
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "code": self.code,
+            "name": self.name,
+            "primary_tag_id": self.primary_tag_id,
+            "root_series_id": self.root_series_id,
+            "sport_id": self.sport_id,
+            "team_league": self.team_league,
+        }
+
+
+DIRECT_SPORT_IDENTITIES = {
+    "mlb": DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
+    "nhl": DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
+}
+SPORT_FAMILY_TAG_IDS = {
+    "soccer": SOCCER_TAG_ID,
+    "mlb": MLB_TAG_ID,
+    "nhl": NHL_TAG_ID,
+}
+SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
+    "soccer": 4.0,
+    "mlb": 8.0,
+    "nhl": 5.0,
+}
 
 
 @dataclass(frozen=True)
@@ -130,6 +170,12 @@ def league_registry_payload(
         "uefa_competitions": [
             identity.canonical_dict() for identity in cup_identities
         ],
+        "direct_sports": {
+            code: identity.canonical_dict()
+            for code, identity in sorted(DIRECT_SPORT_IDENTITIES.items())
+        },
+        "sport_family_tag_ids": SPORT_FAMILY_TAG_IDS,
+        "sport_family_max_in_play_hours": SPORT_FAMILY_MAX_IN_PLAY_HOURS,
     }
 
 
@@ -277,10 +323,11 @@ class TradingConfig:
     """Golden Watermelon live trading and evidence configuration."""
 
     lifecycle_mode: str = "active"
+    sport_family: str = "soccer"
     buy_amount_usdc: float = 5.0
-    min_liquidity: float = 0.0
+    min_liquidity: float = 5000.0
     min_volume_24h: float = 0.0
-    min_cumulative_volume: float = 0.0
+    min_cumulative_volume: float = 5000.0
     max_positions: int = 20
     max_event_positions: int = 1
     max_new_positions_per_cycle: int = 5
@@ -363,15 +410,18 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
         )
+    if trading.sport_family not in SPORT_FAMILY_TAG_IDS:
+        raise ValueError("sport_family must be one of: soccer, mlb, nhl")
     if trading.buy_amount_usdc != 5:
         raise ValueError("Golden Watermelon live notional must remain exactly $5")
     if (
-        trading.min_liquidity != 0
-        or trading.min_cumulative_volume != 0
+        trading.min_liquidity != 5000
+        or trading.min_cumulative_volume != 5000
         or trading.min_volume_24h != 0
     ):
         raise ValueError(
-            "Golden Watermelon uses the exact $5 executable book as its frozen liquidity gate"
+            "Golden Watermelon liquidity gate is frozen at $5k cumulative "
+            "volume/$5k liquidity plus an exact-$5 executable-book gate"
         )
     if (
         trading.max_positions != 20
@@ -399,7 +449,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if trading.min_order_size != 5 or trading.min_order_buffer_shares != 0:
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if not trading.yes_only_mode:
-        raise ValueError("only YES tokens of home/draw/away result propositions are allowed")
+        raise ValueError(
+            "YES tokens / direct winner tokens must remain winner-only"
+        )
     if (entry.prob_min, entry.prob_max) not in FROZEN_ARMS:
         raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
     if entry.stop_price != 0.70:
@@ -412,10 +464,17 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "stop execution safety is frozen at 5pp slippage, 10pp spread, 35% loss"
         )
-    if entry.hours_min != 0 or entry.hours_max != 4:
-        raise ValueError("in-play age window must remain [0h, 4h]")
-    if archive.prob_min != 0 or archive.hours_max != 4:
-        raise ValueError("archive envelope must cover the four-hour in-play universe")
+    expected_hours_max = SPORT_FAMILY_MAX_IN_PLAY_HOURS[trading.sport_family]
+    if entry.hours_min != 0 or entry.hours_max != expected_hours_max:
+        raise ValueError(
+            f"{trading.sport_family} in-play age window must remain "
+            f"[0h, {expected_hours_max:g}h]"
+        )
+    if archive.prob_min != 0 or archive.hours_max != expected_hours_max:
+        raise ValueError(
+            f"archive envelope must cover the {expected_hours_max:g}-hour "
+            f"{trading.sport_family} in-play universe"
+        )
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
     smallest_order = trading.buy_amount_usdc / entry.prob_max
@@ -439,7 +498,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         trading.classifier_version != CLASSIFIER_VERSION
         or trading.league_mapping_sha256 != LEAGUE_MAPPING_SHA256
     ):
-        raise ValueError("soccer league classifier identity drift")
+        raise ValueError("sports classifier identity drift")
     for name, digest in (
         ("strategy_source_digest", trading.strategy_source_digest),
         ("preregistration_sha256", trading.preregistration_sha256),
@@ -530,11 +589,17 @@ def load_config(
 
     trading = TradingConfig(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
+        sport_family=str(
+            os.getenv(
+                "POLYBOT_SPORT_FAMILY",
+                trading_cfg.get("sport_family", "soccer"),
+            )
+        ).strip().lower(),
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
         min_liquidity=_get_config_value(
-            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 0.0
+            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 5000.0
         ),
         min_volume_24h=_get_config_value(
             "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 0.0
@@ -542,7 +607,7 @@ def load_config(
         min_cumulative_volume=_get_config_value(
             "POLYBOT_MIN_CUMULATIVE_VOLUME",
             trading_cfg.get("min_cumulative_volume"),
-            0.0,
+            5000.0,
         ),
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS", trading_cfg.get("max_positions"), 20, int

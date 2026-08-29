@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from polybot.config import load_config
-from polybot.league_classifier import classify_soccer_event
+from polybot.league_classifier import classify_soccer_event, classify_sports_event
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -26,7 +26,7 @@ def cases() -> list[dict[str, object]]:
 @pytest.fixture(scope="module")
 def gamma():
     return load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v3d"
+        ROOT / "config.yaml", "watermelon-white-1m-v4a"
     ).trading.gamma
 
 
@@ -150,3 +150,80 @@ def test_cross_league_uefa_competitions_use_numeric_tag_and_series_authority(
     result = classify_soccer_event(drifted, gamma)
     assert result.status == "DRIFT"
     assert "EVENT_RESOLUTION_SOURCE_MISMATCH" in result.reasons
+
+
+def direct_event(family: str, *, title: str | None = None) -> dict[str, object]:
+    identity = {
+        "mlb": {"sport_id": 8, "tag_id": 100381, "root": 3, "name": "MLB"},
+        "nhl": {"sport_id": 35, "tag_id": 899, "root": 10346, "name": "NHL"},
+    }[family]
+    year = 2026
+    series_slug = f"{family}-{year}"
+    return {
+        "id": f"{family}-event",
+        "title": title or f"A vs B ({family.upper()})",
+        "slug": f"{family}-a-b-{year}-08-29",
+        "seriesSlug": series_slug,
+        "startTime": "2026-08-29T00:00:00Z",
+        "sport": {
+            "id": identity["sport_id"],
+            "sport": family,
+            "name": identity["name"],
+            "primaryTagId": identity["tag_id"],
+            "series": identity["root"],
+            "tags": f"1,100639,{identity['tag_id']}",
+        },
+        "tags": [
+            {"id": 1, "slug": "sports"},
+            {"id": 100639, "slug": "games"},
+            {"id": identity["tag_id"], "slug": family},
+        ],
+        "series": [
+            {
+                "id": f"{identity['root']}01",
+                "slug": series_slug,
+                "ticker": series_slug,
+                "title": f"{identity['name']} {year}",
+                "seriesType": "single",
+                "recurrence": "daily",
+            }
+        ],
+        "teams": [
+            {"name": "A", "league": family},
+            {"name": "B", "league": family},
+        ],
+    }
+
+
+@pytest.mark.parametrize(
+    ("family", "title"),
+    [
+        ("mlb", "World Series: A vs B"),
+        ("nhl", "Stanley Cup Final: A vs B"),
+    ],
+)
+def test_major_postseason_identity_is_accepted_without_title_allowlisting(
+    gamma, family: str, title: str
+) -> None:
+    result = classify_sports_event(direct_event(family, title=title), gamma, family)
+    assert result.status == "ACCEPTED"
+    assert result.league_code == family
+    assert result.evidence["identity_kind"] == "US_DIRECT_TWO_OUTCOME"
+
+
+@pytest.mark.parametrize(
+    ("family", "title", "league", "expected_reason"),
+    [
+        ("mlb", "MiLB Durham vs Norfolk", "milb", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
+        ("nhl", "AHL Hershey vs Providence", "ahl", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
+    ],
+)
+def test_minor_leagues_fail_closed(
+    gamma, family: str, title: str, league: str, expected_reason: str
+) -> None:
+    event = direct_event(family, title=title)
+    for team in event["teams"]:
+        team["league"] = league
+    result = classify_sports_event(event, gamma, family)
+    assert result.status == "REJECTED"
+    assert expected_reason in result.reasons

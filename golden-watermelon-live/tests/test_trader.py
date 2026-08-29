@@ -16,7 +16,7 @@ from polybot.db.repository import ExactFillEvidence
 from polybot.strategy.trader import Trader
 
 
-NOW = datetime(2026, 8, 27, 0, 0, tzinfo=timezone.utc)
+NOW = datetime(2026, 8, 29, 5, 0, tzinfo=timezone.utc)
 
 
 class _FixedDatetime(datetime):
@@ -212,6 +212,7 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
             "token_id": "away-yes-token",
             "amount_usdc": 5,
             "limit_price": 0.99,
+            "max_limit_price": 0.999,
         }
     ]
     created = repo.created[0]
@@ -549,7 +550,7 @@ def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:
     assert clob.orders == []
 
 
-def test_gap_beyond_stop_limit_is_held_instead_of_dumped() -> None:
+def test_live_gap_beyond_normal_stop_limit_uses_first_full_depth_book() -> None:
     repo = _Repo()
     clob = _Clob(
         best_bid=0.27,
@@ -576,8 +577,9 @@ def test_gap_beyond_stop_limit_is_held_instead_of_dumped() -> None:
     )
 
     assert trader.execute_sell(trade) is False
-    assert clob.orders == []
-    assert repo.updated == []
+    assert len(clob.orders) == 1
+    assert clob.orders[0]["side"] == "SELL"
+    assert repo.updated[-1][1]["status"] is TradeStatus.PENDING_SELL
 
 
 def test_post_game_cleanup_bid_cannot_trigger_stop() -> None:
