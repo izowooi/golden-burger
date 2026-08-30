@@ -52,6 +52,7 @@ _SUPPORTED_STRATEGIES = frozenset(
         "golden-nectarine",
         "golden-orange",
         "golden-papaya",
+        "golden-peach",
         "golden-queen",
         "golden-quince",
         "golden-tangerine",
@@ -267,6 +268,14 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             retention_days=retention_days,
             minimum_latest_points=6,
         )
+    if normalized == "golden-peach":
+        # Grey's one-minute six-token depth archive is the replay dataset for
+        # future TP/SL selection. Rollups cannot reconstruct direct book levels.
+        retention_days = 60.0
+        return SQLiteMaintenanceRequirements(
+            full_cadence_hours=retention_days * 24.0,
+            retention_days=retention_days,
+        )
     if normalized in {
         "golden-blueberry",
         "golden-melon",
@@ -345,6 +354,7 @@ def policy_for(
         "golden-blueberry": 1.0,
         "golden-melon": 1.0,
         "golden-papaya": 1.0,
+        "golden-peach": 60.0 * 24.0,
         "golden-queen": 1.0,
         "golden-quince": 1.0,
         "golden-tangerine": 1.0,
@@ -358,6 +368,7 @@ def policy_for(
         "golden-nectarine": 60.0,
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
+        "golden-peach": 60.0,
         "golden-queen": 60.0,
         "golden-quince": 60.0,
         "golden-tangerine": 60.0,

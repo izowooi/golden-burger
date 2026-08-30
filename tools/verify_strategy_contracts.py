@@ -34,6 +34,7 @@ CURRENT_STRATEGIES = {
     "golden-nectarine",
     "golden-orange",
     "golden-papaya",
+    "golden-peach",
     "golden-pomegranate",
     "golden-queen",
     "golden-quince",
@@ -4340,6 +4341,252 @@ def _validate_watermelon_live_strategy(
     )
 
 
+def _validate_peach_strategy(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Validate the soccer kickoff direct-six-book live/shadow contract."""
+
+    contracts = {
+        "README.md": (
+            "polybot-eco",
+            "polybot-fruit",
+            "polybot-grey",
+            "peach-live-eco-3pp-1m-v1",
+            "peach-live-fruit-5pp-1m-v1",
+            "peach-shadow-1m-v1",
+            "직접 YES/NO 6개",
+            "0~10분",
+            "+0.03",
+            "+0.05",
+            "-0.10",
+            "2026-09-13T00:00:00Z",
+        ),
+        "STRATEGY.md": (
+            "HOME/DRAW/AWAY",
+            "direct token",
+            "0.60",
+            "0.94",
+            "FOK",
+            "source minute 80",
+            "event당 filled/uncertain entry 한 번",
+            "180분",
+            "QUARANTINED",
+            "actual fill",
+        ),
+        "OPERATIONS.md": (
+            "/Volumes/t7/jenkins/polybot-eco",
+            "/Volumes/t7/jenkins/polybot-fruit",
+            "/Volumes/t7/jenkins/polybot-grey",
+            "* * * * *",
+            "Concurrent build",
+            "clean build는 사용하지 않는다",
+            "daily-rsync verify",
+        ),
+        "src/polybot/config.py": (
+            "FROZEN_JOB_TAKE_PROFIT",
+            "peach-live-eco-3pp-1m-v1",
+            "peach-live-fruit-5pp-1m-v1",
+            "peach-shadow-1m-v1",
+            "Golden Peach is frozen to soccer",
+            "Golden Peach notional must remain exactly $5",
+            "Golden Peach must inspect direct YES and NO books",
+            "failed stop SELL quarantine timeout is frozen at 180 minutes",
+            "strategy_source_digest",
+            "preregistration_sha256",
+        ),
+        "src/polybot/strategy/scanner.py": (
+            "get_source_regulation_minute",
+            "six_direct_executable_books_required",
+            "leader_margin_too_small",
+            "claim_entry_episode",
+            "event_token_ids",
+            "direct YES/NO snapshots",
+        ),
+        "src/polybot/strategy/trader.py": (
+            "fresh_six_token_leader_changed",
+            "place_fok_buy",
+            "late_half_target",
+            "CURRENT_SOURCE_CLOCK_UNPROVEN",
+            "continuous {exit_signal} failure remained triggered",
+            "STOP_SELL_QUARANTINE_REASON",
+            "get_exact_buy_fill_evidence",
+            "get_exact_sell_fill_evidence",
+            'order_type="FOK"',
+            "live gap-stop allowed after dual lifecycle proof",
+        ),
+        "src/polybot/db/repository.py": (
+            "event_already_traded",
+            "PROVEN_ZERO_FILL_RETRYABLE",
+            "get_entry_capacity_state",
+            "get_isolated_stop_sell_trades",
+            "QUARANTINED means economic exposure is unknown",
+        ),
+        "src/polybot/api/gamma_client.py": (
+            "/events/keyset",
+            '"live": "true"',
+            "after_cursor",
+            "cursor_complete",
+            "membership_digest_sha256",
+            '"liquidity_min"',
+            '"volume_min"',
+        ),
+        "src/polybot/api/clob_client.py": (
+            "BuyBookWalk",
+            "SellBookWalk",
+            "get_buy_book_walks",
+            "get_cached_book_evidence",
+            "signed FOK BUY does not preserve exact maker USDC",
+            "signed limit order share quantity drift",
+            "resolve_dynamic_fee_evidence",
+        ),
+        "tests/test_scanner.py": (
+            "test_complete_six_token_event_selects_direct_no_leader",
+            "test_entry_requires_actual_source_clock_within_first_ten_minutes",
+            "test_missing_one_direct_book_fails_closed",
+            "test_tied_leader_margin_fails_closed",
+        ),
+        "tests/test_trader.py": (
+            "test_buy_refuses_any_prior_event_trade",
+            "test_continuous_stop_failure_is_quarantined_after_three_hours",
+            "test_missing_source_clock_cannot_create_a_late_stop",
+            "test_minute_eighty_allows_half_target_but_disables_new_stop",
+            "test_unrelated_event_exits_are_not_blocked_by_first_sell",
+        ),
+        "tests/test_lifecycle_mode.py": (
+            "test_active_caps_one_cycle_at_five_new_positions",
+            "test_active_isolates_sell_intent_without_blocking_unrelated_buy",
+            "test_active_isolated_stop_quarantine_reserves_capacity_but_not_global_gate",
+        ),
+        "scripts/replay_watermelon_kickoff_leader.py": (
+            "mode=ro",
+            "synthetic NO book",
+            "NO books are synthetic complements",
+            "parameter grid is exploratory",
+            "PRAGMA quick_check",
+        ),
+        "src/polybot/source_digest.py": (
+            "compute_strategy_source_digest",
+            "ACTIVE_PREREGISTRATION",
+            "polybot_observability",
+        ),
+    }
+    for relative_path, tokens in contracts.items():
+        content = _require_file(findings, strategy, directory / relative_path)
+        _require_tokens(findings, strategy, relative_path, content, tokens)
+
+    for relative_path in (
+        ".env.example",
+        "config.yaml",
+        "tests/test_api_contracts.py",
+        "tests/test_config.py",
+        "tests/test_fill_evidence.py",
+        "tests/test_fill_evidence_repository.py",
+        "tests/test_reentry_policy.py",
+        "tests/test_source_digest.py",
+        "tests/test_cycle_deadline.py",
+        "tests/test_run_lock.py",
+        "research/frozen-2026-08-30-kickoff-leader-v1/PREREGISTRATION.md",
+        "research/frozen-2026-08-30-kickoff-leader-v1/HISTORICAL_REPLAY.md",
+        "research/frozen-2026-08-30-kickoff-leader-v1/MANIFEST.sha256",
+    ):
+        _require_file(findings, strategy, directory / relative_path)
+
+    config_yaml = _read(directory / "config.yaml")
+    for key, expected in (
+        ("buy_amount_usdc", 5.0),
+        ("min_liquidity", 5000),
+        ("min_cumulative_volume", 5000),
+        ("max_positions", 10),
+        ("max_event_positions", 1),
+        ("max_new_positions_per_cycle", 5),
+        ("max_emergency_sells_per_cycle", 10),
+        ("yes_only_mode", False),
+        ("prob_max", 0.94),
+        ("max_source_minute", 10),
+        ("stop_loss_delta", 0.10),
+        ("late_exit_minute", 80),
+        ("stop_cutoff_minute", 80),
+        ("stop_sell_quarantine_timeout_minutes", 180),
+    ):
+        _require_yaml_value(
+            findings, strategy, "config.yaml", config_yaml, key, expected
+        )
+
+    combined = "\n".join(
+        _read(path)
+        for path in (
+            directory / "src/polybot/bot.py",
+            directory / "src/polybot/strategy/scanner.py",
+            directory / "src/polybot/strategy/trader.py",
+        )
+    )
+    for token in ("get_positions(", "wallet_position", "account_wide"):
+        if token in combined:
+            findings.append(
+                Finding(
+                    strategy,
+                    "unsafe_wallet_adoption_path",
+                    f"live runtime contains {token}",
+                )
+            )
+
+    prereg_path = (
+        directory
+        / "research/frozen-2026-08-30-kickoff-leader-v1/PREREGISTRATION.md"
+    )
+    manifest_path = (
+        directory
+        / "research/frozen-2026-08-30-kickoff-leader-v1/MANIFEST.sha256"
+    )
+    preregistration = _read(prereg_path)
+    manifest = _read(manifest_path)
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-08-30-kickoff-leader-v1/PREREGISTRATION.md",
+        preregistration,
+        (
+            "2026-08-30T00:00:00Z",
+            "2026-09-13T00:00:00Z",
+            "2026-09-20T00:00:00Z",
+            "직접 YES와",
+            "source 경기 시간이 0~10분",
+            "exact `$5`",
+            "+0.03",
+            "+0.05",
+            "-0.10",
+            "180분",
+            "QUARANTINED",
+        ),
+    )
+    if preregistration and manifest:
+        digest = hashlib.sha256(prereg_path.read_bytes()).hexdigest()
+        pinned = any(
+            len(fields := line.strip().split()) >= 2
+            and fields[0].lower() == digest
+            and fields[-1].lstrip("*").endswith("PREREGISTRATION.md")
+            for line in manifest.splitlines()
+        )
+        if not pinned:
+            findings.append(
+                Finding(
+                    strategy,
+                    "invalid_manifest",
+                    "research/frozen-2026-08-30-kickoff-leader-v1/MANIFEST.sha256",
+                )
+            )
+
+    retro = ROOT / "docs/retro" / f"{strategy}.md"
+    retro_content = _require_file(findings, strategy, retro)
+    _require_tokens(
+        findings,
+        strategy,
+        f"docs/retro/{strategy}.md",
+        retro_content,
+        ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"),
+    )
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -4379,6 +4626,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
 
     if strategy == "golden-tangerine":
         _validate_tangerine_strategy(findings, strategy, directory)
+        return findings
+
+    if strategy == "golden-peach":
+        _validate_peach_strategy(findings, strategy, directory)
         return findings
 
     if strategy == "golden-watermelon-live":

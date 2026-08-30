@@ -120,6 +120,13 @@ def test_policy_is_strategy_aware(monkeypatch):
         full_cadence_hours=0.5,
         retention_days=60,
     )
+    assert policy_for("golden-peach").selector == "latest"
+    assert policy_for("golden-peach").retention_days == 60
+    assert policy_for("golden-peach").hot_hours == 60 * 24
+    assert requirements_for("golden-peach") == SQLiteMaintenanceRequirements(
+        full_cadence_hours=60 * 24,
+        retention_days=60,
+    )
     assert policy_for("golden-kiwi").selector == "latest"
     assert policy_for("golden-kiwi").retention_days == 60
     assert policy_for("golden-kiwi").hot_hours == 60 * 24
@@ -153,6 +160,8 @@ def test_policy_rejects_non_finite_number(monkeypatch):
         ("golden-queen", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-kiwi", {"POLYBOT_DB_HOT_HOURS": "1439"}),
         ("golden-kiwi", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
+        ("golden-peach", {"POLYBOT_DB_HOT_HOURS": "1439"}),
+        ("golden-peach", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-nectarine", {"POLYBOT_DB_RETENTION_DAYS": "19"}),
         ("golden-elderberry", {"POLYBOT_DB_HOT_HOURS": "0.5"}),
         ("golden-elderberry", {"POLYBOT_DB_RETENTION_DAYS": "1"}),
