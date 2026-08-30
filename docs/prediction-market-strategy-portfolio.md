@@ -43,7 +43,7 @@ market observatory다.
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
-| **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 shadow · 배포 준비** |
+| **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 simulation · 2026-08-30 시작** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
@@ -53,7 +53,7 @@ market observatory다.
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
 | **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 향후 수집 live A/B v3d** |
 
-상태 합계는 운영 8, 구현/배포 준비 6, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 9, 구현/배포 준비 5, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -448,6 +448,14 @@ White 1분 primary에서 비교한 35경기의 전 grid 평균은 양수를 입�
 두 arm은 추천 수익 전략이 아니라 `$5` 반증 실험이다. 상세는 `golden-peach/STRATEGY.md`,
 동결 계약은 `golden-peach/research/frozen-2026-08-30-kickoff-leader-v1/PREREGISTRATION.md`,
 회고는 `docs/retro/golden-peach.md`를 따른다.
+
+2026-08-30 commit `a1d875b`를 Eco/Fruit/Grey의 external T7 workspace에 배포했다. 수동
+build와 연속 두 자연 1분 build가 모두 성공했고 자연 build는 4.6~5.0초, strategy cycle은
+0.22~0.25초였다. 첫 `daily-rsync` verify는 세 job 모두 실패·보존 누락·artifact conflict
+0이며 DB `quick_check=ok`, 단일 cohort, run 5/5 SUCCESS를 확인했다. sync cutoff
+`2026-08-30T08:29:06Z`에는 진행 중인 대상 경기가 없어 raw market·snapshot·trade가 0이다.
+그러므로 배포 건전성은 통과했지만 직접 six-book/source-clock 수집 coverage와 수익성은 아직
+판정하지 않는다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 
