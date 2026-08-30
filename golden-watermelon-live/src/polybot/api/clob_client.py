@@ -2069,7 +2069,7 @@ class ClobClientWrapper:
     def cancel_order_for_reconciliation(
         self, order_id: str, *, minimum_age_minutes: float
     ) -> Dict[str, Any]:
-        """Cancel an expired BUY while preserving a terminal partial fill."""
+        """Cancel an expired FOK BUY/SELL while preserving any actual fill."""
         return self._cancel_with_terminal_evidence(
             order_id, minimum_age_minutes=minimum_age_minutes
         )
@@ -2158,6 +2158,27 @@ class ClobClientWrapper:
                 raise SubmissionEvidenceError(
                     "CLOB order detail이 exact terminal cancellation을 증명하지 못했습니다"
                 )
+            if self.execution_ledger is not None and size_matched == 0:
+                pending = [
+                    item
+                    for item in self.execution_ledger.pending_submissions()
+                    if str(item.get("order_id") or "") == str(order_id)
+                ]
+                if len(pending) != 1:
+                    raise SubmissionEvidenceError(
+                        "terminal zero-fill FOK와 연결된 pending submission이 "
+                        "정확히 1건이 아닙니다"
+                    )
+                submission_id = str(pending[0].get("submission_id") or "").strip()
+                if not submission_id:
+                    raise SubmissionEvidenceError(
+                        "terminal zero-fill FOK의 submission ID가 비어 있습니다"
+                    )
+                self.execution_ledger.record_order_status(submission_id, detail)
+                if not self.execution_ledger.finish_reconciliation(submission_id):
+                    raise SubmissionEvidenceError(
+                        "terminal zero-fill FOK 원장이 종결되지 않았습니다"
+                    )
             logger.info(
                 "주문 취소/종결 확인: order=%s status=%s matched=%.6f",
                 order_id,

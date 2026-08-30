@@ -1392,17 +1392,17 @@ class ExecutionLedger:
         authenticated_trades: Any,
         minimum_age_minutes: float,
     ) -> str:
-        """Close a stale DELAYED FOK BUY from terminal all-or-none evidence.
+        """Close a stale DELAYED FOK order from terminal all-or-none evidence.
 
         This narrow recovery path is for a venue response that accepted a FOK
-        BUY as ``DELAYED`` and later stopped returning an order-detail row.  It
-        requires all of the following in one atomic decision:
+        BUY or SELL as ``DELAYED`` and later stopped returning an order-detail
+        row.  It requires all of the following in one atomic decision:
 
         * the exact order is absent from the authenticated order catalogs;
         * the complete authenticated token-trade catalog has no row naming it;
         * the cancellation API either acknowledges that exact ID or reports
           that exact ID as not found/already canceled; and
-        * the persisted submission is old enough, BUY-side, DELAYED, and has
+        * the persisted submission is old enough, BUY/SELL-side, DELAYED, and has
           no prior status, associated trade ID, or fill evidence.
 
         FOK is all-or-none, so this conjunction proves zero fill without
@@ -1504,8 +1504,8 @@ class ExecutionLedger:
             blockers = []
             if str(row["token_id"] or "") != expected_token_id:
                 blockers.append("token_id_mismatch")
-            if str(row["side"] or "").upper() != "BUY":
-                blockers.append("not_buy")
+            if str(row["side"] or "").upper() not in {"BUY", "SELL"}:
+                blockers.append("not_fok_order_side")
             if _normalize_status(row["response_status"]) != "DELAYED":
                 blockers.append("not_delayed")
             if age_minutes is None or age_minutes + 1e-9 < float(minimum_age_minutes):

@@ -7,7 +7,8 @@ never become a position or a settlement basis.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
+import sqlite3
 from types import SimpleNamespace
 
 from sqlalchemy import text
@@ -339,6 +340,154 @@ def test_pending_sell_records_unavoidable_two_decimal_sdk_dust(tmp_path):
         (0.70 - 0.98) * 5.10 - allocated_buy_fee - 0.05355
     )
     assert "excluding_recorded_unsellable_dust" in completed.pnl_basis
+    session.close()
+
+
+def test_stale_delayed_fok_sell_zero_fill_returns_to_holding_same_cycle(tmp_path):
+    """Regression: Elversberg-style DELAYED SELL must not block every entry."""
+    db_path = tmp_path / "watermelon-stale-sell.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    sell_submission = ledger.record_submission(
+        token_id="token-stale-sell",
+        side="SELL",
+        requested_price=0.89,
+        requested_size=5.26,
+        result={
+            "success": True,
+            "orderID": "OID-stale-sell",
+            "status": "DELAYED",
+            "makingAmount": "5260000",
+            "takingAmount": "4681400",
+        },
+        simulation=False,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET submitted_at=?, "
+            "reconciliation_error=? WHERE submission_id=?",
+            (
+                "2026-08-20T00:00:00+00:00",
+                "phase=match_authoritative_order_catalogs "
+                "error=ClobResponseUnavailableError "
+                "response_shape=sequence(len=1,item_type=dict)",
+                sell_submission,
+            ),
+        )
+
+    session = Session()
+    repo = TradeRepository(session)
+    submitted_at = datetime(2026, 8, 20, 0, 0)
+    trade = repo.create_trade(
+        condition_id="condition-stale-sell",
+        event_id="event-stale-sell",
+        outcome="Away",
+        token_id="token-stale-sell",
+        buy_price=0.95,
+        buy_shares=5.263,
+        buy_order_id="OID-buy-stale-sell",
+        buy_timestamp=submitted_at - timedelta(minutes=5),
+        sell_price=0.89,
+        sell_shares=5.26,
+        sell_order_id="OID-stale-sell",
+        sell_timestamp=submitted_at,
+        status=TradeStatus.PENDING_SELL,
+        mode="live",
+    )
+
+    class _TerminalizingClob:
+        simulation_mode = False
+
+        def __init__(self):
+            self.calls = []
+
+        def cancel_order_for_reconciliation(
+            self, order_id, *, minimum_age_minutes
+        ):
+            self.calls.append((order_id, minimum_age_minutes))
+            proof = ledger.record_delayed_fok_zero_fill(
+                order_id=order_id,
+                token_id="token-stale-sell",
+                cancellation={
+                    "canceled": [],
+                    "not_canceled": {
+                        order_id: "Order not found or already canceled"
+                    },
+                },
+                authenticated_trades=[],
+                minimum_age_minutes=minimum_age_minutes,
+            )
+            return {
+                "verified_order_status": "CANCELED",
+                "verified_size_matched": 0.0,
+                "reconciliation_proof": proof,
+            }
+
+    clob = _TerminalizingClob()
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_sell(
+        trade, now=submitted_at + timedelta(minutes=3)
+    ) is False
+    assert clob.calls == [("OID-stale-sell", 2.0)]
+    refreshed = repo.get_by_id(trade.id)
+    assert refreshed.status == TradeStatus.HOLDING
+    assert refreshed.exit_reason == "stop_sell_terminal_zero_fill"
+    assert refreshed.sell_order_id is None
+    assert refreshed.sell_timestamp is None
+    assert repo.get_exact_sell_fill_evidence(
+        "OID-stale-sell"
+    ).state == "terminal_zero_fill"
+    session.close()
+
+
+def test_recent_delayed_fok_sell_stays_pending_without_early_cancel(tmp_path):
+    db_path = tmp_path / "watermelon-recent-sell.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    ledger.record_submission(
+        token_id="token-recent-sell",
+        side="SELL",
+        requested_price=0.90,
+        requested_size=5.0,
+        result={
+            "success": True,
+            "orderID": "OID-recent-sell",
+            "status": "DELAYED",
+        },
+        simulation=False,
+    )
+    session = Session()
+    repo = TradeRepository(session)
+    submitted_at = datetime(2026, 8, 20, 0, 0)
+    trade = repo.create_trade(
+        condition_id="condition-recent-sell",
+        event_id="event-recent-sell",
+        outcome="Home",
+        token_id="token-recent-sell",
+        buy_price=0.96,
+        buy_shares=5.2,
+        buy_order_id="OID-buy-recent-sell",
+        buy_timestamp=submitted_at - timedelta(minutes=5),
+        sell_price=0.90,
+        sell_shares=5.0,
+        sell_order_id="OID-recent-sell",
+        sell_timestamp=submitted_at,
+        status=TradeStatus.PENDING_SELL,
+        mode="live",
+    )
+    clob = SimpleNamespace(
+        simulation_mode=False,
+        cancel_order_for_reconciliation=lambda *_args, **_kwargs: pytest.fail(
+            "recent FOK SELL must not be canceled"
+        ),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_sell(
+        trade, now=submitted_at + timedelta(minutes=1)
+    ) is False
+    assert repo.get_by_id(trade.id).status == TradeStatus.PENDING_SELL
     session.close()
 
 

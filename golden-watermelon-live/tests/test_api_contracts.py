@@ -1194,6 +1194,60 @@ def test_stale_delayed_fok_uses_terminal_absence_ledger_proof() -> None:
     assert captured["minimum_age_minutes"] == 30
 
 
+def test_delayed_fok_terminal_zero_detail_closes_ledger_same_cycle() -> None:
+    calls = []
+
+    class _Client:
+        def cancel_orders(self, order_ids):
+            assert order_ids == ["order-zero"]
+            return {"canceled": ["order-zero"], "not_canceled": {}}
+
+        def get_order(self, order_id):
+            assert order_id == "order-zero"
+            return {
+                "id": "order-zero",
+                "status": "CANCELED",
+                "original_size": "5.26",
+                "size_matched": "0",
+                "price": "0.89",
+                "associate_trades": [],
+            }
+
+    class _Ledger:
+        def pending_submissions(self):
+            return [
+                {
+                    "submission_id": "submission-zero",
+                    "order_id": "order-zero",
+                    "token_id": "token-zero",
+                }
+            ]
+
+        def record_order_status(self, submission_id, detail):
+            calls.append(("status", submission_id, detail["id"]))
+            return []
+
+        def finish_reconciliation(self, submission_id):
+            calls.append(("finish", submission_id))
+            return True
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+    wrapper.execution_ledger = _Ledger()
+
+    result = wrapper.cancel_order_for_reconciliation(
+        "order-zero", minimum_age_minutes=2
+    )
+
+    assert result["verified_order_status"] == "CANCELED"
+    assert result["verified_size_matched"] == 0
+    assert calls == [
+        ("status", "submission-zero", "order-zero"),
+        ("finish", "submission-zero"),
+    ]
+
+
 def test_gamma_close_releases_per_cycle_keepalive_pool(monkeypatch) -> None:
     client = GammaClient()
     closed = []

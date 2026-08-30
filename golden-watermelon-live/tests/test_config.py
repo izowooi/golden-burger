@@ -37,6 +37,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.max_emergency_sells_per_cycle == 1
     assert config.trading.experiment_capital_usdc == 100
     assert config.trading.max_drawdown_stop == 0.10
+    assert config.trading.fok_reconciliation_timeout_minutes == 2
     assert config.trading.yes_only_mode is True
     assert config.trading.entry.stop_price == 0.70
     assert config.trading.entry.max_entry_drawdown == 0.05
@@ -106,6 +107,11 @@ def test_only_arm_b_threshold_override_is_accepted(
         ),
         ("POLYBOT_EXPERIMENT_CAPITAL_USDC", "200", "experiment capital"),
         ("POLYBOT_MAX_DRAWDOWN_STOP", "0.20", "drawdown"),
+        (
+            "POLYBOT_FOK_RECONCILIATION_TIMEOUT_MINUTES",
+            "3",
+            "delayed FOK reconciliation timeout",
+        ),
         ("POLYBOT_YES_ONLY", "false", "YES tokens"),
         ("POLYBOT_EXPERIMENT_END_UTC", "2026-09-01T13:00:00Z", "timestamps"),
     ],

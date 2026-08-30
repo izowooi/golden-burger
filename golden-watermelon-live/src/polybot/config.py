@@ -339,6 +339,7 @@ class TradingConfig:
     max_drawdown_stop: float = 0.10
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 15.0
+    fok_reconciliation_timeout_minutes: float = 2.0
     min_order_size: float = 5.0
     min_order_buffer_shares: float = 0.0
     yes_only_mode: bool = True
@@ -392,6 +393,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_drawdown_stop": trading.max_drawdown_stop,
         "reentry_cooldown_hours": trading.reentry_cooldown_hours,
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
+        "fok_reconciliation_timeout_minutes": (
+            trading.fok_reconciliation_timeout_minutes
+        ),
         "min_order_size": trading.min_order_size,
         "min_order_buffer_shares": trading.min_order_buffer_shares,
         "entry.prob_min": entry.prob_min,
@@ -449,7 +453,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     if trading.reentry_cooldown_hours != 720:
         raise ValueError("reentry cooldown is frozen at 720 hours")
     if trading.max_snapshot_gap_minutes != 15:
-        raise ValueError("pending-order reconciliation TTL is frozen at 15 minutes")
+        raise ValueError("snapshot maintenance cadence is frozen at 15 minutes")
+    if trading.fok_reconciliation_timeout_minutes != 2:
+        raise ValueError("delayed FOK reconciliation timeout is frozen at 2 minutes")
     if trading.min_order_size != 5 or trading.min_order_buffer_shares != 0:
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if not trading.yes_only_mode:
@@ -660,6 +666,11 @@ def load_config(
             "POLYBOT_MAX_SNAPSHOT_GAP_MINUTES",
             trading_cfg.get("max_snapshot_gap_minutes"),
             15.0,
+        ),
+        fok_reconciliation_timeout_minutes=_get_config_value(
+            "POLYBOT_FOK_RECONCILIATION_TIMEOUT_MINUTES",
+            trading_cfg.get("fok_reconciliation_timeout_minutes"),
+            2.0,
         ),
         min_order_size=_get_config_value(
             "POLYBOT_MIN_ORDER_SIZE", trading_cfg.get("min_order_size"), 5.0

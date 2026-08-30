@@ -1,4 +1,4 @@
-# Golden Watermelon Live v3a 운영 절차
+# Golden Watermelon Live v3c 운영 절차
 
 ## Jenkins job matrix
 
@@ -35,6 +35,7 @@ export POLYBOT_MAX_POSITIONS=20
 export POLYBOT_MAX_EVENT_POSITIONS=1
 export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=5
 export POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE=1
+export POLYBOT_FOK_RECONCILIATION_TIMEOUT_MINUTES=2
 export POLYBOT_YES_ONLY=true
 export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
@@ -87,7 +88,8 @@ DB 내부 `.cycle-run.lock`을 먼저 획득하므로 이전 build가 남아 있
 4. Cat/Dog는 기존 v2h DB와 HOLDING position을 보존했는지 확인한다. Bear/Tiger/Lion/Wolf는 새
    v3a DB가 생성됐는지 확인한다.
 5. `PENDING_BUY/PENDING_SELL/QUARANTINED`, orphan, fill-fee gap과 CRITICAL/HIGH가 없거나 기존
-   evidence로 설명되는지 확인한다.
+   evidence로 설명되는지 확인한다. `PENDING_SELL=0` 뒤 bot-owned open token의 DB 잔량과 인증
+   지갑 잔고를 대사하되 수동 보유는 편입하지 않는다.
 6. timer 없이 각 job을 한 번 더 실행해 dependency sync가 반복되지 않고 overlap lock, cursor와
    lifecycle이 정상이며 `cycle resources closed` 뒤 즉시 `Finished: SUCCESS`인지 확인한다.
 7. SCM을 `NullSCM`으로 고정한다. offset을 포함한 Jenkins duration이 1분 아래이고 실패가 없으면

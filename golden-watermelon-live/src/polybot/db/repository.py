@@ -218,15 +218,43 @@ class TradeRepository:
         condition_id: str,
         cooldown_hours: float,
         now: Optional[datetime] = None,
+        *,
+        event_id: Optional[str] = None,
+        token_id: Optional[str] = None,
     ) -> Tuple[bool, str]:
+        """Allow at most one opposite-result entry after a confirmed stop.
+
+        Direct MLB/NHL moneylines put both team tokens in one condition, while
+        soccer uses separate result conditions under one event.  A condition-
+        only cooldown therefore blocks the former and under-constrains the
+        latter.  The stable identity is ``event_id × token_id``:
+
+        * the same token remains in the 720-hour cooldown;
+        * an event with a live position remains blocked;
+        * one different token may enter after an exact confirmed stop; and
+        * after two distinct event-result tokens have traded, the event is
+          closed to further reversals.
+        """
         now = now or datetime.utcnow()
         if self.has_holding(condition_id):
             return False, "holding"
+        normalized_event_id = str(event_id or "").strip()
+        normalized_token_id = str(token_id or "").strip()
+        if normalized_event_id:
+            if not normalized_token_id:
+                return False, "result_token_missing"
+            if self.get_event_position_count(normalized_event_id) > 0:
+                return False, "event_holding"
         cutoff = now - timedelta(hours=cooldown_hours)
+        close_identity_filter = (
+            Trade.token_id == normalized_token_id
+            if normalized_token_id
+            else Trade.condition_id == condition_id
+        )
         recent_close = (
             self.session.query(Trade.id)
             .filter(
-                Trade.condition_id == condition_id,
+                close_identity_filter,
                 Trade.status.in_((TradeStatus.COMPLETED, TradeStatus.RESOLVED)),
                 or_(
                     Trade.sell_timestamp >= cutoff,
@@ -248,6 +276,49 @@ class TradeRepository:
         )
         if recent_skip:
             return False, f"skip_cooldown_{recent_skip.reason}"
+
+        if normalized_event_id:
+            recent_event_closes = (
+                self.session.query(Trade)
+                .filter(
+                    Trade.event_id == normalized_event_id,
+                    Trade.status.in_(
+                        (TradeStatus.COMPLETED, TradeStatus.RESOLVED)
+                    ),
+                    or_(
+                        Trade.sell_timestamp >= cutoff,
+                        Trade.resolution_observed_at >= cutoff,
+                    ),
+                )
+                .order_by(Trade.id.asc())
+                .all()
+            )
+            prior_tokens = {
+                str(trade.token_id or "").strip()
+                for trade in recent_event_closes
+                if str(trade.token_id or "").strip()
+            }
+            if len(prior_tokens) >= 2:
+                return False, "event_reversal_limit"
+            if prior_tokens:
+                if normalized_token_id in prior_tokens:
+                    return False, "close_cooldown"
+                prior = recent_event_closes[-1]
+                try:
+                    confirmed_sell_size = float(prior.sell_confirmed_size)
+                except (TypeError, ValueError):
+                    confirmed_sell_size = 0.0
+                confirmed_stop = (
+                    prior.status == TradeStatus.COMPLETED
+                    and str(prior.exit_reason or "").startswith(
+                        "absolute_stop_confirmed_fill"
+                    )
+                    and math.isfinite(confirmed_sell_size)
+                    and confirmed_sell_size > _FILL_SIZE_TOLERANCE
+                )
+                if not confirmed_stop:
+                    return False, "event_close_not_reversible"
+                return True, "opposite_result_after_confirmed_stop"
         return True, "ok"
 
     def is_in_reentry_cooldown(self, condition_id: str, cooldown_hours: float) -> bool:

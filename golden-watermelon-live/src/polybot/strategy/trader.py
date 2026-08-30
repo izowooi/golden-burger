@@ -340,12 +340,31 @@ class Trader:
             if not isinstance(episode_id, bool) and isinstance(episode_id, int)
             else None
         )
+        raw_event_id = candidate.get("event_id")
+        if raw_event_id is None or not str(raw_event_id).strip():
+            logger.warning(
+                "event_id 없는 진입 후보를 fail-closed 처리합니다 - condition=%s",
+                condition_id,
+            )
+            return self._reject_entry("event_id_missing")
+        event_id = str(raw_event_id).strip()
         can_enter, reason = self.repo.can_reenter(
-            condition_id, self.config.reentry_cooldown_hours
+            condition_id,
+            self.config.reentry_cooldown_hours,
+            event_id=event_id,
+            token_id=token_id,
         )
         if not can_enter:
             logger.info("재진입 skip - condition=%s reason=%s", condition_id, reason)
             return self._reject_entry(f"reentry_{reason}")
+        if reason == "opposite_result_after_confirmed_stop":
+            logger.warning(
+                "confirmed stop 뒤 반대 결과 1회 전환을 허용합니다 - "
+                "event=%s condition=%s token=%s",
+                event_id,
+                condition_id,
+                token_id[:16],
+            )
         capacity = self.repo.get_entry_capacity_state()
         total_reserved = (
             capacity["total_reserved"] + self.local_untracked_buy_reservations
@@ -360,14 +379,6 @@ class Trader:
                 self.local_untracked_buy_reservations,
             )
             return self._reject_entry("max_capacity_reserved")
-        raw_event_id = candidate.get("event_id")
-        if raw_event_id is None or not str(raw_event_id).strip():
-            logger.warning(
-                "event_id 없는 진입 후보를 fail-closed 처리합니다 - condition=%s",
-                condition_id,
-            )
-            return self._reject_entry("event_id_missing")
-        event_id = str(raw_event_id).strip()
         if (
             self.repo.get_event_position_count(event_id)
             >= self.config.max_event_positions
@@ -530,6 +541,11 @@ class Trader:
             entry_reason=(
                 "first_observed_in_play_match_result_exact_5_usdc_band_fok:"
                 f"{result_kind}"
+                + (
+                    ":one_time_opposite_after_confirmed_stop"
+                    if reason == "opposite_result_after_confirmed_stop"
+                    else ""
+                )
             ),
             strategy_name=STRATEGY_NAME,
             mode=self.mode,
@@ -1049,6 +1065,54 @@ class Trader:
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
 
+    @staticmethod
+    def _pending_sell_age_minutes(
+        trade, now: Optional[datetime] = None
+    ) -> Optional[float]:
+        placed_at = getattr(trade, "sell_timestamp", None)
+        if not isinstance(placed_at, datetime):
+            return None
+        current = now or datetime.utcnow()
+        if placed_at.tzinfo is not None and current.tzinfo is None:
+            current = current.replace(tzinfo=placed_at.tzinfo)
+        elif placed_at.tzinfo is None and current.tzinfo is not None:
+            current = current.replace(tzinfo=None)
+        age = (current - placed_at).total_seconds() / 60.0
+        return age if math.isfinite(age) and age >= 0 else None
+
+    def _restore_holding_after_terminal_zero_sell(
+        self, trade, sell_evidence, *, log_prefix: str
+    ) -> None:
+        """Re-arm a position only after exact zero-fill SELL evidence."""
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.HOLDING,
+            exit_reason="stop_sell_terminal_zero_fill",
+            sell_price=None,
+            sell_shares=None,
+            sell_order_id=None,
+            sell_timestamp=None,
+            sell_probability=None,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+            yes_price_at_exit=None,
+            best_bid_at_exit=None,
+            best_ask_at_exit=None,
+            spread_at_exit=None,
+            sell_confirmed_size=None,
+            sell_confirmed_vwap=None,
+            sell_confirmed_fee_usdc=None,
+            sell_fill_matched_at=None,
+            sell_residual_shares=None,
+        )
+        logger.warning(
+            "%s: Trade #%s order=%s",
+            log_prefix,
+            trade.id,
+            sell_evidence.order_id,
+        )
+
     def reconcile_pending_buy(
         self, trade, *, now: Optional[datetime] = None
     ) -> bool:
@@ -1079,13 +1143,16 @@ class Trader:
             age_minutes = self._pending_buy_age_minutes(trade, now=now)
             if (
                 age_minutes is not None
-                and age_minutes + 1e-9 >= self.config.max_snapshot_gap_minutes
+                and age_minutes + 1e-9
+                >= self.config.fok_reconciliation_timeout_minutes
                 and getattr(trade, "buy_order_id", None)
             ):
                 try:
                     terminal = self.clob.cancel_order_for_reconciliation(
                         trade.buy_order_id,
-                        minimum_age_minutes=self.config.max_snapshot_gap_minutes,
+                        minimum_age_minutes=(
+                            self.config.fok_reconciliation_timeout_minutes
+                        ),
                     )
                 except SubmissionEvidenceError as error:
                     logger.warning(
@@ -1149,7 +1216,9 @@ class Trader:
         )
         return True
 
-    def reconcile_pending_sell(self, trade) -> bool:
+    def reconcile_pending_sell(
+        self, trade, *, now: Optional[datetime] = None
+    ) -> bool:
         """Finalize one live stop only from exact, full BUY/SELL fill proof."""
         if self.mode == "sim":
             logger.error(
@@ -1164,34 +1233,75 @@ class Trader:
             # The venue proved this exact SELL never filled.  Re-arm the
             # position without fabricating a close; the execution ledger keeps
             # the immutable failed order history.
-            self.repo.update_trade(
-                trade.id,
-                status=TradeStatus.HOLDING,
-                exit_reason="stop_sell_terminal_zero_fill",
-                sell_price=None,
-                sell_shares=None,
-                sell_order_id=None,
-                sell_timestamp=None,
-                sell_probability=None,
-                realized_pnl=None,
-                hypothetical_pnl=None,
-                pnl_basis=None,
-                yes_price_at_exit=None,
-                best_bid_at_exit=None,
-                best_ask_at_exit=None,
-                spread_at_exit=None,
-                sell_confirmed_size=None,
-                sell_confirmed_vwap=None,
-                sell_confirmed_fee_usdc=None,
-                sell_fill_matched_at=None,
-                sell_residual_shares=None,
-            )
-            logger.warning(
-                "exact terminal zero-fill SELL 증거로 HOLDING 복귀: Trade #%s order=%s",
-                trade.id,
-                sell_evidence.order_id,
+            self._restore_holding_after_terminal_zero_sell(
+                trade,
+                sell_evidence,
+                log_prefix="exact terminal zero-fill SELL 증거로 HOLDING 복귀",
             )
             return False
+        if not self._actual_fill_ready(sell_evidence):
+            age_minutes = self._pending_sell_age_minutes(trade, now=now)
+            if (
+                age_minutes is not None
+                and age_minutes + 1e-9
+                >= self.config.fok_reconciliation_timeout_minutes
+                and getattr(trade, "sell_order_id", None)
+            ):
+                try:
+                    terminal = self.clob.cancel_order_for_reconciliation(
+                        trade.sell_order_id,
+                        minimum_age_minutes=(
+                            self.config.fok_reconciliation_timeout_minutes
+                        ),
+                    )
+                except SubmissionEvidenceError as error:
+                    logger.warning(
+                        "만료 SELL 취소 증명 실패로 PENDING_SELL 유지: "
+                        "Trade #%s age=%.1fmin error=%s",
+                        trade.id,
+                        age_minutes,
+                        type(error).__name__,
+                    )
+                    return False
+                logger.info(
+                    "지연 FOK SELL 취소/종결 확인: Trade #%s age=%.1fmin "
+                    "status=%s matched=%.6f",
+                    trade.id,
+                    age_minutes,
+                    terminal.get("verified_order_status"),
+                    terminal.get("verified_size_matched", 0.0),
+                )
+                # The terminal-absence path writes its zero-fill proof into the
+                # co-located ledger atomically. Re-read now so one stale SELL
+                # cannot block every unrelated event for an extra cycle.
+                sell_evidence = self.repo.get_exact_sell_fill_evidence(
+                    trade.sell_order_id
+                )
+                if sell_evidence.state == "terminal_zero_fill":
+                    self._restore_holding_after_terminal_zero_sell(
+                        trade,
+                        sell_evidence,
+                        log_prefix=(
+                            "지연 FOK SELL의 exact 0체결 증거로 HOLDING 복귀"
+                        ),
+                    )
+                    return False
+                if self._actual_fill_ready(sell_evidence):
+                    logger.info(
+                        "지연 FOK SELL 종결 직후 confirmed fill을 발견했습니다: "
+                        "Trade #%s order=%s",
+                        trade.id,
+                        sell_evidence.order_id,
+                    )
+                else:
+                    logger.info(
+                        "지연 FOK SELL 종결 뒤 exact ledger 반영을 기다립니다: "
+                        "Trade #%s state=%s detail=%s",
+                        trade.id,
+                        sell_evidence.state,
+                        sell_evidence.detail,
+                    )
+                    return False
         if not self._actual_fill_ready(sell_evidence):
             logger.warning(
                 "SELL full-fill/fee 대사 미완료로 PENDING_SELL 유지: "

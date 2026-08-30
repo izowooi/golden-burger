@@ -37,9 +37,10 @@ class _Repo:
         self.linked = []
         self.episode_execution = []
         self.resolution_observations = []
+        self.reentry = (True, "ok")
 
-    def can_reenter(self, *_args):
-        return True, "ok"
+    def can_reenter(self, *_args, **_kwargs):
+        return self.reentry
 
     def get_position_count(self):
         return 0
@@ -235,7 +236,20 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert trader.last_entry_may_have_reached_venue is True
 
 
-def test_pre_submission_contract_error_is_proven_no_post() -> None:
+def test_buy_records_one_time_opposite_result_transition(monkeypatch) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob()
+    repo.reentry = (True, "opposite_result_after_confirmed_stop")
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.execute_buy(_candidate()) == 7
+    assert repo.created[0]["entry_reason"].endswith(
+        ":one_time_opposite_after_confirmed_stop"
+    )
+
+
+def test_pre_submission_contract_error_is_proven_no_post(monkeypatch) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob()
 
     def reject_before_post(**_order):

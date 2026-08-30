@@ -30,6 +30,8 @@ trading:
   max_drawdown_stop: 0.10
   reentry_cooldown_hours: 720
   max_snapshot_gap_minutes: 15
+  # DELAYED FOK는 exact order/trade 부재가 증명되면 2분 뒤 0체결로 종결한다.
+  fok_reconciliation_timeout_minutes: 2
 
   min_order_size: 5.0
   min_order_buffer_shares: 0.0

@@ -183,6 +183,10 @@ def main() -> None:
         f"{trading.reentry_cooldown_hours:.0f}h cooldown"
     )
     print(
+        "Delayed FOK reconciliation timeout: "
+        f"{trading.fok_reconciliation_timeout_minutes:.0f} minutes"
+    )
+    print(
         "Economic drawdown entry guard: "
         f"-${trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f} "
         "(confirmed SELL + proven resolution P&L)"

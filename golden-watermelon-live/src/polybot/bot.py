@@ -622,6 +622,9 @@ class PolymarketBot:
                     "max_drawdown_stop": trading.max_drawdown_stop,
                     "reentry_cooldown_hours": trading.reentry_cooldown_hours,
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
+                    "fok_reconciliation_timeout_minutes": (
+                        trading.fok_reconciliation_timeout_minutes
+                    ),
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,
                     "yes_only_mode": trading.yes_only_mode,

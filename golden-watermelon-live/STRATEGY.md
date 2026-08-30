@@ -1,4 +1,4 @@
-# Golden Watermelon Live — Major Sports A/B v3b
+# Golden Watermelon Live — Major Sports A/B v3c
 
 ## 질문과 treatment
 
@@ -61,8 +61,13 @@ CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다�
 cleanup/dust `0.001`은 OPEN proof에 실패하므로 팔지 않는다.
 
 동일 event에서는 동시에 한 포지션만 허용한다. stop SELL은 먼저 exact confirmed fill로 종결되어야
-하며, 그 다음 cycle에 다른 HOME/DRAW/AWAY condition이 fresh arm 안에 있으면 진입할 수 있다.
-이는 상호배타 결과의 겹친 노출을 막는 대신 최소 한 cadence의 지연을 감수하는 규칙이다.
+하며, 그 다음 cycle에 다른 HOME/DRAW/AWAY token이 fresh arm 안에 있으면 한 번만 진입할 수 있다.
+같은 token 재매수와 두 번째 전환은 720시간 동안 막는다. 이는 상호배타 결과의 겹친 노출과
+왕복 매매를 막는 대신 최소 한 cadence의 지연을 감수하는 규칙이다.
+
+`DELAYED` FOK BUY/SELL은 exact order와 전체 인증 token trade에 체결이 없고 cancellation 응답까지
+terminal 부재를 증명할 때만 2분 뒤 0체결로 종결한다. 모호한 주문은 계속 PENDING으로 두며,
+zero-fill SELL은 체결을 꾸미지 않고 기존 position을 HOLDING으로 되돌린다.
 
 confirmed SELL P&L과 proven one-hot resolution settlement P&L을 안전 판정에만 합산해 `-$10`에
 도달하면 신규 BUY를 차단한다. 모든 live `CONFIRMED` SELL은 execution ledger에서 exact order나
@@ -91,3 +96,4 @@ Gamma server gate와 lockfile 기반 dependency stamp로 정상 Jenkins end-to-e
 entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up
 `2026-09-12T04:00:00Z`; live notional은 이 cohort에서 `$5`로 고정한다. future scale은 accountless
 White/Grey displayed-depth evidence와 live confirmed fill evidence를 함께 보고 한 rung씩만 검토한다.
+0.92→0.99 조합은 별도 향후 수집에서 최소 100개 독립 경기 전에는 판정하지 않는다.

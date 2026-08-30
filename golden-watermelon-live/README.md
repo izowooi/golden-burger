@@ -11,7 +11,7 @@ live A/B 프로젝트다. 종목은 Jenkins의 `POLYBOT_SPORT_FAMILY`로 고르�
 | NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / `[0.96,0.999]` | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / `[0.99,0.999]` |
 
 두 arm의 유일한 family 내 treatment는 진입 하한이다. cadence는 모두 1분, 주문은 `$5`다.
-0.96/0.99는 아직 최적값이 아니라 rare-loss tail과 opportunity 수를 prospective 비교하는 값이다.
+0.96/0.99는 아직 최적값이 아니라 큰 손실 꼬리와 기회 수를 향후 수집 자료로 비교하는 값이다.
 
 ## 거래 계약
 
@@ -41,7 +41,9 @@ proof, 그 proof 뒤 fresh complete bid book, spread `<=0.10`을 요구한다. �
 한 cycle의 실행 후보는 어떤 주문보다 먼저 `QUEUED_NO_POST`로 기록한다. 로컬 정밀도 검사나
 event capacity처럼 POST가 없었다고 증명된 경우에만 다음 fresh in-band snapshot에서 재시도한다.
 POST 가능성이 있는 예외·응답은 execution ledger 대사 전 재시도하지 않는다. 기존 결과를 stop한
-event의 다른 HOME/DRAW/AWAY 결과는 SELL confirmed 뒤 다음 cycle에 여전히 arm 안이면 진입 가능하다.
+event의 다른 HOME/DRAW/AWAY 결과는 SELL confirmed 뒤 다음 cycle에 여전히 arm 안이면 딱 한 번
+진입 가능하다. 같은 token 재매수와 세 번째 결과 진입은 720시간 동안 막는다. `DELAYED` FOK
+BUY/SELL은 exact order·trade 부재와 취소 증거가 모두 맞을 때만 2분 뒤 0체결로 종결한다.
 
 account/event/cycle 한도는 `20/1/5`, cycle emergency SELL은 1건이다. PENDING,
 QUARANTINED, orphan BUY, fill/fee gap 또는 모호한 execution ledger가 있으면 후보만 기록하고 신규

@@ -1136,22 +1136,23 @@ def test_canceled_explicitly_unfilled_order_can_close(tmp_path):
         ),
     ],
 )
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
 def test_stale_delayed_fok_terminal_absence_can_prove_zero_fill(
-    tmp_path, cancellation, expected_proof
+    tmp_path, cancellation, expected_proof, side
 ):
     db_path = tmp_path / "trades.db"
     ledger = ExecutionLedger(db_path, strategy_name="golden-test")
     submission_id = ledger.record_submission(
         token_id="token",
-        side="BUY",
+        side=side,
         requested_price=0.93,
         requested_size=5.3763,
         result={
             "success": True,
             "orderID": "delayed-fok",
             "status": "DELAYED",
-            "makingAmount": "5000000",
-            "takingAmount": "5376300",
+            "makingAmount": "5000000" if side == "BUY" else "5376300",
+            "takingAmount": "5376300" if side == "BUY" else "5000000",
         },
         simulation=False,
     )
