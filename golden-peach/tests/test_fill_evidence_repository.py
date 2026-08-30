@@ -17,6 +17,7 @@ import pytest
 
 from polybot.config import TradingConfig
 from polybot.db.models import (
+    BUY_RECONCILIATION_QUARANTINE_REASON,
     EntryEpisode,
     MarketCatalog,
     MarketSnapshot,
@@ -549,10 +550,41 @@ def test_unresolved_delayed_sell_is_quarantined_after_three_hours(tmp_path):
     assert repo.get_position_count() == 1
     assert repo.get_quarantine_state() == {
         "total": 1,
+        "isolated_buy": 0,
         "isolated_stop_sell": 1,
         "blocking": 0,
     }
     assert repo.get_isolated_stop_sell_trades() == [refreshed]
+    assert repo.get_open_buy_evidence_gap_count() == 0
+    session.close()
+
+
+def test_timed_out_buy_quarantine_is_event_local_but_keeps_capacity(tmp_path):
+    db_path = tmp_path / "peach-stale-buy-quarantine.db"
+    Session = init_database(str(db_path))
+    ExecutionLedger(db_path, strategy_name="golden-peach")
+    session = Session()
+    repo = TradeRepository(session)
+    trade = repo.create_trade(
+        condition_id="condition-stale-buy",
+        event_id="event-stale-buy",
+        outcome="No",
+        token_id="token-stale-buy",
+        buy_timestamp=datetime.utcnow() - timedelta(minutes=181),
+        status=TradeStatus.QUARANTINED,
+        exit_reason=BUY_RECONCILIATION_QUARANTINE_REASON,
+        mode="live",
+    )
+
+    assert repo.get_position_count() == 1
+    assert repo.get_event_position_count("event-stale-buy") == 1
+    assert repo.get_quarantine_state() == {
+        "total": 1,
+        "isolated_buy": 1,
+        "isolated_stop_sell": 0,
+        "blocking": 0,
+    }
+    assert repo.get_isolated_buy_trades() == [trade]
     assert repo.get_open_buy_evidence_gap_count() == 0
     session.close()
 

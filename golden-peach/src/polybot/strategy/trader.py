@@ -23,6 +23,8 @@ from ..api.clob_client import (
 from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.models import (
+    BUY_ISOLATION_REASONS,
+    BUY_RECONCILIATION_QUARANTINE_REASON,
     STOP_SELL_ISOLATION_REASONS,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
     STOP_SELL_QUARANTINE_REASON,
@@ -656,12 +658,17 @@ class Trader:
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
                 self.local_untracked_buy_reservations += 1
-                # An unknown POST can already be real exposure.  Reserve it
-                # immediately and prevent every later candidate in this cycle
-                # from issuing another irreversible BUY.
-                self.buying_disabled = True
+                # An unknown POST can already be real exposure. Reserve one
+                # capacity slot immediately, while allowing unrelated events
+                # to use only the remaining bounded capacity. The execution
+                # ledger and event episode prevent a duplicate token/event
+                # submission in later cycles.
                 rejection_reason = "buy_submission_outcome_unknown"
             else:
+                # The execution ledger received a synchronous, explicit
+                # rejection with no order ID. This candidate created no venue
+                # exposure and must not consume event/cycle capacity.
+                self.last_entry_may_have_reached_venue = False
                 rejection_reason = "buy_order_rejected"
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
@@ -674,9 +681,11 @@ class Trader:
         try:
             submitted_shares = float(result["requested_size"])
         except (KeyError, TypeError, ValueError):
+            self.local_untracked_buy_reservations += 1
             logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
             return self._reject_entry("buy_requested_size_evidence_missing")
         if not math.isfinite(submitted_shares) or submitted_shares <= 0:
+            self.local_untracked_buy_reservations += 1
             logger.error(
                 "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
                 submitted_shares,
@@ -1252,6 +1261,50 @@ class Trader:
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
 
+    def _quarantine_buy_if_due(
+        self,
+        trade,
+        *,
+        now: Optional[datetime] = None,
+        detail: str,
+    ) -> bool:
+        """End active BUY pending after 3h without pretending exposure is zero.
+
+        A timed-out BUY remains one economically reserved position and closes
+        its event to re-entry.  It is nevertheless event-local, so unrelated
+        games can continue within the remaining max-position capacity while
+        later cycles keep looking for exact fill or zero-fill evidence.
+        """
+        age_minutes = self._pending_buy_age_minutes(trade, now=now)
+        if (
+            age_minutes is None
+            or age_minutes + 1e-9
+            < self.config.stop_sell_quarantine_timeout_minutes
+        ):
+            return False
+        if (
+            getattr(trade, "status", None) == TradeStatus.QUARANTINED
+            and getattr(trade, "exit_reason", None) in BUY_ISOLATION_REASONS
+        ):
+            return True
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.QUARANTINED,
+            exit_reason=BUY_RECONCILIATION_QUARANTINE_REASON,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.critical(
+            "BUY 대사 불명확 3시간 자동 격리: Trade #%s age=%.1fmin "
+            "detail=%s; 미체결로 간주하지 않고 1개 노출 한도를 유지하되 "
+            "다른 경기는 계속",
+            trade.id,
+            age_minutes,
+            detail,
+        )
+        return True
+
     def _quarantine_stop_sell_if_due(
         self,
         trade,
@@ -1428,7 +1481,7 @@ class Trader:
     def reconcile_pending_buy(
         self, trade, *, now: Optional[datetime] = None
     ) -> bool:
-        """Activate terminal fills and cancel stale entry remainders."""
+        """Activate terminal fills and isolate unresolved BUYs after 3h."""
         if self.mode == "sim":
             logger.error(
                 "simulation trade가 PENDING_BUY에 남아 있습니다 - trade=%s",
@@ -1438,6 +1491,7 @@ class Trader:
         evidence = self.repo.get_exact_buy_fill_evidence(
             getattr(trade, "buy_order_id", None)
         )
+        age_minutes = self._pending_buy_age_minutes(trade, now=now)
         if evidence.state == "terminal_zero_fill":
             self.repo.update_trade(
                 trade.id,
@@ -1452,7 +1506,6 @@ class Trader:
             )
             return False
         if not evidence.has_reconciled_executed_fill:
-            age_minutes = self._pending_buy_age_minutes(trade, now=now)
             if (
                 age_minutes is not None
                 and age_minutes + 1e-9
@@ -1468,11 +1521,16 @@ class Trader:
                     )
                 except SubmissionEvidenceError as error:
                     logger.warning(
-                        "만료 BUY 취소 증명 실패로 PENDING_BUY 유지: Trade #%s "
+                        "만료 BUY 취소 증명 실패: Trade #%s "
                         "age=%.1fmin error=%s",
                         trade.id,
                         age_minutes,
                         type(error).__name__,
+                    )
+                    self._quarantine_buy_if_due(
+                        trade,
+                        now=now,
+                        detail="delayed FOK cancellation evidence unavailable",
                     )
                     return False
                 logger.info(
@@ -1484,6 +1542,35 @@ class Trader:
                     terminal.get("verified_order_status"),
                     terminal.get("verified_size_matched", 0.0),
                 )
+                evidence = self.repo.get_exact_buy_fill_evidence(
+                    trade.buy_order_id
+                )
+                if evidence.state == "terminal_zero_fill":
+                    self.repo.update_trade(
+                        trade.id,
+                        status=TradeStatus.UNFILLED,
+                        exit_reason="buy_terminal_zero_fill",
+                        realized_pnl=None,
+                    )
+                    logger.warning(
+                        "지연 FOK BUY의 exact 0체결 증거로 UNFILLED: "
+                        "Trade #%s order=%s",
+                        trade.id,
+                        evidence.order_id,
+                    )
+                    return False
+                if not evidence.has_reconciled_executed_fill:
+                    self._quarantine_buy_if_due(
+                        trade,
+                        now=now,
+                        detail="delayed FOK terminal call remained ambiguous",
+                    )
+                    return False
+            if self._quarantine_buy_if_due(
+                trade,
+                now=now,
+                detail="BUY fill/zero-fill evidence remained unresolved",
+            ):
                 return False
             logger.info(
                 "BUY terminal fill 대사 대기: Trade #%s state=%s full=%s "
@@ -1496,6 +1583,12 @@ class Trader:
             )
             return False
         if not evidence.fee_complete or evidence.confirmed_fee_usdc is None:
+            if self._quarantine_buy_if_due(
+                trade,
+                now=now,
+                detail="terminal BUY fill fee evidence remained incomplete",
+            ):
+                return False
             logger.warning(
                 "BUY terminal fill의 fee 증거가 불완전해 PENDING_BUY 유지: "
                 "Trade #%s state=%s size=%.6f vwap=%.4f",
@@ -1508,6 +1601,7 @@ class Trader:
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.HOLDING,
+            exit_reason=None,
             buy_price=evidence.confirmed_vwap,
             buy_shares=evidence.confirmed_size,
             buy_confirmed_size=evidence.confirmed_size,

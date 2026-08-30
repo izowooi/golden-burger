@@ -487,7 +487,10 @@ def _validate_config(
     if trading.fok_reconciliation_timeout_minutes != 2:
         raise ValueError("delayed FOK reconciliation timeout is frozen at 2 minutes")
     if trading.stop_sell_quarantine_timeout_minutes != 180:
-        raise ValueError("failed stop SELL quarantine timeout is frozen at 180 minutes")
+        raise ValueError(
+            "failed stop SELL quarantine timeout is frozen at 180 minutes; "
+            "BUY reconciliation uses the same 180-minute timeout"
+        )
     if trading.min_order_size != 5 or trading.min_order_buffer_shares != 0:
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if trading.yes_only_mode:

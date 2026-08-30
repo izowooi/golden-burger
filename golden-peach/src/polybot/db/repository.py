@@ -23,6 +23,7 @@ from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .models import (
+    BUY_ISOLATION_REASONS,
     EntryEpisode,
     MarketCatalog,
     MarketSnapshot,
@@ -443,6 +444,22 @@ class TradeRepository:
             .all()
         )
 
+    def get_isolated_buy_trades(self) -> List[Trade]:
+        """Return 3-hour BUY uncertainties that remain evidence-monitored.
+
+        They keep one economic-capacity reservation and permanently close the
+        event to re-entry, but they must not stop unrelated games from using
+        the remaining bounded capacity.
+        """
+        return (
+            self.session.query(Trade)
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason.in_(BUY_ISOLATION_REASONS),
+            )
+            .all()
+        )
+
     def get_isolated_stop_sell_trades(self) -> List[Trade]:
         """Return only 3-hour stop failures that remain evidence-monitored.
 
@@ -476,10 +493,23 @@ class TradeRepository:
             .scalar()
             or 0
         )
+        isolated_buy = (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason.in_(BUY_ISOLATION_REASONS),
+            )
+            .scalar()
+            or 0
+        )
         return {
             "total": int(total),
+            "isolated_buy": int(isolated_buy),
             "isolated_stop_sell": int(isolated_stop_sell),
-            "blocking": max(0, int(total) - int(isolated_stop_sell)),
+            "blocking": max(
+                0,
+                int(total) - int(isolated_buy) - int(isolated_stop_sell),
+            ),
         }
 
     def get_trades_by_date(self, target_date: date) -> List[Trade]:
@@ -581,7 +611,13 @@ class TradeRepository:
         }
 
     def get_open_buy_evidence_gap_count(self) -> int:
-        """Count owned open positions missing exact BUY fill or fee evidence."""
+        """Count unsafe BUY evidence gaps, excluding bounded BUY isolation.
+
+        A timed-out BUY quarantine is intentionally incomplete evidence, but
+        it is already represented as one event-local economic reservation.
+        Counting that same row as a global evidence blocker would defeat the
+        isolation contract and stop every unrelated match.
+        """
         result = (
             self.session.query(func.count(Trade.id))
             .filter(
@@ -591,6 +627,11 @@ class TradeRepository:
                         TradeStatus.PENDING_SELL,
                         TradeStatus.QUARANTINED,
                     )
+                ),
+                or_(
+                    Trade.status != TradeStatus.QUARANTINED,
+                    Trade.exit_reason.is_(None),
+                    ~Trade.exit_reason.in_(BUY_ISOLATION_REASONS),
                 ),
                 or_(
                     Trade.buy_order_id.is_(None),

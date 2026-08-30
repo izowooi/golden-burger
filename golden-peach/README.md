@@ -24,6 +24,8 @@
    보유한다.
 6. 한 event에서 실제 또는 불확실 BUY가 한 번 생기면 다시 들어가지 않는다. exact zero-fill은
    예외다.
+7. 한 event의 명확한 주문 실패나 불명확한 BUY/SELL은 다른 event를 막지 않는다. 불명확 노출은
+   포지션 한도 1칸을 예약하고 180분 뒤 event-local `QUARANTINED`로 전환해 계속 대사한다.
 
 직접 NO는 별도 token/book으로 읽는다. 실시간 진입에서 `1-YES` 합성은 금지된다.
 

@@ -124,9 +124,9 @@ class PolymarketBot:
             trading.experiment_capital_usdc * trading.max_drawdown_stop,
         )
         logger.info(
-            "stop failure containment - SELL-only uncertainty is event-local; "
-            "continuous failure auto-quarantines after %.0f minutes without "
-            "claiming a fill",
+            "order failure containment - BUY/SELL uncertainty is event-local; "
+            "continuous pending auto-quarantines after %.0f minutes without "
+            "claiming a fill or zero exposure",
             trading.stop_sell_quarantine_timeout_minutes,
         )
         logger.info(
@@ -161,6 +161,7 @@ class PolymarketBot:
             "lifecycle_mode": self.config.trading.lifecycle_mode,
             "snapshots_saved": 0,
             "pending_buys_checked": 0,
+            "isolated_buys_checked": 0,
             "pending_buys_activated": 0,
             "pending_sells_checked": 0,
             "isolated_stop_sells_checked": 0,
@@ -169,6 +170,7 @@ class PolymarketBot:
             "resolved": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "entry_pre_submission_failures": 0,
             "entry_blocked_candidates": 0,
             "entry_queued_no_post": 0,
             "orphan_buy_recovery": {
@@ -212,7 +214,9 @@ class PolymarketBot:
                 stats["orphan_buy_recovery"] = trader.recover_orphan_buys()
                 pending_buys = repo.get_pending_buy_trades()
                 stats["pending_buys_checked"] = len(pending_buys)
-                for pending_trade in pending_buys:
+                isolated_buys = repo.get_isolated_buy_trades()
+                stats["isolated_buys_checked"] = len(isolated_buys)
+                for pending_trade in [*pending_buys, *isolated_buys]:
                     if trader.reconcile_pending_buy(pending_trade):
                         stats["pending_buys_activated"] += 1
                 pending_sells = repo.get_pending_sell_trades()
@@ -352,13 +356,15 @@ class PolymarketBot:
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
-                    blocking_reasons.append("pending_buy_unresolved")
+                    degraded_reasons.append("pending_buy_event_isolated")
                 if state_before_entry["pending_sell"]:
                     degraded_reasons.append("pending_sell_event_isolated")
                 if quarantine_state["blocking"]:
                     blocking_reasons.append("quarantined_position")
                 if quarantine_state["isolated_stop_sell"]:
                     degraded_reasons.append("stop_sell_unknown_exposure_isolated")
+                if quarantine_state["isolated_buy"]:
+                    degraded_reasons.append("buy_unknown_exposure_isolated")
                 if int(order_reconciliation.get("unresolved_sell_outcomes", 0)):
                     degraded_reasons.append("unresolved_sell_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
@@ -366,13 +372,13 @@ class PolymarketBot:
                 if capacity["total_reserved"] >= trading.max_positions:
                     blocking_reasons.append("max_capacity_reserved")
                 if capacity["untracked_buy_reservations"]:
-                    blocking_reasons.append("untracked_buy_exposure")
+                    degraded_reasons.append("untracked_buy_exposure_isolated")
                 if open_buy_evidence_gaps:
                     blocking_reasons.append("open_buy_fill_or_fee_evidence_gap")
                 if int(order_reconciliation.get("unresolved_buy_outcomes", 0)):
-                    blocking_reasons.append("unresolved_buy_outcome")
+                    degraded_reasons.append("unresolved_buy_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
-                    blocking_reasons.append("buy_reconciliation_gap")
+                    degraded_reasons.append("buy_reconciliation_gap_isolated")
                 reconciliation_errors = int(order_reconciliation.get("errors", 0))
                 buy_reconciliation_errors = int(
                     order_reconciliation.get("buy_errors", 0)
@@ -396,7 +402,9 @@ class PolymarketBot:
                         - sell_reconciliation_errors
                         - unknown_side_errors,
                     )
-                if buy_reconciliation_errors or unknown_side_errors:
+                if buy_reconciliation_errors:
+                    degraded_reasons.append("buy_reconciliation_error_isolated")
+                if unknown_side_errors:
                     blocking_reasons.append("order_reconciliation_error")
                 if sell_reconciliation_errors:
                     degraded_reasons.append("sell_reconciliation_error_isolated")
@@ -431,6 +439,7 @@ class PolymarketBot:
                     "pending_sell": state_before_entry["pending_sell"],
                     "quarantined": state_before_entry["quarantined"],
                     "blocking_quarantined": quarantine_state["blocking"],
+                    "isolated_buy": quarantine_state["isolated_buy"],
                     "isolated_stop_sell": quarantine_state[
                         "isolated_stop_sell"
                     ],
@@ -482,32 +491,51 @@ class PolymarketBot:
                         trading.max_new_positions_per_cycle,
                         entry_guard["capacity_remaining"],
                     )
-                    for candidate in candidates[
-                        :cycle_entry_limit
-                    ]:
+                    cycle_exposure_reservations = 0
+                    for candidate in candidates:
+                        if cycle_exposure_reservations >= cycle_entry_limit:
+                            break
                         episode_id = candidate.get("entry_episode_id")
                         try:
                             trade_id = trader.execute_buy(candidate)
+                        except PreSubmissionContractError as error:
+                            if (
+                                not isinstance(episode_id, bool)
+                                and isinstance(episode_id, int)
+                            ):
+                                repo.mark_entry_episode_execution(
+                                    episode_id,
+                                    state="PRE_SUBMISSION_CONTRACT_ERROR",
+                                    reason=type(error).__name__,
+                                )
+                            stats["entry_pre_submission_failures"] += 1
+                            logger.warning(
+                                "거래소 POST 전 진입 계약 오류를 후보 단위로 "
+                                "격리합니다 - event=%s condition=%s; 뒤의 다른 "
+                                "경기 후보는 계속 처리",
+                                candidate.get("event_id"),
+                                candidate.get("condition_id"),
+                            )
+                            continue
                         except Exception as error:
                             if (
                                 not isinstance(episode_id, bool)
                                 and isinstance(episode_id, int)
                             ):
-                                retryable_pre_submission = isinstance(
-                                    error, PreSubmissionContractError
-                                )
                                 repo.mark_entry_episode_execution(
                                     episode_id,
-                                    state=(
-                                        "PRE_SUBMISSION_CONTRACT_ERROR"
-                                        if retryable_pre_submission
-                                        else "EXECUTION_EXCEPTION"
-                                    ),
+                                    state="EXECUTION_EXCEPTION",
                                     reason=type(error).__name__,
                                 )
+                            # An arbitrary exception can occur after POST and
+                            # before durable exposure accounting. Stop only for
+                            # this evidence-integrity class; ordinary venue
+                            # rejections and known pre-POST failures are
+                            # contained by execute_buy/the branch above.
                             raise
                         if trade_id is not None:
                             stats["bought"] += 1
+                            cycle_exposure_reservations += 1
                         elif (
                             not isinstance(episode_id, bool)
                             and isinstance(episode_id, int)
@@ -532,6 +560,8 @@ class PolymarketBot:
                                     or "unspecified_fail_closed_rejection"
                                 ),
                             )
+                            if not proven_no_post:
+                                cycle_exposure_reservations += 1
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 
@@ -622,6 +652,7 @@ class PolymarketBot:
         try:
             trading = self.config.trading
             holdings = repo.get_holding_trades()
+            isolated_buys = repo.get_isolated_buy_trades()
             isolated_stop_sells = repo.get_isolated_stop_sell_trades()
             return {
                 "strategy": "Golden Peach In-Play Match Result",
@@ -650,6 +681,23 @@ class PolymarketBot:
                         ),
                     }
                     for trade in holdings
+                ],
+                "isolated_buys": [
+                    {
+                        "id": trade.id,
+                        "condition_id": trade.condition_id,
+                        "event_id": trade.event_id,
+                        "question": trade.question,
+                        "token_id": trade.token_id,
+                        "buy_order_id": trade.buy_order_id,
+                        "buy_timestamp": (
+                            trade.buy_timestamp.isoformat()
+                            if trade.buy_timestamp
+                            else None
+                        ),
+                        "exit_reason": trade.exit_reason,
+                    }
+                    for trade in isolated_buys
                 ],
                 "isolated_stop_sells": [
                     {

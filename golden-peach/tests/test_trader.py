@@ -13,6 +13,7 @@ from polybot.api.clob_client import (
 )
 from polybot.config import TradingConfig
 from polybot.db.models import (
+    BUY_RECONCILIATION_QUARANTINE_REASON,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
     STOP_SELL_QUARANTINE_REASON,
     TradeStatus,
@@ -346,7 +347,9 @@ def test_pre_submission_contract_error_is_proven_no_post(monkeypatch) -> None:
     ]
 
 
-def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
+def test_uncertain_buy_reserves_capacity_without_disabling_unrelated_entries(
+    monkeypatch,
+) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(vwap=0.80, best_bid=0.79, best_ask=0.80)
     submissions = []
@@ -366,10 +369,8 @@ def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
     assert trader.execute_buy(_candidate()) is None
     assert trader.last_entry_outcome_reason == "buy_submission_outcome_unknown"
     assert trader.local_untracked_buy_reservations == 1
-    assert trader.buying_disabled is True
-    assert trader.execute_buy({**_candidate(), "condition_id": "condition-2"}) is None
-    assert trader.last_entry_outcome_reason == "cycle_buying_disabled"
-    assert trader.last_entry_may_have_reached_venue is False
+    assert trader.buying_disabled is False
+    assert trader.last_entry_may_have_reached_venue is True
     assert len(submissions) == 1
 
 
@@ -398,6 +399,65 @@ def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
 
     assert trader.reconcile_pending_buy(trade, now=NOW.replace(tzinfo=None)) is False
     assert repo.updated == []
+
+
+def test_pending_buy_is_event_locally_quarantined_after_three_hours() -> None:
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(
+        "unavailable",
+        "",
+        side="BUY",
+        detail="no exact order identity",
+    )
+    trade = SimpleNamespace(
+        id=10,
+        status=TradeStatus.PENDING_BUY,
+        exit_reason=None,
+        buy_order_id=None,
+        buy_timestamp=(NOW - timedelta(minutes=181)).replace(tzinfo=None),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_buy(
+        trade, now=NOW.replace(tzinfo=None)
+    ) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.QUARANTINED
+    assert update["exit_reason"] == BUY_RECONCILIATION_QUARANTINE_REASON
+
+
+def test_isolated_buy_returns_to_holding_on_late_exact_fill() -> None:
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(
+        "confirmed",
+        "buy-late",
+        order_status="MATCHED",
+        side="BUY",
+        requested_size=6.25,
+        latest_size_matched=6.25,
+        needs_reconciliation=False,
+        reconciled_full_fill=True,
+        confirmed_size=6.25,
+        confirmed_vwap=0.80,
+        confirmed_fee_usdc=0.0,
+        fee_complete=True,
+    )
+    trade = SimpleNamespace(
+        id=11,
+        status=TradeStatus.QUARANTINED,
+        exit_reason=BUY_RECONCILIATION_QUARANTINE_REASON,
+        buy_order_id="buy-late",
+        buy_timestamp=(NOW - timedelta(minutes=181)).replace(tzinfo=None),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_buy(
+        trade, now=NOW.replace(tzinfo=None)
+    ) is True
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.HOLDING
+    assert update["exit_reason"] is None
+    assert update["buy_confirmed_size"] == pytest.approx(6.25)
 
 
 def test_confirmed_buy_freezes_entry_relative_stop_from_actual_vwap() -> None:
