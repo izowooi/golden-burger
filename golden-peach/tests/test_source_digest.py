@@ -18,6 +18,10 @@ def _source_tree(tmp_path: Path) -> Path:
     for relative in ("config.yaml", "pyproject.toml", "uv.lock", "STRATEGY.md"):
         _write(project_root / relative, relative)
     _write(project_root / ACTIVE_PREREGISTRATION, "frozen protocol")
+    _write(
+        project_root / "scripts/verify_external_workspace.py",
+        "def inspect_workspace(path): return path",
+    )
     _write(project_root / "src/polybot/config.py", "PARAMETER = 1")
     _write(observability_root / "pyproject.toml", "observability")
     _write(

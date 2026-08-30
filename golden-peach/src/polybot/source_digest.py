@@ -21,6 +21,7 @@ def _runtime_files(project_root: Path) -> list[Path]:
         project_root / "uv.lock",
         project_root / "STRATEGY.md",
         project_root / ACTIVE_PREREGISTRATION,
+        project_root / "scripts" / "verify_external_workspace.py",
         observability_root / "pyproject.toml",
     ]
     discovered = [

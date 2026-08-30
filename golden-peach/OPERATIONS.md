@@ -10,6 +10,9 @@
 
 Concurrent build는 금지하고 build discard는 14일로 둔다. 첫 검증 build 전 timer를 끄고,
 exact pushed commit으로 수동 build를 통과시킨 뒤 timer를 켠다. clean build는 사용하지 않는다.
+각 shell은 `uv sync`보다 먼저 `WORKSPACE`의 device가 `/`와 다른지 검사하고, sync 뒤에는
+`scripts/verify_external_workspace.py --workspace "${WORKSPACE}" --min-free-gib 50`도 통과해야 한다.
+T7이 분리된 채 같은 경로가 내부 디스크에 생긴 경우 주문 전에 실패한다.
 
 ## 공통 shell
 
