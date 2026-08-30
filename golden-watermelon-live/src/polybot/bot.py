@@ -123,6 +123,12 @@ class PolymarketBot:
             trading.experiment_capital_usdc * trading.max_drawdown_stop,
         )
         logger.info(
+            "stop failure containment - SELL-only uncertainty is event-local; "
+            "continuous failure auto-quarantines after %.0f minutes without "
+            "claiming a fill",
+            trading.stop_sell_quarantine_timeout_minutes,
+        )
+        logger.info(
             "server envelope - live %s; Gamma liquidity>=%.0f volume>=%.0f; "
             "exact-$5 CLOB depth gate; in_play_hours<=%.0f retention=%sd",
             trading.sport_family,
@@ -156,6 +162,7 @@ class PolymarketBot:
             "pending_buys_checked": 0,
             "pending_buys_activated": 0,
             "pending_sells_checked": 0,
+            "isolated_stop_sells_checked": 0,
             "checked_holdings": 0,
             "sold": 0,
             "resolved": 0,
@@ -209,7 +216,9 @@ class PolymarketBot:
                         stats["pending_buys_activated"] += 1
                 pending_sells = repo.get_pending_sell_trades()
                 stats["pending_sells_checked"] = len(pending_sells)
-                for pending_trade in pending_sells:
+                isolated_stop_sells = repo.get_isolated_stop_sell_trades()
+                stats["isolated_stop_sells_checked"] = len(isolated_stop_sells)
+                for pending_trade in [*pending_sells, *isolated_stop_sells]:
                     if trader.reconcile_pending_sell(pending_trade):
                         stats["sold"] += 1
                         completed = repo.get_by_id(pending_trade.id)
@@ -337,19 +346,22 @@ class PolymarketBot:
                         economic_evidence_gaps,
                     )
                 capacity = repo.get_entry_capacity_state()
+                quarantine_state = repo.get_quarantine_state()
                 open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
                     blocking_reasons.append("pending_buy_unresolved")
                 if state_before_entry["pending_sell"]:
-                    blocking_reasons.append("pending_sell_unresolved")
-                if state_before_entry["quarantined"]:
+                    degraded_reasons.append("pending_sell_event_isolated")
+                if quarantine_state["blocking"]:
                     blocking_reasons.append("quarantined_position")
+                if quarantine_state["isolated_stop_sell"]:
+                    degraded_reasons.append("stop_sell_unknown_exposure_isolated")
                 if int(order_reconciliation.get("unresolved_sell_outcomes", 0)):
-                    blocking_reasons.append("unresolved_sell_outcome")
+                    degraded_reasons.append("unresolved_sell_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
-                    blocking_reasons.append("sell_reconciliation_gap")
+                    degraded_reasons.append("sell_reconciliation_gap_isolated")
                 if capacity["total_reserved"] >= trading.max_positions:
                     blocking_reasons.append("max_capacity_reserved")
                 if capacity["untracked_buy_reservations"]:
@@ -360,8 +372,33 @@ class PolymarketBot:
                     blocking_reasons.append("unresolved_buy_outcome")
                 if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
                     blocking_reasons.append("buy_reconciliation_gap")
-                if int(order_reconciliation.get("errors", 0)):
+                reconciliation_errors = int(order_reconciliation.get("errors", 0))
+                buy_reconciliation_errors = int(
+                    order_reconciliation.get("buy_errors", 0)
+                )
+                sell_reconciliation_errors = int(
+                    order_reconciliation.get("sell_errors", 0)
+                )
+                unknown_side_errors = int(
+                    order_reconciliation.get("unknown_side_errors", 0)
+                )
+                if not any(
+                    key in order_reconciliation
+                    for key in ("buy_errors", "sell_errors", "unknown_side_errors")
+                ):
+                    unknown_side_errors = reconciliation_errors
+                else:
+                    unknown_side_errors += max(
+                        0,
+                        reconciliation_errors
+                        - buy_reconciliation_errors
+                        - sell_reconciliation_errors
+                        - unknown_side_errors,
+                    )
+                if buy_reconciliation_errors or unknown_side_errors:
                     blocking_reasons.append("order_reconciliation_error")
+                if sell_reconciliation_errors:
+                    degraded_reasons.append("sell_reconciliation_error_isolated")
                 if drawdown_triggered:
                     blocking_reasons.append("economic_drawdown_limit_reached")
                 if economic_evidence_gaps:
@@ -392,6 +429,10 @@ class PolymarketBot:
                     "pending_buy": state_before_entry["pending_buy"],
                     "pending_sell": state_before_entry["pending_sell"],
                     "quarantined": state_before_entry["quarantined"],
+                    "blocking_quarantined": quarantine_state["blocking"],
+                    "isolated_stop_sell": quarantine_state[
+                        "isolated_stop_sell"
+                    ],
                     "unresolved_buy_outcomes": int(
                         order_reconciliation.get("unresolved_buy_outcomes", 0)
                     ),
@@ -404,9 +445,10 @@ class PolymarketBot:
                     "reconciliation_sell_gaps": int(
                         order_reconciliation.get("reconciliation_sell_gaps", 0)
                     ),
-                    "reconciliation_errors": int(
-                        order_reconciliation.get("errors", 0)
-                    ),
+                    "reconciliation_errors": reconciliation_errors,
+                    "buy_reconciliation_errors": buy_reconciliation_errors,
+                    "sell_reconciliation_errors": sell_reconciliation_errors,
+                    "unknown_side_reconciliation_errors": unknown_side_errors,
                     "economic_pnl": economic_pnl,
                     "drawdown_loss_limit_usdc": drawdown_limit,
                 }
@@ -579,6 +621,7 @@ class PolymarketBot:
         try:
             trading = self.config.trading
             holdings = repo.get_holding_trades()
+            isolated_stop_sells = repo.get_isolated_stop_sell_trades()
             return {
                 "strategy": "Golden Watermelon Live In-Play Match Result",
                 "job_name": self.config.job_name,
@@ -607,6 +650,23 @@ class PolymarketBot:
                     }
                     for trade in holdings
                 ],
+                "isolated_stop_sells": [
+                    {
+                        "id": trade.id,
+                        "condition_id": trade.condition_id,
+                        "event_id": trade.event_id,
+                        "question": trade.question,
+                        "token_id": trade.token_id,
+                        "sell_order_id": trade.sell_order_id,
+                        "sell_timestamp": (
+                            trade.sell_timestamp.isoformat()
+                            if trade.sell_timestamp
+                            else None
+                        ),
+                        "exit_reason": trade.exit_reason,
+                    }
+                    for trade in isolated_stop_sells
+                ],
                 "config": {
                     "buy_amount_usdc": trading.buy_amount_usdc,
                     "min_liquidity": trading.min_liquidity,
@@ -624,6 +684,9 @@ class PolymarketBot:
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
                     "fok_reconciliation_timeout_minutes": (
                         trading.fok_reconciliation_timeout_minutes
+                    ),
+                    "stop_sell_quarantine_timeout_minutes": (
+                        trading.stop_sell_quarantine_timeout_minutes
                     ),
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,

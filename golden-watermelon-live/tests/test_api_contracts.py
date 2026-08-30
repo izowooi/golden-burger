@@ -475,6 +475,47 @@ def test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve(
     assert stats["intent_autoresolved"] == 0
 
 
+def test_order_reconciliation_attributes_sell_error_without_hiding_total() -> None:
+    class _Ledger:
+        def pending_submissions(self):
+            return [
+                {
+                    "submission_id": "submission-sell",
+                    "order_id": "order-sell",
+                    "token_id": "token-sell",
+                    "side": "SELL",
+                    "response_status": "DELAYED",
+                    "associated_trade_ids_json": "[]",
+                    "reconciliation_proof": None,
+                }
+            ]
+
+        def record_reconciliation_error(self, _submission_id, _error):
+            return None
+
+        def unresolved_submission_count(self, *, side):
+            return 0
+
+        def reconciliation_gap_count(self, *, side):
+            return 1 if side == "SELL" else 0
+
+    class _Client:
+        def get_order(self, _order_id):
+            raise RuntimeError("temporary CLOB read failure")
+
+    wrapper = object.__new__(ClobClientWrapper)
+    wrapper.simulation_mode = False
+    wrapper.execution_ledger = _Ledger()
+    wrapper._client = _Client()
+
+    stats = wrapper.reconcile_order_ledger()
+
+    assert stats["errors"] == 1
+    assert stats["buy_errors"] == 0
+    assert stats["sell_errors"] == 1
+    assert stats["unknown_side_errors"] == 0
+
+
 def _fee_evidence_wrapper(
     tmp_path,
     *,

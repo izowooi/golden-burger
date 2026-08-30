@@ -3974,7 +3974,9 @@ def _validate_watermelon_live_strategy(
             "FOK SELL",
             "full-depth",
             "0.70",
-            "PENDING_SELL",
+            "SELL-only intent",
+            "180분",
+            "QUARANTINED",
         ),
         "OPERATIONS.md": (
             "* * * * *",
@@ -3989,7 +3991,9 @@ def _validate_watermelon_live_strategy(
         ),
         "src/polybot/bot.py": (
             "pending_buy_unresolved",
-            "pending_sell_unresolved",
+            "pending_sell_event_isolated",
+            "stop_sell_unknown_exposure_isolated",
+            "sell_reconciliation_error_isolated",
             "quarantined_position",
             "open_buy_fill_or_fee_evidence_gap",
             "league_identity_metadata_drift",
@@ -4025,6 +4029,7 @@ def _validate_watermelon_live_strategy(
             "live notional must remain exactly $5",
             "exposure limits are frozen at 20/1/5",
             "emergency stop_price is frozen at 0.70",
+            "failed stop SELL quarantine timeout is frozen at 180 minutes",
             "YES tokens / direct winner tokens must remain winner-only",
         ),
         "src/polybot/league_classifier.py": (
@@ -4097,6 +4102,8 @@ def _validate_watermelon_live_strategy(
             "_sdk_sellable_shares",
             "_orphan_catalog_identity_matches",
             "live gap-stop allowed after dual lifecycle proof",
+            "STOP_SELL_QUARANTINE_REASON",
+            "_STOP_SELL_FAILURE_RETRY_REASON",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",
@@ -4116,6 +4123,8 @@ def _validate_watermelon_live_strategy(
             "test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment",
             "test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade",
             "test_live_gap_beyond_normal_stop_limit_uses_first_full_depth_book",
+            "test_continuous_stop_failure_is_quarantined_after_three_hours",
+            "test_sell_ledger_failure_is_immediately_isolated_without_raising",
         ),
         "tests/test_api_contracts.py": (
             "test_full_share_sell_walk_uses_deeper_bids_and_market_limit",
@@ -4123,6 +4132,7 @@ def _validate_watermelon_live_strategy(
             "test_gamma_exclusion_bucket_preserves_rejected_sport_identity",
             "test_gamma_rate_limit_fails_fast_without_in_process_retry",
             "test_order_reconciliation_reports_health_without_unsafe_intent_autoresolve",
+            "test_order_reconciliation_attributes_sell_error_without_hiding_total",
             "test_live_sell_ledger_uses_signed_two_decimal_share_quantity",
             "test_gamma_accepts_exact_cross_league_uefa_identity",
             "test_gamma_rejects_uefa_advancement_scope_before_trading",

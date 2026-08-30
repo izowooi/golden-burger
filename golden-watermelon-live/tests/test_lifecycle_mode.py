@@ -22,6 +22,8 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     )
     trader = MagicMock()
     trader.execute_sell.return_value = False
+    trader.reconcile_pending_buy.return_value = False
+    trader.reconcile_pending_sell.return_value = False
     trader.recover_orphan_buys.return_value = {
         "checked": 0,
         "recovered": 0,
@@ -36,6 +38,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     repo = MagicMock()
     repo.get_pending_buy_trades.return_value = []
     repo.get_pending_sell_trades.return_value = []
+    repo.get_isolated_stop_sell_trades.return_value = []
     repo.get_holding_trades.return_value = holdings
     repo.get_stats.return_value = {
         "holding": len(holdings),
@@ -64,6 +67,11 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "total_reserved": len(holdings),
     }
     repo.get_open_buy_evidence_gap_count.return_value = 0
+    repo.get_quarantine_state.return_value = {
+        "total": 0,
+        "isolated_stop_sell": 0,
+        "blocking": 0,
+    }
     session = MagicMock()
 
     monkeypatch.setattr(bot_module, "MarketScanner", lambda *args, **kwargs: scanner)
@@ -105,6 +113,7 @@ def test_close_only_archives_and_checks_existing_positions_without_entry(
     scanner.fetch_markets.assert_called_once_with()
     gamma.get_all_tradable_markets.assert_not_called()
     repo.get_pending_sell_trades.assert_called_once_with()
+    repo.get_isolated_stop_sell_trades.assert_called_once_with()
     repo.get_pending_buy_trades.assert_called_once_with()
     trader.execute_sell.assert_called_once_with(trade)
     scanner.scan_buy_candidates.assert_not_called()
@@ -132,6 +141,7 @@ def test_archive_only_persists_research_without_reading_or_writing_orders(
     scanner.save_market_snapshots.assert_called_once()
     repo.get_holding_trades.assert_not_called()
     repo.get_pending_sell_trades.assert_not_called()
+    repo.get_isolated_stop_sell_trades.assert_not_called()
     repo.get_pending_buy_trades.assert_not_called()
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_sell.assert_not_called()
@@ -358,7 +368,39 @@ def test_active_scans_but_blocks_new_buy_while_pending_buy_is_unresolved(
     session.close.assert_called_once()
 
 
-def test_active_blocks_new_buy_when_sell_intent_outcome_is_uncertain(
+def test_active_isolates_sell_intent_without_blocking_unrelated_buy(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, _repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 1
+
+    stats = bot.run_cycle(
+        order_reconciliation={
+            "unresolved_sell_outcomes": 1,
+            "errors": 1,
+            "buy_errors": 0,
+            "sell_errors": 1,
+            "unknown_side_errors": 0,
+        }
+    )
+
+    assert stats["entry_blocked_candidates"] == 0
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "unresolved_sell_outcome_isolated",
+        "sell_reconciliation_error_isolated",
+    ]
+    trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
+def test_active_still_blocks_buy_side_or_unknown_reconciliation_error(
     monkeypatch, tmp_path
 ):
     bot, scanner, trader, _repo, session, _gamma = _build_bot(
@@ -369,14 +411,66 @@ def test_active_blocks_new_buy_when_sell_intent_outcome_is_uncertain(
     scanner.scan_buy_candidates.return_value = [candidate]
 
     stats = bot.run_cycle(
-        order_reconciliation={"unresolved_sell_outcomes": 1}
+        order_reconciliation={
+            "errors": 1,
+            "buy_errors": 1,
+            "sell_errors": 0,
+            "unknown_side_errors": 0,
+        }
     )
 
-    assert stats["entry_blocked_candidates"] == 1
     assert stats["entry_guard"]["blocking_reasons"] == [
-        "unresolved_sell_outcome"
+        "order_reconciliation_error"
     ]
     trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_isolated_stop_quarantine_reserves_capacity_but_not_global_gate(
+    monkeypatch, tmp_path
+):
+    isolated = SimpleNamespace(id=41, token_id="isolated-token")
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 1
+    repo.get_isolated_stop_sell_trades.return_value = [isolated]
+    repo.get_stats.return_value = {
+        "holding": 0,
+        "pending_buy": 0,
+        "pending_sell": 0,
+        "resolved": 0,
+        "expired": 0,
+        "unfilled": 0,
+        "quarantined": 1,
+        "isolated_stop_sell": 1,
+        "total_pnl": 0.0,
+    }
+    repo.get_quarantine_state.return_value = {
+        "total": 1,
+        "isolated_stop_sell": 1,
+        "blocking": 0,
+    }
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 1,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 1,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["isolated_stop_sells_checked"] == 1
+    assert stats["entry_guard"]["capacity_remaining"] == 19
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "stop_sell_unknown_exposure_isolated"
+    ]
+    trader.reconcile_pending_sell.assert_called_once_with(isolated)
+    trader.execute_buy.assert_called_once_with(candidate)
     session.close.assert_called_once()
 
 

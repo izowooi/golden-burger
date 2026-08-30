@@ -12,9 +12,14 @@ from polybot.api.clob_client import (
     _normalize_clob_resolution,
 )
 from polybot.config import TradingConfig
-from polybot.db.models import TradeStatus
+from polybot.db.models import (
+    STOP_SELL_LEDGER_QUARANTINE_REASON,
+    STOP_SELL_QUARANTINE_REASON,
+    TradeStatus,
+)
 from polybot.db.repository import ExactFillEvidence
 from polybot.strategy.trader import Trader
+from polybot_observability import SubmissionEvidenceError
 
 
 NOW = datetime(2026, 8, 29, 5, 0, tzinfo=timezone.utc)
@@ -208,7 +213,7 @@ def _candidate():
 
 def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
-    repo, clob = _Repo(), _Clob()
+    repo, clob = _Repo(), _Clob(best_bid=0.93, best_ask=0.94)
     config = TradingConfig()
     trader = Trader(repo, clob, config, simulation_mode=False)
 
@@ -240,7 +245,13 @@ def test_buy_records_one_time_opposite_result_transition(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob()
     repo.reentry = (True, "opposite_result_after_confirmed_stop")
-    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
 
     assert trader.execute_buy(_candidate()) == 7
     assert repo.created[0]["entry_reason"].endswith(
@@ -408,6 +419,150 @@ def test_entry_relative_stop_catches_lille_style_five_point_reversal() -> None:
     assert len(clob.orders) == 1
     assert clob.orders[0]["side"] == "SELL"
     assert repo.updated[-1][1]["status"] is TradeStatus.PENDING_SELL
+
+
+def test_continuous_stop_failure_is_quarantined_after_three_hours(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(best_bid=0.93, best_ask=0.94)
+    trade = SimpleNamespace(
+        id=91,
+        status=TradeStatus.HOLDING,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        exit_reason="stop_sell_failure_retrying",
+        sell_timestamp=(NOW - timedelta(minutes=181)).replace(tzinfo=None),
+        stop_price_at_entry=0.94,
+        buy_confirmed_vwap=0.99,
+        buy_shares=5.05,
+        buy_price=0.99,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders == []
+    assert repo.updated[-1][1]["status"] is TradeStatus.QUARANTINED
+    assert repo.updated[-1][1]["exit_reason"] == STOP_SELL_QUARANTINE_REASON
+
+
+def test_rejected_stop_starts_failure_timer_without_aborting_cycle(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(
+        best_bid=0.93,
+        best_ask=0.94,
+        sell_vwap=0.93,
+        sell_limit=0.93,
+    )
+    clob.place_limit_order = lambda **order: {
+        "success": False,
+        "error": "temporary venue rejection",
+    }
+    trade = SimpleNamespace(
+        id=92,
+        status=TradeStatus.HOLDING,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        exit_reason=None,
+        sell_timestamp=None,
+        stop_price_at_entry=0.94,
+        buy_confirmed_vwap=0.99,
+        buy_shares=5.05,
+        buy_price=0.99,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.HOLDING
+    assert update["exit_reason"] == "stop_sell_failure_retrying"
+    assert update["sell_timestamp"] == NOW.replace(tzinfo=None)
+
+
+def test_sell_ledger_failure_is_immediately_isolated_without_raising(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(
+        best_bid=0.93,
+        best_ask=0.94,
+        sell_vwap=0.93,
+        sell_limit=0.93,
+    )
+
+    def fail_ledger(**_order):
+        raise SubmissionEvidenceError("durable ledger bind failed")
+
+    clob.place_limit_order = fail_ledger
+    trade = SimpleNamespace(
+        id=93,
+        status=TradeStatus.HOLDING,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        exit_reason=None,
+        sell_timestamp=None,
+        stop_price_at_entry=0.94,
+        buy_confirmed_vwap=0.99,
+        buy_shares=5.05,
+        buy_price=0.99,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.QUARANTINED
+    assert update["exit_reason"] == STOP_SELL_LEDGER_QUARANTINE_REASON
+
+
+def test_recovered_stop_clears_continuous_failure_timer(monkeypatch) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(best_bid=0.95, best_ask=0.96)
+    trade = SimpleNamespace(
+        id=94,
+        status=TradeStatus.HOLDING,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        exit_reason="stop_sell_failure_retrying",
+        sell_timestamp=(NOW - timedelta(minutes=10)).replace(tzinfo=None),
+        stop_price_at_entry=0.94,
+        buy_confirmed_vwap=0.99,
+        buy_shares=5.05,
+        buy_price=0.99,
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.execute_sell(trade) is False
+    update = repo.updated[-1][1]
+    assert update["exit_reason"] is None
+    assert update["sell_timestamp"] is None
 
 
 def test_stop_uses_fresh_bid_and_submits_fok_sell(

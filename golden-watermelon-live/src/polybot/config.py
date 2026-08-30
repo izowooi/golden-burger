@@ -340,6 +340,7 @@ class TradingConfig:
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 15.0
     fok_reconciliation_timeout_minutes: float = 2.0
+    stop_sell_quarantine_timeout_minutes: float = 180.0
     min_order_size: float = 5.0
     min_order_buffer_shares: float = 0.0
     yes_only_mode: bool = True
@@ -395,6 +396,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "fok_reconciliation_timeout_minutes": (
             trading.fok_reconciliation_timeout_minutes
+        ),
+        "stop_sell_quarantine_timeout_minutes": (
+            trading.stop_sell_quarantine_timeout_minutes
         ),
         "min_order_size": trading.min_order_size,
         "min_order_buffer_shares": trading.min_order_buffer_shares,
@@ -456,6 +460,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("snapshot maintenance cadence is frozen at 15 minutes")
     if trading.fok_reconciliation_timeout_minutes != 2:
         raise ValueError("delayed FOK reconciliation timeout is frozen at 2 minutes")
+    if trading.stop_sell_quarantine_timeout_minutes != 180:
+        raise ValueError("failed stop SELL quarantine timeout is frozen at 180 minutes")
     if trading.min_order_size != 5 or trading.min_order_buffer_shares != 0:
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if not trading.yes_only_mode:
@@ -671,6 +677,11 @@ def load_config(
             "POLYBOT_FOK_RECONCILIATION_TIMEOUT_MINUTES",
             trading_cfg.get("fok_reconciliation_timeout_minutes"),
             2.0,
+        ),
+        stop_sell_quarantine_timeout_minutes=_get_config_value(
+            "POLYBOT_STOP_SELL_QUARANTINE_TIMEOUT_MINUTES",
+            trading_cfg.get("stop_sell_quarantine_timeout_minutes"),
+            180.0,
         ),
         min_order_size=_get_config_value(
             "POLYBOT_MIN_ORDER_SIZE", trading_cfg.get("min_order_size"), 5.0

@@ -1719,6 +1719,9 @@ class ClobClientWrapper:
             "completed": 0,
             "legacy_unavailable": 0,
             "errors": 0,
+            "buy_errors": 0,
+            "sell_errors": 0,
+            "unknown_side_errors": 0,
             "unresolved_buy_outcomes": 0,
             "unresolved_sell_outcomes": 0,
             "reconciliation_buy_gaps": 0,
@@ -1947,6 +1950,13 @@ class ClobClientWrapper:
                     )
             except Exception as error:
                 stats["errors"] += 1
+                pending_side = str(pending.get("side") or "").strip().upper()
+                if pending_side == "BUY":
+                    stats["buy_errors"] += 1
+                elif pending_side == "SELL":
+                    stats["sell_errors"] += 1
+                else:
+                    stats["unknown_side_errors"] += 1
                 phase_error = ClobReconciliationPhaseError(
                     phase, error, response_shape
                 )

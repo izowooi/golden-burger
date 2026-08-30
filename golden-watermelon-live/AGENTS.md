@@ -14,7 +14,7 @@
   `2026-09-12T04:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-08-30-order-lifecycle-v3c/PREREGISTRATION.md`.
+  `research/frozen-2026-08-30-stop-containment-v3d/PREREGISTRATION.md`.
 
 Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 쓴다. 신규 MLB/NHL job만
 새 runtime DB를 만든다. DB clean/wipe/migration/copy/merge/backfill을 하지 않는다.
@@ -34,7 +34,10 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
   넘지 않는다. accepted order는 fill이 아니다.
 - account/open 20, event 1, cycle BUY 5, cycle emergency SELL 1. manual wallet position은
   편입·청산하지 않는다.
-- PENDING/QUARANTINED/orphan/fill-fee gap과 모호한 execution ledger가 있으면 신규 BUY를 막는다.
+- PENDING BUY/orphan BUY/BUY fill-fee gap, 일반 QUARANTINED와 경제손익 증거 누락은 신규 BUY를
+  막는다. SELL-only intent·대사 실패는 같은 token/event에만 격리하고 다른 event는 계속한다.
+  연속 손절 실패는 180분 뒤 성공 매도로 꾸미지 않고 open-capacity를 유지한 QUARANTINED로
+  자동 격리 종결한다. execution ledger 결합 실패는 중복 SELL 방지를 위해 즉시 격리한다.
 - effective stop은 `max(0.70, confirmed entry VWAP-0.05)`다. 독립 Gamma+CLOB OPEN proof와 proof
   뒤 fresh complete book, spread `<=0.10`을 요구한다. 정상 연속 book은 stop 대비 5pp/35%
   envelope를 유지하고, 검증된 OPEN 상태의 불연속 gap은 envelope가 손절을 무력화하지 않게 한다.

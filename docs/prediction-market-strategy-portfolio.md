@@ -50,7 +50,7 @@ market observatory다.
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
-| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 prospective live A/B v3b** |
+| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 향후 수집 live A/B v3d** |
 
 상태 합계는 운영 8, 구현만 완료 5, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
@@ -393,7 +393,7 @@ trigger 가격 체결을 보장하지 않는다. threshold가 없는 경기에 �
 `polybot-dog/watermelon-live-dog-99-1m-v2h`이며 MLB/NHL 네 job도 같은 source contract를 쓴다.
 수동 wallet position은 관리하지 않는다.
 상세는 `golden-watermelon-live/STRATEGY.md`, frozen 계약은
-`golden-watermelon-live/research/frozen-2026-08-29-reversal-safety-v3b/PREREGISTRATION.md`, 회고는
+`golden-watermelon-live/research/frozen-2026-08-30-stop-containment-v3d/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-watermelon-live.md`를 따른다.
 
 ## 13차 설계 — major sports별 유동성·volume·threshold capacity 관측

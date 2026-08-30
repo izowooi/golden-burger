@@ -1,4 +1,4 @@
-# Golden Watermelon Live — Major Sports A/B v3c
+# Golden Watermelon Live — Major Sports A/B v3d
 
 ## 질문과 treatment
 
@@ -44,8 +44,9 @@ spread/total/prop/future/advancement와 settlement scope가 불명확한 soccer 
 
 account/event/cycle capacity는 `20/1/5`, cycle 신규 요청 원금은 최대 `$25`다. FOK는 full fill이
 불가능하면 zero fill이며, accepted/order ID만으로 체결을 추정하지 않는다. unresolved
-`PENDING_BUY`, `PENDING_SELL`, `QUARANTINED`, orphan BUY, order reconciliation 또는 fill/fee
-evidence gap이 있으면 신규 BUY를 막는다. bot DB가 만든 Trade만 관리한다.
+`PENDING_BUY`, 일반 `QUARANTINED`, orphan BUY, BUY reconciliation 또는 fill/fee evidence gap은
+신규 BUY를 막는다. SELL-only intent·대사 실패는 동일 token/event에만 격리하고 다른 event의
+신규 BUY는 계속한다. bot DB가 만든 Trade만 관리한다.
 
 ## Stop, gap과 resolution
 
@@ -68,6 +69,12 @@ cleanup/dust `0.001`은 OPEN proof에 실패하므로 팔지 않는다.
 `DELAYED` FOK BUY/SELL은 exact order와 전체 인증 token trade에 체결이 없고 cancellation 응답까지
 terminal 부재를 증명할 때만 2분 뒤 0체결로 종결한다. 모호한 주문은 계속 PENDING으로 두며,
 zero-fill SELL은 체결을 꾸미지 않고 기존 position을 HOLDING으로 되돌린다.
+
+손절 제출이 계속 거절되거나 accepted SELL 대사가 끝나지 않으면 첫 실패 시각부터 180분 뒤
+`QUARANTINED`로 자동 격리 종결한다. 이는 성공한 매도나 포지션 부재가 아니므로 손익을 만들지
+않고 account/event capacity를 유지한다. exact order ID가 있는 격리 행은 뒤늦은 confirmed fill
+또는 terminal zero-fill 증거를 계속 반영한다. execution ledger와 Trade 결합 자체가 실패하면
+중복 SELL을 피하기 위해 즉시 같은 국소 격리 상태로 전환한다.
 
 confirmed SELL P&L과 proven one-hot resolution settlement P&L을 안전 판정에만 합산해 `-$10`에
 도달하면 신규 BUY를 차단한다. 모든 live `CONFIRMED` SELL은 execution ledger에서 exact order나

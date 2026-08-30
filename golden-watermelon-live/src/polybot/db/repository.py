@@ -30,6 +30,7 @@ from .models import (
     MarketSweepMembership,
     ResolutionObservation,
     SkippedMarket,
+    STOP_SELL_ISOLATION_REASONS,
     Trade,
     TradeStatus,
 )
@@ -510,6 +511,45 @@ class TradeRepository:
             .all()
         )
 
+    def get_isolated_stop_sell_trades(self) -> List[Trade]:
+        """Return only 3-hour stop failures that remain evidence-monitored.
+
+        These rows are economically open until an exact SELL fill, exact
+        zero-fill, or another authoritative lifecycle transition proves the
+        outcome.  Keeping them separate from generic quarantine lets unrelated
+        events continue without weakening BUY-side fail-closed guards.
+        """
+        return (
+            self.session.query(Trade)
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason.in_(STOP_SELL_ISOLATION_REASONS),
+            )
+            .all()
+        )
+
+    def get_quarantine_state(self) -> Dict[str, int]:
+        total = (
+            self.session.query(func.count(Trade.id))
+            .filter(Trade.status == TradeStatus.QUARANTINED)
+            .scalar()
+            or 0
+        )
+        isolated_stop_sell = (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason.in_(STOP_SELL_ISOLATION_REASONS),
+            )
+            .scalar()
+            or 0
+        )
+        return {
+            "total": int(total),
+            "isolated_stop_sell": int(isolated_stop_sell),
+            "blocking": max(0, int(total) - int(isolated_stop_sell)),
+        }
+
     def get_trades_by_date(self, target_date: date) -> List[Trade]:
         start = datetime.combine(target_date, datetime.min.time())
         end = datetime.combine(target_date, datetime.max.time())
@@ -614,7 +654,11 @@ class TradeRepository:
             self.session.query(func.count(Trade.id))
             .filter(
                 Trade.status.in_(
-                    (TradeStatus.HOLDING, TradeStatus.PENDING_SELL)
+                    (
+                        TradeStatus.HOLDING,
+                        TradeStatus.PENDING_SELL,
+                        TradeStatus.QUARANTINED,
+                    )
                 ),
                 or_(
                     Trade.buy_order_id.is_(None),
@@ -1658,6 +1702,15 @@ class TradeRepository:
             "resolved": count(TradeStatus.RESOLVED),
             "unfilled": count(TradeStatus.UNFILLED),
             "quarantined": count(TradeStatus.QUARANTINED),
+            "isolated_stop_sell": (
+                self.session.query(func.count(Trade.id))
+                .filter(
+                    Trade.status == TradeStatus.QUARANTINED,
+                    Trade.exit_reason.in_(STOP_SELL_ISOLATION_REASONS),
+                )
+                .scalar()
+                or 0
+            ),
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
             "total_pnl": round(total_pnl, 4),
             "settlement_pnl_assumption": round(

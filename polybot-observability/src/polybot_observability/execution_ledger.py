@@ -1371,7 +1371,7 @@ class ExecutionLedger:
                 )
             rows = connection.execute(
                 """
-                SELECT submission_id, order_id, token_id, response_status,
+                SELECT submission_id, order_id, token_id, side, response_status,
                        associated_trade_ids_json, reconciliation_proof
                 FROM order_submissions
                 WHERE needs_reconciliation = 1 AND order_id IS NOT NULL

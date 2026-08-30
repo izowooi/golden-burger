@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import datetime as datetime_module
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 import logging
@@ -21,7 +22,13 @@ from ..api.clob_client import (
 )
 from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
-from ..db.models import STRATEGY_NAME, TradeStatus
+from ..db.models import (
+    STOP_SELL_ISOLATION_REASONS,
+    STOP_SELL_LEDGER_QUARANTINE_REASON,
+    STOP_SELL_QUARANTINE_REASON,
+    STRATEGY_NAME,
+    TradeStatus,
+)
 from ..db.repository import ExactFillEvidence, TradeRepository
 from .filters import get_aligned_binary_outcomes, get_proven_resolution
 from .scanner import get_hours_since_game_start, parse_end_date
@@ -61,6 +68,7 @@ def locked_in_own_orders(result: dict) -> bool:
 _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 _MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
+_STOP_SELL_FAILURE_RETRY_REASON = "stop_sell_failure_retrying"
 
 
 def _sdk_sellable_shares(holding_shares: float) -> float:
@@ -1055,7 +1063,7 @@ class Trader:
         trade, now: Optional[datetime] = None
     ) -> Optional[float]:
         placed_at = getattr(trade, "buy_timestamp", None)
-        if not isinstance(placed_at, datetime):
+        if not isinstance(placed_at, datetime_module.datetime):
             return None
         current = now or datetime.utcnow()
         if placed_at.tzinfo is not None and current.tzinfo is None:
@@ -1070,7 +1078,7 @@ class Trader:
         trade, now: Optional[datetime] = None
     ) -> Optional[float]:
         placed_at = getattr(trade, "sell_timestamp", None)
-        if not isinstance(placed_at, datetime):
+        if not isinstance(placed_at, datetime_module.datetime):
             return None
         current = now or datetime.utcnow()
         if placed_at.tzinfo is not None and current.tzinfo is None:
@@ -1079,6 +1087,143 @@ class Trader:
             current = current.replace(tzinfo=None)
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
+
+    def _quarantine_stop_sell_if_due(
+        self,
+        trade,
+        *,
+        now: Optional[datetime] = None,
+        detail: str,
+    ) -> bool:
+        """End active retries after 3h without claiming a successful exit.
+
+        QUARANTINED remains an economically open status and therefore keeps
+        one position-capacity reservation.  It merely prevents one uncertain
+        stop from blocking or repeatedly submitting against unrelated events.
+        """
+        age_minutes = self._pending_sell_age_minutes(trade, now=now)
+        if (
+            age_minutes is None
+            or age_minutes + 1e-9
+            < self.config.stop_sell_quarantine_timeout_minutes
+        ):
+            return False
+        if (
+            getattr(trade, "status", None) == TradeStatus.QUARANTINED
+            and getattr(trade, "exit_reason", None)
+            in STOP_SELL_ISOLATION_REASONS
+        ):
+            return True
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.QUARANTINED,
+            exit_reason=STOP_SELL_QUARANTINE_REASON,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.critical(
+            "손절 실패 3시간 자동 격리 종결: Trade #%s age=%.1fmin "
+            "detail=%s; 성공 매도/0체결로 간주하지 않으며 노출 한도는 유지",
+            trade.id,
+            age_minutes,
+            detail,
+        )
+        return True
+
+    def _quarantine_stop_sell_ledger_failure(
+        self,
+        trade,
+        *,
+        error: SubmissionEvidenceError,
+    ) -> None:
+        """Contain an accepted-or-unknown SELL whose ledger cannot be bound."""
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.QUARANTINED,
+            exit_reason=STOP_SELL_LEDGER_QUARANTINE_REASON,
+            sell_timestamp=(
+                getattr(trade, "sell_timestamp", None) or datetime.utcnow()
+            ),
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.critical(
+            "손절 execution ledger 실패를 즉시 국소 격리: Trade #%s error=%s; "
+            "다른 경기 cycle은 계속하되 이 노출은 성공 매도로 간주하지 않음",
+            trade.id,
+            type(error).__name__,
+        )
+
+    def _record_stop_sell_failure(
+        self,
+        trade,
+        *,
+        walk,
+        best_bid: float,
+        best_ask: Optional[float],
+        spread: Optional[float],
+        detail: str,
+    ) -> None:
+        """Persist the first continuous stop failure for the 3h deadline."""
+        previous_reason = str(getattr(trade, "exit_reason", "") or "")
+        previous_timestamp = getattr(trade, "sell_timestamp", None)
+        started_at = (
+            previous_timestamp
+            if previous_reason == _STOP_SELL_FAILURE_RETRY_REASON
+            and isinstance(previous_timestamp, datetime_module.datetime)
+            else datetime.utcnow()
+        )
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.HOLDING,
+            exit_reason=_STOP_SELL_FAILURE_RETRY_REASON,
+            sell_price=walk.vwap,
+            sell_shares=None,
+            sell_order_id=None,
+            sell_timestamp=started_at,
+            sell_probability=walk.vwap,
+            yes_price_at_exit=walk.vwap,
+            best_bid_at_exit=best_bid,
+            best_ask_at_exit=best_ask,
+            spread_at_exit=spread,
+            sell_confirmed_size=None,
+            sell_confirmed_vwap=None,
+            sell_confirmed_fee_usdc=None,
+            sell_fill_matched_at=None,
+            sell_residual_shares=None,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.warning(
+            "손절 실패 추적 시작/유지: Trade #%s first=%s detail=%s",
+            trade.id,
+            started_at.isoformat(),
+            detail,
+        )
+
+    def _clear_stop_sell_failure(self, trade) -> None:
+        if (
+            str(getattr(trade, "exit_reason", "") or "")
+            != _STOP_SELL_FAILURE_RETRY_REASON
+        ):
+            return
+        self.repo.update_trade(
+            trade.id,
+            exit_reason=None,
+            sell_price=None,
+            sell_shares=None,
+            sell_order_id=None,
+            sell_timestamp=None,
+            sell_probability=None,
+            yes_price_at_exit=None,
+            best_bid_at_exit=None,
+            best_ask_at_exit=None,
+            spread_at_exit=None,
+        )
+        logger.info("손절 조건 회복으로 연속 실패 타이머 해제: Trade #%s", trade.id)
 
     def _restore_holding_after_terminal_zero_sell(
         self, trade, sell_evidence, *, log_prefix: str
@@ -1262,6 +1407,11 @@ class Trader:
                         age_minutes,
                         type(error).__name__,
                     )
+                    self._quarantine_stop_sell_if_due(
+                        trade,
+                        now=now,
+                        detail="delayed FOK cancellation evidence unavailable",
+                    )
                     return False
                 logger.info(
                     "지연 FOK SELL 취소/종결 확인: Trade #%s age=%.1fmin "
@@ -1301,8 +1451,19 @@ class Trader:
                         sell_evidence.state,
                         sell_evidence.detail,
                     )
+                    self._quarantine_stop_sell_if_due(
+                        trade,
+                        now=now,
+                        detail="delayed FOK terminal call remained ambiguous",
+                    )
                     return False
         if not self._actual_fill_ready(sell_evidence):
+            if self._quarantine_stop_sell_if_due(
+                trade,
+                now=now,
+                detail="SELL fill/zero-fill evidence remained unresolved",
+            ):
+                return False
             logger.warning(
                 "SELL full-fill/fee 대사 미완료로 PENDING_SELL 유지: "
                 "Trade #%s state=%s full=%s fee=%s detail=%s",
@@ -1463,12 +1624,18 @@ class Trader:
                 str(trade.token_id)[:16],
                 type(error).__name__,
             )
+            if self._quarantine_stop_sell_if_due(
+                trade,
+                detail="continuous stop failure and current book unavailable",
+            ):
+                return False
             return self._handle_midpoint_unavailable(
                 trade, "full-depth stop book unavailable"
             )
         best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
         stop_price = _effective_stop_price(trade, self.config)
         if best_bid > stop_price + 1e-9:
+            self._clear_stop_sell_failure(trade)
             logger.debug(
                 "hold to resolution - trade=%s bid=%.4f stop=%.4f",
                 trade.id,
@@ -1512,6 +1679,7 @@ class Trader:
             )
         best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
         if best_bid > stop_price + 1e-9:
+            self._clear_stop_sell_failure(trade)
             logger.info(
                 "stop recovered during lifecycle preflight; no SELL - "
                 "trade=%s fresh_bid=%.4f stop=%.4f",
@@ -1520,8 +1688,21 @@ class Trader:
                 stop_price,
             )
             return False
+        if self._quarantine_stop_sell_if_due(
+            trade,
+            detail="continuous stop failure remained below trigger",
+        ):
+            return False
         if not self._stop_execution_price_is_safe(trade, walk, stop_price):
             self.emergency_sell_guard_blocks += 1
+            self._record_stop_sell_failure(
+                trade,
+                walk=walk,
+                best_bid=best_bid,
+                best_ask=best_ask,
+                spread=spread,
+                detail="fresh stop book failed safety envelope",
+            )
             return False
 
         logger.warning(
@@ -1536,13 +1717,17 @@ class Trader:
             walk.levels_used,
             walk.shares,
         )
-        result = self.clob.place_limit_order(
-            token_id=trade.token_id,
-            price=walk.limit_price,
-            size=_sdk_sell_submission_shares(walk.shares),
-            side="SELL",
-            order_type="FOK",
-        )
+        try:
+            result = self.clob.place_limit_order(
+                token_id=trade.token_id,
+                price=walk.limit_price,
+                size=_sdk_sell_submission_shares(walk.shares),
+                side="SELL",
+                order_type="FOK",
+            )
+        except SubmissionEvidenceError as error:
+            self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            return False
         accepted = bool(result.get("success") or result.get("orderID"))
         try:
             sell_shares = float(result.get("requested_size", walk.shares))
@@ -1658,6 +1843,14 @@ class Trader:
             f"{available:.6f}" if available is not None else "미상",
         )
         logger.error("absolute-stop FOK SELL 실패: %s", result)
+        self._record_stop_sell_failure(
+            trade,
+            walk=walk,
+            best_bid=best_bid,
+            best_ask=best_ask,
+            spread=spread,
+            detail=classify_sell_failure(result, trade.buy_shares),
+        )
         return False
 
     def _stop_execution_is_explicitly_live(self, trade) -> bool:

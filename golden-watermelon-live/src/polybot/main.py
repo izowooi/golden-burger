@@ -187,6 +187,11 @@ def main() -> None:
         f"{trading.fok_reconciliation_timeout_minutes:.0f} minutes"
     )
     print(
+        "Failed stop SELL containment: unrelated events continue; unresolved "
+        f"exposure auto-quarantines after "
+        f"{trading.stop_sell_quarantine_timeout_minutes:.0f} minutes"
+    )
+    print(
         "Economic drawdown entry guard: "
         f"-${trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f} "
         "(confirmed SELL + proven resolution P&L)"

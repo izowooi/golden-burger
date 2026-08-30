@@ -45,10 +45,12 @@ event의 다른 HOME/DRAW/AWAY 결과는 SELL confirmed 뒤 다음 cycle에 여�
 진입 가능하다. 같은 token 재매수와 세 번째 결과 진입은 720시간 동안 막는다. `DELAYED` FOK
 BUY/SELL은 exact order·trade 부재와 취소 증거가 모두 맞을 때만 2분 뒤 0체결로 종결한다.
 
-account/event/cycle 한도는 `20/1/5`, cycle emergency SELL은 1건이다. PENDING,
-QUARANTINED, orphan BUY, fill/fee gap 또는 모호한 execution ledger가 있으면 후보만 기록하고 신규
-BUY를 막는다. confirmed SELL + proven resolution 경제손익이 `-$10`이면 기존 position 관리는
-계속하지만 신규 BUY를 중단한다.
+account/event/cycle 한도는 `20/1/5`, cycle emergency SELL은 1건이다. PENDING BUY, orphan BUY,
+BUY fill/fee 누락, 일반 QUARANTINED 또는 경제손익 증거 누락은 후보만 기록하고 신규 BUY를 막는다.
+반면 SELL intent·대사 실패는 같은 token/event만 격리해 다른 경기의 실행은 계속한다. 연속 손절
+실패가 180분을 넘으면 성공 매도나 0체결로 꾸미지 않고 `QUARANTINED`로 자동 격리 종결하며,
+실제 노출 가능성이 있으므로 account/event capacity는 계속 소비한다. confirmed SELL + proven
+resolution 경제손익이 `-$10`이면 기존 position 관리는 계속하지만 신규 BUY를 중단한다.
 
 ## 1분 cadence
 

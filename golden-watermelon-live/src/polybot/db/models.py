@@ -22,6 +22,16 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 Base = declarative_base()
 STRATEGY_NAME = "golden-watermelon-live"
+STOP_SELL_QUARANTINE_REASON = (
+    "stop_sell_reconciliation_timeout_3h_unknown_exposure"
+)
+STOP_SELL_LEDGER_QUARANTINE_REASON = (
+    "stop_sell_execution_ledger_failure_unknown_exposure"
+)
+STOP_SELL_ISOLATION_REASONS = (
+    STOP_SELL_QUARANTINE_REASON,
+    STOP_SELL_LEDGER_QUARANTINE_REASON,
+)
 
 
 class TradeStatus(enum.Enum):

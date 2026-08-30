@@ -20,6 +20,7 @@ from polybot.db.models import (
     EntryEpisode,
     MarketCatalog,
     MarketSnapshot,
+    STOP_SELL_QUARANTINE_REASON,
     TradeStatus,
     init_database,
 )
@@ -488,6 +489,71 @@ def test_recent_delayed_fok_sell_stays_pending_without_early_cancel(tmp_path):
         trade, now=submitted_at + timedelta(minutes=1)
     ) is False
     assert repo.get_by_id(trade.id).status == TradeStatus.PENDING_SELL
+    session.close()
+
+
+def test_unresolved_delayed_sell_is_quarantined_after_three_hours(tmp_path):
+    db_path = tmp_path / "watermelon-stale-sell-quarantine.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    ledger.record_submission(
+        token_id="token-stale-quarantine",
+        side="SELL",
+        requested_price=0.90,
+        requested_size=5.0,
+        result={
+            "success": True,
+            "orderID": "OID-stale-quarantine",
+            "status": "DELAYED",
+        },
+        simulation=False,
+    )
+    session = Session()
+    repo = TradeRepository(session)
+    submitted_at = datetime(2026, 8, 20, 0, 0)
+    trade = repo.create_trade(
+        condition_id="condition-stale-quarantine",
+        event_id="event-stale-quarantine",
+        outcome="Home",
+        token_id="token-stale-quarantine",
+        buy_price=0.96,
+        buy_shares=5.2,
+        buy_order_id="OID-buy-stale-quarantine",
+        buy_timestamp=submitted_at - timedelta(minutes=5),
+        buy_confirmed_size=5.2,
+        buy_confirmed_vwap=0.96,
+        buy_confirmed_fee_usdc=0.0,
+        sell_price=0.90,
+        sell_shares=5.0,
+        sell_order_id="OID-stale-quarantine",
+        sell_timestamp=submitted_at,
+        status=TradeStatus.PENDING_SELL,
+        mode="live",
+    )
+
+    def unresolved_cancel(*_args, **_kwargs):
+        raise SubmissionEvidenceError("catalog evidence remains unavailable")
+
+    clob = SimpleNamespace(
+        simulation_mode=False,
+        cancel_order_for_reconciliation=unresolved_cancel,
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_sell(
+        trade, now=submitted_at + timedelta(minutes=181)
+    ) is False
+    refreshed = repo.get_by_id(trade.id)
+    assert refreshed.status == TradeStatus.QUARANTINED
+    assert refreshed.exit_reason == STOP_SELL_QUARANTINE_REASON
+    assert repo.get_position_count() == 1
+    assert repo.get_quarantine_state() == {
+        "total": 1,
+        "isolated_stop_sell": 1,
+        "blocking": 0,
+    }
+    assert repo.get_isolated_stop_sell_trades() == [refreshed]
+    assert repo.get_open_buy_evidence_gap_count() == 0
     session.close()
 
 
