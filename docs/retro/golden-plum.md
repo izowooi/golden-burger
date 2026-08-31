@@ -13,6 +13,13 @@ export FOLLOWUP_END=2026-09-21T00:00:00Z
 ```
 
 - 범위는 UTC half-open `[REVIEW_START, REVIEW_END)`다.
+- 위 `REVIEW_START`는 진입 허용 계약의 시작이고 실제 수집 시작은 배포 시각이다. 첫 24시간
+  수집 건전성은 존재하지 않는 00:00–첫 run 구간을 실패로 세지 말고 다음 arm별 정확한
+  half-open range를 사용한다.
+  - Silver: `[2026-08-31T12:26:10.205072Z, 2026-09-01T12:26:10.205072Z)`
+  - King: `[2026-08-31T12:28:39.856965Z, 2026-09-01T12:28:39.856965Z)`
+  - Queen: `[2026-08-31T12:29:20.473917Z, 2026-09-01T12:29:20.473917Z)`
+  King/Queen 비교는 두 범위의 교집합과 같은 event만 사용한다.
 - King `plum-live-king-90-1m-v1`, Queen `plum-live-queen-95-1m-v1`, Silver
   `plum-shadow-silver-1m-v1`을 각각 독립 DB로 읽는다.
 - `config_hash × strategy_source_digest × mode × job_name`이 다른 행은 별도 cohort다.

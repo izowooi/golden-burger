@@ -8,7 +8,7 @@ market observatory다.
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-30 확인 상태를 표시한다.
+다른 사실**이며, 이 문서는 2026-08-31 확인 상태를 표시한다.
 
 ## 설계 원칙
 
@@ -29,10 +29,10 @@ market observatory다.
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
 | **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | 0.92/0.94 × hold/0.80/0.70/0.60 stop, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
 | **golden-coconut** | Five-Family Major Sports Observatory | 종목별 lifecycle·유동성·거래량·고확률 crossing의 구조 측정 | 주문 없는 full-book/path/resolution census | soccer·MLB·NBA·NFL·NHL, 0.75–0.99, `$5`–`$1000`, 5분 | **research-only · polybot-gold · live/order 금지** |
-| **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **구현 완료 · A/B 시작 evidence 없음** |
+| **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **최소금액 live A/B · Eagle +2%p / Cherry +5%p · 2026-08-31 B 재시작** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
-| golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 | **운영 중** |
+| golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 | **운영 종료 2026-08-31 · 포지션 수동 종결, 회고 필요** |
 | ~~golden-fig~~ | Hope Crusher | favorite-longshot bias | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | **⛔ 폐쇄 완료 2026-07-28** |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | **구현 완료 · 시작 evidence 없음** |
 | ~~golden-honeydew~~ | Night Watch | 새벽·주말 attention 희소성 | 무근거 이탈 복원 | 0.30–0.90 | **⛔ 폐쇄 완료 2026-07-30** |
@@ -42,11 +42,11 @@ market observatory다.
 | ~~golden-melon~~ | Resolution Sprint | 마감 임박 수렴의 거래량 선별 | strict binary YES 편승 | 0.85–0.93, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · close-only 검증 2026-08-27** |
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
-| golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
+| golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · Cat/Dog job 재사용** |
 | **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 simulation · 2026-08-30 시작** |
-| **golden-plum** | Soccer Midgame Confirmation | 경기 중반의 일관된 상승이 확증 편향으로 이어지는지 검정 | exact `$5` FOK, event당 1회 | source 5–75분, 3회/+2%p, TP 0.90/0.95, SL −0.15, 80분 exit | **최소금액 live A/B + 1분 simulation · 배포 준비** |
+| **golden-plum** | Soccer Midgame Confirmation | 경기 중반의 일관된 상승이 확증 편향으로 이어지는지 검정 | exact `$5` FOK, event당 1회 | source 5–75분, 3회/+2%p, TP 0.90/0.95, SL −0.15, 80분 exit | **최소금액 live A/B + 1분 simulation · 2026-08-31 시작** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
-| golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
+| golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **⛔ 운영 폐쇄 2026-08-24 · King/Queen job 재사용** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
@@ -54,8 +54,9 @@ market observatory다.
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
 | **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 향후 수집 live A/B v3d** |
 
-상태 합계는 운영 9, 구현/배포 준비 6, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
-6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
+상태 합계는 운영 8, 구현/배포 준비 2, research/simulation 전용 6, 명시적 보류 0,
+운영 종료/폐쇄 완료 12다. `close_only`/`archive_only`는 bot lifecycle mode이지 이
+의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
 모두 지지하지 않았고, Honeydew는 snapshot replay와 actual confirmed-fill 성과의 부호가
@@ -481,6 +482,15 @@ Grey의 10,499 snapshot/17경기 탐색 재생에서 0.60 최초 교차는 구�
 Silver 100경기 전 사후 파라미터 변경을 금지한다. 상세는 `golden-plum/STRATEGY.md`, 동결 계약은
 `golden-plum/research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-plum.md`를 따른다.
+
+2026-08-31 commit `ebaeeb9`를 King/Queen/Silver에 배포했다. King은 TP 0.90, Queen은
+TP 0.95의 live `$5` arm이고 Silver는 외장 T7의 credential-free simulation/raw 수집기다.
+타이머를 끈 수동 build와 활성화 뒤 자연 build가 모두 성공했으며, 최근 자연 6회 총시간은
+King 4.9–7.6초, Queen 4.6–9.4초, Silver 5.3–9.9초였다. 세 current DB의
+`daily-rsync verify`와 `quick_check`도 통과했고 단일 config cohort, 실패 run·미결 주문·수동
+지갑 포지션 편입이 0임을 확인했다. 배포 시점의 live event는 허용 8개 대회가 아닌 Chile
+`chi1`뿐이어서 유효 snapshot/trade는 0이었다. 첫 허용 리그 경기 후에는 collection health만
+다시 확인하고 이 결과를 수익성 판정으로 사용하지 않는다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 

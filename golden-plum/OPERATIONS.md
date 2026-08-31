@@ -27,6 +27,11 @@ export POLYBOT_EXPERIMENT_END_UTC=2026-09-14T00:00:00Z
 최초 24시간은 수집·실행 건강 상태만 확인한다. 공통 경기 20개 전에는 A/B 우열을 판단하지
 않고, Silver의 경기 100개 전에는 새 파라미터를 선택하지 않는다.
 
+진입 허용 환경변수의 시작은 `00:00Z`지만 실제 first successful run은 Silver
+`12:26:10.205072Z`, King `12:28:39.856965Z`, Queen `12:29:20.473917Z`다. 첫 24시간
+건전성은 각 first run부터 정확히 24시간인 half-open range로 검사하고, 배포 전 공백을
+cadence 누락으로 세지 않는다.
+
 ## King A shell
 
 기존 Jenkins Credentials Binding의 private key, funder address, signature type은 값과 종류를

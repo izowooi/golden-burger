@@ -42,6 +42,23 @@
 - 상세 evidence와 배포 검증:
   `docs/retro-summaries/016-golden-blueberry-low-trade-and-shared-sweep-deployment-2026-08-13.md`.
 
+### 2026-08-31 Cherry B-arm 재시작
+
+- A는 `polybot-eagle/blueberry-live-a-2pp`를 유지하고, 폐기된 이전 B job 대신
+  `polybot-cherry/blueberry-live-b-5pp`를 새 독립 DB로 시작했다. 과거
+  `polybot-fox/blueberry-live-b-5pp`나 Cherry의 Elderberry DB를 새 B 성과에 합치지 않는다.
+- 새 B first successful run은 `2026-08-31T12:29:53.667688Z`, 첫 자연 timer run은
+  `2026-08-31T12:35:14.473398Z`다. A/B 성과 비교는 이 전 Eagle 거래를 제외하고, 양쪽
+  current cohort가 모두 관측한 UTC 교집합과 같은 event만 사용한다.
+- current config는 A `91038f79641e…` / B `6746b5d1ac7e…`, 공통 source digest는
+  `a75f4fba9b2e…`, commit은 `ebaeeb95ae98…`다. 공통값은 exact `$5`, 가격·시간·유동성·
+  거래량·TP/SL·한도이며 유일한 처치축은 `+0.02/+0.05`다.
+- 배포 검증 cutoff에서 B 2/2 run SUCCESS, snapshot 83, cursor incomplete 0,
+  `surge_below_min` 1, trade/order/pending 0이고 DB `quick_check=ok`다. A current config도
+  3/3 run SUCCESS, open/pending 0이었다. 이는 운영 건전성일 뿐 수익성 판정이 아니다.
+- 새 비교 1주 점검은 2026-09-07 21:35 KST 이후에 수집·체결 건전성만 확인한다. arm당
+  confirmed closed 20건 전에는 승자·파라미터·증액을 판단하지 않는다.
+
 ## 30일 review window
 
 ```bash
