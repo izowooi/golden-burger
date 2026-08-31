@@ -27,10 +27,10 @@ export POLYBOT_EXPERIMENT_END_UTC=2026-09-14T00:00:00Z
 최초 24시간은 수집·실행 건강 상태만 확인한다. 공통 경기 20개 전에는 A/B 우열을 판단하지
 않고, Silver의 경기 100개 전에는 새 파라미터를 선택하지 않는다.
 
-진입 허용 환경변수의 시작은 `00:00Z`지만 실제 first successful run은 Silver
-`12:26:10.205072Z`, King `12:28:39.856965Z`, Queen `12:29:20.473917Z`다. 첫 24시간
-건전성은 각 first run부터 정확히 24시간인 half-open range로 검사하고, 배포 전 공백을
-cadence 누락으로 세지 않는다.
+v1의 실제 first successful run은 Silver `12:26:10.205072Z`, King
+`12:28:39.856965Z`, Queen `12:29:20.473917Z`다. 전체경기 v2는 배포 후 각 job의 첫 성공
+run부터 별도 코호트로 시작한다. 첫 24시간 건전성은 해당 first run부터 정확히 24시간인
+half-open range로 검사하고, 배포 전 공백을 cadence 누락으로 세지 않는다.
 
 ## King A shell
 
@@ -104,8 +104,12 @@ Console과 동기화된 DB에서 다음을 확인한다.
 
 - resolved mode, runtime job, 익절값, `strategy_source_digest`가 사전 등록과 일치한다.
 - 한 cycle이 다음 분과 겹치지 않고 `.cycle-run.lock` skip이 반복되지 않는다.
-- source 경기 시계 5~75분에서 HOME/DRAW/AWAY의 직접 YES/NO 여섯 호가가 저장된다.
+- kickoff부터 Gamma `ended=true` 전까지 HOME/DRAW/AWAY의 직접 YES/NO 여섯 호가가
+  저장되고 source minute 또는 누락 사유가 함께 남는다.
 - 같은 token의 최근 3회, 누적 상승 2%p, 회차당 하락 1%p 이하, 최초 0.75 교차가 영속 기록된다.
+- source minute 상한과 80분 강제 청산이 없고, 종료는 TP·SL·검증된 resolution뿐이다.
+- Silver의 모든 snapshot에 `$5/$10/$25/$50/$100/$250/$500` 증액 호가 깊이가
+  `execution_capacity_json`으로 남고 live arm에는 이 추가 계산이 없다.
 - live의 주문 응답과 확정 체결을 구분하며, 한 event의 실패가 다른 event 처리를 막지 않는다.
 - `PENDING_BUY`/`PENDING_SELL`은 다음 cycle에도 대사되고, 180분 이후에는 거짓 완료가 아닌
   `QUARANTINED`로 격리된다.
@@ -125,5 +129,6 @@ uv run daily-rsync verify --job polybot-silver --strategy golden-plum
 ```
 
 검증된 catalog DB 절대 경로만 분석에 사용한다. DB SHA-256, `quick_check`, 최신 성공 run,
-직접 여섯 호가와 source-clock coverage, cohort, pending/quarantine 상태, 저장공간 증가량을 함께
+직접 여섯 호가와 full-match source-clock coverage, capacity JSON, cohort,
+pending/quarantine 상태, 저장공간 증가량을 함께
 기록하고 과거 Queen/Quince/Watermelon epoch와 병합하지 않는다.

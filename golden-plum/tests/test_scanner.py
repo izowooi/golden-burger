@@ -154,9 +154,16 @@ class _Clob:
         assert notional_usdc == 5
         return {token: self.walks[token] for token in token_ids if token in self.walks}
 
-    @staticmethod
-    def get_cached_book_evidence(token_id):
-        return json.dumps({"schema_version": 1, "token_id": token_id})
+    def get_cached_book_evidence(self, token_id):
+        walk = self.walks[token_id]
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "token_id": token_id,
+                "bids": [{"price": walk.best_bid, "size": 1_000}],
+                "asks": [{"price": walk.best_ask, "size": 1_000}],
+            }
+        )
 
 
 def _scanner(tmp_path, markets, walks=None):
@@ -192,13 +199,48 @@ def test_three_fresh_snapshots_confirm_direct_no_first_cross(tmp_path) -> None:
     assert len(snapshots) == 18
     assert {row.outcome_side for row in snapshots} == {"YES", "NO"}
     assert all(row.book_json for row in snapshots)
+    assert all(row.execution_capacity_json is None for row in snapshots)
     session.close()
 
 
-def test_entry_requires_source_clock_between_five_and_seventy_five(tmp_path) -> None:
+def test_entry_accepts_explicit_live_source_clock_after_minute_seventy_five(
+    tmp_path,
+) -> None:
     markets = _triad(event=_event(elapsed="76", period="2H"))
     session, _repo, scanner, gamma, clob = _scanner(tmp_path, markets)
     assert _save_cycle(scanner, gamma, clob, markets, index=1, price=0.72) == []
+    assert _save_cycle(scanner, gamma, clob, markets, index=2, price=0.74) == []
+    candidates = _save_cycle(scanner, gamma, clob, markets, index=3, price=0.75)
+    assert len(candidates) == 1
+    assert candidates[0]["source_elapsed_minutes"] == 76
+    session.close()
+
+
+def test_simulation_scaling_ladder_is_persisted_without_extra_book_reads(
+    tmp_path,
+) -> None:
+    markets = _triad()
+    Session = init_database(str(tmp_path / "scaling.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    gamma = _Gamma(markets)
+    clob = _Clob(_walks())
+    config = TradingConfig(scaling_notionals_usdc=(5.0, 10.0, 25.0))
+    scanner = MarketScanner(gamma, config, repo, clob_client=clob)
+
+    assert scanner.save_market_snapshots(markets, now=NOW) == 6
+    rows = session.query(MarketSnapshot).all()
+    assert len(rows) == 6
+    for row in rows:
+        payload = json.loads(row.execution_capacity_json)
+        assert payload["semantics"].endswith("not_actual_fill")
+        assert [item["notional_usdc"] for item in payload["notionals"]] == [
+            5.0,
+            10.0,
+            25.0,
+        ]
+        assert all(item["buy_full_fill"] for item in payload["notionals"])
+        assert all(item["sell_full_fill"] for item in payload["notionals"])
     session.close()
 
 

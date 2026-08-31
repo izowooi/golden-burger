@@ -185,6 +185,7 @@ class MarketSnapshot(Base):
     source_elapsed_minutes = Column(Float)
     source_clock_reason = Column(String)
     book_json = Column(String)
+    execution_capacity_json = Column(String)
     run_id = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
@@ -429,6 +430,7 @@ def init_database(
             "source_elapsed_minutes": "REAL",
             "source_clock_reason": "TEXT",
             "book_json": "TEXT",
+            "execution_capacity_json": "TEXT",
             "run_id": "TEXT",
         }.items():
             try:

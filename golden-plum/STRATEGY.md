@@ -1,4 +1,4 @@
-# Golden Plum — 축구 경기 중반 상승 확인
+# Golden Plum — 축구 경기 전체 상승 확인
 
 ## 한 줄 가설
 
@@ -9,9 +9,13 @@
 ## 왜 별도 전략인가
 
 Golden Peach는 경기 시작 0~10분의 현재 선두를 즉시 산다. Golden Watermelon Live는
-경기 막판 0.96/0.99에 들어간다. Golden Plum은 두 전략 사이의 5~75분에서 같은 token의
-최근 경로를 먼저 확인하고, 80분 전에 반드시 포지션을 끝낸다. 따라서 기존 DB와
-runtime job을 섞지 않는다.
+경기 막판 0.96/0.99에 들어간다. Golden Plum은 경기 시작부터 종료까지 같은 token의
+최근 경로를 먼저 확인한다. 시간으로 강제 청산하지 않고 익절·손절·검증된 resolution
+중 하나로만 끝낸다.
+
+2026-08-31의 최초 v1은 5~75분 진입과 80분 청산을 사용했다. 이후 운영자 지시로 해당
+시간 조건을 제거했으며, 기존 자료는 보존하고 v2 소스·사전등록 해시부터 별도 코호트로
+분석한다. 열린 주문 대사 연속성을 위해 runtime job과 DB 경로는 유지한다.
 
 운영자가 제공한 탐색 보고서는 0.60/0.65/0.75 진입과
 0.90/0.95 익절을 탐색 후보로 제시했다. 그러나 여섯 호가의 최고값은 세 결과 중
@@ -26,12 +30,14 @@ runtime job을 섞지 않는다.
 - EPL, Bundesliga, Ligue 1, LaLiga, Serie A, MLS, UCL, UEL
 - regular-time HOME/DRAW/AWAY 세 binary 명제
 - 각 명제의 direct YES와 direct NO, 정확히 여섯 token
-- Gamma explicit in-play와 source 경기 시계 5~75분
+- Gamma explicit `live=true`, `ended=false`
+- source 경기 시계 0분부터 종료까지; minute 및 wall-clock age 상한 없음
 - 누적 거래량 5,000, 유동성 5,000 이상
 - exact `$5` full-depth ask/bid와 진입 spread 0.05 이하
 
 합성 NO, 예정 kickoff, 로컬 벽시계, title substring만으로 identity나 경기 시간을
-만들지 않는다.
+만들지 않는다. source 시계가 누락된 cycle은 raw 호가와 누락 사유를 저장하되 진입을
+추정하지 않는다.
 
 ## 진입
 
@@ -42,7 +48,8 @@ runtime job을 섞지 않는다.
 5. 세 가격의 누적 상승이 0.02 이상이고 인접 하락이 각각 0.01 이하인지 확인한다.
 6. 두 번째 가격이 0.75 미만이고 current exact ask VWAP이 `[0.75,0.78]`이면 첫
    상향 교차로 인정한다.
-7. POST 직전에 source clock, 여섯 fresh book, 선두 identity, spread, exact VWAP을
+7. POST 직전에 explicit live 상태와 source clock, 여섯 fresh book, 선두 identity,
+   spread, exact VWAP을
    다시 읽고 exact `$5` FOK BUY를 낸다.
 
 event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번만 허용한다.
@@ -56,8 +63,8 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 | B | `polybot-queen/plum-live-queen-95-1m-v1` | full-position bid VWAP 0.95 |
 
 - 공통 stop: confirmed BUY VWAP -0.15
-- 공통 time exit: source minute 80의 첫 실행 가능한 full-position bid VWAP
-- 우선순위: target → stop → minute-80 exit
+- 시간 강제 청산: 없음
+- 종료 우선순위: target → stop; 둘 다 없으면 검증된 resolution까지 유지
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
 
 두 live arm의 차이는 절대 target 하나뿐이다. 서로 다른 wallet의 수동 포지션은
@@ -76,22 +83,27 @@ proven resolution의 누적 손실이 10 USDC에 도달하거나 execution evide
 
 ## Silver 자료 수집
 
-`polybot-silver/plum-shadow-silver-1m-v1`은 credential-free simulation이다. 경기 중
+`polybot-silver/plum-shadow-silver-1m-v1`은 credential-free simulation이다. 경기 전체의
 여섯 direct full-depth book, source clock, market identity, trend lineage, path와
-resolution을 저장한다. `scripts/replay_direct_six_book.py`는 같은 event에서 entry,
-target, stop, trend 길이와 누적 움직임 grid를 재생한다.
+resolution을 저장한다. 추가로 각 snapshot의 `$5/$10/$25/$50/$100/$250/$500` displayed
+ask를 걸어 산 shares를 같은 시점 bid에 전량 팔 수 있는지와 양쪽 VWAP·level 수·수수료 전
+왕복 손익을 `execution_capacity_json`에 저장한다. 이 계산은 Silver 전용이라 King/Queen의
+실거래 cycle 시간을 늘리지 않는다. `scripts/replay_direct_six_book.py`는 같은 event에서
+entry, target, stop, trend 길이와 누적 움직임 grid를 재생한다.
 
 Silver의 반사실 행은 실제 주문이나 P&L이 아니다. 같은 경기의 여러 grid cell을
 독립 표본으로 세지 않는다.
 
 ## 반증·승격 기준
 
-- 첫 24시간: cadence, source clock, six-book, lineage, DB/order/fill integrity만 검사
+- 첫 24시간: cadence, full-match source clock, six-book, capacity ladder, lineage,
+  DB/order/fill integrity와 1분 runtime만 검사
 - common eligible event 20개 전: A/B 방향 판단 금지
 - arm당 confirmed closed 50개와 common event 30개 전: 금액 증액 금지
 - 100경기 전: Silver 결과로 live threshold를 사후 변경하지 않음
 - CRITICAL/HIGH evidence issue, fill/fee gap, cohort 혼합: 성과 판정 중단
 - paired fee 포함 95% 신뢰구간이 0을 포함하면 우승 arm 없음
 
-전체 동결값과 기간은
-`research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`가 권위다.
+현재 동결값과 기간은
+`research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`가 권위다.
+과거 v1 계약은 원래 폴더에 변경 없이 보존한다.

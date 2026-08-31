@@ -252,7 +252,10 @@ def _orphan_episode_contract_matches(
         <= (observations - 1) * config.entry.trend_max_gap_seconds + 1e-9
         and config.entry.min_source_minute - 1e-9
         <= source_minute
-        <= config.entry.max_source_minute + 1e-9
+        and (
+            config.entry.max_source_minute is None
+            or source_minute <= config.entry.max_source_minute + 1e-9
+        )
         and config.entry.prob_min - 1e-9
         <= exact_vwap
         <= config.entry.prob_max + 1e-9
@@ -397,7 +400,7 @@ class Trader:
         return None, "CURRENT_SOURCE_CLOCK_UNPROVEN"
 
     def _exit_signal(self, trade, walk) -> tuple[Optional[str], float, Optional[float]]:
-        """Evaluate absolute TP, entry drawdown stop, then minute-80 exit."""
+        """Evaluate absolute TP and entry drawdown stop with no time exit."""
         raw_entry = getattr(trade, "buy_confirmed_vwap", None)
         if raw_entry is None:
             raw_entry = getattr(trade, "buy_price", None)
@@ -409,7 +412,6 @@ class Trader:
             return None, math.nan, None
         take_profit = getattr(trade, "take_profit_price_at_buy", None)
         stop_loss = getattr(trade, "stop_loss_delta_at_buy", None)
-        force_exit_minute = getattr(trade, "force_exit_minute_at_buy", None)
         try:
             take_profit = float(
                 take_profit
@@ -421,25 +423,20 @@ class Trader:
                 if stop_loss is not None
                 else self.config.entry.stop_loss_delta
             )
-            force_exit_minute = float(
-                force_exit_minute
-                if force_exit_minute is not None
-                else self.config.entry.force_exit_minute
-            )
         except (TypeError, ValueError):
             return None, math.nan, None
-        source_minute, _clock_reason = self._source_minute_for_trade(trade)
+        source_minute = None
+        market = self._cycle_markets.get(str(trade.condition_id))
+        if isinstance(market, dict):
+            source_minute, _clock_reason = get_source_regulation_minute(
+                get_event(market)
+            )
         full_exit_vwap = float(walk.vwap)
         if full_exit_vwap + 1e-9 >= take_profit:
             return "take_profit", take_profit, source_minute
         stop_trigger = max(0.01, entry_vwap - stop_loss)
         if float(walk.best_bid) <= stop_trigger + 1e-9:
             return "absolute_stop", stop_trigger, source_minute
-        if (
-            source_minute is not None
-            and source_minute + 1e-9 >= force_exit_minute
-        ):
-            return "minute_80_exit", full_exit_vwap, source_minute
         return None, stop_trigger, source_minute
 
     def _reject_entry(self, reason: str) -> None:
@@ -573,9 +570,11 @@ class Trader:
         )
         if (
             in_play_hours is None
-            or not self.config.entry.hours_min - 1e-9
-            <= in_play_hours
-            <= self.config.entry.hours_max + 1e-9
+            or in_play_hours < self.config.entry.hours_min - 1e-9
+            or (
+                self.config.entry.hours_max is not None
+                and in_play_hours > self.config.entry.hours_max + 1e-9
+            )
         ):
             logger.info(
                 "in-play window revalidation failed - condition=%s hours=%s",
@@ -592,16 +591,19 @@ class Trader:
         if (
             source_minute is None
             or source_minute < self.config.entry.min_source_minute - 1e-9
-            or source_minute > self.config.entry.max_source_minute + 1e-9
+            or (
+                self.config.entry.max_source_minute is not None
+                and source_minute > self.config.entry.max_source_minute + 1e-9
+            )
         ):
             logger.info(
-                "midgame source-clock revalidation failed - condition=%s "
+                "full-match source-clock revalidation failed - condition=%s "
                 "minute=%s reason=%s",
                 condition_id,
                 source_minute,
                 source_clock_reason,
             )
-            return self._reject_entry("midgame_source_clock_revalidation_failed")
+            return self._reject_entry("full_match_source_clock_revalidation_failed")
         event_token_ids = [
             str(value).strip()
             for value in candidate.get("event_token_ids", [])
@@ -774,7 +776,7 @@ class Trader:
                 else TradeStatus.PENDING_BUY
             ),
             entry_reason=(
-                "six_token_midgame_first_cross_trend_exact_5_usdc_fok:"
+                "six_token_full_match_first_cross_trend_exact_5_usdc_fok:"
                 f"{str(candidate.get('candidate_kind') or result_kind)}"
             ),
             strategy_name=STRATEGY_NAME,
@@ -801,8 +803,8 @@ class Trader:
             ),
             take_profit_price_at_buy=self.config.entry.take_profit_price,
             stop_loss_delta_at_buy=self.config.entry.stop_loss_delta,
-            late_exit_minute_at_buy=self.config.entry.force_exit_minute,
-            force_exit_minute_at_buy=self.config.entry.force_exit_minute,
+            late_exit_minute_at_buy=None,
+            force_exit_minute_at_buy=None,
             trend_start_snapshot_id=execution_trend.snapshot_ids[0],
             trend_middle_snapshot_id=execution_trend.snapshot_ids[-2],
             trend_observations=len(execution_trend.snapshot_ids),
@@ -999,7 +1001,7 @@ class Trader:
                 status=TradeStatus.HOLDING,
                 entry_reason=(
                     "recovered_orphan_exact_fok_buy:"
-                    "midgame_first_cross_trend"
+                    "full_match_first_cross_trend"
                 ),
                 strategy_name=STRATEGY_NAME,
                 mode=self.mode,
@@ -1026,8 +1028,8 @@ class Trader:
                 ),
                 take_profit_price_at_buy=self.config.entry.take_profit_price,
                 stop_loss_delta_at_buy=self.config.entry.stop_loss_delta,
-                late_exit_minute_at_buy=self.config.entry.force_exit_minute,
-                force_exit_minute_at_buy=self.config.entry.force_exit_minute,
+                late_exit_minute_at_buy=None,
+                force_exit_minute_at_buy=None,
                 trend_start_snapshot_id=episode.trend_start_snapshot_id,
                 trend_middle_snapshot_id=episode.trend_middle_snapshot_id,
                 trend_observations=episode.trend_observations,
@@ -1974,7 +1976,7 @@ class Trader:
         prefetched_walk=None,
         book_prefetched: bool = False,
     ) -> bool:
-        """Submit one full-depth FOK TP/late/stop exit, except proven SDK dust."""
+        """Submit one full-depth FOK TP/stop exit, except proven SDK dust."""
         if (
             self.emergency_sell_submissions
             >= self.config.max_emergency_sells_per_cycle

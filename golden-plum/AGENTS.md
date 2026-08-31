@@ -5,7 +5,7 @@
 
 ## 프로젝트 목적
 
-축구 경기 중 직접 HOME/DRAW/AWAY YES·NO 여섯 호가 가운데 유일한 선두가
+축구 경기 전체에서 직접 HOME/DRAW/AWAY YES·NO 여섯 호가 가운데 유일한 선두가
 세 번의 1분 관측으로 상승하며 0.75를 처음 통과할 때 진입하는 가설을 검증한다.
 King/Queen은 exact `$5` live A/B이고 Silver는 같은 모집단의 credential-free
 simulation/raw collector다. 이 프로젝트는 현재 수익 전략이 아니라 반증 가능한
@@ -28,22 +28,26 @@ simulation/raw collector다. 이 프로젝트는 현재 수익 전략이 아니�
 ## 핵심 전략 계약
 
 - 축구 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
-- source `live=true`, `ended=false`, 경기 시계 5~75분을 요구한다.
+- source `live=true`, `ended=false`와 명시적 경기 시계를 요구하며 0분부터 종료까지
+  관측한다. source minute 및 wall-clock age 상한은 없다.
 - 같은 token의 최근 3개 snapshot 간격은 각각 90초 이하여야 한다.
 - 누적 상승은 0.02 이상, 인접 pullback은 0.01 이하여야 한다.
 - 직전 exact `$5` ask VWAP은 0.75 미만, 현재 값은 `[0.75, 0.78]`이어야 한다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
-- 공통 SL은 confirmed entry VWAP `-0.15`, source 80분에는 강제 청산한다.
+- 공통 SL은 confirmed entry VWAP `-0.15`이며 시간 강제 청산은 없다. TP·SL이 없으면
+  검증된 resolution까지 유지한다.
 - Gamma 선필터는 누적 거래량/유동성 각각 5,000이다.
+- Silver만 `$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 자료를 별도 저장한다.
 
 상세 계약과 판정 시점은 `STRATEGY.md` 및
-`research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`를 따른다.
+`research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`를 따른다.
+과거 v1은 수정하지 않고 별도 코호트로 보존한다.
 
 ## 주요 파일
 
 - `src/polybot/config.py`: job별 동결값과 live/simulation fail-closed 검증
 - `src/polybot/strategy/scanner.py`: direct six-book 저장과 token-aligned trend 판정
-- `src/polybot/strategy/trader.py`: exact FOK 주문, TP/SL/80분 exit, event-local 실패 격리
+- `src/polybot/strategy/trader.py`: exact FOK 주문, TP/SL/resolution, event-local 실패 격리
 - `src/polybot/db/models.py`, `db/repository.py`: snapshot, trend lineage, order/fill evidence
 - `scripts/replay_direct_six_book.py`: 직접 호가 DB의 paired 반사실 grid 재생
 - `scripts/verify_external_workspace.py`: Silver external volume preflight

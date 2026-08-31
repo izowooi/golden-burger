@@ -95,21 +95,29 @@ class PolymarketBot:
         trading = self.config.trading
         entry = trading.entry
         archive = trading.archive
+        source_max = (
+            "match_end"
+            if entry.max_source_minute is None
+            else f"{entry.max_source_minute:.0f}"
+        )
+        in_play_max = (
+            "match_end" if entry.hours_max is None else f"{entry.hours_max:.1f}h"
+        )
         logger.info(
             "Golden Plum %s exact $5 six-token first-cross VWAP [%.3f, %.3f], "
-            "source minute [%.0f, %.0f], in-play age [%.1f, %.1f]h",
+            "source minute [%.0f, %s], in-play age [%.1fh, %s]",
             trading.sport_family,
             entry.prob_min,
             entry.prob_max,
             entry.min_source_minute,
-            entry.max_source_minute,
+            source_max,
             entry.hours_min,
-            entry.hours_max,
+            in_play_max,
         )
         logger.info(
             "trend - observations=%s cumulative>=%.2f pullback<=%.2f gap<=%.0fs; "
             "execution - FOK BUY; absolute TP=%.2f, SL=entry-%.2f, "
-            "forced exit minute=%.0f; stop spread<=%.2f; "
+            "time exit=disabled; stop spread<=%.2f; "
             "$%.2f positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.trend_observations,
@@ -118,7 +126,6 @@ class PolymarketBot:
             entry.trend_max_gap_seconds,
             entry.take_profit_price,
             entry.stop_loss_delta,
-            entry.force_exit_minute,
             entry.max_stop_spread,
             trading.buy_amount_usdc,
             trading.max_positions,
@@ -135,13 +142,17 @@ class PolymarketBot:
         )
         logger.info(
             "server envelope - live %s; Gamma liquidity>=%.0f volume>=%.0f; "
-            "exact-$5 CLOB depth gate; in_play_hours<=%.0f retention=%sd",
+            "exact-$5 CLOB depth gate; explicit live-to-ended lifecycle; retention=%sd",
             trading.sport_family,
             trading.min_liquidity,
             trading.min_cumulative_volume,
-            archive.hours_max,
             archive.retention_days,
         )
+        if trading.scaling_notionals_usdc:
+            logger.info(
+                "Silver displayed-depth scaling ladder (counterfactual only): %s",
+                ",".join(f"${value:g}" for value in trading.scaling_notionals_usdc),
+            )
 
     def run_cycle(self, *, order_reconciliation: dict | None = None) -> dict:
         trading = self.config.trading
@@ -283,7 +294,7 @@ class PolymarketBot:
                 }
 
             if lifecycle_mode == "active":
-                logger.info("=== Phase 2: frozen midgame first-cross trend scan ===")
+                logger.info("=== Phase 2: frozen full-match first-cross trend scan ===")
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
                 queued_episode_ids = [
@@ -744,6 +755,9 @@ class PolymarketBot:
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,
                     "yes_only_mode": trading.yes_only_mode,
+                    "scaling_notionals_usdc": list(
+                        trading.scaling_notionals_usdc
+                    ),
                     "entry": {
                         "prob_min": trading.entry.prob_min,
                         "prob_max": trading.entry.prob_max,

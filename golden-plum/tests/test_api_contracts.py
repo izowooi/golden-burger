@@ -12,6 +12,7 @@ from polybot.api.clob_client import (
     _normalize_clob_resolution,
     _walk_buy_book,
     _walk_sell_book,
+    build_execution_capacity_evidence,
 )
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
@@ -31,6 +32,32 @@ class _Response:
 
     def json(self):
         return self.payload
+
+
+def test_execution_capacity_evidence_distinguishes_full_and_shallow_notionals():
+    payload = json.loads(
+        build_execution_capacity_evidence(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": "token-1",
+                    "bids": [{"price": 0.74, "size": 20}],
+                    "asks": [{"price": 0.75, "size": 20}],
+                }
+            ),
+            (5, 10, 25),
+        )
+    )
+
+    assert payload["semantics"].endswith("not_actual_fill")
+    assert payload["notionals"][0]["buy_full_fill"] is True
+    assert payload["notionals"][0]["sell_full_fill"] is True
+    assert payload["notionals"][1]["buy_full_fill"] is True
+    assert payload["notionals"][2] == {
+        "notional_usdc": 25.0,
+        "buy_full_fill": False,
+        "sell_full_fill": False,
+    }
 
 
 def _market(
@@ -269,6 +296,20 @@ def test_gamma_uses_soccer_live_keyset_and_terminal_cursor() -> None:
     assert proof["qualified_market_count"] == 3
     assert proof["duplicate_raw_count"] == 1
     assert proof["exclusion_counts"] == {}
+
+
+def test_gamma_explicit_live_match_has_no_wall_clock_age_ceiling() -> None:
+    market = _market("delayed")
+    event = _event("event-delayed", [market])
+    old_start = (datetime.now(timezone.utc) - timedelta(hours=12)).isoformat()
+    event["startTime"] = old_start
+    market["gameStartTime"] = old_start
+
+    assert GammaClient()._qualification_reason(
+        event,
+        market,
+        observed_at=datetime.now(timezone.utc),
+    ) == "qualified"
 
 
 def test_gamma_accepts_only_whole_match_home_draw_away_yes_markets() -> None:

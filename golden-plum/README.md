@@ -1,6 +1,6 @@
 # Golden Plum
 
-축구 경기 5~75분에 HOME/DRAW/AWAY 직접 YES·NO 여섯 호가를 1분마다 관측하고,
+축구 경기 시작부터 종료까지 HOME/DRAW/AWAY 직접 YES·NO 여섯 호가를 1분마다 관측하고,
 유일한 선두가 3회 상승 확인 뒤 0.75를 처음 통과할 때 exact `$5`로 검증하는
 전략입니다.
 
@@ -12,9 +12,10 @@
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live B, 절대 TP 0.95 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | credential-free raw/simulation |
 
-공통 entry는 `[0.75,0.78]` first crossing, stop은 confirmed entry -0.15,
-time exit은 source minute 80입니다. live와 shadow 모두 direct six-book을 저장하며
-합성 NO를 사용하지 않습니다.
+공통 entry는 `[0.75,0.78]` first crossing, stop은 confirmed entry -0.15입니다.
+시간 강제 청산은 없고 익절·손절·검증된 resolution로만 종료합니다. live와 shadow 모두
+direct six-book을 저장하며 합성 NO를 사용하지 않습니다. Silver는 추가로
+`$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 자료를 저장합니다.
 
 ## 설치·테스트
 
@@ -71,4 +72,5 @@ realized P&L로 해석하지 않습니다.
 - follow-up 종료: `2026-09-21T00:00:00Z`
 
 구체적인 가설·무효화·표본 기준은 `STRATEGY.md`와
-`research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`를 확인하세요.
+`research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`를
+확인하세요. 과거 v1 사전등록과 자료는 원래 경로에 보존합니다.

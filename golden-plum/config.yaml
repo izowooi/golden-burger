@@ -1,4 +1,4 @@
-# Golden Plum — soccer midgame confirmation A/B and raw six-book collector.
+# Golden Plum — soccer full-match confirmation A/B and raw six-book collector.
 # env > config.yaml > defaults. Real orders always require explicit --live.
 
 trading:
@@ -37,8 +37,9 @@ trading:
     prob_min: 0.75
     # A one-minute jump above 0.78 is not the registered 0.75 entry.
     prob_max: 0.78
-    min_source_minute: 5
-    max_source_minute: 75
+    # Observe and permit entry from kickoff until Gamma marks the match ended.
+    min_source_minute: 0
+    max_source_minute: null
     trend_observations: 3
     trend_min_cumulative_move: 0.02
     trend_max_pullback: 0.01
@@ -48,19 +49,19 @@ trading:
     # King A=0.90. Queen B and Silver primary replay override only this to 0.95.
     take_profit_price: 0.90
     stop_loss_delta: 0.15
-    # Do not carry the confirmation trade into the late-game tail-risk zone.
-    force_exit_minute: 80
+    # No time-forced liquidation; exit only by TP, SL, or proven resolution.
+    force_exit_minute: null
     stop_price: 0.01
     max_entry_drawdown: 0.15
     max_stop_slippage: 0.05
     max_stop_spread: 0.10
     max_stop_loss_fraction: 1.0
     hours_min: 0
-    hours_max: 4
+    hours_max: null
 
   archive:
     prob_min: 0.0
-    hours_max: 4
+    hours_max: null
     retention_days: 60
 
   excluded_categories: []

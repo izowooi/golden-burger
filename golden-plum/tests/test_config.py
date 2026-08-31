@@ -37,12 +37,15 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert (entry.prob_min, entry.prob_max) == (0.75, 0.78)
     assert entry.take_profit_price == 0.90
     assert entry.stop_loss_delta == 0.15
-    assert (entry.min_source_minute, entry.max_source_minute) == (5, 75)
+    assert entry.min_source_minute == 0
+    assert entry.max_source_minute is None
+    assert entry.hours_max is None
     assert entry.trend_observations == 3
     assert entry.trend_min_cumulative_move == 0.02
     assert entry.trend_max_pullback == 0.01
     assert entry.trend_max_gap_seconds == 90
-    assert entry.force_exit_minute == 80
+    assert entry.force_exit_minute is None
+    assert config.trading.scaling_notionals_usdc == ()
     assert config.trading.yes_only_mode is False
     assert config.trading.max_positions == 10
     assert config.trading.max_emergency_sells_per_cycle == 10
@@ -83,6 +86,15 @@ def test_silver_is_credential_free_simulation(monkeypatch) -> None:
     )
     assert config.api.private_key == ""
     assert config.api.funder_address == ""
+    assert config.trading.scaling_notionals_usdc == (
+        5.0,
+        10.0,
+        25.0,
+        50.0,
+        100.0,
+        250.0,
+        500.0,
+    )
 
 
 @pytest.mark.parametrize(
@@ -95,16 +107,16 @@ def test_silver_is_credential_free_simulation(monkeypatch) -> None:
         ("POLYBOT_MIN_CUMULATIVE_VOLUME", "1", "liquidity gate"),
         ("POLYBOT_ENTRY_PROB_MIN", "0.74", "first-cross"),
         ("POLYBOT_ENTRY_PROB_MAX", "0.79", "first-cross"),
-        ("POLYBOT_MIN_SOURCE_MINUTE", "4", "midgame trend"),
-        ("POLYBOT_MAX_SOURCE_MINUTE", "76", "midgame trend"),
-        ("POLYBOT_TREND_OBSERVATIONS", "2", "midgame trend"),
-        ("POLYBOT_TREND_MIN_CUMULATIVE_MOVE", "0.01", "midgame trend"),
-        ("POLYBOT_TREND_MAX_PULLBACK", "0.02", "midgame trend"),
-        ("POLYBOT_TREND_MAX_GAP_SECONDS", "120", "midgame trend"),
-        ("POLYBOT_MIN_LEADER_MARGIN", "0.01", "midgame trend"),
-        ("POLYBOT_MAX_ENTRY_SPREAD", "0.06", "midgame trend"),
-        ("POLYBOT_STOP_LOSS_DELTA", "0.10", "midgame trend"),
-        ("POLYBOT_FORCE_EXIT_MINUTE", "85", "midgame trend"),
+        ("POLYBOT_MIN_SOURCE_MINUTE", "1", "full-match"),
+        ("POLYBOT_MAX_SOURCE_MINUTE", "75", "full-match"),
+        ("POLYBOT_TREND_OBSERVATIONS", "2", "full-match"),
+        ("POLYBOT_TREND_MIN_CUMULATIVE_MOVE", "0.01", "full-match"),
+        ("POLYBOT_TREND_MAX_PULLBACK", "0.02", "full-match"),
+        ("POLYBOT_TREND_MAX_GAP_SECONDS", "120", "full-match"),
+        ("POLYBOT_MIN_LEADER_MARGIN", "0.01", "full-match"),
+        ("POLYBOT_MAX_ENTRY_SPREAD", "0.06", "full-match"),
+        ("POLYBOT_STOP_LOSS_DELTA", "0.10", "full-match"),
+        ("POLYBOT_FORCE_EXIT_MINUTE", "80", "full-match"),
         ("POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE", "1", "ten independent"),
         ("POLYBOT_STOP_SELL_QUARANTINE_TIMEOUT_MINUTES", "179", "180"),
         ("POLYBOT_YES_ONLY", "true", "YES and NO"),

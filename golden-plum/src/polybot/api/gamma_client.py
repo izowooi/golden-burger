@@ -175,7 +175,12 @@ class GammaClient:
         if game_start is None:
             return "game_start_time_missing"
         in_play_hours = (observed_at - game_start).total_seconds() / 3600.0
-        if not 0 <= in_play_hours <= self.max_in_play_hours:
+        if in_play_hours < 0:
+            return "outside_in_play_window"
+        if (
+            self.max_in_play_hours is not None
+            and in_play_hours > self.max_in_play_hours
+        ):
             return "outside_in_play_window"
         if market.get("active") is not True or market.get("closed") is not False:
             return "market_inactive_or_closed"

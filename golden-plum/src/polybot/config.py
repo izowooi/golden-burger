@@ -1,4 +1,4 @@
-"""Resolved configuration for the Golden Plum midgame-confirmation experiment."""
+"""Resolved configuration for the Golden Plum full-match confirmation experiment."""
 
 from __future__ import annotations
 
@@ -30,12 +30,21 @@ FROZEN_JOB_TAKE_PROFIT_PRICE = {
     "plum-live-queen-95-1m-v1": 0.95,
     "plum-shadow-silver-1m-v1": 0.95,
 }
+SIMULATION_SCALING_NOTIONALS_USDC = (
+    5.0,
+    10.0,
+    25.0,
+    50.0,
+    100.0,
+    250.0,
+    500.0,
+)
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
 NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "plum-soccer-eight-competitions-v1"
+CLASSIFIER_VERSION = "plum-soccer-eight-competitions-full-match-v2"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -71,7 +80,10 @@ SPORT_FAMILY_TAG_IDS = {
     "nhl": NHL_TAG_ID,
 }
 SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
-    "soccer": 4.0,
+    # Golden Plum v2 trusts explicit Gamma live/ended lifecycle instead of a
+    # wall-clock age ceiling. This prevents a delayed or interrupted match
+    # from disappearing before the source marks it ended.
+    "soccer": None,
     "mlb": 8.0,
     "nhl": 5.0,
 }
@@ -302,8 +314,9 @@ class PlumEntryConfig:
     # into an unregistered late/high-price trade.
     prob_min: float = 0.75
     prob_max: float = 0.78
-    min_source_minute: float = 5.0
-    max_source_minute: float = 75.0
+    min_source_minute: float = 0.0
+    # No source-minute ceiling: explicit live=true/ended=false is authoritative.
+    max_source_minute: Optional[float] = None
     trend_observations: int = 3
     trend_min_cumulative_move: float = 0.02
     trend_max_pullback: float = 0.01
@@ -312,7 +325,8 @@ class PlumEntryConfig:
     max_entry_spread: float = 0.05
     take_profit_price: float = 0.90
     stop_loss_delta: float = 0.15
-    force_exit_minute: float = 80.0
+    # No time exit. Positions leave only by target, stop, or proven resolution.
+    force_exit_minute: Optional[float] = None
     # Absolute dust floor retained only as a defensive lower bound.  The
     # effective trigger is max(stop_price, confirmed entry - stop_loss_delta).
     stop_price: float = 0.01
@@ -324,7 +338,7 @@ class PlumEntryConfig:
     max_stop_spread: float = 0.10
     max_stop_loss_fraction: float = 1.00
     hours_min: float = 0.0
-    hours_max: float = 4.0
+    hours_max: Optional[float] = None
 
 
 EntryConfig = PlumEntryConfig
@@ -335,7 +349,7 @@ class ArchiveConfig:
     """Small live-universe evidence archive bounds."""
 
     prob_min: float = 0.0
-    hours_max: float = 4.0
+    hours_max: Optional[float] = None
     retention_days: int = 60
 
 
@@ -369,6 +383,9 @@ class TradingConfig:
     preregistration_sha256: str = ""
     classifier_version: str = CLASSIFIER_VERSION
     league_mapping_sha256: str = LEAGUE_MAPPING_SHA256
+    # Populated only for the credential-free Silver runtime. Live jobs retain
+    # raw full-depth books but do not spend cycle time materializing this grid.
+    scaling_notionals_usdc: tuple[float, ...] = ()
     entry: PlumEntryConfig = field(default_factory=PlumEntryConfig)
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     excluded_categories: List[str] = field(default_factory=list)
@@ -429,7 +446,6 @@ def _validate_config(
         "entry.prob_min": entry.prob_min,
         "entry.prob_max": entry.prob_max,
         "entry.min_source_minute": entry.min_source_minute,
-        "entry.max_source_minute": entry.max_source_minute,
         "entry.trend_observations": entry.trend_observations,
         "entry.trend_min_cumulative_move": entry.trend_min_cumulative_move,
         "entry.trend_max_pullback": entry.trend_max_pullback,
@@ -438,21 +454,23 @@ def _validate_config(
         "entry.max_entry_spread": entry.max_entry_spread,
         "entry.take_profit_price": entry.take_profit_price,
         "entry.stop_loss_delta": entry.stop_loss_delta,
-        "entry.force_exit_minute": entry.force_exit_minute,
         "entry.stop_price": entry.stop_price,
         "entry.max_entry_drawdown": entry.max_entry_drawdown,
         "entry.max_stop_slippage": entry.max_stop_slippage,
         "entry.max_stop_spread": entry.max_stop_spread,
         "entry.max_stop_loss_fraction": entry.max_stop_loss_fraction,
         "entry.hours_min": entry.hours_min,
-        "entry.hours_max": entry.hours_max,
         "archive.prob_min": archive.prob_min,
-        "archive.hours_max": archive.hours_max,
         "archive.retention_days": archive.retention_days,
     }
     for name, value in numeric.items():
         if not math.isfinite(value):
             raise ValueError(f"{name} must be finite")
+    for index, value in enumerate(trading.scaling_notionals_usdc):
+        if not math.isfinite(value) or value <= 0:
+            raise ValueError(
+                f"scaling_notionals_usdc[{index}] must be finite and positive"
+            )
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
@@ -517,9 +535,16 @@ def _validate_config(
     if simulation_mode is not expected_simulation:
         expected_mode = "simulation" if expected_simulation else "live"
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
+    expected_scaling_notionals = (
+        SIMULATION_SCALING_NOTIONALS_USDC if expected_simulation else ()
+    )
+    if tuple(trading.scaling_notionals_usdc) != expected_scaling_notionals:
+        raise ValueError(
+            "order-size scaling evidence is frozen to Silver simulation only"
+        )
     if (
-        entry.min_source_minute != 5
-        or entry.max_source_minute != 75
+        entry.min_source_minute != 0
+        or entry.max_source_minute is not None
         or entry.trend_observations != 3
         or entry.trend_min_cumulative_move != 0.02
         or entry.trend_max_pullback != 0.01
@@ -527,15 +552,14 @@ def _validate_config(
         or entry.min_leader_margin != 0.005
         or entry.max_entry_spread != 0.05
         or entry.stop_loss_delta != 0.15
-        or entry.force_exit_minute != 80
+        or entry.force_exit_minute is not None
     ):
-        raise ValueError("midgame trend/first-cross/TP-SL/time-exit contract drift")
+        raise ValueError("full-match trend/first-cross/TP-SL contract drift")
     if not (
         entry.prob_min < entry.prob_max < entry.take_profit_price < 1
-        and entry.min_source_minute < entry.max_source_minute
-        < entry.force_exit_minute <= 90
+        and entry.min_source_minute == 0
     ):
-        raise ValueError("entry, target, and source-minute ordering is invalid")
+        raise ValueError("entry, target, and source-minute contract is invalid")
     if entry.stop_price != 0.01:
         raise ValueError("defensive absolute stop floor is frozen at 0.01")
     if entry.max_entry_drawdown != entry.stop_loss_delta:
@@ -548,17 +572,10 @@ def _validate_config(
         raise ValueError(
             "stop execution safety is frozen at 5pp slippage, 10pp spread, full live-gap loss"
         )
-    expected_hours_max = 4.0
-    if entry.hours_min != 0 or entry.hours_max != expected_hours_max:
-        raise ValueError(
-            f"{trading.sport_family} in-play age window must remain "
-            f"[0h, {expected_hours_max:g}h]"
-        )
-    if archive.prob_min != 0 or archive.hours_max != expected_hours_max:
-        raise ValueError(
-            f"archive envelope must cover the {expected_hours_max:g}-hour "
-            f"{trading.sport_family} in-play universe"
-        )
+    if entry.hours_min != 0 or entry.hours_max is not None:
+        raise ValueError("in-play age must start at zero with no upper limit")
+    if archive.prob_min != 0 or archive.hours_max is not None:
+        raise ValueError("archive must cover the full explicitly live match")
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
     smallest_order = trading.buy_amount_usdc / entry.prob_max
@@ -628,12 +645,12 @@ def load_config(
         min_source_minute=_get_config_value(
             "POLYBOT_MIN_SOURCE_MINUTE",
             entry_cfg.get("min_source_minute"),
-            5.0,
+            0.0,
         ),
         max_source_minute=_get_config_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
             entry_cfg.get("max_source_minute"),
-            75.0,
+            None,
         ),
         trend_observations=_get_config_value(
             "POLYBOT_TREND_OBSERVATIONS",
@@ -679,7 +696,7 @@ def load_config(
         force_exit_minute=_get_config_value(
             "POLYBOT_FORCE_EXIT_MINUTE",
             entry_cfg.get("force_exit_minute"),
-            80.0,
+            None,
         ),
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.01
@@ -708,7 +725,7 @@ def load_config(
             "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ENTRY_HOURS_MAX", entry_cfg.get("hours_max"), 4.0
+            "POLYBOT_ENTRY_HOURS_MAX", entry_cfg.get("hours_max"), None
         ),
     )
     archive = ArchiveConfig(
@@ -716,7 +733,7 @@ def load_config(
             "POLYBOT_ARCHIVE_PROB_MIN", archive_cfg.get("prob_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ARCHIVE_HOURS_MAX", archive_cfg.get("hours_max"), 4.0
+            "POLYBOT_ARCHIVE_HOURS_MAX", archive_cfg.get("hours_max"), None
         ),
         retention_days=_get_config_value(
             "POLYBOT_SNAPSHOT_RETENTION_DAYS",
@@ -832,6 +849,11 @@ def load_config(
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
         preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),
+        scaling_notionals_usdc=(
+            SIMULATION_SCALING_NOTIONALS_USDC
+            if job_name == "plum-shadow-silver-1m-v1"
+            else ()
+        ),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

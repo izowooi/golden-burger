@@ -1025,6 +1025,7 @@ class TradeRepository:
         source_elapsed_minutes: Optional[float] = None,
         source_clock_reason: Optional[str] = None,
         book_json: Optional[str] = None,
+        execution_capacity_json: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
     ) -> MarketSnapshot:
@@ -1048,6 +1049,7 @@ class TradeRepository:
             source_elapsed_minutes=source_elapsed_minutes,
             source_clock_reason=source_clock_reason,
             book_json=book_json,
+            execution_capacity_json=execution_capacity_json,
             run_id=current_run_id(),
         )
         self.session.add(snapshot)

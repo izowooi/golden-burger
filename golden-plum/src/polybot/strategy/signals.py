@@ -34,6 +34,16 @@ def _param(params: Any, name: str) -> float:
     return value
 
 
+def _optional_param(params: Any, name: str) -> Optional[float]:
+    value = params.get(name) if isinstance(params, Mapping) else getattr(params, name)
+    if value is None:
+        return None
+    value = float(value)
+    if not math.isfinite(value):
+        raise ValueError(f"{name} must be finite or None")
+    return value
+
+
 def _finite_price(value: Optional[float]) -> Optional[float]:
     if value is None:
         return None
@@ -68,7 +78,7 @@ def evaluate_entry(
     prob_min = _param(params, "prob_min")
     prob_max = _param(params, "prob_max")
     hours_min = _param(params, "hours_min")
-    hours_max = _param(params, "hours_max")
+    hours_max = _optional_param(params, "hours_max")
 
     if current is None:
         return EntryDecision(False, "invalid_current_price", previous, None, hours)
@@ -78,7 +88,7 @@ def evaluate_entry(
         return EntryDecision(False, "not_in_play_yet", previous, current, hours)
     if hours < hours_min - EPSILON:
         return EntryDecision(False, f"not_in_play_yet_{hours:.1f}h", previous, current, hours)
-    if hours > hours_max + EPSILON:
+    if hours_max is not None and hours > hours_max + EPSILON:
         return EntryDecision(False, f"stale_in_play_{hours:.1f}h", previous, current, hours)
     if current < prob_min - EPSILON or current > prob_max + EPSILON:
         return EntryDecision(

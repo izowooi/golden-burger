@@ -282,6 +282,100 @@ def _canonical_book_evidence(book: Any, token_id: str) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 
 
+def build_execution_capacity_evidence(
+    book_json: str,
+    notionals_usdc: Iterable[float],
+) -> str:
+    """Materialize same-snapshot displayed-depth scaling evidence.
+
+    The result is deliberately a counterfactual: it records whether each BUY
+    notional could consume the displayed asks and whether the resulting shares
+    could immediately consume the displayed bids. It is neither an order nor
+    proof that the displayed size would remain available after submission.
+    """
+    try:
+        book = json.loads(book_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ClobResponseContractError(
+            "cached CLOB book evidence is not valid JSON"
+        ) from error
+    if not isinstance(book, Mapping):
+        raise ClobResponseContractError("cached CLOB book evidence must be an object")
+    token_id = str(book.get("token_id") or "").strip()
+    if not token_id:
+        raise ClobResponseContractError("cached CLOB book evidence has no token ID")
+
+    bids = _normalize_book_levels(book.get("bids"), "bid", allow_empty=True)
+    asks = _normalize_book_levels(book.get("asks"), "ask", allow_empty=True)
+    rows: list[dict[str, Any]] = []
+    normalized_notionals: list[float] = []
+    for raw_notional in notionals_usdc:
+        try:
+            notional = float(raw_notional)
+        except (TypeError, ValueError) as error:
+            raise ValueError("scaling notionals must be numeric") from error
+        if not math.isfinite(notional) or notional <= 0:
+            raise ValueError("scaling notionals must be finite and positive")
+        normalized_notionals.append(notional)
+    if not normalized_notionals or len(set(normalized_notionals)) != len(
+        normalized_notionals
+    ):
+        raise ValueError("scaling notionals must be nonempty and unique")
+    if normalized_notionals != sorted(normalized_notionals):
+        raise ValueError("scaling notionals must be strictly increasing")
+
+    for notional in normalized_notionals:
+        row: dict[str, Any] = {
+            "notional_usdc": notional,
+            "buy_full_fill": False,
+            "sell_full_fill": False,
+        }
+        try:
+            buy = _walk_buy_book(book, token_id, notional)
+        except ClobResponseUnavailableError:
+            rows.append(row)
+            continue
+        row.update(
+            {
+                "buy_full_fill": True,
+                "buy_vwap": buy.vwap,
+                "buy_shares": buy.shares,
+                "buy_limit_price": buy.limit_price,
+                "buy_levels_used": buy.levels_used,
+            }
+        )
+        try:
+            sell = _walk_sell_book(book, token_id, buy.shares)
+        except ClobResponseUnavailableError:
+            rows.append(row)
+            continue
+        round_trip_pnl = sell.proceeds - notional
+        row.update(
+            {
+                "sell_full_fill": True,
+                "sell_vwap": sell.vwap,
+                "sell_limit_price": sell.limit_price,
+                "sell_proceeds_usdc": sell.proceeds,
+                "sell_levels_used": sell.levels_used,
+                "same_snapshot_round_trip_pnl_usdc": round_trip_pnl,
+                "same_snapshot_round_trip_bps": round_trip_pnl / notional * 10_000,
+            }
+        )
+        rows.append(row)
+
+    payload = {
+        "schema_version": 1,
+        "semantics": (
+            "same_snapshot_displayed_depth_counterfactual_no_fees_not_actual_fill"
+        ),
+        "token_id": token_id,
+        "displayed_ask_notional_usdc": sum(price * size for price, size in asks),
+        "displayed_bid_shares": sum(size for _price, size in bids),
+        "notionals": rows,
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
 def _normalize_order_status(value: Any) -> str:
     status = str(value or "").strip().upper()
     prefix = "ORDER_STATUS_"

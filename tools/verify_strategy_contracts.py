@@ -4591,7 +4591,7 @@ def _validate_peach_strategy(
 def _validate_plum_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
-    """Validate the soccer midgame trend-confirmation live/shadow contract."""
+    """Validate the soccer full-match trend-confirmation live/shadow contract."""
 
     contracts = {
         "README.md": (
@@ -4602,7 +4602,8 @@ def _validate_plum_strategy(
             "plum-live-queen-95-1m-v1",
             "plum-shadow-silver-1m-v1",
             "[0.75,0.78]",
-            "source minute 80",
+            "시간 강제 청산은 없고",
+            "$5/$10/$25/$50/$100/$250/$500",
             "exact `$5`",
         ),
         "STRATEGY.md": (
@@ -4613,7 +4614,8 @@ def _validate_plum_strategy(
             "0.95",
             "최근 3개 snapshot",
             "누적 상승이 0.02",
-            "source minute 80",
+            "시간 강제 청산: 없음",
+            "execution_capacity_json",
             "event당 실제 체결",
             "180분",
             "QUARANTINED",
@@ -4642,7 +4644,7 @@ def _validate_plum_strategy(
             "get_source_regulation_minute",
             "trend_snapshot_cadence_gap",
             "trend_snapshot_ids",
-            "six_token_midgame_first_cross_trend",
+            "six_token_full_match_first_cross_trend",
             "claim_entry_episode",
             "direct YES/NO snapshots",
         ),
@@ -4651,7 +4653,7 @@ def _validate_plum_strategy(
             "fresh_six_token_book_coverage_gap",
             "get_snapshots_by_ids",
             "place_fok_buy",
-            "minute_80_exit",
+            "no time exit",
             "STOP_SELL_QUARANTINE_REASON",
             "get_exact_buy_fill_evidence",
             "get_exact_sell_fill_evidence",
@@ -4679,20 +4681,22 @@ def _validate_plum_strategy(
             "SellBookWalk",
             "get_buy_book_walks",
             "get_cached_book_evidence",
+            "build_execution_capacity_evidence",
             "signed FOK BUY does not preserve exact maker USDC",
             "signed limit order share quantity drift",
             "resolve_dynamic_fee_evidence",
         ),
         "tests/test_scanner.py": (
             "test_three_fresh_snapshots_confirm_direct_no_first_cross",
-            "test_entry_requires_source_clock_between_five_and_seventy_five",
+            "test_entry_accepts_explicit_live_source_clock_after_minute_seventy_five",
+            "test_simulation_scaling_ladder_is_persisted_without_extra_book_reads",
             "test_missing_one_direct_book_fails_closed",
             "test_tied_current_leader_fails_closed_after_history",
         ),
         "tests/test_trader.py": (
             "test_buy_refuses_any_prior_event_trade",
             "test_continuous_stop_failure_is_quarantined_after_three_hours",
-            "test_minute_eighty_forces_exit_and_preserves_stop",
+            "test_minute_eighty_does_not_force_exit_and_stop_remains_active",
             "test_unrelated_event_exits_are_not_blocked_by_first_sell",
         ),
         "tests/test_lifecycle_mode.py": (
@@ -4704,6 +4708,7 @@ def _validate_plum_strategy(
         "tests/test_replay_direct_six_book.py": (
             "test_full_depth_walks_use_all_levels_and_fail_if_shallow",
             "test_trend_requires_same_token_first_cross_and_bounded_pullback",
+            "test_replay_defaults_to_full_match_without_time_exit",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",
@@ -4729,6 +4734,8 @@ def _validate_plum_strategy(
         "research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md",
         "research/frozen-2026-08-31-midgame-confirmation-v1/HISTORICAL_REPLAY.md",
         "research/frozen-2026-08-31-midgame-confirmation-v1/MANIFEST.sha256",
+        "research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md",
+        "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -4743,14 +4750,14 @@ def _validate_plum_strategy(
         ("max_emergency_sells_per_cycle", 10),
         ("yes_only_mode", False),
         ("prob_max", 0.78),
-        ("min_source_minute", 5),
-        ("max_source_minute", 75),
+        ("min_source_minute", 0),
+        ("max_source_minute", None),
         ("trend_observations", 3),
         ("trend_min_cumulative_move", 0.02),
         ("trend_max_pullback", 0.01),
         ("trend_max_gap_seconds", 90),
         ("stop_loss_delta", 0.15),
-        ("force_exit_minute", 80),
+        ("force_exit_minute", None),
         ("stop_sell_quarantine_timeout_minutes", 180),
     ):
         _require_yaml_value(
@@ -4784,25 +4791,27 @@ def _validate_plum_strategy(
 
     prereg_path = (
         directory
-        / "research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md"
+        / "research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md"
     )
     manifest_path = (
         directory
-        / "research/frozen-2026-08-31-midgame-confirmation-v1/MANIFEST.sha256"
+        / "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256"
     )
     preregistration = _read(prereg_path)
     manifest = _read(manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md",
+        "research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md",
         preregistration,
         (
             "2026-08-31T00:00:00Z",
             "2026-09-14T00:00:00Z",
             "2026-09-21T00:00:00Z",
             "직접 YES",
-            "5~75분",
+            "source minute `0`",
+            "시간 강제 청산: 없음",
+            "execution_capacity_json",
             "exact `$5`",
             "0.75",
             "0.90",
@@ -4824,7 +4833,7 @@ def _validate_plum_strategy(
                 Finding(
                     strategy,
                     "invalid_manifest",
-                    "research/frozen-2026-08-31-midgame-confirmation-v1/MANIFEST.sha256",
+                    "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256",
                 )
             )
 

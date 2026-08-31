@@ -26,9 +26,9 @@ DEFAULT_OBSERVATIONS = (2, 3, 5)
 DEFAULT_MIN_MOVES = (0.01, 0.02, 0.03, 0.05)
 NOTIONAL_USDC = 5.0
 ENTRY_OVERSHOOT = 0.03
-MIN_SOURCE_MINUTE = 5.0
-MAX_SOURCE_MINUTE = 75.0
-FORCE_EXIT_MINUTE = 80.0
+MIN_SOURCE_MINUTE = 0.0
+MAX_SOURCE_MINUTE: float | None = None
+FORCE_EXIT_MINUTE: float | None = None
 MAX_ENTRY_SPREAD = 0.05
 MIN_LEADER_MARGIN = 0.005
 TREND_OBSERVATIONS = 3
@@ -220,7 +220,7 @@ def load_snapshots(connection: sqlite3.Connection) -> list[Snapshot]:
         if (
             (snapshot.result_kind, snapshot.outcome_side) in EXPECTED_SIX
             and math.isfinite(snapshot.source_minute)
-            and 0 <= snapshot.source_minute <= 120
+            and snapshot.source_minute >= 0
             and 0 < snapshot.probability < 1
         ):
             snapshots.append(snapshot)
@@ -235,6 +235,9 @@ def replay_cell(
     stop_delta: float,
     observations: int = TREND_OBSERVATIONS,
     min_move: float = TREND_MIN_MOVE,
+    min_source_minute: float = MIN_SOURCE_MINUTE,
+    max_source_minute: float | None = MAX_SOURCE_MINUTE,
+    force_exit_minute: float | None = FORCE_EXIT_MINUTE,
 ) -> list[ReplayTrade]:
     by_event_run: dict[tuple[str, str], list[Snapshot]] = defaultdict(list)
     by_event_token: dict[tuple[str, str], list[Snapshot]] = defaultdict(list)
@@ -267,7 +270,12 @@ def replay_cell(
             if len(source_minutes) != 1:
                 continue
             source_minute = next(iter(source_minutes))
-            if not MIN_SOURCE_MINUTE <= source_minute <= MAX_SOURCE_MINUTE:
+            if source_minute < min_source_minute - 1e-9:
+                continue
+            if (
+                max_source_minute is not None
+                and source_minute > max_source_minute + 1e-9
+            ):
                 continue
             ranked = sorted(group, key=lambda item: (-item.midpoint, item.token_id))
             if ranked[0].midpoint - ranked[1].midpoint + 1e-9 < MIN_LEADER_MARGIN:
@@ -304,8 +312,11 @@ def replay_cell(
                 reason = "take_profit"
             elif exit_vwap <= stop_price + 1e-9:
                 reason = "stop"
-            elif current.source_minute + 1e-9 >= FORCE_EXIT_MINUTE:
-                reason = "minute_80_exit"
+            elif (
+                force_exit_minute is not None
+                and current.source_minute + 1e-9 >= force_exit_minute
+            ):
+                reason = "time_exit"
             if reason is None:
                 continue
             trades.append(
@@ -325,7 +336,11 @@ def replay_cell(
     return trades
 
 
-def database_report(path: Path) -> dict[str, object]:
+def database_report(
+    path: Path,
+    *,
+    legacy_midgame_v1: bool = False,
+) -> dict[str, object]:
     connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
     try:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
@@ -335,6 +350,9 @@ def database_report(path: Path) -> dict[str, object]:
         ).fetchone()[0]
     finally:
         connection.close()
+    min_source_minute = 5.0 if legacy_midgame_v1 else MIN_SOURCE_MINUTE
+    max_source_minute = 75.0 if legacy_midgame_v1 else MAX_SOURCE_MINUTE
+    force_exit_minute = 80.0 if legacy_midgame_v1 else FORCE_EXIT_MINUTE
     grid = []
     for entry in DEFAULT_ENTRIES:
         for target in DEFAULT_TARGETS:
@@ -350,6 +368,9 @@ def database_report(path: Path) -> dict[str, object]:
                             stop_delta=stop,
                             observations=observations,
                             min_move=min_move,
+                            min_source_minute=min_source_minute,
+                            max_source_minute=max_source_minute,
+                            force_exit_minute=force_exit_minute,
                         )
                         pnl = sum(item.pnl_usdc for item in trades)
                         grid.append(
@@ -375,7 +396,7 @@ def database_report(path: Path) -> dict[str, object]:
                                     for reason in (
                                         "take_profit",
                                         "stop",
-                                        "minute_80_exit",
+                                        "time_exit",
                                     )
                                 },
                             }
@@ -387,6 +408,9 @@ def database_report(path: Path) -> dict[str, object]:
             entry_threshold=0.75,
             target_price=target,
             stop_delta=0.15,
+            min_source_minute=min_source_minute,
+            max_source_minute=max_source_minute,
+            force_exit_minute=force_exit_minute,
         )
         primary[f"0.75_to_{target:.2f}_stop_0.15"] = {
             "trades": [asdict(item) for item in trades],
@@ -399,7 +423,15 @@ def database_report(path: Path) -> dict[str, object]:
         "source_cutoff": cutoff,
         "snapshot_rows": len(snapshots),
         "events": len({item.event_id for item in snapshots}),
-        "evidence_semantics": "displayed full-depth counterfactual; fees excluded; not actual fills",
+        "contract_profile": (
+            "legacy_midgame_v1" if legacy_midgame_v1 else "full_match_no_time_exit_v2"
+        ),
+        "source_minute_window": [min_source_minute, max_source_minute],
+        "force_exit_minute": force_exit_minute,
+        "evidence_semantics": (
+            "displayed full-depth counterfactual; fees excluded; not actual fills; "
+            "entries without target/stop/time-exit evidence remain right-censored"
+        ),
         "primary": primary,
         "grid": grid,
     }
@@ -409,8 +441,18 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--db", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument(
+        "--legacy-midgame-v1",
+        action="store_true",
+        help="Reproduce the preserved 5-75 minute / minute-80 exit v1 contract",
+    )
     args = parser.parse_args()
-    payload = {"reports": [database_report(path) for path in args.db]}
+    payload = {
+        "reports": [
+            database_report(path, legacy_midgame_v1=args.legacy_midgame_v1)
+            for path in args.db
+        ]
+    }
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

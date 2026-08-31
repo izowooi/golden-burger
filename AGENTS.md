@@ -64,11 +64,12 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   허용하되 신규 stop은 금지하고 resolution을 기다린다. `polybot-grey`는 같은 1분 모집단의
   credential-free simulation/raw six-book 수집기다. SELL 실패는 event-local이며 180분 뒤
   성공 체결로 꾸미지 않고 경제적 open 상태의 `QUARANTINED`로 격리한다.
-- `golden-plum/`: **Soccer Midgame Confirmation** — 축구 경기 5~75분의 직접 YES·NO
+- `golden-plum/`: **Soccer Full-Match Confirmation** — 축구 경기 시작부터 종료까지 직접 YES·NO
   6개 호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을
   처음 통과할 때 exact `$5` FOK로 event당 한 번만 진입한다. `polybot-king`은 절대 TP
-  `0.90`, `polybot-queen`은 `0.95`; 공통 SL은 confirmed entry −0.15이고 source 80분에
-  강제 청산한다. `polybot-silver`는 credential-free direct six-book/raw path 수집기다.
+  `0.90`, `polybot-queen`은 `0.95`; 공통 SL은 confirmed entry −0.15이고 시간 강제
+  청산 없이 TP·SL·검증된 resolution로만 종료한다. `polybot-silver`는 credential-free
+  direct six-book/raw path와 `$5~$500` displayed-depth 증액 자료 수집기다.
   과거 17경기 재생은 파라미터 탐색 근거일 뿐이며, prospective(앞으로 수집하는) A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.

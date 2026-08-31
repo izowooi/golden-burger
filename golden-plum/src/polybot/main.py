@@ -16,7 +16,7 @@ from .utils.run_lock import exclusive_job_run_lock
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Golden Plum - soccer midgame first-cross confirmation A/B"
+        description="Golden Plum - soccer full-match first-cross confirmation A/B"
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run one archive/trading cycle")
@@ -139,7 +139,7 @@ def main() -> None:
         return
 
     trading = config.trading
-    print("=== Golden Plum / Soccer Midgame Confirmation ===")
+    print("=== Golden Plum / Soccer Full-Match Confirmation ===")
     print(f"Job: {config.job_name}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
@@ -155,21 +155,27 @@ def main() -> None:
         "Exact $5 ask VWAP band: "
         f"[{trading.entry.prob_min:.3f}, {trading.entry.prob_max:.3f}]"
     )
-    print(
-        f"In-play age: [{trading.entry.hours_min:.1f}, "
-        f"{trading.entry.hours_max:.1f}] hours"
+    in_play_max = (
+        "match end"
+        if trading.entry.hours_max is None
+        else f"{trading.entry.hours_max:.1f} hours"
     )
+    source_max = (
+        "match end"
+        if trading.entry.max_source_minute is None
+        else f"minute {trading.entry.max_source_minute:.0f}"
+    )
+    print(f"In-play age: from kickoff to {in_play_max}")
     print(
         f"Trend: {trading.entry.trend_observations} fresh observations, "
         f"move >= {trading.entry.trend_min_cumulative_move:.2f}, pullback <= "
-        f"{trading.entry.trend_max_pullback:.2f}; source minute "
-        f"[{trading.entry.min_source_minute:.0f}, "
-        f"{trading.entry.max_source_minute:.0f}]"
+        f"{trading.entry.trend_max_pullback:.2f}; source window "
+        f"[minute {trading.entry.min_source_minute:.0f}, {source_max}]"
     )
     print(
         f"Exit: absolute TP {trading.entry.take_profit_price:.2f}; "
-        f"SL entry-{trading.entry.stop_loss_delta:.2f}; force exit at source "
-        f"minute {trading.entry.force_exit_minute:.0f}"
+        f"SL entry-{trading.entry.stop_loss_delta:.2f}; no time-forced exit; "
+        "otherwise proven resolution"
     )
     print(
         f"Order: ${trading.buy_amount_usdc:.2f}, min shares "
@@ -207,9 +213,14 @@ def main() -> None:
         f"{trading.experiment_entry_end_utc})"
     )
     print(
-        f"Archive: six direct books, <= {trading.archive.hours_max:.0f}h in play, "
+        "Archive: six direct books for the full explicitly live match, "
         f"{trading.archive.retention_days}d retention"
     )
+    if trading.scaling_notionals_usdc:
+        print(
+            "Simulation-only displayed-depth scaling ladder: "
+            + ", ".join(f"${value:g}" for value in trading.scaling_notionals_usdc)
+        )
 
 
 if __name__ == "__main__":

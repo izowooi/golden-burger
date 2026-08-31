@@ -1,4 +1,4 @@
-"""Direct six-token midgame trend-confirmation scanner for Golden Plum."""
+"""Direct six-token full-match trend-confirmation scanner for Golden Plum."""
 
 from __future__ import annotations
 
@@ -9,7 +9,11 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
-from ..api.clob_client import BuyBookWalk, ClobClientWrapper
+from ..api.clob_client import (
+    BuyBookWalk,
+    ClobClientWrapper,
+    build_execution_capacity_evidence,
+)
 from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.repository import TradeRepository
@@ -257,10 +261,11 @@ class MarketScanner:
         in_play_hours = get_hours_since_game_start(game_start, now)
         if in_play_hours is None:
             return False, "game_start_time_missing", game_start, None
-        if not (
-            self.config.entry.hours_min - 1e-9
-            <= in_play_hours
-            <= self.config.archive.hours_max + 1e-9
+        if in_play_hours < self.config.entry.hours_min - 1e-9:
+            return False, "outside_in_play_window", game_start, in_play_hours
+        if (
+            self.config.archive.hours_max is not None
+            and in_play_hours > self.config.archive.hours_max + 1e-9
         ):
             return False, "outside_in_play_window", game_start, in_play_hours
         return True, "archive_eligible", game_start, in_play_hours
@@ -323,6 +328,23 @@ class MarketScanner:
                         if walk.best_bid is not None
                         else None
                     )
+                    book_json = (
+                        self.clob.get_cached_book_evidence(token_id)
+                        if callable(
+                            getattr(self.clob, "get_cached_book_evidence", None)
+                        )
+                        else None
+                    )
+                    execution_capacity_json = None
+                    if self.config.scaling_notionals_usdc:
+                        if book_json is None:
+                            raise RuntimeError(
+                                "Silver scaling evidence requires a cached full book"
+                            )
+                        execution_capacity_json = build_execution_capacity_evidence(
+                            book_json,
+                            self.config.scaling_notionals_usdc,
+                        )
                     snapshot = self.repo.save_snapshot(
                         condition_id=condition_id,
                         event_id=event_meta["event_id"],
@@ -342,13 +364,8 @@ class MarketScanner:
                         source_updated_at=market.get("updatedAt"),
                         source_elapsed_minutes=source_minute,
                         source_clock_reason=clock_reason,
-                        book_json=(
-                            self.clob.get_cached_book_evidence(token_id)
-                            if callable(
-                                getattr(self.clob, "get_cached_book_evidence", None)
-                            )
-                            else None
-                        ),
+                        book_json=book_json,
+                        execution_capacity_json=execution_capacity_json,
                         commit=False,
                     )
                     snapshot.timestamp = reference.astimezone(timezone.utc).replace(
@@ -428,13 +445,18 @@ class MarketScanner:
             if source_minute is None:
                 rejected[clock_reason] = rejected.get(clock_reason, 0) + 1
                 continue
-            if not (
-                self.config.entry.min_source_minute - 1e-9
-                <= source_minute
-                <= self.config.entry.max_source_minute + 1e-9
+            if source_minute < self.config.entry.min_source_minute - 1e-9:
+                rejected["before_match_source_window"] = rejected.get(
+                    "before_match_source_window", 0
+                ) + 1
+                continue
+            if (
+                self.config.entry.max_source_minute is not None
+                and source_minute
+                > self.config.entry.max_source_minute + 1e-9
             ):
-                rejected["outside_midgame_source_window"] = rejected.get(
-                    "outside_midgame_source_window", 0
+                rejected["after_source_window"] = rejected.get(
+                    "after_source_window", 0
                 ) + 1
                 continue
             outcomes = get_match_result_sides(market)
@@ -624,7 +646,7 @@ class MarketScanner:
                     "entry_shares": walk.shares,
                     "entry_limit_price": walk.limit_price,
                     "entry_levels_used": walk.levels_used,
-                    "entry_reason": "six_token_midgame_first_cross_trend",
+                    "entry_reason": "six_token_full_match_first_cross_trend",
                     "game_start_time": context["game_start"],
                     "in_play_hours": context["in_play_hours"],
                     "hours_until_resolution": context["in_play_hours"],
@@ -652,7 +674,7 @@ class MarketScanner:
             )
         )
         logger.info(
-            "Golden Plum midgame confirmations=%s target=%.2f sl=-%.2f",
+            "Golden Plum full-match confirmations=%s target=%.2f sl=-%.2f",
             len(candidates),
             self.config.entry.take_profit_price,
             self.config.entry.stop_loss_delta,

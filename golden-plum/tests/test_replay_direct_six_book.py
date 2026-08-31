@@ -4,6 +4,7 @@ import pytest
 
 from scripts.replay_direct_six_book import (
     Snapshot,
+    replay_cell,
     trend_confirmed,
     walk_buy,
     walk_sell,
@@ -60,3 +61,62 @@ def test_trend_requires_same_token_first_cross_and_bounded_pullback() -> None:
         _snapshot(3, 0.75, 20),
     ]
     assert not trend_confirmed(pullback, threshold=0.75, current_snapshot_id=3)
+
+
+def _six_run(run_index: int, leader_price: float, minute: int) -> list[Snapshot]:
+    rows = []
+    identities = [
+        ("HOME", "YES", 0.45),
+        ("HOME", "NO", 0.55),
+        ("DRAW", "YES", 0.30),
+        ("DRAW", "NO", 0.60),
+        ("AWAY", "YES", 0.42),
+        ("AWAY", "NO", leader_price),
+    ]
+    for offset, (result_kind, outcome_side, probability) in enumerate(identities):
+        rows.append(
+            Snapshot(
+                snapshot_id=run_index * 10 + offset,
+                event_id="event-1",
+                condition_id=f"condition-{result_kind.lower()}",
+                token_id=f"{result_kind}-{outcome_side}",
+                run_id=f"run-{run_index}",
+                result_kind=result_kind,
+                outcome_side=outcome_side,
+                source_minute=float(minute),
+                observed_at=datetime(2026, 8, 31) + timedelta(minutes=run_index),
+                probability=probability,
+                midpoint=probability - 0.005,
+                spread=0.01,
+                bids=((probability - 0.01, 100.0),),
+                asks=((probability, 100.0),),
+            )
+        )
+    return rows
+
+
+def test_replay_defaults_to_full_match_without_time_exit() -> None:
+    snapshots = [
+        *_six_run(1, 0.72, 73),
+        *_six_run(2, 0.74, 74),
+        *_six_run(3, 0.75, 75),
+        *_six_run(4, 0.80, 80),
+    ]
+
+    assert replay_cell(
+        snapshots,
+        entry_threshold=0.75,
+        target_price=0.90,
+        stop_delta=0.15,
+    ) == []
+    legacy = replay_cell(
+        snapshots,
+        entry_threshold=0.75,
+        target_price=0.90,
+        stop_delta=0.15,
+        min_source_minute=5,
+        max_source_minute=75,
+        force_exit_minute=80,
+    )
+    assert len(legacy) == 1
+    assert legacy[0].exit_reason == "time_exit"

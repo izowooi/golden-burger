@@ -817,7 +817,7 @@ def test_missing_source_clock_cannot_create_a_late_stop() -> None:
     assert clob.orders == []
 
 
-def test_minute_eighty_forces_exit_and_preserves_stop() -> None:
+def test_minute_eighty_does_not_force_exit_and_stop_remains_active() -> None:
     repo = _Repo()
     clob = _Clob(best_bid=0.815, best_ask=0.82, sell_vwap=0.815)
     trade = SimpleNamespace(
@@ -852,11 +852,8 @@ def test_minute_eighty_forces_exit_and_preserves_stop() -> None:
     )
 
     assert trader.execute_sell(trade) is False
-    assert len(clob.orders) == 1
-    assert clob.orders[0]["side"] == "SELL"
-    assert repo.updated[-1][1]["exit_reason"] == (
-        "minute_80_exit_pending_confirmed_fill"
-    )
+    assert clob.orders == []
+    assert repo.updated == []
 
     losing_repo = _Repo()
     losing_clob = _Clob(best_bid=0.60, best_ask=0.61, sell_vwap=0.60)

@@ -157,12 +157,17 @@ def test_malformed_result_market_fails_closed(field, value) -> None:
 
 
 def test_entry_is_first_current_exact_band_during_in_play() -> None:
-    params = SimpleNamespace(prob_min=0.96, prob_max=0.999, hours_min=0, hours_max=4)
+    params = SimpleNamespace(
+        prob_min=0.96,
+        prob_max=0.999,
+        hours_min=0,
+        hours_max=None,
+    )
     assert evaluate_entry(None, 0.96, 0, params).entry is True
     assert evaluate_entry(0.99, 0.995, 3.99, params).entry is True
     assert evaluate_entry(None, 0.959, 2, params).entry is False
     assert evaluate_entry(None, 1.0, 2, params).entry is False
-    assert evaluate_entry(None, 0.96, 4.001, params).entry is False
+    assert evaluate_entry(None, 0.96, 50, params).entry is True
 
 
 def test_basic_replay_exit_supports_take_profit_and_stop() -> None:
