@@ -1,6 +1,6 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 27개 `golden-*` 프로젝트의 전체 지도다. 이 중 25개는 수익 가설을 검정하고,
+총 28개 `golden-*` 프로젝트의 전체 지도다. 이 중 26개는 수익 가설을 검정하고,
 `golden-pomegranate`는 범용 전 시장, `golden-coconut`은 major sports 전용 accountless
 market observatory다.
 `golden-black`, `golden-raspberry`, `golden-strawberry`, `golden-watermelon`은 수익 가설이지만 주문 없이 displayed-book
@@ -44,6 +44,7 @@ market observatory다.
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **운영 중** |
 | **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 simulation · 2026-08-30 시작** |
+| **golden-plum** | Soccer Midgame Confirmation | 경기 중반의 일관된 상승이 확증 편향으로 이어지는지 검정 | exact `$5` FOK, event당 1회 | source 5–75분, 3회/+2%p, TP 0.90/0.95, SL −0.15, 80분 exit | **최소금액 live A/B + 1분 simulation · 배포 준비** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **운영 중** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
@@ -53,7 +54,7 @@ market observatory다.
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
 | **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 향후 수집 live A/B v3d** |
 
-상태 합계는 운영 9, 구현/배포 준비 5, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
+상태 합계는 운영 9, 구현/배포 준비 6, research/simulation 전용 7, 명시적 보류 0, 폐쇄 완료
 6이다. `close_only`/`archive_only`는 bot lifecycle mode이지 이 의사결정 상태와 같지 않다.
 
 폐쇄 전략을 단순히 반대 방향으로 뒤집지 않는다. Lime은 shock-follow와 근사 반대 방향
@@ -456,6 +457,30 @@ build와 연속 두 자연 1분 build가 모두 성공했고 자연 build는 4.6
 `2026-08-30T08:29:06Z`에는 진행 중인 대상 경기가 없어 raw market·snapshot·trade가 0이다.
 그러므로 배포 건전성은 통과했지만 직접 six-book/source-clock 수집 coverage와 수익성은 아직
 판정하지 않는다.
+
+## 15차 설계 — 축구 경기 중반의 일관된 상승 확인
+
+### golden-plum — Soccer Midgame Confirmation
+
+Golden Peach의 경기 시작 직후 진입과 Golden Watermelon Live의 경기 막판 진입 사이인 source
+5~75분을 검정한다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 유일한 선두가 같은
+token으로 최근 3회의 1분 관측에서 누적 +2%p 이상 상승하고 회차당 하락이 1%p 이하일 때,
+exact `$5` ask VWAP이 `[0.75,0.78]`을 처음 통과해야만 FOK BUY한다. 예정 kickoff·합성 NO·단일
+best ask는 근거로 쓰지 않으며 주문 직전에 source clock, 여섯 full-depth book, 선두 identity와
+진입가를 다시 확인한다.
+
+`polybot-king/plum-live-king-90-1m-v1`은 절대 TP 0.90,
+`polybot-queen/plum-live-queen-95-1m-v1`은 0.95다. 공통 stop은 confirmed entry −0.15이고
+source 80분에는 실행 가능한 전체 bid VWAP으로 강제 청산한다. 실패는 event-local로 격리하고
+180분 뒤에도 대사할 수 없는 노출은 성공으로 꾸미지 않은 `QUARANTINED`로 보존한다.
+`polybot-silver/plum-shadow-silver-1m-v1`은 credential-free raw/simulation 수집기다.
+
+Grey의 10,499 snapshot/17경기 탐색 재생에서 0.60 최초 교차는 구조상 0건이었고,
+0.75·3회·+2%p 조건은 target별 3건뿐이었다. 표시 호가·무수수료 소표본이므로 우위를 주장하지
+않으며 공통 경기 20개 전 A/B 방향, arm당 확정 종료 50개와 공통 경기 30개 전 증액,
+Silver 100경기 전 사후 파라미터 변경을 금지한다. 상세는 `golden-plum/STRATEGY.md`, 동결 계약은
+`golden-plum/research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`, 회고는
+`docs/retro/golden-plum.md`를 따른다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 

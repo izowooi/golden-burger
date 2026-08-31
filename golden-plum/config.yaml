@@ -1,0 +1,68 @@
+# Golden Plum — soccer midgame confirmation A/B and raw six-book collector.
+# env > config.yaml > defaults. Real orders always require explicit --live.
+
+trading:
+  lifecycle_mode: active
+  sport_family: soccer
+  buy_amount_usdc: 5.0
+
+  # Gamma server-side prefilter, followed by direct six-token exact-$5 books.
+  min_liquidity: 5000
+  min_volume_24h: 0
+  min_cumulative_volume: 5000
+
+  # Ten simultaneous games at exact $5. One event may fill exactly once.
+  max_positions: 10
+  max_event_positions: 1
+  max_new_positions_per_cycle: 5
+  # One failed exit must not suppress exits for unrelated games.
+  max_emergency_sells_per_cycle: 10
+
+  experiment_capital_usdc: 50
+  max_drawdown_stop: 0.20
+  reentry_cooldown_hours: 720
+  max_snapshot_gap_minutes: 2
+  fok_reconciliation_timeout_minutes: 2
+  stop_sell_quarantine_timeout_minutes: 180
+
+  min_order_size: 5.0
+  min_order_buffer_shares: 0.0
+  yes_only_mode: false
+
+  experiment_start_utc: 2026-08-31T00:00:00Z
+  experiment_entry_end_utc: 2026-09-14T00:00:00Z
+  experiment_followup_end_utc: 2026-09-21T00:00:00Z
+
+  entry:
+    prob_min: 0.75
+    # A one-minute jump above 0.78 is not the registered 0.75 entry.
+    prob_max: 0.78
+    min_source_minute: 5
+    max_source_minute: 75
+    trend_observations: 3
+    trend_min_cumulative_move: 0.02
+    trend_max_pullback: 0.01
+    trend_max_gap_seconds: 90
+    min_leader_margin: 0.005
+    max_entry_spread: 0.05
+    # King A=0.90. Queen B and Silver primary replay override only this to 0.95.
+    take_profit_price: 0.90
+    stop_loss_delta: 0.15
+    # Do not carry the confirmation trade into the late-game tail-risk zone.
+    force_exit_minute: 80
+    stop_price: 0.01
+    max_entry_drawdown: 0.15
+    max_stop_slippage: 0.05
+    max_stop_spread: 0.10
+    max_stop_loss_fraction: 1.0
+    hours_min: 0
+    hours_max: 4
+
+  archive:
+    prob_min: 0.0
+    hours_max: 4
+    retention_days: 60
+
+  excluded_categories: []
+
+simulation_mode: true

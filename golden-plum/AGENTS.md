@@ -1,0 +1,99 @@
+# Golden Plum 프로젝트 지침
+
+이 문서는 `golden-plum/`에만 적용한다. 상위 저장소 규칙과 충돌하면
+`/Users/izowooi/git/t1/AGENTS.md`를 우선한다.
+
+## 프로젝트 목적
+
+축구 경기 중 직접 HOME/DRAW/AWAY YES·NO 여섯 호가 가운데 유일한 선두가
+세 번의 1분 관측으로 상승하며 0.75를 처음 통과할 때 진입하는 가설을 검증한다.
+King/Queen은 exact `$5` live A/B이고 Silver는 같은 모집단의 credential-free
+simulation/raw collector다. 이 프로젝트는 현재 수익 전략이 아니라 반증 가능한
+최소금액 실험이다.
+
+## Runtime 계약
+
+| Jenkins | runtime job | mode | 유일한 처치 |
+|---|---|---|---|
+| `polybot-king` | `plum-live-king-90-1m-v1` | live | 절대 TP `0.90` |
+| `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.95` |
+| `polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | raw six-book + 반사실 grid |
+
+- 세 job은 1분 cadence를 사용한다.
+- live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.
+- 수동 wallet position은 봇 DB에 편입하거나 청산하지 않는다.
+- Silver에는 private key, funder address, signature type을 주입하지 않는다.
+- cohort는 `config_hash × strategy_source_digest × mode × job_name`으로 분리한다.
+
+## 핵심 전략 계약
+
+- 축구 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
+- source `live=true`, `ended=false`, 경기 시계 5~75분을 요구한다.
+- 같은 token의 최근 3개 snapshot 간격은 각각 90초 이하여야 한다.
+- 누적 상승은 0.02 이상, 인접 pullback은 0.01 이하여야 한다.
+- 직전 exact `$5` ask VWAP은 0.75 미만, 현재 값은 `[0.75, 0.78]`이어야 한다.
+- 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
+- 공통 SL은 confirmed entry VWAP `-0.15`, source 80분에는 강제 청산한다.
+- Gamma 선필터는 누적 거래량/유동성 각각 5,000이다.
+
+상세 계약과 판정 시점은 `STRATEGY.md` 및
+`research/frozen-2026-08-31-midgame-confirmation-v1/PREREGISTRATION.md`를 따른다.
+
+## 주요 파일
+
+- `src/polybot/config.py`: job별 동결값과 live/simulation fail-closed 검증
+- `src/polybot/strategy/scanner.py`: direct six-book 저장과 token-aligned trend 판정
+- `src/polybot/strategy/trader.py`: exact FOK 주문, TP/SL/80분 exit, event-local 실패 격리
+- `src/polybot/db/models.py`, `db/repository.py`: snapshot, trend lineage, order/fill evidence
+- `scripts/replay_direct_six_book.py`: 직접 호가 DB의 paired 반사실 grid 재생
+- `scripts/verify_external_workspace.py`: Silver external volume preflight
+
+## 실행
+
+```bash
+uv sync --frozen
+uv run polybot config --live --job plum-live-king-90-1m-v1
+uv run polybot run --live --job plum-live-king-90-1m-v1
+
+POLYBOT_TAKE_PROFIT_PRICE=0.95 \
+  uv run polybot run --live --job plum-live-queen-95-1m-v1
+
+unset POLYMARKET_PRIVATE_KEY POLYMARKET_FUNDER_ADDRESS POLYMARKET_SIGNATURE_TYPE
+POLYBOT_TAKE_PROFIT_PRICE=0.95 \
+  uv run polybot run --simulate --job plum-shadow-silver-1m-v1
+```
+
+`--live` 없는 run은 simulation이다. live command는 Jenkins Credentials Binding을
+전제로 하며 secret 값을 source나 문서에 넣지 않는다.
+
+## 테스트와 검증
+
+```bash
+uv sync --frozen --extra dev
+uv run pytest
+uv run python -m compileall -q src scripts
+```
+
+네트워크 unit test는 Gamma/CLOB mock을 사용한다. 실제 주문 검증은 코드 push 뒤
+중지된 Jenkins job의 1회 수동 build로만 수행하고, config·console·DB/order-fill ledger를
+모두 확인한 뒤 timer를 켠다. 한 job의 주문 실패가 다른 event를 막는 회귀,
+`max_positions` 유령 점유, 부분 체결·fee 공백, 1분 runtime 초과를 반드시 검사한다.
+
+## 분석 규칙
+
+- 과거 Golden Watermelon의 합성 NO와 Golden Peach의 direct-book 자료는 탐색용이다.
+- displayed book 재생을 actual fill이나 realized P&L로 표현하지 않는다.
+- live 성과는 `order_fills.status='CONFIRMED'`와 완전한 fee evidence만 사용한다.
+- 첫 24시간에는 collection/execution health만 판정한다.
+- arm당 closed 50, common event 30, evidence gap 0 전에는 금액을 늘리지 않는다.
+- Silver grid를 독립 거래로 세지 말고 `event_id`를 paired unit으로 유지한다.
+
+## 자주 깨지는 부분
+
+- source clock과 벽시계 혼용
+- condition별 YES/NO가 섞인 trend history
+- current snapshot이 아닌 stale row로 first crossing을 만드는 오류
+- fresh six-book leader가 바뀐 뒤 이전 token을 주문하는 오류
+- SELL 실패가 전역 entry guard 또는 전체 cycle을 막는 오류
+- accepted order를 confirmed fill로 오인하는 오류
+- Silver workspace가 internal disk로 돌아가는 구성

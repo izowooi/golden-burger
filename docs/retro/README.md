@@ -33,6 +33,7 @@ resolved config, 체결, 시장 coverage가 증명되지 않는다.
 | golden-orange | [golden-orange.md](golden-orange.md) | Fear Spike Fade |
 | golden-papaya | [golden-papaya.md](golden-papaya.md) | Final Five, 자체 저유동성 60일 archive |
 | golden-peach | [golden-peach.md](golden-peach.md) | **Kickoff Leader**, Eco +3%p/Fruit +5%p live A/B와 Grey 직접 six-book 1분 shadow; 공통 SL −10%p |
+| golden-plum | [golden-plum.md](golden-plum.md) | **Soccer Midgame Confirmation**, King TP 0.90/Queen 0.95 live A/B와 Silver direct six-book 1분 simulation; 0.75 first-cross + 3회/+2%p |
 | golden-pomegranate | [golden-pomegranate.md](golden-pomegranate.md) | **Market Observatory**, accountless `research-full-v1` collector; trading P&L은 N/A |
 | golden-queen | [golden-queen.md](golden-queen.md) | Crown Momentum, 스포츠 포함, 12h/24h 사전 등록 A/B |
 | golden-quince | [golden-quince.md](golden-quince.md) · **⛔ 운영 폐쇄 (2026-08-27)** → [최종 회고](../retro-summaries/035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | **Spread Harvest**, 실행 처치 순서는 성립했으나 표본·손익·throughput gate 실패 |

@@ -53,6 +53,7 @@ _SUPPORTED_STRATEGIES = frozenset(
         "golden-orange",
         "golden-papaya",
         "golden-peach",
+        "golden-plum",
         "golden-queen",
         "golden-quince",
         "golden-tangerine",
@@ -268,9 +269,9 @@ def requirements_for(strategy_name: str) -> SQLiteMaintenanceRequirements:
             retention_days=retention_days,
             minimum_latest_points=6,
         )
-    if normalized == "golden-peach":
-        # Grey's one-minute six-token depth archive is the replay dataset for
-        # future TP/SL selection. Rollups cannot reconstruct direct book levels.
+    if normalized in {"golden-peach", "golden-plum"}:
+        # Peach/Grey and Plum/Silver keep one-minute direct six-token depth as
+        # replay evidence. Rollups cannot reconstruct full book paths.
         retention_days = 60.0
         return SQLiteMaintenanceRequirements(
             full_cadence_hours=retention_days * 24.0,
@@ -355,6 +356,7 @@ def policy_for(
         "golden-melon": 1.0,
         "golden-papaya": 1.0,
         "golden-peach": 60.0 * 24.0,
+        "golden-plum": 60.0 * 24.0,
         "golden-queen": 1.0,
         "golden-quince": 1.0,
         "golden-tangerine": 1.0,
@@ -369,6 +371,7 @@ def policy_for(
         "golden-orange": 21.0,
         "golden-papaya": 60.0,
         "golden-peach": 60.0,
+        "golden-plum": 60.0,
         "golden-queen": 60.0,
         "golden-quince": 60.0,
         "golden-tangerine": 60.0,
@@ -493,9 +496,9 @@ def _snapshot_lineage_gaps(connection: sqlite3.Connection) -> dict[str, int]:
                   SELECT 1 FROM market_snapshots AS prior
                   WHERE prior.condition_id = entry.condition_id
                     AND (
-                        prior.timestamp < entry.timestamp
+                        julianday(prior.timestamp) < julianday(entry.timestamp)
                         OR (
-                            prior.timestamp = entry.timestamp
+                            julianday(prior.timestamp) = julianday(entry.timestamp)
                             AND prior.id < entry.id
                         )
                     )
@@ -522,9 +525,9 @@ def _snapshot_lineage_gaps(connection: sqlite3.Connection) -> dict[str, int]:
                       entry.id IS NULL
                       OR prior.id IS NULL
                       OR prior.condition_id != entry.condition_id
-                      OR prior.timestamp > entry.timestamp
+                      OR julianday(prior.timestamp) > julianday(entry.timestamp)
                       OR (
-                          prior.timestamp = entry.timestamp
+                          julianday(prior.timestamp) = julianday(entry.timestamp)
                           AND prior.id >= entry.id
                       )
                   )
@@ -734,7 +737,7 @@ def _build_protected_snapshot_ids(
                 SELECT prior.id AS snapshot_id,
                        ROW_NUMBER() OVER (
                            PARTITION BY trade.entry_snapshot_id
-                           ORDER BY datetime(prior.timestamp) DESC, prior.id DESC
+                           ORDER BY julianday(prior.timestamp) DESC, prior.id DESC
                        ) AS lineage_rank
                 FROM trades AS trade
                 JOIN market_snapshots AS entry
@@ -742,9 +745,9 @@ def _build_protected_snapshot_ids(
                 JOIN market_snapshots AS prior
                   ON prior.condition_id = entry.condition_id
                  AND (
-                      prior.timestamp < entry.timestamp
+                      julianday(prior.timestamp) < julianday(entry.timestamp)
                       OR (
-                          prior.timestamp = entry.timestamp
+                          julianday(prior.timestamp) = julianday(entry.timestamp)
                           AND prior.id <= entry.id
                       )
                  )
@@ -763,13 +766,13 @@ def _build_protected_snapshot_ids(
                 FROM market_snapshots AS prior
                 WHERE prior.condition_id = entry.condition_id
                   AND (
-                      prior.timestamp < entry.timestamp
+                      julianday(prior.timestamp) < julianday(entry.timestamp)
                       OR (
-                          prior.timestamp = entry.timestamp
+                          julianday(prior.timestamp) = julianday(entry.timestamp)
                           AND prior.id < entry.id
                       )
                   )
-                ORDER BY prior.timestamp DESC, prior.id DESC
+                ORDER BY julianday(prior.timestamp) DESC, prior.id DESC
                 LIMIT 1
             ) AS prior_id
             FROM trades AS trade

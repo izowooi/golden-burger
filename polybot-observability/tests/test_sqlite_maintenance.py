@@ -127,6 +127,13 @@ def test_policy_is_strategy_aware(monkeypatch):
         full_cadence_hours=60 * 24,
         retention_days=60,
     )
+    assert policy_for("golden-plum").selector == "latest"
+    assert policy_for("golden-plum").retention_days == 60
+    assert policy_for("golden-plum").hot_hours == 60 * 24
+    assert requirements_for("golden-plum") == SQLiteMaintenanceRequirements(
+        full_cadence_hours=60 * 24,
+        retention_days=60,
+    )
     assert policy_for("golden-kiwi").selector == "latest"
     assert policy_for("golden-kiwi").retention_days == 60
     assert policy_for("golden-kiwi").hot_hours == 60 * 24
@@ -162,6 +169,8 @@ def test_policy_rejects_non_finite_number(monkeypatch):
         ("golden-kiwi", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-peach", {"POLYBOT_DB_HOT_HOURS": "1439"}),
         ("golden-peach", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
+        ("golden-plum", {"POLYBOT_DB_HOT_HOURS": "1439"}),
+        ("golden-plum", {"POLYBOT_DB_RETENTION_DAYS": "59"}),
         ("golden-nectarine", {"POLYBOT_DB_RETENTION_DAYS": "19"}),
         ("golden-elderberry", {"POLYBOT_DB_HOT_HOURS": "0.5"}),
         ("golden-elderberry", {"POLYBOT_DB_RETENTION_DAYS": "1"}),
@@ -869,7 +878,10 @@ def test_first_crossing_trade_entry_and_immediate_prior_snapshots_are_never_dele
             "SELECT id FROM market_snapshots "
             "WHERE condition_id = 'condition-b' ORDER BY timestamp, id LIMIT 1"
         ).fetchone()[0]
-        old = datetime.utcnow() - timedelta(days=61)
+        # Keep the protected lineage strictly before the July seed range.
+        # A relative ``now - 61d`` overlaps that range around Aug 31 and makes
+        # another seeded row, not ``prior_id``, the true immediate predecessor.
+        old = datetime(2026, 5, 1)
         connection.execute(
             "UPDATE market_snapshots SET timestamp = ? WHERE id = ?",
             (old.isoformat(), prior_id),
