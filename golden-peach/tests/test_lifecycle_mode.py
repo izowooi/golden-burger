@@ -696,6 +696,33 @@ def test_active_blocks_new_buy_when_owned_buy_fee_evidence_is_incomplete(
     session.close.assert_called_once()
 
 
+def test_simulation_does_not_treat_missing_live_fill_ledger_as_entry_gap(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    bot.config.simulation_mode = True
+    candidate = {
+        "condition_id": "market-shadow",
+        "event_id": "event-shadow",
+        "entry_episode_id": 20,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_open_buy_evidence_gap_count.return_value = 1
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 20
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["open_buy_evidence_gaps"] == 0
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    repo.get_open_buy_evidence_gap_count.assert_not_called()
+    trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
 def test_active_blocks_entry_when_allowed_league_metadata_drifts(
     monkeypatch, tmp_path
 ):

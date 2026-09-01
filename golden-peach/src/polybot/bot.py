@@ -352,7 +352,17 @@ class PolymarketBot:
                     )
                 capacity = repo.get_entry_capacity_state()
                 quarantine_state = repo.get_quarantine_state()
-                open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
+                # Simulation orders deliberately have no authenticated venue
+                # fill/fee ledger.  Treating that absence as a live BUY
+                # evidence gap globally blocked otherwise valid concurrent
+                # shadow entries until the first hypothetical position exited.
+                # Keep the fail-closed guard unchanged for live execution, but
+                # do not mistake the simulation contract for missing evidence.
+                open_buy_evidence_gaps = (
+                    0
+                    if self.config.simulation_mode
+                    else repo.get_open_buy_evidence_gap_count()
+                )
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:

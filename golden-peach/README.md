@@ -53,10 +53,18 @@ POLYBOT_TAKE_PROFIT_DELTA=0.05 \
   uv run polybot config --simulate --job peach-shadow-1m-v1
 POLYBOT_TAKE_PROFIT_DELTA=0.05 \
   uv run polybot run --simulate --job peach-shadow-1m-v1
+
+# daily-rsync verify를 통과한 Grey DB의 direct six-book TP/SL 재생
+uv run python scripts/analyze_direct_book_grid.py \
+  --db /absolute/path/to/verified/trades_sim.db \
+  --output /absolute/path/to/analysis.json
 ```
 
 Live는 반드시 Jenkins Credentials Binding과 명시적 `--live`를 사용한다. job/mode/TP가
 사전 등록과 다르면 network와 DB mutation 전에 실패한다.
+
+grid 분석기는 원본 DB를 read-only로 열고 exact `$5` full bid depth와 sports taker fee를
+적용한다. 출력은 표시 호가 반사실이며 actual fill 또는 realized P&L로 해석하지 않는다.
 
 ## 검증 기간
 

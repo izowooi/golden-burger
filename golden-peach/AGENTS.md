@@ -58,6 +58,8 @@ Live 명령은 Jenkins Credentials Binding으로 credential을 공급하고 명�
 - `config_hash × strategy_source_digest × mode × job_name`을 하나의 cohort로 본다.
 - accepted order를 fill로 해석하지 않는다. confirmed size/VWAP/fee가 완전할 때만 실현 성과다.
 - raw direct book과 source clock이 없는 행을 보간하거나 합성해 live 결정을 만들지 않는다.
+- simulation에는 거래소 fill/fee 원장이 없으므로 그 부재를 live 증거 공백으로 오판해 다른
+  경기의 shadow 진입을 막지 않는다. live의 동일 방어는 반드시 fail closed로 유지한다.
 - DB를 clean/merge/backfill하지 않는다. runtime job 이름을 바꿔 epoch를 분리한다.
 - 외부 API 테스트는 mock으로 수행하고 실제 credential 값을 출력·커밋하지 않는다.
 - 배포 후 Jenkins console뿐 아니라 `daily-rsync verify`, SQLite `quick_check`, 최신 run audit,

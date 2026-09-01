@@ -39,3 +39,4 @@
 | 033 | [033-fleet-watermelon-strawberry-raspberry-review-2026-08-24.md](033-fleet-watermelon-strawberry-raspberry-review-2026-08-24.md) | 29개 전략·연구 job 현황, Watermelon 축구 v3a, Strawberry follow-up, Raspberry cadence 재시작과 14일 gate | 2026-08-24 |
 | 034 | [034-papaya-queen-melon-sustainability-review-2026-08-24.md](034-papaya-queen-melon-sustainability-review-2026-08-24.md) | Papaya·Queen·Melon 7개 live job의 confirmed-fill 지속가능성, lifecycle 결함과 수익 운영 중단 판정 | 2026-08-24 |
 | 035 | [035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md](035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | Quince·Melon 6-arm 최종 회고, Quince partial-SELL 정산 복구, close-only·timer 제거·재동기화 검증 | 2026-08-27 |
+| 036 | [036-watermelon-peach-ab-calibration-2026-09-02.md](036-watermelon-peach-ab-calibration-2026-09-02.md) | Watermelon·Peach live/White/Grey 근거 교정, 파라미터 유지 판정과 Grey simulation 전역 BUY 차단 복구 | 2026-09-02 |

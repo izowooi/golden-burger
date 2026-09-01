@@ -62,7 +62,9 @@ BUY/SELL pending 또는 연속 청산 실패가 180분을 넘으면 `QUARANTINED
 
 Grey는 live와 같은 1분 모집단을 credential 없이 수집한다. raw direct YES/NO order-book과
 source clock을 보존해 다른 TP/SL을 사후 재생할 수 있게 한다. 표시 호가 반사실은 actual fill이나
-realized P&L이 아니다.
+realized P&L이 아니다. simulation 주문에는 인증된 거래소 fill/fee 원장이 생기지 않으므로,
+그 부재를 live BUY 증거 공백으로 간주해 다른 경기의 진입을 막지 않는다. live의 확정 체결·수수료
+방어 규칙은 그대로 유지한다.
 
 판정은 단일 `config_hash × strategy_source_digest × mode × job_name` cohort에서 수행한다.
 첫 24시간은 수집 건전성만, 신규 진입 종료 뒤에는 confirmed execution/fee와 resolution coverage를
