@@ -28,7 +28,7 @@ market observatory다.
 | golden-apple | 80% 매수 / 90% 매도 | certainty effect (favorite 과소평가) | favorite 편승 | 0.80–0.90 | **운영 중** (2계정) |
 | golden-banana | 85–97% + 골든크로스 | 모멘텀 지속 | favorite 편승 | 0.85–0.97 | **운영 중** (신호 evidence caveat) |
 | **golden-black** | Sports Resolution Hold | 고확률 sports outcome의 terminal 수렴 | 주문 없는 `$5` ask→resolution/stop 반사실 | 0.92/0.94 × hold/0.80/0.70/0.60 stop, Gamma endDate ≤6h | **research-only · prospective 30일 · live/order 금지** |
-| **golden-coconut** | Five-Family Major Sports Observatory | 종목별 lifecycle·유동성·거래량·고확률 crossing의 구조 측정 | 주문 없는 full-book/path/resolution census | soccer·MLB·NBA·NFL·NHL, 0.75–0.99, `$5`–`$1000`, 5분 | **research-only · polybot-gold · live/order 금지** |
+| **golden-coconut** | Five-Family Major Sports Observatory | 종목별 lifecycle·유동성·거래량·고확률 crossing의 구조 측정 | 주문 없는 full-book/path/resolution census | soccer·MLB·NBA·NFL·NHL, 0.75–0.99, `$5`–`$1000`, 5분 | **수집 종료 2026-09-01 · immutable archive · live/order 금지** |
 | **golden-blueberry** | Closing Surge | 마감 임박 첫 급등 뒤 추가 수렴 | strict binary YES 편승 | 0.85–0.93, ≤72h | **최소금액 live A/B · Eagle +2%p / Cherry +5%p · 2026-08-31 B 재시작** |
 | golden-cherry | Resolution Momentum | 마감 임박 확증 편향 + 수렴 | favorite 편승 | 0.75–0.92, 설정 horizon | **운영 중** |
 | ~~golden-date~~ | Conviction Ladder | cherry와 동일 + 시간 사다리 | favorite 편승 | 시간별 0.70–0.95 | **⛔ 폐쇄 완료 2026-07-29** |
@@ -405,7 +405,7 @@ trigger 가격 체결을 보장하지 않는다. threshold가 없는 경기에 �
 
 `polybot-gold/coconut-major-sports-lifecycle-5m-v7`는 external APFS workspace에서
 soccer·MLB·NBA·NFL·NHL의 exact major-league top-level whole-game moneyline을 경기 전부터
-terminal lifecycle까지 5분마다 수집한다. Soccer는 frozen 8개 대회 query tag로 fan-out하고,
+terminal lifecycle까지 5분마다 수집한 마지막 배치다. Soccer는 frozen 8개 대회 query tag로 fan-out하고,
 미국 4종목은 각 family tag를 `closed=false`, `slot-24h..slot+48h`에서 terminal cursor까지
 읽는다. 다섯 family는 격리된 public HTTP session에서 동시에 시작하고 frozen family order로
 정규화한 뒤 Gamma event ID로 추적한다.
@@ -424,6 +424,10 @@ retry는 cycle failure로 보존한다.
 `golden-coconut/STRATEGY.md`, frozen 계약은
 `golden-coconut/research/frozen-2026-08-28-v7/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-coconut.md`를 따른다.
+
+이 배치는 `2026-09-01T12:15:14.674Z`에 종료했다. 마지막 canonical DB와 누락 console을
+daily-rsync로 증분 보존하고 899개 artifact 검증을 통과했다. 이후 `polybot-gold`는
+`golden-plum/plum-shadow-gold-mlb-1m-v1`으로 재사용되므로 두 전략의 DB·로그·cohort를 합치지 않는다.
 
 ## 14차 설계 — 축구 킥오프 직후 6-token 선두의 짧은 추종
 
@@ -501,6 +505,15 @@ King 4.9–7.6초, Queen 4.6–9.4초, Silver 5.3–9.9초였다. 세 current DB
 지갑 포지션 편입이 0임을 확인했다. 배포 시점의 live event는 허용 8개 대회가 아닌 Chile
 `chi1`뿐이어서 유효 snapshot/trade는 0이었다. 첫 허용 리그 경기 후에는 collection health만
 다시 확인하고 이 결과를 수익성 판정으로 사용하지 않는다.
+
+2026-09-01 commit `abdf181`은 관측 범위를 경기 시작부터 종료까지로 고정하고 80분 강제
+청산을 제거했으며, Silver/Gold simulation에 cached full-book 기반 `$5–$500` 주문 가능 규모를
+추가했다. King/Queen 최신 자연 실행은 6.184/5.538초에 성공했다. `polybot-gold`는 같은 날
+`plum-shadow-gold-mlb-1m-v1`으로 전환했고 최초 설치 build 25.372초, 후속 자연 build
+6.304–9.004초로 성공했다. 첫 동기화 DB는 successful run/sweep 4/4, `quick_check=ok`였지만
+해당 창에 live MLB event가 없어 수익성·파라미터·증액은 판단하지 않는다. Silver는 강화된
+external preflight 인자가 Jenkins shell에 누락돼 잠시 실패했으나 shell을 갱신한 자연 build
+`#1404`가 10.086초에 성공했다.
 
 ## 공통 인프라 개선 (신규 전략 전체 적용)
 

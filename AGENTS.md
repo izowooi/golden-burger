@@ -38,9 +38,11 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   `0.75..0.99` crossing, full CLOB book, `$5..$1000` depth와
   liquidity·volume·season phase를 append-only UTC daily shard에 보존한다. liquidity/volume은
   discovery gate가 아니라 strata이며, official preseason은 별도 `PRESEASON` cell로 둔다.
-  `polybot-gold`의 external APFS workspace에서만 실행하는 accountless research-only collector로,
-  credential·order·`--live`를 source-level로 금지하고 health-only 기간에는 수익성이나 최적
-  sport/threshold/notional을 판정하지 않는다.
+  마지막 v7은 `polybot-gold`의 external APFS workspace에서 실행한 accountless
+  research-only collector였다. credential·order·`--live`는 source-level로 금지한다.
+  **2026-09-01T12:15:14.674Z에 수집을 종료**했고 현재 scheduled Jenkins job은 없다.
+  `polybot-gold`는 이후 Golden Plum MLB simulation으로 재사용하므로 Coconut DB·로그는
+  immutable historical epoch로만 보존하고 Plum과 합치지 않는다.
 - `golden-tangerine/`: **Sports Resolution Hold Live A/B** — Golden Black과 같은 sports 6h
   universe의 aligned two-outcome(팀명 moneyline과 Yes/No proposition)을 두 기존 wallet에서
   최소 `$5`로 prospective 검증한다. `polybot-orange`는 exact
@@ -177,16 +179,17 @@ lineage가 달라 자체 archive/catalog를 주 source로 사용한다. "중앙 
 `compact-v1`을 적용하지 않고 row를 지우지 않으며, external APFS workspace와
 whole-shard backup/retention 계약을 사용한다. 이 DB를 trade/fill/P&L evidence로 해석하지 않는다.
 
-`golden-coconut`도 거래 DB가 아닌
+`golden-coconut`의 마지막 v7 epoch도 거래 DB가 아닌
 `data/coconut-major-sports-lifecycle-5m-v7/trades_sim.db`와
-`trades_sim_YYYYMMDD.db` UTC daily shard를 사용한다. `polybot-gold`의 external APFS workspace,
+`trades_sim_YYYYMMDD.db` UTC daily shard를 사용했다. 당시 `polybot-gold`의 external APFS workspace,
 exact workspace marker와 150 GiB/70%/80% storage guard를 확인한 뒤 soccer의 frozen 8개 대회
 query-tag fan-out과 MLB·NBA·NFL·NHL family sweep을 서로 격리된 다섯 worker에서 동시에 시작한다.
 그 뒤 semantic root-or-season identity census, event-by-ID lifecycle, full book,
 crossing/path/resolution을 저장한다. liquidity·volume과 official
 preseason은 selection이 아니라 독립 strata다. HTTP body는 15초 total-attempt 경계를 적용해
 socket read가 이어지는 slow stream도 bounded retry/fail-closed하며, 이 DB를 actual fill/P&L
-evidence로 해석하지 않는다. v1–v6 DB는 current v7 cohort와 합치지 않는다.
+evidence로 해석하지 않는다. v1–v6 DB와 마지막 v7 DB를 서로 합치지 않으며, 어느 Coconut
+DB도 현재 `polybot-gold`의 Golden Plum cohort와 합치지 않는다.
 
 `golden-raspberry`도 `data/<runtime-job>/trades_sim.db`를 사용하지만 일별 shard가 아니라 세 개의
 고정 hash-shard DB다. 현재 `raspberry-do/re/mi-v3-shard-*`의 `queue-echo-v3` raw Gamma/CLOB

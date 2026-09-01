@@ -177,3 +177,17 @@ uv run daily-rsync verify --job polybot-gold --strategy golden-plum
 종목별 complete direct-book set과 full-game lifecycle, capacity JSON, cohort,
 pending/quarantine 상태, 저장공간 증가량을 함께
 기록하고 과거 Queen/Quince/Watermelon 또는 Gold의 Golden Coconut epoch와 병합하지 않는다.
+
+## 2026-09-01 배포 기록
+
+- 배포 commit: `abdf181fd013…`
+- King/Queen: 축구 full-match, source minute `[0, match_end]`, time exit disabled를 자연 실행에서
+  확인했다. 최신 확인 총시간은 6.184/5.538초다.
+- Gold: `/Volumes/t7/jenkins/polybot-gold`, runtime `plum-shadow-gold-mlb-1m-v1`, timer
+  `* * * * *`로 전환했다. 최초 설치 build는 25.372초, warm build는 6.304–9.004초다.
+  첫 네 run audit과 네 cursor-complete sweep이 SUCCESS였고 해당 창의 live MLB event는 0이었다.
+- Silver: 강화된 external preflight의 `--job/--database` 누락을 Jenkins shell에서 수정했다.
+  자연 build `#1404`는 exact APFS/DB marker, simulation scaling ladder와 run audit을 확인하고
+  10.086초에 성공했다.
+- Coconut 마지막 epoch는 cutover 전에 최종 증분 sync했고 899개 artifact verify를 통과했다.
+  `#1160` 실패 console 한 건은 daily-rsync catalog에 포함되지 않은 제한으로 별도 기록한다.

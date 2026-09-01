@@ -7,8 +7,10 @@
 ## 프로젝트 목적과 경계
 
 Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneyline을 경기 전부터
-종료·해결까지 5분마다 추적하는 accountless research collector다. canonical runtime은
-`coconut-major-sports-lifecycle-5m-v7`, Jenkins job은 `polybot-gold`다.
+종료·해결까지 5분마다 추적한 accountless research collector다. 마지막 canonical runtime은
+`coconut-major-sports-lifecycle-5m-v7`이었다. `polybot-gold` 배치는
+`2026-09-01T12:15:14.674Z`에 종료됐고 현재 scheduled Jenkins job은 없다. 이후 같은 Jenkins
+job은 Golden Plum MLB simulation으로 재사용되므로 Coconut DB·로그를 새 runtime과 합치지 않는다.
 
 - `archive_only`, simulation/shadow only다.
 - wallet, account, signing, credential, private endpoint, order path를 추가하지 않는다.
@@ -75,9 +77,10 @@ fake client만 사용하며 live network를 test에서 호출하지 않는다. s
 cursor completion, book/crossing/resolution, append-only transaction, slot/deadline/storage/skew,
 analyzer missing-sport와 season phase 분리를 모두 회귀 검증한다.
 
-Jenkins 운영은 `OPERATIONS.md`와 project-owned `Jenkinsfile`을 따른다. exact workspace marker는
-`/Volumes/t7/jenkins/polybot-gold/.daily-rsync-workspace.json`이며
-`schema_version=1`, `job=polybot-gold`, exact workspace의 세 key만 가져야 한다.
+과거 Jenkins 운영 계약은 `OPERATIONS.md`와 project-owned `Jenkinsfile`에 보존한다. 마지막
+Coconut epoch의 exact workspace marker는
+`/Volumes/t7/jenkins/polybot-gold/.daily-rsync-workspace.json`이었다. 현재 이 marker와 workspace는
+Golden Plum이 소유하므로 Coconut을 같은 job에서 다시 실행하거나 marker를 덮어쓰지 않는다.
 
 ## 결정 출처
 
