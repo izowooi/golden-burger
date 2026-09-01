@@ -1,7 +1,7 @@
 [project]
 name = "golden-plum"
 version = "0.1.0"
-description = "Exact-$5 soccer full-match trend A/B and direct six-book evidence"
+description = "Sport-profiled full-game trend A/B and direct-book evidence"
 requires-python = ">=3.11"
 dependencies = [
     "polybot-observability",

@@ -12,6 +12,7 @@ from sqlalchemy import (
     Enum,
     Float,
     ForeignKey,
+    Index,
     Integer,
     String,
     create_engine,
@@ -187,6 +188,17 @@ class MarketSnapshot(Base):
     book_json = Column(String)
     execution_capacity_json = Column(String)
     run_id = Column(String)
+    config_hash = Column(String, index=True)
+    sport_family = Column(String, index=True)
+    sport_profile_version = Column(String)
+    protocol_sha256 = Column(String)
+    classifier_version = Column(String)
+    league_mapping_sha256 = Column(String)
+    strategy_source_digest = Column(String)
+    book_shape = Column(String)
+    event_cycle_id = Column(String, index=True)
+    event_set_complete = Column(Integer)
+    event_set_reason = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -273,6 +285,27 @@ class MarketCatalog(Base):
     resolved_value = Column(Float)
     resolved_at = Column(String)
     source_updated_at = Column(String)
+    config_hash = Column(String, index=True)
+    sport_family = Column(String, index=True)
+    sport_profile_version = Column(String)
+    protocol_sha256 = Column(String)
+    classifier_version = Column(String)
+    league_mapping_sha256 = Column(String)
+    strategy_source_digest = Column(String)
+    book_shape = Column(String)
+    last_event_cycle_id = Column(String)
+    last_event_set_complete = Column(Integer)
+    last_event_set_reason = Column(String)
+    last_live_sweep_id = Column(String)
+    last_live_seen_at = Column(DateTime, index=True)
+    followup_status = Column(String, index=True)
+    followup_attempt_count = Column(Integer, nullable=False, default=0)
+    followup_last_attempt_at = Column(DateTime)
+    followup_next_attempt_at = Column(DateTime, index=True)
+    followup_last_error = Column(String)
+    resolution_evidence_json = Column(String)
+    resolution_evidence_sha256 = Column(String)
+    resolution_observed_at = Column(DateTime)
     first_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     last_seen_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
@@ -304,6 +337,21 @@ class MarketSweep(Base):
     membership_detail_stored = Column(
         Integer, nullable=False, default=1, server_default=text("1")
     )
+    config_hash = Column(String, index=True)
+    sport_family = Column(String, index=True)
+    sport_profile_version = Column(String)
+    protocol_sha256 = Column(String)
+    classifier_version = Column(String)
+    league_mapping_sha256 = Column(String)
+    strategy_source_digest = Column(String)
+    book_shape = Column(String)
+    expected_result_kinds_json = Column(String)
+    expected_market_count = Column(Integer)
+    expected_token_count = Column(Integer)
+    event_count = Column(Integer)
+    complete_event_count = Column(Integer)
+    incomplete_event_count = Column(Integer)
+    event_evidence_digest_sha256 = Column(String)
 
 
 class MarketSweepMembership(Base):
@@ -323,6 +371,99 @@ class MarketSweepMembership(Base):
     snapshot_eligible = Column(Integer, nullable=False)
     snapshotted = Column(Integer, nullable=False)
     snapshot_reason = Column(String, nullable=False)
+    event_id = Column(String, index=True)
+    event_cycle_id = Column(String, index=True)
+    event_set_complete = Column(Integer)
+    event_set_reason = Column(String)
+
+
+class EventCycleEvidence(Base):
+    """One fail-closed complete-set decision for a sweep event.
+
+    A condition-level snapshot is not sufficient evidence for a soccer triad or
+    a direct two-team moneyline.  This row preserves the exact event population
+    seen in one cycle, including missing and duplicate identities.
+    """
+
+    __tablename__ = "event_cycle_evidence"
+
+    event_cycle_id = Column(String, primary_key=True)
+    sweep_id = Column(
+        String,
+        ForeignKey("market_sweeps.sweep_id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    run_id = Column(String, index=True)
+    config_hash = Column(String, index=True)
+    event_id = Column(String, nullable=False, index=True)
+    observed_at = Column(DateTime, nullable=False, index=True)
+    sport_family = Column(String, nullable=False, index=True)
+    sport_profile_version = Column(String, nullable=False)
+    protocol_sha256 = Column(String, nullable=False)
+    classifier_version = Column(String, nullable=False)
+    league_mapping_sha256 = Column(String, nullable=False)
+    strategy_source_digest = Column(String, nullable=False)
+    book_shape = Column(String, nullable=False)
+    expected_result_kinds_json = Column(String, nullable=False)
+    observed_result_kinds_json = Column(String, nullable=False)
+    missing_result_kinds_json = Column(String, nullable=False)
+    condition_ids_json = Column(String, nullable=False)
+    token_ids_json = Column(String, nullable=False)
+    expected_market_count = Column(Integer, nullable=False)
+    observed_market_count = Column(Integer, nullable=False)
+    expected_token_count = Column(Integer, nullable=False)
+    observed_token_count = Column(Integer, nullable=False)
+    duplicate_condition_count = Column(Integer, nullable=False)
+    duplicate_token_count = Column(Integer, nullable=False)
+    duplicate_identity_count = Column(Integer, nullable=False)
+    complete = Column(Integer, nullable=False, index=True)
+    reason = Column(String, nullable=False)
+    evidence_sha256 = Column(String, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "event_cycle_evidence_sweep_event_idx",
+            "sweep_id",
+            "event_id",
+            unique=True,
+        ),
+    )
+
+
+class TrackedResolutionObservation(Base):
+    """Append-only terminal one-hot evidence independent of a bot order."""
+
+    __tablename__ = "tracked_resolution_observations"
+
+    resolution_id = Column(String, primary_key=True)
+    condition_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, index=True)
+    run_id = Column(String, index=True)
+    config_hash = Column(String, index=True)
+    sport_family = Column(String, nullable=False, index=True)
+    sport_profile_version = Column(String, nullable=False)
+    protocol_sha256 = Column(String, nullable=False)
+    classifier_version = Column(String, nullable=False)
+    league_mapping_sha256 = Column(String, nullable=False)
+    strategy_source_digest = Column(String, nullable=False)
+    observed_at = Column(DateTime, nullable=False, index=True)
+    source = Column(String, nullable=False)
+    winner_index = Column(Integer, nullable=False)
+    winner_token_id = Column(String, nullable=False)
+    winner_outcome = Column(String, nullable=False)
+    payouts_json = Column(String, nullable=False)
+    evidence_sha256 = Column(String, nullable=False)
+    evidence_json = Column(String, nullable=False)
+
+    __table_args__ = (
+        Index(
+            "tracked_resolution_condition_evidence_idx",
+            "condition_id",
+            "evidence_sha256",
+            unique=True,
+        ),
+    )
 
 
 class SkippedMarket(Base):
@@ -335,6 +476,36 @@ class SkippedMarket(Base):
 
 
 _TRADE_MIGRATION_COLUMNS = {
+    # The first Golden Plum schema predates the additive lineage migrations.
+    # Keep its base columns explicit here so even a sparse legacy fixture is
+    # upgraded deterministically instead of relying on create_all() (which
+    # never alters an existing table).
+    "condition_id": "TEXT NOT NULL DEFAULT 'legacy-unknown-condition'",
+    "market_slug": "TEXT",
+    "question": "TEXT",
+    "outcome": "TEXT NOT NULL DEFAULT 'Unknown'",
+    "token_id": "TEXT NOT NULL DEFAULT 'legacy-unknown-token'",
+    "buy_price": "REAL",
+    "buy_amount": "REAL",
+    "buy_shares": "REAL",
+    "buy_order_id": "TEXT",
+    "buy_timestamp": "DATETIME",
+    "buy_probability": "REAL",
+    "sell_price": "REAL",
+    "sell_shares": "REAL",
+    "sell_order_id": "TEXT",
+    "sell_timestamp": "DATETIME",
+    "sell_probability": "REAL",
+    "realized_pnl": "REAL",
+    "status": "TEXT",
+    "entry_reason": "TEXT",
+    "exit_reason": "TEXT",
+    "market_end_date": "DATETIME",
+    "hours_until_resolution_at_buy": "REAL",
+    "liquidity_at_buy": "REAL",
+    "market_tags": "TEXT",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
     "event_id": "TEXT",
     "event_slug": "TEXT",
     "outcome_side": "TEXT",
@@ -393,6 +564,195 @@ _TRADE_MIGRATION_COLUMNS = {
     "settlement_assumption_basis": "TEXT",
 }
 
+_SNAPSHOT_MIGRATION_COLUMNS = {
+    "token_id": "TEXT",
+    "outcome": "TEXT",
+    "event_id": "TEXT",
+    "outcome_side": "TEXT",
+    "result_kind": "TEXT",
+    "midpoint": "REAL",
+    "best_bid": "REAL",
+    "best_ask": "REAL",
+    "spread": "REAL",
+    "source_updated_at": "TEXT",
+    "source_elapsed_minutes": "REAL",
+    "source_clock_reason": "TEXT",
+    "book_json": "TEXT",
+    "execution_capacity_json": "TEXT",
+    "run_id": "TEXT",
+    "config_hash": "TEXT",
+    "sport_family": "TEXT",
+    "sport_profile_version": "TEXT",
+    "protocol_sha256": "TEXT",
+    "classifier_version": "TEXT",
+    "league_mapping_sha256": "TEXT",
+    "strategy_source_digest": "TEXT",
+    "book_shape": "TEXT",
+    "event_cycle_id": "TEXT",
+    "event_set_complete": "INTEGER",
+    "event_set_reason": "TEXT",
+}
+
+_ENTRY_EPISODE_MIGRATION_COLUMNS = {
+    "game_start_time": "DATETIME",
+    "in_play_hours": "REAL",
+    "source_elapsed_minutes": "REAL",
+    "trend_start_snapshot_id": "INTEGER",
+    "trend_middle_snapshot_id": "INTEGER",
+    "trend_observations": "INTEGER",
+    "trend_cumulative_move": "REAL",
+    "trend_max_pullback": "REAL",
+    "trend_elapsed_seconds": "REAL",
+    "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
+    "execution_reason": "TEXT",
+    "last_attempted_at": "DATETIME",
+}
+
+_SWEEP_MIGRATION_COLUMNS = {
+    "membership_detail_stored": "INTEGER NOT NULL DEFAULT 1",
+    "config_hash": "TEXT",
+    "sport_family": "TEXT",
+    "sport_profile_version": "TEXT",
+    "protocol_sha256": "TEXT",
+    "classifier_version": "TEXT",
+    "league_mapping_sha256": "TEXT",
+    "strategy_source_digest": "TEXT",
+    "book_shape": "TEXT",
+    "expected_result_kinds_json": "TEXT",
+    "expected_market_count": "INTEGER",
+    "expected_token_count": "INTEGER",
+    "event_count": "INTEGER",
+    "complete_event_count": "INTEGER",
+    "incomplete_event_count": "INTEGER",
+    "event_evidence_digest_sha256": "TEXT",
+}
+
+_SWEEP_MEMBERSHIP_MIGRATION_COLUMNS = {
+    "event_id": "TEXT",
+    "event_cycle_id": "TEXT",
+    "event_set_complete": "INTEGER",
+    "event_set_reason": "TEXT",
+}
+
+_CATALOG_MIGRATION_COLUMNS = {
+    "fee_exponent": "INTEGER",
+    "fee_taker_only": "INTEGER",
+    "config_hash": "TEXT",
+    "sport_family": "TEXT",
+    "sport_profile_version": "TEXT",
+    "protocol_sha256": "TEXT",
+    "classifier_version": "TEXT",
+    "league_mapping_sha256": "TEXT",
+    "strategy_source_digest": "TEXT",
+    "book_shape": "TEXT",
+    "last_event_cycle_id": "TEXT",
+    "last_event_set_complete": "INTEGER",
+    "last_event_set_reason": "TEXT",
+    "last_live_sweep_id": "TEXT",
+    "last_live_seen_at": "DATETIME",
+    "followup_status": "TEXT",
+    "followup_attempt_count": "INTEGER NOT NULL DEFAULT 0",
+    "followup_last_attempt_at": "DATETIME",
+    "followup_next_attempt_at": "DATETIME",
+    "followup_last_error": "TEXT",
+    "resolution_evidence_json": "TEXT",
+    "resolution_evidence_sha256": "TEXT",
+    "resolution_observed_at": "DATETIME",
+}
+
+_EVENT_CYCLE_MIGRATION_COLUMNS = {
+    "duplicate_identity_count": "INTEGER NOT NULL DEFAULT 0",
+}
+
+
+def _table_info(connection, table_name: str) -> dict[str, tuple]:
+    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    if not rows:
+        raise RuntimeError(f"required SQLite table is missing: {table_name}")
+    return {str(row[1]): tuple(row) for row in rows}
+
+
+def _table_columns(connection, table_name: str) -> set[str]:
+    return set(_table_info(connection, table_name))
+
+
+def _sqlite_affinity(declared_type: str) -> str:
+    normalized = declared_type.upper()
+    if "INT" in normalized:
+        return "INTEGER"
+    if any(marker in normalized for marker in ("CHAR", "CLOB", "TEXT")):
+        return "TEXT"
+    if "BLOB" in normalized or not normalized:
+        return "BLOB"
+    if any(marker in normalized for marker in ("REAL", "FLOA", "DOUB")):
+        return "REAL"
+    return "NUMERIC"
+
+
+def _model_affinity(column) -> str:
+    if isinstance(column.type, Integer):
+        return "INTEGER"
+    if isinstance(column.type, Float):
+        return "REAL"
+    if isinstance(column.type, (String, Enum)):
+        return "TEXT"
+    if isinstance(column.type, DateTime):
+        return "NUMERIC"
+    raise RuntimeError(
+        f"unsupported SQLite model type for {column.table.name}.{column.name}: "
+        f"{column.type!r}"
+    )
+
+
+def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> None:
+    """Apply only known additive migrations and verify every result.
+
+    The previous broad ``except Exception: pass`` treated permission errors,
+    malformed tables, and a genuinely failed migration as if a column already
+    existed.  Inspecting first makes duplicate-column handling deterministic;
+    any other SQLite failure now aborts startup.
+    """
+
+    existing = _table_columns(connection, table_name)
+    for name, sql_type in columns.items():
+        if name in existing:
+            continue
+        connection.execute(
+            text(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+        )
+        existing.add(name)
+    missing = set(columns) - _table_columns(connection, table_name)
+    if missing:
+        raise RuntimeError(
+            f"SQLite migration did not create {table_name} columns: "
+            f"{sorted(missing)}"
+        )
+
+
+def _verify_model_columns(connection, table_name: str) -> None:
+    model_table = Base.metadata.tables[table_name]
+    expected = {column.name for column in model_table.columns}
+    table_info = _table_info(connection, table_name)
+    missing = expected - set(table_info)
+    if missing:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; missing columns: {sorted(missing)}"
+        )
+    mismatched = []
+    for column in model_table.columns:
+        declared_type = str(table_info[column.name][2])
+        expected_affinity = _model_affinity(column)
+        actual_affinity = _sqlite_affinity(declared_type)
+        if actual_affinity != expected_affinity:
+            mismatched.append(
+                f"{column.name}: expected {expected_affinity}, "
+                f"found {actual_affinity} ({declared_type or 'untyped'})"
+            )
+    if mismatched:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; type mismatches: {mismatched}"
+        )
+
 
 def init_database(
     db_path: str,
@@ -400,7 +760,7 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
 ) -> sessionmaker:
-    """Create the schema and best-effort upgrade an existing local DB."""
+    """Create the schema and fail closed on an incomplete additive upgrade."""
     prepare_database(
         db_path,
         "golden-plum",
@@ -409,81 +769,37 @@ def init_database(
     )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
-    with engine.connect() as connection:
-        for name, sql_type in _TRADE_MIGRATION_COLUMNS.items():
-            try:
-                connection.execute(text(f"ALTER TABLE trades ADD COLUMN {name} {sql_type}"))
-                connection.commit()
-            except Exception:
-                pass
-        for name, sql_type in {
-            "token_id": "TEXT",
-            "outcome": "TEXT",
-            "event_id": "TEXT",
-            "outcome_side": "TEXT",
-            "result_kind": "TEXT",
-            "midpoint": "REAL",
-            "best_bid": "REAL",
-            "best_ask": "REAL",
-            "spread": "REAL",
-            "source_updated_at": "TEXT",
-            "source_elapsed_minutes": "REAL",
-            "source_clock_reason": "TEXT",
-            "book_json": "TEXT",
-            "execution_capacity_json": "TEXT",
-            "run_id": "TEXT",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE market_snapshots ADD COLUMN {name} {sql_type}")
-                )
-                connection.commit()
-            except Exception:
-                pass
-        for name, sql_type in {
-            "game_start_time": "DATETIME",
-            "in_play_hours": "REAL",
-            "source_elapsed_minutes": "REAL",
-            "trend_start_snapshot_id": "INTEGER",
-            "trend_middle_snapshot_id": "INTEGER",
-            "trend_observations": "INTEGER",
-            "trend_cumulative_move": "REAL",
-            "trend_max_pullback": "REAL",
-            "trend_elapsed_seconds": "REAL",
-            "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
-            "execution_reason": "TEXT",
-            "last_attempted_at": "DATETIME",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE entry_episodes ADD COLUMN {name} {sql_type}")
-                )
-                connection.commit()
-            except Exception:
-                pass
-        try:
-            connection.execute(
-                text(
-                    "ALTER TABLE market_sweeps ADD COLUMN "
-                    "membership_detail_stored INTEGER NOT NULL DEFAULT 1"
-                )
-            )
-            connection.commit()
-        except Exception:
-            pass
-        for name, sql_type in {
-            "fee_exponent": "INTEGER",
-            "fee_taker_only": "INTEGER",
-        }.items():
-            try:
-                connection.execute(
-                    text(
-                        f"ALTER TABLE market_catalog ADD COLUMN {name} {sql_type}"
-                    )
-                )
-                connection.commit()
-            except Exception:
-                pass
+    with engine.begin() as connection:
+        _ensure_columns(connection, "trades", _TRADE_MIGRATION_COLUMNS)
+        _ensure_columns(
+            connection, "market_snapshots", _SNAPSHOT_MIGRATION_COLUMNS
+        )
+        _ensure_columns(
+            connection, "entry_episodes", _ENTRY_EPISODE_MIGRATION_COLUMNS
+        )
+        _ensure_columns(connection, "market_sweeps", _SWEEP_MIGRATION_COLUMNS)
+        _ensure_columns(
+            connection,
+            "market_sweep_memberships",
+            _SWEEP_MEMBERSHIP_MIGRATION_COLUMNS,
+        )
+        _ensure_columns(connection, "market_catalog", _CATALOG_MIGRATION_COLUMNS)
+        _ensure_columns(
+            connection,
+            "event_cycle_evidence",
+            _EVENT_CYCLE_MIGRATION_COLUMNS,
+        )
+        for table_name in (
+            "trades",
+            "market_snapshots",
+            "entry_episodes",
+            "market_catalog",
+            "market_sweeps",
+            "market_sweep_memberships",
+            "event_cycle_evidence",
+            "tracked_resolution_observations",
+        ):
+            _verify_model_columns(connection, table_name)
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
@@ -517,5 +833,18 @@ def init_database(
                 "SELECT RAISE(ABORT, 'append-only evidence'); END"
             )
         )
-        connection.commit()
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS tracked_resolution_forbid_update "
+                "BEFORE UPDATE ON tracked_resolution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS tracked_resolution_forbid_delete "
+                "BEFORE DELETE ON tracked_resolution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
+        )
     return sessionmaker(bind=engine)

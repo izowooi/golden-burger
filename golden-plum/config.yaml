@@ -1,12 +1,14 @@
-# Golden Plum — soccer full-match confirmation A/B and raw six-book collector.
+# Golden Plum — sport-profiled full-game confirmation and raw-book collector.
 # env > config.yaml > defaults. Real orders always require explicit --live.
+# This file documents the soccer baseline. RuntimeSpec + sport profile own the
+# immutable MLB/NBA/NFL/NHL branch values; shared YAML cannot override them.
 
 trading:
   lifecycle_mode: active
   sport_family: soccer
   buy_amount_usdc: 5.0
 
-  # Gamma server-side prefilter, followed by direct six-token exact-$5 books.
+  # Soccer baseline. MLB Gold resolves these from its own versioned profile.
   min_liquidity: 5000
   min_volume_24h: 0
   min_cumulative_volume: 5000

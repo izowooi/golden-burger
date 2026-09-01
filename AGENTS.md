@@ -64,13 +64,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   허용하되 신규 stop은 금지하고 resolution을 기다린다. `polybot-grey`는 같은 1분 모집단의
   credential-free simulation/raw six-book 수집기다. SELL 실패는 event-local이며 180분 뒤
   성공 체결로 꾸미지 않고 경제적 open 상태의 `QUARANTINED`로 격리한다.
-- `golden-plum/`: **Soccer Full-Match Confirmation** — 축구 경기 시작부터 종료까지 직접 YES·NO
-  6개 호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을
-  처음 통과할 때 exact `$5` FOK로 event당 한 번만 진입한다. `polybot-king`은 절대 TP
-  `0.90`, `polybot-queen`은 `0.95`; 공통 SL은 confirmed entry −0.15이고 시간 강제
-  청산 없이 TP·SL·검증된 resolution로만 종료한다. `polybot-silver`는 credential-free
-  direct six-book/raw path와 `$5~$500` displayed-depth 증액 자료 수집기다.
-  과거 17경기 재생은 파라미터 탐색 근거일 뿐이며, prospective(앞으로 수집하는) A/B가
+- `golden-plum/`: **Sport-Profiled Full-Game Confirmation** — 경기 시작부터 종료까지 직접 결과
+  호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을 처음
+  통과하는지 종목별로 검정한다. 축구는 HOME/DRAW/AWAY YES·NO 6token이며 King TP 0.90,
+  Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
+  사용한다. `polybot-silver`는 축구, `polybot-gold`는 MLB direct two-team moneyline의
+  credential-free 1분 raw path와 `$5~$500` displayed-depth 증액 자료를 수집한다.
+  NBA·NFL·NHL은 code-ready이고 아직 배포하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
@@ -229,8 +229,10 @@ Grey는 직접 YES·NO 6개 raw book과 source clock을 저장한다. 과거 Wat
 archive에서 만든 합성 NO 재생은 탐색 자료일 뿐 current direct-book cohort와 합치지 않는다.
 
 `golden-plum`은 `polybot-king/plum-live-king-90-1m-v1`,
-`polybot-queen/plum-live-queen-95-1m-v1`, `polybot-silver/plum-shadow-silver-1m-v1`의
-독립 DB를 사용한다. King/Queen은 절대 TP만 다르고 Silver는 credential-free simulation이다.
+`polybot-queen/plum-live-queen-95-1m-v1`, `polybot-silver/plum-shadow-silver-1m-v1`,
+`polybot-gold/plum-shadow-gold-mlb-1m-v1`의 독립 DB를 사용한다. King/Queen은 축구 절대 TP만
+다르고 Silver는 축구, Gold는 MLB credential-free simulation이다. Gold의 과거 Golden
+Coconut epoch와 새 Golden Plum epoch는 Jenkins 이름이 같아도 절대 합치지 않는다.
 Golden Peach Grey의 직접 six-book 재생은 탐색 자료일 뿐 Golden Plum의 앞으로 수집하는
 `config_hash × strategy_source_digest × mode × job_name` cohort와 합치지 않는다.
 
@@ -244,7 +246,7 @@ GTC 주문의 `live`/`accepted` 응답은 체결이 아니다. 실현 성과는 
 - Python 프로젝트는 **uv** 표준을 따른다: `uv sync --frozen` 후 `uv run ...`. (`legacy`만 `requirements.txt` 예외.)
 - Node 프로젝트(`polymarket-dashboard`)는 npm을 쓴다.
 - 공통 유틸은 2개 이상 실제 사용 사례가 생긴 뒤 고려하고, 먼저 폴더 내부에서 단순 해결한다.
-- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Black·Coconut·Kiwi·Blueberry·Raspberry·Strawberry·Tangerine·Watermelon·Watermelon Live·Peach는 모노레포 commit을 cohort로 쓰지 않고 L3 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다. Golden Pomegranate도 Git commit을 provenance로만 두고 L3의 `config_hash × strategy_source_digest × mode × job_name × schema_profile`을 사용한다.
+- 실거래 cycle은 관측성 기록 실패 시 fail closed한다. 전략 판단을 바꾸기 전에 `config_hash × git_commit × mode × job_name` cohort와 fill/archive coverage를 확인한다. 단, Golden Black·Coconut·Kiwi·Blueberry·Raspberry·Strawberry·Tangerine·Watermelon·Watermelon Live·Peach·Plum은 모노레포 commit을 cohort로 쓰지 않고 L3 계약의 `config_hash × strategy_source_digest × mode × job_name`을 사용한다. Golden Pomegranate도 Git commit을 provenance로만 두고 L3의 `config_hash × strategy_source_digest × mode × job_name × schema_profile`을 사용한다.
 
 ### Task summary 완료 checkpoint
 
@@ -274,7 +276,7 @@ inventory는 routing 후보이지 sync 성공이나 historical epoch의 권위�
 
 Jenkins job 또는 strategy 이름만 주어지면 DB/log 경로를 사용자에게 묻지 않고 `daily-rsync/README.md`, `daily-rsync/DATA_LAYOUT.md`, `daily-rsync/OPERATIONS.md`를 확인해 local catalog에서 evidence를 자동 발견한다. local evidence가 없거나 요청 기간을 덮지 않으면 임의 SSH/rsync를 실행하지 말고 evidence gap과 필요한 sync 범위를 보고한다.
 `default`는 Jenkins job이 아니라 runtime job이며, 하나의 strategy가 여러 Jenkins job에, 하나의 Jenkins job이 여러 strategy epoch에 대응할 수 있으므로 `source × Jenkins job × strategy × runtime job`을 evidence discovery 경계로 분리한다.
-실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다. Golden Black·Kiwi·Blueberry·Pomegranate·Raspberry·Strawberry·Tangerine·Watermelon·Watermelon Live는 각 L3에 명시된 strategy source digest 기반 예외를 따른다.
+실제 성과 분석에서는 각 DB 내부를 `config_hash × git_commit × mode × job_name` cohort로 더 분리하며, discovery 경계를 하나의 분석 cohort로 간주하지 않는다. Golden Black·Kiwi·Blueberry·Pomegranate·Raspberry·Strawberry·Tangerine·Watermelon·Watermelon Live·Plum은 각 L3에 명시된 strategy source digest 기반 예외를 따른다.
 Golden Pomegranate는 trade/fill retro 대상이 아니다. active `trades_sim.db`와 요청 구간의
 `trades_sim_YYYYMMDD.db` shard를 모두 `daily-rsync verify`로 확인한 뒤 collector health,
 cursor-complete census, source-component coverage, watermark gap과 manifest checksum을 검사한다.

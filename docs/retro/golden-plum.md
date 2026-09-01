@@ -18,7 +18,7 @@ export FOLLOWUP_END=2026-09-21T00:00:00Z
   첫 성공 run을 찾아 그 시각부터 정확히 24시간인 half-open range를 고정한다. King/Queen
   비교는 두 범위의 교집합과 같은 event만 사용한다.
 - King `plum-live-king-90-1m-v1`, Queen `plum-live-queen-95-1m-v1`, Silver
-  `plum-shadow-silver-1m-v1`을 각각 독립 DB로 읽는다.
+  `plum-shadow-silver-1m-v1`, Gold `plum-shadow-gold-mlb-1m-v1`을 각각 독립 DB로 읽는다.
 - `config_hash × strategy_source_digest × mode × job_name`이 다른 행은 별도 cohort다.
 - 과거 Queen/Quince, Peach/Watermelon DB나 Jenkins job 이름만으로 전략 epoch를 추정하지 않는다.
 
@@ -29,9 +29,11 @@ cd daily-rsync
 uv run daily-rsync locate --job polybot-king
 uv run daily-rsync locate --job polybot-queen
 uv run daily-rsync locate --job polybot-silver
+uv run daily-rsync locate --job polybot-gold
 uv run daily-rsync verify --job polybot-king --strategy golden-plum
 uv run daily-rsync verify --job polybot-queen --strategy golden-plum
 uv run daily-rsync verify --job polybot-silver --strategy golden-plum
+uv run daily-rsync verify --job polybot-gold --strategy golden-plum
 
 cd ..
 uv run --project polybot-observability polybot-retro audit \
@@ -46,7 +48,8 @@ uv run --project polybot-observability polybot-retro audit \
 각 DB의 절대 경로, SHA-256, sync/source cutoff, `PRAGMA quick_check`, 최신 successful run,
 resolved config, source digest와 preregistration hash를 보고서 첫머리에 기록한다.
 `CRITICAL`/`HIGH` 문제, BUY/SELL fill·fee 공백, 부분 체결 미대사 또는 cohort 혼합이 있으면
-성과·파라미터 판단을 중단한다. Silver는 주문·체결·실현 손익 자료가 아니다.
+성과·파라미터 판단을 중단한다. Silver/Gold는 주문·체결·실현 손익 자료가 아니다. Gold의
+Golden Coconut epoch와 Golden Plum epoch는 Jenkins 이름이 같아도 절대 병합하지 않는다.
 
 ## 첫 24시간 수집·실행 건전성
 
@@ -62,6 +65,8 @@ resolved config, source digest와 preregistration hash를 보고서 첫머리에
    USDC별 ask·bid full-depth 가능 여부와 VWAP을 재계산할 수 있는지 확인한다.
 9. DB·bot log·console log 증가량과 capacity JSON 추가분으로 7/14/30일 저장공간을 추정한다.
 10. job별 p95/max runtime이 60초 미만이고 다음 minute과 겹치지 않는지 확인한다.
+11. Gold는 MLB exact 1시장/2token complete event set, NULL source minute 사유, 최대 2페이지,
+    terminal one-hot follow-up과 오른쪽 잘림(right censoring)을 별도로 확인한다.
 
 첫 24시간에는 수익성, arm 승자, SL·TP 수정 또는 거래금액 확대를 판단하지 않는다.
 
@@ -87,8 +92,16 @@ paired unit은 같은 `event_id`다. King/Queen의 후보 시각·직접 여섯 
 - target/stop/resolution exit 비중, slippage, 리그·YES/NO·결과·진입 분별 결과를 본다.
 - 두 arm 모두 손실이거나 신뢰구간이 0을 포함하면 우승 arm이 없는 것으로 판정한다.
 
-Silver는 100경기 전 파라미터를 바꾸지 않는다. 이후에도 같은 기간을 파라미터 선택과 최종
+Silver와 Gold는 종목별 해결 경기 100개 전 파라미터를 바꾸지 않는다. 이후에도 같은 기간을 파라미터 선택과 최종
 검증에 동시에 쓰지 말고, 새 동결 기간으로 다시 검증한다.
+
+## MLB Gold 수집 판정
+
+Gold의 첫 성공 v3 run부터 정확히 24시간인 UTC half-open 범위를 별도로 고정한다. 이 구간은
+cadence, 50초 deadline, cursor completeness, direct two-book coverage, capacity ladder,
+follow-up, 단일 `config_hash × strategy_source_digest × mode × job_name × protocol_id`,
+DB 무결성과 저장공간 증가량만 판정한다. 해결 MLB 100경기 전에는 entry/target/stop,
+주문금액 또는 King/Queen live 편입을 권고하지 않는다.
 
 ## 과거 탐색 재현
 

@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, call
 
 import polybot.bot as bot_module
-import pytest
 from polybot.api.clob_client import PreSubmissionContractError
 from polybot.bot import PolymarketBot
 from polybot.config import TradingConfig

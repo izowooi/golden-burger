@@ -7,11 +7,14 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md"
+    "research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md"
 )
 
 
-def _runtime_files(project_root: Path) -> list[Path]:
+def _runtime_files(
+    project_root: Path,
+    preregistration_path: str = ACTIVE_PREREGISTRATION,
+) -> list[Path]:
     project_root = project_root.resolve()
     repository_root = project_root.parent
     observability_root = repository_root / "polybot-observability"
@@ -20,7 +23,7 @@ def _runtime_files(project_root: Path) -> list[Path]:
         project_root / "pyproject.toml",
         project_root / "uv.lock",
         project_root / "STRATEGY.md",
-        project_root / ACTIVE_PREREGISTRATION,
+        project_root / preregistration_path,
         project_root / "scripts" / "verify_external_workspace.py",
         observability_root / "pyproject.toml",
     ]
@@ -49,12 +52,15 @@ def sha256_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-def compute_strategy_source_digest(project_root: Path = PROJECT_ROOT) -> str:
+def compute_strategy_source_digest(
+    project_root: Path = PROJECT_ROOT,
+    preregistration_path: str = ACTIVE_PREREGISTRATION,
+) -> str:
     """Hash exact runtime-relevant bytes without unrelated monorepo commits."""
     project_root = project_root.resolve()
     repository_root = project_root.parent
     digest = hashlib.sha256()
-    for path in _runtime_files(project_root):
+    for path in _runtime_files(project_root, preregistration_path):
         relative = path.relative_to(repository_root).as_posix().encode()
         content = path.read_bytes()
         digest.update(len(relative).to_bytes(4, "big"))
@@ -64,5 +70,8 @@ def compute_strategy_source_digest(project_root: Path = PROJECT_ROOT) -> str:
     return digest.hexdigest()
 
 
-def preregistration_sha256(project_root: Path = PROJECT_ROOT) -> str:
-    return sha256_file(project_root.resolve() / ACTIVE_PREREGISTRATION)
+def preregistration_sha256(
+    project_root: Path = PROJECT_ROOT,
+    preregistration_path: str = ACTIVE_PREREGISTRATION,
+) -> str:
+    return sha256_file(project_root.resolve() / preregistration_path)

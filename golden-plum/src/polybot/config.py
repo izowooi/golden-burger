@@ -25,11 +25,17 @@ LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 FROZEN_START_UTC = "2026-08-31T00:00:00Z"
 FROZEN_ENTRY_END_UTC = "2026-09-14T00:00:00Z"
 FROZEN_FOLLOWUP_END_UTC = "2026-09-21T00:00:00Z"
-FROZEN_JOB_TAKE_PROFIT_PRICE = {
-    "plum-live-king-90-1m-v1": 0.90,
-    "plum-live-queen-95-1m-v1": 0.95,
-    "plum-shadow-silver-1m-v1": 0.95,
-}
+GOLD_START_UTC = "2026-09-01T00:00:00Z"
+GOLD_ENTRY_END_UTC = "2026-10-01T00:00:00Z"
+GOLD_FOLLOWUP_END_UTC = "2026-10-08T00:00:00Z"
+SOCCER_PREREGISTRATION = (
+    "research/frozen-2026-08-31-full-match-no-time-exit-v2/"
+    "PREREGISTRATION.md"
+)
+MLB_PREREGISTRATION = (
+    "research/frozen-2026-09-01-multisport-mlb-shadow-v3/"
+    "PREREGISTRATION.md"
+)
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
     10.0,
@@ -41,10 +47,12 @@ SIMULATION_SCALING_NOTIONALS_USDC = (
 )
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
+NBA_TAG_ID = 745
+NFL_TAG_ID = 450
 NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "plum-soccer-eight-competitions-full-match-v2"
+CLASSIFIER_VERSION = "plum-major-sports-family-contract-v3"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -72,21 +80,263 @@ class DirectSportIdentity:
 
 DIRECT_SPORT_IDENTITIES = {
     "mlb": DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
+    "nba": DirectSportIdentity("nba", 34, "NBA", NBA_TAG_ID, 10345, "nba"),
+    "nfl": DirectSportIdentity("nfl", 10, "NFL", NFL_TAG_ID, 10187, "nfl"),
     "nhl": DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
 }
 SPORT_FAMILY_TAG_IDS = {
     "soccer": SOCCER_TAG_ID,
     "mlb": MLB_TAG_ID,
+    "nba": NBA_TAG_ID,
+    "nfl": NFL_TAG_ID,
     "nhl": NHL_TAG_ID,
 }
 SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
-    # Golden Plum v2 trusts explicit Gamma live/ended lifecycle instead of a
-    # wall-clock age ceiling. This prevents a delayed or interrupted match
-    # from disappearing before the source marks it ended.
+    # Golden Plum trusts explicit Gamma live/ended lifecycle instead of a
+    # wall-clock age ceiling. This also preserves delayed soccer matches,
+    # baseball extra innings and overtime in the other supported sports.
     "soccer": None,
-    "mlb": 8.0,
-    "nhl": 5.0,
+    "mlb": None,
+    "nba": None,
+    "nfl": None,
+    "nhl": None,
 }
+
+
+@dataclass(frozen=True)
+class SportParameterProfile:
+    """Per-sport market shape and frozen exploratory parameter grid.
+
+    Only soccer is live-enabled.  Direct two-team sports use the same broad
+    initial grid until their own collected evidence supports a new frozen
+    profile; keeping the values in separate records prevents a later sport
+    change from silently changing every family.
+    """
+
+    code: str
+    profile_version: str
+    book_shape: str
+    result_kinds: tuple[str, ...]
+    expected_market_count: int
+    expected_token_count: int
+    source_clock_required: bool
+    max_sweep_pages: int
+    min_liquidity: float
+    min_cumulative_volume: float
+    min_volume_24h: float
+    primary_prob_min: float
+    primary_prob_max: float
+    primary_take_profit: float
+    primary_stop_delta: float
+    primary_trend_observations: int
+    primary_trend_min_cumulative_move: float
+    primary_trend_max_pullback: float
+    primary_trend_max_gap_seconds: float
+    primary_min_leader_margin: float
+    primary_max_entry_spread: float
+    analysis_entry_thresholds: tuple[float, ...]
+    analysis_target_prices: tuple[float, ...]
+    analysis_stop_deltas: tuple[float, ...]
+    analysis_trend_observations: tuple[int, ...]
+    analysis_min_cumulative_moves: tuple[float, ...]
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "analysis_entry_thresholds": list(self.analysis_entry_thresholds),
+            "analysis_min_cumulative_moves": list(
+                self.analysis_min_cumulative_moves
+            ),
+            "analysis_stop_deltas": list(self.analysis_stop_deltas),
+            "analysis_target_prices": list(self.analysis_target_prices),
+            "analysis_trend_observations": list(
+                self.analysis_trend_observations
+            ),
+            "book_shape": self.book_shape,
+            "code": self.code,
+            "expected_market_count": self.expected_market_count,
+            "expected_token_count": self.expected_token_count,
+            "max_sweep_pages": self.max_sweep_pages,
+            "min_cumulative_volume": self.min_cumulative_volume,
+            "min_liquidity": self.min_liquidity,
+            "min_volume_24h": self.min_volume_24h,
+            "primary_max_entry_spread": self.primary_max_entry_spread,
+            "primary_min_leader_margin": self.primary_min_leader_margin,
+            "primary_prob_max": self.primary_prob_max,
+            "primary_prob_min": self.primary_prob_min,
+            "primary_stop_delta": self.primary_stop_delta,
+            "primary_take_profit": self.primary_take_profit,
+            "primary_trend_max_gap_seconds": self.primary_trend_max_gap_seconds,
+            "primary_trend_max_pullback": self.primary_trend_max_pullback,
+            "primary_trend_min_cumulative_move": (
+                self.primary_trend_min_cumulative_move
+            ),
+            "primary_trend_observations": self.primary_trend_observations,
+            "profile_version": self.profile_version,
+            "result_kinds": list(self.result_kinds),
+            "source_clock_required": self.source_clock_required,
+        }
+
+
+_COMMON_EXPLORATORY_GRID = {
+    "min_liquidity": 5000.0,
+    "min_cumulative_volume": 5000.0,
+    "min_volume_24h": 0.0,
+    "primary_prob_min": 0.75,
+    "primary_prob_max": 0.78,
+    "primary_take_profit": 0.95,
+    "primary_stop_delta": 0.15,
+    "primary_trend_observations": 3,
+    "primary_trend_min_cumulative_move": 0.02,
+    "primary_trend_max_pullback": 0.01,
+    "primary_trend_max_gap_seconds": 90.0,
+    "primary_min_leader_margin": 0.005,
+    "primary_max_entry_spread": 0.05,
+    "analysis_entry_thresholds": (0.55, 0.60, 0.65, 0.70, 0.75, 0.80),
+    "analysis_target_prices": (0.85, 0.90, 0.95),
+    "analysis_stop_deltas": (0.05, 0.10, 0.15, 0.20),
+    "analysis_trend_observations": (2, 3, 5),
+    "analysis_min_cumulative_moves": (0.01, 0.02, 0.03, 0.05),
+}
+SPORT_PARAMETER_PROFILES = {
+    "soccer": SportParameterProfile(
+        code="soccer",
+        profile_version="soccer-full-match-v2",
+        book_shape="direct-six-result-books",
+        result_kinds=("HOME", "DRAW", "AWAY"),
+        expected_market_count=3,
+        expected_token_count=6,
+        source_clock_required=True,
+        max_sweep_pages=4,
+        **_COMMON_EXPLORATORY_GRID,
+    ),
+    **{
+        family: SportParameterProfile(
+            code=family,
+            profile_version=f"{family}-collection-uncalibrated-v1",
+            book_shape="direct-two-team-moneyline",
+            result_kinds=("HOME", "AWAY"),
+            expected_market_count=1,
+            expected_token_count=2,
+            source_clock_required=False,
+            max_sweep_pages=2,
+            **_COMMON_EXPLORATORY_GRID,
+        )
+        for family in ("mlb", "nba", "nfl", "nhl")
+    },
+}
+
+
+@dataclass(frozen=True)
+class RuntimeSpec:
+    """One atomic Jenkins/runtime contract.
+
+    Keeping mode, sport, protocol, target, cadence, and workspace in one
+    immutable record prevents a shell override from composing an unregistered
+    hybrid experiment.
+    """
+
+    runtime_job: str
+    jenkins_job: str
+    sport_family: str
+    simulation_mode: bool
+    lifecycle_mode: str
+    execution_policy: str
+    take_profit_price: float
+    protocol_id: str
+    preregistration_path: str
+    cadence_seconds: int
+    hard_deadline_seconds: Optional[float]
+    external_workspace_path: Optional[str]
+    experiment_start_utc: str
+    experiment_entry_end_utc: str
+    experiment_followup_end_utc: str
+    scaling_notionals_usdc: tuple[float, ...] = ()
+
+
+RUNTIME_SPECS = {
+    "plum-live-king-90-1m-v1": RuntimeSpec(
+        runtime_job="plum-live-king-90-1m-v1",
+        jenkins_job="polybot-king",
+        sport_family="soccer",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="exact-5-usdc-fok-live",
+        take_profit_price=0.90,
+        protocol_id="plum-soccer-full-match-v2",
+        preregistration_path=SOCCER_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=FROZEN_START_UTC,
+        experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
+        experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
+    ),
+    "plum-live-queen-95-1m-v1": RuntimeSpec(
+        runtime_job="plum-live-queen-95-1m-v1",
+        jenkins_job="polybot-queen",
+        sport_family="soccer",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="exact-5-usdc-fok-live",
+        take_profit_price=0.95,
+        protocol_id="plum-soccer-full-match-v2",
+        preregistration_path=SOCCER_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=FROZEN_START_UTC,
+        experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
+        experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
+    ),
+    "plum-shadow-silver-1m-v1": RuntimeSpec(
+        runtime_job="plum-shadow-silver-1m-v1",
+        jenkins_job="polybot-silver",
+        sport_family="soccer",
+        simulation_mode=True,
+        lifecycle_mode="active",
+        execution_policy="credential-free-displayed-book-simulation",
+        take_profit_price=0.95,
+        protocol_id="plum-soccer-full-match-v2",
+        preregistration_path=SOCCER_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=50.0,
+        external_workspace_path="/Volumes/t7/jenkins/polybot-silver",
+        experiment_start_utc=FROZEN_START_UTC,
+        experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
+        experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
+        scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
+    ),
+    "plum-shadow-gold-mlb-1m-v1": RuntimeSpec(
+        runtime_job="plum-shadow-gold-mlb-1m-v1",
+        jenkins_job="polybot-gold",
+        sport_family="mlb",
+        simulation_mode=True,
+        lifecycle_mode="active",
+        execution_policy="credential-free-displayed-book-simulation",
+        take_profit_price=0.95,
+        protocol_id="plum-mlb-shadow-v3",
+        preregistration_path=MLB_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=50.0,
+        external_workspace_path="/Volumes/t7/jenkins/polybot-gold",
+        experiment_start_utc=GOLD_START_UTC,
+        experiment_entry_end_utc=GOLD_ENTRY_END_UTC,
+        experiment_followup_end_utc=GOLD_FOLLOWUP_END_UTC,
+        scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
+    ),
+}
+
+# Compatibility/readability aliases are derived from the atomic records; they
+# are never independently maintained.
+FROZEN_JOB_TAKE_PROFIT_PRICE = {
+    job: spec.take_profit_price for job, spec in RUNTIME_SPECS.items()
+}
+FROZEN_JOB_SPORT_FAMILY = {
+    job: spec.sport_family for job, spec in RUNTIME_SPECS.items()
+}
+SIMULATION_RUNTIME_JOBS = frozenset(
+    job for job, spec in RUNTIME_SPECS.items() if spec.simulation_mode
+)
 
 
 @dataclass(frozen=True)
@@ -192,6 +442,10 @@ def league_registry_payload(
         },
         "sport_family_tag_ids": SPORT_FAMILY_TAG_IDS,
         "sport_family_max_in_play_hours": SPORT_FAMILY_MAX_IN_PLAY_HOURS,
+        "sport_parameter_profiles": {
+            code: profile.canonical_dict()
+            for code, profile in sorted(SPORT_PARAMETER_PROFILES.items())
+        },
     }
 
 
@@ -199,9 +453,13 @@ def league_mapping_sha256(
     identities: Sequence[LeagueIdentity] = FROZEN_LEAGUE_IDENTITIES,
     cup_identities: Sequence[CupIdentity] = FROZEN_CUP_IDENTITIES,
 ) -> str:
+    registry = league_registry_payload(identities, cup_identities)
+    # Parameter grids have their own identity.  Changing an MLB exploratory
+    # threshold must not masquerade as a league/classifier mapping change.
+    registry.pop("sport_parameter_profiles", None)
     payload = {
         "classifier_version": CLASSIFIER_VERSION,
-        **league_registry_payload(identities, cup_identities),
+        **registry,
     }
     return hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
@@ -209,6 +467,16 @@ def league_mapping_sha256(
 
 
 LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
+SPORT_PARAMETER_PROFILES_SHA256 = hashlib.sha256(
+    json.dumps(
+        {
+            code: profile.canonical_dict()
+            for code, profile in sorted(SPORT_PARAMETER_PROFILES.items())
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode()
+).hexdigest()
 
 
 def _get_config_value(
@@ -228,6 +496,23 @@ def _get_config_value(
     if value_type is int and not isinstance(yaml_value, int):
         raise ValueError(f"{env_key} YAML value must be an integer")
     return value_type(yaml_value)
+
+
+def _get_frozen_profile_value(
+    env_key: str,
+    profile_value,
+    value_type: type = float,
+):
+    """Resolve env > versioned sport profile, never shared soccer YAML.
+
+    The resulting value is still checked against the selected immutable
+    profile.  This lets future MLB/NBA/NFL/NHL profiles differ without a
+    change to ``config.yaml`` silently changing soccer.
+    """
+    env_value = os.getenv(env_key)
+    if env_value is None:
+        return profile_value
+    return value_type(env_value)
 
 
 def _get_bool_config_value(env_key: str, yaml_value, default: bool) -> bool:
@@ -381,9 +666,28 @@ class TradingConfig:
     experiment_followup_end_utc: str = FROZEN_FOLLOWUP_END_UTC
     strategy_source_digest: str = ""
     preregistration_sha256: str = ""
+    protocol_id: str = "plum-soccer-full-match-v2"
+    preregistration_path: str = SOCCER_PREREGISTRATION
+    runtime_spec_version: str = "golden-plum-runtime-v1"
+    execution_policy: str = "exact-5-usdc-fok-live"
+    cadence_seconds: int = 60
+    cycle_hard_deadline_seconds: Optional[float] = None
+    external_workspace_path: Optional[str] = None
     classifier_version: str = CLASSIFIER_VERSION
     league_mapping_sha256: str = LEAGUE_MAPPING_SHA256
-    # Populated only for the credential-free Silver runtime. Live jobs retain
+    sport_parameter_profiles_sha256: str = SPORT_PARAMETER_PROFILES_SHA256
+    sport_profile_version: str = "soccer-full-match-v2"
+    book_shape: str = "direct-six-result-books"
+    expected_result_kinds: tuple[str, ...] = ("HOME", "DRAW", "AWAY")
+    expected_market_count: int = 3
+    expected_token_count: int = 6
+    source_clock_required: bool = True
+    analysis_entry_thresholds: tuple[float, ...] = ()
+    analysis_target_prices: tuple[float, ...] = ()
+    analysis_stop_deltas: tuple[float, ...] = ()
+    analysis_trend_observations: tuple[int, ...] = ()
+    analysis_min_cumulative_moves: tuple[float, ...] = ()
+    # Populated only for credential-free simulation runtimes. Live jobs retain
     # raw full-depth books but do not spend cycle time materializing this grid.
     scaling_notionals_usdc: tuple[float, ...] = ()
     entry: PlumEntryConfig = field(default_factory=PlumEntryConfig)
@@ -471,18 +775,67 @@ def _validate_config(
             raise ValueError(
                 f"scaling_notionals_usdc[{index}] must be finite and positive"
             )
+    for field_name, values in (
+        ("analysis_entry_thresholds", trading.analysis_entry_thresholds),
+        ("analysis_target_prices", trading.analysis_target_prices),
+        ("analysis_stop_deltas", trading.analysis_stop_deltas),
+        ("analysis_min_cumulative_moves", trading.analysis_min_cumulative_moves),
+    ):
+        if any(not math.isfinite(value) or value <= 0 for value in values):
+            raise ValueError(f"{field_name} must contain finite positive values")
+    if any(
+        not isinstance(value, int) or isinstance(value, bool) or value <= 0
+        for value in trading.analysis_trend_observations
+    ):
+        raise ValueError(
+            "analysis_trend_observations must contain positive integers"
+        )
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
         )
-    if trading.sport_family != "soccer":
-        raise ValueError("Golden Plum is frozen to soccer")
+    runtime_spec = RUNTIME_SPECS.get(job_name)
+    if runtime_spec is None:
+        raise ValueError(f"unsupported Golden Plum runtime job: {job_name}")
+    expected_sport_family = runtime_spec.sport_family
+    if trading.sport_family != expected_sport_family:
+        raise ValueError(
+            f"{job_name} sport family must remain {expected_sport_family}"
+        )
+    profile = SPORT_PARAMETER_PROFILES[trading.sport_family]
+    if (
+        trading.lifecycle_mode != runtime_spec.lifecycle_mode
+        or trading.protocol_id != runtime_spec.protocol_id
+        or trading.preregistration_path != runtime_spec.preregistration_path
+        or trading.runtime_spec_version != "golden-plum-runtime-v1"
+        or trading.execution_policy != runtime_spec.execution_policy
+        or trading.cadence_seconds != runtime_spec.cadence_seconds
+        or trading.cycle_hard_deadline_seconds
+        != runtime_spec.hard_deadline_seconds
+        or trading.external_workspace_path
+        != runtime_spec.external_workspace_path
+        or trading.sport_profile_version != profile.profile_version
+        or trading.book_shape != profile.book_shape
+        or tuple(trading.expected_result_kinds) != profile.result_kinds
+        or trading.expected_market_count != profile.expected_market_count
+        or trading.expected_token_count != profile.expected_token_count
+        or trading.source_clock_required is not profile.source_clock_required
+        or tuple(trading.analysis_entry_thresholds)
+        != profile.analysis_entry_thresholds
+        or tuple(trading.analysis_target_prices) != profile.analysis_target_prices
+        or tuple(trading.analysis_stop_deltas) != profile.analysis_stop_deltas
+        or tuple(trading.analysis_trend_observations)
+        != profile.analysis_trend_observations
+        or tuple(trading.analysis_min_cumulative_moves)
+        != profile.analysis_min_cumulative_moves
+    ):
+        raise ValueError("runtime or sport-specific parameter profile drift")
     if trading.buy_amount_usdc != 5:
         raise ValueError("Golden Plum notional must remain exactly $5")
     if (
-        trading.min_liquidity != 5000
-        or trading.min_cumulative_volume != 5000
-        or trading.min_volume_24h != 0
+        trading.min_liquidity != profile.min_liquidity
+        or trading.min_cumulative_volume != profile.min_cumulative_volume
+        or trading.min_volume_24h != profile.min_volume_24h
     ):
         raise ValueError(
             "Golden Plum liquidity gate is frozen at $5k cumulative "
@@ -522,36 +875,40 @@ def _validate_config(
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if trading.yes_only_mode:
         raise ValueError("Golden Plum must inspect direct YES and NO books")
-    if (entry.prob_min, entry.prob_max) != (0.75, 0.78):
-        raise ValueError("entry first-cross VWAP band is frozen at 0.75-0.78")
-    expected_take_profit = FROZEN_JOB_TAKE_PROFIT_PRICE.get(job_name)
-    if expected_take_profit is None:
-        raise ValueError(f"unsupported Golden Plum runtime job: {job_name}")
+    if (entry.prob_min, entry.prob_max) != (
+        profile.primary_prob_min,
+        profile.primary_prob_max,
+    ):
+        raise ValueError(
+            f"{trading.sport_family} entry first-cross VWAP band drift"
+        )
+    expected_take_profit = runtime_spec.take_profit_price
     if entry.take_profit_price != expected_take_profit:
         raise ValueError(
             f"{job_name} take-profit price must remain {expected_take_profit:.2f}"
         )
-    expected_simulation = job_name == "plum-shadow-silver-1m-v1"
+    expected_simulation = runtime_spec.simulation_mode
     if simulation_mode is not expected_simulation:
         expected_mode = "simulation" if expected_simulation else "live"
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
-    expected_scaling_notionals = (
-        SIMULATION_SCALING_NOTIONALS_USDC if expected_simulation else ()
-    )
+    if not simulation_mode and trading.sport_family != "soccer":
+        raise ValueError("non-soccer Golden Plum live execution is not enabled")
+    expected_scaling_notionals = runtime_spec.scaling_notionals_usdc
     if tuple(trading.scaling_notionals_usdc) != expected_scaling_notionals:
         raise ValueError(
-            "order-size scaling evidence is frozen to Silver simulation only"
+            "order-size scaling evidence is frozen to simulation runtimes only"
         )
     if (
         entry.min_source_minute != 0
         or entry.max_source_minute is not None
-        or entry.trend_observations != 3
-        or entry.trend_min_cumulative_move != 0.02
-        or entry.trend_max_pullback != 0.01
-        or entry.trend_max_gap_seconds != 90
-        or entry.min_leader_margin != 0.005
-        or entry.max_entry_spread != 0.05
-        or entry.stop_loss_delta != 0.15
+        or entry.trend_observations != profile.primary_trend_observations
+        or entry.trend_min_cumulative_move
+        != profile.primary_trend_min_cumulative_move
+        or entry.trend_max_pullback != profile.primary_trend_max_pullback
+        or entry.trend_max_gap_seconds != profile.primary_trend_max_gap_seconds
+        or entry.min_leader_margin != profile.primary_min_leader_margin
+        or entry.max_entry_spread != profile.primary_max_entry_spread
+        or entry.stop_loss_delta != profile.primary_stop_delta
         or entry.force_exit_minute is not None
     ):
         raise ValueError("full-match trend/first-cross/TP-SL contract drift")
@@ -590,14 +947,18 @@ def _validate_config(
     if api.signature_type not in {1, 3}:
         raise ValueError("signature_type must be one of: 1, 3")
     if (
-        trading.experiment_start_utc != FROZEN_START_UTC
-        or trading.experiment_entry_end_utc != FROZEN_ENTRY_END_UTC
-        or trading.experiment_followup_end_utc != FROZEN_FOLLOWUP_END_UTC
+        trading.experiment_start_utc != runtime_spec.experiment_start_utc
+        or trading.experiment_entry_end_utc
+        != runtime_spec.experiment_entry_end_utc
+        or trading.experiment_followup_end_utc
+        != runtime_spec.experiment_followup_end_utc
     ):
         raise ValueError("experiment timestamps differ from the frozen deployment")
     if (
         trading.classifier_version != CLASSIFIER_VERSION
         or trading.league_mapping_sha256 != LEAGUE_MAPPING_SHA256
+        or trading.sport_parameter_profiles_sha256
+        != SPORT_PARAMETER_PROFILES_SHA256
     ):
         raise ValueError("sports classifier identity drift")
     for name, digest in (
@@ -619,7 +980,7 @@ def load_config(
     simulation_mode: Optional[bool] = None,
     yes_only_mode: Optional[bool] = None,
 ) -> BotConfig:
-    """Load and validate one immutable King/Queen/Silver cohort."""
+    """Load and validate one immutable live or research runtime cohort."""
     load_dotenv(env_path) if env_path else load_dotenv()
 
     path = Path(config_path)
@@ -634,68 +995,72 @@ def load_config(
     if not isinstance(entry_cfg, dict) or not isinstance(archive_cfg, dict):
         raise ValueError("trading.entry and trading.archive must be mappings")
 
-    frozen_take_profit = FROZEN_JOB_TAKE_PROFIT_PRICE.get(job_name, 0.90)
+    runtime_spec = RUNTIME_SPECS.get(job_name)
+    if runtime_spec is None:
+        raise ValueError(f"unsupported Golden Plum runtime job: {job_name}")
+
+    configured_family = os.getenv("POLYBOT_SPORT_FAMILY")
+    if configured_family is None:
+        configured_family = runtime_spec.sport_family
+    resolved_sport_family = str(configured_family).strip().lower()
+    profile = SPORT_PARAMETER_PROFILES.get(resolved_sport_family)
+    if profile is None:
+        raise ValueError(
+            f"unsupported Golden Plum sport family: "
+            f"{resolved_sport_family or '<empty>'}"
+        )
     entry = PlumEntryConfig(
-        prob_min=_get_config_value(
-            "POLYBOT_ENTRY_PROB_MIN", entry_cfg.get("prob_min"), 0.75
+        prob_min=_get_frozen_profile_value(
+            "POLYBOT_ENTRY_PROB_MIN",
+            profile.primary_prob_min,
         ),
-        prob_max=_get_config_value(
-            "POLYBOT_ENTRY_PROB_MAX", entry_cfg.get("prob_max"), 0.78
+        prob_max=_get_frozen_profile_value(
+            "POLYBOT_ENTRY_PROB_MAX",
+            profile.primary_prob_max,
         ),
-        min_source_minute=_get_config_value(
+        min_source_minute=_get_frozen_profile_value(
             "POLYBOT_MIN_SOURCE_MINUTE",
-            entry_cfg.get("min_source_minute"),
             0.0,
         ),
-        max_source_minute=_get_config_value(
+        max_source_minute=_get_frozen_profile_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
-            entry_cfg.get("max_source_minute"),
             None,
         ),
-        trend_observations=_get_config_value(
+        trend_observations=_get_frozen_profile_value(
             "POLYBOT_TREND_OBSERVATIONS",
-            entry_cfg.get("trend_observations"),
-            3,
+            profile.primary_trend_observations,
             int,
         ),
-        trend_min_cumulative_move=_get_config_value(
+        trend_min_cumulative_move=_get_frozen_profile_value(
             "POLYBOT_TREND_MIN_CUMULATIVE_MOVE",
-            entry_cfg.get("trend_min_cumulative_move"),
-            0.02,
+            profile.primary_trend_min_cumulative_move,
         ),
-        trend_max_pullback=_get_config_value(
+        trend_max_pullback=_get_frozen_profile_value(
             "POLYBOT_TREND_MAX_PULLBACK",
-            entry_cfg.get("trend_max_pullback"),
-            0.01,
+            profile.primary_trend_max_pullback,
         ),
-        trend_max_gap_seconds=_get_config_value(
+        trend_max_gap_seconds=_get_frozen_profile_value(
             "POLYBOT_TREND_MAX_GAP_SECONDS",
-            entry_cfg.get("trend_max_gap_seconds"),
-            90.0,
+            profile.primary_trend_max_gap_seconds,
         ),
-        min_leader_margin=_get_config_value(
+        min_leader_margin=_get_frozen_profile_value(
             "POLYBOT_MIN_LEADER_MARGIN",
-            entry_cfg.get("min_leader_margin"),
-            0.005,
+            profile.primary_min_leader_margin,
         ),
-        max_entry_spread=_get_config_value(
+        max_entry_spread=_get_frozen_profile_value(
             "POLYBOT_MAX_ENTRY_SPREAD",
-            entry_cfg.get("max_entry_spread"),
-            0.05,
+            profile.primary_max_entry_spread,
         ),
-        take_profit_price=_get_config_value(
+        take_profit_price=_get_frozen_profile_value(
             "POLYBOT_TAKE_PROFIT_PRICE",
-            entry_cfg.get("take_profit_price"),
-            frozen_take_profit,
+            runtime_spec.take_profit_price,
         ),
-        stop_loss_delta=_get_config_value(
+        stop_loss_delta=_get_frozen_profile_value(
             "POLYBOT_STOP_LOSS_DELTA",
-            entry_cfg.get("stop_loss_delta"),
-            0.15,
+            profile.primary_stop_delta,
         ),
-        force_exit_minute=_get_config_value(
+        force_exit_minute=_get_frozen_profile_value(
             "POLYBOT_FORCE_EXIT_MINUTE",
-            entry_cfg.get("force_exit_minute"),
             None,
         ),
         stop_price=_get_config_value(
@@ -703,8 +1068,8 @@ def load_config(
         ),
         max_entry_drawdown=_get_config_value(
             "POLYBOT_MAX_ENTRY_DRAWDOWN",
-            entry_cfg.get("max_entry_drawdown"),
-            0.15,
+            None,
+            profile.primary_stop_delta,
         ),
         max_stop_slippage=_get_config_value(
             "POLYBOT_MAX_STOP_SLIPPAGE",
@@ -751,26 +1116,20 @@ def load_config(
         resolved_yes_only = yes_only_mode
 
     trading = TradingConfig(
-        lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
-        sport_family=str(
-            os.getenv(
-                "POLYBOT_SPORT_FAMILY",
-                trading_cfg.get("sport_family", "soccer"),
-            )
-        ).strip().lower(),
+        lifecycle_mode=_get_lifecycle_mode(runtime_spec.lifecycle_mode),
+        sport_family=resolved_sport_family,
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
-        min_liquidity=_get_config_value(
-            "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 5000.0
+        min_liquidity=_get_frozen_profile_value(
+            "POLYBOT_MIN_LIQUIDITY", profile.min_liquidity
         ),
-        min_volume_24h=_get_config_value(
-            "POLYBOT_MIN_VOLUME_24H", trading_cfg.get("min_volume_24h"), 0.0
+        min_volume_24h=_get_frozen_profile_value(
+            "POLYBOT_MIN_VOLUME_24H", profile.min_volume_24h
         ),
-        min_cumulative_volume=_get_config_value(
+        min_cumulative_volume=_get_frozen_profile_value(
             "POLYBOT_MIN_CUMULATIVE_VOLUME",
-            trading_cfg.get("min_cumulative_volume"),
-            5000.0,
+            profile.min_cumulative_volume,
         ),
         max_positions=_get_config_value(
             "POLYBOT_MAX_POSITIONS", trading_cfg.get("max_positions"), 10, int
@@ -834,26 +1193,44 @@ def load_config(
         yes_only_mode=resolved_yes_only,
         experiment_start_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_START_UTC",
-            trading_cfg.get("experiment_start_utc"),
-            FROZEN_START_UTC,
+            None,
+            runtime_spec.experiment_start_utc,
         ),
         experiment_entry_end_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_END_UTC",
-            trading_cfg.get("experiment_entry_end_utc"),
-            FROZEN_ENTRY_END_UTC,
+            None,
+            runtime_spec.experiment_entry_end_utc,
         ),
         experiment_followup_end_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC",
-            trading_cfg.get("experiment_followup_end_utc"),
-            FROZEN_FOLLOWUP_END_UTC,
+            None,
+            runtime_spec.experiment_followup_end_utc,
         ),
-        strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
-        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),
-        scaling_notionals_usdc=(
-            SIMULATION_SCALING_NOTIONALS_USDC
-            if job_name == "plum-shadow-silver-1m-v1"
-            else ()
+        strategy_source_digest=compute_strategy_source_digest(
+            SOURCE_PROJECT_ROOT, runtime_spec.preregistration_path
         ),
+        preregistration_sha256=preregistration_sha256(
+            SOURCE_PROJECT_ROOT, runtime_spec.preregistration_path
+        ),
+        protocol_id=runtime_spec.protocol_id,
+        preregistration_path=runtime_spec.preregistration_path,
+        runtime_spec_version="golden-plum-runtime-v1",
+        execution_policy=runtime_spec.execution_policy,
+        cadence_seconds=runtime_spec.cadence_seconds,
+        cycle_hard_deadline_seconds=runtime_spec.hard_deadline_seconds,
+        external_workspace_path=runtime_spec.external_workspace_path,
+        sport_profile_version=profile.profile_version,
+        book_shape=profile.book_shape,
+        expected_result_kinds=profile.result_kinds,
+        expected_market_count=profile.expected_market_count,
+        expected_token_count=profile.expected_token_count,
+        source_clock_required=profile.source_clock_required,
+        analysis_entry_thresholds=profile.analysis_entry_thresholds,
+        analysis_target_prices=profile.analysis_target_prices,
+        analysis_stop_deltas=profile.analysis_stop_deltas,
+        analysis_trend_observations=profile.analysis_trend_observations,
+        analysis_min_cumulative_moves=profile.analysis_min_cumulative_moves,
+        scaling_notionals_usdc=runtime_spec.scaling_notionals_usdc,
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(
@@ -866,9 +1243,12 @@ def load_config(
     validate_yaml_config_shape(cfg, trading)
 
     if simulation_mode is None:
-        simulation_mode = cfg.get("simulation_mode", True)
+        simulation_mode = runtime_spec.simulation_mode
     if not isinstance(simulation_mode, bool):
         raise ValueError("simulation_mode must be a boolean")
+    if simulation_mode is not runtime_spec.simulation_mode:
+        expected_mode = "simulation" if runtime_spec.simulation_mode else "live"
+        raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
 
     private_key = os.getenv("POLYMARKET_PRIVATE_KEY")
     funder_address = os.getenv("POLYMARKET_FUNDER_ADDRESS")

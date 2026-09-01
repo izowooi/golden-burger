@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 from .models import (
     BUY_ISOLATION_REASONS,
     EntryEpisode,
+    EventCycleEvidence,
     MarketCatalog,
     MarketSnapshot,
     MarketSweep,
@@ -32,10 +33,15 @@ from .models import (
     ResolutionObservation,
     SkippedMarket,
     STOP_SELL_ISOLATION_REASONS,
+    TrackedResolutionObservation,
     Trade,
     TradeStatus,
 )
-from ..strategy.filters import get_event_metadata, get_proven_resolution
+from ..strategy.filters import (
+    get_aligned_binary_outcomes,
+    get_event_metadata,
+    get_proven_resolution,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -102,6 +108,44 @@ _RETRYABLE_PROVEN_NO_POST_EPISODE_STATES = frozenset(
         "NO_POST_RETRYABLE",
     }
 )
+
+_EVIDENCE_CONTEXT_FIELDS = (
+    "sport_family",
+    "sport_profile_version",
+    "protocol_sha256",
+    "classifier_version",
+    "league_mapping_sha256",
+    "strategy_source_digest",
+    "book_shape",
+)
+
+
+def _normalize_evidence_context(value: Optional[Dict[str, Any]]) -> Dict[str, str]:
+    context = dict(value or {})
+    normalized = {
+        field: str(context.get(field) or "").strip()
+        for field in _EVIDENCE_CONTEXT_FIELDS
+    }
+    expected_kinds = context.get("expected_result_kinds") or ()
+    normalized["expected_result_kinds_json"] = json.dumps(
+        sorted({str(item).strip().upper() for item in expected_kinds if str(item).strip()}),
+        separators=(",", ":"),
+    )
+    for field in ("expected_market_count", "expected_token_count"):
+        raw = context.get(field, 0)
+        if isinstance(raw, bool):
+            raise ValueError(f"{field} must be an integer")
+        normalized[field] = str(int(raw))
+    return normalized
+
+
+def _canonical_payload(value: Any) -> str:
+    return json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def _canonical_json_list(value: Any, *, field_name: str) -> str:
@@ -190,6 +234,17 @@ class ExactFillEvidence:
 class TradeRepository:
     def __init__(self, session: Session):
         self.session = session
+
+    def _current_config_hash(self) -> Optional[str]:
+        run_id = current_run_id()
+        if not run_id:
+            return None
+        value = self.session.execute(
+            text("SELECT config_hash FROM run_audits WHERE run_id = :run_id"),
+            {"run_id": run_id},
+        ).scalar()
+        normalized = str(value or "").strip()
+        return normalized or None
 
     def get_by_id(self, trade_id: int) -> Optional[Trade]:
         return self.session.get(Trade, trade_id)
@@ -1026,11 +1081,20 @@ class TradeRepository:
         source_clock_reason: Optional[str] = None,
         book_json: Optional[str] = None,
         execution_capacity_json: Optional[str] = None,
+        evidence_context: Optional[Dict[str, Any]] = None,
+        event_cycle_id: Optional[str] = None,
+        event_set_complete: Optional[bool] = None,
+        event_set_reason: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
     ) -> MarketSnapshot:
+        context = _normalize_evidence_context(evidence_context)
         if market is not None:
-            self._upsert_market_catalog(condition_id, market)
+            self._upsert_market_catalog(
+                condition_id,
+                market,
+                evidence_context=evidence_context,
+            )
         snapshot = MarketSnapshot(
             condition_id=condition_id,
             event_id=event_id,
@@ -1051,12 +1115,59 @@ class TradeRepository:
             book_json=book_json,
             execution_capacity_json=execution_capacity_json,
             run_id=current_run_id(),
+            config_hash=self._current_config_hash(),
+            sport_family=context["sport_family"],
+            sport_profile_version=context["sport_profile_version"],
+            protocol_sha256=context["protocol_sha256"],
+            classifier_version=context["classifier_version"],
+            league_mapping_sha256=context["league_mapping_sha256"],
+            strategy_source_digest=context["strategy_source_digest"],
+            book_shape=context["book_shape"],
+            event_cycle_id=str(event_cycle_id or "") or None,
+            event_set_complete=(
+                None if event_set_complete is None else int(event_set_complete)
+            ),
+            event_set_reason=str(event_set_reason or "") or None,
         )
         self.session.add(snapshot)
         self.session.flush()
         if commit:
             self.session.commit()
         return snapshot
+
+    def finalize_staged_event_cycle_health(
+        self,
+        event_results: Dict[str, Dict[str, Any]],
+    ) -> None:
+        """Apply final book-coverage health before the enclosing transaction commits."""
+
+        for item in event_results.values():
+            event_cycle_id = str(item.get("event_cycle_id") or "").strip()
+            reason = str(item.get("reason") or "").strip()
+            if not event_cycle_id or not reason:
+                raise ValueError("final event-cycle health is incomplete")
+            complete = int(item.get("complete") is True)
+            self.session.query(MarketSnapshot).filter(
+                MarketSnapshot.event_cycle_id == event_cycle_id
+            ).update(
+                {
+                    MarketSnapshot.event_set_complete: complete,
+                    MarketSnapshot.event_set_reason: reason,
+                },
+                synchronize_session="fetch",
+            )
+            condition_ids = [str(value) for value in item.get("condition_ids", [])]
+            if condition_ids:
+                self.session.query(MarketCatalog).filter(
+                    MarketCatalog.condition_id.in_(condition_ids)
+                ).update(
+                    {
+                        MarketCatalog.last_event_set_complete: complete,
+                        MarketCatalog.last_event_set_reason: reason,
+                    },
+                    synchronize_session="fetch",
+                )
+        self.session.flush()
 
     def claim_entry_episode(
         self,
@@ -1376,13 +1487,156 @@ class TradeRepository:
         condition_id: str,
         market: Dict[str, Any],
         *,
+        evidence_context: Optional[Dict[str, Any]] = None,
+        event_cycle: Optional[Dict[str, Any]] = None,
+        live_sweep_id: Optional[str] = None,
+        seen_at: Optional[datetime] = None,
         commit: bool = False,
-    ) -> None:
-        self._upsert_market_catalog(condition_id, market)
+    ) -> MarketCatalog:
+        observed_at = seen_at or datetime.utcnow()
+        catalog = self._upsert_market_catalog(
+            condition_id,
+            market,
+            evidence_context=evidence_context,
+            observed_at=observed_at,
+        )
+        if event_cycle is not None:
+            catalog.last_event_cycle_id = str(
+                event_cycle.get("event_cycle_id") or ""
+            ) or None
+            catalog.last_event_set_complete = int(
+                event_cycle.get("complete") is True
+            )
+            catalog.last_event_set_reason = str(
+                event_cycle.get("reason") or ""
+            ) or None
+        if live_sweep_id:
+            catalog.last_live_sweep_id = str(live_sweep_id)
+            catalog.last_live_seen_at = observed_at
+            if catalog.resolution_evidence_sha256:
+                catalog.followup_status = "TERMINAL"
+                catalog.followup_next_attempt_at = None
+            else:
+                catalog.followup_status = "TRACKED_LIVE"
+                catalog.followup_next_attempt_at = observed_at + timedelta(minutes=1)
+                catalog.followup_last_error = None
         if commit:
             self.session.commit()
+        return catalog
 
-    def _upsert_market_catalog(self, condition_id: str, market: Dict[str, Any]) -> None:
+    @staticmethod
+    def _terminal_catalog_evidence(
+        condition_id: str,
+        market: Dict[str, Any],
+        *,
+        event_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        resolution = get_proven_resolution(market)
+        if resolution is None:
+            return None
+        outcomes = get_aligned_binary_outcomes(market)
+        if len(outcomes) != 2:
+            raise ValueError("terminal market must have two aligned outcomes")
+        tokens = [
+            {
+                "index": int(item["token_index"]),
+                "token_id": str(item["token_id"]),
+                "outcome": str(item["outcome"]),
+                "payout": float(item["probability"]),
+            }
+            for item in outcomes
+        ]
+        winners = [item for item in tokens if item["payout"] == 1.0]
+        losers = [item for item in tokens if item["payout"] == 0.0]
+        if len(winners) != 1 or len(losers) != 1:
+            raise ValueError("terminal market payouts must be unique one-hot 0/1")
+        payload = {
+            "schema_version": 1,
+            "source": "GAMMA_CONDITION_FOLLOWUP",
+            "condition_id": str(condition_id),
+            "event_id": event_id,
+            "closed": True,
+            "status": str(resolution["status"]),
+            "source_updated_at": market.get("updatedAt"),
+            "tokens": tokens,
+        }
+        evidence_json = _canonical_payload(payload)
+        return {
+            "winner_index": int(winners[0]["index"]),
+            "winner_token_id": str(winners[0]["token_id"]),
+            "winner_outcome": str(winners[0]["outcome"]),
+            "payouts_json": _canonical_payload(
+                {
+                    item["token_id"]: item["payout"]
+                    for item in tokens
+                }
+            ),
+            "evidence_json": evidence_json,
+            "evidence_sha256": hashlib.sha256(evidence_json.encode()).hexdigest(),
+            "status": str(resolution["status"]),
+            "resolved_outcome": str(resolution["outcome"]),
+            "resolved_value": float(resolution["first_outcome_payout"]),
+        }
+
+    def _stage_tracked_resolution(
+        self,
+        *,
+        condition_id: str,
+        event_id: Optional[str],
+        evidence_context: Optional[Dict[str, Any]],
+        terminal: Dict[str, Any],
+        observed_at: datetime,
+    ) -> TrackedResolutionObservation:
+        context = _normalize_evidence_context(evidence_context)
+        identity = hashlib.sha256(
+            f"gamma:{condition_id}:{terminal['evidence_sha256']}".encode()
+        ).hexdigest()
+        existing = self.session.get(TrackedResolutionObservation, identity)
+        if existing is not None:
+            return existing
+        row = TrackedResolutionObservation(
+            resolution_id=identity,
+            condition_id=str(condition_id),
+            event_id=event_id,
+            run_id=current_run_id(),
+            config_hash=self._current_config_hash(),
+            sport_family=context["sport_family"],
+            sport_profile_version=context["sport_profile_version"],
+            protocol_sha256=context["protocol_sha256"],
+            classifier_version=context["classifier_version"],
+            league_mapping_sha256=context["league_mapping_sha256"],
+            strategy_source_digest=context["strategy_source_digest"],
+            observed_at=observed_at,
+            source="GAMMA_CONDITION_FOLLOWUP",
+            winner_index=int(terminal["winner_index"]),
+            winner_token_id=str(terminal["winner_token_id"]),
+            winner_outcome=str(terminal["winner_outcome"]),
+            payouts_json=str(terminal["payouts_json"]),
+            evidence_sha256=str(terminal["evidence_sha256"]),
+            evidence_json=str(terminal["evidence_json"]),
+        )
+        self.session.add(row)
+        self.session.flush()
+        return row
+
+    def _upsert_market_catalog(
+        self,
+        condition_id: str,
+        market: Dict[str, Any],
+        *,
+        evidence_context: Optional[Dict[str, Any]] = None,
+        observed_at: Optional[datetime] = None,
+    ) -> MarketCatalog:
+        normalized_condition = str(condition_id or "").strip()
+        returned_condition = str(
+            market.get("conditionId") or market.get("condition_id") or ""
+        ).strip()
+        if not normalized_condition:
+            raise ValueError("catalog condition_id is required")
+        if returned_condition and returned_condition != normalized_condition:
+            raise ValueError("catalog market condition_id mismatch")
+        observed_at = observed_at or datetime.utcnow()
+        context = _normalize_evidence_context(evidence_context)
         events = market.get("events") or []
         event = (
             events[0]
@@ -1392,12 +1646,16 @@ class TradeRepository:
         event_meta = get_event_metadata(market)
         tags = market.get("tags") or []
         fee_schedule = market.get("feeSchedule") or {}
-        resolution = get_proven_resolution(market)
+        terminal = self._terminal_catalog_evidence(
+            normalized_condition,
+            market,
+            event_id=event_meta["event_id"],
+        )
 
         def bool_int(value: Any) -> Optional[int]:
             return None if not isinstance(value, bool) else int(value)
 
-        values = {
+        values: Dict[str, Any] = {
             "market_id": str(market.get("id") or "") or None,
             "market_slug": market.get("slug"),
             "question": market.get("question"),
@@ -1406,14 +1664,24 @@ class TradeRepository:
             "event_title": event.get("title"),
             "event_market_count": len(event.get("markets") or []) or None,
             "end_date": market.get("endDate"),
-            "outcomes_json": _canonical_json_list(
-                market.get("outcomes"), field_name="outcomes"
+            "outcomes_json": (
+                _canonical_json_list(market.get("outcomes"), field_name="outcomes")
+                if market.get("outcomes") is not None
+                else None
             ),
-            "outcome_prices_json": _canonical_json_list(
-                market.get("outcomePrices"), field_name="outcomePrices"
+            "outcome_prices_json": (
+                _canonical_json_list(
+                    market.get("outcomePrices"), field_name="outcomePrices"
+                )
+                if market.get("outcomePrices") is not None
+                else None
             ),
-            "token_ids_json": _canonical_json_list(
-                market.get("clobTokenIds"), field_name="clobTokenIds"
+            "token_ids_json": (
+                _canonical_json_list(
+                    market.get("clobTokenIds"), field_name="clobTokenIds"
+                )
+                if market.get("clobTokenIds") is not None
+                else None
             ),
             "tags_json": json.dumps(
                 [
@@ -1443,25 +1711,162 @@ class TradeRepository:
             if isinstance(fee_schedule, dict)
             else None,
             "resolution_status": (
-                resolution["status"]
-                if resolution
+                terminal["status"]
+                if terminal
                 else market.get("umaResolutionStatus")
             ),
-            "resolved_outcome": resolution["outcome"] if resolution else None,
+            "resolved_outcome": (
+                terminal["resolved_outcome"] if terminal else None
+            ),
             # Legacy catalog column name stores the first listed outcome payout.
             "resolved_value": (
-                resolution["first_outcome_payout"] if resolution else None
+                terminal["resolved_value"] if terminal else None
             ),
             "resolved_at": market.get("resolvedAt") or market.get("closedTime"),
             "source_updated_at": market.get("updatedAt"),
-            "last_seen_at": datetime.utcnow(),
+            "config_hash": self._current_config_hash(),
+            "sport_family": context["sport_family"],
+            "sport_profile_version": context["sport_profile_version"],
+            "protocol_sha256": context["protocol_sha256"],
+            "classifier_version": context["classifier_version"],
+            "league_mapping_sha256": context["league_mapping_sha256"],
+            "strategy_source_digest": context["strategy_source_digest"],
+            "book_shape": context["book_shape"],
+            "resolution_evidence_json": (
+                terminal["evidence_json"] if terminal else None
+            ),
+            "resolution_evidence_sha256": (
+                terminal["evidence_sha256"] if terminal else None
+            ),
+            "resolution_observed_at": observed_at if terminal else None,
+            "last_seen_at": observed_at,
         }
-        catalog = self.session.get(MarketCatalog, condition_id)
+        catalog = self.session.get(MarketCatalog, normalized_condition)
         if catalog is None:
-            self.session.add(MarketCatalog(condition_id=condition_id, **values))
+            required_defaults = {
+                "outcomes_json": "[]",
+                "outcome_prices_json": "[]",
+                "token_ids_json": "[]",
+                "tags_json": "[]",
+            }
+            for key, default in required_defaults.items():
+                if values.get(key) is None:
+                    values[key] = default
+            catalog = MarketCatalog(condition_id=normalized_condition, **values)
+            self.session.add(catalog)
         else:
             for key, value in values.items():
-                setattr(catalog, key, value)
+                if value is not None:
+                    setattr(catalog, key, value)
+        if terminal is not None:
+            self._stage_tracked_resolution(
+                condition_id=normalized_condition,
+                event_id=(event_meta["event_id"] or catalog.event_id),
+                evidence_context=evidence_context,
+                terminal=terminal,
+                observed_at=observed_at,
+            )
+            catalog.followup_status = "TERMINAL"
+            catalog.followup_next_attempt_at = None
+            catalog.followup_last_error = None
+        self.session.flush()
+        return catalog
+
+    def get_due_followup_catalogs(
+        self,
+        *,
+        now: datetime,
+        evidence_context: Dict[str, Any],
+        exclude_condition_ids: set[str],
+        limit: int,
+    ) -> List[MarketCatalog]:
+        if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
+            raise ValueError("follow-up limit must be a positive integer")
+        context = _normalize_evidence_context(evidence_context)
+        query = self.session.query(MarketCatalog).filter(
+            MarketCatalog.sport_family == context["sport_family"],
+            MarketCatalog.sport_profile_version
+            == context["sport_profile_version"],
+            MarketCatalog.protocol_sha256 == context["protocol_sha256"],
+            MarketCatalog.resolution_evidence_sha256.is_(None),
+            or_(
+                MarketCatalog.followup_next_attempt_at.is_(None),
+                MarketCatalog.followup_next_attempt_at <= now,
+            ),
+        )
+        normalized_excluded = {
+            str(item).strip() for item in exclude_condition_ids if str(item).strip()
+        }
+        if normalized_excluded:
+            query = query.filter(
+                ~MarketCatalog.condition_id.in_(normalized_excluded)
+            )
+        return (
+            query.order_by(
+                MarketCatalog.followup_next_attempt_at.asc(),
+                MarketCatalog.last_live_seen_at.asc(),
+                MarketCatalog.condition_id.asc(),
+            )
+            .limit(limit)
+            .all()
+        )
+
+    @staticmethod
+    def _followup_delay_minutes(attempt_count: int) -> int:
+        return min(15, 2 ** min(max(0, attempt_count - 1), 4))
+
+    def record_followup_missing(
+        self,
+        condition_id: str,
+        *,
+        attempted_at: datetime,
+        reason: str = "gamma_condition_not_found",
+        commit: bool = True,
+    ) -> MarketCatalog:
+        catalog = self.session.get(MarketCatalog, str(condition_id))
+        if catalog is None:
+            raise ValueError("follow-up catalog condition is missing")
+        catalog.followup_attempt_count = int(catalog.followup_attempt_count or 0) + 1
+        catalog.followup_last_attempt_at = attempted_at
+        catalog.followup_status = "SOURCE_MISSING"
+        catalog.followup_last_error = str(reason or "source_missing")
+        catalog.followup_next_attempt_at = attempted_at + timedelta(
+            minutes=self._followup_delay_minutes(catalog.followup_attempt_count)
+        )
+        if commit:
+            self.session.commit()
+        return catalog
+
+    def record_followup_market(
+        self,
+        condition_id: str,
+        market: Dict[str, Any],
+        *,
+        attempted_at: datetime,
+        evidence_context: Dict[str, Any],
+        commit: bool = True,
+    ) -> MarketCatalog:
+        catalog = self._upsert_market_catalog(
+            condition_id,
+            market,
+            evidence_context=evidence_context,
+            observed_at=attempted_at,
+        )
+        catalog.followup_attempt_count = int(catalog.followup_attempt_count or 0) + 1
+        catalog.followup_last_attempt_at = attempted_at
+        if catalog.resolution_evidence_sha256:
+            catalog.followup_status = "TERMINAL"
+            catalog.followup_next_attempt_at = None
+            catalog.followup_last_error = None
+        else:
+            catalog.followup_status = "FOLLOWING"
+            catalog.followup_last_error = None
+            catalog.followup_next_attempt_at = attempted_at + timedelta(
+                minutes=self._followup_delay_minutes(catalog.followup_attempt_count)
+            )
+        if commit:
+            self.session.commit()
+        return catalog
 
     @staticmethod
     def _attestation_datetime(value: Any) -> datetime:
@@ -1476,7 +1881,9 @@ class TradeRepository:
         self,
         attestation: Dict[str, Any],
         snapshot_results: Dict[str, Dict[str, Any]],
+        event_results: Dict[str, Dict[str, Any]],
         *,
+        evidence_context: Dict[str, Any],
         commit: bool = False,
     ) -> MarketSweep:
         """Validate and persist derived sweep membership atomically."""
@@ -1492,6 +1899,11 @@ class TradeRepository:
             raise ValueError("Gamma sweep memberships must be a list")
         if attestation.get("membership_digest_scope") != "qualified_only":
             raise ValueError("Gamma digest scope must be qualified_only")
+        context = _normalize_evidence_context(evidence_context)
+        if str(attestation.get("sport_family") or "").strip().lower() != context[
+            "sport_family"
+        ]:
+            raise ValueError("Gamma sweep sport family does not match runtime profile")
 
         canonical: List[Dict[str, Any]] = []
         for item in memberships:
@@ -1541,6 +1953,131 @@ class TradeRepository:
         if set(snapshot_results) != qualified_ids:
             raise ValueError("every qualified condition requires an archive decision")
 
+        if not isinstance(event_results, dict):
+            raise ValueError("event-cycle evidence must be a mapping")
+        expected_market_count = int(context["expected_market_count"])
+        expected_token_count = int(context["expected_token_count"])
+        expected_result_kinds = json.loads(context["expected_result_kinds_json"])
+        normalized_events: List[Dict[str, Any]] = []
+        condition_to_event: Dict[str, Dict[str, Any]] = {}
+        for key, raw_event in event_results.items():
+            if not isinstance(raw_event, dict):
+                raise ValueError("event-cycle evidence must contain objects")
+            event_id = str(raw_event.get("event_id") or "").strip()
+            if not event_id or event_id != str(key):
+                raise ValueError("event-cycle identity mismatch")
+            condition_ids = sorted(
+                str(item).strip()
+                for item in raw_event.get("condition_ids", [])
+                if str(item).strip()
+            )
+            token_ids = sorted(
+                str(item).strip()
+                for item in raw_event.get("token_ids", [])
+                if str(item).strip()
+            )
+            if len(condition_ids) != len(set(condition_ids)):
+                raise ValueError("event-cycle condition list is not unique")
+            if len(token_ids) != len(set(token_ids)):
+                raise ValueError("event-cycle token list is not unique")
+            observed_kinds = sorted(
+                {
+                    str(item).strip().upper()
+                    for item in raw_event.get("observed_result_kinds", [])
+                    if str(item).strip()
+                }
+            )
+            missing_kinds = sorted(set(expected_result_kinds) - set(observed_kinds))
+            if missing_kinds != sorted(raw_event.get("missing_result_kinds", [])):
+                raise ValueError("event-cycle missing result kinds mismatch")
+            duplicate_condition_count = int(
+                raw_event.get("duplicate_condition_count", 0)
+            )
+            duplicate_token_count = int(raw_event.get("duplicate_token_count", 0))
+            duplicate_identity_count = int(
+                raw_event.get("duplicate_identity_count", 0)
+            )
+            observed_market_count = int(raw_event.get("observed_market_count", -1))
+            observed_token_count = int(raw_event.get("observed_token_count", -1))
+            identity_complete = raw_event.get("identity_complete") is True
+            structure_complete = bool(
+                observed_market_count == expected_market_count
+                and observed_token_count == expected_token_count
+                and duplicate_condition_count == 0
+                and duplicate_token_count == 0
+                and duplicate_identity_count == 0
+                and not missing_kinds
+                and identity_complete
+            )
+            if raw_event.get("structure_complete") is not structure_complete:
+                raise ValueError("event-cycle structure-complete flag is not derivable")
+            if not isinstance(raw_event.get("book_complete"), bool):
+                raise ValueError("event-cycle book-complete flag must be boolean")
+            book_complete = raw_event["book_complete"]
+            complete = bool(structure_complete and book_complete)
+            if raw_event.get("complete") is not complete:
+                raise ValueError("event-cycle complete flag is not derivable")
+            if observed_market_count != len(condition_ids):
+                raise ValueError("event-cycle market count mismatch")
+            if observed_token_count != len(token_ids):
+                raise ValueError("event-cycle token count mismatch")
+            reason = str(raw_event.get("reason") or "").strip()
+            if not reason:
+                raise ValueError("event-cycle reason is required")
+            event_cycle_id = hashlib.sha256(
+                f"{attestation.get('sweep_id')}:{event_id}".encode()
+            ).hexdigest()
+            if str(raw_event.get("event_cycle_id") or "") != event_cycle_id:
+                raise ValueError("event-cycle digest identity mismatch")
+            payload = {
+                "event_cycle_id": event_cycle_id,
+                "event_id": event_id,
+                "condition_ids": condition_ids,
+                "token_ids": token_ids,
+                "expected_result_kinds": expected_result_kinds,
+                "observed_result_kinds": observed_kinds,
+                "missing_result_kinds": missing_kinds,
+                "expected_market_count": expected_market_count,
+                "observed_market_count": observed_market_count,
+                "expected_token_count": expected_token_count,
+                "observed_token_count": observed_token_count,
+                "duplicate_condition_count": duplicate_condition_count,
+                "duplicate_token_count": duplicate_token_count,
+                "duplicate_identity_count": duplicate_identity_count,
+                "identity_complete": identity_complete,
+                "structure_complete": structure_complete,
+                "book_complete": book_complete,
+                "complete": complete,
+                "reason": reason,
+            }
+            evidence_sha256 = hashlib.sha256(
+                _canonical_payload(payload).encode()
+            ).hexdigest()
+            if str(raw_event.get("evidence_sha256") or "") != evidence_sha256:
+                raise ValueError("event-cycle evidence SHA-256 mismatch")
+            normalized = {**payload, "evidence_sha256": evidence_sha256}
+            normalized_events.append(normalized)
+            for condition_id in condition_ids:
+                if condition_id in condition_to_event:
+                    raise ValueError("condition belongs to multiple event cycles")
+                condition_to_event[condition_id] = normalized
+        if set(condition_to_event) != qualified_ids:
+            raise ValueError(
+                "event-cycle evidence must cover every qualified condition exactly once"
+            )
+        normalized_events.sort(key=lambda item: item["event_id"])
+        event_evidence_digest = hashlib.sha256(
+            _canonical_payload(
+                [
+                    {
+                        "event_id": item["event_id"],
+                        "evidence_sha256": item["evidence_sha256"],
+                    }
+                    for item in normalized_events
+                ]
+            ).encode()
+        ).hexdigest()
+
         exclusion_counts: Dict[str, int] = {}
         for item in canonical:
             if not item["qualified"]:
@@ -1576,7 +2113,10 @@ class TradeRepository:
                 eligible = False
                 snapshotted = False
                 reason = f"not_qualified:{membership['qualification_reason']}"
-            enriched.append((membership, eligible, snapshotted, reason))
+            event_result = condition_to_event.get(membership["condition_id"])
+            enriched.append(
+                (membership, eligible, snapshotted, reason, event_result)
+            )
 
         started = self._attestation_datetime(attestation["started_at"])
         completed = self._attestation_datetime(attestation["completed_at"])
@@ -1641,10 +2181,71 @@ class TradeRepository:
             snapshot_eligible_count=sum(int(row[1]) for row in enriched),
             snapshotted_market_count=sum(int(row[2]) for row in enriched),
             membership_detail_stored=int(store_membership_details),
+            config_hash=self._current_config_hash(),
+            sport_family=context["sport_family"],
+            sport_profile_version=context["sport_profile_version"],
+            protocol_sha256=context["protocol_sha256"],
+            classifier_version=context["classifier_version"],
+            league_mapping_sha256=context["league_mapping_sha256"],
+            strategy_source_digest=context["strategy_source_digest"],
+            book_shape=context["book_shape"],
+            expected_result_kinds_json=context["expected_result_kinds_json"],
+            expected_market_count=expected_market_count,
+            expected_token_count=expected_token_count,
+            event_count=len(normalized_events),
+            complete_event_count=sum(int(item["complete"]) for item in normalized_events),
+            incomplete_event_count=sum(
+                int(not item["complete"]) for item in normalized_events
+            ),
+            event_evidence_digest_sha256=event_evidence_digest,
         )
         self.session.add(sweep)
+        observed_at = completed
+        for item in normalized_events:
+            self.session.add(
+                EventCycleEvidence(
+                    event_cycle_id=item["event_cycle_id"],
+                    sweep_id=sweep_id,
+                    run_id=current_run_id(),
+                    config_hash=self._current_config_hash(),
+                    event_id=item["event_id"],
+                    observed_at=observed_at,
+                    sport_family=context["sport_family"],
+                    sport_profile_version=context["sport_profile_version"],
+                    protocol_sha256=context["protocol_sha256"],
+                    classifier_version=context["classifier_version"],
+                    league_mapping_sha256=context["league_mapping_sha256"],
+                    strategy_source_digest=context["strategy_source_digest"],
+                    book_shape=context["book_shape"],
+                    expected_result_kinds_json=context[
+                        "expected_result_kinds_json"
+                    ],
+                    observed_result_kinds_json=_canonical_payload(
+                        item["observed_result_kinds"]
+                    ),
+                    missing_result_kinds_json=_canonical_payload(
+                        item["missing_result_kinds"]
+                    ),
+                    condition_ids_json=_canonical_payload(item["condition_ids"]),
+                    token_ids_json=_canonical_payload(item["token_ids"]),
+                    expected_market_count=expected_market_count,
+                    observed_market_count=item["observed_market_count"],
+                    expected_token_count=expected_token_count,
+                    observed_token_count=item["observed_token_count"],
+                    duplicate_condition_count=item[
+                        "duplicate_condition_count"
+                    ],
+                    duplicate_token_count=item["duplicate_token_count"],
+                    duplicate_identity_count=item[
+                        "duplicate_identity_count"
+                    ],
+                    complete=int(item["complete"]),
+                    reason=item["reason"],
+                    evidence_sha256=item["evidence_sha256"],
+                )
+            )
         if store_membership_details:
-            for membership, eligible, snapshotted, reason in enriched:
+            for membership, eligible, snapshotted, reason, event_result in enriched:
                 self.session.add(
                     MarketSweepMembership(
                         sweep_id=sweep_id,
@@ -1655,6 +2256,14 @@ class TradeRepository:
                         snapshot_eligible=int(eligible),
                         snapshotted=int(snapshotted),
                         snapshot_reason=reason,
+                        event_id=(event_result or {}).get("event_id"),
+                        event_cycle_id=(event_result or {}).get("event_cycle_id"),
+                        event_set_complete=(
+                            None
+                            if event_result is None
+                            else int(event_result["complete"])
+                        ),
+                        event_set_reason=(event_result or {}).get("reason"),
                     )
                 )
         if commit:
@@ -1729,6 +2338,9 @@ class TradeRepository:
             .all()
         ]
         if expired_sweeps:
+            self.session.query(EventCycleEvidence).filter(
+                EventCycleEvidence.sweep_id.in_(expired_sweeps)
+            ).delete(synchronize_session=False)
             self.session.query(MarketSweepMembership).filter(
                 MarketSweepMembership.sweep_id.in_(expired_sweeps)
             ).delete(synchronize_session=False)

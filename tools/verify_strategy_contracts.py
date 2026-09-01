@@ -4591,20 +4591,23 @@ def _validate_peach_strategy(
 def _validate_plum_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
-    """Validate the soccer full-match trend-confirmation live/shadow contract."""
+    """Validate Golden Plum's sport-profiled full-game live/shadow contract."""
 
     contracts = {
         "README.md": (
             "polybot-king",
             "polybot-queen",
             "polybot-silver",
+            "polybot-gold",
             "plum-live-king-90-1m-v1",
             "plum-live-queen-95-1m-v1",
             "plum-shadow-silver-1m-v1",
+            "plum-shadow-gold-mlb-1m-v1",
             "[0.75,0.78]",
             "시간 강제 청산은 없고",
             "$5/$10/$25/$50/$100/$250/$500",
             "exact `$5`",
+            "MLB",
         ),
         "STRATEGY.md": (
             "HOME/DRAW/AWAY",
@@ -4616,6 +4619,8 @@ def _validate_plum_strategy(
             "누적 상승이 0.02",
             "시간 강제 청산: 없음",
             "execution_capacity_json",
+            "MLB",
+            "NBA·NFL·NHL",
             "event당 실제 체결",
             "180분",
             "QUARANTINED",
@@ -4623,6 +4628,7 @@ def _validate_plum_strategy(
         ),
         "OPERATIONS.md": (
             "/Volumes/t7/jenkins/polybot-silver",
+            "/Volumes/t7/jenkins/polybot-gold",
             "* * * * *",
             "동시 빌드",
             "clean",
@@ -4630,10 +4636,13 @@ def _validate_plum_strategy(
         ),
         "src/polybot/config.py": (
             "FROZEN_JOB_TAKE_PROFIT",
+            "RuntimeSpec",
+            "RUNTIME_SPECS",
             "plum-live-king-90-1m-v1",
             "plum-live-queen-95-1m-v1",
             "plum-shadow-silver-1m-v1",
-            "Golden Plum is frozen to soccer",
+            "plum-shadow-gold-mlb-1m-v1",
+            "non-soccer Golden Plum live execution is not enabled",
             "Golden Plum notional must remain exactly $5",
             "Golden Plum must inspect direct YES and NO books",
             "failed stop SELL quarantine timeout is frozen at 180 minutes",
@@ -4641,16 +4650,16 @@ def _validate_plum_strategy(
             "preregistration_sha256",
         ),
         "src/polybot/strategy/scanner.py": (
-            "get_source_regulation_minute",
+            "get_source_progress",
             "trend_snapshot_cadence_gap",
             "trend_snapshot_ids",
-            "six_token_full_match_first_cross_trend",
+            "full_game_first_cross_trend",
             "claim_entry_episode",
-            "direct YES/NO snapshots",
+            "direct",
         ),
         "src/polybot/strategy/trader.py": (
-            "fresh_six_token_leader_changed",
-            "fresh_six_token_book_coverage_gap",
+            "fresh_direct_book_leader_changed",
+            "fresh_direct_book_coverage_gap",
             "get_snapshots_by_ids",
             "place_fok_buy",
             "no time exit",
@@ -4690,6 +4699,7 @@ def _validate_plum_strategy(
             "test_three_fresh_snapshots_confirm_direct_no_first_cross",
             "test_entry_accepts_explicit_live_source_clock_after_minute_seventy_five",
             "test_simulation_scaling_ladder_is_persisted_without_extra_book_reads",
+            "test_mlb_direct_two_team_collection_and_trend_need_no_fake_minute",
             "test_missing_one_direct_book_fails_closed",
             "test_tied_current_leader_fails_closed_after_history",
         ),
@@ -4698,6 +4708,7 @@ def _validate_plum_strategy(
             "test_continuous_stop_failure_is_quarantined_after_three_hours",
             "test_minute_eighty_does_not_force_exit_and_stop_remains_active",
             "test_unrelated_event_exits_are_not_blocked_by_first_sell",
+            "test_mlb_simulation_revalidates_two_direct_books_without_source_minute",
         ),
         "tests/test_lifecycle_mode.py": (
             "test_active_caps_one_cycle_at_five_new_positions",
@@ -4709,6 +4720,7 @@ def _validate_plum_strategy(
             "test_full_depth_walks_use_all_levels_and_fail_if_shallow",
             "test_trend_requires_same_token_first_cross_and_bounded_pullback",
             "test_replay_defaults_to_full_match_without_time_exit",
+            "test_mlb_replay_uses_timestamp_cadence_without_inventing_source_minutes",
         ),
         "src/polybot/source_digest.py": (
             "compute_strategy_source_digest",
@@ -4736,6 +4748,8 @@ def _validate_plum_strategy(
         "research/frozen-2026-08-31-midgame-confirmation-v1/MANIFEST.sha256",
         "research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md",
         "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256",
+        "research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md",
+        "research/frozen-2026-09-01-multisport-mlb-shadow-v3/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -4834,6 +4848,50 @@ def _validate_plum_strategy(
                     strategy,
                     "invalid_manifest",
                     "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256",
+                )
+            )
+
+    mlb_prereg_path = (
+        directory
+        / "research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md"
+    )
+    mlb_manifest_path = (
+        directory
+        / "research/frozen-2026-09-01-multisport-mlb-shadow-v3/MANIFEST.sha256"
+    )
+    mlb_preregistration = _read(mlb_prereg_path)
+    mlb_manifest = _read(mlb_manifest_path)
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md",
+        mlb_preregistration,
+        (
+            "plum-shadow-gold-mlb-1m-v1",
+            "MLB",
+            "NBA·NFL·NHL",
+            "exact `$5`",
+            "$5/$10/$25/$50/$100/$250/$500",
+            "source_elapsed_minutes`는 NULL",
+            "시간 청산은 없음",
+            "50초",
+            "해결까지 관측된 MLB event 100개",
+        ),
+    )
+    if mlb_preregistration and mlb_manifest:
+        digest = hashlib.sha256(mlb_prereg_path.read_bytes()).hexdigest()
+        pinned = any(
+            len(fields := line.strip().split()) >= 2
+            and fields[0].lower() == digest
+            and fields[-1].lstrip("*").endswith("PREREGISTRATION.md")
+            for line in mlb_manifest.splitlines()
+        )
+        if not pinned:
+            findings.append(
+                Finding(
+                    strategy,
+                    "invalid_manifest",
+                    "research/frozen-2026-09-01-multisport-mlb-shadow-v3/MANIFEST.sha256",
                 )
             )
 

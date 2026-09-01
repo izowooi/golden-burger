@@ -195,10 +195,18 @@ def _uefa_event(code: str, markets):
 def _direct_sport_event(family: str, markets, *, postseason=False):
     identities = {
         "mlb": (8, "MLB", 100381, 3, "mlb"),
+        "nba": (34, "NBA", 745, 10345, "nba"),
+        "nfl": (10, "NFL", 450, 10187, "nfl"),
         "nhl": (35, "NHL", 899, 10346, "nhl-2026"),
     }
     sport_id, name, tag_id, root_series, series_slug = identities[family]
-    title = f"{name} {'World Series' if family == 'mlb' else 'Stanley Cup Final'}"
+    postseason_names = {
+        "mlb": "World Series",
+        "nba": "NBA Finals",
+        "nfl": "Super Bowl",
+        "nhl": "Stanley Cup Final",
+    }
+    title = f"{name} {postseason_names[family]}"
     event = {
         "id": f"{family}-event",
         "slug": f"{family}-home-away-2026-08-29",
@@ -343,10 +351,28 @@ def test_gamma_accepts_exact_serie_a_identity() -> None:
     assert markets[0]["leagueName"] == "Serie A"
 
 
-@pytest.mark.parametrize("family", ["mlb", "nhl", "nfl", "nba"])
-def test_gamma_rejects_non_soccer_family_before_network(family) -> None:
-    with pytest.raises(ValueError, match="soccer-only"):
-        GammaClient(sport_family=family)
+@pytest.mark.parametrize(
+    ("family", "tag_id"),
+    [("mlb", 100381), ("nba", 745), ("nfl", 450), ("nhl", 899)],
+)
+def test_gamma_accepts_exact_direct_major_sport_family(family, tag_id) -> None:
+    market = _market(f"{family}-moneyline")
+    event = _direct_sport_event(family, [market])
+    client = GammaClient(sport_family=family)
+    client.session = _Session([{"events": [event]}])
+
+    markets = client.get_all_tradable_markets(0, 0)
+
+    assert len(markets) == 1
+    assert markets[0]["sportFamily"] == family
+    assert markets[0]["leagueCode"] == family
+    assert client.last_sweep_attestation["sport_family"] == family
+    assert client.last_sweep_attestation["tag_id"] == tag_id
+
+
+def test_gamma_rejects_unknown_sport_family_before_network() -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        GammaClient(sport_family="wnba")
 
 
 @pytest.mark.parametrize(

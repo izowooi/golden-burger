@@ -1,3 +1,4 @@
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -6,7 +7,16 @@ import pytest
 
 from polybot.api.clob_client import BuyBookWalk
 from polybot.config import TradingConfig
-from polybot.db.models import MarketSnapshot, MarketSweepMembership, init_database
+from polybot.db.models import (
+    EventCycleEvidence,
+    MarketCatalog,
+    MarketSnapshot,
+    MarketSweep,
+    MarketSweepMembership,
+    TrackedResolutionObservation,
+    Trade,
+    init_database,
+)
 from polybot.db.repository import TradeRepository
 from polybot.strategy.scanner import MarketScanner, get_source_regulation_minute
 
@@ -75,6 +85,50 @@ def _triad(*, event=None):
     ]
 
 
+def _mlb_market():
+    event = {
+        "id": "mlb-event-1",
+        "slug": "mlb-home-away",
+        "title": "Home Club vs. Away Club",
+        "parentEventId": None,
+        "active": True,
+        "closed": False,
+        "live": True,
+        "ended": False,
+        "startTime": (NOW - timedelta(hours=1)).isoformat(),
+        # Deliberately no elapsed/period: baseball innings are not soccer minutes.
+        "teams": [
+            {"name": "Home Club", "league": "mlb"},
+            {"name": "Away Club", "league": "mlb"},
+        ],
+    }
+    return {
+        "id": "mlb-market-1",
+        "conditionId": "mlb-condition-1",
+        "slug": "mlb-home-away",
+        "question": "Home Club vs Away Club",
+        "groupItemTitle": "",
+        "sportsMarketType": "moneyline",
+        "gameStartTime": event["startTime"],
+        "active": True,
+        "closed": False,
+        "enableOrderBook": True,
+        "acceptingOrders": True,
+        "liquidityNum": 10_000,
+        "volumeNum": 20_000,
+        "volume24hr": 3_000,
+        "outcomes": ["Home Club", "Away Club"],
+        "outcomePrices": ["0.72", "0.28"],
+        "clobTokenIds": ["mlb-home", "mlb-away"],
+        "negRisk": False,
+        "sportFamily": "mlb",
+        "leagueCode": "mlb",
+        "leagueName": "MLB",
+        "events": [event],
+        "tags": [{"id": "100381", "slug": "mlb"}],
+    }
+
+
 def _walk(token, vwap):
     return BuyBookWalk(
         token,
@@ -104,6 +158,7 @@ def _walks(leader_price=0.72):
 class _Gamma:
     def __init__(self, markets):
         self.markets = markets
+        self.followups = {}
         self.set_sweep(1, NOW)
 
     def set_sweep(self, index, observed_at):
@@ -143,7 +198,14 @@ class _Gamma:
             "membership_digest_sha256": digest,
             "membership_digest_scope": "qualified_only",
             "memberships": memberships,
+            "sport_family": str(
+                self.markets[0].get("sportFamily") or "soccer"
+            ).lower(),
         }
+
+    def get_market_by_condition_id(self, condition_id):
+        value = self.followups.get(condition_id)
+        return deepcopy(value) if value is not None else None
 
 
 class _Clob:
@@ -244,6 +306,59 @@ def test_simulation_scaling_ladder_is_persisted_without_extra_book_reads(
     session.close()
 
 
+def test_mlb_direct_two_team_collection_and_trend_need_no_fake_minute(
+    tmp_path,
+) -> None:
+    market = _mlb_market()
+    markets = [market]
+    Session = init_database(str(tmp_path / "mlb.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    gamma = _Gamma(markets)
+    clob = _Clob(
+        {
+            "mlb-home": _walk("mlb-home", 0.72),
+            "mlb-away": _walk("mlb-away", 0.28),
+        }
+    )
+    config = TradingConfig(
+        sport_family="mlb",
+        sport_profile_version="mlb-collection-uncalibrated-v1",
+        book_shape="direct-two-team-moneyline",
+        expected_result_kinds=("HOME", "AWAY"),
+        expected_market_count=1,
+        expected_token_count=2,
+        source_clock_required=False,
+        scaling_notionals_usdc=(5.0, 10.0),
+    )
+    scanner = MarketScanner(gamma, config, repo, clob_client=clob)
+
+    for index, price in enumerate((0.72, 0.74, 0.75), start=1):
+        observed_at = NOW + timedelta(minutes=index - 1)
+        gamma.set_sweep(index, observed_at)
+        clob.walks = {
+            "mlb-home": _walk("mlb-home", price),
+            "mlb-away": _walk("mlb-away", 1 - price),
+        }
+        assert scanner.save_market_snapshots(markets, now=observed_at) == 2
+        candidates = scanner.scan_buy_candidates(markets, now=observed_at)
+
+    assert len(candidates) == 1
+    assert candidates[0]["candidate_kind"] == "DIRECT_HOME"
+    assert candidates[0]["event_token_ids"] == ["mlb-home", "mlb-away"]
+    assert candidates[0]["source_elapsed_minutes"] is None
+    rows = session.query(MarketSnapshot).all()
+    assert len(rows) == 6
+    assert {row.outcome_side for row in rows} == {"DIRECT"}
+    assert all(row.source_elapsed_minutes is None for row in rows)
+    assert all(
+        row.source_clock_reason == "SOURCE_CLOCK_NOT_COMPARABLE_MLB"
+        for row in rows
+    )
+    assert all(row.execution_capacity_json for row in rows)
+    session.close()
+
+
 def test_missing_one_direct_book_fails_closed(tmp_path) -> None:
     markets = _triad()
     walks = _walks(0.75)
@@ -287,4 +402,116 @@ def test_sweep_membership_records_all_three_conditions(tmp_path) -> None:
     rows = session.query(MarketSweepMembership).all()
     assert len(rows) == 3
     assert all(row.snapshotted == 1 for row in rows)
+    event = session.query(EventCycleEvidence).one()
+    sweep = session.query(MarketSweep).one()
+    assert event.complete == 1
+    assert event.observed_market_count == 3
+    assert event.observed_token_count == 6
+    assert event.reason == "complete"
+    assert sweep.complete_event_count == 1
+    assert all(row.event_cycle_id == event.event_cycle_id for row in rows)
+    snapshots = session.query(MarketSnapshot).all()
+    assert all(row.sport_family == "soccer" for row in snapshots)
+    assert all(row.sport_profile_version == "soccer-full-match-v2" for row in snapshots)
+    assert all(row.event_set_complete == 1 for row in snapshots)
+    session.close()
+
+
+def test_missing_soccer_result_set_is_recorded_and_rejected(tmp_path) -> None:
+    markets = _triad()[:2]
+    walks = {key: value for key, value in _walks().items() if "AWAY" not in key}
+    session, _repo, scanner, gamma, _clob = _scanner(tmp_path, markets, walks)
+
+    assert scanner.save_market_snapshots(markets, now=NOW) == 4
+    assert scanner.scan_buy_candidates(markets, now=NOW) == []
+
+    event = session.query(EventCycleEvidence).one()
+    assert event.complete == 0
+    assert event.observed_market_count == 2
+    assert json.loads(event.missing_result_kinds_json) == ["AWAY"]
+    assert "market_count:2/3" in event.reason
+    assert all(row.event_set_complete == 0 for row in session.query(MarketSnapshot))
+    session.close()
+
+
+def test_duplicate_result_identity_is_recorded_and_rejected(tmp_path) -> None:
+    markets = _triad()
+    duplicate = deepcopy(markets[0])
+    duplicate["id"] = "market-home-duplicate"
+    duplicate["conditionId"] = "condition-home-duplicate"
+    duplicate["clobTokenIds"] = ["yes-HOME-duplicate", "no-HOME-duplicate"]
+    markets.append(duplicate)
+    walks = _walks()
+    walks["yes-HOME-duplicate"] = _walk("yes-HOME-duplicate", 0.45)
+    walks["no-HOME-duplicate"] = _walk("no-HOME-duplicate", 0.55)
+    session, _repo, scanner, _gamma, _clob = _scanner(tmp_path, markets, walks)
+
+    assert scanner.save_market_snapshots(markets, now=NOW) == 8
+    assert scanner.scan_buy_candidates(markets, now=NOW) == []
+
+    event = session.query(EventCycleEvidence).one()
+    assert event.complete == 0
+    assert event.duplicate_identity_count == 2
+    assert "duplicate_direct_identities:2" in event.reason
+    session.close()
+
+
+def test_disappeared_condition_followup_persists_order_independent_terminal_one_hot(
+    tmp_path,
+) -> None:
+    markets = _triad()
+    session, _repo, scanner, gamma, _clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+    terminal = deepcopy(markets[0])
+    terminal["closed"] = True
+    terminal["active"] = False
+    terminal["acceptingOrders"] = False
+    terminal["outcomePrices"] = ["1", "0"]
+    terminal["updatedAt"] = (NOW + timedelta(minutes=2)).isoformat()
+    gamma.followups[terminal["conditionId"]] = terminal
+
+    stats = scanner.follow_tracked_conditions(
+        markets[1:],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats == {
+        "due": 1,
+        "attempted": 1,
+        "terminal": 1,
+        "pending": 0,
+        "source_missing": 0,
+    }
+    catalog = session.get(MarketCatalog, terminal["conditionId"])
+    assert catalog.followup_status == "TERMINAL"
+    assert catalog.resolution_evidence_sha256
+    resolution = session.query(TrackedResolutionObservation).one()
+    assert json.loads(resolution.payouts_json) == {
+        "no-HOME": 0.0,
+        "yes-HOME": 1.0,
+    }
+    assert session.query(Trade).count() == 0
+    session.close()
+
+
+def test_followup_source_gap_remains_pending_with_bounded_retry(tmp_path) -> None:
+    markets = _triad()
+    session, _repo, scanner, _gamma, _clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+
+    stats = scanner.follow_tracked_conditions(
+        [],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats["source_missing"] == 1
+    catalog = (
+        session.query(MarketCatalog)
+        .filter(MarketCatalog.followup_status == "SOURCE_MISSING")
+        .one()
+    )
+    assert catalog.resolution_evidence_sha256 is None
+    assert catalog.followup_next_attempt_at > NOW.replace(tzinfo=None)
     session.close()

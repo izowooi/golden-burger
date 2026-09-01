@@ -47,6 +47,30 @@ def _binary(
     }
 
 
+def _direct_moneyline(family: str, prices=(0.60, 0.40), *, closed=False):
+    return {
+        "sportFamily": family,
+        "sportsMarketType": "moneyline",
+        "groupItemTitle": "",
+        "question": "Home Club vs Away Club",
+        "outcomes": ["Home Club", "Away Club"],
+        "outcomePrices": list(prices),
+        "clobTokenIds": [f"{family}-home", f"{family}-away"],
+        "negRisk": False,
+        "closed": closed,
+        "events": [
+            {
+                "id": f"{family}-event",
+                "parentEventId": None,
+                "teams": [
+                    {"name": "Home Club", "alias": "Home", "league": family},
+                    {"name": "Away Club", "alias": "Away", "league": family},
+                ],
+            }
+        ],
+    }
+
+
 @pytest.mark.parametrize(
     ("group", "kind"),
     [
@@ -138,6 +162,33 @@ def test_yes_no_negrisk_alignment_and_settlement_paths() -> None:
     sides = get_match_result_sides(market)
     assert [item["candidate_kind"] for item in sides] == ["YES_HOME", "NO_HOME"]
     assert [item["token_id"] for item in sides] == ["yes", "no"]
+
+
+@pytest.mark.parametrize("family", ["mlb", "nba", "nfl", "nhl"])
+def test_direct_major_sport_exposes_two_team_books_without_synthetic_no(
+    family,
+) -> None:
+    market = _direct_moneyline(family)
+
+    assert match_result_reason(market) == ("ok", "DIRECT_TWO_TEAM")
+    sides = get_match_result_sides(market)
+    assert [item["result_kind"] for item in sides] == ["HOME", "AWAY"]
+    assert [item["outcome_side"] for item in sides] == ["DIRECT", "DIRECT"]
+    assert [item["candidate_kind"] for item in sides] == [
+        "DIRECT_HOME",
+        "DIRECT_AWAY",
+    ]
+    assert [item["token_id"] for item in sides] == [
+        f"{family}-home",
+        f"{family}-away",
+    ]
+    proof = get_proven_resolution(
+        _direct_moneyline(family, prices=(1, 0), closed=True)
+    )
+    assert proof["payouts_by_outcome"] == {
+        "Home Club": 1.0,
+        "Away Club": 0.0,
+    }
 
 
 @pytest.mark.parametrize(

@@ -91,7 +91,7 @@ def aligned_binary_reason(market: Dict[str, Any]) -> str:
             return "not_exact_yes_no_labels"
         if market.get("negRisk") is not True:
             return "not_explicit_negrisk_result_market"
-    elif family in {"mlb", "nhl"}:
+    elif family in {"mlb", "nba", "nfl", "nhl"}:
         if labels == ["Yes", "No"]:
             return "direct_team_labels_required"
         if market.get("negRisk") is not False:
@@ -237,7 +237,7 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
     if not home_forms or not away_forms or home_forms & away_forms:
         return "team_identity_ambiguous", None
     family = str(market.get("sportFamily") or "soccer").strip().lower()
-    if family in {"mlb", "nhl"}:
+    if family in {"mlb", "nba", "nfl", "nhl"}:
         labels = [
             _normalized_name(item)
             for item in (_list_value(market.get("outcomes")) or [])
@@ -323,13 +323,34 @@ def get_match_result_outcomes(market: Dict[str, Any]) -> List[Dict[str, Any]]:
 
 
 def get_match_result_sides(market: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """Return the direct YES and NO token for one exact soccer result.
+    """Return every directly tradable whole-game winner token.
 
-    ``NO`` is deliberately read from its own token and order book.  It is not
-    inferred as ``1 - YES`` because executable bid/ask depth is asymmetric.
+    Soccer contributes direct YES and NO books for each HOME/DRAW/AWAY
+    proposition. MLB/NBA/NFL/NHL contribute the two team-labelled tokens from
+    their single top-level moneyline. No synthetic complement is created.
     """
     reason, result_kind = match_result_reason(market)
-    if reason != "ok" or result_kind not in {"HOME", "DRAW", "AWAY"}:
+    if reason != "ok" or result_kind is None:
+        return []
+    family = str(market.get("sportFamily") or "soccer").strip().lower()
+    if family != "soccer":
+        direct = get_match_result_outcomes(market)
+        if len(direct) != 2 or {
+            str(item.get("result_kind")) for item in direct
+        } != {"HOME", "AWAY"}:
+            return []
+        return [
+            {
+                **item,
+                "outcome_side": "DIRECT",
+                "candidate_kind": f"DIRECT_{item['result_kind']}",
+                # Legacy field name retained in the DB contract. For a direct
+                # team token this is simply that token's catalog probability.
+                "yes_probability": float(item["probability"]),
+            }
+            for item in direct
+        ]
+    if result_kind not in {"HOME", "DRAW", "AWAY"}:
         return []
     aligned = get_aligned_binary_outcomes(market)
     if [item.get("outcome") for item in aligned] != ["Yes", "No"]:

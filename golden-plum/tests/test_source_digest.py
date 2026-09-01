@@ -65,3 +65,24 @@ def test_preregistration_digest_tracks_only_frozen_protocol(tmp_path: Path) -> N
     _write(project_root / ACTIVE_PREREGISTRATION, "revised frozen protocol")
 
     assert preregistration_sha256(project_root) != before
+
+
+def test_runtime_specific_preregistration_changes_identity_independently(
+    tmp_path: Path,
+) -> None:
+    project_root = _source_tree(tmp_path)
+    soccer_protocol = (
+        "research/frozen-soccer/PREREGISTRATION.md"
+    )
+    mlb_protocol = "research/frozen-mlb/PREREGISTRATION.md"
+    _write(project_root / soccer_protocol, "soccer protocol")
+    _write(project_root / mlb_protocol, "mlb protocol")
+
+    soccer_digest = compute_strategy_source_digest(
+        project_root, soccer_protocol
+    )
+    mlb_digest = compute_strategy_source_digest(project_root, mlb_protocol)
+    assert soccer_digest != mlb_digest
+    assert preregistration_sha256(project_root, soccer_protocol) != (
+        preregistration_sha256(project_root, mlb_protocol)
+    )

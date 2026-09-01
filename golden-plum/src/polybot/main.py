@@ -5,18 +5,127 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
+from pathlib import Path
+import subprocess
 import sys
 
+from polybot_observability import RunAudit
+
 from .bot import PolymarketBot
-from .config import load_config
+from .config import RUNTIME_SPECS, load_config
 from .utils.deadline import enforced_cycle_deadline
 from .utils.logger import setup_logger
 from .utils.run_lock import exclusive_job_run_lock
 
 
+class OverlappingCycleSkipped(RuntimeError):
+    """A simulation trigger arrived while the prior cycle held the job lock."""
+
+
+def _verify_external_collector_workspace(runtime_job: str) -> Path | None:
+    """Run the strict T7 preflight before config creates the DB directory."""
+    runtime_spec = RUNTIME_SPECS.get(runtime_job)
+    if runtime_spec is None or runtime_spec.external_workspace_path is None:
+        return None
+    if not runtime_spec.simulation_mode:
+        raise RuntimeError("external Golden Plum runtime must remain simulation-only")
+    jenkins_job = runtime_spec.jenkins_job
+    expected_workspace = Path(runtime_spec.external_workspace_path)
+    raw_workspace = (os.environ.get("WORKSPACE") or "").strip()
+    if not raw_workspace:
+        raise RuntimeError(
+            f"{jenkins_job} requires Jenkins WORKSPACE for external-volume proof"
+        )
+    expected_database = (
+        expected_workspace
+        / "golden-plum"
+        / "data"
+        / runtime_job
+        / "trades_sim.db"
+    )
+    project_root = Path(__file__).resolve().parents[2]
+    verifier = project_root / "scripts" / "verify_external_workspace.py"
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(verifier),
+            "--job",
+            jenkins_job,
+            "--workspace",
+            raw_workspace,
+            "--database",
+            str(expected_database),
+            "--write-daily-rsync-marker",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+        timeout=10,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"{jenkins_job} external workspace verification failed"
+        )
+    logging.info(
+        "external workspace verified - jenkins_job=%s runtime_job=%s",
+        jenkins_job,
+        runtime_job,
+    )
+    return expected_database
+
+
+def _resolved_database_path(path: Path) -> Path:
+    """Resolve config's repository-relative DB path against the current checkout."""
+    candidate = Path(path)
+    if not candidate.is_absolute():
+        candidate = Path.cwd() / candidate
+    return candidate.resolve()
+
+
+def _validate_resolved_external_contract(
+    config, expected_database: Path | None
+) -> None:
+    if expected_database is None:
+        return
+    runtime_spec = RUNTIME_SPECS.get(config.job_name)
+    if runtime_spec is None:
+        raise RuntimeError("resolved runtime is absent from the atomic registry")
+    if (
+        config.trading.external_workspace_path
+        != runtime_spec.external_workspace_path
+        or config.trading.cycle_hard_deadline_seconds
+        != runtime_spec.hard_deadline_seconds
+        or config.trading.cadence_seconds != runtime_spec.cadence_seconds
+        or config.simulation_mode is not runtime_spec.simulation_mode
+        or runtime_spec.jenkins_job
+        not in {"polybot-gold", "polybot-silver"}
+        or _resolved_database_path(config.db_path) != expected_database.resolve()
+    ):
+        raise RuntimeError(
+            "resolved config differs from the atomic external workspace contract"
+        )
+
+
+def _record_simulation_failure(config, error: BaseException) -> None:
+    """Best-effort audit for failures before ``PolymarketBot.run`` starts."""
+    if not config.simulation_mode:
+        return
+    try:
+        audit = RunAudit.start(config, strategy_name="golden-plum")
+        audit.fail(error)
+    except Exception as audit_error:
+        logging.warning(
+            "pre-run simulation failure audit could not be recorded - "
+            "job=%s error=%s",
+            config.job_name,
+            type(audit_error).__name__,
+        )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Golden Plum - soccer full-match first-cross confirmation A/B"
+        description="Golden Plum - full-game direct-book first-cross confirmation"
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run one archive/trading cycle")
@@ -84,22 +193,62 @@ def main() -> None:
         sys.exit(1)
 
     if args.command == "run":
+        try:
+            expected_external_database = _verify_external_collector_workspace(
+                args.job
+            )
+        except Exception as error:
+            print(f"External workspace error: {error}", file=sys.stderr)
+            sys.exit(1)
         config = _load(
             args,
             simulation_override=_run_simulation_override(args),
         )
+        try:
+            _validate_resolved_external_contract(
+                config, expected_external_database
+            )
+        except RuntimeError as error:
+            print(
+                f"External workspace error: {error}",
+                file=sys.stderr,
+            )
+            sys.exit(1)
         setup_logger(config.job_name, verbose=args.verbose)
         try:
             lock_path = config.db_path.parent / ".cycle-run.lock"
             with exclusive_job_run_lock(lock_path) as acquired:
                 if not acquired:
+                    _record_simulation_failure(
+                        config,
+                        OverlappingCycleSkipped(
+                            f"overlapping cycle skipped for {config.job_name}"
+                        ),
+                    )
                     logging.warning(
                         "이전 %s cycle이 아직 실행 중이므로 중복 실행을 안전하게 건너뜁니다",
                         config.job_name,
                     )
                     return
-                with enforced_cycle_deadline() as cycle_budget:
-                    bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                configured_deadline = (
+                    config.trading.cycle_hard_deadline_seconds
+                )
+                if config.simulation_mode and configured_deadline is None:
+                    raise RuntimeError(
+                        "simulation runtime requires a frozen hard deadline"
+                    )
+                with enforced_cycle_deadline(
+                    hard_limit_seconds=configured_deadline,
+                    enforce_deadline=(
+                        config.simulation_mode
+                        and configured_deadline is not None
+                    ),
+                ) as cycle_budget:
+                    try:
+                        bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                    except Exception as error:
+                        _record_simulation_failure(config, error)
+                        raise
                     try:
                         bot.run()
                     finally:
@@ -139,13 +288,21 @@ def main() -> None:
         return
 
     trading = config.trading
-    print("=== Golden Plum / Soccer Full-Match Confirmation ===")
+    print("=== Golden Plum / Full-Game Direct-Book Confirmation ===")
     print(f"Job: {config.job_name}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     print(f"Sport Family: {trading.sport_family}")
     print(f"DB: {config.db_path}")
-    print("Direct HOME/DRAW/AWAY YES and NO books are compared (6 tokens/event)")
+    print(
+        f"Book shape: {trading.book_shape}; expected "
+        f"{trading.expected_market_count} market(s) / "
+        f"{trading.expected_token_count} token(s) per event"
+    )
+    print(
+        f"Sport profile: {trading.sport_profile_version}; source clock required: "
+        f"{trading.source_clock_required}"
+    )
     print(
         "Cohort source/preregistration: "
         f"{trading.strategy_source_digest[:12]}/"
@@ -220,6 +377,14 @@ def main() -> None:
         print(
             "Simulation-only displayed-depth scaling ladder: "
             + ", ".join(f"${value:g}" for value in trading.scaling_notionals_usdc)
+        )
+        print(
+            "Simulation-only replay grid: entries="
+            + ",".join(f"{value:.2f}" for value in trading.analysis_entry_thresholds)
+            + "; targets="
+            + ",".join(f"{value:.2f}" for value in trading.analysis_target_prices)
+            + "; stops="
+            + ",".join(f"{value:.2f}" for value in trading.analysis_stop_deltas)
         )
 
 

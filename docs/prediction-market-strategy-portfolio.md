@@ -44,7 +44,7 @@ market observatory다.
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · Cat/Dog job 재사용** |
 | **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 simulation · 2026-08-30 시작** |
-| **golden-plum** | Soccer Full-Match Confirmation | 경기 전체의 일관된 상승이 추가 상승으로 이어지는지 검정 | exact `$5` FOK, event당 1회 | kickoff~ended, 3회/+2%p, TP 0.90/0.95, SL −0.15, time exit 없음 | **최소금액 live A/B + 1분 simulation · v2 2026-08-31 시작** |
+| **golden-plum** | Sport-Profiled Full-Game Confirmation | 경기 전체의 일관된 상승이 추가 상승으로 이어지는지 종목별 검정 | 축구 exact `$5` FOK + 종목별 simulation | 시작~ended, 3회/+2%p, time exit 없음 | **축구 live A/B + 축구/MLB 1분 simulation · MLB v3 2026-09-01 시작** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **⛔ 운영 폐쇄 2026-08-24 · King/Queen job 재사용** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
@@ -459,9 +459,9 @@ build와 연속 두 자연 1분 build가 모두 성공했고 자연 build는 4.6
 그러므로 배포 건전성은 통과했지만 직접 six-book/source-clock 수집 coverage와 수익성은 아직
 판정하지 않는다.
 
-## 15차 설계 — 축구 경기 전체의 일관된 상승 확인
+## 15차 설계 — 종목별 경기 전체의 일관된 상승 확인
 
-### golden-plum — Soccer Full-Match Confirmation
+### golden-plum — Sport-Profiled Full-Game Confirmation
 
 경기 시작부터 Gamma가 종료를 명시할 때까지 검정한다. source minute와 wall-clock age의
 상한은 없다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 유일한 선두가 같은
@@ -477,11 +477,20 @@ best ask는 근거로 쓰지 않으며 주문 직전에 source clock, 여섯 ful
 `polybot-silver/plum-shadow-silver-1m-v1`은 credential-free raw/simulation 수집기이며
 `$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 근거를 추가 저장한다.
 
+2026-09-01 v3는 같은 가설을 종목별 versioned profile로 분리했다. 축구 live 계약은
+그대로 유지하고 `polybot-gold/plum-shadow-gold-mlb-1m-v1`이 MLB whole-game direct
+two-team moneyline 1시장/2token을 1분마다 수집한다. MLB 이닝을 축구 minute로 변환하지
+않으며 source minute는 NULL, snapshot UTC cadence와 explicit live/ended lifecycle을 쓴다.
+NBA·NFL·NHL도 direct two-team 분류·호가·재생 코드는 준비했지만 Jenkins와 live에서는
+꺼져 있다. Gold는 최대 2페이지와 batch CLOB/cached depth 계산으로 50초 안에 끝나야 한다.
+
 Grey의 10,499 snapshot/17경기 탐색 재생에서 0.60 최초 교차는 구조상 0건이었고,
 0.75·3회·+2%p 조건은 target별 3건뿐이었다. 표시 호가·무수수료 소표본이므로 우위를 주장하지
 않으며 공통 경기 20개 전 A/B 방향, arm당 확정 종료 50개와 공통 경기 30개 전 증액,
-Silver 100경기 전 사후 파라미터 변경을 금지한다. 상세는 `golden-plum/STRATEGY.md`, 현재 동결 계약은
-`golden-plum/research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`, 회고는
+종목별 해결 경기 100개 전 사후 파라미터 변경과 live 승격을 금지한다. 상세는
+`golden-plum/STRATEGY.md`, 축구 동결 계약은
+`golden-plum/research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`,
+MLB 수집 계약은 `golden-plum/research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`, 회고는
 `docs/retro/golden-plum.md`를 따른다.
 
 2026-08-31 commit `ebaeeb9`를 King/Queen/Silver에 배포했다. King은 TP 0.90, Queen은

@@ -1,9 +1,11 @@
-"""Direct six-token full-match trend-confirmation scanner for Golden Plum."""
+"""Full-game direct-book trend-confirmation scanner for Golden Plum."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import hashlib
+import json
 import logging
 import math
 import re
@@ -26,7 +28,6 @@ from .filters import (
 
 
 logger = logging.getLogger(__name__)
-_RESULT_KINDS = frozenset({"HOME", "DRAW", "AWAY"})
 
 
 @dataclass(frozen=True)
@@ -57,11 +58,24 @@ def evaluate_trend_confirmation(
         prices = tuple(float(snapshot.probability) for snapshot in snapshots)
         timestamps = tuple(snapshot.timestamp for snapshot in snapshots)
         snapshot_ids = tuple(int(snapshot.id) for snapshot in snapshots)
-        source_minutes = tuple(
-            float(snapshot.source_elapsed_minutes) for snapshot in snapshots
-        )
     except (AttributeError, TypeError, ValueError):
         return None, "trend_history_value_invalid"
+    raw_source_minutes = [
+        getattr(snapshot, "source_elapsed_minutes", None) for snapshot in snapshots
+    ]
+    if any(value is None for value in raw_source_minutes):
+        if config.source_clock_required:
+            return None, "trend_source_clock_missing"
+        if not all(value is None for value in raw_source_minutes):
+            return None, "trend_source_clock_partial"
+        source_minutes: tuple[float, ...] = ()
+    else:
+        try:
+            source_minutes = tuple(float(value) for value in raw_source_minutes)
+        except (TypeError, ValueError):
+            return None, "trend_source_clock_invalid"
+        if any(not math.isfinite(value) or value < 0 for value in source_minutes):
+            return None, "trend_source_clock_invalid"
     if any(not math.isfinite(price) or not 0 < price < 1 for price in prices):
         return None, "trend_history_price_invalid"
     if any(timestamp is None for timestamp in timestamps):
@@ -77,7 +91,7 @@ def evaluate_trend_confirmation(
         for gap in gaps
     ):
         return None, "trend_snapshot_cadence_gap"
-    if any(
+    if source_minutes and any(
         source_minutes[index] + 1e-9 < source_minutes[index - 1]
         for index in range(1, required)
     ):
@@ -213,8 +227,26 @@ def get_source_regulation_minute(
     return None, "SOURCE_PERIOD_UNSUPPORTED"
 
 
+def get_source_progress(
+    event: Dict[str, Any], sport_family: str
+) -> tuple[Optional[float], str]:
+    """Return a comparable source minute only where the source defines one.
+
+    Soccer has a stable regulation-minute contract. Innings, quarters and
+    periods are not interchangeable with minutes, so direct US sports retain
+    a null source minute and use timestamp cadence plus explicit live/ended
+    lifecycle. Wall-clock age is never written into the source-minute field.
+    """
+    family = str(sport_family or "").strip().lower()
+    if family == "soccer":
+        return get_source_regulation_minute(event)
+    if family in {"mlb", "nba", "nfl", "nhl"}:
+        return None, f"SOURCE_CLOCK_NOT_COMPARABLE_{family.upper()}"
+    return None, "SOURCE_SPORT_FAMILY_UNSUPPORTED"
+
+
 class MarketScanner:
-    """Archive six direct books and confirm one unique rising event leader."""
+    """Archive direct books and confirm one unique rising event leader."""
 
     def __init__(
         self,
@@ -229,6 +261,196 @@ class MarketScanner:
         self.clob = clob_client
         self._walks: Dict[str, BuyBookWalk] = {}
         self._snapshot_ids: Dict[str, int] = {}
+        self._event_health: Dict[str, Dict[str, Any]] = {}
+        self._condition_event_health: Dict[str, Dict[str, Any]] = {}
+
+    def _evidence_context(self) -> Dict[str, Any]:
+        return {
+            "sport_family": self.config.sport_family,
+            "sport_profile_version": self.config.sport_profile_version,
+            "protocol_sha256": self.config.preregistration_sha256,
+            "classifier_version": self.config.classifier_version,
+            "league_mapping_sha256": self.config.league_mapping_sha256,
+            "strategy_source_digest": self.config.strategy_source_digest,
+            "book_shape": self.config.book_shape,
+            "expected_result_kinds": self.config.expected_result_kinds,
+            "expected_market_count": self.config.expected_market_count,
+            "expected_token_count": self.config.expected_token_count,
+        }
+
+    def _build_event_cycle_evidence(
+        self,
+        markets: List[Dict[str, Any]],
+        *,
+        sweep_id: str,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Derive exact event sets before any candidate or replay can use them."""
+
+        buckets: Dict[str, Dict[str, Any]] = {}
+        for index, market in enumerate(markets):
+            condition_id = str(market.get("conditionId") or "").strip()
+            event_id = str(get_event_metadata(market).get("event_id") or "").strip()
+            if not event_id:
+                event_id = f"MISSING_EVENT:{condition_id or index}"
+            bucket = buckets.setdefault(
+                event_id,
+                {
+                    "event_id": event_id,
+                    "condition_occurrences": [],
+                    "token_occurrences": [],
+                    "identities": [],
+                    "observed_result_kinds": [],
+                    "missing_event_identity": event_id.startswith("MISSING_EVENT:"),
+                },
+            )
+            if condition_id:
+                bucket["condition_occurrences"].append(condition_id)
+            sides = get_match_result_sides(market)
+            for side in sides:
+                token_id = str(side.get("token_id") or "").strip()
+                result_kind = str(side.get("result_kind") or "").strip().upper()
+                outcome_side = str(side.get("outcome_side") or "").strip().upper()
+                if token_id:
+                    bucket["token_occurrences"].append(token_id)
+                if result_kind:
+                    bucket["observed_result_kinds"].append(result_kind)
+                if result_kind and outcome_side:
+                    bucket["identities"].append((result_kind, outcome_side))
+
+        expected_kinds = sorted(set(self.config.expected_result_kinds))
+        expected_identities = (
+            {
+                (kind, side)
+                for kind in expected_kinds
+                for side in ("YES", "NO")
+            }
+            if self.config.sport_family == "soccer"
+            else {(kind, "DIRECT") for kind in expected_kinds}
+        )
+        evidence: Dict[str, Dict[str, Any]] = {}
+        self._condition_event_health.clear()
+        for event_id, bucket in sorted(buckets.items()):
+            condition_occurrences = list(bucket["condition_occurrences"])
+            token_occurrences = list(bucket["token_occurrences"])
+            condition_ids = sorted(set(condition_occurrences))
+            token_ids = sorted(set(token_occurrences))
+            observed_kinds = sorted(set(bucket["observed_result_kinds"]))
+            missing_kinds = sorted(set(expected_kinds) - set(observed_kinds))
+            duplicate_conditions = len(condition_occurrences) - len(condition_ids)
+            duplicate_tokens = len(token_occurrences) - len(token_ids)
+            duplicate_identities = len(bucket["identities"]) - len(
+                set(bucket["identities"])
+            )
+            identity_complete = bool(
+                len(bucket["identities"]) == self.config.expected_token_count
+                and set(bucket["identities"]) == expected_identities
+                and len(set(bucket["identities"]))
+                == self.config.expected_token_count
+            )
+            structure_complete = bool(
+                not bucket["missing_event_identity"]
+                and len(condition_ids) == self.config.expected_market_count
+                and len(token_ids) == self.config.expected_token_count
+                and duplicate_conditions == 0
+                and duplicate_tokens == 0
+                and not missing_kinds
+                and identity_complete
+            )
+            reasons: List[str] = []
+            if bucket["missing_event_identity"]:
+                reasons.append("missing_event_id")
+            if len(condition_ids) != self.config.expected_market_count:
+                reasons.append(
+                    f"market_count:{len(condition_ids)}/"
+                    f"{self.config.expected_market_count}"
+                )
+            if len(token_ids) != self.config.expected_token_count:
+                reasons.append(
+                    f"token_count:{len(token_ids)}/"
+                    f"{self.config.expected_token_count}"
+                )
+            if duplicate_conditions:
+                reasons.append(f"duplicate_conditions:{duplicate_conditions}")
+            if duplicate_tokens:
+                reasons.append(f"duplicate_tokens:{duplicate_tokens}")
+            if duplicate_identities:
+                reasons.append(f"duplicate_direct_identities:{duplicate_identities}")
+            if missing_kinds:
+                reasons.append("missing_result_kinds:" + ",".join(missing_kinds))
+            if not identity_complete:
+                reasons.append("direct_identity_set_mismatch")
+            reason = "structure_complete" if structure_complete else ";".join(reasons)
+            event_cycle_id = hashlib.sha256(
+                f"{sweep_id}:{event_id}".encode()
+            ).hexdigest()
+            payload = {
+                "event_cycle_id": event_cycle_id,
+                "event_id": event_id,
+                "condition_ids": condition_ids,
+                "token_ids": token_ids,
+                "expected_result_kinds": expected_kinds,
+                "observed_result_kinds": observed_kinds,
+                "missing_result_kinds": missing_kinds,
+                "expected_market_count": self.config.expected_market_count,
+                "observed_market_count": len(condition_ids),
+                "expected_token_count": self.config.expected_token_count,
+                "observed_token_count": len(token_ids),
+                "duplicate_condition_count": duplicate_conditions,
+                "duplicate_token_count": duplicate_tokens,
+                "duplicate_identity_count": duplicate_identities,
+                "identity_complete": identity_complete,
+                "structure_complete": structure_complete,
+                "book_complete": False,
+                "complete": False,
+                "reason": reason,
+            }
+            payload["evidence_sha256"] = hashlib.sha256(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
+            evidence[event_id] = payload
+            for condition_id in condition_ids:
+                self._condition_event_health[condition_id] = payload
+        self._event_health = evidence
+        return evidence
+
+    @staticmethod
+    def _finalize_event_cycle_evidence(
+        event_results: Dict[str, Dict[str, Any]],
+        snapshot_results: Dict[str, Dict[str, Any]],
+    ) -> None:
+        for item in event_results.values():
+            condition_ids = item["condition_ids"]
+            book_complete = bool(
+                condition_ids
+                and all(
+                    snapshot_results.get(condition_id, {}).get("snapshotted") is True
+                    for condition_id in condition_ids
+                )
+            )
+            item["book_complete"] = book_complete
+            item["complete"] = bool(item["structure_complete"] and book_complete)
+            if item["complete"]:
+                item["reason"] = "complete"
+            elif item["structure_complete"] and not book_complete:
+                item["reason"] = "incomplete_direct_book_coverage"
+            payload = {
+                key: value
+                for key, value in item.items()
+                if key != "evidence_sha256"
+            }
+            item["evidence_sha256"] = hashlib.sha256(
+                json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
 
     def fetch_markets(self) -> List[Dict]:
         return self.gamma.get_all_tradable_markets(
@@ -275,7 +497,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> int:
-        """Persist direct YES/NO levels, exact-$5 walks, and sweep proof."""
+        """Persist direct outcome levels, exact-$5 walks, and sweep proof."""
         if self.repo is None or self.clob is None:
             raise RuntimeError("repository and CLOB client are required")
         attestation = self.gamma.last_sweep_attestation
@@ -284,13 +506,24 @@ class MarketScanner:
         reference = now or datetime.now(timezone.utc)
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)
+        observed_at = reference.astimezone(timezone.utc).replace(tzinfo=None)
+        sweep_id = str(attestation.get("sweep_id") or "").strip()
+        if not sweep_id:
+            raise RuntimeError("completed Gamma sweep has no sweep_id")
+        event_results = self._build_event_cycle_evidence(
+            markets,
+            sweep_id=sweep_id,
+        )
+        evidence_context = self._evidence_context()
 
         sides = [
             side
             for market in markets
             for side in get_match_result_sides(market)
         ]
-        token_ids = [str(side["token_id"]) for side in sides]
+        token_ids = list(
+            dict.fromkeys(str(side["token_id"]) for side in sides)
+        )
         self._walks = self.clob.get_buy_book_walks(
             token_ids, notional_usdc=self.config.buy_amount_usdc
         )
@@ -298,11 +531,28 @@ class MarketScanner:
         snapshot_results: Dict[str, Dict[str, Any]] = {}
         saved = 0
         try:
+            processed_conditions: set[str] = set()
             for market in markets:
                 condition_id = str(market.get("conditionId") or "").strip()
                 if not condition_id:
                     raise ValueError("qualified Gamma market has no conditionId")
-                self.repo.save_market_catalog(condition_id, market, commit=False)
+                if condition_id in processed_conditions:
+                    continue
+                processed_conditions.add(condition_id)
+                event_health = self._condition_event_health.get(condition_id)
+                if event_health is None:
+                    raise RuntimeError(
+                        "qualified condition has no event-cycle evidence"
+                    )
+                self.repo.save_market_catalog(
+                    condition_id,
+                    market,
+                    evidence_context=evidence_context,
+                    event_cycle=event_health,
+                    live_sweep_id=sweep_id,
+                    seen_at=observed_at,
+                    commit=False,
+                )
                 eligible, reason, _game_start, _in_play_hours = self._market_eligible(
                     market, reference
                 )
@@ -311,11 +561,17 @@ class MarketScanner:
                         "snapshot_eligible": False,
                         "snapshotted": False,
                         "snapshot_reason": reason,
+                        "event_id": event_health["event_id"],
+                        "event_cycle_id": event_health["event_cycle_id"],
+                        "event_set_complete": event_health["complete"],
+                        "event_set_reason": event_health["reason"],
                     }
                     continue
                 event = get_event(market)
                 event_meta = get_event_metadata(market)
-                source_minute, clock_reason = get_source_regulation_minute(event)
+                source_minute, clock_reason = get_source_progress(
+                    event, self.config.sport_family
+                )
                 outcomes = get_match_result_sides(market)
                 saved_for_condition = 0
                 for outcome in outcomes:
@@ -339,7 +595,7 @@ class MarketScanner:
                     if self.config.scaling_notionals_usdc:
                         if book_json is None:
                             raise RuntimeError(
-                                "Silver scaling evidence requires a cached full book"
+                                "simulation scaling evidence requires a cached full book"
                             )
                         execution_capacity_json = build_execution_capacity_evidence(
                             book_json,
@@ -366,11 +622,13 @@ class MarketScanner:
                         source_clock_reason=clock_reason,
                         book_json=book_json,
                         execution_capacity_json=execution_capacity_json,
+                        evidence_context=evidence_context,
+                        event_cycle_id=event_health["event_cycle_id"],
+                        event_set_complete=event_health["complete"],
+                        event_set_reason=event_health["reason"],
                         commit=False,
                     )
-                    snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                        tzinfo=None
-                    )
+                    snapshot.timestamp = observed_at
                     self._snapshot_ids[token_id] = snapshot.id
                     saved_for_condition += 1
                     saved += 1
@@ -378,13 +636,25 @@ class MarketScanner:
                     "snapshot_eligible": True,
                     "snapshotted": saved_for_condition == 2,
                     "snapshot_reason": (
-                        "direct_yes_no_exact_5_books_saved"
+                        "direct_outcome_exact_5_books_saved"
                         if saved_for_condition == 2
                         else f"direct_book_coverage:{saved_for_condition}/2"
                     ),
+                    "event_id": event_health["event_id"],
+                    "event_cycle_id": event_health["event_cycle_id"],
+                    "event_set_complete": event_health["complete"],
+                    "event_set_reason": event_health["reason"],
                 }
 
-            self.repo.record_market_sweep(attestation, snapshot_results, commit=False)
+            self._finalize_event_cycle_evidence(event_results, snapshot_results)
+            self.repo.finalize_staged_event_cycle_health(event_results)
+            self.repo.record_market_sweep(
+                attestation,
+                snapshot_results,
+                event_results,
+                evidence_context=evidence_context,
+                commit=False,
+            )
             self.repo.commit()
             attestation["snapshot_eligible_count"] = sum(
                 int(item["snapshot_eligible"])
@@ -397,19 +667,100 @@ class MarketScanner:
             self.repo.rollback()
             raise
         logger.info(
-            "Golden Plum direct YES/NO snapshots=%s complete_markets=%s/%s",
+            "Golden Plum %s direct snapshots=%s complete_markets=%s/%s "
+            "complete_events=%s/%s",
+            self.config.sport_family,
             saved,
             sum(int(item["snapshotted"]) for item in snapshot_results.values()),
             len(markets),
+            sum(int(item["complete"]) for item in event_results.values()),
+            len(event_results),
         )
         return saved
+
+    def follow_tracked_conditions(
+        self,
+        current_markets: List[Dict[str, Any]],
+        *,
+        now: Optional[datetime] = None,
+        limit: Optional[int] = None,
+    ) -> Dict[str, int]:
+        """Boundedly follow conditions that disappeared from live discovery.
+
+        This queue is independent of entry episodes and trades.  A game that
+        never generated an order is still followed until Gamma supplies a
+        unique terminal one-hot payout; source gaps remain explicit and retry.
+        """
+
+        if self.repo is None:
+            raise RuntimeError("repository is required")
+        reference = now or datetime.now(timezone.utc)
+        if reference.tzinfo is not None:
+            reference = reference.astimezone(timezone.utc).replace(tzinfo=None)
+        max_conditions = limit or (
+            self.config.expected_market_count
+            if self.config.sport_family == "soccer"
+            else 4
+        )
+        current_ids = {
+            str(market.get("conditionId") or "").strip()
+            for market in current_markets
+            if str(market.get("conditionId") or "").strip()
+        }
+        due = self.repo.get_due_followup_catalogs(
+            now=reference,
+            evidence_context=self._evidence_context(),
+            exclude_condition_ids=current_ids,
+            limit=max_conditions,
+        )
+        stats = {
+            "due": len(due),
+            "attempted": 0,
+            "terminal": 0,
+            "pending": 0,
+            "source_missing": 0,
+        }
+        for catalog in due:
+            condition_id = str(catalog.condition_id)
+            market = self.gamma.get_market_by_condition_id(condition_id)
+            stats["attempted"] += 1
+            if market is None:
+                self.repo.record_followup_missing(
+                    condition_id,
+                    attempted_at=reference,
+                    commit=True,
+                )
+                stats["source_missing"] += 1
+                continue
+            updated = self.repo.record_followup_market(
+                condition_id,
+                market,
+                attempted_at=reference,
+                evidence_context=self._evidence_context(),
+                commit=True,
+            )
+            if updated.followup_status == "TERMINAL":
+                stats["terminal"] += 1
+            else:
+                stats["pending"] += 1
+        if due:
+            logger.info(
+                "tracked condition follow-up - sport=%s attempted=%s "
+                "terminal=%s pending=%s source_missing=%s",
+                self.config.sport_family,
+                stats["attempted"],
+                stats["terminal"],
+                stats["pending"],
+                stats["source_missing"],
+            )
+        return stats
 
     def scan_buy_candidates(
         self,
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> List[Dict]:
-        """Select a unique six-token leader after a fresh first-cross trend."""
+        """Select a unique direct-book leader after a fresh first-cross trend."""
         if self.repo is None:
             raise RuntimeError("repository is required")
         reference = now or datetime.now(timezone.utc)
@@ -439,19 +790,30 @@ class MarketScanner:
             if not event_id:
                 rejected["missing_event_id"] = rejected.get("missing_event_id", 0) + 1
                 continue
-            source_minute, clock_reason = get_source_regulation_minute(
-                get_event(market)
+            condition_id = str(market.get("conditionId") or "").strip()
+            event_health = self._condition_event_health.get(condition_id)
+            if event_health is not None and event_health.get("complete") is not True:
+                rejected["event_cycle_complete_set_required"] = rejected.get(
+                    "event_cycle_complete_set_required", 0
+                ) + 1
+                continue
+            source_minute, clock_reason = get_source_progress(
+                get_event(market), self.config.sport_family
             )
-            if source_minute is None:
+            if self.config.source_clock_required and source_minute is None:
                 rejected[clock_reason] = rejected.get(clock_reason, 0) + 1
                 continue
-            if source_minute < self.config.entry.min_source_minute - 1e-9:
+            if (
+                source_minute is not None
+                and source_minute < self.config.entry.min_source_minute - 1e-9
+            ):
                 rejected["before_match_source_window"] = rejected.get(
                     "before_match_source_window", 0
                 ) + 1
                 continue
             if (
-                self.config.entry.max_source_minute is not None
+                source_minute is not None
+                and self.config.entry.max_source_minute is not None
                 and source_minute
                 > self.config.entry.max_source_minute + 1e-9
             ):
@@ -461,16 +823,20 @@ class MarketScanner:
                 continue
             outcomes = get_match_result_sides(market)
             if len(outcomes) != 2:
-                rejected["direct_yes_no_identity_gap"] = rejected.get(
-                    "direct_yes_no_identity_gap", 0
+                rejected["direct_outcome_identity_gap"] = rejected.get(
+                    "direct_outcome_identity_gap", 0
                 ) + 1
                 continue
-            result_kind = str(outcomes[0]["result_kind"])
-            bucket = markets_by_event.setdefault(event_id, {})
-            if result_kind in bucket:
-                bucket[result_kind] = {"duplicate": True}
+            if not condition_id:
+                rejected["missing_condition_id"] = rejected.get(
+                    "missing_condition_id", 0
+                ) + 1
                 continue
-            bucket[result_kind] = {
+            bucket = markets_by_event.setdefault(event_id, {})
+            if condition_id in bucket:
+                bucket[condition_id] = {"duplicate": True}
+                continue
+            bucket[condition_id] = {
                 "market": market,
                 "outcomes": outcomes,
                 "game_start": game_start,
@@ -482,17 +848,17 @@ class MarketScanner:
 
         candidates: List[Dict[str, Any]] = []
         for event_id, result_markets in markets_by_event.items():
-            if set(result_markets) != _RESULT_KINDS or any(
+            if len(result_markets) != self.config.expected_market_count or any(
                 item.get("duplicate") for item in result_markets.values()
             ):
-                rejected["incomplete_or_duplicate_result_triad"] = rejected.get(
-                    "incomplete_or_duplicate_result_triad", 0
+                rejected["incomplete_or_duplicate_event_market_set"] = rejected.get(
+                    "incomplete_or_duplicate_event_market_set", 0
                 ) + 1
                 continue
             ranked: List[Dict[str, Any]] = []
             event_invalid = False
-            for result_kind in ("HOME", "DRAW", "AWAY"):
-                context = result_markets[result_kind]
+            for condition_id in sorted(result_markets):
+                context = result_markets[condition_id]
                 market = context["market"]
                 for outcome in context["outcomes"]:
                     token_id = str(outcome["token_id"])
@@ -518,9 +884,22 @@ class MarketScanner:
                     )
                 if event_invalid:
                     break
-            if event_invalid or len(ranked) != 6:
-                rejected["six_direct_executable_books_required"] = rejected.get(
-                    "six_direct_executable_books_required", 0
+            observed_kinds = {
+                str(item["outcome"].get("result_kind")) for item in ranked
+            }
+            if (
+                event_invalid
+                or len(ranked) != self.config.expected_token_count
+                or len(
+                    {
+                        str(item["outcome"].get("token_id")) for item in ranked
+                    }
+                )
+                != self.config.expected_token_count
+                or observed_kinds != set(self.config.expected_result_kinds)
+            ):
+                rejected["complete_direct_book_set_required"] = rejected.get(
+                    "complete_direct_book_set_required", 0
                 ) + 1
                 continue
             ranked.sort(
@@ -646,7 +1025,9 @@ class MarketScanner:
                     "entry_shares": walk.shares,
                     "entry_limit_price": walk.limit_price,
                     "entry_levels_used": walk.levels_used,
-                    "entry_reason": "six_token_full_match_first_cross_trend",
+                    "entry_reason": (
+                        f"{self.config.book_shape}_full_game_first_cross_trend"
+                    ),
                     "game_start_time": context["game_start"],
                     "in_play_hours": context["in_play_hours"],
                     "hours_until_resolution": context["in_play_hours"],
@@ -669,12 +1050,13 @@ class MarketScanner:
             )
         candidates.sort(
             key=lambda item: (
-                float(item["source_elapsed_minutes"]),
                 str(item["event_id"]),
+                str(item["token_id"]),
             )
         )
         logger.info(
-            "Golden Plum full-match confirmations=%s target=%.2f sl=-%.2f",
+            "Golden Plum %s full-game confirmations=%s target=%.2f sl=-%.2f",
+            self.config.sport_family,
             len(candidates),
             self.config.entry.take_profit_price,
             self.config.entry.stop_loss_delta,

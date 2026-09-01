@@ -7,6 +7,12 @@ from polybot.config import (
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
+    GOLD_ENTRY_END_UTC,
+    GOLD_FOLLOWUP_END_UTC,
+    GOLD_START_UTC,
+    MLB_PREREGISTRATION,
+    RUNTIME_SPECS,
+    SOCCER_PREREGISTRATION,
     load_config,
 )
 
@@ -46,6 +52,10 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert entry.trend_max_gap_seconds == 90
     assert entry.force_exit_minute is None
     assert config.trading.scaling_notionals_usdc == ()
+    assert config.trading.sport_profile_version == "soccer-full-match-v2"
+    assert config.trading.book_shape == "direct-six-result-books"
+    assert config.trading.expected_token_count == 6
+    assert config.trading.source_clock_required is True
     assert config.trading.yes_only_mode is False
     assert config.trading.max_positions == 10
     assert config.trading.max_emergency_sells_per_cycle == 10
@@ -95,6 +105,127 @@ def test_silver_is_credential_free_simulation(monkeypatch) -> None:
         250.0,
         500.0,
     )
+
+
+def test_gold_is_credential_free_mlb_collection_with_scaling_grid(
+    monkeypatch,
+) -> None:
+    _no_credentials(monkeypatch)
+    config = load_config(
+        "config.yaml", "plum-shadow-gold-mlb-1m-v1", simulation_mode=True
+    )
+
+    assert config.db_path == Path(
+        "data/plum-shadow-gold-mlb-1m-v1/trades_sim.db"
+    )
+    trading = config.trading
+    assert trading.lifecycle_mode == "active"
+    assert trading.sport_family == "mlb"
+    assert trading.protocol_id == "plum-mlb-shadow-v3"
+    assert trading.preregistration_path == MLB_PREREGISTRATION
+    assert trading.execution_policy == (
+        "credential-free-displayed-book-simulation"
+    )
+    assert trading.cadence_seconds == 60
+    assert trading.cycle_hard_deadline_seconds == 50.0
+    assert trading.external_workspace_path == (
+        "/Volumes/t7/jenkins/polybot-gold"
+    )
+    assert trading.entry.take_profit_price == 0.95
+    assert trading.sport_profile_version == "mlb-collection-uncalibrated-v1"
+    assert trading.book_shape == "direct-two-team-moneyline"
+    assert trading.expected_result_kinds == ("HOME", "AWAY")
+    assert trading.expected_market_count == 1
+    assert trading.expected_token_count == 2
+    assert trading.source_clock_required is False
+    assert trading.scaling_notionals_usdc == (
+        5.0,
+        10.0,
+        25.0,
+        50.0,
+        100.0,
+        250.0,
+        500.0,
+    )
+    assert trading.analysis_entry_thresholds == (
+        0.55,
+        0.60,
+        0.65,
+        0.70,
+        0.75,
+        0.80,
+    )
+    assert trading.experiment_start_utc == GOLD_START_UTC
+    assert trading.experiment_entry_end_utc == GOLD_ENTRY_END_UTC
+    assert trading.experiment_followup_end_utc == GOLD_FOLLOWUP_END_UTC
+
+
+def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
+    _credentials(monkeypatch)
+    king = load_config(
+        "config.yaml", "plum-live-king-90-1m-v1", simulation_mode=False
+    )
+    _no_credentials(monkeypatch)
+    gold = load_config(
+        "config.yaml", "plum-shadow-gold-mlb-1m-v1", simulation_mode=True
+    )
+
+    assert king.trading.preregistration_path == SOCCER_PREREGISTRATION
+    assert gold.trading.preregistration_path == MLB_PREREGISTRATION
+    assert king.trading.preregistration_sha256 != (
+        gold.trading.preregistration_sha256
+    )
+    assert set(RUNTIME_SPECS) == {
+        "plum-live-king-90-1m-v1",
+        "plum-live-queen-95-1m-v1",
+        "plum-shadow-silver-1m-v1",
+        "plum-shadow-gold-mlb-1m-v1",
+    }
+
+
+def test_gold_mode_lifecycle_target_and_family_fail_closed(monkeypatch) -> None:
+    _no_credentials(monkeypatch)
+    with pytest.raises(ValueError, match="frozen to simulation"):
+        load_config(
+            "config.yaml",
+            "plum-shadow-gold-mlb-1m-v1",
+            simulation_mode=False,
+        )
+
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "archive_only")
+    with pytest.raises(ValueError, match="runtime or sport-specific"):
+        load_config(
+            "config.yaml",
+            "plum-shadow-gold-mlb-1m-v1",
+            simulation_mode=True,
+        )
+    monkeypatch.delenv("POLYBOT_LIFECYCLE_MODE")
+
+    monkeypatch.setenv("POLYBOT_TAKE_PROFIT_PRICE", "0.90")
+    with pytest.raises(ValueError, match="take-profit"):
+        load_config(
+            "config.yaml",
+            "plum-shadow-gold-mlb-1m-v1",
+            simulation_mode=True,
+        )
+    monkeypatch.delenv("POLYBOT_TAKE_PROFIT_PRICE")
+
+    monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "nba")
+    with pytest.raises(ValueError, match="must remain mlb"):
+        load_config(
+            "config.yaml",
+            "plum-shadow-gold-mlb-1m-v1",
+            simulation_mode=True,
+        )
+
+
+def test_live_jobs_cannot_switch_to_a_direct_sport(monkeypatch) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "mlb")
+    with pytest.raises(ValueError, match="must remain soccer"):
+        load_config(
+            "config.yaml", "plum-live-king-90-1m-v1", simulation_mode=False
+        )
 
 
 @pytest.mark.parametrize(

@@ -338,6 +338,99 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert trader.last_entry_may_have_reached_venue is True
 
 
+def test_mlb_simulation_revalidates_two_direct_books_without_source_minute(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo = _Repo()
+    repo.get_recent_token_snapshots = lambda _token_id, *, limit: [
+        SimpleNamespace(
+            id=9,
+            probability=0.72,
+            timestamp=(NOW - timedelta(minutes=2)).replace(tzinfo=None),
+            source_elapsed_minutes=None,
+        ),
+        SimpleNamespace(
+            id=10,
+            probability=0.74,
+            timestamp=(NOW - timedelta(minutes=1)).replace(tzinfo=None),
+            source_elapsed_minutes=None,
+        ),
+        SimpleNamespace(
+            id=11,
+            probability=0.75,
+            timestamp=NOW.replace(tzinfo=None),
+            source_elapsed_minutes=None,
+        ),
+    ]
+    clob = _Clob(vwap=0.75, best_bid=0.74, best_ask=0.75)
+
+    def direct_walks(token_ids, *, notional_usdc):
+        assert notional_usdc == 5
+        prices = {"mlb-home": 0.75, "mlb-away": 0.25}
+        return {
+            token: BuyBookWalk(
+                token,
+                prices[token] - 0.01,
+                prices[token],
+                0.01,
+                prices[token],
+                5 / prices[token],
+                5,
+                prices[token],
+                1,
+            )
+            for token in token_ids
+        }
+
+    clob.get_buy_book_walks = direct_walks
+    config = TradingConfig(
+        sport_family="mlb",
+        sport_profile_version="mlb-collection-uncalibrated-v1",
+        book_shape="direct-two-team-moneyline",
+        expected_result_kinds=("HOME", "AWAY"),
+        expected_market_count=1,
+        expected_token_count=2,
+        source_clock_required=False,
+    )
+    trader = Trader(repo, clob, config, simulation_mode=True)
+    trader.set_cycle_markets(
+        [
+            {
+                "conditionId": "condition-1",
+                "events": [
+                    {
+                        "id": "event-1",
+                        "active": True,
+                        "closed": False,
+                        "live": True,
+                        "ended": False,
+                    }
+                ],
+            }
+        ]
+    )
+    candidate = _candidate()
+    candidate.update(
+        {
+            "outcome": "Home Club",
+            "outcome_side": "DIRECT",
+            "result_kind": "HOME",
+            "candidate_kind": "DIRECT_HOME",
+            "token_id": "mlb-home",
+            "event_token_ids": ["mlb-home", "mlb-away"],
+            "source_elapsed_minutes": None,
+        }
+    )
+
+    assert trader.execute_buy(candidate) == 7
+    assert repo.created[0]["status"] is TradeStatus.HOLDING
+    assert repo.created[0]["source_elapsed_minutes_at_buy"] is None
+    assert repo.created[0]["entry_reason"].startswith(
+        "direct-two-team-moneyline_full_game_first_cross_trend"
+    )
+
+
 def test_buy_refuses_any_prior_event_trade(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(vwap=0.75, best_bid=0.74, best_ask=0.75)

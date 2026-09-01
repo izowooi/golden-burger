@@ -104,9 +104,10 @@ class PolymarketBot:
             "match_end" if entry.hours_max is None else f"{entry.hours_max:.1f}h"
         )
         logger.info(
-            "Golden Plum %s exact $5 six-token first-cross VWAP [%.3f, %.3f], "
+            "Golden Plum %s exact $5 %s first-cross VWAP [%.3f, %.3f], "
             "source minute [%.0f, %s], in-play age [%.1fh, %s]",
             trading.sport_family,
+            trading.book_shape,
             entry.prob_min,
             entry.prob_max,
             entry.min_source_minute,
@@ -150,7 +151,7 @@ class PolymarketBot:
         )
         if trading.scaling_notionals_usdc:
             logger.info(
-                "Silver displayed-depth scaling ladder (counterfactual only): %s",
+                "simulation displayed-depth scaling ladder (counterfactual only): %s",
                 ",".join(f"${value:g}" for value in trading.scaling_notionals_usdc),
             )
 
@@ -188,6 +189,13 @@ class PolymarketBot:
             "entry_pre_submission_failures": 0,
             "entry_blocked_candidates": 0,
             "entry_queued_no_post": 0,
+            "tracked_condition_followup": {
+                "due": 0,
+                "attempted": 0,
+                "terminal": 0,
+                "pending": 0,
+                "source_missing": 0,
+            },
             "orphan_buy_recovery": {
                 "checked": 0,
                 "recovered": 0,
@@ -203,6 +211,9 @@ class PolymarketBot:
 
             logger.info("=== Phase 0: exact-book sports archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            stats["tracked_condition_followup"] = (
+                scanner.follow_tracked_conditions(markets)
+            )
             sweep = self.gamma.last_sweep_attestation
             if not isinstance(sweep, dict):
                 sweep = {}

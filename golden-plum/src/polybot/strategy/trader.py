@@ -36,7 +36,7 @@ from .filters import get_aligned_binary_outcomes, get_event, get_proven_resoluti
 from .scanner import (
     evaluate_trend_confirmation,
     get_hours_since_game_start,
-    get_source_regulation_minute,
+    get_source_progress,
     parse_end_date,
 )
 
@@ -237,10 +237,27 @@ def _orphan_episode_contract_matches(
         cumulative_move = float(getattr(episode, "trend_cumulative_move"))
         max_pullback = float(getattr(episode, "trend_max_pullback"))
         elapsed_seconds = float(getattr(episode, "trend_elapsed_seconds"))
-        source_minute = float(getattr(episode, "source_elapsed_minutes"))
         exact_vwap = float(getattr(episode, "exact_vwap"))
     except (AttributeError, TypeError, ValueError):
         return False
+    raw_source_minute = getattr(episode, "source_elapsed_minutes", None)
+    try:
+        source_minute = (
+            None if raw_source_minute is None else float(raw_source_minute)
+        )
+    except (TypeError, ValueError):
+        return False
+    source_clock_valid = (
+        source_minute is not None
+        and math.isfinite(source_minute)
+        and config.entry.min_source_minute - 1e-9 <= source_minute
+        and (
+            config.entry.max_source_minute is None
+            or source_minute <= config.entry.max_source_minute + 1e-9
+        )
+    )
+    if not config.source_clock_required and source_minute is None:
+        source_clock_valid = True
     return bool(
         observations == config.entry.trend_observations
         and len(set(snapshot_ids)) == observations
@@ -250,12 +267,7 @@ def _orphan_episode_contract_matches(
         and 0 <= max_pullback <= config.entry.trend_max_pullback + 1e-9
         and 0 < elapsed_seconds
         <= (observations - 1) * config.entry.trend_max_gap_seconds + 1e-9
-        and config.entry.min_source_minute - 1e-9
-        <= source_minute
-        and (
-            config.entry.max_source_minute is None
-            or source_minute <= config.entry.max_source_minute + 1e-9
-        )
+        and source_clock_valid
         and config.entry.prob_min - 1e-9
         <= exact_vwap
         <= config.entry.prob_max + 1e-9
@@ -379,7 +391,9 @@ class Trader:
     def _source_minute_for_trade(self, trade) -> tuple[Optional[float], str]:
         market = self._cycle_markets.get(str(trade.condition_id))
         if isinstance(market, dict):
-            minute, reason = get_source_regulation_minute(get_event(market))
+            minute, reason = get_source_progress(
+                get_event(market), self.config.sport_family
+            )
             if minute is not None:
                 return minute, reason
         event_id = str(getattr(trade, "event_id", "") or "").strip()
@@ -394,7 +408,9 @@ class Trader:
                 )
             else:
                 if isinstance(event, Mapping):
-                    minute, reason = get_source_regulation_minute(dict(event))
+                    minute, reason = get_source_progress(
+                        dict(event), self.config.sport_family
+                    )
                     if minute is not None:
                         return minute, f"GAMMA_EVENT_FALLBACK:{reason}"
         return None, "CURRENT_SOURCE_CLOCK_UNPROVEN"
@@ -428,8 +444,8 @@ class Trader:
         source_minute = None
         market = self._cycle_markets.get(str(trade.condition_id))
         if isinstance(market, dict):
-            source_minute, _clock_reason = get_source_regulation_minute(
-                get_event(market)
+            source_minute, _clock_reason = get_source_progress(
+                get_event(market), self.config.sport_family
             )
         full_exit_vwap = float(walk.vwap)
         if full_exit_vwap + 1e-9 >= take_profit:
@@ -584,15 +600,19 @@ class Trader:
             return self._reject_entry("in_play_window_revalidation_failed")
         market = self._cycle_markets.get(condition_id)
         source_minute, source_clock_reason = (
-            get_source_regulation_minute(get_event(market))
+            get_source_progress(get_event(market), self.config.sport_family)
             if isinstance(market, dict)
             else (None, "CURRENT_CYCLE_MARKET_MISSING")
         )
         if (
-            source_minute is None
-            or source_minute < self.config.entry.min_source_minute - 1e-9
+            (self.config.source_clock_required and source_minute is None)
             or (
-                self.config.entry.max_source_minute is not None
+                source_minute is not None
+                and source_minute < self.config.entry.min_source_minute - 1e-9
+            )
+            or (
+                source_minute is not None
+                and self.config.entry.max_source_minute is not None
                 and source_minute > self.config.entry.max_source_minute + 1e-9
             )
         ):
@@ -609,8 +629,12 @@ class Trader:
             for value in candidate.get("event_token_ids", [])
             if str(value).strip()
         ]
-        if len(event_token_ids) != 6 or len(set(event_token_ids)) != 6:
-            return self._reject_entry("six_token_fresh_revalidation_identity_gap")
+        expected_tokens = self.config.expected_token_count
+        if (
+            len(event_token_ids) != expected_tokens
+            or len(set(event_token_ids)) != expected_tokens
+        ):
+            return self._reject_entry("direct_book_fresh_revalidation_identity_gap")
         try:
             fresh_walks = self.clob.get_buy_book_walks(
                 event_token_ids,
@@ -625,8 +649,8 @@ class Trader:
             return self._reject_entry(
                 f"fresh_exact_book_{type(error).__name__}"
             )
-        if len(fresh_walks) != 6:
-            return self._reject_entry("fresh_six_token_book_coverage_gap")
+        if len(fresh_walks) != expected_tokens:
+            return self._reject_entry("fresh_direct_book_coverage_gap")
         fresh_ranked = []
         for fresh_token in event_token_ids:
             item = fresh_walks.get(fresh_token)
@@ -635,7 +659,7 @@ class Trader:
                 or item.best_bid is None
                 or item.spread is None
             ):
-                return self._reject_entry("fresh_six_token_book_contract_gap")
+                return self._reject_entry("fresh_direct_book_contract_gap")
             fresh_ranked.append(
                 ((item.best_bid + item.best_ask) / 2.0, fresh_token, item)
             )
@@ -646,12 +670,12 @@ class Trader:
             or fresh_margin + 1e-9 < self.config.entry.min_leader_margin
         ):
             logger.info(
-                "fresh six-token leader changed - expected=%s actual=%s margin=%.6f",
+                "fresh direct-book leader changed - expected=%s actual=%s margin=%.6f",
                 token_id[:16],
                 fresh_ranked[0][1][:16],
                 fresh_margin,
             )
-            return self._reject_entry("fresh_six_token_leader_changed")
+            return self._reject_entry("fresh_direct_book_leader_changed")
         walk = fresh_ranked[0][2]
         if walk.spread > self.config.entry.max_entry_spread + 1e-9:
             return self._reject_entry("fresh_leader_spread_too_wide")
@@ -776,7 +800,8 @@ class Trader:
                 else TradeStatus.PENDING_BUY
             ),
             entry_reason=(
-                "six_token_full_match_first_cross_trend_exact_5_usdc_fok:"
+                f"{self.config.book_shape}_full_game_first_cross_trend_"
+                "exact_5_usdc_fok:"
                 f"{str(candidate.get('candidate_kind') or result_kind)}"
             ),
             strategy_name=STRATEGY_NAME,
