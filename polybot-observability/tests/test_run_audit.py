@@ -6,6 +6,8 @@ import sqlite3
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import pytest
+
 from polybot_observability import ExecutionLedger, RunAudit, current_run_id
 from polybot_observability.run_audit import _safe_error_message
 from polybot_observability.retro_audit import (
@@ -630,6 +632,140 @@ def test_reconciled_partial_round_trip_uses_actual_fills_not_legacy_shares(
     assert result["fill_ledger"]["confirmed_fill_net_pnl_usdc"] == 1.0
     assert result["fill_ledger"]["legacy_share_mismatches"] == 1
     assert result["trades"]["pnl_quality"] == "FILL_LEDGER_NET"
+
+
+def test_recorded_sub_cent_sell_dust_uses_sold_portion_fill_pnl(
+    tmp_path: Path,
+) -> None:
+    db_path = tmp_path / "golden-test" / "trades.db"
+    db_path.parent.mkdir(parents=True)
+    buy_size = 5.208333
+    sell_size = 5.2
+    buy_price = 0.96
+    sell_price = 0.91
+    buy_fee = 0.01
+    sell_fee = 0.02129
+    residual = buy_size - sell_size
+    realized_pnl = (
+        (sell_price - buy_price) * sell_size
+        - buy_fee * sell_size / buy_size
+        - sell_fee
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE trades (
+                id INTEGER PRIMARY KEY, status TEXT,
+                buy_order_id TEXT, sell_order_id TEXT,
+                buy_shares REAL, sell_shares REAL,
+                buy_timestamp TEXT, sell_timestamp TEXT,
+                sell_residual_shares REAL, pnl_basis TEXT,
+                buy_confirmed_size REAL, buy_confirmed_vwap REAL,
+                buy_confirmed_fee_usdc REAL,
+                sell_confirmed_size REAL, sell_confirmed_vwap REAL,
+                sell_confirmed_fee_usdc REAL, realized_pnl REAL
+            );
+            """
+        )
+        connection.execute(
+            """
+            INSERT INTO trades VALUES (
+                1, 'COMPLETED', 'buy-dust', 'sell-dust', ?, ?,
+                '2026-07-10T00:00:00+00:00',
+                '2026-07-11T00:00:00+00:00', ?,
+                'exact_reconciled_buy_sell_confirmed_fills_net_'
+                    || 'allocated_fees_excluding_recorded_unsellable_dust',
+                ?, ?, ?, ?, ?, ?, ?
+            )
+            """,
+            (
+                buy_size,
+                sell_size,
+                residual,
+                buy_size,
+                buy_price,
+                buy_fee,
+                sell_size,
+                sell_price,
+                sell_fee,
+                realized_pnl,
+            ),
+        )
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    for side, order_id, size, price, fee in (
+        ("BUY", "buy-dust", buy_size, buy_price, buy_fee),
+        ("SELL", "sell-dust", sell_size, sell_price, sell_fee),
+    ):
+        submission_id = ledger.record_submission(
+            token_id="token",
+            side=side,
+            requested_price=price,
+            requested_size=size,
+            result={"success": True, "orderID": order_id},
+            simulation=False,
+        )
+        fill_id = f"fill-{side.lower()}"
+        ledger.record_fill(
+            submission_id,
+            order_id,
+            {
+                "id": fill_id,
+                "status": "CONFIRMED",
+                "size": str(round(size * 1_000_000)),
+                "price": price,
+                "taker_order_id": order_id,
+                "fee_rate_bps": 1,
+                "fee_amount_usdc": str(round(fee * 1_000_000)),
+            },
+        )
+        ledger.record_order_status(
+            submission_id,
+            {
+                "status": "MATCHED",
+                "size_matched": str(round(size * 1_000_000)),
+                "associate_trades": [fill_id],
+            },
+        )
+        assert ledger.finish_reconciliation(submission_id) is True
+    run = RunAudit.start(Config(db_path=db_path), strategy_name="golden-test")
+    run.succeed()
+    _pin_generated_evidence(db_path)
+
+    result = audit_database(
+        db_path,
+        days=30,
+        as_of=datetime(2026, 7, 31, tzinfo=timezone.utc),
+    )
+    ledger_summary = result["fill_ledger"]
+    assert ledger_summary["completed_trade_fill_coverage"] == 1.0
+    assert ledger_summary["completed_with_recorded_dust"] == 1
+    assert ledger_summary["closed_trade_quantity_mismatches"] == 0
+    assert ledger_summary["confirmed_fill_gross_pnl_usdc"] == -0.26
+    assert ledger_summary["confirmed_fill_reported_fees_usdc"] == pytest.approx(
+        buy_fee * sell_size / buy_size + sell_fee,
+        abs=1e-6,
+    )
+    assert ledger_summary["confirmed_fill_net_pnl_usdc"] == pytest.approx(
+        realized_pnl,
+        abs=1e-6,
+    )
+    assert not any(
+        issue["code"] in {
+            "completed_trade_fill_gap",
+            "closed_trade_fill_quantity_mismatch",
+        }
+        for issue in result["issues"]
+    )
+
+    with sqlite3.connect(db_path) as connection:
+        connection.execute("UPDATE trades SET sell_residual_shares = 0.02")
+    invalid = audit_database(
+        db_path,
+        days=30,
+        as_of=datetime(2026, 7, 31, tzinfo=timezone.utc),
+    )
+    assert invalid["fill_ledger"]["completed_trade_fill_coverage"] == 0.0
+    assert invalid["fill_ledger"]["closed_trade_quantity_mismatches"] == 1
 
 
 def test_overfilled_order_is_critical_and_excluded_from_pnl(tmp_path: Path) -> None:

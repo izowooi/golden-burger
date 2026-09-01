@@ -2316,6 +2316,7 @@ def _fill_ledger_summary(
             "legacy_share_mismatches": 0,
             "completed_trades": 0,
             "completed_with_confirmed_fills": 0,
+            "completed_with_recorded_dust": 0,
             "completed_trade_fill_coverage": 0.0,
             "confirmed_fill_gross_pnl_usdc": None,
             "confirmed_fill_reported_fees_usdc": None,
@@ -2523,6 +2524,7 @@ def _fill_ledger_summary(
     net_pnl = None
     closed_trade_quantity_mismatches = 0
     legacy_share_mismatches = 0
+    completed_with_recorded_dust = 0
     if needed_trade_columns.issubset(trade_columns):
         legacy_buy_expression = (
             "t.buy_shares" if "buy_shares" in trade_columns else "NULL"
@@ -2530,9 +2532,26 @@ def _fill_ledger_summary(
         legacy_sell_expression = (
             "t.sell_shares" if "sell_shares" in trade_columns else "NULL"
         )
+        recorded_dust_columns = {
+            "sell_residual_shares",
+            "pnl_basis",
+            "buy_confirmed_size",
+            "buy_confirmed_vwap",
+            "buy_confirmed_fee_usdc",
+            "sell_confirmed_size",
+            "sell_confirmed_vwap",
+            "sell_confirmed_fee_usdc",
+            "realized_pnl",
+        }
+        has_recorded_dust_contract = recorded_dust_columns.issubset(trade_columns)
+        recorded_dust_expressions = {
+            column: f"t.{column}" if has_recorded_dust_contract else "NULL"
+            for column in recorded_dust_columns
+        }
         (
             completed_trades,
             completed_with_fills,
+            completed_with_recorded_dust,
             gross_pnl,
             reported_fees,
             fee_complete_trades,
@@ -2589,6 +2608,24 @@ def _fill_ledger_summary(
                 SELECT t.*,
                        {legacy_buy_expression} AS legacy_buy_shares,
                        {legacy_sell_expression} AS legacy_sell_shares,
+                       {recorded_dust_expressions['sell_residual_shares']}
+                           AS recorded_sell_residual_shares,
+                       {recorded_dust_expressions['pnl_basis']}
+                           AS recorded_pnl_basis,
+                       {recorded_dust_expressions['buy_confirmed_size']}
+                           AS recorded_buy_confirmed_size,
+                       {recorded_dust_expressions['buy_confirmed_vwap']}
+                           AS recorded_buy_confirmed_vwap,
+                       {recorded_dust_expressions['buy_confirmed_fee_usdc']}
+                           AS recorded_buy_confirmed_fee_usdc,
+                       {recorded_dust_expressions['sell_confirmed_size']}
+                           AS recorded_sell_confirmed_size,
+                       {recorded_dust_expressions['sell_confirmed_vwap']}
+                           AS recorded_sell_confirmed_vwap,
+                       {recorded_dust_expressions['sell_confirmed_fee_usdc']}
+                           AS recorded_sell_confirmed_fee_usdc,
+                       {recorded_dust_expressions['realized_pnl']}
+                           AS recorded_realized_pnl,
                        bf.shares AS buy_fill_shares,
                        bf.priced_shares AS buy_priced_shares,
                        bf.notional AS buy_notional,
@@ -2600,24 +2637,86 @@ def _fill_ledger_summary(
                        sf.notional AS sell_notional,
                        sf.reported_fees AS sell_fees,
                        sf.fill_count AS sell_fill_count,
-                       sf.fee_known_count AS sell_fee_known_count,
-                       CASE WHEN
-                           bf.order_id IS NOT NULL AND sf.order_id IS NOT NULL
-                           AND ABS(bf.shares - sf.shares) <= 0.000001
-                       THEN 1 ELSE 0 END AS fill_complete
+                       sf.fee_known_count AS sell_fee_known_count
                 FROM trades t
                 LEFT JOIN confirmed bf ON bf.order_id = t.buy_order_id
                 LEFT JOIN confirmed sf ON sf.order_id = t.sell_order_id
                 WHERE t.status = 'COMPLETED'
                   AND datetime(t.sell_timestamp) >= datetime(?)
                   AND datetime(t.sell_timestamp) < datetime(?)
+            ), classified AS (
+                SELECT joined.*,
+                       CASE WHEN
+                           buy_fill_shares IS NOT NULL
+                           AND sell_fill_shares IS NOT NULL
+                           AND ABS(buy_fill_shares - sell_fill_shares) <= 0.000001
+                       THEN 1 ELSE 0 END AS exact_fill_complete,
+                       CASE WHEN
+                           buy_fill_shares IS NOT NULL
+                           AND sell_fill_shares IS NOT NULL
+                           AND buy_fill_shares > 0
+                           AND sell_fill_shares > 0
+                           AND buy_fill_shares - sell_fill_shares > 0.000001
+                           AND recorded_sell_residual_shares > 0.000001
+                           AND recorded_sell_residual_shares < 0.01
+                           AND ABS(
+                               (buy_fill_shares - sell_fill_shares)
+                               - recorded_sell_residual_shares
+                           ) <= 0.000001
+                           AND recorded_pnl_basis =
+                               'exact_reconciled_buy_sell_confirmed_fills_net_'
+                               || 'allocated_fees_excluding_recorded_unsellable_dust'
+                           AND ABS(recorded_buy_confirmed_size - buy_fill_shares)
+                               <= 0.000001
+                           AND ABS(recorded_sell_confirmed_size - sell_fill_shares)
+                               <= 0.000001
+                           AND ABS(
+                               recorded_buy_confirmed_vwap
+                               - (buy_notional / buy_fill_shares)
+                           ) <= 0.000001
+                           AND ABS(
+                               recorded_sell_confirmed_vwap
+                               - (sell_notional / sell_fill_shares)
+                           ) <= 0.000001
+                           AND buy_fee_known_count = buy_fill_count
+                           AND sell_fee_known_count = sell_fill_count
+                           AND ABS(
+                               recorded_buy_confirmed_fee_usdc
+                               - COALESCE(buy_fees, 0)
+                           ) <= 0.000001
+                           AND ABS(
+                               recorded_sell_confirmed_fee_usdc
+                               - COALESCE(sell_fees, 0)
+                           ) <= 0.000001
+                           AND ABS(
+                               recorded_realized_pnl - (
+                                   sell_notional
+                                   - buy_notional * sell_fill_shares / buy_fill_shares
+                                   - COALESCE(buy_fees, 0)
+                                       * sell_fill_shares / buy_fill_shares
+                                   - COALESCE(sell_fees, 0)
+                               )
+                           ) <= 0.000001
+                       THEN 1 ELSE 0 END AS recorded_dust_complete
+                FROM joined
+            ), evaluated AS (
+                SELECT classified.*,
+                       CASE WHEN exact_fill_complete = 1
+                                      OR recorded_dust_complete = 1
+                            THEN 1 ELSE 0 END AS fill_complete
+                FROM classified
             )
             SELECT COUNT(*),
                    COALESCE(SUM(fill_complete), 0),
+                   COALESCE(SUM(recorded_dust_complete), 0),
                    SUM(CASE WHEN fill_complete = 1
-                            THEN sell_notional - buy_notional END),
+                            THEN sell_notional - (
+                                buy_notional * sell_fill_shares / buy_fill_shares
+                            ) END),
                    SUM(CASE WHEN fill_complete = 1
-                            THEN COALESCE(buy_fees, 0) + COALESCE(sell_fees, 0) END),
+                            THEN COALESCE(buy_fees, 0)
+                                     * sell_fill_shares / buy_fill_shares
+                                 + COALESCE(sell_fees, 0) END),
                    COALESCE(SUM(CASE WHEN fill_complete = 1
                                       AND buy_fee_known_count = buy_fill_count
                                       AND sell_fee_known_count = sell_fill_count
@@ -2626,6 +2725,7 @@ def _fill_ledger_summary(
                                           AND sell_fill_shares IS NOT NULL
                                           AND ABS(buy_fill_shares - sell_fill_shares)
                                               > 0.000001
+                                          AND recorded_dust_complete = 0
                                      THEN 1 ELSE 0 END), 0),
                    COALESCE(SUM(CASE WHEN fill_complete = 1 AND (
                                           (legacy_buy_shares IS NOT NULL
@@ -2635,7 +2735,7 @@ def _fill_ledger_summary(
                                               AND ABS(sell_fill_shares - legacy_sell_shares)
                                                   > 0.000001)
                                      ) THEN 1 ELSE 0 END), 0)
-            FROM joined
+            FROM evaluated
             """,
             (_sqlite_time(cutoff), _sqlite_time(as_of)),
         ).fetchone()
@@ -2673,6 +2773,7 @@ def _fill_ledger_summary(
         "legacy_share_mismatches": legacy_share_mismatches or 0,
         "completed_trades": completed_trades,
         "completed_with_confirmed_fills": completed_with_fills,
+        "completed_with_recorded_dust": completed_with_recorded_dust or 0,
         "completed_trade_fill_coverage": round(coverage, 6),
         "confirmed_fill_gross_pnl_usdc": (
             round(gross_pnl, 6) if gross_pnl is not None else None

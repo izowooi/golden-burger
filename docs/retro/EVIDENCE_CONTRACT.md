@@ -105,6 +105,14 @@ live `trades.db`만 찾지만 중단된 job·legacy copy도 포함할 수 있으
    terminal `CANCELED` 계열의 부분 체결은 전량 체결로 부르지 않지만, confirmed fill 합계가
    `latest_size_matched`와 일치하고 대사가 끝났다면 그 실제 체결 수량만 포지션에 반영한다.
    미체결 잔여 수량을 요청 수량으로 채우거나 PENDING 상태에 영구 고정하지 않는다.
+   SDK가 SELL 수량을 0.01주 단위로 내림하여 BUY보다 0.01주 미만이 남는 경우에는 일반적인
+   BUY/SELL 수량 일치 예외와 구분한다. 양쪽 주문이 각각 terminal 상태이고 confirmed fill
+   합계가 `latest_size_matched`와 일치하며, `sell_residual_shares`가 실제 차이와 일치하고
+   0보다 크고 0.01보다 작아야 한다. 또한 confirmed size·VWAP·fee와 매도분에 비례 배분한
+   BUY 원가·수수료 기반 `realized_pnl`, 전용 `pnl_basis`가 원장과 모두 일치할 때만 **매도된
+   부분의 종결**로 인정한다. 이 예외는 잔여분을 매도·소각·0원 처리했다는 뜻이 아니며,
+   잔여분의 향후 해결 손익은 해당 `realized_pnl`에서 제외한다. 이 조건 중 하나라도 없거나
+   잔여분이 0.01주 이상이면 일반 수량 불일치로 계속 실패 처리한다.
    `MATCHED` 문자열만으로 전량 체결을 단정하지 않는다. submission token amount 또는
    order status event의 `original_size`와 confirmed fill 합계를 비교해 잔여 수량을 보존한다.
    order-detail이 retention에서 사라져도 전체 authenticated token-trade catalog의 exact order
