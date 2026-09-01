@@ -123,3 +123,23 @@ execution book은 DB에 보존되지 않아 표시 호가 재생과 실제 FOK�
 이 결정은 “현재 값이 최적”이라는 판정이 아니라, 지금 수치를 바꿀 통계적 근거가 아직 없다는
 판정이다. 자료 누락 결함만 즉시 고치고 live 처치를 고정하는 것이 A/B의 정보가치를 가장 크게
 보존한다.
+
+## 배포 후 검증
+
+- 코드 commit `318e7c9`를 `main`에 push했다. `golden-peach` 210개 test, wheel build,
+  28개 전략 계약 검증을 모두 통과했다.
+- Jenkins에서 잠시 멈춘 Eco/Fruit/Grey를 다시 활성화한 뒤 수동 1회와 자연 주기 실행을
+  확인했다. 확인한 build는 Eco `#16525`~`#16527`, Fruit `#8739`~`#8741`, Grey
+  `#5445`~`#5447`이며 모두 `SUCCESS`, 약 5.3~5.9초였다.
+- 이후 자연 실행까지 다시 동기화했다. 최신 동기화는 Eco
+  `9cbcb929ee3a41c19054c87ef94fc2b8`, Fruit `b8be4ca6bce64b0db18e2377e3618bf3`, Grey
+  `9b5aaff9073146e79dbeb933852e48fe`이며 모두 실패 파일 0, retention skip 0,
+  open artifact conflict 0이다.
+- 재동기화 DB SHA-256은 Eco
+  `3f20ccd0098708e255ac444deec996d63a9afea08a875aeaeac9db79db273109`, Fruit
+  `24ced277c4fb0d5e6f07a4860851fa61b114d2bd094909fbe08bb971d92c0a79`, Grey
+  `e9b87eda25dc61e7e7320e0b125089e6a128b4e4ad86fa673651386251a6f46e`다.
+- DB에서 새 commit의 run을 다시 확인한 결과 Eco 6회, Fruit 9회, Grey 12회가 모두
+  `SUCCESS`였다. 세 job 모두 `open_buy_evidence_gaps=0`; Eco/Fruit는 open position 없이
+  기존 누적 경제 P&L `+$1.4254`/`+$4.4816`를 보존했다. Grey도 더는 simulation fill/fee
+  부재를 전역 BUY 차단 사유로 만들지 않는다.
