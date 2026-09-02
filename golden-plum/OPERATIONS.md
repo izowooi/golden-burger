@@ -266,3 +266,29 @@ pending/quarantine 상태, 저장공간 증가량을 함께
 - 동기화된 현재 Plum DB는 모두 `quick_check=ok`, 최신 run audit `SUCCESS`,
   미대사 BUY/SELL 0이다. 배포 전 행의 새 종목 열은 증거를 추정해 채우지 않고 `NULL`로
   보존하며, 배포 후 새 snapshot부터 실제 분류값을 기록한다.
+
+## 2026-09-02 부분 익절 v6 배포 기록
+
+- 배포 commit: `1cf8aa22c313…`.
+- 목표가 이상 표시 bid가 보유량 전부에 부족할 때도 거래소 최소 매도·잔여 수량을 지키는
+  가장 큰 원자적 FOK 조각을 익절한다. 확정 체결 뒤 정확한 잔여를 `HOLDING`으로 돌리고,
+  누적 매도대금·수수료·손익과 이후 해결 손익을 서로 겹치지 않게 기록한다.
+- 손절은 확인된 잔여 전량 FOK만 허용한다. 얕은 호가에서는 일부 손절을 제출하지 않고
+  event-local retry/quarantine 계약을 적용하므로 다른 event 주문은 계속된다.
+- 실제 DB 사본 네 개의 additive migration과 `quick_check`, Golden Plum 288개,
+  Watermelon Live 113개, 공통 관측성 227개 테스트, 28개 전략 계약 검사가 통과했다.
+- timer 없는 수동 build는 King `#7829` 3.648초, Queen `#7828` 3.662초,
+  Silver `#2796` 5.008초, Gold `#2560` 9.354초에 성공했다. `NullSCM`과 1분 timer를
+  복원한 뒤 최신 자연 build는 King `#7833` 3.671초, Queen `#7832` 4.026초,
+  Silver `#2800` 6.039초, Gold `#2564` 9.271초로 모두 성공했고 run audit commit은
+  `1cf8aa2`였다.
+- 확인 시점에는 열린 보유와 새 적격 경기가 없어 실제 부분 익절 주문은 아직 없었다.
+  첫 실제 부분 익절 뒤에는 `exit_execution_observations`, 누적 매도 수량·대금·수수료,
+  잔여 `HOLDING` 및 최종 해결의 중복 손익 부재를 다시 동기화해 검증한다.
+- 최종 `daily-rsync`는 King/Queen/Silver/Gold 모두 `SUCCESS`, failed 0이었고 verify
+  2,805/2,811/2,795/1,429개 artifact가 retention skip·open conflict 없이 통과했다.
+  여섯 current DB는 모두 `quick_check=ok`, 부분 익절 schema 존재, 최신 run audit
+  `1cf8aa2`/`SUCCESS`, pending/holding/quarantine 0이다.
+- 동기화 후 최신 자연 build King `#7855` 2.946초, Queen `#7854` 2.570초,
+  Silver `#2822` 3.179초, Gold `#2586` 6.629초도 성공했다. 네 config SHA는 유지됐고
+  `NullSCM`, 1분 timer, non-concurrent, clean 없음이다.

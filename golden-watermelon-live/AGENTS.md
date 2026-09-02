@@ -6,15 +6,15 @@
 
 | family | A | B | cadence/notional |
 |---|---|---|---|
-| Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / 0.96 | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / 0.99 | 1m / exact `$5` |
-| MLB | `polybot-bear` / `watermelon-live-bear-mlb-96-1m-v3a` / 0.96 | `polybot-tiger` / `watermelon-live-tiger-mlb-99-1m-v3a` / 0.99 | 1m / exact `$5` |
-| NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / 0.96 | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / 0.99 | 1m / exact `$5` |
+| Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / 0.96 | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / 0.99 | 1m / current target `$5` |
+| MLB | `polybot-bear` / `watermelon-live-bear-mlb-96-1m-v3a` / 0.96 | `polybot-tiger` / `watermelon-live-tiger-mlb-99-1m-v3a` / 0.99 | 1m / current target `$5` |
+| NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / 0.96 | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / 0.99 | 1m / current target `$5` |
 
 - Entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up cutoff
   `2026-09-12T04:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-08-30-stop-containment-v3d/PREREGISTRATION.md`.
+  `research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md`.
 
 Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 쓴다. 신규 MLB/NHL job만
 새 runtime DB를 만든다. DB clean/wipe/migration/copy/merge/backfill을 하지 않는다.
@@ -30,18 +30,21 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
 - e-sports, MiLB/AHL/ECHL/NCAA, child/period/spread/total/prop/future/advancement는 fail closed한다.
 - Gamma server gate는 cumulative volume `$5,000` 및 liquidity `$5,000`; cursor-complete 최대
   4페이지 뒤 fresh exact `$5` full CLOB book을 최종 확인한다.
-- exact `$5` FOK BUY. signed maker/taker precision을 POST 전에 확인하고 arm 상한 `0.999`를
-  넘지 않는다. accepted order는 fill이 아니다.
+- baseline exact `$5` book으로 신호를 비교한다. 운영 목표액을 올렸을 때는 같은 fresh book과
+  arm 상한 안에서 `$5` 이상 전량 가능한 가장 큰 사다리 금액 하나를 FOK BUY한다. signed
+  maker/taker precision을 POST 전에 확인하며 accepted order는 fill이 아니다.
 - account/open 20, event 1, cycle BUY 5, cycle emergency SELL 1. manual wallet position은
   편입·청산하지 않는다.
 - PENDING BUY/orphan BUY/BUY fill-fee gap, 일반 QUARANTINED와 경제손익 증거 누락은 신규 BUY를
   막는다. SELL-only intent·대사 실패는 같은 token/event에만 격리하고 다른 event는 계속한다.
   연속 손절 실패는 180분 뒤 성공 매도로 꾸미지 않고 open-capacity를 유지한 QUARANTINED로
   자동 격리 종결한다. execution ledger 결합 실패는 중복 SELL 방지를 위해 즉시 격리한다.
-- effective stop은 `max(0.70, confirmed entry VWAP-0.05)`다. 독립 Gamma+CLOB OPEN proof와 proof
+- effective stop은 `max(0.70, confirmed entry VWAP-0.30)`다. 독립 Gamma+CLOB OPEN proof와 proof
   뒤 fresh complete book, spread `<=0.10`을 요구한다. 정상 연속 book은 stop 대비 5pp/35%
   envelope를 유지하고, 검증된 OPEN 상태의 불연속 gap은 envelope가 손절을 무력화하지 않게 한다.
   종료 후 cleanup bid는 OPEN proof에서 차단한다.
+- 이 전략에는 별도 익절 주문이 없고 proven resolution까지 보유한다. 따라서 Golden Plum의
+  부분 익절 계약을 억지로 적용하지 않으며, 손절은 확인된 보유 잔여 전량 FOK만 허용한다.
 - 각 cycle 후보는 POST 전 `QUEUED_NO_POST`로 일괄 기록한다. 명시적인 pre-submission/no-POST만
   fresh in-band snapshot에서 재시도하며, POST 가능성이 있으면 ledger 대사 전 재시도하지 않는다.
   같은 event의 반대 결과는 기존 stop SELL confirmed 후 다음 cycle부터만 진입할 수 있다.
