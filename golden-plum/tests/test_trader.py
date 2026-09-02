@@ -44,6 +44,7 @@ class _Repo:
         self.linked = []
         self.episode_execution = []
         self.resolution_observations = []
+        self.exit_execution_observations = []
         self.reentry = (True, "ok")
 
     def can_reenter(self, *_args, **_kwargs):
@@ -106,6 +107,10 @@ class _Repo:
 
     def stage_clob_resolution_observation(self, **values):
         self.resolution_observations.append(values)
+
+    def record_exit_execution_observation(self, **values):
+        self.exit_execution_observations.append(values)
+        return SimpleNamespace(id=len(self.exit_execution_observations))
 
     def get_exact_buy_fill_evidence(self, _order_id):
         return ExactFillEvidence(
@@ -657,6 +662,103 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert repo.updated == []
 
 
+def test_large_holding_submits_largest_profitable_partial_take_profit() -> None:
+    class PartialTakeProfitClob(_Clob):
+        def get_sell_book_evidence(self, token_id):
+            return json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": token_id,
+                    "bids": [
+                        {"price": 0.92, "size": 300},
+                        {"price": 0.89, "size": 1000},
+                    ],
+                    "asks": [{"price": 0.93, "size": 2000}],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+
+    repo, clob = _Repo(), PartialTakeProfitClob()
+    trade = SimpleNamespace(
+        id=90,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        buy_shares=1000.0,
+        buy_price=0.75,
+        sport_family="soccer",
+        league_code="epl",
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders[-1]["size"] == pytest.approx(300.0)
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.PENDING_SELL
+    assert update["pending_sell_requested_shares"] == pytest.approx(300.0)
+    assert update["pending_sell_remaining_shares"] == pytest.approx(700.0)
+    assert "sell_shares" not in update
+    assert update["last_exit_observation_id"] == 1
+    observation = repo.exit_execution_observations[0]
+    assert observation["signal"] == "take_profit"
+    assert observation["selected_shares"] == pytest.approx(300.0)
+    assert observation["max_executable_shares"] == pytest.approx(300.0)
+    assert observation["full_position_required"] is False
+
+
+def test_stop_never_uses_partial_depth_and_starts_retry_clock() -> None:
+    class ShallowStopClob(_Clob):
+        def get_sell_book_evidence(self, token_id):
+            return json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": token_id,
+                    "bids": [{"price": 0.59, "size": 20}],
+                    "asks": [{"price": 0.60, "size": 1000}],
+                },
+                sort_keys=True,
+                separators=(",", ":"),
+            )
+
+    repo, clob = _Repo(), ShallowStopClob()
+    trade = SimpleNamespace(
+        id=91,
+        status=TradeStatus.HOLDING,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="own-db-token",
+        outcome="Yes",
+        exit_reason=None,
+        sell_timestamp=None,
+        buy_shares=100.0,
+        buy_price=0.75,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=_active_gamma(),
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert clob.orders == []
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.HOLDING
+    assert update["exit_reason"] == (
+        "exit_sell_failure_retrying:absolute_stop_full_depth"
+    )
+    assert update["pending_sell_requested_shares"] is None
+
+
 def test_entry_relative_stop_uses_frozen_fifteen_point_reversal() -> None:
     repo = _Repo()
     clob = _Clob(
@@ -863,7 +965,8 @@ def test_stop_uses_fresh_bid_and_submits_fok_sell(
     assert clob.orders[0]["size"] == pytest.approx(5.10)
     update = repo.updated[-1][1]
     assert update["status"] is TradeStatus.PENDING_SELL
-    assert update["sell_shares"] == pytest.approx(5.10)
+    assert update["pending_sell_requested_shares"] == pytest.approx(5.10)
+    assert "sell_shares" not in update
     assert update["sell_residual_shares"] == pytest.approx(0.002)
 
 
@@ -1021,6 +1124,58 @@ def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
         (1 - 0.985) * (5 / 0.985) - 0.01
     )
     assert clob.orders == []
+
+
+def test_resolution_after_partial_sell_preserves_realized_pnl_and_settles_remainder(
+) -> None:
+    repo, clob = _Repo(), _Clob()
+    trade = SimpleNamespace(
+        id=19,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        buy_shares=70.0,
+        buy_price=0.75,
+        sell_shares=30.0,
+        realized_pnl=3.9,
+    )
+    buy_evidence = ExactFillEvidence(
+        "confirmed",
+        "buy-partial-resolution",
+        order_status="MATCHED",
+        side="BUY",
+        requested_size=100.0,
+        latest_size_matched=100.0,
+        needs_reconciliation=False,
+        reconciled_full_fill=True,
+        confirmed_size=100.0,
+        confirmed_vwap=0.75,
+        confirmed_fee_usdc=1.0,
+        fee_complete=True,
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader._record_resolution_values(
+        trade,
+        payout=1.0,
+        first_outcome_payout=1.0,
+        winner_outcome="Yes",
+        resolution_status="test_unique_winner",
+        evidence_source="test",
+        observed_at=NOW.replace(tzinfo=None),
+        source_updated_at="2026-09-02T00:00:00Z",
+        fill_evidence=buy_evidence,
+    ) is True
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_remaining_shares"] == pytest.approx(70.0)
+    assert update["settlement_pnl_assumption"] == pytest.approx(16.8)
+    assert update["settlement_assumption_basis"].startswith(
+        "remaining_position_resolution_"
+    )
+    assert "realized_pnl" not in update
+    assert "sell_shares" not in update
 
 
 def test_resolution_waits_for_complete_buy_fee_evidence() -> None:
@@ -1273,7 +1428,7 @@ def test_clob_closed_market_blocks_stop_even_when_gamma_still_says_live() -> Non
         outcome="Yes",
         buy_order_id="buy-1",
         stop_price_at_entry=0.70,
-        buy_shares=5.102,
+        buy_shares=5 / 0.985,
         buy_price=0.98,
     )
     trader = Trader(
@@ -1370,5 +1525,6 @@ def test_accepted_sell_with_unsafe_signed_size_is_never_orphaned() -> None:
     update = repo.updated[-1][1]
     assert update["status"] is TradeStatus.PENDING_SELL
     assert update["sell_order_id"] == "sell-unsafe"
-    assert update["sell_shares"] == pytest.approx(5.09)
+    assert update["pending_sell_requested_shares"] == pytest.approx(5.09)
+    assert "sell_shares" not in update
     assert update["exit_reason"] == "signed_sell_size_drift_unsafe"

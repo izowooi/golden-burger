@@ -26,6 +26,7 @@ from .models import (
     BUY_ISOLATION_REASONS,
     EntryEpisode,
     EventCycleEvidence,
+    ExitExecutionObservation,
     MarketCatalog,
     MarketSnapshot,
     MarketSweep,
@@ -366,6 +367,181 @@ class TradeRepository:
         trade.updated_at = datetime.utcnow()
         self.session.commit()
         return trade
+
+    def record_exit_execution_observation(
+        self,
+        *,
+        trade: Trade,
+        observed_at: datetime,
+        signal: str,
+        trigger_price: float,
+        position_shares: float,
+        selected_shares: float,
+        remaining_shares: float,
+        max_executable_shares: float,
+        selected_notional_usdc: float,
+        max_executable_notional_usdc: float,
+        best_bid: float,
+        best_ask: Optional[float],
+        spread: Optional[float],
+        vwap: float,
+        limit_price: float,
+        levels_used: int,
+        fallback_reason: str,
+        full_position_required: bool,
+        book_json: str,
+    ) -> ExitExecutionObservation:
+        """Commit immutable fresh-book evidence before an external SELL POST."""
+
+        normalized_signal = str(signal or "").strip()
+        normalized_reason = str(fallback_reason or "").strip()
+        if normalized_signal not in {"take_profit", "absolute_stop"}:
+            raise ValueError("exit execution signal is invalid")
+        if not normalized_reason:
+            raise ValueError("exit execution fallback reason is required")
+        numeric_values = {
+            "trigger_price": trigger_price,
+            "position_shares": position_shares,
+            "selected_shares": selected_shares,
+            "remaining_shares": remaining_shares,
+            "max_executable_shares": max_executable_shares,
+            "selected_notional_usdc": selected_notional_usdc,
+            "max_executable_notional_usdc": max_executable_notional_usdc,
+            "best_bid": best_bid,
+            "vwap": vwap,
+            "limit_price": limit_price,
+        }
+        normalized_numbers: Dict[str, float] = {}
+        for field, raw in numeric_values.items():
+            try:
+                value = float(raw)
+            except (TypeError, ValueError) as error:
+                raise ValueError(f"{field} must be numeric") from error
+            if not math.isfinite(value):
+                raise ValueError(f"{field} must be finite")
+            normalized_numbers[field] = value
+        normalized_best_ask = None
+        normalized_spread = None
+        if best_ask is not None:
+            try:
+                normalized_best_ask = float(best_ask)
+            except (TypeError, ValueError) as error:
+                raise ValueError("best_ask must be numeric") from error
+            if not math.isfinite(normalized_best_ask):
+                raise ValueError("best_ask must be finite")
+        if spread is not None:
+            try:
+                normalized_spread = float(spread)
+            except (TypeError, ValueError) as error:
+                raise ValueError("spread must be numeric") from error
+            if not math.isfinite(normalized_spread):
+                raise ValueError("spread must be finite")
+        if (
+            normalized_numbers["position_shares"] <= 0
+            or normalized_numbers["selected_shares"] <= 0
+            or normalized_numbers["remaining_shares"] < 0
+            or normalized_numbers["max_executable_shares"] <= 0
+            or normalized_numbers["selected_notional_usdc"] <= 0
+            or normalized_numbers["max_executable_notional_usdc"] <= 0
+            or not 0 < normalized_numbers["best_bid"] < 1
+            or not 0 < normalized_numbers["vwap"] < 1
+            or not 0 < normalized_numbers["limit_price"] < 1
+            or not 0 < normalized_numbers["trigger_price"] < 1
+            or normalized_numbers["selected_shares"]
+            > normalized_numbers["position_shares"] + _FILL_SIZE_TOLERANCE
+            or normalized_numbers["selected_shares"]
+            > normalized_numbers["max_executable_shares"]
+            + _FILL_SIZE_TOLERANCE
+            or not math.isclose(
+                normalized_numbers["selected_shares"]
+                + normalized_numbers["remaining_shares"],
+                normalized_numbers["position_shares"],
+                rel_tol=0,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            )
+            or (
+                normalized_best_ask is not None
+                and (
+                    not 0 < normalized_best_ask <= 1
+                    or normalized_numbers["best_bid"]
+                    > normalized_best_ask + _FILL_SIZE_TOLERANCE
+                )
+            )
+            or (
+                normalized_spread is not None
+                and (
+                    normalized_spread < 0
+                    or normalized_best_ask is None
+                    or not math.isclose(
+                        normalized_spread,
+                        normalized_best_ask - normalized_numbers["best_bid"],
+                        rel_tol=0,
+                        abs_tol=_FILL_SIZE_TOLERANCE,
+                    )
+                )
+            )
+        ):
+            raise ValueError("exit execution observation is outside its domain")
+        if (
+            not isinstance(levels_used, int)
+            or isinstance(levels_used, bool)
+            or levels_used <= 0
+        ):
+            raise ValueError("levels_used must be a positive integer")
+        try:
+            decoded_book = json.loads(book_json)
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("exit book evidence JSON is invalid") from error
+        if not isinstance(decoded_book, dict):
+            raise ValueError("exit book evidence must be an object")
+        if str(decoded_book.get("token_id") or "").strip() != str(
+            trade.token_id
+        ):
+            raise ValueError("exit book evidence token does not match trade")
+        canonical_book = json.dumps(
+            decoded_book,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        book_sha256 = hashlib.sha256(canonical_book.encode()).hexdigest()
+        observation = ExitExecutionObservation(
+            run_id=current_run_id(),
+            config_hash=self._current_config_hash(),
+            trade_id=int(trade.id),
+            condition_id=str(trade.condition_id),
+            event_id=str(getattr(trade, "event_id", "") or "") or None,
+            token_id=str(trade.token_id),
+            observed_at=observed_at,
+            signal=normalized_signal,
+            trigger_price=normalized_numbers["trigger_price"],
+            sport_family=str(getattr(trade, "sport_family", "") or "") or None,
+            league_code=str(getattr(trade, "league_code", "") or "") or None,
+            position_shares=normalized_numbers["position_shares"],
+            selected_shares=normalized_numbers["selected_shares"],
+            remaining_shares=normalized_numbers["remaining_shares"],
+            max_executable_shares=normalized_numbers["max_executable_shares"],
+            selected_notional_usdc=normalized_numbers["selected_notional_usdc"],
+            max_executable_notional_usdc=normalized_numbers[
+                "max_executable_notional_usdc"
+            ],
+            best_bid=normalized_numbers["best_bid"],
+            best_ask=normalized_best_ask,
+            spread=normalized_spread,
+            vwap=normalized_numbers["vwap"],
+            limit_price=normalized_numbers["limit_price"],
+            levels_used=levels_used,
+            fallback_reason=normalized_reason,
+            full_position_required=1 if full_position_required else 0,
+            book_sha256=book_sha256,
+            book_json=canonical_book,
+        )
+        try:
+            self.session.add(observation)
+            self.session.commit()
+        except Exception:
+            self.session.rollback()
+            raise
+        return observation
 
     def stage_clob_resolution_observation(
         self,
@@ -2617,14 +2793,22 @@ class TradeRepository:
             recorded_pnl = float(trade.realized_pnl or 0.0)
             execution_adjustment += ledger_pnl - recorded_pnl
             if trade.settlement_pnl_assumption is not None:
-                # Resolution P&L is linear in confirmed shares, including the
-                # allocated BUY fee.  Invalidate only the shares proven sold;
-                # any sub-cent residual keeps its proven payout economics.
-                invalidated_settlement += (
-                    float(trade.settlement_pnl_assumption)
-                    * confirmed_size
-                    / buy_size
+                settlement_basis = str(
+                    trade.settlement_assumption_basis or ""
                 )
+                if settlement_basis.startswith("remaining_position_resolution_"):
+                    # v6 stores payout economics only for the shares still held
+                    # after confirmed partial sells.  Those sold shares are
+                    # already absent and must not be invalidated a second time.
+                    pass
+                else:
+                    # Legacy settlement P&L covers the original confirmed BUY.
+                    # Invalidate only the shares later proven sold.
+                    invalidated_settlement += (
+                        float(trade.settlement_pnl_assumption)
+                        * confirmed_size
+                        / buy_size
+                    )
             if (
                 trade.realized_pnl is None
                 or trade.settlement_pnl_assumption is not None

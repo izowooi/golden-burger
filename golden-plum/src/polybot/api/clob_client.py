@@ -134,6 +134,32 @@ class SellBookWalk:
 
 
 @dataclass(frozen=True)
+class SellBookSummary:
+    """Normalized top/depth facts from one immutable displayed book."""
+
+    token_id: str
+    best_bid: float
+    best_ask: Optional[float]
+    spread: Optional[float]
+    displayed_bid_shares: float
+    displayed_bid_notional_usdc: float
+
+
+@dataclass(frozen=True)
+class AdaptiveProfitSellSelection:
+    """Largest atomic FOK TP slice that does not strand a small remainder."""
+
+    position_shares: float
+    selected_shares: float
+    remaining_shares: float
+    max_profitable_shares: float
+    selected_notional_usdc: float
+    max_profitable_notional_usdc: float
+    fallback_reason: str
+    walk: SellBookWalk
+
+
+@dataclass(frozen=True)
 class ClobResolutionToken:
     """One normalized public CLOB market token at resolution lookup time."""
 
@@ -335,6 +361,167 @@ def _walk_sell_book(book: Any, token_id: str, shares: float) -> SellBookWalk:
         proceeds=proceeds,
         limit_price=limit_price,
         levels_used=levels_used,
+    )
+
+
+def _decode_book_evidence(book_json: str) -> tuple[Mapping[str, Any], str]:
+    try:
+        book = json.loads(book_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ClobResponseContractError(
+            "cached CLOB book evidence is not valid JSON"
+        ) from error
+    if not isinstance(book, Mapping):
+        raise ClobResponseContractError(
+            "cached CLOB book evidence must be an object"
+        )
+    token_id = str(book.get("token_id") or "").strip()
+    if not token_id:
+        raise ClobResponseContractError(
+            "cached CLOB book evidence has no token ID"
+        )
+    return book, token_id
+
+
+def summarize_sell_book_evidence(book_json: str) -> SellBookSummary:
+    """Return top-of-book and total displayed bid depth without imputing fills."""
+
+    book, token_id = _decode_book_evidence(book_json)
+    bids = _normalize_book_levels(book.get("bids"), "bid")
+    asks = _normalize_book_levels(book.get("asks"), "ask", allow_empty=True)
+    best_bid = bids[0][0]
+    best_ask = asks[0][0] if asks else None
+    if best_ask is not None and best_bid > best_ask + 1e-9:
+        raise ClobResponseContractError("CLOB order book is crossed")
+    return SellBookSummary(
+        token_id=token_id,
+        best_bid=best_bid,
+        best_ask=best_ask,
+        spread=(best_ask - best_bid if best_ask is not None else None),
+        displayed_bid_shares=sum(size for _price, size in bids),
+        displayed_bid_notional_usdc=sum(price * size for price, size in bids),
+    )
+
+
+def walk_sell_book_from_evidence(
+    book_json: str,
+    *,
+    shares: float,
+) -> SellBookWalk:
+    """Walk one exact share quantity against canonical cached book evidence."""
+
+    book, token_id = _decode_book_evidence(book_json)
+    return _walk_sell_book(book, token_id, shares)
+
+
+def select_take_profit_sell_from_book_evidence(
+    book_json: str,
+    *,
+    position_shares: float,
+    target_price: float,
+    min_order_size: float,
+) -> AdaptiveProfitSellSelection:
+    """Choose the largest safe TP FOK slice from one displayed book.
+
+    Every consumed bid must itself be at or above ``target_price``.  A partial
+    slice is allowed only when both the submitted slice and the remaining
+    position are independently sellable at the venue minimum.  This prevents
+    a large holding from being blocked by shallow profitable depth without
+    turning the remainder into an avoidable sub-minimum position.
+    """
+
+    book, token_id = _decode_book_evidence(book_json)
+    try:
+        position = float(position_shares)
+        target = float(target_price)
+        minimum = float(min_order_size)
+    except (TypeError, ValueError) as error:
+        raise ValueError("TP selection inputs must be numeric") from error
+    if not math.isfinite(position) or position <= 0:
+        raise ValueError("position_shares must be finite and positive")
+    if not math.isfinite(target) or not 0 < target < 1:
+        raise ValueError("target_price must be between zero and one")
+    if not math.isfinite(minimum) or minimum <= 0:
+        raise ValueError("min_order_size must be finite and positive")
+
+    bids = _normalize_book_levels(book.get("bids"), "bid")
+    # A SELL limit is the minimum acceptable price for every share.  Therefore
+    # only displayed levels individually at/above the TP can support the slice;
+    # better top levels must not subsidize a lower unsafe limit.
+    raw_profitable_shares = min(
+        position,
+        sum(size for price, size in bids if price + 1e-9 >= target),
+    )
+    max_profitable_shares = float(
+        Decimal(str(raw_profitable_shares)).quantize(
+            Decimal("0.01"), rounding=ROUND_FLOOR
+        )
+    )
+    if max_profitable_shares + 1e-9 < minimum:
+        raise ClobResponseUnavailableError(
+            "profitable displayed bid depth is below the minimum SELL size"
+        )
+
+    full_position = math.isclose(
+        max_profitable_shares,
+        position,
+        rel_tol=0,
+        abs_tol=1e-9,
+    )
+    if full_position:
+        selected_shares = position
+        fallback_reason = "FULL_POSITION_PROFITABLY_EXECUTABLE"
+    else:
+        # Preserve a separately sellable remainder.  The SDK signs SELL size
+        # at two decimals, so both sides of the split use that same quantum.
+        maximum_without_stranding = float(
+            Decimal(str(position - minimum)).quantize(
+                Decimal("0.01"), rounding=ROUND_FLOOR
+            )
+        )
+        selected_shares = min(max_profitable_shares, maximum_without_stranding)
+        selected_shares = float(
+            Decimal(str(selected_shares)).quantize(
+                Decimal("0.01"), rounding=ROUND_FLOOR
+            )
+        )
+        if selected_shares + 1e-9 < minimum:
+            raise ClobResponseUnavailableError(
+                "partial TP would strand a sub-minimum remainder"
+            )
+        fallback_reason = (
+            "REDUCED_TO_PRESERVE_MINIMUM_RESIDUAL"
+            if selected_shares + 1e-9 < max_profitable_shares
+            else "REDUCED_TO_PROFITABLE_DISPLAYED_DEPTH"
+        )
+
+    remaining_shares = max(0.0, position - selected_shares)
+    if (
+        remaining_shares > 1e-9
+        and remaining_shares + 1e-9 < minimum
+    ):
+        raise ClobResponseContractError(
+            "TP selection produced a sub-minimum remainder"
+        )
+    walk = _walk_sell_book(book, token_id, selected_shares)
+    if (
+        walk.limit_price + 1e-9 < target
+        or walk.vwap + 1e-9 < target
+    ):
+        raise ClobResponseContractError(
+            "selected TP walk consumes bids below its target"
+        )
+
+    max_walk = _walk_sell_book(book, token_id, max_profitable_shares)
+    return AdaptiveProfitSellSelection(
+        position_shares=position,
+        selected_shares=selected_shares,
+        remaining_shares=remaining_shares,
+        max_profitable_shares=max_profitable_shares,
+        selected_notional_usdc=walk.proceeds,
+        max_profitable_notional_usdc=max_walk.proceeds,
+        fallback_reason=fallback_reason,
+        walk=walk,
     )
 
 
@@ -1352,7 +1539,7 @@ class ClobClientWrapper:
 
     def get_cached_book_evidence(self, token_id: str) -> Optional[str]:
         """Return the raw normalized levels from the latest batch read."""
-        return self._book_evidence_by_token.get(str(token_id))
+        return getattr(self, "_book_evidence_by_token", {}).get(str(token_id))
 
     def get_buy_book_walk(
         self, token_id: str, *, notional_usdc: float
@@ -1364,6 +1551,19 @@ class ClobClientWrapper:
         """Return a complete executable walk for every share in one holding."""
         result = self.client.get_order_book(str(token_id))
         return _walk_sell_book(result, str(token_id), shares)
+
+    def get_sell_book_evidence(self, token_id: str) -> str:
+        """Fetch one fresh full book and return its canonical replay evidence."""
+
+        normalized = str(token_id or "").strip()
+        if not normalized:
+            raise ValueError("token_id is required")
+        result = self.client.get_order_book(normalized)
+        evidence = _canonical_book_evidence(result, normalized)
+        if not hasattr(self, "_book_evidence_by_token"):
+            self._book_evidence_by_token = {}
+        self._book_evidence_by_token[normalized] = evidence
+        return evidence
 
     def get_sell_book_walks(
         self,
@@ -1389,6 +1589,12 @@ class ClobClientWrapper:
 
         results: Dict[str, Optional[SellBookWalk]] = {}
         tokens = list(normalized)
+        if not hasattr(self, "_book_evidence_by_token"):
+            self._book_evidence_by_token = {}
+        # A failed batch must never leave a previous cycle's book available to
+        # the partial-TP planner under the same token key.
+        for token in tokens:
+            self._book_evidence_by_token.pop(token, None)
         failed_chunks = 0
         for offset in range(0, len(tokens), batch_size):
             chunk = tokens[offset : offset + batch_size]
@@ -1407,6 +1613,9 @@ class ClobClientWrapper:
                         continue
                     seen.add(token)
                     try:
+                        self._book_evidence_by_token[token] = (
+                            _canonical_book_evidence(book, token)
+                        )
                         results[token] = _walk_sell_book(
                             book, token, normalized[token]
                         )

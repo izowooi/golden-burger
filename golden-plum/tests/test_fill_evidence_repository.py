@@ -346,6 +346,127 @@ def test_pending_sell_records_unavoidable_two_decimal_sdk_dust(tmp_path):
     session.close()
 
 
+def test_confirmed_partial_take_profit_keeps_exact_remainder_then_completes(
+    tmp_path,
+):
+    db_path = tmp_path / "plum-partial-take-profit.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-plum")
+    buy_submission = _record_accepted_order(
+        ledger,
+        "OID-buy-partial-tp",
+        side="BUY",
+        token_id="token-partial-tp",
+        requested_size=100.0,
+        requested_price=0.75,
+    )
+    first_sell_submission = _record_accepted_order(
+        ledger,
+        "OID-sell-partial-tp-1",
+        side="SELL",
+        token_id="token-partial-tp",
+        requested_size=30.0,
+        requested_price=0.90,
+    )
+    second_sell_submission = _record_accepted_order(
+        ledger,
+        "OID-sell-partial-tp-2",
+        side="SELL",
+        token_id="token-partial-tp",
+        requested_size=70.0,
+        requested_price=0.91,
+    )
+
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=requested_size, needs_reconciliation=0 "
+            "WHERE order_id IN ('OID-buy-partial-tp', "
+            "'OID-sell-partial-tp-1', 'OID-sell-partial-tp-2')"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:buy_id, 'OID-buy-partial-tp', 'buy-partial-tp', 0, "
+            "'CONFIRMED', 'BUY', 100.0, 0.75, 1.0, "
+            "'2026-09-02T00:00:00Z', NULL), "
+            "(:sell1_id, 'OID-sell-partial-tp-1', 'sell-partial-tp-1', 0, "
+            "'CONFIRMED', 'SELL', 30.0, 0.90, 0.3, "
+            "'2026-09-02T00:01:00Z', NULL), "
+            "(:sell2_id, 'OID-sell-partial-tp-2', 'sell-partial-tp-2', 0, "
+            "'CONFIRMED', 'SELL', 70.0, 0.91, 0.7, "
+            "'2026-09-02T00:02:00Z', NULL)"
+        ),
+        {
+            "buy_id": buy_submission,
+            "sell1_id": first_sell_submission,
+            "sell2_id": second_sell_submission,
+        },
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    trade = repo.create_trade(
+        condition_id="condition-partial-tp",
+        event_id="event-partial-tp",
+        outcome="Home",
+        token_id="token-partial-tp",
+        buy_price=0.75,
+        buy_shares=100.0,
+        buy_order_id="OID-buy-partial-tp",
+        buy_timestamp=datetime.utcnow(),
+        sell_order_id="OID-sell-partial-tp-1",
+        sell_timestamp=datetime.utcnow(),
+        pending_sell_requested_shares=30.0,
+        pending_sell_remaining_shares=70.0,
+        status=TradeStatus.PENDING_SELL,
+        exit_reason="take_profit_pending_confirmed_fill",
+        mode="live",
+    )
+    trader = Trader(
+        repo,
+        SimpleNamespace(simulation_mode=False),
+        TradingConfig(),
+        simulation_mode=False,
+    )
+
+    assert trader.reconcile_pending_sell(trade) is False
+    remaining = repo.get_by_id(trade.id)
+    assert remaining.status == TradeStatus.HOLDING
+    assert remaining.buy_shares == pytest.approx(70.0)
+    assert remaining.sell_shares == pytest.approx(30.0)
+    assert remaining.confirmed_sell_count == 1
+    assert remaining.realized_pnl == pytest.approx(3.9)
+    assert remaining.pending_sell_requested_shares is None
+    assert remaining.sell_residual_shares == pytest.approx(70.0)
+
+    repo.update_trade(
+        remaining.id,
+        status=TradeStatus.PENDING_SELL,
+        exit_reason="take_profit_pending_confirmed_fill",
+        sell_order_id="OID-sell-partial-tp-2",
+        sell_timestamp=datetime.utcnow(),
+        pending_sell_requested_shares=70.0,
+        pending_sell_remaining_shares=0.0,
+    )
+    pending_final = repo.get_by_id(remaining.id)
+    assert trader.reconcile_pending_sell(pending_final) is True
+    completed = repo.get_by_id(remaining.id)
+    assert completed.status == TradeStatus.COMPLETED
+    assert completed.buy_shares == pytest.approx(0.0)
+    assert completed.sell_shares == pytest.approx(100.0)
+    assert completed.confirmed_sell_count == 2
+    assert completed.cumulative_sell_proceeds_usdc == pytest.approx(90.7)
+    assert completed.cumulative_sell_fee_usdc == pytest.approx(1.0)
+    assert completed.cumulative_buy_fee_allocated_usdc == pytest.approx(1.0)
+    assert completed.realized_pnl == pytest.approx(13.7)
+    session.close()
+
+
 def test_stale_delayed_fok_sell_zero_fill_returns_to_holding_same_cycle(tmp_path):
     """Regression: Elversberg-style DELAYED SELL must not block every entry."""
     db_path = tmp_path / "watermelon-stale-sell.db"
@@ -1294,6 +1415,100 @@ def test_economic_guard_replaces_legacy_resolution_with_confirmed_sell_ledger(
     assert trade.sell_order_id is None
     assert trade.realized_pnl is None
     assert trade.settlement_pnl_assumption == pytest.approx(settlement)
+    session.close()
+
+
+def test_economic_guard_keeps_partial_sell_and_remaining_resolution_disjoint(
+    tmp_path,
+):
+    """A partial TP and later payout must cover disjoint share quantities."""
+    db_path = tmp_path / "plum-partial-sell-resolution-guard.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-plum")
+    sell_submission = _record_accepted_order(
+        ledger,
+        "OID-partial-profit",
+        side="SELL",
+        token_id="token-partial-profit",
+        requested_size=30.0,
+        requested_price=0.90,
+    )
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=30.0, needs_reconciliation=0 "
+            "WHERE order_id='OID-partial-profit'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-partial-profit', 'partial-profit-fill', 0, "
+            "'CONFIRMED', 'SELL', 30.0, 0.90, 0.03, "
+            "'2026-09-02T00:00:00Z', NULL)"
+        ),
+        {"submission_id": sell_submission},
+    )
+    session.commit()
+
+    repo = TradeRepository(session)
+    original_buy_size = 100.0
+    remaining_size = 70.0
+    buy_vwap = 0.75
+    buy_fee = 0.10
+    allocated_sold_buy_fee = buy_fee * 30.0 / original_buy_size
+    allocated_remaining_buy_fee = buy_fee * remaining_size / original_buy_size
+    realized = (0.90 - buy_vwap) * 30.0 - 0.03 - allocated_sold_buy_fee
+    remaining_settlement = (
+        (1.0 - buy_vwap) * remaining_size - allocated_remaining_buy_fee
+    )
+    repo.create_trade(
+        condition_id="condition-partial-profit",
+        outcome="Yes",
+        token_id="token-partial-profit",
+        buy_price=buy_vwap,
+        buy_shares=remaining_size,
+        buy_order_id="OID-partial-profit-buy",
+        buy_timestamp=datetime.utcnow(),
+        buy_confirmed_size=original_buy_size,
+        buy_confirmed_vwap=buy_vwap,
+        buy_confirmed_fee_usdc=buy_fee,
+        sell_order_id="OID-partial-profit",
+        sell_shares=30.0,
+        realized_pnl=realized,
+        confirmed_sell_count=1,
+        cumulative_sell_proceeds_usdc=27.0,
+        cumulative_sell_fee_usdc=0.03,
+        cumulative_buy_fee_allocated_usdc=allocated_sold_buy_fee,
+        status=TradeStatus.RESOLVED,
+        mode="live",
+        resolution_value=1.0,
+        resolution_remaining_shares=remaining_size,
+        settlement_pnl_assumption=remaining_settlement,
+        settlement_assumption_basis=(
+            "remaining_position_resolution_net_allocated_known_buy_fee"
+        ),
+    )
+
+    guard = repo.get_economic_pnl_guard()
+
+    assert guard["recorded_realized_pnl"] == pytest.approx(realized)
+    assert guard["recorded_settlement_pnl"] == pytest.approx(
+        remaining_settlement
+    )
+    assert guard["execution_adjustment_pnl"] == pytest.approx(0.0)
+    assert guard["invalidated_settlement_pnl"] == pytest.approx(0.0)
+    assert guard["confirmed_sell_pnl"] == pytest.approx(realized)
+    assert guard["proven_resolution_pnl"] == pytest.approx(
+        remaining_settlement
+    )
+    assert guard["economic_pnl"] == pytest.approx(
+        realized + remaining_settlement
+    )
+    assert guard["evidence_gaps"] == 0
     session.close()
 
 

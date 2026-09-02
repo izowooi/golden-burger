@@ -96,6 +96,16 @@ class Trade(Base):
     # BUYs can create finer share precision, so an unavoidable sub-cent-share
     # residual must be explicit rather than disguised as a full close.
     sell_residual_shares = Column(Float)
+    # ``sell_shares`` and ``realized_pnl`` are cumulative confirmed values.
+    # These fields describe only the latest in-flight SELL request so a
+    # confirmed partial TP can return to HOLDING without losing its remainder.
+    pending_sell_requested_shares = Column(Float)
+    pending_sell_remaining_shares = Column(Float)
+    confirmed_sell_count = Column(Integer, nullable=False, default=0)
+    cumulative_sell_proceeds_usdc = Column(Float)
+    cumulative_sell_fee_usdc = Column(Float)
+    cumulative_buy_fee_allocated_usdc = Column(Float)
+    last_exit_observation_id = Column(Integer)
 
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY, index=True)
     entry_reason = Column(String)
@@ -159,6 +169,7 @@ class Trade(Base):
     resolution_confirmed_buy_size = Column(Float)
     resolution_confirmed_buy_vwap = Column(Float)
     resolution_confirmed_buy_fee_usdc = Column(Float)
+    resolution_remaining_shares = Column(Float)
     settlement_pnl_assumption = Column(Float)
     settlement_assumption_basis = Column(String)
 
@@ -262,6 +273,41 @@ class ResolutionObservation(Base):
     selected_payout = Column(Float, nullable=False)
     evidence_sha256 = Column(String, nullable=False)
     evidence_json = Column(String, nullable=False)
+
+
+class ExitExecutionObservation(Base):
+    """Append-only fresh-book evidence for one TP or full-stop decision."""
+
+    __tablename__ = "exit_execution_observations"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String, index=True)
+    config_hash = Column(String, index=True)
+    trade_id = Column(Integer, ForeignKey("trades.id"), nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, index=True)
+    token_id = Column(String, nullable=False, index=True)
+    observed_at = Column(DateTime, nullable=False, index=True)
+    signal = Column(String, nullable=False, index=True)
+    trigger_price = Column(Float, nullable=False)
+    sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    position_shares = Column(Float, nullable=False)
+    selected_shares = Column(Float, nullable=False)
+    remaining_shares = Column(Float, nullable=False)
+    max_executable_shares = Column(Float, nullable=False)
+    selected_notional_usdc = Column(Float, nullable=False)
+    max_executable_notional_usdc = Column(Float, nullable=False)
+    best_bid = Column(Float, nullable=False)
+    best_ask = Column(Float)
+    spread = Column(Float)
+    vwap = Column(Float, nullable=False)
+    limit_price = Column(Float, nullable=False)
+    levels_used = Column(Integer, nullable=False)
+    fallback_reason = Column(String, nullable=False)
+    full_position_required = Column(Integer, nullable=False)
+    book_sha256 = Column(String, nullable=False)
+    book_json = Column(String, nullable=False)
 
 
 class MarketCatalog(Base):
@@ -536,6 +582,13 @@ _TRADE_MIGRATION_COLUMNS = {
     "sell_confirmed_fee_usdc": "REAL",
     "sell_fill_matched_at": "TEXT",
     "sell_residual_shares": "REAL",
+    "pending_sell_requested_shares": "REAL",
+    "pending_sell_remaining_shares": "REAL",
+    "confirmed_sell_count": "INTEGER NOT NULL DEFAULT 0",
+    "cumulative_sell_proceeds_usdc": "REAL",
+    "cumulative_sell_fee_usdc": "REAL",
+    "cumulative_buy_fee_allocated_usdc": "REAL",
+    "last_exit_observation_id": "INTEGER",
     "prior_yes_price_at_entry": "REAL",
     "yes_price_at_buy": "REAL",
     "stop_price_at_entry": "REAL",
@@ -573,6 +626,7 @@ _TRADE_MIGRATION_COLUMNS = {
     "resolution_confirmed_buy_size": "REAL",
     "resolution_confirmed_buy_vwap": "REAL",
     "resolution_confirmed_buy_fee_usdc": "REAL",
+    "resolution_remaining_shares": "REAL",
     "settlement_pnl_assumption": "REAL",
     "settlement_assumption_basis": "TEXT",
     "sport_family": "TEXT",
@@ -824,6 +878,7 @@ def init_database(
             "market_sweep_memberships",
             "event_cycle_evidence",
             "tracked_resolution_observations",
+            "exit_execution_observations",
         ):
             _verify_model_columns(connection, table_name)
         connection.execute(
@@ -882,6 +937,20 @@ def init_database(
             text(
                 "CREATE TRIGGER IF NOT EXISTS tracked_resolution_forbid_delete "
                 "BEFORE DELETE ON tracked_resolution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS exit_execution_forbid_update "
+                "BEFORE UPDATE ON exit_execution_observations BEGIN "
+                "SELECT RAISE(ABORT, 'append-only evidence'); END"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE TRIGGER IF NOT EXISTS exit_execution_forbid_delete "
+                "BEFORE DELETE ON exit_execution_observations BEGIN "
                 "SELECT RAISE(ABORT, 'append-only evidence'); END"
             )
         )

@@ -30,6 +30,20 @@ Gold는 별도 runtime spec의 `[2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)` �
 확인한다. 공통 경기 20개 전에는 A/B 우열을 판단하지 않고, 종목별 해결 경기 100개
 전에는 새 파라미터나 live 승격을 선택하지 않는다.
 
+## v6 부분 익절 운영 계약
+
+- 목표 금액을 늘린 뒤 익절가 이상 bid가 보유량 일부에만 있으면, 그 수량만 한 번의
+  FOK로 익절하고 exact confirmed fill 뒤 잔여를 `HOLDING`으로 유지한다.
+- 제출 수량과 잔여 수량은 각각 최소 5 shares를 충족해야 한다. 이를 충족하지 못하면
+  해당 주기는 주문을 건너뛴다.
+- 손절은 잔여 전량 FOK만 허용한다. 전량 호가가 없으면 일부 손절하지 않고 1분 뒤
+  재시도하며, 이 상태는 다른 event의 진입을 막지 않는다.
+- `exit_execution_observations`에는 fresh book과 선택/잔여/최대 실행 가능 shares·USDC가
+  주문 전에 append-only로 남아야 한다. `trades.sell_shares`와 `realized_pnl`은 누적
+  confirmed 값이고 `trades.buy_shares`는 현재 잔여 수량이다.
+- 세부 계약은
+  `research/frozen-2026-09-02-partial-profit-exit-v6/PREREGISTRATION.md`를 따른다.
+
 Gold NFL·NBA는 `[2026-09-02T10:30:00Z, 2026-12-01T10:30:00Z)`를 수집하고
 `2026-12-08T10:30:00Z`까지 해결을 추적한다. 실제 cadence 구간은 runtime별 첫 성공
 run부터 시작한다.
@@ -193,6 +207,9 @@ Console과 동기화된 DB에서 다음을 확인한다.
   증액 호가 깊이가
   `execution_capacity_json`으로 남고 live arm에는 이 추가 계산이 없다.
 - live의 주문 응답과 확정 체결을 구분하며, 한 event의 실패가 다른 event 처리를 막지 않는다.
+- 부분 익절 주문 전 `exit_execution_observations`가 생성되고, confirmed fill 후 잔여가
+  `HOLDING`으로 복귀하며 누적 수량·수수료·손익이 보존되는지 확인한다. 손절은 항상
+  `full_position_required=1`이어야 한다.
 - `PENDING_BUY`/`PENDING_SELL`은 다음 cycle에도 대사되고, 180분 이후에는 거짓 완료가 아닌
   `QUARANTINED`로 격리된다.
 - Gold는 MLB·NFL·NBA에서 각각 정확히 1시장/2token event set을 저장하고 source minute를

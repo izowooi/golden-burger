@@ -37,8 +37,9 @@ NBA·NFL·NHL은 code-ready일 뿐 배포하지 않는다.
 - 누적 상승은 0.02 이상, 인접 pullback은 0.01 이하여야 한다.
 - 직전 exact `$5` ask VWAP은 0.75 미만, 현재 값은 `[0.75, 0.78]`이어야 한다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
-- 공통 SL은 confirmed entry VWAP `-0.15`이며 시간 강제 청산은 없다. TP·SL이 없으면
-  검증된 resolution까지 유지한다.
+- 공통 SL은 confirmed entry VWAP `-0.15`이며 시간 강제 청산은 없다. TP는 목표가 이상
+  bid의 최대 안전 수량을 FOK로 부분 익절할 수 있고, SL은 잔여 전량 FOK만 허용한다.
+  TP·SL이 없으면 검증된 resolution까지 유지한다.
 - MLB Gold는 exact MLB identity의 whole-game two-team moneyline만 사용하며 inning·prop·
   spread·total·minor league를 제외한다. 이닝을 가짜 축구 minute로 바꾸지 않고 NULL과
   명시적 누락 사유를 저장한다.
@@ -48,14 +49,17 @@ NBA·NFL·NHL은 code-ready일 뿐 배포하지 않는다.
 상세 계약과 판정 시점은 `STRATEGY.md` 및
 축구는 `research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`,
 MLB Gold는 `research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`를
-따른다. 과거 v1과 Golden Coconut epoch는 수정·병합하지 않는다.
+따른다. 공통 주문 실행 보정은
+`research/frozen-2026-09-02-partial-profit-exit-v6/PREREGISTRATION.md`를 따른다.
+과거 v1과 Golden Coconut epoch는 수정·병합하지 않는다.
 
 ## 주요 파일
 
 - `src/polybot/config.py`: job별 동결값과 live/simulation fail-closed 검증
 - `src/polybot/strategy/scanner.py`: direct six-book 저장과 token-aligned trend 판정
 - `src/polybot/strategy/trader.py`: exact FOK 주문, TP/SL/resolution, event-local 실패 격리
-- `src/polybot/db/models.py`, `db/repository.py`: snapshot, trend lineage, order/fill evidence
+- `src/polybot/db/models.py`, `db/repository.py`: snapshot, trend lineage, order/fill 및
+  append-only exit capacity evidence
 - `scripts/replay_direct_six_book.py`: 직접 호가 DB의 paired 반사실 grid 재생
 - `scripts/verify_external_workspace.py`: Silver/Gold exact external T7 preflight
 

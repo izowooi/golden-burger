@@ -29,6 +29,12 @@ NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals의 �
 원자적 FOK 한 건을 선택한다. catalog/snapshot/trade에 종목·리그·tag를, trade에 목표·선택·최대
 표시 가능 금액과 축소 사유를 저장한다. 소스 해시가 달라지므로 보정 전후 자료는 분리한다.
 
+같은 날 v6 실행 보정은 큰 보유량의 익절가 이상 bid가 일부만 있을 때 그 최대 수량을 FOK로
+익절하고, exact confirmed fill 뒤 잔여 수량을 같은 Trade의 `HOLDING`으로 이어간다. 익절
+수량과 잔여 수량은 각각 venue 최소 5 shares 이상이어야 하며, 손절은 계속 잔여 전량만
+FOK로 제출한다. fresh book과 선택·잔여·최대 실행 가능 수량/금액은 append-only
+`exit_execution_observations`에 주문 전에 저장한다. 진입·익절·손절 수치 자체는 바꾸지 않는다.
+
 운영자가 제공한 탐색 보고서는 0.60/0.65/0.75 진입과
 0.90/0.95 익절을 탐색 후보로 제시했다. 그러나 여섯 호가의 최고값은 세 결과 중
 가장 낮은 확률의 반대편(NO) 때문에 이론적으로 대략 0.67 이상이므로 0.60 최초 교차는
@@ -89,15 +95,19 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 
 | arm | Jenkins/runtime | 익절 |
 |---|---|---:|
-| A | `polybot-king/plum-live-king-90-1m-v1` | full-position bid VWAP 0.90 |
-| B | `polybot-queen/plum-live-queen-95-1m-v1` | full-position bid VWAP 0.95 |
+| A | `polybot-king/plum-live-king-90-1m-v1` | 절대 익절 하한 0.90 |
+| B | `polybot-queen/plum-live-queen-95-1m-v1` | 절대 익절 하한 0.95 |
 
 - 공통 stop: confirmed BUY VWAP -0.15
 - 시간 강제 청산: 없음
 - 종료 우선순위: target → stop; 둘 다 없으면 검증된 resolution까지 유지
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
 - 목표 금액을 올려도 BUY는 선택된 금액 전체가 체결되거나 0체결이다. 거래소의 불명확한 부분
-  체결을 전략 완료로 인정하지 않는다. TP/SL은 확인된 실제 보유량 전량을 FOK로 제출한다.
+  체결을 전략 완료로 인정하지 않는다.
+- TP는 각 bid가 목표가 이상인 최대 수량을 0.01 share 단위로 FOK 제출할 수 있다. 부분
+  익절 뒤 실제 잔여가 있으면 완료가 아니라 `HOLDING`이며 다음 주기에 다시 평가한다.
+- SL은 확인된 잔여 보유량 전량만 FOK로 제출한다. 전량 깊이가 없으면 부분 손절하지 않고
+  event-local 재시도 상태로 남긴다.
 
 두 live arm의 차이는 절대 target 하나뿐이다. 서로 다른 wallet의 수동 포지션은
 DB에 편입하지 않는다. 두 live arm은 계속 축구만 허용하며, 환경변수로 MLB를 잘못
@@ -109,6 +119,10 @@ DB에 편입하지 않는다. 두 live arm은 계속 축구만 허용하며, 환
 격리하고 남은 bounded capacity에서 다른 event를 계속 처리한다. 연속 180분 동안
 BUY 또는 SELL 노출을 확정하지 못하면 `QUARANTINED`로 남겨 경제적 open capacity를
 소모하게 하며, 성공 체결·0 exposure·realized P&L로 꾸미지 않는다.
+
+부분 익절의 `sell_shares`·`realized_pnl`은 누적 confirmed 값이고 `buy_shares`는 현재 잔여
+수량이다. 원래 매수량은 `buy_confirmed_size`로 보존한다. 해결 시에는 이미 실현된 손익을
+유지하고 잔여 수량의 payout 손익만 별도로 더해 중복 계산을 막는다.
 
 총 open 10, event open 1, cycle 신규 5, cycle emergency SELL 10이다. confirmed SELL과
 proven resolution의 누적 손실이 10 USDC에 도달하거나 execution evidence gap이 있으면
@@ -149,4 +163,6 @@ Silver·Gold의 반사실 행은 실제 주문이나 P&L이 아니다. 같은 �
 MLB 동결값과 기간은
 `research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`, NFL·NBA는
 `research/frozen-2026-09-02-nba-nfl-shadow-v4/PREREGISTRATION.md`가 권위다.
+공통 실행 보정은
+`research/frozen-2026-09-02-partial-profit-exit-v6/PREREGISTRATION.md`를 따른다.
 과거 v1·v2 계약은 원래 폴더에 변경 없이 보존한다.

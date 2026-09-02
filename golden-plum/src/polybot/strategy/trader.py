@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import datetime as datetime_module
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 import logging
@@ -16,10 +17,14 @@ from polybot_observability import (
 )
 
 from ..api.clob_client import (
+    AdaptiveProfitSellSelection,
     ClobClientWrapper,
     ClobResolutionProof,
     PreSubmissionContractError,
     select_adaptive_buy_from_book_evidence,
+    select_take_profit_sell_from_book_evidence,
+    summarize_sell_book_evidence,
+    walk_sell_book_from_evidence,
 )
 from ..api.gamma_client import GammaClient
 from ..config import (
@@ -81,6 +86,26 @@ _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 _MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
 _EXIT_SELL_FAILURE_RETRY_PREFIX = "exit_sell_failure_retrying:"
+
+
+@dataclass(frozen=True)
+class _ExitPlan:
+    signal: str
+    trigger_price: float
+    source_minute: Optional[float]
+    walk: object | None
+    book_json: Optional[str]
+    position_shares: float
+    selected_shares: float
+    remaining_shares: float
+    max_executable_shares: float
+    selected_notional_usdc: float
+    max_executable_notional_usdc: float
+    fallback_reason: str
+    full_position_required: bool
+    best_bid: float
+    best_ask: Optional[float]
+    spread: Optional[float]
 
 
 def _valid_adaptive_buy_amount(amount: float, target: float) -> bool:
@@ -430,17 +455,20 @@ class Trader:
                         return minute, f"GAMMA_EVENT_FALLBACK:{reason}"
         return None, "CURRENT_SOURCE_CLOCK_UNPROVEN"
 
-    def _exit_signal(self, trade, walk) -> tuple[Optional[str], float, Optional[float]]:
-        """Evaluate absolute TP and entry drawdown stop with no time exit."""
+    def _exit_thresholds(
+        self, trade
+    ) -> tuple[Optional[float], Optional[float], Optional[float]]:
+        """Return frozen TP, stop, and source-minute values for one holding."""
+
         raw_entry = getattr(trade, "buy_confirmed_vwap", None)
         if raw_entry is None:
             raw_entry = getattr(trade, "buy_price", None)
         try:
             entry_vwap = float(raw_entry)
         except (TypeError, ValueError):
-            return None, math.nan, None
+            return None, None, None
         if not math.isfinite(entry_vwap) or not 0 < entry_vwap < 1:
-            return None, math.nan, None
+            return None, None, None
         take_profit = getattr(trade, "take_profit_price_at_buy", None)
         stop_loss = getattr(trade, "stop_loss_delta_at_buy", None)
         try:
@@ -455,20 +483,164 @@ class Trader:
                 else self.config.entry.stop_loss_delta
             )
         except (TypeError, ValueError):
-            return None, math.nan, None
+            return None, None, None
         source_minute = None
         market = self._cycle_markets.get(str(trade.condition_id))
         if isinstance(market, dict):
             source_minute, _clock_reason = get_source_progress(
                 get_event(market), self.config.sport_family
             )
+        stop_trigger = max(0.01, entry_vwap - stop_loss)
+        return take_profit, stop_trigger, source_minute
+
+    def _exit_signal(self, trade, walk) -> tuple[Optional[str], float, Optional[float]]:
+        """Evaluate legacy full-position TP and drawdown stop with no time exit."""
+
+        take_profit, stop_trigger, source_minute = self._exit_thresholds(trade)
+        if take_profit is None or stop_trigger is None:
+            return None, math.nan, source_minute
         full_exit_vwap = float(walk.vwap)
         if full_exit_vwap + 1e-9 >= take_profit:
             return "take_profit", take_profit, source_minute
-        stop_trigger = max(0.01, entry_vwap - stop_loss)
         if float(walk.best_bid) <= stop_trigger + 1e-9:
             return "absolute_stop", stop_trigger, source_minute
         return None, stop_trigger, source_minute
+
+    def _exit_plan_from_book_evidence(
+        self,
+        trade,
+        book_json: str,
+    ) -> Optional[_ExitPlan]:
+        """Plan partial TP or all-position stop from one immutable book."""
+
+        sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
+        take_profit, stop_trigger, source_minute = self._exit_thresholds(trade)
+        if take_profit is None or stop_trigger is None:
+            return None
+        summary = summarize_sell_book_evidence(book_json)
+        if summary.token_id != str(trade.token_id):
+            raise ValueError("exit book token does not match holding")
+
+        try:
+            selection: AdaptiveProfitSellSelection = (
+                select_take_profit_sell_from_book_evidence(
+                    book_json,
+                    position_shares=sellable_shares,
+                    target_price=take_profit,
+                    min_order_size=self.config.min_order_size,
+                )
+            )
+        except ClobResponseUnavailableError:
+            selection = None
+        if selection is not None:
+            remaining_shares = max(
+                0.0,
+                float(trade.buy_shares) - selection.selected_shares,
+            )
+            return _ExitPlan(
+                signal="take_profit",
+                trigger_price=take_profit,
+                source_minute=source_minute,
+                walk=selection.walk,
+                book_json=book_json,
+                position_shares=float(trade.buy_shares),
+                selected_shares=selection.selected_shares,
+                remaining_shares=remaining_shares,
+                max_executable_shares=selection.max_profitable_shares,
+                selected_notional_usdc=selection.selected_notional_usdc,
+                max_executable_notional_usdc=(
+                    selection.max_profitable_notional_usdc
+                ),
+                fallback_reason=selection.fallback_reason,
+                full_position_required=False,
+                best_bid=summary.best_bid,
+                best_ask=summary.best_ask,
+                spread=summary.spread,
+            )
+
+        try:
+            full_walk = walk_sell_book_from_evidence(
+                book_json,
+                shares=sellable_shares,
+            )
+        except ClobResponseUnavailableError:
+            if summary.best_bid <= stop_trigger + 1e-9:
+                return _ExitPlan(
+                    signal="absolute_stop",
+                    trigger_price=stop_trigger,
+                    source_minute=source_minute,
+                    walk=None,
+                    book_json=book_json,
+                    position_shares=float(trade.buy_shares),
+                    selected_shares=0.0,
+                    remaining_shares=float(trade.buy_shares),
+                    max_executable_shares=summary.displayed_bid_shares,
+                    selected_notional_usdc=0.0,
+                    max_executable_notional_usdc=(
+                        summary.displayed_bid_notional_usdc
+                    ),
+                    fallback_reason="FULL_STOP_DISPLAYED_DEPTH_UNAVAILABLE",
+                    full_position_required=True,
+                    best_bid=summary.best_bid,
+                    best_ask=summary.best_ask,
+                    spread=summary.spread,
+                )
+            return None
+
+        if full_walk.best_bid > stop_trigger + 1e-9:
+            return None
+        remaining_shares = max(
+            0.0,
+            float(trade.buy_shares) - full_walk.shares,
+        )
+        return _ExitPlan(
+            signal="absolute_stop",
+            trigger_price=stop_trigger,
+            source_minute=source_minute,
+            walk=full_walk,
+            book_json=book_json,
+            position_shares=float(trade.buy_shares),
+            selected_shares=full_walk.shares,
+            remaining_shares=remaining_shares,
+            max_executable_shares=full_walk.shares,
+            selected_notional_usdc=full_walk.proceeds,
+            max_executable_notional_usdc=full_walk.proceeds,
+            fallback_reason="FULL_POSITION_STOP_REQUIRED",
+            full_position_required=True,
+            best_bid=summary.best_bid,
+            best_ask=summary.best_ask,
+            spread=summary.spread,
+        )
+
+    def _legacy_exit_plan(self, trade, walk) -> Optional[_ExitPlan]:
+        """Compatibility path for test doubles without canonical book evidence."""
+
+        exit_signal, trigger_price, source_minute = self._exit_signal(trade, walk)
+        if exit_signal is None:
+            return None
+        remaining_shares = max(0.0, float(trade.buy_shares) - float(walk.shares))
+        return _ExitPlan(
+            signal=exit_signal,
+            trigger_price=trigger_price,
+            source_minute=source_minute,
+            walk=walk,
+            book_json=None,
+            position_shares=float(trade.buy_shares),
+            selected_shares=float(walk.shares),
+            remaining_shares=remaining_shares,
+            max_executable_shares=float(walk.shares),
+            selected_notional_usdc=float(walk.proceeds),
+            max_executable_notional_usdc=float(walk.proceeds),
+            fallback_reason=(
+                "FULL_POSITION_STOP_REQUIRED"
+                if exit_signal == "absolute_stop"
+                else "FULL_POSITION_PROFITABLY_EXECUTABLE"
+            ),
+            full_position_required=exit_signal == "absolute_stop",
+            best_bid=float(walk.best_bid),
+            best_ask=walk.best_ask,
+            spread=walk.spread,
+        )
 
     def _reject_entry(self, reason: str) -> None:
         self.last_entry_outcome_reason = str(reason)
@@ -1153,16 +1325,70 @@ class Trader:
         source_updated_at: Optional[str],
         fill_evidence: Optional[ExactFillEvidence] = None,
     ) -> bool:
+        try:
+            prior_sell_shares = float(getattr(trade, "sell_shares", None) or 0.0)
+            remaining_shares = float(getattr(trade, "buy_shares", None) or 0.0)
+            prior_realized_pnl = float(
+                getattr(trade, "realized_pnl", None) or 0.0
+            )
+        except (TypeError, ValueError):
+            logger.error(
+                "resolution 시 누적 SELL/잔여 수량이 유효하지 않음: Trade #%s",
+                trade.id,
+            )
+            return False
+        if (
+            not math.isfinite(prior_sell_shares)
+            or prior_sell_shares < 0
+            or not math.isfinite(remaining_shares)
+            or remaining_shares < 0
+            or not math.isfinite(prior_realized_pnl)
+        ):
+            logger.error(
+                "resolution 시 누적 SELL/잔여 수량 domain 위반: Trade #%s",
+                trade.id,
+            )
+            return False
+        has_prior_sell = prior_sell_shares > _FILL_SIZE_TOLERANCE
         if fill_evidence is not None:
             confirmed_size = fill_evidence.confirmed_size
             confirmed_vwap = fill_evidence.confirmed_vwap
             confirmed_fee = fill_evidence.confirmed_fee_usdc
-            assumption = (payout - confirmed_vwap) * confirmed_size
+            inventory_delta = confirmed_size - (
+                prior_sell_shares + remaining_shares
+            )
+            if (
+                inventory_delta < -_FILL_SIZE_TOLERANCE
+                or inventory_delta >= _MAX_SIGNED_SELL_DUST_SHARES
+            ):
+                logger.error(
+                    "resolution BUY/SELL/잔여 inventory 불일치: Trade #%s "
+                    "buy=%.6f sold=%.6f remaining=%.6f delta=%.6f",
+                    trade.id,
+                    confirmed_size,
+                    prior_sell_shares,
+                    remaining_shares,
+                    inventory_delta,
+                )
+                return False
+            assumption = (payout - confirmed_vwap) * remaining_shares
             if fill_evidence.fee_complete and confirmed_fee is not None:
-                assumption -= confirmed_fee
-                assumption_basis = "confirmed_buy_fill_net_known_buy_fee"
+                assumption -= (
+                    confirmed_fee * remaining_shares / confirmed_size
+                    if confirmed_size > 0
+                    else 0.0
+                )
+                assumption_basis = (
+                    "remaining_position_resolution_net_allocated_known_buy_fee"
+                    if has_prior_sell
+                    else "confirmed_buy_fill_net_known_buy_fee"
+                )
             else:
-                assumption_basis = "confirmed_buy_fill_gross_fee_unproven"
+                assumption_basis = (
+                    "remaining_position_resolution_gross_buy_fee_unproven"
+                    if has_prior_sell
+                    else "confirmed_buy_fill_gross_fee_unproven"
+                )
             resolution_evidence = (
                 f"{evidence_source}+execution_ledger_exact_confirmed_buy"
             )
@@ -1171,12 +1397,15 @@ class Trader:
             confirmed_vwap = getattr(trade, "buy_price", None)
             confirmed_fee = None
             assumption = None
-            if confirmed_vwap is not None and confirmed_size is not None:
-                assumption = (payout - confirmed_vwap) * confirmed_size
-            assumption_basis = "simulation_requested_order_assumption"
+            if confirmed_vwap is not None:
+                assumption = (payout - confirmed_vwap) * remaining_shares
+            assumption_basis = (
+                "simulation_remaining_position_resolution_assumption"
+                if has_prior_sell
+                else "simulation_requested_order_assumption"
+            )
             resolution_evidence = f"{evidence_source}+simulation_order"
-        self.repo.update_trade(
-            trade.id,
+        update_fields = dict(
             status=TradeStatus.RESOLVED,
             exit_reason="resolved_with_payout_evidence",
             # Legacy column name: stores payout of the first listed outcome.
@@ -1190,25 +1419,32 @@ class Trader:
             resolution_confirmed_buy_size=confirmed_size,
             resolution_confirmed_buy_vwap=confirmed_vwap,
             resolution_confirmed_buy_fee_usdc=confirmed_fee,
+            resolution_remaining_shares=remaining_shares,
             settlement_pnl_assumption=assumption,
             settlement_assumption_basis=assumption_basis,
-            # Deliberately no synthetic SELL and no realized P&L.
-            sell_price=None,
-            sell_shares=None,
-            sell_order_id=None,
-            sell_timestamp=None,
-            sell_probability=None,
-            realized_pnl=None,
         )
+        if not has_prior_sell:
+            # Deliberately no synthetic SELL and no realized P&L.
+            update_fields.update(
+                sell_price=None,
+                sell_shares=None,
+                sell_order_id=None,
+                sell_timestamp=None,
+                sell_probability=None,
+                realized_pnl=None,
+            )
+        self.repo.update_trade(trade.id, **update_fields)
         logger.warning(
             "proven payout으로 RESOLVED 기록: Trade #%s selected=%s winner=%s "
-            "payout=%.2f source=%s "
-            "(settlement assumption=%s, realized_pnl=NULL)",
+            "payout=%.2f source=%s remaining=%.6f prior_realized=%.6f "
+            "(remaining settlement assumption=%s)",
             trade.id,
             trade.outcome,
             winner_outcome,
             payout,
             evidence_source,
+            remaining_shares,
+            prior_realized_pnl,
             assumption,
         )
         return True
@@ -1424,8 +1660,10 @@ class Trader:
 
     @staticmethod
     def _actual_fill_ready(evidence: ExactFillEvidence) -> bool:
+        """Accept only complete evidence for every share the terminal order sold."""
+
         return (
-            evidence.has_reconciled_full_fill
+            evidence.has_reconciled_executed_fill
             and evidence.fee_complete
             and evidence.confirmed_size is not None
             and evidence.confirmed_vwap is not None
@@ -1472,6 +1710,24 @@ class Trader:
             current = current.replace(tzinfo=None)
         age = (current - placed_at).total_seconds() / 60.0
         return age if math.isfinite(age) and age >= 0 else None
+
+    @staticmethod
+    def _cumulative_sell_shares_before_pending(trade) -> float:
+        """Separate legacy pending intent from v6 cumulative confirmed size."""
+
+        pending_requested = getattr(trade, "pending_sell_requested_shares", None)
+        if (
+            getattr(trade, "status", None) == TradeStatus.PENDING_SELL
+            and pending_requested is None
+        ):
+            # Before v6 ``sell_shares`` held the latest requested size while a
+            # SELL was pending.  It was not a confirmed cumulative total.
+            return 0.0
+        try:
+            value = float(getattr(trade, "sell_shares", None) or 0.0)
+        except (TypeError, ValueError):
+            return math.nan
+        return value
 
     def _quarantine_buy_if_due(
         self,
@@ -1547,9 +1803,8 @@ class Trader:
             trade.id,
             status=TradeStatus.QUARANTINED,
             exit_reason=STOP_SELL_QUARANTINE_REASON,
-            realized_pnl=None,
-            hypothetical_pnl=None,
-            pnl_basis=None,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
         )
         logger.critical(
             "손절 실패 3시간 자동 격리 종결: Trade #%s age=%.1fmin "
@@ -1574,9 +1829,8 @@ class Trader:
             sell_timestamp=(
                 getattr(trade, "sell_timestamp", None) or datetime.utcnow()
             ),
-            realized_pnl=None,
-            hypothetical_pnl=None,
-            pnl_basis=None,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
         )
         logger.critical(
             "손절 execution ledger 실패를 즉시 국소 격리: Trade #%s error=%s; "
@@ -1610,7 +1864,6 @@ class Trader:
             status=TradeStatus.HOLDING,
             exit_reason=f"{_EXIT_SELL_FAILURE_RETRY_PREFIX}{signal}",
             sell_price=walk.vwap,
-            sell_shares=None,
             sell_order_id=None,
             sell_timestamp=started_at,
             sell_probability=walk.vwap,
@@ -1618,14 +1871,8 @@ class Trader:
             best_bid_at_exit=best_bid,
             best_ask_at_exit=best_ask,
             spread_at_exit=spread,
-            sell_confirmed_size=None,
-            sell_confirmed_vwap=None,
-            sell_confirmed_fee_usdc=None,
-            sell_fill_matched_at=None,
-            sell_residual_shares=None,
-            realized_pnl=None,
-            hypothetical_pnl=None,
-            pnl_basis=None,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
         )
         logger.warning(
             "청산 실패 추적 시작/유지: Trade #%s signal=%s first=%s detail=%s",
@@ -1645,15 +1892,14 @@ class Trader:
         self.repo.update_trade(
             trade.id,
             exit_reason=None,
-            sell_price=None,
-            sell_shares=None,
             sell_order_id=None,
             sell_timestamp=None,
-            sell_probability=None,
             yes_price_at_exit=None,
             best_bid_at_exit=None,
             best_ask_at_exit=None,
             spread_at_exit=None,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
         )
         logger.info("청산 조건 회복으로 연속 실패 타이머 해제: Trade #%s", trade.id)
 
@@ -1661,27 +1907,33 @@ class Trader:
         self, trade, sell_evidence, *, log_prefix: str
     ) -> None:
         """Re-arm a position only after exact zero-fill SELL evidence."""
+        cumulative_sell_shares = self._cumulative_sell_shares_before_pending(trade)
+        has_prior_confirmed_sell = (
+            math.isfinite(cumulative_sell_shares) and cumulative_sell_shares > 0
+        )
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.HOLDING,
             exit_reason="exit_sell_terminal_zero_fill",
-            sell_price=None,
-            sell_shares=None,
+            sell_price=(
+                getattr(trade, "sell_confirmed_vwap", None)
+                if has_prior_confirmed_sell
+                else None
+            ),
+            sell_shares=(cumulative_sell_shares if has_prior_confirmed_sell else None),
             sell_order_id=None,
             sell_timestamp=None,
-            sell_probability=None,
-            realized_pnl=None,
-            hypothetical_pnl=None,
-            pnl_basis=None,
+            sell_probability=(
+                getattr(trade, "sell_confirmed_vwap", None)
+                if has_prior_confirmed_sell
+                else None
+            ),
             yes_price_at_exit=None,
             best_bid_at_exit=None,
             best_ask_at_exit=None,
             spread_at_exit=None,
-            sell_confirmed_size=None,
-            sell_confirmed_vwap=None,
-            sell_confirmed_fee_usdc=None,
-            sell_fill_matched_at=None,
-            sell_residual_shares=None,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
         )
         logger.warning(
             "%s: Trade #%s order=%s",
@@ -1837,7 +2089,7 @@ class Trader:
     def reconcile_pending_sell(
         self, trade, *, now: Optional[datetime] = None
     ) -> bool:
-        """Finalize one live stop only from exact, full BUY/SELL fill proof."""
+        """Apply one exact SELL fill and keep any proven remainder HOLDING."""
         if self.mode == "sim":
             logger.error(
                 "simulation trade가 PENDING_SELL에 남아 있습니다 - trade=%s",
@@ -1938,11 +2190,11 @@ class Trader:
             ):
                 return False
             logger.warning(
-                "SELL full-fill/fee 대사 미완료로 PENDING_SELL 유지: "
-                "Trade #%s state=%s full=%s fee=%s detail=%s",
+                "SELL terminal executed-fill/fee 대사 미완료로 PENDING_SELL 유지: "
+                "Trade #%s state=%s executed=%s fee=%s detail=%s",
                 trade.id,
                 sell_evidence.state,
-                sell_evidence.has_reconciled_full_fill,
+                sell_evidence.has_reconciled_executed_fill,
                 sell_evidence.fee_complete,
                 sell_evidence.detail,
             )
@@ -1953,7 +2205,7 @@ class Trader:
         )
         if not self._resolution_fill_ready(buy_evidence):
             logger.error(
-                "SELL은 full fill이지만 BUY terminal-fill/fee 증거가 없어 "
+                "SELL 체결은 확인됐지만 BUY terminal-fill/fee 증거가 없어 "
                 "PENDING_SELL 유지: Trade #%s state=%s executed=%s fee=%s detail=%s",
                 trade.id,
                 buy_evidence.state,
@@ -1962,55 +2214,135 @@ class Trader:
                 buy_evidence.detail,
             )
             return False
-        expected_sell_size = getattr(trade, "sell_shares", None)
-        if (
-            expected_sell_size is None
-            or not math.isfinite(float(expected_sell_size))
-            or not math.isclose(
+        pending_requested = getattr(trade, "pending_sell_requested_shares", None)
+        legacy_pending = pending_requested is None
+        expected_sell_size = (
+            getattr(trade, "sell_shares", None)
+            if legacy_pending
+            else pending_requested
+        )
+        try:
+            expected_sell_size = float(expected_sell_size)
+            current_position = float(trade.buy_shares)
+            original_buy_size = float(buy_evidence.confirmed_size)
+            confirmed_sell_size = float(sell_evidence.confirmed_size)
+            previous_sell_shares = self._cumulative_sell_shares_before_pending(trade)
+        except (TypeError, ValueError):
+            logger.error(
+                "SELL inventory evidence가 숫자가 아니어서 PENDING_SELL 유지: "
+                "Trade #%s requested=%s current=%s original=%s confirmed=%s",
+                trade.id,
+                expected_sell_size,
+                getattr(trade, "buy_shares", None),
+                buy_evidence.confirmed_size,
                 sell_evidence.confirmed_size,
-                float(expected_sell_size),
-                rel_tol=1e-9,
+            )
+            return False
+        if (
+            not all(
+                math.isfinite(value)
+                for value in (
+                    expected_sell_size,
+                    current_position,
+                    original_buy_size,
+                    confirmed_sell_size,
+                    previous_sell_shares,
+                )
+            )
+            or expected_sell_size <= 0
+            or current_position <= 0
+            or original_buy_size <= 0
+            or confirmed_sell_size <= 0
+            or confirmed_sell_size
+            > expected_sell_size + _FILL_SIZE_TOLERANCE
+            or confirmed_sell_size > current_position + _FILL_SIZE_TOLERANCE
+        ):
+            logger.error(
+                "signed SELL requested/confirmed/current size 계약 위반으로 "
+                "PENDING_SELL 유지: Trade #%s requested=%.6f confirmed=%.6f "
+                "current=%.6f",
+                trade.id,
+                expected_sell_size,
+                confirmed_sell_size,
+                current_position,
+            )
+            return False
+        inventory_delta = original_buy_size - (
+            previous_sell_shares + current_position
+        )
+        if (
+            inventory_delta < -_FILL_SIZE_TOLERANCE
+            or inventory_delta >= _MAX_SIGNED_SELL_DUST_SHARES
+        ):
+            logger.error(
+                "누적 SELL + 현재 보유량이 원래 BUY와 일치하지 않아 "
+                "PENDING_SELL 유지: Trade #%s original=%.6f prior_sold=%.6f "
+                "current=%.6f delta=%.6f",
+                trade.id,
+                original_buy_size,
+                previous_sell_shares,
+                current_position,
+                inventory_delta,
+            )
+            return False
+        residual_shares = max(0.0, current_position - confirmed_sell_size)
+        expected_remaining = getattr(trade, "pending_sell_remaining_shares", None)
+        if (
+            not legacy_pending
+            and expected_remaining is not None
+            and math.isclose(
+                confirmed_sell_size,
+                expected_sell_size,
+                rel_tol=0,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            )
+            and not math.isclose(
+                residual_shares,
+                float(expected_remaining),
+                rel_tol=0,
                 abs_tol=_FILL_SIZE_TOLERANCE,
             )
         ):
             logger.error(
-                "signed SELL requested/confirmed size 불일치로 PENDING_SELL 유지: "
-                "Trade #%s requested=%s confirmed=%.6f",
+                "SELL 후 잔여 수량이 제출 전 계획과 불일치해 PENDING_SELL 유지: "
+                "Trade #%s planned=%s actual=%.6f",
                 trade.id,
-                expected_sell_size,
-                sell_evidence.confirmed_size,
-            )
-            return False
-        residual_shares = (
-            buy_evidence.confirmed_size - sell_evidence.confirmed_size
-        )
-        if (
-            residual_shares < -_FILL_SIZE_TOLERANCE
-            or residual_shares >= _MAX_SIGNED_SELL_DUST_SHARES
-        ):
-            logger.error(
-                "BUY/SELL residual이 SDK 0.01-share quantum을 초과해 "
-                "PENDING_SELL 유지: Trade #%s buy=%.6f sell=%.6f residual=%.6f",
-                trade.id,
-                buy_evidence.confirmed_size,
-                sell_evidence.confirmed_size,
+                expected_remaining,
                 residual_shares,
             )
             return False
-        residual_shares = max(0.0, residual_shares)
 
-        size = sell_evidence.confirmed_size
+        size = confirmed_sell_size
         allocated_buy_fee = (
             buy_evidence.confirmed_fee_usdc
             * size
-            / buy_evidence.confirmed_size
+            / original_buy_size
         )
-        realized_pnl = (
+        lot_realized_pnl = (
             (sell_evidence.confirmed_vwap - buy_evidence.confirmed_vwap) * size
             - allocated_buy_fee
             - sell_evidence.confirmed_fee_usdc
         )
-        has_dust = residual_shares > _FILL_SIZE_TOLERANCE
+        previous_realized_pnl = float(getattr(trade, "realized_pnl", None) or 0.0)
+        realized_pnl = previous_realized_pnl + lot_realized_pnl
+        cumulative_sell_shares = previous_sell_shares + size
+        cumulative_sell_proceeds = float(
+            getattr(trade, "cumulative_sell_proceeds_usdc", None) or 0.0
+        ) + sell_evidence.confirmed_vwap * size
+        cumulative_sell_fee = float(
+            getattr(trade, "cumulative_sell_fee_usdc", None) or 0.0
+        ) + sell_evidence.confirmed_fee_usdc
+        cumulative_buy_fee = float(
+            getattr(trade, "cumulative_buy_fee_allocated_usdc", None) or 0.0
+        ) + allocated_buy_fee
+        confirmed_sell_count = int(
+            getattr(trade, "confirmed_sell_count", None) or 0
+        ) + 1
+        has_only_sdk_dust = (
+            residual_shares > _FILL_SIZE_TOLERANCE
+            and residual_shares < _MAX_SIGNED_SELL_DUST_SHARES
+        )
+        completed = residual_shares < _MAX_SIGNED_SELL_DUST_SHARES
         pending_reason = str(getattr(trade, "exit_reason", "") or "")
         exit_base = next(
             (
@@ -2020,24 +2352,41 @@ class Trader:
             ),
             "absolute_stop",
         )
-        self.repo.update_trade(
-            trade.id,
-            status=TradeStatus.COMPLETED,
-            exit_reason=(
+        if completed:
+            exit_reason = (
                 f"{exit_base}_confirmed_fill_with_recorded_sdk_dust"
-                if has_dust
+                if has_only_sdk_dust
                 else f"{exit_base}_confirmed_fill"
-            ),
-            sell_price=sell_evidence.confirmed_vwap,
-            sell_shares=size,
-            realized_pnl=realized_pnl,
-            hypothetical_pnl=None,
-            pnl_basis=(
+            )
+            next_status = TradeStatus.COMPLETED
+        else:
+            exit_reason = f"partial_{exit_base}_confirmed_fill_remaining_holding"
+            next_status = TradeStatus.HOLDING
+        if previous_sell_shares <= _FILL_SIZE_TOLERANCE and completed:
+            pnl_basis = (
                 "exact_reconciled_buy_sell_confirmed_fills_net_allocated_fees_"
                 "excluding_recorded_unsellable_dust"
-                if has_dust
+                if has_only_sdk_dust
                 else "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
-            ),
+            )
+        else:
+            pnl_basis = (
+                "cumulative_exact_reconciled_buy_sell_confirmed_fills_net_"
+                "allocated_known_fees_excluding_recorded_unsellable_dust"
+                if has_only_sdk_dust
+                else "cumulative_exact_reconciled_buy_sell_confirmed_fills_"
+                "net_allocated_known_fees"
+            )
+        self.repo.update_trade(
+            trade.id,
+            status=next_status,
+            exit_reason=exit_reason,
+            buy_shares=residual_shares,
+            sell_price=sell_evidence.confirmed_vwap,
+            sell_shares=cumulative_sell_shares,
+            realized_pnl=realized_pnl,
+            hypothetical_pnl=None,
+            pnl_basis=pnl_basis,
             buy_confirmed_size=buy_evidence.confirmed_size,
             buy_confirmed_vwap=buy_evidence.confirmed_vwap,
             buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
@@ -2046,18 +2395,113 @@ class Trader:
             sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
             sell_fill_matched_at=sell_evidence.matched_at,
             sell_residual_shares=residual_shares,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
+            confirmed_sell_count=confirmed_sell_count,
+            cumulative_sell_proceeds_usdc=cumulative_sell_proceeds,
+            cumulative_sell_fee_usdc=cumulative_sell_fee,
+            cumulative_buy_fee_allocated_usdc=cumulative_buy_fee,
         )
+        if completed:
+            logger.info(
+                "confirmed %s SELL 완료: Trade #%s lot=%.6f cumulative=%.6f "
+                "residual=%.6f vwap=%.4f cumulative P&L=$%.4f",
+                exit_base,
+                trade.id,
+                size,
+                cumulative_sell_shares,
+                residual_shares,
+                sell_evidence.confirmed_vwap,
+                realized_pnl,
+            )
+            return True
         logger.info(
-            "confirmed %s SELL 완료: Trade #%s size=%.6f residual=%.6f "
-            "vwap=%.4f actual sold-portion P&L=$%.4f",
-            exit_base,
+            "confirmed 부분 익절 후 잔여 HOLDING: Trade #%s lot=%.6f "
+            "cumulative=%.6f remaining=%.6f lot P&L=$%.4f cumulative P&L=$%.4f",
             trade.id,
             size,
+            cumulative_sell_shares,
             residual_shares,
-            sell_evidence.confirmed_vwap,
+            lot_realized_pnl,
             realized_pnl,
         )
-        return True
+        return False
+
+    def _record_full_stop_depth_failure(self, trade, plan: _ExitPlan) -> None:
+        """Start the 3h retry clock when stop is due but full depth is absent."""
+
+        previous_reason = str(getattr(trade, "exit_reason", "") or "")
+        previous_timestamp = getattr(trade, "sell_timestamp", None)
+        started_at = (
+            previous_timestamp
+            if previous_reason.startswith(_EXIT_SELL_FAILURE_RETRY_PREFIX)
+            and isinstance(previous_timestamp, datetime_module.datetime)
+            else datetime.utcnow()
+        )
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.HOLDING,
+            exit_reason=(
+                f"{_EXIT_SELL_FAILURE_RETRY_PREFIX}absolute_stop_full_depth"
+            ),
+            sell_order_id=None,
+            sell_timestamp=started_at,
+            sell_probability=plan.best_bid,
+            yes_price_at_exit=plan.best_bid,
+            best_bid_at_exit=plan.best_bid,
+            best_ask_at_exit=plan.best_ask,
+            spread_at_exit=plan.spread,
+            pending_sell_requested_shares=None,
+            pending_sell_remaining_shares=None,
+        )
+        logger.warning(
+            "손절 신호는 발생했지만 전량 FOK 깊이가 없어 부분 손절하지 않음: "
+            "Trade #%s bid=%.4f trigger=%.4f displayed=%.6f required=%.6f "
+            "first=%s",
+            trade.id,
+            plan.best_bid,
+            plan.trigger_price,
+            plan.max_executable_shares,
+            plan.position_shares,
+            started_at.isoformat(),
+        )
+
+    def _record_exit_plan_before_submission(
+        self,
+        trade,
+        plan: _ExitPlan,
+    ) -> Optional[int]:
+        """Persist the exact fresh-book decision before any external SELL POST."""
+
+        if plan.book_json is None:
+            return None
+        recorder = getattr(self.repo, "record_exit_execution_observation", None)
+        if not callable(recorder):
+            raise RuntimeError("exit execution evidence recorder is unavailable")
+        observation = recorder(
+            trade=trade,
+            observed_at=datetime.utcnow(),
+            signal=plan.signal,
+            trigger_price=plan.trigger_price,
+            position_shares=plan.position_shares,
+            selected_shares=plan.selected_shares,
+            remaining_shares=plan.remaining_shares,
+            max_executable_shares=plan.max_executable_shares,
+            selected_notional_usdc=plan.selected_notional_usdc,
+            max_executable_notional_usdc=(
+                plan.max_executable_notional_usdc
+            ),
+            best_bid=plan.best_bid,
+            best_ask=plan.best_ask,
+            spread=plan.spread,
+            vwap=float(plan.walk.vwap),
+            limit_price=float(plan.walk.limit_price),
+            levels_used=int(plan.walk.levels_used),
+            fallback_reason=plan.fallback_reason,
+            full_position_required=plan.full_position_required,
+            book_json=plan.book_json,
+        )
+        return int(observation.id)
 
     def execute_sell(
         self,
@@ -2066,7 +2510,7 @@ class Trader:
         prefetched_walk=None,
         book_prefetched: bool = False,
     ) -> bool:
-        """Submit one full-depth FOK TP/stop exit, except proven SDK dust."""
+        """Submit an atomic partial TP or an all-position FOK stop."""
         if (
             self.emergency_sell_submissions
             >= self.config.max_emergency_sells_per_cycle
@@ -2082,27 +2526,49 @@ class Trader:
             return False
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
+            plan: Optional[_ExitPlan] = None
             if book_prefetched:
-                if prefetched_walk is None:
-                    raise ClobResponseUnavailableError(
-                        "prefetched holding book has no full executable depth"
-                    )
-                walk = prefetched_walk
-                if not math.isclose(
-                    float(walk.shares),
-                    sellable_shares,
-                    rel_tol=0,
-                    abs_tol=_FILL_SIZE_TOLERANCE,
-                ):
-                    raise ValueError("prefetched holding-book share mismatch")
-            else:
-                walk = self.clob.get_sell_book_walk(
-                    trade.token_id,
-                    shares=sellable_shares,
+                cached_book = None
+                cached_reader = getattr(
+                    self.clob, "get_cached_book_evidence", None
                 )
+                if callable(cached_reader):
+                    cached_book = cached_reader(trade.token_id)
+                if cached_book is not None:
+                    plan = self._exit_plan_from_book_evidence(
+                        trade, cached_book
+                    )
+                elif prefetched_walk is not None:
+                    if not math.isclose(
+                        float(prefetched_walk.shares),
+                        sellable_shares,
+                        rel_tol=0,
+                        abs_tol=_FILL_SIZE_TOLERANCE,
+                    ):
+                        raise ValueError("prefetched holding-book share mismatch")
+                    plan = self._legacy_exit_plan(trade, prefetched_walk)
+                else:
+                    raise ClobResponseUnavailableError(
+                        "prefetched holding book has no canonical evidence"
+                    )
+            else:
+                evidence_reader = getattr(
+                    self.clob, "get_sell_book_evidence", None
+                )
+                if callable(evidence_reader):
+                    initial_book = evidence_reader(trade.token_id)
+                    plan = self._exit_plan_from_book_evidence(
+                        trade, initial_book
+                    )
+                else:
+                    walk = self.clob.get_sell_book_walk(
+                        trade.token_id,
+                        shares=sellable_shares,
+                    )
+                    plan = self._legacy_exit_plan(trade, walk)
         except Exception as error:
             logger.warning(
-                "full-depth exit book unavailable - trade=%s token=%s error=%s",
+                "exit book unavailable - trade=%s token=%s error=%s",
                 trade.id,
                 str(trade.token_id)[:16],
                 type(error).__name__,
@@ -2113,19 +2579,19 @@ class Trader:
             ):
                 return False
             return self._handle_midpoint_unavailable(
-                trade, "full-depth exit book unavailable"
+                trade, "exit book unavailable"
             )
-        best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
-        exit_signal, trigger_price, source_minute = self._exit_signal(trade, walk)
-        if exit_signal is None:
+        if plan is None:
             self._clear_stop_sell_failure(trade)
-            logger.debug(
-                "no exit signal - trade=%s bid=%.4f vwap=%.4f minute=%s",
-                trade.id,
-                best_bid,
-                walk.vwap,
-                source_minute,
-            )
+            logger.debug("no exit signal - trade=%s", trade.id)
+            return False
+        if plan.walk is None:
+            if self._quarantine_stop_sell_if_due(
+                trade,
+                detail="continuous stop signal without full displayed depth",
+            ):
+                return False
+            self._record_full_stop_depth_failure(trade, plan)
             return False
 
         # A post-game/pre-resolution book can briefly contain only a 0.001
@@ -2136,11 +2602,11 @@ class Trader:
             logger.warning(
                 "%s exit suppressed because live lifecycle is not explicitly "
                 "proven - trade=%s condition=%s event=%s bid=%.4f",
-                exit_signal,
+                plan.signal,
                 trade.id,
                 trade.condition_id,
                 getattr(trade, "event_id", None),
-                best_bid,
+                plan.best_bid,
             )
             return self._handle_midpoint_unavailable(
                 trade, "exit lifecycle not explicitly live"
@@ -2149,10 +2615,16 @@ class Trader:
         # The lifecycle reads above take time.  Never submit against the older
         # trigger book: re-read exact full depth and re-run every price guard.
         try:
-            walk = self.clob.get_sell_book_walk(
-                trade.token_id,
-                shares=sellable_shares,
-            )
+            evidence_reader = getattr(self.clob, "get_sell_book_evidence", None)
+            if callable(evidence_reader):
+                fresh_book = evidence_reader(trade.token_id)
+                plan = self._exit_plan_from_book_evidence(trade, fresh_book)
+            else:
+                fresh_walk = self.clob.get_sell_book_walk(
+                    trade.token_id,
+                    shares=sellable_shares,
+                )
+                plan = self._legacy_exit_plan(trade, fresh_walk)
         except Exception as error:
             logger.warning(
                 "fresh post-preflight exit book unavailable - trade=%s error=%s",
@@ -2162,28 +2634,36 @@ class Trader:
             return self._handle_midpoint_unavailable(
                 trade, "fresh post-preflight exit book unavailable"
             )
-        best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
-        exit_signal, trigger_price, source_minute = self._exit_signal(trade, walk)
-        if exit_signal is None:
+        if plan is None:
             self._clear_stop_sell_failure(trade)
             logger.info(
-                "exit signal cleared during lifecycle preflight; no SELL - "
-                "trade=%s fresh_bid=%.4f fresh_vwap=%.4f minute=%s",
+                "exit signal cleared during lifecycle preflight; no SELL - trade=%s",
                 trade.id,
-                best_bid,
-                walk.vwap,
-                source_minute,
             )
+            return False
+        if plan.walk is None:
+            if self._quarantine_stop_sell_if_due(
+                trade,
+                detail="continuous fresh stop signal without full displayed depth",
+            ):
+                return False
+            self._record_full_stop_depth_failure(trade, plan)
             return False
         if self._quarantine_stop_sell_if_due(
             trade,
-            detail=f"continuous {exit_signal} failure remained triggered",
+            detail=f"continuous {plan.signal} failure remained triggered",
         ):
             return False
+        walk = plan.walk
+        best_bid, best_ask, spread = plan.best_bid, plan.best_ask, plan.spread
         execution_safe = (
-            self._stop_execution_price_is_safe(trade, walk, trigger_price)
-            if exit_signal == "absolute_stop"
-            else self._profit_execution_price_is_safe(walk, trigger_price)
+            self._stop_execution_price_is_safe(
+                trade, walk, plan.trigger_price
+            )
+            if plan.signal == "absolute_stop"
+            else self._profit_execution_price_is_safe(
+                walk, plan.trigger_price
+            )
         )
         if not execution_safe:
             self.emergency_sell_guard_blocks += 1
@@ -2193,25 +2673,50 @@ class Trader:
                 best_bid=best_bid,
                 best_ask=best_ask,
                 spread=spread,
-                detail=f"fresh {exit_signal} book failed safety envelope",
-                signal=exit_signal,
+                detail=f"fresh {plan.signal} book failed safety envelope",
+                signal=plan.signal,
             )
             return False
 
         logger.warning(
             "%s exit 충족: Trade #%s bid=%.2f%% trigger=%.2f%% minute=%s "
-            "gap=%.2fpp full_depth_vwap=%.2f%% limit=%.2f%% levels=%s shares=%.6f",
-            exit_signal,
+            "gap=%.2fpp selected_vwap=%.2f%% limit=%.2f%% levels=%s "
+            "selected=%.6f remaining=%.6f max_executable=%.6f reason=%s",
+            plan.signal,
             trade.id,
             best_bid * 100,
-            trigger_price * 100,
-            source_minute,
-            abs(trigger_price - best_bid) * 100,
+            plan.trigger_price * 100,
+            plan.source_minute,
+            abs(plan.trigger_price - best_bid) * 100,
             walk.vwap * 100,
             walk.limit_price * 100,
             walk.levels_used,
-            walk.shares,
+            plan.selected_shares,
+            plan.remaining_shares,
+            plan.max_executable_shares,
+            plan.fallback_reason,
         )
+        try:
+            exit_observation_id = self._record_exit_plan_before_submission(
+                trade, plan
+            )
+        except Exception as error:
+            logger.critical(
+                "fresh exit execution evidence 저장 실패로 SELL을 제출하지 않음 - "
+                "trade=%s error=%s",
+                trade.id,
+                type(error).__name__,
+            )
+            self._record_stop_sell_failure(
+                trade,
+                walk=walk,
+                best_bid=best_bid,
+                best_ask=best_ask,
+                spread=spread,
+                detail="exit execution evidence persistence failed",
+                signal=plan.signal,
+            )
+            return False
         try:
             result = self.clob.place_limit_order(
                 token_id=trade.token_id,
@@ -2242,6 +2747,7 @@ class Trader:
                     spread=spread,
                     sell_shares=None,
                     reason="signed_sell_size_evidence_invalid",
+                    exit_observation_id=exit_observation_id,
                 )
             return False
         residual_shares = float(trade.buy_shares) - sell_shares
@@ -2249,14 +2755,27 @@ class Trader:
             not math.isfinite(sell_shares)
             or sell_shares <= 0
             or residual_shares < -_FILL_SIZE_TOLERANCE
-            or residual_shares >= _MAX_SIGNED_SELL_DUST_SHARES
+            or not math.isclose(
+                sell_shares,
+                plan.selected_shares,
+                rel_tol=0,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            )
+            or not math.isclose(
+                max(0.0, residual_shares),
+                plan.remaining_shares,
+                rel_tol=0,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            )
         ):
             logger.critical(
-                "signed SELL size drift is unsafe - trade=%s bought=%.6f "
-                "signed=%.6f residual=%.6f",
+                "signed SELL size drift is unsafe - trade=%s position=%.6f "
+                "planned=%.6f signed=%.6f planned_remaining=%.6f residual=%.6f",
                 trade.id,
                 float(trade.buy_shares),
+                plan.selected_shares,
                 sell_shares,
+                plan.remaining_shares,
                 residual_shares,
             )
             if accepted:
@@ -2274,6 +2793,7 @@ class Trader:
                         else None
                     ),
                     reason="signed_sell_size_drift_unsafe",
+                    exit_observation_id=exit_observation_id,
                 )
             return False
         residual_shares = max(0.0, residual_shares)
@@ -2281,7 +2801,6 @@ class Trader:
             self.emergency_sell_submissions += 1
             common = {
                 "sell_price": walk.vwap,
-                "sell_shares": sell_shares,
                 "sell_order_id": result.get("orderID"),
                 "sell_timestamp": datetime.utcnow(),
                 "sell_probability": walk.vwap,
@@ -2294,40 +2813,62 @@ class Trader:
                 "sell_confirmed_fee_usdc": None,
                 "sell_fill_matched_at": None,
                 "sell_residual_shares": residual_shares,
+                "pending_sell_requested_shares": sell_shares,
+                "pending_sell_remaining_shares": residual_shares,
+                "last_exit_observation_id": exit_observation_id,
             }
             if self.mode == "sim":
-                hypothetical_pnl = (walk.vwap - trade.buy_price) * sell_shares
+                previous_sell_shares = float(
+                    getattr(trade, "sell_shares", None) or 0.0
+                )
+                previous_hypothetical_pnl = float(
+                    getattr(trade, "hypothetical_pnl", None) or 0.0
+                )
+                hypothetical_pnl = previous_hypothetical_pnl + (
+                    (walk.vwap - trade.buy_price) * sell_shares
+                )
+                completed = residual_shares < _MAX_SIGNED_SELL_DUST_SHARES
                 self.repo.update_trade(
                     trade.id,
                     **common,
-                    status=TradeStatus.COMPLETED,
-                    exit_reason=f"{exit_signal}_simulation_hypothetical",
+                    buy_shares=residual_shares,
+                    sell_shares=previous_sell_shares + sell_shares,
+                    pending_sell_requested_shares=None,
+                    pending_sell_remaining_shares=None,
+                    status=(
+                        TradeStatus.COMPLETED
+                        if completed
+                        else TradeStatus.HOLDING
+                    ),
+                    exit_reason=(
+                        f"{plan.signal}_simulation_hypothetical"
+                        if completed
+                        else f"partial_{plan.signal}_simulation_hypothetical"
+                    ),
                     realized_pnl=None,
                     hypothetical_pnl=hypothetical_pnl,
-                    pnl_basis="simulation_hypothetical_best_bid_fees_excluded",
+                    pnl_basis=(
+                        "cumulative_simulation_hypothetical_displayed_bid_"
+                        "fees_excluded"
+                    ),
                 )
-                return True
+                return completed
             self.repo.update_trade(
                 trade.id,
                 **common,
                 status=TradeStatus.PENDING_SELL,
-                exit_reason=f"{exit_signal}_pending_confirmed_fill",
-                realized_pnl=None,
-                hypothetical_pnl=None,
-                pnl_basis=None,
+                exit_reason=f"{plan.signal}_pending_confirmed_fill",
             )
             logger.info(
                 "%s FOK SELL 접수, confirmed fill 대기: "
-                "Trade #%s order=%s bid=%.4f size=%.6f",
-                exit_signal,
+                "Trade #%s order=%s bid=%.4f size=%.6f remaining=%.6f",
+                plan.signal,
                 trade.id,
                 result.get("orderID"),
                 best_bid,
                 sell_shares,
+                residual_shares,
             )
-            return False
-        if is_zero_balance_error(result):
-            self._mark_unfilled(trade)
             return False
         available = available_shares_from_error(result)
         logger.warning(
@@ -2338,7 +2879,7 @@ class Trader:
             trade.buy_shares,
             f"{available:.6f}" if available is not None else "미상",
         )
-        logger.error("%s FOK SELL 실패: %s", exit_signal, result)
+        logger.error("%s FOK SELL 실패: %s", plan.signal, result)
         self._record_stop_sell_failure(
             trade,
             walk=walk,
@@ -2346,7 +2887,7 @@ class Trader:
             best_ask=best_ask,
             spread=spread,
             detail=classify_sell_failure(result, trade.buy_shares),
-            signal=exit_signal,
+            signal=plan.signal,
         )
         return False
 
@@ -2503,7 +3044,7 @@ class Trader:
         return False
 
     def _profit_execution_price_is_safe(self, walk, target_price: float) -> bool:
-        """Require the complete holding VWAP—not only top bid—to clear TP."""
+        """Require every share in the selected atomic TP slice to clear target."""
         spread = getattr(walk, "spread", None)
         try:
             values_are_valid = (
@@ -2537,17 +3078,20 @@ class Trader:
         spread: Optional[float],
         sell_shares: Optional[float],
         reason: str,
+        exit_observation_id: Optional[int],
     ) -> None:
         """Never leave an irreversible accepted SELL orphaned from its trade."""
-        residual = None
-        if sell_shares is not None:
-            residual = max(0.0, float(trade.buy_shares) - sell_shares)
+        pending_requested = (
+            float(sell_shares)
+            if sell_shares is not None
+            else float(walk.shares)
+        )
+        residual = max(0.0, float(trade.buy_shares) - pending_requested)
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.PENDING_SELL,
             exit_reason=reason,
             sell_price=walk.vwap,
-            sell_shares=sell_shares,
             sell_order_id=result.get("orderID"),
             sell_timestamp=datetime.utcnow(),
             sell_probability=walk.vwap,
@@ -2560,9 +3104,9 @@ class Trader:
             sell_confirmed_fee_usdc=None,
             sell_fill_matched_at=None,
             sell_residual_shares=residual,
-            realized_pnl=None,
-            hypothetical_pnl=None,
-            pnl_basis=None,
+            pending_sell_requested_shares=pending_requested,
+            pending_sell_remaining_shares=residual,
+            last_exit_observation_id=exit_observation_id,
         )
         logger.critical(
             "accepted SELL bound to PENDING_SELL after contract violation - "

@@ -14,6 +14,7 @@ from polybot.api.clob_client import (
     _walk_sell_book,
     build_execution_capacity_evidence,
     select_adaptive_buy_from_book_evidence,
+    select_take_profit_sell_from_book_evidence,
 )
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
@@ -857,6 +858,69 @@ def test_shallow_stop_book_is_censored_not_partially_sold() -> None:
     }
     with pytest.raises(ClobResponseUnavailableError, match="full displayed bid"):
         _walk_sell_book(book, "token", 5.0)
+
+
+def test_take_profit_uses_largest_profitable_partial_vwap_slice() -> None:
+    selection = select_take_profit_sell_from_book_evidence(
+        json.dumps(
+            {
+                "token_id": "token",
+                "bids": [
+                    {"price": 0.97, "size": 200},
+                    {"price": 0.95, "size": 400},
+                    {"price": 0.94, "size": 1000},
+                ],
+                "asks": [{"price": 0.98, "size": 1000}],
+            }
+        ),
+        position_shares=1000,
+        target_price=0.95,
+        min_order_size=5,
+    )
+
+    # Only bids individually at or above the safe SELL limit are consumed.
+    assert selection.selected_shares == pytest.approx(600)
+    assert selection.remaining_shares == pytest.approx(400)
+    assert selection.walk.vwap == pytest.approx((200 * 0.97 + 400 * 0.95) / 600)
+    assert selection.walk.limit_price == pytest.approx(0.95)
+    assert selection.fallback_reason == "REDUCED_TO_PROFITABLE_DISPLAYED_DEPTH"
+
+
+def test_take_profit_reduces_slice_to_preserve_sellable_remainder() -> None:
+    selection = select_take_profit_sell_from_book_evidence(
+        json.dumps(
+            {
+                "token_id": "token",
+                "bids": [{"price": 0.96, "size": 10}],
+                "asks": [{"price": 0.97, "size": 100}],
+            }
+        ),
+        position_shares=12,
+        target_price=0.95,
+        min_order_size=5,
+    )
+
+    assert selection.max_profitable_shares == pytest.approx(10)
+    assert selection.selected_shares == pytest.approx(7)
+    assert selection.remaining_shares == pytest.approx(5)
+    assert selection.fallback_reason == "REDUCED_TO_PRESERVE_MINIMUM_RESIDUAL"
+
+
+def test_take_profit_does_not_create_subminimum_slice_or_remainder() -> None:
+    evidence = json.dumps(
+        {
+            "token_id": "token",
+            "bids": [{"price": 0.96, "size": 4.99}],
+            "asks": [{"price": 0.97, "size": 100}],
+        }
+    )
+    with pytest.raises(ClobResponseUnavailableError, match="minimum SELL"):
+        select_take_profit_sell_from_book_evidence(
+            evidence,
+            position_shares=100,
+            target_price=0.95,
+            min_order_size=5,
+        )
 
 
 def test_holding_books_are_fetched_in_one_batch_and_keep_unavailable_keys() -> None:

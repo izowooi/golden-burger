@@ -41,7 +41,18 @@ def test_legacy_trade_table_adds_nullable_prior_snapshot_lineage(tmp_path):
         "selected_buy_amount_usdc",
         "max_executable_buy_notional_usdc",
         "buy_notional_fallback_reason",
+        "pending_sell_requested_shares",
+        "pending_sell_remaining_shares",
+        "confirmed_sell_count",
+        "cumulative_sell_proceeds_usdc",
+        "cumulative_sell_fee_usdc",
+        "cumulative_buy_fee_allocated_usdc",
+        "last_exit_observation_id",
+        "resolution_remaining_shares",
     } <= columns
+    assert "exit_execution_observations" in inspect(
+        session.get_bind()
+    ).get_table_names()
     row = session.execute(
         text(
             "SELECT prior_snapshot_id_at_entry, entry_snapshot_id "
@@ -211,6 +222,69 @@ def test_clob_resolution_observation_is_append_only_and_commits_with_trade(tmp_p
                 "WHERE resolution_id=:resolution_id"
             ),
             {"resolution_id": observation.resolution_id},
+        )
+        session.commit()
+    session.rollback()
+    session.close()
+
+
+def test_exit_execution_observation_is_append_only_and_sport_queryable(tmp_path):
+    Session = init_database(str(tmp_path / "exit-execution.db"))
+    session = Session()
+    repository = TradeRepository(session)
+    trade = repository.create_trade(
+        condition_id="condition-exit",
+        event_id="event-exit",
+        token_id="token-exit",
+        outcome="Home",
+        sport_family="soccer",
+        league_code="epl",
+        buy_shares=1000,
+        status=TradeStatus.HOLDING,
+    )
+    book_json = (
+        '{"asks":[{"price":0.93,"size":1000.0}],'
+        '"bids":[{"price":0.92,"size":300.0}],'
+        '"schema_version":1,"token_id":"token-exit"}'
+    )
+    observation = repository.record_exit_execution_observation(
+        trade=trade,
+        observed_at=datetime(2026, 9, 2, 1, 0),
+        signal="take_profit",
+        trigger_price=0.90,
+        position_shares=1000,
+        selected_shares=300,
+        remaining_shares=700,
+        max_executable_shares=300,
+        selected_notional_usdc=276,
+        max_executable_notional_usdc=276,
+        best_bid=0.92,
+        best_ask=0.93,
+        spread=0.01,
+        vwap=0.92,
+        limit_price=0.92,
+        levels_used=1,
+        fallback_reason="REDUCED_TO_PROFITABLE_DISPLAYED_DEPTH",
+        full_position_required=False,
+        book_json=book_json,
+    )
+
+    row = session.execute(
+        text(
+            "SELECT sport_family, league_code, selected_shares, "
+            "remaining_shares, full_position_required "
+            "FROM exit_execution_observations WHERE id=:id"
+        ),
+        {"id": observation.id},
+    ).one()
+    assert row == ("soccer", "epl", 300.0, 700.0, 0)
+    with pytest.raises(DatabaseError, match="append-only evidence"):
+        session.execute(
+            text(
+                "UPDATE exit_execution_observations SET selected_shares=301 "
+                "WHERE id=:id"
+            ),
+            {"id": observation.id},
         )
         session.commit()
     session.rollback()
