@@ -108,6 +108,17 @@ class BuyBookWalk:
 
 
 @dataclass(frozen=True)
+class AdaptiveBuySelection:
+    """One atomic FOK amount selected from a single fresh displayed book."""
+
+    target_notional_usdc: float
+    selected_notional_usdc: float
+    max_executable_notional_usdc: float
+    fallback_reason: str
+    walk: BuyBookWalk
+
+
+@dataclass(frozen=True)
 class SellBookWalk:
     """A full displayed-bid walk for one fixed share quantity."""
 
@@ -206,7 +217,9 @@ def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWal
         if remaining <= 1e-9:
             break
     if remaining > 1e-7 or shares <= 0:
-        raise ClobResponseUnavailableError("full $5 displayed ask depth is unavailable")
+        raise ClobResponseUnavailableError(
+            "full requested displayed ask depth is unavailable"
+        )
     return BuyBookWalk(
         token_id=str(token_id),
         best_bid=best_bid,
@@ -218,6 +231,72 @@ def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWal
         limit_price=limit_price,
         levels_used=levels_used,
     )
+
+
+def select_adaptive_buy_from_book_evidence(
+    book_json: str,
+    *,
+    target_notional_usdc: float,
+    notional_ladder_usdc: Iterable[float],
+    baseline_notional_usdc: float,
+    max_limit_price: float,
+) -> AdaptiveBuySelection:
+    """Choose one full-fill FOK amount from the already fetched book evidence."""
+
+    try:
+        book = json.loads(book_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ClobResponseContractError(
+            "cached CLOB book evidence is not valid JSON"
+        ) from error
+    if not isinstance(book, Mapping):
+        raise ClobResponseContractError("cached CLOB book evidence must be an object")
+    token_id = str(book.get("token_id") or "").strip()
+    if not token_id:
+        raise ClobResponseContractError("cached CLOB book evidence has no token ID")
+
+    target = float(target_notional_usdc)
+    baseline = float(baseline_notional_usdc)
+    if not math.isfinite(target) or target < baseline:
+        raise ValueError("target_notional_usdc must be at least the baseline")
+    if not math.isfinite(max_limit_price) or not 0 < max_limit_price < 1:
+        raise ValueError("max_limit_price must be between zero and one")
+    baseline_walk = _walk_buy_book(book, token_id, baseline)
+    if baseline_walk.limit_price > max_limit_price + 1e-9:
+        raise ClobResponseUnavailableError(
+            "baseline displayed asks exceed the entry price ceiling"
+        )
+
+    asks = _normalize_book_levels(book.get("asks"), "ask")
+    max_executable = sum(
+        price * size
+        for price, size in asks
+        if price <= max_limit_price + 1e-9 and price < 1
+    )
+    candidates = {target, baseline}
+    for raw in notional_ladder_usdc:
+        value = float(raw)
+        if math.isfinite(value) and baseline <= value <= target:
+            candidates.add(value)
+    for notional in sorted(candidates, reverse=True):
+        try:
+            walk = _walk_buy_book(book, token_id, notional)
+        except ClobResponseUnavailableError:
+            continue
+        if walk.limit_price > max_limit_price + 1e-9:
+            continue
+        return AdaptiveBuySelection(
+            target_notional_usdc=target,
+            selected_notional_usdc=notional,
+            max_executable_notional_usdc=max_executable,
+            fallback_reason=(
+                "TARGET_FULLY_EXECUTABLE"
+                if math.isclose(notional, target, rel_tol=0, abs_tol=1e-9)
+                else "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+            ),
+            walk=walk,
+        )
+    raise ClobResponseUnavailableError("no adaptive FOK amount is executable")
 
 
 def _walk_sell_book(book: Any, token_id: str, shares: float) -> SellBookWalk:
@@ -278,6 +357,100 @@ def _canonical_book_evidence(book: Any, token_id: str) -> str:
                 _book_field(book, "asks"), "ask", allow_empty=True
             )
         ],
+    }
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def build_execution_capacity_evidence(
+    book_json: str,
+    notionals_usdc: Iterable[float],
+) -> str:
+    """Materialize same-snapshot displayed-depth scaling evidence.
+
+    The result is a counterfactual, not an order or actual-fill proof. It shows
+    whether each BUY amount could consume the displayed asks and whether those
+    shares could immediately consume the displayed bids, before fees.
+    """
+
+    try:
+        book = json.loads(book_json)
+    except (TypeError, ValueError, json.JSONDecodeError) as error:
+        raise ClobResponseContractError(
+            "cached CLOB book evidence is not valid JSON"
+        ) from error
+    if not isinstance(book, Mapping):
+        raise ClobResponseContractError("cached CLOB book evidence must be an object")
+    token_id = str(book.get("token_id") or "").strip()
+    if not token_id:
+        raise ClobResponseContractError("cached CLOB book evidence has no token ID")
+
+    bids = _normalize_book_levels(book.get("bids"), "bid", allow_empty=True)
+    asks = _normalize_book_levels(book.get("asks"), "ask", allow_empty=True)
+    rows: list[dict[str, Any]] = []
+    normalized_notionals: list[float] = []
+    for raw_notional in notionals_usdc:
+        try:
+            notional = float(raw_notional)
+        except (TypeError, ValueError) as error:
+            raise ValueError("scaling notionals must be numeric") from error
+        if not math.isfinite(notional) or notional <= 0:
+            raise ValueError("scaling notionals must be finite and positive")
+        normalized_notionals.append(notional)
+    if not normalized_notionals or len(set(normalized_notionals)) != len(
+        normalized_notionals
+    ):
+        raise ValueError("scaling notionals must be nonempty and unique")
+    if normalized_notionals != sorted(normalized_notionals):
+        raise ValueError("scaling notionals must be strictly increasing")
+
+    for notional in normalized_notionals:
+        row: dict[str, Any] = {
+            "notional_usdc": notional,
+            "buy_full_fill": False,
+            "sell_full_fill": False,
+        }
+        try:
+            buy = _walk_buy_book(book, token_id, notional)
+        except ClobResponseUnavailableError:
+            rows.append(row)
+            continue
+        row.update(
+            {
+                "buy_full_fill": True,
+                "buy_vwap": buy.vwap,
+                "buy_shares": buy.shares,
+                "buy_limit_price": buy.limit_price,
+                "buy_levels_used": buy.levels_used,
+            }
+        )
+        try:
+            sell = _walk_sell_book(book, token_id, buy.shares)
+        except ClobResponseUnavailableError:
+            rows.append(row)
+            continue
+        round_trip_pnl = sell.proceeds - notional
+        row.update(
+            {
+                "sell_full_fill": True,
+                "sell_vwap": sell.vwap,
+                "sell_limit_price": sell.limit_price,
+                "sell_proceeds_usdc": sell.proceeds,
+                "sell_levels_used": sell.levels_used,
+                "same_snapshot_round_trip_pnl_usdc": round_trip_pnl,
+                "same_snapshot_round_trip_bps": round_trip_pnl / notional * 10_000,
+            }
+        )
+        rows.append(row)
+
+    payload = {
+        "schema_version": 1,
+        "semantics": (
+            "same_snapshot_displayed_depth_counterfactual_no_fees_not_actual_fill"
+        ),
+        "token_id": token_id,
+        "displayed_ask_notional_usdc": sum(price * size for price, size in asks),
+        "displayed_bid_shares": sum(size for _price, size in bids),
+        "notionals": rows,
     }
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
 

@@ -6,7 +6,7 @@
 |---|---|---|---|---|
 | `polybot-eco` | `/Volumes/t7/jenkins/polybot-eco` | `peach-live-eco-3pp-1m-v1` | live | `* * * * *` |
 | `polybot-fruit` | `/Volumes/t7/jenkins/polybot-fruit` | `peach-live-fruit-5pp-1m-v1` | live | `* * * * *` |
-| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | `peach-shadow-1m-v1` | simulation | `* * * * *` |
+| `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | soccer/MLB/NBA/NFL/NHL shadow 5개 | simulation | `* * * * *` |
 
 Concurrent build는 금지하고 build discard는 14일로 둔다. 첫 검증 build 전 timer를 끄고,
 exact pushed commit으로 수동 build를 통과시킨 뒤 timer를 켠다. clean build는 사용하지 않는다.
@@ -75,10 +75,31 @@ export POLYBOT_TAKE_PROFIT_DELTA=0.05
 
 cd ./golden-peach
 /Users/jongwoopark/.local/bin/uv sync --frozen
-/Users/jongwoopark/.local/bin/uv run polybot config --simulate --job peach-shadow-1m-v1
-/Users/jongwoopark/.local/bin/uv run polybot run --simulate --job peach-shadow-1m-v1
-/Users/jongwoopark/.local/bin/uv run polybot status --simulate --job peach-shadow-1m-v1
+
+jobs=(
+  peach-shadow-1m-v1
+  peach-shadow-mlb-1m-v2
+  peach-shadow-nba-1m-v2
+  peach-shadow-nfl-1m-v2
+  peach-shadow-nhl-1m-v2
+)
+pids=()
+for job in "${jobs[@]}"; do
+  /Users/jongwoopark/.local/bin/uv run polybot run --simulate --job "${job}" &
+  pids+=("$!")
+done
+failed=0
+for pid in "${pids[@]}"; do
+  if ! wait "${pid}"; then
+    failed=1
+  fi
+done
+exit "${failed}"
 ```
+
+다섯 runtime은 서로 다른 DB를 사용하므로 병렬로 실행한다. 같은 runtime의 중복 실행은 각
+DB의 cycle lock이 막는다. 어느 한 sport가 실패해도 이미 시작한 다른 네 수집기는 끝까지
+실행하며, 마지막 exit code는 실패를 숨기지 않는다.
 
 ## 배포 검증
 
@@ -86,7 +107,9 @@ Console에서 다음을 확인한다.
 
 - resolved mode/job/TP와 `strategy_source_digest`가 기대값과 일치한다.
 - 한 cycle이 다음 분과 겹치지 않고 `.cycle-run.lock` skip이 반복되지 않는다.
-- Gamma sweep `cursor_complete=true`, source clock exclusion과 triad/book 누락이 집계된다.
+- Gamma sweep `cursor_complete=true`, source clock exclusion과 event book 누락이 집계된다.
+- Grey의 각 sport DB에 `execution_capacity_json`, sport/league/tag가 기록되고 전체 병렬
+  실행이 60초 미만이다.
 - live에는 BUY/SELL accepted와 confirmed fill을 구분한 로그가 남는다.
 - 실패한 SELL은 degraded/event-local이며 다른 event entry를 전체 차단하지 않는다.
 

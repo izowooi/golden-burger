@@ -7,7 +7,7 @@
 된다는 사실만으로 경기 초반 선두가 먼저 상승하는 것은 아니며, NO 세 토큰은 상호 배타적이지
 않아 둘 이상이 1로 해결될 수 있다. 이 가정은 데이터로 반증 가능해야 한다.
 
-## 모집단
+## 현재 라이브 모집단
 
 - 종목: 축구.
 - 리그: EPL, Bundesliga, Ligue 1, LaLiga, Serie A, MLS, UCL, UEL.
@@ -16,10 +16,15 @@
 - Gamma server-side cumulative volume `$5,000`, liquidity `$5,000` gate 후 exact `$5` CLOB
   depth를 최종 gate로 쓴다.
 
+Eco/Fruit의 live 모집단은 계속 축구다. Grey shadow 코드는 MLB, NBA, NFL, NHL의 whole-game
+team moneyline도 받을 수 있다. 이 종목들은 팀 이름 token 두 개를 직접 저장하며 가격의
+보수(complement)를 합성하지 않는다. sport-native 경기 clock과 종목별 TP/SL이 검증되기
+전에는 live 실행을 시작 전에 거부한다.
+
 ## 같은 시각의 6개 후보
 
 각 event에서 HOME YES/NO, DRAW YES/NO, AWAY YES/NO의 direct token을 모두 식별한다.
-각 token의 전체 ask/bid level, best bid/ask, spread, exact `$5` ask VWAP을 저장한다. 하나라도
+각 token의 전체 ask/bid level, best bid/ask, spread, baseline `$5` ask VWAP을 저장한다. 하나라도
 빠지면 event 전체를 건너뛴다. midpoint로 순위를 매기며 선두 차이가 0.005 미만이면 동률로
 보아 진입하지 않는다.
 
@@ -28,7 +33,10 @@
 
 ## 실행 계약
 
-- BUY notional exact `$5`, FOK.
+- 현재 live 목표 BUY는 `$5`, FOK 한 건이다.
+- 향후 목표액은 `$5`~`$1000` cent 단위로 지정할 수 있다. fresh book에서 목표액 이하의
+  동결 ladder를 큰 값부터 검사해 진입 상한 안에서 전량 체결 가능한 가장 큰 금액 하나를
+  제출한다. `$5` 미만으로 쪼개거나 여러 BUY를 내지 않는다.
 - entry exact ask VWAP `[0.60, 0.94]`, spread `<=0.05`.
 - total/event/new-per-cycle 한도 `10/1/5`.
 - event당 filled/uncertain entry 한 번. TP/SL 뒤에도 재진입 금지.
@@ -65,6 +73,12 @@ source clock을 보존해 다른 TP/SL을 사후 재생할 수 있게 한다. �
 realized P&L이 아니다. simulation 주문에는 인증된 거래소 fill/fee 원장이 생기지 않으므로,
 그 부재를 live BUY 증거 공백으로 간주해 다른 경기의 진입을 막지 않는다. live의 확정 체결·수수료
 방어 규칙은 그대로 유지한다.
+
+각 snapshot과 trade에는 종목·리그·원본 태그를 저장한다. Grey는 같은 원본 book에서 `$5`,
+`$10`, `$15`, `$20`, `$25`, `$30`, `$40`, `$50`, `$75`, `$100`, `$150`, `$200`,
+`$250`, `$500`, `$750`, `$1000`의 매수/즉시매도 표시 깊이를 계산한다. 이는 실제 체결률이
+아니며 API 요청을 늘리지 않는 같은 시각의 표시 호가 반사실이다. 실제 증액 여부는 이 자료와
+live confirmed fill을 함께 보고 별도 cohort로 결정한다.
 
 판정은 단일 `config_hash × strategy_source_digest × mode × job_name` cohort에서 수행한다.
 첫 24시간은 수집 건전성만, 신규 진입 종료 뒤에는 confirmed execution/fee와 resolution coverage를

@@ -1,16 +1,21 @@
-"""Direct six-token kickoff scanner for Golden Peach."""
+"""Direct in-play leader scanner for Golden Peach sports families."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import logging
 import math
 import re
 from typing import Any, Dict, List, Optional
 
-from ..api.clob_client import BuyBookWalk, ClobClientWrapper
+from ..api.clob_client import (
+    BuyBookWalk,
+    ClobClientWrapper,
+    build_execution_capacity_evidence,
+)
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import BASELINE_EXECUTION_NOTIONAL_USDC, TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
     get_event,
@@ -21,7 +26,24 @@ from .filters import (
 
 
 logger = logging.getLogger(__name__)
-_RESULT_KINDS = frozenset({"HOME", "DRAW", "AWAY"})
+
+
+def _market_tags_json(market: Dict[str, Any]) -> str:
+    tags = market.get("tags") or []
+    return json.dumps(
+        [
+            {
+                "id": tag.get("id"),
+                "slug": tag.get("slug"),
+                "label": tag.get("label"),
+            }
+            for tag in tags
+            if isinstance(tag, dict)
+        ],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def parse_end_date(value: Optional[str]) -> Optional[datetime]:
@@ -128,8 +150,34 @@ def get_source_regulation_minute(
     return None, "SOURCE_PERIOD_UNSUPPORTED"
 
 
+def get_source_progress(
+    event: Dict[str, Any], sport_family: str, now: Optional[datetime] = None
+) -> tuple[Optional[float], str]:
+    """Return a comparable in-play minute with explicit evidence semantics.
+
+    Soccer uses the source's regulation clock. Direct-team sports currently use
+    scheduled-start age only in simulation; live configuration validation keeps
+    those families disabled until a sport-native clock contract is frozen.
+    """
+
+    family = str(sport_family or "").strip().lower()
+    if family == "soccer":
+        return get_source_regulation_minute(event)
+    game_start = parse_end_date(
+        event.get("startTime")
+        or event.get("eventDate")
+        or event.get("startDate")
+        or event.get("eventStartTime")
+        or event.get("gameStartTime")
+    )
+    in_play_hours = get_hours_since_game_start(game_start, now=now)
+    if in_play_hours is None or in_play_hours < 0:
+        return None, "SCHEDULED_START_AGE_MISSING_OR_INVALID"
+    return in_play_hours * 60.0, "SCHEDULED_START_AGE_SHADOW_ONLY"
+
+
 class MarketScanner:
-    """Archive six direct books and select one unique event leader."""
+    """Archive direct books and select one unique event leader."""
 
     def __init__(
         self,
@@ -189,7 +237,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> int:
-        """Persist direct YES/NO levels, exact-$5 walks, and sweep proof."""
+        """Persist direct levels, baseline-$5 walks, sizing, and sweep proof."""
         if self.repo is None or self.clob is None:
             raise RuntimeError("repository and CLOB client are required")
         attestation = self.gamma.last_sweep_attestation
@@ -206,7 +254,7 @@ class MarketScanner:
         ]
         token_ids = [str(side["token_id"]) for side in sides]
         self._walks = self.clob.get_buy_book_walks(
-            token_ids, notional_usdc=self.config.buy_amount_usdc
+            token_ids, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
         )
         self._snapshot_ids.clear()
         snapshot_results: Dict[str, Dict[str, Any]] = {}
@@ -229,7 +277,9 @@ class MarketScanner:
                     continue
                 event = get_event(market)
                 event_meta = get_event_metadata(market)
-                source_minute, clock_reason = get_source_regulation_minute(event)
+                source_minute, clock_reason = get_source_progress(
+                    event, self.config.sport_family, now=reference
+                )
                 outcomes = get_match_result_sides(market)
                 saved_for_condition = 0
                 for outcome in outcomes:
@@ -242,6 +292,23 @@ class MarketScanner:
                         if walk.best_bid is not None
                         else None
                     )
+                    book_json = (
+                        self.clob.get_cached_book_evidence(token_id)
+                        if callable(
+                            getattr(self.clob, "get_cached_book_evidence", None)
+                        )
+                        else None
+                    )
+                    execution_capacity_json = None
+                    if self.config.scaling_notionals_usdc:
+                        if book_json is None:
+                            raise RuntimeError(
+                                "simulation sizing evidence requires a cached full book"
+                            )
+                        execution_capacity_json = build_execution_capacity_evidence(
+                            book_json,
+                            self.config.scaling_notionals_usdc,
+                        )
                     snapshot = self.repo.save_snapshot(
                         condition_id=condition_id,
                         event_id=event_meta["event_id"],
@@ -261,13 +328,19 @@ class MarketScanner:
                         source_updated_at=market.get("updatedAt"),
                         source_elapsed_minutes=source_minute,
                         source_clock_reason=clock_reason,
-                        book_json=(
-                            self.clob.get_cached_book_evidence(token_id)
-                            if callable(
-                                getattr(self.clob, "get_cached_book_evidence", None)
-                            )
-                            else None
+                        book_json=book_json,
+                        execution_capacity_json=execution_capacity_json,
+                        sport_family=self.config.sport_family,
+                        league_code=(
+                            market.get("leagueCode") or self.config.sport_family
                         ),
+                        league_name=(
+                            market.get("leagueName")
+                            or self.config.sport_family.upper()
+                        ),
+                        market_tags_json=_market_tags_json(market),
+                        sport_profile_version=self.config.sport_profile_version,
+                        book_shape=self.config.book_shape,
                         commit=False,
                     )
                     snapshot.timestamp = reference.astimezone(timezone.utc).replace(
@@ -280,7 +353,7 @@ class MarketScanner:
                     "snapshot_eligible": True,
                     "snapshotted": saved_for_condition == 2,
                     "snapshot_reason": (
-                        "direct_yes_no_exact_5_books_saved"
+                        "direct_baseline_5_books_saved"
                         if saved_for_condition == 2
                         else f"direct_book_coverage:{saved_for_condition}/2"
                     ),
@@ -299,10 +372,11 @@ class MarketScanner:
             self.repo.rollback()
             raise
         logger.info(
-            "Golden Peach direct YES/NO snapshots=%s complete_markets=%s/%s",
+            "Golden Peach direct snapshots=%s complete_markets=%s/%s sport=%s",
             saved,
             sum(int(item["snapshotted"]) for item in snapshot_results.values()),
             len(markets),
+            self.config.sport_family,
         )
         return saved
 
@@ -311,7 +385,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> List[Dict]:
-        """Select the unique highest midpoint across a complete six-token event."""
+        """Select the unique highest midpoint across a complete event book set."""
         if self.repo is None:
             raise RuntimeError("repository is required")
         reference = now or datetime.now(timezone.utc)
@@ -341,8 +415,8 @@ class MarketScanner:
             if not event_id:
                 rejected["missing_event_id"] = rejected.get("missing_event_id", 0) + 1
                 continue
-            source_minute, clock_reason = get_source_regulation_minute(
-                get_event(market)
+            source_minute, clock_reason = get_source_progress(
+                get_event(market), self.config.sport_family, now=reference
             )
             if source_minute is None:
                 rejected[clock_reason] = rejected.get(clock_reason, 0) + 1
@@ -358,12 +432,17 @@ class MarketScanner:
                     "direct_yes_no_identity_gap", 0
                 ) + 1
                 continue
-            result_kind = str(outcomes[0]["result_kind"])
+            condition_id = str(market.get("conditionId") or "").strip()
             bucket = markets_by_event.setdefault(event_id, {})
-            if result_kind in bucket:
-                bucket[result_kind] = {"duplicate": True}
+            if not condition_id:
+                rejected["missing_condition_id"] = rejected.get(
+                    "missing_condition_id", 0
+                ) + 1
                 continue
-            bucket[result_kind] = {
+            if condition_id in bucket:
+                bucket[condition_id] = {"duplicate": True}
+                continue
+            bucket[condition_id] = {
                 "market": market,
                 "outcomes": outcomes,
                 "game_start": game_start,
@@ -375,17 +454,29 @@ class MarketScanner:
 
         candidates: List[Dict[str, Any]] = []
         for event_id, result_markets in markets_by_event.items():
-            if set(result_markets) != _RESULT_KINDS or any(
-                item.get("duplicate") for item in result_markets.values()
+            observed_result_kinds = {
+                str(outcome.get("result_kind") or "")
+                for context in result_markets.values()
+                for outcome in context.get("outcomes", [])
+            }
+            observed_token_count = sum(
+                len(context.get("outcomes", []))
+                for context in result_markets.values()
+            )
+            if (
+                len(result_markets) != self.config.expected_market_count
+                or any(item.get("duplicate") for item in result_markets.values())
+                or observed_token_count != self.config.expected_token_count
+                or observed_result_kinds != set(self.config.expected_result_kinds)
             ):
-                rejected["incomplete_or_duplicate_result_triad"] = rejected.get(
-                    "incomplete_or_duplicate_result_triad", 0
+                rejected["incomplete_or_duplicate_event_book_set"] = rejected.get(
+                    "incomplete_or_duplicate_event_book_set", 0
                 ) + 1
                 continue
             ranked: List[Dict[str, Any]] = []
             event_invalid = False
-            for result_kind in ("HOME", "DRAW", "AWAY"):
-                context = result_markets[result_kind]
+            for condition_id in sorted(result_markets):
+                context = result_markets[condition_id]
                 market = context["market"]
                 for outcome in context["outcomes"]:
                     token_id = str(outcome["token_id"])
@@ -412,9 +503,9 @@ class MarketScanner:
                     )
                 if event_invalid:
                     break
-            if event_invalid or len(ranked) != 6:
-                rejected["six_direct_executable_books_required"] = rejected.get(
-                    "six_direct_executable_books_required", 0
+            if event_invalid or len(ranked) != self.config.expected_token_count:
+                rejected["complete_direct_executable_books_required"] = rejected.get(
+                    "complete_direct_executable_books_required", 0
                 ) + 1
                 continue
             ranked.sort(
@@ -488,6 +579,7 @@ class MarketScanner:
                     "event_token_ids": [
                         str(item["outcome"]["token_id"]) for item in ranked
                     ],
+                    "sport_family": self.config.sport_family,
                     "league_code": market.get("leagueCode"),
                     "league_name": market.get("leagueName"),
                     "token_id": str(outcome["token_id"]),
@@ -509,7 +601,10 @@ class MarketScanner:
                     "entry_shares": walk.shares,
                     "entry_limit_price": walk.limit_price,
                     "entry_levels_used": walk.levels_used,
-                    "entry_reason": "unique_six_token_kickoff_leader",
+                    "entry_reason": (
+                        f"unique_{self.config.expected_token_count}_token_"
+                        "kickoff_leader"
+                    ),
                     "game_start_time": context["game_start"],
                     "in_play_hours": context["in_play_hours"],
                     "hours_until_resolution": context["in_play_hours"],
@@ -520,6 +615,7 @@ class MarketScanner:
                         f"candidate={outcome['candidate_kind']}, "
                         f"leader_margin={margin:.6f}"
                     ).strip(", "),
+                    "market_tags_json": _market_tags_json(market),
                 }
             )
 

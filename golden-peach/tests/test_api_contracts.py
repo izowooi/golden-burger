@@ -9,7 +9,9 @@ import requests
 from polybot.api.clob_client import (
     ClobClientWrapper,
     PreSubmissionContractError,
+    build_execution_capacity_evidence,
     _normalize_clob_resolution,
+    select_adaptive_buy_from_book_evidence,
     _walk_buy_book,
     _walk_sell_book,
 )
@@ -303,9 +305,15 @@ def test_gamma_accepts_exact_serie_a_identity() -> None:
 
 
 @pytest.mark.parametrize("family", ["mlb", "nhl", "nfl", "nba"])
-def test_gamma_rejects_non_soccer_family_before_network(family) -> None:
-    with pytest.raises(ValueError, match="soccer-only"):
-        GammaClient(sport_family=family)
+def test_gamma_accepts_registered_direct_sport_families(family) -> None:
+    client = GammaClient(sport_family=family)
+    assert client.sport_family == family
+    assert client.sport_profile.expected_token_count == 2
+
+
+def test_gamma_rejects_unknown_sport_family_before_network() -> None:
+    with pytest.raises(ValueError, match="unsupported"):
+        GammaClient(sport_family="cricket")
 
 
 @pytest.mark.parametrize(
@@ -682,8 +690,50 @@ def test_shallow_book_is_censored_not_imputed() -> None:
         "bids": [{"price": "0.91", "size": "20"}],
         "asks": [{"price": "0.92", "size": "1"}],
     }
-    with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
+    with pytest.raises(ClobResponseUnavailableError, match="full requested"):
         _walk_buy_book(book, "token", 5.0)
+
+
+def test_adaptive_buy_uses_largest_full_fill_ladder_amount() -> None:
+    book_json = json.dumps(
+        {
+            "schema_version": 1,
+            "token_id": "token",
+            "bids": [{"price": 0.79, "size": 100}],
+            "asks": [
+                {"price": 0.80, "size": 20},
+                {"price": 0.81, "size": 10},
+            ],
+        }
+    )
+    selection = select_adaptive_buy_from_book_evidence(
+        book_json,
+        target_notional_usdc=30,
+        notional_ladder_usdc=(5, 10, 15, 20, 25, 30),
+        baseline_notional_usdc=5,
+        max_limit_price=0.81,
+    )
+    assert selection.selected_notional_usdc == 20
+    assert selection.max_executable_notional_usdc == pytest.approx(24.1)
+    assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+
+
+def test_capacity_evidence_records_buy_and_immediate_sell_depth() -> None:
+    payload = json.loads(
+        build_execution_capacity_evidence(
+            json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": "token",
+                    "bids": [{"price": 0.79, "size": 20}],
+                    "asks": [{"price": 0.80, "size": 20}],
+                }
+            ),
+            (5, 10, 25),
+        )
+    )
+    assert [row["buy_full_fill"] for row in payload["notionals"]] == [True, True, False]
+    assert payload["notionals"][0]["sell_full_fill"] is True
 
 
 def test_full_share_sell_walk_uses_deeper_bids_and_market_limit() -> None:

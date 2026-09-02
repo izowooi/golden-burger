@@ -7,6 +7,7 @@ from polybot.config import (
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
+    SIMULATION_SCALING_NOTIONALS_USDC,
     load_config,
 )
 
@@ -57,6 +58,8 @@ def test_eco_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64
+    assert config.trading.scaling_notionals_usdc == ()
+    assert config.trading.expected_token_count == 6
 
 
 def test_fruit_differs_only_by_five_point_profit_target(monkeypatch) -> None:
@@ -78,12 +81,13 @@ def test_grey_is_credential_free_simulation(monkeypatch) -> None:
     assert config.db_path == Path("data/peach-shadow-1m-v1/trades_sim.db")
     assert config.api.private_key == ""
     assert config.api.funder_address == ""
+    assert config.trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
 
 
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("POLYBOT_BUY_AMOUNT", "5.01", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "4.99", "notional"),
         ("POLYBOT_MAX_POSITIONS", "19", "exposure"),
         ("POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE", "20", "exposure"),
         ("POLYBOT_MIN_LIQUIDITY", "1", "liquidity gate"),
@@ -131,3 +135,45 @@ def test_runtime_name_mode_and_credentials_fail_closed(monkeypatch) -> None:
     monkeypatch.setenv("POLYBOT_TAKE_PROFIT_DELTA", "0.05")
     with pytest.raises(ValueError, match="must not receive wallet credentials"):
         load_config("config.yaml", "peach-shadow-1m-v1", simulation_mode=True)
+
+
+@pytest.mark.parametrize("amount", [5.01, 10, 250, 1000])
+def test_adaptive_target_buy_amount_is_accepted(monkeypatch, amount) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_BUY_AMOUNT", str(amount))
+    config = load_config(
+        "config.yaml", "peach-live-eco-3pp-1m-v1", simulation_mode=False
+    )
+    assert config.trading.buy_amount_usdc == amount
+
+
+@pytest.mark.parametrize(
+    ("family", "job"),
+    [
+        ("mlb", "peach-shadow-mlb-1m-v2"),
+        ("nba", "peach-shadow-nba-1m-v2"),
+        ("nfl", "peach-shadow-nfl-1m-v2"),
+        ("nhl", "peach-shadow-nhl-1m-v2"),
+    ],
+)
+def test_direct_sport_profiles_are_shadow_only(monkeypatch, family, job) -> None:
+    _no_credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_TAKE_PROFIT_DELTA", "0.05")
+    config = load_config("config.yaml", job, simulation_mode=True)
+    assert config.trading.sport_family == family
+    assert config.trading.expected_market_count == 1
+    assert config.trading.expected_token_count == 2
+    assert config.trading.source_clock_required is False
+
+    _credentials(monkeypatch)
+    with pytest.raises(ValueError, match="shadow-only"):
+        load_config("config.yaml", job, simulation_mode=False)
+
+
+def test_live_runtime_rejects_direct_sport_override(monkeypatch) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "mlb")
+    with pytest.raises(ValueError, match="must remain soccer"):
+        load_config(
+            "config.yaml", "peach-live-eco-3pp-1m-v1", simulation_mode=False
+        )

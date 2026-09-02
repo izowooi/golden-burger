@@ -96,11 +96,13 @@ class PolymarketBot:
         entry = trading.entry
         archive = trading.archive
         logger.info(
-            "Golden Peach %s exact $5 six-token leader VWAP [%.3f, %.3f], "
-            "source minute <= %.0f, in-play age [%.1f, %.1f]h",
+            "Golden Peach %s baseline-$5 %s leader VWAP [%.3f, %.3f], "
+            "tokens=%s source minute <= %.0f, in-play age [%.1f, %.1f]h",
             trading.sport_family,
+            trading.book_shape,
             entry.prob_min,
             entry.prob_max,
+            trading.expected_token_count,
             entry.max_source_minute,
             entry.hours_min,
             entry.hours_max,
@@ -131,7 +133,7 @@ class PolymarketBot:
         )
         logger.info(
             "server envelope - live %s; Gamma liquidity>=%.0f volume>=%.0f; "
-            "exact-$5 CLOB depth gate; in_play_hours<=%.0f retention=%sd",
+            "baseline-$5 CLOB depth gate; in_play_hours<=%.0f retention=%sd",
             trading.sport_family,
             trading.min_liquidity,
             trading.min_cumulative_volume,

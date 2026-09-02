@@ -12,7 +12,11 @@ from uuid import uuid4
 
 import requests
 
-from ..config import SPORT_FAMILY_MAX_IN_PLAY_HOURS, SPORT_FAMILY_TAG_IDS
+from ..config import (
+    SPORT_FAMILY_MAX_IN_PLAY_HOURS,
+    SPORT_FAMILY_TAG_IDS,
+    SPORT_PARAMETER_PROFILES,
+)
 from ..league_classifier import classify_sports_event
 from ..strategy.filters import match_result_reason
 from ..utils.deadline import CycleBudget
@@ -31,6 +35,7 @@ class GammaClient:
     READ_TIMEOUT_SECONDS = 5.0
     PAGE_SIZE = 500
     MAX_SWEEP_PAGES = 4
+    DIRECT_SPORT_MAX_SWEEP_PAGES = 2
     SWEEP_SCHEMA_VERSION = 2
 
     def __init__(
@@ -40,9 +45,13 @@ class GammaClient:
         cycle_budget: Optional[CycleBudget] = None,
     ):
         normalized_family = str(sport_family or "").strip().lower()
-        if normalized_family != "soccer":
-            raise ValueError("Golden Peach is soccer-only")
+        if normalized_family not in SPORT_FAMILY_TAG_IDS:
+            raise ValueError(
+                f"unsupported Golden Peach sport family: "
+                f"{normalized_family or '<empty>'}"
+            )
         self.sport_family = normalized_family
+        self.sport_profile = SPORT_PARAMETER_PROFILES[normalized_family]
         self.tag_id = SPORT_FAMILY_TAG_IDS[normalized_family]
         self.max_in_play_hours = SPORT_FAMILY_MAX_IN_PLAY_HOURS[normalized_family]
         self.cycle_budget = cycle_budget
@@ -261,7 +270,13 @@ class GammaClient:
         qualified: Dict[str, Dict[str, Any]] = {}
 
         page_number = 0
-        while page_number < self.MAX_SWEEP_PAGES:
+        max_sweep_pages = min(
+            self.sport_profile.max_sweep_pages,
+            self.MAX_SWEEP_PAGES
+            if self.sport_family == "soccer"
+            else self.DIRECT_SPORT_MAX_SWEEP_PAGES,
+        )
+        while page_number < max_sweep_pages:
             page_number += 1
             params: Dict[str, Any] = {
                 "limit": self.PAGE_SIZE,
@@ -329,8 +344,10 @@ class GammaClient:
                 break
             if next_cursor == after_cursor or next_cursor in seen_cursors:
                 raise RuntimeError("Gamma event keyset cursor did not advance")
-            if page_number == self.MAX_SWEEP_PAGES:
-                raise RuntimeError("Gamma event keyset exceeded the four-page cap")
+            if page_number == max_sweep_pages:
+                raise RuntimeError(
+                    "Gamma event keyset exceeded the configured page cap"
+                )
             seen_cursors.add(next_cursor)
             after_cursor = next_cursor
         ordered_memberships = sorted(
@@ -378,6 +395,9 @@ class GammaClient:
             "request_endpoint": "/events/keyset",
             "tag_id": self.tag_id,
             "sport_family": self.sport_family,
+            "sport_profile_version": self.sport_profile.profile_version,
+            "book_shape": self.sport_profile.book_shape,
+            "max_sweep_pages": max_sweep_pages,
             "related_tags": False,
             "live_only": True,
             "max_in_play_hours": self.max_in_play_hours,
@@ -403,7 +423,11 @@ class GammaClient:
             )
             response.raise_for_status()
             markets = response.json()
-            return dict(markets[0]) if isinstance(markets, list) and markets else None
+            if not isinstance(markets, list) or not markets:
+                return None
+            market = dict(markets[0])
+            market["sportFamily"] = self.sport_family
+            return market
         except requests.exceptions.RequestException as error:
             logger.warning(
                 "Gamma market lookup failed - condition=%s error=%s",

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import math
 from types import SimpleNamespace
 
@@ -166,6 +167,18 @@ class _Clob:
                 1,
             )
         return walks
+
+    def get_cached_book_evidence(self, token_id):
+        return json.dumps(
+            {
+                "schema_version": 1,
+                "token_id": token_id,
+                "bids": [{"price": self.best_bid, "size": 10_000}],
+                "asks": [{"price": self.best_ask, "size": 10_000}],
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
 
     def place_fok_buy(self, **order):
         self.orders.append(order)

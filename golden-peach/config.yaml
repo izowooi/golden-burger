@@ -1,4 +1,4 @@
-# Golden Peach — kickoff leader-following soccer A/B.
+# Golden Peach — in-play direct-book leader A/B.
 # env > config.yaml > defaults. Real orders always require explicit --live.
 
 trading:
@@ -6,12 +6,12 @@ trading:
   sport_family: soccer
   buy_amount_usdc: 5.0
 
-  # Gamma server-side prefilter, followed by direct six-token exact-$5 books.
+  # Gamma server-side prefilter, followed by baseline-$5 direct books.
   min_liquidity: 5000
   min_volume_24h: 0
   min_cumulative_volume: 5000
 
-  # Ten simultaneous games at exact $5. One event may fill exactly once.
+  # Ten simultaneous games. One event may fill exactly once.
   max_positions: 10
   max_event_positions: 1
   max_new_positions_per_cycle: 5

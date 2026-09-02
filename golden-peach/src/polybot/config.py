@@ -29,13 +29,52 @@ FROZEN_JOB_TAKE_PROFIT = {
     "peach-live-eco-3pp-1m-v1": 0.03,
     "peach-live-fruit-5pp-1m-v1": 0.05,
     "peach-shadow-1m-v1": 0.05,
+    "peach-shadow-mlb-1m-v2": 0.05,
+    "peach-shadow-nba-1m-v2": 0.05,
+    "peach-shadow-nfl-1m-v2": 0.05,
+    "peach-shadow-nhl-1m-v2": 0.05,
 }
+FROZEN_JOB_SPORT_FAMILY = {
+    "peach-live-eco-3pp-1m-v1": "soccer",
+    "peach-live-fruit-5pp-1m-v1": "soccer",
+    "peach-shadow-1m-v1": "soccer",
+    "peach-shadow-mlb-1m-v2": "mlb",
+    "peach-shadow-nba-1m-v2": "nba",
+    "peach-shadow-nfl-1m-v2": "nfl",
+    "peach-shadow-nhl-1m-v2": "nhl",
+}
+FROZEN_SIMULATION_JOBS = frozenset(
+    job for job in FROZEN_JOB_SPORT_FAMILY if "-shadow-" in job
+)
+SIMULATION_SCALING_NOTIONALS_USDC = (
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    40.0,
+    50.0,
+    75.0,
+    100.0,
+    150.0,
+    200.0,
+    250.0,
+    500.0,
+    750.0,
+    1000.0,
+)
+BASELINE_EXECUTION_NOTIONAL_USDC = 5.0
+MAX_TARGET_BUY_NOTIONAL_USDC = 1000.0
+ADAPTIVE_BUY_NOTIONAL_LADDER_USDC = SIMULATION_SCALING_NOTIONALS_USDC
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
+NBA_TAG_ID = 745
+NFL_TAG_ID = 450
 NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-CLASSIFIER_VERSION = "peach-soccer-eight-competitions-v1"
+CLASSIFIER_VERSION = "peach-major-sports-family-contract-v2"
 SOURCE_PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 
@@ -63,17 +102,88 @@ class DirectSportIdentity:
 
 DIRECT_SPORT_IDENTITIES = {
     "mlb": DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
+    "nba": DirectSportIdentity("nba", 34, "NBA", NBA_TAG_ID, 10345, "nba"),
+    "nfl": DirectSportIdentity("nfl", 10, "NFL", NFL_TAG_ID, 10187, "nfl"),
     "nhl": DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
 }
 SPORT_FAMILY_TAG_IDS = {
     "soccer": SOCCER_TAG_ID,
     "mlb": MLB_TAG_ID,
+    "nba": NBA_TAG_ID,
+    "nfl": NFL_TAG_ID,
     "nhl": NHL_TAG_ID,
 }
 SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
     "soccer": 4.0,
     "mlb": 8.0,
+    "nba": 5.0,
+    "nfl": 6.0,
     "nhl": 5.0,
+}
+
+
+@dataclass(frozen=True)
+class SportParameterProfile:
+    """Per-sport market shape and evidence contract.
+
+    Eco/Fruit remain soccer-only live jobs.  The direct-sport profiles are
+    intentionally simulation-only until their kickoff-clock coverage and
+    sport-specific TP/SL values have enough evidence for a separate frozen
+    live cohort.
+    """
+
+    code: str
+    profile_version: str
+    book_shape: str
+    expected_result_kinds: tuple[str, ...]
+    expected_market_count: int
+    expected_token_count: int
+    source_clock_required: bool
+    max_sweep_pages: int
+    max_in_play_hours: float
+
+    def canonical_dict(self) -> dict[str, Any]:
+        return {
+            "book_shape": self.book_shape,
+            "code": self.code,
+            "expected_market_count": self.expected_market_count,
+            "expected_result_kinds": list(self.expected_result_kinds),
+            "expected_token_count": self.expected_token_count,
+            "max_in_play_hours": self.max_in_play_hours,
+            "max_sweep_pages": self.max_sweep_pages,
+            "profile_version": self.profile_version,
+            "source_clock_required": self.source_clock_required,
+        }
+
+
+SPORT_PARAMETER_PROFILES = {
+    "soccer": SportParameterProfile(
+        code="soccer",
+        profile_version="peach-soccer-kickoff-v3",
+        book_shape="direct-six-result-books",
+        expected_result_kinds=("HOME", "DRAW", "AWAY"),
+        expected_market_count=3,
+        expected_token_count=6,
+        source_clock_required=True,
+        max_sweep_pages=4,
+        max_in_play_hours=4.0,
+    ),
+    **{
+        family: SportParameterProfile(
+            code=family,
+            profile_version=f"peach-{family}-shadow-ready-v1",
+            book_shape="direct-two-team-moneyline",
+            expected_result_kinds=("HOME", "AWAY"),
+            expected_market_count=1,
+            expected_token_count=2,
+            # Gamma's scheduled start is kept as a coarse shadow-only clock.
+            # No direct-sport live runtime is registered from this evidence.
+            source_clock_required=False,
+            max_sweep_pages=2,
+            max_in_play_hours=SPORT_FAMILY_MAX_IN_PLAY_HOURS[family],
+        )
+        for family in ("mlb", "nba", "nfl", "nhl")
+    },
 }
 
 
@@ -180,6 +290,10 @@ def league_registry_payload(
         },
         "sport_family_tag_ids": SPORT_FAMILY_TAG_IDS,
         "sport_family_max_in_play_hours": SPORT_FAMILY_MAX_IN_PLAY_HOURS,
+        "sport_parameter_profiles": {
+            code: profile.canonical_dict()
+            for code, profile in sorted(SPORT_PARAMETER_PROFILES.items())
+        },
     }
 
 
@@ -363,6 +477,15 @@ class TradingConfig:
     preregistration_sha256: str = ""
     classifier_version: str = CLASSIFIER_VERSION
     league_mapping_sha256: str = LEAGUE_MAPPING_SHA256
+    sport_profile_version: str = SPORT_PARAMETER_PROFILES["soccer"].profile_version
+    book_shape: str = SPORT_PARAMETER_PROFILES["soccer"].book_shape
+    expected_result_kinds: tuple[str, ...] = (
+        SPORT_PARAMETER_PROFILES["soccer"].expected_result_kinds
+    )
+    expected_market_count: int = SPORT_PARAMETER_PROFILES["soccer"].expected_market_count
+    expected_token_count: int = SPORT_PARAMETER_PROFILES["soccer"].expected_token_count
+    source_clock_required: bool = SPORT_PARAMETER_PROFILES["soccer"].source_clock_required
+    scaling_notionals_usdc: tuple[float, ...] = ()
     entry: PeachEntryConfig = field(default_factory=PeachEntryConfig)
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     excluded_categories: List[str] = field(default_factory=list)
@@ -399,6 +522,12 @@ def _validate_config(
     """Reject cohort or mode drift before any network/database mutation."""
     entry = trading.entry
     archive = trading.archive
+    profile = SPORT_PARAMETER_PROFILES.get(trading.sport_family)
+    if profile is None:
+        raise ValueError(
+            f"unsupported Golden Peach sport family: "
+            f"{trading.sport_family or '<empty>'}"
+        )
     numeric = {
         "buy_amount_usdc": trading.buy_amount_usdc,
         "min_liquidity": trading.min_liquidity,
@@ -448,10 +577,24 @@ def _validate_config(
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
         )
-    if trading.sport_family != "soccer":
-        raise ValueError("Golden Peach is frozen to soccer")
-    if trading.buy_amount_usdc != 5:
-        raise ValueError("Golden Peach notional must remain exactly $5")
+    if not simulation_mode and trading.sport_family != "soccer":
+        raise ValueError(
+            "Golden Peach direct-sport profiles are shadow-only until their "
+            "kickoff-clock and sport-specific parameters are frozen"
+        )
+    if not (
+        BASELINE_EXECUTION_NOTIONAL_USDC
+        <= trading.buy_amount_usdc
+        <= MAX_TARGET_BUY_NOTIONAL_USDC
+    ) or not math.isclose(
+        trading.buy_amount_usdc * 100,
+        round(trading.buy_amount_usdc * 100),
+        rel_tol=0,
+        abs_tol=1e-9,
+    ):
+        raise ValueError(
+            "Golden Peach target notional must be $5-$1000 in cent precision"
+        )
     if (
         trading.min_liquidity != 5000
         or trading.min_cumulative_volume != 5000
@@ -459,7 +602,7 @@ def _validate_config(
     ):
         raise ValueError(
             "Golden Peach liquidity gate is frozen at $5k cumulative "
-            "volume/$5k liquidity plus an exact-$5 executable-book gate"
+            "volume/$5k liquidity plus a baseline-$5 executable-book gate"
         )
     if (
         trading.max_positions != 10
@@ -467,11 +610,8 @@ def _validate_config(
         or trading.max_new_positions_per_cycle != 5
     ):
         raise ValueError("Golden Peach exposure limits are frozen at 10/1/5")
-    if (
-        trading.buy_amount_usdc * trading.max_new_positions_per_cycle
-        != 25
-    ):
-        raise ValueError("per-cycle new BUY notional must remain capped at $25")
+    if trading.buy_amount_usdc * trading.max_new_positions_per_cycle > 5000:
+        raise ValueError("per-cycle target BUY notional must not exceed $5000")
     if trading.max_emergency_sells_per_cycle != 10:
         raise ValueError("all ten independent event exits must remain available")
     if trading.experiment_capital_usdc != 50:
@@ -504,7 +644,12 @@ def _validate_config(
         raise ValueError(
             f"{job_name} take-profit delta must remain {expected_take_profit:.2f}"
         )
-    expected_simulation = job_name == "peach-shadow-1m-v1"
+    expected_family = FROZEN_JOB_SPORT_FAMILY.get(job_name)
+    if trading.sport_family != expected_family:
+        raise ValueError(
+            f"{job_name} sport family must remain {expected_family}"
+        )
+    expected_simulation = job_name in FROZEN_SIMULATION_JOBS
     if simulation_mode is not expected_simulation:
         expected_mode = "simulation" if expected_simulation else "live"
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
@@ -530,7 +675,21 @@ def _validate_config(
         raise ValueError(
             "stop execution safety is frozen at 5pp slippage, 10pp spread, full live-gap loss"
         )
-    expected_hours_max = 4.0
+    if (
+        trading.sport_profile_version != profile.profile_version
+        or trading.book_shape != profile.book_shape
+        or trading.expected_result_kinds != profile.expected_result_kinds
+        or trading.expected_market_count != profile.expected_market_count
+        or trading.expected_token_count != profile.expected_token_count
+        or trading.source_clock_required is not profile.source_clock_required
+    ):
+        raise ValueError("sport-specific market-shape profile drift")
+    expected_scaling = (
+        SIMULATION_SCALING_NOTIONALS_USDC if simulation_mode else ()
+    )
+    if trading.scaling_notionals_usdc != expected_scaling:
+        raise ValueError("simulation sizing ladder or live empty-ladder contract drift")
+    expected_hours_max = profile.max_in_play_hours
     if entry.hours_min != 0 or entry.hours_max != expected_hours_max:
         raise ValueError(
             f"{trading.sport_family} in-play age window must remain "
@@ -543,7 +702,7 @@ def _validate_config(
         )
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
-    smallest_order = trading.buy_amount_usdc / entry.prob_max
+    smallest_order = BASELINE_EXECUTION_NOTIONAL_USDC / entry.prob_max
     if smallest_order + 1e-9 < trading.min_order_size:
         raise ValueError("$5 cannot satisfy the venue minimum at entry.prob_max")
     if not isinstance(trading.excluded_categories, list) or any(
@@ -598,6 +757,28 @@ def load_config(
     archive_cfg = trading_cfg.get("archive", {})
     if not isinstance(entry_cfg, dict) or not isinstance(archive_cfg, dict):
         raise ValueError("trading.entry and trading.archive must be mappings")
+    frozen_sport_family = FROZEN_JOB_SPORT_FAMILY.get(job_name)
+    requested_sport_family = str(
+        os.getenv(
+            "POLYBOT_SPORT_FAMILY",
+            trading_cfg.get("sport_family", "soccer"),
+        )
+    ).strip().lower()
+    resolved_sport_family = frozen_sport_family or requested_sport_family
+    if (
+        frozen_sport_family is not None
+        and os.getenv("POLYBOT_SPORT_FAMILY") is not None
+        and requested_sport_family != frozen_sport_family
+    ):
+        raise ValueError(
+            f"{job_name} sport family must remain {frozen_sport_family}"
+        )
+    profile = SPORT_PARAMETER_PROFILES.get(resolved_sport_family)
+    if profile is None:
+        raise ValueError(
+            f"unsupported Golden Peach sport family: "
+            f"{resolved_sport_family or '<empty>'}"
+        )
 
     frozen_take_profit = FROZEN_JOB_TAKE_PROFIT.get(job_name, 0.03)
     entry = PeachEntryConfig(
@@ -674,7 +855,9 @@ def load_config(
             "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ENTRY_HOURS_MAX", entry_cfg.get("hours_max"), 4.0
+            "POLYBOT_ENTRY_HOURS_MAX",
+            entry_cfg.get("hours_max") if resolved_sport_family == "soccer" else None,
+            profile.max_in_play_hours,
         ),
     )
     archive = ArchiveConfig(
@@ -682,7 +865,9 @@ def load_config(
             "POLYBOT_ARCHIVE_PROB_MIN", archive_cfg.get("prob_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ARCHIVE_HOURS_MAX", archive_cfg.get("hours_max"), 4.0
+            "POLYBOT_ARCHIVE_HOURS_MAX",
+            archive_cfg.get("hours_max") if resolved_sport_family == "soccer" else None,
+            profile.max_in_play_hours,
         ),
         retention_days=_get_config_value(
             "POLYBOT_SNAPSHOT_RETENTION_DAYS",
@@ -701,12 +886,7 @@ def load_config(
 
     trading = TradingConfig(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
-        sport_family=str(
-            os.getenv(
-                "POLYBOT_SPORT_FAMILY",
-                trading_cfg.get("sport_family", "soccer"),
-            )
-        ).strip().lower(),
+        sport_family=resolved_sport_family,
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
@@ -798,6 +978,17 @@ def load_config(
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
         preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),
+        sport_profile_version=profile.profile_version,
+        book_shape=profile.book_shape,
+        expected_result_kinds=profile.expected_result_kinds,
+        expected_market_count=profile.expected_market_count,
+        expected_token_count=profile.expected_token_count,
+        source_clock_required=profile.source_clock_required,
+        scaling_notionals_usdc=(
+            SIMULATION_SCALING_NOTIONALS_USDC
+            if job_name in FROZEN_SIMULATION_JOBS
+            else ()
+        ),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

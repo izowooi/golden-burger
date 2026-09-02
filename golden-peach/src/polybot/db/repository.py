@@ -1025,6 +1025,13 @@ class TradeRepository:
         source_elapsed_minutes: Optional[float] = None,
         source_clock_reason: Optional[str] = None,
         book_json: Optional[str] = None,
+        execution_capacity_json: Optional[str] = None,
+        sport_family: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
+        market_tags_json: Optional[str] = None,
+        sport_profile_version: Optional[str] = None,
+        book_shape: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
     ) -> MarketSnapshot:
@@ -1048,7 +1055,14 @@ class TradeRepository:
             source_elapsed_minutes=source_elapsed_minutes,
             source_clock_reason=source_clock_reason,
             book_json=book_json,
+            execution_capacity_json=execution_capacity_json,
             run_id=current_run_id(),
+            sport_family=str(sport_family or "") or None,
+            league_code=str(league_code or "") or None,
+            league_name=str(league_name or "") or None,
+            market_tags_json=market_tags_json,
+            sport_profile_version=str(sport_profile_version or "") or None,
+            book_shape=str(book_shape or "") or None,
         )
         self.session.add(snapshot)
         self.session.flush()
@@ -1363,6 +1377,9 @@ class TradeRepository:
                 ],
                 ensure_ascii=False,
             ),
+            "sport_family": str(market.get("sportFamily") or "") or None,
+            "league_code": str(market.get("leagueCode") or "") or None,
+            "league_name": str(market.get("leagueName") or "") or None,
             "neg_risk": bool_int(market.get("negRisk")),
             "active": bool_int(market.get("active")),
             "closed": bool_int(market.get("closed")),

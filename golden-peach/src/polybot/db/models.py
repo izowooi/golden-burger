@@ -107,6 +107,14 @@ class Trade(Base):
     liquidity_at_buy = Column(Float)
     volume_24h_at_buy = Column(Float)
     market_tags = Column(String)
+    sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
+    market_tags_json = Column(String)
+    target_buy_amount_usdc = Column(Float)
+    selected_buy_amount_usdc = Column(Float)
+    max_executable_buy_notional_usdc = Column(Float)
+    buy_notional_fallback_reason = Column(String)
 
     # Entry crossing and immutable strategy thresholds.
     prior_yes_price_at_entry = Column(Float)
@@ -155,7 +163,7 @@ class Trade(Base):
 
 
 class MarketSnapshot(Base):
-    """Exact-$5 outcome VWAP with explicit token/outcome identity."""
+    """Baseline-$5 outcome VWAP with sport, token, and sizing evidence."""
 
     __tablename__ = "market_snapshots"
 
@@ -177,7 +185,14 @@ class MarketSnapshot(Base):
     source_elapsed_minutes = Column(Float)
     source_clock_reason = Column(String)
     book_json = Column(String)
+    execution_capacity_json = Column(String)
     run_id = Column(String)
+    sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
+    market_tags_json = Column(String)
+    sport_profile_version = Column(String)
+    book_shape = Column(String)
     timestamp = Column(DateTime, default=datetime.utcnow, index=True)
 
 
@@ -244,6 +259,9 @@ class MarketCatalog(Base):
     outcome_prices_json = Column(String, nullable=False, default="[]")
     token_ids_json = Column(String, nullable=False, default="[]")
     tags_json = Column(String, nullable=False, default="[]")
+    sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
     neg_risk = Column(Integer)
     active = Column(Integer)
     closed = Column(Integer)
@@ -320,6 +338,7 @@ class SkippedMarket(Base):
 
 
 _TRADE_MIGRATION_COLUMNS = {
+    "buy_timestamp": "DATETIME",
     "event_id": "TEXT",
     "event_slug": "TEXT",
     "outcome_side": "TEXT",
@@ -368,6 +387,14 @@ _TRADE_MIGRATION_COLUMNS = {
     "resolution_confirmed_buy_fee_usdc": "REAL",
     "settlement_pnl_assumption": "REAL",
     "settlement_assumption_basis": "TEXT",
+    "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
+    "market_tags_json": "TEXT",
+    "target_buy_amount_usdc": "REAL",
+    "selected_buy_amount_usdc": "REAL",
+    "max_executable_buy_notional_usdc": "REAL",
+    "buy_notional_fallback_reason": "TEXT",
 }
 
 
@@ -407,7 +434,14 @@ def init_database(
             "source_elapsed_minutes": "REAL",
             "source_clock_reason": "TEXT",
             "book_json": "TEXT",
+            "execution_capacity_json": "TEXT",
             "run_id": "TEXT",
+            "sport_family": "TEXT",
+            "league_code": "TEXT",
+            "league_name": "TEXT",
+            "market_tags_json": "TEXT",
+            "sport_profile_version": "TEXT",
+            "book_shape": "TEXT",
         }.items():
             try:
                 connection.execute(
@@ -444,6 +478,9 @@ def init_database(
         for name, sql_type in {
             "fee_exponent": "INTEGER",
             "fee_taker_only": "INTEGER",
+            "sport_family": "TEXT",
+            "league_code": "TEXT",
+            "league_name": "TEXT",
         }.items():
             try:
                 connection.execute(
@@ -464,6 +501,18 @@ def init_database(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
+                "ON market_snapshots(sport_family, league_code, timestamp)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS trades_sport_league_time_idx "
+                "ON trades(sport_family, league_code, buy_timestamp)"
             )
         )
         connection.execute(

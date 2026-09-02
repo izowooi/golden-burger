@@ -16,7 +16,7 @@ from .utils.run_lock import exclusive_job_run_lock
 
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="Golden Peach - soccer kickoff six-token leader A/B"
+        description="Golden Peach - in-play direct-book leader A/B"
     )
     commands = parser.add_subparsers(dest="command")
     run = commands.add_parser("run", help="Run one archive/trading cycle")
@@ -139,20 +139,23 @@ def main() -> None:
         return
 
     trading = config.trading
-    print("=== Golden Peach / Soccer Kickoff Six-Token Leader ===")
+    print("=== Golden Peach / In-Play Direct-Book Leader ===")
     print(f"Job: {config.job_name}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     print(f"Sport Family: {trading.sport_family}")
     print(f"DB: {config.db_path}")
-    print("Direct HOME/DRAW/AWAY YES and NO books are compared (6 tokens/event)")
+    print(
+        f"Book shape: {trading.book_shape} "
+        f"({trading.expected_token_count} tokens/event)"
+    )
     print(
         "Cohort source/preregistration: "
         f"{trading.strategy_source_digest[:12]}/"
         f"{trading.preregistration_sha256[:12]}"
     )
     print(
-        "Exact $5 ask VWAP band: "
+        "Baseline-$5 ask VWAP band: "
         f"[{trading.entry.prob_min:.3f}, {trading.entry.prob_max:.3f}]"
     )
     print(
@@ -167,13 +170,14 @@ def main() -> None:
         "losing position holds to proven resolution"
     )
     print(
-        f"Order: ${trading.buy_amount_usdc:.2f}, min shares "
+        f"Target order: ${trading.buy_amount_usdc:.2f}; one atomic FOK is reduced "
+        f"to the largest executable ladder amount down to $5; min shares "
         f"{trading.min_order_size:.2f} + {trading.min_order_buffer_shares:.2f} buffer"
     )
     print(
         f"Server universe: live {trading.sport_family}; cumulative volume >= "
         f"${trading.min_cumulative_volume:.0f}, liquidity >= "
-        f"${trading.min_liquidity:.0f}; fresh exact-$5 CLOB depth is final gate"
+        f"${trading.min_liquidity:.0f}; fresh baseline-$5 CLOB depth is final gate"
     )
     print(
         f"Limits: {trading.max_positions} total, "
@@ -202,7 +206,8 @@ def main() -> None:
         f"{trading.experiment_entry_end_utc})"
     )
     print(
-        f"Archive: six direct books, <= {trading.archive.hours_max:.0f}h in play, "
+        f"Archive: {trading.expected_token_count} direct books, "
+        f"<= {trading.archive.hours_max:.0f}h in play, "
         f"{trading.archive.retention_days}d retention"
     )
 

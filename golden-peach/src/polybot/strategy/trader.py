@@ -19,9 +19,14 @@ from ..api.clob_client import (
     ClobClientWrapper,
     ClobResolutionProof,
     PreSubmissionContractError,
+    select_adaptive_buy_from_book_evidence,
 )
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import (
+    ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+    BASELINE_EXECUTION_NOTIONAL_USDC,
+    TradingConfig,
+)
 from ..db.models import (
     BUY_ISOLATION_REASONS,
     BUY_RECONCILIATION_QUARANTINE_REASON,
@@ -35,7 +40,7 @@ from ..db.repository import ExactFillEvidence, TradeRepository
 from .filters import get_aligned_binary_outcomes, get_event, get_proven_resolution
 from .scanner import (
     get_hours_since_game_start,
-    get_source_regulation_minute,
+    get_source_progress,
     parse_end_date,
 )
 
@@ -131,6 +136,24 @@ def _entry_stop_price(entry_vwap: float, config: TradingConfig) -> float:
         ),
         6,
     )
+
+
+def _valid_adaptive_buy_amount(value: float, config: TradingConfig) -> bool:
+    """Accept only the configured target or a frozen, smaller ladder amount."""
+
+    if not math.isfinite(value):
+        return False
+    candidates = {
+        float(config.buy_amount_usdc),
+        *(
+            float(item)
+            for item in ADAPTIVE_BUY_NOTIONAL_LADDER_USDC
+            if BASELINE_EXECUTION_NOTIONAL_USDC
+            <= float(item)
+            <= float(config.buy_amount_usdc)
+        ),
+    }
+    return any(math.isclose(value, item, rel_tol=0, abs_tol=1e-6) for item in candidates)
 
 
 def _effective_stop_price(trade: object, config: TradingConfig) -> float:
@@ -338,7 +361,9 @@ class Trader:
     def _source_minute_for_trade(self, trade) -> tuple[Optional[float], str]:
         market = self._cycle_markets.get(str(trade.condition_id))
         if isinstance(market, dict):
-            minute, reason = get_source_regulation_minute(get_event(market))
+            minute, reason = get_source_progress(
+                get_event(market), self.config.sport_family
+            )
             if minute is not None:
                 return minute, reason
         event_id = str(getattr(trade, "event_id", "") or "").strip()
@@ -353,7 +378,9 @@ class Trader:
                 )
             else:
                 if isinstance(event, Mapping):
-                    minute, reason = get_source_regulation_minute(dict(event))
+                    minute, reason = get_source_progress(
+                        dict(event), self.config.sport_family
+                    )
                     if minute is not None:
                         return minute, f"GAMMA_EVENT_FALLBACK:{reason}"
         return None, "CURRENT_SOURCE_CLOCK_UNPROVEN"
@@ -422,7 +449,7 @@ class Trader:
         return None
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
-        """Revalidate the exact $5 walk, then submit a FOK BUY."""
+        """Revalidate the $5 signal book, then submit one adaptive FOK BUY."""
         self.last_entry_outcome_reason = None
         self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
@@ -431,7 +458,7 @@ class Trader:
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
         result_kind = str(candidate.get("result_kind") or "").strip()
-        if not outcome or result_kind not in {"HOME", "DRAW", "AWAY"}:
+        if not outcome or result_kind not in set(self.config.expected_result_kinds):
             logger.error(
                 "whole-match result identity missing: condition=%s outcome=%s result=%s",
                 condition_id,
@@ -527,7 +554,7 @@ class Trader:
             return self._reject_entry("in_play_window_revalidation_failed")
         market = self._cycle_markets.get(condition_id)
         source_minute, source_clock_reason = (
-            get_source_regulation_minute(get_event(market))
+            get_source_progress(get_event(market), self.config.sport_family, now=now)
             if isinstance(market, dict)
             else (None, "CURRENT_CYCLE_MARKET_MISSING")
         )
@@ -549,12 +576,15 @@ class Trader:
             for value in candidate.get("event_token_ids", [])
             if str(value).strip()
         ]
-        if len(event_token_ids) != 6 or len(set(event_token_ids)) != 6:
-            return self._reject_entry("six_token_fresh_revalidation_identity_gap")
+        if (
+            len(event_token_ids) != self.config.expected_token_count
+            or len(set(event_token_ids)) != self.config.expected_token_count
+        ):
+            return self._reject_entry("event_book_fresh_revalidation_identity_gap")
         try:
             fresh_walks = self.clob.get_buy_book_walks(
                 event_token_ids,
-                notional_usdc=self.config.buy_amount_usdc,
+                notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC,
             )
         except Exception as error:
             logger.warning(
@@ -565,8 +595,8 @@ class Trader:
             return self._reject_entry(
                 f"fresh_exact_book_{type(error).__name__}"
             )
-        if len(fresh_walks) != 6:
-            return self._reject_entry("fresh_six_token_book_coverage_gap")
+        if len(fresh_walks) != self.config.expected_token_count:
+            return self._reject_entry("fresh_event_book_coverage_gap")
         fresh_ranked = []
         for fresh_token in event_token_ids:
             item = fresh_walks.get(fresh_token)
@@ -576,7 +606,7 @@ class Trader:
                 or item.spread is None
                 or item.spread > self.config.entry.max_entry_spread + 1e-9
             ):
-                return self._reject_entry("fresh_six_token_book_contract_gap")
+                return self._reject_entry("fresh_event_book_contract_gap")
             fresh_ranked.append(
                 ((item.best_bid + item.best_ask) / 2.0, fresh_token, item)
             )
@@ -587,26 +617,48 @@ class Trader:
             or fresh_margin + 1e-9 < self.config.entry.min_leader_margin
         ):
             logger.info(
-                "fresh six-token leader changed - expected=%s actual=%s margin=%.6f",
+                "fresh event-book leader changed - expected=%s actual=%s margin=%.6f",
                 token_id[:16],
                 fresh_ranked[0][1][:16],
                 fresh_margin,
             )
-            return self._reject_entry("fresh_six_token_leader_changed")
-        walk = fresh_ranked[0][2]
+            return self._reject_entry("fresh_event_book_leader_changed")
+        baseline_walk = fresh_ranked[0][2]
         if not (
             self.config.entry.prob_min - 1e-9
-            <= walk.vwap
+            <= baseline_walk.vwap
             <= self.config.entry.prob_max + 1e-9
         ):
             logger.info(
                 "fresh exact VWAP left arm band - condition=%s vwap=%.4f band=%.3f-%.3f",
                 condition_id,
-                walk.vwap,
+                baseline_walk.vwap,
                 self.config.entry.prob_min,
                 self.config.entry.prob_max,
             )
             return self._reject_entry("fresh_exact_vwap_left_arm")
+        book_json = self.clob.get_cached_book_evidence(token_id)
+        if not book_json:
+            return self._reject_entry("fresh_direct_book_evidence_missing")
+        try:
+            selection = select_adaptive_buy_from_book_evidence(
+                book_json,
+                target_notional_usdc=self.config.buy_amount_usdc,
+                notional_ladder_usdc=ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+                baseline_notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC,
+                max_limit_price=self.config.entry.prob_max,
+            )
+        except Exception as error:
+            logger.warning(
+                "adaptive fresh-book selection failed - condition=%s error=%s",
+                condition_id,
+                type(error).__name__,
+            )
+            return self._reject_entry(
+                f"adaptive_fresh_book_{type(error).__name__}"
+            )
+        walk = selection.walk
+        selected_buy_amount = selection.selected_notional_usdc
         required = self.config.min_order_size + self.config.min_order_buffer_shares
         if walk.shares + 1e-9 < required:
             logger.warning(
@@ -625,12 +677,16 @@ class Trader:
             return self._reject_entry("fok_limit_not_orderable")
 
         logger.info(
-            "Golden Peach FOK BUY: '%s' result=%s side=%s exact_vwap=%.2f%% "
-            "best_ask=%.2f%% limit=%.2f%% shares=%.4f",
+            "Golden Peach FOK BUY: '%s' result=%s side=%s adaptive_vwap=%.2f%% "
+            "target=$%.2f selected=$%.2f max_displayed=$%.2f best_ask=%.2f%% "
+            "limit=%.2f%% shares=%.4f",
             str(candidate.get("question") or "")[:60],
             result_kind,
             outcome,
             walk.vwap * 100,
+            selection.target_notional_usdc,
+            selected_buy_amount,
+            selection.max_executable_notional_usdc,
             walk.best_ask * 100,
             walk.limit_price * 100,
             walk.shares,
@@ -648,7 +704,7 @@ class Trader:
         try:
             result = self.clob.place_fok_buy(
                 token_id=token_id,
-                amount_usdc=self.config.buy_amount_usdc,
+                amount_usdc=selected_buy_amount,
                 limit_price=walk.limit_price,
                 max_limit_price=self.config.entry.prob_max,
             )
@@ -704,7 +760,7 @@ class Trader:
             result_kind=result_kind,
             token_id=token_id,
             buy_price=walk.vwap,
-            buy_amount=self.config.buy_amount_usdc,
+            buy_amount=selected_buy_amount,
             buy_shares=submitted_shares,
             buy_order_id=result.get("orderID"),
             buy_timestamp=datetime.utcnow(),
@@ -715,7 +771,8 @@ class Trader:
                 else TradeStatus.PENDING_BUY
             ),
             entry_reason=(
-                "unique_six_token_kickoff_leader_exact_5_usdc_fok:"
+                f"unique_{self.config.expected_token_count}_token_kickoff_leader_"
+                "baseline_5_adaptive_fok:"
                 f"{str(candidate.get('candidate_kind') or result_kind)}"
             ),
             strategy_name=STRATEGY_NAME,
@@ -727,6 +784,16 @@ class Trader:
             liquidity_at_buy=candidate.get("liquidity"),
             volume_24h_at_buy=candidate.get("volume_24h"),
             market_tags=candidate.get("market_tags", ""),
+            sport_family=self.config.sport_family,
+            league_code=candidate.get("league_code"),
+            league_name=candidate.get("league_name"),
+            market_tags_json=candidate.get("market_tags_json"),
+            target_buy_amount_usdc=selection.target_notional_usdc,
+            selected_buy_amount_usdc=selected_buy_amount,
+            max_executable_buy_notional_usdc=(
+                selection.max_executable_notional_usdc
+            ),
+            buy_notional_fallback_reason=selection.fallback_reason,
             prior_yes_price_at_entry=None,
             yes_price_at_buy=candidate.get("yes_probability"),
             stop_price_at_entry=_entry_stop_price(walk.vwap, self.config),
@@ -830,12 +897,7 @@ class Trader:
                     catalog=catalog,
                 )
                 or str(submission.get("strategy_name") or "") != STRATEGY_NAME
-                or not math.isclose(
-                    signed_maker_usdc,
-                    self.config.buy_amount_usdc,
-                    rel_tol=0,
-                    abs_tol=1e-6,
-                )
+                or not _valid_adaptive_buy_amount(signed_maker_usdc, self.config)
                 or evidence.requested_size is None
                 or not math.isclose(
                     submitted_size,
@@ -873,11 +935,14 @@ class Trader:
                 event_id=episode.event_id,
                 event_slug=catalog.event_slug,
                 outcome=str(episode.outcome),
-                outcome_side=str(episode.outcome).upper(),
+                outcome_side=(
+                    getattr(snapshot, "outcome_side", None)
+                    or str(episode.outcome).upper()
+                ),
                 result_kind=getattr(snapshot, "result_kind", None),
                 token_id=token_id,
                 buy_price=evidence.confirmed_vwap,
-                buy_amount=self.config.buy_amount_usdc,
+                buy_amount=signed_maker_usdc,
                 buy_shares=evidence.confirmed_size,
                 buy_order_id=order_id,
                 buy_timestamp=_ledger_timestamp(
@@ -899,6 +964,23 @@ class Trader:
                 liquidity_at_buy=snapshot.liquidity,
                 volume_24h_at_buy=snapshot.volume_24h,
                 market_tags=catalog.tags_json,
+                sport_family=(
+                    getattr(snapshot, "sport_family", None)
+                    or self.config.sport_family
+                ),
+                league_code=(
+                    getattr(snapshot, "league_code", None)
+                    or getattr(catalog, "league_code", None)
+                ),
+                league_name=(
+                    getattr(snapshot, "league_name", None)
+                    or getattr(catalog, "league_name", None)
+                ),
+                market_tags_json=catalog.tags_json,
+                target_buy_amount_usdc=self.config.buy_amount_usdc,
+                selected_buy_amount_usdc=signed_maker_usdc,
+                max_executable_buy_notional_usdc=None,
+                buy_notional_fallback_reason="RECOVERED_FROM_EXECUTION_LEDGER",
                 prior_yes_price_at_entry=None,
                 yes_price_at_buy=_catalog_yes_probability(catalog),
                 stop_price_at_entry=_entry_stop_price(

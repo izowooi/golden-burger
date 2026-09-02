@@ -4368,7 +4368,7 @@ def _validate_watermelon_live_strategy(
 def _validate_peach_strategy(
     findings: list[Finding], strategy: str, directory: Path
 ) -> None:
-    """Validate the soccer kickoff direct-six-book live/shadow contract."""
+    """Validate Peach live soccer and multisport shadow/sizing contracts."""
 
     contracts = {
         "README.md": (
@@ -4378,6 +4378,10 @@ def _validate_peach_strategy(
             "peach-live-eco-3pp-1m-v1",
             "peach-live-fruit-5pp-1m-v1",
             "peach-shadow-1m-v1",
+            "peach-shadow-mlb-1m-v2",
+            "peach-shadow-nba-1m-v2",
+            "peach-shadow-nfl-1m-v2",
+            "peach-shadow-nhl-1m-v2",
             "직접 YES/NO 6개",
             "0~10분",
             "+0.03",
@@ -4396,6 +4400,8 @@ def _validate_peach_strategy(
             "180분",
             "QUARANTINED",
             "actual fill",
+            "동결 ladder",
+            "종목·리그·원본 태그",
         ),
         "OPERATIONS.md": (
             "/Volumes/t7/jenkins/polybot-eco",
@@ -4411,24 +4417,34 @@ def _validate_peach_strategy(
             "peach-live-eco-3pp-1m-v1",
             "peach-live-fruit-5pp-1m-v1",
             "peach-shadow-1m-v1",
-            "Golden Peach is frozen to soccer",
-            "Golden Peach notional must remain exactly $5",
+            "FROZEN_JOB_SPORT_FAMILY",
+            "peach-shadow-mlb-1m-v2",
+            "peach-shadow-nba-1m-v2",
+            "peach-shadow-nfl-1m-v2",
+            "peach-shadow-nhl-1m-v2",
+            "Golden Peach direct-sport profiles are shadow-only",
+            "Golden Peach target notional must be $5-$1000",
+            "SIMULATION_SCALING_NOTIONALS_USDC",
             "Golden Peach must inspect direct YES and NO books",
             "failed stop SELL quarantine timeout is frozen at 180 minutes",
             "strategy_source_digest",
             "preregistration_sha256",
         ),
         "src/polybot/strategy/scanner.py": (
-            "get_source_regulation_minute",
-            "six_direct_executable_books_required",
+            "get_source_progress",
+            "complete_direct_executable_books_required",
             "leader_margin_too_small",
             "claim_entry_episode",
             "event_token_ids",
-            "direct YES/NO snapshots",
+            "Golden Peach direct snapshots",
+            "build_execution_capacity_evidence",
+            "market_tags_json",
         ),
         "src/polybot/strategy/trader.py": (
-            "fresh_six_token_leader_changed",
+            "fresh_event_book_leader_changed",
             "place_fok_buy",
+            "select_adaptive_buy_from_book_evidence",
+            "selected_buy_amount_usdc",
             "late_half_target",
             "CURRENT_SOURCE_CLOCK_UNPROVEN",
             "continuous {exit_signal} failure remained triggered",
@@ -4459,6 +4475,8 @@ def _validate_peach_strategy(
             "SellBookWalk",
             "get_buy_book_walks",
             "get_cached_book_evidence",
+            "AdaptiveBuySelection",
+            "build_execution_capacity_evidence",
             "signed FOK BUY does not preserve exact maker USDC",
             "signed limit order share quantity drift",
             "resolve_dynamic_fee_evidence",
