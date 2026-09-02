@@ -43,15 +43,15 @@ market observatory다.
 | ~~golden-nectarine~~ | Bottom Fisher | 손실 회피發 투매 오버슈트 | 롤링 최저가 역매수 | YES 0.03–0.50, 30일+ | **⛔ 폐쇄 완료 2026-07-30** |
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · Cat/Dog job 재사용** |
-| **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 YES/NO 선두의 짧은 추가 상승 | exact `$5` FOK, event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **최소금액 live A/B + 1분 simulation · 2026-08-30 시작** |
-| **golden-plum** | Sport-Profiled Full-Game Confirmation | 경기 전체의 일관된 상승이 추가 상승으로 이어지는지 종목별 검정 | 축구 exact `$5` FOK + 종목별 simulation | 시작~ended, 3회/+2%p, time exit 없음 | **축구 live A/B + 축구/MLB 1분 simulation · MLB v3 2026-09-01 시작** |
+| **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 결과 호가 선두의 짧은 추가 상승 | 현재 `$5` live, `$5–$1,000` adaptive FOK·event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **축구 live A/B + 축구/MLB/NBA/NFL/NHL 1분 simulation · 2026-09-03 확장** |
+| **golden-plum** | Sport-Profiled Full-Game Confirmation | 경기 전체의 일관된 상승이 추가 상승으로 이어지는지 종목별 검정 | 축구 현재 `$5` FOK + 종목별 `$5–$1,000` simulation | 시작~ended, 3회/+2%p, time exit 없음 | **축구 live A/B + 축구/MLB/NFL/NBA 1분 simulation · 2026-09-02 확장** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **⛔ 운영 폐쇄 2026-08-24 · King/Queen job 재사용** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
 | **golden-raspberry** | Queue Echo | 지속 displayed-depth 비대칭의 지연 가격 반영 | 주문 없는 `$5` ask→60m bid 반사실 | YES/NO 0.20–0.80, 3 hash shards | **research-only · live/order 금지** |
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
-| **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
+| **golden-watermelon** | Major-Sports In-Play Match Winner | 경기 중 고확률 whole-game winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | Soccer/MLB/NHL, entry·stop grid와 `$5`~`$1,000` 규모 | **research-only v4a · White 1분, 과거 Grey 5분 종료 · live/order 금지** |
 | **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | baseline `$5` 신호 + 가용 금액 adaptive FOK BUY, 0.70 재난 FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **현재 `$5` live A/B v3e** |
 
 상태 합계는 운영 8, 구현/배포 준비 2, research/simulation 전용 6, 명시적 보류 0,
@@ -433,12 +433,14 @@ daily-rsync로 증분 보존하고 899개 artifact 검증을 통과했다. 이�
 
 ### golden-peach — Kickoff Leader
 
-EPL·Bundesliga·Ligue 1·LaLiga·Serie A·MLS·UCL·UEL의 regular-time
+축구 live는 EPL·Bundesliga·Ligue 1·LaLiga·Serie A·MLS·UCL·UEL의 regular-time
 HOME/DRAW/AWAY 결과 명제만 사용한다. 예정 시각으로 경기 시작을 추정하지 않고 Gamma의
 `live=true`, `ended=false`, explicit source clock 0~10분을 요구한다. 세 명제 각각의 직접 YES와
 직접 NO, 총 6개 token의 full-depth book을 같은 cycle에서 읽고 midpoint의 유일한 선두가 2위보다
-0.5%p 이상 높을 때만 exact `$5` ask VWAP `[0.60,0.94]`, spread `<=0.05`를 재검증해 FOK
-BUY한다. 합성 `1-YES` 가격은 live 결정에 쓰지 않는다.
+0.5%p 이상 높을 때만 baseline `$5` ask VWAP `[0.60,0.94]`, spread `<=0.05`를 재검증한다.
+현재 목표액은 `$5`다. 추후 목표액을 올리면 같은 fresh book에서
+`$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` 중 완전 체결
+가능한 최대 금액 한 건만 FOK BUY한다. 합성 `1-YES` 가격은 live 결정에 쓰지 않는다.
 
 `polybot-eco/peach-live-eco-3pp-1m-v1`은 TP `+0.03`,
 `polybot-fruit/peach-live-fruit-5pp-1m-v1`은 TP `+0.05`이며 공통 SL은 confirmed entry
@@ -448,11 +450,14 @@ BUY한다. 합성 `1-YES` 가격은 live 결정에 쓰지 않는다.
 
 SELL 실패와 SELL 대사 불확실성은 동일 event에만 격리한다. 180분 뒤에도 해결되지 않으면
 성공 매도로 꾸미지 않고 경제적으로 열린 `QUARANTINED`로 보존해 다른 event의 관리·진입을
-계속한다. `polybot-grey/peach-shadow-1m-v1`은 credential 없이 같은 모집단의 직접 six-book과
-source clock을 저장한다. Watermelon 과거 자료의 NO는 합성 book이라 탐색 자료일 뿐이며,
+계속한다. `polybot-grey`는 credential 없이 `peach-shadow-1m-v1` 축구 6호가와
+`peach-shadow-{mlb,nba,nfl,nhl}-1m-v2` direct two-team moneyline을 서로 다른 DB에 병렬
+저장한다. 모든 snapshot에 종목·리그·원본 tag와 목표액별 표시 호가 체결 가능 규모를 남긴다.
+비축구 profile은 scheduled-start age를 수집 보조값으로만 쓰며 native clock과 종목별 TP/SL을
+검증하기 전에는 live로 실행할 수 없다. Watermelon 과거 자료의 NO는 합성 book이라 탐색 자료일 뿐이며,
 White 1분 primary에서 비교한 35경기의 전 grid 평균은 양수를 입증하지 못했다. 따라서 live
 두 arm은 추천 수익 전략이 아니라 `$5` 반증 실험이다. 상세는 `golden-peach/STRATEGY.md`,
-동결 계약은 `golden-peach/research/frozen-2026-08-30-kickoff-leader-v1/PREREGISTRATION.md`,
+현재 동결 계약은 `golden-peach/research/frozen-2026-09-02-multisport-sizing-v3/PREREGISTRATION.md`,
 회고는 `docs/retro/golden-peach.md`를 따른다.
 
 2026-08-30 commit `a1d875b`를 Eco/Fruit/Grey의 external T7 workspace에 배포했다. 수동

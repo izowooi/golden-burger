@@ -61,18 +61,22 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
 - `golden-papaya/`: Final Five — 표준 이진 YES의 first observed 0.95 상향 교차를 0.95–0.97에서 매수하고 해결까지 보유.
 - `golden-peach/`: **Kickoff Leader** — 축구 경기 시작이 source clock으로 확인된 0~10분에
   HOME/DRAW/AWAY 세 명제의 직접 YES·NO 6개 full-depth book을 같은 시각에 비교하고 유일한
-  선두 하나를 exact `$5` FOK로 event당 한 번만 매수한다. `polybot-eco`는 TP `+0.03`,
+  선두 하나를 event당 한 번만 매수한다. 현재 live는 `$5`이며, 목표액을 올리면 같은 fresh
+  book에서 `$5~$1,000` 사다리 중 완전 체결 가능한 최대 금액 한 건만 FOK로 제출한다.
+  `polybot-eco`는 TP `+0.03`,
   `polybot-fruit`는 TP `+0.05`, 공통 SL은 entry `-0.10`이다. source 80분부터는 절반 TP를
   허용하되 신규 stop은 금지하고 resolution을 기다린다. `polybot-grey`는 같은 1분 모집단의
-  credential-free simulation/raw six-book 수집기다. SELL 실패는 event-local이며 180분 뒤
-  성공 체결로 꾸미지 않고 경제적 open 상태의 `QUARANTINED`로 격리한다.
+  credential-free simulation 수집기다. 축구 6호가와 MLB·NBA·NFL·NHL direct two-team
+  moneyline을 서로 다른 DB에 병렬 적재하며, 네 비축구 profile은 native clock과 종목별
+  parameter 검증 전까지 live를 금지한다. SELL 실패는 event-local이며 180분 뒤 성공 체결로
+  꾸미지 않고 경제적 open 상태의 `QUARANTINED`로 격리한다.
 - `golden-plum/`: **Sport-Profiled Full-Game Confirmation** — 경기 시작부터 종료까지 직접 결과
   호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을 처음
   통과하는지 종목별로 검정한다. 축구는 HOME/DRAW/AWAY YES·NO 6token이며 King TP 0.90,
   Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
-  사용한다. `polybot-silver`는 축구, `polybot-gold`는 MLB direct two-team moneyline의
-  credential-free 1분 raw path와 `$5~$500` displayed-depth 증액 자료를 수집한다.
-  NBA·NFL·NHL은 code-ready이고 아직 배포하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
+  사용한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
+  moneyline의 credential-free 1분 raw path와 `$5~$1,000` displayed-depth 증액 자료를
+  서로 다른 DB에 병렬 수집한다. NHL은 아직 배포하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
@@ -226,16 +230,19 @@ BUY와 full-holding FOK stop SELL은 order/fill/fee ledger로만 확정하며, �
 White/Grey simulation DB 또는 초기 5분/v2a zero-opportunity live DB와 merge하지 않는다.
 
 `golden-peach`는 `polybot-eco/peach-live-eco-3pp-1m-v1`,
-`polybot-fruit/peach-live-fruit-5pp-1m-v1`, `polybot-grey/peach-shadow-1m-v1`의 독립 DB를
-사용한다. 세 job 모두 external T7 workspace의 1분 cadence다. live 두 arm은 TP만 다르고,
-Grey는 직접 YES·NO 6개 raw book과 source clock을 저장한다. 과거 Watermelon의 YES-only
-archive에서 만든 합성 NO 재생은 탐색 자료일 뿐 current direct-book cohort와 합치지 않는다.
+`polybot-fruit/peach-live-fruit-5pp-1m-v1`, `polybot-grey/peach-shadow-1m-v1` 및
+`peach-shadow-{mlb,nba,nfl,nhl}-1m-v2`의 독립 DB를 사용한다. 세 Jenkins job 모두 external
+T7 workspace의 1분 cadence다. live 두 arm은 축구 TP만 다르고, Grey는 축구 직접 YES·NO
+6개와 네 비축구 종목의 direct two-team book, 종목·리그·원본 tag, `$5~$1,000` 주문 가능
+규모를 저장한다. 과거 Watermelon의 YES-only archive에서 만든 합성 NO 재생은 탐색 자료일
+뿐 current direct-book cohort와 합치지 않는다.
 
 `golden-plum`은 `polybot-king/plum-live-king-90-1m-v1`,
 `polybot-queen/plum-live-queen-95-1m-v1`, `polybot-silver/plum-shadow-silver-1m-v1`,
-`polybot-gold/plum-shadow-gold-mlb-1m-v1`의 독립 DB를 사용한다. King/Queen은 축구 절대 TP만
-다르고 Silver는 축구, Gold는 MLB credential-free simulation이다. Gold의 과거 Golden
-Coconut epoch와 새 Golden Plum epoch는 Jenkins 이름이 같아도 절대 합치지 않는다.
+`polybot-gold/plum-shadow-gold-{mlb,nfl,nba}-1m-v1`의 독립 DB를 사용한다. King/Queen은
+축구 절대 TP만 다르고 Silver는 축구, Gold는 MLB·NFL·NBA credential-free simulation이다.
+Gold의 과거 Golden Coconut epoch와 새 Golden Plum epoch는 Jenkins 이름이 같아도 절대
+합치지 않는다.
 Golden Peach Grey의 직접 six-book 재생은 탐색 자료일 뿐 Golden Plum의 앞으로 수집하는
 `config_hash × strategy_source_digest × mode × job_name` cohort와 합치지 않는다.
 
