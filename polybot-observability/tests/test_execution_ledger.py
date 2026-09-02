@@ -1509,6 +1509,96 @@ def test_sdk_request_exception_is_preserved_as_unknown_outcome(tmp_path):
     assert resolved[3] == "venue support confirmed no order"
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {
+            "error": "post-only mode: only post-only orders and cancels are allowed",
+            "code": "post_only_mode",
+            "retry_after_seconds": 109,
+        },
+        {"error": "trading is disabled"},
+    ],
+)
+def test_explicit_venue_rejection_is_failed_not_unknown(tmp_path, payload):
+    class PolyApiException(Exception):
+        status_code = 503
+
+        def __init__(self, error_msg):
+            self.error_msg = error_msg
+            super().__init__(str(error_msg))
+
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    error = PolyApiException(payload)
+
+    with pytest.raises(PolyApiException):
+        ledger.submit_and_record(
+            token_id="token",
+            side="BUY",
+            requested_price=0.99,
+            requested_size=5,
+            submit=lambda: (_ for _ in ()).throw(error),
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, success, needs_reconciliation "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row == ("FAILED", 0, 0)
+    assert ledger.unresolved_submission_count(side="BUY") == 0
+
+
+@pytest.mark.parametrize(
+    "stored_message",
+    [
+        "PolyApiException[status_code=503, error_message={'error': "
+        "'post-only mode: only post-only orders and cancels are allowed', "
+        "'code': 'post_only_mode', 'retry_after_seconds': 109}]",
+        "PolyApiException[status_code=503, error_message={'error': "
+        "'trading is disabled'}]",
+    ],
+)
+def test_historical_explicit_rejection_is_immutably_autoresolved(
+    tmp_path, stored_message
+):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_intent(
+        token_id="token",
+        side="BUY",
+        requested_price=0.99,
+        requested_size=5,
+        simulation=False,
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET response_status = ?, error_type = ?, "
+            "error_message = ?, associated_trade_ids_json = ? "
+            "WHERE submission_id = ?",
+            (
+                "SUBMIT_OUTCOME_UNKNOWN",
+                "PolyApiException",
+                stored_message,
+                "[]",
+                submission_id,
+            ),
+        )
+
+    stats = ledger.autoresolve_explicit_no_order_rejections()
+    assert stats == {"checked": 1, "resolved": 1, "not_proven": 0}
+    assert ledger.unresolved_submission_count(side="BUY") == 0
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, outcome_resolution, "
+            "outcome_resolution_reason FROM order_submissions"
+        ).fetchone()
+    assert row[0] == "SUBMIT_OUTCOME_UNKNOWN"
+    assert row[1] == "NO_ORDER_CREATED"
+    assert row[2].startswith("auto: venue explicitly rejected")
+
+
 def test_operator_can_link_discovered_order_id_for_normal_reconciliation(tmp_path):
     class ConnectTimeout(Exception):
         pass

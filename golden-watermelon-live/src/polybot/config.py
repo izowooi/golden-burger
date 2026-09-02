@@ -26,6 +26,26 @@ FROZEN_START_UTC = "2026-08-29T04:00:00Z"
 FROZEN_ENTRY_END_UTC = "2026-09-05T04:00:00Z"
 FROZEN_FOLLOWUP_END_UTC = "2026-09-12T04:00:00Z"
 FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
+BASELINE_EXECUTION_NOTIONAL_USDC = 5.0
+MAX_TARGET_BUY_NOTIONAL_USDC = 1000.0
+ADAPTIVE_BUY_NOTIONAL_LADDER_USDC = (
+    5.0,
+    10.0,
+    15.0,
+    20.0,
+    25.0,
+    30.0,
+    40.0,
+    50.0,
+    75.0,
+    100.0,
+    150.0,
+    200.0,
+    250.0,
+    500.0,
+    750.0,
+    1000.0,
+)
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
 NHL_TAG_ID = 899
@@ -291,14 +311,15 @@ def _get_datetime_config_value(
 
 @dataclass(frozen=True)
 class WatermelonLiveEntryConfig:
-    """One frozen exact-$5 in-play arm and its emergency stop."""
+    """One frozen baseline-$5 in-play arm and its emergency stop."""
 
     prob_min: float = 0.96
     prob_max: float = 0.999
     stop_price: float = 0.70
-    # Protect a high-probability entry before the absolute 0.70 floor.  The
-    # effective trigger is max(stop_price, confirmed_entry_vwap - 0.05).
-    max_entry_drawdown: float = 0.05
+    # The former 5pp relative stop repeatedly sold eventual winners. Keep the
+    # 0.70 catastrophic floor while making this relative leg non-binding for
+    # the 0.96/0.99 entry arms.
+    max_entry_drawdown: float = 0.30
     # A stop is a stop-limit contract, not permission to cross an arbitrary
     # post-game/dust book.  The full-depth FOK must remain within five points
     # of the trigger and inside a ten-point displayed spread.
@@ -424,8 +445,19 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         )
     if trading.sport_family not in SPORT_FAMILY_TAG_IDS:
         raise ValueError("sport_family must be one of: soccer, mlb, nhl")
-    if trading.buy_amount_usdc != 5:
-        raise ValueError("Golden Watermelon live notional must remain exactly $5")
+    if not (
+        BASELINE_EXECUTION_NOTIONAL_USDC
+        <= trading.buy_amount_usdc
+        <= MAX_TARGET_BUY_NOTIONAL_USDC
+    ) or not math.isclose(
+        trading.buy_amount_usdc * 100,
+        round(trading.buy_amount_usdc * 100),
+        rel_tol=0,
+        abs_tol=1e-9,
+    ):
+        raise ValueError(
+            "Golden Watermelon target notional must be $5-$1000 in cent precision"
+        )
     if (
         trading.min_liquidity != 5000
         or trading.min_cumulative_volume != 5000
@@ -433,7 +465,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     ):
         raise ValueError(
             "Golden Watermelon liquidity gate is frozen at $5k cumulative "
-            "volume/$5k liquidity plus an exact-$5 executable-book gate"
+            "volume/$5k liquidity plus a baseline-$5 executable-book gate"
         )
     if (
         trading.max_positions != 20
@@ -441,11 +473,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         or trading.max_new_positions_per_cycle != 5
     ):
         raise ValueError("Golden Watermelon exposure limits are frozen at 20/1/5")
-    if (
-        trading.buy_amount_usdc * trading.max_new_positions_per_cycle
-        != 25
-    ):
-        raise ValueError("per-cycle new BUY notional must remain capped at $25")
+    if trading.buy_amount_usdc * trading.max_new_positions_per_cycle > 5000:
+        raise ValueError("per-cycle target BUY notional must not exceed $5000")
     if trading.max_emergency_sells_per_cycle != 1:
         raise ValueError("only one emergency SELL may be submitted per cycle")
     if trading.experiment_capital_usdc != 100:
@@ -472,8 +501,10 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
     if entry.stop_price != 0.70:
         raise ValueError("emergency stop_price is frozen at 0.70")
-    if entry.max_entry_drawdown != 0.05:
-        raise ValueError("entry-relative stop is frozen at a 5pp drawdown")
+    if entry.max_entry_drawdown != 0.30:
+        raise ValueError(
+            "entry-relative stop must leave the absolute 0.70 floor binding"
+        )
     if (
         entry.max_stop_slippage != 0.05
         or entry.max_stop_spread != 0.10
@@ -495,7 +526,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         )
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
-    smallest_order = trading.buy_amount_usdc / entry.prob_max
+    smallest_order = BASELINE_EXECUTION_NOTIONAL_USDC / entry.prob_max
     if smallest_order + 1e-9 < trading.min_order_size:
         raise ValueError("$5 cannot satisfy the venue minimum at entry.prob_max")
     if not isinstance(trading.excluded_categories, list) or any(
@@ -564,7 +595,7 @@ def load_config(
         max_entry_drawdown=_get_config_value(
             "POLYBOT_MAX_ENTRY_DRAWDOWN",
             entry_cfg.get("max_entry_drawdown"),
-            0.05,
+            0.30,
         ),
         max_stop_slippage=_get_config_value(
             "POLYBOT_MAX_STOP_SLIPPAGE",

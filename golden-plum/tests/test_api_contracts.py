@@ -13,6 +13,7 @@ from polybot.api.clob_client import (
     _walk_buy_book,
     _walk_sell_book,
     build_execution_capacity_evidence,
+    select_adaptive_buy_from_book_evidence,
 )
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
@@ -789,6 +790,32 @@ def test_shallow_book_is_censored_not_imputed() -> None:
     }
     with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
         _walk_buy_book(book, "token", 5.0)
+
+
+def test_adaptive_buy_uses_cached_book_and_largest_safe_ladder_amount() -> None:
+    selection = select_adaptive_buy_from_book_evidence(
+        json.dumps(
+            {
+                "schema_version": 1,
+                "token_id": "token",
+                "bids": [{"price": 0.73, "size": 500}],
+                "asks": [
+                    {"price": 0.75, "size": 200},
+                    {"price": 0.78, "size": 100},
+                ],
+            }
+        ),
+        target_notional_usdc=500,
+        notional_ladder_usdc=(5, 10, 25, 50, 100, 200, 500),
+        baseline_notional_usdc=5,
+        max_limit_price=0.78,
+    )
+
+    assert selection.selected_notional_usdc == 200
+    assert selection.max_executable_notional_usdc == pytest.approx(228)
+    assert selection.walk.cost == 200
+    assert selection.walk.limit_price == 0.78
+    assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
 
 
 def test_full_share_sell_walk_uses_deeper_bids_and_market_limit() -> None:

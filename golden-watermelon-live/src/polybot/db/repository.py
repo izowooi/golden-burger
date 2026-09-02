@@ -1045,6 +1045,10 @@ class TradeRepository:
         best_ask: Optional[float] = None,
         spread: Optional[float] = None,
         source_updated_at: Optional[str] = None,
+        sport_family: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
+        market_tags_json: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
     ) -> MarketSnapshot:
@@ -1062,6 +1066,10 @@ class TradeRepository:
             spread=spread,
             source_updated_at=source_updated_at,
             run_id=current_run_id(),
+            sport_family=str(sport_family or "") or None,
+            league_code=str(league_code or "") or None,
+            league_name=str(league_name or "") or None,
+            market_tags_json=market_tags_json,
         )
         self.session.add(snapshot)
         self.session.flush()
@@ -1310,13 +1318,30 @@ class TradeRepository:
         condition_id: str,
         market: Dict[str, Any],
         *,
+        sport_family: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
         commit: bool = False,
     ) -> None:
-        self._upsert_market_catalog(condition_id, market)
+        self._upsert_market_catalog(
+            condition_id,
+            market,
+            sport_family=sport_family,
+            league_code=league_code,
+            league_name=league_name,
+        )
         if commit:
             self.session.commit()
 
-    def _upsert_market_catalog(self, condition_id: str, market: Dict[str, Any]) -> None:
+    def _upsert_market_catalog(
+        self,
+        condition_id: str,
+        market: Dict[str, Any],
+        *,
+        sport_family: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
+    ) -> None:
         events = market.get("events") or []
         event = (
             events[0]
@@ -1361,6 +1386,11 @@ class TradeRepository:
                 ],
                 ensure_ascii=False,
             ),
+            "sport_family": str(sport_family or "") or None,
+            "league_code": str(league_code or market.get("leagueCode") or "")
+            or None,
+            "league_name": str(league_name or market.get("leagueName") or "")
+            or None,
             "neg_risk": bool_int(market.get("negRisk")),
             "active": bool_int(market.get("active")),
             "closed": bool_int(market.get("closed")),

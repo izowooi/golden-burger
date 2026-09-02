@@ -46,12 +46,24 @@ US_MAJOR_PREREGISTRATION = (
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
     10.0,
+    15.0,
+    20.0,
     25.0,
+    30.0,
+    40.0,
     50.0,
+    75.0,
     100.0,
+    150.0,
+    200.0,
     250.0,
     500.0,
+    750.0,
+    1000.0,
 )
+BASELINE_EXECUTION_NOTIONAL_USDC = 5.0
+MAX_TARGET_BUY_NOTIONAL_USDC = 1000.0
+ADAPTIVE_BUY_NOTIONAL_LADDER_USDC = SIMULATION_SCALING_NOTIONALS_USDC
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
 NBA_TAG_ID = 745
@@ -873,8 +885,17 @@ def _validate_config(
         != profile.analysis_min_cumulative_moves
     ):
         raise ValueError("runtime or sport-specific parameter profile drift")
-    if trading.buy_amount_usdc != 5:
-        raise ValueError("Golden Plum notional must remain exactly $5")
+    if not (
+        BASELINE_EXECUTION_NOTIONAL_USDC
+        <= trading.buy_amount_usdc
+        <= MAX_TARGET_BUY_NOTIONAL_USDC
+    ) or not math.isclose(
+        trading.buy_amount_usdc * 100,
+        round(trading.buy_amount_usdc * 100),
+        rel_tol=0,
+        abs_tol=1e-9,
+    ):
+        raise ValueError("Golden Plum target notional must be $5-$1000 in cent precision")
     if (
         trading.min_liquidity != profile.min_liquidity
         or trading.min_cumulative_volume != profile.min_cumulative_volume
@@ -882,7 +903,7 @@ def _validate_config(
     ):
         raise ValueError(
             "Golden Plum liquidity gate is frozen at $5k cumulative "
-            "volume/$5k liquidity plus an exact-$5 executable-book gate"
+            "volume/$5k liquidity plus a baseline-$5 executable-book gate"
         )
     if (
         trading.max_positions != 10
@@ -890,11 +911,8 @@ def _validate_config(
         or trading.max_new_positions_per_cycle != 5
     ):
         raise ValueError("Golden Plum exposure limits are frozen at 10/1/5")
-    if (
-        trading.buy_amount_usdc * trading.max_new_positions_per_cycle
-        != 25
-    ):
-        raise ValueError("per-cycle new BUY notional must remain capped at $25")
+    if trading.buy_amount_usdc * trading.max_new_positions_per_cycle > 5000:
+        raise ValueError("per-cycle target BUY notional must not exceed $5000")
     if trading.max_emergency_sells_per_cycle != 10:
         raise ValueError("all ten independent event exits must remain available")
     if trading.experiment_capital_usdc != 50:
@@ -978,7 +996,7 @@ def _validate_config(
         raise ValueError("archive must cover the full explicitly live match")
     if archive.retention_days < 60:
         raise ValueError("archive.retention_days must be at least 60")
-    smallest_order = trading.buy_amount_usdc / entry.prob_max
+    smallest_order = BASELINE_EXECUTION_NOTIONAL_USDC / entry.prob_max
     if smallest_order + 1e-9 < trading.min_order_size:
         raise ValueError("$5 cannot satisfy the venue minimum at entry.prob_max")
     if not isinstance(trading.excluded_categories, list) or any(

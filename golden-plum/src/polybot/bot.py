@@ -104,7 +104,7 @@ class PolymarketBot:
             "match_end" if entry.hours_max is None else f"{entry.hours_max:.1f}h"
         )
         logger.info(
-            "Golden Plum %s exact $5 %s first-cross VWAP [%.3f, %.3f], "
+            "Golden Plum %s baseline $5 %s first-cross VWAP [%.3f, %.3f], "
             "source minute [%.0f, %s], in-play age [%.1fh, %s]",
             trading.sport_family,
             trading.book_shape,
@@ -119,7 +119,7 @@ class PolymarketBot:
             "trend - observations=%s cumulative>=%.2f pullback<=%.2f gap<=%.0fs; "
             "execution - FOK BUY; absolute TP=%.2f, SL=entry-%.2f, "
             "time exit=disabled; stop spread<=%.2f; "
-            "$%.2f positions=%s event=%s new_per_cycle=%s "
+            "adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.trend_observations,
             entry.trend_min_cumulative_move,

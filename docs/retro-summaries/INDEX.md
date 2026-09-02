@@ -40,3 +40,4 @@
 | 034 | [034-papaya-queen-melon-sustainability-review-2026-08-24.md](034-papaya-queen-melon-sustainability-review-2026-08-24.md) | Papaya·Queen·Melon 7개 live job의 confirmed-fill 지속가능성, lifecycle 결함과 수익 운영 중단 판정 | 2026-08-24 |
 | 035 | [035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md](035-golden-quince-melon-final-postmortem-and-closure-2026-08-27.md) | Quince·Melon 6-arm 최종 회고, Quince partial-SELL 정산 복구, close-only·timer 제거·재동기화 검증 | 2026-08-27 |
 | 036 | [036-watermelon-peach-ab-calibration-2026-09-02.md](036-watermelon-peach-ab-calibration-2026-09-02.md) | Watermelon·Peach live/White/Grey 근거 교정, 파라미터 유지 판정과 Grey simulation 전역 BUY 차단 복구 | 2026-09-02 |
+| 037 | [037-watermelon-plum-order-isolation-sizing-2026-09-02.md](037-watermelon-plum-order-isolation-sizing-2026-09-02.md) | Watermelon Live 명시적 503 오분류·전역 차단 복구, 손절 0.70 비상 하한, Plum 종목별 증거와 원자적 증액 계약 | 2026-09-02 |

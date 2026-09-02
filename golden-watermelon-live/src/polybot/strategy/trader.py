@@ -21,7 +21,11 @@ from ..api.clob_client import (
     PreSubmissionContractError,
 )
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import (
+    ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+    BASELINE_EXECUTION_NOTIONAL_USDC,
+    TradingConfig,
+)
 from ..db.models import (
     STOP_SELL_ISOLATION_REASONS,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
@@ -127,8 +131,18 @@ def _entry_stop_price(entry_vwap: float, config: TradingConfig) -> float:
     )
 
 
+def _valid_adaptive_buy_amount(amount: float, target: float) -> bool:
+    allowed = {
+        value
+        for value in ADAPTIVE_BUY_NOTIONAL_LADDER_USDC
+        if value <= target + 1e-9
+    }
+    allowed.add(float(target))
+    return any(math.isclose(amount, value, rel_tol=0, abs_tol=1e-6) for value in allowed)
+
+
 def _effective_stop_price(trade: object, config: TradingConfig) -> float:
-    """Protect legacy holdings without rewriting their historical entry row."""
+    """Apply the current safety policy without rewriting historical entry rows."""
     stored = getattr(trade, "stop_price_at_entry", None)
     try:
         stored_stop = float(stored)
@@ -139,7 +153,13 @@ def _effective_stop_price(trade: object, config: TradingConfig) -> float:
     entry_vwap = getattr(trade, "buy_confirmed_vwap", None)
     if entry_vwap is None:
         entry_vwap = getattr(trade, "buy_price", None)
-    return max(stored_stop, _entry_stop_price(entry_vwap, config))
+    current_stop = _entry_stop_price(entry_vwap, config)
+    # v3e intentionally supersedes the former 5pp stop for still-open v3d
+    # positions. Preserve the old stored value as evidence, but do not let it
+    # force another premature exit after the policy changed to the 0.70 floor.
+    if config.entry.max_entry_drawdown >= 0.30 - 1e-9:
+        return current_stop
+    return max(stored_stop, current_stop)
 
 
 def _orphan_catalog_identity_matches(
@@ -312,7 +332,7 @@ class Trader:
         return None
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
-        """Revalidate the exact $5 walk, then submit a FOK BUY."""
+        """Revalidate the $5 signal, then submit one adaptive atomic FOK BUY."""
         self.last_entry_outcome_reason = None
         self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
@@ -424,8 +444,12 @@ class Trader:
             )
             return self._reject_entry("in_play_window_revalidation_failed")
         try:
-            walk = self.clob.get_buy_book_walk(
-                token_id, notional_usdc=self.config.buy_amount_usdc
+            selection = self.clob.get_adaptive_buy_book_walk(
+                token_id,
+                target_notional_usdc=self.config.buy_amount_usdc,
+                notional_ladder_usdc=ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+                baseline_notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC,
+                max_limit_price=self.config.entry.prob_max,
             )
         except Exception as error:
             logger.warning(
@@ -436,6 +460,8 @@ class Trader:
             return self._reject_entry(
                 f"fresh_exact_book_{type(error).__name__}"
             )
+        walk = selection.walk
+        selected_buy_amount = selection.selected_notional_usdc
         if not (
             self.config.entry.prob_min - 1e-9
             <= walk.vwap
@@ -467,11 +493,15 @@ class Trader:
             return self._reject_entry("fok_limit_not_orderable")
 
         logger.info(
-            "Golden Watermelon Live FOK BUY: '%s' result=%s exact_vwap=%.2f%% "
+            "Golden Watermelon Live FOK BUY: '%s' result=%s baseline/adaptive "
+            "vwap=%.2f%% target=$%.2f selected=$%.2f max_displayed=$%.2f "
             "best_ask=%.2f%% limit=%.2f%% shares=%.4f",
             str(candidate.get("question") or "")[:60],
             result_kind,
             walk.vwap * 100,
+            selection.target_notional_usdc,
+            selected_buy_amount,
+            selection.max_executable_notional_usdc,
             walk.best_ask * 100,
             walk.limit_price * 100,
             walk.shares,
@@ -489,7 +519,7 @@ class Trader:
         try:
             result = self.clob.place_fok_buy(
                 token_id=token_id,
-                amount_usdc=self.config.buy_amount_usdc,
+                amount_usdc=selected_buy_amount,
                 limit_price=walk.limit_price,
                 max_limit_price=self.config.entry.prob_max,
             )
@@ -499,12 +529,11 @@ class Trader:
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
                 self.local_untracked_buy_reservations += 1
-                # An unknown POST can already be real exposure.  Reserve it
-                # immediately and prevent every later candidate in this cycle
-                # from issuing another irreversible BUY.
-                self.buying_disabled = True
+                # Reserve one bounded slot, but isolate the uncertain token and
+                # event instead of stopping unrelated games in this cycle.
                 rejection_reason = "buy_submission_outcome_unknown"
             else:
+                self.last_entry_may_have_reached_venue = False
                 rejection_reason = "buy_order_rejected"
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
@@ -517,9 +546,11 @@ class Trader:
         try:
             submitted_shares = float(result["requested_size"])
         except (KeyError, TypeError, ValueError):
+            self.local_untracked_buy_reservations += 1
             logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
             return self._reject_entry("buy_requested_size_evidence_missing")
         if not math.isfinite(submitted_shares) or submitted_shares <= 0:
+            self.local_untracked_buy_reservations += 1
             logger.error(
                 "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
                 submitted_shares,
@@ -536,7 +567,7 @@ class Trader:
             outcome=outcome,
             token_id=token_id,
             buy_price=walk.vwap,
-            buy_amount=self.config.buy_amount_usdc,
+            buy_amount=selected_buy_amount,
             buy_shares=submitted_shares,
             buy_order_id=result.get("orderID"),
             buy_timestamp=datetime.utcnow(),
@@ -547,7 +578,7 @@ class Trader:
                 else TradeStatus.PENDING_BUY
             ),
             entry_reason=(
-                "first_observed_in_play_match_result_exact_5_usdc_band_fok:"
+                "first_observed_in_play_match_result_baseline_5_adaptive_fok:"
                 f"{result_kind}"
                 + (
                     ":one_time_opposite_after_confirmed_stop"
@@ -564,6 +595,16 @@ class Trader:
             liquidity_at_buy=candidate.get("liquidity"),
             volume_24h_at_buy=candidate.get("volume_24h"),
             market_tags=candidate.get("market_tags", ""),
+            sport_family=self.config.sport_family,
+            league_code=candidate.get("league_code"),
+            league_name=candidate.get("league_name"),
+            market_tags_json=candidate.get("market_tags_json"),
+            target_buy_amount_usdc=selection.target_notional_usdc,
+            selected_buy_amount_usdc=selected_buy_amount,
+            max_executable_buy_notional_usdc=(
+                selection.max_executable_notional_usdc
+            ),
+            buy_notional_fallback_reason=selection.fallback_reason,
             prior_yes_price_at_entry=None,
             yes_price_at_buy=candidate.get("yes_probability"),
             stop_price_at_entry=_entry_stop_price(walk.vwap, self.config),
@@ -663,11 +704,8 @@ class Trader:
                     catalog=catalog,
                 )
                 or str(submission.get("strategy_name") or "") != STRATEGY_NAME
-                or not math.isclose(
-                    signed_maker_usdc,
-                    self.config.buy_amount_usdc,
-                    rel_tol=0,
-                    abs_tol=1e-6,
+                or not _valid_adaptive_buy_amount(
+                    signed_maker_usdc, self.config.buy_amount_usdc
                 )
                 or evidence.requested_size is None
                 or not math.isclose(
@@ -708,7 +746,7 @@ class Trader:
                 outcome=str(episode.outcome),
                 token_id=token_id,
                 buy_price=evidence.confirmed_vwap,
-                buy_amount=self.config.buy_amount_usdc,
+                buy_amount=signed_maker_usdc,
                 buy_shares=evidence.confirmed_size,
                 buy_order_id=order_id,
                 buy_timestamp=_ledger_timestamp(
@@ -730,6 +768,23 @@ class Trader:
                 liquidity_at_buy=snapshot.liquidity,
                 volume_24h_at_buy=snapshot.volume_24h,
                 market_tags=catalog.tags_json,
+                sport_family=(
+                    getattr(snapshot, "sport_family", None)
+                    or self.config.sport_family
+                ),
+                league_code=(
+                    getattr(snapshot, "league_code", None)
+                    or getattr(catalog, "league_code", None)
+                ),
+                league_name=(
+                    getattr(snapshot, "league_name", None)
+                    or getattr(catalog, "league_name", None)
+                ),
+                market_tags_json=catalog.tags_json,
+                target_buy_amount_usdc=self.config.buy_amount_usdc,
+                selected_buy_amount_usdc=signed_maker_usdc,
+                max_executable_buy_notional_usdc=None,
+                buy_notional_fallback_reason="RECOVERED_FROM_EXECUTION_LEDGER",
                 prior_yes_price_at_entry=None,
                 yes_price_at_buy=episode.exact_vwap,
                 stop_price_at_entry=_entry_stop_price(

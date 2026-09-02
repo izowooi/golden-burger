@@ -1,9 +1,9 @@
-# Golden Watermelon Live — Major Sports A/B v3d
+# Golden Watermelon Live — Major Sports A/B v3e
 
 ## 질문과 treatment
 
-경기 중 승자 token이 높은 executable 가격에 도달했을 때 exact `$5` FOK로 진입하고
-`max(0.70, confirmed entry VWAP-0.05)` protective stop 또는 proven resolution까지 관리하면
+경기 중 승자 token이 높은 executable 가격에 도달했을 때 baseline `$5` 신호로 FOK 진입하고
+`0.70` 재난 손절 또는 proven resolution까지 관리하면
 confirmed fill·fee 후 양의 기대값이 있는가?
 
 각 family에서 A는 `[0.96,0.999]`, B는 `[0.99,0.999]`다. Soccer는 Cat/Dog, MLB는
@@ -28,13 +28,14 @@ spread/total/prop/future/advancement와 settlement scope가 불명확한 soccer 
 
 ## Entry와 capacity
 
-1. eligible winner token의 full ask book을 읽어 exact `$5` shares, VWAP와 worst ask를 계산한다.
+1. eligible winner token의 full ask book을 읽어 baseline exact `$5` shares, VWAP와 worst ask를 계산한다.
 2. 한 event에서 여러 result가 동시에 threshold를 넘으면 anomaly로 fail closed한다.
 3. 한 `event × arm`의 첫 threshold observation만 `entry_episodes`에 claim한다.
 4. open Trade와 unresolved/untracked BUY intent를 capacity에 함께 넣는다.
 5. 주문 직전 market/clock/full-depth book/fee identity를 다시 확인한다.
-6. venue tick grid에서 signed maker amount가 정확히 `$5`, taker shares가 venue precision에 맞는
-   가장 낮은 limit을 찾는다. arm 상한을 넘으면 POST 없이 명시적으로 실패한다.
+6. venue tick grid에서 현재 목표 이하의 signed maker amount와 taker shares가 venue precision에
+   맞는 가장 낮은 limit을 찾는다. 목표 전량이 어렵다면 같은 fresh book에서 `$5` 이상인 가장 큰
+   사다리 금액으로 축소한다. arm 상한을 넘거나 `$5`도 불가능하면 POST 없이 명시적으로 실패한다.
 7. marketable FOK BUY를 제출하고 exact terminal fill·fee가 대사될 때까지 `PENDING_BUY`다.
 
 실행 후보 전체는 첫 주문 전에 `QUEUED_NO_POST`로 남긴다. 앞 후보의 로컬 정밀도 오류로 cycle이
@@ -42,18 +43,20 @@ spread/total/prop/future/advancement와 settlement scope가 불명확한 soccer 
 `SUBMISSION_IN_PROGRESS`가 되며, `PreSubmissionContractError` 또는 명시적인 no-POST rejection만
 재시도한다. venue POST 가능성이 생긴 뒤의 예외·거절은 ledger 대사 없이 재제출하지 않는다.
 
-account/event/cycle capacity는 `20/1/5`, cycle 신규 요청 원금은 최대 `$25`다. FOK는 full fill이
-불가능하면 zero fill이며, accepted/order ID만으로 체결을 추정하지 않는다. unresolved
-`PENDING_BUY`, 일반 `QUARANTINED`, orphan BUY, BUY reconciliation 또는 fill/fee evidence gap은
-신규 BUY를 막는다. SELL-only intent·대사 실패는 동일 token/event에만 격리하고 다른 event의
-신규 BUY는 계속한다. bot DB가 만든 Trade만 관리한다.
+account/event/cycle capacity는 `20/1/5`, 현재 cycle 신규 목표 원금은 최대 `$25`다. FOK는 선택된
+금액의 full fill이 불가능하면 zero fill이며, accepted/order ID만으로 체결을 추정하지 않는다.
+결과 불명 `PENDING_BUY`, orphan BUY, BUY 대사 오류는 해당 token/event와 한 capacity만 격리한다.
+방향 불명 대사 오류, 일반 `QUARANTINED`, open BUY fill/fee 또는 경제손익 증거 공백은 전역 차단한다.
+SELL-only intent·대사 실패는 동일 token/event에만 격리하고 다른 event의 신규 BUY는 계속한다.
+bot DB가 만든 Trade만 관리한다.
 
 ## Stop, gap과 resolution
 
-effective trigger는 `max(0.70, confirmed entry VWAP-0.05)`이고 체결가를 보장하지 않는다. 0.99
-진입은 0.94, 0.96 진입은 0.91 부근이 된다. irreversible SELL 직전에 current Gamma event와 exact
-CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다시 읽어 FOK SELL한다. spread는
-`<=0.10`, cycle SELL은 1건으로 제한한다.
+v3e effective trigger는 `0.70`(`max(0.70, confirmed entry VWAP-0.30)`)이며 체결가를 보장하지
+않는다. White 자료의 모든 고정 손절이 해결 보유보다 나빴고, 최근 0.94/0.95 손절은 최종 승자를
+손실로 끝냈다. 0.70은 최적값이 아니라 재난 방어선이다. irreversible SELL 직전에 current Gamma
+event와 exact CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다시 읽어 FOK
+SELL한다. spread는 `<=0.10`, cycle SELL은 1건으로 제한한다.
 
 정상적으로 연속 관측된 book에서는 worst level/VWAP `>= effective stop-0.05`, projected gross loss `<=35%`를
 강제한다. 그러나 PSG–Lille처럼 가격이 두 cycle 사이에서 0.70을 크게 건너뛰어도 event와 CLOB이
@@ -81,6 +84,14 @@ confirmed SELL P&L과 proven one-hot resolution settlement P&L을 안전 판정�
 유일한 confirmed BUY로 Trade에 연결한다. 중복·모호한 연결, fee 결손, 범위 밖 size/price는
 추정하지 않는다.
 
+## 종목·체결 금액 증거
+
+catalog, snapshot, trade에 종목군, 리그 코드·이름, 원본 tag JSON을 저장한다. 실제 trade에는
+목표 USDC, 선택 USDC, 진입 상한 안에서 표시 호가로 가능한 최대 USDC, 축소 사유를 저장한다.
+증액 사다리는 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000`이다.
+이는 기존 fresh book의 로컬 계산이라 네트워크 요청이나 1분 cycle 시간을 늘리지 않는다. 익절은
+이 전략에 없고, 손절은 확인된 보유 전량을 `FOK SELL`로 처리한다. 일부만 팔고 완료로 표시하지 않는다.
+
 ## Cadence와 overlap
 
 모든 live job은 1분 cadence다. cycle 경과시간은 신호가 아니며 42초 이후 request를 금지하거나
@@ -101,6 +112,10 @@ Gamma server gate와 lockfile 기반 dependency stamp로 정상 Jenkins end-to-e
   중단한다.
 
 entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up
-`2026-09-12T04:00:00Z`; live notional은 이 cohort에서 `$5`로 고정한다. future scale은 accountless
+`2026-09-12T04:00:00Z`; 현재 Jenkins target은 `$5`로 유지한다. future scale은 accountless
 White/Grey displayed-depth evidence와 live confirmed fill evidence를 함께 보고 한 rung씩만 검토한다.
 0.92→0.99 조합은 별도 향후 수집에서 최소 100개 독립 경기 전에는 판정하지 않는다.
+
+v3e는 명시적 미주문 503 오분류, BUY 전역 차단, 촘촘한 손절과 증액 시 0건 체결 문제를 보정한
+새 source/config 묶음이다. 정확한 변경 계약은
+`research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md`를 따른다.

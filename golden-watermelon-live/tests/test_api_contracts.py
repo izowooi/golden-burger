@@ -10,6 +10,7 @@ from polybot.api.clob_client import (
     ClobClientWrapper,
     PreSubmissionContractError,
     _normalize_clob_resolution,
+    _select_adaptive_buy_from_book,
     _walk_buy_book,
     _walk_sell_book,
 )
@@ -715,6 +716,47 @@ def test_shallow_book_is_censored_not_imputed() -> None:
     }
     with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
         _walk_buy_book(book, "token", 5.0)
+
+
+def test_adaptive_buy_uses_largest_fully_executable_ladder_amount() -> None:
+    selection = _select_adaptive_buy_from_book(
+        {
+            "asset_id": "token",
+            "bids": [{"price": "0.97", "size": "500"}],
+            "asks": [
+                {"price": "0.98", "size": "100"},
+                {"price": "0.99", "size": "120"},
+            ],
+        },
+        "token",
+        target_notional_usdc=1_000,
+        notional_ladder_usdc=(5, 10, 20, 50, 100, 200, 500, 1_000),
+        baseline_notional_usdc=5,
+        max_limit_price=0.999,
+    )
+
+    assert selection.selected_notional_usdc == 200
+    assert selection.max_executable_notional_usdc == pytest.approx(216.8)
+    assert selection.walk.cost == 200
+    assert selection.walk.limit_price == 0.99
+    assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+
+
+def test_adaptive_buy_never_falls_below_five_dollar_baseline() -> None:
+    book = {
+        "asset_id": "token",
+        "bids": [{"price": "0.97", "size": "20"}],
+        "asks": [{"price": "0.98", "size": "4"}],
+    }
+    with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
+        _select_adaptive_buy_from_book(
+            book,
+            "token",
+            target_notional_usdc=1_000,
+            notional_ladder_usdc=(5, 10, 20, 100, 1_000),
+            baseline_notional_usdc=5,
+            max_limit_price=0.999,
+        )
 
 
 def test_full_share_sell_walk_uses_deeper_bids_and_market_limit() -> None:

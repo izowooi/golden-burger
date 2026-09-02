@@ -6,6 +6,7 @@ import pytest
 
 import polybot.strategy.trader as trader_module
 from polybot.api.clob_client import (
+    AdaptiveBuySelection,
     BuyBookWalk,
     PreSubmissionContractError,
     SellBookWalk,
@@ -134,6 +135,31 @@ class _Clob:
             2,
         )
 
+    def get_adaptive_buy_book_walk(
+        self,
+        token_id,
+        *,
+        target_notional_usdc,
+        notional_ladder_usdc,
+        baseline_notional_usdc,
+        max_limit_price,
+    ):
+        assert baseline_notional_usdc == 5
+        assert max_limit_price == 0.999
+        assert 5 in notional_ladder_usdc
+        walk = self.get_buy_book_walk(token_id, notional_usdc=5)
+        return AdaptiveBuySelection(
+            target_notional_usdc=target_notional_usdc,
+            selected_notional_usdc=5,
+            max_executable_notional_usdc=100,
+            fallback_reason=(
+                "TARGET_FULLY_EXECUTABLE"
+                if target_notional_usdc == 5
+                else "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+            ),
+            walk=walk,
+        )
+
     def place_fok_buy(self, **order):
         self.orders.append(order)
         return {
@@ -211,7 +237,7 @@ def _candidate():
     }
 
 
-def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
+def test_buy_revalidates_baseline_and_submits_adaptive_fok(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(best_bid=0.93, best_ask=0.94)
     config = TradingConfig()
@@ -233,7 +259,7 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert created["buy_shares"] == pytest.approx(5 / 0.985)
     assert created["status"] is TradeStatus.PENDING_BUY
     assert created["yes_price_at_buy"] == 0.985
-    assert created["stop_price_at_entry"] == pytest.approx(0.935)
+    assert created["stop_price_at_entry"] == pytest.approx(0.70)
     assert repo.linked == [(3, 7)]
     assert repo.episode_execution == [
         (3, "SUBMISSION_IN_PROGRESS", "fresh_book_validated_before_submission_wrapper")
@@ -279,7 +305,7 @@ def test_pre_submission_contract_error_is_proven_no_post(monkeypatch) -> None:
     ]
 
 
-def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
+def test_uncertain_buy_reserves_capacity_but_allows_unrelated_entry(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob()
     submissions = []
@@ -298,11 +324,21 @@ def test_uncertain_buy_disables_remaining_cycle_entries(monkeypatch) -> None:
     assert trader.execute_buy(_candidate()) is None
     assert trader.last_entry_outcome_reason == "buy_submission_outcome_unknown"
     assert trader.local_untracked_buy_reservations == 1
-    assert trader.buying_disabled is True
-    assert trader.execute_buy({**_candidate(), "condition_id": "condition-2"}) is None
-    assert trader.last_entry_outcome_reason == "cycle_buying_disabled"
-    assert trader.last_entry_may_have_reached_venue is False
-    assert len(submissions) == 1
+    assert trader.buying_disabled is False
+    assert (
+        trader.execute_buy(
+            {
+                **_candidate(),
+                "condition_id": "condition-2",
+                "event_id": "event-2",
+            }
+        )
+        is None
+    )
+    assert trader.last_entry_outcome_reason == "buy_submission_outcome_unknown"
+    assert trader.last_entry_may_have_reached_venue is True
+    assert trader.local_untracked_buy_reservations == 2
+    assert len(submissions) == 2
 
 
 def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
@@ -359,7 +395,7 @@ def test_confirmed_buy_freezes_entry_relative_stop_from_actual_vwap() -> None:
     update = repo.updated[-1][1]
     assert update["status"] is TradeStatus.HOLDING
     assert update["buy_confirmed_vwap"] == pytest.approx(0.99)
-    assert update["stop_price_at_entry"] == pytest.approx(0.94)
+    assert update["stop_price_at_entry"] == pytest.approx(0.70)
 
 
 def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
@@ -383,16 +419,16 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert repo.updated == []
 
 
-def test_entry_relative_stop_catches_lille_style_five_point_reversal() -> None:
+def test_absolute_catastrophe_stop_replaces_legacy_five_point_stop() -> None:
     repo = _Repo()
     clob = _Clob(
-        best_bid=0.94,
-        best_ask=0.95,
-        sell_vwap=0.938,
-        sell_limit=0.935,
+        best_bid=0.69,
+        best_ask=0.70,
+        sell_vwap=0.688,
+        sell_limit=0.685,
     )
-    # Legacy rows stored only the old absolute 0.70 floor. The deployed source
-    # must still protect an existing 0.99 holding at an effective 0.94 trigger.
+    # The current cohort deliberately supersedes a legacy 0.94 dynamic stop
+    # with the evidence-backed 0.70 catastrophe floor.
     trade = SimpleNamespace(
         id=9,
         condition_id="condition-1",
@@ -412,9 +448,7 @@ def test_entry_relative_stop_catches_lille_style_five_point_reversal() -> None:
         simulation_mode=False,
     )
 
-    assert Trader.effective_stop_price(trade, TradingConfig()) == pytest.approx(
-        0.94
-    )
+    assert Trader.effective_stop_price(trade, TradingConfig()) == pytest.approx(0.70)
     assert trader.execute_sell(trade) is False
     assert len(clob.orders) == 1
     assert clob.orders[0]["side"] == "SELL"
@@ -425,7 +459,12 @@ def test_continuous_stop_failure_is_quarantined_after_three_hours(
     monkeypatch,
 ) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
-    repo, clob = _Repo(), _Clob(best_bid=0.93, best_ask=0.94)
+    repo, clob = _Repo(), _Clob(
+        best_bid=0.69,
+        best_ask=0.70,
+        sell_vwap=0.688,
+        sell_limit=0.685,
+    )
     trade = SimpleNamespace(
         id=91,
         status=TradeStatus.HOLDING,
@@ -435,7 +474,7 @@ def test_continuous_stop_failure_is_quarantined_after_three_hours(
         outcome="Yes",
         exit_reason="stop_sell_failure_retrying",
         sell_timestamp=(NOW - timedelta(minutes=181)).replace(tzinfo=None),
-        stop_price_at_entry=0.94,
+        stop_price_at_entry=0.70,
         buy_confirmed_vwap=0.99,
         buy_shares=5.05,
         buy_price=0.99,
@@ -459,10 +498,10 @@ def test_rejected_stop_starts_failure_timer_without_aborting_cycle(
 ) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(
-        best_bid=0.93,
-        best_ask=0.94,
-        sell_vwap=0.93,
-        sell_limit=0.93,
+        best_bid=0.69,
+        best_ask=0.70,
+        sell_vwap=0.688,
+        sell_limit=0.685,
     )
     clob.place_limit_order = lambda **order: {
         "success": False,
@@ -477,7 +516,7 @@ def test_rejected_stop_starts_failure_timer_without_aborting_cycle(
         outcome="Yes",
         exit_reason=None,
         sell_timestamp=None,
-        stop_price_at_entry=0.94,
+        stop_price_at_entry=0.70,
         buy_confirmed_vwap=0.99,
         buy_shares=5.05,
         buy_price=0.99,
@@ -502,10 +541,10 @@ def test_sell_ledger_failure_is_immediately_isolated_without_raising(
 ) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(
-        best_bid=0.93,
-        best_ask=0.94,
-        sell_vwap=0.93,
-        sell_limit=0.93,
+        best_bid=0.69,
+        best_ask=0.70,
+        sell_vwap=0.688,
+        sell_limit=0.685,
     )
 
     def fail_ledger(**_order):
@@ -521,7 +560,7 @@ def test_sell_ledger_failure_is_immediately_isolated_without_raising(
         outcome="Yes",
         exit_reason=None,
         sell_timestamp=None,
-        stop_price_at_entry=0.94,
+        stop_price_at_entry=0.70,
         buy_confirmed_vwap=0.99,
         buy_shares=5.05,
         buy_price=0.99,

@@ -24,6 +24,11 @@ NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals의 �
 포함한다. NHL은 아직 Jenkins에 연결하지 않는다. direct sport의 현재 수치는 최적값이
 아니라 원자료와 해결 경로를 모으기 위한 사전 등록 primary다.
 
+2026-09-02 실행 안전 보정은 현재 King/Queen 목표 `$5`와 A/B target을 유지하면서, 향후 목표
+금액을 올렸을 때 0건 체결로 끝나지 않도록 같은 fresh book에서 전량 체결 가능한 가장 큰 금액의
+원자적 FOK 한 건을 선택한다. catalog/snapshot/trade에 종목·리그·tag를, trade에 목표·선택·최대
+표시 가능 금액과 축소 사유를 저장한다. 소스 해시가 달라지므로 보정 전후 자료는 분리한다.
+
 운영자가 제공한 탐색 보고서는 0.60/0.65/0.75 진입과
 0.90/0.95 익절을 탐색 후보로 제시했다. 그러나 여섯 호가의 최고값은 세 결과 중
 가장 낮은 확률의 반대편(NO) 때문에 이론적으로 대략 0.67 이상이므로 0.60 최초 교차는
@@ -67,15 +72,15 @@ NHL도 별도 versioned family profile과 동일한 direct two-team 계약을 �
 ## 진입
 
 1. current event의 완전한 direct book set을 같은 cycle에서 읽는다(축구 6, direct sport 2).
-2. 각 token의 exact `$5` ask VWAP snapshot을 token ID별로 저장한다.
+2. 각 token의 baseline exact `$5` ask VWAP snapshot을 token ID별로 저장한다.
 3. current midpoint의 유일한 선두와 2위 margin이 0.005 이상인지 확인한다.
 4. 선두 token의 최근 3개 snapshot이 각각 90초 이내인지 확인한다.
 5. 세 가격의 누적 상승이 0.02 이상이고 인접 하락이 각각 0.01 이하인지 확인한다.
 6. 두 번째 가격이 0.75 미만이고 current exact ask VWAP이 `[0.75,0.78]`이면 첫
    상향 교차로 인정한다.
 7. POST 직전에 explicit live 상태, 필요한 경우 source clock, 완전한 fresh book set,
-   선두 identity, spread, exact VWAP을
-   다시 읽고 exact `$5` FOK BUY를 낸다.
+   선두 identity, spread, exact VWAP을 다시 읽는다. 목표가 `$5`보다 크면 같은 book에서 가격
+   상한 안에 전량 체결 가능한 가장 큰 사다리 금액을 선택해 FOK BUY 한 건을 낸다.
 
 event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번만 허용한다.
 명시적인 terminal zero-fill만 같은 event에서 재시도할 수 있다.
@@ -91,6 +96,8 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 - 시간 강제 청산: 없음
 - 종료 우선순위: target → stop; 둘 다 없으면 검증된 resolution까지 유지
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
+- 목표 금액을 올려도 BUY는 선택된 금액 전체가 체결되거나 0체결이다. 거래소의 불명확한 부분
+  체결을 전략 완료로 인정하지 않는다. TP/SL은 확인된 실제 보유량 전량을 FOK로 제출한다.
 
 두 live arm의 차이는 절대 target 하나뿐이다. 서로 다른 wallet의 수동 포지션은
 DB에 편입하지 않는다. 두 live arm은 계속 축구만 허용하며, 환경변수로 MLB를 잘못
@@ -111,7 +118,8 @@ proven resolution의 누적 손실이 10 USDC에 도달하거나 execution evide
 
 `polybot-silver/plum-shadow-silver-1m-v1`은 credential-free simulation이다. 경기 전체의
 여섯 direct full-depth book, source clock, market identity, trend lineage, path와
-resolution을 저장한다. 추가로 각 snapshot의 `$5/$10/$25/$50/$100/$250/$500` displayed
+resolution을 저장한다. 추가로 각 snapshot의
+`$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` displayed
 ask를 걸어 산 shares를 같은 시점 bid에 전량 팔 수 있는지와 양쪽 VWAP·level 수·수수료 전
 왕복 손익을 `execution_capacity_json`에 저장한다.
 

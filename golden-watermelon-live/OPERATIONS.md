@@ -1,4 +1,4 @@
-# Golden Watermelon Live v3d 운영 절차
+# Golden Watermelon Live v3e 운영 절차
 
 ## Jenkins job matrix
 
@@ -41,6 +41,7 @@ export POLYBOT_YES_ONLY=true
 export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
 export POLYBOT_STOP_PRICE=0.70
+export POLYBOT_MAX_ENTRY_DRAWDOWN=0.30
 export POLYBOT_EXPERIMENT_START_UTC=2026-08-29T04:00:00Z
 export POLYBOT_EXPERIMENT_END_UTC=2026-09-05T04:00:00Z
 export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-12T04:00:00Z
@@ -84,7 +85,7 @@ DB 내부 `.cycle-run.lock`을 먼저 획득하므로 이전 build가 남아 있
 
 1. 여섯 timer가 모두 꺼졌고 SCM/no-clean/secret redaction/concurrent-off인지 확인한다.
 2. `uv sync --frozen --extra dev`, 전체 test와 build를 통과시킨 exact commit을 push한다.
-3. timer 없는 수동 build를 job별 1회 실행한다. console에서 family, `$5`, threshold, runtime,
+3. timer 없는 수동 build를 job별 1회 실행한다. console에서 family, baseline/target `$5`, threshold, runtime,
    server gate `$5k/$5k`, FOK-only, lifecycle `active`, limits `20/1/5`, source digest를 확인한다.
 4. Cat/Dog는 기존 v2h DB와 HOLDING position을 보존했는지 확인한다. Bear/Tiger/Lion/Wolf는 새
    v3a DB가 생성됐는지 확인한다.
@@ -96,6 +97,12 @@ DB 내부 `.cycle-run.lock`을 먼저 획득하므로 이전 build가 남아 있
 7. SCM을 `NullSCM`으로 고정한다. offset을 포함한 Jenkins duration이 1분 아래이고 실패가 없으면
    `* * * * *`를 활성화한다.
 8. 자연 build 각 2회 뒤 daily-rsync scan/sync/verify와 DB quick check를 수행한다.
+
+증액할 때는 `POLYBOT_BUY_AMOUNT`만 `$5`~`$1,000` 범위에서 한 단계씩 바꾼다. 신호는 계속 `$5`로
+비교하며 fresh book이 목표 전량을 받지 못하면 가장 큰 안전 사다리 금액의 FOK 한 건으로 줄어든다.
+DB의 `target_buy_amount_usdc`, `selected_buy_amount_usdc`,
+`max_executable_buy_notional_usdc`, `buy_notional_fallback_reason`을 확인하기 전 다음 단계로 올리지
+않는다. 현재 배포에서는 여섯 job 모두 목표 `$5`를 유지한다.
 
 ```bash
 cd ../daily-rsync

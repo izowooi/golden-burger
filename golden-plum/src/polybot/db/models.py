@@ -108,6 +108,14 @@ class Trade(Base):
     liquidity_at_buy = Column(Float)
     volume_24h_at_buy = Column(Float)
     market_tags = Column(String)
+    sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
+    market_tags_json = Column(String)
+    target_buy_amount_usdc = Column(Float)
+    selected_buy_amount_usdc = Column(Float)
+    max_executable_buy_notional_usdc = Column(Float)
+    buy_notional_fallback_reason = Column(String)
 
     # Entry crossing and immutable strategy thresholds.
     prior_yes_price_at_entry = Column(Float)
@@ -190,6 +198,9 @@ class MarketSnapshot(Base):
     run_id = Column(String)
     config_hash = Column(String, index=True)
     sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
+    market_tags_json = Column(String)
     sport_profile_version = Column(String)
     protocol_sha256 = Column(String)
     classifier_version = Column(String)
@@ -287,6 +298,8 @@ class MarketCatalog(Base):
     source_updated_at = Column(String)
     config_hash = Column(String, index=True)
     sport_family = Column(String, index=True)
+    league_code = Column(String, index=True)
+    league_name = Column(String)
     sport_profile_version = Column(String)
     protocol_sha256 = Column(String)
     classifier_version = Column(String)
@@ -562,6 +575,14 @@ _TRADE_MIGRATION_COLUMNS = {
     "resolution_confirmed_buy_fee_usdc": "REAL",
     "settlement_pnl_assumption": "REAL",
     "settlement_assumption_basis": "TEXT",
+    "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
+    "market_tags_json": "TEXT",
+    "target_buy_amount_usdc": "REAL",
+    "selected_buy_amount_usdc": "REAL",
+    "max_executable_buy_notional_usdc": "REAL",
+    "buy_notional_fallback_reason": "TEXT",
 }
 
 _SNAPSHOT_MIGRATION_COLUMNS = {
@@ -582,6 +603,9 @@ _SNAPSHOT_MIGRATION_COLUMNS = {
     "run_id": "TEXT",
     "config_hash": "TEXT",
     "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
+    "market_tags_json": "TEXT",
     "sport_profile_version": "TEXT",
     "protocol_sha256": "TEXT",
     "classifier_version": "TEXT",
@@ -639,6 +663,8 @@ _CATALOG_MIGRATION_COLUMNS = {
     "fee_taker_only": "INTEGER",
     "config_hash": "TEXT",
     "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
     "sport_profile_version": "TEXT",
     "protocol_sha256": "TEXT",
     "classifier_version": "TEXT",
@@ -810,6 +836,18 @@ def init_database(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
+                "ON market_snapshots(sport_family, league_code, timestamp)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS trades_sport_league_buy_time_idx "
+                "ON trades(sport_family, league_code, buy_timestamp)"
             )
         )
         connection.execute(

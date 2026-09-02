@@ -20,12 +20,19 @@ NFL·NBA를 서로 다른 DB로 수집합니다. NHL은 코드 구조만 준비�
 | `polybot-gold` | `plum-shadow-gold-nfl-1m-v1` | credential-free NFL raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-nba-1m-v1` | credential-free NBA raw/simulation |
 
-공통 entry는 `[0.75,0.78]` first crossing, stop은 confirmed entry -0.15입니다.
-King/Queen의 live 주문은 exact `$5` FOK입니다.
+공통 entry는 baseline `$5` 기준 `[0.75,0.78]` first crossing, stop은 confirmed entry
+-0.15입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
+목표 금액을 올리면 같은 fresh book에서 전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한
+FOK 한 건만 제출합니다.
 시간 강제 청산은 없고 익절·손절·검증된 resolution로만 종료합니다. live와 shadow 모두
 direct six-book을 저장하며 합성 NO를 사용하지 않습니다. Silver와 Gold는 추가로
-`$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 자료를 저장합니다.
+`$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` displayed-depth 증액
+자료를 저장합니다.
 이 증액 계산은 같은 CLOB 응답을 재사용하므로 추가 API 호출을 만들지 않습니다.
+
+catalog/snapshot/trade에는 종목·리그·원본 tag를 저장합니다. live trade에는 목표 금액, 실제
+선택 금액, 가격 상한 안에서 표시 호가로 가능한 최대 금액과 축소 사유도 남깁니다. 익절과 손절은
+확인된 실제 보유량 전량을 FOK로 처리하며, 일부 체결을 완료로 꾸미지 않습니다.
 
 ## 설치·테스트
 

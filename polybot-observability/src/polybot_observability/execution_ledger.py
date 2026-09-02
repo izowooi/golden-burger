@@ -38,6 +38,11 @@ _MAX_RESPONSE_JSON_LENGTH = 1_000_000
 _MAX_RESPONSE_UNWRAP_DEPTH = 4
 _RESPONSE_ENVELOPE_KEYS = ("order", "data", "result", "root", "__root__")
 
+_PROVEN_NO_ORDER_REJECTIONS = {
+    "post_only_mode": "venue explicitly rejected the order while post-only mode was active",
+    "trading is disabled": "venue explicitly rejected the order because trading was disabled",
+}
+
 # Only fields needed for execution evidence are copied out of SDK response
 # models.  In particular, we deliberately do not persist or log ``__dict__``
 # wholesale because future SDK models could carry credentials or signer state.
@@ -172,6 +177,53 @@ class UnresolvedTokenSubmissionError(RuntimeError):
 
 class _OrderResponseContractError(SubmissionEvidenceError):
     """Internal marker: anomalous response was persisted successfully."""
+
+
+def _proven_no_order_rejection(error: BaseException) -> str | None:
+    """Return a narrow venue proof that the POST created no order.
+
+    A generic HTTP 5xx remains ambiguous.  Only two CLOB responses observed in
+    production are unambiguous rejections: the structured ``post_only_mode``
+    code and the exact ``trading is disabled`` message.  Both reject the
+    submitted taker order before an order ID can exist.
+    """
+
+    if type(error).__name__ != "PolyApiException":
+        return None
+    payload = getattr(error, "error_msg", None)
+    code = ""
+    message = ""
+    if isinstance(payload, Mapping):
+        code = str(payload.get("code") or "").strip().lower()
+        message = str(payload.get("error") or "").strip().lower()
+    elif payload is not None:
+        message = str(payload).strip().lower()
+    if code == "post_only_mode" and message == (
+        "post-only mode: only post-only orders and cancels are allowed"
+    ):
+        return _PROVEN_NO_ORDER_REJECTIONS["post_only_mode"]
+    if message == "trading is disabled":
+        return _PROVEN_NO_ORDER_REJECTIONS["trading is disabled"]
+    return None
+
+
+def _persisted_proven_no_order_rejection(
+    *, error_type: str | None, error_message: str | None
+) -> str | None:
+    """Recognize only the historical serialized forms of the proofs above."""
+
+    if str(error_type or "") != "PolyApiException":
+        return None
+    serialized = str(error_message or "").strip().lower()
+    if (
+        "'code': 'post_only_mode'" in serialized
+        and "'error': 'post-only mode: only post-only orders and cancels are allowed'"
+        in serialized
+    ):
+        return _PROVEN_NO_ORDER_REJECTIONS["post_only_mode"]
+    if "error_message={'error': 'trading is disabled'}" in serialized:
+        return _PROVEN_NO_ORDER_REJECTIONS["trading is disabled"]
+    return None
 
 
 def _utc_now() -> str:
@@ -1051,16 +1103,20 @@ class ExecutionLedger:
     def record_submission_error(self, submission_id: str, error: BaseException) -> str:
         """Mark a pre-submit intent failed without creating another ledger row."""
         status_code = getattr(error, "status_code", "missing")
-        ambiguous = type(error).__name__ in {
-            "ConnectTimeout",
-            "ConnectionError",
-            "ReadTimeout",
-            "Timeout",
-        } or (
-            status_code != "missing"
-            and (
-                status_code is None
-                or (isinstance(status_code, int) and status_code >= 500)
+        explicit_no_order_reason = _proven_no_order_rejection(error)
+        ambiguous = explicit_no_order_reason is None and (
+            type(error).__name__ in {
+                "ConnectTimeout",
+                "ConnectionError",
+                "ReadTimeout",
+                "Timeout",
+            }
+            or (
+                status_code != "missing"
+                and (
+                    status_code is None
+                    or (isinstance(status_code, int) and status_code >= 500)
+                )
             )
         )
         response_status = "SUBMIT_OUTCOME_UNKNOWN" if ambiguous else "FAILED"
@@ -1082,6 +1138,60 @@ class ExecutionLedger:
             if cursor.rowcount != 1:
                 raise RuntimeError(f"order intent를 찾을 수 없습니다: {submission_id}")
         return response_status
+
+    def autoresolve_explicit_no_order_rejections(
+        self, *, limit: int = 500
+    ) -> dict[str, int]:
+        """Resolve historical ambiguous rows backed by explicit rejection proof.
+
+        This is intentionally independent of an open-order lookup.  The stored
+        venue response itself states that trading was disabled or that only
+        post-only orders were accepted.  Rows with an order ID, associated
+        trades, a prior resolution, or any less-specific 5xx remain untouched.
+        """
+
+        if limit < 1:
+            raise ValueError("limit은 1 이상이어야 합니다")
+        stats = {"checked": 0, "resolved": 0, "not_proven": 0}
+        with self._connect() as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT submission_id, error_type, error_message, "
+                "associated_trade_ids_json FROM order_submissions "
+                f"WHERE {self._unresolved_sql()} AND order_id IS NULL "
+                "AND outcome_resolution IS NULL ORDER BY submitted_at LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        for row in rows:
+            stats["checked"] += 1
+            try:
+                associated_trade_ids = json.loads(
+                    row["associated_trade_ids_json"] or "[]"
+                )
+            except (TypeError, ValueError, json.JSONDecodeError):
+                stats["not_proven"] += 1
+                continue
+            if associated_trade_ids:
+                stats["not_proven"] += 1
+                continue
+            reason = _persisted_proven_no_order_rejection(
+                error_type=row["error_type"],
+                error_message=row["error_message"],
+            )
+            if reason is None:
+                stats["not_proven"] += 1
+                continue
+            try:
+                self.resolve_uncertain_submission(
+                    row["submission_id"],
+                    resolution="NO_ORDER_CREATED",
+                    reason=f"auto: {reason}",
+                )
+            except ValueError:
+                # Another process may have reconciled the immutable outcome.
+                continue
+            stats["resolved"] += 1
+        return stats
 
     def mark_evidence_write_failure(
         self,

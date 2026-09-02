@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import json
 import math
 from types import SimpleNamespace
 
@@ -140,6 +141,7 @@ class _Clob:
         self.sell_vwap = best_bid if sell_vwap is None else sell_vwap
         self.sell_limit = best_bid if sell_limit is None else sell_limit
         self.orders = []
+        self.book_evidence = {}
         self.resolution = _normalize_clob_resolution(
             "condition-1",
             {"condition_id": "condition-1", "closed": False},
@@ -188,7 +190,18 @@ class _Clob:
                 ask,
                 1,
             )
+            self.book_evidence[token_id] = json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": token_id,
+                    "bids": [{"price": bid, "size": 2000}],
+                    "asks": [{"price": ask, "size": 2000}],
+                }
+            )
         return walks
+
+    def get_cached_book_evidence(self, token_id):
+        return self.book_evidence.get(token_id)
 
     def place_fok_buy(self, **order):
         self.orders.append(order)
@@ -368,6 +381,16 @@ def test_mlb_simulation_revalidates_two_direct_books_without_source_minute(
     def direct_walks(token_ids, *, notional_usdc):
         assert notional_usdc == 5
         prices = {"mlb-home": 0.75, "mlb-away": 0.25}
+        for token in token_ids:
+            price = prices[token]
+            clob.book_evidence[token] = json.dumps(
+                {
+                    "schema_version": 1,
+                    "token_id": token,
+                    "bids": [{"price": price - 0.01, "size": 2_000}],
+                    "asks": [{"price": price, "size": 2_000}],
+                }
+            )
         return {
             token: BuyBookWalk(
                 token,

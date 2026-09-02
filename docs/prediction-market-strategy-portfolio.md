@@ -52,7 +52,7 @@ market observatory다.
 | **golden-strawberry** | Last Mile | 고확률 최초 교차 뒤 terminal 수렴 | 주문 없는 `$5` ask→bid/resolution 반사실 | 동결 v1 crossing census + 10분 compact follow-up v2 | **research-only · entry 종료/follow-up 중 · live/order 금지** |
 | **golden-tangerine** | Sports Resolution Hold Live | 고확률 sports outcome의 terminal 수렴 | exact `$5` FOK BUY 후 resolution 보유 | 0.92–0.93 vs 0.94–0.95, Gamma endDate ≤6h | **최소금액 prospective live A/B · 2026-08-21 시작** |
 | **golden-watermelon** | Elite Soccer In-Play Match Winner | 경기 중 고확률 whole-match winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | X 0.95–0.99 × Y 0.95–0.70, 75/80/85분, `$5`~`$1,000`, 1분 vs 5분 | **research-only v3d · 6개 리그+UCL/UEL · live/order 금지** |
-| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | exact `$5` FOK BUY, entry−5pp/0.70 protective FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **최소금액 향후 수집 live A/B v3d** |
+| **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | baseline `$5` 신호 + 가용 금액 adaptive FOK BUY, 0.70 재난 FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **현재 `$5` live A/B v3e** |
 
 상태 합계는 운영 8, 구현/배포 준비 2, research/simulation 전용 6, 명시적 보류 0,
 운영 종료/폐쇄 완료 12다. `close_only`/`archive_only`는 bot lifecycle mode이지 이

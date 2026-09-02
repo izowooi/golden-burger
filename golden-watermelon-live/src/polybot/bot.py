@@ -96,7 +96,7 @@ class PolymarketBot:
         entry = trading.entry
         archive = trading.archive
         logger.info(
-            "Golden Watermelon Live %s exact $5 winner VWAP [%.3f, %.3f], "
+            "Golden Watermelon Live %s baseline $5 winner VWAP [%.3f, %.3f], "
             "in-play age [%.1f, %.1f]h, hold-to-resolution",
             trading.sport_family,
             entry.prob_min,
@@ -108,7 +108,7 @@ class PolymarketBot:
             "execution - FOK BUY + bid-triggered FOK protective stop "
             "max(%.2f, entry-%.2f); "
             "normal stop-limit floor trigger-%.2f spread<=%.2f loss<=%.0f%%; "
-            "no TP/time-exit; $%.2f positions=%s event=%s new_per_cycle=%s "
+            "no TP/time-exit; adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.stop_price,
             entry.max_entry_drawdown,
@@ -168,6 +168,7 @@ class PolymarketBot:
             "resolved": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "entry_pre_submission_failures": 0,
             "entry_blocked_candidates": 0,
             "entry_queued_no_post": 0,
             "orphan_buy_recovery": {
@@ -351,7 +352,7 @@ class PolymarketBot:
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
-                    blocking_reasons.append("pending_buy_unresolved")
+                    degraded_reasons.append("pending_buy_event_isolated")
                 if state_before_entry["pending_sell"]:
                     degraded_reasons.append("pending_sell_event_isolated")
                 if quarantine_state["blocking"]:
@@ -365,13 +366,13 @@ class PolymarketBot:
                 if capacity["total_reserved"] >= trading.max_positions:
                     blocking_reasons.append("max_capacity_reserved")
                 if capacity["untracked_buy_reservations"]:
-                    blocking_reasons.append("untracked_buy_exposure")
+                    degraded_reasons.append("untracked_buy_exposure_isolated")
                 if open_buy_evidence_gaps:
                     blocking_reasons.append("open_buy_fill_or_fee_evidence_gap")
                 if int(order_reconciliation.get("unresolved_buy_outcomes", 0)):
-                    blocking_reasons.append("unresolved_buy_outcome")
+                    degraded_reasons.append("unresolved_buy_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
-                    blocking_reasons.append("buy_reconciliation_gap")
+                    degraded_reasons.append("buy_reconciliation_gap_isolated")
                 reconciliation_errors = int(order_reconciliation.get("errors", 0))
                 buy_reconciliation_errors = int(
                     order_reconciliation.get("buy_errors", 0)
@@ -395,7 +396,9 @@ class PolymarketBot:
                         - sell_reconciliation_errors
                         - unknown_side_errors,
                     )
-                if buy_reconciliation_errors or unknown_side_errors:
+                if buy_reconciliation_errors:
+                    degraded_reasons.append("buy_reconciliation_error_isolated")
+                if unknown_side_errors:
                     blocking_reasons.append("order_reconciliation_error")
                 if sell_reconciliation_errors:
                     degraded_reasons.append("sell_reconciliation_error_isolated")
@@ -481,32 +484,46 @@ class PolymarketBot:
                         trading.max_new_positions_per_cycle,
                         entry_guard["capacity_remaining"],
                     )
-                    for candidate in candidates[
-                        :cycle_entry_limit
-                    ]:
+                    cycle_exposure_reservations = 0
+                    for candidate in candidates:
+                        if cycle_exposure_reservations >= cycle_entry_limit:
+                            break
                         episode_id = candidate.get("entry_episode_id")
                         try:
                             trade_id = trader.execute_buy(candidate)
+                        except PreSubmissionContractError as error:
+                            if (
+                                not isinstance(episode_id, bool)
+                                and isinstance(episode_id, int)
+                            ):
+                                repo.mark_entry_episode_execution(
+                                    episode_id,
+                                    state="PRE_SUBMISSION_CONTRACT_ERROR",
+                                    reason=type(error).__name__,
+                                )
+                            stats["entry_pre_submission_failures"] += 1
+                            logger.warning(
+                                "거래소 POST 전 진입 계약 오류를 후보 단위로 "
+                                "격리합니다 - event=%s condition=%s; 뒤의 다른 "
+                                "경기 후보는 계속 처리",
+                                candidate.get("event_id"),
+                                candidate.get("condition_id"),
+                            )
+                            continue
                         except Exception as error:
                             if (
                                 not isinstance(episode_id, bool)
                                 and isinstance(episode_id, int)
                             ):
-                                retryable_pre_submission = isinstance(
-                                    error, PreSubmissionContractError
-                                )
                                 repo.mark_entry_episode_execution(
                                     episode_id,
-                                    state=(
-                                        "PRE_SUBMISSION_CONTRACT_ERROR"
-                                        if retryable_pre_submission
-                                        else "EXECUTION_EXCEPTION"
-                                    ),
+                                    state="EXECUTION_EXCEPTION",
                                     reason=type(error).__name__,
                                 )
                             raise
                         if trade_id is not None:
                             stats["bought"] += 1
+                            cycle_exposure_reservations += 1
                         elif (
                             not isinstance(episode_id, bool)
                             and isinstance(episode_id, int)
@@ -531,6 +548,8 @@ class PolymarketBot:
                                     or "unspecified_fail_closed_rejection"
                                 ),
                             )
+                            if not proven_no_post:
+                                cycle_exposure_reservations += 1
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 

@@ -1081,6 +1081,9 @@ class TradeRepository:
         source_clock_reason: Optional[str] = None,
         book_json: Optional[str] = None,
         execution_capacity_json: Optional[str] = None,
+        league_code: Optional[str] = None,
+        league_name: Optional[str] = None,
+        market_tags_json: Optional[str] = None,
         evidence_context: Optional[Dict[str, Any]] = None,
         event_cycle_id: Optional[str] = None,
         event_set_complete: Optional[bool] = None,
@@ -1117,6 +1120,9 @@ class TradeRepository:
             run_id=current_run_id(),
             config_hash=self._current_config_hash(),
             sport_family=context["sport_family"],
+            league_code=str(league_code or "") or None,
+            league_name=str(league_name or "") or None,
+            market_tags_json=market_tags_json,
             sport_profile_version=context["sport_profile_version"],
             protocol_sha256=context["protocol_sha256"],
             classifier_version=context["classifier_version"],
@@ -1726,6 +1732,12 @@ class TradeRepository:
             "source_updated_at": market.get("updatedAt"),
             "config_hash": self._current_config_hash(),
             "sport_family": context["sport_family"],
+            "league_code": str(market.get("leagueCode") or "")
+            or context["sport_family"]
+            or None,
+            "league_name": str(market.get("leagueName") or "")
+            or context["sport_family"].upper()
+            or None,
             "sport_profile_version": context["sport_profile_version"],
             "protocol_sha256": context["protocol_sha256"],
             "classifier_version": context["classifier_version"],

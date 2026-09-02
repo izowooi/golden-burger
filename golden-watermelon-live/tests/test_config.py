@@ -41,7 +41,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.stop_sell_quarantine_timeout_minutes == 180
     assert config.trading.yes_only_mode is True
     assert config.trading.entry.stop_price == 0.70
-    assert config.trading.entry.max_entry_drawdown == 0.05
+    assert config.trading.entry.max_entry_drawdown == 0.30
     assert config.trading.entry.max_stop_slippage == 0.05
     assert config.trading.entry.max_stop_spread == 0.10
     assert config.trading.entry.max_stop_loss_fraction == 0.35
@@ -81,7 +81,8 @@ def test_only_arm_b_threshold_override_is_accepted(
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("POLYBOT_BUY_AMOUNT", "5.01", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "4.99", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "1000.01", "notional"),
         ("POLYBOT_MAX_POSITIONS", "19", "exposure"),
         ("POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE", "20", "exposure"),
         ("POLYBOT_MIN_LIQUIDITY", "1", "liquidity gate"),
@@ -129,6 +130,14 @@ def test_contract_drift_is_rejected(
     monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match=message):
         load_config("config.yaml", "drift")
+
+
+@pytest.mark.parametrize("amount", ["5.01", "10", "15", "200", "1000"])
+def test_adaptive_target_buy_amount_is_accepted(monkeypatch, amount) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_BUY_AMOUNT", amount)
+    config = load_config("config.yaml", "adaptive", simulation_mode=False)
+    assert config.trading.buy_amount_usdc == float(amount)
 
 
 def test_credentials_and_live_database_are_explicit(

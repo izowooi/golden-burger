@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from polybot.config import (
+    SIMULATION_SCALING_NOTIONALS_USDC,
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
@@ -101,13 +102,7 @@ def test_silver_is_credential_free_simulation(monkeypatch) -> None:
     assert config.api.private_key == ""
     assert config.api.funder_address == ""
     assert config.trading.scaling_notionals_usdc == (
-        5.0,
-        10.0,
-        25.0,
-        50.0,
-        100.0,
-        250.0,
-        500.0,
+        SIMULATION_SCALING_NOTIONALS_USDC
     )
 
 
@@ -142,15 +137,7 @@ def test_gold_is_credential_free_mlb_collection_with_scaling_grid(
     assert trading.expected_market_count == 1
     assert trading.expected_token_count == 2
     assert trading.source_clock_required is False
-    assert trading.scaling_notionals_usdc == (
-        5.0,
-        10.0,
-        25.0,
-        50.0,
-        100.0,
-        250.0,
-        500.0,
-    )
+    assert trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
     assert trading.analysis_entry_thresholds == (
         0.55,
         0.60,
@@ -184,15 +171,7 @@ def test_gold_us_major_collectors_are_credential_free_and_independent(
     assert trading.cadence_seconds == 60
     assert trading.cycle_hard_deadline_seconds == 50.0
     assert trading.external_workspace_path == "/Volumes/t7/jenkins/polybot-gold"
-    assert trading.scaling_notionals_usdc == (
-        5.0,
-        10.0,
-        25.0,
-        50.0,
-        100.0,
-        250.0,
-        500.0,
-    )
+    assert trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
     assert trading.experiment_start_utc == US_MAJOR_START_UTC
     assert trading.experiment_entry_end_utc == US_MAJOR_ENTRY_END_UTC
     assert trading.experiment_followup_end_utc == US_MAJOR_FOLLOWUP_END_UTC
@@ -271,7 +250,8 @@ def test_live_jobs_cannot_switch_to_a_direct_sport(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("POLYBOT_BUY_AMOUNT", "5.01", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "4.99", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "1000.01", "notional"),
         ("POLYBOT_MAX_POSITIONS", "19", "exposure"),
         ("POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE", "20", "exposure"),
         ("POLYBOT_MIN_LIQUIDITY", "1", "liquidity gate"),
@@ -301,6 +281,16 @@ def test_contract_drift_is_rejected(monkeypatch, key, value, message) -> None:
         load_config(
             "config.yaml", "plum-live-king-90-1m-v1", simulation_mode=False
         )
+
+
+@pytest.mark.parametrize("amount", ["5.01", "10", "15", "200", "1000"])
+def test_adaptive_target_buy_amount_is_accepted(monkeypatch, amount) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_BUY_AMOUNT", amount)
+    config = load_config(
+        "config.yaml", "plum-live-king-90-1m-v1", simulation_mode=False
+    )
+    assert config.trading.buy_amount_usdc == float(amount)
 
 
 def test_runtime_name_mode_and_credentials_fail_closed(monkeypatch) -> None:

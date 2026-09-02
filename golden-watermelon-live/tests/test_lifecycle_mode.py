@@ -220,7 +220,7 @@ def test_active_never_exceeds_remaining_account_capacity(monkeypatch, tmp_path):
     session.close.assert_called_once()
 
 
-def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
+def test_active_isolates_pre_submission_contract_error_and_finishes_cycle(
     monkeypatch,
     tmp_path,
 ):
@@ -238,8 +238,7 @@ def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
         "fee catalog contract failed"
     )
 
-    with pytest.raises(PreSubmissionContractError):
-        bot.run_cycle()
+    stats = bot.run_cycle()
 
     repo.mark_entry_episodes_queued_no_post.assert_called_once_with(
         [21],
@@ -252,6 +251,8 @@ def test_active_marks_pre_submission_contract_error_retryable_and_fails_cycle(
             reason="PreSubmissionContractError",
         ),
     ]
+    assert stats["entry_pre_submission_failures"] == 1
+    assert stats["bought"] == 0
     session.close.assert_called_once()
 
 
@@ -274,12 +275,12 @@ def test_pre_submission_failure_leaves_later_candidate_retryable_no_post(
     }
     scanner.scan_buy_candidates.side_effect = None
     scanner.scan_buy_candidates.return_value = [first, later]
-    trader.execute_buy.side_effect = PreSubmissionContractError(
-        "signed amount precision"
-    )
+    trader.execute_buy.side_effect = [
+        PreSubmissionContractError("signed amount precision"),
+        2,
+    ]
 
-    with pytest.raises(PreSubmissionContractError):
-        bot.run_cycle()
+    stats = bot.run_cycle()
 
     repo.mark_entry_episodes_queued_no_post.assert_called_once_with(
         [21, 22],
@@ -292,7 +293,9 @@ def test_pre_submission_failure_leaves_later_candidate_retryable_no_post(
             reason="PreSubmissionContractError",
         ),
     ]
-    trader.execute_buy.assert_called_once_with(first)
+    assert trader.execute_buy.call_args_list == [call(first), call(later)]
+    assert stats["entry_pre_submission_failures"] == 1
+    assert stats["bought"] == 1
     session.close.assert_called_once()
 
 
@@ -328,7 +331,7 @@ def test_event_capacity_no_post_is_retryable_for_opposite_result(
     session.close.assert_called_once()
 
 
-def test_active_scans_but_blocks_new_buy_while_pending_buy_is_unresolved(
+def test_active_isolates_pending_buy_and_allows_unrelated_candidate(
     monkeypatch, tmp_path
 ):
     pending = SimpleNamespace(id=8, token_id="yes-token")
@@ -355,16 +358,19 @@ def test_active_scans_but_blocks_new_buy_while_pending_buy_is_unresolved(
         "untracked_buy_reservations": 0,
         "total_reserved": 1,
     }
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 1
 
     stats = bot.run_cycle()
 
     assert stats["buy_candidates"] == 1
-    assert stats["entry_blocked_candidates"] == 1
-    assert stats["entry_guard"]["blocking_reasons"] == [
-        "pending_buy_unresolved"
+    assert stats["entry_blocked_candidates"] == 0
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "pending_buy_event_isolated"
     ]
     scanner.scan_buy_candidates.assert_called_once()
-    trader.execute_buy.assert_not_called()
+    trader.execute_buy.assert_called_once_with(candidate)
     session.close.assert_called_once()
 
 
@@ -400,7 +406,36 @@ def test_active_isolates_sell_intent_without_blocking_unrelated_buy(
     session.close.assert_called_once()
 
 
-def test_active_still_blocks_buy_side_or_unknown_reconciliation_error(
+def test_active_isolates_known_buy_reconciliation_error(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, _repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidate = {"condition_id": "market-1", "event_id": "event-1"}
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 1
+
+    stats = bot.run_cycle(
+        order_reconciliation={
+            "errors": 1,
+            "buy_errors": 1,
+            "sell_errors": 0,
+            "unknown_side_errors": 0,
+        }
+    )
+
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "buy_reconciliation_error_isolated"
+    ]
+    trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
+def test_active_still_blocks_unknown_side_reconciliation_error(
     monkeypatch, tmp_path
 ):
     bot, scanner, trader, _repo, session, _gamma = _build_bot(
@@ -413,9 +448,9 @@ def test_active_still_blocks_buy_side_or_unknown_reconciliation_error(
     stats = bot.run_cycle(
         order_reconciliation={
             "errors": 1,
-            "buy_errors": 1,
+            "buy_errors": 0,
             "sell_errors": 0,
-            "unknown_side_errors": 0,
+            "unknown_side_errors": 1,
         }
     )
 
@@ -548,7 +583,7 @@ def test_active_blocks_new_buy_when_confirmed_sell_cannot_map_to_trade(
     session.close.assert_called_once()
 
 
-def test_active_blocks_and_labels_first_episode_for_untracked_buy_exposure(
+def test_active_isolates_untracked_buy_exposure_and_uses_remaining_capacity(
     monkeypatch, tmp_path
 ):
     bot, scanner, trader, repo, session, _gamma = _build_bot(
@@ -566,18 +601,17 @@ def test_active_blocks_and_labels_first_episode_for_untracked_buy_exposure(
         "untracked_buy_reservations": 1,
         "total_reserved": 1,
     }
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 1
 
     stats = bot.run_cycle()
 
-    assert stats["entry_guard"]["blocking_reasons"] == [
-        "untracked_buy_exposure"
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "untracked_buy_exposure_isolated"
     ]
-    repo.mark_entry_episode_execution.assert_called_once_with(
-        17,
-        state="BLOCKED_GUARD",
-        reason="untracked_buy_exposure",
-    )
-    trader.execute_buy.assert_not_called()
+    repo.mark_entry_episode_execution.assert_not_called()
+    trader.execute_buy.assert_called_once_with(candidate)
     session.close.assert_called_once()
 
 

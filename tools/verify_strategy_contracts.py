@@ -3992,7 +3992,10 @@ def _validate_watermelon_live_strategy(
             "daily-rsync verify",
         ),
         "src/polybot/bot.py": (
-            "pending_buy_unresolved",
+            "pending_buy_event_isolated",
+            "untracked_buy_exposure_isolated",
+            "unresolved_buy_outcome_isolated",
+            "buy_reconciliation_error_isolated",
             "pending_sell_event_isolated",
             "stop_sell_unknown_exposure_isolated",
             "sell_reconciliation_error_isolated",
@@ -4016,6 +4019,15 @@ def _validate_watermelon_live_strategy(
             "self.session.rollback()",
             "response_status",
         ),
+        "src/polybot/db/models.py": (
+            "sport_family",
+            "league_code",
+            "market_tags_json",
+            "target_buy_amount_usdc",
+            "selected_buy_amount_usdc",
+            "max_executable_buy_notional_usdc",
+            "buy_notional_fallback_reason",
+        ),
         "src/polybot/config.py": (
             "FROZEN_ARMS",
             "FROZEN_START_UTC",
@@ -4028,7 +4040,7 @@ def _validate_watermelon_live_strategy(
             "LEAGUE_MAPPING_SHA256",
             "strategy_source_digest",
             "preregistration_sha256",
-            "live notional must remain exactly $5",
+            "target notional must be $5-$1000",
             "exposure limits are frozen at 20/1/5",
             "emergency stop_price is frozen at 0.70",
             "failed stop SELL quarantine timeout is frozen at 180 minutes",
@@ -4059,6 +4071,8 @@ def _validate_watermelon_live_strategy(
             "self.session.close()",
         ),
         "src/polybot/api/clob_client.py": (
+            "AdaptiveBuySelection",
+            "_select_adaptive_buy_from_book",
             "BuyBookWalk",
             "SellBookWalk",
             "Gamma and CLOB dynamic fee parameters do not match",
@@ -4091,6 +4105,8 @@ def _validate_watermelon_live_strategy(
             "entry_period_open",
         ),
         "src/polybot/strategy/trader.py": (
+            "ADAPTIVE_BUY_NOTIONAL_LADDER_USDC",
+            "selected_buy_amount_usdc",
             "place_fok_buy",
             "get_sell_book_walk",
             'order_type="FOK"',
@@ -4119,7 +4135,7 @@ def _validate_watermelon_live_strategy(
             "test_detail_checkpoint_keeps_excluded_identity_and_repairs_legacy_gap",
         ),
         "tests/test_trader.py": (
-            "test_buy_revalidates_exact_five_and_submits_fok",
+            "test_buy_revalidates_baseline_and_submits_adaptive_fok",
             "test_stop_uses_fresh_bid_and_submits_fok_sell",
             "test_stop_walk_uses_sdk_sellable_size_and_records_residual_dust",
             "test_orphan_catalog_identity_requires_yes_token_event_and_snapshot_alignment",
@@ -4129,6 +4145,7 @@ def _validate_watermelon_live_strategy(
             "test_sell_ledger_failure_is_immediately_isolated_without_raising",
         ),
         "tests/test_api_contracts.py": (
+            "test_adaptive_buy_uses_largest_fully_executable_ladder_amount",
             "test_full_share_sell_walk_uses_deeper_bids_and_market_limit",
             "test_shallow_stop_book_is_censored_not_partially_sold",
             "test_gamma_exclusion_bucket_preserves_rejected_sport_identity",
@@ -4189,6 +4206,8 @@ def _validate_watermelon_live_strategy(
         "research/frozen-2026-08-26-uefa-v2h/MANIFEST.sha256",
         "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md",
         "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256",
+        "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md",
+        "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -4202,6 +4221,7 @@ def _validate_watermelon_live_strategy(
         ("max_event_positions", 1),
         ("max_new_positions_per_cycle", 5),
         ("stop_price", 0.70),
+        ("max_entry_drawdown", 0.30),
     ):
         _require_yaml_value(
             findings, strategy, "config.yaml", config_yaml, key, expected
@@ -4288,18 +4308,19 @@ def _validate_watermelon_live_strategy(
                 )
             )
 
-    active_prereg_path = (
-        directory / "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md"
+    active_prereg_path = directory / (
+        "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md"
     )
     active_manifest_path = (
-        directory / "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256"
+        directory
+        / "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/MANIFEST.sha256"
     )
     active_preregistration = _read(active_prereg_path)
     active_manifest = _read(active_manifest_path)
     _require_tokens(
         findings,
         strategy,
-        "research/frozen-2026-08-29-major-sports-v3a/PREREGISTRATION.md",
+        "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md",
         active_preregistration,
         (
             "2026-08-29T04:00:00Z", "2026-09-05T04:00:00Z",
@@ -4310,8 +4331,10 @@ def _validate_watermelon_live_strategy(
             "watermelon-live-lion-nhl-96-1m-v3a",
             "watermelon-live-wolf-nhl-99-1m-v3a",
             "[0.96,0.999]", "[0.99,0.999]",
-            "World Series", "Stanley Cup Final",
-            "exact `$5`", "0.70", "CRITICAL/HIGH", "gap",
+            "post_only_mode", "trading is disabled", "NO_ORDER_CREATED",
+            "max(0.70, confirmed entry VWAP-0.30)",
+            "$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000",
+            "sport_family", "selected_buy_amount_usdc", "50초",
         ),
     )
     if active_preregistration and active_manifest:
@@ -4327,7 +4350,7 @@ def _validate_watermelon_live_strategy(
                 Finding(
                     strategy,
                     "invalid_manifest",
-                    "research/frozen-2026-08-29-major-sports-v3a/MANIFEST.sha256",
+                    "research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/MANIFEST.sha256",
                 )
             )
 
@@ -4605,8 +4628,8 @@ def _validate_plum_strategy(
             "plum-shadow-gold-mlb-1m-v1",
             "[0.75,0.78]",
             "시간 강제 청산은 없고",
-            "$5/$10/$25/$50/$100/$250/$500",
-            "exact `$5`",
+            "$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000",
+            "baseline `$5`",
             "MLB",
         ),
         "STRATEGY.md": (
@@ -4643,7 +4666,7 @@ def _validate_plum_strategy(
             "plum-shadow-silver-1m-v1",
             "plum-shadow-gold-mlb-1m-v1",
             "non-soccer Golden Plum live execution is not enabled",
-            "Golden Plum notional must remain exactly $5",
+            "Golden Plum target notional must be $5-$1000",
             "Golden Plum must inspect direct YES and NO books",
             "failed stop SELL quarantine timeout is frozen at 180 minutes",
             "strategy_source_digest",
@@ -4658,6 +4681,8 @@ def _validate_plum_strategy(
             "direct",
         ),
         "src/polybot/strategy/trader.py": (
+            "ADAPTIVE_BUY_NOTIONAL_LADDER_USDC",
+            "selected_buy_amount_usdc",
             "fresh_direct_book_leader_changed",
             "fresh_direct_book_coverage_gap",
             "get_snapshots_by_ids",
@@ -4686,6 +4711,8 @@ def _validate_plum_strategy(
             '"volume_min"',
         ),
         "src/polybot/api/clob_client.py": (
+            "AdaptiveBuySelection",
+            "select_adaptive_buy_from_book_evidence",
             "BuyBookWalk",
             "SellBookWalk",
             "get_buy_book_walks",
@@ -4704,6 +4731,7 @@ def _validate_plum_strategy(
             "test_tied_current_leader_fails_closed_after_history",
         ),
         "tests/test_trader.py": (
+            "test_buy_revalidates_exact_five_and_submits_fok",
             "test_buy_refuses_any_prior_event_trade",
             "test_continuous_stop_failure_is_quarantined_after_three_hours",
             "test_minute_eighty_does_not_force_exit_and_stop_remains_active",
@@ -4715,6 +4743,18 @@ def _validate_plum_strategy(
             "test_pre_submission_failure_does_not_skip_later_candidate",
             "test_active_pending_buy_reserves_capacity_but_does_not_block_other_event",
             "test_active_isolated_stop_quarantine_reserves_capacity_but_not_global_gate",
+        ),
+        "tests/test_api_contracts.py": (
+            "test_adaptive_buy_uses_cached_book_and_largest_safe_ladder_amount",
+        ),
+        "src/polybot/db/models.py": (
+            "sport_family",
+            "league_code",
+            "market_tags_json",
+            "target_buy_amount_usdc",
+            "selected_buy_amount_usdc",
+            "max_executable_buy_notional_usdc",
+            "buy_notional_fallback_reason",
         ),
         "tests/test_replay_direct_six_book.py": (
             "test_full_depth_walks_use_all_levels_and_fail_if_shallow",
@@ -4750,6 +4790,8 @@ def _validate_plum_strategy(
         "research/frozen-2026-08-31-full-match-no-time-exit-v2/MANIFEST.sha256",
         "research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md",
         "research/frozen-2026-09-01-multisport-mlb-shadow-v3/MANIFEST.sha256",
+        "research/frozen-2026-09-02-execution-metadata-v5/PREREGISTRATION.md",
+        "research/frozen-2026-09-02-execution-metadata-v5/MANIFEST.sha256",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -4892,6 +4934,53 @@ def _validate_plum_strategy(
                     strategy,
                     "invalid_manifest",
                     "research/frozen-2026-09-01-multisport-mlb-shadow-v3/MANIFEST.sha256",
+                )
+            )
+
+    active_prereg_path = (
+        directory
+        / "research/frozen-2026-09-02-execution-metadata-v5/PREREGISTRATION.md"
+    )
+    active_manifest_path = (
+        directory
+        / "research/frozen-2026-09-02-execution-metadata-v5/MANIFEST.sha256"
+    )
+    active_preregistration = _read(active_prereg_path)
+    active_manifest = _read(active_manifest_path)
+    _require_tokens(
+        findings,
+        strategy,
+        "research/frozen-2026-09-02-execution-metadata-v5/PREREGISTRATION.md",
+        active_preregistration,
+        (
+            "[0.75,0.78]",
+            "0.90/0.95",
+            "confirmed BUY VWAP-0.15",
+            "sport_family",
+            "league_code",
+            "market_tags_json",
+            "baseline exact `$5`",
+            "$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000",
+            "target_buy_amount_usdc",
+            "selected_buy_amount_usdc",
+            "FOK",
+            "50초",
+        ),
+    )
+    if active_preregistration and active_manifest:
+        digest = hashlib.sha256(active_prereg_path.read_bytes()).hexdigest()
+        pinned = any(
+            len(fields := line.strip().split()) >= 2
+            and fields[0].lower() == digest
+            and fields[-1].lstrip("*").endswith("PREREGISTRATION.md")
+            for line in active_manifest.splitlines()
+        )
+        if not pinned:
+            findings.append(
+                Finding(
+                    strategy,
+                    "invalid_manifest",
+                    "research/frozen-2026-09-02-execution-metadata-v5/MANIFEST.sha256",
                 )
             )
 

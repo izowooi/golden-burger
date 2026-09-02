@@ -152,7 +152,7 @@ def main() -> None:
         f"{trading.preregistration_sha256[:12]}"
     )
     print(
-        "Exact $5 ask VWAP band: "
+        "Baseline $5 ask VWAP band: "
         f"[{trading.entry.prob_min:.3f}, {trading.entry.prob_max:.3f}]"
     )
     print(
@@ -167,7 +167,7 @@ def main() -> None:
         f"spread <= {trading.entry.max_stop_spread:.2f}; no TP/time-exit"
     )
     print(
-        f"Order: ${trading.buy_amount_usdc:.2f}, min shares "
+        f"Adaptive FOK target: ${trading.buy_amount_usdc:.2f} (floor $5.00), min shares "
         f"{trading.min_order_size:.2f} + {trading.min_order_buffer_shares:.2f} buffer"
     )
     print(

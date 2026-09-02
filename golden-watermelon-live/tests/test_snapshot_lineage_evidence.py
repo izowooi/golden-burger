@@ -32,6 +32,16 @@ def test_legacy_trade_table_adds_nullable_prior_snapshot_lineage(tmp_path):
 
     assert "prior_snapshot_id_at_entry" in columns
     assert "entry_snapshot_id" in columns
+    assert {
+        "sport_family",
+        "league_code",
+        "league_name",
+        "market_tags_json",
+        "target_buy_amount_usdc",
+        "selected_buy_amount_usdc",
+        "max_executable_buy_notional_usdc",
+        "buy_notional_fallback_reason",
+    } <= columns
     row = session.execute(
         text(
             "SELECT prior_snapshot_id_at_entry, entry_snapshot_id "

@@ -1,15 +1,16 @@
-"""Exact-$5 in-play soccer/MLB/NHL winner scanner."""
+"""Baseline-$5 in-play soccer/MLB/NHL winner scanner."""
 
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import json
 import logging
 import math
 from typing import Any, Dict, List, Optional
 
 from ..api.clob_client import BuyBookWalk, ClobClientWrapper
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import BASELINE_EXECUTION_NOTIONAL_USDC, TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
     get_event,
@@ -20,6 +21,23 @@ from .filters import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _market_tags_json(market: Dict[str, Any]) -> str:
+    return json.dumps(
+        [
+            {
+                "id": tag.get("id"),
+                "slug": tag.get("slug"),
+                "label": tag.get("label"),
+            }
+            for tag in (market.get("tags") or [])
+            if isinstance(tag, dict)
+        ],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 def parse_end_date(value: Optional[str]) -> Optional[datetime]:
@@ -139,7 +157,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> int:
-        """Persist exact `$5` YES VWAP and a cursor-complete sweep proof."""
+        """Persist baseline `$5` winner VWAP and a cursor-complete sweep proof."""
         if self.repo is None or self.clob is None:
             raise RuntimeError("repository and CLOB client are required")
         attestation = self.gamma.last_sweep_attestation
@@ -160,7 +178,7 @@ class MarketScanner:
             if outcome
         ]
         self._walks = self.clob.get_buy_book_walks(
-            token_ids, notional_usdc=self.config.buy_amount_usdc
+            token_ids, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
         )
         self._snapshot_ids.clear()
         self._first_episode_ids.clear()
@@ -171,7 +189,19 @@ class MarketScanner:
                 condition_id = str(market.get("conditionId") or "").strip()
                 if not condition_id:
                     raise ValueError("qualified Gamma market has no conditionId")
-                self.repo.save_market_catalog(condition_id, market, commit=False)
+                tags_json = _market_tags_json(market)
+                self.repo.save_market_catalog(
+                    condition_id,
+                    market,
+                    sport_family=self.config.sport_family,
+                    league_code=(
+                        market.get("leagueCode") or self.config.sport_family
+                    ),
+                    league_name=(
+                        market.get("leagueName") or self.config.sport_family.upper()
+                    ),
+                    commit=False,
+                )
                 eligible, reason, game_start, in_play_hours = self._market_eligible(
                     market, reference
                 )
@@ -204,6 +234,15 @@ class MarketScanner:
                         best_ask=walk.best_ask,
                         spread=walk.spread,
                         source_updated_at=market.get("updatedAt"),
+                        sport_family=self.config.sport_family,
+                        league_code=(
+                            market.get("leagueCode") or self.config.sport_family
+                        ),
+                        league_name=(
+                            market.get("leagueName")
+                            or self.config.sport_family.upper()
+                        ),
+                        market_tags_json=tags_json,
                         commit=False,
                     )
                     snapshot.timestamp = reference.astimezone(timezone.utc).replace(
@@ -368,8 +407,12 @@ class MarketScanner:
                     "outcome": outcome["outcome"],
                     "outcome_index": outcome["token_index"],
                     "result_kind": outcome["result_kind"],
-                    "league_code": market.get("leagueCode"),
-                    "league_name": market.get("leagueName"),
+                    "league_code": (
+                        market.get("leagueCode") or self.config.sport_family
+                    ),
+                    "league_name": (
+                        market.get("leagueName") or self.config.sport_family.upper()
+                    ),
                     "token_id": token_id,
                     "probability": walk.vwap,
                     "prior_yes_price": None,
@@ -399,6 +442,7 @@ class MarketScanner:
                         f"{tag_text}, league={market.get('leagueCode')}, "
                         f"result={outcome['result_kind']}"
                     ).strip(", "),
+                    "market_tags_json": _market_tags_json(market),
                 }
                 candidates_by_event.setdefault(str(event["event_id"]), []).append(
                     candidate
@@ -458,7 +502,7 @@ class MarketScanner:
     def check_current_price(self, token_id: str, clob_client) -> float:
         try:
             return clob_client.get_buy_book_walk(
-                token_id, notional_usdc=self.config.buy_amount_usdc
+                token_id, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
             ).vwap
         except Exception as error:
             logger.warning(

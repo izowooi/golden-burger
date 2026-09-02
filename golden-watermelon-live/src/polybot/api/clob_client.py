@@ -108,6 +108,17 @@ class BuyBookWalk:
 
 
 @dataclass(frozen=True)
+class AdaptiveBuySelection:
+    """One atomic FOK amount selected from a single fresh displayed book."""
+
+    target_notional_usdc: float
+    selected_notional_usdc: float
+    max_executable_notional_usdc: float
+    fallback_reason: str
+    walk: BuyBookWalk
+
+
+@dataclass(frozen=True)
 class SellBookWalk:
     """A full displayed-bid walk for one fixed share quantity."""
 
@@ -218,6 +229,65 @@ def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWal
         limit_price=limit_price,
         levels_used=levels_used,
     )
+
+
+def _select_adaptive_buy_from_book(
+    book: Any,
+    token_id: str,
+    *,
+    target_notional_usdc: float,
+    notional_ladder_usdc: Iterable[float],
+    baseline_notional_usdc: float,
+    max_limit_price: float,
+) -> AdaptiveBuySelection:
+    """Select the largest fully executable amount without issuing a partial order."""
+
+    target = float(target_notional_usdc)
+    baseline = float(baseline_notional_usdc)
+    if not math.isfinite(target) or target < baseline:
+        raise ValueError("target_notional_usdc must be at least the baseline")
+    if not math.isfinite(max_limit_price) or not 0 < max_limit_price < 1:
+        raise ValueError("max_limit_price must be between zero and one")
+
+    # Prove that the strategy's fixed baseline signal is executable first.
+    baseline_walk = _walk_buy_book(book, token_id, baseline)
+    if baseline_walk.limit_price > max_limit_price + 1e-9:
+        raise ClobResponseUnavailableError(
+            "baseline displayed asks exceed the entry price ceiling"
+        )
+
+    asks = _normalize_book_levels(_book_field(book, "asks"), "ask")
+    max_executable = sum(
+        price * size
+        for price, size in asks
+        if price <= max_limit_price + 1e-9 and price < 1
+    )
+    candidates = {target, baseline}
+    for raw in notional_ladder_usdc:
+        value = float(raw)
+        if math.isfinite(value) and baseline <= value <= target:
+            candidates.add(value)
+    for notional in sorted(candidates, reverse=True):
+        try:
+            walk = _walk_buy_book(book, token_id, notional)
+        except ClobResponseUnavailableError:
+            continue
+        if walk.limit_price > max_limit_price + 1e-9:
+            continue
+        return AdaptiveBuySelection(
+            target_notional_usdc=target,
+            selected_notional_usdc=notional,
+            max_executable_notional_usdc=max_executable,
+            fallback_reason=(
+                "TARGET_FULLY_EXECUTABLE"
+                if math.isclose(notional, target, rel_tol=0, abs_tol=1e-9)
+                else "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+            ),
+            walk=walk,
+        )
+    # The baseline proof above makes this unreachable unless the book changes
+    # in memory or numeric invariants are violated.
+    raise ClobResponseUnavailableError("no adaptive FOK amount is executable")
 
 
 def _walk_sell_book(book: Any, token_id: str, shares: float) -> SellBookWalk:
@@ -1150,6 +1220,27 @@ class ClobClientWrapper:
         result = self.client.get_order_book(str(token_id))
         return _walk_buy_book(result, str(token_id), notional_usdc)
 
+    def get_adaptive_buy_book_walk(
+        self,
+        token_id: str,
+        *,
+        target_notional_usdc: float,
+        notional_ladder_usdc: Iterable[float],
+        baseline_notional_usdc: float,
+        max_limit_price: float,
+    ) -> AdaptiveBuySelection:
+        """Fetch one fresh book and choose one bounded atomic FOK amount."""
+
+        result = self.client.get_order_book(str(token_id))
+        return _select_adaptive_buy_from_book(
+            result,
+            str(token_id),
+            target_notional_usdc=target_notional_usdc,
+            notional_ladder_usdc=notional_ladder_usdc,
+            baseline_notional_usdc=baseline_notional_usdc,
+            max_limit_price=max_limit_price,
+        )
+
     def get_sell_book_walk(self, token_id: str, *, shares: float) -> SellBookWalk:
         """Return a complete executable walk for every share in one holding."""
         result = self.client.get_order_book(str(token_id))
@@ -1726,14 +1817,31 @@ class ClobClientWrapper:
             "unresolved_sell_outcomes": 0,
             "reconciliation_buy_gaps": 0,
             "reconciliation_sell_gaps": 0,
-            # Uncertain POST outcomes require exact venue/operator proof.  An
-            # absent open order cannot distinguish no order from a filled FOK.
+            # Only an explicit venue rejection can be resolved without an
+            # order lookup. An absent open order cannot distinguish no order
+            # from a filled FOK.
             "intent_autoresolved": 0,
         }
         if self.simulation_mode or self.execution_ledger is None:
             return stats
 
         from py_clob_client_v2 import OpenOrderParams, TradeParams
+
+        autoresolver = getattr(
+            self.execution_ledger,
+            "autoresolve_explicit_no_order_rejections",
+            None,
+        )
+        explicit_rejections = (
+            autoresolver() if callable(autoresolver) else {"resolved": 0}
+        )
+        stats["intent_autoresolved"] = int(explicit_rejections["resolved"])
+        if explicit_rejections["resolved"]:
+            logger.warning(
+                "명시적인 거래소 주문 거절 증거로 과거 불확실 intent를 자동 해제했습니다 "
+                "- count=%s",
+                explicit_rejections["resolved"],
+            )
 
         pre_migration_index = None
         token_trade_catalog_cache = {}

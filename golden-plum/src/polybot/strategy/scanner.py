@@ -17,7 +17,7 @@ from ..api.clob_client import (
     build_execution_capacity_evidence,
 )
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import BASELINE_EXECUTION_NOTIONAL_USDC, TradingConfig
 from ..db.repository import TradeRepository
 from .filters import (
     get_event,
@@ -28,6 +28,23 @@ from .filters import (
 
 
 logger = logging.getLogger(__name__)
+
+
+def _market_tags_json(market: Dict[str, Any]) -> str:
+    return json.dumps(
+        [
+            {
+                "id": tag.get("id"),
+                "slug": tag.get("slug"),
+                "label": tag.get("label"),
+            }
+            for tag in (market.get("tags") or [])
+            if isinstance(tag, dict)
+        ],
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
 
 
 @dataclass(frozen=True)
@@ -525,7 +542,7 @@ class MarketScanner:
             dict.fromkeys(str(side["token_id"]) for side in sides)
         )
         self._walks = self.clob.get_buy_book_walks(
-            token_ids, notional_usdc=self.config.buy_amount_usdc
+            token_ids, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
         )
         self._snapshot_ids.clear()
         snapshot_results: Dict[str, Dict[str, Any]] = {}
@@ -622,6 +639,14 @@ class MarketScanner:
                         source_clock_reason=clock_reason,
                         book_json=book_json,
                         execution_capacity_json=execution_capacity_json,
+                        league_code=(
+                            market.get("leagueCode") or self.config.sport_family
+                        ),
+                        league_name=(
+                            market.get("leagueName")
+                            or self.config.sport_family.upper()
+                        ),
+                        market_tags_json=_market_tags_json(market),
                         evidence_context=evidence_context,
                         event_cycle_id=event_health["event_cycle_id"],
                         event_set_complete=event_health["complete"],
@@ -997,8 +1022,12 @@ class MarketScanner:
                     "event_token_ids": [
                         str(item["outcome"]["token_id"]) for item in ranked
                     ],
-                    "league_code": market.get("leagueCode"),
-                    "league_name": market.get("leagueName"),
+                    "league_code": (
+                        market.get("leagueCode") or self.config.sport_family
+                    ),
+                    "league_name": (
+                        market.get("leagueName") or self.config.sport_family.upper()
+                    ),
                     "token_id": str(outcome["token_id"]),
                     "probability": walk.vwap,
                     "entry_snapshot_id": int(leader["snapshot_id"]),
@@ -1038,6 +1067,7 @@ class MarketScanner:
                         f"candidate={outcome['candidate_kind']}, "
                         f"leader_margin={margin:.6f}"
                     ).strip(", "),
+                    "market_tags_json": _market_tags_json(market),
                 }
             )
 
@@ -1066,7 +1096,7 @@ class MarketScanner:
     def check_current_price(self, token_id: str, clob_client) -> float:
         try:
             return clob_client.get_buy_book_walk(
-                token_id, notional_usdc=self.config.buy_amount_usdc
+                token_id, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
             ).vwap
         except Exception as error:
             logger.warning(

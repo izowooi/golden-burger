@@ -19,9 +19,14 @@ from ..api.clob_client import (
     ClobClientWrapper,
     ClobResolutionProof,
     PreSubmissionContractError,
+    select_adaptive_buy_from_book_evidence,
 )
 from ..api.gamma_client import GammaClient
-from ..config import TradingConfig
+from ..config import (
+    ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+    BASELINE_EXECUTION_NOTIONAL_USDC,
+    TradingConfig,
+)
 from ..db.models import (
     BUY_ISOLATION_REASONS,
     BUY_RECONCILIATION_QUARANTINE_REASON,
@@ -76,6 +81,16 @@ _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 _MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
 _EXIT_SELL_FAILURE_RETRY_PREFIX = "exit_sell_failure_retrying:"
+
+
+def _valid_adaptive_buy_amount(amount: float, target: float) -> bool:
+    allowed = {
+        value
+        for value in ADAPTIVE_BUY_NOTIONAL_LADDER_USDC
+        if value <= target + 1e-9
+    }
+    allowed.add(float(target))
+    return any(math.isclose(amount, value, rel_tol=0, abs_tol=1e-6) for value in allowed)
 
 
 def _sdk_sellable_shares(holding_shares: float) -> float:
@@ -460,7 +475,7 @@ class Trader:
         return None
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
-        """Revalidate the exact $5 walk, then submit a FOK BUY."""
+        """Revalidate the $5 signal, then submit one adaptive atomic FOK BUY."""
         self.last_entry_outcome_reason = None
         self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
@@ -638,7 +653,7 @@ class Trader:
         try:
             fresh_walks = self.clob.get_buy_book_walks(
                 event_token_ids,
-                notional_usdc=self.config.buy_amount_usdc,
+                notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC,
             )
         except Exception as error:
             logger.warning(
@@ -676,22 +691,44 @@ class Trader:
                 fresh_margin,
             )
             return self._reject_entry("fresh_direct_book_leader_changed")
-        walk = fresh_ranked[0][2]
-        if walk.spread > self.config.entry.max_entry_spread + 1e-9:
+        baseline_walk = fresh_ranked[0][2]
+        if baseline_walk.spread > self.config.entry.max_entry_spread + 1e-9:
             return self._reject_entry("fresh_leader_spread_too_wide")
         if not (
             self.config.entry.prob_min - 1e-9
-            <= walk.vwap
+            <= baseline_walk.vwap
             <= self.config.entry.prob_max + 1e-9
         ):
             logger.info(
                 "fresh exact VWAP left arm band - condition=%s vwap=%.4f band=%.3f-%.3f",
                 condition_id,
-                walk.vwap,
+                baseline_walk.vwap,
                 self.config.entry.prob_min,
                 self.config.entry.prob_max,
             )
             return self._reject_entry("fresh_exact_vwap_left_arm")
+        book_json = self.clob.get_cached_book_evidence(token_id)
+        if not book_json:
+            return self._reject_entry("fresh_direct_book_evidence_missing")
+        try:
+            selection = select_adaptive_buy_from_book_evidence(
+                book_json,
+                target_notional_usdc=self.config.buy_amount_usdc,
+                notional_ladder_usdc=ADAPTIVE_BUY_NOTIONAL_LADDER_USDC,
+                baseline_notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC,
+                max_limit_price=self.config.entry.prob_max,
+            )
+        except Exception as error:
+            logger.warning(
+                "adaptive fresh-book selection failed - condition=%s error=%s",
+                condition_id,
+                type(error).__name__,
+            )
+            return self._reject_entry(
+                f"adaptive_fresh_book_{type(error).__name__}"
+            )
+        walk = selection.walk
+        selected_buy_amount = selection.selected_notional_usdc
         required = self.config.min_order_size + self.config.min_order_buffer_shares
         if walk.shares + 1e-9 < required:
             logger.warning(
@@ -710,12 +747,16 @@ class Trader:
             return self._reject_entry("fok_limit_not_orderable")
 
         logger.info(
-            "Golden Plum FOK BUY: '%s' result=%s side=%s exact_vwap=%.2f%% "
-            "best_ask=%.2f%% limit=%.2f%% shares=%.4f",
+            "Golden Plum FOK BUY: '%s' result=%s side=%s adaptive_vwap=%.2f%% "
+            "target=$%.2f selected=$%.2f max_displayed=$%.2f best_ask=%.2f%% "
+            "limit=%.2f%% shares=%.4f",
             str(candidate.get("question") or "")[:60],
             result_kind,
             outcome,
             walk.vwap * 100,
+            selection.target_notional_usdc,
+            selected_buy_amount,
+            selection.max_executable_notional_usdc,
             walk.best_ask * 100,
             walk.limit_price * 100,
             walk.shares,
@@ -733,7 +774,7 @@ class Trader:
         try:
             result = self.clob.place_fok_buy(
                 token_id=token_id,
-                amount_usdc=self.config.buy_amount_usdc,
+                amount_usdc=selected_buy_amount,
                 limit_price=walk.limit_price,
                 max_limit_price=self.config.entry.prob_max,
             )
@@ -789,7 +830,7 @@ class Trader:
             result_kind=result_kind,
             token_id=token_id,
             buy_price=walk.vwap,
-            buy_amount=self.config.buy_amount_usdc,
+            buy_amount=selected_buy_amount,
             buy_shares=submitted_shares,
             buy_order_id=result.get("orderID"),
             buy_timestamp=datetime.utcnow(),
@@ -801,7 +842,7 @@ class Trader:
             ),
             entry_reason=(
                 f"{self.config.book_shape}_full_game_first_cross_trend_"
-                "exact_5_usdc_fok:"
+                "baseline_5_adaptive_fok:"
                 f"{str(candidate.get('candidate_kind') or result_kind)}"
             ),
             strategy_name=STRATEGY_NAME,
@@ -813,6 +854,16 @@ class Trader:
             liquidity_at_buy=candidate.get("liquidity"),
             volume_24h_at_buy=candidate.get("volume_24h"),
             market_tags=candidate.get("market_tags", ""),
+            sport_family=self.config.sport_family,
+            league_code=candidate.get("league_code"),
+            league_name=candidate.get("league_name"),
+            market_tags_json=candidate.get("market_tags_json"),
+            target_buy_amount_usdc=selection.target_notional_usdc,
+            selected_buy_amount_usdc=selected_buy_amount,
+            max_executable_buy_notional_usdc=(
+                selection.max_executable_notional_usdc
+            ),
+            buy_notional_fallback_reason=selection.fallback_reason,
             prior_yes_price_at_entry=None,
             yes_price_at_buy=candidate.get("yes_probability"),
             stop_price_at_entry=_entry_stop_price(walk.vwap, self.config),
@@ -960,11 +1011,8 @@ class Trader:
                 )
                 or str(submission.get("strategy_name") or "") != STRATEGY_NAME
                 or not lineage_identity_ok
-                or not math.isclose(
-                    signed_maker_usdc,
-                    self.config.buy_amount_usdc,
-                    rel_tol=0,
-                    abs_tol=1e-6,
+                or not _valid_adaptive_buy_amount(
+                    signed_maker_usdc, self.config.buy_amount_usdc
                 )
                 or not (
                     math.isfinite(submitted_price)
@@ -1013,7 +1061,7 @@ class Trader:
                 result_kind=getattr(snapshot, "result_kind", None),
                 token_id=token_id,
                 buy_price=evidence.confirmed_vwap,
-                buy_amount=self.config.buy_amount_usdc,
+                buy_amount=signed_maker_usdc,
                 buy_shares=evidence.confirmed_size,
                 buy_order_id=order_id,
                 buy_timestamp=_ledger_timestamp(
@@ -1035,6 +1083,23 @@ class Trader:
                 liquidity_at_buy=snapshot.liquidity,
                 volume_24h_at_buy=snapshot.volume_24h,
                 market_tags=catalog.tags_json,
+                sport_family=(
+                    getattr(snapshot, "sport_family", None)
+                    or self.config.sport_family
+                ),
+                league_code=(
+                    getattr(snapshot, "league_code", None)
+                    or getattr(catalog, "league_code", None)
+                ),
+                league_name=(
+                    getattr(snapshot, "league_name", None)
+                    or getattr(catalog, "league_name", None)
+                ),
+                market_tags_json=catalog.tags_json,
+                target_buy_amount_usdc=self.config.buy_amount_usdc,
+                selected_buy_amount_usdc=signed_maker_usdc,
+                max_executable_buy_notional_usdc=None,
+                buy_notional_fallback_reason="RECOVERED_FROM_EXECUTION_LEDGER",
                 prior_yes_price_at_entry=None,
                 yes_price_at_buy=_catalog_yes_probability(catalog),
                 stop_price_at_entry=_entry_stop_price(
