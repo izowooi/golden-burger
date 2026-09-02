@@ -18,9 +18,11 @@ Golden Peach는 경기 시작 0~10분의 현재 선두를 즉시 산다. Golden 
 분석한다. 열린 주문 대사 연속성을 위해 runtime job과 DB 경로는 유지한다.
 
 2026-09-01 v3는 축구 live 계약을 바꾸지 않고 종목별 profile과 direct two-team book
-경로를 추가했다. Silver는 축구, Gold는 MLB를 1분 cadence로 수집한다. NBA·NFL·NHL은
-분류·호가·재생 코드만 준비했으며 아직 Jenkins나 실거래에 연결하지 않는다. MLB의 현재
-수치는 최적값이 아니라 원자료와 해결 경로를 모으기 위한 사전 등록 primary다.
+경로를 추가했다. Silver는 축구, Gold는 MLB를 1분 cadence로 수집한다. 2026-09-02 v4는
+같은 외장 Gold job에 NFL·NBA runtime을 별도 DB로 추가한다. 세 runtime은 병렬 실행하며
+NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals의 실제 1군 두 팀 경기를
+포함한다. NHL은 아직 Jenkins에 연결하지 않는다. direct sport의 현재 수치는 최적값이
+아니라 원자료와 해결 경로를 모으기 위한 사전 등록 primary다.
 
 운영자가 제공한 탐색 보고서는 0.60/0.65/0.75 진입과
 0.90/0.95 익절을 탐색 후보로 제시했다. 그러나 여섯 호가의 최고값은 세 결과 중
@@ -46,22 +48,25 @@ Golden Peach는 경기 시작 0~10분의 현재 선두를 즉시 산다. Golden 
 만들지 않는다. source 시계가 누락된 cycle은 raw 호가와 누락 사유를 저장하되 진입을
 추정하지 않는다.
 
-### MLB 자료 수집
+### MLB·NFL·NBA 자료 수집
 
-- MLB exact sport/tag/root-series/team-league identity
+- 종목별 exact sport/tag/root-series/team-league identity
 - whole-game 최상위 two-team moneyline 한 개와 두 팀의 직접 token
 - Gamma explicit `live=true`, `ended=false`; 시작부터 종료와 extra innings까지 관측
 - child/inning/prop/future/spread/total/minor league/esports 제외
+- MLB World Series, NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals에서
+  공식 season series와 해당 최상위 리그 두 팀이 확인된 실제 경기를 포함
+- 대회 우승자·conference/division winner 같은 futures는 제외
 - 누적 거래량 5,000, 유동성 5,000 이상
-- 이닝을 축구 minute로 변환하지 않으며 `source_elapsed_minutes`는 NULL로 보존
+- 이닝·quarter를 축구 minute로 변환하지 않으며 `source_elapsed_minutes`는 NULL로 보존
 - snapshot UTC 간격과 명시적 live/ended lifecycle로 추세와 종료를 연결
 
-NBA·NFL·NHL도 별도 versioned family profile과 동일한 direct two-team 계약을 코드로
-지원한다. 아직 수집하거나 live로 실행하지 않는다.
+NHL도 별도 versioned family profile과 동일한 direct two-team 계약을 코드로 지원하지만
+아직 수집하거나 live로 실행하지 않는다.
 
 ## 진입
 
-1. current event의 완전한 direct book set을 같은 cycle에서 읽는다(축구 6, MLB 2).
+1. current event의 완전한 direct book set을 같은 cycle에서 읽는다(축구 6, direct sport 2).
 2. 각 token의 exact `$5` ask VWAP snapshot을 token ID별로 저장한다.
 3. current midpoint의 유일한 선두와 2위 margin이 0.005 이상인지 확인한다.
 4. 선두 token의 최근 3개 snapshot이 각각 90초 이내인지 확인한다.
@@ -110,11 +115,11 @@ resolution을 저장한다. 추가로 각 snapshot의 `$5/$10/$25/$50/$100/$250/
 ask를 걸어 산 shares를 같은 시점 bid에 전량 팔 수 있는지와 양쪽 VWAP·level 수·수수료 전
 왕복 손익을 `execution_capacity_json`에 저장한다.
 
-`polybot-gold/plum-shadow-gold-mlb-1m-v1`은 같은 방식으로 MLB의 두 팀 direct book을
-수집한다. Gamma는 MLB family tag·누적 거래량·유동성을 server-side로 먼저 거르고 최대
-2페이지까지만 허용한다. CLOB full books는 batch로 한 번 읽고 증액 ladder는 cached book을
-로컬 계산하므로 추가 book 요청이 없다. 이 계산은 simulation 전용이라 King/Queen의
-실거래 cycle 시간을 늘리지 않는다.
+`polybot-gold`는 같은 방식으로 MLB·NFL·NBA의 두 팀 direct book을 각 runtime DB에
+수집한다. Gamma는 각 family tag·누적 거래량·유동성을 server-side로 먼저 거르고 종목당
+최대 2페이지까지만 허용한다. CLOB full books는 batch로 한 번 읽고 증액 ladder는 cached
+book을 로컬 계산하므로 추가 book 요청이 없다. 세 runtime은 병렬 실행하며, 이 계산은
+simulation 전용이라 King/Queen의 실거래 cycle 시간을 늘리지 않는다.
 
 `scripts/replay_direct_six_book.py --sport-family <family>`는 같은 event에서 entry, target,
 stop, trend 길이와 누적 움직임 grid를 재생한다. 종목별 profile은 별도로 versioning하므로
@@ -133,6 +138,7 @@ Silver·Gold의 반사실 행은 실제 주문이나 P&L이 아니다. 같은 �
 - CRITICAL/HIGH evidence issue, fill/fee gap, cohort 혼합: 성과 판정 중단
 - paired fee 포함 95% 신뢰구간이 0을 포함하면 우승 arm 없음
 
-현재 동결값과 기간은
-`research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`가 권위다.
+MLB 동결값과 기간은
+`research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`, NFL·NBA는
+`research/frozen-2026-09-02-nba-nfl-shadow-v4/PREREGISTRATION.md`가 권위다.
 과거 v1·v2 계약은 원래 폴더에 변경 없이 보존한다.

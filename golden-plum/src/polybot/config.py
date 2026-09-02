@@ -28,12 +28,19 @@ FROZEN_FOLLOWUP_END_UTC = "2026-09-21T00:00:00Z"
 GOLD_START_UTC = "2026-09-01T00:00:00Z"
 GOLD_ENTRY_END_UTC = "2026-10-01T00:00:00Z"
 GOLD_FOLLOWUP_END_UTC = "2026-10-08T00:00:00Z"
+US_MAJOR_START_UTC = "2026-09-02T10:30:00Z"
+US_MAJOR_ENTRY_END_UTC = "2026-12-01T10:30:00Z"
+US_MAJOR_FOLLOWUP_END_UTC = "2026-12-08T10:30:00Z"
 SOCCER_PREREGISTRATION = (
     "research/frozen-2026-08-31-full-match-no-time-exit-v2/"
     "PREREGISTRATION.md"
 )
 MLB_PREREGISTRATION = (
     "research/frozen-2026-09-01-multisport-mlb-shadow-v3/"
+    "PREREGISTRATION.md"
+)
+US_MAJOR_PREREGISTRATION = (
+    "research/frozen-2026-09-02-nba-nfl-shadow-v4/"
     "PREREGISTRATION.md"
 )
 SIMULATION_SCALING_NOTIONALS_USDC = (
@@ -322,6 +329,42 @@ RUNTIME_SPECS = {
         experiment_start_utc=GOLD_START_UTC,
         experiment_entry_end_utc=GOLD_ENTRY_END_UTC,
         experiment_followup_end_utc=GOLD_FOLLOWUP_END_UTC,
+        scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
+    ),
+    "plum-shadow-gold-nfl-1m-v1": RuntimeSpec(
+        runtime_job="plum-shadow-gold-nfl-1m-v1",
+        jenkins_job="polybot-gold",
+        sport_family="nfl",
+        simulation_mode=True,
+        lifecycle_mode="active",
+        execution_policy="credential-free-displayed-book-simulation",
+        take_profit_price=0.95,
+        protocol_id="plum-nfl-shadow-v4",
+        preregistration_path=US_MAJOR_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=50.0,
+        external_workspace_path="/Volumes/t7/jenkins/polybot-gold",
+        experiment_start_utc=US_MAJOR_START_UTC,
+        experiment_entry_end_utc=US_MAJOR_ENTRY_END_UTC,
+        experiment_followup_end_utc=US_MAJOR_FOLLOWUP_END_UTC,
+        scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
+    ),
+    "plum-shadow-gold-nba-1m-v1": RuntimeSpec(
+        runtime_job="plum-shadow-gold-nba-1m-v1",
+        jenkins_job="polybot-gold",
+        sport_family="nba",
+        simulation_mode=True,
+        lifecycle_mode="active",
+        execution_policy="credential-free-displayed-book-simulation",
+        take_profit_price=0.95,
+        protocol_id="plum-nba-shadow-v4",
+        preregistration_path=US_MAJOR_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=50.0,
+        external_workspace_path="/Volumes/t7/jenkins/polybot-gold",
+        experiment_start_utc=US_MAJOR_START_UTC,
+        experiment_entry_end_utc=US_MAJOR_ENTRY_END_UTC,
+        experiment_followup_end_utc=US_MAJOR_FOLLOWUP_END_UTC,
         scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
     ),
 }

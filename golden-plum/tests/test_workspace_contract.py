@@ -23,14 +23,15 @@ SPEC.loader.exec_module(workspace_module)
 
 def test_workspace_specs_match_atomic_runtime_registry() -> None:
     for job, workspace_spec in workspace_module.WORKSPACE_SPECS.items():
-        runtime_spec = RUNTIME_SPECS[workspace_spec.runtime_job]
-        assert runtime_spec.jenkins_job == job
-        assert runtime_spec.simulation_mode is True
-        assert runtime_spec.hard_deadline_seconds == 50.0
-        assert runtime_spec.cadence_seconds == 60
-        assert runtime_spec.external_workspace_path == str(
-            workspace_spec.workspace
-        )
+        for runtime_job in workspace_spec.runtime_jobs:
+            runtime_spec = RUNTIME_SPECS[runtime_job]
+            assert runtime_spec.jenkins_job == job
+            assert runtime_spec.simulation_mode is True
+            assert runtime_spec.hard_deadline_seconds == 50.0
+            assert runtime_spec.cadence_seconds == 60
+            assert runtime_spec.external_workspace_path == str(
+                workspace_spec.workspace
+            )
 
 
 def test_cli_job_argument_uses_jenkins_job_name() -> None:
@@ -76,13 +77,22 @@ def trusted_volume(tmp_path, monkeypatch):
     host_pin.write_text(volume_uuid + "\n", encoding="utf-8")
 
     specs = {}
-    for job, runtime in (
-        ("polybot-gold", "plum-shadow-gold-mlb-1m-v1"),
-        ("polybot-silver", "plum-shadow-silver-1m-v1"),
+    for job, runtime, additional in (
+        (
+            "polybot-gold",
+            "plum-shadow-gold-mlb-1m-v1",
+            (
+                "plum-shadow-gold-nfl-1m-v1",
+                "plum-shadow-gold-nba-1m-v1",
+            ),
+        ),
+        ("polybot-silver", "plum-shadow-silver-1m-v1", ()),
     ):
         workspace = mount_root / "jenkins" / job
         (workspace / "golden-plum").mkdir(parents=True)
-        specs[job] = workspace_module.WorkspaceSpec(job, runtime, workspace)
+        specs[job] = workspace_module.WorkspaceSpec(
+            job, runtime, workspace, additional
+        )
 
     monkeypatch.setattr(workspace_module, "DEFAULT_MOUNT_ROOT", mount_root)
     monkeypatch.setattr(workspace_module, "DEFAULT_SENTINEL", sentinel)
@@ -210,6 +220,25 @@ def test_database_must_match_frozen_runtime_path(trusted_volume) -> None:
             database=wrong,
             write_marker=True,
         )
+
+
+@pytest.mark.parametrize("family", ["nfl", "nba"])
+def test_gold_accepts_each_registered_database_path(
+    trusted_volume, family
+) -> None:
+    spec = trusted_volume["polybot-gold"]
+    runtime = f"plum-shadow-gold-{family}-1m-v1"
+    database = spec.database_for_runtime(runtime)
+
+    report = workspace_module.verify_external_workspace(
+        job=spec.jenkins_job,
+        workspace=spec.workspace,
+        database=database,
+        write_marker=True,
+    )
+
+    assert report["runtime_job"] == runtime
+    assert report["database"] == str(database)
 
 
 def test_low_free_space_fails_before_marker_write(

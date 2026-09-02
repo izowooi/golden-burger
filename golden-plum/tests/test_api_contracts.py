@@ -197,7 +197,7 @@ def _direct_sport_event(family: str, markets, *, postseason=False):
         "mlb": (8, "MLB", 100381, 3, "mlb"),
         "nba": (34, "NBA", 745, 10345, "nba"),
         "nfl": (10, "NFL", 450, 10187, "nfl"),
-        "nhl": (35, "NHL", 899, 10346, "nhl-2026"),
+        "nhl": (35, "NHL", 899, 10346, "nhl"),
     }
     sport_id, name, tag_id, root_series, series_slug = identities[family]
     postseason_names = {
@@ -207,6 +207,8 @@ def _direct_sport_event(family: str, markets, *, postseason=False):
         "nhl": "Stanley Cup Final",
     }
     title = f"{name} {postseason_names[family]}"
+    series_slug = f"{family}-2026" if postseason else series_slug
+    event_series_id = str(root_series + 20_000) if postseason else str(root_series)
     event = {
         "id": f"{family}-event",
         "slug": f"{family}-home-away-2026-08-29",
@@ -232,7 +234,7 @@ def _direct_sport_event(family: str, markets, *, postseason=False):
         ],
         "series": [
             {
-                "id": str(root_series),
+                "id": event_series_id,
                 "ticker": series_slug,
                 "slug": series_slug,
                 "title": name if series_slug == family else f"{name} 2026",
@@ -368,6 +370,42 @@ def test_gamma_accepts_exact_direct_major_sport_family(family, tag_id) -> None:
     assert markets[0]["leagueCode"] == family
     assert client.last_sweep_attestation["sport_family"] == family
     assert client.last_sweep_attestation["tag_id"] == tag_id
+
+
+@pytest.mark.parametrize(
+    ("family", "competition"),
+    [("nfl", "Super Bowl"), ("nba", "NBA Finals")],
+)
+def test_gamma_accepts_major_competition_games_with_top_league_teams(
+    family, competition
+) -> None:
+    market = _market(f"{family}-major-competition")
+    event = _direct_sport_event(family, [market], postseason=True)
+    assert competition in event["title"]
+    client = GammaClient(sport_family=family)
+    client.session = _Session([{"events": [event]}])
+
+    markets = client.get_all_tradable_markets(0, 0)
+
+    assert len(markets) == 1
+    assert markets[0]["leagueCode"] == family
+
+
+def test_gamma_accepts_nba_cup_game_but_rejects_non_nba_teams() -> None:
+    cup_market = _market("nba-cup")
+    cup = _direct_sport_event("nba", [cup_market], postseason=True)
+    cup["title"] = "NBA Cup: Home Club vs. Away Club"
+    cup["seasonPhase"] = "IN_SEASON_TOURNAMENT"
+    client = GammaClient(sport_family="nba")
+    client.session = _Session([{"events": [cup]}])
+    assert len(client.get_all_tradable_markets(0, 0)) == 1
+
+    non_nba_market = _market("nba-cup-non-nba")
+    non_nba = _direct_sport_event("nba", [non_nba_market], postseason=True)
+    non_nba["teams"][1]["league"] = "g-league"
+    client = GammaClient(sport_family="nba")
+    client.session = _Session([{"events": [non_nba]}])
+    assert client.get_all_tradable_markets(0, 0) == []
 
 
 def test_gamma_rejects_unknown_sport_family_before_network() -> None:

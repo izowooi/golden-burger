@@ -13,6 +13,10 @@ from polybot.config import (
     MLB_PREREGISTRATION,
     RUNTIME_SPECS,
     SOCCER_PREREGISTRATION,
+    US_MAJOR_ENTRY_END_UTC,
+    US_MAJOR_FOLLOWUP_END_UTC,
+    US_MAJOR_PREREGISTRATION,
+    US_MAJOR_START_UTC,
     load_config,
 )
 
@@ -160,6 +164,40 @@ def test_gold_is_credential_free_mlb_collection_with_scaling_grid(
     assert trading.experiment_followup_end_utc == GOLD_FOLLOWUP_END_UTC
 
 
+@pytest.mark.parametrize("family", ["nfl", "nba"])
+def test_gold_us_major_collectors_are_credential_free_and_independent(
+    monkeypatch, family
+) -> None:
+    _no_credentials(monkeypatch)
+    runtime = f"plum-shadow-gold-{family}-1m-v1"
+    config = load_config("config.yaml", runtime, simulation_mode=True)
+
+    assert config.db_path == Path(f"data/{runtime}/trades_sim.db")
+    trading = config.trading
+    assert trading.sport_family == family
+    assert trading.protocol_id == f"plum-{family}-shadow-v4"
+    assert trading.preregistration_path == US_MAJOR_PREREGISTRATION
+    assert trading.book_shape == "direct-two-team-moneyline"
+    assert trading.expected_result_kinds == ("HOME", "AWAY")
+    assert trading.expected_token_count == 2
+    assert trading.source_clock_required is False
+    assert trading.cadence_seconds == 60
+    assert trading.cycle_hard_deadline_seconds == 50.0
+    assert trading.external_workspace_path == "/Volumes/t7/jenkins/polybot-gold"
+    assert trading.scaling_notionals_usdc == (
+        5.0,
+        10.0,
+        25.0,
+        50.0,
+        100.0,
+        250.0,
+        500.0,
+    )
+    assert trading.experiment_start_utc == US_MAJOR_START_UTC
+    assert trading.experiment_entry_end_utc == US_MAJOR_ENTRY_END_UTC
+    assert trading.experiment_followup_end_utc == US_MAJOR_FOLLOWUP_END_UTC
+
+
 def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
     _credentials(monkeypatch)
     king = load_config(
@@ -180,6 +218,8 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
         "plum-live-queen-95-1m-v1",
         "plum-shadow-silver-1m-v1",
         "plum-shadow-gold-mlb-1m-v1",
+        "plum-shadow-gold-nfl-1m-v1",
+        "plum-shadow-gold-nba-1m-v1",
     }
 
 

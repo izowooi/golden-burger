@@ -370,7 +370,8 @@ def main() -> None:
         f"{trading.experiment_entry_end_utc})"
     )
     print(
-        "Archive: six direct books for the full explicitly live match, "
+        f"Archive: {trading.expected_token_count} direct books for the full "
+        "explicitly live match, "
         f"{trading.archive.retention_days}d retention"
     )
     if trading.scaling_notionals_usdc:

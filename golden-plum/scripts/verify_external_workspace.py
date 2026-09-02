@@ -37,16 +37,35 @@ class WorkspaceSpec:
     jenkins_job: str
     runtime_job: str
     workspace: Path
+    additional_runtime_jobs: tuple[str, ...] = ()
 
     @property
     def database(self) -> Path:
+        """Backward-compatible primary database for this Jenkins job."""
+        return self.database_for_runtime(self.runtime_job)
+
+    @property
+    def runtime_jobs(self) -> tuple[str, ...]:
+        return (self.runtime_job, *self.additional_runtime_jobs)
+
+    @property
+    def databases(self) -> tuple[Path, ...]:
+        return tuple(self.database_for_runtime(job) for job in self.runtime_jobs)
+
+    def database_for_runtime(self, runtime_job: str) -> Path:
         return (
             self.workspace
             / "golden-plum"
             / "data"
-            / self.runtime_job
+            / runtime_job
             / "trades_sim.db"
         )
+
+    def runtime_for_database(self, database: Path) -> str | None:
+        for runtime_job in self.runtime_jobs:
+            if database == self.database_for_runtime(runtime_job):
+                return runtime_job
+        return None
 
 
 WORKSPACE_SPECS = {
@@ -54,6 +73,10 @@ WORKSPACE_SPECS = {
         jenkins_job="polybot-gold",
         runtime_job="plum-shadow-gold-mlb-1m-v1",
         workspace=Path("/Volumes/t7/jenkins/polybot-gold"),
+        additional_runtime_jobs=(
+            "plum-shadow-gold-nfl-1m-v1",
+            "plum-shadow-gold-nba-1m-v1",
+        ),
     ),
     "polybot-silver": WorkspaceSpec(
         jenkins_job="polybot-silver",
@@ -170,7 +193,7 @@ def _validate_marker(marker: Path, spec: WorkspaceSpec) -> None:
 def _validate_database_path(
     *, database: Path, spec: WorkspaceSpec, mount_device: int
 ) -> None:
-    if database != spec.database:
+    if spec.runtime_for_database(database) is None:
         raise WorkspaceVerificationError(
             "database path differs from the frozen runtime path"
         )
@@ -281,13 +304,18 @@ def verify_external_workspace(
     if write_marker:
         marker = _write_marker(workspace, spec)
     _validate_marker(marker, spec)
+    runtime_job = spec.runtime_for_database(database)
+    if runtime_job is None:  # Kept explicit after the earlier fail-closed check.
+        raise WorkspaceVerificationError(
+            "database path differs from the frozen runtime path"
+        )
     return {
         "status": "ok",
         "filesystem": filesystem,
         "job": spec.jenkins_job,
-        "runtime_job": spec.runtime_job,
+        "runtime_job": runtime_job,
         "workspace": str(spec.workspace),
-        "database": str(spec.database),
+        "database": str(database),
         "marker": str(marker),
         "free_bytes": int(usage.free),
         "required_free_bytes": required_free_bytes,
