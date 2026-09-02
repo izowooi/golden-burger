@@ -95,3 +95,33 @@
 - 배포 뒤 각 Jenkins DB에서 과거 Bear/Tiger 불명확 intent가 정확한 거절 증거로만
   해제됐는지, unresolved BUY/PENDING BUY가 0인지, 새 DB 열과 새 source digest가 있는지,
   각 build가 60초 미만인지 확인한다.
+
+## 실제 배포·재검증 결과
+
+- 운영 commit `20449559ee55…`를 11개 관련 job에 수동 배포한 뒤 regular SCM을
+  `NullSCM`, timer를 `* * * * *`로 복원했다. Jenkins shell 본문과 credential binding은
+  변경하지 않았다.
+- 수동 배포 build는 Cat `#17161`, Dog `#17060`, Bear `#17506`, Tiger `#19011`,
+  Lion `#18378`, Wolf `#17227`, King `#7806`, Queen `#7805`, Silver `#2773`,
+  White `#14400`, Gold `#2537`이며 모두 성공했다.
+- 안정된 자연 실행 총시간은 Cat 2.819초, Dog 2.798초, Bear 12.165초,
+  Tiger 11.433초, Lion 21.361초, Wolf 21.450초, King 4.967초, Queen 4.310초,
+  Silver 4.613초, White 42.421초, Gold 10.483초다. 모두 60초 미만이다.
+- Bear/Tiger 배포 build가 각각 과거 503 응답 1건을 명시적 미주문으로 자동 해제했다.
+  동기화 DB에서 `needs_reconciliation=0`, `PENDING_BUY=0`, `PENDING_SELL=0`, 최신 run
+  `SUCCESS`를 확인했다.
+- `daily-rsync` 동기화는 Cat 전체 run `a1401848a510463e88cfba96e60f25a7` 및 나머지
+  현재 runtime의 DB·bot log·배포 console 증분 plan이 모두 `SUCCESS`, 실패 artifact 0이었다.
+  11개 job의 전체 catalog verify도 `SUCCESS`, retention skip 0, open conflict 0이다.
+- 현재 Watermelon Live/Plum DB에서 trade·snapshot의 종목/리그/tag 열과 trade의
+  목표액·선택액·표시 최대액·축소 사유 열을 확인했다. catalog는 같은 정보를
+  `sport_family`, `league_code`, `league_name`, `tags_json`으로 보존한다.
+- 배포 전 행은 당시 존재하지 않던 분류값을 추정해 소급 입력하지 않아 새 열이 `NULL`이다.
+  배포 후 실제 관측이 생긴 Gold MLB 행은 `sport_family=mlb`로 저장됐다. NHL/NFL/NBA는
+  해당 확인 시각에 진행 중인 적격 경기가 없어 schema와 성공 run까지만 확인했다.
+- White는 6.5GB 현재 DB를 직전 검증본에서 다시 전송하지 않고 배포 console·bot log만
+  증분 동기화했다. 기존 13.4GB/1,121 artifact 전체 checksum과 SQLite 검사는 다시 통과했고,
+  배포 후 console의 lightweight DB check도 `ok`였다.
+- Gold `#2540` 한 건은 동시에 실행한 11개 원격 scan 중 외장 디스크 `diskutil` 5초
+  preflight timeout으로 안전 실패했다. 다음 `#2541`이 19.725초에 성공해 일시적 점검
+  경합으로 판정했다.

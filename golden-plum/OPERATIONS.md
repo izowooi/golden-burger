@@ -188,7 +188,9 @@ Console과 동기화된 DB에서 다음을 확인한다.
   저장되고 source minute 또는 누락 사유가 함께 남는다.
 - 같은 token의 최근 3회, 누적 상승 2%p, 회차당 하락 1%p 이하, 최초 0.75 교차가 영속 기록된다.
 - source minute 상한과 80분 강제 청산이 없고, 종료는 TP·SL·검증된 resolution뿐이다.
-- Silver/Gold의 모든 complete snapshot에 `$5/$10/$25/$50/$100/$250/$500` 증액 호가 깊이가
+- Silver/Gold의 모든 complete snapshot에
+  `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000`
+  증액 호가 깊이가
   `execution_capacity_json`으로 남고 live arm에는 이 추가 계산이 없다.
 - live의 주문 응답과 확정 체결을 구분하며, 한 event의 실패가 다른 event 처리를 막지 않는다.
 - `PENDING_BUY`/`PENDING_SELL`은 다음 cycle에도 대사되고, 180분 이후에는 거짓 완료가 아닌
@@ -233,3 +235,17 @@ pending/quarantine 상태, 저장공간 증가량을 함께
   10.086초에 성공했다.
 - Coconut 마지막 epoch는 cutover 전에 최종 증분 sync했고 899개 artifact verify를 통과했다.
   `#1160` 실패 console 한 건은 daily-rsync catalog에 포함되지 않은 제한으로 별도 기록한다.
+
+## 2026-09-02 주문 격리·증액 증거 배포 기록
+
+- 배포 commit: `20449559ee55…`.
+- King `#7806`, Queen `#7805`, Silver `#2773`, Gold `#2537` 수동 배포가 모두 성공했고,
+  새 source digest와 종목·리그·tag 및 목표액/선택액 DB 계약을 확인했다.
+- Jenkins는 배포 뒤 `NullSCM`과 `* * * * *`로 복원했다. 안정된 자연 실행은
+  King 4.967초, Queen 4.310초, Silver 4.613초, Gold 10.483초로 모두 1분 미만이다.
+- Gold `#2540`은 11개 job을 동시에 원격 scan한 운영 점검 부하 때문에 외장 APFS의
+  `diskutil` 5초 preflight가 timeout되어 안전하게 실패했다. 같은 코드의 다음 자연 실행
+  `#2541`은 19.725초에 성공했으므로 전략 또는 DB 오류로 판정하지 않는다.
+- 동기화된 현재 Plum DB는 모두 `quick_check=ok`, 최신 run audit `SUCCESS`,
+  미대사 BUY/SELL 0이다. 배포 전 행의 새 종목 열은 증거를 추정해 채우지 않고 `NULL`로
+  보존하며, 배포 후 새 snapshot부터 실제 분류값을 기록한다.
