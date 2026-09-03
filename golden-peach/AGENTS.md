@@ -16,7 +16,7 @@ Golden Peach는 경기 시작 직후 직접 승자 호가의 표시 선두 하�
 - `src/polybot/league_classifier.py`: 허용 리그의 source identity 검증.
 - `src/polybot/strategy/scanner.py`: sport profile별 event book 비교, sizing 증거와 entry claim.
 - `src/polybot/strategy/trader.py`: 가변 FOK BUY, exact fill 대사, TP/SL과 resolution.
-- `research/frozen-2026-09-02-multisport-sizing-v3/`: 현재 사전 등록과 source manifest.
+- `research/frozen-2026-09-03-mlb-live-ab-v4/`: 현재 source identity와 MLB live A/B 계약.
 - `OPERATIONS.md`: Jenkins와 `daily-rsync` 운영 절차.
 
 ## 고정 실험 계약
@@ -25,6 +25,8 @@ Golden Peach는 경기 시작 직후 직접 승자 호가의 표시 선두 하�
 |---|---|---|---|
 | `polybot-eco` | `peach-live-eco-3pp-1m-v1` | live | TP `+0.03` |
 | `polybot-fruit` | `peach-live-fruit-5pp-1m-v1` | live | TP `+0.05` |
+| `polybot-eco` | `peach-live-eco-mlb-7pp-20sl-1m-v1` | MLB live | TP `+0.07`, SL `-0.20` |
+| `polybot-fruit` | `peach-live-fruit-mlb-10pp-20sl-1m-v1` | MLB live | TP `+0.10`, SL `-0.20` |
 | `polybot-grey` | soccer/MLB/NBA/NFL/NHL shadow 5개 | simulation | TP `+0.05`, raw/sizing 자료 수집 |
 
 - EPL, Bundesliga, Ligue 1, LaLiga, Serie A, MLS, UCL, UEL만 허용한다.
@@ -32,7 +34,8 @@ Golden Peach는 경기 시작 직후 직접 승자 호가의 표시 선두 하�
   증명한다. 신규 진입은 source 0~10분이다.
 - HOME/DRAW/AWAY 세 명제와 각 직접 YES/NO의 exact `$5` full-depth book이 모두 있어야 한다.
   NO 가격·깊이를 `1-YES`로 합성하지 않는다.
-- MLB/NBA/NFL/NHL은 whole-game moneyline의 팀 token 두 개를 직접 비교한다. sport-native
+- MLB/NBA/NFL/NHL은 whole-game moneyline의 팀 token 두 개를 직접 비교한다. MLB live는
+  등록된 두 runtime만 허용하고 NBA/NFL/NHL은 simulation-only다. sport-native
   clock과 종목별 TP/SL이 동결되기 전까지 Grey simulation만 허용한다.
 - 표시 호가 midpoint의 유일한 선두를 선택하며 2위와 최소 `0.005`, 진입 VWAP
   `[0.60, 0.94]`, spread `<=0.05`를 요구한다.

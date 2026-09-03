@@ -11,7 +11,12 @@ from polybot.config import (
     GOLD_ENTRY_END_UTC,
     GOLD_FOLLOWUP_END_UTC,
     GOLD_START_UTC,
+    MLB_LIVE_ENTRY_END_UTC,
+    MLB_LIVE_FOLLOWUP_END_UTC,
+    MLB_LIVE_PREREGISTRATION,
+    MLB_LIVE_START_UTC,
     MLB_PREREGISTRATION,
+    NHL_SHADOW_PREREGISTRATION,
     RUNTIME_SPECS,
     SOCCER_PREREGISTRATION,
     US_MAJOR_ENTRY_END_UTC,
@@ -195,11 +200,59 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
     assert set(RUNTIME_SPECS) == {
         "plum-live-king-90-1m-v1",
         "plum-live-queen-95-1m-v1",
+        "plum-live-king-mlb-90-1m-v1",
+        "plum-live-queen-mlb-95-1m-v1",
         "plum-shadow-silver-1m-v1",
         "plum-shadow-gold-mlb-1m-v1",
         "plum-shadow-gold-nfl-1m-v1",
         "plum-shadow-gold-nba-1m-v1",
+        "plum-shadow-gold-nhl-1m-v1",
     }
+
+
+@pytest.mark.parametrize(
+    ("job", "target"),
+    [
+        ("plum-live-king-mlb-90-1m-v1", 0.90),
+        ("plum-live-queen-mlb-95-1m-v1", 0.95),
+    ],
+)
+def test_mlb_live_arms_use_the_gold_informed_profile(monkeypatch, job, target) -> None:
+    _credentials(monkeypatch)
+    config = load_config("config.yaml", job, simulation_mode=False)
+
+    assert config.db_path == Path(f"data/{job}/trades.db")
+    trading = config.trading
+    assert trading.sport_family == "mlb"
+    assert trading.sport_profile_version == (
+        "mlb-gold-15-event-exploratory-live-v1"
+    )
+    assert trading.protocol_id == "plum-mlb-live-gold-informed-v7"
+    assert trading.preregistration_path == MLB_LIVE_PREREGISTRATION
+    assert trading.entry.prob_min == 0.55
+    assert trading.entry.prob_max == 0.58
+    assert trading.entry.trend_observations == 5
+    assert trading.entry.trend_min_cumulative_move == 0.01
+    assert trading.entry.stop_loss_delta == 0.15
+    assert trading.entry.take_profit_price == target
+    assert trading.experiment_start_utc == MLB_LIVE_START_UTC
+    assert trading.experiment_entry_end_utc == MLB_LIVE_ENTRY_END_UTC
+    assert trading.experiment_followup_end_utc == MLB_LIVE_FOLLOWUP_END_UTC
+    assert trading.scaling_notionals_usdc == ()
+
+
+def test_gold_nhl_collector_is_registered(monkeypatch) -> None:
+    _no_credentials(monkeypatch)
+    runtime = "plum-shadow-gold-nhl-1m-v1"
+    config = load_config("config.yaml", runtime, simulation_mode=True)
+
+    assert config.db_path == Path(f"data/{runtime}/trades_sim.db")
+    trading = config.trading
+    assert trading.sport_family == "nhl"
+    assert trading.protocol_id == "plum-nhl-shadow-v7"
+    assert trading.preregistration_path == NHL_SHADOW_PREREGISTRATION
+    assert trading.expected_token_count == 2
+    assert trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
 
 
 def test_gold_mode_lifecycle_target_and_family_fail_closed(monkeypatch) -> None:

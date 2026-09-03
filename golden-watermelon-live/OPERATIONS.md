@@ -1,4 +1,4 @@
-# Golden Watermelon Live v3e 운영 절차
+# Golden Watermelon Live v3f 운영 절차
 
 ## Jenkins job matrix
 

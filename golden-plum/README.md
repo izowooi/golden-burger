@@ -5,9 +5,9 @@
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접
 표시된 moneyline 2개 호가를 사용합니다.
 
-현재 실거래는 축구 King/Queen만 허용합니다. Silver는 축구를 수집하고, Gold는 MLB·
-NFL·NBA를 서로 다른 DB로 수집합니다. NHL은 코드 구조만 준비되어 Jenkins와 실거래에서는
-꺼져 있습니다.
+King/Queen은 기존 축구 A/B를 유지하면서 별도 MLB runtime에서 최소 `$5` 탐색 A/B를
+수행합니다. Silver는 축구를 수집하고, Gold는 MLB·NFL·NBA·NHL을 서로 다른 DB로
+수집합니다.
 
 ## 구성
 
@@ -15,10 +15,13 @@ NFL·NBA를 서로 다른 DB로 수집합니다. NHL은 코드 구조만 준비�
 |---|---|---|
 | `polybot-king` | `plum-live-king-90-1m-v1` | live A, 절대 TP 0.90 |
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live B, 절대 TP 0.95 |
+| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB live A, 절대 TP 0.90 |
+| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB live B, 절대 TP 0.95 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | credential-free raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-mlb-1m-v1` | credential-free MLB raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-nfl-1m-v1` | credential-free NFL raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-nba-1m-v1` | credential-free NBA raw/simulation |
+| `polybot-gold` | `plum-shadow-gold-nhl-1m-v1` | credential-free NHL raw/simulation |
 
 공통 entry는 baseline `$5` 기준 `[0.75,0.78]` first crossing, stop은 confirmed entry
 -0.15입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
@@ -80,6 +83,9 @@ uv run polybot run --simulate --job plum-shadow-gold-nfl-1m-v1
 
 uv run polybot config --simulate --job plum-shadow-gold-nba-1m-v1
 uv run polybot run --simulate --job plum-shadow-gold-nba-1m-v1
+
+uv run polybot config --simulate --job plum-shadow-gold-nhl-1m-v1
+uv run polybot run --simulate --job plum-shadow-gold-nhl-1m-v1
 ```
 
 ## 과거/수집 자료 재생
@@ -98,7 +104,7 @@ realized P&L로 해석하지 않습니다.
 - cadence: 1분
 - live DB: `data/<runtime-job>/trades.db`
 - Silver DB: `data/plum-shadow-silver-1m-v1/trades_sim.db`
-- Gold DB: `data/plum-shadow-gold-{mlb,nfl,nba}-1m-v1/trades_sim.db`
+- Gold DB: `data/plum-shadow-gold-{mlb,nfl,nba,nhl}-1m-v1/trades_sim.db`
 - Silver/Gold workspace는 각각 exact external T7 경로에서만 실행
 - 신규 진입 기간: `[2026-08-31T00:00:00Z, 2026-09-14T00:00:00Z)`
 - follow-up 종료: `2026-09-21T00:00:00Z`
@@ -106,10 +112,17 @@ realized P&L로 해석하지 않습니다.
   follow-up은 `2026-10-08T00:00:00Z`까지
 - Gold NFL·NBA 수집 기간: `[2026-09-02T10:30:00Z, 2026-12-01T10:30:00Z)`;
   follow-up은 `2026-12-08T10:30:00Z`까지
+- King/Queen MLB live: `[2026-09-03T11:00:00Z, 2026-09-17T11:00:00Z)`;
+  follow-up은 `2026-09-24T11:00:00Z`까지
+- Gold NHL: `[2026-09-03T11:00:00Z, 2026-12-03T11:00:00Z)`;
+  follow-up은 `2026-12-10T11:00:00Z`까지
 
 구체적인 가설·무효화·표본 기준은 `STRATEGY.md`와
 축구는 `research/frozen-2026-08-31-full-match-no-time-exit-v2/PREREGISTRATION.md`,
 MLB Gold는 `research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`를
 확인하세요. NFL·NBA Gold는
 `research/frozen-2026-09-02-nba-nfl-shadow-v4/PREREGISTRATION.md`가 권위입니다.
+MLB live A/B와 NHL shadow는 각각
+`research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md`,
+`research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md`를 따릅니다.
 과거 v1과 Golden Coconut 자료는 원래 경로에 보존하고 섞지 않습니다.

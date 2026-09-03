@@ -1,8 +1,8 @@
-# Golden Watermelon — Major Sports In-Play Evidence v4a
+# Golden Watermelon — Five-Sport In-Play Evidence v4b
 
 ## 검정 질문
 
-Soccer, MLB, NHL 경기 중 승자 outcome의 executable ask가 `0.95..0.99`에 도달했을 때 fee,
+Soccer, MLB, NBA, NFL, NHL 경기 중 승자 outcome의 executable ask가 `0.95..0.99`에 도달했을 때 fee,
 spread, 급반전과 actual displayed bid depth를 반영한 `$5` counterfactual은 resolution hold 또는
 stop 정책에서 양의 event-equal 기대값을 보이는가? 동일 snapshot의 depth는 어느 notional까지
 급격한 VWAP 악화 없이 유지되는가? 1분 cadence는 5분보다 얼마나 많은 crossing/path를 포착하는가?
@@ -20,11 +20,14 @@ numeric tag, `related_tags=false`로 독립 수집한다.
 |---|---|---|---:|
 | Soccer | tag 100350 + EPL/Bundesliga/Ligue 1/LaLiga/MLS/Serie A/UCL/UEL tuple | 3 distinct regulation HOME/DRAW/AWAY YES | 4h |
 | MLB | tag 100381 + sport 8 + root series 3 + exact MLB teams | one condition, direct HOME/AWAY tokens | 8h |
+| NBA | tag 745 + sport 34 + root series 10345 + exact NBA teams | one condition, direct HOME/AWAY tokens | 5h |
+| NFL | tag 450 + sport 10 + root series 10187 + exact NFL teams | one condition, direct HOME/AWAY tokens | 6h |
 | NHL | tag 899 + sport 35 + root series 10346 + exact NHL teams | one condition, direct HOME/AWAY tokens | 5h |
 
-World Series와 Stanley Cup Final은 exact major-league season/root/team identity를 통과하면 포함한다.
-title로 추정하지 않는다. e-sports, MiLB/AHL/ECHL/NCAA, child/period/spread/total/prop/future/
-advancement는 `REJECTED`; frozen identity의 누락·충돌은 `DRIFT`로 기록하고 CLOB/episode를 막는다.
+World Series, NBA Finals, Super Bowl, Stanley Cup Final은 exact major-league season/root/team
+identity를 통과하면 포함한다. title로 추정하지 않는다. e-sports, MiLB/G League/AHL/ECHL/
+NCAA, child/period/quarter/inning/spread/total/prop/future/advancement는 `REJECTED`; frozen
+identity의 누락·충돌은 `DRIFT`로 기록하고 CLOB/episode를 막는다.
 
 research universe에는 volume/liquidity 하한을 두지 않는다. 이 값과 full book 자체가 미래 live
 eligibility 연구의 feature다.
@@ -43,22 +46,23 @@ eligibility 연구의 feature다.
 각 threshold/stop/notional은 같은 사건의 counterfactual이며 독립 거래로 합산하지 않는다.
 
 Soccer는 public source의 regulation minute `>=75/>=80/>=85`만 late-entry replay에 사용한다.
-kickoff wall clock으로 minute를 만들지 않는다. MLB/NHL의 period/inning/clock은 raw provenance로
+kickoff wall clock으로 minute를 만들지 않는다. MLB/NBA/NFL/NHL의 period/inning/clock은 raw provenance로
 보존하지만 Soccer minute strata와 합치지 않는다.
 
 ## Cadence와 timeline
 
 | Jenkins | runtime | arm | cadence |
 |---|---|---|---:|
-| `polybot-white` | `watermelon-white-1m-v4a` | `FAST_1M` | 1분 |
-| `polybot-grey` | `watermelon-grey-5m-v4a` | `CONTROL_5M` | 5분 |
+| `polybot-white` | `watermelon-white-1m-v4b` | `FAST_1M` | 1분 |
+| 예약(미배포) | `watermelon-grey-5m-v4b` | `CONTROL_5M` | 5분 |
 
-두 DB는 config/source/universe/grid가 같고 cadence만 다르다.
+5분 runtime은 향후 동일 모집단 주기 대조용이다. 현재 `polybot-grey` Jenkins는 Golden Peach
+수집기이므로 Watermelon 5분 runtime을 배포하지 않는다.
 
-- Freeze decision: `2026-08-29T00:00:00Z`.
-- Entry: `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`.
-- Follow-up end: `2026-09-12T04:00:00Z`.
-- 첫 24시간 review: `2026-08-30T04:00:00Z` 이후.
+- Freeze decision: `2026-09-03T12:00:00Z`.
+- Entry: `[2026-09-03T12:00:00Z,2026-10-03T12:00:00Z)`.
+- Follow-up end: `2026-10-10T12:00:00Z`.
+- 첫 24시간 review: 첫 정상 v4b 배포 후 24시간.
 
 ## 판정 gate
 
@@ -71,4 +75,4 @@ cohort, DB integrity, runtime과 storage만 판정한다. 수익성, best family
 있으면 수익성·parameter 판단을 중단한다. live scale은 accountless displayed depth만으로 승인하지
 않고 confirmed live fill/fee evidence와 함께 한 rung씩 검토한다.
 
-v3d 이하 DB는 immutable archive다. v4a와 migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.
+v4a 이하 DB는 immutable archive다. v4b와 migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.

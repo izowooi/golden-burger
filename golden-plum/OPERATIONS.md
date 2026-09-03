@@ -4,10 +4,10 @@
 
 | Jenkins job | workspace | runtime job | mode | 처치 | cron |
 |---|---|---|---|---|---|
-| `polybot-king` | 기존 내부 workspace 유지 | `plum-live-king-90-1m-v1` | live | 절대 익절 `0.90` | `* * * * *` |
-| `polybot-queen` | 기존 내부 workspace 유지 | `plum-live-queen-95-1m-v1` | live | 절대 익절 `0.95` | `* * * * *` |
+| `polybot-king` | 기존 내부 workspace 유지 | soccer + `plum-live-king-mlb-90-1m-v1` | live | 절대 익절 `0.90` | `* * * * *` |
+| `polybot-queen` | 기존 내부 workspace 유지 | soccer + `plum-live-queen-mlb-95-1m-v1` | live | 절대 익절 `0.95` | `* * * * *` |
 | `polybot-silver` | `/Volumes/t7/jenkins/polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | 전체 탐색 격자 | `* * * * *` |
-| `polybot-gold` | `/Volumes/t7/jenkins/polybot-gold` | `plum-shadow-gold-{mlb,nfl,nba}-1m-v1` | simulation | 세 종목 2호가·전체 탐색 격자 | `* * * * *` |
+| `polybot-gold` | `/Volumes/t7/jenkins/polybot-gold` | `plum-shadow-gold-{mlb,nfl,nba,nhl}-1m-v1` | simulation | 네 종목 2호가·전체 탐색 격자 | `* * * * *` |
 
 네 job 모두 동시 빌드를 금지하고 Jenkins build discard는 14일로 둔다. 첫 배포에서는
 timer를 끈 채 정확한 pushed commit의 수동 build를 통과시킨 후 timer를 켠다. `clean`
@@ -76,6 +76,20 @@ cd ./golden-plum
 /Users/jongwoopark/.local/bin/uv run polybot config --live --job plum-live-king-90-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job plum-live-king-90-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job plum-live-king-90-1m-v1
+
+export POLYBOT_SPORT_FAMILY=mlb
+export POLYBOT_TAKE_PROFIT_PRICE=0.90
+export POLYBOT_ENTRY_PROB_MIN=0.55
+export POLYBOT_ENTRY_PROB_MAX=0.58
+export POLYBOT_TREND_OBSERVATIONS=5
+export POLYBOT_TREND_MIN_CUMULATIVE_MOVE=0.01
+export POLYBOT_STOP_LOSS_DELTA=0.15
+export POLYBOT_EXPERIMENT_START_UTC=2026-09-03T11:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-17T11:00:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-24T11:00:00Z
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job plum-live-king-mlb-90-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job plum-live-king-mlb-90-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job plum-live-king-mlb-90-1m-v1
 ```
 
 ## Queen B shell
@@ -90,6 +104,20 @@ cd ./golden-plum
 /Users/jongwoopark/.local/bin/uv run polybot config --live --job plum-live-queen-95-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job plum-live-queen-95-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job plum-live-queen-95-1m-v1
+
+export POLYBOT_SPORT_FAMILY=mlb
+export POLYBOT_TAKE_PROFIT_PRICE=0.95
+export POLYBOT_ENTRY_PROB_MIN=0.55
+export POLYBOT_ENTRY_PROB_MAX=0.58
+export POLYBOT_TREND_OBSERVATIONS=5
+export POLYBOT_TREND_MIN_CUMULATIVE_MOVE=0.01
+export POLYBOT_STOP_LOSS_DELTA=0.15
+export POLYBOT_EXPERIMENT_START_UTC=2026-09-03T11:00:00Z
+export POLYBOT_EXPERIMENT_END_UTC=2026-09-17T11:00:00Z
+export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-24T11:00:00Z
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job plum-live-queen-mlb-95-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job plum-live-queen-mlb-95-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job plum-live-queen-mlb-95-1m-v1
 ```
 
 ## Silver shadow shell
@@ -123,7 +151,7 @@ cd ./golden-plum
 /Users/jongwoopark/.local/bin/uv run polybot status --simulate --job plum-shadow-silver-1m-v1
 ```
 
-## Gold MLB·NFL·NBA shadow shell
+## Gold MLB·NFL·NBA·NHL shadow shell
 
 Gold는 이전 Golden Coconut DB를 지우거나 옮기지 않고 새 runtime DB를 사용한다.
 
@@ -149,7 +177,8 @@ export POLYBOT_LIFECYCLE_MODE=active
 
 for RUNTIME in \
   plum-shadow-gold-nfl-1m-v1 \
-  plum-shadow-gold-nba-1m-v1
+  plum-shadow-gold-nba-1m-v1 \
+  plum-shadow-gold-nhl-1m-v1
 do
   /usr/bin/python3 ./golden-plum/scripts/verify_external_workspace.py \
     --job polybot-gold \
@@ -165,6 +194,7 @@ RUNTIMES=(
   plum-shadow-gold-mlb-1m-v1
   plum-shadow-gold-nfl-1m-v1
   plum-shadow-gold-nba-1m-v1
+  plum-shadow-gold-nhl-1m-v1
 )
 
 for RUNTIME in "${RUNTIMES[@]}"; do
@@ -212,7 +242,7 @@ Console과 동기화된 DB에서 다음을 확인한다.
   `full_position_required=1`이어야 한다.
 - `PENDING_BUY`/`PENDING_SELL`은 다음 cycle에도 대사되고, 180분 이후에는 거짓 완료가 아닌
   `QUARANTINED`로 격리된다.
-- Gold는 MLB·NFL·NBA에서 각각 정확히 1시장/2token event set을 저장하고 source minute를
+- Gold는 MLB·NFL·NBA·NHL에서 각각 정확히 1시장/2token event set을 저장하고 source minute를
   NULL로 보존한다. NFL playoff·Super Bowl과 NBA Cup·play-in·playoff·Finals의 실제
   1군 두 팀 경기는 포함하되 futures·prop·대학·하위리그는 제외한다.
 - live discovery에서 사라진 Gold event도 terminal one-hot 결과 또는 명시적인 오른쪽

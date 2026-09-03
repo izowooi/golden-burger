@@ -253,7 +253,7 @@ def collector(config, repository, gamma, clob, sports_clock=None):
 
 
 def configured(tmp_path, *, compact_grid=False):
-    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v4a")
+    config = load_config(ROOT / "config.yaml", "watermelon-white-1m-v4b")
     experiment = replace(
         config.trading.experiment,
         start_utc=NOW.replace(minute=15),
@@ -363,7 +363,7 @@ def test_classifier_accepts_only_whole_match_winners() -> None:
     assert "SETTLEMENT_SCOPE_CONTRADICTORY" in rejected_reasons
 
 
-@pytest.mark.parametrize("sport_family", ["mlb", "nhl"])
+@pytest.mark.parametrize("sport_family", ["mlb", "nba", "nfl", "nhl"])
 def test_direct_sports_require_exact_two_team_moneyline(sport_family: str) -> None:
     direct_event = {
         "teams": [

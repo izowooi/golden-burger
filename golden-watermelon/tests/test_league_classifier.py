@@ -26,7 +26,7 @@ def cases() -> list[dict[str, object]]:
 @pytest.fixture(scope="module")
 def gamma():
     return load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v4a"
+        ROOT / "config.yaml", "watermelon-white-1m-v4b"
     ).trading.gamma
 
 
@@ -155,6 +155,8 @@ def test_cross_league_uefa_competitions_use_numeric_tag_and_series_authority(
 def direct_event(family: str, *, title: str | None = None) -> dict[str, object]:
     identity = {
         "mlb": {"sport_id": 8, "tag_id": 100381, "root": 3, "name": "MLB"},
+        "nba": {"sport_id": 34, "tag_id": 745, "root": 10345, "name": "NBA"},
+        "nfl": {"sport_id": 10, "tag_id": 450, "root": 10187, "name": "NFL"},
         "nhl": {"sport_id": 35, "tag_id": 899, "root": 10346, "name": "NHL"},
     }[family]
     year = 2026
@@ -199,6 +201,8 @@ def direct_event(family: str, *, title: str | None = None) -> dict[str, object]:
     ("family", "title"),
     [
         ("mlb", "World Series: A vs B"),
+        ("nba", "NBA Finals: A vs B"),
+        ("nfl", "Super Bowl: A vs B"),
         ("nhl", "Stanley Cup Final: A vs B"),
     ],
 )
@@ -215,6 +219,8 @@ def test_major_postseason_identity_is_accepted_without_title_allowlisting(
     ("family", "title", "league", "expected_reason"),
     [
         ("mlb", "MiLB Durham vs Norfolk", "milb", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
+        ("nba", "NCAA Duke vs UNC", "ncaa", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
+        ("nfl", "College Alabama vs Georgia", "ncaa", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
         ("nhl", "AHL Hershey vs Providence", "ahl", "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED"),
     ],
 )

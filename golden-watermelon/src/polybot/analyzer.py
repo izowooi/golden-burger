@@ -38,8 +38,8 @@ from polybot.db.repository import (
 )
 
 
-ANALYZER_CONTRACT = "watermelon-major-sports-analyzer-v4a"
-PAIR_ANALYZER_CONTRACT = "watermelon-major-sports-cadence-pair-v4a"
+ANALYZER_CONTRACT = "watermelon-major-sports-analyzer-v4b"
+PAIR_ANALYZER_CONTRACT = "watermelon-major-sports-cadence-pair-v4b"
 # Legacy strings remain explicit so existing v2/v3 evidence can be identified in
 # reports without being opened by the v3d writer.
 LEGACY_ANALYZER_CONTRACT = "inplay-match-winner-analyzer-v2"
@@ -189,7 +189,33 @@ V3D_PROFILE = AnalyzerProfile(
     fast_job="watermelon-white-1m-v3d",
     control_job="watermelon-grey-5m-v3d",
 )
+V4A_DIRECT_IDENTITIES = (
+    DirectSportIdentity("mlb", 8, "MLB", 100381, 3, "mlb"),
+    DirectSportIdentity("nhl", 35, "NHL", 899, 10346, "nhl"),
+)
 V4A_PROFILE = AnalyzerProfile(
+    data_contract="watermelon-soccer-mlb-nhl-inplay-match-winner-v5",
+    universe_profile="watermelon-soccer-mlb-nhl-2026-08-v4a",
+    classifier_version="watermelon-major-sports-identity-v1",
+    identities=FROZEN_LEAGUE_IDENTITIES,
+    cup_identities=FROZEN_CUP_IDENTITIES,
+    direct_identities=V4A_DIRECT_IDENTITIES,
+    league_mapping_sha256=_mapping_sha256(
+        "watermelon-major-sports-identity-v1",
+        FROZEN_LEAGUE_IDENTITIES,
+        FROZEN_CUP_IDENTITIES,
+        V4A_DIRECT_IDENTITIES,
+    ),
+    analyzer_contract="watermelon-major-sports-analyzer-v4a",
+    pair_analyzer_contract="watermelon-major-sports-cadence-pair-v4a",
+    fast_job="watermelon-white-1m-v4a",
+    control_job="watermelon-grey-5m-v4a",
+    schema_profile="golden-watermelon-v4a-schema-v1",
+    application_id=APPLICATION_ID,
+    user_version=SCHEMA_USER_VERSION,
+    migration_filename=MIGRATION_PATH.name,
+)
+V4B_PROFILE = AnalyzerProfile(
     data_contract=DATA_CONTRACT,
     universe_profile=UNIVERSE_PROFILE,
     classifier_version=CLASSIFIER_VERSION,
@@ -199,8 +225,8 @@ V4A_PROFILE = AnalyzerProfile(
     league_mapping_sha256=LEAGUE_MAPPING_SHA256,
     analyzer_contract=ANALYZER_CONTRACT,
     pair_analyzer_contract=PAIR_ANALYZER_CONTRACT,
-    fast_job="watermelon-white-1m-v4a",
-    control_job="watermelon-grey-5m-v4a",
+    fast_job="watermelon-white-1m-v4b",
+    control_job="watermelon-grey-5m-v4b",
     schema_profile=SCHEMA_PROFILE,
     application_id=APPLICATION_ID,
     user_version=SCHEMA_USER_VERSION,
@@ -208,7 +234,14 @@ V4A_PROFILE = AnalyzerProfile(
 )
 ANALYZER_PROFILES = {
     profile.universe_profile: profile
-    for profile in (V3A_PROFILE, V3B_PROFILE, V3C_PROFILE, V3D_PROFILE, V4A_PROFILE)
+    for profile in (
+        V3A_PROFILE,
+        V3B_PROFILE,
+        V3C_PROFILE,
+        V3D_PROFILE,
+        V4A_PROFILE,
+        V4B_PROFILE,
+    )
 }
 
 
@@ -599,8 +632,9 @@ def _result_triad_summary(connection: sqlite3.Connection) -> dict[str, Any]:
         "result_identity_gaps": gaps,
         "complete_pct": _safe_ratio(complete, expected),
         "contract": (
-            "soccer requires distinct HOME/DRAW/AWAY YES tokens; MLB/NHL "
-            "require one direct condition with distinct HOME/AWAY tokens"
+            "soccer requires distinct HOME/DRAW/AWAY YES tokens; "
+            "MLB/NBA/NFL/NHL require one direct condition with distinct "
+            "HOME/AWAY tokens"
         ),
     }
 
@@ -1121,7 +1155,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 )
             if any(str(row["cadence_arm"]) != cadence_arm for row in episode_rows):
                 raise ValueError("hypothetical_episodes cadence arm contract drift")
-        if profile in (V3C_PROFILE, V3D_PROFILE, V4A_PROFILE):
+        if profile in (V3C_PROFILE, V3D_PROFILE, V4A_PROFILE, V4B_PROFILE):
             sports_clock_evidence = _sports_clock_summary(
                 connection,
                 configured_minute_floors,

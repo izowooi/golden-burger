@@ -18,11 +18,14 @@ from pathlib import Path
 import sqlite3
 from typing import Mapping, Sequence
 
-from polybot.config import SPORT_PARAMETER_PROFILES
+from polybot.config import (
+    SIMULATION_SCALING_NOTIONALS_USDC,
+    SPORT_PARAMETER_PROFILES,
+)
 
 
 NOTIONAL_USDC = 5.0
-CAPACITY_NOTIONALS_USDC = (5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0)
+CAPACITY_NOTIONALS_USDC = SIMULATION_SCALING_NOTIONALS_USDC
 FEE_BPS_SCENARIOS = (0.0, 25.0, 50.0, 100.0)
 ENTRY_OVERSHOOT = 0.03
 MIN_SOURCE_MINUTE = 0.0
@@ -413,8 +416,17 @@ def _cohort_identity(
     league_mapping_sha256 = required_text("league_mapping_sha256")
     strategy_source_digest = required_text("strategy_source_digest")
     book_shape = required_text("book_shape")
-    profile = SPORT_PARAMETER_PROFILES[family]
-    if profile.profile_version != profile_version or profile.book_shape != book_shape:
+    matching_profiles = [
+        profile
+        for profile in SPORT_PARAMETER_PROFILES.values()
+        if profile.code == family and profile.profile_version == profile_version
+    ]
+    if len(matching_profiles) != 1:
+        raise ValueError(
+            "DB sport profile does not identify exactly one executable profile"
+        )
+    profile = matching_profiles[0]
+    if profile.book_shape != book_shape:
         raise ValueError("DB sport profile does not match the executable profile registry")
     raw_notionals = trading.get("scaling_notionals_usdc") or []
     try:
@@ -425,7 +437,7 @@ def _cohort_identity(
         raise ValueError("resolved scaling notionals must be finite and positive")
     if mode == "sim" and notionals != CAPACITY_NOTIONALS_USDC:
         raise ValueError(
-            "simulation replay requires the frozen 5/10/25/50/100/250/500 ladder"
+            "simulation replay requires the frozen config sizing ladder"
         )
     if mode != "sim" and notionals:
         raise ValueError("live replay cohort unexpectedly contains a scaling ladder")

@@ -31,6 +31,12 @@ GOLD_FOLLOWUP_END_UTC = "2026-10-08T00:00:00Z"
 US_MAJOR_START_UTC = "2026-09-02T10:30:00Z"
 US_MAJOR_ENTRY_END_UTC = "2026-12-01T10:30:00Z"
 US_MAJOR_FOLLOWUP_END_UTC = "2026-12-08T10:30:00Z"
+MLB_LIVE_START_UTC = "2026-09-03T11:00:00Z"
+MLB_LIVE_ENTRY_END_UTC = "2026-09-17T11:00:00Z"
+MLB_LIVE_FOLLOWUP_END_UTC = "2026-09-24T11:00:00Z"
+NHL_SHADOW_START_UTC = "2026-09-03T11:00:00Z"
+NHL_SHADOW_ENTRY_END_UTC = "2026-12-03T11:00:00Z"
+NHL_SHADOW_FOLLOWUP_END_UTC = "2026-12-10T11:00:00Z"
 SOCCER_PREREGISTRATION = (
     "research/frozen-2026-08-31-full-match-no-time-exit-v2/"
     "PREREGISTRATION.md"
@@ -42,6 +48,12 @@ MLB_PREREGISTRATION = (
 US_MAJOR_PREREGISTRATION = (
     "research/frozen-2026-09-02-nba-nfl-shadow-v4/"
     "PREREGISTRATION.md"
+)
+MLB_LIVE_PREREGISTRATION = (
+    "research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md"
+)
+NHL_SHADOW_PREREGISTRATION = (
+    "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md"
 )
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
@@ -243,6 +255,26 @@ SPORT_PARAMETER_PROFILES = {
         for family in ("mlb", "nba", "nfl", "nhl")
     },
 }
+_MLB_LIVE_GRID = {
+    **_COMMON_EXPLORATORY_GRID,
+    "primary_prob_min": 0.55,
+    "primary_prob_max": 0.58,
+    "primary_take_profit": 0.95,
+    "primary_stop_delta": 0.15,
+    "primary_trend_observations": 5,
+    "primary_trend_min_cumulative_move": 0.01,
+}
+SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
+    code="mlb",
+    profile_version="mlb-gold-15-event-exploratory-live-v1",
+    book_shape="direct-two-team-moneyline",
+    result_kinds=("HOME", "AWAY"),
+    expected_market_count=1,
+    expected_token_count=2,
+    source_clock_required=False,
+    max_sweep_pages=2,
+    **_MLB_LIVE_GRID,
+)
 
 
 @dataclass(frozen=True)
@@ -270,6 +302,7 @@ class RuntimeSpec:
     experiment_entry_end_utc: str
     experiment_followup_end_utc: str
     scaling_notionals_usdc: tuple[float, ...] = ()
+    sport_profile_key: Optional[str] = None
 
 
 RUNTIME_SPECS = {
@@ -306,6 +339,42 @@ RUNTIME_SPECS = {
         experiment_start_utc=FROZEN_START_UTC,
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
+    ),
+    "plum-live-king-mlb-90-1m-v1": RuntimeSpec(
+        runtime_job="plum-live-king-mlb-90-1m-v1",
+        jenkins_job="polybot-king",
+        sport_family="mlb",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="adaptive-fok-live-baseline-5-usdc",
+        take_profit_price=0.90,
+        protocol_id="plum-mlb-live-gold-informed-v7",
+        preregistration_path=MLB_LIVE_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=MLB_LIVE_START_UTC,
+        experiment_entry_end_utc=MLB_LIVE_ENTRY_END_UTC,
+        experiment_followup_end_utc=MLB_LIVE_FOLLOWUP_END_UTC,
+        sport_profile_key="mlb_live",
+    ),
+    "plum-live-queen-mlb-95-1m-v1": RuntimeSpec(
+        runtime_job="plum-live-queen-mlb-95-1m-v1",
+        jenkins_job="polybot-queen",
+        sport_family="mlb",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="adaptive-fok-live-baseline-5-usdc",
+        take_profit_price=0.95,
+        protocol_id="plum-mlb-live-gold-informed-v7",
+        preregistration_path=MLB_LIVE_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=MLB_LIVE_START_UTC,
+        experiment_entry_end_utc=MLB_LIVE_ENTRY_END_UTC,
+        experiment_followup_end_utc=MLB_LIVE_FOLLOWUP_END_UTC,
+        sport_profile_key="mlb_live",
     ),
     "plum-shadow-silver-1m-v1": RuntimeSpec(
         runtime_job="plum-shadow-silver-1m-v1",
@@ -377,6 +446,24 @@ RUNTIME_SPECS = {
         experiment_start_utc=US_MAJOR_START_UTC,
         experiment_entry_end_utc=US_MAJOR_ENTRY_END_UTC,
         experiment_followup_end_utc=US_MAJOR_FOLLOWUP_END_UTC,
+        scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
+    ),
+    "plum-shadow-gold-nhl-1m-v1": RuntimeSpec(
+        runtime_job="plum-shadow-gold-nhl-1m-v1",
+        jenkins_job="polybot-gold",
+        sport_family="nhl",
+        simulation_mode=True,
+        lifecycle_mode="active",
+        execution_policy="credential-free-displayed-book-simulation",
+        take_profit_price=0.95,
+        protocol_id="plum-nhl-shadow-v7",
+        preregistration_path=NHL_SHADOW_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=50.0,
+        external_workspace_path="/Volumes/t7/jenkins/polybot-gold",
+        experiment_start_utc=NHL_SHADOW_START_UTC,
+        experiment_entry_end_utc=NHL_SHADOW_ENTRY_END_UTC,
+        experiment_followup_end_utc=NHL_SHADOW_FOLLOWUP_END_UTC,
         scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
     ),
 }
@@ -857,9 +944,11 @@ def _validate_config(
         raise ValueError(
             f"{job_name} sport family must remain {expected_sport_family}"
         )
-    profile = SPORT_PARAMETER_PROFILES[trading.sport_family]
+    profile_key = runtime_spec.sport_profile_key or trading.sport_family
+    profile = SPORT_PARAMETER_PROFILES[profile_key]
     if (
-        trading.lifecycle_mode != runtime_spec.lifecycle_mode
+        profile.code != trading.sport_family
+        or trading.lifecycle_mode != runtime_spec.lifecycle_mode
         or trading.protocol_id != runtime_spec.protocol_id
         or trading.preregistration_path != runtime_spec.preregistration_path
         or trading.runtime_spec_version != "golden-plum-runtime-v1"
@@ -952,8 +1041,6 @@ def _validate_config(
     if simulation_mode is not expected_simulation:
         expected_mode = "simulation" if expected_simulation else "live"
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
-    if not simulation_mode and trading.sport_family != "soccer":
-        raise ValueError("non-soccer Golden Plum live execution is not enabled")
     expected_scaling_notionals = runtime_spec.scaling_notionals_usdc
     if tuple(trading.scaling_notionals_usdc) != expected_scaling_notionals:
         raise ValueError(
@@ -1064,12 +1151,15 @@ def load_config(
     if configured_family is None:
         configured_family = runtime_spec.sport_family
     resolved_sport_family = str(configured_family).strip().lower()
-    profile = SPORT_PARAMETER_PROFILES.get(resolved_sport_family)
+    profile_key = runtime_spec.sport_profile_key or resolved_sport_family
+    profile = SPORT_PARAMETER_PROFILES.get(profile_key)
     if profile is None:
         raise ValueError(
             f"unsupported Golden Plum sport family: "
             f"{resolved_sport_family or '<empty>'}"
         )
+    if profile.code != resolved_sport_family:
+        raise ValueError("Golden Plum runtime sport/profile identity mismatch")
     entry = PlumEntryConfig(
         prob_min=_get_frozen_profile_value(
             "POLYBOT_ENTRY_PROB_MIN",

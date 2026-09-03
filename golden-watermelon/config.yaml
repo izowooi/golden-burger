@@ -2,10 +2,10 @@ simulation_mode: true
 
 trading:
   lifecycle_mode: archive_only
-  data_contract: watermelon-soccer-mlb-nhl-inplay-match-winner-v5
-  schema_profile: golden-watermelon-v4a-schema-v1
-  universe_profile: watermelon-soccer-mlb-nhl-2026-08-v4a
-  classifier_version: watermelon-major-sports-identity-v1
+  data_contract: watermelon-five-major-sports-inplay-match-winner-v6
+  schema_profile: golden-watermelon-v4b-schema-v1
+  universe_profile: watermelon-soccer-mlb-nba-nfl-nhl-2026-09-v4b
+  classifier_version: watermelon-major-sports-identity-v2
 
   gamma:
     base_url: https://gamma-api.polymarket.com
@@ -15,10 +15,12 @@ trading:
     related_tags: false
     live_only: true
     sport_family: soccer
-    sport_families: [soccer, mlb, nhl]
+    sport_families: [soccer, mlb, nba, nfl, nhl]
     family_tag_ids:
       soccer: 100350
       mlb: 100381
+      nba: 745
+      nfl: 450
       nhl: 899
     required_common_tag_ids: [1, 100639, 100350]
     league_mapping:
@@ -92,6 +94,18 @@ trading:
         primary_tag_id: 100381
         root_series_id: 3
         team_league: mlb
+      nba:
+        sport_id: 34
+        name: NBA
+        primary_tag_id: 745
+        root_series_id: 10345
+        team_league: nba
+      nfl:
+        sport_id: 10
+        name: NFL
+        primary_tag_id: 450
+        root_series_id: 10187
+        team_league: nfl
       nhl:
         sport_id: 35
         name: NHL
@@ -116,9 +130,9 @@ trading:
     max_messages: 10000
 
   experiment:
-    start_utc: 2026-08-29T04:00:00Z
-    entry_end_utc: 2026-09-05T04:00:00Z
-    followup_end_utc: 2026-09-12T04:00:00Z
+    start_utc: 2026-09-03T12:00:00Z
+    entry_end_utc: 2026-10-03T12:00:00Z
+    followup_end_utc: 2026-10-10T12:00:00Z
     entry_thresholds: [0.95, 0.96, 0.97, 0.98, 0.99]
     stop_levels: [0.95, 0.93, 0.90, 0.85, 0.80, 0.70]
     simulated_notional_usdc: 5

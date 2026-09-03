@@ -7,9 +7,9 @@
 
 경기 전체에서 직접 결과 호가의 유일한 선두가 세 번의 1분 관측으로 상승하며 0.75를
 처음 통과할 때 추가 상승하는지 종목별로 검증한다. 축구는 3시장/6token, MLB·NBA·
-NFL·NHL은 1시장/2token의 서로 다른 versioned profile을 사용한다. King/Queen은 축구
-exact `$5` live A/B, Silver는 축구, Gold는 MLB credential-free simulation/raw 수집기다.
-NBA·NFL·NHL은 code-ready일 뿐 배포하지 않는다.
+NFL·NHL은 1시장/2token의 서로 다른 versioned profile을 사용한다. King/Queen은 축구와
+별도 MLB exact `$5` live A/B, Silver는 축구, Gold는 MLB/NBA/NFL/NHL credential-free
+simulation/raw 수집기다.
 
 ## Runtime 계약
 
@@ -17,8 +17,11 @@ NBA·NFL·NHL은 code-ready일 뿐 배포하지 않는다.
 |---|---|---|---|
 | `polybot-king` | `plum-live-king-90-1m-v1` | live | 절대 TP `0.90` |
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.95` |
+| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB live | 절대 TP `0.90` |
+| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB live | 절대 TP `0.95` |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | raw six-book + 반사실 grid |
 | `polybot-gold` | `plum-shadow-gold-mlb-1m-v1` | simulation | MLB direct two-book + 반사실 grid |
+| `polybot-gold` | `plum-shadow-gold-{nba,nfl,nhl}-1m-v1` | simulation | direct two-book + 반사실 grid |
 
 - 네 job은 1분 cadence를 사용한다.
 - live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.

@@ -60,6 +60,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
         "invalidated_settlement_pnl": 0.0,
         "execution_override_count": 0,
         "evidence_gaps": 0,
+        "period_start_utc": None,
     }
     repo.get_entry_capacity_state.return_value = {
         "open_positions": len(holdings),
@@ -543,6 +544,7 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
         "invalidated_settlement_pnl": 0.0,
         "execution_override_count": 0,
         "evidence_gaps": 0,
+        "period_start_utc": None,
         "loss_limit_usdc": 10.0,
     }
     assert "economic_drawdown_limit_reached" in stats["entry_guard"][

@@ -32,7 +32,13 @@ REGULATION_SCOPE_CLAUSE = (
     "this market refers only to the outcome within the first 90 minutes "
     "of regular play plus stoppage time"
 )
-MAX_IN_PLAY_HOURS = {"soccer": 4.0, "mlb": 8.0, "nhl": 5.0}
+MAX_IN_PLAY_HOURS = {
+    "soccer": 4.0,
+    "mlb": 8.0,
+    "nba": 5.0,
+    "nfl": 6.0,
+    "nhl": 5.0,
+}
 _NON_WHOLE_GAME_MARKET = re.compile(
     r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th)\s+"
     r"(?:half|quarter|period|inning)|\b(?:spread|handicap|total|over/under|"
@@ -151,7 +157,7 @@ def _result_identity_gap(
         if str(row.get("token_id") or "").strip()
     }
     complete = (
-        sport_family in {"mlb", "nhl"}
+        sport_family in {"mlb", "nba", "nfl", "nhl"}
         and counts == {"HOME": 1, "AWAY": 1}
         and len(rows) == 2
         and len(conditions) == 1
@@ -486,7 +492,7 @@ def classify_match_winner(
             reasons.append("SOCCER_YES_NO_STRUCTURE_REQUIRED")
         if neg_risk is not True:
             reasons.append("NOT_EXPLICIT_NEGRISK_RESULT_MARKET")
-    elif sport_family in {"mlb", "nhl"}:
+    elif sport_family in {"mlb", "nba", "nfl", "nhl"}:
         if labels == ["Yes", "No"]:
             reasons.append("DIRECT_TEAM_LABELS_REQUIRED")
         if neg_risk is not False:

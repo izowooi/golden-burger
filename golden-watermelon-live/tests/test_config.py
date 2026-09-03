@@ -7,6 +7,7 @@ from polybot.config import (
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
+    MLB_ECONOMIC_GUARD_START_UTC,
     load_config,
 )
 
@@ -51,6 +52,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC
+    assert config.trading.economic_guard_start_utc == FROZEN_START_UTC
     start = datetime.fromisoformat(FROZEN_START_UTC.replace("Z", "+00:00"))
     entry_end = datetime.fromisoformat(FROZEN_ENTRY_END_UTC.replace("Z", "+00:00"))
     followup_end = datetime.fromisoformat(
@@ -76,6 +78,21 @@ def test_only_arm_b_threshold_override_is_accepted(
         0.99,
         0.999,
     )
+
+
+def test_mlb_uses_corrected_cohort_economic_guard_epoch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "mlb")
+    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MAX", "8")
+    monkeypatch.setenv("POLYBOT_ARCHIVE_HOURS_MAX", "8")
+
+    config = load_config(
+        "config.yaml", "watermelon-live-bear-mlb-96-1m-v3a", simulation_mode=False
+    )
+
+    assert config.trading.economic_guard_start_utc == MLB_ECONOMIC_GUARD_START_UTC
 
 
 @pytest.mark.parametrize(

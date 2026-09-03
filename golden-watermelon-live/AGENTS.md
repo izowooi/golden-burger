@@ -14,7 +14,9 @@
   `2026-09-12T04:00:00Z`.
 - Cohort: `config_hash × strategy_source_digest × mode × job_name`.
 - Active preregistration:
-  `research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md`.
+  `research/frozen-2026-09-03-mlb-guard-epoch-v3f/PREREGISTRATION.md`.
+- MLB의 신규 진입 중지용 경제손익은 `2026-09-02T12:12:00Z` 이후 거래만 계산한다. 이전
+  손실은 DB·회고 증거에 보존하며, 성과 집계에서 삭제하거나 새 묶음과 합치지 않는다.
 
 Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 쓴다. 신규 MLB/NHL job만
 새 runtime DB를 만든다. DB clean/wipe/migration/copy/merge/backfill을 하지 않는다.

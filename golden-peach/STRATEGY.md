@@ -16,10 +16,10 @@
 - Gamma server-side cumulative volume `$5,000`, liquidity `$5,000` gate 후 exact `$5` CLOB
   depth를 최종 gate로 쓴다.
 
-Eco/Fruit의 live 모집단은 계속 축구다. Grey shadow 코드는 MLB, NBA, NFL, NHL의 whole-game
-team moneyline도 받을 수 있다. 이 종목들은 팀 이름 token 두 개를 직접 저장하며 가격의
-보수(complement)를 합성하지 않는다. sport-native 경기 clock과 종목별 TP/SL이 검증되기
-전에는 live 실행을 시작 전에 거부한다.
+Eco/Fruit의 기존 live runtime은 계속 축구다. 별도 MLB runtime은 whole-game team moneyline의
+직접 HOME/AWAY token 두 개를 사용하고, Grey의 완결 11경기 표시 호가 재생에서 고른 탐색값을
+최소 `$5`로 검증한다. NBA, NFL, NHL은 아직 Grey shadow만 허용한다. direct 종목은 가격의
+보수(complement)를 합성하지 않는다.
 
 ## 같은 시각의 6개 후보
 
@@ -53,6 +53,11 @@ team moneyline도 받을 수 있다. 이 종목들은 팀 이름 token 두 개�
 - minute 80부터 손실 중이면 신규 stop을 제출하지 않고 one-hot resolution까지 보유한다.
 - source minute를 증명하지 못하면 late 상태를 배제할 수 없으므로 새 stop은 fail closed한다.
 - TP/SL은 best quote만이 아니라 전체 보유량의 executable VWAP으로 검증한다.
+
+MLB는 진입 `[0.60,0.94]`를 유지하되 Eco/Fruit가 각각 `+0.07/+0.10` 익절을 비교하고 공통
+손절은 `-0.20`이다. 축구의 80분 규칙은 적용하지 않으며 경기 종료까지 익절·손절·해결을
+관찰한다. 예정 시작 후 0~10분과 Gamma explicit live 상태를 함께 요구하지만 sport-native
+minute가 아니라는 한계가 있다. MLB와 축구는 별도 DB·config cohort다.
 
 ## 실패 격리
 

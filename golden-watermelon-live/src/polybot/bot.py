@@ -291,7 +291,9 @@ class PolymarketBot:
                 )
                 stats["entry_queued_no_post"] = len(set(queued_episode_ids))
                 state_before_entry = repo.get_stats()
-                economic_guard = repo.get_economic_pnl_guard()
+                economic_guard = repo.get_economic_pnl_guard(
+                    started_at=trading.economic_guard_start_utc
+                )
                 realized_pnl = float(
                     economic_guard.get("confirmed_sell_pnl") or 0.0
                 )
@@ -327,6 +329,7 @@ class PolymarketBot:
                         economic_guard.get("execution_override_count") or 0
                     ),
                     "evidence_gaps": economic_evidence_gaps,
+                    "period_start_utc": economic_guard.get("period_start_utc"),
                     "loss_limit_usdc": drawdown_limit,
                 }
                 if (
@@ -649,7 +652,9 @@ class PolymarketBot:
                 "sport_family": trading.sport_family,
                 "db_path": str(self.config.db_path),
                 "statistics": repo.get_stats(),
-                "economic_pnl_guard": repo.get_economic_pnl_guard(),
+                "economic_pnl_guard": repo.get_economic_pnl_guard(
+                    started_at=trading.economic_guard_start_utc
+                ),
                 "holdings": [
                     {
                         "id": trade.id,

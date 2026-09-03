@@ -7,6 +7,9 @@ from polybot.config import (
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
+    MLB_LIVE_ENTRY_END_UTC,
+    MLB_LIVE_FOLLOWUP_END_UTC,
+    MLB_LIVE_START_UTC,
     SIMULATION_SCALING_NOTIONALS_USDC,
     load_config,
 )
@@ -156,7 +159,7 @@ def test_adaptive_target_buy_amount_is_accepted(monkeypatch, amount) -> None:
         ("nhl", "peach-shadow-nhl-1m-v2"),
     ],
 )
-def test_direct_sport_profiles_are_shadow_only(monkeypatch, family, job) -> None:
+def test_direct_sport_profiles_collect_without_credentials(monkeypatch, family, job) -> None:
     _no_credentials(monkeypatch)
     monkeypatch.setenv("POLYBOT_TAKE_PROFIT_DELTA", "0.05")
     config = load_config("config.yaml", job, simulation_mode=True)
@@ -166,8 +169,42 @@ def test_direct_sport_profiles_are_shadow_only(monkeypatch, family, job) -> None
     assert config.trading.source_clock_required is False
 
     _credentials(monkeypatch)
-    with pytest.raises(ValueError, match="shadow-only"):
+    with pytest.raises(ValueError, match="frozen to simulation"):
         load_config("config.yaml", job, simulation_mode=False)
+
+
+@pytest.mark.parametrize(
+    ("job", "take_profit"),
+    [
+        ("peach-live-eco-mlb-7pp-20sl-1m-v1", 0.07),
+        ("peach-live-fruit-mlb-10pp-20sl-1m-v1", 0.10),
+    ],
+)
+def test_mlb_live_arms_are_separate_gold_informed_cohorts(
+    monkeypatch, job, take_profit
+) -> None:
+    _credentials(monkeypatch)
+    config = load_config("config.yaml", job, simulation_mode=False)
+
+    assert config.db_path == Path(f"data/{job}/trades.db")
+    trading = config.trading
+    assert trading.sport_family == "mlb"
+    assert trading.sport_profile_version == (
+        "peach-mlb-kickoff-live-gold-informed-v1"
+    )
+    assert trading.book_shape == "direct-two-team-moneyline"
+    assert trading.expected_result_kinds == ("HOME", "AWAY")
+    assert trading.expected_token_count == 2
+    assert trading.source_clock_required is False
+    assert trading.entry.take_profit_delta == take_profit
+    assert trading.entry.stop_loss_delta == 0.20
+    assert trading.entry.max_entry_drawdown == 0.20
+    assert trading.entry.late_exit_minute == 1_000_000
+    assert trading.entry.stop_cutoff_minute == 1_000_000
+    assert trading.entry.hours_max == 8
+    assert trading.experiment_start_utc == MLB_LIVE_START_UTC
+    assert trading.experiment_entry_end_utc == MLB_LIVE_ENTRY_END_UTC
+    assert trading.experiment_followup_end_utc == MLB_LIVE_FOLLOWUP_END_UTC
 
 
 def test_live_runtime_rejects_direct_sport_override(monkeypatch) -> None:

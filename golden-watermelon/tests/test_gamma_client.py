@@ -31,7 +31,7 @@ class FakeTransport:
 
 def config(max_pages: int = 4) -> GammaConfig:
     gamma = load_config(
-        ROOT / "config.yaml", "watermelon-white-1m-v4a"
+        ROOT / "config.yaml", "watermelon-white-1m-v4b"
     ).trading.gamma
     return replace(
         gamma,
@@ -83,11 +83,13 @@ def test_page_cap_returns_incomplete() -> None:
     assert result.cursor_complete is False
 
 
-def test_three_families_use_independent_numeric_tag_cursors() -> None:
+def test_five_families_use_independent_numeric_tag_cursors() -> None:
     transport = FakeTransport(
         [
             {"events": [{"id": "soccer"}]},
             {"events": [{"id": "mlb"}]},
+            {"events": [{"id": "nba"}]},
+            {"events": [{"id": "nfl"}]},
             {"events": [{"id": "nhl"}]},
         ]
     )
@@ -95,12 +97,16 @@ def test_three_families_use_independent_numeric_tag_cursors() -> None:
         "run", observed_at=datetime(2026, 8, 29, 0, 0, tzinfo=timezone.utc)
     )
     assert result.cursor_complete is True
-    assert [page.sport_family for page in result.pages] == ["soccer", "mlb", "nhl"]
+    assert [page.sport_family for page in result.pages] == [
+        "soccer", "mlb", "nba", "nfl", "nhl"
+    ]
     assert [call[2]["params"]["tag_id"] for call in transport.calls] == [
-        100350, 100381, 899
+        100350, 100381, 745, 450, 899
     ]
     assert [call[2]["request_kind"] for call in transport.calls] == [
         "gamma_live_events_keyset:soccer",
         "gamma_live_events_keyset:mlb",
+        "gamma_live_events_keyset:nba",
+        "gamma_live_events_keyset:nfl",
         "gamma_live_events_keyset:nhl",
     ]

@@ -7,7 +7,7 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-02-multisport-sizing-v3/PREREGISTRATION.md"
+    "research/frozen-2026-09-03-mlb-live-ab-v4/PREREGISTRATION.md"
 )
 
 

@@ -1304,3 +1304,52 @@ def test_economic_guard_blocks_matched_sell_without_confirmed_fill(tmp_path):
     assert guard["execution_override_count"] == 0
     assert guard["evidence_gaps"] == 1
     session.close()
+
+
+def test_economic_guard_scopes_trade_and_ledger_evidence_to_epoch(tmp_path):
+    db_path = tmp_path / "watermelon-economic-epoch.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    _record_accepted_order(
+        ledger,
+        "OID-old-matched-without-fill",
+        side="SELL",
+        token_id="token-old",
+        requested_size=5.0,
+    )
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='MATCHED', "
+            "latest_size_matched=5.0, needs_reconciliation=0 "
+            "WHERE order_id='OID-old-matched-without-fill'"
+        )
+    )
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="condition-old",
+        outcome="Yes",
+        token_id="token-old",
+        buy_timestamp=datetime(2026, 9, 2, 11, 59),
+        status=TradeStatus.COMPLETED,
+        mode="live",
+        realized_pnl=-9.0,
+    )
+    repo.create_trade(
+        condition_id="condition-new",
+        outcome="Yes",
+        token_id="token-new",
+        buy_timestamp=datetime(2026, 9, 2, 12, 13),
+        status=TradeStatus.RESOLVED,
+        mode="live",
+        settlement_pnl_assumption=0.25,
+    )
+
+    guard = repo.get_economic_pnl_guard("2026-09-02T12:12:00Z")
+
+    assert guard["economic_pnl"] == pytest.approx(0.25)
+    assert guard["recorded_realized_pnl"] == 0.0
+    assert guard["recorded_settlement_pnl"] == pytest.approx(0.25)
+    assert guard["evidence_gaps"] == 0
+    assert guard["period_start_utc"] == "2026-09-02T12:12:00Z"
+    session.close()

@@ -27,21 +27,29 @@ from .source_digest import (
 )
 
 
-DATA_CONTRACT = "watermelon-soccer-mlb-nhl-inplay-match-winner-v5"
-SCHEMA_PROFILE = "golden-watermelon-v4a-schema-v1"
-UNIVERSE_PROFILE = "watermelon-soccer-mlb-nhl-2026-08-v4a"
-CLASSIFIER_VERSION = "watermelon-major-sports-identity-v1"
-CANONICAL_JOB = "watermelon-white-1m-v4a"
+DATA_CONTRACT = "watermelon-five-major-sports-inplay-match-winner-v6"
+SCHEMA_PROFILE = "golden-watermelon-v4b-schema-v1"
+UNIVERSE_PROFILE = "watermelon-soccer-mlb-nba-nfl-nhl-2026-09-v4b"
+CLASSIFIER_VERSION = "watermelon-major-sports-identity-v2"
+CANONICAL_JOB = "watermelon-white-1m-v4b"
 LIFECYCLE_MODES = frozenset({"archive_only"})
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
+NBA_TAG_ID = 745
+NFL_TAG_ID = 450
 NHL_TAG_ID = 899
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
-SPORT_FAMILY_TAG_IDS = (("soccer", SOCCER_TAG_ID), ("mlb", MLB_TAG_ID), ("nhl", NHL_TAG_ID))
+SPORT_FAMILY_TAG_IDS = (
+    ("soccer", SOCCER_TAG_ID),
+    ("mlb", MLB_TAG_ID),
+    ("nba", NBA_TAG_ID),
+    ("nfl", NFL_TAG_ID),
+    ("nhl", NHL_TAG_ID),
+)
 SPORT_FAMILIES = tuple(item[0] for item in SPORT_FAMILY_TAG_IDS)
 
-# Immutable legacy epochs. The v3d runtime never accepts these jobs/contracts.
+# Immutable legacy epochs. The v4b runtime never accepts these jobs/contracts.
 # The literals also keep repository-wide discovery aware of preserved evidence.
 LEGACY_DATA_CONTRACT_V3 = "soccer-inplay-major-league-match-winner-v1"
 LEGACY_DATA_CONTRACT_V3C = "soccer-inplay-elite-competition-match-winner-v3"
@@ -56,6 +64,8 @@ LEGACY_RUNTIME_JOBS = (
     "watermelon-grey-5m-v3c",
     "watermelon-white-1m-v3d",
     "watermelon-grey-5m-v3d",
+    "watermelon-white-1m-v4a",
+    "watermelon-grey-5m-v4a",
 )
 
 
@@ -154,6 +164,8 @@ FROZEN_CUP_IDENTITIES = (
 
 FROZEN_DIRECT_SPORT_IDENTITIES = (
     DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
+    DirectSportIdentity("nba", 34, "NBA", NBA_TAG_ID, 10345, "nba"),
+    DirectSportIdentity("nfl", 10, "NFL", NFL_TAG_ID, 10187, "nfl"),
     DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
 )
 
@@ -175,7 +187,13 @@ def league_registry_payload(
         "uefa_competitions": [
             identity.canonical_dict() for identity in cup_identities
         ],
-        "sport_family_tag_ids": dict(SPORT_FAMILY_TAG_IDS),
+        "sport_family_tag_ids": {
+            "soccer": SOCCER_TAG_ID,
+            **{
+                identity.code: identity.primary_tag_id
+                for identity in direct_identities
+            },
+        },
         "direct_sports": [
             identity.canonical_dict() for identity in direct_identities
         ],
@@ -200,9 +218,9 @@ LEAGUE_MAPPING_SHA256 = league_mapping_sha256()
 
 # Entry begins well after this source edit; first successful source receipt is
 # provenance, not permission to backdate the preregistered statistical window.
-FROZEN_START = datetime(2026, 8, 29, 4, 0, tzinfo=timezone.utc)
-FROZEN_ENTRY_END = datetime(2026, 9, 5, 4, 0, tzinfo=timezone.utc)
-FROZEN_FOLLOWUP_END = datetime(2026, 9, 12, 4, 0, tzinfo=timezone.utc)
+FROZEN_START = datetime(2026, 9, 3, 12, 0, tzinfo=timezone.utc)
+FROZEN_ENTRY_END = datetime(2026, 10, 3, 12, 0, tzinfo=timezone.utc)
+FROZEN_FOLLOWUP_END = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
 ENTRY_THRESHOLDS = (0.95, 0.96, 0.97, 0.98, 0.99)
 STOP_LEVELS = (0.95, 0.93, 0.90, 0.85, 0.80, 0.70)
 LATE_ENTRY_MINUTE_FLOORS = (75, 80, 85)
@@ -219,8 +237,8 @@ class JobProfile:
 
 
 JOB_PROFILES: dict[str, JobProfile] = {
-    "watermelon-white-1m-v4a": JobProfile("FAST_1M", 1),
-    "watermelon-grey-5m-v4a": JobProfile("CONTROL_5M", 5),
+    "watermelon-white-1m-v4b": JobProfile("FAST_1M", 1),
+    "watermelon-grey-5m-v4b": JobProfile("CONTROL_5M", 5),
 }
 
 _CREDENTIAL_ENV_KEYS = frozenset(
@@ -618,7 +636,7 @@ def _validate_config(config: BotConfig) -> None:
     if gamma.sport_family != "soccer":
         raise ValueError("canonical sport_family must remain soccer")
     if gamma.sport_families != SPORT_FAMILIES:
-        raise ValueError("sport_families must remain soccer, mlb, nhl")
+        raise ValueError("sport_families must remain soccer, mlb, nba, nfl, nhl")
     if gamma.family_tag_ids != SPORT_FAMILY_TAG_IDS:
         raise ValueError("family numeric Gamma tag IDs differ")
     if gamma.required_common_tag_ids != REQUIRED_COMMON_TAG_IDS:
@@ -628,7 +646,9 @@ def _validate_config(config: BotConfig) -> None:
     if gamma.cup_mapping != FROZEN_CUP_IDENTITIES:
         raise ValueError("UEFA cup mapping differs from the frozen authoritative tuple")
     if gamma.direct_sport_mapping != FROZEN_DIRECT_SPORT_IDENTITIES:
-        raise ValueError("MLB/NHL direct sport mapping differs from frozen identity")
+        raise ValueError(
+            "MLB/NBA/NFL/NHL direct sport mapping differs from frozen identity"
+        )
     if gamma.sports_market_types != ("moneyline",):
         raise ValueError("only top-level moneyline is permitted")
     if not 0 <= gamma.max_retries <= 10:

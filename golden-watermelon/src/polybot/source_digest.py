@@ -8,10 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-08-29-major-sports-v4a/PREREGISTRATION.md"
+    "research/frozen-2026-09-03-five-major-sports-v4b/PREREGISTRATION.md"
 )
 ACTIVE_MANIFEST = (
-    "research/frozen-2026-08-29-major-sports-v4a/MANIFEST.sha256"
+    "research/frozen-2026-09-03-five-major-sports-v4b/MANIFEST.sha256"
 )
 SOURCE_PATHS = (
     "pyproject.toml",

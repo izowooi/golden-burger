@@ -16,7 +16,9 @@ from uuid import uuid4
 
 
 # Frozen legacy v3 schema reference. It is deliberately never executed by the
-# v4a runtime; new databases are created only from MIGRATION_PATH below.
+# v4b runtime; new databases are created only from MIGRATION_PATH below.  The
+# physical append-only schema is unchanged from v4a; the runtime/data identity
+# is new so five-family evidence never mixes into the preserved v4a DB.
 LEGACY_V3_SCHEMA_REFERENCE = """
 PRAGMA foreign_keys=ON;
 

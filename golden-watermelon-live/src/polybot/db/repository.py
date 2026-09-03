@@ -1748,7 +1748,9 @@ class TradeRepository:
             ),
         }
 
-    def get_economic_pnl_guard(self) -> Dict[str, Any]:
+    def get_economic_pnl_guard(
+        self, started_at: datetime | str | None = None
+    ) -> Dict[str, Any]:
         """Return a conservative safety P&L with ledger SELL overrides.
 
         A legacy accepted SELL can have an exact CONFIRMED fill in the shared
@@ -1757,12 +1759,30 @@ class TradeRepository:
         a synthetic payout and hides the real sale.  Do not rewrite history;
         replace that settlement assumption in this safety calculation only.
         """
+        period_start: datetime | None = None
+        period_start_utc: str | None = None
+        if started_at is not None:
+            if isinstance(started_at, str):
+                parsed = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+            elif isinstance(started_at, datetime):
+                parsed = started_at
+            else:
+                raise TypeError("started_at must be a datetime, ISO-8601 string, or None")
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            period_start_aware = parsed.astimezone(timezone.utc)
+            period_start = period_start_aware.replace(tzinfo=None)
+            period_start_utc = period_start_aware.isoformat().replace("+00:00", "Z")
+
+        period_filter = " WHERE buy_timestamp >= :period_start" if period_start else ""
+        params = {"period_start": period_start} if period_start else {}
         recorded = self.session.execute(
             text(
                 "SELECT COALESCE(SUM(realized_pnl), 0) AS realized_pnl, "
                 "COALESCE(SUM(settlement_pnl_assumption), 0) AS settlement_pnl "
-                "FROM trades"
-            )
+                "FROM trades" + period_filter
+            ),
+            params,
         ).mappings().one()
         realized = float(recorded["realized_pnl"] or 0.0)
         settlement = float(recorded["settlement_pnl"] or 0.0)
@@ -1778,12 +1798,23 @@ class TradeRepository:
                 "invalidated_settlement_pnl": 0.0,
                 "execution_override_count": 0,
                 "evidence_gaps": 1,
+                "period_start_utc": period_start_utc,
             }
         execution_adjustment = 0.0
         invalidated_settlement = 0.0
         evidence_gaps = 0
         override_count = 0
         try:
+            ledger_period_filter = ""
+            if period_start is not None:
+                ledger_period_filter = (
+                    " AND EXISTS (SELECT 1 FROM trades AS scoped_trade "
+                    "WHERE scoped_trade.mode = 'live' "
+                    "AND scoped_trade.buy_timestamp >= :period_start "
+                    "AND (scoped_trade.sell_order_id = submission.order_id "
+                    "OR (scoped_trade.sell_order_id IS NULL "
+                    "AND scoped_trade.token_id = submission.token_id)))"
+                )
             matched_without_fill = int(
                 self.session.execute(
                     text(
@@ -1797,8 +1828,9 @@ class TradeRepository:
                         "AND NOT EXISTS (SELECT 1 FROM order_fills AS fill "
                         "WHERE fill.submission_id = submission.submission_id "
                         "AND UPPER(fill.status) = 'CONFIRMED')"
+                        + ledger_period_filter
                     ),
-                    {"tolerance": _FILL_SIZE_TOLERANCE},
+                    {"tolerance": _FILL_SIZE_TOLERANCE, **params},
                 ).scalar()
                 or 0
             )
@@ -1822,8 +1854,11 @@ class TradeRepository:
                     "WHERE submission.simulation = 0 "
                     "AND UPPER(submission.side) = 'SELL' "
                     "AND UPPER(fill.status) = 'CONFIRMED' "
+                    + ledger_period_filter
+                    + " "
                     "GROUP BY submission.order_id, submission.token_id"
-                )
+                ),
+                params,
             ).mappings().all()
         except Exception as error:
             logger.error(
@@ -1840,6 +1875,7 @@ class TradeRepository:
                 "invalidated_settlement_pnl": 0.0,
                 "execution_override_count": 0,
                 "evidence_gaps": 1,
+                "period_start_utc": period_start_utc,
             }
 
         evidence_gaps += matched_without_fill
@@ -1878,8 +1914,12 @@ class TradeRepository:
             order_candidates = (
                 self.session.query(Trade)
                 .filter(Trade.sell_order_id == order_id)
-                .all()
             )
+            if period_start is not None:
+                order_candidates = order_candidates.filter(
+                    Trade.buy_timestamp >= period_start
+                )
+            order_candidates = order_candidates.all()
             if order_candidates:
                 if (
                     len(order_candidates) != 1
@@ -1898,8 +1938,12 @@ class TradeRepository:
                         Trade.buy_confirmed_vwap.isnot(None),
                         Trade.buy_confirmed_fee_usdc.isnot(None),
                     )
-                    .all()
                 )
+                if period_start is not None:
+                    candidates = candidates.filter(
+                        Trade.buy_timestamp >= period_start
+                    )
+                candidates = candidates.all()
             if len(candidates) != 1:
                 # An ambiguous confirmed SELL is real exposure but cannot be
                 # assigned safely.  Block future entry instead of guessing.
@@ -1987,6 +2031,7 @@ class TradeRepository:
             "invalidated_settlement_pnl": invalidated_settlement,
             "execution_override_count": override_count,
             "evidence_gaps": evidence_gaps,
+            "period_start_utc": period_start_utc,
         }
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:

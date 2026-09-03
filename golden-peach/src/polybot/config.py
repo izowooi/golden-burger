@@ -25,9 +25,15 @@ LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 FROZEN_START_UTC = "2026-08-30T00:00:00Z"
 FROZEN_ENTRY_END_UTC = "2026-09-13T00:00:00Z"
 FROZEN_FOLLOWUP_END_UTC = "2026-09-20T00:00:00Z"
+MLB_LIVE_START_UTC = "2026-09-03T11:00:00Z"
+MLB_LIVE_ENTRY_END_UTC = "2026-09-17T11:00:00Z"
+MLB_LIVE_FOLLOWUP_END_UTC = "2026-09-24T11:00:00Z"
+DIRECT_LATE_SENTINEL_MINUTE = 1_000_000.0
 FROZEN_JOB_TAKE_PROFIT = {
     "peach-live-eco-3pp-1m-v1": 0.03,
     "peach-live-fruit-5pp-1m-v1": 0.05,
+    "peach-live-eco-mlb-7pp-20sl-1m-v1": 0.07,
+    "peach-live-fruit-mlb-10pp-20sl-1m-v1": 0.10,
     "peach-shadow-1m-v1": 0.05,
     "peach-shadow-mlb-1m-v2": 0.05,
     "peach-shadow-nba-1m-v2": 0.05,
@@ -37,15 +43,47 @@ FROZEN_JOB_TAKE_PROFIT = {
 FROZEN_JOB_SPORT_FAMILY = {
     "peach-live-eco-3pp-1m-v1": "soccer",
     "peach-live-fruit-5pp-1m-v1": "soccer",
+    "peach-live-eco-mlb-7pp-20sl-1m-v1": "mlb",
+    "peach-live-fruit-mlb-10pp-20sl-1m-v1": "mlb",
     "peach-shadow-1m-v1": "soccer",
     "peach-shadow-mlb-1m-v2": "mlb",
     "peach-shadow-nba-1m-v2": "nba",
     "peach-shadow-nfl-1m-v2": "nfl",
     "peach-shadow-nhl-1m-v2": "nhl",
 }
+FROZEN_JOB_PROFILE_KEY = {
+    job: (
+        "mlb_live"
+        if job in {
+            "peach-live-eco-mlb-7pp-20sl-1m-v1",
+            "peach-live-fruit-mlb-10pp-20sl-1m-v1",
+        }
+        else family
+    )
+    for job, family in FROZEN_JOB_SPORT_FAMILY.items()
+}
+FROZEN_JOB_STOP_LOSS = {
+    job: (
+        0.20
+        if job in {
+            "peach-live-eco-mlb-7pp-20sl-1m-v1",
+            "peach-live-fruit-mlb-10pp-20sl-1m-v1",
+        }
+        else 0.10
+    )
+    for job in FROZEN_JOB_SPORT_FAMILY
+}
 FROZEN_SIMULATION_JOBS = frozenset(
     job for job in FROZEN_JOB_SPORT_FAMILY if "-shadow-" in job
 )
+FROZEN_JOB_EXPERIMENT_DATES = {
+    job: (
+        (MLB_LIVE_START_UTC, MLB_LIVE_ENTRY_END_UTC, MLB_LIVE_FOLLOWUP_END_UTC)
+        if FROZEN_JOB_SPORT_FAMILY[job] == "mlb" and job not in FROZEN_SIMULATION_JOBS
+        else (FROZEN_START_UTC, FROZEN_ENTRY_END_UTC, FROZEN_FOLLOWUP_END_UTC)
+    )
+    for job in FROZEN_JOB_SPORT_FAMILY
+}
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
     10.0,
@@ -126,10 +164,9 @@ SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
 class SportParameterProfile:
     """Per-sport market shape and evidence contract.
 
-    Eco/Fruit remain soccer-only live jobs.  The direct-sport profiles are
-    intentionally simulation-only until their kickoff-clock coverage and
-    sport-specific TP/SL values have enough evidence for a separate frozen
-    live cohort.
+    Runtime names select a profile atomically.  A direct-sport collection
+    profile therefore cannot silently become a live profile, and the separate
+    MLB live profile records exactly which exploratory TP/SL cohort is running.
     """
 
     code: str
@@ -185,6 +222,19 @@ SPORT_PARAMETER_PROFILES = {
         for family in ("mlb", "nba", "nfl", "nhl")
     },
 }
+SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
+    code="mlb",
+    profile_version="peach-mlb-kickoff-live-gold-informed-v1",
+    book_shape="direct-two-team-moneyline",
+    expected_result_kinds=("HOME", "AWAY"),
+    expected_market_count=1,
+    expected_token_count=2,
+    # MLB has no soccer-like minute feed. Entry requires explicit live state
+    # plus scheduled-start age in [0,10m], which is retained as a limitation.
+    source_clock_required=False,
+    max_sweep_pages=2,
+    max_in_play_hours=SPORT_FAMILY_MAX_IN_PLAY_HOURS["mlb"],
+)
 
 
 @dataclass(frozen=True)
@@ -522,12 +572,10 @@ def _validate_config(
     """Reject cohort or mode drift before any network/database mutation."""
     entry = trading.entry
     archive = trading.archive
-    profile = SPORT_PARAMETER_PROFILES.get(trading.sport_family)
+    profile_key = FROZEN_JOB_PROFILE_KEY.get(job_name)
+    profile = SPORT_PARAMETER_PROFILES.get(profile_key or "")
     if profile is None:
-        raise ValueError(
-            f"unsupported Golden Peach sport family: "
-            f"{trading.sport_family or '<empty>'}"
-        )
+        raise ValueError(f"unsupported Golden Peach runtime job: {job_name}")
     numeric = {
         "buy_amount_usdc": trading.buy_amount_usdc,
         "min_liquidity": trading.min_liquidity,
@@ -576,11 +624,6 @@ def _validate_config(
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
-        )
-    if not simulation_mode and trading.sport_family != "soccer":
-        raise ValueError(
-            "Golden Peach direct-sport profiles are shadow-only until their "
-            "kickoff-clock and sport-specific parameters are frozen"
         )
     if not (
         BASELINE_EXECUTION_NOTIONAL_USDC
@@ -653,20 +696,26 @@ def _validate_config(
     if simulation_mode is not expected_simulation:
         expected_mode = "simulation" if expected_simulation else "live"
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
+    expected_stop_loss = FROZEN_JOB_STOP_LOSS[job_name]
+    expected_late_minute = (
+        80.0
+        if trading.sport_family == "soccer"
+        else DIRECT_LATE_SENTINEL_MINUTE
+    )
     if (
         entry.max_source_minute != 10
         or entry.min_leader_margin != 0.005
         or entry.max_entry_spread != 0.05
-        or entry.stop_loss_delta != 0.10
-        or entry.late_exit_minute != 80
+        or entry.stop_loss_delta != expected_stop_loss
+        or entry.late_exit_minute != expected_late_minute
         or entry.late_profit_fraction != 0.50
-        or entry.stop_cutoff_minute != 80
+        or entry.stop_cutoff_minute != expected_late_minute
     ):
         raise ValueError("kickoff/leader/TP-SL/late-exit contract drift")
     if entry.stop_price != 0.01:
         raise ValueError("defensive absolute stop floor is frozen at 0.01")
     if entry.max_entry_drawdown != entry.stop_loss_delta:
-        raise ValueError("stored entry stop must match the 10pp stop-loss delta")
+        raise ValueError("stored entry stop must match the frozen stop-loss delta")
     if (
         entry.max_stop_slippage != 0.05
         or entry.max_stop_spread != 0.10
@@ -713,11 +762,12 @@ def _validate_config(
         raise ValueError("category overrides are not permitted")
     if api.signature_type not in {1, 3}:
         raise ValueError("signature_type must be one of: 1, 3")
+    expected_dates = FROZEN_JOB_EXPERIMENT_DATES[job_name]
     if (
-        trading.experiment_start_utc != FROZEN_START_UTC
-        or trading.experiment_entry_end_utc != FROZEN_ENTRY_END_UTC
-        or trading.experiment_followup_end_utc != FROZEN_FOLLOWUP_END_UTC
-    ):
+        trading.experiment_start_utc,
+        trading.experiment_entry_end_utc,
+        trading.experiment_followup_end_utc,
+    ) != expected_dates:
         raise ValueError("experiment timestamps differ from the frozen deployment")
     if (
         trading.classifier_version != CLASSIFIER_VERSION
@@ -773,14 +823,24 @@ def load_config(
         raise ValueError(
             f"{job_name} sport family must remain {frozen_sport_family}"
         )
-    profile = SPORT_PARAMETER_PROFILES.get(resolved_sport_family)
+    profile_key = FROZEN_JOB_PROFILE_KEY.get(job_name)
+    profile = SPORT_PARAMETER_PROFILES.get(profile_key or "")
     if profile is None:
-        raise ValueError(
-            f"unsupported Golden Peach sport family: "
-            f"{resolved_sport_family or '<empty>'}"
-        )
+        raise ValueError(f"unsupported Golden Peach runtime job: {job_name}")
+    if profile.code != resolved_sport_family:
+        raise ValueError("Golden Peach runtime sport/profile identity mismatch")
 
     frozen_take_profit = FROZEN_JOB_TAKE_PROFIT.get(job_name, 0.03)
+    frozen_stop_loss = FROZEN_JOB_STOP_LOSS.get(job_name, 0.10)
+    frozen_late_minute = (
+        80.0
+        if resolved_sport_family == "soccer"
+        else DIRECT_LATE_SENTINEL_MINUTE
+    )
+    frozen_dates = FROZEN_JOB_EXPERIMENT_DATES.get(
+        job_name,
+        (FROZEN_START_UTC, FROZEN_ENTRY_END_UTC, FROZEN_FOLLOWUP_END_UTC),
+    )
     entry = PeachEntryConfig(
         prob_min=_get_config_value(
             "POLYBOT_ENTRY_PROB_MIN", entry_cfg.get("prob_min"), 0.60
@@ -805,18 +865,18 @@ def load_config(
         ),
         take_profit_delta=_get_config_value(
             "POLYBOT_TAKE_PROFIT_DELTA",
-            entry_cfg.get("take_profit_delta"),
+            None,
             frozen_take_profit,
         ),
         stop_loss_delta=_get_config_value(
             "POLYBOT_STOP_LOSS_DELTA",
-            entry_cfg.get("stop_loss_delta"),
-            0.10,
+            None,
+            frozen_stop_loss,
         ),
         late_exit_minute=_get_config_value(
             "POLYBOT_LATE_EXIT_MINUTE",
-            entry_cfg.get("late_exit_minute"),
-            80.0,
+            None,
+            frozen_late_minute,
         ),
         late_profit_fraction=_get_config_value(
             "POLYBOT_LATE_PROFIT_FRACTION",
@@ -825,16 +885,16 @@ def load_config(
         ),
         stop_cutoff_minute=_get_config_value(
             "POLYBOT_STOP_CUTOFF_MINUTE",
-            entry_cfg.get("stop_cutoff_minute"),
-            80.0,
+            None,
+            frozen_late_minute,
         ),
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.01
         ),
         max_entry_drawdown=_get_config_value(
             "POLYBOT_MAX_ENTRY_DRAWDOWN",
-            entry_cfg.get("max_entry_drawdown"),
-            0.10,
+            None,
+            frozen_stop_loss,
         ),
         max_stop_slippage=_get_config_value(
             "POLYBOT_MAX_STOP_SLIPPAGE",
@@ -963,18 +1023,18 @@ def load_config(
         yes_only_mode=resolved_yes_only,
         experiment_start_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_START_UTC",
-            trading_cfg.get("experiment_start_utc"),
-            FROZEN_START_UTC,
+            None,
+            frozen_dates[0],
         ),
         experiment_entry_end_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_END_UTC",
-            trading_cfg.get("experiment_entry_end_utc"),
-            FROZEN_ENTRY_END_UTC,
+            None,
+            frozen_dates[1],
         ),
         experiment_followup_end_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC",
-            trading_cfg.get("experiment_followup_end_utc"),
-            FROZEN_FOLLOWUP_END_UTC,
+            None,
+            frozen_dates[2],
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
         preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),

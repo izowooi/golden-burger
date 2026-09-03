@@ -19,9 +19,11 @@ Golden Peach는 경기 시작 0~10분의 현재 선두를 즉시 산다. Golden 
 
 2026-09-01 v3는 축구 live 계약을 바꾸지 않고 종목별 profile과 direct two-team book
 경로를 추가했다. Silver는 축구, Gold는 MLB를 1분 cadence로 수집한다. 2026-09-02 v4는
-같은 외장 Gold job에 NFL·NBA runtime을 별도 DB로 추가한다. 세 runtime은 병렬 실행하며
+같은 외장 Gold job에 NFL·NBA runtime을 별도 DB로 추가한다. 2026-09-03 v7은 NHL을
+네 번째 Gold DB로 추가하고, Gold MLB 완결 15경기의 탐색 재생을 바탕으로 King/Queen에
+별도 MLB 최소금액 runtime을 추가한다. direct collector runtime은 병렬 실행하며
 NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals의 실제 1군 두 팀 경기를
-포함한다. NHL은 아직 Jenkins에 연결하지 않는다. direct sport의 현재 수치는 최적값이
+포함한다. NHL의 Stanley Cup도 exact NHL identity일 때 포함한다. direct sport의 현재 수치는 최적값이
 아니라 원자료와 해결 경로를 모으기 위한 사전 등록 primary다.
 
 2026-09-02 실행 안전 보정은 현재 King/Queen 목표 `$5`와 A/B target을 유지하면서, 향후 목표
@@ -59,7 +61,7 @@ FOK로 제출한다. fresh book과 선택·잔여·최대 실행 가능 수량/�
 만들지 않는다. source 시계가 누락된 cycle은 raw 호가와 누락 사유를 저장하되 진입을
 추정하지 않는다.
 
-### MLB·NFL·NBA 자료 수집
+### MLB·NFL·NBA·NHL 자료 수집
 
 - 종목별 exact sport/tag/root-series/team-league identity
 - whole-game 최상위 two-team moneyline 한 개와 두 팀의 직접 token
@@ -67,13 +69,14 @@ FOK로 제출한다. fresh book과 선택·잔여·최대 실행 가능 수량/�
 - child/inning/prop/future/spread/total/minor league/esports 제외
 - MLB World Series, NFL 플레이오프·Super Bowl, NBA Cup·play-in·플레이오프·Finals에서
   공식 season series와 해당 최상위 리그 두 팀이 확인된 실제 경기를 포함
+- NHL 플레이오프·Stanley Cup Final도 exact NHL root/season/team identity일 때 포함
 - 대회 우승자·conference/division winner 같은 futures는 제외
 - 누적 거래량 5,000, 유동성 5,000 이상
 - 이닝·quarter를 축구 minute로 변환하지 않으며 `source_elapsed_minutes`는 NULL로 보존
 - snapshot UTC 간격과 명시적 live/ended lifecycle로 추세와 종료를 연결
 
-NHL도 별도 versioned family profile과 동일한 direct two-team 계약을 코드로 지원하지만
-아직 수집하거나 live로 실행하지 않는다.
+NHL은 별도 versioned family profile과 direct two-team 계약으로 Gold에서 수집한다. NHL
+live는 허용하지 않는다.
 
 ## 진입
 
@@ -109,9 +112,11 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 - SL은 확인된 잔여 보유량 전량만 FOK로 제출한다. 전량 깊이가 없으면 부분 손절하지 않고
   event-local 재시도 상태로 남긴다.
 
-두 live arm의 차이는 절대 target 하나뿐이다. 서로 다른 wallet의 수동 포지션은
-DB에 편입하지 않는다. 두 live arm은 계속 축구만 허용하며, 환경변수로 MLB를 잘못
-주입하면 시작 전에 실패한다.
+같은 종목의 두 live arm 차이는 절대 target 하나뿐이다. 서로 다른 wallet의 수동 포지션은
+DB에 편입하지 않는다. 기존 축구 runtime과 별도 MLB runtime은 DB·config cohort를 분리한다.
+MLB는 `[0.55,0.58]` 첫 교차, 최근 5회 누적 `+0.01`, 진입가 `-0.15` 손절을 공통으로
+고정하고 King `0.90`/Queen `0.95`만 비교한다. 이 값은 15경기 탐색 자료이므로 최소
+100경기 전 최적값이나 증액으로 해석하지 않는다.
 
 ## 실패 격리
 
@@ -137,10 +142,10 @@ resolution을 저장한다. 추가로 각 snapshot의
 ask를 걸어 산 shares를 같은 시점 bid에 전량 팔 수 있는지와 양쪽 VWAP·level 수·수수료 전
 왕복 손익을 `execution_capacity_json`에 저장한다.
 
-`polybot-gold`는 같은 방식으로 MLB·NFL·NBA의 두 팀 direct book을 각 runtime DB에
+`polybot-gold`는 같은 방식으로 MLB·NFL·NBA·NHL의 두 팀 direct book을 각 runtime DB에
 수집한다. Gamma는 각 family tag·누적 거래량·유동성을 server-side로 먼저 거르고 종목당
 최대 2페이지까지만 허용한다. CLOB full books는 batch로 한 번 읽고 증액 ladder는 cached
-book을 로컬 계산하므로 추가 book 요청이 없다. 세 runtime은 병렬 실행하며, 이 계산은
+book을 로컬 계산하므로 추가 book 요청이 없다. 네 runtime은 병렬 실행하며, 이 계산은
 simulation 전용이라 King/Queen의 실거래 cycle 시간을 늘리지 않는다.
 
 `scripts/replay_direct_six_book.py --sport-family <family>`는 같은 event에서 entry, target,
@@ -163,6 +168,9 @@ Silver·Gold의 반사실 행은 실제 주문이나 P&L이 아니다. 같은 �
 MLB 동결값과 기간은
 `research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`, NFL·NBA는
 `research/frozen-2026-09-02-nba-nfl-shadow-v4/PREREGISTRATION.md`가 권위다.
+MLB live A/B와 NHL 수집은
+`research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md`,
+`research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md`가 권위다.
 공통 실행 보정은
 `research/frozen-2026-09-02-partial-profit-exit-v6/PREREGISTRATION.md`를 따른다.
 과거 v1·v2 계약은 원래 폴더에 변경 없이 보존한다.

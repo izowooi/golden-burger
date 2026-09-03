@@ -25,6 +25,10 @@ LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 FROZEN_START_UTC = "2026-08-29T04:00:00Z"
 FROZEN_ENTRY_END_UTC = "2026-09-05T04:00:00Z"
 FROZEN_FOLLOWUP_END_UTC = "2026-09-12T04:00:00Z"
+# The MLB safety budget restarts at the first successful v3e run.  Earlier MLB
+# trades remain immutable performance evidence, but they used the superseded
+# 5pp stop and must not consume the corrected cohort's entry kill switch.
+MLB_ECONOMIC_GUARD_START_UTC = "2026-09-02T12:12:00Z"
 FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
 BASELINE_EXECUTION_NOTIONAL_USDC = 5.0
 MAX_TARGET_BUY_NOTIONAL_USDC = 1000.0
@@ -90,6 +94,11 @@ SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
     "soccer": 4.0,
     "mlb": 8.0,
     "nhl": 5.0,
+}
+ECONOMIC_GUARD_START_UTC_BY_SPORT = {
+    "soccer": FROZEN_START_UTC,
+    "mlb": MLB_ECONOMIC_GUARD_START_UTC,
+    "nhl": FROZEN_START_UTC,
 }
 
 
@@ -368,6 +377,7 @@ class TradingConfig:
     experiment_start_utc: str = FROZEN_START_UTC
     experiment_entry_end_utc: str = FROZEN_ENTRY_END_UTC
     experiment_followup_end_utc: str = FROZEN_FOLLOWUP_END_UTC
+    economic_guard_start_utc: str = FROZEN_START_UTC
     strategy_source_digest: str = ""
     preregistration_sha256: str = ""
     classifier_version: str = CLASSIFIER_VERSION
@@ -543,6 +553,22 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         or trading.experiment_followup_end_utc != FROZEN_FOLLOWUP_END_UTC
     ):
         raise ValueError("experiment timestamps differ from the frozen deployment")
+    expected_guard_start = ECONOMIC_GUARD_START_UTC_BY_SPORT[
+        trading.sport_family
+    ]
+    if trading.economic_guard_start_utc != expected_guard_start:
+        raise ValueError("economic guard start differs from the frozen sport epoch")
+    guard_start = datetime.fromisoformat(
+        trading.economic_guard_start_utc.replace("Z", "+00:00")
+    )
+    experiment_start = datetime.fromisoformat(
+        trading.experiment_start_utc.replace("Z", "+00:00")
+    )
+    entry_end = datetime.fromisoformat(
+        trading.experiment_entry_end_utc.replace("Z", "+00:00")
+    )
+    if not experiment_start <= guard_start < entry_end:
+        raise ValueError("economic guard start must be inside the entry window")
     if (
         trading.classifier_version != CLASSIFIER_VERSION
         or trading.league_mapping_sha256 != LEAGUE_MAPPING_SHA256
@@ -641,14 +667,15 @@ def load_config(
             raise ValueError("yes_only_mode override must be a boolean")
         resolved_yes_only = yes_only_mode
 
+    sport_family = str(
+        os.getenv(
+            "POLYBOT_SPORT_FAMILY",
+            trading_cfg.get("sport_family", "soccer"),
+        )
+    ).strip().lower()
     trading = TradingConfig(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
-        sport_family=str(
-            os.getenv(
-                "POLYBOT_SPORT_FAMILY",
-                trading_cfg.get("sport_family", "soccer"),
-            )
-        ).strip().lower(),
+        sport_family=sport_family,
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
@@ -737,6 +764,9 @@ def load_config(
             "POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC",
             trading_cfg.get("experiment_followup_end_utc"),
             FROZEN_FOLLOWUP_END_UTC,
+        ),
+        economic_guard_start_utc=ECONOMIC_GUARD_START_UTC_BY_SPORT.get(
+            sport_family, FROZEN_START_UTC
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
         preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),

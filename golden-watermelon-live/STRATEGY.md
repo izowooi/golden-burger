@@ -1,4 +1,4 @@
-# Golden Watermelon Live — Major Sports A/B v3e
+# Golden Watermelon Live — Major Sports A/B v3f
 
 ## 질문과 treatment
 
@@ -119,3 +119,9 @@ White/Grey displayed-depth evidence와 live confirmed fill evidence를 함께 �
 v3e는 명시적 미주문 503 오분류, BUY 전역 차단, 촘촘한 손절과 증액 시 0건 체결 문제를 보정한
 새 source/config 묶음이다. 정확한 변경 계약은
 `research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md`를 따른다.
+
+v3f는 거래 이력을 수정하지 않고 MLB 경제손익 진입 차단 구간만 v3e 첫 정상 실행 직전
+`2026-09-02T12:12:00Z`부터 계산한다. 폐기한 촘촘한 손절의 과거 손실은 성과 증거로
+보존하되 교정된 묶음의 `$10` 안전 예산과 합치지 않는다. 실행 원장의 SELL과 증거 공백도
+같은 매수 구간에 연결된 것만 집계한다. 세부 계약은
+`research/frozen-2026-09-03-mlb-guard-epoch-v3f/PREREGISTRATION.md`를 따른다.

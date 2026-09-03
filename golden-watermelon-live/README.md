@@ -78,8 +78,11 @@ Jenkins 배포 build만 Git SCM으로 exact commit을 checkout하고, 검증 뒤
 entry는 `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up은
 `2026-09-12T04:00:00Z`까지다. cohort는
 `config_hash × strategy_source_digest × mode × job_name`이고 Git commit은 provenance다.
-v3e 변경 계약은
-`research/frozen-2026-09-02-order-isolation-sizing-stop-v3e/PREREGISTRATION.md`에 고정한다.
+MLB의 신규 진입 중지용 `$10` 경제손익 한도는 교정된 v3e 첫 정상 실행 직전인
+`2026-09-02T12:12:00Z` 이후 거래만 계산한다. 이전 5%p 손절 손실은 DB와 회고에는
+그대로 남으며 새 실행 묶음의 안전 예산에서만 분리된다. Soccer/NHL은 원래 시작 시각을 유지한다.
+v3f 변경 계약은
+`research/frozen-2026-09-03-mlb-guard-epoch-v3f/PREREGISTRATION.md`에 고정한다.
 
 Cat/Dog v2h DB는 기존 미해결 position을 관리하기 위해 이어 쓴다. 그보다 오래된 live DB와 신규
 MLB/NHL DB는 immutable epoch로 분리하며 clean, merge, migration, backfill하지 않는다.

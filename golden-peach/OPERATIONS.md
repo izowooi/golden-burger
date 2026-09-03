@@ -4,8 +4,8 @@
 
 | Job | custom workspace | runtime | mode | cron |
 |---|---|---|---|---|
-| `polybot-eco` | `/Volumes/t7/jenkins/polybot-eco` | `peach-live-eco-3pp-1m-v1` | live | `* * * * *` |
-| `polybot-fruit` | `/Volumes/t7/jenkins/polybot-fruit` | `peach-live-fruit-5pp-1m-v1` | live | `* * * * *` |
+| `polybot-eco` | `/Volumes/t7/jenkins/polybot-eco` | soccer `+3pp` + MLB `+7pp/-20pp` | live | `* * * * *` |
+| `polybot-fruit` | `/Volumes/t7/jenkins/polybot-fruit` | soccer `+5pp` + MLB `+10pp/-20pp` | live | `* * * * *` |
 | `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | soccer/MLB/NBA/NFL/NHL shadow 5개 | simulation | `* * * * *` |
 
 Concurrent build는 금지하고 build discard는 14일로 둔다. 첫 검증 build 전 timer를 끄고,
@@ -36,6 +36,15 @@ cd ./golden-peach
 /Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-eco-3pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-eco-3pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-eco-3pp-1m-v1
+
+export POLYBOT_SPORT_FAMILY=mlb
+export POLYBOT_TAKE_PROFIT_DELTA=0.07
+export POLYBOT_STOP_LOSS_DELTA=0.20
+export POLYBOT_ENTRY_HOURS_MAX=8
+export POLYBOT_ARCHIVE_HOURS_MAX=8
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-eco-mlb-7pp-20sl-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-eco-mlb-7pp-20sl-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-eco-mlb-7pp-20sl-1m-v1
 ```
 
 ### Fruit B
@@ -55,6 +64,15 @@ cd ./golden-peach
 /Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-fruit-5pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-fruit-5pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-fruit-5pp-1m-v1
+
+export POLYBOT_SPORT_FAMILY=mlb
+export POLYBOT_TAKE_PROFIT_DELTA=0.10
+export POLYBOT_STOP_LOSS_DELTA=0.20
+export POLYBOT_ENTRY_HOURS_MAX=8
+export POLYBOT_ARCHIVE_HOURS_MAX=8
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-fruit-mlb-10pp-20sl-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-fruit-mlb-10pp-20sl-1m-v1
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-fruit-mlb-10pp-20sl-1m-v1
 ```
 
 ### Grey shadow
@@ -106,6 +124,8 @@ DB의 cycle lock이 막는다. 어느 한 sport가 실패해도 이미 시작한
 Console에서 다음을 확인한다.
 
 - resolved mode/job/TP와 `strategy_source_digest`가 기대값과 일치한다.
+- Eco/Fruit에서 축구와 MLB runtime이 각각 별도 DB를 사용하며 MLB는 `+7/+10pp`, 공통
+  `-20pp`, `$5`, 0~10분 계약으로 해석된다.
 - 한 cycle이 다음 분과 겹치지 않고 `.cycle-run.lock` skip이 반복되지 않는다.
 - Gamma sweep `cursor_complete=true`, source clock exclusion과 event book 누락이 집계된다.
 - Grey의 각 sport DB에 `execution_capacity_json`, sport/league/tag가 기록되고 전체 병렬
