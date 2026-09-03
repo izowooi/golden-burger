@@ -76,6 +76,7 @@ WORKSPACE_SPECS = {
         additional_runtime_jobs=(
             "plum-shadow-gold-nfl-1m-v1",
             "plum-shadow-gold-nba-1m-v1",
+            "plum-shadow-gold-nhl-1m-v1",
         ),
     ),
     "polybot-silver": WorkspaceSpec(

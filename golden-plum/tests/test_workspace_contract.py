@@ -22,8 +22,10 @@ SPEC.loader.exec_module(workspace_module)
 
 
 def test_workspace_specs_match_atomic_runtime_registry() -> None:
+    registered_external_runtimes: set[str] = set()
     for job, workspace_spec in workspace_module.WORKSPACE_SPECS.items():
         for runtime_job in workspace_spec.runtime_jobs:
+            registered_external_runtimes.add(runtime_job)
             runtime_spec = RUNTIME_SPECS[runtime_job]
             assert runtime_spec.jenkins_job == job
             assert runtime_spec.simulation_mode is True
@@ -32,6 +34,13 @@ def test_workspace_specs_match_atomic_runtime_registry() -> None:
             assert runtime_spec.external_workspace_path == str(
                 workspace_spec.workspace
             )
+
+    expected_external_runtimes = {
+        runtime_job
+        for runtime_job, runtime_spec in RUNTIME_SPECS.items()
+        if runtime_spec.external_workspace_path is not None
+    }
+    assert registered_external_runtimes == expected_external_runtimes
 
 
 def test_cli_job_argument_uses_jenkins_job_name() -> None:
@@ -84,6 +93,7 @@ def trusted_volume(tmp_path, monkeypatch):
             (
                 "plum-shadow-gold-nfl-1m-v1",
                 "plum-shadow-gold-nba-1m-v1",
+                "plum-shadow-gold-nhl-1m-v1",
             ),
         ),
         ("polybot-silver", "plum-shadow-silver-1m-v1", ()),
@@ -222,7 +232,7 @@ def test_database_must_match_frozen_runtime_path(trusted_volume) -> None:
         )
 
 
-@pytest.mark.parametrize("family", ["nfl", "nba"])
+@pytest.mark.parametrize("family", ["nfl", "nba", "nhl"])
 def test_gold_accepts_each_registered_database_path(
     trusted_volume, family
 ) -> None:
