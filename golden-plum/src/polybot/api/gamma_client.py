@@ -42,6 +42,7 @@ class GammaClient:
         self,
         *,
         sport_family: str = "soccer",
+        sport_profile_version: Optional[str] = None,
         cycle_budget: Optional[CycleBudget] = None,
     ):
         normalized_family = str(sport_family or "").strip().lower()
@@ -51,7 +52,21 @@ class GammaClient:
                 f"{normalized_family or '<empty>'}"
             )
         self.sport_family = normalized_family
-        self.sport_profile = SPORT_PARAMETER_PROFILES[normalized_family]
+        if sport_profile_version is None:
+            self.sport_profile = SPORT_PARAMETER_PROFILES[normalized_family]
+        else:
+            matching_profiles = tuple(
+                profile
+                for profile in SPORT_PARAMETER_PROFILES.values()
+                if profile.code == normalized_family
+                and profile.profile_version == sport_profile_version
+            )
+            if len(matching_profiles) != 1:
+                raise ValueError(
+                    "Golden Plum sport profile version does not uniquely match "
+                    f"{normalized_family}: {sport_profile_version}"
+                )
+            self.sport_profile = matching_profiles[0]
         self.tag_id = SPORT_FAMILY_TAG_IDS[normalized_family]
         self.max_in_play_hours = SPORT_FAMILY_MAX_IN_PLAY_HOURS[normalized_family]
         self.cycle_budget = cycle_budget

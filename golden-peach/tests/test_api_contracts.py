@@ -311,6 +311,27 @@ def test_gamma_accepts_registered_direct_sport_families(family) -> None:
     assert client.sport_profile.expected_token_count == 2
 
 
+def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
+    client = GammaClient(
+        sport_family="mlb",
+        sport_profile_version="peach-mlb-kickoff-live-gold-informed-v1",
+    )
+
+    assert client.sport_profile.code == "mlb"
+    assert (
+        client.sport_profile.profile_version
+        == "peach-mlb-kickoff-live-gold-informed-v1"
+    )
+
+
+def test_gamma_rejects_cross_family_profile_version() -> None:
+    with pytest.raises(ValueError, match="does not uniquely match"):
+        GammaClient(
+            sport_family="mlb",
+            sport_profile_version="peach-soccer-kickoff-v3",
+        )
+
+
 def test_gamma_rejects_unknown_sport_family_before_network() -> None:
     with pytest.raises(ValueError, match="unsupported"):
         GammaClient(sport_family="cricket")

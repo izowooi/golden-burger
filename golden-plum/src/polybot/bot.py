@@ -44,6 +44,7 @@ class PolymarketBot:
         self.cycle_budget.assert_within_hard_deadline("database initialization")
         self.gamma = GammaClient(
             sport_family=config.trading.sport_family,
+            sport_profile_version=config.trading.sport_profile_version,
             cycle_budget=self.cycle_budget,
         )
         self.clob = ClobClientWrapper(

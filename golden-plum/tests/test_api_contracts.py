@@ -374,6 +374,27 @@ def test_gamma_accepts_exact_direct_major_sport_family(family, tag_id) -> None:
     assert client.last_sweep_attestation["tag_id"] == tag_id
 
 
+def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
+    client = GammaClient(
+        sport_family="mlb",
+        sport_profile_version="mlb-gold-15-event-exploratory-live-v1",
+    )
+
+    assert client.sport_profile.code == "mlb"
+    assert (
+        client.sport_profile.profile_version
+        == "mlb-gold-15-event-exploratory-live-v1"
+    )
+
+
+def test_gamma_rejects_cross_family_profile_version() -> None:
+    with pytest.raises(ValueError, match="does not uniquely match"):
+        GammaClient(
+            sport_family="mlb",
+            sport_profile_version="soccer-full-match-confirmation-v2",
+        )
+
+
 @pytest.mark.parametrize(
     ("family", "competition"),
     [("nfl", "Super Bowl"), ("nba", "NBA Finals")],
