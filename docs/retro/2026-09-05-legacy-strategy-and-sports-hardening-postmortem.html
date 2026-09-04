@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Golden Cherry·Blueberry·Tangerine 회고와 스포츠 안전성 보강</title>
+  <style>
+:root {
+  color-scheme: light dark;
+  --bg: #f5f7fb;
+  --paper: #ffffff;
+  --text: #172033;
+  --muted: #5b667a;
+  --line: #dce2ec;
+  --accent: #2457d6;
+  --accent-soft: #e9efff;
+  --good: #087f5b;
+  --warn: #a15c00;
+  --shadow: 0 14px 38px rgba(25, 36, 58, .09);
+}
+[data-theme="dark"] {
+  --bg: #10141d;
+  --paper: #171d28;
+  --text: #edf2ff;
+  --muted: #aab5c8;
+  --line: #303a4b;
+  --accent: #8dadff;
+  --accent-soft: #202f55;
+  --good: #63e6be;
+  --warn: #ffd08a;
+  --shadow: 0 18px 42px rgba(0, 0, 0, .32);
+}
+* { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard", "Apple SD Gothic Neo", "Noto Sans KR", Segoe UI, sans-serif;
+  line-height: 1.72;
+  font-size: 16px;
+}
+.shell { max-width: 1240px; margin: 0 auto; padding: 32px 24px 80px; }
+.toolbar {
+  position: sticky; top: 12px; z-index: 10; display: flex; justify-content: flex-end;
+  pointer-events: none; margin-bottom: -44px;
+}
+.toolbar button {
+  pointer-events: auto; border: 1px solid var(--line); background: var(--paper); color: var(--text);
+  border-radius: 999px; padding: 9px 14px; font-weight: 700; box-shadow: var(--shadow); cursor: pointer;
+}
+main { background: var(--paper); border: 1px solid var(--line); border-radius: 22px; padding: 54px 64px; box-shadow: var(--shadow); }
+h1 { font-size: clamp(2rem, 4.2vw, 3.25rem); line-height: 1.18; letter-spacing: -.04em; margin: 0 120px 30px 0; }
+h2 { margin: 64px 0 20px; padding-top: 10px; font-size: 1.72rem; border-top: 2px solid var(--line); }
+h3 { margin: 40px 0 14px; font-size: 1.28rem; color: var(--accent); }
+p, li { max-width: 92ch; }
+a { color: var(--accent); text-underline-offset: 3px; }
+strong { color: var(--text); }
+blockquote { margin: 20px 0; padding: 14px 20px; border-left: 4px solid var(--accent); background: var(--accent-soft); border-radius: 0 10px 10px 0; }
+code { background: var(--accent-soft); border-radius: 5px; padding: .15em .38em; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .9em; }
+pre { overflow: auto; padding: 18px; background: #101827; color: #eef4ff; border-radius: 12px; }
+pre code { background: transparent; padding: 0; }
+.table-wrap { overflow-x: auto; margin: 20px -8px 28px; padding: 0 8px; }
+table { width: 100%; border-collapse: separate; border-spacing: 0; min-width: 680px; font-size: .94rem; }
+th, td { border-right: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 11px 13px; vertical-align: top; }
+th:first-child, td:first-child { border-left: 1px solid var(--line); }
+thead th { position: sticky; top: 0; background: var(--accent-soft); color: var(--text); text-align: left; border-top: 1px solid var(--line); }
+thead th:first-child { border-top-left-radius: 9px; }
+thead th:last-child { border-top-right-radius: 9px; }
+ul, ol { padding-left: 1.35rem; }
+li + li { margin-top: .35rem; }
+.footer { color: var(--muted); text-align: center; padding: 24px; font-size: .86rem; }
+@media (max-width: 760px) {
+  .shell { padding: 12px 8px 50px; }
+  main { border-radius: 14px; padding: 50px 18px 30px; }
+  h1 { margin-right: 0; font-size: 2rem; }
+  h2 { margin-top: 48px; }
+  .toolbar { top: 8px; margin-right: 8px; }
+}
+@media print {
+  body { background: white; color: #111; }
+  .shell { max-width: none; padding: 0; }
+  main { border: 0; box-shadow: none; padding: 0; }
+  .toolbar { display: none; }
+  a { color: #111; text-decoration: none; }
+}
+</style>
+</head>
+<body>
+  <div class="shell">
+    <div class="toolbar"><button id="theme" type="button" aria-label="화면 테마 전환">화면 테마 전환</button></div>
+    <main><h1 id="golden-cherryblueberrytangerine">Golden Cherry·Blueberry·Tangerine 회고와 스포츠 런타임 안전성 보강</h1>
+<ul>
+<li>작성일: 2026-09-05 KST</li>
+<li>코드 배포 기준: <code>61139bdcbce3f728fa850b944939d8217ff90f74</code></li>
+<li>성과 원칙: <code>docs/retro/EVIDENCE_CONTRACT.md</code></li>
+<li>핵심 단위: 요청 주문이 아니라 정확히 대사된 <code>CONFIRMED</code> 체결·수수료·정확한 token 해결 증거</li>
+</ul>
+<h2 id="1">1. 집행 결론</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>전략</th>
+<th>Jenkins</th>
+<th>현재 판정</th>
+<th>파라미터 결론</th>
+<th>운영 결론</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Golden Cherry</td>
+<td><code>polybot-yellow</code></td>
+<td>현재 전략 기각, 새 가설만 다시 검증</td>
+<td>전체 0.75–0.88은 개선 근거 없음. 0.80–0.82+해결까지 보유는 후보</td>
+<td>신규 매수 금지. 기존 보유분 관리와 계정 대사만 별도 결정</td>
+</tr>
+<tr>
+<td>Golden Blueberry</td>
+<td><code>polybot-eagle</code> A, <code>polybot-cherry</code> B</td>
+<td>판정 불가</td>
+<td>+2%p / +5%p A/B를 유지. 표본이 현저히 부족</td>
+<td>각 $5 유지, 증액 금지. 새 계측 cohort로 적립</td>
+</tr>
+<tr>
+<td>Golden Tangerine</td>
+<td><code>polybot-orange</code> A, <code>polybot-fox</code> B</td>
+<td>0.92가 0.94보다 유망하지만 검증 미완료</td>
+<td>0.92/0.94를 검증 구간에서 유지</td>
+<td>각 $5, 이벤트당 1건, 계정당 3건 유지. A/B 시각 정렬 필수</td>
+</tr>
+</tbody>
+</table></div>
+<p>단위 증액을 권고할 전략은 현재 하나도 없다. Cherry는 실제 손실과 미해결 주문 증거 때문에 신규 진입을 멈추는 것이 맞고, Blueberry는 표본이 너무 적으며, Tangerine은 후향적 자료에서 0.92가 좋았지만 아직 독립 검증 자료가 0건이다.</p>
+<h2 id="2">2. 자료 확보와 무결성</h2>
+<p><code>daily-rsync scan → plan → sync → verify</code>를 Jenkins job×strategy×runtime 경계로 분리해 수행했다. 모두 원격 SQLite 작성자와 경쟁하지 않은 시점의 검증된 복제본이다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Jenkins</th>
+<th>전략/runtime</th>
+<th style="text-align: right;">원격 크기</th>
+<th style="text-align: right;"><code>daily-rsync verify</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>polybot-yellow</code></td>
+<td>Cherry <code>default</code></td>
+<td style="text-align: right;">1.50 GiB</td>
+<td style="text-align: right;">SUCCESS, 8,355건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-eagle</code></td>
+<td>Blueberry <code>blueberry-live-a-2pp</code></td>
+<td style="text-align: right;">1.36 GiB</td>
+<td style="text-align: right;">SUCCESS, 7,158건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-cherry</code></td>
+<td>Blueberry <code>blueberry-live-b-5pp</code></td>
+<td style="text-align: right;">1.92 GiB</td>
+<td style="text-align: right;">SUCCESS, 583건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-orange</code></td>
+<td>Tangerine <code>tangerine-live-a-94</code></td>
+<td style="text-align: right;">568.8 MiB</td>
+<td style="text-align: right;">SUCCESS, 1,464건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-fox</code></td>
+<td>Tangerine <code>tangerine-live-b-92</code></td>
+<td style="text-align: right;">455.4 MiB</td>
+<td style="text-align: right;">SUCCESS, 1,466건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-shadow</code></td>
+<td>Blueberry shadow</td>
+<td style="text-align: right;">525.4 MiB</td>
+<td style="text-align: right;">SUCCESS, 4,586건 확인, 실패 0</td>
+</tr>
+<tr>
+<td><code>polybot-black</code></td>
+<td>Tangerine 대조 shadow</td>
+<td style="text-align: right;">13.42 GiB</td>
+<td style="text-align: right;">SUCCESS, 884건 확인, 실패 0</td>
+</tr>
+</tbody>
+</table></div>
+<p>Black은 첫 복제 중 원격 DB가 변경되어 검증을 반드시 다시 시작했다. 수집을 잠시 멈춘 뒤 새 plan으로 14,340,266,030 byte를 다시 검증했고, 최종 실패·충돌은 0이다. 부분 동기화를 성과 근거로 사용하지 않았다.</p>
+<h3 id="_1">증거 해석의 경계</h3>
+<ul>
+<li>GTC <code>accepted</code> 또는 <code>orderID</code>는 체결이 아니다.</li>
+<li>실현 손익은 정확한 BUY·SELL <code>CONFIRMED</code> 수량/VWAP·수수료만 사용한다.</li>
+<li>해결 보유 손익은 Gamma의 <code>closed=true</code>, 정확한 condition/token 정렬, 유일한 0/1 결과를 모두 만족한 건만 사용한다.</li>
+<li>과거 <code>trades.realized_pnl</code>은 요청 가격×요청 수량을 기준으로 한 구간이 있어 주 지표에서 제외했다.</li>
+<li>과거 결과로 수치를 고른 분석은 탐색 근거일 뿐이며, 앞으로 모은 독립 검증 자료를 대체하지 않는다.</li>
+</ul>
+<h2 id="3-golden-cherry-polybot-yellow">3. Golden Cherry / <code>polybot-yellow</code></h2>
+<h3 id="31-db">3.1 현재 계정·DB 판정</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>항목</th>
+<th style="text-align: right;">결과</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>정확한 confirmed SELL 순손익</td>
+<td style="text-align: right;"><strong>-$44.847137</strong></td>
+</tr>
+<tr>
+<td>정확한 token 해결 가정 손익</td>
+<td style="text-align: right;"><strong>-$100.314853</strong></td>
+</tr>
+<tr>
+<td>겹치지 않는 정확 경제적 합계</td>
+<td style="text-align: right;"><strong>-$145.161990</strong></td>
+</tr>
+<tr>
+<td>출처를 확정하지 못한 BUY 예약</td>
+<td style="text-align: right;">14건, 보수적 예약액 $10,184.893276</td>
+</tr>
+<tr>
+<td>현재 관리되는 오픈 포지션</td>
+<td style="text-align: right;">4건, 약 $20.1056</td>
+</tr>
+</tbody>
+</table></div>
+<p>다음 두 가지 조건 중 하나라도 있으면 새 BUY를 차단하도록 코드를 바꿖었다.</p>
+<ol>
+<li>정확한 누적 경제적 손익이 기본 <code>-$30</code> 아래인 경우</li>
+<li>실제 POST·체결 여부를 입증하지 못한 BUY intent가 남아 있는 경우</li>
+</ol>
+<p>따라서 Yellow를 <code>active</code>로 실행해도 현재 DB에서는 새 매수가 발생하지 않는다. 다만 보유분 확인·해결은 실행되므로, 자동 실행을 다시 켜는 행위는 현실 자산을 변경할 수 있는 별도 운영 결정이다.</p>
+<h3 id="32">3.2 정확한 해결까지 보유했을 때</h3>
+<p>검토 구간은 <code>[2026-08-14T00:00:00Z, 분석 시점)</code>이다. confirmed BUY 1,102건을 조회했고, 정확한 해결이 있는 1,099건을 사용했다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>구간</th>
+<th style="text-align: right;">n</th>
+<th style="text-align: right;">승</th>
+<th style="text-align: right;">패</th>
+<th style="text-align: right;">해결까지 보유 ROI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>전체 진입 0.75–0.88</td>
+<td style="text-align: right;">1,099</td>
+<td style="text-align: right;">883</td>
+<td style="text-align: right;">216</td>
+<td style="text-align: right;"><strong>-1.1966%</strong></td>
+</tr>
+<tr>
+<td>경기 전</td>
+<td style="text-align: right;">173</td>
+<td style="text-align: right;">146</td>
+<td style="text-align: right;">27</td>
+<td style="text-align: right;">+4.4112%</td>
+</tr>
+<tr>
+<td>경기 중</td>
+<td style="text-align: right;">926</td>
+<td style="text-align: right;">737</td>
+<td style="text-align: right;">189</td>
+<td style="text-align: right;"><strong>-2.2527%</strong></td>
+</tr>
+<tr>
+<td>0.76–0.78</td>
+<td style="text-align: right;">203</td>
+<td style="text-align: right;">159</td>
+<td style="text-align: right;">44</td>
+<td style="text-align: right;">+1.5485%</td>
+</tr>
+<tr>
+<td><strong>0.80–0.82</strong></td>
+<td style="text-align: right;"><strong>190</strong></td>
+<td style="text-align: right;"><strong>165</strong></td>
+<td style="text-align: right;"><strong>25</strong></td>
+<td style="text-align: right;"><strong>+6.7507%</strong></td>
+</tr>
+<tr>
+<td>0.84–0.86</td>
+<td style="text-align: right;">159</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">—</td>
+<td style="text-align: right;">-1.9877%</td>
+</tr>
+</tbody>
+</table></div>
+<p>0.80–0.82의 단순 이벤트 bootstrap 95% 구간은 약 <code>+0.45%∼+12.56%</code>였다. 첫 시간 반은 +9.75%, 뒤 시간 반은 +4.38%로 둘 다 양수였다. 하지만 이는 여러 구간을 후향적으로 비교한 후보이고, 분석 단위도 아예 진입하지 않은 시장을 포함한 무작위 모집단이 아니다. 즉시 실거래 수치로 쓰면 안 된다.</p>
+<p>현재 청산 방식의 문제는 더 명확했다. 0.80–0.82 영역의 성숙한 실제 청산 196건은 ROI <strong>-2.742%</strong>였다. 정확히 비교 가능한 188건에서 실제 청산 손익은 <code>-$29.298</code>, 해결까지 보유했을 때는 <code>+$67.345</code>로 차이가 <code>+$96.643</code>이었다. 결국 승리한 포지션 82건을 stop/trailing이 중간에 끊어 실제로는 <code>-$49.916</code>, 해결 보유 가정으로는 <code>+$93.756</code>이다.</p>
+<h3 id="33-cherry">3.3 새로 배포한 Cherry 가상 실험</h3>
+<p><code>polybot-cherry-shadow</code> / <code>cherry-shadow-resolution-v2</code>를 새로 만들었다.</p>
+<ul>
+<li>운영: 계정·서명·주문·POST가 없는 public GET-only</li>
+<li>저장소: <code>/Volumes/t7/jenkins/polybot-cherry-shadow</code></li>
+<li>주기: <code>H/5 * * * *</code></li>
+<li>진입 수집: <code>[2026-09-04T16:00:00Z, 2026-10-04T16:00:00Z)</code> = <code>[2026-09-05 01:00, 2026-10-05 01:00)</code> KST</li>
+<li>추가 해결 추적: <code>[2026-10-04T16:00:00Z, 2026-11-03T16:00:00Z)</code></li>
+<li>진입 cell: 0.76–0.78 / <strong>0.80–0.82</strong> / 0.84–0.86의 정확한 $5 ask VWAP</li>
+<li>청산: 해결까지 보유, 현재 TP/SL/trailing, 한 조건씩 바꾼 민감도 조합을 같은 path에서 동시 비교</li>
+<li>다른 DB와 합치지 않는 append-only <code>trades_sim.db</code></li>
+<li>식별자: config <code>1a7a361d...</code>, source <code>9234ca4e...</code>, preregistration <code>72d87684...</code></li>
+</ul>
+<p>첫 구성 시 입력기 중복으로 build #1이 shell syntax 실패했다. 즉시 구성을 교정했고 #2는 6.699초에 SUCCESS였다. #2는 사전 등록 시작 전이라 네트워크/DB를 만지지 않고 정상적으로 <code>before_preregistered_start</code>를 기록했다.</p>
+<p>시작 경계 직후 실행한 #7은 6.530초에 SUCCESS였다. 4.860초 동안 7 page의 raw market 669건을 terminal cursor로 완주했고, 후보 3건의 exact $5 book, 9건의 band decision, episode/path 3건을 저장했다. 제한에 걸린 후보·실패 run은 0이고 <code>quick_check=ok</code>였다. <code>daily-rsync</code> run <code>ffde9bdb214d44258080485e21e73944</code>로 DB·console 8건/3,431,917 byte를 동기화했고, 후속 verify는 확인 7건·실패/충돌 0으로 SUCCESS였다. 동기 DB를 read-only analyzer로 다시 열었을 때 cohort 1개, cursor-complete 1/1, 관찰 book 3/3, 종료 전 censor 3건, DB SHA-256 <code>cbc720a0c6a7…</code>를 확인했고 승자는 선택하지 않았다.</p>
+<h2 id="4-golden-blueberry-polybot-eaglepolybot-cherrypolybot-shadow">4. Golden Blueberry / <code>polybot-eagle</code>·<code>polybot-cherry</code>·<code>polybot-shadow</code></h2>
+<h3 id="41">4.1 성과 판정</h3>
+<p>가장 최근의 동일 source cohort에서 A(+2%p)는 정확한 종결 2건, 순손익 <code>+$0.1148</code>이고 B(+5%p)는 0건이다. 2026-08-31 이후로 조금 넓혀도 A 3건 <code>+$0.6035</code>, B 1건 <code>+$0.4887</code>이다. 이런 표본은 승자나 수치를 고를 수 없다.</p>
+<p>과거 shadow DB에는 한 condition이 예상보다 네 번 저장된 정확 중복과, 새 구간 104행의 cohort 식별자 누락이 있었다. 따라서 과거 shadow 성과는 <code>NOT_EVALUABLE_EVIDENCE_CONTRACT</code>(증거 계약상 평가 불가)로 두었다. 과거 DB를 고쳐 정상인 척하지 않고, 새 코드부터 정확한 source digest·config·mode·job 식별자와 유일성을 저장한다.</p>
+<h3 id="42">4.2 수정한 안전장치</h3>
+<ul>
+<li>동일 DB 프로세스 잠금: 이전 실행이 안 끝나면 다음 실행은 비차단으로 건너뛴다.</li>
+<li>Gamma 전체 sweep 최대 100 page, 225초 예산, 각 요청 timeout·일시 403/429/5xx 유한 재시도.</li>
+<li>새 BUY 전에 미확정 BUY intent·pending·quarantine를 capacity에 예약.</li>
+<li>10분을 넘긴 GTC BUY는 취소·대사되기 전까지 새 노출을 허용하지 않음.</li>
+<li>terminal partial BUY는 실제 confirmed 수량만 HOLDING으로 관리.</li>
+<li>SELL은 정확한 BUY/SELL full fill, 수량 일치, 수수료 완전성 후에만 COMPLETED.</li>
+<li>0.01 share 미만의 확인된 먼지 잔량은 <code>RESIDUAL</code>로 분리하고 가짜 종결하지 않음.</li>
+</ul>
+<h3 id="43">4.3 실행 시간</h3>
+<p>최근 평균은 약 26–27초였지만, 과거에는 300초를 넘긴 건과 shadow 최대 1,704초가 있었다. 배포 후 <code>polybot-shadow</code> #8595의 첫 전체 Gamma sweep은 65 page/6,458 market, 100.194초가 걸렸다. 같은 검증된 5분 cache를 사용한 자연 실행 #8596은 Jenkins 9.494초, 봇 본체 5.072초였다. 두 build 모두 <code>61139bd</code>와 cursor-complete sweep으로 SUCCESS였다.</p>
+<h3 id="44">4.4 권고</h3>
+<ul>
+<li>+2%p/+5%p와 $5를 그대로 둔다.</li>
+<li>arm당 최소 100건의 정확한 독립 종결, 해결 coverage 95% 이상, 실행 편차 허용 범위를 채우기 전에 수치·금액을 바꾸지 않는다.</li>
+</ul>
+<h2 id="5-golden-tangerine-polybot-orangepolybot-foxpolybot-black">5. Golden Tangerine / <code>polybot-orange</code>·<code>polybot-fox</code>·<code>polybot-black</code></h2>
+<h3 id="51">5.1 실거래 성과</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>arm</th>
+<th style="text-align: right;">해결 건수</th>
+<th style="text-align: right;">승률</th>
+<th style="text-align: right;">평균 진입</th>
+<th style="text-align: right;">정확 순손익</th>
+<th style="text-align: right;">ROI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Orange A 0.94–0.95</td>
+<td style="text-align: right;">87</td>
+<td style="text-align: right;">91.95%</td>
+<td style="text-align: right;">0.9446</td>
+<td style="text-align: right;"><strong>-$11.418854</strong></td>
+<td style="text-align: right;"><strong>-2.625%</strong></td>
+</tr>
+<tr>
+<td>Fox B 0.92–0.93</td>
+<td style="text-align: right;">141</td>
+<td style="text-align: right;">92.20%</td>
+<td style="text-align: right;">0.9229</td>
+<td style="text-align: right;"><strong>-$0.115866</strong></td>
+<td style="text-align: right;"><strong>-0.016%</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p>같은 condition/outcome으로 둘 다 해결된 paired 20건은 A <code>+$0.6731</code>, B <code>+$2.5012</code>였다. 그러나 A-only 67건이 <code>-$12.09</code>, B-only 121건이 <code>-$2.617</code>이어서 arm 출발 시각이 다른 상태에서의 단순 총액 비교는 무작위 A/B가 아니다.</p>
+<p>기존 <code>H/5</code>에서 두 arm의 최근 sweep 시간 차이는 중앙값 65.45초, 95% 지점 80.49초, 최대 813.10초였다. 즉 서로 다른 호가를 봤다. 재개할 때는 Orange/Fox 모두 <code>*/5 * * * *</code>로 맞춰야 한다.</p>
+<p>Orange의 PENDING_BUY 1건은 요청 5.2631 share와 confirmed 5.26852 share가 <code>$0.005094</code> 정도 차이 나는 정상적 FOK 종단 체결이었다. 과거 코드가 이를 수량 불일치로 오판했다. 새 코드는 인증된 주문/거래 catalog·정확 token·실제 경제 차이 1 cent 이하를 모두 입증해 HOLDING으로 복구한다. 0.5/0.5로 해결된 void 1건도 유일한 <code>umaResolutionStatus=resolved</code>일 때만 0 손익으로 종결한다.</p>
+<h3 id="52-black">5.2 Black 계정 없는 대조 수집기</h3>
+<p>Black은 4,269회 cursor-complete sweep, 2,418,737 market observation을 생성했고 DB <code>quick_check=ok</code>, 수집 문제 0이었다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>진입 arm</th>
+<th style="text-align: right;">episode / 해결</th>
+<th style="text-align: right;">이벤트</th>
+<th style="text-align: right;">승률</th>
+<th style="text-align: right;">event-equal fee-net ROI</th>
+<th style="text-align: right;">+1 cent 비용 ROI</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>0.92</strong></td>
+<td style="text-align: right;">354 / 349</td>
+<td style="text-align: right;">285</td>
+<td style="text-align: right;">95.42%</td>
+<td style="text-align: right;"><strong>+2.5117%</strong> (95% CI -0.04∼+4.76)</td>
+<td style="text-align: right;">+1.4710%</td>
+</tr>
+<tr>
+<td>0.94</td>
+<td style="text-align: right;">612 / 603</td>
+<td style="text-align: right;">433</td>
+<td style="text-align: right;">93.37%</td>
+<td style="text-align: right;"><strong>-0.7805%</strong> (95% CI -3.02∼+1.26)</td>
+<td style="text-align: right;">-1.7708%</td>
+</tr>
+</tbody>
+</table></div>
+<p>0.92 arm의 stop은 해결 보유 +2.51%보다 모두 나쁘다: stop 0.60 <code>-6.06%</code>, 0.70 <code>-6.26%</code>, 0.80 <code>-7.43%</code>. 0.94 arm도 해결 보유 <code>-0.78%</code>에 비해 stop 0.60 <code>-8.05%</code>, 0.70 <code>-8.85%</code>, 0.80 <code>-9.65%</code>였다. 편향이 최대화된 후향 train 구간 결과이므로 지금 0.92로 합치지 않는다.</p>
+<p>Black의 독립 validation은 <code>2026-09-05T00:00:00Z</code>(09:00 KST)에 시작한다. 이 경계 전인 2026-09-05 00:22 KST에 <code>H/5</code> 수집을 다시 켰고, 직전 14.34GB DB를 완전히 검증했다. 9월 19일 진입 수집 종료·10월 19일 후속 해결 종료 전에 승자를 확정하지 않는다.</p>
+<h3 id="53">5.3 새 실거래 방어선</h3>
+<ul>
+<li>exact $5를 코드로 고정하고 임의 증액 override를 거부.</li>
+<li>총 3건 / event 1건 / cycle 1건의 exposure 한도와 $15 open notional을 강제.</li>
+<li>정확한 누적 손실 $15에서 신규 BUY를 자동 중지.</li>
+<li>POST 전 후보를 DB에 예약해 중간 crash·알 수 없는 응답을 capacity에 포함.</li>
+<li>과거 부분 체결·fee 0 오판·반올림 차이를 정확 증거로만 복구.</li>
+<li>수동 wallet 포지션을 bot trade로 편입하거나 청산하지 않음.</li>
+<li>e-sports는 즉시 제외하지 않음. B에서는 e-sports가 양수였고 Black validation과 universe를 달리하면 비교가 무효화되기 때문이다. 대신 종목 strata를 분리 보고한다.</li>
+</ul>
+<h2 id="6-watermelon-peach-plum">6. Watermelon → Peach → Plum 안전장치 역상 점검</h2>
+<p>최신 Plum에만 있던 방어선이 Peach/Watermelon에 빠지지 않도록 다음을 적용했다. 신호 수치·A/B 파라미터·$5는 바꾸지 않았다.</p>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>방어선</th>
+<th>Watermelon research</th>
+<th>Watermelon Live</th>
+<th>Peach</th>
+<th>Plum</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>하나의 주문 오류가 다른 후보를 중단하지 않음</td>
+<td>해당 없음</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>pending/unknown BUY를 max-position에 예약</td>
+<td>해당 없음</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>SELL 접수를 체결로 오인하지 않음</td>
+<td>해당 없음</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>주문 실패를 event-local로 격리</td>
+<td>해당 없음</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>fail-closed, transaction 단위 schema migration</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td><code>closed=true</code>의 0.5/0.5 void를 권위적 해결 상태일 때만 인정</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>active API에서 사라진 시장을 condition-ID closed fallback으로 후속</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>1분 job의 network 42초 / hard 50초 예산</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>동일 DB 중복 작성 잠금</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+<tr>
+<td>시뮬레이션 행은 venue fill 칼럼이 없어도 capacity를 가짜로 차단하지 않음</td>
+<td>적용</td>
+<td>해당 없음</td>
+<td>적용</td>
+<td>적용</td>
+</tr>
+</tbody>
+</table></div>
+<p>Watermelon research는 축구·MLB·NBA·NFL·NHL family를 독립 worker로 병렬 수집하고, 한 family의 느린 API가 전체 1분 cycle을 잡아먹지 않게 했다. NBA G League·Summer League처럼 1군 정규 모집단이 아닌 태그는 fail-closed로 제외한다.</p>
+<h2 id="7">7. 배포·실행 검증</h2>
+<h3 id="71">7.1 로컬 검증</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>프로젝트</th>
+<th style="text-align: right;">시험</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Golden Cherry</td>
+<td style="text-align: right;">143 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Blueberry</td>
+<td style="text-align: right;">376 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Tangerine</td>
+<td style="text-align: right;">101 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Peach</td>
+<td style="text-align: right;">254 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Plum</td>
+<td style="text-align: right;">306 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Watermelon</td>
+<td style="text-align: right;">129 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>Golden Watermelon Live</td>
+<td style="text-align: right;">225 passed + sdist/wheel build</td>
+</tr>
+<tr>
+<td>모노레포 전략 계약</td>
+<td style="text-align: right;"><strong>28 strategies PASS</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>git diff --check</code>, 스테이징 민감정보 탐지, <code>.env*</code>·<code>*.key</code>·<code>*.pem</code> ignore 규칙을 통과했다. 사용자의 기존 추적/미추적 파일은 스테이징하지 않았다.</p>
+<h3 id="72-jenkins">7.2 계정 없는 Jenkins 검증</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>Jenkins</th>
+<th>commit</th>
+<th style="text-align: right;">최종 자연 실행</th>
+<th>결과 / 시간</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>polybot-black</code></td>
+<td>기존 Golden Black</td>
+<td style="text-align: right;">#4269</td>
+<td>SUCCESS, 117.542s; <code>H/5</code> 복구</td>
+</tr>
+<tr>
+<td><code>polybot-shadow</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#8596</td>
+<td>SUCCESS, 9.494s; bot 5.072s</td>
+</tr>
+<tr>
+<td><code>polybot-white</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#17309</td>
+<td>SUCCESS, 4.078s; bot 3.211s</td>
+</tr>
+<tr>
+<td><code>polybot-grey</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#9580</td>
+<td>SUCCESS, 14.544s</td>
+</tr>
+<tr>
+<td><code>polybot-gold</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#5503</td>
+<td>SUCCESS, 16.138s</td>
+</tr>
+<tr>
+<td><code>polybot-silver</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#5738</td>
+<td>SUCCESS, 11.130s; bot 3.098s</td>
+</tr>
+<tr>
+<td><code>polybot-cherry-shadow</code></td>
+<td><code>61139bd</code></td>
+<td style="text-align: right;">#7</td>
+<td>SUCCESS, 6.530s; first active collection 4.860s</td>
+</tr>
+</tbody>
+</table></div>
+<p>Black/Cherry/Blueberry는 5분, White/Grey/Gold/Silver는 1분 timer를 복구했다. White/Grey/Gold/Silver DB는 외장 T7에 계속 있으며, 코드만 정확히 <code>61139bd</code>로 갱신했다. 로그의 <code>Failed BUY/SELL containment</code>는 실패 발생 보고가 아니라, “실패해도 다른 event를 계속 처리한다”는 config 설명이다.</p>
+<h3 id="73">7.3 실거래 배포 상태</h3>
+<p><code>polybot-yellow/eagle/cherry/orange/fox/cat/dog/bear/tiger/lion/wolf/eco/fruit</code> workspace의 코드는 자동 build를 멈춘 상태에서 <code>61139bd</code>로 안전하게 배치했다. 실거래 cycle은 실행하지 않았다. <code>polybot-king/queen</code>은 1분 timer가 켜져 있어 실행 중 코드 교체를 하지 않았다. 이 두 job은 사용자의 실거래 재개/일시 정지 확인 후 교체해야 한다.</p>
+<p>실거래 timer를 다시 켜면 주문이 발생할 수 있으므로, 자동 재개는 보고서 작성 시점에 수행하지 않았다. 재개할 때는 Yellow는 신규 진입 차단을 로그로 확인하고, Orange의 기존 PENDING_BUY/void를 정상화한 뒤, 모든 job에서 첫 1회+자연 2회를 검증해야 한다.</p>
+<h2 id="8-202627">8. 2026–27 시즌 기간과 주요 대회</h2>
+<p>날짜는 각 리그의 공식 현지 일자를 기준으로 한다. 개별 경기의 한국 시간은 일광절약시간·세부 편성에 따라 바뀌므로 진입 로직은 공식 source clock을 사용해야 한다.</p>
+<h3 id="5">유럽 축구 5대 리그</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>리그</th>
+<th>2026–27 시즌</th>
+<th>비고</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Premier League</td>
+<td><strong>2026-08-21 ∼ 2027-05-30</strong></td>
+<td>공식 개막전은 8/21 20:00 BST</td>
+</tr>
+<tr>
+<td>LaLiga</td>
+<td><strong>2026-08-15 ∼ 2027-05-30</strong></td>
+<td>1라운드 8/15–27, 38라운드 5/30</td>
+</tr>
+<tr>
+<td>Serie A</td>
+<td><strong>2026-08-22/23 ∼ 2027-05-30</strong></td>
+<td>공식 발표는 8/23 weekend</td>
+</tr>
+<tr>
+<td>Bundesliga</td>
+<td><strong>2026-08-28 ∼ 2027-05-22</strong></td>
+<td>Matchday 1은 8/28–30</td>
+</tr>
+<tr>
+<td>Ligue 1</td>
+<td><strong>2026-08-21 ∼ 2027-05-29</strong></td>
+<td>마지막 34라운드 5/29</td>
+</tr>
+</tbody>
+</table></div>
+<p>공식 출처: <a href="https://www.premierleague.com/en/news/4468487/dates-for-202627-premier-league-season-confirmed">Premier League</a>, <a href="https://www.laliga.com/calendar-2026-2027/laliga-easports">LaLiga</a>, <a href="https://www.legaseriea.it/serie-a/news/le-date-della-stagione-2026-2027">Serie A</a>, <a href="https://www.bundesliga.com/en/bundesliga/news/calendar-for-2026-27-season-world-cup-34676">Bundesliga</a>, <a href="https://www.lfp.fr/article/ligue-1-mc-donald-s-le-calendrier-de-la-saison-2026-2027">Ligue 1</a></p>
+<h3 id="4">미국 4대 종목</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>종목</th>
+<th>정규 시즌</th>
+<th>포스트시즌·주요 이벤트</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>MLB</td>
+<td><strong>2026-03-25 ∼ 09-27</strong></td>
+<td>포스트시즌 9/29∼10/31, World Series 10/23∼10/31(최대 7차전)</td>
+</tr>
+<tr>
+<td>NFL</td>
+<td><strong>2026-09-09 ∼ 2027-01-10</strong></td>
+<td>Wild Card 1/16–18, Divisional 1/23–24, Conference Final 1/31, Super Bowl LXI 2/14 현지(2/15 KST)</td>
+</tr>
+<tr>
+<td>NBA</td>
+<td><strong>2026-10-20 ∼ 2027-04-11</strong></td>
+<td>NBA Cup 10/30∼12/11; playoff/Finals 세부 일자는 본 공식 발표에서 미정</td>
+</tr>
+<tr>
+<td>NHL</td>
+<td><strong>2026-09-29 ∼ 2027-04-10</strong></td>
+<td>84경기 체제; Stanley Cup playoff/Final 세부 일자 미정</td>
+</tr>
+</tbody>
+</table></div>
+<p>공식 출처: <a href="https://www.mlb.com/news/mlb-2026-schedule-released">MLB 정규 시즌</a>, <a href="https://www.mlb.com/news/2026-mlb-playoff-and-world-series-schedule">MLB 포스트시즌·World Series</a>, <a href="https://operations.nfl.com/calendar-events/nfl-important-dates">NFL 주요 일정</a>, <a href="https://www.nba.com/news/2026-27-nba-regular-season-schedule">NBA</a>, <a href="https://www.nhl.com/news/nhl-announces-2026-27-regular-season-schedule">NHL</a></p>
+<h3 id="uefa">UEFA 주요 대회</h3>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>대회</th>
+<th>리그 phase</th>
+<th>토너먼트 마지막 구간</th>
+<th>결승</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Champions League</td>
+<td><strong>2026-09-08 ∼ 2027-01-27</strong></td>
+<td>knockout playoff 2/16–24, 16강 3/9–17, 8강 4/6–14, 4강 4/27–5/5</td>
+<td><strong>2027-06-05 Madrid</strong> (6/6 KST)</td>
+</tr>
+<tr>
+<td>Europa League</td>
+<td><strong>2026-09-16 ∼ 2027-01-28</strong></td>
+<td>knockout playoff 2/18–25, 16강 3/11–18, 8강 4/8–15, 4강 4/29–5/6</td>
+<td><strong>2027-05-26 Frankfurt</strong> (5/27 KST)</td>
+</tr>
+</tbody>
+</table></div>
+<p>공식 출처: <a href="https://www.uefa.com/uefachampionsleague/news/02a6-20d57cfcd03e-407c22a7f465-1000--2026-27-champions-league-teams-dates-draws-format-final/">UEFA Champions League</a>, <a href="https://www.uefa.com/uefaeuropaleague/news/02a6-20d57d095740-e1e0b3de85df-1000--2026-27-europa-league-teams-dates-draws-format-final/">UEFA Europa League</a></p>
+<h3 id="_2">“주요 경기도 수집하는가?”에 대한 정확한 답</h3>
+<p>그렇다. MLB postseason·World Series, NFL playoff·Super Bowl, NBA playoff/Finals, NHL playoff/Stanley Cup Final의 <strong>개별 1군 경기</strong>가 해당 공식 family tag 안에서 정확한 two-team whole-game moneyline으로 등록되면 수집한다. Champions League·Europa League의 개별 경기도 정확한 competition identity와 승/무/패 whole-match 조건을 만족하면 포함한다.</p>
+<p>반면 “월드시리즈 우승팀”, “Super Bowl 우승팀”, “디비전 우승”처럼 시즌 전체를 걸고 베팅하는 futures/prop은 제외한다. 이는 누락이 아니라, 현재 가설이 “진행 중인 하나의 경기”의 path를 검증하기 때문이다.</p>
+<h2 id="9">9. 다음 검토 일정</h2>
+<div class="table-wrap"><table>
+<thead>
+<tr>
+<th>시점</th>
+<th>확인할 내용</th>
+<th>파라미터/수익 판정</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>2026-09-06 01:00 KST 이후</td>
+<td>Cherry shadow 첫 24시간: cadence, cursor, membership, book, path, DB, 용량</td>
+<td>하지 않음</td>
+</tr>
+<tr>
+<td>2026-09-12 01:00 KST 이후</td>
+<td>Cherry shadow 7일 수집 coverage·이벤트 clustering·해결 후속</td>
+<td>하지 않음</td>
+</tr>
+<tr>
+<td>2026-09-19 이후</td>
+<td>Tangerine Black validation 진입 구간 종료 건강성</td>
+<td>아직 승자 확정 금지</td>
+</tr>
+<tr>
+<td>2026-10-05 01:00 KST 이후</td>
+<td>Cherry 30일 진입 종료, 새 episode 수집 중지 확인</td>
+<td>중간 수익 확정 금지</td>
+</tr>
+<tr>
+<td>2026-10-19 이후</td>
+<td>Tangerine Black 후속 해결 종료 후 0.92/0.94 최종 비교</td>
+<td>가능</td>
+</tr>
+<tr>
+<td>2026-11-04 01:00 KST 이후</td>
+<td>Cherry shadow 후속 해결 종료, event-clustered 최종 비교</td>
+<td>가능</td>
+</tr>
+<tr>
+<td>Blueberry arm당 정확 종결 100건 이상</td>
+<td>+2%p/+5%p 비교, fill/resolution coverage, 시간 편차</td>
+<td>가능</td>
+</tr>
+</tbody>
+</table></div>
+<p>Cherry 24시간 점검 예시:</p>
+<blockquote>
+<p><code>polybot-cherry-shadow를 daily-rsync로 동기화하고 cherry-shadow-resolution-v2의 [2026-09-04T16:00:00Z, 2026-09-05T16:00:00Z) 첫 24시간 collection health를 검증해줘. 수익성이나 승자는 판단하지 말고 cadence, terminal cursor, membership, exact $5 book, entry/path/resolution, cohort, DB 무결성과 저장공간 증가량만 확인해줘.</code></p>
+</blockquote>
+<h2 id="10">10. 남은 운영 판단</h2>
+<ol>
+<li><strong>Yellow</strong>: 현재 자동 실행을 계속 멈춘다. 4건의 보유분과 14건 unknown BUY 증거를 운영자가 어떻게 다룰지 결정한 후 close-management만 일시 켤 수 있다.</li>
+<li><strong>Blueberry A/B</strong>: 새 증거 계약으로 +2/+5, $5를 다시 수집한다. 현재 자료로는 파라미터를 변경하지 않는다.</li>
+<li><strong>Tangerine A/B</strong>: 0.92/0.94, $5를 유지하되 두 timer를 같은 <code>*/5</code>로 맞춘다. Black validation이 완료되기 전에 0.92로 합치지 않는다.</li>
+<li><strong>스포츠 live</strong>: 새 코드를 배치했지만 timer는 다시 켜지 않았다. 실제 $5 주문이 발생할 수 있는 재개는 명시적 운영 확인 후 수행한다.</li>
+</ol></main>
+    <div class="footer">Generated from the matching Markdown report · 2026-09-05 KST</div>
+  </div>
+  <script>
+    const root = document.documentElement;
+    const saved = localStorage.getItem('retro-theme');
+    if (saved) root.dataset.theme = saved;
+    document.getElementById('theme').addEventListener('click', () => {
+      const current = root.dataset.theme || (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      root.dataset.theme = current === 'dark' ? 'light' : 'dark';
+      localStorage.setItem('retro-theme', root.dataset.theme);
+    });
+  </script>
+</body>
+</html>
