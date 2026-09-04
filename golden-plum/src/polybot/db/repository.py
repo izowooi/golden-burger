@@ -1770,8 +1770,15 @@ class TradeRepository:
         observed_at: datetime,
     ) -> TrackedResolutionObservation:
         context = _normalize_evidence_context(evidence_context)
+        source = str(
+            terminal.get("source") or "GAMMA_CONDITION_FOLLOWUP"
+        ).strip()
+        identity_namespace = (
+            "gamma" if source == "GAMMA_CONDITION_FOLLOWUP" else "clob"
+        )
         identity = hashlib.sha256(
-            f"gamma:{condition_id}:{terminal['evidence_sha256']}".encode()
+            f"{identity_namespace}:{condition_id}:"
+            f"{terminal['evidence_sha256']}".encode()
         ).hexdigest()
         existing = self.session.get(TrackedResolutionObservation, identity)
         if existing is not None:
@@ -1789,7 +1796,7 @@ class TradeRepository:
             league_mapping_sha256=context["league_mapping_sha256"],
             strategy_source_digest=context["strategy_source_digest"],
             observed_at=observed_at,
-            source="GAMMA_CONDITION_FOLLOWUP",
+            source=source,
             winner_index=int(terminal["winner_index"]),
             winner_token_id=str(terminal["winner_token_id"]),
             winner_outcome=str(terminal["winner_outcome"]),
@@ -1998,6 +2005,162 @@ class TradeRepository:
             .limit(limit)
             .all()
         )
+
+    def record_followup_clob_resolution(
+        self,
+        condition_id: str,
+        proof: Any,
+        *,
+        attempted_at: datetime,
+        evidence_context: Dict[str, Any],
+        commit: bool = True,
+    ) -> MarketCatalog:
+        """Store exact CLOB 0/1 evidence when Gamma dropped a condition.
+
+        The result is accepted only when its condition, token, outcome and
+        winner identities exactly match the catalog captured while live.  It
+        is order-independent collector evidence, not a simulated fill or P&L.
+        """
+
+        normalized_condition = str(condition_id or "").strip()
+        catalog = self.session.get(MarketCatalog, normalized_condition)
+        if catalog is None:
+            raise ValueError("follow-up catalog condition is missing")
+        proof_condition = str(
+            getattr(proof, "condition_id", "") or ""
+        ).strip()
+        if proof_condition != normalized_condition:
+            raise ValueError("CLOB follow-up condition_id mismatch")
+        if str(getattr(proof, "status", "") or "") != "RESOLVED":
+            raise ValueError("CLOB follow-up proof is not uniquely resolved")
+
+        try:
+            expected_token_ids = [
+                str(value).strip() for value in json.loads(catalog.token_ids_json)
+            ]
+            expected_outcomes = [
+                str(value).strip() for value in json.loads(catalog.outcomes_json)
+            ]
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise ValueError("catalog token/outcome identity is invalid") from error
+        if (
+            len(expected_token_ids) != 2
+            or len(expected_outcomes) != 2
+            or len(set(expected_token_ids)) != 2
+            or len(set(expected_outcomes)) != 2
+            or any(not value for value in expected_token_ids + expected_outcomes)
+        ):
+            raise ValueError(
+                "catalog must contain two distinct token/outcome identities"
+            )
+
+        raw_tokens = list(getattr(proof, "tokens", ()) or ())
+        if len(raw_tokens) != 2:
+            raise ValueError("CLOB follow-up proof must contain two tokens")
+        proof_by_token: Dict[str, Dict[str, Any]] = {}
+        for raw_token in raw_tokens:
+            token_id = str(getattr(raw_token, "token_id", "") or "").strip()
+            outcome = str(getattr(raw_token, "outcome", "") or "").strip()
+            winner = getattr(raw_token, "winner", None)
+            try:
+                payout = float(getattr(raw_token, "price"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("CLOB follow-up payout is invalid") from error
+            if (
+                not token_id
+                or not outcome
+                or not isinstance(winner, bool)
+                or not math.isfinite(payout)
+                or payout not in (0.0, 1.0)
+                or token_id in proof_by_token
+            ):
+                raise ValueError("CLOB follow-up token evidence is invalid")
+            proof_by_token[token_id] = {
+                "token_id": token_id,
+                "outcome": outcome,
+                "winner": winner,
+                "payout": payout,
+            }
+        if set(proof_by_token) != set(expected_token_ids):
+            raise ValueError("CLOB follow-up token set differs from live catalog")
+
+        tokens: List[Dict[str, Any]] = []
+        for index, (token_id, expected_outcome) in enumerate(
+            zip(expected_token_ids, expected_outcomes)
+        ):
+            item = proof_by_token[token_id]
+            if item["outcome"] != expected_outcome:
+                raise ValueError("CLOB follow-up outcome/token alignment mismatch")
+            tokens.append({"index": index, **item})
+        winners = [item for item in tokens if item["winner"]]
+        if (
+            len(winners) != 1
+            or winners[0]["payout"] != 1.0
+            or any(item["winner"] != (item["payout"] == 1.0) for item in tokens)
+        ):
+            raise ValueError("CLOB follow-up payout is not unique one-hot")
+
+        raw_evidence_sha256 = str(
+            getattr(proof, "evidence_sha256", "") or ""
+        ).strip()
+        raw_evidence_json = str(getattr(proof, "evidence_json", "") or "").strip()
+        if (
+            len(raw_evidence_sha256) != 64
+            or hashlib.sha256(raw_evidence_json.encode()).hexdigest()
+            != raw_evidence_sha256
+        ):
+            raise ValueError("CLOB follow-up evidence checksum mismatch")
+        payload = {
+            "schema_version": 1,
+            "source": "CLOB_CONDITION_FOLLOWUP",
+            "condition_id": normalized_condition,
+            "event_id": catalog.event_id,
+            "closed": True,
+            "status": "clob_closed_unique_winner",
+            "source_observed_at": str(getattr(proof, "observed_at", "") or ""),
+            "clob_evidence_sha256": raw_evidence_sha256,
+            "tokens": tokens,
+        }
+        evidence_json = _canonical_payload(payload)
+        terminal = {
+            "source": "CLOB_CONDITION_FOLLOWUP",
+            "winner_index": int(winners[0]["index"]),
+            "winner_token_id": str(winners[0]["token_id"]),
+            "winner_outcome": str(winners[0]["outcome"]),
+            "payouts_json": _canonical_payload(
+                {item["token_id"]: item["payout"] for item in tokens}
+            ),
+            "evidence_json": evidence_json,
+            "evidence_sha256": hashlib.sha256(evidence_json.encode()).hexdigest(),
+            "status": "clob_closed_unique_winner",
+            "resolved_outcome": str(winners[0]["outcome"]),
+            "resolved_value": float(tokens[0]["payout"]),
+        }
+        self._stage_tracked_resolution(
+            condition_id=normalized_condition,
+            event_id=catalog.event_id,
+            evidence_context=evidence_context,
+            terminal=terminal,
+            observed_at=attempted_at,
+        )
+        catalog.closed = 1
+        catalog.active = 0
+        catalog.accepting_orders = 0
+        catalog.resolution_status = terminal["status"]
+        catalog.resolved_outcome = terminal["resolved_outcome"]
+        catalog.resolved_value = terminal["resolved_value"]
+        catalog.resolved_at = str(getattr(proof, "observed_at", "") or "") or None
+        catalog.resolution_evidence_json = terminal["evidence_json"]
+        catalog.resolution_evidence_sha256 = terminal["evidence_sha256"]
+        catalog.resolution_observed_at = attempted_at
+        catalog.followup_attempt_count = int(catalog.followup_attempt_count or 0) + 1
+        catalog.followup_last_attempt_at = attempted_at
+        catalog.followup_status = "TERMINAL"
+        catalog.followup_next_attempt_at = None
+        catalog.followup_last_error = None
+        if commit:
+            self.session.commit()
+        return catalog
 
     @staticmethod
     def _followup_delay_minutes(attempt_count: int) -> int:

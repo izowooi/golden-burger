@@ -65,6 +65,11 @@ Silver와 Gold에는 credential을 주입하면 안 됩니다. runtime 이름이
 target·workspace를 원자적으로 고정하므로 각 Gold runtime은 별도 target 환경변수 없이
 자기 종목 profile을 선택합니다.
 
+진행 중 수집에서 사라진 condition은 먼저 Gamma로 추적합니다. Gamma가 condition을 더
+이상 반환하지 않으면 public CLOB의 exact condition과 기존 catalog의 두 token·outcome을
+대조하고, 닫힌 시장의 unique one-hot 0/1 결과일 때만 최종 결과로 저장합니다. 이 보완
+결과는 주문이나 실현 손익이 아니라 simulation의 종료 경로 증거입니다.
+
 ```bash
 unset POLYMARKET_PRIVATE_KEY
 unset POLYMARKET_FUNDER_ADDRESS

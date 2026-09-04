@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from polybot.api.clob_client import BuyBookWalk
+from polybot.api.clob_client import BuyBookWalk, _normalize_clob_resolution
 from polybot.config import TradingConfig
 from polybot.db.models import (
     EventCycleEvidence,
@@ -211,6 +211,7 @@ class _Gamma:
 class _Clob:
     def __init__(self, walks):
         self.walks = walks
+        self.resolutions = {}
 
     def get_buy_book_walks(self, token_ids, *, notional_usdc):
         assert notional_usdc == 5
@@ -226,6 +227,10 @@ class _Clob:
                 "asks": [{"price": walk.best_ask, "size": 1_000}],
             }
         )
+
+    def get_market_resolution(self, condition_id):
+        value = self.resolutions.get(condition_id, {"closed": False})
+        return _normalize_clob_resolution(condition_id, deepcopy(value))
 
 
 def _scanner(tmp_path, markets, walks=None):
@@ -514,4 +519,95 @@ def test_followup_source_gap_remains_pending_with_bounded_retry(tmp_path) -> Non
     )
     assert catalog.resolution_evidence_sha256 is None
     assert catalog.followup_next_attempt_at > NOW.replace(tzinfo=None)
+    session.close()
+
+
+def test_gamma_missing_followup_uses_exact_clob_one_hot_resolution(tmp_path) -> None:
+    markets = _triad()
+    session, _repo, scanner, _gamma, clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+    condition_id = markets[0]["conditionId"]
+    clob.resolutions[condition_id] = {
+        "condition_id": condition_id,
+        "closed": True,
+        "tokens": [
+            {
+                "outcome": "Yes",
+                "token_id": "yes-HOME",
+                "price": 1,
+                "winner": True,
+            },
+            {
+                "outcome": "No",
+                "token_id": "no-HOME",
+                "price": 0,
+                "winner": False,
+            },
+        ],
+    }
+
+    stats = scanner.follow_tracked_conditions(
+        markets[1:],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats == {
+        "due": 1,
+        "attempted": 1,
+        "terminal": 1,
+        "pending": 0,
+        "source_missing": 0,
+    }
+    catalog = session.get(MarketCatalog, condition_id)
+    assert catalog.followup_status == "TERMINAL"
+    assert catalog.resolution_status == "clob_closed_unique_winner"
+    resolution = session.query(TrackedResolutionObservation).one()
+    assert resolution.source == "CLOB_CONDITION_FOLLOWUP"
+    assert resolution.winner_token_id == "yes-HOME"
+    assert json.loads(resolution.payouts_json) == {
+        "no-HOME": 0.0,
+        "yes-HOME": 1.0,
+    }
+    assert session.query(Trade).count() == 0
+    session.close()
+
+
+def test_clob_followup_token_mismatch_stays_explicitly_unresolved(tmp_path) -> None:
+    markets = _triad()
+    session, _repo, scanner, _gamma, clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+    condition_id = markets[0]["conditionId"]
+    clob.resolutions[condition_id] = {
+        "condition_id": condition_id,
+        "closed": True,
+        "tokens": [
+            {
+                "outcome": "Yes",
+                "token_id": "wrong-yes-token",
+                "price": 1,
+                "winner": True,
+            },
+            {
+                "outcome": "No",
+                "token_id": "wrong-no-token",
+                "price": 0,
+                "winner": False,
+            },
+        ],
+    }
+
+    stats = scanner.follow_tracked_conditions(
+        markets[1:],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats["terminal"] == 0
+    assert stats["source_missing"] == 1
+    catalog = session.get(MarketCatalog, condition_id)
+    assert catalog.followup_status == "SOURCE_MISSING"
+    assert catalog.followup_last_error == "clob_resolution_identity_mismatch"
+    assert catalog.resolution_evidence_sha256 is None
+    assert session.query(TrackedResolutionObservation).count() == 0
     session.close()

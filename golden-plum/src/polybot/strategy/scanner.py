@@ -750,6 +750,43 @@ class MarketScanner:
             market = self.gamma.get_market_by_condition_id(condition_id)
             stats["attempted"] += 1
             if market is None:
+                if self.clob is not None:
+                    try:
+                        clob_proof = self.clob.get_market_resolution(condition_id)
+                    except Exception as error:
+                        logger.warning(
+                            "CLOB tracked-condition fallback 실패 - "
+                            "condition=%s error=%s",
+                            condition_id,
+                            type(error).__name__,
+                        )
+                    else:
+                        if clob_proof.status == "RESOLVED":
+                            try:
+                                self.repo.record_followup_clob_resolution(
+                                    condition_id,
+                                    clob_proof,
+                                    attempted_at=reference,
+                                    evidence_context=self._evidence_context(),
+                                    commit=True,
+                                )
+                            except ValueError as error:
+                                logger.error(
+                                    "CLOB tracked-condition identity 검증 실패 - "
+                                    "condition=%s error=%s",
+                                    condition_id,
+                                    str(error),
+                                )
+                                self.repo.record_followup_missing(
+                                    condition_id,
+                                    attempted_at=reference,
+                                    reason="clob_resolution_identity_mismatch",
+                                    commit=True,
+                                )
+                                stats["source_missing"] += 1
+                            else:
+                                stats["terminal"] += 1
+                            continue
                 self.repo.record_followup_missing(
                     condition_id,
                     attempted_at=reference,

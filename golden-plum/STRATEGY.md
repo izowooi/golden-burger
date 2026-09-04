@@ -148,6 +148,12 @@ ask를 걸어 산 shares를 같은 시점 bid에 전량 팔 수 있는지와 양
 book을 로컬 계산하므로 추가 book 요청이 없다. 네 runtime은 병렬 실행하며, 이 계산은
 simulation 전용이라 King/Queen의 실거래 cycle 시간을 늘리지 않는다.
 
+경기 종료 뒤 live Gamma 응답에서 condition이 사라지면 같은 condition의 public CLOB
+market을 보완 조회한다. 기존 catalog와 condition·두 token·outcome이 정확히 일치하고,
+closed 상태에서 한 token만 1이고 다른 token은 0인 경우에만 append-only terminal
+evidence로 기록한다. 불일치·미해결·열린 상태는 계속 후속 추적하며, 이 자료로 가상의
+체결이나 실현 손익을 만들지 않는다.
+
 `scripts/replay_direct_six_book.py --sport-family <family>`는 같은 event에서 entry, target,
 stop, trend 길이와 누적 움직임 grid를 재생한다. 종목별 profile은 별도로 versioning하므로
 향후 MLB 수치를 바꿔도 축구 수치가 함께 바뀌지 않는다.

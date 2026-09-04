@@ -109,6 +109,9 @@ uv run python -m compileall -q src scripts
 - Silver/Gold grid를 독립 거래로 세지 말고 `event_id`를 paired unit으로 유지한다.
 - Gold 첫 24시간에는 1분 cadence, 50초 deadline, exact 2-token event set, terminal
   follow-up, NULL source minute, capacity JSON과 DB 무결성만 판정한다.
+- 종료된 condition이 Gamma 조회에서 사라지면 Gold/Silver 수집기는 public CLOB의 exact
+  condition·2-token·outcome 정렬과 unique one-hot 0/1을 모두 검증한 뒤에만 terminal
+  evidence로 보완한다. 이 보완은 simulation fill이나 realized P&L을 만들지 않는다.
 - MLB 해결 경기 100개 전에는 최적 파라미터·실거래 승격·증액을 말하지 않는다.
 
 ## 자주 깨지는 부분
