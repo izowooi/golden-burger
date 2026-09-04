@@ -158,6 +158,11 @@ evidence로 기록한다. 불일치·미해결·열린 상태는 계속 후속 �
 stop, trend 길이와 누적 움직임 grid를 재생한다. 종목별 profile은 별도로 versioning하므로
 향후 MLB 수치를 바꿔도 축구 수치가 함께 바뀌지 않는다.
 
+append-only DB에 여러 배포 세대가 함께 있으면 `--config-hash`로 정확히 한 cohort를
+선택한다. 실패 run의 snapshot은 제외하며, 후속 배포가 확인한 terminal 결과는 성공 run,
+exact condition·token, 동일 sport/profile/protocol/classifier/mapping이 모두 맞을 때만 선택한
+snapshot cohort에 연결한다.
+
 Silver·Gold의 반사실 행은 실제 주문이나 P&L이 아니다. 같은 경기의 여러 grid cell을
 독립 표본으로 세지 않는다.
 

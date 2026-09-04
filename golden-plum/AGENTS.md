@@ -107,6 +107,10 @@ uv run python -m compileall -q src scripts
 - 첫 24시간에는 collection/execution health만 판정한다.
 - arm당 closed 50, common event 30, evidence gap 0 전에는 금액을 늘리지 않는다.
 - Silver/Gold grid를 독립 거래로 세지 말고 `event_id`를 paired unit으로 유지한다.
+- append-only DB에 config가 여러 개면 재생 시 `--config-hash`로 한 cohort만 선택한다.
+  실패 run의 snapshot은 포함하지 않는다. terminal evidence는 수집 코드가 바뀐 뒤 관측될 수
+  있으므로 observer config가 아니라 exact condition·token과 동일한 sport/profile/protocol/
+  classifier/mapping으로 연결한다.
 - Gold 첫 24시간에는 1분 cadence, 50초 deadline, exact 2-token event set, terminal
   follow-up, NULL source minute, capacity JSON과 DB 무결성만 판정한다.
 - 종료된 condition이 Gamma 조회에서 사라지면 Gold/Silver 수집기는 public CLOB의 exact

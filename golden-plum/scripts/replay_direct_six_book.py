@@ -354,43 +354,62 @@ def _cohort_identity(
     connection: sqlite3.Connection,
     *,
     caller_sport_family: str,
+    config_hash: str | None = None,
 ) -> CohortIdentity:
     _require_replay_schema(connection)
-    total = int(
-        connection.execute("SELECT COUNT(*) FROM market_snapshots").fetchone()[0]
-    )
-    if total == 0:
-        raise ValueError("replay database has no market snapshots")
+    selected_hash = None if config_hash is None else str(config_hash).strip().lower()
+    if selected_hash is not None and (
+        len(selected_hash) != 64
+        or any(character not in "0123456789abcdef" for character in selected_hash)
+    ):
+        raise ValueError("config_hash must be a 64-character lowercase hex digest")
+
+    cohort_filter = "" if selected_hash is None else "AND snapshot.config_hash = ?"
+    parameters: tuple[object, ...] = () if selected_hash is None else (selected_hash,)
+    rows = connection.execute(
+        f"""
+        SELECT DISTINCT snapshot.config_hash,run.config_hash,run.job_name,run.mode,
+                        config.config_json
+          FROM market_snapshots AS snapshot
+          JOIN run_audits AS run ON run.run_id = snapshot.run_id
+          JOIN strategy_configs AS config
+            ON config.config_hash = snapshot.config_hash
+         WHERE run.status = 'SUCCESS'
+           {cohort_filter}
+        """,
+        parameters,
+    ).fetchall()
+    if not rows:
+        if selected_hash is None:
+            raise ValueError("replay database has no successful market snapshots")
+        raise ValueError(f"replay config_hash has no successful snapshots: {selected_hash}")
+    if len(rows) != 1:
+        raise ValueError(
+            "replay requires one config_hash × mode × job_name cohort; "
+            f"found={len(rows)}; pass --config-hash to select one immutable cohort"
+        )
+    snapshot_config_hash, run_config_hash, job_name, mode, raw_config = rows[0]
+    if str(snapshot_config_hash) != str(run_config_hash):
+        raise ValueError("snapshot/run config_hash provenance mismatch")
+    selected_hash = str(snapshot_config_hash)
     invalid_runs = int(
         connection.execute(
             """
             SELECT COUNT(*)
               FROM market_snapshots AS snapshot
               LEFT JOIN run_audits AS run ON run.run_id = snapshot.run_id
-             WHERE run.run_id IS NULL OR run.status != 'SUCCESS'
-            """
+             WHERE snapshot.config_hash = ?
+               AND (run.run_id IS NULL OR run.status != 'SUCCESS'
+                    OR run.config_hash != snapshot.config_hash)
+            """,
+            (selected_hash,),
         ).fetchone()[0]
     )
     if invalid_runs:
         raise ValueError(
-            "replay refuses snapshots outside successful run audits: "
+            "replay refuses selected-cohort snapshots outside successful run audits: "
             f"rows={invalid_runs}"
         )
-    rows = connection.execute(
-        """
-        SELECT DISTINCT run.config_hash,run.job_name,run.mode,config.config_json
-          FROM market_snapshots AS snapshot
-          JOIN run_audits AS run ON run.run_id = snapshot.run_id
-          JOIN strategy_configs AS config ON config.config_hash = run.config_hash
-         WHERE run.status = 'SUCCESS'
-        """
-    ).fetchall()
-    if len(rows) != 1:
-        raise ValueError(
-            "replay requires one config_hash × mode × job_name cohort; "
-            f"found={len(rows)}"
-        )
-    config_hash, job_name, mode, raw_config = rows[0]
     try:
         payload = json.loads(str(raw_config))
         trading = payload["trading"]
@@ -443,7 +462,7 @@ def _cohort_identity(
         raise ValueError("live replay cohort unexpectedly contains a scaling ladder")
 
     expected_values = {
-        "config_hash": str(config_hash),
+        "config_hash": selected_hash,
         "sport_family": family,
         "sport_profile_version": profile_version,
         "protocol_sha256": protocol_sha256,
@@ -457,7 +476,8 @@ def _cohort_identity(
             values = {
                 str(row[0] or "")
                 for row in connection.execute(
-                    f"SELECT DISTINCT {column} FROM {table}"
+                    f"SELECT DISTINCT {column} FROM {table} WHERE config_hash = ?",
+                    (selected_hash,),
                 )
             }
             if values != {expected}:
@@ -468,7 +488,11 @@ def _cohort_identity(
         connection.execute(
             """
             SELECT COUNT(*)
-              FROM (SELECT DISTINCT condition_id FROM market_snapshots) AS used
+              FROM (
+                    SELECT DISTINCT condition_id
+                      FROM market_snapshots
+                     WHERE config_hash = ?
+                   ) AS used
               LEFT JOIN market_catalog AS catalog
                 ON catalog.condition_id = used.condition_id
              WHERE catalog.condition_id IS NULL
@@ -482,7 +506,8 @@ def _cohort_identity(
                 OR catalog.book_shape != ?
             """,
             (
-                str(config_hash),
+                selected_hash,
+                selected_hash,
                 family,
                 profile_version,
                 protocol_sha256,
@@ -502,10 +527,15 @@ def _cohort_identity(
         connection.execute(
             """
             SELECT COUNT(*)
-              FROM (SELECT DISTINCT run_id FROM market_snapshots) AS snapshot_run
+              FROM (
+                    SELECT DISTINCT run_id
+                      FROM market_snapshots
+                     WHERE config_hash = ?
+                   ) AS snapshot_run
               LEFT JOIN market_sweeps AS sweep ON sweep.run_id = snapshot_run.run_id
              WHERE sweep.run_id IS NULL
-            """
+            """,
+            (selected_hash,),
         ).fetchone()[0]
     )
     if sweep_gaps:
@@ -517,15 +547,17 @@ def _cohort_identity(
               FROM market_snapshots AS snapshot
               LEFT JOIN event_cycle_evidence AS event_cycle
                 ON event_cycle.event_cycle_id = snapshot.event_cycle_id
-             WHERE event_cycle.event_cycle_id IS NULL
-                OR event_cycle.run_id != snapshot.run_id
-                OR event_cycle.config_hash != snapshot.config_hash
-                OR event_cycle.complete != snapshot.event_set_complete
-                OR event_cycle.sport_family != snapshot.sport_family
-                OR event_cycle.sport_profile_version != snapshot.sport_profile_version
-                OR event_cycle.protocol_sha256 != snapshot.protocol_sha256
-                OR event_cycle.classifier_version != snapshot.classifier_version
-            """
+             WHERE snapshot.config_hash = ?
+               AND (event_cycle.event_cycle_id IS NULL
+                    OR event_cycle.run_id != snapshot.run_id
+                    OR event_cycle.config_hash != snapshot.config_hash
+                    OR event_cycle.complete != snapshot.event_set_complete
+                    OR event_cycle.sport_family != snapshot.sport_family
+                    OR event_cycle.sport_profile_version != snapshot.sport_profile_version
+                    OR event_cycle.protocol_sha256 != snapshot.protocol_sha256
+                    OR event_cycle.classifier_version != snapshot.classifier_version)
+            """,
+            (selected_hash,),
         ).fetchone()[0]
     )
     if broken_event_links:
@@ -534,7 +566,7 @@ def _cohort_identity(
             f"rows={broken_event_links}"
         )
     return CohortIdentity(
-        config_hash=str(config_hash),
+        config_hash=selected_hash,
         job_name=str(job_name),
         mode=str(mode),
         sport_family=family,
@@ -608,8 +640,10 @@ def load_snapshots(
     expected_identities = (
         EXPECTED_SOCCER_SIX if sport_family == "soccer" else EXPECTED_DIRECT_TWO
     )
+    cohort_filter = "" if cohort is None else "AND snapshot.config_hash = ?"
+    parameters: tuple[object, ...] = () if cohort is None else (cohort.config_hash,)
     rows = connection.execute(
-        """
+        f"""
         SELECT snapshot.id,snapshot.event_id,snapshot.condition_id,
                snapshot.token_id,snapshot.run_id,snapshot.result_kind,
                snapshot.outcome_side,snapshot.source_elapsed_minutes,
@@ -631,8 +665,10 @@ def load_snapshots(
            AND snapshot.midpoint IS NOT NULL
            AND snapshot.spread IS NOT NULL
            AND snapshot.book_json IS NOT NULL
+           {cohort_filter}
          ORDER BY snapshot.timestamp,snapshot.id
-        """
+        """,
+        parameters,
     ).fetchall()
     snapshots: list[Snapshot] = []
     for row in rows:
@@ -719,14 +755,36 @@ def load_terminal_payouts(
     *,
     cohort: CohortIdentity,
 ) -> dict[str, float]:
+    relevant_tokens: dict[str, set[str]] = {}
+    for condition_id, token_id in connection.execute(
+        """
+        SELECT DISTINCT snapshot.condition_id,snapshot.token_id
+          FROM market_snapshots AS snapshot
+          JOIN run_audits AS run ON run.run_id = snapshot.run_id
+         WHERE snapshot.config_hash = ?
+           AND run.config_hash = snapshot.config_hash
+           AND run.status = 'SUCCESS'
+        """,
+        (cohort.config_hash,),
+    ):
+        relevant_tokens.setdefault(str(condition_id), set()).add(str(token_id))
+    if not relevant_tokens:
+        return {}
+
     invalid = int(
         connection.execute(
             """
+            WITH cohort_conditions AS (
+                SELECT DISTINCT condition_id
+                  FROM market_snapshots
+                 WHERE config_hash = ?
+            )
             SELECT COUNT(*)
               FROM tracked_resolution_observations AS resolution
+              JOIN cohort_conditions USING(condition_id)
               LEFT JOIN run_audits AS run ON run.run_id = resolution.run_id
-             WHERE resolution.config_hash = ?
-               AND (run.run_id IS NULL OR run.status != 'SUCCESS')
+             WHERE run.run_id IS NULL OR run.status != 'SUCCESS'
+                OR run.config_hash != resolution.config_hash
             """,
             (cohort.config_hash,),
         ).fetchone()[0]
@@ -738,23 +796,42 @@ def load_terminal_payouts(
         )
     rows = connection.execute(
         """
+        WITH cohort_conditions AS (
+            SELECT DISTINCT condition_id
+              FROM market_snapshots
+             WHERE config_hash = ?
+        )
         SELECT resolution.condition_id,resolution.sport_family,
                resolution.sport_profile_version,resolution.protocol_sha256,
+               resolution.classifier_version,resolution.league_mapping_sha256,
                resolution.payouts_json,resolution.evidence_sha256
           FROM tracked_resolution_observations AS resolution
+          JOIN cohort_conditions USING(condition_id)
           JOIN run_audits AS run ON run.run_id = resolution.run_id
-         WHERE resolution.config_hash = ? AND run.status = 'SUCCESS'
+         WHERE run.status = 'SUCCESS'
+           AND run.config_hash = resolution.config_hash
          ORDER BY resolution.observed_at,resolution.resolution_id
         """,
         (cohort.config_hash,),
     ).fetchall()
     payouts: dict[str, float] = {}
     condition_payloads: dict[str, dict[str, float]] = {}
-    for condition_id, family, profile, protocol, raw, evidence_hash in rows:
+    for (
+        condition_id,
+        family,
+        profile,
+        protocol,
+        classifier,
+        league_mapping,
+        raw,
+        evidence_hash,
+    ) in rows:
         if (
             str(family) != cohort.sport_family
             or str(profile) != cohort.sport_profile_version
             or str(protocol) != cohort.protocol_sha256
+            or str(classifier) != cohort.classifier_version
+            or str(league_mapping) != cohort.league_mapping_sha256
             or len(str(evidence_hash or "")) != 64
         ):
             raise ValueError("terminal resolution cohort identity mismatch")
@@ -772,6 +849,10 @@ def load_terminal_payouts(
             normalized[str(token_id)] = payout
         if sorted(normalized.values()) != [0.0, 1.0]:
             raise ValueError("terminal payout is not unique one-hot")
+        if set(normalized) != relevant_tokens.get(str(condition_id), set()):
+            raise ValueError(
+                "terminal payout token set does not match the selected snapshot cohort"
+            )
         previous = condition_payloads.get(str(condition_id))
         if previous is not None and previous != normalized:
             raise ValueError("conflicting terminal evidence for one condition")
@@ -1086,6 +1167,7 @@ def database_report(
     *,
     sport_family: str = "soccer",
     legacy_midgame_v1: bool = False,
+    config_hash: str | None = None,
 ) -> dict[str, object]:
     if legacy_midgame_v1 and sport_family != "soccer":
         raise ValueError("legacy midgame v1 replay is soccer-only")
@@ -1098,6 +1180,7 @@ def database_report(
         cohort = _cohort_identity(
             connection,
             caller_sport_family=sport_family,
+            config_hash=config_hash,
         )
         snapshots = load_snapshots(
             connection,
@@ -1106,10 +1189,14 @@ def database_report(
         )
         terminal_payouts = load_terminal_payouts(connection, cohort=cohort)
         cutoff = connection.execute(
-            "SELECT MAX(timestamp) FROM market_snapshots"
+            "SELECT MAX(timestamp) FROM market_snapshots WHERE config_hash = ?",
+            (cohort.config_hash,),
         ).fetchone()[0]
         snapshot_total = int(
-            connection.execute("SELECT COUNT(*) FROM market_snapshots").fetchone()[0]
+            connection.execute(
+                "SELECT COUNT(*) FROM market_snapshots WHERE config_hash = ?",
+                (cohort.config_hash,),
+            ).fetchone()[0]
         )
         event_health_rows = connection.execute(
             """
@@ -1258,6 +1345,13 @@ def main() -> int:
     parser.add_argument("--db", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
+        "--config-hash",
+        help=(
+            "Select one immutable config_hash cohort when an append-only DB "
+            "contains multiple deployments"
+        ),
+    )
+    parser.add_argument(
         "--sport-family",
         choices=tuple(SPORT_PARAMETER_PROFILES),
         default="soccer",
@@ -1274,6 +1368,7 @@ def main() -> int:
                 path,
                 sport_family=args.sport_family,
                 legacy_midgame_v1=args.legacy_midgame_v1,
+                config_hash=args.config_hash,
             )
             for path in args.db
         ]

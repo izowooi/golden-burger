@@ -420,6 +420,87 @@ def test_database_replay_rejects_mixed_config_cohorts(tmp_path) -> None:
         database_report(path, sport_family="mlb")
 
 
+def test_database_replay_selects_one_cohort_and_links_later_resolution(
+    tmp_path,
+) -> None:
+    path = _strict_replay_db(tmp_path / "selected.db", terminal=False)
+    later_hash = "9" * 64
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "INSERT INTO strategy_configs VALUES (?,?,?,?,?,?,?)",
+            (
+                later_hash,
+                1,
+                "golden-plum",
+                "sim",
+                _resolved_config(),
+                "2026-09-01T00:04:00",
+                "e" * 40,
+            ),
+        )
+        for table in (
+            "run_audits",
+            "market_sweeps",
+            "event_cycle_evidence",
+            "market_snapshots",
+        ):
+            connection.execute(
+                f"UPDATE {table} SET config_hash=? WHERE run_id='run-4'",
+                (later_hash,),
+            )
+        payouts = json.dumps(
+            {"mlb-away": 0.0, "mlb-home": 1.0},
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        connection.execute(
+            """
+            INSERT INTO tracked_resolution_observations
+                (resolution_id,condition_id,event_id,run_id,config_hash,
+                 sport_family,sport_profile_version,protocol_sha256,
+                 classifier_version,league_mapping_sha256,
+                 strategy_source_digest,observed_at,source,winner_index,
+                 winner_token_id,winner_outcome,payouts_json,
+                 evidence_sha256,evidence_json)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            """,
+            (
+                "3" * 64,
+                "mlb-condition-1",
+                "mlb-event-1",
+                "run-4",
+                later_hash,
+                "mlb",
+                PROFILE,
+                PROTOCOL_HASH,
+                CLASSIFIER,
+                LEAGUE_HASH,
+                "8" * 64,
+                "2026-09-01T00:10:00",
+                "CLOB_CONDITION_FOLLOWUP",
+                0,
+                "mlb-home",
+                "Home Club",
+                payouts,
+                "4" * 64,
+                "{}",
+            ),
+        )
+
+    report = database_report(
+        path,
+        sport_family="mlb",
+        config_hash=CONFIG_HASH,
+    )
+
+    assert report["cohort"]["config_hash"] == CONFIG_HASH
+    assert report["snapshot_rows_total"] == 6
+    assert report["terminal_token_payouts"] == 2
+    assert report["primary"]["0.75_to_0.90_stop_0.15"]["summary"][
+        "known_pnl_count"
+    ] == 1
+
+
 def test_database_replay_rejects_failed_run_snapshots(tmp_path) -> None:
     path = _strict_replay_db(tmp_path / "failed.db")
     with sqlite3.connect(path) as connection:

@@ -98,11 +98,14 @@ uv run polybot run --simulate --job plum-shadow-gold-nhl-1m-v1
 ```bash
 uv run python scripts/replay_direct_six_book.py \
   --sport-family mlb \
-  --db /absolute/path/to/trades_sim.db
+  --db /absolute/path/to/trades_sim.db \
+  --config-hash <64자리-config-hash>
 ```
 
 출력은 displayed full-depth 반사실이며 수수료가 제외된 탐색 자료입니다. actual fill이나
-realized P&L로 해석하지 않습니다.
+realized P&L로 해석하지 않습니다. append-only DB에 여러 배포 세대가 있으면
+`--config-hash`로 한 세대만 선택해야 합니다. 경기 종료를 뒤 배포에서 확인했더라도
+성공한 run의 exact condition·token·profile이 일치할 때에는 선택한 세대의 결과로 연결합니다.
 
 ## 운영 전제
 
