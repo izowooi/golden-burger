@@ -93,6 +93,8 @@ Black은 첫 복제 중 원격 DB가 변경되어 검증을 반드시 다시 시
 
 시작 경계 직후 실행한 #7은 6.530초에 SUCCESS였다. 4.860초 동안 7 page의 raw market 669건을 terminal cursor로 완주했고, 후보 3건의 exact $5 book, 9건의 band decision, episode/path 3건을 저장했다. 제한에 걸린 후보·실패 run은 0이고 `quick_check=ok`였다. `daily-rsync` run `ffde9bdb214d44258080485e21e73944`로 DB·console 8건/3,431,917 byte를 동기화했고, 후속 verify는 확인 7건·실패/충돌 0으로 SUCCESS였다. 동기 DB를 read-only analyzer로 다시 열었을 때 cohort 1개, cursor-complete 1/1, 관찰 book 3/3, 종료 전 censor 3건, DB SHA-256 `cbc720a0c6a7…`를 확인했고 승자는 선택하지 않았다.
 
+다음 자연 timer build #8도 5.297초에 SUCCESS였고 collector 본체는 2.301초였다. 동일한 7 page/669 market/3 book을 완주했으며 기존 episode 3건의 path만 추가하고 새 episode는 0건이어서 최초 교차 유일성도 유지됐다. 두 active cycle 누적은 sweep 2, market observation 1,338, book/path 6, decision 18, episode 3, failed 0, `quick_check=ok`이다.
+
 ## 4. Golden Blueberry / `polybot-eagle`·`polybot-cherry`·`polybot-shadow`
 
 ### 4.1 성과 판정
@@ -204,7 +206,7 @@ Watermelon research는 축구·MLB·NBA·NFL·NHL family를 독립 worker로 병
 | `polybot-grey` | `61139bd` | #9580 | SUCCESS, 14.544s |
 | `polybot-gold` | `61139bd` | #5503 | SUCCESS, 16.138s |
 | `polybot-silver` | `61139bd` | #5738 | SUCCESS, 11.130s; bot 3.098s |
-| `polybot-cherry-shadow` | `61139bd` | #7 | SUCCESS, 6.530s; first active collection 4.860s |
+| `polybot-cherry-shadow` | `61139bd` | #8 | SUCCESS, 5.297s; natural collection 2.301s |
 
 Black/Cherry/Blueberry는 5분, White/Grey/Gold/Silver는 1분 timer를 복구했다. White/Grey/Gold/Silver DB는 외장 T7에 계속 있으며, 코드만 정확히 `61139bd`로 갱신했다. 로그의 `Failed BUY/SELL containment`는 실패 발생 보고가 아니라, “실패해도 다른 event를 계속 처리한다”는 config 설명이다.
 

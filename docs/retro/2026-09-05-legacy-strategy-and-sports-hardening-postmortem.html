@@ -309,6 +309,7 @@ li + li { margin-top: .35rem; }
 </ul>
 <p>첫 구성 시 입력기 중복으로 build #1이 shell syntax 실패했다. 즉시 구성을 교정했고 #2는 6.699초에 SUCCESS였다. #2는 사전 등록 시작 전이라 네트워크/DB를 만지지 않고 정상적으로 <code>before_preregistered_start</code>를 기록했다.</p>
 <p>시작 경계 직후 실행한 #7은 6.530초에 SUCCESS였다. 4.860초 동안 7 page의 raw market 669건을 terminal cursor로 완주했고, 후보 3건의 exact $5 book, 9건의 band decision, episode/path 3건을 저장했다. 제한에 걸린 후보·실패 run은 0이고 <code>quick_check=ok</code>였다. <code>daily-rsync</code> run <code>ffde9bdb214d44258080485e21e73944</code>로 DB·console 8건/3,431,917 byte를 동기화했고, 후속 verify는 확인 7건·실패/충돌 0으로 SUCCESS였다. 동기 DB를 read-only analyzer로 다시 열었을 때 cohort 1개, cursor-complete 1/1, 관찰 book 3/3, 종료 전 censor 3건, DB SHA-256 <code>cbc720a0c6a7…</code>를 확인했고 승자는 선택하지 않았다.</p>
+<p>다음 자연 timer build #8도 5.297초에 SUCCESS였고 collector 본체는 2.301초였다. 동일한 7 page/669 market/3 book을 완주했으며 기존 episode 3건의 path만 추가하고 새 episode는 0건이어서 최초 교차 유일성도 유지됐다. 두 active cycle 누적은 sweep 2, market observation 1,338, book/path 6, decision 18, episode 3, failed 0, <code>quick_check=ok</code>이다.</p>
 <h2 id="4-golden-blueberry-polybot-eaglepolybot-cherrypolybot-shadow">4. Golden Blueberry / <code>polybot-eagle</code>·<code>polybot-cherry</code>·<code>polybot-shadow</code></h2>
 <h3 id="41">4.1 성과 판정</h3>
 <p>가장 최근의 동일 source cohort에서 A(+2%p)는 정확한 종결 2건, 순손익 <code>+$0.1148</code>이고 B(+5%p)는 0건이다. 2026-08-31 이후로 조금 넓혀도 A 3건 <code>+$0.6035</code>, B 1건 <code>+$0.4887</code>이다. 이런 표본은 승자나 수치를 고를 수 없다.</p>
@@ -590,8 +591,8 @@ li + li { margin-top: .35rem; }
 <tr>
 <td><code>polybot-cherry-shadow</code></td>
 <td><code>61139bd</code></td>
-<td style="text-align: right;">#7</td>
-<td>SUCCESS, 6.530s; first active collection 4.860s</td>
+<td style="text-align: right;">#8</td>
+<td>SUCCESS, 5.297s; natural collection 2.301s</td>
 </tr>
 </tbody>
 </table></div>
