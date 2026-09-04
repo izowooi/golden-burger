@@ -42,12 +42,14 @@ label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 
 3. 현재 job의 arm band에 들어온 token의 첫 관측을 `entry_episodes`에 영구 기록한다. 주문이
    후속 gate에서 거절되어도 같은 token의 band 체류/재진입을 새 신호로 재사용하지 않는다.
 4. 총 open state 3, event open state 1, cycle 신규 1을 확인한다.
-5. 주문 직전 full book을 다시 walk한다. VWAP가 band를 벗어나거나 `$5` depth가 없으면 중단한다.
-6. 최고 소비 ask를 venue별 tick에 맞춰 위로 정렬하고, maker amount를 정확히 `$5.00`
+5. 주문 직전 full book을 다시 walk한다. VWAP가 band를 벗어나거나 base-amount depth가 없으면 중단한다.
+6. 최고 소비 ask를 venue별 tick에 맞춰 위로 정렬하고, maker amount를 정확히 `$5`
    (USDC 2자리), taker shares를 venue precision으로 서명한 marketable FOK BUY를 제출한다.
    전량 즉시 체결되지 않으면 잔여 GTC 주문을 남기지 않는다.
 7. live trade는 CLOB execution ledger의 exact terminal confirmed fill이 확인될 때만
    `PENDING_BUY`에서 `HOLDING`으로 이동한다.
+   terminal `MATCHED` + exact-order `CONFIRMED` fill + complete fee/identity evidence에서 실제 fill
+   notional이 signed maker amount를 초과하면 초과분이 `$0.01` 이하일 때만 인정한다.
 8. sports delay에서 `DELAYED`를 받은 FOK가 30분 이상 지난 뒤 order detail에서 사라져도
    미체결로 추정하지 않는다. current/pre-migration order catalog의 exact ID 부재, 전체
    authenticated token-trade catalog의 exact order 체결 부재, exact cancel acknowledgment
@@ -58,13 +60,18 @@ label과 `negRisk=false`, proposition의 `[Yes,No]`와 `negRisk=true`를 모두 
 ## Exit와 수동 포지션 경계
 
 이번 cohort에는 pre-resolution SELL이 없다. midpoint 하락만으로 stop/TP를 제출하지 않는다.
-우선 Gamma closed final one-hot payout을 확인하고, Gamma가 `proposed`에 머무는 동안에는 CLOB
+우선 Gamma closed final one-hot payout을 확인한다. default query에서 행이 사라졌으면
+`closed=true` exact-condition fallback을 사용한다. Gamma가 `proposed`에 머무는 동안에는 CLOB
 exact condition market의 `closed=true`, distinct two-token, unique winner, aligned exact `0/1`
 증거를 fail-closed하게 확인한다. selected token/outcome과 exact confirmed BUY fill이 모두
 일치할 때만 own trade를 `RESOLVED`로 기록한다. CLOB proof의 normalized JSON과 SHA-256은
 append-only로 남긴다. live 손익은 confirmed BUY size/VWAP/fee에서 계산한 settlement
 assumption으로 분리하며, synthetic SELL이나 requested-order P&L을 realized P&L로 기록하지
 않는다.
+
+Gamma 또는 CLOB가 aligned two-token exact `[0.5,0.5]`를 증명하면 `VOID/RESOLVED`로 기록한다.
+selected token payout은 0.5이며 normalized JSON/SHA-256을 append-only로 남긴다. synthetic SELL
+또는 realized SELL P&L은 만들지 않는다.
 
 봇은 자기 runtime DB의 open trade만 순회한다. wallet 전체 position을 DB에 import하거나
 account-wide cancel/redeem/wind-down을 실행하지 않으므로 사용자가 수동 매수한 잔여 포지션은
@@ -74,6 +81,10 @@ account-wide cancel/redeem/wind-down을 실행하지 않으므로 사용자가 �
 
 - 주문 금액 정확히 `$5`; account당 open request notional 최대 `$15`
 - event당 1개, cycle당 신규 1개, token 재진입 cooldown 720시간
+- QUARANTINED, untracked/orphan BUY, unknown POST 및 restart 중간 상태도 capacity를 예약
+- exact fee-proven cumulative net loss 기본 `$15` guard; proof gap이면 신규 entry fail closed
+- e-sports exclusion은 exact tag/category/sport identity 기반 opt-in이며 기본 false
+- DB별 nonblocking run lock; runtime warning은 telemetry이며 POST를 가로지르는 hard kill이 아님
 - unknown/malformed book, cursor, outcome identity, endDate, fill, fee, resolution은 추정하지 않음
 - concurrent Jenkins build, clean build, DB 교체 금지
 - A/B 중 한쪽 설정이 threshold 외에 달라지면 해당 구간은 비교 cohort에서 제외

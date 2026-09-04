@@ -18,7 +18,7 @@ from ..api.gamma_client import GammaClient
 from ..config import TradingConfig
 from ..db.models import STRATEGY_NAME, TradeStatus
 from ..db.repository import ExactFillEvidence, TradeRepository
-from .filters import get_proven_resolution
+from .filters import get_aligned_binary_outcomes, get_proven_resolution
 from .scanner import get_hours_until_resolution, parse_end_date
 
 
@@ -141,6 +141,41 @@ class Trader:
             simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
         self.mode = "sim" if simulation_mode else "live"
         self.buying_disabled = False
+        self.last_entry_outcome_reason: Optional[str] = None
+        self.last_entry_may_have_reached_venue = False
+
+    @staticmethod
+    def _episode_id(candidate: dict) -> Optional[int]:
+        value = candidate.get("entry_episode_id")
+        return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+    def _reject_entry(
+        self,
+        candidate: dict,
+        reason: str,
+        *,
+        proven_no_post: bool = True,
+        post_may_have_occurred: bool = False,
+    ) -> None:
+        self.last_entry_outcome_reason = str(reason)
+        self.last_entry_may_have_reached_venue = bool(post_may_have_occurred)
+        episode_id = self._episode_id(candidate)
+        if episode_id is not None:
+            state = (
+                "POST_OUTCOME_UNKNOWN"
+                if post_may_have_occurred
+                else "REJECTED_PROVEN_NO_POST"
+                if proven_no_post
+                else "POST_REJECTED_PROVEN_NO_EXPOSURE"
+            )
+            self.repo.mark_entry_episode_execution(
+                episode_id,
+                state=state,
+                reason=reason,
+                proven_no_post=proven_no_post,
+                post_may_have_occurred=post_may_have_occurred,
+            )
+        return None
 
     def _fresh_book(self, token_id: str) -> Optional[tuple[float, float, float]]:
         """Return validated fresh bid/ask/spread, or fail closed."""
@@ -163,15 +198,17 @@ class Trader:
         return best_bid, best_ask, best_ask - best_bid
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
-        """Revalidate the exact $5 walk, then submit a FOK BUY."""
+        """Revalidate the configured-notional walk, then submit a FOK BUY."""
+        self.last_entry_outcome_reason = None
+        self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
-            return None
+            return self._reject_entry(candidate, "cycle_buying_disabled")
         condition_id = str(candidate["condition_id"])
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
         if not outcome:
             logger.error("aligned outcome identity missing: %s", condition_id)
-            return None
+            return self._reject_entry(candidate, "aligned_outcome_identity_missing")
         entry_snapshot_id = candidate.get("entry_snapshot_id")
         if (
             isinstance(entry_snapshot_id, bool)
@@ -184,23 +221,53 @@ class Trader:
                 condition_id,
                 entry_snapshot_id,
             )
-            return None
+            return self._reject_entry(candidate, "current_run_entry_snapshot_missing")
         can_enter, reason = self.repo.can_reenter(
             condition_id, self.config.reentry_cooldown_hours
         )
         if not can_enter:
             logger.info("재진입 skip - condition=%s reason=%s", condition_id, reason)
-            return None
-        if self.repo.get_position_count() >= self.config.max_positions:
-            logger.info("최대 포지션 수 %s 도달", self.config.max_positions)
-            return None
+            return self._reject_entry(candidate, f"reentry_{reason}")
+        capacity = self.repo.get_entry_capacity_state(
+            base_notional_usdc=self.config.buy_amount_usdc
+        )
+        if self.mode == "live" and not capacity["ledger_available"]:
+            logger.error("execution ledger unavailable; entry fails closed")
+            return self._reject_entry(candidate, "execution_ledger_unavailable")
+        if capacity["total_reserved"] >= self.config.max_positions:
+            logger.info("최대 포지션 capacity %s 도달", self.config.max_positions)
+            return self._reject_entry(candidate, "max_position_capacity_reserved")
+        if (
+            capacity["total_notional_usdc"] + self.config.buy_amount_usdc
+            > self.config.max_open_notional_usdc + 1e-9
+        ):
+            logger.info("최대 open notional capacity 도달")
+            return self._reject_entry(candidate, "max_open_notional_reserved")
+        if self.mode == "live":
+            loss = self.repo.get_exact_economic_loss_state()
+            if not loss["evidence_complete"]:
+                logger.error(
+                    "exact economic loss evidence gap; entry fails closed - trades=%s",
+                    loss["evidence_gap_trade_ids"],
+                )
+                return self._reject_entry(candidate, "exact_loss_evidence_incomplete")
+            if (
+                loss["cumulative_exact_loss_usdc"] + 1e-9
+                >= self.config.max_cumulative_exact_loss_usdc
+            ):
+                logger.warning(
+                    "cumulative exact economic loss guard reached - loss=$%.4f limit=$%.2f",
+                    loss["cumulative_exact_loss_usdc"],
+                    self.config.max_cumulative_exact_loss_usdc,
+                )
+                return self._reject_entry(candidate, "cumulative_exact_loss_guard")
         raw_event_id = candidate.get("event_id")
         if raw_event_id is None or not str(raw_event_id).strip():
             logger.warning(
                 "event_id 없는 진입 후보를 fail-closed 처리합니다 - condition=%s",
                 condition_id,
             )
-            return None
+            return self._reject_entry(candidate, "event_id_missing")
         event_id = str(raw_event_id).strip()
         if (
             self.repo.get_event_position_count(event_id)
@@ -211,7 +278,7 @@ class Trader:
                 event_id,
                 self.config.max_event_positions,
             )
-            return None
+            return self._reject_entry(candidate, "event_capacity_reserved")
 
         now = datetime.now(timezone.utc)
         experiment_start = parse_end_date(self.config.experiment_start_utc)
@@ -222,7 +289,7 @@ class Trader:
             or not (experiment_start <= now < experiment_end)
         ):
             logger.info("frozen entry period is closed - condition=%s", condition_id)
-            return None
+            return self._reject_entry(candidate, "frozen_entry_period_closed")
         hours_left = get_hours_until_resolution(candidate.get("end_date"), now=now)
         if hours_left is None or not 0 < hours_left <= 6 + 1e-9:
             logger.info(
@@ -230,7 +297,7 @@ class Trader:
                 condition_id,
                 hours_left,
             )
-            return None
+            return self._reject_entry(candidate, "six_hour_window_revalidation_failed")
         try:
             walk = self.clob.get_buy_book_walk(
                 token_id, notional_usdc=self.config.buy_amount_usdc
@@ -241,7 +308,7 @@ class Trader:
                 condition_id,
                 type(error).__name__,
             )
-            return None
+            return self._reject_entry(candidate, f"fresh_exact_book_{type(error).__name__}")
         if not (
             self.config.entry.prob_min - 1e-9
             <= walk.vwap
@@ -254,7 +321,7 @@ class Trader:
                 self.config.entry.prob_min,
                 self.config.entry.prob_max,
             )
-            return None
+            return self._reject_entry(candidate, "fresh_exact_vwap_left_arm")
         required = self.config.min_order_size + self.config.min_order_buffer_shares
         if walk.shares + 1e-9 < required:
             logger.warning(
@@ -263,14 +330,14 @@ class Trader:
                 walk.shares,
                 required,
             )
-            return None
+            return self._reject_entry(candidate, "minimum_order_shares_unavailable")
         if not 0 < walk.limit_price < 1:
             logger.warning(
                 "FOK limit price is not orderable - condition=%s price=%s",
                 condition_id,
                 walk.limit_price,
             )
-            return None
+            return self._reject_entry(candidate, "fok_limit_not_orderable")
 
         logger.info(
             "Golden Tangerine FOK BUY: '%s' outcome=%s exact_vwap=%.2f%% "
@@ -282,6 +349,19 @@ class Trader:
             walk.limit_price * 100,
             walk.shares,
         )
+        episode_id = self._episode_id(candidate)
+        if episode_id is None:
+            return self._reject_entry(candidate, "entry_episode_missing")
+        # Commit the conservative reservation before entering a wrapper that
+        # may cross POST. A crash anywhere after this write consumes capacity.
+        self.repo.mark_entry_episode_execution(
+            episode_id,
+            state="SUBMISSION_IN_PROGRESS",
+            reason="fresh_book_validated_before_submission_wrapper",
+            proven_no_post=False,
+            post_may_have_occurred=True,
+        )
+        self.last_entry_may_have_reached_venue = True
         result = self.clob.place_fok_buy(
             token_id=token_id,
             amount_usdc=self.config.buy_amount_usdc,
@@ -295,18 +375,41 @@ class Trader:
                 )
             else:
                 logger.error("매수 주문 실패: %s", result)
-            return None
+            unknown = bool(result.get("submission_outcome_unknown"))
+            post_attempted = bool(result.get("_post_attempted"))
+            return self._reject_entry(
+                candidate,
+                (
+                    "buy_submission_outcome_unknown"
+                    if unknown
+                    else "buy_order_rejected_after_post"
+                    if post_attempted
+                    else "buy_pre_submission_rejected"
+                ),
+                proven_no_post=not unknown and not post_attempted,
+                post_may_have_occurred=unknown,
+            )
         try:
             submitted_shares = float(result["requested_size"])
         except (KeyError, TypeError, ValueError):
             logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
-            return None
+            return self._reject_entry(
+                candidate,
+                "buy_requested_size_evidence_missing",
+                proven_no_post=False,
+                post_may_have_occurred=True,
+            )
         if not math.isfinite(submitted_shares) or submitted_shares <= 0:
             logger.error(
                 "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
                 submitted_shares,
             )
-            return None
+            return self._reject_entry(
+                candidate,
+                "buy_requested_size_invalid",
+                proven_no_post=False,
+                post_may_have_occurred=True,
+            )
 
         trade = self.repo.create_trade(
             condition_id=condition_id,
@@ -327,7 +430,7 @@ class Trader:
                 if self.mode == "sim"
                 else TradeStatus.PENDING_BUY
             ),
-            entry_reason="first_observed_exact_5_usdc_band_fok",
+            entry_reason="first_observed_configured_notional_band_fok",
             strategy_name=STRATEGY_NAME,
             mode=self.mode,
             market_end_date=candidate.get("end_date"),
@@ -351,9 +454,16 @@ class Trader:
         logger.info(
             "매수 주문 접수: Trade #%s Order=%s", trade.id, result.get("orderID")
         )
-        episode_id = candidate.get("entry_episode_id")
-        if not isinstance(episode_id, bool) and isinstance(episode_id, int):
-            self.repo.link_entry_episode_trade(episode_id, trade.id)
+        self.repo.mark_entry_episode_execution(
+            episode_id,
+            state="TRADE_CREATED",
+            reason="accepted_order_linked_to_trade",
+            proven_no_post=False,
+            post_may_have_occurred=self.mode == "live",
+            trade_id=trade.id,
+            order_id=result.get("orderID"),
+        )
+        self.last_entry_outcome_reason = "trade_created"
         return trade.id
 
     def _record_resolution_values(
@@ -438,6 +548,27 @@ class Trader:
         proof = get_proven_resolution(market)
         if proof is None:
             return False
+        returned_condition = str(
+            market.get("conditionId") or market.get("condition_id") or ""
+        ).strip()
+        if returned_condition != str(trade.condition_id):
+            logger.error("Gamma resolution condition identity mismatch - trade=%s", trade.id)
+            return False
+        aligned = get_aligned_binary_outcomes(market)
+        selected_identity = [
+            item
+            for item in aligned
+            if item["outcome"] == str(trade.outcome)
+            and item["token_id"] == str(trade.token_id)
+        ]
+        if len(selected_identity) != 1:
+            logger.error(
+                "Gamma resolution selected token/outcome mismatch - trade=%s token=%s outcome=%s",
+                trade.id,
+                trade.token_id,
+                trade.outcome,
+            )
+            return False
         payouts = proof.get("payouts_by_outcome") or {}
         if trade.outcome not in payouts:
             logger.error(
@@ -447,15 +578,32 @@ class Trader:
             )
             return False
         # Preserve the Gamma catalog evidence as well as the trade-local proof.
-        self.repo.save_market_catalog(trade.condition_id, market, commit=True)
+        observed_at = datetime.utcnow()
+        self.repo.save_market_catalog(trade.condition_id, market, commit=False)
+        self.repo.stage_gamma_resolution_observation(
+            trade_id=trade.id,
+            condition_id=trade.condition_id,
+            observed_at=observed_at,
+            market=market,
+            selected_token_id=trade.token_id,
+            selected_outcome=trade.outcome,
+            settlement_kind=str(proof["settlement_kind"]),
+            winner_index=(
+                -1
+                if str(proof["settlement_kind"]).upper() == "VOID"
+                else int(proof["winner_index"])
+            ),
+        )
         return self._record_resolution_values(
             trade,
             payout=float(payouts[trade.outcome]),
             first_outcome_payout=float(proof["first_outcome_payout"]),
             winner_outcome=str(proof["outcome"]),
-            resolution_status=str(proof["status"]),
+            resolution_status=(
+                "VOID" if proof["settlement_kind"] == "VOID" else str(proof["status"])
+            ),
             evidence_source=str(proof["evidence"]),
-            observed_at=datetime.utcnow(),
+            observed_at=observed_at,
             source_updated_at=market.get("updatedAt"),
             fill_evidence=fill_evidence,
         )
@@ -466,11 +614,7 @@ class Trader:
         proof: ClobResolutionProof,
         fill_evidence: Optional[ExactFillEvidence] = None,
     ) -> bool:
-        if (
-            proof.status != "RESOLVED"
-            or proof.winner_index not in (0, 1)
-            or len(proof.tokens) != 2
-        ):
+        if proof.status not in {"RESOLVED", "VOID"} or len(proof.tokens) != 2:
             return False
         selected = next(
             (token for token in proof.tokens if token.token_id == str(trade.token_id)),
@@ -484,7 +628,22 @@ class Trader:
                 trade.outcome,
             )
             return False
-        winner = proof.tokens[proof.winner_index]
+        is_void = proof.status == "VOID"
+        if is_void:
+            if proof.winner_index is not None or any(
+                token.winner or token.price != 0.5 for token in proof.tokens
+            ):
+                return False
+            winner_index = -1
+            winner_token_id = ""
+            winner_outcome = "VOID"
+        else:
+            if proof.winner_index not in (0, 1):
+                return False
+            winner_index = int(proof.winner_index)
+            winner = proof.tokens[winner_index]
+            winner_token_id = winner.token_id
+            winner_outcome = winner.outcome
         observed_at = datetime.fromisoformat(
             proof.observed_at.replace("Z", "+00:00")
         )
@@ -494,23 +653,25 @@ class Trader:
             trade_id=trade.id,
             condition_id=trade.condition_id,
             observed_at=observed_at,
-            winner_index=proof.winner_index,
-            winner_token_id=winner.token_id,
-            winner_outcome=winner.outcome,
+            winner_index=winner_index,
+            winner_token_id=winner_token_id,
+            winner_outcome=winner_outcome,
             selected_token_id=selected.token_id,
             selected_outcome=selected.outcome,
             selected_payout=selected.price,
             evidence_sha256=proof.evidence_sha256,
             evidence_json=proof.evidence_json,
+            settlement_kind="VOID" if is_void else "ONE_HOT",
         )
         return self._record_resolution_values(
             trade,
             payout=selected.price,
             first_outcome_payout=proof.tokens[0].price,
-            winner_outcome=winner.outcome,
-            resolution_status="clob_closed_unique_winner",
+            winner_outcome=winner_outcome,
+            resolution_status=("VOID" if is_void else "clob_closed_unique_winner"),
             evidence_source=(
-                "clob_closed_unique_winner_sha256:" + proof.evidence_sha256
+                ("clob_closed_void_sha256:" if is_void else "clob_closed_unique_winner_sha256:")
+                + proof.evidence_sha256
             ),
             observed_at=observed_at,
             source_updated_at=proof.observed_at,
@@ -582,7 +743,7 @@ class Trader:
                 type(clob_error).__name__,
             )
             return False
-        if clob_proof.status == "RESOLVED":
+        if clob_proof.status in {"RESOLVED", "VOID"}:
             return self._apply_proven_resolution(
                 trade,
                 lambda fill: self._record_clob_resolution(

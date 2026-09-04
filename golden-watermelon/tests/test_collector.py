@@ -194,7 +194,7 @@ class FakeSportsClock:
         self.elapsed = elapsed
         self.period = period
 
-    def collect(self, run_id, target_games):
+    def collect(self, run_id, target_games, **_kwargs):
         updates = {
             slug: SportsClockUpdate(
                 slug=slug,
@@ -228,7 +228,7 @@ class FakeSportsClock:
 
 
 class NoMatchSportsClock:
-    def collect(self, run_id, target_games):
+    def collect(self, run_id, target_games, **_kwargs):
         return SportsClockBatch(
             request_id=f"sports-{run_id}",
             started_at="2026-08-22T16:15:59Z",

@@ -18,6 +18,10 @@ export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
 export POLYBOT_LIFECYCLE_MODE=active
 export POLYBOT_BUY_AMOUNT=5
+export POLYBOT_MAX_OPEN_NOTIONAL_USDC=15
+export POLYBOT_MAX_CUMULATIVE_EXACT_LOSS_USDC=15
+export POLYBOT_EXCLUDE_ESPORTS=false
+export POLYBOT_CYCLE_RUNTIME_WARNING_SECONDS=240
 export POLYBOT_MIN_LIQUIDITY=10000
 export POLYBOT_MIN_VOLUME_24H=0
 export POLYBOT_MIN_CUMULATIVE_VOLUME=5000
@@ -79,6 +83,10 @@ UV=/Users/jongwoopark/.local/bin/uv
      condition의 closed two-token unique one-hot `0/1` proof를 검사한다. selected token과
      confirmed BUY fill이 일치해야 하며 `resolution_observations`에 hash와 winner가 남아야 한다.
      이 경로는 SELL/redeem을 실행하지 않는다.
+   - default Gamma lookup에서 resolved market이 사라지면 `closed=true` fallback이 exact condition,
+     aligned token, one-hot 또는 `[0.5,0.5]` VOID proof를 append-only로 기록하는지 확인한다.
+   - `QUARANTINED`와 orphan/unknown BUY가 capacity에 포함되고 candidate queue reason과
+     append-only runtime telemetry가 남는지 확인한다.
 4. 최근 console에서 secret 노출·clean·old strategy 경로가 없는지 확인
 5. `daily-rsync scan/sync-job/verify/locate`로 세 DB와 bot/console log 확인
 6. 각 job에 `H/5` 활성화하고 두 번 이상 자연 build의 runtime/overlap/DB 증가 확인
@@ -103,3 +111,17 @@ uv run daily-rsync verify --job polybot-black --strategy golden-black
 
 entry window 종료 뒤에도 기존 own trade의 resolution 대사를 위해 follow-up cutoff까지 job을
 유지한다. 자동 entry clock gate가 신규 후보를 0으로 만들므로 중간 threshold를 바꾸지 않는다.
+
+## Read-only A/B evidence 분석
+
+```bash
+uv run polybot analyze \
+  --db A=/absolute/orange/trades.db \
+  --db B=/absolute/fox/trades.db \
+  --start 2026-08-20T14:08:00Z \
+  --end-exclusive 2026-09-19T14:08:00Z
+```
+
+범위는 UTC `[start,end-exclusive)`다. 도구는 `mode=ro`/`query_only`이며 migration이나 checkpoint를
+하지 않는다. DB/WAL/SHM before/after checksum이 바뀌면 동시 writer가 있었던 것이므로 결과를
+확정 evidence로 사용하지 않는다.

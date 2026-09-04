@@ -273,16 +273,50 @@ class TimeoutSession:
 
 def test_gamma_timeout_retry_is_bounded_and_never_attests_partial(monkeypatch):
     sleeps = []
-    monkeypatch.setattr("polybot.utils.retry.time.sleep", sleeps.append)
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", sleeps.append)
     client = GammaClient()
     client.session = TimeoutSession()
 
     with pytest.raises(requests.exceptions.Timeout):
         client.get_all_tradable_markets(min_liquidity=1_000)
 
-    assert len(client.session.calls) == 6
-    assert sleeps == [2.0, 4.0, 8.0, 16.0, 32.0]
+    assert len(client.session.calls) == 3
+    assert sleeps == [2.0, 4.0]
     assert client.last_sweep_attestation is None
+
+
+def test_gamma_preorder_page_and_time_bounds_fail_without_partial_attestation(
+    monkeypatch,
+):
+    class EndlessSession:
+        def __init__(self):
+            self.calls = 0
+
+        def get(self, _url, params, timeout):
+            self.calls += 1
+            return Response({"markets": [], "next_cursor": f"cursor-{self.calls}"})
+
+    monkeypatch.setattr("polybot.api.gamma_client.time.sleep", lambda _value: None)
+    client = GammaClient()
+    client.session = EndlessSession()
+    with pytest.raises(RuntimeError, match="100페이지"):
+        client.get_all_tradable_markets()
+    assert client.session.calls == 100
+    assert client.last_sweep_attestation is None
+
+    no_network = GammaClient()
+    no_network.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("expired budget must not start HTTP")
+        )
+    )
+    with pytest.raises(TimeoutError, match="budget"):
+        no_network._get_all_tradable_markets_uncached(
+            min_liquidity=0,
+            min_volume=0,
+            deadline=-1,
+        )
+    assert no_network.last_sweep_attestation is None
 
 
 @pytest.mark.parametrize(
@@ -739,6 +773,100 @@ def test_post_timeout_is_quarantined_without_failing_cycle(tmp_path):
         assert connection.execute(
             "SELECT response_status, order_id FROM order_submissions"
         ).fetchone() == ("SUBMIT_OUTCOME_UNKNOWN", None)
+
+
+def test_stale_catalog_missing_gtc_buy_gets_exact_zero_fill_proof(tmp_path):
+    class ExpirationClient:
+        def cancel_orders(self, order_ids):
+            return {"canceled": order_ids, "not_canceled": {}}
+
+        def get_trades(self, _params, only_first_page):
+            assert only_first_page is False
+            return []
+
+    db_path = tmp_path / "trades.db"
+    wrapper = _placement_wrapper(db_path, PlacementClient(db_path))
+    result = wrapper.place_limit_order("token", 0.4, 10, "BUY")
+    assert result["orderID"] == "placed-order"
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+                UPDATE order_submissions
+                SET submitted_at='2026-01-01T00:00:00+00:00',
+                    reconciliation_error='phase=match_authoritative_order_catalogs error=ClobResponseUnavailableError response_shape=empty'
+                WHERE order_id='placed-order'
+            """
+        )
+    wrapper._client = ExpirationClient()
+
+    stats = wrapper.expire_stale_gtc_buys(10)
+
+    assert stats == {
+        "eligible": 1,
+        "cancel_requested": 1,
+        "catalog_missing_zero_fill": 1,
+        "catalog_missing_terminal_fill": 0,
+        "errors": 0,
+    }
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT latest_order_status, latest_size_matched, "
+            "needs_reconciliation, reconciliation_proof "
+            "FROM order_submissions WHERE order_id='placed-order'"
+        ).fetchone()
+    assert row == ("CANCELED", 0.0, 0, "EXACT_GTC_CANCEL_ACK_ZERO_FILL")
+
+
+def test_stale_catalog_missing_gtc_partial_fill_becomes_terminal_evidence(tmp_path):
+    class PartialExpirationClient:
+        def cancel_orders(self, order_ids):
+            return {"canceled": order_ids, "not_canceled": {}}
+
+        def get_trades(self, _params, only_first_page):
+            assert only_first_page is False
+            return [
+                {
+                    "id": "partial-trade",
+                    "status": "CONFIRMED",
+                    "side": "BUY",
+                    "size": "2",
+                    "price": "0.4",
+                    "fee_rate_bps": "0",
+                    "fee_amount_usdc": "0",
+                    "taker_order_id": "placed-order",
+                    "match_time": "1700000000",
+                }
+            ]
+
+    db_path = tmp_path / "trades.db"
+    wrapper = _placement_wrapper(db_path, PlacementClient(db_path))
+    wrapper.place_limit_order("token", 0.4, 10, "BUY")
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            """
+            UPDATE order_submissions
+            SET submitted_at='2026-01-01T00:00:00+00:00',
+                reconciliation_error='phase=match_authoritative_order_catalogs error=ClobResponseUnavailableError response_shape=empty'
+            WHERE order_id='placed-order'
+            """
+        )
+    wrapper._client = PartialExpirationClient()
+
+    stats = wrapper.expire_stale_gtc_buys(10)
+
+    assert stats["catalog_missing_terminal_fill"] == 1
+    assert stats["errors"] == 0
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT latest_order_status, latest_size_matched, "
+            "needs_reconciliation, reconciliation_proof "
+            "FROM order_submissions WHERE order_id='placed-order'"
+        ).fetchone()
+        fill = connection.execute(
+            "SELECT status, size, price, fee_amount_usdc FROM order_fills"
+        ).fetchone()
+    assert row == ("CANCELED", 2.0, 0, "EXACT_GTC_CANCEL_ACK_TERMINAL_FILL")
+    assert fill == ("CONFIRMED", 2.0, 0.4, 0.0)
 
 
 def test_unresolved_intent_quarantines_only_same_token_side(tmp_path):

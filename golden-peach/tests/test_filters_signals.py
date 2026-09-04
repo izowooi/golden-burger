@@ -134,7 +134,11 @@ def test_yes_no_negrisk_alignment_and_settlement_paths() -> None:
     ambiguous = get_proven_resolution(_binary((0.5, 0.5), closed=True))
     assert yes["payouts_by_outcome"] == {"Yes": 1.0, "No": 0.0}
     assert no["payouts_by_outcome"] == {"Yes": 0.0, "No": 1.0}
-    assert ambiguous is None
+    assert ambiguous["payouts_by_outcome"] == {"Yes": 0.5, "No": 0.5}
+    assert ambiguous["outcome"] == "Void"
+    assert ambiguous["winner_index"] is None
+    assert ambiguous["status"] == "gamma_closed_void_0_5"
+    assert get_proven_resolution(_binary((0.4, 0.6), closed=True)) is None
     sides = get_match_result_sides(market)
     assert [item["candidate_kind"] for item in sides] == ["YES_HOME", "NO_HOME"]
     assert [item["token_id"] for item in sides] == ["yes", "no"]

@@ -14,6 +14,9 @@ credential과 수동 position은 건드리지 않는다.
 
 두 arm의 유일한 family 내 treatment는 진입 하한이다. cadence는 모두 1분, 현재 주문은 `$5`다.
 0.96/0.99는 아직 최적값이 아니라 큰 손실 꼬리와 기회 수를 향후 수집 자료로 비교하는 값이다.
+코드는 위 여섯 runtime을 Jenkins job, family, 진입 arm, `active/live` mode와 하나의 불변 registry로
+결합한다. 등록되지 않은 runtime이나 Jenkins `JOB_NAME`, family, arm, mode가 섞인 조합은 DB
+디렉터리 생성과 네트워크 초기화 전에 거절한다.
 
 ## 거래 계약
 
@@ -56,6 +59,13 @@ BUY를 전역 차단한다. SELL intent·대사 실패도 같은 token/event만 
 실패가 180분을 넘으면 성공 매도나 0체결로 꾸미지 않고 `QUARANTINED`로 자동 격리 종결하며,
 실제 노출 가능성이 있으므로 account/event capacity는 계속 소비한다. confirmed SELL + proven
 resolution 경제손익이 `-$10`이면 기존 position 관리는 계속하지만 신규 BUY를 중단한다.
+모호한 `PENDING_BUY`도 180분이 지나면 성공/0체결을 주장하지 않고 event-local
+`QUARANTINED`로 전환한다. 이후 exact ledger 대사는 계속하며 account/event capacity는 해제하지 않는다.
+
+Gamma condition lookup은 open view를 먼저 확인하고 누락 시 `closed=true` exact lookup으로
+fallback한다. 정확히 정렬된 두 outcome/token의 final payout이 `[1,0]`, `[0,1]` 또는 authoritative
+void `[0.5,0.5]`일 때만 resolution으로 사용한다. void는 각 보유 token에 0.5 payout을 적용하며,
+CLOB fallback의 closed + unique one-hot winner 규칙은 완화하지 않는다.
 
 catalog/snapshot/trade에는 종목·리그·원본 tag를 저장한다. trade에는 목표 주문액, 실제 선택액,
 가격 상한 안의 표시 호가 최대 금액과 축소 사유를 함께 저장하므로 이후 종목별 체결 건수·손절값·
@@ -86,6 +96,9 @@ v3f 변경 계약은
 
 Cat/Dog v2h DB는 기존 미해결 position을 관리하기 위해 이어 쓴다. 그보다 오래된 live DB와 신규
 MLB/NHL DB는 immutable epoch로 분리하며 clean, merge, migration, backfill하지 않는다.
+기존 DB의 additive schema 보강은 transaction 안에서 먼저 실제 column/type affinity를 검사하고,
+알려진 누락 column만 추가한 뒤 전체 model affinity를 재검증한다. incompatible schema나 migration
+오류는 startup을 중단하며 예외를 duplicate-column 성공으로 삼지 않는다.
 
 ## 검증
 

@@ -37,6 +37,7 @@ export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=5
 export POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE=1
 export POLYBOT_FOK_RECONCILIATION_TIMEOUT_MINUTES=2
 export POLYBOT_STOP_SELL_QUARANTINE_TIMEOUT_MINUTES=180
+export POLYBOT_PENDING_BUY_QUARANTINE_TIMEOUT_MINUTES=180
 export POLYBOT_YES_ONLY=true
 export POLYBOT_ENTRY_PROB_MAX=0.999
 export POLYBOT_ENTRY_HOURS_MIN=0
@@ -49,6 +50,9 @@ export POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC=2026-09-12T04:00:00Z
 
 Soccer는 `POLYBOT_ENTRY_HOURS_MAX=4`, MLB는 `8`, NHL은 `5`다. matrix의 family, threshold와
 runtime을 각 job에 넣는다.
+Jenkins가 제공하는 `JOB_NAME`도 matrix와 exact match해야 한다. runtime registry가 family,
+threshold, `active/live` mode까지 함께 검사하므로 다른 job의 값을 조합한 shell은 DB/network 전에
+실패한다.
 
 ## 배포와 빠른 정기 shell
 

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import time
+from uuid import uuid4
 
 from polybot_observability import RunAudit, log_reconciliation_continuity
 from polybot_observability import SQLiteMaintenanceRequirements
@@ -57,8 +59,9 @@ class PolymarketBot:
         entry = trading.entry
         archive = trading.archive
         logger.info(
-            "Golden Tangerine exact $5 outcome VWAP [%.2f, %.2f], "
+            "Golden Tangerine configured $%.2f outcome VWAP [%.2f, %.2f], "
             "hours (%.1f, %.1f], hold-to-resolution",
+            trading.buy_amount_usdc,
             entry.prob_min,
             entry.prob_max,
             entry.hours_min,
@@ -81,6 +84,30 @@ class PolymarketBot:
             archive.retention_days,
         )
 
+    @staticmethod
+    def _execute_candidate_queue(repo, trader, candidates, cycle_limit: int) -> dict:
+        """Continue after proven no-POST failures; stop after reserved POST capacity."""
+        bought = 0
+        post_reservations = 0
+        for candidate in candidates:
+            episode_id = candidate.get("entry_episode_id")
+            if post_reservations >= cycle_limit:
+                if isinstance(episode_id, int) and not isinstance(episode_id, bool):
+                    repo.mark_entry_episode_execution(
+                        episode_id,
+                        state="CYCLE_POST_CAP_PROVEN_NO_POST",
+                        reason="earlier_candidate_reserved_cycle_post_capacity",
+                        proven_no_post=True,
+                        post_may_have_occurred=False,
+                    )
+                continue
+            trade_id = trader.execute_buy(candidate)
+            if trade_id is not None:
+                bought += 1
+            if trade_id is not None or trader.last_entry_may_have_reached_venue:
+                post_reservations += 1
+        return {"bought": bought, "post_reservations": post_reservations}
+
     def run_cycle(self) -> dict:
         trading = self.config.trading
         session = self.Session()
@@ -97,6 +124,14 @@ class PolymarketBot:
             self.config.trading,
             gamma_client=self.gamma,
             simulation_mode=self.config.simulation_mode,
+        )
+        cycle_id = str(uuid4())
+        cycle_started = time.monotonic()
+        repo.append_cycle_runtime_event(
+            cycle_id=cycle_id,
+            phase="cycle",
+            status="STARTED",
+            elapsed_seconds=0.0,
         )
         stats = {
             "lifecycle_mode": self.config.trading.lifecycle_mode,
@@ -116,6 +151,13 @@ class PolymarketBot:
 
             logger.info("=== Phase 0: exact-book sports archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            repo.append_cycle_runtime_event(
+                cycle_id=cycle_id,
+                phase="archive",
+                status="COMPLETED",
+                elapsed_seconds=time.monotonic() - cycle_started,
+                detail={"snapshots_saved": stats["snapshots_saved"]},
+            )
             lifecycle_mode = trading.lifecycle_mode
 
             if lifecycle_mode == "archive_only":
@@ -161,9 +203,14 @@ class PolymarketBot:
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
                 logger.info("=== Phase 3: fresh-book FOK BUY execution ===")
-                for candidate in candidates[: trading.max_new_positions_per_cycle]:
-                    if trader.execute_buy(candidate) is not None:
-                        stats["bought"] += 1
+                execution = self._execute_candidate_queue(
+                    repo,
+                    trader,
+                    candidates,
+                    trading.max_new_positions_per_cycle,
+                )
+                stats["bought"] += execution["bought"]
+                stats["cycle_post_reservations"] = execution["post_reservations"]
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
 
@@ -172,16 +219,39 @@ class PolymarketBot:
                 days=self.config.trading.archive.retention_days
             )
             db_stats = repo.get_stats()
+            capacity = repo.get_entry_capacity_state(
+                base_notional_usdc=trading.buy_amount_usdc
+            )
             stats["open_states"] = {
                 "pending_buy": db_stats["pending_buy"],
                 "holding": db_stats["holding"],
                 "pending_sell": db_stats["pending_sell"],
-                "total": (
-                    db_stats["pending_buy"]
-                    + db_stats["holding"]
-                    + db_stats["pending_sell"]
-                ),
+                "quarantined": db_stats["quarantined"],
+                "untracked_buy_reservations": capacity["untracked_buy_reservations"],
+                "prepost_crash_reservations": capacity["prepost_crash_reservations"],
+                "total": capacity["total_reserved"],
+                "notional_usdc": capacity["total_notional_usdc"],
             }
+            elapsed = time.monotonic() - cycle_started
+            stats["cycle_runtime"] = {
+                "cycle_id": cycle_id,
+                "elapsed_seconds": elapsed,
+                "warning_seconds": trading.cycle_runtime_warning_seconds,
+                "warning_exceeded": elapsed > trading.cycle_runtime_warning_seconds,
+                "hard_kill_enabled": False,
+            }
+            repo.append_cycle_runtime_event(
+                cycle_id=cycle_id,
+                phase="cycle",
+                status="SUCCEEDED",
+                elapsed_seconds=elapsed,
+                detail=stats["cycle_runtime"],
+            )
+            if stats["cycle_runtime"]["warning_exceeded"]:
+                logger.warning(
+                    "cycle runtime warning exceeded; process was not killed - elapsed=%.3fs",
+                    elapsed,
+                )
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "
@@ -200,6 +270,19 @@ class PolymarketBot:
                 db_stats["total_pnl"],
             )
             return stats
+        except Exception as error:
+            repo.rollback()
+            try:
+                repo.append_cycle_runtime_event(
+                    cycle_id=cycle_id,
+                    phase="cycle",
+                    status="FAILED",
+                    elapsed_seconds=time.monotonic() - cycle_started,
+                    detail={"error_type": type(error).__name__},
+                )
+            except Exception:
+                logger.exception("failed to persist cycle runtime failure telemetry")
+            raise
         finally:
             session.close()
 
@@ -226,6 +309,9 @@ class PolymarketBot:
         try:
             trading = self.config.trading
             holdings = repo.get_holding_trades()
+            capacity = repo.get_entry_capacity_state(
+                base_notional_usdc=trading.buy_amount_usdc
+            )
             return {
                 "strategy": "Golden Tangerine Sports Resolution Hold Live",
                 "job_name": self.config.job_name,
@@ -233,6 +319,8 @@ class PolymarketBot:
                 "lifecycle_mode": trading.lifecycle_mode,
                 "db_path": str(self.config.db_path),
                 "statistics": repo.get_stats(),
+                "entry_capacity": capacity,
+                "exact_economic_loss": repo.get_exact_economic_loss_state(),
                 "holdings": [
                     {
                         "id": trade.id,
@@ -251,6 +339,10 @@ class PolymarketBot:
                 ],
                 "config": {
                     "buy_amount_usdc": trading.buy_amount_usdc,
+                    "max_open_notional_usdc": trading.max_open_notional_usdc,
+                    "max_cumulative_exact_loss_usdc": (
+                        trading.max_cumulative_exact_loss_usdc
+                    ),
                     "min_liquidity": trading.min_liquidity,
                     "min_volume_24h": trading.min_volume_24h,
                     "min_cumulative_volume": trading.min_cumulative_volume,
@@ -262,6 +354,10 @@ class PolymarketBot:
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,
                     "yes_only_mode": trading.yes_only_mode,
+                    "exclude_esports": trading.exclude_esports,
+                    "cycle_runtime_warning_seconds": (
+                        trading.cycle_runtime_warning_seconds
+                    ),
                     "entry": {
                         "prob_min": trading.entry.prob_min,
                         "prob_max": trading.entry.prob_max,

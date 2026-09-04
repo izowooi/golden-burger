@@ -162,6 +162,20 @@ class Trader:
         self.simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
         self.buying_disabled = False
         self.buys_placed_this_cycle = 0
+        self._entry_guard = None
+
+    def get_entry_guard(self) -> dict:
+        """Evaluate and cache the exact-economic new-entry gate for this cycle."""
+        if self._entry_guard is None:
+            getter = getattr(self.repo, "get_entry_guard", None)
+            if getter is None:
+                self._entry_guard = {"entry_allowed": True, "blockers": []}
+            else:
+                self._entry_guard = getter(
+                    self.config.entry_drawdown_floor_usdc,
+                    simulation_mode=self.simulation_mode,
+                )
+        return self._entry_guard
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Execute a buy order for a candidate market.
@@ -185,6 +199,15 @@ class Trader:
         condition_id = candidate["condition_id"]
         token_id = candidate["token_id"]
 
+        guard = self.get_entry_guard()
+        if not guard["entry_allowed"]:
+            self.buying_disabled = True
+            logger.error(
+                "exact-economic entry guard가 신규 BUY를 차단합니다 - blockers=%s",
+                ",".join(guard.get("blockers", [])),
+            )
+            return None
+
         if self.buying_disabled:
             return None
 
@@ -204,11 +227,26 @@ class Trader:
         # Check: finite position and requested-notional exposure limits. The
         # repository counts quarantined/pending rows conservatively because
         # those positions may still exist at the venue.
-        current_positions = self.repo.get_position_count()
+        exposure_getter = getattr(self.repo, "get_exposure_summary", None)
+        if callable(exposure_getter):
+            exposure = exposure_getter()
+            current_positions = int(exposure["reserved_position_count"])
+            open_notional = float(exposure["reserved_open_notional_usdc"])
+            if exposure["untracked_buy_reservation_count"]:
+                logger.warning(
+                    "미추적 BUY evidence를 capacity에 예약 - count=%d "
+                    "notional=$%.2f unknown=%d reconciliation=%d",
+                    exposure["untracked_buy_reservation_count"],
+                    exposure["untracked_buy_reservation_notional_usdc"],
+                    exposure["untracked_buy_unknown_outcome_count"],
+                    exposure["untracked_buy_reconciliation_count"],
+                )
+        else:
+            current_positions = self.repo.get_position_count()
+            open_notional = self.repo.get_open_notional_usdc()
         if current_positions >= self.config.max_positions:
             logger.warning(f"최대 포지션 수 ({self.config.max_positions}) 도달")
             return None
-        open_notional = self.repo.get_open_notional_usdc()
         projected_notional = open_notional + self.config.buy_amount_usdc
         if projected_notional > self.config.max_open_notional_usdc + 1e-9:
             logger.warning(
@@ -1254,9 +1292,23 @@ class Trader:
         (2) status를 UNFILLED로 바꿔 매도 재시도 루프를 끊는다.
         회고에서 UNFILLED 건수는 체결 가정(fill assumption) 편향의 정량 지표다.
         """
-        if trade.buy_order_id and not str(trade.buy_order_id).startswith("SIM"):
+        buy_order_id = str(getattr(trade, "buy_order_id", None) or "").strip()
+        if not buy_order_id:
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.QUARANTINED,
+                exit_reason="zero_balance_buy_order_id_missing",
+                realized_pnl=None,
+            )
+            logger.warning(
+                "zero-balance 포지션 격리 [QUARANTINED]: Trade #%s - "
+                "exact BUY order ID가 없어 zero-fill을 증명할 수 없습니다",
+                trade.id,
+            )
+            return
+        if not buy_order_id.startswith("SIM"):
             try:
-                cancel_result = self.clob.cancel_order(trade.buy_order_id)
+                cancel_result = self.clob.cancel_order(buy_order_id)
             except SubmissionEvidenceError as error:
                 if isinstance(error.__cause__, ClobResponseUnavailableError):
                     self.repo.update_trade(
@@ -1276,12 +1328,12 @@ class Trader:
                     "유령 포지션 판정 보류 - buy order의 zero-fill 취소를 "
                     "증명하지 못해 HOLDING 유지: trade=%s order=%s error=%s",
                     trade.id,
-                    trade.buy_order_id,
+                    buy_order_id,
                     type(error).__name__,
                 )
                 return
             logger.info(
-                f"미체결 매수 주문 취소: {trade.buy_order_id} -> {cancel_result}"
+                f"미체결 매수 주문 취소: {buy_order_id} -> {cancel_result}"
             )
         self.repo.update_trade(
             trade.id,

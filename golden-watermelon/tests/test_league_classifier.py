@@ -233,3 +233,20 @@ def test_minor_leagues_fail_closed(
     result = classify_sports_event(event, gamma, family)
     assert result.status == "REJECTED"
     assert expected_reason in result.reasons
+
+
+@pytest.mark.parametrize(
+    "title",
+    [
+        "NBA G League: Austin Spurs vs Texas Legends",
+        "NBA G-League Ignite vs College Park Skyhawks",
+        "NBA Summer League: Lakers vs Celtics",
+    ],
+)
+def test_nba_g_league_and_summer_league_are_excluded_despite_nba_authority(
+    gamma, title: str
+) -> None:
+    event = direct_event("nba", title=title)
+    result = classify_sports_event(event, gamma, "nba")
+    assert result.status == "REJECTED"
+    assert "MINOR_OR_NON_MAJOR_COMPETITION_EXCLUDED" in result.reasons

@@ -103,6 +103,42 @@ ECONOMIC_GUARD_START_UTC_BY_SPORT = {
 
 
 @dataclass(frozen=True)
+class RuntimeSpec:
+    """One indivisible Jenkins/runtime/family/arm execution contract."""
+
+    runtime_job: str
+    jenkins_job: str
+    sport_family: str
+    prob_min: float
+    simulation_mode: bool = False
+
+
+RUNTIME_SPECS = {
+    spec.runtime_job: spec
+    for spec in (
+        RuntimeSpec(
+            "watermelon-live-cat-96-1m-v2h", "polybot-cat", "soccer", 0.96
+        ),
+        RuntimeSpec(
+            "watermelon-live-dog-99-1m-v2h", "polybot-dog", "soccer", 0.99
+        ),
+        RuntimeSpec(
+            "watermelon-live-bear-mlb-96-1m-v3a", "polybot-bear", "mlb", 0.96
+        ),
+        RuntimeSpec(
+            "watermelon-live-tiger-mlb-99-1m-v3a", "polybot-tiger", "mlb", 0.99
+        ),
+        RuntimeSpec(
+            "watermelon-live-lion-nhl-96-1m-v3a", "polybot-lion", "nhl", 0.96
+        ),
+        RuntimeSpec(
+            "watermelon-live-wolf-nhl-99-1m-v3a", "polybot-wolf", "nhl", 0.99
+        ),
+    )
+}
+
+
+@dataclass(frozen=True)
 class LeagueIdentity:
     code: str
     sport_id: int
@@ -371,6 +407,7 @@ class TradingConfig:
     max_snapshot_gap_minutes: float = 15.0
     fok_reconciliation_timeout_minutes: float = 2.0
     stop_sell_quarantine_timeout_minutes: float = 180.0
+    pending_buy_quarantine_timeout_minutes: float = 180.0
     min_order_size: float = 5.0
     min_order_buffer_shares: float = 0.0
     yes_only_mode: bool = True
@@ -406,9 +443,16 @@ class BotConfig:
     db_path: Path
     simulation_mode: bool = True
     job_name: str = "default"
+    jenkins_job: str = ""
 
 
-def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
+def _validate_config(
+    trading: TradingConfig,
+    api: ApiConfig,
+    *,
+    runtime_spec: RuntimeSpec,
+    simulation_mode: bool,
+) -> None:
     """Reject parameter drift before any network or database mutation."""
     entry = trading.entry
     archive = trading.archive
@@ -430,6 +474,9 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         ),
         "stop_sell_quarantine_timeout_minutes": (
             trading.stop_sell_quarantine_timeout_minutes
+        ),
+        "pending_buy_quarantine_timeout_minutes": (
+            trading.pending_buy_quarantine_timeout_minutes
         ),
         "min_order_size": trading.min_order_size,
         "min_order_buffer_shares": trading.min_order_buffer_shares,
@@ -453,8 +500,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
         )
-    if trading.sport_family not in SPORT_FAMILY_TAG_IDS:
-        raise ValueError("sport_family must be one of: soccer, mlb, nhl")
+    if trading.sport_family != runtime_spec.sport_family:
+        raise ValueError(
+            f"{runtime_spec.runtime_job} sport family must remain "
+            f"{runtime_spec.sport_family}"
+        )
+    if simulation_mode is not runtime_spec.simulation_mode:
+        expected = "simulation" if runtime_spec.simulation_mode else "live"
+        raise ValueError(f"{runtime_spec.runtime_job} is frozen to {expected} mode")
     if not (
         BASELINE_EXECUTION_NOTIONAL_USDC
         <= trading.buy_amount_usdc
@@ -501,14 +554,19 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError("delayed FOK reconciliation timeout is frozen at 2 minutes")
     if trading.stop_sell_quarantine_timeout_minutes != 180:
         raise ValueError("failed stop SELL quarantine timeout is frozen at 180 minutes")
+    if trading.pending_buy_quarantine_timeout_minutes != 180:
+        raise ValueError("ambiguous PENDING BUY quarantine timeout is frozen at 180 minutes")
     if trading.min_order_size != 5 or trading.min_order_buffer_shares != 0:
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if not trading.yes_only_mode:
         raise ValueError(
             "YES tokens / direct winner tokens must remain winner-only"
         )
-    if (entry.prob_min, entry.prob_max) not in FROZEN_ARMS:
-        raise ValueError("entry band must be exactly 0.96-0.999 or 0.99-0.999")
+    if (entry.prob_min, entry.prob_max) != (runtime_spec.prob_min, 0.999):
+        raise ValueError(
+            f"{runtime_spec.runtime_job} entry band must remain "
+            f"{runtime_spec.prob_min:.2f}-0.999"
+        )
     if entry.stop_price != 0.70:
         raise ValueError("emergency stop_price is frozen at 0.70")
     if entry.max_entry_drawdown != 0.30:
@@ -593,8 +651,18 @@ def load_config(
     simulation_mode: Optional[bool] = None,
     yes_only_mode: Optional[bool] = None,
 ) -> BotConfig:
-    """Load and validate the immutable Cat/Dog A/B configuration."""
+    """Load and validate one registered, indivisible live runtime."""
     load_dotenv(env_path) if env_path else load_dotenv()
+
+    runtime_spec = RUNTIME_SPECS.get(job_name)
+    if runtime_spec is None:
+        raise ValueError(f"unsupported Golden Watermelon Live runtime job: {job_name}")
+    observed_jenkins_job = str(os.getenv("JOB_NAME") or "").strip()
+    if observed_jenkins_job and observed_jenkins_job != runtime_spec.jenkins_job:
+        raise ValueError(
+            f"{job_name} must run under Jenkins job {runtime_spec.jenkins_job}; "
+            f"got {observed_jenkins_job}"
+        )
 
     path = Path(config_path)
     if path.exists():
@@ -610,7 +678,7 @@ def load_config(
 
     entry = WatermelonLiveEntryConfig(
         prob_min=_get_config_value(
-            "POLYBOT_ENTRY_PROB_MIN", entry_cfg.get("prob_min"), 0.96
+            "POLYBOT_ENTRY_PROB_MIN", None, runtime_spec.prob_min
         ),
         prob_max=_get_config_value(
             "POLYBOT_ENTRY_PROB_MAX", entry_cfg.get("prob_max"), 0.999
@@ -642,7 +710,9 @@ def load_config(
             "POLYBOT_ENTRY_HOURS_MIN", entry_cfg.get("hours_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ENTRY_HOURS_MAX", entry_cfg.get("hours_max"), 4.0
+            "POLYBOT_ENTRY_HOURS_MAX",
+            None,
+            SPORT_FAMILY_MAX_IN_PLAY_HOURS[runtime_spec.sport_family],
         ),
     )
     archive = ArchiveConfig(
@@ -650,7 +720,9 @@ def load_config(
             "POLYBOT_ARCHIVE_PROB_MIN", archive_cfg.get("prob_min"), 0.0
         ),
         hours_max=_get_config_value(
-            "POLYBOT_ARCHIVE_HOURS_MAX", archive_cfg.get("hours_max"), 4.0
+            "POLYBOT_ARCHIVE_HOURS_MAX",
+            None,
+            SPORT_FAMILY_MAX_IN_PLAY_HOURS[runtime_spec.sport_family],
         ),
         retention_days=_get_config_value(
             "POLYBOT_SNAPSHOT_RETENTION_DAYS",
@@ -668,10 +740,7 @@ def load_config(
         resolved_yes_only = yes_only_mode
 
     sport_family = str(
-        os.getenv(
-            "POLYBOT_SPORT_FAMILY",
-            trading_cfg.get("sport_family", "soccer"),
-        )
+        os.getenv("POLYBOT_SPORT_FAMILY", runtime_spec.sport_family)
     ).strip().lower()
     trading = TradingConfig(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
@@ -741,6 +810,11 @@ def load_config(
             trading_cfg.get("stop_sell_quarantine_timeout_minutes"),
             180.0,
         ),
+        pending_buy_quarantine_timeout_minutes=_get_config_value(
+            "POLYBOT_PENDING_BUY_QUARANTINE_TIMEOUT_MINUTES",
+            trading_cfg.get("pending_buy_quarantine_timeout_minutes"),
+            180.0,
+        ),
         min_order_size=_get_config_value(
             "POLYBOT_MIN_ORDER_SIZE", trading_cfg.get("min_order_size"), 5.0
         ),
@@ -794,12 +868,17 @@ def load_config(
         funder_address=funder_address,
         signature_type=int(os.getenv("POLYMARKET_SIGNATURE_TYPE", "1")),
     )
-    _validate_config(trading, api)
-
     if simulation_mode is None:
         simulation_mode = cfg.get("simulation_mode", True)
     if not isinstance(simulation_mode, bool):
         raise ValueError("simulation_mode must be a boolean")
+
+    _validate_config(
+        trading,
+        api,
+        runtime_spec=runtime_spec,
+        simulation_mode=simulation_mode,
+    )
 
     db_dir = Path("data") / job_name
     db_dir.mkdir(parents=True, exist_ok=True)
@@ -810,4 +889,5 @@ def load_config(
         db_path=db_path,
         simulation_mode=simulation_mode,
         job_name=job_name,
+        jenkins_job=runtime_spec.jenkins_job,
     )

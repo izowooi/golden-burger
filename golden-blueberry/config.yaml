@@ -32,6 +32,9 @@ trading:
   max_event_positions: 1
   max_open_notional_multiple: 10
   max_new_positions_per_cycle: 1
+  # Resting GTC BUYs are canceled after two 5-minute cycles, then exact
+  # terminal fills (including partial fills) are reconciled into exposure.
+  gtc_buy_ttl_minutes: 10
   reentry_cooldown_hours: 168
 
   max_snapshot_gap_minutes: 15

@@ -125,6 +125,11 @@ MLB는 `[0.55,0.58]` 첫 교차, 최근 5회 누적 `+0.01`, 진입가 `-0.15` �
 BUY 또는 SELL 노출을 확정하지 못하면 `QUARANTINED`로 남겨 경제적 open capacity를
 소모하게 하며, 성공 체결·0 exposure·realized P&L로 꾸미지 않는다.
 
+live `HOLDING`은 confirmed BUY size/VWAP/fee가 빠지면 신규 진입을 전역 fail-closed로
+막는다. simulation `HOLDING`은 displayed-book 가정이라 venue fill field가 없는 것이 정상이며
+그 사유와 mode를 cycle evidence에 남기되 신규 진입을 막지 않는다. 두 mode 모두 open row와
+미해결 live BUY intent를 `max_positions` capacity에서 제외하지 않는다.
+
 부분 익절의 `sell_shares`·`realized_pnl`은 누적 confirmed 값이고 `buy_shares`는 현재 잔여
 수량이다. 원래 매수량은 `buy_confirmed_size`로 보존한다. 해결 시에는 이미 실현된 손익을
 유지하고 잔여 수량의 payout 손익만 별도로 더해 중복 계산을 막는다.
@@ -150,9 +155,11 @@ simulation 전용이라 King/Queen의 실거래 cycle 시간을 늘리지 않는
 
 경기 종료 뒤 live Gamma 응답에서 condition이 사라지면 같은 condition의 public CLOB
 market을 보완 조회한다. 기존 catalog와 condition·두 token·outcome이 정확히 일치하고,
-closed 상태에서 한 token만 1이고 다른 token은 0인 경우에만 append-only terminal
-evidence로 기록한다. 불일치·미해결·열린 상태는 계속 후속 추적하며, 이 자료로 가상의
-체결이나 실현 손익을 만들지 않는다.
+closed 상태에서 한 token만 1이고 다른 token은 0인 one-hot 또는 winner가 없고 두 token이
+각각 정확히 `0.5`인 void만 append-only terminal evidence로 기록한다. Gamma 자체의
+`0.5/0.5`는 `closed=true`와 `umaResolutionStatus=resolved`를 함께 요구한다. 불일치·미해결·
+열린 상태는 계속 후속 추적하며, 이 자료로 가상의 SELL이나 실현 손익을 만들지 않는다.
+live trade는 terminal BUY fill/fee evidence가 완전할 때만 settlement를 적용한다.
 
 `scripts/replay_direct_six_book.py --sport-family <family>`는 같은 event에서 entry, target,
 stop, trend 길이와 누적 움직임 grid를 재생한다. 종목별 profile은 별도로 versioning하므로

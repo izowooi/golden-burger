@@ -9,14 +9,14 @@ from datetime import datetime, timedelta
 from types import SimpleNamespace
 
 import pytest
-from sqlalchemy import inspect, text
+from sqlalchemy import text
 from sqlalchemy.exc import DatabaseError
 
 from polybot.db.models import MarketSnapshot, TradeStatus, init_database
 from polybot.db.repository import TradeRepository
 
 
-def test_legacy_trade_table_adds_nullable_prior_snapshot_lineage(tmp_path):
+def test_incomplete_legacy_trade_table_is_rejected_instead_of_partly_migrated(tmp_path):
     db_path = tmp_path / "legacy-trades.db"
     connection = sqlite3.connect(db_path)
     connection.execute("CREATE TABLE trades (id INTEGER PRIMARY KEY)")
@@ -24,32 +24,8 @@ def test_legacy_trade_table_adds_nullable_prior_snapshot_lineage(tmp_path):
     connection.commit()
     connection.close()
 
-    Session = init_database(str(db_path))
-    session = Session()
-    columns = {
-        column["name"] for column in inspect(session.get_bind()).get_columns("trades")
-    }
-
-    assert "prior_snapshot_id_at_entry" in columns
-    assert "entry_snapshot_id" in columns
-    assert {
-        "sport_family",
-        "league_code",
-        "league_name",
-        "market_tags_json",
-        "target_buy_amount_usdc",
-        "selected_buy_amount_usdc",
-        "max_executable_buy_notional_usdc",
-        "buy_notional_fallback_reason",
-    } <= columns
-    row = session.execute(
-        text(
-            "SELECT prior_snapshot_id_at_entry, entry_snapshot_id "
-            "FROM trades WHERE id = 1"
-        )
-    ).one()
-    assert row == (None, None)
-    session.close()
+    with pytest.raises(RuntimeError, match="incompatible trades schema"):
+        init_database(str(db_path))
 
 
 def test_repository_retention_preserves_explicit_and_legacy_snapshot_pairs(

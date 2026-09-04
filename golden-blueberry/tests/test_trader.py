@@ -130,6 +130,11 @@ class FakeRepo:
         )
         self.fill_calls = []
         self.sell_fill_calls = []
+        self.candidate_decisions = []
+
+    def record_candidate_execution_decision(self, **kwargs):
+        self.candidate_decisions.append(kwargs)
+        return SimpleNamespace(**kwargs)
 
     def can_reenter(self, _condition_id, _cooldown_hours):
         return self.can_reenter_result
@@ -308,6 +313,7 @@ class TestEntryExecution:
         assert created["spread_at_buy"] == pytest.approx(0.01)
         assert created["book_depth_shares_at_buy"] == 1_000.0
         assert created["depth_limit_price_at_buy"] == 0.92
+        assert repo.candidate_decisions[-1]["decision"] == "submitted"
 
     def test_simulation_mode_is_evidence_on_created_trade(self):
         trader, repo, _ = make_trader(
@@ -407,6 +413,10 @@ class TestEntryExecution:
         assert trader.execute_buy(make_candidate(condition_id="second")) is None
         assert len(clob.orders) == 1
         assert repo.created == []
+        assert [item["reason"] for item in repo.candidate_decisions] == [
+            "balance_or_allowance",
+            "buying_disabled_after_balance_error",
+        ]
 
 
 class TestStopExecution:
@@ -583,6 +593,31 @@ class TestPendingBuyReconciliation:
         assert repo.updates[-1][1]["status"] == TradeStatus.UNFILLED
         assert repo.updates[-1][1]["exit_reason"] == "buy_terminal_zero_fill"
 
+    def test_terminal_partial_buy_activates_only_exact_confirmed_exposure(self):
+        partial = ExactFillEvidence(
+            "confirmed",
+            "0xBUY",
+            order_status="CANCELED",
+            side="BUY",
+            requested_size=5.2,
+            latest_size_matched=2.0,
+            needs_reconciliation=False,
+            reconciled_full_fill=False,
+            reconciled_terminal_fill=True,
+            confirmed_size=2.0,
+            confirmed_vwap=0.91,
+            confirmed_fee_usdc=0.004,
+            fee_complete=True,
+        )
+        repo = FakeRepo(fill_evidence=partial)
+        trader, _, _ = make_trader(repo=repo)
+
+        assert trader.reconcile_pending_buy(make_trade()) is True
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.HOLDING
+        assert update["buy_shares"] == 2.0
+        assert update["buy_price"] == 0.91
+
 
 class TestPendingSellReconciliation:
     def test_full_reconciled_buy_and_sell_fills_complete_with_actual_net_pnl(self):
@@ -708,6 +743,35 @@ class TestPendingSellReconciliation:
 
         assert trader.reconcile_pending_sell(make_trade()) is False
         assert repo.updates == []
+
+    def test_explicit_sub_point_zero_one_sell_residual_closes_sold_part(self):
+        sell = ExactFillEvidence(
+            "confirmed",
+            "0xSELL",
+            order_status="MATCHED",
+            side="SELL",
+            requested_size=5.2,
+            latest_size_matched=5.195,
+            needs_reconciliation=False,
+            reconciled_full_fill=True,
+            reconciled_terminal_fill=True,
+            confirmed_size=5.195,
+            confirmed_vwap=0.885,
+            confirmed_fee_usdc=0.01,
+            fee_complete=True,
+        )
+        repo = FakeRepo(sell_fill_evidence=sell)
+        trader, _, _ = make_trader(repo=repo)
+
+        assert trader.reconcile_pending_sell(make_trade()) is True
+        update = repo.updates[-1][1]
+        assert update["status"] == TradeStatus.RESIDUAL
+        assert update["sell_residual_shares"] == pytest.approx(0.005)
+        assert update["pnl_basis"].endswith("sub_0.01_sell_residual")
+        allocated_buy_fee = 0.0 * (5.195 / 5.2)
+        assert update["realized_pnl"] == pytest.approx(
+            (0.885 - 0.955) * 5.195 - allocated_buy_fee - 0.01
+        )
 
 
 def resolved_market(yes_payout=1.0):

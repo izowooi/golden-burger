@@ -404,7 +404,7 @@ def get_event_metadata(market: Dict[str, Any]) -> Dict[str, Optional[str]]:
 def get_proven_resolution(
     market: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-    """Return payout evidence only for a closed exact Yes/No market."""
+    """Return exact closed one-hot or token-aligned 0.5/0.5 payout evidence."""
     if not market or market.get("closed") is not True:
         return None
     outcomes = get_aligned_binary_outcomes(market)
@@ -415,12 +415,24 @@ def get_proven_resolution(
     payouts = dict(zip(labels, prices))
     if prices == [1.0, 0.0]:
         outcome, winner_index = labels[0], 0
+        status = str(
+            market.get("umaResolutionStatus") or "closed_final_prices"
+        )
+        evidence = "gamma_closed_final_outcome_prices"
     elif prices == [0.0, 1.0]:
         outcome, winner_index = labels[1], 1
+        status = str(
+            market.get("umaResolutionStatus") or "closed_final_prices"
+        )
+        evidence = "gamma_closed_final_outcome_prices"
+    elif prices == [0.5, 0.5]:
+        # A void has no winner, but both exact token-aligned payouts are final.
+        # This narrow exception does not permit any other fractional pair and
+        # does not relax the CLOB unique-winner 0/1 proof.
+        outcome, winner_index = "Void", None
+        status = "gamma_closed_void_0_5"
+        evidence = "gamma_closed_void_outcome_prices"
     else:
-        # A closed market with 0.5/0.5 (or any non-one-hot pair) is not a
-        # terminal payout.  Recording it as RESOLVED would prematurely release
-        # capacity and invent a settlement value.
         return None
     return {
         "outcome": outcome,
@@ -428,8 +440,8 @@ def get_proven_resolution(
         "first_outcome_payout": prices[0],
         "yes_payout": prices[0],
         "payouts_by_outcome": payouts,
-        "status": str(market.get("umaResolutionStatus") or "closed_final_prices"),
-        "evidence": "gamma_closed_final_outcome_prices",
+        "status": status,
+        "evidence": evidence,
     }
 
 

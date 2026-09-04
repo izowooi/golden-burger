@@ -6,6 +6,8 @@ Usage:
     python main.py run --simulate   # Run in simulation mode
     python main.py status           # Check status
     python main.py config           # Show configuration
+    python main.py config --shadow  # Show frozen accountless shadow config
+    python main.py run --shadow     # Run one order-free shadow collection cycle
 """
 import sys
 import os

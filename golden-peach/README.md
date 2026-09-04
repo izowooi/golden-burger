@@ -53,6 +53,26 @@ simulation mode에 고정되어 잘못된 live/종목 조합을 시작 전에 �
   사유는 trade에 남는다.
 - `sport_family`, 리그 코드·이름, 원본 태그를 snapshot과 trade에 함께 저장한다.
 
+### Future scaled-notional partial-TP gate
+
+현재 cohort에는 partial TP를 활성화하지 않는다. 동결된 `$5` 진입과 `[0.60, 0.94]`
+가격대에서 보유량은 최대 약 8.33주이므로, venue 최소 5주인 SELL을 한 번 실행하면서 별도의
+5주 이상 잔여 포지션을 보존할 수 없다. 따라서 현재 Eco/Fruit의 TP는 계속 전체 보유량 한 건의
+FOK SELL이며 실행 treatment는 바뀌지 않는다.
+
+향후 목표 주문액을 올려 partial TP를 검정하려면 기존 runtime/실험에 소급하지 않고 새
+`config_hash × strategy_source_digest × mode × job_name` cohort와 기간을 사전 등록한다. 그
+cohort는 다음 gate를 모두 구현·검증해야 한다.
+
+- confirmed BUY 잔여 수량이 최소 SELL 수량의 두 배 이상일 때만 분할을 허용한다.
+- 한 fresh canonical full book에서 TP 이상인 각 bid level만 사용해 FOK slice를 정하고, SELL
+  slice와 잔여분이 각각 venue 최소 수량 이상임을 제출 전에 증명한다.
+- 요청 수량이 아니라 confirmed SELL fill/fee를 누적하며, in-flight SELL 수량과 경제적 잔여
+  수량을 별도 필드로 보존한다.
+- partial SELL 손익과 이후 잔여분 resolution 손익이 같은 share 또는 BUY fee를 중복 배분하지
+  않도록 대사하고, 각 exit 결정의 book hash·선택량·잔여량·축소 사유를 append-only로 남긴다.
+- stop은 partial로 완화하지 않고 기존 전체 노출 fail-closed 계약을 유지한다.
+
 ## 파라미터 근거와 한계
 
 기존 Golden Watermelon White 1분/Grey 5분 자료에서 비교 가능한 35경기를 탐색했다. 과거

@@ -113,6 +113,39 @@ class GammaClient:
             for item in self.sweep_attestations
         ]
 
+    def _matching_market(
+        self,
+        payload: object,
+        condition_id: str,
+        *,
+        require_closed: bool = False,
+    ) -> Optional[Dict[str, Any]]:
+        """Return only an exact identity/state match from a Gamma list response."""
+        if not isinstance(payload, list):
+            logger.warning(
+                "Gamma market lookup response is not a list - condition=%s type=%s",
+                condition_id,
+                type(payload).__name__,
+            )
+            return None
+        expected = condition_id.casefold()
+        for raw_market in payload:
+            if not isinstance(raw_market, Mapping):
+                continue
+            actual = str(raw_market.get("conditionId") or "").strip()
+            if actual.casefold() != expected:
+                continue
+            if require_closed and raw_market.get("closed") is not True:
+                continue
+            market = dict(raw_market)
+            for field in ("outcomes", "outcomePrices", "clobTokenIds"):
+                parsed = self._parse_json_array(market.get(field))
+                if parsed is not None:
+                    market[field] = parsed
+            market["sportFamily"] = self.sport_family
+            return market
+        return None
+
     @staticmethod
     def _parse_json_array(value: Any) -> Optional[list[Any]]:
         if isinstance(value, list):
@@ -432,21 +465,32 @@ class GammaClient:
     def get_market_by_condition_id(
         self, condition_id: str
     ) -> Optional[Dict[str, Any]]:
+        normalized = str(condition_id or "").strip()
+        if not normalized:
+            logger.warning("Gamma market lookup requires a condition ID")
+            return None
+        params = {"condition_ids": normalized, "limit": 1}
         try:
+            response = self._get("/markets", params=params)
+            response.raise_for_status()
+            market = self._matching_market(response.json(), normalized)
+            if market is not None:
+                return market
+
+            # Gamma's default listing can omit a terminal condition even when
+            # condition_ids is present. Query the closed partition explicitly
+            # so resolution remains observable after the live book vanishes.
             response = self._get(
-                "/markets", params={"condition_ids": condition_id, "limit": 1}
+                "/markets", params={**params, "closed": "true"}
             )
             response.raise_for_status()
-            markets = response.json()
-            if not isinstance(markets, list) or not markets:
-                return None
-            market = dict(markets[0])
-            market["sportFamily"] = self.sport_family
-            return market
-        except requests.exceptions.RequestException as error:
+            return self._matching_market(
+                response.json(), normalized, require_closed=True
+            )
+        except (requests.exceptions.RequestException, ValueError) as error:
             logger.warning(
                 "Gamma market lookup failed - condition=%s error=%s",
-                condition_id,
+                normalized,
                 type(error).__name__,
             )
             return None

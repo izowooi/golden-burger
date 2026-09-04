@@ -46,6 +46,9 @@ from ..strategy.filters import (
 
 
 logger = logging.getLogger(__name__)
+_VOID_WINNER_INDEX = -1
+_VOID_WINNER_TOKEN_ID = "__VOID__"
+_VOID_WINNER_OUTCOME = "VOID"
 _OPEN_STATUSES = (
     TradeStatus.PENDING_BUY,
     TradeStatus.HOLDING,
@@ -549,7 +552,7 @@ class TradeRepository:
         trade_id: int,
         condition_id: str,
         observed_at: datetime,
-        winner_index: int,
+        winner_index: Optional[int],
         winner_token_id: str,
         winner_outcome: str,
         selected_token_id: str,
@@ -568,11 +571,10 @@ class TradeRepository:
             raise ValueError(f"Trade {trade_id} not found")
         if str(trade.condition_id) != str(condition_id):
             raise ValueError("resolution condition does not match the trade")
-        if (
-            isinstance(winner_index, bool)
-            or winner_index not in (0, 1)
-            or isinstance(selected_payout, bool)
-            or selected_payout not in (0.0, 1.0)
+        if isinstance(selected_payout, bool) or selected_payout not in (
+            0.0,
+            0.5,
+            1.0,
         ):
             raise ValueError("resolution winner/payout is outside the binary domain")
         normalized_hash = str(evidence_sha256 or "").strip().lower()
@@ -602,22 +604,46 @@ class TradeRepository:
         if any(
             isinstance(token.get("price"), bool)
             or not math.isfinite(price)
-            or price not in (0.0, 1.0)
+            or price not in (0.0, 0.5, 1.0)
+            or not isinstance(token.get("winner"), bool)
             for token, price in zip(tokens, prices)
         ):
-            raise ValueError("resolution evidence token payouts are not exact 0/1")
+            raise ValueError(
+                "resolution evidence token payouts/winners are invalid"
+            )
         winners = [
             index for index, token in enumerate(tokens) if token.get("winner") is True
         ]
-        if winners != [winner_index]:
-            raise ValueError("resolution evidence must contain one aligned winner")
-        winner = tokens[winner_index]
-        if (
-            str(winner.get("token_id") or "") != str(winner_token_id)
-            or str(winner.get("outcome") or "") != str(winner_outcome)
-            or prices[winner_index] != 1.0
-        ):
-            raise ValueError("resolution winner does not match normalized evidence")
+        is_void = prices == [0.5, 0.5] and not winners
+        if is_void:
+            if winner_index not in (None, _VOID_WINNER_INDEX) or (
+                str(winner_token_id) != _VOID_WINNER_TOKEN_ID
+                or str(winner_outcome) != _VOID_WINNER_OUTCOME
+            ):
+                raise ValueError("void resolution identity is not explicit")
+            stored_winner_index = _VOID_WINNER_INDEX
+            stored_winner_token_id = _VOID_WINNER_TOKEN_ID
+            stored_winner_outcome = _VOID_WINNER_OUTCOME
+        else:
+            if isinstance(winner_index, bool) or winner_index not in (0, 1):
+                raise ValueError("resolution winner is outside the binary domain")
+            expected_prices = [0.0, 0.0]
+            expected_prices[winner_index] = 1.0
+            if prices != expected_prices or winners != [winner_index]:
+                raise ValueError(
+                    "resolution evidence must contain one aligned exact 0/1 winner"
+                )
+            winner = tokens[winner_index]
+            if (
+                str(winner.get("token_id") or "") != str(winner_token_id)
+                or str(winner.get("outcome") or "") != str(winner_outcome)
+            ):
+                raise ValueError(
+                    "resolution winner does not match normalized evidence"
+                )
+            stored_winner_index = winner_index
+            stored_winner_token_id = str(winner_token_id)
+            stored_winner_outcome = str(winner_outcome)
         selected = [
             token
             for token in tokens
@@ -643,9 +669,9 @@ class TradeRepository:
             condition_id=str(condition_id),
             observed_at=observed_at,
             source="CLOB_MARKET",
-            winner_index=winner_index,
-            winner_token_id=str(winner_token_id),
-            winner_outcome=str(winner_outcome),
+            winner_index=stored_winner_index,
+            winner_token_id=stored_winner_token_id,
+            winner_outcome=stored_winner_outcome,
             selected_token_id=str(selected_token_id),
             selected_outcome=str(selected_outcome),
             selected_payout=float(selected_payout),
@@ -841,15 +867,19 @@ class TradeRepository:
             "total_reserved": open_positions + untracked_buy_reservations,
         }
 
-    def get_open_buy_evidence_gap_count(self) -> int:
+    def get_open_buy_evidence_gap_count(self, *, mode: Optional[str] = None) -> int:
         """Count unsafe BUY evidence gaps, excluding bounded BUY isolation.
 
         A timed-out BUY quarantine is intentionally incomplete evidence, but
         it is already represented as one event-local economic reservation.
         Counting that same row as a global evidence blocker would defeat the
-        isolation contract and stop every unrelated match.
+        isolation contract and stop every unrelated match. ``mode`` permits
+        the cycle guard to distinguish expected simulation omissions without
+        exempting live or unclassified rows in the same database.
         """
-        result = (
+        if mode not in (None, "live", "sim"):
+            raise ValueError("mode must be live, sim, or None")
+        query = (
             self.session.query(func.count(Trade.id))
             .filter(
                 Trade.status.in_(
@@ -871,9 +901,10 @@ class TradeRepository:
                     Trade.buy_confirmed_fee_usdc.is_(None),
                 ),
             )
-            .scalar()
-            or 0
         )
+        if mode is not None:
+            query = query.filter(Trade.mode == mode)
+        result = query.scalar() or 0
         return int(result)
 
     def get_event_position_count(self, event_id: Optional[str]) -> int:
@@ -1730,8 +1761,14 @@ class TradeRepository:
         ]
         winners = [item for item in tokens if item["payout"] == 1.0]
         losers = [item for item in tokens if item["payout"] == 0.0]
-        if len(winners) != 1 or len(losers) != 1:
-            raise ValueError("terminal market payouts must be unique one-hot 0/1")
+        is_void = (
+            resolution.get("settlement_kind") == "VOID"
+            and [item["payout"] for item in tokens] == [0.5, 0.5]
+        )
+        if not is_void and (len(winners) != 1 or len(losers) != 1):
+            raise ValueError(
+                "terminal market payouts must be unique one-hot 0/1 or exact void"
+            )
         payload = {
             "schema_version": 1,
             "source": "GAMMA_CONDITION_FOLLOWUP",
@@ -1743,10 +1780,17 @@ class TradeRepository:
             "tokens": tokens,
         }
         evidence_json = _canonical_payload(payload)
+        winner_index = _VOID_WINNER_INDEX if is_void else int(winners[0]["index"])
+        winner_token_id = (
+            _VOID_WINNER_TOKEN_ID if is_void else str(winners[0]["token_id"])
+        )
+        winner_outcome = (
+            _VOID_WINNER_OUTCOME if is_void else str(winners[0]["outcome"])
+        )
         return {
-            "winner_index": int(winners[0]["index"]),
-            "winner_token_id": str(winners[0]["token_id"]),
-            "winner_outcome": str(winners[0]["outcome"]),
+            "winner_index": winner_index,
+            "winner_token_id": winner_token_id,
+            "winner_outcome": winner_outcome,
             "payouts_json": _canonical_payload(
                 {
                     item["token_id"]: item["payout"]
@@ -2015,10 +2059,10 @@ class TradeRepository:
         evidence_context: Dict[str, Any],
         commit: bool = True,
     ) -> MarketCatalog:
-        """Store exact CLOB 0/1 evidence when Gamma dropped a condition.
+        """Store exact CLOB one-hot or void evidence after a Gamma gap.
 
         The result is accepted only when its condition, token, outcome and
-        winner identities exactly match the catalog captured while live.  It
+        terminal identities exactly match the catalog captured while live. It
         is order-independent collector evidence, not a simulated fill or P&L.
         """
 
@@ -2031,8 +2075,9 @@ class TradeRepository:
         ).strip()
         if proof_condition != normalized_condition:
             raise ValueError("CLOB follow-up condition_id mismatch")
-        if str(getattr(proof, "status", "") or "") != "RESOLVED":
-            raise ValueError("CLOB follow-up proof is not uniquely resolved")
+        proof_status = str(getattr(proof, "status", "") or "")
+        if proof_status not in {"RESOLVED", "VOID"}:
+            raise ValueError("CLOB follow-up proof is not terminal")
 
         try:
             expected_token_ids = [
@@ -2071,7 +2116,7 @@ class TradeRepository:
                 or not outcome
                 or not isinstance(winner, bool)
                 or not math.isfinite(payout)
-                or payout not in (0.0, 1.0)
+                or payout not in (0.0, 0.5, 1.0)
                 or token_id in proof_by_token
             ):
                 raise ValueError("CLOB follow-up token evidence is invalid")
@@ -2093,7 +2138,11 @@ class TradeRepository:
                 raise ValueError("CLOB follow-up outcome/token alignment mismatch")
             tokens.append({"index": index, **item})
         winners = [item for item in tokens if item["winner"]]
-        if (
+        is_void = proof_status == "VOID"
+        if is_void:
+            if winners or [item["payout"] for item in tokens] != [0.5, 0.5]:
+                raise ValueError("CLOB follow-up void payout is not exact 0.5/0.5")
+        elif (
             len(winners) != 1
             or winners[0]["payout"] != 1.0
             or any(item["winner"] != (item["payout"] == 1.0) for item in tokens)
@@ -2110,30 +2159,42 @@ class TradeRepository:
             != raw_evidence_sha256
         ):
             raise ValueError("CLOB follow-up evidence checksum mismatch")
+        resolution_status = (
+            "clob_closed_void_0_5_0_5"
+            if is_void
+            else "clob_closed_unique_winner"
+        )
         payload = {
             "schema_version": 1,
             "source": "CLOB_CONDITION_FOLLOWUP",
             "condition_id": normalized_condition,
             "event_id": catalog.event_id,
             "closed": True,
-            "status": "clob_closed_unique_winner",
+            "status": resolution_status,
             "source_observed_at": str(getattr(proof, "observed_at", "") or ""),
             "clob_evidence_sha256": raw_evidence_sha256,
             "tokens": tokens,
         }
         evidence_json = _canonical_payload(payload)
+        winner_index = _VOID_WINNER_INDEX if is_void else int(winners[0]["index"])
+        winner_token_id = (
+            _VOID_WINNER_TOKEN_ID if is_void else str(winners[0]["token_id"])
+        )
+        winner_outcome = (
+            _VOID_WINNER_OUTCOME if is_void else str(winners[0]["outcome"])
+        )
         terminal = {
             "source": "CLOB_CONDITION_FOLLOWUP",
-            "winner_index": int(winners[0]["index"]),
-            "winner_token_id": str(winners[0]["token_id"]),
-            "winner_outcome": str(winners[0]["outcome"]),
+            "winner_index": winner_index,
+            "winner_token_id": winner_token_id,
+            "winner_outcome": winner_outcome,
             "payouts_json": _canonical_payload(
                 {item["token_id"]: item["payout"] for item in tokens}
             ),
             "evidence_json": evidence_json,
             "evidence_sha256": hashlib.sha256(evidence_json.encode()).hexdigest(),
-            "status": "clob_closed_unique_winner",
-            "resolved_outcome": str(winners[0]["outcome"]),
+            "status": resolution_status,
+            "resolved_outcome": winner_outcome,
             "resolved_value": float(tokens[0]["payout"]),
         }
         self._stage_tracked_resolution(

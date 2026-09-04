@@ -170,10 +170,21 @@ def _uefa_event(code: str, markets):
 def _direct_sport_event(family: str, markets, *, postseason=False):
     identities = {
         "mlb": (8, "MLB", 100381, 3, "mlb"),
+        "nba": (34, "NBA", 745, 10345, "nba"),
+        "nfl": (10, "NFL", 450, 10187, "nfl"),
         "nhl": (35, "NHL", 899, 10346, "nhl-2026"),
     }
     sport_id, name, tag_id, root_series, series_slug = identities[family]
-    title = f"{name} {'World Series' if family == 'mlb' else 'Stanley Cup Final'}"
+    postseason_names = {
+        "mlb": "World Series",
+        "nba": "NBA Finals",
+        "nfl": "Super Bowl",
+        "nhl": "Stanley Cup Final",
+    }
+    title = f"{name} {postseason_names[family]}"
+    if postseason:
+        series_slug = f"{family}-2026"
+    event_series_id = str(root_series + 20_000) if postseason else str(root_series)
     event = {
         "id": f"{family}-event",
         "slug": f"{family}-home-away-2026-08-29",
@@ -199,7 +210,7 @@ def _direct_sport_event(family: str, markets, *, postseason=False):
         ],
         "series": [
             {
-                "id": str(root_series),
+                "id": event_series_id,
                 "ticker": series_slug,
                 "slug": series_slug,
                 "title": name if series_slug == family else f"{name} 2026",
@@ -311,6 +322,30 @@ def test_gamma_accepts_registered_direct_sport_families(family) -> None:
     assert client.sport_profile.expected_token_count == 2
 
 
+@pytest.mark.parametrize(
+    ("family", "competition"),
+    [
+        ("mlb", "World Series"),
+        ("nba", "NBA Finals"),
+        ("nfl", "Super Bowl"),
+        ("nhl", "Stanley Cup Final"),
+    ],
+)
+def test_gamma_accepts_major_competition_games_with_top_league_teams(
+    family, competition
+) -> None:
+    market = _market(f"{family}-major-competition")
+    event = _direct_sport_event(family, [market], postseason=True)
+    assert competition in event["title"]
+    client = GammaClient(sport_family=family)
+    client.session = _Session([{"events": [event]}])
+
+    markets = client.get_all_tradable_markets(0, 0)
+
+    assert len(markets) == 1
+    assert markets[0]["leagueCode"] == family
+
+
 def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
     client = GammaClient(
         sport_family="mlb",
@@ -413,6 +448,79 @@ def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     with pytest.raises(RuntimeError, match="page cap"):
         client.get_all_tradable_markets(0, 0)
     assert client.last_sweep_attestation is None
+
+
+def test_gamma_condition_lookup_returns_exact_open_market_without_retry() -> None:
+    client = GammaClient(sport_family="nba")
+    client.session = _Session(
+        [[{"conditionId": "0xabc", "closed": False, "outcomes": '["A","B"]'}]]
+    )
+
+    market = client.get_market_by_condition_id(" 0xAbC ")
+
+    assert market["conditionId"] == "0xabc"
+    assert market["outcomes"] == ["A", "B"]
+    assert market["sportFamily"] == "nba"
+    assert [call[1] for call in client.session.calls] == [
+        {"condition_ids": "0xAbC", "limit": 1}
+    ]
+
+
+def test_gamma_condition_lookup_retries_explicit_closed_partition() -> None:
+    client = GammaClient(sport_family="nfl")
+    client.session = _Session(
+        [
+            [],
+            [
+                {
+                    "conditionId": "0xcondition",
+                    "closed": True,
+                    "outcomes": '["Team A","Team B"]',
+                    "outcomePrices": '["0.5","0.5"]',
+                    "clobTokenIds": '["token-a","token-b"]',
+                }
+            ],
+        ]
+    )
+
+    market = client.get_market_by_condition_id("0xcondition")
+
+    assert market["closed"] is True
+    assert market["outcomePrices"] == ["0.5", "0.5"]
+    assert market["sportFamily"] == "nfl"
+    assert [call[1] for call in client.session.calls] == [
+        {"condition_ids": "0xcondition", "limit": 1},
+        {"condition_ids": "0xcondition", "limit": 1, "closed": "true"},
+    ]
+
+
+@pytest.mark.parametrize(
+    "closed_payload",
+    [
+        [{"conditionId": "0xdifferent", "closed": True}],
+        [{"conditionId": "0xcondition", "closed": False}],
+        {"markets": [{"conditionId": "0xcondition", "closed": True}]},
+    ],
+)
+def test_gamma_closed_fallback_rejects_wrong_identity_state_or_shape(
+    closed_payload,
+) -> None:
+    client = GammaClient()
+    client.session = _Session([[], closed_payload])
+
+    assert client.get_market_by_condition_id("0xcondition") is None
+    assert len(client.session.calls) == 2
+
+
+def test_gamma_condition_lookup_rejects_blank_id_before_network() -> None:
+    client = GammaClient()
+    client.session = SimpleNamespace(
+        get=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("network must not be called")
+        )
+    )
+
+    assert client.get_market_by_condition_id("   ") is None
 
 
 def test_gamma_rate_limit_fails_fast_without_in_process_retry(monkeypatch) -> None:
@@ -913,6 +1021,22 @@ def test_clob_resolution_multiple_winners_remains_unresolved() -> None:
             ],
         },
     )
+    assert proof.status == "CLOSED_UNRESOLVED"
+    assert proof.winner_index is None
+
+
+def test_clob_half_payout_without_unique_winner_remains_unresolved() -> None:
+    proof = _normalize_clob_resolution(
+        "condition",
+        {
+            "closed": True,
+            "tokens": [
+                {"outcome": "A", "price": 0.5, "token_id": "a", "winner": False},
+                {"outcome": "B", "price": 0.5, "token_id": "b", "winner": False},
+            ],
+        },
+    )
+
     assert proof.status == "CLOSED_UNRESOLVED"
     assert proof.winner_index is None
 

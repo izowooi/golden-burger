@@ -23,7 +23,7 @@ from .api.sports_client import SportsClockClient, SportsClockUpdate
 from .config import BotConfig, GammaConfig
 from .db.repository import ResearchRepository
 from .league_classifier import LeagueClassification, classify_sports_event
-from .utils.retry import canonical_json, iso_utc
+from .utils.retry import CycleBudget, canonical_json, iso_utc
 
 
 # Stable event-level rejection vocabulary used by reports and the repository
@@ -851,8 +851,19 @@ class Collector:
         self.clob = clob
         self.sports_clock = sports_clock
 
-    def collect(self, run_id: str, *, now: datetime | None = None) -> dict[str, Any]:
+    def collect(
+        self,
+        run_id: str,
+        *,
+        now: datetime | None = None,
+        budget: CycleBudget | None = None,
+    ) -> dict[str, Any]:
         now = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+        budget = budget or CycleBudget.start(
+            network_seconds=self.config.trading.network_budget_seconds,
+            cycle_seconds=self.config.trading.cycle_budget_seconds,
+        )
+        budget.assert_cycle_available("Gamma family fan-out")
         sweep_id = uuid4().hex
         multi_family_fetch = getattr(self.gamma, "fetch_live_families", None)
         sweep = (
@@ -958,10 +969,15 @@ class Collector:
                 run_id=run_id,
                 severity="CRITICAL",
                 issue_type="GAMMA_CURSOR_INCOMPLETE",
-                detail={"pages": len(sweep.pages)},
+                detail={
+                    "pages": len(sweep.pages),
+                    "incomplete_families": list(sweep.incomplete_families),
+                    "incomplete_reasons": list(sweep.incomplete_reasons),
+                    "runtime_budget": budget.evidence(),
+                },
             )
             raise RuntimeError(
-                "Gamma live sports event keyset sweep exceeded the frozen page cap"
+                "Gamma five-family event keyset census was incomplete"
             )
 
         clock_expected_slugs: set[str] = set()
@@ -997,7 +1013,9 @@ class Collector:
                 )
                 continue
             clock_target_games[game_id] = slug
-        clock_batch = self.sports_clock.collect(run_id, clock_target_games)
+        clock_batch = self.sports_clock.collect(
+            run_id, clock_target_games, budget=budget
+        )
         seen_clock_payloads: set[str] = set()
         for raw in clock_batch.matched_raw_messages:
             digest = hashlib.sha256(raw).hexdigest()
@@ -1465,23 +1483,92 @@ class Collector:
                 or not self.repository.resolution_due(condition_id, now=now)
             ):
                 continue
-            result = self.clob.fetch_resolution(run_id, condition_id)
-            attempt = {
-                "attempt_id": uuid4().hex, "run_id": run_id,
-                "condition_id": result.condition_id, "attempted_at": iso_utc(now),
-                "status": result.status, "request_id": result.request_id,
-                "winner_index": result.winner_index, "error_type": result.error_type,
-                "error_message": result.error_message,
-            }
+            fetch_gamma_resolution = getattr(
+                self.gamma, "fetch_market_resolution", None
+            )
+            gamma_result = (
+                fetch_gamma_resolution(run_id, condition_id)
+                if callable(fetch_gamma_resolution)
+                else None
+            )
+            gamma_terminal = (
+                gamma_result is not None
+                and gamma_result.status in {"RESOLVED", "RESOLVED_VOID"}
+            )
             raw_payload = None
             resolution = None
-            if result.raw_payload is not None:
+            if gamma_terminal:
+                attempt_status = gamma_result.status
+                attempt_request_id = gamma_result.request_id
+                attempt_winner_index = gamma_result.winner_index
+                attempt_error_type = None
+                attempt_error_message = None
+                if (
+                    gamma_result.raw is not None
+                    and gamma_result.received_at is not None
+                ):
+                    raw_payload = self.repository.payload_row(
+                        run_id=run_id,
+                        kind="GAMMA_MARKET_RESOLUTION",
+                        request_id=gamma_result.request_id,
+                        observed_at=gamma_result.received_at,
+                        raw=gamma_result.raw,
+                    )
+                token_payouts = [
+                    {
+                        "outcome": outcome,
+                        "token_id": token_id,
+                        "payout": payout,
+                    }
+                    for outcome, token_id, payout in zip(
+                        gamma_result.outcomes or (),
+                        gamma_result.token_ids or (),
+                        gamma_result.payouts or (),
+                        strict=True,
+                    )
+                ]
+                evidence = {
+                    "source": "GAMMA_MARKET",
+                    "condition_id": condition_id,
+                    "closed": True,
+                    "resolution_kind": (
+                        "VOID" if gamma_result.status == "RESOLVED_VOID"
+                        else "UNIQUE_ONE_HOT"
+                    ),
+                    "token_payouts": token_payouts,
+                }
+                if (
+                    gamma_result.status == "RESOLVED"
+                    and gamma_result.winner_index is not None
+                    and gamma_result.response_sha256 is not None
+                    and gamma_result.request_id is not None
+                    and gamma_result.received_at is not None
+                ):
+                    resolution = {
+                        "resolution_id": uuid4().hex,
+                        "run_id": run_id,
+                        "condition_id": condition_id,
+                        "observed_at": gamma_result.received_at,
+                        "winner_index": gamma_result.winner_index,
+                        "request_id": gamma_result.request_id,
+                        "raw_market_sha256": gamma_result.response_sha256,
+                        "evidence_json": canonical_json(evidence),
+                    }
+                resolved += 1
+            else:
+                result = self.clob.fetch_resolution(run_id, condition_id)
+                attempt_status = result.status
+                attempt_request_id = result.request_id
+                attempt_winner_index = result.winner_index
+                attempt_error_type = result.error_type
+                attempt_error_message = result.error_message
+            if not gamma_terminal and result.raw_payload is not None:
                 raw_payload = self.repository.payload_row(
                     run_id=run_id, kind="CLOB_MARKET_RESOLUTION",
                     request_id=result.raw_payload.request_id,
                     observed_at=result.raw_payload.received_at, raw=result.raw_payload.raw,
                 )
-            if result.status == "RESOLVED" and result.winner_index is not None and result.market is not None and result.raw_payload is not None:
+            if not gamma_terminal and result.status == "RESOLVED" and result.winner_index is not None and result.market is not None and result.raw_payload is not None:
                 resolution = {
                     "resolution_id": uuid4().hex, "run_id": run_id,
                     "condition_id": result.condition_id, "observed_at": str(result.observed_at),
@@ -1490,7 +1577,29 @@ class Collector:
                     "evidence_json": canonical_json({"closed": result.market.get("closed"), "tokens": result.market.get("tokens")}),
                 }
                 resolved += 1
+            attempt = {
+                "attempt_id": uuid4().hex,
+                "run_id": run_id,
+                "condition_id": condition_id,
+                "attempted_at": iso_utc(now),
+                "status": attempt_status,
+                "request_id": attempt_request_id,
+                "winner_index": attempt_winner_index,
+                "error_type": attempt_error_type,
+                "error_message": attempt_error_message,
+            }
             self.repository.record_resolution(attempt=attempt, resolution=resolution, payload=raw_payload)
+
+        if budget.incomplete_reasons:
+            self.repository.record_issue(
+                run_id=run_id,
+                severity="CRITICAL",
+                issue_type="COOPERATIVE_NETWORK_BUDGET_INCOMPLETE",
+                detail={"runtime_budget": budget.evidence()},
+            )
+            raise RuntimeError(
+                "cooperative network budget produced incomplete cycle evidence"
+            )
 
         return {
             "events": event_count, "markets": len(market_rows),

@@ -360,7 +360,7 @@ def get_event_metadata(market: Dict[str, Any]) -> Dict[str, Optional[str]]:
 def get_proven_resolution(
     market: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-    """Return payout evidence only for a closed exact Yes/No market."""
+    """Return token-aligned payout evidence for an exact closed binary market."""
     if not market or market.get("closed") is not True:
         return None
     outcomes = get_aligned_binary_outcomes(market)
@@ -373,10 +373,15 @@ def get_proven_resolution(
         outcome, winner_index = labels[0], 0
     elif prices == [0.0, 1.0]:
         outcome, winner_index = labels[1], 1
+    elif (
+        prices == [0.5, 0.5]
+        and str(market.get("umaResolutionStatus") or "").strip().casefold()
+        == "resolved"
+    ):
+        # Gamma's authoritative closed binary void pays both aligned tokens
+        # 0.5.  This is distinct from (and does not relax) CLOB one-hot proof.
+        outcome, winner_index = "Ambiguous", None
     else:
-        # A closed market with 0.5/0.5 (or any non-one-hot pair) is not a
-        # terminal payout.  Recording it as RESOLVED would prematurely release
-        # capacity and invent a settlement value.
         return None
     return {
         "outcome": outcome,

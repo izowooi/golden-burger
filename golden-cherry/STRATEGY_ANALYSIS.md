@@ -1,5 +1,12 @@
 # Golden Cherry 전략 분석 (Resolution Momentum)
 
+> **RETRACTED AS CURRENT DOCUMENTATION.** 이 파일은 2026-07-03 당시 코드의 역사적
+> 분석 스냅샷이며 현재 실행·성과·안전 계약의 근거로 사용하면 안 된다. 아래의 24~720h,
+> `max_positions=-1`, GTC 접수 즉시 체결/P&L 처리, open-order 부재 기반 추정 등은 현재
+> 구현과 의도적으로 다르다. 현재 계약은 `README.md`, `STRATEGY.md`, `AGENTS.md` 및
+> `scripts/analyze_exact_history.py`를 따른다. 이 문서의 수익·승률 숫자는 exact confirmed
+> fill 기준 actual 성과로 재해석하지 않는다.
+>
 > 분석 기준: 2026-07-03 코드 스냅샷 (`pyproject.toml` v0.2.0, `config.yaml`, `src/polybot/*`, `data/default/logs/*.log`).
 > 이 문서 하나만 읽어도 봇의 동작을 재구성할 수 있도록 작성했다.
 

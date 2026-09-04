@@ -414,9 +414,8 @@ def _policy_roi(row: sqlite3.Row) -> tuple[float, str] | None:
     if remaining <= 1e-7:
         settlement = proceeds
         exit_kind = "STOP_FULL"
-    elif row["winner_index"] is not None:
-        won = int(row["outcome_index"]) == int(row["winner_index"])
-        settlement = proceeds + (remaining if won else 0.0)
+    elif row["resolution_payout"] is not None:
+        settlement = proceeds + remaining * float(row["resolution_payout"])
         exit_kind = (
             "RESOLUTION_AFTER_PARTIAL_STOP" if filled > 0 else "RESOLUTION"
         )
@@ -1052,13 +1051,19 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 SELECT e.league_code,e.league_name,
                        COUNT(*) AS episodes,
                        COUNT(DISTINCT e.event_id) AS events,
-                       SUM(CASE WHEN r.condition_id IS NOT NULL THEN 1 ELSE 0 END)
+                       SUM(CASE WHEN r.condition_id IS NOT NULL
+                                      OR v.condition_id IS NOT NULL
+                                THEN 1 ELSE 0 END)
                            AS resolved,
                        SUM(CASE WHEN r.condition_id IS NOT NULL
                                      AND e.outcome_index=r.winner_index
                                 THEN 1 ELSE 0 END) AS wins
                 FROM hypothetical_episodes e
                 LEFT JOIN resolution_observations r USING(condition_id)
+                LEFT JOIN (
+                    SELECT DISTINCT condition_id FROM resolution_attempts
+                    WHERE status='RESOLVED_VOID'
+                ) v USING(condition_id)
                 WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
                 GROUP BY e.league_code,e.league_name
                 ORDER BY e.league_code,e.league_name
@@ -1093,9 +1098,21 @@ def analyze_database(path: Path) -> dict[str, Any]:
         ).fetchall()
         episode_rows = connection.execute(
             """
-            SELECT e.*,r.winner_index,r.observed_at AS resolved_at
+            SELECT e.*,r.winner_index,
+                   CASE
+                     WHEN v.condition_id IS NOT NULL THEN 0.5
+                     WHEN r.winner_index=e.outcome_index THEN 1.0
+                     WHEN r.winner_index IS NOT NULL THEN 0.0
+                   END AS resolution_payout,
+                   COALESCE(r.observed_at,v.resolved_at) AS resolved_at
             FROM hypothetical_episodes e
             LEFT JOIN resolution_observations r USING(condition_id)
+            LEFT JOIN (
+                SELECT condition_id,MAX(attempted_at) AS resolved_at
+                FROM resolution_attempts
+                WHERE status='RESOLVED_VOID'
+                GROUP BY condition_id
+            ) v USING(condition_id)
             WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             ORDER BY e.entered_at,e.episode_id
             """
@@ -1109,6 +1126,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 e.fee_rate,e.cadence_arm,e.entry_provenance,
                 e.league_code,
                 r.winner_index,
+                CASE
+                  WHEN v.condition_id IS NOT NULL THEN 0.5
+                  WHEN r.winner_index=e.outcome_index THEN 1.0
+                  WHEN r.winner_index IS NOT NULL THEN 0.0
+                END AS resolution_payout,
                 COUNT(a.attempt_id) AS stop_attempt_count,
                 COALESCE(SUM(a.filled_shares),0) AS stop_filled_shares,
                 COALESCE(SUM(a.net_proceeds),0) AS stop_net_proceeds,
@@ -1124,6 +1146,10 @@ def analyze_database(path: Path) -> dict[str, Any]:
             LEFT JOIN stop_execution_attempts a USING(policy_id)
             LEFT JOIN counterfactual_stop_exits x USING(policy_id)
             LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
+            LEFT JOIN (
+                SELECT DISTINCT condition_id FROM resolution_attempts
+                WHERE status='RESOLVED_VOID'
+            ) v ON v.condition_id=e.condition_id
             WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             GROUP BY p.policy_id
             ORDER BY e.entered_at,p.policy_key
@@ -1387,13 +1413,16 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 ),
             )
         ):
-            resolved = [row for row in subset if row["winner_index"] is not None]
+            resolved = [
+                row for row in subset if row["resolution_payout"] is not None
+            ]
             by_event: defaultdict[tuple[str, str], list[float]] = defaultdict(list)
             wins = 0
             for row in resolved:
-                won = int(row["outcome_index"]) == int(row["winner_index"])
+                payout = float(row["resolution_payout"])
+                won = math.isclose(payout, 1.0, rel_tol=0, abs_tol=1e-12)
                 wins += int(won)
-                settlement = float(row["entry_shares"]) if won else 0.0
+                settlement = float(row["entry_shares"]) * payout
                 roi = settlement / _entry_total_cost(row) - 1
                 by_event[(str(row["league_code"]), str(row["event_id"]))].append(roi)
             event_roi = [statistics.fmean(values) for values in by_event.values()]

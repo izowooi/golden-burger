@@ -684,11 +684,12 @@ def _normalize_clob_resolution(
     *,
     observed_at: Optional[str] = None,
 ) -> ClobResolutionProof:
-    """Accept only an exact closed two-token market with one 0/1 winner.
+    """Accept exact closed two-token one-hot or 0.5/0.5 void evidence.
 
     An open market is returned as ``OPEN``.  A closed market without a unique
-    winner remains ``CLOSED_UNRESOLVED``.  Malformed identity, payout, or
-    winner fields raise instead of being interpreted as settlement evidence.
+    one-hot winner or exact no-winner 0.5/0.5 void remains
+    ``CLOSED_UNRESOLVED``.  Malformed identity, payout, or winner fields raise
+    instead of being interpreted as settlement evidence.
     """
     normalized_condition = str(condition_id or "").strip()
     if not normalized_condition:
@@ -757,8 +758,16 @@ def _normalize_clob_resolution(
             "CLOB resolution token identities must be distinct"
         )
     winners = [index for index, token in enumerate(tokens) if token.winner]
-    status = "RESOLVED" if len(winners) == 1 else "CLOSED_UNRESOLVED"
-    winner_index = winners[0] if status == "RESOLVED" else None
+    prices = [token.price for token in tokens]
+    if len(winners) == 1:
+        status = "RESOLVED"
+        winner_index = winners[0]
+    elif not winners and prices == [0.5, 0.5]:
+        status = "VOID"
+        winner_index = None
+    else:
+        status = "CLOSED_UNRESOLVED"
+        winner_index = None
     if winner_index is not None:
         expected_prices = [0.0, 0.0]
         expected_prices[winner_index] = 1.0

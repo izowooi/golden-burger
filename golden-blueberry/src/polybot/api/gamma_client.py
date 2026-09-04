@@ -32,7 +32,11 @@ class GammaClient:
     BASE_URL = "https://gamma-api.polymarket.com"
     CONNECT_TIMEOUT_SECONDS = 3.05
     READ_TIMEOUT_SECONDS = 20.0
-    MAX_SWEEP_PAGES = 10_000
+    # Observed production sweeps are about 65 pages.  These fail-closed bounds
+    # preserve that universe while keeping all collection before any order POST.
+    MAX_SWEEP_PAGES = 100
+    SWEEP_TIME_BUDGET_SECONDS = 225.0
+    KEYSET_PAGE_MAX_ATTEMPTS = 3
     # One shared A/B leader issues at most ten sequential requests/second,
     # comfortably below Gamma's documented /markets limit (300 / 10s).
     KEYSET_PAGE_INTERVAL_SECONDS = 0.1
@@ -41,7 +45,7 @@ class GammaClient:
     SHARED_CACHE_ENV = "POLYBOT_GAMMA_SHARED_CACHE_DIR"
     SHARED_CACHE_BUCKET_SECONDS = 300
     SHARED_CACHE_REUSE_SECONDS = 300.0
-    SHARED_CACHE_LOCK_TIMEOUT_SECONDS = 12 * 60
+    SHARED_CACHE_LOCK_TIMEOUT_SECONDS = SWEEP_TIME_BUDGET_SECONDS
     SHARED_CACHE_MAX_BYTES = 512 * 1024 * 1024
     SHARED_CACHE_COMPRESSION_LEVEL = 1
 
@@ -53,23 +57,46 @@ class GammaClient:
             "User-Agent": "GoldenBlueberry-PolyBot/1.0"
         })
 
-    def _get(self, path: str, *, params: Optional[Dict] = None):
+    def _get(
+        self,
+        path: str,
+        *,
+        params: Optional[Dict] = None,
+        timeout: Optional[tuple[float, float]] = None,
+    ):
         """Issue a bounded Gamma request with separate connect/read limits."""
         return self.session.get(
             f"{self.BASE_URL}{path}",
             params=params,
-            timeout=(self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS),
+            timeout=(
+                timeout
+                if timeout is not None
+                else (self.CONNECT_TIMEOUT_SECONDS, self.READ_TIMEOUT_SECONDS)
+            ),
         )
 
     @rate_limit_handler(
-        max_retries=6,
+        max_retries=3,
         base_delay=2.0,
         retry_forbidden=True,
     )
-    def _get_keyset_page(self, params: Dict):
-        """Fetch one keyset page so transient 403/429 retries keep the cursor."""
-        response = self._get("/markets/keyset", params=params)
+    def _get_keyset_page(self, params: Dict, *, deadline: float):
+        """Fetch one page without allowing retries to exceed the sweep budget."""
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise TimeoutError("Gamma sweep time budget exhausted")
+        timeout = (
+            max(0.001, min(self.CONNECT_TIMEOUT_SECONDS, remaining / 2)),
+            max(0.001, min(self.READ_TIMEOUT_SECONDS, remaining / 2)),
+        )
+        response = self._get(
+            "/markets/keyset",
+            params=params,
+            timeout=timeout,
+        )
         response.raise_for_status()
+        if time.monotonic() > deadline:
+            raise TimeoutError("Gamma sweep time budget exhausted after page")
         return response
 
     @property
@@ -148,14 +175,15 @@ class GammaClient:
         filter_digest = hashlib.sha256(encoded).hexdigest()
         return f"sweep-{bucket}-{filter_digest[:24]}", filters
 
-    def _acquire_shared_cache_lock(self, path: Path):
+    def _acquire_shared_cache_lock(self, path: Path, *, deadline: Optional[float] = None):
         """Acquire a bounded, owner-only lock without following a symlink."""
         flags = os.O_CREAT | os.O_RDWR
         if hasattr(os, "O_NOFOLLOW"):
             flags |= os.O_NOFOLLOW
         descriptor = os.open(path, flags, 0o600)
         handle = os.fdopen(descriptor, "a+")
-        deadline = time.monotonic() + self.SHARED_CACHE_LOCK_TIMEOUT_SECONDS
+        if deadline is None:
+            deadline = time.monotonic() + self.SHARED_CACHE_LOCK_TIMEOUT_SECONDS
         while True:
             try:
                 fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -484,11 +512,14 @@ class GammaClient:
             or min_volume < 0
         ):
             raise ValueError("Gamma sweep filters must be finite and non-negative")
+        collection_started = time.monotonic()
+        deadline = collection_started + self.SWEEP_TIME_BUDGET_SECONDS
         cache_root = self._shared_cache_root()
         if cache_root is None:
             return self._get_all_tradable_markets_uncached(
                 min_liquidity=min_liquidity,
                 min_volume=min_volume,
+                deadline=deadline,
             )
 
         requested_at = time.time()
@@ -504,7 +535,7 @@ class GammaClient:
         # minutes and serializes a slow sweep across bucket boundaries.
         lock_path = cache_root / f"sweep-filter-{filter_digest}.lock"
         logger.info("공유 Gamma sweep 대기 - bucket=%s", bucket)
-        lock = self._acquire_shared_cache_lock(lock_path)
+        lock = self._acquire_shared_cache_lock(lock_path, deadline=deadline)
         try:
             try:
                 cached = self._read_shared_cache(
@@ -564,6 +595,7 @@ class GammaClient:
             markets = self._get_all_tradable_markets_uncached(
                 min_liquidity=min_liquidity,
                 min_volume=min_volume,
+                deadline=deadline,
             )
             attestation = self.last_sweep_attestation
             if attestation is None or attestation.get("cursor_complete") is not True:
@@ -601,9 +633,13 @@ class GammaClient:
         *,
         min_liquidity: float,
         min_volume: float,
+        deadline: Optional[float] = None,
     ) -> List[Dict]:
         """Traverse one complete remote keyset sweep without shared caching."""
         started_at = datetime.now(timezone.utc)
+        started_monotonic = time.monotonic()
+        if deadline is None:
+            deadline = started_monotonic + self.SWEEP_TIME_BUDGET_SECONDS
         sweep_id = str(uuid4())
         by_condition: Dict[str, Dict] = {}
         memberships: Dict[str, Dict] = {}
@@ -626,7 +662,9 @@ class GammaClient:
             if cursor:
                 params["after_cursor"] = cursor
 
-            response = self._get_keyset_page(params)
+            if time.monotonic() >= deadline:
+                raise TimeoutError("Gamma sweep time budget exhausted before next page")
+            response = self._get_keyset_page(params, deadline=deadline)
             payload = response.json()
             raw_markets = payload.get("markets", [])
             if not isinstance(raw_markets, list):
@@ -691,6 +729,9 @@ class GammaClient:
             "completed_at": datetime.now(timezone.utc).isoformat(),
             "cursor_complete": True,
             "pages": pages,
+            "elapsed_seconds": time.monotonic() - started_monotonic,
+            "page_limit": self.MAX_SWEEP_PAGES,
+            "time_budget_seconds": self.SWEEP_TIME_BUDGET_SECONDS,
             "raw_market_count": raw_market_count,
             "unique_condition_count": len(memberships),
             "qualified_market_count": len(markets),

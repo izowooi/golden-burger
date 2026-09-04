@@ -21,7 +21,8 @@ from .config import (
 
 
 _MINOR_PATTERNS = re.compile(
-    r"\b(?:milb|minor league|ahl|echl|ncaa|college|u-?2[013]|reserve|academy)\b",
+    r"\b(?:milb|minor league|g(?:[ -])?league|summer league|ahl|echl|"
+    r"ncaa|college|u-?2[013]|reserve|academy)\b",
     re.IGNORECASE,
 )
 

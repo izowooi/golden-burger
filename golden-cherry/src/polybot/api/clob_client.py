@@ -6,7 +6,6 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 """
 
 import json
-import os
 import logging
 import math
 from contextlib import contextmanager
@@ -586,6 +585,7 @@ class ClobClientWrapper:
             "completed": 0,
             "legacy_unavailable": 0,
             "errors": 0,
+            "unknown_sell_intents_preserved": 0,
         }
         if self.simulation_mode or self.execution_ledger is None:
             return stats
@@ -808,45 +808,20 @@ class ClobClientWrapper:
                     response_shape,
                 )
 
-        # 격리 자가 해제. CLOB POST가 5xx/timeout으로 끝나면 그 token/side의 주문이
-        # 영구히 막히는데 시간 기반 해제가 없다. 거래소 열린 주문 목록에 없으면
-        # 주문이 만들어지지 않은 것이 확인되므로 안전하게 풀 수 있다.
-        # 조회 실패 시에는 절대 해제하지 않는다(빈 목록과 구분 불가).
-        if os.environ.get("POLYBOT_INTENT_AUTORESOLVE", "true").lower() not in (
-            "false",
-            "0",
-            "no",
-            "off",
-        ):
-            try:
-                raw_open = self.client.get_open_orders()
-                open_orders = normalize_clob_response_list(
-                    raw_open, response_type="order"
-                )
-                live_keys = {
-                    (
-                        str(o.get("asset_id") or o.get("token_id") or ""),
-                        str(o.get("side", "")).upper(),
-                    )
-                    for o in (open_orders or [])
-                }
-                heal = self.execution_ledger.autoresolve_stale_sell_intents(
-                    live_order_keys=live_keys
-                )
-                stats["intent_autoresolved"] = heal["resolved"]
-                if heal["resolved"] or heal["kept_live_order"]:
-                    logger.info(
-                        "격리 자가 해제 - 해제 %s건, 거래소 주문 실재로 보류 %s건, "
-                        "최근이라 보류 %s건",
-                        heal["resolved"],
-                        heal["kept_live_order"],
-                        heal["too_recent"],
-                    )
-            except Exception as heal_error:  # noqa: BLE001
-                logger.warning(
-                    "격리 자가 해제 생략 - 거래소 열린 주문 조회 실패: %s",
-                    heal_error,
-                )
+        # Open-order absence is not zero-fill evidence: a filled, canceled, or
+        # aged-out order is also absent.  Preserve unknown SELL intents as exact
+        # token/side-local blockers until operator/order/trade evidence resolves
+        # them.  This deliberately does not stop reconciliation or other tokens.
+        unknown_sell_intents = self.execution_ledger.unresolved_submission_count(
+            side="SELL"
+        )
+        stats["unknown_sell_intents_preserved"] = unknown_sell_intents
+        if unknown_sell_intents:
+            logger.warning(
+                "불확실 SELL intent %d건 유지 - open-order 부재로 zero-fill을 "
+                "추정하지 않으며 동일 token/side만 격리합니다",
+                unknown_sell_intents,
+            )
 
         if stats["checked"]:
             logger.info(

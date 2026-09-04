@@ -44,7 +44,10 @@ fi
 ./.venv/bin/polybot run --simulate --job watermelon-white-1m-v4b
 ```
 
-experiment parameter나 family를 Jenkins env로 override하지 않는다. release build에서만 Git SCM으로 exact commit을
+experiment parameter나 family를 Jenkins env로 override하지 않는다. 다섯 family Gamma cursor는
+별도 session/worker에서 동시에 실행하고 frozen family order로 결합한다. 42초 network cutoff 뒤에는
+새 요청을 시작하지 않으며 50초 cycle boundary까지 incomplete/FAILED evidence를 기록한다. process
+alarm, hard kill, partial-success publication은 사용하지 않는다. release build에서만 Git SCM으로 exact commit을
 checkout하고 검증 뒤 정기 build는 같은 external workspace를 `NullSCM`으로 고정한다.
 
 ## 배포 순서
@@ -58,7 +61,7 @@ checkout하고 검증 뒤 정기 build는 같은 external workspace를 `NullSCM`
 5. accepted Soccer event는 HOME/DRAW/AWAY 3개, MLB/NBA/NFL/NHL은 one-condition HOME/AWAY 2개가
    완전하며 `$5..$1000` ladder가 기록되는지 확인한다.
 6. Soccer source minute `75/80/85`만 replay되고 다른 네 종목 clock이 이 strata에 섞이지 않는지 본다.
-7. White runtime <45초이고 CRITICAL/HIGH 원인이 없을 때 timer를 켠다.
+7. White runtime <50초이고 network request가 42초 안에 끝나며 CRITICAL/HIGH 원인이 없을 때 timer를 켠다.
 8. 자연 실행 2회 이상을 확인하고 daily-rsync로 새 epoch를 동기화한다.
 
 ## Daily-rsync 및 analyzer
@@ -91,6 +94,6 @@ winner, full-depth, source clock, path/resolution, cohort, DB integrity, notiona
 - result identity gap: Soccer 3-token 또는 MLB/NBA/NFL/NHL 2-token completeness를 raw event와 대조한다.
 - source clock gap: raw public source를 확인하며 kickoff 추정으로 대체하지 않는다.
 - database epoch mismatch: v4a archive를 쓰지 말고 v4b path를 고친다.
-- White p95 ≥45초 또는 queue 발생: timer를 끄고 source family별 병목을 고친다.
+- White p95 ≥50초, 42초 network cutoff 또는 queue 발생: timer를 끄고 source family별 병목을 고친다.
 - storage gate: external mount를 복구하며 내부 disk fallback이나 DB 삭제를 하지 않는다.
 - schema/identity 변경: 기존 DB에 `ALTER TABLE`하지 않고 새 prereg/runtime epoch를 만든다.

@@ -161,6 +161,7 @@ class PolymarketBot:
             "snapshots_saved": 0,
             "pending_buys_checked": 0,
             "pending_buys_activated": 0,
+            "isolated_pending_buys_checked": 0,
             "pending_sells_checked": 0,
             "isolated_stop_sells_checked": 0,
             "checked_holdings": 0,
@@ -212,7 +213,11 @@ class PolymarketBot:
                 stats["orphan_buy_recovery"] = trader.recover_orphan_buys()
                 pending_buys = repo.get_pending_buy_trades()
                 stats["pending_buys_checked"] = len(pending_buys)
-                for pending_trade in pending_buys:
+                isolated_pending_buys = repo.get_isolated_pending_buy_trades()
+                stats["isolated_pending_buys_checked"] = len(
+                    isolated_pending_buys
+                )
+                for pending_trade in [*pending_buys, *isolated_pending_buys]:
                     if trader.reconcile_pending_buy(pending_trade):
                         stats["pending_buys_activated"] += 1
                 pending_sells = repo.get_pending_sell_trades()
@@ -362,6 +367,8 @@ class PolymarketBot:
                     blocking_reasons.append("quarantined_position")
                 if quarantine_state["isolated_stop_sell"]:
                     degraded_reasons.append("stop_sell_unknown_exposure_isolated")
+                if quarantine_state["isolated_pending_buy"]:
+                    degraded_reasons.append("pending_buy_unknown_exposure_isolated")
                 if int(order_reconciliation.get("unresolved_sell_outcomes", 0)):
                     degraded_reasons.append("unresolved_sell_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
@@ -438,6 +445,9 @@ class PolymarketBot:
                     "blocking_quarantined": quarantine_state["blocking"],
                     "isolated_stop_sell": quarantine_state[
                         "isolated_stop_sell"
+                    ],
+                    "isolated_pending_buy": quarantine_state[
+                        "isolated_pending_buy"
                     ],
                     "unresolved_buy_outcomes": int(
                         order_reconciliation.get("unresolved_buy_outcomes", 0)

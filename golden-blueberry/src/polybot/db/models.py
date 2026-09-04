@@ -35,6 +35,7 @@ class TradeStatus(enum.Enum):
     EXPIRED = "expired"
     UNFILLED = "unfilled"
     QUARANTINED = "quarantined"
+    RESIDUAL = "residual"
 
 
 class Trade(Base):
@@ -76,6 +77,9 @@ class Trade(Base):
     sell_confirmed_vwap = Column(Float)
     sell_confirmed_fee_usdc = Column(Float)
     sell_fill_matched_at = Column(String)
+    # The only accepted BUY/SELL size mismatch is the SDK's explicit
+    # sub-0.01-share SELL quantization residual.  It remains managed exposure.
+    sell_residual_shares = Column(Float)
 
     status = Column(Enum(TradeStatus), default=TradeStatus.PENDING_BUY, index=True)
     entry_reason = Column(String)
@@ -283,6 +287,33 @@ class EntrySignalDecision(Base):
     observed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
 
 
+class CandidateExecutionDecision(Base):
+    """Durable post-signal disposition for every ordered entry candidate."""
+
+    __tablename__ = "candidate_execution_decisions"
+    __table_args__ = (
+        UniqueConstraint(
+            "run_id",
+            "condition_id",
+            "candidate_rank",
+            name="uq_candidate_execution_run_condition_rank",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    run_id = Column(String, nullable=False, index=True)
+    condition_id = Column(String, nullable=False, index=True)
+    event_id = Column(String, index=True)
+    token_id = Column(String, nullable=False)
+    candidate_rank = Column(Integer, nullable=False)
+    decision = Column(String, nullable=False)
+    stage = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    order_id = Column(String)
+    requested_notional_usdc = Column(Float)
+    observed_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
+
+
 class ShadowSignal(Base):
     """One immutable treatment row for an accountless Shadow crossing.
 
@@ -295,15 +326,23 @@ class ShadowSignal(Base):
     __tablename__ = "shadow_signals"
     __table_args__ = (
         UniqueConstraint(
+            "config_hash",
+            "strategy_source_digest",
+            "mode",
+            "job_name",
             "condition_id",
             "min_surge",
             "horizon_hours",
-            name="uq_shadow_signal_condition_treatment",
+            name="uq_shadow_signal_cohort_condition_treatment",
         ),
     )
 
     id = Column(Integer, primary_key=True, autoincrement=True)
     run_id = Column(String, nullable=False, index=True)
+    config_hash = Column(String, index=True)
+    strategy_source_digest = Column(String, index=True)
+    mode = Column(String, index=True)
+    job_name = Column(String, index=True)
     condition_id = Column(String, nullable=False, index=True)
     event_id = Column(String, index=True)
     question = Column(String)
@@ -359,6 +398,36 @@ class ShadowSignal(Base):
     hypothetical_gross_pnl = Column(Float)
     pnl_basis = Column(String)
     classification = Column(String, index=True)
+
+
+class ShadowSignalClaim(Base):
+    """Prospective uniqueness gate that can coexist with legacy duplicates."""
+
+    __tablename__ = "shadow_signal_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "config_hash",
+            "strategy_source_digest",
+            "mode",
+            "job_name",
+            "condition_id",
+            "min_surge",
+            "horizon_hours",
+            name="uq_shadow_claim_cohort_condition_treatment",
+        ),
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    config_hash = Column(String, nullable=False)
+    strategy_source_digest = Column(String, nullable=False)
+    mode = Column(String, nullable=False)
+    job_name = Column(String, nullable=False)
+    condition_id = Column(String, nullable=False)
+    min_surge = Column(Float, nullable=False)
+    horizon_hours = Column(Float, nullable=False)
+    run_id = Column(String, nullable=False)
+    signal_id = Column(Integer, ForeignKey("shadow_signals.id"))
+    claimed_at = Column(DateTime, default=datetime.utcnow, nullable=False)
 
 
 class ShadowObservation(Base):
@@ -417,6 +486,7 @@ _TRADE_MIGRATION_COLUMNS = {
     "sell_confirmed_vwap": "REAL",
     "sell_confirmed_fee_usdc": "REAL",
     "sell_fill_matched_at": "TEXT",
+    "sell_residual_shares": "REAL",
     "prior_yes_price_at_entry": "REAL",
     "yes_price_at_buy": "REAL",
     "stop_price_at_entry": "REAL",
@@ -459,6 +529,13 @@ _TRADE_MIGRATION_COLUMNS = {
     "settlement_assumption_basis": "TEXT",
 }
 
+_SHADOW_SIGNAL_MIGRATION_COLUMNS = {
+    "config_hash": "TEXT",
+    "strategy_source_digest": "TEXT",
+    "mode": "TEXT",
+    "job_name": "TEXT",
+}
+
 
 def init_database(
     db_path: str,
@@ -479,6 +556,14 @@ def init_database(
         for name, sql_type in _TRADE_MIGRATION_COLUMNS.items():
             try:
                 connection.execute(text(f"ALTER TABLE trades ADD COLUMN {name} {sql_type}"))
+                connection.commit()
+            except Exception:
+                pass
+        for name, sql_type in _SHADOW_SIGNAL_MIGRATION_COLUMNS.items():
+            try:
+                connection.execute(
+                    text(f"ALTER TABLE shadow_signals ADD COLUMN {name} {sql_type}")
+                )
                 connection.commit()
             except Exception:
                 pass

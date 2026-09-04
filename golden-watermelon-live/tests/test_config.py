@@ -8,6 +8,7 @@ from polybot.config import (
     FROZEN_FOLLOWUP_END_UTC,
     FROZEN_START_UTC,
     MLB_ECONOMIC_GUARD_START_UTC,
+    RUNTIME_SPECS,
     load_config,
 )
 
@@ -19,6 +20,7 @@ def _credentials(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-cat")
     config = load_config(
         "config.yaml", "watermelon-live-cat-96-1m-v2h", simulation_mode=False
     )
@@ -69,8 +71,7 @@ def test_only_arm_b_threshold_override_is_accepted(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _credentials(monkeypatch)
-    monkeypatch.setenv("POLYBOT_ENTRY_PROB_MIN", "0.99")
-    monkeypatch.setenv("POLYBOT_ENTRY_PROB_MAX", "0.999")
+    monkeypatch.setenv("JOB_NAME", "polybot-dog")
     config = load_config(
         "config.yaml", "watermelon-live-dog-99-1m-v2h", simulation_mode=False
     )
@@ -80,13 +81,23 @@ def test_only_arm_b_threshold_override_is_accepted(
     )
 
 
+def test_registered_live_runtime_allows_close_only_management(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-cat")
+    monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", "close_only")
+    config = load_config(
+        "config.yaml", "watermelon-live-cat-96-1m-v2h", simulation_mode=False
+    )
+    assert config.trading.lifecycle_mode == "close_only"
+
+
 def test_mlb_uses_corrected_cohort_economic_guard_epoch(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _credentials(monkeypatch)
-    monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "mlb")
-    monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MAX", "8")
-    monkeypatch.setenv("POLYBOT_ARCHIVE_HOURS_MAX", "8")
+    monkeypatch.setenv("JOB_NAME", "polybot-bear")
 
     config = load_config(
         "config.yaml", "watermelon-live-bear-mlb-96-1m-v3a", simulation_mode=False
@@ -144,16 +155,26 @@ def test_contract_drift_is_rejected(
     monkeypatch: pytest.MonkeyPatch, key: str, value: str, message: str
 ) -> None:
     _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-cat")
     monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match=message):
-        load_config("config.yaml", "drift")
+        load_config(
+            "config.yaml",
+            "watermelon-live-cat-96-1m-v2h",
+            simulation_mode=False,
+        )
 
 
 @pytest.mark.parametrize("amount", ["5.01", "10", "15", "200", "1000"])
 def test_adaptive_target_buy_amount_is_accepted(monkeypatch, amount) -> None:
     _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-cat")
     monkeypatch.setenv("POLYBOT_BUY_AMOUNT", amount)
-    config = load_config("config.yaml", "adaptive", simulation_mode=False)
+    config = load_config(
+        "config.yaml",
+        "watermelon-live-cat-96-1m-v2h",
+        simulation_mode=False,
+    )
     assert config.trading.buy_amount_usdc == float(amount)
 
 
@@ -163,11 +184,66 @@ def test_credentials_and_live_database_are_explicit(
     monkeypatch.delenv("POLYMARKET_PRIVATE_KEY", raising=False)
     monkeypatch.delenv("POLYMARKET_FUNDER_ADDRESS", raising=False)
     with pytest.raises(ValueError, match="PRIVATE_KEY"):
-        load_config("config.yaml", "missing")
+        load_config(
+            "config.yaml",
+            "watermelon-live-cat-96-1m-v2h",
+            simulation_mode=False,
+        )
 
     _credentials(monkeypatch)
-    sim = load_config("config.yaml", "isolated", simulation_mode=True)
-    live = load_config("config.yaml", "isolated", simulation_mode=False)
-    assert sim.db_path.name == "trades_sim.db"
+    with pytest.raises(ValueError, match="frozen to live mode"):
+        load_config(
+            "config.yaml",
+            "watermelon-live-cat-96-1m-v2h",
+            simulation_mode=True,
+        )
+    live = load_config(
+        "config.yaml",
+        "watermelon-live-cat-96-1m-v2h",
+        simulation_mode=False,
+    )
     assert live.db_path.name == "trades.db"
-    assert sim.db_path != live.db_path
+
+
+@pytest.mark.parametrize(
+    ("runtime_job", "jenkins_job", "family", "prob_min", "hours_max"),
+    [
+        (spec.runtime_job, spec.jenkins_job, spec.sport_family, spec.prob_min,
+         {"soccer": 4, "mlb": 8, "nhl": 5}[spec.sport_family])
+        for spec in RUNTIME_SPECS.values()
+    ],
+)
+def test_all_six_runtime_bindings_are_atomic(
+    monkeypatch, runtime_job, jenkins_job, family, prob_min, hours_max
+) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", jenkins_job)
+    config = load_config("config.yaml", runtime_job, simulation_mode=False)
+    assert config.jenkins_job == jenkins_job
+    assert config.trading.sport_family == family
+    assert config.trading.entry.prob_min == prob_min
+    assert config.trading.entry.hours_max == hours_max
+    assert config.trading.lifecycle_mode == "active"
+    assert config.simulation_mode is False
+
+
+@pytest.mark.parametrize(
+    ("runtime_job", "key", "value", "message"),
+    [
+        ("unknown-runtime", None, None, "unsupported"),
+        ("watermelon-live-cat-96-1m-v2h", "JOB_NAME", "polybot-dog", "Jenkins job"),
+        ("watermelon-live-cat-96-1m-v2h", "POLYBOT_SPORT_FAMILY", "mlb", "sport family"),
+        ("watermelon-live-cat-96-1m-v2h", "POLYBOT_ENTRY_PROB_MIN", "0.99", "entry band"),
+    ],
+)
+def test_runtime_binding_mismatches_fail_closed_before_db_creation(
+    monkeypatch, tmp_path, runtime_job, key, value, message
+) -> None:
+    _credentials(monkeypatch)
+    monkeypatch.chdir(tmp_path)
+    if key is not None:
+        monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match=message):
+        load_config(str(Path(__file__).parents[1] / "config.yaml"), runtime_job,
+                    simulation_mode=False)
+    assert not (tmp_path / "data").exists()

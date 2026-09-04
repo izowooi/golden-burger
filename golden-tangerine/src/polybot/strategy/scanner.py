@@ -15,6 +15,8 @@ from .filters import (
     aligned_binary_reason,
     get_aligned_binary_outcomes,
     get_event_metadata,
+    is_exact_esports_market,
+    is_excluded_market,
 )
 
 
@@ -90,6 +92,10 @@ class MarketScanner:
     def _market_eligible(
         self, market: Dict[str, Any], now: datetime
     ) -> tuple[bool, str, Optional[datetime], Optional[float]]:
+        if self.config.exclude_esports and is_exact_esports_market(market):
+            return False, "exact_esports_identity_excluded", None, None
+        if is_excluded_market(market, self.config.excluded_categories):
+            return False, "configured_exact_tag_excluded", None, None
         reason = aligned_binary_reason(market)
         if reason != "ok":
             return False, reason, None, None
@@ -119,7 +125,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> int:
-        """Persist exact $5 VWAP for both outcomes and the complete sweep proof."""
+        """Persist configured-notional VWAPs and the complete sweep proof."""
         if self.repo is None or self.clob is None:
             raise RuntimeError("repository and CLOB client are required")
         attestation = self.gamma.last_sweep_attestation
@@ -253,7 +259,7 @@ class MarketScanner:
         markets: List[Dict],
         now: Optional[datetime] = None,
     ) -> List[Dict]:
-        """Select current exact-$5 books in this job's frozen one-cent arm."""
+        """Select configured-notional books in this job's frozen one-cent arm."""
         reference = now or datetime.now(timezone.utc)
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)
@@ -351,7 +357,7 @@ class MarketScanner:
                         "entry_shares": walk.shares,
                         "entry_limit_price": walk.limit_price,
                         "entry_levels_used": walk.levels_used,
-                        "entry_reason": "first_observed_exact_5_usdc_band",
+                        "entry_reason": "first_observed_configured_notional_band",
                         "end_date": end_date,
                         "hours_until_resolution": hours_left,
                         "market_tags": tag_text,

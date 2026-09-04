@@ -202,6 +202,8 @@ class TradingConfig:
     max_event_positions: int = 1
     max_open_notional_multiple: float = 10.0
     max_new_positions_per_cycle: int = 1
+    # Resting GTC BUYs are canceled and exactly reconciled after this age.
+    gtc_buy_ttl_minutes: float = 10.0
     reentry_cooldown_hours: float = 168.0
     max_snapshot_gap_minutes: float = 15.0
     min_order_size: float = 5.0
@@ -282,6 +284,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_event_positions": trading.max_event_positions,
         "max_open_notional_multiple": trading.max_open_notional_multiple,
         "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
+        "gtc_buy_ttl_minutes": trading.gtc_buy_ttl_minutes,
         "reentry_cooldown_hours": trading.reentry_cooldown_hours,
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "min_order_size": trading.min_order_size,
@@ -335,6 +338,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "max_new_positions_per_cycle must be in (0, max_positions]"
         )
+    if not 5 <= trading.gtc_buy_ttl_minutes <= 60:
+        raise ValueError("gtc_buy_ttl_minutes must be between 5 and 60")
     if trading.reentry_cooldown_hours <= 0:
         raise ValueError("reentry_cooldown_hours must be > 0")
     if trading.max_snapshot_gap_minutes <= 0:
@@ -620,6 +625,11 @@ def load_config(
             trading_cfg.get("max_new_positions_per_cycle"),
             1,
             int,
+        ),
+        gtc_buy_ttl_minutes=_get_config_value(
+            "POLYBOT_GTC_BUY_TTL_MINUTES",
+            trading_cfg.get("gtc_buy_ttl_minutes"),
+            10.0,
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",

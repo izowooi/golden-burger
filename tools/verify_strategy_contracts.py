@@ -3898,7 +3898,7 @@ def _validate_tangerine_strategy(
         ),
         "src/polybot/strategy/trader.py": (
             "entry_episode_id",
-            "link_entry_episode_trade",
+            "mark_entry_episode_execution",
             "hold to resolution",
             "payouts_by_outcome",
             "place_fok_buy",

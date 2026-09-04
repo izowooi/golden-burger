@@ -761,7 +761,7 @@ class MarketScanner:
                             type(error).__name__,
                         )
                     else:
-                        if clob_proof.status == "RESOLVED":
+                        if clob_proof.status in {"RESOLVED", "VOID"}:
                             try:
                                 self.repo.record_followup_clob_resolution(
                                     condition_id,

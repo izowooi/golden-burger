@@ -12,7 +12,14 @@ from polybot.bot import PolymarketBot
 from polybot.config import TradingConfig
 
 
-def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
+def _build_bot(
+    monkeypatch,
+    tmp_path,
+    mode: str,
+    holdings,
+    *,
+    simulation_mode: bool = False,
+):
     scanner = MagicMock()
     scanner.fetch_markets.return_value = [{"conditionId": "market-1"}]
     scanner.save_market_snapshots.return_value = 1
@@ -85,7 +92,7 @@ def _build_bot(monkeypatch, tmp_path, mode: str, holdings):
     bot = object.__new__(PolymarketBot)
     bot.config = SimpleNamespace(
         trading=TradingConfig(lifecycle_mode=mode),
-        simulation_mode=False,
+        simulation_mode=simulation_mode,
         db_path=tmp_path / "trades.db",
     )
     bot.Session = lambda: session
@@ -655,12 +662,16 @@ def test_active_untracked_buy_reserves_capacity_without_global_block(
     trader.execute_buy.side_effect = None
     trader.execute_buy.return_value = 1
 
-    stats = bot.run_cycle()
+    stats = bot.run_cycle(order_reconciliation={"unresolved_buy_outcomes": 1})
 
     assert stats["entry_guard"]["blocking_reasons"] == []
     assert stats["entry_guard"]["degraded_reasons"] == [
-        "untracked_buy_exposure_isolated"
+        "untracked_buy_exposure_isolated",
+        "unresolved_buy_outcome_isolated",
     ]
+    assert stats["entry_guard"]["untracked_buy_reservations"] == 1
+    assert stats["entry_guard"]["total_reserved"] == 1
+    assert stats["entry_guard"]["unresolved_buy_outcomes"] == 1
     trader.execute_buy.assert_called_once_with(candidate)
     session.close.assert_called_once()
 
@@ -683,6 +694,14 @@ def test_active_blocks_new_buy_when_owned_buy_fee_evidence_is_incomplete(
     stats = bot.run_cycle()
 
     assert stats["entry_guard"]["open_buy_evidence_gaps"] == 1
+    assert stats["execution_mode"] == "live"
+    assert stats["entry_guard"]["execution_mode"] == "live"
+    assert stats["entry_guard"]["open_buy_evidence_policy"] == (
+        "venue_confirmed_fill_fail_closed"
+    )
+    assert stats["entry_guard"]["open_buy_evidence_reason"] == (
+        "live_rows_require_confirmed_size_vwap_and_fee"
+    )
     assert stats["entry_guard"]["blocking_reasons"] == [
         "open_buy_fill_or_fee_evidence_gap"
     ]
@@ -691,6 +710,83 @@ def test_active_blocks_new_buy_when_owned_buy_fee_evidence_is_incomplete(
         state="BLOCKED_GUARD",
         reason="open_buy_fill_or_fee_evidence_gap",
     )
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
+def test_active_simulation_holding_without_venue_fill_evidence_allows_next_entry(
+    monkeypatch, tmp_path
+):
+    holding = SimpleNamespace(id=20, token_id="sim-token")
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch,
+        tmp_path,
+        "active",
+        [holding],
+        simulation_mode=True,
+    )
+    candidate = {
+        "condition_id": "market-2",
+        "event_id": "event-2",
+        "entry_episode_id": 20,
+    }
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [candidate]
+    repo.get_open_buy_evidence_gap_count.side_effect = (
+        lambda *, mode=None: 1 if mode in (None, "sim") else 0
+    )
+    trader.execute_buy.side_effect = None
+    trader.execute_buy.return_value = 2
+
+    stats = bot.run_cycle()
+
+    assert stats["execution_mode"] == "simulation"
+    assert stats["entry_guard"]["execution_mode"] == "simulation"
+    assert stats["entry_guard"]["blocking_reasons"] == []
+    assert stats["entry_guard"]["degraded_reasons"] == [
+        "simulation_venue_buy_fill_evidence_not_applicable"
+    ]
+    assert stats["entry_guard"]["open_buy_evidence_policy"] == (
+        "simulation_rows_exempt_non_simulation_rows_fail_closed"
+    )
+    assert stats["entry_guard"]["open_buy_evidence_reason"] == (
+        "simulation_rows_do_not_require_venue_fill_fields"
+    )
+    assert stats["entry_guard"]["total_reserved"] == 1
+    trader.execute_buy.assert_called_once_with(candidate)
+    session.close.assert_called_once()
+
+
+def test_active_simulation_fill_gap_does_not_relax_max_position_capacity(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch,
+        tmp_path,
+        "active",
+        [],
+        simulation_mode=True,
+    )
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [
+        {"condition_id": "market-2", "event_id": "event-2"}
+    ]
+    repo.get_open_buy_evidence_gap_count.side_effect = (
+        lambda *, mode=None: 10 if mode in (None, "sim") else 0
+    )
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 10,
+        "untracked_buy_reservations": 0,
+        "total_reserved": 10,
+    }
+
+    stats = bot.run_cycle()
+
+    assert "max_capacity_reserved" in stats["entry_guard"]["blocking_reasons"]
+    assert "simulation_venue_buy_fill_evidence_not_applicable" in stats[
+        "entry_guard"
+    ]["degraded_reasons"]
+    assert stats["entry_guard"]["capacity_remaining"] == 0
     trader.execute_buy.assert_not_called()
     session.close.assert_called_once()
 

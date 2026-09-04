@@ -8,14 +8,17 @@
 
 승률이 높으므로 심리적으로 유지하기 쉽고, 개별 손실이 드물게 발생한다. 다만 손실 한 건의 크기가 이익 한 건보다 훨씬 크다(0.85에 사면 이길 때 +0.15, 질 때 -0.85). 따라서 **승률이 진입가를 넘어야만** 수익이 난다.
 
-### 2026-07 실측으로 확인된 것
+### 2026-07 legacy 회고에서 관측된 것
 
-`docs/retro/golden-cherry-2026-07-parameter-review.md` (체결 300건, Gamma 해결 결과 대조):
+`docs/retro/golden-cherry-2026-07-parameter-review.md`의 당시 분석(체결로 분류된 300건,
+Gamma 해결 결과 대조)은 exact execution ledger가 완전하지 않은 역사 구간이다. 아래 숫자는
+전략 가설의 배경이지 현재 actual fill P&L 증거가 아니며, `scripts/analyze_exact_history.py`의
+confirmed SELL 결과와 합산하지 않는다.
 
 - **실현 YES율이 모든 밴드에서 진입가와 거의 같았다** (0.769→76.9%, 0.820→81.2%, 0.879→90.4%, 0.907→91.3%). 즉 편향은 이 구간에서 관측되지 않았고 시장은 효율적이었다.
-- 수수료는 $0였다. 따라서 손익을 가르는 것은 **진입가가 아니라 청산 규칙**이다.
-- 익절(+10%)은 해결까지 보유 대비 +$2,523을 벌었다. 일시적 상승을 파는 것은 실제로 유효하다.
-- 손절은 해결까지 보유 대비 -$1,902를 까먹었다. 유일하게 파괴적인 규칙이다.
+- 당시 자료에서는 수수료를 $0로 분류했지만, exact fee evidence가 없는 행에는 이를 소급하지 않는다.
+- 당시 반사실은 익절(+10%)을 해결까지 보유보다 +$2,523, 손절을 -$1,902로 추정했다.
+  이는 legacy counterfactual이며 앞으로의 수익성 결론이나 actual cashflow가 아니다.
 
 ## 3. 진입/청산 규칙 정밀 명세
 
@@ -69,6 +72,7 @@ known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 | `POLYBOT_MAX_POSITIONS` | 10 | 오픈 포지션 상한 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | 5000 | 오픈 요청 원금 상한 |
 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | 1 | 사이클당 신규 진입 |
+| `POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC` | -30 | exact SELL + fee-complete exact resolution 누적 경제손익 신규 진입 floor |
 | `POLYBOT_PENDING_BUY_TTL_MINUTES` | 30 | exact LIVE·0 fill BUY 취소 전 대기시간 |
 | `POLYBOT_YES_ONLY` | false | index 0 토큰만 |
 | `POLYBOT_LIFECYCLE_MODE` | active | `active`/`close_only`/`archive_only` |
@@ -87,7 +91,10 @@ known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 
 `docs/ab-retro-playbook.md`를 따른다. cherry 고유 주의사항:
 
-- 성과는 **반드시** `order_fills.status='CONFIRMED'`로 계산한다. `trades.realized_pnl`은 요청가 기반이라 무의미하다.
+- 성과는 **반드시** exact confirmed BUY/SELL fill과 known fee로 계산한다. 현재 코드가
+  `pnl_basis='exact_reconciled_buy_sell_confirmed_fills_net_known_fees'`로 표시한 값만
+  `scripts/analyze_exact_history.py`/`report.py`가 actual SELL P&L에 포함한다. 그 외 legacy
+  `trades.realized_pnl`은 요청가 기반 추정으로 제외한다.
 - `strategy_configs`에서 `config_hash`를 확인해 단일 cohort로 자른다. 2026-07 구간은 `buy_amount`가 3000→2000→1000→100→500으로 바뀐 혼합 구간이었다.
 - 시장 해결 결과는 Gamma에 `closed=true`를 붙여 재조회한다. 붙이지 않으면 해결된 시장이 반환되지 않는다.
 
@@ -103,5 +110,28 @@ known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 - 스포츠 진입 계측 컬럼 5개(`entry_time_reference`, `sports_phase_at_buy`, `hours_until_entry_deadline_at_buy`, `minutes_until_game_start_at_buy`, `market_game_start_time`)가 전부 NULL이다.
 - 2026-08-14 이전 legacy 매도는 GTC 접수만으로 `COMPLETED`가 될 수 있다. 이후 live
   주문은 exact confirmed SELL full fill과 fee evidence가 완결될 때까지 `PENDING_SELL`이다.
-- 해결된 시장의 포지션이 자동 정리되지 않는다. redeem 회계가 없다.
+- Gamma closed + exact token one-hot 0/1 payout + exact confirmed BUY가 일치하면 `RESOLVED`로
+  open position에서 제외한다. 이는 `settlement_pnl_assumption`이며 synthetic SELL이나 실제
+  redeem/account credit가 아니다. 증거가 모호하면 HOLDING을 유지한다.
 - `filters.py`의 `should_sell()`은 어디서도 호출되지 않는 죽은 코드다.
+
+## 9. Exact-economic live entry guard
+
+live 신규 진입은 `exact_reconciled_buy_sell_confirmed_fills_net_known_fees` SELL P&L과
+`exact_confirmed_buy_remaining_position_net_known_buy_fee` resolution settlement만 안전 판정에서
+합산한다. legacy `realized_pnl`, simulation, fee-unproven settlement는 포함하지 않는다.
+경제손익이 `POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC`(기본 `-$30`) 이하이거나 unknown BUY,
+incomplete fee, exact resolution gap이 하나라도 있으면 Phase 2/3만 건너뛴다. Phase 0
+reconciliation과 Phase 1 holding/exit 관리는 먼저 정상 실행된다.
+
+2026-09-05 current Yellow exact channels는 SELL `-$44.847137`, resolution
+`-$100.314853`, 합계 `-$145.161990`이므로 향후 active shell도 신규 진입 차단 상태다.
+
+## 10. Prospective redesign shadow
+
+`cherry-shadow-resolution-v2`는 live 전략을 바꾸는 기능이 아니라 별도
+`trades_sim.db`에 표시 호가 반사실을 적재하는 accountless experiment다. Bootstrap에서
+0.80–0.82가 양수였다는 사실은 조건부 관측이며 causal하지 않다. 따라서 frozen lower/upper
+control, hold/current/sensitivity policy 전부를 유지하고 event-clustered 결과를 30일 entry
+window 전에는 선택하지 않는다. 권위 있는 설계는
+`docs/CHERRY_SHADOW_RESOLUTION_V2_PREREGISTRATION.md`와 `shadow_config.yaml`이다.

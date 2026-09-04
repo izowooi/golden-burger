@@ -9,6 +9,7 @@ from .strategy.scanner import MarketScanner, format_entry_window
 from .strategy.trader import Trader
 from .db.models import init_database
 from .db.repository import TradeRepository
+from .utils.process_lock import DatabaseRunLock
 
 logger = logging.getLogger(__name__)
 
@@ -85,6 +86,7 @@ class PolymarketBot:
             "pending_buys_checked": 0,
             "pending_buys_activated": 0,
             "pending_sells_checked": 0,
+            "entry_guard": None,
         }
 
         try:
@@ -183,7 +185,26 @@ class PolymarketBot:
                                         updated_trade, self.config.db_path.parent
                                     )
 
+            entry_guard = None
             if lifecycle_mode == "active":
+                entry_guard = trader.get_entry_guard()
+                stats["entry_guard"] = entry_guard
+                logger.info(
+                    "exact-economic entry guard - allowed=%s economic=$%.2f "
+                    "(SELL=$%.2f + resolution=$%.2f) floor=$%.2f "
+                    "unknown_buy=%d incomplete_fee=%d resolution_gap=%d blockers=%s",
+                    entry_guard["entry_allowed"],
+                    entry_guard["exact_economic_pnl_usdc"],
+                    entry_guard["exact_confirmed_sell_pnl_usdc"],
+                    entry_guard["exact_proven_resolution_settlement_usdc"],
+                    entry_guard["drawdown_floor_usdc"],
+                    entry_guard["unknown_buy_evidence_count"],
+                    entry_guard["incomplete_fee_evidence_count"],
+                    entry_guard["resolution_evidence_gap_count"],
+                    ",".join(entry_guard["blockers"]) or "none",
+                )
+
+            if lifecycle_mode == "active" and entry_guard["entry_allowed"]:
                 # Phase 2: Scan for buy candidates
                 logger.info("=== Phase 2: 매수 후보 스캔 ===")
                 candidates = scanner.scan_buy_candidates()
@@ -199,28 +220,51 @@ class PolymarketBot:
 
                     if trader.execute_buy(candidate):
                         stats["bought"] += 1
-            else:
+            elif lifecycle_mode != "active":
                 logger.warning(
                     "=== Phase 2/3 건너뜀: "
                     f"{lifecycle_mode} 모드에서 신규 진입이 차단됩니다 ==="
                 )
+            else:
+                logger.error(
+                    "=== Phase 2/3 건너뜀: exact-economic entry guard가 "
+                    "신규 진입을 차단했습니다. 기존 청산/대사는 완료되었습니다 ==="
+                )
 
             # Log statistics
             db_stats = repo.get_stats()
+            stats["exposure"] = {
+                key: db_stats[key]
+                for key in (
+                    "managed_open_position_count",
+                    "managed_open_notional_usdc",
+                    "untracked_buy_reservation_count",
+                    "untracked_buy_reservation_notional_usdc",
+                    "untracked_buy_unknown_outcome_count",
+                    "untracked_buy_reconciliation_count",
+                    "reserved_position_count",
+                    "reserved_open_notional_usdc",
+                )
+            }
             logger.info(f"=== 사이클 완료 ===")
             logger.info(f"보유 포지션 확인: {stats['checked_holdings']}개")
             logger.info(f"매도: {stats['sold']}건")
             logger.info(f"매수 후보: {stats['buy_candidates']}개")
             logger.info(f"매수: {stats['bought']}건")
             logger.info(
-                "총 open 포지션: %s개 (PENDING_BUY=%s, HOLDING=%s, "
-                "PENDING_SELL=%s)",
-                db_stats["pending_buy"]
-                + db_stats["holding"]
-                + db_stats["pending_sell"],
+                "총 capacity 예약: %s개/$%.2f (managed=%s개/$%.2f, "
+                "미추적 BUY=%s개/$%.2f; PENDING_BUY=%s, HOLDING=%s, "
+                "PENDING_SELL=%s, QUARANTINED=%s)",
+                db_stats["reserved_position_count"],
+                db_stats["reserved_open_notional_usdc"],
+                db_stats["managed_open_position_count"],
+                db_stats["managed_open_notional_usdc"],
+                db_stats["untracked_buy_reservation_count"],
+                db_stats["untracked_buy_reservation_notional_usdc"],
                 db_stats["pending_buy"],
                 db_stats["holding"],
                 db_stats["pending_sell"],
+                db_stats["quarantined"],
             )
             logger.info(
                 "해결 증거: %s개, settlement assumption=$%.4f",
@@ -243,23 +287,52 @@ class PolymarketBot:
 
     def run(self):
         """Run a single trading cycle (for Jenkins)."""
-        logger.info(f"트레이딩 사이클 시작 - {self.config.job_name}")
-        audit = RunAudit.start(self.config, strategy_name="golden-cherry")
+        with DatabaseRunLock(self.config.db_path) as run_lock:
+            if not run_lock.acquired:
+                stats = {
+                    "skipped": True,
+                    "skip_reason": "db_process_lock_busy",
+                    "job_name": self.config.job_name,
+                    "db_path": str(self.config.db_path),
+                    "lock_path": str(run_lock.path),
+                    "lock_owner_pid": run_lock.owner.get("pid"),
+                    "lock_owner_acquired_at": run_lock.owner.get("acquired_at"),
+                }
+                logger.warning(
+                    "중복 run 안전 skip - job=%s db=%s owner_pid=%s "
+                    "owner_acquired_at=%s",
+                    self.config.job_name,
+                    self.config.db_path,
+                    stats["lock_owner_pid"],
+                    stats["lock_owner_acquired_at"],
+                )
+                return stats
 
-        try:
-            # A long-lived process may call run() repeatedly; attest only this run.
-            self.gamma.sweep_attestations.clear()
-            reconciliation = self.clob.reconcile_order_ledger()
-            log_reconciliation_continuity(reconciliation, logger=logger)
-            stats = self.run_cycle()
-            stats["market_sweeps"] = self.gamma.get_sweep_summaries()
-            stats["order_reconciliation"] = reconciliation
-            audit.succeed(stats)
-            logger.info(f"사이클 성공적으로 완료: {stats}")
-        except Exception as e:
-            audit.fail(e)
-            logger.exception(f"사이클 실패: {e}")
-            raise
+            logger.info(
+                "DB process lock 획득 - job=%s db=%s lock=%s pid=%s",
+                self.config.job_name,
+                self.config.db_path,
+                run_lock.path,
+                run_lock.owner.get("pid"),
+            )
+            logger.info(f"트레이딩 사이클 시작 - {self.config.job_name}")
+            audit = RunAudit.start(self.config, strategy_name="golden-cherry")
+
+            try:
+                # A long-lived process may call run() repeatedly; attest only this run.
+                self.gamma.sweep_attestations.clear()
+                reconciliation = self.clob.reconcile_order_ledger()
+                log_reconciliation_continuity(reconciliation, logger=logger)
+                stats = self.run_cycle()
+                stats["market_sweeps"] = self.gamma.get_sweep_summaries()
+                stats["order_reconciliation"] = reconciliation
+                audit.succeed(stats)
+                logger.info(f"사이클 성공적으로 완료: {stats}")
+                return stats
+            except Exception as e:
+                audit.fail(e)
+                logger.exception(f"사이클 실패: {e}")
+                raise
 
     def get_status(self) -> dict:
         """Get current bot status and statistics.
@@ -272,6 +345,10 @@ class PolymarketBot:
 
         try:
             stats = repo.get_stats()
+            entry_guard = repo.get_entry_guard(
+                self.config.trading.entry_drawdown_floor_usdc,
+                simulation_mode=self.config.simulation_mode,
+            )
             holdings = repo.get_holding_trades()
 
             return {
@@ -280,6 +357,7 @@ class PolymarketBot:
                 "lifecycle_mode": self.config.trading.lifecycle_mode,
                 "db_path": str(self.config.db_path),
                 "statistics": stats,
+                "entry_guard": entry_guard,
                 "holdings": [
                     {
                         "id": t.id,
@@ -306,6 +384,7 @@ class PolymarketBot:
                     "max_positions": self.config.trading.max_positions,
                     "max_open_notional_usdc": self.config.trading.max_open_notional_usdc,
                     "max_new_positions_per_cycle": self.config.trading.max_new_positions_per_cycle,
+                    "entry_drawdown_floor_usdc": self.config.trading.entry_drawdown_floor_usdc,
                     "take_profit_percent": self.config.trading.take_profit_percent,
                     "stop_loss_percent": self.config.trading.stop_loss_percent,
                     "trailing_stop_enabled": self.config.trading.trailing_stop.enabled,

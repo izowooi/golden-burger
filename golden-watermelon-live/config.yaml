@@ -36,6 +36,7 @@ trading:
   # 손절 제출/대사가 계속 실패해도 다른 경기를 막지 않는다. 3시간 뒤에는
   # 성공 매도로 꾸미지 않고 미확정 노출 격리 상태로 자동 종결한다.
   stop_sell_quarantine_timeout_minutes: 180
+  pending_buy_quarantine_timeout_minutes: 180
 
   min_order_size: 5.0
   min_order_buffer_shares: 0.0

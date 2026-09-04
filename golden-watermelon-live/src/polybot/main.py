@@ -141,6 +141,7 @@ def main() -> None:
     trading = config.trading
     print("=== Golden Watermelon Live / In-Play Major-Sports Winner ===")
     print(f"Job: {config.job_name}")
+    print(f"Jenkins Job: {config.jenkins_job}")
     print(f"Simulation: {config.simulation_mode}")
     print(f"Lifecycle Mode: {trading.lifecycle_mode}")
     print(f"Sport Family: {trading.sport_family}")
@@ -190,6 +191,11 @@ def main() -> None:
         "Failed stop SELL containment: unrelated events continue; unresolved "
         f"exposure auto-quarantines after "
         f"{trading.stop_sell_quarantine_timeout_minutes:.0f} minutes"
+    )
+    print(
+        "Ambiguous PENDING BUY containment: event-local quarantine after "
+        f"{trading.pending_buy_quarantine_timeout_minutes:.0f} minutes; "
+        "economic capacity remains reserved"
     )
     print(
         "Economic drawdown entry guard: "

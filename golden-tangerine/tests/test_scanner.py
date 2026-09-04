@@ -133,3 +133,14 @@ def test_arm_b_can_select_no_without_yes_only_bias(tmp_path) -> None:
         ("No", "no-token")
     ]
     session.close()
+
+
+def test_exact_esports_exclusion_is_opt_in_and_applied_before_entry(tmp_path) -> None:
+    config = TradingConfig(exclude_esports=True)
+    session, _repo, _gamma, scanner = _scanner(tmp_path, config, _Clob(0.945, 0.055))
+    market = _market()
+    market["tags"] = [{"slug": "esports", "label": "Esports"}]
+    assert scanner.save_market_snapshots([market], now=NOW) == 0
+    assert scanner.scan_buy_candidates([market], now=NOW) == []
+    assert session.query(EntryEpisode).count() == 0
+    session.close()

@@ -238,6 +238,26 @@ class _Session:
         return _Response(self.pages.pop(0))
 
 
+def test_gamma_condition_lookup_falls_back_to_closed_exact_identity() -> None:
+    closed = {
+        "conditionId": "resolved-condition",
+        "closed": True,
+        "outcomes": ["Yes", "No"],
+        "outcomePrices": [0.5, 0.5],
+        "clobTokenIds": ["yes-token", "no-token"],
+        "negRisk": True,
+    }
+    client = GammaClient()
+    client.session = _Session([[], [closed]])
+
+    assert client.get_market_by_condition_id("resolved-condition") == closed
+    assert [call[1]["closed"] for call in client.session.calls] == [
+        "false",
+        "true",
+    ]
+    assert all(call[1]["limit"] == 2 for call in client.session.calls)
+
+
 def test_gamma_uses_soccer_live_keyset_and_terminal_cursor() -> None:
     first = _market("one")
     duplicate = _market("one")

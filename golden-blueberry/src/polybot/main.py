@@ -187,6 +187,7 @@ def main() -> None:
             f"{trading.max_event_positions} per event, "
             f"${trading.max_open_notional_usdc:,.0f} open notional, "
             f"{trading.max_new_positions_per_cycle}/cycle, "
+            f"GTC BUY TTL {trading.gtc_buy_ttl_minutes:g}m, "
             f"{trading.reentry_cooldown_hours:.0f}h cooldown"
         )
     print(

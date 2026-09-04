@@ -228,6 +228,8 @@ NOTIONAL_LADDER_USDC = (
     5.0, 10.0, 15.0, 20.0, 25.0, 30.0,
     40.0, 50.0, 75.0, 100.0, 150.0, 250.0, 500.0, 750.0, 1000.0,
 )
+NETWORK_BUDGET_SECONDS = 42.0
+CYCLE_BUDGET_SECONDS = 50.0
 
 
 @dataclass(frozen=True)
@@ -587,6 +589,8 @@ class TradingConfig:
     experiment: ExperimentConfig
     storage: StorageConfig
     strategy_source_digest: str
+    network_budget_seconds: float
+    cycle_budget_seconds: float
 
 
 @dataclass(frozen=True)
@@ -615,6 +619,13 @@ def _validate_config(config: BotConfig) -> None:
     trading = config.trading
     if trading.lifecycle_mode not in LIFECYCLE_MODES:
         raise ValueError("lifecycle_mode must be archive_only")
+    if (
+        trading.network_budget_seconds != NETWORK_BUDGET_SECONDS
+        or trading.cycle_budget_seconds != CYCLE_BUDGET_SECONDS
+    ):
+        raise ValueError(
+            "simulation runtime budget is frozen at 42s network / 50s cycle"
+        )
     exact_metadata = (
         trading.data_contract == DATA_CONTRACT
         and trading.schema_profile == SCHEMA_PROFILE
@@ -823,6 +834,14 @@ def load_config(
         experiment=experiment,
         storage=storage,
         strategy_source_digest=compute_strategy_source_digest(),
+        network_budget_seconds=_finite(
+            trading_raw.get("network_budget_seconds"),
+            "trading.network_budget_seconds",
+        ),
+        cycle_budget_seconds=_finite(
+            trading_raw.get("cycle_budget_seconds"),
+            "trading.cycle_budget_seconds",
+        ),
     )
     validate_yaml_config_shape(raw, trading)
     provisional = BotConfig(

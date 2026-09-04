@@ -26,6 +26,7 @@ def clean_env(monkeypatch, tmp_path):
     ("POLYBOT_MAX_ORDER_LIQUIDITY_RATIO", "0", "max_order_liquidity_ratio"),
     ("POLYBOT_PENDING_BUY_TTL_MINUTES", "4", "pending_buy_ttl_minutes"),
     ("POLYBOT_PENDING_BUY_TTL_MINUTES", "1441", "pending_buy_ttl_minutes"),
+    ("POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC", "0", "entry_drawdown_floor_usdc"),
     ("POLYMARKET_SIGNATURE_TYPE", "2", "signature_type"),
 ])
 def test_invalid_env_values_are_rejected(monkeypatch, key, value, match):
@@ -68,6 +69,7 @@ def test_live_safety_defaults_are_finite():
     assert trading.max_open_notional_usdc == 5000
     assert trading.max_new_positions_per_cycle == 1
     assert trading.pending_buy_ttl_minutes == 30
+    assert trading.entry_drawdown_floor_usdc == -30.0
     assert trading.game_start.enabled is True
     assert trading.game_start.allow_in_play is True
     assert trading.effective_min_liquidity == 50_000
@@ -76,6 +78,11 @@ def test_live_safety_defaults_are_finite():
 def test_pending_buy_ttl_env_override(monkeypatch):
     monkeypatch.setenv("POLYBOT_PENDING_BUY_TTL_MINUTES", "45")
     assert load_config("missing.yaml").trading.pending_buy_ttl_minutes == 45
+
+
+def test_entry_drawdown_floor_env_override(monkeypatch):
+    monkeypatch.setenv("POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC", "-45")
+    assert load_config("missing.yaml").trading.entry_drawdown_floor_usdc == -45.0
 
 
 @pytest.mark.parametrize(("key", "value"), [

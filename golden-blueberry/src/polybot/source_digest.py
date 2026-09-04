@@ -20,6 +20,7 @@ def _files(project_root: Path) -> list[Path]:
         project_root / "uv.lock",
         project_root / "scripts" / "backtest.py",
         project_root / "scripts" / "analyze_experiment.py",
+        project_root / "scripts" / "analyze_shadow.py",
         observability_root / "pyproject.toml",
     ]
     discovered = [

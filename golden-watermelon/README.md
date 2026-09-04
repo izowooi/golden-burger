@@ -25,9 +25,15 @@ MLB, NBA, NFL, NHL whole-game winner의 exact displayed CLOB book을 계정 없�
   root/season/team identity일 때 포함한다.
 - e-sports, MiLB/G League/AHL/ECHL/NCAA, child/period/quarter/inning/spread/total/prop/future/
   advancement는 제외한다.
+- NBA G League와 NBA Summer League는 NBA root/tag/team metadata가 다른 조건을 만족해도 명시적으로
+  제외한다.
 
 다섯 family는 `/events/keyset`에서 `closed=false`, `live=true`, `related_tags=false`와 각 numeric
 tag로 독립 cursor를 완결한다. research collector는 volume/liquidity로 표본을 먼저 버리지 않는다.
+각 family는 별도 HTTP session/worker에서 동시에 읽고 결과는 항상
+`soccer → mlb → nba → nfl → nhl` 순서로 조립한다. 전체 public network는 cooperative 42초,
+cycle은 50초이며 process signal이나 hard kill은 쓰지 않는다. network cutoff 이후 요청은 명시적
+incomplete receipt로 기록되고, 한 family라도 미완결이면 partial cycle을 성공으로 게시하지 않는다.
 eligible outcome의 full ask/bid levels를 저장해 `$5`부터 `$1000`까지 같은 snapshot에서 replay한다.
 이 displayed evidence는 actual fill 또는 realized P&L이 아니다.
 
@@ -39,6 +45,11 @@ source-explicit regulation minute `75/80/85` strata를 만들지만 kickoff wall
 accepted Soccer event는 distinct HOME/DRAW/AWAY condition/token 3개, accepted
 MLB/NBA/NFL/NHL event는 한 condition의 HOME/AWAY token 2개가 정확히 있어야 한다.
 누락·중복은 HIGH collection-health issue다.
+
+resolution follow-up은 Gamma current view 뒤 exact `closed=true` fallback을 사용한다. token/outcome이
+정렬된 `[1,0]`/`[0,1]` one-hot 또는 authoritative binary void `[0.5,0.5]`만 terminal payout으로
+인정한다. void는 두 token 각각 0.5로 분석하며, CLOB 자체 resolution은 계속 closed + unique
+one-hot winner만 허용한다.
 
 ## 실행
 

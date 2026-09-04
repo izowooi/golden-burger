@@ -99,6 +99,20 @@ Gamma resolution 결과, redeemable 상태, 실제 redeem transaction, CLOB SELL
 증거다. proven payout과 exact confirmed BUY가 있으면 `settlement_pnl_assumption`을 기록하지만
 synthetic 1.00 SELL이나 `realized_pnl`을 만들지 않는다. 실제 redeem ingestion은 현재 범위 밖이다.
 
+### 5.1 주문·capacity safety contract
+
+- open capacity는 `PENDING_BUY/HOLDING/PENDING_SELL/QUARANTINED/RESIDUAL`과 trade 미연결 live BUY
+  intent를 보수적으로 합산한다. unknown POST와 accepted-before-trade crash는 restart 뒤에도
+  durable reservation이다.
+- resting GTC BUY TTL은 10분이다. 취소 응답만으로 zero fill을 선언하지 않고 exact terminal
+  status, confirmed fills, authenticated catalog proof를 다시 대사한다.
+- terminal canceled partial BUY는 `latest_size_matched == sum(CONFIRMED fill)`일 때 그 실제
+  size만 managed exposure로 승격한다. 요청 수량의 미체결 잔여는 fill로 만들지 않는다.
+- BUY/SELL confirmed size mismatch는 실패다. 단 SDK 0.01-share 내림으로 남은 명시적
+  `0 < residual < 0.01`만 별도 `pnl_basis`와 비례 BUY fee로 종결하고 residual은 보존한다.
+- Gamma pre-order collection은 동일 universe를 cursor-complete로 읽는 100 page/225초
+  fail-closed cap이다. cycle/POST 전체를 강제 종료하는 timer는 사용하지 않는다.
+
 ## 6. A/B preregistration
 
 | 계약 | Arm A | Arm B |
@@ -122,6 +136,11 @@ config_hash × strategy_source_digest × mode × job_name
 `strategy_source_digest`는 Blueberry runtime/config/lock/backtest/analyzer와 shared observability
 bytes의 SHA-256이다. unrelated monorepo commit은 cohort를 쪼개지 않지만, 전략 동작을 바꾸는
 source change는 새 cohort가 된다.
+
+Shadow row도 같은 네 cohort 축을 각 row와 prospective claim에 저장하고, 그 뒤에
+`condition_id × min_surge × horizon_hours`를 붙여 유일성을 강제한다. 과거 duplicate/missing
+cohort row는 보존하되 analyzer가 summary를 거부한다. 2×2의 horizon cell을 합쳐 표본 수를
+부풀리지 않는다.
 
 ## 7. Falsification과 review gates
 

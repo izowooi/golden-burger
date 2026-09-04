@@ -228,6 +228,50 @@ def test_clob_resolution_observation_is_append_only_and_commits_with_trade(tmp_p
     session.close()
 
 
+def test_clob_void_resolution_observation_keeps_selected_token_alignment(tmp_path):
+    Session = init_database(str(tmp_path / "void-resolution.db"))
+    session = Session()
+    repository = TradeRepository(session)
+    trade = repository.create_trade(
+        condition_id="condition-void",
+        token_id="token-b",
+        outcome="Team B",
+        status=TradeStatus.HOLDING,
+    )
+    evidence_json = (
+        '{"closed":true,"tokens":['
+        '{"outcome":"Team A","price":0.5,"token_id":"token-a","winner":false},'
+        '{"outcome":"Team B","price":0.5,"token_id":"token-b","winner":false}]}'
+    )
+    evidence_sha256 = hashlib.sha256(evidence_json.encode()).hexdigest()
+
+    observation = repository.stage_clob_resolution_observation(
+        trade_id=trade.id,
+        condition_id="condition-void",
+        observed_at=datetime(2026, 8, 21, 11, 0),
+        winner_index=None,
+        winner_token_id="__VOID__",
+        winner_outcome="VOID",
+        selected_token_id="token-b",
+        selected_outcome="Team B",
+        selected_payout=0.5,
+        evidence_sha256=evidence_sha256,
+        evidence_json=evidence_json,
+    )
+    repository.update_trade(trade.id, status=TradeStatus.RESOLVED)
+
+    row = session.execute(
+        text(
+            "SELECT winner_index, winner_token_id, winner_outcome, "
+            "selected_token_id, selected_outcome, selected_payout "
+            "FROM resolution_observations WHERE resolution_id=:resolution_id"
+        ),
+        {"resolution_id": observation.resolution_id},
+    ).one()
+    assert row == (-1, "__VOID__", "VOID", "token-b", "Team B", 0.5)
+    session.close()
+
+
 def test_exit_execution_observation_is_append_only_and_sport_queryable(tmp_path):
     Session = init_database(str(tmp_path / "exit-execution.db"))
     session = Session()

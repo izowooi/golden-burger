@@ -123,6 +123,7 @@ class TradingConfig:
     max_positions: int = 10
     max_open_notional_usdc: float = 5000.0
     max_new_positions_per_cycle: int = 1
+    entry_drawdown_floor_usdc: float = -30.0
     pending_buy_ttl_minutes: int = 30
     take_profit_percent: float = 0.15     # 이익실현 +15%
     stop_loss_percent: float = -0.08      # 손절 -8%
@@ -181,6 +182,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_positions": trading.max_positions,
         "max_open_notional_usdc": trading.max_open_notional_usdc,
         "max_new_positions_per_cycle": trading.max_new_positions_per_cycle,
+        "entry_drawdown_floor_usdc": trading.entry_drawdown_floor_usdc,
         "pending_buy_ttl_minutes": trading.pending_buy_ttl_minutes,
         "take_profit_percent": trading.take_profit_percent,
         "stop_loss_percent": trading.stop_loss_percent,
@@ -217,6 +219,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "max_new_positions_per_cycle must be > 0 and <= max_positions"
         )
+    if trading.entry_drawdown_floor_usdc >= 0:
+        raise ValueError("entry_drawdown_floor_usdc must be negative")
     if not 5 <= trading.pending_buy_ttl_minutes <= 1440:
         raise ValueError(
             "pending_buy_ttl_minutes must be between 5 and 1440"
@@ -406,6 +410,12 @@ def load_config(
             trading_cfg.get("max_new_positions_per_cycle"),
             1,
             int,
+        ),
+        entry_drawdown_floor_usdc=_get_config_value(
+            "POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC",
+            trading_cfg.get("entry_drawdown_floor_usdc"),
+            -30.0,
+            float,
         ),
         pending_buy_ttl_minutes=_get_config_value(
             "POLYBOT_PENDING_BUY_TTL_MINUTES",

@@ -1,6 +1,6 @@
 [project]
 name = "golden-tangerine"
-version = "0.1.0"
+version = "0.2.0"
 description = "Low-notional live A/B companion for Golden Black sports resolution holds"
 requires-python = ">=3.11"
 dependencies = [

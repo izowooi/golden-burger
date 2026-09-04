@@ -53,6 +53,11 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
   반대 token 전환은 한 번뿐이며 같은 token 재매수와 세 번째 진입은 720시간 동안 금지한다.
 - `DELAYED` FOK BUY/SELL은 exact order·전체 인증 token trade 부재와 cancellation 증거가 모두
   맞을 때만 2분 뒤 0체결로 종결한다. 모호하면 PENDING을 유지한다.
+- 등록된 여섯 runtime은 Jenkins `JOB_NAME`·family·arm·`active/live` mode와 원자적으로 결합한다.
+  미등록 runtime이나 혼합 조합은 DB/network 전에 fail closed한다. 모호한 PENDING BUY는 180분 뒤
+  event-local QUARANTINED로 바꾸되 account/event capacity를 계속 예약하고 exact 대사를 계속한다.
+- Gamma open condition lookup 누락은 exact `closed=true`로 fallback한다. token-aligned final
+  `[0.5,0.5]`는 authoritative void payout으로 허용하되 CLOB unique one-hot 규칙은 유지한다.
 - confirmed SELL + proven resolution 경제손익 `<=-$10`이면 신규 BUY를 자동 차단한다.
 - 경과시간은 거래 조건이 아니다. 42초 이후 요청 금지나 process alarm을 사용하지 않는다.
   각 HTTP 요청은 finite timeout을 사용하고 50초 초과는 telemetry warning으로 남긴다.

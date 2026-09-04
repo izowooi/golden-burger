@@ -129,17 +129,18 @@ def get_proven_resolution(
     prices = [float(item["probability"]) for item in outcomes]
     payouts = dict(zip(labels, prices))
     if prices == [1.0, 0.0]:
-        outcome, winner_index = labels[0], 0
+        outcome, winner_index, settlement_kind = labels[0], 0, "ONE_HOT"
     elif prices == [0.0, 1.0]:
-        outcome, winner_index = labels[1], 1
+        outcome, winner_index, settlement_kind = labels[1], 1, "ONE_HOT"
     elif prices == [0.5, 0.5]:
         # Polymarket can settle rare ambiguous/invalid resolutions at 0.5.
-        outcome, winner_index = "Ambiguous", None
+        outcome, winner_index, settlement_kind = "VOID", -1, "VOID"
     else:
         return None
     return {
         "outcome": outcome,
         "winner_index": winner_index,
+        "settlement_kind": settlement_kind,
         "first_outcome_payout": prices[0],
         # Legacy DB columns are named yes_price_*; this alias means outcome[0].
         "yes_payout": prices[0],
@@ -197,6 +198,45 @@ def is_excluded_market(market: Dict[str, Any], categories: List[str]) -> bool:
         if excluded.intersection(candidates):
             return True
     return False
+
+
+_EXACT_ESPORTS_IDENTITIES = frozenset(
+    {"esports", "e-sports", "esport", "e-sport"}
+)
+
+
+def is_exact_esports_market(market: Dict[str, Any]) -> bool:
+    """Match e-sports only by explicit normalized identity, never keywords.
+
+    A title containing words such as "sports" is not evidence.  The opt-in
+    capability examines exact tag id/slug/label values and explicit category
+    or sport identity fields from the market and its parent event.
+    """
+
+    identities: set[str] = set()
+
+    def add(value: Any) -> None:
+        normalized = str(value or "").strip().lower()
+        if normalized:
+            identities.add(normalized)
+
+    raw_events = market.get("events") or []
+    sources = [market]
+    if isinstance(raw_events, list) and raw_events and isinstance(raw_events[0], dict):
+        sources.append(raw_events[0])
+    for source in sources:
+        if not isinstance(source, dict):
+            continue
+        for key in ("category", "sport", "sportType", "sportsMarketType"):
+            add(source.get(key))
+        tags = source.get("tags") or []
+        for tag in tags if isinstance(tags, list) else []:
+            if isinstance(tag, dict):
+                for key in ("id", "slug", "label"):
+                    add(tag.get(key))
+            else:
+                add(tag)
+    return bool(identities.intersection(_EXACT_ESPORTS_IDENTITIES))
 
 
 # Sibling-strategy compatibility names.  Papaya does not use keyword heuristics.

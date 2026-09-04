@@ -338,7 +338,35 @@ class SkippedMarket(Base):
 
 
 _TRADE_MIGRATION_COLUMNS = {
+    # The first Golden Peach schema predates the additive evidence columns.
+    # Keep every base column explicit so sparse legacy DBs migrate
+    # deterministically; validation below still rejects incompatible affinity.
+    "condition_id": "TEXT NOT NULL DEFAULT 'legacy-unknown-condition'",
+    "market_slug": "TEXT",
+    "question": "TEXT",
+    "outcome": "TEXT NOT NULL DEFAULT 'Unknown'",
+    "token_id": "TEXT NOT NULL DEFAULT 'legacy-unknown-token'",
+    "buy_price": "REAL",
+    "buy_amount": "REAL",
+    "buy_shares": "REAL",
+    "buy_order_id": "TEXT",
     "buy_timestamp": "DATETIME",
+    "buy_probability": "REAL",
+    "sell_price": "REAL",
+    "sell_shares": "REAL",
+    "sell_order_id": "TEXT",
+    "sell_timestamp": "DATETIME",
+    "sell_probability": "REAL",
+    "realized_pnl": "REAL",
+    "status": "TEXT",
+    "entry_reason": "TEXT",
+    "exit_reason": "TEXT",
+    "market_end_date": "DATETIME",
+    "hours_until_resolution_at_buy": "REAL",
+    "liquidity_at_buy": "REAL",
+    "market_tags": "TEXT",
+    "created_at": "DATETIME",
+    "updated_at": "DATETIME",
     "event_id": "TEXT",
     "event_slug": "TEXT",
     "outcome_side": "TEXT",
@@ -397,6 +425,190 @@ _TRADE_MIGRATION_COLUMNS = {
     "buy_notional_fallback_reason": "TEXT",
 }
 
+_SNAPSHOT_MIGRATION_COLUMNS = {
+    "token_id": "TEXT",
+    "outcome": "TEXT",
+    "event_id": "TEXT",
+    "outcome_side": "TEXT",
+    "result_kind": "TEXT",
+    "midpoint": "REAL",
+    "best_bid": "REAL",
+    "best_ask": "REAL",
+    "spread": "REAL",
+    "source_updated_at": "TEXT",
+    "source_elapsed_minutes": "REAL",
+    "source_clock_reason": "TEXT",
+    "book_json": "TEXT",
+    "execution_capacity_json": "TEXT",
+    "run_id": "TEXT",
+    "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
+    "market_tags_json": "TEXT",
+    "sport_profile_version": "TEXT",
+    "book_shape": "TEXT",
+}
+
+_ENTRY_EPISODE_MIGRATION_COLUMNS = {
+    "game_start_time": "DATETIME",
+    "in_play_hours": "REAL",
+    "source_elapsed_minutes": "REAL",
+    "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
+    "execution_reason": "TEXT",
+    "last_attempted_at": "DATETIME",
+}
+
+_SWEEP_MIGRATION_COLUMNS = {
+    "membership_detail_stored": "INTEGER NOT NULL DEFAULT 1",
+}
+
+_CATALOG_MIGRATION_COLUMNS = {
+    "fee_exponent": "INTEGER",
+    "fee_taker_only": "INTEGER",
+    "sport_family": "TEXT",
+    "league_code": "TEXT",
+    "league_name": "TEXT",
+}
+
+
+def _table_info(connection, table_name: str) -> dict[str, tuple]:
+    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    if not rows:
+        raise RuntimeError(f"required SQLite table is missing: {table_name}")
+    return {str(row[1]): tuple(row) for row in rows}
+
+
+def _table_columns(connection, table_name: str) -> set[str]:
+    return set(_table_info(connection, table_name))
+
+
+def _sqlite_affinity(declared_type: str) -> str:
+    normalized = declared_type.upper()
+    if "INT" in normalized:
+        return "INTEGER"
+    if any(marker in normalized for marker in ("CHAR", "CLOB", "TEXT")):
+        return "TEXT"
+    if "BLOB" in normalized or not normalized:
+        return "BLOB"
+    if any(marker in normalized for marker in ("REAL", "FLOA", "DOUB")):
+        return "REAL"
+    return "NUMERIC"
+
+
+def _model_affinity(column) -> str:
+    if isinstance(column.type, Integer):
+        return "INTEGER"
+    if isinstance(column.type, Float):
+        return "REAL"
+    if isinstance(column.type, (String, Enum)):
+        return "TEXT"
+    if isinstance(column.type, DateTime):
+        return "NUMERIC"
+    raise RuntimeError(
+        f"unsupported SQLite model type for {column.table.name}.{column.name}: "
+        f"{column.type!r}"
+    )
+
+
+def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> None:
+    """Apply only known additive migrations and verify every result."""
+    existing = _table_columns(connection, table_name)
+    for name, sql_type in columns.items():
+        if name in existing:
+            continue
+        connection.execute(
+            text(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+        )
+        existing.add(name)
+    missing = set(columns) - _table_columns(connection, table_name)
+    if missing:
+        raise RuntimeError(
+            f"SQLite migration did not create {table_name} columns: "
+            f"{sorted(missing)}"
+        )
+
+
+def _verify_model_columns(connection, table_name: str) -> None:
+    model_table = Base.metadata.tables[table_name]
+    expected = {column.name for column in model_table.columns}
+    table_info = _table_info(connection, table_name)
+    missing = expected - set(table_info)
+    if missing:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; missing columns: {sorted(missing)}"
+        )
+    mismatched = []
+    for column in model_table.columns:
+        declared_type = str(table_info[column.name][2])
+        expected_affinity = _model_affinity(column)
+        actual_affinity = _sqlite_affinity(declared_type)
+        if actual_affinity != expected_affinity:
+            mismatched.append(
+                f"{column.name}: expected {expected_affinity}, "
+                f"found {actual_affinity} ({declared_type or 'untyped'})"
+            )
+    if mismatched:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; type mismatches: {mismatched}"
+        )
+
+
+def _upgrade_database_schema(connection) -> None:
+    _ensure_columns(connection, "trades", _TRADE_MIGRATION_COLUMNS)
+    _ensure_columns(connection, "market_snapshots", _SNAPSHOT_MIGRATION_COLUMNS)
+    _ensure_columns(
+        connection, "entry_episodes", _ENTRY_EPISODE_MIGRATION_COLUMNS
+    )
+    _ensure_columns(connection, "market_sweeps", _SWEEP_MIGRATION_COLUMNS)
+    _ensure_columns(connection, "market_catalog", _CATALOG_MIGRATION_COLUMNS)
+    for table_name in Base.metadata.tables:
+        _verify_model_columns(connection, table_name)
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+            "ON market_snapshots(condition_id, timestamp)"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+            "ON market_snapshots(run_id)"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
+            "ON market_snapshots(sport_family, league_code, timestamp)"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE INDEX IF NOT EXISTS trades_sport_league_time_idx "
+            "ON trades(sport_family, league_code, buy_timestamp)"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "resolution_observations_trade_evidence_idx "
+            "ON resolution_observations(trade_id, evidence_sha256)"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_update "
+            "BEFORE UPDATE ON resolution_observations BEGIN "
+            "SELECT RAISE(ABORT, 'append-only evidence'); END"
+        )
+    )
+    connection.execute(
+        text(
+            "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_delete "
+            "BEFORE DELETE ON resolution_observations BEGIN "
+            "SELECT RAISE(ABORT, 'append-only evidence'); END"
+        )
+    )
+
 
 def init_database(
     db_path: str,
@@ -404,7 +616,7 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
 ) -> sessionmaker:
-    """Create the schema and best-effort upgrade an existing local DB."""
+    """Create the schema and fail closed on an incomplete additive upgrade."""
     prepare_database(
         db_path,
         "golden-peach",
@@ -412,129 +624,22 @@ def init_database(
         activate_compact_on_create=activate_compact_on_create,
     )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
-    Base.metadata.create_all(engine)
-    with engine.connect() as connection:
-        for name, sql_type in _TRADE_MIGRATION_COLUMNS.items():
+    try:
+        Base.metadata.create_all(engine)
+        with engine.connect() as connection:
+            # Python's sqlite3 legacy transaction mode does not begin a
+            # transaction for DDL. Begin explicitly so every additive ALTER,
+            # validation, index, and trigger either commits together or rolls
+            # back together on an incompatible legacy schema.
+            connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
-                connection.execute(text(f"ALTER TABLE trades ADD COLUMN {name} {sql_type}"))
-                connection.commit()
+                _upgrade_database_schema(connection)
             except Exception:
-                pass
-        for name, sql_type in {
-            "token_id": "TEXT",
-            "outcome": "TEXT",
-            "event_id": "TEXT",
-            "outcome_side": "TEXT",
-            "result_kind": "TEXT",
-            "midpoint": "REAL",
-            "best_bid": "REAL",
-            "best_ask": "REAL",
-            "spread": "REAL",
-            "source_updated_at": "TEXT",
-            "source_elapsed_minutes": "REAL",
-            "source_clock_reason": "TEXT",
-            "book_json": "TEXT",
-            "execution_capacity_json": "TEXT",
-            "run_id": "TEXT",
-            "sport_family": "TEXT",
-            "league_code": "TEXT",
-            "league_name": "TEXT",
-            "market_tags_json": "TEXT",
-            "sport_profile_version": "TEXT",
-            "book_shape": "TEXT",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE market_snapshots ADD COLUMN {name} {sql_type}")
-                )
+                connection.rollback()
+                raise
+            else:
                 connection.commit()
-            except Exception:
-                pass
-        for name, sql_type in {
-            "game_start_time": "DATETIME",
-            "in_play_hours": "REAL",
-            "source_elapsed_minutes": "REAL",
-            "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
-            "execution_reason": "TEXT",
-            "last_attempted_at": "DATETIME",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE entry_episodes ADD COLUMN {name} {sql_type}")
-                )
-                connection.commit()
-            except Exception:
-                pass
-        try:
-            connection.execute(
-                text(
-                    "ALTER TABLE market_sweeps ADD COLUMN "
-                    "membership_detail_stored INTEGER NOT NULL DEFAULT 1"
-                )
-            )
-            connection.commit()
-        except Exception:
-            pass
-        for name, sql_type in {
-            "fee_exponent": "INTEGER",
-            "fee_taker_only": "INTEGER",
-            "sport_family": "TEXT",
-            "league_code": "TEXT",
-            "league_name": "TEXT",
-        }.items():
-            try:
-                connection.execute(
-                    text(
-                        f"ALTER TABLE market_catalog ADD COLUMN {name} {sql_type}"
-                    )
-                )
-                connection.commit()
-            except Exception:
-                pass
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
-                "ON market_snapshots(condition_id, timestamp)"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
-                "ON market_snapshots(run_id)"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
-                "ON market_snapshots(sport_family, league_code, timestamp)"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE INDEX IF NOT EXISTS trades_sport_league_time_idx "
-                "ON trades(sport_family, league_code, buy_timestamp)"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS "
-                "resolution_observations_trade_evidence_idx "
-                "ON resolution_observations(trade_id, evidence_sha256)"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_update "
-                "BEFORE UPDATE ON resolution_observations BEGIN "
-                "SELECT RAISE(ABORT, 'append-only evidence'); END"
-            )
-        )
-        connection.execute(
-            text(
-                "CREATE TRIGGER IF NOT EXISTS resolution_observations_forbid_delete "
-                "BEFORE DELETE ON resolution_observations BEGIN "
-                "SELECT RAISE(ABORT, 'append-only evidence'); END"
-            )
-        )
-        connection.commit()
+    except Exception:
+        engine.dispose()
+        raise
     return sessionmaker(bind=engine)

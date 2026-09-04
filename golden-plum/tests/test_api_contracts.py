@@ -1024,6 +1024,36 @@ def test_clob_resolution_requires_closed_unique_one_hot_winner() -> None:
     ).evidence_sha256
 
 
+def test_clob_resolution_accepts_exact_closed_no_winner_void() -> None:
+    proof = _normalize_clob_resolution(
+        "condition",
+        {
+            "condition_id": "condition",
+            "closed": True,
+            "tokens": [
+                {
+                    "outcome": "Team A",
+                    "price": 0.5,
+                    "token_id": "token-a",
+                    "winner": False,
+                },
+                {
+                    "outcome": "Team B",
+                    "price": 0.5,
+                    "token_id": "token-b",
+                    "winner": False,
+                },
+            ],
+        },
+        observed_at="2026-08-21T11:00:00Z",
+    )
+
+    assert proof.status == "VOID"
+    assert proof.winner_index is None
+    assert [token.price for token in proof.tokens] == [0.5, 0.5]
+    assert all(token.winner is False for token in proof.tokens)
+
+
 def test_clob_resolution_rejects_winner_payout_mismatch() -> None:
     with pytest.raises(ClobResponseContractError):
         _normalize_clob_resolution(

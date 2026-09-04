@@ -9,6 +9,7 @@ import json
 import logging
 import math
 import os
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -45,6 +46,7 @@ _TERMINAL_ORDER_STATUSES = _PROVABLY_UNFILLED_ORDER_STATUSES | {"MATCHED"}
 # exact values and permit at most one signed-share quantum during status audit.
 _MARKET_BUY_QUANTITY_TOLERANCE = 0.0001
 _MARKET_BUY_TAKER_QUANTUM_MICROS = 100
+_MAX_FOK_BUY_ECONOMIC_TOLERANCE_USDC = 0.01
 
 
 @dataclass(frozen=True)
@@ -139,7 +141,9 @@ def _walk_buy_book(book: Any, token_id: str, notional_usdc: float) -> BuyBookWal
         if remaining <= 1e-9:
             break
     if remaining > 1e-7 or shares <= 0:
-        raise ClobResponseUnavailableError("full $5 displayed ask depth is unavailable")
+        raise ClobResponseUnavailableError(
+            "full $5 displayed ask depth is unavailable for configured-notional"
+        )
     return BuyBookWalk(
         token_id=str(token_id),
         best_bid=best_bid,
@@ -270,7 +274,17 @@ def _normalize_clob_resolution(
             "CLOB resolution token identities must be distinct"
         )
     winners = [index for index, token in enumerate(tokens) if token.winner]
-    status = "RESOLVED" if len(winners) == 1 else "CLOSED_UNRESOLVED"
+    exact_void = all(
+        math.isclose(token.price, 0.5, rel_tol=0.0, abs_tol=1e-12)
+        for token in tokens
+    ) and not winners
+    status = (
+        "VOID"
+        if exact_void
+        else "RESOLVED"
+        if len(winners) == 1
+        else "CLOSED_UNRESOLVED"
+    )
     winner_index = winners[0] if status == "RESOLVED" else None
     if winner_index is not None:
         expected_prices = [0.0, 0.0]
@@ -377,11 +391,163 @@ class ClobClientWrapper:
         self._client = None
         self._initialized = False
         self._midpoint_snapshot: Optional[Dict[str, Optional[float]]] = None
+        self.audit_db_path = (
+            None if audit_db_path is None else os.fspath(audit_db_path)
+        )
         self.execution_ledger = (
             ExecutionLedger(audit_db_path, strategy_name=strategy_name)
             if audit_db_path is not None
             else None
         )
+
+    def _finish_tangerine_fok_buy_with_economic_tolerance(
+        self, submission_id: str
+    ) -> bool:
+        """Accept only terminal exact BUY proof within one USDC cent.
+
+        The shared ledger intentionally has a zero-ish maker-envelope check.
+        Exact-USDC FOK BUY price improvement can return slightly more token
+        quantity than the signed taker amount.  This project permits that only
+        when the terminal order, every associated CONFIRMED fill, exact order
+        correlation, and fee are complete and aggregate executed cost exceeds
+        the signed maker amount by no more than one cent.
+        """
+        if self.audit_db_path is None:
+            return False
+        connection = sqlite3.connect(self.audit_db_path, timeout=30)
+        connection.row_factory = sqlite3.Row
+        try:
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute("PRAGMA busy_timeout = 30000")
+            submission = connection.execute(
+                """
+                SELECT submission_id, strategy_name, order_id, token_id, side,
+                       requested_price, requested_size, making_amount,
+                       associated_trade_ids_json, latest_order_status,
+                       latest_size_matched, latest_status_domain_error,
+                       needs_reconciliation, reconciliation_error
+                FROM order_submissions WHERE submission_id = ?
+                """,
+                (submission_id,),
+            ).fetchone()
+            if submission is None:
+                return False
+            status = _normalize_order_status(submission["latest_order_status"])
+            if (
+                submission["strategy_name"] != "golden-tangerine"
+                or str(submission["side"] or "").upper() != "BUY"
+                or status != "MATCHED"
+                or not str(submission["order_id"] or "").strip()
+                or not str(submission["token_id"] or "").strip()
+                or submission["latest_status_domain_error"] is not None
+                or submission["reconciliation_error"]
+                != "confirmed BUY notional exceeds maker envelope"
+            ):
+                return False
+            try:
+                associated = json.loads(submission["associated_trade_ids_json"] or "[]")
+                maker_envelope = float(submission["making_amount"])
+                matched_size = float(submission["latest_size_matched"])
+                requested_price = float(submission["requested_price"])
+            except (TypeError, ValueError, json.JSONDecodeError):
+                return False
+            if (
+                not isinstance(associated, list)
+                or not associated
+                or any(not str(item or "").strip() for item in associated)
+                or len(set(map(str, associated))) != len(associated)
+                or not math.isfinite(maker_envelope)
+                or maker_envelope <= 0
+                or not math.isfinite(matched_size)
+                or matched_size <= 0
+                or not math.isfinite(requested_price)
+                or not 0 < requested_price < 1
+            ):
+                return False
+            rows = connection.execute(
+                """
+                SELECT order_id, trade_id, status, side, size, price,
+                       liquidity_role, fee_rate_bps, fee_amount_usdc, domain_error
+                FROM order_fills WHERE submission_id = ?
+                """,
+                (submission_id,),
+            ).fetchall()
+            if not rows or {str(row["trade_id"]) for row in rows} != set(map(str, associated)):
+                return False
+            total_size = 0.0
+            total_notional = 0.0
+            for row in rows:
+                try:
+                    size = float(row["size"])
+                    price = float(row["price"])
+                    fee_rate = (
+                        None
+                        if row["fee_rate_bps"] is None
+                        else float(row["fee_rate_bps"])
+                    )
+                    fee_amount = (
+                        None
+                        if row["fee_amount_usdc"] is None
+                        else float(row["fee_amount_usdc"])
+                    )
+                except (TypeError, ValueError):
+                    return False
+                fee_proven = (
+                    fee_amount is not None
+                    and math.isfinite(fee_amount)
+                    and fee_amount >= 0
+                ) or (fee_rate is not None and math.isfinite(fee_rate) and fee_rate == 0)
+                if (
+                    str(row["order_id"] or "") != str(submission["order_id"])
+                    or str(row["status"] or "").upper().removeprefix("TRADE_STATUS_")
+                    != "CONFIRMED"
+                    or str(row["side"] or "").upper() != "BUY"
+                    or str(row["liquidity_role"] or "").upper() not in {"MAKER", "TAKER"}
+                    or row["domain_error"] is not None
+                    or not math.isfinite(size)
+                    or size <= 0
+                    or not math.isfinite(price)
+                    or not 0 < price <= 1
+                    or price > requested_price + 1e-12
+                    or not fee_proven
+                ):
+                    return False
+                total_size += size
+                total_notional += size * price
+            excess = total_notional - maker_envelope
+            if (
+                not math.isclose(total_size, matched_size, rel_tol=0.0, abs_tol=1e-6)
+                or excess > _MAX_FOK_BUY_ECONOMIC_TOLERANCE_USDC + 1e-12
+            ):
+                return False
+            connection.execute("BEGIN IMMEDIATE")
+            connection.execute(
+                """
+                UPDATE order_submissions
+                SET needs_reconciliation = 0, reconciliation_error = NULL,
+                    reconciliation_proof = ?
+                WHERE submission_id = ? AND needs_reconciliation = 1
+                """,
+                (
+                    "TANGERINE_FOK_TERMINAL_CONFIRMED_WITHIN_ONE_CENT",
+                    submission_id,
+                ),
+            )
+            connection.commit()
+            logger.warning(
+                "strict Tangerine FOK economic tolerance accepted - order=%s "
+                "maker=$%.6f confirmed=$%.6f excess=$%.6f",
+                submission["order_id"],
+                maker_envelope,
+                total_notional,
+                excess,
+            )
+            return True
+        except BaseException:
+            connection.rollback()
+            raise
+        finally:
+            connection.close()
 
     def _ensure_initialized(self):
         """Lazy initialization of the CLOB client."""
@@ -789,12 +955,14 @@ class ClobClientWrapper:
                 "price": rounded_price,
                 "maker_amount_usdc": float(amount),
                 "requested_size": requested_size,
+                "_post_attempted": False,
             }
             self._record_limit_submission(
                 token_id, rounded_price, requested_size, "BUY", result
             )
             return result
 
+        post_attempted = False
         try:
             from py_clob_client_v2 import MarketOrderArgs, OrderType
             from py_clob_client_v2.clob_types import PartialCreateOrderOptions
@@ -852,6 +1020,8 @@ class ClobClientWrapper:
             requested_size = taker_micros / 1_000_000
 
             def submit_order() -> Dict[str, Any]:
+                nonlocal post_attempted
+                post_attempted = True
                 return self.client.post_order(signed_order, OrderType.FOK)
 
             if self.execution_ledger is None:
@@ -875,6 +1045,7 @@ class ClobClientWrapper:
                     "price": rounded_price,
                     "maker_amount_usdc": maker_micros / 1_000_000,
                     "requested_size": requested_size,
+                    "_post_attempted": post_attempted,
                 }
             )
             logger.info(
@@ -893,13 +1064,18 @@ class ClobClientWrapper:
                 "error": str(error),
                 "submission_outcome_unknown": True,
                 "quarantined": True,
+                "_post_attempted": True,
             }
         except SubmissionEvidenceError:
             logger.critical("BUY execution ledger 정합성 유지 실패", exc_info=True)
             raise
         except Exception as error:
             logger.error("Exact-USDC FOK BUY 주문 실패: %s", error)
-            return {"success": False, "error": str(error)}
+            return {
+                "success": False,
+                "error": str(error),
+                "_post_attempted": post_attempted,
+            }
 
     @rate_limit_handler(max_retries=3)
     def place_limit_order(
@@ -1253,6 +1429,13 @@ class ClobClientWrapper:
                 reconciliation_finished = (
                     self.execution_ledger.finish_reconciliation(submission_id)
                 )
+                if (
+                    not reconciliation_finished
+                    and self._finish_tangerine_fok_buy_with_economic_tolerance(
+                        submission_id
+                    )
+                ):
+                    reconciliation_finished = True
                 if reconciliation_finished:
                     stats["completed"] += 1
                 elif recovered_from_token_trade_catalog:

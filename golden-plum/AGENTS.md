@@ -113,9 +113,11 @@ uv run python -m compileall -q src scripts
   classifier/mapping으로 연결한다.
 - Gold 첫 24시간에는 1분 cadence, 50초 deadline, exact 2-token event set, terminal
   follow-up, NULL source minute, capacity JSON과 DB 무결성만 판정한다.
-- 종료된 condition이 Gamma 조회에서 사라지면 Gold/Silver 수집기는 public CLOB의 exact
-  condition·2-token·outcome 정렬과 unique one-hot 0/1을 모두 검증한 뒤에만 terminal
-  evidence로 보완한다. 이 보완은 simulation fill이나 realized P&L을 만들지 않는다.
+- 종료된 condition은 Gamma의 exact closed/resolved one-hot 0/1 또는 `0.5/0.5` void를
+  token 정렬과 함께 검증한다. Gamma 조회에서 사라지면 Gold/Silver 수집기는 public CLOB의
+  exact condition·2-token·outcome 정렬과 unique one-hot 0/1 또는 no-winner `0.5/0.5`
+  void를 검증한 뒤에만 terminal evidence로 보완한다. 이 보완은 simulation fill이나
+  realized P&L을 만들지 않는다.
 - MLB 해결 경기 100개 전에는 최적 파라미터·실거래 승격·증액을 말하지 않는다.
 
 ## 자주 깨지는 부분

@@ -30,7 +30,9 @@ class PolymarketBot:
         cycle_budget: CycleBudget | None = None,
     ):
         self.config = config
-        self.cycle_budget = cycle_budget or CycleBudget.start()
+        self.cycle_budget = cycle_budget or CycleBudget.start(
+            enforce_deadline=config.simulation_mode
+        )
         self.Session = init_database(
             str(config.db_path),
             SQLiteMaintenanceRequirements(
@@ -603,12 +605,20 @@ class PolymarketBot:
             if cycle_budget is not None:
                 stats["runtime_budget"] = cycle_budget.evidence()
                 if bool(stats["runtime_budget"]["target_exceeded"]):
-                    logger.warning(
-                        "cycle runtime target exceeded but requests were not suppressed - "
-                        "elapsed=%.3fs target=%.1fs",
-                        float(stats["runtime_budget"]["elapsed_seconds"]),
-                        float(stats["runtime_budget"]["hard_limit_seconds"]),
-                    )
+                    if bool(stats["runtime_budget"]["deadline_enforced"]):
+                        logger.warning(
+                            "simulation hard deadline reached; run audit will fail - "
+                            "elapsed=%.3fs target=%.1fs",
+                            float(stats["runtime_budget"]["elapsed_seconds"]),
+                            float(stats["runtime_budget"]["hard_limit_seconds"]),
+                        )
+                    else:
+                        logger.warning(
+                            "live cycle runtime target exceeded; warning only and "
+                            "requests/POST were not suppressed - elapsed=%.3fs target=%.1fs",
+                            float(stats["runtime_budget"]["elapsed_seconds"]),
+                            float(stats["runtime_budget"]["hard_limit_seconds"]),
+                        )
             logger.info(
                 "cycle complete - snapshots=%s checked=%s sells=%s resolved=%s "
                 "candidates=%s buys=%s open=%s/%s (pending_buy=%s holding=%s "

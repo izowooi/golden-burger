@@ -1,0 +1,85 @@
+simulation_mode: true
+
+shadow:
+  runtime_job: cherry-shadow-resolution-v2
+  data_contract: cherry-shadow-resolution-v2
+  preregistration_id: cherry-shadow-resolution-v2-prereg-2026-09-05
+  cadence_minutes: 5
+  collection_budget_seconds: 240
+
+  gamma:
+    base_url: https://gamma-api.polymarket.com
+    page_size: 100
+    max_pages: 1000
+    min_liquidity: 125000
+    min_total_volume: 5000
+    gamma_probability_min: 0.75
+    gamma_probability_max: 0.88
+    entry_hours_min: 0
+    entry_hours_max: 120
+
+  clob:
+    base_url: https://clob.polymarket.com
+    max_books_per_run: 160
+
+  transport:
+    connect_timeout_seconds: 3.05
+    read_timeout_seconds: 12
+    max_retries: 2
+    retry_base_seconds: 0.5
+    retry_max_seconds: 3
+
+  experiment:
+    start_utc: 2026-09-04T16:00:00Z
+    entry_end_utc: 2026-10-04T16:00:00Z
+    followup_end_utc: 2026-11-03T16:00:00Z
+    simulated_notional_usdc: 5
+    entry_bands:
+      - id: control_low_076_078
+        low: 0.76
+        high: 0.78
+        role: control
+      - id: primary_080_082
+        low: 0.80
+        high: 0.82
+        role: primary_candidate
+      - id: control_high_084_086
+        low: 0.84
+        high: 0.86
+        role: control
+    exit_policies:
+      - id: hold_to_resolution
+        role: primary
+        take_profit: null
+        stop_loss: null
+        trailing: null
+      - id: current_tp10_sl08_trail05
+        role: current_control
+        take_profit: 0.10
+        stop_loss: -0.08
+        trailing: 0.05
+      - id: sensitivity_tp05_sl08_trail05
+        role: sensitivity
+        take_profit: 0.05
+        stop_loss: -0.08
+        trailing: 0.05
+      - id: sensitivity_tp15_sl08_trail05
+        role: sensitivity
+        take_profit: 0.15
+        stop_loss: -0.08
+        trailing: 0.05
+      - id: sensitivity_tp10_sl05_trail05
+        role: sensitivity
+        take_profit: 0.10
+        stop_loss: -0.05
+        trailing: 0.05
+      - id: sensitivity_tp10_sl12_trail05
+        role: sensitivity
+        take_profit: 0.10
+        stop_loss: -0.12
+        trailing: 0.05
+      - id: sensitivity_tp10_sl08_no_trailing
+        role: sensitivity
+        take_profit: 0.10
+        stop_loss: -0.08
+        trailing: null

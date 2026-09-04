@@ -397,17 +397,47 @@ class GammaClient:
     def get_market_by_condition_id(
         self, condition_id: str
     ) -> Optional[Dict[str, Any]]:
+        normalized_condition = str(condition_id or "").strip()
+        if not normalized_condition:
+            raise ValueError("condition_id is required")
         try:
-            response = self._get(
-                "/markets", params={"condition_ids": condition_id, "limit": 1}
-            )
-            response.raise_for_status()
-            markets = response.json()
-            return dict(markets[0]) if isinstance(markets, list) and markets else None
+            # The open view can omit a just-resolved condition.  Fall back to
+            # the explicit closed view, and never pick among duplicate/mismatched
+            # identities.
+            for closed in (False, True):
+                response = self._get(
+                    "/markets",
+                    params={
+                        "condition_ids": normalized_condition,
+                        "closed": str(closed).lower(),
+                        "limit": 2,
+                    },
+                )
+                response.raise_for_status()
+                payload = response.json()
+                if not isinstance(payload, list) or any(
+                    not isinstance(item, Mapping) for item in payload
+                ):
+                    raise ValueError("Gamma market lookup response must be a list")
+                matches = [
+                    dict(item)
+                    for item in payload
+                    if str(
+                        item.get("conditionId") or item.get("condition_id") or ""
+                    ).strip()
+                    == normalized_condition
+                ]
+                if len(matches) > 1:
+                    raise ValueError("Gamma returned duplicate exact condition rows")
+                if payload and len(matches) != len(payload):
+                    raise ValueError("Gamma market lookup condition identity mismatch")
+                if matches:
+                    return matches[0]
+            return None
         except requests.exceptions.RequestException as error:
             logger.warning(
                 "Gamma market lookup failed - condition=%s error=%s",
-                condition_id,
+                normalized_condition,
                 type(error).__name__,
             )
             return None

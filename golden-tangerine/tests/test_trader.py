@@ -37,6 +37,20 @@ class _Repo:
     def get_position_count(self):
         return 0
 
+    def get_entry_capacity_state(self, **_kwargs):
+        return {
+            "total_reserved": 0,
+            "total_notional_usdc": 0.0,
+            "ledger_available": True,
+        }
+
+    def get_exact_economic_loss_state(self):
+        return {
+            "evidence_complete": True,
+            "evidence_gap_trade_ids": [],
+            "cumulative_exact_loss_usdc": 0.0,
+        }
+
     def get_event_position_count(self, _event_id):
         return 0
 
@@ -47,6 +61,10 @@ class _Repo:
     def link_entry_episode_trade(self, episode_id, trade_id):
         self.linked.append((episode_id, trade_id))
 
+    def mark_entry_episode_execution(self, episode_id, **values):
+        if values.get("trade_id") is not None:
+            self.linked.append((episode_id, values["trade_id"]))
+
     def save_market_catalog(self, *_args, **_kwargs):
         return None
 
@@ -54,6 +72,9 @@ class _Repo:
         self.updated.append((trade_id, values))
 
     def stage_clob_resolution_observation(self, **values):
+        self.resolution_observations.append(values)
+
+    def stage_gamma_resolution_observation(self, **values):
         self.resolution_observations.append(values)
 
     def get_exact_buy_fill_evidence(self, _order_id):
@@ -150,6 +171,23 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
     assert repo.linked == [(3, 7)]
 
 
+def test_cumulative_exact_loss_default_blocks_new_entry(monkeypatch) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob()
+    repo.get_exact_economic_loss_state = lambda: {
+        "evidence_complete": True,
+        "evidence_gap_trade_ids": [],
+        "cumulative_exact_loss_usdc": 15.0,
+    }
+    config = TradingConfig()
+    config.entry = type(config.entry)(0.92, 0.93, 0, 0, 6)
+    trader = Trader(repo, clob, config, simulation_mode=False)
+
+    assert trader.execute_buy(_candidate()) is None
+    assert trader.last_entry_outcome_reason == "cumulative_exact_loss_guard"
+    assert clob.orders == []
+
+
 def test_existing_manual_wallet_positions_are_never_adopted_or_sold(monkeypatch) -> None:
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(midpoint=0.10)
@@ -193,6 +231,44 @@ def test_named_outcome_resolution_uses_selected_payout_without_synthetic_sell() 
     assert update["realized_pnl"] is None
     assert update["settlement_pnl_assumption"] == pytest.approx((1 - 0.925) * 5.4 - 0.01)
     assert clob.orders == []
+
+
+def test_gamma_half_half_void_settles_selected_token_without_synthetic_sell() -> None:
+    repo, clob = _Repo(), _Clob()
+    market = {
+        "conditionId": "condition-1",
+        "closed": True,
+        "outcomes": ["Team A", "Team B"],
+        "outcomePrices": [0.5, 0.5],
+        "clobTokenIds": ["team-a-token", "team-b-token"],
+        "negRisk": False,
+    }
+    trade = SimpleNamespace(
+        id=13,
+        condition_id="condition-1",
+        token_id="team-b-token",
+        outcome="Team B",
+        buy_order_id="buy-1",
+        buy_shares=5.4,
+        buy_price=0.925,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=SimpleNamespace(get_market_by_condition_id=lambda _: market),
+        simulation_mode=False,
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_status"] == "VOID"
+    assert update["resolution_outcome"] == "VOID"
+    assert update["resolution_value"] == 0.5
+    assert update["sell_order_id"] is None
+    assert update["realized_pnl"] is None
+    assert repo.resolution_observations[-1]["settlement_kind"] == "VOID"
 
 
 def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:

@@ -4,6 +4,16 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 
 고확률(75~92%) 시장 중 비스포츠는 `endDate`까지 120시간 이내, 스포츠는
 `gameStartTime`까지 120시간 이내이거나 현재 인플레이인 시장을 대상으로 합니다.
 
+> 운영 상태 (2026-09-05): `polybot-yellow` TimerTrigger는 비활성화되어 scheduled cycle이
+> 없습니다. 수동 `run`은 설정된 lifecycle을 그대로 따르므로, 잔여 포지션 관리 목적이면
+> `POLYBOT_LIFECYCLE_MODE=close_only`를 명시합니다.
+
+현재 live/default 경로에는 별도의 exact-economic 신규 진입 guard가 있습니다. exact confirmed
+SELL P&L과 fee-complete exact-token resolution settlement만 합쳐 기본 `-$30` floor와
+비교하며, legacy `realized_pnl`은 제외합니다. floor 이하이거나 fee/BUY evidence가 불완전하면
+신규 BUY만 차단하고 기존 대사와 청산은 계속합니다. 2026-09-05 Yellow evidence에서는
+`-$44.847137 + -$100.314853 = -$145.161990`이므로 TimerTrigger와 무관하게 entry-blocked입니다.
+
 ## 개요
 
 - **매수 조건**: 75% ≤ 확률 ≤ 92% + 비스포츠 0~120시간 / 스포츠 경기 전 0~120시간 또는 인플레이
@@ -16,7 +26,7 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 
 ```mermaid
 flowchart TB
     subgraph Jenkins["Jenkins Scheduler"]
-        JOB[5분 주기 실행]
+        JOB[TimerTrigger 비활성<br/>필요 시 수동 실행]
     end
 
     subgraph Bot["Trading Bot"]
@@ -42,7 +52,7 @@ flowchart TB
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Scanning: 5분 주기
+    [*] --> Scanning: active run 호출 시
 
     Scanning --> BuyCandidate: 75% ≤ 확률 ≤ 92%<br/>+ 기준시각까지 0~120시간
     Scanning --> Skip: 조건 미충족
@@ -228,6 +238,7 @@ trading:
   max_positions: 10
   max_open_notional_usdc: 5000
   max_new_positions_per_cycle: 1
+  entry_drawdown_floor_usdc: -30
 
   # 트레일링 스탑 설정
   trailing_stop:
@@ -287,7 +298,10 @@ uv run python main.py run      # 기존 Jenkins의 --job 값이 있다면 동일
 상세 절차는 [`docs/strategy-wind-down-playbook.md`](../docs/strategy-wind-down-playbook.md)를
 참조하세요.
 
-## Jenkins 통합
+## Jenkins 통합 (현재 TimerTrigger 비활성)
+
+아래 pipeline은 구조 설명용 예시이며 현재 `polybot-yellow` schedule을 활성화하라는 지시가
+아닙니다. 재기동은 별도 운영 결정과 exact evidence 점검 뒤에만 수행합니다.
 
 ### Jenkinsfile 예시
 
@@ -297,10 +311,6 @@ pipeline {
 
     options {
         disableConcurrentBuilds()
-    }
-
-    triggers {
-        cron('H/5 * * * *')  // Jenkins hash 분산을 적용해 약 5분마다 실행
     }
 
     environment {
@@ -382,9 +392,10 @@ Jenkins 로그에서 배포된 실제 값을 바로 확인하려면 유지하고
 실행 동작은 바뀌지 않으면서, 바로 앞의 `main.py config` 출력도 `YES-Only Mode: True`로
 실제 run과 일치합니다.
 
-`close_only`도 청산 조건을 5분마다 확인해야 하므로 기존 cron을 유지합니다. 단, 이전 실행이
-끝나기 전에 다음 실행이 겹치지 않도록 동시 빌드를 막고, 전환 전후에 같은 `--job` 값을
-사용해 기존 포지션 DB를 계속 읽어야 합니다.
+현재 `polybot-yellow` TimerTrigger는 비활성화되어 있으므로 `close_only` 관리도 자동으로
+실행되지 않습니다. 수동 관리 시 전환 전후에 같은 `--job` 값을 사용해 기존 포지션 DB를
+계속 읽어야 합니다. `run`은 DB별 nonblocking process lock을 사용하므로 같은 DB의 겹친
+호출은 주문/API 단계에 진입하지 않고 안전하게 skip합니다.
 
 ### 다중 설정 운영
 
@@ -482,7 +493,8 @@ golden-cherry/
 | 주문/유동성 상한 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `trading.max_order_liquidity_ratio` | 0.002 | 0.002 | 주문액은 유동성의 최대 0.2% |
 | 최대 open 포지션 | `POLYBOT_MAX_POSITIONS` | `trading.max_positions` | 10 | 10 | -1/무제한은 허용하지 않음 |
 | 최대 open 원금 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `trading.max_open_notional_usdc` | 5000 | 5000 | HOLDING/격리/대기 포지션의 요청 원금 합계 |
-| cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 1 | 1 | 3/5분 실행 한 번의 burst 제한 |
+| cycle 신규 포지션 | `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `trading.max_new_positions_per_cycle` | 1 | 1 | `run` 한 번의 burst 제한 |
+| exact-economic 진입 floor | `POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC` | `trading.entry_drawdown_floor_usdc` | -30 | -30 | exact SELL + fee-complete exact resolution 경제손익이 이 값 이하이거나 evidence gap이 있으면 신규 BUY만 차단 |
 | zero-fill BUY TTL | `POLYBOT_PENDING_BUY_TTL_MINUTES` | `trading.pending_buy_ttl_minutes` | 30 | 30 | exact LIVE·0 fill BUY를 취소하기 전 대기시간(5~1440분) |
 
 실제 스캔에 쓰는 최소 유동성은 `max(POLYBOT_MIN_LIQUIDITY,
@@ -664,7 +676,8 @@ excluded_categories: []  # ← 빈 배열 = 스포츠 필터 완전 비활성화
 | `POLYBOT_MAX_ORDER_LIQUIDITY_RATIO` | `0.002` | 주문액을 Gamma 유동성의 최대 0.2%로 제한 | 실효 유동성 하한은 `max(MIN_LIQUIDITY, BUY_AMOUNT / 비율)` |
 | `POLYBOT_MAX_POSITIONS` | `10` | DB상 open exposure 포지션 수 상한 | 신규 BUY만 차단하며 기존 포지션을 강제 매도하지 않음 |
 | `POLYBOT_MAX_OPEN_NOTIONAL_USDC` | `5000` | open 포지션들의 요청 매수원금 합계 상한 | 현재 $100 주문이면 포지션 수보다 약 50건에서 먼저 제한될 수 있음 |
-| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `1` | Jenkins 한 번 실행에서 새로 넣을 수 있는 BUY 수 | 5분마다 최대 1건이라는 burst 제한이며 총 포지션 상한과 별개 |
+| `POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE` | `1` | `run` 한 번에서 새로 넣을 수 있는 BUY 수 | 호출당 최대 1건이라는 burst 제한이며 총 포지션 상한과 별개 |
+| `POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC` | `-30` | exact-economic 누적 신규 진입 floor | legacy P&L 제외. unknown BUY, incomplete fee, resolution gap도 독립적으로 신규 BUY 차단 |
 | `POLYBOT_PENDING_BUY_TTL_MINUTES` | `30` (`config.yaml`) | exact LIVE·0 fill BUY 주문의 최대 대기시간 | 만료 후 exact order의 zero-fill 취소가 증명된 경우에만 `UNFILLED`; partial fill은 자동취소하지 않음 |
 
 #### 시간 및 스포츠 시장
@@ -707,44 +720,72 @@ DB 파일 위치: `data/{job_name}/trades.db`
 sqlite3 data/{job_name}/trades.db
 ```
 
-### 카테고리별 손익 분석
+### exact evidence 분석
 
-```sql
--- 카테고리별 거래 수 및 실현 손익
-SELECT
-    market_tags,
-    COUNT(*) AS trades,
-    ROUND(SUM(realized_pnl), 4) AS total_pnl,
-    ROUND(AVG(realized_pnl), 4) AS avg_pnl
-FROM trades
-WHERE status = 'completed'
-GROUP BY market_tags
-ORDER BY total_pnl DESC;
+```bash
+uv run python scripts/analyze_exact_history.py \
+  --db data/default/trades.db \
+  --start 2026-08-01T00:00:00Z \
+  --end 2026-09-01T00:00:00Z
 ```
 
-### 기타 유용한 쿼리
+입력은 exact UTC timestamp이며 범위는 `[start, end)`입니다. 분석기는 DB를 read-only로 열고
+config hash × Git commit × mode × job cohort를 분리합니다. actual 성과는 exact confirmed
+BUY/SELL fill과 known fee가 완결된 SELL P&L만 합산합니다. exact one-hot resolution은 별도의
+settlement assumption으로 보고하며 SELL cashflow나 redeem 입금으로 합치지 않습니다.
 
-```sql
--- 전체 실현 손익 합계
-SELECT ROUND(SUM(realized_pnl), 4) AS total_pnl FROM trades WHERE status = 'completed';
+현재 open/unknown exposure, exact question cluster, event ID가 없는 경우의 market-slug proxy와
+각 한계도 함께 출력합니다. v1은 Pomegranate 15분 displayed-price counterfactual을 포함하지
+않습니다.
 
--- 진입/청산 사유별 집계
-SELECT entry_reason, exit_reason, COUNT(*) AS cnt, ROUND(SUM(realized_pnl), 4) AS pnl
-FROM trades WHERE status = 'completed'
-GROUP BY entry_reason, exit_reason
-ORDER BY pnl DESC;
+### evidence-safe HTML report
 
--- 현재 보유 포지션
-SELECT question, outcome, buy_price, market_tags FROM trades WHERE status = 'holding';
+```bash
+uv run python report.py data/default/trades.db data/default/report.html
 ```
 
-완료된 거래는 `data/{job_name}/trades_YYYY-MM.csv` 파일에도 기록됩니다 (`market_tags` 컬럼 포함).
+`report.py`도 같은 exact P&L basis와 confirmed BUY/SELL fill 존재를 요구합니다. legacy
+`realized_pnl`과 resolution settlement assumption은 HTML 총손익에서 제외합니다. 월별 CSV는
+편의용 파생물이며 actual execution evidence로 사용하지 않습니다.
+
+## Cherry Shadow Resolution v2
+
+live/default DB와 분리된 prospective accountless runtime입니다. Bootstrap의 0.80–0.82 결과는
+filtered actual-entry evidence일 뿐 causal 결론이 아니므로, 0.76–0.78 및 0.84–0.86 control과
+같은 source book/path에서 전향적으로 비교합니다. 상세 frozen 계약은
+[`CHERRY_SHADOW_RESOLUTION_V2_PREREGISTRATION.md`](docs/CHERRY_SHADOW_RESOLUTION_V2_PREREGISTRATION.md)에
+있습니다.
+
+- Runtime job/data contract: `cherry-shadow-resolution-v2`
+- DB: `data/cherry-shadow-resolution-v2/trades_sim.db`
+- Mode: accountless, credential-free, order SDK/POST 없음
+- Universe: cumulative volume ≥ `$5,000`, liquidity ≥ `$125,000`, Yellow와 같은
+  pregame/in-play/non-sports 0–120h semantics, index-0 YES-only primary
+- Entry: exact displayed full-book `$5` ask VWAP의 세 frozen band
+- Exit: hold-to-resolution primary, current TP/SL/trailing control, frozen one-factor sensitivities
+- Cohort: `config_hash × strategy_source_digest × preregistration_sha256 × job × shadow`
+
+Shadow 명령은 credential-like 및 모든 `POLYBOT_*` 환경변수가 없는 shell에서만 실행됩니다.
+`config`는 DB/network를 만들거나 호출하지 않습니다.
+
+```bash
+uv run python main.py config --shadow
+uv run python main.py run --shadow
+uv run python main.py status --shadow
+uv run python main.py analyze --shadow \
+  --start 2026-09-04T16:00:00Z \
+  --end 2026-10-04T16:00:00Z
+```
+
+`--job`은 등록값 외에는 거절되고 `--live`는 DB/network 전에 거절됩니다. 현재 Yellow
+TimerTrigger는 계속 비활성 상태이며, 이 코드 변경은 Jenkins job을 생성하지 않습니다. 기존
+entry/exit 숫자와 GTC 정책은 유지되고 신규 exact-economic entry floor만 추가됩니다.
 
 ## 주의사항
 
 - **보안**: `.env` 파일은 절대 git에 커밋하지 마세요
 - **테스트**: 실제 거래 전 반드시 시뮬레이션 모드로 테스트하세요
-- **소액 시작**: 처음에는 `buy_amount_usdc: 1`로 소액 테스트를 권장합니다
+- **소액 시작**: 현재 5주 최소수량을 충족하는 config baseline `$5`를 넘겨 증액하지 마세요
 - **리스크**: 자동 매매는 손실 위험이 있습니다. 감당 가능한 금액만 투자하세요
 
 ## 라이선스

@@ -67,8 +67,11 @@ target·workspace를 원자적으로 고정하므로 각 Gold runtime은 별도 
 
 진행 중 수집에서 사라진 condition은 먼저 Gamma로 추적합니다. Gamma가 condition을 더
 이상 반환하지 않으면 public CLOB의 exact condition과 기존 catalog의 두 token·outcome을
-대조하고, 닫힌 시장의 unique one-hot 0/1 결과일 때만 최종 결과로 저장합니다. 이 보완
-결과는 주문이나 실현 손익이 아니라 simulation의 종료 경로 증거입니다.
+대조하고, 닫힌 시장의 unique one-hot 0/1 또는 no-winner exact `0.5/0.5` void일 때만
+최종 결과로 저장합니다. Gamma의 `0.5/0.5`는 `closed=true`와
+`umaResolutionStatus=resolved`가 모두 있어야 void로 인정합니다. 이 보완 결과는 주문이나
+실현 손익이 아니라 종료 경로 증거이며, live에서는 기존 confirmed BUY fill/fee gate를
+그대로 통과해야 합니다.
 
 ```bash
 unset POLYMARKET_PRIVATE_KEY

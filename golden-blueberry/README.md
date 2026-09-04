@@ -169,6 +169,13 @@ Nectarine을 실행하던 Jenkins workspace라도 위처럼 새로운 runtime jo
 fresh bid, 거래량·유동성, 당시 `endDate`/entry deadline이 남으므로 end date 변경도 나중에
 복원할 수 있다.
 
+신규 row는 `config_hash × strategy_source_digest × mode × job_name × condition_id ×
+min_surge × horizon_hours` claim을 먼저 원자적으로 확보한다. 이 별도 claim table은 unique
+constraint가 없던 과거 DB의 중복 row를 삭제하거나 backfill하지 않으면서 prospective 중복만
+막는다. 과거 row에 cohort identity가 없거나 exact treatment cell이 중복되면
+`scripts/analyze_shadow.py`는 closed summary를 만들지 않고 fail closed한다. 2×2 grid의 두
+horizon을 `min_surge`만으로 합쳐 독립 표본처럼 세지 않는다.
+
 Shadow 수익은 **가상 gross P&L이며 fee를 포함하지 않는다.** 실제 주문, `trades` 행,
 `order_submissions`는 만들지 않으며 독립 DB
 `data/blueberry-shadow-research/shadow.db`를 쓴다. 공개 Gamma/CLOB 조회만 사용하므로
@@ -262,6 +269,7 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 | `POLYBOT_MIN_VOLUME_24H` | `10000` | 최근 24h 거래량 floor |
 | `POLYBOT_MAX_POSITIONS` | `10` | arm당 open position 개수 상한 |
 | `POLYBOT_MAX_EVENT_POSITIONS` | `1` | 한 event 동시 노출 상한 |
+| `POLYBOT_GTC_BUY_TTL_MINUTES` | `10` | resting GTC BUY 취소·terminal reconciliation 시점 |
 | `POLYBOT_MAX_SNAPSHOT_GAP_MINUTES` | `15` | 연속 관측 허용 간격 |
 | `POLYBOT_ALLOW_IN_PLAY` | `true` | 스포츠 경기 중 진입 허용 |
 | `POLYBOT_MAX_IN_PLAY_MINUTES` | `360` | kickoff 뒤 최대 후보 시간 |
@@ -284,10 +292,10 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 - `market_snapshots`, `market_catalog`, `market_sweeps`: point-in-time 시장과 sweep 완전성
 - `entry_signal_decisions`: **주문하지 않은 최초 교차도** arm, 상승폭, 시간, 유동성,
   거래량과 signal/metadata 거절 이유를 함께 저장
-- `shadow_signals`, `shadow_observations`: 2×2 treatment별 가상 진입/종결과 광범위한
-  가격·deadline 경로. 실제 체결 성과와 합산하지 않음
-- fresh-book 거절 상세: sanitization된 실행 로그에 기록하고, DB에서는
-  candidate→submitted attrition으로 함께 대사
+- `candidate_execution_decisions`: candidate rank별 pre-POST/fresh-book/capacity/submission
+  거절과 cycle-limit defer를 저장하므로 앞 후보가 실패해도 뒤 후보의 disposition을 잃지 않음
+- `shadow_signal_claims`, `shadow_signals`, `shadow_observations`: cohort-scoped 2×2
+  treatment uniqueness, 가상 진입/종결과 가격·deadline 경로. 실제 체결 성과와 합산하지 않음
 - `strategy_configs`, `run_audits`: resolved config와 run 결과
 - `order_submissions`, `order_status_events`, `order_fills`: 주문 intent부터 exact fill까지
 - `trades`: 의사결정과 position lifecycle; `realized_pnl`만으로 성과를 판단하지 않음
@@ -295,6 +303,20 @@ B job은 `POLYBOT_MIN_SURGE=0.05`와 `--job blueberry-live-b-5pp`만 바꾼다. 
 GTC `accepted`/`live`와 order ID는 체결 증거가 아니다. 실제 성과는 exact order의
 `order_fills.status='CONFIRMED'` size/VWAP/fee로만 계산한다. resolution payout 추정은
 `settlement_pnl_assumption`에 따로 남고 synthetic SELL로 만들지 않는다.
+
+`PENDING_BUY/HOLDING/PENDING_SELL/QUARANTINED/RESIDUAL`과 strategy trade에 아직 연결되지 않은 live
+BUY intent를 position/$50 capacity에 함께 예약한다. 따라서 POST timeout이나 ledger 기록 뒤
+process crash가 있어도 restart가 그 자금을 빈 capacity로 보지 않는다. GTC BUY는 10분 뒤
+취소를 요청하고 다시 대사한다. terminal zero fill만 `UNFILLED`로 풀며, terminal partial은
+confirmed size/VWAP/fee 그대로 `HOLDING`으로 승격하고 미체결 잔여를 채워 넣지 않는다.
+SELL quantization으로 명시된 0.01 share 미만 잔여도 `RESIDUAL`로 capacity와 analyzer의
+unresolved exposure에 남는다.
+
+각 DB에는 sibling `*.run.lock` nonblocking process lock이 있다. Gamma 수집은 주문 POST 전에만
+100 page/225초로 fail closed한다(관측 65 page보다 높은 cap). 이 제한은 동일 request envelope의
+cursor를 끝까지 읽거나 cycle 전체를 실패시키는 것이며 universe를 잘라 성공으로 꾸미지 않는다.
+POST 이후에는 wall-clock abort를 걸지 않는다. run audit에는 Gamma/archive/position/scan/order/
+cleanup phase와 end-to-end runtime이 남는다.
 
 ## 1주·30일 회고
 
@@ -308,15 +330,28 @@ kill switch, backup. 수익이 좋거나 나빠도 threshold를 바꾸지 않는
 uv run python scripts/analyze_experiment.py \
   --arm-a /absolute/backup/a/trades.db \
   --arm-b /absolute/backup/b/trades.db \
-  --review-start 2026-08-10 \
-  --review-end 2026-09-08 \
+  --review-start 2026-08-10T00:00:00Z \
+  --review-end 2026-09-09T00:00:00Z \
   --output-dir "$HOME/polybot-retro/blueberry-2026-09-08"
 ```
 
-분석기는 DB를 수정하지 않고 checksum, cohort, 최초 교차/거절, confirmed round trip과 fee
-coverage를 보고한다. arm당 confirmed closed 20건 미만이면 `INCONCLUSIVE`다. 표본이 충분해도
+분석기는 DB를 수정하지 않고 exact UTC half-open range, checksum, cohort, 최초 교차/거절,
+event cluster/paired overlap, unresolved exposure를 보고한다. terminal reconciled exact-order
+confirmed BUY/SELL과 complete fee만 score하며 BUY/SELL 크기가 다르면 `min()`으로 줄이지 않는다.
+유일한 예외는 원장·P&L과 일치하는 명시적 `0 < residual < 0.01` share 계약이다. arm당
+confirmed closed 20건 미만이면 `INCONCLUSIVE`다. 표본이 충분해도
 자동으로 승자를 고르지 않는다. 공식 절차는 [docs/retro/golden-blueberry.md](../docs/retro/golden-blueberry.md)를
 따른다.
+
+Shadow DB는 별도 strict diagnostics를 실행한다. 기존 row는 수정하지 않는다.
+
+```bash
+uv run python scripts/analyze_shadow.py \
+  --db /absolute/backup/blueberry-shadow-research/trades_sim.db \
+  --review-start 2026-08-31T00:00:00Z \
+  --review-end 2026-09-05T00:00:00Z \
+  --output-dir "$HOME/polybot-retro/blueberry-shadow-2026-09-05"
+```
 
 ## Backtest
 

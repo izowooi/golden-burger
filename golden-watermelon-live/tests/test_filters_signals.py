@@ -130,10 +130,18 @@ def test_yes_no_negrisk_alignment_and_settlement_paths() -> None:
     ]
     yes = get_proven_resolution(_binary((1, 0), closed=True))
     no = get_proven_resolution(_binary((0, 1), closed=True))
-    ambiguous = get_proven_resolution(_binary((0.5, 0.5), closed=True))
+    void_market = _binary((0.5, 0.5), closed=True)
+    void_market["umaResolutionStatus"] = "resolved"
+    ambiguous = get_proven_resolution(void_market)
     assert yes["payouts_by_outcome"] == {"Yes": 1.0, "No": 0.0}
     assert no["payouts_by_outcome"] == {"Yes": 0.0, "No": 1.0}
-    assert ambiguous is None
+    assert ambiguous["outcome"] == "Ambiguous"
+    assert ambiguous["winner_index"] is None
+    assert ambiguous["payouts_by_outcome"] == {"Yes": 0.5, "No": 0.5}
+
+    unconfirmed_half = _binary((0.5, 0.5), closed=True)
+    unconfirmed_half["umaResolutionStatus"] = "proposed"
+    assert get_proven_resolution(unconfirmed_half) is None
 
 
 @pytest.mark.parametrize(

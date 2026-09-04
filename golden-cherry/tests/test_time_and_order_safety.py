@@ -571,3 +571,22 @@ def test_unavailable_zero_balance_buy_order_is_quarantined():
     assert clob.cancelled == ["BUY_ORDER"]
     assert repo.updates[-1][1]["status"] == TradeStatus.QUARANTINED
     assert repo.updates[-1][1]["realized_pnl"] is None
+
+
+def test_zero_balance_without_exact_buy_order_id_is_quarantined():
+    zero_balance = {
+        "success": False,
+        "error": (
+            "not enough balance / allowance: the balance is not enough "
+            "-> balance: 0, order amount: 6000000"
+        ),
+    }
+    repo = FakeRepo()
+    clob = FakeClob(midpoint=0.70, results=[zero_balance])
+    trader = Trader(repo, clob, TradingConfig())
+
+    assert trader.execute_sell(make_trade(buy_order_id=None)) is False
+    assert clob.cancelled == []
+    assert repo.updates[-1][1]["status"] == TradeStatus.QUARANTINED
+    assert repo.updates[-1][1]["exit_reason"] == "zero_balance_buy_order_id_missing"
+    assert repo.updates[-1][1]["realized_pnl"] is None

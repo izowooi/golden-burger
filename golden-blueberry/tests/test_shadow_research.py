@@ -6,11 +6,13 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import text
 
 from polybot.config import TradingConfig
 from polybot.db.models import ShadowObservation, ShadowSignal, Trade, init_database
 from polybot.db.repository import TradeRepository
 from polybot.strategy.shadow import ShadowResearcher
+from polybot_observability import RunAudit
 
 
 NOW = datetime(2026, 8, 5, 0, 0, tzinfo=timezone.utc)
@@ -65,16 +67,30 @@ def crossing(
 
 
 def researcher(tmp_path, *, midpoint=0.90):
-    Session = init_database(str(tmp_path / "shadow.db"))
+    db_path = tmp_path / "shadow.db"
+    Session = init_database(str(db_path))
     session = Session()
     repo = TradeRepository(session)
+    trading = TradingConfig(
+        lifecycle_mode="shadow_only", strategy_source_digest="a" * 64
+    )
+    audit = RunAudit.start(
+        SimpleNamespace(
+            trading=trading,
+            simulation_mode=True,
+            db_path=db_path,
+            job_name="shadow-test",
+        ),
+        strategy_name="golden-blueberry",
+    )
     engine = ShadowResearcher(
         repo,
         scanner=SimpleNamespace(),
         gamma=SimpleNamespace(),
         clob=PublicBook(midpoint),
-        config=TradingConfig(lifecycle_mode="shadow_only"),
+        config=trading,
     )
+    engine._test_audit = audit
     return session, repo, engine
 
 
@@ -105,14 +121,34 @@ def test_first_crossing_expands_to_fixed_2x2_grid_without_trade(tmp_path):
     ]
     assert all(row.entry_limit_price == pytest.approx(0.91) for row in rows)
     assert all(row.hypothetical_shares == pytest.approx(5 / 0.91) for row in rows)
+    assert all(len(row.config_hash) == 64 for row in rows)
+    assert all(row.strategy_source_digest == "a" * 64 for row in rows)
+    assert all(row.mode == "sim" and row.job_name == "shadow-test" for row in rows)
     assert session.query(ShadowObservation).count() == 1
     assert session.query(Trade).count() == 0
     assert repo.get_stats()["shadow_signals"] == 4
+    engine._test_audit.succeed()
+    session.close()
+
+
+def test_same_cohort_condition_treatment_claim_is_prospectively_idempotent(tmp_path):
+    session, repo, engine = researcher(tmp_path)
+    first = engine._record_crossing(crossing("condition-idempotent"), NOW)
+    second = engine._record_crossing(crossing("condition-idempotent"), NOW)
+    repo.commit()
+
+    assert first == (4, True)
+    assert second == (0, False)
+    assert session.query(ShadowSignal).count() == 4
+    assert session.execute(
+        text("SELECT COUNT(*) FROM shadow_signal_claims")
+    ).scalar_one() == 4
+    engine._test_audit.succeed()
     session.close()
 
 
 def test_compact_mode_still_expires_old_shadow_observations(tmp_path):
-    session, repo, _engine = researcher(tmp_path)
+    session, repo, engine = researcher(tmp_path)
     current = datetime.utcnow()
     old = current - timedelta(days=61)
     session.add_all(
@@ -137,6 +173,7 @@ def test_compact_mode_still_expires_old_shadow_observations(tmp_path):
     assert [row.condition_id for row in session.query(ShadowObservation).all()] == [
         "current-condition"
     ]
+    engine._test_audit.succeed()
     session.close()
 
 
@@ -170,6 +207,7 @@ def test_counterfactual_resolution_labels_missed_loss_avoidance(tmp_path):
     assert all("fees_excluded" in row.pnl_basis for row in rows)
     assert repo.get_stats()["shadow_avoided_loss"] == 3
     assert session.query(Trade).count() == 0
+    engine._test_audit.succeed()
     session.close()
 
 
@@ -191,4 +229,5 @@ def test_rejected_treatment_profit_is_missed_opportunity(tmp_path):
     assert sum(row.classification == "ENTERED_PROFIT" for row in rows) == 2
     assert sum(row.classification == "MISSED_PROFIT" for row in rows) == 2
     assert repo.get_stats()["shadow_missed_profit"] == 2
+    engine._test_audit.succeed()
     session.close()

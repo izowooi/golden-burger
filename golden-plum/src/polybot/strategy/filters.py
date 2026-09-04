@@ -406,7 +406,7 @@ def get_event_metadata(market: Dict[str, Any]) -> Dict[str, Optional[str]]:
 def get_proven_resolution(
     market: Optional[Dict[str, Any]],
 ) -> Optional[Dict[str, Any]]:
-    """Return payout evidence only for a closed exact Yes/No market."""
+    """Return exact one-hot or authoritative void payout evidence."""
     if not market or market.get("closed") is not True:
         return None
     outcomes = get_aligned_binary_outcomes(market)
@@ -416,22 +416,42 @@ def get_proven_resolution(
     prices = [float(item["probability"]) for item in outcomes]
     payouts = dict(zip(labels, prices))
     if prices == [1.0, 0.0]:
-        outcome, winner_index = labels[0], 0
+        outcome, winner_index, settlement_kind = labels[0], 0, "ONE_HOT"
     elif prices == [0.0, 1.0]:
-        outcome, winner_index = labels[1], 1
+        outcome, winner_index, settlement_kind = labels[1], 1, "ONE_HOT"
+    elif (
+        prices == [0.5, 0.5]
+        and str(market.get("umaResolutionStatus") or "").strip().casefold()
+        == "resolved"
+    ):
+        # Polymarket void/cancel settlements pay both aligned tokens 0.5.
+        # ``closed`` alone is insufficient because transient or disputed
+        # closed rows can also expose a midpoint pair before final resolution.
+        outcome, winner_index, settlement_kind = "VOID", None, "VOID"
     else:
-        # A closed market with 0.5/0.5 (or any non-one-hot pair) is not a
-        # terminal payout.  Recording it as RESOLVED would prematurely release
-        # capacity and invent a settlement value.
+        # Any other non-one-hot pair remains unresolved.  In particular,
+        # 0.5/0.5 without explicit Gamma ``resolved`` authority must not
+        # release capacity or invent a settlement.
         return None
     return {
         "outcome": outcome,
         "winner_index": winner_index,
+        "settlement_kind": settlement_kind,
         "first_outcome_payout": prices[0],
         "yes_payout": prices[0],
         "payouts_by_outcome": payouts,
-        "status": str(market.get("umaResolutionStatus") or "closed_final_prices"),
-        "evidence": "gamma_closed_final_outcome_prices",
+        "status": (
+            "gamma_closed_resolved_void_0_5_0_5"
+            if settlement_kind == "VOID"
+            else str(
+                market.get("umaResolutionStatus") or "closed_final_prices"
+            )
+        ),
+        "evidence": (
+            "gamma_closed_resolved_void_outcome_prices"
+            if settlement_kind == "VOID"
+            else "gamma_closed_final_outcome_prices"
+        ),
     }
 
 

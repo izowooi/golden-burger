@@ -1,4 +1,4 @@
-"""Trade analytics report generator - outputs standalone HTML with Chart.js charts.
+"""Exact confirmed-SELL report generator (legacy P&L is excluded).
 
 Usage:
     python report.py                                    # data/default/trades.db
@@ -8,8 +8,9 @@ Usage:
 import sqlite3
 import json
 import sys
+from html import escape
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_PATH = sys.argv[1] if len(sys.argv) > 1 else "data/default/trades.db"
@@ -17,7 +18,7 @@ OUTPUT_PATH = sys.argv[2] if len(sys.argv) > 2 else str(Path(DB_PATH).parent / "
 
 
 def categorize(question: str) -> str:
-    q = question.lower()
+    q = str(question or "").lower()
     if any(k in q for k in ["nba", "nfl", "nhl", "mlb", "basketball", "football", "hockey", "baseball"]):
         if "nba" in q or "basketball" in q:
             return "NBA/농구"
@@ -44,20 +45,54 @@ def categorize(question: str) -> str:
     return "기타"
 
 
-def load_trades():
-    conn = sqlite3.connect(DB_PATH)
+EXACT_PNL_BASIS = "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+
+
+def load_trades(db_path=DB_PATH):
+    """Load only trades backed by exact confirmed BUY and SELL fill rows."""
+    conn = sqlite3.connect(db_path)
     conn.row_factory = sqlite3.Row
     cur = conn.cursor()
     cur.execute("""
-        SELECT id, question, outcome, buy_price, sell_price, realized_pnl,
-               buy_timestamp, sell_timestamp, exit_reason, entry_reason, buy_amount
-        FROM trades
-        WHERE status = 'COMPLETED'
-        ORDER BY sell_timestamp
-    """)
-    rows = [dict(r) for r in cur.fetchall()]
-    conn.close()
-    return rows
+        SELECT trade.id, trade.question, trade.outcome, trade.buy_price,
+               trade.sell_price, trade.realized_pnl, trade.buy_timestamp,
+               trade.sell_timestamp, trade.exit_reason, trade.entry_reason,
+               trade.buy_amount
+        FROM trades AS trade
+        WHERE trade.realized_pnl IS NOT NULL
+          AND trade.pnl_basis = ?
+          AND EXISTS (
+              SELECT 1
+              FROM order_submissions AS submission
+              JOIN order_fills AS fill
+                ON fill.submission_id = submission.submission_id
+              WHERE submission.order_id = trade.buy_order_id
+                AND submission.simulation = 0
+                AND UPPER(submission.side) = 'BUY'
+                AND UPPER(fill.side) = 'BUY'
+                AND UPPER(fill.status) = 'CONFIRMED'
+                AND (fill.domain_error IS NULL OR TRIM(fill.domain_error) = '')
+                AND fill.size > 0
+          )
+          AND EXISTS (
+              SELECT 1
+              FROM order_submissions AS submission
+              JOIN order_fills AS fill
+                ON fill.submission_id = submission.submission_id
+              WHERE submission.order_id = trade.sell_order_id
+                AND submission.simulation = 0
+                AND UPPER(submission.side) = 'SELL'
+                AND UPPER(fill.side) = 'SELL'
+                AND UPPER(fill.status) = 'CONFIRMED'
+                AND (fill.domain_error IS NULL OR TRIM(fill.domain_error) = '')
+                AND fill.size > 0
+          )
+        ORDER BY trade.sell_timestamp
+    """, (EXACT_PNL_BASIS,))
+    try:
+        return [dict(r) for r in cur.fetchall()]
+    finally:
+        conn.close()
 
 
 EXIT_REASON_KO = {
@@ -118,17 +153,18 @@ def build_report(trades):
         pnl_class = "pos" if t["pnl"] > 0 else "neg"
         pnl_str = f"+${t['pnl']:.2f}" if t["pnl"] > 0 else f"-${abs(t['pnl']):.2f}"
         sell_ts = (t["sell_timestamp"] or "")[:10]
-        short_q = t["question"][:55] + ("…" if len(t["question"]) > 55 else "")
+        question = str(t["question"] or "")
+        short_q = question[:55] + ("…" if len(question) > 55 else "")
         trade_rows_html += f"""
         <tr>
           <td>{t['id']}</td>
-          <td title="{t['question']}">{short_q}</td>
-          <td>{t['outcome']}</td>
-          <td>{t['category']}</td>
+          <td title="{escape(question, quote=True)}">{escape(short_q)}</td>
+          <td>{escape(str(t['outcome'] or ''))}</td>
+          <td>{escape(t['category'])}</td>
           <td>{t['buy_price']:.3f}</td>
           <td>{f"{t['sell_price']:.3f}" if t['sell_price'] else '-'}</td>
           <td class="{pnl_class}">{pnl_str}</td>
-          <td>{EXIT_REASON_KO.get(t['exit_reason'], t['exit_reason'] or '-')}</td>
+          <td>{escape(str(EXIT_REASON_KO.get(t['exit_reason'], t['exit_reason'] or '-')))}</td>
           <td>{sell_ts}</td>
         </tr>"""
 
@@ -159,13 +195,13 @@ def build_report(trades):
     cum_labels = json.dumps(cum_dates)
     cum_values = json.dumps(cum_pnl)
 
-    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
 
     html = f"""<!DOCTYPE html>
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<title>Polybot 거래 분석 리포트</title>
+<title>Golden Cherry exact confirmed-SELL 리포트</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * {{ box-sizing: border-box; margin: 0; padding: 0; }}
@@ -200,12 +236,12 @@ def build_report(trades):
 </style>
 </head>
 <body>
-<h1>📊 Polybot 거래 분석 리포트</h1>
-<p class="subtitle">생성: {generated_at} &nbsp;·&nbsp; 완료 거래 {total}건 기준</p>
+<h1>📊 Golden Cherry exact confirmed-SELL 리포트</h1>
+<p class="subtitle">생성: {generated_at} &nbsp;·&nbsp; exact BUY/SELL confirmed fill + known-fee P&amp;L {total}건 기준. Legacy realized_pnl과 resolution settlement assumption은 제외.</p>
 
 <div class="kpi-grid">
   <div class="kpi">
-    <div class="label">총 거래 수</div>
+    <div class="label">확정 SELL 거래 수</div>
     <div class="value neutral">{total}건</div>
   </div>
   <div class="kpi">
@@ -213,7 +249,7 @@ def build_report(trades):
     <div class="value {'pos' if win_rate >= 50 else 'neg'}">{win_rate:.1f}%</div>
   </div>
   <div class="kpi">
-    <div class="label">총 손익 (P&L)</div>
+    <div class="label">확정 SELL 손익 (P&amp;L)</div>
     <div class="value {'pos' if total_pnl >= 0 else 'neg'}">{'+' if total_pnl >= 0 else ''}${total_pnl:.2f}</div>
   </div>
   <div class="kpi">
@@ -392,7 +428,7 @@ new Chart(document.getElementById('exitChart'), {{
 
 
 def main():
-    trades = load_trades()
+    trades = load_trades(DB_PATH)
     html = build_report(trades)
     Path(OUTPUT_PATH).write_text(html, encoding="utf-8")
     print(f"리포트 생성 완료: {OUTPUT_PATH}  ({len(trades)}건)")

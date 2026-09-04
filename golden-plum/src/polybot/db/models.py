@@ -255,7 +255,7 @@ class EntryEpisode(Base):
 
 
 class ResolutionObservation(Base):
-    """Append-only normalized CLOB one-hot settlement evidence."""
+    """Append-only normalized CLOB one-hot or exact void evidence."""
 
     __tablename__ = "resolution_observations"
 
@@ -491,7 +491,7 @@ class EventCycleEvidence(Base):
 
 
 class TrackedResolutionObservation(Base):
-    """Append-only terminal one-hot evidence independent of a bot order."""
+    """Append-only terminal one-hot/void evidence independent of an order."""
 
     __tablename__ = "tracked_resolution_observations"
 

@@ -27,6 +27,7 @@
   identity일 때 포함한다.
 - e-sports, MiLB/G League/AHL/ECHL/NCAA, child/period/quarter/inning/spread/total/prop/future/
   advancement는 제외한다.
+- NBA G League·Summer League는 다른 NBA authority metadata가 일치해도 제외한다.
 - 다섯 family를 numeric Gamma tag `100350/100381/745/450/899`로 각각 독립
   cursor-complete하게 읽는다.
   research collector에는 volume/liquidity selection gate를 넣지 않는다.
@@ -37,6 +38,11 @@
 - accepted Soccer event는 distinct HOME/DRAW/AWAY condition/token 3개, MLB/NBA/NFL/NHL event는 한
   condition의 HOME/AWAY token 2개가 정확히 있어야 한다. gap은 HIGH다.
 - `--live`, credential, signer, order SDK를 HTTP/DB 전에 거절하고 lifecycle은 `archive_only`다.
+- 다섯 family Gamma cursor는 family별 격리 session에서 병렬 실행하고 결과 순서는 고정한다.
+  simulation-only network/cycle cooperative budget은 42초/50초이며 cutoff는 incomplete evidence와
+  FAILED run으로 남긴다. hard kill이나 partial-success publication은 금지한다.
+- Gamma open lookup 누락은 exact closed view로 fallback하며 token-aligned `[0.5,0.5]` void를
+  0.5 payout으로 보존한다. CLOB unique one-hot resolution은 완화하지 않는다.
 
 ## Evidence와 저장소
 

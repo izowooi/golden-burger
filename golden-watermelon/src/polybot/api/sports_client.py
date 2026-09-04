@@ -13,6 +13,7 @@ from uuid import uuid4
 from websockets.sync.client import connect
 
 from ..config import SportsFeedConfig
+from ..utils.retry import CycleBudget, NetworkBudgetExceeded
 
 
 def _iso_now() -> str:
@@ -95,6 +96,8 @@ class SportsClockClient:
         self,
         run_id: str,
         target_games: Mapping[str, str],
+        *,
+        budget: CycleBudget | None = None,
     ) -> SportsClockBatch:
         request_id = uuid4().hex
         started_at = _iso_now()
@@ -120,20 +123,54 @@ class SportsClockClient:
             self._record_receipt(run_id, batch, monotonic_start)
             return batch
 
+        if budget is not None:
+            try:
+                budget.ensure_can_start_network("sports_clock_websocket_snapshot")
+            except NetworkBudgetExceeded as error:
+                completed_at = _iso_now()
+                batch = SportsClockBatch(
+                    request_id,
+                    started_at,
+                    completed_at,
+                    "SKIPPED_NETWORK_BUDGET",
+                    len(target_slugs),
+                    0,
+                    0,
+                    {},
+                    (),
+                    type(error).__name__,
+                    _bounded_error(error),
+                )
+                self._record_receipt(run_id, batch, monotonic_start)
+                return batch
+
         try:
+            open_timeout = self.config.connect_timeout_seconds
+            if budget is not None:
+                open_timeout = min(
+                    open_timeout, max(0.05, budget.network_remaining_seconds)
+                )
             with connect(
                 self.config.websocket_url,
-                open_timeout=self.config.connect_timeout_seconds,
+                open_timeout=open_timeout,
                 close_timeout=2,
                 proxy=None,
             ) as websocket:
                 deadline = monotonic_start + self.config.receive_window_seconds
+                if budget is not None:
+                    deadline = min(deadline, budget.network_deadline)
                 while (
-                    time.monotonic() < deadline
+                    (budget.monotonic() if budget is not None else time.monotonic())
+                    < deadline
                     and message_count < self.config.max_messages
                     and len(updates) < len(target_slugs)
                 ):
-                    remaining = max(0.05, deadline - time.monotonic())
+                    current_clock = (
+                        budget.monotonic()
+                        if budget is not None
+                        else time.monotonic()
+                    )
+                    remaining = max(0.05, deadline - current_clock)
                     try:
                         message = websocket.recv(timeout=min(1.0, remaining))
                     except TimeoutError:

@@ -66,7 +66,8 @@ def test_only_arm_b_threshold_override_is_accepted(
 @pytest.mark.parametrize(
     ("key", "value", "message"),
     [
-        ("POLYBOT_BUY_AMOUNT", "5.01", "notional"),
+        ("POLYBOT_BUY_AMOUNT", "5.01", r"notional must remain exactly \$5"),
+        ("POLYBOT_MAX_OPEN_NOTIONAL_USDC", "15.03", "open notional"),
         ("POLYBOT_MAX_POSITIONS", "4", "exposure"),
         ("POLYBOT_MIN_LIQUIDITY", "9999", "universe"),
         ("POLYBOT_MIN_CUMULATIVE_VOLUME", "4999", "universe"),
@@ -84,7 +85,6 @@ def test_contract_drift_is_rejected(
     monkeypatch.setenv(key, value)
     with pytest.raises(ValueError, match=message):
         load_config("config.yaml", "drift")
-
 
 def test_credentials_and_live_database_are_explicit(
     monkeypatch: pytest.MonkeyPatch,

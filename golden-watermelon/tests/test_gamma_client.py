@@ -3,23 +3,36 @@ from __future__ import annotations
 from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
+from threading import Barrier, Lock, get_ident
 from types import SimpleNamespace
 
 from polybot.api.gamma_client import GammaClient
 from polybot.config import GammaConfig, load_config
+from polybot.utils.retry import NetworkBudgetExceeded
 
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
 class FakeTransport:
-    def __init__(self, payloads):
-        self.payloads = list(payloads)
-        self.calls = []
+    def __init__(self, payloads=None, *, state=None):
+        self.state = state or {
+            "payloads": list(payloads or []),
+            "calls": [],
+            "lock": Lock(),
+        }
+        self.calls = self.state["calls"]
+
+    def fork(self):
+        return FakeTransport(state=self.state)
+
+    def close(self):
+        pass
 
     def request_json(self, method, url, **kwargs):
-        self.calls.append((method, url, kwargs))
-        payload = self.payloads.pop(0)
+        with self.state["lock"]:
+            self.calls.append((method, url, kwargs))
+            payload = self.state["payloads"].pop(0)
         return SimpleNamespace(
             payload=payload,
             raw=b"{}",
@@ -100,13 +113,119 @@ def test_five_families_use_independent_numeric_tag_cursors() -> None:
     assert [page.sport_family for page in result.pages] == [
         "soccer", "mlb", "nba", "nfl", "nhl"
     ]
-    assert [call[2]["params"]["tag_id"] for call in transport.calls] == [
+    assert {call[2]["params"]["tag_id"] for call in transport.calls} == {
         100350, 100381, 745, 450, 899
-    ]
-    assert [call[2]["request_kind"] for call in transport.calls] == [
+    }
+    assert {call[2]["request_kind"] for call in transport.calls} == {
         "gamma_live_events_keyset:soccer",
         "gamma_live_events_keyset:mlb",
         "gamma_live_events_keyset:nba",
         "gamma_live_events_keyset:nfl",
         "gamma_live_events_keyset:nhl",
+    }
+
+
+def test_five_family_fanout_is_concurrent_but_results_stay_frozen_order() -> None:
+    barrier = Barrier(5)
+    thread_ids: set[int] = set()
+    lock = Lock()
+
+    class BarrierTransport:
+        def fork(self):
+            return BarrierTransport()
+
+        def close(self):
+            pass
+
+        def request_json(self, method, url, **kwargs):
+            del method, url
+            with lock:
+                thread_ids.add(get_ident())
+            barrier.wait(timeout=2)
+            family = kwargs["request_kind"].rsplit(":", 1)[-1]
+            return SimpleNamespace(
+                payload={"events": [{"id": family}]},
+                raw=b"{}",
+                request_id=f"request-{family}",
+                received_at="2026-09-04T00:00:00Z",
+                response_sha256="a" * 64,
+            )
+
+    result = GammaClient(config(), BarrierTransport()).fetch_live_families(
+        "run", observed_at=datetime(2026, 9, 4, tzinfo=timezone.utc)
+    )
+
+    assert [page.sport_family for page in result.pages] == [
+        "soccer", "mlb", "nba", "nfl", "nhl"
     ]
+    assert len(thread_ids) == 5
+
+
+def test_closed_gamma_resolution_fallback_preserves_token_aligned_void() -> None:
+    transport = FakeTransport(
+        [
+            [],
+            [{
+                "conditionId": "condition-void",
+                "closed": True,
+                "umaResolutionStatus": "resolved",
+                "outcomes": ["Home", "Away"],
+                "clobTokenIds": ["home-token", "away-token"],
+                "outcomePrices": [0.5, 0.5],
+            }],
+        ]
+    )
+    result = GammaClient(config(), transport).fetch_market_resolution(
+        "run", "condition-void"
+    )
+    assert result.status == "RESOLVED_VOID"
+    assert result.winner_index is None
+    assert result.outcomes == ("Home", "Away")
+    assert result.token_ids == ("home-token", "away-token")
+    assert result.payouts == (0.5, 0.5)
+    assert [call[2]["params"]["closed"] for call in transport.calls] == [
+        "false", "true"
+    ]
+
+
+def test_closed_half_half_without_resolved_authority_remains_unresolved() -> None:
+    transport = FakeTransport(
+        [
+            [],
+            [{
+                "conditionId": "condition-half",
+                "closed": True,
+                "umaResolutionStatus": "proposed",
+                "outcomes": ["Home", "Away"],
+                "clobTokenIds": ["home-token", "away-token"],
+                "outcomePrices": [0.5, 0.5],
+            }],
+        ]
+    )
+    result = GammaClient(config(), transport).fetch_market_resolution(
+        "run", "condition-half"
+    )
+    assert result.status == "CLOSED_UNRESOLVED"
+    assert result.winner_index is None
+
+
+def test_budget_exhaustion_marks_every_unfinished_family_and_never_succeeds() -> None:
+    class ExhaustedTransport:
+        def fork(self):
+            return ExhaustedTransport()
+
+        def close(self):
+            pass
+
+        def request_json(self, *_args, **_kwargs):
+            raise NetworkBudgetExceeded("network_budget_exhausted")
+
+    result = GammaClient(config(), ExhaustedTransport()).fetch_live_families(
+        "run", observed_at=datetime(2026, 9, 4, tzinfo=timezone.utc)
+    )
+    assert result.cursor_complete is False
+    assert result.pages == ()
+    assert result.incomplete_families == (
+        "soccer", "mlb", "nba", "nfl", "nhl"
+    )
+    assert len(result.incomplete_reasons) == 5

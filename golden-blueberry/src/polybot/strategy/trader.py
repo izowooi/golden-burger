@@ -141,6 +141,7 @@ class Trader:
             simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
         self.mode = "sim" if simulation_mode else "live"
         self.buying_disabled = False
+        self.cycle_uncertain_buy_reservations = 0
 
     def _fresh_book(self, token_id: str) -> Optional[tuple[float, float, float]]:
         """Return validated fresh bid/ask/spread, or fail closed."""
@@ -203,13 +204,41 @@ class Trader:
 
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Revalidate the crossing, then submit a BUY at the fresh best ask."""
-        if self.buying_disabled:
+        condition_id = str(candidate.get("condition_id") or "")
+        token_id = str(candidate.get("token_id") or "")
+
+        def disposition(
+            decision: str,
+            stage: str,
+            reason: str,
+            *,
+            order_id: Optional[str] = None,
+        ) -> None:
+            self.repo.record_candidate_execution_decision(
+                condition_id=condition_id,
+                event_id=(
+                    str(candidate.get("event_id")).strip()
+                    if candidate.get("event_id") is not None
+                    else None
+                ),
+                token_id=token_id,
+                candidate_rank=int(candidate.get("candidate_rank") or 0),
+                decision=decision,
+                stage=stage,
+                reason=reason,
+                order_id=order_id,
+                requested_notional_usdc=self.config.buy_amount_usdc,
+            )
+
+        def reject(stage: str, reason: str) -> None:
+            disposition("rejected", stage, reason)
             return None
-        condition_id = str(candidate["condition_id"])
-        token_id = str(candidate["token_id"])
+
+        if self.buying_disabled:
+            return reject("cycle_guard", "buying_disabled_after_balance_error")
         if candidate.get("outcome") != "Yes":
             logger.error("Closing Surge가 YES 이외 후보를 거부했습니다: %s", condition_id)
-            return None
+            return reject("identity", "outcome_not_yes")
         entry_snapshot_id = candidate.get("entry_snapshot_id")
         if (
             isinstance(entry_snapshot_id, bool)
@@ -222,7 +251,7 @@ class Trader:
                 condition_id,
                 entry_snapshot_id,
             )
-            return None
+            return reject("snapshot_lineage", "entry_snapshot_invalid")
         prior_snapshot_id = candidate.get("prior_snapshot_id")
         if (
             isinstance(prior_snapshot_id, bool)
@@ -237,26 +266,26 @@ class Trader:
                 prior_snapshot_id,
                 entry_snapshot_id,
             )
-            return None
+            return reject("snapshot_lineage", "prior_snapshot_invalid")
 
         can_enter, reason = self.repo.can_reenter(
             condition_id, self.config.reentry_cooldown_hours
         )
         if not can_enter:
             logger.info("재진입 skip - condition=%s reason=%s", condition_id, reason)
-            return None
+            return reject("reentry", reason)
         if self.repo.get_position_count() >= self.config.max_positions:
             logger.info("최대 포지션 수 %s 도달", self.config.max_positions)
-            return None
+            return reject("capacity", "max_positions")
         if self._drawdown_stop_triggered():
-            return None
+            return reject("risk", "drawdown_kill_switch")
         raw_event_id = candidate.get("event_id")
         if raw_event_id is None or not str(raw_event_id).strip():
             logger.warning(
                 "event_id 없는 진입 후보를 fail-closed 처리합니다 - condition=%s",
                 condition_id,
             )
-            return None
+            return reject("identity", "missing_event_id")
         event_id = str(raw_event_id).strip()
         if (
             self.repo.get_event_position_count(event_id)
@@ -267,7 +296,7 @@ class Trader:
                 event_id,
                 self.config.max_event_positions,
             )
-            return None
+            return reject("capacity", "max_event_positions")
         open_notional = self.repo.get_open_notional_usdc()
         if (
             open_notional + self.config.buy_amount_usdc
@@ -279,7 +308,7 @@ class Trader:
                 self.config.buy_amount_usdc,
                 self.config.max_open_notional_usdc,
             )
-            return None
+            return reject("capacity", "max_open_notional")
 
         clock_market = {
             "endDate": candidate.get("end_date"),
@@ -299,13 +328,13 @@ class Trader:
                 condition_id,
                 clock.reason,
             )
-            return None
+            return reject("clock", clock.reason)
         if bool(candidate.get("is_sports")) != clock.is_sports:
             logger.warning(
                 "scanner/execution sports clock 불일치 - condition=%s",
                 condition_id,
             )
-            return None
+            return reject("clock", "scanner_execution_sports_mismatch")
 
         try:
             current_yes = _valid_book_price(self.clob.get_midpoint(token_id))
@@ -313,7 +342,7 @@ class Trader:
             logger.warning(
                 "entry midpoint 조회 실패 - condition=%s error=%s", condition_id, error
             )
-            return None
+            return reject("fresh_midpoint", f"unavailable_{type(error).__name__}")
         decision = evaluate_entry(
             candidate.get("prior_yes_price"),
             current_yes,
@@ -327,7 +356,7 @@ class Trader:
                 condition_id,
                 decision.reason,
             )
-            return None
+            return reject("signal_revalidation", decision.reason)
 
         try:
             book = self.clob.get_buy_book_depth(
@@ -341,7 +370,7 @@ class Trader:
                 condition_id,
                 error,
             )
-            return None
+            return reject("fresh_book", f"unavailable_{type(error).__name__}")
         best_bid = _valid_book_price(book.best_bid)
         best_ask = _valid_book_price(book.best_ask)
         depth_limit = _valid_book_price(book.ask_limit_price)
@@ -377,7 +406,7 @@ class Trader:
                 depth_shares,
                 depth_limit,
             )
-            return None
+            return reject("fresh_book", "invalid_depth_contract")
         if spread > self.config.max_spread + 1e-9:
             logger.info(
                 "fresh spread 상한 초과 - condition=%s spread=%.4f limit=%.4f",
@@ -385,7 +414,7 @@ class Trader:
                 spread,
                 self.config.max_spread,
             )
-            return None
+            return reject("fresh_book", "spread_above_limit")
         # Crossing is triggered by YES midpoint/Gamma price.  Executability is
         # independently capped by the fresh ask; the ask need not equal signal.
         if best_ask > self.config.entry.prob_max + 1e-9:
@@ -395,7 +424,7 @@ class Trader:
                 best_ask,
                 self.config.entry.prob_max,
             )
-            return None
+            return reject("fresh_book", "ask_above_entry_band")
         if depth_limit < best_ask - 1e-9:
             logger.warning(
                 "fresh depth limit이 best ask보다 낮습니다 - "
@@ -404,7 +433,7 @@ class Trader:
                 best_ask,
                 depth_limit,
             )
-            return None
+            return reject("fresh_book", "depth_limit_below_best_ask")
 
         buy_shares = self.config.buy_amount_usdc / depth_limit
         required = self.config.min_order_size + self.config.min_order_buffer_shares
@@ -415,7 +444,7 @@ class Trader:
                 buy_shares,
                 required,
             )
-            return None
+            return reject("order_sizing", "minimum_share_buffer")
         required_depth = buy_shares * self.config.depth_safety_multiple
         if depth_shares + 1e-9 < required_depth:
             logger.info(
@@ -426,7 +455,7 @@ class Trader:
                 required_depth,
                 depth_limit,
             )
-            return None
+            return reject("fresh_book", "insufficient_ask_depth")
 
         logger.info(
             "Closing Surge 매수: '%s' signal=%.2f%% ask=%.2f%% "
@@ -445,6 +474,8 @@ class Trader:
             side="BUY",
         )
         if not (result.get("success") or result.get("orderID")):
+            if result.get("submission_outcome_unknown"):
+                self.cycle_uncertain_buy_reservations += 1
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
                 logger.warning(
@@ -452,7 +483,16 @@ class Trader:
                 )
             else:
                 logger.error("매수 주문 실패: %s", result)
-            return None
+            return reject(
+                "submission",
+                (
+                    "submission_outcome_unknown"
+                    if result.get("submission_outcome_unknown")
+                    else "balance_or_allowance"
+                    if is_balance_allowance_error(result)
+                    else "order_rejected"
+                ),
+            )
 
         trade = self.repo.create_trade(
             condition_id=condition_id,
@@ -515,6 +555,12 @@ class Trader:
         )
         logger.info(
             "매수 주문 접수: Trade #%s Order=%s", trade.id, result.get("orderID")
+        )
+        disposition(
+            "submitted",
+            "submission",
+            "accepted_pending_exact_fill" if self.mode == "live" else "simulated",
+            order_id=result.get("orderID"),
         )
         return trade.id
 
@@ -688,7 +734,7 @@ class Trader:
         )
 
     def reconcile_pending_buy(self, trade) -> bool:
-        """Activate a live position only after an exact full BUY fill."""
+        """Activate exact full or terminal partial BUY fill as managed exposure."""
         if self.mode == "sim":
             logger.error(
                 "simulation trade가 PENDING_BUY에 남아 있습니다 - trade=%s",
@@ -712,15 +758,20 @@ class Trader:
             )
             return False
         if (
-            not evidence.has_reconciled_full_fill
+            not (
+                evidence.has_reconciled_full_fill
+                or evidence.has_reconciled_terminal_fill
+            )
             or evidence.confirmed_size is None
             or evidence.confirmed_vwap is None
         ):
             logger.info(
-                "BUY full-fill 대사 대기: Trade #%s state=%s full=%s detail=%s",
+                "BUY terminal fill 대사 대기: Trade #%s state=%s full=%s "
+                "terminal=%s detail=%s",
                 trade.id,
                 evidence.state,
                 evidence.has_reconciled_full_fill,
+                evidence.has_reconciled_terminal_fill,
                 evidence.detail,
             )
             return False
@@ -736,10 +787,12 @@ class Trader:
             ),
         )
         logger.info(
-            "exact full BUY fill로 HOLDING 활성화: Trade #%s size=%.6f vwap=%.4f",
+            "exact terminal BUY fill로 HOLDING 활성화: Trade #%s size=%.6f "
+            "vwap=%.4f full=%s",
             trade.id,
             evidence.confirmed_size,
             evidence.confirmed_vwap,
+            evidence.has_reconciled_full_fill,
         )
         return True
 
@@ -813,12 +866,19 @@ class Trader:
                 buy_evidence.detail,
             )
             return False
-        if not math.isclose(
+        residual = buy_evidence.confirmed_size - sell_evidence.confirmed_size
+        exact_size_match = math.isclose(
             sell_evidence.confirmed_size,
             buy_evidence.confirmed_size,
             rel_tol=1e-9,
             abs_tol=_FILL_SIZE_TOLERANCE,
-        ):
+        )
+        explicit_dust_residual = (
+            not exact_size_match
+            and residual > _FILL_SIZE_TOLERANCE
+            and residual < 0.01
+        )
+        if not exact_size_match and not explicit_dust_residual:
             logger.error(
                 "BUY/SELL confirmed size 불일치로 PENDING_SELL 유지: "
                 "Trade #%s buy=%.6f sell=%.6f",
@@ -829,30 +889,63 @@ class Trader:
             return False
 
         size = sell_evidence.confirmed_size
+        allocated_buy_fee = buy_evidence.confirmed_fee_usdc
+        pnl_basis = "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+        if explicit_dust_residual:
+            allocated_buy_fee = buy_evidence.confirmed_fee_usdc * (
+                size / buy_evidence.confirmed_size
+            )
+            pnl_basis = (
+                "exact_reconciled_confirmed_fills_net_known_fees_"
+                "sub_0.01_sell_residual"
+            )
         realized_pnl = (
             (sell_evidence.confirmed_vwap - buy_evidence.confirmed_vwap) * size
-            - buy_evidence.confirmed_fee_usdc
+            - allocated_buy_fee
             - sell_evidence.confirmed_fee_usdc
         )
         pending_reason = str(getattr(trade, "exit_reason", "") or "")
         base_reason = pending_reason.removesuffix("_pending_confirmed_fill")
-        self.repo.update_trade(
-            trade.id,
-            status=TradeStatus.COMPLETED,
-            exit_reason=f"{base_reason or 'exit'}_confirmed_fill",
-            sell_price=sell_evidence.confirmed_vwap,
-            sell_shares=size,
-            realized_pnl=realized_pnl,
-            hypothetical_pnl=None,
-            pnl_basis="exact_reconciled_buy_sell_confirmed_fills_net_known_fees",
-            buy_confirmed_size=buy_evidence.confirmed_size,
-            buy_confirmed_vwap=buy_evidence.confirmed_vwap,
-            buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
-            sell_confirmed_size=size,
-            sell_confirmed_vwap=sell_evidence.confirmed_vwap,
-            sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
-            sell_fill_matched_at=sell_evidence.matched_at,
-        )
+        if explicit_dust_residual:
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.RESIDUAL,
+                exit_reason=f"{base_reason or 'exit'}_confirmed_fill",
+                sell_price=sell_evidence.confirmed_vwap,
+                sell_shares=size,
+                realized_pnl=realized_pnl,
+                hypothetical_pnl=None,
+                pnl_basis=pnl_basis,
+                buy_confirmed_size=buy_evidence.confirmed_size,
+                buy_confirmed_vwap=buy_evidence.confirmed_vwap,
+                buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
+                sell_confirmed_size=size,
+                sell_confirmed_vwap=sell_evidence.confirmed_vwap,
+                sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
+                sell_fill_matched_at=sell_evidence.matched_at,
+                sell_residual_shares=residual,
+            )
+        else:
+            self.repo.update_trade(
+                trade.id,
+                status=TradeStatus.COMPLETED,
+                exit_reason=f"{base_reason or 'exit'}_confirmed_fill",
+                sell_price=sell_evidence.confirmed_vwap,
+                sell_shares=size,
+                realized_pnl=realized_pnl,
+                hypothetical_pnl=None,
+                pnl_basis=(
+                    "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+                ),
+                buy_confirmed_size=buy_evidence.confirmed_size,
+                buy_confirmed_vwap=buy_evidence.confirmed_vwap,
+                buy_confirmed_fee_usdc=buy_evidence.confirmed_fee_usdc,
+                sell_confirmed_size=size,
+                sell_confirmed_vwap=sell_evidence.confirmed_vwap,
+                sell_confirmed_fee_usdc=sell_evidence.confirmed_fee_usdc,
+                sell_fill_matched_at=sell_evidence.matched_at,
+                sell_residual_shares=0.0,
+            )
         logger.info(
             "confirmed %s SELL 완료: Trade #%s size=%.6f vwap=%.4f actual P&L=$%.4f",
             base_reason or "exit",

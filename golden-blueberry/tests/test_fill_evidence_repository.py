@@ -11,6 +11,7 @@ from datetime import datetime
 from types import SimpleNamespace
 
 from sqlalchemy import text
+import requests
 
 import pytest
 
@@ -170,6 +171,7 @@ def test_exact_fill_evidence_reads_real_ledger_states(tmp_path):
     assert partial_sell.state == "confirmed"
     assert partial_sell.confirmed_size == 2.0
     assert partial_sell.has_reconciled_full_fill is False
+    assert partial_sell.has_reconciled_terminal_fill is True
     assert partial_sell.detail == "confirmed_partial_or_unreconciled"
     session.close()
 
@@ -249,6 +251,139 @@ def test_matched_quantized_buy_promotes_pending_trade_to_holding(tmp_path):
     assert holding.buy_shares == pytest.approx(matched_size)
     assert holding.buy_price == pytest.approx(0.91)
     assert holding.buy_confirmed_size == pytest.approx(matched_size)
+    session.close()
+
+
+def test_canceled_terminal_partial_buy_promotes_only_confirmed_size(tmp_path):
+    db_path = tmp_path / "blueberry-terminal-partial-buy.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-blueberry")
+    submission_id = _record_accepted_order(ledger, "OID-partial-buy")
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='CANCELED', "
+            "latest_size_matched=2.0, needs_reconciliation=0 "
+            "WHERE order_id='OID-partial-buy'"
+        )
+    )
+    session.execute(
+        text(
+            "INSERT INTO order_fills "
+            "(submission_id, order_id, trade_id, bucket_index, status, side, "
+            "size, price, fee_amount_usdc, matched_at, domain_error) VALUES "
+            "(:submission_id, 'OID-partial-buy', 'partial-buy-fill', 0, "
+            "'CONFIRMED', 'BUY', 2.0, 0.95, 0.01, "
+            "'2026-08-10T00:00:00Z', NULL)"
+        ),
+        {"submission_id": submission_id},
+    )
+    session.commit()
+    repo = TradeRepository(session)
+    trade = repo.create_trade(
+        condition_id="condition-partial-buy",
+        outcome="Yes",
+        token_id="token-OID-partial-buy",
+        buy_price=0.96,
+        buy_amount=5.0,
+        buy_shares=5.0,
+        buy_order_id="OID-partial-buy",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+    trader = Trader(
+        repo,
+        SimpleNamespace(simulation_mode=False),
+        TradingConfig(),
+        simulation_mode=False,
+    )
+
+    assert trader.reconcile_pending_buy(trade) is True
+    holding = repo.get_by_id(trade.id)
+    assert holding.status == TradeStatus.HOLDING
+    assert holding.buy_shares == 2.0
+    assert holding.buy_confirmed_size == 2.0
+    assert holding.buy_price == 0.95
+    session.close()
+
+
+def test_unknown_post_and_quarantined_trade_reserve_capacity_after_restart(tmp_path):
+    db_path = tmp_path / "blueberry-capacity.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-blueberry")
+    intent = ledger.record_intent(
+        token_id="unknown-token",
+        side="BUY",
+        requested_price=0.90,
+        requested_size=5.5,
+        simulation=False,
+    )
+    assert ledger.record_submission_error(
+        intent, requests.exceptions.ReadTimeout("post response unavailable")
+    ) == "SUBMIT_OUTCOME_UNKNOWN"
+
+    session = Session()
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="quarantined-condition",
+        outcome="Yes",
+        token_id="quarantined-token",
+        buy_amount=5.0,
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.QUARANTINED,
+        mode="live",
+    )
+    session.close()
+
+    restarted = Session()
+    restarted_repo = TradeRepository(restarted)
+    assert restarted_repo.get_untracked_buy_capacity_reservations() == pytest.approx(
+        (1, 4.95)
+    )
+    assert restarted_repo.get_position_count() == 2
+    assert restarted_repo.get_open_notional_usdc() == pytest.approx(9.95)
+    restarted.close()
+
+
+def test_terminal_zero_fill_orphan_releases_ledger_reservation(tmp_path):
+    db_path = tmp_path / "blueberry-zero-reservation.db"
+    Session = init_database(str(db_path))
+    ledger = ExecutionLedger(db_path, strategy_name="golden-blueberry")
+    _record_accepted_order(ledger, "OID-orphan-zero")
+    session = Session()
+    session.execute(
+        text(
+            "UPDATE order_submissions SET latest_order_status='CANCELED', "
+            "latest_size_matched=0, needs_reconciliation=0 "
+            "WHERE order_id='OID-orphan-zero'"
+        )
+    )
+    session.commit()
+    repo = TradeRepository(session)
+    assert repo.get_untracked_buy_capacity_reservations() == (0, 0.0)
+    assert repo.get_position_count() == 0
+    session.close()
+
+
+def test_explicit_dust_residual_remains_in_capacity(tmp_path):
+    Session = init_database(str(tmp_path / "blueberry-residual-capacity.db"))
+    session = Session()
+    repo = TradeRepository(session)
+    repo.create_trade(
+        condition_id="residual-condition",
+        event_id="residual-event",
+        outcome="Yes",
+        token_id="residual-token",
+        buy_amount=5.0,
+        buy_timestamp=datetime.utcnow(),
+        sell_residual_shares=0.005,
+        status=TradeStatus.RESIDUAL,
+        mode="live",
+    )
+    assert repo.get_position_count() == 1
+    assert repo.get_open_notional_usdc() == 5.0
+    assert repo.get_event_position_count("residual-event") == 1
     session.close()
 
 

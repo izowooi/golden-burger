@@ -1,14 +1,16 @@
 """Repository pattern for database operations."""
 import csv
 import logging
+import math
 from polybot_observability import compact_maintenance_active
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 from sqlalchemy.orm import Session
-from sqlalchemy import func, or_
+from sqlalchemy import func, inspect, or_, text
 from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
 from .fill_evidence import ExactFillEvidence, get_exact_order_fill_evidence
+from .exposure_reservations import UNTRACKED_BUY_RESERVATIONS_SQL
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +20,6 @@ OPEN_EXPOSURE_STATUSES = (
     TradeStatus.PENDING_SELL,
     TradeStatus.QUARANTINED,
 )
-
 
 class TradeRepository:
     """CRUD operations for trades."""
@@ -259,6 +260,8 @@ class TradeRepository:
 
         skipped = self.session.query(func.count(SkippedMarket.id)).scalar() or 0
 
+        exposure = self.get_exposure_summary()
+
         return {
             "total_trades": total,
             "holding": holding,
@@ -272,20 +275,262 @@ class TradeRepository:
             "unproven_pnl": round(unproven_pnl, 4),
             "unproven_pnl_count": unproven_pnl_count,
             "settlement_pnl_assumption": round(settlement_pnl_assumption, 4),
+            **exposure,
+        }
+
+    def get_buy_exposure_reservations(self) -> Dict[str, Any]:
+        """Return live BUY submissions not linked to a managed ``Trade``.
+
+        A process can die after its durable pre-POST intent or accepted order is
+        written and before ``trades`` is updated.  Such rows reserve one position
+        and their requested notional until exact terminal zero-fill or explicit
+        ``NO_ORDER_CREATED`` evidence exists.  Open-order absence is deliberately
+        not a release condition.
+        """
+        tables = set(inspect(self.session.get_bind()).get_table_names())
+        if "order_submissions" not in tables:
+            return {
+                "untracked_buy_reservation_count": 0,
+                "untracked_buy_reservation_notional_usdc": 0.0,
+                "untracked_buy_unknown_outcome_count": 0,
+                "untracked_buy_reconciliation_count": 0,
+            }
+
+        required = {
+            "submission_id",
+            "order_id",
+            "side",
+            "requested_price",
+            "requested_size",
+            "submitted_at",
+            "simulation",
+            "response_status",
+            "latest_order_status",
+            "latest_size_matched",
+            "needs_reconciliation",
+            "outcome_resolution",
+            "outcome_resolved_at",
+            "outcome_resolution_reason",
+        }
+        columns = {
+            column["name"]
+            for column in inspect(self.session.get_bind()).get_columns(
+                "order_submissions"
+            )
+        }
+        missing = required - columns
+        if missing:
+            raise RuntimeError(
+                "order_submissions exposure schema is incomplete: "
+                f"{sorted(missing)}"
+            )
+
+        rows = self.session.execute(
+            text(UNTRACKED_BUY_RESERVATIONS_SQL)
+        ).mappings().all()
+
+        notional = 0.0
+        unknown = 0
+        reconciling = 0
+        for row in rows:
+            price = float(row["requested_price"])
+            size = float(row["requested_size"])
+            if not math.isfinite(price) or not 0 < price < 1:
+                raise RuntimeError(
+                    "untracked BUY reservation has invalid requested_price"
+                )
+            if not math.isfinite(size) or size <= 0:
+                raise RuntimeError(
+                    "untracked BUY reservation has invalid requested_size"
+                )
+            notional += price * size
+            if row["response_status"] in {
+                "INTENT",
+                "SUBMIT_OUTCOME_UNKNOWN",
+                "EVIDENCE_WRITE_FAILED",
+            }:
+                unknown += 1
+            if int(row["needs_reconciliation"] or 0):
+                reconciling += 1
+
+        return {
+            "untracked_buy_reservation_count": len(rows),
+            "untracked_buy_reservation_notional_usdc": round(notional, 6),
+            "untracked_buy_unknown_outcome_count": unknown,
+            "untracked_buy_reconciliation_count": reconciling,
+        }
+
+    def get_exposure_summary(self) -> Dict[str, Any]:
+        """Return managed plus untracked BUY capacity reservations."""
+        managed_count = self.session.query(func.count(Trade.id)).filter(
+            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
+        ).scalar() or 0
+        managed_notional = self.session.query(func.sum(Trade.buy_amount)).filter(
+            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
+        ).scalar() or 0.0
+        reservations = self.get_buy_exposure_reservations()
+        total_count = int(managed_count) + int(
+            reservations["untracked_buy_reservation_count"]
+        )
+        total_notional = float(managed_notional or 0.0) + float(
+            reservations["untracked_buy_reservation_notional_usdc"]
+        )
+        return {
+            "managed_open_position_count": int(managed_count),
+            "managed_open_notional_usdc": round(float(managed_notional or 0.0), 6),
+            **reservations,
+            "reserved_position_count": total_count,
+            "reserved_open_notional_usdc": round(total_notional, 6),
+        }
+
+    def get_entry_guard(
+        self,
+        drawdown_floor_usdc: float,
+        *,
+        simulation_mode: bool = False,
+    ) -> Dict[str, Any]:
+        """Return a fail-closed exact-economic gate for new BUY submissions.
+
+        Economic P&L is intentionally limited to exact confirmed BUY/SELL P&L
+        and exact one-hot resolution settlement with complete BUY fee evidence.
+        Legacy ``realized_pnl`` is never included. Existing position management
+        does not consult this gate.
+        """
+        floor = float(drawdown_floor_usdc)
+        if not math.isfinite(floor) or floor >= 0:
+            raise ValueError("drawdown_floor_usdc must be finite and negative")
+        if simulation_mode:
+            return {
+                "entry_allowed": True,
+                "drawdown_floor_usdc": round(floor, 6),
+                "exact_confirmed_sell_pnl_usdc": 0.0,
+                "exact_proven_resolution_settlement_usdc": 0.0,
+                "exact_economic_pnl_usdc": 0.0,
+                "legacy_realized_pnl_included": False,
+                "unknown_buy_evidence_count": 0,
+                "incomplete_fee_evidence_count": 0,
+                "resolution_evidence_gap_count": 0,
+                "blockers": [],
+                "simulation_guard_not_applicable": True,
+            }
+        exact_pnl_basis = (
+            "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
+        )
+        exact_sell_pnl = self.session.query(func.sum(Trade.realized_pnl)).filter(
+            Trade.realized_pnl.isnot(None),
+            Trade.pnl_basis == exact_pnl_basis,
+        ).scalar() or 0.0
+
+        exact_settlement = 0.0
+        resolution_evidence_gap_count = 0
+        incomplete_fee_evidence_count = 0
+        settlement_rows = self.session.query(Trade).filter(
+            Trade.settlement_pnl_assumption.isnot(None)
+        ).all()
+        for trade in settlement_rows:
+            if trade.settlement_assumption_basis != (
+                "exact_confirmed_buy_remaining_position_net_known_buy_fee"
+            ):
+                incomplete_fee_evidence_count += 1
+                continue
+            evidence = self.get_exact_buy_fill_evidence(
+                trade.buy_order_id, token_id=trade.token_id
+            )
+            stored_size = float(trade.resolution_confirmed_buy_size or 0.0)
+            stored_vwap = float(trade.resolution_confirmed_buy_vwap or 0.0)
+            stored_fee = trade.resolution_confirmed_buy_fee_usdc
+            position_size = float(trade.resolution_position_size or 0.0)
+            payout = trade.resolution_value
+            assumption = float(trade.settlement_pnl_assumption)
+            valid = (
+                trade.status == TradeStatus.RESOLVED
+                and str(trade.resolution_status or "").strip().lower() == "resolved"
+                and payout in {0.0, 1.0}
+                and bool(str(trade.resolution_outcome or "").strip())
+                and evidence.has_reconciled_matched_fill
+                and evidence.fee_complete
+                and evidence.confirmed_size is not None
+                and evidence.confirmed_vwap is not None
+                and evidence.confirmed_fee_usdc is not None
+                and stored_fee is not None
+                and stored_size > 0
+                and 0 < stored_vwap <= 1
+                and position_size > 0
+                and position_size <= stored_size + 0.010001
+                and math.isclose(
+                    float(evidence.confirmed_size), stored_size,
+                    rel_tol=0, abs_tol=1e-6,
+                )
+                and math.isclose(
+                    float(evidence.confirmed_vwap), stored_vwap,
+                    rel_tol=0, abs_tol=1e-9,
+                )
+                and math.isclose(
+                    float(evidence.confirmed_fee_usdc), float(stored_fee),
+                    rel_tol=0, abs_tol=1e-9,
+                )
+            )
+            if valid:
+                expected = (float(payout) - stored_vwap) * position_size
+                expected -= float(stored_fee) * min(1.0, position_size / stored_size)
+                valid = math.isclose(
+                    expected, assumption, rel_tol=0, abs_tol=1e-6
+                )
+            if not valid:
+                resolution_evidence_gap_count += 1
+                continue
+            exact_settlement += assumption
+
+        reservations = self.get_buy_exposure_reservations()
+        unknown_buy_evidence_count = int(
+            reservations["untracked_buy_reservation_count"]
+        )
+        open_trades = self.session.query(Trade).filter(
+            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
+        ).all()
+        for trade in open_trades:
+            order_id = str(trade.buy_order_id or "").strip()
+            if not order_id or order_id.startswith("SIM"):
+                unknown_buy_evidence_count += 1
+                continue
+            evidence = self.get_exact_buy_fill_evidence(
+                order_id, token_id=trade.token_id
+            )
+            if not evidence.has_reconciled_matched_fill:
+                unknown_buy_evidence_count += 1
+            elif not evidence.fee_complete:
+                incomplete_fee_evidence_count += 1
+
+        economic_pnl = float(exact_sell_pnl) + exact_settlement
+        blockers = []
+        if economic_pnl <= floor + 1e-9:
+            blockers.append("exact_economic_drawdown_floor_breached")
+        if unknown_buy_evidence_count:
+            blockers.append("unknown_buy_evidence")
+        if incomplete_fee_evidence_count:
+            blockers.append("incomplete_fee_evidence")
+        if resolution_evidence_gap_count:
+            blockers.append("resolution_evidence_gap")
+        return {
+            "entry_allowed": not blockers,
+            "drawdown_floor_usdc": round(floor, 6),
+            "exact_confirmed_sell_pnl_usdc": round(float(exact_sell_pnl), 6),
+            "exact_proven_resolution_settlement_usdc": round(exact_settlement, 6),
+            "exact_economic_pnl_usdc": round(economic_pnl, 6),
+            "legacy_realized_pnl_included": False,
+            "unknown_buy_evidence_count": unknown_buy_evidence_count,
+            "incomplete_fee_evidence_count": incomplete_fee_evidence_count,
+            "resolution_evidence_gap_count": resolution_evidence_gap_count,
+            "blockers": blockers,
         }
 
     def get_position_count(self) -> int:
-        """Get all positions that may still carry wallet exposure."""
-        return self.session.query(func.count(Trade.id)).filter(
-            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
-        ).scalar() or 0
+        """Get all managed and untracked positions that may carry exposure."""
+        return int(self.get_exposure_summary()["reserved_position_count"])
 
     def get_open_notional_usdc(self) -> float:
-        """Return conservative requested BUY notional for open exposure."""
-        value = self.session.query(func.sum(Trade.buy_amount)).filter(
-            Trade.status.in_(OPEN_EXPOSURE_STATUSES)
-        ).scalar()
-        return float(value or 0.0)
+        """Return conservative managed plus untracked requested BUY notional."""
+        return float(self.get_exposure_summary()["reserved_open_notional_usdc"])
 
     def append_trade_to_csv(self, trade: Trade, db_dir) -> None:
         """완료된 거래를 월별 CSV 파일에 추가.

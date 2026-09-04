@@ -21,6 +21,7 @@ from polybot.db.models import (
     MarketCatalog,
     MarketSnapshot,
     STOP_SELL_QUARANTINE_REASON,
+    PENDING_BUY_QUARANTINE_REASON,
     TradeStatus,
     init_database,
 )
@@ -550,11 +551,107 @@ def test_unresolved_delayed_sell_is_quarantined_after_three_hours(tmp_path):
     assert repo.get_quarantine_state() == {
         "total": 1,
         "isolated_stop_sell": 1,
+        "isolated_pending_buy": 0,
+        "event_local": 1,
         "blocking": 0,
     }
     assert repo.get_isolated_stop_sell_trades() == [refreshed]
     assert repo.get_open_buy_evidence_gap_count() == 0
     session.close()
+
+
+def test_stale_ambiguous_pending_buy_is_event_local_and_keeps_capacity(tmp_path):
+    db_path = tmp_path / "watermelon-stale-pending-buy.db"
+    Session = init_database(str(db_path))
+    ExecutionLedger(db_path, strategy_name="golden-watermelon-live")
+    submitted_at = datetime(2026, 8, 20, 0, 0)
+    session = Session()
+    repo = TradeRepository(session)
+    trade = repo.create_trade(
+        condition_id="condition-stale-buy",
+        event_id="event-stale-buy",
+        outcome="Home",
+        token_id="token-stale-buy",
+        buy_order_id="OID-stale-buy",
+        buy_timestamp=submitted_at,
+        status=TradeStatus.PENDING_BUY,
+        mode="live",
+    )
+
+    clob = SimpleNamespace(
+        simulation_mode=False,
+        cancel_order_for_reconciliation=lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            SubmissionEvidenceError("ambiguous venue state")
+        ),
+    )
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+
+    assert trader.reconcile_pending_buy(
+        trade, now=submitted_at + timedelta(minutes=181)
+    ) is False
+    refreshed = repo.get_by_id(trade.id)
+    assert refreshed.status == TradeStatus.QUARANTINED
+    assert refreshed.exit_reason == PENDING_BUY_QUARANTINE_REASON
+    assert repo.get_position_count() == 1
+    assert repo.get_event_position_count("event-stale-buy") == 1
+    assert repo.get_quarantine_state() == {
+        "total": 1,
+        "isolated_stop_sell": 0,
+        "isolated_pending_buy": 1,
+        "event_local": 1,
+        "blocking": 0,
+    }
+    assert repo.get_isolated_pending_buy_trades() == [refreshed]
+    session.close()
+
+
+def test_database_additive_migration_is_repeatable_and_affinity_checked(tmp_path):
+    path = tmp_path / "repeat.db"
+    first = init_database(str(path))
+    first().close()
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "ALTER TABLE trades DROP COLUMN prior_snapshot_id_at_entry"
+        )
+    second = init_database(str(path))
+    second().close()
+    third = init_database(str(path))
+    third().close()
+    with sqlite3.connect(path) as connection:
+        columns = {
+            row[1]: row[2]
+            for row in connection.execute("PRAGMA table_info(trades)")
+        }
+    assert "CHAR" in columns["sport_family"] or "TEXT" in columns["sport_family"]
+    assert columns["buy_confirmed_vwap"] in {"REAL", "FLOAT"}
+
+    broken = tmp_path / "broken.db"
+    with sqlite3.connect(broken) as connection:
+        connection.execute("CREATE TABLE trades (id TEXT PRIMARY KEY)")
+    with pytest.raises(RuntimeError, match="incompatible trades schema"):
+        init_database(str(broken))
+
+
+def test_database_rejects_existing_column_with_incompatible_affinity(tmp_path):
+    path = tmp_path / "wrong-affinity.db"
+    Session = init_database(str(path))
+    Session().close()
+    with sqlite3.connect(path) as connection:
+        sql = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type='table' AND name='trades'"
+        ).fetchone()[0]
+        assert "sport_family VARCHAR" in sql
+        connection.execute("PRAGMA writable_schema=ON")
+        connection.execute(
+            "UPDATE sqlite_master SET sql=? WHERE type='table' AND name='trades'",
+            (sql.replace("sport_family VARCHAR", "sport_family INTEGER"),),
+        )
+        connection.execute("PRAGMA writable_schema=OFF")
+        schema_version = connection.execute("PRAGMA schema_version").fetchone()[0]
+        connection.execute(f"PRAGMA schema_version={schema_version + 1}")
+
+    with pytest.raises(RuntimeError, match="type mismatches.*sport_family"):
+        init_database(str(path))
 
 
 def test_entry_capacity_reserves_untracked_live_buy_intents_without_double_count(

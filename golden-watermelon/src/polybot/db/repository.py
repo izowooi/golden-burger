@@ -779,7 +779,12 @@ class ResearchRepository:
                 """
                 SELECT e.* FROM hypothetical_episodes e
                 LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
-                WHERE r.condition_id IS NULL ORDER BY e.entered_at
+                LEFT JOIN (
+                    SELECT DISTINCT condition_id FROM resolution_attempts
+                    WHERE status='RESOLVED_VOID'
+                ) v ON v.condition_id=e.condition_id
+                WHERE r.condition_id IS NULL AND v.condition_id IS NULL
+                ORDER BY e.entered_at
                 """
             ).fetchall()
             return [dict(row) for row in rows]
@@ -813,9 +818,14 @@ class ResearchRepository:
                 LEFT JOIN stop_execution_attempts a USING(policy_id)
                 LEFT JOIN counterfactual_stop_exits x USING(policy_id)
                 LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
+                LEFT JOIN (
+                    SELECT DISTINCT condition_id FROM resolution_attempts
+                    WHERE status='RESOLVED_VOID'
+                ) v ON v.condition_id=e.condition_id
                 WHERE p.stop_price IS NOT NULL
                   AND x.policy_id IS NULL
                   AND r.condition_id IS NULL
+                  AND v.condition_id IS NULL
                 GROUP BY p.policy_id
                 ORDER BY e.entered_at,p.stop_price DESC
                 """
@@ -981,6 +991,10 @@ class ResearchRepository:
                 "stop_attempts": c.execute("SELECT COUNT(*) FROM stop_execution_attempts").fetchone()[0],
                 "stop_exits": c.execute("SELECT COUNT(*) FROM counterfactual_stop_exits").fetchone()[0],
                 "resolutions": c.execute("SELECT COUNT(*) FROM resolution_observations").fetchone()[0],
+                "void_resolutions": c.execute(
+                    "SELECT COUNT(DISTINCT condition_id) FROM resolution_attempts "
+                    "WHERE status='RESOLVED_VOID'"
+                ).fetchone()[0],
                 "issues": c.execute("SELECT COUNT(*) FROM data_quality_issues").fetchone()[0],
                 "db_bytes": self.path.stat().st_size if self.path.exists() else 0,
             }
@@ -991,11 +1005,24 @@ class ResearchRepository:
                     "GROUP BY classification_status ORDER BY classification_status"
                 )
             }
-            result["arms"] = {str(row[0]): {"episodes": row[1], "resolved": row[2]} for row in c.execute(
-                """SELECT e.threshold,COUNT(*),SUM(CASE WHEN r.condition_id IS NOT NULL THEN 1 ELSE 0 END)
-                FROM hypothetical_episodes e LEFT JOIN resolution_observations r USING(condition_id)
-                GROUP BY e.threshold ORDER BY e.threshold"""
-            )}
+            result["arms"] = {
+                str(row[0]): {"episodes": row[1], "resolved": row[2]}
+                for row in c.execute(
+                    """
+                    SELECT e.threshold,COUNT(*),
+                           SUM(CASE WHEN r.condition_id IS NOT NULL
+                                          OR v.condition_id IS NOT NULL
+                                    THEN 1 ELSE 0 END)
+                    FROM hypothetical_episodes e
+                    LEFT JOIN resolution_observations r USING(condition_id)
+                    LEFT JOIN (
+                        SELECT DISTINCT condition_id FROM resolution_attempts
+                        WHERE status='RESOLVED_VOID'
+                    ) v USING(condition_id)
+                    GROUP BY e.threshold ORDER BY e.threshold
+                    """
+                )
+            }
             result["stop_policies"] = {
                 str(row[0]): {
                     "policies": row[1], "triggered": row[2], "completed": row[3],

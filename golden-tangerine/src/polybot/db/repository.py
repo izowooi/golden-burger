@@ -23,6 +23,8 @@ from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .models import (
+    CycleRuntimeEvent,
+    EntryCandidateEvent,
     EntryEpisode,
     MarketCatalog,
     MarketSnapshot,
@@ -41,6 +43,42 @@ _OPEN_STATUSES = (
     TradeStatus.PENDING_BUY,
     TradeStatus.HOLDING,
     TradeStatus.PENDING_SELL,
+    TradeStatus.QUARANTINED,
+)
+
+_UNTRACKED_BUY_RESERVATION_PREDICATE = """
+    submission.simulation = 0
+    AND UPPER(submission.side) = 'BUY'
+    AND NOT EXISTS (
+        SELECT 1 FROM trades AS linked_trade
+        WHERE linked_trade.buy_order_id = submission.order_id
+          AND submission.order_id IS NOT NULL
+    )
+    AND NOT (
+        submission.outcome_resolution = 'NO_ORDER_CREATED'
+        AND submission.order_id IS NULL
+        AND submission.outcome_resolved_at IS NOT NULL
+        AND NULLIF(TRIM(submission.outcome_resolution_reason), '') IS NOT NULL
+    )
+    AND NOT (
+        submission.order_id IS NULL AND submission.success = 0
+        AND submission.needs_reconciliation = 0
+        AND UPPER(COALESCE(submission.response_status, '')) = 'FAILED'
+    )
+    AND NOT (
+        submission.order_id IS NOT NULL
+        AND submission.needs_reconciliation = 0
+        AND REPLACE(UPPER(COALESCE(submission.latest_order_status, '')),
+                    'ORDER_STATUS_', '') IN
+            ('CANCELED', 'CANCELLED', 'CANCELED_MARKET_RESOLVED', 'INVALID')
+        AND COALESCE(submission.latest_size_matched, 0) = 0
+    )
+"""
+
+_EPISODE_RESERVATION_STATES = (
+    "SUBMISSION_IN_PROGRESS",
+    "POST_OUTCOME_UNKNOWN",
+    "POST_EVIDENCE_WRITE_FAILED",
 )
 
 _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
@@ -208,6 +246,8 @@ class TradeRepository:
         selected_payout: float,
         evidence_sha256: str,
         evidence_json: str,
+        settlement_kind: str = "ONE_HOT",
+        source: str = "CLOB_MARKET",
     ) -> ResolutionObservation:
         """Stage one deterministic append-only CLOB settlement observation.
 
@@ -219,13 +259,19 @@ class TradeRepository:
             raise ValueError(f"Trade {trade_id} not found")
         if str(trade.condition_id) != str(condition_id):
             raise ValueError("resolution condition does not match the trade")
-        if (
-            isinstance(winner_index, bool)
-            or winner_index not in (0, 1)
-            or isinstance(selected_payout, bool)
-            or selected_payout not in (0.0, 1.0)
-        ):
+        normalized_kind = str(settlement_kind or "").strip().upper()
+        if normalized_kind not in {"ONE_HOT", "VOID"}:
+            raise ValueError("resolution settlement kind is invalid")
+        if isinstance(winner_index, bool) or isinstance(selected_payout, bool):
             raise ValueError("resolution winner/payout is outside the binary domain")
+        if normalized_kind == "ONE_HOT" and (
+            winner_index not in (0, 1) or selected_payout not in (0.0, 1.0)
+        ):
+            raise ValueError("one-hot resolution winner/payout is invalid")
+        if normalized_kind == "VOID" and (
+            winner_index != -1 or selected_payout != 0.5
+        ):
+            raise ValueError("void resolution must use sentinel winner and 0.5 payout")
         normalized_hash = str(evidence_sha256 or "").strip().lower()
         if len(normalized_hash) != 64 or any(
             character not in "0123456789abcdef" for character in normalized_hash
@@ -246,29 +292,43 @@ class TradeRepository:
             raise ValueError("resolution evidence tokens must be objects")
         if len({str(token.get("token_id") or "") for token in tokens}) != 2:
             raise ValueError("resolution evidence token IDs must be distinct")
+        if len({str(token.get("outcome") or "") for token in tokens}) != 2:
+            raise ValueError("resolution evidence outcomes must be distinct")
         try:
             prices = [float(token.get("price")) for token in tokens]
         except (TypeError, ValueError) as error:
             raise ValueError("resolution evidence token payouts are invalid") from error
+        expected_prices = {0.0, 1.0} if normalized_kind == "ONE_HOT" else {0.5}
         if any(
             isinstance(token.get("price"), bool)
             or not math.isfinite(price)
-            or price not in (0.0, 1.0)
+            or price not in expected_prices
             for token, price in zip(tokens, prices)
         ):
-            raise ValueError("resolution evidence token payouts are not exact 0/1")
+            raise ValueError("resolution evidence token payouts are invalid")
+        if normalized_kind == "ONE_HOT" and sorted(prices) != [0.0, 1.0]:
+            raise ValueError("one-hot resolution must contain exact [0,1] payouts")
+        if normalized_kind == "VOID" and (
+            prices != [0.5, 0.5]
+            or str(winner_token_id or "")
+            or str(winner_outcome or "") != "VOID"
+        ):
+            raise ValueError("void resolution winner sentinel is inconsistent")
         winners = [
             index for index, token in enumerate(tokens) if token.get("winner") is True
         ]
-        if winners != [winner_index]:
-            raise ValueError("resolution evidence must contain one aligned winner")
-        winner = tokens[winner_index]
-        if (
-            str(winner.get("token_id") or "") != str(winner_token_id)
-            or str(winner.get("outcome") or "") != str(winner_outcome)
-            or prices[winner_index] != 1.0
-        ):
-            raise ValueError("resolution winner does not match normalized evidence")
+        if normalized_kind == "ONE_HOT":
+            if winners != [winner_index]:
+                raise ValueError("resolution evidence must contain one aligned winner")
+            winner = tokens[winner_index]
+            if (
+                str(winner.get("token_id") or "") != str(winner_token_id)
+                or str(winner.get("outcome") or "") != str(winner_outcome)
+                or prices[winner_index] != 1.0
+            ):
+                raise ValueError("resolution winner does not match normalized evidence")
+        elif winners:
+            raise ValueError("void resolution cannot contain a winner flag")
         selected = [
             token
             for token in tokens
@@ -282,7 +342,7 @@ class TradeRepository:
         ):
             raise ValueError("selected payout does not match normalized evidence")
         identity = hashlib.sha256(
-            f"clob:{trade_id}:{condition_id}:{normalized_hash}".encode()
+            f"{source}:{trade_id}:{condition_id}:{normalized_hash}".encode()
         ).hexdigest()
         existing = self.session.get(ResolutionObservation, identity)
         if existing is not None:
@@ -293,7 +353,8 @@ class TradeRepository:
             trade_id=trade_id,
             condition_id=str(condition_id),
             observed_at=observed_at,
-            source="CLOB_MARKET",
+            source=str(source),
+            settlement_kind=normalized_kind,
             winner_index=winner_index,
             winner_token_id=str(winner_token_id),
             winner_outcome=str(winner_outcome),
@@ -306,6 +367,72 @@ class TradeRepository:
         self.session.add(observation)
         self.session.flush()
         return observation
+
+    def stage_gamma_resolution_observation(
+        self,
+        *,
+        trade_id: int,
+        condition_id: str,
+        observed_at: datetime,
+        market: Dict[str, Any],
+        selected_token_id: str,
+        selected_outcome: str,
+        settlement_kind: str,
+        winner_index: int,
+    ) -> ResolutionObservation:
+        def array(name: str) -> list:
+            value = market.get(name) or []
+            if isinstance(value, str):
+                try:
+                    value = json.loads(value)
+                except json.JSONDecodeError as error:
+                    raise ValueError(f"Gamma resolution {name} is invalid JSON") from error
+            return value if isinstance(value, list) else []
+
+        outcomes = array("outcomes")
+        prices = array("outcomePrices")
+        tokens = array("clobTokenIds")
+        if not all(isinstance(value, list) and len(value) == 2 for value in (outcomes, prices, tokens)):
+            raise ValueError("Gamma resolution identity arrays must be aligned pairs")
+        normalized_tokens = []
+        for index, (outcome, price, token_id) in enumerate(zip(outcomes, prices, tokens)):
+            normalized_tokens.append(
+                {
+                    "outcome": str(outcome).strip(),
+                    "price": float(price),
+                    "token_id": str(token_id).strip(),
+                    "winner": bool(settlement_kind == "ONE_HOT" and index == winner_index),
+                }
+            )
+        evidence_json = json.dumps(
+            {"closed": True, "tokens": normalized_tokens},
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        selected = next(
+            token for token in normalized_tokens if token["token_id"] == str(selected_token_id)
+        )
+        winner = (
+            normalized_tokens[winner_index]
+            if settlement_kind == "ONE_HOT"
+            else {"token_id": "", "outcome": "VOID"}
+        )
+        return self.stage_clob_resolution_observation(
+            trade_id=trade_id,
+            condition_id=condition_id,
+            observed_at=observed_at,
+            winner_index=winner_index,
+            winner_token_id=winner["token_id"],
+            winner_outcome=winner["outcome"],
+            selected_token_id=selected_token_id,
+            selected_outcome=selected_outcome,
+            selected_payout=float(selected["price"]),
+            evidence_sha256=hashlib.sha256(evidence_json.encode()).hexdigest(),
+            evidence_json=evidence_json,
+            settlement_kind=settlement_kind,
+            source="GAMMA_MARKET",
+        )
 
     def get_holding_trades(self) -> List[Trade]:
         return (
@@ -346,10 +473,147 @@ class TradeRepository:
             or 0
         )
 
+    def get_untracked_buy_submissions(self) -> List[Dict[str, Any]]:
+        """Return live BUY intents/orders not represented by a Trade row."""
+        try:
+            tables = set(inspect(self.session.get_bind()).get_table_names())
+        except Exception:
+            return []
+        if "order_submissions" not in tables:
+            return []
+        rows = self.session.execute(
+            text(
+                """
+                SELECT submission.submission_id, submission.order_id,
+                       submission.token_id, submission.requested_price,
+                       submission.requested_size, submission.making_amount,
+                       submission.submitted_at, submission.response_status,
+                       submission.latest_order_status,
+                       submission.latest_size_matched,
+                       submission.needs_reconciliation
+                FROM order_submissions AS submission WHERE
+                """
+                + _UNTRACKED_BUY_RESERVATION_PREDICATE
+                + " ORDER BY submission.submitted_at, submission.submission_id"
+            )
+        ).mappings()
+        return [dict(row) for row in rows]
+
+    @staticmethod
+    def _reservation_notional(row: Dict[str, Any], fallback: float) -> float:
+        candidates = [row.get("making_amount")]
+        try:
+            candidates.append(
+                float(row["requested_price"]) * float(row["requested_size"])
+            )
+        except (KeyError, TypeError, ValueError):
+            candidates.append(None)
+        for candidate in candidates:
+            try:
+                value = float(candidate)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(value) and value > 0:
+                return value
+        return float(fallback)
+
+    def get_entry_capacity_state(self, *, base_notional_usdc: float) -> Dict[str, Any]:
+        """Conservatively count trades, orphan submissions, and crash windows."""
+        open_trades = (
+            self.session.query(Trade)
+            .filter(Trade.status.in_(_OPEN_STATUSES))
+            .all()
+        )
+        open_notional = sum(
+            float(trade.buy_amount)
+            if trade.buy_amount is not None
+            and math.isfinite(float(trade.buy_amount))
+            and float(trade.buy_amount) > 0
+            else float(base_notional_usdc)
+            for trade in open_trades
+        )
+        untracked = self.get_untracked_buy_submissions()
+        untracked_tokens = {str(row.get("token_id") or "") for row in untracked}
+        open_trade_tokens = {str(trade.token_id or "") for trade in open_trades}
+        episode_rows = (
+            self.session.query(EntryEpisode)
+            .filter(
+                EntryEpisode.trade_id.is_(None),
+                EntryEpisode.execution_state.in_(_EPISODE_RESERVATION_STATES),
+            )
+            .all()
+        )
+        # A submission and its pre-POST episode describe one uncertain unit.
+        episode_only = [
+            row
+            for row in episode_rows
+            if row.token_id not in untracked_tokens
+            and row.token_id not in open_trade_tokens
+        ]
+        untracked_notional = sum(
+            self._reservation_notional(row, base_notional_usdc) for row in untracked
+        )
+        episode_notional = len(episode_only) * float(base_notional_usdc)
+        return {
+            "open_positions": len(open_trades),
+            "open_notional_usdc": open_notional,
+            "untracked_buy_reservations": len(untracked),
+            "untracked_buy_notional_usdc": untracked_notional,
+            "prepost_crash_reservations": len(episode_only),
+            "prepost_crash_notional_usdc": episode_notional,
+            "total_reserved": len(open_trades) + len(untracked) + len(episode_only),
+            "total_notional_usdc": open_notional + untracked_notional + episode_notional,
+            "ledger_available": "order_submissions"
+            in set(inspect(self.session.get_bind()).get_table_names()),
+        }
+
+    def get_exact_economic_loss_state(self) -> Dict[str, Any]:
+        """Return net exact settlement loss, failing closed on any evidence gap."""
+        rows = (
+            self.session.query(Trade)
+            .filter(Trade.status == TradeStatus.RESOLVED)
+            .all()
+        )
+        gaps: List[int] = []
+        pnl = 0.0
+        for trade in rows:
+            values = (
+                trade.resolution_confirmed_buy_size,
+                trade.resolution_confirmed_buy_vwap,
+                trade.resolution_confirmed_buy_fee_usdc,
+                trade.settlement_pnl_assumption,
+            )
+            try:
+                values_valid = all(
+                    value is not None and math.isfinite(float(value))
+                    for value in values
+                )
+            except (TypeError, ValueError):
+                values_valid = False
+            if (
+                trade.mode != "live"
+                or trade.resolution_value not in (0.0, 0.5, 1.0)
+                or not trade.resolution_status
+                or trade.settlement_assumption_basis
+                != "confirmed_buy_fill_net_known_buy_fee"
+                or not trade.resolution_evidence
+                or not values_valid
+            ):
+                gaps.append(trade.id)
+                continue
+            pnl += float(trade.settlement_pnl_assumption)
+        return {
+            "evidence_complete": not gaps,
+            "evidence_gap_trade_ids": gaps,
+            "resolved_count": len(rows),
+            "cumulative_exact_net_pnl_usdc": pnl,
+            "cumulative_exact_loss_usdc": max(0.0, -pnl),
+        }
+
     def get_event_position_count(self, event_id: Optional[str]) -> int:
         if not event_id:
             return 0
-        return (
+        open_count = (
             self.session.query(func.count(Trade.id))
             .filter(
                 Trade.event_id == event_id,
@@ -358,6 +622,48 @@ class TradeRepository:
             .scalar()
             or 0
         )
+        untracked_tokens = {
+            str(row.get("token_id") or "") for row in self.get_untracked_buy_submissions()
+        }
+        all_episode_tokens = {
+            row[0]
+            for row in self.session.query(EntryEpisode.token_id)
+            .filter(EntryEpisode.trade_id.is_(None))
+            .all()
+        }
+        event_episode_tokens = {
+            row[0]
+            for row in self.session.query(EntryEpisode.token_id)
+            .filter(
+                EntryEpisode.event_id == str(event_id),
+                EntryEpisode.trade_id.is_(None),
+            )
+            .all()
+        }
+        event_open_tokens = {
+            row[0]
+            for row in self.session.query(Trade.token_id)
+            .filter(
+                Trade.event_id == str(event_id),
+                Trade.status.in_(_OPEN_STATUSES),
+            )
+            .all()
+        }
+        crash_tokens = {
+            row[0]
+            for row in self.session.query(EntryEpisode.token_id)
+            .filter(
+                EntryEpisode.event_id == str(event_id),
+                EntryEpisode.trade_id.is_(None),
+                EntryEpisode.execution_state.in_(_EPISODE_RESERVATION_STATES),
+            )
+            .all()
+        }.difference(event_open_tokens)
+        matched_orphan_tokens = event_episode_tokens.intersection(untracked_tokens)
+        unknown_event_orphans = untracked_tokens.difference(all_episode_tokens)
+        reserved_tokens = matched_orphan_tokens.union(crash_tokens)
+        # An orphan with no event identity reserves every event fail-closed.
+        return int(open_count) + len(reserved_tokens) + len(unknown_event_orphans)
 
     get_open_event_position_count = get_event_position_count
 
@@ -625,12 +931,23 @@ class TradeRepository:
                     and order_status in _TERMINAL_ORDER_STATUSES
                 )
             )
+            strict_tangerine_fok_fill = (
+                str(submission["reconciliation_proof"] or "").strip()
+                == "TANGERINE_FOK_TERMINAL_CONFIRMED_WITHIN_ONE_CENT"
+            )
+            venue_quantized_fok_buy = (
+                normalized_side == "BUY"
+                and order_status == "MATCHED"
+                and abs(
+                    (size_total - requested_size)
+                    * (notional_total / size_total)
+                )
+                <= 0.01 + 1e-12
+            )
             reconciled_full_fill = reconciled_executed_fill and (
-                # MATCHED is the ledger's terminal full-order state.  Its
-                # matched size is venue-quantized and can legitimately be
-                # a few thousandths below the pre-quantization intent.
                 authenticated_full_fill
-                or order_status == "MATCHED"
+                or strict_tangerine_fok_fill
+                or venue_quantized_fok_buy
                 or math.isclose(
                     matched_size, requested_size, rel_tol=1e-9, abs_tol=1e-6
                 )
@@ -768,10 +1085,76 @@ class TradeRepository:
             arm_prob_min=arm_prob_min,
             arm_prob_max=arm_prob_max,
             observed_at=observed_at,
+            execution_state="QUEUED_PROVEN_NO_POST",
+            execution_reason="first_band_candidate_queued",
+            execution_updated_at=datetime.utcnow(),
         )
         self.session.add(episode)
         self.session.flush()
+        self._append_entry_candidate_event(
+            episode,
+            state="QUEUED_PROVEN_NO_POST",
+            reason="first_band_candidate_queued",
+            proven_no_post=True,
+            post_may_have_occurred=False,
+        )
         return episode
+
+    def _append_entry_candidate_event(
+        self,
+        episode: EntryEpisode,
+        *,
+        state: str,
+        reason: str,
+        proven_no_post: bool,
+        post_may_have_occurred: bool,
+        trade_id: Optional[int] = None,
+        order_id: Optional[str] = None,
+    ) -> None:
+        self.session.add(
+            EntryCandidateEvent(
+                episode_id=episode.id,
+                run_id=current_run_id(),
+                state=str(state),
+                reason=str(reason),
+                proven_no_post=int(proven_no_post),
+                post_may_have_occurred=int(post_may_have_occurred),
+                trade_id=trade_id,
+                order_id=str(order_id) if order_id else None,
+            )
+        )
+
+    def mark_entry_episode_execution(
+        self,
+        episode_id: int,
+        *,
+        state: str,
+        reason: str,
+        proven_no_post: bool,
+        post_may_have_occurred: bool,
+        trade_id: Optional[int] = None,
+        order_id: Optional[str] = None,
+    ) -> None:
+        episode = self.session.get(EntryEpisode, int(episode_id))
+        if episode is None:
+            raise ValueError(f"entry episode not found: {episode_id}")
+        episode.execution_state = str(state)
+        episode.execution_reason = str(reason)
+        episode.execution_updated_at = datetime.utcnow()
+        if trade_id is not None:
+            if episode.trade_id not in (None, trade_id):
+                raise ValueError("entry episode is already linked to another trade")
+            episode.trade_id = int(trade_id)
+        self._append_entry_candidate_event(
+            episode,
+            state=state,
+            reason=reason,
+            proven_no_post=proven_no_post,
+            post_may_have_occurred=post_may_have_occurred,
+            trade_id=trade_id,
+            order_id=order_id,
+        )
+        self.session.commit()
 
     def link_entry_episode_trade(self, episode_id: int, trade_id: int) -> None:
         episode = self.session.get(EntryEpisode, episode_id)
@@ -780,6 +1163,30 @@ class TradeRepository:
         if episode.trade_id not in (None, trade_id):
             raise ValueError("entry episode is already linked to another trade")
         episode.trade_id = trade_id
+        self.session.commit()
+
+    def append_cycle_runtime_event(
+        self,
+        *,
+        cycle_id: str,
+        phase: str,
+        status: str,
+        elapsed_seconds: float,
+        detail: Optional[Dict[str, Any]] = None,
+    ) -> None:
+        elapsed = float(elapsed_seconds)
+        if not math.isfinite(elapsed) or elapsed < 0:
+            raise ValueError("cycle elapsed_seconds must be finite and non-negative")
+        self.session.add(
+            CycleRuntimeEvent(
+                cycle_id=str(cycle_id),
+                run_id=current_run_id(),
+                phase=str(phase),
+                status=str(status),
+                elapsed_seconds=elapsed,
+                detail_json=json.dumps(detail or {}, sort_keys=True, default=str),
+            )
+        )
         self.session.commit()
 
     def get_snapshots_since(

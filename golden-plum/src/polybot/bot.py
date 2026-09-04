@@ -175,6 +175,9 @@ class PolymarketBot:
             simulation_mode=self.config.simulation_mode,
         )
         stats = {
+            "execution_mode": (
+                "simulation" if self.config.simulation_mode else "live"
+            ),
             "lifecycle_mode": self.config.trading.lifecycle_mode,
             "snapshots_saved": 0,
             "pending_buys_checked": 0,
@@ -380,6 +383,20 @@ class PolymarketBot:
                 capacity = repo.get_entry_capacity_state()
                 quarantine_state = repo.get_quarantine_state()
                 open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
+                simulation_open_buy_evidence_gaps = 0
+                blocking_open_buy_evidence_gaps = open_buy_evidence_gaps
+                if self.config.simulation_mode:
+                    simulation_open_buy_evidence_gaps = (
+                        repo.get_open_buy_evidence_gap_count(mode="sim")
+                    )
+                    blocking_open_buy_evidence_gaps = max(
+                        0,
+                        open_buy_evidence_gaps
+                        - simulation_open_buy_evidence_gaps,
+                    )
+                execution_mode = (
+                    "simulation" if self.config.simulation_mode else "live"
+                )
                 blocking_reasons = []
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
@@ -400,8 +417,12 @@ class PolymarketBot:
                     blocking_reasons.append("max_capacity_reserved")
                 if capacity["untracked_buy_reservations"]:
                     degraded_reasons.append("untracked_buy_exposure_isolated")
-                if open_buy_evidence_gaps:
+                if blocking_open_buy_evidence_gaps:
                     blocking_reasons.append("open_buy_fill_or_fee_evidence_gap")
+                if simulation_open_buy_evidence_gaps:
+                    degraded_reasons.append(
+                        "simulation_venue_buy_fill_evidence_not_applicable"
+                    )
                 if int(order_reconciliation.get("unresolved_buy_outcomes", 0)):
                     degraded_reasons.append("unresolved_buy_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_buy_gaps", 0)):
@@ -442,6 +463,7 @@ class PolymarketBot:
                 if stats["universe_health"]["metadata_drift_suspected"]:
                     blocking_reasons.append("league_identity_metadata_drift")
                 entry_guard = {
+                    "execution_mode": execution_mode,
                     "blocked": bool(blocking_reasons),
                     "blocking_reasons": blocking_reasons,
                     "degraded_reasons": degraded_reasons,
@@ -451,6 +473,25 @@ class PolymarketBot:
                     ],
                     "total_reserved": capacity["total_reserved"],
                     "open_buy_evidence_gaps": open_buy_evidence_gaps,
+                    "blocking_open_buy_evidence_gaps": (
+                        blocking_open_buy_evidence_gaps
+                    ),
+                    "simulation_open_buy_evidence_gaps": (
+                        simulation_open_buy_evidence_gaps
+                    ),
+                    "open_buy_evidence_policy": (
+                        "simulation_rows_exempt_non_simulation_rows_fail_closed"
+                        if self.config.simulation_mode
+                        else "venue_confirmed_fill_fail_closed"
+                    ),
+                    "open_buy_evidence_reason": (
+                        "non_simulation_buy_fill_or_fee_evidence_gap"
+                        if self.config.simulation_mode
+                        and blocking_open_buy_evidence_gaps
+                        else "simulation_rows_do_not_require_venue_fill_fields"
+                        if self.config.simulation_mode
+                        else "live_rows_require_confirmed_size_vwap_and_fee"
+                    ),
                     "max_positions": trading.max_positions,
                     "capacity_remaining": max(
                         0, trading.max_positions - capacity["total_reserved"]

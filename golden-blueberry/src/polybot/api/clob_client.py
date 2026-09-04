@@ -7,8 +7,11 @@ Polymarket이 2026년 4월 CLOB v2로 마이그레이션함에 따라 본 모듈
 import json
 import logging
 import math
+import sqlite3
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Iterable, Iterator, Mapping, Optional
 
 from py_clob_client_v2 import BookParams
@@ -195,12 +198,17 @@ class ClobClientWrapper:
         self.simulation_mode = simulation_mode
         self.execution_mode = execution_mode
         self.intent_autoresolve = intent_autoresolve
+        self.audit_db_path = (
+            Path(audit_db_path).expanduser().resolve()
+            if audit_db_path is not None
+            else None
+        )
         self._client = None
         self._initialized = False
         self._midpoint_snapshot: Optional[Dict[str, Optional[float]]] = None
         self.execution_ledger = (
-            ExecutionLedger(audit_db_path, strategy_name=strategy_name)
-            if audit_db_path is not None
+            ExecutionLedger(self.audit_db_path, strategy_name=strategy_name)
+            if self.audit_db_path is not None
             else None
         )
 
@@ -998,6 +1006,174 @@ class ClobClientWrapper:
                 f"완료 {stats['completed']}, legacy gap "
                 f"{stats['legacy_unavailable']}, 오류 {stats['errors']}"
             )
+        return stats
+
+    def expire_stale_gtc_buys(self, minimum_age_minutes: float) -> Dict[str, int]:
+        """Cancel stale resting BUYs; a later reconciliation proves the outcome.
+
+        This method never labels a cancellation as zero fill.  The normal
+        execution-ledger pass must observe terminal order/fill evidence.  The
+        narrow catalog-missing zero-fill proof is used only when the shared
+        ledger has already attested exact order-catalog absence and the full
+        authenticated token trade catalog contains no exact-order trade.
+        """
+        stats = {
+            "eligible": 0,
+            "cancel_requested": 0,
+            "catalog_missing_zero_fill": 0,
+            "catalog_missing_terminal_fill": 0,
+            "errors": 0,
+        }
+        if self.simulation_mode or self.execution_ledger is None:
+            return stats
+        try:
+            ttl = float(minimum_age_minutes)
+        except (TypeError, ValueError) as error:
+            raise ValueError("minimum_age_minutes must be numeric") from error
+        if not math.isfinite(ttl) or ttl < 1:
+            raise ValueError("minimum_age_minutes must be finite and >= 1")
+        assert self.audit_db_path is not None
+        cutoff = datetime.now(timezone.utc) - timedelta(minutes=ttl)
+        with sqlite3.connect(self.audit_db_path, timeout=5) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                """
+                SELECT submission_id, order_id, token_id, submitted_at,
+                       requested_price, requested_size, reconciliation_error
+                FROM order_submissions
+                WHERE simulation = 0 AND success = 1 AND side = 'BUY'
+                  AND needs_reconciliation = 1 AND order_id IS NOT NULL
+                  AND UPPER(COALESCE(latest_order_status, 'LIVE')) = 'LIVE'
+                ORDER BY submitted_at, submission_id
+                """
+            ).fetchall()
+
+        from py_clob_client_v2 import TradeParams
+
+        for row in rows:
+            try:
+                submitted_at = datetime.fromisoformat(
+                    str(row["submitted_at"]).replace("Z", "+00:00")
+                )
+                if submitted_at.tzinfo is None:
+                    submitted_at = submitted_at.replace(tzinfo=timezone.utc)
+                submitted_at = submitted_at.astimezone(timezone.utc)
+            except (TypeError, ValueError):
+                stats["errors"] += 1
+                logger.error(
+                    "GTC BUY TTL timestamp invalid; reservation retained - order=%s",
+                    row["order_id"],
+                )
+                continue
+            if submitted_at > cutoff:
+                continue
+            stats["eligible"] += 1
+            order_id = str(row["order_id"])
+            token_id = str(row["token_id"])
+            try:
+                raw_cancellation = self.client.cancel_orders([order_id])
+                cancellation = normalize_clob_response(
+                    raw_cancellation, response_type="cancellation"
+                )
+                stats["cancel_requested"] += 1
+
+                if str(row["reconciliation_error"] or "").startswith(
+                    "phase=match_authoritative_order_catalogs "
+                    "error=ClobResponseUnavailableError"
+                ):
+                    raw_trades = self.client.get_trades(
+                        TradeParams(asset_id=token_id), only_first_page=False
+                    )
+                    trades = normalize_clob_response_list(
+                        raw_trades, response_type="trade"
+                    )
+                    exact_trade_ids = _exact_order_trade_ids(trades, order_id)
+                    if not exact_trade_ids:
+                        self.execution_ledger.record_expired_gtc_zero_fill(
+                            order_id=order_id,
+                            token_id=token_id,
+                            cancellation=cancellation,
+                            authenticated_trades=trades,
+                            minimum_age_minutes=ttl,
+                        )
+                        stats["catalog_missing_zero_fill"] += 1
+                    else:
+                        exact_trades = [
+                            trade
+                            for trade in trades
+                            if _trade_references_exact_order(trade, order_id)
+                        ]
+                        if not exact_trades or any(
+                            str(trade.get("status") or "")
+                            .upper()
+                            .removeprefix("TRADE_STATUS_")
+                            != "CONFIRMED"
+                            for trade in exact_trades
+                        ):
+                            raise SubmissionEvidenceError(
+                                "expired GTC exact trades are not all terminal CONFIRMED"
+                            )
+                        for trade in exact_trades:
+                            self.execution_ledger.record_fill(
+                                str(row["submission_id"]), order_id, trade
+                            )
+                        with sqlite3.connect(
+                            self.audit_db_path, timeout=5
+                        ) as connection:
+                            confirmed_size = connection.execute(
+                                """
+                                SELECT SUM(size) FROM order_fills
+                                WHERE submission_id = ? AND order_id = ?
+                                  AND UPPER(status) = 'CONFIRMED'
+                                  AND domain_error IS NULL
+                                """,
+                                (str(row["submission_id"]), order_id),
+                            ).fetchone()[0]
+                        if confirmed_size is None or float(confirmed_size) <= 0:
+                            raise SubmissionEvidenceError(
+                                "expired GTC terminal fill size is unavailable"
+                            )
+                        self.execution_ledger.record_order_status(
+                            str(row["submission_id"]),
+                            {
+                                "id": order_id,
+                                "status": "CANCELED",
+                                "original_size": row["requested_size"],
+                                "size_matched": float(confirmed_size),
+                                "price": row["requested_price"],
+                                "associate_trades": exact_trade_ids,
+                            },
+                        )
+                        if not self.execution_ledger.finish_reconciliation(
+                            str(row["submission_id"])
+                        ):
+                            raise SubmissionEvidenceError(
+                                "expired GTC terminal fill did not reconcile exactly"
+                            )
+                        with sqlite3.connect(
+                            self.audit_db_path, timeout=5
+                        ) as connection:
+                            connection.execute(
+                                """
+                                UPDATE order_submissions
+                                SET reconciliation_proof =
+                                    'EXACT_GTC_CANCEL_ACK_TERMINAL_FILL'
+                                WHERE submission_id = ?
+                                  AND needs_reconciliation = 0
+                                """,
+                                (str(row["submission_id"]),),
+                            )
+                        stats["catalog_missing_terminal_fill"] += 1
+            except Exception as error:  # noqa: BLE001 - retain reservation
+                stats["errors"] += 1
+                logger.warning(
+                    "stale GTC BUY TTL 처리 실패; reservation retained - "
+                    "order=%s error=%s",
+                    order_id,
+                    type(error).__name__,
+                )
+        if stats["eligible"]:
+            logger.info("stale GTC BUY TTL - %s", stats)
         return stats
 
     @rate_limit_handler(max_retries=3)

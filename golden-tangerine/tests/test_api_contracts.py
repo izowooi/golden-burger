@@ -148,6 +148,26 @@ def test_gamma_rejects_nonadvancing_or_unbounded_cursor() -> None:
     assert client.last_sweep_attestation is None
 
 
+def test_gamma_resolution_lookup_falls_back_to_closed_and_validates_identity() -> None:
+    resolved = _market("resolved")
+    resolved.update({"closed": True, "active": False, "outcomePrices": [0, 1]})
+    session = _Session([[], [resolved]])
+    client = GammaClient()
+    client.session = session
+
+    market = client.get_market_by_condition_id("resolved")
+
+    assert market["conditionId"] == "resolved"
+    assert session.calls[0][1]["closed"] == "false"
+    assert session.calls[1][1]["closed"] == "true"
+    assert session.calls[1][1]["limit"] == 2
+
+    mismatch = GammaClient()
+    mismatch.session = _Session([[resolved]])
+    with pytest.raises(ValueError, match="identity mismatch"):
+        mismatch.get_market_by_condition_id("different")
+
+
 def test_exact_five_dollar_walk_uses_all_required_ask_levels() -> None:
     book = {
         "asset_id": "token",
@@ -171,7 +191,7 @@ def test_shallow_book_is_censored_not_imputed() -> None:
         "bids": [{"price": "0.91", "size": "20"}],
         "asks": [{"price": "0.92", "size": "1"}],
     }
-    with pytest.raises(ClobResponseUnavailableError, match=r"full \$5"):
+    with pytest.raises(ClobResponseUnavailableError, match="configured-notional"):
         _walk_buy_book(book, "token", 5.0)
 
 

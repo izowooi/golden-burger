@@ -23,6 +23,7 @@ from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
 from .models import (
+    CandidateExecutionDecision,
     EntrySignalDecision,
     MarketCatalog,
     MarketSnapshot,
@@ -30,6 +31,7 @@ from .models import (
     MarketSweepMembership,
     ShadowObservation,
     ShadowSignal,
+    ShadowSignalClaim,
     SkippedMarket,
     Trade,
     TradeStatus,
@@ -42,6 +44,8 @@ _OPEN_STATUSES = (
     TradeStatus.PENDING_BUY,
     TradeStatus.HOLDING,
     TradeStatus.PENDING_SELL,
+    TradeStatus.QUARANTINED,
+    TradeStatus.RESIDUAL,
 )
 
 _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
@@ -50,6 +54,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "CANCELED_MARKET_RESOLVED",
     "INVALID",
 }
+_TERMINAL_ORDER_STATUSES = _TERMINAL_ZERO_FILL_ORDER_STATUSES | {"MATCHED"}
 
 
 @dataclass(frozen=True)
@@ -68,6 +73,7 @@ class ExactFillEvidence:
     latest_size_matched: Optional[float] = None
     needs_reconciliation: bool = True
     reconciled_full_fill: bool = False
+    reconciled_terminal_fill: bool = False
     confirmed_size: Optional[float] = None
     confirmed_vwap: Optional[float] = None
     confirmed_fee_usdc: Optional[float] = None
@@ -82,6 +88,11 @@ class ExactFillEvidence:
     @property
     def has_reconciled_full_fill(self) -> bool:
         return self.state == "confirmed" and self.reconciled_full_fill
+
+    @property
+    def has_reconciled_terminal_fill(self) -> bool:
+        """Whether terminal order evidence exactly covers its actual fill."""
+        return self.state == "confirmed" and self.reconciled_terminal_fill
 
 
 class TradeRepository:
@@ -182,36 +193,136 @@ class TradeRepository:
             self.session.commit()
         return decision
 
+    def record_candidate_execution_decision(
+        self, *, commit: bool = True, **kwargs
+    ) -> CandidateExecutionDecision:
+        """Persist an idempotent post-signal candidate disposition."""
+        run_id = str(kwargs.get("run_id") or current_run_id() or "unknown")
+        condition_id = str(kwargs.get("condition_id") or "")
+        candidate_rank = int(kwargs.get("candidate_rank") or 0)
+        existing = (
+            self.session.query(CandidateExecutionDecision)
+            .filter(
+                CandidateExecutionDecision.run_id == run_id,
+                CandidateExecutionDecision.condition_id == condition_id,
+                CandidateExecutionDecision.candidate_rank == candidate_rank,
+            )
+            .one_or_none()
+        )
+        if existing is not None:
+            return existing
+        payload = dict(kwargs)
+        payload["run_id"] = run_id
+        payload["candidate_rank"] = candidate_rank
+        record = CandidateExecutionDecision(**payload)
+        self.session.add(record)
+        self.session.flush()
+        if commit:
+            self.session.commit()
+        return record
+
     def get_shadow_signal(
         self,
         condition_id: str,
         min_surge: float,
         horizon_hours: float,
     ) -> Optional[ShadowSignal]:
-        return (
+        matches = (
             self.session.query(ShadowSignal)
             .filter(
                 ShadowSignal.condition_id == condition_id,
                 ShadowSignal.min_surge == float(min_surge),
                 ShadowSignal.horizon_hours == float(horizon_hours),
             )
-            .one_or_none()
+            .order_by(ShadowSignal.id.asc())
+            .limit(2)
+            .all()
         )
+        if len(matches) > 1:
+            raise RuntimeError(
+                "legacy duplicate shadow signal evidence; analysis must fail closed"
+            )
+        return matches[0] if matches else None
+
+    def _shadow_cohort_identity(self, run_id: str) -> dict[str, str]:
+        row = self.session.execute(
+            text(
+                """
+                SELECT run.config_hash, run.mode, run.job_name, config.config_json
+                FROM run_audits AS run
+                JOIN strategy_configs AS config
+                  ON config.config_hash = run.config_hash
+                WHERE run.run_id = :run_id
+                  AND run.strategy_name = 'golden-blueberry'
+                """
+            ),
+            {"run_id": run_id},
+        ).mappings().one_or_none()
+        if row is None:
+            raise RuntimeError("shadow signal requires an attested run cohort")
+        try:
+            payload = json.loads(row["config_json"])
+            source_digest = str(
+                (payload.get("trading") or {}).get("strategy_source_digest") or ""
+            )
+        except (TypeError, ValueError, json.JSONDecodeError) as error:
+            raise RuntimeError("shadow run config evidence is invalid") from error
+        identity = {
+            "config_hash": str(row["config_hash"] or ""),
+            "strategy_source_digest": source_digest,
+            "mode": str(row["mode"] or ""),
+            "job_name": str(row["job_name"] or ""),
+        }
+        if (
+            len(identity["config_hash"]) != 64
+            or len(identity["strategy_source_digest"]) != 64
+            or identity["mode"] != "sim"
+            or not identity["job_name"]
+        ):
+            raise RuntimeError("shadow run cohort identity is incomplete")
+        return identity
 
     def record_shadow_signal(
         self, *, commit: bool = True, **kwargs
     ) -> tuple[ShadowSignal, bool]:
         """Persist one fixed-grid Shadow treatment row idempotently."""
-        existing = self.get_shadow_signal(
-            str(kwargs.get("condition_id") or ""),
-            float(kwargs.get("min_surge")),
-            float(kwargs.get("horizon_hours")),
+        run_id = str(kwargs.get("run_id") or "")
+        identity = self._shadow_cohort_identity(run_id)
+        condition_id = str(kwargs.get("condition_id") or "")
+        min_surge = float(kwargs.get("min_surge"))
+        horizon_hours = float(kwargs.get("horizon_hours"))
+        claim = (
+            self.session.query(ShadowSignalClaim)
+            .filter_by(
+                **identity,
+                condition_id=condition_id,
+                min_surge=min_surge,
+                horizon_hours=horizon_hours,
+            )
+            .one_or_none()
         )
-        if existing is not None:
+        if claim is not None:
+            if claim.signal_id is None:
+                raise RuntimeError("shadow uniqueness claim has no signal evidence")
+            existing = self.session.get(ShadowSignal, claim.signal_id)
+            if existing is None:
+                raise RuntimeError("shadow uniqueness claim references missing signal")
             return existing, False
-        signal = ShadowSignal(**kwargs)
+        claim = ShadowSignalClaim(
+            **identity,
+            condition_id=condition_id,
+            min_surge=min_surge,
+            horizon_hours=horizon_hours,
+            run_id=run_id,
+        )
+        self.session.add(claim)
+        self.session.flush()
+        payload = dict(kwargs)
+        payload.update(identity)
+        signal = ShadowSignal(**payload)
         self.session.add(signal)
         self.session.flush()
+        claim.signal_id = signal.id
         if commit:
             self.session.commit()
         return signal, True
@@ -303,12 +414,71 @@ class TradeRepository:
         return self.session.query(Trade).all()
 
     def get_position_count(self) -> int:
-        return (
+        strategy_positions = (
             self.session.query(func.count(Trade.id))
             .filter(Trade.status.in_(_OPEN_STATUSES))
             .scalar()
             or 0
         )
+        reservations, _ = self.get_untracked_buy_capacity_reservations()
+        return int(strategy_positions) + reservations
+
+    def get_untracked_buy_capacity_reservations(self) -> tuple[int, float]:
+        """Count durable live BUY intents not represented by a strategy trade.
+
+        This covers unknown POST outcomes and the crash window after the ledger
+        records an accepted order but before ``trades`` is inserted.  Proven
+        failures and reconciled terminal zero-fills release their reservation;
+        malformed notionals fail closed with infinity.
+        """
+        try:
+            tables = set(inspect(self.session.get_bind()).get_table_names())
+        except Exception:
+            return 0, 0.0
+        if "order_submissions" not in tables:
+            return 0, 0.0
+        rows = self.session.execute(
+            text(
+                """
+                SELECT submission.requested_price, submission.requested_size
+                FROM order_submissions AS submission
+                WHERE submission.simulation = 0
+                  AND UPPER(submission.side) = 'BUY'
+                  AND NOT EXISTS (
+                      SELECT 1 FROM trades AS trade
+                      WHERE submission.order_id IS NOT NULL
+                        AND trade.buy_order_id = submission.order_id
+                  )
+                  AND (
+                      UPPER(submission.response_status) IN (
+                          'INTENT', 'SUBMIT_OUTCOME_UNKNOWN',
+                          'EVIDENCE_WRITE_FAILED'
+                      )
+                      OR submission.success = 1
+                  )
+                  AND NOT (
+                      submission.needs_reconciliation = 0
+                      AND COALESCE(submission.latest_size_matched, -1) = 0
+                      AND UPPER(COALESCE(submission.latest_order_status, '')) IN (
+                          'CANCELED', 'CANCELLED',
+                          'CANCELED_MARKET_RESOLVED', 'INVALID'
+                      )
+                  )
+                  AND COALESCE(submission.outcome_resolution, '')
+                      NOT IN ('NO_ORDER_CREATED')
+                """
+            )
+        ).all()
+        notional = 0.0
+        for requested_price, requested_size in rows:
+            try:
+                value = float(requested_price) * float(requested_size)
+            except (TypeError, ValueError):
+                return len(rows), float("inf")
+            if not math.isfinite(value) or value <= 0:
+                return len(rows), float("inf")
+            notional += value
+        return len(rows), notional
 
     def get_open_notional_usdc(self) -> float:
         """Return requested BUY notional for currently open strategy records."""
@@ -321,7 +491,11 @@ class TradeRepository:
             result = float(value or 0.0)
         except (TypeError, ValueError):
             return float("inf")
-        return result if math.isfinite(result) and result >= 0 else float("inf")
+        if not math.isfinite(result) or result < 0:
+            return float("inf")
+        _, reserved = self.get_untracked_buy_capacity_reservations()
+        total = result + reserved
+        return total if math.isfinite(total) and total >= 0 else float("inf")
 
     def get_event_position_count(self, event_id: Optional[str]) -> int:
         if not event_id:
@@ -610,6 +784,16 @@ class TradeRepository:
                     )
                 )
             )
+            reconciled_terminal_fill = (
+                not needs_reconciliation
+                and order_status in _TERMINAL_ORDER_STATUSES
+                and matched_size is not None
+                and math.isfinite(matched_size)
+                and matched_size > 0
+                and math.isclose(
+                    size_total, matched_size, rel_tol=1e-9, abs_tol=1e-6
+                )
+            )
             return ExactFillEvidence(
                 "confirmed",
                 normalized_order_id,
@@ -619,6 +803,7 @@ class TradeRepository:
                 latest_size_matched=matched_size,
                 needs_reconciliation=needs_reconciliation,
                 reconciled_full_fill=reconciled_full_fill,
+                reconciled_terminal_fill=reconciled_terminal_fill,
                 confirmed_size=size_total,
                 confirmed_vwap=notional_total / size_total,
                 confirmed_fee_usdc=fee_total if fee_complete else None,
@@ -1145,6 +1330,38 @@ class TradeRepository:
             .scalar()
             or 0.0
         )
+        shadow_missing_cohort = (
+            self.session.query(func.count(ShadowSignal.id))
+            .filter(
+                or_(
+                    ShadowSignal.config_hash.is_(None),
+                    ShadowSignal.config_hash == "",
+                    ShadowSignal.strategy_source_digest.is_(None),
+                    ShadowSignal.strategy_source_digest == "",
+                    ShadowSignal.mode.is_(None),
+                    ShadowSignal.mode == "",
+                    ShadowSignal.job_name.is_(None),
+                    ShadowSignal.job_name == "",
+                )
+            )
+            .scalar()
+            or 0
+        )
+        shadow_duplicate_groups = len(
+            self.session.execute(
+                text(
+                    """
+                    SELECT 1 FROM shadow_signals
+                    GROUP BY config_hash, strategy_source_digest, mode, job_name,
+                             condition_id, min_surge, horizon_hours
+                    HAVING COUNT(*) > 1
+                    """
+                )
+            ).all()
+        )
+        shadow_evidence_valid = not (
+            shadow_missing_cohort or shadow_duplicate_groups
+        )
 
         def shadow_count(
             *, status: Optional[str] = None, classification: Optional[str] = None
@@ -1165,9 +1382,17 @@ class TradeRepository:
             "resolved": count(TradeStatus.RESOLVED),
             "unfilled": count(TradeStatus.UNFILLED),
             "quarantined": count(TradeStatus.QUARANTINED),
+            "residual": count(TradeStatus.RESIDUAL),
             "skipped": self.session.query(func.count(SkippedMarket.id)).scalar() or 0,
             "entry_signal_decisions": (
                 self.session.query(func.count(EntrySignalDecision.id)).scalar() or 0
+            ),
+            "candidate_execution_decisions": (
+                self.session.query(func.count(CandidateExecutionDecision.id)).scalar()
+                or 0
+            ),
+            "untracked_buy_reservations": (
+                self.get_untracked_buy_capacity_reservations()[0]
             ),
             "shadow_signals": shadow_count(),
             "shadow_open": shadow_count(status="OPEN"),
@@ -1179,8 +1404,17 @@ class TradeRepository:
             ),
             "shadow_missed_profit": shadow_count(classification="MISSED_PROFIT"),
             "shadow_avoided_loss": shadow_count(classification="AVOIDED_LOSS"),
-            "shadow_entered_gross_pnl": round(shadow_entered_gross, 4),
-            "shadow_counterfactual_gross_pnl": round(shadow_counterfactual_gross, 4),
+            "shadow_evidence_valid": shadow_evidence_valid,
+            "shadow_missing_cohort_rows": shadow_missing_cohort,
+            "shadow_duplicate_treatment_groups": shadow_duplicate_groups,
+            "shadow_entered_gross_pnl": (
+                round(shadow_entered_gross, 4) if shadow_evidence_valid else None
+            ),
+            "shadow_counterfactual_gross_pnl": (
+                round(shadow_counterfactual_gross, 4)
+                if shadow_evidence_valid
+                else None
+            ),
             "total_pnl": round(total_pnl, 4),
             "settlement_pnl_assumption": round(settlement_pnl, 4),
             "economic_pnl": round(total_pnl + settlement_pnl, 4),

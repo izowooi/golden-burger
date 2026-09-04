@@ -161,7 +161,61 @@ def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     assert stats["buy_candidates"] == 1
     assert stats["bought"] == 1
     scanner.scan_buy_candidates.assert_called_once()
-    trader.execute_buy.assert_called_once_with(candidate)
+    trader.execute_buy.assert_called_once_with({**candidate, "candidate_rank": 1})
+    session.close.assert_called_once()
+
+
+def test_active_continues_after_early_candidate_rejection(monkeypatch, tmp_path):
+    bot, scanner, trader, _repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    candidates = [
+        {"condition_id": "first", "event_id": "event-1"},
+        {"condition_id": "second", "event_id": "event-2"},
+    ]
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = candidates
+    trader.execute_buy.side_effect = [None, 2]
+
+    stats = bot.run_cycle()
+
+    assert stats["buy_candidates"] == 2
+    assert stats["bought"] == 1
+    assert [call.args[0]["candidate_rank"] for call in trader.execute_buy.call_args_list] == [
+        1,
+        2,
+    ]
+    session.close.assert_called_once()
+
+
+def test_unknown_post_reserves_cycle_slot_and_defers_later_candidates(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [
+        {"condition_id": "uncertain", "event_id": "event-1", "token_id": "one"},
+        {"condition_id": "later", "event_id": "event-2", "token_id": "two"},
+    ]
+    trader.cycle_uncertain_buy_reservations = 0
+
+    def uncertain_post(_candidate):
+        trader.cycle_uncertain_buy_reservations = 1
+        return None
+
+    trader.execute_buy.side_effect = uncertain_post
+
+    stats = bot.run_cycle()
+
+    assert trader.execute_buy.call_count == 1
+    assert stats["bought"] == 0
+    assert stats["uncertain_buy_reservations"] == 1
+    repo.record_candidate_execution_decision.assert_called_once()
+    deferred = repo.record_candidate_execution_decision.call_args.kwargs
+    assert deferred["condition_id"] == "later"
+    assert deferred["decision"] == "deferred"
     session.close.assert_called_once()
 
 

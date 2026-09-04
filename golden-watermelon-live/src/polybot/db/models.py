@@ -28,9 +28,16 @@ STOP_SELL_QUARANTINE_REASON = (
 STOP_SELL_LEDGER_QUARANTINE_REASON = (
     "stop_sell_execution_ledger_failure_unknown_exposure"
 )
+PENDING_BUY_QUARANTINE_REASON = (
+    "pending_buy_reconciliation_timeout_3h_unknown_exposure"
+)
 STOP_SELL_ISOLATION_REASONS = (
     STOP_SELL_QUARANTINE_REASON,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
+)
+EVENT_LOCAL_QUARANTINE_REASONS = (
+    *STOP_SELL_ISOLATION_REASONS,
+    PENDING_BUY_QUARANTINE_REASON,
 )
 
 
@@ -377,7 +384,7 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
 ) -> sessionmaker:
-    """Create the schema and best-effort upgrade an existing local DB."""
+    """Create the schema and fail closed on an incompatible additive upgrade."""
     prepare_database(
         db_path,
         "golden-watermelon-live",
@@ -386,14 +393,9 @@ def init_database(
     )
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
-    with engine.connect() as connection:
-        for name, sql_type in _TRADE_MIGRATION_COLUMNS.items():
-            try:
-                connection.execute(text(f"ALTER TABLE trades ADD COLUMN {name} {sql_type}"))
-                connection.commit()
-            except Exception:
-                pass
-        for name, sql_type in {
+    with engine.begin() as connection:
+        _ensure_columns(connection, "trades", _TRADE_MIGRATION_COLUMNS)
+        _ensure_columns(connection, "market_snapshots", {
             "token_id": "TEXT",
             "outcome": "TEXT",
             "best_bid": "REAL",
@@ -405,54 +407,26 @@ def init_database(
             "league_code": "TEXT",
             "league_name": "TEXT",
             "market_tags_json": "TEXT",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE market_snapshots ADD COLUMN {name} {sql_type}")
-                )
-                connection.commit()
-            except Exception:
-                pass
-        for name, sql_type in {
+        })
+        _ensure_columns(connection, "entry_episodes", {
             "game_start_time": "DATETIME",
             "in_play_hours": "REAL",
             "execution_state": "TEXT NOT NULL DEFAULT 'OBSERVED'",
             "execution_reason": "TEXT",
             "last_attempted_at": "DATETIME",
-        }.items():
-            try:
-                connection.execute(
-                    text(f"ALTER TABLE entry_episodes ADD COLUMN {name} {sql_type}")
-                )
-                connection.commit()
-            except Exception:
-                pass
-        try:
-            connection.execute(
-                text(
-                    "ALTER TABLE market_sweeps ADD COLUMN "
-                    "membership_detail_stored INTEGER NOT NULL DEFAULT 1"
-                )
-            )
-            connection.commit()
-        except Exception:
-            pass
-        for name, sql_type in {
+        })
+        _ensure_columns(connection, "market_sweeps", {
+            "membership_detail_stored": "INTEGER NOT NULL DEFAULT 1",
+        })
+        _ensure_columns(connection, "market_catalog", {
             "fee_exponent": "INTEGER",
             "fee_taker_only": "INTEGER",
             "sport_family": "TEXT",
             "league_code": "TEXT",
             "league_name": "TEXT",
-        }.items():
-            try:
-                connection.execute(
-                    text(
-                        f"ALTER TABLE market_catalog ADD COLUMN {name} {sql_type}"
-                    )
-                )
-                connection.commit()
-            except Exception:
-                pass
+        })
+        for table_name in Base.metadata.tables:
+            _verify_model_columns(connection, table_name)
         connection.execute(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
@@ -498,5 +472,81 @@ def init_database(
                 "SELECT RAISE(ABORT, 'append-only evidence'); END"
             )
         )
-        connection.commit()
     return sessionmaker(bind=engine)
+
+
+def _table_info(connection, table_name: str) -> dict[str, tuple]:
+    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    if not rows:
+        raise RuntimeError(f"required SQLite table is missing: {table_name}")
+    return {str(row[1]): tuple(row) for row in rows}
+
+
+def _sqlite_affinity(declared_type: str) -> str:
+    normalized = declared_type.upper()
+    if "INT" in normalized:
+        return "INTEGER"
+    if any(marker in normalized for marker in ("CHAR", "CLOB", "TEXT")):
+        return "TEXT"
+    if "BLOB" in normalized or not normalized:
+        return "BLOB"
+    if any(marker in normalized for marker in ("REAL", "FLOA", "DOUB")):
+        return "REAL"
+    return "NUMERIC"
+
+
+def _model_affinity(column) -> str:
+    if isinstance(column.type, Integer):
+        return "INTEGER"
+    if isinstance(column.type, Float):
+        return "REAL"
+    if isinstance(column.type, (String, Enum)):
+        return "TEXT"
+    if isinstance(column.type, DateTime):
+        return "NUMERIC"
+    raise RuntimeError(
+        f"unsupported SQLite model type for {column.table.name}.{column.name}: "
+        f"{column.type!r}"
+    )
+
+
+def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> None:
+    """Inspect first, add only known columns, and verify in one transaction."""
+    existing = set(_table_info(connection, table_name))
+    for name, sql_type in columns.items():
+        if name in existing:
+            continue
+        connection.execute(
+            text(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+        )
+        existing.add(name)
+    missing = set(columns) - set(_table_info(connection, table_name))
+    if missing:
+        raise RuntimeError(
+            f"SQLite migration did not create {table_name} columns: "
+            f"{sorted(missing)}"
+        )
+
+
+def _verify_model_columns(connection, table_name: str) -> None:
+    table_info = _table_info(connection, table_name)
+    model_table = Base.metadata.tables[table_name]
+    missing = {column.name for column in model_table.columns} - set(table_info)
+    if missing:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; missing columns: {sorted(missing)}"
+        )
+    mismatched = []
+    for column in model_table.columns:
+        declared_type = str(table_info[column.name][2])
+        expected = _model_affinity(column)
+        actual = _sqlite_affinity(declared_type)
+        if actual != expected:
+            mismatched.append(
+                f"{column.name}: expected {expected}, found {actual} "
+                f"({declared_type or 'untyped'})"
+            )
+    if mismatched:
+        raise RuntimeError(
+            f"incompatible {table_name} schema; type mismatches: {mismatched}"
+        )

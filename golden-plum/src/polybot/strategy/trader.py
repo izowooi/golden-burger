@@ -1523,11 +1523,15 @@ class Trader:
         proof: ClobResolutionProof,
         fill_evidence: Optional[ExactFillEvidence] = None,
     ) -> bool:
-        if (
-            proof.status != "RESOLVED"
-            or proof.winner_index not in (0, 1)
-            or len(proof.tokens) != 2
-        ):
+        if len(proof.tokens) != 2 or proof.status not in {"RESOLVED", "VOID"}:
+            return False
+        is_void = proof.status == "VOID"
+        if is_void:
+            if proof.winner_index is not None or any(
+                token.winner or token.price != 0.5 for token in proof.tokens
+            ):
+                return False
+        elif proof.winner_index not in (0, 1):
             return False
         selected = next(
             (token for token in proof.tokens if token.token_id == str(trade.token_id)),
@@ -1541,7 +1545,7 @@ class Trader:
                 trade.outcome,
             )
             return False
-        winner = proof.tokens[proof.winner_index]
+        winner = None if is_void else proof.tokens[proof.winner_index]
         observed_at = datetime.fromisoformat(
             proof.observed_at.replace("Z", "+00:00")
         )
@@ -1551,9 +1555,9 @@ class Trader:
             trade_id=trade.id,
             condition_id=trade.condition_id,
             observed_at=observed_at,
-            winner_index=proof.winner_index,
-            winner_token_id=winner.token_id,
-            winner_outcome=winner.outcome,
+            winner_index=None if is_void else proof.winner_index,
+            winner_token_id="__VOID__" if is_void else winner.token_id,
+            winner_outcome="VOID" if is_void else winner.outcome,
             selected_token_id=selected.token_id,
             selected_outcome=selected.outcome,
             selected_payout=selected.price,
@@ -1564,10 +1568,19 @@ class Trader:
             trade,
             payout=selected.price,
             first_outcome_payout=proof.tokens[0].price,
-            winner_outcome=winner.outcome,
-            resolution_status="clob_closed_unique_winner",
+            winner_outcome="VOID" if is_void else winner.outcome,
+            resolution_status=(
+                "clob_closed_void_0_5_0_5"
+                if is_void
+                else "clob_closed_unique_winner"
+            ),
             evidence_source=(
-                "clob_closed_unique_winner_sha256:" + proof.evidence_sha256
+                (
+                    "clob_closed_void_0_5_0_5_sha256:"
+                    if is_void
+                    else "clob_closed_unique_winner_sha256:"
+                )
+                + proof.evidence_sha256
             ),
             observed_at=observed_at,
             source_updated_at=proof.observed_at,
@@ -1642,7 +1655,7 @@ class Trader:
                 type(clob_error).__name__,
             )
             return False
-        if clob_proof.status == "RESOLVED":
+        if clob_proof.status in {"RESOLVED", "VOID"}:
             return self._apply_proven_resolution(
                 trade,
                 lambda fill: self._record_clob_resolution(

@@ -30,6 +30,7 @@ from ..db.models import (
     STOP_SELL_ISOLATION_REASONS,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
     STOP_SELL_QUARANTINE_REASON,
+    PENDING_BUY_QUARANTINE_REASON,
     STRATEGY_NAME,
     TradeStatus,
 )
@@ -1186,6 +1187,44 @@ class Trader:
         )
         return True
 
+    def _quarantine_pending_buy_if_due(
+        self,
+        trade,
+        *,
+        now: Optional[datetime] = None,
+        detail: str,
+    ) -> bool:
+        """Contain stale ambiguous BUY evidence without releasing exposure."""
+        age_minutes = self._pending_buy_age_minutes(trade, now=now)
+        if (
+            age_minutes is None
+            or age_minutes + 1e-9
+            < self.config.pending_buy_quarantine_timeout_minutes
+        ):
+            return False
+        if (
+            getattr(trade, "status", None) == TradeStatus.QUARANTINED
+            and getattr(trade, "exit_reason", None)
+            == PENDING_BUY_QUARANTINE_REASON
+        ):
+            return True
+        self.repo.update_trade(
+            trade.id,
+            status=TradeStatus.QUARANTINED,
+            exit_reason=PENDING_BUY_QUARANTINE_REASON,
+            realized_pnl=None,
+            hypothetical_pnl=None,
+            pnl_basis=None,
+        )
+        logger.critical(
+            "모호한 PENDING BUY 3시간 자동 격리: Trade #%s age=%.1fmin "
+            "detail=%s; 0체결로 간주하지 않고 계정/event capacity를 유지",
+            trade.id,
+            age_minutes,
+            detail,
+        )
+        return True
+
     def _quarantine_stop_sell_ledger_failure(
         self,
         trade,
@@ -1355,6 +1394,12 @@ class Trader:
                         ),
                     )
                 except SubmissionEvidenceError as error:
+                    if self._quarantine_pending_buy_if_due(
+                        trade,
+                        now=now,
+                        detail=f"cancel_evidence_{type(error).__name__}",
+                    ):
+                        return False
                     logger.warning(
                         "만료 BUY 취소 증명 실패로 PENDING_BUY 유지: Trade #%s "
                         "age=%.1fmin error=%s",
@@ -1372,6 +1417,17 @@ class Trader:
                     terminal.get("verified_order_status"),
                     terminal.get("verified_size_matched", 0.0),
                 )
+                self._quarantine_pending_buy_if_due(
+                    trade,
+                    now=now,
+                    detail="terminal_cancel_not_yet_bound_to_exact_ledger",
+                )
+                return False
+            if self._quarantine_pending_buy_if_due(
+                trade,
+                now=now,
+                detail=evidence.detail or evidence.state,
+            ):
                 return False
             logger.info(
                 "BUY terminal fill 대사 대기: Trade #%s state=%s full=%s "

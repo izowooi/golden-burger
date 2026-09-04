@@ -1126,6 +1126,60 @@ def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
     assert clob.orders == []
 
 
+@pytest.mark.parametrize("simulation_mode", [False, True])
+def test_authoritative_gamma_void_settles_aligned_token_without_synthetic_sell(
+    simulation_mode,
+) -> None:
+    repo, clob = _Repo(), _Clob()
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "condition-1",
+            "closed": True,
+            "outcomes": ["Yes", "No"],
+            "outcomePrices": [0.5, 0.5],
+            "clobTokenIds": ["away-yes-token", "away-no-token"],
+            "negRisk": True,
+            "umaResolutionStatus": "resolved",
+        }
+    )
+    shares = 5 / 0.985
+    trade = SimpleNamespace(
+        id=10,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="away-yes-token",
+        outcome="Yes",
+        buy_order_id="SIM_10" if simulation_mode else "buy-1",
+        buy_shares=shares,
+        buy_price=0.985,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=gamma,
+        simulation_mode=simulation_mode,
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_value"] == 0.5
+    assert update["yes_price_at_exit"] == 0.5
+    assert update["resolution_outcome"] == "VOID"
+    assert update["resolution_status"] == "gamma_closed_resolved_void_0_5_0_5"
+    assert "void" in update["resolution_evidence"]
+    expected = (0.5 - 0.985) * shares
+    if not simulation_mode:
+        expected -= 0.01
+    assert update["settlement_pnl_assumption"] == pytest.approx(expected)
+    assert update["sell_price"] is None
+    assert update["sell_shares"] is None
+    assert update["sell_order_id"] is None
+    assert update["realized_pnl"] is None
+    assert clob.orders == []
+
+
 def test_resolution_after_partial_sell_preserves_realized_pnl_and_settles_remainder(
 ) -> None:
     repo, clob = _Repo(), _Clob()
@@ -1314,6 +1368,62 @@ def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:
     observation = repo.resolution_observations[0]
     assert observation["winner_index"] == 0
     assert observation["selected_payout"] == 1
+    assert clob.orders == []
+
+
+def test_clob_void_resolution_fallback_preserves_selected_token_alignment() -> None:
+    repo, clob = _Repo(), _Clob()
+    clob.resolution = _normalize_clob_resolution(
+        "condition-1",
+        {
+            "closed": True,
+            "tokens": [
+                {
+                    "outcome": "Yes",
+                    "price": 0.5,
+                    "token_id": "away-yes-token",
+                    "winner": False,
+                },
+                {
+                    "outcome": "No",
+                    "price": 0.5,
+                    "token_id": "away-no-token",
+                    "winner": False,
+                },
+            ],
+        },
+        observed_at="2026-08-21T11:00:00Z",
+    )
+    gamma = SimpleNamespace(get_market_by_condition_id=lambda _condition: None)
+    trade = SimpleNamespace(
+        id=11,
+        condition_id="condition-1",
+        token_id="away-no-token",
+        outcome="No",
+        buy_order_id="buy-1",
+        buy_shares=5 / 0.985,
+        buy_price=0.985,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=gamma,
+        simulation_mode=False,
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    update = repo.updated[-1][1]
+    assert update["resolution_value"] == 0.5
+    assert update["resolution_outcome"] == "VOID"
+    assert update["resolution_status"] == "clob_closed_void_0_5_0_5"
+    assert update["sell_order_id"] is None
+    observation = repo.resolution_observations[0]
+    assert observation["winner_index"] is None
+    assert observation["winner_token_id"] == "__VOID__"
+    assert observation["selected_token_id"] == "away-no-token"
+    assert observation["selected_outcome"] == "No"
+    assert observation["selected_payout"] == 0.5
     assert clob.orders == []
 
 

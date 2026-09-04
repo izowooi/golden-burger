@@ -7,11 +7,33 @@ import json
 import logging
 import sys
 
+from polybot_observability import RunAudit
+
 from .bot import PolymarketBot
 from .config import load_config
 from .utils.deadline import enforced_cycle_deadline
 from .utils.logger import setup_logger
 from .utils.run_lock import exclusive_job_run_lock
+
+
+class OverlappingCycleSkipped(RuntimeError):
+    """A simulation trigger arrived while the prior cycle held the job lock."""
+
+
+def _record_simulation_failure(config, error: BaseException) -> None:
+    """Best-effort FAILED evidence for incomplete pre-run simulation cycles."""
+    if not config.simulation_mode:
+        return
+    try:
+        audit = RunAudit.start(config, strategy_name="golden-peach")
+        audit.fail(error)
+    except Exception as audit_error:
+        logging.warning(
+            "pre-run simulation failure audit could not be recorded - "
+            "job=%s error=%s",
+            config.job_name,
+            type(audit_error).__name__,
+        )
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -93,13 +115,25 @@ def main() -> None:
             lock_path = config.db_path.parent / ".cycle-run.lock"
             with exclusive_job_run_lock(lock_path) as acquired:
                 if not acquired:
+                    _record_simulation_failure(
+                        config,
+                        OverlappingCycleSkipped(
+                            f"overlapping cycle skipped for {config.job_name}"
+                        ),
+                    )
                     logging.warning(
                         "이전 %s cycle이 아직 실행 중이므로 중복 실행을 안전하게 건너뜁니다",
                         config.job_name,
                     )
                     return
-                with enforced_cycle_deadline() as cycle_budget:
-                    bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                with enforced_cycle_deadline(
+                    enforce_deadline=config.simulation_mode,
+                ) as cycle_budget:
+                    try:
+                        bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                    except Exception as error:
+                        _record_simulation_failure(config, error)
+                        raise
                     try:
                         bot.run()
                     finally:

@@ -72,6 +72,8 @@ def test_frozen_job_profiles_load(
     assert config.trading.experiment.notional_ladder_usdc == NOTIONAL_LADDER_USDC
     assert config.trading.experiment.late_entry_minute_floors == LATE_ENTRY_MINUTE_FLOORS
     assert config.trading.gamma.sports_market_types == ("moneyline",)
+    assert config.trading.network_budget_seconds == 42
+    assert config.trading.cycle_budget_seconds == 50
     assert FROZEN_ENTRY_END - FROZEN_START == timedelta(days=30)
     assert FROZEN_FOLLOWUP_END - FROZEN_ENTRY_END == timedelta(days=7)
 

@@ -157,6 +157,8 @@ class TradingConfig:
 
     lifecycle_mode: str = "active"
     buy_amount_usdc: float = 5.0
+    max_open_notional_usdc: float = 15.0
+    max_cumulative_exact_loss_usdc: float = 15.0
     min_liquidity: float = 10_000.0
     min_volume_24h: float = 0.0
     min_cumulative_volume: float = 5_000.0
@@ -168,6 +170,8 @@ class TradingConfig:
     min_order_size: float = 5.0
     min_order_buffer_shares: float = 0.10
     yes_only_mode: bool = False
+    exclude_esports: bool = False
+    cycle_runtime_warning_seconds: float = 240.0
     experiment_start_utc: str = FROZEN_START_UTC
     experiment_entry_end_utc: str = FROZEN_ENTRY_END_UTC
     experiment_followup_end_utc: str = FROZEN_FOLLOWUP_END_UTC
@@ -206,6 +210,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
     archive = trading.archive
     numeric = {
         "buy_amount_usdc": trading.buy_amount_usdc,
+        "max_open_notional_usdc": trading.max_open_notional_usdc,
+        "max_cumulative_exact_loss_usdc": trading.max_cumulative_exact_loss_usdc,
         "min_liquidity": trading.min_liquidity,
         "min_volume_24h": trading.min_volume_24h,
         "min_cumulative_volume": trading.min_cumulative_volume,
@@ -216,6 +222,7 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "min_order_size": trading.min_order_size,
         "min_order_buffer_shares": trading.min_order_buffer_shares,
+        "cycle_runtime_warning_seconds": trading.cycle_runtime_warning_seconds,
         "entry.prob_min": entry.prob_min,
         "entry.prob_max": entry.prob_max,
         "entry.stop_price": entry.stop_price,
@@ -232,8 +239,14 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         raise ValueError(
             "lifecycle_mode must be one of: active, close_only, archive_only"
         )
-    if trading.buy_amount_usdc != 5:
+    if trading.buy_amount_usdc != 5.0:
         raise ValueError("Golden Tangerine live notional must remain exactly $5")
+    if trading.max_open_notional_usdc != 15.0:
+        raise ValueError("Golden Tangerine open notional must remain exactly $15")
+    if trading.max_cumulative_exact_loss_usdc <= 0:
+        raise ValueError("max_cumulative_exact_loss_usdc must be positive")
+    if trading.cycle_runtime_warning_seconds <= 0:
+        raise ValueError("cycle_runtime_warning_seconds must be positive")
     if (
         trading.min_liquidity != 10_000
         or trading.min_cumulative_volume != 5_000
@@ -283,6 +296,8 @@ def _validate_config(trading: TradingConfig, api: ApiConfig) -> None:
         for item in trading.excluded_categories
     ):
         raise ValueError("excluded_categories must be a list of non-empty strings")
+    if not isinstance(trading.exclude_esports, bool):
+        raise ValueError("exclude_esports must be a boolean")
     if api.signature_type not in {1, 3}:
         raise ValueError("signature_type must be one of: 1, 3")
     if (
@@ -375,6 +390,16 @@ def load_config(
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
         ),
+        max_open_notional_usdc=_get_config_value(
+            "POLYBOT_MAX_OPEN_NOTIONAL_USDC",
+            trading_cfg.get("max_open_notional_usdc"),
+            15.0,
+        ),
+        max_cumulative_exact_loss_usdc=_get_config_value(
+            "POLYBOT_MAX_CUMULATIVE_EXACT_LOSS_USDC",
+            trading_cfg.get("max_cumulative_exact_loss_usdc"),
+            15.0,
+        ),
         min_liquidity=_get_config_value(
             "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 10_000.0
         ),
@@ -420,6 +445,16 @@ def load_config(
             0.10,
         ),
         yes_only_mode=resolved_yes_only,
+        exclude_esports=_get_bool_config_value(
+            "POLYBOT_EXCLUDE_ESPORTS",
+            trading_cfg.get("exclude_esports"),
+            False,
+        ),
+        cycle_runtime_warning_seconds=_get_config_value(
+            "POLYBOT_CYCLE_RUNTIME_WARNING_SECONDS",
+            trading_cfg.get("cycle_runtime_warning_seconds"),
+            240.0,
+        ),
         experiment_start_utc=_get_datetime_config_value(
             "POLYBOT_EXPERIMENT_START_UTC",
             trading_cfg.get("experiment_start_utc"),

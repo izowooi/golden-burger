@@ -28,9 +28,11 @@ from .models import (
     MarketSnapshot,
     MarketSweep,
     MarketSweepMembership,
+    PENDING_BUY_QUARANTINE_REASON,
     ResolutionObservation,
     SkippedMarket,
     STOP_SELL_ISOLATION_REASONS,
+    EVENT_LOCAL_QUARANTINE_REASONS,
     Trade,
     TradeStatus,
 )
@@ -504,6 +506,17 @@ class TradeRepository:
             .all()
         )
 
+    def get_isolated_pending_buy_trades(self) -> List[Trade]:
+        """Continue exact-ledger reconciliation after event-local quarantine."""
+        return (
+            self.session.query(Trade)
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason == PENDING_BUY_QUARANTINE_REASON,
+            )
+            .all()
+        )
+
     def get_pending_sell_trades(self) -> List[Trade]:
         return (
             self.session.query(Trade)
@@ -544,10 +557,30 @@ class TradeRepository:
             .scalar()
             or 0
         )
+        isolated_pending_buy = (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason == PENDING_BUY_QUARANTINE_REASON,
+            )
+            .scalar()
+            or 0
+        )
+        event_local = (
+            self.session.query(func.count(Trade.id))
+            .filter(
+                Trade.status == TradeStatus.QUARANTINED,
+                Trade.exit_reason.in_(EVENT_LOCAL_QUARANTINE_REASONS),
+            )
+            .scalar()
+            or 0
+        )
         return {
             "total": int(total),
             "isolated_stop_sell": int(isolated_stop_sell),
-            "blocking": max(0, int(total) - int(isolated_stop_sell)),
+            "isolated_pending_buy": int(isolated_pending_buy),
+            "event_local": int(event_local),
+            "blocking": max(0, int(total) - int(event_local)),
         }
 
     def get_trades_by_date(self, target_date: date) -> List[Trade]:

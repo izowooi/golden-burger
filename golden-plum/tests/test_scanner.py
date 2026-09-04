@@ -500,6 +500,44 @@ def test_disappeared_condition_followup_persists_order_independent_terminal_one_
     session.close()
 
 
+def test_gamma_followup_persists_authoritative_void_with_aligned_payouts(
+    tmp_path,
+) -> None:
+    markets = _triad()
+    session, _repo, scanner, gamma, _clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+    terminal = deepcopy(markets[0])
+    terminal["closed"] = True
+    terminal["active"] = False
+    terminal["acceptingOrders"] = False
+    terminal["outcomePrices"] = ["0.5", "0.5"]
+    terminal["umaResolutionStatus"] = "resolved"
+    terminal["updatedAt"] = (NOW + timedelta(minutes=2)).isoformat()
+    gamma.followups[terminal["conditionId"]] = terminal
+
+    stats = scanner.follow_tracked_conditions(
+        markets[1:],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats["terminal"] == 1
+    catalog = session.get(MarketCatalog, terminal["conditionId"])
+    assert catalog.followup_status == "TERMINAL"
+    assert catalog.resolution_status == "gamma_closed_resolved_void_0_5_0_5"
+    assert catalog.resolved_outcome == "VOID"
+    resolution = session.query(TrackedResolutionObservation).one()
+    assert resolution.winner_index == -1
+    assert resolution.winner_token_id == "__VOID__"
+    assert resolution.winner_outcome == "VOID"
+    assert json.loads(resolution.payouts_json) == {
+        "no-HOME": 0.5,
+        "yes-HOME": 0.5,
+    }
+    assert session.query(Trade).count() == 0
+    session.close()
+
+
 def test_followup_source_gap_remains_pending_with_bounded_retry(tmp_path) -> None:
     markets = _triad()
     session, _repo, scanner, _gamma, _clob = _scanner(tmp_path, markets)
@@ -568,6 +606,55 @@ def test_gamma_missing_followup_uses_exact_clob_one_hot_resolution(tmp_path) -> 
     assert json.loads(resolution.payouts_json) == {
         "no-HOME": 0.0,
         "yes-HOME": 1.0,
+    }
+    assert session.query(Trade).count() == 0
+    session.close()
+
+
+def test_gamma_missing_followup_uses_exact_clob_void_resolution(tmp_path) -> None:
+    markets = _triad()
+    session, _repo, scanner, _gamma, clob = _scanner(tmp_path, markets)
+    scanner.save_market_snapshots(markets, now=NOW)
+    condition_id = markets[0]["conditionId"]
+    clob.resolutions[condition_id] = {
+        "condition_id": condition_id,
+        "closed": True,
+        "tokens": [
+            {
+                "outcome": "Yes",
+                "token_id": "yes-HOME",
+                "price": 0.5,
+                "winner": False,
+            },
+            {
+                "outcome": "No",
+                "token_id": "no-HOME",
+                "price": 0.5,
+                "winner": False,
+            },
+        ],
+    }
+
+    stats = scanner.follow_tracked_conditions(
+        markets[1:],
+        now=NOW + timedelta(minutes=2),
+        limit=1,
+    )
+
+    assert stats["terminal"] == 1
+    assert stats["source_missing"] == 0
+    catalog = session.get(MarketCatalog, condition_id)
+    assert catalog.followup_status == "TERMINAL"
+    assert catalog.resolution_status == "clob_closed_void_0_5_0_5"
+    assert catalog.resolved_outcome == "VOID"
+    resolution = session.query(TrackedResolutionObservation).one()
+    assert resolution.source == "CLOB_CONDITION_FOLLOWUP"
+    assert resolution.winner_index == -1
+    assert resolution.winner_token_id == "__VOID__"
+    assert resolution.winner_outcome == "VOID"
+    assert json.loads(resolution.payouts_json) == {
+        "no-HOME": 0.5,
+        "yes-HOME": 0.5,
     }
     assert session.query(Trade).count() == 0
     session.close()

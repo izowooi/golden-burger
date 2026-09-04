@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from polybot_observability import RunAudit, log_reconciliation_continuity
 from polybot_observability import SQLiteMaintenanceRequirements
@@ -19,6 +20,7 @@ from .strategy.shadow import (
     ShadowResearcher,
 )
 from .strategy.trader import Trader
+from .utils.run_lock import RunLockUnavailable, db_run_lock
 
 
 logger = logging.getLogger(__name__)
@@ -131,6 +133,7 @@ class PolymarketBot:
         )
 
     def run_cycle(self) -> dict:
+        cycle_started = time.monotonic()
         session = self.Session()
         repo = TradeRepository(session)
         scanner = MarketScanner(self.gamma, self.config.trading, repo)
@@ -157,17 +160,28 @@ class PolymarketBot:
             "resolved": 0,
             "buy_candidates": 0,
             "bought": 0,
+            "uncertain_buy_reservations": 0,
             "shadow_crossings": 0,
             "shadow_signals_created": 0,
             "shadow_observations_saved": 0,
+            "phase_runtime_seconds": {},
         }
         try:
             self._log_strategy_config()
+            phase_started = time.monotonic()
             markets = scanner.fetch_markets()
+            stats["phase_runtime_seconds"]["gamma_collection"] = round(
+                time.monotonic() - phase_started, 6
+            )
 
             logger.info("=== Phase 0: Closing Surge research archive ===")
+            phase_started = time.monotonic()
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            stats["phase_runtime_seconds"]["archive_persistence"] = round(
+                time.monotonic() - phase_started, 6
+            )
 
+            phase_started = time.monotonic()
             if lifecycle_mode == "shadow_only":
                 logger.info(
                     "=== Phase 1: accountless Shadow 2%%p/5%%p x 72h/168h ==="
@@ -221,32 +235,82 @@ class PolymarketBot:
                 stats["resolved"] = max(
                     0, repo.get_stats()["resolved"] - resolved_before
                 )
+            stats["phase_runtime_seconds"]["position_management"] = round(
+                time.monotonic() - phase_started, 6
+            )
 
             if lifecycle_mode == "active":
                 assert trader is not None
                 logger.info("=== Phase 2: threshold-crossing scan ===")
+                phase_started = time.monotonic()
                 candidates = scanner.scan_buy_candidates(markets)
                 stats["buy_candidates"] = len(candidates)
+                stats["phase_runtime_seconds"]["candidate_scan"] = round(
+                    time.monotonic() - phase_started, 6
+                )
+                stats["pre_order_runtime_seconds"] = round(
+                    time.monotonic() - cycle_started, 6
+                )
                 logger.info("=== Phase 3: fresh-ask BUY execution ===")
-                for candidate in candidates:
+                phase_started = time.monotonic()
+                for index, raw_candidate in enumerate(candidates, start=1):
+                    candidate = dict(raw_candidate)
+                    candidate["candidate_rank"] = index
+                    uncertain_cycle_buys = getattr(
+                        trader, "cycle_uncertain_buy_reservations", 0
+                    )
+                    if not isinstance(uncertain_cycle_buys, int):
+                        uncertain_cycle_buys = 0
+                    stats["uncertain_buy_reservations"] = uncertain_cycle_buys
                     if (
-                        stats["bought"]
+                        stats["bought"] + uncertain_cycle_buys
                         >= self.config.trading.max_new_positions_per_cycle
                     ):
                         logger.info(
                             "cycle 신규 포지션 한도 %s 도달",
                             self.config.trading.max_new_positions_per_cycle,
                         )
+                        for deferred_rank, deferred in enumerate(
+                            candidates[index - 1 :], start=index
+                        ):
+                            repo.record_candidate_execution_decision(
+                                condition_id=str(deferred.get("condition_id") or ""),
+                                event_id=(
+                                    str(deferred.get("event_id")).strip()
+                                    if deferred.get("event_id") is not None
+                                    else None
+                                ),
+                                token_id=str(deferred.get("token_id") or ""),
+                                candidate_rank=deferred_rank,
+                                decision="deferred",
+                                stage="cycle_guard",
+                                reason="max_new_positions_per_cycle",
+                                requested_notional_usdc=(
+                                    self.config.trading.buy_amount_usdc
+                                ),
+                            )
                         break
                     if trader.execute_buy(candidate) is not None:
                         stats["bought"] += 1
+                stats["phase_runtime_seconds"]["candidate_execution"] = round(
+                    time.monotonic() - phase_started, 6
+                )
             else:
                 logger.warning("%s: 신규 진입을 건너뜁니다", lifecycle_mode)
+                stats["pre_order_runtime_seconds"] = None
 
             logger.info("=== Phase 4: archive retention cleanup ===")
+            phase_started = time.monotonic()
             repo.cleanup_old_snapshots(
                 days=self.config.trading.archive.retention_days
             )
+            stats["phase_runtime_seconds"]["retention_cleanup"] = round(
+                time.monotonic() - phase_started, 6
+            )
+            stats["cycle_runtime_seconds"] = round(
+                time.monotonic() - cycle_started, 6
+            )
+            stats["cadence_budget_seconds"] = 300
             db_stats = repo.get_stats()
             logger.info(
                 "사이클 완료 - snapshots=%s checked=%s stop_sells=%s resolved=%s "
@@ -270,30 +334,59 @@ class PolymarketBot:
 
     def run(self) -> None:
         logger.info("트레이딩 사이클 시작 - %s", self.config.job_name)
-        audit = RunAudit.start(self.config, strategy_name="golden-blueberry")
         try:
-            self.gamma.sweep_attestations.clear()
-            if self.config.trading.lifecycle_mode == "shadow_only":
-                reconciliation = {
-                    "checked": 0,
-                    "fills": 0,
-                    "completed": 0,
-                    "legacy_unavailable": 0,
-                    "errors": 0,
-                    "skipped": "shadow_only",
-                }
-            else:
-                reconciliation = self.clob.reconcile_order_ledger()
-                log_reconciliation_continuity(reconciliation, logger=logger)
-            stats = self.run_cycle()
-            stats["market_sweeps"] = self.gamma.get_sweep_summaries()
-            stats["order_reconciliation"] = reconciliation
-            audit.succeed(stats)
-            logger.info("사이클 성공: %s", stats)
-        except Exception as error:
-            audit.fail(error)
-            logger.exception("사이클 실패: %s", error)
-            raise
+            with db_run_lock(self.config.db_path):
+                run_started = time.monotonic()
+                audit = RunAudit.start(
+                    self.config, strategy_name="golden-blueberry"
+                )
+                try:
+                    self.gamma.sweep_attestations.clear()
+                    if self.config.trading.lifecycle_mode == "shadow_only":
+                        reconciliation = {
+                            "checked": 0,
+                            "fills": 0,
+                            "completed": 0,
+                            "legacy_unavailable": 0,
+                            "errors": 0,
+                            "skipped": "shadow_only",
+                        }
+                    else:
+                        reconciliation = self.clob.reconcile_order_ledger()
+                        log_reconciliation_continuity(
+                            reconciliation, logger=logger
+                        )
+                        expiration = self.clob.expire_stale_gtc_buys(
+                            self.config.trading.gtc_buy_ttl_minutes
+                        )
+                        post_expiration_reconciliation = (
+                            self.clob.reconcile_order_ledger()
+                        )
+                        log_reconciliation_continuity(
+                            post_expiration_reconciliation, logger=logger
+                        )
+                    stats = self.run_cycle()
+                    stats["market_sweeps"] = self.gamma.get_sweep_summaries()
+                    stats["order_reconciliation"] = reconciliation
+                    if self.config.trading.lifecycle_mode != "shadow_only":
+                        stats["gtc_buy_expiration"] = expiration
+                        stats["post_expiration_order_reconciliation"] = (
+                            post_expiration_reconciliation
+                        )
+                    stats["end_to_end_runtime_seconds"] = round(
+                        time.monotonic() - run_started, 6
+                    )
+                    audit.succeed(stats)
+                    logger.info("사이클 성공: %s", stats)
+                except Exception as error:
+                    audit.fail(error)
+                    logger.exception("사이클 실패: %s", error)
+                    raise
+        except RunLockUnavailable:
+            logger.warning(
+                "동일 DB의 다른 cycle이 실행 중이므로 nonblocking skip - db=%s",
+                self.config.db_path,
+            )
 
     def get_status(self) -> dict:
         session = self.Session()
@@ -356,6 +449,7 @@ class PolymarketBot:
                     "max_new_positions_per_cycle": (
                         trading.max_new_positions_per_cycle
                     ),
+                    "gtc_buy_ttl_minutes": trading.gtc_buy_ttl_minutes,
                     "reentry_cooldown_hours": trading.reentry_cooldown_hours,
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
                     "min_order_size": trading.min_order_size,

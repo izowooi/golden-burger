@@ -6,6 +6,8 @@ trading:
   schema_profile: golden-watermelon-v4b-schema-v1
   universe_profile: watermelon-soccer-mlb-nba-nfl-nhl-2026-09-v4b
   classifier_version: watermelon-major-sports-identity-v2
+  network_budget_seconds: 42
+  cycle_budget_seconds: 50
 
   gamma:
     base_url: https://gamma-api.polymarket.com

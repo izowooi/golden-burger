@@ -4,12 +4,21 @@ import json
 import logging
 import sys
 from .config import load_config
-from .bot import PolymarketBot
 from .utils.logger import setup_logger
 
 
-def main():
+def main(argv=None):
     """Main CLI entry point."""
+    arguments = list(sys.argv[1:] if argv is None else argv)
+    if "--shadow" in arguments:
+        from .shadow.cli import shadow_main
+
+        try:
+            return shadow_main(arguments)
+        except ValueError as error:
+            print(f"Shadow configuration error: {error}", file=sys.stderr)
+            raise SystemExit(2) from error
+
     parser = argparse.ArgumentParser(
         description="Polymarket Automated Trading Bot",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -72,7 +81,7 @@ Examples:
     config_parser.add_argument("--config", "-c", default="config.yaml")
     config_parser.add_argument("--job", "-j", default="default")
 
-    args = parser.parse_args()
+    args = parser.parse_args(arguments)
 
     if not args.command:
         parser.print_help()
@@ -99,6 +108,8 @@ Examples:
         setup_logger(config.job_name, log_level)
 
         # Run bot
+        from .bot import PolymarketBot
+
         bot = PolymarketBot(config)
         try:
             bot.run()
@@ -117,6 +128,8 @@ Examples:
             sys.exit(1)
 
         setup_logger(config.job_name, logging.WARNING)
+
+        from .bot import PolymarketBot
 
         bot = PolymarketBot(config)
         status = bot.get_status()
@@ -146,6 +159,10 @@ Examples:
         print(f"Max Positions: {config.trading.max_positions}")
         print(f"Max Open Notional: ${config.trading.max_open_notional_usdc:,.0f}")
         print(f"Max New Positions / Cycle: {config.trading.max_new_positions_per_cycle}")
+        print(
+            "Entry Economic Drawdown Floor: "
+            f"${config.trading.entry_drawdown_floor_usdc:,.2f}"
+        )
         print(
             "Pending BUY Zero-Fill TTL: "
             f"{config.trading.pending_buy_ttl_minutes} minutes"

@@ -716,6 +716,49 @@ def test_yes_resolution_uses_selected_payout_without_synthetic_sell() -> None:
     assert clob.orders == []
 
 
+def test_authoritative_gamma_void_uses_selected_token_half_payout() -> None:
+    repo, clob = _Repo(), _Clob()
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "condition-1",
+            "closed": True,
+            "umaResolutionStatus": "resolved",
+            "outcomes": ["Home Club", "Away Club"],
+            "outcomePrices": [0.5, 0.5],
+            "clobTokenIds": ["home-token", "away-token"],
+            "negRisk": False,
+            "sportFamily": "mlb",
+        }
+    )
+    trade = SimpleNamespace(
+        id=10,
+        condition_id="condition-1",
+        event_id="event-1",
+        token_id="away-token",
+        outcome="Away Club",
+        buy_order_id="buy-1",
+        buy_shares=5.2,
+        buy_price=0.96,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(sport_family="mlb"),
+        gamma_client=gamma,
+        simulation_mode=False,
+    )
+
+    assert trader._handle_midpoint_unavailable(trade, "closed") is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_outcome"] == "Ambiguous"
+    assert update["resolution_value"] == 0.5
+    assert update["settlement_pnl_assumption"] == pytest.approx(
+        (0.5 - 0.985) * (5 / 0.985) - 0.01
+    )
+    assert clob.orders == []
+
+
 def test_resolution_waits_for_complete_buy_fee_evidence() -> None:
     repo, clob = _Repo(), _Clob()
     repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(

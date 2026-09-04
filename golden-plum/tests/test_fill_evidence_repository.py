@@ -1321,8 +1321,19 @@ def test_open_buy_evidence_gap_counts_only_incomplete_owned_exposure(tmp_path):
         status=TradeStatus.RESOLVED,
         mode="live",
     )
+    repo.create_trade(
+        condition_id="condition-sim-gap",
+        outcome="Yes",
+        token_id="token-sim-gap",
+        buy_order_id="SIM_gap",
+        buy_timestamp=datetime.utcnow(),
+        status=TradeStatus.HOLDING,
+        mode="sim",
+    )
 
-    assert repo.get_open_buy_evidence_gap_count() == 1
+    assert repo.get_open_buy_evidence_gap_count() == 2
+    assert repo.get_open_buy_evidence_gap_count(mode="live") == 1
+    assert repo.get_open_buy_evidence_gap_count(mode="sim") == 1
     session.close()
 
 

@@ -43,9 +43,10 @@
 - 건당 주문 하드캡: $100
 - 정적 최소 유동성: $50,000
 - 주문금액/유동성 상한: 0.2% (`$100 / 0.002 = $50,000`)
-- open 포지션 상한: 100개
+- open 포지션 상한: 10개
 - open 요청원금 상한: $5,000
-- Jenkins cycle 한 번의 신규 포지션 상한: 5개
+- `run` 한 번의 신규 포지션 상한: 1개
+- exact-economic 신규 진입 floor: `-$30`
 
 `max_buy_amount_usdc`는 운영 주문값과 별개의 하드캡이다. 주문을 키우려면
 `POLYBOT_BUY_AMOUNT`와 `POLYBOT_MAX_BUY_AMOUNT_USDC`를 모두 바꿔야 한다. 0.2% 규칙에서
@@ -68,8 +69,14 @@ $10,000 / $500,000 = 2%이므로 $500,000은 현재 규칙보다 10배 공격적
 
 ## 운영 시 주의
 
-- 기존 HOLDING/격리/대기 행도 노출 상한에 포함한다. 배포 시 이미 $5,000 또는 100개를
-  넘었다면 기존 청산은 계속하지만 신규 BUY는 중단된다.
+- 기존 HOLDING/격리/대기 행과 managed Trade에 연결되지 않은 live BUY submission도 노출
+  상한에 포함한다. 후자는 POST timeout의 order-id-null intent와 accepted/reconciliation-needed
+  주문을 포함하며, open-order 목록에 없다는 이유만으로 zero-fill 처리하지 않는다. 배포 시
+  이미 $5,000 또는 10개를 넘었다면 기존 청산은 계속하지만 신규 BUY는 중단된다.
+- exact confirmed SELL P&L과 fee-complete exact-token resolution settlement 합계가 `-$30`
+  이하이면 신규 BUY를 차단한다. legacy P&L은 합산하지 않는다. unknown BUY, incomplete fee,
+  resolution evidence gap은 손익 floor와 별개로 fail closed한다. 이 guard는 기존 대사/청산을
+  막지 않는다.
 - 이 차단을 해제하려고 DB 행을 임의 삭제하거나 상한만 높이지 않는다. 먼저 CLOB order/fill과
   실제 지갑 포지션을 대사한다.
 - Gamma `liquidity`는 실제 체결 가능한 동일 가격대의 book depth와 같지 않다. 0.2% 제한은
@@ -97,6 +104,7 @@ export POLYBOT_MAX_POSITIONS=10
 export POLYBOT_MAX_OPEN_NOTIONAL_USDC=5000
 export POLYBOT_MAX_NEW_POSITIONS_PER_CYCLE=1
 export POLYBOT_PENDING_BUY_TTL_MINUTES=30
+export POLYBOT_ENTRY_DRAWDOWN_FLOOR_USDC=-30
 export POLYBOT_YES_ONLY=true
 ```
 
