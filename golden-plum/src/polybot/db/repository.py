@@ -34,6 +34,7 @@ from .models import (
     ResolutionObservation,
     SkippedMarket,
     STOP_SELL_ISOLATION_REASONS,
+    STRATEGY_NAME,
     TrackedResolutionObservation,
     Trade,
     TradeStatus,
@@ -1268,6 +1269,62 @@ class TradeRepository:
     ) -> ExactFillEvidence:
         return self.get_exact_order_fill_evidence(order_id, expected_side="SELL")
 
+    def get_uncertain_sell_submission(self, trade) -> Optional[Dict[str, Any]]:
+        """Read one exact own-trade SELL intent, including later operator proof.
+
+        A NULL venue ID is not zero execution. Retain its immutable local ID
+        and submission time so price recovery cannot restart the 3h clock.
+        """
+        bound_id = getattr(trade, "pending_sell_submission_id", None)
+        params = {"token": str(trade.token_id), "strategy": STRATEGY_NAME}
+        if bound_id:
+            where = "submission_id = :bound_id"
+            params["bound_id"] = bound_id
+        else:
+            where = """
+                token_id = :token AND strategy_name = :strategy
+                AND simulation = 0 AND UPPER(side) = 'SELL'
+                AND response_status IN ('INTENT', 'SUBMIT_OUTCOME_UNKNOWN',
+                                        'EVIDENCE_WRITE_FAILED')
+                AND (outcome_resolution IS NULL OR outcome_resolution = 'ORDER_ID_LINKED')
+                AND (order_id IS NULL OR NOT EXISTS (
+                    SELECT 1 FROM trades t WHERE t.sell_order_id = order_submissions.order_id
+                ))
+                AND julianday(submitted_at) >= julianday(:buy_at)
+            """
+            params["buy_at"] = getattr(trade, "buy_timestamp", None)
+            if params["buy_at"] is None:
+                return None
+        candidates = self.session.execute(text(
+            "SELECT submission_id, token_id, strategy_name, simulation, side, "
+            "submitted_at, requested_size, requested_price, order_id, response_status, "
+            "outcome_resolution, outcome_resolved_at, outcome_resolution_reason "
+            "FROM order_submissions WHERE " + where + " ORDER BY submitted_at LIMIT 2"
+        ), params).mappings().all()
+        if not candidates and not bound_id:
+            return None
+        if len(candidates) != 1:
+            raise ValueError("uncertain SELL intent missing or ambiguous")
+        row = dict(candidates[0])
+        if (row["token_id"] != str(trade.token_id)
+                or row["strategy_name"] != STRATEGY_NAME
+                or row["simulation"] != 0 or str(row["side"]).upper() != "SELL"):
+            raise ValueError("uncertain SELL intent ownership mismatch")
+        try:
+            submitted = datetime.fromisoformat(str(row["submitted_at"]).replace("Z", "+00:00"))
+            submitted = submitted.astimezone(timezone.utc).replace(tzinfo=None) if submitted.tzinfo else submitted
+            bought = getattr(trade, "buy_timestamp", None)
+            bought = bought.astimezone(timezone.utc).replace(tzinfo=None) if bought and bought.tzinfo else bought
+            size, price = float(row["requested_size"]), float(row["requested_price"])
+            if (bought is None or submitted < bought or not math.isfinite(size)
+                    or size <= 0 or size > float(trade.buy_shares) + _FILL_SIZE_TOLERANCE
+                    or not math.isfinite(price) or not 0 < price < 1):
+                raise ValueError("SELL intent quantity/time envelope mismatch")
+        except (TypeError, ValueError, OverflowError) as error:
+            raise ValueError("invalid uncertain SELL intent evidence") from error
+        row["submitted_at"] = submitted
+        return row
+
     def save_snapshot(
         self,
         condition_id: str,
@@ -1658,13 +1715,44 @@ class TradeRepository:
         """
         if isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0:
             raise ValueError("snapshot limit must be a positive integer")
-        rows = (
+        query = (
             self.session.query(MarketSnapshot)
             .filter(MarketSnapshot.token_id == str(token_id))
-            .order_by(MarketSnapshot.timestamp.desc(), MarketSnapshot.id.desc())
-            .limit(limit)
-            .all()
         )
+        run_id = current_run_id()
+        if run_id:
+            # The current row is still RUNNING; every prior row must come from
+            # a successful complete event in this exact deployment cohort.
+            valid_ids = self.session.execute(text("""
+                SELECT s.id FROM market_snapshots s
+                JOIN run_audits r ON r.run_id = s.run_id
+                JOIN run_audits current ON current.run_id = :current_run
+                JOIN strategy_configs cfg ON cfg.config_hash = current.config_hash
+                JOIN event_cycle_evidence e ON e.event_cycle_id = s.event_cycle_id
+                WHERE s.token_id = :token AND s.config_hash = current.config_hash
+                  AND r.config_hash = current.config_hash AND r.job_name = current.job_name
+                  AND r.mode = current.mode AND r.strategy_name = current.strategy_name
+                  AND (r.status = 'SUCCESS' OR (r.run_id = current.run_id AND r.status = 'RUNNING'))
+                  AND s.event_set_complete = 1 AND e.complete = 1
+                  AND e.run_id = s.run_id AND e.config_hash = s.config_hash
+                  AND e.event_id = s.event_id AND e.sport_family = s.sport_family
+                  AND e.strategy_source_digest = s.strategy_source_digest
+                  AND e.protocol_sha256 = s.protocol_sha256
+                  AND e.sport_profile_version = s.sport_profile_version
+                  AND e.classifier_version = s.classifier_version
+                  AND e.league_mapping_sha256 = s.league_mapping_sha256
+                  AND e.book_shape = s.book_shape
+                  AND s.strategy_source_digest = json_extract(cfg.config_json, '$.trading.strategy_source_digest')
+                  AND s.protocol_sha256 = json_extract(cfg.config_json, '$.trading.preregistration_sha256')
+                  AND s.sport_profile_version = json_extract(cfg.config_json, '$.trading.sport_profile_version')
+                ORDER BY s.timestamp DESC, s.id DESC LIMIT :row_limit
+            """), {"current_run": run_id, "token": str(token_id), "row_limit": limit}).scalars().all()
+            if not valid_ids:
+                return []
+            query = query.filter(MarketSnapshot.id.in_(valid_ids))
+        rows = query.order_by(MarketSnapshot.timestamp.desc(), MarketSnapshot.id.desc()).limit(limit).all()
+        if run_id and len({row.run_id for row in rows}) != len(rows):
+            return []
         return list(reversed(rows))
 
     def get_latest_snapshot(self, condition_id: str) -> Optional[MarketSnapshot]:

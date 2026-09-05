@@ -339,7 +339,8 @@ class PolymarketBot:
                 drawdown_limit = (
                     trading.experiment_capital_usdc * trading.max_drawdown_stop
                 )
-                drawdown_triggered = economic_pnl <= -drawdown_limit + 1e-9
+                observed_drawdown = economic_pnl <= -drawdown_limit + 1e-9
+                drawdown_triggered = observed_drawdown and not self.config.simulation_mode
                 stats["drawdown_guard"] = {
                     "triggered": drawdown_triggered,
                     "economic_pnl": economic_pnl,
@@ -363,6 +364,11 @@ class PolymarketBot:
                     "evidence_gaps": economic_evidence_gaps,
                     "loss_limit_usdc": drawdown_limit,
                 }
+                if self.config.simulation_mode:
+                    stats["drawdown_guard"].update(
+                        policy="simulation_loss_observed_not_an_entry_gate",
+                        simulated_threshold_breached=observed_drawdown,
+                    )
                 if (
                     stats["drawdown_guard"]["execution_override_count"]
                     or economic_evidence_gaps

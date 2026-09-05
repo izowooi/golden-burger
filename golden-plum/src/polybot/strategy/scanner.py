@@ -11,6 +11,8 @@ import math
 import re
 from typing import Any, Dict, List, Optional
 
+from polybot_observability import current_run_id
+
 from ..api.clob_client import (
     BuyBookWalk,
     ClobClientWrapper,
@@ -825,6 +827,9 @@ class MarketScanner:
         """Select a unique direct-book leader after a fresh first-cross trend."""
         if self.repo is None:
             raise RuntimeError("repository is required")
+        if self.config.strategy_source_digest and not current_run_id():
+            logger.error("entry scan blocked: missing_run_audit_context")
+            return []
         reference = now or datetime.now(timezone.utc)
         if reference.tzinfo is None:
             reference = reference.replace(tzinfo=timezone.utc)

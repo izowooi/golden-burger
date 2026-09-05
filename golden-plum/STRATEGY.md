@@ -136,7 +136,28 @@ live `HOLDING`은 confirmed BUY size/VWAP/fee가 빠지면 신규 진입을 전�
 
 총 open 10, event open 1, cycle 신규 5, cycle emergency SELL 10이다. confirmed SELL과
 proven resolution의 누적 손실이 10 USDC에 도달하거나 execution evidence gap이 있으면
-신규 진입을 막는다.
+실거래 신규 진입을 막는다. 계정 없는 simulation은 가상 손익을 관측하되 이 실거래
+손실 한도로 가상 진입을 중단하지 않는다. 원호가·가상 거래·실제 체결은 구분한다.
+
+2026-09-05 MLB 실행 점검 보정은 진입·추세·TP·SL 수치를 바꾸지 않는다.
+
+- HTTP 시간초과처럼 venue order ID를 받지 못한 SELL도 local
+  `pending_sell_submission_id`와 원장의 최초 `submitted_at`을 연결해 `PENDING_SELL`에
+  보존한다. 예전 코드가 이 SELL을 `HOLDING`에 남겼더라도 같은 token/side와 매수 이후
+  제출시각·수량을 확인해 복구한다. 가격이 회복되어도 불확실 POST의 180분 시계는 초기화하지
+  않는다. 180분 후에는 `QUARANTINED` 경제 노출로 유지한다.
+- 정확한 원장에 별도 확인된 `ORDER_ID_LINKED`가 생기면 일반 confirmed fill 대사로
+  돌아간다. 완전한 `NO_ORDER_CREATED` 증거가 기록된 경우만 다시 `HOLDING`으로 돌린다.
+  빈 주문조회, 시간 경과, 가격 회복, 경기 종료 자체로 매도나 0체결을 추정하지 않는다.
+- 진입·POST 직전 추세 조회는 현재 실행의 완전한 관측과 동일 설정/소스의 성공한 이전
+  실행만 허용한다. 이전 설정, 실패 실행, 불완전한 경기 호가 세트, token이 다른 관측으로
+  3회/5회 추세를 채우지 않는다. 새 배포 직후에는 새 설정의 관측이 충분히 모일 때까지 기다린다.
+- 과거 가상 패배가 Gold의 신규 가상 진입을 계속 막던 모드 혼용을 제거했다. 실거래
+  손실 방어·동시 포지션 한도와 실거래 주문 정책은 유지한다. 기존 가상 거래를 재작성하거나
+  원자료에서 가상 체결을 소급해 만들지 않는다.
+- SELL 횟수 한도는 추가 POST 직전만 적용한다. 한도를 채워도 다른 보유 포지션의
+  가격 회복·결과 해결 검사는 계속한다. 가상 익절/손절의 중복 pending 인자로 발생하던
+  Silver 실행 오류도 제거하며, 가상 손익은 계속 `hypothetical_pnl`로만 기록한다.
 
 ## Silver·Gold 자료 수집
 

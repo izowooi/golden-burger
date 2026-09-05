@@ -101,6 +101,8 @@ class Trade(Base):
     # confirmed partial TP can return to HOLDING without losing its remainder.
     pending_sell_requested_shares = Column(Float)
     pending_sell_remaining_shares = Column(Float)
+    # Exact local intent identity survives an HTTP timeout without a venue ID.
+    pending_sell_submission_id = Column(String, index=True)
     confirmed_sell_count = Column(Integer, nullable=False, default=0)
     cumulative_sell_proceeds_usdc = Column(Float)
     cumulative_sell_fee_usdc = Column(Float)
@@ -584,6 +586,7 @@ _TRADE_MIGRATION_COLUMNS = {
     "sell_residual_shares": "REAL",
     "pending_sell_requested_shares": "REAL",
     "pending_sell_remaining_shares": "REAL",
+    "pending_sell_submission_id": "TEXT",
     "confirmed_sell_count": "INTEGER NOT NULL DEFAULT 0",
     "cumulative_sell_proceeds_usdc": "REAL",
     "cumulative_sell_fee_usdc": "REAL",
@@ -891,6 +894,12 @@ def init_database(
             text(
                 "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
+            )
+        )
+        connection.execute(
+            text(
+                "CREATE INDEX IF NOT EXISTS market_snapshots_token_cohort_time_idx "
+                "ON market_snapshots(token_id, config_hash, timestamp, id)"
             )
         )
         connection.execute(

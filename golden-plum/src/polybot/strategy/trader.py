@@ -14,6 +14,7 @@ from typing import Iterable, Mapping, Optional
 from polybot_observability import (
     ClobResponseUnavailableError,
     SubmissionEvidenceError,
+    current_run_id,
 )
 
 from ..api.clob_client import (
@@ -650,6 +651,10 @@ class Trader:
         """Revalidate the $5 signal, then submit one adaptive atomic FOK BUY."""
         self.last_entry_outcome_reason = None
         self.last_entry_may_have_reached_venue = False
+        # Loaded runtime configs always carry a validated source digest.
+        # Unscoped repository reads remain available to offline tooling only.
+        if self.config.strategy_source_digest and not current_run_id():
+            return self._reject_entry("missing_run_audit_context")
         if self.buying_disabled:
             return self._reject_entry("cycle_buying_disabled")
         condition_id = str(candidate["condition_id"])
@@ -1896,6 +1901,8 @@ class Trader:
         )
 
     def _clear_stop_sell_failure(self, trade) -> None:
+        if getattr(trade, "pending_sell_submission_id", None):
+            return
         if (
             not str(getattr(trade, "exit_reason", "") or "").startswith(
                 _EXIT_SELL_FAILURE_RETRY_PREFIX
@@ -1947,6 +1954,7 @@ class Trader:
             spread_at_exit=None,
             pending_sell_requested_shares=None,
             pending_sell_remaining_shares=None,
+            pending_sell_submission_id=None,
         )
         logger.warning(
             "%s: Trade #%s order=%s",
@@ -2108,6 +2116,8 @@ class Trader:
                 "simulation trade가 PENDING_SELL에 남아 있습니다 - trade=%s",
                 trade.id,
             )
+            return False
+        if self._sync_uncertain_sell(trade, now=now) in {"pending", "released", "invalid"}:
             return False
         sell_evidence = self.repo.get_exact_sell_fill_evidence(
             getattr(trade, "sell_order_id", None)
@@ -2410,6 +2420,7 @@ class Trader:
             sell_residual_shares=residual_shares,
             pending_sell_requested_shares=None,
             pending_sell_remaining_shares=None,
+            pending_sell_submission_id=None,
             confirmed_sell_count=confirmed_sell_count,
             cumulative_sell_proceeds_usdc=cumulative_sell_proceeds,
             cumulative_sell_fee_usdc=cumulative_sell_fee,
@@ -2524,18 +2535,9 @@ class Trader:
         book_prefetched: bool = False,
     ) -> bool:
         """Submit an atomic partial TP or an all-position FOK stop."""
-        if (
-            self.emergency_sell_submissions
-            >= self.config.max_emergency_sells_per_cycle
-        ):
-            self.emergency_sell_guard_blocks += 1
-            logger.critical(
-                "exit SELL cycle circuit is open; additional holdings are "
-                "left untouched - trade=%s submitted=%s limit=%s",
-                trade.id,
-                self.emergency_sell_submissions,
-                self.config.max_emergency_sells_per_cycle,
-            )
+        # Reattach pre-upgrade NULL-ID intents before even reading a price.
+        # A recovered price says nothing about whether an earlier SELL filled.
+        if self._sync_uncertain_sell(trade) != "none":
             return False
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
@@ -2730,6 +2732,14 @@ class Trader:
                 signal=plan.signal,
             )
             return False
+        # The quota bounds POSTs, not passive holding/resolution management.
+        if self.emergency_sell_submissions >= self.config.max_emergency_sells_per_cycle:
+            self.emergency_sell_guard_blocks += 1
+            logger.warning(
+                "additional SELL POST skipped by cycle quota - trade=%s submitted=%s limit=%s",
+                trade.id, self.emergency_sell_submissions, self.config.max_emergency_sells_per_cycle,
+            )
+            return False
         try:
             result = self.clob.place_limit_order(
                 token_id=trade.token_id,
@@ -2740,6 +2750,16 @@ class Trader:
             )
         except SubmissionEvidenceError as error:
             self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            return False
+        if result.get("submission_outcome_unknown"):
+            self.emergency_sell_submissions += 1
+            state = self._sync_uncertain_sell(trade, signal=plan.signal)
+            if state == "none":
+                # POST was uncertain but its durable intent cannot be found.
+                # Never downgrade this to a retryable zero-fill failure.
+                self._quarantine_stop_sell_ledger_failure(
+                    trade, error=SubmissionEvidenceError("uncertain SELL intent unavailable")
+                )
             return False
         accepted = bool(result.get("success") or result.get("orderID"))
         try:
@@ -2841,13 +2861,15 @@ class Trader:
                     (walk.vwap - trade.buy_price) * sell_shares
                 )
                 completed = residual_shares < _MAX_SIGNED_SELL_DUST_SHARES
+                common.update(
+                    pending_sell_requested_shares=None,
+                    pending_sell_remaining_shares=None,
+                )
                 self.repo.update_trade(
                     trade.id,
                     **common,
                     buy_shares=residual_shares,
                     sell_shares=previous_sell_shares + sell_shares,
-                    pending_sell_requested_shares=None,
-                    pending_sell_remaining_shares=None,
                     status=(
                         TradeStatus.COMPLETED
                         if completed
@@ -3079,6 +3101,78 @@ class Trader:
             values_are_valid
             and float(walk.vwap) + 1e-9 >= float(target_price)
         )
+
+    def _sync_uncertain_sell(
+        self, trade, *, now: Optional[datetime] = None, signal: str = "absolute_stop"
+    ) -> str:
+        """Restore an exact local SELL intent; never infer a missing venue order."""
+        if self.mode == "sim":
+            return "none"
+        reader = getattr(self.repo, "get_uncertain_sell_submission", None)
+        if not callable(reader):
+            return "none"
+        try:
+            intent = reader(trade)
+        except Exception as error:
+            self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            return "invalid"
+        if intent is None:
+            return "none"
+        resolution = intent["outcome_resolution"]
+        if resolution == "NO_ORDER_CREATED":
+            if (intent["order_id"] or not intent["outcome_resolved_at"]
+                    or not str(intent["outcome_resolution_reason"] or "").strip()):
+                self._quarantine_stop_sell_ledger_failure(
+                    trade, error=ValueError("uncertain SELL no-order proof incomplete")
+                )
+                return "invalid"
+            self._restore_holding_after_terminal_zero_sell(
+                trade, ExactFillEvidence("terminal_zero_fill", "", side="SELL"),
+                log_prefix="exact local SELL intent에 기록된 no-order 증명으로 HOLDING 복귀",
+            )
+            return "released"
+        if resolution not in (None, "ORDER_ID_LINKED"):
+            self._quarantine_stop_sell_ledger_failure(
+                trade, error=ValueError("unsupported uncertain SELL proof")
+            )
+            return "invalid"
+        if resolution == "ORDER_ID_LINKED" and (
+            not intent["order_id"] or not intent["outcome_resolved_at"]
+            or not str(intent["outcome_resolution_reason"] or "").strip()
+        ):
+            self._quarantine_stop_sell_ledger_failure(
+                trade, error=ValueError("uncertain SELL linked-order proof incomplete")
+            )
+            return "invalid"
+        already_bound = getattr(trade, "pending_sell_submission_id", None) == intent["submission_id"]
+        preserve_quarantine = getattr(trade, "status", None) == TradeStatus.QUARANTINED
+        reason = str(getattr(trade, "exit_reason", "") or "")
+        if "take_profit" in reason:
+            signal = "take_profit"
+        fields = {
+            "pending_sell_submission_id": intent["submission_id"],
+            "sell_timestamp": intent["submitted_at"],
+            "sell_price": float(intent["requested_price"]),
+            "sell_order_id": intent["order_id"],
+            "pending_sell_requested_shares": float(intent["requested_size"]),
+            "pending_sell_remaining_shares": max(0.0, float(trade.buy_shares) - float(intent["requested_size"])),
+        }
+        if not preserve_quarantine:
+            fields.update(status=TradeStatus.PENDING_SELL, exit_reason=f"{signal}_submission_outcome_unknown")
+        if not already_bound or any(getattr(trade, key, None) != value for key, value in fields.items()):
+            self.repo.update_trade(trade.id, **fields)
+            for key, value in fields.items():
+                setattr(trade, key, value)
+            logger.warning(
+                "불확실 SELL intent를 원래 제출시각으로 연결 - trade=%s submission=%s submitted=%s",
+                trade.id, intent["submission_id"], intent["submitted_at"].isoformat(),
+            )
+        if intent["order_id"]:
+            return "linked"
+        self._quarantine_stop_sell_if_due(
+            trade, now=now, detail="original SELL POST outcome remains unknown"
+        )
+        return "pending"
 
     def _bind_uncertain_sell_submission(
         self,
