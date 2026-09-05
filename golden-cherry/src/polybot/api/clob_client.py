@@ -639,9 +639,29 @@ class ClobClientWrapper:
             "legacy_unavailable": 0,
             "errors": 0,
             "unknown_sell_intents_preserved": 0,
+            "intent_autoresolved": 0,
+            "explicit_rejections_checked": 0,
+            "intents_without_rejection_proof": 0,
         }
         if self.simulation_mode or self.execution_ledger is None:
             return stats
+
+        # Reuse the ledger's exact stored-venue-rejection proof. An empty
+        # current order catalog or the age of an intent is never a substitute.
+        resolve_explicit = getattr(
+            self.execution_ledger, "autoresolve_explicit_no_order_rejections", None
+        )
+        if callable(resolve_explicit):
+            explicit = resolve_explicit()
+            stats["intent_autoresolved"] = int(explicit["resolved"])
+            stats["explicit_rejections_checked"] = int(explicit["checked"])
+            stats["intents_without_rejection_proof"] = int(explicit["not_proven"])
+            if explicit["resolved"]:
+                logger.warning(
+                    "명시적 거래소 거절 증거로 intent %s건 해제; "
+                    "증거 불충분 %s건은 그대로 보존",
+                    explicit["resolved"], explicit["not_proven"],
+                )
 
         from py_clob_client_v2 import OpenOrderParams, TradeParams
 
