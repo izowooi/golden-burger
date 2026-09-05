@@ -7,6 +7,7 @@ import json
 import logging
 from pathlib import Path
 import sys
+import time
 
 from . import RUNTIME_JOB
 from .analyzer import analyze_shadow_database, parse_utc
@@ -14,6 +15,10 @@ from .config import PROJECT_ROOT, load_shadow_config
 from .db import ShadowRepository
 from .runtime import ShadowRuntime
 from .safety import assert_shadow_boundary
+
+
+class UTCFormatter(logging.Formatter):
+    converter = time.gmtime
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -42,9 +47,11 @@ def shadow_main(arguments: list[str]) -> int:
         print(json.dumps(config.evidence_dict(), indent=2, sort_keys=True))
         return 0
     if args.command == "run":
+        handler = logging.StreamHandler()
+        handler.setFormatter(UTCFormatter("%(asctime)sZ %(levelname)s %(message)s"))
         logging.basicConfig(
             level=logging.DEBUG if args.verbose else logging.INFO,
-            format="%(asctime)sZ %(levelname)s %(message)s",
+            handlers=[handler],
             force=True,
         )
         print(json.dumps(ShadowRuntime(config).run(), sort_keys=True))

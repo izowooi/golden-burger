@@ -695,3 +695,14 @@ def test_maintenance_doc_is_in_source_manifest_and_preregistration_unchanged():
     assert verify_preregistration() == (
         "72d87684fa9ec7145b64fb8614afee60c9a7391a518bd0a867df7d19c9f95ee7"
     )
+
+
+def test_shadow_console_z_suffix_is_utc_not_machine_local_time():
+    import logging
+    import time
+    from polybot.shadow.cli import UTCFormatter
+    formatter = UTCFormatter("%(asctime)sZ %(message)s")
+    record = logging.LogRecord("test", logging.INFO, "test", 1, "probe", (), None)
+    record.created = 0; record.msecs = 0
+    assert formatter.converter is time.gmtime
+    assert formatter.format(record) == "1970-01-01 00:00:00,000Z probe"

@@ -17,6 +17,10 @@ quick_check 하나라고 확정한 것은 아니다.** #308의 B-tree 순회/pre
 이 중단은 이미 남겨진 수집 SUCCEEDED를 FAILED로 소급 변경하지 않는다.
 새 단계 로그와 Jenkins 전체 duration을 함께 확인해야 지연 위치를 구분할 수 있다.
 
+배포309에서 기존 console formatter가 로컬 KST에 `Z`를 붙이는 별도 표기 오류도 확인했다.
+Shadow 전용 formatter를 UTC로 고정한다. 과거 로그·DB 시각은 소급 변경하지 않으며,
+309까지의 console asctime은 Mac mini의 KST로 해석한다. DB의 UTC 시각과 혼합하지 않는다.
+
 ## 주기 실행의 제한된 무결성 검사
 
 사전등록 원문의 “SQLite integrity probe” 계약을 다음 범위로 구현한다.
