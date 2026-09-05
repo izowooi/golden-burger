@@ -14,7 +14,7 @@ from uuid import uuid4
 
 from . import DATA_CONTRACT
 from .config import ShadowConfig, canonical_json
-from .transport import iso_utc
+from .transport import CollectionBudgetExceeded, CollectionDeadline, iso_utc
 
 
 SCHEMA = """
@@ -352,6 +352,17 @@ _IMMUTABLE_TABLES = (
     "shadow_data_quality_issues",
 )
 
+# Deliberately excludes growing raw payload, market, membership and path tables.
+# This is a partial probe, not evidence that the entire database passed a check.
+INTEGRITY_PROBE_TABLES = (
+    "shadow_schema_metadata",
+    "shadow_config_versions",
+    "shadow_run_events",
+    "shadow_market_sweeps",
+    "shadow_episodes",
+    "shadow_episode_policies",
+)
+
 
 class ShadowRepository:
     def __init__(self, db_path: str | Path, config: ShadowConfig) -> None:
@@ -379,25 +390,52 @@ class ShadowRepository:
                     )
 
     @contextmanager
-    def connect(self, *, read_only: bool = False) -> Iterator[sqlite3.Connection]:
+    def connect(
+        self, *, read_only: bool = False,
+        deadline: CollectionDeadline | None = None,
+    ) -> Iterator[sqlite3.Connection]:
+        timeout = min(30.0, deadline.require()) if deadline else 30.0
         if read_only:
             uri = f"file:{self.db_path}?mode=ro"
-            connection = sqlite3.connect(uri, uri=True, timeout=30)
-            connection.execute("PRAGMA query_only=ON")
+            connection = sqlite3.connect(uri, uri=True, timeout=timeout)
         else:
-            connection = sqlite3.connect(self.db_path, timeout=30)
+            connection = sqlite3.connect(self.db_path, timeout=timeout)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA foreign_keys=ON")
-        connection.execute("PRAGMA busy_timeout=30000")
+
+        def interrupt_on_budget() -> int:
+            try:
+                deadline.require()
+            except CollectionBudgetExceeded:
+                return 1
+            return 0
+
         try:
+            if deadline:
+                connection.set_progress_handler(interrupt_on_budget, 1000)
+            if read_only:
+                connection.execute("PRAGMA query_only=ON")
+            connection.execute("PRAGMA foreign_keys=ON")
+            connection.execute(f"PRAGMA busy_timeout={int(timeout * 1000)}")
             yield connection
+            if deadline:
+                deadline.require()
             if not read_only:
                 connection.commit()
+        except sqlite3.DatabaseError:
+            connection.set_progress_handler(None, 0)
+            if not read_only:
+                connection.rollback()
+            if deadline:
+                deadline.require()
+            raise
         except BaseException:
+            connection.set_progress_handler(None, 0)
             if not read_only:
                 connection.rollback()
             raise
         finally:
+            if deadline:
+                connection.set_progress_handler(None, 0)
             connection.close()
 
     def record_config(self) -> None:
@@ -431,9 +469,10 @@ class ShadowRepository:
                 raise RuntimeError("immutable shadow config evidence mismatch")
 
     def record_run_event(
-        self, run_id: str, event_type: str, detail: Mapping[str, Any] | None = None
+        self, run_id: str, event_type: str, detail: Mapping[str, Any] | None = None,
+        *, deadline: CollectionDeadline | None = None,
     ) -> None:
-        with self.connect() as connection:
+        with self.connect(deadline=deadline) as connection:
             connection.execute(
                 """
                 INSERT INTO shadow_run_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -570,7 +609,48 @@ class ShadowRepository:
             for table in order:
                 self._insert_rows(connection, table, bundle.get(table, ()))
 
+    def integrity_probe(self, deadline: CollectionDeadline) -> dict[str, Any]:
+        """Check the small control plane within the cooperative cycle deadline.
+
+        SQLite VM interruption does not preempt a kernel disk read. Small table
+        scope limits I/O; the post-statement checks refuse late success as well.
+        Full-file/freelist, raw evidence and historical FK checks remain maintenance.
+        """
+        deadline.require()
+        if sqlite3.sqlite_version_info < (3, 33, 0):
+            raise RuntimeError("shadow integrity probe requires SQLite >= 3.33.0")
+        started = deadline.elapsed_seconds
+        table_results = {}
+        with self.connect(read_only=True, deadline=deadline) as connection:
+            # Do not spend the remaining cycle waiting for another DB writer.
+            connection.execute("PRAGMA busy_timeout=0")
+            foreign_keys = connection.execute("PRAGMA foreign_keys").fetchone()
+            if foreign_keys is None or foreign_keys[0] != 1:
+                raise RuntimeError("shadow integrity probe: foreign_keys is not enabled")
+            for table in INTEGRITY_PROBE_TABLES:
+                deadline.require()
+                identity = connection.execute(
+                    "SELECT type FROM sqlite_master WHERE name = ?", (table,)
+                ).fetchone()
+                if identity is None or identity[0] != "table":
+                    raise RuntimeError(f"shadow integrity probe: missing table {table}")
+                rows = connection.execute(f"PRAGMA main.quick_check('{table}')").fetchall()
+                deadline.require()
+                if [row[0] for row in rows] != ["ok"]:
+                    raise RuntimeError(f"shadow integrity probe failed for {table}")
+                table_results[table] = "ok"
+        deadline.require()
+        return {
+            "status": "ok",
+            "scope": "control_tables_partial_quick_check_v1",
+            "tables": table_results,
+            "foreign_keys_enabled": True,
+            "historical_foreign_key_check": "not_run",
+            "elapsed_seconds": round(deadline.elapsed_seconds - started, 3),
+        }
+
     def quick_check(self) -> str:
+        """Explicit full-database maintenance check; never run each collection cycle."""
         with self.connect(read_only=True) as connection:
             return str(connection.execute("PRAGMA quick_check").fetchone()[0])
 

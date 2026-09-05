@@ -46,12 +46,16 @@ class ShadowRuntime:
                     "owner_pid": run_lock.owner.get("pid"),
                     "owner_acquired_at": run_lock.owner.get("acquired_at"),
                 }
+            deadline = CollectionDeadline(self.config.collection_budget_seconds)
+            logger.info("Cherry shadow phase=repository_init started")
             repository = ShadowRepository(self.config.db_path, self.config)
             repository.record_config()
             run_id = uuid4().hex
             repository.record_run_event(run_id, "STARTED")
-            deadline = CollectionDeadline(self.config.collection_budget_seconds)
+            phase = "collection"
             try:
+                deadline.require()
+                logger.info("Cherry shadow phase=collection started elapsed=%.3fs", deadline.elapsed_seconds)
                 transport = PublicGetTransport(
                     self.config.transport,
                     deadline,
@@ -64,14 +68,22 @@ class ShadowRuntime:
                     ShadowClobClient(self.config.clob, transport),
                     deadline,
                 ).collect(run_id, now=current)
-                quick_check = repository.quick_check()
-                if quick_check != "ok":
-                    raise RuntimeError(f"shadow DB quick_check failed: {quick_check}")
-                result["quick_check"] = quick_check
+                deadline.require()
+                phase = "integrity_probe"
+                logger.info("Cherry shadow phase=integrity_probe started elapsed=%.3fs", deadline.elapsed_seconds)
+                probe = repository.integrity_probe(deadline)
+                if probe.get("status") != "ok":
+                    raise RuntimeError("shadow DB integrity probe failed")
+                result["integrity_probe"] = probe
+                result["full_quick_check"] = "not_run_periodic_use_maintenance"
                 result["config_hash"] = self.config.config_hash
                 result["strategy_source_digest"] = self.config.strategy_source_digest
                 result["preregistration_sha256"] = self.config.preregistration_sha256
-                repository.record_run_event(run_id, "SUCCEEDED", result)
+                phase = "success_publication"
+                deadline.require()
+                result["run_elapsed_seconds"] = round(deadline.elapsed_seconds, 3)
+                repository.record_run_event(run_id, "SUCCEEDED", result, deadline=deadline)
+                logger.info("Cherry shadow phase=complete elapsed=%.3fs", deadline.elapsed_seconds)
                 return {"run_id": run_id, **result}
             except BaseException as error:
                 repository.record_run_event(
@@ -81,6 +93,7 @@ class ShadowRuntime:
                         "error_type": type(error).__name__,
                         "error_message": " ".join(str(error).splitlines())[:1000],
                         "elapsed_seconds": round(deadline.elapsed_seconds, 3),
+                        "phase": phase,
                     },
                 )
                 logger.exception("Cherry shadow collection failed")

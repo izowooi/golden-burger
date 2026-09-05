@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 from datetime import datetime, timezone
+from contextlib import contextmanager
+import hashlib
 import json
 from pathlib import Path
 import sqlite3
@@ -13,7 +15,7 @@ from polybot.shadow.analyzer import analyze_shadow_database
 from polybot.shadow.clients import BookRead, GammaPage, GammaSweep, ResolutionRead
 from polybot.shadow.collector import ShadowCollector
 from polybot.shadow.config import load_shadow_config
-from polybot.shadow.db import ShadowRepository
+from polybot.shadow.db import INTEGRITY_PROBE_TABLES, ShadowRepository
 from polybot.shadow.safety import assert_shadow_boundary
 from polybot.shadow.transport import CollectionBudgetExceeded, CollectionDeadline
 
@@ -470,3 +472,226 @@ def test_shadow_runtime_busy_lock_skips_before_database_or_network(
     assert result["skipped"] is True
     assert result["reason"] == "shadow_db_process_lock_busy"
     assert not config.db_path.exists()
+
+
+def _stub_runtime_collector(monkeypatch, result=None):
+    import polybot.shadow.runtime as runtime_module
+
+    monkeypatch.setattr(
+        runtime_module.ShadowCollector, "collect",
+        lambda *args, **kwargs: dict(result or {"elapsed_seconds": 1.0}),
+    )
+    return runtime_module
+
+
+def _run_event_counts(repository):
+    with repository.connect(read_only=True) as connection:
+        return dict(connection.execute(
+            "SELECT event_type, COUNT(*) FROM shadow_run_events GROUP BY event_type"
+        ).fetchall())
+
+
+def _damage_test_table_page(db_path, table):
+    """Damage only a pytest temporary fixture, never an existing evidence DB."""
+    with sqlite3.connect(db_path) as connection:
+        page_size = connection.execute("PRAGMA page_size").fetchone()[0]
+        root_page = connection.execute(
+            "SELECT rootpage FROM sqlite_master WHERE name=?", (table,)
+        ).fetchone()[0]
+    assert root_page > 1
+    with db_path.open("r+b") as handle:
+        handle.seek((root_page - 1) * page_size)
+        handle.write(b"\x00")  # Invalid B-tree page type.
+
+
+def test_periodic_probe_is_partial_read_only_and_preserves_database(tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    repository.record_config()
+    repository.record_run_event("probe-test", "STARTED")
+    before = hashlib.sha256(config.db_path.read_bytes()).hexdigest()
+
+    result = repository.integrity_probe(CollectionDeadline(240))
+
+    assert result["status"] == "ok"
+    assert result["scope"] == "control_tables_partial_quick_check_v1"
+    assert result["tables"] == dict.fromkeys(INTEGRITY_PROBE_TABLES, "ok")
+    assert result["foreign_keys_enabled"] is True
+    assert result["historical_foreign_key_check"] == "not_run"
+    assert "shadow_raw_payloads" not in result["tables"]
+    assert hashlib.sha256(config.db_path.read_bytes()).hexdigest() == before
+
+
+def test_periodic_runtime_no_longer_calls_full_check(monkeypatch, tmp_path):
+    runtime_module = _stub_runtime_collector(monkeypatch)
+    config = _config(tmp_path)
+    monkeypatch.setattr(ShadowRepository, "quick_check", lambda self: pytest.fail(
+        "full DB check is maintenance only"
+    ))
+
+    result = runtime_module.ShadowRuntime(config).run(now=NOW)
+
+    assert result["integrity_probe"]["status"] == "ok"
+    assert result["full_quick_check"] == "not_run_periodic_use_maintenance"
+    assert "quick_check" not in result
+    assert "run_elapsed_seconds" in result
+    assert result["elapsed_seconds"] == 1.0
+    repository = ShadowRepository(config.db_path, config)
+    assert _run_event_counts(repository) == {"STARTED": 1, "SUCCEEDED": 1}
+    with repository.connect(read_only=True) as connection:
+        persisted = json.loads(connection.execute(
+            "SELECT detail_json FROM shadow_run_events WHERE event_type='SUCCEEDED'"
+        ).fetchone()[0])
+    assert persisted["integrity_probe"] == result["integrity_probe"]
+    assert persisted["full_quick_check"] == result["full_quick_check"]
+
+
+def test_actual_damaged_control_table_fails_probe(monkeypatch, tmp_path):
+    runtime_module = _stub_runtime_collector(monkeypatch)
+    config = _config(tmp_path)
+    original_collect = runtime_module.ShadowCollector.collect
+
+    def corrupt_test_fixture(collector, *args, **kwargs):
+        _damage_test_table_page(config.db_path, "shadow_episode_policies")
+        return original_collect(collector, *args, **kwargs)
+
+    monkeypatch.setattr(runtime_module.ShadowCollector, "collect", corrupt_test_fixture)
+    with pytest.raises((RuntimeError, sqlite3.DatabaseError)):
+        runtime_module.ShadowRuntime(config).run(now=NOW)
+    assert _run_event_counts(ShadowRepository(config.db_path, config)) == {
+        "FAILED": 1, "STARTED": 1,
+    }
+
+
+def test_probe_fails_on_missing_table(tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    with repository.connect() as connection:
+        connection.execute("DROP TABLE shadow_run_events")
+    with pytest.raises(RuntimeError, match="missing table shadow_run_events"):
+        repository.integrity_probe(CollectionDeadline(240))
+
+
+def test_probe_fails_when_foreign_keys_not_enabled(monkeypatch, tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    original_connect = repository.connect
+
+    @contextmanager
+    def foreign_keys_disabled(**kwargs):
+        with original_connect(**kwargs) as connection:
+            connection.execute("PRAGMA foreign_keys=OFF")
+            yield connection
+
+    monkeypatch.setattr(repository, "connect", foreign_keys_disabled)
+    with pytest.raises(RuntimeError, match="foreign_keys is not enabled"):
+        repository.integrity_probe(CollectionDeadline(240))
+
+
+@pytest.mark.parametrize("expires_after", ["collection", "probe", "success_insert"])
+def test_late_runtime_never_publishes_success(monkeypatch, tmp_path, expires_after):
+    runtime_module = _stub_runtime_collector(monkeypatch)
+    config = _config(tmp_path)
+    clock = [0.0]
+    deadline = CollectionDeadline(240, monotonic=lambda: clock[0])
+    monkeypatch.setattr(runtime_module, "CollectionDeadline", lambda budget: deadline)
+
+    if expires_after == "collection":
+        def late_collection(*args, **kwargs):
+            clock[0] = 241.0
+            return {"elapsed_seconds": 241.0}
+        monkeypatch.setattr(runtime_module.ShadowCollector, "collect", late_collection)
+    elif expires_after == "probe":
+        original_probe = ShadowRepository.integrity_probe
+        def late_probe(self, deadline):
+            result = original_probe(self, deadline)
+            clock[0] = 241.0
+            return result
+        monkeypatch.setattr(ShadowRepository, "integrity_probe", late_probe)
+    else:
+        original_connect = ShadowRepository.connect
+        @contextmanager
+        def expires_during_success(self, **kwargs):
+            with original_connect(self, **kwargs) as connection:
+                if kwargs.get("deadline") and not kwargs.get("read_only"):
+                    connection.set_trace_callback(
+                        lambda sql: clock.__setitem__(0, 241.0)
+                        if "INSERT INTO shadow_run_events" in sql else None
+                    )
+                yield connection
+        monkeypatch.setattr(ShadowRepository, "connect", expires_during_success)
+
+    with pytest.raises(CollectionBudgetExceeded):
+        runtime_module.ShadowRuntime(config).run(now=NOW)
+    assert _run_event_counts(ShadowRepository(config.db_path, config)) == {
+        "FAILED": 1, "STARTED": 1,
+    }
+
+
+def test_probe_rejects_expired_deadline_before_opening_db(monkeypatch, tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    clock = [0.0]
+    deadline = CollectionDeadline(240, monotonic=lambda: clock[0])
+    clock[0] = 241.0
+    monkeypatch.setattr(repository, "connect", lambda **kwargs: pytest.fail(
+        "expired probe must not open DB"
+    ))
+    with pytest.raises(CollectionBudgetExceeded):
+        repository.integrity_probe(deadline)
+
+
+def test_sqlite_vm_progress_is_interrupted_on_deadline(tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    clock = [0.0]
+    deadline = CollectionDeadline(240, monotonic=lambda: clock[0])
+    with pytest.raises(CollectionBudgetExceeded):
+        with repository.connect(read_only=True, deadline=deadline) as connection:
+            connection.set_trace_callback(lambda sql: clock.__setitem__(0, 241.0))
+            connection.execute(
+                "WITH RECURSIVE counter(x) AS (SELECT 1 UNION ALL "
+                "SELECT x+1 FROM counter WHERE x<100000) SELECT SUM(x) FROM counter"
+            ).fetchone()
+
+
+def test_expired_write_allows_complete_rollback(tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    with repository.connect() as connection:
+        connection.execute("CREATE TABLE rollback_probe(value INTEGER)")
+    clock = [0.0]
+    deadline = CollectionDeadline(240, monotonic=lambda: clock[0])
+    def advance(value):
+        clock[0] += 1
+        return value
+    with pytest.raises(CollectionBudgetExceeded):
+        with repository.connect(deadline=deadline) as connection:
+            connection.create_function("advance", 1, advance)
+            connection.executemany("INSERT INTO rollback_probe VALUES(advance(?))",
+                                   ((i,) for i in range(100000)))
+    with repository.connect(read_only=True) as connection:
+        assert connection.execute("SELECT count(*) FROM rollback_probe").fetchone()[0] == 0
+
+
+def test_full_status_and_analyzer_still_detect_damage_outside_probe(tmp_path):
+    config = _config(tmp_path)
+    repository = ShadowRepository(config.db_path, config)
+    assert repository.summary()["quick_check"] == "ok"
+    _damage_test_table_page(config.db_path, "shadow_api_attempts")
+    assert repository.integrity_probe(CollectionDeadline(240))["status"] == "ok"
+    with pytest.raises(sqlite3.DatabaseError, match="malformed"):
+        repository.summary()
+    with pytest.raises(sqlite3.DatabaseError, match="malformed"):
+        analyze_shadow_database(
+            config.db_path, start=NOW, end=datetime(2026, 9, 7, tzinfo=timezone.utc),
+        )
+
+
+def test_maintenance_doc_is_in_source_manifest_and_preregistration_unchanged():
+    from polybot.shadow.source_digest import SOURCE_PATHS, verify_preregistration
+
+    assert "docs/CHERRY_SHADOW_INTEGRITY_MAINTENANCE_2026-09-06.md" in SOURCE_PATHS
+    assert verify_preregistration() == (
+        "72d87684fa9ec7145b64fb8614afee60c9a7391a518bd0a867df7d19c9f95ee7"
+    )

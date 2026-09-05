@@ -17,6 +17,7 @@ SOURCE_PATHS = (
     "main.py",
     "shadow_config.yaml",
     PREREGISTRATION_PATH,
+    "docs/CHERRY_SHADOW_INTEGRITY_MAINTENANCE_2026-09-06.md",
     "src/polybot/main.py",
     "src/polybot/utils/process_lock.py",
     "src/polybot/shadow/__init__.py",
