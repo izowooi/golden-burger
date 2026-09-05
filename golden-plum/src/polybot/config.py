@@ -796,6 +796,7 @@ class TradingConfig:
     max_emergency_sells_per_cycle: int = 10
     experiment_capital_usdc: float = 50.0
     max_drawdown_stop: float = 0.20
+    drawdown_guard_enabled: bool = True
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 2.0
     fok_reconciliation_timeout_minutes: float = 2.0
@@ -1008,6 +1009,10 @@ def _validate_config(
         raise ValueError("experiment capital is frozen at $50 requested exposure")
     if trading.max_drawdown_stop != 0.20:
         raise ValueError("economic drawdown entry guard is frozen at 20%")
+    if not isinstance(trading.drawdown_guard_enabled, bool):
+        raise ValueError("drawdown_guard_enabled must be a boolean")
+    if not trading.drawdown_guard_enabled and job_name != "plum-live-queen-mlb-95-1m-v1":
+        raise ValueError("loss-guard opt-out is explicitly approved only for Queen MLB")
     if trading.max_event_positions > trading.max_positions:
         raise ValueError("max_event_positions must be <= max_positions")
     if trading.reentry_cooldown_hours != 720:
@@ -1312,6 +1317,11 @@ def load_config(
             "POLYBOT_MAX_DRAWDOWN_STOP",
             trading_cfg.get("max_drawdown_stop"),
             0.20,
+        ),
+        drawdown_guard_enabled=_get_bool_config_value(
+            "POLYBOT_DRAWDOWN_GUARD_ENABLED",
+            trading_cfg.get("drawdown_guard_enabled"),
+            True,
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",

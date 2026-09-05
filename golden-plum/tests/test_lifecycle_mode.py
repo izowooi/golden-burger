@@ -591,6 +591,8 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
     stats = bot.run_cycle()
 
     assert stats["drawdown_guard"] == {
+        "enabled": True,
+        "threshold_breached": True,
         "triggered": True,
         "economic_pnl": -10.0,
         "confirmed_sell_pnl": -4.0,

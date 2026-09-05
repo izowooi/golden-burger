@@ -121,7 +121,7 @@ class PolymarketBot:
             "execution - FOK BUY; absolute TP=%.2f, SL=entry-%.2f, "
             "time exit=disabled; stop spread<=%.2f; "
             "adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
-            "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
+            "emergency_sells_per_cycle=%s drawdown_threshold=-$%.2f guard_enabled=%s",
             entry.trend_observations,
             entry.trend_min_cumulative_move,
             entry.trend_max_pullback,
@@ -135,6 +135,7 @@ class PolymarketBot:
             trading.max_new_positions_per_cycle,
             trading.max_emergency_sells_per_cycle,
             trading.experiment_capital_usdc * trading.max_drawdown_stop,
+            trading.drawdown_guard_enabled,
         )
         logger.info(
             "order failure containment - BUY/SELL uncertainty is event-local; "
@@ -340,8 +341,14 @@ class PolymarketBot:
                     trading.experiment_capital_usdc * trading.max_drawdown_stop
                 )
                 observed_drawdown = economic_pnl <= -drawdown_limit + 1e-9
-                drawdown_triggered = observed_drawdown and not self.config.simulation_mode
+                drawdown_triggered = (
+                    observed_drawdown
+                    and trading.drawdown_guard_enabled
+                    and not self.config.simulation_mode
+                )
                 stats["drawdown_guard"] = {
+                    "enabled": trading.drawdown_guard_enabled,
+                    "threshold_breached": observed_drawdown,
                     "triggered": drawdown_triggered,
                     "economic_pnl": economic_pnl,
                     "confirmed_sell_pnl": realized_pnl,
@@ -803,6 +810,7 @@ class PolymarketBot:
                     ),
                     "experiment_capital_usdc": trading.experiment_capital_usdc,
                     "max_drawdown_stop": trading.max_drawdown_stop,
+                    "drawdown_guard_enabled": trading.drawdown_guard_enabled,
                     "reentry_cooldown_hours": trading.reentry_cooldown_hours,
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
                     "fok_reconciliation_timeout_minutes": (
