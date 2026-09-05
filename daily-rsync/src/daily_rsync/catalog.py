@@ -79,6 +79,8 @@ class Catalog:
                     ON artifacts(jenkins_job, strategy, kind);
                 CREATE INDEX IF NOT EXISTS artifacts_source_job_strategy_idx
                     ON artifacts(source, jenkins_job, strategy, kind);
+                CREATE INDEX IF NOT EXISTS artifacts_local_path_idx
+                    ON artifacts(local_path);
 
                 CREATE TABLE IF NOT EXISTS sync_runs (
                     run_id TEXT PRIMARY KEY,

@@ -1,8 +1,13 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
+
+import pytest
 
 from daily_rsync.catalog import Catalog
 from daily_rsync.models import RemoteArtifact, artifact_source_key
@@ -43,6 +48,98 @@ def test_catalog_detects_unchanged_artifact(tmp_path: Path) -> None:
     )
     assert len(rows) == 1
     assert rows[0]["runtime_job"] == "queen-live-12h"
+
+
+def test_catalog_adds_destination_index_without_losing_collision_evidence(tmp_path: Path) -> None:
+    path = tmp_path / "catalog.sqlite3"
+    catalog = Catalog(path)
+    local = tmp_path / "local.log"
+    old = artifact(local)
+    moved = replace(old, remote_path="/moved/20260729.log")
+    for item in (old, moved):
+        catalog.upsert_artifact(
+            item, source=item.source, local_path=local, local_sha256="digest"
+        )
+    catalog.add_pin(
+        pin_id="preserve-pin", source_key=old.source_key, pinned_path=local, manifest={}
+    )
+    catalog.record_conflict(
+        conflict_type="SOURCE_PATH_COLLISION",
+        source=moved.source,
+        artifact=moved,
+        local_path=local,
+        existing=catalog.get_artifact(old.source_key),
+    )
+    tables = ("artifacts", "pins", "artifact_conflicts", "catalog_meta")
+    with catalog.connect() as connection:
+        # Simulate a populated v4 catalog created before the index existed.
+        connection.execute("DROP INDEX IF EXISTS artifacts_local_path_idx")
+        before = {
+            table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in tables
+        }
+
+    Catalog(path)
+    reopened = Catalog(path)  # Bootstrap must also be idempotent.
+
+    with reopened.connect() as connection:
+        after = {
+            table: connection.execute(f"SELECT * FROM {table} ORDER BY 1").fetchall()
+            for table in tables
+        }
+        indexes = {row["name"]: row for row in connection.execute("PRAGMA index_list(artifacts)")}
+    assert after == before
+    assert indexes["artifacts_local_path_idx"]["unique"] == 0
+    conflict = reopened.destination_conflict(artifact=moved, local_path=local)
+    assert conflict is not None
+    assert conflict["source_key"] == old.source_key
+    assert local.read_text(encoding="utf-8") == "hello"
+
+
+def test_destination_conflict_lookup_does_not_scan_unrelated_artifacts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    catalog = Catalog(tmp_path / "catalog.sqlite3")
+    local = tmp_path / "local.log"
+    old = artifact(local)
+    moved = replace(old, remote_path="/moved/20260729.log")
+    catalog.upsert_artifact(old, source=old.source, local_path=local, local_sha256="digest")
+    with catalog.connect() as connection:
+        connection.executemany(
+            """
+            INSERT INTO artifacts(
+                source_key, source, jenkins_job, kind, remote_path,
+                remote_size_bytes, remote_mtime_ns, local_path, status
+            ) VALUES (?, 'macmini', 'polybot-king', 'bot_log', ?, 5, 100, ?, 'SYNCED')
+            """,
+            (
+                (f"unrelated-{i}", f"/remote/{i}.log", str(tmp_path / f"{i}.log"))
+                for i in range(2000)
+            ),
+        )
+
+    connect = catalog.connect
+
+    @contextmanager
+    def bounded_connect() -> Iterator[sqlite3.Connection]:
+        with connect() as connection:
+            steps = 0
+
+            def limit_scan() -> int:
+                nonlocal steps
+                steps += 100
+                return int(steps >= 1000)
+
+            # Deterministic query-work budget, independent of machine speed.
+            connection.set_progress_handler(limit_scan, 100)
+            yield connection
+
+    monkeypatch.setattr(catalog, "connect", bounded_connect)
+    assert catalog.destination_conflict(artifact=moved, local_path=tmp_path / "new.log") is None
+    assert catalog.destination_conflict(artifact=old, local_path=local) is None
+    conflict = catalog.destination_conflict(artifact=moved, local_path=local)
+    assert conflict is not None
+    assert conflict["source_key"] == old.source_key
 
 
 def test_remote_console_retention_preserves_existing_local_evidence(
