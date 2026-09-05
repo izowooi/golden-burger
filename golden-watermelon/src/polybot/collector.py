@@ -40,6 +40,12 @@ MAX_IN_PLAY_HOURS = {
     "nfl": 6.0,
     "nhl": 5.0,
 }
+_SERIES_WINNER_MARKET = re.compile(
+    r"\bseries winner\b|\bworld series(?: \d{4})? (?:winner|champion)\b|"
+    r"\b(?:win|wins|winner of) (?:the )?(?:\d{4} )?world series\b"
+    r"(?!\s+(?:game|match)\s*[1-7]\b)",
+    re.IGNORECASE,
+)
 _NON_WHOLE_GAME_MARKET = re.compile(
     r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th)\s+"
     r"(?:half|quarter|period|inning)|\b(?:spread|handicap|total|over/under|"
@@ -452,6 +458,8 @@ def classify_match_winner(
         _normalized_name(market.get(field))
         for field in ("groupItemTitle", "question", "slug")
     )
+    if _SERIES_WINNER_MARKET.search(identity_text):
+        reasons.append("SERIES_WINNER_NOT_INDIVIDUAL_GAME")
     if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
         reasons.append("DRAW_NO_BET_EXCLUDED")
     if _NON_WHOLE_GAME_MARKET.search(identity_text):

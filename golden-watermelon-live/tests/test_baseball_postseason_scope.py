@@ -54,10 +54,11 @@ def test_series_winner_text_is_rejected_without_future_flag(question):
     assert client.get_all_tradable_markets(5000, 5000) == []
 
 
-def test_win_world_series_game_wording_remains_an_individual_game():
+@pytest.mark.parametrize('game', ['Game 1', 'Game1', 'Game 7'])
+def test_win_world_series_game_wording_remains_an_individual_game(game):
     market = _market('world-series-game-7')
     event = _direct_sport_event('mlb', [market], postseason=True)
-    market['question'] = 'Will Home Club win the World Series Game 7?'
+    market['question'] = f'Will Home Club win the World Series {game}?'
     client = GammaClient(sport_family='mlb')
     client.session = _Session([{'events': [event]}])
     assert len(client.get_all_tradable_markets(5000, 5000)) == 1

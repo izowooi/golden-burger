@@ -20,10 +20,11 @@ def test_world_series_whole_game_accepts_root_and_season_identity(postseason):
     assert observed[0]["sportFamily"] == "mlb"
 
 
-def test_win_world_series_game_wording_is_not_a_series_winner():
+@pytest.mark.parametrize('game', ['Game1', 'Game 7'])
+def test_win_world_series_game_wording_is_not_a_series_winner(game):
     market = _market("world-series-game-7")
     event = _direct_sport_event("mlb", [market], postseason=True)
-    market["question"] = "Will Home Club win the World Series Game 7?"
+    market["question"] = f"Will Home Club win the World Series {game}?"
     client = GammaClient(sport_family="mlb")
     client.session = _Session([{"events": [event]}])
     assert len(client.get_all_tradable_markets(0, 0)) == 1

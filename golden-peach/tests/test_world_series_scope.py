@@ -27,6 +27,7 @@ def _collect(*, question, is_future=None, team_league="mlb", root_series=3):
 def test_world_series_individual_game_is_eligible_with_exact_mlb_identity():
     assert len(_collect(question="Home Club vs Away Club (World Series Game 1)")) == 1
     assert len(_collect(question="Will Home Club win the World Series Game 1?")) == 1
+    assert len(_collect(question="Will Home Club win the World Series Game1?")) == 1
 
 
 def test_explicit_world_series_future_is_rejected():
