@@ -12,6 +12,15 @@ REGULATION_SCOPE_CLAUSE = (
     "this market refers only to the outcome within the first 90 minutes "
     "of regular play plus stoppage time"
 )
+# A best-of-series winner is not the result of the currently live MLB game.
+# Keep explicit "World Series Game N" moneylines eligible even if a vendor
+# omits/mislabels its future flag; title text can reject, never grant identity.
+_SERIES_WINNER_MARKET = re.compile(
+    r"\bseries winner\b|\bworld series(?: \d{4})? (?:winner|champion)\b|"
+    r"\b(?:win|wins|winner of) (?:the )?(?:\d{4} )?world series\b"
+    r"(?!\s+(?:game|match)\s+\d\b)",
+    re.IGNORECASE,
+)
 _NON_WHOLE_GAME_MARKET = re.compile(
     r"\b(?:first|1st|second|2nd|third|3rd|fourth|4th)\s+"
     r"(?:half|quarter|period|inning)|\b(?:spread|handicap|total|over/under|"
@@ -216,6 +225,8 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
         _normalized_name(market.get(field))
         for field in ("groupItemTitle", "question", "slug")
     )
+    if _SERIES_WINNER_MARKET.search(identity_text):
+        return "series_winner_not_individual_game", None
     if "draw no bet" in identity_text or re.search(r"\bdnb\b", identity_text):
         return "draw_no_bet_excluded", None
     if _NON_WHOLE_GAME_MARKET.search(identity_text) or re.search(r"\bdnb\b", identity_text):
