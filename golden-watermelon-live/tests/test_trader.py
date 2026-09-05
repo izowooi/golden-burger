@@ -1092,6 +1092,35 @@ def test_sell_budget_does_not_skip_a_recovered_holding(monkeypatch) -> None:
     assert trader.emergency_sell_guard_blocks == 0
 
 
+def test_unknown_sell_response_is_pending_not_a_retryable_rejection(monkeypatch):
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+
+    def unknown_post(**order):
+        clob.orders.append(order)
+        return {"success": False, "submission_outcome_unknown": True}
+
+    clob.place_limit_order = unknown_post
+    trader = Trader(
+        repo, clob, TradingConfig(), gamma_client=_active_gamma(), simulation_mode=False
+    )
+    trade = SimpleNamespace(
+        id=9, condition_id="condition-1", event_id="event-1",
+        token_id="own-db-token", outcome="Yes", buy_shares=5.102,
+        buy_price=0.98, stop_price_at_entry=0.70,
+    )
+    assert trader.execute_sell(trade) is False
+    pending = repo.updated[-1][1]
+    assert pending["status"] is TradeStatus.PENDING_SELL
+    assert pending["sell_order_id"] is None
+    assert pending["sell_timestamp"] == NOW.replace(tzinfo=None)
+    assert pending["sell_confirmed_size"] is None
+    assert pending["exit_reason"] == "stop_sell_submission_outcome_unknown"
+    assert trader.emergency_sell_submissions == 1
+    assert trader.execute_sell(trade) is False
+    assert len(clob.orders) == 1
+
+
 def test_sdk_sell_submission_nudge_survives_binary_float_double_floor() -> None:
     sellable = trader_module._sdk_sellable_shares(5.102)
     submission = trader_module._sdk_sell_submission_shares(sellable)

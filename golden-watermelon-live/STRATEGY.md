@@ -49,6 +49,8 @@ account/event/cycle capacity는 `20/1/5`, 현재 cycle 신규 목표 원금은 �
 방향 불명 대사 오류, 일반 `QUARANTINED`, open BUY fill/fee 또는 경제손익 증거 공백은 전역 차단한다.
 SELL-only intent·대사 실패는 동일 token/event에만 격리하고 다른 event의 신규 BUY는 계속한다.
 bot DB가 만든 Trade만 관리한다.
+SELL POST의 HTTP 오류로 결과가 불명확하면 주문 ID가 없어도 `PENDING_SELL`에 연결한다.
+이를 확정 거절로 처리하거나 가격 회복을 이유로 실패 기준시각을 지우지 않는다.
 
 ## Stop, gap과 resolution
 

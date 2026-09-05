@@ -1842,7 +1842,23 @@ class Trader:
                 order_type="FOK",
             )
         except SubmissionEvidenceError as error:
+            self.emergency_sell_submissions += 1
             self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            return False
+        if result.get("submission_outcome_unknown"):
+            # A timeout is not a proven rejection. Keep the exposure pending
+            # before a recovered price can clear the continuous-failure clock.
+            self.emergency_sell_submissions += 1
+            self._bind_uncertain_sell_submission(
+                trade,
+                result=result,
+                walk=walk,
+                best_bid=best_bid,
+                best_ask=best_ask,
+                spread=spread,
+                sell_shares=None,
+                reason="stop_sell_submission_outcome_unknown",
+            )
             return False
         accepted = bool(result.get("success") or result.get("orderID"))
         try:
