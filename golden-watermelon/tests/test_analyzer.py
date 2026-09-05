@@ -148,6 +148,8 @@ def add_winning_episode(
     classifier_version: str = CLASSIFIER_VERSION,
     mapping_sha256: str = LEAGUE_MAPPING_SHA256,
     episode_key_suffix: str | None = None,
+    stored_winner_index: int = 0,
+    entry_normalized: dict[str, object] | None = None,
 ) -> None:
     identity = next(
         identity
@@ -245,6 +247,28 @@ def add_winning_episode(
                 "entry_cost": 5,
             },
         )
+        _insert(connection, "market_observations", {
+            "observation_id": f"entry-market-{suffix}",
+            "event_observation_id": f"event-observation-{suffix}",
+            "sweep_id": f"sweep-{suffix}", "run_id": "run",
+            "event_id": f"event-{suffix}", "condition_id": f"condition-{suffix}",
+            "observed_at": entered_at, "sports_phase": "IN_PLAY_EXPLICIT",
+            "match_winner_class": "ALIGNED_TWO_TEAM_MONEYLINE",
+            "eligible_outcome_indices_json": "[0]", "classification_evidence_json": "{}",
+            "cadence_arm": cadence_arm, "fee_schedule_json": "{}",
+            "outcome_labels_json": '["Home","Away"]',
+            "token_ids_json": json.dumps([f"token-{suffix}", f"other-{suffix}"]),
+            "outcome_prices_json": "[0.97,0.03]", "eligible": 1,
+            "exclusion_reason": "ELIGIBLE", "normalized_json": json.dumps(entry_normalized or {}),
+        })
+        _insert(connection, "signal_decisions", {
+            "decision_id": f"decision-{suffix}", "run_id": "run",
+            "market_observation_id": f"entry-market-{suffix}",
+            "condition_id": f"condition-{suffix}", "event_id": f"event-{suffix}",
+            "token_id": f"token-{suffix}", "outcome_index": 0, "threshold": 0.97,
+            "decided_at": entered_at, "decision_status": "OPENED_UPWARD_CROSS",
+            "details_json": "{}",
+        })
         _insert(
             connection,
             "resolution_observations",
@@ -253,10 +277,13 @@ def add_winning_episode(
                 "run_id": "resolution-run",
                 "condition_id": f"condition-{suffix}",
                 "observed_at": "2026-08-26T05:00:00Z",
-                "winner_index": 0,
+                "winner_index": stored_winner_index,
                 "request_id": f"resolution-request-{suffix}",
                 "raw_market_sha256": "b" * 64,
-                "evidence_json": "{}",
+                "evidence_json": json.dumps({"closed": True, "tokens": [
+                    {"token_id": f"token-{suffix}", "winner": True},
+                    {"token_id": f"other-{suffix}", "winner": False},
+                ]}),
             },
         )
         _insert(
@@ -378,7 +405,9 @@ def test_v4b_analyzer_reports_source_clock_strata_identity_and_notional_depth(tm
         1,
         "FAST_1M",
     )
-    add_winning_episode(repository)
+    add_winning_episode(repository, entry_normalized={"sports_clock": {
+        "join_status": "OBSERVED", "period": "2H", "elapsed_raw": "82:31",
+    }})
     with sqlite3.connect(repository.path) as connection:
         connection.execute("PRAGMA foreign_keys=OFF")
         _insert(
@@ -509,7 +538,8 @@ def test_v4b_analyzer_reports_source_clock_strata_identity_and_notional_depth(tm
     assert depth["100"]["full_ask_depth"] == 1
     assert depth["150"]["full_ask_depth"] == 0
     assert depth["10"]["vwap_increase_vs_5_usdc_bps_p95"] > 0
-    assert result["result_triad_evidence"]["triad_gaps"] == 0
+    # This fixture records one home market but no complete outcome triad.
+    assert result["result_triad_evidence"]["triad_gaps"] == 1
 
 
 def test_analyzer_keeps_v3a_archive_readable(tmp_path) -> None:
@@ -719,6 +749,40 @@ def test_analyzer_excludes_failed_prior_source_cohort(tmp_path) -> None:
     assert result["cohort_run_count"] == 1
     assert result["run_events"] == {"SUCCEEDED": 1}
     assert result["issues"] == []
+
+
+def test_analyzer_derives_old_index_correction_without_modifying_raw_db(tmp_path) -> None:
+    repository = seeded_database(tmp_path, "old-index.db", "watermelon-white-1m-v4b", 1, "FAST_1M")
+    add_winning_episode(repository, stored_winner_index=1)
+    before = hashlib.sha256(repository.path.read_bytes()).hexdigest()
+    result = analyze_database(repository.path)
+    verification = result["resolution_verification"]
+    assert verification["corrections"] == 1
+    assert verification["invalidations"] == 0
+    assert verification["source_rows_modified"] is False
+    record = verification["provenance"][0]
+    assert record["source_resolution_or_attempt_id"] == "resolution-epl"
+    assert record["stored_winner_index"] == 1
+    assert record["payout"] == 1
+    assert hashlib.sha256(repository.path.read_bytes()).hexdigest() == before
+
+
+def test_result_identity_denominator_excludes_league_only_child_events(tmp_path) -> None:
+    repository = seeded_database(tmp_path, "denominator.db", "watermelon-white-1m-v4b", 1, "FAST_1M")
+    add_winning_episode(repository)
+    with sqlite3.connect(repository.path) as connection:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=OFF")
+        template = dict(connection.execute("SELECT * FROM event_observations LIMIT 1").fetchone())
+        for i in range(10):
+            _insert(connection, "event_observations", {**template,
+                "event_observation_id": f"child-{i}", "event_id": f"child-{i}",
+                "event_title": f"Home vs Away - Inning {i}",
+            })
+    result = analyze_database(repository.path)["result_triad_evidence"]
+    assert result["accepted_event_snapshots"] == 1
+    assert result["result_identity_gaps"] == 1  # actual outcome rows are absent
+    assert result["complete_result_identity_sets"] == 0
 
 
 def test_multi_database_analyzer_enforces_pair_contract_and_episode_league(tmp_path) -> None:

@@ -789,6 +789,34 @@ class ResearchRepository:
             ).fetchall()
             return [dict(row) for row in rows]
 
+    def episode_token_ids(self, episode_id: str) -> tuple[str, str]:
+        """Use the exact entry observation, keeping resolution lookups indexed."""
+        with self.connect() as c:
+            row = c.execute(
+                """
+                SELECT m.token_ids_json,e.token_id,e.outcome_index,
+                       m.condition_id AS observed_condition,e.condition_id
+                FROM hypothetical_episodes e
+                JOIN signal_decisions d ON d.decision_id=e.decision_id
+                JOIN market_observations m
+                  ON m.observation_id=d.market_observation_id
+                WHERE e.episode_id=?
+                """,
+                (episode_id,),
+            ).fetchone()
+        if row is None or row["observed_condition"] != row["condition_id"]:
+            raise ValueError("entry condition evidence missing")
+        tokens = json.loads(row["token_ids_json"])
+        index = row["outcome_index"]
+        if (
+            not isinstance(tokens, list) or len(tokens) != 2
+            or not all(isinstance(t, str) and t for t in tokens)
+            or len(set(tokens)) != 2 or index not in (0, 1)
+            or tokens[index] != row["token_id"]
+        ):
+            raise ValueError("entry token evidence is inconsistent")
+        return tokens[0], tokens[1]
+
     def active_stop_policies(self) -> list[dict[str, Any]]:
         with self.connect() as c:
             rows = c.execute(

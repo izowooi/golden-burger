@@ -23,6 +23,7 @@ from .api.sports_client import SportsClockClient, SportsClockUpdate
 from .config import BotConfig, GammaConfig
 from .db.repository import ResearchRepository
 from .league_classifier import LeagueClassification, classify_sports_event
+from .resolution import aligned_winner_index
 from .utils.retry import CycleBudget, canonical_json, iso_utc
 
 
@@ -1086,9 +1087,16 @@ class Collector:
                         "token_id": str(outcome["token_id"]),
                     }
                 )
+        result_phases_by_event: dict[str, set[str]] = {}
+        for context in contexts:
+            if context["match_winner_class"] != "REJECTED":
+                result_phases_by_event.setdefault(
+                    str(context["market_row"]["event_id"]), set()
+                ).add(str(context["phase"]))
         result_triad_gaps = {
             event_id: gap
             for event_id in clock_expected_event_ids.values()
+            if result_phases_by_event.get(event_id) != {"PRE_GAME"}
             if (
                 gap := _result_identity_gap(
                     result_rows_by_event.get(event_id, []),
@@ -1177,14 +1185,14 @@ class Collector:
                             status = "OUTSIDE_ENTRY_PERIOD"
                         elif (str(market_row["condition_id"]), token, threshold) in existing:
                             status = "EPISODE_ALREADY_EXISTS"
-                        elif walk.vwap < threshold:
+                        elif walk.vwap + 1e-12 < threshold:
                             status = "BELOW_ENTRY_THRESHOLD"
                         elif prior_vwap is None:
                             status = "OPENED_FIRST_FULL_DEPTH_ABOVE"
                             provenance = "FIRST_FULL_DEPTH_ABOVE"
                             episode_id = uuid4().hex
                             existing.add((str(market_row["condition_id"]), token, threshold))
-                        elif prior_vwap < threshold <= walk.vwap:
+                        elif prior_vwap + 1e-12 < threshold <= walk.vwap + 1e-12:
                             status = "OPENED_UPWARD_CROSS"
                             provenance = "UPWARD_CROSS"
                             episode_id = uuid4().hex
@@ -1536,6 +1544,9 @@ class Collector:
                         else "UNIQUE_ONE_HOT"
                     ),
                     "token_payouts": token_payouts,
+                    "uma_resolution_status": (
+                        gamma_result.market or {}
+                    ).get("umaResolutionStatus"),
                 }
                 if (
                     gamma_result.status == "RESOLVED"
@@ -1588,6 +1599,42 @@ class Collector:
                 "error_type": attempt_error_type,
                 "error_message": attempt_error_message,
             }
+            if attempt_status in {"RESOLVED", "RESOLVED_VOID"}:
+                terminal_evidence = (
+                    evidence if gamma_terminal
+                    else json.loads(resolution["evidence_json"]) if resolution else {}
+                )
+                try:
+                    expected_tokens = self.repository.episode_token_ids(
+                        str(episode["episode_id"])
+                    )
+                    normalized_index = aligned_winner_index(
+                        terminal_evidence, expected_tokens
+                    )
+                    if (attempt_status == "RESOLVED") != (normalized_index is not None):
+                        raise ValueError("terminal status and exact token payouts disagree")
+                    if resolution and resolution["condition_id"] != condition_id:
+                        raise ValueError("terminal condition identity differs from entry")
+                    terminal_evidence["source_winner_index"] = attempt_winner_index
+                    terminal_evidence["canonical_token_ids"] = list(expected_tokens)
+                    terminal_evidence["normalization_contract"] = "exact-token-payout-v1"
+                    attempt["winner_index"] = normalized_index
+                    if resolution is not None:
+                        resolution["winner_index"] = normalized_index
+                        resolution["evidence_json"] = canonical_json(terminal_evidence)
+                except (ValueError, TypeError, KeyError) as error:
+                    attempt.update(
+                        status="RESOLUTION_TOKEN_IDENTITY_MISMATCH",
+                        winner_index=None, error_type=type(error).__name__,
+                        error_message=str(error),
+                    )
+                    resolution = None
+                    resolved -= 1
+                    self.repository.record_issue(
+                        run_id=run_id, severity="HIGH",
+                        issue_type="RESOLUTION_TOKEN_IDENTITY_MISMATCH",
+                        detail={"condition_id": condition_id, "reason": str(error)},
+                    )
             self.repository.record_resolution(attempt=attempt, resolution=resolution, payload=raw_payload)
 
         if budget.incomplete_reasons:

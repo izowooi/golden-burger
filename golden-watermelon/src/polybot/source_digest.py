@@ -8,10 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-03-five-major-sports-v4b/PREREGISTRATION.md"
+    "research/frozen-2026-09-05-exact-token-v4b-r1/PREREGISTRATION.md"
 )
 ACTIVE_MANIFEST = (
-    "research/frozen-2026-09-03-five-major-sports-v4b/MANIFEST.sha256"
+    "research/frozen-2026-09-05-exact-token-v4b-r1/MANIFEST.sha256"
 )
 SOURCE_PATHS = (
     "pyproject.toml",
@@ -27,6 +27,7 @@ SOURCE_PATHS = (
     "src/polybot/bot.py",
     "src/polybot/config.py",
     "src/polybot/run_audit.py",
+    "src/polybot/resolution.py",
     "src/polybot/source_digest.py",
     "src/polybot/api/gamma_client.py",
     "src/polybot/api/clob_client.py",

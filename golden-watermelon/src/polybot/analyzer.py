@@ -6,6 +6,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
+import gzip
 import json
 import math
 from pathlib import Path
@@ -36,6 +37,7 @@ from polybot.db.repository import (
     MIGRATION_PATH,
     SCHEMA_USER_VERSION,
 )
+from polybot.resolution import aligned_winner_index, terminal_token_payouts
 
 
 ANALYZER_CONTRACT = "watermelon-major-sports-analyzer-v4b"
@@ -602,30 +604,47 @@ def _sports_clock_summary(
 
 
 def _result_triad_summary(connection: sqlite3.Connection) -> dict[str, Any]:
-    expected = int(
-        connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM event_observations
-            WHERE classification_status='ACCEPTED'
-              AND run_id IN (SELECT run_id FROM cohort_runs)
-            """
-        ).fetchone()[0]
-    )
-    gaps = int(
-        connection.execute(
-            """
-            SELECT COUNT(*)
-            FROM data_quality_issues
-            WHERE issue_type='RESULT_TRIAD_COVERAGE_GAP'
-              AND run_id IN (SELECT run_id FROM cohort_runs)
-            """
-        ).fetchone()[0]
-    )
-    complete = max(expected - gaps, 0)
+    from polybot.collector import _result_identity_gap
+
+    # League classification alone also accepts inning/prop child events.
+    # Count the whole-game eligible population and its actual outcome rows.
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    for row in connection.execute(
+        """
+        SELECT m.run_id,m.event_id,m.condition_id,m.classification_evidence_json,
+               o.token_id,o.outcome_index
+        FROM market_observations m
+        LEFT JOIN outcome_observations o
+          ON o.market_observation_id=m.observation_id AND o.entry_eligible=1
+        WHERE m.eligible=1 AND m.run_id IN (SELECT run_id FROM cohort_runs)
+        """
+    ):
+        evidence = json.loads(row["classification_evidence_json"])
+        group = groups.setdefault(
+            (row["run_id"], row["event_id"]),
+            {"family": evidence.get("sport_family", "soccer"), "rows": []},
+        )
+        kinds = evidence.get("result_kinds_by_index", [])
+        index = row["outcome_index"]
+        if row["token_id"] is not None:
+            group["rows"].append({
+                "condition_id": row["condition_id"], "token_id": row["token_id"],
+                "result_kind": kinds[index] if index is not None and index < len(kinds) else None,
+            })
+    expected = len(groups)
+    gaps = sum(_result_identity_gap(g["rows"], g["family"]) is not None for g in groups.values())
+    complete = expected - gaps
     return {
         "accepted_event_snapshots": expected,
-        "complete_home_draw_away_triads": complete,
+        "denominator": "eligible_whole_game_event_run_with_direct_outcome_rows",
+        "complete_home_draw_away_triads": sum(
+            g["family"] == "soccer" and _result_identity_gap(g["rows"], g["family"]) is None
+            for g in groups.values()
+        ),
+        "complete_direct_result_pairs": sum(
+            g["family"] != "soccer" and _result_identity_gap(g["rows"], g["family"]) is None
+            for g in groups.values()
+        ),
         "complete_result_identity_sets": complete,
         "triad_gaps": gaps,
         "result_identity_gaps": gaps,
@@ -636,6 +655,78 @@ def _result_triad_summary(connection: sqlite3.Connection) -> dict[str, Any]:
             "HOME/AWAY tokens"
         ),
     }
+
+
+def _stage_token_resolutions(connection: sqlite3.Connection) -> dict[str, Any]:
+    """Derive payouts in TEMP storage; retain every original row and correction ID."""
+    connection.execute(
+        "CREATE TEMP TABLE exact_episode_resolutions("
+        "episode_id TEXT PRIMARY KEY,payout REAL,resolved_at TEXT)"
+    )
+    provenance: list[dict[str, Any]] = []
+    rows = connection.execute(
+        """
+        SELECT e.episode_id,e.condition_id,e.token_id,e.outcome_index,
+               m.token_ids_json,r.resolution_id,r.observed_at,r.winner_index,
+               r.evidence_json,r.raw_market_sha256
+        FROM hypothetical_episodes e
+        LEFT JOIN signal_decisions d ON d.decision_id=e.decision_id
+        LEFT JOIN market_observations m ON m.observation_id=d.market_observation_id
+        LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
+        WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
+        """
+    ).fetchall()
+    for row in rows:
+        evidence = None
+        source_id = row["resolution_id"]
+        observed = row["observed_at"]
+        raw_hash = row["raw_market_sha256"]
+        if source_id is not None:
+            evidence = json.loads(row["evidence_json"])
+        else:
+            void = connection.execute(
+                """
+                SELECT a.attempt_id,a.attempted_at,p.sha256,p.payload_gzip
+                FROM resolution_attempts a LEFT JOIN raw_payloads p
+                  ON p.request_id=a.request_id AND p.payload_kind='GAMMA_MARKET_RESOLUTION'
+                WHERE a.condition_id=? AND a.status='RESOLVED_VOID'
+                ORDER BY a.attempted_at DESC LIMIT 1
+                """, (row["condition_id"],),
+            ).fetchone()
+            if void is None:
+                continue
+            source_id, observed, raw_hash = void["attempt_id"], void["attempted_at"], void["sha256"]
+            if void["payload_gzip"]:
+                raw = json.loads(gzip.decompress(void["payload_gzip"]))
+                market = next((m for m in raw if m.get("conditionId") == row["condition_id"]), None) if isinstance(raw, list) else None
+                if market:
+                    def array(value):
+                        return json.loads(value) if isinstance(value, str) else value
+                    tokens = array(market.get("clobTokenIds")) or []
+                    payouts = array(market.get("outcomePrices")) or []
+                    evidence = {"closed": market.get("closed"), "resolution_kind": "VOID",
+                                "uma_resolution_status": market.get("umaResolutionStatus"),
+                                "token_payouts": [{"token_id": t, "payout": float(p)} for t,p in zip(tokens,payouts)]}
+        record = {"episode_id": row["episode_id"], "source_resolution_or_attempt_id": source_id,
+                  "source_raw_sha256": raw_hash, "stored_winner_index": row["winner_index"]}
+        try:
+            if not evidence or not row["token_ids_json"]:
+                raise ValueError("terminal or entry token evidence missing")
+            expected = json.loads(row["token_ids_json"])
+            if row["outcome_index"] not in (0,1) or expected[row["outcome_index"]] != row["token_id"]:
+                raise ValueError("entry token/index evidence differs")
+            aligned_winner_index(evidence, expected)
+            payout = terminal_token_payouts(evidence)[row["token_id"]]
+            connection.execute("INSERT INTO exact_episode_resolutions VALUES(?,?,?)", (row["episode_id"],payout,observed))
+            legacy = None if row["winner_index"] is None else float(row["outcome_index"] == row["winner_index"])
+            record.update(payout=payout, status="DERIVED_CORRECTION" if legacy is not None and payout != legacy else "EXACT_TOKEN_VERIFIED")
+        except (ValueError, TypeError, KeyError, IndexError) as error:
+            record.update(status="INVALIDATED_FOR_ANALYSIS", reason=str(error))
+        provenance.append(record)
+    return {"contract": "exact-token-payout-v1", "source_rows_modified": False,
+            "corrections": sum(r["status"] == "DERIVED_CORRECTION" for r in provenance),
+            "invalidations": sum(r["status"] == "INVALIDATED_FOR_ANALYSIS" for r in provenance),
+            "provenance": provenance}
 
 
 def _walk_ask_levels(
@@ -862,6 +953,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
         cohort_run_count = int(
             connection.execute("SELECT COUNT(*) FROM cohort_runs").fetchone()[0]
         )
+        resolution_verification = _stage_token_resolutions(connection)
         config_json = json.loads(str(config_row["config_json"]))
         trading = config_json["trading"]
         cadence_minutes = int(trading["cadence_minutes"])
@@ -1051,19 +1143,13 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 SELECT e.league_code,e.league_name,
                        COUNT(*) AS episodes,
                        COUNT(DISTINCT e.event_id) AS events,
-                       SUM(CASE WHEN r.condition_id IS NOT NULL
-                                      OR v.condition_id IS NOT NULL
+                       SUM(CASE WHEN x.episode_id IS NOT NULL
                                 THEN 1 ELSE 0 END)
                            AS resolved,
-                       SUM(CASE WHEN r.condition_id IS NOT NULL
-                                     AND e.outcome_index=r.winner_index
+                       SUM(CASE WHEN x.payout=1.0
                                 THEN 1 ELSE 0 END) AS wins
                 FROM hypothetical_episodes e
-                LEFT JOIN resolution_observations r USING(condition_id)
-                LEFT JOIN (
-                    SELECT DISTINCT condition_id FROM resolution_attempts
-                    WHERE status='RESOLVED_VOID'
-                ) v USING(condition_id)
+                LEFT JOIN exact_episode_resolutions x USING(episode_id)
                 WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
                 GROUP BY e.league_code,e.league_name
                 ORDER BY e.league_code,e.league_name
@@ -1084,6 +1170,9 @@ def analyze_database(path: Path) -> dict[str, Any]:
             "WHERE run_id IN (SELECT run_id FROM cohort_runs) "
             "GROUP BY severity,issue_type"
         ).fetchall()
+        if resolution_verification["invalidations"]:
+            issues = [*issues, {"severity": "HIGH", "issue_type": "RESOLUTION_TOKEN_EVIDENCE_INVALID",
+                               "count": resolution_verification["invalidations"]}]
         check_rows = connection.execute(
             "SELECT check_type,result,COUNT(*) AS count,MAX(completed_at) AS latest,"
             "MAX(elapsed_ms) AS max_elapsed FROM database_checks "
@@ -1099,20 +1188,11 @@ def analyze_database(path: Path) -> dict[str, Any]:
         episode_rows = connection.execute(
             """
             SELECT e.*,r.winner_index,
-                   CASE
-                     WHEN v.condition_id IS NOT NULL THEN 0.5
-                     WHEN r.winner_index=e.outcome_index THEN 1.0
-                     WHEN r.winner_index IS NOT NULL THEN 0.0
-                   END AS resolution_payout,
-                   COALESCE(r.observed_at,v.resolved_at) AS resolved_at
+                   x.payout AS resolution_payout,
+                   x.resolved_at AS resolved_at
             FROM hypothetical_episodes e
             LEFT JOIN resolution_observations r USING(condition_id)
-            LEFT JOIN (
-                SELECT condition_id,MAX(attempted_at) AS resolved_at
-                FROM resolution_attempts
-                WHERE status='RESOLVED_VOID'
-                GROUP BY condition_id
-            ) v USING(condition_id)
+            LEFT JOIN exact_episode_resolutions x USING(episode_id)
             WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             ORDER BY e.entered_at,e.episode_id
             """
@@ -1126,11 +1206,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
                 e.fee_rate,e.cadence_arm,e.entry_provenance,
                 e.league_code,
                 r.winner_index,
-                CASE
-                  WHEN v.condition_id IS NOT NULL THEN 0.5
-                  WHEN r.winner_index=e.outcome_index THEN 1.0
-                  WHEN r.winner_index IS NOT NULL THEN 0.0
-                END AS resolution_payout,
+                er.payout AS resolution_payout,
                 COUNT(a.attempt_id) AS stop_attempt_count,
                 COALESCE(SUM(a.filled_shares),0) AS stop_filled_shares,
                 COALESCE(SUM(a.net_proceeds),0) AS stop_net_proceeds,
@@ -1146,10 +1222,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
             LEFT JOIN stop_execution_attempts a USING(policy_id)
             LEFT JOIN counterfactual_stop_exits x USING(policy_id)
             LEFT JOIN resolution_observations r ON r.condition_id=e.condition_id
-            LEFT JOIN (
-                SELECT DISTINCT condition_id FROM resolution_attempts
-                WHERE status='RESOLVED_VOID'
-            ) v ON v.condition_id=e.condition_id
+            LEFT JOIN exact_episode_resolutions er ON er.episode_id=e.episode_id
             WHERE e.run_id IN (SELECT run_id FROM cohort_runs)
             GROUP BY p.policy_id
             ORDER BY e.entered_at,p.policy_key
@@ -1233,6 +1306,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
 
     result: dict[str, Any] = {
         "analyzer_contract": profile.analyzer_contract,
+        "resolution_verification": resolution_verification,
         "db": str(path.resolve()),
         "quick_check": quick_check,
         "application_id": application_id,
