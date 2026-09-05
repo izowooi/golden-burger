@@ -173,6 +173,9 @@ class FollowupBot:
                     "source_sweep_id": anchor["source_sweep_id"],
                     "source_successful_at": anchor["source_successful_at"],
                     "seed_counts_and_hashes_verified": seed_integrity["healthy"],
+                    "source_device_reattachment": getattr(
+                        self.source_reader, "last_device_reattachment", None
+                    ),
                 },
             )
             try:

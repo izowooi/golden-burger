@@ -21,6 +21,8 @@ FOLLOWUP_SOURCE_PATHS = (
     "config.followup-v2a.yaml",
     FOLLOWUP_PREREGISTRATION,
     "scripts/verify_external_workspace.py",
+    "scripts/attest_source_reattachment.py",
+    "research/amendment-2026-09-05-device-reattachment/OPERATIONS_AMENDMENT.md",
     "src/polybot/analyzer.py",
     "src/polybot/api/clob_client.py",
     "src/polybot/api/gamma_client.py",
@@ -38,6 +40,7 @@ FOLLOWUP_SOURCE_PATHS = (
     "src/polybot/main.py",
     "src/polybot/run_audit.py",
     "src/polybot/v1_source.py",
+    "src/polybot/source_reattachment.py",
     "src/polybot/db/followup_repository.py",
     "src/polybot/utils/retry.py",
 )

@@ -19,12 +19,27 @@ from ..followup_config import (
     FOLLOWUP_DATA_CONTRACT,
     FollowupConfig,
 )
-from ..utils.retry import canonical_json, iso_utc
+from ..utils.retry import (
+    CooperativeDeadline,
+    CycleDeadlineExceeded,
+    canonical_json,
+    iso_utc,
+)
 from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 
 
 GIB = 1024**3
 FOLLOWUP_SCHEMA_VERSION = 4
+
+# Additive access paths only: no evidence rows, schema metadata or source anchor
+# are rewritten. Build once during the paused maintenance/deployment invocation.
+READ_QUERY_INDEXES = (
+    "CREATE INDEX IF NOT EXISTS followup_resolution_resolved_condition_idx "
+    "ON resolution_observations(condition_id) WHERE resolution_status='RESOLVED'",
+    "CREATE INDEX IF NOT EXISTS followup_path_latest_executable_idx "
+    "ON episode_path_observations(episode_id,observed_at DESC,path_observation_id DESC,exit_bid_vwap) "
+    "WHERE path_status='EXECUTABLE' AND exit_bid_vwap IS NOT NULL",
+)
 
 
 def _chunks(values: Sequence[str], size: int = 400) -> Iterator[Sequence[str]]:
@@ -443,17 +458,53 @@ class FollowupRepository:
             connection.close()
 
     @contextmanager
-    def read_connect(self, *, immutable: bool = False) -> Iterator[sqlite3.Connection]:
+    def read_connect(
+        self,
+        *,
+        immutable: bool = False,
+        deadline: CooperativeDeadline | None = None,
+    ) -> Iterator[sqlite3.Connection]:
         if not self.db_path.is_file():
             raise FileNotFoundError(self.db_path)
         suffix = "&immutable=1" if immutable else ""
         uri = f"file:{quote(str(self.db_path.resolve()))}?mode=ro{suffix}"
-        connection = sqlite3.connect(uri, uri=True)
+        connect_options: dict[str, Any] = {"uri": True}
+        if deadline is not None:
+            remaining = deadline.check("follow-up SQLite read connection")
+            connect_options["timeout"] = min(
+                self.busy_timeout_ms / 1000, max(0.0, remaining - 0.01)
+            )
+        connection = sqlite3.connect(uri, **connect_options)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
+        interrupted: CycleDeadlineExceeded | None = None
+
+        def progress() -> int:
+            nonlocal interrupted
+            try:
+                if deadline is not None:
+                    deadline.check("follow-up SQLite read progress")
+            except CycleDeadlineExceeded as error:
+                interrupted = error
+                return 1
+            return 0
+
+        if deadline is not None:
+            connection.set_progress_handler(progress, 1000)
         try:
             yield connection
+            if deadline is not None:
+                deadline.check("follow-up SQLite read completion")
+        except sqlite3.OperationalError as error:
+            if interrupted is not None:
+                raise interrupted from error
+            if deadline is not None and getattr(error, "sqlite_errorcode", None) in (
+                sqlite3.SQLITE_BUSY, sqlite3.SQLITE_LOCKED,
+            ):
+                deadline.check("follow-up SQLite read lock wait")
+            raise
         finally:
+            connection.set_progress_handler(None, 0)
             connection.close()
 
     @staticmethod
@@ -534,6 +585,8 @@ class FollowupRepository:
                 )
                 if any(str(existing[key]) != str(contract[key]) for key in fixed):
                     raise RuntimeError("follow-up experiment contract drift")
+            for statement in READ_QUERY_INDEXES:
+                connection.execute(statement)
             connection.commit()
 
     def register_config(
@@ -903,8 +956,10 @@ class FollowupRepository:
                 ).fetchone()[0]
             )
 
-    def unresolved_episodes(self) -> list[dict[str, Any]]:
-        with self.read_connect() as connection:
+    def unresolved_episodes(
+        self, *, deadline: CooperativeDeadline | None = None
+    ) -> list[dict[str, Any]]:
+        with self.read_connect(deadline=deadline) as connection:
             return [
                 dict(row)
                 for row in connection.execute(
@@ -922,52 +977,49 @@ class FollowupRepository:
                 )
             ]
 
-    def latest_path_vwaps(self, episode_ids: Sequence[str]) -> dict[str, float]:
+    def latest_path_vwaps(
+        self,
+        episode_ids: Sequence[str],
+        *,
+        deadline: CooperativeDeadline | None = None,
+    ) -> dict[str, float]:
         if not episode_ids:
             return {}
         result: dict[str, float] = {}
-        with self.read_connect() as connection:
+        with self.read_connect(deadline=deadline) as connection:
             for chunk in _chunks(episode_ids):
-                placeholders = ",".join("?" for _ in chunk)
+                placeholders = ",".join("(?)" for _ in chunk)
                 rows = connection.execute(
                     f"""
-                    SELECT episode_id,source_last_executable_bid_vwap
-                    FROM imported_episodes
-                    WHERE episode_id IN ({placeholders})
+                    WITH requested(episode_id) AS (VALUES {placeholders})
+                    SELECT requested.episode_id,
+                           COALESCE((
+                               SELECT p.exit_bid_vwap
+                               FROM episode_path_observations p
+                               WHERE p.episode_id=requested.episode_id
+                                 AND p.path_status='EXECUTABLE'
+                                 AND p.exit_bid_vwap IS NOT NULL
+                               ORDER BY p.observed_at DESC,p.path_observation_id DESC
+                               LIMIT 1
+                           ),e.source_last_executable_bid_vwap) AS exit_bid_vwap
+                    FROM requested
+                    LEFT JOIN imported_episodes e
+                      ON e.episode_id=requested.episode_id
                     """,
                     tuple(chunk),
                 )
                 for row in rows:
                     if row[1] is not None:
                         result[str(row[0])] = float(row[1])
-                rows = connection.execute(
-                    f"""
-                    WITH ranked AS (
-                        SELECT episode_id,exit_bid_vwap,
-                               ROW_NUMBER() OVER (
-                                   PARTITION BY episode_id
-                                   ORDER BY observed_at DESC,path_observation_id DESC
-                               ) AS position
-                        FROM episode_path_observations
-                        WHERE episode_id IN ({placeholders})
-                          AND path_status='EXECUTABLE'
-                          AND exit_bid_vwap IS NOT NULL
-                    )
-                    SELECT episode_id,exit_bid_vwap FROM ranked WHERE position=1
-                    """,
-                    tuple(chunk),
-                )
-                for row in rows:
-                    result[str(row[0])] = float(row[1])
         return result
 
     def threshold_event_keys(
-        self, episode_ids: Sequence[str]
+        self, episode_ids: Sequence[str], *, deadline: CooperativeDeadline | None = None
     ) -> set[tuple[str, str, float]]:
         if not episode_ids:
             return set()
         result: set[tuple[str, str, float]] = set()
-        with self.read_connect() as connection:
+        with self.read_connect(deadline=deadline) as connection:
             for chunk in _chunks(episode_ids):
                 placeholders = ",".join("?" for _ in chunk)
                 for table in (

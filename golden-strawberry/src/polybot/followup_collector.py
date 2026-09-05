@@ -240,7 +240,7 @@ class FollowupCollector:
         cycle_id = uuid4().hex
 
         with self._phase("load_unresolved"):
-            episodes = self.repository.unresolved_episodes()
+            episodes = self.repository.unresolved_episodes(deadline=deadline)
             episode_ids = [str(row["episode_id"]) for row in episodes]
             tokens = sorted({str(row["token_id"]) for row in episodes})
             conditions = sorted({str(row["condition_id"]) for row in episodes})
@@ -331,7 +331,7 @@ class FollowupCollector:
                 )
 
         with self._phase("fixed_share_paths", {"episode_count": len(episodes)}):
-            prior_vwaps = self.repository.latest_path_vwaps(episode_ids)
+            prior_vwaps = self.repository.latest_path_vwaps(episode_ids, deadline=deadline)
             path_rows: list[dict[str, Any]] = []
             for episode in episodes:
                 episode_id = str(episode["episode_id"])
@@ -388,7 +388,7 @@ class FollowupCollector:
                 )
 
         with self._phase("threshold_transitions"):
-            existing_keys = self.repository.threshold_event_keys(episode_ids)
+            existing_keys = self.repository.threshold_event_keys(episode_ids, deadline=deadline)
             threshold_rows: list[dict[str, Any]] = []
             for path in path_rows:
                 if path["path_status"] != "EXECUTABLE" or path["exit_bid_vwap"] is None:

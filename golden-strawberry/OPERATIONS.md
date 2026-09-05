@@ -165,6 +165,38 @@ the original entry collection report; it must never be used to resume v1 collect
 
 ## Failure handling
 
+### Verified device-only reattachment (2026-09-05 amendment)
+
+An APFS `st_dev` number can change across reboot/remount while the trusted volume and source file
+remain the same. Never rewrite `source_anchors`, touch the source mtime, or disable the fingerprint
+check. Stop the timer and compare the whole source with an independently verified frozen backup.
+SQLite online backups may differ only in documented header bookkeeping; preserve both raw hashes
+and the full-body equivalence evidence rather than overwriting either file.
+
+If and only if path/inode/size/mtime are unchanged and the previous device reproduces the exact old
+fingerprint, the following **one-time maintenance** command can approve the device change. The expected
+checksum must be the original source-file checksum established from that independent comparison,
+not a newly observed checksum accepted without comparison.
+
+```bash
+uv run python scripts/attest_source_reattachment.py \
+  --old-device <previous-device-id> \
+  --expected-content-sha256 <independently-verified-source-sha256>
+# After reviewing the dry-run, repeat with --apply in a timer-OFF maintenance build.
+```
+
+The apply command hashes the entire source and checks the existing T7 UUID pins before writing a
+private immutable receipt under `/Users/jongwoopark/.jenkins/golden-strawberry-source-reattachments/`.
+It does not change a source, anchor, seed, experiment clock, or previous follow-up row. Regular runs
+read this approval, pin inode/size/mtime and the original stable UUID, revalidate all other anchor/seed
+fields, and include the receipt and its checksum in phase evidence. Any inode/content-size/mtime/path,
+UUID, sidecar or other anchor drift remains a hard failure. Do not put this full-hash maintenance
+command in the recurring shell. Later OS device renumbering reuses this same content-verified stable
+identity; it does not require reauthorizing an unchanged trusted volume on every reboot.
+Restore the same 10-minute timer only after a successful verified run.
+The original v2a preregistration is retained; the operational amendment is
+`research/amendment-2026-09-05-device-reattachment/OPERATIONS_AMENDMENT.md`.
+
 - v1 sidecar/schema/contract/job/cutoff/sweep/config/source/count/hash drift, or any imported seed
   row/count/hash drift: record `FAILED` and fail before v2a HTTP; do
   not repair, alter, vacuum or reseed either DB in place.

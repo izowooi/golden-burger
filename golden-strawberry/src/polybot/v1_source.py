@@ -176,6 +176,7 @@ class V1SourceReader:
     def __init__(self, config: V1SourceConfig) -> None:
         self.config = config
         self.path = config.db_path
+        self.last_device_reattachment = None
 
     def _assert_path(self) -> Path:
         if self.path.is_symlink() or not self.path.is_file():
@@ -594,6 +595,7 @@ class V1SourceReader:
         fails before public HTTP.
         """
 
+        self.last_device_reattachment = None
         if anchor_sha256(stored) != str(stored.get("anchor_sha256")):
             raise RuntimeError("stored v1 source anchor SHA-256 drift")
         if deadline is not None:
@@ -725,7 +727,11 @@ class V1SourceReader:
             for key, value in observed.items()
             if str(stored.get(key)) != str(value)
         )
-        if changed:
+        if changed == ["source_file_fingerprint_sha256"]:
+            from .source_reattachment import read_device_reattachment
+
+            self.last_device_reattachment = read_device_reattachment(source, stored, after)
+        elif changed:
             raise RuntimeError("v1 source anchor drift: " + ", ".join(changed))
         return dict(stored)
 
