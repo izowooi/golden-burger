@@ -1234,6 +1234,64 @@ def test_unrelated_event_exits_are_not_blocked_by_first_sell() -> None:
     assert trader.emergency_sell_guard_blocks == 0
 
 
+def _budget_test_holding():
+    return SimpleNamespace(
+        id=9, condition_id="condition-1", event_id="event-1",
+        token_id="own-db-token", outcome="Yes", buy_order_id="buy-1",
+        buy_shares=5.102, buy_price=0.98, status=TradeStatus.HOLDING,
+    )
+
+
+def test_exhausted_sell_budget_still_checks_later_resolution(monkeypatch):
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    trader = Trader(repo, clob, TradingConfig(), gamma_client=_active_gamma(), simulation_mode=False)
+    trader.emergency_sell_submissions = trader.config.max_emergency_sells_per_cycle
+    checked = []
+    monkeypatch.setattr(trader, "_stop_execution_is_explicitly_live", lambda trade: False)
+    monkeypatch.setattr(trader, "_handle_midpoint_unavailable", lambda trade, detail: checked.append(trade.id) or False)
+
+    assert trader.execute_sell(_budget_test_holding()) is False
+    assert checked == [9]
+    assert clob.orders == []
+
+
+@pytest.mark.parametrize("simulation", [False, True])
+def test_sell_budget_limits_only_live_post(simulation):
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    trader = Trader(repo, clob, TradingConfig(), gamma_client=_active_gamma(), simulation_mode=simulation)
+    trader.emergency_sell_submissions = trader.config.max_emergency_sells_per_cycle
+    trader.execute_sell(_budget_test_holding())
+    assert len(clob.orders) == (1 if simulation else 0)
+
+
+def test_unknown_sell_response_stays_pending_and_reserves_submission_budget():
+    repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    clob.place_limit_order = lambda **order: {"success":False,"submission_outcome_unknown":True}
+    trader = Trader(repo, clob, TradingConfig(), gamma_client=_active_gamma(), simulation_mode=False)
+
+    assert trader.execute_sell(_budget_test_holding()) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.PENDING_SELL
+    assert update["sell_order_id"] is None
+    assert update["sell_shares"] is None
+    assert update["realized_pnl"] is None
+    assert update["exit_reason"] == "absolute_stop_submission_outcome_unknown"
+    assert trader.emergency_sell_submissions == 1
+
+
+@pytest.mark.parametrize("simulation", [False, True])
+def test_trader_capacity_check_is_live_only(monkeypatch, simulation):
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(vwap=.80, best_bid=.79, best_ask=.80)
+    repo.get_entry_capacity_state = lambda: {"open_positions":10,"untracked_buy_reservations":0,"total_reserved":10}
+    trader = Trader(repo, clob, TradingConfig(), gamma_client=_active_gamma(), simulation_mode=simulation)
+    _set_kickoff_cycle(trader)
+    result = trader.execute_buy(_candidate())
+    assert (result is not None) is simulation
+    if not simulation:
+        assert trader.last_entry_outcome_reason == "max_capacity_reserved"
+
+
 def test_sdk_sell_submission_nudge_survives_binary_float_double_floor() -> None:
     sellable = trader_module._sdk_sellable_shares(5.102)
     submission = trader_module._sdk_sell_submission_shares(sellable)

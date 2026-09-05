@@ -723,6 +723,41 @@ def test_simulation_does_not_treat_missing_live_fill_ledger_as_entry_gap(
     session.close.assert_called_once()
 
 
+@pytest.mark.parametrize("simulation", [False, True])
+def test_virtual_capital_and_capacity_do_not_censor_research_events(
+    monkeypatch, tmp_path, simulation
+):
+    bot, scanner, trader, repo, _session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "active", []
+    )
+    bot.config.simulation_mode = simulation
+    candidates = [
+        {"condition_id": f"c-{i}", "event_id": f"e-{i}", "entry_episode_id": i+1}
+        for i in range(8)
+    ]
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = candidates
+    trader.execute_buy.side_effect = list(range(1, 9))
+    repo.get_economic_pnl_guard.return_value["economic_pnl"] = -15.0
+    repo.get_economic_pnl_guard.return_value["recorded_settlement_pnl"] = -15.0
+    repo.get_entry_capacity_state.return_value = {
+        "open_positions": 10, "untracked_buy_reservations": 0, "total_reserved": 10,
+    }
+
+    stats = bot.run_cycle()
+
+    assert stats["entry_guard"]["portfolio_guards_enforced"] is not simulation
+    if simulation:
+        assert stats["entry_guard"]["blocking_reasons"] == []
+        assert stats["drawdown_guard"]["triggered"] is False
+        assert stats["bought"] == 8  # Not truncated by the live cycle cap of 5.
+        assert trader.execute_buy.call_args_list == [call(c) for c in candidates]
+    else:
+        assert "max_capacity_reserved" in stats["entry_guard"]["blocking_reasons"]
+        assert "economic_drawdown_limit_reached" in stats["entry_guard"]["blocking_reasons"]
+        trader.execute_buy.assert_not_called()
+
+
 def test_active_blocks_entry_when_allowed_league_metadata_drifts(
     monkeypatch, tmp_path
 ):

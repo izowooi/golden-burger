@@ -314,7 +314,11 @@ class PolymarketBot:
                 drawdown_limit = (
                     trading.experiment_capital_usdc * trading.max_drawdown_stop
                 )
-                drawdown_triggered = economic_pnl <= -drawdown_limit + 1e-9
+                portfolio_guards_enforced = not self.config.simulation_mode
+                drawdown_triggered = (
+                    portfolio_guards_enforced
+                    and economic_pnl <= -drawdown_limit + 1e-9
+                )
                 stats["drawdown_guard"] = {
                     "triggered": drawdown_triggered,
                     "economic_pnl": economic_pnl,
@@ -384,7 +388,7 @@ class PolymarketBot:
                     degraded_reasons.append("unresolved_sell_outcome_isolated")
                 if int(order_reconciliation.get("reconciliation_sell_gaps", 0)):
                     degraded_reasons.append("sell_reconciliation_gap_isolated")
-                if capacity["total_reserved"] >= trading.max_positions:
+                if portfolio_guards_enforced and capacity["total_reserved"] >= trading.max_positions:
                     blocking_reasons.append("max_capacity_reserved")
                 if capacity["untracked_buy_reservations"]:
                     degraded_reasons.append("untracked_buy_exposure_isolated")
@@ -425,11 +429,12 @@ class PolymarketBot:
                     degraded_reasons.append("sell_reconciliation_error_isolated")
                 if drawdown_triggered:
                     blocking_reasons.append("economic_drawdown_limit_reached")
-                if economic_evidence_gaps:
+                if portfolio_guards_enforced and economic_evidence_gaps:
                     blocking_reasons.append("economic_pnl_execution_evidence_gap")
                 if stats["universe_health"]["metadata_drift_suspected"]:
                     blocking_reasons.append("league_identity_metadata_drift")
                 entry_guard = {
+                    "portfolio_guards_enforced": portfolio_guards_enforced,
                     "blocked": bool(blocking_reasons),
                     "blocking_reasons": blocking_reasons,
                     "degraded_reasons": degraded_reasons,
@@ -502,9 +507,12 @@ class PolymarketBot:
                     )
                 else:
                     logger.info("=== Phase 3: fresh-book FOK BUY execution ===")
-                    cycle_entry_limit = min(
-                        trading.max_new_positions_per_cycle,
-                        entry_guard["capacity_remaining"],
+                    # Grey observes every eligible event independently. A
+                    # virtual wallet loss or position cap must not censor the
+                    # research population; the simulation time budget remains.
+                    cycle_entry_limit = (
+                        min(trading.max_new_positions_per_cycle, entry_guard["capacity_remaining"])
+                        if portfolio_guards_enforced else len(candidates)
                     )
                     cycle_exposure_reservations = 0
                     for candidate in candidates:

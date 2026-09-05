@@ -506,7 +506,7 @@ class Trader:
         total_reserved = (
             capacity["total_reserved"] + self.local_untracked_buy_reservations
         )
-        if total_reserved >= self.config.max_positions:
+        if self.mode != "sim" and total_reserved >= self.config.max_positions:
             logger.info(
                 "최대 진입 capacity %s 도달 - open=%s untracked_buy=%s "
                 "local_untracked=%s",
@@ -1937,19 +1937,6 @@ class Trader:
         book_prefetched: bool = False,
     ) -> bool:
         """Submit one full-depth FOK TP/late/stop exit, except proven SDK dust."""
-        if (
-            self.emergency_sell_submissions
-            >= self.config.max_emergency_sells_per_cycle
-        ):
-            self.emergency_sell_guard_blocks += 1
-            logger.critical(
-                "exit SELL cycle circuit is open; additional holdings are "
-                "left untouched - trade=%s submitted=%s limit=%s",
-                trade.id,
-                self.emergency_sell_submissions,
-                self.config.max_emergency_sells_per_cycle,
-            )
-            return False
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
             if book_prefetched:
@@ -2068,6 +2055,19 @@ class Trader:
             )
             return False
 
+        # The cap limits new venue submissions, not lifecycle reads or
+        # resolution of later holdings. Simulation has no venue budget.
+        if self.mode != "sim" and (
+            self.emergency_sell_submissions >= self.config.max_emergency_sells_per_cycle
+        ):
+            self.emergency_sell_guard_blocks += 1
+            logger.warning(
+                "exit SELL submission budget exhausted after lifecycle checks - trade=%s submitted=%s limit=%s",
+                trade.id, self.emergency_sell_submissions,
+                self.config.max_emergency_sells_per_cycle,
+            )
+            return False
+
         logger.warning(
             "%s exit 충족: Trade #%s bid=%.2f%% trigger=%.2f%% minute=%s "
             "gap=%.2fpp full_depth_vwap=%.2f%% limit=%.2f%% levels=%s shares=%.6f",
@@ -2091,7 +2091,19 @@ class Trader:
                 order_type="FOK",
             )
         except SubmissionEvidenceError as error:
+            self.emergency_sell_submissions += 1
             self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            return False
+        if result.get("submission_outcome_unknown"):
+            # A timed-out POST can already have sold shares. Never treat it
+            # as a proven rejection and re-arm the holding for another POST.
+            self.emergency_sell_submissions += 1
+            self._bind_uncertain_sell_submission(
+                trade, result=result, walk=walk,
+                best_bid=best_bid, best_ask=best_ask, spread=spread,
+                sell_shares=None,
+                reason=f"{exit_signal}_submission_outcome_unknown",
+            )
             return False
         accepted = bool(result.get("success") or result.get("orderID"))
         try:
