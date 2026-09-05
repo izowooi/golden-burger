@@ -31,6 +31,7 @@ from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 GIB = 1024**3
 FOLLOWUP_SCHEMA_VERSION = 4
 PUBLICATION_CACHE_KIB = 262144  # 256 MiB, allocated on demand for one writer.
+READ_CACHE_KIB = 65536  # 64 MiB; released after each read-only operation.
 
 # Additive access paths only: no evidence rows, schema metadata or source anchor
 # are rewritten. Build once during the paused maintenance/deployment invocation.
@@ -502,6 +503,7 @@ class FollowupRepository:
         connection = sqlite3.connect(uri, **connect_options)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
+        connection.execute(f"PRAGMA cache_size=-{READ_CACHE_KIB}")
         interrupted: CycleDeadlineExceeded | None = None
 
         def progress() -> int:
@@ -825,11 +827,11 @@ class FollowupRepository:
             )
 
     def verify_seed_integrity(
-        self, anchor: Mapping[str, Any]
+        self, anchor: Mapping[str, Any], *, deadline: CooperativeDeadline | None = None
     ) -> dict[str, Any]:
         """Rehash every imported canonical seed row before public follow-up work."""
 
-        with self.read_connect() as connection:
+        with self.read_connect(deadline=deadline) as connection:
             anchor_rows = connection.execute("SELECT * FROM source_anchors").fetchall()
             if len(anchor_rows) != 1:
                 raise RuntimeError("follow-up source anchor count drift")
@@ -838,11 +840,11 @@ class FollowupRepository:
             if anchor_sha256(stored) != str(stored.get("anchor_sha256")):
                 raise RuntimeError("follow-up source anchor SHA-256 drift")
 
-            episodes: list[dict[str, Any]] = []
+            episodes_with_keys: list[tuple[str, dict[str, Any]]] = []
             row_hash_errors: list[str] = []
             column_errors: list[str] = []
             for persisted in connection.execute(
-                "SELECT * FROM imported_episodes ORDER BY episode_id"
+                "SELECT * FROM imported_episodes"
             ):
                 persisted_row = dict(persisted)
                 try:
@@ -872,11 +874,14 @@ class FollowupRepository:
                         if key != "anchor_id"
                     ):
                         column_errors.append(str(persisted_row["episode_id"]))
-                episodes.append(payload)
+                episodes_with_keys.append((str(persisted_row["episode_id"]),payload))
+            # Physical table order avoids thousands of random overflow-page
+            # reads on external storage. Canonical hash order is unchanged.
+            episodes=[payload for _,payload in sorted(episodes_with_keys,key=lambda item:item[0])]
 
             conditions: list[dict[str, Any]] = []
             for persisted in connection.execute(
-                "SELECT * FROM imported_condition_status ORDER BY condition_id"
+                "SELECT * FROM imported_condition_status"
             ):
                 payload = dict(persisted)
                 payload.pop("anchor_id")
@@ -886,13 +891,12 @@ class FollowupRepository:
                 if _sha256_json(unhashed) != seed_hash:
                     row_hash_errors.append(f"condition:{payload['condition_id']}")
                 conditions.append(payload)
+            conditions.sort(key=lambda item:item["condition_id"])
 
             thresholds: list[dict[str, Any]] = []
             for persisted in connection.execute(
                 """
                 SELECT * FROM imported_threshold_events
-                ORDER BY episode_id,event_kind,threshold,observed_at,
-                         source_threshold_event_id
                 """
             ):
                 payload = dict(persisted)
@@ -908,6 +912,8 @@ class FollowupRepository:
                         f"threshold:{payload['threshold_event_id']}"
                     )
                 thresholds.append(payload)
+            thresholds.sort(key=lambda item:(item["episode_id"],item["event_kind"],
+                item["threshold"],item["observed_at"],item["threshold_event_id"]))
 
         terminal_conditions = sum(
             int(row["terminal_at_handoff"]) for row in conditions
@@ -982,14 +988,15 @@ class FollowupRepository:
             )
 
     def unresolved_episodes(
-        self, *, deadline: CooperativeDeadline | None = None
+        self, *, deadline: CooperativeDeadline | None = None, compact: bool = False
     ) -> list[dict[str, Any]]:
+        columns="e.episode_id,e.condition_id,e.token_id,e.fixed_shares" if compact else "e.*"
         with self.read_connect(deadline=deadline) as connection:
             return [
                 dict(row)
                 for row in connection.execute(
-                    """
-                    SELECT e.* FROM imported_episodes e
+                    f"""
+                    SELECT {columns} FROM imported_episodes e
                     JOIN imported_condition_status s ON s.condition_id=e.condition_id
                     WHERE s.terminal_at_handoff=0
                       AND NOT EXISTS (
@@ -1012,7 +1019,7 @@ class FollowupRepository:
             return {}
         result: dict[str, float] = {}
         with self.read_connect(deadline=deadline) as connection:
-            for chunk in _chunks(episode_ids):
+            for chunk in _chunks(sorted(set(episode_ids))):
                 placeholders = ",".join("(?)" for _ in chunk)
                 rows = connection.execute(
                     f"""

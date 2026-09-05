@@ -8,6 +8,7 @@ from decimal import Decimal, InvalidOperation
 import gzip
 import hashlib
 import json
+import logging
 import time
 from typing import Any, Iterator, Mapping, Sequence
 from uuid import uuid4
@@ -29,6 +30,7 @@ from .utils.retry import (
 
 BOOK_ENCODING = "gzip-json-v1"
 BOOK_SCHEMA = "last-mile-compact-book-v1"
+logger = logging.getLogger(__name__)
 
 
 def _decimal_text(value: Any, label: str) -> str:
@@ -173,10 +175,13 @@ class FollowupCollector:
         started_at = iso_utc()
         started = self.monotonic()
         succeeded = False
+        logger.info("follow-up phase started: %s",name)
         try:
             yield
             succeeded = True
         finally:
+            logger.info("follow-up phase finished: %s elapsed=%.3fs body_completed=%s",
+                name,max(0.0,self.monotonic()-started),succeeded)
             self._phases.append(
                 PhaseRecord(
                     name=name,
@@ -240,7 +245,7 @@ class FollowupCollector:
         cycle_id = uuid4().hex
 
         with self._phase("load_unresolved"):
-            episodes = self.repository.unresolved_episodes(deadline=deadline)
+            episodes = self.repository.unresolved_episodes(deadline=deadline,compact=True)
             episode_ids = [str(row["episode_id"]) for row in episodes]
             tokens = sorted({str(row["token_id"]) for row in episodes})
             conditions = sorted({str(row["condition_id"]) for row in episodes})
@@ -581,6 +586,7 @@ class FollowupCollector:
         }
         deadline.check("atomic successful publication")
         publication_started_at = iso_utc()
+        logger.info("follow-up phase started: atomic_publication cache_kib=%s",PUBLICATION_CACHE_KIB)
 
         def finalize(
             publication_seconds: float,
@@ -710,6 +716,7 @@ class FollowupCollector:
             monotonic=self.monotonic,
         )
         audit.mark_succeeded()
+        logger.info("follow-up phase finished: atomic_publication committed=true")
         return summary
 
 

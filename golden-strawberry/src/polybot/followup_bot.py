@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 import json
+import logging
 import os
 from pathlib import Path
 import shutil
@@ -23,6 +24,7 @@ from .v1_source import V1SourceReader
 
 _EXPECTED_JENKINS_WORKSPACE = Path("/Volumes/t7/jenkins/polybot-shadow-one")
 _WORKSPACE_MARKER = ".daily-rsync-workspace.json"
+logger=logging.getLogger(__name__)
 
 
 class FollowupBot:
@@ -104,7 +106,10 @@ class FollowupBot:
             raise RuntimeError("follow-up window has ended; public source access is disabled")
         lock_path = self.config.db_path.parent / ".strawberry-followup-v2a.lock"
         with exclusive_job_run_lock(lock_path):
+            preparation_started=self.monotonic()
+            logger.info("follow-up database/index preparation started")
             self.repository.initialize(self.config)
+            logger.info("follow-up database/index preparation finished: %.3fs",self.monotonic()-preparation_started)
             anchor_started_at = iso_utc()
             anchor_started = self.monotonic()
             stored_anchor = self.repository.stored_anchor()
@@ -125,7 +130,7 @@ class FollowupBot:
                     validation_mode=anchor_validation_mode,
                 )
                 try:
-                    seed_integrity = self.repository.verify_seed_integrity(anchor)
+                    seed_integrity = self.repository.verify_seed_integrity(anchor,deadline=maintenance_deadline)
                     maintenance_deadline.check("FULL_SEED canonical seed verification")
                 except BaseException as error:
                     audit.fail(error)
@@ -153,12 +158,14 @@ class FollowupBot:
                     validation_mode=anchor_validation_mode,
                 )
                 try:
+                    logger.info("follow-up source/seed validation started: PINNED_FAST")
                     anchor = self.source_reader.validate_stored_anchor(
                         stored_anchor,
                         deadline=network_deadline,
                     )
-                    seed_integrity = self.repository.verify_seed_integrity(anchor)
+                    seed_integrity = self.repository.verify_seed_integrity(anchor,deadline=network_deadline)
                     network_deadline.check("PINNED_FAST canonical seed verification")
+                    logger.info("follow-up source/seed validation finished: %.3fs",self.monotonic()-anchor_started)
                 except BaseException as error:
                     audit.fail(error)
                     raise
