@@ -197,6 +197,12 @@ Restore the same 10-minute timer only after a successful verified run.
 The original v2a preregistration is retained; the operational amendment is
 `research/amendment-2026-09-05-device-reattachment/OPERATIONS_AMENDMENT.md`.
 
+Bulk successful publication uses a bounded, on-demand256MiB SQLite page cache while keeping
+`synchronous=FULL`, `journal_mode=DELETE`, foreign keys and one transaction for all successful
+evidence. The cooperative deadline also interrupts long INSERT operations; rollback is not
+interrupted by the expired handler. See
+`research/amendment-2026-09-05-publication-cache/OPERATIONS_AMENDMENT.md`.
+
 - v1 sidecar/schema/contract/job/cutoff/sweep/config/source/count/hash drift, or any imported seed
   row/count/hash drift: record `FAILED` and fail before v2a HTTP; do
   not repair, alter, vacuum or reseed either DB in place.

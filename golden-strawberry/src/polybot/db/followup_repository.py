@@ -30,6 +30,7 @@ from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 
 GIB = 1024**3
 FOLLOWUP_SCHEMA_VERSION = 4
+PUBLICATION_CACHE_KIB = 262144  # 256 MiB, allocated on demand for one writer.
 
 # Additive access paths only: no evidence rows, schema metadata or source anchor
 # are rewritten. Build once during the paused maintenance/deployment invocation.
@@ -441,20 +442,44 @@ class FollowupRepository:
         self.busy_timeout_ms = busy_timeout_ms
 
     @contextmanager
-    def _connect(self, *, create: bool = True) -> Iterator[sqlite3.Connection]:
+    def _connect(
+        self, *, create: bool = True,
+        deadline: CooperativeDeadline | None = None,
+        cache_kib: int = 2048,
+    ) -> Iterator[sqlite3.Connection]:
+        if type(cache_kib) is not int or not 2048 <= cache_kib <= PUBLICATION_CACHE_KIB:
+            raise ValueError("SQLite writer cache must be bounded to 2..256 MiB")
         if create:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        timeout=self.busy_timeout_ms/1000
+        if deadline is not None:
+            timeout=min(timeout,max(0.0,deadline.check("follow-up SQLite write connection")-0.01))
         connection = sqlite3.connect(
-            self.db_path, timeout=self.busy_timeout_ms / 1000
+            self.db_path, timeout=timeout
         )
         connection.row_factory = sqlite3.Row
-        connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+        connection.execute(f"PRAGMA busy_timeout={int(timeout*1000)}")
+        connection.execute(f"PRAGMA cache_size=-{cache_kib}")
         connection.execute("PRAGMA foreign_keys=ON")
         connection.execute("PRAGMA journal_mode=DELETE")
         connection.execute("PRAGMA synchronous=FULL")
+        interrupted: CycleDeadlineExceeded | None = None
+        def progress():
+            nonlocal interrupted
+            try:
+                if deadline is not None:deadline.check("follow-up SQLite write progress")
+            except CycleDeadlineExceeded as error:
+                interrupted=error
+                return 1
+            return 0
+        if deadline is not None:connection.set_progress_handler(progress,1000)
         try:
             yield connection
+        except sqlite3.OperationalError as error:
+            if interrupted is not None:raise interrupted from error
+            raise
         finally:
+            connection.set_progress_handler(None,0)
             connection.close()
 
     @contextmanager
@@ -1144,12 +1169,13 @@ class FollowupRepository:
         storage: StorageConfig,
         finalize: Callable[[float, Mapping[str, Any]], Mapping[str, Any]],
         monotonic: Callable[[], float] = time.monotonic,
+        deadline: CooperativeDeadline | None = None,
     ) -> dict[str, Any]:
         """Commit cycle state, timings, storage, and SUCCEEDED as one fact."""
 
         self._validate_cycle_bundle(bundle)
         publication_started = monotonic()
-        with self._connect() as connection:
+        with self._connect(deadline=deadline,cache_kib=PUBLICATION_CACHE_KIB) as connection:
             connection.execute("BEGIN IMMEDIATE")
             try:
                 self._insert_cycle_evidence(connection, bundle)
@@ -1186,8 +1212,12 @@ class FollowupRepository:
                 self._insert_many(
                     connection, "research_run_events", [terminal_event]
                 )
+                if deadline is not None:deadline.check("atomic publication commit")
                 connection.commit()
             except BaseException:
+                # Rollback must remain able to restore the whole transaction
+                # after the expired progress handler interrupts an INSERT.
+                connection.set_progress_handler(None,0)
                 connection.rollback()
                 raise
         return summary

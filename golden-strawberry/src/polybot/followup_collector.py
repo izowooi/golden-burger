@@ -15,7 +15,7 @@ from uuid import uuid4
 from .api.clob_client import BookCollection, ClobBookClient
 from .api.gamma_client import GammaClient, ResolutionLookup
 from .collector import _resolution_result, normalize_book, walk_bids
-from .db.followup_repository import FollowupRepository
+from .db.followup_repository import FollowupRepository, PUBLICATION_CACHE_KIB
 from .followup_config import FollowupConfig
 from .followup_run_audit import FollowupRunAudit
 from .utils.retry import (
@@ -615,7 +615,9 @@ class FollowupCollector:
                     details={
                         "transaction_boundary": (
                             "cycle_evidence+phase_timings+storage+SUCCEEDED"
-                        )
+                        ),
+                        "sqlite_cache_kib": PUBLICATION_CACHE_KIB,
+                        "sqlite_write_deadline_enforced": True,
                     },
                 )
             )
@@ -704,6 +706,7 @@ class FollowupCollector:
             bundle,
             storage=self.config.trading.storage,
             finalize=finalize,
+            deadline=deadline,
             monotonic=self.monotonic,
         )
         audit.mark_succeeded()

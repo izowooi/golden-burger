@@ -23,6 +23,7 @@ FOLLOWUP_SOURCE_PATHS = (
     "scripts/verify_external_workspace.py",
     "scripts/attest_source_reattachment.py",
     "research/amendment-2026-09-05-device-reattachment/OPERATIONS_AMENDMENT.md",
+    "research/amendment-2026-09-05-publication-cache/OPERATIONS_AMENDMENT.md",
     "src/polybot/analyzer.py",
     "src/polybot/api/clob_client.py",
     "src/polybot/api/gamma_client.py",
