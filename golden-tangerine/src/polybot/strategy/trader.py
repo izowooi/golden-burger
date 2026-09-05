@@ -683,14 +683,12 @@ class Trader:
         if self.mode == "sim" or str(getattr(trade, "buy_order_id", "")).startswith(
             "SIM_"
         ):
-            recorder(None)
-            return False
+            return bool(recorder(None))
         evidence = self.repo.get_exact_buy_fill_evidence(
             getattr(trade, "buy_order_id", None)
         )
         if evidence.state == "confirmed":
-            recorder(evidence)
-            return False
+            return bool(recorder(evidence))
         if evidence.state == "terminal_zero_fill":
             self.repo.update_trade(
                 trade.id,
@@ -705,7 +703,7 @@ class Trader:
                 evidence.order_id,
                 evidence.order_status,
             )
-            return False
+            return True
         logger.warning(
             "resolved payout은 확인했지만 exact CONFIRMED BUY fill 증거가 "
             "없어 HOLDING 유지: Trade #%s state=%s detail=%s",
@@ -715,7 +713,13 @@ class Trader:
         )
         return False
 
-    def _handle_midpoint_unavailable(self, trade, error) -> bool:
+    def _try_proven_resolution(
+        self,
+        trade,
+        *,
+        query_clob_when_gamma_open: bool,
+    ) -> bool:
+        """Resolve an own trade even when a stale midpoint still exists."""
         market = None
         if self.gamma is not None:
             try:
@@ -734,6 +738,12 @@ class Trader:
                     trade, market, fill_evidence=fill
                 ),
             )
+        if (
+            market is not None
+            and market.get("closed") is not True
+            and not query_clob_when_gamma_open
+        ):
+            return False
         try:
             clob_proof = self.clob.get_market_resolution(trade.condition_id)
         except Exception as clob_error:
@@ -750,11 +760,19 @@ class Trader:
                     trade, clob_proof, fill_evidence=fill
                 ),
             )
+        return False
+
+    def _handle_midpoint_unavailable(self, trade, error) -> bool:
+        if self._try_proven_resolution(
+            trade,
+            query_clob_when_gamma_open=True,
+        ):
+            # Resolution is not a SELL and must not increment sold counters.
+            return False
         logger.warning(
             "midpoint unavailable; Gamma/CLOB final payout 증거 없음 - "
-            "condition=%s clob_status=%s error=%s",
+            "condition=%s error=%s",
             trade.condition_id,
-            clob_proof.status,
             error,
         )
         return False
@@ -1026,6 +1044,12 @@ class Trader:
 
     def execute_sell(self, trade) -> bool:
         """Hold until resolution; never mutate account-wide/manual positions."""
+        if self._try_proven_resolution(
+            trade,
+            query_clob_when_gamma_open=False,
+        ):
+            # The accounting transition is RESOLVED/UNFILLED, never a SELL.
+            return False
         try:
             current_price = _valid_book_price(self.clob.get_midpoint(trade.token_id))
         except Exception as error:

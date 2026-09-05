@@ -16,14 +16,18 @@ def _binary(
     closed=False,
     outcomes=("Team A", "Team B"),
     neg_risk=False,
+    resolution_status=None,
 ):
-    return {
+    market = {
         "outcomes": list(outcomes),
         "outcomePrices": list(prices),
         "clobTokenIds": ["yes", "no"],
         "negRisk": neg_risk,
         "closed": closed,
     }
+    if resolution_status is not None:
+        market["umaResolutionStatus"] = resolution_status
+    return market
 
 
 def test_named_binary_preserves_both_aligned_outcomes() -> None:
@@ -62,12 +66,28 @@ def test_malformed_two_outcome_market_fails_closed(field, value) -> None:
 def test_resolution_maps_selected_outcome_payouts() -> None:
     yes = get_proven_resolution(_binary((1, 0), closed=True))
     no = get_proven_resolution(_binary((0, 1), closed=True))
-    ambiguous = get_proven_resolution(_binary((0.5, 0.5), closed=True))
+    ambiguous = get_proven_resolution(
+        _binary((0.5, 0.5), closed=True, resolution_status="resolved")
+    )
     assert yes["payouts_by_outcome"] == {"Team A": 1.0, "Team B": 0.0}
     assert yes["outcome"] == "Team A"
     assert no["payouts_by_outcome"] == {"Team A": 0.0, "Team B": 1.0}
     assert no["outcome"] == "Team B"
     assert ambiguous["payouts_by_outcome"] == {"Team A": 0.5, "Team B": 0.5}
+
+
+@pytest.mark.parametrize("resolution_status", [None, "proposed", "disputed"])
+def test_half_half_requires_explicit_resolved_authority(resolution_status) -> None:
+    assert (
+        get_proven_resolution(
+            _binary(
+                (0.5, 0.5),
+                closed=True,
+                resolution_status=resolution_status,
+            )
+        )
+        is None
+    )
 
 
 def test_entry_is_current_exact_band_not_midpoint_crossing() -> None:

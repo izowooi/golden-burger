@@ -134,6 +134,10 @@ def get_proven_resolution(
         outcome, winner_index, settlement_kind = labels[1], 1, "ONE_HOT"
     elif prices == [0.5, 0.5]:
         # Polymarket can settle rare ambiguous/invalid resolutions at 0.5.
+        # Unlike a one-hot payout, a transient/stale half-half display is not
+        # self-authenticating.  Require Gamma's explicit terminal authority.
+        if str(market.get("umaResolutionStatus") or "").strip().lower() != "resolved":
+            return None
         outcome, winner_index, settlement_kind = "VOID", -1, "VOID"
     else:
         return None

@@ -192,7 +192,12 @@ def test_existing_manual_wallet_positions_are_never_adopted_or_sold(monkeypatch)
     monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
     repo, clob = _Repo(), _Clob(midpoint=0.10)
     config = TradingConfig()
-    trade = SimpleNamespace(id=9, token_id="own-db-token", outcome="Yes")
+    trade = SimpleNamespace(
+        id=9,
+        condition_id="own-db-condition",
+        token_id="own-db-token",
+        outcome="Yes",
+    )
     trader = Trader(repo, clob, config, simulation_mode=False)
 
     assert trader.execute_sell(trade) is False
@@ -238,6 +243,7 @@ def test_gamma_half_half_void_settles_selected_token_without_synthetic_sell() ->
     market = {
         "conditionId": "condition-1",
         "closed": True,
+        "umaResolutionStatus": "resolved",
         "outcomes": ["Team A", "Team B"],
         "outcomePrices": [0.5, 0.5],
         "clobTokenIds": ["team-a-token", "team-b-token"],
@@ -269,6 +275,44 @@ def test_gamma_half_half_void_settles_selected_token_without_synthetic_sell() ->
     assert update["sell_order_id"] is None
     assert update["realized_pnl"] is None
     assert repo.resolution_observations[-1]["settlement_kind"] == "VOID"
+
+
+def test_closed_market_resolves_before_a_stale_midpoint_can_mask_it() -> None:
+    repo, clob = _Repo(), _Clob(midpoint=0.50)
+    gamma = SimpleNamespace(
+        get_market_by_condition_id=lambda _condition: {
+            "conditionId": "condition-1",
+            "closed": True,
+            "umaResolutionStatus": "resolved",
+            "outcomes": ["Team A", "Team B"],
+            "outcomePrices": [0, 1],
+            "clobTokenIds": ["team-a-token", "team-b-token"],
+            "negRisk": False,
+        }
+    )
+    trade = SimpleNamespace(
+        id=75,
+        condition_id="condition-1",
+        token_id="team-b-token",
+        outcome="Team B",
+        buy_order_id="buy-1",
+        buy_shares=5.4,
+        buy_price=0.925,
+    )
+    trader = Trader(
+        repo,
+        clob,
+        TradingConfig(),
+        gamma_client=gamma,
+        simulation_mode=False,
+    )
+
+    assert trader.execute_sell(trade) is False
+    update = repo.updated[-1][1]
+    assert update["status"] is TradeStatus.RESOLVED
+    assert update["resolution_value"] == 1.0
+    assert update["realized_pnl"] is None
+    assert clob.orders == []
 
 
 def test_clob_one_hot_resolution_fallback_settles_confirmed_own_trade() -> None:
