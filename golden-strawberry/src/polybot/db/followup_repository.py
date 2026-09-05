@@ -441,6 +441,7 @@ class FollowupRepository:
     def __init__(self, db_path: str | Path, *, busy_timeout_ms: int = 30_000) -> None:
         self.db_path = Path(db_path)
         self.busy_timeout_ms = busy_timeout_ms
+        self._verified_runtime_seed = None
 
     @contextmanager
     def _connect(
@@ -831,6 +832,8 @@ class FollowupRepository:
     ) -> dict[str, Any]:
         """Rehash every imported canonical seed row before public follow-up work."""
 
+        self._verified_runtime_seed = None
+        runtime_rows=[]
         with self.read_connect(deadline=deadline) as connection:
             anchor_rows = connection.execute("SELECT * FROM source_anchors").fetchall()
             if len(anchor_rows) != 1:
@@ -875,6 +878,8 @@ class FollowupRepository:
                     ):
                         column_errors.append(str(persisted_row["episode_id"]))
                 episodes_with_keys.append((str(persisted_row["episode_id"]),payload))
+                runtime_rows.append({key:persisted_row[key] for key in
+                    ("episode_id","condition_id","token_id","entry_threshold","fixed_shares")})
             # Physical table order avoids thousands of random overflow-page
             # reads on external storage. Canonical hash order is unchanged.
             episodes=[payload for _,payload in sorted(episodes_with_keys,key=lambda item:item[0])]
@@ -968,6 +973,12 @@ class FollowupRepository:
                 "follow-up imported seed integrity drift: "
                 + canonical_json(report)
             )
+        self._verified_runtime_seed = {
+            "db_path":str(self.db_path.resolve()),
+            "rows":tuple(runtime_rows),
+            "terminal_conditions":frozenset(row["condition_id"] for row in conditions
+                if row["terminal_at_handoff"]),
+        }
         return report
 
     def record_research_run_event(self, row: Mapping[str, Any]) -> None:
@@ -990,6 +1001,18 @@ class FollowupRepository:
     def unresolved_episodes(
         self, *, deadline: CooperativeDeadline | None = None, compact: bool = False
     ) -> list[dict[str, Any]]:
+        verified=self._verified_runtime_seed
+        if compact and verified is not None and verified["db_path"]==str(self.db_path.resolve()):
+            # Reuse the exact rows just fully rehashed under this run's lock.
+            # Only terminal outcomes are mutable-by-append, so read those fresh.
+            with self.read_connect(deadline=deadline) as connection:
+                resolved={row[0] for row in connection.execute(
+                    "SELECT DISTINCT condition_id FROM resolution_observations "
+                    "WHERE resolution_status='RESOLVED'")}
+            excluded=resolved|verified["terminal_conditions"]
+            rows=sorted((row for row in verified["rows"] if row["condition_id"] not in excluded),
+                key=lambda row:(row["condition_id"],row["token_id"],row["entry_threshold"],row["episode_id"]))
+            return [{key:row[key] for key in ("episode_id","condition_id","token_id","fixed_shares")} for row in rows]
         columns="e.episode_id,e.condition_id,e.token_id,e.fixed_shares" if compact else "e.*"
         with self.read_connect(deadline=deadline) as connection:
             return [
