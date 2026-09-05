@@ -3,10 +3,14 @@ import pytest
 from scripts.analyze_direct_book_grid import (
     BookObservation,
     Entry,
+    ExitPolicy,
     _evaluate,
     _execution_fee,
     _walk_sell,
 )
+
+
+SOCCER_POLICY = ExitPolicy(80.0, 0.50, 80.0, 0.10, 2.0)
 
 
 def _entry() -> Entry:
@@ -48,9 +52,7 @@ def test_walk_sell_uses_complete_depth() -> None:
 
 
 def test_fee_matches_frozen_sports_taker_formula() -> None:
-    assert _execution_fee(
-        shares=6.25, price=0.80, fee_rate=0.05
-    ) == pytest.approx(0.05)
+    assert _execution_fee(shares=6.25, price=0.80, fee_rate=0.05) == pytest.approx(0.05)
 
 
 def test_replay_uses_first_full_depth_take_profit_and_fees() -> None:
@@ -62,6 +64,7 @@ def test_replay_uses_first_full_depth_take_profit_and_fees() -> None:
         ),
         take_profit_delta=0.05,
         stop_loss_delta=0.10,
+        policy=SOCCER_POLICY,
     )
     assert result is not None
     assert result.reason == "TAKE_PROFIT"
@@ -85,6 +88,7 @@ def test_replay_stop_requires_proven_pre_cutoff_clock() -> None:
             (no_clock,),
             take_profit_delta=0.05,
             stop_loss_delta=0.10,
+            policy=SOCCER_POLICY,
         )
         is None
     )
@@ -93,6 +97,7 @@ def test_replay_stop_requires_proven_pre_cutoff_clock() -> None:
         (_book("2026-08-30 13:01:00", 0.60, 20.0),),
         take_profit_delta=0.05,
         stop_loss_delta=0.10,
+        policy=SOCCER_POLICY,
     )
     assert stopped is not None
     assert stopped.reason == "STOP"
