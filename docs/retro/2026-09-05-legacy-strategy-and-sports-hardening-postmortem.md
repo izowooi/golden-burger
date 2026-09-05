@@ -137,6 +137,8 @@ Black은 첫 복제 중 원격 DB가 변경되어 검증을 반드시 다시 시
 
 Orange의 PENDING_BUY 1건은 요청 5.2631 share와 confirmed 5.26852 share가 `$0.005094` 정도 차이 나는 정상적 FOK 종단 체결이었다. 과거 코드가 이를 수량 불일치로 오판했다. 새 코드는 인증된 주문/거래 catalog·정확 token·실제 경제 차이 1 cent 이하를 모두 입증해 HOLDING으로 복구한다. 0.5/0.5로 해결된 void 1건도 유일한 `umaResolutionStatus=resolved`일 때만 0 손익으로 종결한다.
 
+배포 후 추가로 발견한 Fox trade #75는 2026-08-26의 `Game Handicap: KT (-1.5) vs HANJIN BRION (+1.5)`였다. Gamma와 CLOB은 모두 `closed=true`, `0/1`, HANJIN BRION 승리를 반환했지만, 종료된 시장의 stale midpoint가 계속 응답해 과거 로직의 “midpoint 누락 시에만 해결 조회” 분기에 진입하지 못했다. commit `0994af9`에서 **midpoint 유무와 무관하게 own HOLDING의 Gamma→CLOB 해결 증거를 먼저 확인**하도록 고쳤다. 배포 build `polybot-fox #15559`에서 #75는 payout 1.00, 해결 가정 손익 `+$0.376344`로 RESOLVED됐고 Fox의 HOLDING/PENDING/QUARANTINED는 모두 0이 됐다. 0.5/0.5 void는 더 강하게 Gamma `umaResolutionStatus=resolved`와 함께일 때만 인정한다.
+
 ### 5.2 Black 계정 없는 대조 수집기
 
 Black은 4,269회 cursor-complete sweep, 2,418,737 market observation을 생성했고 DB `quick_check=ok`, 수집 문제 0이었다.
@@ -187,7 +189,7 @@ Watermelon research는 축구·MLB·NBA·NFL·NHL family를 독립 worker로 병
 |---|---:|
 | Golden Cherry | 143 passed + sdist/wheel build |
 | Golden Blueberry | 376 passed + sdist/wheel build |
-| Golden Tangerine | 101 passed + sdist/wheel build |
+| Golden Tangerine | 105 passed + sdist/wheel build |
 | Golden Peach | 254 passed + sdist/wheel build |
 | Golden Plum | 306 passed + sdist/wheel build |
 | Golden Watermelon | 129 passed + sdist/wheel build |
@@ -212,9 +214,50 @@ Black/Cherry/Blueberry는 5분, White/Grey/Gold/Silver는 1분 timer를 복구�
 
 ### 7.3 실거래 배포 상태
 
-`polybot-yellow/eagle/cherry/orange/fox/cat/dog/bear/tiger/lion/wolf/eco/fruit` workspace의 코드는 자동 build를 멈춘 상태에서 `61139bd`로 안전하게 배치했다. 실거래 cycle은 실행하지 않았다. `polybot-king/queen`은 1분 timer가 켜져 있어 실행 중 코드 교체를 하지 않았다. 이 두 job은 사용자의 실거래 재개/일시 정지 확인 후 교체해야 한다.
+사용자가 2026-09-05에 Yellow를 제외한 14개 실거래 job 재개를 명시적으로 승인했다. King/Queen은 진행 중 cycle을 강제 중단하지 않고 정상 SUCCESS를 확인한 뒤 timer OFF→`61139bd`·`uv sync --frozen`→timer ON 순으로 교체했다. 나머지 12개도 중지 상태에서 코드·가상환경을 먼저 배치한 후 재개했다.
 
-실거래 timer를 다시 켜면 주문이 발생할 수 있으므로, 자동 재개는 보고서 작성 시점에 수행하지 않았다. 재개할 때는 Yellow는 신규 진입 차단을 로그로 확인하고, Orange의 기존 PENDING_BUY/void를 정상화한 뒤, 모든 job에서 첫 1회+자연 2회를 검증해야 한다.
+- Blueberry A/B `polybot-eagle/cherry`: `*/5 * * * *`
+- Tangerine A/B `polybot-orange/fox`: `*/5 * * * *`
+- Watermelon Live·Peach·Plum 실거래 10개: `* * * * *`
+- Yellow: timer OFF 유지
+
+2026-09-05 08:30∼10:03 KST의 자연 실행을 전수 집계했다.
+
+| Jenkins | 재개 후 SUCCESS/완료 | 실패 | 평균 | p95 | 최대 | 최신 상태 |
+|---|---:|---:|---:|---:|---:|---|
+| `polybot-eagle` | 19/19 | 0 | 50.857s | 102.253s | 102.253s | open 0, reconciliation 0 |
+| `polybot-cherry` | 19/19 | 0 | 44.005s | 88.403s | 88.403s | open 0, reconciliation 0 |
+| `polybot-orange` | 18/18 | 0 | 14.488s | 21.039s | 21.039s | HOLDING 1, pending/quarantine 0 |
+| `polybot-fox` | 18/18 | 0 | 12.771s | 23.553s | 23.553s | stale #75 RESOLVED, open 0 |
+| `polybot-cat` | 95/95 | 0 | 4.394s | 8.697s | 19.577s | open 0 |
+| `polybot-dog` | 95/95 | 0 | 4.318s | 8.646s | 19.868s | open 0 |
+| `polybot-bear` | 95/95 | 0 | 15.426s | 19.290s | 26.721s | confirmed HOLDING 3, pending/quarantine 0 |
+| `polybot-tiger` | 95/95 | 0 | 14.244s | 17.431s | 20.687s | confirmed HOLDING 1, pending/quarantine 0 |
+| `polybot-lion` | 95/95 | 0 | 22.945s | 25.649s | 35.120s | open 0 |
+| `polybot-wolf` | 95/95 | 0 | 22.260s | 24.898s | 29.979s | open 0 |
+| `polybot-eco` | 95/95 | 0 | 22.695s | 31.746s | 38.014s | soccer/MLB open 0 |
+| `polybot-fruit` | 95/95 | 0 | 22.865s | 31.725s | 37.618s | soccer/MLB open 0 |
+| `polybot-king` | 95/95 | 0 | 18.525s | 29.177s | 40.735s | soccer 1 + MLB 3 HOLDING, pending/quarantine 0 |
+| `polybot-queen` | 95/95 | 0 | 18.158s | 25.079s | 42.016s | soccer 1 + MLB 3 HOLDING, pending/quarantine 0 |
+
+총 **1,024/1,024 build SUCCESS, 실패 0**이다. 1분 job의 최대는 42.016초, 5분 Blueberry의 최대는 102.253초로 모두 주기 안에 종료됐다. 최신 console에서 모든 runtime의 `PENDING_BUY=0`, `PENDING_SELL=0`, `QUARANTINED=0`, reconciliation error 0을 확인했다. HOLDING은 모두 정확한 confirmed size/VWAP/fee·order ID를 가진 bot-own 포지션이며 max-position 여유 범위 안이다.
+
+### 7.4 재동기화·DB 무결성
+
+14개 job을 `daily-rsync --days 1`로 current strategy/runtime에 한정해 다시 plan·sync했다. DB는 기간 필터와 무관하게 온라인 전체 snapshot, console은 배포를 포함한 최근 1일이다.
+
+- 첫 14개 sync: 1,596,189,888 byte(1.4866 GiB), 모두 SUCCESS, failed 0
+- Fox 해결 수정 후 Orange/Fox 최종 sync: 108,683,993 byte(0.1012 GiB), 둘 다 SUCCESS
+- 총 전송: 1,704,873,881 byte(1.5878 GiB)
+- job별 `daily-rsync verify`: 확인 590∼12,945건, checksum/SQLite 실패 0, retention skip 0, open artifact conflict 0
+- current runtime DB 18개: 모두 `quick_check=ok`, 최신 run SUCCESS, `needs_reconciliation=0`, reconciliation error 0
+- 최종 Tangerine: Orange `HOLDING=1, RESOLVED=90`; Fox `RESOLVED=144, UNFILLED=10`; 둘 다 pending/quarantine 0
+
+기본 60일 console plan은 1분 job의 수만 건 artifact를 매번 비교해 로컬 CPU 시간이 너무 길었다. 이는 원격 수집·실거래 장애가 아니라 Daily Rsync plan 생성의 성능 부채다. 이번 배포 검증은 최근 1일 로그로 범위를 바로잡았고, DB 전체 snapshot·checksum 계약은 그대로 유지했다.
+
+### 7.5 남은 Jenkins 보안 부채
+
+익명 `config.xml` 조회와 plain HTTP가 계속 허용되고, 일부 job은 inline credential을 갖고 있어 검사기가 CRITICAL/HIGH로 판정했다. 본 작업은 값을 출력·문서화·commit하지 않았고 기존 값도 변경하지 않았다. LAN 전용이더라도 향후 Jenkins Credentials Binding, 익명 config 읽기 차단, HTTPS 적용이 필요하다.
 
 ## 8. 2026–27 시즌 기간과 주요 대회
 
@@ -277,6 +320,7 @@ Cherry 24시간 점검 예시:
 ## 10. 남은 운영 판단
 
 1. **Yellow**: 현재 자동 실행을 계속 멈춘다. 4건의 보유분과 14건 unknown BUY 증거를 운영자가 어떻게 다룰지 결정한 후 close-management만 일시 켤 수 있다.
-2. **Blueberry A/B**: 새 증거 계약으로 +2/+5, $5를 다시 수집한다. 현재 자료로는 파라미터를 변경하지 않는다.
-3. **Tangerine A/B**: 0.92/0.94, $5를 유지하되 두 timer를 같은 `*/5`로 맞춘다. Black validation이 완료되기 전에 0.92로 합치지 않는다.
-4. **스포츠 live**: 새 코드를 배치했지만 timer는 다시 켜지 않았다. 실제 $5 주문이 발생할 수 있는 재개는 명시적 운영 확인 후 수행한다.
+2. **Blueberry A/B**: +2/+5, $5, 동일 `*/5`로 재개했다. arm당 정확 종료 100건 전에 수치를 바꾸지 않는다.
+3. **Tangerine A/B**: 0.92/0.94, $5, 동일 `*/5`로 재개했다. Fox stale holding 버그는 `0994af9`와 #15559에서 해소했다. Black validation이 완료되기 전에 0.92로 합치지 않는다.
+4. **스포츠 live**: Watermelon Live·Peach·Plum 10개를 1분으로 재개했고 950/950 자연 build SUCCESS와 42.016초 이하 실행을 확인했다.
+5. **증액**: 어느 전략도 아직 `$5`를 올리지 않는다. 사전 등록된 표본·손실·체결 coverage gate를 먼저 채운다.
