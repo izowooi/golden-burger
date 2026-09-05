@@ -1695,19 +1695,6 @@ class Trader:
         book_prefetched: bool = False,
     ) -> bool:
         """Submit one full-depth marketable FOK stop, except proven SDK dust."""
-        if (
-            self.emergency_sell_submissions
-            >= self.config.max_emergency_sells_per_cycle
-        ):
-            self.emergency_sell_guard_blocks += 1
-            logger.critical(
-                "emergency SELL cycle circuit is open; additional holdings are "
-                "left untouched - trade=%s submitted=%s limit=%s",
-                trade.id,
-                self.emergency_sell_submissions,
-                self.config.max_emergency_sells_per_cycle,
-            )
-            return False
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
             if book_prefetched:
@@ -1771,6 +1758,24 @@ class Trader:
             return self._handle_midpoint_unavailable(
                 trade, "stop lifecycle not explicitly live"
             )
+
+        # This is an order-submission budget, not a holding-observation budget.
+        # Even after a SELL, other holdings must still reach the price and
+        # resolution checks above.  No additional HTTP book refresh or POST is
+        # needed once a second, genuinely live stop reaches the budget.
+        if (
+            self.emergency_sell_submissions
+            >= self.config.max_emergency_sells_per_cycle
+        ):
+            self.emergency_sell_guard_blocks += 1
+            logger.warning(
+                "emergency SELL submission budget exhausted; live stop deferred "
+                "without skipping other holding checks - trade=%s submitted=%s limit=%s",
+                trade.id,
+                self.emergency_sell_submissions,
+                self.config.max_emergency_sells_per_cycle,
+            )
+            return False
 
         # The lifecycle reads above take time.  Never submit against the older
         # trigger book: re-read exact full depth and re-run every price guard.

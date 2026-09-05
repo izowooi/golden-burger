@@ -56,7 +56,9 @@ v3e effective trigger는 `0.70`(`max(0.70, confirmed entry VWAP-0.30)`)이며 �
 않는다. White 자료의 모든 고정 손절이 해결 보유보다 나빴고, 최근 0.94/0.95 손절은 최종 승자를
 손실로 끝냈다. 0.70은 최적값이 아니라 재난 방어선이다. irreversible SELL 직전에 current Gamma
 event와 exact CLOB condition이 각각 OPEN임을 확인하고, 그 뒤 full bid book을 다시 읽어 FOK
-SELL한다. spread는 `<=0.10`, cycle SELL은 1건으로 제한한다.
+SELL한다. spread는 `<=0.10`, cycle SELL은 1건으로 제한한다. 이 한도는 추가 주문 제출만
+제한하며 다른 보유 포지션의 가격 확인·해결 상태 대사는 계속한다. 한도에 도달한 실제
+추가 손절 주문은 다음 실행으로 미루고, 이미 해결된 포지션의 종결 처리는 막지 않는다.
 
 정상적으로 연속 관측된 book에서는 worst level/VWAP `>= effective stop-0.05`, projected gross loss `<=35%`를
 강제한다. 그러나 PSG–Lille처럼 가격이 두 cycle 사이에서 0.70을 크게 건너뛰어도 event와 CLOB이

@@ -977,7 +977,10 @@ def test_post_game_cleanup_bid_cannot_trigger_stop() -> None:
     assert repo.updated == []
 
 
-def test_clob_closed_market_blocks_stop_even_when_gamma_still_says_live() -> None:
+@pytest.mark.parametrize("prior_sell_submissions", [0, 1])
+def test_clob_closed_market_blocks_stop_even_when_gamma_still_says_live(
+    prior_sell_submissions,
+) -> None:
     repo = _Repo()
     clob = _Clob(best_bid=0.69, best_ask=0.70)
     clob.resolution = _normalize_clob_resolution(
@@ -1020,13 +1023,18 @@ def test_clob_closed_market_blocks_stop_even_when_gamma_still_says_live() -> Non
         simulation_mode=False,
     )
 
+    trader.emergency_sell_submissions = prior_sell_submissions
     assert trader.execute_sell(trade) is False
     assert clob.orders == []
     assert repo.updated[-1][1]["status"] is TradeStatus.RESOLVED
+    assert trader.emergency_sell_guard_blocks == 0
 
 
 def test_only_one_emergency_sell_can_be_submitted_per_cycle() -> None:
     repo, clob = _Repo(), _Clob(best_bid=0.69, best_ask=0.70)
+    clob.get_market_resolution = lambda condition_id: _normalize_clob_resolution(
+        condition_id, {"condition_id": condition_id, "closed": False}
+    )
     trader = Trader(
         repo,
         clob,
@@ -1060,6 +1068,28 @@ def test_only_one_emergency_sell_can_be_submitted_per_cycle() -> None:
     assert len(clob.orders) == 1
     assert trader.emergency_sell_submissions == 1
     assert trader.emergency_sell_guard_blocks == 1
+
+
+def test_sell_budget_does_not_skip_a_recovered_holding(monkeypatch) -> None:
+    repo, clob = _Repo(), _Clob(best_bid=0.90, best_ask=0.91)
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    trader.emergency_sell_submissions = 1
+    cleared = []
+    monkeypatch.setattr(
+        trader, "_clear_stop_sell_failure", lambda trade: cleared.append(trade.id)
+    )
+    trade = SimpleNamespace(
+        id=10,
+        token_id="recovered-token",
+        buy_shares=5.102,
+        buy_price=0.98,
+        stop_price_at_entry=0.70,
+    )
+
+    assert trader.execute_sell(trade) is False
+    assert cleared == [10]
+    assert clob.orders == []
+    assert trader.emergency_sell_guard_blocks == 0
 
 
 def test_sdk_sell_submission_nudge_survives_binary_float_double_floor() -> None:
