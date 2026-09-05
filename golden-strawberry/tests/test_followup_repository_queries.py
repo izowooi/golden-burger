@@ -91,6 +91,22 @@ def test_latest_query_preserves_seed_fallback_ties_null_zero_and_chunks(query_re
     assert "null-seed" not in actual and "missing-episode" not in actual
     assert repository.latest_path_vwaps([]) == {}
     assert hashlib.sha256(repository.db_path.read_bytes()).hexdigest() == before
+    with repository.read_connect() as c:
+        repository._verified_runtime_seed = {
+            "db_path": str(repository.db_path.resolve()),
+            "rows": tuple(dict(row) for row in c.execute("SELECT * FROM imported_episodes")),
+        }
+    assert repository.latest_path_vwaps(requested) == expected
+    with sqlite3.connect(repository.db_path) as c:
+        c.execute("INSERT INTO episode_path_observations VALUES(?,?,?,?,?)",
+            ("new-zero", ids[-1], "2026-09-06T00:00:00Z", "EXECUTABLE", 0.))
+    assert repository.latest_path_vwaps([ids[-1]]) == {ids[-1]: 0.}
+    with sqlite3.connect(repository.db_path) as c:
+        c.execute("DELETE FROM episode_path_observations WHERE path_observation_id='new-zero'")
+    # SQLite headers may change from the fixture-only append/delete above.
+    before = hashlib.sha256(repository.db_path.read_bytes()).hexdigest()
+    assert repository.latest_path_vwaps(requested) == expected
+    assert hashlib.sha256(repository.db_path.read_bytes()).hexdigest() == before
 
 
 def test_resolved_partial_index_preserves_unresolved_rows_and_uses_index(query_repository):

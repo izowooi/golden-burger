@@ -12,3 +12,9 @@
 - 영구 cache 파일/테이블이나 추정 가격을 만들지 않는다. 전체 행 분석 API와 검증 없는
   진단 조회의 기존 SQL 경로는 유지한다. 실제 Bot은 검사 실패 후 수집을 실행하지 않는다.
 - 원본/anchor/seed·가상 정책·기간·cadence·deadline은 바꾸지 않는다.
+
+실제2408에서 미해결 목록 조회는0.071초로 개선됐으나 latest-price 조회가129.318초였다.
+같은 검증 projection에 불변 source fallback 가격도 유지하여 latest-price 조회의
+imported_episodes JOIN을 제거한다. 최신 v2a 가격은 매번 인덱스에서 새로 조회하고,
+없을 때만 검증된 원본 값을 사용한다. NULL·0·동시각 tie-break·미등록 episode의 기존
+동작을 유지하며, seed 검증을 거치지 않은 분석 호출은 기존 SQL 경로를 유지한다.

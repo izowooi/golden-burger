@@ -879,7 +879,8 @@ class FollowupRepository:
                         column_errors.append(str(persisted_row["episode_id"]))
                 episodes_with_keys.append((str(persisted_row["episode_id"]),payload))
                 runtime_rows.append({key:persisted_row[key] for key in
-                    ("episode_id","condition_id","token_id","entry_threshold","fixed_shares")})
+                    ("episode_id","condition_id","token_id","entry_threshold","fixed_shares",
+                     "source_last_executable_bid_vwap")})
             # Physical table order avoids thousands of random overflow-page
             # reads on external storage. Canonical hash order is unchanged.
             episodes=[payload for _,payload in sorted(episodes_with_keys,key=lambda item:item[0])]
@@ -1040,6 +1041,18 @@ class FollowupRepository:
     ) -> dict[str, float]:
         if not episode_ids:
             return {}
+        verified = self._verified_runtime_seed
+        reuse_seed = verified is not None and verified["db_path"] == str(self.db_path.resolve())
+        seed_fallbacks = {
+            str(row["episode_id"]): row["source_last_executable_bid_vwap"]
+            for row in verified["rows"]
+        } if reuse_seed else {}
+        # The immutable fallback was already fully verified in this run. Avoid
+        # re-reading large imported rows for every indexed latest-price seek.
+        fallback_sql = "NULL" if reuse_seed else "e.source_last_executable_bid_vwap"
+        join_sql = "" if reuse_seed else (
+            "LEFT JOIN imported_episodes e ON e.episode_id=requested.episode_id"
+        )
         result: dict[str, float] = {}
         with self.read_connect(deadline=deadline) as connection:
             for chunk in _chunks(sorted(set(episode_ids))):
@@ -1056,16 +1069,18 @@ class FollowupRepository:
                                  AND p.exit_bid_vwap IS NOT NULL
                                ORDER BY p.observed_at DESC,p.path_observation_id DESC
                                LIMIT 1
-                           ),e.source_last_executable_bid_vwap) AS exit_bid_vwap
+                           ),{fallback_sql}) AS exit_bid_vwap
                     FROM requested
-                    LEFT JOIN imported_episodes e
-                      ON e.episode_id=requested.episode_id
+                    {join_sql}
                     """,
                     tuple(chunk),
                 )
                 for row in rows:
-                    if row[1] is not None:
-                        result[str(row[0])] = float(row[1])
+                    price = row[1]
+                    if price is None and reuse_seed:
+                        price = seed_fallbacks.get(str(row[0]))
+                    if price is not None:
+                        result[str(row[0])] = float(price)
         return result
 
     def threshold_event_keys(

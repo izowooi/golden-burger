@@ -79,3 +79,24 @@ def test_failed_revalidation_discards_previous_projection(config,followup_config
     import pytest
     with pytest.raises(RuntimeError):repo.verify_seed_integrity(anchor)
     assert repo._verified_runtime_seed is None
+
+
+def test_verified_latest_price_keeps_fallback_and_reads_fresh_paths(config,followup_config,monkeypatch):
+    from tests.followup_support import build_followup_evidence
+    build_v1_handoff(config)
+    snapshot=V1SourceReader(followup_config.trading.v1_source).capture()
+    evidence=build_followup_evidence(followup_config,snapshot,cycles=1)
+    repo=evidence.repository
+    ids=[row['episode_id'] for row in repo.unresolved_episodes()]+['missing']
+    expected=repo.latest_path_vwaps(ids)
+    repo.verify_seed_integrity(repo.stored_anchor())
+    statements=[];original=repo.read_connect
+    @contextmanager
+    def traced(**kwargs):
+        with original(**kwargs) as c:
+            c.set_trace_callback(statements.append)
+            yield c
+    monkeypatch.setattr(repo,'read_connect',traced)
+    assert repo.latest_path_vwaps(ids)==expected
+    assert not any('imported_episodes' in q for q in statements)
+    assert any('episode_path_observations' in q for q in statements)
