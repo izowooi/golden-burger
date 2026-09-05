@@ -8,6 +8,21 @@ Queen MLB는 명시적인 사용자 승인에 따라 `POLYBOT_DRAWDOWN_GUARD_ENA
 실제 누적 손실과 -$10 기준 초과 여부는 계속 기록하며 손실을 지우거나 기준을 큰 값으로
 바꾸지 않는다. 포지션·중복 주문·체결 증거·미확정 주문 안전장치와 개별 거래 손절은 유지한다.
 
+## 현재 MLB 익절·손절 수정판 v8
+
+2026-09-05 명시적 사용자 요청으로 **MLB만 King TP0.65 / Queen TP0.70, 공통 SL 매수가-0.12**로
+변경했다. 진입.55~.58·5회+.01·$5·기존 종료일은 유지한다. 축구 TP0.90/0.95·SL-0.15와
+Gold/Silver의 수집 설정은 바꾸지 않는다. 아래 과거 v7 수치보다 이 절과
+`research/frozen-2026-09-05-mlb-exit-review-v8/PREREGISTRATION.md`가 우선한다.
+수익성을 입증한 최적값이 아니라, 서로 다른 두 관측 집단에서 기존보다 손실을 줄였던 조합의
+새 최소금액 검증이다. 최근16경기 집단의 가상7신호에서는 새 조합도 손실이었다.
+기존 DB와 runtime 이름의90/95 접미어는 과거 식별자로 유지하며, 실제 값은 resolved config와
+v8 protocol/source로 확인한다. 기존 거래의 매수 당시 TP/SL은 다시 쓰지 않는다.
+
+재생 도구 `scripts/replay_mlb_exit_grid.py`는 명시적 DB/config/UTC 구간을 받아 같은 진입을
+익절8개×손절5개로 비교한다. 원호가 깊이·매도 최소 수량·수수료·미세 잔여를 반영하고 관측 공백을
+넘은 사후 이익이나 뒤늦은 해결을 손절 체결로 바꾸지 않는다. 결과는 실제 체결/기대수익이 아니다.
+
 ## 한 줄 가설
 
 한 경기의 직접 결과 token 중 유일한 선두가 일정한 상승 경로로 기준점을 처음 통과하면,
@@ -216,7 +231,7 @@ MLB 동결값과 기간은
 `research/frozen-2026-09-01-multisport-mlb-shadow-v3/PREREGISTRATION.md`, NFL·NBA는
 `research/frozen-2026-09-02-nba-nfl-shadow-v4/PREREGISTRATION.md`가 권위다.
 MLB live A/B와 NHL 수집은
-`research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md`,
+`research/frozen-2026-09-05-mlb-exit-review-v8/PREREGISTRATION.md`(v7은 역사자료),
 `research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md`가 권위다.
 공통 실행 보정은
 `research/frozen-2026-09-02-partial-profit-exit-v6/PREREGISTRATION.md`를 따른다.

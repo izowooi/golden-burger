@@ -377,13 +377,13 @@ def test_gamma_accepts_exact_direct_major_sport_family(family, tag_id) -> None:
 def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
     client = GammaClient(
         sport_family="mlb",
-        sport_profile_version="mlb-gold-15-event-exploratory-live-v1",
+        sport_profile_version="mlb-early-profit-loss-reduction-v2",
     )
 
     assert client.sport_profile.code == "mlb"
     assert (
         client.sport_profile.profile_version
-        == "mlb-gold-15-event-exploratory-live-v1"
+        == "mlb-early-profit-loss-reduction-v2"
     )
 
 

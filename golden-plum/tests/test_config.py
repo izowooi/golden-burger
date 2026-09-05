@@ -213,8 +213,8 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
 @pytest.mark.parametrize(
     ("job", "target"),
     [
-        ("plum-live-king-mlb-90-1m-v1", 0.90),
-        ("plum-live-queen-mlb-95-1m-v1", 0.95),
+        ("plum-live-king-mlb-90-1m-v1", 0.65),
+        ("plum-live-queen-mlb-95-1m-v1", 0.70),
     ],
 )
 def test_mlb_live_arms_use_the_gold_informed_profile(monkeypatch, job, target) -> None:
@@ -225,15 +225,16 @@ def test_mlb_live_arms_use_the_gold_informed_profile(monkeypatch, job, target) -
     trading = config.trading
     assert trading.sport_family == "mlb"
     assert trading.sport_profile_version == (
-        "mlb-gold-15-event-exploratory-live-v1"
+        "mlb-early-profit-loss-reduction-v2"
     )
-    assert trading.protocol_id == "plum-mlb-live-gold-informed-v7"
+    assert trading.protocol_id == "plum-mlb-live-exit-review-v8"
     assert trading.preregistration_path == MLB_LIVE_PREREGISTRATION
     assert trading.entry.prob_min == 0.55
     assert trading.entry.prob_max == 0.58
     assert trading.entry.trend_observations == 5
     assert trading.entry.trend_min_cumulative_move == 0.01
-    assert trading.entry.stop_loss_delta == 0.15
+    assert trading.entry.stop_loss_delta == 0.12
+    assert trading.entry.max_entry_drawdown == 0.12
     assert trading.entry.take_profit_price == target
     assert trading.experiment_start_utc == MLB_LIVE_START_UTC
     assert trading.experiment_entry_end_utc == MLB_LIVE_ENTRY_END_UTC

@@ -50,7 +50,7 @@ US_MAJOR_PREREGISTRATION = (
     "PREREGISTRATION.md"
 )
 MLB_LIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md"
+    "research/frozen-2026-09-05-mlb-exit-review-v8/PREREGISTRATION.md"
 )
 NHL_SHADOW_PREREGISTRATION = (
     "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md"
@@ -259,14 +259,14 @@ _MLB_LIVE_GRID = {
     **_COMMON_EXPLORATORY_GRID,
     "primary_prob_min": 0.55,
     "primary_prob_max": 0.58,
-    "primary_take_profit": 0.95,
-    "primary_stop_delta": 0.15,
+    "primary_take_profit": 0.70,
+    "primary_stop_delta": 0.12,
     "primary_trend_observations": 5,
     "primary_trend_min_cumulative_move": 0.01,
 }
 SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     code="mlb",
-    profile_version="mlb-gold-15-event-exploratory-live-v1",
+    profile_version="mlb-early-profit-loss-reduction-v2",
     book_shape="direct-two-team-moneyline",
     result_kinds=("HOME", "AWAY"),
     expected_market_count=1,
@@ -347,8 +347,8 @@ RUNTIME_SPECS = {
         simulation_mode=False,
         lifecycle_mode="active",
         execution_policy="adaptive-fok-live-baseline-5-usdc",
-        take_profit_price=0.90,
-        protocol_id="plum-mlb-live-gold-informed-v7",
+        take_profit_price=0.65,
+        protocol_id="plum-mlb-live-exit-review-v8",
         preregistration_path=MLB_LIVE_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
@@ -365,8 +365,8 @@ RUNTIME_SPECS = {
         simulation_mode=False,
         lifecycle_mode="active",
         execution_policy="adaptive-fok-live-baseline-5-usdc",
-        take_profit_price=0.95,
-        protocol_id="plum-mlb-live-gold-informed-v7",
+        take_profit_price=0.70,
+        protocol_id="plum-mlb-live-exit-review-v8",
         preregistration_path=MLB_LIVE_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
