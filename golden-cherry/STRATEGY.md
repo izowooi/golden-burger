@@ -17,8 +17,9 @@ confirmed SELL 결과와 합산하지 않는다.
 
 - **실현 YES율이 모든 밴드에서 진입가와 거의 같았다** (0.769→76.9%, 0.820→81.2%, 0.879→90.4%, 0.907→91.3%). 즉 편향은 이 구간에서 관측되지 않았고 시장은 효율적이었다.
 - 당시 자료에서는 수수료를 $0로 분류했지만, exact fee evidence가 없는 행에는 이를 소급하지 않는다.
-- 당시 반사실은 익절(+10%)을 해결까지 보유보다 +$2,523, 손절을 -$1,902로 추정했다.
-  이는 legacy counterfactual이며 앞으로의 수익성 결론이나 actual cashflow가 아니다.
+- 당시 익절이 해결까지 보유보다 +$2,523 유리하다는 계산은 **2026-07-29 정정에서 철회됐다**.
+  BUY 증거가 없는 거래가 결과를 뒤집었으며, 정정된 SELL 기준 차액은 익절 -$1,606,
+  손절 -$1,915였다. 구간·증거가 다른 역사 분석이며 현재 확정 손익과 합치지 않는다.
 
 ## 3. 진입/청산 규칙 정밀 명세
 
@@ -102,7 +103,8 @@ known zero로 인정하며, `TAKER`·role 불명은 계속 fail closed한다.
 
 - **진입 상한을 익절 도달 가능선에 묶기**: `sell_threshold <= 1/(1+take_profit) - ε`. `take_profit=0.10`이면 0.90 미만.
 - **비스포츠 전용**: 2026-07 실측에서 비스포츠 +16.7% / 스포츠 -7.2%였다. 다만 이는 `game_start` 도입 이전 endDate 체제의 결과라 현재 체제에 그대로 적용되지 않는다.
-- **해결까지 보유(청산 없음)**: 익절이 순기여였으므로 권하지 않는다.
+- **해결까지 보유(청산 없음)**: 기존 익절 우위 계산은 철회됐다. 최근 자료에서 유망한
+  진입 밴드와 함께 별도 계정 없는 실험으로 검증 중이며, 과거 재생만으로 실거래에 적용하지 않는다.
 
 ## 8. 알려진 구현 한계
 
@@ -127,7 +129,7 @@ reconciliation과 Phase 1 holding/exit 관리는 먼저 정상 실행된다.
 2026-09-05 current Yellow exact channels는 SELL `-$44.847137`, resolution
 `-$100.314853`, 합계 `-$145.161990`이므로 향후 active shell도 신규 진입 차단 상태다.
 
-## 10. Prospective redesign shadow
+## 10. 앞으로 수집하는 재설계 검증
 
 `cherry-shadow-resolution-v2`는 live 전략을 바꾸는 기능이 아니라 별도
 `trades_sim.db`에 표시 호가 반사실을 적재하는 accountless experiment다. Bootstrap에서
@@ -135,3 +137,25 @@ reconciliation과 Phase 1 holding/exit 관리는 먼저 정상 실행된다.
 control, hold/current/sensitivity policy 전부를 유지하고 event-clustered 결과를 30일 entry
 window 전에는 선택하지 않는다. 권위 있는 설계는
 `docs/CHERRY_SHADOW_RESOLUTION_V2_PREREGISTRATION.md`와 `shadow_config.yaml`이다.
+
+## 11. 2026-09-05 주문 증거 보강
+
+새 GTC BUY/SELL은 실제 서명 객체의 maker/taker 수량을 검증하고 execution ledger에 함께
+보관한다. 단위·정밀도·금액 불일치 또는 durable ledger 부재는 POST 전에 차단한다.
+서명·개인키 원문은 저장하지 않는다. 거래소의 주문 상세가 나중에 사라져도 정확한 체결
+catalog와 실제 서명 수량으로 전량 체결을 대사할 수 있게 한다.
+
+이미 서명 수량이 누락된 과거 PENDING_SELL은 재서명이나 요청 수량 추정으로 보정하지 않는다.
+다음 조건을 전부 만족하는 좁은 TAKER 매도만 복구한다.
+
+- 봇이 소유한 PENDING_SELL·정확한 BUY 체결·수수료가 확인되고 제출 후30분 이상.
+- current/pre-migration 주문 catalog에 해당 정확한 SELL이 없고, 전체 authenticated token
+  catalog의 모든 관련 체결이 CONFIRMED SELL·동일 token·명시적0 fee다.
+- 실제 매도 합계가 봇의 남은 보유 수량과 일치한다. 부분 체결이나 타인/수동 주문은 제외한다.
+- 정확한 한 주문에 대한 취소/이미 전량체결/종료 부재 응답을 받은 뒤 주문·체결 catalog를
+  재검증한다. 응답이 불명확하거나 체결 집합이 변하면 보류한다.
+- 원자적 복구 기록에 실제 matched 수량과 종료 확인 근거를 남긴다. 원래 signed amount와
+  original_size는 NULL 그대로 보존하고, 실제 매도분을0체결로 만들지 않는다.
+
+복구 뒤에도 동일한 exact BUY/SELL·fee 기반 상태 전이를 사용한다. 이 경로는 과거 unknown BUY
+예약을 해제하거나 손실 한도를 초기화하지 않는다. 일반 parameter나 매매 신호 변경과도 별개다.

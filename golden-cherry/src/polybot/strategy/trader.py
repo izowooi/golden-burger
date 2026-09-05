@@ -738,6 +738,19 @@ class Trader:
             )
             return False
         if not self._actual_fill_ready(sell_evidence):
+            from ..pending_sell_recovery import recover_fully_sold_legacy_position
+
+            try:
+                recovered = recover_fully_sold_legacy_position(self.repo, self.clob, trade)
+            except Exception as error:
+                recovered = False
+                logger.warning("legacy SELL 대사 복구 보류: Trade #%s error=%s", trade.id, type(error).__name__)
+            if recovered:
+                sell_evidence = self.repo.get_exact_sell_fill_evidence(
+                    trade.sell_order_id, trade.token_id
+                )
+                logger.info("exact terminal acknowledgement로 SELL 대사 복구: Trade #%s", trade.id)
+        if not self._actual_fill_ready(sell_evidence):
             logger.warning(
                 "SELL full-fill/fee 대사 미완료로 PENDING_SELL 유지: "
                 "Trade #%s state=%s full=%s fee=%s detail=%s",

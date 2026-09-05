@@ -39,6 +39,54 @@ _PROVABLY_UNFILLED_ORDER_STATUSES = {
 _CONDITIONAL_TOKEN_SCALE = Decimal("1000000")
 
 
+def _signed_limit_envelope(
+    signed_order: Any, *, side: str, requested_size: float, price: float
+) -> tuple[int, int, float]:
+    """Validate only public amount fields; never serialize the signed order."""
+    amounts = []
+    for field in ("makerAmount", "takerAmount"):
+        raw = getattr(signed_order, field, None)
+        # Signed fixed-6 amounts are unsigned integer fields, not display
+        # shares or decimal/scientific-notation approximations.
+        if (
+            isinstance(raw, bool)
+            or not isinstance(raw, (str, int))
+            or not str(raw)
+            or any(character not in "0123456789" for character in str(raw))
+        ):
+            raise ClobResponseContractError(
+                "signed limit amount evidence is missing or invalid"
+            )
+        amount = int(raw)
+        if not 0 < amount < 2**256:
+            raise ClobResponseContractError(
+                "signed limit amounts must be positive uint256 values"
+            )
+        amounts.append(amount)
+    making, taking = amounts
+    token_amount = making if side == "SELL" else taking
+    collateral_amount = taking if side == "SELL" else making
+    shares = Decimal(token_amount) / _CONDITIONAL_TOKEN_SCALE
+    requested = Decimal(str(requested_size))
+    snapped_price = Decimal(str(price))
+    if (
+        not requested.is_finite()
+        or requested <= 0
+        or not snapped_price.is_finite()
+        or not 0 < snapped_price < 1
+    ):
+        raise ClobResponseContractError("invalid limit request amount or price")
+    residual = requested - shares
+    if residual < Decimal("-0.000001") or residual > Decimal("0.010001"):
+        raise ClobResponseContractError("signed limit share drift exceeds one SDK quantum")
+    # Limit-order SDK rounding retains at least four collateral decimals for
+    # this wrapper's 0.01 tick. Reject swapped/scaled/corrupt amount fields.
+    collateral = Decimal(collateral_amount) / _CONDITIONAL_TOKEN_SCALE
+    if abs(collateral - shares * snapped_price) > Decimal("0.0001"):
+        raise ClobResponseContractError("signed limit collateral and price disagree")
+    return making, taking, float(shares)
+
+
 def _normalize_order_status(value: Any) -> str:
     status = str(value or "").strip().upper()
     prefix = "ORDER_STATUS_"
@@ -498,7 +546,13 @@ class ClobClientWrapper:
         try:
             from py_clob_client_v2 import OrderArgs, OrderType
 
-            order_side = "BUY" if side.upper() == "BUY" else "SELL"
+            if self.execution_ledger is None:
+                raise SubmissionEvidenceError(
+                    "live limit POST requires a durable execution ledger"
+                )
+            order_side = str(side).strip().upper()
+            if order_side not in {"BUY", "SELL"}:
+                raise ClobResponseContractError("limit side must be BUY or SELL")
             order_args = OrderArgs(
                 token_id=token_id,
                 price=rounded_price,
@@ -506,36 +560,35 @@ class ClobClientWrapper:
                 side=order_side,
             )
 
-            if self.execution_ledger is not None:
-                self.execution_ledger.assert_submission_allowed(
-                    token_id=token_id,
-                    side=order_side,
-                )
+            self.execution_ledger.assert_submission_allowed(
+                token_id=token_id,
+                side=order_side,
+            )
 
             # create_order performs signing and read-only preflight such as
             # tick-size/neg-risk lookups. Finish it before recording an intent
             # so a GET timeout cannot be mistaken for an uncertain POST.
             signed_order = self.client.create_order(order_args)
+            signed_making, signed_taking, signed_size = _signed_limit_envelope(
+                signed_order, side=order_side, requested_size=size, price=rounded_price
+            )
 
             def submit_order() -> Dict[str, Any]:
                 return self.client.post_order(signed_order, OrderType.GTC)
 
-            if self.execution_ledger is None:
-                response = normalize_clob_response(
-                    submit_order(), response_type="submission"
-                )
-            else:
-                response = self.execution_ledger.submit_and_record(
-                    token_id=token_id,
-                    side=order_side,
-                    requested_price=rounded_price,
-                    requested_size=size,
-                    submit=submit_order,
-                    cancel=lambda order_id: self.client.cancel_orders([order_id]),
-                )
+            response = self.execution_ledger.submit_and_record(
+                token_id=token_id,
+                side=order_side,
+                requested_price=rounded_price,
+                requested_size=signed_size,
+                submit=submit_order,
+                cancel=lambda order_id: self.client.cancel_orders([order_id]),
+                signed_making_amount=signed_making,
+                signed_taking_amount=signed_taking,
+            )
 
             logger.info(f"Limit {side} 주문 완료 @ {rounded_price:.2f}: {response}")
-            return dict(response)
+            return {**dict(response), "requested_size": signed_size}
 
         except SubmissionOutcomeQuarantinedError as error:
             logger.warning(
