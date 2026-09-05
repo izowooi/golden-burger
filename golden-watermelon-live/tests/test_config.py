@@ -6,6 +6,7 @@ import pytest
 from polybot.config import (
     FROZEN_ENTRY_END_UTC,
     FROZEN_FOLLOWUP_END_UTC,
+    FROZEN_RESUME_UTC,
     FROZEN_START_UTC,
     MLB_ECONOMIC_GUARD_START_UTC,
     RUNTIME_SPECS,
@@ -60,11 +61,43 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     followup_end = datetime.fromisoformat(
         FROZEN_FOLLOWUP_END_UTC.replace("Z", "+00:00")
     )
-    assert entry_end - start == timedelta(days=7)
+    resume = datetime.fromisoformat(FROZEN_RESUME_UTC.replace("Z", "+00:00"))
+    assert start < resume
+    assert entry_end - resume == timedelta(days=7)
     assert followup_end - entry_end == timedelta(days=7)
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64
+
+
+@pytest.mark.parametrize("short", ["cat", "dog", "bear", "tiger", "lion", "wolf"])
+def test_one_week_continuation_preserves_existing_guard_budget(monkeypatch, short):
+    from polybot.config import ECONOMIC_GUARD_START_UTC_BY_SPORT
+
+    _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-" + short)
+    runtime = next(name for name, spec in RUNTIME_SPECS.items() if spec.jenkins_job == "polybot-" + short)
+    config = load_config("config.yaml", runtime, simulation_mode=False)
+    assert config.trading.experiment_start_utc == "2026-08-29T04:00:00Z"
+    assert config.trading.experiment_entry_end_utc == "2026-09-12T09:05:00Z"
+    assert config.trading.experiment_followup_end_utc == "2026-09-19T09:05:00Z"
+    assert config.trading.economic_guard_start_utc == ECONOMIC_GUARD_START_UTC_BY_SPORT[config.trading.sport_family]
+    assert config.trading.economic_guard_start_utc < FROZEN_RESUME_UTC
+    assert config.trading.buy_amount_usdc == 5
+    assert config.trading.max_drawdown_stop == 0.10
+
+
+@pytest.mark.parametrize("key,value", [
+    ("POLYBOT_EXPERIMENT_END_UTC", "2026-09-05T04:00:00Z"),
+    ("POLYBOT_EXPERIMENT_FOLLOWUP_END_UTC", "2026-09-12T04:00:00Z"),
+    ("POLYBOT_EXPERIMENT_START_UTC", "2026-09-05T09:05:00Z"),
+])
+def test_continuation_rejects_stale_dates_or_silent_history_reset(monkeypatch, key, value):
+    _credentials(monkeypatch)
+    monkeypatch.setenv("JOB_NAME", "polybot-cat")
+    monkeypatch.setenv(key, value)
+    with pytest.raises(ValueError, match="experiment timestamps"):
+        load_config("config.yaml", "watermelon-live-cat-96-1m-v2h", simulation_mode=False)
 
 
 def test_only_arm_b_threshold_override_is_accepted(

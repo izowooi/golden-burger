@@ -1,4 +1,4 @@
-# Golden Watermelon Live — Major Sports A/B v3f
+# Golden Watermelon Live — Major Sports A/B v3g
 
 ## 질문과 treatment
 
@@ -115,8 +115,12 @@ Gamma server gate와 lockfile 기반 dependency stamp로 정상 Jenkins end-to-e
 - CRITICAL/HIGH, mixed cohort, incomplete fill/fee 또는 수동 position 혼입 시 수익성·scale 판단을
   중단한다.
 
-entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up
-`2026-09-12T04:00:00Z`; 현재 Jenkins target은 `$5`로 유지한다. future scale은 accountless
+사용자 승인으로 `2026-09-05T09:05:00Z`부터 1주 연속 검증을 재개한다. 신규 진입 종료는
+`2026-09-12T09:05:00Z`, 후속 관찰 기준은 `2026-09-19T09:05:00Z`다. 기존 실험 시작
+`2026-08-29T04:00:00Z`와 종목별 손실 판정 시작은 유지하여 안전 예산을 초기화하지 않는다.
+종전 종료 `2026-09-05T04:00:00Z`부터 재개 배포까지의 공백은 정상 관측으로 채우지 않는다.
+기간 종료 후에도 기존 보유 관리와 해결 대사는 계속하며 시간만으로 강제 매도하지 않는다.
+현재 Jenkins target은 `$5`로 유지한다. future scale은 accountless
 White/Grey displayed-depth evidence와 live confirmed fill evidence를 함께 보고 한 rung씩만 검토한다.
 0.92→0.99 조합은 별도 향후 수집에서 최소 100개 독립 경기 전에는 판정하지 않는다.
 
@@ -129,3 +133,8 @@ v3f는 거래 이력을 수정하지 않고 MLB 경제손익 진입 차단 구�
 보존하되 교정된 묶음의 `$10` 안전 예산과 합치지 않는다. 실행 원장의 SELL과 증거 공백도
 같은 매수 구간에 연결된 것만 집계한다. 세부 계약은
 `research/frozen-2026-09-03-mlb-guard-epoch-v3f/PREREGISTRATION.md`를 따른다.
+
+v3g는 종료일만 연장한 승인된 계속 운용이다. 기존 여섯 runtime·지갑·DB·종목·진입/손절·
+손실 한도를 보존하며 과거 동결 문서나 거래를 수정하지 않는다. 이번 배포의 source/config와
+재개 전후 관측은 구분한다. 현재 계약은
+`research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md`다.

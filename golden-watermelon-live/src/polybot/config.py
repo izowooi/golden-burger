@@ -23,8 +23,11 @@ from .source_digest import compute_strategy_source_digest, preregistration_sha25
 
 LIFECYCLE_MODES = frozenset({"active", "close_only", "archive_only"})
 FROZEN_START_UTC = "2026-08-29T04:00:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-05T04:00:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-12T04:00:00Z"
+# A one-week continuation, not a fresh balance/loss-budget epoch. Keep the
+# original start so existing positions and sport-specific guard history survive.
+FROZEN_RESUME_UTC = "2026-09-05T09:05:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-12T09:05:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-09-19T09:05:00Z"
 # The MLB safety budget restarts at the first successful v3e run.  Earlier MLB
 # trades remain immutable performance evidence, but they used the superseded
 # 5pp stop and must not consume the corrected cohort's entry kill switch.
