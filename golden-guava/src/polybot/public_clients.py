@@ -243,8 +243,11 @@ class PublicClients:
             payload = result["raw"]
             if not isinstance(payload, dict) or not isinstance(payload.get("events"), list):
                 return failed("invalid_keyset_payload")
-            # Missing cursor is not a terminal attestation. Empty-string/null is.
-            if "next_cursor" not in payload or not (payload["next_cursor"] is None or isinstance(payload["next_cursor"], str)):
+            # Gamma documents omission on the final short page. Never infer
+            # completion when a full page is missing the required continuation.
+            if "next_cursor" not in payload and len(payload["events"]) >= self.page_size:
+                return failed("missing_cursor_on_full_page")
+            if "next_cursor" in payload and not (payload["next_cursor"] is None or isinstance(payload["next_cursor"], str)):
                 return failed("missing_or_invalid_next_cursor")
             for raw in payload["events"]:
                 if not isinstance(raw, dict) or isinstance(raw.get("id"), bool) or not isinstance(raw.get("id"), (str, int)) or not str(raw["id"]).strip():
@@ -283,9 +286,10 @@ class PublicClients:
                     else:
                         event["_guava"]["sport_enrichment"] = "MISSING_OR_AMBIGUOUS"
                 events.append(event)
-            cursor = payload["next_cursor"]
+            cursor = payload.get("next_cursor")
             if cursor in (None, ""):
-                att.update(status="SUCCESS", cursor_complete=True, completed_at=_utcnow(), event_count=len(events))
+                att.update(status="SUCCESS", cursor_complete=True, completed_at=_utcnow(), event_count=len(events),
+                    terminal_basis="OMITTED_CURSOR_SHORT_PAGE" if "next_cursor" not in payload else "EXPLICIT_TERMINAL_CURSOR")
                 return events, att
             if cursor in seen_cursors:
                 return failed("repeated_cursor")

@@ -153,7 +153,7 @@ def test_sweep_complete_enrichment_preserves_payload_and_params(monkeypatch):
 @pytest.mark.parametrize("pages,cap", [
     ([{"events": [{"id": "1"}], "next_cursor": "loop"}] * 2, 4),
     ([{"events": [{"id": "1"}], "next_cursor": "more"}], 1),
-    ([{"events": []}], 4),
+    ([{"events": [{"id": str(i)} for i in range(500)]}], 4),
     ([{"events": [], "next_cursor": 42}], 4),
 ])
 def test_incomplete_sweep_cannot_publish_partial_success(monkeypatch, pages, cap):
@@ -163,6 +163,17 @@ def test_incomplete_sweep_cannot_publish_partial_success(monkeypatch, pages, cap
     assert attestation["status"] == "FAILED"
     assert attestation["cursor_complete"] is False
     assert attestation["error_type"]
+
+
+@pytest.mark.parametrize("events", [[], [{"id": "1"}, {"id": "2"}]])
+def test_terminal_short_page_may_omit_next_cursor(monkeypatch, events):
+    client, session, receipts = make(monkeypatch, [Response([]), Response({"events": events})])
+    observed, attestation = client.fetch_events("mlb")
+    assert [row["id"] for row in observed] == [row["id"] for row in events]
+    assert attestation["status"] == "SUCCESS"
+    assert attestation["cursor_complete"] is True
+    assert attestation["terminal_basis"] == "OMITTED_CURSOR_SHORT_PAGE"
+    assert len(session.calls) == 2
 
 
 def test_resolution_is_exact_public_market_not_price_inference(monkeypatch):

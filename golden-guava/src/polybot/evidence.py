@@ -302,7 +302,9 @@ class Repository:
             if read_only:
                 connection.execute("PRAGMA query_only=ON")
             else:
-                connection.execute("PRAGMA journal_mode=WAL")
+                # One writer and short transactions; DELETE also keeps the
+                # canonical file readable by the Mac mini's older backup SQLite.
+                connection.execute("PRAGMA journal_mode=DELETE")
                 connection.execute("PRAGMA synchronous=FULL")
                 if not objects:
                     with self._transaction():
