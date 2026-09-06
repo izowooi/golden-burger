@@ -1,0 +1,27 @@
+simulation_mode: true
+trading:
+  lifecycle_mode: archive_only
+  cadence_seconds: 60
+  cycle_budget_seconds: 45
+  network_stop_margin_seconds: 7
+  sport_families: [soccer, mlb, nba, nfl, nhl]
+  min_liquidity: 5000
+  min_volume: 5000
+  page_size: 500
+  max_pages_per_family: 4
+  book_batch_limit: 250
+  max_tokens_per_cycle: 500
+  followup_batch_limit: 20
+  min_free_gib: 100
+  max_disk_used_ratio: 0.85
+  buy_amount_usdc: 5
+  max_buy_amount_usdc: 5
+  max_open_notional_usdc: 100
+  max_positions: 20
+  max_new_positions_per_cycle: 1
+  loss_limit_usdc: 10
+  minimum_scalable_notional_usdc: 100
+  depth_ladder_usdc: [5, 10, 15, 20, 25, 30, 50, 75, 100]
+  fee_stress_rates: [0, 0.03, 0.05]
+  study_start_utc: "2026-09-06T01:17:54Z"
+  study_end_utc: "2026-10-06T01:17:54Z"

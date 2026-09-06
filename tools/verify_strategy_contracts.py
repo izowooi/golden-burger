@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
+import sqlite3
 import sys
 import tomllib
 from dataclasses import dataclass
@@ -5060,6 +5062,449 @@ def _validate_plum_strategy(
     )
 
 
+def _guava_nodes(node: ast.AST):
+    """Executable syntax only: comments, docstrings and obvious dead stubs do not count.
+
+    This is a structural gate, not an arbitrary-Python proof engine. Behavioural
+    fixtures remain mandatory. Never import a strategy or construct its clients.
+    """
+    def statements(items):
+        for item in items:
+            if isinstance(item, ast.Expr) and isinstance(item.value, ast.Constant):
+                continue
+            yield from visit(item)
+            if isinstance(item, (ast.Return, ast.Raise)):
+                break
+
+    def visit(item):
+        yield item
+        if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            return
+        if isinstance(item, ast.If) and isinstance(item.test, ast.Constant):
+            yield from statements(item.body if item.test.value else item.orelse)
+            return
+        for _, value in ast.iter_fields(item):
+            if isinstance(value, list):
+                if value and all(isinstance(child, ast.stmt) for child in value):
+                    yield from statements(value)
+                else:
+                    for child in value:
+                        if isinstance(child, ast.AST):
+                            yield from visit(child)
+            elif isinstance(value, ast.AST):
+                yield from visit(value)
+
+    if isinstance(node, (ast.Module, ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        yield from statements(node.body)
+    else:
+        yield from visit(node)
+
+
+def _guava_predicate(node: ast.AST, values: dict[str, object]) -> object:
+    """Interpret ONLY the public allowlist's small Boolean DSL; no eval/exec/import."""
+    if isinstance(node, ast.Constant):
+        return node.value
+    if isinstance(node, ast.Name):
+        return values[node.id]
+    if isinstance(node, (ast.Set, ast.List, ast.Tuple)):
+        return tuple(_guava_predicate(x, values) for x in node.elts)
+    if isinstance(node, ast.BoolOp):
+        if isinstance(node.op, ast.And):
+            return all(_guava_predicate(x, values) for x in node.values)
+        if isinstance(node.op, ast.Or):
+            return any(_guava_predicate(x, values) for x in node.values)
+    if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+        return not _guava_predicate(node.operand, values)
+    if isinstance(node, ast.Compare) and len(node.ops) == 1:
+        left = _guava_predicate(node.left, values)
+        right = _guava_predicate(node.comparators[0], values)
+        op = node.ops[0]
+        if isinstance(op, ast.Eq):
+            return left == right
+        if isinstance(op, ast.NotEq):
+            return left != right
+        if isinstance(op, ast.In):
+            return left in right
+        if isinstance(op, ast.NotIn):
+            return left not in right
+    if isinstance(node, ast.Call) and _call_name(node) == "re.fullmatch" and len(node.args) == 2:
+        pattern, value = (_guava_predicate(x, values) for x in node.args)
+        # These two deliberately narrow routes are the only dynamic endpoints.
+        if pattern not in (r"/events/[0-9]+", r"/markets/[A-Za-z0-9_-]+"):
+            raise ValueError("unreviewed public route regex")
+        return re.fullmatch(pattern, value) is not None
+    raise ValueError("unreviewed allowlist expression")
+
+
+def _validate_guava_research_release(
+    findings: list[Finding], strategy: str, directory: Path
+) -> None:
+    """Guava's NEW research architecture, explicitly NOT a live-readiness gate.
+
+    A future live release needs a separate route covering actual policy/position
+    ownership, execution ledger, signed POST persistence, partial fills/fees,
+    reconciliation, reservation/risk limits, lifecycle and restart integration.
+    Its dormant policy-free execution adapter is not sufficient for promotion.
+    """
+    def fail(check, detail):
+        findings.append(Finding(strategy, "guava_" + check, detail))
+
+    sources = {}
+    for name in ("config", "main", "public_clients", "evidence", "runtime", "execution",
+                 "workspace", "budget", "source_digest", "identity", "official_news",
+                 "streams", "book", "hypotheses"):
+        relative = f"src/polybot/{name}.py"
+        content = _require_file(findings, strategy, directory / relative)
+        tree = _parse_python(findings, strategy, relative, content)
+        if tree is not None:
+            sources[name] = tree
+    if len(sources) != 14:
+        return
+
+    def literal(module, name):
+        for node in sources[module].body:
+            if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == name for t in node.targets):
+                try:
+                    return ast.literal_eval(node.value)
+                except (ValueError, TypeError):
+                    return None
+        return None
+
+    if literal("config", "RELEASE_STAGE") != "research_only":
+        fail("release_stage", "RELEASE_STAGE must be literal research_only; live needs a separately implemented full live gate")
+    _require_literal_assignment(findings, strategy, "src/polybot/config.py", sources["config"],
+                                ("RELEASE_STAGE",), "research_only")
+
+    def function(module, name, cls=None):
+        return _require_function(findings, strategy, f"src/polybot/{module}.py", sources[module], name, class_name=cls)
+
+    def calls(fn):
+        return [(_call_name(n), n) for n in _guava_nodes(fn) if isinstance(n, ast.Call)] if fn else []
+
+    def require_calls(fn, label, expected, ordered=False):
+        found = calls(fn)
+        positions = []
+        for name in expected:
+            matching = [n.lineno for full, n in found if full == name or full.endswith("." + name)]
+            if not matching:
+                fail("missing_call", f"{label}: executable call {name}")
+            else:
+                positions.append(min(matching))
+        if ordered and positions != sorted(positions):
+            fail("call_order", f"{label}: {' -> '.join(expected)}")
+
+    def require_guard(fn, label, predicate):
+        guards = [n for n in _guava_nodes(fn) if isinstance(n, ast.If)
+                  and predicate(n.test) and any(isinstance(s, ast.Raise) for s in n.body)] if fn else []
+        if not guards:
+            fail("missing_guard", label)
+        return guards
+
+    def expr_names(node):
+        return {_expression_name(n) for n in ast.walk(node) if isinstance(n, (ast.Name, ast.Attribute))}
+
+    load = function("config", "load_config")
+    require_calls(load, "config.load_config", ("get_trading_config_mapping", "validate_yaml_config_shape", "validate", "compute_strategy_source_digest"), ordered=True)
+    credentials = literal("config", "CREDENTIAL_KEYS")
+    if not isinstance(credentials, tuple) or not {"POLYMARKET_PRIVATE_KEY", "POLYMARKET_FUNDER_ADDRESS", "POLYMARKET_SIGNATURE_TYPE", "POLYMARKET_API_KEY", "POLYMARKET_API_SECRET", "POLYMARKET_API_PASSPHRASE", "CLOB_API_KEY", "CLOB_SECRET", "CLOB_PASSPHRASE"}.issubset(credentials):
+        fail("credentials", "complete research credential-presence denylist required")
+    guards = require_guard(load, "research rejects credential KEY PRESENCE (even empty)",
+                           lambda t: "CREDENTIAL_KEYS" in expr_names(t) and any(
+                               isinstance(n, ast.Compare) and isinstance(n.left, ast.Name) and n.left.id == "key"
+                               and any(isinstance(op, ast.In) for op in n.ops)
+                               and any(isinstance(c, ast.Name) and c.id == "env" for c in n.comparators)
+                               for n in ast.walk(t)))
+    reads = [n.lineno for name, n in calls(load) if name in ("yaml.safe_load", "compute_strategy_source_digest")]
+    if guards and reads and min(g.lineno for g in guards) >= min(reads):
+        fail("credentials", "credential rejection must precede config/source I/O")
+    require_guard(load, "research archive_only must be enforced", lambda t:
+                  "trading.lifecycle_mode" in expr_names(t) and any(isinstance(n, ast.Constant) and n.value == "archive_only" for n in ast.walk(t)))
+    finite = function("config", "_finite")
+    require_calls(finite, "config._finite", ("isinstance", "math.isfinite"))
+    require_guard(finite, "bool/nonfinite numeric rejection", lambda t: "math.isfinite" in expr_names(t))
+    validate = function("config", "validate")
+    require_calls(validate, "config.validate", ("_finite", "_utc", "isinstance"))
+    snapshot = function("config", "public_snapshot", "Config")
+    if snapshot is not None and not any(isinstance(n, ast.Dict) and any(
+            isinstance(k, ast.Constant) and k.value == "release_stage" and isinstance(v, ast.Name) and v.id == "RELEASE_STAGE"
+            for k, v in zip(n.keys, n.values)) for n in _guava_nodes(snapshot)):
+        fail("release_snapshot", "public_snapshot must expose actual RELEASE_STAGE")
+    for key, value in (("simulation_mode", True), ("lifecycle_mode", "archive_only")):
+        _require_yaml_value(findings, strategy, "config.yaml", _read(directory / "config.yaml"), key, value)
+    env_lines = [line.strip() for line in _read(directory / ".env.example").splitlines() if not line.lstrip().startswith("#")]
+    if "POLYBOT_LIFECYCLE_MODE=archive_only" not in env_lines or "POLYBOT_LIFECYCLE_MODE=active" in env_lines:
+        fail("research_defaults", ".env.example must explicitly use archive_only")
+
+    main = function("main", "main")
+    require_calls(main, "main.main", ("load_config", "run_research"), ordered=True)
+    # The actual run branch must reject live before any dynamic runtime import.
+    run_branches = [n for n in _guava_nodes(main) if isinstance(n, ast.If)
+                    and any(name.endswith("run_research") for child in n.orelse for name, _ in calls(child))] if main else []
+    safe_run = False
+    for branch in run_branches:
+        body = branch.orelse
+        for index, statement in enumerate(body):
+            if (isinstance(statement, ast.If) and isinstance(statement.test, ast.UnaryOp)
+                    and isinstance(statement.test.op, ast.Not)
+                    and _expression_name(statement.test.operand) == "config.simulation_mode"
+                    and statement.body and isinstance(statement.body[0], ast.Raise)):
+                tail = ast.Module(body=body[index + 1:], type_ignores=[])
+                if any(name == "run_research" for name, _ in calls(tail)):
+                    safe_run = True
+    if not safe_run:
+        fail("live_cli_enabled", "run branch must explicitly reject non-simulation before run_research")
+
+    # Research imports must never reach the dormant broker, an SDK or signer.
+    reachable, pending = set(), ["main", "runtime"]
+    forbidden = ("py_clob", "eth_account", "eth_keys", "web3", "web3client", "py_order_utils")
+    try:
+        package = tomllib.loads(_read(directory / "pyproject.toml"))
+        dependencies = package.get("project", {}).get("dependencies", [])
+        if any(str(dep).lower().replace("-", "_").startswith(forbidden) for dep in dependencies):
+            fail("research_dependencies", "SDK/signing packages belong only in the optional live extra")
+    except tomllib.TOMLDecodeError:
+        pass  # The unchanged common pyproject validator already reports this.
+    while pending:
+        module = pending.pop()
+        if module in reachable or module not in sources:
+            continue
+        reachable.add(module)
+        for node in ast.walk(sources[module]):
+            if isinstance(node, ast.Import):
+                imported = [a.name for a in node.names]
+            elif isinstance(node, ast.ImportFrom):
+                imported = [node.module or ""]
+                if node.level:
+                    pending.extend([node.module.split(".")[0]] if node.module else [a.name for a in node.names])
+            else:
+                imported = []
+            if any(name.startswith(forbidden) or name in ("execution", "positions", "live_runtime") for name in imported):
+                fail("research_import", f"{module}: trading/SDK/signing import {imported}")
+            if isinstance(node, ast.Call) and _call_name(node) in ("__import__", "importlib.import_module", "eval", "exec"):
+                fail("dynamic_research_code", f"{module}: unreviewed dynamic code/import")
+    # Dormant adapter must itself be import-safe; its existence is NOT live approval.
+    for node in _guava_nodes(sources["execution"]):
+        if isinstance(node, (ast.Import, ast.ImportFrom)):
+            names = [a.name for a in node.names] if isinstance(node, ast.Import) else [node.module or ""]
+            if any(name.startswith(forbidden) for name in names):
+                fail("eager_execution_sdk", "execution SDK/signing import must remain lazy")
+    function("execution", "buy_fok", "Broker")
+    function("execution", "sell_fok", "Broker")
+    broker_init = function("execution", "__init__", "Broker")
+    require_guard(broker_init, "dormant Broker requires exact execution ledger", lambda t: "ExecutionLedger" in expr_names(t))
+
+    public = function("public_clients", "_request", "PublicClients")
+    allowed_nodes = [n.value for n in _guava_nodes(public) if isinstance(n, ast.Assign)
+                     and any(isinstance(t, ast.Name) and t.id == "allowed" for t in n.targets)] if public else []
+    if literal("public_clients", "HOSTS") != {"gamma":"https://gamma-api.polymarket.com", "clob":"https://clob.polymarket.com"}:
+        fail("public_hosts", "exact Gamma/CLOB HTTPS hosts required")
+    require_guard(public, "deny non-allowlisted public endpoint", lambda t:
+                  isinstance(t, ast.UnaryOp) and isinstance(t.op, ast.Not) and isinstance(t.operand, ast.Name) and t.operand.id == "allowed")
+    vectors = [("gamma", "GET", p, True) for p in ("/events/keyset", "/sports", "/markets", "/events/123")]
+    vectors += [("clob", "POST", "/books", True), ("clob", "GET", "/markets", True), ("clob", "GET", "/markets/0xabc", True)]
+    vectors += [(source, method, path, False) for source in ("gamma", "clob", "other")
+                for method in ("GET", "POST", "DELETE", "PUT")
+                for path in ("/order", "/orders", "/auth/api-key", "/balance-allowance", "/books/../order", "https://evil.invalid/books")]
+    vectors += [("gamma", "POST", "/events/keyset", False), ("clob", "GET", "/books", False), ("clob", "POST", "/markets", False), ("gamma", "GET", "/events/1?x=1", False)]
+    try:
+        if len(allowed_nodes) != 1 or any(bool(_guava_predicate(allowed_nodes[0], dict(source=s, method=m, path=p))) != expected for s,m,p,expected in vectors):
+            fail("public_allowlist", "AST allowlist does not match frozen read-only routes")
+    except (ValueError, TypeError, KeyError, re.error):
+        fail("public_allowlist", "unreviewed AST allowlist expression")
+    require_calls(public, "PublicClients._request", ("self._remaining", "self.session.request", "self.receipt_sink"), ordered=True)
+    http_calls = [n for name,n in calls(public) if name == "self.session.request"]
+    expected_url = ast.parse("HOSTS[source] + path", mode="eval").body
+    endpoint_guards = [n for n in _guava_nodes(public) if isinstance(n,ast.If)
+                       and isinstance(n.test,ast.UnaryOp) and isinstance(n.test.op,ast.Not)
+                       and isinstance(n.test.operand,ast.Name) and n.test.operand.id == "allowed"
+                       and any(isinstance(s,ast.Raise) for s in n.body)] if public else []
+    if (len(http_calls) != 1 or len(http_calls[0].args) < 2
+            or not isinstance(http_calls[0].args[0],ast.Name) or http_calls[0].args[0].id != "method"
+            or ast.dump(http_calls[0].args[1]) != ast.dump(expected_url)
+            or not endpoint_guards or min(g.lineno for g in endpoint_guards) >= http_calls[0].lineno):
+        fail("public_http_binding", "HTTP must use the checked method and HOSTS[source]+path after rejection guard")
+    if public and not any(isinstance(n,ast.Dict) and any(
+            isinstance(k,ast.Constant) and k.value == "allow_redirects" and isinstance(v,ast.Constant) and v.value is False
+            for k,v in zip(n.keys,n.values)) for n in _guava_nodes(public)):
+        fail("public_redirects", "actual request kwargs must refuse redirects")
+    for module, cls in (("public_clients", "PublicClients"), ("official_news", "OfficialNews")):
+        init = function(module, "__init__", cls)
+        if init and not any(isinstance(n, ast.Assign) and any(_expression_name(t) == "self.session.trust_env" for t in n.targets)
+                            and isinstance(n.value, ast.Constant) and n.value.value is False for n in _guava_nodes(init)):
+            fail("public_environment", f"{cls} must disable environment credentials/proxies")
+    for method in ("fetch_events", "fetch_event", "fetch_books", "fetch_markets", "fetch_resolution"):
+        require_calls(function("public_clients", method, "PublicClients"), "PublicClients."+method, ("self._request",))
+    expected_routes = {
+        ("soccer", code): ("espn", "/apis/site/v2/sports/soccer/" + provider + "/scoreboard")
+        for code, provider in (("epl","eng.1"),("bun","ger.1"),("fl1","fra.1"),("lal","esp.1"),
+                               ("mls","usa.1"),("sea","ita.1"),("ucl","uefa.champions"),("uel","uefa.europa"))
+    }
+    expected_routes.update({
+        ("nba","nba"):("espn","/apis/site/v2/sports/basketball/nba/scoreboard"),
+        ("nfl","nfl"):("espn","/apis/site/v2/sports/football/nfl/scoreboard"),
+        ("nhl","nhl"):("espn","/apis/site/v2/sports/hockey/nhl/scoreboard"),
+        ("mlb","mlb"):("mlb_statsapi","/api/v1/schedule"),
+    })
+    if (literal("official_news","HOSTS") != {"espn":"https://site.api.espn.com", "mlb_statsapi":"https://statsapi.mlb.com"}
+            or literal("official_news","ROUTES") != expected_routes):
+        fail("official_routes", "independent news must retain the exact public provider/league route allowlist")
+    news_request = function("official_news", "_request", "OfficialNews")
+    require_guard(news_request, "official news rejects unregistered routes", lambda t:
+                  isinstance(t,ast.Compare) and isinstance(t.ops[0],ast.NotIn) and {"route","ROUTES"}.issubset(expr_names(t)))
+    news_http = [n for name,n in calls(news_request) if name == "self.session.request"]
+    if (len(news_http) != 1 or not news_http[0].args or not isinstance(news_http[0].args[0],ast.Constant)
+            or news_http[0].args[0].value != "GET"
+            or not isinstance(_keyword_value(news_http[0],"allow_redirects"),ast.Constant)
+            or _keyword_value(news_http[0],"allow_redirects").value is not False):
+        fail("official_http", "official source must be GET-only with redirects disabled")
+    require_calls(news_request, "OfficialNews._request", ("self._remaining","self.session.request","self.sink"), ordered=True)
+    if literal("streams","URL") != "wss://ws-subscriptions-clob.polymarket.com/ws/market":
+        fail("public_stream", "only the unauthenticated market stream is permitted")
+    require_calls(function("streams","collect_market_window"), "public stream", ("budget.require","connect","sink"), ordered=True)
+
+    runtime = function("runtime", "run_research")
+    guards = require_guard(runtime, "research runtime requires simulation/archive_only", lambda t:
+                           {"config.simulation_mode", "config.trading.lifecycle_mode"}.issubset(expr_names(t)))
+    require_calls(runtime, "runtime.run_research", ("Budget", "verify_workspace", "fcntl.flock", "Repository", "repo.start_run", "client_factory", "client.fetch_events", "client.fetch_books", "repo.publish_cycle"), ordered=True)
+    require_calls(runtime, "runtime.run_research", ("repo.record_request", "client.fetch_event", "extract_event", "depth_metrics", "compute", "repo.previous_events", "budget.require", "budget.require_commit", "repo.fail_run", "repo.close", "client.close", "news.close"))
+    if guards and min(g.lineno for g in guards) >= min((n.lineno for name,n in calls(runtime) if name == "Budget"), default=0):
+        fail("research_mode_order", "research mode guard must precede budget/workspace/DB")
+    if runtime and any(isinstance(n, ast.Attribute) and n.attr in ("max_positions", "max_open_notional_usdc", "loss_limit_usdc") for n in _guava_nodes(runtime)):
+        fail("research_position_gate", "raw collection cannot be gated by trading positions/P&L")
+    require_guard(runtime, "incomplete census must fail publication", lambda t: any(isinstance(n, ast.Constant) and n.value == "cursor_complete" for n in ast.walk(t)))
+    require_guard(runtime, "book attempts cover every expected token", lambda t: {"raw_books", "tokens"}.issubset(expr_names(t)))
+    flock = [n for name,n in calls(runtime) if name == "fcntl.flock"]
+    if not flock or not {"fcntl.LOCK_EX", "fcntl.LOCK_NB"}.issubset(expr_names(flock[0])):
+        fail("single_writer", "nonblocking exclusive writer lock required")
+    require_calls(function("runtime", "shard_for"), "runtime.shard_for", ("hashlib.sha256",))
+    if runtime and not any(isinstance(n, ast.If) and {"latest", "slot"}.issubset(expr_names(n.test))
+                           and any(isinstance(x, ast.Return) for x in n.body) for n in _guava_nodes(runtime)):
+        fail("slot_claim", "same-slot durable run must return before new HTTP")
+
+    repo_init = function("evidence", "__init__", "Repository")
+    require_calls(repo_init, "Repository.__init__", ("_freeze", "_mapping", "sqlite3.connect", "self._validate_schema", "_triggers"), ordered=True)
+    require_guard(repo_init, "research DB contract must reject live/foreign identity", lambda t: {"contract", "DATA_CONTRACT"}.issubset(expr_names(t)))
+    transaction = function("evidence", "_transaction", "Repository")
+    sql = {n.args[0].value for name,n in calls(transaction) if name == "self.connection.execute" and n.args and isinstance(n.args[0], ast.Constant)}
+    if not {"BEGIN IMMEDIATE", "COMMIT", "ROLLBACK"}.issubset(sql):
+        fail("transaction", "real BEGIN/COMMIT/ROLLBACK calls required")
+    require_calls(transaction, "Repository._transaction", ("budget.require_commit", "self.connection.set_progress_handler"))
+    publish = function("evidence", "publish_cycle", "Repository")
+    withs = [n for n in _guava_nodes(publish) if isinstance(n, ast.With) and any(
+        isinstance(i.context_expr, ast.Call) and _call_name(i.context_expr) == "self._transaction" for i in n.items)] if publish else []
+    required_tables = {"cycles", "events", "book_attempts", "features", "run_events"}
+    atomic = []
+    for scope in withs:
+        inserts = [n for name,n in calls(scope) if name == "self._insert" and n.args and isinstance(n.args[0], ast.Constant)]
+        tables = {n.args[0].value for n in inserts}
+        success = any(n.args[0].value == "run_events" and len(n.args)>1 and isinstance(n.args[1], ast.Dict)
+                      and any(isinstance(k, ast.Constant) and k.value == "status" and isinstance(v, ast.Constant) and v.value == "SUCCEEDED"
+                              for k,v in zip(n.args[1].keys,n.args[1].values)) for n in inserts)
+        cache = any(name == "self.connection.execute" and n.args and isinstance(n.args[0], ast.Constant)
+                    and "INSERT INTO latest_event_state" in n.args[0].value for name,n in calls(scope))
+        if required_tables.issubset(tables) and success and cache:
+            atomic.append(scope)
+    if len(atomic) != 1:
+        fail("atomic_publication", "cycle/events/books/features/cohort-cache/SUCCEEDED must share one actual transaction")
+    if atomic:
+        inside_ids = {id(n) for n in _guava_nodes(atomic[0])}
+        if any(id(n) not in inside_ids for name,n in calls(publish) if name in ("self._insert", "self.connection.execute")):
+            fail("atomic_publication", "publication writes outside the transaction")
+    require_calls(publish, "Repository.publish_cycle", ("_freeze", "_mapping", "self._require_open", "_raw"))
+    for method in ("start_run", "record_request", "fail_run"):
+        require_calls(function("evidence", method, "Repository"), "Repository."+method, ("self._transaction", "self._insert"))
+    require_calls(function("evidence", "_json"), "evidence._json", ("_safe_json", "json.dumps"), ordered=True)
+    schema = literal("evidence", "_SCHEMA")
+    immutable = literal("evidence", "_IMMUTABLE_KEYS")
+    expected_tables = required_tables | {"collection_contracts", "strategy_configs", "run_audits", "source_requests", "latest_event_state"}
+    if not isinstance(immutable, dict) or set(immutable) != expected_tables - {"latest_event_state"}:
+        fail("append_only_schema", "every historical table must have immutable keys; only the cache is mutable")
+    # Interpret literal DDL on an isolated in-memory SQLite database, never the
+    # project's Python or a real strategy DB. This validates actual PK/FK shape.
+    try:
+        if not isinstance(schema, tuple) or not all(isinstance(s,str) and re.match(r"^CREATE (?:TABLE|(?:UNIQUE )?INDEX|TRIGGER) ", s.lstrip()) for s in schema):
+            raise ValueError("literal CREATE-only schema required")
+        with sqlite3.connect(":memory:") as connection:
+            for statement in schema:
+                connection.execute(statement)
+            tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+            if tables != expected_tables:
+                raise ValueError("research tables missing or unexpected")
+            for table in ("events", "book_attempts", "features", "latest_event_state"):
+                if not list(connection.execute(f"PRAGMA foreign_key_list({table})")):
+                    raise ValueError(f"{table}: missing real parent foreign key")
+            cache_pk = [row[1] for row in sorted(connection.execute("PRAGMA table_info(latest_event_state)"), key=lambda r:r[5]) if row[5]]
+            if cache_pk != ["cohort_key", "event_id"]:
+                raise ValueError("cache must isolate cohort/event")
+            book_pk = [row[1] for row in sorted(connection.execute("PRAGMA table_info(book_attempts)"), key=lambda r:r[5]) if row[5]]
+            if book_pk != ["run_id", "event_id", "token_id"]:
+                raise ValueError("books must isolate run/event/token side")
+            event_links = {(r[3],r[4]) for r in connection.execute("PRAGMA foreign_key_list(book_attempts)") if r[2] == "events"}
+            if event_links != {("run_id","run_id"),("event_id","event_id")}:
+                raise ValueError("book sides must reference their exact run/event")
+    except (sqlite3.Error, ValueError) as error:
+        fail("research_schema", str(error))
+    previous = function("evidence", "previous_events", "Repository")
+    require_calls(previous, "Repository.previous_events", ("self.connection.execute",))
+    if previous and not any(isinstance(n, ast.Constant) and isinstance(n.value,str) and "WHERE c.cohort_key=?" in n.value for n in _guava_nodes(previous)):
+        fail("cohort_cache", "previous-event query must be scoped to current cohort")
+
+    workspace = function("workspace", "verify_workspace")
+    require_calls(workspace, "workspace.verify_workspace", ("_no_symlinks", "_disk_info", "UUID", "_regular", "_device_id", "shutil.disk_usage"))
+    for attribute in ("config.expected_workspace", "config.db_path", "config.trading.min_free_gib", "config.trading.max_disk_used_ratio"):
+        require_guard(workspace, "workspace guard "+attribute, lambda t, a=attribute: a in expr_names(t))
+    for method in ("require", "require_commit"):
+        fn = function("budget", method, "Budget")
+        require_guard(fn, "Budget."+method+" rejects exhausted time", lambda t: "remaining" in expr_names(t))
+    digest = function("source_digest", "compute_strategy_source_digest")
+    require_calls(digest, "source digest", ("hashlib.sha256", "digest.update", "path.read_bytes", "digest.hexdigest"))
+    for token in ("src/polybot", "config.yaml", "pyproject.toml", "STRATEGY.md", "research", "uv.lock", "config_contract.py", "execution_ledger.py", "run_audit.py"):
+        if digest and not any(isinstance(n,ast.Constant) and n.value == token for n in _guava_nodes(digest)):
+            fail("digest_scope", f"missing executable source dependency {token}")
+    # Never full-scan/integrity-check the raw DB from the per-minute status route.
+    status = function("evidence", "status", "Repository")
+    if status and any(isinstance(n,ast.Constant) and isinstance(n.value,str)
+                      and re.search(r"\b(?:quick_check|integrity_check|VACUUM)\b|COUNT\s*\(", n.value, re.I)
+                      for n in _guava_nodes(status)):
+        fail("unbounded_status", "periodic status cannot perform raw-history/full integrity scans")
+
+    prereg = directory / "research/2026-09-06-guava-v1/PREREGISTRATION.md"
+    for path in (directory / "OPERATIONS.md", prereg, ROOT / "docs/retro/golden-guava.md"):
+        _require_file(findings, strategy, path)
+    _require_tokens(findings, strategy, "docs/retro/golden-guava.md", _read(ROOT / "docs/retro/golden-guava.md"), ("EVIDENCE_CONTRACT.md", "REVIEW_START", "REVIEW_END"))
+
+    # Fixtures must actually call the implementation and assert an outcome;
+    # comments, test names, pass, and assert True cannot stand in for tests.
+    required_tests = {
+        "test_config_budget.py": {"test_research_rejects_even_empty_credentials_before_network":("load_config","pytest.raises"), "test_invalid_config":("validate","pytest.raises")},
+        "test_runtime.py": {"test_full_six_book_cycle_publishes_all_hypotheses":("runtime.run_research","sqlite3.connect"), "test_incomplete_census_does_not_publish_partial_cycle":("runtime.run_research","pytest.raises"), "test_live_spec_cannot_enter_research_runtime":("runtime.run_research","pytest.raises")},
+        "test_public_clients.py": {"test_allowlist_rejects_order_and_other_paths_before_http":("client._request","pytest.raises"), "test_receipt_sink_failure_propagates":("client.fetch_books","pytest.raises"), "test_incomplete_sweep_cannot_publish_partial_success":("client.fetch_events",)},
+        "test_evidence.py": {"test_atomic_failure_after_inserts_rolls_back_cache_and_success":("self.publish","self.assertRaises","self.assertEqual"), "test_config_and_source_cache_isolation_even_same_caller_cohort_label":("other.publish_cycle","self.assertEqual"), "test_append_only_update_delete_and_replace_rejected":("self.assertRaises",)},
+        "test_workspace.py": {"test_wrong_uuid_and_symlink_rejected":("w.verify_workspace","pytest.raises"), "test_missing_mount_never_creates_fallback":("w.verify_workspace","pytest.raises")},
+        "test_execution.py": {"test_no_ledger_no_sdk_import_or_creation":("Broker","pytest.raises"), "test_simulation_import_does_not_load_sdk_or_signer":("subprocess.run",)},
+    }
+    for filename in ("test_identity.py", "test_book_hypotheses.py", "test_official_news.py"):
+        required_tests.setdefault(filename, {})
+    for filename, required in required_tests.items():
+        content = _require_file(findings, strategy, directory / "tests" / filename)
+        tree = _parse_python(findings, strategy, "tests/"+filename, content)
+        if tree is None:
+            continue
+        tests = {n.name:n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef) and n.name.startswith("test_")}
+        if not tests:
+            fail("test_fixture", filename+": executable tests required")
+        for name, expected in required.items():
+            fn = tests.get(name)
+            if fn is None:
+                fail("test_fixture", filename+": "+name)
+                continue
+            require_calls(fn, filename+":"+name, expected)
+            meaningful_assert = any(isinstance(n,ast.Assert) and not isinstance(n.test,ast.Constant) for n in _guava_nodes(fn))
+            meaningful_assert |= any(name.startswith("self.assert") or name == "pytest.raises" for name,_ in calls(fn))
+            if not meaningful_assert:
+                fail("test_fixture", filename+":"+name+": real assertion/exception expectation required")
+
+
 def validate_strategy(directory: Path) -> list[Finding]:
     strategy = directory.name
     findings: list[Finding] = []
@@ -5075,6 +5520,10 @@ def validate_strategy(directory: Path) -> list[Finding]:
     pyproject = _require_file(findings, strategy, pyproject_path)
     if pyproject:
         _validate_pyproject(findings, strategy, pyproject_path, pyproject)
+
+    if strategy == "golden-guava":
+        _validate_guava_research_release(findings, strategy, directory)
+        return findings
 
     if strategy in RESEARCH_ONLY_STRATEGIES:
         if strategy == "golden-black":
@@ -5275,6 +5724,8 @@ def main() -> int:
     print(f"strategy contract: PASS ({len(discovered)} strategies)")
     if extras:
         print("new strategies discovered: " + ", ".join(extras))
+    if "golden-guava" in discovered:
+        print("golden-guava: RESEARCH_ONLY structural contract; NOT live readiness or deployment approval")
     return 0
 
 
