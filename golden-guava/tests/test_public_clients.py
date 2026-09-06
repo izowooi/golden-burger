@@ -562,3 +562,241 @@ def test_followup_receipt_sink_failure_is_never_swallowed(monkeypatch, method, a
     with pytest.raises(RuntimeError, match="followup evidence unavailable"):
         getattr(client, method)(*args)
     assert len(session.calls) == 1
+
+
+def enrichment_fixture(family="soccer", season=False):
+    if family == "soccer":
+        sport = {"id": 2, "sport": "epl", "name": "Premier League", "primaryTagId": 306,
+                 "series": "10188", "tags": "1,82,306,100639,100350"}
+        slug, series, tag = "premier-league-2025", "10188", "100350"
+    else:
+        sport_id, tag, series = {"mlb": (8, "100381", "3"), "nba": (34, "745", "10345"),
+                                 "nfl": (10, "450", "10187"), "nhl": (35, "899", "10346")}[family]
+        sport = {"id": sport_id, "sport": family, "name": family.upper(), "primaryTagId": int(tag),
+                 "series": series, "tags": f"1,100639,{tag}"}
+        slug = family + ("-2026" if season else "")
+        if season:
+            series = str(int(series) + 20000)
+    raw = {"id": "123", "seriesSlug": slug, "series": [{"id": series, "slug": slug}],
+           "tags": [{"id": tag}], "live": False, "ended": True,
+           "markets": [{"conditionId": "c0", "closed": False,
+                        "outcomePrices": '["0.9900", "0.0100"]', "feeSchedule": {"rate": "0.0300"}}]}
+    return sport, raw
+
+
+@pytest.mark.parametrize("family,season", [("soccer", False), ("mlb", False), ("mlb", True),
+    ("nba", True), ("nfl", True), ("nhl", True)])
+def test_family_followup_and_census_share_exact_enrichment_and_cached_registry(monkeypatch, family, season):
+    sport, raw = enrichment_fixture(family, season)
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response({"events": [raw]}), Response(raw)])
+    census, att = client.fetch_events(family)
+    follow = client.fetch_event("123", family=family)
+    assert att["cursor_complete"] and att["terminal_basis"] == "OMITTED_CURSOR_SHORT_PAGE"
+    assert follow["status"] == "OK"
+    assert census[0]["sport"] == follow["raw"]["sport"] == sport
+    expected = "SEMANTIC_SEASON_JOIN" if season else "EXACT_SERIES_JOIN"
+    assert census[0]["_guava"]["sport_enrichment"] == follow["raw"]["_guava"]["sport_enrichment"] == expected
+    assert census[0]["_guava"]["sports_request_id"] == follow["raw"]["_guava"]["sports_request_id"] == receipts[0][0]["request_id"]
+    assert follow["started_at"] == receipts[2][0]["started_at"]
+    assert follow["observed_at"] == receipts[2][0]["received_at"]
+    assert follow["request_id"] == follow["raw"]["_guava"]["request_id"] == receipts[2][0]["request_id"]
+    assert receipts[1][1] == {"events": [raw]}
+    assert receipts[2][1] == raw
+    assert "sport" not in raw and "_guava" not in raw
+    assert [call[1] for call in session.calls] == ["https://gamma-api.polymarket.com/sports",
+        "https://gamma-api.polymarket.com/events/keyset", "https://gamma-api.polymarket.com/events/123"]
+
+
+def test_family_followup_without_census_after_study_end_loads_registry_once(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw), Response(raw)],
+                                      study_end_utc="2000-01-01T00:00:00Z")
+    first = client.fetch_event("123", family="soccer")
+    second = client.fetch_event("123", family="soccer")
+    assert first["status"] == second["status"] == "OK"
+    assert first["raw"]["sport"] == second["raw"]["sport"] == sport
+    assert sum(call[1].endswith("/sports") for call in session.calls) == 1
+    assert not any(call[1].endswith("/events/keyset") for call in session.calls)
+    assert first["raw"]["_guava"]["sports_request_id"] == receipts[0][0]["request_id"]
+
+
+def test_registry_loaded_by_followup_is_reused_by_later_census(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw), Response({"events": [raw]})])
+    follow = client.fetch_event("123", family="soccer")
+    events, att = client.fetch_events("soccer")
+    assert follow["raw"]["sport"] == events[0]["sport"] == sport
+    assert att["request_ids"] == [receipts[2][0]["request_id"]]
+    assert att["sports_request_id"] == follow["raw"]["_guava"]["sports_request_id"]
+    assert len(session.calls) == 3
+
+
+@pytest.mark.parametrize("family", ["tennis", "Soccer", "", False, 1, [], {}])
+def test_family_followup_rejects_unsupported_family_before_any_http(monkeypatch, family):
+    client, session, receipts = make(monkeypatch, [])
+    with pytest.raises(ValueError, match="sport family"):
+        client.fetch_event("123", family=family)
+    assert not session.calls and not receipts
+
+
+def test_family_followup_rejects_unconfigured_family_before_http(monkeypatch):
+    client, session, receipts = make(monkeypatch, [], sport_families=["soccer"])
+    with pytest.raises(ValueError, match="sport family"):
+        client.fetch_event("123", family="mlb")
+    assert not session.calls
+
+
+def test_family_followup_validates_event_id_before_registry_http(monkeypatch):
+    client, session, receipts = make(monkeypatch, [])
+    with pytest.raises(ValueError, match="numeric"):
+        client.fetch_event("../../order", family="soccer")
+    assert not session.calls
+
+
+@pytest.mark.parametrize("status,expected", [(403, "DENIED"), (451, "DENIED"), (500, "HTTP_ERROR"),
+                                           (302, "REDIRECT_REFUSED")])
+def test_family_followup_registry_failure_is_not_event_success_or_retry(monkeypatch, status, expected):
+    client, session, receipts = make(monkeypatch, [Response({"error": "registry unavailable"}, status)])
+    first = client.fetch_event("123", family="soccer")
+    second = client.fetch_event("123", family="soccer")
+    assert first["status"] == second["status"] == expected
+    assert first["raw"] is None and second["raw"] is None
+    assert first["failure_phase"] == "sports_registry"
+    assert first["request_id"] == first["sports_request_id"] == receipts[0][0]["request_id"]
+    assert len(session.calls) == len(receipts) == 1
+    assert session.calls[0][1].endswith("/sports")
+
+
+@pytest.mark.parametrize("payload", [{"sports": []}, [None], ["epl"]])
+def test_family_followup_malformed_registry_fails_without_fetching_event(monkeypatch, payload):
+    client, session, receipts = make(monkeypatch, [Response(payload)])
+    result = client.fetch_event("123", family="soccer")
+    assert result["status"] == "INVALID" and result["raw"] is None
+    assert result["error_type"] == "invalid_sports_payload"
+    assert receipts[0][1] == payload and len(session.calls) == 1
+
+
+def test_family_followup_exhausted_budget_never_opens_http(monkeypatch):
+    client, session, receipts = make(monkeypatch, [], Budget(0))
+    result = client.fetch_event("123", family="soccer")
+    assert result["status"] == "TIMEOUT" and result["raw"] is None
+    assert result["failure_phase"] == "sports_registry" and not session.calls
+
+
+@pytest.mark.parametrize("reserved", [{"sport_enrichment": "forged"}, None])
+def test_family_enrichment_rejects_reserved_collision_without_altering_receipt(monkeypatch, reserved):
+    sport, raw = enrichment_fixture()
+    raw["_guava"] = reserved
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw), Response({"events": [raw]})])
+    result = client.fetch_event("123", family="soccer")
+    assert result["status"] == "INVALID" and result["raw"] == raw
+    assert result["error_type"] == "reserved_enrichment_key_collision"
+    assert receipts[1][1] == raw
+    events, att = client.fetch_events("soccer")
+    assert not events and not att["cursor_complete"]
+    assert att["error_type"] == "reserved_enrichment_key_collision"
+    assert receipts[2][1] == {"events": [raw]}
+
+
+@pytest.mark.parametrize("embedded", [{"id": 999, "sport": "ere"}, {"id": 2}])
+def test_family_argument_never_overwrites_embedded_or_partial_source_sport(monkeypatch, embedded):
+    sport, raw = enrichment_fixture()
+    raw["sport"] = embedded
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw)])
+    result = client.fetch_event("123", family="mlb")
+    assert result["raw"]["sport"] == embedded
+    assert result["raw"]["_guava"]["sport_enrichment"] == "SOURCE_EMBEDDED"
+    assert receipts[1][1] == raw
+
+
+@pytest.mark.parametrize("count", [0, 2])
+def test_family_enrichment_never_guesses_missing_or_ambiguous_series_join(monkeypatch, count):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport] * count), Response(raw)])
+    result = client.fetch_event("123", family="soccer")
+    assert "sport" not in result["raw"]
+    assert result["raw"]["_guava"]["sport_enrichment"] == "MISSING_OR_AMBIGUOUS"
+    assert receipts[1][1] == raw
+
+
+def test_family_followup_return_is_deeply_isolated_from_receipts_and_cache(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw), Response(raw)])
+    result = client.fetch_event("123", family="soccer")
+    result["raw"]["sport"]["name"] = "changed by consumer"
+    result["raw"]["markets"][0]["feeSchedule"]["rate"] = "999"
+    result["raw"]["_guava"]["original_sport"] = "changed by consumer"
+    assert receipts[0][1] == [sport] and receipts[1][1] == raw
+    next_result = client.fetch_event("123", family="soccer")
+    assert next_result["raw"]["sport"] == sport
+    assert next_result["raw"]["markets"] == raw["markets"]
+
+
+def test_family_followup_sink_failure_propagates_before_any_event_http(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport])])
+    def broken_sink(receipt, payload):
+        raise RuntimeError("registry evidence write failed")
+    client.receipt_sink = broken_sink
+    with pytest.raises(RuntimeError, match="registry evidence"):
+        client.fetch_event("123", family="soccer")
+    assert len(session.calls) == 1
+
+
+def test_family_followup_does_not_enrich_mismatched_event_identity(monkeypatch):
+    sport, raw = enrichment_fixture()
+    raw["id"] = "999"
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw)])
+    result = client.fetch_event("123", family="soccer")
+    assert result["status"] == "INVALID" and result["raw"] == raw
+    assert "_guava" not in result["raw"] and receipts[1][1] == raw
+
+
+def test_explicit_none_family_preserves_default_raw_and_started_at(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response(raw)])
+    result = client.fetch_event("123", family=None)
+    assert result["status"] == "OK" and result["raw"] == raw
+    assert result["started_at"] == receipts[0][0]["started_at"]
+    assert "_guava" not in result["raw"]
+    assert len(session.calls) == 1 and session.calls[0][1].endswith("/events/123")
+
+
+@pytest.mark.parametrize("sport_value", [None, {}])
+def test_family_followup_recovers_the_real_identity_interface_six_tokens(monkeypatch, sport_value):
+    # Same-project pure fixture only; no runtime, main, DB, or real network.
+    spec = importlib.util.spec_from_file_location("guava_followup_identity_fixture",
+                                                  Path(__file__).with_name("test_identity.py"))
+    fixture = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(fixture)
+    raw = fixture.soccer_event()
+    sport = raw["sport"]
+    raw.update(id="123", sport=sport_value, live=False, ended=True, closed=True)
+    client, session, receipts = make(monkeypatch, [Response([sport]), Response(raw)])
+    result = client.fetch_event("123", family="soccer")
+    row = fixture.identity.extract_event(result["raw"], "soccer", result["observed_at"], allow_postgame=True)
+    assert row["eligible"] and len(row["expected_token_ids"]) == 6
+    assert row["phase"] == "POSTGAME_TRACKED"
+    assert row["live_rule_equivalence"] == "UNPROVEN"
+    assert result["raw"]["_guava"]["original_sport"] == sport_value
+    assert receipts[1][1] == raw
+
+
+def test_family_followup_registry_success_then_event_timeout_keeps_event_receipt(monkeypatch):
+    sport, raw = enrichment_fixture()
+    client, session, receipts = make(monkeypatch, [Response([sport]), requests.Timeout("event unavailable")])
+    result = client.fetch_event("123", family="soccer")
+    assert result["status"] == "TIMEOUT" and result["raw"] is None
+    assert result["request_id"] == receipts[1][0]["request_id"]
+    assert result["started_at"] == receipts[1][0]["started_at"]
+    assert len(session.calls) == 2
+
+
+def test_failed_census_registry_remains_failure_in_followup_without_retry(monkeypatch):
+    client, session, receipts = make(monkeypatch, [Response({}, 500)])
+    events, att = client.fetch_events("soccer")
+    result = client.fetch_event("123", family="soccer")
+    assert not events and not att["cursor_complete"]
+    assert result["status"] == "HTTP_ERROR"
+    assert result["sports_request_id"] == att["sports_request_id"]
+    assert len(session.calls) == len(receipts) == 1

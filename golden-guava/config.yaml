@@ -9,7 +9,7 @@ trading:
   min_volume: 5000
   page_size: 500
   max_pages_per_family: 4
-  book_batch_limit: 250
+  book_batch_limit: 240
   max_tokens_per_cycle: 500
   followup_batch_limit: 20
   min_free_gib: 100

@@ -1,6 +1,6 @@
 # Polymarket 전략 포트폴리오 (골든 시리즈)
 
-총 28개 `golden-*` 프로젝트의 전체 지도다. 이 중 26개는 수익 가설을 검정하고,
+총 29개 `golden-*` 프로젝트의 전체 지도다. 이 중 27개는 수익 가설을 검정하고,
 `golden-pomegranate`는 범용 전 시장, `golden-coconut`은 major sports 전용 accountless
 market observatory다.
 `golden-black`, `golden-raspberry`, `golden-strawberry`, `golden-watermelon`은 수익 가설이지만 주문 없이 displayed-book
@@ -8,14 +8,15 @@ market observatory다.
 [전략 운영 현황 HTML](strategy-pages/strategy-status.html), 상세 규칙은 각 폴더의
 `STRATEGY.md`, 사람이 읽기 좋은 설명은 `docs/strategy-pages/`, 회고 절차는
 `docs/ab-retro-playbook.md`를 따른다. **폴더 존재·과거 실행·현재 운영·폐쇄 완료는 서로
-다른 사실**이며, 이 문서는 2026-08-31 확인 상태를 표시한다.
+다른 사실**이며, 기존 표는 2026-08-31 확인 상태다. 2026-09-06 추가한 Guava는 연구 수집 단계이며
+현재 Jenkins 실행 상태는 local inventory로 다시 확인한다.
 
 ## 설계 원칙
 
 예측시장은 주식시장과 다르다:
 
-1. **항상 마감일이 있다** — 가격은 마감일에 0 또는 1로 강제 수렴한다. 시간 자체가 신호다.
-2. **참여자가 리테일 대중이다** — 마켓메이커·기관이 얇아 심리 편향이 가격에 그대로 남는다.
+1. **결과와 호가 경로는 다르다** — 정상적인 이진 결의의 지급액과 경기 중 매수·매도 가능 호가를 구분한다. 특정 가격을 반드시 통과하거나 그 가격에 체결된다는 보장은 없고, 취소·중단·연장·결의 규칙도 확인한다.
+2. **참가자 심리는 검정할 가설이다** — 관측된 가격 움직임만으로 확증편향이나 대중의 오류를 입증하지 않는다. 정보 반영·유동성·수수료·자료 지연도 경쟁 설명이다.
 3. **숏이 없다** — 페이드(반대 베팅)는 반대 토큰(NO) 매수로 표현한다.
 4. **이평선 교차 같은 순수 기술적 신호는 통하지 않는다** (banana에서 실증) — 신호는 반드시 "누가, 왜 잘못된 가격을 만드는가"라는 심리 가설 위에 세운다.
 
@@ -35,6 +36,7 @@ market observatory다.
 | golden-elderberry | Panic Fade | 손실 회피 → 공황 투매 과잉반응 | 급락 역매수 | 0.35–0.75 | **운영 종료 2026-08-31 · 포지션 수동 종결, 회고 필요** |
 | ~~golden-fig~~ | Hope Crusher | favorite-longshot bias | 롱샷 페이드 (NO 매수) | YES 0.05–0.25 | **⛔ 폐쇄 완료 2026-07-28** |
 | golden-grape | Cascade Rider | 정보 폭포 / 과소반응 | 완만한 드리프트 편승 | 0.40–0.80 | **구현 완료 · 시작 evidence 없음** |
+| **golden-guava** | 스포츠 가격 차이 연구 | 표현별 상대가격·골 소식 뒤 되돌림·정보 반영 지연·유동성 공급 대가·결과 확인 후 할인 | 직접 호가와 경기자료 연구, 아직 실거래 없음 | 축구·MLB·NBA·NFL·NHL, $5–$100 깊이, 4분할 1분 수집 | **2026-09-06 연구 배포 검증 중 · Lion/Wolf 실거래 미선정** |
 | ~~golden-honeydew~~ | Night Watch | 새벽·주말 attention 희소성 | 무근거 이탈 복원 | 0.30–0.90 | **⛔ 폐쇄 완료 2026-07-30** |
 | ~~**golden-kiwi**~~ | Micro-Cascade | 지연된 사회적 정보 반영 | 명목 15/25분 micro-trend 편승 | YES 0.20–0.80 | **⛔ 실험 폐쇄 2026-08-29 · STOP / UNRESEARCHABLE · live 금지** |
 | ~~golden-lime~~ | Shock Follow | 대형 뉴스 불신·앵커링 | 급등 편승 | 점프 후 ≤0.85 | **⛔ 폐쇄 완료 2026-07-28** |
@@ -54,7 +56,7 @@ market observatory다.
 | **golden-watermelon** | Major-Sports In-Play Match Winner | 경기 중 고확률 whole-game winner의 terminal 수렴 | 주문 없는 full-book ask→resolution/stop 반사실 | Soccer/MLB/NHL, entry·stop grid와 `$5`~`$1,000` 규모 | **research-only v4a · White 1분, 과거 Grey 5분 종료 · live/order 금지** |
 | **golden-watermelon-live** | In-Play Match Result Live | 경기 중 고확률 whole-game winner의 terminal 수렴 | baseline `$5` 신호 + 가용 금액 adaptive FOK BUY, 0.70 재난 FOK stop | Soccer/MLB/NHL별 0.96 vs 0.99 | **현재 `$5` live A/B v3e** |
 
-상태 합계는 운영 8, 구현/배포 준비 2, research/simulation 전용 6, 명시적 보류 0,
+표에 기록된 상태 합계는 운영 8, 구현/배포 준비 2, research/simulation 전용 7, 명시적 보류 0,
 운영 종료/폐쇄 완료 12다. `close_only`/`archive_only`는 bot lifecycle mode이지 이
 의사결정 상태와 같지 않다.
 

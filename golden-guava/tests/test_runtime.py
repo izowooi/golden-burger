@@ -71,6 +71,11 @@ def test_full_six_book_cycle_publishes_all_hypotheses(fixture):
     event=module.soccer_event()
     event['id']=next(str(i) for i in range(100) if runtime.shard_for(str(i))==fixture.spec.shard)
     stamp='2026-09-06T08:00:01Z'
+    order=[]
+    class News(EmptyNews):
+        def fetch_for_events(self,events,now):
+            order.append('news')
+            return super().fetch_for_events(events,now)
     class Full(EmptyClient):
         def fetch_events(self,family):
             payload=[event] if family=='soccer' else []
@@ -79,13 +84,15 @@ def test_full_six_book_cycle_publishes_all_hypotheses(fixture):
             self.sink(receipt,{'events':payload,'next_cursor':None})
             return payload,{'sport_family':family,'cursor_complete':True,'pages':1}
         def fetch_books(self,tokens):
+            order.append('books')
             raw={token:{'asset_id':token,'bids':[{'price':'0.4','size':'500'}],
                 'asks':[{'price':'0.6','size':'500'}]} for token in tokens}
             self.sink({'request_id':'books','source':'clob','method':'POST','path':'/books','params':{},
                 'started_at':stamp,'received_at':stamp,'status':200,'error_type':None},list(raw.values()))
             return {token:{'status':'OK','raw':book,'observed_at':stamp,'request_id':'books'} for token,book in raw.items()}
     result=runtime.run_research(fixture,now=datetime(2026,9,6,8,tzinfo=timezone.utc),client_factory=Full,
-        news_factory=EmptyNews,stream_reader=empty_stream)
+        news_factory=News,stream_reader=empty_stream)
+    assert order==['news','books']
     assert result['event_count']==1 and result['book_attempts']==6 and result['feature_count']==5
     with sqlite3.connect(fixture.db_path) as c:
         assert c.execute('SELECT count(*) FROM book_attempts').fetchone()[0]==6

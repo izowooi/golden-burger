@@ -113,7 +113,7 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                 if event_id not in events and parsed(entry['next_due_at'])<=now:due.append((entry['next_due_at'],event_id))
             for _,event_id in sorted(due)[:config.trading.followup_batch_limit]:
                 if budget.require()<15:break
-                entry=tracking[event_id];result=client.fetch_event(event_id)
+                entry=tracking[event_id];result=client.fetch_event(event_id,family=entry['sport_family'])
                 entry['attempts']+=1
                 entry['next_due_at']=utc(now+timedelta(seconds=min(300,60*entry['attempts'])))
                 if result['status']!='OK':continue
@@ -122,10 +122,24 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                 if view['eligible'] and entry.get('expected_token_ids') not in (None,view['expected_token_ids']):
                     raise RuntimeError('followup token identity changed')
                 if _terminal(result['raw'],entry.get('expected_token_ids',[])):tracking.pop(event_id)
-            selected=list(events.values())
+            # Put six-token groups before two-token groups; the default 240
+            # batch boundary then never splits one event's direct partition.
+            selected=sorted(events.values(),key=lambda e:(e['sport_family']!='soccer',e['event_id']))
             tokens=[t for e in selected for t in e['expected_token_ids']]
             if len(set(tokens))!=len(tokens):raise ValueError('token spans multiple event identities')
             if len(tokens)>config.trading.max_tokens_per_cycle:raise RuntimeError('token budget requires new shard plan, not partial success')
+            # Acquire knowledge before the book used to describe a possible
+            # response. A pre-news ask is not an executable post-news discount.
+            phase='independent_news'
+            if news_factory is None:
+                from .official_news import OfficialNews
+                news_factory=OfficialNews
+            news=news_factory(budget,sink)
+            news_result=news.fetch_for_events([e for e in selected if e['eligible']],now)
+            context=_news_context(news_result.get('context',[]),previous_summary.get('news_context',[]))
+            for event in selected:
+                event['official_news']=news_result.get('by_event',{}).get(event['event_id'])
+                event['guava_news_context']=context
             phase='books';raw_books=client.fetch_books(tokens) if tokens else {}
             if set(raw_books)!=set(tokens):raise RuntimeError('book attempt coverage incomplete')
             books=[]
@@ -143,21 +157,11 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                         try:record['depth_metrics']=depth_metrics(record['raw'],config.trading.depth_ladder_usdc,config.trading.fee_stress_rates)
                         except ValueError as error:record['depth_error']=str(error)
                     books.append(record)
-            phase='independent_news'
-            if news_factory is None:
-                from .official_news import OfficialNews
-                news_factory=OfficialNews
-            news=news_factory(budget,sink)
-            news_result=news.fetch_for_events([e for e in selected if e['eligible']],now)
-            context=_news_context(news_result.get('context',[]),previous_summary.get('news_context',[]))
-            for event in selected:
-                event['official_news']=news_result.get('by_event',{}).get(event['event_id'])
-                event['guava_news_context']=context
-            phase='public_stream';stream=stream_reader(tokens,budget,sink)
             phase='features';prior=repo.previous_events(list(events));features=[];observed=utc()
             for event in selected:
                 features.extend(compute(event,raw_books,prior.get(event['event_id']),observed_at=observed,
                     ladder=config.trading.depth_ladder_usdc,rates=config.trading.fee_stress_rates))
+            phase='public_stream';stream=stream_reader(tokens,budget,sink)
             summary={'strategy_name':'golden-guava','job_name':config.job_name,'mode':'sim','run_id':run_id,
                 'census_complete':all(x.get('cursor_complete') for x in sweeps),'sweeps':sweeps,
                 'event_count':len(selected),'eligible_events':sum(e['eligible'] for e in selected),

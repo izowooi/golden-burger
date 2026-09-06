@@ -45,7 +45,7 @@ class TradingConfig:
     min_volume:float=5000
     page_size:int=500
     max_pages_per_family:int=4
-    book_batch_limit:int=250
+    book_batch_limit:int=240
     max_tokens_per_cycle:int=500
     followup_batch_limit:int=20
     min_free_gib:float=100

@@ -76,6 +76,7 @@ class PublicClients:
                                      "User-Agent": "GoldenGuava-Research/1.0"})
         self._sports = None
         self._sports_request_id = None
+        self._sports_result = None
         self._denied = False
         self._closed = False
 
@@ -187,6 +188,7 @@ class PublicClients:
             # Deliberately outside every catch: do not swallow evidence failure.
             self.receipt_sink(receipt, payload)
         return {"status": status, "raw": payload, "request_id": receipt["request_id"],
+                "started_at": receipt["started_at"],
                 "observed_at": receipt["received_at"], "error_type": receipt["error_type"]}
 
     def _stream_chunks(self, response, deadline):
@@ -207,9 +209,67 @@ class PublicClients:
             # hide unlimited progress-reset slow reads from our deadline.
             yield from response.iter_content(chunk_size=1)
 
-    def fetch_events(self, family):
-        if family not in self.families:
+    def _validate_family(self, family):
+        if not isinstance(family, str) or family not in self.families:
             raise ValueError("unsupported or unconfigured sport family")
+
+    def _load_sports(self):
+        """One durable registry attempt per client/cycle, even without census.
+
+        Cache failures as failures too: another caller must not silently retry
+        the same registry request or pretend an unavailable registry is empty.
+        The cache never aliases the raw response retained by receipt_sink.
+        """
+        cached = self._sports_result is not None
+        if not cached:
+            result = self._request("gamma", "GET", "/sports")
+            if result["status"] == "OK":
+                if not isinstance(result["raw"], list) or any(not isinstance(s, dict) for s in result["raw"]):
+                    result = {**result, "status": "INVALID", "error_type": "invalid_sports_payload"}
+                else:
+                    self._sports = deepcopy(result["raw"])
+            self._sports_request_id = result["request_id"]
+            self._sports_result = {k: v for k, v in result.items() if k != "raw"}
+        return {**self._sports_result, "cached": cached}
+
+    def _enrich_event(self, raw, family, receipt):
+        """Same exact source join for census and explicit-family follow-up.
+
+        This is metadata enrichment, not league acceptance. Unknown/ambiguous
+        joins remain explicit for identity.py to reject; embedded source sport
+        is never relabelled to the requested family. Raw HTTP evidence is intact.
+        """
+        if "_guava" in raw:
+            raise ValueError("reserved_enrichment_key_collision")
+        event = deepcopy(raw)
+        event["_guava"] = {"request_id": receipt["request_id"],
+                           "observed_at": receipt["observed_at"],
+                           "sports_request_id": self._sports_request_id,
+                           "sport_enrichment": "SOURCE_EMBEDDED"}
+        if not isinstance(event.get("sport"), dict) or not event["sport"]:
+            series = event.get("series")
+            series_ids = {str(s.get("id")) for s in series if isinstance(s, dict)} if isinstance(series, list) else set()
+            matches = [s for s in self._sports if str(s.get("series")) in series_ids]
+            if not matches and family != "soccer":
+                # The sport registry points to a root series, while an
+                # individual game may belong to its semantic season.
+                season = str(event.get("seriesSlug") or "")
+                tags = {str(t.get("id")) for t in event.get("tags", []) if isinstance(t, dict)} if isinstance(event.get("tags"), list) else set()
+                if re.fullmatch(re.escape(family) + r"-[0-9]{4}", season) and str(FAMILY_TAGS[family]) in tags:
+                    matches = [s for s in self._sports if s.get("sport") == family]
+            if len(matches) == 1:
+                event["_guava"]["original_sport"] = deepcopy(event.get("sport"))
+                event["sport"] = deepcopy(matches[0])
+                event["_guava"]["sport_enrichment"] = (
+                    "EXACT_SERIES_JOIN" if str(matches[0].get("series")) in series_ids
+                    else "SEMANTIC_SEASON_JOIN"
+                )
+            else:
+                event["_guava"]["sport_enrichment"] = "MISSING_OR_AMBIGUOUS"
+        return event
+
+    def fetch_events(self, family):
+        self._validate_family(family)
         att = {"sport_family": family, "status": "FAILED", "cursor_complete": False,
                "started_at": _utcnow(), "completed_at": None, "pages": 0,
                "raw_event_count": 0, "event_count": 0, "duplicate_event_count": 0,
@@ -219,16 +279,12 @@ class PublicClients:
             att.update(error_type=reason, completed_at=_utcnow())
             return [], att
 
-        if self._sports is None:
-            result = self._request("gamma", "GET", "/sports")
-            att["request_ids"].append(result["request_id"])
-            if result["status"] != "OK":
-                return failed(result["error_type"] or result["status"])
-            if not isinstance(result["raw"], list) or any(not isinstance(s, dict) for s in result["raw"]):
-                return failed("invalid_sports_payload")
-            self._sports = result["raw"]
-            self._sports_request_id = result["request_id"]
+        registry = self._load_sports()
+        if not registry["cached"]:
+            att["request_ids"].append(registry["request_id"])
         att["sports_request_id"] = self._sports_request_id
+        if registry["status"] != "OK":
+            return failed(registry["error_type"] or registry["status"])
         params = {"closed": "false", "live": "true", "tag_id": FAMILY_TAGS[family],
                   "related_tags": "false", "liquidity_min": self.gates["min_liquidity"],
                   "volume_min": self.gates["min_volume"], "limit": self.page_size}
@@ -258,33 +314,10 @@ class PublicClients:
                     att["duplicate_event_count"] += 1
                     continue  # every duplicate raw remains in its page receipt
                 seen_ids.add(key)
-                event = deepcopy(raw)
-                if "_guava" in event:
-                    return failed("reserved_enrichment_key_collision")
-                event["_guava"] = {"request_id": result["request_id"],
-                                   "observed_at": result["observed_at"],
-                                   "sports_request_id": self._sports_request_id,
-                                   "sport_enrichment": "SOURCE_EMBEDDED"}
-                if not isinstance(event.get("sport"), dict) or not event["sport"]:
-                    series = event.get("series")
-                    series_ids = {str(s.get("id")) for s in series if isinstance(s, dict)} if isinstance(series, list) else set()
-                    matches = [s for s in self._sports if str(s.get("series")) in series_ids]
-                    if not matches and family != "soccer":
-                        # The sport registry points to a root series, while an
-                        # individual game may belong to its semantic season.
-                        season = str(event.get("seriesSlug") or "")
-                        tags = {str(t.get("id")) for t in event.get("tags", []) if isinstance(t, dict)} if isinstance(event.get("tags"), list) else set()
-                        if re.fullmatch(re.escape(family) + r"-[0-9]{4}", season) and str(FAMILY_TAGS[family]) in tags:
-                            matches = [s for s in self._sports if s.get("sport") == family]
-                    if len(matches) == 1:
-                        event["_guava"]["original_sport"] = deepcopy(event.get("sport"))
-                        event["sport"] = deepcopy(matches[0])
-                        event["_guava"]["sport_enrichment"] = (
-                            "EXACT_SERIES_JOIN" if str(matches[0].get("series")) in series_ids
-                            else "SEMANTIC_SEASON_JOIN"
-                        )
-                    else:
-                        event["_guava"]["sport_enrichment"] = "MISSING_OR_AMBIGUOUS"
+                try:
+                    event = self._enrich_event(raw, family, result)
+                except ValueError as error:
+                    return failed(str(error))
                 events.append(event)
             cursor = payload.get("next_cursor")
             if cursor in (None, ""):
@@ -299,15 +332,29 @@ class PublicClients:
             params["after_cursor"] = cursor
         return failed("max_pages_exceeded")
 
-    def fetch_event(self, event_id):
+    def fetch_event(self, event_id, family=None):
         """Read a tracked numeric Gamma event, including its postgame markets.
 
-        No cached live-sweep body, sport enrichment, or URL fallback is used.
-        OK attests exact response identity, not a verified sporting final.
+        Default family=None preserves the direct, unmodified response contract.
+        An explicit configured family loads/reuses this cycle's /sports registry
+        and applies the SAME exact enrichment as census, including after entry
+        collection ends. No cached event body, new census, or URL fallback is
+        used. Registry failure prevents event HTTP and returns raw=None with
+        failure_phase=sports_registry; its request_id belongs to that failure.
+        OK attests exact event identity and successful registry retrieval when
+        requested, not league eligibility or a verified sporting final.
         """
         if (isinstance(event_id, bool) or not isinstance(event_id, (str, int))
                 or not re.fullmatch(r"[0-9]+", str(event_id))):
             raise ValueError("numeric Gamma event identifier required")
+        if family is not None:
+            self._validate_family(family)
+            registry = self._load_sports()
+            if registry["status"] != "OK":
+                return {k: v for k, v in registry.items() if k != "cached"} | {
+                    "raw": None, "failure_phase": "sports_registry",
+                    "sports_request_id": registry["request_id"],
+                }
         event_id = str(event_id)
         result = self._request("gamma", "GET", "/events/" + event_id)
         if result["status"] == "OK":
@@ -316,6 +363,11 @@ class PublicClients:
                     or not isinstance(raw.get("id"), (str, int))
                     or str(raw["id"]) != event_id or "next_cursor" in raw):
                 result.update(status="INVALID", error_type="event_identity_or_envelope_mismatch")
+            elif family is not None:
+                try:
+                    result = {**result, "raw": self._enrich_event(raw, family, result)}
+                except ValueError as error:
+                    result.update(status="INVALID", error_type=str(error))
         return result
 
     def fetch_markets(self, condition_ids):
