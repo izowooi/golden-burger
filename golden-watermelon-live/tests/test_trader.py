@@ -368,6 +368,23 @@ def test_persisted_unknown_buy_does_not_consume_two_slots(monkeypatch):
     assert repo.get_entry_capacity_state()["total_reserved"] == 19
 
 
+@pytest.mark.parametrize("phase,code", [("budget", "account_max_positions"),
+                                        ("cash", "account_insufficient_unreserved_cash")])
+def test_account_rejection_keeps_reason_without_post_or_exception(monkeypatch, phase, code):
+    from polybot.account import AccountGuardError
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    def reject(*args):
+        raise AccountGuardError("fixture account rejection", code=code)
+    guard = SimpleNamespace(check_buy_budget=reject if phase == "budget" else lambda: {},
+                            approve_buy=reject, cash_failed=False)
+    repo, clob = _Repo(), _Clob()
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False, account_guard=guard)
+    assert trader.execute_buy(_candidate()) is None
+    assert trader.last_entry_outcome_reason == code
+    assert trader.last_entry_may_have_reached_venue is False
+    assert clob.orders == [] and repo.created == []
+
+
 def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
     repo, clob = _Repo(), _Clob()
     repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(

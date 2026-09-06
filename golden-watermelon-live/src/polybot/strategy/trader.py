@@ -35,6 +35,7 @@ from ..db.models import (
     TradeStatus,
 )
 from ..db.repository import ExactFillEvidence, TradeRepository
+from ..account import AccountGuardError
 from .filters import get_aligned_binary_outcomes, get_proven_resolution
 from .scanner import get_hours_since_game_start, parse_end_date
 
