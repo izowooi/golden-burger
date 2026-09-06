@@ -26,11 +26,14 @@ fixtures로 수행하며 실제 주문을 제출하지 않는다. 라이브 SDK�
 | polybot-sim-guava-b | guava-research-b-v1 | event hash shard 1/4 |
 | polybot-sim-guava-c | guava-research-c-v1 | event hash shard 2/4 |
 | polybot-sim-guava-d | guava-research-d-v1 | event hash shard 3/4 |
-| polybot-lion | guava-live-lion-a-v1 | 새 실거래 A, 아직 미배포 |
-| polybot-wolf | guava-live-wolf-b-v1 | 새 실거래 B, 아직 미배포 |
+| polybot-lion | guava-live-lion-a-v1 | 외장 workspace 준비·설정 검사만, 실거래 미배포 |
+| polybot-wolf | guava-live-wolf-b-v1 | 외장 workspace 준비·설정 검사만, 실거래 미배포 |
 
 폴더·Jenkins·runtime·지갑을 동일시하지 않는다. 과거 Kiwi/NHL DB와 합치지 않는다.
 연구 DB는 각 `data/<runtime>/trades_sim.db`, 실거래 DB는 별도 runtime의 `trades.db`다.
+Lion/Wolf의 준비 빌드는 `config --live`만 실행하고 `run`은 실행하지 않는다.
+설정 검사 성공은 가설 선정·실거래 상태관리·실제 주문·실거래 DB 생성의 증거가 아니다.
+기존 키/지갑/서명 유형은 그대로 보존하며, 새 실거래가 준비되기 전까지 예약은 OFF다.
 
 ## 수집과 해석
 

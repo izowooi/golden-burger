@@ -24,6 +24,28 @@ bootstrap은 표준 Python만 쓰며 package 설치보다 먼저 실행한다.
 정기 shell은 bootstrap 후 `uv run --no-sync polybot run --simulate --job <runtime>`이다.
 매분 sync/config/status/전체 DB 검사를 반복하지 않는다. 실패·skip과 성공을 분리해서 기록한다.
 
+## Lion/Wolf 실거래 준비 상태
+
+두 job의 이름·키·지갑·서명 유형을 보존하고 workspace만 각
+`/Volumes/t7/jenkins/polybot-lion`, `/Volumes/t7/jenkins/polybot-wolf`로 준비한다.
+기존 NHL 원본은 삭제하지 않고 외장 역사 보관소에도 파일별 SHA/SQLite 검사를 거친 사본을 둔다.
+새 Guava 거래 DB로 기존 NHL DB를 복사하지 않는다.
+
+현재의 수동 준비 빌드는 bootstrap과 아래 **설정 출력만** 실행한다.
+
+```bash
+export POLYBOT_LIFECYCLE_MODE=archive_only
+uv run --no-sync polybot config --live --job guava-live-lion-a-v1
+# Wolf: guava-live-wolf-b-v1
+```
+
+콘솔의 `CONFIGURATION_ONLY_NO_ORDERS`는 설정 검사 성공이다. 실제 주문·지갑 조회·
+포지션 대사·새 실거래 DB 생성·수익 가설 선정 완료를 뜻하지 않는다.
+`live` extra 설치나 `polybot run --live` 호출 없이 확인하고 TimerTrigger는 넣지 않는다.
+실거래 전환 때는 연구 결과에 근거한 정책·포지션 관리·수수료 대사·effective deployment
+기록을 모두 검증한 뒤 이 준비용 셸을 실제 셸로 교체한다. 준비 빌드에 예약을 넣어
+실거래가 진행 중인 것처럼 보고하지 않는다.
+
 ## 운영 판단
 
 첫24시간은 cadence, event shard 중복/누락, 직접6/2token, request/book/fee/clock,
