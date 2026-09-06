@@ -11,7 +11,11 @@ that quantity relaxation is less than one declared 3dp/4dp quantum. They do NOT
 claim ratio <= nominal ceiling or prove live venue acceptance.
 
 Only public quantities/IDs enter the DB. An immutable envelope links the ledger
-intent to an append-only POST boundary. A crash at that boundary is ambiguous,
+intent to an append-only POST boundary. INTENT, envelope and ENVELOPE_COMMITTED
+are prepared in one synchronous FULL-synchronous SQLite transaction. SQLite's
+50ms lock timeout is NOT a bound on OS/fsync time: a post-commit budget overrun
+means no POST and a known, fully attributable reservation or durable NO_POST.
+A crash at the POST boundary is ambiguous,
 never permission to retry. decision_id + side is an enduring idempotency key.
 
 The runner MUST read signed_reservations() before every BUY and account for ALL
@@ -26,6 +30,7 @@ from __future__ import annotations
 
 from contextvars import copy_context
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, localcontext
 import hashlib
 import json
@@ -37,6 +42,7 @@ import threading
 import time
 from types import SimpleNamespace
 from typing import Any, Mapping
+from uuid import uuid4
 
 from .budget import BudgetExceeded
 
@@ -55,6 +61,11 @@ class BrokerContractError(ValueError):
 
 class BrokerEvidenceError(RuntimeError):
     """A durable write/read failed; the caller must fail closed."""
+
+    def __init__(self, message, *, submission_id=None):
+        super().__init__(message)
+        # An allocated attempt ID is not a claim that the transaction committed.
+        self.submission_id = submission_id
 
 
 class BrokerCallError(RuntimeError):
@@ -486,6 +497,96 @@ class Broker:
             con.commit()
         finally:
             con.close()
+
+    def _persist_prepared(self, submission_id, envelope, deadline):
+        """Guava-local atomic equivalent of ExecutionLedger.record_intent.
+
+        Keep its INSERT/defaults, current_run_id, UTC microsecond timestamp and
+        float requested signed price/size. The shared ledger is NOT changed or
+        called here: its independent commit would leave an orphan on failure.
+        No SDK, _invoke/daemon worker, or POST callback is reachable in this
+        transaction. The caller allocates submission_id before entering it.
+        """
+        from polybot_observability import current_run_id
+
+        self._check(deadline)
+        if self.ledger.strategy_name != STRATEGY or self.ledger.db_path != self.db_path:
+            raise BrokerContractError("prepared ledger ownership changed")
+        payload = _json(envelope)
+        env = json.loads(payload)
+        digest = _hash(env)
+        price, size = float(_decimal(env["limit_price"])), float(_decimal(env["signed_shares"]))
+        self._validate_reservation_envelope({
+            "envelope": env, "requested_price": price, "requested_size": size,
+            "side": env["side"], "envelope_side": env["side"],
+            "token_id": env["token_id"], "envelope_decision_id": env["decision_id"],
+        })
+        run_id = current_run_id()
+        evidence = {"envelope_sha256": digest}
+        con = self._connect()  # timeout=0.05, foreign_keys=ON, synchronous=FULL
+        try:
+            self._check(deadline)
+            con.execute("BEGIN IMMEDIATE")
+            self._check(deadline)
+            con.execute("""INSERT INTO order_submissions (
+                submission_id, run_id, strategy_name, order_id, token_id, side,
+                requested_price, requested_size, submitted_at, simulation,
+                success, response_status, associated_trade_ids_json,
+                needs_reconciliation
+                ) VALUES (?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, 0, 'INTENT', '[]', 0)""",
+                (submission_id, run_id, self.ledger.strategy_name, str(env["token_id"]),
+                 str(env["side"]).upper(), price, size,
+                 datetime.now(timezone.utc).isoformat(timespec="microseconds"), 0))
+            self._check(deadline)
+            con.execute("INSERT INTO guava_execution_envelopes VALUES (?,?,?,?,?,?)",
+                        (submission_id, env["decision_id"], env["side"], payload, digest, time.time()))
+            self._check(deadline)
+            con.execute("""INSERT INTO guava_execution_events
+                (submission_id,phase,evidence_json,fingerprint,created_at) VALUES (?,?,?,?,?)""",
+                (submission_id, "ENVELOPE_COMMITTED", _json(evidence), _hash(evidence), time.time()))
+            self._check(deadline)
+            con.commit()
+            # A commit may succeed before fsync/return exhausts the budget.
+            # Its whole prepared bundle stays durable; never proceed to POST.
+            self._check(deadline)
+        except BaseException:
+            con.rollback()  # A successful commit is not undone or backfilled.
+            raise
+        finally:
+            con.close()
+
+    def _abort_prepared(self, submission_id, envelope):
+        """Best-effort NO_POST only for this exact committed prepared bundle.
+
+        There is no late prepared DB worker. If cleanup budget/storage is gone,
+        the intact bundle remains a bounded event/token reservation. Missing,
+        foreign or old orphan evidence is not repaired or labelled zero.
+        """
+        try:
+            cleanup = time.monotonic() + min(1.0, float(self.budget.require_commit()))
+            self._check(cleanup, cleanup=True)
+            snapshot = self._snapshot(submission_id)
+            if (snapshot["envelope_sha256"] != _hash(envelope)
+                    or snapshot["status"] != "INTENT" or snapshot["order_id"]
+                    or snapshot["fills"] or not snapshot["no_post"]
+                    or snapshot["phase"] not in {"ENVELOPE_COMMITTED", "NO_POST"}):
+                return
+            marker = {"envelope_sha256": _hash(envelope)}
+            con = self._connect()
+            try:
+                prepared = con.execute("""SELECT 1 FROM guava_execution_events
+                    WHERE submission_id=? AND phase='ENVELOPE_COMMITTED'
+                      AND evidence_json=? AND fingerprint=?""",
+                    (submission_id, _json(marker), _hash(marker))).fetchone()
+            finally:
+                con.close()
+            if prepared is None:
+                return  # No retroactive proof for a legacy partial/orphan.
+            self._check(cleanup, cleanup=True)
+            self._event(submission_id, "NO_POST", {"reason": "PRE_POST_ABORT", "envelope_sha256": _hash(envelope)})
+            self._check(cleanup, cleanup=True)
+        except Exception:
+            pass  # Never turn absent/unknown durable evidence into permission.
 
     def _row(self, submission_id):
         con = self._connect()
@@ -928,30 +1029,23 @@ class Broker:
                         "submission_id": None, "confirmed_shares": None, "fee_usdc": None,
                         "exposure_unknown": False, "new_risk_allowed": False,
                         "error_type": type(error).__name__}
+            submission_id = str(uuid4())
             try:
-                submission_id = self._invoke(lambda: self.ledger.record_intent(
-                    token_id=token, side=side, requested_price=float(envelope["limit_price"]),
-                    requested_size=float(envelope["signed_shares"]), simulation=False), deadline)
-                self._envelope(submission_id, envelope)
-                self._event(submission_id, "ENVELOPE_COMMITTED", {"envelope_sha256": _hash(envelope)})
+                self._persist_prepared(submission_id, envelope, deadline)
                 self._check(deadline)
-            except Exception:
-                # No worker in this block has permission to POST. A late ledger
-                # commit remains an unresolved orphan; never auto-backfill/retry it.
-                if submission_id:
-                    try:
-                        self._event(submission_id, "NO_POST", {"reason": "PRE_POST_ABORT", "envelope_sha256": _hash(envelope)})
-                    except Exception:
-                        pass
-                raise BrokerEvidenceError("intent/envelope pre-POST failure; no POST") from None
+            except BaseException as error:
+                self._abort_prepared(submission_id, envelope)
+                if not isinstance(error, Exception):
+                    raise
+                raise BrokerEvidenceError(
+                    f"atomic prepared persistence failed ({type(error).__name__}); no POST",
+                    submission_id=submission_id) from None
             try:
                 self._event(submission_id, "POST_STARTED", {"envelope_sha256": _hash(envelope)})
             except Exception:
-                try:
-                    self._event(submission_id, "NO_POST", {"reason": "PRE_POST_ABORT", "envelope_sha256": _hash(envelope)})
-                except Exception:
-                    pass  # Missing/conflicting proof stays reserved; no guessing.
-                raise BrokerEvidenceError("POST boundary write failed; no POST") from None
+                self._abort_prepared(submission_id, envelope)
+                raise BrokerEvidenceError("POST boundary write failed; no POST",
+                                          submission_id=submission_id) from None
             response = None
             observed_order_id = ""
             try:

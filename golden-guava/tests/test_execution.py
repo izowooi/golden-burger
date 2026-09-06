@@ -257,15 +257,16 @@ def test_envelope_committed_inside_fake_post_and_immutable(setup):
         assert con.execute("SELECT making_amount,taking_amount FROM order_submissions").fetchone() == (5.0, 10.0)
 
 
-@pytest.mark.parametrize("point", ["intent", "envelope", "boundary"])
+@pytest.mark.parametrize("point", ["intent", "envelope", "prepared_marker", "boundary"])
 def test_no_post_if_db_failure(setup, monkeypatch, point):
     broker, ledger, sdk, path = setup
     def fail(*args, **kwargs):
         raise sqlite3.OperationalError("fake DB failure")
-    if point == "intent":
-        monkeypatch.setattr(ledger, "record_intent", fail)
-    elif point == "envelope":
-        monkeypatch.setattr(broker, "_envelope", fail)
+    if point != "boundary":
+        table = {"intent": "order_submissions", "envelope": "guava_execution_envelopes",
+                 "prepared_marker": "guava_execution_events"}[point]
+        with sqlite3.connect(path) as con:
+            con.execute(f"CREATE TRIGGER fixture_insert_failure BEFORE INSERT ON {table} BEGIN SELECT RAISE(ABORT,'fixture insert failure'); END")
     else:
         original = broker._event
         def event(sid, phase, evidence):
@@ -273,9 +274,15 @@ def test_no_post_if_db_failure(setup, monkeypatch, point):
                 fail()
             return original(sid, phase, evidence)
         monkeypatch.setattr(broker, "_event", event)
-    with pytest.raises(BrokerEvidenceError, match="no POST"):
+    with pytest.raises(BrokerEvidenceError, match="no POST") as caught:
         buy(broker)
+    assert caught.value.submission_id
     assert not sdk.posts
+    if point != "boundary":
+        with sqlite3.connect(path) as con:
+            assert con.execute("SELECT count(*) FROM order_submissions").fetchone()[0] == 0
+            assert con.execute("SELECT count(*) FROM guava_execution_envelopes").fetchone()[0] == 0
+            assert con.execute("SELECT count(*) FROM guava_execution_events").fetchone()[0] == 0
 
 
 def test_ambiguous_post_never_double_submits_after_restart(setup):
@@ -605,24 +612,22 @@ def test_transaction_and_confirmed_evidence_must_not_regress(setup):
     assert Decimal(summary["confirmed_shares"]) == 10
 
 
-def test_whole_attempt_includes_blocking_ledger_write(setup, monkeypatch):
+def test_prepared_sqlite_lock_wait_is_short_synchronous_and_leaves_no_orphan(setup):
     broker, ledger, sdk, path = setup
-    entered, release = threading.Event(), threading.Event()
-    original = ledger.record_intent
-    def blocked(**kwargs):
-        entered.set()
-        assert release.wait(2)
-        return original(**kwargs)
-    monkeypatch.setattr(ledger, "record_intent", blocked)
-    broker.settings = replace(broker.settings, attempt_seconds=0.15, socket_seconds=0.1)
-    start = time.monotonic()
-    with pytest.raises(BrokerEvidenceError, match="no POST"):
-        buy(broker)
-    assert time.monotonic() - start < 0.6 and entered.is_set()
-    release.set()
-    broker._worker.join(1)
+    blocker = sqlite3.connect(path)
+    blocker.execute("BEGIN IMMEDIATE")
+    try:
+        start = time.monotonic()
+        with pytest.raises(BrokerEvidenceError, match="no POST") as error:
+            buy(broker)
+        assert time.monotonic() - start < 0.8
+        assert error.value.submission_id
+    finally:
+        blocker.rollback()
+        blocker.close()
     assert not sdk.posts
-    assert buy(broker, token="token-2", decision="different")["no_post"]
+    assert broker.execution_inventory() == []
+    assert buy(broker, token="token-2", decision="different")["order_id"]
 
 
 def test_changed_request_cannot_reuse_decision_key(setup):
@@ -1021,3 +1026,295 @@ def test_new_insert_guards_install_on_existing_broker_db_without_row_changes(set
             assert con.execute("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name LIKE '%no_replace'").fetchone()[0] == 2
     finally:
         reopened.close()
+
+
+def observe_prepared_connection(broker, monkeypatch, hook):
+    """Fault the real SQLite statement/commit boundary, not obsolete ledger hooks."""
+    connect = broker._connect
+
+    class ObservedConnection:
+        def __init__(self, real):
+            self.real = real
+            self.prepared = False
+            self.committed = False
+
+        def __getattr__(self, key):
+            return getattr(self.real, key)
+
+        def execute(self, sql, params=()):
+            normalized = " ".join(sql.upper().split())
+            point = None
+            if normalized == "BEGIN IMMEDIATE":
+                self.prepared = True
+                point = "begin"
+            elif self.prepared:
+                for table, label in (("ORDER_SUBMISSIONS", "intent"),
+                                     ("GUAVA_EXECUTION_ENVELOPES", "envelope"),
+                                     ("GUAVA_EXECUTION_EVENTS", "marker")):
+                    if normalized.startswith("INSERT INTO " + table):
+                        point = label
+                        break
+            if point:
+                hook("before_" + point, self.real, params)
+            result = self.real.execute(sql, params)
+            if point:
+                hook("after_" + point, self.real, params)
+            return result
+
+        def commit(self):
+            if self.prepared:
+                hook("before_commit", self.real, ())
+            self.real.commit()
+            self.committed = True
+            if self.prepared:
+                hook("after_commit", self.real, ())
+
+        def close(self):
+            try:
+                if self.prepared and self.committed:
+                    hook("before_close", self.real, ())
+            finally:
+                self.real.close()
+            if self.prepared and self.committed:
+                hook("after_close", self.real, ())
+
+    monkeypatch.setattr(broker, "_connect", lambda: ObservedConnection(connect()))
+
+
+def prepared_counts(path):
+    with sqlite3.connect(path) as con:
+        return tuple(con.execute("SELECT count(*) FROM " + table).fetchone()[0]
+                     for table in ("order_submissions", "guava_execution_envelopes", "guava_execution_events"))
+
+
+@pytest.mark.parametrize("point", ["before_begin", "after_begin", "before_intent", "after_intent",
+                                  "before_envelope", "after_envelope", "before_marker", "after_marker", "before_commit"])
+def test_every_prepared_failure_before_commit_rolls_back_all_rows(setup, monkeypatch, point):
+    from uuid import UUID
+    broker, ledger, sdk, path = setup
+    ids = []
+    def fault(stage, con, params):
+        if stage == "before_intent":
+            ids.append(params[0])
+        if stage == point:
+            raise sqlite3.OperationalError("genuine prepared boundary failure")
+    observe_prepared_connection(broker, monkeypatch, fault)
+    with pytest.raises(BrokerEvidenceError, match="no POST") as caught:
+        buy(broker)
+    assert UUID(caught.value.submission_id)
+    if ids:
+        assert ids == [caught.value.submission_id]
+    assert prepared_counts(path) == (0, 0, 0)
+    assert not sdk.posts and len(sdk.signs) == 1
+    assert broker.execution_inventory() == []
+
+
+def test_real_sqlite_commit_denial_rolls_back_whole_prepared_bundle(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    denied = []
+    def hook(stage, con, params):
+        if stage == "after_marker":
+            def authorizer(action, first, second, database, trigger):
+                if action == sqlite3.SQLITE_TRANSACTION and first == "COMMIT":
+                    denied.append(first)
+                    return sqlite3.SQLITE_DENY
+                return sqlite3.SQLITE_OK
+            con.set_authorizer(authorizer)
+    observe_prepared_connection(broker, monkeypatch, hook)
+    with pytest.raises(BrokerEvidenceError):
+        buy(broker)
+    assert denied == ["COMMIT"] and prepared_counts(path) == (0, 0, 0)
+    assert not sdk.posts
+
+
+@pytest.mark.parametrize("point", ["after_commit", "before_close", "after_close"])
+def test_committed_bundle_with_lost_return_has_known_no_post_proof(setup, monkeypatch, point):
+    broker, ledger, sdk, path = setup
+    captured = []
+    def fault(stage, con, params):
+        if stage == "before_intent":
+            captured.append(params[0])
+        if stage == point:
+            raise sqlite3.OperationalError("commit succeeded but acknowledgement failed")
+    observe_prepared_connection(broker, monkeypatch, fault)
+    with pytest.raises(BrokerEvidenceError) as caught:
+        buy(broker)
+    assert captured == [caught.value.submission_id]
+    assert prepared_counts(path) == (1, 1, 2)  # prepared marker + durable NO_POST
+    snapshot = broker.execution_inventory()[0]
+    assert snapshot["submission_id"] == caught.value.submission_id
+    assert snapshot["no_post_proven"] and not snapshot["reservation"]["reservation_required"]
+    assert buy(broker)["duplicate"] and len(sdk.signs) == 1 and not sdk.posts
+
+
+def test_failure_after_whole_prepared_method_return_never_loses_submission_id(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    real = broker._persist_prepared
+    supplied_ids = []
+    def lost_return(sid, envelope, deadline):
+        supplied_ids.append(sid)
+        real(sid, envelope, deadline)
+        raise RuntimeError("return path failed after successful atomic commit")
+    monkeypatch.setattr(broker, "_persist_prepared", lost_return)
+    monkeypatch.setattr(ledger, "record_intent", lambda **kwargs: pytest.fail("independently committed ledger intent is forbidden"))
+    with pytest.raises(BrokerEvidenceError) as caught:
+        buy(broker)
+    assert supplied_ids == [caught.value.submission_id]
+    assert broker.execution_inventory()[0]["no_post_proven"]
+    assert not sdk.posts
+
+
+def test_failed_abort_proof_retains_bounded_reservation_not_global_orphan(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    faulted = []
+    def fail_once(stage, con, params):
+        if stage == "after_commit" and not faulted:
+            faulted.append(True)
+            raise sqlite3.OperationalError("post-commit failure")
+    observe_prepared_connection(broker, monkeypatch, fail_once)
+    event = broker._event
+    def no_proof(sid, phase, evidence):
+        if phase == "NO_POST":
+            raise sqlite3.OperationalError("cleanup evidence unavailable")
+        return event(sid, phase, evidence)
+    monkeypatch.setattr(broker, "_event", no_proof)
+    with pytest.raises(BrokerEvidenceError) as caught:
+        buy(broker)
+    assert prepared_counts(path) == (1, 1, 1)
+    first = broker.execution_inventory()[0]
+    assert first["submission_id"] == caught.value.submission_id
+    assert not first["no_post_proven"] and first["reservation"]["reservation_required"]
+    assert first["reservation"]["buy_notional_cap_usdc"] == "5"
+    assert buy(broker, decision="same-event-new-id")["no_post"]
+    assert buy_event_b(broker, sdk)["order_id"] == "order-1"
+    assert len(broker.execution_inventory()) == 2 and len(sdk.signs) == 2
+
+
+@pytest.mark.parametrize("point", ["after_begin", "after_intent", "after_envelope", "after_marker"])
+def test_budget_exhausted_before_commit_rolls_back_prepared_bundle(setup, monkeypatch, point):
+    broker, ledger, sdk, path = setup
+    clock = [0]
+    broker.budget = Budget(45, margin=7, monotonic=lambda: clock[0])
+    def exhaust(stage, con, params):
+        if stage == point:
+            clock[0] = 38
+    observe_prepared_connection(broker, monkeypatch, exhaust)
+    with pytest.raises(BrokerEvidenceError, match="BudgetExceeded.*no POST"):
+        buy(broker)
+    assert prepared_counts(path) == (0, 0, 0) and not sdk.posts
+
+
+@pytest.mark.parametrize("elapsed,proof", [(38, True), (45, False)])
+def test_postcommit_budget_exhaustion_never_posts_or_discards_reservation(setup, monkeypatch, elapsed, proof):
+    broker, ledger, sdk, path = setup
+    clock = [0]
+    broker.budget = Budget(45, margin=7, monotonic=lambda: clock[0])
+    def exhaust(stage, con, params):
+        if stage == "after_commit":
+            clock[0] = elapsed
+    observe_prepared_connection(broker, monkeypatch, exhaust)
+    with pytest.raises(BrokerEvidenceError, match="BudgetExceeded.*no POST") as caught:
+        buy(broker)
+    assert prepared_counts(path) == (1, 1, 2 if proof else 1) and not sdk.posts
+    broker.budget = Budget()
+    snapshot = broker.execution_inventory()[0]
+    assert snapshot["submission_id"] == caught.value.submission_id
+    assert snapshot["no_post_proven"] is proof
+    assert snapshot["reservation"]["reservation_required"] is (not proof)
+
+
+def test_synchronous_commit_overrun_is_reported_not_fake_bounded_worker_success(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    broker.settings = replace(broker.settings, attempt_seconds=0.15, socket_seconds=0.1)
+    def slow_commit(stage, con, params):
+        if stage == "before_commit":
+            time.sleep(.2)  # fsync/OS cannot be interrupted by a Python budget.
+    observe_prepared_connection(broker, monkeypatch, slow_commit)
+    started = time.monotonic()
+    with pytest.raises(BrokerEvidenceError, match="BudgetExceeded.*no POST"):
+        buy(broker)
+    assert time.monotonic() - started >= .2
+    assert prepared_counts(path) == (1, 1, 2) and not sdk.posts
+
+
+def test_prepared_visibility_sync_thread_full_fsync_and_no_independent_writes(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    owner = threading.get_ident()
+    checkpoints = []
+    def observe(stage, con, params):
+        assert threading.get_ident() == owner
+        assert len(sdk.signs) == 1 and not sdk.posts
+        if stage == "after_begin":
+            assert con.execute("PRAGMA busy_timeout").fetchone()[0] == 50
+            assert con.execute("PRAGMA synchronous").fetchone()[0] == 2  # FULL
+        if stage in {"after_intent", "after_envelope", "after_marker"}:
+            assert con.in_transaction
+            checkpoints.append((stage, prepared_counts(path)))
+        if stage == "after_commit":
+            assert not con.in_transaction
+            checkpoints.append((stage, prepared_counts(path)))
+    observe_prepared_connection(broker, monkeypatch, observe)
+    monkeypatch.setattr(ledger, "record_intent", lambda **kwargs: pytest.fail("separate INTENT commit"))
+    monkeypatch.setattr(broker, "_envelope", lambda *args: pytest.fail("separate envelope commit"))
+    assert buy(broker)["order_id"]
+    assert checkpoints == [("after_intent", (0, 0, 0)), ("after_envelope", (0, 0, 0)),
+                           ("after_marker", (0, 0, 0)), ("after_commit", (1, 1, 1))]
+
+
+@pytest.mark.parametrize("side", ["BUY", "SELL"])
+def test_atomic_intent_matches_shared_sql_defaults_signed_fields_and_run_context(setup, monkeypatch, side, tmp_path):
+    from polybot_observability.run_audit import _CURRENT_RUN_ID
+    broker, ledger, sdk, path = setup
+    reference = ExecutionLedger(tmp_path / "shared-reference.db", strategy_name="golden-guava")
+    captured = []
+    def before_post(signed):
+        with sqlite3.connect(path) as con:
+            con.row_factory = sqlite3.Row
+            captured.append(dict(con.execute("SELECT * FROM order_submissions").fetchone()))
+    sdk.callback = before_post
+    context = _CURRENT_RUN_ID.set("atomic-current-run")
+    try:
+        reference.record_intent(token_id="token-1", side=side, requested_price=.5, requested_size=10, simulation=False)
+        result = (buy(broker, price=".509") if side == "BUY"
+                  else broker.sell_fok("token-1", "10.009", ".499", CONTEXT))
+    finally:
+        _CURRENT_RUN_ID.reset(context)
+    assert result.get("order_id") and captured[0]["run_id"] == "atomic-current-run"
+    with sqlite3.connect(reference.db_path) as con:
+        con.row_factory = sqlite3.Row
+        expected = dict(con.execute("SELECT * FROM order_submissions").fetchone())
+    actual = captured[0]
+    assert datetime.fromisoformat(actual["submitted_at"]).utcoffset() == timedelta(0)
+    assert len(actual["submitted_at"].split('.')[1].split('+')[0]) == 6
+    for row in (actual, expected):
+        row.pop("submission_id"); row.pop("submitted_at")
+    assert actual == expected
+
+
+def test_duplicate_decision_sql_collision_rolls_back_new_intent_only(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    first = buy(broker)
+    before = prepared_counts(path)
+    monkeypatch.setattr(broker, "_duplicate", lambda *args: None)
+    monkeypatch.setattr(broker, "_risk_gate", lambda *args: None)  # Exercise SQL uniqueness despite stale caller.
+    with pytest.raises(BrokerEvidenceError):
+        buy(broker)
+    assert prepared_counts(path) == before and len(sdk.posts) == 1
+    assert broker.execution_inventory()[0]["submission_id"] == first["submission_id"]
+
+
+def test_abort_helper_does_not_repair_old_unprepared_envelope_or_orphan(setup):
+    broker, ledger, sdk, path = setup
+    env = dict(buy(broker)["envelope"], decision_id="legacy-unprepared", token_id="token-3")
+    sid = ledger.record_intent(token_id="token-3", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    broker._envelope(sid, env)
+    before = prepared_counts(path)
+    broker._abort_prepared(sid, env)
+    assert prepared_counts(path) == before
+    assert broker._snapshot(sid)["reservation"]["reservation_required"]
+    orphan = ledger.record_intent(token_id="token-2", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    before = prepared_counts(path)
+    broker._abort_prepared(orphan, env)
+    assert prepared_counts(path) == before
+    with pytest.raises(BrokerContractError, match="orphan"):
+        broker.execution_inventory()

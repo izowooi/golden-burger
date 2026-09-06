@@ -23,6 +23,12 @@ SDK 전역 함수·ROUNDING_CONFIG는 바꾸지 않고 실제 SDK의v2 서명은
 
 ## 원장과 전체 조회
 
+INTENT·서명 금액 envelope·ENVELOPE_COMMITTED는 이제 같은 SQLite transaction으로
+저장한다. 하나라도 실패하면 전부 rollback하며, 성공한 commit 뒤 예산이 끝나도 POST하지
+않는다. 이때 사전 할당한 요청 ID로 명시적 NO_POST 증거 또는 온전한 예약을 유지한다.
+과거의 고립된 요청을 이 규칙으로 소급 복구하지 않는다. SQLite50ms lock timeout은
+OS/fsync 시간까지 보장하는 상한이 아니므로 전체 실행시간은 별도로 측정해야 한다.
+
 `Broker.execution_inventory()`는 검증된 전체 로컬 full snapshot을 반환하며 인증·네트워크·
 서명·주문을 호출하지 않는다. 고립된 요청·소유권 불명·변형된 금액·DB/예산 실패는
 부분 목록이나 정상 빈 결과로 바꾸지 않는다.
@@ -50,6 +56,26 @@ envelope/event는 UPDATE/DELETE 및 INSERT OR REPLACE를 방어하고, event has
 `capacity(...).fits(5)`는 **원금/슬롯**만의 판단이다. 수수료 예산·지갑 가용액·손실 한도·
 신호·규칙·주문 허용을 모두 통과한 것이 아니다. 보호 매도 가능 수량도 체결 보장이 아니다.
 
+## POST 전 판단 저장소
+
+`plans.PlanStore`는 이미 초기화된 Guava live 원장에만 연결한다. runtime과 계정의
+불변 식별 해시를 고정해 다른 지갑/잡으로 DB를 조용히 재사용하지 않는다. 이 해시는 호출자가
+chain·funder·서명 유형에서 만들어 실제 broker와 대조해야 하며, private key에서 만들거나
+지갑 주소 자체를 저장하지 않는다. 파일이 없거나 research/다른 전략 DB이면 거부한다.
+
+- 실제 RUNNING RunAudit와 Guava public config를 연결하고, 서로 다른 두 config hash를 구분한다.
+- BUY 판단과 SELL의 원래 BUY 연결을 POST 전에 기록하며, 동일 계획은 원본 시각 그대로 재사용한다.
+- 새 계획은 최소$5 BUY·정확한 수량·UTC 유효시간·종목/리그·가설·원자료 참조를 가진다.
+  미래에 관측했다고 주장하거나 이미 만료된 새 계획은 만들지 않는다.
+- `load_for_execution`은 만료·미래·다른 source/config의 실행을 거부한다.
+  반면 이미 존재하는 거래의 소유/노출 연결은 만료됐다고 지우지 않는다.
+- `bindings()`는 전체 요청 ID와 명시적 SELL→BUY 관계를 복원한다. 주문 응답 직후 프로세스가
+  끝나도, 미리 저장된 판단과 envelope의 decision ID를 통해 관계를 읽는다.
+
+이 저장소의 반환값에는 `order_authorized=false`가 있다. 실제 dispatch 직전의 유효시간·
+지갑·수수료·포지션·신호 재검증과 호출 경로 통합은 아직 필요하며, 저장소만 설치해도
+직접 Broker 호출이 자동으로 승인/차단되는 구조는 아니다.
+
 ## 검증 명령
 
 ```bash
@@ -65,7 +91,7 @@ live extra가 없으면 명시적으로 skip된다. fake-only 테스트를 실�
 ## 남은 통합
 
 1. 수익 가설·A/B 차이·진입/익절/손절/해결/만료 정책.
-2. 매수·매도 판단과 부모 매수 연결을 **POST 전에** 기록하는 저장소 및 재시작 복원.
+2. 구현된 판단 저장소·원자적 준비 기록·보유량 계산기를 실제 dispatch/재시작 경로에 통합.
 3. 지갑·수동 보유 보호·fee 예산·손실 한도와 위 계산기를 연결하는 runner.
 4. 미확인 POST 추적, 대사·취소·해결·상환, 시간 예산과 공정한 재시작.
 5. 실제 응답의 fee 증거, backup/restore, 계정별 배포 이력.
