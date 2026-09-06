@@ -199,6 +199,11 @@ class Trader:
         condition_id = candidate["condition_id"]
         token_id = candidate["token_id"]
 
+        protected = getattr(self.repo, "is_operator_protected_token", None)
+        if callable(protected) and protected(token_id):
+            logger.warning("운영자 인수 token의 신규 BUY를 제외합니다")
+            return None
+
         guard = self.get_entry_guard()
         if not guard["entry_allowed"]:
             self.buying_disabled = True
@@ -1056,6 +1061,11 @@ class Trader:
         """
         token_id = trade.token_id
         condition_id = trade.condition_id
+
+        protected = getattr(self.repo, "is_operator_protected_token", None)
+        if callable(protected) and protected(token_id):
+            logger.error("운영자 인수 token은 봇이 매도하지 않습니다")
+            return False
 
         # Gamma can explicitly prove that a market is no longer tradeable.
         # Never interpret a dead-book 0.50 midpoint as a stop-loss signal.

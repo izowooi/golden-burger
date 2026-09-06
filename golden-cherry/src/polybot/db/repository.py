@@ -11,6 +11,7 @@ from sqlalchemy import func, inspect, or_, text
 from .models import Trade, TradeStatus, SkippedMarket, MarketSnapshot
 from .fill_evidence import ExactFillEvidence, get_exact_order_fill_evidence
 from .exposure_reservations import UNTRACKED_BUY_RESERVATIONS_SQL
+from .operator_controls import TABLE as OPERATOR_TABLE, submission_fingerprint, validate_unknown
 
 logger = logging.getLogger(__name__)
 
@@ -26,6 +27,33 @@ class TradeRepository:
 
     def __init__(self, session: Session):
         self.session = session
+
+    def get_operator_handled_intents(self) -> Dict[str, str]:
+        tables = set(inspect(self.session.get_bind()).get_table_names())
+        if OPERATOR_TABLE not in tables:
+            return {}
+        acknowledgements = self.session.execute(text(f"SELECT * FROM {OPERATOR_TABLE}")).mappings().all()
+        result = {}
+        for ack in acknowledgements:
+            row = self.session.execute(text("SELECT * FROM order_submissions WHERE submission_id=:id"),
+                {"id":ack["submission_id"]}).mappings().one_or_none()
+            if row is None:
+                raise RuntimeError("operator acknowledgement lost its source submission")
+            validate_unknown(row)
+            if (ack["evidence_kind"] != "OPERATOR_HANDLED_ASSUMPTION"
+                or ack["original_submission_sha256"] != submission_fingerprint(row)
+                or ack["token_id"] != row["token_id"] or not str(ack["reason"]).strip()
+                or not str(ack["approval_id"]).strip() or not ack["acknowledged_at"]):
+                raise RuntimeError("operator acknowledgement/source identity mismatch")
+            fill = self.session.execute(text("SELECT 1 FROM order_fills WHERE submission_id=:id LIMIT 1"),
+                {"id":ack["submission_id"]}).first()
+            if fill is not None:
+                raise RuntimeError("operator-owned unknown acquired venue fill evidence; review required")
+            result[ack["submission_id"]] = ack["token_id"]
+        return result
+
+    def is_operator_protected_token(self, token_id: str) -> bool:
+        return token_id in self.get_operator_handled_intents().values()
 
     def get_by_id(self, trade_id: int) -> Optional[Trade]:
         """Get trade by ID."""
@@ -284,8 +312,9 @@ class TradeRepository:
         A process can die after its durable pre-POST intent or accepted order is
         written and before ``trades`` is updated.  Such rows reserve one position
         and their requested notional until exact terminal zero-fill or explicit
-        ``NO_ORDER_CREATED`` evidence exists.  Open-order absence is deliberately
-        not a release condition.
+        ``NO_ORDER_CREATED`` evidence exists. The distinct operator-ownership
+        exception preserves UNKNOWN evidence and permanently protects its token
+        from bot orders. Open-order absence is not a release condition.
         """
         tables = set(inspect(self.session.get_bind()).get_table_names())
         if "order_submissions" not in tables:
@@ -328,6 +357,11 @@ class TradeRepository:
         rows = self.session.execute(
             text(UNTRACKED_BUY_RESERVATIONS_SQL)
         ).mappings().all()
+        operator_handled = self.get_operator_handled_intents()
+        rows = [row for row in rows if row["submission_id"] not in operator_handled]
+        if operator_handled:
+            logger.warning("운영자 처리 가정 %d건은 봇 노출 예약에서 제외, 해당 token은 봇 거래 금지; "
+                           "과거 UNKNOWN/체결 기록은 보존", len(operator_handled))
 
         notional = 0.0
         unknown = 0
@@ -381,6 +415,7 @@ class TradeRepository:
             **reservations,
             "reserved_position_count": total_count,
             "reserved_open_notional_usdc": round(total_notional, 6),
+            "operator_handled_unknown_buy_count": len(self.get_operator_handled_intents()),
         }
 
     def get_entry_guard(

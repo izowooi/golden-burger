@@ -6,6 +6,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from .operator_controls import DDL as OPERATOR_CONTROL_DDL
 
 Base = declarative_base()
 
@@ -185,6 +186,8 @@ def init_database(
         "settlement_assumption_basis": "TEXT",
     }
     with engine.begin() as conn:
+        for statement in OPERATOR_CONTROL_DDL:
+            conn.execute(text(statement))
         existing = {
             row[1]
             for row in conn.execute(text("PRAGMA table_info(trades)"))
