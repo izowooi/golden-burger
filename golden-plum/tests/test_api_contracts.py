@@ -1122,9 +1122,14 @@ def test_live_fok_uses_venue_tick_and_fok_order_type() -> None:
     assert "FOK" in str(captured["order_type"])
 
 
-def test_live_sell_ledger_uses_signed_two_decimal_share_quantity(tmp_path) -> None:
+def test_live_sell_ledger_uses_signed_two_decimal_share_quantity(tmp_path, monkeypatch) -> None:
     wrapper = _fee_evidence_wrapper(tmp_path)
     captured = {}
+    expected_id = '0x' + 'a' * 64
+    monkeypatch.setattr(wrapper, '_signed_sell_identity', lambda signed, token, **kw: dict(
+        predicted_order_id=expected_id, token_id=token, maker_amount_micros='5100000',
+        taker_amount_micros='3570000', chain_id=137, neg_risk=0,
+        account_fingerprint=wrapper.execution_ledger.account_identity))
 
     class _Client:
         def get_clob_market_info(self, condition_id):
@@ -1142,13 +1147,16 @@ def test_live_sell_ledger_uses_signed_two_decimal_share_quantity(tmp_path) -> No
             assert token_id == "token-fee"
             return "0.01"
 
-        def create_order(self, order):
+        def get_neg_risk(self, token_id):
+            return False
+
+        def create_order(self, order, options=None):
             captured["order"] = order
             return SimpleNamespace(makerAmount="5100000", takerAmount="3570000")
 
         def post_order(self, _signed, order_type):
             captured["order_type"] = order_type
-            return {"success": True, "orderID": "sell-signed", "status": "live"}
+            return {"success": True, "orderID": expected_id, "status": "live"}
 
         def cancel_orders(self, _order_ids):
             return {"canceled": []}
@@ -1164,7 +1172,7 @@ def test_live_sell_ledger_uses_signed_two_decimal_share_quantity(tmp_path) -> No
     with wrapper._open_evidence_db_read_only() as connection:
         row = connection.execute(
             "SELECT requested_size, making_amount, taking_amount "
-            "FROM order_submissions WHERE order_id='sell-signed'"
+            "FROM order_submissions WHERE order_id=?", (expected_id,)
         ).fetchone()
     assert row["requested_size"] == pytest.approx(5.10)
     assert row["making_amount"] == pytest.approx(5.10)
