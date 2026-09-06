@@ -134,6 +134,7 @@ class ResearchBot:
                 result["database_check"] = repository.scheduled_database_check(
                     run_id, allow_full_check=False
                 )
+                budget.assert_cycle_available("post-health before success publication")
                 result["db_bytes"] = metric["db_bytes"]
                 result["runtime_budget"] = budget.evidence()
                 audit.succeed(result)

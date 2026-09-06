@@ -74,3 +74,38 @@ def test_cycle_budget_is_cooperative_and_has_eight_second_persistence_reserve() 
     clock.value = 50
     with pytest.raises(CycleBudgetExceeded):
         budget.assert_cycle_available("completion")
+
+
+def test_time_spent_in_storage_cannot_be_published_as_success(tmp_path, monkeypatch):
+    from dataclasses import replace
+    from pathlib import Path
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+    from polybot import bot as module
+    from polybot.config import load_config
+
+    config = load_config(str(Path(__file__).resolve().parents[1] / 'config.yaml'),
+                         'watermelon-white-1m-v4b')
+    config = replace(config, db_path=tmp_path / 'runtime' / 'trades_sim.db')
+    clock = Clock()
+    budget = CycleBudget(0, network_seconds=42, cycle_seconds=50, monotonic=clock)
+    monkeypatch.setattr(module.CycleBudget, 'start', lambda **kw: budget)
+    monkeypatch.setattr(module.shutil, 'disk_usage', lambda path: SimpleNamespace(total=10**12, free=9*10**11))
+    repo, audit = MagicMock(), MagicMock()
+    repo.record_storage_metric.return_value = {'db_bytes': 0}
+    def health(*args, **kwargs):
+        clock.value = 52.38
+        return {'full_check_performed': False}
+    repo.scheduled_database_check.side_effect = health
+    monkeypatch.setattr(module, 'ResearchRepository', lambda *a, **kw: repo)
+    monkeypatch.setattr(module, 'ResearchRunAudit', lambda *a, **kw: audit)
+    for name in ('PublicJsonTransport', 'GammaClient', 'ClobClient', 'SportsClockClient'):
+        monkeypatch.setattr(module, name, MagicMock())
+    collector = MagicMock()
+    collector.collect.return_value = {}
+    monkeypatch.setattr(module, 'Collector', lambda *a, **kw: collector)
+    with pytest.raises(CycleBudgetExceeded, match='post-health'):
+        module.ResearchBot(config).run()
+    audit.succeed.assert_not_called()
+    audit.fail.assert_called_once()
+    repo.close.assert_called_once()

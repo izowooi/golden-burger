@@ -2,12 +2,12 @@ f2305969318939421d5faf8b5316177242dd721c01fb1902ce1b2ab5208de456  ../../pyprojec
 3b74dd49ab13070847671f346905d3b30cad2a42ec1925dc8e1c3f0ea2b7fdfd  ../../uv.lock
 8e4a46474758a6a130ed70e4990f801d34571d15d4dbd68add8d8c16353ec5bb  ../../config.yaml
 75648d2f7e884ddaa75c1411df2327e12a247e851eb936effd09afbfdaaccff0  ../../STRATEGY.md
-c2a2ffd52e4213f2004b066a89dfcace0e281ac8d251a1069dd9da62ee3f5bcd  ../../research/frozen-2026-09-06-writer-reuse-v4b-r3/PREREGISTRATION.md
+75caebfb29c7f793543e06829bec270e68c9e9a04011de8cf9e33a15baf9aa72  ../../research/frozen-2026-09-06-writer-reuse-v4b-r3/PREREGISTRATION.md
 4e141cf36bca98204eaae5405d3f85c856c9278d8ccd987b2af291be6d4aec01  ../../scripts/analyze_experiment.py
 5f301a4b44372bd4af408e999ae1f1036e3722753b2a0d724da9690f954cb35e  ../../scripts/verify_external_workspace.py
 049124a79d064d15a8296a0e57fda46f25b54e5fb7050f6223a38c22b37a1f8f  ../../src/polybot/main.py
 1f1d795550d6603fe0a7401a71fb33ca46f1f6d47557623b25948b837391de3d  ../../src/polybot/analyzer.py
-f403b49e8ad780be2ff524c3189bc37c38303ba82bf85fbd1dc913bf2a610817  ../../src/polybot/bot.py
+0b80bd7b10c47e76b458bf4477fad99bdf4bc6c22e66649fca507bef9b246093  ../../src/polybot/bot.py
 2423bae0f5b92a371588a91526a6c0085976f541599a2091fb2a11bba54b0e0a  ../../src/polybot/config.py
 c4e03a756fb1020d65685e57cd0abd772750ff154b888dd62cdd57d4c1ffb51b  ../../src/polybot/run_audit.py
 50731958651d19d168079e1c050a16a1285420346888b43149299d938e452983  ../../src/polybot/resolution.py
