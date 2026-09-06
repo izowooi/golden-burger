@@ -82,7 +82,8 @@ class FakeSDK:
         if self.sign_callback:
             self.sign_callback()
         amount, price = Decimal(str(args.amount)), Decimal(str(args.price))
-        taker = (amount / price).quantize(Decimal("0.0001"), rounding=ROUND_FLOOR)
+        precision = Decimal("0.001") if options.tick_size == "0.1" else Decimal("0.0001")
+        taker = (amount / price).quantize(precision, rounding=ROUND_FLOOR)
         values = dict(tokenId=args.token_id, side=0, makerAmount=str(int(amount * 1000000)),
                       takerAmount=str(int(taker * 1000000)), timestamp="1234567", signature="NEVER_PERSIST_SIGNATURE")
         values.update(self.signed_override)
@@ -799,3 +800,224 @@ def test_reservation_inventory_retains_original_cap_and_never_credits_unknown_se
     assert inventory[sell["submission_id"]]["buy_notional_cap_usdc"] is None
     assert Decimal(inventory[sell["submission_id"]]["sell_shares_cap"]) == 10
     assert all(r["reservation_required"] and not r["portfolio_approval"] for r in inventory.values())
+
+
+def test_execution_inventory_full_snapshot_read_only_no_auth_or_sdk(setup, monkeypatch):
+    import hashlib
+    broker, ledger, sdk, path = setup
+    first = buy(broker)
+    confirmed(sdk, fee=None)
+    partial = reconcile(broker, first)
+    second = buy_event_b(broker, sdk)
+    expected = {s["submission_id"]: broker._snapshot(s["submission_id"]) for s in (partial, second)}
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    def forbidden(*args, **kwargs):
+        raise AssertionError("inventory must not invoke SDK/auth or write events")
+    monkeypatch.setattr(broker, "_invoke", forbidden)
+    monkeypatch.setattr(broker, "_event", forbidden)
+    monkeypatch.setattr(broker, "_authenticate", forbidden)
+    rows = broker.execution_inventory()
+    assert {r["submission_id"]: r for r in rows} == expected
+    assert sum(Decimal(r["reservation"]["buy_notional_cap_usdc"]) for r in rows) == 10
+    assert any(r["fills"] and r["fee_status"] == "UNKNOWN" for r in rows)
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == before
+
+
+def test_execution_inventory_empty_is_read_only_and_no_sdk(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    monkeypatch.setattr(broker, "_authenticate", lambda *a: pytest.fail("no auth"))
+    assert broker.execution_inventory() == []
+    assert not sdk.posts and not sdk.signs
+
+
+def test_execution_inventory_orphan_invalid_and_budget_never_partial(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    buy(broker)
+    buy_event_b(broker, sdk)
+    check = broker._check
+    seen = []
+    def limited(deadline, **kwargs):
+        seen.append(1)
+        if len(seen) == 2:
+            raise BudgetExceeded("complete inventory unavailable")
+        return check(deadline, **kwargs)
+    monkeypatch.setattr(broker, "_check", limited)
+    with pytest.raises(BudgetExceeded):
+        broker.execution_inventory()
+    monkeypatch.setattr(broker, "_check", check)
+    ledger.record_intent(token_id="token-3", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    with pytest.raises(BrokerContractError, match="orphan"):
+        broker.execution_inventory()
+    assert len(sdk.posts) == 2
+
+
+def test_execution_inventory_db_failure_not_success_shaped_empty(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    def broken():
+        raise sqlite3.OperationalError("fixture")
+    monkeypatch.setattr(broker, "_connect", broken)
+    with pytest.raises(BrokerEvidenceError):
+        broker.execution_inventory()
+
+
+def test_native_point_one_metadata_declares_three_dp(setup, monkeypatch):
+    broker, ledger, sdk, path = setup
+    sdk.tick = "0.1"
+    original = sdk.get_order_book
+    def at_price(token):
+        book = original(token)
+        book.update(asks=[{"price": "0.3", "size": "1000"}], bids=[])
+        return book
+    monkeypatch.setattr(sdk, "get_order_book", at_price)
+    result = buy(broker, price="0.3")
+    assert result.get("order_id")
+    env = result["envelope"]
+    assert env["native_tick"] == env["signer_tick"] == "0.1"
+    assert env["buy_quantity_precision"] == 3 and env["signed_shares"] == "16.666"
+    assert broker.execution_inventory()[0]["envelope"] == env
+
+
+@pytest.mark.parametrize("changes", [
+    {"buy_amount_contract": "unknown"}, {"native_tick": "0.1"}, {"signer_tick": "0.001"},
+    {"signer_tick": "0.03"}, {"buy_quantity_precision": 3}, {"buy_quantity_precision": True},
+    {"buy_quantity_precision": "4"}, {"minimum_taker_amount": "9999900"},
+])
+def test_new_amount_contract_invalid_metadata_is_not_legacy_fallback(setup, changes):
+    broker, ledger, sdk, path = setup
+    original = buy(broker)["envelope"]
+    sid = ledger.record_intent(token_id="token-3", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    env = dict(original, decision_id="bad-contract", token_id="token-3", **changes)
+    broker._envelope(sid, env)
+    with pytest.raises(BrokerContractError):
+        broker.execution_inventory()
+
+
+def test_partial_new_metadata_cannot_downgrade_but_legacy_still_reads(setup):
+    from polybot.execution import BUY_AMOUNT_FIELDS
+    broker, ledger, sdk, path = setup
+    original = buy(broker)["envelope"]
+    legacy = {k: v for k, v in original.items() if k not in BUY_AMOUNT_FIELDS}
+    sid = ledger.record_intent(token_id="token-2", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    broker._envelope(sid, dict(legacy, decision_id="legacy", token_id="token-2"))
+    assert len(broker.execution_inventory()) == 2
+    sid = ledger.record_intent(token_id="token-3", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    broker._envelope(sid, dict(legacy, decision_id="partial", token_id="token-3", native_tick="0.01"))
+    with pytest.raises(BrokerContractError):
+        broker.execution_inventory()
+
+
+def test_next_tick_and_quantity_relaxation_bound_rejects_worse_price():
+    from polybot.execution import _check_buy_rounding_bound, _buy_precision
+    with pytest.raises(BrokerContractError):
+        _check_buy_rounding_bound(Decimal(5), Decimal("0.29"), Decimal("0.01"), 5000000, 16666600, 4)
+    with pytest.raises(BrokerContractError):
+        _check_buy_rounding_bound(Decimal(5), Decimal("0.5"), Decimal("0.01"), 5000000, 9999900, 4)
+    with pytest.raises(BrokerContractError):
+        _buy_precision("0.1", "0.01")
+
+
+@pytest.mark.parametrize("collision", ["submission_id", "decision_side"])
+@pytest.mark.parametrize("verb", ["INSERT OR REPLACE", "REPLACE"])
+def test_envelope_insert_replace_cannot_delete_history_recursive_off(setup, collision, verb):
+    broker, ledger, sdk, path = setup
+    result = buy(broker)
+    other = ledger.record_intent(token_id="token-2", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    with sqlite3.connect(path) as con:
+        con.execute("PRAGMA recursive_triggers=OFF")
+        before = con.execute("SELECT * FROM guava_execution_envelopes").fetchall()
+        values = list(before[0])
+        if collision == "decision_side":
+            values[0] = other
+        else:
+            values[1] = "replacement-decision"
+        values[3] = "{}"
+        values[5] += 100
+        with pytest.raises(sqlite3.IntegrityError, match="immutable execution envelope"):
+            con.execute(f"{verb} INTO guava_execution_envelopes VALUES (?,?,?,?,?,?)", values)
+        assert con.execute("SELECT * FROM guava_execution_envelopes").fetchall() == before
+
+
+@pytest.mark.parametrize("change_body", [False, True])
+def test_explicit_event_sequence_replace_aborts_even_identical_body(setup, change_body):
+    broker, ledger, sdk, path = setup
+    buy(broker)
+    with sqlite3.connect(path) as con:
+        con.execute("PRAGMA recursive_triggers=OFF")
+        before = con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall()
+        values = list(before[0])
+        if change_body:
+            values[3] = "{}"
+        values[5] += 100
+        with pytest.raises(sqlite3.IntegrityError, match="sequence collision"):
+            con.execute("INSERT OR REPLACE INTO guava_execution_events VALUES (?,?,?,?,?,?)", values)
+        assert con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall() == before
+
+
+def test_event_canonical_replay_ignores_replace_and_preserves_created_at(setup):
+    broker, ledger, sdk, path = setup
+    result = buy(broker)
+    with sqlite3.connect(path) as con:
+        con.execute("PRAGMA recursive_triggers=OFF")
+        before = con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall()
+        original = before[0]
+        con.execute("""INSERT OR REPLACE INTO guava_execution_events
+            (submission_id,phase,evidence_json,fingerprint,created_at) VALUES (?,?,?,?,?)""",
+            (*original[1:5], original[5] + 100))
+        assert con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall() == before
+    broker._event(result["submission_id"], original[2], json.loads(original[3]))
+    with sqlite3.connect(path) as con:
+        assert con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall() == before
+
+
+@pytest.mark.parametrize("verb", ["INSERT OR REPLACE", "INSERT OR IGNORE"])
+def test_event_same_fingerprint_conflicting_body_aborts(setup, verb):
+    broker, ledger, sdk, path = setup
+    buy(broker)
+    with sqlite3.connect(path) as con:
+        con.execute("PRAGMA recursive_triggers=OFF")
+        before = con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall()
+        original = before[0]
+        with pytest.raises(sqlite3.IntegrityError, match="conflicting execution event replay"):
+            con.execute(f"""{verb} INTO guava_execution_events
+                (submission_id,phase,evidence_json,fingerprint,created_at) VALUES (?,?,?,?,?)""",
+                (original[1], original[2], '{"forged":true}', original[4], original[5] + 100))
+        assert con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall() == before
+
+
+@pytest.mark.parametrize("body", ["correct_proof_wrong_fingerprint", "{", "[]", '{"x":NaN}'])
+def test_snapshot_checks_body_fingerprint_before_no_post_proof(setup, body):
+    from polybot.execution import _hash
+    import hashlib
+    broker, ledger, sdk, path = setup
+    env = dict(buy(broker)["envelope"], token_id="token-2", decision_id="unposted")
+    sid = ledger.record_intent(token_id="token-2", side="BUY", requested_price=.5, requested_size=10, simulation=False)
+    broker._envelope(sid, env)
+    if body == "correct_proof_wrong_fingerprint":
+        body = json.dumps({"reason": "PRE_POST_ABORT", "envelope_sha256": _hash(env)}, sort_keys=True, separators=(",", ":"))
+    with sqlite3.connect(path) as con:
+        con.execute("""INSERT INTO guava_execution_events
+            (submission_id,phase,evidence_json,fingerprint,created_at) VALUES (?,?,?,?,?)""",
+            (sid, "NO_POST", body, "0" * 64, time.time()))
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
+    with pytest.raises(BrokerEvidenceError, match="body/fingerprint"):
+        broker._snapshot(sid)
+    with pytest.raises(BrokerEvidenceError, match="body/fingerprint"):
+        broker.execution_inventory()
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == digest
+
+
+def test_new_insert_guards_install_on_existing_broker_db_without_row_changes(setup):
+    broker, ledger, sdk, path = setup
+    result = buy(broker)
+    with sqlite3.connect(path) as con:
+        con.execute("DROP TRIGGER guava_execution_envelopes_no_replace")
+        con.execute("DROP TRIGGER guava_execution_events_no_replace")
+        original = con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall()
+    reopened = Broker(ledger, path, Budget(), sdk_client=sdk)
+    try:
+        assert reopened.execution_inventory()[0]["submission_id"] == result["submission_id"]
+        with sqlite3.connect(path) as con:
+            assert con.execute("SELECT * FROM guava_execution_events ORDER BY sequence").fetchall() == original
+            assert con.execute("SELECT count(*) FROM sqlite_master WHERE type='trigger' AND name LIKE '%no_replace'").fetchone()[0] == 2
+    finally:
+        reopened.close()

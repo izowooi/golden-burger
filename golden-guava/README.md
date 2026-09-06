@@ -19,6 +19,8 @@ uv run polybot config --simulate --job guava-research-a-v1
 
 실수집은 승인된 T7 Jenkins workspace에서만 실행한다. 로컬 테스트는 가짜 HTTP/SQLite
 fixtures로 수행하며 실제 주문을 제출하지 않는다. 라이브 SDK는 명시적 live 경로에서만 로드한다.
+실제 SDK의 금액·서명 검사와 보유량 계산 구성요소는 [LIVE_EXECUTION.md](LIVE_EXECUTION.md)의
+별도 `--extra live` 테스트 절차를 따른다. 이는 아직 실제 거래소 체결·live runner 검증이 아니다.
 
 | Jenkins | runtime | 역할 |
 |---|---|---|

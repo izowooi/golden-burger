@@ -4,6 +4,12 @@ The caller owns the run audit, single-writer/workspace guard, position policy an
 cycle Budget. Constructing Broker is an explicit live action; there is no sim
 submission path. Monetary result fields are decimal strings, not assumed fills.
 
+BUY ceilings are native-tick price-level ceilings. Exact principal plus FLOOR
+shares can make maker/taker slightly ABOVE the nominal price (also in the SDK).
+New envelopes prove that ratio is strictly BELOW the next worse native tick and
+that quantity relaxation is less than one declared 3dp/4dp quantum. They do NOT
+claim ratio <= nominal ceiling or prove live venue acceptance.
+
 Only public quantities/IDs enter the DB. An immutable envelope links the ledger
 intent to an append-only POST boundary. A crash at that boundary is ambiguous,
 never permission to retry. decision_id + side is an enduring idempotency key.
@@ -20,7 +26,7 @@ from __future__ import annotations
 
 from contextvars import copy_context
 from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR
+from decimal import Decimal, InvalidOperation, ROUND_CEILING, ROUND_FLOOR, localcontext
 import hashlib
 import json
 import os
@@ -39,6 +45,8 @@ STRATEGY = "golden-guava"
 MICROS = Decimal(1_000_000)
 SHARE_QUANTUM = Decimal("0.0001")
 TICKS = {"0.1", "0.01", "0.005", "0.0025", "0.001", "0.0001"}
+BUY_AMOUNT_CONTRACT = "guava-decimal-buy-v1"
+BUY_AMOUNT_FIELDS = {"buy_amount_contract", "native_tick", "signer_tick", "buy_quantity_precision", "minimum_taker_amount"}
 
 
 class BrokerContractError(ValueError):
@@ -106,6 +114,88 @@ def _status(value: Any) -> str:
                "CONFIRMED", "FAILED", "RETRYING", "CANCELED", "CANCELLED",
                "CANCELED_MARKET_RESOLVED", "INVALID", "UNMATCHED"}
     return status if status in allowed else "UNKNOWN"
+
+
+def _buy_precision(native_tick, signer_tick):
+    native, signer = _decimal(native_tick), _decimal(signer_tick)
+    if (str(native) not in TICKS or str(signer) not in TICKS
+            or signer < native or signer % native):
+        raise BrokerContractError("signer tick must not be finer than the native grid")
+    # The SDK native .1 contract permits three amount decimals, not four.
+    return 3 if signer == Decimal("0.1") else 4
+
+
+def _buy_amounts(amount, price, precision):
+    amount, price = _decimal(amount), _decimal(price)
+    if amount % Decimal("0.01") or type(precision) is not int or precision not in {3, 4}:
+        raise BrokerContractError("unsupported exact-cent BUY rounding contract")
+    with localcontext() as ctx:
+        ctx.prec = 60
+        shares = (amount / price).quantize(Decimal(1).scaleb(-precision), rounding=ROUND_FLOOR)
+        return int(amount * MICROS), int(shares * MICROS)
+
+
+def _check_buy_rounding_bound(amount, price, tick, maker, taker, precision):
+    """Exact integer/Decimal proof; no division-rounded comparison of prices."""
+    with localcontext() as ctx:
+        ctx.prec = 60
+        quantum = Decimal(1).scaleb(-precision)
+        shares = Decimal(taker) / MICROS
+        relaxation = amount / price - shares
+        if (maker != int(amount * MICROS) or taker <= 0
+                or not 0 <= relaxation < quantum
+                or Decimal(maker) >= (price + tick) * taker):
+            raise BrokerContractError("signed BUY may cross next native tick or exceed rounding allowance")
+
+
+def _decimal_order_builder(signer, signature_type, funder):
+    """Instance-local arithmetic override; retain the SDK's real v2 signing.
+
+    No ROUNDING_CONFIG/helpers/global client mutation. BUY .29 must never become
+    .28; SELL 5.02 must never become 5.01. BUY native .1 retains 3dp, finer grids
+    use at most 4dp. SELL maker is exact cent-shares; proceeds round UP to micros
+    to protect the selected floor. No user_usdc_balance/fee auto-adjustment.
+    """
+    from py_clob_client_v2.order_builder.builder import OrderBuilder
+    from py_clob_client_v2.order_utils import Side
+
+    class DecimalOrderBuilder(OrderBuilder):
+        def get_market_order_amounts(self, side, amount, price, round_config):
+            if isinstance(side, bool):
+                raise BrokerContractError("invalid SDK order side")
+            if side in ("BUY", Side.BUY):
+                if (round_config.size != 2 or round_config.price not in {1, 2, 3, 4}
+                        or round_config.amount != round_config.price + 2):
+                    raise BrokerContractError("unsupported SDK amount rounding contract")
+                exact_price = _decimal(price)
+                quantum = Decimal(1).scaleb(-round_config.price)
+                if exact_price % quantum:
+                    raise BrokerContractError("SDK input would change the selected BUY limit")
+                maker, taker = _buy_amounts(amount, exact_price, min(round_config.amount, 4))
+                return Side.BUY, maker, taker
+            return super().get_market_order_amounts(side, amount, price, round_config)
+
+        def get_order_amounts(self, side, size, price, round_config):
+            if isinstance(side, bool):
+                raise BrokerContractError("invalid SDK order side")
+            if side in ("SELL", Side.SELL):
+                if (round_config.size != 2 or round_config.price not in {1, 2, 3, 4}
+                        or round_config.amount != round_config.price + 2):
+                    raise BrokerContractError("unsupported SDK amount rounding contract")
+                exact_price = _decimal(price)
+                if exact_price % Decimal(1).scaleb(-round_config.price):
+                    raise BrokerContractError("SDK input would change the selected SELL limit")
+                with localcontext() as ctx:
+                    ctx.prec = 60
+                    shares = _decimal(size).quantize(Decimal("0.01"), rounding=ROUND_FLOOR)
+                    if shares <= 0:
+                        raise BrokerContractError("SELL size below cent-share quantum")
+                    maker = int(shares * MICROS)
+                    taker = int((shares * exact_price * MICROS).to_integral_value(rounding=ROUND_CEILING))
+                return Side.SELL, maker, taker
+            return super().get_order_amounts(side, size, price, round_config)
+
+    return DecimalOrderBuilder(signer, signature_type=signature_type, funder=funder)
 
 
 @dataclass(frozen=True, repr=False)
@@ -184,6 +274,7 @@ def _live_client(credentials: Credentials, settings: BrokerSettings):
                              key=credentials.private_key, funder=credentials.funder,
                              signature_type=credentials.signature_type, creds=creds,
                              retry_on_error=False, use_server_time=False)
+            self.builder = _decimal_order_builder(self.signer, self.builder.signature_type, self.builder.funder)
             self.transport = httpx.Client(http2=True, follow_redirects=False,
                                           transport=httpx.HTTPTransport(retries=0), trust_env=False)
             self.deadline_context = threading.local()
@@ -219,6 +310,14 @@ def _live_client(credentials: Credentials, settings: BrokerSettings):
 
         def _delete(self, endpoint, headers=None, data=None, params=None):
             return self._request("DELETE", endpoint, headers, data, params)
+
+        def get_version(self):
+            # SDK 1.1.0 otherwise silently returns v2 after any HTTP/shape error.
+            # An unavailable/legacy version is not permission to sign and POST.
+            raw = self._get(f"{self.host}/version")
+            if not isinstance(raw, dict) or type(raw.get("version")) is not int or raw["version"] != 2:
+                raise BrokerContractError("explicit CLOB v2 version evidence required")
+            return 2
 
         def close(self):
             self.transport.close()
@@ -286,6 +385,29 @@ class Broker:
             for table in ("guava_execution_envelopes", "guava_execution_events"):
                 for operation in ("UPDATE", "DELETE"):
                     con.execute(f"CREATE TRIGGER IF NOT EXISTS {table}_no_{operation.lower()} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'immutable execution evidence'); END")
+            # REPLACE may bypass DELETE triggers with recursive_triggers=OFF.
+            # Check collisions before the replacement can delete any evidence.
+            con.execute("""CREATE TRIGGER IF NOT EXISTS guava_execution_envelopes_no_replace
+                BEFORE INSERT ON guava_execution_envelopes BEGIN
+                SELECT CASE WHEN EXISTS(SELECT 1 FROM guava_execution_envelopes
+                    WHERE submission_id=NEW.submission_id
+                       OR (decision_id=NEW.decision_id AND side=NEW.side))
+                    THEN RAISE(ABORT, 'immutable execution envelope collision') END;
+                END""")
+            con.execute("""CREATE TRIGGER IF NOT EXISTS guava_execution_events_no_replace
+                BEFORE INSERT ON guava_execution_events BEGIN
+                SELECT CASE WHEN EXISTS(SELECT 1 FROM guava_execution_events
+                    WHERE sequence=NEW.sequence)
+                    THEN RAISE(ABORT, 'immutable execution sequence collision') END;
+                SELECT CASE WHEN EXISTS(SELECT 1 FROM guava_execution_events
+                    WHERE submission_id=NEW.submission_id AND phase=NEW.phase
+                      AND fingerprint=NEW.fingerprint AND evidence_json IS NOT NEW.evidence_json)
+                    THEN RAISE(ABORT, 'conflicting execution event replay') END;
+                SELECT CASE WHEN EXISTS(SELECT 1 FROM guava_execution_events
+                    WHERE submission_id=NEW.submission_id AND phase=NEW.phase
+                      AND fingerprint=NEW.fingerprint AND evidence_json=NEW.evidence_json)
+                    THEN RAISE(IGNORE) END;
+                END""")
             con.commit()
         except BaseException:
             con.rollback()
@@ -408,12 +530,25 @@ class Broker:
                     or _decimal(row["requested_size"]) != shares):
                 raise BrokerContractError("invalid reservation amount/tick linkage")
             if env["side"] == "BUY":
-                expected = (requested / price).quantize(SHARE_QUANTUM, rounding=ROUND_FLOOR)
+                precision = 4  # Historical envelopes keep their ORIGINAL rules.
+                if BUY_AMOUNT_FIELDS & env.keys():
+                    if (not BUY_AMOUNT_FIELDS <= env.keys() or env["buy_amount_contract"] != BUY_AMOUNT_CONTRACT
+                            or _decimal(env["native_tick"]) != tick
+                            or type(env["buy_quantity_precision"]) is not int
+                            or env["buy_quantity_precision"] != _buy_precision(env["native_tick"], env["signer_tick"])
+                            or price % _decimal(env["signer_tick"])):
+                        raise BrokerContractError("invalid signed BUY arithmetic contract")
+                    precision = env["buy_quantity_precision"]
+                    minimum = _buy_amounts(requested, limit, precision)[1]
+                    if _integer(env["minimum_taker_amount"]) != minimum or taker < minimum:
+                        raise BrokerContractError("signed BUY below original ceiling quantity bound")
+                    _check_buy_rounding_bound(requested, price, tick, maker, taker, precision)
+                expected = Decimal(_buy_amounts(requested, price, precision)[1]) / MICROS
                 if (not 5 <= requested <= 100 or requested % Decimal("0.01") or price > limit
                         or maker != int(requested * MICROS) or maker % 10000 or taker % 100
                         or shares != Decimal(taker) / MICROS or shares != expected or residual != 0):
                     raise BrokerContractError("invalid signed BUY reservation")
-            elif (price < limit or maker % 10000 or shares != Decimal(maker) / MICROS
+            elif (BUY_AMOUNT_FIELDS & env.keys() or price < limit or maker % 10000 or shares != Decimal(maker) / MICROS
                   or requested - shares != residual or not 0 <= residual < Decimal("0.01")
                   or not 0 <= Decimal(taker) / MICROS - shares * price < Decimal("0.000001")):
                 raise BrokerContractError("invalid signed SELL reservation")
@@ -432,17 +567,26 @@ class Broker:
         row = self._row(submission_id)
         con = self._connect()
         try:
-            events = list(con.execute("SELECT phase,evidence_json FROM guava_execution_events WHERE submission_id=? ORDER BY sequence", (submission_id,)))
+            events = list(con.execute("SELECT phase,evidence_json,fingerprint FROM guava_execution_events WHERE submission_id=? ORDER BY sequence", (submission_id,)))
             fills = [dict(r) for r in con.execute("SELECT trade_id,bucket_index,status,side,size,price,liquidity_role,fee_amount_usdc,transaction_hash,domain_error FROM order_fills WHERE submission_id=?", (submission_id,))]
             status_evidence = con.execute("SELECT 1 FROM order_status_events WHERE submission_id=? LIMIT 1", (submission_id,)).fetchone()
         finally:
             con.close()
+        payloads = []
+        for event in events:
+            try:
+                payload = json.loads(event["evidence_json"])
+                if not isinstance(payload, dict) or _hash(payload) != event["fingerprint"]:
+                    raise ValueError("event fingerprint mismatch")
+            except (TypeError, ValueError):
+                raise BrokerEvidenceError("invalid execution event body/fingerprint") from None
+            payloads.append(payload)
         confirmed = [f for f in fills if f["status"] == "CONFIRMED" and not f["domain_error"]]
         quantity = sum((_decimal(f["size"]) for f in confirmed), Decimal(0))
         gross = sum((_decimal(f["size"]) * _decimal(f["price"]) for f in confirmed), Decimal(0))
         fee_complete = bool(confirmed) and all(f["fee_amount_usdc"] is not None for f in confirmed)
         fee = sum((_decimal(f["fee_amount_usdc"], zero=True) for f in confirmed), Decimal(0)) if fee_complete else None
-        proofs = [json.loads(e[1]) for e in events if e[0] == "RECONCILED"]
+        proofs = [payload for event, payload in zip(events, payloads) if event[0] == "RECONCILED"]
         proof = proofs[-1] if proofs else {}
         complete = bool(proof) and not row["needs_reconciliation"] and not row["reconciliation_error"]
         phases = {e[0] for e in events}
@@ -455,9 +599,9 @@ class Broker:
             and row["response_status"] == "INTENT"
             and row["outcome_resolution"] in {None, "NO_ORDER_CREATED"}
             and json.loads(row["associated_trade_ids_json"]) == []
-            and any(e[0] == "NO_POST" and json.loads(e[1]) == {
+            and any(e[0] == "NO_POST" and payload == {
                 "reason": "PRE_POST_ABORT", "envelope_sha256": row["envelope_sha256"]}
-                for e in events)
+                for e, payload in zip(events, payloads))
         )
         zero_proven = complete and proof.get("zero_fill_proven") is True
         env = row["envelope"]
@@ -532,6 +676,19 @@ class Broker:
                 return [s["reservation"] for s in self._reservation_snapshots(self._deadline())]
             except sqlite3.Error:
                 raise BrokerEvidenceError("complete reservation inventory unavailable") from None
+
+    def execution_inventory(self):
+        """Complete validated full snapshots for the position reducer, or fail.
+
+        Same ownership/envelope/orphan/budget checks as signed_reservations().
+        This reads local evidence only: no SDK/auth, signing, reconcile, orders,
+        state writer or partial inventory. Snapshot shape is unchanged.
+        """
+        with self._lock:
+            try:
+                return self._reservation_snapshots(self._deadline())
+            except sqlite3.Error:
+                raise BrokerEvidenceError("complete execution inventory unavailable") from None
 
     def _resolve_no_post(self, snapshot, deadline):
         if not snapshot["no_post_proven"]:
@@ -690,15 +847,24 @@ class Broker:
             raise BrokerContractError("v2 signed order required")
         _integer(_field(signed, "timestamp"))
         if self._real_sdk:
-            if (_field(signed, "signatureType") != self._signature_type
-                    or str(_field(signed, "maker")).lower() != str(self._client.builder.funder).lower()):
+            expected_signer = self._client.builder.funder if self._signature_type == 3 else self._client.signer.address()
+            if (isinstance(_field(signed, "signatureType"), bool)
+                    or _field(signed, "signatureType") != self._signature_type
+                    or str(_field(signed, "maker")).lower() != str(self._client.builder.funder).lower()
+                    or str(_field(signed, "signer")).lower() != str(expected_signer).lower()):
                 raise BrokerContractError("signed credential identity mismatch")
+            if not re.fullmatch(r"0x(?:[0-9a-fA-F]{2}){65,4096}", _field(signed, "signature")):
+                raise BrokerContractError("malformed v2 signature encoding")
         if str(_field(signed, "builder", "0x" + "0" * 64)) != "0x" + "0" * 64:
             raise BrokerContractError("signed builder fee is forbidden")
         if side == "BUY":
-            expected = (quantity / price).quantize(SHARE_QUANTUM, rounding=ROUND_FLOOR)
-            if maker != int(quantity * MICROS) or maker % 10000 or taker % 100 or Decimal(taker) / MICROS != expected:
+            precision = _buy_precision(tick, options.tick_size)
+            expected_maker, expected_taker = _buy_amounts(quantity, price, precision)
+            minimum_taker = _buy_amounts(quantity, limit, precision)[1]
+            if (maker != expected_maker or maker % 10000 or taker % 100 or taker != expected_taker
+                    or taker < minimum_taker or price > limit):
                 raise BrokerContractError("signed BUY exact-notional/precision mismatch")
+            _check_buy_rounding_bound(quantity, price, tick, maker, taker, precision)
             signed_shares, residual = Decimal(taker) / MICROS, Decimal(0)
         else:
             signed_shares, residual = Decimal(maker) / MICROS, quantity - Decimal(maker) / MICROS
@@ -721,6 +887,10 @@ class Broker:
                         taker_amount=str(taker), signed_shares=str(signed_shares),
                         sell_residual_shares=str(residual), fee_preflight=fee,
                         book_timestamp=str(_field(raw, "timestamp")))
+        if side == "BUY":
+            envelope.update(buy_amount_contract=BUY_AMOUNT_CONTRACT, native_tick=str(tick),
+                            signer_tick=options.tick_size, buy_quantity_precision=precision,
+                            minimum_taker_amount=str(minimum_taker))
         return signed, envelope
 
     def buy_fok(self, token, notional, limit_price, context):
