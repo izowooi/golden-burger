@@ -138,3 +138,34 @@ v3g는 종료일만 연장한 승인된 계속 운용이다. 기존 여섯 runti
 손실 한도를 보존하며 과거 동결 문서나 거래를 수정하지 않는다. 이번 배포의 source/config와
 재개 전후 관측은 구분한다. 현재 계약은
 `research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md`다.
+
+## Cat/Dog 계정 통합 v4 — 실행 계약
+
+Cat/Dog 기존 축구 runtime/DB/숫자/기간은 유지하고 각 계정에 새 독립 MLB runtime
+`watermelon-live-cat-mlb-96-1m-v4`, `watermelon-live-dog-mlb-99-1m-v4`를 등록한다.
+Bear/Tiger 지갑·거래·DB와 수동 wallet position을 옮기거나 편입하지 않는다.
+기존 여섯 runtime의 설정과 close_only 지원도 유지한다. Bear/Tiger 종료와 원격 배포는
+별도 검증·운영 작업이며 이 소스 변경 자체는 잡을 중지하거나 포지션을 청산하지 않는다.
+
+운영 CLI는 `prepare-account --live --account polybot-cat`(최초 새 MLB DB 준비)과
+`run-account --live --account polybot-cat`(두 종목 순차 실행)이며 Dog도 동일하다.
+기존 shell exports는 유지할 수 있고 runner가 자식 환경만 복사해 MLB hours=8을 주입한다.
+종목별 entry/stop/risk는 불변 policy table에 분리하며 현재 .70/.30 등 수치는 바꾸지 않는다.
+
+parent orchestrator lock과 child account lock을 분리한다. 단일 runtime CLI도 같은 account
+guard를 거치며, 두 기존 형식 DB의 open/untracked reservation 합산 최대20과 ledger 기준
+최근60초 BUY 시도 최대5를 지킨다(실패 시도도 보수적으로 포함). 별도 claims/control DB는
+없다. peer 읽기는 mode=ro/query_only이며 결손을0으로 해석하지 않는다. 신규 BUY만 막고
+정상 종목의 보유 관리는 이어간다. 기존 종목별 손실 방어는 각각 유지한다.
+
+서명·주문 전에 실제 SDK collateral balance의 integer micro-USDC를 확인하고 unresolved
+BUY principal을 차감한다. 수수료/allowance나 외부 수동 지갑 writer까지 보장하는 free-cash
+증명은 아니며 기존 FOK/fee preflight를 유지한다. cash 실패와 child 실패는 다른 종목의
+BUY만 차단하고 관리 실행은 계속한다. 60초 강제 종료는 없고 배포 후 실제 소요 시간을 검증한다.
+계좌 포지션 한도, 최근60초 주문 시도 한도, 체결 증거 공백, 잔고 부족은 서로 다른 사유
+코드로 남긴다. 한도 차단 시에도 실제 합산 건수와 상한을 실행 기록에 보존한다.
+원장에 이미 예약된 미확정 BUY를 메모리에서 다시 세지 않는다. 취소 주문이라도 체결
+수량이 NULL이면 0체결로 간주하지 않으며, 명시적 0과 다른 종결 증거가 있어야 예약을 해제한다.
+
+통합 계약·제약·테스트/배포 절차:
+`research/frozen-2026-09-06-catdog-account-v4/PREREGISTRATION.md`.

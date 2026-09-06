@@ -341,6 +341,33 @@ def test_uncertain_buy_reserves_capacity_but_allows_unrelated_entry(monkeypatch)
     assert len(submissions) == 2
 
 
+def test_persisted_unknown_buy_does_not_consume_two_slots(monkeypatch):
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob()
+    rows = []
+    repo.get_untracked_buy_submissions = lambda: list(rows)
+    repo.get_entry_capacity_state = lambda: {
+        "open_positions": 18, "untracked_buy_reservations": len(rows),
+        "total_reserved": 18 + len(rows),
+    }
+    original = clob.place_fok_buy
+    calls = []
+    def submit(**order):
+        calls.append(order)
+        if len(calls) == 1:
+            rows.append({"submission_id": "persisted-unknown", "token_id": order["token_id"], "order_id": None})
+            return {"success": False, "submission_outcome_unknown": True}
+        return original(**order)
+    clob.place_fok_buy = submit
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    assert trader.execute_buy(_candidate()) is None
+    assert trader.local_untracked_buy_reservations == 0
+    assert trader.execute_buy({**_candidate(), "condition_id": "other-condition",
+                               "event_id": "other-event", "token_id": "other-token"}) == 7
+    assert len(calls) == 2
+    assert repo.get_entry_capacity_state()["total_reserved"] == 19
+
+
 def test_pending_buy_waits_for_complete_terminal_fee_evidence() -> None:
     repo, clob = _Repo(), _Clob()
     repo.get_exact_buy_fill_evidence = lambda _order_id: ExactFillEvidence(

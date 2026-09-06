@@ -114,6 +114,7 @@ class RuntimeSpec:
     sport_family: str
     prob_min: float
     simulation_mode: bool = False
+    policy_key: str = ""
 
 
 RUNTIME_SPECS = {
@@ -137,8 +138,75 @@ RUNTIME_SPECS = {
         RuntimeSpec(
             "watermelon-live-wolf-nhl-99-1m-v3a", "polybot-wolf", "nhl", 0.99
         ),
+        RuntimeSpec(
+            "watermelon-live-cat-mlb-96-1m-v4", "polybot-cat", "mlb", 0.96, policy_key="catdog_mlb"
+        ),
+        RuntimeSpec(
+            "watermelon-live-dog-mlb-99-1m-v4", "polybot-dog", "mlb", 0.99, policy_key="catdog_mlb"
+        ),
     )
 }
+
+# Existing six identities/values remain unchanged. Only these accounts share
+# resources; Bear/Tiger histories and retired NHL configurations stay separate.
+ACCOUNT_RUNTIMES = {
+    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4"),
+    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4"),
+}
+
+
+def account_for_runtime(runtime):
+    return next((account for account, jobs in ACCOUNT_RUNTIMES.items() if runtime in jobs), None)
+
+
+@dataclass(frozen=True)
+class SportPolicy:
+    hours_max: float
+    prob_max: float = 0.999
+    stop_price: float = 0.70
+    max_entry_drawdown: float = 0.30
+    max_stop_slippage: float = 0.05
+    max_stop_spread: float = 0.10
+    max_stop_loss_fraction: float = 0.35
+    max_positions: int = 20
+    max_event_positions: int = 1
+    max_new_positions_per_cycle: int = 5
+    max_emergency_sells_per_cycle: int = 1
+    experiment_capital_usdc: float = 100
+    max_drawdown_stop: float = 0.10
+
+
+# Separate immutable entries even when numbers match. Future retuning requires
+# a new preregistration/review; the retired MLB/NHL profiles do not inherit it.
+SPORT_POLICIES = {"soccer": SportPolicy(4), "mlb": SportPolicy(8),
+                  "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8)}
+
+
+def runtime_policy(spec):
+    return SPORT_POLICIES[spec.policy_key or spec.sport_family]
+
+
+def profile_environment(runtime, inherited):
+    """Private child environment; never mutate process-global os.environ.
+
+    Explicit sport defaults replace the old soccer-only shell's hours=4 in the
+    MLB child. Other frozen values/credentials/lifecycle remain inherited and
+    are still validated by load_config (including close_only).
+    """
+    spec = RUNTIME_SPECS[runtime]
+    policy = runtime_policy(spec)
+    env = dict(inherited)
+    env.update(POLYBOT_SPORT_FAMILY=spec.sport_family,
+               POLYBOT_ENTRY_PROB_MIN=str(spec.prob_min),
+               POLYBOT_ENTRY_PROB_MAX=str(policy.prob_max),
+               POLYBOT_ENTRY_HOURS_MAX=str(policy.hours_max),
+               POLYBOT_ARCHIVE_HOURS_MAX=str(policy.hours_max),
+               POLYBOT_STOP_PRICE=str(policy.stop_price),
+               POLYBOT_MAX_ENTRY_DRAWDOWN=str(policy.max_entry_drawdown),
+               POLYBOT_MAX_STOP_SLIPPAGE=str(policy.max_stop_slippage),
+               POLYBOT_MAX_STOP_SPREAD=str(policy.max_stop_spread),
+               POLYBOT_MAX_STOP_LOSS_FRACTION=str(policy.max_stop_loss_fraction))
+    return env
 
 
 @dataclass(frozen=True)
@@ -459,6 +527,7 @@ def _validate_config(
     """Reject parameter drift before any network or database mutation."""
     entry = trading.entry
     archive = trading.archive
+    policy = runtime_policy(runtime_spec)
     numeric = {
         "buy_amount_usdc": trading.buy_amount_usdc,
         "min_liquidity": trading.min_liquidity,
@@ -534,18 +603,18 @@ def _validate_config(
             "volume/$5k liquidity plus a baseline-$5 executable-book gate"
         )
     if (
-        trading.max_positions != 20
-        or trading.max_event_positions != 1
-        or trading.max_new_positions_per_cycle != 5
+        trading.max_positions != policy.max_positions
+        or trading.max_event_positions != policy.max_event_positions
+        or trading.max_new_positions_per_cycle != policy.max_new_positions_per_cycle
     ):
         raise ValueError("Golden Watermelon exposure limits are frozen at 20/1/5")
     if trading.buy_amount_usdc * trading.max_new_positions_per_cycle > 5000:
         raise ValueError("per-cycle target BUY notional must not exceed $5000")
-    if trading.max_emergency_sells_per_cycle != 1:
+    if trading.max_emergency_sells_per_cycle != policy.max_emergency_sells_per_cycle:
         raise ValueError("only one emergency SELL may be submitted per cycle")
-    if trading.experiment_capital_usdc != 100:
+    if trading.experiment_capital_usdc != policy.experiment_capital_usdc:
         raise ValueError("experiment capital is frozen at $100 requested exposure")
-    if trading.max_drawdown_stop != 0.10:
+    if trading.max_drawdown_stop != policy.max_drawdown_stop:
         raise ValueError("economic drawdown entry guard is frozen at 10%")
     if trading.max_event_positions > trading.max_positions:
         raise ValueError("max_event_positions must be <= max_positions")
@@ -565,26 +634,26 @@ def _validate_config(
         raise ValueError(
             "YES tokens / direct winner tokens must remain winner-only"
         )
-    if (entry.prob_min, entry.prob_max) != (runtime_spec.prob_min, 0.999):
+    if (entry.prob_min, entry.prob_max) != (runtime_spec.prob_min, policy.prob_max):
         raise ValueError(
             f"{runtime_spec.runtime_job} entry band must remain "
             f"{runtime_spec.prob_min:.2f}-0.999"
         )
-    if entry.stop_price != 0.70:
+    if entry.stop_price != policy.stop_price:
         raise ValueError("emergency stop_price is frozen at 0.70")
-    if entry.max_entry_drawdown != 0.30:
+    if entry.max_entry_drawdown != policy.max_entry_drawdown:
         raise ValueError(
             "entry-relative stop must leave the absolute 0.70 floor binding"
         )
     if (
-        entry.max_stop_slippage != 0.05
-        or entry.max_stop_spread != 0.10
-        or entry.max_stop_loss_fraction != 0.35
+        entry.max_stop_slippage != policy.max_stop_slippage
+        or entry.max_stop_spread != policy.max_stop_spread
+        or entry.max_stop_loss_fraction != policy.max_stop_loss_fraction
     ):
         raise ValueError(
             "stop execution safety is frozen at 5pp slippage, 10pp spread, 35% loss"
         )
-    expected_hours_max = SPORT_FAMILY_MAX_IN_PLAY_HOURS[trading.sport_family]
+    expected_hours_max = policy.hours_max
     if entry.hours_min != 0 or entry.hours_max != expected_hours_max:
         raise ValueError(
             f"{trading.sport_family} in-play age window must remain "
@@ -846,7 +915,7 @@ def load_config(
             sport_family, FROZEN_START_UTC
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
-        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT),
+        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT, account_profile=runtime_spec.policy_key == "catdog_mlb"),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

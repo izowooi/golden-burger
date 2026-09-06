@@ -23,6 +23,50 @@ from polybot_observability import (
 )
 
 
+@pytest.mark.parametrize("units,expected", [("0", "0"), ("9000000", "9"), ("1234567", "1.234567")])
+def test_actual_sdk_balance_allowance_route_and_fixed_six_units(monkeypatch, units, expected):
+    import socket
+    from py_clob_client_v2 import ClobClient
+    def blocked(*args, **kwargs):
+        raise AssertionError("no network in SDK balance contract test")
+    monkeypatch.setattr(socket.socket, "connect", blocked)
+    monkeypatch.setattr(socket, "create_connection", blocked)
+    # Run the installed SDK's actual get_balance_allowance, not a fake method.
+    sdk = object.__new__(ClobClient)
+    sdk.host = "https://clob.polymarket.com"
+    sdk.builder = SimpleNamespace(signature_type=3)
+    sdk._l2_headers = lambda *a, **kw: {}
+    calls = []
+    def get(endpoint, headers=None, params=None):
+        calls.append((endpoint, params))
+        return {"balance": units, "allowances": {}}
+    sdk._get = get
+    wrapper = ClobClientWrapper(ApiConfig("unused-fixture", "unused-fixture", 3), False)
+    wrapper._client = sdk
+    wrapper._initialized = True
+    assert wrapper.get_collateral_balance() == Decimal(expected)
+    assert calls == [("https://clob.polymarket.com/balance-allowance", {"asset_type": "COLLATERAL", "signature_type": 3})]
+
+
+@pytest.mark.parametrize("balance", [None, True, "NaN", "Infinity", "-1", "1.5", {}])
+def test_balance_unknown_nonfinite_or_fractional_base_units_is_not_zero(balance):
+    wrapper = ClobClientWrapper(ApiConfig("unused-fixture", "unused-fixture", 3), False)
+    wrapper._client = SimpleNamespace(get_balance_allowance=lambda params: {"balance": balance})
+    wrapper._initialized = True
+    with pytest.raises(PreSubmissionContractError):
+        wrapper.get_collateral_balance()
+
+
+def test_balance_unbounded_sdk_timeout_fails_before_request(monkeypatch):
+    from py_clob_client_v2.http_helpers import helpers
+    wrapper = ClobClientWrapper(ApiConfig("unused-fixture", "unused-fixture", 3), False)
+    wrapper._client = SimpleNamespace(get_balance_allowance=lambda params: pytest.fail("must not request"))
+    wrapper._initialized = True
+    monkeypatch.setattr(helpers, "_http_client", SimpleNamespace(timeout=SimpleNamespace(connect=5, read=None, write=5, pool=5)))
+    with pytest.raises(PreSubmissionContractError, match="timeout"):
+        wrapper.get_collateral_balance()
+
+
 class _Response:
     def __init__(self, payload):
         self.payload = payload

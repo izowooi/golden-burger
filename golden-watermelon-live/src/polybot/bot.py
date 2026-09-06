@@ -9,7 +9,8 @@ from polybot_observability import SQLiteMaintenanceRequirements
 
 from .api.clob_client import ClobClientWrapper, PreSubmissionContractError
 from .api.gamma_client import GammaClient
-from .config import BotConfig
+from .config import BotConfig, account_for_runtime
+from .account import AccountGuard, AccountGuardError
 from .db.models import init_database
 from .db.repository import TradeRepository
 from .strategy.scanner import MarketScanner
@@ -28,8 +29,14 @@ class PolymarketBot:
         config: BotConfig,
         *,
         cycle_budget: CycleBudget | None = None,
+        account_guard: AccountGuard | None = None,
     ):
         self.config = config
+        self.account_guard = account_guard
+        if not config.simulation_mode and account_for_runtime(config.job_name):
+            if not isinstance(account_guard, AccountGuard):
+                raise AccountGuardError("registered runtime requires account_session before DB/network")
+            account_guard.assert_active(config)
         self.cycle_budget = cycle_budget or CycleBudget.start()
         self.Session = init_database(
             str(config.db_path),
@@ -139,6 +146,10 @@ class PolymarketBot:
         )
 
     def run_cycle(self, *, order_reconciliation: dict | None = None) -> dict:
+        if account_for_runtime(getattr(self.config, "job_name", None)):
+            if not isinstance(getattr(self, "account_guard", None), AccountGuard):
+                raise AccountGuardError("registered cycle requires account guard")
+            self.account_guard.assert_active(self.config)
         trading = self.config.trading
         order_reconciliation = order_reconciliation or {}
         session = self.Session()
@@ -155,6 +166,7 @@ class PolymarketBot:
             self.config.trading,
             gamma_client=self.gamma,
             simulation_mode=self.config.simulation_mode,
+            account_guard=getattr(self, "account_guard", None),
         )
         stats = {
             "lifecycle_mode": self.config.trading.lifecycle_mode,
@@ -355,9 +367,25 @@ class PolymarketBot:
                         economic_evidence_gaps,
                     )
                 capacity = repo.get_entry_capacity_state()
+                account_error = None
+                if getattr(self, "account_guard", None) is not None:
+                    try:
+                        account_state = self.account_guard.check_buy_budget()
+                        stats["account_guard"] = {"total_reserved": account_state["slots"], "max_positions": 20,
+                                                  "reserved_cash": str(account_state["reserved_cash"]),
+                                                  "buy_attempts_last_60s": account_state["attempts"],
+                                                  "max_buy_attempts_last_60s": 5}
+                        capacity = dict(capacity, total_reserved=max(capacity["total_reserved"], account_state["slots"]))
+                    except AccountGuardError as error:
+                        account_error = error.code
+                        stats["account_guard"] = {**error.evidence, "error_code": error.code}
+                    except Exception:
+                        account_error = "account_peer_state_or_cycle_budget_unavailable"
                 quarantine_state = repo.get_quarantine_state()
                 open_buy_evidence_gaps = repo.get_open_buy_evidence_gap_count()
                 blocking_reasons = []
+                if account_error:
+                    blocking_reasons.append(account_error)
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
                     degraded_reasons.append("pending_buy_event_isolated")
@@ -621,11 +649,17 @@ class PolymarketBot:
                     else "not_evaluated"
                 ),
             )
+            if getattr(self, "account_guard", None) is not None:
+                stats["account_cash_failed"] = self.account_guard.cash_failed
             return stats
         finally:
             session.close()
 
     def run(self) -> None:
+        if account_for_runtime(self.config.job_name):
+            if not isinstance(getattr(self, "account_guard", None), AccountGuard):
+                raise AccountGuardError("account guard cannot be bypassed by direct run")
+            self.account_guard.assert_active(self.config)
         logger.info("트레이딩 사이클 시작 - %s", self.config.job_name)
         audit = RunAudit.start(self.config, strategy_name="golden-watermelon-live")
         try:

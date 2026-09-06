@@ -288,10 +288,12 @@ class Trader:
         config: TradingConfig,
         gamma_client: Optional[GammaClient] = None,
         simulation_mode: Optional[bool] = None,
+        account_guard=None,
     ):
         self.repo = repo
         self.clob = clob_client
         self.config = config
+        self.account_guard = account_guard
         self.gamma = gamma_client
         if simulation_mode is None:
             simulation_mode = bool(getattr(clob_client, "simulation_mode", False))
@@ -332,12 +334,37 @@ class Trader:
         self.last_entry_outcome_reason = str(reason)
         return None
 
+    def _reserve_missing_ledger_buy(self, token_id, order_id=None):
+        """Only use a local fallback when the ledger is not already reserving it.
+
+        The live wrapper durably writes an intent before POST. Unknown outcomes
+        and accepted responses missing size therefore normally already occupy
+        one repository slot. Adding another local slot would count them twice.
+        """
+        reader = getattr(self.repo, "get_untracked_buy_submissions", None)
+        if callable(reader):
+            try:
+                if any(str(row.get("token_id")) == str(token_id)
+                       and (not order_id or row.get("order_id") == order_id)
+                       for row in reader()):
+                    return
+            except Exception:
+                logger.warning("미추적 BUY 원장 확인 실패; 이번 cycle의 보수적 예약을 유지합니다")
+        self.local_untracked_buy_reservations += 1
+
     def execute_buy(self, candidate: dict) -> Optional[int]:
         """Revalidate the $5 signal, then submit one adaptive atomic FOK BUY."""
         self.last_entry_outcome_reason = None
         self.last_entry_may_have_reached_venue = False
         if self.buying_disabled:
             return self._reject_entry("cycle_buying_disabled")
+        if self.account_guard is not None:
+            try:
+                self.account_guard.check_buy_budget()
+            except AccountGuardError as error:
+                return self._reject_entry(error.code)
+            except Exception:
+                return self._reject_entry("account_peer_or_20_position_5_attempt_guard")
         condition_id = str(candidate["condition_id"])
         token_id = str(candidate["token_id"])
         outcome = str(candidate.get("outcome") or "").strip()
@@ -493,6 +520,13 @@ class Trader:
             )
             return self._reject_entry("fok_limit_not_orderable")
 
+        if self.account_guard is not None:
+            try:
+                self.account_guard.approve_buy(selected_buy_amount, self.clob)
+            except AccountGuardError as error:
+                return self._reject_entry(error.code)
+            except Exception:
+                return self._reject_entry("account_cash_or_combined_capacity_guard")
         logger.info(
             "Golden Watermelon Live FOK BUY: '%s' result=%s baseline/adaptive "
             "vwap=%.2f%% target=$%.2f selected=$%.2f max_displayed=$%.2f "
@@ -529,7 +563,7 @@ class Trader:
             raise
         if not (result.get("success") or result.get("orderID")):
             if result.get("submission_outcome_unknown"):
-                self.local_untracked_buy_reservations += 1
+                self._reserve_missing_ledger_buy(token_id, result.get("orderID"))
                 # Reserve one bounded slot, but isolate the uncertain token and
                 # event instead of stopping unrelated games in this cycle.
                 rejection_reason = "buy_submission_outcome_unknown"
@@ -538,6 +572,8 @@ class Trader:
                 rejection_reason = "buy_order_rejected"
             if is_balance_allowance_error(result):
                 self.buying_disabled = True
+                if self.account_guard is not None:
+                    self.account_guard.cash_failed = True
                 logger.warning(
                     "collateral 잔고/allowance 부족으로 이번 cycle의 남은 매수를 중단합니다"
                 )
@@ -547,11 +583,11 @@ class Trader:
         try:
             submitted_shares = float(result["requested_size"])
         except (KeyError, TypeError, ValueError):
-            self.local_untracked_buy_reservations += 1
+            self._reserve_missing_ledger_buy(token_id, result.get("orderID"))
             logger.error("FOK BUY 제출 수량 증거가 없어 trade 생성을 중단합니다")
             return self._reject_entry("buy_requested_size_evidence_missing")
         if not math.isfinite(submitted_shares) or submitted_shares <= 0:
-            self.local_untracked_buy_reservations += 1
+            self._reserve_missing_ledger_buy(token_id, result.get("orderID"))
             logger.error(
                 "FOK BUY 제출 수량 증거가 유효하지 않습니다: %s",
                 submitted_shares,

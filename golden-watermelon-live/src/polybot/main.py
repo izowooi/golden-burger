@@ -12,6 +12,9 @@ from .config import load_config
 from .utils.deadline import enforced_cycle_deadline
 from .utils.logger import setup_logger
 from .utils.run_lock import exclusive_job_run_lock
+from .account import account_session, prepare_account
+from .config import ACCOUNT_RUNTIMES
+from .account_runner import run_account
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -30,6 +33,11 @@ def _parser() -> argparse.ArgumentParser:
         help="Explicitly enable real CLOB orders (default is simulation)",
     )
     run.add_argument("--verbose", "-v", action="store_true")
+    for command in ("run-account", "prepare-account"):
+        group = commands.add_parser(command)
+        group.add_argument("--live", action="store_true", required=True)
+        group.add_argument("--account", choices=tuple(ACCOUNT_RUNTIMES), required=True)
+        group.add_argument("--config", default="config.yaml")
     status = commands.add_parser("status", help="Show DB status")
     status.add_argument("--config", "-c", default="config.yaml")
     status.add_argument("--job", "-j", default="default")
@@ -83,6 +91,13 @@ def main() -> None:
         parser.print_help()
         sys.exit(1)
 
+    if args.command in {"run-account", "prepare-account"}:
+        if args.command == "run-account":
+            sys.exit(run_account(args.account, args.config))
+        config = load_config(args.config, ACCOUNT_RUNTIMES[args.account][0], simulation_mode=False)
+        print(json.dumps(prepare_account(config), sort_keys=True))
+        return
+
     if args.command == "run":
         config = _load(
             args,
@@ -91,7 +106,7 @@ def main() -> None:
         setup_logger(config.job_name, verbose=args.verbose)
         try:
             lock_path = config.db_path.parent / ".cycle-run.lock"
-            with exclusive_job_run_lock(lock_path) as acquired:
+            with account_session(config) as account_guard, exclusive_job_run_lock(lock_path) as acquired:
                 if not acquired:
                     logging.warning(
                         "이전 %s cycle이 아직 실행 중이므로 중복 실행을 안전하게 건너뜁니다",
@@ -99,7 +114,7 @@ def main() -> None:
                     )
                     return
                 with enforced_cycle_deadline() as cycle_budget:
-                    bot = PolymarketBot(config, cycle_budget=cycle_budget)
+                    bot = PolymarketBot(config, cycle_budget=cycle_budget, account_guard=account_guard)
                     try:
                         bot.run()
                     finally:
@@ -125,17 +140,14 @@ def main() -> None:
     config = _load(args, simulation_override=_inspection_simulation_override(args))
     if args.command == "status":
         setup_logger(config.job_name, level=logging.WARNING)
-        bot = PolymarketBot(config)
-        try:
-            print(json.dumps(bot.get_status(), indent=2, default=str))
-        finally:
-            cleanup_failures = bot.close()
-            if cleanup_failures:
-                logging.error(
-                    "status resource cleanup incomplete - job=%s failures=%s",
-                    config.job_name,
-                    ",".join(cleanup_failures),
-                )
+        with account_session(config) as account_guard:
+            bot = PolymarketBot(config, account_guard=account_guard)
+            try:
+                print(json.dumps(bot.get_status(), indent=2, default=str))
+            finally:
+                cleanup_failures = bot.close()
+                if cleanup_failures:
+                    logging.error("status cleanup incomplete - job=%s failures=%s", config.job_name, ",".join(cleanup_failures))
         return
 
     trading = config.trading

@@ -77,7 +77,8 @@ _UNTRACKED_BUY_RESERVATION_PREDICATE = """
                     'ORDER_STATUS_', '') IN (
             'CANCELED', 'CANCELLED', 'CANCELED_MARKET_RESOLVED', 'INVALID'
         )
-        AND COALESCE(submission.latest_size_matched, 0) <= 0.000001
+        AND submission.latest_size_matched IS NOT NULL
+        AND submission.latest_size_matched = 0
         AND NOT EXISTS (
             SELECT 1
             FROM order_fills AS positive_fill

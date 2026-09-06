@@ -9,6 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
     "research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md"
 )
+ACCOUNT_PREREGISTRATION = "research/frozen-2026-09-06-catdog-account-v4/PREREGISTRATION.md"
 
 
 def _runtime_files(project_root: Path) -> list[Path]:
@@ -21,6 +22,7 @@ def _runtime_files(project_root: Path) -> list[Path]:
         project_root / "uv.lock",
         project_root / "STRATEGY.md",
         project_root / ACTIVE_PREREGISTRATION,
+        project_root / ACCOUNT_PREREGISTRATION,
         observability_root / "pyproject.toml",
     ]
     discovered = [
@@ -63,5 +65,6 @@ def compute_strategy_source_digest(project_root: Path = PROJECT_ROOT) -> str:
     return digest.hexdigest()
 
 
-def preregistration_sha256(project_root: Path = PROJECT_ROOT) -> str:
-    return sha256_file(project_root.resolve() / ACTIVE_PREREGISTRATION)
+def preregistration_sha256(project_root: Path = PROJECT_ROOT, *, account_profile=False) -> str:
+    path = ACCOUNT_PREREGISTRATION if account_profile else ACTIVE_PREREGISTRATION
+    return sha256_file(project_root.resolve() / path)

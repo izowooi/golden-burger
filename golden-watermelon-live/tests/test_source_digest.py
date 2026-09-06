@@ -2,6 +2,7 @@ from pathlib import Path
 
 from polybot.source_digest import (
     ACTIVE_PREREGISTRATION,
+    ACCOUNT_PREREGISTRATION,
     compute_strategy_source_digest,
     preregistration_sha256,
 )
@@ -18,6 +19,7 @@ def _source_tree(tmp_path: Path) -> Path:
     for relative in ("config.yaml", "pyproject.toml", "uv.lock", "STRATEGY.md"):
         _write(project_root / relative, relative)
     _write(project_root / ACTIVE_PREREGISTRATION, "frozen protocol")
+    _write(project_root / ACCOUNT_PREREGISTRATION, "account consolidation protocol")
     _write(project_root / "src/polybot/config.py", "PARAMETER = 1")
     _write(observability_root / "pyproject.toml", "observability")
     _write(

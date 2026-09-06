@@ -564,6 +564,33 @@ class ClobClientWrapper:
             else None
         )
 
+    def get_collateral_balance(self) -> Decimal:
+        """Authenticated SDK 1.0.2 balance in fixed-6 units; one finite GET.
+
+        Principal only, not a position import or a fabricated allowance/fee.
+        No retry, token-position request, balance update or global SDK mutation.
+        """
+        if self.simulation_mode:
+            raise PreSubmissionContractError("live collateral balance required")
+        from py_clob_client_v2.clob_types import AssetType, BalanceAllowanceParams
+        from py_clob_client_v2.http_helpers import helpers
+        timeout = helpers._http_client.timeout
+        for key in ("connect", "read", "write", "pool"):
+            value = getattr(timeout, key, None)
+            if value is None or not math.isfinite(value) or value <= 0:
+                raise PreSubmissionContractError("finite SDK balance timeout required")
+        raw = self.client.get_balance_allowance(BalanceAllowanceParams(
+            asset_type=AssetType.COLLATERAL, signature_type=self.config.signature_type))
+        if not isinstance(raw, Mapping) or isinstance(raw.get("balance"), bool):
+            raise PreSubmissionContractError("invalid collateral balance response")
+        try:
+            units = Decimal(str(raw.get("balance")))
+        except Exception:
+            raise PreSubmissionContractError("invalid collateral balance units") from None
+        if not units.is_finite() or units < 0 or units != units.to_integral_value():
+            raise PreSubmissionContractError("collateral balance must be nonnegative integer micro-USDC")
+        return units / _FIXED_6
+
     def close(self) -> None:
         """Close the SDK's process-global HTTP/2 pool at CLI shutdown.
 
