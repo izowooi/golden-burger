@@ -44,7 +44,7 @@ def account(tmp_path, monkeypatch):
     monkeypatch.setattr(configs, "SOURCE_PROJECT_ROOT", root)
     monkeypatch.delenv("POLYBOT_ACCOUNT_DISABLE_BUYS", raising=False)
     names = configs.ACCOUNT_RUNTIMES["polybot-cat"]
-    soccer, mlb = [make_config(root, name) for name in names]
+    soccer, mlb = [make_config(root, name) for name in names[:2]]
     sessions = init_database(str(soccer.db_path))
     sessions.kw["bind"].dispose()
     ExecutionLedger(soccer.db_path, strategy_name="golden-watermelon-live")
@@ -91,8 +91,9 @@ def test_prepare_creates_only_new_mlb_and_preserves_soccer_bytes(account):
     assert hashlib.sha256(soccer.db_path.read_bytes()).hexdigest() == before
     assert read_database(mlb.db_path, mlb.job_name)["slots"] == 0
     assert not list(soccer.db_path.parents[1].rglob("control.db"))
-    with pytest.raises(AccountGuardError, match="exists"):
-        prepare_account(soccer)
+    before_mlb = hashlib.sha256(mlb.db_path.read_bytes()).hexdigest()
+    assert prepare_account(soccer)["new_runtimes"] == []
+    assert hashlib.sha256(mlb.db_path.read_bytes()).hexdigest() == before_mlb
 
 
 def test_missing_peer_blocks_buy_but_own_management_lock_remains_valid(account):
@@ -279,17 +280,17 @@ def test_runner_sequential_env_isolation_failure_still_runs_other_management(acc
         calls.append((runtime, kwargs["env"]))
         return SimpleNamespace(returncode=1 if len(calls) == 1 else 0)
     assert run_account("polybot-cat", run_process=child) == 1
-    assert {r for r, _ in calls} == {soccer.job_name, mlb.job_name}
+    assert {r for r, _ in calls} == set(configs.ACCOUNT_RUNTIMES["polybot-cat"])
     assert calls[1][1]["POLYBOT_ACCOUNT_DISABLE_BUYS"] == "1"
     for runtime, env in calls:
-        assert env["POLYBOT_ENTRY_HOURS_MAX"] == ("4" if runtime == soccer.job_name else "8")
+        assert env["POLYBOT_ENTRY_HOURS_MAX"] == {"soccer":"4","mlb":"8","nfl":"6"}[configs.RUNTIME_SPECS[runtime].sport_family]
         assert env["POLYBOT_LIFECYCLE_MODE"] == "close_only"
     import os
     assert os.environ["POLYBOT_ENTRY_HOURS_MAX"] == "4"
 
 
 def test_new_mlb_runtime_and_policy_do_not_rewrite_old_six():
-    assert len(configs.RUNTIME_SPECS) == 8
+    assert len(configs.RUNTIME_SPECS) == 10
     for account, jobs in configs.ACCOUNT_RUNTIMES.items():
         assert "v2h" in jobs[0] and "mlb" in jobs[1]
         assert configs.RUNTIME_SPECS[jobs[1]].jenkins_job == account
@@ -333,7 +334,9 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
                     child.setenv(k, v)
             loaded.append(configs.load_config(str(yaml_path), runtime, simulation_mode=False))
     assert dict(os.environ) == baseline
-    soccer, mlb = loaded
+    soccer, mlb, nfl = loaded
+    assert nfl.trading.entry.hours_max == nfl.trading.archive.hours_max == 6
+    assert nfl.db_path not in {soccer.db_path, mlb.db_path}
     assert soccer.trading.entry.hours_max == soccer.trading.archive.hours_max == 4
     assert mlb.trading.entry.hours_max == mlb.trading.archive.hours_max == 8
     assert soccer.db_path != mlb.db_path and "v2h" in str(soccer.db_path)
@@ -384,7 +387,8 @@ def test_runner_order_rotates_without_changing_profile_policy(account, monkeypat
     assert run_account("polybot-cat", run_process=child) == 0
     monkeypatch.setattr(account_runner.time, "time", lambda: 180)
     assert run_account("polybot-cat", run_process=child) == 0
-    assert observed == [soccer.job_name, mlb.job_name, mlb.job_name, soccer.job_name]
+    nfl = configs.ACCOUNT_RUNTIMES["polybot-cat"][2]
+    assert observed == [nfl, soccer.job_name, mlb.job_name, soccer.job_name, mlb.job_name, nfl]
 
 
 def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypatch, tmp_path):
@@ -403,3 +407,14 @@ def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypat
     assert "account_state_unavailable" in stats["entry_guard"]["blocking_reasons"]
     assert stats["account_guard"]["error_code"] == "account_state_unavailable"
     trader.execute_buy.assert_not_called()
+
+
+def test_nfl_positions_share_the_same_account_capacity(account):
+    soccer, _mlb = account
+    prepare_account(soccer)
+    nfl = make_config(soccer.db_path.parents[2], configs.ACCOUNT_RUNTIMES['polybot-cat'][2])
+    holdings(nfl, 20)
+    with account_session(soccer) as guard:
+        with pytest.raises(AccountGuardError) as captured:
+            guard.check_buy_budget()
+    assert captured.value.evidence['total_reserved'] == 20

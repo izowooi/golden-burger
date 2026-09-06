@@ -223,22 +223,26 @@ def account_session(config):
 
 
 def prepare_account(config):
-    """Explicit NEW MLB schema only; existing soccer database is never written."""
+    """Explicit new member schemas only; existing member DBs are validated, not rewritten."""
     from polybot_observability import ExecutionLedger
     from .db.models import init_database
     account = configuration.account_for_runtime(config.job_name)
     paths, lock = account_paths(account)
-    soccer, mlb = configuration.ACCOUNT_RUNTIMES[account]
+    soccer, *new_members = configuration.ACCOUNT_RUNTIMES[account]
+    created = []
     with exclusive_job_run_lock(lock) as acquired:
         if not acquired:
             raise AccountGuardError("account busy")
         if config.job_name != soccer or config.db_path.resolve() != paths[soccer].resolve():
             raise AccountGuardError("prepare using the registered soccer runtime")
         read_database(paths[soccer], soccer)
-        if paths[mlb].exists():
-            raise AccountGuardError("new MLB target exists; refuse copy/adoption/reset")
-        paths[mlb].parent.mkdir(parents=True, exist_ok=True)
-        session = init_database(str(paths[mlb]))
-        session.kw["bind"].dispose()
-        ExecutionLedger(paths[mlb], strategy_name="golden-watermelon-live")
-    return {"account": account, "new_mlb_runtime": mlb, "status": "PREPARED_NO_ORDERS"}
+        for member in new_members:
+            if paths[member].exists():
+                read_database(paths[member], member)
+                continue
+            paths[member].parent.mkdir(parents=True, exist_ok=True)
+            session = init_database(str(paths[member]))
+            session.kw["bind"].dispose()
+            ExecutionLedger(paths[member], strategy_name="golden-watermelon-live")
+            created.append(member)
+    return {"account": account, "new_runtimes": created, "status": "PREPARED_NO_ORDERS"}

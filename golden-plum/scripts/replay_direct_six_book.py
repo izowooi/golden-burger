@@ -267,6 +267,8 @@ def trend_confirmed(
     ):
         return False
     prices = [snapshot.probability for snapshot in history]
+    if observations == 1:
+        return bool(threshold - 1e-9 <= prices[0] <= threshold + ENTRY_OVERSHOOT + 1e-9)
     deltas = [prices[index] - prices[index - 1] for index in range(1, observations)]
     if any(delta < -TREND_MAX_PULLBACK - 1e-9 for delta in deltas):
         return False
@@ -941,9 +943,17 @@ def replay_cell(
             ):
                 continue
             ranked = sorted(group, key=lambda item: (-item.midpoint, item.token_id))
-            if ranked[0].midpoint - ranked[1].midpoint + 1e-9 < MIN_LEADER_MARGIN:
+            if observations == 1:
+                eligible_prices = [item for item in group
+                    if entry_threshold - 1e-9 <= item.probability <= entry_threshold + ENTRY_OVERSHOOT + 1e-9
+                    and item.spread <= MAX_ENTRY_SPREAD + 1e-9]
+                if not eligible_prices:
+                    continue
+                candidate = min(eligible_prices, key=lambda item: (item.probability, item.token_id))
+            elif ranked[0].midpoint - ranked[1].midpoint + 1e-9 < MIN_LEADER_MARGIN:
                 continue
-            candidate = ranked[0]
+            else:
+                candidate = ranked[0]
             if candidate.spread > MAX_ENTRY_SPREAD + 1e-9:
                 continue
             if not trend_confirmed(
@@ -1221,6 +1231,8 @@ def database_report(
             for stop in profile.analysis_stop_deltas:
                 for observations in profile.analysis_trend_observations:
                     for min_move in profile.analysis_min_cumulative_moves:
+                        if observations == 1 and min_move != 0:
+                            continue  # One price-only policy, not duplicate cells.
                         trades = replay_cell(
                             snapshots,
                             sport_family=sport_family,
@@ -1292,6 +1304,21 @@ def database_report(
                         **summarize_trades(trades),
                     }
                 )
+    price_band_arms = {}
+    for arm, threshold in (("A", .60), ("B", .70)):
+        trades = replay_cell(snapshots, sport_family=sport_family,
+            entry_threshold=threshold, target_price=.97,
+            stop_delta=.12 if sport_family == "mlb" else .15,
+            observations=1, min_move=0, min_source_minute=min_source_minute,
+            max_source_minute=max_source_minute, force_exit_minute=force_exit_minute,
+            terminal_payouts=terminal_payouts)
+        price_band_arms[arm] = {
+            "entry_threshold": threshold, "target_price": .97,
+            "selection_policy": "cheapest_in_band_then_token_id",
+            "trades_by_event": [asdict(item) for item in trades],
+            "summary": summarize_trades(trades),
+            "interpretation": "exploratory displayed-book replay, not actual fills or proof of psychological bias",
+        }
     event_health = {
         "complete": sum(
             int(count) for complete, _reason, count in event_health_rows if complete
@@ -1335,6 +1362,7 @@ def database_report(
             "are reported explicitly"
         ),
         "primary": primary,
+        "price_band_arms": price_band_arms,
         "scaling": scaling,
         "grid": grid,
     }

@@ -132,7 +132,7 @@ class ResearchBot:
                 budget.assert_cycle_available("post-collection persistence")
                 metric = repository.record_storage_metric(run_id)
                 result["database_check"] = repository.scheduled_database_check(
-                    run_id
+                    run_id, allow_full_check=False
                 )
                 result["db_bytes"] = metric["db_bytes"]
                 result["runtime_budget"] = budget.evidence()
@@ -142,5 +142,8 @@ class ResearchBot:
                 audit.fail(error)
                 raise
             finally:
-                if transport is not None:
-                    transport.close()
+                try:
+                    if transport is not None:
+                        transport.close()
+                finally:
+                    repository.close()

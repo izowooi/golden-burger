@@ -40,6 +40,7 @@ class PolymarketBot:
                 / 60.0,
                 retention_days=float(config.trading.archive.retention_days),
             ),
+            maintenance_on_start=not config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")
         self.gamma = GammaClient(
@@ -95,6 +96,8 @@ class PolymarketBot:
     def _log_strategy_config(self) -> None:
         trading = self.config.trading
         entry = trading.entry
+        if entry.trend_observations == 1:
+            logger.info("PRICE_BAND_ONLY: 상승 지속·되돌림·누적 상승·이전 교차 조건 없음; 현재 구간 내 최저 VWAP 결과 선택")
         archive = trading.archive
         source_max = (
             "match_end"
@@ -652,9 +655,10 @@ class PolymarketBot:
                 cycle_budget.assert_within_hard_deadline(
                     "archive retention cleanup"
                 )
-            repo.cleanup_old_snapshots(
-                days=self.config.trading.archive.retention_days
-            )
+            if not self.config.simulation_mode:
+                repo.cleanup_old_snapshots(days=self.config.trading.archive.retention_days)
+            else:
+                stats["archive_maintenance"] = "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
             db_stats = repo.get_stats()
             stats["open_states"] = {
                 "pending_buy": db_stats["pending_buy"],

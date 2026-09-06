@@ -306,8 +306,9 @@ def _orphan_episode_contract_matches(
         and cumulative_move + 1e-9
         >= config.entry.trend_min_cumulative_move
         and 0 <= max_pullback <= config.entry.trend_max_pullback + 1e-9
-        and 0 < elapsed_seconds
-        <= (observations - 1) * config.entry.trend_max_gap_seconds + 1e-9
+        and ((observations == 1 and elapsed_seconds == 0)
+             or (observations > 1 and 0 < elapsed_seconds
+                 <= (observations - 1) * config.entry.trend_max_gap_seconds + 1e-9))
         and source_clock_valid
         and config.entry.prob_min - 1e-9
         <= exact_vwap
@@ -718,7 +719,7 @@ class Trader:
             or candidate.get("trend_start_snapshot_id")
             != execution_trend.snapshot_ids[0]
             or candidate.get("trend_middle_snapshot_id")
-            != execution_trend.snapshot_ids[-2]
+            != execution_trend.snapshot_ids[max(0, len(execution_trend.snapshot_ids) - 2)]
         ):
             return self._reject_entry("execution_trend_lineage_mismatch")
         raw_event_id = candidate.get("event_id")
@@ -856,10 +857,19 @@ class Trader:
                 ((item.best_bid + item.best_ask) / 2.0, fresh_token, item)
             )
         fresh_ranked.sort(key=lambda item: (-item[0], item[1]))
+        if self.config.entry.trend_observations == 1:
+            eligible_prices = [item for item in fresh_ranked
+                if self.config.entry.prob_min - 1e-9 <= item[2].vwap <= self.config.entry.prob_max + 1e-9
+                and item[2].spread <= self.config.entry.max_entry_spread + 1e-9]
+            if not eligible_prices:
+                return self._reject_entry("fresh_exact_vwap_left_arm")
+            selected = min(eligible_prices, key=lambda item: (item[2].vwap, item[1]))
+            fresh_ranked = [selected] + [item for item in fresh_ranked if item is not selected]
         fresh_margin = fresh_ranked[0][0] - fresh_ranked[1][0]
         if (
             fresh_ranked[0][1] != token_id
-            or fresh_margin + 1e-9 < self.config.entry.min_leader_margin
+            or (self.config.entry.trend_observations != 1
+                and fresh_margin + 1e-9 < self.config.entry.min_leader_margin)
         ):
             logger.info(
                 "fresh direct-book leader changed - expected=%s actual=%s margin=%.6f",
@@ -1048,7 +1058,8 @@ class Trader:
             entry_prob_max_at_buy=self.config.entry.prob_max,
             entry_hours_min_at_buy=self.config.entry.hours_min,
             entry_hours_max_at_buy=self.config.entry.hours_max,
-            prior_snapshot_id_at_entry=candidate.get("trend_middle_snapshot_id"),
+            prior_snapshot_id_at_entry=(candidate.get("trend_middle_snapshot_id")
+                if len(execution_trend.snapshot_ids) > 1 else None),
             entry_snapshot_id=entry_snapshot_id,
             source_elapsed_minutes_at_buy=source_minute,
             take_profit_delta_at_buy=(
@@ -1059,7 +1070,7 @@ class Trader:
             late_exit_minute_at_buy=None,
             force_exit_minute_at_buy=None,
             trend_start_snapshot_id=execution_trend.snapshot_ids[0],
-            trend_middle_snapshot_id=execution_trend.snapshot_ids[-2],
+            trend_middle_snapshot_id=execution_trend.snapshot_ids[max(0, len(execution_trend.snapshot_ids) - 2)],
             trend_observations=len(execution_trend.snapshot_ids),
             trend_cumulative_move=execution_trend.cumulative_move,
             trend_max_pullback=execution_trend.max_pullback,
@@ -1149,6 +1160,8 @@ class Trader:
                     int(episode.trend_middle_snapshot_id),
                     int(episode.entry_snapshot_id),
                 ]
+                if self.config.entry.trend_observations == 1:
+                    lineage_ids = [int(episode.entry_snapshot_id)]
                 lineage = self.repo.get_snapshots_by_ids(lineage_ids)
                 lineage_trend, _lineage_reason = evaluate_trend_confirmation(
                     lineage,
@@ -1158,11 +1171,11 @@ class Trader:
             lineage_identity_ok = bool(
                 lineage_trend is not None
                 and lineage_trend.snapshot_ids
-                == (
+                == ((int(episode.entry_snapshot_id),) if self.config.entry.trend_observations == 1 else (
                     int(episode.trend_start_snapshot_id),
                     int(episode.trend_middle_snapshot_id),
                     int(episode.entry_snapshot_id),
-                )
+                ))
                 and all(
                     str(item.token_id) == token_id
                     and str(item.condition_id) == str(episode.condition_id)
@@ -1286,7 +1299,8 @@ class Trader:
                 entry_prob_max_at_buy=episode.arm_prob_max,
                 entry_hours_min_at_buy=self.config.entry.hours_min,
                 entry_hours_max_at_buy=self.config.entry.hours_max,
-                prior_snapshot_id_at_entry=episode.trend_middle_snapshot_id,
+                prior_snapshot_id_at_entry=(episode.trend_middle_snapshot_id
+                    if int(episode.trend_observations) > 1 else None),
                 entry_snapshot_id=episode.entry_snapshot_id,
                 source_elapsed_minutes_at_buy=episode.source_elapsed_minutes,
                 take_profit_delta_at_buy=(

@@ -100,7 +100,7 @@ def aligned_binary_reason(market: Dict[str, Any]) -> str:
             return "not_exact_yes_no_labels"
         if market.get("negRisk") is not True:
             return "not_explicit_negrisk_result_market"
-    elif family in {"mlb", "nhl"}:
+    elif family in {"mlb", "nhl", "nfl"}:
         if labels == ["Yes", "No"]:
             return "direct_team_labels_required"
         if market.get("negRisk") is not False:
@@ -248,7 +248,7 @@ def match_result_reason(market: Dict[str, Any]) -> tuple[str, Optional[str]]:
     if not home_forms or not away_forms or home_forms & away_forms:
         return "team_identity_ambiguous", None
     family = str(market.get("sportFamily") or "soccer").strip().lower()
-    if family in {"mlb", "nhl"}:
+    if family in {"mlb", "nhl", "nfl"}:
         labels = [
             _normalized_name(item)
             for item in (_list_value(market.get("outcomes")) or [])

@@ -99,6 +99,15 @@ def evaluate_trend_confirmation(
         return None, "trend_history_price_invalid"
     if any(timestamp is None for timestamp in timestamps):
         return None, "trend_history_timestamp_missing"
+    if required == 1:
+        # Price-band experiment: no trend, prior crossing, pullback or minimum
+        # rise is required. The single current direct-book row is still proof.
+        if not config.entry.prob_min - 1e-9 <= prices[0] <= config.entry.prob_max + 1e-9:
+            return None, "current_price_outside_entry_band"
+        return TrendConfirmation(
+            snapshot_ids=snapshot_ids, prices=prices, cumulative_move=0.0,
+            max_pullback=0.0, elapsed_seconds=0.0,
+        ), "price_band_confirmed"
     gaps = [
         (timestamps[index] - timestamps[index - 1]).total_seconds()
         for index in range(1, required)
@@ -977,7 +986,17 @@ class MarketScanner:
             )
             leader, runner_up = ranked[0], ranked[1]
             margin = float(leader["midpoint"]) - float(runner_up["midpoint"])
-            if margin + 1e-9 < self.config.entry.min_leader_margin:
+            if self.config.entry.trend_observations == 1:
+                eligible_prices = [item for item in ranked
+                    if self.config.entry.prob_min - 1e-9 <= item["walk"].vwap <= self.config.entry.prob_max + 1e-9
+                    and item["walk"].spread <= self.config.entry.max_entry_spread + 1e-9]
+                if not eligible_prices:
+                    rejected["no_result_in_price_band"] = rejected.get("no_result_in_price_band", 0) + 1
+                    continue
+                leader = min(eligible_prices, key=lambda item: (item["walk"].vwap, str(item["outcome"]["token_id"])))
+                runner_up = next(item for item in ranked if item is not leader)
+                margin = float(leader["midpoint"]) - float(runner_up["midpoint"])
+            elif margin + 1e-9 < self.config.entry.min_leader_margin:
                 rejected["leader_margin_too_small"] = rejected.get(
                     "leader_margin_too_small", 0
                 ) + 1
@@ -1032,7 +1051,7 @@ class MarketScanner:
                 in_play_hours=context["in_play_hours"],
                 source_elapsed_minutes=context["source_minute"],
                 trend_start_snapshot_id=trend.snapshot_ids[0],
-                trend_middle_snapshot_id=trend.snapshot_ids[-2],
+                trend_middle_snapshot_id=trend.snapshot_ids[max(0, len(trend.snapshot_ids) - 2)],
                 trend_observations=len(trend.snapshot_ids),
                 trend_cumulative_move=trend.cumulative_move,
                 trend_max_pullback=trend.max_pullback,
@@ -1074,7 +1093,7 @@ class MarketScanner:
                     "probability": walk.vwap,
                     "entry_snapshot_id": int(leader["snapshot_id"]),
                     "trend_start_snapshot_id": trend.snapshot_ids[0],
-                    "trend_middle_snapshot_id": trend.snapshot_ids[-2],
+                    "trend_middle_snapshot_id": trend.snapshot_ids[max(0, len(trend.snapshot_ids) - 2)],
                     "trend_snapshot_ids": list(trend.snapshot_ids),
                     "trend_prices": list(trend.prices),
                     "trend_cumulative_move": trend.cumulative_move,
@@ -1097,7 +1116,8 @@ class MarketScanner:
                     "entry_limit_price": walk.limit_price,
                     "entry_levels_used": walk.levels_used,
                     "entry_reason": (
-                        f"{self.config.book_shape}_full_game_first_cross_trend"
+                        f"{self.config.book_shape}_full_game_"
+                        + ("price_band" if self.config.entry.trend_observations == 1 else "first_cross_trend")
                     ),
                     "game_start_time": context["game_start"],
                     "in_play_hours": context["in_play_hours"],

@@ -56,6 +56,7 @@ ADAPTIVE_BUY_NOTIONAL_LADDER_USDC = (
 SOCCER_TAG_ID = 100350
 MLB_TAG_ID = 100381
 NHL_TAG_ID = 899
+NFL_TAG_ID = 450
 ESPORTS_TAG_ID = 64
 REQUIRED_COMMON_TAG_IDS = (1, 100639, SOCCER_TAG_ID)
 CLASSIFIER_VERSION = "watermelon-major-sports-identity-v1"
@@ -87,21 +88,25 @@ class DirectSportIdentity:
 DIRECT_SPORT_IDENTITIES = {
     "mlb": DirectSportIdentity("mlb", 8, "MLB", MLB_TAG_ID, 3, "mlb"),
     "nhl": DirectSportIdentity("nhl", 35, "NHL", NHL_TAG_ID, 10346, "nhl"),
+    "nfl": DirectSportIdentity("nfl", 10, "NFL", NFL_TAG_ID, 10187, "nfl"),
 }
 SPORT_FAMILY_TAG_IDS = {
     "soccer": SOCCER_TAG_ID,
     "mlb": MLB_TAG_ID,
     "nhl": NHL_TAG_ID,
+    "nfl": NFL_TAG_ID,
 }
 SPORT_FAMILY_MAX_IN_PLAY_HOURS = {
     "soccer": 4.0,
     "mlb": 8.0,
     "nhl": 5.0,
+    "nfl": 6.0,
 }
 ECONOMIC_GUARD_START_UTC_BY_SPORT = {
     "soccer": FROZEN_START_UTC,
     "mlb": MLB_ECONOMIC_GUARD_START_UTC,
     "nhl": FROZEN_START_UTC,
+    "nfl": "2026-09-06T00:00:00Z",
 }
 
 
@@ -144,14 +149,16 @@ RUNTIME_SPECS = {
         RuntimeSpec(
             "watermelon-live-dog-mlb-99-1m-v4", "polybot-dog", "mlb", 0.99, policy_key="catdog_mlb"
         ),
+        RuntimeSpec("watermelon-live-cat-nfl-96-1m-v5", "polybot-cat", "nfl", 0.96, policy_key="catdog_nfl"),
+        RuntimeSpec("watermelon-live-dog-nfl-99-1m-v5", "polybot-dog", "nfl", 0.99, policy_key="catdog_nfl"),
     )
 }
 
 # Existing six identities/values remain unchanged. Only these accounts share
 # resources; Bear/Tiger histories and retired NHL configurations stay separate.
 ACCOUNT_RUNTIMES = {
-    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4"),
-    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4"),
+    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4", "watermelon-live-cat-nfl-96-1m-v5"),
+    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4", "watermelon-live-dog-nfl-99-1m-v5"),
 }
 
 
@@ -179,7 +186,8 @@ class SportPolicy:
 # Separate immutable entries even when numbers match. Future retuning requires
 # a new preregistration/review; the retired MLB/NHL profiles do not inherit it.
 SPORT_POLICIES = {"soccer": SportPolicy(4), "mlb": SportPolicy(8),
-                  "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8)}
+                  "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
+                  "catdog_nfl": SportPolicy(6)}
 
 
 def runtime_policy(spec):
@@ -915,7 +923,7 @@ def load_config(
             sport_family, FROZEN_START_UTC
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
-        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT, account_profile=runtime_spec.policy_key == "catdog_mlb"),
+        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT, account_profile=runtime_spec.policy_key in {"catdog_mlb", "catdog_nfl"}),
         entry=entry,
         archive=archive,
         excluded_categories=_get_list_config_value(

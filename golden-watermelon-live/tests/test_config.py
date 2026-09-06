@@ -242,7 +242,7 @@ def test_credentials_and_live_database_are_explicit(
     ("runtime_job", "jenkins_job", "family", "prob_min", "hours_max"),
     [
         (spec.runtime_job, spec.jenkins_job, spec.sport_family, spec.prob_min,
-         {"soccer": 4, "mlb": 8, "nhl": 5}[spec.sport_family])
+         {"soccer": 4, "mlb": 8, "nhl": 5, "nfl": 6}[spec.sport_family])
         for spec in RUNTIME_SPECS.values()
     ],
 )

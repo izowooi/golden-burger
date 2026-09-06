@@ -9,7 +9,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
     "research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md"
 )
-ACCOUNT_PREREGISTRATION = "research/frozen-2026-09-06-catdog-account-v4/PREREGISTRATION.md"
+ACCOUNT_PREREGISTRATION = "research/frozen-2026-09-06-catdog-nfl-v5/PREREGISTRATION.md"
 
 
 def _runtime_files(project_root: Path) -> list[Path]:

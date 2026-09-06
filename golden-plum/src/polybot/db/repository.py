@@ -1418,7 +1418,10 @@ class TradeRepository:
                 raise ValueError("final event-cycle health is incomplete")
             complete = int(item.get("complete") is True)
             self.session.query(MarketSnapshot).filter(
-                MarketSnapshot.event_cycle_id == event_cycle_id
+                MarketSnapshot.event_cycle_id == event_cycle_id,
+                # Legacy DBs predate the event_cycle index. Narrow by the
+                # existing run index instead of scanning every historical book.
+                MarketSnapshot.run_id == current_run_id(),
             ).update(
                 {
                     MarketSnapshot.event_set_complete: complete,

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -216,17 +216,17 @@ _COMMON_EXPLORATORY_GRID = {
     "primary_prob_max": 0.78,
     "primary_take_profit": 0.95,
     "primary_stop_delta": 0.15,
-    "primary_trend_observations": 3,
-    "primary_trend_min_cumulative_move": 0.02,
-    "primary_trend_max_pullback": 0.01,
+    "primary_trend_observations": 1,
+    "primary_trend_min_cumulative_move": 0.0,
+    "primary_trend_max_pullback": 0.0,
     "primary_trend_max_gap_seconds": 90.0,
     "primary_min_leader_margin": 0.005,
     "primary_max_entry_spread": 0.05,
     "analysis_entry_thresholds": (0.55, 0.60, 0.65, 0.70, 0.75, 0.80),
-    "analysis_target_prices": (0.85, 0.90, 0.95),
+    "analysis_target_prices": (0.85, 0.90, 0.95, 0.97),
     "analysis_stop_deltas": (0.05, 0.10, 0.15, 0.20),
-    "analysis_trend_observations": (2, 3, 5),
-    "analysis_min_cumulative_moves": (0.01, 0.02, 0.03, 0.05),
+    "analysis_trend_observations": (1, 2, 3, 5),
+    "analysis_min_cumulative_moves": (0.0, 0.01, 0.02, 0.03, 0.05),
 }
 SPORT_PARAMETER_PROFILES = {
     "soccer": SportParameterProfile(
@@ -261,8 +261,8 @@ _MLB_LIVE_GRID = {
     "primary_prob_max": 0.58,
     "primary_take_profit": 0.70,
     "primary_stop_delta": 0.12,
-    "primary_trend_observations": 5,
-    "primary_trend_min_cumulative_move": 0.01,
+    "primary_trend_observations": 1,
+    "primary_trend_min_cumulative_move": 0.0,
 }
 SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     code="mlb",
@@ -467,6 +467,42 @@ RUNTIME_SPECS = {
         scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
     ),
 }
+
+PRICE_BAND_PREREGISTRATION = "research/frozen-2026-09-06-price-band-v9/PREREGISTRATION.md"
+# Keep existing DB names for outstanding bot-owned positions. New config/source
+# identifies the price-only experiment; old trade exit thresholds are immutable.
+for _job, _spec in list(RUNTIME_SPECS.items()):
+    if not _spec.simulation_mode:
+        _arm = "a" if _spec.jenkins_job == "polybot-king" else "b"
+        _minimum = 0.60 if _arm == "a" else 0.70
+        _key = f"{_spec.sport_family}_price_band_{_arm}_v9"
+        SPORT_PARAMETER_PROFILES[_key] = replace(
+            SPORT_PARAMETER_PROFILES[_spec.sport_profile_key or _spec.sport_family],
+            profile_version=_key, primary_prob_min=_minimum,
+            primary_prob_max=_minimum + 0.03, primary_take_profit=0.97,
+        )
+        RUNTIME_SPECS[_job] = replace(_spec, sport_profile_key=_key, take_profit_price=0.97,
+                                    protocol_id=f"plum-{_spec.sport_family}-price-band-v9",
+                                    preregistration_path=PRICE_BAND_PREREGISTRATION)
+    else:
+        RUNTIME_SPECS[_job] = replace(_spec, protocol_id=f"plum-{_spec.sport_family}-price-band-shadow-v9",
+                                    preregistration_path=PRICE_BAND_PREREGISTRATION)
+
+for _arm, _account in (("a", "king"), ("b", "queen")):
+    _key = f"nfl_price_band_{_arm}_v9"
+    _minimum = 0.60 if _arm == "a" else 0.70
+    SPORT_PARAMETER_PROFILES[_key] = replace(SPORT_PARAMETER_PROFILES["nfl"],
+        profile_version=_key, primary_prob_min=_minimum, primary_prob_max=_minimum + 0.03,
+        primary_take_profit=0.97)
+    _job = f"plum-live-{_account}-nfl-price-{_arm}-v9"
+    RUNTIME_SPECS[_job] = RuntimeSpec(
+        runtime_job=_job, jenkins_job=f"polybot-{_account}", sport_family="nfl",
+        simulation_mode=False, lifecycle_mode="active", execution_policy="exact-5-usdc-fok-live",
+        take_profit_price=0.97, protocol_id="plum-nfl-price-band-v9",
+        preregistration_path=PRICE_BAND_PREREGISTRATION, cadence_seconds=60,
+        hard_deadline_seconds=None, external_workspace_path=None,
+        experiment_start_utc=US_MAJOR_START_UTC, experiment_entry_end_utc=US_MAJOR_ENTRY_END_UTC,
+        experiment_followup_end_utc=US_MAJOR_FOLLOWUP_END_UTC, sport_profile_key=_key)
 
 # Compatibility/readability aliases are derived from the atomic records; they
 # are never independently maintained.
@@ -924,7 +960,9 @@ def _validate_config(
         ("analysis_stop_deltas", trading.analysis_stop_deltas),
         ("analysis_min_cumulative_moves", trading.analysis_min_cumulative_moves),
     ):
-        if any(not math.isfinite(value) or value <= 0 for value in values):
+        if any(not math.isfinite(value) or value < 0
+               or (value == 0 and field_name != "analysis_min_cumulative_moves")
+               for value in values):
             raise ValueError(f"{field_name} must contain finite positive values")
     if any(
         not isinstance(value, int) or isinstance(value, bool) or value <= 0

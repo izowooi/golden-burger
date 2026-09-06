@@ -214,9 +214,10 @@ def _direct_sport_event(family: str, markets, *, postseason=False):
     identities = {
         "mlb": (8, "MLB", 100381, 3, "mlb"),
         "nhl": (35, "NHL", 899, 10346, "nhl-2026"),
+        "nfl": (10, "NFL", 450, 10187, "nfl-2026"),
     }
     sport_id, name, tag_id, root_series, series_slug = identities[family]
-    title = f"{name} {'World Series' if family == 'mlb' else 'Stanley Cup Final'}"
+    title = f"{name} " + {"mlb":"World Series", "nhl":"Stanley Cup Final", "nfl":"Super Bowl"}[family]
     event = {
         "id": f"{family}-event",
         "slug": f"{family}-home-away-2026-08-29",
@@ -367,7 +368,7 @@ def test_gamma_accepts_exact_serie_a_identity() -> None:
     assert markets[0]["leagueName"] == "Serie A"
 
 
-@pytest.mark.parametrize("family", ["mlb", "nhl"])
+@pytest.mark.parametrize("family", ["mlb", "nhl", "nfl"])
 @pytest.mark.parametrize("postseason", [False, True])
 def test_gamma_accepts_exact_direct_major_sport_and_postseason(
     family, postseason
@@ -388,7 +389,7 @@ def test_gamma_accepts_exact_direct_major_sport_and_postseason(
 
 @pytest.mark.parametrize(
     ("family", "excluded_title"),
-    [("mlb", "Home Club vs Away Club Minor League"), ("nhl", "AHL Final")],
+    [("mlb", "Home Club vs Away Club Minor League"), ("nhl", "AHL Final"), ("nfl", "NCAA College Football")],
 )
 def test_gamma_rejects_direct_sport_minor_leagues(family, excluded_title) -> None:
     market = _market(f"{family}-minor")

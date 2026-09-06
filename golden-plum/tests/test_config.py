@@ -50,19 +50,19 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.simulation_mode is False
     assert config.db_path == Path("data/plum-live-king-90-1m-v1/trades.db")
     entry = config.trading.entry
-    assert (entry.prob_min, entry.prob_max) == (0.75, 0.78)
-    assert entry.take_profit_price == 0.90
+    assert (entry.prob_min, entry.prob_max) == (0.60, 0.63)
+    assert entry.take_profit_price == 0.97
     assert entry.stop_loss_delta == 0.15
     assert entry.min_source_minute == 0
     assert entry.max_source_minute is None
     assert entry.hours_max is None
-    assert entry.trend_observations == 3
-    assert entry.trend_min_cumulative_move == 0.02
-    assert entry.trend_max_pullback == 0.01
+    assert entry.trend_observations == 1
+    assert entry.trend_min_cumulative_move == 0.0
+    assert entry.trend_max_pullback == 0.0
     assert entry.trend_max_gap_seconds == 90
     assert entry.force_exit_minute is None
     assert config.trading.scaling_notionals_usdc == ()
-    assert config.trading.sport_profile_version == "soccer-full-match-v2"
+    assert config.trading.sport_profile_version == "soccer_price_band_a_v9"
     assert config.trading.book_shape == "direct-six-result-books"
     assert config.trading.expected_token_count == 6
     assert config.trading.source_clock_required is True
@@ -85,13 +85,14 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.api.private_key == "1" * 64
 
 
-def test_queen_differs_only_by_absolute_profit_target(monkeypatch) -> None:
+def test_queen_price_band_arm_has_common_profit_target(monkeypatch) -> None:
     _credentials(monkeypatch)
-    monkeypatch.setenv("POLYBOT_TAKE_PROFIT_PRICE", "0.95")
+    monkeypatch.setenv("POLYBOT_TAKE_PROFIT_PRICE", "0.97")
     config = load_config(
         "config.yaml", "plum-live-queen-95-1m-v1", simulation_mode=False
     )
-    assert config.trading.entry.take_profit_price == 0.95
+    assert config.trading.entry.take_profit_price == 0.97
+    assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.70, .73))
     assert config.trading.entry.stop_loss_delta == 0.15
 
 
@@ -125,8 +126,8 @@ def test_gold_is_credential_free_mlb_collection_with_scaling_grid(
     trading = config.trading
     assert trading.lifecycle_mode == "active"
     assert trading.sport_family == "mlb"
-    assert trading.protocol_id == "plum-mlb-shadow-v3"
-    assert trading.preregistration_path == MLB_PREREGISTRATION
+    assert trading.protocol_id == "plum-mlb-price-band-shadow-v9"
+    assert trading.preregistration_path.endswith("price-band-v9/PREREGISTRATION.md")
     assert trading.execution_policy == (
         "credential-free-displayed-book-simulation"
     )
@@ -167,8 +168,8 @@ def test_gold_us_major_collectors_are_credential_free_and_independent(
     assert config.db_path == Path(f"data/{runtime}/trades_sim.db")
     trading = config.trading
     assert trading.sport_family == family
-    assert trading.protocol_id == f"plum-{family}-shadow-v4"
-    assert trading.preregistration_path == US_MAJOR_PREREGISTRATION
+    assert trading.protocol_id == f"plum-{family}-price-band-shadow-v9"
+    assert trading.preregistration_path.endswith("price-band-v9/PREREGISTRATION.md")
     assert trading.book_shape == "direct-two-team-moneyline"
     assert trading.expected_result_kinds == ("HOME", "AWAY")
     assert trading.expected_token_count == 2
@@ -192,9 +193,9 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
         "config.yaml", "plum-shadow-gold-mlb-1m-v1", simulation_mode=True
     )
 
-    assert king.trading.preregistration_path == SOCCER_PREREGISTRATION
-    assert gold.trading.preregistration_path == MLB_PREREGISTRATION
-    assert king.trading.preregistration_sha256 != (
+    assert king.trading.preregistration_path.endswith("price-band-v9/PREREGISTRATION.md")
+    assert gold.trading.preregistration_path == king.trading.preregistration_path
+    assert king.trading.preregistration_sha256 == (
         gold.trading.preregistration_sha256
     )
     assert set(RUNTIME_SPECS) == {
@@ -207,14 +208,16 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
         "plum-shadow-gold-nfl-1m-v1",
         "plum-shadow-gold-nba-1m-v1",
         "plum-shadow-gold-nhl-1m-v1",
+        "plum-live-king-nfl-price-a-v9",
+        "plum-live-queen-nfl-price-b-v9",
     }
 
 
 @pytest.mark.parametrize(
     ("job", "target"),
     [
-        ("plum-live-king-mlb-90-1m-v1", 0.65),
-        ("plum-live-queen-mlb-95-1m-v1", 0.70),
+        ("plum-live-king-mlb-90-1m-v1", 0.97),
+        ("plum-live-queen-mlb-95-1m-v1", 0.97),
     ],
 )
 def test_mlb_live_arms_use_the_gold_informed_profile(monkeypatch, job, target) -> None:
@@ -224,15 +227,14 @@ def test_mlb_live_arms_use_the_gold_informed_profile(monkeypatch, job, target) -
     assert config.db_path == Path(f"data/{job}/trades.db")
     trading = config.trading
     assert trading.sport_family == "mlb"
-    assert trading.sport_profile_version == (
-        "mlb-early-profit-loss-reduction-v2"
-    )
-    assert trading.protocol_id == "plum-mlb-live-exit-review-v8"
-    assert trading.preregistration_path == MLB_LIVE_PREREGISTRATION
-    assert trading.entry.prob_min == 0.55
-    assert trading.entry.prob_max == 0.58
-    assert trading.entry.trend_observations == 5
-    assert trading.entry.trend_min_cumulative_move == 0.01
+    arm = "a" if "king" in job else "b"
+    assert trading.sport_profile_version == f"mlb_price_band_{arm}_v9"
+    assert trading.protocol_id == "plum-mlb-price-band-v9"
+    assert trading.preregistration_path.endswith("price-band-v9/PREREGISTRATION.md")
+    assert trading.entry.prob_min == (.60 if arm == "a" else .70)
+    assert trading.entry.prob_max == pytest.approx(.63 if arm == "a" else .73)
+    assert trading.entry.trend_observations == 1
+    assert trading.entry.trend_min_cumulative_move == 0.0
     assert trading.entry.stop_loss_delta == 0.12
     assert trading.entry.max_entry_drawdown == 0.12
     assert trading.entry.take_profit_price == target
@@ -250,8 +252,8 @@ def test_gold_nhl_collector_is_registered(monkeypatch) -> None:
     assert config.db_path == Path(f"data/{runtime}/trades_sim.db")
     trading = config.trading
     assert trading.sport_family == "nhl"
-    assert trading.protocol_id == "plum-nhl-shadow-v7"
-    assert trading.preregistration_path == NHL_SHADOW_PREREGISTRATION
+    assert trading.protocol_id == "plum-nhl-price-band-shadow-v9"
+    assert trading.preregistration_path.endswith("price-band-v9/PREREGISTRATION.md")
     assert trading.expected_token_count == 2
     assert trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
 
@@ -295,7 +297,7 @@ def test_gold_mode_lifecycle_target_and_family_fail_closed(monkeypatch) -> None:
 def test_live_jobs_cannot_switch_to_a_direct_sport(monkeypatch) -> None:
     _credentials(monkeypatch)
     monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "mlb")
-    with pytest.raises(ValueError, match="must remain soccer"):
+    with pytest.raises(ValueError, match="sport/profile identity mismatch"):
         load_config(
             "config.yaml", "plum-live-king-90-1m-v1", simulation_mode=False
         )

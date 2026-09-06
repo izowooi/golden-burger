@@ -42,9 +42,10 @@ trading:
     # Observe and permit entry from kickoff until Gamma marks the match ended.
     min_source_minute: 0
     max_source_minute: null
-    trend_observations: 3
-    trend_min_cumulative_move: 0.02
-    trend_max_pullback: 0.01
+    # One current quote: no historical trend/crossing/pullback filter.
+    trend_observations: 1
+    trend_min_cumulative_move: 0.0
+    trend_max_pullback: 0.0
     trend_max_gap_seconds: 90
     min_leader_margin: 0.005
     max_entry_spread: 0.05

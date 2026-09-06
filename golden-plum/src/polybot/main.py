@@ -323,12 +323,13 @@ def main() -> None:
         else f"minute {trading.entry.max_source_minute:.0f}"
     )
     print(f"In-play age: from kickoff to {in_play_max}")
-    print(
-        f"Trend: {trading.entry.trend_observations} fresh observations, "
-        f"move >= {trading.entry.trend_min_cumulative_move:.2f}, pullback <= "
-        f"{trading.entry.trend_max_pullback:.2f}; source window "
-        f"[minute {trading.entry.min_source_minute:.0f}, {source_max}]"
-    )
+    if trading.entry.trend_observations == 1:
+        print("Entry: current price band only; no trend, pullback, cumulative-rise or prior-crossing gate; cheapest eligible result, token-ID tie-break")
+    else:
+        print(f"Historical trend: {trading.entry.trend_observations} observations; "
+              f"move >= {trading.entry.trend_min_cumulative_move:.2f}; "
+              f"pullback <= {trading.entry.trend_max_pullback:.2f}")
+    print(f"Source window: [minute {trading.entry.min_source_minute:.0f}, {source_max}]")
     print(
         f"Exit: absolute TP {trading.entry.take_profit_price:.2f}; "
         f"SL entry-{trading.entry.stop_loss_delta:.2f}; no time-forced exit; "

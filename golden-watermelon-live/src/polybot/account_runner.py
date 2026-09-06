@@ -25,7 +25,8 @@ def run_account(account, config_path="config.yaml", *, run_process=subprocess.ru
             return 0
         # Parent never owns the child account lock. Ledger rolling-60s quota
         # covers this runner and independently invoked registered single runs.
-        ordered = jobs if int(time.time() // 60) % 2 == 0 else tuple(reversed(jobs))
+        offset = int(time.time() // 60) % len(jobs)
+        ordered = jobs[offset:] + jobs[:offset]
         for job in ordered:
             env = configuration.profile_environment(job, os.environ)
             if failures:

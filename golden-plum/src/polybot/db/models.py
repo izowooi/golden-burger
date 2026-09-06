@@ -842,14 +842,18 @@ def init_database(
     maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
     *,
     activate_compact_on_create: bool = True,
+    maintenance_on_start: bool = True,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
-    prepare_database(
-        db_path,
-        "golden-plum",
-        requirements=maintenance_requirements,
-        activate_compact_on_create=activate_compact_on_create,
-    )
+    if maintenance_on_start:
+        prepare_database(
+            db_path,
+            "golden-plum",
+            requirements=maintenance_requirements,
+            activate_compact_on_create=activate_compact_on_create,
+        )
+    # Simulation raw retention is a separate maintenance operation. Do not
+    # scan/roll up/vacuum the accumulated archive inside a one-minute collector.
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     Base.metadata.create_all(engine)
     with engine.begin() as connection:

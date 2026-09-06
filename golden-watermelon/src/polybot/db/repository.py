@@ -11,6 +11,7 @@ from pathlib import Path
 import shutil
 import sqlite3
 import time
+from threading import RLock
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
@@ -486,6 +487,9 @@ class ResearchRepository:
         else:
             self._bootstrap_new_database()
             self._validate_existing_read_only()
+        self._writer_lock = RLock()
+        self._writer = None
+        self._writer_depth = 0
 
     def _expected_metadata(self) -> tuple[object, ...]:
         return (
@@ -627,20 +631,38 @@ class ResearchRepository:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000)
-        connection.row_factory = sqlite3.Row
-        connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
-        connection.execute("PRAGMA journal_mode=WAL")
-        connection.execute("PRAGMA synchronous=FULL")
-        connection.execute("PRAGMA foreign_keys=ON")
-        try:
-            yield connection
-            connection.commit()
-        except BaseException:
-            connection.rollback()
-            raise
-        finally:
-            connection.close()
+        # Keep one serialized writer for the invocation. Closing the last WAL
+        # connection after every receipt/book can checkpoint the growing DB
+        # repeatedly on the external disk. Each outer operation still commits
+        # with FULL durability; a failed operation still rolls back.
+        with self._writer_lock:
+            if self._writer is None:
+                connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000,
+                                             check_same_thread=False)
+                connection.row_factory = sqlite3.Row
+                connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
+                connection.execute("PRAGMA journal_mode=WAL")
+                connection.execute("PRAGMA synchronous=FULL")
+                connection.execute("PRAGMA foreign_keys=ON")
+                self._writer = connection
+            connection = self._writer
+            outermost = self._writer_depth == 0
+            self._writer_depth += 1
+            try:
+                yield connection
+                if outermost:
+                    connection.commit()
+            except BaseException:
+                connection.rollback()
+                raise
+            finally:
+                self._writer_depth -= 1
+
+    def close(self) -> None:
+        with self._writer_lock:
+            if self._writer is not None:
+                self._writer.close()
+                self._writer = None
 
     def record_config(self, row: Mapping[str, Any]) -> None:
         with self.connect() as c:
@@ -912,6 +934,7 @@ class ResearchRepository:
         *,
         now: datetime | None = None,
         interval: timedelta = FULL_QUICK_CHECK_INTERVAL,
+        allow_full_check: bool = True,
     ) -> dict[str, Any]:
         """Run a cheap probe every cycle and a full quick_check at most daily.
 
@@ -934,8 +957,7 @@ class ResearchRepository:
                 connection.execute("PRAGMA schema_version").fetchone()[0]
             )
             connection.execute(
-                "SELECT event_id FROM research_run_events "
-                "ORDER BY observed_at DESC LIMIT 1"
+                "SELECT event_id FROM research_run_events LIMIT 1"
             ).fetchone()
             prior = connection.execute(
                 "SELECT completed_at FROM database_checks "
@@ -948,6 +970,12 @@ class ResearchRepository:
             prior_at = datetime.fromisoformat(
                 str(prior[0]).replace("Z", "+00:00")
             ).astimezone(timezone.utc)
+        if not allow_full_check:
+            return {"mode": "LIGHTWEIGHT_PROBE", "result": "ok",
+                    "full_check_performed": False, "schema_version": schema_version,
+                    "last_full_check_at": prior_at.isoformat() if prior_at else None,
+                    "full_check_due": prior_at is None or current - prior_at >= interval,
+                    "full_check_action": "RUN_HEALTH_ON_VERIFIED_COPY_OUTSIDE_COLLECTION"}
         if prior_at is not None and current - prior_at < interval:
             return {
                 "mode": "LIGHTWEIGHT_PROBE",
