@@ -774,8 +774,33 @@ class ResearchRepository:
         with self.connect() as c:
             return {(str(r[0]), str(r[1]), float(r[2])) for r in c.execute("SELECT condition_id,token_id,threshold FROM hypothetical_episodes")}
 
-    def latest_entry_vwaps(self) -> dict[str, float]:
+    def latest_entry_vwaps(self, tokens: Iterable[str] | None = None) -> dict[str, float]:
         """Return the last full-depth $5 ask VWAP observed for each token."""
+        if tokens is not None:
+            # Each decision originates from an outcome in the same run. Use
+            # those existing indexes instead of reading every historical
+            # decision twice for a handful of currently observed tokens.
+            result: dict[str, float] = {}
+            wanted = sorted(set(tokens))
+            if not wanted:
+                return result
+            with self.connect() as c:
+                for token in wanted:
+                    row = c.execute(
+                        """
+                        SELECT d.token_id,d.entry_vwap
+                        FROM outcome_observations o INDEXED BY outcome_token_time_idx
+                        CROSS JOIN signal_decisions d
+                        WHERE o.token_id=?
+                          AND d.run_id=o.run_id AND d.token_id=o.token_id
+                          AND d.entry_vwap IS NOT NULL
+                        ORDER BY d.decided_at DESC LIMIT 1
+                        """,
+                        (token,),
+                    ).fetchone()
+                    if row is not None:
+                        result[str(row[0])] = float(row[1])
+            return result
         with self.connect() as c:
             rows = c.execute(
                 """

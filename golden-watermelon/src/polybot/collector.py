@@ -6,8 +6,10 @@ from collections import Counter
 from datetime import datetime, timezone
 import hashlib
 import json
+import logging
 import math
 import re
+import time
 from typing import Any, Mapping
 from uuid import uuid4
 
@@ -1166,7 +1168,12 @@ class Collector:
                     })
 
         existing = self.repository.existing_episode_keys()
-        prior_vwaps = self.repository.latest_entry_vwaps()
+        prior_started = time.monotonic()
+        prior_vwaps = self.repository.latest_entry_vwaps(tokens)
+        logging.getLogger(__name__).info(
+            "collection phase=prior_vwap run_id=%s tokens=%d elapsed_seconds=%.6f",
+            run_id, len(set(tokens)), time.monotonic() - prior_started,
+        )
         decisions: list[dict[str, Any]] = []
         episodes: list[dict[str, Any]] = []
         policies: list[dict[str, Any]] = []
@@ -1395,6 +1402,7 @@ class Collector:
             if not row["eligible"]
             for reason in str(row["exclusion_reason"]).split(";")
         )
+        persistence_started = time.monotonic()
         self.repository.record_collection(
             sweep={
                 "sweep_id": sweep_id, "run_id": run_id, "started_at": iso_utc(now),
@@ -1412,6 +1420,10 @@ class Collector:
             attempts=attempt_rows, snapshots=snapshot_rows, levels=level_rows,
             decisions=decisions, episodes=episodes, policies=policies, paths=paths,
             stop_attempts=stop_attempts, stop_exits=stop_exits,
+        )
+        logging.getLogger(__name__).info(
+            "collection phase=persistence run_id=%s markets=%d levels=%d elapsed_seconds=%.6f",
+            run_id, len(market_rows), len(level_rows), time.monotonic() - persistence_started,
         )
         for event_row in event_rows:
             if event_row["classification_status"] == "DRIFT":
