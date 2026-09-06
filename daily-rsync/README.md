@@ -82,6 +82,15 @@ UI는 서버가 선택한 `current_source`와 `state`를 그대로 표시하며,
 보내거나 표시하지 않습니다. 충돌 상태에서는 전송 계획을 만들기 전에 Jenkins 설정과
 최신 Build·DB epoch를 확인해야 합니다.
 
+콘솔 분류는 최상위 JSON의 명시적인 `strategy_name` 및 `RUN_AUDIT` 기록을 우선합니다.
+`workspace.volume_profile`, 외장 마운트 표식, Git remote에 들어 있는 `golden-*` 문자열은
+전략 이름으로 추측하지 않습니다. 동일 전략을 여러 runtime으로 실행한 빌드는 전략을
+유지하되 console의 runtime은 `null`로 둡니다. 서로 다른 runtime의 혼합 mode도 단일
+mode로 단정하지 않으며, 전략 충돌·동일 runtime의 mode 모순은 검토가 필요합니다.
+잘린 JSON·읽기 중 변경된 로그·8MiB 초과 로그는 미분류로 남깁니다. 이는 로그 내용이
+없다는 뜻이 아니며, config-only 출력의 분류 성공도 실제 수집/매매 성공 증거는 아닙니다.
+이미 잘못 분류된 로그는 새 `scan → plan → sync → verify`로 재분류·회수할 수 있습니다.
+
 `scan`과 `sync`는 역할이 다릅니다. scan은 SSH로 원격 파일의 identity와 metadata를
 읽어 inventory를 갱신할 뿐 DB나 로그 본문을 전송하지 않습니다. sync는 사용자가 만든
 plan을 실행해 SQLite snapshot과 선택된 로그를 local data root로 가져옵니다. 따라서

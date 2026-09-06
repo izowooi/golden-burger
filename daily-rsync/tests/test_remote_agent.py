@@ -59,6 +59,247 @@ def invoke(*arguments: str) -> dict:
     return json.loads(process.stdout)
 
 
+def guava_console_summary(**changes: object) -> str:
+    # Same public envelope as Guava's run_research summary, not a raw console
+    # capture (which can contain credentials).
+    summary = {
+        "strategy_name": "golden-guava",
+        "job_name": "guava-research-a-v1",
+        "mode": "sim",
+        "run_id": "fixture-run",
+        "census_complete": True,
+        "actual_orders_submitted": 0,
+        "sweeps": [{"sport_family": "soccer", "cursor_complete": True}],
+        "workspace": {
+            "runtime_job": "guava-research-a-v1",
+            "volume_profile": "golden-raspberry-apfs-v1",
+            "marker": "/Volumes/t7/.golden-raspberry-volume",
+        },
+    }
+    summary.update(changes)
+    return json.dumps(summary, sort_keys=True)
+
+
+def test_console_top_level_guava_identity_beats_workspace_and_nested_metadata(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        guava_console_summary(
+            sweeps=[{
+                "strategy_name": "golden-kiwi",
+                "mode": "live",
+                "job_name": "not-the-runtime",
+                "note": "[RUN_AUDIT] strategy=golden-queen job=wrong mode=live",
+            }],
+        ) + '\n{"volume_profile":"golden-raspberry-apfs-v1"}\nFinished: SUCCESS\n',
+        encoding="utf-8",
+    )
+    assert remote_agent.classify_log_details(log) == (
+        "golden-guava", "guava-research-a-v1", "golden-guava",
+    )
+    assert remote_agent._classify_log_identity(log)[3] == "sim"
+
+
+def test_console_large_json_line_is_not_spliced_from_head_and_tail(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        guava_console_summary(sweeps=[{"padding": "x" * (2 * 1024 * 1024)}])
+        + "\nFinished: SUCCESS\n",
+        encoding="utf-8",
+    )
+    assert remote_agent.classify_log(log) == ("golden-guava", "guava-research-a-v1")
+
+
+@pytest.mark.parametrize(
+    "text",
+    (
+        '{"strategy_name":"golden-guava","sweeps":[{"strategy_name":"golden-kiwi"}',
+        '"workspace":{"volume_profile":"golden-raspberry-apfs-v1"}}\n',
+        '{"workspace":{"strategy_name":"golden-raspberry-apfs-v1"}}\n',
+        '[{"strategy_name":"golden-raspberry-apfs-v1"}]\n',
+        'volume_profile=golden-raspberry-apfs-v1\n/Volumes/t7/.golden-raspberry-volume\n',
+    ),
+)
+def test_console_partial_or_nested_identity_is_not_guessed(tmp_path: Path, text: str) -> None:
+    log = tmp_path / "log"
+    log.write_text(text, encoding="utf-8")
+    assert remote_agent.classify_log_details(log) == (None, None, None)
+
+
+def test_console_over_parse_limit_stays_unknown_not_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = tmp_path / "log"
+    log.write_text(guava_console_summary(sweeps=[{"padding": "x" * 2048}]), encoding="utf-8")
+    monkeypatch.setattr(remote_agent, "LOG_IDENTITY_MAX_BYTES", 1024)
+    assert remote_agent.classify_log_details(log) == (None, None, None)
+
+
+@pytest.mark.parametrize(
+    "second",
+    (
+        '{"strategy_name":"golden-kiwi","job_name":"guava-research-a-v1","mode":"sim"}',
+        guava_console_summary(mode="live"),
+        '[RUN_AUDIT] strategy=golden-queen job=queen-live-12h mode=live',
+        '{"strategy_name":"golden-guava","strategy_name":"golden-kiwi"}',
+    ),
+)
+def test_console_conflicting_explicit_metadata_fails_closed(
+    tmp_path: Path, second: str,
+) -> None:
+    log = tmp_path / "log"
+    secret = "fixture-do-not-output-credential"
+    log.write_text(guava_console_summary() + "\n" + second + "\n" + secret, encoding="utf-8")
+    with pytest.raises(
+        RuntimeError, match="conflicting explicit console identity metadata"
+    ) as error:
+        remote_agent.classify_log_details(log)
+    assert secret not in str(error.value)
+
+
+def test_console_config_only_then_skipped_run_keeps_routing_not_run_success_claim(
+    tmp_path: Path,
+) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        "CONFIG_ONLY\n" + guava_console_summary(run_id=None)
+        + '\n{"skipped":true,"reason":"slot_already_claimed_or_clock_reversed"}\n'
+        + "Finished: SUCCESS\n",
+        encoding="utf-8",
+    )
+    assert remote_agent._classify_log_identity(log) == (
+        "golden-guava", "guava-research-a-v1", "golden-guava", "sim",
+    )
+
+
+def test_console_failed_bootstrap_preserves_cd_and_traceback_fallback(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        '+ cd ./golden-guava\n+ .venv/bin/polybot run --simulate --job guava-research-a-v1\n'
+        '{"volume_profile":"golden-raspberry-apfs-v1"}\n'
+        'Traceback (most recent call last):\n'
+        '  File "/Volumes/t7/jenkins/polybot-sim-guava-a/golden-guava/'
+        'src/polybot/runtime.py", line 1\n'
+        'RuntimeError: bootstrap failed\nFinished: FAILURE\n',
+        encoding="utf-8",
+    )
+    assert remote_agent.classify_log_details(log) == (
+        "golden-guava", "guava-research-a-v1", None,
+    )
+    log.write_text(
+        '  File "/workspace/golden-guava/src/polybot/runtime.py", line 1\n'
+        'volume_profile=golden-raspberry-apfs-v1\n', encoding="utf-8",
+    )
+    assert remote_agent.classify_log(log) == ("golden-guava", None)
+
+
+@pytest.mark.parametrize("strategy", ["golden-queen", "golden-peach", "golden-watermelon-live"])
+def test_console_legacy_run_audit_ignores_unrelated_profile(tmp_path: Path, strategy: str) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        f"[RUN_AUDIT] 시작 strategy={strategy} job=legacy-job mode=live\n"
+        "volume_profile=golden-raspberry-apfs-v1\nFinished: SUCCESS\n", encoding="utf-8",
+    )
+    assert remote_agent._classify_log_identity(log) == (strategy, "legacy-job", strategy, "live")
+
+
+def test_legacy_batch_console_does_not_choose_last_runtime(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        "[2026-09-06 00:00:00] [RUN_AUDIT] strategy=golden-peach job=soccer mode=sim\n"
+        "[RUN_AUDIT] strategy=golden-peach job=mlb mode=sim\nFinished: SUCCESS\n",
+        encoding="utf-8",
+    )
+    assert remote_agent._classify_log_identity(log) == ("golden-peach", None, "golden-peach", "sim")
+
+
+@pytest.mark.parametrize("format_name", ["json", "run_audit", "mixed"])
+def test_same_strategy_four_runtime_console_is_strategy_owned(
+    tmp_path: Path, format_name: str,
+) -> None:
+    log = tmp_path / "log"
+    lines = []
+    for index, sport in enumerate(("mlb", "nba", "nfl", "nhl")):
+        job = f"plum-shadow-gold-{sport}-1m-v1"
+        if format_name == "run_audit" or (format_name == "mixed" and index % 2):
+            lines.append(f"[RUN_AUDIT] strategy=golden-plum job={job} mode=sim")
+        else:
+            lines.append(guava_console_summary(strategy_name="golden-plum", job_name=job))
+    # A plain shell --job must not overwrite the deliberately ambiguous
+    # structured runtime identity with its last/only regex match.
+    lines.append("+ polybot run --simulate --job plum-shadow-gold-nhl-1m-v1")
+    log.write_text("\n".join(lines), encoding="utf-8")
+    assert remote_agent._classify_log_identity(log) == ("golden-plum", None, "golden-plum", "sim")
+
+
+def test_distinct_runtimes_may_have_mixed_modes_without_selecting_last(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_text(
+        guava_console_summary(strategy_name="golden-plum", job_name="shadow", mode="sim")
+        + "\n[RUN_AUDIT] strategy=golden-plum job=live-arm mode=live\n",
+        encoding="utf-8",
+    )
+    assert remote_agent._classify_log_identity(log) == ("golden-plum", None, "golden-plum", None)
+
+
+def test_one_record_cannot_disagree_about_runtime_alias(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_text(guava_console_summary(runtime_job="another-runtime"), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="conflicting explicit"):
+        remote_agent.classify_log(log)
+
+
+def test_safe_sample_keeps_finish_for_between_half_and_one_megabyte(tmp_path: Path) -> None:
+    log = tmp_path / "log"
+    log.write_bytes(b"x" * (700 * 1024) + b"\nFinished: SUCCESS\n")
+    assert remote_agent.build_result(tmp_path, log) == "SUCCESS"
+
+
+def test_console_rotation_during_read_stays_unknown(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    log = tmp_path / "log"
+    log.write_text(guava_console_summary(), encoding="utf-8")
+    original = remote_agent.os.fstat
+    reads = []
+
+    def changed_stat(fd: int):
+        value = original(fd)
+        reads.append(fd)
+        return SimpleNamespace(st_dev=value.st_dev, st_ino=value.st_ino, st_size=value.st_size,
+                               st_mtime_ns=value.st_mtime_ns + (len(reads) > 1))
+
+    monkeypatch.setattr(remote_agent.os, "fstat", changed_stat)
+    assert remote_agent.classify_log_details(log) == (None, None, None)
+
+
+def test_scan_routes_success_failure_and_config_only_guava_consoles(tmp_path: Path) -> None:
+    home = tmp_path / ".jenkins"
+    job_name = "polybot-sim-guava-a"
+    (home / "workspace" / job_name).mkdir(parents=True)
+    make_freestyle_config(home, job_name, "cd ./golden-guava")
+    logs = (
+        (1, "SUCCESS", guava_console_summary()),
+        (2, "FAILURE", "+ cd ./golden-guava\nRuntimeError: bootstrap failed"),
+        (3, "SUCCESS", "CONFIG_ONLY\n" + guava_console_summary(run_id=None)
+         + '\n{"skipped":true,"reason":"single_writer_busy"}'),
+    )
+    for number, result, content in logs:
+        build = home / "jobs" / job_name / "builds" / str(number)
+        build.mkdir(parents=True)
+        (build / "log").write_text(content + f"\nFinished: {result}\n", encoding="utf-8")
+        (build / "build.xml").write_text(
+            f"<build><result>{result}</result></build>", encoding="utf-8"
+        )
+    result = invoke("scan", "--jenkins-home", str(home), "--job", job_name, "--cutoff-epoch", "0")
+    artifacts = result["jobs"][0]["artifacts"]
+    assert len(artifacts) == 3
+    assert {row["strategy"] for row in artifacts} == {"golden-guava"}
+    assert artifacts[0]["runtime_job"] == "guava-research-a-v1"
+    assert artifacts[0]["mode"] == "sim"
+
+
 def test_existing_files_is_limited_to_jenkins_console_paths(tmp_path: Path) -> None:
     home = tmp_path / ".jenkins"
     existing = home / "jobs" / "polybot-cat" / "builds" / "1" / "log"

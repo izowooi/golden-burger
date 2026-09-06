@@ -23,7 +23,6 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 
-STRATEGY_PATTERN = re.compile(rb"golden-[a-z0-9-]+", re.I)
 AUDIT_PATTERN = re.compile(rb"\[RUN_AUDIT\].{0,160}?strategy=(golden-[a-z0-9-]+)", re.I)
 RUNTIME_PATTERN = re.compile(rb"(?:--job[ =]|Job: |job=)([A-Za-z0-9_.-]+)", re.I)
 TEXT_STRATEGY_PATTERN = re.compile(r"(?<![A-Za-z0-9-])(golden-[a-z0-9-]+)(?![A-Za-z0-9-])", re.I)
@@ -33,6 +32,8 @@ CANONICAL_DATABASE_NAMES = frozenset(("trades.db", "trades_sim.db", "shadow.db")
 WORKSPACE_MARKER_NAME = ".daily-rsync-workspace.json"
 WORKSPACE_MARKER_SCHEMA_VERSION = 1
 WORKSPACE_MARKER_MAX_BYTES = 4096
+LOG_IDENTITY_MAX_BYTES = 8 * 1024 * 1024
+LOG_IDENTITY_KEYS = frozenset(("strategy_name", "job_name", "runtime_job", "mode"))
 
 
 def emit(payload):
@@ -58,27 +59,171 @@ def safe_log_sample(path):
     size = path.stat().st_size
     with path.open("rb") as handle:
         head = handle.read(min(size, 512 * 1024))
-        if size > 1024 * 1024:
-            handle.seek(max(0, size - 512 * 1024))
-            tail = handle.read(512 * 1024)
+        if size > len(head):
+            tail_start = max(len(head), size - 512 * 1024)
+            handle.seek(tail_start)
+            tail = handle.read(size - tail_start)
         else:
             tail = b""
     return head + b"\n" + tail
 
 
-def classify_log_details(path):
+class _LogJSONObject(dict):
+    def __init__(self, pairs):
+        super().__init__()
+        self.duplicate_keys = set()
+        for key, value in pairs:
+            if key in self:
+                self.duplicate_keys.add(key)
+            self[key] = value
+
+
+def _log_identity_value(value, field):
+    if not isinstance(value, str):
+        raise RuntimeError("invalid explicit console identity metadata")
+    if field == "strategy_name":
+        value = value.lower()
+        valid = re.fullmatch(r"golden-[a-z0-9]+(?:-[a-z0-9]+)*", value)
+    elif field == "mode":
+        value = {"simulation": "sim", "shadow": "sim", "research": "sim"}.get(
+            value.lower(), value.lower()
+        )
+        valid = value in ("sim", "live")
+    else:
+        valid = re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*", value)
+    if not valid:
+        # Never include source text: the console may contain credentials.
+        raise RuntimeError("invalid explicit console identity metadata")
+    return value
+
+
+def _classify_log_identity(path):
+    """Return strategy/runtime/structured-strategy/mode without substring guessing.
+
+    Parse complete top-level JSON records (including large single lines), not
+    nested workspace/profile strings or JSON-looking text embedded in values.
+    Do not join disjoint head/tail fragments into a fabricated JSON document.
+    Oversized, truncated or rotating files are unclassified. Conflicting
+    explicit identities fail closed with a fixed, secret-free error. Identity
+    routing (including config-only output) does not attest collection success.
+    """
     try:
-        data = safe_log_sample(path)
+        with path.open("rb") as handle:
+            before = os.fstat(handle.fileno())
+            if before.st_size > LOG_IDENTITY_MAX_BYTES:
+                return None, None, None, None
+            data = handle.read(LOG_IDENTITY_MAX_BYTES + 1)
+            after = os.fstat(handle.fileno())
+        current = path.stat()
     except OSError:
-        return None, None, None
-    audit = AUDIT_PATTERN.findall(data)
-    tokens = STRATEGY_PATTERN.findall(data)
-    runtime = RUNTIME_PATTERN.findall(data)
-    structured_strategy = audit[-1].decode("ascii", "replace").lower() if audit else None
-    legacy_strategy = tokens[-1].decode("ascii", "replace").lower() if tokens else None
-    strategy = structured_strategy or legacy_strategy
-    runtime_job = runtime[-1].decode("ascii", "replace") if runtime else None
-    return strategy, runtime_job, structured_strategy
+        return None, None, None, None
+    identities = {(s.st_dev, s.st_ino, s.st_size, s.st_mtime_ns) for s in (before, after, current)}
+    if len(identities) != 1 or len(data) != before.st_size:
+        return None, None, None, None
+    text = data.decode("utf-8", "replace")
+    decoder = json.JSONDecoder(object_pairs_hook=_LogJSONObject)
+    explicit = {key: set() for key in ("strategy_name", "job_name", "mode")}
+    audited = {key: set() for key in explicit}
+    modes_by_runtime = {}
+    plain_lines = []
+    position = 0
+    while position < len(text):
+        line_end = text.find("\n", position)
+        if line_end < 0:
+            line_end = len(text)
+        line = text[position:line_end]
+        stripped = line.lstrip()
+        # Stdout config/run records have no log prefix. Arrays are skipped as
+        # whole documents so their nested records never become top-level ones.
+        looks_json = re.match(r'(?:\{\s*(?:"|\}|$)|\[\s*(?:[\[\{"\]0-9-]|$))', stripped)
+        # Bracketed logger dates are not JSON arrays.
+        if re.match(r"\[\d{4}-\d{2}-\d{2}[ T]", stripped):
+            looks_json = False
+        if looks_json:
+            start = position + len(line) - len(stripped)
+            try:
+                payload, finish = decoder.raw_decode(text, start)
+            except (ValueError, RecursionError):
+                return None, None, None, None
+            if isinstance(payload, _LogJSONObject) and "strategy_name" in payload:
+                if payload.duplicate_keys & LOG_IDENTITY_KEYS:
+                    raise RuntimeError("conflicting explicit console identity metadata")
+                explicit["strategy_name"].add(
+                    _log_identity_value(payload["strategy_name"], "strategy_name")
+                )
+                record_jobs = set()
+                record_mode = None
+                for field in ("job_name", "runtime_job", "mode"):
+                    if field in payload:
+                        target = "job_name" if field == "runtime_job" else field
+                        value = _log_identity_value(payload[field], field)
+                        explicit[target].add(value)
+                        if target == "job_name":
+                            record_jobs.add(value)
+                        else:
+                            record_mode = value
+                if len(record_jobs) > 1:
+                    raise RuntimeError("conflicting explicit console identity metadata")
+                if record_jobs and record_mode:
+                    modes_by_runtime.setdefault(next(iter(record_jobs)), set()).add(record_mode)
+            position = finish
+            continue
+        plain_lines.append(line)
+        encoded = line.encode("utf-8")
+        audits = AUDIT_PATTERN.findall(encoded)
+        if audits:
+            audited["strategy_name"].update(value.decode("ascii").lower() for value in audits)
+            record_jobs = {
+                value.decode("ascii") for value in RUNTIME_PATTERN.findall(encoded)
+            }
+            record_modes = {
+                _log_identity_value(value, "mode")
+                for value in re.findall(r"\bmode=([A-Za-z]+)\b", line)
+            }
+            audited["job_name"].update(record_jobs)
+            audited["mode"].update(record_modes)
+            for job in record_jobs:
+                modes_by_runtime.setdefault(job, set()).update(record_modes)
+        position = line_end + 1
+    merged = {key: explicit[key] | audited[key] for key in explicit}
+    if len(merged["strategy_name"]) > 1 or any(len(v) > 1 for v in modes_by_runtime.values()):
+        raise RuntimeError("conflicting explicit console identity metadata")
+    # Batch shells legitimately run several jobs of ONE strategy. A console is
+    # Jenkins-job-owned, not a duplicate artifact for each runtime. Retain the
+    # unique strategy; ambiguous runtime/mode remains None, never the last one.
+    # One record with conflicting job aliases or one runtime with mixed modes
+    # is different from a legitimate mixed-runtime pipeline and fails closed.
+    selected = {
+        key: next(iter(values)) if len(values) == 1 else None for key, values in merged.items()
+    }
+    structured, runtime, mode = (
+        selected["strategy_name"], selected["job_name"], selected["mode"]
+    )
+    plain = "\n".join(plain_lines)
+    if not merged["job_name"]:
+        runtimes = {
+            value.decode("ascii") for value in RUNTIME_PATTERN.findall(plain.encode("utf-8"))
+        }
+        runtime = next(iter(runtimes)) if len(runtimes) == 1 else None
+    if structured:
+        return structured, runtime, structured, mode
+    # Legacy shell/traceback paths remain useful for pre-bootstrap failures.
+    # A free-standing golden-* token, volume_profile or hidden sentinel is not
+    # a strategy. Ignore commit messages and arbitrary JSON values entirely.
+    shell = re.sub(r"(?m)^\s*\++\s*", "", plain)
+    candidates = _shell_segments(shell)
+    if not candidates:
+        candidates = set(re.findall(
+            r"/(golden-[a-z0-9-]+)/(?:src/|data/|\.venv/|main\.py\b|config\.yaml\b)",
+            plain, flags=re.I,
+        ))
+    candidates = {value.lower() for value in candidates}
+    strategy = next(iter(candidates)) if len(candidates) == 1 else None
+    return strategy, runtime, None, mode
+
+
+def classify_log_details(path):
+    return _classify_log_identity(path)[:3]
 
 
 def classify_log(path):
@@ -670,7 +815,7 @@ def scan(args):
                 result = build_result(log_path.parent, log_path)
                 if not result:
                     continue
-                strategy, runtime_job, structured_strategy = classify_log_details(log_path)
+                strategy, runtime_job, structured_strategy, mode = _classify_log_identity(log_path)
                 if structured_strategy and (
                     latest_build_number is None or number > latest_build_number
                 ):
@@ -694,6 +839,7 @@ def scan(args):
                             runtime_job=runtime_job,
                             build_number=number,
                             status=result,
+                            mode=mode,
                         )
                     )
         strategies = set(config_candidates)
