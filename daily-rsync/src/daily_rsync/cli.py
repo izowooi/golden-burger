@@ -72,6 +72,10 @@ def plan_command(
     job: Annotated[str, typer.Option(help="Jenkins job name")],
     strategy: Annotated[str | None, typer.Option(help="Strategy folder/name")] = None,
     include_safety_databases: Annotated[bool, typer.Option()] = False,
+    include_console_logs: Annotated[
+        bool,
+        typer.Option(help="Include Jenkins consoles; bot logs and databases remain selected"),
+    ] = True,
     days: Annotated[int | None, typer.Option(min=1)] = None,
     from_date: Annotated[str | None, typer.Option(help="Research archive start YYYY-MM-DD")] = None,
     to_date: Annotated[str | None, typer.Option(help="Research archive end YYYY-MM-DD")] = None,
@@ -84,6 +88,7 @@ def plan_command(
         job=job,
         strategy=strategy,
         include_safety_databases=include_safety_databases,
+        include_console_logs=include_console_logs,
         days=days,
         from_date=date.fromisoformat(from_date) if from_date else None,
         to_date=date.fromisoformat(to_date) if to_date else None,

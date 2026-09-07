@@ -156,6 +156,7 @@ class SyncPlan:
     skipped_unchanged: int = 0
     estimated_bytes: int = 0
     include_safety_databases: bool = False
+    include_console_logs: bool = True
     from_date: str | None = None
     to_date: str | None = None
 
@@ -169,6 +170,7 @@ class SyncPlan:
         artifacts: list[RemoteArtifact],
         skipped_unchanged: int,
         include_safety_databases: bool,
+        include_console_logs: bool = True,
         workspace: str | None = None,
         workspace_identity: dict[str, Any] | None = None,
         workspace_epoch: str | None = None,
@@ -191,6 +193,7 @@ class SyncPlan:
                 "workspace": workspace,
                 "workspace_identity": workspace_identity,
                 "workspace_epoch": workspace_epoch,
+                "include_console_logs": include_console_logs,
                 "from_date": from_date.isoformat() if from_date else None,
                 "to_date": to_date.isoformat() if to_date else None,
                 "artifacts": [
@@ -219,6 +222,7 @@ class SyncPlan:
             skipped_unchanged=skipped_unchanged,
             estimated_bytes=sum(item.size_bytes for item in artifacts),
             include_safety_databases=include_safety_databases,
+            include_console_logs=include_console_logs,
             from_date=from_date.isoformat() if from_date else None,
             to_date=to_date.isoformat() if to_date else None,
         )

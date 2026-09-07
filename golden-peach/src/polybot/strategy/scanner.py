@@ -28,6 +28,47 @@ from .filters import (
 logger = logging.getLogger(__name__)
 
 
+def _with_source_sport_context(
+    book_json: str,
+    event: Dict[str, Any],
+    market: Dict[str, Any],
+    sport_family: str,
+    observed_at: datetime,
+) -> str:
+    """Keep public source clocks verbatim; innings are never soccer minutes."""
+    def public_value(value: Any) -> Any:
+        if value is None or isinstance(value, (bool, int)):
+            return value
+        if isinstance(value, float):
+            return value if math.isfinite(value) else None
+        if isinstance(value, str):
+            return value[:512]
+        if isinstance(value, dict):
+            return {
+                key: public_value(value[key])
+                for key in ("elapsed", "display", "time", "value", "period", "home", "away", "homeScore", "awayScore")
+                if key in value and not isinstance(value[key], (dict, list))
+            }
+        return None
+
+    book = json.loads(book_json)
+    book["source_sport_context"] = {
+        "schema_version": 1,
+        "source": "POLYMARKET_GAMMA_EVENT",
+        "sport_family": sport_family,
+        "event_id": str(event.get("id") or ""),
+        "observed_at": observed_at.astimezone(timezone.utc).isoformat(),
+        "observation_basis": "CYCLE_REFERENCE_UTC_NOT_SOURCE_RECEIPT",
+        "source_event_updated_at": public_value(event.get("updatedAt")),
+        "source_market_updated_at": public_value(market.get("updatedAt")),
+        "fields": {
+            key: public_value(event.get(key))
+            for key in ("period", "elapsed", "clock", "score", "live", "ended", "gameStatus", "status")
+        },
+    }
+    return json.dumps(book, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
+
+
 def _market_tags_json(market: Dict[str, Any]) -> str:
     tags = market.get("tags") or []
     return json.dumps(
@@ -299,6 +340,10 @@ class MarketScanner:
                         )
                         else None
                     )
+                    if book_json is not None and getattr(self.clob, "simulation_mode", False) is True:
+                        book_json = _with_source_sport_context(
+                            book_json, event, market, self.config.sport_family, reference
+                        )
                     execution_capacity_json = None
                     if self.config.scaling_notionals_usdc:
                         if book_json is None:

@@ -158,6 +158,7 @@ class SyncService:
         job: str,
         strategy: str | None = None,
         include_safety_databases: bool = False,
+        include_console_logs: bool = True,
         days: int | None = None,
         from_date: date | None = None,
         to_date: date | None = None,
@@ -214,6 +215,8 @@ class SyncService:
                 to_date=to_date,
             )
             if artifact.kind == "jenkins_console":
+                if not include_console_logs:
+                    continue
                 if artifact.strategy not in {None, selected_strategy}:
                     continue
             elif artifact.strategy != selected_strategy:
@@ -281,6 +284,7 @@ class SyncService:
             artifacts=selected,
             skipped_unchanged=unchanged,
             include_safety_databases=include_safety_databases,
+            include_console_logs=include_console_logs,
             from_date=from_date,
             to_date=to_date,
         )
