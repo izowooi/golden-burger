@@ -6,6 +6,7 @@ import hashlib
 import json
 import math
 import os
+import re
 from pathlib import Path
 from typing import Mapping
 import yaml
@@ -38,6 +39,7 @@ RUNTIMES.update({f'guava-live-{job}-{arm}-v1':RuntimeSpec(f'guava-live-{job}-{ar
 class TradingConfig:
     lifecycle_mode:str='archive_only'
     cadence_seconds:int=60
+    slot_phase_seconds:int=0
     cycle_budget_seconds:float=45
     network_stop_margin_seconds:float=7
     sport_families:list[str]=field(default_factory=lambda:list(FAMILIES))
@@ -83,12 +85,17 @@ class Config:
     def cohort_key(self):return self.config_hash+':'+self.strategy_source_digest+':'+self.spec.mode+':'+self.job_name
 
     def public_snapshot(self):
-        return {'strategy_name':STRATEGY_NAME,'job_name':self.job_name,'jenkins_job':self.spec.jenkins_job,
+        snapshot={'strategy_name':STRATEGY_NAME,'job_name':self.job_name,'jenkins_job':self.spec.jenkins_job,
             'mode':self.spec.mode,'simulation_mode':self.simulation_mode,
             'release_stage':RELEASE_STAGE,
             'data_contract':RESEARCH_CONTRACT if self.simulation_mode else 'guava-live-v1',
             'config_hash':self.config_hash,'strategy_source_digest':self.strategy_source_digest,
             'trading':asdict(self.trading),'shard_index':self.spec.shard,'shard_count':4,'arm':self.spec.arm}
+        if self.simulation_mode:
+            snapshot['slot_claim_policy']={'cadence_seconds':self.trading.cadence_seconds,
+                'phase_seconds':self.trading.slot_phase_seconds,'window':'UTC_HALF_OPEN',
+                'actual_timestamps_preserved':True}
+        return snapshot
 
 
 def _finite(value,label,minimum=0,strict=False):
@@ -105,6 +112,8 @@ def _utc(value):
 
 
 def validate(trading):
+    if type(trading.slot_phase_seconds) is not int or not 0<=trading.slot_phase_seconds<60:
+        raise ValueError('slot_phase_seconds must be an integer in 0..59')
     ints=('cadence_seconds','page_size','max_pages_per_family','book_batch_limit','max_tokens_per_cycle',
           'followup_batch_limit','max_positions','max_new_positions_per_cycle')
     for name in ints:
@@ -145,7 +154,13 @@ def load_config(path=None,job_name='guava-research-a-v1',*,mode=None,environment
     if 'simulation_mode' in payload and not isinstance(payload['simulation_mode'],bool):raise ValueError('simulation_mode must be boolean')
     if 'POLYBOT_LIFECYCLE_MODE' in env:raw['lifecycle_mode']=env['POLYBOT_LIFECYCLE_MODE']
     elif spec.mode=='live':raw['lifecycle_mode']='active'
+    if 'POLYBOT_SLOT_PHASE_SECONDS' in env:
+        phase=env['POLYBOT_SLOT_PHASE_SECONDS']
+        if spec.mode!='sim' or not isinstance(phase,str) or not re.fullmatch(r'0|[1-5]?[0-9]',phase):
+            raise ValueError('slot phase override requires research mode and integer 0..59')
+        raw['slot_phase_seconds']=int(phase)
     trading=TradingConfig(**raw);validate_yaml_config_shape(payload,trading);validate(trading)
+    if spec.mode!='sim' and trading.slot_phase_seconds!=0:raise ValueError('slot phase is research-only')
     if spec.mode=='sim' and trading.lifecycle_mode!='archive_only':raise ValueError('research requires archive_only')
     digest=compute_strategy_source_digest(root)
     public={'strategy_name':STRATEGY_NAME,'spec':asdict(spec),'trading':asdict(trading),'strategy_source_digest':digest}

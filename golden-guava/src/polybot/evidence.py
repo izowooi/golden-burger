@@ -117,6 +117,20 @@ def _time(value):
     return parsed.astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
 
 
+def claimed_slot_window(started_at, phase_seconds=0):
+    """A phase changes scheduling admission, never a public receipt timestamp."""
+    if type(phase_seconds) is not int or not 0 <= phase_seconds < 60:
+        raise ValueError("invalid slot phase")
+    started_at = _time(started_at)
+    instant = datetime.fromisoformat(started_at.replace("Z", "+00:00"))
+    start = math.floor((instant.timestamp() - phase_seconds) / 60) * 60 + phase_seconds
+    def format_time(t):
+        return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return {"cadence_seconds": 60, "phase_seconds": phase_seconds,
+            "start_utc": format_time(start), "end_exclusive_utc": format_time(start + 60),
+            "actual_run_started_at": started_at}
+
+
 def _mapping(value, required=()):
     if not isinstance(value, dict) or any(key not in value for key in required):
         raise ValueError("evidence object is missing required fields")
@@ -420,11 +434,22 @@ class Repository:
         if self._run_state(run_id) != "STARTED":
             raise ValueError("run is already terminal")
 
-    def start_run(self, run_id, started_at, config_snapshot):
+    def start_run(self, run_id, started_at, config_snapshot, *, claimed_window=None):
         run_id, started_at = _text(run_id), _time(started_at)
         _mapping(config_snapshot)
         snapshot_json = _json(config_snapshot)
         contract = self.contract
+        run_contract = contract
+        if claimed_window is None and ("slot_claim_policy" in contract
+                or "slot_phase_seconds" in contract.get("trading", {})):
+            raise ValueError("claimed window required for explicit slot policy")
+        if claimed_window is not None:
+            if snapshot_json != self._contract_json:
+                raise ValueError("config snapshot differs from run contract")
+            expected = claimed_slot_window(started_at, contract.get("trading", {}).get("slot_phase_seconds", 0))
+            if _json(claimed_window) != _json(expected):
+                raise ValueError("claimed window differs from actual start/config phase")
+            run_contract = {**contract, "claimed_window": expected}
         if any(key in config_snapshot and config_snapshot[key] != contract[key] for key in _COHORT_KEYS):
             raise ValueError("config snapshot identity does not match the run contract")
         if "simulation_mode" in config_snapshot and config_snapshot["simulation_mode"] is not True:
@@ -447,7 +472,7 @@ class Repository:
                 "run_id": run_id, "started_at": started_at,
                 **self._identity,
                 "config_hash": self._config_hash, "strategy_source_digest": self._source_digest,
-                "cohort_key": self._cohort_key, "contract_json": self._contract_json,
+                "cohort_key": self._cohort_key, "contract_json": _json(run_contract),
             })
             self._insert("run_events", {"run_id": run_id, "status": "STARTED", "occurred_at": started_at})
 
@@ -647,10 +672,19 @@ class Repository:
             "FROM collection_contracts WHERE singleton=1"
         ).fetchone())
         row = self.connection.execute("""SELECT run_id,started_at,strategy_name,job_name,mode,data_contract,
-            config_hash,strategy_source_digest,cohort_key FROM run_audits
+            config_hash,strategy_source_digest,cohort_key,contract_json FROM run_audits
             ORDER BY started_at DESC,run_id DESC LIMIT 1""").fetchone()
         latest = dict(row) if row else None
         if latest is not None:
+            contract = json.loads(latest.pop("contract_json"))
+            phase = contract.get("trading", {}).get("slot_phase_seconds", 0)
+            expected_claim = claimed_slot_window(latest["started_at"], phase)
+            claim = contract.get("claimed_window")
+            explicit = "slot_phase_seconds" in contract.get("trading", {}) or "slot_claim_policy" in contract
+            if (claim is None and explicit) or (claim is not None and _json(claim) != _json(expected_claim)):
+                raise ValueError("recorded claimed window is invalid")
+            latest["claimed_window"] = expected_claim
+            latest["claim_recording"] = "RECORDED" if claim is not None else "LEGACY_DERIVED_PHASE_ZERO"
             terminal = self.connection.execute("""SELECT status,occurred_at,error_type,phase
                 FROM run_events WHERE run_id=? AND status!='STARTED'""", (latest["run_id"],)).fetchone()
             latest.update(status=terminal["status"] if terminal else "STARTED",

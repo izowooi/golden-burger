@@ -113,3 +113,63 @@ def test_unsafe_paths_and_output(tmp_path):
     output=tmp_path/"report.json"
     assert health.main(["--start",START,"--end",END,"--output",str(output)])==1
     assert len(json.loads(output.read_text())["required_shards"])==4
+
+
+def add_phase_contract(p,phase=30,*,damage=None):
+    with sqlite3.connect(p) as c:
+        config=json.loads(c.execute('select config_json from strategy_configs').fetchone()[0])
+        config['trading']['slot_phase_seconds']=phase
+        config['slot_claim_policy']={'phase_seconds':phase,'cadence_seconds':60,'window':'UTC_HALF_OPEN','actual_timestamps_preserved':True}
+        claim=health.claimed_window(START,phase)
+        contract={**config,'claimed_window':claim}
+        if damage=='start':contract['claimed_window']['start_utc']=START
+        elif damage=='end':contract['claimed_window']['end_exclusive_utc']=END
+        elif damage=='phase':contract['claimed_window']['phase_seconds']=0
+        elif damage=='float_phase':contract['claimed_window']['phase_seconds']=float(phase)
+        elif damage=='actual':contract['claimed_window']['actual_run_started_at']=END
+        elif damage=='missing':del contract['claimed_window']
+        elif damage=='other_config':contract={**contract,'shard_count':9}
+        encoded=packed(config)
+        c.execute('update strategy_configs set config_json=?,snapshot_sha256=?',(encoded,hashlib.sha256(encoded.encode()).hexdigest()))
+        c.execute('update run_audits set contract_json=?',(packed(contract),))
+        c.execute('update cycles set summary_json=?',(packed({'census_complete':True,'claimed_window':claim}),))
+    seal(p)
+
+
+def test_phase_windows_do_not_replace_legacy_utc_minute_denominator(tmp_path):
+    p=fixture(tmp_path);add_phase_contract(p)
+    result=health.analyze([p],START,END);file=result['files'][0];cohort=file['cohorts'][0]
+    assert result['integrity_pass']
+    assert file['cadence']['slots_intersecting_requested_range']==1
+    assert file['cadence']['successful_slots']==1
+    assert cohort['phase_cadence']['expected_phase_windows']==2
+    assert cohort['phase_cadence']['observed_phase_windows']==1
+    assert cohort['claimed_windows'][0]['basis']=='RECORDED'
+    assert cohort['claimed_windows'][0]['window']['actual_run_started_at']=='2026-09-06T00:00:00.000000Z'
+
+
+@pytest.mark.parametrize('damage',['start','end','phase','float_phase','actual','missing','other_config'])
+def test_corrupt_claim_or_other_config_is_not_ignored(tmp_path,damage):
+    p=fixture(tmp_path);add_phase_contract(p,damage=damage)
+    result=health.analyze([p],START,END)
+    assert not result['integrity_pass']
+    assert any('CLAIMED_WINDOW' in e or 'CONFIG_HASH_OR_SNAPSHOT' in e for e in result['files'][0]['errors'])
+
+
+def test_failed_phase_run_retains_reproducible_claim(tmp_path):
+    p=fixture(tmp_path);add_phase_contract(p)
+    with sqlite3.connect(p) as c:
+        c.execute("delete from cycles")
+        c.execute("update run_events set status='FAILED' where status='SUCCEEDED'")
+    seal(p)
+    result=health.analyze([p],START,END)
+    claim=result['files'][0]['cohorts'][0]['claimed_windows'][0]
+    assert claim['status']=='FAILED' and claim['basis']=='RECORDED'
+    assert claim['window']==health.claimed_window(START,30)
+
+
+def test_legacy_no_window_is_explicitly_derived_phase_zero(tmp_path):
+    p=fixture(tmp_path);result=health.analyze([p],START,END)
+    claim=result['files'][0]['cohorts'][0]['claimed_windows'][0]
+    assert claim['basis']=='LEGACY_DERIVED_PHASE_ZERO'
+    assert claim['window']['phase_seconds']==0

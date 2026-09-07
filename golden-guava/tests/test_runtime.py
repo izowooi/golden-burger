@@ -61,7 +61,9 @@ def test_live_spec_cannot_enter_research_runtime(tmp_path):
     with pytest.raises(ValueError,match='never manages real orders'):runtime.run_research(cfg)
 
 
-def test_full_six_book_cycle_publishes_all_hypotheses(fixture):
+@pytest.mark.parametrize('phase',[0,30])
+def test_full_six_book_cycle_publishes_all_hypotheses(fixture,phase):
+    fixture=replace(fixture,trading=replace(fixture.trading,slot_phase_seconds=phase))
     import importlib.util
     from pathlib import Path
     import json
@@ -130,28 +132,29 @@ def test_full_six_book_cycle_publishes_all_hypotheses(fixture):
         assert result['book_attempts']==6
         assert result['tracking'][event['id']]['consecutive_failures']==0
         assert runtime.parsed(result['tracking'][event['id']]['next_due_at'])==datetime(
-            2026,9,6,8,minute+1,tzinfo=timezone.utc)
+            2026,9,6,8,minute+1,phase,tzinfo=timezone.utc)
     assert len(followups)==3
 
     Followup.response_status='ERROR'
     for minute,expected_next in ((4,5),(5,7)):
-        stamp=f'2026-09-06T08:{minute:02d}:01Z'
-        result=runtime.run_research(fixture,now=datetime(2026,9,6,8,minute,tzinfo=timezone.utc),
+        stamp=f'2026-09-06T08:{minute:02d}:51Z'
+        result=runtime.run_research(fixture,now=datetime(2026,9,6,8,minute,50,tzinfo=timezone.utc),
             client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
         assert result['book_attempts']==0
         assert runtime.parsed(result['tracking'][event['id']]['next_due_at']).minute==expected_next
-    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,6,tzinfo=timezone.utc),
+    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,6,50,tzinfo=timezone.utc),
         client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
     assert result['book_attempts']==0 and len(followups)==5
-    Followup.response_status='OK';stamp='2026-09-06T08:07:01Z'
-    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,7,tzinfo=timezone.utc),
+    Followup.response_status='OK';stamp='2026-09-06T08:07:56Z'
+    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,7,55,tzinfo=timezone.utc),
         client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
     assert result['book_attempts']==6 and len(followups)==6
     assert result['tracking'][event['id']]['consecutive_failures']==0
     assert runtime.parsed(result['tracking'][event['id']]['next_due_at']).minute==8
-    postgame['id']='different-exact-event';stamp='2026-09-06T08:08:01Z'
+    assert runtime.parsed(result['tracking'][event['id']]['next_due_at']).second==phase
+    postgame['id']='different-exact-event';stamp='2026-09-06T08:08:56Z'
     with pytest.raises(ValueError,match='followup event identity mismatch'):
-        runtime.run_research(fixture,now=datetime(2026,9,6,8,8,tzinfo=timezone.utc),
+        runtime.run_research(fixture,now=datetime(2026,9,6,8,8,55,tzinfo=timezone.utc),
             client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
     with sqlite3.connect(fixture.db_path) as c:
         assert c.execute("SELECT count(*) FROM run_events WHERE status='FAILED'").fetchone()[0]==1

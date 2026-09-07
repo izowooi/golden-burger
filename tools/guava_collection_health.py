@@ -92,6 +92,31 @@ def cadence(runs, statuses, start, end):
             "last_started_at": max((r["started_at"] for r in runs), default=None)}
 
 
+def claimed_window(started_at, phase):
+    if type(phase) is not int or not 0 <= phase < 60:
+        raise ValueError("invalid slot phase")
+    instant = utc(started_at)
+    beginning = math.floor((instant.timestamp() - phase) / 60) * 60 + phase
+    def format_time(t):
+        return datetime.fromtimestamp(t, timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z")
+    return {"cadence_seconds": 60, "phase_seconds": phase,
+            "start_utc": format_time(beginning), "end_exclusive_utc": format_time(beginning + 60),
+            "actual_run_started_at": format_time(instant.timestamp())}
+
+
+def phase_cadence(runs, statuses, start, end, phase):
+    shifted = lambda t: math.floor((utc(t).timestamp() - phase) / 60)
+    slots = Counter(shifted(r["started_at"]) for r in runs)
+    successful = {shifted(r["started_at"]) for r in runs if statuses[r["run_id"]] == "SUCCEEDED"}
+    expected = math.ceil((end.timestamp() - phase) / 60) - math.floor((start.timestamp() - phase) / 60)
+    return {"phase_seconds": phase, "basis": "phase_windows_intersecting_requested_range",
+            "expected_phase_windows": expected, "observed_phase_windows": len(slots),
+            "successful_phase_windows": len(successful), "duplicate_phase_windows": sum(n - 1 for n in slots.values()),
+            "unobserved_phase_windows": max(0, expected - len(slots)),
+            "phase_success_ratio": len(successful) / expected if expected else None,
+            "does_not_replace_utc_minute_coverage": True}
+
+
 def inspect_snapshot(path, start, end):
     p, sha, before = verified_path(path)
     errors, groups, statuses, warnings = [], defaultdict(list), {}, []
@@ -122,8 +147,21 @@ def inspect_snapshot(path, start, end):
                 errors.append("SHARD_OR_CADENCE_CONFIG:" + rid)
             config = c.execute("SELECT * FROM strategy_configs WHERE config_hash=? AND strategy_source_digest=?",
                                (run["config_hash"], run["strategy_source_digest"])).fetchone()
-            if not config or hashlib.sha256(config["config_json"].encode()).hexdigest() != config["snapshot_sha256"] or json.loads(config["config_json"]) != contract:
+            frozen = json.loads(config["config_json"]) if config else {}
+            without_claim = dict(contract); recorded_claim = without_claim.pop("claimed_window", None)
+            if not config or hashlib.sha256(config["config_json"].encode()).hexdigest() != config["snapshot_sha256"] or frozen != without_claim:
                 errors.append("CONFIG_HASH_OR_SNAPSHOT:" + rid)
+            explicit_phase = "slot_phase_seconds" in frozen.get("trading", {}) or "slot_claim_policy" in frozen
+            try:
+                phase = frozen.get("trading", {}).get("slot_phase_seconds", 0)
+                expected_claim = claimed_window(run["started_at"], phase)
+                if (recorded_claim is None and explicit_phase) or (recorded_claim is not None
+                        and json.dumps(recorded_claim, sort_keys=True) != json.dumps(expected_claim, sort_keys=True)):
+                    errors.append("CLAIMED_WINDOW:" + rid)
+                run["derived_claimed_window"] = expected_claim
+                run["claimed_window_basis"] = "RECORDED" if recorded_claim is not None else "LEGACY_DERIVED_PHASE_ZERO"
+            except (ValueError, TypeError):
+                errors.append("CLAIMED_WINDOW:" + rid)
             keys = ("strategy_name", "job_name", "mode", "data_contract", "config_hash", "strategy_source_digest")
             if any(contract.get(k) != run[k] for k in keys):
                 errors.append("CONTRACT_RUN_MISMATCH:" + rid)
@@ -157,6 +195,9 @@ def inspect_snapshot(path, start, end):
                 if cycle["cohort_key"] != key:
                     errors.append("CYCLE_COHORT:" + rid)
                 summary = json.loads(cycle["summary_json"])
+                contract = json.loads(run["contract_json"])
+                if "claimed_window" in contract and summary.get("claimed_window") != contract["claimed_window"]:
+                    errors.append("CYCLE_CLAIMED_WINDOW:" + rid)
                 census[str(summary.get("census_complete"))] += 1
                 if summary.get("census_complete") is not True:
                     errors.append("CENSUS_INCOMPLETE:" + rid)
@@ -202,6 +243,11 @@ def inspect_snapshot(path, start, end):
                      "census": dict(census), "current_events_within_scope": current_events,
                      "first_event_at": min(times, default=None), "last_event_at": max(times, default=None)}
             entry["coverage"]["book_observation_ratio"] = counts["observed_books"] / counts["expected_books"] if counts["expected_books"] else None
+            phase = json.loads(members[0]["contract_json"]).get("trading", {}).get("slot_phase_seconds", 0)
+            if type(phase) is int and 0 <= phase < 60:
+                entry["phase_cadence"] = phase_cadence(members, statuses, start, end, phase)
+            entry["claimed_windows"] = [{"run_id": r["run_id"], "status": statuses[r["run_id"]],
+                "basis": r.get("claimed_window_basis"), "window": r.get("derived_claimed_window")} for r in members]
             cohorts.append(entry)
         timing = cadence(runs, statuses, start, end)
         if timing["duplicate_slots"] or timing["unobserved_slots_requested_range"] or any(v != "SUCCEEDED" for v in statuses.values()):

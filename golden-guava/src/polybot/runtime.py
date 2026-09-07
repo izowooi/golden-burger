@@ -10,7 +10,7 @@ from uuid import uuid4
 
 from .book import depth_metrics
 from .budget import Budget
-from .evidence import Repository
+from .evidence import Repository,claimed_slot_window
 from .hypotheses import compute
 from .identity import extract_event
 from .public_clients import PublicClients
@@ -79,10 +79,12 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
         client=None;news=None;run_id=uuid4().hex;phase='slot';started=False
         try:
             latest=repo.status()['latest_run']
-            slot=now.replace(second=0,microsecond=0)
+            claimed_window=claimed_slot_window(utc(now),config.trading.slot_phase_seconds)
+            slot=parsed(claimed_window['start_utc'])
             if latest and parsed(latest['started_at'])>=slot:
-                return {'skipped':True,'reason':'slot_already_claimed_or_clock_reversed','owner_run_id':latest['run_id']}
-            repo.start_run(run_id,utc(now),config.public_snapshot())
+                return {'skipped':True,'reason':'slot_already_claimed_or_clock_reversed','owner_run_id':latest['run_id'],
+                    'attempted_window':claimed_window}
+            repo.start_run(run_id,utc(now),config.public_snapshot(),claimed_window=claimed_window)
             started=True
             sink=lambda receipt,payload:repo.record_request(run_id,receipt,payload)
             client=client_factory(asdict(config.trading),budget,sink)
@@ -122,7 +124,7 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                 view=extract_event(result['raw'],entry['sport_family'],result['observed_at'],allow_postgame=True)
                 if view['event_id']!=event_id:raise ValueError('followup event identity mismatch')
                 # H5 needs the first post-result quote. Successful follow-up
-                # returns at the next UTC minute, even if the next Jenkins run
+                # returns at the next phase window, even if the next Jenkins run
                 # starts earlier within its minute. Receipts keep actual times.
                 entry['consecutive_failures']=0
                 entry['next_due_at']=utc(slot+timedelta(seconds=config.trading.cadence_seconds))
@@ -171,6 +173,7 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                     ladder=config.trading.depth_ladder_usdc,rates=config.trading.fee_stress_rates))
             phase='public_stream';stream=stream_reader(tokens,budget,sink)
             summary={'strategy_name':'golden-guava','job_name':config.job_name,'mode':'sim','run_id':run_id,
+                'claimed_window':claimed_window,
                 'census_complete':all(x.get('cursor_complete') for x in sweeps),'sweeps':sweeps,
                 'event_count':len(selected),'eligible_events':sum(e['eligible'] for e in selected),
                 'book_attempts':len(books),'book_observed':sum(isinstance(b.get('raw'),dict) for b in books),
