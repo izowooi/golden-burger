@@ -233,8 +233,8 @@ class _Clob:
         return _normalize_clob_resolution(condition_id, deepcopy(value))
 
 
-def _scanner(tmp_path, markets, walks=None):
-    Session = init_database(str(tmp_path / "scanner.db"))
+def _scanner(tmp_path, markets, walks=None, *, enable_research_raw=False):
+    Session = init_database(str(tmp_path / "scanner.db"), enable_research_raw=enable_research_raw)
     session = Session()
     repo = TradeRepository(session)
     gamma = _Gamma(markets)

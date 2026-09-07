@@ -21,6 +21,7 @@ from sqlalchemy.orm import declarative_base, sessionmaker
 
 
 Base = declarative_base()
+_RAW_TABLE_NAMES = frozenset({"raw_book_cycles", "raw_book_observations", "raw_event_observations", "raw_tracked_events"})
 STRATEGY_NAME = "golden-peach"
 STOP_SELL_QUARANTINE_REASON = (
     "stop_sell_reconciliation_timeout_3h_unknown_exposure"
@@ -337,6 +338,91 @@ class SkippedMarket(Base):
     skipped_at = Column(DateTime, default=datetime.utcnow, index=True)
 
 
+class RawBookCycle(Base):
+    """Atomic raw collection publication; its run can independently fail later."""
+    __tablename__ = "raw_book_cycles"
+    run_id = Column(String, primary_key=True)
+    config_hash = Column(String, nullable=False, index=True)
+    strategy_source_digest = Column(String, nullable=False)
+    job_name = Column(String, nullable=False)
+    sport_family = Column(String, nullable=False)
+    contract = Column(String, nullable=False)
+    observed_at = Column(DateTime, nullable=False)
+    published_at = Column(DateTime, nullable=False)
+    status = Column(String, nullable=False)
+    expected_events = Column(Integer, nullable=False)
+    expected_tokens = Column(Integer, nullable=False)
+    observed_tokens = Column(Integer, nullable=False)
+    evidence_json = Column(String, nullable=False)
+
+
+class RawBookObservation(Base):
+    __tablename__ = "raw_book_observations"
+    observation_id = Column(String, primary_key=True)
+    run_id = Column(String, ForeignKey("raw_book_cycles.run_id"), nullable=False, index=True)
+    event_id = Column(String, nullable=False, index=True)
+    slot = Column(String, nullable=False)
+    condition_id = Column(String)
+    token_id = Column(String, index=True)
+    status = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    requested_at = Column(DateTime)
+    received_at = Column(DateTime)
+    book_json = Column(String)
+    book_sha256 = Column(String)
+
+
+class RawEventObservation(Base):
+    __tablename__ = "raw_event_observations"
+    observation_id = Column(String, primary_key=True)
+    run_id = Column(String, ForeignKey("raw_book_cycles.run_id"), nullable=False, index=True)
+    event_id = Column(String, nullable=False, index=True)
+    status = Column(String, nullable=False)
+    reason = Column(String, nullable=False)
+    expected_tokens = Column(Integer, nullable=False)
+    identified_tokens = Column(Integer, nullable=False)
+    observed_at = Column(DateTime, nullable=False)
+    evidence_json = Column(String, nullable=False)
+
+
+class RawTrackedEvent(Base):
+    """Mutable scheduling index; every transition also has append-only evidence."""
+    __tablename__ = "raw_tracked_events"
+    tracking_id = Column(String, primary_key=True)
+    job_name = Column(String, nullable=False, index=True)
+    sport_family = Column(String, nullable=False)
+    event_id = Column(String, nullable=False)
+    state = Column(String, nullable=False, index=True)
+    slots_json = Column(String, nullable=False)
+    first_seen_at = Column(DateTime, nullable=False)
+    last_checked_at = Column(DateTime, nullable=False, index=True)
+    missing_count = Column(Integer, nullable=False, default=0)
+    identity_attempt_count = Column(Integer, nullable=False, default=0)
+
+
+def _install_raw_evidence_guards(connection) -> None:
+    for table in ("raw_book_cycles", "raw_book_observations", "raw_event_observations"):
+        _verify_model_columns(connection, table)
+        primary_key = "run_id" if table == "raw_book_cycles" else "observation_id"
+        connection.exec_driver_sql(
+            f"CREATE TRIGGER IF NOT EXISTS {table}_forbid_replace "
+            f"BEFORE INSERT ON {table} WHEN EXISTS "
+            f"(SELECT 1 FROM {table} WHERE {primary_key}=NEW.{primary_key}) BEGIN "
+            "SELECT RAISE(ABORT, 'append-only raw evidence'); END"
+        )
+        for operation in ("UPDATE", "DELETE"):
+            connection.exec_driver_sql(
+                f"CREATE TRIGGER IF NOT EXISTS {table}_forbid_{operation.lower()} "
+                f"BEFORE {operation} ON {table} BEGIN "
+                "SELECT RAISE(ABORT, 'append-only raw evidence'); END"
+            )
+    _verify_model_columns(connection, "raw_tracked_events")
+    connection.exec_driver_sql(
+        "CREATE INDEX IF NOT EXISTS raw_tracked_events_due_idx "
+        "ON raw_tracked_events(job_name,state,last_checked_at,event_id)"
+    )
+
+
 _TRADE_MIGRATION_COLUMNS = {
     # The first Golden Peach schema predates the additive evidence columns.
     # Keep every base column explicit so sparse legacy DBs migrate
@@ -562,7 +648,8 @@ def _upgrade_database_schema(connection) -> None:
     _ensure_columns(connection, "market_sweeps", _SWEEP_MIGRATION_COLUMNS)
     _ensure_columns(connection, "market_catalog", _CATALOG_MIGRATION_COLUMNS)
     for table_name in Base.metadata.tables:
-        _verify_model_columns(connection, table_name)
+        if table_name not in _RAW_TABLE_NAMES:
+            _verify_model_columns(connection, table_name)
     connection.execute(
         text(
             "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
@@ -616,6 +703,7 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
     maintenance_on_start: bool = True,
+    enable_research_raw: bool = False,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
     if maintenance_on_start:
@@ -629,7 +717,10 @@ def init_database(
     # maintenance must not consume a one-minute collection slot before HTTP.
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     try:
-        Base.metadata.create_all(engine)
+        Base.metadata.create_all(
+            engine, tables=[table for name, table in Base.metadata.tables.items()
+                            if enable_research_raw or name not in _RAW_TABLE_NAMES],
+        )
         with engine.connect() as connection:
             # Python's sqlite3 legacy transaction mode does not begin a
             # transaction for DDL. Begin explicitly so every additive ALTER,
@@ -638,6 +729,8 @@ def init_database(
             connection.exec_driver_sql("BEGIN IMMEDIATE")
             try:
                 _upgrade_database_schema(connection)
+                if enable_research_raw:
+                    _install_raw_evidence_guards(connection)
             except Exception:
                 connection.rollback()
                 raise

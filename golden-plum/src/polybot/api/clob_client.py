@@ -530,6 +530,48 @@ def select_take_profit_sell_from_book_evidence(
     )
 
 
+def _research_batch_observations(response, requested, requested_at, received_at):
+    """Strict read-only quote evidence, independent of any BUY walk."""
+    base = {"requested_at": requested_at, "received_at": received_at}
+    result = {token: {**base, "status": "MISSING", "reason": "response_token_absent", "book_json": None} for token in requested}
+    if not isinstance(response, (list, tuple)):
+        return {token: {**base, "status": "ERROR", "reason": "batch_shape_invalid", "book_json": None} for token in requested}
+    seen = set()
+    for book in response:
+        token = str(_book_field(book, "asset_id") or "").strip()
+        if token not in result:
+            return {token: {**base, "status": "ERROR", "reason": "batch_token_identity_invalid", "book_json": None} for token in requested}
+        if token in seen:
+            result[token] = {**base, "status": "ERROR", "reason": "duplicate_token", "book_json": None}
+            continue
+        seen.add(token)
+        try:
+            for side in ("asks", "bids"):
+                raw_levels = _book_field(book, side)
+                if isinstance(raw_levels, (list, tuple)) and any(
+                    isinstance(_book_field(level, field), bool)
+                    for level in raw_levels for field in ("price", "size")
+                ):
+                    raise ClobResponseContractError("boolean CLOB price/size")
+            canonical = _canonical_book_evidence(book, token)
+            value = json.loads(canonical)
+            bids, asks = value["bids"], value["asks"]
+            if bids and asks and bids[0]["price"] > asks[0]["price"] + 1e-9:
+                status, reason = "ERROR", "crossed_book"
+            else:
+                status = "FULL" if bids and asks else "EMPTY_ASKS" if bids else "EMPTY_BIDS" if asks else "EMPTY_BOOK"
+                reason = "source_full_levels"
+            for key in ("timestamp", "tick_size", "min_order_size", "hash"):
+                raw = _book_field(book, key)
+                if isinstance(raw, (str, int, float)) and not isinstance(raw, bool):
+                    if not isinstance(raw, float) or math.isfinite(raw):
+                        value["source_" + key] = raw
+            result[token] = {**base, "status": status, "reason": reason, "book_json": json.dumps(value, sort_keys=True, separators=(",", ":"))}
+        except (ClobResponseContractError, TypeError, ValueError):
+            result[token] = {**base, "status": "ERROR", "reason": "book_shape_invalid", "book_json": None}
+    return result
+
+
 def _canonical_book_evidence(book: Any, token_id: str) -> str:
     """Serialize direct displayed levels for later counterfactual replay."""
     payload = {
@@ -1606,13 +1648,20 @@ class ClobClientWrapper:
         )
         results: Dict[str, BuyBookWalk] = {}
         self._book_evidence_by_token = {}
+        research = getattr(self, "simulation_mode", False) is True
+        if research:
+            self._research_book_observations = {token: {"status": "NOT_ATTEMPTED", "reason": "batch_not_started", "book_json": None, "requested_at": None, "received_at": None} for token in unique}
         failed = 0
         for offset in range(0, len(unique), batch_size):
             chunk = unique[offset : offset + batch_size]
+            requested_at = datetime.now(timezone.utc).isoformat()
             try:
                 response = self.client.get_order_books(
                     [BookParams(token_id=token) for token in chunk]
                 )
+                if research:
+                    self._research_book_observations.update(_research_batch_observations(
+                        response, chunk, requested_at, datetime.now(timezone.utc).isoformat()))
                 if not isinstance(response, (list, tuple)):
                     raise ClobResponseContractError(
                         "CLOB batch order-book response must be a sequence"
@@ -1634,6 +1683,10 @@ class ClobClientWrapper:
                     ):
                         failed += 1
             except Exception as error:
+                if research:
+                    from ..utils.deadline import CycleDeadlineExceeded
+                    deferred = isinstance(error, CycleDeadlineExceeded)
+                    self._research_book_observations.update({token: {"status": "NOT_ATTEMPTED" if deferred else "ERROR", "reason": "cycle_budget" if deferred else type(error).__name__, "book_json": None, "requested_at": None if deferred else requested_at, "received_at": None} for token in chunk})
                 failed += len(chunk)
                 logger.warning(
                     "CLOB full-book batch failed closed - tokens=%s error=%s",
@@ -1648,6 +1701,11 @@ class ClobClientWrapper:
             failed + max(0, len(unique) - len(results) - failed),
         )
         return results
+
+    def get_cached_research_observation(self, token_id: str) -> Optional[dict]:
+        """Latest batch attempt/receipt; never infer absence from a BUY walk."""
+        value = getattr(self, "_research_book_observations", {}).get(str(token_id))
+        return dict(value) if value is not None else None
 
     def get_cached_book_evidence(self, token_id: str) -> Optional[str]:
         """Return the raw normalized levels from the latest batch read."""

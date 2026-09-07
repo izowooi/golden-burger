@@ -10,13 +10,22 @@ from tests.test_scanner import NOW, _event, _scanner, _triad
 
 
 @pytest.mark.parametrize("simulation", [False, True])
-def test_context_is_persisted_only_for_simulation(tmp_path, simulation):
+def test_context_is_persisted_only_for_simulation(tmp_path, simulation, monkeypatch):
     event = _event()
     event.update(score="1-0", updatedAt="2026-09-07T09:00:00Z")
     markets = _triad(event=event)
-    fixture = _scanner(tmp_path, markets)
+    fixture = _scanner(tmp_path, markets, enable_research_raw=simulation)
     session, scanner = fixture[0], fixture[2]
     scanner.clob.simulation_mode = simulation
+    if simulation:
+        from sqlalchemy import text
+        from polybot.strategy import research_raw
+        session.execute(text("CREATE TABLE run_audits(run_id TEXT PRIMARY KEY, config_hash TEXT, job_name TEXT, mode TEXT)"))
+        session.execute(text("INSERT INTO run_audits VALUES('raw-run','cfg','shadow','sim')"))
+        session.commit()
+        monkeypatch.setattr(research_raw, "current_run_id", lambda: "raw-run")
+        scanner.config.strategy_source_digest = "a" * 64
+        scanner.clob.get_cached_research_observation = lambda token: {"status": "FULL", "reason": "fixture", "book_json": scanner.clob.get_cached_book_evidence(token), "requested_at": NOW, "received_at": NOW}
     before = scanner.clob.get_cached_book_evidence("yes-HOME")
     assert scanner.save_market_snapshots(markets, now=NOW) == 6
     rows = session.query(MarketSnapshot).all()

@@ -43,6 +43,7 @@ class PolymarketBot:
                 retention_days=float(config.trading.archive.retention_days),
             ),
             maintenance_on_start=not config.simulation_mode,
+            enable_research_raw=config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")
         self.gamma = GammaClient(
@@ -189,11 +190,17 @@ class PolymarketBot:
         }
         try:
             self._log_strategy_config()
-            markets = scanner.fetch_markets()
+            try:
+                markets = scanner.fetch_markets()
+            except Exception as error:
+                scanner.save_raw_discovery_failure("discovery_" + type(error).__name__)
+                raise
             trader.set_cycle_markets(markets)
 
             logger.info("=== Phase 0: exact-book sports archive ===")
             stats["snapshots_saved"] = scanner.save_market_snapshots(markets)
+            if hasattr(scanner, "last_raw_collection"):
+                stats["raw_collection"] = scanner.last_raw_collection
             sweep = self.gamma.last_sweep_attestation
             if not isinstance(sweep, dict):
                 sweep = {}

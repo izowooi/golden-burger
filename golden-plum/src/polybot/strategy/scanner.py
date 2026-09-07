@@ -21,6 +21,7 @@ from ..api.clob_client import (
 from ..api.gamma_client import GammaClient
 from ..config import BASELINE_EXECUTION_NOTIONAL_USDC, TradingConfig
 from ..db.repository import TradeRepository
+from .research_raw import begin_raw_archive
 from .filters import (
     get_event,
     get_event_metadata,
@@ -574,6 +575,11 @@ class MarketScanner:
             return False, "outside_in_play_window", game_start, in_play_hours
         return True, "archive_eligible", game_start, in_play_hours
 
+    def save_raw_discovery_failure(self, reason: str) -> None:
+        archive, _ = begin_raw_archive(self, datetime.now(timezone.utc), [], discovery_error=reason)
+        if archive is not None:
+            self.last_raw_collection = archive.publish()
+
     def save_market_snapshots(
         self,
         markets: List[Dict],
@@ -598,6 +604,7 @@ class MarketScanner:
         )
         evidence_context = self._evidence_context()
 
+        raw_archive, raw_tokens = begin_raw_archive(self, reference, markets)
         sides = [
             side
             for market in markets
@@ -606,9 +613,12 @@ class MarketScanner:
         token_ids = list(
             dict.fromkeys(str(side["token_id"]) for side in sides)
         )
+        token_ids = list(dict.fromkeys([*token_ids, *raw_tokens]))
         self._walks = self.clob.get_buy_book_walks(
             token_ids, notional_usdc=BASELINE_EXECUTION_NOTIONAL_USDC
         )
+        if raw_archive is not None:
+            self.last_raw_collection = raw_archive.publish()
         self._snapshot_ids.clear()
         snapshot_results: Dict[str, Dict[str, Any]] = {}
         saved = 0

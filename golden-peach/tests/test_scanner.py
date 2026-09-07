@@ -161,8 +161,8 @@ class _Clob:
         )
 
 
-def _scanner(tmp_path, markets, walks=None, config=None):
-    Session = init_database(str(tmp_path / "scanner.db"))
+def _scanner(tmp_path, markets, walks=None, config=None, *, enable_research_raw=False):
+    Session = init_database(str(tmp_path / "scanner.db"), enable_research_raw=enable_research_raw)
     session = Session()
     repo = TradeRepository(session)
     scanner = MarketScanner(

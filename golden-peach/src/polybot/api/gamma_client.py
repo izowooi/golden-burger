@@ -307,6 +307,7 @@ class GammaClient:
         ):
             raise ValueError("server liquidity and volume gates must be nonnegative")
 
+        self.last_raw_sweep_events = {}
         observed_at = datetime.now(timezone.utc)
         sweep_id = str(uuid4())
         after_cursor: Optional[str] = None
@@ -349,6 +350,10 @@ class GammaClient:
             pages = page_number
             event_count += len(events)
             for event in events:
+                if self.cycle_budget is not None and self.cycle_budget.enforce_deadline:
+                    event_id = str(event.get("id") or "")
+                    if event_id:
+                        self.last_raw_sweep_events[event_id] = dict(event)
                 markets = event.get("markets")
                 if not isinstance(markets, list):
                     continue
