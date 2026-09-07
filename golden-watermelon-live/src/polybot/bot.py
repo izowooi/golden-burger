@@ -115,13 +115,14 @@ class PolymarketBot:
             "execution - FOK BUY + bid-triggered FOK protective stop "
             "max(%.2f, entry-%.2f); "
             "normal stop-limit floor trigger-%.2f spread<=%.2f loss<=%.0f%%; "
-            "no TP/time-exit; adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
+            "take_profit_enabled=%s no time-exit; adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
             entry.stop_price,
             entry.max_entry_drawdown,
             entry.max_stop_slippage,
             entry.max_stop_spread,
             entry.max_stop_loss_fraction * 100,
+            trading.take_profit.enabled,
             trading.buy_amount_usdc,
             trading.max_positions,
             trading.max_event_positions,
@@ -265,7 +266,15 @@ class PolymarketBot:
                                 trade.id,
                             )
                     sell_walks = batch_sell_books(sell_requests)
-                for trade in holdings:
+                ordinary_holdings = holdings
+                if trading.take_profit.enabled:
+                    for trade_id in trader.execute_holding_exits(holdings, prefetched_walks=sell_walks):
+                        stats["sold"] += 1
+                        updated = repo.get_by_id(trade_id)
+                        if updated is not None:
+                            repo.append_trade_to_csv(updated, self.config.db_path.parent)
+                    ordinary_holdings = []
+                for trade in ordinary_holdings:
                     token_id = str(trade.token_id)
                     if token_id in sell_walks:
                         sold = trader.execute_sell(
@@ -759,6 +768,14 @@ class PolymarketBot:
                     "min_order_size": trading.min_order_size,
                     "min_order_buffer_shares": trading.min_order_buffer_shares,
                     "yes_only_mode": trading.yes_only_mode,
+                    "take_profit": {
+                        "enabled": trading.take_profit.enabled,
+                        "price": trading.take_profit.price,
+                        "effective_from_utc": trading.take_profit.effective_from_utc,
+                        "include_existing_holdings": trading.take_profit.include_existing_holdings,
+                        "max_book_age_seconds": trading.take_profit.max_book_age_seconds,
+                        "fee_rounding_reserve_usdc": trading.take_profit.fee_rounding_reserve_usdc,
+                    },
                     "entry": {
                         "prob_min": trading.entry.prob_min,
                         "prob_max": trading.entry.prob_max,

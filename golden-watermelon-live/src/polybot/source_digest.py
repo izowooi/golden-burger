@@ -10,6 +10,7 @@ ACTIVE_PREREGISTRATION = (
     "research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md"
 )
 ACCOUNT_PREREGISTRATION = "research/frozen-2026-09-06-catdog-nfl-v5/PREREGISTRATION.md"
+TAKE_PROFIT_PREREGISTRATION = "research/proposed-2026-09-07-tp99/RELEASE.md"
 
 
 def _runtime_files(project_root: Path) -> list[Path]:
@@ -65,6 +66,6 @@ def compute_strategy_source_digest(project_root: Path = PROJECT_ROOT) -> str:
     return digest.hexdigest()
 
 
-def preregistration_sha256(project_root: Path = PROJECT_ROOT, *, account_profile=False) -> str:
-    path = ACCOUNT_PREREGISTRATION if account_profile else ACTIVE_PREREGISTRATION
+def preregistration_sha256(project_root: Path = PROJECT_ROOT, *, account_profile=False, take_profit_profile=False) -> str:
+    path = TAKE_PROFIT_PREREGISTRATION if take_profit_profile else (ACCOUNT_PREREGISTRATION if account_profile else ACTIVE_PREREGISTRATION)
     return sha256_file(project_root.resolve() / path)

@@ -8,6 +8,7 @@ from decimal import Decimal, ROUND_DOWN
 import logging
 import math
 import re
+import time
 from typing import Iterable, Mapping, Optional
 
 from polybot_observability import (
@@ -30,6 +31,8 @@ from ..db.models import (
     STOP_SELL_ISOLATION_REASONS,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
     STOP_SELL_QUARANTINE_REASON,
+    TAKE_PROFIT_QUARANTINE_REASON,
+    TAKE_PROFIT_LEDGER_QUARANTINE_REASON,
     PENDING_BUY_QUARANTINE_REASON,
     STRATEGY_NAME,
     TradeStatus,
@@ -75,6 +78,7 @@ _CLOB_QUANTITY_SCALE = 1_000_000
 _FILL_SIZE_TOLERANCE = 1e-6
 _MAX_SIGNED_SELL_DUST_SHARES = 0.01 + _FILL_SIZE_TOLERANCE
 _STOP_SELL_FAILURE_RETRY_REASON = "stop_sell_failure_retrying"
+_TAKE_PROFIT_FAILURE_RETRY_REASON = "take_profit_sell_failure_retrying"
 
 
 def _sdk_sellable_shares(holding_shares: float) -> float:
@@ -1210,7 +1214,9 @@ class Trader:
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.QUARANTINED,
-            exit_reason=STOP_SELL_QUARANTINE_REASON,
+            exit_reason=(TAKE_PROFIT_QUARANTINE_REASON
+                         if str(getattr(trade, "exit_reason", "")).startswith("take_profit")
+                         else STOP_SELL_QUARANTINE_REASON),
             realized_pnl=None,
             hypothetical_pnl=None,
             pnl_basis=None,
@@ -1267,12 +1273,14 @@ class Trader:
         trade,
         *,
         error: SubmissionEvidenceError,
+        exit_kind: str = "absolute_stop",
     ) -> None:
         """Contain an accepted-or-unknown SELL whose ledger cannot be bound."""
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.QUARANTINED,
-            exit_reason=STOP_SELL_LEDGER_QUARANTINE_REASON,
+            exit_reason=(TAKE_PROFIT_LEDGER_QUARANTINE_REASON if exit_kind == "take_profit"
+                         else STOP_SELL_LEDGER_QUARANTINE_REASON),
             sell_timestamp=(
                 getattr(trade, "sell_timestamp", None) or datetime.utcnow()
             ),
@@ -1296,20 +1304,22 @@ class Trader:
         best_ask: Optional[float],
         spread: Optional[float],
         detail: str,
+        exit_kind: str = "absolute_stop",
     ) -> None:
         """Persist the first continuous stop failure for the 3h deadline."""
+        retry_reason = _TAKE_PROFIT_FAILURE_RETRY_REASON if exit_kind == "take_profit" else _STOP_SELL_FAILURE_RETRY_REASON
         previous_reason = str(getattr(trade, "exit_reason", "") or "")
         previous_timestamp = getattr(trade, "sell_timestamp", None)
         started_at = (
             previous_timestamp
-            if previous_reason == _STOP_SELL_FAILURE_RETRY_REASON
+            if previous_reason == retry_reason
             and isinstance(previous_timestamp, datetime_module.datetime)
             else datetime.utcnow()
         )
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.HOLDING,
-            exit_reason=_STOP_SELL_FAILURE_RETRY_REASON,
+            exit_reason=retry_reason,
             sell_price=walk.vwap,
             sell_shares=None,
             sell_order_id=None,
@@ -1335,10 +1345,10 @@ class Trader:
             detail,
         )
 
-    def _clear_stop_sell_failure(self, trade) -> None:
+    def _clear_stop_sell_failure(self, trade, *, reason: str = _STOP_SELL_FAILURE_RETRY_REASON) -> None:
         if (
             str(getattr(trade, "exit_reason", "") or "")
-            != _STOP_SELL_FAILURE_RETRY_REASON
+            != reason
         ):
             return
         self.repo.update_trade(
@@ -1686,13 +1696,17 @@ class Trader:
             - sell_evidence.confirmed_fee_usdc
         )
         has_dust = residual_shares > _FILL_SIZE_TOLERANCE
+        exit_kind = (
+            "take_profit" if str(getattr(trade, "exit_reason", "")).startswith("take_profit")
+            else "absolute_stop"
+        )
         self.repo.update_trade(
             trade.id,
             status=TradeStatus.COMPLETED,
             exit_reason=(
-                "absolute_stop_confirmed_fill_with_recorded_sdk_dust"
+                f"{exit_kind}_confirmed_fill_with_recorded_sdk_dust"
                 if has_dust
-                else "absolute_stop_confirmed_fill"
+                else f"{exit_kind}_confirmed_fill"
             ),
             sell_price=sell_evidence.confirmed_vwap,
             sell_shares=size,
@@ -1714,8 +1728,9 @@ class Trader:
             sell_residual_shares=residual_shares,
         )
         logger.info(
-            "confirmed stop SELL 완료: Trade #%s size=%.6f residual=%.6f "
+            "confirmed %s SELL 완료: Trade #%s size=%.6f residual=%.6f "
             "vwap=%.4f actual sold-portion P&L=$%.4f",
+            exit_kind,
             trade.id,
             size,
             residual_shares,
@@ -1730,8 +1745,10 @@ class Trader:
         *,
         prefetched_walk=None,
         book_prefetched: bool = False,
+        allow_take_profit: bool = True,
+        take_profit_only: bool = False,
     ) -> bool:
-        """Submit one full-depth marketable FOK stop, except proven SDK dust."""
+        """Manage the existing stop and opt-in profitable TP with one FOK path."""
         try:
             sellable_shares = _sdk_sellable_shares(float(trade.buy_shares))
             if book_prefetched:
@@ -1769,14 +1786,22 @@ class Trader:
             )
         best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
         stop_price = _effective_stop_price(trade, self.config)
+        if (str(getattr(trade, "exit_reason", "")) == _TAKE_PROFIT_FAILURE_RETRY_REASON
+            and (not self.config.take_profit.enabled or best_bid < self.config.take_profit.price)):
+            self._clear_stop_sell_failure(trade, reason=_TAKE_PROFIT_FAILURE_RETRY_REASON)
         if best_bid > stop_price + 1e-9:
             self._clear_stop_sell_failure(trade)
+            if allow_take_profit and self._take_profit_applies(trade) and best_bid >= self.config.take_profit.price:
+                return self._execute_take_profit(trade, sellable_shares)
             logger.debug(
                 "hold to resolution - trade=%s bid=%.4f stop=%.4f",
                 trade.id,
                 best_bid,
                 stop_price,
             )
+            return False
+
+        if take_profit_only:
             return False
 
         # A post-game/pre-resolution book can briefly contain only a 0.001
@@ -1870,6 +1895,13 @@ class Trader:
             walk.levels_used,
             walk.shares,
         )
+        return self._submit_full_holding_sell(trade, walk, exit_kind="absolute_stop")
+
+    def _submit_full_holding_sell(self, trade, walk, *, exit_kind: str) -> bool:
+        """Shared FOK/unknown-outcome/SDK-dust lifecycle for stops and TP."""
+        if exit_kind not in {"absolute_stop", "take_profit"}:
+            raise ValueError("unsupported holding exit kind")
+        best_bid, best_ask, spread = walk.best_bid, walk.best_ask, walk.spread
         try:
             result = self.clob.place_limit_order(
                 token_id=trade.token_id,
@@ -1880,7 +1912,7 @@ class Trader:
             )
         except SubmissionEvidenceError as error:
             self.emergency_sell_submissions += 1
-            self._quarantine_stop_sell_ledger_failure(trade, error=error)
+            self._quarantine_stop_sell_ledger_failure(trade, error=error, exit_kind=exit_kind)
             return False
         if result.get("submission_outcome_unknown"):
             # A timeout is not a proven rejection. Keep the exposure pending
@@ -1894,7 +1926,7 @@ class Trader:
                 best_ask=best_ask,
                 spread=spread,
                 sell_shares=None,
-                reason="stop_sell_submission_outcome_unknown",
+                reason=f"{exit_kind}_sell_submission_outcome_unknown" if exit_kind == "take_profit" else "stop_sell_submission_outcome_unknown",
             )
             return False
         accepted = bool(result.get("success") or result.get("orderID"))
@@ -1915,7 +1947,7 @@ class Trader:
                     best_ask=best_ask,
                     spread=spread,
                     sell_shares=None,
-                    reason="signed_sell_size_evidence_invalid",
+                    reason=f"{exit_kind}_signed_sell_size_evidence_invalid" if exit_kind == "take_profit" else "signed_sell_size_evidence_invalid",
                 )
             return False
         residual_shares = float(trade.buy_shares) - sell_shares
@@ -1947,7 +1979,7 @@ class Trader:
                         if math.isfinite(sell_shares) and sell_shares > 0
                         else None
                     ),
-                    reason="signed_sell_size_drift_unsafe",
+                    reason=f"{exit_kind}_signed_sell_size_drift_unsafe" if exit_kind == "take_profit" else "signed_sell_size_drift_unsafe",
                 )
             return False
         residual_shares = max(0.0, residual_shares)
@@ -1975,7 +2007,7 @@ class Trader:
                     trade.id,
                     **common,
                     status=TradeStatus.COMPLETED,
-                    exit_reason="absolute_stop_simulation_hypothetical",
+                    exit_reason=f"{exit_kind}_simulation_hypothetical",
                     realized_pnl=None,
                     hypothetical_pnl=hypothetical_pnl,
                     pnl_basis="simulation_hypothetical_best_bid_fees_excluded",
@@ -1985,14 +2017,19 @@ class Trader:
                 trade.id,
                 **common,
                 status=TradeStatus.PENDING_SELL,
-                exit_reason="absolute_stop_pending_confirmed_fill",
+                exit_reason=(
+                    "take_profit_pending_confirmed_fill"
+                    if exit_kind == "take_profit"
+                    else "absolute_stop_pending_confirmed_fill"
+                ),
                 realized_pnl=None,
                 hypothetical_pnl=None,
                 pnl_basis=None,
             )
             logger.info(
-                "absolute-stop FOK SELL 접수, confirmed fill 대기: "
+                "%s FOK SELL 접수, confirmed fill 대기: "
                 "Trade #%s order=%s bid=%.4f size=%.6f",
+                exit_kind,
                 trade.id,
                 result.get("orderID"),
                 best_bid,
@@ -2011,7 +2048,7 @@ class Trader:
             trade.buy_shares,
             f"{available:.6f}" if available is not None else "미상",
         )
-        logger.error("absolute-stop FOK SELL 실패: %s", result)
+        logger.error("%s FOK SELL 실패: %s", exit_kind, result)
         self._record_stop_sell_failure(
             trade,
             walk=walk,
@@ -2019,8 +2056,129 @@ class Trader:
             best_ask=best_ask,
             spread=spread,
             detail=classify_sell_failure(result, trade.buy_shares),
+            exit_kind=exit_kind,
         )
         return False
+
+    def _take_profit_applies(self, trade) -> bool:
+        policy = self.config.take_profit
+        if not policy.enabled or getattr(trade, "status", None) != TradeStatus.HOLDING:
+            return False
+        # The caller supplies bot-owned repository holdings. A manually supplied
+        # wallet position still cannot pass without an exact bot BUY ledger key.
+        if not getattr(trade, "buy_order_id", None) or not getattr(trade, "id", None):
+            return False
+        bought = getattr(trade, "buy_timestamp", None)
+        try:
+            effective = datetime.fromisoformat(policy.effective_from_utc.replace("Z", "+00:00"))
+            if effective.tzinfo is None or datetime.now(timezone.utc) < effective:
+                return False
+            if policy.include_existing_holdings:
+                return True
+            if not isinstance(bought, datetime_module.datetime):
+                return False
+            if bought.tzinfo is None:
+                bought = bought.replace(tzinfo=timezone.utc)
+            return bought >= effective
+        except (TypeError, ValueError):
+            return False
+
+    def _execute_take_profit(self, trade, sellable_shares: float) -> bool:
+        """A 0.99 indication is insufficient: require executable positive net.
+
+        Profit is a conservative pre-POST estimate. Venue delays or fee changes
+        can still differ; no realized result is recorded before exact fills.
+        Both TP and stops consume the existing one-SELL cycle budget.
+        """
+        policy = self.config.take_profit
+        try:
+            buy = self.repo.get_exact_buy_fill_evidence(trade.buy_order_id)
+            if not self._actual_fill_ready(buy) or not math.isclose(
+                buy.confirmed_size, float(trade.buy_shares), rel_tol=0,
+                abs_tol=_FILL_SIZE_TOLERANCE,
+            ):
+                return False
+            if self.emergency_sell_submissions >= self.config.max_emergency_sells_per_cycle:
+                self.emergency_sell_guard_blocks += 1
+                return False
+            if not self._stop_execution_is_explicitly_live(trade):
+                return False
+            observed = time.monotonic()
+            walk = self.clob.get_sell_book_walk(trade.token_id, shares=sellable_shares)
+            numbers = (walk.vwap, walk.limit_price, walk.best_bid, walk.shares,
+                       buy.confirmed_vwap, buy.confirmed_fee_usdc)
+            if any(not math.isfinite(float(value)) for value in numbers):
+                return False
+            # The canonical CLOB parser accepts [] asks but rejects missing,
+            # malformed and NaN levels. SELL consumes bids: a valid empty ask
+            # side cannot worsen its signed minimum execution price.
+            ask_side_safe = walk.best_ask is None and walk.spread is None
+            if walk.best_ask is not None:
+                ask_side_safe = (math.isfinite(float(walk.best_ask))
+                    and walk.best_bid <= walk.best_ask <= 1
+                    and walk.spread is not None and math.isfinite(float(walk.spread))
+                    and 0 <= walk.spread <= self.config.entry.max_stop_spread
+                    and math.isclose(walk.spread, walk.best_ask-walk.best_bid, rel_tol=0, abs_tol=1e-9))
+            if (str(walk.token_id) != str(trade.token_id)
+                or not math.isclose(walk.shares, sellable_shares, rel_tol=0, abs_tol=_FILL_SIZE_TOLERANCE)
+                or not policy.price <= walk.limit_price <= walk.vwap <= walk.best_bid < 1
+                or not ask_side_safe
+                or not 0 < buy.confirmed_vwap < 1 or buy.confirmed_fee_usdc < 0):
+                return False
+            fee_quote = float(self.clob.get_sell_fee_quote(
+                trade.token_id, shares=sellable_shares, minimum_price=walk.limit_price,
+            ))
+            if not math.isfinite(fee_quote) or fee_quote < 0:
+                return False
+            if time.monotonic() - observed > policy.max_book_age_seconds:
+                return False
+            quantity = Decimal(str(sellable_shares))
+            # Recover the whole confirmed BUY basis even if the unsellable SDK
+            # dust ultimately pays zero. The realized ledger still accounts for
+            # the sold portion and preserves the residual as separate exposure.
+            net_floor = (Decimal(str(walk.limit_price)) * quantity
+                         - Decimal(str(buy.confirmed_vwap)) * Decimal(str(buy.confirmed_size))
+                         - Decimal(str(buy.confirmed_fee_usdc)) - Decimal(str(fee_quote))
+                         - Decimal(str(policy.fee_rounding_reserve_usdc))).quantize(Decimal("0.000001"), rounding=ROUND_DOWN)
+            if not net_floor.is_finite() or net_floor <= 0:
+                return False
+            if self._quarantine_stop_sell_if_due(trade, detail="continuous take-profit FOK failure exceeded timeout"):
+                return False
+            logger.info(
+                "take-profit proposal eligible: trade=%s limit=%.4f displayed_vwap=%.4f "
+                "fee_quote=%.6f reserve=%.6f projected_net_floor=%.6f; not a fill",
+                trade.id, walk.limit_price, walk.vwap, fee_quote,
+                policy.fee_rounding_reserve_usdc, net_floor,
+            )
+        except Exception as error:
+            logger.warning("take-profit preflight unavailable: trade=%s error=%s",
+                           trade.id, type(error).__name__)
+            return False
+        # Submission exceptions must retain the same fail-closed behavior as
+        # the stop path; they are not swallowed as a harmless quote failure.
+        return self._submit_full_holding_sell(trade, walk, exit_kind="take_profit")
+
+    def execute_holding_exits(self, holdings, *, prefetched_walks=None) -> list[int]:
+        """Inspect every emergency stop before spending the shared budget on TP.
+
+        Only the opt-in release calls this dispatcher. Re-read repository state
+        before the TP phase so a pending/resolved/quarantined holding is never
+        submitted twice, including when the first phase changed its lifecycle.
+        """
+        walks = prefetched_walks or {}
+        completed = []
+        for tp_phase in (False, True):
+            for original in holdings:
+                trade = self.repo.get_by_id(original.id) if tp_phase else original
+                if trade is None or getattr(trade, "status", None) != TradeStatus.HOLDING:
+                    continue
+                token = str(trade.token_id)
+                kwargs = {"allow_take_profit": tp_phase, "take_profit_only": tp_phase}
+                if token in walks:
+                    kwargs.update(prefetched_walk=walks[token], book_prefetched=True)
+                if self.execute_sell(trade, **kwargs):
+                    completed.append(trade.id)
+        return completed
 
     def _stop_execution_is_explicitly_live(self, trade) -> bool:
         """Require independent Gamma and CLOB lifecycle proof before a stop."""

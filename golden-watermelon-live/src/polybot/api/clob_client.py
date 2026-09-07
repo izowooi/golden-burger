@@ -964,6 +964,23 @@ class ClobClientWrapper:
         )
         return enriched
 
+    def get_sell_fee_quote(self, token_id: str, *, shares: float, minimum_price: float) -> float:
+        """Conservative pre-POST estimate, never confirmed fee evidence.
+
+        Above 0.5, the dynamic fee curve decreases as price rises. Pricing the
+        entire quantity at the signed minimum therefore bounds the unrounded
+        fee for execution at or above that limit. Per-fill rounding remains a
+        separate configured reserve; exact fee truth comes from reconciliation.
+        """
+        quantity, price = Decimal(str(shares)), Decimal(str(minimum_price))
+        if not quantity.is_finite() or quantity <= 0 or not price.is_finite() or not Decimal("0.5") <= price < 1:
+            raise ClobResponseContractError("invalid SELL fee quote envelope")
+        # Quotes are not allowed to reuse a prior-cycle fee schedule.
+        self._fee_schedules_by_token.pop(str(token_id), None)
+        schedule = self._clob_v2_fee_schedule(str(token_id))
+        fee = quantity * schedule.rate * (price * (1 - price)) ** schedule.exponent
+        return float(fee)
+
     def _ensure_initialized(self):
         """Lazy initialization of the CLOB client."""
         if self._initialized:

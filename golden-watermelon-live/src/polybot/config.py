@@ -214,6 +214,11 @@ def profile_environment(runtime, inherited):
                POLYBOT_MAX_STOP_SLIPPAGE=str(policy.max_stop_slippage),
                POLYBOT_MAX_STOP_SPREAD=str(policy.max_stop_spread),
                POLYBOT_MAX_STOP_LOSS_FRACTION=str(policy.max_stop_loss_fraction))
+    if str(env.get("POLYBOT_TAKE_PROFIT_ENABLED", "false")).lower() in {"true", "1", "yes", "on"}:
+        if spec.jenkins_job not in {"polybot-cat", "polybot-dog"}:
+            raise ValueError("take-profit account release is Cat/Dog only")
+        env.update(POLYBOT_ENTRY_PROB_MIN="0.95" if spec.jenkins_job == "polybot-cat" else "0.97",
+                   POLYBOT_ENTRY_PROB_MAX="0.989")
     return env
 
 
@@ -458,6 +463,18 @@ EntryConfig = WatermelonLiveEntryConfig
 
 
 @dataclass(frozen=True)
+class TakeProfitConfig:
+    """Opt-in release proposal; the registered production default stays off."""
+
+    enabled: bool = False
+    price: float = 0.99
+    effective_from_utc: str = ""
+    include_existing_holdings: bool = False
+    max_book_age_seconds: float = 3.0
+    fee_rounding_reserve_usdc: float = 0.001
+
+
+@dataclass(frozen=True)
 class ArchiveConfig:
     """Small live-universe evidence archive bounds."""
 
@@ -499,6 +516,7 @@ class TradingConfig:
     classifier_version: str = CLASSIFIER_VERSION
     league_mapping_sha256: str = LEAGUE_MAPPING_SHA256
     entry: WatermelonLiveEntryConfig = field(default_factory=WatermelonLiveEntryConfig)
+    take_profit: TakeProfitConfig = field(default_factory=TakeProfitConfig)
     archive: ArchiveConfig = field(default_factory=ArchiveConfig)
     excluded_categories: List[str] = field(default_factory=list)
 
@@ -642,10 +660,32 @@ def _validate_config(
         raise ValueError(
             "YES tokens / direct winner tokens must remain winner-only"
         )
-    if (entry.prob_min, entry.prob_max) != (runtime_spec.prob_min, policy.prob_max):
+    tp = trading.take_profit
+    if not isinstance(tp.enabled, bool) or not isinstance(tp.include_existing_holdings, bool):
+        raise ValueError("take_profit flags must be booleans")
+    expected_band = (runtime_spec.prob_min, policy.prob_max)
+    if tp.enabled:
+        if runtime_spec.jenkins_job not in {"polybot-cat", "polybot-dog"}:
+            raise ValueError("the proposed take-profit release is Cat/Dog only")
+        if tp.price != 0.99 or tp.max_book_age_seconds != 3.0 or tp.fee_rounding_reserve_usdc != 0.001:
+            raise ValueError("take-profit release requires 0.99, 3s freshness and $0.001 fee reserve")
+        try:
+            effective = datetime.fromisoformat(tp.effective_from_utc.replace("Z", "+00:00"))
+        except (AttributeError, ValueError) as error:
+            raise ValueError("take_profit.effective_from_utc must be explicit ISO-8601") from error
+        if effective.tzinfo is None:
+            raise ValueError("take_profit.effective_from_utc must include timezone")
+        if effective > datetime.now(timezone.utc):
+            raise ValueError("take_profit effective time must not be in the future; entry and TP change together")
+        expected_band = (0.95 if runtime_spec.jenkins_job == "polybot-cat" else 0.97, 0.989)
+        if trading.buy_amount_usdc != 5:
+            raise ValueError("the proposed take-profit release is fixed at $5")
+    elif tp.include_existing_holdings:
+        raise ValueError("existing holdings opt-in requires take_profit.enabled")
+    if (entry.prob_min, entry.prob_max) != expected_band:
         raise ValueError(
             f"{runtime_spec.runtime_job} entry band must remain "
-            f"{runtime_spec.prob_min:.2f}-0.999"
+            f"{expected_band[0]:.2f}-{expected_band[1]}"
         )
     if entry.stop_price != policy.stop_price:
         raise ValueError("emergency stop_price is frozen at 0.70")
@@ -753,9 +793,20 @@ def load_config(
     trading_cfg = get_trading_config_mapping(cfg)
     entry_cfg = trading_cfg.get("entry", {})
     archive_cfg = trading_cfg.get("archive", {})
+    tp_cfg = trading_cfg.get("take_profit", {})
+    if not isinstance(tp_cfg, dict):
+        raise ValueError("trading.take_profit must be a mapping")
     if not isinstance(entry_cfg, dict) or not isinstance(archive_cfg, dict):
         raise ValueError("trading.entry and trading.archive must be mappings")
 
+    take_profit = TakeProfitConfig(
+        enabled=_get_bool_config_value("POLYBOT_TAKE_PROFIT_ENABLED", tp_cfg.get("enabled"), False),
+        price=_get_config_value("POLYBOT_TAKE_PROFIT_PRICE", tp_cfg.get("price"), 0.99),
+        effective_from_utc=str(os.getenv("POLYBOT_TAKE_PROFIT_EFFECTIVE_FROM_UTC", tp_cfg.get("effective_from_utc", ""))),
+        include_existing_holdings=_get_bool_config_value("POLYBOT_TAKE_PROFIT_INCLUDE_EXISTING", tp_cfg.get("include_existing_holdings"), False),
+        max_book_age_seconds=_get_config_value("POLYBOT_TAKE_PROFIT_MAX_BOOK_AGE_SECONDS", tp_cfg.get("max_book_age_seconds"), 3.0),
+        fee_rounding_reserve_usdc=_get_config_value("POLYBOT_TAKE_PROFIT_FEE_RESERVE_USDC", tp_cfg.get("fee_rounding_reserve_usdc"), 0.001),
+    )
     entry = WatermelonLiveEntryConfig(
         prob_min=_get_config_value(
             "POLYBOT_ENTRY_PROB_MIN", None, runtime_spec.prob_min
@@ -923,8 +974,9 @@ def load_config(
             sport_family, FROZEN_START_UTC
         ),
         strategy_source_digest=compute_strategy_source_digest(SOURCE_PROJECT_ROOT),
-        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT, account_profile=runtime_spec.policy_key in {"catdog_mlb", "catdog_nfl"}),
+        preregistration_sha256=preregistration_sha256(SOURCE_PROJECT_ROOT, account_profile=runtime_spec.policy_key in {"catdog_mlb", "catdog_nfl"}, take_profit_profile=take_profit.enabled),
         entry=entry,
+        take_profit=take_profit,
         archive=archive,
         excluded_categories=_get_list_config_value(
             "POLYBOT_EXCLUDED_CATEGORIES",

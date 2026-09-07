@@ -28,12 +28,16 @@ STOP_SELL_QUARANTINE_REASON = (
 STOP_SELL_LEDGER_QUARANTINE_REASON = (
     "stop_sell_execution_ledger_failure_unknown_exposure"
 )
+TAKE_PROFIT_QUARANTINE_REASON = "take_profit_sell_reconciliation_timeout_3h_unknown_exposure"
+TAKE_PROFIT_LEDGER_QUARANTINE_REASON = "take_profit_sell_execution_ledger_failure_unknown_exposure"
 PENDING_BUY_QUARANTINE_REASON = (
     "pending_buy_reconciliation_timeout_3h_unknown_exposure"
 )
 STOP_SELL_ISOLATION_REASONS = (
     STOP_SELL_QUARANTINE_REASON,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
+    TAKE_PROFIT_QUARANTINE_REASON,
+    TAKE_PROFIT_LEDGER_QUARANTINE_REASON,
 )
 EVENT_LOCAL_QUARANTINE_REASONS = (
     *STOP_SELL_ISOLATION_REASONS,
