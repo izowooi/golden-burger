@@ -65,6 +65,19 @@ def _with_source_sport_context(
         "observation_basis": "CYCLE_REFERENCE_UTC_NOT_SOURCE_RECEIPT",
         "source_event_updated_at": public_value(event.get("updatedAt")),
         "source_market_updated_at": public_value(market.get("updatedAt")),
+        "market_fields": {
+            key: (
+                public_value(market.get(key))
+                if not isinstance(market.get(key), (dict, list))
+                else None
+            )
+            for key in (
+                "liquidity", "liquidityNum", "volume", "volumeNum", "volume24hr",
+                "active", "closed", "acceptingOrders", "enableOrderBook",
+                "sportsMarketType", "negRisk", "gameStartTime",
+                "feesEnabled", "feeRate", "fee_rate_bps", "feeExponent", "feeTakerOnly",
+            )
+        },
         "fields": {
             key: public_value(event.get(key))
             for key in ("period", "elapsed", "clock", "score", "live", "ended", "gameStatus", "status")

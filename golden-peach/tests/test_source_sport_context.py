@@ -30,6 +30,9 @@ def test_context_is_persisted_only_for_simulation(tmp_path, simulation):
         context = actual["source_sport_context"]
         assert context["fields"]["score"] == "1-0"
         assert context["fields"]["period"] == "1H"
+        assert context["market_fields"]["volumeNum"] == 20_000
+        assert context["market_fields"]["volume24hr"] == 3_000
+        assert context["market_fields"]["liquidityNum"] == 10_000
         assert context["observation_basis"] == "CYCLE_REFERENCE_UTC_NOT_SOURCE_RECEIPT"
     assert json.loads(scanner.clob.get_cached_book_evidence("yes-HOME")) == json.loads(before)
     session.close()
@@ -58,3 +61,24 @@ def test_structured_score_keeps_only_public_flat_fields():
     event = {"score": {"home": 3, "away": 2, "homeScore": "3", "awayScore": "2", "unrelated": "omit"}}
     result = json.loads(_with_source_sport_context('{"asks":[],"bids":[]}', event, {}, "mlb", NOW))
     assert result["source_sport_context"]["fields"]["score"] == {"home": 3, "away": 2, "homeScore": "3", "awayScore": "2"}
+
+
+def test_market_gate_context_keeps_observed_values_and_missing_fields():
+    market = {
+        "volume": "25001.50", "volumeNum": 25001.5, "volume24hr": 101.2,
+        "liquidityNum": 6000.25, "active": True, "closed": False,
+        "acceptingOrders": True, "enableOrderBook": True,
+        "sportsMarketType": "moneyline", "negRisk": False,
+        "gameStartTime": "2026-09-07T20:10:00Z",
+        "feesEnabled": True, "fee_rate_bps": None,
+        "unrelated": "omit",
+    }
+    original = deepcopy(market)
+    result = json.loads(_with_source_sport_context('{"asks":[],"bids":[]}', {}, market, "mlb", NOW))
+    fields = result["source_sport_context"]["market_fields"]
+    assert fields == {key: value for key, value in market.items() if key != "unrelated"} | {
+        "liquidity": None, "feeRate": None, "feeExponent": None, "feeTakerOnly": None,
+    }
+    assert fields["fee_rate_bps"] is None
+    assert result["source_sport_context"]["fields"]["elapsed"] is None
+    assert market == original
