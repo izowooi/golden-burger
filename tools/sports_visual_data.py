@@ -119,6 +119,300 @@ def read_runs(connection, white):
     return result
 
 
+RAW_ARCHIVE_TABLES = frozenset({"raw_book_cycles", "raw_book_observations", "raw_event_observations"})
+RAW_OBSERVED_BOOK_STATES = frozenset({"FULL", "EMPTY_ASKS", "EMPTY_BIDS", "EMPTY_BOOK"})
+
+
+def has_raw_archive(connection):
+    tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    present = tables & RAW_ARCHIVE_TABLES
+    if present and present != RAW_ARCHIVE_TABLES:
+        raise ValueError("incomplete full-sports-raw-v1 archive schema")
+    return bool(present)
+
+
+def _raw_timestamp(value):
+    try:
+        return timestamp(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+def _raw_expected_slots(family):
+    if family == "soccer":
+        return {f"{kind}:{side}" for kind in ("HOME", "DRAW", "AWAY") for side in ("YES", "NO")}
+    if family in {"mlb", "nba", "nfl", "nhl"}:
+        return {"HOME:DIRECT", "AWAY:DIRECT"}
+    return set()
+
+
+def _raw_context(connection, cycle, event, runs, configs):
+    """Validate same-publication identity without mutable market_catalog joins."""
+    issues = []
+    run = runs.get(cycle["run_id"], {})
+    config = configs.get(cycle["config_hash"], {})
+    if (cycle["contract"] != "full-sports-raw-v1" or run.get("config_hash") != cycle["config_hash"]
+        or cycle["strategy_source_digest"] != config.get("strategy_source_digest")
+        or cycle["job_name"] != run.get("job_name") or cycle["sport_family"] != config.get("sport")
+        or run.get("mode") not in {"sim", "simulation"}):
+        issues.append("raw_cycle_lineage_gap")
+    try:
+        payload = json.loads(event["evidence_json"])
+        slots = payload["slots"]
+        if not isinstance(slots, dict) or payload.get("contract") != "full-sports-raw-v1":
+            raise ValueError("event payload shape")
+    except (TypeError, ValueError, KeyError):
+        payload, slots = {}, {}
+        issues.append("raw_event_payload_invalid")
+    expected = _raw_expected_slots(cycle["sport_family"])
+    identities = []
+    for slot, identity in slots.items():
+        if slot not in expected or not isinstance(identity, dict):
+            issues.append("raw_slot_shape_invalid")
+            continue
+        if any(not isinstance(identity.get(k), str) or not identity[k] for k in ("token_id", "condition_id", "outcome")):
+            issues.append("raw_slot_identity_missing")
+            continue
+        if cycle["sport_family"] == "soccer" and identity["outcome"].upper() != slot.split(":")[1]:
+            issues.append("raw_slot_outcome_mismatch")
+        identities.append(identity["token_id"])
+    if len(set(identities)) != len(identities):
+        issues.append("raw_duplicate_token_identity")
+    well_formed = {slot: identity for slot, identity in slots.items()
+                   if slot in expected and isinstance(identity, dict)
+                   and all(isinstance(identity.get(k), str) and identity[k] for k in ("token_id", "condition_id", "outcome"))}
+    if cycle["sport_family"] == "soccer":
+        condition_results = defaultdict(set)
+        for slot, identity in well_formed.items():
+            condition_results[identity["condition_id"]].add(slot.split(":")[0])
+        if any(len(results) != 1 for results in condition_results.values()):
+            issues.append("raw_condition_shared_across_results")
+        for result in ("HOME", "DRAW", "AWAY"):
+            pair = [identity for slot, identity in well_formed.items() if slot.startswith(result+":")]
+            if len(pair) == 2 and pair[0]["condition_id"] != pair[1]["condition_id"]:
+                issues.append("raw_yes_no_condition_mismatch")
+    elif len(well_formed) == 2:
+        if len({x["condition_id"] for x in well_formed.values()}) != 1 or len({x["outcome"] for x in well_formed.values()}) != 2:
+            issues.append("raw_direct_condition_or_outcome_mismatch")
+    event_fields = payload.get("event") or {}
+    if event_fields.get("id") is not None and str(event_fields["id"]) != event["event_id"]:
+        issues.append("raw_event_id_mismatch")
+    if event["run_id"] != cycle["run_id"] or event["identified_tokens"] != len(slots):
+        issues.append("raw_event_publication_mismatch")
+    reference = _raw_timestamp(cycle["observed_at"])
+    if reference is None or _raw_timestamp(event["observed_at"]) != reference:
+        issues.append("raw_event_reference_mismatch")
+    books = connection.execute("SELECT COUNT(*) FROM raw_book_observations WHERE run_id=?", (cycle["run_id"],)).fetchone()[0]
+    events = connection.execute("SELECT COUNT(*) FROM raw_event_observations WHERE run_id=?", (cycle["run_id"],)).fetchone()[0]
+    event_books = connection.execute("SELECT COUNT(*) FROM raw_book_observations WHERE run_id=? AND event_id=?", (cycle["run_id"], event["event_id"])).fetchone()[0]
+    if books != cycle["expected_tokens"] or events != cycle["expected_events"] or event_books != event["expected_tokens"]:
+        issues.append("raw_atomic_publication_count_mismatch")
+    complete = not issues and set(slots) == expected and bool(expected)
+    return payload, slots, config, issues, complete
+
+
+def _raw_book(row):
+    """Return validated full levels, preserving no-response versus empty book."""
+    payload = row["book_json"]
+    if payload is None:
+        if row["status"] in RAW_OBSERVED_BOOK_STATES:
+            return {}, ["raw_book_payload_missing"]
+        return {}, []
+    issues = []
+    if hashlib.sha256(payload.encode()).hexdigest() != row["book_sha256"]:
+        return {}, ["raw_book_hash_mismatch"]
+    try:
+        book = json.loads(payload)
+        if not isinstance(book, dict) or str(book.get("token_id")) != row["token_id"]:
+            raise ValueError("book identity")
+        for side in ("asks", "bids"):
+            if not isinstance(book.get(side), list):
+                raise ValueError("book side absent")
+            for level in book[side]:
+                if not isinstance(level, dict) or isinstance(level.get("price"), bool) or isinstance(level.get("size"), bool):
+                    raise ValueError("invalid level shape")
+                price, size = number(level.get("price")), number(level.get("size"))
+                if price is None or size is None or not 0 < price <= 1 or size <= 0:
+                    raise ValueError("invalid level domain")
+        if row["status"] not in RAW_OBSERVED_BOOK_STATES:
+            issues.append("raw_book_status_not_observed")
+        empty_state = ("FULL" if book["asks"] and book["bids"] else "EMPTY_ASKS" if book["bids"] else "EMPTY_BIDS" if book["asks"] else "EMPTY_BOOK")
+        if row["status"] != empty_state:
+            issues.append("raw_empty_state_mismatch")
+        if book["asks"] and book["bids"]:
+            if max(number(x["price"]) for x in book["bids"]) > min(number(x["price"]) for x in book["asks"]) + 1e-9:
+                issues.append("raw_crossed_book")
+        return book, issues
+    except (TypeError, ValueError, KeyError):
+        return {}, ["raw_book_shape_invalid"]
+
+
+def raw_archive_rows(connection, start, end):
+    """One expected slot per raw observation, including failure/no-response rows.
+
+    raw_point_in_time_identity_proven covers identity, never enclosing run success
+    or liquidity. raw_entry_set_complete and raw_book_valid are separate gates.
+    Empty raw cycles intentionally produce no invented token observations.
+    """
+    if not has_raw_archive(connection):
+        return
+    runs, configs = read_runs(connection, False), read_configs(connection, False)
+    from functools import lru_cache
+
+    @lru_cache(maxsize=64)
+    def context(run_id, event_id):
+        cycle = connection.execute("SELECT * FROM raw_book_cycles WHERE run_id=?", (run_id,)).fetchone()
+        event = connection.execute("SELECT * FROM raw_event_observations WHERE run_id=? AND event_id=?", (run_id, event_id)).fetchall()
+        if cycle is None or len(event) != 1:
+            return cycle, None, {}, {}, {}, ["raw_event_anchor_missing_or_duplicate"], False
+        payload, slots, config, issues, complete = _raw_context(connection, dict(cycle), dict(event[0]), runs, configs)
+        return dict(cycle), dict(event[0]), payload, slots, config, issues, complete
+
+    point_expression = """CASE WHEN julianday(b.received_at) >= julianday(b.requested_at)
+        AND julianday(b.requested_at) >= julianday(c.observed_at)
+        AND julianday(b.received_at) <= julianday(c.published_at)
+        THEN b.received_at ELSE c.observed_at END"""
+    query = f"""SELECT b.*,{point_expression} AS point_at
+      FROM raw_book_observations b JOIN raw_book_cycles c ON c.run_id=b.run_id
+      WHERE julianday({point_expression}) >= julianday(?)
+        AND julianday({point_expression}) < julianday(?)
+      ORDER BY julianday({point_expression}),b.observation_id"""
+    for source in connection.execute(query, (start, end)):
+        row = dict(source)
+        cycle, event, payload, slots, config, errors, complete = context(row["run_id"], row["event_id"])
+        issues = list(errors)
+        identity = slots.get(row["slot"], {})
+        if row["slot"] not in _raw_expected_slots(cycle["sport_family"]):
+            issues.append("raw_observation_slot_invalid")
+        if not identity or identity.get("token_id") != row["token_id"] or identity.get("condition_id") != row["condition_id"]:
+            issues.append("raw_observation_anchor_mismatch")
+        book, book_issues = _raw_book(row)
+        quote_time_valid = None
+        if row["status"] in RAW_OBSERVED_BOOK_STATES:
+            try:
+                run = runs.get(row["run_id"], {})
+                times = [timestamp(value) for value in (run.get("started_at"), cycle["observed_at"], row["requested_at"], row["received_at"], cycle["published_at"])]
+                quote_time_valid = all(value is not None for value in times) and all(a <= b for a,b in zip(times,times[1:]))
+                if run.get("finished_at") is not None:
+                    quote_time_valid = quote_time_valid and times[-1] <= timestamp(run["finished_at"])
+                quote_time_valid = quote_time_valid and times[-1] < timestamp(end)
+            except (TypeError, ValueError, OverflowError):
+                quote_time_valid = False
+            if not quote_time_valid:
+                issues.append("raw_quote_time_or_publication_cutoff_invalid")
+                book_issues.append("raw_quote_time_or_publication_cutoff_invalid")
+        event_fields = payload.get("event") or {}
+        market_fields = next((m for m in payload.get("market_context", []) if m.get("conditionId") == row["condition_id"]), {})
+        result_kind, _, side = row["slot"].partition(":")
+        bids = [number(x["price"]) for x in book.get("bids", [])]
+        asks = [number(x["price"]) for x in book.get("asks", [])]
+        best_bid, best_ask = max(bids, default=None), min(asks, default=None)
+        midpoint = (best_bid+best_ask)/2 if best_bid is not None and best_ask is not None else None
+        book_valid = not book_issues and row["status"] in RAW_OBSERVED_BOOK_STATES
+        identity_proven = not issues
+        # Preserve native source strings. A future consumer must interpret the
+        # sport's clock; receipt time is not an inning or soccer elapsed minute.
+        sport_context = {"sport_family": cycle["sport_family"], "fields": event_fields, "market_fields": market_fields,
+                         "observation_basis": "RAW_EVENT_OBSERVATION_WITH_SEPARATE_BOOK_RECEIPT"}
+        clock = {"source_sport_context": sport_context, "raw_archive": {
+            "contract": cycle["contract"], "status": row["status"], "reason": row["reason"],
+            "requested_at": row["requested_at"], "received_at": row["received_at"],
+            "published_at": cycle["published_at"], "cycle_status": cycle["status"],
+            "event_status": event["status"] if event else None,
+            "identity_proven": identity_proven, "book_valid": book_valid,
+            "issues": issues+book_issues,
+            "timestamp_basis": (("BOOK_RECEIPT" if row["status"] in RAW_OBSERVED_BOOK_STATES else "BATCH_RECEIPT_NO_TOKEN_QUOTE") if row["received_at"] and row["point_at"] == row["received_at"] else "EXPECTED_SLOT_CYCLE_REFERENCE_NOT_QUOTE")}}
+        yield {"id": row["observation_id"], "run_id": row["run_id"], "event_id": row["event_id"],
+            "condition_id": row["condition_id"], "token_id": row["token_id"],
+            "outcome": identity.get("outcome"), "outcome_side": side, "result_kind": result_kind,
+            "timestamp": row["point_at"], "sport_family": cycle["sport_family"],
+            "title": event_fields.get("title") or row["event_id"], "slug": event_fields.get("slug"),
+            "question": None, "league": cycle["sport_family"].upper(),
+            "game_start": event_fields.get("startTime") or event_fields.get("gameStartTime"),
+            "best_bid": best_bid if book_valid else None, "best_ask": best_ask if book_valid else None,
+            "midpoint": midpoint if book_valid else None, "source_elapsed_minutes": None,
+            "source_clock_reason": "RAW_NATIVE_CLOCK_UNINTERPRETED", "source_updated_at": event_fields.get("updatedAt"),
+            "config_hash": cycle["config_hash"], "strategy_source_digest": cycle["strategy_source_digest"],
+            "sport_profile_version": config.get("sport_profile_version"), "protocol_sha256": config.get("protocol_sha256"),
+            "classifier_version": config.get("classifier_version"), "league_mapping_sha256": config.get("league_mapping_sha256"),
+            "event_cycle_id": None,
+            "raw_event_observation_id": event["observation_id"] if event else None,
+            "raw_evidence_origin": "full-sports-raw-v1",
+            "raw_publication_within_cutoff": _raw_timestamp(cycle["published_at"]) is not None and _raw_timestamp(cycle["published_at"]) < timestamp(end),
+            "event_set_complete": int(complete and identity_proven),
+            "raw_point_in_time_identity_proven": identity_proven,
+            "raw_entry_set_complete": complete, "raw_book_valid": book_valid,
+            "raw_book_integrity_error": bool(book_issues),
+            "raw_quote_time_valid": quote_time_valid,
+            "raw_event_lifecycle_status": event["status"] if event else None,
+            "raw_tradable_observed": event_fields.get("active") is True and event_fields.get("closed") is False and event_fields.get("live") is True and event_fields.get("ended") is False and market_fields.get("active") is True and market_fields.get("closed") is False and market_fields.get("enableOrderBook") is True and market_fields.get("acceptingOrders") is True,
+            "raw_observation_status": row["status"], "raw_observation_id": row["observation_id"],
+            "raw_book_json": row["book_json"], "raw_book_sha256": row["book_sha256"],
+            "point_in_time_market_fields": market_fields, "clock": clock,
+            "book": book if book_valid else {}, "book_json": compact(book) if book_valid else None}
+
+
+def raw_terminal_records(connection, runs, *, end=None):
+    """Read independent terminal evidence tied to one immutable raw publication."""
+    records = defaultdict(list)
+    if not has_raw_archive(connection):
+        return records
+    configs = read_configs(connection, False)
+    for raw_event in connection.execute("SELECT * FROM raw_event_observations WHERE status='RESOLVED' ORDER BY observed_at"):
+        event = dict(raw_event)
+        run = runs.get(event["run_id"], {})
+        if run.get("status") != "SUCCESS":
+            continue
+        raw_cycle = connection.execute("SELECT * FROM raw_book_cycles WHERE run_id=?", (event["run_id"],)).fetchone()
+        if raw_cycle is None:
+            continue
+        cycle = dict(raw_cycle)
+        temporal = [_raw_timestamp(value) for value in (run.get("started_at"), cycle["observed_at"], event["observed_at"], cycle["published_at"], run.get("finished_at"))]
+        if any(value is None for value in temporal) or any(a > b for a,b in zip(temporal,temporal[1:])):
+            continue
+        if end is not None and temporal[-1] >= timestamp(end):
+            continue
+        payload, slots, config, issues, complete = _raw_context(connection, cycle, event, runs, configs)
+        if issues or not complete or event["reason"] != "exact_all_condition_terminal_proofs":
+            continue
+        conditions = defaultdict(dict)
+        for identity in slots.values():
+            conditions[identity["condition_id"]][identity["token_id"]] = identity["outcome"]
+        closed = {m.get("conditionId") for m in payload.get("market_context", []) if m.get("closed") is True}
+        proofs = payload.get("terminal_proofs", [])
+        if not isinstance(proofs, list) or len(proofs) != len(conditions):
+            continue
+        accepted, seen, yes_values = [], set(), []
+        try:
+            for proof in proofs:
+                condition = proof["condition_id"]
+                if condition in seen or condition not in closed or condition not in conditions:
+                    raise ValueError("terminal condition scope")
+                seen.add(condition)
+                tokens = proof["tokens"]
+                if len(tokens) != 2 or {t["token_id"]:t["outcome"] for t in tokens} != conditions[condition]:
+                    raise ValueError("terminal token mapping")
+                values = [number(t["probability"]) for t in tokens]
+                if sorted(values) not in ([0.0, 1.0], [0.5, 0.5]):
+                    raise ValueError("terminal payout is not exact")
+                if cycle["sport_family"] == "soccer":
+                    yes_values.append(next(value for t,value in zip(tokens,values) if t["outcome"] == "Yes"))
+                accepted.extend((condition,t["token_id"],value) for t,value in zip(tokens,values))
+            if set(conditions) != seen or (cycle["sport_family"] == "soccer" and sorted(yes_values) not in ([0.0,0.0,1.0],[0.5,0.5,0.5])):
+                raise ValueError("terminal result set inconsistent")
+        except (KeyError, TypeError, ValueError, StopIteration):
+            continue
+        for condition, token, value in accepted:
+            records[(condition, token)].append({"payout": value, "observed_at": cycle["published_at"],
+                "observed_at_basis": "RAW_CYCLE_PUBLICATION_AFTER_LOOKUP_RECEIPT_UPPER_BOUND",
+                "event_cycle_reference_at": event["observed_at"],
+                "source": "FULL_SPORTS_RAW_GAMMA_TERMINAL", "observer_config": cycle["config_hash"],
+                "profile": config.get("sport_profile_version"), "protocol": config.get("protocol_sha256"),
+                "classifier": config.get("classifier_version"), "mapping": config.get("league_mapping_sha256"),
+                "raw_event_observation_id": event["observation_id"]})
+    return records
+
+
 def terminal_records(connection, white, runs, *, end=None):
     """Require successful observer, closed exact two-token one-hot/void evidence."""
     tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
@@ -127,6 +421,8 @@ def terminal_records(connection, white, runs, *, end=None):
     if "tracked_resolution_observations" in tables:
         candidates.append("tracked_resolution_observations")
     for table in candidates:
+        if table not in tables:
+            continue
         for raw in connection.execute(f"SELECT * FROM {table}"):
             row = dict(raw)
             if end is not None and timestamp(row.get("observed_at")) >= timestamp(end):
@@ -148,12 +444,19 @@ def terminal_records(connection, white, runs, *, end=None):
                     records[(row["condition_id"], token)].append({"payout": payout, "observed_at": row["observed_at"], "source": row.get("source", "CLOB/GAMMA"), "observer_config": runs[row["run_id"]]["config_hash"], "profile": row.get("sport_profile_version"), "protocol": row.get("protocol_sha256"), "classifier": row.get("classifier_version"), "mapping": row.get("league_mapping_sha256")})
             except (KeyError, TypeError, ValueError):
                 continue
+    if not white:
+        for key, values in raw_terminal_records(connection, runs, end=end).items():
+            records[key].extend(values)
     return records
 
 
-def trading_rows(connection, start, end):
-    catalogs = {r["condition_id"]: dict(r) for r in connection.execute("SELECT * FROM market_catalog")}
-    for raw in connection.execute("SELECT * FROM market_snapshots WHERE timestamp>=? AND timestamp<? ORDER BY timestamp,id", (start.replace("T", " ").removesuffix("Z"), end.replace("T", " ").removesuffix("Z"))):
+def _legacy_trading_rows(connection, start, end):
+    tables = {r[0] for r in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    if "market_snapshots" not in tables:
+        return
+    catalogs = {r["condition_id"]: dict(r) for r in connection.execute("SELECT * FROM market_catalog")} if "market_catalog" in tables else {}
+    exclude = " AND NOT EXISTS (SELECT 1 FROM raw_book_cycles raw_cycle WHERE raw_cycle.run_id=market_snapshots.run_id)" if has_raw_archive(connection) else ""
+    for raw in connection.execute("SELECT * FROM market_snapshots WHERE timestamp>=? AND timestamp<?"+exclude+" ORDER BY timestamp,id", (start.replace("T", " ").removesuffix("Z"), end.replace("T", " ").removesuffix("Z"))):
         row = dict(raw)
         catalog = catalogs.get(row["condition_id"], {})
         row.update(title=catalog.get("event_title") or row["event_id"], slug=catalog.get("event_slug"), question=catalog.get("question"), league=row.get("league_code") or catalog.get("league_code"), game_start=None)
@@ -166,6 +469,14 @@ def trading_rows(connection, start, end):
         if isinstance(row["book"].get("source_sport_context"), dict):
             row["clock"]["source_sport_context"] = row["book"]["source_sport_context"]
         yield row
+
+
+def trading_rows(connection, start, end):
+    """Raw publications supersede same-run legacy snapshots; old runs survive."""
+    from heapq import merge
+    yield from merge(_legacy_trading_rows(connection, start, end),
+                     raw_archive_rows(connection, start, end),
+                     key=lambda row: (timestamp(row["timestamp"]), str(row["id"])))
 
 
 def white_rows(connection, start, end):
@@ -223,17 +534,18 @@ def export_source(source, output, start, end, index):
             groups[key] = {"id": identifier([source["id"], *key]), "event_id": row["event_id"], "title": row["title"], "slug": row.get("slug"), "sport": family, "league": row.get("league") or family.upper(), "source_id": source["id"], "cohort_id": cohort_id, "tokens": {}, "rows": [], "clock_labels": [], "clock_lookup": {}}
         group = groups[key]
         token = row["token_id"]
+        token_key = token if token is not None else ("unidentified_slot", row.get("result_kind"), row.get("outcome_side"))
         token_id = len(group["tokens"])
-        if token not in group["tokens"]:
+        if token_key not in group["tokens"]:
             label = f"{row.get('result_kind') or '?'} {row.get('outcome_side') or row['outcome']}" if family == "soccer" else row["outcome"]
-            group["tokens"][token] = {"index": token_id, "token_id": token, "condition_id": row["condition_id"], "label": label, "result_kind": row.get("result_kind"), "outcome_side": row.get("outcome_side"), "question": row.get("question"), "payout": None, "payout_observed_at": None}
+            group["tokens"][token_key] = {"index": token_id, "token_id": token, "condition_id": row["condition_id"], "label": label, "result_kind": row.get("result_kind"), "outcome_side": row.get("outcome_side"), "question": row.get("question"), "payout": None, "payout_observed_at": None}
             candidates = terminals.get((row["condition_id"], token), [])
             if source["strategy"] == "golden-plum":
                 candidates = [x for x in candidates if x["profile"] == cohort.get("sport_profile_version") and x["protocol"] == cohort.get("protocol_sha256") and x["classifier"] == cohort.get("classifier_version") and x["mapping"] == cohort.get("league_mapping_sha256")]
             if candidates and len({x["payout"] for x in candidates}) == 1:
                 selected = min(candidates, key=lambda x: timestamp(x["observed_at"]))
-                group["tokens"][token].update(payout=selected["payout"], payout_observed_at=selected["observed_at"], payout_source=selected["source"])
-        token_id = group["tokens"][token]["index"]
+                group["tokens"][token_key].update(payout=selected["payout"], payout_observed_at=selected["observed_at"], payout_source=selected["source"])
+        token_id = group["tokens"][token_key]["index"]
         flags = 0
         if run.get("status") != "SUCCESS":
             flags |= FLAGS["failed_run"]
@@ -244,6 +556,8 @@ def export_source(source, output, start, end, index):
             flags |= FLAGS["depth_missing"]
         if row.get("event_set_complete") == 0:
             flags |= FLAGS["incomplete_set"]
+        if row.get("raw_point_in_time_identity_proven") is False or row.get("raw_book_integrity_error") is True:
+            flags |= FLAGS["identity_gap"]
         raw_clock = row.get("clock", {})
         clock_key = compact(raw_clock)
         if clock_key not in group["clock_lookup"]:
