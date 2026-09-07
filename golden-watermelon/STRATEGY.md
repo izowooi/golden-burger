@@ -76,3 +76,16 @@ cohort, DB integrity, runtime과 storage만 판정한다. 수익성, best family
 않고 confirmed live fill/fee evidence와 함께 한 rung씩 검토한다.
 
 v4a 이하 DB는 immutable archive다. v4b와 migration, `ALTER TABLE`, merge 또는 backfill하지 않는다.
+
+
+## Independent raw lifecycle sidecar (v4b-r5)
+
+White의 기존 entry/hold/stop/episode 정책과 primary v4b DB schema는 유지한다.
+`shadow.db`의 `watermelon-independent-raw-lifecycle-v1`은 허용된 경기의
+Soccer YES 3개 / direct sport 2개를 episode 생성 여부와 독립적으로 추적한다.
+기존 core 요청·판단이 끝난 뒤 남은 42초 network / 50초 cycle budget으로만
+누락 event를 조회하며, FAILED/deferred/missing/빈 book을 보존한다. 부모 원본 호가는
+정확한 run/request/snapshot/hash 참조로 재사용하고 후행 metadata를 앞선 호가의
+OPEN 증거로 소급하지 않는다. 이 prospective raw archive는 기존 episode 모집단이나
+실제 체결·수익, 종목/파라미터 승격 근거가 아니다. 부모 SUCCESS와 독립 원자적
+raw publication을 모두 검증해야 한다. 기존 DB와 sidecar는 병합하지 않는다.

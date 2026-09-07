@@ -8,10 +8,10 @@ from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-07-indexed-prior-vwap-v4b-r4/PREREGISTRATION.md"
+    "research/frozen-2026-09-07-independent-raw-lifecycle-v4b-r5/PREREGISTRATION.md"
 )
 ACTIVE_MANIFEST = (
-    "research/frozen-2026-09-07-indexed-prior-vwap-v4b-r4/MANIFEST.sha256"
+    "research/frozen-2026-09-07-independent-raw-lifecycle-v4b-r5/MANIFEST.sha256"
 )
 SOURCE_PATHS = (
     "pyproject.toml",
@@ -33,6 +33,8 @@ SOURCE_PATHS = (
     "src/polybot/api/clob_client.py",
     "src/polybot/api/sports_client.py",
     "src/polybot/collector.py",
+    "src/polybot/research_raw.py",
+    "src/polybot/db/raw_repository.py",
     "src/polybot/league_classifier.py",
     "src/polybot/db/repository.py",
     "src/polybot/db/migrations/0002_watermelon_major_sports_v4a.sql",

@@ -855,12 +855,15 @@ class Collector:
         gamma: GammaClient,
         clob: ClobClient,
         sports_clock: SportsClockClient,
+        *,
+        research_raw_enabled: bool = True,
     ) -> None:
         self.config = config
         self.repository = repository
         self.gamma = gamma
         self.clob = clob
         self.sports_clock = sports_clock
+        self.research_raw_enabled = research_raw_enabled
 
     def collect(
         self,
@@ -1500,6 +1503,7 @@ class Collector:
             )
 
         resolved = 0
+        raw_resolution_responses = []
         open_by_condition: dict[str, dict[str, Any]] = {}
         for episode in self.repository.open_episodes():
             open_by_condition.setdefault(str(episode["condition_id"]), episode)
@@ -1519,6 +1523,7 @@ class Collector:
                 if callable(fetch_gamma_resolution)
                 else None
             )
+            raw_resolution_responses.extend(getattr(gamma_result, "raw_responses", ()))
             gamma_terminal = (
                 gamma_result is not None
                 and gamma_result.status in {"RESOLVED", "RESOLVED_VOID"}
@@ -1657,6 +1662,18 @@ class Collector:
                     )
             self.repository.record_resolution(attempt=attempt, resolution=resolution, payload=raw_payload)
 
+        raw_lifecycle = None
+        if self.research_raw_enabled:
+            # The raw component receives immutable core evidence only after all
+            # legacy signal/path/stop/resolution work. Its contexts/tokens never
+            # enter the legacy decision or prior-VWAP population.
+            from .research_raw import ResearchRawCollector
+            raw_lifecycle = ResearchRawCollector(
+                self.config, self.repository, self.gamma, self.clob
+            ).capture(run_id=run_id, now=now, budget=budget, sweep=sweep,
+                      core_books=books, core_snapshots=snapshot_by_token,
+                      core_resolution_responses=raw_resolution_responses, core_clock=clock_batch)
+
         if budget.incomplete_reasons:
             self.repository.record_issue(
                 run_id=run_id,
@@ -1687,4 +1704,5 @@ class Collector:
             "sports_clock_matched": clock_batch.matched_count,
             "source_clock_observed": len(source_clock_by_slug),
             "result_triad_gaps": len(result_triad_gaps),
+            "raw_lifecycle": raw_lifecycle,
         }

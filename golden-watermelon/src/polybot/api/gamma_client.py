@@ -49,6 +49,18 @@ class MarketResolution:
     raw: bytes | None
     error_type: str | None = None
     error_message: str | None = None
+    raw_responses: tuple[dict[str, Any], ...] = ()
+
+
+@dataclass(frozen=True)
+class EventLookup:
+    status: str
+    event: dict[str, Any] | None
+    request_id: str | None
+    received_at: str | None
+    response_sha256: str | None
+    raw: bytes | None
+    error_type: str | None = None
 
 
 class GammaClient:
@@ -58,6 +70,34 @@ class GammaClient:
     def __init__(self, config: GammaConfig, transport: PublicJsonTransport) -> None:
         self.config = config
         self.transport = transport
+
+    def fetch_event_by_id(self, run_id: str, event_id: str) -> EventLookup:
+        """Raw lifecycle lookup, with no live/closed or trade eligibility filter."""
+        if not event_id or not str(event_id).isdigit():
+            return EventLookup("IDENTITY_MISMATCH", None, None, None, None, None)
+        try:
+            response = self.transport.request_json(
+                "GET", f"{self.config.base_url}/events",
+                request_kind="gamma_raw_event_followup", run_id=run_id,
+                params={"id": str(event_id), "limit": 2},
+            )
+        except (NetworkBudgetExceeded, PublicApiError) as error:
+            return EventLookup("ERROR", None, getattr(error, "request_id", None),
+                               None, None, None, type(error).__name__)
+        payload = response.payload
+        status = "MISSING"
+        event = None
+        if payload:
+            if (isinstance(payload, list) and len(payload) == 1
+                    and isinstance(payload[0], Mapping)
+                    and str(payload[0].get("id") or "") == str(event_id)):
+                status, event = "OBSERVED", dict(payload[0])
+            else:
+                status = "IDENTITY_MISMATCH"
+        elif not isinstance(payload, list):
+            status = "MALFORMED"
+        return EventLookup(status, event, response.request_id, response.received_at,
+                           response.response_sha256, response.raw)
 
     @staticmethod
     def _iso(value: datetime) -> str:
@@ -224,6 +264,11 @@ class GammaClient:
         normalized = str(condition_id or "").strip()
         if not normalized:
             raise ValueError("condition_id is required")
+        raw_responses = []
+
+        def result(*args):
+            return MarketResolution(*args, raw_responses=tuple(raw_responses))
+
         try:
             for closed in (False, True):
                 response = self.transport.request_json(
@@ -237,6 +282,9 @@ class GammaClient:
                         "limit": 2,
                     },
                 )
+                raw_responses.append({"request_id": response.request_id,
+                    "received_at": response.received_at, "sha256": response.response_sha256,
+                    "raw": response.raw})
                 payload = response.payload
                 if not isinstance(payload, list) or any(
                     not isinstance(item, Mapping) for item in payload
@@ -258,7 +306,7 @@ class GammaClient:
                     continue
                 market = matches[0]
                 if market.get("closed") is not True:
-                    return MarketResolution(
+                    return result(
                         normalized, "OPEN", None, None, None, None, market,
                         response.request_id, response.received_at,
                         response.response_sha256, response.raw,
@@ -311,18 +359,18 @@ class GammaClient:
                     else 1 if normalized_prices == (0.0, 1.0)
                     else None
                 )
-                return MarketResolution(
+                return result(
                     normalized, status, winner_index, normalized_prices,
                     normalized_labels, normalized_tokens, market,
                     response.request_id, response.received_at,
                     response.response_sha256, response.raw,
                 )
-            return MarketResolution(
+            return result(
                 normalized, "NOT_FOUND", None, None, None, None, None,
                 None, None, None, None,
             )
         except (NetworkBudgetExceeded, PublicApiError, ValueError) as error:
-            return MarketResolution(
+            return result(
                 normalized, "ERROR", None, None, None, None, None,
                 getattr(error, "request_id", None), None, None, None,
                 type(error).__name__, str(error)[:500],
