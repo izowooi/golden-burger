@@ -1,0 +1,179 @@
+<div id="sports-path-explorer">
+  <h2>경기 중 결과별 호가</h2>
+  <div class="viz-controls">
+    <label class="form-label">종목<select class="form-select" data-role="sport"></select></label>
+    <label class="form-label">경기<select class="form-select" data-role="match"></select></label>
+    <label class="form-label">관측 자료<select class="form-select" data-role="source"></select></label>
+  </div>
+  <p class="text-small" data-role="coverage" aria-live="polite"></p>
+  <div class="viz-row" data-role="legend" aria-label="결과별 호가 표시"></div>
+  <label class="form-check"><input class="form-check-input" data-role="zoom" type="checkbox"><span class="form-check-label">0.90~1.00 가격 구간 확대</span></label>
+  <label class="form-label">관측 시점 <span class="tabular-nums text-small" data-role="selected"></span><input class="form-range" data-role="time" type="range" min="0" max="0" step="1" value="0" disabled></label>
+  <div class="sports-plots">
+    <div><h3>매수 호가 · 5 USDC</h3><svg data-role="ask" role="img" aria-label="결과별 5 USDC 매수 VWAP"></svg></div>
+    <div><h3>매도 호가 · 같은 수량</h3><svg data-role="bid" role="img" aria-label="5 USDC 매수 수량을 즉시 매도할 때의 VWAP"></svg></div>
+  </div>
+  <div class="viz-row text-small"><span>참고선: A 진입 0.95 · B 진입 0.97 · 익절 0.99</span><span>점: 실제 관측 · 빈 원: 불완전 자료 · 90초 초과 공백은 연결하지 않음</span></div>
+  <div class="table-responsive"><table class="table table-sm tabular-nums"><thead><tr><th class="text-nowrap">결과</th><th class="text-nowrap">마지막 관측 KST</th><th class="text-end text-nowrap">매수 VWAP</th><th class="text-end text-nowrap">매도 VWAP</th><th class="text-nowrap">경기 시계</th><th class="text-nowrap">상태</th><th class="text-nowrap">선택 자료의 사후 지급액 / 주</th></tr></thead><tbody data-role="details"></tbody></table></div>
+  <div class="sports-tooltip" role="tooltip" hidden></div>
+  <p class="text-small" data-role="provenance"></p>
+</div>
+<style>
+#sports-path-explorer {position:relative; color:var(--foreground)}
+#sports-path-explorer .sports-plots {display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px}
+#sports-path-explorer .sports-plots > div {min-width:0}
+#sports-path-explorer .sports-plots svg {display:block;width:100%;overflow:visible}
+#sports-path-explorer .sports-plots text {fill:var(--foreground);font-size:12px;font-weight:400}
+#sports-path-explorer .sports-plots .domain,#sports-path-explorer .sports-plots .tick line {stroke:var(--border)}
+#sports-path-explorer .series-button {background:transparent;border:0;display:inline-flex;align-items:center;gap:5px;padding:4px 0;color:var(--foreground);font:inherit;cursor:pointer}
+#sports-path-explorer .series-button[aria-pressed="false"] {opacity:.45}
+#sports-path-explorer .series-swatch {display:inline-block;width:18px;height:3px}
+#sports-path-explorer .sports-tooltip {position:absolute;pointer-events:none;z-index:3;max-width:calc(100% - 20px);padding:10px;background:var(--popover);color:var(--popover-foreground);border:1px solid var(--border)}
+@media(max-width:760px){#sports-path-explorer .sports-plots{grid-template-columns:minmax(0,1fr)}}
+@media(pointer:coarse){#sports-path-explorer .series-button{min-height:44px}}
+</style>
+<script src="https://cdn.jsdelivr.net/npm/d3@7.9.0/dist/d3.min.js"></script>
+<script>
+(async () => {
+  const root = document.getElementById('sports-path-explorer');
+  const el = name => root.querySelector('[data-role="'+name+'"]');
+  const sportEl=el('sport'),matchEl=el('match'),sourceEl=el('source');
+  const tooltip=root.querySelector('.sports-tooltip');
+  const COLORS=Array.from({length:6},(_,i)=>'var(--viz-series-'+(i+1)+')');
+  const colorFor=(token,i)=>{const map={'HOME:YES':0,'HOME:NO':1,'DRAW:YES':2,'DRAW:NO':3,'AWAY:YES':4,'AWAY:NO':5};const key=token.result_kind+':'+token.outcome_side;const index=map[key]??({HOME:0,AWAY:4}[token.result_kind]??i%6);return COLORS[index];};
+  const SPORTS=[['soccer','축구'],['mlb','야구 · MLB'],['nba','농구 · NBA'],['nfl','미식축구 · NFL'],['nhl','아이스하키 · NHL'],['ufc','UFC'],['boxing','복싱']];
+  const PACKED = "__SPORTS_DATA_GZIP_BASE64__";
+  let data,current,visible=new Set(),drawers=[],selectedTime=null,timeSteps=[];
+  const dt = value => {
+    if(value===null || value===undefined)return '—';
+    const d=typeof value==='number'?new Date(value*1000):new Date(value);
+    return Number.isFinite(+d)?new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hourCycle:'h23'}).format(d):'—';
+  };
+  const price=v=>v===null||v===undefined||!Number.isFinite(v)?'—':v.toFixed(4);
+  const option=(value,label)=>{const o=document.createElement('option');o.value=value;o.textContent=label;return o;};
+  const seriesLabel=(t,i)=>['YES','NO'].includes(t.outcome_side)&&['HOME','DRAW','AWAY'].includes(t.result_kind)?({HOME:'홈승',DRAW:'무승부',AWAY:'원정승'}[t.result_kind]+' '+t.outcome_side):(t.label||'결과 '+(i+1));
+  const rowsFor=(f,i)=>f.points.filter(p=>p[1]===i).sort((a,b)=>a[0]-b[0]);
+  const valid=(p,col)=>p&&Number.isFinite(p[col])&&!(p[8]&9);
+  const clockText=p=>{
+    if(!p)return '—';
+    if(current.match.sport==='soccer'&&Number.isFinite(p[7]))return p[7].toFixed(1)+'분';
+    const c=(current.clocks||[])[p[9]]||{},raw=c.source_sport_context||c;
+    const value=v=>typeof v==='object'?JSON.stringify(v):String(v);
+    const native=[raw.period,raw.elapsed_raw??raw.elapsed,raw.score].map((v,i)=>v===null||v===undefined||v===''?null:(["",'시계 ','점수 '][i]+value(v))).filter(v=>v!==null);
+    return native.length?native.map(v=>typeof v==='object'?JSON.stringify(v):String(v)).join(' · '):'직접 경기 시계 없음';
+  };
+  const quality=p=>!p?'관측 없음':(p[8]&8?'출처 불일치':p[8]&1?'실패 실행':p[8]&4?'결과 호가 일부 누락':p[8]&2?'깊이 일부 누락':'관측됨');
+  try {
+    const bytes=Uint8Array.from(atob(PACKED),c=>c.charCodeAt(0));
+    const stream=new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip'));
+    data=JSON.parse(await new Response(stream).text());
+    if(!Array.isArray(data.matches)||!data.fragments)throw new Error('data contract');
+  } catch(error) {el('coverage').textContent='자료를 표시할 수 없습니다: '+error.message;return;}
+  for(const [id,label] of SPORTS){const n=new Set(data.matches.filter(m=>m.sport===id).map(m=>m.event_id)).size;sportEl.append(option(id,label+' · '+n+'경기'));}
+  function chooseSport(){
+    const matches=data.matches.filter(m=>m.sport===sportEl.value);
+    const events=new Map();for(const m of matches)if(!events.has(m.event_id))events.set(m.event_id,m);
+    matchEl.replaceChildren(...Array.from(events.values()).sort((a,b)=>a.start-b.start).map(m=>option(m.event_id,m.title+' · 관측 '+dt(m.start))));
+    const featured=matches.find(m=>m.slug==='mls-aus-sje-2026-09-05')||matches.find(m=>m.slug==='epl-eve-mun-2026-09-06');if(featured)matchEl.value=featured.event_id;
+    matchEl.disabled=!matches.length;chooseMatch();
+  }
+  function chooseMatch(){
+    const matches=data.matches.filter(m=>m.sport===sportEl.value&&String(m.event_id)===matchEl.value);
+    sourceEl.replaceChildren(...matches.map(m=>option(m.id,String(m.source_id).split(':')[0].replace('polybot-','')+' · '+dt(m.start)+' ~ '+dt(m.end)+' · '+m.point_count+'행')));
+    sourceEl.disabled=!matches.length;
+    // Prefer direct six-book coverage for soccer, keeping each source/cohort separate.
+    if(matches.length){const preferred=matches.slice().sort((a,b)=>((b.point_count||0)-(b.invalid_count||0))-((a.point_count||0)-(a.invalid_count||0)))[0];sourceEl.value=preferred.id;}
+    chooseSource();
+  }
+  function chooseSource(){
+    const m=data.matches.find(x=>x.id===sourceEl.value);
+    current=m?data.fragments[m.id]:null;
+    if(current)current.match={...m,...current.match};
+    timeSteps=current?Array.from(new Set(current.points.map(p=>p[0]))).sort((a,b)=>a-b):[];
+    el('time').disabled=!timeSteps.length;el('time').max=Math.max(0,timeSteps.length-1);el('time').value=Math.max(0,timeSteps.length-1);
+    visible=new Set(current?current.tokens.map((_,i)=>i):[]);
+    selectedTime=null;tooltip.hidden=true;
+    el('legend').replaceChildren();
+    if(!current){
+      el('coverage').textContent=['ufc','boxing'].includes(sportEl.value)?'미수집 · 현재 수집기 등록 범위에 없음':'선택 기간에 확인된 관측 자료 없음';
+      el('provenance').textContent='0경기는 수익·손실이 0이라는 뜻이 아닙니다.';
+      el('selected').textContent='';el('details').replaceChildren();draw();return;
+    }
+    current.tokens.forEach((t,i)=>{
+      const b=document.createElement('button');b.type='button';b.className='series-button';b.setAttribute('aria-pressed','true');
+      const sw=document.createElement('span');sw.className='series-swatch';sw.style.background=colorFor(t,i);sw.setAttribute('aria-hidden','true');b.append(sw,document.createTextNode(seriesLabel(t,i)));
+      b.addEventListener('click',()=>{visible.has(i)?visible.delete(i):visible.add(i);b.setAttribute('aria-pressed',String(visible.has(i)));draw();});el('legend').append(b);
+    });
+    const points=current.points.length,invalid=current.points.filter(p=>p[8]&15).length;
+    const gapCount=(current.gaps||[]).length;
+    el('coverage').textContent=current.match.title+' · 직접 '+current.tokens.length+'계약 · '+points.toLocaleString()+'관측행 · 불완전 '+invalid.toLocaleString()+' · 공백·실패 표식 '+gapCount;
+    const shape=current.match.sport==='soccer'?(current.tokens.length===6?'YES/NO 6계약의 합은 100%가 아님':'직접 YES 시장만 관측 · NO 합성 없음'):'두 팀의 직접 결과 토큰';
+    el('provenance').textContent='관측 '+dt(current.match.start)+' ~ '+dt(current.match.end)+' KST · 서로 다른 수집·설정 구간은 분리 표시 · 표시 호가이며 실제 체결이나 베팅 금액이 아님 · '+shape;
+    draw();
+  }
+  function showDetails(t){
+    if(!current)return;selectedTime=t;
+    el('selected').textContent=dt(t)+' KST · 이 시각 이전의 실제 관측값';
+    el('time').value=Math.max(0,d3.bisector(x=>x).right(timeSteps,t)-1);
+    const entries=[];
+    current.tokens.forEach((token,i)=>{
+      if(!visible.has(i))return;
+      const pts=rowsFor(current,i),at=d3.bisector(p=>p[0]).right(pts,t)-1,p=at>=0?pts[at]:null;
+      const stale=p&&t-p[0]>90;
+      const tr=document.createElement('tr');
+      const values=[seriesLabel(token,i),p?dt(p[0]):'—',price(p&&p[2]),price(p&&p[3]),clockText(p),stale?'90초 초과 관측 공백':quality(p),token.payout===null||token.payout===undefined?'미확인':price(token.payout)];
+      values.forEach((v,j)=>{const td=document.createElement('td');td.textContent=v;td.className=(j===2||j===3?'text-end ':'')+'text-nowrap';tr.append(td);});entries.push(tr);
+    });el('details').replaceChildren(...entries);
+    drawers.forEach(d=>d.guide(t));
+  }
+  function drawPanel(svgElement,col,label){
+    const width=Math.max(280,svgElement.parentElement.getBoundingClientRect().width),height=300;
+    const margin={left:66,right:18,top:18,bottom:64};
+    const svg=d3.select(svgElement).attr('viewBox','0 0 '+width+' '+height);svg.selectAll('*').remove();
+    svg.append('title').text(label);svg.append('desc').text('직접 관측한 결과별 호가. 실패 또는90초 초과 구간은 선으로 연결하지 않습니다.');
+    if(!current||!current.points.length){svg.append('text').attr('x',width/2).attr('y',height/2).attr('text-anchor','middle').text('관측 데이터 없음');return;}
+    const times=current.points.map(p=>p[0]);let extent=d3.extent(times);if(extent[0]===extent[1])extent=[extent[0]-30,extent[1]+30];
+    const x=d3.scaleLinear().domain(extent).range([margin.left,width-margin.right]);
+    const prices=current.points.map(p=>p[col]).filter(Number.isFinite);
+    const zoom=el('zoom').checked;
+    const y=d3.scaleLinear().domain(d3.extent([zoom ? 0.9 : 0,1,.95,.97,.99,...prices.filter(p=>!zoom||p>=.9)])).range([height-margin.bottom,margin.top]);
+    const frameHeight=height-margin.top-margin.bottom,frameWidth=width-margin.left-margin.right;
+    svg.append('rect').attr('data-chart-frame','').attr('x',margin.left).attr('y',margin.top).attr('width',frameWidth).attr('height',frameHeight).attr('fill','none').attr('stroke','var(--border)');
+    const clipId=root.id+'-'+col+'-clip';svg.append('defs').append('clipPath').attr('id',clipId).append('rect').attr('x',margin.left).attr('y',margin.top-3).attr('width',frameWidth).attr('height',frameHeight+6);
+    const marks=svg.append('g').attr('clip-path','url(#'+clipId+')');
+    const timeTick=t=>new Intl.DateTimeFormat('ko-KR',{timeZone:'Asia/Seoul',hour:'2-digit',minute:'2-digit',hourCycle:'h23'}).format(new Date(t*1000));
+    const ticks=d3.ticks(extent[0],extent[1],width<420?3:5);
+    svg.append('g').attr('transform','translate(0,'+(height-margin.bottom)+')').call(d3.axisBottom(x).tickValues(ticks).tickFormat(timeTick));
+    svg.append('g').attr('transform','translate('+margin.left+',0)').call(d3.axisLeft(y).tickValues(zoom?[.9,.95,.97,.99,1]:[0,.25,.5,.75,1]).tickFormat(d3.format('.2f')));
+    svg.append('text').attr('class','axis-title').attr('data-axis','x').attr('x',(margin.left+width-margin.right)/2).attr('y',height-12).attr('text-anchor','middle').text('관측 시각 · KST');
+    svg.append('text').attr('class','axis-title').attr('data-axis','y').attr('transform','translate(17,'+(margin.top+frameHeight/2)+') rotate(-90)').attr('text-anchor','middle').text('가격 · USDC / 주');
+    [.95,.97,.99].forEach(v=>marks.append('line').attr('x1',margin.left).attr('x2',width-margin.right).attr('y1',y(v)).attr('y2',y(v)).attr('stroke','var(--border)').attr('stroke-dasharray',v===.99?'4 2':'2 3'));
+    current.tokens.forEach((token,i)=>{
+      if(!visible.has(i))return;
+      const pts=rowsFor(current,i),segments=[];let segment=[];
+      for(const p of pts){const prev=segment.at(-1);const failureBetween=prev&&(current.gaps||[]).some(g=>(g.token===undefined||g.token===i)&&g.start<p[0]&&g.end>prev[0]);if(!valid(p,col)||(prev&&(p[0]-prev[0]>90||(p[8]&16)||failureBetween))){if(segment.length)segments.push(segment);segment=[];}if(valid(p,col))segment.push(p);}
+      if(segment.length)segments.push(segment);
+      for(const seg of segments)marks.append('path').datum(seg).attr('fill','none').attr('stroke',colorFor(current.tokens[i],i)).attr('stroke-width',1.5).attr('d',d3.line().x(p=>x(p[0])).y(p=>y(p[col])));
+      marks.selectAll('.point-'+i).data(pts.filter(p=>Number.isFinite(p[col]))).join('circle').attr('class','point-'+i).attr('cx',p=>x(p[0])).attr('cy',p=>y(p[col])).attr('r',2).attr('fill',p=>p[8]&15?'var(--background)':colorFor(current.tokens[i],i)).attr('stroke',colorFor(current.tokens[i],i)).attr('stroke-width',.8);
+    });
+    const guideLine=marks.append('line').attr('data-chart-hover-guide','').attr('y1',margin.top).attr('y2',height-margin.bottom).attr('stroke','var(--foreground)').attr('opacity',.45).attr('hidden',true);
+    const hoverMarks=marks.append('g');
+    const guide=t=>{guideLine.attr('hidden',null).attr('x1',x(t)).attr('x2',x(t));hoverMarks.selectAll('*').remove();current.tokens.forEach((_,i)=>{if(!visible.has(i))return;const pts=rowsFor(current,i),j=d3.bisector(p=>p[0]).right(pts,t)-1,p=pts[j];if(valid(p,col)&&t-p[0]<=90)hoverMarks.append('circle').attr('data-chart-hover-marker','').attr('cx',x(p[0])).attr('cy',y(p[col])).attr('r',4).attr('fill',colorFor(current.tokens[i],i));});};
+    svg.append('rect').attr('data-chart-hit','').attr('data-chart-hover-overlay','cross-series').attr('x',margin.left).attr('y',margin.top).attr('width',frameWidth).attr('height',frameHeight).attr('fill','transparent').on('pointermove',event=>{
+      const [px]=d3.pointer(event,svgElement),t=x.invert(Math.max(margin.left,Math.min(width-margin.right,px)));showDetails(t);
+      tooltip.replaceChildren();const heading=document.createElement('div');heading.textContent=dt(t)+' KST · 직전 실제 관측';tooltip.append(heading);
+      current.tokens.forEach((token,i)=>{if(!visible.has(i))return;const pts=rowsFor(current,i),j=d3.bisector(p=>p[0]).right(pts,t)-1,p=pts[j];const row=document.createElement('div');row.textContent=seriesLabel(token,i)+' · '+(!p||t-p[0]>90?'관측 공백':price(p[col])+' ('+Math.max(0,Math.round(t-p[0]))+'초 전'+(p[8]&15?', '+quality(p):'')+')');tooltip.append(row);});tooltip.hidden=false;
+      const box=root.getBoundingClientRect();tooltip.style.left=Math.max(4,Math.min(event.clientX-box.left+10,root.clientWidth-tooltip.offsetWidth-8))+'px';tooltip.style.top=Math.max(4,event.clientY-box.top-tooltip.offsetHeight-12)+'px';
+    }).on('pointerleave',()=>{tooltip.hidden=true;}).on('click',event=>{const [px]=d3.pointer(event,svgElement);showDetails(x.invert(px));});
+    drawers.push({guide});
+    // Tick density adapts to measured label bounds, without shrinking text.
+    const labels=svgElement.querySelectorAll('.tick text');let previous=null;for(const item of labels){const box=item.getBoundingClientRect();if(previous&&Math.abs(box.y-previous.y)<3&&box.x<previous.right+4)item.style.visibility='hidden';else previous=box;}
+  }
+  function draw(){drawers=[];drawPanel(el('ask'),2,'매수 호가 · 5 USDC');drawPanel(el('bid'),3,'매도 호가 · 같은 수량');if(current&&current.points.length)showDetails(selectedTime??Math.max(...current.points.map(p=>p[0])));}
+  sportEl.addEventListener('change',chooseSport);matchEl.addEventListener('change',chooseMatch);sourceEl.addEventListener('change',chooseSource);
+  el('zoom').addEventListener('change',draw);
+  el('time').addEventListener('input',()=>{tooltip.hidden=true;if(timeSteps.length)showDetails(timeSteps[Number(el('time').value)]);});
+  const first=SPORTS.find(([id])=>data.matches.some(m=>m.sport===id));if(first)sportEl.value=first[0];chooseSport();
+  let resizePending=false;new ResizeObserver(()=>{if(!resizePending){resizePending=true;requestAnimationFrame(()=>{resizePending=false;draw();});}}).observe(root.querySelector('.sports-plots'));
+})();
+</script>
