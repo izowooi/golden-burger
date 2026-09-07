@@ -34,13 +34,16 @@ def _create_legacy_market_sweeps(path, *, schema_version_type="INTEGER") -> None
         )
 
 
-def test_repeated_additive_migration_is_deterministic(tmp_path) -> None:
+@pytest.mark.parametrize("maintenance_on_start", [True, False])
+def test_repeated_additive_migration_is_deterministic(
+    tmp_path, maintenance_on_start
+) -> None:
     path = tmp_path / "repeat.db"
     _create_legacy_market_sweeps(path)
 
-    first = init_database(str(path))
+    first = init_database(str(path), maintenance_on_start=maintenance_on_start)
     first().close()
-    second = init_database(str(path))
+    second = init_database(str(path), maintenance_on_start=maintenance_on_start)
     second().close()
 
     with sqlite3.connect(path) as connection:
@@ -51,7 +54,8 @@ def test_repeated_additive_migration_is_deterministic(tmp_path) -> None:
     assert columns.count("membership_detail_stored") == 1
 
 
-def test_incompatible_type_affinity_fails_closed(tmp_path) -> None:
+@pytest.mark.parametrize("maintenance_on_start", [True, False])
+def test_incompatible_type_affinity_fails_closed(tmp_path, maintenance_on_start) -> None:
     path = tmp_path / "wrong-affinity.db"
     with sqlite3.connect(path) as connection:
         connection.execute(
@@ -66,15 +70,18 @@ def test_incompatible_type_affinity_fails_closed(tmp_path) -> None:
         )
 
     with pytest.raises(RuntimeError, match="incompatible skipped_markets schema"):
-        init_database(str(path))
+        init_database(str(path), maintenance_on_start=maintenance_on_start)
 
 
-def test_failed_schema_validation_rolls_back_additive_migration(tmp_path) -> None:
+@pytest.mark.parametrize("maintenance_on_start", [True, False])
+def test_failed_schema_validation_rolls_back_additive_migration(
+    tmp_path, maintenance_on_start
+) -> None:
     path = tmp_path / "rollback.db"
     _create_legacy_market_sweeps(path, schema_version_type="TEXT")
 
     with pytest.raises(RuntimeError, match="incompatible market_sweeps schema"):
-        init_database(str(path))
+        init_database(str(path), maintenance_on_start=maintenance_on_start)
 
     with sqlite3.connect(path) as connection:
         columns = {
@@ -82,3 +89,21 @@ def test_failed_schema_validation_rolls_back_additive_migration(tmp_path) -> Non
             for row in connection.execute("PRAGMA table_info(market_sweeps)")
         }
     assert "membership_detail_stored" not in columns
+
+
+def test_collection_startup_preserves_archive_without_running_maintenance(
+    monkeypatch, tmp_path
+) -> None:
+    import polybot.db.models as models
+
+    path = tmp_path / "raw-archive.db"
+    _create_legacy_market_sweeps(path)
+
+    def forbidden_maintenance(*args, **kwargs):
+        raise AssertionError("archive maintenance must not run in a collection slot")
+
+    monkeypatch.setattr(models, "prepare_database", forbidden_maintenance)
+    sessions = init_database(str(path), maintenance_on_start=False)
+    with sessions() as session:
+        assert session.connection().exec_driver_sql("PRAGMA quick_check").scalar() == "ok"
+    sessions.kw["bind"].dispose()

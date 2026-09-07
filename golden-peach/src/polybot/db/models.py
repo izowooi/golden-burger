@@ -615,14 +615,18 @@ def init_database(
     maintenance_requirements: SQLiteMaintenanceRequirements | None = None,
     *,
     activate_compact_on_create: bool = True,
+    maintenance_on_start: bool = True,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
-    prepare_database(
-        db_path,
-        "golden-peach",
-        requirements=maintenance_requirements,
-        activate_compact_on_create=activate_compact_on_create,
-    )
+    if maintenance_on_start:
+        prepare_database(
+            db_path,
+            "golden-peach",
+            requirements=maintenance_requirements,
+            activate_compact_on_create=activate_compact_on_create,
+        )
+    # Raw simulation archives grow throughout the experiment. Their hourly
+    # maintenance must not consume a one-minute collection slot before HTTP.
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
     try:
         Base.metadata.create_all(engine)

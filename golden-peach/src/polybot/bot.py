@@ -42,6 +42,7 @@ class PolymarketBot:
                 / 60.0,
                 retention_days=float(config.trading.archive.retention_days),
             ),
+            maintenance_on_start=not config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")
         self.gamma = GammaClient(
@@ -594,9 +595,12 @@ class PolymarketBot:
                 cycle_budget.assert_within_hard_deadline(
                     "archive retention cleanup"
                 )
-            repo.cleanup_old_snapshots(
-                days=self.config.trading.archive.retention_days
-            )
+            if not self.config.simulation_mode:
+                repo.cleanup_old_snapshots(
+                    days=self.config.trading.archive.retention_days
+                )
+            else:
+                stats["archive_maintenance"] = "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
             db_stats = repo.get_stats()
             stats["open_states"] = {
                 "pending_buy": db_stats["pending_buy"],

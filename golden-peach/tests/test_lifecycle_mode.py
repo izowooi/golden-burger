@@ -154,6 +154,27 @@ def test_archive_only_persists_research_without_reading_or_writing_orders(
     session.close.assert_called_once()
 
 
+def test_simulation_collection_defers_retention_and_preserves_snapshot_work(
+    monkeypatch, tmp_path
+):
+    bot, scanner, trader, repo, session, _gamma = _build_bot(
+        monkeypatch, tmp_path, "archive_only", []
+    )
+    bot.config.simulation_mode = True
+    repo.cleanup_old_snapshots.side_effect = AssertionError(
+        "retention must not consume the one-minute observation budget"
+    )
+
+    stats = bot.run_cycle()
+
+    assert stats["snapshots_saved"] == 1
+    assert stats["archive_maintenance"] == "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
+    scanner.save_market_snapshots.assert_called_once()
+    repo.cleanup_old_snapshots.assert_not_called()
+    trader.execute_buy.assert_not_called()
+    session.close.assert_called_once()
+
+
 def test_active_keeps_entry_path_and_event_guard(monkeypatch, tmp_path):
     bot, scanner, trader, repo, session, _gamma = _build_bot(
         monkeypatch, tmp_path, "active", []
