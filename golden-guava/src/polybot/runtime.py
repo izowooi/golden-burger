@@ -105,7 +105,7 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                             if existing.get('expected_token_ids') not in (None,view['expected_token_ids']):
                                 raise RuntimeError('tracked token identity changed')
                             tracking[view['event_id']]={**existing,'sport_family':family,'last_live_at':utc(now),
-                                'next_due_at':utc(now),'attempts':0,
+                                'next_due_at':utc(now),'attempts':0,'consecutive_failures':0,
                                 'origin_cohort':existing.get('origin_cohort',config.cohort_key),
                                 'expected_token_ids':view['expected_token_ids']}
             phase='tracked_followup';due=[]
@@ -115,9 +115,17 @@ def run_research(config,*,now=None,client_factory=PublicClients,news_factory=Non
                 if budget.require()<15:break
                 entry=tracking[event_id];result=client.fetch_event(event_id,family=entry['sport_family'])
                 entry['attempts']+=1
-                entry['next_due_at']=utc(now+timedelta(seconds=min(300,60*entry['attempts'])))
-                if result['status']!='OK':continue
+                if result['status']!='OK':
+                    entry['consecutive_failures']=entry.get('consecutive_failures',0)+1
+                    entry['next_due_at']=utc(now+timedelta(seconds=min(300,60*entry['consecutive_failures'])))
+                    continue
                 view=extract_event(result['raw'],entry['sport_family'],result['observed_at'],allow_postgame=True)
+                if view['event_id']!=event_id:raise ValueError('followup event identity mismatch')
+                # H5 needs the first post-result quote. Successful follow-up
+                # returns at the next UTC minute, even if the next Jenkins run
+                # starts earlier within its minute. Receipts keep actual times.
+                entry['consecutive_failures']=0
+                entry['next_due_at']=utc(slot+timedelta(seconds=config.trading.cadence_seconds))
                 view['cohort_key']=config.cohort_key;events[event_id]=view
                 if view['eligible'] and entry.get('expected_token_ids') not in (None,view['expected_token_ids']):
                     raise RuntimeError('followup token identity changed')

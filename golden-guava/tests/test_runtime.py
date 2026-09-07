@@ -107,3 +107,51 @@ def test_full_six_book_cycle_publishes_all_hypotheses(fixture):
         assert event['id'] in repo.tracking_obligations()
         assert repo.tracking_obligations()[event['id']]['origin_cohort']==fixture.cohort_key
     finally:repo.close()
+
+    # A game leaving the live census still needs every minute's direct books:
+    # successful postgame fetches must not back off to 2/3/4/5-minute gaps.
+    from copy import deepcopy
+    postgame=deepcopy(event)
+    postgame.update(live=False,ended=True,closed=False)
+    followups=[]
+    class Followup(Full):
+        response_status='OK'
+        def fetch_events(self,family):
+            return [],{'sport_family':family,'cursor_complete':True,'pages':1}
+        def fetch_event(self,event_id,family=None):
+            followups.append((event_id,family,self.response_status))
+            self.sink({'request_id':'followup','source':'gamma','method':'GET','path':'/events/'+event_id,
+                'params':{},'started_at':stamp,'received_at':stamp,'status':200,'error_type':None},postgame)
+            return {'status':self.response_status,'raw':deepcopy(postgame),'observed_at':stamp}
+    for minute,second in ((1,55),(2,50),(3,40)):
+        stamp=f'2026-09-06T08:{minute:02d}:{second+1:02d}Z'
+        result=runtime.run_research(fixture,now=datetime(2026,9,6,8,minute,second,tzinfo=timezone.utc),
+            client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
+        assert result['book_attempts']==6
+        assert result['tracking'][event['id']]['consecutive_failures']==0
+        assert runtime.parsed(result['tracking'][event['id']]['next_due_at'])==datetime(
+            2026,9,6,8,minute+1,tzinfo=timezone.utc)
+    assert len(followups)==3
+
+    Followup.response_status='ERROR'
+    for minute,expected_next in ((4,5),(5,7)):
+        stamp=f'2026-09-06T08:{minute:02d}:01Z'
+        result=runtime.run_research(fixture,now=datetime(2026,9,6,8,minute,tzinfo=timezone.utc),
+            client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
+        assert result['book_attempts']==0
+        assert runtime.parsed(result['tracking'][event['id']]['next_due_at']).minute==expected_next
+    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,6,tzinfo=timezone.utc),
+        client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
+    assert result['book_attempts']==0 and len(followups)==5
+    Followup.response_status='OK';stamp='2026-09-06T08:07:01Z'
+    result=runtime.run_research(fixture,now=datetime(2026,9,6,8,7,tzinfo=timezone.utc),
+        client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
+    assert result['book_attempts']==6 and len(followups)==6
+    assert result['tracking'][event['id']]['consecutive_failures']==0
+    assert runtime.parsed(result['tracking'][event['id']]['next_due_at']).minute==8
+    postgame['id']='different-exact-event';stamp='2026-09-06T08:08:01Z'
+    with pytest.raises(ValueError,match='followup event identity mismatch'):
+        runtime.run_research(fixture,now=datetime(2026,9,6,8,8,tzinfo=timezone.utc),
+            client_factory=Followup,news_factory=EmptyNews,stream_reader=empty_stream)
+    with sqlite3.connect(fixture.db_path) as c:
+        assert c.execute("SELECT count(*) FROM run_events WHERE status='FAILED'").fetchone()[0]==1
