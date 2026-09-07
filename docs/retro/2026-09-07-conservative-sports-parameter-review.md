@@ -133,7 +133,7 @@ NFL 개막전은 한국 시각 **2026-09-10 09:20**이다. 그 전에 축구·ML
 - Guava 정상 후속 조회 cadence 수정 `cd85508`, 연구 분봉 admission phase 교정 `2b8de52`를 commit/push하고 연구 4개 job에 선별 배포했다. 마지막 변경 뒤 각 3회 자연 실행, 새 config/source/window와 기존 데이터 보존을 다시 sync/verify/pin으로 확인했다. 해당 구간에는 적격 경기가 없었다.
 - Peach/Plum 원본 호가 archive `ce3dbdd`를 commit/push하고 Gold/Silver/Grey에 선별 배포했다. 10개 runtime의 가격·위험·기간 설정은 source digest 외에 같고, 원 1분 예약을 복원했다. 자연 실행 2회/job, 새 source의 DB 성공 기록 36개, 10개 pin 무결성을 확인했다. 신규 raw book은 0행이므로 경기 집중 시간의 실제 처리량을 검증한 것은 아니다.
 - 시각화 reader는 같은 run의 raw publication을 우선하고, 과거 raw 없는 run은 기존 snapshot을 보존한다. 정상 빈 book과 응답 누락, 잘못된 identity·시각을 구분한다. 독립 terminal의 시각은 이른 cycle reference가 아니라 증거 publication 시각을 쓴다.
-- 기존 10개 DB의 120,842행과 305개 시각화 fragment가 이전 reader와 동일함을 확인했다. 이번 전수 결과는 변경 전 분석기·reader·adapter와 함께 별도로 동결했다.
+- raw reader 연결 단계에서는 기존 10개 DB의 120,842행과 305개 시각화 fragment가 이전 reader와 동일함을 확인했다. 이후 추가한 역할 metadata 때문에 현재 JSON 전체의 byte 동등성을 주장하지는 않는다. 역할 보완 뒤에는 11개 pin의 기존 147,407행 필드·가격·판단 입력이 동일함을 별도로 확인했다. 이번 전수 결과는 당시 분석기·reader·adapter와 함께 별도로 동결했다.
 - Peach 326개, Plum 417개, Guava 851개 테스트 및 Guava 154개 subtest, 각 build, 29개 전략 계약 검사를 통과했다. 실제 운영 baseline 위 최소 패치도 별도로 테스트했다. 원본 DB와 자격 정보는 commit하지 않았다.
 
 수집 범위에는 기존 league/whole-game 조건과 event liquidity·cumulative volume 각각 5,000의 discovery gate가 남아 있다. 해당 모집단에서 accepted된 경기의 6/2 token을 독립 추적하는 변경이며, 서비스 전체 경기를 제한 없이 census하는 변경은 아니다. 누락된 과거 quote나 아직 치르지 않은 NFL 경기를 만들어 검증하지 않는다.
@@ -144,3 +144,5 @@ NFL 개막전은 한국 시각 **2026-09-10 09:20**이다. 그 전에 축구·ML
 ## 후속 확인: 비축구 HOME/AWAY 표기 정정
 
 후속 원본 대조에서 일부 비축구 수집기가 팀 배열 index 0/1을 HOME/AWAY로 저장한 오류를 확인했다. event 930711의 원본 teams.ordering은 Tampa Bay Rays=away, Texas Rangers=home인데 앞선 classification은 반대로 적혀 있었다. 위 손익은 정확한 token으로 계산했으므로 수치는 유지하고, 설명은 실제 팀명과 검증된 역할로 정정했다. event 941720의 손실·회복 사례 역시 Seattle Mariners token이다. 이전 동결 분석 파일의 역할 원문은 보존하며, 역할 정정과 손익 재계산을 혼동하지 않는다.
+
+후속 손절폭·계약 구성·NFL 시계 형식 검증은 [추가 보고서](2026-09-07-sports-stop-and-composition-followup.md)에 기록했다. NFL 1분 표본의 부재와, 별도 Coconut 5분 역사 자료의 존재를 구분한다.

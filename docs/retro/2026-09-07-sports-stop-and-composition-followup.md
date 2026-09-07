@@ -41,3 +41,19 @@ Peach 최근 축구 rank 3의 0.60~0.63 진입·실제 매수가+0.02 목표도 
 같은 Grey의 최근 MLB 30경기 중 예정 시작 이후 0~10분에 완전한 두 팀 book이 있었던 29경기는 모두 DIRECT 계약이었다. 첫 순위의 ask 중앙값은 **0.590**, 둘째는 0.440이었다. 축구 NO는 보통 두 가능한 경기 결과를 포함하지만, MLB DIRECT는 한 팀의 승리다. 같은 순위가 선택하는 계약과 가격 분포가 다르므로 이를 통제하지 않은 채 같은 entry/TP 숫자를 NFL에 적용하는 근거로 삼지 않는다. 이 기술통계가 종목별 수익성 차이나 심리적 원인을 입증한 것은 아니다.
 
 동결 입력·재현 코드·전체 손절 표와 원장은 local-only `docs/local/conservative-sports-20260907/stop-sensitivity/analysis-v1/`에, 구성 자료는 `continuation2/rank-composition*`에 보존했다.
+
+## NFL의 기존 5분 자료로 시계 형식 검증
+
+현재 Gold/Grey의 NFL 1분 가격 표본은 0행이지만, 이미 보관된 Coconut v7의 2026-08-29 일별 shard에는 NFL 경기 중 12경기·211개 관측이 있었다. 이 파일의 manifest·SHA·SQLite 무결성을 다시 확인하고 원격 조회 없이 시계 형식을 검사했다. 다른 전략 epoch의 5분 자료이므로 현재 1분 수익 검정에 합치지 않았다. 원 자료의 season_phase는 UNKNOWN이며 날짜만으로 바꾸지 않았다.
+
+숫자 시계는 `Q1~Q4`와 감소하는 `M:SS/MM:SS`였다. 211행 중 187개는 숫자로 해석했고 24개는 quarter end·halftime 상태로 보존했다. 같은 경기·source의 인접 196쌍은 진행 155, 동일 1, 비교 불가 40, 역행 0이었다. 성공 run의 207행과 실패 run의 4행도 구분했다.
+
+순수 함수 `tools/sports_native_clock.py`는 원본을 유지하면서 quarter·남은 초·표준 정규 쿼터 기준 경과 초를 반환한다. 900초 가정은 [2026 NFL Rule 4, Section 1, Article 1](https://static.www.nfl.com/image/upload/fl_attachment/league/tqivdkzt9mu6wdgsh1ku.pdf)에 명시했다. FT/VFT/NS/HT/quarter end를 정산이나 시즌 판정으로 바꾸지 않고, 연장은 지원되지 않은 형식으로 남긴다. 벽시계 시간·축구 경과 분·live 진입 판단에 연결하지 않았다. 실제 원본 fixture를 포함한 45개 테스트를 통과했다.
+
+## 수집 준비 시간과 표기 보완
+
+Gold의 네 설정 CLI를 한 interpreter에서 확인하는 실측은 3.027초에서 0.641초였다. Gold/Grey의 설정 출력과 resolved 값 동등성을 검증한 뒤, 연구 잡에 적용했다. 기존 외장 volume·DB 경로 검사와 수집·status 명령은 유지하고 각 단계의 초 단위 시간을 추가했다. 배포 후 원래 1분 예약과 각 2회 자연 실행, 20개 runtime 성공을 확인했다. 전체 실행시간은 Gold 18.405/36.530초, Silver 12.720/21.091초, Grey 9.423/21.104초였다. 이 전체 차이를 설정 묶음의 효과로 전부 귀속하지 않는다. Gold의 후단 status 10~12초는 별도 관측값이다.
+
+비축구 HOME/AWAY는 과거 producer에서 팀 배열 위치를 뜻한 사례가 확인됐다. 실제 팀명과 원본 `teams.ordering`으로 검증한 역할은 별도 metadata로 제공하며 원래 slot·token·가격·판단은 유지한다. 정보가 없거나 source가 충돌하면 UNKNOWN으로 남긴다. Tampa Bay–Texas의 해당 token은 Tampa Bay Rays(원정), Athletics–Seattle의 해당 token은 Seattle Mariners(홈)이며 손익 숫자는 변경되지 않는다.
+
+최종 통합 검증은 관련 tools 테스트 171개와 29개 전략 계약 검사를 통과했다. 역할 metadata 변경 뒤 기존 147,407행의 가격·판단 입력을 다시 대조했다. 원본 DB·동결 결과를 다시 쓰거나 실거래 파라미터를 변경하지 않았다.

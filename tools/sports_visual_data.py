@@ -51,6 +51,87 @@ def identifier(value):
     return hashlib.sha256(compact(value).encode()).hexdigest()[:20]
 
 
+ROLE_FIELDS = ("legacy_result_kind", "legacy_role_semantics", "verified_role", "verified_team_name",
+               "role_evidence_scope", "role_verification_status", "role_evidence")
+DIRECT_SPORTS = frozenset({"mlb", "nba", "nfl", "nhl"})
+
+
+def _role_name(value):
+    if not isinstance(value, str):return ""
+    return " ".join("".join(c if c.isalnum() else " " for c in value).casefold().split())
+
+
+def direct_role_metadata(row, teams, *, scope, identity_proven=True,
+                         evidence_event_id=None, evidence_observation_id=None, evidence_observed_at=None):
+    """Add descriptive venue-role evidence without changing the legacy slot.
+
+    HOME/AWAY in the old producers denoted source team-array position. Explicit
+    source ordering plus an exact token outcome label is required for a venue
+    role. Unknown roles never fall back to the positional value. Consumers must
+    not use these display fields to change candidate eligibility or cash paths.
+    """
+    if row.get("sport_family") not in DIRECT_SPORTS or row.get("outcome_side") != "DIRECT":return {}
+    result={"legacy_result_kind":row.get("result_kind"),
+            "legacy_role_semantics":"SOURCE_TEAM_ARRAY_POSITION_NOT_VERIFIED_VENUE_ROLE",
+            "verified_role":"UNKNOWN","verified_team_name":None,"role_evidence_scope":scope,
+            "role_verification_status":"UNKNOWN_NO_EXPLICIT_ORDERING",
+            "role_evidence":{"event_id":row.get("event_id"),"condition_id":row.get("condition_id"),
+                             "token_id":row.get("token_id"),"outcome_label":row.get("outcome"),
+                             "event_observation_id":evidence_observation_id,"observed_at":evidence_observed_at,
+                             "observed_at_basis":("RAW_EVENT_CYCLE_REFERENCE_NOT_HTTP_RECEIPT" if scope=="SAME_RAW_EVENT_OBSERVATION_EXPLICIT_ORDERING"
+                                  else "WHITE_EVENT_OBSERVATION_TIMESTAMP_NOT_INDEPENDENT_HTTP_RECEIPT" if scope=="SAME_WHITE_EVENT_OBSERVATION_EXPLICIT_ORDERING"
+                                  else "NO_SOURCE_EVENT_ORDERING_OBSERVATION" if scope=="LEGACY_NO_POINT_IN_TIME_TEAM_ORDERING"
+                                  else "CALLER_SUPPLIED_OBSERVATION_REFERENCE")}}
+    if not identity_proven or not row.get("token_id") or not row.get("condition_id") or not row.get("outcome"):
+        result["role_verification_status"]="UNKNOWN_TOKEN_LABEL_IDENTITY";return result
+    if evidence_event_id is not None and str(evidence_event_id)!=str(row.get("event_id")):
+        result["role_verification_status"]="UNKNOWN_EVENT_IDENTITY";return result
+    if not isinstance(teams,list) or len(teams)!=2 or any(not isinstance(t,dict) for t in teams):return result
+    orderings=[str(t.get("ordering") or "").strip().casefold() for t in teams]
+    if sorted(orderings)!=["away","home"]:return result
+    ids=[str(t.get("id")) for t in teams if t.get("id") is not None]
+    if len(ids)==2 and len(set(ids))!=2:
+        result["role_verification_status"]="UNKNOWN_DUPLICATE_TEAM_IDENTITY";return result
+    label=_role_name(row.get("outcome"));matches=[]
+    for team,ordering in zip(teams,orderings):
+        fields=[k for k in ("name","alias","abbreviation") if label and _role_name(team.get(k))==label]
+        if fields:matches.append((team,ordering,fields))
+    if len(matches)!=1:
+        result["role_verification_status"]="UNKNOWN_AMBIGUOUS_OR_UNMATCHED_TEAM_LABEL";return result
+    team,ordering,fields=matches[0]
+    team_name=team.get("name")
+    result.update(verified_role=ordering.upper(),verified_team_name=team_name if isinstance(team_name,str) and team_name.strip() else row["outcome"],
+                  role_verification_status="VERIFIED_EXPLICIT_SOURCE_ORDERING")
+    result["role_evidence"].update(team_id=team.get("id"),team_ordering=ordering,
+        matched_source_fields=fields,teams_sha256=hashlib.sha256(compact(teams).encode()).hexdigest())
+    return result
+
+
+def _merge_role_metadata(token, row):
+    """An event's conflicting observed roles stay unknown, never last-wins."""
+    if "verified_role" not in row:return
+    incoming={k:row[k] for k in ROLE_FIELDS}
+    incoming["legacy_result_kind"]=token.get("result_kind",row.get("legacy_result_kind"))
+    old=token.get("verified_role")
+    if str(token.get("role_verification_status","")).startswith("CONFLICTING_"):return
+    both_known=old in {"HOME","AWAY"} and incoming["verified_role"] in {"HOME","AWAY"}
+    old_id=(token.get("role_evidence") or {}).get("team_id")
+    new_id=incoming["role_evidence"].get("team_id")
+    role_conflict=both_known and old!=incoming["verified_role"]
+    same_explicit_id=old_id is not None and new_id is not None and str(old_id)==str(new_id)
+    names_differ=(_role_name(token.get("verified_team_name")) and _role_name(incoming.get("verified_team_name"))
+                  and _role_name(token.get("verified_team_name"))!=_role_name(incoming.get("verified_team_name")))
+    team_conflict=both_known and ((old_id is not None and new_id is not None and str(old_id)!=str(new_id))
+                                or (not same_explicit_id and names_differ))
+    if role_conflict or team_conflict:
+        token.update(verified_role="UNKNOWN",verified_team_name=None,
+                     role_verification_status="CONFLICTING_EXPLICIT_TEAM_IDENTITIES" if team_conflict else "CONFLICTING_EXPLICIT_SOURCE_ROLES",
+                     role_evidence_scope="CONFLICTING_SAME_EVENT_OBSERVATIONS",
+                     role_evidence={"conflicting_proofs":[token.get("role_evidence"),incoming["role_evidence"]]})
+    elif old not in {"HOME","AWAY"} or incoming["verified_role"] in {"HOME","AWAY"}:
+        token.update(incoming)
+
+
 def depth_prices(book, token):
     """Exact $5 ask walk and bid liquidation of those same shares, gross of fees."""
     if str(book.get("token_id", token)) != str(token):
@@ -322,7 +403,7 @@ def raw_archive_rows(connection, start, end):
             "identity_proven": identity_proven, "book_valid": book_valid,
             "issues": issues+book_issues,
             "timestamp_basis": (("BOOK_RECEIPT" if row["status"] in RAW_OBSERVED_BOOK_STATES else "BATCH_RECEIPT_NO_TOKEN_QUOTE") if row["received_at"] and row["point_at"] == row["received_at"] else "EXPECTED_SLOT_CYCLE_REFERENCE_NOT_QUOTE")}}
-        yield {"id": row["observation_id"], "run_id": row["run_id"], "event_id": row["event_id"],
+        projected = {"id": row["observation_id"], "run_id": row["run_id"], "event_id": row["event_id"],
             "condition_id": row["condition_id"], "token_id": row["token_id"],
             "outcome": identity.get("outcome"), "outcome_side": side, "result_kind": result_kind,
             "timestamp": row["point_at"], "sport_family": cycle["sport_family"],
@@ -350,6 +431,13 @@ def raw_archive_rows(connection, start, end):
             "raw_book_json": row["book_json"], "raw_book_sha256": row["book_sha256"],
             "point_in_time_market_fields": market_fields, "clock": clock,
             "book": book if book_valid else {}, "book_json": compact(book) if book_valid else None}
+        projected.update(direct_role_metadata(projected,event_fields.get("teams"),
+            scope="SAME_RAW_EVENT_OBSERVATION_EXPLICIT_ORDERING",identity_proven=identity_proven,
+            evidence_event_id=event_fields.get("id"),evidence_observation_id=event["observation_id"] if event else None,
+            evidence_observed_at=event["observed_at"] if event else None))
+        if "role_evidence" in projected:
+            projected["role_evidence"]["available_by_publication_utc"]=cycle["published_at"]
+        yield projected
 
 
 def raw_terminal_records(connection, runs, *, end=None):
@@ -468,6 +556,7 @@ def _legacy_trading_rows(connection, start, end):
         row["book"] = json.loads(row.get("book_json") or "{}")
         if isinstance(row["book"].get("source_sport_context"), dict):
             row["clock"]["source_sport_context"] = row["book"]["source_sport_context"]
+        row.update(direct_role_metadata(row,None,scope="LEGACY_NO_POINT_IN_TIME_TEAM_ORDERING"))
         yield row
 
 
@@ -481,9 +570,15 @@ def trading_rows(connection, start, end):
 
 def white_rows(connection, start, end):
     # Join by exact run AND token. Metadata from another minute is never forwarded.
+    columns={r[1] for r in connection.execute("PRAGMA table_info(event_observations)")}
+    role_columns=", ".join((f"e.{name}" if name in columns else "NULL")+f" AS role_{name}"
+        for name in ("teams_json","event_id","event_observation_id","observed_at","run_id"))
+    market_columns={r[1] for r in connection.execute("PRAGMA table_info(market_observations)")}
+    role_columns+=", "+", ".join((f"m.{name}" if name in market_columns else "NULL")+f" AS role_market_{name}"
+        for name in ("run_id","observed_at"))
     query = """SELECT b.*,o.condition_id,o.event_id,o.outcome_label,o.outcome_index,
       m.event_title,m.question,m.normalized_json,m.classification_evidence_json,
-      e.league_code,e.event_slug
+      e.league_code,e.event_slug, """+role_columns+"""
       FROM orderbook_snapshots b
       JOIN outcome_observations o ON o.run_id=b.run_id AND o.token_id=b.token_id
       JOIN market_observations m ON m.observation_id=o.market_observation_id
@@ -505,7 +600,26 @@ def white_rows(connection, start, end):
         minute = None
         # White preserves the source period/elapsed verbatim. A source-native
         # clock remains distinct from the normalized minutes in Silver/Grey.
-        yield {"id": r["snapshot_id"], "run_id": r["run_id"], "event_id": r["event_id"], "condition_id": r["condition_id"], "token_id": r["token_id"], "outcome": r["outcome_label"], "outcome_side": "DIRECT" if family != "soccer" else r["outcome_label"].upper(), "result_kind": result_kind, "timestamp": r["observed_at"], "sport_family": family, "title": r["event_title"], "slug": r["event_slug"], "question": r["question"], "league": r["league_code"], "game_start": norm.get("game_start_time"), "best_bid": r["best_bid"], "best_ask": r["best_ask"], "midpoint": (r["best_bid"]+r["best_ask"])/2 if r["best_bid"] is not None and r["best_ask"] is not None else None, "source_elapsed_minutes": minute, "clock": {k:clock.get(k) for k in ("source", "period", "elapsed_raw", "score", "received_at", "last_update", "join_status")}, "book": book}
+        projected = {"id": r["snapshot_id"], "run_id": r["run_id"], "event_id": r["event_id"], "condition_id": r["condition_id"], "token_id": r["token_id"], "outcome": r["outcome_label"], "outcome_side": "DIRECT" if family != "soccer" else r["outcome_label"].upper(), "result_kind": result_kind, "timestamp": r["observed_at"], "sport_family": family, "title": r["event_title"], "slug": r["event_slug"], "question": r["question"], "league": r["league_code"], "game_start": norm.get("game_start_time"), "best_bid": r["best_bid"], "best_ask": r["best_ask"], "midpoint": (r["best_bid"]+r["best_ask"])/2 if r["best_bid"] is not None and r["best_ask"] is not None else None, "source_elapsed_minutes": minute, "clock": {k:clock.get(k) for k in ("source", "period", "elapsed_raw", "score", "received_at", "last_update", "join_status")}, "book": book}
+        try:
+            teams=json.loads(r.get("role_teams_json") or "null")
+            token_index=r["outcome_index"];labels=norm.get("labels",[]);tokens=norm.get("tokens",[])
+            event_time=timestamp(r.get("role_observed_at"));market_time=timestamp(r.get("role_market_observed_at"));book_time=timestamp(r["observed_at"])
+            aligned=(not isinstance(token_index,bool) and isinstance(token_index,int) and token_index in (0,1)
+                     and len(labels)==len(tokens)==2 and len(set(tokens))==2
+                     and str(tokens[token_index])==str(r["token_id"]) and labels[token_index]==r["outcome_label"]
+                     and str(norm.get("event_id"))==str(r["event_id"])
+                     and str(norm.get("condition_id"))==str(r["condition_id"])
+                     and bool(r.get("role_event_id")) and bool(r.get("role_event_observation_id"))
+                     and r.get("role_run_id")==r["run_id"] and r.get("role_market_run_id")==r["run_id"]
+                     and event_time is not None and market_time is not None and book_time is not None
+                     and event_time<=book_time and market_time<=book_time)
+        except (TypeError,ValueError,IndexError):teams=None;aligned=False
+        projected.update(direct_role_metadata(projected,teams,
+            scope="SAME_WHITE_EVENT_OBSERVATION_EXPLICIT_ORDERING",identity_proven=aligned,
+            evidence_event_id=r.get("role_event_id"),evidence_observation_id=r.get("role_event_observation_id"),
+            evidence_observed_at=r.get("role_observed_at")))
+        yield projected
 
 
 def export_source(source, output, start, end, index):
@@ -545,6 +659,7 @@ def export_source(source, output, start, end, index):
             if candidates and len({x["payout"] for x in candidates}) == 1:
                 selected = min(candidates, key=lambda x: timestamp(x["observed_at"]))
                 group["tokens"][token_key].update(payout=selected["payout"], payout_observed_at=selected["observed_at"], payout_source=selected["source"])
+        _merge_role_metadata(group["tokens"][token_key],row)
         token_id = group["tokens"][token_key]["index"]
         flags = 0
         if run.get("status") != "SUCCESS":

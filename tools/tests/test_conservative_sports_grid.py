@@ -478,3 +478,17 @@ def test_raw_scheduled_age_is_retained_only_as_an_explicit_proxy(tmp_path):
     assert s.minute==5 and s.scheduled_age==20
     assert grid.candidates(events[0],'peach_rank',1,.7)[0] is not None
     assert grid.candidates(events[0],'peach_scheduled_age_rank',1,.7)[0] is None
+
+
+def test_verified_role_is_display_only_through_path_and_replay():
+    ev=event([group(0),group(60,.66,.65)])
+    candidate,_=grid.candidates(ev,'peach_rank',1,.60)
+    before=grid.make_path(ev,'peach_rank',candidate)
+    held=candidate[1];held.outcome_label='Tampa Bay Rays';held.verified_role='AWAY'
+    held.verified_team_name='Tampa Bay Rays';held.role_evidence_scope='SAME_EVENT_EXPLICIT_ORDERING'
+    held.legacy_result_kind='HOME';held.legacy_role_semantics='SOURCE_TEAM_ARRAY_POSITION_NOT_VERIFIED_VENUE_ROLE'
+    after=grid.make_path(ev,'peach_rank',candidate)
+    assert before['id']==after['id'] and after['entry_result']=='HOME'
+    assert after['entry_verified_role']=='AWAY' and after['entry_team_name']=='Tampa Bay Rays'
+    assert grid.replay_path(before,'absolute',.65,'sports_005')==grid.replay_path(after,'absolute',.65,'sports_005')
+    assert grid.candidates(ev,'peach_rank',1,.60)[0][1].token==held.token

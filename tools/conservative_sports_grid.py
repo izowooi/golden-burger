@@ -149,6 +149,12 @@ class Snap:
     evidence_origin: str = "legacy"
     observation_status: str | None = None
     market_open_observed: bool | None = None
+    outcome_label: str | None = None
+    verified_role: str | None = None
+    verified_team_name: str | None = None
+    role_evidence_scope: str | None = None
+    legacy_result_kind: str | None = None
+    legacy_role_semantics: str | None = None
 
 
 @dataclass
@@ -375,7 +381,10 @@ def read_source(source, start, end):
                         point_rate,spread,ask_state,str(row.get("source_clock_reason") or ""),walk(asks,5,True),
                         visual.number(row.get("clock",{}).get("scheduled_age_minutes")) if not is_raw else raw_scheduled_age,
                         row.get("raw_entry_set_complete") is True if is_raw else row.get("event_set_complete",1)==1,
-                        str(row.get("raw_evidence_origin") or "legacy"),row.get("raw_observation_status"),raw_market_open)
+                        str(row.get("raw_evidence_origin") or "legacy"),row.get("raw_observation_status"),raw_market_open,
+                        row.get("outcome"),row.get("verified_role"),row.get("verified_team_name"),
+                        row.get("role_evidence_scope"),row.get("legacy_result_kind",row.get("result_kind")),
+                        row.get("legacy_role_semantics"))
         grouped[(cfg_hash,sport,row["event_id"])][row["run_id"]].append(snapshot)
         titles[row["event_id"]] = row["title"]
         stats["valid_rows" if valid else "invalid_metadata_or_run_rows"] += 1
@@ -513,6 +522,13 @@ def make_path(event,policy,candidate,max_gap=90):
             "source":event.source,"policy":policy,"partition":event.partition,"day":event.partition_day,
             "entry_time":entry.time,"entry_utc":iso(entry.time),"entry_token":entry.token,
             "entry_condition":entry.condition,"entry_result":entry.slot[0],"entry_side":entry.slot[1],
+            "entry_outcome_label":entry.outcome_label,
+            "entry_team_name":(entry.verified_team_name or entry.outcome_label) if entry.slot[1]=="DIRECT" else None,
+            "entry_verified_role":(entry.verified_role or "UNKNOWN") if entry.slot[1]=="DIRECT" else None,
+            "entry_verified_team_name":entry.verified_team_name,
+            "entry_role_evidence_scope":entry.role_evidence_scope,
+            "entry_legacy_result_kind":entry.legacy_result_kind if entry.legacy_result_kind is not None else entry.slot[0],
+            "entry_result_kind_semantics":entry.legacy_role_semantics or "LEGACY_STORED_RESULT_SLOT",
             "entry_vwap":entry.buy.vwap,"buy_walk":asdict(entry.buy),"entry_fee_rate":entry.fee_rate,
             "gross_sell_shares_diagnostic":q,"gross_sdk_dust_diagnostic":entry.buy.shares-q,"ambiguous_rank":ambiguous,
             "end_reason":"right_censored","stop_price":max(knob["stop_floor"],entry.buy.vwap-knob["stop_delta"]),
@@ -875,6 +891,12 @@ def baseline_rows(events,output,fee_collection="v2_cash"):
                              "target_mode":mode,"target":target,"fee_model":model,"entry_utc":path["entry_utc"] if path else None,
                              "entry_vwap":path["entry_vwap"] if path else None,"token":path["entry_token"] if path else None,
                              "result":path["entry_result"] if path else None,"side":path["entry_side"] if path else None,
+                             "team_name":path.get("entry_team_name") if path else None,
+                             "verified_role":path.get("entry_verified_role") if path else None,
+                             "verified_team_name":path.get("entry_verified_team_name") if path else None,
+                             "role_evidence_scope":path.get("entry_role_evidence_scope") if path else None,
+                             "legacy_result_kind":path.get("entry_legacy_result_kind",path["entry_result"]) if path else None,
+                             "result_kind_semantics":path.get("entry_result_kind_semantics","LEGACY_STORED_RESULT_SLOT") if path else None,
                              "tp_signal_contract":tp_policy,
                              "clock_contract":"scheduled_age_proxy" if "scheduled_age" in policy else "source_classified_in_play",
                              "execution_contract":"current_source_fullbook_gap_fallback_opportunity_proxy",
@@ -895,6 +917,7 @@ def report(result,protocol,output):
            "실제 체결·확정 수익이 아니다. 모든 경기의 raw snapshot을 읽으며 trades 원장으로 진입 모집단을 제한하지 않는다.",
            "서로 다른 source/config/sport는 합산하지 않는다. 같은 경기의 수천 셀은 독립 경기가 아니다.", "",
            f"총 {result['cell_rows']:,}개 cohort/partition/fee 셀, {result['entry_mapping_rows']:,}개 경기별 진입 매핑, {result['path_count']:,}개 고유 실행 경로.","",
+           "DIRECT2의 entry_result/result는 기존 저장 slot이며 venue HOME/AWAY 증명이 아니다. 검증된 역할은 별도 verified_role/verified_team_name/role_evidence_scope로만 표시하고 UNKNOWN을 HOME으로 추정하지 않는다. 이 표시 metadata는 rank·token·가격·PnL에 사용하지 않는다.","",
            "진입은 same-run 직접 midpoint 내림차순 rank(동률 token ID)이며 인접 순위 간 차이 <0.005는 ambiguous로 보존한다. 0.01~0.99 entry와 absolute target, actual BUY +0.01~0.99 relative target을 0.01 간격으로 전수 계산한다. entry band 상한은 threshold+0.03이다. absolute target<=actual BUY 또는 상대 target>=1은 진입 제외하고 같은 분봉 익절은 금지한다.","",
            "Peach는 source minute 0~10이 입증된 자료만 진입한다. 각 셀은 최초 band 적격 후보 1개만 평가하며 target overshoot로 제외된 뒤 가격이 되돌아온 두 번째 진입은 찾지 않는다. MLB의 scheduled-start-age는 native clock으로 대체하지 않는다. 별도 peach_scheduled_age 정책만 일정시각기준 0~10분을 diagnostic으로 재생하며 strict native 정책과 합치지 않는다. Plum은 가격 band와 종목별 기존 추세(축구 3회/누적+0.02, MLB 5회/누적+0.01, 공통 되돌림<=0.01/상향교차)를 분리한다. Watermelon은 직접 YES3 또는 DIRECT2만 사용하며 당시 live/order-open/liquidity>=5000/cumulative-volume>=5000을 요구한다.","",
            "SL: Peach 축구 -0.10/MLB -0.20, Plum 축구 -0.15/MLB -0.12, Watermelon max(0.70,BUY-0.30). Peach source80분부터 SL을 끄고 TP 상승폭을 절반으로 줄인다. STOP은 current source의 gap fallback처럼 full-depth, 유한 spread<=0.10을 만족하는 실제 후속 bid를 사용한다. 저장된 nominal loss/slippage cap은 gap fallback을 차단하지 않으며, 옛 frozen 운영 cap을 재현한 것으로 해석하지 않는다. API 재확인·주문 지연·FOK 거절/partial/계좌 한도는 재현하지 못하므로 live-compatible 완전 재생이 아니다.","",
@@ -932,6 +955,12 @@ def query_cell(directory,cohort,policy,rank,entry,target_mode,target,fee_model,f
                      "entry_utc":p["entry_utc"] if p else None,"entry_vwap":p["entry_vwap"] if p else None,
                      "token":p["entry_token"] if p else None,"result":p["entry_result"] if p else None,
                      "side":p["entry_side"] if p else None,"day":p["day"] if p else None,
+                     "team_name":p.get("entry_team_name") if p else None,
+                     "verified_role":p.get("entry_verified_role","UNKNOWN" if p.get("entry_side")=="DIRECT" else None) if p else None,
+                     "verified_team_name":p.get("entry_verified_team_name") if p else None,
+                     "role_evidence_scope":p.get("entry_role_evidence_scope","LEGACY_NO_ROLE_EVIDENCE_IN_FROZEN_PATH") if p else None,
+                     "legacy_result_kind":p.get("entry_legacy_result_kind",p["entry_result"]) if p else None,
+                     "result_kind_semantics":p.get("entry_result_kind_semantics","LEGACY_STORED_RESULT_SLOT") if p else None,
                      "partition":p["partition"] if p else None,**r})
     return rows
 
