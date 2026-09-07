@@ -154,3 +154,17 @@ NFL 개막전은 한국 시각 **2026-09-10 09:20**이다. 그 전에 축구·ML
 누락분은 원본 book과 해시를 검증하여 별도 압축 파일로 보존했다. 해당 실행의 비호가 원본 응답 6,485개도 모두 압축 해제하고 해시를 확인했다. 여기에는 Gamma event page 5,966개, 원본 크기 약 4.19 GB가 포함된다. 이 page에서는 해당 event/condition/token의 metadata를 복원하지 못했다. 37개 book에는 정확한 condition·token의 CLOB resolution 응답이 있지만 book보다 나중에 수신됐고, 당시 경기 진행 상태와 Gamma feeSchedule은 없다. 나머지 1,879개에는 같은 실행의 연결 가능한 원본 응답도 없다.
 
 이 1,916행을 과거의 다른 실행에서 가져온 OPEN 상태나 수수료로 채워 진입·익절 성과에 합산하지 않았다. 원본이 존재하는 것과 해당 시각에 거래 가능한 경로가 입증된 것은 구분해야 한다. 기존 동결 grid와 손익은 그대로 보존하고, 이 감사로 분석 범위를 정정한다. 재현 스크립트·원본 별첨·검증 결과는 local-only `docs/local/conservative-sports-20260907/continuation3/`에 보관했다.
+
+## White 후속 원본 수집 보완
+
+위 누락은 현재 White에도 남아 있던 수집 경로의 문제였다. live 목록에서 사라진 뒤에는 가상 episode가 생긴 token의 book만 읽고, 같은 시각의 event·market metadata를 남기지 않았다. `d38d839`에서 이 경로를 보완했다.
+
+기존 primary `trades_sim.db` 옆의 독립 `shadow.db`에 허용된 경기의 Soccer YES3/direct2를 episode 생성 여부와 무관하게 등록한다. 기존 진입·stop·정산 처리가 끝난 뒤 남은 시간 예산에서 event를 다시 조회하고, 그 metadata보다 나중의 fresh book을 저장한다. 정상 빈 호가, 누락, 오류와 예산 부족을 구분한다. 기존 원본은 정확한 run/request/token/hash 참조로 재사용하며 과거 1,916행을 backfill하지 않는다.
+
+White 전체 205개 테스트와 build, 읽기 도구 22개 테스트, 29개 전략 계약 검사를 통과했다. 독립 테스트에서 기존 경제행이 동일함을 확인했고, 실제 수집 코드가 만든 합성 HTTP fixture의 두 DB를 backup·SHA 검증한 뒤 읽은 6개 호가도 모두 원본과 일치했다. 이는 실제 경기 부하나 수익성 검증이 아니다. 가격·위험 한도·기간 설정은 유지한다.
+
+White 연구 잡에 등록 source 8개 파일과 새 r5 manifest를 선별 적용했다. 수동 #20913 및 예약 복원 뒤 자연 #20914/#20915가 모두 SUCCESS였다(각 1.443/1.457/1.896초). 현재 관측에는 적격 경기·호가가 0개여서 경기 중 수집 완결성은 앞으로 확인해야 한다.
+
+독립 원본을 읽을 때는 [검증·추출 도구](../../tools/watermelon_raw_sidecar.py)에 부모와 sidecar의 별도 검증된 pin 및 SHA를 함께 지정한다. 부모 SUCCEEDED와 raw publication, 원본 응답과 시각을 모두 확인하며, terminal annotation은 검증된 payout으로 출력하지 않는다. 기존 전수 손익에 새 원본을 조용히 합산하지 않는다.
+
+표준 동기화 뒤 1,747개 항목의 무결성 검사를 통과했고, 부모 DB와 sidecar를 각각 별도 pin으로 고정했다. 기존 primary schema가 그대로임을 확인했으며, 새 source의 부모 성공 3회와 raw publication 3회를 run/config/source/시각으로 모두 대사했다. 세 실행의 expected event/token은 모두 0이고, 읽기 도구도 누락 오류 없이 0개 호가를 내보냈다. 실제 경기 후속 수집과 새 파라미터의 높은 순이익 확률은 여전히 검증이 필요하다.
