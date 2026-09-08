@@ -181,12 +181,24 @@ def _run_cycle(config, repository, trace, *, run_id, now, enabled, discover=True
     return result, gamma, clob
 
 
-def test_raw_followup_preserves_legacy_entry_partial_stop_and_resolution(tmp_path):
+@pytest.mark.parametrize("legacy_child_backlog", [False, True])
+def test_raw_followup_preserves_legacy_entry_partial_stop_and_resolution(tmp_path, legacy_child_backlog):
     states, traces, snapshots = {}, {}, {}
     for enabled in (False, True):
         config = configured(tmp_path / str(enabled), compact_grid=True)
         repository = repository_for(config)
         trace = []
+        child_rows_before = None
+        if enabled and legacy_child_backlog:
+            from polybot.db.raw_repository import RawRepository
+            from test_raw_discovery import seed_r5_child_registry
+            raw = RawRepository(repository.path)
+            try:
+                seed_r5_child_registry(raw, 142)
+                child_rows_before = [dict(r) for r in raw.connection.execute(
+                    "SELECT * FROM raw_events WHERE run_id='legacy' ORDER BY event_id")]
+            finally:
+                raw.close()
         try:
             for index, args in enumerate((
                 {"ask": 0.94},
@@ -210,6 +222,16 @@ def test_raw_followup_preserves_legacy_entry_partial_stop_and_resolution(tmp_pat
             assert len(states[enabled]["stop_execution_attempts"]) == 2
             assert len(states[enabled]["counterfactual_stop_exits"]) == 1
             assert len(states[enabled]["resolution_observations"]) == 1
+            if enabled and legacy_child_backlog:
+                current = sorted(_sidecar_rows(config, "raw_events", "legacy"), key=lambda r: r["event_id"])
+                assert current == child_rows_before
+                children = [r for r in _sidecar_rows(config, "raw_tracked_events") if r["event_id"].startswith("child-")]
+                assert len(children) == 142 and all(r["state"] == "DISCOVERY_ONLY" for r in children)
+                first = _sidecar_rows(config, "raw_cycles", "run-0")[0]
+                stats = json.loads(first["stats_json"])
+                assert stats["registry_reclassifications"] == 142
+                assert stats["required_events"] == 1 and stats["expected_tokens"] == 3
+                assert not any(r[1] == "raw_event" and r[2].startswith("child-") for r in trace)
         finally:
             repository.close()
     assert states[True] == states[False]

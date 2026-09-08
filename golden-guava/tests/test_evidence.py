@@ -13,6 +13,7 @@ from pathlib import Path
 import sqlite3
 import tempfile
 import unittest
+from urllib.parse import quote
 
 
 MODULE_PATH = Path(__file__).resolve().parents[1] / "src/polybot/evidence.py"
@@ -493,6 +494,62 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.repo.record_request("run-1", receipt(), payload)
         self.assertEqual(self.sql("SELECT * FROM source_requests"), [])
+
+    def test_json_wrapper_preserves_leaf_boundaries_and_original_bytes(self):
+        self.start()
+        safe = {"url": "https://scores.example.invalid", "match": "A@B"}
+        samples = [safe, [safe], {"nested": json.dumps([safe], separators=(",", ":"))}]
+        for index, obj in enumerate(samples):
+            for encoded in (False, True):
+                wrapped = json.dumps(obj, separators=(",", ":"))
+                if encoded:
+                    wrapped = quote(wrapped, safe="")
+                payload = {"wrapper": wrapped}
+                evidence._safe_json(obj)
+                evidence._safe_json(payload)
+                request_id = f"wrapper-{index}-{encoded}"
+                self.repo.record_request("run-1", {**receipt(), "request_id": request_id}, payload)
+                row = self.sql("SELECT payload_gzip FROM source_requests WHERE request_id=?", (request_id,))[0]
+                self.assertEqual(json.loads(gzip.decompress(row["payload_gzip"])), payload)
+
+    def test_json_wrapped_secret_leaves_keys_and_encoded_nesting_still_rejected(self):
+        self.start()
+        marker = "fixture-not-a-real-credential"
+        forbidden = [
+            {"Authorization": "Bearer " + marker},
+            {"text": "Basic " + marker},
+            {"url": "https://fixture-user:" + marker + "@scores.example.invalid"},
+            {"text": "-----BEGIN PRIVATE KEY-----\\n" + marker + "\\n-----END PRIVATE KEY-----"},
+            {"private_key": marker},
+            {"%70rivate_key": marker},
+            {"nested": quote(json.dumps({"api_key": marker}), safe="")},
+            {"number": float("nan")},
+        ]
+        for index, obj in enumerate(forbidden):
+            for wrapped in (obj, json.dumps(obj), [json.dumps(obj)],
+                            {"outer": quote(json.dumps([obj]), safe="")}):
+                with self.subTest(index=index, wrapper_type=type(wrapped).__name__):
+                    payload = {"wrapped": wrapped}
+                    with self.assertRaises(ValueError) as caught:
+                        self.repo.record_request("run-1", receipt(), payload)
+                    self.assertNotIn(marker, str(caught.exception))
+                    self.assertNotIn("fixture-user", str(caught.exception))
+                    self.assertNotIn("private_key", str(caught.exception))
+        self.assertEqual(self.sql("SELECT * FROM source_requests"), [])
+
+    def test_plain_and_malformed_wrapper_secret_guard_is_unchanged(self):
+        for value in (
+            "Bearer fixture-not-a-real-credential",
+            "https://fixture-user:fixture-not-a-real-credential@scores.example.invalid",
+            '{"text":"Bearer fixture-not-a-real-credential"',
+            '["https://fixture-user:fixture-not-a-real-credential@scores.example.invalid"',
+        ):
+            with self.subTest(form=value[:1]):
+                with self.assertRaises(ValueError):
+                    evidence._safe_json(value)
+        # The separate prose false positive is deliberately not relaxed here.
+        with self.assertRaises(ValueError):
+            evidence._safe_json({"description": "These are basic baseball rules."})
 
     def test_absent_run_and_duplicate_request_do_not_make_evidence(self):
         with self.assertRaises(ValueError):

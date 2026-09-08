@@ -21,6 +21,7 @@ from .utils.retry import canonical_json, iso_utc
 
 FOLLOWUP_LIMIT = 20
 WAIT_RESOLUTION_SECONDS = 300
+DISCOVERY_ONLY_REASON = "EXPLICIT_CHILD_OUTSIDE_WHOLE_GAME"
 
 
 def _time(value):
@@ -38,6 +39,50 @@ def _array(value):
         except ValueError:
             return []
     return value if isinstance(value, list) else []
+
+
+def explicit_child(event):
+    return isinstance(event, Mapping) and event.get("parentEventId") not in (None, "")
+
+
+def child_registry_corrections(repo, current):
+    """Bounded working-set repair, anchored to the first immutable observation.
+
+    r5 never clears a nonempty slots_json, so empty slots prove that this registry
+    row never acquired a structural 3/2-token anchor. A missing first observation
+    or a top-level event is retained; neither is guessed to be a child.
+    """
+    corrections = {}
+    rows = repo.connection.execute(
+        "SELECT * FROM raw_tracked_events INDEXED BY raw_pending_idx "
+        "WHERE state IN ('TRACKING','WAIT_RESOLUTION') AND slots_json='[]'"
+    ).fetchall()
+    for anchor in rows:
+        cur = current.get(anchor["event_id"])
+        if cur and cur["valid"] and not explicit_child(cur["event"]):
+            continue
+        first = repo.connection.execute(
+            "SELECT * FROM raw_events WHERE run_id=? AND event_id=?",
+            (anchor["first_run_id"], anchor["event_id"]),
+        ).fetchone()
+        if first is None or not first["event_json"]:
+            continue
+        try:
+            event = json.loads(first["event_json"])
+        except (ValueError, TypeError):
+            continue
+        if (not explicit_child(event)
+                or str(event.get("id") or "") != anchor["event_id"]):
+            continue
+        corrections[anchor["event_id"]] = {
+            "first": dict(first), "event": event,
+            "proof": {"reason": DISCOVERY_ONLY_REASON,
+                "basis": "FIRST_REGISTRY_OBSERVATION", "run_id": anchor["first_run_id"],
+                "event_id": anchor["event_id"], "parent_event_id": event["parentEventId"],
+                "event_json_sha256": hashlib.sha256(first["event_json"].encode()).hexdigest(),
+                "previous_state": anchor["state"], "new_state": "DISCOVERY_ONLY"},
+        }
+    return corrections
 
 
 def event_identity(event, family, gamma_config):
@@ -153,6 +198,68 @@ class ResearchRawCollector:
         self._request_cache[request_id] = result
         return result
 
+    def _terminal_working_states(self, repo, reference):
+        """Confirm derived terminal state only after the parent run publication.
+
+        RESOLVED is the legacy r5 candidate state. Confirmed rows move to a
+        distinct state so subsequent cycles never scan the resolved history.
+        """
+        checks, updates, retry, confirmed = [], [], {}, set()
+        rows = repo.connection.execute(
+            "SELECT * FROM raw_tracked_events INDEXED BY raw_pending_idx "
+            "WHERE state IN ('RESOLVED','TERMINAL_PENDING_PUBLICATION')"
+        ).fetchall()
+        run_checks = {}
+        for raw in rows:
+            anchor = dict(raw)
+            previous = anchor["last_run_id"]
+            if previous not in run_checks:
+                cycle = repo.connection.execute("SELECT * FROM raw_cycles WHERE run_id=?", (previous,)).fetchone()
+                with self.parent.connect() as c:
+                    parent_rows = [dict(r) for r in c.execute(
+                        "SELECT * FROM research_run_events WHERE run_id=?", (previous,))]
+                started = [r for r in parent_rows if r["event_type"] == "STARTED"]
+                succeeded = [r for r in parent_rows if r["event_type"] == "SUCCEEDED"]
+                valid = bool(cycle and cycle["status"] == "PUBLISHED" and len(started) == len(succeeded) == 1
+                    and len(parent_rows) == 2 and cycle["job_name"] == self.config.job_name)
+                if valid:
+                    valid = all(r["config_hash"] == cycle["config_hash"]
+                                and r["strategy_source_digest"] == cycle["source_digest"] for r in parent_rows)
+                    times = [_time(started[0]["observed_at"]), _time(cycle["reference_at"]),
+                             _time(cycle["published_at"]), _time(succeeded[0]["observed_at"])]
+                    valid = (valid and all(t is not None for t in times) and times == sorted(times)
+                             and _time(reference) is not None and times[-1] <= _time(reference))
+                run_checks[previous] = {
+                    "parent_and_raw_published": bool(valid),
+                    "raw_status": cycle["status"] if cycle else None,
+                    "parent_event_types": [r["event_type"] for r in parent_rows],
+                }
+            proof = dict(run_checks[previous])
+            terminal = repo.connection.execute(
+                "SELECT * FROM raw_events WHERE run_id=? AND event_id=?",
+                (previous, anchor["event_id"]),
+            ).fetchone()
+            try:
+                computed = terminal_proof(json.loads(terminal["event_json"]),
+                    json.loads(anchor["slots_json"]), anchor["family"]) if terminal else None
+                exact_terminal = bool(terminal and terminal["identity_valid"] == 1
+                    and terminal["lifecycle_state"] == "RESOLVED" and terminal["terminal_json"]
+                    and computed is not None and computed == json.loads(terminal["terminal_json"]))
+            except (ValueError, TypeError, KeyError):
+                exact_terminal = False
+            proof["exact_terminal_event_record"] = exact_terminal
+            proof["parent_and_raw_published"] = proof["parent_and_raw_published"] and exact_terminal
+            state = "RESOLVED_CONFIRMED" if proof["parent_and_raw_published"] else "WAIT_RESOLUTION"
+            reason = "PARENT_SUCCESS_CONFIRMED" if proof["parent_and_raw_published"] else "TERMINAL_RETRY_UNPUBLISHED_PARENT"
+            checks.append({"event_id": anchor["event_id"], "evidence_run_id": previous,
+                           "previous_state": anchor["state"], "new_state": state, "reason": reason, **proof})
+            updates.append((state, anchor["slots_json"], previous, reference, anchor["missing_count"], reason, anchor["event_id"]))
+            if proof["parent_and_raw_published"]:
+                confirmed.add(anchor["event_id"])
+            else:
+                retry[anchor["event_id"]] = {**anchor, "state": state, "next_attempt_at": reference}
+        return checks, updates, retry, confirmed
+
     def capture(self, *, run_id, now, budget, sweep, core_books, core_snapshots, core_resolution_responses=(), core_clock=None):
         repo = RawRepository(self.parent.path, busy_timeout_ms=self.config.trading.storage.busy_timeout_ms)
         try:
@@ -165,6 +272,7 @@ class ResearchRawCollector:
 
     def _capture(self, repo, run_id, now, budget, sweep, core_books, core_snapshots, core_resolution_responses, core_clock):
         reference = iso_utc(now)
+        terminal_checks, terminal_updates, terminal_retry, terminal_confirmed = self._terminal_working_states(repo, reference)
         current = {}
         for page in sweep.pages:
             try:
@@ -200,19 +308,31 @@ class ResearchRawCollector:
                     except (ValueError, TypeError, AttributeError):
                         continue
                 current[event_id]["source_ref"]["clock_refs"] = clock_refs
-        # Register accepted events independently of episode creation, before optional HTTP.
+        corrections = child_registry_corrections(repo, current)
+        # Keep discovery observations, but explicit children are not the strict
+        # whole-game follow-up population. No price or $5-depth gate is added.
         with repo.transaction() as c:
             for event_id, cur in current.items():
                 if c.execute("SELECT 1 FROM raw_tracked_events WHERE event_id=?", (event_id,)).fetchone() is None:
+                    state = "DISCOVERY_ONLY" if explicit_child(cur["event"]) else "TRACKING"
                     c.execute("INSERT INTO raw_tracked_events VALUES(?,?,?,?,?,?,?,?,?)",
-                        (event_id, cur["family"], "TRACKING", canonical_json(cur["slots"]), run_id, run_id, reference, 0, None))
+                        (event_id, cur["family"], state, canonical_json(cur["slots"]), run_id, run_id, reference, 0,
+                         DISCOVERY_ONLY_REASON if state == "DISCOVERY_ONLY" else None))
         tracked = {r["event_id"]: r for r in repo.pending(reference)}
+        tracked.update(terminal_retry)
+        # A future-due child must also get its one-time classification audit now.
+        for event_id in corrections:
+            tracked[event_id] = dict(repo.connection.execute(
+                "SELECT * FROM raw_tracked_events WHERE event_id=?", (event_id,)
+            ).fetchone())
         # An already resolved event returned by live discovery stays terminal.
         for event_id in current:
             row = repo.connection.execute("SELECT * FROM raw_tracked_events WHERE event_id=?", (event_id,)).fetchone()
-            if row is not None and row["state"] != "RESOLVED":
-                tracked[event_id] = dict(row)
-        events, books, payloads, updates = [], [], [], []
+            if event_id in terminal_confirmed:
+                continue
+            if row is not None and row["state"] != "RESOLVED_CONFIRMED":
+                tracked[event_id] = terminal_retry.get(event_id, dict(row))
+        events, books, payloads, updates = [], [], [], list(terminal_updates)
         # Core Gamma OPEN/CLOSED_UNRESOLVED/empty views previously had receipts
         # but lost payload bytes. Terminal payloads already in the parent remain
         # parent-only: do not duplicate those source observations here.
@@ -230,6 +350,30 @@ class ResearchRawCollector:
         for event_id, anchor in sorted(tracked.items(), key=lambda item: (item[1]["next_attempt_at"], item[0])):
             family = anchor["family"]
             cur = current.get(event_id)
+            correction = corrections.get(event_id)
+            discovery_only = (correction is not None or (
+                anchor["state"] == "DISCOVERY_ONLY" and not (cur and cur["valid"])))
+            if discovery_only:
+                first = correction["first"] if correction else None
+                event = cur["event"] if cur else correction["event"]
+                ref = dict(cur["source_ref"]) if cur else {
+                    "run_id": first["run_id"], "event_id": event_id,
+                    "source_ref": json.loads(first["source_ref_json"]),
+                }
+                if correction:
+                    ref["registry_reclassification"] = correction["proof"]
+                ref["discovery_only_reason"] = DISCOVERY_ONLY_REASON
+                events.append({"run_id": run_id, "event_id": event_id, "family": family,
+                    "metadata_status": "DISCOVERY_ONLY" if cur else "DISCOVERY_ONLY_RECLASSIFIED",
+                    "metadata_received_at": cur["received_at"] if cur else first["metadata_received_at"],
+                    "metadata_request_id": cur["request_id"] if cur else first["metadata_request_id"],
+                    "source_kind": cur["source_kind"] if cur else "PRIOR_RAW_EVENT",
+                    "source_ref_json": canonical_json(ref), "event_json": canonical_json(event),
+                    "slots_json": "[]", "identity_valid": 0, "lifecycle_state": "DISCOVERY_ONLY",
+                    "terminal_json": None, "missing_count": anchor["missing_count"]})
+                updates.append(("DISCOVERY_ONLY", "[]", run_id, reference, anchor["missing_count"],
+                                DISCOVERY_ONLY_REASON, event_id))
+                continue
             status = "OBSERVED" if cur else "MISSING"
             if cur is None:
                 if lookups >= FOLLOWUP_LIMIT or budget.network_remaining_seconds < 0.1 or budget.cycle_remaining_seconds < 2:
@@ -388,10 +532,20 @@ class ResearchRawCollector:
                 state = "WAIT_RESOLUTION"
                 events[-1]["lifecycle_state"] = state
             next_at = now + timedelta(seconds=WAIT_RESOLUTION_SECONDS if state == "WAIT_RESOLUTION" and not final_deferred else 0)
-            updates.append((state, canonical_json(prior_slots or fresh_slots), run_id, iso_utc(next_at), missing,
+            registry_state = "TERMINAL_PENDING_PUBLICATION" if state == "RESOLVED" else state
+            updates.append((registry_state, canonical_json(prior_slots or fresh_slots), run_id, iso_utc(next_at), missing,
                             "FINAL_BOOK_DEFERRED" if final_deferred else "EXACT_TERMINAL" if proof else None, event_id))
+        incomplete = incomplete or bool(budget.incomplete_reasons)
         if incomplete:
             budget.mark_incomplete("white_raw_lifecycle_incomplete")
+            for event in events:
+                if event["lifecycle_state"] == "RESOLVED":
+                    event["lifecycle_state"] = "WAIT_RESOLUTION"
+            updates = [("WAIT_RESOLUTION", slots, previous, reference, missing,
+                        "TERMINAL_RETRY_AFTER_INCOMPLETE", event_id)
+                       if state == "TERMINAL_PENDING_PUBLICATION" else
+                       (state, slots, previous, next_at, missing, reason, event_id)
+                       for state, slots, previous, next_at, missing, reason, event_id in updates]
         counts = dict(Counter(b["status"] for b in books))
         stats = {"contract": RAW_CONTRACT, "sidecar": repo.path.name, "expected_events": len(events),
                  "expected_tokens": len(books), "book_status_counts": counts, "followup_lookups": lookups,
@@ -399,6 +553,11 @@ class ResearchRawCollector:
                  "full_books": counts.get("FULL", 0), "parent_success_required": True}
         stats["trusted_full_books"] = sum(b["status"] == "FULL" and b["point_in_time_identity_valid"] for b in books)
         stats["metadata_status_counts"] = dict(Counter(e["metadata_status"] for e in events))
+        stats["discovery_only_events"] = sum(e["lifecycle_state"] == "DISCOVERY_ONLY" for e in events)
+        stats["required_events"] = len(events) - stats["discovery_only_events"]
+        stats["registry_reclassifications"] = len(corrections)
+        stats["terminal_publication_checks"] = terminal_checks
+        stats["event_denominator_basis"] = "all_published_metadata_rows; required_events excludes explicit child discovery"
         cycle = {"run_id": run_id, "component_run_id": uuid4().hex, "contract": RAW_CONTRACT,
                  "parent_filename": self.parent.path.name, "config_hash": self.config.config_hash,
                  "source_digest": self.config.trading.strategy_source_digest, "job_name": self.config.job_name,

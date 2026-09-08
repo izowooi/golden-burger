@@ -53,7 +53,7 @@ def _safe_json(value):
         for key, child in value.items():
             if not isinstance(key, str):
                 raise ValueError("evidence JSON keys must be strings")
-            normalized = re.sub(r"[^a-z0-9]", "", key.lower())
+            normalized = re.sub(r"[^a-z0-9]", "", unquote(key).lower())
             if normalized in _SECRET_EXACT or any(part in normalized for part in _SECRET_PARTS):
                 raise ValueError("credential-shaped evidence is forbidden")
             _safe_json(key)
@@ -63,16 +63,24 @@ def _safe_json(value):
             _safe_json(child)
     elif isinstance(value, str):
         decoded = unquote(value)
-        if _SECRET_TEXT.search(decoded):
-            raise ValueError("credential-shaped evidence is forbidden")
         # Some public endpoints wrap arrays/objects in JSON strings.
-        if decoded.lstrip().startswith(("{", "[")):
+        # Inspect their actual leaves first: a URL in one field and an @ in
+        # another field must not become synthetic URL userinfo across JSON.
+        # Parse the original first: decoding an encoded inner leaf before its
+        # outer JSON is parsed could turn escaped data into JSON delimiters.
+        for candidate in dict.fromkeys((value, decoded)):
+            if not candidate.lstrip().startswith(("{", "[")):
+                continue
             try:
-                nested = json.loads(decoded)
+                nested = json.loads(candidate)
             except (ValueError, RecursionError):
                 pass
             else:
-                _safe_json(nested)
+                if isinstance(nested, (dict, list)):
+                    _safe_json(nested)
+                    return
+        if _SECRET_TEXT.search(decoded):
+            raise ValueError("credential-shaped evidence is forbidden")
     elif value is None or isinstance(value, (bool, int)):
         pass
     elif isinstance(value, float):

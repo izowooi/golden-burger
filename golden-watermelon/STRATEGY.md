@@ -89,3 +89,12 @@ Soccer YES 3개 / direct sport 2개를 episode 생성 여부와 독립적으로 
 OPEN 증거로 소급하지 않는다. 이 prospective raw archive는 기존 episode 모집단이나
 실제 체결·수익, 종목/파라미터 승격 근거가 아니다. 부모 SUCCESS와 독립 원자적
 raw publication을 모두 검증해야 한다. 기존 DB와 sidecar는 병합하지 않는다.
+
+
+### v4b-r6: strict whole-game 후속 목록 수정
+
+League identity만 통과한 명시적 child event는 원본 discovery 관측을 보존하되
+`DISCOVERY_ONLY`로 구분한다. 토큰 anchor가 없는 기존 child의 working state만
+첫 run/event 원관측에 근거해 정정하고, 새 run에 사유를 append한다. 과거 raw
+증거와 FAILED 상태는 유지한다. 정상 3/2-token anchor 및 일시적인 top-level
+metadata 공백의 추적, cap20과 network42/cycle50 예산은 유지한다.
