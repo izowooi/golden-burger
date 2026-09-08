@@ -12,13 +12,14 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
 from .bundle import create_bundle
 from .config import AppConfig
+from .sports import SportsStore, calculate
 from .sync import SyncService
 
 
@@ -49,6 +50,20 @@ class PinRequest(BaseModel):
 
 class OpenPathRequest(BaseModel):
     path: str = Field(min_length=1)
+
+
+class SportsImportRequest(BaseModel):
+    source_keys: list[str] = Field(min_length=1, max_length=64)
+    start: str
+    end: str
+
+
+class SportsCalculateRequest(BaseModel):
+    view_version: str = Field(pattern=r"^[a-f0-9]{32}$")
+    buy_index: int = Field(ge=0)
+    sell_index: int = Field(ge=0)
+    amount: float = Field(default=5, ge=0.01, le=1000)
+    fee_rate: float | None = Field(default=None, ge=0, le=1)
 
 
 class TaskStore:
@@ -123,6 +138,58 @@ def create_app(config: AppConfig) -> FastAPI:
     package_root = Path(__file__).parent
     templates = Jinja2Templates(directory=str(package_root / "templates"))
     application.mount("/static", StaticFiles(directory=str(package_root / "static")), name="static")
+    sports = SportsStore(config, service.catalog)
+    application.state.sports = sports
+
+    @application.middleware("http")
+    async def sports_local_host(request: Request, call_next: Any) -> Any:
+        if request.url.path.startswith(("/sports", "/api/sports")):
+            if request.url.hostname not in {"127.0.0.1", "localhost", "::1"}:
+                return JSONResponse({"detail": "로컬 주소로 접속하세요."}, status_code=403)
+        return await call_next(request)
+
+    @application.get("/sports", response_class=HTMLResponse)
+    def sports_page(request: Request) -> HTMLResponse:
+        return templates.TemplateResponse(request=request, name="sports.html", context={})
+
+    @application.get("/api/sports/sources")
+    def sports_sources() -> list[dict]:
+        return sports.sources()
+
+    @application.get("/api/sports/index")
+    def sports_index() -> dict:
+        return sports.index()
+
+    @application.post("/api/sports/import")
+    def sports_import(payload: SportsImportRequest, request: Request) -> dict:
+        # A foreign web page cannot trigger an expensive local DB import.
+        origin = request.headers.get("origin")
+        if origin and origin != str(request.base_url).rstrip("/"):
+            raise HTTPException(403, "동일한 로컬 앱에서 실행하세요.")
+        task_id = tasks.create(
+            lambda callback: sports.build(
+                payload.source_keys, payload.start, payload.end, callback
+            ),
+            label="로컬 경기 인덱스",
+        )
+        return {"task_id": task_id}
+
+    @application.get("/api/sports/matches/{match_id}")
+    def sports_match(match_id: str) -> dict:
+        try:
+            return sports.match(match_id)
+        except ValueError as error:
+            raise HTTPException(400, str(error)) from error
+
+    @application.post("/api/sports/matches/{match_id}/calculate")
+    def sports_calculate(match_id: str, payload: SportsCalculateRequest) -> dict:
+        try:
+            match = sports.match(match_id, depth=True)
+            if payload.view_version != match["view_version"]:
+                raise HTTPException(409, "경기 목록이 갱신됐습니다. 경기를 다시 선택하세요.")
+            return calculate(match, **payload.model_dump(exclude={"view_version"}))
+        except (ValueError, ArithmeticError) as error:
+            raise HTTPException(400, str(error)) from error
 
     @application.get("/", response_class=HTMLResponse)
     def index(request: Request) -> HTMLResponse:

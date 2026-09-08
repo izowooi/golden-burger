@@ -3,6 +3,7 @@ import importlib.util
 import json
 from pathlib import Path
 import sqlite3
+import tempfile
 import unittest
 
 SPEC = importlib.util.spec_from_file_location(
@@ -64,6 +65,43 @@ class TerminalTests(unittest.TestCase):
             c.execute("INSERT INTO resolution_observations VALUES(?,?,?,?)", ("success", condition, observed, payload))
         result = MODULE.terminal_records(c, True, {"success": {"status": "SUCCESS", "config_hash": "h"}}, end="2026-09-07T10:05:49Z")
         self.assertEqual(set(result), {("before", "a"), ("before", "b")})
+
+    def test_recorder_source_cohorts_and_probe_terminals_stay_separate(self):
+        source = {"id": "recorder", "strategy": "golden-coconut", "runtime_job": "runtime"}
+        index = {"cohorts": {}, "matches": [], "sources": []}
+        rows, runs = [], {}
+        for n, digest in enumerate(("source-a", "source-b")):
+            at = f"2026-09-08T00:0{n}:00Z"
+            config = {"config_hash": "same-settings", "strategy_source_digest": digest, "mode": "sim"}
+            run = f"run-{n}"
+            runs[run] = {"config_hash": "same-settings", "strategy_source_digest": digest,
+                         "status": "SUCCESS", "started_at": at, "finished_at": at}
+            rows.append({"id": str(n), "run_id": run, "resolved_cohort": config,
+                         "event_id": "event", "title": "Home v Away", "sport_family": "soccer",
+                         "condition_id": "condition", "token_id": "yes", "outcome": "Yes",
+                         "result_kind": "HOME", "outcome_side": "YES", "timestamp": at,
+                         "config_hash": "same-settings", "strategy_source_digest": digest,
+                         "book": {"asks": [{"price": .5, "size": 20}],
+                                  "bids": [{"price": .49, "size": 20}]}})
+        terminals = {("condition", "yes"): [
+            {"config_hash": "same-settings", "strategy_source_digest": "source-a",
+             "job_name": "runtime", "observation_mode": "PROBE", "payout": 0,
+             "observed_at": "2026-09-08T00:02:00Z", "source": "probe"},
+            {"config_hash": "same-settings", "strategy_source_digest": "source-b",
+             "job_name": "runtime", "observation_mode": "SCHEDULED", "payout": 1,
+             "observed_at": "2026-09-08T00:02:00Z", "source": "scheduled"}]}
+        with tempfile.TemporaryDirectory() as directory:
+            output = Path(directory)
+            (output / "events").mkdir()
+            MODULE.export_rows(source, output, "2026-09-08T00:00:00Z", "2026-09-09T00:00:00Z",
+                               index, rows, {}, runs, terminals, include_depth=True)
+            self.assertEqual(len(index["matches"]), 2)
+            values = {}
+            for match in index["matches"]:
+                cohort = index["cohorts"][match["cohort_id"]]
+                payload = json.loads((output / match["fragment"]).read_text())
+                values[cohort["strategy_source_digest"]] = payload["tokens"][0]["payout"]
+            self.assertEqual(values, {"source-a": None, "source-b": 1})
 
 
 if __name__ == "__main__":

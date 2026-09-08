@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>경기 기록 · Daily Rsync</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/static/sports.css" />
+    <script defer src="/static/sports.js"></script>
+  </head>
+  <body>
+    <header>
+      <a class="brand" href="/sports"><span>↗</span> 경기 기록</a>
+      <nav><span>내 Mac의 데이터</span><a href="/">수동 동기화 ↗</a></nav>
+    </header>
+    <main>
+      <section class="intro">
+        <div>
+          <div class="eyebrow">SPORTS / REPLAY</div>
+          <h1>경기의 흐름을,<br />호가로 다시 보세요.</h1>
+          <p>당시 기록된 실제 호가와 잔량으로 매수·매도 시점을 비교합니다.</p>
+        </div>
+        <div class="intro-side">
+          <strong id="matchCount">0</strong><span>경기 · 중복 수집 제외</span
+          ><small id="freshness">로컬 인덱스 없음</small>
+        </div>
+      </section>
+      <details class="import-box" id="importBox">
+        <summary>로컬 DB에서 경기 목록 만들기 <span>수동 실행</span></summary>
+        <p>
+          아래 작업은 이미 동기화된 DB만 읽습니다. 서버 자료를 가져오려면
+          <a href="/">수동 동기화</a>를 사용하세요. 한 번에 최대 31일을 선택할
+          수 있습니다.
+        </p>
+        <div class="date-row">
+          <label
+            >시작 · UTC<input id="rangeStart" type="datetime-local" /></label
+          ><label
+            >종료 · UTC (미포함)<input
+              id="rangeEnd"
+              type="datetime-local" /></label
+          ><button id="buildIndex">선택한 자료로 목록 만들기</button>
+        </div>
+        <div id="sourceList" class="sources"></div>
+        <p id="importStatus" role="status"></p>
+        <small
+          >Peach·Plum의 과거 DB와 통합 수집기의 일별 DB를 지원합니다. 자료마다
+          관측 기간과 cohort를 분리합니다.</small
+        >
+      </details>
+      <div id="sportTabs" class="tabs" role="group" aria-label="종목"></div>
+      <div class="workspace">
+        <aside>
+          <label class="search"
+            >경기 찾기<input
+              id="search"
+              type="search"
+              placeholder="팀 이름, 리그…" /></label
+          ><label
+            >수집 자료<select id="sourceFilter">
+              <option value="">모든 자료</option>
+            </select></label
+          >
+          <div id="matchList" class="match-list"></div>
+        </aside>
+        <section class="match-panel">
+          <div id="empty" class="empty">
+            <span>↗</span>
+            <h2>확인할 경기를 선택하세요.</h2>
+            <p>
+              상단에서 로컬 DB를 선택해 경기 목록을 만들 수 있습니다.<br />기록이
+              없는 종목과 시점은 채워 넣지 않습니다.
+            </p>
+          </div>
+          <div id="detail" hidden>
+            <div class="match-heading">
+              <div>
+                <div id="matchLeague" class="eyebrow"></div>
+                <h2 id="matchTitle"></h2>
+                <p id="matchMeta"></p>
+              </div>
+              <span class="pill">표시 호가</span>
+            </div>
+            <div class="chart-options">
+              <label
+                >차트 기준<select id="metric">
+                  <option value="2">$5 매수 평균가 · ask</option>
+                  <option value="3">같은 수량 매도 평균가 · bid</option>
+                  <option value="5">최우선 매수 호가 · bid</option>
+                  <option value="6">최우선 매도 호가 · ask</option>
+                </select></label
+              ><span>각 선을 눌러 표시 여부를 바꿀 수 있습니다.</span>
+            </div>
+            <div id="legend" class="legend"></div>
+            <label class="quality-toggle"
+              ><input id="showFailed" type="checkbox" />실패 실행의 원본 호가도
+              점으로 표시 · 손익 계산에서는 제외</label
+            >
+            <div class="chart-wrap">
+              <svg
+                id="chart"
+                viewBox="0 0 920 340"
+                role="img"
+                aria-label="결과별 호가의 시간 변화"
+              ></svg>
+              <div id="tooltip" hidden></div>
+            </div>
+            <p class="chart-note" id="coverage"></p>
+            <section class="calculator">
+              <div class="section-heading">
+                <div>
+                  <div class="eyebrow">A → B</div>
+                  <h3>그때 사고, 그때 팔았다면</h3>
+                </div>
+                <span>현재 선택한 자료 안에서 계산</span>
+              </div>
+              <div class="calc-grid">
+                <label>결과<select id="tokenSelect"></select></label
+                ><label
+                  >매수 금액 · USD<input
+                    id="amount"
+                    type="number"
+                    min="0.01"
+                    max="1000"
+                    step="1"
+                    value="5" /></label
+                ><label class="wide"
+                  >A · 매수 관측<select id="buyPoint"></select></label
+                ><label class="wide"
+                  >B · 매도 관측<select id="sellPoint"></select></label
+                ><label
+                  >수수료 근거<select id="feeMode">
+                    <option value="observed">당시 기록된 수수료</option>
+                    <option value="assumed">내 가정으로 계산</option>
+                  </select></label
+                ><label id="feeField" hidden
+                  >가정 rate · q × p × (1−p)<input
+                    id="feeRate"
+                    type="number"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value="0.05" /></label
+                ><button id="calculate">손익 계산 →</button>
+              </div>
+              <div id="calcResult" aria-live="polite">
+                <p>같은 결과의 A 매수 호가와 B 매도 호가를 사용합니다.</p>
+              </div>
+              <p class="fine">
+                현금 수수료 방식(v2)을 가정합니다. 실제 체결 기록은 리포팅
+                스킬에서 별도로 대사합니다.
+              </p>
+            </section>
+            <details class="provenance">
+              <summary>데이터 근거 · 수집 범위</summary>
+              <pre id="provenance"></pre>
+            </details>
+          </div>
+        </section>
+      </div>
+      <p id="error" role="alert"></p>
+    </main>
+    <footer>
+      Daily Rsync · Local sports workbench
+      <span>자동 동기화 없음 · 주문 제출 없음</span>
+    </footer>
+  </body>
+</html>

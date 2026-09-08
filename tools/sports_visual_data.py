@@ -622,7 +622,7 @@ def white_rows(connection, start, end):
         yield projected
 
 
-def export_source(source, output, start, end, index):
+def export_source(source, output, start, end, index, *, include_depth=False):
     path = Path(source["local_path"])
     before = sha256(path)
     if before != source["local_sha256"]:
@@ -634,11 +634,22 @@ def export_source(source, output, start, end, index):
     white = source["strategy"] == "golden-watermelon"
     configs, runs = read_configs(connection, white), read_runs(connection, white)
     terminals = terminal_records(connection, white, runs, end=end)
-    groups = {}
     get_rows = white_rows if white else trading_rows
-    for row in get_rows(connection, start, end):
+    try:
+        export_rows(source, output, start, end, index, get_rows(connection, start, end),
+                    configs, runs, terminals, include_depth=include_depth, white=white)
+    finally:
+        connection.close()
+    if sha256(path) != before:
+        raise ValueError(f"source changed during export: {source['id']}")
+
+
+def export_rows(source, output, start, end, index, rows, configs, runs, terminals, *, include_depth=False, white=False):
+    """Shared projection for explicitly verified reader contracts, no source I/O."""
+    groups = {}
+    for row in rows:
         run = runs.get(row["run_id"], {})
-        config = configs.get(run.get("config_hash"), {})
+        config = row.get("resolved_cohort") or configs.get(run.get("config_hash"), {})
         family = row.get("sport_family") or config.get("sport") or "unknown"
         cohort = {**config, "source_id": source["id"], "job_name": source["runtime_job"], "sport": family}
         cohort_id = identifier(cohort)
@@ -647,13 +658,27 @@ def export_source(source, output, start, end, index):
         if key not in groups:
             groups[key] = {"id": identifier([source["id"], *key]), "event_id": row["event_id"], "title": row["title"], "slug": row.get("slug"), "sport": family, "league": row.get("league") or family.upper(), "source_id": source["id"], "cohort_id": cohort_id, "tokens": {}, "rows": [], "clock_labels": [], "clock_lookup": {}}
         group = groups[key]
+        if include_depth:
+            market = row.get("point_in_time_market_fields") or {}
+            group.setdefault("depth", []).append({
+                "book": row["book"], "run_id": row["run_id"],
+                "observation_id": row["id"], "fee_market": market,
+                "market_open": (all(market.get(k) is True for k in ("active", "enableOrderBook", "acceptingOrders")) and market.get("closed") is False) if market else None,
+                "identity_valid": row.get("raw_point_in_time_identity_proven"),
+            })
         token = row["token_id"]
-        token_key = token if token is not None else ("unidentified_slot", row.get("result_kind"), row.get("outcome_side"))
+        token_key = token if token is not None else ("unidentified_slot", row.get("result_kind"), row.get("outcome_side"), row.get("slot"))
         token_id = len(group["tokens"])
         if token_key not in group["tokens"]:
-            label = f"{row.get('result_kind') or '?'} {row.get('outcome_side') or row['outcome']}" if family == "soccer" else row["outcome"]
+            label = row.get("display_label") or (f"{row.get('result_kind') or '?'} {row.get('outcome_side') or row['outcome']}" if family == "soccer" else row["outcome"])
             group["tokens"][token_key] = {"index": token_id, "token_id": token, "condition_id": row["condition_id"], "label": label, "result_kind": row.get("result_kind"), "outcome_side": row.get("outcome_side"), "question": row.get("question"), "payout": None, "payout_observed_at": None}
             candidates = terminals.get((row["condition_id"], token), [])
+            if source["strategy"] == "golden-coconut":
+                candidates = [x for x in candidates
+                    if x.get("config_hash") == cohort.get("config_hash")
+                    and x.get("strategy_source_digest") == cohort.get("strategy_source_digest")
+                    and x.get("job_name") == source["runtime_job"]
+                    and x.get("observation_mode") == "SCHEDULED"]
             if source["strategy"] == "golden-plum":
                 candidates = [x for x in candidates if x["profile"] == cohort.get("sport_profile_version") and x["protocol"] == cohort.get("protocol_sha256") and x["classifier"] == cohort.get("classifier_version") and x["mapping"] == cohort.get("league_mapping_sha256")]
             if candidates and len({x["payout"] for x in candidates}) == 1:
@@ -702,20 +727,20 @@ def export_source(source, output, start, end, index):
         group["tokens"] = list(group["tokens"].values())
         del group["clock_lookup"]
         clocks = group.pop("clock_labels")
+        depth = group.pop("depth", None)
         meta = {k:v for k,v in group.items() if k != "tokens"}
         meta.update(start=min(p[0] for p in points), end=max(p[0] for p in points), point_count=len(points), gap_count=len(gaps), invalid_count=sum(bool(p[8]&15) for p in points), token_count=len(group["tokens"]), resolved_tokens=sum(t["payout"] is not None for t in group["tokens"]), expected_token_count=expected)
         first, last = meta["start"], meta["end"]
-        failure_intervals = [{"start": timestamp(r["started_at"]), "end": timestamp(r["finished_at"]) or last, "reason": "failed_or_incomplete_run"} for r in runs.values() if r.get("config_hash") == index["cohorts"][meta["cohort_id"]].get("config_hash") and r["status"] != "SUCCESS" and timestamp(r["started_at"]) <= last and (timestamp(r["finished_at"]) or last) >= first]
+        failure_intervals = [{"start": timestamp(r["started_at"]), "end": timestamp(r["finished_at"]) or last, "reason": "failed_or_incomplete_run"} for r in runs.values() if r.get("config_hash") == index["cohorts"][meta["cohort_id"]].get("config_hash") and (not r.get("strategy_source_digest") or r["strategy_source_digest"] == index["cohorts"][meta["cohort_id"]].get("strategy_source_digest")) and r["status"] != "SUCCESS" and timestamp(r["started_at"]) <= last and (timestamp(r["finished_at"]) or last) >= first]
         filename = f"events/{meta['id']}.json"
         payload = {"match": meta, "tokens": group["tokens"], "columns": COLUMNS, "points": points, "gaps": gaps+failure_intervals, "clocks": clocks}
+        if include_depth:
+            payload["depth"] = depth
         text = compact(payload)
         (output/filename).write_text(text)
         meta["fragment"] = filename
         meta["fragment_bytes"] = len(text.encode())
         index["matches"].append(meta)
-    connection.close()
-    if sha256(path) != before:
-        raise ValueError(f"source changed during export: {source['id']}")
     index["sources"].append({k:v for k,v in source.items() if k != "local_path"})
 
 
