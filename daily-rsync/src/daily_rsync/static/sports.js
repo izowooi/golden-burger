@@ -70,7 +70,7 @@ async function api(path, body) {
     throw Error(
       typeof data.detail === "string"
         ? data.detail
-        : JSON.stringify(data.detail),
+        : "입력값을 확인하세요. 자료·기간을 선택하고 금액은 $0.01~$1,000으로 입력하세요.",
     );
   return data;
 }
@@ -135,7 +135,11 @@ function renderIndex() {
       const first = state.index.matches.find(
         (m) =>
           m.sport === id &&
-          (!$("sourceFilter").value || m.source_id === $("sourceFilter").value),
+          (!$("sourceFilter").value ||
+            m.source_id === $("sourceFilter").value) &&
+          `${m.title} ${m.league}`
+            .toLowerCase()
+            .includes($("search").value.trim().toLowerCase()),
       );
       if (first) selectMatch(first.id).catch(error);
     };
