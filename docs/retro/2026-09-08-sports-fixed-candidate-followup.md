@@ -105,5 +105,13 @@ Guava에는 기존 운영 baseline의 evidence.py만 적용해 source `670407bd�
 - 코드: `tools/conservative_sports_prospective.py`, `tools/white_raw_grid.py`, `tools/watermelon_raw_sidecar.py`, `tools/guava_h1_exact_math.py`.
 - 독립 시간·source·수수료·stop 및 White pair의 미래 시각/terminal/누락 회귀를 포함한 관련 100개 테스트 통과. White 전체 212개와 build, Guava 전체 854개 및 운영 baseline overlay 536개 테스트/build도 통과했다. Guava subtest는 별도 기록한다.
 - 원본·fixed manifest·세 결과 디렉터리·경기별 경로·SHA·배포 검증은 local-only `docs/local/conservative-sports-20260907/resumed1/`에 있다. 기존 동결 결과를 덮지 않았다.
-- 새 가격 차트에는 15경기·30 source/cohort·13,046개 관측을 생략 없이 포함했다. 종목·경기·source와 직접 YES/NO 가격을 비교할 수 있다. NBA/NFL/NHL은 이번 구간 관측 0, UFC/복싱은 미등록으로 구분한다.
+- 새 가격 차트에는 15경기를 4개 distinct source/cohort에서 관측한 30개 경기별 view와 13,046개 관측을 생략 없이 포함했다. 종목·경기·source와 직접 YES/NO 가격을 비교할 수 있다. NBA/NFL/NHL은 이번 구간 관측 0, UFC/복싱은 미등록으로 구분한다.
 - Lion/Wolf는 config-only/예약 OFF다. 현재 NFL 1분 수익 표본은 없고, 이전 Coconut 5분 NFL 시계 형식 검증은 별도의 역사 자료다. 새 높은 확률의 순이익 파라미터 확정·실거래 전환은 아직 완료되지 않았다.
+
+## 후속 상태 확인과 다음 검증 입력
+
+2026-09-08 11:25 UTC 이후 확인한 구간에서 White 43회와 Guava A–D 합계 168회가 모두 성공했고 새 적격 경기·호가는 0이었다. Gold·Silver·Grey의 최근 2회씩도 정상이며 설정과 1분 예약은 유지됐다. 이 확인을 경기 중 최대 부하나 미래 수익 검증으로 확대하지 않는다.
+
+다음 검증 구간을 UTC `[2026-09-08T12:30:00Z, 2026-09-09T12:30:00Z)`로 고정했다. 12:27:30 UTC에 manifest를 만들고 검증해 구간 시작 전임을 확인했다. 같은 74+26 후보, 500개 주비교·3,830개 stop 사양, fee·순위·진입·청산 규칙을 유지하고 White r6/Guava 670의 검증된 source/config만 새 epoch로 연결했다. 이전에 본 179경기는 새 독립 경기로 다시 세지 않는다. 기존 manifest와 결과는 보존한다.
+
+새 manifest SHA는 `06b920ad29799b10d4b712107ff86b06f986d0498212da3db00a17bd37bc490d`다. 현재 driver의 입력 검증과 공개 설정 기반 수집원·종목별 적용 조건 14건을 확인했으며 금융 재생은 실행하지 않았다. 구간 종료 후 새로운 scan/sync/verify/pin과 실제 snapshot cutoff 확인이 필요하다. 특히 pin 생성 시각만으로 원자료의 최신성을 증명하지 않으며, White parent와 sidecar 양쪽을 확인해야 한다. 이 종료·freshness 조건은 실행 전 별도로 확인하는 전제이고 현재 driver가 자동 강제하는 기능은 아니다.
