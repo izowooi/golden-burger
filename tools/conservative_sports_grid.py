@@ -552,11 +552,11 @@ def make_path(event,policy,candidate,max_gap=90):
         if len(same)!=1 or not same[0].valid:
             result["end_reason"]="selected_token_or_lineage_gap";break
         s=same[0];previous=g.time
-        if (s.evidence_origin=="full-sports-raw-v1" and policy.startswith("peach")
+        if (s.evidence_origin in {"full-sports-raw-v1", "watermelon-independent-raw-lifecycle-v1"} and policy.startswith("peach")
                 and event.sport=="soccer" and s.minute is None):
             result["end_reason"]="required_source_clock_gap";break
         if not s.bids:
-            if s.evidence_origin=="full-sports-raw-v1" and s.observation_status in ("EMPTY_BIDS","EMPTY_BOOK"):
+            if s.evidence_origin in {"full-sports-raw-v1", "watermelon-independent-raw-lifecycle-v1"} and s.observation_status in ("EMPTY_BIDS","EMPTY_BOOK"):
                 result["observations"].append({"time":g.time,"utc":iso(g.time),"minute":s.minute,
                     "gross_walk_diagnostic":None,"bids":(),"spread":s.spread,"open_observed":s.open_observed,
                     "market_open_observed":s.market_open_observed,"best_bid":None,"fee_rate":s.fee_rate,
