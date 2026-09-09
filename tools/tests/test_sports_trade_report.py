@@ -148,6 +148,76 @@ class ReportingTests(unittest.TestCase):
             self.assertTrue(second['preparation'][0]['reused_successful_plan'])
             conn.close()
 
+    def totals_fixture(self):
+        def position(event,sport,sold=None,claim=None,known=None,open_=False):
+            return {'event_id':event,'sport':sport,'economics':{'realized_sold_net_in_window':sold,
+                'settlement_value_net_in_window':claim,'confirmed_economic_net_in_window':known,'carry_out':open_}}
+        sources=[{'source_key':'socc','strategy':'golden-plum','jenkins_job':'polybot-queen','runtime_job':'soccer',
+                  'status':'ANALYZED','sport_profile':'soccer','positions':[position('e1','soccer','-2.6339',known='-2.6339')], 'orders_without_trade':[]},
+                 {'source_key':'mlb','strategy':'golden-plum','jenkins_job':'polybot-queen','runtime_job':'mlb',
+                  'status':'ANALYZED','sport_profile':'mlb','positions':[position('e2','mlb','1.3412',known='1.3412'),
+                  position('e3','mlb','-1.8546',known='-1.8546'),position('e4','mlb','2.1810',known='2.1810'),
+                  position('old','mlb','999',known='999')],'orders_without_trade':[]}]
+        games=[{'sport':sport,'event_id':event,'title':event,'report_scope':'OFFICIAL_PERIOD_MATCH'} for event,sport in [('e1','soccer'),('e2','mlb'),('e3','mlb'),('e4','mlb')]]
+        games.append({'sport':'mlb','event_id':'old','title':'old','report_scope':'CARRY_IN_OR_DISCOVERY_ONLY'})
+        return {'sources':sources,'games':games,'window':{'start_utc':str(START),'end_exclusive_utc':str(END)}}
+
+    def test_job_sport_and_grand_totals_share_main_game_scope(self):
+        result=report.report_totals(self.totals_fixture())
+        self.assertEqual(result['game_count'],4)
+        self.assertEqual(report.number(result['grand_total']['sold_net']),report.number('-.9663'))
+        self.assertEqual(report.number(result['combined_by_job'][0]['known_combined']),report.number('-.9663'))
+        mlb=next(s for s in result['by_sport'] if s['sport']=='mlb')
+        self.assertEqual(report.number(mlb['total']['sold_net']),report.number('1.6676'))
+        self.assertIn('**종목 합계**','\n'.join(report._sport_matrix_lines(mlb)))
+        self.assertIn('**전체 합계**','\n'.join(report._job_total_lines(result,'합계')))
+        self.assertNotIn('999','\n'.join(report._sport_matrix_lines(mlb)))
+
+    def test_carry_in_settlement_is_a_main_scope_cashflow_without_new_entry(self):
+        source=self.totals_fixture()['sources'][0]
+        source['events']=[{'event_id':'e1','sport':'soccer','title':'carry-in final'}]
+        p=source['positions'][0]
+        p.update(entry_in_window=False,request_in_window=False,exit_in_window=False)
+        p['economics'].update(realized_sold_net_in_window='0',settlement_value_net_in_window='.25',confirmed_economic_net_in_window='.25')
+        raw={'source_key':source['source_key'],'db_path':'/fixture/pinned/source.db'}
+        with patch.object(report,'read_source',return_value=source):
+            result=report.build_report({'schema':'sports-trade-report-inputs-v1','sources':[raw]},start=START,end=END)
+        self.assertEqual(result['games'][0]['report_scope'],'PERIOD_TRADE_ACTIVITY')
+        self.assertEqual(report.number(result['report_totals']['grand_total']['known_combined']),report.number('.25'))
+
+    def test_totals_preserve_missing_and_partial_entitlement(self):
+        fixture=self.totals_fixture();fixture['sources'][0]['positions'][0]['economics'].update(
+            realized_sold_net_in_window=None,confirmed_economic_net_in_window=None,carry_out=True)
+        fixture['sources'][1]['positions'][0]['economics'].update(settlement_value_net_in_window='.2')
+        fixture['sources'][1]['orders_without_trade']=[{'sport':'mlb','event_id':'e2','order':{'state':'UNRESOLVED_NO_CONFIRMED_FILL'}}]
+        result=report.report_totals(fixture);grand=result['grand_total']
+        self.assertEqual(report.number(grand['known_combined']),report.number('1.8676'))
+        self.assertIsNone(grand['complete_total'])
+        self.assertEqual(grand['unknown_positions'],1);self.assertEqual(grand['unlinked_orders'],1)
+        soccer=next(s for s in result['by_sport'] if s['sport']=='soccer')
+        self.assertIsNone(soccer['total']['sold_net']);self.assertIsNone(soccer['total']['known_combined'])
+        self.assertIn('확인 금액 없음',report._total_cell(soccer['total']))
+
+    def test_exact_total_is_not_rounded_by_decimal_context_or_empty_as_zero(self):
+        from decimal import localcontext
+        with localcontext() as c:
+            c.prec=6
+            actual=report.exact_decimal_sum(['100000000000000000000','.000000000000000000000000000001','-100000000000000000000'])
+        self.assertEqual(str(actual),'1E-30')
+        self.assertIsNone(report.exact_decimal_sum([None,None]))
+        self.assertEqual(report.exact_decimal_sum(['0']),report.number('0'))
+        with self.assertRaises(ValueError):report.exact_decimal_sum(['NaN'])
+
+    def test_totals_refuse_duplicate_sources_and_unavailable_is_not_zero(self):
+        fixture=self.totals_fixture();fixture['sources'].append(fixture['sources'][0])
+        with self.assertRaises(ValueError):report.report_totals(fixture)
+        fixture=self.totals_fixture();fixture['sources'].append({'source_key':'missing','strategy':'golden-peach','jenkins_job':'missing-job',
+            'status':'UNSUPPORTED_SCHEMA','positions':[],'orders_without_trade':[]})
+        totals=report.report_totals(fixture)
+        self.assertIsNone(totals['grand_total']['complete_total'])
+        row=next(r for r in totals['combined_by_job'] if r['jenkins_job']=='missing-job')
+        self.assertIsNone(row['known_combined']);self.assertEqual(row['unavailable_sources'],['missing'])
+
     def test_verified_pin_end_to_end_ignores_trade_assumption_pnl(self):
         with tempfile.TemporaryDirectory() as directory:
             path=Path(directory).resolve()/'pinned'/'snapshot'/'trades.db';path.parent.mkdir(parents=True)

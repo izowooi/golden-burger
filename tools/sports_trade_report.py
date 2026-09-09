@@ -9,7 +9,7 @@ from __future__ import annotations
 import argparse
 from collections import Counter, defaultdict
 from datetime import datetime, timedelta, timezone
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal, InvalidOperation, localcontext
 import hashlib
 import html
 import json
@@ -507,7 +507,8 @@ def build_report(inputs, *, start, end, official=None):
             games.setdefault(key, {"sport": game["sport"], "event_id": key[1], "title": game["title"], "sources": [], "official": game})
     totals = []
     active_game_keys = {(p['sport'],p['event_id']) for source in sources for p in source['positions']
-                        if p['entry_in_window'] or p['request_in_window'] or p['exit_in_window']}
+                        if p['entry_in_window'] or p['request_in_window'] or p['exit_in_window']
+                        or p['economics'].get('settlement_value_net_in_window') is not None}
     active_game_keys.update((p['sport'],p['event_id']) for source in sources for p in source['orders_without_trade'])
     for key, game in games.items():
         game['report_scope'] = ('OFFICIAL_PERIOD_MATCH' if game.get('official') else 'PERIOD_TRADE_ACTIVITY'
@@ -524,7 +525,7 @@ def build_report(inputs, *, start, end, official=None):
                        "source_status": source['status'],
                        "unclassified_period_requests": len(source.get('unclassified_period_requests', [])),
                        "orphans": len(source["orders_without_trade"]), "cash_redemption_proven": False})
-    return {"schema": SCHEMA, "window": {"start_utc": iso(start), "end_exclusive_utc": iso(end), "start_kst": kst(start), "end_exclusive_kst": kst(end)},
+    result = {"schema": SCHEMA, "window": {"start_utc": iso(start), "end_exclusive_utc": iso(end), "start_kst": kst(start), "end_exclusive_kst": kst(end)},
             "created_at": iso(datetime.now(timezone.utc)), "sources": sources,
             "games": sorted(games.values(), key=lambda g: (SPORTS.index(g["sport"]) if g["sport"] in SPORTS else 99, g["title"])),
             "summary_by_source": totals, "preparation_gaps": inputs.get("gaps", []),
@@ -532,6 +533,132 @@ def build_report(inputs, *, start, end, official=None):
             "case_notes": inputs.get('case_notes', []),
             "no_orders_or_remote_changes": True, "official_result_coverage": (official or {}).get("coverage", {}),
             "performance_basis": "confirmed SELL realized net plus separately identified settlement claim value; not cash redemption"}
+    result['report_totals'] = report_totals(result)
+    return result
+
+
+def exact_decimal_sum(values):
+    """Sum recorded finite decimal amounts without intermediate rounding.
+
+    No observations returns None; explicit confirmed zero remains Decimal(0).
+    Precision spans all input digits plus possible carry digits, so aggregation
+    is independent of caller Decimal context and grouping order.
+    """
+    amounts = [number(v) for v in values if v is not None]
+    if not amounts:
+        return None
+    low = min(v.as_tuple().exponent for v in amounts)
+    high = max(v.adjusted() for v in amounts)
+    with localcontext() as context:
+        context.prec = max(28, high - low + len(str(len(amounts))) + 3)
+        return sum(amounts, Decimal(0))
+
+
+def _total_bucket(positions=(), orphans=(), unavailable_sources=()):
+    positions, orphans = list(positions), list(orphans)
+    sold = exact_decimal_sum(p['economics'].get('realized_sold_net_in_window') for p in positions)
+    entitlement = exact_decimal_sum(p['economics'].get('settlement_value_net_in_window') for p in positions)
+    known = exact_decimal_sum((sold, entitlement))
+    unknown = sum(p['economics'].get('confirmed_economic_net_in_window') is None
+                  or p['economics'].get('carry_out', False) for p in positions)
+    # Proven zero-fill requests add no position; other unlinked orders remain gaps.
+    unresolved_orders = sum(o.get('order', {}).get('state') != 'PROVEN_ZERO_FILL' for o in orphans)
+    unavailable = sorted(set(unavailable_sources))
+    return {'position_count': len(positions), 'sold_net': str(sold) if sold is not None else None,
+            'settlement_value_net': str(entitlement) if entitlement is not None else None,
+            'known_combined': str(known) if known is not None else None,
+            'unknown_positions': unknown, 'unlinked_orders': unresolved_orders,
+            'unavailable_sources': unavailable,
+            'complete_total': str(known) if known is not None and not (unknown or unresolved_orders or unavailable) else None}
+
+
+def report_totals(report):
+    """One period/main-game scope for game, sport, job and grand totals.
+
+    This is a descriptive cashflow aggregation across explicitly listed live
+    sources, not a pooled strategy experiment or a wallet NAV calculation.
+    """
+    games = [g for g in report['games'] if g.get('report_scope') != 'CARRY_IN_OR_DISCOVERY_ONLY']
+    keys = {(g['sport'], g['event_id']) for g in games}
+    if len(keys) != len(games):
+        raise ValueError('duplicate game in total scope')
+    sources = report['sources']
+    source_keys = [s['source_key'] for s in sources]
+    if len(set(source_keys)) != len(source_keys):
+        raise ValueError('duplicate source in total scope')
+    entries = [(s, p) for s in sources for p in s['positions'] if (p['sport'], p['event_id']) in keys]
+    orders = [(s, o) for s in sources for o in s['orders_without_trade'] if (o['sport'], o['event_id']) in keys]
+    jobs = sorted({(s['strategy'], s['jenkins_job']) for s in sources
+                   if s.get('activity_scope') != 'HISTORICAL_INACTIVE_IN_WINDOW'})
+    def bucket(*, sport=None, event=None, job=None):
+        def matches(s, row):
+            return ((sport is None or row['sport'] == sport) and (event is None or row['event_id'] == event)
+                    and (job is None or (s['strategy'], s['jenkins_job']) == job))
+        unavailable = [s['source_key'] for s in sources if s.get('status') != 'ANALYZED'
+                       and (job is None or (s['strategy'], s['jenkins_job']) == job)
+                       and (sport is None or s.get('sport_profile') in (None, 'unknown', sport))]
+        return _total_bucket((p for s, p in entries if matches(s, p)),
+                             (o for s, o in orders if matches(s, o)), unavailable)
+    by_sport = []
+    for sport in SPORTS:
+        selected = [g for g in games if g['sport'] == sport]
+        if not selected:
+            continue
+        sport_jobs = [job for job in jobs if any((s['strategy'], s['jenkins_job']) == job
+                     and (s.get('sport_profile') in (None, 'unknown', sport)
+                          or any(p['sport'] == sport for p in s['positions'])) for s in sources)]
+        rows = [{'event_id': g['event_id'], 'title': g['title'],
+                 'by_job': [{'strategy': j[0], 'jenkins_job': j[1], **bucket(sport=sport, event=g['event_id'], job=j)} for j in sport_jobs],
+                 'total': bucket(sport=sport, event=g['event_id'])} for g in selected]
+        by_sport.append({'sport': sport, 'game_count': len(selected), 'games': rows,
+                         'by_job': [{'strategy': j[0], 'jenkins_job': j[1], **bucket(sport=sport, job=j)} for j in sport_jobs],
+                         'total': bucket(sport=sport)})
+    return {'schema': 'sports-report-totals-v1', 'scope': 'same UTC window and main game tables only',
+            'window': report.get('window'), 'game_count': len(keys), 'by_sport': by_sport,
+            'combined_by_job': [{'strategy': j[0], 'jenkins_job': j[1], **bucket(job=j)} for j in jobs],
+            'grand_total': bucket(), 'cash_redemption_proven': False,
+            'out_of_scope_unclassified_requests': sum(len(s.get('unclassified_period_requests', [])) for s in sources)}
+
+
+def _total_cell(value):
+    flags = []
+    if value['unknown_positions']:
+        flags.append(f"잔여/손익 미확정 {value['unknown_positions']}건")
+    if value['unlinked_orders']:
+        flags.append(f"미연결 주문 {value['unlinked_orders']}건")
+    if value['unavailable_sources']:
+        flags.append(f"원장 미확인 {len(value['unavailable_sources'])}개")
+    amount = _money(value['known_combined']) if value['known_combined'] is not None else '— (확인 금액 없음)'
+    return amount + (' · ' + ', '.join(flags) if flags else '')
+
+
+def _job_total_lines(totals, title):
+    lines = [title, '', '| 전략 · Jenkins | 실제 매도 순손익 | 정산 지급권 손익 | 확인 부분 합계 · 미확정 상태 |',
+             '|---|---:|---:|---|']
+    for row in totals['combined_by_job']:
+        lines.append('| ' + ' | '.join(map(_text, [row['strategy']+' · '+row['jenkins_job'],
+            _money(row['sold_net']), _money(row['settlement_value_net']), _total_cell(row)])) + ' |')
+    grand = totals['grand_total']
+    lines.append('| **전체 합계** | '+_money(grand['sold_net'])+' | '+_money(grand['settlement_value_net'])+' | '+_total_cell(grand)+' |')
+    lines.extend(['', f"동일 기간·본문 {totals['game_count']}경기의 확인된 금액만 합산했다. 미체결·미수집은 0으로 바꾸지 않았고, 미확정 잔여/주문은 별도다. 정산 지급권 합계는 현금 상환액이 아니다.", ''])
+    return lines
+
+
+def _sport_matrix_lines(section):
+    jobs = section['by_job']
+    lines = ['경기별 전략 금액 — 각 셀은 확인된 매도 손익 + 별도 정산 지급권 가치이며, 마지막 행과 열이 자동 합계다.', '',
+             '| 경기 | 구성 | '+' | '.join(_text(j['jenkins_job']) for j in jobs)+' | 전체 |',
+             '|---|---|'+'---:|'*(len(jobs)+1)]
+    for game in section['games']:
+        for field, label in [('sold_net','매도'), ('settlement_value_net','정산 지급권'), ('known_combined','확인 합계')]:
+            values = [(_total_cell(v) if field == 'known_combined' else _money(v[field])) for v in game['by_job']]
+            total = _total_cell(game['total']) if field == 'known_combined' else _money(game['total'][field])
+            lines.append('| '+_text(game['title'])+' | '+label+' | '+' | '.join(values)+' | '+total+' |')
+    for field, label in [('sold_net','매도'), ('settlement_value_net','정산 지급권'), ('known_combined','확인 합계')]:
+        values = [(_total_cell(v) if field == 'known_combined' else _money(v[field])) for v in jobs]
+        total = _total_cell(section['total']) if field == 'known_combined' else _money(section['total'][field])
+        lines.append('| **종목 합계** | '+label+' | '+' | '.join(values)+' | '+total+' |')
+    return lines + ['']
 
 
 def _money(value):
@@ -544,14 +671,18 @@ def _text(value):
 
 def render_markdown(report):
     w = report["window"]
+    totals = report_totals(report)
     lines = ["# 스포츠 경기별 실제 체결 보고", "", f"UTC [{w['start_utc']}, {w['end_exclusive_utc']})", f"KST [{w['start_kst']}, {w['end_exclusive_kst']})", "",
              "CONFIRMED fill을 고정 사본 기준으로 대사했다. 정산 지급권 가치는 실제 현금 상환과 분리하며, 미확정 금액은 0으로 채우지 않는다.", ""]
+    lines.extend(_job_total_lines(totals, '## 전략별 종목 통합 합계'))
     for sport in SPORTS:
         games = [g for g in report["games"] if g["sport"] == sport and g.get('report_scope') != 'CARRY_IN_OR_DISCOVERY_ONLY']
         lines.extend([f"## {SPORT_LABELS[sport]} — {len(games)}개 경기 식별자", ""])
         if not games:
             lines.extend(["선택한 live 원장/공식 결과에서 확인된 경기 없음. 종목 미운영·자료 미수집과 수익 0은 다르다.", ""])
             continue
+        section = next(s for s in totals['by_sport'] if s['sport'] == sport)
+        lines.extend(_sport_matrix_lines(section))
         for game in games:
             lines.extend([f"### {_text(game['title'])}", ""])
             official = game.get("official")
@@ -594,6 +725,8 @@ def render_markdown(report):
                 for orphan in source['orders_without_trade']:
                     if orphan['event_id']==game['event_id']:
                         lines.append(f"| {_text(label)} | 주문 연결 미확정 | {_text(orphan['order']['state'])} · 확정 {orphan['order']['confirmed_size']}주 | — | 미확정 | — | {_text(orphan['reason'])} · {_text(orphan['order'].get('response_status'))} · {_text(orphan['order'].get('error_type'))} |")
+            game_total = next(g['total'] for g in section['games'] if g['event_id'] == game['event_id'])
+            lines.append('| **경기 합계** | — | — | — | '+_money(game_total['sold_net'])+' | '+_money(game_total['settlement_value_net'])+' | '+_total_cell(game_total)+' |')
             lines.append("")
     lines.extend(['## 과거 진입의 잔여 노출·추가 관측 부록', '', '최근 경기 결과와 별도로 과거 진입의 미정산 잔여 수량을 보존한다. 요청 상태 COMPLETED만으로 잔여 수량을 0으로 만들지 않았다. 시각·호가·원장 상세는 같은 폴더 report.json에도 있다.', '', '| 종목 · 경기 | Jenkins · runtime | 선택 결과 · 원 진입 UTC / KST | BUY 확정 수량 | 잔여 수량 | 상태 / 정산 근거 |', '|---|---|---|---:|---:|---|'])
     auxiliary_ids={(g['sport'],g['event_id']) for g in report['games'] if g.get('report_scope')=='CARRY_IN_OR_DISCOVERY_ONLY'}

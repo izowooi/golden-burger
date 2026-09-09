@@ -286,12 +286,45 @@ function svg(tag, attrs, text) {
   if (text != null) e.textContent = text;
   return e;
 }
+function quoteView() {
+  const mode = $("metric").value;
+  if (!mode.startsWith("norm_"))
+    return {
+      points: state.match.points,
+      metric: Number(mode),
+      normalized: false,
+    };
+  const basis = mode.slice(5),
+    points = [];
+  for (const row of state.match.normalization?.series || []) {
+    state.match.tokens.forEach((token, index) => {
+      const value = (row.normalized[token.token_id] ||
+        row.no_reference[token.token_id] ||
+        {})[basis];
+      points.push([
+        row.t,
+        index,
+        value == null ? null : Number(value),
+        null,
+        null,
+        null,
+        null,
+        null,
+        row.valid ? 0 : 8,
+        row.clock_index,
+      ]);
+    });
+  }
+  return { points, metric: 2, normalized: true };
+}
 function draw() {
   if (!state.match) return;
+  const view = quoteView();
+  $("showFailed").disabled = view.normalized;
   const root = $("chart"),
     m = state.match.match,
-    points = state.match.points,
-    metric = Number($("metric").value),
+    points = view.points,
+    metric = view.metric,
     width = Math.max(300, Math.min(1200, root.parentElement.clientWidth)),
     height = width < 500 ? 280 : 340,
     left = 35,
@@ -398,7 +431,7 @@ function draw() {
     ["buyPoint", "A"],
     ["sellPoint", "B"],
   ]) {
-    const p = points[Number($(id).value)];
+    const p = state.match.points[Number($(id).value)];
     if (p) {
       root.append(
         svg("line", {
@@ -449,7 +482,7 @@ function draw() {
         return `${tokenLabel(t)}  ${sample ? sample[metric].toFixed(4) : "해당 시각 관측 없음"}`;
       });
     $("tooltip").textContent =
-      `${time(p[0])} KST · ±2초 원관측\n${lines.join("\n")}${note ? "\n" + note : ""}`;
+      `${time(p[0])} KST · ${view.normalized ? "정규화 시장가격 / NO는 이론 보완값" : "±2초 원관측"}\n${lines.join("\n")}${note ? "\n" + note : ""}`;
     $("tooltip").hidden = false;
     $("tooltip").style.left =
       `${Math.max(0, Math.min(e.clientX - rect.left + 12, rect.width - 230))}px`;
@@ -458,6 +491,7 @@ function draw() {
   root.onpointerleave = () => {
     $("tooltip").hidden = true;
   };
+  drawS();
 }
 async function calculate() {
   if (!state.match) return;
@@ -582,6 +616,7 @@ $("search").oninput = renderMatches;
 $("sourceFilter").onchange = renderMatches;
 $("metric").onchange = draw;
 $("showFailed").onchange = draw;
+$("sBasis").onchange = drawS;
 $("tokenSelect").onchange = renderPoints;
 $("buyPoint").onchange = draw;
 $("sellPoint").onchange = draw;

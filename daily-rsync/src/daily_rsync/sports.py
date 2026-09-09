@@ -6,18 +6,22 @@ complete, checksum-verified projection is atomically published as a new version.
 
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
 import re
 import shutil
+import threading
 import uuid
+from collections import OrderedDict
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
 from .config import AppConfig
+from .sports_normalization import normalize_payload
 from .sports_recorder import RUNTIME as RECORDER_RUNTIME
 from .sports_recorder import export_group
 
@@ -48,6 +52,8 @@ class SportsStore:
     def __init__(self, config: AppConfig, catalog: Any):
         self.config, self.catalog = config, catalog
         self.root = config.data_root / "sports-view"
+        self._normalizations = OrderedDict()
+        self._normalization_lock = threading.Lock()
 
     def sources(self) -> list[dict]:
         result = []
@@ -128,6 +134,27 @@ class SportsStore:
         result = read_json(path)
         result["view_version"] = version.name
         if not depth:
+            module_path = self.config.project_root.parent / "tools/sports_price_normalization.py"
+            if module_path.is_file():
+                module_source = module_path.read_bytes()
+                key = (version.name, match_id, hashlib.sha256(module_source).hexdigest())
+                with self._normalization_lock:
+                    if key not in self._normalizations:
+                        source = next(
+                            (
+                                s
+                                for s in read_json(version / "index.json")["sources"]
+                                if s["id"] == result["match"]["source_id"]
+                            ),
+                            {},
+                        )
+                        self._normalizations[key] = normalize_payload(
+                            result, source, module_path, module_source=module_source
+                        )
+                        if len(self._normalizations) > 16:
+                            self._normalizations.popitem(last=False)
+                    self._normalizations.move_to_end(key)
+                    result["normalization"] = self._normalizations[key]
             result.pop("depth", None)
         return result
 

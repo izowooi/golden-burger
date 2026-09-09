@@ -556,3 +556,87 @@ a:focus-visible {
   margin: 0;
   accent-color: var(--ink);
 }
+.normalization-panel {
+  margin-top: 28px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line);
+}
+.normalization-panel .section-heading label {
+  min-width: 180px;
+}
+.s-metrics {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+  margin: 18px 0;
+}
+.s-metrics > div {
+  background: #f3f6ef;
+  padding: 14px;
+  border-radius: 8px;
+}
+.s-metrics small {
+  display: block;
+  color: var(--muted);
+  font-size: 11px;
+}
+.s-metrics strong {
+  display: block;
+  margin-top: 8px;
+  font-size: 23px;
+  font-weight: 500;
+}
+.s-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  font-size: 11px;
+  margin-bottom: 10px;
+}
+.s-ask {
+  color: #b8723c;
+}
+.s-bid {
+  color: #4b78a1;
+}
+.s-mid {
+  color: #286e52;
+}
+.s-chart-wrap {
+  position: relative;
+}
+#sTooltip {
+  position: absolute;
+  pointer-events: none;
+  background: #193b36;
+  color: white;
+  padding: 10px;
+  border-radius: 7px;
+  font-size: 11px;
+  white-space: pre-line;
+  line-height: 1.7;
+  max-width: 290px;
+}
+@media (max-width: 680px) {
+  .normalization-panel .section-heading {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 12px;
+  }
+  .s-metrics {
+    gap: 5px;
+  }
+  .s-metrics > div {
+    padding: 9px;
+  }
+  .s-metrics strong {
+    font-size: 19px;
+  }
+  .s-metrics small {
+    font-size: 10px;
+  }
+  .s-legend {
+    gap: 8px;
+    font-size: 10px;
+  }
+}

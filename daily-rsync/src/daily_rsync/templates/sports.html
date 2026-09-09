@@ -6,6 +6,7 @@
     <title>경기 기록 · Daily Rsync</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml" />
     <link rel="stylesheet" href="/static/sports.css" />
+    <script defer src="/static/sports-s.js"></script>
     <script defer src="/static/sports.js"></script>
   </head>
   <body>
@@ -88,6 +89,12 @@
                   <option value="3">같은 수량 매도 평균가 · bid</option>
                   <option value="5">최우선 매수 호가 · bid</option>
                   <option value="6">최우선 매도 호가 · ask</option>
+                  <option value="4">호가 중간값 · mid</option>
+                  <option value="norm_mid">정규화 가격 · 중간값 ÷ S</option>
+                  <option value="norm_ask">정규화 가격 · 최우선 ask ÷ S</option>
+                  <option value="norm_depth_ask">
+                    정규화 가격 · 5주 ask 평균 ÷ S
+                  </option>
                 </select></label
               ><span>각 선을 눌러 표시 여부를 바꿀 수 있습니다.</span>
             </div>
@@ -106,6 +113,54 @@
               <div id="tooltip" hidden></div>
             </div>
             <p class="chart-note" id="coverage"></p>
+            <section class="normalization-panel">
+              <div class="section-heading">
+                <div>
+                  <div class="eyebrow">S / NORMALIZED QUOTES</div>
+                  <h3>결과 호가의 합은 1인가요?</h3>
+                </div>
+                <label
+                  >합계 기준<select id="sBasis">
+                    <option value="top">최우선 bid · mid · ask</option>
+                    <option value="depth">각 결과 5주 전량 bid · ask</option>
+                  </select></label
+                >
+              </div>
+              <p class="chart-note">
+                축구는 승·무·패 YES 3개, 다른 종목은 두 팀 결과를 합칩니다.
+                정규화 가격은 p ÷ S이며 실제 승률을 확정하지 않습니다. NO의
+                정규화 표시는 1−정규화 YES의 이론값입니다.
+              </p>
+              <div class="s-metrics">
+                <div>
+                  <small>마지막 계산값 · S 중간</small
+                  ><strong id="sLatest">—</strong>
+                </div>
+                <div>
+                  <small>1에서 최대 이탈 · 중간값</small
+                  ><strong id="sDeviation">—</strong>
+                </div>
+                <div>
+                  <small>중간값 정규화 가능 관측</small
+                  ><strong id="sCoverage">—</strong>
+                </div>
+              </div>
+              <div class="s-legend">
+                <span class="s-ask">● 매수할 때 · ask 합</span
+                ><span class="s-mid" id="sMidLegend">● 중간값 합</span
+                ><span class="s-bid">● 매도할 때 · bid 합</span>
+              </div>
+              <div class="s-chart-wrap">
+                <svg
+                  id="sChart"
+                  viewBox="0 0 920 220"
+                  role="img"
+                  aria-label="시간에 따른 S와 기준값 1의 차이"
+                ></svg>
+                <div id="sTooltip" hidden></div>
+              </div>
+              <p class="chart-note" id="sExplanation"></p>
+            </section>
             <section class="calculator">
               <div class="section-heading">
                 <div>

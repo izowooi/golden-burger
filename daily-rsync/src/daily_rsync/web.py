@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
@@ -151,6 +151,28 @@ def create_app(config: AppConfig) -> FastAPI:
     @application.get("/sports", response_class=HTMLResponse)
     def sports_page(request: Request) -> HTMLResponse:
         return templates.TemplateResponse(request=request, name="sports.html", context={})
+
+    @application.get("/sports/study")
+    def sports_study() -> FileResponse:
+        # A generated, local-only artifact; no source DB import or network work.
+        artifact = config.data_root / "sports-view" / "research.html"
+        if (
+            artifact.is_symlink()
+            or not artifact.is_file()
+            or not artifact.resolve().is_relative_to(config.data_root.resolve())
+        ):
+            raise HTTPException(404, "전체 S 연구 화면을 먼저 로컬에서 생성하세요.")
+        return FileResponse(
+            artifact,
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store",
+                "Content-Security-Policy": (
+                    "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; "
+                    "connect-src 'none'; frame-ancestors 'none'; base-uri 'none'"
+                ),
+            },
+        )
 
     @application.get("/api/sports/sources")
     def sports_sources() -> list[dict]:

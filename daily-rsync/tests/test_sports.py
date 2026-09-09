@@ -147,3 +147,23 @@ def test_mismatched_book_token_and_duplicate_levels_are_rejected():
     data["depth"][0]["book"]["asks"].append({"price": ".5", "size": "30"})
     with pytest.raises(ValueError, match="잔량"):
         calculate(data, 0, 1, 5)
+
+
+def test_study_artifact_stays_local_and_cannot_follow_a_symlink(app_config, tmp_path):
+    app = create_app(app_config)
+    local = TestClient(app, base_url="http://127.0.0.1")
+    assert local.get("/sports/study").status_code == 404
+    artifact = app_config.data_root / "sports-view" / "research.html"
+    artifact.parent.mkdir(parents=True, exist_ok=True)
+    artifact.write_text("<!doctype html><title>S study</title>")
+    response = local.get("/sports/study")
+    assert response.status_code == 200 and "S study" in response.text
+    assert "connect-src 'none'" in response.headers["content-security-policy"]
+    assert (
+        TestClient(app, base_url="http://foreign.example").get("/sports/study").status_code == 403
+    )
+    artifact.unlink()
+    outside = tmp_path / "private.txt"
+    outside.write_text("not a study")
+    artifact.symlink_to(outside)
+    assert local.get("/sports/study").status_code == 404

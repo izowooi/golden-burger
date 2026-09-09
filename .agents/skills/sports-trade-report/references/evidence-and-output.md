@@ -24,3 +24,11 @@
 ## 산출물
 
 `report.json`은 window·source 검증·source별 run/config·경기별 positions/orders·공식 결과·미확정 이유·전략별 합계를 담는다. 단순 경제 계산은 `tools/sports_trade_report.py`의 pure 함수로 재사용할 수 있다. `report.md`는 종목×경기×strategy/Jenkins/runtime 순으로 읽을 수 있어야 한다. 원본 private order/account 식별자, credential, raw console은 공유 문서나 commit에 넣지 않는다.
+
+`report_totals`는 본문의 같은 기간·경기 범위를 대상으로 경기×전략, 종목별, 전략/Jenkins 종목 통합,
+전체 합계를 제공한다. `sold_net`과 `settlement_value_net`은 서로 다른 금액이며,
+`known_combined`는 확인된 두 구성요소만 합친 부분 합계다. 원래 Decimal 숫자를 정확히 합산하고
+표시 단계에서만 반올림한다. 관측이 전혀 없는 구성요소는 `null`, 실제 확인된 0은 `"0"`이다.
+잔여/손익 미확정 포지션·미연결 주문·미지원 원장이 하나라도 있으면 `complete_total`은 `null`로
+남기고 건수를 합계 옆에 표시한다. 서로 다른 종목의 현금흐름을 종목 통합 합계로 보여주는 것은
+전략 검증의 cohort·독립 경기 표본을 합치는 것과 다르다.
