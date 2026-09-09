@@ -12,7 +12,7 @@ from polybot.api.clob_client import (
     SellBookWalk,
     _normalize_clob_resolution,
 )
-from polybot.config import TradingConfig
+from polybot.config import PeachEntryConfig, TradingConfig
 from polybot.db.models import (
     BUY_RECONCILIATION_QUARANTINE_REASON,
     STOP_SELL_LEDGER_QUARANTINE_REASON,
@@ -215,6 +215,56 @@ class _Clob:
         if self.resolution is None:
             raise AssertionError("unexpected CLOB resolution lookup")
         return self.resolution
+
+    def estimate_taker_fee_usdc(self, _token_id, *, shares, price):
+        return shares * 0.05 * price * (1 - price)
+
+
+def test_six_book_net_exit_uses_fees_and_forces_minute_75() -> None:
+    config = TradingConfig(
+        entry=PeachEntryConfig(
+            exit_basis="net_return",
+            take_profit_delta=0.05,
+            stop_loss_delta=0.15,
+            late_exit_minute=75,
+            stop_cutoff_minute=75,
+            max_entry_drawdown=0.15,
+        )
+    )
+    clob = _Clob(best_bid=0.86, best_ask=0.87, sell_vwap=0.86)
+    trader = Trader(
+        _Repo(), clob, config, gamma_client=_active_gamma(), simulation_mode=False
+    )
+    trade = SimpleNamespace(
+        id=1, condition_id="condition-1", event_id="event-1",
+        token_id="away-yes-token", buy_confirmed_size=6.25,
+        buy_confirmed_vwap=0.80, buy_confirmed_fee_usdc=0.05,
+        buy_shares=6.25, buy_price=0.80, take_profit_delta_at_buy=0.05,
+        stop_loss_delta_at_buy=0.15, late_exit_minute_at_buy=75,
+    )
+    walk = clob.get_sell_book_walk(trade.token_id, shares=6.25)
+    signal, _, minute = trader._exit_signal(trade, walk)
+    assert signal == "take_profit"
+    assert minute == 30
+
+    clob.sell_vwap = 0.69
+    clob.best_bid = 0.69
+    signal, _, _ = trader._exit_signal(
+        trade, clob.get_sell_book_walk(trade.token_id, shares=6.25)
+    )
+    assert signal == "absolute_stop"
+
+    clob.sell_vwap = 0.79
+    clob.best_bid = 0.79
+    trader.gamma.get_event_by_id = lambda event_id: {
+        "id": event_id, "active": True, "closed": False, "live": True,
+        "ended": False, "elapsed": "75", "period": "2H",
+    }
+    signal, _, minute = trader._exit_signal(
+        trade, clob.get_sell_book_walk(trade.token_id, shares=6.25)
+    )
+    assert signal == "forced_time_exit"
+    assert minute == 75
 
 
 def _active_gamma():

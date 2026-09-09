@@ -779,6 +779,9 @@ def test_clob_v2_fee_formula_matches_documented_sports_example(tmp_path) -> None
     fee = shares * schedule.rate * (price * (1 - price)) ** schedule.exponent
 
     assert fee.quantize(Decimal("0.00001")) == Decimal("0.00500")
+    assert wrapper.estimate_taker_fee_usdc(
+        "token-fee", shares=float(shares), price=float(price)
+    ) == pytest.approx(0.005)
 
 
 def test_exact_five_dollar_walk_uses_all_required_ask_levels() -> None:

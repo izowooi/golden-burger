@@ -419,6 +419,34 @@ class Trader:
             return None, math.nan, None
         source_minute, _clock_reason = self._source_minute_for_trade(trade)
         full_exit_vwap = float(walk.vwap)
+        if self.config.entry.exit_basis == "net_return":
+            try:
+                buy_size = float(trade.buy_confirmed_size)
+                buy_vwap = float(trade.buy_confirmed_vwap)
+                buy_fee = float(trade.buy_confirmed_fee_usdc)
+                sell_fee = self.clob.estimate_taker_fee_usdc(
+                    trade.token_id,
+                    shares=float(walk.shares),
+                    price=full_exit_vwap,
+                )
+                entry_cost = buy_size * buy_vwap + buy_fee
+                net_proceeds = float(walk.proceeds) - sell_fee
+            except Exception:
+                return None, math.nan, source_minute
+            values = (buy_size, buy_vwap, buy_fee, sell_fee, entry_cost, net_proceeds)
+            if (
+                not all(math.isfinite(value) for value in values)
+                or min(buy_size, buy_vwap, entry_cost) <= 0
+                or min(buy_fee, sell_fee) < 0
+            ):
+                return None, math.nan, source_minute
+            if net_proceeds + 1e-9 >= entry_cost * (1.0 + take_profit):
+                return "take_profit", full_exit_vwap, source_minute
+            if net_proceeds <= entry_cost * (1.0 - stop_loss) + 1e-9:
+                return "absolute_stop", full_exit_vwap, source_minute
+            if source_minute is not None and source_minute + 1e-9 >= late_minute:
+                return "forced_time_exit", full_exit_vwap, source_minute
+            return None, full_exit_vwap, source_minute
         normal_target = min(0.999, entry_vwap + take_profit)
         if full_exit_vwap + 1e-9 >= normal_target:
             return "take_profit", normal_target, source_minute
@@ -1885,7 +1913,9 @@ class Trader:
         exit_base = next(
             (
                 value
-                for value in ("take_profit", "late_half_target", "absolute_stop")
+                for value in (
+                    "take_profit", "late_half_target", "absolute_stop", "forced_time_exit"
+                )
                 if pending_reason.startswith(value)
             ),
             "absolute_stop",

@@ -4,8 +4,8 @@
 
 | Job | custom workspace | runtime | mode | cron |
 |---|---|---|---|---|
-| `polybot-eco` | `/Volumes/t7/jenkins/polybot-eco` | soccer `+3pp` + MLB `+7pp/-20pp` | live | `* * * * *` |
-| `polybot-fruit` | `/Volumes/t7/jenkins/polybot-fruit` | soccer `+5pp` + MLB `+10pp/-20pp` | live | `* * * * *` |
+| `polybot-eco` | `/Volumes/t7/jenkins/polybot-eco` | six-book net `+5%/-15%/75m` + MLB 기존 | live | `* * * * *` |
+| `polybot-fruit` | `/Volumes/t7/jenkins/polybot-fruit` | six-book net `+5%/-12%/75m` + MLB 기존 | live | `* * * * *` |
 | `polybot-grey` | `/Volumes/t7/jenkins/polybot-grey` | soccer/MLB/NBA/NFL/NHL shadow 5개 | simulation | `* * * * *` |
 
 Concurrent build는 금지하고 build discard는 14일로 둔다. 첫 검증 build 전 timer를 끄고,
@@ -28,7 +28,7 @@ set -euo pipefail
 
 export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
-export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_LIFECYCLE_MODE=close_only
 export POLYBOT_TAKE_PROFIT_DELTA=0.03
 
 cd ./golden-peach
@@ -37,7 +37,16 @@ cd ./golden-peach
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-eco-3pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-eco-3pp-1m-v1
 
+export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_TAKE_PROFIT_DELTA=0.05
+export POLYBOT_STOP_LOSS_DELTA=0.15
+export POLYBOT_LATE_EXIT_MINUTE=75
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-eco-sixbook-net5-sl15-75m-v2
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-eco-sixbook-net5-sl15-75m-v2
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-eco-sixbook-net5-sl15-75m-v2
+
 export POLYBOT_SPORT_FAMILY=mlb
+unset POLYBOT_LATE_EXIT_MINUTE
 export POLYBOT_TAKE_PROFIT_DELTA=0.07
 export POLYBOT_STOP_LOSS_DELTA=0.20
 export POLYBOT_ENTRY_HOURS_MAX=8
@@ -56,7 +65,7 @@ set -euo pipefail
 
 export UV_LINK_MODE=copy
 export LOG_LEVEL=INFO
-export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_LIFECYCLE_MODE=close_only
 export POLYBOT_TAKE_PROFIT_DELTA=0.05
 
 cd ./golden-peach
@@ -65,7 +74,16 @@ cd ./golden-peach
 /Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-fruit-5pp-1m-v1
 /Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-fruit-5pp-1m-v1
 
+export POLYBOT_LIFECYCLE_MODE=active
+export POLYBOT_TAKE_PROFIT_DELTA=0.05
+export POLYBOT_STOP_LOSS_DELTA=0.12
+export POLYBOT_LATE_EXIT_MINUTE=75
+/Users/jongwoopark/.local/bin/uv run polybot config --live --job peach-live-fruit-sixbook-net5-sl12-75m-v2
+/Users/jongwoopark/.local/bin/uv run polybot run --live --job peach-live-fruit-sixbook-net5-sl12-75m-v2
+/Users/jongwoopark/.local/bin/uv run polybot status --live --job peach-live-fruit-sixbook-net5-sl12-75m-v2
+
 export POLYBOT_SPORT_FAMILY=mlb
+unset POLYBOT_LATE_EXIT_MINUTE
 export POLYBOT_TAKE_PROFIT_DELTA=0.10
 export POLYBOT_STOP_LOSS_DELTA=0.20
 export POLYBOT_ENTRY_HOURS_MAX=8

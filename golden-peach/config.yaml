@@ -39,7 +39,8 @@ trading:
     max_source_minute: 10
     min_leader_margin: 0.005
     max_entry_spread: 0.05
-    # Eco arm A. Fruit and Grey override only this value to 0.05.
+    # Legacy/default absolute-delta cohort. New six-book live jobs freeze
+    # fee-net TP5 with SL15/SL12 and minute-75 forced exit in config.py.
     take_profit_delta: 0.03
     stop_loss_delta: 0.10
     late_exit_minute: 80

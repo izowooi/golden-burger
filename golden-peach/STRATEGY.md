@@ -46,13 +46,15 @@ Eco/Fruit의 기존 live runtime은 계속 축구다. 별도 MLB runtime은 whol
 
 ## A/B와 종료
 
-- Eco A: confirmed entry VWAP `+0.03`.
-- Fruit B: confirmed entry VWAP `+0.05`.
-- 공통 SL: confirmed entry VWAP `-0.10`.
-- source minute 80부터 정상 TP의 절반을 충족하면 이익 청산한다.
-- minute 80부터 손실 중이면 신규 stop을 제출하지 않고 one-hot resolution까지 보유한다.
-- source minute를 증명하지 못하면 late 상태를 배제할 수 없으므로 새 stop은 fail closed한다.
-- TP/SL은 best quote만이 아니라 전체 보유량의 executable VWAP으로 검증한다.
+- 새 정책은 `book_shape=direct-six-result-books`, `HOME/DRAW/AWAY × YES/NO` 6개가 같은
+  cycle에 모두 검증될 때만 적용한다. 무승부 market이 없는 축구와 MLB direct-two에는 적용하지 않는다.
+- 공통: confirmed 원금+BUY fee 대비 전체 sellable holding의 bid proceeds-예상 SELL fee가
+  `+5%`이면 TP한다.
+- Eco A: 같은 순회수액이 entry cost의 `85%` 이하이면 SL 15%.
+- Fruit B: 같은 순회수액이 entry cost의 `88%` 이하이면 SL 12%.
+- TP/SL이 없으면 source minute 75 이후 첫 유효 full-depth bid에서 강제청산한다.
+- FOK confirmed fill만 청산으로 인정한다. 기존 soccer runtime의 open trade는 매수 당시
+  absolute TP/SL과 source minute 80 계약으로 close-only 관리한다.
 
 MLB는 진입 `[0.60,0.94]`를 유지하되 Eco/Fruit가 각각 `+0.07/+0.10` 익절을 비교하고 공통
 손절은 `-0.20`이다. 축구의 80분 규칙은 적용하지 않으며 경기 종료까지 익절·손절·해결을

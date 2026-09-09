@@ -196,13 +196,20 @@ def main() -> None:
         f"In-play age: [{trading.entry.hours_min:.1f}, "
         f"{trading.entry.hours_max:.1f}] hours"
     )
-    print(
-        f"Exit: TP +{trading.entry.take_profit_delta:.2f}; "
-        f"SL -{trading.entry.stop_loss_delta:.2f} before source minute "
-        f"{trading.entry.stop_cutoff_minute:.0f}; from minute "
-        f"{trading.entry.late_exit_minute:.0f}, half-TP is allowed and a "
-        "losing position holds to proven resolution"
-    )
+    if trading.entry.exit_basis == "net_return":
+        print(
+            f"Exit: fee-net TP +{trading.entry.take_profit_delta:.0%}; "
+            f"fee-net SL -{trading.entry.stop_loss_delta:.0%}; forced full exit "
+            f"from source minute {trading.entry.late_exit_minute:.0f}"
+        )
+    else:
+        print(
+            f"Exit: TP +{trading.entry.take_profit_delta:.2f}; "
+            f"SL -{trading.entry.stop_loss_delta:.2f} before source minute "
+            f"{trading.entry.stop_cutoff_minute:.0f}; from minute "
+            f"{trading.entry.late_exit_minute:.0f}, half-TP is allowed and a "
+            "losing position holds to proven resolution"
+        )
     print(
         f"Target order: ${trading.buy_amount_usdc:.2f}; one atomic FOK is reduced "
         f"to the largest executable ladder amount down to $5; min shares "

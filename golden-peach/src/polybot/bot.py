@@ -112,16 +112,19 @@ class PolymarketBot:
             entry.hours_min,
             entry.hours_max,
         )
+        exit_contract = (
+            "fee-net TP=+%.0f%%, fee-net SL=-%.0f%%, forced full exit from minute %.0f"
+            % (entry.take_profit_delta * 100, entry.stop_loss_delta * 100, entry.late_exit_minute)
+            if entry.exit_basis == "net_return"
+            else "TP=entry+%.2f, SL=entry-%.2f before minute %.0f; from minute %.0f "
+            "half-TP is allowed and losing positions hold to proven resolution"
+            % (entry.take_profit_delta, entry.stop_loss_delta, entry.stop_cutoff_minute, entry.late_exit_minute)
+        )
         logger.info(
-            "execution - FOK BUY; TP=entry+%.2f, SL=entry-%.2f before "
-            "minute %.0f; from minute %.0f half-TP is allowed and losing "
-            "positions hold to proven resolution; stop spread<=%.2f; "
+            "execution - FOK BUY; %s; stop spread<=%.2f; "
             "$%.2f positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_entry_guard=-$%.2f",
-            entry.take_profit_delta,
-            entry.stop_loss_delta,
-            entry.stop_cutoff_minute,
-            entry.late_exit_minute,
+            exit_contract,
             entry.max_stop_spread,
             trading.buy_amount_usdc,
             trading.max_positions,

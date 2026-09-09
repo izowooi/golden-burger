@@ -444,11 +444,14 @@ HOME/DRAW/AWAY 결과 명제만 사용한다. 예정 시각으로 경기 시작�
 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` 중 완전 체결
 가능한 최대 금액 한 건만 FOK BUY한다. 합성 `1-YES` 가격은 live 결정에 쓰지 않는다.
 
-`polybot-eco/peach-live-eco-3pp-1m-v1`은 TP `+0.03`,
-`polybot-fruit/peach-live-fruit-5pp-1m-v1`은 TP `+0.05`이며 공통 SL은 confirmed entry
-`-0.10`이다. source 80분부터 정상 TP 절반을 넘으면 익절하지만 손실 중인 포지션에 새 stop은
-내지 않고 proven resolution을 기다린다. filled 또는 제출 결과가 불확실한 BUY가 한 번이라도
-있으면 같은 event에 다시 들어가지 않는다. exact terminal zero-fill만 재시도한다.
+새 축구 cohort는 검증된 direct 6-token shape에만 적용한다.
+`polybot-eco/peach-live-eco-sixbook-net5-sl15-75m-v2`와
+`polybot-fruit/peach-live-fruit-sixbook-net5-sl12-75m-v2`는 공통 수수료 후 TP `+5%`,
+각각 순손실 SL `15%/12%`를 비교하며 source 75분 이후 첫 유효 full bid에서 강제청산한다.
+기존 `peach-live-eco-3pp-1m-v1`과 `peach-live-fruit-5pp-1m-v1`은 기존 포지션을 매수 당시
+계약으로 close-only 관리한다. MLB direct-two runtime과 파라미터는 유지한다. filled 또는
+제출 결과가 불확실한 BUY가 한 번이라도 있으면 같은 event에 다시 들어가지 않는다.
+exact terminal zero-fill만 재시도한다.
 
 SELL 실패와 SELL 대사 불확실성은 동일 event에만 격리한다. 180분 뒤에도 해결되지 않으면
 성공 매도로 꾸미지 않고 경제적으로 열린 `QUARANTINED`로 보존해 다른 event의 관리·진입을

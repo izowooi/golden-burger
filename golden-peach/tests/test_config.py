@@ -11,6 +11,9 @@ from polybot.config import (
     MLB_LIVE_FOLLOWUP_END_UTC,
     MLB_LIVE_START_UTC,
     SIMULATION_SCALING_NOTIONALS_USDC,
+    SIX_BOOK_NET_ENTRY_END_UTC,
+    SIX_BOOK_NET_FOLLOWUP_END_UTC,
+    SIX_BOOK_NET_START_UTC,
     load_config,
 )
 
@@ -27,6 +30,30 @@ def _no_credentials(monkeypatch: pytest.MonkeyPatch) -> None:
         "POLYMARKET_SIGNATURE_TYPE",
     ):
         monkeypatch.delenv(key, raising=False)
+
+
+@pytest.mark.parametrize(
+    ("job", "stop"),
+    [
+        ("peach-live-eco-sixbook-net5-sl15-75m-v2", 0.15),
+        ("peach-live-fruit-sixbook-net5-sl12-75m-v2", 0.12),
+    ],
+)
+def test_six_book_net_live_arms_are_shape_gated(monkeypatch, job, stop) -> None:
+    _credentials(monkeypatch)
+    config = load_config("config.yaml", job, simulation_mode=False)
+    trading = config.trading
+    assert trading.book_shape == "direct-six-result-books"
+    assert trading.expected_result_kinds == ("HOME", "DRAW", "AWAY")
+    assert trading.expected_token_count == 6
+    assert trading.entry.exit_basis == "net_return"
+    assert trading.entry.take_profit_delta == 0.05
+    assert trading.entry.stop_loss_delta == stop
+    assert trading.entry.late_exit_minute == 75
+    assert trading.entry.stop_cutoff_minute == 75
+    assert trading.experiment_start_utc == SIX_BOOK_NET_START_UTC
+    assert trading.experiment_entry_end_utc == SIX_BOOK_NET_ENTRY_END_UTC
+    assert trading.experiment_followup_end_utc == SIX_BOOK_NET_FOLLOWUP_END_UTC
 
 
 def test_eco_live_arm_loads_the_frozen_contract(monkeypatch) -> None:

@@ -28,10 +28,19 @@ FROZEN_FOLLOWUP_END_UTC = "2026-09-20T00:00:00Z"
 MLB_LIVE_START_UTC = "2026-09-03T11:00:00Z"
 MLB_LIVE_ENTRY_END_UTC = "2026-09-17T11:00:00Z"
 MLB_LIVE_FOLLOWUP_END_UTC = "2026-09-24T11:00:00Z"
+SIX_BOOK_NET_START_UTC = "2026-09-10T00:00:00Z"
+SIX_BOOK_NET_ENTRY_END_UTC = "2026-09-24T00:00:00Z"
+SIX_BOOK_NET_FOLLOWUP_END_UTC = "2026-10-01T00:00:00Z"
 DIRECT_LATE_SENTINEL_MINUTE = 1_000_000.0
+SIX_BOOK_NET_JOBS = frozenset({
+    "peach-live-eco-sixbook-net5-sl15-75m-v2",
+    "peach-live-fruit-sixbook-net5-sl12-75m-v2",
+})
 FROZEN_JOB_TAKE_PROFIT = {
     "peach-live-eco-3pp-1m-v1": 0.03,
     "peach-live-fruit-5pp-1m-v1": 0.05,
+    "peach-live-eco-sixbook-net5-sl15-75m-v2": 0.05,
+    "peach-live-fruit-sixbook-net5-sl12-75m-v2": 0.05,
     "peach-live-eco-mlb-7pp-20sl-1m-v1": 0.07,
     "peach-live-fruit-mlb-10pp-20sl-1m-v1": 0.10,
     "peach-shadow-1m-v1": 0.05,
@@ -43,6 +52,8 @@ FROZEN_JOB_TAKE_PROFIT = {
 FROZEN_JOB_SPORT_FAMILY = {
     "peach-live-eco-3pp-1m-v1": "soccer",
     "peach-live-fruit-5pp-1m-v1": "soccer",
+    "peach-live-eco-sixbook-net5-sl15-75m-v2": "soccer",
+    "peach-live-fruit-sixbook-net5-sl12-75m-v2": "soccer",
     "peach-live-eco-mlb-7pp-20sl-1m-v1": "mlb",
     "peach-live-fruit-mlb-10pp-20sl-1m-v1": "mlb",
     "peach-shadow-1m-v1": "soccer",
@@ -73,12 +84,18 @@ FROZEN_JOB_STOP_LOSS = {
     )
     for job in FROZEN_JOB_SPORT_FAMILY
 }
+FROZEN_JOB_STOP_LOSS.update({
+    "peach-live-eco-sixbook-net5-sl15-75m-v2": 0.15,
+    "peach-live-fruit-sixbook-net5-sl12-75m-v2": 0.12,
+})
 FROZEN_SIMULATION_JOBS = frozenset(
     job for job in FROZEN_JOB_SPORT_FAMILY if "-shadow-" in job
 )
 FROZEN_JOB_EXPERIMENT_DATES = {
     job: (
-        (MLB_LIVE_START_UTC, MLB_LIVE_ENTRY_END_UTC, MLB_LIVE_FOLLOWUP_END_UTC)
+        (SIX_BOOK_NET_START_UTC, SIX_BOOK_NET_ENTRY_END_UTC, SIX_BOOK_NET_FOLLOWUP_END_UTC)
+        if job in SIX_BOOK_NET_JOBS
+        else (MLB_LIVE_START_UTC, MLB_LIVE_ENTRY_END_UTC, MLB_LIVE_FOLLOWUP_END_UTC)
         if FROZEN_JOB_SPORT_FAMILY[job] == "mlb" and job not in FROZEN_SIMULATION_JOBS
         else (FROZEN_START_UTC, FROZEN_ENTRY_END_UTC, FROZEN_FOLLOWUP_END_UTC)
     )
@@ -466,6 +483,7 @@ class PeachEntryConfig:
     max_source_minute: float = 10.0
     min_leader_margin: float = 0.005
     max_entry_spread: float = 0.05
+    exit_basis: str = "absolute_delta"
     take_profit_delta: float = 0.03
     stop_loss_delta: float = 0.10
     late_exit_minute: float = 80.0
@@ -698,7 +716,9 @@ def _validate_config(
         raise ValueError(f"{job_name} is frozen to {expected_mode} mode")
     expected_stop_loss = FROZEN_JOB_STOP_LOSS[job_name]
     expected_late_minute = (
-        80.0
+        75.0
+        if job_name in SIX_BOOK_NET_JOBS
+        else 80.0
         if trading.sport_family == "soccer"
         else DIRECT_LATE_SENTINEL_MINUTE
     )
@@ -706,6 +726,7 @@ def _validate_config(
         entry.max_source_minute != 10
         or entry.min_leader_margin != 0.005
         or entry.max_entry_spread != 0.05
+        or entry.exit_basis != ("net_return" if job_name in SIX_BOOK_NET_JOBS else "absolute_delta")
         or entry.stop_loss_delta != expected_stop_loss
         or entry.late_exit_minute != expected_late_minute
         or entry.late_profit_fraction != 0.50
@@ -714,6 +735,12 @@ def _validate_config(
         raise ValueError("kickoff/leader/TP-SL/late-exit contract drift")
     if entry.stop_price != 0.01:
         raise ValueError("defensive absolute stop floor is frozen at 0.01")
+    if job_name in SIX_BOOK_NET_JOBS and (
+        trading.book_shape != "direct-six-result-books"
+        or trading.expected_result_kinds != ("HOME", "DRAW", "AWAY")
+        or trading.expected_token_count != 6
+    ):
+        raise ValueError("net exit policy requires a verified direct six-book shape")
     if entry.max_entry_drawdown != entry.stop_loss_delta:
         raise ValueError("stored entry stop must match the frozen stop-loss delta")
     if (
@@ -833,7 +860,9 @@ def load_config(
     frozen_take_profit = FROZEN_JOB_TAKE_PROFIT.get(job_name, 0.03)
     frozen_stop_loss = FROZEN_JOB_STOP_LOSS.get(job_name, 0.10)
     frozen_late_minute = (
-        80.0
+        75.0
+        if job_name in SIX_BOOK_NET_JOBS
+        else 80.0
         if resolved_sport_family == "soccer"
         else DIRECT_LATE_SENTINEL_MINUTE
     )
@@ -863,6 +892,7 @@ def load_config(
             entry_cfg.get("max_entry_spread"),
             0.05,
         ),
+        exit_basis=("net_return" if job_name in SIX_BOOK_NET_JOBS else "absolute_delta"),
         take_profit_delta=_get_config_value(
             "POLYBOT_TAKE_PROFIT_DELTA",
             None,

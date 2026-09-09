@@ -9,14 +9,17 @@ runtime에서 `$5` 탐색 A/B를 수행한다. Grey는 Soccer/MLB/NBA/NFL/NHL의
 
 | Jenkins | runtime | 역할 | TP | SL |
 |---|---|---|---:|---:|
-| `polybot-eco` | `peach-live-eco-3pp-1m-v1` | live A | `+0.03` | `-0.10` |
-| `polybot-fruit` | `peach-live-fruit-5pp-1m-v1` | live B | `+0.05` | `-0.10` |
+| `polybot-eco` | `peach-live-eco-sixbook-net5-sl15-75m-v2` | six-book live A | net `+5%` | net `-15%` |
+| `polybot-fruit` | `peach-live-fruit-sixbook-net5-sl12-75m-v2` | six-book live B | net `+5%` | net `-12%` |
+| `polybot-eco` | `peach-live-eco-3pp-1m-v1` | legacy soccer close-only | `+0.03` | `-0.10` |
+| `polybot-fruit` | `peach-live-fruit-5pp-1m-v1` | legacy soccer close-only | `+0.05` | `-0.10` |
 | `polybot-eco` | `peach-live-eco-mlb-7pp-20sl-1m-v1` | MLB live A | `+0.07` | `-0.20` |
 | `polybot-fruit` | `peach-live-fruit-mlb-10pp-20sl-1m-v1` | MLB live B | `+0.10` | `-0.20` |
 | `polybot-grey` | `peach-shadow-1m-v1` | simulation/raw 자료 | `+0.05` | `-0.10` |
 
-세 Jenkins는 1분 cadence, T7 외장 workspace를 사용한다. 같은 종목 내 live A/B의 유일한
-처리축은 TP 폭이며, 주문 목표액이나 종목이 다른 runtime은 별도 cohort로 평가한다.
+세 Jenkins는 1분 cadence, T7 외장 workspace를 사용한다. 새 six-book A/B의 유일한 처리축은
+순손실 `15%/12%`이며 공통 TP와 75분 강제청산은 동일하다. 기존 soccer DB는 신규 진입 없이
+매수 당시 정책으로 close-only 관리한다. MLB runtime과 정책은 변경하지 않는다.
 
 Grey는 한 Jenkins 안에서 DB가 분리된 `peach-shadow-1m-v1`(soccer),
 `peach-shadow-mlb-1m-v2`, `peach-shadow-nba-1m-v2`, `peach-shadow-nfl-1m-v2`,
@@ -29,9 +32,9 @@ simulation mode에 고정되어 잘못된 live/종목 조합을 시작 전에 �
 2. source clock 0~10분, HOME/DRAW/AWAY triad, 직접 YES/NO 6개 full-depth book을 요구한다.
 3. midpoint 선두와 2위가 최소 0.5%p 차이이고, 선두 baseline `$5` ask VWAP이
    0.60~0.94이며 spread가 0.05 이하면 FOK BUY한다.
-4. confirmed BUY VWAP 기준 arm TP 또는 공통 10%p SL에서 전체 보유량 FOK SELL을 시도한다.
-5. source 80분부터는 절반 TP를 허용하고, 손실 중이면 새 stop 없이 proven resolution까지
-   보유한다.
+4. six-book v2는 confirmed BUY 원금+수수료 대비 전체 bid proceeds-예상 SELL fee의 순회수액으로
+   공통 TP `+5%`, arm SL `-15%/-12%`를 평가한다.
+5. TP/SL이 없으면 source 75분 이후 첫 유효 full-depth bid에서 전량 FOK 청산한다.
 6. 한 event에서 실제 또는 불확실 BUY가 한 번 생기면 다시 들어가지 않는다. exact zero-fill은
    예외다.
 7. 한 event의 명확한 주문 실패나 불명확한 BUY/SELL은 다른 event를 막지 않는다. 불명확 노출은

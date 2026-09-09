@@ -947,6 +947,27 @@ class ClobClientWrapper:
         cache[normalized_token] = schedule
         return schedule
 
+    def estimate_taker_fee_usdc(
+        self, token_id: str, *, shares: float, price: float
+    ) -> float:
+        """Estimate the current full-fill taker fee for a net exit decision."""
+        if not math.isfinite(shares) or shares <= 0:
+            raise ValueError("fee estimate shares must be finite and positive")
+        if not math.isfinite(price) or not 0 < price < 1:
+            raise ValueError("fee estimate price must be inside (0, 1)")
+        schedule = self._clob_v2_fee_schedule(str(token_id))
+        if schedule.exponent != 1 or not schedule.taker_only:
+            raise ClobResponseContractError(
+                "net exit supports only the recorded exponent-1 taker schedule"
+            )
+        amount = (
+            Decimal(str(shares))
+            * schedule.rate
+            * Decimal(str(price))
+            * (Decimal(1) - Decimal(str(price)))
+        ).quantize(_FEE_QUANTUM_USDC, rounding=ROUND_HALF_UP)
+        return float(amount)
+
     def _submission_requested_size(
         self,
         pending: Mapping[str, Any],
