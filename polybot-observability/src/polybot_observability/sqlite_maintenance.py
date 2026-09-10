@@ -37,6 +37,7 @@ ENV_MEMBERSHIP_DETAIL_HOURS = "POLYBOT_DB_MEMBERSHIP_DETAIL_HOURS"
 _SUPPORTED_STRATEGIES = frozenset(
     {
         "golden-apple",
+        "golden-apricot",
         "golden-banana",
         "golden-blueberry",
         "golden-cherry",

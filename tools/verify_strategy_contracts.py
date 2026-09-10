@@ -5564,6 +5564,21 @@ def validate_strategy(directory: Path) -> list[Finding]:
         _validate_peach_strategy(findings, strategy, directory)
         return findings
 
+    if strategy == "golden-apricot":
+        for relative, tokens in {
+            "README.md": (
+                "apricot-live-eco-mlb-tick50-hold-v1",
+                "apricot-live-fruit-mlb-tick50-tp99-v1",
+                "resolution",
+            ),
+            "STRATEGY.md": ("50분", "HOME", "AWAY", "0.99", "$5"),
+            "src/polybot/config.py": ("TICK50_JOBS", "mlb_live"),
+            "src/polybot/strategy/scanner.py": ("FIRST_COMMON_TICK_ELAPSED",),
+        }.items():
+            content = _require_file(findings, strategy, directory / relative)
+            _require_tokens(findings, strategy, relative, content, tokens)
+        return findings
+
     if strategy == "golden-plum":
         _validate_plum_strategy(findings, strategy, directory)
         return findings

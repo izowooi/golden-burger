@@ -573,3 +573,10 @@ Quince는 같은 event-window의 BUY execution endpoint, Kiwi는 quote-complete 
 - Kiwi simulation 결과는 실제 fill 또는 live 수익이 아니다. 코드의 live hard block을 우회하지 않는다.
 - live-capable 전략의 private key는 Jenkins credential로만 주입한다. 스크립트
   파일·채팅에 평문 노출 금지. Kiwi simulation에는 credential 자체를 주입하지 않는다.
+
+## 2026-09-10 — Golden Apricot MLB Tick50
+
+`golden-apricot`은 MLB direct HOME/AWAY의 첫 공통 유효 tick 후 50분에 midpoint favorite를
+exact $5 ask FOK로 매수한다. Eco A는 resolution hold, Fruit B는 full-holding bid VWAP 0.99
+조기청산 후 미도달 시 resolution이며 이 exit 하나만 A/B 차이다. 가격 band와 stop은 없다.
+124경기 탐색 후 고정한 small-live cohort이며 200 resolved 경기 전 재튜닝·타 종목 확장을 금지한다.
