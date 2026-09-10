@@ -221,6 +221,7 @@ class SportParameterProfile:
     source_clock_required: bool
     max_sweep_pages: int
     max_in_play_hours: float
+    entry_tick_minute: Optional[float] = None
 
     def canonical_dict(self) -> dict[str, Any]:
         return {
@@ -229,6 +230,7 @@ class SportParameterProfile:
             "expected_market_count": self.expected_market_count,
             "expected_result_kinds": list(self.expected_result_kinds),
             "expected_token_count": self.expected_token_count,
+            "entry_tick_minute": self.entry_tick_minute,
             "max_in_play_hours": self.max_in_play_hours,
             "max_sweep_pages": self.max_sweep_pages,
             "profile_version": self.profile_version,
@@ -277,6 +279,7 @@ SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     source_clock_required=False,
     max_sweep_pages=2,
     max_in_play_hours=SPORT_FAMILY_MAX_IN_PLAY_HOURS["mlb"],
+    entry_tick_minute=50.0,
 )
 
 
@@ -507,6 +510,7 @@ class ApricotEntryConfig:
     prob_min: float = 0.60
     prob_max: float = 0.94
     max_source_minute: float = 10.0
+    entry_tick_minute: Optional[float] = None
     min_leader_margin: float = 0.005
     max_entry_spread: float = 0.05
     exit_basis: str = "absolute_delta"
@@ -644,6 +648,7 @@ def _validate_config(
         "entry.prob_min": entry.prob_min,
         "entry.prob_max": entry.prob_max,
         "entry.max_source_minute": entry.max_source_minute,
+        "entry.entry_tick_minute": entry.entry_tick_minute,
         "entry.min_leader_margin": entry.min_leader_margin,
         "entry.max_entry_spread": entry.max_entry_spread,
         "entry.take_profit_delta": entry.take_profit_delta,
@@ -751,6 +756,9 @@ def _validate_config(
     )
     if (
         entry.max_source_minute != (51 if job_name in TICK50_JOBS else 10)
+        or entry.entry_tick_minute != (
+            profile.entry_tick_minute if job_name in TICK50_JOBS else None
+        )
         or entry.min_leader_margin != 0.005
         or entry.max_entry_spread != 0.05
         or entry.exit_basis != TICK50_JOBS.get(
@@ -916,6 +924,9 @@ def load_config(
             "POLYBOT_MAX_SOURCE_MINUTE",
             None if job_name in TICK50_JOBS else entry_cfg.get("max_source_minute"),
             51.0 if job_name in TICK50_JOBS else 10.0,
+        ),
+        entry_tick_minute=(
+            profile.entry_tick_minute if job_name in TICK50_JOBS else None
         ),
         min_leader_margin=_get_config_value(
             "POLYBOT_MIN_LEADER_MARGIN",

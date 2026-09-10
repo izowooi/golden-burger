@@ -514,7 +514,11 @@ class MarketScanner:
             if (
                 self.config.entry.exit_basis
                 in {"resolution_hold", "tp99_or_resolution"}
-                and source_minute < 50.0 - 1e-9
+                and (
+                    self.config.entry.entry_tick_minute is None
+                    or source_minute
+                    < self.config.entry.entry_tick_minute - 1e-9
+                )
             ):
                 rejected["before_tick50_entry_window"] = rejected.get(
                     "before_tick50_entry_window", 0

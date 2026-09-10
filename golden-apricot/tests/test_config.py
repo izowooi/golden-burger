@@ -13,6 +13,7 @@ def test_tick50_jobs(monkeypatch,job,policy):
  assert t.sport_family=='mlb' and t.book_shape=='direct-two-team-moneyline'
  assert t.expected_result_kinds==('HOME','AWAY') and t.expected_token_count==2
  assert t.entry.exit_basis==policy and t.entry.max_source_minute==51
+ assert t.entry.entry_tick_minute==50
  assert (t.entry.prob_min,t.entry.prob_max)==(.01,.999)
  assert cfg.db_path==Path(f'data/{job}/trades.db')
 
