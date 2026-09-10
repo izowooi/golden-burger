@@ -111,3 +111,6 @@ uv build
 실주문은 Jenkins에서 명시적 `--live`와 기존 credential이 모두 있을 때만 허용한다.
 `POLYBOT_LIFECYCLE_MODE`는 `active`, `close_only`, `archive_only`를 지원한다. 중단·청산은
 [공통 wind-down 절차](../docs/strategy-wind-down-playbook.md)를 따른다.
+Account runner는 `POLYBOT_CLOSE_ONLY_SPORT_FAMILIES=mlb`를 지원한다. 이 값을 쓰면 같은
+Cat/Dog account에서 축구는 active로 유지하고 MLB child만 close-only로 실행해 기존 포지션
+대사를 계속하면서 신규 MLB BUY를 차단한다.

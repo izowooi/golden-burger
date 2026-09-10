@@ -214,6 +214,17 @@ def profile_environment(runtime, inherited):
                POLYBOT_MAX_STOP_SLIPPAGE=str(policy.max_stop_slippage),
                POLYBOT_MAX_STOP_SPREAD=str(policy.max_stop_spread),
                POLYBOT_MAX_STOP_LOSS_FRACTION=str(policy.max_stop_loss_fraction))
+    close_only_families = {
+        value.strip().lower()
+        for value in str(env.get("POLYBOT_CLOSE_ONLY_SPORT_FAMILIES", "")).split(",")
+        if value.strip()
+    }
+    if close_only_families - {"soccer", "mlb", "nfl", "nhl"}:
+        raise ValueError(
+            "POLYBOT_CLOSE_ONLY_SPORT_FAMILIES contains an unsupported family"
+        )
+    if spec.sport_family in close_only_families:
+        env["POLYBOT_LIFECYCLE_MODE"] = "close_only"
     if str(env.get("POLYBOT_TAKE_PROFIT_ENABLED", "false")).lower() in {"true", "1", "yes", "on"}:
         if spec.jenkins_job not in {"polybot-cat", "polybot-dog"}:
             raise ValueError("take-profit account release is Cat/Dog only")

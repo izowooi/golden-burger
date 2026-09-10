@@ -418,3 +418,18 @@ def test_nfl_positions_share_the_same_account_capacity(account):
         with pytest.raises(AccountGuardError) as captured:
             guard.check_buy_budget()
     assert captured.value.evidence['total_reserved'] == 20
+
+
+def test_profile_environment_can_close_only_mlb_without_stopping_soccer():
+    inherited = {
+        "POLYBOT_LIFECYCLE_MODE": "active",
+        "POLYBOT_CLOSE_ONLY_SPORT_FAMILIES": "mlb",
+    }
+    soccer = configs.profile_environment(
+        "watermelon-live-cat-96-1m-v2h", inherited
+    )
+    mlb = configs.profile_environment(
+        "watermelon-live-cat-mlb-96-1m-v4", inherited
+    )
+    assert soccer["POLYBOT_LIFECYCLE_MODE"] == "active"
+    assert mlb["POLYBOT_LIFECYCLE_MODE"] == "close_only"
