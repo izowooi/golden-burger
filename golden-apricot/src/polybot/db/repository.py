@@ -1160,13 +1160,25 @@ class TradeRepository:
     def get_snapshot_by_id(self, snapshot_id: int) -> Optional[MarketSnapshot]:
         return self.session.get(MarketSnapshot, int(snapshot_id))
 
-    def get_event_first_snapshot_at(self, event_id: str) -> Optional[datetime]:
-        """Return the first durable live snapshot anchor for an event."""
-        return (
-            self.session.query(func.min(MarketSnapshot.timestamp))
+    def get_event_first_complete_snapshot_at(
+        self,
+        event_id: str,
+        *,
+        expected_token_count: int,
+    ) -> Optional[datetime]:
+        """Return the first tick containing the event's complete token set."""
+        row = (
+            self.session.query(MarketSnapshot.timestamp)
             .filter(MarketSnapshot.event_id == str(event_id))
-            .scalar()
+            .group_by(MarketSnapshot.timestamp)
+            .having(
+                func.count(func.distinct(MarketSnapshot.token_id))
+                >= int(expected_token_count)
+            )
+            .order_by(MarketSnapshot.timestamp.asc())
+            .first()
         )
+        return row[0] if row is not None else None
 
     def get_market_catalog_by_condition_id(
         self, condition_id: str

@@ -490,7 +490,10 @@ class MarketScanner:
                 "resolution_hold",
                 "tp99_or_resolution",
             }:
-                first_tick = self.repo.get_event_first_snapshot_at(event_id)
+                first_tick = self.repo.get_event_first_complete_snapshot_at(
+                    event_id,
+                    expected_token_count=self.config.expected_token_count,
+                )
                 if first_tick is None:
                     rejected["first_common_tick_missing"] = rejected.get(
                         "first_common_tick_missing", 0
