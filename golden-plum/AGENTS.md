@@ -24,7 +24,7 @@ credential-free simulation/raw 수집기다.
 | `polybot-gold` | `plum-shadow-gold-{nba,nfl,nhl}-1m-v1` | simulation | direct two-book + 반사실 grid |
 
 - 네 job은 1분 cadence를 사용한다.
-- King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$1,000`이며 wallet 입출금과
+- King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금과
   잔고 변동은 이 손익에 넣지 않는다.
 - live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.
 - 수동 wallet position은 봇 DB에 편입하거나 청산하지 않는다.

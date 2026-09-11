@@ -4,7 +4,7 @@
 
 2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
 축구 `.75~.78`, 3회 누적 `+.02`, TP `.90/.95`, SL `-.15` A/B를 유지한다. 두 축구 arm의
-confirmed strategy P&L 손실 한도는 공통 `$1,000`이며 wallet 입출금은 계산에 포함하지 않는다.
+confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금은 계산에 포함하지 않는다.
 
 기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
 MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는

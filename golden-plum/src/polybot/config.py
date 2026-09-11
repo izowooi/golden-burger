@@ -323,7 +323,7 @@ RUNTIME_SPECS = {
         experiment_start_utc=FROZEN_START_UTC,
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
-        drawdown_loss_limit_usdc=1000.0,
+        drawdown_loss_limit_usdc=100.0,
     ),
     "plum-live-queen-95-1m-v1": RuntimeSpec(
         runtime_job="plum-live-queen-95-1m-v1",
@@ -341,7 +341,7 @@ RUNTIME_SPECS = {
         experiment_start_utc=FROZEN_START_UTC,
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
-        drawdown_loss_limit_usdc=1000.0,
+        drawdown_loss_limit_usdc=100.0,
     ),
     "plum-live-king-mlb-90-1m-v1": RuntimeSpec(
         runtime_job="plum-live-king-mlb-90-1m-v1",

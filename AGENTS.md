@@ -75,7 +75,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   통과하는지 종목별로 검정한다. 축구는 HOME/DRAW/AWAY YES·NO 6token이며 King TP 0.90,
   Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
   사용한다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
-  대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$1,000`이고
+  대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$100`이고
   wallet 입출금은 계산에서 제외한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
   moneyline의 credential-free 1분 raw path와 `$5~$1,000` displayed-depth 증액 자료를
   서로 다른 DB에 병렬 수집한다. 비축구 live는 사용자 재승인 전까지 등록하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가

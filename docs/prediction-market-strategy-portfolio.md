@@ -489,7 +489,7 @@ best ask는 근거로 쓰지 않으며 주문 직전에 source clock, 여섯 ful
 시간 강제 청산 없이 TP·SL·검증된 resolution로만 종료한다. 실패는 event-local로 격리하고
 180분 뒤에도 대사할 수 없는 노출은 성공으로 꾸미지 않은 `QUARANTINED`로 보존한다.
 신규 live는 축구만 허용하고 두 축구 arm의 confirmed strategy P&L 손실 한도는 공통
-`$1,000`이다. wallet 입출금은 이 손익에 포함하지 않는다. 기존 King/Queen MLB runtime은
+`$100`이다. wallet 입출금은 이 손익에 포함하지 않는다. 기존 King/Queen MLB runtime은
 close-only이며, NFL 등 비축구 live runtime은 사용자 재승인 전까지 등록하지 않는다.
 `polybot-silver/plum-shadow-silver-1m-v1`은 credential-free raw/simulation 수집기이며
 `$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 근거를 추가 저장한다.

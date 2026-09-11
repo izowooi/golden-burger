@@ -63,7 +63,7 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert entry.force_exit_minute is None
     assert config.trading.scaling_notionals_usdc == ()
     assert config.trading.sport_profile_version == "soccer-full-match-v2"
-    assert config.trading.drawdown_loss_limit_usdc == 1000.0
+    assert config.trading.drawdown_loss_limit_usdc == 100.0
     assert config.trading.book_shape == "direct-six-result-books"
     assert config.trading.expected_token_count == 6
     assert config.trading.source_clock_required is True
@@ -94,7 +94,7 @@ def test_queen_soccer_arm_keeps_the_original_profit_target(monkeypatch) -> None:
     assert config.trading.entry.take_profit_price == 0.95
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.75, .78))
     assert config.trading.entry.stop_loss_delta == 0.15
-    assert config.trading.drawdown_loss_limit_usdc == 1000.0
+    assert config.trading.drawdown_loss_limit_usdc == 100.0
 
 
 def test_silver_is_credential_free_simulation(monkeypatch) -> None:
