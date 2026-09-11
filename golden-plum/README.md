@@ -1,7 +1,7 @@
 # Golden Plum
 
-경기 시작부터 종료까지 직접 결과 호가를 1분마다 관측하고, 유일한 선두가 3회 상승
-확인 뒤 0.75를 처음 통과할 때 추가 상승하는지 검증하는 종목별 전략입니다. 축구는
+경기 시작부터 종료까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
+유일한 midpoint 선두가 `[0.70,0.73]`일 때 한 번의 관측으로 진입하는 전략입니다. 축구는
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접
 표시된 moneyline 2개 호가를 사용합니다.
 
@@ -23,7 +23,7 @@ King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime�
 | `polybot-gold` | `plum-shadow-gold-nba-1m-v1` | credential-free NBA raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-nhl-1m-v1` | credential-free NHL raw/simulation |
 
-공통 entry는 baseline `$5` 기준 `[0.75,0.78]` first crossing, stop은 confirmed entry
+공통 entry는 baseline `$5` 기준 유일한 선두 `[0.70,0.73]`, stop은 confirmed entry
 -0.15입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
 목표 금액을 올리면 같은 fresh book에서 전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한
 FOK 한 건만 제출합니다.

@@ -5,8 +5,9 @@
 
 ## 프로젝트 목적
 
-경기 전체에서 직접 결과 호가의 유일한 선두가 세 번의 1분 관측으로 상승하며 0.75를
-처음 통과할 때 추가 상승하는지 검증한다. **신규 live는 축구만 허용한다.** King/Queen의
+경기 전체에서 직접 결과 여섯 호가의 유일한 midpoint 선두가 현재 exact `$5` VWAP
+`[0.70,0.73]`이면 한 번의 complete six-book 관측으로 진입한다. 이전 교차·다회 누적·
+pullback gate는 사용하지 않는다. **신규 live는 축구만 허용한다.** King/Queen의
 MLB runtime은 기존 노출 대사만 하는 close-only이고, MLB·NBA·NFL·NHL 신규 live runtime은
 사용자의 별도 승인 전까지 등록하지 않는다. Silver는 축구, Gold는 MLB/NBA/NFL/NHL의
 credential-free simulation/raw 수집기다.
@@ -38,10 +39,9 @@ credential-free simulation/raw 수집기다.
 - 축구 live는 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
 - source `live=true`, `ended=false`와 명시적 경기 시계를 요구하며 0분부터 종료까지
   관측한다. source minute 및 wall-clock age 상한은 없다.
-- 같은 token의 최근 3개 snapshot 간격은 각각 90초 이하여야 한다.
-- 누적 상승은 0.02 이상, 인접 pullback은 0.01 이하여야 한다.
-- 직전 exact `$5` ask VWAP은 0.75 미만, 현재 값은 `[0.75, 0.78]`이어야 한다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
+- 그 유일한 선두의 현재 exact `$5` ask VWAP이 `[0.70,0.73]`이어야 한다.
+- 이전 교차, 다회 관측, 누적 상승과 pullback gate는 사용하지 않는다.
 - 공통 SL은 confirmed entry VWAP `-0.15`이며 시간 강제 청산은 없다. TP는 목표가 이상
   bid의 최대 안전 수량을 FOK로 부분 익절할 수 있고, SL은 잔여 전량 FOK만 허용한다.
   TP·SL이 없으면 검증된 resolution까지 유지한다.
@@ -113,7 +113,7 @@ uv run python -m compileall -q src scripts
   실패 run의 snapshot은 포함하지 않는다. terminal evidence는 수집 코드가 바뀐 뒤 관측될 수
   있으므로 observer config가 아니라 exact condition·token과 동일한 sport/profile/protocol/
   classifier/mapping으로 연결한다.
-- Gold 첫 24시간에는 1분 cadence, 50초 deadline, exact 2-token event set, terminal
+- Gold 첫 24시간에는 1분 cadence, 정상 1분 cadence와 예외 90초 deadline, exact 2-token event set, terminal
   follow-up, NULL source minute, capacity JSON과 DB 무결성만 판정한다.
 - 종료된 condition은 Gamma의 exact closed/resolved one-hot 0/1 또는 `0.5/0.5` void를
   token 정렬과 함께 검증한다. Gamma 조회에서 사라지면 Gold/Silver 수집기는 public CLOB의

@@ -1054,17 +1054,7 @@ class MarketScanner:
             )
             leader, runner_up = ranked[0], ranked[1]
             margin = float(leader["midpoint"]) - float(runner_up["midpoint"])
-            if self.config.entry.trend_observations == 1:
-                eligible_prices = [item for item in ranked
-                    if self.config.entry.prob_min - 1e-9 <= item["walk"].vwap <= self.config.entry.prob_max + 1e-9
-                    and item["walk"].spread <= self.config.entry.max_entry_spread + 1e-9]
-                if not eligible_prices:
-                    rejected["no_result_in_price_band"] = rejected.get("no_result_in_price_band", 0) + 1
-                    continue
-                leader = min(eligible_prices, key=lambda item: (item["walk"].vwap, str(item["outcome"]["token_id"])))
-                runner_up = next(item for item in ranked if item is not leader)
-                margin = float(leader["midpoint"]) - float(runner_up["midpoint"])
-            elif margin + 1e-9 < self.config.entry.min_leader_margin:
+            if margin + 1e-9 < self.config.entry.min_leader_margin:
                 rejected["leader_margin_too_small"] = rejected.get(
                     "leader_margin_too_small", 0
                 ) + 1

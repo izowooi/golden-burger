@@ -248,7 +248,7 @@ def test_relative_config_database_is_resolved_against_checkout(
         simulation_mode=True,
         trading=SimpleNamespace(
             external_workspace_path="/Volumes/t7/jenkins/polybot-gold",
-            cycle_hard_deadline_seconds=50.0,
+            cycle_hard_deadline_seconds=90.0,
             cadence_seconds=60,
         ),
     )

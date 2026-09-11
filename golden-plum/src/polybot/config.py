@@ -38,7 +38,7 @@ NHL_SHADOW_START_UTC = "2026-09-03T11:00:00Z"
 NHL_SHADOW_ENTRY_END_UTC = "2026-12-03T11:00:00Z"
 NHL_SHADOW_FOLLOWUP_END_UTC = "2026-12-10T11:00:00Z"
 SOCCER_PREREGISTRATION = (
-    "research/frozen-2026-08-31-full-match-no-time-exit-v2/"
+    "research/frozen-2026-09-11-soccer-single-quote-v10/"
     "PREREGISTRATION.md"
 )
 MLB_PREREGISTRATION = (
@@ -216,9 +216,9 @@ _COMMON_EXPLORATORY_GRID = {
     "primary_prob_max": 0.78,
     "primary_take_profit": 0.95,
     "primary_stop_delta": 0.15,
-    "primary_trend_observations": 3,
-    "primary_trend_min_cumulative_move": 0.02,
-    "primary_trend_max_pullback": 0.01,
+    "primary_trend_observations": 1,
+    "primary_trend_min_cumulative_move": 0.0,
+    "primary_trend_max_pullback": 0.0,
     "primary_trend_max_gap_seconds": 90.0,
     "primary_min_leader_margin": 0.005,
     "primary_max_entry_spread": 0.05,
@@ -231,7 +231,7 @@ _COMMON_EXPLORATORY_GRID = {
 SPORT_PARAMETER_PROFILES = {
     "soccer": SportParameterProfile(
         code="soccer",
-        profile_version="soccer-full-match-v2",
+        profile_version="soccer-single-quote-v10",
         book_shape="direct-six-result-books",
         result_kinds=("HOME", "DRAW", "AWAY"),
         expected_market_count=3,
@@ -255,6 +255,20 @@ SPORT_PARAMETER_PROFILES = {
         for family in ("mlb", "nba", "nfl", "nhl")
     },
 }
+SPORT_PARAMETER_PROFILES["soccer"] = replace(
+    SPORT_PARAMETER_PROFILES["soccer"],
+    primary_prob_min=0.70,
+    primary_prob_max=0.73,
+)
+SPORT_PARAMETER_PROFILES["soccer_full_match_v2_historical"] = replace(
+    SPORT_PARAMETER_PROFILES["soccer"],
+    profile_version="soccer-full-match-v2",
+    primary_prob_min=0.75,
+    primary_prob_max=0.78,
+    primary_trend_observations=3,
+    primary_trend_min_cumulative_move=0.02,
+    primary_trend_max_pullback=0.01,
+)
 _MLB_LIVE_GRID = {
     **_COMMON_EXPLORATORY_GRID,
     "primary_prob_min": 0.55,
@@ -315,7 +329,7 @@ RUNTIME_SPECS = {
         lifecycle_mode="active",
         execution_policy="exact-5-usdc-fok-live",
         take_profit_price=0.90,
-        protocol_id="plum-soccer-full-match-v2",
+        protocol_id="plum-soccer-single-quote-v10",
         preregistration_path=SOCCER_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
@@ -333,7 +347,7 @@ RUNTIME_SPECS = {
         lifecycle_mode="active",
         execution_policy="exact-5-usdc-fok-live",
         take_profit_price=0.95,
-        protocol_id="plum-soccer-full-match-v2",
+        protocol_id="plum-soccer-single-quote-v10",
         preregistration_path=SOCCER_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
@@ -470,6 +484,14 @@ RUNTIME_SPECS = {
         scaling_notionals_usdc=SIMULATION_SCALING_NOTIONALS_USDC,
     ),
 }
+
+# The four accountless Gold collectors run concurrently on one external disk.
+# A transient cold-open can consume more than the former 42-second request
+# boundary, so retain one-minute normal cadence while allowing a 90-second
+# exceptional cycle instead of publishing a false collector failure.
+for _job, _spec in list(RUNTIME_SPECS.items()):
+    if _spec.jenkins_job == "polybot-gold":
+        RUNTIME_SPECS[_job] = replace(_spec, hard_deadline_seconds=90.0)
 
 PRICE_BAND_PREREGISTRATION = "research/frozen-2026-09-06-price-band-v9/PREREGISTRATION.md"
 # Keep existing DB names for outstanding bot-owned positions. New config/source
@@ -745,7 +767,7 @@ def _get_datetime_config_value(
 
 @dataclass(frozen=True)
 class PlumEntryConfig:
-    """Frozen first-cross trend confirmation and exit boundaries."""
+    """Compatibility defaults; registered runtimes use sport profiles."""
 
     # ``prob_min`` is the first upward-crossing threshold. ``prob_max`` is a
     # three-point overshoot cap so a one-minute gap cannot turn a 0.75 entry

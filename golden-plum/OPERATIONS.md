@@ -1,5 +1,13 @@
 # Golden Plum 운영 절차
 
+## 진입 제외 사유 용어
+
+- `fresh_leader_vwap_below_entry_minimum`: 후보 탐색 뒤 주문 직전에 `$5` full-depth 호가를
+  다시 계산했더니 같은 선두의 평균 매수가가 진입 하한보다 낮아져 POST하지 않음.
+- `fresh_leader_vwap_above_entry_maximum`: 같은 재검증 가격이 진입 상한보다 높아 POST하지 않음.
+- `fresh_exact_vwap_left_arm`: 위 하한 이탈을 뜻하던 legacy 이름. `left`는 가격축에서
+  허용구간의 왼쪽이라는 의미이며 A/B arm 이름이 아니다.
+
 ## Jenkins 배치
 
 | Jenkins job | workspace | runtime job | mode | 처치 | cron |
@@ -230,7 +238,8 @@ Console과 동기화된 DB에서 다음을 확인한다.
 - 한 cycle이 다음 분과 겹치지 않고 `.cycle-run.lock` skip이 반복되지 않는다.
 - kickoff부터 Gamma `ended=true` 전까지 HOME/DRAW/AWAY의 직접 YES/NO 여섯 호가가
   저장되고 source minute 또는 누락 사유가 함께 남는다.
-- 같은 token의 최근 3회, 누적 상승 2%p, 회차당 하락 1%p 이하, 최초 0.75 교차가 영속 기록된다.
+- 현재 complete six-book의 유일한 midpoint 선두가 exact `$5` VWAP `[0.70,0.73]`인지
+  기록된다. 이전 교차·다회 누적·pullback gate는 없다.
 - source minute 상한과 80분 강제 청산이 없고, 종료는 TP·SL·검증된 resolution뿐이다.
 - Silver/Gold의 모든 complete snapshot에
   `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000`

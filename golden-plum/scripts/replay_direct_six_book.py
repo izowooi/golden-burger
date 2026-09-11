@@ -943,17 +943,9 @@ def replay_cell(
             ):
                 continue
             ranked = sorted(group, key=lambda item: (-item.midpoint, item.token_id))
-            if observations == 1:
-                eligible_prices = [item for item in group
-                    if entry_threshold - 1e-9 <= item.probability <= entry_threshold + ENTRY_OVERSHOOT + 1e-9
-                    and item.spread <= MAX_ENTRY_SPREAD + 1e-9]
-                if not eligible_prices:
-                    continue
-                candidate = min(eligible_prices, key=lambda item: (item.probability, item.token_id))
-            elif ranked[0].midpoint - ranked[1].midpoint + 1e-9 < MIN_LEADER_MARGIN:
+            if ranked[0].midpoint - ranked[1].midpoint + 1e-9 < MIN_LEADER_MARGIN:
                 continue
-            else:
-                candidate = ranked[0]
+            candidate = ranked[0]
             if candidate.spread > MAX_ENTRY_SPREAD + 1e-9:
                 continue
             if not trend_confirmed(
@@ -1314,7 +1306,7 @@ def database_report(
             terminal_payouts=terminal_payouts)
         price_band_arms[arm] = {
             "entry_threshold": threshold, "target_price": .97,
-            "selection_policy": "cheapest_in_band_then_token_id",
+            "selection_policy": "unique_midpoint_leader_in_band",
             "trades_by_event": [asdict(item) for item in trades],
             "summary": summarize_trades(trades),
             "interpretation": "exploratory displayed-book replay, not actual fills or proof of psychological bias",

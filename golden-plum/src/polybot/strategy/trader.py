@@ -857,19 +857,10 @@ class Trader:
                 ((item.best_bid + item.best_ask) / 2.0, fresh_token, item)
             )
         fresh_ranked.sort(key=lambda item: (-item[0], item[1]))
-        if self.config.entry.trend_observations == 1:
-            eligible_prices = [item for item in fresh_ranked
-                if self.config.entry.prob_min - 1e-9 <= item[2].vwap <= self.config.entry.prob_max + 1e-9
-                and item[2].spread <= self.config.entry.max_entry_spread + 1e-9]
-            if not eligible_prices:
-                return self._reject_entry("fresh_exact_vwap_left_arm")
-            selected = min(eligible_prices, key=lambda item: (item[2].vwap, item[1]))
-            fresh_ranked = [selected] + [item for item in fresh_ranked if item is not selected]
         fresh_margin = fresh_ranked[0][0] - fresh_ranked[1][0]
         if (
             fresh_ranked[0][1] != token_id
-            or (self.config.entry.trend_observations != 1
-                and fresh_margin + 1e-9 < self.config.entry.min_leader_margin)
+            or fresh_margin + 1e-9 < self.config.entry.min_leader_margin
         ):
             logger.info(
                 "fresh direct-book leader changed - expected=%s actual=%s margin=%.6f",
@@ -881,19 +872,26 @@ class Trader:
         baseline_walk = fresh_ranked[0][2]
         if baseline_walk.spread > self.config.entry.max_entry_spread + 1e-9:
             return self._reject_entry("fresh_leader_spread_too_wide")
-        if not (
-            self.config.entry.prob_min - 1e-9
-            <= baseline_walk.vwap
-            <= self.config.entry.prob_max + 1e-9
-        ):
+        if baseline_walk.vwap < self.config.entry.prob_min - 1e-9:
             logger.info(
-                "fresh exact VWAP left arm band - condition=%s vwap=%.4f band=%.3f-%.3f",
+                "fresh leader VWAP below entry minimum - condition=%s "
+                "vwap=%.4f band=%.3f-%.3f",
                 condition_id,
                 baseline_walk.vwap,
                 self.config.entry.prob_min,
                 self.config.entry.prob_max,
             )
-            return self._reject_entry("fresh_exact_vwap_left_arm")
+            return self._reject_entry("fresh_leader_vwap_below_entry_minimum")
+        if baseline_walk.vwap > self.config.entry.prob_max + 1e-9:
+            logger.info(
+                "fresh leader VWAP above entry maximum - condition=%s "
+                "vwap=%.4f band=%.3f-%.3f",
+                condition_id,
+                baseline_walk.vwap,
+                self.config.entry.prob_min,
+                self.config.entry.prob_max,
+            )
+            return self._reject_entry("fresh_leader_vwap_above_entry_maximum")
         book_json = self.clob.get_cached_book_evidence(token_id)
         if not book_json:
             return self._reject_entry("fresh_direct_book_evidence_missing")

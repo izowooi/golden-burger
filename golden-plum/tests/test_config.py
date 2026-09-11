@@ -50,19 +50,19 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.simulation_mode is False
     assert config.db_path == Path("data/plum-live-king-90-1m-v1/trades.db")
     entry = config.trading.entry
-    assert (entry.prob_min, entry.prob_max) == (0.75, 0.78)
+    assert (entry.prob_min, entry.prob_max) == (0.70, 0.73)
     assert entry.take_profit_price == 0.90
     assert entry.stop_loss_delta == 0.15
     assert entry.min_source_minute == 0
     assert entry.max_source_minute is None
     assert entry.hours_max is None
-    assert entry.trend_observations == 3
-    assert entry.trend_min_cumulative_move == 0.02
-    assert entry.trend_max_pullback == 0.01
+    assert entry.trend_observations == 1
+    assert entry.trend_min_cumulative_move == 0.0
+    assert entry.trend_max_pullback == 0.0
     assert entry.trend_max_gap_seconds == 90
     assert entry.force_exit_minute is None
     assert config.trading.scaling_notionals_usdc == ()
-    assert config.trading.sport_profile_version == "soccer-full-match-v2"
+    assert config.trading.sport_profile_version == "soccer-single-quote-v10"
     assert config.trading.drawdown_loss_limit_usdc == 100.0
     assert config.trading.book_shape == "direct-six-result-books"
     assert config.trading.expected_token_count == 6
@@ -92,7 +92,7 @@ def test_queen_soccer_arm_keeps_the_original_profit_target(monkeypatch) -> None:
         "config.yaml", "plum-live-queen-95-1m-v1", simulation_mode=False
     )
     assert config.trading.entry.take_profit_price == 0.95
-    assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.75, .78))
+    assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.70, .73))
     assert config.trading.entry.stop_loss_delta == 0.15
     assert config.trading.drawdown_loss_limit_usdc == 100.0
 
@@ -133,7 +133,7 @@ def test_gold_is_credential_free_mlb_collection_with_scaling_grid(
         "credential-free-displayed-book-simulation"
     )
     assert trading.cadence_seconds == 60
-    assert trading.cycle_hard_deadline_seconds == 50.0
+    assert trading.cycle_hard_deadline_seconds == 90.0
     assert trading.external_workspace_path == (
         "/Volumes/t7/jenkins/polybot-gold"
     )
@@ -176,7 +176,7 @@ def test_gold_us_major_collectors_are_credential_free_and_independent(
     assert trading.expected_token_count == 2
     assert trading.source_clock_required is False
     assert trading.cadence_seconds == 60
-    assert trading.cycle_hard_deadline_seconds == 50.0
+    assert trading.cycle_hard_deadline_seconds == 90.0
     assert trading.external_workspace_path == "/Volumes/t7/jenkins/polybot-gold"
     assert trading.scaling_notionals_usdc == SIMULATION_SCALING_NOTIONALS_USDC
     assert trading.experiment_start_utc == US_MAJOR_START_UTC

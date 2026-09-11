@@ -199,7 +199,7 @@ async function selectMatch(id) {
   $("matchMeta").textContent =
     `${time(m.start)} – ${time(m.end)} KST · ${s.jenkins_job} · ${m.token_count}/${m.expected_token_count}개 결과 · DB 동기화 ${s.synced_at ? time(Date.parse(s.synced_at) / 1000) : "미상"} KST`;
   $("coverage").textContent =
-    `${m.point_count.toLocaleString()}개 관측 · 90초 이상 공백 ${m.gap_count}개 · 실패·불완전·식별/잔량 부족 ${m.invalid_count}개. 공백과 실패 구간은 연결하지 않습니다.`;
+    `${m.point_count.toLocaleString()}개 관측 · 90초 이상 공백 ${m.gap_count}개 · 실패·불완전·식별/잔량 부족 ${m.invalid_count}개. 5분 미만의 짧은 누락은 선으로 보간하고 긴 공백과 실패 구간은 끊어 표시합니다.`;
   $("provenance").textContent = JSON.stringify(
     {
       source: s,
@@ -393,7 +393,7 @@ function draw() {
       previous = null;
     for (const p of points.filter((p) => p[1] === ti)) {
       const v = p[metric];
-      if (v == null || p[8] & 8 || (p[8] & 1 && !$("showFailed").checked)) {
+      if (v == null || (p[8] & 1 && !$("showFailed").checked)) {
         previous = null;
         continue;
       }
@@ -403,7 +403,7 @@ function draw() {
         previous &&
         !(p[8] & 1) &&
         !(previous[8] & 1) &&
-        p[0] - previous[0] < 90 &&
+        p[0] - previous[0] < 300 &&
         !failedBetween;
       path += `${connected ? "L" : "M"}${x(p[0]).toFixed(2)},${y(v).toFixed(2)} `;
       if (!connected)
@@ -613,7 +613,20 @@ async function build() {
 }
 window.addEventListener("resize", draw);
 $("search").oninput = renderMatches;
-$("sourceFilter").onchange = renderMatches;
+$("sourceFilter").onchange = () => {
+  const source = $("sourceFilter").value;
+  const available = state.index.matches.filter(
+    (m) => !source || m.source_id === source,
+  );
+  if (available.length && !available.some((m) => m.sport === state.sport))
+    state.sport = available[0].sport;
+  state.match = null;
+  $("detail").hidden = true;
+  $("empty").hidden = false;
+  renderIndex();
+  const first = available.find((m) => m.sport === state.sport);
+  if (first) selectMatch(first.id).catch(error);
+};
 $("metric").onchange = draw;
 $("showFailed").onchange = draw;
 $("sBasis").onchange = drawS;

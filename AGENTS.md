@@ -70,9 +70,10 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   moneyline을 서로 다른 DB에 병렬 적재하며, 네 비축구 profile은 native clock과 종목별
   parameter 검증 전까지 live를 금지한다. SELL 실패는 event-local이며 180분 뒤 성공 체결로
   꾸미지 않고 경제적 open 상태의 `QUARANTINED`로 격리한다.
-- `golden-plum/`: **Sport-Profiled Full-Game Confirmation** — 경기 시작부터 종료까지 직접 결과
-  호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을 처음
-  통과하는지 종목별로 검정한다. 축구는 HOME/DRAW/AWAY YES·NO 6token이며 King TP 0.90,
+- `golden-plum/`: **Sport-Profiled Full-Game Confirmation** — 경기 시작부터 종료까지 축구
+  HOME/DRAW/AWAY YES·NO 6token을 관측하고, 현재 complete book의 유일한 midpoint 선두가
+  exact `$5` VWAP `[0.70,0.73]`이면 한 번의 관측으로 진입한다. 이전 교차·다회 누적·
+  pullback gate는 없다. King TP 0.90,
   Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
   사용한다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
   대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$100`이고

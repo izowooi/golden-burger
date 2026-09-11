@@ -98,7 +98,10 @@ class PolymarketBot:
         trading = self.config.trading
         entry = trading.entry
         if entry.trend_observations == 1:
-            logger.info("PRICE_BAND_ONLY: 상승 지속·되돌림·누적 상승·이전 교차 조건 없음; 현재 구간 내 최저 VWAP 결과 선택")
+            logger.info(
+                "SINGLE_QUOTE_LEADER: 이전 교차·누적 상승·pullback 조건 없음; "
+                "현재 complete book의 유일한 midpoint 선두만 선택"
+            )
         archive = trading.archive
         source_max = (
             "match_end"

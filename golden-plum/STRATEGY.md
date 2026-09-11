@@ -3,12 +3,16 @@
 ## 현재 live 정책: 축구 전용
 
 2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
-축구 `.75~.78`, 3회 누적 `+.02`, TP `.90/.95`, SL `-.15` A/B를 유지한다. 두 축구 arm의
+축구의 현재 유일한 midpoint 선두가 `.70~.73`이면 한 번의 complete six-book 관측으로
+진입한다. 이전 교차·3회 누적·pullback 조건은 제거했다. TP `.90/.95`, SL `-.15` A/B와
+exact `$5`는 유지한다. 두 축구 arm의
 confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금은 계산에 포함하지 않는다.
 
 기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
 MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
 신규 live runtime을 등록하거나 배포하지 않는다.
+
+근거는 `research/frozen-2026-09-11-soccer-single-quote-v10/PREREGISTRATION.md`다.
 
 ## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
 
@@ -139,11 +143,9 @@ live는 허용하지 않는다.
 1. current event의 완전한 direct book set을 같은 cycle에서 읽는다(축구 6, direct sport 2).
 2. 각 token의 baseline exact `$5` ask VWAP snapshot을 token ID별로 저장한다.
 3. current midpoint의 유일한 선두와 2위 margin이 0.005 이상인지 확인한다.
-4. 선두 token의 최근 3개 snapshot이 각각 90초 이내인지 확인한다.
-5. 세 가격의 누적 상승이 0.02 이상이고 인접 하락이 각각 0.01 이하인지 확인한다.
-6. 두 번째 가격이 0.75 미만이고 current exact ask VWAP이 `[0.75,0.78]`이면 첫
-   상향 교차로 인정한다.
-7. POST 직전에 explicit live 상태, 필요한 경우 source clock, 완전한 fresh book set,
+4. 선두 token의 current exact ask VWAP이 `[0.70,0.73]`인지 확인한다. 이전 snapshot,
+   상향 교차, 누적 상승과 pullback은 요구하지 않는다.
+5. POST 직전에 explicit live 상태, 필요한 경우 source clock, 완전한 fresh book set,
    선두 identity, spread, exact VWAP을 다시 읽는다. 목표가 `$5`보다 크면 같은 book에서 가격
    상한 안에 전량 체결 가능한 가장 큰 사다리 금액을 선택해 FOK BUY 한 건을 낸다.
 

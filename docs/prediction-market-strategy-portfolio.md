@@ -478,9 +478,9 @@ build와 연속 두 자연 1분 build가 모두 성공했고 자연 build는 4.6
 ### golden-plum — Sport-Profiled Full-Game Confirmation
 
 경기 시작부터 Gamma가 종료를 명시할 때까지 검정한다. source minute와 wall-clock age의
-상한은 없다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 유일한 선두가 같은
-token으로 최근 3회의 1분 관측에서 누적 +2%p 이상 상승하고 회차당 하락이 1%p 이하일 때,
-exact `$5` ask VWAP이 `[0.75,0.78]`을 처음 통과해야만 FOK BUY한다. 예정 kickoff·합성 NO·단일
+상한은 없다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 현재 유일한 midpoint
+선두의 exact `$5` ask VWAP이 `[0.70,0.73]`이면 한 번의 complete six-book 관측으로 FOK
+BUY한다. 이전 교차·다회 누적 상승·pullback gate는 없다. 예정 kickoff·합성 NO·단일
 best ask는 근거로 쓰지 않으며 주문 직전에 source clock, 여섯 full-depth book, 선두 identity와
 진입가를 다시 확인한다.
 

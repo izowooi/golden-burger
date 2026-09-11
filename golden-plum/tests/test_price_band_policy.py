@@ -30,7 +30,7 @@ def test_first_quote_does_not_require_history_rise_or_crossing():
     assert evaluate_trend_confirmation([row], current_snapshot_id=1, config=config)[0] is None
 
 
-def test_scanner_selects_in_band_result_not_highest_of_six(tmp_path):
+def test_scanner_does_not_buy_a_non_leader_merely_because_it_is_in_band(tmp_path):
     markets = _triad()
     walks = _walks(.95)
     walks['yes-HOME'] = _walk('yes-HOME', .61)
@@ -40,12 +40,27 @@ def test_scanner_selects_in_band_result_not_highest_of_six(tmp_path):
     gamma.set_sweep(1, NOW)
     scanner.save_market_snapshots(markets, now=NOW)
     candidates = scanner.scan_buy_candidates(markets, now=NOW)
-    assert len(candidates) == 1 and candidates[0]['token_id'] == 'yes-HOME'
-    assert len(candidates[0]['event_token_ids']) == 6
-    assert len(candidates[0]['trend_snapshot_ids']) == 1
+    assert candidates == []
     # Existing run index bounds the UPDATE; no full historical book scan.
     plan = session.execute(text("EXPLAIN QUERY PLAN UPDATE market_snapshots SET event_set_complete=1 WHERE event_cycle_id='fixture' AND run_id='fixture'")).all()
     assert any('INDEX' in str(row) and 'run' in str(row) for row in plan)
+    session.close()
+
+
+def test_scanner_accepts_the_unique_current_leader_with_one_observation(tmp_path):
+    markets = _triad()
+    walks = _walks(.72)
+    session, _repo, scanner, gamma, _clob = _scanner(tmp_path, markets, walks)
+    scanner.config = replace(
+        scanner.config,
+        entry=replace(price_config().entry, prob_min=.70, prob_max=.73),
+    )
+    gamma.set_sweep(1, NOW)
+    scanner.save_market_snapshots(markets, now=NOW)
+    candidates = scanner.scan_buy_candidates(markets, now=NOW)
+    assert len(candidates) == 1
+    assert candidates[0]['token_id'] == 'no-AWAY'
+    assert len(candidates[0]['trend_snapshot_ids']) == 1
     session.close()
 
 

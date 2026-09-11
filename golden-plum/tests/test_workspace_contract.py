@@ -29,7 +29,9 @@ def test_workspace_specs_match_atomic_runtime_registry() -> None:
             runtime_spec = RUNTIME_SPECS[runtime_job]
             assert runtime_spec.jenkins_job == job
             assert runtime_spec.simulation_mode is True
-            assert runtime_spec.hard_deadline_seconds == 50.0
+            assert runtime_spec.hard_deadline_seconds == (
+                90.0 if job == "polybot-gold" else 50.0
+            )
             assert runtime_spec.cadence_seconds == 60
             assert runtime_spec.external_workspace_path == str(
                 workspace_spec.workspace

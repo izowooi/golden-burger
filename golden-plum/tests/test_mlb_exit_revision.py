@@ -14,7 +14,7 @@ def test_mlb_exit_revision_does_not_rewrite_soccer_or_old_trade_thresholds(monke
     queen=load_config('config.yaml','plum-live-queen-95-1m-v1',simulation_mode=False)
     for cfg,target in [(king,.90),(queen,.95)]:
         e=cfg.trading.entry
-        assert (e.prob_min,e.prob_max,e.trend_observations,e.stop_loss_delta,e.take_profit_price)==pytest.approx((.75,.78,3,.15,target))
+        assert (e.prob_min,e.prob_max,e.trend_observations,e.stop_loss_delta,e.take_profit_price)==pytest.approx((.70,.73,1,.15,target))
         assert cfg.trading.drawdown_guard_enabled is True
         assert cfg.trading.drawdown_loss_limit_usdc == 100
     mlb=load_config('config.yaml','plum-live-king-mlb-90-1m-v1',simulation_mode=False)
