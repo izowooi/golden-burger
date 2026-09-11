@@ -587,14 +587,31 @@ class Trader:
             )
             return self._reject_entry("in_play_window_revalidation_failed")
         market = self._cycle_markets.get(condition_id)
-        source_minute, source_clock_reason = (
-            get_source_progress(get_event(market), self.config.sport_family, now=now)
-            if isinstance(market, dict)
-            else (None, "CURRENT_CYCLE_MARKET_MISSING")
-        )
+        entry_tick_minute = self.config.entry.entry_tick_minute
+        if entry_tick_minute is not None:
+            first_tick = self.repo.get_event_first_complete_snapshot_at(
+                event_id,
+                expected_token_count=self.config.expected_token_count,
+            )
+            if first_tick is not None and first_tick.tzinfo is None:
+                first_tick = first_tick.replace(tzinfo=timezone.utc)
+            source_minute = (
+                (now - first_tick).total_seconds() / 60.0
+                if first_tick is not None
+                else None
+            )
+            source_clock_reason = "FIRST_COMMON_TICK_ELAPSED_REVALIDATION"
+        else:
+            source_minute, source_clock_reason = (
+                get_source_progress(
+                    get_event(market), self.config.sport_family, now=now
+                )
+                if isinstance(market, dict)
+                else (None, "CURRENT_CYCLE_MARKET_MISSING")
+            )
         if (
             source_minute is None
-            or source_minute < 0
+            or source_minute < (entry_tick_minute or 0.0) - 1e-9
             or source_minute > self.config.entry.max_source_minute + 1e-9
         ):
             logger.info(

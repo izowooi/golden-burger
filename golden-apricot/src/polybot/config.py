@@ -755,7 +755,7 @@ def _validate_config(
         else DIRECT_LATE_SENTINEL_MINUTE
     )
     if (
-        entry.max_source_minute != (51 if job_name in TICK50_JOBS else 10)
+        entry.max_source_minute != (52 if job_name in TICK50_JOBS else 10)
         or entry.entry_tick_minute != (
             profile.entry_tick_minute if job_name in TICK50_JOBS else None
         )
@@ -923,7 +923,7 @@ def load_config(
         max_source_minute=_get_config_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
             None if job_name in TICK50_JOBS else entry_cfg.get("max_source_minute"),
-            51.0 if job_name in TICK50_JOBS else 10.0,
+            52.0 if job_name in TICK50_JOBS else 10.0,
         ),
         entry_tick_minute=(
             profile.entry_tick_minute if job_name in TICK50_JOBS else None

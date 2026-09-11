@@ -62,6 +62,12 @@ class _Repo:
     def get_event_position_count(self, _event_id):
         return 0
 
+    def get_event_first_complete_snapshot_at(
+        self, _event_id, *, expected_token_count
+    ):
+        assert expected_token_count > 0
+        return NOW - timedelta(minutes=50, seconds=30)
+
     def create_trade(self, **values):
         episode_id = values.pop("entry_episode_id", None)
         self.created.append(values)
@@ -391,6 +397,37 @@ def test_buy_revalidates_exact_five_and_submits_fok(monkeypatch) -> None:
         (3, "SUBMISSION_IN_PROGRESS", "fresh_book_validated_before_submission_wrapper")
     ]
     assert trader.last_entry_may_have_reached_venue is True
+
+
+def test_tick50_buy_revalidates_against_the_same_first_common_tick(
+    monkeypatch,
+) -> None:
+    monkeypatch.setattr(trader_module, "datetime", _FixedDatetime)
+    repo, clob = _Repo(), _Clob(vwap=0.80, best_bid=0.79, best_ask=0.80)
+    config = TradingConfig(
+        sport_family="mlb",
+        expected_result_kinds=("HOME", "AWAY"),
+        expected_market_count=1,
+        expected_token_count=2,
+        entry=ApricotEntryConfig(
+            prob_min=0.01,
+            prob_max=0.999,
+            max_source_minute=52,
+            entry_tick_minute=50,
+            exit_basis="resolution_hold",
+            hours_max=8,
+        ),
+    )
+    trader = Trader(repo, clob, config, simulation_mode=False)
+    _set_kickoff_cycle(trader)
+    candidate = {
+        **_candidate(),
+        "event_token_ids": ["home-yes-token", "away-yes-token"],
+    }
+
+    assert trader.execute_buy(candidate) == 7
+    assert len(clob.orders) == 1
+    assert clob.orders[0]["token_id"] == "away-yes-token"
 
 
 def test_buy_refuses_any_prior_event_trade(monkeypatch) -> None:
