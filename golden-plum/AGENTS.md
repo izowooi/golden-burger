@@ -37,14 +37,15 @@ credential-free simulation/raw 수집기다.
 ## 핵심 전략 계약
 
 - 축구 live는 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
-- source `live=true`, `ended=false`와 명시적 경기 시계를 요구하며 0분부터 종료까지
-  관측한다. source minute 및 wall-clock age 상한은 없다.
+- source `live=true`, `ended=false`와 명시적 경기 시계를 요구한다. 신규 진입은 source
+  minute 75 미만만 허용하고, 보유 포지션은 75분 이후 첫 전량 bid에서 FOK 청산한다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
 - 그 유일한 선두의 현재 exact `$5` ask VWAP이 `[0.70,0.73]`이어야 한다.
 - 이전 교차, 다회 관측, 누적 상승과 pullback gate는 사용하지 않는다.
-- 공통 SL은 confirmed entry VWAP `-0.15`이며 시간 강제 청산은 없다. TP는 목표가 이상
+- 공통 SL은 confirmed entry VWAP `-0.15`이다. TP는 목표가 이상
   bid의 최대 안전 수량을 FOK로 부분 익절할 수 있고, SL은 잔여 전량 FOK만 허용한다.
-  TP·SL이 없으면 검증된 resolution까지 유지한다.
+  75분 time exit은 잔여 전량 FOK이며 청산 뒤 같은 event에 재진입하지 않는다. 75분 전에
+  TP·SL이 없고 time exit도 실행되지 못한 경우에만 검증된 resolution까지 유지한다.
 - MLB Gold는 exact MLB identity의 whole-game two-team moneyline만 사용하며 inning·prop·
   spread·total·minor league를 제외한다. 이닝을 가짜 축구 minute로 바꾸지 않고 NULL과
   명시적 누락 사유를 저장한다.

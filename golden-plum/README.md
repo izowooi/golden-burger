@@ -1,6 +1,6 @@
 # Golden Plum
 
-경기 시작부터 종료까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
+경기 시작부터 source 75분 전까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
 유일한 midpoint 선두가 `[0.70,0.73]`일 때 한 번의 관측으로 진입하는 전략입니다. 축구는
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접
 표시된 moneyline 2개 호가를 사용합니다.
@@ -27,7 +27,8 @@ King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime�
 -0.15입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
 목표 금액을 올리면 같은 fresh book에서 전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한
 FOK 한 건만 제출합니다.
-시간 강제 청산은 없고 익절·손절·검증된 resolution로만 종료합니다. live와 shadow 모두
+보유 포지션은 75분 이후 첫 전량 bid에서 FOK로 청산하고 같은 event에 재진입하지 않습니다.
+그 전에는 익절·손절을 적용하며 실행 가능한 time exit가 없을 때만 resolution까지 갑니다. live와 shadow 모두
 direct six-book을 저장하며 합성 NO를 사용하지 않습니다. Silver와 Gold는 추가로
 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` displayed-depth 증액
 자료를 저장합니다.

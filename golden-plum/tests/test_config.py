@@ -54,13 +54,13 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert entry.take_profit_price == 0.90
     assert entry.stop_loss_delta == 0.15
     assert entry.min_source_minute == 0
-    assert entry.max_source_minute is None
+    assert entry.max_source_minute == 75
     assert entry.hours_max is None
     assert entry.trend_observations == 1
     assert entry.trend_min_cumulative_move == 0.0
     assert entry.trend_max_pullback == 0.0
     assert entry.trend_max_gap_seconds == 90
-    assert entry.force_exit_minute is None
+    assert entry.force_exit_minute == 75
     assert config.trading.scaling_notionals_usdc == ()
     assert config.trading.sport_profile_version == "soccer-single-quote-v10"
     assert config.trading.drawdown_loss_limit_usdc == 100.0
@@ -311,7 +311,7 @@ def test_live_jobs_cannot_switch_to_a_direct_sport(monkeypatch) -> None:
         ("POLYBOT_ENTRY_PROB_MIN", "0.74", "first-cross"),
         ("POLYBOT_ENTRY_PROB_MAX", "0.79", "first-cross"),
         ("POLYBOT_MIN_SOURCE_MINUTE", "1", "full-match"),
-        ("POLYBOT_MAX_SOURCE_MINUTE", "75", "full-match"),
+        ("POLYBOT_MAX_SOURCE_MINUTE", "74", "full-match"),
         ("POLYBOT_TREND_OBSERVATIONS", "2", "full-match"),
         ("POLYBOT_TREND_MIN_CUMULATIVE_MOVE", "0.01", "full-match"),
         ("POLYBOT_TREND_MAX_PULLBACK", "0.02", "full-match"),

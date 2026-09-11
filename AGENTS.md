@@ -74,13 +74,17 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   HOME/DRAW/AWAY YES·NO 6token을 관측하고, 현재 complete book의 유일한 midpoint 선두가
   exact `$5` VWAP `[0.70,0.73]`이면 한 번의 관측으로 진입한다. 이전 교차·다회 누적·
   pullback gate는 없다. King TP 0.90,
-  Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
-  사용한다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
+  Queen 0.95의 exact `$5` live A/B다. 신규 진입은 source 75분 미만이며 남은 포지션은
+  75분 이후 첫 전량 FOK bid로 청산한다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
   대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$100`이고
   wallet 입출금은 계산에서 제외한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
   moneyline의 credential-free 1분 raw path와 `$5~$1,000` displayed-depth 증액 자료를
   서로 다른 DB에 병렬 수집한다. 비축구 live는 사용자 재승인 전까지 등록하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
+- `golden-apricot/`: **MLB Tick50 Favorite** — 첫 완전 HOME/AWAY 공통 tick 후 `[50,52]`분에
+  midpoint favorite를 baseline `$5` book으로 판정하고 MLB에만 `$10` FOK로 진입한다.
+  Eco는 full-holding TP `.98`, Fruit는 `.99`이며 미도달 시 resolution까지 보유한다. 다른
+  종목 runtime과 stop/time exit는 등록하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
 - `golden-quince/`: **Spread Harvest** — 방향성 예측을 포기하고 **실행 측면(maker/taker)**

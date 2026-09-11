@@ -496,7 +496,7 @@ class Trader:
         return take_profit, stop_trigger, source_minute
 
     def _exit_signal(self, trade, walk) -> tuple[Optional[str], float, Optional[float]]:
-        """Evaluate legacy full-position TP and drawdown stop with no time exit."""
+        """Evaluate full-position TP, drawdown stop, and registered time exit."""
 
         take_profit, stop_trigger, source_minute = self._exit_thresholds(trade)
         if take_profit is None or stop_trigger is None:
@@ -506,6 +506,15 @@ class Trader:
             return "take_profit", take_profit, source_minute
         if float(walk.best_bid) <= stop_trigger + 1e-9:
             return "absolute_stop", stop_trigger, source_minute
+        force_exit = getattr(trade, "force_exit_minute_at_buy", None)
+        if force_exit is None:
+            force_exit = self.config.entry.force_exit_minute
+        if (
+            force_exit is not None
+            and source_minute is not None
+            and source_minute + 1e-9 >= float(force_exit)
+        ):
+            return "time_exit", float(walk.vwap), source_minute
         return None, stop_trigger, source_minute
 
     def _exit_plan_from_book_evidence(
@@ -522,6 +531,14 @@ class Trader:
         summary = summarize_sell_book_evidence(book_json)
         if summary.token_id != str(trade.token_id):
             raise ValueError("exit book token does not match holding")
+        force_exit = getattr(trade, "force_exit_minute_at_buy", None)
+        if force_exit is None:
+            force_exit = self.config.entry.force_exit_minute
+        time_exit_due = (
+            force_exit is not None
+            and source_minute is not None
+            and source_minute + 1e-9 >= float(force_exit)
+        )
 
         try:
             selection: AdaptiveProfitSellSelection = (
@@ -534,7 +551,7 @@ class Trader:
             )
         except ClobResponseUnavailableError:
             selection = None
-        if selection is not None:
+        if selection is not None and not time_exit_due:
             remaining_shares = max(
                 0.0,
                 float(trade.buy_shares) - selection.selected_shares,
@@ -566,10 +583,17 @@ class Trader:
                 shares=sellable_shares,
             )
         except ClobResponseUnavailableError:
-            if summary.best_bid <= stop_trigger + 1e-9:
+            if summary.best_bid <= stop_trigger + 1e-9 or time_exit_due:
+                signal = (
+                    "absolute_stop"
+                    if summary.best_bid <= stop_trigger + 1e-9
+                    else "time_exit"
+                )
                 return _ExitPlan(
-                    signal="absolute_stop",
-                    trigger_price=stop_trigger,
+                    signal=signal,
+                    trigger_price=(
+                        stop_trigger if signal == "absolute_stop" else summary.best_bid
+                    ),
                     source_minute=source_minute,
                     walk=None,
                     book_json=book_json,
@@ -581,7 +605,11 @@ class Trader:
                     max_executable_notional_usdc=(
                         summary.displayed_bid_notional_usdc
                     ),
-                    fallback_reason="FULL_STOP_DISPLAYED_DEPTH_UNAVAILABLE",
+                    fallback_reason=(
+                        "FULL_STOP_DISPLAYED_DEPTH_UNAVAILABLE"
+                        if signal == "absolute_stop"
+                        else "FULL_TIME_EXIT_DISPLAYED_DEPTH_UNAVAILABLE"
+                    ),
                     full_position_required=True,
                     best_bid=summary.best_bid,
                     best_ask=summary.best_ask,
@@ -589,15 +617,22 @@ class Trader:
                 )
             return None
 
-        if full_walk.best_bid > stop_trigger + 1e-9:
+        if full_walk.best_bid > stop_trigger + 1e-9 and not time_exit_due:
             return None
+        signal = (
+            "absolute_stop"
+            if full_walk.best_bid <= stop_trigger + 1e-9
+            else "time_exit"
+        )
         remaining_shares = max(
             0.0,
             float(trade.buy_shares) - full_walk.shares,
         )
         return _ExitPlan(
-            signal="absolute_stop",
-            trigger_price=stop_trigger,
+            signal=signal,
+            trigger_price=(
+                stop_trigger if signal == "absolute_stop" else full_walk.vwap
+            ),
             source_minute=source_minute,
             walk=full_walk,
             book_json=book_json,
@@ -607,7 +642,11 @@ class Trader:
             max_executable_shares=full_walk.shares,
             selected_notional_usdc=full_walk.proceeds,
             max_executable_notional_usdc=full_walk.proceeds,
-            fallback_reason="FULL_POSITION_STOP_REQUIRED",
+            fallback_reason=(
+                "FULL_POSITION_STOP_REQUIRED"
+                if signal == "absolute_stop"
+                else "FULL_POSITION_TIME_EXIT_REQUIRED"
+            ),
             full_position_required=True,
             best_bid=summary.best_bid,
             best_ask=summary.best_ask,
@@ -634,11 +673,11 @@ class Trader:
             selected_notional_usdc=float(walk.proceeds),
             max_executable_notional_usdc=float(walk.proceeds),
             fallback_reason=(
-                "FULL_POSITION_STOP_REQUIRED"
-                if exit_signal == "absolute_stop"
+                "FULL_POSITION_EXIT_REQUIRED"
+                if exit_signal in {"absolute_stop", "time_exit"}
                 else "FULL_POSITION_PROFITABLY_EXECUTABLE"
             ),
-            full_position_required=exit_signal == "absolute_stop",
+            full_position_required=exit_signal in {"absolute_stop", "time_exit"},
             best_bid=float(walk.best_bid),
             best_ask=walk.best_ask,
             spread=walk.spread,
@@ -1066,7 +1105,7 @@ class Trader:
             take_profit_price_at_buy=self.config.entry.take_profit_price,
             stop_loss_delta_at_buy=self.config.entry.stop_loss_delta,
             late_exit_minute_at_buy=None,
-            force_exit_minute_at_buy=None,
+            force_exit_minute_at_buy=self.config.entry.force_exit_minute,
             trend_start_snapshot_id=execution_trend.snapshot_ids[0],
             trend_middle_snapshot_id=execution_trend.snapshot_ids[max(0, len(execution_trend.snapshot_ids) - 2)],
             trend_observations=len(execution_trend.snapshot_ids),
@@ -1308,7 +1347,7 @@ class Trader:
                 take_profit_price_at_buy=self.config.entry.take_profit_price,
                 stop_loss_delta_at_buy=self.config.entry.stop_loss_delta,
                 late_exit_minute_at_buy=None,
-                force_exit_minute_at_buy=None,
+                force_exit_minute_at_buy=self.config.entry.force_exit_minute,
                 trend_start_snapshot_id=episode.trend_start_snapshot_id,
                 trend_middle_snapshot_id=episode.trend_middle_snapshot_id,
                 trend_observations=episode.trend_observations,
@@ -2382,7 +2421,7 @@ class Trader:
         exit_base = next(
             (
                 value
-                for value in ("take_profit", "absolute_stop", "minute_80_exit")
+                for value in ("take_profit", "absolute_stop", "time_exit", "minute_80_exit")
                 if pending_reason.startswith(value)
             ),
             "absolute_stop",
@@ -2687,7 +2726,7 @@ class Trader:
             self._stop_execution_price_is_safe(
                 trade, walk, plan.trigger_price
             )
-            if plan.signal == "absolute_stop"
+            if plan.signal in {"absolute_stop", "time_exit"}
             else self._profit_execution_price_is_safe(
                 walk, plan.trigger_price
             )

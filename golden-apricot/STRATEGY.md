@@ -3,8 +3,8 @@
 첫 HOME/AWAY 공통 유효 틱부터 50분 뒤 MLB direct two-team moneyline의 midpoint favorite를
 baseline exact `$5` book으로 후보를 판정하고, 같은 fresh book에서 목표 `$10` 전량이
 가능하면 `$10` FOK로 한 번 매수한다. `$10`이 불가능하면 사전 등록된 사다리의 `$5`로
-축소한다. 가격 band는 없다. Eco는 resolution까지 보유하고 Fruit는
-전체 보유량 bid VWAP 0.99에서 조기 청산하며 미도달하면 resolution까지 보유한다.
+축소한다. 가격 band는 없다. Eco는 전체 보유량 bid VWAP 0.98, Fruit는 0.99에서
+조기 청산하며 미도달하면 resolution까지 보유한다. A/B 변수는 TP 가격 하나다.
 
 1분 Jenkins cadence가 60초를 조금 넘겨 정확한 50분 직후 틱을 건너뛸 수 있으므로 최초
 유효 진입은 `[50,52]`분에서만 허용한다. scan과 주문 직전 revalidation은 모두 DB에 저장된

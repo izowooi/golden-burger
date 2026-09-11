@@ -273,7 +273,7 @@ def test_six_book_net_exit_uses_fees_and_forces_minute_75() -> None:
     assert minute == 75
 
 
-def test_tick50_exit_arms_differ_only_at_bid_099() -> None:
+def test_tick50_exit_arms_differ_only_by_tp_price() -> None:
     trade = SimpleNamespace(
         id=1,
         condition_id="condition-1",
@@ -283,16 +283,20 @@ def test_tick50_exit_arms_differ_only_at_bid_099() -> None:
         buy_shares=5 / 0.70,
         buy_price=0.70,
     )
-    clob = _Clob(best_bid=0.99, best_ask=0.995, sell_vwap=0.99)
-    hold = TradingConfig(entry=ApricotEntryConfig(exit_basis="resolution_hold"))
-    tp = TradingConfig(entry=ApricotEntryConfig(exit_basis="tp99_or_resolution"))
+    clob = _Clob(best_bid=0.985, best_ask=0.99, sell_vwap=0.985)
+    tp98 = TradingConfig(entry=ApricotEntryConfig(
+        exit_basis="tp98_or_resolution", take_profit_delta=0.98
+    ))
+    tp99 = TradingConfig(entry=ApricotEntryConfig(
+        exit_basis="tp99_or_resolution", take_profit_delta=0.99
+    ))
     walk = clob.get_sell_book_walk(trade.token_id, shares=trade.buy_shares)
-    assert Trader(_Repo(), clob, hold, gamma_client=_active_gamma())._exit_signal(
-        trade, walk
-    )[0] is None
-    assert Trader(_Repo(), clob, tp, gamma_client=_active_gamma())._exit_signal(
+    assert Trader(_Repo(), clob, tp98, gamma_client=_active_gamma())._exit_signal(
         trade, walk
     )[0] == "take_profit"
+    assert Trader(_Repo(), clob, tp99, gamma_client=_active_gamma())._exit_signal(
+        trade, walk
+    )[0] is None
 
 
 def _active_gamma():

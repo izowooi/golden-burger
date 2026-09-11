@@ -420,11 +420,15 @@ class Trader:
         source_minute, _clock_reason = self._source_minute_for_trade(trade)
         full_exit_vwap = float(walk.vwap)
         if self.config.entry.exit_basis == "resolution_hold":
-            return None, 0.99, source_minute
-        if self.config.entry.exit_basis == "tp99_or_resolution":
-            if full_exit_vwap + 1e-9 >= 0.99:
-                return "take_profit", 0.99, source_minute
-            return None, 0.99, source_minute
+            return None, self.config.entry.take_profit_delta, source_minute
+        if self.config.entry.exit_basis in {
+            "tp98_or_resolution",
+            "tp99_or_resolution",
+        }:
+            target = self.config.entry.take_profit_delta
+            if full_exit_vwap + 1e-9 >= target:
+                return "take_profit", target, source_minute
+            return None, target, source_minute
         if self.config.entry.exit_basis == "net_return":
             try:
                 buy_size = float(trade.buy_confirmed_size)

@@ -488,6 +488,7 @@ class MarketScanner:
             )
             if self.config.entry.exit_basis in {
                 "resolution_hold",
+                "tp98_or_resolution",
                 "tp99_or_resolution",
             }:
                 first_tick = self.repo.get_event_first_complete_snapshot_at(
@@ -513,7 +514,7 @@ class MarketScanner:
                 continue
             if (
                 self.config.entry.exit_basis
-                in {"resolution_hold", "tp99_or_resolution"}
+                in {"resolution_hold", "tp98_or_resolution", "tp99_or_resolution"}
                 and (
                     self.config.entry.entry_tick_minute is None
                     or source_minute

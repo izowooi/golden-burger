@@ -332,7 +332,8 @@ def main() -> None:
     print(f"Source window: [minute {trading.entry.min_source_minute:.0f}, {source_max}]")
     print(
         f"Exit: absolute TP {trading.entry.take_profit_price:.2f}; "
-        f"SL entry-{trading.entry.stop_loss_delta:.2f}; no time-forced exit; "
+        f"SL entry-{trading.entry.stop_loss_delta:.2f}; "
+        f"time exit minute={trading.entry.force_exit_minute}; "
         "otherwise proven resolution"
     )
     print(

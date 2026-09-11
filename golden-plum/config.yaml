@@ -39,9 +39,9 @@ trading:
     prob_min: 0.70
     # A one-minute jump above 0.73 is outside the registered live entry band.
     prob_max: 0.73
-    # Observe and permit entry from kickoff until Gamma marks the match ended.
+    # Enter before minute 75; at/after 75 the first full bid exits the holding.
     min_source_minute: 0
-    max_source_minute: null
+    max_source_minute: 75
     # One current quote: no historical trend/crossing/pullback filter.
     trend_observations: 1
     trend_min_cumulative_move: 0.0
@@ -52,8 +52,7 @@ trading:
     # King A=0.90. Queen B and Silver primary replay override only this to 0.95.
     take_profit_price: 0.90
     stop_loss_delta: 0.15
-    # No time-forced liquidation; exit only by TP, SL, or proven resolution.
-    force_exit_minute: null
+    force_exit_minute: 75
     stop_price: 0.01
     max_entry_drawdown: 0.15
     max_stop_slippage: 0.05

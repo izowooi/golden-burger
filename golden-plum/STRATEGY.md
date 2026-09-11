@@ -5,14 +5,15 @@
 2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
 축구의 현재 유일한 midpoint 선두가 `.70~.73`이면 한 번의 complete six-book 관측으로
 진입한다. 이전 교차·3회 누적·pullback 조건은 제거했다. TP `.90/.95`, SL `-.15` A/B와
-exact `$5`는 유지한다. 두 축구 arm의
+exact `$5`는 유지한다. 신규 진입은 source 75분 미만이며 75분 이후 첫 전량 bid에서 FOK로
+청산하고 같은 event에 재진입하지 않는다. 두 축구 arm의
 confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금은 계산에 포함하지 않는다.
 
 기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
 MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
 신규 live runtime을 등록하거나 배포하지 않는다.
 
-근거는 `research/frozen-2026-09-11-soccer-single-quote-v10/PREREGISTRATION.md`다.
+근거는 `research/frozen-2026-09-12-soccer-minute75-v11/PREREGISTRATION.md`다.
 
 ## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
 
@@ -113,7 +114,7 @@ FOK로 제출한다. fresh book과 선택·잔여·최대 실행 가능 수량/�
 - regular-time HOME/DRAW/AWAY 세 binary 명제
 - 각 명제의 direct YES와 direct NO, 정확히 여섯 token
 - Gamma explicit `live=true`, `ended=false`
-- source 경기 시계 0분부터 종료까지; minute 및 wall-clock age 상한 없음
+- source 경기 시계 0분부터 75분 미만 신규 진입; 75분 이후 첫 전량 bid time exit
 - 누적 거래량 5,000, 유동성 5,000 이상
 - exact `$5` full-depth ask/bid와 진입 spread 0.05 이하
 
@@ -160,8 +161,8 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 | B | `polybot-queen/plum-live-queen-95-1m-v1` | 절대 익절 하한 0.95 |
 
 - 공통 stop: confirmed BUY VWAP -0.15
-- 시간 강제 청산: 없음
-- 종료 우선순위: target → stop; 둘 다 없으면 검증된 resolution까지 유지
+- 시간 강제 청산: source 75분 이후 첫 전량 FOK bid, 이후 event 재진입 금지
+- 종료 우선순위: target → stop → minute75 time exit; 실행 불가 시 검증된 resolution
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
 - 목표 금액을 올려도 BUY는 선택된 금액 전체가 체결되거나 0체결이다. 거래소의 불명확한 부분
   체결을 전략 완료로 인정하지 않는다.

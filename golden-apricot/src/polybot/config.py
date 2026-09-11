@@ -36,7 +36,7 @@ TICK50_ENTRY_END_UTC = "2026-09-24T13:00:00Z"
 TICK50_FOLLOWUP_END_UTC = "2026-10-01T13:00:00Z"
 DIRECT_LATE_SENTINEL_MINUTE = 1_000_000.0
 TICK50_JOBS = {
-    "apricot-live-eco-mlb-tick50-hold-v1": "resolution_hold",
+    "apricot-live-eco-mlb-tick50-hold-v1": "tp98_or_resolution",
     "apricot-live-fruit-mlb-tick50-tp99-v1": "tp99_or_resolution",
 }
 FROZEN_JOB_BUY_AMOUNT_USDC = {job: 10.0 for job in TICK50_JOBS}
@@ -120,7 +120,10 @@ FROZEN_JOB_EXPERIMENT_DATES = {
 }
 # Apricot deliberately exposes only the two preregistered MLB live runtimes.
 SIX_BOOK_NET_JOBS = frozenset()
-FROZEN_JOB_TAKE_PROFIT = {job: 0.99 for job in TICK50_JOBS}
+FROZEN_JOB_TAKE_PROFIT = {
+    "apricot-live-eco-mlb-tick50-hold-v1": 0.98,
+    "apricot-live-fruit-mlb-tick50-tp99-v1": 0.99,
+}
 FROZEN_JOB_SPORT_FAMILY = {job: "mlb" for job in TICK50_JOBS}
 FROZEN_JOB_PROFILE_KEY = {job: "mlb_live" for job in TICK50_JOBS}
 FROZEN_JOB_STOP_LOSS = {job: 0.99 for job in TICK50_JOBS}

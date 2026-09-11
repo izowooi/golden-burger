@@ -1095,7 +1095,8 @@ def _validate_config(
         )
     if (
         entry.min_source_minute != 0
-        or entry.max_source_minute is not None
+        or entry.max_source_minute
+        != (75.0 if trading.sport_family == "soccer" else None)
         or entry.trend_observations != profile.primary_trend_observations
         or entry.trend_min_cumulative_move
         != profile.primary_trend_min_cumulative_move
@@ -1104,7 +1105,8 @@ def _validate_config(
         or entry.min_leader_margin != profile.primary_min_leader_margin
         or entry.max_entry_spread != profile.primary_max_entry_spread
         or entry.stop_loss_delta != profile.primary_stop_delta
-        or entry.force_exit_minute is not None
+        or entry.force_exit_minute
+        != (75.0 if trading.sport_family == "soccer" else None)
     ):
         raise ValueError("full-match trend/first-cross/TP-SL contract drift")
     if not (
@@ -1222,7 +1224,7 @@ def load_config(
         ),
         max_source_minute=_get_frozen_profile_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
-            None,
+            75.0 if resolved_sport_family == "soccer" else None,
         ),
         trend_observations=_get_frozen_profile_value(
             "POLYBOT_TREND_OBSERVATIONS",
@@ -1259,7 +1261,7 @@ def load_config(
         ),
         force_exit_minute=_get_frozen_profile_value(
             "POLYBOT_FORCE_EXIT_MINUTE",
-            None,
+            75.0 if resolved_sport_family == "soccer" else None,
         ),
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.01

@@ -662,6 +662,20 @@ def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:
     assert repo.updated == []
 
 
+def test_registered_minute_75_exit_is_full_position_signal(monkeypatch) -> None:
+    repo, clob = _Repo(), _Clob(best_bid=0.72, best_ask=0.73, sell_vwap=0.72)
+    trader = Trader(repo, clob, TradingConfig(), simulation_mode=False)
+    monkeypatch.setattr(trader, "_exit_thresholds", lambda _trade: (0.90, 0.55, 75.0))
+    trade = SimpleNamespace(force_exit_minute_at_buy=75.0)
+    walk = SimpleNamespace(vwap=0.72, best_bid=0.72)
+
+    signal, trigger, minute = trader._exit_signal(trade, walk)
+
+    assert signal == "time_exit"
+    assert trigger == 0.72
+    assert minute == 75.0
+
+
 def test_large_holding_submits_largest_profitable_partial_take_profit() -> None:
     class PartialTakeProfitClob(_Clob):
         def get_sell_book_evidence(self, token_id):

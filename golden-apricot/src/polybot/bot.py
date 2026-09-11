@@ -115,8 +115,8 @@ class PolymarketBot:
         exit_contract = (
             "tick50 resolution hold"
             if entry.exit_basis == "resolution_hold"
-            else "tick50 full-holding bid VWAP 0.99, otherwise resolution"
-            if entry.exit_basis == "tp99_or_resolution"
+            else f"tick50 full-holding bid VWAP {entry.take_profit_delta:.2f}, otherwise resolution"
+            if entry.exit_basis in {"tp98_or_resolution", "tp99_or_resolution"}
             else
             "fee-net TP=+%.0f%%, fee-net SL=-%.0f%%, forced full exit from minute %.0f"
             % (entry.take_profit_delta * 100, entry.stop_loss_delta * 100, entry.late_exit_minute)
