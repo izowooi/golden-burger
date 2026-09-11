@@ -74,9 +74,11 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   호가 중 같은 token이 3회의 1분 관측에서 누적 +2%p로 상승하고 `[0.75,0.78]`을 처음
   통과하는지 종목별로 검정한다. 축구는 HOME/DRAW/AWAY YES·NO 6token이며 King TP 0.90,
   Queen 0.95의 exact `$5` live A/B다. 시간 강제 청산 없이 TP·SL·검증된 resolution만
-  사용한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
+  사용한다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
+  대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$1,000`이고
+  wallet 입출금은 계산에서 제외한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
   moneyline의 credential-free 1분 raw path와 `$5~$1,000` displayed-depth 증액 자료를
-  서로 다른 DB에 병렬 수집한다. NHL은 아직 배포하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
+  서로 다른 DB에 병렬 수집한다. 비축구 live는 사용자 재승인 전까지 등록하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.
 
@@ -241,6 +243,7 @@ T7 workspace의 1분 cadence다. live 두 arm은 축구 TP만 다르고, Grey는
 `polybot-queen/plum-live-queen-95-1m-v1`, `polybot-silver/plum-shadow-silver-1m-v1`,
 `polybot-gold/plum-shadow-gold-{mlb,nfl,nba}-1m-v1`의 독립 DB를 사용한다. King/Queen은
 축구 절대 TP만 다르고 Silver는 축구, Gold는 MLB·NFL·NBA credential-free simulation이다.
+King/Queen의 MLB DB는 close-only로 과거 불확실 노출만 대사하며 신규 BUY를 만들지 않는다.
 Gold의 과거 Golden Coconut epoch와 새 Golden Plum epoch는 Jenkins 이름이 같아도 절대
 합치지 않는다.
 Golden Peach Grey의 직접 six-book 재생은 탐색 자료일 뿐 Golden Plum의 앞으로 수집하는

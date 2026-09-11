@@ -5,9 +5,9 @@
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접
 표시된 moneyline 2개 호가를 사용합니다.
 
-King/Queen은 기존 축구 A/B를 유지하면서 별도 MLB runtime에서 최소 `$5` 탐색 A/B를
-수행합니다. Silver는 축구를 수집하고, Gold는 MLB·NFL·NBA·NHL을 서로 다른 DB로
-수집합니다.
+King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime은 미확정 과거 노출을
+대사하기 위한 close-only입니다. Silver는 축구를 수집하고, Gold는 MLB·NFL·NBA·NHL을
+서로 다른 DB로 수집합니다. 비축구 live는 사용자 승인 전까지 등록하지 않습니다.
 
 ## 구성
 
@@ -15,8 +15,8 @@ King/Queen은 기존 축구 A/B를 유지하면서 별도 MLB runtime에서 최�
 |---|---|---|
 | `polybot-king` | `plum-live-king-90-1m-v1` | live A, 절대 TP 0.90 |
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live B, 절대 TP 0.95 |
-| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB live A, 절대 TP 0.90 |
-| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB live B, 절대 TP 0.95 |
+| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB close-only, 기존 노출 대사 |
+| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB close-only, 기존 노출 대사 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | credential-free raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-mlb-1m-v1` | credential-free MLB raw/simulation |
 | `polybot-gold` | `plum-shadow-gold-nfl-1m-v1` | credential-free NFL raw/simulation |

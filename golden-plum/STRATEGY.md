@@ -1,10 +1,20 @@
 # Golden Plum — 종목별 경기 전체 상승 확인
 
-## 현재 소스: 2026-09-06 가격 구간 실험 v9 (운영 배포 전)
+## 현재 live 정책: 축구 전용
 
-사용자 요청으로 상승 지속·되돌림·누적 상승 및 과거 관측을 요구하는 첫 교차 조건을
-제거했다. 아래 v8 이하 설명은 과거 운영 기록이다. 현재 구현 계약은
-`research/frozen-2026-09-06-price-band-v9/PREREGISTRATION.md`가 우선한다.
+2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
+축구 `.75~.78`, 3회 누적 `+.02`, TP `.90/.95`, SL `-.15` A/B를 유지한다. 두 축구 arm의
+confirmed strategy P&L 손실 한도는 공통 `$1,000`이며 wallet 입출금은 계산에 포함하지 않는다.
+
+기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
+MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
+신규 live runtime을 등록하거나 배포하지 않는다.
+
+## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
+
+가격 구간 v9는 raw simulation replay용 연구 계약으로 보존한다. live 등록과 배포 근거가
+아니며 `research/frozen-2026-09-06-price-band-v9/PREREGISTRATION.md`는 simulation cohort에만
+적용한다.
 
 - King A: 현재 직접 $5 매수 호가 0.60~0.63. Queen B: 0.70~0.73. 공통 익절0.97.
 - 최고 호가만 선택하지 않고, 가격 구간 안에서 가장 낮은 VWAP 결과를 선택한다.
@@ -13,7 +23,7 @@
   DB의 기존 trend 필드는 호환을 위해 남지만 관측 수1/변화량0/기간0으로 기록한다.
 - 축구/MLB/NFL은 서로 다른 profile·runtime DB다. SL은 축구/NFL 매수가-0.15,
   MLB 매수가-0.12. 기존 보유 거래는 매수 당시 저장한 TP/SL을 유지한다.
-- Gold의 NFL raw/simulation은 기존부터 존재하며, King/Queen NFL runtime을 별도 등록했다.
+- Gold의 NFL raw/simulation은 계속 수집한다. King/Queen NFL live runtime은 등록하지 않는다.
 - 수집 raw book으로 진입0.55~0.80와 익절0.85/0.90/0.95/0.97을 비교한다.
   재생 보고서의 `price_band_arms`는 A/B 각각 경기별 결과와 미해결 표본을 표시한다.
 - Silver/Gold는 1분 수집 시작 시 전체 archive 정리·vacuum을 하지 않는다. 별도 유지보수로

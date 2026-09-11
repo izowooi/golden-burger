@@ -71,13 +71,8 @@ def test_execution_and_orphan_validation_accept_single_real_snapshot(monkeypatch
     assert not _orphan_episode_contract_matches(episode, config)
 
 
-@pytest.mark.parametrize('account,arm,minimum',[('king','a',.60),('queen','b',.70)])
-def test_nfl_is_a_separate_price_band_live_profile(monkeypatch, account, arm, minimum):
+@pytest.mark.parametrize('account,arm',[('king','a'),('queen','b')])
+def test_nfl_live_profile_requires_a_future_explicit_approval(monkeypatch, account, arm):
     _credentials(monkeypatch)
-    cfg = load_config('config.yaml', f'plum-live-{account}-nfl-price-{arm}-v9', simulation_mode=False)
-    assert cfg.trading.sport_family == 'nfl'
-    assert cfg.trading.expected_token_count == 2
-    assert cfg.trading.entry.prob_min == minimum
-    assert cfg.trading.entry.take_profit_price == .97
-    assert cfg.trading.entry.trend_observations == 1
-    assert cfg.trading.source_clock_required is False
+    with pytest.raises(ValueError, match='unsupported Golden Plum runtime job'):
+        load_config('config.yaml', f'plum-live-{account}-nfl-price-{arm}-v9', simulation_mode=False)

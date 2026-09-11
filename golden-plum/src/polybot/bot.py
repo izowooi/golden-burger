@@ -138,7 +138,7 @@ class PolymarketBot:
             trading.max_event_positions,
             trading.max_new_positions_per_cycle,
             trading.max_emergency_sells_per_cycle,
-            trading.experiment_capital_usdc * trading.max_drawdown_stop,
+            trading.drawdown_loss_limit_usdc,
             trading.drawdown_guard_enabled,
         )
         logger.info(
@@ -347,9 +347,7 @@ class PolymarketBot:
                 economic_evidence_gaps = int(
                     economic_guard.get("evidence_gaps") or 0
                 )
-                drawdown_limit = (
-                    trading.experiment_capital_usdc * trading.max_drawdown_stop
-                )
+                drawdown_limit = trading.drawdown_loss_limit_usdc
                 observed_drawdown = economic_pnl <= -drawdown_limit + 1e-9
                 drawdown_triggered = (
                     observed_drawdown
@@ -821,6 +819,9 @@ class PolymarketBot:
                     ),
                     "experiment_capital_usdc": trading.experiment_capital_usdc,
                     "max_drawdown_stop": trading.max_drawdown_stop,
+                    "drawdown_loss_limit_usdc": (
+                        trading.drawdown_loss_limit_usdc
+                    ),
                     "drawdown_guard_enabled": trading.drawdown_guard_enabled,
                     "reentry_cooldown_hours": trading.reentry_cooldown_hours,
                     "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,

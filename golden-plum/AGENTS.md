@@ -6,10 +6,10 @@
 ## 프로젝트 목적
 
 경기 전체에서 직접 결과 호가의 유일한 선두가 세 번의 1분 관측으로 상승하며 0.75를
-처음 통과할 때 추가 상승하는지 종목별로 검증한다. 축구는 3시장/6token, MLB·NBA·
-NFL·NHL은 1시장/2token의 서로 다른 versioned profile을 사용한다. King/Queen은 축구와
-별도 MLB exact `$5` live A/B, Silver는 축구, Gold는 MLB/NBA/NFL/NHL credential-free
-simulation/raw 수집기다.
+처음 통과할 때 추가 상승하는지 검증한다. **신규 live는 축구만 허용한다.** King/Queen의
+MLB runtime은 기존 노출 대사만 하는 close-only이고, MLB·NBA·NFL·NHL 신규 live runtime은
+사용자의 별도 승인 전까지 등록하지 않는다. Silver는 축구, Gold는 MLB/NBA/NFL/NHL의
+credential-free simulation/raw 수집기다.
 
 ## Runtime 계약
 
@@ -17,13 +17,15 @@ simulation/raw 수집기다.
 |---|---|---|---|
 | `polybot-king` | `plum-live-king-90-1m-v1` | live | 절대 TP `0.90` |
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.95` |
-| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB live | 절대 TP `0.90` |
-| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB live | 절대 TP `0.95` |
+| `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB close-only | 기존 노출 대사만 |
+| `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB close-only | 기존 노출 대사만 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | raw six-book + 반사실 grid |
 | `polybot-gold` | `plum-shadow-gold-mlb-1m-v1` | simulation | MLB direct two-book + 반사실 grid |
 | `polybot-gold` | `plum-shadow-gold-{nba,nfl,nhl}-1m-v1` | simulation | direct two-book + 반사실 grid |
 
 - 네 job은 1분 cadence를 사용한다.
+- King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$1,000`이며 wallet 입출금과
+  잔고 변동은 이 손익에 넣지 않는다.
 - live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.
 - 수동 wallet position은 봇 DB에 편입하거나 청산하지 않는다.
 - Silver/Gold에는 private key, funder address, signature type을 주입하지 않는다.

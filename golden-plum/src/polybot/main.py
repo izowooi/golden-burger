@@ -362,7 +362,7 @@ def main() -> None:
     )
     print(
         f"Economic drawdown entry guard: {'ON' if trading.drawdown_guard_enabled else 'OFF (explicit operator opt-out)'}; observed threshold "
-        f"-${trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f} "
+        f"-${trading.drawdown_loss_limit_usdc:.2f} "
         "(confirmed SELL + proven resolution P&L)"
     )
     print(
