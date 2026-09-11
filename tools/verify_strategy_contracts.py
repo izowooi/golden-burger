@@ -5573,8 +5573,12 @@ def validate_strategy(directory: Path) -> list[Finding]:
                 "apricot-live-fruit-mlb-tick50-tp99-v1",
                 "resolution",
             ),
-            "STRATEGY.md": ("50분", "HOME", "AWAY", "0.99", "$5"),
-            "src/polybot/config.py": ("TICK50_JOBS", "mlb_live"),
+            "STRATEGY.md": ("50분", "HOME", "AWAY", "0.99", "$10"),
+            "src/polybot/config.py": (
+                "TICK50_JOBS",
+                "mlb_live",
+                "FROZEN_JOB_BUY_AMOUNT_USDC",
+            ),
             "src/polybot/strategy/scanner.py": ("FIRST_COMMON_TICK_ELAPSED",),
         }.items():
             content = _require_file(findings, strategy, directory / relative)

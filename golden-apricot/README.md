@@ -1,6 +1,7 @@
 # Golden Apricot
 
-MLB 첫 공통 HOME/AWAY 틱 후 50분 favorite를 $5로 매수하는 live A/B다.
+MLB 첫 공통 HOME/AWAY 틱 후 50분 favorite를 목표 `$10`으로 매수하는 live A/B다.
+이 증액은 아래 두 MLB runtime에만 고정되며 이후 다른 종목 runtime에는 상속되지 않는다.
 
 | Jenkins | Runtime | Exit |
 |---|---|---|

@@ -3,8 +3,9 @@
 
 trading:
   lifecycle_mode: active
-  sport_family: soccer
-  buy_amount_usdc: 5.0
+  # The two registered live runtimes are MLB-only and freeze this amount.
+  sport_family: mlb
+  buy_amount_usdc: 10.0
 
   # Gamma server-side prefilter, followed by baseline-$5 direct books.
   min_liquidity: 5000
@@ -18,7 +19,7 @@ trading:
   # One failed exit must not suppress exits for unrelated games.
   max_emergency_sells_per_cycle: 10
 
-  experiment_capital_usdc: 50
+  experiment_capital_usdc: 100
   max_drawdown_stop: 0.20
   reentry_cooldown_hours: 720
   max_snapshot_gap_minutes: 2

@@ -6,7 +6,7 @@ import hashlib
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_PREREGISTRATION = "research/frozen-2026-09-10-mlb-tick50-v1/PREREGISTRATION.md"
+ACTIVE_PREREGISTRATION = "research/frozen-2026-09-11-mlb-tick50-10usdc-v2/PREREGISTRATION.md"
 
 
 def _runtime_files(project_root: Path) -> list[Path]:

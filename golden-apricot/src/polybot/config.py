@@ -39,6 +39,8 @@ TICK50_JOBS = {
     "apricot-live-eco-mlb-tick50-hold-v1": "resolution_hold",
     "apricot-live-fruit-mlb-tick50-tp99-v1": "tp99_or_resolution",
 }
+FROZEN_JOB_BUY_AMOUNT_USDC = {job: 10.0 for job in TICK50_JOBS}
+FROZEN_JOB_EXPERIMENT_CAPITAL_USDC = {job: 100.0 for job in TICK50_JOBS}
 SIX_BOOK_NET_JOBS = frozenset({
     "apricot-live-eco-sixbook-net5-sl15-75m-v2",
     "apricot-live-fruit-sixbook-net5-sl12-75m-v2",
@@ -687,6 +689,11 @@ def _validate_config(
         raise ValueError(
             "Golden Apricot target notional must be $5-$1000 in cent precision"
         )
+    if trading.buy_amount_usdc != FROZEN_JOB_BUY_AMOUNT_USDC[job_name]:
+        raise ValueError(
+            f"{job_name} MLB target notional must remain "
+            f"${FROZEN_JOB_BUY_AMOUNT_USDC[job_name]:.2f}"
+        )
     if (
         trading.min_liquidity != 5000
         or trading.min_cumulative_volume != 5000
@@ -706,8 +713,13 @@ def _validate_config(
         raise ValueError("per-cycle target BUY notional must not exceed $5000")
     if trading.max_emergency_sells_per_cycle != 10:
         raise ValueError("all ten independent event exits must remain available")
-    if trading.experiment_capital_usdc != 50:
-        raise ValueError("experiment capital is frozen at $50 requested exposure")
+    if (
+        trading.experiment_capital_usdc
+        != FROZEN_JOB_EXPERIMENT_CAPITAL_USDC[job_name]
+    ):
+        raise ValueError(
+            "experiment capital must match the MLB-only scaled exposure contract"
+        )
     if trading.max_drawdown_stop != 0.20:
         raise ValueError("economic drawdown entry guard is frozen at 20%")
     if trading.max_event_positions > trading.max_positions:
@@ -902,6 +914,8 @@ def load_config(
 
     frozen_take_profit = FROZEN_JOB_TAKE_PROFIT.get(job_name, 0.03)
     frozen_stop_loss = FROZEN_JOB_STOP_LOSS.get(job_name, 0.10)
+    frozen_buy_amount = FROZEN_JOB_BUY_AMOUNT_USDC[job_name]
+    frozen_experiment_capital = FROZEN_JOB_EXPERIMENT_CAPITAL_USDC[job_name]
     frozen_late_minute = (
         75.0
         if job_name in SIX_BOOK_NET_JOBS
@@ -1026,7 +1040,7 @@ def load_config(
         lifecycle_mode=_get_lifecycle_mode(trading_cfg.get("lifecycle_mode")),
         sport_family=resolved_sport_family,
         buy_amount_usdc=_get_config_value(
-            "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
+            "POLYBOT_BUY_AMOUNT", None, frozen_buy_amount
         ),
         min_liquidity=_get_config_value(
             "POLYBOT_MIN_LIQUIDITY", trading_cfg.get("min_liquidity"), 5000.0
@@ -1062,8 +1076,8 @@ def load_config(
         ),
         experiment_capital_usdc=_get_config_value(
             "POLYBOT_EXPERIMENT_CAPITAL_USDC",
-            trading_cfg.get("experiment_capital_usdc"),
-            50.0,
+            None,
+            frozen_experiment_capital,
         ),
         max_drawdown_stop=_get_config_value(
             "POLYBOT_MAX_DRAWDOWN_STOP",
