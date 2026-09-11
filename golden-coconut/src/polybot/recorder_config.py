@@ -10,7 +10,7 @@ from .registry import load_registry
 PROJECT = Path(__file__).resolve().parents[2]
 RUNTIME = 'coconut-sports-recorder-1m-v1'
 CONTRACT = 'sports-price-recorder-1m-v1'
-EPOCH = 'research/frozen-2026-09-08-recorder-v1'
+EPOCH = 'research/frozen-2026-09-11-recorder-v2'
 REGISTRY = 'research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json'
 REGISTRY_SHA = '2b65532bb71ec7121a74260a9d4600706a3329da6bdfa9e3bfecc1c42e37bc3d'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',
@@ -33,7 +33,7 @@ class RecorderConfig:
     discovery_seconds: int = 300
     book_batch_limit: int = 240
     max_tokens_per_cycle: int = 600
-    gamma_page_size: int = 20
+    gamma_page_size: int = 100
     max_pages_per_family: int = 20
     max_response_bytes: int = 32*1024*1024
     settlement_poll_seconds: int = 300

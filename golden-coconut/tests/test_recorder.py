@@ -377,3 +377,9 @@ def test_wrong_invocation_date_store_rejected_before_http(tmp_path):
         with pytest.raises(ValueError,match='claimed UTC slot'):Recorder(RecorderConfig(),store,FakeClient).run(at)
         assert FakeClient.calls==[]
     finally:store.close()
+
+
+def test_recorder_v2_uses_a_cursor_complete_page_size():
+    config = RecorderConfig()
+    assert config.gamma_page_size == 100
+    assert config.max_pages_per_family == 20

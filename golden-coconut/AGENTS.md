@@ -6,6 +6,11 @@
 
 ## 프로젝트 목적과 경계
 
+현재 scheduled runtime은 `polybot-white/coconut-sports-recorder-1m-v1`의 accountless 1분
+five-family recorder다. 2026-09-11 v2 cohort는 soccer cursor 미완결을 고치기 위해 Gamma
+page size를 20에서 100으로 늘렸으며, 다섯 family cursor-complete·raw receipt·strict cycle
+계약은 유지한다. 기존 v1 행과 UTC shard는 수정하지 않는다.
+
 Golden Coconut은 soccer·MLB·NBA·NFL·NHL의 major-sports whole-game moneyline을 경기 전부터
 종료·해결까지 5분마다 추적한 accountless research collector다. 마지막 canonical runtime은
 `coconut-major-sports-lifecycle-5m-v7`이었다. `polybot-gold` 배치는

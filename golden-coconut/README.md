@@ -1,5 +1,10 @@
 # Golden Coconut
 
+현재 운영은 `polybot-white/coconut-sports-recorder-1m-v1`의 accountless 1분 recorder다.
+2026-09-11 v2부터 Gamma page size 100으로 soccer·MLB·NBA·NFL·NHL의 cursor-complete
+수집을 시도하며, 다섯 family 중 하나라도 미완결이면 cycle은 계속 fail closed한다.
+기존 recorder v1과 historical v7 DB는 그대로 보존한다.
+
 Golden Coconut은 계좌·주문 경로가 없는 major-sports lifecycle moneyline research collector다.
 축구(EPL, Bundesliga, Ligue 1, LaLiga, MLS, Serie A, UCL, UEL), MLB, NBA, NFL, NHL을
 동일한 5분 cadence에서 경기 전부터 종료·해결까지 관측한다. canonical runtime은
