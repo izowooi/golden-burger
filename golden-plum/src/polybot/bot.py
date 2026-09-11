@@ -126,7 +126,7 @@ class PolymarketBot:
         logger.info(
             "trend - observations=%s cumulative>=%.2f pullback<=%.2f gap<=%.0fs; "
             "execution - FOK BUY; absolute TP=%.2f, SL=entry-%.2f, "
-            "time exit=disabled; stop spread<=%.2f; "
+            "time exit=%s; stop spread<=%.2f; "
             "adaptive_target=$%.2f floor=$5 positions=%s event=%s new_per_cycle=%s "
             "emergency_sells_per_cycle=%s drawdown_threshold=-$%.2f guard_enabled=%s",
             entry.trend_observations,
@@ -135,6 +135,11 @@ class PolymarketBot:
             entry.trend_max_gap_seconds,
             entry.take_profit_price,
             entry.stop_loss_delta,
+            (
+                "disabled"
+                if entry.force_exit_minute is None
+                else f"minute {entry.force_exit_minute:.0f} full-position FOK"
+            ),
             entry.max_stop_spread,
             trading.buy_amount_usdc,
             trading.max_positions,
