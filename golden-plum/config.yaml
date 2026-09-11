@@ -36,9 +36,9 @@ trading:
   experiment_followup_end_utc: 2026-09-21T00:00:00Z
 
   entry:
-    prob_min: 0.75
-    # A one-minute jump above 0.78 is not the registered 0.75 entry.
-    prob_max: 0.78
+    prob_min: 0.70
+    # A one-minute jump above 0.73 is outside the registered live entry band.
+    prob_max: 0.73
     # Observe and permit entry from kickoff until Gamma marks the match ended.
     min_source_minute: 0
     max_source_minute: null

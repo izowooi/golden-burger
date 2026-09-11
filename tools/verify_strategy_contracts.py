@@ -4694,7 +4694,7 @@ def _validate_plum_strategy(
             "plum-shadow-silver-1m-v1",
             "plum-shadow-gold-mlb-1m-v1",
             "plum-shadow-gold-nhl-1m-v1",
-            "[0.75,0.78]",
+            "[0.70,0.73]",
             "시간 강제 청산은 없고",
             "$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000",
             "baseline `$5`",
@@ -4703,11 +4703,11 @@ def _validate_plum_strategy(
         "STRATEGY.md": (
             "HOME/DRAW/AWAY",
             "direct YES",
-            "0.75",
+            "0.70",
             "0.90",
             "0.95",
-            "최근 3개 snapshot",
-            "누적 상승이 0.02",
+            "한 번의 complete six-book 관측",
+            "3회 누적·pullback 조건은 제거",
             "시간 강제 청산: 없음",
             "execution_capacity_json",
             "MLB",
@@ -4884,7 +4884,7 @@ def _validate_plum_strategy(
         ("max_new_positions_per_cycle", 5),
         ("max_emergency_sells_per_cycle", 10),
         ("yes_only_mode", False),
-        ("prob_max", 0.78),
+        ("prob_max", 0.73),
         ("min_source_minute", 0),
         ("max_source_minute", None),
         ("trend_observations", 1),
@@ -4903,7 +4903,7 @@ def _validate_plum_strategy(
         strategy,
         "config.yaml",
         config_yaml,
-        ("prob_min: 0.75",),
+        ("prob_min: 0.70",),
     )
 
     combined = "\n".join(
