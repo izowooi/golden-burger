@@ -67,7 +67,7 @@ class RecorderClient:
             session=CaptureSession()
             def sink(row,session=session):self.record_receipt(row,bytes(session.body),not session.truncated)
             self.transports[family]=RecorderTransport(connect_timeout_seconds=3,read_timeout_seconds=5,
-                attempt_wall_seconds=10,max_retries=2,retry_base_seconds=.25,retry_max_seconds=1,
+                attempt_wall_seconds=15,max_retries=2,retry_base_seconds=.25,retry_max_seconds=1,
                 receipt_sink=sink,session=session)
             self.transports[family].access_denied=self.access_denied
         gc=GammaConfig('https://gamma-api.polymarket.com','/events/keyset','/events/{event_id}',config.gamma_page_size,

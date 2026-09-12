@@ -27,7 +27,7 @@ class RecorderConfig:
     job_name: str = WHITE_RUNTIME
     jenkins_job: str = 'polybot-white'
     cadence_seconds: int = 60
-    slot_phase_seconds: int = 30
+    slot_phase_seconds: int = 0
     pre_seconds: int = 600
     post_seconds: int = 600
     request_seconds: int = 42
