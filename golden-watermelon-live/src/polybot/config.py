@@ -158,8 +158,8 @@ RUNTIME_SPECS = {
 # Existing six identities/values remain unchanged. Only these accounts share
 # resources; Bear/Tiger histories and retired NHL configurations stay separate.
 ACCOUNT_RUNTIMES = {
-    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4", "watermelon-live-cat-nfl-96-1m-v5"),
-    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4", "watermelon-live-dog-nfl-99-1m-v5"),
+    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4"),
+    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4"),
 }
 
 

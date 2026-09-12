@@ -6,7 +6,8 @@
 - Soccer Dog changes only its lower entry bound from `.99` to `.92`.
 - Both retain upper `.999`, exact baseline `$5`, target `$5`, no TP, effective stop `.70`,
   resolution hold, event-once controls, capacity and the existing economic guard history.
-- MLB and NFL account children are close-only. No other sport inherits the Soccer bounds.
+- MLB account children are close-only. Unprepared NFL runtimes are removed from the Cat/Dog account
+  runner and remain unscheduled; no other sport inherits the Soccer bounds.
 - Exploratory evidence: 40 strict raw soccer games split chronologically 20/20. `.91` produced
   32 signals and +$9.77829 total (+$3.42445/+6.35384 by half); `.92` produced 31 signals and
   +$7.99061 (+$2.31080/+5.67981). This is displayed-book research selected after viewing ten

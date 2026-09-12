@@ -334,9 +334,7 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
                     child.setenv(k, v)
             loaded.append(configs.load_config(str(yaml_path), runtime, simulation_mode=False))
     assert dict(os.environ) == baseline
-    soccer, mlb, nfl = loaded
-    assert nfl.trading.entry.hours_max == nfl.trading.archive.hours_max == 6
-    assert nfl.db_path not in {soccer.db_path, mlb.db_path}
+    soccer, mlb = loaded
     assert soccer.trading.entry.hours_max == soccer.trading.archive.hours_max == 4
     assert mlb.trading.entry.hours_max == mlb.trading.archive.hours_max == 8
     assert soccer.db_path != mlb.db_path and "v2h" in str(soccer.db_path)
@@ -387,8 +385,7 @@ def test_runner_order_rotates_without_changing_profile_policy(account, monkeypat
     assert run_account("polybot-cat", run_process=child) == 0
     monkeypatch.setattr(account_runner.time, "time", lambda: 180)
     assert run_account("polybot-cat", run_process=child) == 0
-    nfl = configs.ACCOUNT_RUNTIMES["polybot-cat"][2]
-    assert observed == [nfl, soccer.job_name, mlb.job_name, soccer.job_name, mlb.job_name, nfl]
+    assert observed == [soccer.job_name, mlb.job_name, mlb.job_name, soccer.job_name]
 
 
 def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypatch, tmp_path):
@@ -409,15 +406,9 @@ def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypat
     trader.execute_buy.assert_not_called()
 
 
-def test_nfl_positions_share_the_same_account_capacity(account):
-    soccer, _mlb = account
-    prepare_account(soccer)
-    nfl = make_config(soccer.db_path.parents[2], configs.ACCOUNT_RUNTIMES['polybot-cat'][2])
-    holdings(nfl, 20)
-    with account_session(soccer) as guard:
-        with pytest.raises(AccountGuardError) as captured:
-            guard.check_buy_budget()
-    assert captured.value.evidence['total_reserved'] == 20
+def test_unapproved_nfl_runtime_is_not_an_account_runner_member():
+    assert configs.account_for_runtime("watermelon-live-cat-nfl-96-1m-v5") is None
+    assert configs.account_for_runtime("watermelon-live-dog-nfl-99-1m-v5") is None
 
 
 def test_profile_environment_can_close_only_mlb_without_stopping_soccer():

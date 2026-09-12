@@ -142,7 +142,8 @@ v3g는 종료일만 연장한 승인된 계속 운용이다. 기존 여섯 runti
 
 v3h는 40개 strict raw 경기의 시간순 20/20 탐색에서 양쪽 절반이 양수였던 Soccer 하한
 `.91/.92`만 바꾼 3일 forward A/B다. upper `.999`, `$5`, stop `.70`, resolution hold와 모든
-실행·안전 계약은 유지한다. MLB와 NFL은 Cat/Dog account runner에서 close-only다. 근거는
+실행·안전 계약은 유지한다. MLB는 Cat/Dog account runner에서 close-only이고, 준비되지 않은
+NFL runtime은 account runner에서 제외한다. 근거는
 `research/frozen-2026-09-12-soccer-91-92-v3h/PREREGISTRATION.md`다.
 
 ## Cat/Dog 계정 통합 v4 — 실행 계약
