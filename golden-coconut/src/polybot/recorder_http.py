@@ -10,6 +10,7 @@ from .api.sports_client import SportsClockClient,ClockTarget
 from .config import GammaConfig,SportsFeedConfig
 
 MAX_BYTES=32*1024*1024
+MAX_JSON_NODES=1_000_000
 class RawTee:
     def __init__(self,raw,owner):self.raw,self.owner=raw,owner
     @property
@@ -37,7 +38,7 @@ def strict_json(raw):
     obj=json.loads(raw.decode('utf-8'),parse_constant=bad);stack=[(obj,0)];nodes=0
     while stack:
         value,depth=stack.pop();nodes+=1
-        if depth>30 or nodes>500000:raise ValueError('JSON structural limit')
+        if depth>30 or nodes>MAX_JSON_NODES:raise ValueError('JSON structural limit')
         if isinstance(value,float) and not math.isfinite(value):raise ValueError('nonfinite scalar')
         if isinstance(value,dict):stack.extend((v,depth+1) for v in value.values())
         elif isinstance(value,list):stack.extend((v,depth+1) for v in value)

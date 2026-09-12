@@ -191,6 +191,13 @@ def test_recorder_retries_each_family_transient_failure_twice(tmp_path):
     finally:client.close();store.close()
 
 
+def test_strict_json_accepts_current_nfl_page_shape_and_keeps_a_hard_cap():
+    from polybot.recorder_http import MAX_JSON_NODES, strict_json
+
+    assert MAX_JSON_NODES == 1_000_000
+    assert strict_json(b'{"events":[{"id":"1"}]}')['events'][0]['id'] == '1'
+
+
 def test_export_cli_terminal_cutoff_and_independent_payout_validation(tmp_path,monkeypatch):
     from polybot.recorder_export import iter_terminals
     for i,m in enumerate(FakeClient.source['markets']):m.update(closed=True,outcomePrices=['1','0'] if i==0 else ['0','1'])
