@@ -146,6 +146,11 @@ v3h는 40개 strict raw 경기의 시간순 20/20 탐색에서 양쪽 절반이 
 NFL runtime은 account runner에서 제외한다. 근거는
 `research/frozen-2026-09-12-soccer-91-92-v3h/PREREGISTRATION.md`다.
 
+v3i는 같은 `.91/.92`를 운영자가 중단하거나 다시 교정할 때까지 계속 신규 진입한다. 하루·3일·
+7일 회고는 관측 checkpoint일 뿐 entry cutoff가 아니다. open-ended sentinel은
+`9999-12-31T23:59:59Z`이며 과거 파라미터로 자동 복귀하지 않는다. 근거는
+`research/frozen-2026-09-12-soccer-91-92-continuous-v3i/PREREGISTRATION.md`다.
+
 ## Cat/Dog 계정 통합 v4 — 실행 계약
 
 Cat/Dog 기존 축구 runtime/DB/숫자/기간은 유지하고 각 계정에 새 독립 MLB runtime

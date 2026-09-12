@@ -74,13 +74,7 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC
-    start = datetime.fromisoformat(FROZEN_START_UTC.replace("Z", "+00:00"))
-    entry_end = datetime.fromisoformat(FROZEN_ENTRY_END_UTC.replace("Z", "+00:00"))
-    followup_end = datetime.fromisoformat(
-        FROZEN_FOLLOWUP_END_UTC.replace("Z", "+00:00")
-    )
-    assert entry_end > start + timedelta(days=14)
-    assert followup_end - entry_end == timedelta(days=7)
+    assert FROZEN_ENTRY_END_UTC == FROZEN_FOLLOWUP_END_UTC == "9999-12-31T23:59:59Z"
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64

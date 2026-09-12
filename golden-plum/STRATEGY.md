@@ -18,6 +18,10 @@ strict raw 경기의 시간순 재생에서 `.70`만 두 TP의 양쪽 절반이 
 검증 절반이 음수였다. 수정된 구현을 3일 더 forward 검증하는 근거는
 `research/frozen-2026-09-12-soccer-weekend-forward-v12/PREREGISTRATION.md`다.
 
+v13은 같은 `.70–.73`과 TP `.90/.95`를 운영자의 명시적 중단·교정 전까지 계속 live로
+유지한다. 하루·3일·7일 회고는 자동 중단점이 아니며 과거 파라미터로 복귀하지 않는다. 근거는
+`research/frozen-2026-09-12-soccer-continuous-v13/PREREGISTRATION.md`다.
+
 ## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
 
 가격 구간 v9는 raw simulation replay용 연구 계약으로 보존한다. live 등록과 배포 근거가

@@ -43,9 +43,9 @@ trading:
   yes_only_mode: true
 
   experiment_start_utc: 2026-08-29T04:00:00Z
-  # Three-day .91/.92 forward A/B from 2026-09-12T12:00Z; no history reset.
-  experiment_entry_end_utc: 2026-09-15T12:00:00Z
-  experiment_followup_end_utc: 2026-09-22T12:00:00Z
+  # Operator-controlled continuous .91/.92 A/B; reviews never stop entry.
+  experiment_entry_end_utc: 9999-12-31T23:59:59Z
+  experiment_followup_end_utc: 9999-12-31T23:59:59Z
 
   # Cat is arm A=.91. Dog overrides only prob_min=.92 in Jenkins. Both active
   # Cat keeps its v2h runtime to manage existing positions; Dog and the new

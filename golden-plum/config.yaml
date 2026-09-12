@@ -32,10 +32,9 @@ trading:
   yes_only_mode: false
 
   experiment_start_utc: 2026-08-31T00:00:00Z
-  # Current .70-.73 lower band remains the best fixed-band replay; extend the
-  # corrected implementation for a three-day weekend forward cohort.
-  experiment_entry_end_utc: 2026-09-15T12:00:00Z
-  experiment_followup_end_utc: 2026-09-22T12:00:00Z
+  # Current .70-.73 stays live until an explicit operator stop or retune.
+  experiment_entry_end_utc: 9999-12-31T23:59:59Z
+  experiment_followup_end_utc: 9999-12-31T23:59:59Z
 
   entry:
     prob_min: 0.70

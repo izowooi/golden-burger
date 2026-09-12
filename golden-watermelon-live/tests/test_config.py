@@ -58,15 +58,9 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.experiment_followup_end_utc == FROZEN_FOLLOWUP_END_UTC
     assert config.trading.economic_guard_start_utc == FROZEN_START_UTC
     start = datetime.fromisoformat(FROZEN_START_UTC.replace("Z", "+00:00"))
-    entry_end = datetime.fromisoformat(FROZEN_ENTRY_END_UTC.replace("Z", "+00:00"))
-    followup_end = datetime.fromisoformat(
-        FROZEN_FOLLOWUP_END_UTC.replace("Z", "+00:00")
-    )
     resume = datetime.fromisoformat(FROZEN_RESUME_UTC.replace("Z", "+00:00"))
     assert start < resume
-    retune = datetime.fromisoformat(FROZEN_RETUNE_UTC.replace("Z", "+00:00"))
-    assert entry_end - retune == timedelta(days=3)
-    assert followup_end - entry_end == timedelta(days=7)
+    assert FROZEN_ENTRY_END_UTC == FROZEN_FOLLOWUP_END_UTC == "9999-12-31T23:59:59Z"
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
     assert config.api.private_key == "1" * 64
@@ -81,8 +75,8 @@ def test_one_week_continuation_preserves_existing_guard_budget(monkeypatch, shor
     runtime = next(name for name, spec in RUNTIME_SPECS.items() if spec.jenkins_job == "polybot-" + short)
     config = load_config("config.yaml", runtime, simulation_mode=False)
     assert config.trading.experiment_start_utc == "2026-08-29T04:00:00Z"
-    assert config.trading.experiment_entry_end_utc == "2026-09-15T12:00:00Z"
-    assert config.trading.experiment_followup_end_utc == "2026-09-22T12:00:00Z"
+    assert config.trading.experiment_entry_end_utc == "9999-12-31T23:59:59Z"
+    assert config.trading.experiment_followup_end_utc == "9999-12-31T23:59:59Z"
     assert config.trading.economic_guard_start_utc == ECONOMIC_GUARD_START_UTC_BY_SPORT[config.trading.sport_family]
     assert config.trading.economic_guard_start_utc < FROZEN_RESUME_UTC
     assert config.trading.buy_amount_usdc == 5

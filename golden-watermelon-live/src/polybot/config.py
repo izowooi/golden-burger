@@ -27,8 +27,9 @@ FROZEN_START_UTC = "2026-08-29T04:00:00Z"
 # original start so existing positions and sport-specific guard history survive.
 FROZEN_RESUME_UTC = "2026-09-05T09:05:00Z"
 FROZEN_RETUNE_UTC = "2026-09-12T12:00:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-15T12:00:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-22T12:00:00Z"
+# Operator-controlled continuous live. Reviews do not close entry automatically.
+FROZEN_ENTRY_END_UTC = "9999-12-31T23:59:59Z"
+FROZEN_FOLLOWUP_END_UTC = "9999-12-31T23:59:59Z"
 # The MLB safety budget restarts at the first successful v3e run.  Earlier MLB
 # trades remain immutable performance evidence, but they used the superseded
 # 5pp stop and must not consume the corrected cohort's entry kill switch.
