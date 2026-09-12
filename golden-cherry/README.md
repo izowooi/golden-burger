@@ -4,11 +4,12 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 
 고확률(75~92%) 시장 중 비스포츠는 `endDate`까지 120시간 이내, 스포츠는
 `gameStartTime`까지 120시간 이내이거나 현재 인플레이인 시장을 대상으로 합니다.
 
-> 운영 상태 (2026-09-12): `polybot-yellow`는 `H/5 * * * *` TimerTrigger와
-> `POLYBOT_LIFECYCLE_MODE=active`로 실행됩니다. Jenkins 운영 override는 `$5`, 진입 상한
-> `0.88`, 최소 유동성 `$125,000`, 최대 포지션 10, cycle당 신규 1건, exact-economic
-> 신규 진입 floor `-$200`입니다. 저장소의 `config.yaml` 기본값과 실제 운영값을 혼동하지
-> 말고 `strategy_configs`와 Jenkins config를 함께 확인합니다.
+> 운영 상태 (2026-09-13): Golden Cherry narrow-band live A/B가 5분마다 실행됩니다.
+> `polybot-yellow/cherry-live-yellow-076-078-v1`은 `.76–.78`, 이름을 변경한
+> `polybot-blue/cherry-live-blue-080-082-v1`은 `.80–.82`입니다. 공통 설정은 `$5`,
+> TP `20%`, SL `-8%`, trailing `15%`, exact-economic 신규진입 floor `-$30`입니다.
+> Yellow의 과거 `default` DB는 원래 TP10/SL08/trailing05로 close-only 관리됩니다.
+> 상세 계약은 `docs/retro/2026-09-13-golden-cherry-live-ab-preregistration.md`를 따릅니다.
 
 현재 live/default 경로에는 별도의 exact-economic 신규 진입 guard가 있습니다. exact confirmed
 SELL P&L과 fee-complete exact-token resolution settlement만 합쳐 기본 `-$30` floor와

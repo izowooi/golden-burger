@@ -65,7 +65,8 @@ exit로 인정되지 않지만 이후 runtime 상태에는 영향을 줄 수 있
 
 ## Live 적용 판정
 
-이번 작업에서는 Yellow live 설정을 변경하지 않았다. 이유는 다음과 같다.
+이 문서의 최초 grid 계산 시점에는 Yellow live 설정을 변경하지 않았다. 이후 사용자가
+2026-09-13 추천 후보를 수락해 별도 prospective A/B로 배포했다.
 
 1. 사용자는 최적값 추천을 요청했고 즉시 live 배포를 요청하지 않았다.
 2. Shadow 경로는 8일이며 166일 전체 경로가 아니다.
@@ -75,6 +76,10 @@ exit로 인정되지 않지만 이후 runtime 상태에는 영향을 줄 수 있
 따라서 다음 배포안은 `$5` prospective A/B다. Control은 현행 `TP10/SL08/trailing05`,
 Treatment는 명시적 `.76–.78 + .80–.82`, `TP20/SL08/trailing15`로 둔다. 금액 증액은 이
 검증 뒤에도 보류한다. 기존 `polybot-yellow` scheduler와 현재 포지션 관리는 계속 유지한다.
+
+실제 배포는 두 band 자체를 서로 다른 계좌에서 비교하도록 구성됐다. Yellow `.76–.78`,
+Blue `.80–.82`이며 공통 TP20/SL08/trailing15다. 상세 계약과 회고 프롬프트는
+[2026-09-13 live A/B preregistration](2026-09-13-golden-cherry-live-ab-preregistration.md)에 있다.
 
 ## 로컬 자료 격리
 
