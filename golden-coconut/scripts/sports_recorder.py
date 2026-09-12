@@ -25,7 +25,7 @@ def main():
     if lock.is_symlink():raise ValueError('unsafe writer lock')
     with lock.open('a') as handle:
         fcntl.flock(handle.fileno(),fcntl.LOCK_EX|fcntl.LOCK_NB)
-        now=datetime.now(timezone.utc);store=RecorderStore(path,slot_start_utc(now,config.slot_phase_seconds).date().isoformat())
+        now=datetime.now(timezone.utc);store=RecorderStore(path,slot_start_utc(now,config.slot_phase_seconds).date().isoformat(),runtime_job=config.job_name)
         try:
             result=Recorder(config,store).run(now,force_discovery=args.command=='probe',probe=args.command=='probe')
             if args.command=='probe':result['probe_only']=True

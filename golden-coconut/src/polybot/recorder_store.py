@@ -38,8 +38,8 @@ def fingerprint(c):
     return hashlib.sha256(json.dumps([tuple(r) for r in rows],separators=(',',':')).encode()).hexdigest()
 
 class RecorderStore:
-    def __init__(self,path,day):
-        self.path=Path(path);self.day=day;self.lock=threading.RLock()
+    def __init__(self,path,day,*,runtime_job=RUNTIME):
+        self.path=Path(path);self.day=day;self.runtime_job=runtime_job;self.lock=threading.RLock()
         if datetime.fromisoformat(day).date().isoformat()!=day:raise ValueError('invalid UTC shard date')
         if self.path.name!='trades_sim.db' or self.path.is_symlink():raise ValueError('unsafe recorder database path')
         self.path.parent.mkdir(parents=True,exist_ok=True)
@@ -75,7 +75,7 @@ class RecorderStore:
                     prior.close()
             self.path.open('xb').close();c=self._connect(self.path);c.executescript(schema_sql())
             c.execute(f'PRAGMA application_id={APPLICATION_ID}');c.execute('PRAGMA user_version=1')
-            c.execute('INSERT INTO collection_contracts VALUES(1,?,?,?,?,?)',('research-full-v1',CONTRACT,day,RUNTIME,self.expected_schema))
+            c.execute('INSERT INTO collection_contracts VALUES(1,?,?,?,?,?)',('research-full-v1',CONTRACT,day,self.runtime_job,self.expected_schema))
             if last_claim:
                 serialized=json.dumps(last_claim,sort_keys=True)
                 self.insert(c,'claim_carryovers',{'slot_utc':last_claim['slot_utc'],'owner_run_id':last_claim['run_id'],'source_shard':source.name,'state_json':serialized,'source_state_sha256':hashlib.sha256(serialized.encode()).hexdigest()})
@@ -105,7 +105,7 @@ class RecorderStore:
         if row and datetime.fromisoformat(row[0]['database_utc_date']).date().isoformat()!=row[0]['database_utc_date']:
             raise ValueError('invalid stored UTC day')
         if (len(row)!=1 or row[0]['contract_name']!='research-full-v1' or row[0]['data_contract']!=CONTRACT
-            or row[0]['runtime_job']!=RUNTIME or row[0]['schema_sha256']!=self.expected_schema
+            or row[0]['runtime_job']!=self.runtime_job or row[0]['schema_sha256']!=self.expected_schema
             or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID
             or fingerprint(c)!=self.expected_schema):raise ValueError('recorder schema/epoch mismatch')
 

@@ -8,9 +8,11 @@ from .config import assert_safe_environment
 from .registry import load_registry
 
 PROJECT = Path(__file__).resolve().parents[2]
-RUNTIME = 'coconut-sports-recorder-1m-v1'
+WHITE_RUNTIME = 'coconut-sports-recorder-1m-v1'
+SILVER_RUNTIME = 'coconut-sports-recorder-silver-1m-v1'
+RUNTIME = WHITE_RUNTIME
 CONTRACT = 'sports-price-recorder-1m-v1'
-EPOCH = 'research/frozen-2026-09-12-recorder-v3'
+EPOCH = 'research/frozen-2026-09-12-recorder-v4'
 REGISTRY = 'research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json'
 REGISTRY_SHA = '2b65532bb71ec7121a74260a9d4600706a3329da6bdfa9e3bfecc1c42e37bc3d'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',
@@ -22,7 +24,7 @@ SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api
 
 @dataclass(frozen=True)
 class RecorderConfig:
-    job_name: str = RUNTIME
+    job_name: str = WHITE_RUNTIME
     jenkins_job: str = 'polybot-white'
     cadence_seconds: int = 60
     slot_phase_seconds: int = 30
@@ -72,11 +74,17 @@ def verify_manifest():
     if seen!=set(SOURCES):raise ValueError('recorder manifest incomplete')
 
 
+RUNTIME_JENKINS_JOBS = {
+    WHITE_RUNTIME: 'polybot-white',
+    SILVER_RUNTIME: 'polybot-silver',
+}
+
+
 def load_config(*, job_name=RUNTIME, simulate=False, live=False):
     assert_safe_environment()
-    if live or not simulate or job_name!=RUNTIME:raise ValueError('explicit registered simulation recorder only')
+    if live or not simulate or job_name not in RUNTIME_JENKINS_JOBS:raise ValueError('explicit registered simulation recorder only')
     verify_manifest()
-    return RecorderConfig()
+    return RecorderConfig(job_name=job_name,jenkins_job=RUNTIME_JENKINS_JOBS[job_name])
 
 
 def registry():return load_registry(REGISTRY_SHA,PROJECT/REGISTRY)

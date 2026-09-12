@@ -5,7 +5,14 @@ from pathlib import Path
 from types import SimpleNamespace
 import gzip,hashlib,importlib.util,json,sqlite3
 import pytest
-from polybot.recorder_config import RecorderConfig,registry,slot_start_utc
+from polybot.recorder_config import (
+    RecorderConfig,
+    SILVER_RUNTIME,
+    WHITE_RUNTIME,
+    load_config,
+    registry,
+    slot_start_utc,
+)
 from polybot.recorder_store import RecorderStore
 from polybot.recorder import Recorder,slots_for,window_status,end_anchor
 from polybot.recorder_export import iter_rows,carryovers,file_sha
@@ -196,6 +203,30 @@ def test_strict_json_accepts_current_nfl_page_shape_and_keeps_a_hard_cap():
 
     assert MAX_JSON_NODES == 1_000_000
     assert strict_json(b'{"events":[{"id":"1"}]}')['events'][0]['id'] == '1'
+
+
+def test_white_and_silver_are_independent_replicas_of_one_recorder():
+    white = load_config(job_name=WHITE_RUNTIME, simulate=True)
+    silver = load_config(job_name=SILVER_RUNTIME, simulate=True)
+
+    assert white.jenkins_job == 'polybot-white'
+    assert silver.jenkins_job == 'polybot-silver'
+    assert white.job_name != silver.job_name
+    assert white.db_path != silver.db_path
+    white_contract = white.snapshot()
+    silver_contract = silver.snapshot()
+    ignored = {'job_name', 'jenkins_job', 'config_hash'}
+    assert {k: v for k, v in white_contract.items() if k not in ignored} == {
+        k: v for k, v in silver_contract.items() if k not in ignored
+    }
+
+
+def test_recorder_store_binds_database_to_runtime(tmp_path):
+    path = tmp_path / 'trades_sim.db'
+    store = RecorderStore(path, '2026-09-08', runtime_job=SILVER_RUNTIME)
+    store.close()
+    with pytest.raises(ValueError, match='schema/epoch mismatch'):
+        RecorderStore(path, '2026-09-08', runtime_job=WHITE_RUNTIME)
 
 
 def test_export_cli_terminal_cutoff_and_independent_payout_validation(tmp_path,monkeypatch):

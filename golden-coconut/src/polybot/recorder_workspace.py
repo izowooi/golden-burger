@@ -21,4 +21,4 @@ def verify_workspace(config):
         if marker.is_symlink() or json.loads(marker.read_text())!={'schema_version':1,'job':config.jenkins_job,'workspace':str(workspace)}:raise RuntimeError('workspace marker mismatch')
     usage=shutil.disk_usage(workspace)
     if usage.free<config.min_free_gib*1024**3 or usage.used/usage.total>=config.max_used_ratio:raise RuntimeError('recorder storage gate')
-    return {'workspace':str(workspace),'runtime':RUNTIME,'free_bytes':usage.free,'status':'ok'}
+    return {'workspace':str(workspace),'runtime':config.job_name,'free_bytes':usage.free,'status':'ok'}
