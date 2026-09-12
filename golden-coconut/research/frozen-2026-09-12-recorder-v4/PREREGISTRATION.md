@@ -15,9 +15,10 @@ source clock, terminal evidence, and the complete `$5–$1000` depth needed for 
   envelopes, slot phase, clock, book, fee, terminal, retry, JSON bounds, and publication logic match.
 - Full discovery is aligned to deterministic UTC five-minute slot boundaries in both replicas. A
   failed scheduled discovery remains due on the next minute instead of waiting five more minutes.
-- Jenkins starts near second `:00`, so both replicas use slot phase `0` and retain the full 50-second
-  cycle budget. The response attempt wall limit is 15 seconds, matching the recorder contract; the
-  42-second request boundary and at-most-two retries still cap total work.
+- Cron starts fluctuate across second `:00`, so both replicas keep phase `:30`: starts at `:55` and
+  `:02` map to the same slot. The 50-second hard budget now starts at process execution and is not
+  shortened to the next slot boundary. The response attempt wall limit is 15 seconds; the 42-second
+  request boundary and at-most-two retries still cap total work.
 - The old `polybot-silver/plum-shadow-silver-1m-v1` database is an immutable historical epoch. It is
   never migrated or merged into either integrated recorder.
 - Golden Peach Grey remains retired after its strategy-specific simulation positions reached zero.

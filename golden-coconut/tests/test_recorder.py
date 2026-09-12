@@ -222,10 +222,10 @@ def test_white_and_silver_are_independent_replicas_of_one_recorder():
 
 
 def test_replica_discovery_is_utc_slot_aligned_and_retries_after_failure():
-    slot = datetime(2026, 9, 12, 10, 40, 0, tzinfo=timezone.utc)
-    assert discovery_due(slot, iso_utc(slot-timedelta(minutes=1)), 300)
-    assert not discovery_due(slot+timedelta(minutes=1), iso_utc(slot), 300)
-    assert discovery_due(slot+timedelta(minutes=1), None, 300)
+    slot = datetime(2026, 9, 12, 10, 39, 30, tzinfo=timezone.utc)
+    assert discovery_due(slot, iso_utc(slot-timedelta(minutes=1)), 300, 30)
+    assert not discovery_due(slot+timedelta(minutes=1), iso_utc(slot), 300, 30)
+    assert discovery_due(slot+timedelta(minutes=1), None, 300, 30)
 
 
 def test_recorder_store_binds_database_to_runtime(tmp_path):
@@ -415,24 +415,26 @@ def test_public_sports_clock_transport_matches_exact_alias_and_keeps_native_cloc
     assert sent==['pong'] and calls[0][1]['proxy'] is None and len(receipts)==1
 
 
-def test_early_midnight_slot_belongs_to_new_date_with_zero_phase(tmp_path):
+def test_early_midnight_unclaimed_slot_belongs_to_previous_date(tmp_path):
     path=tmp_path/'trades_sim.db';at=NOW.replace(day=9,hour=0,minute=0,second=3)
     result=record(path,at);assert result['status']=='SUCCEEDED'
     c=sqlite3.connect(path)
-    assert c.execute('SELECT database_utc_date FROM collection_contracts').fetchone()[0]=='2026-09-09'
-    assert c.execute('SELECT slot_utc FROM cycles').fetchone()[0]=='2026-09-09T00:00:00Z'
+    assert c.execute('SELECT database_utc_date FROM collection_contracts').fetchone()[0]=='2026-09-08'
+    assert c.execute('SELECT slot_utc FROM cycles').fetchone()[0]=='2026-09-08T23:59:30Z'
+    stats=json.loads(c.execute('SELECT stats_json FROM cycles').fetchone()[0])
+    assert stats['slot_available_seconds']==50.0
     c.close();assert all(r['timestamp'].startswith('2026-09-09') for r in iter_rows(path))
 
 
-def test_same_zero_phase_minute_is_duplicate_without_http(tmp_path):
-    path=tmp_path/'trades_sim.db';at=NOW.replace(day=9,hour=0,minute=0,second=3);record(path,at);FakeClient.calls=[]
-    result=record(path,at.replace(second=20))
+def test_early_midnight_duplicate_does_not_rotate_or_issue_http(tmp_path):
+    path=tmp_path/'trades_sim.db';record(path,NOW);FakeClient.calls=[]
+    result=record(path,NOW.replace(day=9,hour=0,minute=0,second=3))
     assert result['status']=='SKIPPED_DUPLICATE_SLOT' and FakeClient.calls==[]
     assert not (tmp_path/'trades_sim_20260908.db').exists()
 
 
 def test_wrong_invocation_date_store_rejected_before_http(tmp_path):
-    at=NOW.replace(day=9,hour=0,minute=0,second=3);store=RecorderStore(tmp_path/'trades_sim.db','2026-09-08');FakeClient.calls=[]
+    at=NOW.replace(day=9,hour=0,minute=0,second=3);store=RecorderStore(tmp_path/'trades_sim.db','2026-09-09');FakeClient.calls=[]
     try:
         with pytest.raises(ValueError,match='claimed UTC slot'):Recorder(RecorderConfig(),store,FakeClient).run(at)
         assert FakeClient.calls==[]

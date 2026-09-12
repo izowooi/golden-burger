@@ -120,11 +120,13 @@ def window_status(now,scheduled,end,ever_live,pre=600,post=600):
     return 'BEFORE_WINDOW' if now<start-timedelta(seconds=pre) else 'IN_WINDOW'
 
 
-def discovery_due(slot,last,interval_seconds,force=False):
+def discovery_due(slot,last,interval_seconds,phase_seconds,force=False):
     if force or not last:return True
     if interval_seconds<=0 or interval_seconds%60:raise ValueError('discovery interval must be whole positive minutes')
     interval_minutes=interval_seconds//60
-    scheduled=(int(slot.timestamp())//60)%interval_minutes==0
+    if not 0<=phase_seconds<60:raise ValueError('slot phase must be within one minute')
+    nominal_trigger=slot+timedelta(seconds=(60-phase_seconds)%60)
+    scheduled=(int(nominal_trigger.timestamp())//60)%interval_minutes==0
     overdue=(slot-parse_source_utc(last)).total_seconds()>=interval_seconds
     return scheduled or overdue
 
@@ -145,7 +147,7 @@ class Recorder:
         provenance={'strategy_name':'golden-coconut','job_name':config['job_name'],'mode':'sim','observation_mode':config['observation_mode'],'config_hash':config['config_hash'],'strategy_source_digest':config['source_digest']}
         claimed=self.store.claim(slot,run,reference,config)
         if claimed:return {'status':'SKIPPED_DUPLICATE_SLOT','owner_run_id':claimed,'slot_utc':slot,**provenance}
-        available=50. if probe else max(.001,min(50.,(next_slot-now).total_seconds()))
+        available=50.
         request_time=max(0.,min(42.,available-8.))
         budget=CycleBudget(time.monotonic(),available,available-request_time,available)
         client=self.client_factory(self.config,self.registry,self.store,budget)
@@ -153,7 +155,7 @@ class Recorder:
         prior=self.store.c.execute('SELECT stats_json FROM cycles ORDER BY rowid DESC LIMIT 1').fetchone()
         last=json.loads(prior[0]).get('last_complete_discovery_at') if prior else None
         try:
-            discover=discovery_due(slot_dt,last,self.config.discovery_seconds,force_discovery)
+            discover=discovery_due(slot_dt,last,self.config.discovery_seconds,self.config.slot_phase_seconds,force_discovery)
             if discover:
                 for family,sweep,error in client.discovery(run,slot):
                     sweeps.append({'family':family,'cursor_complete':bool(sweep and sweep.cursor_complete),'pages':len(sweep.pages) if sweep else 0,'error':error})
