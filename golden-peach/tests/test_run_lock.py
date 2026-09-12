@@ -130,8 +130,11 @@ def test_main_enforces_deadline_only_for_simulation(
         yield object()
 
     class FakeBot:
-        def __init__(self, resolved_config, *, cycle_budget):
+        def __init__(self, resolved_config):
             assert resolved_config is config
+
+        def set_cycle_budget(self, cycle_budget):
+            observed.append("budget_attached")
 
         def run(self):
             observed.append("run")
@@ -152,7 +155,7 @@ def test_main_enforces_deadline_only_for_simulation(
 
     main_module.main()
 
-    assert observed == [expected_enforcement, "run"]
+    assert observed == [expected_enforcement, "budget_attached", "run"]
 
 
 def test_simulation_bot_init_failure_is_recorded_as_incomplete_run(

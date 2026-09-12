@@ -153,7 +153,7 @@ def test_probe_is_separate_config_and_outside_window_without_affecting_productio
     assert all(r['config']['observation_mode']=='PROBE' and r['window_status']=='PROBE_OUTSIDE_WINDOW' for r in rows)
 
 
-def test_capture_stream_body_cap_preserves_one_failed_receipt(tmp_path,monkeypatch):
+def test_capture_stream_body_cap_preserves_each_failed_retry_receipt(tmp_path,monkeypatch):
     import io,time,requests
     from urllib3.response import HTTPResponse
     from polybot.recorder_http import RecorderClient,MAX_BYTES
@@ -170,9 +170,24 @@ def test_capture_stream_body_cap_preserves_one_failed_receipt(tmp_path,monkeypat
         with pytest.raises(PublicApiError):
             client.transports['soccer'].request_json('GET','https://gamma-api.polymarket.com/events',request_kind='gamma_event_followup',run_id='cap',budget=client.budget)
         rows=store.c.execute('SELECT * FROM requests').fetchall()
-        assert len(rows)==1 and rows[0]['status']=='ERROR' and rows[0]['raw_complete']==0
-        body=gzip.decompress(rows[0]['raw_gzip'])
-        assert len(body)==MAX_BYTES and hashlib.sha256(body).hexdigest()==rows[0]['sha256']
+        assert len(rows)==3
+        assert all(row['status']=='ERROR' and row['raw_complete']==0 for row in rows)
+        for row in rows:
+            body=gzip.decompress(row['raw_gzip'])
+            assert len(body)==MAX_BYTES and hashlib.sha256(body).hexdigest()==row['sha256']
+    finally:client.close();store.close()
+
+
+def test_recorder_retries_each_family_transient_failure_twice(tmp_path):
+    from polybot.recorder_http import RecorderClient
+    from polybot.api.transport import CycleBudget
+    import time
+
+    path=tmp_path/'trades_sim.db';store=RecorderStore(path,NOW.date().isoformat())
+    client=RecorderClient(RecorderConfig(),registry(),store,CycleBudget(time.monotonic(),50,8,50))
+    try:
+        assert all(transport.max_retries == 2 for transport in client.transports.values())
+        assert all(transport.attempt_wall_seconds == 10 for transport in client.transports.values())
     finally:client.close();store.close()
 
 

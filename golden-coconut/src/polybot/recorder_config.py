@@ -10,7 +10,7 @@ from .registry import load_registry
 PROJECT = Path(__file__).resolve().parents[2]
 RUNTIME = 'coconut-sports-recorder-1m-v1'
 CONTRACT = 'sports-price-recorder-1m-v1'
-EPOCH = 'research/frozen-2026-09-11-recorder-v2'
+EPOCH = 'research/frozen-2026-09-12-recorder-v3'
 REGISTRY = 'research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json'
 REGISTRY_SHA = '2b65532bb71ec7121a74260a9d4600706a3329da6bdfa9e3bfecc1c42e37bc3d'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',

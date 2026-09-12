@@ -126,28 +126,29 @@ def main() -> None:
                         config.job_name,
                     )
                     return
-                with enforced_cycle_deadline(
-                    enforce_deadline=config.simulation_mode,
-                ) as cycle_budget:
-                    try:
-                        bot = PolymarketBot(config, cycle_budget=cycle_budget)
-                    except Exception as error:
-                        _record_simulation_failure(config, error)
-                        raise
-                    try:
+                try:
+                    bot = PolymarketBot(config)
+                except Exception as error:
+                    _record_simulation_failure(config, error)
+                    raise
+                try:
+                    with enforced_cycle_deadline(
+                        enforce_deadline=config.simulation_mode,
+                    ) as cycle_budget:
+                        bot.set_cycle_budget(cycle_budget)
                         bot.run()
-                    finally:
-                        cleanup_failures = bot.close()
-                        if cleanup_failures:
-                            logging.error(
-                                "cycle resource cleanup incomplete - job=%s failures=%s",
-                                config.job_name,
-                                ",".join(cleanup_failures),
-                            )
-                        else:
-                            logging.info(
-                                "cycle resources closed - job=%s", config.job_name
-                            )
+                finally:
+                    cleanup_failures = bot.close()
+                    if cleanup_failures:
+                        logging.error(
+                            "cycle resource cleanup incomplete - job=%s failures=%s",
+                            config.job_name,
+                            ",".join(cleanup_failures),
+                        )
+                    else:
+                        logging.info(
+                            "cycle resources closed - job=%s", config.job_name
+                        )
         except KeyboardInterrupt:
             print("\n사용자에 의해 중단됨")
             sys.exit(0)

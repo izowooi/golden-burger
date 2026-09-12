@@ -30,9 +30,7 @@ class PolymarketBot:
         cycle_budget: CycleBudget | None = None,
     ):
         self.config = config
-        self.cycle_budget = cycle_budget or CycleBudget.start(
-            enforce_deadline=config.simulation_mode
-        )
+        self.cycle_budget = cycle_budget or CycleBudget.start()
         self.Session = init_database(
             str(config.db_path),
             SQLiteMaintenanceRequirements(
@@ -69,6 +67,12 @@ class PolymarketBot:
             config.trading.strategy_source_digest[:12],
             config.trading.preregistration_sha256[:12],
         )
+
+    def set_cycle_budget(self, cycle_budget: CycleBudget) -> None:
+        """Start the network-cycle clock after local DB initialization."""
+        self.cycle_budget = cycle_budget
+        self.gamma.cycle_budget = cycle_budget
+        self.clob.cycle_budget = cycle_budget
 
     def close(self) -> tuple[str, ...]:
         """Release every cycle-scoped resource even if one cleanup fails.
