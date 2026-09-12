@@ -110,6 +110,9 @@ TP/SL/trailing의 새 최적값을 고르는 것을 금지한다.
 자동으로 막고 기존 5개 포지션의 대사·청산은 계속한다. scheduler 정지는 사용자의 별도 판단을
 따른다.
 
+2026-09-12 추가 grid 분석과 prospective 후보는
+[Golden Cherry 진입·TP·SL·Trailing 재생](2026-09-12-golden-cherry-parameter-grid.md)에 기록했다.
+
 ## 별도 운영 위험
 
 Jenkins config가 private key와 funder address를 inline export하고 anonymous config read도

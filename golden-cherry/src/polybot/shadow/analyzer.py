@@ -199,6 +199,11 @@ def analyze_shadow_database(
                 "SELECT COUNT(DISTINCT run_id) FROM shadow_run_events WHERE event_type='FAILED'"
             ).fetchone()[0]
         )
+        failed_run_exit_rows = connection.execute(
+            f"SELECT COUNT(*), COUNT(DISTINCT episode_id) "
+            f"FROM shadow_policy_exits WHERE run_id NOT IN ({placeholders})",
+            run_params,
+        ).fetchone()
         cohorts = [
             {
                 "config_hash": row[0],
@@ -241,6 +246,10 @@ def analyze_shadow_database(
         "run_health": {
             "valid_successful_runs": len(valid_runs),
             "failed_runs": run_failures,
+            "failed_run_policy_exit_rows": int(failed_run_exit_rows[0] or 0),
+            "failed_run_policy_exit_episode_count": int(
+                failed_run_exit_rows[1] or 0
+            ),
             "sweeps": int(sweeps[0] or 0),
             "cursor_complete_sweeps": int(sweeps[1] or 0),
             "raw_market_rows": int(sweeps[2] or 0),
