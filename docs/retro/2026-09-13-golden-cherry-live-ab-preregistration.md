@@ -2,7 +2,8 @@
 
 ## 시작과 모집단
 
-- 공통 성과 cutoff: `2026-09-12T16:39:00Z` inclusive
+- 공통 성과 cutoff: `2026-09-12T16:45:39Z` inclusive. 두 arm이 TTL 5분 최종 config로
+  한 cycle씩 성공한 뒤의 시각이다.
 - 자동 종료일 없음. 사용자가 중단 또는 교정을 지시할 때까지 신규 진입을 계속한다.
 - 체크포인트: 24시간, 3일, 7일. 체크포인트는 자동 중단이나 과거 파라미터 복귀가 아니다.
 - 전략: `golden-cherry`, YES-only Resolution Momentum
@@ -65,7 +66,7 @@ Golden Cherry narrow-band live A/B를 배포 시각부터 현재까지 상세 �
 - polybot-yellow / cherry-live-yellow-076-078-v1 / 진입 .76-.78
 - polybot-blue / cherry-live-blue-080-082-v1 / 진입 .80-.82
 - 공통: $5, TP20%, SL8%, trailing15%, pending BUY TTL 5분
-- 성과 cutoff: UTC [2026-09-12T16:39:00Z, now)
+- 성과 cutoff: UTC [2026-09-12T16:45:39Z, now)
 
 두 job을 각각 daily-rsync scan → plan → sync → verify → pin하고 verified pinned DB와 로그만 사용해주세요.
 Yellow의 과거 default close-only DB와 cutoff 이전 Alabama pending BUY는 신규 A/B 성과에서 제외하되,
