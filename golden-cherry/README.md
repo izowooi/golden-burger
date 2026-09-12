@@ -4,15 +4,19 @@ Resolution Momentum 전략 기반 Polymarket 자동 매매 봇입니다. 현재 
 고확률(75~92%) 시장 중 비스포츠는 `endDate`까지 120시간 이내, 스포츠는
 `gameStartTime`까지 120시간 이내이거나 현재 인플레이인 시장을 대상으로 합니다.
 
-> 운영 상태 (2026-09-05): `polybot-yellow` TimerTrigger는 비활성화되어 scheduled cycle이
-> 없습니다. 수동 `run`은 설정된 lifecycle을 그대로 따르므로, 잔여 포지션 관리 목적이면
-> `POLYBOT_LIFECYCLE_MODE=close_only`를 명시합니다.
+> 운영 상태 (2026-09-12): `polybot-yellow`는 `H/5 * * * *` TimerTrigger와
+> `POLYBOT_LIFECYCLE_MODE=active`로 실행됩니다. Jenkins 운영 override는 `$5`, 진입 상한
+> `0.88`, 최소 유동성 `$125,000`, 최대 포지션 10, cycle당 신규 1건, exact-economic
+> 신규 진입 floor `-$200`입니다. 저장소의 `config.yaml` 기본값과 실제 운영값을 혼동하지
+> 말고 `strategy_configs`와 Jenkins config를 함께 확인합니다.
 
 현재 live/default 경로에는 별도의 exact-economic 신규 진입 guard가 있습니다. exact confirmed
 SELL P&L과 fee-complete exact-token resolution settlement만 합쳐 기본 `-$30` floor와
 비교하며, legacy `realized_pnl`은 제외합니다. floor 이하이거나 fee/BUY evidence가 불완전하면
-신규 BUY만 차단하고 기존 대사와 청산은 계속합니다. 2026-09-05 Yellow evidence에서는
-`-$44.847137 + -$100.314853 = -$145.161990`이므로 TimerTrigger와 무관하게 entry-blocked입니다.
+신규 BUY만 차단하고 기존 대사와 청산은 계속합니다. 2026-09-12 13:29 UTC Yellow evidence의
+확정 경제손익은 SELL `-$38.745204`와 exact-token resolution settlement
+`-$103.672304`, 합계 `-$142.417508`입니다. 운영 floor가 `-$200`이므로 현재 신규 진입은
+허용됩니다.
 
 ## 개요
 
@@ -26,7 +30,7 @@ SELL P&L과 fee-complete exact-token resolution settlement만 합쳐 기본 `-$3
 ```mermaid
 flowchart TB
     subgraph Jenkins["Jenkins Scheduler"]
-        JOB[TimerTrigger 비활성<br/>필요 시 수동 실행]
+        JOB[TimerTrigger H/5<br/>active live]
     end
 
     subgraph Bot["Trading Bot"]
@@ -777,9 +781,9 @@ uv run python main.py analyze --shadow \
   --end 2026-10-04T16:00:00Z
 ```
 
-`--job`은 등록값 외에는 거절되고 `--live`는 DB/network 전에 거절됩니다. 현재 Yellow
-TimerTrigger는 계속 비활성 상태이며, 이 코드 변경은 Jenkins job을 생성하지 않습니다. 기존
-entry/exit 숫자와 GTC 정책은 유지되고 신규 exact-economic entry floor만 추가됩니다.
+`--job`은 등록값 외에는 거절되고 `--live`는 DB/network 전에 거절됩니다. Shadow는
+`polybot-cherry-shadow`에서 5분마다 별도로 실행되며 Yellow live의 주문이나 계정을 사용하지
+않습니다.
 
 ## 주의사항
 

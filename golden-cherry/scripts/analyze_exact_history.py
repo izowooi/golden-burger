@@ -19,6 +19,11 @@ from typing import Any, Iterable
 from urllib.parse import quote
 
 from polybot.db.exposure_reservations import UNTRACKED_BUY_RESERVATIONS_SQL
+from polybot.db.operator_controls import (
+    TABLE as OPERATOR_TABLE,
+    submission_fingerprint,
+    validate_unknown,
+)
 
 
 EXACT_PNL_BASIS = "exact_reconciled_buy_sell_confirmed_fills_net_known_fees"
@@ -249,10 +254,61 @@ def _run_for_time(
     return matches[0] if len(matches) == 1 else None
 
 
+def _operator_handled_submission_ids(
+    connection: sqlite3.Connection,
+) -> set[str]:
+    """Validate and return historical unknown BUYs owned by the operator.
+
+    These rows remain uncertain venue history, but the live repository excludes
+    them from bot capacity and protects their tokens from bot orders.  The
+    retrospective must use the same operational exposure semantics.
+    """
+    table_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (OPERATOR_TABLE,),
+    ).fetchone()
+    if table_exists is None:
+        return set()
+    handled: set[str] = set()
+    for acknowledgement in connection.execute(
+        f"SELECT * FROM {OPERATOR_TABLE} ORDER BY submission_id"
+    ):
+        submission = connection.execute(
+            "SELECT * FROM order_submissions WHERE submission_id=?",
+            (acknowledgement["submission_id"],),
+        ).fetchone()
+        if submission is None:
+            raise RuntimeError("operator acknowledgement lost its source submission")
+        validate_unknown(submission)
+        if (
+            acknowledgement["evidence_kind"] != "OPERATOR_HANDLED_ASSUMPTION"
+            or acknowledgement["original_submission_sha256"]
+            != submission_fingerprint(submission)
+            or acknowledgement["token_id"] != submission["token_id"]
+            or not str(acknowledgement["approval_id"] or "").strip()
+            or not str(acknowledgement["reason"] or "").strip()
+            or not acknowledgement["acknowledged_at"]
+        ):
+            raise RuntimeError("operator acknowledgement/source identity mismatch")
+        fill = connection.execute(
+            "SELECT 1 FROM order_fills WHERE submission_id=? LIMIT 1",
+            (submission["submission_id"],),
+        ).fetchone()
+        if fill is not None:
+            raise RuntimeError(
+                "operator-owned unknown acquired venue fill evidence; review required"
+            )
+        handled.add(str(submission["submission_id"]))
+    return handled
+
+
 def _untracked_buy_reservations(connection: sqlite3.Connection) -> list[dict[str, Any]]:
+    operator_handled = _operator_handled_submission_ids(connection)
     rows = connection.execute(UNTRACKED_BUY_RESERVATIONS_SQL).fetchall()
     reservations = []
     for row in rows:
+        if str(row["submission_id"]) in operator_handled:
+            continue
         price = _finite(row["requested_price"])
         size = _finite(row["requested_size"])
         if price is None or size is None or not 0 < price < 1 or size <= 0:
@@ -293,6 +349,9 @@ def _buy_reservation_audit(connection: sqlite3.Connection) -> dict[str, int]:
     return {
         "raw_order_id_null_submit_outcome_unknown_count": int(row[0] or 0),
         "operator_proven_no_order_created_excluded_count": int(row[1] or 0),
+        "operator_handled_assumption_excluded_count": len(
+            _operator_handled_submission_ids(connection)
+        ),
     }
 
 

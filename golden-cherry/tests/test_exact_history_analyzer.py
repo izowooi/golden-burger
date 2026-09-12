@@ -6,6 +6,7 @@ import pytest
 from polybot_observability import ExecutionLedger
 
 from polybot.db.models import Trade, TradeStatus, init_database
+from polybot.db.operator_controls import register_operator_handled
 from polybot.db.repository import TradeRepository
 from report import load_trades
 from scripts.analyze_exact_history import analyze, parse_exact_utc
@@ -275,6 +276,34 @@ def test_analyzer_reservation_query_matches_runtime_repository(tmp_path):
     assert snapshot["untracked_buy_reservation_notional_usdc"] == runtime[
         "untracked_buy_reservation_notional_usdc"
     ]
+
+
+def test_analyzer_excludes_valid_operator_handled_unknown_from_capacity(tmp_path):
+    db_path = _fixture_db(tmp_path)
+    with sqlite3.connect(db_path) as connection:
+        register_operator_handled(
+            connection,
+            ["unknown-active"],
+            reason="owner will manage this historical uncertainty",
+            approval_id="user-approved-test",
+        )
+
+    Session = init_database(str(db_path))
+    with Session() as session:
+        runtime = TradeRepository(session).get_buy_exposure_reservations()
+    result = analyze(
+        db_path,
+        datetime(2026, 8, 1, tzinfo=timezone.utc),
+        datetime(2026, 9, 1, tzinfo=timezone.utc),
+    )
+    snapshot = result["current_exposure_snapshot"]
+
+    assert runtime["untracked_buy_reservation_count"] == 0
+    assert snapshot["untracked_buy_reservation_count"] == 0
+    assert snapshot["untracked_buy_reservation_notional_usdc"] == 0
+    assert snapshot["reservation_count_reconciliation"][
+        "operator_handled_assumption_excluded_count"
+    ] == 1
 
 
 def test_analyzer_requires_exact_utc_timestamp_inputs():
