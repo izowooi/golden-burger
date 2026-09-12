@@ -13,6 +13,8 @@ source clock, terminal evidence, and the complete `$5–$1000` depth needed for 
   a separate create-only database and UTC shards.
 - Runtime/job/database identity is the only treatment difference. Universe, family workers, request
   envelopes, slot phase, clock, book, fee, terminal, retry, JSON bounds, and publication logic match.
+- Full discovery is aligned to deterministic UTC five-minute slot boundaries in both replicas. A
+  failed scheduled discovery remains due on the next minute instead of waiting five more minutes.
 - The old `polybot-silver/plum-shadow-silver-1m-v1` database is an immutable historical epoch. It is
   never migrated or merged into either integrated recorder.
 - Golden Peach Grey remains retired after its strategy-specific simulation positions reached zero.

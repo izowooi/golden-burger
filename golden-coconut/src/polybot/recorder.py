@@ -120,6 +120,15 @@ def window_status(now,scheduled,end,ever_live,pre=600,post=600):
     return 'BEFORE_WINDOW' if now<start-timedelta(seconds=pre) else 'IN_WINDOW'
 
 
+def discovery_due(slot,last,interval_seconds,force=False):
+    if force or not last:return True
+    if interval_seconds<=0 or interval_seconds%60:raise ValueError('discovery interval must be whole positive minutes')
+    interval_minutes=interval_seconds//60
+    scheduled=(int(slot.timestamp())//60)%interval_minutes==0
+    overdue=(slot-parse_source_utc(last)).total_seconds()>=interval_seconds
+    return scheduled or overdue
+
+
 class Recorder:
     def __init__(self,config,store,client_factory=RecorderClient):
         self.config,self.store,self.client_factory=config,store,client_factory
@@ -144,7 +153,7 @@ class Recorder:
         prior=self.store.c.execute('SELECT stats_json FROM cycles ORDER BY rowid DESC LIMIT 1').fetchone()
         last=json.loads(prior[0]).get('last_complete_discovery_at') if prior else None
         try:
-            discover=force_discovery or not last or (now-parse_source_utc(last)).total_seconds()>=self.config.discovery_seconds
+            discover=discovery_due(slot_dt,last,self.config.discovery_seconds,force_discovery)
             if discover:
                 for family,sweep,error in client.discovery(run,slot):
                     sweeps.append({'family':family,'cursor_complete':bool(sweep and sweep.cursor_complete),'pages':len(sweep.pages) if sweep else 0,'error':error})

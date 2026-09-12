@@ -14,7 +14,7 @@ from polybot.recorder_config import (
     slot_start_utc,
 )
 from polybot.recorder_store import RecorderStore
-from polybot.recorder import Recorder,slots_for,window_status,end_anchor
+from polybot.recorder import Recorder,discovery_due,slots_for,window_status,end_anchor
 from polybot.recorder_export import iter_rows,carryovers,file_sha
 from polybot.classifier import classify_event
 from polybot.api.transport import iso_utc
@@ -221,6 +221,13 @@ def test_white_and_silver_are_independent_replicas_of_one_recorder():
     }
 
 
+def test_replica_discovery_is_utc_slot_aligned_and_retries_after_failure():
+    slot = datetime(2026, 9, 12, 10, 40, 30, tzinfo=timezone.utc)
+    assert discovery_due(slot, iso_utc(slot-timedelta(minutes=1)), 300)
+    assert not discovery_due(slot+timedelta(minutes=1), iso_utc(slot), 300)
+    assert discovery_due(slot+timedelta(minutes=1), None, 300)
+
+
 def test_recorder_store_binds_database_to_runtime(tmp_path):
     path = tmp_path / 'trades_sim.db'
     store = RecorderStore(path, '2026-09-08', runtime_job=SILVER_RUNTIME)
@@ -336,7 +343,7 @@ def test_deferred_group_gets_next_cycle_priority_and_partial_is_failed(tmp_path,
 
 
 def test_bad_metadata_preserves_received_sibling_book_and_marks_partial(tmp_path,monkeypatch):
-    at=NOW.replace(hour=12);pair_setup(at);PairClient.current=at
+    at=NOW.replace(hour=12,minute=57);pair_setup(at);PairClient.current=at
     path=tmp_path/'trades_sim.db';store=RecorderStore(path,NOW.date().isoformat())
     monkeypatch.setattr('polybot.recorder.iso_utc',lambda value=None:iso_utc(value if value is not None else PairClient.current+timedelta(seconds=4)))
     try:
