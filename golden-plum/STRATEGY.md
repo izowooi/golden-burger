@@ -13,7 +13,10 @@ confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금은 
 MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
 신규 live runtime을 등록하거나 배포하지 않는다.
 
-근거는 `research/frozen-2026-09-12-soccer-minute75-v11/PREREGISTRATION.md`다.
+현재 진입 하한 `.70`, 상한 `.73`, TP `.90/.95`, SL `.15`, minute75는 유지한다. 40개
+strict raw 경기의 시간순 재생에서 `.70`만 두 TP의 양쪽 절반이 양수였고 `.75/.80/.85`는
+검증 절반이 음수였다. 수정된 구현을 3일 더 forward 검증하는 근거는
+`research/frozen-2026-09-12-soccer-weekend-forward-v12/PREREGISTRATION.md`다.
 
 ## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
 

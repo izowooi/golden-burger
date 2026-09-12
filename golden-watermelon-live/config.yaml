@@ -43,15 +43,15 @@ trading:
   yes_only_mode: true
 
   experiment_start_utc: 2026-08-29T04:00:00Z
-  # Approved one-week continuation from 2026-09-05T09:05:00Z; no history reset.
-  experiment_entry_end_utc: 2026-09-12T09:05:00Z
-  experiment_followup_end_utc: 2026-09-19T09:05:00Z
+  # Three-day .91/.92 forward A/B from 2026-09-12T12:15Z; no history reset.
+  experiment_entry_end_utc: 2026-09-15T12:15:00Z
+  experiment_followup_end_utc: 2026-09-22T12:15:00Z
 
-  # Cat is arm A. Dog overrides only prob_min=0.99 in Jenkins. Both active
+  # Cat is arm A=.91. Dog overrides only prob_min=.92 in Jenkins. Both active
   # Cat keeps its v2h runtime to manage existing positions; Dog and the new
   # MLB/NHL jobs share this source contract. Cadence is a Jenkins concern.
   entry:
-    prob_min: 0.96
+    prob_min: 0.91
     prob_max: 0.999
     stop_price: 0.70
     # Effective stop = max(0.70, confirmed entry VWAP - 0.30), so the absolute

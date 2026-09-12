@@ -6,7 +6,8 @@
 `0.70` 재난 손절 또는 proven resolution까지 관리하면
 confirmed fill·fee 후 양의 기대값이 있는가?
 
-각 family에서 A는 `[0.96,0.999]`, B는 `[0.99,0.999]`다. Soccer는 Cat/Dog, MLB는
+현재 Soccer forward A/B에서 Cat은 `[0.91,0.999]`, Dog는 `[0.92,0.999]`다. MLB/NHL의
+historical runtime 값은 `[0.96,0.999]`/`[0.99,0.999]`를 유지한다. Soccer는 Cat/Dog, MLB는
 Bear/Tiger, NHL은 Lion/Wolf가 맡는다. `0.999`는 terminal `1.000`을 제외하는 공통 상한이다.
 family와 하한 외 notional, cadence, execution, capacity와 safety는 동일하다.
 
@@ -138,6 +139,11 @@ v3g는 종료일만 연장한 승인된 계속 운용이다. 기존 여섯 runti
 손실 한도를 보존하며 과거 동결 문서나 거래를 수정하지 않는다. 이번 배포의 source/config와
 재개 전후 관측은 구분한다. 현재 계약은
 `research/frozen-2026-09-05-one-week-continuation-v3g/PREREGISTRATION.md`다.
+
+v3h는 40개 strict raw 경기의 시간순 20/20 탐색에서 양쪽 절반이 양수였던 Soccer 하한
+`.91/.92`만 바꾼 3일 forward A/B다. upper `.999`, `$5`, stop `.70`, resolution hold와 모든
+실행·안전 계약은 유지한다. MLB와 NFL은 Cat/Dog account runner에서 close-only다. 근거는
+`research/frozen-2026-09-12-soccer-91-92-v3h/PREREGISTRATION.md`다.
 
 ## Cat/Dog 계정 통합 v4 — 실행 계약
 

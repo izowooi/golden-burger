@@ -26,13 +26,14 @@ FROZEN_START_UTC = "2026-08-29T04:00:00Z"
 # A one-week continuation, not a fresh balance/loss-budget epoch. Keep the
 # original start so existing positions and sport-specific guard history survive.
 FROZEN_RESUME_UTC = "2026-09-05T09:05:00Z"
-FROZEN_ENTRY_END_UTC = "2026-09-12T09:05:00Z"
-FROZEN_FOLLOWUP_END_UTC = "2026-09-19T09:05:00Z"
+FROZEN_RETUNE_UTC = "2026-09-12T12:15:00Z"
+FROZEN_ENTRY_END_UTC = "2026-09-15T12:15:00Z"
+FROZEN_FOLLOWUP_END_UTC = "2026-09-22T12:15:00Z"
 # The MLB safety budget restarts at the first successful v3e run.  Earlier MLB
 # trades remain immutable performance evidence, but they used the superseded
 # 5pp stop and must not consume the corrected cohort's entry kill switch.
 MLB_ECONOMIC_GUARD_START_UTC = "2026-09-02T12:12:00Z"
-FROZEN_ARMS = frozenset({(0.96, 0.999), (0.99, 0.999)})
+FROZEN_ARMS = frozenset({(0.91, 0.999), (0.92, 0.999)})
 BASELINE_EXECUTION_NOTIONAL_USDC = 5.0
 MAX_TARGET_BUY_NOTIONAL_USDC = 1000.0
 ADAPTIVE_BUY_NOTIONAL_LADDER_USDC = (
@@ -126,10 +127,10 @@ RUNTIME_SPECS = {
     spec.runtime_job: spec
     for spec in (
         RuntimeSpec(
-            "watermelon-live-cat-96-1m-v2h", "polybot-cat", "soccer", 0.96
+            "watermelon-live-cat-96-1m-v2h", "polybot-cat", "soccer", 0.91
         ),
         RuntimeSpec(
-            "watermelon-live-dog-99-1m-v2h", "polybot-dog", "soccer", 0.99
+            "watermelon-live-dog-99-1m-v2h", "polybot-dog", "soccer", 0.92
         ),
         RuntimeSpec(
             "watermelon-live-bear-mlb-96-1m-v3a", "polybot-bear", "mlb", 0.96

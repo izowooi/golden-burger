@@ -8,12 +8,12 @@ credential과 수동 position은 건드리지 않는다.
 
 | family | arm A | arm B |
 |---|---|---|
-| Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / `[0.96,0.999]` | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / `[0.99,0.999]` |
+| Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / `[0.91,0.999]` | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / `[0.92,0.999]` |
 | MLB | `polybot-bear` / `watermelon-live-bear-mlb-96-1m-v3a` / `[0.96,0.999]` | `polybot-tiger` / `watermelon-live-tiger-mlb-99-1m-v3a` / `[0.99,0.999]` |
 | NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / `[0.96,0.999]` | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / `[0.99,0.999]` |
 
 두 arm의 유일한 family 내 treatment는 진입 하한이다. cadence는 모두 1분, 현재 주문은 `$5`다.
-0.96/0.99는 아직 최적값이 아니라 큰 손실 꼬리와 기회 수를 향후 수집 자료로 비교하는 값이다.
+Soccer `.91/.92`는 40경기 탐색 뒤 3일 forward A/B로 배포한 하한이며 아직 최적값으로 확정하지 않는다.
 코드는 위 여섯 runtime을 Jenkins job, family, 진입 arm, `active/live` mode와 하나의 불변 registry로
 결합한다. 등록되지 않은 runtime이나 Jenkins `JOB_NAME`, family, arm, mode가 섞인 조합은 DB
 디렉터리 생성과 네트워크 초기화 전에 거절한다.

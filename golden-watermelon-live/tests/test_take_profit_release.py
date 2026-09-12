@@ -43,7 +43,7 @@ def test_default_does_not_take_profit_or_change_registered_bands():
     assert trader.execute_sell(trade) is False
     assert clob.orders == []
     env = profile_environment("watermelon-live-cat-96-1m-v2h", {})
-    assert env["POLYBOT_ENTRY_PROB_MIN"] == "0.96"
+    assert env["POLYBOT_ENTRY_PROB_MIN"] == "0.91"
     assert env["POLYBOT_ENTRY_PROB_MAX"] == "0.999"
 
 

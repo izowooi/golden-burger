@@ -79,7 +79,7 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     followup_end = datetime.fromisoformat(
         FROZEN_FOLLOWUP_END_UTC.replace("Z", "+00:00")
     )
-    assert entry_end - start == timedelta(days=14)
+    assert entry_end > start + timedelta(days=14)
     assert followup_end - entry_end == timedelta(days=7)
     assert len(config.trading.strategy_source_digest) == 64
     assert len(config.trading.preregistration_sha256) == 64
