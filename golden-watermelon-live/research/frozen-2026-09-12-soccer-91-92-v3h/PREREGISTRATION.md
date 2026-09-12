@@ -1,7 +1,7 @@
 # Golden Watermelon Soccer .91/.92 three-day forward A/B v3h
 
-- Deployment may start at or after `2026-09-12T12:15:00Z`.
-- Entry ends at `2026-09-15T12:15:00Z`; follow-up ends at `2026-09-22T12:15:00Z`.
+- Deployment may start at or after `2026-09-12T12:00:00Z`.
+- Entry ends at `2026-09-15T12:00:00Z`; follow-up ends at `2026-09-22T12:00:00Z`.
 - Soccer Cat changes only its lower entry bound from `.96` to `.91`.
 - Soccer Dog changes only its lower entry bound from `.99` to `.92`.
 - Both retain upper `.999`, exact baseline `$5`, target `$5`, no TP, effective stop `.70`,

@@ -81,8 +81,8 @@ def test_one_week_continuation_preserves_existing_guard_budget(monkeypatch, shor
     runtime = next(name for name, spec in RUNTIME_SPECS.items() if spec.jenkins_job == "polybot-" + short)
     config = load_config("config.yaml", runtime, simulation_mode=False)
     assert config.trading.experiment_start_utc == "2026-08-29T04:00:00Z"
-    assert config.trading.experiment_entry_end_utc == "2026-09-15T12:15:00Z"
-    assert config.trading.experiment_followup_end_utc == "2026-09-22T12:15:00Z"
+    assert config.trading.experiment_entry_end_utc == "2026-09-15T12:00:00Z"
+    assert config.trading.experiment_followup_end_utc == "2026-09-22T12:00:00Z"
     assert config.trading.economic_guard_start_utc == ECONOMIC_GUARD_START_UTC_BY_SPORT[config.trading.sport_family]
     assert config.trading.economic_guard_start_utc < FROZEN_RESUME_UTC
     assert config.trading.buy_amount_usdc == 5

@@ -118,8 +118,8 @@ realized P&L로 해석하지 않습니다. append-only DB에 여러 배포 세�
 - Silver DB: `data/plum-shadow-silver-1m-v1/trades_sim.db`
 - Gold DB: `data/plum-shadow-gold-{mlb,nfl,nba,nhl}-1m-v1/trades_sim.db`
 - Silver/Gold workspace는 각각 exact external T7 경로에서만 실행
-- 신규 진입 기간: `[2026-08-31T00:00:00Z, 2026-09-15T12:15:00Z)`
-- follow-up 종료: `2026-09-22T12:15:00Z`
+- 신규 진입 기간: `[2026-08-31T00:00:00Z, 2026-09-15T12:00:00Z)`
+- follow-up 종료: `2026-09-22T12:00:00Z`
 - Gold MLB 수집 기간: `[2026-09-01T00:00:00Z, 2026-10-01T00:00:00Z)`;
   follow-up은 `2026-10-08T00:00:00Z`까지
 - Gold NFL·NBA 수집 기간: `[2026-09-02T10:30:00Z, 2026-12-01T10:30:00Z)`;

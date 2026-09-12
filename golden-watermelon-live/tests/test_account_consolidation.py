@@ -344,8 +344,8 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
         assert cfg.trading.lifecycle_mode == lifecycle
         assert (cfg.trading.entry.stop_price, cfg.trading.entry.max_entry_drawdown) == (.70, .30)
         assert cfg.trading.max_positions == 20 and cfg.trading.max_new_positions_per_cycle == 5
-        assert cfg.trading.experiment_entry_end_utc == "2026-09-15T12:15:00Z"
-        assert cfg.trading.experiment_followup_end_utc == "2026-09-22T12:15:00Z"
+        assert cfg.trading.experiment_entry_end_utc == "2026-09-15T12:00:00Z"
+        assert cfg.trading.experiment_followup_end_utc == "2026-09-22T12:00:00Z"
     assert soccer.trading.preregistration_sha256 != mlb.trading.preregistration_sha256
 
 

@@ -4,7 +4,7 @@
   unique midpoint leader, margin `.005`, and no trend/crossing/pullback gate remain unchanged.
 - King keeps absolute TP `.90`; Queen keeps `.95`. Both retain SL `entry-.15`, minute-75 full
   FOK exit, exact `$5`, event-once and the existing `$100` economic loss limit.
-- Entry ends `2026-09-15T12:15:00Z`; follow-up ends `2026-09-22T12:15:00Z`. Existing P&L and
+- Entry ends `2026-09-15T12:00:00Z`; follow-up ends `2026-09-22T12:00:00Z`. Existing P&L and
   guard history are not reset.
 - Evidence: 40 strict raw games split chronologically 20/20. With conservative round-trip 100bps,
   King `.70/.90/.15` produced 17 signals and +$7.71777 (+$3.38371/+4.33406 by half); Queen
