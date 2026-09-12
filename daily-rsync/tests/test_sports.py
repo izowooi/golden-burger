@@ -5,7 +5,8 @@ from copy import deepcopy
 import pytest
 from fastapi.testclient import TestClient
 
-from daily_rsync.sports import calculate
+from daily_rsync.sports import calculate, collector_role
+from daily_rsync.sports_recorder import PRIMARY_RUNTIME, REPLICA_RUNTIME, RUNTIMES
 from daily_rsync.web import create_app
 
 
@@ -35,6 +36,14 @@ def evidence():
         ],
         "gaps": [],
     }
+
+
+def test_integrated_recorder_roles_are_visible_and_distinct():
+    assert RUNTIMES == {PRIMARY_RUNTIME, REPLICA_RUNTIME}
+    assert collector_role("golden-coconut", "polybot-white", PRIMARY_RUNTIME) == "PRIMARY"
+    assert collector_role("golden-coconut", "polybot-silver", REPLICA_RUNTIME) == "REPLICA"
+    assert collector_role("golden-peach", "polybot-grey", "peach-shadow-1m-v1") == "RETIRED"
+    assert collector_role("golden-plum", "polybot-silver", "plum-shadow-silver-1m-v1") == "HISTORICAL"
 
 
 def test_actual_holding_quantity_walks_both_full_books():

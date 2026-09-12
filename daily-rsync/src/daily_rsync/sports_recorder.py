@@ -12,7 +12,10 @@ from heapq import merge
 from pathlib import Path
 
 CONTRACT = "sports-price-recorder-1m-v1"
-RUNTIME = "coconut-sports-recorder-1m-v1"
+PRIMARY_RUNTIME = "coconut-sports-recorder-1m-v1"
+REPLICA_RUNTIME = "coconut-sports-recorder-silver-1m-v1"
+RUNTIMES = frozenset({PRIMARY_RUNTIME, REPLICA_RUNTIME})
+RUNTIME = PRIMARY_RUNTIME
 
 
 def export_group(exporter, reader_path, sources, output, start, end, index, data_root):
@@ -23,7 +26,8 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
     spec.loader.exec_module(reader)
     days, paths, before, constituents, path_days = set(), [], {}, [], {}
     identities = {(s["source"], s["jenkins_job"], s["runtime_job"]) for s in sources}
-    if len(identities) != 1 or sources[0]["runtime_job"] != RUNTIME:
+    runtime = sources[0]["runtime_job"]
+    if len(identities) != 1 or runtime not in RUNTIMES:
         raise ValueError("같은 수집기 runtime의 일별 자료만 연결할 수 있습니다.")
     for source in sources:
         path = Path(source["local_path"]).resolve()
@@ -40,7 +44,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
             if len(records) != 1:
                 raise ValueError("수집기 계약이 하나가 아닙니다.")
             contract = dict(records[0])
-            if contract["data_contract"] != CONTRACT or contract["runtime_job"] != RUNTIME:
+            if contract["data_contract"] != CONTRACT or contract["runtime_job"] != runtime:
                 raise ValueError("과거 Coconut epoch는 이 수집기와 연결할 수 없습니다.")
             day = contract["database_utc_date"]
             if date.fromisoformat(day).isoformat() != day:
@@ -100,7 +104,8 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
         "id": hashlib.sha256(json.dumps(sorted(identities)).encode()).hexdigest(),
         "strategy": "golden-coconut",
         "jenkins_job": sources[0]["jenkins_job"],
-        "runtime_job": RUNTIME,
+        "runtime_job": runtime,
+        "collector_role": "PRIMARY" if runtime == PRIMARY_RUNTIME else "REPLICA",
         "data_contract": CONTRACT,
         "synced_at": min(s["synced_at"] for s in sources),
         "constituents": sorted(constituents, key=lambda x: x["database_utc_date"]),
@@ -123,7 +128,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
             if config.get("observation_mode") != "SCHEDULED":
                 raise ValueError("PROBE·관측 모드 미상 자료는 정규 경기 수집에 포함하지 않습니다.")
             if (
-                config["job_name"] != RUNTIME
+                config["job_name"] != runtime
                 or config.get("simulation_mode") is not True
                 or config.get("lifecycle_mode") != "archive_only"
                 or config.get("data_contract") != CONTRACT
@@ -140,7 +145,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
             run = {
                 "config_hash": row["config_hash"],
                 "mode": "sim",
-                "job_name": RUNTIME,
+                "job_name": runtime,
                 "strategy_source_digest": row["strategy_source_digest"],
                 "status": "SUCCESS" if row["run_status"] == "SUCCEEDED" else "FAILED",
                 "started_at": row.get("reference_at") or row["timestamp"],

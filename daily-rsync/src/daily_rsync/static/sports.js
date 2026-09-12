@@ -80,6 +80,8 @@ function error(e) {
 function sourceFor(id) {
   return state.index.sources.find((s) => s.id === id) || {};
 }
+const collectorRole = (value) =>
+  ({ PRIMARY: "통합 원본", REPLICA: "교차 검증", RETIRED: "종료", HISTORICAL: "과거 자료", LEGACY: "기존 자료" })[value] || "기존 자료";
 function renderSources() {
   const root = $("sourceList");
   root.replaceChildren();
@@ -91,7 +93,7 @@ function renderSources() {
     box.disabled = !s.available;
     const text = el(
       "span",
-      `${s.jenkins_job} · ${s.strategy.replace("golden-", "")}`,
+      `${s.jenkins_job} · ${s.strategy.replace("golden-", "")} · ${collectorRole(s.collector_role)}`,
     );
     text.append(
       el(
@@ -149,7 +151,7 @@ function renderIndex() {
   $("sourceFilter").replaceChildren(new Option("모든 자료", ""));
   for (const s of idx.sources)
     $("sourceFilter").add(
-      new Option(`${s.jenkins_job} · ${s.runtime_job}`, s.id),
+      new Option(`${s.jenkins_job} · ${collectorRole(s.collector_role)} · ${s.runtime_job}`, s.id),
     );
   $("sourceFilter").value = selected;
   renderMatches();

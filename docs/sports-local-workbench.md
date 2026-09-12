@@ -72,8 +72,9 @@ CONFIRMED fill·수수료·정산 근거를 따로 대사한다.
 
 ## 보관과 지원 범위
 
-Peach·Plum의 legacy snapshot 및 `full-sports-raw-v1`, Coconut의 새
-`sports-price-recorder-1m-v1`을 지원한다. 통합 수집기의 UTC 일별 DB는 같은 runtime과
+Peach·Plum의 legacy snapshot 및 `full-sports-raw-v1`, Coconut의
+`sports-price-recorder-1m-v1`을 지원한다. 현재 White는 primary, Silver는 같은 계약의
+independent replica이며 Grey는 retired로 표시한다. 통합 수집기의 UTC 일별 DB는 같은 runtime과
 config/source cohort끼리 연결하며, 각 원본 SHA와 선택된 부모 shard의 인계 상태를 검증한다.
 같은 날짜의 중복 snapshot과 과거 Coconut v7은 연결하지 않는다. DB 경로를 임의 입력하는 대신 Daily Rsync
 catalog에서 확인된 자료만 선택한다. 결과 캐시는 ignored `daily-rsync/data/sports-view/`에

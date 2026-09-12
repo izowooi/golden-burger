@@ -22,7 +22,7 @@ from typing import Any
 
 from .config import AppConfig
 from .sports_normalization import normalize_payload
-from .sports_recorder import RUNTIME as RECORDER_RUNTIME
+from .sports_recorder import RUNTIMES as RECORDER_RUNTIMES
 from .sports_recorder import export_group
 
 SUPPORTED = {"golden-peach", "golden-plum", "golden-coconut"}
@@ -35,6 +35,16 @@ SPORTS = [
     ("ufc", "UFC"),
     ("boxing", "복싱"),
 ]
+
+
+def collector_role(strategy: str, jenkins_job: str, runtime_job: str) -> str:
+    if strategy == "golden-coconut" and runtime_job in RECORDER_RUNTIMES:
+        return "PRIMARY" if jenkins_job == "polybot-white" else "REPLICA"
+    if jenkins_job == "polybot-grey":
+        return "RETIRED"
+    if jenkins_job == "polybot-silver" and strategy == "golden-plum":
+        return "HISTORICAL"
+    return "LEGACY"
 
 
 def read_json(path: Path) -> Any:
@@ -73,7 +83,7 @@ class SportsStore:
             # Sidecars and backup files have other contracts; do not guess them.
             basename = Path(row["remote_path"]).name
             if row["strategy"] == "golden-coconut":
-                if row["runtime_job"] != RECORDER_RUNTIME or not re.fullmatch(
+                if row["runtime_job"] not in RECORDER_RUNTIMES or not re.fullmatch(
                     r"trades_sim(?:_\d{8})?\.db", basename
                 ):
                     continue
@@ -99,7 +109,13 @@ class SportsStore:
                         "status",
                     )
                 }
-                | {"available": available, "basename": basename}
+                | {
+                    "available": available,
+                    "basename": basename,
+                    "collector_role": collector_role(
+                        row["strategy"], row["jenkins_job"], row["runtime_job"]
+                    ),
+                }
             )
         return result
 
