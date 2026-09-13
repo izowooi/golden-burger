@@ -633,6 +633,7 @@ class PolymarketBot:
                     + db_stats["quarantined"]
                 ),
             }
+            cycle_budget = getattr(self, "cycle_budget", None)
             if cycle_budget is not None:
                 stats["runtime_budget"] = cycle_budget.evidence()
                 if bool(stats["runtime_budget"]["target_exceeded"]):
