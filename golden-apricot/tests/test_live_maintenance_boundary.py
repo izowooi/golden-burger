@@ -1,4 +1,7 @@
 from types import SimpleNamespace
+import hashlib
+
+from polybot.db.models import init_database
 
 
 def test_live_bot_never_runs_compact_maintenance_in_one_minute_cycle(monkeypatch):
@@ -33,4 +36,19 @@ def test_live_bot_never_runs_compact_maintenance_in_one_minute_cycle(monkeypatch
     bot_module.PolymarketBot(config)
 
     assert observed["maintenance_on_start"] is False
+    assert observed["schema_on_start"] is False
     assert observed["enable_research_raw"] is False
+
+
+def test_existing_live_schema_fast_open_is_read_only(tmp_path):
+    db_path = tmp_path / "existing.db"
+    init_database(str(db_path), maintenance_on_start=False)
+    before = hashlib.sha256(db_path.read_bytes()).hexdigest()
+
+    init_database(
+        str(db_path),
+        maintenance_on_start=False,
+        schema_on_start=False,
+    )
+
+    assert hashlib.sha256(db_path.read_bytes()).hexdigest() == before

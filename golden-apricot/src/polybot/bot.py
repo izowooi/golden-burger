@@ -48,6 +48,7 @@ class PolymarketBot:
             # window. Schema upgrades still run below; compact/retention
             # maintenance is an explicit off-cycle operation.
             maintenance_on_start=False,
+            schema_on_start=False,
             enable_research_raw=config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")

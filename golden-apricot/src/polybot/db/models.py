@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from pathlib import Path
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from sqlalchemy import (
@@ -703,9 +704,11 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
     maintenance_on_start: bool = True,
+    schema_on_start: bool = True,
     enable_research_raw: bool = False,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
+    existing_database = Path(db_path).exists() and Path(db_path).stat().st_size > 0
     if maintenance_on_start:
         prepare_database(
             db_path,
@@ -716,6 +719,13 @@ def init_database(
     # Raw simulation archives grow throughout the experiment. Their hourly
     # maintenance must not consume a one-minute collection slot before HTTP.
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    if existing_database and not schema_on_start:
+        # The one-minute runtime uses an already deployed schema. Re-running
+        # create_all plus every additive upgrade against a busy external APFS
+        # database can take minutes. Normal repository queries still fail
+        # closed if a required table/column is actually absent. Schema changes
+        # belong in a deployment/maintenance preflight, not every trade cycle.
+        return sessionmaker(bind=engine)
     try:
         Base.metadata.create_all(
             engine, tables=[table for name, table in Base.metadata.tables.items()
