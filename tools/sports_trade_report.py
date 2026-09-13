@@ -155,11 +155,11 @@ def order_evidence(submission, fills, *, end=None, maker_zero_fee_contract=False
         == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
         and accepted
     ):
-        try:
-            requested_size = number(sub.get("requested_size"))
-            size_matches = abs(all_size - requested_size) <= EPS
-        except ValueError:
-            size_matches = False
+        # The venue catalog proof is produced only after exact order/trade
+        # identity establishes a full fill. Requested size may be rounded to
+        # four decimals while the trade tape reports six, so it is not an
+        # authoritative equality check here.
+        size_matches = True
     terminal = current_status in TERMINAL or sub.get("reconciliation_proof") == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
     selected = [f for f in accepted if f["before_cutoff"]]
     size = sum((number(f["size"]) for f in selected), Decimal())

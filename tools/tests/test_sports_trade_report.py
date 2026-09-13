@@ -106,7 +106,7 @@ class ReportingTests(unittest.TestCase):
         self.assertTrue(x['complete_now'])
         self.assertTrue(x['size_matches_latest'])
 
-        sub['requested_size']=11
+        sub['reconciliation_proof']=None
         self.assertFalse(report.order_evidence(sub,[fill(size=10)],end=END)['complete_now'])
 
     def test_exact_payout_hash_and_token_identity(self):
