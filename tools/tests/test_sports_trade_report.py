@@ -95,6 +95,20 @@ class ReportingTests(unittest.TestCase):
         self.assertTrue(x['complete_now'])
         self.assertEqual(x['confirmed_size'],'5.2083')
 
+    def test_authenticated_full_fill_proof_recovers_missing_latest_size(self):
+        sub=submission(size=10,requested_size=10)
+        sub.update(
+            latest_order_status=None,
+            latest_size_matched=None,
+            reconciliation_proof="AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL",
+        )
+        x=report.order_evidence(sub,[fill(size=10)],end=END)
+        self.assertTrue(x['complete_now'])
+        self.assertTrue(x['size_matches_latest'])
+
+        sub['requested_size']=11
+        self.assertFalse(report.order_evidence(sub,[fill(size=10)],end=END)['complete_now'])
+
     def test_exact_payout_hash_and_token_identity(self):
         trade={'condition_id':'condition','token_id':'token-yes','outcome':'Yes'}
         payload={'closed':True,'tokens':[{'token_id':'token-yes','outcome':'Yes','price':1,'winner':True},{'token_id':'token-no','outcome':'No','price':0,'winner':False}]}

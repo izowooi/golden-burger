@@ -149,6 +149,17 @@ def order_evidence(submission, fills, *, end=None, maker_zero_fee_contract=False
         size_matches = matched_size >= 0 and abs(all_size - matched_size) <= EPS
     except ValueError:
         matched_size, size_matches = None, False
+    if (
+        not size_matches
+        and sub.get("reconciliation_proof")
+        == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
+        and accepted
+    ):
+        try:
+            requested_size = number(sub.get("requested_size"))
+            size_matches = abs(all_size - requested_size) <= EPS
+        except ValueError:
+            size_matches = False
     terminal = current_status in TERMINAL or sub.get("reconciliation_proof") == "AUTHENTICATED_TOKEN_TRADE_CATALOG_FULL_FILL"
     selected = [f for f in accepted if f["before_cutoff"]]
     size = sum((number(f["size"]) for f in selected), Decimal())
