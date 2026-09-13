@@ -710,6 +710,8 @@ class ClobClientWrapper:
         audit_db_path=None,
         strategy_name: str = "unknown",
         cycle_budget: Optional[CycleBudget] = None,
+        execution_ledger_schema_on_start: bool = True,
+        execution_ledger_bootstrap_legacy_orders: bool = True,
     ):
         """Initialize CLOB client.
 
@@ -726,7 +728,14 @@ class ClobClientWrapper:
         self._fee_schedules_by_token: Dict[str, ClobV2FeeSchedule] = {}
         self.cycle_budget = cycle_budget
         self.execution_ledger = (
-            ExecutionLedger(audit_db_path, strategy_name=strategy_name)
+            ExecutionLedger(
+                audit_db_path,
+                strategy_name=strategy_name,
+                schema_on_start=execution_ledger_schema_on_start,
+                bootstrap_legacy_orders=(
+                    execution_ledger_bootstrap_legacy_orders
+                ),
+            )
             if audit_db_path is not None
             else None
         )

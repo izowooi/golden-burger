@@ -46,7 +46,7 @@ market observatory다.
 | golden-orange | Fear Spike Fade | probability neglect | 공포 급등 페이드 (NO 매수) | base ≤0.15 → 스파이크 | **구현 완료 · 시작 evidence 없음** |
 | golden-papaya | Final Five | 95% first observed crossing 뒤 해결 수렴 | strict binary YES 편승 | 0.95–0.97, ≤72h | **⛔ 운영 폐쇄 2026-08-24 · Cat/Dog job 재사용** |
 | **golden-peach** | Kickoff Leader | 경기 시작 직후 직접 결과 호가 선두의 짧은 추가 상승 | 현재 `$5` live, `$5–$1,000` adaptive FOK·event당 1회 | source 0–10분, TP +0.03/+0.05, SL −0.10 | **축구 live A/B + 축구/MLB/NBA/NFL/NHL 1분 simulation · 2026-09-03 확장** |
-| **golden-plum** | Sport-Profiled Full-Game Confirmation | 현재 six-book 선두의 추가 상승 | 축구 현재 `$5` FOK + 종목별 `$5–$1,000` simulation | 1회 관측, `.70–.73`, source 75분 전 진입/75분 청산 | **축구 live A/B + 축구/MLB/NFL/NBA 1분 simulation** |
+| **golden-plum** | Sport-Profiled Full-Game Confirmation | 현재 six-book 선두의 추가 상승 | 축구 현재 `$5` FOK + 종목별 `$5–$1,000` simulation | 1회 관측, `.70–.73`, source 60분 전 진입/65분 청산 | **축구 live A/B + 축구/MLB/NFL/NBA 1분 simulation** |
 | **golden-pomegranate** | Market Observatory | 수익 가설 없음 — 모든 후속 가설의 point-in-time 원자료 | 주문 없음, 전 시장 관측 | 전체 non-closed universe + 회전 CLOB book | **research-only · live/order 금지** |
 | golden-queen | Crown Momentum | 90% first observed crossing 뒤 단기 수렴 | strict binary YES 편승 | 0.90–0.94, 12h/24h arms | **⛔ 운영 폐쇄 2026-08-24 · King/Queen job 재사용** |
 | ~~golden-quince~~ | Spread Harvest | maker/taker execution cost | 동일 신호, BUY 가격만 처치 | queen 신호 상속 | **⛔ 운영 폐쇄 2026-08-27** |
@@ -477,18 +477,18 @@ build와 연속 두 자연 1분 build가 모두 성공했고 자연 build는 4.6
 
 ### golden-plum — Sport-Profiled Full-Game Confirmation
 
-경기 시작부터 source 75분 전까지 신규 진입을 검정한다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 현재 유일한 midpoint
+경기 시작부터 source 60분 전까지 신규 진입을 검정한다. HOME/DRAW/AWAY 세 명제의 직접 YES·NO 여섯 token 중 현재 유일한 midpoint
 선두의 exact `$5` ask VWAP이 `[0.70,0.73]`이면 한 번의 complete six-book 관측으로 FOK
 BUY한다. 이전 교차·다회 누적 상승·pullback gate는 없다. 예정 kickoff·합성 NO·단일
 best ask는 근거로 쓰지 않으며 주문 직전에 source clock, 여섯 full-depth book, 선두 identity와
 진입가를 다시 확인한다.
 
-`polybot-king/plum-live-king-90-1m-v1`은 절대 TP 0.90,
-`polybot-queen/plum-live-queen-95-1m-v1`은 0.95다. 공통 stop은 confirmed entry −0.15이고
-75분 이후 첫 전량 bid에서 FOK 청산하며 같은 event에 재진입하지 않는다. 실패는 event-local로 격리하고
+`polybot-king/plum-live-king-90-1m-v1`은 절대 TP 0.85,
+`polybot-queen/plum-live-queen-95-1m-v1`은 0.90이다. 공통 stop은 confirmed entry −0.12이고
+65분 이후 첫 전량 bid에서 FOK 청산하며 같은 event에 재진입하지 않는다. 실패는 event-local로 격리하고
 180분 뒤에도 대사할 수 없는 노출은 성공으로 꾸미지 않은 `QUARANTINED`로 보존한다.
 신규 live는 축구만 허용하고 두 축구 arm의 confirmed strategy P&L 손실 한도는 공통
-`$100`이다. wallet 입출금은 이 손익에 포함하지 않는다. 기존 King/Queen MLB runtime은
+`$300`이다. wallet 입출금은 이 손익에 포함하지 않는다. 기존 King/Queen MLB runtime은
 close-only이며, NFL 등 비축구 live runtime은 사용자 재승인 전까지 등록하지 않는다.
 `polybot-silver/plum-shadow-silver-1m-v1`은 credential-free raw/simulation 수집기이며
 `$5/$10/$25/$50/$100/$250/$500` displayed-depth 증액 근거를 추가 저장한다.
@@ -579,6 +579,8 @@ Quince는 같은 event-window의 BUY execution endpoint, Kiwi는 quote-complete 
 ## 2026-09-10 — Golden Apricot MLB Tick50
 
 `golden-apricot`은 MLB direct HOME/AWAY의 첫 공통 유효 tick 후 `[50,52]`분에 midpoint favorite를
-baseline $5 book으로 판정하고 MLB에만 $10 FOK로 매수한다. Eco A는 full-holding bid VWAP 0.98,
+baseline $5 book으로 판정하고 MLB에만 $5 FOK로 매수한다. Eco A는 full-holding bid VWAP 0.98,
 Fruit B는 0.99 조기청산 후 미도달 시 resolution이며 TP 가격 하나만 A/B 차이다. 가격 band와 stop은 없다.
-124경기 탐색 후 고정한 small-live cohort이며 200 resolved 경기 전 재튜닝·타 종목 확장을 금지한다.
+2026-09-13 재교정에서 Tick·가격 filter·조기 time exit의 out-of-sample 우위가 확인되지 않아
+진입/TP는 유지하고 `$10` tail exposure만 `$5`로 되돌렸다. 팔별 confirmed 종결 100건과
+10개 독립 경기일 전 재증액·타 종목 확장을 금지한다. confirmed 경제손실 누적 한도는 `$300`이다.

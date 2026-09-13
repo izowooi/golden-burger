@@ -40,9 +40,10 @@ trading:
     prob_min: 0.70
     # A one-minute jump above 0.73 is outside the registered live entry band.
     prob_max: 0.73
-    # Enter before minute 75; at/after 75 the first full bid exits the holding.
+    # Live v14 enters before minute 60 and exits at/after minute 65. Runtime
+    # specs keep research and close-only profiles on their historical values.
     min_source_minute: 0
-    max_source_minute: 75
+    max_source_minute: 60
     # One current quote: no historical trend/crossing/pullback filter.
     trend_observations: 1
     trend_min_cumulative_move: 0.0
@@ -50,12 +51,12 @@ trading:
     trend_max_gap_seconds: 90
     min_leader_margin: 0.005
     max_entry_spread: 0.05
-    # King A=0.90. Queen B and Silver primary replay override only this to 0.95.
-    take_profit_price: 0.90
-    stop_loss_delta: 0.15
-    force_exit_minute: 75
+    # King A=0.85 and Queen B=0.90; TP remains the only A/B treatment.
+    take_profit_price: 0.85
+    stop_loss_delta: 0.12
+    force_exit_minute: 65
     stop_price: 0.01
-    max_entry_drawdown: 0.15
+    max_entry_drawdown: 0.12
     max_stop_slippage: 0.05
     max_stop_spread: 0.10
     max_stop_loss_fraction: 1.0

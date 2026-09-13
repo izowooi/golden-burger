@@ -16,8 +16,8 @@ credential-free simulation/raw 수집기다.
 
 | Jenkins | runtime job | mode | 유일한 처치 |
 |---|---|---|---|
-| `polybot-king` | `plum-live-king-90-1m-v1` | live | 절대 TP `0.90` |
-| `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.95` |
+| `polybot-king` | `plum-live-king-90-1m-v1` | live | 절대 TP `0.85` |
+| `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.90` |
 | `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB close-only | 기존 노출 대사만 |
 | `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB close-only | 기존 노출 대사만 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | raw six-book + 반사실 grid |
@@ -25,7 +25,7 @@ credential-free simulation/raw 수집기다.
 | `polybot-gold` | `plum-shadow-gold-{nba,nfl,nhl}-1m-v1` | simulation | direct two-book + 반사실 grid |
 
 - 네 job은 1분 cadence를 사용한다.
-- King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금과
+- King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$300`이며 wallet 입출금과
   잔고 변동은 이 손익에 넣지 않는다.
 - live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.
 - 수동 wallet position은 봇 DB에 편입하거나 청산하지 않는다.
@@ -38,13 +38,13 @@ credential-free simulation/raw 수집기다.
 
 - 축구 live는 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
 - source `live=true`, `ended=false`와 명시적 경기 시계를 요구한다. 신규 진입은 source
-  minute 75 미만만 허용하고, 보유 포지션은 75분 이후 첫 전량 bid에서 FOK 청산한다.
+  minute 60 미만만 허용하고, 신규 cohort 보유 포지션은 65분 이후 첫 전량 bid에서 FOK 청산한다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
 - 그 유일한 선두의 현재 exact `$5` ask VWAP이 `[0.70,0.73]`이어야 한다.
 - 이전 교차, 다회 관측, 누적 상승과 pullback gate는 사용하지 않는다.
-- 공통 SL은 confirmed entry VWAP `-0.15`이다. TP는 목표가 이상
+- 공통 SL은 confirmed entry VWAP `-0.12`이다. TP는 목표가 이상
   bid의 최대 안전 수량을 FOK로 부분 익절할 수 있고, SL은 잔여 전량 FOK만 허용한다.
-  75분 time exit은 잔여 전량 FOK이며 청산 뒤 같은 event에 재진입하지 않는다. 75분 전에
+  65분 time exit은 잔여 전량 FOK이며 청산 뒤 같은 event에 재진입하지 않는다. 신규 정책 전에
   TP·SL이 없고 time exit도 실행되지 못한 경우에만 검증된 resolution까지 유지한다.
 - MLB Gold는 exact MLB identity의 whole-game two-team moneyline만 사용하며 inning·prop·
   spread·total·minor league를 제외한다. 이닝을 가짜 축구 minute로 바꾸지 않고 NULL과
@@ -76,7 +76,7 @@ uv sync --frozen
 uv run polybot config --live --job plum-live-king-90-1m-v1
 uv run polybot run --live --job plum-live-king-90-1m-v1
 
-POLYBOT_TAKE_PROFIT_PRICE=0.95 \
+POLYBOT_TAKE_PROFIT_PRICE=0.90 \
   uv run polybot run --live --job plum-live-queen-95-1m-v1
 
 unset POLYMARKET_PRIVATE_KEY POLYMARKET_FUNDER_ADDRESS POLYMARKET_SIGNATURE_TYPE

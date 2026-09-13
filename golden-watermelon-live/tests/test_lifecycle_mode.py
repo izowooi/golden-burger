@@ -576,11 +576,11 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
     scanner.scan_buy_candidates.side_effect = None
     scanner.scan_buy_candidates.return_value = [candidate]
     repo.get_economic_pnl_guard.return_value = {
-        "economic_pnl": -10.0,
-        "recorded_realized_pnl": -4.0,
-        "recorded_settlement_pnl": -6.0,
-        "confirmed_sell_pnl": -4.0,
-        "proven_resolution_pnl": -6.0,
+        "economic_pnl": -300.0,
+        "recorded_realized_pnl": -120.0,
+        "recorded_settlement_pnl": -180.0,
+        "confirmed_sell_pnl": -120.0,
+        "proven_resolution_pnl": -180.0,
         "execution_adjustment_pnl": 0.0,
         "invalidated_settlement_pnl": 0.0,
         "execution_override_count": 0,
@@ -591,17 +591,17 @@ def test_active_blocks_new_buy_after_economic_drawdown_limit(
 
     assert stats["drawdown_guard"] == {
         "triggered": True,
-        "economic_pnl": -10.0,
-        "confirmed_sell_pnl": -4.0,
-        "proven_resolution_pnl": -6.0,
-        "recorded_realized_pnl": -4.0,
-        "recorded_settlement_pnl": -6.0,
+        "economic_pnl": -300.0,
+        "confirmed_sell_pnl": -120.0,
+        "proven_resolution_pnl": -180.0,
+        "recorded_realized_pnl": -120.0,
+        "recorded_settlement_pnl": -180.0,
         "execution_adjustment_pnl": 0.0,
         "invalidated_settlement_pnl": 0.0,
         "execution_override_count": 0,
         "evidence_gaps": 0,
         "period_start_utc": None,
-        "loss_limit_usdc": 10.0,
+        "loss_limit_usdc": 300.0,
     }
     assert "economic_drawdown_limit_reached" in stats["entry_guard"][
         "blocking_reasons"

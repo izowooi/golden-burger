@@ -4,23 +4,20 @@
 
 2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
 축구의 현재 유일한 midpoint 선두가 `.70~.73`이면 한 번의 complete six-book 관측으로
-진입한다. 이전 교차·3회 누적·pullback 조건은 제거했다. TP `.90/.95`, SL `-.15` A/B와
-exact `$5`는 유지한다. 신규 진입은 source 75분 미만이며 75분 이후 첫 전량 bid에서 FOK로
+진입한다. 이전 교차·3회 누적·pullback 조건은 제거했다. TP `.85/.90`, SL `-.12` A/B와
+exact `$5`는 유지한다. 신규 진입은 source 60분 미만이며 65분 이후 첫 전량 bid에서 FOK로
 청산하고 같은 event에 재진입하지 않는다. 두 축구 arm의
-confirmed strategy P&L 손실 한도는 공통 `$100`이며 wallet 입출금은 계산에 포함하지 않는다.
+confirmed strategy P&L 손실 한도는 공통 `$300`이며 wallet 입출금은 계산에 포함하지 않는다.
 
 기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
 MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
 신규 live runtime을 등록하거나 배포하지 않는다.
 
-현재 진입 하한 `.70`, 상한 `.73`, TP `.90/.95`, SL `.15`, minute75는 유지한다. 40개
-strict raw 경기의 시간순 재생에서 `.70`만 두 TP의 양쪽 절반이 양수였고 `.75/.80/.85`는
-검증 절반이 음수였다. 수정된 구현을 3일 더 forward 검증하는 근거는
-`research/frozen-2026-09-12-soccer-weekend-forward-v12/PREREGISTRATION.md`다.
-
-v13은 같은 `.70–.73`과 TP `.90/.95`를 운영자의 명시적 중단·교정 전까지 계속 live로
-유지한다. 하루·3일·7일 회고는 자동 중단점이 아니며 과거 파라미터로 복귀하지 않는다. 근거는
-`research/frozen-2026-09-12-soccer-continuous-v13/PREREGISTRATION.md`다.
+v14는 verified raw 136경기 중 현행 진입으로 완결 재생 가능한 69경기와 최신 adverse
+23경기를 함께 사용해 종반 급변을 줄였다. 공통 진입 `.70–.73`, 신규 진입 60분 미만,
+65분 전량 time exit, SL `.12`를 사용하며 King `.85`와 Queen `.90` TP만 A/B로 다르다.
+근거는 `research/frozen-2026-09-13-soccer-early-exit-v14/PREREGISTRATION.md`다.
+기존 보유 포지션은 매수 시 저장한 TP·SL·time exit을 그대로 사용한다.
 
 ## 2026-09-06 가격 구간 실험 v9 (simulation 연구로 제한)
 
@@ -121,7 +118,7 @@ FOK로 제출한다. fresh book과 선택·잔여·최대 실행 가능 수량/�
 - regular-time HOME/DRAW/AWAY 세 binary 명제
 - 각 명제의 direct YES와 direct NO, 정확히 여섯 token
 - Gamma explicit `live=true`, `ended=false`
-- source 경기 시계 0분부터 75분 미만 신규 진입; 75분 이후 첫 전량 bid time exit
+- source 경기 시계 0분부터 60분 미만 신규 진입; 65분 이후 첫 전량 bid time exit
 - 누적 거래량 5,000, 유동성 5,000 이상
 - exact `$5` full-depth ask/bid와 진입 spread 0.05 이하
 
@@ -164,12 +161,12 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 
 | arm | Jenkins/runtime | 익절 |
 |---|---|---:|
-| A | `polybot-king/plum-live-king-90-1m-v1` | 절대 익절 하한 0.90 |
-| B | `polybot-queen/plum-live-queen-95-1m-v1` | 절대 익절 하한 0.95 |
+| A | `polybot-king/plum-live-king-90-1m-v1` | 절대 익절 하한 0.85 |
+| B | `polybot-queen/plum-live-queen-95-1m-v1` | 절대 익절 하한 0.90 |
 
-- 공통 stop: confirmed BUY VWAP -0.15
-- 시간 강제 청산: source 75분 이후 첫 전량 FOK bid, 이후 event 재진입 금지
-- 종료 우선순위: target → stop → minute75 time exit; 실행 불가 시 검증된 resolution
+- 공통 stop: confirmed BUY VWAP -0.12
+- 시간 강제 청산: source 65분 이후 첫 전량 FOK bid, 이후 event 재진입 금지
+- 종료 우선순위: target → stop → minute65 time exit; 실행 불가 시 검증된 resolution
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
 - 목표 금액을 올려도 BUY는 선택된 금액 전체가 체결되거나 0체결이다. 거래소의 불명확한 부분
   체결을 전략 완료로 인정하지 않는다.

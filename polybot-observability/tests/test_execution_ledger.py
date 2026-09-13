@@ -2677,3 +2677,30 @@ def test_autoresolve_unblocks_the_submission_gate(tmp_path):
     assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 1
     ledger.autoresolve_stale_sell_intents(live_order_keys=set(), min_age_minutes=30.0)
     assert ledger.unresolved_submission_count(token_id="token-x", side="SELL") == 0
+def test_existing_execution_ledger_fast_open_does_not_mutate_database(tmp_path):
+    import hashlib
+
+    db_path = tmp_path / "trades.db"
+    ExecutionLedger(db_path, strategy_name="golden-test")
+    before = hashlib.sha256(db_path.read_bytes()).hexdigest()
+
+    ExecutionLedger(
+        db_path,
+        strategy_name="golden-test",
+        schema_on_start=False,
+        bootstrap_legacy_orders=False,
+    )
+
+    assert hashlib.sha256(db_path.read_bytes()).hexdigest() == before
+
+
+def test_execution_ledger_fast_open_requires_deployment_preflight(tmp_path):
+    db_path = tmp_path / "trades.db"
+
+    with pytest.raises(RuntimeError, match="schema preflight is required"):
+        ExecutionLedger(
+            db_path,
+            strategy_name="golden-test",
+            schema_on_start=False,
+            bootstrap_legacy_orders=False,
+        )

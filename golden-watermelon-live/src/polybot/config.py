@@ -183,6 +183,7 @@ class SportPolicy:
     max_emergency_sells_per_cycle: int = 1
     experiment_capital_usdc: float = 100
     max_drawdown_stop: float = 0.10
+    drawdown_loss_limit_usdc: float = 300.0
 
 
 # Separate immutable entries even when numbers match. Future retuning requires
@@ -512,6 +513,7 @@ class TradingConfig:
     max_emergency_sells_per_cycle: int = 1
     experiment_capital_usdc: float = 100.0
     max_drawdown_stop: float = 0.10
+    drawdown_loss_limit_usdc: float = 300.0
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 15.0
     fok_reconciliation_timeout_minutes: float = 2.0
@@ -578,6 +580,7 @@ def _validate_config(
         "max_emergency_sells_per_cycle": trading.max_emergency_sells_per_cycle,
         "experiment_capital_usdc": trading.experiment_capital_usdc,
         "max_drawdown_stop": trading.max_drawdown_stop,
+        "drawdown_loss_limit_usdc": trading.drawdown_loss_limit_usdc,
         "reentry_cooldown_hours": trading.reentry_cooldown_hours,
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "fok_reconciliation_timeout_minutes": (
@@ -655,6 +658,8 @@ def _validate_config(
         raise ValueError("experiment capital is frozen at $100 requested exposure")
     if trading.max_drawdown_stop != policy.max_drawdown_stop:
         raise ValueError("economic drawdown entry guard is frozen at 10%")
+    if trading.drawdown_loss_limit_usdc != policy.drawdown_loss_limit_usdc:
+        raise ValueError("economic drawdown entry guard is frozen at $300")
     if trading.max_event_positions > trading.max_positions:
         raise ValueError("max_event_positions must be <= max_positions")
     if trading.reentry_cooldown_hours != 720:
@@ -933,6 +938,11 @@ def load_config(
             "POLYBOT_MAX_DRAWDOWN_STOP",
             trading_cfg.get("max_drawdown_stop"),
             0.10,
+        ),
+        drawdown_loss_limit_usdc=_get_config_value(
+            "POLYBOT_DRAWDOWN_LOSS_LIMIT_USDC",
+            trading_cfg.get("drawdown_loss_limit_usdc"),
+            300.0,
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",

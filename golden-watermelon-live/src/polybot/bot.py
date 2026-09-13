@@ -128,7 +128,7 @@ class PolymarketBot:
             trading.max_event_positions,
             trading.max_new_positions_per_cycle,
             trading.max_emergency_sells_per_cycle,
-            trading.experiment_capital_usdc * trading.max_drawdown_stop,
+            trading.drawdown_loss_limit_usdc,
         )
         logger.info(
             "stop failure containment - SELL-only uncertainty is event-local; "
@@ -330,9 +330,7 @@ class PolymarketBot:
                 economic_evidence_gaps = int(
                     economic_guard.get("evidence_gaps") or 0
                 )
-                drawdown_limit = (
-                    trading.experiment_capital_usdc * trading.max_drawdown_stop
-                )
+                drawdown_limit = trading.drawdown_loss_limit_usdc
                 drawdown_triggered = economic_pnl <= -drawdown_limit + 1e-9
                 stats["drawdown_guard"] = {
                     "triggered": drawdown_triggered,

@@ -5,7 +5,7 @@ trading:
   lifecycle_mode: active
   # The two registered live runtimes are MLB-only and freeze this amount.
   sport_family: mlb
-  buy_amount_usdc: 10.0
+  buy_amount_usdc: 5.0
 
   # Gamma server-side prefilter, followed by baseline-$5 direct books.
   min_liquidity: 5000
@@ -21,6 +21,9 @@ trading:
 
   experiment_capital_usdc: 100
   max_drawdown_stop: 0.20
+  # Absolute confirmed SELL + proven-resolution loss boundary. This is kept
+  # separate from experiment capital so deposits/withdrawals do not change it.
+  drawdown_loss_limit_usdc: 300
   reentry_cooldown_hours: 720
   max_snapshot_gap_minutes: 2
   fok_reconciliation_timeout_minutes: 2

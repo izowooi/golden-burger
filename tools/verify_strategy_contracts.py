@@ -4695,7 +4695,7 @@ def _validate_plum_strategy(
             "plum-shadow-gold-mlb-1m-v1",
             "plum-shadow-gold-nhl-1m-v1",
             "[0.70,0.73]",
-            "75분 이후 첫 전량 bid",
+            "65분 이후 첫 전량 bid",
             "$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000",
             "baseline `$5`",
             "MLB",
@@ -4708,7 +4708,7 @@ def _validate_plum_strategy(
             "0.95",
             "한 번의 complete six-book 관측",
             "3회 누적·pullback 조건은 제거",
-            "시간 강제 청산: source 75분",
+            "시간 강제 청산: source 65분",
             "execution_capacity_json",
             "MLB",
             "NBA·NFL·NHL",
@@ -4871,6 +4871,7 @@ def _validate_plum_strategy(
         "research/frozen-2026-09-03-mlb-live-ab-v7/MANIFEST.sha256",
         "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md",
         "research/frozen-2026-09-03-nhl-shadow-v7/MANIFEST.sha256",
+        "research/frozen-2026-09-13-soccer-early-exit-v14/PREREGISTRATION.md",
     ):
         _require_file(findings, strategy, directory / relative_path)
 
@@ -4886,13 +4887,13 @@ def _validate_plum_strategy(
         ("yes_only_mode", False),
         ("prob_max", 0.73),
         ("min_source_minute", 0),
-        ("max_source_minute", 75),
+        ("max_source_minute", 60),
         ("trend_observations", 1),
         ("trend_min_cumulative_move", 0.0),
         ("trend_max_pullback", 0.0),
         ("trend_max_gap_seconds", 90),
-        ("stop_loss_delta", 0.15),
-        ("force_exit_minute", 75),
+        ("stop_loss_delta", 0.12),
+        ("force_exit_minute", 65),
         ("stop_sell_quarantine_timeout_minutes", 180),
     ):
         _require_yaml_value(

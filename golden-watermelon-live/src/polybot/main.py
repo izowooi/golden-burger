@@ -211,7 +211,7 @@ def main() -> None:
     )
     print(
         "Economic drawdown entry guard: "
-        f"-${trading.experiment_capital_usdc * trading.max_drawdown_stop:.2f} "
+        f"-${trading.drawdown_loss_limit_usdc:.2f} "
         "(confirmed SELL + proven resolution P&L)"
     )
     print(

@@ -39,8 +39,9 @@ TICK50_JOBS = {
     "apricot-live-eco-mlb-tick50-hold-v1": "tp98_or_resolution",
     "apricot-live-fruit-mlb-tick50-tp99-v1": "tp99_or_resolution",
 }
-FROZEN_JOB_BUY_AMOUNT_USDC = {job: 10.0 for job in TICK50_JOBS}
+FROZEN_JOB_BUY_AMOUNT_USDC = {job: 5.0 for job in TICK50_JOBS}
 FROZEN_JOB_EXPERIMENT_CAPITAL_USDC = {job: 100.0 for job in TICK50_JOBS}
+FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC = {job: 300.0 for job in TICK50_JOBS}
 SIX_BOOK_NET_JOBS = frozenset({
     "apricot-live-eco-sixbook-net5-sl15-75m-v2",
     "apricot-live-fruit-sixbook-net5-sl12-75m-v2",
@@ -566,6 +567,10 @@ class TradingConfig:
     max_emergency_sells_per_cycle: int = 10
     experiment_capital_usdc: float = 50.0
     max_drawdown_stop: float = 0.20
+    # Absolute confirmed economic-loss guard.  Keep this independent from
+    # experiment capital: the latter describes the cohort's planned exposure,
+    # while this value is the operator-authorized live loss boundary.
+    drawdown_loss_limit_usdc: float = 300.0
     reentry_cooldown_hours: float = 720.0
     max_snapshot_gap_minutes: float = 2.0
     fok_reconciliation_timeout_minutes: float = 2.0
@@ -640,6 +645,7 @@ def _validate_config(
         "max_emergency_sells_per_cycle": trading.max_emergency_sells_per_cycle,
         "experiment_capital_usdc": trading.experiment_capital_usdc,
         "max_drawdown_stop": trading.max_drawdown_stop,
+        "drawdown_loss_limit_usdc": trading.drawdown_loss_limit_usdc,
         "reentry_cooldown_hours": trading.reentry_cooldown_hours,
         "max_snapshot_gap_minutes": trading.max_snapshot_gap_minutes,
         "fok_reconciliation_timeout_minutes": (
@@ -724,7 +730,15 @@ def _validate_config(
             "experiment capital must match the MLB-only scaled exposure contract"
         )
     if trading.max_drawdown_stop != 0.20:
-        raise ValueError("economic drawdown entry guard is frozen at 20%")
+        raise ValueError("legacy proportional drawdown metadata is frozen at 20%")
+    if (
+        trading.drawdown_loss_limit_usdc
+        != FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC[job_name]
+    ):
+        raise ValueError(
+            f"{job_name} confirmed economic-loss guard must remain "
+            f"-${FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC[job_name]:.2f}"
+        )
     if trading.max_event_positions > trading.max_positions:
         raise ValueError("max_event_positions must be <= max_positions")
     if trading.reentry_cooldown_hours != 720:
@@ -1086,6 +1100,11 @@ def load_config(
             "POLYBOT_MAX_DRAWDOWN_STOP",
             trading_cfg.get("max_drawdown_stop"),
             0.20,
+        ),
+        drawdown_loss_limit_usdc=_get_config_value(
+            "POLYBOT_DRAWDOWN_LOSS_LIMIT_USDC",
+            trading_cfg.get("drawdown_loss_limit_usdc"),
+            FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC[job_name],
         ),
         reentry_cooldown_hours=_get_config_value(
             "POLYBOT_REENTRY_COOLDOWN_HOURS",

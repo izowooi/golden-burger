@@ -1,6 +1,6 @@
 # Golden Plum
 
-경기 시작부터 source 75분 전까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
+경기 시작부터 source 60분 전까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
 유일한 midpoint 선두가 `[0.70,0.73]`일 때 한 번의 관측으로 진입하는 전략입니다. 축구는
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접
 표시된 moneyline 2개 호가를 사용합니다.
@@ -13,8 +13,8 @@ King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime�
 
 | Jenkins | runtime job | 역할 |
 |---|---|---|
-| `polybot-king` | `plum-live-king-90-1m-v1` | live A, 절대 TP 0.90 |
-| `polybot-queen` | `plum-live-queen-95-1m-v1` | live B, 절대 TP 0.95 |
+| `polybot-king` | `plum-live-king-90-1m-v1` | live A, 절대 TP 0.85 |
+| `polybot-queen` | `plum-live-queen-95-1m-v1` | live B, 절대 TP 0.90 |
 | `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB close-only, 기존 노출 대사 |
 | `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB close-only, 기존 노출 대사 |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | credential-free raw/simulation |
@@ -24,10 +24,10 @@ King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime�
 | `polybot-gold` | `plum-shadow-gold-nhl-1m-v1` | credential-free NHL raw/simulation |
 
 공통 entry는 baseline `$5` 기준 유일한 선두 `[0.70,0.73]`, stop은 confirmed entry
--0.15입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
+-0.12입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
 목표 금액을 올리면 같은 fresh book에서 전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한
 FOK 한 건만 제출합니다.
-보유 포지션은 75분 이후 첫 전량 bid에서 FOK로 청산하고 같은 event에 재진입하지 않습니다.
+신규 보유 포지션은 65분 이후 첫 전량 bid에서 FOK로 청산하고 같은 event에 재진입하지 않습니다.
 그 전에는 익절·손절을 적용하며 실행 가능한 time exit가 없을 때만 resolution까지 갑니다. live와 shadow 모두
 direct six-book을 저장하며 합성 NO를 사용하지 않습니다. Silver와 Gold는 추가로
 `$5/$10/$15/$20/$25/$30/$40/$50/$75/$100/$150/$200/$250/$500/$750/$1000` displayed-depth 증액
@@ -56,9 +56,9 @@ uv run pytest
 uv run polybot config --live --job plum-live-king-90-1m-v1
 uv run polybot run --live --job plum-live-king-90-1m-v1
 
-POLYBOT_TAKE_PROFIT_PRICE=0.95 \
+POLYBOT_TAKE_PROFIT_PRICE=0.90 \
   uv run polybot config --live --job plum-live-queen-95-1m-v1
-POLYBOT_TAKE_PROFIT_PRICE=0.95 \
+POLYBOT_TAKE_PROFIT_PRICE=0.90 \
   uv run polybot run --live --job plum-live-queen-95-1m-v1
 ```
 

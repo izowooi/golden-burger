@@ -58,7 +58,7 @@ BUY 대사 오류는 한 capacity와 같은 token/event를 격리하되 다른 �
 BUY를 전역 차단한다. SELL intent·대사 실패도 같은 token/event만 격리한다. 연속 손절
 실패가 180분을 넘으면 성공 매도나 0체결로 꾸미지 않고 `QUARANTINED`로 자동 격리 종결하며,
 실제 노출 가능성이 있으므로 account/event capacity는 계속 소비한다. confirmed SELL + proven
-resolution 경제손익이 `-$10`이면 기존 position 관리는 계속하지만 신규 BUY를 중단한다.
+resolution 경제손익이 `-$300`이면 기존 position 관리는 계속하지만 신규 BUY를 중단한다.
 모호한 `PENDING_BUY`도 180분이 지나면 성공/0체결을 주장하지 않고 event-local
 `QUARANTINED`로 전환한다. 이후 exact ledger 대사는 계속하며 account/event capacity는 해제하지 않는다.
 

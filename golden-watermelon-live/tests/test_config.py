@@ -42,6 +42,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.max_emergency_sells_per_cycle == 1
     assert config.trading.experiment_capital_usdc == 100
     assert config.trading.max_drawdown_stop == 0.10
+    assert config.trading.drawdown_loss_limit_usdc == 300
     assert config.trading.fok_reconciliation_timeout_minutes == 2
     assert config.trading.stop_sell_quarantine_timeout_minutes == 180
     assert config.trading.yes_only_mode is True
@@ -81,6 +82,7 @@ def test_one_week_continuation_preserves_existing_guard_budget(monkeypatch, shor
     assert config.trading.economic_guard_start_utc < FROZEN_RESUME_UTC
     assert config.trading.buy_amount_usdc == 5
     assert config.trading.max_drawdown_stop == 0.10
+    assert config.trading.drawdown_loss_limit_usdc == 300
 
 
 @pytest.mark.parametrize("key,value", [

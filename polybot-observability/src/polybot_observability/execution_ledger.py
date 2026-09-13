@@ -776,13 +776,24 @@ def normalize_clob_response_list(
 class ExecutionLedger:
     """Persist selected non-secret execution fields into the bot SQLite DB."""
 
-    def __init__(self, db_path: str | Path, *, strategy_name: str) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        strategy_name: str,
+        schema_on_start: bool = True,
+        bootstrap_legacy_orders: bool = True,
+    ) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
         self.strategy_name = strategy_name
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
-            self._ensure_schema(connection)
-            self._bootstrap_legacy_orders(connection)
+            if schema_on_start:
+                self._ensure_schema(connection)
+            else:
+                self._assert_current_schema(connection)
+            if bootstrap_legacy_orders:
+                self._bootstrap_legacy_orders(connection)
 
     def record_submission(
         self,
@@ -3425,6 +3436,31 @@ class ExecutionLedger:
             raise
         finally:
             connection.close()
+
+    @staticmethod
+    def _assert_current_schema(connection: sqlite3.Connection) -> None:
+        """Open a deployed ledger without taking a schema write lock.
+
+        One-minute runtimes may opt into this path only after deployment
+        preflight has run the normal constructor.  A missing or stale version
+        fails closed; individual repository operations continue to surface
+        any later physical corruption or missing column.
+        """
+        try:
+            row = connection.execute(
+                "SELECT version FROM polybot_schema_versions "
+                "WHERE component = 'execution_ledger'"
+            ).fetchone()
+        except sqlite3.Error as error:
+            raise RuntimeError(
+                "execution ledger schema preflight is required"
+            ) from error
+        if row is None or int(row[0]) != 8:
+            actual = None if row is None else row[0]
+            raise RuntimeError(
+                "execution ledger schema preflight is required: "
+                f"expected version 8, found {actual}"
+            )
 
     @staticmethod
     def _ensure_schema(

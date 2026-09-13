@@ -51,19 +51,19 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.db_path == Path("data/plum-live-king-90-1m-v1/trades.db")
     entry = config.trading.entry
     assert (entry.prob_min, entry.prob_max) == (0.70, 0.73)
-    assert entry.take_profit_price == 0.90
-    assert entry.stop_loss_delta == 0.15
+    assert entry.take_profit_price == 0.85
+    assert entry.stop_loss_delta == 0.12
     assert entry.min_source_minute == 0
-    assert entry.max_source_minute == 75
+    assert entry.max_source_minute == 60
     assert entry.hours_max is None
     assert entry.trend_observations == 1
     assert entry.trend_min_cumulative_move == 0.0
     assert entry.trend_max_pullback == 0.0
     assert entry.trend_max_gap_seconds == 90
-    assert entry.force_exit_minute == 75
+    assert entry.force_exit_minute == 65
     assert config.trading.scaling_notionals_usdc == ()
-    assert config.trading.sport_profile_version == "soccer-single-quote-v10"
-    assert config.trading.drawdown_loss_limit_usdc == 100.0
+    assert config.trading.sport_profile_version == "soccer-early-exit-v14"
+    assert config.trading.drawdown_loss_limit_usdc == 300.0
     assert config.trading.book_shape == "direct-six-result-books"
     assert config.trading.expected_token_count == 6
     assert config.trading.source_clock_required is True
@@ -80,15 +80,17 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.api.private_key == "1" * 64
 
 
-def test_queen_soccer_arm_keeps_the_original_profit_target(monkeypatch) -> None:
+def test_queen_soccer_arm_differs_only_by_profit_target(monkeypatch) -> None:
     _credentials(monkeypatch)
     config = load_config(
         "config.yaml", "plum-live-queen-95-1m-v1", simulation_mode=False
     )
-    assert config.trading.entry.take_profit_price == 0.95
+    assert config.trading.entry.take_profit_price == 0.90
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.70, .73))
-    assert config.trading.entry.stop_loss_delta == 0.15
-    assert config.trading.drawdown_loss_limit_usdc == 100.0
+    assert config.trading.entry.stop_loss_delta == 0.12
+    assert config.trading.entry.max_source_minute == 60
+    assert config.trading.entry.force_exit_minute == 65
+    assert config.trading.drawdown_loss_limit_usdc == 300.0
 
 
 def test_silver_is_credential_free_simulation(monkeypatch) -> None:
@@ -305,15 +307,15 @@ def test_live_jobs_cannot_switch_to_a_direct_sport(monkeypatch) -> None:
         ("POLYBOT_ENTRY_PROB_MIN", "0.74", "first-cross"),
         ("POLYBOT_ENTRY_PROB_MAX", "0.79", "first-cross"),
         ("POLYBOT_MIN_SOURCE_MINUTE", "1", "full-match"),
-        ("POLYBOT_MAX_SOURCE_MINUTE", "74", "full-match"),
+        ("POLYBOT_MAX_SOURCE_MINUTE", "75", "full-match"),
         ("POLYBOT_TREND_OBSERVATIONS", "2", "full-match"),
         ("POLYBOT_TREND_MIN_CUMULATIVE_MOVE", "0.01", "full-match"),
         ("POLYBOT_TREND_MAX_PULLBACK", "0.02", "full-match"),
         ("POLYBOT_TREND_MAX_GAP_SECONDS", "120", "full-match"),
         ("POLYBOT_MIN_LEADER_MARGIN", "0.01", "full-match"),
         ("POLYBOT_MAX_ENTRY_SPREAD", "0.06", "full-match"),
-        ("POLYBOT_STOP_LOSS_DELTA", "0.10", "full-match"),
-        ("POLYBOT_FORCE_EXIT_MINUTE", "80", "full-match"),
+        ("POLYBOT_STOP_LOSS_DELTA", "0.15", "full-match"),
+        ("POLYBOT_FORCE_EXIT_MINUTE", "75", "full-match"),
         ("POLYBOT_MAX_EMERGENCY_SELLS_PER_CYCLE", "1", "ten independent"),
         ("POLYBOT_STOP_SELL_QUARANTINE_TIMEOUT_MINUTES", "179", "180"),
         ("POLYBOT_YES_ONLY", "true", "YES and NO"),

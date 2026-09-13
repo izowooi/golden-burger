@@ -15,14 +15,21 @@ def test_tick50_jobs(monkeypatch,job,policy):
  assert t.entry.exit_basis==policy and t.entry.max_source_minute==52
  assert t.entry.entry_tick_minute==50
  assert (t.entry.prob_min,t.entry.prob_max)==(.01,.999)
- assert t.buy_amount_usdc==10.0 and t.experiment_capital_usdc==100.0
+ assert t.buy_amount_usdc==5.0 and t.experiment_capital_usdc==100.0
+ assert t.drawdown_loss_limit_usdc==300.0
  assert t.entry.take_profit_delta==(0.98 if job.startswith('apricot-live-eco') else 0.99)
  assert cfg.db_path==Path(f'data/{job}/trades.db')
 
 def test_tick50_mlb_notional_is_job_frozen(monkeypatch):
  credentials(monkeypatch)
- monkeypatch.setenv('POLYBOT_BUY_AMOUNT','5')
+ monkeypatch.setenv('POLYBOT_BUY_AMOUNT','10')
  with pytest.raises(ValueError,match='MLB target notional'):
+  load_config('config.yaml','apricot-live-eco-mlb-tick50-hold-v1',simulation_mode=False)
+
+def test_tick50_absolute_drawdown_limit_is_job_frozen(monkeypatch):
+ credentials(monkeypatch)
+ monkeypatch.setenv('POLYBOT_DRAWDOWN_LOSS_LIMIT_USDC','299')
+ with pytest.raises(ValueError,match='economic-loss guard'):
   load_config('config.yaml','apricot-live-eco-mlb-tick50-hold-v1',simulation_mode=False)
 
 def test_only_registered_jobs_and_live_mode(monkeypatch):

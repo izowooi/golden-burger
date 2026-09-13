@@ -38,7 +38,7 @@ NHL_SHADOW_START_UTC = "2026-09-03T11:00:00Z"
 NHL_SHADOW_ENTRY_END_UTC = "2026-12-03T11:00:00Z"
 NHL_SHADOW_FOLLOWUP_END_UTC = "2026-12-10T11:00:00Z"
 SOCCER_PREREGISTRATION = (
-    "research/frozen-2026-09-12-soccer-continuous-v13/"
+    "research/frozen-2026-09-13-soccer-early-exit-v14/"
     "PREREGISTRATION.md"
 )
 MLB_PREREGISTRATION = (
@@ -260,6 +260,11 @@ SPORT_PARAMETER_PROFILES["soccer"] = replace(
     primary_prob_min=0.70,
     primary_prob_max=0.73,
 )
+SPORT_PARAMETER_PROFILES["soccer_live_retune"] = replace(
+    SPORT_PARAMETER_PROFILES["soccer"],
+    profile_version="soccer-early-exit-v14",
+    primary_stop_delta=0.12,
+)
 SPORT_PARAMETER_PROFILES["soccer_full_match_v2_historical"] = replace(
     SPORT_PARAMETER_PROFILES["soccer"],
     profile_version="soccer-full-match-v2",
@@ -318,6 +323,8 @@ class RuntimeSpec:
     drawdown_loss_limit_usdc: float = 10.0
     scaling_notionals_usdc: tuple[float, ...] = ()
     sport_profile_key: Optional[str] = None
+    entry_max_source_minute: Optional[float] = None
+    force_exit_minute: Optional[float] = None
 
 
 RUNTIME_SPECS = {
@@ -328,8 +335,8 @@ RUNTIME_SPECS = {
         simulation_mode=False,
         lifecycle_mode="active",
         execution_policy="exact-5-usdc-fok-live",
-        take_profit_price=0.90,
-        protocol_id="plum-soccer-single-quote-v10",
+        take_profit_price=0.85,
+        protocol_id="plum-soccer-early-exit-v14",
         preregistration_path=SOCCER_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
@@ -337,7 +344,10 @@ RUNTIME_SPECS = {
         experiment_start_utc=FROZEN_START_UTC,
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
-        drawdown_loss_limit_usdc=100.0,
+        drawdown_loss_limit_usdc=300.0,
+        sport_profile_key="soccer_live_retune",
+        entry_max_source_minute=60.0,
+        force_exit_minute=65.0,
     ),
     "plum-live-queen-95-1m-v1": RuntimeSpec(
         runtime_job="plum-live-queen-95-1m-v1",
@@ -346,8 +356,8 @@ RUNTIME_SPECS = {
         simulation_mode=False,
         lifecycle_mode="active",
         execution_policy="exact-5-usdc-fok-live",
-        take_profit_price=0.95,
-        protocol_id="plum-soccer-single-quote-v10",
+        take_profit_price=0.90,
+        protocol_id="plum-soccer-early-exit-v14",
         preregistration_path=SOCCER_PREREGISTRATION,
         cadence_seconds=60,
         hard_deadline_seconds=None,
@@ -355,7 +365,10 @@ RUNTIME_SPECS = {
         experiment_start_utc=FROZEN_START_UTC,
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
-        drawdown_loss_limit_usdc=100.0,
+        drawdown_loss_limit_usdc=300.0,
+        sport_profile_key="soccer_live_retune",
+        entry_max_source_minute=60.0,
+        force_exit_minute=65.0,
     ),
     "plum-live-king-mlb-90-1m-v1": RuntimeSpec(
         runtime_job="plum-live-king-mlb-90-1m-v1",
@@ -1096,7 +1109,11 @@ def _validate_config(
     if (
         entry.min_source_minute != 0
         or entry.max_source_minute
-        != (75.0 if trading.sport_family == "soccer" else None)
+        != (
+            runtime_spec.entry_max_source_minute
+            if runtime_spec.entry_max_source_minute is not None
+            else (75.0 if trading.sport_family == "soccer" else None)
+        )
         or entry.trend_observations != profile.primary_trend_observations
         or entry.trend_min_cumulative_move
         != profile.primary_trend_min_cumulative_move
@@ -1106,7 +1123,11 @@ def _validate_config(
         or entry.max_entry_spread != profile.primary_max_entry_spread
         or entry.stop_loss_delta != profile.primary_stop_delta
         or entry.force_exit_minute
-        != (75.0 if trading.sport_family == "soccer" else None)
+        != (
+            runtime_spec.force_exit_minute
+            if runtime_spec.force_exit_minute is not None
+            else (75.0 if trading.sport_family == "soccer" else None)
+        )
     ):
         raise ValueError("full-match trend/first-cross/TP-SL contract drift")
     if not (
@@ -1117,7 +1138,7 @@ def _validate_config(
     if entry.stop_price != 0.01:
         raise ValueError("defensive absolute stop floor is frozen at 0.01")
     if entry.max_entry_drawdown != entry.stop_loss_delta:
-        raise ValueError("stored entry stop must match the 15pp stop-loss delta")
+        raise ValueError("stored entry stop must match the runtime stop-loss delta")
     if (
         entry.max_stop_slippage != 0.05
         or entry.max_stop_spread != 0.10
@@ -1200,6 +1221,10 @@ def load_config(
     if configured_family is None:
         configured_family = runtime_spec.sport_family
     resolved_sport_family = str(configured_family).strip().lower()
+    if resolved_sport_family != runtime_spec.sport_family:
+        raise ValueError(
+            f"{job_name} sport family must remain {runtime_spec.sport_family}"
+        )
     profile_key = runtime_spec.sport_profile_key or resolved_sport_family
     profile = SPORT_PARAMETER_PROFILES.get(profile_key)
     if profile is None:
@@ -1224,7 +1249,11 @@ def load_config(
         ),
         max_source_minute=_get_frozen_profile_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
-            75.0 if resolved_sport_family == "soccer" else None,
+            (
+                runtime_spec.entry_max_source_minute
+                if runtime_spec.entry_max_source_minute is not None
+                else (75.0 if resolved_sport_family == "soccer" else None)
+            ),
         ),
         trend_observations=_get_frozen_profile_value(
             "POLYBOT_TREND_OBSERVATIONS",
@@ -1261,7 +1290,11 @@ def load_config(
         ),
         force_exit_minute=_get_frozen_profile_value(
             "POLYBOT_FORCE_EXIT_MINUTE",
-            75.0 if resolved_sport_family == "soccer" else None,
+            (
+                runtime_spec.force_exit_minute
+                if runtime_spec.force_exit_minute is not None
+                else (75.0 if resolved_sport_family == "soccer" else None)
+            ),
         ),
         stop_price=_get_config_value(
             "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.01
