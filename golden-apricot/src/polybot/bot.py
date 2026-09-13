@@ -42,7 +42,12 @@ class PolymarketBot:
                 / 60.0,
                 retention_days=float(config.trading.archive.retention_days),
             ),
-            maintenance_on_start=not config.simulation_mode,
+            # A live job runs every minute. Compact maintenance can take tens
+            # of minutes once the path DB grows and Jenkins then coalesces the
+            # missed timer invocations, which can skip the [50,52] entry
+            # window. Schema upgrades still run below; compact/retention
+            # maintenance is an explicit off-cycle operation.
+            maintenance_on_start=False,
             enable_research_raw=config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")

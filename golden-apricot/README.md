@@ -13,3 +13,7 @@ uv sync --frozen --extra dev
 uv run pytest tests
 uv run polybot config --live --job apricot-live-eco-mlb-tick50-hold-v1
 ```
+
+1분 live cycle은 compact SQLite maintenance를 실행하지 않는다. DB compaction은 경기 진입창과
+겹치지 않는 별도 maintenance 절차에서 수행한다. cycle 시작 maintenance는 DB가 커졌을 때
+Jenkins build를 수십 분 점유해 `[50,52]`분 진입창을 놓치게 하므로 금지한다.
