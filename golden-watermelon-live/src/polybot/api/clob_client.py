@@ -613,11 +613,18 @@ class ClobClientWrapper:
             close()
 
     @staticmethod
-    def _positive_fill_quantity(raw_size: Any, requested_size: Any) -> Decimal:
+    def _positive_fill_quantity(
+        raw_size: Any, requested_size: Any, *, maximum_size: Any = None
+    ) -> Decimal:
         """Decode an SDK-human or raw fixed-6 fill quantity fail-closed."""
         try:
             raw = Decimal(str(raw_size))
             requested = Decimal(str(requested_size))
+            maximum = (
+                requested + Decimal("0.0001")
+                if maximum_size is None
+                else Decimal(str(maximum_size))
+            )
         except Exception as error:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill quantity is not numeric"
@@ -627,19 +634,21 @@ class ClobClientWrapper:
             or not requested.is_finite()
             or raw <= 0
             or requested <= 0
+            or not maximum.is_finite()
+            or maximum <= 0
         ):
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill quantity is not positive"
             )
-        if raw > requested * Decimal(1_000):
+        if raw > maximum * Decimal(1_000):
             normalized = raw / _FIXED_6
-        elif raw <= requested * Decimal("1.05"):
+        elif raw <= maximum:
             normalized = raw
         else:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill quantity representation is ambiguous"
             )
-        if normalized <= 0 or normalized > requested * Decimal("1.05"):
+        if normalized <= 0 or normalized > maximum:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill quantity exceeds the order envelope"
             )
@@ -817,12 +826,12 @@ class ClobClientWrapper:
         cache[normalized_token] = schedule
         return schedule
 
-    def _submission_requested_size(
+    def _submission_fee_context(
         self,
         pending: Mapping[str, Any],
         *,
         order_id: str,
-    ) -> Decimal:
+    ) -> Dict[str, Any]:
         """Read and identity-check the persisted order quantity."""
         submission_id = str(pending.get("submission_id") or "").strip()
         if not submission_id:
@@ -832,7 +841,8 @@ class ClobClientWrapper:
         try:
             with self._open_evidence_db_read_only() as connection:
                 rows = connection.execute(
-                    "SELECT order_id, token_id, side, requested_size "
+                    "SELECT order_id, token_id, side, requested_size, requested_price, "
+                    "making_amount, latest_size_matched, latest_status_domain_error "
                     "FROM order_submissions WHERE submission_id = ?",
                     (submission_id,),
                 ).fetchall()
@@ -865,7 +875,99 @@ class ClobClientWrapper:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence requested quantity is not positive"
             )
-        return requested_size
+        return dict(row)
+
+    def _submission_requested_size(
+        self, pending: Mapping[str, Any], *, order_id: str
+    ) -> Decimal:
+        context = self._submission_fee_context(pending, order_id=order_id)
+        return Decimal(str(context["requested_size"]))
+
+    def _validated_fee_quantity(
+        self,
+        raw_size: Any,
+        price: Decimal,
+        *,
+        pending: Mapping[str, Any],
+        order_id: str,
+        trade_id: str,
+        bucket_index: int,
+    ) -> tuple[Decimal, Decimal]:
+        """Validate a price-improved fill against exact order cash and size."""
+        context = self._submission_fee_context(pending, order_id=order_id)
+        requested = Decimal(str(context["requested_size"]))
+        side = str(context["side"]).upper()
+        if pending.get("side") and str(pending["side"]).upper() != side:
+            raise ClobResponseContractError("fee submission side mismatch")
+        limit = Decimal(str(context["requested_price"]))
+        if not limit.is_finite() or not 0 < limit < 1:
+            raise ClobResponseContractError("fee submission price is invalid")
+        quantum = Decimal("0.000001")
+        matched = None
+        if context["latest_size_matched"] is not None:
+            matched = Decimal(str(context["latest_size_matched"]))
+            if (
+                not matched.is_finite()
+                or matched < 0
+                or context["latest_status_domain_error"]
+            ):
+                raise ClobResponseContractError("fee matched quantity proof is invalid")
+        cash_limit = None
+        if side == "BUY":
+            tolerance = limit * Decimal("0.0001") + quantum
+            cash_limit = limit * requested
+            if context["making_amount"] is not None:
+                cash_limit = Decimal(str(context["making_amount"]))
+                tolerance = quantum
+            if not cash_limit.is_finite() or cash_limit <= 0:
+                raise ClobResponseContractError("fee BUY cash envelope is invalid")
+            if price > limit + quantum:
+                raise ClobResponseContractError("fee BUY execution price exceeds limit")
+            maximum = requested + Decimal("0.0001")
+            if matched is not None:
+                maximum = max(maximum, matched + quantum)
+            maximum = min(maximum, (cash_limit + tolerance) / price)
+        else:
+            tolerance = quantum
+            maximum = requested + quantum
+            if price + quantum < limit:
+                raise ClobResponseContractError("fee SELL execution price is below limit")
+        size = self._positive_fill_quantity(
+            raw_size, requested, maximum_size=maximum
+        )
+        if matched is not None and size > matched + quantum:
+            raise ClobResponseContractError("fee fill exceeds authoritative matched size")
+        if not trade_id:
+            raise ClobResponseContractError("fee fill trade ID is missing")
+        with self._open_evidence_db_read_only() as connection:
+            other = connection.execute(
+                "SELECT size,price,domain_error FROM order_fills WHERE submission_id=? "
+                "AND UPPER(status)='CONFIRMED' AND NOT (trade_id=? AND bucket_index=?)",
+                (pending["submission_id"], trade_id, bucket_index),
+            ).fetchall()
+        total_size, total_cash = size, size * price
+        for row in other:
+            quantity = Decimal(str(row["size"]))
+            prior_price = Decimal(str(row["price"]))
+            if (
+                row["domain_error"]
+                or not quantity.is_finite()
+                or quantity <= 0
+                or not prior_price.is_finite()
+                or not 0 < prior_price < 1
+            ):
+                raise ClobResponseContractError(
+                    "existing fill quantity/cash proof is invalid"
+                )
+            total_size += quantity
+            total_cash += quantity * prior_price
+        if matched is not None and total_size > matched + quantum:
+            raise ClobResponseContractError("cumulative fills exceed matched quantity")
+        if side == "SELL" and total_size > maximum:
+            raise ClobResponseContractError("cumulative SELL exceeds submitted shares")
+        if cash_limit is not None and total_cash > cash_limit + tolerance:
+            raise ClobResponseContractError("cumulative BUY exceeds cash envelope")
+        return size, requested
 
     def _attach_clob_v2_fee_evidence(
         self,
@@ -889,19 +991,25 @@ class ClobClientWrapper:
             if isinstance(item, Mapping)
         ]
         enriched["maker_orders"] = maker_orders
-        maker_match = next(
-            (
-                item
-                for item in maker_orders
-                if str(item.get("order_id") or "") == str(order_id)
-            ),
-            None,
-        )
+        maker_matches = [
+            item
+            for item in maker_orders
+            if str(item.get("order_id") or "") == str(order_id)
+        ]
+        if len(maker_matches) > 1:
+            raise ClobResponseContractError(
+                "duplicate maker identity in fee evidence"
+            )
+        maker_match = maker_matches[0] if maker_matches else None
         reported_role = str(enriched.get("trader_side") or "").strip().upper()
         taker_match = (
             bool(enriched.get("taker_order_id"))
             and str(enriched.get("taker_order_id")) == str(order_id)
-        ) or (reported_role == "TAKER" and maker_match is None)
+        ) or (
+            not enriched.get("taker_order_id")
+            and reported_role == "TAKER"
+            and maker_match is None
+        )
         if (maker_match is None) == (not taker_match):
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence cannot determine one liquidity role"
@@ -917,10 +1025,11 @@ class ClobClientWrapper:
             raw_price = enriched.get("price")
             liquidity_role = "TAKER"
 
-        requested_size = self._submission_requested_size(
-            pending, order_id=order_id
-        )
-        size = self._positive_fill_quantity(raw_size, requested_size)
+        if (
+            fee_target.get("asset_id") is not None
+            and str(fee_target["asset_id"]) != str(pending.get("token_id"))
+        ):
+            raise ClobResponseContractError("fee trade token differs from submission")
         try:
             price = Decimal(str(raw_price))
         except Exception as error:
@@ -931,6 +1040,33 @@ class ClobClientWrapper:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill price is outside (0, 1)"
             )
+
+        bucket = enriched.get("bucket_index", 0)
+        if bucket is None:
+            bucket = 0
+        if (
+            isinstance(bucket, bool)
+            or str(bucket) != str(int(bucket))
+            or int(bucket) < 0
+        ):
+            raise ClobResponseContractError("fee fill bucket identity is invalid")
+        size, requested_size = self._validated_fee_quantity(
+            raw_size,
+            price,
+            pending=pending,
+            order_id=order_id,
+            trade_id=str(enriched.get("id") or ""),
+            bucket_index=int(bucket),
+        )
+        if size > requested_size + Decimal("0.0001"):
+            micros = size * _FIXED_6
+            if micros != micros.to_integral_value():
+                raise ClobResponseContractError(
+                    "fee quantity exceeds fixed-6 precision"
+                )
+            fee_target[
+                "matched_amount" if maker_match is not None else "size"
+            ] = str(int(micros))
 
         schedule = self._clob_v2_fee_schedule(str(pending.get("token_id") or ""))
         fee = Decimal(0)
