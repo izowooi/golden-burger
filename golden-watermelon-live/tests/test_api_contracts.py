@@ -706,6 +706,30 @@ def test_clob_v2_fee_schedule_reads_one_known_legacy_double_encoding(tmp_path) -
     assert schedule.rate == Decimal("0.05")
 
 
+def test_clob_v2_fee_schedule_accepts_one_exact_market_info_object(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    original = wrapper.client.get_clob_market_info
+    wrapper.client.get_clob_market_info = lambda condition_id: [original(condition_id)]
+
+    schedule = wrapper._clob_v2_fee_schedule("token-fee")
+
+    assert schedule.condition_id == "condition-fee"
+    assert schedule.rate == Decimal("0.05")
+
+
+def test_clob_v2_fee_schedule_rejects_ambiguous_market_info_sequence(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(tmp_path)
+    original = wrapper.client.get_clob_market_info
+    item = original("condition-fee")
+    wrapper.client.get_clob_market_info = lambda _condition_id: [item, item]
+
+    with pytest.raises(
+        ClobResponseContractError,
+        match="market-info response is not an object",
+    ):
+        wrapper._clob_v2_fee_schedule("token-fee")
+
+
 def test_live_fok_fee_contract_failure_is_raised_before_post(tmp_path) -> None:
     wrapper = _fee_evidence_wrapper(tmp_path)
     posted = []

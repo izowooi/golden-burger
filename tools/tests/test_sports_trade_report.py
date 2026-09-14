@@ -109,6 +109,20 @@ class ReportingTests(unittest.TestCase):
         sub['reconciliation_proof']=None
         self.assertFalse(report.order_evidence(sub,[fill(size=10)],end=END)['complete_now'])
 
+    def test_zero_fill_retry_does_not_create_multiple_buy_ambiguity(self):
+        trades = [
+            {'token_id':'t','buy_order_id':'zero'},
+            {'token_id':'t','buy_order_id':'filled'},
+        ]
+        by_order = {
+            'zero':[{'side':'BUY','token_id':'t','state':'zero'}],
+            'filled':[{'side':'BUY','token_id':'t','state':'filled'}],
+        }
+        evidence = lambda sub: {'complete_now': sub['state'] == 'filled'}
+        self.assertEqual(
+            report.confirmed_buy_trade_count(trades, by_order, evidence), 1
+        )
+
     def test_exact_payout_hash_and_token_identity(self):
         trade={'condition_id':'condition','token_id':'token-yes','outcome':'Yes'}
         payload={'closed':True,'tokens':[{'token_id':'token-yes','outcome':'Yes','price':1,'winner':True},{'token_id':'token-no','outcome':'No','price':0,'winner':False}]}

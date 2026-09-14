@@ -311,6 +311,21 @@ def _cohort(sub, runs, configs):
             "git_commit": run.get("git_commit")}
 
 
+def confirmed_buy_trade_count(token_trades, by_order, evidence):
+    """Count economic BUY positions, excluding retry rows proven zero-fill."""
+    count = 0
+    for trade in token_trades:
+        candidates = [
+            sub
+            for sub in by_order.get(trade.get("buy_order_id"), [])
+            if sub.get("side") == "BUY"
+            and sub.get("token_id") == trade.get("token_id")
+        ]
+        if len(candidates) == 1 and evidence(candidates[0]).get("complete_now"):
+            count += 1
+    return count
+
+
 def read_source(source, *, start, end):
     path = Path(source["db_path"]).resolve()
     if source.get("mode") != "live" or source.get("pinned") is not True or "pinned" not in path.parts:
@@ -395,7 +410,13 @@ def read_source(source, *, start, end):
             sell_subs = [s for s in by_token[trade.get("token_id")] if s.get("side") == "SELL"
                          and (when := maybe_time(s.get("submitted_at"), naive_utc=naive)) is not None
                          and requested_at <= when < end]
-            ambiguous = len(trade_tokens[trade.get("token_id")]) > 1
+            # Retry rows with an authoritative zero-fill are not economic
+            # buys. Only multiple trade rows that each own confirmed BUY
+            # fills require SELL allocation across positions.
+            economic_buy_rows = confirmed_buy_trade_count(
+                trade_tokens[trade.get("token_id")], by_order, evidence
+            )
+            ambiguous = economic_buy_rows > 1
             if ambiguous:
                 sell_subs = [s for s in sell_subs if s.get("order_id") == trade.get("sell_order_id")]
             sells = [evidence(s) for s in sell_subs]

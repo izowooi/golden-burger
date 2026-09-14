@@ -751,6 +751,16 @@ class ClobClientWrapper:
         market_info = self.client.get_clob_market_info(
             catalog_schedule.condition_id
         )
+        # Older/closed CLOB conditions can return the same market-info object
+        # wrapped in a one-item sequence.  Accept only that exact, unambiguous
+        # compatibility shape; the condition and token identity checks below
+        # still fail closed before any fee evidence is persisted.
+        if (
+            isinstance(market_info, (list, tuple))
+            and len(market_info) == 1
+            and isinstance(market_info[0], Mapping)
+        ):
+            market_info = market_info[0]
         if not isinstance(market_info, Mapping):
             raise ClobResponseContractError("CLOB market-info response is not an object")
         returned_condition = str(
