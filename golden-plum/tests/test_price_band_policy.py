@@ -86,8 +86,21 @@ def test_execution_and_orphan_validation_accept_single_real_snapshot(monkeypatch
     assert not _orphan_episode_contract_matches(episode, config)
 
 
-@pytest.mark.parametrize('account,arm',[('king','a'),('queen','b')])
-def test_nfl_live_profile_requires_a_future_explicit_approval(monkeypatch, account, arm):
+@pytest.mark.parametrize(
+    ('account','target'), [('king', .85), ('queen', .90)]
+)
+def test_nfl_live_profile_has_no_soccer_clock_gate(monkeypatch, account, target):
     _credentials(monkeypatch)
-    with pytest.raises(ValueError, match='unsupported Golden Plum runtime job'):
-        load_config('config.yaml', f'plum-live-{account}-nfl-price-{arm}-v9', simulation_mode=False)
+    config = load_config(
+        'config.yaml', f'plum-live-{account}-nfl-{int(target*100)}-1m-v15',
+        simulation_mode=False,
+    )
+    assert config.trading.sport_family == 'nfl'
+    assert config.trading.source_clock_required is False
+    assert config.trading.entry.max_source_minute is None
+    assert config.trading.entry.force_exit_minute is None
+    assert config.trading.entry.prob_min == .70
+    assert config.trading.entry.prob_max == .73
+    assert config.trading.entry.stop_loss_delta == .12
+    assert config.trading.entry.take_profit_price == target
+    assert config.trading.buy_amount_usdc == 5

@@ -9,6 +9,7 @@
 | Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / 0.96 | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / 0.99 | 1m / current target `$5` |
 | MLB | `polybot-bear` / `watermelon-live-bear-mlb-96-1m-v3a` / 0.96 | `polybot-tiger` / `watermelon-live-tiger-mlb-99-1m-v3a` / 0.99 | 1m / current target `$5` |
 | NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / 0.96 | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / 0.99 | 1m / current target `$5` |
+| NFL | `polybot-cat` / `watermelon-live-cat-nfl-91-1m-v6` / 0.91 | `polybot-dog` / `watermelon-live-dog-nfl-94-1m-v6` / 0.94 | 1m / `$5`, stop `.70`, resolution hold |
 
 - Entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up cutoff
   `2026-09-12T04:00:00Z`.
@@ -23,7 +24,7 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
 
 ## 불변 조건
 
-- Jenkins `POLYBOT_SPORT_FAMILY=soccer|mlb|nhl`만으로 family를 선택하며 별도 전략 fork를 만들지
+- Jenkins `POLYBOT_SPORT_FAMILY=soccer|mlb|nfl|nhl`만으로 family를 선택하며 별도 전략 fork를 만들지
   않는다.
 - Soccer는 EPL/Bundesliga/Ligue 1/LaLiga/MLS/Serie A/UCL/UEL exact identity와 정규시간
   HOME/DRAW/AWAY YES만 허용한다.
@@ -53,7 +54,7 @@ Cat/Dog는 기존 bot-owned position을 관리해야 하므로 v2h DB를 이어 
   반대 token 전환은 한 번뿐이며 같은 token 재매수와 세 번째 진입은 720시간 동안 금지한다.
 - `DELAYED` FOK BUY/SELL은 exact order·전체 인증 token trade 부재와 cancellation 증거가 모두
   맞을 때만 2분 뒤 0체결로 종결한다. 모호하면 PENDING을 유지한다.
-- 등록된 여섯 runtime은 Jenkins `JOB_NAME`·family·arm·`active/live` mode와 원자적으로 결합한다.
+- 등록된 runtime은 Jenkins `JOB_NAME`·family·arm·`active/live` mode와 원자적으로 결합한다.
   미등록 runtime이나 혼합 조합은 DB/network 전에 fail closed한다. 모호한 PENDING BUY는 180분 뒤
   event-local QUARANTINED로 바꾸되 account/event capacity를 계속 예약하고 exact 대사를 계속한다.
 - Gamma open condition lookup 누락은 exact `closed=true`로 fallback한다. token-aligned final

@@ -1,8 +1,8 @@
 # Golden Plum — 종목별 경기 전체 상승 확인
 
-## 현재 live 정책: 축구 전용
+## 현재 live 정책: 축구 + NFL 종목별 profile
 
-2026-09-11 사용자 지시에 따라 Golden Plum의 신규 live는 축구만 허용한다. King/Queen은
+축구 King/Queen은
 축구의 현재 유일한 midpoint 선두가 `.70~.73`이면 한 번의 complete six-book 관측으로
 진입한다. 이전 교차·3회 누적·pullback 조건은 제거했다. TP `.85/.90`, SL `-.12` A/B와
 exact `$5`는 유지한다. 신규 진입은 source 60분 미만이며 65분 이후 첫 전량 bid에서 FOK로
@@ -10,8 +10,9 @@ exact `$5`는 유지한다. 신규 진입은 source 60분 미만이며 65분 이
 confirmed strategy P&L 손실 한도는 공통 `$300`이며 wallet 입출금은 계산에 포함하지 않는다.
 
 기존 King/Queen MLB runtime은 과거 불확실 노출과 주문을 대사하기 위한 close-only다.
-MLB·NFL·NBA·NHL은 Gold 등 accountless simulation으로만 검증하며, 사용자의 별도 승인 전에는
-신규 live runtime을 등록하거나 배포하지 않는다.
+2026-09-14 사용자 승인으로 NFL은 별도 direct two-team profile과 새 DB에서 `$5` live를
+시작한다. NFL은 `.70-.73`, SL `.12`, King TP `.85`/Queen TP `.90`이며 source minute 진입
+상한과 minute65 exit을 사용하지 않는다. NBA·NHL은 계속 simulation 전용이다.
 
 v14는 verified raw 136경기 중 현행 진입으로 완결 재생 가능한 69경기와 최신 adverse
 23경기를 함께 사용해 종반 급변을 줄였다. 공통 진입 `.70–.73`, 신규 진입 60분 미만,
@@ -32,7 +33,7 @@ v14는 verified raw 136경기 중 현행 진입으로 완결 재생 가능한 69
   DB의 기존 trend 필드는 호환을 위해 남지만 관측 수1/변화량0/기간0으로 기록한다.
 - 축구/MLB/NFL은 서로 다른 profile·runtime DB다. SL은 축구/NFL 매수가-0.15,
   MLB 매수가-0.12. 기존 보유 거래는 매수 당시 저장한 TP/SL을 유지한다.
-- Gold의 NFL raw/simulation은 계속 수집한다. King/Queen NFL live runtime은 등록하지 않는다.
+- Gold의 NFL raw/simulation은 계속 수집하고 King/Queen NFL v15 live와 독립 비교한다.
 - 수집 raw book으로 진입0.55~0.80와 익절0.85/0.90/0.95/0.97을 비교한다.
   재생 보고서의 `price_band_arms`는 A/B 각각 경기별 결과와 미해결 표본을 표시한다.
 - Silver/Gold는 1분 수집 시작 시 전체 archive 정리·vacuum을 하지 않는다. 별도 유지보수로
@@ -163,9 +164,11 @@ event당 실제 체결이나 venue 도달 여부가 불확실한 BUY는 한 번�
 |---|---|---:|
 | A | `polybot-king/plum-live-king-90-1m-v1` | 절대 익절 하한 0.85 |
 | B | `polybot-queen/plum-live-queen-95-1m-v1` | 절대 익절 하한 0.90 |
+| NFL A | `polybot-king/plum-live-king-nfl-85-1m-v15` | 절대 익절 하한 0.85 |
+| NFL B | `polybot-queen/plum-live-queen-nfl-90-1m-v15` | 절대 익절 하한 0.90 |
 
 - 공통 stop: confirmed BUY VWAP -0.12
-- 시간 강제 청산: source 65분 이후 첫 전량 FOK bid, 이후 event 재진입 금지
+- 축구 시간 강제 청산: source 65분 이후 첫 전량 FOK bid. NFL에는 적용하지 않는다.
 - 종료 우선순위: target → stop → minute65 time exit; 실행 불가 시 검증된 resolution
 - SELL도 FOK이며 confirmed size/VWAP/fee 전에는 완료로 세지 않는다.
 - 목표 금액을 올려도 BUY는 선택된 금액 전체가 체결되거나 0체결이다. 거래소의 불명확한 부분

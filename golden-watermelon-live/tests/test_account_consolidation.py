@@ -289,13 +289,14 @@ def test_runner_sequential_env_isolation_failure_still_runs_other_management(acc
     assert os.environ["POLYBOT_ENTRY_HOURS_MAX"] == "4"
 
 
-def test_new_mlb_runtime_and_policy_do_not_rewrite_old_six():
-    assert len(configs.RUNTIME_SPECS) == 10
+def test_new_nfl_runtime_and_policy_do_not_rewrite_old_profiles():
+    assert len(configs.RUNTIME_SPECS) == 12
     for account, jobs in configs.ACCOUNT_RUNTIMES.items():
-        assert "v2h" in jobs[0] and "mlb" in jobs[1]
+        assert "v2h" in jobs[0] and "mlb" in jobs[1] and "nfl" in jobs[2]
         assert configs.RUNTIME_SPECS[jobs[1]].jenkins_job == account
+        assert configs.RUNTIME_SPECS[jobs[2]].jenkins_job == account
     assert configs.SPORT_POLICIES["catdog_mlb"] is not configs.SPORT_POLICIES["mlb"]
-    for name in ("soccer", "mlb", "nhl", "catdog_mlb"):
+    for name in ("soccer", "mlb", "nhl", "catdog_mlb", "catdog_nfl_v6"):
         policy = configs.SPORT_POLICIES[name]
         assert (policy.stop_price, policy.max_entry_drawdown, policy.max_positions) == (.70, .30, 20)
 
@@ -334,10 +335,13 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
                     child.setenv(k, v)
             loaded.append(configs.load_config(str(yaml_path), runtime, simulation_mode=False))
     assert dict(os.environ) == baseline
-    soccer, mlb = loaded
+    soccer, mlb, nfl = loaded
     assert soccer.trading.entry.hours_max == soccer.trading.archive.hours_max == 4
     assert mlb.trading.entry.hours_max == mlb.trading.archive.hours_max == 8
-    assert soccer.db_path != mlb.db_path and "v2h" in str(soccer.db_path)
+    assert nfl.trading.entry.hours_max == nfl.trading.archive.hours_max == 6
+    assert len({soccer.db_path, mlb.db_path, nfl.db_path}) == 3
+    assert "v2h" in str(soccer.db_path)
+    assert nfl.trading.buy_amount_usdc == 5
     for cfg in loaded:
         assert cfg.trading.lifecycle_mode == lifecycle
         assert (cfg.trading.entry.stop_price, cfg.trading.entry.max_entry_drawdown) == (.70, .30)
@@ -385,7 +389,11 @@ def test_runner_order_rotates_without_changing_profile_policy(account, monkeypat
     assert run_account("polybot-cat", run_process=child) == 0
     monkeypatch.setattr(account_runner.time, "time", lambda: 180)
     assert run_account("polybot-cat", run_process=child) == 0
-    assert observed == [soccer.job_name, mlb.job_name, mlb.job_name, soccer.job_name]
+    nfl = configs.ACCOUNT_RUNTIMES["polybot-cat"][2]
+    assert observed == [
+        nfl, soccer.job_name, mlb.job_name,
+        soccer.job_name, mlb.job_name, nfl,
+    ]
 
 
 def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypatch, tmp_path):
@@ -409,6 +417,8 @@ def test_peer_guard_failure_does_not_skip_existing_position_management(monkeypat
 def test_unapproved_nfl_runtime_is_not_an_account_runner_member():
     assert configs.account_for_runtime("watermelon-live-cat-nfl-96-1m-v5") is None
     assert configs.account_for_runtime("watermelon-live-dog-nfl-99-1m-v5") is None
+    assert configs.account_for_runtime("watermelon-live-cat-nfl-91-1m-v6") == "polybot-cat"
+    assert configs.account_for_runtime("watermelon-live-dog-nfl-94-1m-v6") == "polybot-dog"
 
 
 def test_profile_environment_can_close_only_mlb_without_stopping_soccer():

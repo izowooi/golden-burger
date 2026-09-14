@@ -195,6 +195,8 @@ def test_runtime_specs_are_atomic_and_protocol_specific(monkeypatch) -> None:
     assert set(RUNTIME_SPECS) == {
         "plum-live-king-90-1m-v1",
         "plum-live-queen-95-1m-v1",
+        "plum-live-king-nfl-85-1m-v15",
+        "plum-live-queen-nfl-90-1m-v15",
         "plum-live-king-mlb-90-1m-v1",
         "plum-live-queen-mlb-95-1m-v1",
         "plum-shadow-silver-1m-v1",

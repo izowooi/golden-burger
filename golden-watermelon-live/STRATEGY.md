@@ -143,13 +143,18 @@ v3g는 종료일만 연장한 승인된 계속 운용이다. 기존 여섯 runti
 v3h는 40개 strict raw 경기의 시간순 20/20 탐색에서 양쪽 절반이 양수였던 Soccer 하한
 `.91/.92`만 바꾼 3일 forward A/B다. upper `.999`, `$5`, stop `.70`, resolution hold와 모든
 실행·안전 계약은 유지한다. MLB는 Cat/Dog account runner에서 close-only이고, 준비되지 않은
-NFL runtime은 account runner에서 제외한다. 근거는
+당시 NFL runtime은 account runner에서 제외했다. 근거는
 `research/frozen-2026-09-12-soccer-91-92-v3h/PREREGISTRATION.md`다.
 
 v3i는 같은 `.91/.92`를 운영자가 중단하거나 다시 교정할 때까지 계속 신규 진입한다. 하루·3일·
 7일 회고는 관측 checkpoint일 뿐 entry cutoff가 아니다. open-ended sentinel은
 `9999-12-31T23:59:59Z`이며 과거 파라미터로 자동 복귀하지 않는다. 근거는
 `research/frozen-2026-09-12-soccer-91-92-continuous-v3i/PREREGISTRATION.md`다.
+
+v6는 2026-09-14 사용자 승인으로 Cat/Dog account runner에 NFL을 새 runtime과 DB로 추가한다.
+Cat `.91`, Dog `.94`, upper `.999`, `$5`, effective stop `.70`, resolution hold이며 NFL
+threshold 하나만 A/B 처치다. Soccer `.91/.92`와 MLB close-only 설정은 상속하거나 변경하지
+않는다. 근거는 `research/frozen-2026-09-14-catdog-nfl-91-94-v6/PREREGISTRATION.md`다.
 
 ## Cat/Dog 계정 통합 v4 — 실행 계약
 
@@ -160,7 +165,7 @@ Bear/Tiger 지갑·거래·DB와 수동 wallet position을 옮기거나 편입�
 별도 검증·운영 작업이며 이 소스 변경 자체는 잡을 중지하거나 포지션을 청산하지 않는다.
 
 운영 CLI는 `prepare-account --live --account polybot-cat`(최초 새 MLB DB 준비)과
-`run-account --live --account polybot-cat`(두 종목 순차 실행)이며 Dog도 동일하다.
+`run-account --live --account polybot-cat`(축구·MLB close-only·NFL 순차 실행)이며 Dog도 동일하다.
 기존 shell exports는 유지할 수 있고 runner가 자식 환경만 복사해 MLB hours=8을 주입한다.
 종목별 entry/stop/risk는 불변 policy table에 분리하며 현재 .70/.30 등 수치는 바꾸지 않는다.
 

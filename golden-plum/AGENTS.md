@@ -7,8 +7,8 @@
 
 경기 전체에서 직접 결과 여섯 호가의 유일한 midpoint 선두가 현재 exact `$5` VWAP
 `[0.70,0.73]`이면 한 번의 complete six-book 관측으로 진입한다. 이전 교차·다회 누적·
-pullback gate는 사용하지 않는다. **신규 live는 축구만 허용한다.** King/Queen의
-MLB runtime은 기존 노출 대사만 하는 close-only이고, MLB·NBA·NFL·NHL 신규 live runtime은
+pullback gate는 사용하지 않는다. 신규 live는 축구와 별도 NFL profile에 허용한다. King/Queen의
+MLB runtime은 기존 노출 대사만 하는 close-only이고, NBA·NHL 신규 live runtime은
 사용자의 별도 승인 전까지 등록하지 않는다. Silver는 축구, Gold는 MLB/NBA/NFL/NHL의
 credential-free simulation/raw 수집기다.
 
@@ -20,6 +20,8 @@ credential-free simulation/raw 수집기다.
 | `polybot-queen` | `plum-live-queen-95-1m-v1` | live | 절대 TP `0.90` |
 | `polybot-king` | `plum-live-king-mlb-90-1m-v1` | MLB close-only | 기존 노출 대사만 |
 | `polybot-queen` | `plum-live-queen-mlb-95-1m-v1` | MLB close-only | 기존 노출 대사만 |
+| `polybot-king` | `plum-live-king-nfl-85-1m-v15` | NFL live | `.70-.73`, TP `.85`, SL `.12`, no time gate |
+| `polybot-queen` | `plum-live-queen-nfl-90-1m-v15` | NFL live | `.70-.73`, TP `.90`, SL `.12`, no time gate |
 | `polybot-silver` | `plum-shadow-silver-1m-v1` | simulation | raw six-book + 반사실 grid |
 | `polybot-gold` | `plum-shadow-gold-mlb-1m-v1` | simulation | MLB direct two-book + 반사실 grid |
 | `polybot-gold` | `plum-shadow-gold-{nba,nfl,nhl}-1m-v1` | simulation | direct two-book + 반사실 grid |
@@ -27,9 +29,10 @@ credential-free simulation/raw 수집기다.
 - 네 job은 1분 cadence를 사용한다.
 - King/Queen 축구의 confirmed strategy P&L 손실 한도는 공통 `$300`이며 wallet 입출금과
   잔고 변동은 이 손익에 넣지 않는다.
-- live 금액은 정확히 5 USDC이며 event당 filled/불확실 BUY는 한 번뿐이다.
+- live 금액은 현재 종목별 5 USDC이며 runtime spec에서 독립 설정한다. event당 filled/불확실 BUY는 한 번뿐이다.
 - 수동 wallet position은 봇 DB에 편입하거나 청산하지 않는다.
-- Silver/Gold에는 private key, funder address, signature type을 주입하지 않는다.
+- Silver/Gold에는 private key, funder address, signature type을 주입하지 않는다. NFL v15는
+  사용자가 15경기 탐색 결과를 확인하고 `$5` live를 명시 승인했으며, 증액 근거로 쓰지 않는다.
 - runtime spec은 Jenkins job, sport family, mode, lifecycle, target, protocol,
   cadence, deadline과 exact workspace를 한 레코드로 고정한다.
 - cohort는 `config_hash × strategy_source_digest × mode × job_name`으로 분리한다.
@@ -39,6 +42,8 @@ credential-free simulation/raw 수집기다.
 - 축구 live는 8개 대회와 regular-time 승/무/패 세 명제만 사용한다.
 - source `live=true`, `ended=false`와 명시적 경기 시계를 요구한다. 신규 진입은 source
   minute 60 미만만 허용하고, 신규 cohort 보유 포지션은 65분 이후 첫 전량 bid에서 FOK 청산한다.
+- NFL live는 exact NFL whole-game direct two-team moneyline만 허용한다. source minute가 없는
+  것을 정상으로 처리하며 축구의 minute60/65 조건을 적용하지 않는다.
 - 현재 direct six-book이 모두 있고 선두 margin이 0.005 이상이어야 한다.
 - 그 유일한 선두의 현재 exact `$5` ask VWAP이 `[0.70,0.73]`이어야 한다.
 - 이전 교차, 다회 관측, 누적 상승과 pullback gate는 사용하지 않는다.

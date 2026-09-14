@@ -153,14 +153,24 @@ RUNTIME_SPECS = {
         ),
         RuntimeSpec("watermelon-live-cat-nfl-96-1m-v5", "polybot-cat", "nfl", 0.96, policy_key="catdog_nfl"),
         RuntimeSpec("watermelon-live-dog-nfl-99-1m-v5", "polybot-dog", "nfl", 0.99, policy_key="catdog_nfl"),
+        RuntimeSpec("watermelon-live-cat-nfl-91-1m-v6", "polybot-cat", "nfl", 0.91, policy_key="catdog_nfl_v6"),
+        RuntimeSpec("watermelon-live-dog-nfl-94-1m-v6", "polybot-dog", "nfl", 0.94, policy_key="catdog_nfl_v6"),
     )
 }
 
 # Existing six identities/values remain unchanged. Only these accounts share
 # resources; Bear/Tiger histories and retired NHL configurations stay separate.
 ACCOUNT_RUNTIMES = {
-    "polybot-cat": ("watermelon-live-cat-96-1m-v2h", "watermelon-live-cat-mlb-96-1m-v4"),
-    "polybot-dog": ("watermelon-live-dog-99-1m-v2h", "watermelon-live-dog-mlb-99-1m-v4"),
+    "polybot-cat": (
+        "watermelon-live-cat-96-1m-v2h",
+        "watermelon-live-cat-mlb-96-1m-v4",
+        "watermelon-live-cat-nfl-91-1m-v6",
+    ),
+    "polybot-dog": (
+        "watermelon-live-dog-99-1m-v2h",
+        "watermelon-live-dog-mlb-99-1m-v4",
+        "watermelon-live-dog-nfl-94-1m-v6",
+    ),
 }
 
 
@@ -184,13 +194,15 @@ class SportPolicy:
     experiment_capital_usdc: float = 100
     max_drawdown_stop: float = 0.10
     drawdown_loss_limit_usdc: float = 300.0
+    buy_amount_usdc: float = 5.0
 
 
 # Separate immutable entries even when numbers match. Future retuning requires
 # a new preregistration/review; the retired MLB/NHL profiles do not inherit it.
 SPORT_POLICIES = {"soccer": SportPolicy(4), "mlb": SportPolicy(8),
                   "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
-                  "catdog_nfl": SportPolicy(6)}
+                  "catdog_nfl": SportPolicy(6),
+                  "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=5.0)}
 
 
 def runtime_policy(spec):
@@ -208,6 +220,7 @@ def profile_environment(runtime, inherited):
     policy = runtime_policy(spec)
     env = dict(inherited)
     env.update(POLYBOT_SPORT_FAMILY=spec.sport_family,
+               POLYBOT_BUY_AMOUNT=str(policy.buy_amount_usdc),
                POLYBOT_ENTRY_PROB_MIN=str(spec.prob_min),
                POLYBOT_ENTRY_PROB_MAX=str(policy.prob_max),
                POLYBOT_ENTRY_HOURS_MAX=str(policy.hours_max),

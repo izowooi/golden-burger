@@ -75,11 +75,13 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   exact `$5` VWAP `[0.70,0.73]`이면 한 번의 관측으로 진입한다. 이전 교차·다회 누적·
   pullback gate는 없다. King TP 0.85,
   Queen 0.90의 exact `$5` live A/B다. 신규 진입은 source 60분 미만이며 남은 포지션은
-  65분 이후 첫 전량 FOK bid로 청산한다. 공통 SL은 entry `-0.12`다. **신규 live는 축구만 허용**하며 King/Queen의 기존 MLB runtime은 과거 노출
+  65분 이후 첫 전량 FOK bid로 청산한다. 공통 SL은 entry `-0.12`다. NFL은 별도 direct two-team
+  profile로 `.70-.73`, King TP `.85`/Queen `.90`, SL `.12`, source-time gate 없이 `$5` live하며,
+  King/Queen의 기존 MLB runtime은 과거 노출
   대사용 close-only다. 축구 두 arm의 confirmed strategy P&L 손실 한도는 공통 `$300`이고
   wallet 입출금은 계산에서 제외한다. `polybot-silver`는 축구, `polybot-gold`는 MLB·NFL·NBA direct two-team
   moneyline의 credential-free 1분 raw path와 `$5~$1,000` displayed-depth 증액 자료를
-  서로 다른 DB에 병렬 수집한다. 비축구 live는 사용자 재승인 전까지 등록하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
+  서로 다른 DB에 병렬 수집한다. NBA·NHL live는 사용자 재승인 전까지 등록하지 않는다. 과거 재생은 탐색 근거일 뿐 앞으로 수집하는 A/B가
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-apricot/`: **MLB Tick50 Favorite** — 첫 완전 HOME/AWAY 공통 tick 후 `[50,52]`분에
   midpoint favorite를 baseline `$5` book으로 판정하고 MLB에만 `$5` FOK로 진입한다.
@@ -148,8 +150,9 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   `polybot-grey` 5분은 같은 population/grid의 paired cadence 처치이며, 두 DB를 독립 거래로
   세지 않는다. `soccer-inplay-elite-competition-match-winner-v4` append-only evidence를 쓰고
   accountless simulation-only이며 credential·order·`--live`를 source-level로 금지한다.
-- `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Soccer/MLB/NHL whole-game
-  winner를 family별 `0.96` 대 `0.99` arm으로 exact `$5` 검정한다. Soccer는 Cat/Dog, MLB는
+- `golden-watermelon-live/`: **In-Play Match Result Live A/B** — Soccer/MLB/NFL/NHL whole-game
+  winner를 family별 독립 arm으로 exact `$5` 검정한다. Soccer는 Cat/Dog `.91/.92`, NFL은
+  Cat/Dog `.91/.94`, MLB는
   Bear/Tiger, NHL은 Lion/Wolf이고 모두 1분 cadence다. effective stop은
   `max(0.70, confirmed BUY VWAP-0.05)`이며 event당 1개·account당 20개로 제한한다. 모든 후보를
   POST 전 proven-no-POST queue에 남겨 앞 후보 오류가 뒤 후보를 영구 누락시키지 않는다. open
@@ -233,7 +236,8 @@ append-only로 보존한다. actual fill/P&L evidence가 아니며, 첫 health r
 cadence·cursor·classification·book·clock·DB·storage만 판정한다.
 
 `golden-watermelon-live`은 `polybot-cat/watermelon-live-cat-96-1m-v2h`과
-`polybot-dog/watermelon-live-dog-99-1m-v2h`의 독립 `trades.db`를 사용한다. exact `$5` FOK
+`polybot-dog/watermelon-live-dog-99-1m-v2h`, 그리고 NFL v6 `.91/.94` runtime의 독립
+`trades.db`를 사용한다. exact `$5` FOK
 BUY와 full-holding FOK stop SELL은 order/fill/fee ledger로만 확정하며, 과거 Papaya DB나
 White/Grey simulation DB 또는 초기 5분/v2a zero-opportunity live DB와 merge하지 않는다.
 
@@ -248,7 +252,8 @@ T7 workspace의 1분 cadence다. live 두 arm은 축구 TP만 다르고, Grey는
 `golden-plum`은 `polybot-king/plum-live-king-90-1m-v1`,
 `polybot-queen/plum-live-queen-95-1m-v1`, `polybot-silver/plum-shadow-silver-1m-v1`,
 `polybot-gold/plum-shadow-gold-{mlb,nfl,nba}-1m-v1`의 독립 DB를 사용한다. King/Queen은
-축구 절대 TP만 다르고 Silver는 축구, Gold는 MLB·NFL·NBA credential-free simulation이다.
+축구와 NFL 각각 절대 TP만 다르고 NFL live는 별도 v15 DB다. Silver는 축구, Gold는
+MLB·NFL·NBA credential-free simulation이다.
 King/Queen의 MLB DB는 close-only로 과거 불확실 노출만 대사하며 신규 BUY를 만들지 않는다.
 Gold의 과거 Golden Coconut epoch와 새 Golden Plum epoch는 Jenkins 이름이 같아도 절대
 합치지 않는다.

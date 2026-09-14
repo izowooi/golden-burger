@@ -37,6 +37,9 @@ MLB_LIVE_FOLLOWUP_END_UTC = "2026-09-24T11:00:00Z"
 NHL_SHADOW_START_UTC = "2026-09-03T11:00:00Z"
 NHL_SHADOW_ENTRY_END_UTC = "2026-12-03T11:00:00Z"
 NHL_SHADOW_FOLLOWUP_END_UTC = "2026-12-10T11:00:00Z"
+NFL_LIVE_START_UTC = "2026-09-14T12:00:00Z"
+NFL_LIVE_ENTRY_END_UTC = "9999-12-31T23:59:59Z"
+NFL_LIVE_FOLLOWUP_END_UTC = "9999-12-31T23:59:59Z"
 SOCCER_PREREGISTRATION = (
     "research/frozen-2026-09-13-soccer-early-exit-v14/"
     "PREREGISTRATION.md"
@@ -54,6 +57,9 @@ MLB_LIVE_PREREGISTRATION = (
 )
 NHL_SHADOW_PREREGISTRATION = (
     "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md"
+)
+NFL_LIVE_PREREGISTRATION = (
+    "research/frozen-2026-09-14-nfl-price-band-v15/PREREGISTRATION.md"
 )
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
@@ -265,6 +271,15 @@ SPORT_PARAMETER_PROFILES["soccer_live_retune"] = replace(
     profile_version="soccer-early-exit-v14",
     primary_stop_delta=0.12,
 )
+SPORT_PARAMETER_PROFILES["nfl_live_v15"] = replace(
+    SPORT_PARAMETER_PROFILES["nfl"],
+    profile_version="nfl-price-band-live-v15",
+    primary_prob_min=0.70,
+    primary_prob_max=0.73,
+    primary_stop_delta=0.12,
+    primary_trend_observations=1,
+    primary_trend_min_cumulative_move=0.0,
+)
 SPORT_PARAMETER_PROFILES["soccer_full_match_v2_historical"] = replace(
     SPORT_PARAMETER_PROFILES["soccer"],
     profile_version="soccer-full-match-v2",
@@ -325,6 +340,7 @@ class RuntimeSpec:
     sport_profile_key: Optional[str] = None
     entry_max_source_minute: Optional[float] = None
     force_exit_minute: Optional[float] = None
+    buy_amount_usdc: float = 5.0
 
 
 RUNTIME_SPECS = {
@@ -369,6 +385,50 @@ RUNTIME_SPECS = {
         sport_profile_key="soccer_live_retune",
         entry_max_source_minute=60.0,
         force_exit_minute=65.0,
+    ),
+    "plum-live-king-nfl-85-1m-v15": RuntimeSpec(
+        runtime_job="plum-live-king-nfl-85-1m-v15",
+        jenkins_job="polybot-king",
+        sport_family="nfl",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="exact-5-usdc-fok-live",
+        take_profit_price=0.85,
+        protocol_id="plum-nfl-price-band-live-v15",
+        preregistration_path=NFL_LIVE_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=NFL_LIVE_START_UTC,
+        experiment_entry_end_utc=NFL_LIVE_ENTRY_END_UTC,
+        experiment_followup_end_utc=NFL_LIVE_FOLLOWUP_END_UTC,
+        drawdown_loss_limit_usdc=300.0,
+        sport_profile_key="nfl_live_v15",
+        entry_max_source_minute=None,
+        force_exit_minute=None,
+        buy_amount_usdc=5.0,
+    ),
+    "plum-live-queen-nfl-90-1m-v15": RuntimeSpec(
+        runtime_job="plum-live-queen-nfl-90-1m-v15",
+        jenkins_job="polybot-queen",
+        sport_family="nfl",
+        simulation_mode=False,
+        lifecycle_mode="active",
+        execution_policy="exact-5-usdc-fok-live",
+        take_profit_price=0.90,
+        protocol_id="plum-nfl-price-band-live-v15",
+        preregistration_path=NFL_LIVE_PREREGISTRATION,
+        cadence_seconds=60,
+        hard_deadline_seconds=None,
+        external_workspace_path=None,
+        experiment_start_utc=NFL_LIVE_START_UTC,
+        experiment_entry_end_utc=NFL_LIVE_ENTRY_END_UTC,
+        experiment_followup_end_utc=NFL_LIVE_FOLLOWUP_END_UTC,
+        drawdown_loss_limit_usdc=300.0,
+        sport_profile_key="nfl_live_v15",
+        entry_max_source_minute=None,
+        force_exit_minute=None,
+        buy_amount_usdc=5.0,
     ),
     "plum-live-king-mlb-90-1m-v1": RuntimeSpec(
         runtime_job="plum-live-king-mlb-90-1m-v1",
@@ -1352,7 +1412,9 @@ def load_config(
         lifecycle_mode=_get_lifecycle_mode(runtime_spec.lifecycle_mode),
         sport_family=resolved_sport_family,
         buy_amount_usdc=_get_config_value(
-            "POLYBOT_BUY_AMOUNT", trading_cfg.get("buy_amount_usdc"), 5.0
+            "POLYBOT_BUY_AMOUNT",
+            trading_cfg.get("buy_amount_usdc"),
+            runtime_spec.buy_amount_usdc,
         ),
         min_liquidity=_get_frozen_profile_value(
             "POLYBOT_MIN_LIQUIDITY", profile.min_liquidity
