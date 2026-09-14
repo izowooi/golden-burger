@@ -2126,9 +2126,11 @@ class ClobClientWrapper:
                     submission_id, phase_error
                 )
                 logger.warning(
-                    "주문 원장 대사 실패 - phase=%s error=%s response_shape=%s",
+                    "주문 원장 대사 실패 - phase=%s error=%s reason=%s "
+                    "response_shape=%s",
                     phase,
                     type(error).__name__,
+                    str(error) if isinstance(error, ClobResponseContractError) else "unavailable",
                     response_shape,
                 )
 
