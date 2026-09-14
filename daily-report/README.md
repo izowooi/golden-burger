@@ -103,7 +103,7 @@ ACCOUNT_15_ADDRESS=0x...
 ACCOUNT_16_NAME=golden-fruit
 ACCOUNT_16_ADDRESS=0x...
 
-REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+REPORT_ACCOUNT_ORDER='golden-cat,golden-dog,golden-eco,golden-fruit,golden-king,golden-queen,golden-banana,golden-cherry,golden-apple (1),golden-eagle,golden-bear,golden-tiger,golden-lion,golden-wolf,golden-apple (2),golden-fox'
 
 SLACK_WEBHOOK_URL=https://hooks.slack.com/services/...
 
@@ -248,7 +248,7 @@ Freestyle job이라면 Credentials Binding에서 위 값을 각각 `SLACK_WEBHOO
 Freestyle shell에서는 다음처럼 원하는 Slack 순서를 명시합니다.
 
 ```bash
-export REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+export REPORT_ACCOUNT_ORDER='golden-cat,golden-dog,golden-eco,golden-fruit,golden-king,golden-queen,golden-banana,golden-cherry,golden-apple (1),golden-eagle,golden-bear,golden-tiger,golden-lion,golden-wolf,golden-apple (2),golden-fox'
 ```
 
 ```bash

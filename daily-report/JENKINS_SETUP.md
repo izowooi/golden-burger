@@ -182,7 +182,7 @@ SLACK_WEBHOOK_URL=https://hooks.slack.com/services/YOUR/WEBHOOK/URL
 SUPABASE_URL=https://your-project-ref.supabase.co
 SUPABASE_SECRET_KEY=sb_secret_replace_with_server_only_key
 REPORT_TIMEZONE=Asia/Seoul
-REPORT_ACCOUNT_ORDER='golden-apple (1),golden-banana,golden-cherry,golden-apple (2),golden-eagle,golden-fox,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf'
+REPORT_ACCOUNT_ORDER='golden-cat,golden-dog,golden-eco,golden-fruit,golden-king,golden-queen,golden-banana,golden-cherry,golden-apple (1),golden-eagle,golden-bear,golden-tiger,golden-lion,golden-wolf,golden-apple (2),golden-fox'
 ```
 
 ### 로컬 실행

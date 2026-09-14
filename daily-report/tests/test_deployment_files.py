@@ -8,6 +8,11 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 def test_jenkins_and_env_example_supply_all_sixteen_accounts_and_archive_evidence():
     jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
     env_example = (PROJECT_ROOT / ".env.example").read_text(encoding="utf-8")
+    report_order = (
+        "golden-cat,golden-dog,golden-eco,golden-fruit,golden-king,golden-queen,"
+        "golden-banana,golden-cherry,golden-apple (1),golden-eagle,golden-bear,"
+        "golden-tiger,golden-lion,golden-wolf,golden-apple (2),golden-fox"
+    )
 
     for slot in range(1, 17):
         assert f"ACCOUNT_{slot}_NAME" in jenkinsfile
@@ -28,7 +33,8 @@ def test_jenkins_and_env_example_supply_all_sixteen_accounts_and_archive_evidenc
     assert "polymarket-golden-fruit-address" in jenkinsfile
     assert "REPORT_ACCOUNT_ORDER" in jenkinsfile
     assert "ACCOUNT_4_SLACK_NAME = 'orange'" in jenkinsfile
-    assert "golden-fruit,golden-lion,golden-wolf,golden-apple (2),golden-fox" in jenkinsfile
+    assert f"REPORT_ACCOUNT_ORDER = '{report_order}'" in jenkinsfile
+    assert f"REPORT_ACCOUNT_ORDER='{report_order}'" in env_example
     assert "post {" in jenkinsfile
     assert "always {" in jenkinsfile
     assert "daily_evidence.sqlite3" in jenkinsfile
@@ -40,7 +46,7 @@ def test_jenkins_and_env_example_supply_all_sixteen_accounts_and_archive_evidenc
     assert "sh '''" in jenkinsfile
     assert '"$SLACK_WEBHOOK_URL"' in jenkinsfile
     assert "${slackWebhook}" not in jenkinsfile
-    assert "TZ=Asia/Seoul\\n0 9 * * *" in jenkinsfile
+    assert "TZ=Asia/Seoul\\nH(0-10) 18 * * *" in jenkinsfile
 
 
 def test_broken_console_entrypoints_are_not_published():

@@ -4,9 +4,9 @@
 pipeline {
     agent any
 
-    // Schedule: Run daily at 09:00 Asia/Seoul regardless of controller timezone.
+    // Schedule: Run daily at a stable hashed minute from 18:00 through 18:10 Asia/Seoul.
     triggers {
-        cron('TZ=Asia/Seoul\n0 9 * * *')
+        cron('TZ=Asia/Seoul\nH(0-10) 18 * * *')
     }
 
     // Environment variables
@@ -81,7 +81,7 @@ pipeline {
         ACCOUNT_16_ADDRESS = credentials('polymarket-golden-fruit-address')
 
         // Slack attachment order. This must be an exact permutation of display names.
-        REPORT_ACCOUNT_ORDER = 'golden-apple (1),golden-banana,golden-cherry,golden-eagle,golden-cat,golden-dog,golden-queen,golden-king,golden-bear,golden-eco,golden-tiger,golden-fruit,golden-lion,golden-wolf,golden-apple (2),golden-fox'
+        REPORT_ACCOUNT_ORDER = 'golden-cat,golden-dog,golden-eco,golden-fruit,golden-king,golden-queen,golden-banana,golden-cherry,golden-apple (1),golden-eagle,golden-bear,golden-tiger,golden-lion,golden-wolf,golden-apple (2),golden-fox'
 
         // Slack webhook URL
         SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')
