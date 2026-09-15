@@ -96,7 +96,7 @@ def main() -> int:
     conn.row_factory = sqlite3.Row
     placeholders = ",".join("?" * len(OPEN_STATUSES))
     rows = conn.execute(
-        f"SELECT id, token_id, status, buy_price, buy_amount, buy_shares, question "
+        f"SELECT id, token_id, buy_order_id, status, buy_price, buy_amount, buy_shares, question "
         f"FROM trades WHERE status IN ({placeholders})", OPEN_STATUSES
     ).fetchall()
     print(f"DB 오픈 행 {len(rows)}건 ({', '.join(OPEN_STATUSES)})")
@@ -108,21 +108,56 @@ def main() -> int:
             "JOIN order_fills f ON f.submission_id=s.submission_id "
             "WHERE f.status='CONFIRMED' AND f.side='BUY'")
     }
+    confirmed_buy_orders = {
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT s.order_id FROM order_submissions s "
+            "JOIN order_fills f ON f.submission_id=s.submission_id "
+            "WHERE UPPER(s.side)='BUY' AND f.side='BUY' "
+            "AND f.status='CONFIRMED' AND s.order_id IS NOT NULL"
+        )
+    }
+    # Historical operator cleanup may have marked an order UNFILLED before
+    # delayed execution-ledger ingestion completed. Never silently treat it as
+    # a proven zero fill on a later run.
+    unfilled_with_confirmed_buy = conn.execute(
+        "SELECT DISTINCT t.id FROM trades t "
+        "JOIN order_submissions s ON s.order_id=t.buy_order_id "
+        "JOIN order_fills f ON f.submission_id=s.submission_id "
+        "WHERE t.status='UNFILLED' AND UPPER(s.side)='BUY' "
+        "AND f.side='BUY' AND f.status='CONFIRMED'"
+    ).fetchall()
+    # A venue MATCHED/positive-size BUY can be filled even when the local fill
+    # ingestion is late or failed. Wallet absence cannot prove a zero fill.
+    buy_orders_needing_proof = {
+        r[0] for r in conn.execute(
+            "SELECT DISTINCT order_id FROM order_submissions "
+            "WHERE UPPER(side)='BUY' AND order_id IS NOT NULL "
+            "AND (UPPER(COALESCE(latest_order_status,''))='MATCHED' "
+            "OR COALESCE(latest_size_matched,0)>0 OR needs_reconciliation=1)"
+        )
+    }
 
-    keep, no_fill, closed_off = [], [], []
+    keep, no_fill, closed_off, needs_fill_proof = [], [], [], []
     for r in rows:
         if str(r["token_id"]) in live:
             keep.append(r)
+        elif r["buy_order_id"] in confirmed_buy_orders:
+            closed_off.append(r)
+        elif r["buy_order_id"] in buy_orders_needing_proof:
+            needs_fill_proof.append(r)
         elif str(r["token_id"]) in filled_tokens:
-            closed_off.append(r)   # 체결됐던 것이 지갑에 없다 = 해결·상환 등으로 이미 종료
+            closed_off.append(r)   # legacy token-only evidence; exact order is unavailable
         else:
-            no_fill.append(r)      # 체결 증거도 없고 지갑에도 없다
+            no_fill.append(r)      # no local fill or positive exact-order evidence
 
     close = no_fill + closed_off
     print(f"\n  지갑에 실재 → 유지                     : {len(keep):4d}건")
     print(f"  체결기록 O, 지갑 X → COMPLETED 종결     : {len(closed_off):4d}건")
+    print(f"  MATCHED/양수 매칭·대사중, 지갑 X → 보존 : {len(needs_fill_proof):4d}건")
     print(f"  체결기록 X, 지갑 X → UNFILLED 종결      : {len(no_fill):4d}건 "
           f"(요청 원금 ${sum(r['buy_amount'] or 0 for r in no_fill):,.0f})")
+    print(f"  기존 UNFILLED + exact CONFIRMED BUY 모순: "
+          f"{len(unfilled_with_confirmed_buy):4d}건 (별도 payout·wallet 대사 필요)")
 
     by_status = {}
     for r in close:
@@ -130,8 +165,8 @@ def main() -> int:
     for s, n in sorted(by_status.items()):
         print(f"      (원래 status: {s:<14} {n:4d}건)")
 
-    print("\n  ※ 체결기록 X가 곧 미체결은 아니다. order_fills 계측 이전 매수는 기록 자체가 없다.")
-    print("    다만 지갑에도 없으므로 어느 쪽이든 오픈 노출로 잡아둘 이유는 없다.")
+    print("\n  ※ MATCHED/양수 매칭 BUY는 local CONFIRMED fill이 늦어도 미체결로 종결하지 않는다.")
+    print("    지갑 0은 SELL·resolution·redeem 뒤에도 가능하므로 exact 주문 대사가 먼저다.")
 
     # 유지 행의 DB 수량 vs 지갑 수량. 요청액 그대로 남은 부분체결 주문을 드러낸다.
     sync = []
@@ -168,6 +203,10 @@ def main() -> int:
               f"--confirm CLOSE_{len(close)} 가 필요하다.", file=sys.stderr)
         print("(대상 건수는 지갑 상태에 따라 바뀐다. 실행 직전에 다시 조회할 것.)", file=sys.stderr)
         return 2
+    if unfilled_with_confirmed_buy:
+        print("\n기존 UNFILLED에 CONFIRMED BUY가 있어 DB cleanup을 중단한다. "
+              "exact 정산·지갑 대사 후 별도 복구할 것.", file=sys.stderr)
+        return 3
     if not close and not (args.sync_held and sync):
         print("\n변경할 것이 없다.")
         return 0
