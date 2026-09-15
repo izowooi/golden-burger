@@ -322,6 +322,7 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
     monkeypatch.setenv("POLYMARKET_FUNDER_ADDRESS", "0x"+"2"*40)
     monkeypatch.setenv("POLYBOT_LIFECYCLE_MODE", lifecycle)
     monkeypatch.setenv("POLYBOT_SPORT_FAMILY", "soccer")
+    monkeypatch.setenv("POLYBOT_BUY_AMOUNT", "10")
     monkeypatch.setenv("POLYBOT_ENTRY_HOURS_MAX", "4")
     monkeypatch.setenv("POLYBOT_ARCHIVE_HOURS_MAX", "4")
     monkeypatch.setenv("POLYBOT_ENTRY_PROB_MIN", ".96" if account_name.endswith("cat") else ".99")
@@ -342,6 +343,8 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
     assert len({soccer.db_path, mlb.db_path, nfl.db_path}) == 3
     assert "v2h" in str(soccer.db_path)
     assert nfl.trading.buy_amount_usdc == 5
+    assert soccer.trading.buy_amount_usdc == 10
+    assert mlb.trading.buy_amount_usdc == 5
     for cfg in loaded:
         assert cfg.trading.lifecycle_mode == lifecycle
         assert (cfg.trading.entry.stop_price, cfg.trading.entry.max_entry_drawdown) == (.70, .30)

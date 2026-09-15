@@ -183,6 +183,9 @@ def test_explicit_release_config_loads_new_band_with_default_release_off(account
     env = profile_environment(runtime, {"POLYBOT_TAKE_PROFIT_ENABLED": "true"})
     for key, value in env.items():
         monkeypatch.setenv(key, value)
+    # This dormant take-profit release has a separate, explicit $5-only
+    # contract; the active Soccer resolution-hold cohort now targets $10.
+    monkeypatch.setenv("POLYBOT_BUY_AMOUNT", "5")
     monkeypatch.setenv("POLYBOT_TAKE_PROFIT_EFFECTIVE_FROM_UTC", "2026-09-07T00:00:00Z")
     monkeypatch.setenv("POLYMARKET_PRIVATE_KEY", "1" * 64)
     monkeypatch.setenv("POLYMARKET_FUNDER_ADDRESS", "2" * 40)

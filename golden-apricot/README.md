@@ -1,8 +1,8 @@
 # Golden Apricot
 
-MLB 첫 공통 HOME/AWAY 틱 후 50분 favorite를 목표 `$5`로 매수하는 live A/B다.
-2026-09-13 재교정에서 `$10` scale cohort의 tail risk가 확인되어 두 MLB runtime만 `$5`로
-되돌렸으며, 다른 종목 runtime에는 이 값을 상속하지 않는다.
+MLB 첫 공통 HOME/AWAY 틱 후 50분 favorite를 목표 `$10`으로 매수하는 live A/B다.
+신호는 baseline `$5` book으로 판단하며 `$10` 전량 FOK가 불가능하면 `$5` 전량 FOK로
+축소한다. 이전 `$5` cohort와 기존 보유의 진입 시점 파라미터는 유지한다.
 
 | Jenkins | Runtime | Exit |
 |---|---|---|

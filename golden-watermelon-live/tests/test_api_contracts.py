@@ -831,6 +831,24 @@ def test_adaptive_buy_uses_largest_fully_executable_ladder_amount() -> None:
     assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
 
 
+def test_soccer_ten_dollar_target_falls_back_to_full_five_dollars() -> None:
+    selection = _select_adaptive_buy_from_book(
+        {
+            "asset_id": "token",
+            "bids": [{"price": "0.90", "size": "100"}],
+            "asks": [{"price": "0.92", "size": "8"}],
+        },
+        "token",
+        target_notional_usdc=10,
+        notional_ladder_usdc=(5, 10),
+        baseline_notional_usdc=5,
+        max_limit_price=0.999,
+    )
+    assert selection.selected_notional_usdc == 5
+    assert selection.walk.cost == 5
+    assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+
+
 def test_adaptive_buy_never_falls_below_five_dollar_baseline() -> None:
     book = {
         "asset_id": "token",
