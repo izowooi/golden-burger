@@ -41,7 +41,7 @@ NFL_LIVE_START_UTC = "2026-09-14T12:00:00Z"
 NFL_LIVE_ENTRY_END_UTC = "9999-12-31T23:59:59Z"
 NFL_LIVE_FOLLOWUP_END_UTC = "9999-12-31T23:59:59Z"
 SOCCER_PREREGISTRATION = (
-    "research/frozen-2026-09-13-soccer-early-exit-v14/"
+    "research/frozen-2026-09-17-soccer-scale10-v16/"
     "PREREGISTRATION.md"
 )
 MLB_PREREGISTRATION = (
@@ -59,7 +59,7 @@ NHL_SHADOW_PREREGISTRATION = (
     "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md"
 )
 NFL_LIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-14-nfl-price-band-v15/PREREGISTRATION.md"
+    "research/frozen-2026-09-17-nfl-scale10-v16/PREREGISTRATION.md"
 )
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
@@ -350,7 +350,7 @@ RUNTIME_SPECS = {
         sport_family="soccer",
         simulation_mode=False,
         lifecycle_mode="active",
-        execution_policy="exact-5-usdc-fok-live",
+        execution_policy="adaptive-10-usdc-fok-live-baseline-5-usdc",
         take_profit_price=0.85,
         protocol_id="plum-soccer-early-exit-v14",
         preregistration_path=SOCCER_PREREGISTRATION,
@@ -364,6 +364,7 @@ RUNTIME_SPECS = {
         sport_profile_key="soccer_live_retune",
         entry_max_source_minute=60.0,
         force_exit_minute=65.0,
+        buy_amount_usdc=10.0,
     ),
     "plum-live-queen-95-1m-v1": RuntimeSpec(
         runtime_job="plum-live-queen-95-1m-v1",
@@ -371,7 +372,7 @@ RUNTIME_SPECS = {
         sport_family="soccer",
         simulation_mode=False,
         lifecycle_mode="active",
-        execution_policy="exact-5-usdc-fok-live",
+        execution_policy="adaptive-10-usdc-fok-live-baseline-5-usdc",
         take_profit_price=0.90,
         protocol_id="plum-soccer-early-exit-v14",
         preregistration_path=SOCCER_PREREGISTRATION,
@@ -385,6 +386,7 @@ RUNTIME_SPECS = {
         sport_profile_key="soccer_live_retune",
         entry_max_source_minute=60.0,
         force_exit_minute=65.0,
+        buy_amount_usdc=10.0,
     ),
     "plum-live-king-nfl-85-1m-v15": RuntimeSpec(
         runtime_job="plum-live-king-nfl-85-1m-v15",
@@ -392,7 +394,7 @@ RUNTIME_SPECS = {
         sport_family="nfl",
         simulation_mode=False,
         lifecycle_mode="active",
-        execution_policy="exact-5-usdc-fok-live",
+        execution_policy="adaptive-10-usdc-fok-live-baseline-5-usdc",
         take_profit_price=0.85,
         protocol_id="plum-nfl-price-band-live-v15",
         preregistration_path=NFL_LIVE_PREREGISTRATION,
@@ -406,7 +408,7 @@ RUNTIME_SPECS = {
         sport_profile_key="nfl_live_v15",
         entry_max_source_minute=None,
         force_exit_minute=None,
-        buy_amount_usdc=5.0,
+        buy_amount_usdc=10.0,
     ),
     "plum-live-queen-nfl-90-1m-v15": RuntimeSpec(
         runtime_job="plum-live-queen-nfl-90-1m-v15",
@@ -414,7 +416,7 @@ RUNTIME_SPECS = {
         sport_family="nfl",
         simulation_mode=False,
         lifecycle_mode="active",
-        execution_policy="exact-5-usdc-fok-live",
+        execution_policy="adaptive-10-usdc-fok-live-baseline-5-usdc",
         take_profit_price=0.90,
         protocol_id="plum-nfl-price-band-live-v15",
         preregistration_path=NFL_LIVE_PREREGISTRATION,
@@ -428,7 +430,7 @@ RUNTIME_SPECS = {
         sport_profile_key="nfl_live_v15",
         entry_max_source_minute=None,
         force_exit_minute=None,
-        buy_amount_usdc=5.0,
+        buy_amount_usdc=10.0,
     ),
     "plum-live-king-mlb-90-1m-v1": RuntimeSpec(
         runtime_job="plum-live-king-mlb-90-1m-v1",
@@ -1413,7 +1415,7 @@ def load_config(
         sport_family=resolved_sport_family,
         buy_amount_usdc=_get_config_value(
             "POLYBOT_BUY_AMOUNT",
-            trading_cfg.get("buy_amount_usdc"),
+            None,
             runtime_spec.buy_amount_usdc,
         ),
         min_liquidity=_get_frozen_profile_value(

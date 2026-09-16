@@ -24,9 +24,9 @@ King/Queen은 축구 A/B만 신규 live로 수행합니다. 기존 MLB runtime�
 | `polybot-gold` | `plum-shadow-gold-nhl-1m-v1` | credential-free NHL raw/simulation |
 
 공통 entry는 baseline `$5` 기준 유일한 선두 `[0.70,0.73]`, stop은 confirmed entry
--0.12입니다. King/Queen의 현재 live 목표는 `$5`라 기존 A/B 처치는 바뀌지 않습니다. 나중에
-목표 금액을 올리면 같은 fresh book에서 전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한
-FOK 한 건만 제출합니다.
+-0.12입니다. King/Queen의 Soccer·NFL active live 목표는 `$10`이며, 같은 fresh book에서
+전량 체결 가능한 가장 큰 사다리 금액으로 자동 축소한 FOK 한 건만 제출합니다. 기존 MLB
+runtime은 close-only/$5로 유지합니다.
 신규 보유 포지션은 65분 이후 첫 전량 bid에서 FOK로 청산하고 같은 event에 재진입하지 않습니다.
 그 전에는 익절·손절을 적용하며 실행 가능한 time exit가 없을 때만 resolution까지 갑니다. live와 shadow 모두
 direct six-book을 저장하며 합성 NO를 사용하지 않습니다. Silver와 Gold는 추가로

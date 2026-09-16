@@ -39,7 +39,7 @@ TICK50_JOBS = {
     "apricot-live-eco-mlb-tick50-hold-v1": "tp98_or_resolution",
     "apricot-live-fruit-mlb-tick50-tp99-v1": "tp99_or_resolution",
 }
-FROZEN_JOB_BUY_AMOUNT_USDC = {job: 10.0 for job in TICK50_JOBS}
+FROZEN_JOB_BUY_AMOUNT_USDC = {job: 5.0 for job in TICK50_JOBS}
 FROZEN_JOB_EXPERIMENT_CAPITAL_USDC = {job: 100.0 for job in TICK50_JOBS}
 FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC = {job: 300.0 for job in TICK50_JOBS}
 SIX_BOOK_NET_JOBS = frozenset({
