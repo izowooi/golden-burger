@@ -344,7 +344,7 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
     assert nfl.trading.entry.hours_max == nfl.trading.archive.hours_max == 6
     assert len({soccer.db_path, mlb.db_path, nfl.db_path}) == 3
     assert "v2h" in str(soccer.db_path)
-    assert nfl.trading.buy_amount_usdc == 5
+    assert nfl.trading.buy_amount_usdc == 10
     assert soccer.trading.buy_amount_usdc == 10
     assert mlb.trading.buy_amount_usdc == 5
     for cfg in loaded:

@@ -10,7 +10,7 @@ ACTIVE_PREREGISTRATION = (
     "research/frozen-2026-09-16-soccer-stop65-v3k/PREREGISTRATION.md"
 )
 ACCOUNT_PREREGISTRATION = (
-    "research/frozen-2026-09-14-catdog-nfl-91-94-v6/PREREGISTRATION.md"
+    "research/frozen-2026-09-17-catdog-nfl-scale10-v7/PREREGISTRATION.md"
 )
 TAKE_PROFIT_PREREGISTRATION = "research/proposed-2026-09-07-tp99/RELEASE.md"
 
