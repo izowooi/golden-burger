@@ -46,7 +46,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
     assert config.trading.fok_reconciliation_timeout_minutes == 2
     assert config.trading.stop_sell_quarantine_timeout_minutes == 180
     assert config.trading.yes_only_mode is True
-    assert config.trading.entry.stop_price == 0.70
+    assert config.trading.entry.stop_price == 0.65
     assert config.trading.entry.max_entry_drawdown == 0.30
     assert config.trading.entry.max_stop_slippage == 0.05
     assert config.trading.entry.max_stop_spread == 0.10

@@ -199,7 +199,7 @@ class SportPolicy:
 
 # Separate immutable entries even when numbers match. Future retuning requires
 # a new preregistration/review; the retired MLB/NHL profiles do not inherit it.
-SPORT_POLICIES = {"soccer": SportPolicy(4, buy_amount_usdc=10.0), "mlb": SportPolicy(8),
+SPORT_POLICIES = {"soccer": SportPolicy(4, stop_price=0.65, buy_amount_usdc=10.0), "mlb": SportPolicy(8),
                   "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
                   "catdog_nfl": SportPolicy(6),
                   "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=5.0)}
@@ -719,10 +719,10 @@ def _validate_config(
             f"{expected_band[0]:.2f}-{expected_band[1]}"
         )
     if entry.stop_price != policy.stop_price:
-        raise ValueError("emergency stop_price is frozen at 0.70")
+        raise ValueError("emergency stop_price must match the sport policy")
     if entry.max_entry_drawdown != policy.max_entry_drawdown:
         raise ValueError(
-            "entry-relative stop must leave the absolute 0.70 floor binding"
+            "entry-relative stop must match the sport policy"
         )
     if (
         entry.max_stop_slippage != policy.max_stop_slippage
@@ -845,8 +845,10 @@ def load_config(
         prob_max=_get_config_value(
             "POLYBOT_ENTRY_PROB_MAX", entry_cfg.get("prob_max"), 0.999
         ),
+        # The registered sport profile owns the stop floor. The generic YAML
+        # default must not leak the Soccer retune into NFL/MLB children.
         stop_price=_get_config_value(
-            "POLYBOT_STOP_PRICE", entry_cfg.get("stop_price"), 0.70
+            "POLYBOT_STOP_PRICE", None, runtime_policy(runtime_spec).stop_price
         ),
         max_entry_drawdown=_get_config_value(
             "POLYBOT_MAX_ENTRY_DRAWDOWN",

@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from dataclasses import replace
 import math
 from types import SimpleNamespace
 
@@ -440,6 +441,16 @@ def test_confirmed_buy_freezes_entry_relative_stop_from_actual_vwap() -> None:
     assert update["status"] is TradeStatus.HOLDING
     assert update["buy_confirmed_vwap"] == pytest.approx(0.99)
     assert update["stop_price_at_entry"] == pytest.approx(0.70)
+
+
+def test_soccer_v3k_stop_keeps_the_entry_relative_guard() -> None:
+    config = TradingConfig()
+    config = replace(config, entry=replace(config.entry, stop_price=0.65))
+    ordinary = SimpleNamespace(stop_price_at_entry=0.65, buy_confirmed_vwap=0.91)
+    expensive = SimpleNamespace(stop_price_at_entry=0.69, buy_confirmed_vwap=0.99)
+
+    assert Trader.effective_stop_price(ordinary, config) == pytest.approx(0.65)
+    assert Trader.effective_stop_price(expensive, config) == pytest.approx(0.69)
 
 
 def test_owned_holding_above_stop_remains_untouched(monkeypatch) -> None:

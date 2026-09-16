@@ -39,9 +39,10 @@ BUY는 marketable FOK만 사용한다. 신호는 항상 exact `$5` ask VWAP으�
 accepted는 fill이 아니며 terminal fill과 dynamic fee를 확인하기 전에는 position lifecycle을
 확정하지 않는다.
 
-v3e effective stop은 `0.70`이다(`max(0.70, confirmed entry VWAP-0.30)`). White 재생과 최근 live
-사례에서 0.94/0.95의 촘촘한 손절이 최종 승자를 손실로 끝낸 증거를 반영했다. 0.70도 수익 최적값을
-뜻하지 않고 재난 방어선으로만 남긴다. current Gamma event와 CLOB condition의 독립 OPEN proof,
+Cat/Dog Soccer 신규 cohort의 effective stop은 `max(0.65, confirmed entry VWAP-0.30)`이다.
+NFL과 MLB child의 stop floor는 별도 `0.70`으로 유지한다. Soccer의 `0.65`는 최적 수익률의
+증명이 아니라 기존 `0.70`에서 5%p만 완화한 forward A/B 공통 위험 기준이다.
+current Gamma event와 CLOB condition의 독립 OPEN proof,
 그 proof 뒤 fresh complete bid book, spread `<=0.10`을 요구한다. OPEN 상태에서 가격이 stop을 한
 번에 건너뛴 gap도 손절 자체를 막지 않으며 actual worst bid/VWAP/gap을 기록한다. 이미 종료된
 market의 `0.001` cleanup bid는 OPEN proof에서 계속 차단한다.
