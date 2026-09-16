@@ -172,6 +172,13 @@ envelope 기준이다. `volume24hr` 하한은 `volume_num_min`과 의미가 다�
 대체하지 않고 전략 scanner에서 계속 검사한다. 따라서 절대 시장 수를 문서에 고정하지 않고
 run별 filter, `markets_scanned`, membership digest와 catalog coverage를 보고한다.
 
+스포츠 raw 경로를 시뮬레이션에 재생하기 전에는
+`docs/retro/sports-source-quality-exclusions.json`의 source·UTC 장애 구간을 확인한다.
+경기의 in-play 관측 구간이 장애와 겹치면 양쪽 경계의 quote를 이어 붙여 TP/stop을 추정하지
+않고 `COLLECTION_OUTAGE_OVERLAP`으로 별도 격리한다. 독립 수집기의 완전한 book 경로와
+정확한 정산 증거가 이를 대체하는 경우에만 출처를 명시해 재생하며, 제외 경기 수도 보고한다.
+장애 시각에 진행 중인 경기가 없었다는 검증은 별도 보존하고 해당 날짜 전체를 임의 폐기하지 않는다.
+
 과거 중앙 archive는 `golden-nectarine`(liquidity ≥ $10k)과 보조 `golden-honeydew`
 (liquidity ≥ $15k)의 SQLite다. 두 전략은 2026-07-30 폐쇄됐으므로 이 DB는 폐쇄 시점까지의
 historical evidence source일 뿐, 이후 universe를 계속 수집하는 live archive로 간주하지 않는다.

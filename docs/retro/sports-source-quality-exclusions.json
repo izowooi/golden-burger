@@ -1,0 +1,28 @@
+{
+  "schema": "sports-source-quality-exclusions-v1",
+  "incidents": [
+    {
+      "id": "2026-09-16-macmini-gamma-451",
+      "source": "macmini-m5",
+      "observed_failure_start_utc": "2026-09-16T09:15:00Z",
+      "first_recovered_success_utc": "2026-09-16T10:55:00Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-16T09:14:00Z",
+        "2026-09-16T10:56:00Z"
+      ],
+      "failure": "Gamma HTTP 451 from seven scheduled sports jobs; failed collection cycles contain no trusted market observations",
+      "simulation_sources": [
+        "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1",
+        "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-mlb-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nfl-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nba-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nhl-1m-v1"
+      ],
+      "policy": "Mark any in-play event path overlapping this window COLLECTION_OUTAGE_OVERLAP and exclude it from parameter optimization unless an independent, verified complete-path source and exact resolution cover the gap.",
+      "current_cohort_result": "No 2026-09-15 Soccer or MLB game reviewed in the first $10 live cohort overlaps the failure interval. All 3 Soccer and 15 MLB games had completed their raw trajectories and terminal evidence before 09:15 UTC. The White collector observed zero live events and no event scheduled to start between 09:00 and 11:00 UTC immediately before the outage.",
+      "current_cohort_excluded_event_count": 0,
+      "evidence_report": "daily-rsync/data/reports/scale10_vpn_diagnosis_20260916/INCIDENT.md"
+    }
+  ]
+}
