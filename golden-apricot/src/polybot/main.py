@@ -197,14 +197,17 @@ def main() -> None:
         f"{trading.entry.hours_max:.1f}] hours"
     )
     if trading.entry.exit_basis in {
-        "resolution_hold", "tp98_or_resolution", "tp99_or_resolution"
+        "resolution_hold", "tp98_or_resolution", "tp99_or_resolution", "absolute_tp_or_resolution"
     }:
         print(
             "Exit: resolution hold"
             if trading.entry.exit_basis == "resolution_hold"
             else f"Exit: full-holding bid VWAP {trading.entry.take_profit_delta:.2f}, otherwise resolution"
         )
-        print("Entry clock: first common HOME/AWAY tick +50 minutes")
+        print(
+            "Entry clock: first common HOME/AWAY tick +"
+            f"{trading.entry.entry_tick_minute:.0f} minutes"
+        )
     elif trading.entry.exit_basis == "net_return":
         print(
             f"Exit: fee-net TP +{trading.entry.take_profit_delta:.0%}; "

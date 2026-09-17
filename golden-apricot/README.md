@@ -1,18 +1,20 @@
 # Golden Apricot
 
-MLB 첫 공통 HOME/AWAY 틱 후 50분 favorite를 목표 `$5`로 매수하는 live A/B다.
-2026-09-15/16 두 consecutive MLB slate의 `$10` forward 손실 뒤 신규 목표액만 `$5`로
-감액했다. 이전 `$10` cohort와 기존 보유의 진입 시점 파라미터는 유지한다.
+MLB 첫 공통 HOME/AWAY 틱 후 `[90,92]`분에 baseline `$5` ask VWAP이 `.90-.999`인
+midpoint favorite를 목표 `$5`로 매수하는 두 계좌 replication cohort다. 2026-09-15/16
+두 consecutive MLB slate의 `$10` forward 손실 뒤 목표액을 `$5`로 감액했고, 종료 210경기의
+`$10` full-depth 재생에서 모든 다섯 시간 분할이 양수인 보수적 후보로 진입·청산값을 교정했다.
+이전 `$10`/Tick50 cohort와 기존 보유의 진입 시점 파라미터는 소급 변경하지 않는다.
 
 | Jenkins | Runtime | Exit |
 |---|---|---|
-| polybot-eco | apricot-live-eco-mlb-tick50-hold-v1 | bid VWAP 0.98, else resolution |
-| polybot-fruit | apricot-live-fruit-mlb-tick50-tp99-v1 | bid VWAP 0.99, else resolution |
+| polybot-eco | apricot-live-eco-mlb-tick90-tp95-v2 | bid VWAP 0.95, else resolution |
+| polybot-fruit | apricot-live-fruit-mlb-tick90-tp95-v2 | bid VWAP 0.95, else resolution |
 
 ```bash
 uv sync --frozen --extra dev
 uv run pytest tests
-uv run polybot config --live --job apricot-live-eco-mlb-tick50-hold-v1
+uv run polybot config --live --job apricot-live-eco-mlb-tick90-tp95-v2
 ```
 
 1분 live cycle은 compact SQLite maintenance와 60일 retention scan을 실행하지 않는다. DB

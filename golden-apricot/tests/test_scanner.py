@@ -291,19 +291,19 @@ def test_direct_sport_shadow_uses_two_team_books_and_records_sizing(tmp_path) ->
     session.close()
 
 
-def test_tick50_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
+def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
     event = _event()
     event["teams"] = [
         {"name": "Home Nine", "league": "mlb"},
         {"name": "Away Nine", "league": "mlb"},
     ]
     market = {
-        **_market("HOME", "Home Nine", 0.70, event=event),
+        **_market("HOME", "Home Nine", 0.92, event=event),
         "conditionId": "condition-mlb",
         "question": "Home Nine vs Away Nine",
         "groupItemTitle": "Home Nine vs Away Nine",
         "outcomes": ["Home Nine", "Away Nine"],
-        "outcomePrices": ["0.70", "0.30"],
+        "outcomePrices": ["0.92", "0.08"],
         "clobTokenIds": ["mlb-home", "mlb-away"],
         "negRisk": False,
         "sportFamily": "mlb",
@@ -311,8 +311,8 @@ def test_tick50_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
         "leagueName": "MLB",
     }
     walks = {
-        "mlb-home": _walk("mlb-home", 0.70),
-        "mlb-away": _walk("mlb-away", 0.30),
+        "mlb-home": _walk("mlb-home", 0.92),
+        "mlb-away": _walk("mlb-away", 0.08),
     }
     profile = SPORT_PARAMETER_PROFILES["mlb_live"]
     base = TradingConfig()
@@ -328,9 +328,9 @@ def test_tick50_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
         entry=replace(
             base.entry,
             exit_basis="resolution_hold",
-            prob_min=0.01,
+            prob_min=0.90,
             prob_max=0.999,
-            max_source_minute=52,
+            max_source_minute=92,
             entry_tick_minute=profile.entry_tick_minute,
             hours_max=8,
         ),
@@ -339,30 +339,30 @@ def test_tick50_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
     session, _repo, scanner = _scanner(tmp_path, [market], walks=walks, config=config)
     scanner.save_market_snapshots([market], now=NOW)
     session.query(MarketSnapshot).update(
-        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=50)).replace(tzinfo=None)}
+        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=90)).replace(tzinfo=None)}
     )
     session.commit()
     candidates = scanner.scan_buy_candidates([market], now=NOW)
     assert len(candidates) == 1
     assert candidates[0]["candidate_kind"] == "DIRECT_HOME"
     assert candidates[0]["source_clock_reason"] == "FIRST_COMMON_TICK_ELAPSED"
-    assert candidates[0]["source_elapsed_minutes"] == 50
+    assert candidates[0]["source_elapsed_minutes"] == 90
     session.close()
 
 
-def test_tick50_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
+def test_tick90_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
     event = _event()
     event["teams"] = [
         {"name": "Home Nine", "league": "mlb"},
         {"name": "Away Nine", "league": "mlb"},
     ]
     market = {
-        **_market("HOME", "Home Nine", 0.70, event=event),
+        **_market("HOME", "Home Nine", 0.92, event=event),
         "conditionId": "condition-mlb",
         "question": "Home Nine vs Away Nine",
         "groupItemTitle": "Home Nine vs Away Nine",
         "outcomes": ["Home Nine", "Away Nine"],
-        "outcomePrices": ["0.70", "0.30"],
+        "outcomePrices": ["0.92", "0.08"],
         "clobTokenIds": ["mlb-home", "mlb-away"],
         "negRisk": False,
         "sportFamily": "mlb",
@@ -370,8 +370,8 @@ def test_tick50_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
         "leagueName": "MLB",
     }
     walks = {
-        "mlb-home": _walk("mlb-home", 0.70),
-        "mlb-away": _walk("mlb-away", 0.30),
+        "mlb-home": _walk("mlb-home", 0.92),
+        "mlb-away": _walk("mlb-away", 0.08),
     }
     profile = SPORT_PARAMETER_PROFILES["mlb_live"]
     base = TradingConfig()
@@ -387,9 +387,9 @@ def test_tick50_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
         entry=replace(
             base.entry,
             exit_basis="resolution_hold",
-            prob_min=0.01,
+            prob_min=0.90,
             prob_max=0.999,
-            max_source_minute=52,
+            max_source_minute=92,
             entry_tick_minute=profile.entry_tick_minute,
             hours_max=8,
         ),
@@ -398,7 +398,7 @@ def test_tick50_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
     session, repo, scanner = _scanner(tmp_path, [market], walks=walks, config=config)
     scanner.save_market_snapshots([market], now=NOW)
     session.query(MarketSnapshot).update(
-        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=50)).replace(tzinfo=None)}
+        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=90)).replace(tzinfo=None)}
     )
     partial = repo.save_snapshot(
         condition_id="condition-mlb",
@@ -407,20 +407,20 @@ def test_tick50_entry_ignores_earlier_partial_snapshot(tmp_path) -> None:
         outcome="Home Nine",
         outcome_side="YES",
         result_kind="HOME",
-        probability=0.70,
-        midpoint=0.70,
+        probability=0.92,
+        midpoint=0.92,
         liquidity=1000.0,
         volume_24h=1000.0,
-        best_bid=0.69,
-        best_ask=0.71,
+        best_bid=0.91,
+        best_ask=0.93,
         spread=0.02,
         commit=False,
     )
-    partial.timestamp = (NOW - timedelta(minutes=55)).replace(tzinfo=None)
+    partial.timestamp = (NOW - timedelta(minutes=95)).replace(tzinfo=None)
     session.commit()
 
     candidates = scanner.scan_buy_candidates([market], now=NOW)
 
     assert len(candidates) == 1
-    assert candidates[0]["source_elapsed_minutes"] == 50
+    assert candidates[0]["source_elapsed_minutes"] == 90
     session.close()

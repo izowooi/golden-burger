@@ -5571,11 +5571,11 @@ def validate_strategy(directory: Path) -> list[Finding]:
     if strategy == "golden-apricot":
         for relative, tokens in {
             "README.md": (
-                "apricot-live-eco-mlb-tick50-hold-v1",
-                "apricot-live-fruit-mlb-tick50-tp99-v1",
+                "apricot-live-eco-mlb-tick90-tp95-v2",
+                "apricot-live-fruit-mlb-tick90-tp95-v2",
                 "resolution",
             ),
-            "STRATEGY.md": ("50분", "HOME", "AWAY", "0.99", "$10"),
+            "STRATEGY.md": ("90분", "HOME", "AWAY", "`.95`", "$5"),
             "src/polybot/config.py": (
                 "TICK50_JOBS",
                 "mlb_live",

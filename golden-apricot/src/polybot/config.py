@@ -36,8 +36,8 @@ TICK50_ENTRY_END_UTC = "9999-12-31T23:59:59Z"
 TICK50_FOLLOWUP_END_UTC = "9999-12-31T23:59:59Z"
 DIRECT_LATE_SENTINEL_MINUTE = 1_000_000.0
 TICK50_JOBS = {
-    "apricot-live-eco-mlb-tick50-hold-v1": "tp98_or_resolution",
-    "apricot-live-fruit-mlb-tick50-tp99-v1": "tp99_or_resolution",
+    "apricot-live-eco-mlb-tick90-tp95-v2": "absolute_tp_or_resolution",
+    "apricot-live-fruit-mlb-tick90-tp95-v2": "absolute_tp_or_resolution",
 }
 FROZEN_JOB_BUY_AMOUNT_USDC = {job: 5.0 for job in TICK50_JOBS}
 FROZEN_JOB_EXPERIMENT_CAPITAL_USDC = {job: 100.0 for job in TICK50_JOBS}
@@ -47,8 +47,8 @@ SIX_BOOK_NET_JOBS = frozenset({
     "apricot-live-fruit-sixbook-net5-sl12-75m-v2",
 })
 FROZEN_JOB_TAKE_PROFIT = {
-    "apricot-live-eco-mlb-tick50-hold-v1": 0.99,
-    "apricot-live-fruit-mlb-tick50-tp99-v1": 0.99,
+    "apricot-live-eco-mlb-tick90-tp95-v2": 0.95,
+    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.95,
     "apricot-live-eco-3pp-1m-v1": 0.03,
     "apricot-live-fruit-5pp-1m-v1": 0.05,
     "apricot-live-eco-sixbook-net5-sl15-75m-v2": 0.05,
@@ -62,8 +62,8 @@ FROZEN_JOB_TAKE_PROFIT = {
     "apricot-shadow-nhl-1m-v2": 0.05,
 }
 FROZEN_JOB_SPORT_FAMILY = {
-    "apricot-live-eco-mlb-tick50-hold-v1": "mlb",
-    "apricot-live-fruit-mlb-tick50-tp99-v1": "mlb",
+    "apricot-live-eco-mlb-tick90-tp95-v2": "mlb",
+    "apricot-live-fruit-mlb-tick90-tp95-v2": "mlb",
     "apricot-live-eco-3pp-1m-v1": "soccer",
     "apricot-live-fruit-5pp-1m-v1": "soccer",
     "apricot-live-eco-sixbook-net5-sl15-75m-v2": "soccer",
@@ -122,8 +122,8 @@ FROZEN_JOB_EXPERIMENT_DATES = {
 # Apricot deliberately exposes only the two preregistered MLB live runtimes.
 SIX_BOOK_NET_JOBS = frozenset()
 FROZEN_JOB_TAKE_PROFIT = {
-    "apricot-live-eco-mlb-tick50-hold-v1": 0.98,
-    "apricot-live-fruit-mlb-tick50-tp99-v1": 0.99,
+    "apricot-live-eco-mlb-tick90-tp95-v2": 0.95,
+    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.95,
 }
 FROZEN_JOB_SPORT_FAMILY = {job: "mlb" for job in TICK50_JOBS}
 FROZEN_JOB_PROFILE_KEY = {job: "mlb_live" for job in TICK50_JOBS}
@@ -275,7 +275,7 @@ SPORT_PARAMETER_PROFILES = {
 }
 SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     code="mlb",
-    profile_version="apricot-mlb-kickoff-live-gold-informed-v1",
+    profile_version="apricot-mlb-tick90-floor90-tp95-live-v2",
     book_shape="direct-two-team-moneyline",
     expected_result_kinds=("HOME", "AWAY"),
     expected_market_count=1,
@@ -285,7 +285,7 @@ SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     source_clock_required=False,
     max_sweep_pages=2,
     max_in_play_hours=SPORT_FAMILY_MAX_IN_PLAY_HOURS["mlb"],
-    entry_tick_minute=50.0,
+    entry_tick_minute=90.0,
 )
 
 
@@ -756,7 +756,7 @@ def _validate_config(
         raise ValueError("minimum order contract is frozen at 5 shares with no buffer")
     if trading.yes_only_mode:
         raise ValueError("Golden Apricot must inspect direct YES and NO books")
-    expected_band = (0.01, 0.999) if job_name in TICK50_JOBS else (0.60, 0.94)
+    expected_band = (0.90, 0.999) if job_name in TICK50_JOBS else (0.60, 0.94)
     if (entry.prob_min, entry.prob_max) != expected_band:
         raise ValueError("entry executable VWAP band drift")
     expected_take_profit = FROZEN_JOB_TAKE_PROFIT.get(job_name)
@@ -784,7 +784,7 @@ def _validate_config(
         else DIRECT_LATE_SENTINEL_MINUTE
     )
     if (
-        entry.max_source_minute != (52 if job_name in TICK50_JOBS else 10)
+        entry.max_source_minute != (92 if job_name in TICK50_JOBS else 10)
         or entry.entry_tick_minute != (
             profile.entry_tick_minute if job_name in TICK50_JOBS else None
         )
@@ -812,7 +812,7 @@ def _validate_config(
         or trading.expected_result_kinds != ("HOME", "AWAY")
         or trading.expected_token_count != 2
     ):
-        raise ValueError("tick50 policy requires a verified direct two-team shape")
+        raise ValueError("timed favorite policy requires a verified direct two-team shape")
     if entry.max_entry_drawdown != entry.stop_loss_delta:
         raise ValueError("stored entry stop must match the frozen stop-loss delta")
     if (
@@ -946,7 +946,7 @@ def load_config(
     )
     entry = ApricotEntryConfig(
         prob_min=_get_config_value(
-            "POLYBOT_ENTRY_PROB_MIN", None if job_name in TICK50_JOBS else entry_cfg.get("prob_min"), 0.01 if job_name in TICK50_JOBS else 0.60
+            "POLYBOT_ENTRY_PROB_MIN", None if job_name in TICK50_JOBS else entry_cfg.get("prob_min"), 0.90 if job_name in TICK50_JOBS else 0.60
         ),
         prob_max=_get_config_value(
             "POLYBOT_ENTRY_PROB_MAX", None if job_name in TICK50_JOBS else entry_cfg.get("prob_max"), 0.999 if job_name in TICK50_JOBS else 0.94
@@ -954,7 +954,7 @@ def load_config(
         max_source_minute=_get_config_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
             None if job_name in TICK50_JOBS else entry_cfg.get("max_source_minute"),
-            52.0 if job_name in TICK50_JOBS else 10.0,
+            92.0 if job_name in TICK50_JOBS else 10.0,
         ),
         entry_tick_minute=(
             profile.entry_tick_minute if job_name in TICK50_JOBS else None

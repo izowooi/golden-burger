@@ -424,6 +424,7 @@ class Trader:
         if self.config.entry.exit_basis in {
             "tp98_or_resolution",
             "tp99_or_resolution",
+            "absolute_tp_or_resolution",
         }:
             target = self.config.entry.take_profit_delta
             if full_exit_vwap + 1e-9 >= target:

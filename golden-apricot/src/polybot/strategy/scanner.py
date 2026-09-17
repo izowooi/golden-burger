@@ -486,11 +486,7 @@ class MarketScanner:
             source_minute, clock_reason = get_source_progress(
                 get_event(market), self.config.sport_family, now=reference
             )
-            if self.config.entry.exit_basis in {
-                "resolution_hold",
-                "tp98_or_resolution",
-                "tp99_or_resolution",
-            }:
+            if self.config.entry.entry_tick_minute is not None:
                 first_tick = self.repo.get_event_first_complete_snapshot_at(
                     event_id,
                     expected_token_count=self.config.expected_token_count,
@@ -513,16 +509,12 @@ class MarketScanner:
                 ) + 1
                 continue
             if (
-                self.config.entry.exit_basis
-                in {"resolution_hold", "tp98_or_resolution", "tp99_or_resolution"}
-                and (
-                    self.config.entry.entry_tick_minute is None
-                    or source_minute
-                    < self.config.entry.entry_tick_minute - 1e-9
-                )
+                self.config.entry.entry_tick_minute is not None
+                and source_minute
+                < self.config.entry.entry_tick_minute - 1e-9
             ):
-                rejected["before_tick50_entry_window"] = rejected.get(
-                    "before_tick50_entry_window", 0
+                rejected["before_timed_entry_window"] = rejected.get(
+                    "before_timed_entry_window", 0
                 ) + 1
                 continue
             outcomes = get_match_result_sides(market)

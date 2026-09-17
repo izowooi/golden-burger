@@ -349,13 +349,13 @@ def test_gamma_accepts_major_competition_games_with_top_league_teams(
 def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
     client = GammaClient(
         sport_family="mlb",
-        sport_profile_version="apricot-mlb-kickoff-live-gold-informed-v1",
+        sport_profile_version="apricot-mlb-tick90-floor90-tp95-live-v2",
     )
 
     assert client.sport_profile.code == "mlb"
     assert (
         client.sport_profile.profile_version
-        == "apricot-mlb-kickoff-live-gold-informed-v1"
+        == "apricot-mlb-tick90-floor90-tp95-live-v2"
     )
 
 
