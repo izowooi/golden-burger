@@ -2,7 +2,8 @@
 
 첫 HOME/AWAY 공통 유효 틱부터 `[90,92]`분 뒤 MLB direct two-team moneyline의 midpoint
 favorite를 baseline exact `$5` book으로 판정한다. favorite의 exact `$5` ask VWAP이
-`.90-.999`일 때만 목표 `$5` FOK로 한 번 매수한다. Eco/Fruit 모두 전체 보유량 bid VWAP
+`.90-.999`일 때만 목표 `$10` FOK로 한 번 매수한다. `$10` 전량이 불가능하면 같은 fresh
+book에서 `$5` 전량 FOK로 축소하며 중간 금액과 partial fill은 허용하지 않는다. Eco/Fruit 모두 전체 보유량 bid VWAP
 `.95`에서 조기 청산하며 미도달하면 resolution까지 보유한다. 두 계좌는 동일 조건을 독립
 검증하는 replication cohort다.
 

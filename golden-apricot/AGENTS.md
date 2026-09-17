@@ -1,7 +1,8 @@
 # L4 AGENTS.md — Golden Apricot
 
 상위 `../AGENTS.md`를 따른다. MLB direct HOME/AWAY two-token만 허용한다. Eco/Fruit의 live
-목표 금액은 MLB에만 `$5`이며, 다른 종목 profile로 전파하지 않는다. Eco/Fruit은 독립 계좌의
+목표 금액은 MLB에만 `$10`이며, 다른 종목 profile로 전파하지 않는다. baseline 신호는 exact
+`$5` book을 유지하고 fresh depth가 `$10` 전량을 지원하지 않으면 `$5` 전량 FOK로 축소한다. Eco/Fruit은 독립 계좌의
 동일 조건 replication cohort다. 첫 공통 tick 후 `[90,92]`분, baseline `$5` favorite ask
 VWAP `.90-.999`, full-holding TP `.95`를 사용한다. tick0과 tick90은 durable DB snapshot으로 증명한다. 실제
 confirmed fill/fee만 손익으로 인정하며 다른 종목, 가격 band, stop을 추가하지 않는다.
