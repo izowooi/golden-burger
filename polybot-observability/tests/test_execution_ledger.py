@@ -1543,11 +1543,46 @@ def test_explicit_venue_rejection_is_failed_not_unknown(tmp_path, payload):
 
     with sqlite3.connect(db_path) as connection:
         row = connection.execute(
-            "SELECT response_status, success, needs_reconciliation "
+            "SELECT response_status, success, needs_reconciliation, "
+            "outcome_resolution, outcome_resolution_reason "
             "FROM order_submissions"
         ).fetchone()
-    assert row == ("FAILED", 0, 0)
+    assert row[:4] == ("FAILED", 0, 0, "NO_ORDER_CREATED")
+    assert row[4].startswith("auto: venue explicitly rejected")
     assert ledger.unresolved_submission_count(side="BUY") == 0
+
+
+def test_fok_killed_rejection_is_immediate_proven_zero_fill(tmp_path):
+    class PolyApiException(Exception):
+        status_code = 400
+
+        def __init__(self):
+            self.error_msg = {
+                "error": "order couldn't be fully filled. FOK orders are fully filled or killed.",
+                "orderID": "venue-error-reference",
+            }
+            super().__init__(str(self.error_msg))
+
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+
+    with pytest.raises(PolyApiException):
+        ledger.submit_and_record(
+            token_id="token",
+            side="SELL",
+            requested_price=0.95,
+            requested_size=10,
+            submit=lambda: (_ for _ in ()).throw(PolyApiException()),
+        )
+
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, order_id, outcome_resolution, "
+            "outcome_resolution_reason, needs_reconciliation FROM order_submissions"
+        ).fetchone()
+    assert row[0:3] == ("FAILED", None, "NO_ORDER_CREATED")
+    assert row[3].startswith("auto: venue explicitly reported that the FOK order was killed")
+    assert row[4] == 0
 
 
 @pytest.mark.parametrize(
@@ -1597,6 +1632,43 @@ def test_historical_explicit_rejection_is_immutably_autoresolved(
     assert row[0] == "SUBMIT_OUTCOME_UNKNOWN"
     assert row[1] == "NO_ORDER_CREATED"
     assert row[2].startswith("auto: venue explicitly rejected")
+
+
+def test_historical_failed_fok_kill_is_immutably_autoresolved(tmp_path):
+    db_path = tmp_path / "trades.db"
+    ledger = ExecutionLedger(db_path, strategy_name="golden-test")
+    submission_id = ledger.record_intent(
+        token_id="token",
+        side="SELL",
+        requested_price=0.95,
+        requested_size=10,
+        simulation=False,
+    )
+    message = (
+        "PolyApiException[status_code=400, error_message={'error': \"order couldn't "
+        "be fully filled. FOK orders are fully filled or killed.\", "
+        "'orderID': '<redacted-chain-id>'}]"
+    )
+    with sqlite3.connect(db_path) as connection:
+        connection.execute(
+            "UPDATE order_submissions SET response_status='FAILED', success=0, "
+            "error_type='PolyApiException', error_message=?, "
+            "associated_trade_ids_json='[]' WHERE submission_id=?",
+            (message, submission_id),
+        )
+
+    assert ledger.autoresolve_explicit_no_order_rejections() == {
+        "checked": 1,
+        "resolved": 1,
+        "not_proven": 0,
+    }
+    with sqlite3.connect(db_path) as connection:
+        row = connection.execute(
+            "SELECT response_status, outcome_resolution, outcome_resolution_reason "
+            "FROM order_submissions"
+        ).fetchone()
+    assert row[0:2] == ("FAILED", "NO_ORDER_CREATED")
+    assert row[2].startswith("auto: venue explicitly reported that the FOK order was killed")
 
 
 def test_operator_can_link_discovered_order_id_for_normal_reconciliation(tmp_path):

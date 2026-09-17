@@ -41,6 +41,7 @@ _RESPONSE_ENVELOPE_KEYS = ("order", "data", "result", "root", "__root__")
 _PROVEN_NO_ORDER_REJECTIONS = {
     "post_only_mode": "venue explicitly rejected the order while post-only mode was active",
     "trading is disabled": "venue explicitly rejected the order because trading was disabled",
+    "fok killed": "venue explicitly reported that the FOK order was killed without a fill",
 }
 
 # Only fields needed for execution evidence are copied out of SDK response
@@ -182,10 +183,10 @@ class _OrderResponseContractError(SubmissionEvidenceError):
 def _proven_no_order_rejection(error: BaseException) -> str | None:
     """Return a narrow venue proof that the POST created no order.
 
-    A generic HTTP 5xx remains ambiguous.  Only two CLOB responses observed in
-    production are unambiguous rejections: the structured ``post_only_mode``
-    code and the exact ``trading is disabled`` message.  Both reject the
-    submitted taker order before an order ID can exist.
+    A generic HTTP 5xx remains ambiguous.  Only exact CLOB responses observed
+    in production are accepted: structured ``post_only_mode``, exact
+    ``trading is disabled``, and the FOK all-or-none rejection which explicitly
+    says the order was killed because it could not be fully filled.
     """
 
     if type(error).__name__ != "PolyApiException":
@@ -204,6 +205,8 @@ def _proven_no_order_rejection(error: BaseException) -> str | None:
         return _PROVEN_NO_ORDER_REJECTIONS["post_only_mode"]
     if message == "trading is disabled":
         return _PROVEN_NO_ORDER_REJECTIONS["trading is disabled"]
+    if message == "order couldn't be fully filled. fok orders are fully filled or killed.":
+        return _PROVEN_NO_ORDER_REJECTIONS["fok killed"]
     return None
 
 
@@ -223,6 +226,13 @@ def _persisted_proven_no_order_rejection(
         return _PROVEN_NO_ORDER_REJECTIONS["post_only_mode"]
     if "error_message={'error': 'trading is disabled'}" in serialized:
         return _PROVEN_NO_ORDER_REJECTIONS["trading is disabled"]
+    if (
+        'error_message={\'error\': "order couldn\'t be fully filled. '
+        'fok orders are fully filled or killed."' in serialized
+        or "error_message={'error': \"order couldn't be fully filled. "
+        'fok orders are fully filled or killed.\"' in serialized
+    ):
+        return _PROVEN_NO_ORDER_REJECTIONS["fok killed"]
     return None
 
 
@@ -1132,17 +1142,29 @@ class ExecutionLedger:
         )
         response_status = "SUBMIT_OUTCOME_UNKNOWN" if ambiguous else "FAILED"
         with self._connect() as connection:
+            resolved_at = _utc_now() if explicit_no_order_reason else None
             cursor = connection.execute(
                 """
                 UPDATE order_submissions
                 SET success = 0, response_status = ?,
-                    needs_reconciliation = 0, error_type = ?, error_message = ?
+                    needs_reconciliation = 0, error_type = ?, error_message = ?,
+                    outcome_resolution = CASE WHEN ? IS NOT NULL
+                        THEN 'NO_ORDER_CREATED' ELSE outcome_resolution END,
+                    outcome_resolved_at = COALESCE(?, outcome_resolved_at),
+                    outcome_resolution_reason = COALESCE(?, outcome_resolution_reason)
                 WHERE submission_id = ?
                 """,
                 (
                     response_status,
                     type(error).__name__,
                     _safe_error_message(error),
+                    explicit_no_order_reason,
+                    resolved_at,
+                    (
+                        f"auto: {explicit_no_order_reason}"
+                        if explicit_no_order_reason
+                        else None
+                    ),
                     submission_id,
                 ),
             )
@@ -1169,7 +1191,10 @@ class ExecutionLedger:
             rows = connection.execute(
                 "SELECT submission_id, error_type, error_message, "
                 "associated_trade_ids_json FROM order_submissions "
-                f"WHERE {self._unresolved_sql()} AND order_id IS NULL "
+                f"WHERE ({self._unresolved_sql()} OR (simulation = 0 "
+                "AND response_status = 'FAILED' AND success = 0 "
+                "AND order_id IS NULL AND outcome_resolution IS NULL)) "
+                "AND order_id IS NULL "
                 "AND outcome_resolution IS NULL ORDER BY submitted_at LIMIT ?",
                 (int(limit),),
             ).fetchall()
@@ -1426,7 +1451,8 @@ class ExecutionLedger:
         with self._connect() as connection:
             connection.row_factory = sqlite3.Row
             row = connection.execute(
-                "SELECT response_status, order_id, outcome_resolution "
+                "SELECT response_status, order_id, outcome_resolution, "
+                "error_type, error_message "
                 "FROM order_submissions WHERE submission_id = ? AND simulation = 0",
                 (submission_id,),
             ).fetchone()
@@ -1434,13 +1460,23 @@ class ExecutionLedger:
                 raise ValueError("live order intent를 찾을 수 없습니다")
             if row["outcome_resolution"] is not None:
                 raise ValueError("order intent outcome은 이미 operator가 해결했습니다")
+            proven_failed_no_order = (
+                resolution == "NO_ORDER_CREATED"
+                and row["response_status"] == "FAILED"
+                and row["order_id"] is None
+                and _persisted_proven_no_order_rejection(
+                    error_type=row["error_type"],
+                    error_message=row["error_message"],
+                )
+                is not None
+            )
             unresolved = row["response_status"] in {
                 "INTENT",
                 "SUBMIT_OUTCOME_UNKNOWN",
             } or (
                 row["response_status"] == "EVIDENCE_WRITE_FAILED"
                 and row["order_id"] is None
-            )
+            ) or proven_failed_no_order
             if not unresolved:
                 raise ValueError("불확실한 order intent 상태가 아닙니다")
             if resolution == "NO_ORDER_CREATED" and row["order_id"] is not None:
