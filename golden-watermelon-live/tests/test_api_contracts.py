@@ -1171,6 +1171,28 @@ def test_live_exact_usdc_fok_buy_uses_two_decimal_maker_envelope() -> None:
     assert "FOK" in str(captured["order_type"])
 
 
+def test_live_fok_tick_size_timeout_is_proven_pre_submission_no_post() -> None:
+    class _Client:
+        def get_tick_size(self, _token_id):
+            raise RuntimeError("tick-size read timeout")
+
+        def create_market_order(self, _order):
+            raise AssertionError("tick-size failure must stop before signing")
+
+        def post_order(self, _signed, _order_type):
+            raise AssertionError("tick-size failure must never POST")
+
+    wrapper = ClobClientWrapper(ApiConfig("key", "funder"), simulation_mode=False)
+    wrapper._client = _Client()
+    wrapper._initialized = True
+
+    result = wrapper.place_fok_buy("token", amount_usdc=5, limit_price=0.94)
+
+    assert result["success"] is False
+    assert result["pre_submission_no_post"] is True
+    assert "tick-size read timeout" in result["error"]
+
+
 def test_live_exact_usdc_fok_buy_coarsens_cent_aligned_signing_grid() -> None:
     captured = {}
 

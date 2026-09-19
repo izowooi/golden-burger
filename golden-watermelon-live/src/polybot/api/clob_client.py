@@ -1630,7 +1630,25 @@ class ClobClientWrapper:
 
         tick_size = self.DEFAULT_TICK_SIZE
         if not self.simulation_mode:
-            tick_size = float(self.client.get_tick_size(str(token_id)))
+            # Tick-size discovery is a read-only preflight before signing,
+            # intent persistence, or POST. A transient SDK/HTTP failure here
+            # therefore proves that no order reached the venue. Return a
+            # synchronous no-POST rejection so the entry episode remains
+            # retryable instead of failing the complete multi-sport cycle.
+            try:
+                tick_size = float(self.client.get_tick_size(str(token_id)))
+            except Exception as error:
+                logger.warning(
+                    "FOK BUY tick-size preflight unavailable before POST - "
+                    "token=%s error=%s",
+                    str(token_id)[:16],
+                    type(error).__name__,
+                )
+                return {
+                    "success": False,
+                    "error": str(error),
+                    "pre_submission_no_post": True,
+                }
         rounded_price = self._round_to_tick(
             limit_price,
             tick_size,
