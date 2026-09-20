@@ -280,6 +280,8 @@ def test_tick50_exit_arms_differ_only_by_tp_price() -> None:
         event_id="event-1",
         token_id="away-yes-token",
         buy_confirmed_vwap=0.70,
+        buy_confirmed_size=5 / 0.70,
+        buy_confirmed_fee_usdc=0.01,
         buy_shares=5 / 0.70,
         buy_price=0.70,
     )
@@ -297,6 +299,27 @@ def test_tick50_exit_arms_differ_only_by_tp_price() -> None:
     assert Trader(_Repo(), clob, tp99, gamma_client=_active_gamma())._exit_signal(
         trade, walk
     )[0] is None
+
+
+def test_absolute_tp_requires_positive_net_proceeds() -> None:
+    trade = SimpleNamespace(
+        id=1, condition_id="condition-1", event_id="event-1",
+        token_id="away-yes-token", buy_confirmed_vwap=0.98,
+        buy_confirmed_size=5 / 0.98, buy_confirmed_fee_usdc=0.01,
+        buy_shares=5 / 0.98, buy_price=0.98,
+    )
+    config = TradingConfig(entry=ApricotEntryConfig(
+        exit_basis="absolute_tp_or_resolution", take_profit_delta=0.95
+    ))
+    clob = _Clob(best_bid=0.96, best_ask=0.97, sell_vwap=0.96)
+    trader = Trader(_Repo(), clob, config, gamma_client=_active_gamma())
+    walk = clob.get_sell_book_walk(trade.token_id, shares=trade.buy_shares)
+    assert trader._exit_signal(trade, walk)[0] is None
+
+    clob.sell_vwap = 0.99
+    clob.best_bid = 0.99
+    walk = clob.get_sell_book_walk(trade.token_id, shares=trade.buy_shares)
+    assert trader._exit_signal(trade, walk)[0] == "take_profit"
 
 
 def _active_gamma():

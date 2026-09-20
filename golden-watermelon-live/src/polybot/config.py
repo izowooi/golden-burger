@@ -199,7 +199,7 @@ class SportPolicy:
 
 # Separate immutable entries even when numbers match. Future retuning requires
 # a new preregistration/review; the retired MLB/NHL profiles do not inherit it.
-SPORT_POLICIES = {"soccer": SportPolicy(4, stop_price=0.65, buy_amount_usdc=10.0), "mlb": SportPolicy(8),
+SPORT_POLICIES = {"soccer": SportPolicy(4, stop_price=0.65, buy_amount_usdc=5.0), "mlb": SportPolicy(8),
                   "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
                   "catdog_nfl": SportPolicy(6),
                   "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=10.0)}

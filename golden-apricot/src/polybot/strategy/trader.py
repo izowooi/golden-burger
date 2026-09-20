@@ -428,7 +428,27 @@ class Trader:
         }:
             target = self.config.entry.take_profit_delta
             if full_exit_vwap + 1e-9 >= target:
-                return "take_profit", target, source_minute
+                try:
+                    buy_size = float(trade.buy_confirmed_size)
+                    buy_vwap = float(trade.buy_confirmed_vwap)
+                    buy_fee = float(trade.buy_confirmed_fee_usdc)
+                    sell_fee = self.clob.estimate_taker_fee_usdc(
+                        trade.token_id,
+                        shares=float(walk.shares),
+                        price=full_exit_vwap,
+                    )
+                    entry_cost = buy_size * buy_vwap + buy_fee
+                    net_proceeds = float(walk.proceeds) - sell_fee
+                except Exception:
+                    return None, target, source_minute
+                values = (buy_size, buy_vwap, buy_fee, sell_fee, entry_cost, net_proceeds)
+                if (
+                    all(math.isfinite(value) for value in values)
+                    and min(buy_size, buy_vwap, entry_cost) > 0
+                    and min(buy_fee, sell_fee) >= 0
+                    and net_proceeds > entry_cost + 1e-9
+                ):
+                    return "take_profit", target, source_minute
             return None, target, source_minute
         if self.config.entry.exit_basis == "net_return":
             try:
