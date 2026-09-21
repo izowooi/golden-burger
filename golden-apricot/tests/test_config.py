@@ -18,7 +18,7 @@ def test_tick90_jobs(monkeypatch,job,policy):
  assert t.buy_amount_usdc==15.0 and t.experiment_capital_usdc==100.0
  assert t.max_positions==6 and t.max_event_positions==1
  assert t.drawdown_loss_limit_usdc==300.0
- assert t.entry.take_profit_delta==0.95
+ assert t.entry.take_profit_delta==0.90
  assert t.experiment_entry_end_utc=="9999-12-31T23:59:59Z"
  assert t.experiment_followup_end_utc=="9999-12-31T23:59:59Z"
  assert cfg.db_path==Path(f'data/{job}/trades.db')

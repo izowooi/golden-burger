@@ -202,7 +202,7 @@ class SportPolicy:
 SPORT_POLICIES = {"soccer": SportPolicy(4, stop_price=0.65, buy_amount_usdc=5.0), "mlb": SportPolicy(8),
                   "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
                   "catdog_nfl": SportPolicy(6),
-                  "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=10.0)}
+                  "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=5.0)}
 
 
 def runtime_policy(spec):

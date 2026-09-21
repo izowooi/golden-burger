@@ -9,8 +9,8 @@ slate의 `$10` forward 손실 뒤 목표액을 잠시 `$5`로 감액했고, 종�
 
 | Jenkins | Runtime | Exit |
 |---|---|---|
-| polybot-eco | apricot-live-eco-mlb-tick90-tp95-v2 | bid VWAP 0.95, else resolution |
-| polybot-fruit | apricot-live-fruit-mlb-tick90-tp95-v2 | bid VWAP 0.95, else resolution |
+| polybot-eco | apricot-live-eco-mlb-tick90-tp95-v2 | first net-positive full bid at/above 0.90, else resolution |
+| polybot-fruit | apricot-live-fruit-mlb-tick90-tp95-v2 | first net-positive full bid at/above 0.90, else resolution |
 
 ```bash
 uv sync --frozen --extra dev

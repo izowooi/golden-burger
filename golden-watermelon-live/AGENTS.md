@@ -9,7 +9,7 @@
 | Soccer | `polybot-cat` / `watermelon-live-cat-96-1m-v2h` / 0.91 | `polybot-dog` / `watermelon-live-dog-99-1m-v2h` / 0.92 | 1m / target `$5` |
 | MLB | `polybot-bear` / `watermelon-live-bear-mlb-96-1m-v3a` / 0.96 | `polybot-tiger` / `watermelon-live-tiger-mlb-99-1m-v3a` / 0.99 | 1m / current target `$5` |
 | NHL | `polybot-lion` / `watermelon-live-lion-nhl-96-1m-v3a` / 0.96 | `polybot-wolf` / `watermelon-live-wolf-nhl-99-1m-v3a` / 0.99 | 1m / current target `$5` |
-| NFL | `polybot-cat` / `watermelon-live-cat-nfl-91-1m-v6` / 0.91 | `polybot-dog` / `watermelon-live-dog-nfl-94-1m-v6` / 0.94 | 1m / target `$10`, stop `.70`, resolution hold |
+| NFL | `polybot-cat` / `watermelon-live-cat-nfl-91-1m-v6` / 0.91 | `polybot-dog` / `watermelon-live-dog-nfl-94-1m-v6` / 0.94 | 1m / target `$5`, stop `.70`, resolution hold |
 
 - Entry `[2026-08-29T04:00:00Z,2026-09-05T04:00:00Z)`, follow-up cutoff
   `2026-09-12T04:00:00Z`.

@@ -103,4 +103,4 @@ def test_nfl_live_profile_has_no_soccer_clock_gate(monkeypatch, account, target)
     assert config.trading.entry.prob_max == .73
     assert config.trading.entry.stop_loss_delta == .12
     assert config.trading.entry.take_profit_price == target
-    assert config.trading.buy_amount_usdc == 10
+    assert config.trading.buy_amount_usdc == 5

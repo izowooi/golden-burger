@@ -85,7 +85,7 @@ Polymarket 예측시장 자동매매 전략 봇과, 그 수익을 적재·리포
   최소 표본 gate를 통과하기 전에는 수익성·증액을 판단하지 않는다.
 - `golden-apricot/`: **MLB Tick90 Favorite** — 첫 완전 HOME/AWAY 공통 tick 후 `[90,92]`분에
   midpoint favorite를 baseline `$5` book으로 판정하고 MLB에만 `$15/$10/$5` adaptive FOK로 진입한다.
-  두 arm 모두 full-holding TP `.95`와 수수료 포함 net-positive guard를 사용하며 미도달 시 resolution까지 보유한다. 두 arm의
+  두 arm 모두 full-holding bid `.90` 이상에서 수수료 포함 순이익이 되는 첫 시점에 청산하며 미도달 시 resolution까지 보유한다. 두 arm의
   confirmed 경제손익 누적 한도는 절대 `$300`이다. 다른
   종목 runtime과 stop/time exit는 등록하지 않는다.
 - `golden-queen/`: Crown Momentum — 표준 이진 YES의 첫 0.90 상향 교차를 0.90–0.94에서 매수하고 0.98 목표/0.85 stop으로 관리. 스포츠 기본 포함.

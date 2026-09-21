@@ -48,8 +48,8 @@ SIX_BOOK_NET_JOBS = frozenset({
     "apricot-live-fruit-sixbook-net5-sl12-75m-v2",
 })
 FROZEN_JOB_TAKE_PROFIT = {
-    "apricot-live-eco-mlb-tick90-tp95-v2": 0.95,
-    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.95,
+    "apricot-live-eco-mlb-tick90-tp95-v2": 0.90,
+    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.90,
     "apricot-live-eco-3pp-1m-v1": 0.03,
     "apricot-live-fruit-5pp-1m-v1": 0.05,
     "apricot-live-eco-sixbook-net5-sl15-75m-v2": 0.05,
@@ -123,8 +123,8 @@ FROZEN_JOB_EXPERIMENT_DATES = {
 # Apricot deliberately exposes only the two preregistered MLB live runtimes.
 SIX_BOOK_NET_JOBS = frozenset()
 FROZEN_JOB_TAKE_PROFIT = {
-    "apricot-live-eco-mlb-tick90-tp95-v2": 0.95,
-    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.95,
+    "apricot-live-eco-mlb-tick90-tp95-v2": 0.90,
+    "apricot-live-fruit-mlb-tick90-tp95-v2": 0.90,
 }
 FROZEN_JOB_SPORT_FAMILY = {job: "mlb" for job in TICK50_JOBS}
 FROZEN_JOB_PROFILE_KEY = {job: "mlb_live" for job in TICK50_JOBS}

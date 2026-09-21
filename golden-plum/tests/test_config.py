@@ -70,7 +70,7 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.trading.yes_only_mode is False
     assert config.trading.max_positions == 10
     assert config.trading.max_emergency_sells_per_cycle == 10
-    assert config.trading.buy_amount_usdc == 10
+    assert config.trading.buy_amount_usdc == 5
     assert config.trading.stop_sell_quarantine_timeout_minutes == 180
     assert config.trading.experiment_start_utc == FROZEN_START_UTC
     assert config.trading.experiment_entry_end_utc == FROZEN_ENTRY_END_UTC
@@ -92,7 +92,7 @@ def test_queen_soccer_arm_differs_only_by_profit_target(monkeypatch) -> None:
     assert config.trading.entry.max_source_minute == 60
     assert config.trading.entry.force_exit_minute == 65
     assert config.trading.drawdown_loss_limit_usdc == 300.0
-    assert config.trading.buy_amount_usdc == 10
+    assert config.trading.buy_amount_usdc == 5
 
 
 def test_silver_is_credential_free_simulation(monkeypatch) -> None:
