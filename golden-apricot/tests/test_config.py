@@ -15,14 +15,15 @@ def test_tick90_jobs(monkeypatch,job,policy):
  assert t.entry.exit_basis==policy and t.entry.max_source_minute==92
  assert t.entry.entry_tick_minute==90
  assert (t.entry.prob_min,t.entry.prob_max)==(.90,.999)
- assert t.buy_amount_usdc==10.0 and t.experiment_capital_usdc==100.0
+ assert t.buy_amount_usdc==15.0 and t.experiment_capital_usdc==100.0
+ assert t.max_positions==6 and t.max_event_positions==1
  assert t.drawdown_loss_limit_usdc==300.0
  assert t.entry.take_profit_delta==0.95
  assert t.experiment_entry_end_utc=="9999-12-31T23:59:59Z"
  assert t.experiment_followup_end_utc=="9999-12-31T23:59:59Z"
  assert cfg.db_path==Path(f'data/{job}/trades.db')
 
-def test_tick90_mlb_ten_dollar_notional_is_job_frozen(monkeypatch):
+def test_tick90_mlb_fifteen_dollar_notional_is_job_frozen(monkeypatch):
  credentials(monkeypatch)
  monkeypatch.setenv('POLYBOT_BUY_AMOUNT','5')
  with pytest.raises(ValueError,match='MLB target notional'):

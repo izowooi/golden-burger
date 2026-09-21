@@ -39,7 +39,8 @@ TICK50_JOBS = {
     "apricot-live-eco-mlb-tick90-tp95-v2": "absolute_tp_or_resolution",
     "apricot-live-fruit-mlb-tick90-tp95-v2": "absolute_tp_or_resolution",
 }
-FROZEN_JOB_BUY_AMOUNT_USDC = {job: 10.0 for job in TICK50_JOBS}
+FROZEN_JOB_BUY_AMOUNT_USDC = {job: 15.0 for job in TICK50_JOBS}
+FROZEN_JOB_MAX_POSITIONS = {job: 6 for job in TICK50_JOBS}
 FROZEN_JOB_EXPERIMENT_CAPITAL_USDC = {job: 100.0 for job in TICK50_JOBS}
 FROZEN_JOB_DRAWDOWN_LOSS_LIMIT_USDC = {job: 300.0 for job in TICK50_JOBS}
 SIX_BOOK_NET_JOBS = frozenset({
@@ -713,11 +714,14 @@ def _validate_config(
             "volume/$5k liquidity plus a baseline-$5 executable-book gate"
         )
     if (
-        trading.max_positions != 10
+        trading.max_positions != FROZEN_JOB_MAX_POSITIONS[job_name]
         or trading.max_event_positions != 1
         or trading.max_new_positions_per_cycle != 5
     ):
-        raise ValueError("Golden Apricot exposure limits are frozen at 10/1/5")
+        raise ValueError(
+            "Golden Apricot exposure limits must match the scaled "
+            f"{FROZEN_JOB_MAX_POSITIONS[job_name]}/1/5 contract"
+        )
     if trading.buy_amount_usdc * trading.max_new_positions_per_cycle > 5000:
         raise ValueError("per-cycle target BUY notional must not exceed $5000")
     if trading.max_emergency_sells_per_cycle != 10:
@@ -1071,7 +1075,10 @@ def load_config(
             5000.0,
         ),
         max_positions=_get_config_value(
-            "POLYBOT_MAX_POSITIONS", trading_cfg.get("max_positions"), 10, int
+            "POLYBOT_MAX_POSITIONS",
+            trading_cfg.get("max_positions"),
+            FROZEN_JOB_MAX_POSITIONS[job_name],
+            int,
         ),
         max_event_positions=_get_config_value(
             "POLYBOT_MAX_EVENT_POSITIONS",

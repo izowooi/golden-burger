@@ -127,6 +127,7 @@ class CohortIdentity:
     strategy_source_digest: str
     book_shape: str
     scaling_notionals_usdc: tuple[float, ...]
+    excluded_non_success_snapshot_rows: int = 0
 
 
 def _sha256(path: Path) -> str:
@@ -407,11 +408,11 @@ def _cohort_identity(
             (selected_hash,),
         ).fetchone()[0]
     )
-    if invalid_runs:
-        raise ValueError(
-            "replay refuses selected-cohort snapshots outside successful run audits: "
-            f"rows={invalid_runs}"
-        )
+    # Failed or incomplete runs can leave append-only snapshot evidence behind.
+    # `load_snapshots` joins only SUCCESS run audits, so these rows are excluded
+    # rather than making the entire otherwise valid cohort unreplayable.  Keep
+    # the count in the report so an analyst cannot mistake exclusion for clean
+    # collection health.
     try:
         payload = json.loads(str(raw_config))
         trading = payload["trading"]
@@ -579,6 +580,7 @@ def _cohort_identity(
         strategy_source_digest=strategy_source_digest,
         book_shape=book_shape,
         scaling_notionals_usdc=notionals,
+        excluded_non_success_snapshot_rows=invalid_runs,
     )
 
 

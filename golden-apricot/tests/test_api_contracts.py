@@ -869,6 +869,25 @@ def test_ten_dollar_buy_falls_back_to_one_full_five_dollar_fok() -> None:
     assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
 
 
+def test_fifteen_dollar_buy_uses_discrete_ten_then_five_fallbacks() -> None:
+    book_json = json.dumps({
+        "schema_version": 1,
+        "token_id": "token",
+        "bids": [{"price": 0.79, "size": 100}],
+        "asks": [{"price": 0.80, "size": 14}],
+    })
+    selection = select_adaptive_buy_from_book_evidence(
+        book_json,
+        target_notional_usdc=15,
+        notional_ladder_usdc=(5, 10, 15),
+        baseline_notional_usdc=5,
+        max_limit_price=0.90,
+    )
+    assert selection.selected_notional_usdc == 10
+    assert selection.walk.cost == 10
+    assert selection.fallback_reason == "REDUCED_TO_FULLY_EXECUTABLE_LADDER_AMOUNT"
+
+
 def test_capacity_evidence_records_buy_and_immediate_sell_depth() -> None:
     payload = json.loads(
         build_execution_capacity_evidence(

@@ -501,15 +501,18 @@ def test_database_replay_selects_one_cohort_and_links_later_resolution(
     ] == 1
 
 
-def test_database_replay_rejects_failed_run_snapshots(tmp_path) -> None:
+def test_database_replay_excludes_and_reports_failed_run_snapshots(tmp_path) -> None:
     path = _strict_replay_db(tmp_path / "failed.db")
     with sqlite3.connect(path) as connection:
         connection.execute(
-            "UPDATE run_audits SET status='FAILED' WHERE run_id='run-4'"
+            "UPDATE run_audits SET status='FAILED' WHERE run_id='run-3'"
         )
 
-    with pytest.raises(ValueError, match="outside successful run audits"):
-        database_report(path, sport_family="mlb")
+    report = database_report(path, sport_family="mlb")
+
+    assert report["snapshot_rows_total"] == 8
+    assert report["snapshot_rows_replay_eligible"] == 6
+    assert report["cohort"]["excluded_non_success_snapshot_rows"] == 2
 
 
 def test_database_replay_counts_right_censored_instead_of_dropping_it(tmp_path) -> None:

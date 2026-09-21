@@ -1,8 +1,8 @@
 # Golden Apricot
 
 MLB 첫 공통 HOME/AWAY 틱 후 `[90,92]`분에 baseline `$5` ask VWAP이 `.90-.999`인
-midpoint favorite를 목표 `$10`으로 매수하는 두 계좌 replication cohort다. fresh depth가
-`$10` 전량을 지원하지 않으면 `$5` 전량 FOK로 축소한다. 2026-09-15/16 두 consecutive MLB
+midpoint favorite를 목표 `$15`으로 매수하는 두 계좌 replication cohort다. fresh depth에서
+`$15/$10/$5` 중 전량 체결 가능한 최대 금액 한 건만 FOK로 제출한다. 2026-09-15/16 두 consecutive MLB
 slate의 `$10` forward 손실 뒤 목표액을 잠시 `$5`로 감액했고, 종료 210경기의
 `$10` full-depth 재생에서 모든 다섯 시간 분할이 양수인 보수적 후보로 진입·청산값을 교정했다.
 이전 Tick50 cohort와 기존 보유의 진입 시점 파라미터는 소급 변경하지 않는다.
