@@ -23,6 +23,21 @@
       "current_cohort_result": "No 2026-09-15 Soccer or MLB game reviewed in the first $10 live cohort overlaps the failure interval. All 3 Soccer and 15 MLB games had completed their raw trajectories and terminal evidence before 09:15 UTC. The White collector observed zero live events and no event scheduled to start between 09:00 and 11:00 UTC immediately before the outage.",
       "current_cohort_excluded_event_count": 0,
       "evidence_report": "daily-rsync/data/reports/scale10_vpn_diagnosis_20260916/INCIDENT.md"
+    },
+    {
+      "id": "2026-09-22-nfl-season-series-identity-miss",
+      "source": "macmini-m5",
+      "observed_failure_start_utc": "2026-09-22T00:15:00Z",
+      "first_recovered_success_utc": "2026-09-22T11:45:38Z",
+      "affected_event_id": "832909",
+      "affected_event_slug": "nfl-nyg-la-2026-09-22",
+      "failure": "Watermelon Cat/Dog and Plum King/Queen/Gold NFL classifiers required legacy sport.series 10187 while the exact 2026 NFL season event and sport metadata used series 12185; all live whole-game markets were rejected before CLOB observation.",
+      "simulation_sources": [
+        "polybot-gold/golden-plum/plum-shadow-gold-nfl-1m-v1"
+      ],
+      "policy": "Classify Giants-Rams 2026-09-21 as IDENTITY_CLASSIFIER_CENSORED in NFL raw replay and live coverage. Do not impute missing 1-minute books, candidate decisions, fills, or P&L from the final score or post-game Gamma state. Reinclude only if an independent verified source covers the complete in-play path with exact token identity and fee evidence.",
+      "current_cohort_excluded_event_count": 1,
+      "evidence_report": "daily-rsync/data/reports/sports_tail_followup_20260922/FINAL_REPORT.md"
     }
   ]
 }
