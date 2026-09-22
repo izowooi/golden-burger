@@ -11,10 +11,10 @@ def no_network(monkeypatch):
     monkeypatch.setattr(socket.socket, 'connect', lambda *a, **k: pytest.fail('network forbidden'))
 
 
-def prepared(wrapper, requested='6.6666', matched='7.042251', limit='.75', *, fixed_detail=False, maker=True, side='BUY'):
+def prepared(wrapper, requested='6.6666', matched='7.042251', limit='.75', *, fixed_detail=False, maker=True, side='BUY', making='5'):
     response = dict(success=True, orderID='order-fee', status='matched')
     if maker and side == 'BUY':
-        response.update(makingAmount='5000000', takingAmount=str(int(Decimal(requested)*1000000)))
+        response.update(makingAmount=str(int(Decimal(making)*1000000)), takingAmount=str(int(Decimal(requested)*1000000)))
     sid=wrapper.execution_ledger.record_submission(token_id='token-fee',side=side,
         requested_price=float(limit),requested_size=float(requested),result=response,simulation=False)
     scale=Decimal(1000000) if fixed_detail else Decimal(1)
@@ -79,6 +79,39 @@ def test_milli_share_trade_quantity_without_exact_match_stays_fail_closed(tmp_pa
         w._attach_clob_v2_fee_evidence(
             payload('7042.250', '.71'), pending=pending, order_id='order-fee'
         )
+
+
+def test_single_terminal_price_improved_buy_derives_vwap_from_exact_cash(tmp_path):
+    w = _fee_evidence_wrapper(tmp_path)
+    sid, pending = prepared(
+        w,
+        requested='10.8695',
+        matched='10.884457',
+        limit='.92',
+        making='10',
+    )
+    trade = payload('10.884457', '.92')
+    trade['maker_orders'] = [
+        {
+            'order_id': 'counterparty-order',
+            'asset_id': 'token-fee',
+            'matched_amount': '10.884457',
+            'price': '.92',
+        }
+    ]
+    enriched = w._attach_clob_v2_fee_evidence(
+        trade, pending=pending, order_id='order-fee'
+    )
+    w.execution_ledger.record_fill(sid, 'order-fee', enriched)
+
+    assert w.execution_ledger.finish_reconciliation(sid)
+    with w._open_evidence_db_read_only() as connection:
+        row = connection.execute(
+            'SELECT size, price, fee_amount_usdc, domain_error FROM order_fills'
+        ).fetchone()
+    assert row['size'] == pytest.approx(10.884457)
+    assert row['price'] == pytest.approx(10 / 10.884457)
+    assert row['domain_error'] is None
 
 
 def test_improved_quantity_does_not_permit_more_cash(tmp_path):

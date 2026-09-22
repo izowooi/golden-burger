@@ -873,7 +873,8 @@ class ClobClientWrapper:
             with self._open_evidence_db_read_only() as connection:
                 rows = connection.execute(
                     "SELECT order_id, token_id, side, requested_size, requested_price, "
-                    "making_amount, latest_size_matched, latest_status_domain_error "
+                    "making_amount, latest_size_matched, latest_order_status, "
+                    "associated_trade_ids_json, latest_status_domain_error "
                     "FROM order_submissions WHERE submission_id = ?",
                     (submission_id,),
                 ).fetchall()
@@ -923,6 +924,7 @@ class ClobClientWrapper:
         order_id: str,
         trade_id: str,
         bucket_index: int,
+        aggregate_price_improvement_proof: bool = False,
     ) -> tuple[Decimal, Decimal]:
         """Validate a price-improved fill against exact order cash and size."""
         context = self._submission_fee_context(pending, order_id=order_id)
@@ -944,6 +946,7 @@ class ClobClientWrapper:
             ):
                 raise ClobResponseContractError("fee matched quantity proof is invalid")
         cash_limit = None
+        effective_price = price
         if side == "BUY":
             tolerance = limit * Decimal("0.0001") + quantum
             cash_limit = limit * requested
@@ -963,6 +966,37 @@ class ClobClientWrapper:
             maximum = requested + quantum
             if price + quantum < limit:
                 raise ClobResponseContractError("fee SELL execution price is below limit")
+        try:
+            associated_trade_ids = json.loads(
+                str(context.get("associated_trade_ids_json") or "[]")
+            )
+        except (TypeError, ValueError):
+            associated_trade_ids = None
+        raw_quantity = Decimal(str(raw_size))
+        if (
+            side == "BUY"
+            and matched is not None
+            and raw_quantity == matched
+            and raw_quantity > maximum
+            and str(context.get("latest_order_status") or "").upper() == "MATCHED"
+            and associated_trade_ids == [trade_id]
+            and cash_limit is not None
+            and aggregate_price_improvement_proof
+        ):
+            derived_price = cash_limit / matched
+            if (
+                not derived_price.is_finite()
+                or not 0 < derived_price <= limit
+                or derived_price > price
+            ):
+                raise ClobResponseContractError(
+                    "fee BUY price-improved VWAP evidence is invalid"
+                )
+            effective_price = derived_price
+            maximum = min(
+                max(requested + Decimal("0.0001"), matched + quantum),
+                (cash_limit + tolerance) / effective_price,
+            )
         size = self._positive_fill_quantity(
             raw_size,
             requested,
@@ -979,7 +1013,7 @@ class ClobClientWrapper:
                 "AND UPPER(status)='CONFIRMED' AND NOT (trade_id=? AND bucket_index=?)",
                 (pending["submission_id"], trade_id, bucket_index),
             ).fetchall()
-        total_size, total_cash = size, size * price
+        total_size, total_cash = size, size * effective_price
         for row in other:
             quantity = Decimal(str(row["size"]))
             prior_price = Decimal(str(row["price"]))
@@ -1001,7 +1035,7 @@ class ClobClientWrapper:
             raise ClobResponseContractError("cumulative SELL exceeds submitted shares")
         if cash_limit is not None and total_cash > cash_limit + tolerance:
             raise ClobResponseContractError("cumulative BUY exceeds cash envelope")
-        return size, requested
+        return size, requested, effective_price
 
     def _attach_clob_v2_fee_evidence(
         self,
@@ -1084,13 +1118,16 @@ class ClobClientWrapper:
             or int(bucket) < 0
         ):
             raise ClobResponseContractError("fee fill bucket identity is invalid")
-        size, requested_size = self._validated_fee_quantity(
+        size, requested_size, price = self._validated_fee_quantity(
             raw_size,
             price,
             pending=pending,
             order_id=order_id,
             trade_id=str(enriched.get("id") or ""),
             bucket_index=int(bucket),
+            aggregate_price_improvement_proof=(
+                bool(maker_orders) and maker_match is None and taker_match
+            ),
         )
         if size > requested_size + Decimal("0.0001"):
             micros = size * _FIXED_6
@@ -1101,6 +1138,7 @@ class ClobClientWrapper:
             fee_target[
                 "matched_amount" if maker_match is not None else "size"
             ] = str(int(micros))
+        fee_target["price"] = str(price)
 
         schedule = self._clob_v2_fee_schedule(str(pending.get("token_id") or ""))
         fee = Decimal(0)
