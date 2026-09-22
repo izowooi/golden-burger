@@ -50,6 +50,37 @@ def test_price_improvement_over_five_percent_recovers_exact_fee_and_size(tmp_pat
         assert row['domain_error'] is None
 
 
+def test_milli_share_trade_quantity_uses_exact_authoritative_match(tmp_path):
+    w = _fee_evidence_wrapper(tmp_path)
+    sid, pending = prepared(w)
+    enriched = w._attach_clob_v2_fee_evidence(
+        payload('7042.251', '.71'), pending=pending, order_id='order-fee'
+    )
+    w.execution_ledger.record_fill(sid, 'order-fee', enriched)
+
+    assert w.execution_ledger.finish_reconciliation(sid)
+    with w._open_evidence_db_read_only() as connection:
+        row = connection.execute(
+            'SELECT size, price, fee_amount_usdc, domain_error FROM order_fills'
+        ).fetchone()
+    assert row['size'] == pytest.approx(7.042251)
+    assert row['price'] == pytest.approx(.71)
+    assert row['domain_error'] is None
+
+
+def test_milli_share_trade_quantity_without_exact_match_stays_fail_closed(tmp_path):
+    w = _fee_evidence_wrapper(tmp_path)
+    _, pending = prepared(w)
+
+    with pytest.raises(
+        ClobResponseContractError,
+        match='does not uniquely match the authoritative matched quantity',
+    ):
+        w._attach_clob_v2_fee_evidence(
+            payload('7042.250', '.71'), pending=pending, order_id='order-fee'
+        )
+
+
 def test_improved_quantity_does_not_permit_more_cash(tmp_path):
     w=_fee_evidence_wrapper(tmp_path);_,p=prepared(w)
     with pytest.raises(ClobResponseContractError):

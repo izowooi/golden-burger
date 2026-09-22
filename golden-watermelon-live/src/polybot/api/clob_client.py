@@ -614,7 +614,11 @@ class ClobClientWrapper:
 
     @staticmethod
     def _positive_fill_quantity(
-        raw_size: Any, requested_size: Any, *, maximum_size: Any = None
+        raw_size: Any,
+        requested_size: Any,
+        *,
+        maximum_size: Any = None,
+        authoritative_size: Any = None,
     ) -> Decimal:
         """Decode an SDK-human or raw fixed-6 fill quantity fail-closed."""
         try:
@@ -644,6 +648,31 @@ class ClobClientWrapper:
             normalized = raw / _FIXED_6
         elif raw <= maximum:
             normalized = raw
+        elif authoritative_size is not None:
+            try:
+                authoritative = Decimal(str(authoritative_size))
+            except Exception as error:
+                raise ClobResponseContractError(
+                    "CLOB v2 fee evidence authoritative quantity is not numeric"
+                ) from error
+            if (
+                not authoritative.is_finite()
+                or authoritative <= 0
+            ):
+                raise ClobResponseContractError(
+                    "CLOB v2 fee evidence authoritative quantity is invalid"
+                )
+            candidates = {
+                candidate
+                for candidate in (raw / Decimal(1_000), raw / _FIXED_6)
+                if 0 < candidate <= maximum and candidate == authoritative
+            }
+            if len(candidates) != 1:
+                raise ClobResponseContractError(
+                    "CLOB v2 fee evidence fill quantity does not uniquely match "
+                    "the authoritative matched quantity"
+                )
+            normalized = candidates.pop()
         else:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence fill quantity representation is ambiguous"
@@ -933,7 +962,10 @@ class ClobClientWrapper:
             if price + quantum < limit:
                 raise ClobResponseContractError("fee SELL execution price is below limit")
         size = self._positive_fill_quantity(
-            raw_size, requested, maximum_size=maximum
+            raw_size,
+            requested,
+            maximum_size=maximum,
+            authoritative_size=matched,
         )
         if matched is not None and size > matched + quantum:
             raise ClobResponseContractError("fee fill exceeds authoritative matched size")
