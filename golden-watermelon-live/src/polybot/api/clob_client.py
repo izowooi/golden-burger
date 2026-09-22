@@ -670,7 +670,9 @@ class ClobClientWrapper:
             if len(candidates) != 1:
                 raise ClobResponseContractError(
                     "CLOB v2 fee evidence fill quantity does not uniquely match "
-                    "the authoritative matched quantity"
+                    "the authoritative matched quantity "
+                    f"(raw={raw}, requested={requested}, maximum={maximum}, "
+                    f"authoritative={authoritative})"
                 )
             normalized = candidates.pop()
         else:
