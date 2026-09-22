@@ -387,6 +387,19 @@ def test_gamma_accepts_exact_direct_major_sport_and_postseason(
     assert markets[0]["outcomes"] == ["Home Club", "Away Club"]
 
 
+def test_gamma_accepts_exact_nfl_2026_season_series_and_rejects_mismatch() -> None:
+    event = _direct_sport_event("nfl", [_market("nfl-2026-moneyline")])
+    event["sport"]["series"] = "12185"
+    event["series"][0]["id"] = "12185"
+    client = GammaClient(sport_family="nfl")
+    client.session = _Session([{"events": [event]}])
+    assert len(client.get_all_tradable_markets(5000, 5000)) == 1
+
+    event["series"][0]["id"] = "10187"
+    client.session = _Session([{"events": [event]}])
+    assert client.get_all_tradable_markets(5000, 5000) == []
+
+
 @pytest.mark.parametrize(
     ("family", "excluded_title"),
     [("mlb", "Home Club vs Away Club Minor League"), ("nhl", "AHL Final"), ("nfl", "NCAA College Football")],

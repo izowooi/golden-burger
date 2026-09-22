@@ -184,7 +184,16 @@ def _classify_direct_sport_event(
         reasons.append("SPORT_NAME_MISMATCH")
     if _decimal_id(sport.get("primaryTagId")) != str(identity.primary_tag_id):
         reasons.append("PRIMARY_TAG_ID_MISMATCH")
-    if _decimal_id(sport.get("series")) != str(identity.root_series_id):
+    # Gamma's NFL sport metadata points at the active season series (12185),
+    # while older root-series events point at 10187.  Accept the season ID
+    # only when the event itself proves the exact nfl-2026 series identity.
+    season_series = (
+        sport_family == "nfl"
+        and series_slug == "nfl-2026"
+        and series_ids == ("12185",)
+        and _decimal_id(sport.get("series")) == "12185"
+    )
+    if _decimal_id(sport.get("series")) != str(identity.root_series_id) and not season_series:
         reasons.append("SPORT_SERIES_ID_MISMATCH")
     if not common <= set(tag_ids) or not common <= set(sport_tag_ids):
         reasons.append("REQUIRED_TAG_IDS_MISSING")

@@ -374,6 +374,19 @@ def test_gamma_accepts_exact_direct_major_sport_family(family, tag_id) -> None:
     assert client.last_sweep_attestation["tag_id"] == tag_id
 
 
+def test_gamma_accepts_exact_nfl_2026_season_series_and_rejects_mismatch() -> None:
+    event = _direct_sport_event("nfl", [_market("nfl-2026-moneyline")], postseason=True)
+    event["sport"]["series"] = "12185"
+    event["series"][0]["id"] = "12185"
+    client = GammaClient(sport_family="nfl")
+    client.session = _Session([{"events": [event]}])
+    assert len(client.get_all_tradable_markets(5000, 5000)) == 1
+
+    event["series"][0]["id"] = "10187"
+    client.session = _Session([{"events": [event]}])
+    assert client.get_all_tradable_markets(5000, 5000) == []
+
+
 def test_gamma_uses_registered_mlb_live_profile_for_sweep_provenance() -> None:
     client = GammaClient(
         sport_family="mlb",

@@ -59,7 +59,7 @@ NHL_SHADOW_PREREGISTRATION = (
     "research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md"
 )
 NFL_LIVE_PREREGISTRATION = (
-    "research/frozen-2026-09-21-nfl-tail-risk-scale5-v17/PREREGISTRATION.md"
+    "research/frozen-2026-09-22-nfl-season-series-v18/PREREGISTRATION.md"
 )
 SIMULATION_SCALING_NOTIONALS_USDC = (
     5.0,
