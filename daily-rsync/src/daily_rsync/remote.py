@@ -188,7 +188,12 @@ class RemoteClient:
         timeout: int = 7200,
     ) -> subprocess.CompletedProcess[str]:
         local_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        command = ["rsync", "-a", "--partial", "--itemize-changes"]
+        # ``local_path`` is an untrusted incoming ``*.partial`` staging file,
+        # never the canonical latest/pinned artifact. Updating it in place lets
+        # rsync reuse unchanged SQLite pages on slower external data volumes;
+        # the sync service still requires the planned SHA-256 and quick_check
+        # before atomically promoting the staging file.
+        command = ["rsync", "-a", "--partial", "--inplace", "--itemize-changes"]
         if compress:
             command.append("-z")
         command.extend([f"{self.config.ssh_host}:{shlex.quote(remote_path)}", str(local_path)])
