@@ -82,3 +82,15 @@ def test_workspace_epochs_reject_ambiguous_or_unsafe_values(
 
     with pytest.raises(ValueError):
         load_config(config_path)
+
+
+def test_required_external_data_root_rejects_unmounted_volume(tmp_path: Path) -> None:
+    config_path = tmp_path / "config.toml"
+    config_path.write_text(
+        'data_root = "/Volumes/not-mounted-daily-rsync/data"\n'
+        'require_external_data_root = true\n',
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ValueError, match="external data volume is not mounted"):
+        load_config(config_path)

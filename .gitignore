@@ -207,6 +207,7 @@ docs/logs/
 
 # Golden Coconut accountless multi-sport research evidence is runtime state.
 /golden-coconut/data/
+/daily-rsync/data
 
 # Browser automation snapshots/console captures are local operational evidence.
 /.playwright-mcp/

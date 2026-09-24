@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import posixpath
 import re
@@ -27,6 +28,7 @@ class AppConfig:
     batch_file_limit: int = 1000
     batch_byte_limit: int = 2 * GIB
     default_job_pattern: str = "polybot-*"
+    require_external_data_root: bool = False
 
     @property
     def catalog_path(self) -> Path:
@@ -137,9 +139,29 @@ def load_config(path: Path | None = None) -> AppConfig:
         batch_file_limit=_positive_int(payload, "batch_file_limit", 1000),
         batch_byte_limit=_positive_int(payload, "batch_byte_limit_gb", 2) * GIB,
         default_job_pattern=str(payload.get("default_job_pattern", "polybot-*")),
+        require_external_data_root=bool(payload.get("require_external_data_root", False)),
     )
+    validate_data_root_mount(config)
     ensure_runtime_directories(config)
     return config
+
+
+def validate_data_root_mount(config: AppConfig) -> None:
+    if not config.require_external_data_root:
+        return
+    parts = config.data_root.parts
+    if len(parts) < 3 or parts[0] != "/" or parts[1] != "Volumes":
+        raise ValueError("required external data_root must be under /Volumes/<volume>")
+    mount_root = Path("/", "Volumes", parts[2])
+    if not mount_root.is_mount() or mount_root.stat().st_dev == Path("/").stat().st_dev:
+        raise ValueError(f"required external data volume is not mounted: {mount_root}")
+    marker = mount_root / ".daily-rsync-data-root.json"
+    try:
+        payload = json.loads(marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as error:
+        raise ValueError(f"external data volume marker is unavailable: {marker}") from error
+    if payload != {"schema_version": 1, "data_root": str(config.data_root)}:
+        raise ValueError(f"external data volume marker does not match: {marker}")
 
 
 def ensure_runtime_directories(config: AppConfig) -> None:

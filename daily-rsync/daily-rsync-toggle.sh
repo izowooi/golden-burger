@@ -5,7 +5,9 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="${DAILY_RSYNC_PROJECT_ROOT:-$SCRIPT_DIR}"
 PORT="${DAILY_RSYNC_PORT:-8765}"
 URL="http://127.0.0.1:${PORT}"
-STATE_DIR="${DAILY_RSYNC_STATE_DIR:-$PROJECT_ROOT/data}"
+SPARSEBUNDLE="${DAILY_RSYNC_SPARSEBUNDLE:-/Volumes/t7-legacy/daily-rsync-data.sparsebundle}"
+DATA_VOLUME="${DAILY_RSYNC_DATA_VOLUME:-/Volumes/daily-rsync-data}"
+STATE_DIR="${DAILY_RSYNC_STATE_DIR:-$DATA_VOLUME/state}"
 LOG_FILE="$STATE_DIR/ui-server.log"
 PID_FILE="$STATE_DIR/ui-server.pid"
 NO_OPEN="${DAILY_RSYNC_NO_OPEN:-0}"
@@ -14,6 +16,30 @@ if [[ "$PORT" != <-> ]] || (( PORT < 1 || PORT > 65535 )); then
   print -u2 "잘못된 DAILY_RSYNC_PORT: $PORT"
   exit 2
 fi
+
+ensure_data_volume() {
+  if [[ ! -d "$DATA_VOLUME" ]]; then
+    if [[ ! -d "$SPARSEBUNDLE" ]]; then
+      print -u2 "Daily Rsync APFS sparsebundle을 찾지 못했습니다: $SPARSEBUNDLE"
+      return 1
+    fi
+    /usr/bin/hdiutil attach -nobrowse "$SPARSEBUNDLE" >/dev/null
+  fi
+
+  local filesystem read_only
+  filesystem="$(/usr/sbin/diskutil info "$DATA_VOLUME" 2>/dev/null \
+    | /usr/bin/awk -F: '/File System Personality/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
+  read_only="$(/usr/sbin/diskutil info "$DATA_VOLUME" 2>/dev/null \
+    | /usr/bin/awk -F: '/Volume Read-Only/{gsub(/^[ \t]+|[ \t]+$/, "", $2); print $2; exit}')"
+  if [[ "$filesystem" != "APFS" || "$read_only" != "No" ]]; then
+    print -u2 "Daily Rsync data volume이 writable APFS가 아닙니다: $DATA_VOLUME"
+    return 1
+  fi
+  if [[ ! -f "$DATA_VOLUME/.daily-rsync-data-root.json" ]]; then
+    print -u2 "Daily Rsync data volume marker가 없습니다: $DATA_VOLUME"
+    return 1
+  fi
+}
 
 find_uv() {
   if [[ -n "${DAILY_RSYNC_UV:-}" && -x "$DAILY_RSYNC_UV" ]]; then
@@ -151,6 +177,7 @@ show_status() {
 }
 
 action="${1:-toggle}"
+ensure_data_volume
 case "$action" in
   toggle)
     if healthy || managed_pid >/dev/null 2>&1; then
