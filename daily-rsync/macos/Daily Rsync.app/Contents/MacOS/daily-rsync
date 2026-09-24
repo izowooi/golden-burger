@@ -24,4 +24,15 @@ if [[ ! -x "$PROJECT_ROOT/daily-rsync-toggle.sh" ]]; then
   alert "Daily Rsync toggle script를 찾지 못했습니다: $PROJECT_ROOT"
   exit 1
 fi
-exec "$PROJECT_ROOT/daily-rsync-toggle.sh" start
+"$PROJECT_ROOT/daily-rsync-toggle.sh" start || exit $?
+
+STATE_DIR="${DAILY_RSYNC_STATE_DIR:-/Volumes/daily-rsync-data/state}"
+PID_FILE="$STATE_DIR/ui-server.pid"
+SERVER_PID="$(head -n 1 "$PID_FILE" 2>/dev/null || true)"
+if [[ "$SERVER_PID" != <-> ]]; then
+  alert "Daily Rsync managed PID를 확인하지 못했습니다: $PID_FILE"
+  exit 1
+fi
+while /bin/kill -0 "$SERVER_PID" 2>/dev/null; do
+  /bin/sleep 5
+done
