@@ -59,6 +59,24 @@
       "evidence_report": "daily-rsync/data/reports/sports_external_followup_20260925/FINAL_REPORT.md"
     },
     {
+      "id": "2026-09-20-white-silver-recorder-storage-gap",
+      "source": "macmini-m5",
+      "last_verified_complete_archive_date_utc": "2026-09-19",
+      "first_recovered_discovery_success_utc": "2026-09-25T15:14:30Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-20T00:00:00Z",
+        "2026-09-25T15:16:00Z"
+      ],
+      "failure": "White/Silver integrated five-sport recorder could not pass Mac mini T7 used-ratio storage gate. Immediately after space recovery, 54 already-closed events were rechecked and 190 closed-token books per cycle were omitted by CLOB; successful five-family discovery resumed after the post-window interval.",
+      "simulation_sources": [
+        "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1",
+        "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1"
+      ],
+      "policy": "Mark event paths overlapping this conservative interval COLLECTION_OUTAGE_OVERLAP and exclude them from parameter optimization unless another verified independent source covers the full in-play path, token identity, fee and exact resolution. A successful zero-due discovery cycle is not evidence of fresh in-play book capture. The 2026-09-25 mutable shard is not a completed verified daily archive.",
+      "new_inplay_book_validation": "PENDING_ELIGIBLE_GAME",
+      "evidence_report": "daily-rsync/data/reports/monthly_sports_20260925/RESTORE_EXECUTION.md"
+    },
+    {
       "id": "2026-09-04-mlb-stale-event-slug",
       "source": "macmini-m5",
       "affected_event_id": "572660",
