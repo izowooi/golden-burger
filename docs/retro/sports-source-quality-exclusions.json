@@ -77,6 +77,40 @@
       "evidence_report": "daily-rsync/data/reports/monthly_sports_20260925/RESTORE_EXECUTION.md"
     },
     {
+      "id": "2026-09-25-white-recorder-cycle-and-closed-market-gap",
+      "source": "macmini-m5",
+      "last_successful_cycle_utc": "2026-09-25T17:35:30Z",
+      "first_failed_cycle_utc": "2026-09-25T21:00:30Z",
+      "first_recovered_success_utc": "2026-09-25T22:34:30Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-25T17:36:00Z",
+        "2026-09-25T22:35:00Z"
+      ],
+      "failure": "White published no recorder cycle between 17:35:30 and 21:00:30 UTC. Subsequent cycles repeatedly asked CLOB for the two already-closed Cubs-Red Sox MLB tokens and marked them MISSING even though exact one-hot terminal proof was stored. The specific reason for the earlier no-cycle interval is not established.",
+      "simulation_sources": [
+        "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1"
+      ],
+      "policy": "Mark White event paths overlapping the interval COLLECTION_OUTAGE_OVERLAP. Do not bridge the absent cycles or reuse the FULL books from FAILED publications as a complete path. A separate verified collector may replace the path only if exact token identity, fee, complete in-play books, and resolution are independently present.",
+      "evidence_report": "daily-rsync/data/reports/sports_param_opt_20260926/REPORT.md"
+    },
+    {
+      "id": "2026-09-25-silver-closed-cubs-book-gap",
+      "source": "macmini-m5",
+      "affected_event_id": "1058697",
+      "first_failed_cycle_utc": "2026-09-25T21:00:30Z",
+      "first_recovered_success_utc": "2026-09-25T22:34:30Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-25T21:00:00Z",
+        "2026-09-25T22:35:00Z"
+      ],
+      "failure": "Silver also repeatedly requested the two exact closed Cubs-Red Sox MLB tokens. Its failed cycles preserved four FULL books for other events, but those rows are not a successful complete-cycle observation.",
+      "simulation_sources": [
+        "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1"
+      ],
+      "policy": "Conservatively exclude Silver event paths overlapping this interval from parameter optimization. Reinclude only when a separate verified source proves a complete in-play path, token identity, fee and exact resolution. Commit 82074a7 stops polling a closed non-accepting market with exact terminal proof.",
+      "evidence_report": "daily-rsync/data/reports/sports_param_opt_20260926/REPORT.md"
+    },
+    {
       "id": "2026-09-04-mlb-stale-event-slug",
       "source": "macmini-m5",
       "affected_event_id": "572660",
