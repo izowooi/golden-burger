@@ -702,7 +702,9 @@ class ClobClientWrapper:
         connection.row_factory = sqlite3.Row
         return connection
 
-    def _catalog_fee_schedule(self, token_id: str) -> ClobV2FeeSchedule:
+    def _catalog_fee_schedule(
+        self, token_id: str
+    ) -> tuple[ClobV2FeeSchedule, bool]:
         """Resolve the exact Gamma catalog row that owns a token."""
         normalized_token = str(token_id or "").strip()
         if not normalized_token:
@@ -751,6 +753,7 @@ class ClobClientWrapper:
             raise ClobResponseContractError(
                 "Gamma fee catalog omitted explicit fee parameters"
             ) from error
+        dynamic_rate_placeholder = fees_enabled == 1 and rate == 0
         if (
             not condition_id
             or not rate.is_finite()
@@ -762,16 +765,22 @@ class ClobClientWrapper:
             or exponent_decimal > 10
             or fees_enabled not in {0, 1}
             or taker_only_int not in {0, 1}
-            or bool(rate) != bool(fees_enabled)
+            or (
+                bool(rate) != bool(fees_enabled)
+                and not dynamic_rate_placeholder
+            )
         ):
             raise ClobResponseContractError(
                 "Gamma fee catalog parameters are outside the contract"
             )
-        return ClobV2FeeSchedule(
-            condition_id=condition_id,
-            rate=rate,
-            exponent=int(exponent_decimal),
-            taker_only=bool(taker_only_int),
+        return (
+            ClobV2FeeSchedule(
+                condition_id=condition_id,
+                rate=rate,
+                exponent=int(exponent_decimal),
+                taker_only=bool(taker_only_int),
+            ),
+            dynamic_rate_placeholder,
         )
 
     def _clob_v2_fee_schedule(self, token_id: str) -> ClobV2FeeSchedule:
@@ -787,7 +796,9 @@ class ClobClientWrapper:
         if cached is not None:
             return cached
 
-        catalog_schedule = self._catalog_fee_schedule(normalized_token)
+        catalog_schedule, dynamic_rate_placeholder = self._catalog_fee_schedule(
+            normalized_token
+        )
         market_info = self.client.get_clob_market_info(
             catalog_schedule.condition_id
         )
@@ -850,7 +861,19 @@ class ClobClientWrapper:
             exponent=int(exponent_decimal),
             taker_only=taker_only,
         )
-        if schedule != catalog_schedule:
+        if dynamic_rate_placeholder:
+            # Gamma can mark a current sports market as fee-enabled while
+            # publishing ``fee_rate=0`` as a dynamic-rate placeholder.  The
+            # identity-checked CLOB market-info response is authoritative for
+            # the rate, but Gamma must still agree on exponent and taker side.
+            catalog_matches = (
+                schedule.condition_id == catalog_schedule.condition_id
+                and schedule.exponent == catalog_schedule.exponent
+                and schedule.taker_only == catalog_schedule.taker_only
+            )
+        else:
+            catalog_matches = schedule == catalog_schedule
+        if not catalog_matches:
             raise ClobResponseContractError(
                 "Gamma and CLOB dynamic fee parameters do not match"
             )

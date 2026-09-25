@@ -599,6 +599,7 @@ def _fee_evidence_wrapper(
     tmp_path,
     *,
     clob_rate="0.05",
+    catalog_rate=0.05,
     legacy_double_encoded_tokens=False,
 ):
     db_path = tmp_path / "fee-evidence.db"
@@ -616,7 +617,7 @@ def _fee_evidence_wrapper(
                 outcome_prices_json='["0.98", "0.02"]',
                 tags_json="[]",
                 fees_enabled=1,
-                fee_rate=0.05,
+                fee_rate=catalog_rate,
                 fee_exponent=1,
                 fee_taker_only=1,
             )
@@ -705,6 +706,20 @@ def test_clob_v2_fee_schedule_mismatch_fails_closed(tmp_path) -> None:
         match="Gamma and CLOB dynamic fee parameters do not match",
     ):
         wrapper._clob_v2_fee_schedule("token-fee")
+
+
+def test_clob_v2_fee_schedule_accepts_gamma_dynamic_rate_placeholder(tmp_path) -> None:
+    wrapper = _fee_evidence_wrapper(
+        tmp_path,
+        catalog_rate=0.0,
+        clob_rate="0.05",
+    )
+
+    schedule = wrapper._clob_v2_fee_schedule("token-fee")
+
+    assert schedule.rate == Decimal("0.05")
+    assert schedule.exponent == 1
+    assert schedule.taker_only is True
 
 
 def test_clob_v2_fee_schedule_reads_one_known_legacy_double_encoding(tmp_path) -> None:
