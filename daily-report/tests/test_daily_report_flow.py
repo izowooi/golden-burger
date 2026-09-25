@@ -479,3 +479,29 @@ def test_fetch_normalizes_money_before_any_log_or_sink(caplog):
         5.02,
     )
     assert "가치: $10.02" in caplog.text
+
+
+def test_deployed_polybot_report_runs_external_t7_storage_alert(monkeypatch):
+    captured = []
+    monkeypatch.setenv("JOB_NAME", "polybot-report")
+    monkeypatch.setattr(daily_report, "host_storage_main", lambda argv: captured.append(argv) or 0)
+
+    daily_report.collect_deployed_storage_and_alert(simulate=False, command="run")
+
+    assert len(captured) == 1
+    assert "external-t7=/Volumes/t7" in captured[0]
+    assert captured[0][captured[0].index("--alert-threshold-gib") + 1] == "100"
+    assert "https://poly.zowoo.uk/storage" in captured[0]
+
+
+def test_storage_alert_is_not_implicit_outside_deployed_daily_job(monkeypatch):
+    captured = []
+    monkeypatch.delenv("JOB_NAME", raising=False)
+    monkeypatch.setattr(daily_report, "host_storage_main", lambda argv: captured.append(argv) or 0)
+
+    daily_report.collect_deployed_storage_and_alert(simulate=False, command="run")
+    monkeypatch.setenv("JOB_NAME", "polybot-report")
+    daily_report.collect_deployed_storage_and_alert(simulate=True, command="run")
+    daily_report.collect_deployed_storage_and_alert(simulate=False, command="check-supabase")
+
+    assert captured == []

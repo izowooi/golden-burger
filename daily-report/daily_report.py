@@ -73,6 +73,7 @@ from polybot_reporter.contracts import (
 )
 from polybot_reporter.notifications.slack_notifier import SlackNotifier
 from polybot_reporter.storage.evidence_store import DailyEvidenceStore, EvidenceStoreError
+from polybot_reporter.storage.host_storage import main as host_storage_main
 from polybot_reporter.storage.supabase_writer import (
     SupabaseConfigurationError,
     SupabasePortfolioWriter,
@@ -125,6 +126,37 @@ logging.basicConfig(
     ],
 )
 logger = logging.getLogger(__name__)
+
+
+def collect_deployed_storage_and_alert(*, simulate: bool, command: str | None) -> None:
+    """Run the Mac mini T7 check from the deployed daily-report Freestyle job."""
+    if simulate or command not in (None, "run") or os.getenv("JOB_NAME") != "polybot-report":
+        return
+    exit_code = host_storage_main(
+        [
+            "collect",
+            "--host-id",
+            "macmini-m5",
+            "--mount",
+            "internal=/System/Volumes/Data",
+            "--label",
+            "internal=Mac mini internal",
+            "--mount",
+            "external-t7=/Volumes/t7",
+            "--label",
+            "external-t7=External T7",
+            "--alert-mount",
+            "external-t7",
+            "--alert-threshold-gib",
+            "100",
+            "--alert-state-file",
+            "data/storage_alert_state.json",
+            "--storage-dashboard-url",
+            "https://poly.zowoo.uk/storage",
+        ]
+    )
+    if exit_code:
+        raise RuntimeError("Mac mini storage snapshot/Slack alert가 실패했습니다")
 
 
 def fetch_portfolio_report(client: DataAPIClient, account: AccountConfig) -> dict:
@@ -216,6 +248,8 @@ def parse_args() -> argparse.Namespace:
 def main():
     """Main execution function."""
     args = parse_args()
+
+    collect_deployed_storage_and_alert(simulate=args.simulate, command=args.command)
 
     logger.info("=" * 60)
     logger.info("Polymarket Daily Portfolio Report")

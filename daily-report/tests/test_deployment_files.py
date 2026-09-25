@@ -80,13 +80,3 @@ def test_daily_pipeline_preflights_but_never_installs_database_migrations():
     assert "apply_supabase_migrations" not in jenkinsfile
     assert "PGPASSWORD" not in jenkinsfile
     assert "psql" not in jenkinsfile
-
-
-def test_daily_report_deploys_external_t7_low_storage_alert():
-    jenkinsfile = (PROJECT_ROOT / "Jenkinsfile").read_text(encoding="utf-8")
-
-    assert "Storage Snapshot and Alert" in jenkinsfile
-    assert '--alert-mount "external-t7"' in jenkinsfile
-    assert "--alert-threshold-gib 100" in jenkinsfile
-    assert "https://poly.zowoo.uk/storage" in jenkinsfile
-    assert "SLACK_WEBHOOK_URL = credentials('polymarket-slack-webhook')" in jenkinsfile

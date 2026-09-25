@@ -129,26 +129,6 @@ pipeline {
             }
         }
 
-        stage('Storage Snapshot and Alert') {
-            steps {
-                dir('daily-report') {
-                    sh '''
-                        set +x
-                        uv run python ./disk_monitor.py collect \
-                          --host-id "macmini-m5" \
-                          --mount "internal=/System/Volumes/Data" \
-                          --label "internal=Mac mini internal" \
-                          --mount "external-t7=/Volumes/t7" \
-                          --label "external-t7=External T7" \
-                          --alert-mount "external-t7" \
-                          --alert-threshold-gib 100 \
-                          --alert-state-file "data/storage_alert_state.json" \
-                          --storage-dashboard-url "https://poly.zowoo.uk/storage"
-                    '''
-                }
-            }
-        }
-
         stage('Generate Report') {
             steps {
                 script {

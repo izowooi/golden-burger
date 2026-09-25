@@ -124,10 +124,11 @@ local-only state file에 날짜·host·해당 mount 집합만 저장해 같은 �
 실패하면 Jenkins job도 실패해 조용히 누락되지 않게 합니다. 현재 schedule `H 8 * * *`는
 KST 하루 한 번입니다.
 
-현재 운영 배포에서는 오전 `disk-monitor`가 대시보드 snapshot을 적재하고, 기존
-`polymarket-slack-webhook`과 Supabase credential을 이미 binding한 `polybot-report`가
-18:00~18:10 KST에 같은 mount를 다시 관측해 100 GiB 경고를 담당합니다. 따라서
-`disk-monitor` Jenkins config에 Slack credential을 중복 배포하지 않아도 됩니다.
+현재 운영 배포에서는 오전 `disk-monitor`가 대시보드 snapshot을 적재합니다. 기존
+`polymarket-slack-webhook`과 Supabase credential을 이미 binding한 Freestyle
+`polybot-report`가 `daily_report.py run`을 호출하면 18:00~18:10 KST에 같은 mount를 먼저
+관측해 100 GiB 경고를 담당합니다. 따라서 `disk-monitor` Jenkins config에 Slack
+credential을 중복 배포하지 않아도 됩니다.
 
 ## 4. 대시보드 판정
 
