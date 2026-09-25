@@ -91,6 +91,25 @@ def terminal(event,slots,family):
     return {'source':'GAMMA_CLOSED_EXACT_TOKEN_PAYOUT','tokens':proof}
 
 
+def terminal_nontradable(event,slots,proof):
+    """Exact payout plus closed, non-accepting markets ends book collection.
+
+    Gamma can leave event.ended unset after every selected market has closed.
+    End-receipt time is then unavailable, but requesting CLOB books for the
+    already resolved tokens produces permanent MISSING rows.
+    """
+    if not proof or event.get('closed') is not True or not slots:return False
+    markets=event.get('markets')
+    if not isinstance(markets,list):return False
+    selected={slot['condition_id'] for slot in slots}
+    for cid in selected:
+        matches=[market for market in markets if isinstance(market,dict)
+                 and str(market.get('conditionId') or market.get('condition_id') or '')==cid]
+        if len(matches)!=1 or matches[0].get('closed') is not True or matches[0].get('acceptingOrders') is not False:
+            return False
+    return True
+
+
 def end_anchor(event,clock,receipt,previous):
     payload=(clock or {}).get('payload') or {}
     clock_receipt=(clock or {}).get('received_at') or receipt
@@ -218,8 +237,9 @@ class Recorder:
                 window=window_status(now,scheduled,end,live,self.config.pre_seconds,self.config.post_seconds)
                 if probe and eid in probe_ids:window='PROBE_OUTSIDE_WINDOW'
                 proof=terminal(raw,slots,old['family']) if raw and valid else None
+                closed_terminal=terminal_nontradable(raw,slots,proof) if raw else False
                 state='WAIT_SETTLEMENT' if window=='POST_WINDOW_COMPLETE' else 'SCHEDULED' if window in ('BEFORE_WINDOW','SCHEDULE_UNKNOWN') else 'WINDOW'
-                if proof and window=='POST_WINDOW_COMPLETE':state='DONE'
+                if proof and (window=='POST_WINDOW_COMPLETE' or closed_terminal):state='DONE'
                 missing=0 if raw and valid else old['missing_count']+1
                 if e['status']=='BUDGET_DEFERRED':next_due=old['next_due']
                 elif window=='BEFORE_WINDOW':next_due=iso_utc(parse_source_utc(scheduled)-timedelta(seconds=self.config.pre_seconds))
@@ -231,8 +251,10 @@ class Recorder:
                     'season_phase':classify_season_phase(raw,old['family']) if raw else None,'metadata_status':e['status'],'request_id':e['request_id'],
                     'received_at':e['received_at'],'event_json':canonical_json(raw) if raw else None,'clock_json':canonical_json(clock),'slots_json':canonical_json(slots),
                     'identity_valid':int(valid),'window_status':window,'lifecycle_state':state,'scheduled_start':scheduled,'end_anchor':end,'end_basis':basis,
-                    'terminal_json':canonical_json(proof) if proof else None,'reason':e.get('reason','')}
+                    'terminal_json':canonical_json(proof) if proof else None,
+                    'reason':'EXACT_TERMINAL_CLOSED_NO_BOOK' if closed_terminal else e.get('reason','')}
                 observations.append(row)
+                if closed_terminal:continue
                 if window not in ('IN_WINDOW','SCHEDULE_UNKNOWN','PROBE_OUTSIDE_WINDOW'):continue
                 if not valid:errors.append('identity_incomplete')
                 if not slots:
@@ -287,6 +309,8 @@ class Recorder:
                 'terminal_json':None,'reason':'cycle_aborted_before_event_processing'})
         occupied={(b['event_id'],b['slot']) for b in books}
         for event in observations:
+            if event['lifecycle_state']=='DONE' and event['reason']=='EXACT_TERMINAL_CLOSED_NO_BOOK':
+                continue
             if event['window_status'] not in ('IN_WINDOW','SCHEDULE_UNKNOWN','PROBE_OUTSIDE_WINDOW'):continue
             slots=json.loads(event['slots_json']) or [{'slot':'UNIDENTIFIED_'+str(i)} for i in range(6 if event['family']=='soccer' else 2)]
             for item in slots:

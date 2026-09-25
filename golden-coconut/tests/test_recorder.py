@@ -126,6 +126,37 @@ def test_source_end_anchor_never_uses_older_gamma_receipt_for_later_wss():
     assert window_status(NOW+timedelta(seconds=610),None,end,True)=='POST_WINDOW_COMPLETE'
 
 
+def test_exact_closed_nonaccepting_market_finishes_without_end_anchor_or_books(tmp_path):
+    FakeClient.source['closed']=True
+    FakeClient.source.pop('ended')
+    for i,market in enumerate(FakeClient.source['markets']):
+        market.update(closed=True,acceptingOrders=False,
+                      outcomePrices=['1','0'] if i==0 else ['0','1'])
+    path=tmp_path/'trades_sim.db'
+    result=record(path,NOW)
+    assert result['status']=='SUCCEEDED' and result['expected_tokens']==0
+    assert not any(call[0]=='books' for call in FakeClient.calls if isinstance(call,tuple))
+    c=sqlite3.connect(path)
+    state,proof=c.execute('SELECT state,terminal_json FROM tracked_events').fetchone()
+    window,reason=c.execute('SELECT window_status,reason FROM event_observations').fetchone()
+    c.close()
+    assert state=='DONE' and proof and window=='IN_WINDOW'
+    assert reason=='EXACT_TERMINAL_CLOSED_NO_BOOK'
+    followup=record(path,NOW+timedelta(seconds=60))
+    assert followup['status']=='SUCCEEDED' and followup['expected_tokens']==0
+
+
+def test_closed_terminal_with_accepting_orders_still_collects_books(tmp_path):
+    FakeClient.source['closed']=True
+    FakeClient.source.pop('ended')
+    for i,market in enumerate(FakeClient.source['markets']):
+        market.update(closed=True,
+                      outcomePrices=['1','0'] if i==0 else ['0','1'])
+    FakeClient.source['markets'][0]['acceptingOrders']=True
+    result=record(tmp_path/'trades_sim.db',NOW)
+    assert result['status']=='SUCCEEDED' and result['expected_tokens']==6
+
+
 def test_unexpected_phase_failure_preserves_expected_slots(tmp_path):
     path=tmp_path/'trades_sim.db';FakeClient.fail_clock=True;result=record(path,NOW)
     assert result['status']=='FAILED' and result['expected_tokens']==6

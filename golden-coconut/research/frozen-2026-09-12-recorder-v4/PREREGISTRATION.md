@@ -22,6 +22,12 @@ source clock, terminal evidence, and the complete `$5–$1000` depth needed for 
 - The old `polybot-silver/plum-shadow-silver-1m-v1` database is an immutable historical epoch. It is
   never migrated or merged into either integrated recorder.
 - Golden Peach Grey remains retired after its strategy-specific simulation positions reached zero.
+- An exact token-aligned terminal payout ends book collection when the event
+  and every selected market are closed and those markets explicitly reject new
+  orders, even if Gamma omitted `ended` and no end-time anchor exists. The
+  observation retains its original window label and records the terminal-close
+  reason. A closed market without exact payout remains unresolved; an event
+  still accepting orders continues its ordinary book path.
 
 ## Cross-validation
 
