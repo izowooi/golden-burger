@@ -38,6 +38,35 @@
       "policy": "Classify Giants-Rams 2026-09-21 as IDENTITY_CLASSIFIER_CENSORED in NFL raw replay and live coverage. Do not impute missing 1-minute books, candidate decisions, fills, or P&L from the final score or post-game Gamma state. Reinclude only if an independent verified source covers the complete in-play path with exact token identity and fee evidence.",
       "current_cohort_excluded_event_count": 1,
       "evidence_report": "daily-rsync/data/reports/sports_tail_followup_20260922/FINAL_REPORT.md"
+    },
+    {
+      "id": "2026-09-24-macmini-t7-storage-gate",
+      "source": "macmini-m5",
+      "observed_failure_start_utc": "2026-09-24T18:10:19Z",
+      "first_recovered_success_utc": "2026-09-24T22:54:23Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-24T18:09:00Z",
+        "2026-09-24T22:55:00Z"
+      ],
+      "failure": "Eco/Fruit live and Gold raw cycles failed the Mac mini /Volumes/t7 free-space preflight; first common tick after recovery can be left-censored",
+      "simulation_sources": [
+        "polybot-gold/golden-plum/plum-shadow-gold-mlb-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nfl-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nba-1m-v1",
+        "polybot-gold/golden-plum/plum-shadow-gold-nhl-1m-v1"
+      ],
+      "policy": "Exclude any game path overlapping this interval from parameter optimization unless a separate verified collector covers the full in-play path and exact resolution. Mark Eco/Fruit first common ticks formed after recovery for already-running games LEFT_CENSORED; do not treat their tick90 as 90 minutes after the real first pair.",
+      "evidence_report": "daily-rsync/data/reports/sports_external_followup_20260925/FINAL_REPORT.md"
+    },
+    {
+      "id": "2026-09-04-mlb-stale-event-slug",
+      "source": "macmini-m5",
+      "affected_event_id": "572660",
+      "affected_event_slug": "mlb-det-cle-2026-06-14",
+      "failure": "King/Queen MLB close-only archive contains confirmed 2026-09-04 trades for a Detroit-Cleveland market whose immutable event slug says 2026-06-14. MLB scheduled two Detroit-Cleveland games on 2026-09-04, so title and first-seen time alone cannot prove which official game the contract represented.",
+      "simulation_sources": [],
+      "policy": "Preserve confirmed order/fill economic P&L in the historical live ledger, but do not assign an official 2026-09-04 final score or use this event for parameter optimization or token-aligned result calibration without exact market rule and official game identity evidence.",
+      "evidence_report": "daily-rsync/data/reports/monthly_sports_20260925/mlb_official_mapping.json"
     }
   ]
 }
