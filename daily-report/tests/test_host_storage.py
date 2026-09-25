@@ -15,6 +15,7 @@ from polybot_reporter.storage.host_storage import (
     SupabaseHostStorageWriter,
     collect_disk_snapshots,
     filesystem_mount_root,
+    notify_low_storage_once_daily,
     parse_mount_specs,
 )
 from polybot_reporter.storage.supabase_writer import SupabaseConfigurationError
@@ -189,3 +190,98 @@ def test_storage_migration_is_atomic_and_server_only():
     assert "from public, anon, authenticated" in normalized
     assert "to service_role" in normalized
     assert "grant select on table public.pb_host_storage_daily to anon" not in normalized
+
+
+class FakeSlackNotifier:
+    def __init__(self, result=True):
+        self.result = result
+        self.messages = []
+
+    def send_message(self, text):
+        self.messages.append(text)
+        return self.result
+
+
+def test_low_storage_alert_sends_once_per_day_for_selected_mount(tmp_path):
+    notifier = FakeSlackNotifier()
+    state_path = tmp_path / "storage-alert.json"
+    reported_at = datetime(2026, 9, 25, 0, 0, tzinfo=timezone.utc)
+    rows = [
+        DiskSnapshot(
+            "internal",
+            "Internal",
+            "/",
+            200 * 1024**3,
+            150 * 1024**3,
+            50 * 1024**3,
+        ),
+        DiskSnapshot(
+            "external-t7",
+            "External T7",
+            "/Volumes/t7",
+            1000 * 1024**3,
+            920 * 1024**3,
+            80 * 1024**3,
+        ),
+    ]
+
+    assert notify_low_storage_once_daily(
+        host_id="macmini-m5",
+        report_date="2026-09-25",
+        reported_at=reported_at,
+        snapshots=rows,
+        alert_mount_ids=["external-t7"],
+        threshold_gib=100,
+        state_path=state_path,
+        notifier=notifier,
+    )
+    assert not notify_low_storage_once_daily(
+        host_id="macmini-m5",
+        report_date="2026-09-25",
+        reported_at=reported_at,
+        snapshots=rows,
+        alert_mount_ids=["external-t7"],
+        threshold_gib=100,
+        state_path=state_path,
+        notifier=notifier,
+    )
+    assert len(notifier.messages) == 1
+    assert "80.0 GiB" in notifier.messages[0]
+    assert "https://poly.zowoo.uk/storage" in notifier.messages[0]
+    assert state_path.stat().st_mode & 0o777 == 0o600
+
+
+def test_low_storage_alert_ignores_healthy_mount_and_rejects_unknown_mount(tmp_path):
+    notifier = FakeSlackNotifier()
+    rows = [
+        DiskSnapshot(
+            "external-t7",
+            "External T7",
+            "/Volumes/t7",
+            1000 * 1024**3,
+            800 * 1024**3,
+            200 * 1024**3,
+        )
+    ]
+
+    assert not notify_low_storage_once_daily(
+        host_id="macmini-m5",
+        report_date="2026-09-25",
+        reported_at=datetime.now(timezone.utc),
+        snapshots=rows,
+        alert_mount_ids=["external-t7"],
+        threshold_gib=100,
+        state_path=tmp_path / "state.json",
+        notifier=notifier,
+    )
+    with pytest.raises(HostStorageError, match="수집되지 않은"):
+        notify_low_storage_once_daily(
+            host_id="macmini-m5",
+            report_date="2026-09-25",
+            reported_at=datetime.now(timezone.utc),
+            snapshots=rows,
+            alert_mount_ids=["missing"],
+            threshold_gib=100,
+            state_path=tmp_path / "state.json",
+            notifier=notifier,
+        )

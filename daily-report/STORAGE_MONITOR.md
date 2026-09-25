@@ -40,6 +40,10 @@ H 8 * * *
 
 Credentials Binding에서 기존 `polymarket-supabase-secret-key`를
 `SUPABASE_SECRET_KEY` Secret text로 주입합니다. Secret을 shell에 직접 쓰지 않습니다.
+`/Volumes/t7`이 100 GiB 미만일 때 같은 날 한 번만 Slack 경고를 보내려면 기존
+`polymarket-slack-webhook`도 `SLACK_WEBHOOK_URL`로 binding합니다. 이 webhook은
+`#polymarket-report`(`C0ADET4KDMH`)에 연결된 기존 daily-report credential을 그대로
+사용합니다.
 
 ```bash
 #!/bin/bash
@@ -57,7 +61,11 @@ cd ./daily-report
   --mount "internal=/System/Volumes/Data" \
   --label "internal=Mac mini internal" \
   --mount "external-t7=/Volumes/t7" \
-  --label "external-t7=External T7"
+  --label "external-t7=External T7" \
+  --alert-mount "external-t7" \
+  --alert-threshold-gib 100 \
+  --alert-state-file "data/storage_alert_state.json" \
+  --storage-dashboard-url "https://poly.zowoo.uk/storage"
 ```
 
 `/System/Volumes/Data`는 macOS의 쓰기 가능한 내부 Data volume입니다. `/`와
@@ -109,6 +117,12 @@ limit 30;
 
 같은 날짜에 다시 실행하면 더 최신인 `reported_at` 관측값으로 갱신됩니다. stable
 `STORAGE_MONITOR_HOST_ID`와 `--mount` ID는 변경하지 않아야 하나의 시계열로 이어집니다.
+
+Slack 경고는 선택한 mount의 `available_bytes`가 기준보다 **작을 때**만 전송합니다.
+local-only state file에 날짜·host·해당 mount 집합만 저장해 같은 날짜의 수동 재실행도
+중복 전송하지 않습니다. Supabase 적재가 성공한 다음 Slack을 보내며, 경고 전송에
+실패하면 Jenkins job도 실패해 조용히 누락되지 않게 합니다. 현재 schedule `H 8 * * *`는
+KST 하루 한 번입니다.
 
 ## 4. 대시보드 판정
 

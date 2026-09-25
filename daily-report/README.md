@@ -1,6 +1,6 @@
 # Polymarket Daily Reporter
 
-여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 16계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다. 별도 [`disk_monitor.py`](STORAGE_MONITOR.md)는 Mac mini·외장 filesystem의 용량을 하루 한 번 기록합니다.
+여러 Polymarket 계정의 잔고를 조회해 Slack으로 보고하고, 같은 일일 스냅샷을 Supabase의 `pb_*` 테이블에 저장하는 Jenkins 작업입니다. 현재 16계정을 사용하며 숫자 슬롯 수에는 한 자리 제한이 없습니다. 별도 [`disk_monitor.py`](STORAGE_MONITOR.md)는 Mac mini·외장 filesystem의 용량을 하루 한 번 기록하고 선택한 mount가 기준보다 작으면 같은 날 한 번만 Slack 경고를 보냅니다.
 
 ## 실행 순서
 

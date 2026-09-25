@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import os
 import re
@@ -18,6 +19,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from supabase import create_client
 
 from polybot_reporter.contracts import safe_error_message
+from polybot_reporter.notifications.slack_notifier import SlackNotifier
 from polybot_reporter.storage.supabase_writer import (
     SupabaseConfigurationError,
     SupabasePortfolioWriter,
@@ -26,6 +28,8 @@ from polybot_reporter.storage.supabase_writer import (
 LOGGER = logging.getLogger(__name__)
 SCHEMA_VERSION = "pb-storage/v1"
 IDENTIFIER_PATTERN = re.compile(r"^[a-z0-9][a-z0-9._-]{0,62}$")
+GIB = 1024**3
+DEFAULT_STORAGE_DASHBOARD_URL = "https://poly.zowoo.uk/storage"
 
 
 class HostStorageError(RuntimeError):
@@ -87,6 +91,114 @@ class StorageWriteResult:
     host_id: str
     mount_count: int
     reported_at: str
+
+
+def notify_low_storage_once_daily(
+    *,
+    host_id: str,
+    report_date: str,
+    reported_at: datetime,
+    snapshots: Sequence[DiskSnapshot],
+    alert_mount_ids: Sequence[str],
+    threshold_gib: float,
+    state_path: Path,
+    dashboard_url: str = DEFAULT_STORAGE_DASHBOARD_URL,
+    notifier: SlackNotifier | None = None,
+) -> bool:
+    """Send one daily Slack warning when selected mounts fall below the threshold."""
+    if threshold_gib <= 0:
+        raise HostStorageError("storage alert threshold는 0보다 커야 합니다")
+    selected_ids = list(dict.fromkeys(alert_mount_ids))
+    if not selected_ids:
+        raise HostStorageError("storage alert를 사용할 때 --alert-mount가 필요합니다")
+    by_id = {snapshot.mount_id: snapshot for snapshot in snapshots}
+    missing = sorted(set(selected_ids) - set(by_id))
+    if missing:
+        raise HostStorageError(f"수집되지 않은 alert mount ID입니다: {missing}")
+
+    threshold_bytes = int(threshold_gib * GIB)
+    low = [
+        by_id[mount_id]
+        for mount_id in selected_ids
+        if by_id[mount_id].available_bytes < threshold_bytes
+    ]
+    if not low:
+        return False
+
+    alert_key = f"{report_date}:{host_id}:" + ",".join(
+        sorted(snapshot.mount_id for snapshot in low)
+    )
+    state = _load_alert_state(state_path)
+    if state.get("last_alert_key") == alert_key:
+        LOGGER.info("storage Slack 경고 생략 - 오늘 이미 전송됨: %s", alert_key)
+        return False
+
+    lines = [
+        "⚠️ Mac mini 저장공간 경고",
+        f"기준: 남은 용량 {threshold_gib:g} GiB 미만",
+    ]
+    for snapshot in low:
+        lines.append(
+            f"• {snapshot.mount_label} (`{snapshot.mount_path}`): "
+            f"{snapshot.available_bytes / GIB:.1f} GiB 남음 "
+            f"(사용률 {snapshot.utilization_percent:.1f}%)"
+        )
+    lines.extend((f"확인 시각: {reported_at.isoformat()}", f"대시보드: {dashboard_url}"))
+    slack = notifier or SlackNotifier()
+    if not slack.send_message("\n".join(lines)):
+        raise HostStorageError("storage Slack 경고 전송에 실패했습니다")
+
+    _write_alert_state(
+        state_path,
+        {
+            "schema_version": 1,
+            "last_alert_key": alert_key,
+            "report_date": report_date,
+            "host_id": host_id,
+            "mount_ids": sorted(snapshot.mount_id for snapshot in low),
+            "reported_at": reported_at.astimezone(timezone.utc).isoformat(),
+        },
+    )
+    LOGGER.info("storage Slack 경고 전송 완료 - %s", alert_key)
+    return True
+
+
+def _load_alert_state(path: Path) -> dict[str, Any]:
+    if path.is_symlink():
+        raise HostStorageError("storage alert state path가 symlink입니다")
+    if not path.exists():
+        return {}
+    try:
+        value = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise HostStorageError("storage alert state를 읽지 못했습니다") from exc
+    if not isinstance(value, dict):
+        raise HostStorageError("storage alert state가 object가 아닙니다")
+    return value
+
+
+def _write_alert_state(path: Path, value: dict[str, Any]) -> None:
+    if path.is_symlink():
+        raise HostStorageError("storage alert state path가 symlink입니다")
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_name(f".{path.name}.{os.getpid()}.tmp")
+    try:
+        if temporary.exists() or temporary.is_symlink():
+            temporary.unlink()
+        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(descriptor, "w", encoding="utf-8") as handle:
+            json.dump(value, handle, ensure_ascii=False, sort_keys=True)
+            handle.write("\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temporary, path)
+        path.chmod(0o600)
+    except OSError as exc:
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise HostStorageError("storage alert state를 안전하게 저장하지 못했습니다") from exc
 
 
 class SupabaseHostStorageWriter:
@@ -383,6 +495,30 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="filesystem만 검증하고 Supabase에는 쓰지 않음",
     )
+    collect.add_argument(
+        "--alert-mount",
+        action="append",
+        default=[],
+        metavar="MOUNT_ID",
+        help="Slack low-storage 경고를 적용할 --mount ID; 여러 번 지정 가능",
+    )
+    collect.add_argument(
+        "--alert-threshold-gib",
+        type=float,
+        default=None,
+        help="남은 용량이 이 GiB보다 작으면 Slack 경고",
+    )
+    collect.add_argument(
+        "--alert-state-file",
+        type=Path,
+        default=Path(os.getenv("STORAGE_ALERT_STATE_FILE", "data/storage_alert_state.json")),
+        help="하루 한 번 전송을 보장하는 local-only state file",
+    )
+    collect.add_argument(
+        "--storage-dashboard-url",
+        default=os.getenv("STORAGE_DASHBOARD_URL", DEFAULT_STORAGE_DASHBOARD_URL),
+        help="Slack 경고에 표시할 저장공간 dashboard URL",
+    )
     return parser
 
 
@@ -439,6 +575,17 @@ def main(argv: Sequence[str] | None = None) -> int:
             result.host_id,
             result.mount_count,
         )
+        if args.alert_threshold_gib is not None:
+            notify_low_storage_once_daily(
+                host_id=host_id,
+                report_date=report_date,
+                reported_at=reported_at,
+                snapshots=snapshots,
+                alert_mount_ids=args.alert_mount,
+                threshold_gib=args.alert_threshold_gib,
+                state_path=args.alert_state_file,
+                dashboard_url=args.storage_dashboard_url,
+            )
         return 0
     except (HostStorageError, HostStorageWriteError, SupabaseConfigurationError) as exc:
         LOGGER.error("storage monitor 실패: %s", safe_error_message(exc))
