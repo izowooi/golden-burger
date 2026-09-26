@@ -27,6 +27,16 @@
 
 ## 산출물
 
+사용자가 A/B 교체를 요청하면 먼저 같은 종목·금액·fee의 현재 팔을 비교하고 좋은 설정을
+기준 A로 남긴다. A는 Cat/Eco/King이라는 이름만으로 고르지 않는다. B는 과거 raw의
+시간순 검증에서 고른 **한 변수** 후보다. 여러 변수의 전체 최댓값은 탐색 결과로 따로
+표시하고 바로 A/B 처치로 복사하지 않는다. 사용자가 결과를 보고 결정하겠다고 하면
+후보·비교·신뢰구간을 제시하되 새 parameter를 자동 live 배포하지 않는다.
+
+명시적 사용자 관리 종료(`USER_DIRECTED_ADMIN_CLOSE_UNKNOWN_EXECUTION`)는 원본 audit와
+실제 체결을 구분한다. 관리상 완료를 실제 SELL·정산·손익 0이나 종결 표본으로 집계하지
+않는다. 사용자 제공 잔고/UI 수익률은 API 확인값과 구분하고 입출금을 전략 손익에서 제외한다.
+
 `report.json`은 window·source 검증·source별 run/config·경기별 positions/orders·공식 결과·미확정 이유·전략별 합계를 담는다. 단순 경제 계산은 `tools/sports_trade_report.py`의 pure 함수로 재사용할 수 있다. `report.md`는 종목×경기×strategy/Jenkins/runtime 순으로 읽을 수 있어야 한다. 원본 private order/account 식별자, credential, raw console은 공유 문서나 commit에 넣지 않는다.
 
 `report_totals`는 본문의 같은 기간·경기 범위를 대상으로 경기×전략, 종목별, 전략/Jenkins 종목 통합,
