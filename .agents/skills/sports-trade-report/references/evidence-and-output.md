@@ -17,6 +17,10 @@
 
 ## 기간과 누락
 
+- 기본 기간 비교는 동일한 UTC end의 최근 24시간, 7일, 30일, 최근 1년이다. 1년치가 없으면 종목·팔별 확보된 전체 기간으로 대체하고 실제 first evidence/start와 coverage를 쓴다. 30일도 부족하면 확보 기간과 부족분을 명시한다. 서로 겹치는 기간의 손익을 합산하지 않는다.
+- 장기 비교에서는 현재 및 retired runtime/금액/parameter epoch를 별도 cohort로 발견한다. `SOURCE_MISSING` 역사 자료의 source cutoff를 명시하고 현재 운영 자료로 추정하지 않는다. 이미 검증된 pin/archive가 필요한 범위를 덮으면 재사용하고 오래된 전체 archive를 매번 다시 전송하지 않는다.
+- 최소 비교 열: 팔×종목, 실제 UTC 범위, confirmed 손익(매도/정산 구분), 원금·fee, unique 종결 경기·독립 UTC 경기일, 미확정 노출·evidence gap. 증액을 검토하면 평균/중앙값·ROI·최대 drawdown·최대 단일 손실·stop 비율과 목표액의 진입/청산 full-depth·FOK 성공률을 **cohort별**로 추가한다.
+- 장기 실제 이력(과거 설정 포함), 현행 설정 cohort의 forward 성과, 현행/후보 설정을 같은 과거 경기·금액·fee에 적용한 시간순 simulation을 별도 표로 제시한다. 최근 양수 한 구간이나 다른 종목의 이익만으로 금액을 올리지 않는다. 같은 팔의 target과 fallback selected 금액도 구분한다. 최소 표본/경기일은 재검증 기준이며 자동 종료일이나 오래된 parameter로 되돌리는 기한이 아니다.
 - `entry_in_window`, `carry_in`, `exit_in_window`, `carry_out`을 별도 필드로 보존한다.
 - 최근 기간에 체결되지 않았더라도 공식 경기 또는 사용자 목록의 경기 행을 남긴다. `NO_TRADE_RECORDED`와 `NOT_DISCOVERED`, `ENTRY_GUARD_BLOCKED`, `ORDER_REJECTED`, `UNRESOLVED_ORDER`, `MISSING_FEE`, `UNSUPPORTED_SCHEMA`를 구별한다.
 - 기본 공식 결과 JSON은 `games` 배열이다. 각 행은 `sport`, `league`, `official_id`, `title`, `scheduled_at`, `status`, `home`, `away`, `home_score`, `away_score`, `result_scope`, `source_url`, `verified_at`을 가진다. Polymarket event ID 연결은 별도 `venue_event_ids`로 증거를 남긴다. 팀 배열 순서만으로 home/away를 추정하지 않는다.

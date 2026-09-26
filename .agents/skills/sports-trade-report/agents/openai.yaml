@@ -1,4 +1,4 @@
 interface:
   display_name: "스포츠 실거래 보고"
   short_description: "경기 결과와 실제 체결·수수료·정산을 대사하는 경기별 보고"
-  default_prompt: "$sports-trade-report로 최근 24시간 경기 결과와 봇 실거래 체결·손익을 경기별로 보고해줘."
+  default_prompt: "$sports-trade-report로 최근 24시간·7일·30일과 최근 1년(자료가 부족하면 확보된 전체 기간)을 비교하고, 실제 설정 cohort별 체결·수수료·정산·손익과 종목별 증액 근거를 보고해줘."
