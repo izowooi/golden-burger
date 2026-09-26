@@ -127,7 +127,8 @@ def test_close_only_archives_and_checks_existing_positions_without_entry(
     trader.execute_sell.assert_called_once_with(trade)
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_buy.assert_not_called()
-    repo.cleanup_old_snapshots.assert_called_once_with(days=60)
+    repo.cleanup_old_snapshots.assert_not_called()
+    assert stats["archive_maintenance"] == "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
     session.close.assert_called_once()
 
 
@@ -156,7 +157,8 @@ def test_archive_only_persists_research_without_reading_or_writing_orders(
     scanner.scan_buy_candidates.assert_not_called()
     trader.execute_sell.assert_not_called()
     trader.execute_buy.assert_not_called()
-    repo.cleanup_old_snapshots.assert_called_once_with(days=60)
+    repo.cleanup_old_snapshots.assert_not_called()
+    assert stats["archive_maintenance"] == "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
     session.close.assert_called_once()
 
 

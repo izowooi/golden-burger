@@ -56,6 +56,14 @@ class PlumExecutionLedger(ExecutionLedger):
         self.account_identity = account_identity
         self._sell_identity = ContextVar(f"plum_sell_identity_{id(self)}", default=None)
         with self._connect() as con:
+            if not kwargs.get('schema_on_start', True):
+                required = {'submission_id','predicted_order_id','token_id','maker_amount_micros',
+                    'taker_amount_micros','chain_id','neg_risk','created_at','account_fingerprint',
+                    'response_order_id','response_verified','mismatch','last_lookup_at'}
+                present = {r[1] for r in con.execute('PRAGMA table_info(plum_sell_request_identity)')}
+                if required - present:
+                    raise SubmissionEvidenceError('SELL identity schema requires deployment preflight')
+                return
             con.execute("""CREATE TABLE IF NOT EXISTS plum_sell_request_identity (
                 submission_id TEXT PRIMARY KEY REFERENCES order_submissions(submission_id),
                 predicted_order_id TEXT NOT NULL UNIQUE, token_id TEXT NOT NULL,

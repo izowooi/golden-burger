@@ -42,6 +42,13 @@ catalog/snapshot/trade에는 종목·리그·원본 tag를 저장합니다. live
 
 ## 설치·테스트
 
+1분 runtime은 이미 배포된 DB의 table/column과 append-only guard를 읽어서 검증한다.
+매 cycle의 DDL, legacy-order bootstrap, compact 및 retention scan은 실행하지 않는다.
+신규 DB는 최초 실행에 schema를 생성하며, 기존 DB에 schema 변경을 배포할 때는 timer를
+일시 중지한 뒤 `init_database(..., maintenance_on_start=False)`와 execution ledger의
+schema preflight를 별도로 실행한다. 누락된 column/guard/ledger version은 network 전에
+실패하며 자동으로 보정하거나 증거를 삭제하지 않는다.
+
 ```bash
 uv sync --frozen --extra dev
 uv run pytest

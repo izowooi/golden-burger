@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+from pathlib import Path
+import time
 
 from polybot_observability import RunAudit, log_reconciliation_continuity
 from polybot_observability import SQLiteMaintenanceRequirements
@@ -30,7 +32,10 @@ class PolymarketBot:
         cycle_budget: CycleBudget | None = None,
     ):
         self.config = config
+        initialization_started = time.monotonic()
         self.cycle_budget = cycle_budget or CycleBudget.start()
+        db_path = Path(config.db_path)
+        existing_database = db_path.is_file() and db_path.stat().st_size > 0
         self.Session = init_database(
             str(config.db_path),
             SQLiteMaintenanceRequirements(
@@ -40,7 +45,8 @@ class PolymarketBot:
                 / 60.0,
                 retention_days=float(config.trading.archive.retention_days),
             ),
-            maintenance_on_start=not config.simulation_mode,
+            maintenance_on_start=False,
+            schema_on_start=False,
             enable_research_raw=config.simulation_mode,
         )
         self.cycle_budget.assert_within_hard_deadline("database initialization")
@@ -55,6 +61,14 @@ class PolymarketBot:
             audit_db_path=config.db_path,
             strategy_name="golden-plum",
             cycle_budget=self.cycle_budget,
+            execution_ledger_schema_on_start=not existing_database,
+            execution_ledger_bootstrap_legacy_orders=not existing_database,
+        )
+        logger.info(
+            "runtime database ready - elapsed_seconds=%.3f schema=%s legacy_bootstrap=%s maintenance=deferred",
+            time.monotonic() - initialization_started,
+            "verified" if existing_database else "created",
+            not existing_database,
         )
         logger.info(
             "Golden Plum bot initialized - job=%s simulation=%s lifecycle=%s "
@@ -674,10 +688,7 @@ class PolymarketBot:
                 cycle_budget.assert_within_hard_deadline(
                     "archive retention cleanup"
                 )
-            if not self.config.simulation_mode:
-                repo.cleanup_old_snapshots(days=self.config.trading.archive.retention_days)
-            else:
-                stats["archive_maintenance"] = "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
+            stats["archive_maintenance"] = "DEFERRED_OUTSIDE_ONE_MINUTE_COLLECTION"
             db_stats = repo.get_stats()
             stats["open_states"] = {
                 "pending_buy": db_stats["pending_buy"],

@@ -21,4 +21,4 @@ description: Report Golden Burger sports bots' confirmed fills, fees, settlement
 
 맨 위에 **팔×종목별 합계, 전략별 합계, 전체 확인 손익**을 먼저 놓고 매도·정산, 원금·수수료, open 노출과 미확정 건수를 분리한다. 공식 경기 모집단·봇 발견 경기·실제 체결 경기를 따로 센다. 같은 경기를 여러 팔이 거래하면 실제 계좌 손익은 모두 합산하되 unique 경기 수는 한 번만 센다. 경기별로 공식 결과, 후보/미진입 이유, 선택 token, confirmed BUY·SELL/정산, 실제 손익과 carry-in/out을 설명한다. 자세한 열은 요청의 깊이에 맞춘다. 사용자가 simulation 비교도 요청했다면 동일 경기·금액·fee·호가 품질을 맞춰 **별도 표**로 제시하고 실제 합계에 섞지 않는다.
 
-`tools/sports_trade_report.py`와 `daily-rsync/tools/sports_trade_report_prepare.py`는 read-only 분석 보조 도구다. 결과의 unknown·fee gap과 경기별/합계 Decimal 합산을 원자료와 대조한다. 보고서 JSON/Markdown은 local-only에 보존한다. 사용자가 같은 요청에서 버그 수정·배포·파라미터 조정을 허가했다면 이 스킬의 read-only helper 범위가 그 허가를 취소하지 않는다. 변경은 별도 증거·테스트·운영 검증을 거쳐 실행한다.
+`tools/sports_trade_report.py`와 `tools/sports_trade_report_prepare.py`는 read-only 분석 보조 도구다. 결과의 unknown·fee gap과 경기별/합계 Decimal 합산을 원자료와 대조한다. 보고서 JSON/Markdown은 local-only에 보존한다. 사용자가 같은 요청에서 버그 수정·배포·파라미터 조정을 허가했다면 이 스킬의 read-only helper 범위가 그 허가를 취소하지 않는다. 변경은 별도 증거·테스트·운영 검증을 거쳐 실행한다.

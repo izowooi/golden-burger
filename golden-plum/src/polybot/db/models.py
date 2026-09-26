@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import enum
 from datetime import datetime
+from pathlib import Path
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from sqlalchemy import (
@@ -929,6 +930,7 @@ def init_database(
     *,
     activate_compact_on_create: bool = True,
     maintenance_on_start: bool = True,
+    schema_on_start: bool = True,
     enable_research_raw: bool = False,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
@@ -942,6 +944,33 @@ def init_database(
     # Simulation raw retention is a separate maintenance operation. Do not
     # scan/roll up/vacuum the accumulated archive inside a one-minute collector.
     engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    if not schema_on_start and Path(db_path).is_file() and Path(db_path).stat().st_size:
+        try:
+            with engine.connect() as connection:
+                for name in Base.metadata.tables:
+                    if enable_research_raw or name not in _RAW_TABLE_NAMES:
+                        _verify_model_columns(connection, name)
+                required = {
+                    "resolution_observations_forbid_update",
+                    "resolution_observations_forbid_delete",
+                    "tracked_resolution_forbid_update",
+                    "tracked_resolution_forbid_delete",
+                    "exit_execution_forbid_update",
+                    "exit_execution_forbid_delete",
+                }
+                if enable_research_raw:
+                    required.update(
+                        f"{table}_forbid_{operation}"
+                        for table in ("raw_book_cycles", "raw_book_observations", "raw_event_observations")
+                        for operation in ("replace", "update", "delete")
+                    )
+                installed = set(connection.execute(text("SELECT name FROM sqlite_master WHERE type='trigger'")).scalars())
+                if missing := required - installed:
+                    raise RuntimeError(f"runtime schema requires deployment preflight; missing evidence guards: {sorted(missing)}")
+        except Exception:
+            engine.dispose()
+            raise
+        return sessionmaker(bind=engine)
     Base.metadata.create_all(
         engine, tables=[table for name, table in Base.metadata.tables.items()
                         if enable_research_raw or name not in _RAW_TABLE_NAMES],
