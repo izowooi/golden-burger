@@ -23,6 +23,7 @@ SPORT_LABELS = {"soccer": "축구", "mlb": "MLB", "nfl": "NFL", "nba": "NBA", "n
 EPS = Decimal("0.000001")
 TERMINAL = {"MATCHED", "CANCELED", "CANCELLED", "EXPIRED", "REJECTED"}
 ACTIVE_TRADES = {"HOLDING", "PENDING_BUY", "PENDING_SELL", "QUARANTINED", "UNFILLED"}
+ADMINISTRATIVE_CLOSE_PNL_BASIS = "USER_DIRECTED_ADMIN_CLOSE_UNKNOWN_EXECUTION"
 ZERO_PROOFS = {"DELAYED_FOK_TERMINAL_ABSENCE_ZERO_FILL", "DELAYED_FOK_CANCEL_ACK_ZERO_FILL",
                "EXACT_GTC_CANCEL_ACK_ZERO_FILL", "EXPIRED_GTC_TERMINAL_ABSENCE_ZERO_FILL"}
 
@@ -85,6 +86,22 @@ def json_value(value, default=None):
 
 def ref(value):
     return hashlib.sha256(str(value).encode()).hexdigest()[:16] if value else None
+
+
+def administrative_close_evidence(trade, audit, runtime):
+    """An explicit management waiver is not a confirmed financial close."""
+    if not audit or trade.get('status') != 'COMPLETED':return False
+    if audit.get('runtime') != runtime or audit.get('authorization') != 'EXPLICIT_USER_INSTRUCTION':return False
+    try:
+        before=json.loads(audit['before_json']);after=json.loads(audit['after_json'])
+        if any(hashlib.sha256(audit[k+'_json'].encode()).hexdigest()!=audit[k+'_sha256'] for k in ('before','after')):return False
+        if before['id']!=trade['id'] or after['id']!=trade['id'] or before['status']!='QUARANTINED':return False
+        changed={k for k in before if before[k]!=after.get(k)}
+        return (changed=={'status','exit_reason','pnl_basis'} and after['status']=='COMPLETED'
+                and after['pnl_basis']==ADMINISTRATIVE_CLOSE_PNL_BASIS
+                and after['event_id']==trade.get('event_id')
+                and bool(audit.get('reason')) and bool(audit.get('authorized_at')))
+    except (KeyError,ValueError,TypeError):return False
 
 
 def fee_evidence(fill, *, maker_zero_fee_contract=False):
@@ -363,6 +380,7 @@ def read_source(source, *, start, end):
         current = current.get("trading", current)
         catalogs = {r["condition_id"]: r for r in _rows(conn, "market_catalog")} if "market_catalog" in tables else {}
         trades = _rows(conn, "trades")
+        administrative_audits = {r['trade_id']:r for r in _rows(conn,'user_trade_closures')} if 'user_trade_closures' in tables else {}
         submissions = [s for s in _rows(conn, "order_submissions") if s.get("simulation") == 0]
         fills = defaultdict(list)
         for fill in _rows(conn, "order_fills"):
@@ -385,6 +403,23 @@ def read_source(source, *, start, end):
         used, events = set(), {}
         unclassified = Counter()
         for trade in trades:
+            if (trade.get('pnl_basis') == ADMINISTRATIVE_CLOSE_PNL_BASIS
+                    and administrative_close_evidence(trade, administrative_audits.get(trade['id']), source['runtime_job'])):
+                base.setdefault('administrative_closures', []).append({
+                    'trade_ref': ref([source['source_key'], trade['id']]),
+                    'event_id': trade.get('event_id'), 'question': trade.get('question'),
+                    'outcome': trade.get('outcome'), 'status': trade.get('status'),
+                    'reason': 'USER_DIRECTED_MANAGEMENT_CLOSE_NOT_FILL_OR_PNL_PROOF',
+                    'included_in_actual_pnl_or_closed_sample': False})
+                for sub in submissions:
+                    when = maybe_time(sub.get('submitted_at'), naive_utc=naive)
+                    bought = maybe_time(trade.get('buy_timestamp'), naive_utc=naive)
+                    if (sub.get('token_id') == trade.get('token_id') and when and bought and when >= bought
+                            and (sub.get('side') == 'SELL' or sub.get('order_id') == trade.get('buy_order_id'))):
+                        used.add(sub['submission_id'])
+                continue
+            elif trade.get('pnl_basis') == ADMINISTRATIVE_CLOSE_PNL_BASIS:
+                base['issues'].append({'reason':'ADMINISTRATIVE_CLOSE_AUDIT_UNVERIFIED','trade_ref':ref([source['source_key'],trade['id']])})
             catalog = catalogs.get(trade.get("condition_id"), {})
             sport = sport_for(trade, catalog, current)
             if sport not in SPORTS:

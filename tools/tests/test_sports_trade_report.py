@@ -34,6 +34,20 @@ def order(side='BUY', size=10, price=.9, fee=.1, at='2026-09-07T14:00:00Z'):
     return report.order_evidence(submission(side,size),[fill(side,size,price,fee,at)],end=END)
 
 class ReportingTests(unittest.TestCase):
+    def test_administrative_close_requires_audit_and_is_not_fill_proof(self):
+        before={'id':85,'event_id':'game','status':'QUARANTINED','exit_reason':'old','pnl_basis':None,'realized_pnl':None}
+        after={**before,'status':'COMPLETED','exit_reason':'user_close','pnl_basis':report.ADMINISTRATIVE_CLOSE_PNL_BASIS}
+        audit={'runtime':'king','authorization':'EXPLICIT_USER_INSTRUCTION','reason':'user waived old case','authorized_at':'2026-09-26T10:00:00Z'}
+        for name,value in [('before',before),('after',after)]:
+            audit[name+'_json']=json.dumps(value,sort_keys=True)
+            audit[name+'_sha256']=hashlib.sha256(audit[name+'_json'].encode()).hexdigest()
+        self.assertTrue(report.administrative_close_evidence(after,audit,'king'))
+        self.assertFalse(report.administrative_close_evidence(after,None,'king'))
+        self.assertFalse(report.administrative_close_evidence(after,audit,'queen'))
+        bad={**after,'realized_pnl':0}
+        audit['after_json']=json.dumps(bad,sort_keys=True);audit['after_sha256']=hashlib.sha256(audit['after_json'].encode()).hexdigest()
+        self.assertFalse(report.administrative_close_evidence(bad,audit,'king'))
+
     def test_timezone_conversion_and_naive_boundary_rejection(self):
         self.assertEqual(report.utc('2026-09-08T22:33:38+09:00'), END)
         with self.assertRaises(ValueError): report.utc('2026-09-08 13:33:38')

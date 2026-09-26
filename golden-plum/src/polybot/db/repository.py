@@ -105,6 +105,7 @@ _TERMINAL_ZERO_FILL_ORDER_STATUSES = {
     "INVALID",
 }
 _FILL_SIZE_TOLERANCE = 1e-6
+ADMINISTRATIVE_CLOSE_PNL_BASIS = "USER_DIRECTED_ADMIN_CLOSE_UNKNOWN_EXECUTION"
 _RETRYABLE_PROVEN_NO_POST_EPISODE_STATES = frozenset(
     {
         "BLOCKED_GUARD",
@@ -2862,6 +2863,19 @@ class TradeRepository:
                 or 0
             )
 
+        administrative_closed = (
+            self.session.query(func.count(Trade.id))
+            .filter(Trade.pnl_basis == ADMINISTRATIVE_CLOSE_PNL_BASIS)
+            .scalar() or 0
+        )
+        completed_with_execution = (
+            self.session.query(func.count(Trade.id))
+            .filter(Trade.status == TradeStatus.COMPLETED,
+                    or_(Trade.pnl_basis.is_(None),
+                        Trade.pnl_basis != ADMINISTRATIVE_CLOSE_PNL_BASIS))
+            .scalar() or 0
+        )
+
         total_pnl = (
             self.session.query(func.sum(Trade.realized_pnl))
             .filter(Trade.realized_pnl.isnot(None))
@@ -2879,7 +2893,8 @@ class TradeRepository:
             "holding": count(TradeStatus.HOLDING),
             "pending_buy": count(TradeStatus.PENDING_BUY),
             "pending_sell": count(TradeStatus.PENDING_SELL),
-            "completed": count(TradeStatus.COMPLETED),
+            "completed": completed_with_execution,
+            "administrative_closed": administrative_closed,
             "resolved": count(TradeStatus.RESOLVED),
             "unfilled": count(TradeStatus.UNFILLED),
             "quarantined": count(TradeStatus.QUARANTINED),

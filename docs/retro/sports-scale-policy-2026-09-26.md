@@ -30,6 +30,9 @@ SL `entry-.12`, minute65 exit를 유지한다. NFL에는 source-time/time exit�
 - King의 AS Roma–Inter Draw NO 과거 SELL 격리는 confirmed fill 또는 exact zero-fill/
   resolution 증거로 대사한다. 원래 signed intent나 venue proof 없이 성공·0체결로
   바꾸거나 DB에서 삭제하지 않는다. 기존 MLB 격리도 별도 노출로 계속 표시한다.
+  이후 사용자의 명시적 지시로 이 Soccer 건을 관리상 종료할 수 있으며, 이 경우
+  `USER_DIRECTED_ADMIN_CLOSE_UNKNOWN_EXECUTION`과 원본 audit를 남긴다. 관리상 완료를
+  실제 SELL·0손익·정산·50건 승격 표본으로 바꾸지 않고 성과에서 제외한다.
 - 현행 entry/TP/SL/time exit를 같은 경기·$10 full-depth·시장별 fee로 시간순 재생한다.
   전체 합계뿐 아니라 독립 시간 구간과 최근 구간, 최대 손실·drawdown·stop 비율,
   실제 exit VWAP gap을 검증한다. 실패 run·VPN/API/storage gap을 보간하지 않는다.
