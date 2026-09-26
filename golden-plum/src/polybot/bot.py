@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 import time
 
@@ -447,6 +448,11 @@ class PolymarketBot:
                     "simulation" if self.config.simulation_mode else "live"
                 )
                 blocking_reasons = []
+                if (
+                    not self.config.simulation_mode
+                    and os.environ.get("POLYBOT_ACCOUNT_PRIOR_CHILD_FAILED") == "1"
+                ):
+                    blocking_reasons.append("account_prior_child_failed_this_build")
                 degraded_reasons = []
                 if state_before_entry["pending_buy"]:
                     degraded_reasons.append("pending_buy_event_isolated")

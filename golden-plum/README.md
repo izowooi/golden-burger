@@ -149,3 +149,7 @@ MLB live A/B와 NHL shadow는 각각
 `research/frozen-2026-09-03-mlb-live-ab-v7/PREREGISTRATION.md`,
 `research/frozen-2026-09-03-nhl-shadow-v7/PREREGISTRATION.md`를 따릅니다.
 과거 v1과 Golden Coconut 자료는 원래 경로에 보존하고 섞지 않습니다.
+
+### Child 실패 격리
+
+King/Queen Jenkins는 한 child stage가 실패해도 나머지 runtime의 수집·대사·기존 보유 청산을 수행한다. 앞 stage가 실패한 build에서는 `POLYBOT_ACCOUNT_PRIOR_CHILD_FAILED=1`로 뒤 runtime의 신규 BUY만 차단하며 전체 build는 FAILURE로 남긴다. 정상 다음 build는 flag를 0으로 초기화한다. TP·SL·금액·종목별 lifecycle은 변경하지 않는다. 안전한 shell 변환은 `scripts/wrap_jenkins_children.py`를 사용하며 private Jenkins 원문은 출력·커밋하지 않는다.

@@ -887,3 +887,19 @@ def test_bot_close_continues_after_individual_cleanup_failure() -> None:
     bot.gamma.close.assert_called_once_with()
     bot.clob.close.assert_called_once_with()
     engine.dispose.assert_called_once_with()
+
+
+def test_prior_child_failure_blocks_only_new_buy_and_keeps_exit(monkeypatch, tmp_path):
+    monkeypatch.setenv("POLYBOT_ACCOUNT_PRIOR_CHILD_FAILED", "1")
+    trade = SimpleNamespace(id=1, token_id="yes-token")
+    bot, scanner, trader, repo, session, gamma = _build_bot(monkeypatch, tmp_path, "active", [trade])
+    scanner.scan_buy_candidates.side_effect = None
+    scanner.scan_buy_candidates.return_value = [{"condition_id": "market-2", "event_id": "event-2"}]
+    stats = bot.run_cycle()
+    assert stats["entry_guard"]["blocked"] is True
+    assert "account_prior_child_failed_this_build" in stats["entry_guard"]["blocking_reasons"]
+    trader.execute_buy.assert_not_called()
+    trader.execute_sell.assert_called_once_with(trade)
+    assert stats["checked_holdings"] == 1
+    assert stats["snapshots_saved"] == 1
+    session.close.assert_called_once()
