@@ -1,5 +1,9 @@
 # Golden Apricot — MLB Tick90 High-Confidence Favorite
 
+> **현행 A/B — 2026-09-26:** MLB A=Eco: first complete pair + [90,92] minutes. B=Fruit: first complete pair + [85,87] minutes. Sole treatment is entry tick. Both midpoint favorite, baseline exact ask5 .90-.999, target $15/$10/$5 full FOK ladder, full-holding bid .90+ and positive net proceeds after all BUY/SELL fees; otherwise exact resolution. No stop/time exit. Existing DB/runtime names retained; the tick90 substring in Fruit runtime is historical, not its resolved tick.
+> 아래 과거 epoch의 고정값보다 이 현행 계약과 resolved config가 우선한다. 후보의 과거 재생은 미래 수익 보장이 아니다.
+
+
 첫 HOME/AWAY 공통 유효 틱부터 `[90,92]`분 뒤 MLB direct two-team moneyline의 midpoint
 favorite를 baseline exact `$5` book으로 판정한다. favorite의 exact `$5` ask VWAP이
 `.90-.999`일 때만 목표 `$15` FOK로 한 번 매수한다. 같은 fresh book에서 `$15/$10/$5` 중

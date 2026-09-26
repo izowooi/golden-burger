@@ -1,5 +1,9 @@
 # Golden Plum 프로젝트 지침
 
+> **현행 A/B — 2026-09-26:** Soccer A=King: TP .90, SL confirmed entry-.12. B=Queen: TP .90, SL confirmed entry-.17. Sole treatment is stop delta. Both .70-.73 direct six-book, $5, source minute<60, minute65 full FOK exit. Stored TP/SL/time exit at BUY govern prior holdings. NFL retains King TP.85/Queen TP.90, SL.12, $5, no time condition. MLB close-only unchanged.
+> 아래 과거 epoch의 고정값보다 이 현행 계약과 resolved config가 우선한다. 후보의 과거 재생은 미래 수익 보장이 아니다.
+
+
 이 문서는 `golden-plum/`에만 적용한다. 상위 저장소 규칙과 충돌하면
 `/Users/izowooi/git/t1/AGENTS.md`를 우선한다.
 

@@ -1222,3 +1222,13 @@ def test_accepted_sell_with_unsafe_signed_size_is_never_orphaned() -> None:
     assert update["sell_order_id"] == "sell-unsafe"
     assert update["sell_shares"] == pytest.approx(5.09)
     assert update["exit_reason"] == "signed_sell_size_drift_unsafe"
+
+
+def test_new_dog_floor_preserves_existing_holding_trigger():
+    from polybot.strategy.trader import _effective_stop_price
+    config = SimpleNamespace(sport_family="soccer",
+        entry=SimpleNamespace(stop_price=.60, max_entry_drawdown=.30))
+    old = SimpleNamespace(stop_price_at_entry=.65, buy_confirmed_vwap=.92)
+    new = SimpleNamespace(stop_price_at_entry=.62, buy_confirmed_vwap=.92)
+    assert _effective_stop_price(old, config) == .65
+    assert _effective_stop_price(new, config) == .62

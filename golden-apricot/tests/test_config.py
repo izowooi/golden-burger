@@ -12,8 +12,9 @@ def test_tick90_jobs(monkeypatch,job,policy):
  credentials(monkeypatch);cfg=load_config('config.yaml',job,simulation_mode=False);t=cfg.trading
  assert t.sport_family=='mlb' and t.book_shape=='direct-two-team-moneyline'
  assert t.expected_result_kinds==('HOME','AWAY') and t.expected_token_count==2
- assert t.entry.exit_basis==policy and t.entry.max_source_minute==92
- assert t.entry.entry_tick_minute==90
+ tick=90 if "-eco-" in job else 85
+ assert t.entry.exit_basis==policy and t.entry.max_source_minute==tick+2
+ assert t.entry.entry_tick_minute==tick
  assert (t.entry.prob_min,t.entry.prob_max)==(.90,.999)
  assert t.buy_amount_usdc==15.0 and t.experiment_capital_usdc==100.0
  assert t.max_positions==6 and t.max_event_positions==1

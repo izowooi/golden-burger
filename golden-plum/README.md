@@ -1,5 +1,9 @@
 # Golden Plum
 
+> **현행 A/B — 2026-09-26:** Soccer A=King: TP .90, SL confirmed entry-.12. B=Queen: TP .90, SL confirmed entry-.17. Sole treatment is stop delta. Both .70-.73 direct six-book, $5, source minute<60, minute65 full FOK exit. Stored TP/SL/time exit at BUY govern prior holdings. NFL retains King TP.85/Queen TP.90, SL.12, $5, no time condition. MLB close-only unchanged.
+> 아래 과거 epoch의 고정값보다 이 현행 계약과 resolved config가 우선한다. 후보의 과거 재생은 미래 수익 보장이 아니다.
+
+
 경기 시작부터 source 60분 전까지 직접 결과 호가를 1분마다 관측하고, 현재 완전한 호가 집합의
 유일한 midpoint 선두가 `[0.70,0.73]`일 때 한 번의 관측으로 진입하는 전략입니다. 축구는
 HOME/DRAW/AWAY의 직접 YES·NO 6개 호가를 사용하고, MLB·NBA·NFL·NHL은 두 팀이 직접

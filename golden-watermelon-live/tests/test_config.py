@@ -32,7 +32,7 @@ def test_frozen_arm_a_loads_fail_closed(monkeypatch: pytest.MonkeyPatch) -> None
         "data/watermelon-live-cat-96-1m-v2h/trades.db"
     )
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == (
-        0.91,
+        0.92,
         0.999,
     )
     assert config.trading.buy_amount_usdc == 5
@@ -278,3 +278,24 @@ def test_runtime_binding_mismatches_fail_closed_before_db_creation(
         load_config(str(Path(__file__).parents[1] / "config.yaml"), runtime_job,
                     simulation_mode=False)
     assert not (tmp_path / "data").exists()
+
+
+def test_soccer_ab_floor_does_not_leak_to_nfl(monkeypatch):
+    from polybot.config import profile_environment
+    _credentials(monkeypatch)
+    for job, runtime, floor in [
+        ("polybot-cat", "watermelon-live-cat-96-1m-v2h", .65),
+        ("polybot-dog", "watermelon-live-dog-99-1m-v2h", .60),
+    ]:
+        monkeypatch.setenv("JOB_NAME", job)
+        cfg = load_config("config.yaml", runtime, simulation_mode=False).trading
+        assert cfg.entry.prob_min == .92
+        assert cfg.entry.stop_price == floor
+        assert cfg.entry.max_entry_drawdown == .30
+        assert cfg.buy_amount_usdc == 5
+    for runtime, prob in [("watermelon-live-cat-nfl-91-1m-v6", .91),
+                          ("watermelon-live-dog-nfl-94-1m-v6", .94)]:
+        env = profile_environment(runtime, {})
+        assert float(env["POLYBOT_ENTRY_PROB_MIN"]) == prob
+        assert float(env["POLYBOT_STOP_PRICE"]) == .70
+        assert float(env["POLYBOT_BUY_AMOUNT"]) == 5

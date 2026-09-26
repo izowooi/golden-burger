@@ -160,6 +160,10 @@ def _effective_stop_price(trade: object, config: TradingConfig) -> float:
     if entry_vwap is None:
         entry_vwap = getattr(trade, "buy_price", None)
     current_stop = _entry_stop_price(entry_vwap, config)
+    # The new stop-floor A/B applies to new entries; retain an existing
+    # holding's recorded effective stop without rewriting historical rows.
+    if getattr(config, "sport_family", None) == "soccer" and config.entry.stop_price == 0.60:
+        return stored_stop if stored is not None else current_stop
     # v3e intentionally supersedes the former 5pp stop for still-open v3d
     # positions. Preserve the old stored value as evidence, but do not let it
     # force another premature exit after the policy changed to the 0.70 floor.

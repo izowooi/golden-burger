@@ -12,9 +12,9 @@ def test_soccer_retune_does_not_rewrite_mlb_or_old_trade_thresholds(monkeypatch)
     _credentials(monkeypatch)
     king=load_config('config.yaml','plum-live-king-90-1m-v1',simulation_mode=False)
     queen=load_config('config.yaml','plum-live-queen-95-1m-v1',simulation_mode=False)
-    for cfg,target in [(king,.85),(queen,.90)]:
+    for cfg,target,sl in [(king,.90,.12),(queen,.90,.17)]:
         e=cfg.trading.entry
-        assert (e.prob_min,e.prob_max,e.trend_observations,e.stop_loss_delta,e.take_profit_price)==pytest.approx((.70,.73,1,.12,target))
+        assert (e.prob_min,e.prob_max,e.trend_observations,e.stop_loss_delta,e.take_profit_price)==pytest.approx((.70,.73,1,sl,target))
         assert (e.max_source_minute,e.force_exit_minute)==pytest.approx((60,65))
         assert cfg.trading.drawdown_guard_enabled is True
         assert cfg.trading.drawdown_loss_limit_usdc == 300

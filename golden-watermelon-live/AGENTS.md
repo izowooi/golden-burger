@@ -1,5 +1,9 @@
 # L4 AGENTS.md — Golden Watermelon Live
 
+> **현행 A/B — 2026-09-26:** Soccer A=Cat: entry .92-.999, $5, effective stop max(.65, confirmed entry-.30). B=Dog: same entry/notional, effective stop max(.60, confirmed entry-.30). Sole treatment is absolute stop floor. No TP; exact resolution hold. NFL .91/.94, $5, stop .70 remains separate. Existing Dog holdings retain recorded effective stop; no historical rows rewritten.
+> 아래 과거 epoch의 고정값보다 이 현행 계약과 resolved config가 우선한다. 후보의 과거 재생은 미래 수익 보장이 아니다.
+
+
 상위 `../AGENTS.md`를 따른다. Soccer/MLB/NHL real-money A/B의 project safety contract다.
 
 ## Active contract

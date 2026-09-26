@@ -1,5 +1,9 @@
 # Golden Plum — 종목별 경기 전체 상승 확인
 
+> **현행 A/B — 2026-09-26:** Soccer A=King: TP .90, SL confirmed entry-.12. B=Queen: TP .90, SL confirmed entry-.17. Sole treatment is stop delta. Both .70-.73 direct six-book, $5, source minute<60, minute65 full FOK exit. Stored TP/SL/time exit at BUY govern prior holdings. NFL retains King TP.85/Queen TP.90, SL.12, $5, no time condition. MLB close-only unchanged.
+> 아래 과거 epoch의 고정값보다 이 현행 계약과 resolved config가 우선한다. 후보의 과거 재생은 미래 수익 보장이 아니다.
+
+
 ## 현재 live 정책: 축구 + NFL 종목별 profile
 
 축구 King/Queen은

@@ -350,7 +350,7 @@ def test_real_config_profiles_keep_soccer_values_and_mlb_hours_without_env_leak(
     for cfg in loaded:
         assert cfg.trading.lifecycle_mode == lifecycle
         assert (cfg.trading.entry.stop_price, cfg.trading.entry.max_entry_drawdown) == (
-            (.65 if cfg.trading.sport_family == "soccer" else .70), .30
+            ((.60 if account_name == "polybot-dog" else .65) if cfg.trading.sport_family == "soccer" else .70), .30
         )
         assert cfg.trading.max_positions == 20 and cfg.trading.max_new_positions_per_cycle == 5
         assert cfg.trading.experiment_entry_end_utc == "9999-12-31T23:59:59Z"

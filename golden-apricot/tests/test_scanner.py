@@ -2,6 +2,7 @@ from dataclasses import replace
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
+import pytest
 
 from polybot.api.clob_client import BuyBookWalk
 from polybot.config import SPORT_PARAMETER_PROFILES, TradingConfig
@@ -291,7 +292,8 @@ def test_direct_sport_shadow_uses_two_team_books_and_records_sizing(tmp_path) ->
     session.close()
 
 
-def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
+@pytest.mark.parametrize("profile_key", ["mlb_live", "mlb_fruit_tick85"])
+def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path, profile_key) -> None:
     event = _event()
     event["teams"] = [
         {"name": "Home Nine", "league": "mlb"},
@@ -314,7 +316,7 @@ def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
         "mlb-home": _walk("mlb-home", 0.92),
         "mlb-away": _walk("mlb-away", 0.08),
     }
-    profile = SPORT_PARAMETER_PROFILES["mlb_live"]
+    profile = SPORT_PARAMETER_PROFILES[profile_key]
     base = TradingConfig()
     config = replace(
         base,
@@ -330,7 +332,7 @@ def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
             exit_basis="resolution_hold",
             prob_min=0.90,
             prob_max=0.999,
-            max_source_minute=92,
+            max_source_minute=profile.entry_tick_minute + 2,
             entry_tick_minute=profile.entry_tick_minute,
             hours_max=8,
         ),
@@ -339,14 +341,14 @@ def test_tick90_entry_uses_first_durable_common_snapshot(tmp_path) -> None:
     session, _repo, scanner = _scanner(tmp_path, [market], walks=walks, config=config)
     scanner.save_market_snapshots([market], now=NOW)
     session.query(MarketSnapshot).update(
-        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=90)).replace(tzinfo=None)}
+        {MarketSnapshot.timestamp: (NOW - timedelta(minutes=profile.entry_tick_minute)).replace(tzinfo=None)}
     )
     session.commit()
     candidates = scanner.scan_buy_candidates([market], now=NOW)
     assert len(candidates) == 1
     assert candidates[0]["candidate_kind"] == "DIRECT_HOME"
     assert candidates[0]["source_clock_reason"] == "FIRST_COMMON_TICK_ELAPSED"
-    assert candidates[0]["source_elapsed_minutes"] == 90
+    assert candidates[0]["source_elapsed_minutes"] == profile.entry_tick_minute
     session.close()
 
 

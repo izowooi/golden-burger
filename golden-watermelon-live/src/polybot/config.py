@@ -128,10 +128,10 @@ RUNTIME_SPECS = {
     spec.runtime_job: spec
     for spec in (
         RuntimeSpec(
-            "watermelon-live-cat-96-1m-v2h", "polybot-cat", "soccer", 0.91
+            "watermelon-live-cat-96-1m-v2h", "polybot-cat", "soccer", 0.92
         ),
         RuntimeSpec(
-            "watermelon-live-dog-99-1m-v2h", "polybot-dog", "soccer", 0.92
+            "watermelon-live-dog-99-1m-v2h", "polybot-dog", "soccer", 0.92, policy_key="soccer_dog_stop60_v7"
         ),
         RuntimeSpec(
             "watermelon-live-bear-mlb-96-1m-v3a", "polybot-bear", "mlb", 0.96
@@ -202,7 +202,8 @@ class SportPolicy:
 SPORT_POLICIES = {"soccer": SportPolicy(4, stop_price=0.65, buy_amount_usdc=5.0), "mlb": SportPolicy(8),
                   "nhl": SportPolicy(5), "catdog_mlb": SportPolicy(8),
                   "catdog_nfl": SportPolicy(6),
-                  "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=5.0)}
+                  "catdog_nfl_v6": SportPolicy(6, buy_amount_usdc=5.0),
+                  "soccer_dog_stop60_v7": SportPolicy(4, stop_price=0.60, buy_amount_usdc=5.0)}
 
 
 def runtime_policy(spec):

@@ -41,7 +41,7 @@ NFL_LIVE_START_UTC = "2026-09-14T12:00:00Z"
 NFL_LIVE_ENTRY_END_UTC = "9999-12-31T23:59:59Z"
 NFL_LIVE_FOLLOWUP_END_UTC = "9999-12-31T23:59:59Z"
 SOCCER_PREREGISTRATION = (
-    "research/frozen-2026-09-21-soccer-tail-risk-scale5-v17/"
+    "research/frozen-2026-09-26-soccer-sl12-17-ab-v18/"
     "PREREGISTRATION.md"
 )
 MLB_PREREGISTRATION = (
@@ -271,6 +271,11 @@ SPORT_PARAMETER_PROFILES["soccer_live_retune"] = replace(
     profile_version="soccer-early-exit-v14",
     primary_stop_delta=0.12,
 )
+SPORT_PARAMETER_PROFILES["soccer_queen_sl17_v16"] = replace(
+    SPORT_PARAMETER_PROFILES["soccer_live_retune"],
+    profile_version="soccer-early-exit-sl17-v16",
+    primary_stop_delta=0.17,
+)
 SPORT_PARAMETER_PROFILES["nfl_live_v15"] = replace(
     SPORT_PARAMETER_PROFILES["nfl"],
     profile_version="nfl-price-band-live-v15",
@@ -351,7 +356,7 @@ RUNTIME_SPECS = {
         simulation_mode=False,
         lifecycle_mode="active",
         execution_policy="adaptive-5-usdc-fok-live-baseline-5-usdc",
-        take_profit_price=0.85,
+        take_profit_price=0.90,
         protocol_id="plum-soccer-early-exit-v14",
         preregistration_path=SOCCER_PREREGISTRATION,
         cadence_seconds=60,
@@ -383,7 +388,7 @@ RUNTIME_SPECS = {
         experiment_entry_end_utc=FROZEN_ENTRY_END_UTC,
         experiment_followup_end_utc=FROZEN_FOLLOWUP_END_UTC,
         drawdown_loss_limit_usdc=300.0,
-        sport_profile_key="soccer_live_retune",
+        sport_profile_key="soccer_queen_sl17_v16",
         entry_max_source_minute=60.0,
         force_exit_minute=65.0,
         buy_amount_usdc=5.0,

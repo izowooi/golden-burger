@@ -51,7 +51,7 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.db_path == Path("data/plum-live-king-90-1m-v1/trades.db")
     entry = config.trading.entry
     assert (entry.prob_min, entry.prob_max) == (0.70, 0.73)
-    assert entry.take_profit_price == 0.85
+    assert entry.take_profit_price == 0.90
     assert entry.stop_loss_delta == 0.12
     assert entry.min_source_minute == 0
     assert entry.max_source_minute == 60
@@ -81,14 +81,14 @@ def test_king_live_arm_loads_the_frozen_contract(monkeypatch) -> None:
     assert config.api.private_key == "1" * 64
 
 
-def test_queen_soccer_arm_differs_only_by_profit_target(monkeypatch) -> None:
+def test_queen_soccer_arm_differs_only_by_stop_delta(monkeypatch) -> None:
     _credentials(monkeypatch)
     config = load_config(
         "config.yaml", "plum-live-queen-95-1m-v1", simulation_mode=False
     )
     assert config.trading.entry.take_profit_price == 0.90
     assert (config.trading.entry.prob_min, config.trading.entry.prob_max) == pytest.approx((.70, .73))
-    assert config.trading.entry.stop_loss_delta == 0.12
+    assert config.trading.entry.stop_loss_delta == 0.17
     assert config.trading.entry.max_source_minute == 60
     assert config.trading.entry.force_exit_minute == 65
     assert config.trading.drawdown_loss_limit_usdc == 300.0
@@ -365,3 +365,14 @@ def test_runtime_name_mode_and_credentials_fail_closed(monkeypatch) -> None:
         load_config(
             "config.yaml", "plum-shadow-silver-1m-v1", simulation_mode=True
         )
+
+
+def test_soccer_new_sl_does_not_change_nfl_profile(monkeypatch):
+    _credentials(monkeypatch)
+    for job, tp in [("plum-live-king-nfl-85-1m-v15", .85),
+                    ("plum-live-queen-nfl-90-1m-v15", .90)]:
+        t = load_config("config.yaml", job, simulation_mode=False).trading
+        assert t.entry.take_profit_price == tp
+        assert t.entry.stop_loss_delta == .12
+        assert t.entry.force_exit_minute is None
+        assert t.buy_amount_usdc == 5

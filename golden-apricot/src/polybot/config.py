@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -288,6 +288,15 @@ SPORT_PARAMETER_PROFILES["mlb_live"] = SportParameterProfile(
     max_in_play_hours=SPORT_FAMILY_MAX_IN_PLAY_HOURS["mlb"],
     entry_tick_minute=90.0,
 )
+
+
+# Fixed A/B roles: Eco keeps the incumbent; Fruit changes only tick timing.
+SPORT_PARAMETER_PROFILES["mlb_fruit_tick85"] = replace(
+    SPORT_PARAMETER_PROFILES["mlb_live"],
+    profile_version="apricot-mlb-tick85-netpositive-live-v10",
+    entry_tick_minute=85.0,
+)
+FROZEN_JOB_PROFILE_KEY["apricot-live-fruit-mlb-tick90-tp95-v2"] = "mlb_fruit_tick85"
 
 
 @dataclass(frozen=True)
@@ -788,7 +797,7 @@ def _validate_config(
         else DIRECT_LATE_SENTINEL_MINUTE
     )
     if (
-        entry.max_source_minute != (92 if job_name in TICK50_JOBS else 10)
+        entry.max_source_minute != (profile.entry_tick_minute + 2 if job_name in TICK50_JOBS else 10)
         or entry.entry_tick_minute != (
             profile.entry_tick_minute if job_name in TICK50_JOBS else None
         )
@@ -958,7 +967,7 @@ def load_config(
         max_source_minute=_get_config_value(
             "POLYBOT_MAX_SOURCE_MINUTE",
             None if job_name in TICK50_JOBS else entry_cfg.get("max_source_minute"),
-            92.0 if job_name in TICK50_JOBS else 10.0,
+            profile.entry_tick_minute + 2 if job_name in TICK50_JOBS else 10.0,
         ),
         entry_tick_minute=(
             profile.entry_tick_minute if job_name in TICK50_JOBS else None
