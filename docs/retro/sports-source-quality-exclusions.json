@@ -119,6 +119,24 @@
       "simulation_sources": [],
       "policy": "Preserve confirmed order/fill economic P&L in the historical live ledger, but do not assign an official 2026-09-04 final score or use this event for parameter optimization or token-aligned result calibration without exact market rule and official game identity evidence.",
       "evidence_report": "daily-rsync/data/reports/monthly_sports_20260925/mlb_official_mapping.json"
+    },
+    {
+      "id": "2026-09-26-white-silver-t7-ratio-storage-gate",
+      "source": "macmini-m5",
+      "observed_failure_start_utc": "2026-09-26T19:02:00Z",
+      "first_recovered_success_utc": null,
+      "ongoing_as_of_utc": "2026-09-26T23:16:01Z",
+      "conservative_exclusion_window_utc": [
+        "2026-09-26T19:01:00Z",
+        "2026-09-26T23:16:01Z"
+      ],
+      "failure": "White/Silver recorder refused collection after the real /Volumes/t7 used ratio exceeded 80%; approximately 179 GiB free still passed the separate 150 GiB free threshold. No storage threshold bypass.",
+      "simulation_sources": [
+        "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1",
+        "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1"
+      ],
+      "policy": "Exclude affected incomplete raw paths from parameter optimization. Do not interpolate missing books or count absent data as zero P&L. Gold was independently collecting; its verified complete quote paths may be evaluated separately. The finite exclusion end is the report cutoff, not a verified recovery; extend this incident after inspecting later cycles until successful collector recovery.",
+      "evidence_report": "daily-rsync/data/reports/sports_ab_forward_20260927/REPORT.md"
     }
   ]
 }
