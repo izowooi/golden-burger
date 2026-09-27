@@ -57,7 +57,7 @@ find_uv() {
 }
 
 healthy() {
-  /usr/bin/curl -fsS --max-time 2 "$URL/api/status" >/dev/null 2>&1
+  /usr/bin/curl -fsS --max-time 2 "$URL/api/health" >/dev/null 2>&1
 }
 
 managed_pid() {

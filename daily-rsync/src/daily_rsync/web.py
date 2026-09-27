@@ -230,6 +230,11 @@ def create_app(config: AppConfig) -> FastAPI:
     def doctor() -> dict[str, object]:
         return service.doctor()
 
+    @application.get("/api/health")
+    def health() -> dict[str, str]:
+        # Liveness must not wait for large catalog aggregation or disk probes.
+        return {"service": "daily-rsync", "status": "running"}
+
     @application.get("/api/status")
     def status() -> dict[str, object]:
         disk = shutil.disk_usage(config.data_root)

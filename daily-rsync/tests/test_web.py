@@ -106,3 +106,15 @@ def test_finder_open_rejects_path_outside_data_root(app_config) -> None:
     response = client.post("/api/open", json={"path": "/tmp"})
 
     assert response.status_code == 403
+
+
+def test_liveness_does_not_call_expensive_status_or_disk_probe(app_config, monkeypatch):
+    import daily_rsync.web as web
+    app = create_app(app_config)
+    def forbidden(*args, **kwargs):
+        raise AssertionError("liveness must be independent of slow status")
+    monkeypatch.setattr(app.state.service.catalog, "dashboard_summary", forbidden)
+    monkeypatch.setattr(web.shutil, "disk_usage", forbidden)
+    result = TestClient(app).get("/api/health")
+    assert result.status_code == 200
+    assert result.json() == {"service": "daily-rsync", "status": "running"}
