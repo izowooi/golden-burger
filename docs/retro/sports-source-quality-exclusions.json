@@ -124,19 +124,27 @@
       "id": "2026-09-26-white-silver-t7-ratio-storage-gate",
       "source": "macmini-m5",
       "observed_failure_start_utc": "2026-09-26T19:02:00Z",
-      "first_recovered_success_utc": null,
-      "ongoing_as_of_utc": "2026-09-26T23:16:01Z",
+      "first_recovered_success_utc": "2026-09-27T00:47:26.525000+00:00",
       "conservative_exclusion_window_utc": [
         "2026-09-26T19:01:00Z",
-        "2026-09-26T23:16:01Z"
+        "2026-09-27T00:48:26.525000+00:00"
       ],
       "failure": "White/Silver recorder refused collection after the real /Volumes/t7 used ratio exceeded 80%; approximately 179 GiB free still passed the separate 150 GiB free threshold. No storage threshold bypass.",
       "simulation_sources": [
         "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1",
         "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1"
       ],
-      "policy": "Exclude affected incomplete raw paths from parameter optimization. Do not interpolate missing books or count absent data as zero P&L. Gold was independently collecting; its verified complete quote paths may be evaluated separately. The finite exclusion end is the report cutoff, not a verified recovery; extend this incident after inspecting later cycles until successful collector recovery.",
-      "evidence_report": "daily-rsync/data/reports/sports_ab_forward_20260927/REPORT.md"
+      "policy": "Exclude incomplete White/Silver raw paths overlapping this interval from optimization unless another verified independent source proves complete quotes/clock/fee/token-aligned resolution. White recovery does not repair earlier missing ticks. Gold may be evaluated independently. After Silver retirement, lack of new Silver data is expected historical-source cutoff, not an ongoing live collector outage.",
+      "evidence_report": "daily-rsync/data/reports/sports_ab_forward_20260927/REPORT.md",
+      "recovered_sources": [
+        "polybot-white/golden-coconut/coconut-sports-recorder-1m-v1"
+      ],
+      "retired_sources": [
+        "polybot-silver/golden-coconut/coconut-sports-recorder-silver-1m-v1"
+      ],
+      "silver_retired_at_utc": "2026-09-27T00:42:18.547585+00:00",
+      "recovery_note": "White recovered at build48778 after user-authorized storage90/free50 policy; natural48779/48780 each succeeded with78FULL books. Silver is intentionally retired, not recovered active collection. Data gaps before recovery remain excluded and no raw interpolation/backfill was performed.",
+      "recovery_evidence_report": "daily-rsync/data/reports/collector_single_white_20260927/REPORT.md"
     }
   ]
 }
