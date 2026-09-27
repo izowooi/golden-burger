@@ -41,7 +41,7 @@ def evidence():
 def test_integrated_recorder_roles_are_visible_and_distinct():
     assert RUNTIMES == {PRIMARY_RUNTIME, REPLICA_RUNTIME}
     assert collector_role("golden-coconut", "polybot-white", PRIMARY_RUNTIME) == "PRIMARY"
-    assert collector_role("golden-coconut", "polybot-silver", REPLICA_RUNTIME) == "REPLICA"
+    assert collector_role("golden-coconut", "polybot-silver", REPLICA_RUNTIME) == "HISTORICAL"
     assert collector_role("golden-peach", "polybot-grey", "peach-shadow-1m-v1") == "RETIRED"
     assert collector_role("golden-plum", "polybot-silver", "plum-shadow-silver-1m-v1") == "HISTORICAL"
 
@@ -176,3 +176,22 @@ def test_study_artifact_stays_local_and_cannot_follow_a_symlink(app_config, tmp_
     outside.write_text("not a study")
     artifact.symlink_to(outside)
     assert local.get("/sports/study").status_code == 404
+
+
+def test_retired_replica_labels_update_without_rewriting_published_data(tmp_path):
+    import json
+    from types import SimpleNamespace
+    from daily_rsync.sports import SportsStore
+    store = SportsStore(SimpleNamespace(data_root=tmp_path), None)
+    version = "a" * 32
+    target = store.root / version
+    target.mkdir(parents=True)
+    (store.root / "current.json").write_text(json.dumps({"version": version}))
+    payload = {"sources": [{"strategy": "golden-coconut", "jenkins_job": "polybot-silver", "runtime_job": REPLICA_RUNTIME, "collector_role": "REPLICA", "config_hash": "old-cohort"}], "matches": []}
+    path = target / "index.json"
+    original = json.dumps(payload)
+    path.write_text(original)
+    result = store.index()
+    assert result["sources"][0]["collector_role"] == "HISTORICAL"
+    assert result["sources"][0]["config_hash"] == "old-cohort"
+    assert path.read_text() == original

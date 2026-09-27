@@ -6,6 +6,7 @@ const state = {
   sport: "soccer",
   match: null,
   hidden: new Set(),
+  defaultSourceChosen: false,
 };
 const colors = [
   "#32785d",
@@ -148,12 +149,19 @@ function renderIndex() {
     $("sportTabs").append(button);
   }
   const selected = $("sourceFilter").value;
-  $("sourceFilter").replaceChildren(new Option("모든 자료", ""));
+  $("sourceFilter").replaceChildren(new Option("모든 자료 (과거 포함)", ""));
   for (const s of idx.sources)
     $("sourceFilter").add(
       new Option(`${s.jenkins_job} · ${collectorRole(s.collector_role)} · ${s.runtime_job}`, s.id),
     );
   $("sourceFilter").value = selected;
+  if (!state.defaultSourceChosen) {
+    const primary = idx.sources.find((s) => s.collector_role === "PRIMARY");
+    if (primary && !selected) {
+      $("sourceFilter").value = primary.id;
+      state.defaultSourceChosen = true;
+    }
+  }
   renderMatches();
 }
 function renderMatches() {
@@ -616,6 +624,7 @@ async function build() {
 window.addEventListener("resize", draw);
 $("search").oninput = renderMatches;
 $("sourceFilter").onchange = () => {
+  state.defaultSourceChosen = true;
   const source = $("sourceFilter").value;
   const available = state.index.matches.filter(
     (m) => !source || m.source_id === source,

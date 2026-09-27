@@ -22,6 +22,14 @@
 - 먼저 local catalog·기존 verified pin의 기간과 source cutoff를 확인한다. 부족하면 evidence gap과 필요한 동기화 범위를 보고한다. 사용자가 해당 자료 동기화를 요청한 경우에만 대상 job×strategy를 `daily-rsync scan → plan → sync → verify → pin`한다. 결손 구간을 임의 SSH/cp로 메우거나 DB를 merge하지 않는다. 실제 분석에는 latest sync attempt/success, local DB/log, verify, source cutoff가 모두 요청 기간을 덮는 pin만 쓴다. `SOURCE_MISSING`, retention skip, UTC 당일 mutable shard, CRITICAL/HIGH·fee/reconciliation gap은 `daily-rsync/OPERATIONS.md`와 Evidence Contract대로 분리하고 근거 없는 튜닝·승격을 중단한다. 외장 data root가 없으면 내부 디스크로 fallback하지 않는다.
 - 저장된 호가의 체결 가능액은 실제 FOK confirmed fill이 아니다. raw 공백·VPN/Gamma 장애·실패 run을 양끝 가격으로 보간하지 않는다. 품질 제외 구간은 `docs/retro/sports-source-quality-exclusions.json`에서 확인한다.
 
+## 통합 스포츠 recorder의 현행 배치
+
+2026-09-27부터 White만 5종목 full raw를 수집하고 Silver는 비활성 historical이다.
+White recorder v5의 운영 storage gate는 사용률90%/최소50GiB이며 실제 config로 재확인한다.
+`golden-coconut/OPERATIONS_SINGLE_WHITE.md`가 현재 배치를 설명한다. 이 프로젝트의 기존
+AGENTS/README/STRATEGY는 v7 historical manifest의 hash 검증 대상이므로 보존하며,
+오래된 배치 설명을 현행 recorder 값으로 사용하지 않는다.
+
 ## 수정과 검증
 
 - 각 하위 폴더는 독립 프로젝트다. Python은 해당 폴더의 `uv` 명령, `polymarket-dashboard`는 npm을 사용한다. 해당 L3의 테스트·배포 절차를 우선한다.

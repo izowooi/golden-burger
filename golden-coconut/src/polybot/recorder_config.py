@@ -12,7 +12,7 @@ WHITE_RUNTIME = 'coconut-sports-recorder-1m-v1'
 SILVER_RUNTIME = 'coconut-sports-recorder-silver-1m-v1'
 RUNTIME = WHITE_RUNTIME
 CONTRACT = 'sports-price-recorder-1m-v1'
-EPOCH = 'research/frozen-2026-09-12-recorder-v4'
+EPOCH = 'research/frozen-2026-09-27-single-white-storage90-v5'
 REGISTRY = 'research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json'
 REGISTRY_SHA = '2b65532bb71ec7121a74260a9d4600706a3329da6bdfa9e3bfecc1c42e37bc3d'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',
@@ -39,8 +39,8 @@ class RecorderConfig:
     max_pages_per_family: int = 20
     max_response_bytes: int = 32*1024*1024
     settlement_poll_seconds: int = 300
-    min_free_gib: int = 150
-    max_used_ratio: float = .80
+    min_free_gib: int = 50
+    max_used_ratio: float = .90
 
     @property
     def db_path(self): return PROJECT/'data'/self.job_name/'trades_sim.db'

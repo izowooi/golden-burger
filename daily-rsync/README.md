@@ -318,3 +318,7 @@ Jenkins console log에는 과거 shell trace로 private key나 webhook이 들어
 
 세부 구조와 장애 복구는 [DATA_LAYOUT.md](DATA_LAYOUT.md),
 [OPERATIONS.md](OPERATIONS.md), 구현 결정은 [PLAN.md](PLAN.md)를 참고합니다.
+
+## 스포츠 원시 자료 기본 수집기
+
+2026-09-27부터 White가 5종목 전체 원본을 수집하며 Silver는 과거 자료로 보존한다. `/sports`는 White를 우선 표시·기본 선택하고 Silver는 과거 자료로 명시한다. 명시적인 과거 Silver 동기화·projection은 계속 허용하고 원본 DB·source ID·config/source cohort를 합치지 않는다. collector가 멈추면 해당 source cutoff와 storage/API gap을 확인하며 없는 자료를 0손익으로 채우지 않는다.

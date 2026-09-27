@@ -17,6 +17,8 @@
 
 ## 기간과 누락
 
+2026-09-27 통합 이후 5종목 기본 full raw는 `polybot-white/golden-coconut`이다. Silver 통합 recorder와 이전 Plum Silver는 historical이며 새 기간의 Silver 미수집을 장애로 세거나 매번 fresh sync하지 않는다. 요청한 과거 경기·cohort에 필요할 때만 검증된 Silver 이력을 선택한다. Gold의 별도 direct-sport raw와 live evidence는 실제 coverage를 확인해 독립 대사에 사용할 수 있다. 이 배치를 고정 추정하지 말고 최신 Jenkins 상태·inventory·DB 계약을 재확인한다.
+
 - 기본 기간 비교는 동일한 UTC end의 최근 24시간, 7일, 30일, 최근 1년이다. 1년치가 없으면 종목·팔별 확보된 전체 기간으로 대체하고 실제 first evidence/start와 coverage를 쓴다. 30일도 부족하면 확보 기간과 부족분을 명시한다. 서로 겹치는 기간의 손익을 합산하지 않는다.
 - 장기 비교에서는 현재 및 retired runtime/금액/parameter epoch를 별도 cohort로 발견한다. `SOURCE_MISSING` 역사 자료의 source cutoff를 명시하고 현재 운영 자료로 추정하지 않는다. 이미 검증된 pin/archive가 필요한 범위를 덮으면 재사용하고 오래된 전체 archive를 매번 다시 전송하지 않는다.
 - 최소 비교 열: 팔×종목, 실제 UTC 범위, confirmed 손익(매도/정산 구분), 원금·fee, unique 종결 경기·독립 UTC 경기일, 미확정 노출·evidence gap. 증액을 검토하면 평균/중앙값·ROI·최대 drawdown·최대 단일 손실·stop 비율과 목표액의 진입/청산 full-depth·FOK 성공률을 **cohort별**로 추가한다.

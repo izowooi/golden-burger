@@ -20,5 +20,18 @@ def verify_workspace(config):
     if marker.exists():
         if marker.is_symlink() or json.loads(marker.read_text())!={'schema_version':1,'job':config.jenkins_job,'workspace':str(workspace)}:raise RuntimeError('workspace marker mismatch')
     usage=shutil.disk_usage(workspace)
-    if usage.free<config.min_free_gib*1024**3 or usage.used/usage.total>=config.max_used_ratio:raise RuntimeError('recorder storage gate')
-    return {'workspace':str(workspace),'runtime':config.job_name,'free_bytes':usage.free,'status':'ok'}
+    storage = verify_storage_usage(config, usage)
+    return {'workspace':str(workspace),'runtime':config.job_name,**storage,'status':'ok'}
+
+
+def verify_storage_usage(config, usage):
+    """Keep the absolute reserve independent of the user-selected ratio gate."""
+    ratio = usage.used / usage.total
+    if usage.free < config.min_free_gib * 1024**3 or ratio >= config.max_used_ratio:
+        raise RuntimeError(
+            f"recorder storage gate: free_gib={usage.free / 1024**3:.2f} "
+            f"min_free_gib={config.min_free_gib} used_ratio={ratio:.4f} "
+            f"max_used_ratio={config.max_used_ratio:.2f}"
+        )
+    return {"free_bytes": usage.free, "used_ratio": ratio,
+            "min_free_gib": config.min_free_gib, "max_used_ratio": config.max_used_ratio}

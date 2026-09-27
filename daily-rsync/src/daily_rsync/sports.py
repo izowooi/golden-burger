@@ -39,7 +39,7 @@ SPORTS = [
 
 def collector_role(strategy: str, jenkins_job: str, runtime_job: str) -> str:
     if strategy == "golden-coconut" and runtime_job in RECORDER_RUNTIMES:
-        return "PRIMARY" if jenkins_job == "polybot-white" else "REPLICA"
+        return "PRIMARY" if jenkins_job == "polybot-white" else "HISTORICAL"
     if jenkins_job == "polybot-grey":
         return "RETIRED"
     if jenkins_job == "polybot-silver" and strategy == "golden-plum":
@@ -117,7 +117,7 @@ class SportsStore:
                     ),
                 }
             )
-        return result
+        return sorted(result, key=lambda row: (row["collector_role"] != "PRIMARY", row["jenkins_job"], row["runtime_job"], row["basename"]))
 
     def _version(self) -> Path | None:
         pointer = self.root / "current.json"
@@ -138,7 +138,10 @@ class SportsStore:
                 "sports": SPORTS,
                 "generated_at": None,
             }
-        return read_json(version / "index.json")
+        index = read_json(version / "index.json")
+        for source in index.get("sources", []):
+            source["collector_role"] = collector_role(source.get("strategy"), source.get("jenkins_job"), source.get("runtime_job"))
+        return index
 
     def match(self, match_id: str, *, depth: bool = False) -> dict:
         if not re.fullmatch(r"[a-f0-9]{20}", match_id):

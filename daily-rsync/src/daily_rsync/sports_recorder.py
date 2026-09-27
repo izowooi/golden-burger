@@ -105,7 +105,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
         "strategy": "golden-coconut",
         "jenkins_job": sources[0]["jenkins_job"],
         "runtime_job": runtime,
-        "collector_role": "PRIMARY" if runtime == PRIMARY_RUNTIME else "REPLICA",
+        "collector_role": "PRIMARY" if runtime == PRIMARY_RUNTIME else "HISTORICAL",
         "data_contract": CONTRACT,
         "synced_at": min(s["synced_at"] for s in sources),
         "constituents": sorted(constituents, key=lambda x: x["database_utc_date"]),
