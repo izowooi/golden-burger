@@ -280,7 +280,7 @@ class ResolutionObservation(Base):
 
 
 class ExitExecutionObservation(Base):
-    """Append-only fresh-book evidence for one TP or full-stop decision."""
+    """Append-only fresh-book evidence for TP, stop, or time-exit decisions."""
 
     __tablename__ = "exit_execution_observations"
 

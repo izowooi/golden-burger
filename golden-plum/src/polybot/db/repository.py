@@ -400,7 +400,7 @@ class TradeRepository:
 
         normalized_signal = str(signal or "").strip()
         normalized_reason = str(fallback_reason or "").strip()
-        if normalized_signal not in {"take_profit", "absolute_stop"}:
+        if normalized_signal not in {"take_profit", "absolute_stop", "time_exit"}:
             raise ValueError("exit execution signal is invalid")
         if not normalized_reason:
             raise ValueError("exit execution fallback reason is required")

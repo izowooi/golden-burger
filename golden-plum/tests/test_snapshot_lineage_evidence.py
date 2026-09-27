@@ -335,6 +335,55 @@ def test_exit_execution_observation_is_append_only_and_sport_queryable(tmp_path)
     session.close()
 
 
+def test_time_exit_persists_full_holding_evidence_before_sell(tmp_path):
+    Session = init_database(str(tmp_path / "time-exit-evidence.db"))
+    session = Session()
+    repository = TradeRepository(session)
+    trade = repository.create_trade(
+        condition_id="condition-time-exit",
+        event_id="event-time-exit",
+        token_id="token-time-exit",
+        outcome="Draw No",
+        sport_family="soccer",
+        buy_shares=6.944442,
+        status=TradeStatus.HOLDING,
+    )
+    observation = repository.record_exit_execution_observation(
+        trade=trade,
+        observed_at=datetime(2026, 9, 27, 1, 4),
+        signal="time_exit",
+        trigger_price=0.74,
+        position_shares=6.944442,
+        selected_shares=6.94,
+        remaining_shares=0.004442,
+        max_executable_shares=6.94,
+        selected_notional_usdc=5.1356,
+        max_executable_notional_usdc=5.1356,
+        best_bid=0.74,
+        best_ask=0.75,
+        spread=0.01,
+        vwap=0.74,
+        limit_price=0.74,
+        levels_used=1,
+        fallback_reason="FULL_POSITION_TIME_EXIT_REQUIRED",
+        full_position_required=True,
+        book_json=(
+            '{"asks":[{"price":0.75,"size":10}],'
+            '"bids":[{"price":0.74,"size":10}],'
+            '"schema_version":1,"token_id":"token-time-exit"}'
+        ),
+    )
+    row = session.execute(
+        text(
+            "SELECT signal, selected_shares, remaining_shares, "
+            "full_position_required FROM exit_execution_observations WHERE id=:id"
+        ),
+        {"id": observation.id},
+    ).one()
+    assert row == ("time_exit", 6.94, 0.004442, 1)
+    session.close()
+
+
 def test_clob_resolution_observation_rejects_tampered_evidence(tmp_path):
     Session = init_database(str(tmp_path / "tampered-resolution.db"))
     session = Session()
