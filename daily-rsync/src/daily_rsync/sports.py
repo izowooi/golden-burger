@@ -22,7 +22,7 @@ from typing import Any
 
 from .config import AppConfig
 from .sports_normalization import normalize_payload
-from .sports_recorder import RUNTIMES as RECORDER_RUNTIMES
+from .sports_recorder import PRIMARY_RUNTIME, RUNTIMES as RECORDER_RUNTIMES
 from .sports_recorder import export_group
 
 SUPPORTED = {"golden-peach", "golden-plum", "golden-coconut"}
@@ -39,7 +39,7 @@ SPORTS = [
 
 def collector_role(strategy: str, jenkins_job: str, runtime_job: str) -> str:
     if strategy == "golden-coconut" and runtime_job in RECORDER_RUNTIMES:
-        return "PRIMARY" if jenkins_job == "polybot-white" else "HISTORICAL"
+        return "PRIMARY" if jenkins_job == "polybot-white" and runtime_job == PRIMARY_RUNTIME else "HISTORICAL"
     if jenkins_job == "polybot-grey":
         return "RETIRED"
     if jenkins_job == "polybot-silver" and strategy == "golden-plum":
