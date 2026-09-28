@@ -19,6 +19,7 @@ from polybot.api.clob_client import (
 from polybot.api.gamma_client import GammaClient
 from polybot.config import ApiConfig
 from polybot.db.models import MarketCatalog, init_database
+from polybot.league_classifier import classify_soccer_event
 from polybot_observability import (
     ClobResponseContractError,
     ClobResponseUnavailableError,
@@ -192,6 +193,32 @@ def _uefa_event(code: str, markets):
     ]
     event["title"] = f"{name}: Home FC vs. Away FC"
     return event
+
+
+def test_nations_league_exact_whole_match_identity_only():
+    event = _event("unl-bel-fra-2026-09-28", [], sport_code="unl")
+    event["seriesSlug"] = "soccer-unl"
+    event["resolutionSource"] = "https://www.uefa.com/uefanationsleague/"
+    event["sport"] = {
+        "id": 297, "sport": "unl", "name": "UEFA Nations League",
+        "primaryTagId": 100816, "series": "11446",
+        "tags": "1,100639,100350,100816",
+    }
+    event["tags"] = [
+        {"id": value} for value in ("1", "100639", "100350", "100816")
+    ]
+    event["series"] = [{"id": "11446", "slug": "soccer-unl"}]
+    event["teams"] = [
+        {"name": "Belgium", "league": "unl"},
+        {"name": "France", "league": "unl"},
+    ]
+    assert classify_soccer_event(event).accepted
+
+    event["slug"] += "-exact-score"
+    assert not classify_soccer_event(event).accepted
+    event["slug"] = "unl-bel-fra-2026-09-28"
+    event["series"][0]["id"] = "wrong"
+    assert not classify_soccer_event(event).accepted
 
 
 def _direct_sport_event(family: str, markets, *, postseason=False):

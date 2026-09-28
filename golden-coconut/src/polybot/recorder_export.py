@@ -4,6 +4,7 @@ from collections import OrderedDict
 from pathlib import Path
 from datetime import datetime,timezone
 CONTRACT='sports-price-recorder-1m-v1'
+ACCEPTED_CONTRACTS={CONTRACT,'sports-price-recorder-1m-v2'}
 APPLICATION_ID=0x43535231
 
 def _utc(value):
@@ -23,7 +24,7 @@ def open_verified(path,expected_sha=None):
     if expected_sha and file_sha(path)!=expected_sha:raise ValueError('pinned database SHA mismatch')
     c=sqlite3.connect(path.as_uri()+'?mode=ro&immutable=1',uri=True);c.row_factory=sqlite3.Row
     row=c.execute('SELECT data_contract FROM collection_contracts').fetchone()
-    if not row or row[0]!=CONTRACT or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID:
+    if not row or row[0] not in ACCEPTED_CONTRACTS or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID:
         c.close();raise ValueError('not a recorder source')
     return c
 
@@ -64,6 +65,7 @@ def _valid_identity(event,slots,family):
 
 def iter_rows(path,expected_sha=None,*,start=None,end=None,include_depth=True):
     c=open_verified(path,expected_sha)
+    source_contract=c.execute('SELECT data_contract FROM collection_contracts').fetchone()[0]
     lower,upper=_utc(start),_utc(end)
     query='''SELECT b.*,e.family,e.league,e.season_phase,e.metadata_status,e.received_at AS metadata_received,
       e.request_id AS metadata_request_id,e.slots_json AS expected_slots_json,e.event_json,e.clock_json,e.identity_valid,e.window_status,e.scheduled_start,e.end_anchor,e.end_basis,
@@ -125,7 +127,7 @@ def iter_rows(path,expected_sha=None,*,start=None,end=None,include_depth=True):
                 'book_status':r['status'],'raw_book_valid':bool(valid),'raw_point_in_time_identity_proven':bool(point_identity and r['identity_valid'] and r['point_in_time_valid']),
                 'run_status':r['run_status'],'config_hash':config['config_hash'],'strategy_source_digest':config['source_digest'],
                 'config':config,'fee_evidence':json.loads(r['fee_json']),'market_fields':market,'fee_market':market,
-                'window_status':r['window_status'],'lifecycle_state':r['lifecycle_state'],'source_contract':CONTRACT}
+                'window_status':r['window_status'],'lifecycle_state':r['lifecycle_state'],'source_contract':source_contract}
     finally:c.close()
 
 def _terminal_proof(event,slots,family):
@@ -163,6 +165,7 @@ def _terminal_proof(event,slots,family):
 
 def iter_terminals(path,expected_sha=None,*,end=None):
     c=open_verified(path,expected_sha);upper=_utc(end)
+    source_contract=c.execute('SELECT data_contract FROM collection_contracts').fetchone()[0]
     try:
         for row in c.execute('''SELECT e.*,r.reference_at,r.published_at,r.config_json FROM event_observations e JOIN cycles r USING(run_id)
           WHERE r.status='SUCCEEDED' AND e.identity_valid=1 AND e.terminal_json IS NOT NULL'''):
@@ -187,7 +190,7 @@ def iter_terminals(path,expected_sha=None,*,end=None):
             except (KeyError,ValueError,TypeError,json.JSONDecodeError):continue
             for token in computed['tokens']:
                 yield {**token,'event_id':row['event_id'],'run_id':row['run_id'],'observed_at':row['received_at'],
-                       'published_at':row['published_at'],'source_contract':CONTRACT,
+                       'published_at':row['published_at'],'source_contract':source_contract,
                        'config_hash':json.loads(row['config_json'])['config_hash'],
                        'strategy_source_digest':json.loads(row['config_json'])['source_digest'],
                        'observation_mode':json.loads(row['config_json'])['observation_mode'],

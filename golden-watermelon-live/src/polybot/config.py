@@ -321,6 +321,10 @@ FROZEN_LEAGUE_IDENTITIES = (
         "sea", 12, "Serie A", 100618, "10203",
         "serie-a-2025", "sea", (101962,),
     ),
+    LeagueIdentity(
+        "unl", 297, "UEFA Nations League", 100816, "11446",
+        "soccer-unl", "unl", (100816,),
+    ),
 )
 
 FROZEN_CUP_IDENTITIES = (

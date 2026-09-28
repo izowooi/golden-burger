@@ -5,18 +5,18 @@ import hashlib
 import json
 from pathlib import Path
 from .config import assert_safe_environment
-from .registry import load_registry
+from .recorder_registry_v2 import load_registry
 
 PROJECT = Path(__file__).resolve().parents[2]
-WHITE_RUNTIME = 'coconut-sports-recorder-1m-v1'
+WHITE_RUNTIME = 'coconut-sports-recorder-1m-v2'
 SILVER_RUNTIME = 'coconut-sports-recorder-silver-1m-v1'
 RUNTIME = WHITE_RUNTIME
-CONTRACT = 'sports-price-recorder-1m-v1'
-EPOCH = 'research/frozen-2026-09-27-single-white-storage90-v5'
-REGISTRY = 'research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json'
-REGISTRY_SHA = '2b65532bb71ec7121a74260a9d4600706a3329da6bdfa9e3bfecc1c42e37bc3d'
+CONTRACT = 'sports-price-recorder-1m-v2'
+EPOCH = 'research/frozen-2026-09-28-recorder-unl-v6'
+REGISTRY = 'research/frozen-2026-09-28-recorder-unl-v6/SPORTS_REGISTRY.json'
+REGISTRY_SHA = '40bfec79a9ecff68004e5261d40ae640de60f55a202293eb195384e39804fd13'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',
- 'src/polybot/recorder_config.py','src/polybot/recorder_store.py','src/polybot/recorder_http.py',
+ 'src/polybot/recorder_config.py','src/polybot/recorder_registry_v2.py','src/polybot/recorder_classifier_v2.py','src/polybot/recorder_store.py','src/polybot/recorder_http.py',
  'src/polybot/recorder.py','src/polybot/recorder_export.py','src/polybot/recorder_workspace.py',
  'src/polybot/classifier.py','src/polybot/lifecycle.py','src/polybot/registry.py','src/polybot/config.py',
  'src/polybot/source_digest.py','src/polybot/api/transport.py','src/polybot/api/gamma_client.py',

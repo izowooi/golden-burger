@@ -433,6 +433,14 @@ def classify_soccer_event(event: Mapping[str, Any]) -> LeagueClassification:
         team_count=len(teams),
         common_tag_ids=common_tag_ids,
     )
+    if identity.code == "unl":
+        if not re.fullmatch(
+            r"unl-[a-z0-9]+-[a-z0-9]+-[0-9]{4}-[0-9]{2}-[0-9]{2}",
+            str(event.get("slug") or ""),
+        ):
+            reasons.append("EVENT_COMPETITION_SLUG_MISMATCH")
+        if (urlsplit(str(event.get("resolutionSource") or "")).hostname or "").casefold() != "www.uefa.com":
+            reasons.append("EVENT_RESOLUTION_SOURCE_MISMATCH")
     if reasons:
         return LeagueClassification("DRIFT", identity.code, identity.name, tuple(reasons), evidence)
     return LeagueClassification("ACCEPTED", identity.code, identity.name, (), evidence)

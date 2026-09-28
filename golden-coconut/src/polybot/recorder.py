@@ -6,7 +6,8 @@ import gzip,hashlib,json,math,time
 from uuid import uuid4
 from .api.transport import CycleBudget,iso_utc,canonical_json
 from .api.clob_client import parse_book,MalformedBookError
-from .classifier import classify_event,classify_market,classify_season_phase,_team_forms,_normalize
+from .classifier import classify_market,classify_season_phase,_team_forms,_normalize
+from .recorder_classifier_v2 import classify_event
 from .lifecycle import parse_source_utc,gamma_clock_fallback
 from .recorder_config import registry,slot_start_utc
 from .recorder_http import RecorderClient

@@ -16,7 +16,7 @@ from polybot.recorder_config import (
 from polybot.recorder_store import RecorderStore
 from polybot.recorder import Recorder,discovery_due,slots_for,window_status,end_anchor
 from polybot.recorder_export import iter_rows,carryovers,file_sha
-from polybot.classifier import classify_event
+from polybot.recorder_classifier_v2 import classify_event
 from polybot.api.transport import iso_utc
 
 NOW=datetime(2026,9,8,23,59,40,tzinfo=timezone.utc)
@@ -34,6 +34,35 @@ def soccer_event(start=NOW-timedelta(minutes=1)):
           'active':True,'closed':False,'enableOrderBook':True,'acceptingOrders':True,'liquidityNum':0,'volumeNum':0,
           'feeSchedule':{'rate':0.03,'exponent':1}})
     return event
+
+
+def test_white_v2_records_only_exact_nations_league_match_result():
+    reg = registry()
+    family = reg.by_code['soccer']
+    assert 100816 in family.query_tag_ids
+    event = soccer_event()
+    event['slug'] = 'unl-bel-fra-2026-09-28'
+    event['title'] = 'Home FC vs. Away FC'
+    event['seriesSlug'] = 'soccer-unl'
+    event['series'] = [{'id': '11446', 'slug': 'soccer-unl'}]
+    event['resolutionSource'] = 'https://www.uefa.com/uefanationsleague/'
+    event['sport'] = {
+        'id': 297, 'sport': 'unl', 'name': 'UEFA Nations League',
+        'primaryTagId': 100816, 'series': '11446',
+        'tags': '1,100639,100350,100816',
+    }
+    event['tags'] = [{'id': tag} for tag in (1,100639,100350,100816)]
+    for team in event['teams']:
+        team['league'] = 'unl'
+    classification = classify_event(event, family, reg)
+    assert classification.accepted
+    assert classification.competition_code == 'unl'
+    slots, complete = slots_for(event, classification)
+    assert complete and len(slots) == 6
+
+    child = deepcopy(event)
+    child['slug'] += '-exact-score'
+    assert not classify_event(child, family, reg).accepted
 
 class FakeClient:
     source=soccer_event()
