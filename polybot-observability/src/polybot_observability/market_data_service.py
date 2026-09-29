@@ -67,15 +67,20 @@ class MarketDataService:
     def __init__(self, db_path: str | Path, socket_path: str | Path, *,
                  storage_root: str | Path, queue_size: int = 64, io_workers: int = 4,
                  timeout: float = 5.0, max_frame_bytes: int = MAX_FRAME_BYTES,
-                 expected_volume_id: str | None = None):
+                 expected_volume_id: str | None = None,
+                 min_free_bytes: int = 0, max_used_ratio: float = 1.0):
         if queue_size < 1 or io_workers < 1 or timeout <= 0 or max_frame_bytes < 1:
             raise ValueError("queue, worker, deadline and frame limits must be positive")
+        if min_free_bytes < 0 or not 0 < max_used_ratio <= 1:
+            raise ValueError("storage capacity limits are invalid")
         self.db_path = Path(db_path).expanduser()
         self.socket_path = Path(socket_path).expanduser()
         self.storage_root = Path(storage_root).expanduser()
         self.timeout = timeout
         self.max_frame_bytes = max_frame_bytes
         self.expected_volume_id = expected_volume_id
+        self.min_free_bytes = min_free_bytes
+        self.max_used_ratio = max_used_ratio
         self._io_workers = io_workers
         self._connections: queue.Queue = queue.Queue(queue_size)
         self._requests: queue.Queue = queue.Queue(queue_size)
@@ -116,6 +121,7 @@ class MarketDataService:
                 raise StoreError("external storage volume is not mounted")
         self._root_identity = self._identity(self.storage_root)
         self._check_volume_marker()
+
         existing_parent = self.db_path.parent
         while not existing_parent.exists():
             existing_parent = existing_parent.parent
@@ -159,6 +165,15 @@ class MarketDataService:
         if self._db_identity is not None and self._identity(self.db_path) != self._db_identity:
             raise StoreError("database file identity changed")
         self._check_volume_marker()
+
+    def _check_write_capacity(self) -> None:
+        usage = os.statvfs(self.storage_root)
+        free = usage.f_bavail * usage.f_frsize
+        used_ratio = (usage.f_blocks - usage.f_bfree) / usage.f_blocks if usage.f_blocks else 1.0
+        if free < self.min_free_bytes or used_ratio >= self.max_used_ratio:
+            raise ServiceUnavailableError(
+                f"shared market-data storage gate: free_bytes={free}, used_ratio={used_ratio:.6f}"
+            )
 
     def _acquire_lock(self, path: Path) -> None:
         descriptor = os.open(path, os.O_CREAT | os.O_RDWR | getattr(os, "O_NOFOLLOW", 0), 0o600)
@@ -320,6 +335,8 @@ class MarketDataService:
                     if time.monotonic() >= request.deadline:
                         raise ServiceUnavailableError("request expired before execution")
                     self._check_storage()
+                    if request.message.get("op") in {"put_many", "append_observations"}:
+                        self._check_write_capacity()
                     result = self._dispatch(store, request.message)
                     request.response = {"v": PROTOCOL_VERSION, "ok": True, "result": result}
                 except Exception as error:
@@ -366,6 +383,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--storage-root", type=Path, required=True)
     parser.add_argument("--expected-volume-id")
     parser.add_argument("--timeout", type=float, default=5.0)
+    parser.add_argument("--min-free-gib", type=float, default=50.0)
+    parser.add_argument("--max-used-ratio", type=float, default=0.90)
     args = parser.parse_args(argv)
     stopped = threading.Event()
     previous = {}
@@ -373,7 +392,9 @@ def main(argv: list[str] | None = None) -> int:
         previous[signum] = signal.signal(signum, lambda *_: stopped.set())
     try:
         with MarketDataService(args.db, args.socket, storage_root=args.storage_root,
-                               expected_volume_id=args.expected_volume_id, timeout=args.timeout):
+                               expected_volume_id=args.expected_volume_id, timeout=args.timeout,
+                               min_free_bytes=int(args.min_free_gib * (1 << 30)),
+                               max_used_ratio=args.max_used_ratio):
             stopped.wait()
     finally:
         for signum, handler in previous.items():

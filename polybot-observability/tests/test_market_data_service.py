@@ -54,6 +54,23 @@ def socket_path(storage_root):
     return storage_root / "service.sock"
 
 
+def test_storage_gate_blocks_writes_but_keeps_verified_reads_available(service, monkeypatch):
+    from types import SimpleNamespace
+    client = StoreClient(service.socket_path)
+    sha = client.put_many([b"existing quote"])[0]
+    service.min_free_bytes = 50
+    service.max_used_ratio = .90
+    monkeypatch.setattr(market_data_service.os, "statvfs", lambda path: SimpleNamespace(
+        f_bavail=100, f_frsize=1, f_blocks=1000, f_bfree=100))
+    with pytest.raises(ServiceUnavailableError, match="storage gate"):
+        client.put_many([b"new quote"])
+    assert client.get_many([sha]) == [b"existing quote"]
+    assert client.stats()["payload_count"] == 1
+    monkeypatch.setattr(market_data_service.os, "statvfs", lambda path: SimpleNamespace(
+        f_bavail=200, f_frsize=1, f_blocks=1000, f_bfree=200))
+    assert client.put_many([b"resumed quote"])
+
+
 def receive_exact(connection, size):
     chunks = bytearray()
     while len(chunks) < size:
