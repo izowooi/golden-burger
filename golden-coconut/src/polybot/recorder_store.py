@@ -4,6 +4,9 @@ from datetime import datetime,timezone
 import hashlib,json,os,sqlite3,threading
 from pathlib import Path
 from .recorder_config import CONTRACT,RUNTIME
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_index import index_recorder_row
+from polybot_observability.market_data_sqlite import connect as market_data_connect
 
 APPLICATION_ID=0x43535231
 SCHEMA='''
@@ -94,10 +97,10 @@ class RecorderStore:
 
     @staticmethod
     def _readonly(path):
-        c=sqlite3.connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True);c.row_factory=sqlite3.Row;return c
+        c=market_data_connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True);c.row_factory=sqlite3.Row;return c
 
     def _connect(self,path):
-        c=sqlite3.connect(path,timeout=3,check_same_thread=False);c.row_factory=sqlite3.Row
+        c=market_data_connect(path,timeout=3,check_same_thread=False);c.row_factory=sqlite3.Row
         c.execute('PRAGMA synchronous=FULL');c.execute('PRAGMA journal_mode=DELETE');return c
 
     def _validate(self,c):
@@ -109,8 +112,10 @@ class RecorderStore:
             or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID
             or fingerprint(c)!=self.expected_schema):raise ValueError('recorder schema/epoch mismatch')
 
-    @staticmethod
-    def insert(c,table,row):
+    def insert(self,c,table,row):
+        original=row
+        row=externalize_row('golden-coconut',table,row)
+        index_recorder_row(self.runtime_job,table,original,row)
         cols=list(row);c.execute(f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",tuple(row[k] for k in cols))
 
     @contextmanager

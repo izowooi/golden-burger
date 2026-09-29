@@ -11,6 +11,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlalchemy import install_public_types
+from polybot_observability.market_data_sqlite import ResolvingConnection
 
 Base = declarative_base()
 
@@ -288,10 +290,14 @@ def init_database(
     Returns:
         SQLAlchemy sessionmaker instance
     """
+    install_public_types(Base.metadata, "golden-nectarine")
     prepare_database(
         db_path, "golden-nectarine", requirements=maintenance_requirements
     )
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(
+        f"sqlite:///{db_path}", echo=False,
+        connect_args={"factory": ResolvingConnection},
+    )
     Base.metadata.create_all(engine)
     with engine.connect() as conn:
         for table, column, col_type in _ALTER_COLUMNS:

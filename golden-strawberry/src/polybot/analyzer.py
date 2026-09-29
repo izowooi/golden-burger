@@ -23,6 +23,8 @@ from .config import (
 from .db.repository import GIB
 from .utils.retry import iso_utc
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 REQUIRED_TABLES = frozenset(
     {
@@ -83,7 +85,7 @@ def _canonical_db(path: str | Path) -> Path:
 
 def _connect(path: Path) -> sqlite3.Connection:
     uri = f"file:{quote(str(path))}?mode=ro&immutable=1"
-    connection = sqlite3.connect(uri, uri=True)
+    connection = connect_market_data(uri, uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     connection.execute("PRAGMA foreign_keys=ON")

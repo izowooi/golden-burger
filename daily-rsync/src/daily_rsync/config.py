@@ -29,6 +29,13 @@ class AppConfig:
     batch_byte_limit: int = 2 * GIB
     default_job_pattern: str = "polybot-*"
     require_external_data_root: bool = False
+    remote_public_python: str | None = None
+    remote_public_db: str | None = None
+    remote_public_storage_root: str | None = None
+
+    @property
+    def public_store_path(self) -> Path:
+        return self.data_root / "shared-market-data" / "public.db"
 
     @property
     def catalog_path(self) -> Path:
@@ -140,10 +147,31 @@ def load_config(path: Path | None = None) -> AppConfig:
         batch_byte_limit=_positive_int(payload, "batch_byte_limit_gb", 2) * GIB,
         default_job_pattern=str(payload.get("default_job_pattern", "polybot-*")),
         require_external_data_root=bool(payload.get("require_external_data_root", False)),
+        remote_public_python=payload.get("remote_public_python"),
+        remote_public_db=payload.get("remote_public_db"),
+        remote_public_storage_root=payload.get("remote_public_storage_root"),
     )
+    validate_public_source(config)
     validate_data_root_mount(config)
     ensure_runtime_directories(config)
     return config
+
+
+def validate_public_source(config: AppConfig, *, required: bool = False) -> None:
+    values = (config.remote_public_python, config.remote_public_db,
+              config.remote_public_storage_root)
+    if all(value is None for value in values) and not required:
+        return
+    for value in values:
+        if (not isinstance(value, str) or not value.startswith("/")
+                or posixpath.normpath(value) != value or "\x00" in value):
+            raise ValueError("public payload source requires three canonical absolute paths")
+    root = str(config.remote_public_storage_root).rstrip("/") + "/"
+    if not str(config.remote_public_db).startswith(root):
+        raise ValueError("remote public database must be inside its configured storage root")
+    staging = config.remote_staging_root
+    if not staging.startswith("/") or posixpath.normpath(staging) != staging or "\x00" in staging:
+        raise ValueError("public payload staging root must be a canonical absolute path")
 
 
 def validate_data_root_mount(config: AppConfig) -> None:

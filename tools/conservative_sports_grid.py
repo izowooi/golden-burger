@@ -244,7 +244,7 @@ def uses_recorded_fees(event):
     return event.source.startswith(("polybot-white:","polybot-sim-guava-")) or event.config.get("raw_point_in_time_archive") is True
 
 
-def read_source(source, start, end):
+def read_source(source, start, end, *, references=None):
     path = Path(source["local_path"]).resolve()
     for suffix in ("-wal", "-journal"):
         p = Path(str(path)+suffix)
@@ -253,7 +253,9 @@ def read_source(source, start, end):
     digest = visual.sha256(path)
     if digest != source["local_sha256"] or not source.get("pinned"):
         raise ValueError("source is not the verified pinned manifest")
-    conn = sqlite3.connect(path.as_uri()+"?mode=ro&immutable=1", uri=True)
+    conn = visual.market_data_connect(
+        path.as_uri()+"?mode=ro&immutable=1", uri=True, references=references
+    )
     conn.row_factory = sqlite3.Row
     if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
         raise ValueError("source SQLite quick_check failed")
@@ -992,6 +994,7 @@ def main():
     parser.add_argument("--source-id",action="append",default=[])
     parser.add_argument("--fee-collection",choices=("v2_cash","legacy_shares"),default="v2_cash")
     parser.add_argument("--grid-step",type=int,default=1,help="Integer cents; 1 required for exhaustive run")
+    visual.add_public_store_argument(parser)
     args=parser.parse_args()
     a,b,c=map(visual.timestamp,(args.start,args.split,args.end))
     if not a<b<c or args.max_gap_seconds<=0 or args.entry_width<0 or not 1<=args.grid_step<=99:
@@ -1009,9 +1012,10 @@ def main():
               "code_sha256":visual.sha256(Path(__file__)),"sources_manifest_sha256":visual.sha256(args.sources)}
     write_json(args.output/"PROTOCOL.json",protocol)
     events=[];audits=[]
-    for s in selected:
-        evs,audit=read_source(s,args.start,args.end);events.extend(evs);audits.append(audit)
-        print(json.dumps(audit,ensure_ascii=False),flush=True)
+    with visual.public_references(args.public_store) as references:
+        for s in selected:
+            evs,audit=read_source(s,args.start,args.end,references=references);events.extend(evs);audits.append(audit)
+            print(json.dumps(audit,ensure_ascii=False),flush=True)
     firsts={}
     for e in events:
         key=(e.sport,e.event);firsts[key]=min(firsts.get(key,float("inf")),e.groups[0].time)

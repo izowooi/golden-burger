@@ -15,6 +15,10 @@ from uuid import uuid4
 from ..config import BotConfig, DATA_CONTRACT, StorageConfig
 from ..utils.retry import iso_utc
 
+from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 GIB = 1024**3
 SCHEMA_VERSION = 3
@@ -518,7 +522,7 @@ class ResearchRepository:
     def _connect(self, *, create: bool = True) -> Iterator[sqlite3.Connection]:
         if create:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.db_path, timeout=self.busy_timeout_ms / 1000)
+        connection = connect_market_data(self.db_path, timeout=self.busy_timeout_ms / 1000)
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         connection.execute("PRAGMA foreign_keys=ON")
@@ -540,7 +544,7 @@ class ResearchRepository:
         # byte-for-byte non-mutating, not merely schema-migration-free.
         if self.db_path.exists():
             uri = f"file:{self.db_path.resolve().as_posix()}?mode=ro&immutable=1"
-            legacy_check = sqlite3.connect(uri, uri=True)
+            legacy_check = connect_market_data(uri, uri=True)
             legacy_check.row_factory = sqlite3.Row
             try:
                 metadata_exists = legacy_check.execute(
@@ -866,6 +870,7 @@ class ResearchRepository:
         )
 
     def _insert_one(self, table: str, row: Mapping[str, Any]) -> None:
+        row = externalize_row("golden-raspberry", table, row)
         columns = tuple(row)
         placeholders = ",".join("?" for _ in columns)
         sql = f"INSERT INTO {table}({','.join(columns)}) VALUES({placeholders})"
@@ -884,6 +889,9 @@ class ResearchRepository:
         if any(tuple(row) != columns for row in materialized):
             raise ValueError(f"inconsistent columns for {table}")
         placeholders = ",".join("?" for _ in columns)
+        if insert_shared_levels(connection, "golden-raspberry", table, materialized):
+            return
+        materialized = [externalize_row("golden-raspberry", table, row) for row in materialized]
         connection.executemany(
             f"INSERT INTO {table}({','.join(columns)}) VALUES({placeholders})",
             [tuple(row[column] for column in columns) for row in materialized],

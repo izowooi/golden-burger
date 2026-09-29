@@ -10,6 +10,8 @@ from polybot.bot import exclusive_job_run_lock
 from polybot.followup_config import load_followup_config
 from polybot.source_reattachment import attest_device_reattachment
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 def main():
     parser=argparse.ArgumentParser()
@@ -20,7 +22,7 @@ def main():
     config=load_followup_config(simulation_mode=True,job_name='strawberry-shadow-one-followup-v2a')
     lock=config.db_path.parent/'.strawberry-followup-v2a.lock'
     with exclusive_job_run_lock(lock):
-        with sqlite3.connect(f'file:{config.db_path}?mode=ro',uri=True) as connection:
+        with connect_market_data(f'file:{config.db_path}?mode=ro',uri=True) as connection:
             connection.row_factory=sqlite3.Row
             rows=connection.execute('SELECT * FROM source_anchors').fetchall()
             if len(rows)!=1:raise RuntimeError('exactly one original source anchor is required')

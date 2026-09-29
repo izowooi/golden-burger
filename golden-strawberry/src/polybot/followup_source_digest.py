@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 from .source_digest import PROJECT_ROOT, sha256_file
 
 
@@ -57,6 +59,9 @@ def compute_followup_source_digest(root: Path = PROJECT_ROOT) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    update_market_data_digest(
+        digest, Path(root).resolve().parent / "polybot-observability" / "src" / "polybot_observability"
+    )
     return digest.hexdigest()
 
 

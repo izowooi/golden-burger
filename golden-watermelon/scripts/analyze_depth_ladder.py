@@ -28,6 +28,9 @@ from polybot.db.repository import (
     SCHEMA_USER_VERSION,
 )
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 SIDECAR_CONTRACT = "golden-watermelon-depth-ladder-sidecar-v1"
 DEPTH_LADDER_USDC = (
@@ -70,7 +73,12 @@ class CohortSelector:
 
 
 def _source_sha256() -> str:
-    return hashlib.sha256(Path(__file__).resolve().read_bytes()).hexdigest()
+    source = Path(__file__).resolve()
+    digest = hashlib.sha256(source.read_bytes())
+    update_market_data_digest(
+        digest, source.parents[2] / "polybot-observability" / "src" / "polybot_observability"
+    )
+    return digest.hexdigest()
 
 
 def _canonical_database_path(path: Path) -> Path:
@@ -85,7 +93,7 @@ def _canonical_database_path(path: Path) -> Path:
 
 def _connect_read_only(path: Path) -> sqlite3.Connection:
     resolved = _canonical_database_path(path)
-    connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+    connection = connect_market_data(f"{resolved.as_uri()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         connection.execute("PRAGMA query_only=ON")

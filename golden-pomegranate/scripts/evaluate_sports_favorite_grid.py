@@ -20,6 +20,8 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 SPORTS_SLUG = "sports"
 WINDOW_HOURS = 6.0
 MIN_GAP_MINUTES = 5.0
@@ -100,7 +102,7 @@ def database_date(path: Path) -> str:
 
 def validate_database(path: Path, *, run_quick_check: bool = True) -> None:
     expected_day = database_date(path)
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     try:
         if run_quick_check:
             quick_check = connection.execute("PRAGMA quick_check").fetchone()
@@ -203,7 +205,7 @@ class TradeResult:
 
 
 def iter_observations(path: Path) -> Iterable[Observation]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         rows = connection.execute(
@@ -277,7 +279,7 @@ def iter_observations(path: Path) -> Iterable[Observation]:
 def load_exact_books(paths: list[Path]) -> dict[tuple[str, int, str], ExactBook]:
     books: dict[tuple[str, int, str], tuple[datetime, ExactBook]] = {}
     for path in paths:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
         try:
             rows = connection.execute(
                 """
@@ -309,7 +311,7 @@ def load_labels(
     raw: defaultdict[str, list[Label]] = defaultdict(list)
     winners: defaultdict[str, set[int]] = defaultdict(set)
     for path in paths:
-        connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
         try:
             rows = connection.execute(
                 """

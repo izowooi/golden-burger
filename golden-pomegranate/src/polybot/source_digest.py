@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 def _source_files(project_root: Path) -> list[Path]:
     project_root = project_root.resolve()
@@ -40,4 +42,5 @@ def compute_strategy_source_digest(project_root: Path) -> str:
         digest.update(relative)
         digest.update(len(content).to_bytes(8, "big"))
         digest.update(content)
+    update_market_data_digest(digest, repository_root / "polybot-observability" / "src" / "polybot_observability")
     return digest.hexdigest()

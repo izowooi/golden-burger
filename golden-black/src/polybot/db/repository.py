@@ -14,6 +14,10 @@ import time
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
+from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -417,7 +421,7 @@ class ResearchRepository:
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000)
+        connection = connect_market_data(self.path, timeout=self.busy_timeout_ms / 1000)
         connection.row_factory = sqlite3.Row
         connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         connection.execute("PRAGMA journal_mode=WAL")
@@ -495,6 +499,7 @@ class ResearchRepository:
 
     @staticmethod
     def _insert(connection: sqlite3.Connection, table: str, row: Mapping[str, Any]) -> None:
+        row = externalize_row("golden-black", table, row)
         keys = tuple(row)
         connection.execute(
             f"INSERT INTO {table}({','.join(keys)}) VALUES({','.join('?' for _ in keys)})",
@@ -503,6 +508,9 @@ class ResearchRepository:
 
     @classmethod
     def _insert_many(cls, connection: sqlite3.Connection, table: str, rows: Iterable[Mapping[str, Any]]) -> None:
+        rows = list(rows)
+        if insert_shared_levels(connection, "golden-black", table, rows):
+            return
         for row in rows:
             cls._insert(connection, table, row)
 

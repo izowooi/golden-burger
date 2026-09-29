@@ -7,9 +7,14 @@ import importlib.util
 import json
 import sqlite3
 from collections import defaultdict
+from contextlib import ExitStack
 from datetime import UTC, date, datetime
 from heapq import merge
 from pathlib import Path
+
+from polybot_observability.market_data_refs import PayloadReferences
+from polybot_observability.market_data_sqlite import connect as market_data_connect
+from polybot_observability.market_data_store import PayloadReader
 
 CONTRACT = "sports-price-recorder-1m-v2"
 PRIMARY_RUNTIME = "coconut-sports-recorder-1m-v2"
@@ -25,6 +30,21 @@ RUNTIME = PRIMARY_RUNTIME
 
 
 def export_group(exporter, reader_path, sources, output, start, end, index, data_root):
+    public_path = data_root / "shared-market-data" / "public.db"
+    if public_path.resolve() != public_path or not public_path.is_relative_to(data_root):
+        raise ValueError("공용 원본 DB 경로가 data root를 벗어났습니다.")
+    with ExitStack() as stack:
+        public_reader = (
+            stack.enter_context(PayloadReader(public_path)) if public_path.is_file() else None
+        )
+        references = PayloadReferences(reader=public_reader)
+        return _export_group(
+            exporter, reader_path, sources, output, start, end, index, data_root, references
+        )
+
+
+def _export_group(exporter, reader_path, sources, output, start, end, index,
+                  data_root, references):
     spec = importlib.util.spec_from_file_location("sports_recorder_reader", reader_path)
     if spec is None or spec.loader is None:
         raise ValueError("통합 수집기 reader가 없습니다.")
@@ -45,7 +65,9 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
         digest = exporter.sha256(path)
         if digest != source["local_sha256"]:
             raise ValueError("수집기 DB checksum이 catalog와 다릅니다.")
-        with sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True) as connection:
+        with market_data_connect(
+            path.as_uri() + "?mode=ro&immutable=1", uri=True, references=references
+        ) as connection:
             connection.row_factory = sqlite3.Row
             records = connection.execute("SELECT * FROM collection_contracts").fetchall()
             if len(records) != 1:
@@ -82,7 +104,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
         raise ValueError("같은 파일 이름의 수집기 source가 둘입니다. 출처를 먼저 구분하세요.")
     carryover_verified, carryover_boundary = 0, 0
     for path in paths:
-        for carry in reader.carryovers(path, before[path]):
+        for carry in reader.carryovers(path, before[path], references=references):
             name = carry["source_shard"]
             if not (
                 name.startswith("trades_sim_")
@@ -99,7 +121,9 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
                 continue
             if parent == path or path_days[parent] != parent_day:
                 raise ValueError("경기 인계 부모의 파일·UTC 날짜가 일치하지 않습니다.")
-            with sqlite3.connect(parent.as_uri() + "?mode=ro&immutable=1", uri=True) as conn:
+            with market_data_connect(
+                parent.as_uri() + "?mode=ro&immutable=1", uri=True, references=references
+            ) as conn:
                 conn.row_factory = sqlite3.Row
                 original = conn.execute(
                     "SELECT * FROM tracked_events WHERE event_id=?", (carry["event_id"],)
@@ -123,7 +147,8 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
 
     def rows():
         streams = [
-            reader.iter_rows(path, before[path], start=start, end=end, include_depth=True)
+            reader.iter_rows(path, before[path], start=start, end=end,
+                             include_depth=True, references=references)
             for path in paths
         ]
         for raw in merge(*streams, key=lambda r: (exporter.timestamp(r["timestamp"]), r["id"])):
@@ -181,7 +206,7 @@ def export_group(exporter, reader_path, sources, output, start, end, index, data
             yield row
 
     for path in paths:
-        for terminal in reader.iter_terminals(path, before[path]):
+        for terminal in reader.iter_terminals(path, before[path], references=references):
             if exporter.timestamp(terminal["published_at"]) < exporter.timestamp(
                 end
             ) and exporter.timestamp(terminal["observed_at"]) < exporter.timestamp(end):

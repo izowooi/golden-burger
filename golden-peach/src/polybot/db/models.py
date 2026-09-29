@@ -6,6 +6,8 @@ import enum
 from datetime import datetime
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlalchemy import install_public_types, original_public_type
+from polybot_observability.market_data_sqlite import ResolvingConnection
 from sqlalchemy import (
     Column,
     DateTime,
@@ -582,17 +584,18 @@ def _sqlite_affinity(declared_type: str) -> str:
 
 
 def _model_affinity(column) -> str:
-    if isinstance(column.type, Integer):
+    sql_type = original_public_type(column.type)
+    if isinstance(sql_type, Integer):
         return "INTEGER"
-    if isinstance(column.type, Float):
+    if isinstance(sql_type, Float):
         return "REAL"
-    if isinstance(column.type, (String, Enum)):
+    if isinstance(sql_type, (String, Enum)):
         return "TEXT"
-    if isinstance(column.type, DateTime):
+    if isinstance(sql_type, DateTime):
         return "NUMERIC"
     raise RuntimeError(
         f"unsupported SQLite model type for {column.table.name}.{column.name}: "
-        f"{column.type!r}"
+        f"{sql_type!r}"
     )
 
 
@@ -706,6 +709,7 @@ def init_database(
     enable_research_raw: bool = False,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
+    install_public_types(Base.metadata, "golden-peach")
     if maintenance_on_start:
         prepare_database(
             db_path,
@@ -715,7 +719,10 @@ def init_database(
         )
     # Raw simulation archives grow throughout the experiment. Their hourly
     # maintenance must not consume a one-minute collection slot before HTTP.
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(
+        f"sqlite:///{db_path}", echo=False,
+        connect_args={"factory": ResolvingConnection},
+    )
     try:
         Base.metadata.create_all(
             engine, tables=[table for name, table in Base.metadata.tables.items()

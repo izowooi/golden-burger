@@ -7,6 +7,8 @@ from datetime import datetime
 from pathlib import Path
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlalchemy import install_public_types, original_public_type
+from polybot_observability.market_data_sqlite import ResolvingConnection
 from sqlalchemy import (
     Column,
     DateTime,
@@ -583,17 +585,18 @@ def _sqlite_affinity(declared_type: str) -> str:
 
 
 def _model_affinity(column) -> str:
-    if isinstance(column.type, Integer):
+    sql_type = original_public_type(column.type)
+    if isinstance(sql_type, Integer):
         return "INTEGER"
-    if isinstance(column.type, Float):
+    if isinstance(sql_type, Float):
         return "REAL"
-    if isinstance(column.type, (String, Enum)):
+    if isinstance(sql_type, (String, Enum)):
         return "TEXT"
-    if isinstance(column.type, DateTime):
+    if isinstance(sql_type, DateTime):
         return "NUMERIC"
     raise RuntimeError(
         f"unsupported SQLite model type for {column.table.name}.{column.name}: "
-        f"{column.type!r}"
+        f"{sql_type!r}"
     )
 
 
@@ -708,6 +711,7 @@ def init_database(
     enable_research_raw: bool = False,
 ) -> sessionmaker:
     """Create the schema and fail closed on an incomplete additive upgrade."""
+    install_public_types(Base.metadata, "golden-apricot")
     existing_database = Path(db_path).exists() and Path(db_path).stat().st_size > 0
     if maintenance_on_start:
         prepare_database(
@@ -718,7 +722,10 @@ def init_database(
         )
     # Raw simulation archives grow throughout the experiment. Their hourly
     # maintenance must not consume a one-minute collection slot before HTTP.
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(
+        f"sqlite:///{db_path}", echo=False,
+        connect_args={"factory": ResolvingConnection},
+    )
     if existing_database and not schema_on_start:
         # The one-minute runtime uses an already deployed schema. Re-running
         # create_all plus every additive upgrade against a busy external APFS

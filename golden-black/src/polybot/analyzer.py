@@ -11,6 +11,8 @@ import sqlite3
 import statistics
 from typing import Any
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 def _utc(value: str) -> datetime:
     result = datetime.fromisoformat(value.replace("Z", "+00:00"))
@@ -93,7 +95,7 @@ def _bootstrap_mean_ci(
 
 
 def analyze_database(path: Path) -> dict[str, Any]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]

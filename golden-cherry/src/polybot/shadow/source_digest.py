@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[3]
 PREREGISTRATION_PATH = "docs/CHERRY_SHADOW_RESOLUTION_V2_PREREGISTRATION.md"
@@ -67,4 +69,7 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
             for chunk in iter(lambda: handle.read(1024 * 1024), b""):
                 digest.update(chunk)
         digest.update(b"\0")
+    update_market_data_digest(
+        digest, Path(root).resolve().parent / "polybot-observability" / "src" / "polybot_observability"
+    )
     return digest.hexdigest()

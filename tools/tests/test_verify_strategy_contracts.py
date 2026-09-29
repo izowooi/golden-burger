@@ -138,9 +138,19 @@ class GuavaGateTests(unittest.TestCase):
                     self.assert_rejected()
 
     def test_dead_branch_cannot_fake_durable_start(self):
-        with self.changed("src/polybot/runtime.py", lambda s:s.replace(
-                "repo.start_run(run_id,utc(now),config.public_snapshot())",
-                "None\n            if False:\n                repo.start_run(run_id,utc(now),config.public_snapshot())")):
+        class HideStart(ast.NodeTransformer):
+            def visit_Expr(self, node):
+                if isinstance(node.value, ast.Call) and gate._call_name(node.value) == "repo.start_run":
+                    return ast.If(test=ast.Constant(False), body=[node], orelse=[])
+                return self.generic_visit(node)
+        with self.changed("src/polybot/runtime.py", lambda source:
+                          ast.unparse(ast.fix_missing_locations(HideStart().visit(ast.parse(source))))):
+            self.assert_rejected("missing_call")
+
+    def test_public_reader_must_be_the_reviewed_resolver(self):
+        with self.changed("src/polybot/evidence.py", lambda source: source.replace(
+                "from polybot_observability.market_data_sqlite import connect as connect_market_data",
+                "from unrelated_adapter import connect as connect_market_data")):
             self.assert_rejected("missing_call")
 
     def test_atomic_publication_cannot_use_a_nontransaction_context(self):

@@ -5,6 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from polybot.source_digest import _source_files, compute_strategy_source_digest
+from polybot_observability.market_data_source_digest import MARKET_DATA_SOURCE_FILES
 
 
 def _layout(tmp_path: Path) -> tuple[Path, Path, Path]:
@@ -13,6 +14,8 @@ def _layout(tmp_path: Path) -> tuple[Path, Path, Path]:
     shared = tmp_path / "polybot-observability" / "src" / "polybot_observability"
     source.mkdir(parents=True)
     shared.mkdir(parents=True)
+    for name in MARKET_DATA_SOURCE_FILES:
+        (shared / name).write_text("SHARED = 1\n", encoding="utf-8")
     (project / "config.yaml").write_text("value: 1\n", encoding="utf-8")
     (project / "pyproject.toml").write_text("[project]\n", encoding="utf-8")
     (source / "runtime.py").write_text("VALUE = 1\n", encoding="utf-8")
@@ -23,7 +26,7 @@ def _layout(tmp_path: Path) -> tuple[Path, Path, Path]:
     return project, config_contract, unrelated
 
 
-def test_digest_scope_has_exact_shared_config_contract_dependency(tmp_path):
+def test_base_digest_scope_retains_config_contract_without_execution_ledger(tmp_path):
     project, config_contract, unrelated = _layout(tmp_path)
 
     paths = _source_files(project)

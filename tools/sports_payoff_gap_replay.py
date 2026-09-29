@@ -35,7 +35,13 @@ from pathlib import Path
 import re
 import sqlite3
 import stat
+import sys
 from typing import Any
+
+_TOOLS_PATH = str(Path(__file__).resolve().parent)
+if _TOOLS_PATH not in sys.path:
+    sys.path.insert(0, _TOOLS_PATH)
+from public_market_reader import add_public_store_argument, market_data_connect, public_references
 
 
 UTC = timezone.utc
@@ -561,7 +567,7 @@ def summaries(groups: list[Group], rows: list[dict]) -> list[dict]:
     return result
 
 
-def analyze_sources(paths: list[Path], start: datetime, end: datetime) -> tuple[dict, list[dict]]:
+def analyze_sources(paths: list[Path], start: datetime, end: datetime, references=None) -> tuple[dict, list[dict]]:
     if start.tzinfo != UTC or end.tzinfo != UTC or start >= end:
         raise EvidenceError("review range must be UTC [start,end), start < end")
     if not paths:
@@ -580,7 +586,7 @@ def analyze_sources(paths: list[Path], start: datetime, end: datetime) -> tuple[
         groups = []
         try:
             if before not in seen:
-                connection = sqlite3.connect(path.as_uri()+"?mode=ro&immutable=1", uri=True)
+                connection = market_data_connect(path.as_uri()+"?mode=ro&immutable=1", uri=True, references=references)
                 try:
                     connection.row_factory = sqlite3.Row
                     connection.execute("PRAGMA query_only=ON")
@@ -671,9 +677,11 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--output", type=Path, required=True, help="new JSON report; sibling .rows.csv is also written")
+    add_public_store_argument(parser)
     args = parser.parse_args(argv)
     try:
-        report, rows = analyze_sources(args.db, utc(args.start), utc(args.end))
+        with public_references(args.public_store) as references:
+            report, rows = analyze_sources(args.db, utc(args.start), utc(args.end), references=references)
         write_report(args.output, report, rows, args.db)
     except (EvidenceError, OSError, sqlite3.Error) as error:
         parser.exit(2, f"Evidence error: {error}\n")

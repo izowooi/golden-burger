@@ -16,6 +16,12 @@ import json
 from pathlib import Path
 import re
 import sqlite3
+import sys
+
+_TOOLS_PATH = str(Path(__file__).resolve().parent)
+if _TOOLS_PATH not in sys.path:
+    sys.path.insert(0, _TOOLS_PATH)
+from public_market_reader import add_public_store_argument, market_data_connect, public_references
 
 SCHEMA = "sports-confirmed-trade-report-v1"
 SPORTS = ("soccer", "mlb", "nfl", "nba", "nhl")
@@ -343,7 +349,7 @@ def confirmed_buy_trade_count(token_trades, by_order, evidence):
     return count
 
 
-def read_source(source, *, start, end):
+def read_source(source, *, start, end, references=None):
     path = Path(source["db_path"]).resolve()
     if source.get("mode") != "live" or source.get("pinned") is not True or "pinned" not in path.parts:
         raise ValueError("explicit live standalone pin required")
@@ -356,7 +362,7 @@ def read_source(source, *, start, end):
     with path.open("rb") as handle:
         if hashlib.file_digest(handle, "sha256").hexdigest() != source["sha256"]:
             raise ValueError("pin checksum mismatch")
-    conn = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+    conn = market_data_connect(path.as_uri() + "?mode=ro&immutable=1", uri=True, references=references)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA query_only=ON")
     base = {"source_key": source["source_key"], "jenkins_job": source["jenkins_job"], "strategy": source["strategy"],
@@ -546,7 +552,7 @@ def read_source(source, *, start, end):
         conn.close()
 
 
-def build_report(inputs, *, start, end, official=None):
+def build_report(inputs, *, start, end, official=None, references=None):
     start, end = utc(start), utc(end)
     if start >= end:
         raise ValueError("report start must precede exclusive end")
@@ -559,7 +565,7 @@ def build_report(inputs, *, start, end, official=None):
     for key, value in (("review_start", start), ("review_end_exclusive", end)):
         if inputs.get(key) and utc(inputs[key]) != value:
             raise ValueError("report period differs from prepared inputs")
-    sources = [read_source(s, start=start, end=end) for s in inputs["sources"]]
+    sources = [read_source(s, start=start, end=end, references=references) for s in inputs["sources"]]
     games = {}
     for source in sources:
         for game in source["events"]:
@@ -832,9 +838,12 @@ def main(argv=None):
     parser.add_argument("--end", required=True)
     parser.add_argument("--official-results", type=Path)
     parser.add_argument("--output", type=Path, required=True)
+    add_public_store_argument(parser)
     args = parser.parse_args(argv)
-    report = build_report(json.loads(args.inputs.read_text()), start=args.start, end=args.end,
-                          official=json.loads(args.official_results.read_text()) if args.official_results else None)
+    with public_references(args.public_store) as references:
+        report = build_report(json.loads(args.inputs.read_text()), start=args.start, end=args.end,
+                              official=json.loads(args.official_results.read_text()) if args.official_results else None,
+                              references=references)
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     (args.output / "report.md").write_text(render_markdown(report))

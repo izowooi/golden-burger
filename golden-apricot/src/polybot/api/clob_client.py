@@ -28,6 +28,7 @@ from polybot_observability import (
     normalize_clob_response_list,
     safe_clob_response_shape,
 )
+from polybot_observability.market_data_sqlite import connect as connect_market_data
 from ..config import ApiConfig
 from ..utils.deadline import CycleBudget
 from ..utils.retry import rate_limit_handler
@@ -807,7 +808,7 @@ class ClobClientWrapper:
             raise ClobResponseContractError(
                 "CLOB v2 fee evidence database does not exist"
             )
-        connection = sqlite3.connect(f"{resolved.as_uri()}?mode=ro", uri=True)
+        connection = connect_market_data(f"{resolved.as_uri()}?mode=ro", uri=True)
         connection.row_factory = sqlite3.Row
         return connection
 

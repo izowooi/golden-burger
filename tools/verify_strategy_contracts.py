@@ -5396,7 +5396,13 @@ def _validate_guava_research_release(
         fail("slot_claim", "same-slot durable run must return before new HTTP")
 
     repo_init = function("evidence", "__init__", "Repository")
-    require_calls(repo_init, "Repository.__init__", ("_freeze", "_mapping", "sqlite3.connect", "self._validate_schema", "_triggers"), ordered=True)
+    connection_call = "sqlite3.connect"
+    for node in sources["evidence"].body:
+        if isinstance(node, ast.ImportFrom) and node.module == "polybot_observability.market_data_sqlite":
+            for alias in node.names:
+                if alias.name == "connect":
+                    connection_call = alias.asname or alias.name
+    require_calls(repo_init, "Repository.__init__", ("_freeze", "_mapping", connection_call, "self._validate_schema", "_triggers"), ordered=True)
     require_guard(repo_init, "research DB contract must reject live/foreign identity", lambda t: {"contract", "DATA_CONTRACT"}.issubset(expr_names(t)))
     transaction = function("evidence", "_transaction", "Repository")
     sql = {n.args[0].value for name,n in calls(transaction) if name == "self.connection.execute" and n.args and isinstance(n.args[0], ast.Constant)}

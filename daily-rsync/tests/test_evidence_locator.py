@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import sqlite3
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -34,9 +35,13 @@ def _save(
         build_number=build_number,
         completed_at="2026-07-30T00:00:00+00:00",
     )
-    path = tmp_path / f"{item.source_key}.artifact"
-    path.write_bytes(b"hello")
-    digest = hashlib.sha256(b"hello").hexdigest()
+    path = service.config.data_root / f"{item.source_key}.artifact"
+    if kind.startswith("database"):
+        with sqlite3.connect(path) as connection:
+            connection.execute("CREATE TABLE fixture (value TEXT)")
+    else:
+        path.write_bytes(b"hello")
+    digest = hashlib.sha256(path.read_bytes()).hexdigest()
     service.catalog.upsert_artifact(
         item,
         source=service.config.ssh_host,

@@ -15,6 +15,10 @@ from threading import RLock
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
+from polybot_observability.market_data_levels import insert_shared_levels, validate_level_layout
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 # Frozen legacy v3 schema reference. It is deliberately never executed by the
 # v4b runtime; new databases are created only from MIGRATION_PATH below.  The
@@ -424,6 +428,7 @@ def _migration_sha256() -> str:
 
 
 def _schema_sha256(connection: sqlite3.Connection) -> str:
+    auxiliary = validate_level_layout(connection)
     rows = connection.execute(
         """
         SELECT type,name,tbl_name,sql
@@ -432,7 +437,7 @@ def _schema_sha256(connection: sqlite3.Connection) -> str:
         ORDER BY type,name,tbl_name
         """
     ).fetchall()
-    payload = [tuple(str(value) for value in row) for row in rows]
+    payload = [tuple(str(value) for value in row) for row in rows if row[1] not in auxiliary]
     return hashlib.sha256(
         json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode()
     ).hexdigest()
@@ -512,7 +517,7 @@ class ResearchRepository:
             return
         connection: sqlite3.Connection | None = None
         try:
-            connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000)
+            connection = connect_market_data(self.path, timeout=self.busy_timeout_ms / 1000)
             connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
             connection.execute("PRAGMA synchronous=FULL")
             connection.executescript(MIGRATION_PATH.read_text(encoding="utf-8"))
@@ -576,7 +581,7 @@ class ResearchRepository:
     def _validate_existing_read_only(self) -> None:
         uri = self.path.resolve().as_uri() + "?mode=ro"
         try:
-            connection = sqlite3.connect(uri, uri=True, timeout=self.busy_timeout_ms / 1000)
+            connection = connect_market_data(uri, uri=True, timeout=self.busy_timeout_ms / 1000)
         except sqlite3.Error as error:
             raise RuntimeError("database read-only preflight failed") from error
         connection.row_factory = sqlite3.Row
@@ -637,7 +642,7 @@ class ResearchRepository:
         # with FULL durability; a failed operation still rolls back.
         with self._writer_lock:
             if self._writer is None:
-                connection = sqlite3.connect(self.path, timeout=self.busy_timeout_ms / 1000,
+                connection = connect_market_data(self.path, timeout=self.busy_timeout_ms / 1000,
                                              check_same_thread=False)
                 connection.row_factory = sqlite3.Row
                 connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
@@ -759,6 +764,7 @@ class ResearchRepository:
 
     @staticmethod
     def _insert(connection: sqlite3.Connection, table: str, row: Mapping[str, Any]) -> None:
+        row = externalize_row("golden-watermelon", table, row)
         keys = tuple(row)
         connection.execute(
             f"INSERT INTO {table}({','.join(keys)}) VALUES({','.join('?' for _ in keys)})",
@@ -767,6 +773,9 @@ class ResearchRepository:
 
     @classmethod
     def _insert_many(cls, connection: sqlite3.Connection, table: str, rows: Iterable[Mapping[str, Any]]) -> None:
+        rows = list(rows)
+        if insert_shared_levels(connection, "golden-watermelon", table, rows):
+            return
         for row in rows:
             cls._insert(connection, table, row)
 

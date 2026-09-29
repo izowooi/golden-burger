@@ -240,7 +240,7 @@ def terminals(c,evidence,runs,known,info,cutoff,stats):
     return result,times
 
 
-def read_source(source,start,end):
+def read_source(source,start,end,*,references=None):
     path=Path(source['local_path']).resolve();lo,hi=stamp(start),stamp(end)
     if lo is None or hi is None or lo>=hi:raise ValueError('aware_half_open_range_required')
     manifest=parsed(Path(source['manifest']).read_text());expected=source['local_sha256']
@@ -249,7 +249,9 @@ def read_source(source,start,end):
         or manifest.get('sha256')!=expected or manifest.get('quick_check')!=['ok'] or sha(path)!=expected):raise ValueError('verified_White_pin_required')
     if any(Path(str(path)+s).exists()for s in ('-wal','-journal')):raise ValueError('standalone_pin_required')
     deps={str(p):sha(p)for p in DEPENDENCY_FILES};stats=Counter();groups=defaultdict(lambda:defaultdict(list));info={};known=defaultdict(dict)
-    with closing(sqlite3.connect(path.as_uri()+'?mode=ro&immutable=1',uri=True)) as c:
+    with closing(visual.market_data_connect(
+        path.as_uri()+'?mode=ro&immutable=1',uri=True,references=references
+    )) as c:
         c.row_factory=sqlite3.Row;c.execute('PRAGMA query_only=ON')
         if c.execute('PRAGMA quick_check').fetchone()[0]!='ok':raise ValueError('database_quick_check_failed')
         tables={r[0]for r in c.execute("SELECT name FROM sqlite_master WHERE type='table'")}

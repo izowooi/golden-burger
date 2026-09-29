@@ -509,7 +509,8 @@ def test_read_only_query_only_source_hash_and_independent_sidecar_digest(
     assert compute_strategy_source_digest() == strategy_digest_before
     assert "scripts/analyze_depth_ladder.py" not in SOURCE_PATHS
     assert report["read_only"] == {"sqlite_uri_mode": "ro", "query_only": True}
-    assert report["sidecar_source_sha256"] == hashlib.sha256(
+    assert report["sidecar_source_sha256"] == sidecar._source_sha256()
+    assert report["sidecar_source_sha256"] != hashlib.sha256(
         Path(sidecar.__file__).read_bytes()
     ).hexdigest()
 
@@ -521,3 +522,21 @@ def test_exact_schema_epoch_is_required(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError, match="application/schema epoch mismatch"):
         sidecar.analyze_database(repository.path)
+
+
+def test_sidecar_digest_tracks_its_shared_reader_without_changing_strategy_sources(tmp_path, monkeypatch):
+    from polybot_observability.market_data_source_digest import MARKET_DATA_SOURCE_FILES
+
+    project = tmp_path / "golden-watermelon"
+    script = project / "scripts" / "analyze_depth_ladder.py"
+    script.parent.mkdir(parents=True)
+    script.write_text("# sidecar source fixture\n")
+    shared = tmp_path / "polybot-observability" / "src" / "polybot_observability"
+    shared.mkdir(parents=True)
+    for name in MARKET_DATA_SOURCE_FILES:
+        (shared / name).write_text("# shared fixture\n")
+    monkeypatch.setattr(sidecar, "__file__", str(script))
+    baseline = sidecar._source_sha256()
+    (shared / "market_data_sqlite.py").write_text("# reader changed\n")
+    assert sidecar._source_sha256() != baseline
+    assert "scripts/analyze_depth_ladder.py" not in SOURCE_PATHS

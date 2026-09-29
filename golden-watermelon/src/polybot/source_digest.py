@@ -5,12 +5,19 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
-ACTIVE_PREREGISTRATION = (
+STORAGE_SOURCE_EPOCH = "watermelon-shared-data-v7"
+FROZEN_DIRECTORY = "research/frozen-2026-09-29-shared-data-v7"
+ACTIVE_PREREGISTRATION = f"{FROZEN_DIRECTORY}/PREREGISTRATION.md"
+ACTIVE_MANIFEST = f"{FROZEN_DIRECTORY}/MANIFEST.sha256"
+ACTIVE_STORAGE_CONTRACT = f"{FROZEN_DIRECTORY}/STORAGE_CONTRACT.md"
+PREVIOUS_PREREGISTRATION = (
     "research/frozen-2026-09-08-strict-raw-followup-v4b-r6/PREREGISTRATION.md"
 )
-ACTIVE_MANIFEST = (
+PREVIOUS_MANIFEST = (
     "research/frozen-2026-09-08-strict-raw-followup-v4b-r6/MANIFEST.sha256"
 )
 SOURCE_PATHS = (
@@ -20,6 +27,9 @@ SOURCE_PATHS = (
     "STRATEGY.md",
     ACTIVE_PREREGISTRATION,
     ACTIVE_MANIFEST,
+    ACTIVE_STORAGE_CONTRACT,
+    PREVIOUS_PREREGISTRATION,
+    PREVIOUS_MANIFEST,
     "scripts/analyze_experiment.py",
     "scripts/verify_external_workspace.py",
     "src/polybot/main.py",
@@ -58,6 +68,9 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    update_market_data_digest(
+        digest, Path(root).resolve().parent / "polybot-observability" / "src" / "polybot_observability"
+    )
     return digest.hexdigest()
 
 

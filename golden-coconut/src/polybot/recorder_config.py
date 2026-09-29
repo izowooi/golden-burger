@@ -12,7 +12,7 @@ WHITE_RUNTIME = 'coconut-sports-recorder-1m-v2'
 SILVER_RUNTIME = 'coconut-sports-recorder-silver-1m-v1'
 RUNTIME = WHITE_RUNTIME
 CONTRACT = 'sports-price-recorder-1m-v2'
-EPOCH = 'research/frozen-2026-09-28-recorder-unl-v6'
+EPOCH = 'research/frozen-2026-09-29-recorder-shared-data-v7'
 REGISTRY = 'research/frozen-2026-09-28-recorder-unl-v6/SPORTS_REGISTRY.json'
 REGISTRY_SHA = '40bfec79a9ecff68004e5261d40ae640de60f55a202293eb195384e39804fd13'
 SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api/__init__.py','scripts/sports_recorder.py','scripts/export_recorder.py',
@@ -20,7 +20,14 @@ SOURCES = ('pyproject.toml','uv.lock','src/polybot/__init__.py','src/polybot/api
  'src/polybot/recorder.py','src/polybot/recorder_export.py','src/polybot/recorder_workspace.py',
  'src/polybot/classifier.py','src/polybot/lifecycle.py','src/polybot/registry.py','src/polybot/config.py',
  'src/polybot/source_digest.py','src/polybot/api/transport.py','src/polybot/api/gamma_client.py',
- 'src/polybot/api/sports_client.py','src/polybot/api/clob_client.py',REGISTRY,EPOCH+'/PREREGISTRATION.md')
+ 'src/polybot/api/sports_client.py','src/polybot/api/clob_client.py',REGISTRY,EPOCH+'/PREREGISTRATION.md',
+ '../polybot-observability/src/polybot_observability/market_data_policy.py',
+ '../polybot-observability/src/polybot_observability/market_data_refs.py',
+ '../polybot-observability/src/polybot_observability/market_data_index.py',
+ '../polybot-observability/src/polybot_observability/market_data_sqlite.py',
+ '../polybot-observability/src/polybot_observability/market_data_levels.py',
+ '../polybot-observability/src/polybot_observability/market_data_store.py',
+ '../polybot-observability/src/polybot_observability/market_data_client.py')
 
 @dataclass(frozen=True)
 class RecorderConfig:

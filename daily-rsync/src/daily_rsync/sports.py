@@ -15,15 +15,20 @@ import shutil
 import threading
 import uuid
 from collections import OrderedDict
+from contextlib import ExitStack
 from datetime import UTC, datetime
 from decimal import ROUND_DOWN, ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
 
-from .config import AppConfig
+from polybot_observability.market_data_refs import PayloadReferences
+from polybot_observability.market_data_store import PayloadReader
+
+from .config import AppConfig, validate_data_root_mount
+from .public_payloads import verify_database_closure
 from .sports_normalization import normalize_payload
-from .sports_recorder import PRIMARY_RUNTIME, RUNTIMES as RECORDER_RUNTIMES
-from .sports_recorder import export_group
+from .sports_recorder import PRIMARY_RUNTIME, export_group
+from .sports_recorder import RUNTIMES as RECORDER_RUNTIMES
 
 SUPPORTED = {"golden-peach", "golden-plum", "golden-coconut"}
 SPORTS = [
@@ -39,7 +44,10 @@ SPORTS = [
 
 def collector_role(strategy: str, jenkins_job: str, runtime_job: str) -> str:
     if strategy == "golden-coconut" and runtime_job in RECORDER_RUNTIMES:
-        return "PRIMARY" if jenkins_job == "polybot-white" and runtime_job == PRIMARY_RUNTIME else "HISTORICAL"
+        return (
+            "PRIMARY" if jenkins_job == "polybot-white" and runtime_job == PRIMARY_RUNTIME
+            else "HISTORICAL"
+        )
     if jenkins_job == "polybot-grey":
         return "RETIRED"
     if jenkins_job == "polybot-silver" and strategy == "golden-plum":
@@ -117,7 +125,10 @@ class SportsStore:
                     ),
                 }
             )
-        return sorted(result, key=lambda row: (row["collector_role"] != "PRIMARY", row["jenkins_job"], row["runtime_job"], row["basename"]))
+        return sorted(result, key=lambda row: (
+            row["collector_role"] != "PRIMARY", row["jenkins_job"],
+            row["runtime_job"], row["basename"],
+        ))
 
     def _version(self) -> Path | None:
         pointer = self.root / "current.json"
@@ -140,7 +151,9 @@ class SportsStore:
             }
         index = read_json(version / "index.json")
         for source in index.get("sources", []):
-            source["collector_role"] = collector_role(source.get("strategy"), source.get("jenkins_job"), source.get("runtime_job"))
+            source["collector_role"] = collector_role(
+                source.get("strategy"), source.get("jenkins_job"), source.get("runtime_job")
+            )
         return index
 
     def match(self, match_id: str, *, depth: bool = False) -> dict:
@@ -178,6 +191,9 @@ class SportsStore:
         return result
 
     def build(self, keys: list[str], start: str, end: str, callback: Any) -> dict:
+        validate_data_root_mount(self.config)
+        if not self.config.data_root.is_dir():
+            raise ValueError("설정된 data root가 없습니다.")
         first, last = utc(start), utc(end)
         if not 0 < (last - first).total_seconds() <= 31 * 86400:
             raise ValueError("한 번에 1초 초과~31일 범위를 선택하세요.")
@@ -194,6 +210,7 @@ class SportsStore:
             raise ValueError("저장소의 sports_visual_data.py가 필요합니다.")
         exporter = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(exporter)
+        validate_data_root_mount(self.config)
         self.root.mkdir(parents=True, exist_ok=True, mode=0o700)
         version = uuid.uuid4().hex
         output = self.root / version
@@ -208,8 +225,35 @@ class SportsStore:
             "sports": SPORTS,
             "semantics": "표시 호가 반사실입니다. 실제 체결·실현 손익이 아닙니다.",
         }
+        shared_readers = ExitStack()
         try:
+            validate_data_root_mount(self.config)
             selected = [dict(self.catalog.get_artifact(key)) for key in keys]
+            for selected_source in selected:
+                selected_path = Path(selected_source["local_path"])
+                if (selected_path.resolve() != selected_path
+                        or not selected_path.is_relative_to(self.config.data_root)):
+                    raise ValueError("자료 경로가 data root를 벗어나거나 symlink입니다.")
+                if exporter.sha256(selected_path) != selected_source["local_sha256"]:
+                    raise ValueError("자료 checksum이 catalog와 다릅니다.")
+                verify_database_closure(
+                    self.config, selected_path, strategy=selected_source["strategy"],
+                    source_key=selected_source["source_key"],
+                    database_sha256=selected_source["local_sha256"],
+                    source=selected_source["source"],
+                )
+            public_path = self.config.public_store_path
+            if (public_path.resolve() != public_path
+                    or not public_path.is_relative_to(self.config.data_root)):
+                raise ValueError("공용 원본 DB 경로가 data root를 벗어났습니다.")
+            if (public_path.is_file()
+                    and public_path.stat().st_dev != self.config.data_root.stat().st_dev):
+                raise ValueError("공용 원본 DB가 다른 storage volume에 있습니다.")
+            public_reader = (
+                shared_readers.enter_context(PayloadReader(public_path))
+                if public_path.is_file() else None
+            )
+            references = PayloadReferences(reader=public_reader)
             handled = set()
             for n, key in enumerate(keys):
                 if key in handled:
@@ -267,6 +311,7 @@ class SportsStore:
                     last.strftime("%Y-%m-%dT%H:%M:%SZ"),
                     index,
                     include_depth=True,
+                    references=references,
                 )
             index["cohorts"] = list(index["cohorts"].values())
             index["matches"].sort(key=lambda x: (x["start"], x["title"]), reverse=True)
@@ -279,6 +324,8 @@ class SportsStore:
         except Exception:
             shutil.rmtree(output)
             raise
+        finally:
+            shared_readers.close()
         return {"status": "SUCCESS", "matches": len(index["matches"]), "sources": len(keys)}
 
 

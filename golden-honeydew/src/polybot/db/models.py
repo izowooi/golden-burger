@@ -6,6 +6,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlalchemy import install_public_types
+from polybot_observability.market_data_sqlite import ResolvingConnection
 
 Base = declarative_base()
 
@@ -212,10 +214,14 @@ def init_database(
     Returns:
         SQLAlchemy sessionmaker instance
     """
+    install_public_types(Base.metadata, "golden-honeydew")
     prepare_database(
         db_path, "golden-honeydew", requirements=maintenance_requirements
     )
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(
+        f"sqlite:///{db_path}", echo=False,
+        connect_args={"factory": ResolvingConnection},
+    )
     Base.metadata.create_all(engine)
 
     # 기존 로컬 DB 파일 호환: 신규 컬럼 best-effort ALTER (cherry의 market_tags 패턴).

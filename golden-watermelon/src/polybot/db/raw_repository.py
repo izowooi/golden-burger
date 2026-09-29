@@ -7,6 +7,9 @@ import json
 from pathlib import Path
 import sqlite3
 
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 RAW_SIDECAR_FILENAME = "shadow.db"
 RAW_CONTRACT = "watermelon-independent-raw-lifecycle-v1"
 RAW_APPLICATION_ID = 0x57525231
@@ -61,7 +64,7 @@ class RawRepository:
             self.path.open("xb").close()
         elif not self.path.is_file():
             raise RuntimeError("raw sidecar must be a regular file")
-        self.connection = sqlite3.connect(self.path, timeout=busy_timeout_ms / 1000)
+        self.connection = connect_market_data(self.path, timeout=busy_timeout_ms / 1000)
         self.connection.row_factory = sqlite3.Row
         self.connection.execute(f"PRAGMA busy_timeout={int(busy_timeout_ms)}")
         self.connection.execute("PRAGMA synchronous=FULL")
@@ -106,5 +109,6 @@ class RawRepository:
 
     @staticmethod
     def insert(c, table, row):
+        row = externalize_row("golden-watermelon", table, row)
         keys = list(row)
         c.execute(f"INSERT INTO {table} ({','.join(keys)}) VALUES ({','.join('?' for _ in keys)})", tuple(row[k] for k in keys))

@@ -13,6 +13,8 @@ from urllib.parse import quote
 
 from . import DATA_CONTRACT
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 def parse_utc(value: str) -> datetime:
     raw = str(value or "").strip()
@@ -28,7 +30,7 @@ def parse_utc(value: str) -> datetime:
 
 
 def _connect(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(
+    connection = connect_market_data(
         f"file:{quote(str(path.resolve()))}?mode=ro", uri=True
     )
     connection.row_factory = sqlite3.Row

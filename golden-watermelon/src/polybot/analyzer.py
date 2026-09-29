@@ -39,6 +39,8 @@ from polybot.db.repository import (
 )
 from polybot.resolution import aligned_winner_index, terminal_token_payouts
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 ANALYZER_CONTRACT = "watermelon-major-sports-analyzer-v4b"
 PAIR_ANALYZER_CONTRACT = "watermelon-major-sports-cadence-pair-v4b"
@@ -866,7 +868,7 @@ def _notional_depth_summary(
 
 
 def analyze_database(path: Path) -> dict[str, Any]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         quick_check = str(connection.execute("PRAGMA quick_check").fetchone()[0])
@@ -1612,7 +1614,7 @@ def analyze_database(path: Path) -> dict[str, Any]:
 
 
 def _episode_index(path: Path) -> dict[tuple[str, str, float], sqlite3.Row]:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     try:
         config_row = connection.execute(

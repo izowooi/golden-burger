@@ -6,6 +6,8 @@ import enum
 from datetime import datetime
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlalchemy import install_public_types
+from polybot_observability.market_data_sqlite import ResolvingConnection
 from sqlalchemy import (
     Column,
     DateTime,
@@ -439,13 +441,17 @@ def init_database(
     activate_compact_on_create: bool = True,
 ) -> sessionmaker:
     """Create the schema and fail closed on incompatible existing layouts."""
+    install_public_types(Base.metadata, "golden-tangerine")
     prepare_database(
         db_path,
         "golden-tangerine",
         requirements=maintenance_requirements,
         activate_compact_on_create=activate_compact_on_create,
     )
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(
+        f"sqlite:///{db_path}", echo=False,
+        connect_args={"factory": ResolvingConnection},
+    )
     Base.metadata.create_all(engine)
     with engine.connect() as connection:
         _ensure_columns(connection, "trades", _TRADE_MIGRATION_COLUMNS)

@@ -18,6 +18,10 @@ import zlib
 from ..config import RESEARCH_DATA_CONTRACT, StorageConfig
 from ..utils.retry import canonical_json, utc_now
 
+from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 SCHEMA_VERSION = 4
 GIB = 1024**3
@@ -598,7 +602,7 @@ class ResearchRepository:
     def _connect(self) -> Iterator[sqlite3.Connection]:
         if self.immutable_reads:
             raise RuntimeError("immutable read-only repository cannot open a writer")
-        connection = sqlite3.connect(
+        connection = connect_market_data(
             self.db_path, timeout=self.busy_timeout_ms / 1000, isolation_level=None
         )
         connection.row_factory = sqlite3.Row
@@ -627,7 +631,7 @@ class ResearchRepository:
         uri = f"{path.resolve().as_uri()}?mode=ro"
         if immutable:
             uri += "&immutable=1"
-        connection = sqlite3.connect(uri, uri=True, timeout=5, isolation_level=None)
+        connection = connect_market_data(uri, uri=True, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only = ON")
         connection.execute("PRAGMA foreign_keys = ON")
@@ -906,6 +910,9 @@ class ResearchRepository:
     ) -> str:
         exact = bytes(content)
         compressed = zlib.compress(exact, level=6) if store_blob else None
+        stored = externalize_row(
+            "golden-pomegranate", "raw_payloads", {"payload_blob": compressed}
+        )["payload_blob"]
         payload_id = str(uuid4())
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
@@ -925,7 +932,7 @@ class ResearchRepository:
                     len(exact),
                     len(compressed) if compressed is not None else None,
                     int(store_blob),
-                    compressed,
+                    stored,
                     utc_now(),
                 ),
             )
@@ -1274,7 +1281,13 @@ class ResearchRepository:
         *,
         or_ignore: bool = False,
     ) -> None:
-        payload = [tuple(row.get(column) for column in columns) for row in rows]
+        rows = [{column: row.get(column) for column in columns} for row in rows]
+        if insert_shared_levels(connection, "golden-pomegranate", table, rows):
+            return
+        materialized = [externalize_row(
+            "golden-pomegranate", table, {column: row.get(column) for column in columns}
+        ) for row in rows]
+        payload = [tuple(row[column] for column in columns) for row in materialized]
         if not payload:
             return
         verb = "INSERT OR IGNORE" if or_ignore else "INSERT"
@@ -1896,7 +1909,7 @@ class ResearchRepository:
         # locked.  Once it succeeds, the archived shard is a self-contained main
         # DB and later readers cannot attach the replacement active DB's WAL to
         # the old main file.
-        barrier = sqlite3.connect(
+        barrier = connect_market_data(
             self.db_path,
             timeout=0,
             isolation_level=None,

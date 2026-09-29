@@ -16,6 +16,10 @@ from . import DATA_CONTRACT
 from .config import ShadowConfig, canonical_json
 from .transport import CollectionBudgetExceeded, CollectionDeadline, iso_utc
 
+from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 SCHEMA = """
 PRAGMA foreign_keys=ON;
@@ -397,9 +401,9 @@ class ShadowRepository:
         timeout = min(30.0, deadline.require()) if deadline else 30.0
         if read_only:
             uri = f"file:{self.db_path}?mode=ro"
-            connection = sqlite3.connect(uri, uri=True, timeout=timeout)
+            connection = connect_market_data(uri, uri=True, timeout=timeout)
         else:
-            connection = sqlite3.connect(self.db_path, timeout=timeout)
+            connection = connect_market_data(self.db_path, timeout=timeout)
         connection.row_factory = sqlite3.Row
 
         def interrupt_on_budget() -> int:
@@ -581,6 +585,9 @@ class ShadowRepository:
         columns = tuple(rows[0])
         if any(tuple(row) != columns for row in rows):
             raise ValueError(f"{table} rows have inconsistent columns")
+        if insert_shared_levels(connection, "golden-cherry", table, rows):
+            return
+        rows = [externalize_row("golden-cherry", table, row) for row in rows]
         connection.executemany(
             f"INSERT INTO {table} ({','.join(columns)}) "
             f"VALUES ({','.join('?' for _ in columns)})",

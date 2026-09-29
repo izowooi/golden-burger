@@ -231,13 +231,15 @@ def replay_event(groups, terminals, failures, threshold, target, fee_bps, max_ga
     return record
 
 
-def analyze(path, start, end, max_gap):
+def analyze(path, start, end, max_gap, *, references=None):
     path = path.resolve()
     manifest = json.loads((path.parent / "manifest.json").read_text())
     checksum = visual.sha256(path)
     if checksum != manifest["sha256"] or manifest.get("quick_check") != ["ok"]:
         raise ValueError("source does not match its verified online-backup manifest")
-    conn = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+    conn = visual.market_data_connect(
+        path.as_uri() + "?mode=ro&immutable=1", uri=True, references=references
+    )
     conn.row_factory = sqlite3.Row
     tables = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
     white = "research_run_events" in tables
@@ -378,13 +380,15 @@ def main():
     parser.add_argument("--end", required=True)
     parser.add_argument("--max-gap-seconds", type=float, default=90)
     parser.add_argument("--output", type=Path, required=True)
+    visual.add_public_store_argument(parser)
     args=parser.parse_args()
     if visual.timestamp(args.start) >= visual.timestamp(args.end) or args.max_gap_seconds <= 0:
         parser.error("invalid fixed range or gap")
     sources=[]
-    for path in args.db:
-        sources.append(analyze(path,args.start,args.end,args.max_gap_seconds))
-        print(json.dumps({"source":str(path),"outcomes":len(sources[-1]["outcomes"])}),flush=True)
+    with visual.public_references(args.public_store) as references:
+        for path in args.db:
+            sources.append(analyze(path,args.start,args.end,args.max_gap_seconds,references=references))
+            print(json.dumps({"source":str(path),"outcomes":len(sources[-1]["outcomes"])}),flush=True)
     report({"start":args.start,"end_exclusive":args.end,"max_gap_seconds":args.max_gap_seconds,"sources":sources},args.output)
 
 

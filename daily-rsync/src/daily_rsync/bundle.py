@@ -14,6 +14,7 @@ from typing import Any
 from .catalog import Catalog
 from .config import AppConfig
 from .models import read_research_database_contract, research_archive_date
+from .public_payloads import verify_database_closure, write_closure_descriptor
 
 
 def _clone_or_copy(source: Path, destination: Path) -> None:
@@ -249,8 +250,15 @@ def create_bundle(
             selected.extend(eligible_by_runtime[runtime_job])
 
     validated_digests: dict[str, str] = {}
+    validated_closures: dict[str, dict | None] = {}
     for row in selected:
         validated_digests[str(row["source_key"])] = _validate_local_artifact(row)
+        if str(row["kind"]).startswith("database"):
+            validated_closures[str(row["source_key"])] = verify_database_closure(
+                config, Path(row["local_path"]), strategy=row["strategy"],
+                source_key=row["source_key"], database_sha256=row["local_sha256"],
+                source=row["source"],
+            )
     if not any(
         row["kind"].startswith("database")
         and row["local_path"]
@@ -285,6 +293,15 @@ def create_bundle(
                     root / "databases" / f"{row['runtime_job'] or 'default'}-{source.name}"
                 )
             _clone_or_copy(source, destination)
+            if _sha256(destination) != validated_digests[str(row["source_key"])]:
+                raise RuntimeError("bundle database changed while copying")
+            closure = validated_closures[str(row["source_key"])]
+            verify_database_closure(
+                config, destination, strategy=row["strategy"], source_key=row["source_key"],
+                database_sha256=row["local_sha256"], descriptor=closure, source=row["source"],
+            )
+            if closure is not None:
+                write_closure_descriptor(config, destination, closure)
         else:
             build = row["build_number"]
             name = f"jenkins-{build}.log" if build is not None else source.name
@@ -328,6 +345,7 @@ def create_bundle(
                 "bundle_path": str(destination.relative_to(root)),
                 "sha256": validated_digests[str(row["source_key"])],
                 "remote_path": row["remote_path"],
+                "public_payloads": validated_closures.get(str(row["source_key"])),
             }
         )
 
@@ -340,6 +358,10 @@ def create_bundle(
         "from_date": from_date.isoformat(),
         "to_date": to_date.isoformat(),
         "artifacts": records,
+        "public_payload_store": (
+            str(config.public_store_path)
+            if any(item and item["payload_count"] for item in validated_closures.values()) else None
+        ),
     }
     (root / "manifest.json").write_text(
         json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
@@ -351,8 +373,8 @@ def create_bundle(
         f"- Strategy: `{strategy}`\n"
         f"- Range: `{from_date}` ~ `{to_date}`\n"
         f"- Artifacts: `{len(records)}`\n\n"
-        "SQLite와 로그는 이 폴더 안에서 독립적으로 읽을 수 있습니다. "
-        "manifest의 hash와 source provenance를 보존하세요.\n",
+        "manifest의 hash와 source provenance를 보존하세요. 공용 body 참조가 있는 SQLite는 "
+        "manifest의 public_payload_store도 필요하며, 읽기 전에 payload closure를 검증하세요.\n",
         encoding="utf-8",
     )
     for path in (root / "manifest.json", root / "README.md"):

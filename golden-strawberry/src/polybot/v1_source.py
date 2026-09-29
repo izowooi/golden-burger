@@ -20,6 +20,8 @@ from .utils.retry import (
     iso_utc,
 )
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 _REQUIRED_TABLES = frozenset(
     {
@@ -198,7 +200,7 @@ class V1SourceReader:
         deadline: CooperativeDeadline | None = None,
     ) -> Iterator[sqlite3.Connection]:
         uri = f"file:{quote(str(path))}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
+        connection = connect_market_data(uri, uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         if deadline is not None:

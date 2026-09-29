@@ -25,6 +25,12 @@ from .models import (
     read_research_database_contract,
     research_archive_date,
 )
+from .public_payloads import (
+    closure_sidecar,
+    synchronize_database_closure,
+    verify_database_closure,
+    write_closure_descriptor,
+)
 from .remote import RemoteClient
 
 ProgressCallback = Callable[[dict[str, object]], None]
@@ -257,7 +263,17 @@ class SyncService:
                 )
                 conflicts.append(f"immutable research archive changed: {artifact.remote_path}")
                 continue
-            if self.catalog.artifact_is_current(artifact):
+            current = self.catalog.artifact_is_current(artifact)
+            if current and artifact.kind.startswith("database"):
+                existing = self.catalog.get_artifact(artifact.source_key)
+                try:
+                    verify_database_closure(
+                        self.config, Path(existing["local_path"]), strategy=artifact.strategy,
+                        source_key=artifact.source_key, database_sha256=existing["local_sha256"],
+                    )
+                except Exception:
+                    current = False
+            if current:
                 unchanged += 1
             else:
                 selected.append(artifact)
@@ -514,6 +530,10 @@ class SyncService:
                                 "database_utc_date": catalog_artifact.database_utc_date,
                                 "workspace": plan.workspace,
                                 "workspace_epoch": plan.workspace_epoch,
+                                "public_payloads_manifest": (
+                                    str(closure_sidecar(local_path))
+                                    if catalog_artifact.kind.startswith("database") else None
+                                ),
                             },
                         )
                         result.transferred += 1
@@ -810,6 +830,11 @@ class SyncService:
                     "immutable research archive changed after plan creation; "
                     "existing evidence was preserved"
                 )
+            payload_closure = synchronize_database_closure(
+                self.config, self.remote, incoming, strategy=artifact.strategy,
+                source_key=artifact.source_key, database_sha256=digest,
+                ensure_capacity=self._ensure_disk_capacity,
+            )
             if artifact.kind == "database_research_archive" and destination.is_file():
                 existing = self.catalog.get_artifact(artifact.source_key)
                 if existing is not None and sha256(destination) == digest:
@@ -819,6 +844,7 @@ class SyncService:
                         or not observed_fingerprint
                         or (str(old_fingerprint) == observed_fingerprint)
                     ):
+                        write_closure_descriptor(self.config, destination, payload_closure)
                         incoming.unlink(missing_ok=True)
                         return destination, digest, expected, 0, observed_artifact
                 self.catalog.record_conflict(
@@ -835,6 +861,7 @@ class SyncService:
                 raise RuntimeError("refusing to replace an existing immutable research archive")
             os.replace(incoming, destination)
             destination.chmod(0o600)
+            write_closure_descriptor(self.config, destination, payload_closure)
             manifest_path = destination.parent / "manifest.json"
             manifest_payload = {
                 **manifest,
@@ -848,6 +875,7 @@ class SyncService:
                 "mode": artifact.mode,
                 "data_contract": artifact.data_contract,
                 "database_utc_date": artifact.database_utc_date,
+                "public_payloads": payload_closure,
             }
             temporary = manifest_path.with_suffix(".json.tmp")
             temporary.write_text(
@@ -1317,6 +1345,11 @@ class SyncService:
                     digest = sha256(path)
                 if digest != row["local_sha256"]:
                     raise RuntimeError("checksum mismatch")
+                if row["kind"].startswith("database"):
+                    verify_database_closure(
+                        self.config, path, strategy=row["strategy"],
+                        source_key=row["source_key"], database_sha256=digest, source=row["source"],
+                    )
                 checked += 1
             except Exception as error:
                 failed.append(f"{path}: {error}")
@@ -1502,10 +1535,14 @@ class SyncService:
                         to_date=to_date,
                     )
                     runtime_coverages[runtime_job] = runtime_coverage
-                    runtime_database_available = bool(runtime_coverage["complete"])
+                    runtime_database_available = bool(
+                        runtime_coverage["complete"]
+                        and all(item["public_payloads_verified"] for item in databases)
+                    )
                 else:
                     runtime_database_available = any(
-                        bool(item["available"]) and item["status"] in {"SYNCED", "SOURCE_MISSING"}
+                        bool(item["available"]) and item["public_payloads_verified"]
+                        and item["status"] in {"SYNCED", "SOURCE_MISSING"}
                         for item in databases
                     )
                 database_available = database_available or runtime_database_available
@@ -1645,8 +1682,7 @@ class SyncService:
             )
         }
 
-    @staticmethod
-    def _database_location(row: Any) -> dict[str, object]:
+    def _database_location(self, row: Any) -> dict[str, object]:
         path = Path(row["local_path"] or "")
         metadata = json.loads(row["metadata_json"] or "{}")
         remote_mtime = datetime.fromtimestamp(
@@ -1658,6 +1694,14 @@ class SyncService:
         if kind == "database_research_archive" and not archive_date:
             parsed_archive_date = research_archive_date(str(row["remote_path"]))
             archive_date = parsed_archive_date.isoformat() if parsed_archive_date else None
+        closure_error = None
+        try:
+            verify_database_closure(
+                self.config, path, strategy=row["strategy"], source_key=row["source_key"],
+                database_sha256=row["local_sha256"], source=row["source"],
+            )
+        except Exception as error:
+            closure_error = str(error)
         return {
             "source_key": row["source_key"],
             "kind": kind,
@@ -1681,6 +1725,8 @@ class SyncService:
             "remote_path": row["remote_path"],
             "local_path": str(path),
             "available": path.is_file(),
+            "public_payloads_verified": closure_error is None,
+            "public_payloads_error": closure_error,
             "remote_size_bytes": int(row["remote_size_bytes"]),
             "remote_fingerprint": row["remote_fingerprint"],
             "source_completed_at": metadata.get("completed_at"),
@@ -2011,14 +2057,34 @@ class SyncService:
             raise ValueError(f"artifact not found: {source_key}")
         if not str(row["kind"]).startswith("database"):
             raise ValueError("only database artifacts can be pinned")
+        if row["status"] not in {"SYNCED", "SOURCE_MISSING"}:
+            raise RuntimeError("database has an unusable catalog status")
+        if self.catalog.list_open_conflicts(
+            source=row["source"], job=row["jenkins_job"], strategy=row["strategy"]
+        ):
+            raise RuntimeError("database pin has unresolved provenance conflicts")
         source = Path(row["local_path"] or "")
         if not source.is_file():
             raise RuntimeError("synchronized database file is missing")
-        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+        if sha256(source) != row["local_sha256"] or quick_check(source) != ["ok"]:
+            raise RuntimeError("database pin source does not match verified catalog bytes")
+        payload_closure = verify_database_closure(
+            self.config, source, strategy=row["strategy"], source_key=source_key,
+            database_sha256=row["local_sha256"], source=row["source"],
+        )
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         destination = source.parent.parent / "pinned" / timestamp / source.name
         destination.parent.mkdir(parents=True, exist_ok=False, mode=0o700)
         clone_or_copy(source, destination)
         digest = sha256(destination)
+        if digest != row["local_sha256"] or quick_check(destination) != ["ok"]:
+            raise RuntimeError("database changed while creating pin")
+        verify_database_closure(
+            self.config, destination, strategy=row["strategy"], source_key=source_key,
+            database_sha256=digest, descriptor=payload_closure, source=row["source"],
+        )
+        if payload_closure is not None:
+            write_closure_descriptor(self.config, destination, payload_closure)
         manifest = {
             "schema_version": 1,
             "source_key": source_key,
@@ -2027,6 +2093,12 @@ class SyncService:
             "sha256": digest,
             "quick_check": quick_check(destination),
             "created_at": datetime.now(UTC).isoformat(),
+            "public_payloads": payload_closure,
+            "source_identity": {
+                "source": row["source"], "jenkins_job": row["jenkins_job"],
+                "strategy": row["strategy"], "runtime_job": row["runtime_job"],
+                "remote_path": row["remote_path"],
+            },
         }
         manifest_path = destination.parent / "manifest.json"
         manifest_path.write_text(

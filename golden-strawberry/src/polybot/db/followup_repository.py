@@ -27,6 +27,9 @@ from ..utils.retry import (
 )
 from ..v1_source import V1SeedSnapshot, anchor_sha256, compare_anchor
 
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 GIB = 1024**3
 FOLLOWUP_SCHEMA_VERSION = 4
@@ -456,7 +459,7 @@ class FollowupRepository:
         timeout=self.busy_timeout_ms/1000
         if deadline is not None:
             timeout=min(timeout,max(0.0,deadline.check("follow-up SQLite write connection")-0.01))
-        connection = sqlite3.connect(
+        connection = connect_market_data(
             self.db_path, timeout=timeout
         )
         connection.row_factory = sqlite3.Row
@@ -501,7 +504,7 @@ class FollowupRepository:
             connect_options["timeout"] = min(
                 self.busy_timeout_ms / 1000, max(0.0, remaining - 0.01)
             )
-        connection = sqlite3.connect(uri, **connect_options)
+        connection = connect_market_data(uri, **connect_options)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         connection.execute(f"PRAGMA cache_size=-{READ_CACHE_KIB}")
@@ -548,6 +551,7 @@ class FollowupRepository:
         if any(tuple(row) != columns for row in materialized):
             raise ValueError(f"{table} rows do not share one canonical column order")
         placeholders = ",".join("?" for _ in columns)
+        materialized = [externalize_row("golden-strawberry", table, row) for row in materialized]
         connection.executemany(
             f"INSERT INTO {table}({','.join(columns)}) VALUES({placeholders})",
             [tuple(row[column] for column in columns) for row in materialized],

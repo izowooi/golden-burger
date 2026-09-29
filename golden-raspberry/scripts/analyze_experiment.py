@@ -15,6 +15,8 @@ import sqlite3
 import statistics
 from typing import Any, Iterable
 
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 ANALYZER_VERSION = "queue-echo-analyzer-v3"
 LEGACY_ANALYZER_VERSION = "queue-echo-analyzer-v1"
@@ -85,7 +87,7 @@ def _canonical_db(value: str) -> Path:
 
 def _connect(path: Path) -> sqlite3.Connection:
     uri = f"file:{path.as_posix()}?mode=ro&immutable=1"
-    connection = sqlite3.connect(uri, uri=True)
+    connection = connect_market_data(uri, uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     return connection

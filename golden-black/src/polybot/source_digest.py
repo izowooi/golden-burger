@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ACTIVE_PREREGISTRATION = "research/frozen-2026-08-20/PREREGISTRATION.md"
@@ -46,6 +48,9 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    update_market_data_digest(
+        digest, Path(root).resolve().parent / "polybot-observability" / "src" / "polybot_observability"
+    )
     return digest.hexdigest()
 
 

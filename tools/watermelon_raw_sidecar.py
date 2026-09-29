@@ -17,6 +17,11 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from public_market_reader import add_public_store_argument, market_data_connect, public_references
 
 CONTRACT = "watermelon-independent-raw-lifecycle-v1"
 APPLICATION_ID = 0x57525231
@@ -48,7 +53,7 @@ def sha256(path):
     return h.hexdigest()
 
 
-def open_pin(path, expected_sha256):
+def open_pin(path, expected_sha256, *, references=None):
     path = Path(path).resolve()
     if not expected_sha256 or sha256(path) != expected_sha256:
         raise ValueError("verified pin SHA mismatch")
@@ -56,7 +61,9 @@ def open_pin(path, expected_sha256):
         companion = Path(str(path) + suffix)
         if companion.exists() and companion.stat().st_size:
             raise ValueError("pin must be a standalone SQLite snapshot")
-    conn = sqlite3.connect(path.as_uri() + "?mode=ro&immutable=1", uri=True)
+    conn = market_data_connect(
+        path.as_uri() + "?mode=ro&immutable=1", uri=True, references=references
+    )
     conn.row_factory = sqlite3.Row
     if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
         conn.close()
@@ -282,6 +289,7 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     for name in ("sidecar", "sidecar-sha256", "parent", "parent-sha256", "start", "end", "output"):
         p.add_argument("--" + name, required=True)
+    add_public_store_argument(p)
     args = p.parse_args(argv)
     output = Path(args.output).resolve()
     inputs = {Path(args.parent).resolve(), Path(args.sidecar).resolve()}
@@ -291,7 +299,7 @@ def main(argv=None):
         raise ValueError("explicit UTC half-open range required")
     output.parent.mkdir(parents=True, exist_ok=True)
     counts, errors, families = Counter(), Counter(), Counter()
-    with closing(open_pin(args.parent, args.parent_sha256)) as parent, closing(open_pin(args.sidecar, args.sidecar_sha256)) as raw:
+    with public_references(args.public_store) as references, closing(open_pin(args.parent, args.parent_sha256, references=references)) as parent, closing(open_pin(args.sidecar, args.sidecar_sha256, references=references)) as raw:
         if parent.execute("PRAGMA application_id").fetchone()[0] != 1196903732:
             raise ValueError("parent is not a White primary database")
         validate_contract(raw, Path(args.parent).name)

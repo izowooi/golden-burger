@@ -23,6 +23,9 @@ import re
 import sqlite3
 from urllib.parse import unquote
 
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 DATA_CONTRACT = "guava-research-v1"
 SCHEMA_VERSION = 1
@@ -307,7 +310,7 @@ class Repository:
         ).hexdigest()
         self._read_only = bool(read_only)
         self.connection = None
-        connection = sqlite3.connect(self.path.as_uri() + ("?mode=ro" if read_only else "?mode=rwc"),
+        connection = connect_market_data(self.path.as_uri() + ("?mode=ro" if read_only else "?mode=rwc"),
                                      uri=True, timeout=2, isolation_level=None)
         self.connection = connection
         connection.row_factory = sqlite3.Row
@@ -417,6 +420,7 @@ class Repository:
                 self.connection.set_progress_handler(None, 0)
 
     def _insert(self, table, values):
+        values = externalize_row("golden-guava", table, values)
         columns = ",".join(values)
         placeholders = ",".join("?" for _ in values)
         self.connection.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",

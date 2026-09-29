@@ -14,6 +14,12 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
+
+# Support direct scripts and importlib-loaded daily-rsync exporters alike.
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+from public_market_reader import add_public_store_argument, market_data_connect, public_references
 
 ROOT = Path(__file__).resolve().parents[1]
 COLUMNS = ["t", "token", "ask5", "bid5", "mid", "best_bid", "best_ask", "minute", "flags", "clock"]
@@ -622,20 +628,22 @@ def white_rows(connection, start, end):
         yield projected
 
 
-def export_source(source, output, start, end, index, *, include_depth=False):
+def export_source(source, output, start, end, index, *, include_depth=False, references=None):
     path = Path(source["local_path"])
     before = sha256(path)
     if before != source["local_sha256"]:
         raise ValueError(f"manifest checksum mismatch: {source['id']}")
-    connection = sqlite3.connect(path.as_uri()+"?mode=ro&immutable=1", uri=True)
+    connection = market_data_connect(
+        path.as_uri()+"?mode=ro&immutable=1", uri=True, references=references
+    )
     connection.row_factory = sqlite3.Row
-    if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-        raise ValueError("SQLite quick_check failed")
-    white = source["strategy"] == "golden-watermelon"
-    configs, runs = read_configs(connection, white), read_runs(connection, white)
-    terminals = terminal_records(connection, white, runs, end=end)
-    get_rows = white_rows if white else trading_rows
     try:
+        if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+            raise ValueError("SQLite quick_check failed")
+        white = source["strategy"] == "golden-watermelon"
+        configs, runs = read_configs(connection, white), read_runs(connection, white)
+        terminals = terminal_records(connection, white, runs, end=end)
+        get_rows = white_rows if white else trading_rows
         export_rows(source, output, start, end, index, get_rows(connection, start, end),
                     configs, runs, terminals, include_depth=include_depth, white=white)
     finally:
@@ -750,13 +758,15 @@ def main():
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--start", required=True, help="UTC ISO inclusive")
     parser.add_argument("--end", required=True, help="UTC ISO exclusive")
+    add_public_store_argument(parser)
     args = parser.parse_args()
     args.output.mkdir(parents=True, exist_ok=True)
     (args.output/"events").mkdir(exist_ok=True)
     index = {"schema_version": 1, "generated_at": datetime.now(timezone.utc).isoformat(), "range": {"start": args.start, "end_exclusive": args.end}, "sources": [], "cohorts": {}, "matches": [], "columns": COLUMNS, "flags": FLAGS, "semantics": "Displayed exact $5 ask depth and bid liquidation of the same freshly purchased shares; not historical-position exit size, actual fill, investor belief, or realized P&L. No synthetic NO, resampling, interpolation, or cohort stitching.", "sports": [{"id": s, "label": label} for s,label in [("soccer","축구"),("mlb","야구 · MLB"),("nba","농구 · NBA"),("nfl","미식축구 · NFL"),("nhl","아이스하키 · NHL"),("ufc","UFC"),("boxing","복싱")]]}
-    for source in json.loads(args.sources.read_text()):
-        export_source(source, args.output, args.start, args.end, index)
-        print(compact({"source": source["id"], "matches_so_far": len(index["matches"])}), flush=True)
+    with public_references(args.public_store) as references:
+        for source in json.loads(args.sources.read_text()):
+            export_source(source, args.output, args.start, args.end, index, references=references)
+            print(compact({"source": source["id"], "matches_so_far": len(index["matches"])}), flush=True)
     index["cohorts"] = list(index["cohorts"].values())
     index["matches"].sort(key=lambda m:(m["sport"],m["start"],m["title"],m["source_id"]))
     for sport in index["sports"]:

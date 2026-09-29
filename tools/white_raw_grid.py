@@ -200,7 +200,7 @@ def decode_connections(source, parent, raw, start, end):
                     "verified_publications": sum(publication.values())}
 
 
-def read_source(source, start, end):
+def read_source(source, start, end, *, references=None):
     if not source.get("pinned") or not source.get("parent_source_key") or not source.get("sidecar_source_key"):
         raise ValueError("two explicit verified source identities required")
     if source["parent_source_key"] == source["sidecar_source_key"]:
@@ -208,7 +208,7 @@ def read_source(source, start, end):
     parent_path, raw_path = Path(source["local_path"]).resolve(), Path(source["sidecar_path"]).resolve()
     if parent_path == raw_path:
         raise ValueError("parent and sidecar files must differ")
-    with closing(raw_reader.open_pin(parent_path, source["local_sha256"])) as parent, closing(raw_reader.open_pin(raw_path, source["sidecar_sha256"])) as raw:
+    with closing(raw_reader.open_pin(parent_path, source["local_sha256"], references=references)) as parent, closing(raw_reader.open_pin(raw_path, source["sidecar_sha256"], references=references)) as raw:
         if parent.execute("PRAGMA application_id").fetchone()[0] != 1196903732:
             raise ValueError("not a White primary database")
         raw_reader.validate_contract(raw, parent_path.name)

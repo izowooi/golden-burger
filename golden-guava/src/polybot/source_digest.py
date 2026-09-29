@@ -2,6 +2,8 @@
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 ROOT=Path(__file__).resolve().parents[2]
 
 
@@ -21,4 +23,5 @@ def compute_strategy_source_digest(root=ROOT):
         path=shared/name
         if not path.is_file():raise ValueError("shared observability source is unavailable")
         digest.update(('shared/'+name).encode());digest.update(path.read_bytes())
+    update_market_data_digest(digest, shared)
     return digest.hexdigest()

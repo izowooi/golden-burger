@@ -17,6 +17,12 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
+
+_TOOLS_PATH = str(Path(__file__).resolve().parent)
+if _TOOLS_PATH not in sys.path:
+    sys.path.insert(0, _TOOLS_PATH)
+from public_market_reader import add_public_store_argument, market_data_connect, public_references
 
 RUNTIMES = {f"guava-research-{c}-v1": i for i, c in enumerate("abcd")}
 CONTRACT = "guava-research-v1"
@@ -117,13 +123,13 @@ def phase_cadence(runs, statuses, start, end, phase):
             "does_not_replace_utc_minute_coverage": True}
 
 
-def inspect_snapshot(path, start, end):
+def inspect_snapshot(path, start, end, references=None):
     p, sha, before = verified_path(path)
     errors, groups, statuses, warnings = [], defaultdict(list), {}, []
     pin_at = json.loads(p.with_name("manifest.json").read_text()).get("created_at")
     if not pin_at or end > utc(pin_at):
         warnings.append("SCOPE_END_AFTER_PIN_CREATION_OR_CUTOFF_UNKNOWN")
-    c = sqlite3.connect(p.as_uri() + "?mode=ro&immutable=1", uri=True)
+    c = market_data_connect(p.as_uri() + "?mode=ro&immutable=1", uri=True, references=references)
     c.row_factory = sqlite3.Row
     try:
         c.execute("PRAGMA query_only=ON")
@@ -262,7 +268,7 @@ def inspect_snapshot(path, start, end):
         c.close()
 
 
-def analyze(paths, start, end):
+def analyze(paths, start, end, references=None):
     start, end = utc(start), utc(end)
     if start >= end:
         raise ValueError("start must precede exclusive end")
@@ -271,7 +277,7 @@ def analyze(paths, start, end):
         try:
             if str(path) in seen:
                 raise ValueError("duplicate input snapshot")
-            seen.add(str(path)); result = inspect_snapshot(path, start, end)
+            seen.add(str(path)); result = inspect_snapshot(path, start, end, references=references)
             if result["runtime"] in present:
                 raise ValueError("supply only one snapshot per runtime")
             present[result["runtime"]] = result
@@ -305,6 +311,7 @@ def main(argv=None):
     parser.add_argument("--db", action="append", default=[])
     parser.add_argument("--start", required=True); parser.add_argument("--end", required=True)
     parser.add_argument("--output", type=Path)
+    add_public_store_argument(parser)
     args = parser.parse_args(argv)
     try:
         if args.output:
@@ -315,7 +322,8 @@ def main(argv=None):
                 with out.open("rb") as handle:
                     if handle.read(16) == b"SQLite format 3\0":
                         raise ValueError("cannot overwrite a SQLite database")
-        report = analyze(args.db, args.start, args.end)
+        with public_references(args.public_store) as references:
+            report = analyze(args.db, args.start, args.end, references=references)
     except ValueError as error:
         parser.error(str(error))
     text = json.dumps(report, ensure_ascii=False, indent=2) + "\n"

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import posixpath
+import re
 import shlex
 import subprocess
 import tempfile
@@ -8,11 +10,18 @@ from datetime import date
 from pathlib import Path
 from typing import Any
 
-from .config import AppConfig
+from polybot_observability.market_data_bundle import closure_digest
+from polybot_observability.market_data_store import validate_hashes
+
+from .config import AppConfig, validate_public_source
 from .models import JobInventory
 
 
 class RemoteCommandError(RuntimeError):
+    pass
+
+
+class PublicPayloadBundleLimitError(RemoteCommandError):
     pass
 
 
@@ -178,6 +187,93 @@ class RemoteClient:
             ],
             timeout=60,
         )
+
+    def _public_command(self, arguments: list[str], *, hashes=None) -> dict[str, Any]:
+        validate_public_source(self.config, required=True)
+        command = shlex.join([
+            str(self.config.remote_public_python), "-m",
+            "polybot_observability.market_data_bundle", *arguments,
+        ])
+        process = subprocess.run(
+            [*self.ssh_base, command],
+            input=json.dumps({"hashes": hashes}) if hashes is not None else "",
+            text=True, capture_output=True, timeout=7200, check=False,
+        )
+        if process.returncode:
+            try:
+                error = json.loads(process.stderr)
+            except (ValueError, TypeError):
+                error = {}
+            if isinstance(error, dict) and error.get("error") == "BUNDLE_LIMIT":
+                raise PublicPayloadBundleLimitError("remote public payload batch exceeds limit")
+            # The remote process must never echo payload bodies into an error log.
+            raise RemoteCommandError("remote public payload command failed")
+        if len(process.stdout) > 262_144:
+            raise RemoteCommandError("remote public payload response exceeds limit")
+        try:
+            payload = json.loads(process.stdout)
+        except ValueError as error:
+            raise RemoteCommandError("remote public payload response is invalid") from error
+        if not isinstance(payload, dict):
+            raise RemoteCommandError("remote public payload response must be an object")
+        return payload
+
+    def _validate_public_bundle_path(self, value: object) -> str:
+        root = self.config.remote_staging_root
+        if (not isinstance(value, str) or not value.startswith("/")
+                or posixpath.normpath(value) != value or "\x00" in value):
+            raise RemoteCommandError("unsafe remote public bundle path")
+        parent = posixpath.dirname(value)
+        if (posixpath.dirname(parent) != root
+                or not re.fullmatch(r"shared-payload-[0-9a-f]{32}", posixpath.basename(parent))
+                or posixpath.basename(value) != "payloads.db"):
+            raise RemoteCommandError("remote public bundle is outside configured staging")
+        return value
+
+    def export_public_payloads(self, hashes: list[str]) -> dict[str, Any]:
+        validate_hashes(hashes)
+        requested = sorted(set(hashes))
+        if not requested:
+            raise ValueError("public payload export requires hashes")
+        payload = self._public_command([
+            "export", "--db", str(self.config.remote_public_db),
+            "--storage-root", str(self.config.remote_public_storage_root),
+            "--staging-root", self.config.remote_staging_root,
+        ], hashes=requested)
+        self._validate_public_bundle_path(payload.get("bundle_path"))
+        manifest = payload.get("manifest")
+        identity = payload.get("source_identity")
+        if not isinstance(manifest, dict) or not isinstance(identity, dict):
+            raise RemoteCommandError("public bundle attestation is missing")
+        if (manifest.get("contract") != "public-payload-bundle-v1"
+                or manifest.get("status") != "VERIFIED"
+                or manifest.get("payload_hashes") != requested
+                or manifest.get("closure_sha256") != closure_digest(requested)
+                or manifest.get("payload_count") != len(requested)
+                or not isinstance(manifest.get("file_sha256"), str)
+                or not re.fullmatch(r"[0-9a-f]{64}", manifest["file_sha256"])):
+            raise RemoteCommandError("public bundle manifest does not match requested hashes")
+        if (type(manifest.get("raw_bytes")) is not int
+                or not 0 <= manifest["raw_bytes"] <= 256 << 20):
+            raise RemoteCommandError("public bundle raw size exceeds limit")
+        if (set(identity) != {"db_path", "storage_root", "device", "inode"}
+                or identity.get("db_path") != self.config.remote_public_db
+                or identity.get("storage_root") != self.config.remote_public_storage_root
+                or any(type(identity.get(key)) is not int or identity[key] < 0
+                       for key in ("device", "inode"))):
+            raise RemoteCommandError("public bundle source identity mismatch")
+        return payload
+
+    def cleanup_public_payloads(self, bundle_path: str, expected_sha: str) -> None:
+        self._validate_public_bundle_path(bundle_path)
+        validate_hashes([expected_sha])
+        response = self._public_command([
+            "cleanup", "--bundle", bundle_path,
+            "--staging-root", self.config.remote_staging_root,
+            "--expected-sha", expected_sha,
+        ])
+        if response.get("status") != "REMOVED":
+            raise RemoteCommandError("remote public bundle cleanup was not confirmed")
 
     def rsync(
         self,

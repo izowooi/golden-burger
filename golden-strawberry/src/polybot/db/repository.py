@@ -16,6 +16,10 @@ from urllib.parse import quote
 from ..config import BotConfig, DATA_CONTRACT, StorageConfig
 from ..utils.retry import canonical_json, iso_utc
 
+from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_sqlite import connect as connect_market_data
+
 
 GIB = 1024**3
 SCHEMA_VERSION = 1
@@ -576,7 +580,7 @@ class ResearchRepository:
     def _connect(self, *, create: bool = True) -> Iterator[sqlite3.Connection]:
         if create:
             self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(
+        connection = connect_market_data(
             self.db_path,
             timeout=self.busy_timeout_ms / 1000,
         )
@@ -596,7 +600,7 @@ class ResearchRepository:
             raise FileNotFoundError(self.db_path)
         suffix = "&immutable=1" if immutable else ""
         uri = f"file:{quote(str(self.db_path.resolve()))}?mode=ro{suffix}"
-        connection = sqlite3.connect(uri, uri=True)
+        connection = connect_market_data(uri, uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         connection.execute("PRAGMA foreign_keys=ON")
@@ -744,6 +748,7 @@ class ResearchRepository:
     def _insert_one(self, table: str, row: Mapping[str, Any]) -> None:
         if table not in APPEND_ONLY_TABLES:
             raise ValueError("table is not an approved append-only evidence table")
+        row = externalize_row("golden-strawberry", table, row)
         columns = tuple(row)
         placeholders = ",".join("?" for _ in columns)
         with self._connect() as connection:
@@ -766,6 +771,9 @@ class ResearchRepository:
         if any(tuple(row) != columns for row in materialized):
             raise ValueError(f"inconsistent row columns for {table}")
         placeholders = ",".join("?" for _ in columns)
+        if insert_shared_levels(connection, "golden-strawberry", table, materialized):
+            return
+        materialized = [externalize_row("golden-strawberry", table, row) for row in materialized]
         connection.executemany(
             f"INSERT INTO {table}({','.join(columns)}) VALUES({placeholders})",
             [tuple(row[column] for column in columns) for row in materialized],

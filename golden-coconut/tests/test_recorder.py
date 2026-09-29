@@ -111,6 +111,32 @@ def record(path,at):
     finally:store.close()
 
 
+def test_shared_public_bodies_preserve_export_and_keep_cycle_state_local(tmp_path, monkeypatch):
+    from polybot_observability.market_data_refs import PayloadReferences, parse_reference
+    from polybot_observability.market_data_store import PayloadStore
+    shared = PayloadStore(tmp_path/'public.db')
+    writer = PayloadReferences(reader=shared, writer=shared)
+    monkeypatch.setattr('polybot_observability.market_data_refs.configured_references', lambda: writer)
+    monkeypatch.setattr('polybot_observability.market_data_sqlite.configured_references', lambda: PayloadReferences(reader=shared))
+    monkeypatch.setattr('polybot_observability.market_data_index.configured_references', lambda: writer)
+    monkeypatch.setenv('PUBLIC_MARKET_DATA_SOURCE','test-source')
+    path=tmp_path/'private'/'trades_sim.db'
+    result=record(path,NOW)
+    assert result['status']=='SUCCEEDED'
+    raw=sqlite3.connect(path)
+    assert parse_reference(raw.execute('SELECT raw_gzip FROM requests LIMIT 1').fetchone()[0])
+    assert parse_reference(raw.execute('SELECT event_json FROM event_observations LIMIT 1').fetchone()[0])
+    assert parse_reference(raw.execute('SELECT book_gzip FROM book_observations LIMIT 1').fetchone()[0])
+    assert json.loads(raw.execute('SELECT config_json FROM cycles').fetchone()[0])['job_name']==WHITE_RUNTIME
+    assert json.loads(raw.execute('SELECT fee_json FROM book_observations LIMIT 1').fetchone()[0])['fields']['feeSchedule']['rate']==.03
+    raw.close()
+    rows=list(iter_rows(path,file_sha(path),include_depth=True))
+    assert len(rows)==6 and all(row['raw_point_in_time_identity_proven'] for row in rows)
+    assert all(row['book']['bids']==[{'price':'0.45','size':'20'}] for row in rows)
+    assert shared.stats()['observation_count'] >= 12
+    shared.close()
+
+
 def test_six_real_books_without_liquidity_or_gamma_probability_gate(tmp_path):
     for m in FakeClient.source['markets']:
         m.pop('outcomePrices');m.update(active=False,closed=True,acceptingOrders=False,enableOrderBook=False)

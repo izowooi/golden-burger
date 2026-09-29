@@ -343,7 +343,7 @@ def read_terminals(c, evidence, runs, info, identities, cutoff, stats):
                 terminal[key][(cid,token)].append({'payout':payout,'observed_at':grid.iso(when),'source':'VERIFIED_HISTORICAL_COCONUT_CLOB','observer_config':key[0]});stats['verified_terminal_token_facts']+=1
     return terminal,times
 
-def read_source(source,start,end):
+def read_source(source,start,end,*,references=None):
     path=Path(source["local_path"]).resolve()
     if not source.get("pinned") or not re.fullmatch(r"coconut-major-sports(?:-lifecycle)?-5m-v[1-7]",source.get("runtime_job","")):
         raise ValueError("explicit historical Coconut pin/runtime required")
@@ -355,7 +355,9 @@ def read_source(source,start,end):
     m=json.loads(manifest.read_text())
     if (m.get("sha256")!=expected or m.get("pinned_path")!=str(path) or m.get("source_key")!=source.get("source_key") or m.get("quick_check")!=["ok"]):
         raise ValueError("pin manifest identity mismatch")
-    with closing(sqlite3.connect(path.as_uri()+"?mode=ro&immutable=1",uri=True)) as c:
+    with closing(visual.market_data_connect(
+        path.as_uri()+"?mode=ro&immutable=1",uri=True,references=references
+    )) as c:
         c.row_factory=sqlite3.Row;c.execute("PRAGMA query_only=ON")
         if c.execute("PRAGMA quick_check").fetchone()[0]!="ok":raise ValueError("pin SQLite integrity failure")
         metadata_rows=c.execute("SELECT * FROM schema_metadata").fetchall()

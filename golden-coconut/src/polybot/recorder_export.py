@@ -3,6 +3,7 @@ import gzip,hashlib,json,sqlite3,math
 from collections import OrderedDict
 from pathlib import Path
 from datetime import datetime,timezone
+from polybot_observability.market_data_sqlite import connect as market_data_connect
 CONTRACT='sports-price-recorder-1m-v1'
 ACCEPTED_CONTRACTS={CONTRACT,'sports-price-recorder-1m-v2'}
 APPLICATION_ID=0x43535231
@@ -19,10 +20,10 @@ def file_sha(path):
         for block in iter(lambda:f.read(1024*1024),b''):h.update(block)
     return h.hexdigest()
 
-def open_verified(path,expected_sha=None):
+def open_verified(path,expected_sha=None,*,references=None):
     path=Path(path).resolve()
     if expected_sha and file_sha(path)!=expected_sha:raise ValueError('pinned database SHA mismatch')
-    c=sqlite3.connect(path.as_uri()+'?mode=ro&immutable=1',uri=True);c.row_factory=sqlite3.Row
+    c=market_data_connect(path.as_uri()+'?mode=ro&immutable=1',uri=True,references=references);c.row_factory=sqlite3.Row
     row=c.execute('SELECT data_contract FROM collection_contracts').fetchone()
     if not row or row[0] not in ACCEPTED_CONTRACTS or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID:
         c.close();raise ValueError('not a recorder source')
@@ -63,8 +64,8 @@ def _valid_identity(event,slots,family):
     return True
 
 
-def iter_rows(path,expected_sha=None,*,start=None,end=None,include_depth=True):
-    c=open_verified(path,expected_sha)
+def iter_rows(path,expected_sha=None,*,start=None,end=None,include_depth=True,references=None):
+    c=open_verified(path,expected_sha,references=references)
     source_contract=c.execute('SELECT data_contract FROM collection_contracts').fetchone()[0]
     lower,upper=_utc(start),_utc(end)
     query='''SELECT b.*,e.family,e.league,e.season_phase,e.metadata_status,e.received_at AS metadata_received,
@@ -163,8 +164,8 @@ def _terminal_proof(event,slots,family):
     return {'source':'GAMMA_CLOSED_EXACT_TOKEN_PAYOUT','tokens':proof}
 
 
-def iter_terminals(path,expected_sha=None,*,end=None):
-    c=open_verified(path,expected_sha);upper=_utc(end)
+def iter_terminals(path,expected_sha=None,*,end=None,references=None):
+    c=open_verified(path,expected_sha,references=references);upper=_utc(end)
     source_contract=c.execute('SELECT data_contract FROM collection_contracts').fetchone()[0]
     try:
         for row in c.execute('''SELECT e.*,r.reference_at,r.published_at,r.config_json FROM event_observations e JOIN cycles r USING(run_id)
@@ -198,8 +199,8 @@ def iter_terminals(path,expected_sha=None,*,end=None):
     finally:c.close()
 
 
-def carryovers(path,expected_sha=None):
-    c=open_verified(path,expected_sha)
+def carryovers(path,expected_sha=None,*,references=None):
+    c=open_verified(path,expected_sha,references=references)
     try:
         for row in c.execute('SELECT * FROM registry_carryovers'):
             r=dict(row)
