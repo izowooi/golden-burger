@@ -11,7 +11,7 @@ description: Report Golden Burger sports bots' confirmed fills, fees, settlement
 
 - 요청한 전략·종목·Jenkins job의 모든 active·close-only child runtime과 기간 내 carry-in을 찾는다. 종목을 생략하면 축구·MLB와 실제 등록된 NFL/NBA/NHL profile을 확인한다. 여섯 job 이름이나 폴더명을 현재 배치로 고정하지 않는다. `docs/local/jenkins-job-strategy-inventory.md`는 routing 후보이며 최신 Jenkins config·DB resolved config가 우선한다.
 - 장기 비교에서는 현재 runtime뿐 아니라 요청 전략의 retired·과거 금액/parameter epoch도 catalog에서 찾는다. 종목·팔별 최초 verified evidence, 유효 경기 수·독립 경기일·누락 기간을 표시한다. 없는 과거 자료를 0손익으로 채우거나 짧은 표본을 1년 수익으로 환산하지 않는다. 같은 범위가 되는 30일/전체 기간은 중복 표 대신 범위가 같음을 알린다.
-- 기존 verified pin이 **요청 기간 전체와 필요한 source cohort**를 덮으면 재사용한다. 부족하면 evidence gap과 필요한 sync 범위를 먼저 제시하고, 사용자가 동기화를 요청했을 때만 해당 source를 `daily-rsync scan → plan → sync → verify → pin`한다. DB/log의 SHA, latest sync attempt/success, verify, source cutoff, mode, runtime을 기록한다. 외장 root가 없거나 UTC 당일 research shard가 아직 mutable이면 내부 fallback이나 완료된 archive로의 추정을 하지 않는다.
+- 기존 verified pin이 **요청 기간 전체와 필요한 source cohort**를 덮으면 재사용한다. 요청된 회고·검증에 필요한 최신 자료가 부족하면 범위를 설명하고 해당 source를 `daily-rsync scan → plan → sync → verify → pin`한다. 공용 원본 저장소에서는 전략별 참조와 수집 출처를 따라 필요한 자료를 찾으며 같은 원본을 여러 팔의 독립 관측으로 중복 계산하지 않는다. DB/log의 SHA, verify, source cutoff, mode, runtime을 기록한다. 외장 root가 없거나 UTC 당일 research shard가 아직 mutable이면 내부 fallback이나 완료된 archive로의 추정을 하지 않는다.
 - 공식 일정·점수는 필요한 경기와 결과 범위를 확인하는 데 사용한다. 공식 승패만으로 Polymarket token payout이나 주문 fill을 만들어내지 않는다. 자료 gap·장애 구간은 `docs/retro/sports-source-quality-exclusions.json`과 run 로그로 분리한다.
 
 ## 실제 손익 계약
