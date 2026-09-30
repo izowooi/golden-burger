@@ -29,10 +29,12 @@ SOURCE_PATHS = (
     "src/polybot/shadow/transport.py",
     "src/polybot/shadow/clients.py",
     "src/polybot/shadow/db.py",
+    "src/polybot/shadow/shared_raw.py",
     "src/polybot/shadow/collector.py",
     "src/polybot/shadow/analyzer.py",
     "src/polybot/shadow/runtime.py",
     "src/polybot/shadow/cli.py",
+    "scripts/grid_shadow_parameters.py",
 )
 
 

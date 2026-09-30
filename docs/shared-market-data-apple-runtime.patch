@@ -1,0 +1,82 @@
+--- a/apple/compact_store.py
++++ b/apple/compact_store.py
+@@ -9,0 +10,2 @@
++import os
++import socket
+@@ -15,0 +18,6 @@
++from polybot_observability.market_data_apple import (
++    SHARED_FORMAT, enforce_month_storage_budget, is_shared_frame, prepare_frame,
++    publish_frame_observation, reserve_frame_storage, resolve_frame,
++    seed_month_storage_budget,
++)
++from polybot_observability.market_data_refs import configured_references
+@@ -50 +58,5 @@
+-def decode_frame(packed, sha256, size):
++def decode_frame(packed, sha256, size, *, references=None):
++    if is_shared_frame(packed):
++        packed = resolve_frame(
++            packed, references if references is not None else configured_references()
++        )
+@@ -163,0 +176,9 @@
++            references = configured_references()
++            if references.writer is not None:
++                budget = config['storage']['max_month_db_bytes_per_job']
++                if not existing:
++                    seed_month_storage_budget(self.db, references, budget)
++                else:
++                    enforce_month_storage_budget(self.db, budget)
++            elif references.reader is not None:
++                raise ValueError('SHARED_PUBLIC_WRITER_REQUIRED')
+@@ -199,0 +221,29 @@
++        original_compressed_bytes = len(packed)
++        public_payload_bytes = public_budget_bytes = public_index_rows = 0
++        month_shared_reserved_bytes = 0
++        references = configured_references()
++        if references.writer is not None:
++            run = self.db.execute("SELECT run_key FROM runs WHERE slot=? AND status='RUNNING'",
++                                  (self.current_slot,)).fetchone()
++            if run is None:
++                raise ValueError('NO_ACTIVE_FRAME_IDENTITY')
++            job = self.db.execute("SELECT value FROM meta WHERE key='job'").fetchone()[0]
++            observer = os.environ.get('PUBLIC_MARKET_DATA_OBSERVER') or (
++                socket.gethostname() + ':golden-apple:' + job + ':collection-v2')
++            plan = prepare_frame(packed, references, raw_sha256=sha, raw_size=size)
++            public_payload_bytes = len(plan.public_payload or b'')
++            if len(plan.envelope) + public_payload_bytes > self.config['storage']['max_frame_compressed_bytes']:
++                raise ValueError('SHARED_TOTAL_FRAME_COMPRESSED_BUDGET')
++            public_budget_bytes = plan.public_budget_bytes
++            month_shared_reserved_bytes = reserve_frame_storage(
++                self.db, plan, slot=self.current_slot,
++                maximum_bytes=self.config['storage']['max_month_db_bytes_per_job'],
++            )
++            packed = plan.publish(references)
++            public_index_rows = int(publish_frame_observation(
++                packed, references, observer=observer,
++                frame_id=self.month + '/' + str(self.current_slot) + '/' + run[0],
++                observed_at=datetime.fromtimestamp(finished, timezone.utc).isoformat(), job=job,
++            ))
++        elif references.reader is not None:
++            raise ValueError('SHARED_PUBLIC_WRITER_REQUIRED')
+@@ -201,0 +252,3 @@
++                if is_shared_frame(packed):
++                    self.db.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',
++                                    ('frame_storage_format', SHARED_FORMAT))
+@@ -225 +278,7 @@
+-        return {'frame_compressed_bytes': len(packed), 'frame_raw_bytes': size,
++        return {'frame_compressed_bytes': original_compressed_bytes, 'frame_raw_bytes': size,
++                'frame_local_envelope_bytes': len(packed),
++                'frame_public_payload_bytes': public_payload_bytes,
++                'frame_public_budget_bytes': public_budget_bytes,
++                'frame_public_index_rows': public_index_rows,
++                'month_shared_reserved_bytes': month_shared_reserved_bytes,
++                'frame_storage_format': SHARED_FORMAT if is_shared_frame(packed) else FORMAT,
+--- a/apple/compact_collection.py
++++ b/apple/compact_collection.py
+@@ -12,0 +13,4 @@
++from polybot_observability import (
++    market_data_apple, market_data_client, market_data_refs, market_data_store,
++)
++
+@@ -27,0 +32,2 @@
++    for module in (market_data_apple, market_data_client, market_data_refs, market_data_store):
++        result.update(module.__name__.encode()+b'\0'+Path(module.__file__).read_bytes())

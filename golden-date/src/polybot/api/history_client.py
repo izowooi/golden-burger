@@ -12,6 +12,10 @@ from datetime import datetime, timezone
 from typing import List, Optional, Tuple
 import requests
 
+from polybot_observability.market_data_capture import (
+    PublicCaptureError, install_session_capture, remaining_budget,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -22,7 +26,10 @@ class HistoryClient:
     DEFAULT_FIDELITY = 10  # 분 단위 캔들
 
     def __init__(self, timeout: float = 10.0):
-        self.session = requests.Session()
+        self.session = install_session_capture(
+            requests.Session(), strategy="golden-date",
+            budget=lambda: remaining_budget(getattr(self, "cycle_budget", None)),
+        )
         self.session.headers.update({
             "Accept": "application/json",
             "User-Agent": "GoldenDate-PolyBot/1.0",
@@ -71,6 +78,8 @@ class HistoryClient:
             points.sort(key=lambda p: p[0])
             return points
 
+        except PublicCaptureError:
+            raise
         except Exception as e:
             logger.debug(f"prices-history 백필 실패 - token: {token_id}: {e}")
             return None

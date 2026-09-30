@@ -16,6 +16,7 @@ def shared_payloads(monkeypatch):
     class Store:
         def __init__(self):
             self.payloads = {}
+            self.observations = []
 
         def put_many(self, values):
             hashes = [hashlib.sha256(value).hexdigest() for value in values]
@@ -25,9 +26,14 @@ def shared_payloads(monkeypatch):
         def get_many(self, hashes):
             return [self.payloads[digest] for digest in hashes]
 
+        def append_observations(self, observations):
+            self.observations.extend(observations)
+
     for key in ("PUBLIC_MARKET_DATA_DB", "PUBLIC_MARKET_DATA_SOCKET", "PUBLIC_MARKET_DATA_REQUIRED"):
         monkeypatch.delenv(key, raising=False)
     store = Store()
+    monkeypatch.setenv('PUBLIC_MARKET_DATA_SOURCE','fixture-source')
+    monkeypatch.setenv('JOB_NAME','polybot-cherry-shadow')
     codec = PayloadReferences(store, store)
     monkeypatch.setattr(market_data_refs, "configured_references", lambda: codec)
     monkeypatch.setattr(market_data_sqlite, "configured_references", lambda: codec)

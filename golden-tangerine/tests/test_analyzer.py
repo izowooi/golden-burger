@@ -142,3 +142,60 @@ def test_ab_analyzer_reports_async_cadence_and_checksum(tmp_path):
     assert report["async_cadence"]["comparable"] is True
     assert len(report["report_sha256"]) == 64
     assert report["strict_evidence_complete"] is True
+
+
+def test_analyze_cli_shared_catalog_preserves_private_resolution_evidence(tmp_path, monkeypatch):
+    import sqlite3
+    import subprocess
+    import sys
+    from polybot_observability.market_data_migrate import migrate_public_bodies
+    from polybot_observability.market_data_refs import PayloadReferences
+    from polybot_observability.market_data_store import PayloadStore
+
+    monkeypatch.delenv("PUBLIC_MARKET_DATA_DB", raising=False)
+    paths = []
+    for label in ("a", "b"):
+        source = _analyzable_db(tmp_path, label)
+        path = tmp_path / f"{label}-offline.db"
+        with sqlite3.connect(source) as reader, sqlite3.connect(path) as target:
+            reader.backup(target)
+            target.execute(
+                """INSERT INTO market_catalog
+                   (condition_id,outcomes_json,outcome_prices_json,token_ids_json,tags_json,first_seen_at,last_seen_at)
+                   VALUES(?,?,?,?,?,?,?)""",
+                (f"condition-{label}", '["Winner","Loser"]', '[1,0]',
+                 json.dumps([f"token-{label}", f"other-{label}"]), '[]', START.isoformat(), END.isoformat()),
+            )
+        reader.close()
+        target.close()
+        paths.append(path)
+    command = [sys.executable, "-m", "polybot.main", "analyze", "--start", START.isoformat(), "--end-exclusive", END.isoformat()]
+    for label, path in zip(("A", "B"), paths):
+        command += ["--db", f"{label}={path}"]
+    baseline = subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+    public = tmp_path / "public.sqlite"
+    with PayloadStore(public) as store:
+        refs = PayloadReferences(reader=store, writer=store)
+        for path in paths:
+            destination = tmp_path / "migrated" / path.name
+            result = migrate_public_bodies(path, destination, strategy="golden-tangerine",
+                                           source_sha256=hashlib.sha256(path.read_bytes()).hexdigest(), references=refs)
+            assert result["tables"]["market_catalog"]["externalized_cells"] == 4
+            with sqlite3.connect(path) as original, sqlite3.connect(destination) as migrated:
+                for query in ("SELECT resolution_evidence FROM trades", "SELECT evidence_json FROM resolution_observations"):
+                    assert migrated.execute(query).fetchall() == original.execute(query).fetchall()
+    command = [part.replace(str(tmp_path) + "/", str(tmp_path / "migrated") + "/") if part.startswith(("A=", "B=")) else part for part in command]
+    paths = [tmp_path / "migrated" / path.name for path in paths]
+    checksums = {path: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths}
+    public_before = public.read_bytes()
+    actual = subprocess.run(command + ["--public-store", str(public)], capture_output=True, text=True, check=True, timeout=30)
+    expected, report = json.loads(baseline.stdout), json.loads(actual.stdout.replace(str(tmp_path / "migrated"), str(tmp_path)))
+    # Physical checksums and the report checksum change with the encoding.
+    for row in expected['databases'] + report['databases']:
+        row.pop('checksums_before', None)
+        row.pop('checksums_after', None)
+    expected.pop('report_sha256')
+    report.pop('report_sha256')
+    assert report == expected
+    assert all(hashlib.sha256(path.read_bytes()).hexdigest() == value for path, value in checksums.items())
+    assert public.read_bytes() == public_before

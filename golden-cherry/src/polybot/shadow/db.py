@@ -7,8 +7,10 @@ from datetime import datetime, timezone
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import sqlite3
+import tempfile
 from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
@@ -17,8 +19,12 @@ from .config import ShadowConfig, canonical_json
 from .transport import CollectionBudgetExceeded, CollectionDeadline, iso_utc
 
 from polybot_observability.market_data_levels import insert_shared_levels
+from polybot_observability import market_data_refs
 from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_index import collector_receipt_context
+from polybot_observability.market_data_raw_links import raw_layout_metadata,insert_raw_rows
 from polybot_observability.market_data_sqlite import connect as connect_market_data
+from .shared_raw import SharedRawRuntime,verify_read_closure
 
 
 SCHEMA = """
@@ -369,41 +375,81 @@ INTEGRITY_PROBE_TABLES = (
 
 
 class ShadowRepository:
-    def __init__(self, db_path: str | Path, config: ShadowConfig) -> None:
+    def __init__(self, db_path: str | Path, config: ShadowConfig, *, references=None,
+                 raw_profile_id=None,raw_namespace=None,read_only=False) -> None:
         self.db_path = Path(db_path).expanduser().resolve()
         self.config = config
+        self._read_only=read_only
+        self._references=references if references is not None else market_data_refs.configured_references()
+        self._shared_raw=SharedRawRuntime(self.db_path,self._references,
+            profile_id=raw_profile_id,namespace=raw_namespace)
+        if self.db_path.exists():
+            # Verify bound storage before running legacy CREATE TABLE/INDEX DDL
+            # against logical views or changing any existing source bytes.
+            with self.connect(read_only=True) as connection:
+                metadata=raw_layout_metadata(connection)
+                if metadata is not None:
+                    self._shared_raw.check(connection,write=not read_only)
+                    if read_only:verify_read_closure(connection,self.db_path,self._references)
+                    return
+                if self._shared_raw.enabled:self._shared_raw.check(connection,write=not read_only)
+                if read_only:
+                    contracts=connection.execute('SELECT data_contract FROM shadow_schema_metadata').fetchall()
+                    if [row[0] for row in contracts]!=[DATA_CONTRACT]:
+                        raise RuntimeError('shadow DB data contract mismatch')
+                    verify_read_closure(connection,self.db_path,self._references)
+        if read_only:
+            if not self.db_path.is_file():raise ValueError('missing Cherry shadow source')
+            return
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as connection:
-            connection.executescript(SCHEMA)
-            connection.execute(
-                "INSERT OR IGNORE INTO shadow_schema_metadata VALUES (?, ?)",
-                (DATA_CONTRACT, iso_utc()),
-            )
-            rows = connection.execute(
-                "SELECT data_contract FROM shadow_schema_metadata"
-            ).fetchall()
-            if [row[0] for row in rows] != [DATA_CONTRACT]:
-                raise RuntimeError("shadow DB data contract mismatch")
-            for table in _IMMUTABLE_TABLES:
-                for operation in ("UPDATE", "DELETE"):
-                    trigger = f"{table}_deny_{operation.lower()}"
-                    connection.execute(
-                        f"CREATE TRIGGER IF NOT EXISTS {trigger} "
-                        f"BEFORE {operation} ON {table} BEGIN "
-                        "SELECT RAISE(ABORT, 'append-only shadow evidence'); END"
-                    )
+        stage=None
+        if not self.db_path.exists():
+            fd,name=tempfile.mkstemp(prefix='.cherry-shadow-init-',suffix='.db',dir=self.db_path.parent)
+            os.close(fd);stage=Path(name)
+        try:
+            with self.connect(_database_path=stage) as connection:
+                self._initialize_schema(connection)
+            if stage is not None:os.link(stage,self.db_path)
+        finally:
+            if stage is not None:
+                stage.unlink(missing_ok=True)
+                Path(str(stage)+'-journal').unlink(missing_ok=True)
+
+    def _initialize_schema(self,connection):
+        connection.executescript(SCHEMA)
+        connection.execute(
+            "INSERT OR IGNORE INTO shadow_schema_metadata VALUES (?, ?)",
+            (DATA_CONTRACT, iso_utc()),
+        )
+        rows = connection.execute(
+            "SELECT data_contract FROM shadow_schema_metadata"
+        ).fetchall()
+        if [row[0] for row in rows] != [DATA_CONTRACT]:
+            raise RuntimeError("shadow DB data contract mismatch")
+        for table in _IMMUTABLE_TABLES:
+            for operation in ("UPDATE", "DELETE"):
+                trigger = f"{table}_deny_{operation.lower()}"
+                connection.execute(
+                    f"CREATE TRIGGER IF NOT EXISTS {trigger} "
+                    f"BEFORE {operation} ON {table} BEGIN "
+                    "SELECT RAISE(ABORT, 'append-only shadow evidence'); END"
+                )
+        self._shared_raw.initialize(connection)
 
     @contextmanager
     def connect(
         self, *, read_only: bool = False,
         deadline: CollectionDeadline | None = None,
+        _database_path: Path | None = None,
     ) -> Iterator[sqlite3.Connection]:
+        if self._read_only and not read_only:
+            raise ValueError('read-only Cherry shadow source cannot publish')
         timeout = min(30.0, deadline.require()) if deadline else 30.0
         if read_only:
-            uri = f"file:{self.db_path}?mode=ro"
-            connection = connect_market_data(uri, uri=True, timeout=timeout)
+            uri = self.db_path.as_uri()+'?mode=ro'
+            connection = connect_market_data(uri, uri=True, timeout=timeout,references=self._references)
         else:
-            connection = connect_market_data(self.db_path, timeout=timeout)
+            connection = connect_market_data(_database_path or self.db_path, timeout=timeout,references=self._references)
         connection.row_factory = sqlite3.Row
 
         def interrupt_on_budget() -> int:
@@ -420,6 +466,8 @@ class ShadowRepository:
                 connection.execute("PRAGMA query_only=ON")
             connection.execute("PRAGMA foreign_keys=ON")
             connection.execute(f"PRAGMA busy_timeout={int(timeout * 1000)}")
+            if raw_layout_metadata(connection) is not None:
+                self._shared_raw.check(connection,write=not read_only)
             yield connection
             if deadline:
                 deadline.require()
@@ -585,9 +633,19 @@ class ShadowRepository:
         columns = tuple(rows[0])
         if any(tuple(row) != columns for row in rows):
             raise ValueError(f"{table} rows have inconsistent columns")
-        if insert_shared_levels(connection, "golden-cherry", table, rows):
+        references=getattr(connection,'_references',None)
+        metadata=raw_layout_metadata(connection)
+        namespace=metadata['namespace'] if metadata is not None else None
+        if insert_raw_rows(connection,'golden-cherry',table,rows,references=references,namespace=namespace,
+            receipt_context=lambda row:collector_receipt_context('golden-cherry',table,row,connection,
+                references=references,namespace=namespace)):
             return
-        rows = [externalize_row("golden-cherry", table, row) for row in rows]
+        if insert_shared_levels(connection, "golden-cherry", table, rows,references=references,preserve_rowid=True):
+            return
+        body_references=references if references is not None and (references.reader is not None or references.writer is not None) else None
+        rows = [externalize_row("golden-cherry", table, row,
+            references=body_references,receipt_context=collector_receipt_context("golden-cherry", table, row, connection,
+                references=references,namespace=namespace)) for row in rows]
         connection.executemany(
             f"INSERT INTO {table} ({','.join(columns)}) "
             f"VALUES ({','.join('?' for _ in columns)})",

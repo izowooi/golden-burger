@@ -9,7 +9,21 @@ from datetime import datetime
 import json
 from pathlib import Path
 import sqlite3
+import sys
 from typing import Sequence
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+
 
 try:  # project-root import in tests/build tooling
     from scripts.analyze_experiment import _db_utc_key, _display_utc, _window
@@ -26,12 +40,14 @@ def analyze_shadow(
     output_dir: Path,
     review_start: str,
     review_end: str,
+    *,
+    references=None,
 ) -> Path:
     start, end = _window(review_start, review_end)
     if not database.is_file():
         raise ValueError(f"database not found: {database}")
-    uri = f"file:{database.resolve().as_posix()}?mode=ro&immutable=1"
-    connection = sqlite3.connect(uri, uri=True)
+    uri = database.resolve().as_uri() + "?mode=ro&immutable=1"
+    connection = market_data_connect(uri, uri=True, references=references)
     connection.row_factory = sqlite3.Row
     connection.create_function("utc_key", 1, _db_utc_key, deterministic=True)
     try:
@@ -188,16 +204,19 @@ def analyze_shadow(
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_public_store_argument(parser)
     parser.add_argument("--db", type=Path, required=True)
     parser.add_argument("--review-start", required=True)
     parser.add_argument("--review-end", required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args(argv)
-    print(
-        analyze_shadow(
-            args.db, args.output_dir, args.review_start, args.review_end
+    with public_references(args.public_store) as references:
+        print(
+            analyze_shadow(
+                args.db, args.output_dir, args.review_start, args.review_end,
+                references=references,
+            )
         )
-    )
     return 0
 
 

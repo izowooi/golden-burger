@@ -6,6 +6,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 
 Base = declarative_base()
 
@@ -136,7 +137,9 @@ def init_database(
         "golden-date",
         requirements=maintenance_requirements,
     )
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(f"sqlite:///{db_path}", echo=False,
+                           creator=lambda: resolving_connect(
+                               db_path, check_same_thread=(str(db_path) == ":memory:")))
     Base.metadata.create_all(engine)
     # 기존 DB 파일 호환: 신규 컬럼 best-effort ALTER (cherry의 market_tags 패턴).
     # 컬럼이 이미 있으면 ALTER가 실패하므로 컬럼별로 개별 try (일부만 없는 DB도 마이그레이션됨).

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from contextlib import closing
 from datetime import datetime, timezone
 import hashlib
 import math
@@ -14,6 +15,8 @@ from urllib.parse import quote
 from . import DATA_CONTRACT
 
 from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability import market_data_refs
+from .shared_raw import verify_read_closure
 
 
 def parse_utc(value: str) -> datetime:
@@ -29,12 +32,17 @@ def parse_utc(value: str) -> datetime:
     return parsed.astimezone(timezone.utc)
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+def _connect(path: Path, *, references=None) -> sqlite3.Connection:
+    references=references if references is not None else market_data_refs.configured_references()
     connection = connect_market_data(
-        f"file:{quote(str(path.resolve()))}?mode=ro", uri=True
+        f"file:{quote(str(path.resolve()))}?mode=ro", uri=True,references=references
     )
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only=ON")
+    try:
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA query_only=ON")
+        verify_read_closure(connection,path,references)
+    except BaseException:
+        connection.close();raise
     return connection
 
 
@@ -59,13 +67,14 @@ def analyze_shadow_database(
     *,
     start: datetime,
     end: datetime,
+    references=None,
 ) -> dict[str, Any]:
     path = Path(db_path).expanduser().resolve()
     start = start.astimezone(timezone.utc)
     end = end.astimezone(timezone.utc)
     if start >= end:
         raise ValueError("analysis start must precede end")
-    with _connect(path) as connection:
+    with closing(_connect(path,references=references)) as connection:
         contract_rows = connection.execute(
             "SELECT data_contract FROM shadow_schema_metadata"
         ).fetchall()

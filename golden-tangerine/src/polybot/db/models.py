@@ -7,7 +7,8 @@ from datetime import datetime
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from polybot_observability.market_data_sqlalchemy import install_public_types
-from polybot_observability.market_data_sqlite import ResolvingConnection
+from polybot_observability.market_data_catalog_sqlalchemy import install_catalog_flush
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 from sqlalchemy import (
     Column,
     DateTime,
@@ -393,7 +394,7 @@ def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> Non
     """Apply additive migrations and reject incompatible existing columns."""
     info = {
         str(row[1]): str(row[2] or "")
-        for row in connection.execute(text(f"PRAGMA table_info({table_name})"))
+        for row in connection.execute(text(f"PRAGMA main.table_info({table_name})"))
     }
     if not info:
         raise RuntimeError(f"required table is unavailable after create_all: {table_name}")
@@ -401,7 +402,7 @@ def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> Non
         expected_type = declaration.split()[0]
         if name not in info:
             connection.execute(
-                text(f"ALTER TABLE {table_name} ADD COLUMN {name} {declaration}")
+                text(f"ALTER TABLE main.{table_name} ADD COLUMN {name} {declaration}")
             )
             continue
         if _sqlite_affinity(info[name]) != _sqlite_affinity(expected_type):
@@ -416,7 +417,7 @@ def _validate_model_schema(connection) -> None:
     for table in Base.metadata.sorted_tables:
         info = {
             str(row[1]): str(row[2] or "")
-            for row in connection.execute(text(f"PRAGMA table_info({table.name})"))
+            for row in connection.execute(text(f"PRAGMA main.table_info({table.name})"))
         }
         if not info:
             raise RuntimeError(f"required table is missing: {table.name}")
@@ -450,7 +451,9 @@ def init_database(
     )
     engine = create_engine(
         f"sqlite:///{db_path}", echo=False,
-        connect_args={"factory": ResolvingConnection},
+        creator=lambda: resolving_connect(
+            db_path, check_same_thread=(str(db_path) == ":memory:")
+        ),
     )
     Base.metadata.create_all(engine)
     with engine.connect() as connection:
@@ -484,13 +487,13 @@ def init_database(
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_condition_timestamp_idx "
                 "ON market_snapshots(condition_id, timestamp)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
             )
         )
@@ -518,4 +521,4 @@ def init_database(
             )
         _validate_model_schema(connection)
         connection.commit()
-    return sessionmaker(bind=engine)
+    return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-tangerine")

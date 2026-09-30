@@ -19,6 +19,11 @@ from polybot_observability import (
     current_run_id,
     membership_details_due,
 )
+from polybot_observability.market_data_projection_links import (
+    delete_snapshot_rows,
+    save_projection_snapshot,
+    update_projection_private,
+)
 from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
@@ -869,25 +874,29 @@ class TradeRepository:
         source_updated_at: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
+        timestamp: Optional[datetime] = None,
     ) -> MarketSnapshot:
         if market is not None:
             self._upsert_market_catalog(condition_id, market)
-        snapshot = MarketSnapshot(
-            condition_id=condition_id,
-            probability=probability,
-            liquidity=liquidity,
-            volume_24h=volume_24h,
-            best_bid=best_bid,
-            best_ask=best_ask,
-            spread=spread,
-            source_updated_at=source_updated_at,
-            run_id=current_run_id(),
-        )
+        values = dict(condition_id=condition_id, probability=probability,
+                      liquidity=liquidity, volume_24h=volume_24h, best_bid=best_bid,
+                      best_ask=best_ask, spread=spread, source_updated_at=source_updated_at,
+                      run_id=current_run_id(), timestamp=timestamp or datetime.utcnow())
+        shared = save_projection_snapshot(self.session, MarketSnapshot, "golden-blueberry",
+                                          values, commit=commit)
+        if shared is not None:
+            return shared
+        snapshot = MarketSnapshot(**values)
         self.session.add(snapshot)
         self.session.flush()
         if commit:
             self.session.commit()
         return snapshot
+
+    def update_snapshot_private(self, snapshot_id: int, *, timestamp: datetime,
+                                commit: bool = False) -> int:
+        return update_projection_private(self.session, MarketSnapshot, "golden-blueberry",
+                                         snapshot_id, {"timestamp": timestamp}, commit=commit)
 
     def get_snapshots_since(
         self, condition_id: str, since: datetime
@@ -1259,14 +1268,12 @@ class TradeRepository:
                 ") inferred WHERE prior_id IS NOT NULL"
             )
         )
-        deleted = self.session.execute(
-            text(
-                "DELETE FROM market_snapshots WHERE timestamp < :cutoff "
-                "AND id NOT IN ("
-                "SELECT id FROM _polybot_blueberry_protected_snapshots)"
-            ),
+        deleted = delete_snapshot_rows(
+            self.session.connection().connection.driver_connection,
+            "timestamp < :cutoff AND id NOT IN "
+            "(SELECT id FROM _polybot_blueberry_protected_snapshots)",
             {"cutoff": cutoff},
-        ).rowcount
+        )
         self.session.execute(text("DROP TABLE _polybot_blueberry_protected_snapshots"))
         expired_sweeps = [
             row[0]

@@ -7,6 +7,8 @@ import json
 import logging
 import sys
 
+from polybot_observability.market_data_reader import add_public_store_argument, public_references
+
 from .bot import PolymarketBot
 from .analyzer import analyze_ab, parse_utc
 from .config import load_config
@@ -39,6 +41,7 @@ def _parser() -> argparse.ArgumentParser:
     config.add_argument("--job", "-j", default="default")
     _add_mode_flags(config)
     analyze = commands.add_parser("analyze", help="Read-only exact-range A/B evidence analysis")
+    add_public_store_argument(analyze)
     analyze.add_argument(
         "--db",
         action="append",
@@ -105,11 +108,13 @@ def main() -> None:
                 parser.error("--db label and path must be non-empty")
             specs.append((label.strip(), path.strip()))
         try:
-            report = analyze_ab(
-                specs,
-                start=parse_utc(args.start),
-                end_exclusive=parse_utc(args.end_exclusive),
-            )
+            with public_references(args.public_store) as references:
+                report = analyze_ab(
+                    specs,
+                    start=parse_utc(args.start),
+                    end_exclusive=parse_utc(args.end_exclusive),
+                    references=references,
+                )
         except (ValueError, RuntimeError, OSError) as error:
             print(f"Analysis error: {error}", file=sys.stderr)
             sys.exit(2)

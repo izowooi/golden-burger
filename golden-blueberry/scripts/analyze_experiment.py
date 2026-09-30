@@ -11,8 +11,22 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 from statistics import fmean
 from typing import Any, Sequence
+
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
 
 
 EXPECTED_SURGE = {"A": 0.02, "B": 0.05}
@@ -86,11 +100,11 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _connect(path: Path) -> sqlite3.Connection:
+def _connect(path: Path, *, references=None) -> sqlite3.Connection:
     if not path.is_file():
         raise ValueError(f"database not found: {path}")
-    uri = f"file:{path.resolve().as_posix()}?mode=ro&immutable=1"
-    connection = sqlite3.connect(uri, uri=True)
+    uri = path.resolve().as_uri() + "?mode=ro&immutable=1"
+    connection = market_data_connect(uri, uri=True, references=references)
     connection.row_factory = sqlite3.Row
     connection.create_function("utc_key", 1, _db_utc_key, deterministic=True)
     integrity = connection.execute("PRAGMA integrity_check").fetchone()[0]
@@ -343,8 +357,8 @@ def _unresolved_exposure(connection: sqlite3.Connection) -> dict[str, Any]:
     }
 
 
-def _arm_metrics(path: Path, label: str, start: str, end: str) -> dict[str, Any]:
-    connection = _connect(path)
+def _arm_metrics(path: Path, label: str, start: str, end: str, *, references=None) -> dict[str, Any]:
+    connection = _connect(path, references=references)
     try:
         cohorts = _cohorts(connection, start, end)
         signals = connection.execute(
@@ -537,13 +551,15 @@ def analyze(
     output_dir: Path,
     review_start: str,
     review_end: str,
+    *,
+    references=None,
 ) -> Path:
     if arm_a.resolve() == arm_b.resolve():
         raise ValueError("A/B arms must use different database files")
     start, end = _window(review_start, review_end)
     arms = {
-        "A": _arm_metrics(arm_a, "A", start, end),
-        "B": _arm_metrics(arm_b, "B", start, end),
+        "A": _arm_metrics(arm_a, "A", start, end, references=references),
+        "B": _arm_metrics(arm_b, "B", start, end, references=references),
     }
     issues: list[str] = []
     source_digests: set[str] = set()
@@ -655,6 +671,7 @@ def analyze(
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_public_store_argument(parser)
     parser.add_argument("--arm-a", type=Path, required=True)
     parser.add_argument("--arm-b", type=Path, required=True)
     parser.add_argument("--review-start", required=True, help="RFC3339 UTC instant")
@@ -667,15 +684,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
-    print(
-        analyze(
-            args.arm_a,
-            args.arm_b,
-            args.output_dir,
-            args.review_start,
-            args.review_end,
+    with public_references(args.public_store) as references:
+        print(
+            analyze(
+                args.arm_a,
+                args.arm_b,
+                args.output_dir,
+                args.review_start,
+                args.review_end,
+                references=references,
+            )
         )
-    )
     return 0
 
 

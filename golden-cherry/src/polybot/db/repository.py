@@ -3,6 +3,9 @@ import csv
 import logging
 import math
 from polybot_observability import compact_maintenance_active
+from polybot_observability.market_data_scalar_links import (
+    cleanup_scalar_snapshots, save_scalar_snapshot,
+)
 from datetime import datetime, date, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any
@@ -174,6 +177,12 @@ class TradeRepository:
         volume_24h: float = None,
     ) -> MarketSnapshot:
         """Save a market snapshot."""
+        shared = save_scalar_snapshot(self.session, MarketSnapshot, "golden-cherry", {
+            "condition_id": condition_id, "probability": probability,
+            "liquidity": liquidity, "volume_24h": volume_24h, "timestamp": datetime.utcnow(),
+        })
+        if shared is not None:
+            return shared
         snapshot = MarketSnapshot(
             condition_id=condition_id,
             probability=probability,
@@ -227,6 +236,9 @@ class TradeRepository:
         if compact_maintenance_active(self.session, "golden-cherry"):
             return 0
         cutoff = datetime.utcnow() - timedelta(days=days)
+        shared_deleted = cleanup_scalar_snapshots(self.session, MarketSnapshot, cutoff)
+        if shared_deleted is not None:
+            return shared_deleted
         deleted = self.session.query(MarketSnapshot).filter(
             MarketSnapshot.timestamp < cutoff
         ).delete()

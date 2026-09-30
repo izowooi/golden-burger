@@ -6,6 +6,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import declarative_base, sessionmaker
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 from .operator_controls import DDL as OPERATOR_CONTROL_DDL
 
 Base = declarative_base()
@@ -153,7 +154,9 @@ def init_database(
         "golden-cherry",
         requirements=maintenance_requirements,
     )
-    engine = create_engine(f"sqlite:///{db_path}", echo=False)
+    engine = create_engine(f"sqlite:///{db_path}", echo=False,
+                           creator=lambda: resolving_connect(
+                               db_path, check_same_thread=(str(db_path) == ":memory:")))
     Base.metadata.create_all(engine)
     migration_columns = {
         "market_tags": "TEXT",

@@ -192,9 +192,7 @@ class MarketScanner:
                         spread=walk.spread,
                         source_updated_at=market.get("updatedAt"),
                         commit=False,
-                    )
-                    snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                        tzinfo=None
+                        timestamp=reference.astimezone(timezone.utc).replace(tzinfo=None),
                     )
                     self._snapshot_ids[token_id] = snapshot.id
                     if (

@@ -70,8 +70,7 @@ def test_historical_duplicate_or_missing_cohort_suppresses_closed_summary(tmp_pa
     assert payload["closed_summary"] is None
 
 
-def test_complete_unique_cohort_grid_is_summarized_by_full_cell(tmp_path):
-    database = tmp_path / "prospective.db"
+def _prospective_database(database):
     with sqlite3.connect(database) as connection:
         _run_table(connection)
         connection.execute(
@@ -106,6 +105,10 @@ def test_complete_unique_cohort_grid_is_summarized_by_full_cell(tmp_path):
                 ),
             )
 
+
+def test_complete_unique_cohort_grid_is_summarized_by_full_cell(tmp_path):
+    database = tmp_path / "prospective.db"
+    _prospective_database(database)
     output = analyze_shadow(database, tmp_path / "report", START, END)
     payload = json.loads(output.read_text())
     assert payload["issues"] == []

@@ -7,7 +7,8 @@ from datetime import datetime
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from polybot_observability.market_data_sqlalchemy import install_public_types
-from polybot_observability.market_data_sqlite import ResolvingConnection
+from polybot_observability.market_data_catalog_sqlalchemy import install_catalog_flush
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 from sqlalchemy import (
     Column,
     DateTime,
@@ -555,7 +556,7 @@ def init_database(
     )
     engine = create_engine(
         f"sqlite:///{db_path}", echo=False,
-        connect_args={"factory": ResolvingConnection},
+        creator=lambda: resolving_connect(db_path, check_same_thread=(str(db_path) == ":memory:")),
     )
     Base.metadata.create_all(engine)
     with engine.connect() as connection:
@@ -582,7 +583,7 @@ def init_database(
         }.items():
             try:
                 connection.execute(
-                    text(f"ALTER TABLE market_snapshots ADD COLUMN {name} {sql_type}")
+                    text(f"ALTER TABLE main.market_snapshots ADD COLUMN {name} {sql_type}")
                 )
                 connection.commit()
             except Exception:
@@ -599,13 +600,13 @@ def init_database(
             pass
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_condition_timestamp_idx "
                 "ON market_snapshots(condition_id, timestamp)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
             )
         )
@@ -622,4 +623,4 @@ def init_database(
             )
         )
         connection.commit()
-    return sessionmaker(bind=engine)
+    return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-blueberry")

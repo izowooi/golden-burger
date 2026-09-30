@@ -9,6 +9,7 @@ an actual fill.
 from __future__ import annotations
 
 import argparse
+from contextlib import closing
 from collections import Counter, defaultdict
 from datetime import datetime
 import itertools
@@ -17,7 +18,7 @@ from pathlib import Path
 import sqlite3
 from typing import Any
 
-from polybot.shadow.analyzer import parse_utc
+from polybot.shadow.analyzer import parse_utc,_connect as connect_shadow_source
 
 
 TP_GRID = (0.03, 0.05, 0.08, 0.10, 0.12, 0.15, 0.20, None)
@@ -36,11 +37,8 @@ BANDS = {
 }
 
 
-def _connect(path: Path) -> sqlite3.Connection:
-    connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA query_only=ON")
-    return connection
+def _connect(path: Path, *, references=None) -> sqlite3.Connection:
+    return connect_shadow_source(path,references=references)
 
 
 def _replay(
@@ -120,8 +118,8 @@ def _stats(
     }
 
 
-def analyze(path: Path, start: datetime, end: datetime) -> dict[str, Any]:
-    with _connect(path) as connection:
+def analyze(path: Path, start: datetime, end: datetime, *, references=None) -> dict[str, Any]:
+    with closing(_connect(path,references=references)) as connection:
         if connection.execute("PRAGMA quick_check").fetchone()[0] != "ok":
             raise RuntimeError("shadow database quick_check failed")
         valid_runs = {
@@ -227,6 +225,18 @@ def analyze(path: Path, start: datetime, end: datetime) -> dict[str, Any]:
             and row["training"]["event_clusters"] >= 15
             and row["validation"]["event_clusters"] >= 15
         ]
+        if not candidates:
+            summaries[universe]={
+                'episodes':len(selected),
+                'event_clusters':len({str(row['event_cluster_id']) for row in selected}),
+                'grid_cells':0,'positive_both_halves_cells':0,
+                'training_selected':None,'all_data_selected_exploratory':None,
+                'balanced_both_halves_selected_exploratory':None,
+                'current_tp10_sl08_trail05':None,'candidate_tp20_sl08_trail15':None,
+                'status':'INSUFFICIENT_INDEPENDENT_EVENT_CLUSTERS',
+                'minimum_clusters_per_half':15,
+            }
+            continue
         training_ranked = sorted(
             candidates,
             key=lambda row: (

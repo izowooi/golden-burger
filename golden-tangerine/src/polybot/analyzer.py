@@ -12,6 +12,8 @@ import statistics
 from typing import Any, Iterable
 from urllib.parse import quote
 
+from polybot_observability.market_data_sqlite import connect as market_data_connect
+
 
 OPEN_STATUSES = {"PENDING_BUY", "HOLDING", "PENDING_SELL", "QUARANTINED"}
 
@@ -47,9 +49,9 @@ def database_checksums(db_path: Path) -> dict[str, Any]:
     return parts
 
 
-def _connect_read_only(path: Path) -> sqlite3.Connection:
+def _connect_read_only(path: Path, *, references=None) -> sqlite3.Connection:
     uri = f"file:{quote(str(path.resolve()))}?mode=ro"
-    connection = sqlite3.connect(uri, uri=True, timeout=5)
+    connection = market_data_connect(uri, uri=True, timeout=5, references=references)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only = ON")
     return connection
@@ -76,6 +78,7 @@ def analyze_database(
     start: datetime,
     end_exclusive: datetime,
     label: str | None = None,
+    references=None,
 ) -> dict[str, Any]:
     """Analyze one immutable entry cohort without writing/checkpointing its DB."""
     path = Path(db_path).expanduser().resolve()
@@ -83,7 +86,7 @@ def analyze_database(
         raise FileNotFoundError(path)
     before = database_checksums(path)
     lower, upper = _sqlite_time(start), _sqlite_time(end_exclusive)
-    connection = _connect_read_only(path)
+    connection = _connect_read_only(path, references=references)
     try:
         tables = _table_names(connection)
         required = {
@@ -334,6 +337,7 @@ def analyze_ab(
     *,
     start: datetime,
     end_exclusive: datetime,
+    references=None,
 ) -> dict[str, Any]:
     if not start < end_exclusive:
         raise ValueError("analysis start must precede end-exclusive")
@@ -345,7 +349,7 @@ def analyze_ab(
     if len({str(path) for _, path in specs}) != 2:
         raise ValueError("A/B analysis database paths must be distinct")
     databases = [
-        analyze_database(path, start=start, end_exclusive=end_exclusive, label=label)
+        analyze_database(path, start=start, end_exclusive=end_exclusive, label=label, references=references)
         for label, path in specs
     ]
     timestamps = [

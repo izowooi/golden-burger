@@ -11,6 +11,10 @@ from uuid import uuid4
 import requests
 from ..utils.retry import rate_limit_handler
 
+from polybot_observability.market_data_capture import (
+    PublicCaptureError, install_session_capture, remaining_budget,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -32,7 +36,10 @@ class GammaClient:
     SWEEP_SCHEMA_VERSION = 1
 
     def __init__(self):
-        self.session = requests.Session()
+        self.session = install_session_capture(
+            requests.Session(), strategy="golden-cherry",
+            budget=lambda: remaining_budget(getattr(self, "cycle_budget", None)),
+        )
         self.sweep_attestations: List[Dict] = []
         self.session.headers.update({
             "Accept": "application/json",

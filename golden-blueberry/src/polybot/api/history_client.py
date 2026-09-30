@@ -10,6 +10,10 @@ from datetime import datetime, timedelta, timezone
 from typing import List, Optional, Tuple
 import requests
 
+from polybot_observability.market_data_capture import (
+    PublicCaptureError, install_session_capture, remaining_budget,
+)
+
 logger = logging.getLogger(__name__)
 
 
@@ -33,7 +37,10 @@ class HistoryClient:
 
     def __init__(self, timeout: float = 10.0):
         self.timeout = timeout
-        self.session = requests.Session()
+        self.session = install_session_capture(
+            requests.Session(), strategy="golden-blueberry",
+            budget=lambda: remaining_budget(getattr(self, "cycle_budget", None)),
+        )
         self.session.headers.update({
             "Accept": "application/json",
             "User-Agent": "GoldenBlueberry-PolyBot/1.0",
@@ -83,6 +90,8 @@ class HistoryClient:
 
             points.sort(key=lambda point: point[0])
             return points or None
+        except PublicCaptureError:
+            raise
         except Exception as e:
             # 백필은 best-effort - 실패는 "데이터 부족"으로 취급 (§3.6)
             logger.debug(f"prices-history 백필 실패 (무시) - token: {token_id}: {e}")

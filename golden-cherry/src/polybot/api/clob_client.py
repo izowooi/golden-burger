@@ -28,6 +28,10 @@ from polybot_observability import (
 from ..config import ApiConfig
 from ..utils.retry import rate_limit_handler
 
+from polybot_observability.market_data_capture import (
+    PublicCaptureError, install_sdk_capture,
+)
+
 logger = logging.getLogger(__name__)
 
 _PROVABLY_UNFILLED_ORDER_STATUSES = {
@@ -216,6 +220,8 @@ class ClobClientWrapper:
             self._initialized = True
             logger.info("CLOB client 초기화 완료 (v2)")
 
+        except PublicCaptureError:
+            raise
         except Exception as e:
             logger.error(f"CLOB client 초기화 실패: {e}")
             raise
@@ -224,7 +230,10 @@ class ClobClientWrapper:
     def client(self):
         """Get initialized CLOB client."""
         self._ensure_initialized()
-        return self._client
+        return install_sdk_capture(
+            self._client, strategy="golden-cherry",
+            budget=getattr(self, "cycle_budget", None), host=self.HOST,
+        )
 
     def _round_to_tick(self, price: float, tick_size: float = None) -> float:
         """Round price to tick size.
@@ -277,6 +286,8 @@ class ClobClientWrapper:
             else:
                 price = getattr(result, "mid", result)
             return float(price) if price else 0.0
+        except PublicCaptureError:
+            raise
         except Exception as e:
             # 해결/비유동 시장은 orderbook이 없어 404가 흔하다. 정상 흐름이므로 debug로 낮춘다.
             if "No orderbook" in str(e):
@@ -377,6 +388,8 @@ class ClobClientWrapper:
                     )
                 for token in chunk:
                     results[token] = self._normalize_midpoint_value(response.get(token))
+            except PublicCaptureError:
+                raise
             except Exception as exc:
                 failed_chunks += 1
                 logger.warning(
@@ -432,6 +445,8 @@ class ClobClientWrapper:
                 else getattr(result, "price", result)
             )
             return float(price) if price else 0.0
+        except PublicCaptureError:
+            raise
         except Exception as e:
             if "No orderbook" in str(e):
                 logger.debug(f"orderbook 없음 - token: {token_id}: {e}")
@@ -457,6 +472,8 @@ class ClobClientWrapper:
                 else getattr(result, "price", result)
             )
             return float(price) if price else 0.0
+        except PublicCaptureError:
+            raise
         except Exception as e:
             if "No orderbook" in str(e):
                 logger.debug(f"orderbook 없음 - token: {token_id}: {e}")
@@ -504,6 +521,8 @@ class ClobClientWrapper:
             logger.info(f"Market BUY 주문 완료: {response}")
             return response
 
+        except PublicCaptureError:
+            raise
         except Exception as e:
             logger.error(f"Market BUY 주문 실패: {e}")
             return {"success": False, "error": str(e)}
@@ -606,6 +625,8 @@ class ClobClientWrapper:
             logger.critical(
                 "접수 주문과 execution ledger 정합성 유지 실패", exc_info=True
             )
+            raise
+        except PublicCaptureError:
             raise
         except Exception as e:
             logger.error(f"Limit 주문 실패: {e}")
@@ -868,6 +889,8 @@ class ClobClientWrapper:
                         "authenticated token trade evidence가 terminal full-fill "
                         "수량을 증명하지 못했습니다"
                     )
+            except PublicCaptureError:
+                raise
             except Exception as error:
                 stats["errors"] += 1
                 phase_error = ClobReconciliationPhaseError(phase, error, response_shape)
@@ -914,6 +937,8 @@ class ClobClientWrapper:
         try:
             # v2: get_orders() 제거됨 → get_open_orders() 사용
             return self.client.get_open_orders()
+        except PublicCaptureError:
+            raise
         except Exception as e:
             logger.error(f"미체결 주문 조회 실패: {e}")
             return []
@@ -965,6 +990,8 @@ class ClobClientWrapper:
                 "주문 취소 후 zero-fill 증거 확인 실패 - order=%s",
                 order_id,
             )
+            raise
+        except PublicCaptureError:
             raise
         except Exception as error:
             logger.error("주문 취소 실패 - error=%s", type(error).__name__)
@@ -1056,6 +1083,8 @@ class ClobClientWrapper:
             }
         except SubmissionEvidenceError:
             raise
+        except PublicCaptureError:
+            raise
         except Exception as error:
             logger.error("주문 취소 실패 - error=%s", type(error).__name__)
             raise SubmissionEvidenceError(
@@ -1073,6 +1102,8 @@ class ClobClientWrapper:
             # v2: 연결 확인용으로 get_open_orders() 사용
             self.client.get_open_orders()
             return True
+        except PublicCaptureError:
+            raise
         except Exception as e:
             logger.error(f"연결 테스트 실패: {e}")
             return False

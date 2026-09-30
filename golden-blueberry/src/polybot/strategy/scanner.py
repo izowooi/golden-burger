@@ -265,12 +265,7 @@ class MarketScanner:
                     **values,
                     source_updated_at=market.get("updatedAt"),
                     commit=False,
-                )
-                # Repository rows are UTC-naive for SQLite compatibility.  Use
-                # the sweep observation time supplied to this method so the
-                # lineage gap is deterministic and independently replayable.
-                snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                    tzinfo=None
+                    timestamp=reference.astimezone(timezone.utc).replace(tzinfo=None),
                 )
                 self._current_snapshot_ids[condition_id] = snapshot.id
                 self._current_snapshots[condition_id] = snapshot
