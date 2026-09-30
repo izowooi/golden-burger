@@ -98,13 +98,18 @@ limits: {max_positions: 20, max_open_usdc: 300, daily_loss_stop_usdc: 50}
 
 ## 7. 자동화와 재귀 개선
 
-| Jenkins job | 주기 (KST) | 역할 |
+| Jenkins job (view `polylab`) | 주기 (KST) | 역할 |
 |---|---|---|
-| polylab-tick | 매 1분 | discover(10분마다)·poll·전략 실행·주문·대사 |
-| polylab-stream | 5분 watchdog | launchd WS daemon(sports+market) 상태 확인·재기동 |
-| polylab-backfill | 매시 | 종료 경기 prices-history·trades·resolution·OI 백필, 과거 데이터 점진 백필 |
-| polylab-publish | 5분 | 대시보드 JSON 스냅샷 → Supabase Storage, git pull |
-| polylab-retro | 03:30, 08:00, 19:30 매일 / 월 08:30 주간 / 1일 09:00 월간 | 결정론 리포트 → claude -p 회고 → 제안 적용 → Slack |
+| polylab-tick | 매 1분 | 1분 poll(가격·호가) → 전략 청산·진입·대사, 시간당 1회 자동 redeem(원장 소유분만) |
+| polylab-discover | 10분 | 5개 종목 경기·마켓 탐색(120h 앞까지), 정산 확인 |
+| polylab-stream | 상시 | sports+market WebSocket daemon, 빌드당 59분·끝나면 즉시 다음 빌드가 이어받음 |
+| polylab-backfill | 매시 | 종료 경기 prices-history·체결·정산 백필 + 2026-02 이후 과거 경기 점진 백필 |
+| polylab-publish | 5분 | git pull → 대시보드 JSON(Supabase Storage) → `health --alert`(상태 변화 시만 Slack) |
+| polylab-retro-daily | 03:30, 08:00, 19:30 | 결정론 리포트 → claude(→codex) 회고 → validator → commit/push → publish → Slack |
+| polylab-retro-weekly | 월 08:30 | + 백테스트 grid·paper 변형 제안·codex second opinion |
+| polylab-retro-monthly | 매월 1일 09:00 | + 논문용 월간 연구 요약 docs/research/monthly |
+
+모든 잡은 macOS TCC 때문에 `ssh polylab-local` 을 거쳐 실행된다(`docs/ops/macmini-runbook.md`).
 
 **Stake ladder (결정론)**: 모든 변형은 5 USDC에서 시작. 현 단위에서 정산 거래 ≥ 20, 순손익 > 0, 거래당 ROI의
 bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액(5→10→25→50→100, 상한 100).
