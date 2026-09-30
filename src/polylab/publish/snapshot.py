@@ -32,8 +32,13 @@ class Storage:
         self.base = url.rstrip("/") + f"/storage/v1/object/{bucket}/"
         self._headers = {"apikey": key, "Authorization": f"Bearer {key}", "x-upsert": "true"}
         self.timeout = timeout
+        from polylab.autopilot.gitops import secret_values
+        self._secrets = [v.encode() for v in secret_values()]
 
     def upload(self, path: str, body: bytes, content_type: str = "application/json") -> None:
+        lowered = body.lower()
+        if any(v in lowered for v in self._secrets):  # the dashboard is public; never ship keys/wallets
+            raise RuntimeError(f"storage upload {path} refused: account secret value in payload")
         r = requests.post(self.base + path.lstrip("/"), data=body, timeout=self.timeout,
                           headers={**self._headers, "Content-Type": content_type})
         if not r.ok:  # status only: response bodies can echo request details

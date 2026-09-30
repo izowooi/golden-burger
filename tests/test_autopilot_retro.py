@@ -174,3 +174,25 @@ def test_deterministic_ladder_promotion_recorded(tmp_path, monkeypatch):
     ev = s.execute("SELECT from_usdc, to_usdc, reason FROM stake_events").fetchall()
     assert [(r[0], r[1]) for r in ev] == [(5.0, 10.0)] and ev[0][2].startswith("promote")
     assert any("one change per variant" in r["reason"] for r in res["rejected"])
+
+
+def test_commit_aborts_when_account_secret_is_staged(tmp_path, monkeypatch):
+    import subprocess
+    from polylab.autopilot import gitops
+    secrets = tmp_path / "secrets"
+    secrets.mkdir()
+    wallet = "0x" + "ab" * 20
+    (secrets / "accounts.env").write_text(f"POLYBOT_X__POLYMARKET_FUNDER_ADDRESS={wallet}\nPOLYBOT_X__POLYMARKET_PRIVATE_KEY=0x{'cd' * 32}\n")
+    monkeypatch.setattr(gitops.settings, "SECRETS_DIR", secrets)
+    repo = tmp_path / "repo"
+    (repo / "reports").mkdir(parents=True)
+    subprocess.run(["git", "init", "-q"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.email", "t@t"], cwd=repo, check=True)
+    subprocess.run(["git", "config", "user.name", "t"], cwd=repo, check=True)
+    (repo / "reports" / "r.md").write_text(f"wallet {wallet.upper()[2:]}\n")
+    ok, msg = gitops.commit_and_push("x", push=False, repo=repo, paths=("reports",))
+    assert not ok and "secret" in msg
+    assert subprocess.run(["git", "log", "--oneline"], cwd=repo, capture_output=True).returncode != 0  # no commit
+    (repo / "reports" / "r.md").write_text("clean\n")
+    ok, msg = gitops.commit_and_push("x", push=False, repo=repo, paths=("reports",))
+    assert ok, msg
