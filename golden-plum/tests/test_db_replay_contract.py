@@ -548,3 +548,35 @@ def test_init_database_fails_closed_on_incompatible_existing_schema(tmp_path) ->
 
     with pytest.raises(RuntimeError, match="incompatible trades schema"):
         init_database(str(path))
+
+
+@pytest.mark.parametrize("script_name", ["replay_direct_six_book.py", "replay_mlb_exit_grid.py"])
+def test_replay_cli_shared_books_preserve_report(tmp_path, monkeypatch, script_name):
+    import subprocess
+    import sys
+    from polybot_observability.market_data_refs import PayloadReferences
+    from polybot_observability.market_data_store import PayloadStore
+
+    monkeypatch.delenv("PUBLIC_MARKET_DATA_DB", raising=False)
+    path = _strict_replay_db(tmp_path / "strict.db")
+    script = Path(__file__).resolve().parents[1] / "scripts" / script_name
+    output = tmp_path / "report.json"
+    command = [sys.executable, str(script), "--db", str(path), "--config-hash", CONFIG_HASH, "--output", str(output)]
+    if script_name == "replay_direct_six_book.py":
+        command += ["--sport-family", "mlb"]
+    else:
+        command += ["--review-start", "2026-01-01T00:00:00Z", "--review-end-exclusive", "2027-01-01T00:00:00Z"]
+    subprocess.run(command, capture_output=True, text=True, check=True, timeout=30)
+    baseline = json.loads(output.read_text())
+    before = hashlib.sha256(path.read_bytes()).hexdigest()
+    public = tmp_path / "public.sqlite"
+    with PayloadStore(public) as store, sqlite3.connect(path) as connection:
+        refs = PayloadReferences(reader=store, writer=store)
+        for rowid, body in connection.execute("SELECT id,book_json FROM market_snapshots WHERE id % 2 = 0").fetchall():
+            connection.execute("UPDATE market_snapshots SET book_json=? WHERE id=?", (refs.encode_many([body])[0], rowid))
+    after = hashlib.sha256(path.read_bytes()).hexdigest()
+    failed = subprocess.run(command, capture_output=True, text=True, timeout=30)
+    assert failed.returncode != 0 and "market-data reader" in failed.stderr
+    subprocess.run(command + ["--public-store", str(public)], capture_output=True, text=True, check=True, timeout=30)
+    assert json.loads(output.read_text().replace(after, before)) == baseline
+    assert hashlib.sha256(path.read_bytes()).hexdigest() == after

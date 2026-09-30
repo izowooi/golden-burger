@@ -19,6 +19,10 @@ from polybot_observability import (
     current_run_id,
     membership_details_due,
 )
+from polybot_observability.market_data_projection_links import (
+    delete_snapshot_rows,
+    save_projection_snapshot,
+)
 from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
@@ -1034,10 +1038,11 @@ class TradeRepository:
         book_shape: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
+        timestamp: Optional[datetime] = None,
     ) -> MarketSnapshot:
         if market is not None:
             self._upsert_market_catalog(condition_id, market)
-        snapshot = MarketSnapshot(
+        values = dict(
             condition_id=condition_id,
             event_id=event_id,
             token_id=token_id,
@@ -1064,6 +1069,13 @@ class TradeRepository:
             sport_profile_version=str(sport_profile_version or "") or None,
             book_shape=str(book_shape or "") or None,
         )
+        values["timestamp"] = timestamp if timestamp is not None else datetime.utcnow()
+        shared = save_projection_snapshot(
+            self.session, MarketSnapshot, "golden-apricot", values, commit=commit
+        )
+        if shared is not None:
+            return shared
+        snapshot = MarketSnapshot(**values)
         self.session.add(snapshot)
         self.session.flush()
         if commit:
@@ -1686,14 +1698,12 @@ class TradeRepository:
                 ") inferred WHERE prior_id IS NOT NULL"
             )
         )
-        deleted = self.session.execute(
-            text(
-                "DELETE FROM market_snapshots WHERE timestamp < :cutoff "
-                "AND id NOT IN ("
-                "SELECT id FROM _polybot_papaya_protected_snapshots)"
-            ),
+        deleted = delete_snapshot_rows(
+            self.session.connection().connection.driver_connection,
+            "timestamp < :cutoff AND id NOT IN "
+            "(SELECT id FROM _polybot_papaya_protected_snapshots)",
             {"cutoff": cutoff},
-        ).rowcount
+        )
         self.session.execute(text("DROP TABLE _polybot_papaya_protected_snapshots"))
         expired_sweeps = [
             row[0]

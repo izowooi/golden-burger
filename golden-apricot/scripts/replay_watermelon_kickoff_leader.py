@@ -17,8 +17,22 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 import statistics
 from typing import Sequence
+
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
 
 
 SOCCER_LEAGUES = frozenset({"epl", "bun", "fl1", "lal", "mls", "sea", "ucl", "uel"})
@@ -378,8 +392,8 @@ def _evaluate(
     return None
 
 
-def _database_report(path: Path) -> dict:
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+def _database_report(path: Path, *, references=None) -> dict:
+    connection = market_data_connect(path.resolve().as_uri() + "?mode=ro", uri=True, references=references)
     try:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
         source_cutoff = connection.execute(
@@ -446,6 +460,7 @@ def _database_report(path: Path) -> dict:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
+    add_public_store_argument(parser)
     parser.add_argument("--db", action="append", required=True, type=Path)
     return parser.parse_args()
 
@@ -455,26 +470,27 @@ def main() -> int:
     missing = [path for path in args.db if not path.is_file()]
     if missing:
         raise SystemExit("missing database(s): " + ", ".join(map(str, missing)))
-    report = {
-        "schema": "golden-apricot-historical-replay-v1",
-        "evidence_limitations": [
-            "legacy Watermelon persisted direct YES books only",
-            "NO books are synthetic complements and are not actual direct CLOB evidence",
-            "displayed-book replay excludes actual fills and fee",
-            "parameter grid is exploratory and not out-of-sample profit evidence",
-        ],
-        "contract": {
-            "soccer_leagues": sorted(SOCCER_LEAGUES),
-            "entry_vwap": [ENTRY_MIN, ENTRY_MAX],
-            "max_source_minute": MAX_SOURCE_MINUTE,
-            "min_leader_margin": MIN_LEADER_MARGIN,
-            "max_spread": MAX_SPREAD,
-            "notional_usdc": NOTIONAL_USDC,
-            "late_exit_minute": LATE_EXIT_MINUTE,
-            "late_profit_fraction": LATE_PROFIT_FRACTION,
-        },
-        "databases": [_database_report(path) for path in args.db],
-    }
+    with public_references(args.public_store) as references:
+        report = {
+            "schema": "golden-apricot-historical-replay-v1",
+            "evidence_limitations": [
+                "legacy Watermelon persisted direct YES books only",
+                "NO books are synthetic complements and are not actual direct CLOB evidence",
+                "displayed-book replay excludes actual fills and fee",
+                "parameter grid is exploratory and not out-of-sample profit evidence",
+            ],
+            "contract": {
+                "soccer_leagues": sorted(SOCCER_LEAGUES),
+                "entry_vwap": [ENTRY_MIN, ENTRY_MAX],
+                "max_source_minute": MAX_SOURCE_MINUTE,
+                "min_leader_margin": MIN_LEADER_MARGIN,
+                "max_spread": MAX_SPREAD,
+                "notional_usdc": NOTIONAL_USDC,
+                "late_exit_minute": LATE_EXIT_MINUTE,
+                "late_profit_fraction": LATE_PROFIT_FRACTION,
+            },
+            "databases": [_database_report(path, references=references) for path in args.db],
+        }
     print(json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True))
     return 0
 

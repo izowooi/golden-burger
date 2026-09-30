@@ -8,7 +8,8 @@ from pathlib import Path
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from polybot_observability.market_data_sqlalchemy import install_public_types, original_public_type
-from polybot_observability.market_data_sqlite import ResolvingConnection
+from polybot_observability.market_data_catalog_sqlalchemy import install_catalog_flush
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 from sqlalchemy import (
     Column,
     DateTime,
@@ -561,7 +562,7 @@ _CATALOG_MIGRATION_COLUMNS = {
 
 
 def _table_info(connection, table_name: str) -> dict[str, tuple]:
-    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    rows = connection.execute(text(f"PRAGMA main.table_info({table_name})")).fetchall()
     if not rows:
         raise RuntimeError(f"required SQLite table is missing: {table_name}")
     return {str(row[1]): tuple(row) for row in rows}
@@ -607,7 +608,7 @@ def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> Non
         if name in existing:
             continue
         connection.execute(
-            text(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+            text(f"ALTER TABLE main.{table_name} ADD COLUMN {name} {sql_type}")
         )
         existing.add(name)
     missing = set(columns) - _table_columns(connection, table_name)
@@ -656,19 +657,19 @@ def _upgrade_database_schema(connection) -> None:
             _verify_model_columns(connection, table_name)
     connection.execute(
         text(
-            "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+            "CREATE INDEX IF NOT EXISTS main.market_snapshots_condition_timestamp_idx "
             "ON market_snapshots(condition_id, timestamp)"
         )
     )
     connection.execute(
         text(
-            "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+            "CREATE INDEX IF NOT EXISTS main.market_snapshots_run_idx "
             "ON market_snapshots(run_id)"
         )
     )
     connection.execute(
         text(
-            "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
+            "CREATE INDEX IF NOT EXISTS main.market_snapshots_sport_league_time_idx "
             "ON market_snapshots(sport_family, league_code, timestamp)"
         )
     )
@@ -724,7 +725,9 @@ def init_database(
     # maintenance must not consume a one-minute collection slot before HTTP.
     engine = create_engine(
         f"sqlite:///{db_path}", echo=False,
-        connect_args={"factory": ResolvingConnection},
+        creator=lambda: resolving_connect(
+            db_path, check_same_thread=(str(db_path) == ":memory:")
+        ),
     )
     if existing_database and not schema_on_start:
         # The one-minute runtime uses an already deployed schema. Re-running
@@ -732,7 +735,7 @@ def init_database(
         # database can take minutes. Normal repository queries still fail
         # closed if a required table/column is actually absent. Schema changes
         # belong in a deployment/maintenance preflight, not every trade cycle.
-        return sessionmaker(bind=engine)
+        return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-apricot")
     try:
         Base.metadata.create_all(
             engine, tables=[table for name, table in Base.metadata.tables.items()
@@ -756,4 +759,4 @@ def init_database(
     except Exception:
         engine.dispose()
         raise
-    return sessionmaker(bind=engine)
+    return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-apricot")

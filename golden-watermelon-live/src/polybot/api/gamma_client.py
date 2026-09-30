@@ -18,6 +18,10 @@ from ..strategy.filters import match_result_reason
 from ..utils.deadline import CycleBudget
 from ..utils.retry import rate_limit_handler
 
+from polybot_observability.market_data_capture import (
+    PublicCaptureError, install_session_capture, remaining_budget,
+)
+
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +50,10 @@ class GammaClient:
         self.tag_id = SPORT_FAMILY_TAG_IDS[normalized_family]
         self.max_in_play_hours = SPORT_FAMILY_MAX_IN_PLAY_HOURS[normalized_family]
         self.cycle_budget = cycle_budget
-        self.session = requests.Session()
+        self.session = install_session_capture(
+            requests.Session(), strategy="golden-watermelon-live",
+            budget=lambda: remaining_budget(getattr(self, "cycle_budget", None)),
+        )
         self.sweep_attestations: List[Dict[str, Any]] = []
         self.session.headers.update(
             {

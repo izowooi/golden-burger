@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 from collections import Counter, defaultdict
+from contextlib import closing
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
 import hashlib
@@ -19,8 +20,22 @@ from pathlib import Path
 import random
 import re
 import sqlite3
+import sys
 import statistics
 from typing import Sequence
+
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
 
 
 TAKE_PROFIT_DELTAS = (0.02, 0.03, 0.04, 0.05, 0.07, 0.10)
@@ -714,8 +729,8 @@ def _grid_row(
     }
 
 
-def list_cohorts(path: Path) -> list[dict]:
-    with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as connection:
+def list_cohorts(path: Path, *, references=None) -> list[dict]:
+    with closing(market_data_connect(path.resolve().as_uri() + "?mode=ro", uri=True, references=references)) as connection:
         connection.row_factory = sqlite3.Row
         return [
             dict(row)
@@ -742,6 +757,7 @@ def analyze(
     review_start: str,
     review_end_exclusive: str,
     as_of: str | None = None,
+    references=None,
 ) -> dict:
     start = _utc(review_start, require_timezone=True)
     end = _utc(review_end_exclusive, require_timezone=True)
@@ -752,7 +768,7 @@ def analyze(
         )
     path = path.resolve()
     source_sha = _sha256(path)
-    connection = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+    connection = market_data_connect(path.as_uri() + "?mode=ro", uri=True, references=references)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     connection.execute("BEGIN")
@@ -902,6 +918,7 @@ def analyze(
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    add_public_store_argument(parser)
     parser.add_argument("--db", required=True, type=Path)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
@@ -951,23 +968,25 @@ def main() -> int:
     ):
         raise SystemExit("output must not overwrite the source database")
     try:
-        report = (
-            {"cohorts": list_cohorts(args.db)}
-            if args.list_cohorts
-            else analyze(
-                args.db,
-                cohort=Cohort(
-                    args.config_hash,
-                    args.source_digest,
-                    args.job,
-                    args.mode,
-                    args.sport_family,
-                ),
-                review_start=args.review_start,
-                review_end_exclusive=args.review_end_exclusive,
-                as_of=args.as_of,
+        with public_references(args.public_store) as references:
+            report = (
+                {"cohorts": list_cohorts(args.db, references=references)}
+                if args.list_cohorts
+                else analyze(
+                    args.db,
+                    cohort=Cohort(
+                        args.config_hash,
+                        args.source_digest,
+                        args.job,
+                        args.mode,
+                        args.sport_family,
+                    ),
+                    review_start=args.review_start,
+                    review_end_exclusive=args.review_end_exclusive,
+                    as_of=args.as_of,
+                    references=references,
+                )
             )
-        )
     except (EvidenceContractError, sqlite3.Error) as error:
         raise SystemExit(f"evidence contract rejected: {error}") from error
     payload = json.dumps(report, ensure_ascii=False, indent=2, sort_keys=True)

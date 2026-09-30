@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 from collections import defaultdict
+from contextlib import closing
 from dataclasses import asdict
 from datetime import datetime, timezone
 from decimal import Decimal, ROUND_FLOOR
@@ -15,6 +16,19 @@ import json
 from pathlib import Path
 import sqlite3
 import sys
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+
 
 if __package__ in (None, ''):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -136,21 +150,20 @@ def replay_exit(entry: Snapshot, path: list[Snapshot], *, target: float, stop: f
     return result
 
 
-def report(db: Path, config_hash: str, start: datetime, end: datetime) -> dict:
+def report(db: Path, config_hash: str, start: datetime, end: datetime, *, references=None) -> dict:
     before = hashlib.sha256(db.read_bytes()).hexdigest()
-    c = sqlite3.connect(f'file:{db.resolve()}?mode=ro',uri=True)
-    identity = _cohort_identity(c,caller_sport_family='mlb',config_hash=config_hash)
-    snapshots = [s for s in load_snapshots(c,sport_family='mlb',cohort=identity)
-                 if start <= s.observed_at < end]
-    if c.execute('pragma quick_check').fetchone()[0] != 'ok':
-        raise ValueError('DB integrity check failed')
-    fees = dict(c.execute('SELECT condition_id,fee_rate FROM market_catalog '
-                         'WHERE fees_enabled=1 AND fee_exponent=1 AND fee_taker_only=1'))
-    invalid = defaultdict(list)
-    for event_id, at in c.execute('SELECT event_id,observed_at FROM event_cycle_evidence '
-                                  'WHERE config_hash=? AND complete=0',(config_hash,)):
-        invalid[str(event_id)].append(datetime.fromisoformat(at.replace('Z','+00:00')).replace(tzinfo=None))
-    c.close()
+    with closing(market_data_connect(db.resolve().as_uri() + "?mode=ro", uri=True, references=references)) as c:
+        identity = _cohort_identity(c,caller_sport_family='mlb',config_hash=config_hash)
+        snapshots = [s for s in load_snapshots(c,sport_family='mlb',cohort=identity)
+                     if start <= s.observed_at < end]
+        if c.execute('pragma quick_check').fetchone()[0] != 'ok':
+            raise ValueError('DB integrity check failed')
+        fees = dict(c.execute('SELECT condition_id,fee_rate FROM market_catalog '
+                             'WHERE fees_enabled=1 AND fee_exponent=1 AND fee_taker_only=1'))
+        invalid = defaultdict(list)
+        for event_id, at in c.execute('SELECT event_id,observed_at FROM event_cycle_evidence '
+                                      'WHERE config_hash=? AND complete=0',(config_hash,)):
+            invalid[str(event_id)].append(datetime.fromisoformat(at.replace('Z','+00:00')).replace(tzinfo=None))
     paths = defaultdict(list)
     for s in snapshots:paths[(s.event_id,s.token_id)].append(s)
     entries = select_entries(snapshots)
@@ -183,6 +196,7 @@ def report(db: Path, config_hash: str, start: datetime, end: datetime) -> dict:
 
 def main():
     parser=argparse.ArgumentParser()
+    add_public_store_argument(parser)
     parser.add_argument('--db',type=Path,required=True)
     parser.add_argument('--config-hash',required=True)
     parser.add_argument('--review-start',required=True)
@@ -196,7 +210,8 @@ def main():
         return d.astimezone(timezone.utc).replace(tzinfo=None)
     start,end=utc(args.review_start),utc(args.review_end_exclusive)
     if start>=end:raise ValueError('empty review interval')
-    result=report(args.db,args.config_hash,start,end)
+    with public_references(args.public_store) as references:
+        result=report(args.db,args.config_hash,start,end,references=references)
     args.output.write_text(json.dumps(result,ensure_ascii=False,indent=2))
     for g in result['grid']:
         if g['tp'] in (.65,.70,.90,.95) and g['sl'] in (.10,.12,.15):

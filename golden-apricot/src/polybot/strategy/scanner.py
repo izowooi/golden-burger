@@ -410,9 +410,7 @@ class MarketScanner:
                         sport_profile_version=self.config.sport_profile_version,
                         book_shape=self.config.book_shape,
                         commit=False,
-                    )
-                    snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                        tzinfo=None
+                        timestamp=reference.astimezone(timezone.utc).replace(tzinfo=None),
                     )
                     self._snapshot_ids[token_id] = snapshot.id
                     saved_for_condition += 1

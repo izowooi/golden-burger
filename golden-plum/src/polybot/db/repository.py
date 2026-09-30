@@ -19,6 +19,11 @@ from polybot_observability import (
     current_run_id,
     membership_details_due,
 )
+from polybot_observability.market_data_projection_links import (
+    delete_snapshot_rows,
+    save_projection_snapshot,
+    update_projection_private,
+)
 from sqlalchemy import func, inspect, or_, text
 from sqlalchemy.orm import Session
 
@@ -1355,6 +1360,7 @@ class TradeRepository:
         event_set_reason: Optional[str] = None,
         market: Optional[Dict[str, Any]] = None,
         commit: bool = True,
+        timestamp: Optional[datetime] = None,
     ) -> MarketSnapshot:
         context = _normalize_evidence_context(evidence_context)
         if market is not None:
@@ -1363,7 +1369,7 @@ class TradeRepository:
                 market,
                 evidence_context=evidence_context,
             )
-        snapshot = MarketSnapshot(
+        values = dict(
             condition_id=condition_id,
             event_id=event_id,
             token_id=token_id,
@@ -1400,6 +1406,13 @@ class TradeRepository:
             ),
             event_set_reason=str(event_set_reason or "") or None,
         )
+        values["timestamp"] = timestamp if timestamp is not None else datetime.utcnow()
+        shared = save_projection_snapshot(
+            self.session, MarketSnapshot, "golden-plum", values, commit=commit
+        )
+        if shared is not None:
+            return shared
+        snapshot = MarketSnapshot(**values)
         self.session.add(snapshot)
         self.session.flush()
         if commit:
@@ -1418,29 +1431,26 @@ class TradeRepository:
             if not event_cycle_id or not reason:
                 raise ValueError("final event-cycle health is incomplete")
             complete = int(item.get("complete") is True)
-            self.session.query(MarketSnapshot).filter(
+            snapshot_ids = self.session.query(MarketSnapshot.id).filter(
                 MarketSnapshot.event_cycle_id == event_cycle_id,
                 # Legacy DBs predate the event_cycle index. Narrow by the
                 # existing run index instead of scanning every historical book.
                 MarketSnapshot.run_id == current_run_id(),
-            ).update(
-                {
-                    MarketSnapshot.event_set_complete: complete,
-                    MarketSnapshot.event_set_reason: reason,
-                },
-                synchronize_session="fetch",
-            )
+            ).all()
+            for (snapshot_id,) in snapshot_ids:
+                update_projection_private(
+                    self.session, MarketSnapshot, "golden-plum", snapshot_id,
+                    {"event_set_complete": complete, "event_set_reason": reason},
+                    commit=False,
+                )
             condition_ids = [str(value) for value in item.get("condition_ids", [])]
             if condition_ids:
-                self.session.query(MarketCatalog).filter(
+                catalogs = self.session.query(MarketCatalog).filter(
                     MarketCatalog.condition_id.in_(condition_ids)
-                ).update(
-                    {
-                        MarketCatalog.last_event_set_complete: complete,
-                        MarketCatalog.last_event_set_reason: reason,
-                    },
-                    synchronize_session="fetch",
-                )
+                ).all()
+                for catalog in catalogs:
+                    catalog.last_event_set_complete = complete
+                    catalog.last_event_set_reason = reason
         self.session.flush()
 
     def claim_entry_episode(
@@ -2826,14 +2836,12 @@ class TradeRepository:
                 ") inferred WHERE prior_id IS NOT NULL"
             )
         )
-        deleted = self.session.execute(
-            text(
-                "DELETE FROM market_snapshots WHERE timestamp < :cutoff "
-                "AND id NOT IN ("
-                "SELECT id FROM _polybot_papaya_protected_snapshots)"
-            ),
+        deleted = delete_snapshot_rows(
+            self.session.connection().connection.driver_connection,
+            "timestamp < :cutoff AND id NOT IN "
+            "(SELECT id FROM _polybot_papaya_protected_snapshots)",
             {"cutoff": cutoff},
-        ).rowcount
+        )
         self.session.execute(text("DROP TABLE _polybot_papaya_protected_snapshots"))
         expired_sweeps = [
             row[0]

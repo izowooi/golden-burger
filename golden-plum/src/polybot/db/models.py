@@ -8,7 +8,8 @@ from pathlib import Path
 
 from polybot_observability import SQLiteMaintenanceRequirements, prepare_database
 from polybot_observability.market_data_sqlalchemy import install_public_types, original_public_type
-from polybot_observability.market_data_sqlite import ResolvingConnection
+from polybot_observability.market_data_catalog_sqlalchemy import install_catalog_flush
+from polybot_observability.market_data_sqlite import connect as resolving_connect
 from sqlalchemy import (
     Column,
     DateTime,
@@ -838,7 +839,7 @@ _EVENT_CYCLE_MIGRATION_COLUMNS = {
 
 
 def _table_info(connection, table_name: str) -> dict[str, tuple]:
-    rows = connection.execute(text(f"PRAGMA table_info({table_name})")).fetchall()
+    rows = connection.execute(text(f"PRAGMA main.table_info({table_name})")).fetchall()
     if not rows:
         raise RuntimeError(f"required SQLite table is missing: {table_name}")
     return {str(row[1]): tuple(row) for row in rows}
@@ -891,7 +892,7 @@ def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> Non
         if name in existing:
             continue
         connection.execute(
-            text(f"ALTER TABLE {table_name} ADD COLUMN {name} {sql_type}")
+            text(f"ALTER TABLE main.{table_name} ADD COLUMN {name} {sql_type}")
         )
         existing.add(name)
     missing = set(columns) - _table_columns(connection, table_name)
@@ -949,7 +950,9 @@ def init_database(
     # scan/roll up/vacuum the accumulated archive inside a one-minute collector.
     engine = create_engine(
         f"sqlite:///{db_path}", echo=False,
-        connect_args={"factory": ResolvingConnection},
+        creator=lambda: resolving_connect(
+            db_path, check_same_thread=(str(db_path) == ":memory:")
+        ),
     )
     if not schema_on_start and Path(db_path).is_file() and Path(db_path).stat().st_size:
         try:
@@ -977,7 +980,7 @@ def init_database(
         except Exception:
             engine.dispose()
             raise
-        return sessionmaker(bind=engine)
+        return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-plum")
     Base.metadata.create_all(
         engine, tables=[table for name, table in Base.metadata.tables.items()
                         if enable_research_raw or name not in _RAW_TABLE_NAMES],
@@ -1018,25 +1021,25 @@ def init_database(
             _verify_model_columns(connection, table_name)
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_condition_timestamp_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_condition_timestamp_idx "
                 "ON market_snapshots(condition_id, timestamp)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_run_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_run_idx "
                 "ON market_snapshots(run_id)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_token_cohort_time_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_token_cohort_time_idx "
                 "ON market_snapshots(token_id, config_hash, timestamp, id)"
             )
         )
         connection.execute(
             text(
-                "CREATE INDEX IF NOT EXISTS market_snapshots_sport_league_time_idx "
+                "CREATE INDEX IF NOT EXISTS main.market_snapshots_sport_league_time_idx "
                 "ON market_snapshots(sport_family, league_code, timestamp)"
             )
         )
@@ -1095,4 +1098,4 @@ def init_database(
                 "SELECT RAISE(ABORT, 'append-only evidence'); END"
             )
         )
-    return sessionmaker(bind=engine)
+    return install_catalog_flush(sessionmaker(bind=engine), MarketCatalog, "golden-plum")

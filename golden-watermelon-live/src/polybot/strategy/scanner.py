@@ -244,9 +244,7 @@ class MarketScanner:
                         ),
                         market_tags_json=tags_json,
                         commit=False,
-                    )
-                    snapshot.timestamp = reference.astimezone(timezone.utc).replace(
-                        tzinfo=None
+                        timestamp=reference.astimezone(timezone.utc).replace(tzinfo=None),
                     )
                     self._snapshot_ids[token_id] = snapshot.id
                     experiment_start = parse_end_date(self.config.experiment_start_utc)

@@ -16,12 +16,26 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import sys
 from typing import Mapping, Sequence
 
 from polybot.config import (
     SIMULATION_SCALING_NOTIONALS_USDC,
     SPORT_PARAMETER_PROFILES,
 )
+
+
+try:
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
+except ModuleNotFoundError as error:
+    if error.name != "polybot_observability":
+        raise
+    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "polybot-observability" / "src"))
+    from polybot_observability.market_data_reader import (
+        add_public_store_argument, market_data_connect, public_references,
+    )
 
 
 NOTIONAL_USDC = 5.0
@@ -1172,11 +1186,12 @@ def database_report(
     sport_family: str = "soccer",
     legacy_midgame_v1: bool = False,
     config_hash: str | None = None,
+    references=None,
 ) -> dict[str, object]:
     if legacy_midgame_v1 and sport_family != "soccer":
         raise ValueError("legacy midgame v1 replay is soccer-only")
     profile = SPORT_PARAMETER_PROFILES[sport_family]
-    connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+    connection = market_data_connect(path.resolve().as_uri() + "?mode=ro", uri=True, references=references)
     try:
         quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
         if quick_check != "ok":
@@ -1364,6 +1379,7 @@ def database_report(
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    add_public_store_argument(parser)
     parser.add_argument("--db", action="append", type=Path, required=True)
     parser.add_argument("--output", type=Path)
     parser.add_argument(
@@ -1384,17 +1400,19 @@ def main() -> int:
         help="Reproduce the preserved 5-75 minute / minute-80 exit v1 contract",
     )
     args = parser.parse_args()
-    payload = {
-        "reports": [
-            database_report(
-                path,
-                sport_family=args.sport_family,
-                legacy_midgame_v1=args.legacy_midgame_v1,
-                config_hash=args.config_hash,
-            )
-            for path in args.db
-        ]
-    }
+    with public_references(args.public_store) as references:
+        payload = {
+            "reports": [
+                database_report(
+                    path,
+                    sport_family=args.sport_family,
+                    legacy_midgame_v1=args.legacy_midgame_v1,
+                    config_hash=args.config_hash,
+                    references=references,
+                )
+                for path in args.db
+            ]
+        }
     rendered = json.dumps(payload, ensure_ascii=False, indent=2)
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)

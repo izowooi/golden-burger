@@ -731,8 +731,8 @@ class MarketScanner:
                         event_set_complete=event_health["complete"],
                         event_set_reason=event_health["reason"],
                         commit=False,
+                        timestamp=observed_at,
                     )
-                    snapshot.timestamp = observed_at
                     self._snapshot_ids[token_id] = snapshot.id
                     saved_for_condition += 1
                     saved += 1
