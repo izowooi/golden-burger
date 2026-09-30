@@ -1,5 +1,23 @@
 # 공용 시장 데이터 저장소 전환
 
+## 현재 완료 범위 — 2026-09-30 사용자 축소 지시
+
+과거 전체 전략·모든 역사 형식을 한 번에 이전하지 않는다. 현재 우선 대상은 다음 10개
+Jenkins 잡의 신규 공용 시장 데이터 쓰기·읽기와 정상 실행이다.
+
+- 스포츠: Cat, Dog, Eco, Fruit, King, Queen 및 각 잡의 모든 기존 child runtime.
+- 추가 live: Yellow, Blue(기존 Cherry에서 개명), Orange, Fox.
+
+공용 endpoint는 Mac mini의 `/Volumes/t7/jenkins/shared-market-data/public.db`와
+`market-data.sock`이다. 주문 intent·confirmed fill·fee·포지션·계좌 원장은 기존 runtime에
+남기고, 공용 API 원본과 새 public snapshot/catalog 저장은 공용 writer를 이용한다.
+기존 inline history는 reader 호환 경로로 유지한다. 과거 전체 DB 변환과 종료 후 API 백필은
+별도 후속 범위이며 이번 완료 조건이 아니다. 비활성 job을 활성화하지 않는다.
+
+이미 중단하거나 변경한 주변 수집기는 정상 재개 또는 데이터 무손실 원복까지만 정리한다.
+Apple 4개는 native runtime과 timer로 원복했고, Re에 원복 전 추가된 4행도 보존했다.
+준비된 과거 adapter나 draft 문서를 운영 이전 완료로 세지 않는다.
+
 ## 실행 방향 재정렬 — 사용자의 단순화 요청
 
 2026-09-30 사용자는 작업이 과도하게 커졌다고 지적했다. 목표는 모든 전략이 공개 시장
