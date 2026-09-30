@@ -17,6 +17,7 @@ from polybot_observability.market_data_refs import PayloadReferences
 from polybot_observability.market_data_store import (
     CorruptPayloadError,
     MissingPayloadError,
+    Observation,
     PayloadReader,
     PayloadStore,
 )
@@ -42,17 +43,20 @@ class LocalRemote:
             self.hashes = store.put_many(payloads)
             self.references = PayloadReferences(reader=store, writer=store).encode_many(payloads)
         self.requests = []
+        self.body_requests = []
         self.cleaned = []
         self.split_limit = None
         self.corrupt_transfer = False
 
-    def export_public_payloads(self, hashes):
+    def export_public_payloads(self, hashes, *, payload_hashes=None, observation_after=None):
         self.requests.append(hashes)
+        self.body_requests.append(payload_hashes)
         if self.split_limit and len(hashes) > self.split_limit:
             raise PublicPayloadBundleLimitError("split required")
         path = self.root / uuid.uuid4().hex / "payloads.db"
         with PayloadReader(self.public_db) as reader:
-            manifest = export_bundle(reader, hashes, path)
+            manifest = export_bundle(reader, hashes, path, payload_hashes=payload_hashes,
+                                     observation_after=observation_after)
         return {
             "bundle_path": str(path),
             "manifest": manifest,
@@ -125,7 +129,8 @@ def test_incremental_public_closure_keeps_private_columns_local(app_config, tmp_
     database = app_config.incoming_root / "snapshot.db"
     make_database(database, remote.references)
     descriptor = synchronize(app_config, remote, database)
-    assert remote.requests == [[remote.hashes[1]]]
+    assert remote.requests == [sorted(remote.hashes)]
+    assert remote.body_requests == [[remote.hashes[1]]]
     assert descriptor["payload_count"] == 2
     assert descriptor["source_identity"]["export_identity"]["db_path"] == str(remote.public_db)
     write_closure_descriptor(app_config, database, descriptor)
@@ -138,8 +143,9 @@ def test_incremental_public_closure_keeps_private_columns_local(app_config, tmp_
             "private-fixture-retained-locally"
         }
     synchronize(app_config, remote, database)
-    assert len(remote.requests) == 1
-    assert len(remote.cleaned) == 1
+    assert len(remote.requests) == 2
+    assert remote.body_requests[-1] == []
+    assert len(remote.cleaned) == 2
 
 
 def test_inline_snapshot_needs_no_remote_or_shared_store(app_config):
@@ -441,3 +447,46 @@ def test_sports_recorder_uses_scoped_reader_without_environment_fallback(
     ]
     with pytest.raises(sqlite3.ProgrammingError):
         captured[0].reader.get_many([digest])
+
+
+def test_existing_body_gets_new_public_observations_without_body_transfer(app_config, tmp_path):
+    remote = LocalRemote(tmp_path / "remote-observations", [b"public price receipt"])
+    sha = remote.hashes[0]
+    first = Observation("public-recorder", "first", "2026-09-29T10:00:00Z", "books", sha,
+                        token_ids=("token-a", "token-b"), event_ids=("event-a",))
+    with PayloadStore(remote.public_db) as writer:
+        writer.append_observations([first])
+    database = app_config.incoming_root / "observations.db"
+    make_database(database, remote.references)
+    descriptor = synchronize(app_config, remote, database)
+    assert descriptor["public_observation_transfer"]["observation_count"] == 1
+    assert remote.body_requests == [[sha]]
+    second = replace(first, observation_id="second", observed_at="2026-09-29T10:01:00Z")
+    with PayloadStore(remote.public_db) as writer:
+        writer.append_observations([second])
+    descriptor = synchronize(app_config, remote, database)
+    assert remote.body_requests == [[sha], []]
+    assert descriptor["public_observation_transfer"]["observation_count"] == 2
+    with PayloadReader(app_config.public_store_path) as reader:
+        assert reader.stats()["payload_count"] == 1
+        assert list(reader.iter_observations(token_id="token-b")) == [first, second]
+        assert list(reader.iter_observations(event_id="event-a")) == [first, second]
+
+
+def test_closure_sync_reads_all_observation_pages_for_one_common_payload(app_config, tmp_path, monkeypatch):
+    monkeypatch.setattr("polybot_observability.market_data_bundle.MAX_BUNDLE_OBSERVATIONS", 1)
+    remote = LocalRemote(tmp_path / "remote-pages", [b"common empty book"])
+    sha = remote.hashes[0]
+    receipts = [Observation("public-recorder", f"receipt-{i}", "2026-09-29T10:00:00Z", "books", sha,
+                            token_ids=("token-a", "token-b")) for i in range(3)]
+    with PayloadStore(remote.public_db) as writer:
+        writer.append_observations(receipts)
+    database = app_config.incoming_root / "paged-observations.db"
+    make_database(database, remote.references)
+    descriptor = synchronize(app_config, remote, database)
+    assert remote.body_requests == [[sha], [], []]
+    assert descriptor["public_observation_transfer"]["observation_count"] == 3
+    assert descriptor["public_observation_transfer"]["batch_count"] == 3
+    assert descriptor["public_observation_transfer"]["snapshot_scope"] == "per-page-read-snapshot-v1"
+    with PayloadReader(app_config.public_store_path) as reader:
+        assert list(reader.iter_observations(token_id="token-b")) == receipts

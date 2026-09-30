@@ -103,6 +103,10 @@ class RemoteArtifact:
     # Volatile ``-shm`` coordination metadata is deliberately excluded. A
     # WAL-only write still invalidates an old plan when main stat is unchanged.
     fingerprint: str | None = None
+    # A proposal only: local original and decoded rows must still be verified.
+    storage_migration: dict[str, Any] | None = None
+    database_month: str | None = None
+    observation_window: dict[str, Any] | None = None
 
     @property
     def source_key(self) -> str:
@@ -203,6 +207,9 @@ class SyncPlan:
                         item.size_bytes,
                         item.mtime_ns,
                         item.database_utc_date,
+                        item.storage_migration,
+                        item.database_month,
+                        item.observation_window,
                     )
                     for item in bound_artifacts
                 ],

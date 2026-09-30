@@ -241,6 +241,8 @@ class SportsStore:
                     source_key=selected_source["source_key"],
                     database_sha256=selected_source["local_sha256"],
                     source=selected_source["source"],
+                    expected_source_identity={key: selected_source[key] for key in
+                        ("source", "jenkins_job", "strategy", "runtime_job")},
                 )
             public_path = self.config.public_store_path
             if (public_path.resolve() != public_path

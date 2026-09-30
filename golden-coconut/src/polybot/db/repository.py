@@ -8,6 +8,7 @@ import gzip
 import hashlib
 import json
 import os
+import re
 from pathlib import Path
 import shutil
 import sqlite3
@@ -15,6 +16,14 @@ import time
 from typing import Any, Callable, Iterable, Iterator, Mapping, Sequence
 from urllib.parse import quote
 from uuid import uuid4
+
+from polybot_observability.market_data_refs import externalize_row, externalize_rows, configured_references
+from polybot_observability.market_data_raw_profiles import COCONUT_PROFILE_ID
+from polybot_observability.market_data_raw_links import (raw_layout_metadata,initialize_raw_links,
+    logical_raw_schema_rows,insert_raw_rows,require_raw_capabilities)
+from polybot_observability.market_data_scalar_links import scalar_namespace
+from polybot_observability.market_data_index import collector_receipt_context
+from polybot_observability.market_data_sqlite import connect as connect_market_data
 
 from ..api.transport import canonical_json, iso_utc
 from ..config import BotConfig, StorageConfig
@@ -101,18 +110,12 @@ def _migration_sha256() -> str:
 
 
 def _schema_sha256(connection: sqlite3.Connection) -> str:
-    rows = connection.execute(
-        """
-        SELECT type,name,tbl_name,sql
-        FROM sqlite_master
-        WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%'
-        ORDER BY type,name,tbl_name
-        """
-    ).fetchall()
-    payload = [tuple(str(value) for value in row) for row in rows]
-    return hashlib.sha256(
-        json.dumps(payload, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
-    ).hexdigest()
+    try:
+        rows=logical_raw_schema_rows(connection,profile_id=COCONUT_PROFILE_ID)
+    except ValueError as error:
+        raise RuntimeError('database live schema fingerprint changed') from error
+    payload=[tuple(str(value) for value in row) for row in rows]
+    return hashlib.sha256(json.dumps(payload,separators=(",",":"),ensure_ascii=False).encode('utf-8')).hexdigest()
 
 
 def _append_only_triggers(connection: sqlite3.Connection) -> None:
@@ -204,7 +207,13 @@ class ResearchRepository:
         database_utc_date: str,
         path: Path | None = None,
         create: bool = True,
+        raw_profile_id: str | None = None,
     ) -> None:
+        if raw_profile_id not in (None,COCONUT_PROFILE_ID):
+            raise ValueError('historical Coconut requires its explicit v6 RAW profile')
+        self._raw_profile_id=raw_profile_id or (COCONUT_PROFILE_ID if os.environ.get('PUBLIC_MARKET_DATA_RAW') == '1' else None)
+        if self._raw_profile_id is not None:
+            require_raw_capabilities(configured_references().writer,profile_id=COCONUT_PROFILE_ID)
         self.config = config
         self.path = path or config.db_path
         self.database_utc_date = database_utc_date
@@ -221,6 +230,35 @@ class ResearchRepository:
             self._validate_existing_read_only()
         else:
             raise FileNotFoundError(self.path)
+
+    def _runtime_namespace(self, *, allow_archive=False):
+        canonical=self.config.db_path.absolute()
+        path=self.path.absolute()
+        if (canonical.resolve() != canonical or canonical.parent.parent.name != 'data'
+                or canonical.parent.name != self.config.job_name or canonical.name != 'trades_sim.db'
+                or path.parent != canonical.parent or path.resolve() != path):
+            raise RuntimeError('historical RAW runtime path differs from the canonical config child')
+        staging=re.fullmatch(r'\.trades_sim\.db\.rotate-\d{4}-\d{2}-\d{2}-[0-9a-f]{32}\.tmp',path.name)
+        archive=allow_archive and re.fullmatch(r'trades_sim_\d{8}\.db',path.name)
+        if path != canonical and not staging and not archive:
+            raise RuntimeError('historical RAW path is neither its active nor owned rotation shard')
+        return scalar_namespace(os.environ.get('PUBLIC_MARKET_DATA_SOURCE'),os.environ.get('JOB_NAME'),
+            'golden-coconut',self.config.job_name)
+
+    def _check_raw_runtime(self, connection, *, allow_archive=False):
+        metadata=raw_layout_metadata(connection)
+        if metadata is None:
+            if self._raw_profile_id is not None:
+                raise RuntimeError('existing historical inline RAW requires explicit offline derivative migration')
+            return None
+        if metadata['profile_id'] != COCONUT_PROFILE_ID:
+            raise RuntimeError('current recorder and historical RAW profiles cannot be interchanged')
+        namespace=self._runtime_namespace(allow_archive=allow_archive)
+        if namespace != metadata['namespace']:
+            raise RuntimeError('historical RAW source/job/runtime differs from bound owner')
+        require_raw_capabilities(configured_references().writer,profile_id=COCONUT_PROFILE_ID)
+        self._raw_profile_id=COCONUT_PROFILE_ID
+        return namespace
 
     @classmethod
     def prepare(
@@ -249,7 +287,7 @@ class ResearchRepository:
     @staticmethod
     def _peek_database_date(path: Path) -> str:
         uri = f"file:{quote(str(path.resolve()))}?mode=ro"
-        connection = sqlite3.connect(uri, uri=True)
+        connection = connect_market_data(uri, uri=True)
         try:
             row = connection.execute(
                 "SELECT database_utc_date FROM schema_metadata WHERE singleton=1"
@@ -287,7 +325,7 @@ class ResearchRepository:
             return
         connection: sqlite3.Connection | None = None
         try:
-            connection = sqlite3.connect(
+            connection = connect_market_data(
                 self.path, timeout=self.busy_timeout_ms / 1000
             )
             connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
@@ -317,6 +355,10 @@ class ResearchRepository:
                     iso_utc(),
                 ),
             )
+            if self._raw_profile_id is not None:
+                refs=configured_references()
+                initialize_raw_links(connection,self._runtime_namespace(),refs.writer.scalar_authority_identity(),
+                    references=refs,profile_id=COCONUT_PROFILE_ID)
             quick = str(connection.execute("PRAGMA quick_check").fetchone()[0])
             if quick != "ok":
                 raise RuntimeError(f"new database quick_check failed: {quick}")
@@ -344,7 +386,7 @@ class ResearchRepository:
     def _validate_existing_read_only(self) -> None:
         uri = f"file:{quote(str(self.path.resolve()))}?mode=ro"
         try:
-            connection = sqlite3.connect(
+            connection = connect_market_data(
                 uri, uri=True, timeout=self.busy_timeout_ms / 1000
             )
         except sqlite3.Error as error:
@@ -352,6 +394,7 @@ class ResearchRepository:
         connection.row_factory = sqlite3.Row
         try:
             connection.execute("PRAGMA query_only=ON")
+            self._check_raw_runtime(connection,allow_archive=True)
             app_id = int(connection.execute("PRAGMA application_id").fetchone()[0])
             user_version = int(connection.execute("PRAGMA user_version").fetchone()[0])
             if (app_id, user_version) != (APPLICATION_ID, SCHEMA_USER_VERSION):
@@ -404,12 +447,8 @@ class ResearchRepository:
                 or str(registry_row["registry_json"]) != self.registry_json
             ):
                 raise RuntimeError("database frozen sports registry differs")
-            trigger_names = {
-                str(item[0])
-                for item in connection.execute(
-                    "SELECT name FROM sqlite_master WHERE type='trigger'"
-                )
-            }
+            trigger_names = {item[1] for item in logical_raw_schema_rows(connection,profile_id=COCONUT_PROFILE_ID)
+                             if item[0] == 'trigger'}
             expected_triggers = {
                 f"{table}_forbid_{operation}"
                 for table in APPEND_ONLY_TABLES
@@ -424,10 +463,14 @@ class ResearchRepository:
 
     @contextmanager
     def write_connect(self) -> Iterator[sqlite3.Connection]:
-        connection = sqlite3.connect(
+        connection = connect_market_data(
             self.path, timeout=self.busy_timeout_ms / 1000
         )
         connection.row_factory = sqlite3.Row
+        try:
+            connection._coconut_raw_namespace=self._check_raw_runtime(connection)
+        except BaseException:
+            connection.close();raise
         connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
@@ -441,7 +484,7 @@ class ResearchRepository:
     def read_connect(self, *, immutable: bool = False) -> Iterator[sqlite3.Connection]:
         suffix = "&immutable=1" if immutable else ""
         uri = f"file:{quote(str(self.path.resolve()))}?mode=ro{suffix}"
-        connection = sqlite3.connect(uri, uri=True)
+        connection = connect_market_data(uri, uri=True)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA query_only=ON")
         try:
@@ -453,6 +496,9 @@ class ResearchRepository:
     def _insert(
         connection: sqlite3.Connection, table: str, row: Mapping[str, Any]
     ) -> None:
+        if insert_raw_rows(connection,"golden-coconut",table,[row],namespace=getattr(connection,"_coconut_raw_namespace",None)):return
+        row = externalize_row("golden-coconut", table, row,
+            receipt_context=collector_receipt_context("golden-coconut", table, row, connection))
         keys = tuple(row)
         placeholders = ",".join("?" for _ in keys)
         connection.execute(
@@ -473,6 +519,9 @@ class ResearchRepository:
         columns = tuple(materialized[0])
         if any(tuple(row) != columns for row in materialized):
             raise ValueError(f"{table} rows do not share one canonical column order")
+        if insert_raw_rows(connection,"golden-coconut",table,materialized,namespace=getattr(connection,"_coconut_raw_namespace",None)):return
+        materialized = externalize_rows("golden-coconut", table, materialized,
+            receipt_context=collector_receipt_context("golden-coconut", table, materialized[0], connection))
         placeholders = ",".join("?" for _ in columns)
         connection.executemany(
             f"INSERT INTO {table}({','.join(columns)}) VALUES({placeholders})",
@@ -923,7 +972,8 @@ class ResearchRepository:
         temporary = path.with_name(f".{path.name}.rotate-{new_date}-{uuid4().hex}.tmp")
         try:
             next_repository = cls(
-                config, database_utc_date=new_date, path=temporary, create=True
+                config, database_utc_date=new_date, path=temporary, create=True,
+                raw_profile_id=old_repository._raw_profile_id
             )
             with next_repository.write_connect() as connection:
                 connection.execute("BEGIN IMMEDIATE")

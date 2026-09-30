@@ -1,12 +1,15 @@
 """Create-only UTC shards with indexed working state and append-only evidence."""
 from contextlib import contextmanager
 from datetime import datetime,timezone
-import hashlib,json,os,sqlite3,threading
+import hashlib,json,os,sqlite3,tempfile,threading
 from pathlib import Path
 from .recorder_config import CONTRACT,RUNTIME
+from polybot_observability import market_data_refs
 from polybot_observability.market_data_refs import externalize_row
-from polybot_observability.market_data_index import index_recorder_row
+from polybot_observability.market_data_index import ReceiptContext
 from polybot_observability.market_data_sqlite import connect as market_data_connect
+from polybot_observability.market_data_raw_links import raw_layout_metadata, insert_raw_rows
+from .recorder_shared_raw import RecorderSharedRaw
 
 APPLICATION_ID=0x43535231
 SCHEMA='''
@@ -41,15 +44,23 @@ def fingerprint(c):
     return hashlib.sha256(json.dumps([tuple(r) for r in rows],separators=(',',':')).encode()).hexdigest()
 
 class RecorderStore:
-    def __init__(self,path,day,*,runtime_job=RUNTIME):
+    def __init__(self,path,day,*,runtime_job=RUNTIME,references=None,raw_profile_id=None,raw_namespace=None):
         self.path=Path(path);self.day=day;self.runtime_job=runtime_job;self.lock=threading.RLock()
+        self.references=references if references is not None else market_data_refs.configured_references()
+        self._body_references=self.references if self.references.reader is not None or self.references.writer is not None else None
+        self._shared_raw=RecorderSharedRaw(path,runtime_job,self.references,profile_id=raw_profile_id,namespace=raw_namespace)
         if datetime.fromisoformat(day).date().isoformat()!=day:raise ValueError('invalid UTC shard date')
         if self.path.name!='trades_sim.db' or self.path.is_symlink():raise ValueError('unsafe recorder database path')
         self.path.parent.mkdir(parents=True,exist_ok=True)
         mem=sqlite3.connect(':memory:');mem.executescript(schema_sql());self.expected_schema=fingerprint(mem);mem.close()
         carry=[];source=None;source_sha=None;last_claim=None
         if self.path.exists():
-            c=self._readonly(self.path);self._validate(c)
+            c=self._readonly(self.path)
+            try:
+                self._validate(c)
+                self._shared_raw.check(c,write=True)
+            except BaseException:
+                c.close();raise
             stored=c.execute('SELECT database_utc_date FROM collection_contracts').fetchone()[0]
             if stored>day: c.close();raise ValueError('UTC shard clock reversed')
             if stored<day:
@@ -76,17 +87,42 @@ class RecorderStore:
                     last_claim=prior.execute('SELECT * FROM slot_claims ORDER BY slot_utc DESC LIMIT 1').fetchone()
                     last_claim=dict(last_claim) if last_claim else None
                     prior.close()
-            self.path.open('xb').close();c=self._connect(self.path);c.executescript(schema_sql())
+            self._create_shard(carry,last_claim,source)
+        self.c=self._connect(self.path)
+        try:
+            self._validate(self.c)
+            if self._shared_raw.enabled and raw_layout_metadata(self.c) is None:
+                self.c.execute('BEGIN IMMEDIATE')
+                self._shared_raw.initialize(self.c)
+                self.c.commit()
+        except BaseException:
+            self.c.close();raise
+
+    def _create_shard(self,carry,last_claim,source):
+        # A failed public ACK or carry publication must not leave an empty or
+        # half-initialized canonical shard that prevents the next cycle's retry.
+        fd,name=tempfile.mkstemp(prefix='.recorder-init-',suffix='.db',dir=self.path.parent)
+        os.close(fd);stage=Path(name);c=None
+        try:
+            c=self._connect(stage);c.executescript(schema_sql())
             c.execute(f'PRAGMA application_id={APPLICATION_ID}');c.execute('PRAGMA user_version=1')
-            c.execute('INSERT INTO collection_contracts VALUES(1,?,?,?,?,?)',('research-full-v1',CONTRACT,day,self.runtime_job,self.expected_schema))
+            c.execute('INSERT INTO collection_contracts VALUES(1,?,?,?,?,?)',('research-full-v1',CONTRACT,self.day,self.runtime_job,self.expected_schema))
+            self._shared_raw.initialize(c)
             if last_claim:
                 serialized=json.dumps(last_claim,sort_keys=True)
                 self.insert(c,'claim_carryovers',{'slot_utc':last_claim['slot_utc'],'owner_run_id':last_claim['run_id'],'source_shard':source.name,'state_json':serialized,'source_state_sha256':hashlib.sha256(serialized.encode()).hexdigest()})
             for row in carry:
                 self.insert(c,'tracked_events',row)
                 self.insert(c,'registry_carryovers',{'event_id':row['event_id'],'source_shard':source.name,'source_state_sha256':hashlib.sha256(json.dumps(row,sort_keys=True).encode()).hexdigest(),'state_json':json.dumps(row,sort_keys=True)})
-            c.commit();c.close()
-        self.c=self._connect(self.path);self._validate(self.c)
+            c.commit();c.close();c=None
+            # Same-directory hard-link publication is atomic and refuses an
+            # existing canonical path, unlike replace(). The staging link is
+            # immediately removed below; the published DB has one link.
+            os.link(stage,self.path)
+        finally:
+            if c is not None:c.close()
+            stage.unlink(missing_ok=True)
+            Path(str(stage)+'-journal').unlink(missing_ok=True)
 
     @staticmethod
     def _sha(path):
@@ -95,28 +131,67 @@ class RecorderStore:
             for block in iter(lambda:f.read(1024*1024),b''):h.update(block)
         return h.hexdigest()
 
-    @staticmethod
-    def _readonly(path):
-        c=market_data_connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True);c.row_factory=sqlite3.Row;return c
+    def _readonly(self,path):
+        c=market_data_connect(Path(path).resolve().as_uri()+'?mode=ro',uri=True,references=self.references);c.row_factory=sqlite3.Row;return c
 
     def _connect(self,path):
-        c=market_data_connect(path,timeout=3,check_same_thread=False);c.row_factory=sqlite3.Row
+        c=market_data_connect(path,timeout=3,check_same_thread=False,references=self.references);c.row_factory=sqlite3.Row
+        c.execute('PRAGMA foreign_keys=ON')
         c.execute('PRAGMA synchronous=FULL');c.execute('PRAGMA journal_mode=DELETE');return c
 
     def _validate(self,c):
+        metadata=raw_layout_metadata(c)
+        if metadata is not None:self._shared_raw.check(c)
         row=c.execute('SELECT * FROM collection_contracts').fetchall()
         if row and datetime.fromisoformat(row[0]['database_utc_date']).date().isoformat()!=row[0]['database_utc_date']:
             raise ValueError('invalid stored UTC day')
         if (len(row)!=1 or row[0]['contract_name']!='research-full-v1' or row[0]['data_contract']!=CONTRACT
             or row[0]['runtime_job']!=self.runtime_job or row[0]['schema_sha256']!=self.expected_schema
             or c.execute('PRAGMA application_id').fetchone()[0]!=APPLICATION_ID
-            or fingerprint(c)!=self.expected_schema):raise ValueError('recorder schema/epoch mismatch')
+            or (metadata is None and fingerprint(c)!=self.expected_schema)):raise ValueError('recorder schema/epoch mismatch')
 
     def insert(self,c,table,row):
-        original=row
-        row=externalize_row('golden-coconut',table,row)
-        index_recorder_row(self.runtime_job,table,original,row)
+        context=self._receipt_context(c,table,row)
+        namespace=self._shared_raw.namespace() if self._shared_raw.enabled else None
+        if (self._shared_raw.enabled and table=='tracked_events'
+                and c.execute('SELECT 1 FROM main.tracked_events WHERE event_id=?',(row['event_id'],)).fetchone()):
+            raise sqlite3.IntegrityError('duplicate tracked event')
+        if insert_raw_rows(c,'golden-coconut',table,[row],references=self.references,
+                           namespace=namespace,receipt_context=context):return
+        row=externalize_row('golden-coconut',table,row,references=self._body_references,receipt_context=context)
         cols=list(row);c.execute(f"INSERT INTO {table} ({','.join(cols)}) VALUES ({','.join('?' for _ in cols)})",tuple(row[k] for k in cols))
+
+    def _receipt_context(self,c,table,row):
+        if self.references.writer is None:return None
+        # Source receipts exist only for actually retained source bodies. Fee
+        # fragments or tracking-only updates do not invent observations.
+        bodies={'requests':('raw_gzip',),'event_observations':('event_json','clock_json'),
+                'book_observations':('book_gzip',),'clock_observations':('raw_gzip',)}
+        if not any(row.get(column) is not None for column in bodies.get(table,())):return None
+        if self._shared_raw.enabled:
+            owner=json.loads(self._shared_raw.namespace())
+            return ReceiptContext(owner['source'],self.runtime_job,owner['jenkins_job'],c)
+        source=os.environ.get('PUBLIC_MARKET_DATA_SOURCE')
+        if not source:raise ValueError('shared recorder requires PUBLIC_MARKET_DATA_SOURCE identity')
+        return ReceiptContext(source,self.runtime_job,os.environ.get('JOB_NAME'),c)
+
+    def update_tracked(self,c,row):
+        if not c.execute('SELECT 1 FROM main.tracked_events WHERE event_id=?',(row['event_id'],)).fetchone():
+            raise ValueError('recorder tracked event is absent')
+        if self._shared_raw.enabled:
+            insert_raw_rows(c,'golden-coconut','tracked_events',[row],references=self.references,
+                            namespace=self._shared_raw.namespace())
+        else:
+            row=externalize_row('golden-coconut','tracked_events',row,references=self._body_references)
+            keys=[key for key in row if key!='event_id']
+            c.execute('UPDATE tracked_events SET '+','.join(key+'=?' for key in keys)+' WHERE event_id=?',
+                      tuple(row[key] for key in keys)+(row['event_id'],))
+
+    def demote_done(self,c,event_ids):
+        # Only local lifecycle state changes; the already bound source and its
+        # immutable receipt remain untouched, including in RAW storage.
+        c.executemany("UPDATE main.tracked_events SET state='WAIT_SETTLEMENT' WHERE state='DONE' AND event_id=?",
+                      ((event_id,) for event_id in event_ids))
 
     @contextmanager
     def transaction(self):
@@ -135,6 +210,8 @@ class RecorderStore:
         return None
 
     def pending(self,now):
-        return [dict(r) for r in self.c.execute("SELECT * FROM tracked_events INDEXED BY tracked_due_idx WHERE state IN ('SCHEDULED','WINDOW','WAIT_SETTLEMENT') AND next_due<=? ORDER BY next_due,event_id",(now,))]
+        # Predicates remain on indexed private columns. INDEXED BY cannot name
+        # the underlying table's index when this name is a logical RAW view.
+        return [dict(r) for r in self.c.execute("SELECT * FROM tracked_events WHERE state IN ('SCHEDULED','WINDOW','WAIT_SETTLEMENT') AND next_due<=? ORDER BY next_due,event_id",(now,))]
 
     def close(self):self.c.close()

@@ -331,10 +331,10 @@ class Recorder:
             for table,rows in (('clock_observations',clock_rows),('event_observations',observations),('book_observations',books)):
                 for row in rows:self.store.insert(c,table,row)
             for eid,row in updates.items():
-                keys=[k for k in row if k!='event_id'];c.execute('UPDATE tracked_events SET '+','.join(k+'=?' for k in keys)+' WHERE event_id=?',tuple(row[k] for k in keys)+(eid,))
+                self.store.update_tracked(c,row)
             if budget.elapsed()>available:
                 status='FAILED';stats['errors']=sorted(set(stats['errors']+['publication_budget']))
-                c.execute("UPDATE tracked_events SET state='WAIT_SETTLEMENT' WHERE state='DONE' AND event_id IN ("+','.join('?' for _ in updates)+")",tuple(updates)) if updates else None
+                self.store.demote_done(c,updates)
             self.store.insert(c,'cycles',{'run_id':run,'slot_utc':slot,'reference_at':reference,'published_at':iso_utc(),
                 'status':status,'config_json':canonical_json(config),'stats_json':canonical_json(stats)})
         return {'run_id':run,'status':status,**provenance,**stats}

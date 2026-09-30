@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import sys
 from dataclasses import replace
 from pathlib import Path
@@ -26,8 +27,9 @@ sys.path.insert(0, str(REPOSITORY / "tools"))
 sys.path.insert(0, str(REPOSITORY / "tools" / "tests"))
 
 
-def test_ui_build_uses_verified_scoped_public_receipts(app_config, monkeypatch):
+def test_ui_build_uses_verified_scoped_public_receipts(app_config, monkeypatch, tmp_path):
     from test_conservative_sports_grid import raw_fixture_pin
+    from test_public_payloads import LocalRemote
 
     config = replace(app_config, project_root=REPOSITORY / "daily-rsync")
     source, fixture = raw_fixture_pin(config.data_root)
@@ -61,8 +63,10 @@ def test_ui_build_uses_verified_scoped_public_receipts(app_config, monkeypatch):
             references=PayloadReferences(reader=writer, writer=writer),
         )
     os.replace(destination, database)
+    remote = LocalRemote(tmp_path / "public-receipt-source", [])
+    shutil.copy2(config.public_store_path, remote.public_db)
     descriptor = synchronize_database_closure(
-        config, object(), database, strategy="golden-peach", source_key=artifact.source_key,
+        config, remote, database, strategy="golden-peach", source_key=artifact.source_key,
         database_sha256=sha256(database), ensure_capacity=lambda _: None,
     )
     write_closure_descriptor(config, database, descriptor)

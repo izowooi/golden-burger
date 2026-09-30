@@ -1,5 +1,18 @@
 # 운영과 복구
 
+## DB별 snapshot manifest
+
+새 동기화는 같은 폴더의 `trades_sim.db`, `shadow.db` 등이 검증 기록을 덮어쓰지 않도록
+각각 `trades_sim.db.manifest.json`, `shadow.db.manifest.json`을 기록한다. 새 manifest가
+있으면 이것이 해당 DB snapshot의 권위다. 과거 `manifest.json`은 파일별 manifest가 없을
+때만 읽으며, checksum·원격 경로·로컬 경로·source fingerprint가 그 DB에 맞아야 한다.
+다른 DB의 기록이거나 이미 덮어써졌다면 추정 복원하지 않고 원본 재동기화가 필요한 gap이다.
+
+고정 pin과 source-key별 review generation은 이미 폴더가 독립적이므로 기존
+`manifest.json` 이름을 유지한다. 이전 원본의 manifest는 review generation으로 보존되고,
+전환 실패 시 DB·closure·manifest와 catalog를 원래 상태로 복구한다. 공용 저장소 전환의
+원본/변환본 대사는 파일별 snapshot과 이 lineage를 사용한다.
+
 ## 일상 실행
 
 가장 단순한 시작·종료 방법은 저장소의 toggle script다.
@@ -181,3 +194,77 @@ sqlite3 data/catalog.sqlite3 \
 sqlite3 data/sources/macmini-m5/jobs/polybot-king/strategies/golden-queen/runtime/queen-live-12h/databases/latest/trades.db \
   "pragma quick_check;"
 ```
+
+### Black RAW 공용 저장소 derivative
+
+Golden Black의 검토된 세 RAW parent table은 원래 TEXT PK·rowid·FK·개인 관측 문맥을
+남긴 skeleton과 공용 공개 projection으로 전환할 수 있다. 원격의
+`<database>.raw-migration.json` (`black-raw-parent-derivative-v1`)은 전환 제안이며
+그 자체로 verified evidence가 되지 않는다. 기존 `.storage-migration.json`과 동시에
+존재하면 모호한 전환으로 거부한다.
+
+동기화는 공개 projection closure v3와 남아 있는 public/mixed body를 먼저 검증한 뒤,
+기존 로컬 원본과 incoming의 모든 논리 셀·원래 rowid·private 물리 값·FK·허용된
+schema 변경을 다시 비교한다. SQLite backup의 header 차이가 있는 경우 원본 file SHA와
+기존 verified snapshot SHA를 기존 manifest/fingerprint로 연결한다. 검사에 실패하면
+이전 latest와 pin을 보존한다. 통과한 원본은 review/storage-migrations로 보존하며
+새 pin에는 전환 lineage와 공용 dependency closure가 포함된다.
+
+공용 record나 receipt, mixed body 중 하나라도 빠지면 verify와 pin을 차단한다.
+mutable runtime을 다시 시작하기 전에는 이 고정 SHA sidecar의 검증·pin을 완료하고
+승인된 배포 절차로 sidecar를 보존 위치로 옮겨야 한다. 이후의 새 write는 보통의
+공용 DB dependency sync를 사용하며, stale sidecar의 SHA 불일치를 무시하지 않는다.
+
+Watermelon historical main의 `watermelon-research-v401`은 별도의 명시적 schema
+profile이다. `shared-raw-parent-derivative-v2`와 projection closure v4는 profile ID·version·
+logical schema SHA를 함께 검증하며, Black v1의 closure v3와 혼합하지 않는다. 전환
+범위는 해당 profile에 선언된 event/market/outcome/book 네 테이블이다. 다른 epoch의
+DB를 이름이 비슷하다는 이유로 이 profile로 해석하지 않는다.
+
+반복되는 mixed envelope는 strategy DB 내부의 PRIVATE packet dictionary에 보관할 수
+있다. 이 dictionary와 owner·column binding은 private DB 및 pin에 그대로 남으며
+공용 payload export 대상이 아니다. 대사는 로컬 marker를 원래 PMMIX bytes로 펼친 뒤
+기존 mixed ownership·논리 셀을 검증한다. dictionary 누락, 다른 namespace, 손상된
+packet, 다른 논리 열로의 marker 이동은 sync/verify/pin을 차단한다. 새 dictionary의
+random owner 값이나 내부 ID 차이를 실제 시장 값 변경으로 해석하지 않는다.
+
+Coconut historical `coconut-historical-v6`도 closure v4의 명시적 profile로 처리한다.
+application ID `1195593521`, user version `6`, 원래 schema SHA와 dated shard의
+`research-full-v1` 날짜를 검증한다. 15개 선언 표의 공개 source 필드를 연결하며,
+working state·실험 판단·실행 가능액 계산 및 개인 packet은 private DB에 남는다.
+현재 White recorder(`0x43535231`, user version `1`)는 같은 `golden-coconut` 이름을
+사용해도 이 profile 대상이 아니다. historical archive의 source/job/runtime 출처를
+현재 White 출처로 바꾸지 않는다.
+
+Pomegranate의 `pomegranate-research-full-v4`는 `application_id/user_version=0/0`이며,
+`collection_contracts`의 `research-full-v1`, schema version `4` 행이 버전 권위다.
+12개 공개 source 표와 `orderbook_levels`의 원래 행을 함께 대사한다. 공개 trade tape는
+account fill이 아니다. 파싱 판단·수집 시각·선별 이유는 private에 남고, 공개 raw preview와
+이전 정산 원본 복사값만 공용화한다.
+
+Pomegranate ladder의 원래 rowid와 nullable TEXT PK는 private binding에 보존한다.
+`externalized_level_rows`, `declared-primary-key+rowid-v1`, `implicit_rowid_preserved=true`
+증거가 없는 derivative는 승인하지 않는다. 과거 level link에 원래 rowid가 없으면 ordinal을
+대신 만들어 검증하지 않고 원본이 필요하다고 실패한다. Native shared archive 및 inline/shared
+원본의 재이관 모두 scan→sync→verify→pin에서 body·projection·ladder 의존성과 기존 pin 보존을
+검사한다. 이 로컬 통합 경로의 검증은 실제 Pomegranate 원격 배포 완료를 뜻하지 않는다.
+
+Raspberry의 `raspberry-queue-echo-v3`는 세 shard의 원래 metadata·frozen 계약·실험 기간을
+검증한다. 공개 source 복사값을 가진 7개 표와 보존한 sparse level을 처리하며,
+near-touch/entry flag와 첫 follow-up 요청·lease·terminal 이력은 private로 남는다.
+기존 public 배열 본문은 scalar group에 중복 넣지 않는다. Native·inline 원본·이미 공용화한
+원본의 재이관은 실제 SyncService의 verify/pin 경로에서 검증했다.
+
+Strawberry는 `strawberry-last-mile-v1`과 `strawberry-followup-v2a-v4`를 구분한다.
+v1의 mutable `latest_outcome_state`는 현재 private 문맥과 공개 record 포인터만 보관한다.
+같은 공개 상태의 재사용은 기존 exact receipt tuple로 증명하며 별도 private 가격 이력을
+추가하지 않는다. 가격 이력은 원래 immutable outcome 관측이 보존한다.
+
+Frozen v1이 v2a의 source anchor인 경우 `<DB>.source-storage-transition.json`이 원래
+anchor와 RAW 전환을 연결한다. 단순 `VERIFIED` 문구 또는 device-only 승인으로 대체하지
+않는다. 동기화는 private receipt의 exact bytes SHA를 운반하고 기존 로컬 원본과 신규 DB의
+전체 RAW·본문 proof를 다시 계산한 후 lineage/pin에 포함한다. Native reader는 그 뒤
+anchor·seed·device-chain 의미를 별도로 검증한다. Receipt는 공용 CAS로 내보내지 않는다.
+Snapshot linkage가 필요하면 RAW manifest에 먼저 추가한 뒤 source attestation을 발행하고,
+원본을 검토 위치로 옮긴 다음 staged derivative와 두 sidecar를 canonical 경로로 이동한다.
+Attestation 이후 RAW manifest를 바꾸면 checksum 불일치로 실패해야 한다.

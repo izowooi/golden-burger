@@ -26,12 +26,16 @@ from .models import (
     research_archive_date,
 )
 from .public_payloads import (
+    _safe_local,
     closure_sidecar,
+    storage_migration_candidate,
     synchronize_database_closure,
     verify_database_closure,
+    verify_storage_migration,
     write_closure_descriptor,
 )
 from .remote import RemoteClient
+from .snapshot_manifests import snapshot_manifest_path
 
 ProgressCallback = Callable[[dict[str, object]], None]
 
@@ -199,6 +203,7 @@ class SyncService:
             job=job,
             strategy=selected_strategy,
         )
+        open_conflicts = self._nonmigration_conflicts(open_conflicts, inventory.artifacts)
         if open_conflicts:
             identifiers = ", ".join(
                 f"#{row['id']}:{row['conflict_type']}" for row in open_conflicts
@@ -249,7 +254,9 @@ class SyncService:
                 )
                 continue
             immutable_conflict = self.catalog.immutable_conflict(artifact)
-            if immutable_conflict is not None:
+            if immutable_conflict is not None and not storage_migration_candidate(
+                artifact, immutable_conflict
+            ):
                 self.catalog.record_conflict(
                     conflict_type="IMMUTABLE_REMOTE_CHANGED",
                     source=self.config.ssh_host,
@@ -270,6 +277,9 @@ class SyncService:
                     verify_database_closure(
                         self.config, Path(existing["local_path"]), strategy=artifact.strategy,
                         source_key=artifact.source_key, database_sha256=existing["local_sha256"],
+                        expected_source_identity={"source": artifact.source,
+                            "jenkins_job": artifact.jenkins_job, "strategy": artifact.strategy,
+                            "runtime_job": artifact.runtime_job},
                     )
                 except Exception:
                     current = False
@@ -364,6 +374,21 @@ class SyncService:
         from_date: date | None,
         to_date: date | None,
     ) -> None:
+        if artifact.data_contract == "apple-filtered-frames-v1":
+            try:
+                month = datetime.strptime(artifact.database_month or "", "%Y-%m").strftime("%Y-%m")
+            except ValueError:
+                raise RuntimeError("Apple artifact has an invalid database month") from None
+            if (
+                month != artifact.database_month
+                or Path(artifact.remote_path).name != month + ".sqlite"
+                or artifact.strategy != "golden-apple"
+                or artifact.kind != "database_sim"
+                or artifact.runtime_job != artifact.jenkins_job
+                or artifact.mode != "sim"
+            ):
+                raise RuntimeError("Apple monthly artifact identity mismatch")
+            return
         if (
             artifact.kind == "database_research_archive"
             and artifact.data_contract != "research-full-v1"
@@ -514,28 +539,32 @@ class SyncService:
                         )
                         remote_digest = None
                     if artifact.remote_path not in retention_deleted_console_paths:
-                        self.catalog.upsert_artifact(
-                            catalog_artifact,
-                            source=plan.source,
-                            local_path=local_path,
-                            local_sha256=digest,
-                            remote_sha256=remote_digest,
-                            metadata={
-                                "completed_at": catalog_artifact.completed_at,
-                                "status": catalog_artifact.status,
-                                "canonical": catalog_artifact.canonical,
-                                "archive_date": catalog_artifact.archive_date,
-                                "mode": catalog_artifact.mode,
-                                "data_contract": catalog_artifact.data_contract,
-                                "database_utc_date": catalog_artifact.database_utc_date,
-                                "workspace": plan.workspace,
-                                "workspace_epoch": plan.workspace_epoch,
-                                "public_payloads_manifest": (
-                                    str(closure_sidecar(local_path))
-                                    if catalog_artifact.kind.startswith("database") else None
-                                ),
-                            },
-                        )
+                        if catalog_artifact.storage_migration is None:
+                            self.catalog.upsert_artifact(
+                                catalog_artifact,
+                                source=plan.source,
+                                local_path=local_path,
+                                local_sha256=digest,
+                                remote_sha256=remote_digest,
+                                metadata={
+                                    "completed_at": catalog_artifact.completed_at,
+                                    "status": catalog_artifact.status,
+                                    "canonical": catalog_artifact.canonical,
+                                    "archive_date": catalog_artifact.archive_date,
+                                    "mode": catalog_artifact.mode,
+                                    "data_contract": catalog_artifact.data_contract,
+                                    "database_utc_date": catalog_artifact.database_utc_date,
+                                    "database_month": catalog_artifact.database_month,
+                                    "observation_window": catalog_artifact.observation_window,
+                                    "workspace": plan.workspace,
+                                    "workspace_epoch": plan.workspace_epoch,
+                                    "public_payloads_manifest": (
+                                        str(closure_sidecar(local_path))
+                                        if catalog_artifact.kind.startswith("database")
+                                        else None
+                                    ),
+                                },
+                            )
                         result.transferred += 1
                         result.bytes_written += written
                 except Exception as error:
@@ -603,6 +632,7 @@ class SyncService:
             job=plan.jenkins_job,
             strategy=plan.strategy,
         )
+        open_conflicts = self._nonmigration_conflicts(open_conflicts, plan.artifacts)
         if open_conflicts:
             raise RuntimeError(
                 "catalog has unresolved artifact conflict(s): "
@@ -807,6 +837,7 @@ class SyncService:
                 size_bytes=observed_size,
                 mtime_ns=observed_mtime_ns,
                 completed_at=observed_completed_at,
+                observation_window=manifest.get("observation_window", artifact.observation_window),
             )
             if (
                 artifact.kind == "database_research_archive"
@@ -830,11 +861,32 @@ class SyncService:
                     "immutable research archive changed after plan creation; "
                     "existing evidence was preserved"
                 )
+            if destination.is_file() and artifact.storage_migration is None:
+                from polybot_observability.market_data_projection_closure import projection_identity
+                if (projection_identity(incoming, artifact.strategy or "") is not None
+                        and projection_identity(destination, artifact.strategy or "") is None):
+                    raise RuntimeError(
+                        "projection storage migration requires original-to-derivative attestation"
+                    )
             payload_closure = synchronize_database_closure(
                 self.config, self.remote, incoming, strategy=artifact.strategy,
                 source_key=artifact.source_key, database_sha256=digest,
                 ensure_capacity=self._ensure_disk_capacity,
+                expected_source_identity={"source": artifact.source or plan.source,
+                    "jenkins_job": artifact.jenkins_job, "strategy": artifact.strategy,
+                    "runtime_job": artifact.runtime_job},
             )
+            if artifact.storage_migration is not None:
+                return self._sync_storage_generation(
+                    plan,
+                    artifact,
+                    observed_artifact,
+                    destination,
+                    incoming,
+                    manifest,
+                    payload_closure,
+                    written,
+                )
             if artifact.kind == "database_research_archive" and destination.is_file():
                 existing = self.catalog.get_artifact(artifact.source_key)
                 if existing is not None and sha256(destination) == digest:
@@ -862,7 +914,7 @@ class SyncService:
             os.replace(incoming, destination)
             destination.chmod(0o600)
             write_closure_descriptor(self.config, destination, payload_closure)
-            manifest_path = destination.parent / "manifest.json"
+            manifest_path = snapshot_manifest_path(destination,for_write=True)
             manifest_payload = {
                 **manifest,
                 "local_path": str(destination),
@@ -875,6 +927,8 @@ class SyncService:
                 "mode": artifact.mode,
                 "data_contract": artifact.data_contract,
                 "database_utc_date": artifact.database_utc_date,
+                "database_month": observed_artifact.database_month,
+                "observation_window": observed_artifact.observation_window,
                 "public_payloads": payload_closure,
             }
             temporary = manifest_path.with_suffix(".json.tmp")
@@ -900,6 +954,24 @@ class SyncService:
         manifest: dict[str, Any],
         destination: Path,
     ) -> None:
+        if artifact.data_contract == "apple-filtered-frames-v1":
+            from .remote_agent import apple_collection_record
+
+            identity = apple_collection_record(
+                incoming,
+                expected_job=artifact.runtime_job,
+                expected_month=artifact.database_month,
+                require_path=False,
+            )
+            if (
+                artifact.strategy != "golden-apple"
+                or artifact.kind != "database_sim"
+                or artifact.mode != "sim"
+                or identity != manifest.get("apple_collection")
+                or manifest.get("database_month") != artifact.database_month
+            ):
+                raise RuntimeError("Apple monthly snapshot identity changed")
+            return
         if artifact.data_contract != "research-full-v1":
             return
         contract = read_research_database_contract(incoming)
@@ -1085,7 +1157,7 @@ class SyncService:
                 f"{artifact.remote_path} -> {destination}"
             )
         immutable = self.catalog.immutable_conflict(artifact)
-        if immutable is not None:
+        if immutable is not None and not storage_migration_candidate(artifact, immutable):
             self.catalog.record_conflict(
                 conflict_type="IMMUTABLE_REMOTE_CHANGED",
                 source=plan.source,
@@ -1097,6 +1169,167 @@ class SyncService:
             raise RuntimeError(
                 f"immutable research archive fingerprint changed: {artifact.remote_path}"
             )
+
+    def _nonmigration_conflicts(self, conflicts, artifacts):
+        if not conflicts:
+            return conflicts
+        artifacts = [
+            replace(item, source=item.source or self.config.ssh_host) for item in artifacts
+        ]
+        candidates = {
+            item.source_key: item
+            for item in artifacts
+            if item.storage_migration is not None
+            if storage_migration_candidate(item, self.catalog.get_artifact(item.source_key))
+        }
+        return [
+            row
+            for row in conflicts
+            if not (
+                row["source_key"] in candidates
+                and row["existing_source_key"] == row["source_key"]
+                and row["remote_path"] == candidates[row["source_key"]].remote_path
+                and row["conflict_type"] in {"IMMUTABLE_REMOTE_CHANGED", "IMMUTABLE_LOCAL_EXISTS"}
+            )
+        ]
+
+    def _sync_storage_generation(
+        self, plan, artifact, observed, destination, incoming, snapshot, closure, written
+    ):
+        existing = self.catalog.get_artifact(artifact.source_key)
+        digest = sha256(incoming)
+        previous = self.catalog.storage_generation(artifact.source_key, digest)
+        if (
+            previous is not None
+            and existing is not None
+            and existing["local_sha256"] == digest
+            and destination.is_file()
+            and sha256(destination) == digest
+            and previous["remote_sidecar"] == artifact.storage_migration
+            and snapshot.get("storage_migration") == artifact.storage_migration
+        ):
+            # Repair a lost closure attestation without inventing a generation.
+            write_closure_descriptor(self.config, destination, closure)
+            incoming.unlink(missing_ok=True)
+            return destination, digest, digest, 0, observed
+        attestation = verify_storage_migration(
+            self.config,
+            destination,
+            incoming,
+            artifact=artifact,
+            existing=existing,
+            snapshot=snapshot,
+            closure=closure,
+        )
+        old_metadata = json.loads(existing["metadata_json"])
+        observed = replace(observed, completed_at=attestation["source_completed_at"])
+        review = _safe_local(
+            self.config,
+            self.config.data_root
+            / "review"
+            / "storage-migrations"
+            / artifact.source_key
+            / attestation["original_sha256"],
+        )
+        review.mkdir(parents=True, exist_ok=True, mode=0o700)
+        attestation["original_path"] = str(review / destination.name)
+        attestation_path = Path(str(destination) + ".storage-migration.json")
+        manifest_path = snapshot_manifest_path(destination,for_write=True)
+        prior_manifest_path = snapshot_manifest_path(destination)
+        _safe_local(self.config,prior_manifest_path)
+        if prior_manifest_path.is_file():
+            if prior_manifest_path.stat().st_size>8*1024*1024:
+                raise RuntimeError('storage migration prior manifest is unbounded')
+            prior_record=json.loads(prior_manifest_path.read_text())
+            if isinstance(prior_record,dict) and prior_record.get('local_path') not in (None,str(destination)):
+                raise RuntimeError('storage migration prior manifest belongs to another database')
+        metadata = {
+            **old_metadata,
+            "completed_at": observed.completed_at,
+            "source_completed_at": observed.completed_at,
+            "storage_generation": digest,
+            "storage_lineage_path": str(attestation_path),
+            "public_payloads_manifest": str(closure_sidecar(destination)),
+        }
+        manifest = {
+            **snapshot,
+            "local_path": str(destination),
+            "synced_at": datetime.now(UTC).isoformat(),
+            "artifact_kind": observed.kind,
+            "canonical": observed.canonical,
+            "archive_date": observed.archive_date,
+            "mode": observed.mode,
+            "data_contract": observed.data_contract,
+            "database_utc_date": observed.database_utc_date,
+            "remote_source_fingerprint": observed.fingerprint,
+            "remote_source_mtime_ns": observed.mtime_ns,
+            "source_completed_at": observed.completed_at,
+            "public_payloads": closure,
+            "storage_lineage": attestation,
+        }
+        write_closure_descriptor(self.config, incoming, closure)
+        token = uuid.uuid4().hex
+        staged_attestation = self.config.incoming_root / (token + ".storage.json")
+        staged_manifest = self.config.incoming_root / (token + ".manifest.json")
+        for path, value in ((staged_attestation, attestation), (staged_manifest, manifest)):
+            with path.open("x", encoding="utf-8") as stream:
+                os.chmod(path, 0o600)
+                json.dump(value, stream, sort_keys=True, indent=2)
+                stream.flush()
+                os.fsync(stream.fileno())
+        replacements = [
+            (incoming, destination),
+            (closure_sidecar(incoming), closure_sidecar(destination)),
+            (staged_manifest, manifest_path),
+            (staged_attestation, attestation_path),
+        ]
+        with incoming.open("rb") as stream:
+            os.fsync(stream.fileno())
+        moved, published = [], []
+        try:
+            for _, final in replacements:
+                _safe_local(self.config, final)
+                prior = prior_manifest_path if final==manifest_path else final
+                _safe_local(self.config,prior)
+                if prior.exists():
+                    preserved = review / ('manifest.json' if final==manifest_path else final.name)
+                    if preserved.exists():
+                        raise RuntimeError("storage migration review destination already exists")
+                    os.replace(prior, preserved)
+                    moved.append((preserved, prior))
+            for staged, final in replacements:
+                os.replace(staged, final)
+                published.append(final)
+            if (
+                sha256(destination) != digest
+                or sha256(Path(attestation["original_path"])) != attestation["original_sha256"]
+            ):
+                raise RuntimeError("storage migration publication checksum mismatch")
+            for directory in (destination.parent, review):
+                descriptor = os.open(directory, os.O_RDONLY)
+                try:
+                    os.fsync(descriptor)
+                finally:
+                    os.close(descriptor)
+            self.catalog.upsert_artifact(
+                observed,
+                source=plan.source,
+                local_path=destination,
+                local_sha256=digest,
+                remote_sha256=digest,
+                metadata=metadata,
+                storage_generation=attestation,
+            )
+        except BaseException:
+            for final in reversed(published):
+                final.unlink(missing_ok=True)
+            for preserved, final in reversed(moved):
+                os.replace(preserved, final)
+            raise
+        finally:
+            for staged, _ in replacements:
+                staged.unlink(missing_ok=True)
+        return destination, digest, digest, written, observed
 
     def _sync_regular(
         self,
@@ -1182,6 +1415,14 @@ class SyncService:
         root = source_root / "strategies" / strategy / "runtime" / runtime
         remote_name = Path(artifact.remote_path).name
         if artifact.kind in {"database_live", "database_sim"}:
+            if artifact.data_contract == "apple-filtered-frames-v1":
+                return (
+                    root
+                    / "databases"
+                    / "monthly"
+                    / _safe_component(artifact.database_month or "")
+                    / remote_name
+                )
             return root / "databases" / "latest" / remote_name
         if artifact.kind == "database_research_archive":
             archive_date = research_archive_date(remote_name)
@@ -1234,11 +1475,26 @@ class SyncService:
             strategy=strategy,
         )
         archive_coverage: dict[str, object] | None = None
-        if from_date and to_date:
+        monthly_only = any(self._is_apple_monthly(row) for row in rows) and not any(
+            row["kind"] == "database_research_archive" or self._is_research_active(row)
+            for row in rows
+        )
+        if from_date and to_date and monthly_only:
             rows = [
                 row
                 for row in rows
-                if (row["kind"] == "database_research_archive" or self._is_research_active(row))
+                if self._is_apple_monthly(row)
+                and self._artifact_in_range(row, from_date=from_date, to_date=to_date)
+            ]
+        if from_date and to_date and not monthly_only:
+            rows = [
+                row
+                for row in rows
+                if (
+                    row["kind"] == "database_research_archive"
+                    or self._is_research_active(row)
+                    or self._is_apple_monthly(row)
+                )
                 and self._artifact_in_range(row, from_date=from_date, to_date=to_date)
             ]
             archive_coverage = self._archive_coverage(
@@ -1349,6 +1605,8 @@ class SyncService:
                     verify_database_closure(
                         self.config, path, strategy=row["strategy"],
                         source_key=row["source_key"], database_sha256=digest, source=row["source"],
+                        expected_source_identity={key: row[key] for key in
+                            ("source", "jenkins_job", "strategy", "runtime_job")},
                     )
                 checked += 1
             except Exception as error:
@@ -1360,6 +1618,7 @@ class SyncService:
             "errors": failed,
             "status": "SUCCESS" if not failed else "FAILED",
             "archive_coverage": archive_coverage,
+            "monthly_coverage": self._monthly_coverage(rows),
             "open_artifact_conflicts": [self._conflict_location(row) for row in open_conflicts],
         }
 
@@ -1369,6 +1628,22 @@ class SyncService:
             metadata = json.loads(row["metadata_json"] or "{}")
         except (TypeError, json.JSONDecodeError):
             metadata = {}
+        if metadata.get("data_contract") == "apple-filtered-frames-v1":
+            from .remote_agent import apple_collection_record
+
+            identity = apple_collection_record(
+                path,
+                expected_job=row["runtime_job"],
+                expected_month=metadata.get("database_month"),
+                require_path=False,
+            )
+            if (
+                row["strategy"] != "golden-apple"
+                or row["kind"] != "database_sim"
+                or identity["observation_window"] != metadata.get("observation_window")
+            ):
+                raise RuntimeError("local Apple monthly identity/window mismatch")
+            return
         if (
             row["kind"] == "database_research_archive"
             and metadata.get("data_contract") != "research-full-v1"
@@ -1554,6 +1829,7 @@ class SyncService:
                         "research_archives": research_archives,
                         "safety_databases": safety_databases,
                         "archive_coverage": runtime_coverage,
+                        "monthly_coverage": self._monthly_coverage(canonical_rows),
                         "open_artifact_conflicts": [
                             self._conflict_location(row) for row in runtime_conflicts
                         ],
@@ -1699,6 +1975,8 @@ class SyncService:
             verify_database_closure(
                 self.config, path, strategy=row["strategy"], source_key=row["source_key"],
                 database_sha256=row["local_sha256"], source=row["source"],
+                expected_source_identity={key: row[key] for key in
+                    ("source", "jenkins_job", "strategy", "runtime_job")},
             )
         except Exception as error:
             closure_error = str(error)
@@ -1718,6 +1996,8 @@ class SyncService:
                 ),
             ),
             "data_contract": metadata.get("data_contract"),
+            "database_month": metadata.get("database_month"),
+            "observation_window": metadata.get("observation_window"),
             "workspace": metadata.get("workspace"),
             "workspace_epoch": metadata.get("workspace_epoch"),
             "status": row["status"],
@@ -1735,6 +2015,34 @@ class SyncService:
             "remote_sha256": row["remote_sha256"],
             "synced_at": row["synced_at"],
         }
+
+    @staticmethod
+    def _is_apple_monthly(row):
+        metadata = json.loads(row["metadata_json"] or "{}")
+        return (
+            row["kind"] == "database_sim"
+            and metadata.get("data_contract") == "apple-filtered-frames-v1"
+        )
+
+    @classmethod
+    def _monthly_coverage(cls, rows):
+        months = []
+        for row in rows:
+            if cls._is_apple_monthly(row):
+                metadata = json.loads(row["metadata_json"])
+                months.append(
+                    {
+                        "source_key": row["source_key"],
+                        "runtime_job": row["runtime_job"],
+                        "month": metadata.get("database_month"),
+                        "observation_window": metadata.get("observation_window"),
+                    }
+                )
+        return (
+            {"scope": "observed_runs_only", "calendar_month_complete": False, "snapshots": months}
+            if months
+            else None
+        )
 
     @staticmethod
     def _archive_in_range(
@@ -1766,6 +2074,11 @@ class SyncService:
             metadata = json.loads(row["metadata_json"] or "{}")
         except (TypeError, json.JSONDecodeError):
             metadata = {}
+        if metadata.get("data_contract") == "apple-filtered-frames-v1":
+            month = metadata.get("database_month")
+            return isinstance(month, str) and from_date.strftime(
+                "%Y-%m"
+            ) <= month <= to_date.strftime("%Y-%m")
         # A dated research archive is evidence only when both the catalog and
         # the SQLite payload attest the research-full contract.  Falling back
         # to filename/kind alone would let a legacy or malformed database
@@ -2071,6 +2384,8 @@ class SyncService:
         payload_closure = verify_database_closure(
             self.config, source, strategy=row["strategy"], source_key=source_key,
             database_sha256=row["local_sha256"], source=row["source"],
+            expected_source_identity={key: row[key] for key in
+                ("source", "jenkins_job", "strategy", "runtime_job")},
         )
         timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")
         destination = source.parent.parent / "pinned" / timestamp / source.name
@@ -2082,6 +2397,8 @@ class SyncService:
         verify_database_closure(
             self.config, destination, strategy=row["strategy"], source_key=source_key,
             database_sha256=digest, descriptor=payload_closure, source=row["source"],
+            expected_source_identity={key: row[key] for key in
+                ("source", "jenkins_job", "strategy", "runtime_job")},
         )
         if payload_closure is not None:
             write_closure_descriptor(self.config, destination, payload_closure)
@@ -2091,12 +2408,18 @@ class SyncService:
             "source": str(source),
             "pinned_path": str(destination),
             "sha256": digest,
+            "storage_generation": digest,
+            "storage_lineage": self.catalog.storage_generation(source_key, digest),
+            "database_month": json.loads(row["metadata_json"]).get("database_month"),
+            "observation_window": json.loads(row["metadata_json"]).get("observation_window"),
             "quick_check": quick_check(destination),
             "created_at": datetime.now(UTC).isoformat(),
             "public_payloads": payload_closure,
             "source_identity": {
-                "source": row["source"], "jenkins_job": row["jenkins_job"],
-                "strategy": row["strategy"], "runtime_job": row["runtime_job"],
+                "source": row["source"],
+                "jenkins_job": row["jenkins_job"],
+                "strategy": row["strategy"],
+                "runtime_job": row["runtime_job"],
                 "remote_path": row["remote_path"],
             },
         }

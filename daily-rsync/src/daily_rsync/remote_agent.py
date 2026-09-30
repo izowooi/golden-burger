@@ -21,7 +21,7 @@ import uuid
 import xml.etree.ElementTree as ET
 from contextlib import contextmanager
 from datetime import datetime, timezone
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 AUDIT_PATTERN = re.compile(rb"\[RUN_AUDIT\].{0,160}?strategy=(golden-[a-z0-9-]+)", re.I)
 RUNTIME_PATTERN = re.compile(rb"(?:--job[ =]|Job: |job=)([A-Za-z0-9_.-]+)", re.I)
@@ -34,6 +34,865 @@ WORKSPACE_MARKER_SCHEMA_VERSION = 1
 WORKSPACE_MARKER_MAX_BYTES = 4096
 LOG_IDENTITY_MAX_BYTES = 8 * 1024 * 1024
 LOG_IDENTITY_KEYS = frozenset(("strategy_name", "job_name", "runtime_job", "mode"))
+STORAGE_MIGRATION_MAX_BYTES = 8 * 1024 * 1024
+APPLE_COLLECTION_FORMAT = "apple-filtered-frames-v1"
+APPLE_COLLECTION_APPLICATION_ID = 0x47415032
+APPLE_COLLECTION_JOBS = frozenset(("polybot-do", "polybot-re", "polybot-mi", "polybot-shadow-one"))
+APPLE_MONTH_PATTERN = re.compile(r"^[0-9]{4}-(?:0[1-9]|1[0-2])\.sqlite$")
+# This remote script is self-contained; a local contract test keeps this mirror
+# aligned with the reviewed six-column adapters in polybot-observability.
+SCALAR_STRATEGIES = frozenset((
+    "golden-apple", "golden-banana", "golden-cherry", "golden-date",
+    "golden-elderberry", "golden-fig", "golden-grape", "golden-lime",
+    "golden-mango", "golden-orange",
+))
+PROJECTION_KINDS = {
+    **{f"golden-{name}": ("gamma-quote-v1",) for name in (
+        "blueberry", "honeydew", "melon", "nectarine", "papaya", "queen", "quince",
+    )},
+    "golden-kiwi": ("gamma-quote-v1", "kiwi-catalog-v1"),
+    "golden-tangerine": ("token-quote-v1",),
+    "golden-watermelon-live": ("token-quote-v1",),
+    **{f"golden-{name}": ("event-token-quote-v1",) for name in ("apricot", "peach", "plum")},
+}
+
+CATALOG_KINDS = {
+    **{f"golden-{name}": ("catalog-identity-v1", "catalog-state-v1") for name in (
+        "blueberry", "melon", "papaya", "queen", "quince", "kiwi", "tangerine",
+    )},
+    **{f"golden-{name}": ("catalog-identity-lite-v1", "catalog-state-lite-v1")
+       for name in ("honeydew", "nectarine")},
+    **{f"golden-{name}": ("catalog-identity-v1", "catalog-state-sports-v1")
+       for name in ("watermelon-live", "apricot", "peach")},
+    "golden-plum": ("catalog-identity-v1", "catalog-state-plum-v1"),
+}
+
+RAW_KINDS = {"golden-black": {
+    "market_observations": ("black-market-source-v1",),
+    "outcome_observations": ("black-outcome-source-v1",),
+    "orderbook_snapshots": ("black-book-source-v1",),
+}}
+RAW_MIGRATION_CONTRACT = "black-raw-parent-derivative-v1"
+RAW_LAYOUT_CONTRACT = "black-raw-parent-skeleton-v1"
+RAW_PROFILE_SCHEMAS = {
+    "black-research-full-v2": {
+        "version": 1,"strategy": "golden-black",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "d7fd09cc0f28b674edcb8b26f31e978f4c0ad91f8b30b9e011bdc0e0e3d0097f",
+        "level_tables": ("orderbook_levels",),
+        "kinds": {
+            "market_observations": ("black-market-source-v1",),
+            "outcome_observations": ("black-outcome-source-v1",),
+            "orderbook_snapshots": ("black-book-source-v1",),
+            "signal_decisions": ("black-signal-source-v2",),
+            "hypothetical_episodes": ("black-episode-source-v2",),
+            "episode_path_observations": ("black-path-source-v2",),
+            "stop_execution_attempts": ("black-stop-attempt-source-v2",),
+            "counterfactual_stop_exits": ("black-stop-exit-source-v2",),
+            "resolution_observations": ("black-resolution-source-v2",),
+        },
+    },
+    "watermelon-independent-raw-lifecycle-v1": {
+        "version": 1,"strategy": "golden-watermelon",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "590cc470ea312d0f586274aaee12578f8f877303afa9df7879c910d4c92965ed",
+        "kinds": {"raw_books": ("watermelon-sidecar-book-source-v1",)},
+    },
+    "cherry-shadow-resolution-v2": {
+        "version": 1,"strategy": "golden-cherry",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "4a1855a155f77ff9a1f838005af50a62daa0377554638caf41a7608e4c04facf",
+        "level_tables": ("shadow_book_levels",),
+        "kinds": {
+            "shadow_market_observations": ("cherry-shadow-market-source-v2",),
+            "shadow_book_snapshots": ("cherry-shadow-book-source-v2",),
+            "shadow_resolution_observations": ("cherry-shadow-resolution-source-v2",),
+            "shadow_episodes": ("cherry-shadow-episode-source-v2",),
+            "shadow_cell_decisions": ("cherry-shadow-decision-source-v2",),
+            "shadow_path_observations": ("cherry-shadow-path-source-v2",),
+        },
+    },
+    "coconut-recorder-v1": {
+        "version": 1, "strategy": "golden-coconut",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "e4645288f42c6e87e556d54a01da9edc1d3be33d26fb08a111959a350be7c92b",
+        "mutable_tables": ("tracked_events",),
+        "kinds": {
+            "tracked_events": ("coconut-recorder-tracked-events-v1",),
+            "event_observations": ("coconut-recorder-event-observations-v1",),
+            "book_observations": ("coconut-recorder-book-observations-v1",),
+        },
+    },
+    "guava-research-v1": {
+        "version": 1, "strategy": "golden-guava",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "aa7e0b934c394aff8d16d550a3b4e89b56234016a417188076f5e8589bdcb43f",
+        "kinds": {"events": ("guava-event-source-v1",), "book_attempts": ("guava-book-source-v1",)},
+    },
+    "strawberry-last-mile-v1": {
+        "version": 1, "strategy": "golden-strawberry",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "7fb1919251a6b6170d36411471855dcdbdfa4eeecc2a5f2c054174a3fc370f99",
+        "level_tables": ("clob_levels",), "mutable_tables": ("latest_outcome_state",),
+        "kinds": {name: ("strawberry-v1-" + name.replace("_", "-"),) for name in (
+            "market_catalog_versions", "outcome_observations", "crossing_decisions",
+            "candidate_metadata_observations", "clob_token_attempts", "clob_snapshots",
+            "hypothetical_episodes", "episode_path_observations", "resolution_observations",
+            "latest_outcome_state",
+        )},
+    },
+    "strawberry-followup-v2a-v4": {
+        "version": 1, "strategy": "golden-strawberry",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "245c0908c329460e963c3350b8d3afb8ba876d0f23689d9d84bf1847d9e55d69",
+        "kinds": {name: ("strawberry-v2a-" + name.replace("_", "-"),) for name in (
+            "imported_episodes", "imported_condition_status", "book_token_attempts",
+            "compact_books", "episode_path_observations", "resolution_observations",
+        )},
+    },
+    "raspberry-queue-echo-v3": {
+        "version": 1,
+        "strategy": "golden-raspberry",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "d75d65dd206fe20ef4a466a42305205dcf633c901eb8d31088cae14fef23cf92",
+        "level_tables": ("orderbook_levels",),
+        "kinds": {name: ("raspberry-" + name.replace("_", "-") + "-v3",) for name in (
+            "market_observations", "orderbook_token_attempts", "orderbook_snapshots",
+            "signal_decisions", "research_cases", "followup_request_starts", "followup_attempts",
+        )},
+    },
+    "pomegranate-research-full-v4": {
+        "version": 1,
+        "strategy": "golden-pomegranate",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "5927374cf39df089b55a04bd832f053153e17eeddd1ab6769e6d5342e7104437",
+        "level_tables": ("orderbook_levels",),
+        "kinds": {name: ("pomegranate-" + name.replace("_", "-") + "-v1",) for name in (
+            "market_observations", "market_sweep_memberships", "outcome_observations",
+            "market_metadata_versions", "orderbook_selections", "orderbook_token_attempts",
+            "orderbook_snapshots", "resolution_observations", "trade_observations",
+            "trade_tape_sweeps", "resolution_watchlist", "prior_census_conditions",
+        )},
+    },
+    "coconut-historical-v6": {
+        "version": 1,
+        "strategy": "golden-coconut",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "987533ad780c48d5ec3e293e19f0083c221a9ebe7471f88d094d5a6cf8d11c67",
+        "kinds": {
+            "event_observations": ("coconut-event-source-v1",),
+            "market_observations": ("coconut-market-source-v1",),
+            "outcome_observations": ("coconut-outcome-source-v1",),
+            "book_snapshots": ("coconut-book-source-v1",),
+            "event_tag_observations": ("coconut-tag-source-v1",),
+            "event_series_observations": ("coconut-series-source-v1",),
+            "event_team_observations": ("coconut-team-source-v1",),
+            "sports_clock_observations": ("coconut-clock-source-v1",),
+            "game_lifecycle_observations": ("coconut-lifecycle-source-v1",),
+            "tracked_game_carryovers": ("coconut-lifecycle-source-v1",),
+            "threshold_episodes": ("coconut-episode-source-v1",),
+            "episode_carryovers": ("coconut-episode-source-v1",),
+            "schedule_revision_observations": ("coconut-schedule-revision-source-v1",),
+            "game_anchor_observations": ("coconut-anchor-source-v1",),
+            "episode_path_observations": ("coconut-path-source-v1",),
+        },
+    },
+    "watermelon-research-v401": {
+        "version": 1,
+        "strategy": "golden-watermelon",
+        "layout_contract": "shared-raw-parent-skeleton-v2",
+        "logical_schema_sha256": "70baef885a69b0200bb11c8325530cc88a49be2f1b78e27fb046c097a1716e32",
+        "kinds": {
+            "event_observations": ("watermelon-event-source-v1",),
+            "market_observations": ("watermelon-market-source-v1",),
+            "outcome_observations": ("black-outcome-source-v1",),
+            "orderbook_snapshots": ("black-book-source-v1",),
+        },
+    },
+}
+GENERIC_RAW_MIGRATION_CONTRACT = "shared-raw-parent-derivative-v2"
+RAW_STRATEGIES = frozenset(RAW_KINDS) | frozenset(
+    profile["strategy"] for profile in RAW_PROFILE_SCHEMAS.values()
+)
+
+
+def _raw_migration_profile(value):
+    contract = value.get("contract")
+    if contract == RAW_MIGRATION_CONTRACT:
+        if value.get("strategy") != "golden-black":
+            raise RuntimeError("RAW v1 derivative strategy differs")
+        return {"strategy": "golden-black", "kinds": RAW_KINDS["golden-black"], "level_tables": ("orderbook_levels",)}
+    if contract != GENERIC_RAW_MIGRATION_CONTRACT:
+        raise RuntimeError("unsupported RAW derivative contract")
+    profile = RAW_PROFILE_SCHEMAS.get(value.get("raw_profile_id"))
+    if (profile is None or type(value.get("raw_profile_version")) is not int
+            or profile["version"] != value["raw_profile_version"]
+            or profile["strategy"] != value.get("strategy")
+            or profile["logical_schema_sha256"] != value.get("raw_logical_schema_sha256")):
+        raise RuntimeError("RAW derivative schema profile differs")
+    return profile
+
+
+def apple_collection_record(path, expected_job=None, expected_month=None, require_path=True):
+    """Read bounded identity and run aggregates, never frame/config/summary contents."""
+    path = Path(path)
+    if not path.is_absolute() or path.resolve() != path or not path.is_file() or path.is_symlink():
+        raise RuntimeError("Apple collection requires a direct regular database file")
+    if require_path:
+        if (
+            not APPLE_MONTH_PATTERN.fullmatch(path.name)
+            or path.parent.name != "collection-v2"
+            or path.parent.parent.name != "data"
+            or path.parent.parent.parent.name not in APPLE_COLLECTION_JOBS
+        ):
+            raise RuntimeError("invalid Apple monthly database path")
+        path_job, path_month = path.parent.parent.parent.name, path.stem
+        if expected_job is not None and expected_job != path_job:
+            raise RuntimeError("Apple collection path job mismatch")
+        if expected_month is not None and expected_month != path_month:
+            raise RuntimeError("Apple collection path month mismatch")
+        expected_job, expected_month = path_job, path_month
+    if expected_job not in APPLE_COLLECTION_JOBS:
+        raise RuntimeError("invalid Apple collection expected job")
+    try:
+        month = datetime.strptime(str(expected_month), "%Y-%m").strftime("%Y-%m")
+    except (TypeError, ValueError):
+        raise RuntimeError("invalid Apple collection expected month") from None
+    if month != expected_month or not re.fullmatch(r"[0-9]{4}-(?:0[1-9]|1[0-2])", month):
+        raise RuntimeError("noncanonical Apple collection month")
+    connection = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True, timeout=2)
+    try:
+        connection.execute("PRAGMA query_only=ON")
+        connection.execute("PRAGMA trusted_schema=OFF")
+        if (
+            connection.execute("PRAGMA application_id").fetchone()[0]
+            != APPLE_COLLECTION_APPLICATION_ID
+            or connection.execute("PRAGMA user_version").fetchone()[0] != 1
+        ):
+            raise RuntimeError("Apple collection schema identity mismatch")
+        tables = {
+            row[0]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")
+        }
+        required = {
+            "meta": {"key", "value"},
+            "configs": {"hash", "document"},
+            "runs": {
+                "slot",
+                "run_key",
+                "started",
+                "finished",
+                "status",
+                "config_hash",
+                "source_hash",
+                "git_commit",
+                "summary_json",
+                "frame",
+                "frame_sha256",
+                "frame_raw_bytes",
+            },
+            "watch": {"event_id", "market_ids", "next_due"},
+        }
+        for table, columns in required.items():
+            if table not in tables or not columns.issubset(
+                {row[1] for row in connection.execute('PRAGMA table_info("{}")'.format(table))}
+            ):
+                raise RuntimeError("Apple collection required schema is missing")
+        rows = connection.execute(
+            "SELECT key,value FROM meta WHERE key IN ('job','format','month') LIMIT 4"
+        ).fetchall()
+        if len(rows) != 3 or dict(rows) != {
+            "job": expected_job,
+            "format": APPLE_COLLECTION_FORMAT,
+            "month": month,
+        }:
+            raise RuntimeError("Apple collection metadata identity mismatch")
+        invalid = connection.execute(
+            """
+            SELECT COUNT(*) FROM runs WHERE
+                typeof(started) NOT IN ('real','integer')
+                OR strftime('%Y-%m',started,'unixepoch') IS NULL
+                OR strftime('%Y-%m',started,'unixepoch') != ?
+                OR status NOT IN ('RUNNING','SUCCESS','PARTIAL','FAILED','INTERRUPTED')
+                OR status IS NULL
+                OR (finished IS NOT NULL AND (
+                    typeof(finished) NOT IN ('real','integer')
+                    OR strftime('%Y-%m',finished,'unixepoch') IS NULL OR finished < started))
+                OR (status='RUNNING' AND finished IS NOT NULL)
+                OR (status!='RUNNING' AND finished IS NULL)
+            """,
+            (month,),
+        ).fetchone()[0]
+        if invalid:
+            raise RuntimeError("Apple collection run timestamp/status evidence is invalid")
+        aggregate = connection.execute("""
+            SELECT COUNT(*), MIN(started), MAX(started), MAX(finished), COUNT(finished),
+                   COALESCE(SUM(status='RUNNING'),0), COALESCE(SUM(status='SUCCESS'),0),
+                   COALESCE(SUM(status='PARTIAL'),0), COALESCE(SUM(status='FAILED'),0),
+                   COALESCE(SUM(status='INTERRUPTED'),0) FROM runs
+            """).fetchone()
+    except sqlite3.Error as error:
+        raise RuntimeError("Apple collection identity could not be read") from error
+    finally:
+        connection.close()
+    count, first, last, finished, finished_count, running, success, partial, failed, interrupted = (
+        aggregate
+    )
+
+    def timestamp(value):
+        return (
+            datetime.fromtimestamp(value, timezone.utc).isoformat() if value is not None else None
+        )
+
+    return {
+        "contract": APPLE_COLLECTION_FORMAT,
+        "application_id": APPLE_COLLECTION_APPLICATION_ID,
+        "user_version": 1,
+        "job": expected_job,
+        "month": month,
+        "mode": "sim",
+        "accountless": True,
+        "observation_window": {
+            "first_started_at": timestamp(first),
+            "last_started_at": timestamp(last),
+            "last_finished_at": timestamp(finished),
+            "run_count": count,
+            "finished_run_count": finished_count,
+            "unfinished_run_count": count - finished_count,
+            "running_run_count": running,
+            "successful_run_count": success,
+            "partial_run_count": partial,
+            "failed_run_count": failed,
+            "interrupted_run_count": interrupted,
+            "all_runs_finished": count > 0 and finished_count == count,
+            "coverage": "observed_runs_only",
+            "calendar_month_complete": False,
+        },
+    }
+
+
+def _storage_migration_tables(value):
+    if not isinstance(value.get("tables"), dict) or len(value["tables"]) > 1024:
+        raise RuntimeError("invalid storage migration table manifest")
+    table_projection = {}
+    count_fields = (
+        "rows",
+        "externalized_cells",
+        "inline_original_bytes",
+        "reference_bytes",
+        "externalized_level_rows",
+        "externalized_scalar_rows",
+        "externalized_projection_rows",
+        "externalized_catalog_rows",
+        "externalized_raw_rows",
+    )
+    for name, table in value["tables"].items():
+        if (
+            not isinstance(name, str)
+            or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,255}", name)
+            or not isinstance(table, dict)
+            or "rows" not in table
+            or not isinstance(table.get("logical_sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", table["logical_sha256"])
+        ):
+            raise RuntimeError("invalid storage migration table identity")
+        projected = {"logical_sha256": table["logical_sha256"]}
+        for key in count_fields:
+            if key in table:
+                if type(table[key]) is not int or table[key] < 0:
+                    raise RuntimeError("invalid storage migration table count")
+                projected[key] = table[key]
+        if "key_basis" in table:
+            allowed_basis = "declared INTEGER primary key" if (
+                name == "market_snapshots" and (
+                    "externalized_scalar_rows" in table or "externalized_projection_rows" in table
+                )
+            ) else "declared primary key"
+            if (name == "market_catalog" and "externalized_catalog_rows" in table) or (
+                value.get("contract") in {RAW_MIGRATION_CONTRACT, GENERIC_RAW_MIGRATION_CONTRACT}
+                and name in _raw_migration_profile(value)["kinds"]
+                and "externalized_raw_rows" in table):
+                allowed_basis = "declared-primary-key+rowid-v1"
+            if (value.get("contract") in {RAW_MIGRATION_CONTRACT,GENERIC_RAW_MIGRATION_CONTRACT}
+                    and name in _raw_migration_profile(value).get("level_tables", ())
+                    and "externalized_level_rows" in table):
+                allowed_basis = "declared-primary-key+rowid-v1"
+            if table["key_basis"] != allowed_basis:
+                raise RuntimeError("invalid storage migration table key basis")
+            projected["key_basis"] = table["key_basis"]
+        if "implicit_rowid_preserved" in table:
+            if type(table["implicit_rowid_preserved"]) is not bool:
+                raise RuntimeError("invalid storage migration rowid evidence")
+            projected["implicit_rowid_preserved"] = table["implicit_rowid_preserved"]
+        table_projection[name] = projected
+    return table_projection
+
+
+def _migration_payloads(value):
+    hashes = value.get("payload_hashes")
+    if (
+        not isinstance(hashes, list)
+        or len(hashes) > 100000
+        or any(not isinstance(item, str) or not re.fullmatch(r"[0-9a-f]{64}", item)
+               for item in hashes)
+        or hashes != sorted(set(hashes))
+        or type(value.get("shared_payload_count")) is not int
+        or value["shared_payload_count"] != len(hashes)
+    ):
+        raise RuntimeError("invalid Apple finalization payload identity")
+    return {"payload_hashes": hashes, "shared_payload_count": len(hashes)}
+
+
+def _scalar_migration_projection(value):
+    return _typed_migration_projection(value, "scalar", SCALAR_STRATEGIES)
+
+
+def _projection_migration_projection(value):
+    return _typed_migration_projection(
+        value, "projection", set(PROJECTION_KINDS) | set(RAW_STRATEGIES)
+    )
+
+
+def _typed_migration_projection(value, prefix, strategies):
+    namespace = value.get(prefix + "_namespace")
+    if not isinstance(namespace, str) or not 1 <= len(namespace.encode("utf-8")) <= 1024:
+        raise RuntimeError("invalid scalar migration source namespace")
+    fields = json.loads(namespace)
+    if (not isinstance(fields, dict)
+            or set(fields) != {"source", "jenkins_job", "strategy", "runtime"}
+            or any(not isinstance(item, str) or not item or len(item) > 256
+                   or any(ord(char) < 32 for char in item) for item in fields.values())
+            or fields["strategy"] != value.get("strategy")
+            or fields["strategy"] not in strategies
+            or json.dumps(fields, sort_keys=True, ensure_ascii=False,
+                          separators=(",", ":")) != namespace):
+        raise RuntimeError("invalid scalar migration source namespace")
+    authority = value.get(prefix + "_authority_uuid")
+    try:
+        valid_authority = isinstance(authority, str) and str(uuid.UUID(authority)) == authority
+    except (ValueError, TypeError, AttributeError):
+        valid_authority = False
+    closure = value.get("public_" + prefix + "_records")
+    contracts = {"public-" + prefix + "-closure-v1"}
+    if prefix == "projection":
+        contracts.update(("public-projection-closure-v2", "public-projection-closure-v3",
+                          "public-projection-closure-v4"))
+    if (not valid_authority or not isinstance(closure, dict)
+            or closure.get("contract") not in contracts
+            or closure.get("namespace") != namespace or closure.get("authority_uuid") != authority
+            or not isinstance(closure.get("closure_sha256"), str)
+            or not re.fullmatch(r"[0-9a-f]{64}", closure["closure_sha256"])):
+        raise RuntimeError("invalid scalar migration closure or authority")
+    for key in ("record_count", "receipt_count", "raw_bytes"):
+        if type(closure.get(key)) is not int or closure[key] < 0:
+            raise RuntimeError("invalid scalar migration closure count")
+    keys = ("contract", "record_count", "receipt_count", "raw_bytes", "namespace",
+            "authority_uuid", "closure_sha256")
+    if prefix == "projection":
+        if closure["contract"] == "public-projection-closure-v4":
+            profile = _raw_migration_profile(value)
+            expected_layouts = profile["kinds"]
+            layouts, counts = closure.get("layouts"), closure.get("layout_receipt_counts")
+            if (value.get("contract") != GENERIC_RAW_MIGRATION_CONTRACT
+                    or closure.get("raw_profile_id") != value.get("raw_profile_id")
+                    or type(closure.get("raw_profile_version")) is not int
+                    or closure["raw_profile_version"] != profile["version"]
+                    or closure.get("raw_logical_schema_sha256") != profile["logical_schema_sha256"]
+                    or closure.get("raw_layout_contract") != profile["layout_contract"]
+                    or not isinstance(closure.get("raw_source_schema_sha"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", closure["raw_source_schema_sha"])
+                    or not isinstance(layouts, dict) or set(layouts) != set(expected_layouts)
+                    or not isinstance(counts, dict) or set(counts) != set(layouts)):
+                raise RuntimeError("invalid profiled RAW projection closure")
+            for table, kinds in layouts.items():
+                if (kinds != list(expected_layouts[table]) or type(counts[table]) is not int
+                        or counts[table] < 0):
+                    raise RuntimeError("invalid profiled RAW projection kind/count")
+            if sum(counts.values()) != closure["receipt_count"]:
+                raise RuntimeError("profiled RAW projection receipt totals differ")
+            expected_kinds = sorted({kind for kinds in layouts.values() for kind in kinds})
+            keys += ("layouts", "layout_receipt_counts", "raw_layout_contract",
+                     "raw_source_schema_sha", "raw_profile_id", "raw_profile_version",
+                     "raw_logical_schema_sha256")
+        elif closure["contract"] == "public-projection-closure-v3":
+            layouts = closure.get("layouts")
+            counts = closure.get("layout_receipt_counts")
+            allowed = RAW_KINDS.get(fields["strategy"])
+            if (allowed is None or not isinstance(layouts, dict) or set(layouts) != set(allowed)
+                    or not isinstance(counts, dict) or set(counts) != set(layouts)
+                    or closure.get("raw_layout_contract") != RAW_LAYOUT_CONTRACT
+                    or not isinstance(closure.get("raw_source_schema_sha"), str)
+                    or not re.fullmatch(r"[0-9a-f]{64}", closure["raw_source_schema_sha"])):
+                raise RuntimeError("invalid RAW projection layout set")
+            for table, kinds in layouts.items():
+                if (kinds != list(allowed[table]) or type(counts[table]) is not int
+                        or counts[table] < 0):
+                    raise RuntimeError("invalid RAW projection layout kind/count")
+            if sum(counts.values()) != closure["receipt_count"]:
+                raise RuntimeError("RAW projection receipt totals differ")
+            expected_kinds = sorted(kind for kinds in allowed.values() for kind in kinds)
+            keys += ("layouts", "layout_receipt_counts", "raw_layout_contract",
+                     "raw_source_schema_sha")
+        elif closure["contract"] == "public-projection-closure-v2":
+            layouts = closure.get("layouts")
+            counts = closure.get("layout_receipt_counts")
+            if (fields["strategy"] not in CATALOG_KINDS
+                    or not isinstance(layouts, dict) or "market_catalog" not in layouts
+                    or set(layouts) - {"market_catalog", "market_snapshots"}
+                    or not isinstance(counts, dict) or set(counts) != set(layouts)):
+                raise RuntimeError("invalid public projection layout set")
+            allowed = {"market_catalog": CATALOG_KINDS[fields["strategy"]],
+                       "market_snapshots": PROJECTION_KINDS[fields["strategy"]]}
+            for table, kinds in layouts.items():
+                count = counts[table]
+                if (kinds != list(allowed[table]) or type(count) is not int or count < 0):
+                    raise RuntimeError("invalid public projection layout kind/count")
+            if sum(counts.values()) != closure["receipt_count"]:
+                raise RuntimeError("public projection layout receipt totals differ")
+            expected_kinds = sorted({kind for kinds in layouts.values() for kind in kinds})
+            keys += ("layouts", "layout_receipt_counts")
+        else:
+            if fields["strategy"] not in PROJECTION_KINDS:
+                raise RuntimeError("RAW projection requires its v3 closure")
+            expected_kinds = list(PROJECTION_KINDS[fields["strategy"]])
+            if "layouts" in closure or "layout_receipt_counts" in closure:
+                raise RuntimeError("v1 public projection closure contains catalog layout fields")
+        if closure.get("kinds") != expected_kinds:
+            raise RuntimeError("invalid public projection kind set")
+        keys += ("kinds",)
+    return {prefix + "_namespace": namespace, prefix + "_authority_uuid": authority,
+            "public_" + prefix + "_records": {key: closure[key] for key in keys}}
+
+
+def _apple_finalization_projection(value):
+    final = value.get("apple_monthly_finalization")
+    if not isinstance(final, dict) or final.get("contract") != "apple-monthly-finalization-v1":
+        raise RuntimeError("invalid Apple monthly finalization contract")
+    if (
+        value.get("strategy") != "golden-apple"
+        or final.get("job") not in APPLE_COLLECTION_JOBS
+        or not isinstance(final.get("month"), str)
+        or not re.fullmatch(r"[0-9]{4}-(?:0[1-9]|1[0-2])", final["month"])
+        or not isinstance(final.get("observer"), str)
+        or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,256}", final["observer"])
+    ):
+        raise RuntimeError("invalid Apple monthly finalization identity")
+    projected = {key: final[key] for key in ("contract", "job", "month", "observer")}
+    hashes = (
+        "source_sha256", "intermediate_sha256", "intermediate_manifest_sha256",
+        "intermediate_manifest_canonical_sha256", "final_sha256", "effective_config_hash",
+        "allowed_meta_additions_sha256", "observations_sha256",
+    )
+    for key in hashes:
+        if not isinstance(final.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", final[key]):
+            raise RuntimeError("invalid Apple monthly finalization checksum")
+        projected[key] = final[key]
+    for key in (
+        "maximum_bytes", "allowed_meta_additions_count", "reserved_bytes", "page_size",
+        "page_count", "page_cap", "frame_count", "observation_count",
+    ):
+        if type(final.get(key)) is not int or final[key] < 0:
+            raise RuntimeError("invalid Apple monthly finalization count")
+        projected[key] = final[key]
+    intermediate = final.get("intermediate_manifest")
+    if (
+        not isinstance(intermediate, dict)
+        or intermediate.get("contract") != "shared-public-bodies-migration-v1"
+        or intermediate.get("status") != "VERIFIED"
+        or intermediate.get("strategy") != "golden-apple"
+        or intermediate.get("source_sha256") != final["source_sha256"]
+        or intermediate.get("destination_sha256") != final["intermediate_sha256"]
+        or value.get("source_sha256") != final["source_sha256"]
+        or value.get("destination_sha256") != final["final_sha256"]
+    ):
+        raise RuntimeError("invalid Apple monthly finalization intermediate linkage")
+    body = {key: intermediate[key] for key in (
+        "contract", "status", "strategy", "source_sha256", "destination_sha256",
+    )}
+    for key in ("source_bytes", "destination_bytes"):
+        if type(intermediate.get(key)) is not int or intermediate[key] < 0:
+            raise RuntimeError("invalid Apple monthly finalization intermediate byte count")
+        body[key] = intermediate[key]
+    body["tables"] = _storage_migration_tables(intermediate)
+    body.update(_migration_payloads(intermediate))
+    encoded = json.dumps(body, ensure_ascii=False, sort_keys=True,
+                         separators=(",", ":"), allow_nan=False).encode("utf-8")
+    if hashlib.sha256(encoded).hexdigest() != final["intermediate_manifest_canonical_sha256"]:
+        raise RuntimeError("Apple monthly finalization intermediate manifest checksum mismatch")
+    projected["intermediate_manifest"] = body
+    return projected
+
+
+
+def _raw_private_storage_projection(value):
+    private = value.get("private_storage")
+    if not isinstance(private, dict) or set(private) != set(value["tables"]):
+        raise RuntimeError("invalid RAW private storage manifest")
+    result = {}
+    for table, claim in private.items():
+        if not isinstance(claim, dict):
+            raise RuntimeError("invalid RAW private storage table")
+        columns = claim.get("columns")
+        if (not isinstance(columns, list) or len(columns) > 1024
+                or any(not isinstance(column, str)
+                       or not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,255}", column)
+                       for column in columns)
+                or len(columns) != len(set(columns))):
+            raise RuntimeError("invalid RAW private columns")
+        selected = {"columns": columns}
+        for key in ("rows", "mixed_cells_verified"):
+            if type(claim.get(key)) is not int or claim[key] < 0:
+                raise RuntimeError("invalid RAW private storage count")
+            selected[key] = claim[key]
+        for key in ("source_sha256", "target_sha256"):
+            if not isinstance(claim.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", claim[key]):
+                raise RuntimeError("invalid RAW private storage checksum")
+            selected[key] = claim[key]
+        result[table] = selected
+    return result
+
+
+def _source_storage_transition_record(database, manifest, manifest_raw):
+    """Transport the private anchor proof; local/native readers re-prove its claims."""
+    path = Path(str(database) + ".source-storage-transition.json")
+    if not os.path.lexists(path):
+        return None
+    if (manifest.get("strategy") != "golden-strawberry"
+            or manifest.get("raw_profile_id") != "strawberry-last-mile-v1"):
+        raise RuntimeError("source storage transition is attached to another profile")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    try:
+        before = os.fstat(descriptor)
+        if (not stat.S_ISREG(before.st_mode) or before.st_nlink != 1
+                or before.st_uid != os.geteuid() or stat.S_IMODE(before.st_mode) & 0o077
+                or not 0 < before.st_size <= 16 * 1024 * 1024):
+            raise RuntimeError("source storage transition receipt is unsafe")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            raw = handle.read(16 * 1024 * 1024 + 1)
+        after = os.fstat(descriptor)
+        if (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) != (
+                after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns) or len(raw) != before.st_size:
+            raise RuntimeError("source storage transition receipt changed while reading")
+    finally:
+        os.close(descriptor)
+    value = json.loads(raw)
+    fields = {"contract", "original_anchor", "original_sha256", "original_stat",
+              "staged_derivative_path", "runtime_source_path", "derivative_sha256",
+              "derivative_stat", "raw_manifest", "raw_manifest_sha256", "verification",
+              "body_closure", "created_at", "proof_sha256", "original_device_reattachment"}
+    if (not isinstance(value, dict) or set(value) != fields
+            or value["contract"] != "strawberry-v1-source-storage-transition-v1"):
+        raise RuntimeError("source storage transition contract differs")
+    canonical = lambda item: json.dumps(item, sort_keys=True, separators=(",", ":"),
+                                       ensure_ascii=False, allow_nan=False).encode("utf-8")
+    if (raw != canonical(value) + b"\n"
+            or value["proof_sha256"] != hashlib.sha256(canonical({
+                key: item for key, item in value.items() if key != "proof_sha256"
+            })).hexdigest()
+            or value["raw_manifest_sha256"] != hashlib.sha256(manifest_raw).hexdigest()
+            or value["raw_manifest"] != manifest
+            or value["original_sha256"] != manifest["source_sha256"]
+            or value["derivative_sha256"] != manifest["destination_sha256"]
+            or value["runtime_source_path"] != str(database)
+            or not isinstance(value["original_anchor"], dict)
+            or value["original_anchor"].get("source_path") != str(database)):
+        raise RuntimeError("source storage transition checksum or source binding differs")
+    current = Path(database).stat()
+    if value["derivative_stat"] != {"device": current.st_dev, "inode": current.st_ino,
+                                   "size_bytes": current.st_size, "mtime_ns": current.st_mtime_ns}:
+        raise RuntimeError("source storage transition derivative identity differs")
+    return {"sidecar_path": str(path), "sidecar_sha256": hashlib.sha256(raw).hexdigest(),
+            "receipt": value}
+
+
+def storage_migration_record(database):
+    """Read only the fixed-name, bounded regular sidecar; never trust its status alone."""
+    standard = Path(str(database) + ".storage-migration.json")
+    raw_path = Path(str(database) + ".raw-migration.json")
+    if os.path.lexists(standard) and os.path.lexists(raw_path):
+        raise RuntimeError("ambiguous storage migration sidecars")
+    path = raw_path if os.path.lexists(raw_path) else standard
+    try:
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return None
+    try:
+        before = os.fstat(descriptor)
+        if (
+            not stat.S_ISREG(before.st_mode)
+            or not 0 < before.st_size <= STORAGE_MIGRATION_MAX_BYTES
+        ):
+            raise RuntimeError("invalid storage migration sidecar size/type")
+        with os.fdopen(descriptor, "rb", closefd=False) as handle:
+            raw = handle.read(STORAGE_MIGRATION_MAX_BYTES + 1)
+        after = os.fstat(descriptor)
+        if (before.st_ino, before.st_size, before.st_mtime_ns) != (
+            after.st_ino,
+            after.st_size,
+            after.st_mtime_ns,
+        ) or len(raw) != before.st_size:
+            raise RuntimeError("storage migration sidecar changed while reading")
+    finally:
+        os.close(descriptor)
+    value = json.loads(raw)
+    if (
+        not isinstance(value, dict)
+        or value.get("contract") not in (
+            {RAW_MIGRATION_CONTRACT, GENERIC_RAW_MIGRATION_CONTRACT}
+            if path == raw_path else {"shared-public-bodies-migration-v1"})
+        or value.get("status") != "VERIFIED"
+    ):
+        raise RuntimeError("storage migration sidecar is not a verified migration")
+    for key in ("source_sha256", "destination_sha256"):
+        if not isinstance(value.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", value[key]):
+            raise RuntimeError("invalid storage migration checksum")
+    table_projection = _storage_migration_tables(value)
+    if not isinstance(value.get("strategy"), str) or not re.fullmatch(
+        r"golden-[a-z0-9-]{1,120}", value["strategy"]
+    ):
+        raise RuntimeError("invalid storage migration strategy")
+    for key in ("source_bytes", "destination_bytes"):
+        if key in value and (type(value[key]) is not int or value[key] < 0):
+            raise RuntimeError("invalid storage migration byte count")
+    linkage_keys = (
+        "source_snapshot_sha256",
+        "source_file_sha256",
+        "original_source_path",
+        "original_source_fingerprint",
+        "original_source_members",
+    )
+    if any(key in value for key in linkage_keys):
+        if not all(key in value for key in linkage_keys):
+            raise RuntimeError("storage migration snapshot linkage is incomplete")
+        for key in ("source_snapshot_sha256", "source_file_sha256", "original_source_fingerprint"):
+            if not isinstance(value[key], str) or not re.fullmatch(r"[0-9a-f]{64}", value[key]):
+                raise RuntimeError("invalid storage migration snapshot linkage checksum")
+        if value["source_file_sha256"] != value["source_sha256"]:
+            raise RuntimeError("storage migration source file checksum mismatch")
+        original_path = value["original_source_path"]
+        if (
+            not isinstance(original_path, str)
+            or not 1 <= len(original_path) <= 4096
+            or not original_path.startswith("/")
+            or original_path.startswith("//")
+            or "\\" in original_path
+            or any(
+                ord(character) < 32 or 127 <= ord(character) <= 159 for character in original_path
+            )
+            or ".." in PurePosixPath(original_path).parts
+            or str(PurePosixPath(original_path)) != original_path
+            or original_path != str(database)
+            or Path(original_path).resolve() != Path(original_path)
+        ):
+            raise RuntimeError("invalid storage migration original source path")
+        members = value["original_source_members"]
+        # Migration accepts only an offline original. A WAL fingerprint cannot
+        # bind the source_file_sha256 of its main file alone.
+        member_keys = {"suffix", "size_bytes", "mtime_ns", "inode"}
+        if (
+            not isinstance(members, list)
+            or len(members) != 1
+            or not isinstance(members[0], dict)
+            or set(members[0]) != member_keys
+            or members[0]["suffix"] != "main"
+            or any(
+                type(members[0][key]) is not int or members[0][key] < 0
+                for key in ("size_bytes", "mtime_ns", "inode")
+            )
+        ):
+            raise RuntimeError("invalid storage migration original source members")
+        encoded = json.dumps(members, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        if hashlib.sha256(encoded).hexdigest() != value["original_source_fingerprint"]:
+            raise RuntimeError("storage migration original source fingerprint mismatch")
+    # Full sidecar bytes bind the bounded projection sent in scan/snapshot.
+    keys = (
+        "contract",
+        "status",
+        "strategy",
+        "source_sha256",
+        "destination_sha256",
+        "tables",
+        "source_bytes",
+        "destination_bytes",
+    ) + linkage_keys
+    projected_manifest = {key: value[key] for key in keys if key in value}
+    projected_manifest["tables"] = table_projection
+    if value["contract"] in {RAW_MIGRATION_CONTRACT, GENERIC_RAW_MIGRATION_CONTRACT}:
+        raw_profile = _raw_migration_profile(value)
+        if value.get("digest_contract") != "raw-typed-scalar-cell-length-prefix-v1":
+            raise RuntimeError("invalid RAW storage migration strategy or digest contract")
+        projected_manifest["digest_contract"] = value["digest_contract"]
+        expected_closure = ("public-projection-closure-v4"
+                            if value["contract"] == GENERIC_RAW_MIGRATION_CONTRACT
+                            else "public-projection-closure-v3")
+        if (not isinstance(value.get("public_projection_records"), dict)
+                or value["public_projection_records"].get("contract") != expected_closure):
+            raise RuntimeError("RAW derivative projection contract differs")
+        for key in ("source_schema_sha256", "target_schema_sha256"):
+            if not isinstance(value.get(key), str) or not re.fullmatch(r"[0-9a-f]{64}", value[key]):
+                raise RuntimeError("invalid RAW migration schema fingerprint")
+            projected_manifest[key] = value[key]
+        projected_manifest["private_storage"] = _raw_private_storage_projection(value)
+        if value["contract"] == GENERIC_RAW_MIGRATION_CONTRACT:
+            projected_manifest.update({key: value[key] for key in (
+                "raw_profile_id", "raw_profile_version", "raw_logical_schema_sha256",
+            )})
+        for table in raw_profile["kinds"]:
+            claim = table_projection.get(table, {})
+            if (claim.get("key_basis") != "declared-primary-key+rowid-v1"
+                    or claim.get("implicit_rowid_preserved") is not True
+                    or claim.get("externalized_raw_rows") != claim.get("rows")):
+                raise RuntimeError("invalid RAW original row identity claim")
+        for table in raw_profile.get("level_tables", ()):
+            # The legacy Black pilot freezes only its three RAW parents; a
+            # source may never have had numeric levels. Full schema profiles
+            # still require every declared level table, including empty ones.
+            if value["contract"] == RAW_MIGRATION_CONTRACT and table not in table_projection:
+                continue
+            claim = table_projection.get(table, {})
+            if (claim.get("key_basis") != "declared-primary-key+rowid-v1"
+                    or claim.get("implicit_rowid_preserved") is not True
+                    or claim.get("externalized_level_rows") != claim.get("rows")):
+                raise RuntimeError("invalid RAW level original row identity claim")
+        if "public_projection_records" not in value:
+            raise RuntimeError("RAW migration projection closure missing")
+    if any(key in value for key in (
+        "scalar_namespace", "scalar_authority_uuid", "public_scalar_records",
+    )):
+        projected_manifest.update(_scalar_migration_projection(value))
+    if any(key in value for key in (
+        "projection_namespace", "projection_authority_uuid", "public_projection_records",
+    )):
+        projected_manifest.update(_projection_migration_projection(value))
+    if "remaining_public_catalog_rows" in value:
+        if (type(value["remaining_public_catalog_rows"]) is not int
+                or value["remaining_public_catalog_rows"] < 0):
+            raise RuntimeError("invalid remaining public catalog count")
+        projected_manifest["remaining_public_catalog_rows"] = value["remaining_public_catalog_rows"]
+    if "remaining_public_projection_rows" in value:
+        if (type(value["remaining_public_projection_rows"]) is not int
+                or value["remaining_public_projection_rows"] < 0):
+            raise RuntimeError("invalid remaining public projection count")
+        projected_manifest["remaining_public_projection_rows"] = (
+            value["remaining_public_projection_rows"]
+        )
+    if "remaining_public_scalar_rows" in value:
+        if (type(value["remaining_public_scalar_rows"]) is not int
+                or value["remaining_public_scalar_rows"] < 0):
+            raise RuntimeError("invalid remaining public scalar count")
+        projected_manifest["remaining_public_scalar_rows"] = value["remaining_public_scalar_rows"]
+    if "apple_monthly_finalization" in value:
+        projected_manifest["apple_monthly_finalization"] = _apple_finalization_projection(value)
+        projected_manifest.update(_migration_payloads(value))
+    result = {
+        "sidecar_path": str(path),
+        "sidecar_sha256": hashlib.sha256(raw).hexdigest(),
+        "manifest": projected_manifest,
+    }
+    transition = _source_storage_transition_record(database, value, raw)
+    if transition is not None:
+        result["source_storage_transition"] = transition
+    return result
 
 
 def emit(payload):
@@ -569,6 +1428,8 @@ def stat_record(
     mode=None,
     data_contract=None,
     database_utc_date=None,
+    database_month=None,
+    observation_window=None,
 ):
     value = path.stat()
     fingerprint = None
@@ -603,7 +1464,22 @@ def stat_record(
         "mode": mode,
         "data_contract": data_contract,
         "database_utc_date": database_utc_date,
+        "database_month": database_month,
+        "observation_window": observation_window,
         "fingerprint": fingerprint,
+        "storage_migration": (
+            storage_migration_record(path)
+            if kind == "database_research_archive" or (
+                kind in {"database_live", "database_sim"}
+                and (strategy in SCALAR_STRATEGIES or strategy in PROJECTION_KINDS
+                     or strategy in RAW_STRATEGIES)
+            ) or (
+                kind == "database_sim"
+                and strategy == "golden-apple"
+                and data_contract == APPLE_COLLECTION_FORMAT
+                and database_month is not None
+            ) else None
+        ),
     }
 
 
@@ -668,6 +1544,9 @@ def sqlite_source_state(path, attempts=6, delay_seconds=0.01):
 
 
 def database_identity(path):
+    if path.suffix == ".sqlite":
+        record = apple_collection_record(path)
+        return "golden-apple", record["job"], "sim", record["contract"], None
     strategy = path.parents[2].name if len(path.parents) >= 3 else None
     runtime_job = path.parent.name
     archive_date = research_archive_date(path)
@@ -848,6 +1727,25 @@ def scan(args):
         latest_db = None
         current_utc_day = datetime.now(timezone.utc).date()
         if workspace.is_dir():
+            if job in APPLE_COLLECTION_JOBS:
+                for path in sorted((workspace / "data" / "collection-v2").glob("*.sqlite")):
+                    if not APPLE_MONTH_PATTERN.fullmatch(path.name):
+                        continue
+                    if ((archive_from_date and path.stem < archive_from_date.strftime("%Y-%m"))
+                            or (archive_to_date and path.stem > archive_to_date.strftime("%Y-%m"))):
+                        continue
+                    apple = apple_collection_record(path, expected_job=job)
+                    strategies.add("golden-apple")
+                    candidate = (path.stat().st_mtime_ns, "golden-apple")
+                    if latest_db is None or candidate[0] > latest_db[0]:
+                        latest_db = candidate
+                    if detailed:
+                        artifacts.append(stat_record(
+                            path, "database_sim", job, strategy="golden-apple",
+                            runtime_job=apple["job"], canonical=True, mode="sim",
+                            data_contract=apple["contract"], database_month=apple["month"],
+                            observation_window=apple["observation_window"],
+                        ))
             for path in workspace.glob("golden-*/data/*/*.db"):
                 if not supported_database_name(path.name):
                     continue
@@ -1177,13 +2075,14 @@ def snapshot(args):
     source = source_path.resolve()
     allowed = False
     strategy_directory = None
+    apple_collection = None
     for root in roots:
         try:
             lexical_relative = source_path.relative_to(root["path"])
             resolved_relative = source.relative_to(root["realpath"])
         except ValueError:
             continue
-        if len(lexical_relative.parts) < 5 or len(resolved_relative.parts) < 5:
+        if not lexical_relative.parts or not resolved_relative.parts:
             continue
         job = lexical_relative.parts[0]
         if job != expected_job:
@@ -1194,6 +2093,17 @@ def snapshot(args):
             except ValueError:
                 continue
         if resolved_relative.parts[0] != job:
+            continue
+        if (job in APPLE_COLLECTION_JOBS and len(lexical_relative.parts) == 4
+                and lexical_relative.parts[1:3] == ("data", "collection-v2")
+                and lexical_relative.parts == resolved_relative.parts
+                and APPLE_MONTH_PATTERN.fullmatch(source.name)):
+            _validate_job_workspace(root["path"] / job, root, job)
+            apple_collection = apple_collection_record(source_path, expected_job=job)
+            strategy_directory = "golden-apple"
+            allowed = True
+            break
+        if len(lexical_relative.parts) < 5 or len(resolved_relative.parts) < 5:
             continue
         if not lexical_relative.parts[1].startswith("golden-"):
             continue
@@ -1220,13 +2130,25 @@ def snapshot(args):
         _job, current_workspace, rechecked_identity, _roots = validated_expected_workspace(args)
         if current_workspace != selected_workspace or rechecked_identity != current_identity:
             raise RuntimeError("workspace identity changed before database snapshot")
-        _snapshot_database_source(args, source)
+        _snapshot_database_source(args, source, apple_collection=apple_collection)
 
 
-def _snapshot_database_source(args, source):
+def _snapshot_database_source(args, source, apple_collection=None):
     staging_root = Path(args.staging_root).expanduser().resolve()
     staging_root.mkdir(parents=True, exist_ok=True, mode=0o700)
     source_state_before = sqlite_source_state(source)
+    if apple_collection is not None:
+        apple_collection_record(source, expected_job=apple_collection["job"],
+                                expected_month=apple_collection["month"])
+    storage_migration = (
+        storage_migration_record(source)
+        if research_archive_date(source) or apple_collection is not None
+        or (source.name in CANONICAL_DATABASE_NAMES and len(source.parents) >= 3
+            and source.parent.parent.name == "data"
+            and (source.parents[2].name in SCALAR_STRATEGIES
+                 or source.parents[2].name in PROJECTION_KINDS
+                 or source.parents[2].name in RAW_STRATEGIES)) else None
+    )
     if shutil.disk_usage(str(staging_root)).free < source_state_before["size_bytes"] + 10 * 1024**3:
         raise RuntimeError("remote staging would violate the 10 GiB free-space reserve")
     run_dir = staging_root / uuid.uuid4().hex
@@ -1234,16 +2156,30 @@ def _snapshot_database_source(args, source):
     target = run_dir / "snapshot.db"
     started = time.time()
     try:
-        (
-            snapshot_journal_mode,
-            snapshot_open_retry_count,
-            snapshot_source_open_mode,
-        ) = _backup_database(
-            source, target, source_state_before
-        )
+        if storage_migration is not None:
+            if any(Path(str(source) + suffix).exists() for suffix in ("-wal", "-journal")):
+                raise RuntimeError("storage migration snapshot requires an offline database")
+            expected = storage_migration["manifest"]["destination_sha256"]
+            if sha256(source) != expected:
+                raise RuntimeError("storage migration target checksum mismatch")
+            shutil.copyfile(source, target)
+            if sha256(target) != expected or sha256(source) != expected:
+                raise RuntimeError("storage migration source changed during copy")
+            if storage_migration_record(source) != storage_migration:
+                raise RuntimeError("storage migration sidecar changed during snapshot")
+            snapshot_journal_mode = "delete"
+            snapshot_open_retry_count = 1
+            snapshot_source_open_mode = "verified_storage_migration_copy"
+        else:
+            (
+                snapshot_journal_mode,
+                snapshot_open_retry_count,
+                snapshot_source_open_mode,
+            ) = _backup_database(source, target, source_state_before)
         source_state_after = sqlite_source_state(source)
         if (
-            snapshot_source_open_mode == "immutable_stable_main"
+            snapshot_source_open_mode
+            in {"immutable_stable_main", "verified_storage_migration_copy"}
             and source_state_after["fingerprint"]
             != source_state_before["fingerprint"]
         ):
@@ -1263,13 +2199,20 @@ def _snapshot_database_source(args, source):
             check.close()
         if integrity != ["ok"]:
             raise RuntimeError("snapshot quick_check failed: {}".format(integrity))
-        (
-            _strategy,
-            _runtime_job,
-            _mode,
-            data_contract,
-            database_utc_date,
-        ) = database_identity(target)
+        if apple_collection is not None:
+            apple_collection = apple_collection_record(
+                target, expected_job=apple_collection["job"],
+                expected_month=apple_collection["month"], require_path=False,
+            )
+            data_contract, database_utc_date = apple_collection["contract"], None
+        else:
+            (
+                _strategy,
+                _runtime_job,
+                _mode,
+                data_contract,
+                database_utc_date,
+            ) = database_identity(target)
         if args.expected_data_contract and data_contract != args.expected_data_contract:
             raise RuntimeError(
                 "snapshot data contract changed: expected={} actual={}".format(
@@ -1298,12 +2241,18 @@ def _snapshot_database_source(args, source):
             "source_members_after": source_state_after["members"],
             "snapshot_size_bytes": target.stat().st_size,
             "sha256": digest,
+            "storage_migration": storage_migration,
             "quick_check": integrity,
             "snapshot_journal_mode": snapshot_journal_mode,
             "snapshot_open_retry_count": snapshot_open_retry_count,
             "snapshot_source_open_mode": snapshot_source_open_mode,
             "data_contract": data_contract,
             "database_utc_date": database_utc_date,
+            "apple_collection": apple_collection,
+            "database_month": apple_collection["month"] if apple_collection else None,
+            "observation_window": (
+                apple_collection["observation_window"] if apple_collection else None
+            ),
             "elapsed_seconds": round(time.time() - started, 3),
         }
         manifest_path = run_dir / "manifest.json"

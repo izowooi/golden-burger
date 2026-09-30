@@ -11,8 +11,12 @@ from pathlib import Path
 from typing import Any
 
 from .models import RemoteArtifact, artifact_source_key, research_archive_date
+from polybot_observability.market_data_retirement import (
+    RETIREMENT_TABLE_SQL, RETIREMENT_GUARD_SQL, RETIREMENT_CONTRACT, RETIREMENT_LOGICAL_ANCHOR_FIELDS,
+    canonical_retirement_json, retirement_record_digest, validate_retirement_schema,
+)
 
-SCHEMA_VERSION = 4
+SCHEMA_VERSION = 6
 SOURCE_KEY_VERSION = 2
 
 
@@ -137,8 +141,20 @@ class Catalog:
                 );
                 CREATE INDEX IF NOT EXISTS artifact_conflicts_open_idx
                     ON artifact_conflicts(status, jenkins_job, conflict_type);
+                CREATE TABLE IF NOT EXISTS storage_generations (
+                    source_key TEXT NOT NULL,
+                    generation_sha256 TEXT NOT NULL,
+                    original_sha256 TEXT NOT NULL,
+                    original_path TEXT NOT NULL,
+                    attestation_json TEXT NOT NULL,
+                    PRIMARY KEY(source_key, generation_sha256)
+                );
                 """
             )
+            connection.execute(RETIREMENT_TABLE_SQL.replace("CREATE TABLE ", "CREATE TABLE IF NOT EXISTS ", 1))
+            for sql in RETIREMENT_GUARD_SQL.values():
+                connection.execute(sql.replace("CREATE TRIGGER ", "CREATE TRIGGER IF NOT EXISTS ", 1))
+            validate_retirement_schema(connection)
             columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(artifacts)")}
             if "remote_fingerprint" not in columns:
                 connection.execute("ALTER TABLE artifacts ADD COLUMN remote_fingerprint TEXT")
@@ -385,6 +401,7 @@ class Catalog:
         local_sha256: str,
         remote_sha256: str | None = None,
         metadata: dict[str, Any] | None = None,
+        storage_generation: dict[str, Any] | None = None,
     ) -> None:
         if artifact.source != source:
             raise ValueError(
@@ -393,6 +410,39 @@ class Catalog:
             )
         now = datetime.now(UTC).isoformat()
         with self.connect() as connection:
+            if storage_generation is not None:
+                if (
+                    storage_generation.get("source_key") != artifact.source_key
+                    or storage_generation.get("generation_sha256") != local_sha256
+                    or storage_generation.get("status") != "VERIFIED"
+                ):
+                    raise RuntimeError("storage generation identity mismatch")
+                connection.execute(
+                    "INSERT INTO storage_generations VALUES (?,?,?,?,?)",
+                    (
+                        artifact.source_key,
+                        local_sha256,
+                        storage_generation["original_sha256"],
+                        storage_generation["original_path"],
+                        json.dumps(storage_generation, sort_keys=True),
+                    ),
+                )
+                # These precise immutable conflicts are resolved only after the
+                # caller independently verified original and decoded tables.
+                conflicts = connection.execute(
+                    "SELECT id,details_json FROM artifact_conflicts WHERE source_key=? "
+                    "AND existing_source_key=? AND remote_path=? AND status='OPEN' "
+                    "AND conflict_type IN ('IMMUTABLE_REMOTE_CHANGED','IMMUTABLE_LOCAL_EXISTS')",
+                    (artifact.source_key, artifact.source_key, artifact.remote_path),
+                ).fetchall()
+                for conflict in conflicts:
+                    details = json.loads(conflict["details_json"])
+                    details["storage_migration_resolution"] = local_sha256
+                    connection.execute(
+                        "UPDATE artifact_conflicts SET status='RESOLVED', details_json=? "
+                        "WHERE id=?",
+                        (json.dumps(details, sort_keys=True), conflict["id"]),
+                    )
             connection.execute(
                 """
                 INSERT INTO artifacts(
@@ -451,6 +501,145 @@ class Catalog:
                 or int(row["remote_mtime_ns"]) != artifact.mtime_ns
             )
         return row if changed else None
+
+    def storage_generation(self, source_key: str, digest: str) -> dict | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT attestation_json FROM storage_generations WHERE source_key=? "
+                "AND generation_sha256=?",
+                (source_key, digest),
+            ).fetchone()
+        return json.loads(row[0]) if row else None
+
+    def record_source_retirement(self, record: dict) -> dict:
+        """Bind a completed native proof to the independently verified catalog pin.
+
+        This registers eligibility only. No original file is removed here.
+        """
+        if (not isinstance(record, dict) or record.get("contract") != RETIREMENT_CONTRACT
+                or record.get("record_sha256") != retirement_record_digest(record)):
+            raise RuntimeError("retirement record contract or checksum differs")
+        body = canonical_retirement_json(record)
+        if len(body) > 16 * 1024 * 1024:
+            raise RuntimeError("retirement validation record is oversized")
+        keys = tuple(record[key] for key in ("source_key", "generation_sha256", "anchor_sha256", "pin_path"))
+        pin_path = Path(record["pin_path"])
+        root = self.path.resolve().parent
+        if (not pin_path.is_absolute() or pin_path.is_symlink() or not pin_path.is_file()
+                or pin_path.resolve() != pin_path or not pin_path.is_relative_to(root / "sources")):
+            raise RuntimeError("retirement pin is outside the trusted catalog root")
+        before = pin_path.stat()
+        digest = hashlib.sha256()
+        with pin_path.open("rb") as stream:
+            for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                digest.update(block)
+        pin_manifest_path = pin_path.parent / "manifest.json"
+        raw_manifest = pin_manifest_path.read_bytes()
+        file_manifest = json.loads(raw_manifest)
+        if (digest.hexdigest() != record["generation_sha256"]
+                or hashlib.sha256(raw_manifest).hexdigest() != record["pin_manifest_sha256"]
+                or hashlib.sha256(canonical_retirement_json(file_manifest)).hexdigest()
+                   != record["pin_manifest_canonical_sha256"]):
+            raise RuntimeError("retirement pin changed after native proof")
+        registered = self.source_retirement_validation(*keys)
+        original = Path(record["original_path"])
+        if registered is None:
+            if (not original.is_absolute() or original.is_symlink() or not original.is_file()
+                    or original.resolve() != original or not original.is_relative_to(root / "review")):
+                raise RuntimeError("retirement original is absent or outside the trusted review root")
+            item = original.stat()
+            attributes = {"device": item.st_dev, "inode": item.st_ino,
+                          "size_bytes": item.st_size, "mtime_ns": item.st_mtime_ns}
+            digest = hashlib.sha256()
+            with original.open("rb") as stream:
+                for block in iter(lambda: stream.read(8 * 1024 * 1024), b""):
+                    digest.update(block)
+            if (attributes != record["original_stat"]
+                    or digest.hexdigest() != record["source_snapshot_sha256"]
+                    or hashlib.sha256((original.parent / "manifest.json").read_bytes()).hexdigest()
+                       != record["prior_manifest_sha256"]):
+                raise RuntimeError("retirement original changed after native proof")
+        with self.connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            validate_retirement_schema(connection)
+            pins = connection.execute("SELECT manifest_json FROM pins WHERE source_key=? AND pinned_path=?",
+                                      (keys[0], keys[3])).fetchall()
+            generation = connection.execute(
+                "SELECT original_sha256,attestation_json FROM storage_generations WHERE source_key=? AND generation_sha256=?",
+                keys[:2],
+            ).fetchone()
+            if (len(pins) != 1 or generation is None
+                    or json.loads(pins[0][0]) != file_manifest):
+                raise RuntimeError("retirement has no matching verified catalog pin/generation")
+            lineage = json.loads(generation["attestation_json"])
+            projection = lineage.get("public_projection_records", {})
+            receipt = lineage.get("source_storage_transition", {})
+            verified = receipt.get("verification", {})
+            anchor = receipt.get("original_anchor", {})
+            semantic = {"logical_schema_sha256": anchor.get("source_schema_sha256"),
+                        "anchor_core": {key: anchor.get(key) for key in RETIREMENT_LOGICAL_ANCHOR_FIELDS}}
+            readback = {"physical_schema": verified.get("raw_schema_transition", {}).get("target"),
+                        "tables": verified.get("tables"),
+                        "private_storage": {table: {"rows": values.get("rows"), "columns": values.get("columns"),
+                                                    "sha256": values.get("target_sha256")}
+                                            for table, values in verified.get("private_storage", {}).items()}}
+            if (hashlib.sha256(canonical_retirement_json(lineage)).hexdigest() != record["lineage_sha256"]
+                    or lineage != file_manifest.get("storage_lineage")
+                    or generation["original_sha256"] != record["source_snapshot_sha256"]
+                    or lineage.get("source_file_sha256") != record["original_sha256"]
+                    or lineage.get("original_path") != record["original_path"]
+                    or receipt.get("original_anchor", {}).get("anchor_sha256") != keys[2]
+                    or receipt.get("raw_manifest_sha256") != record["raw_manifest_sha256"]
+                    or lineage.get("source_storage_transition_sha256") != record["source_transition_sha256"]
+                    or receipt.get("proof_sha256") != record["source_transition_proof_sha256"]
+                    or projection.get("namespace") != record["namespace"]
+                    or projection.get("authority_uuid") != record["authority_uuid"]
+                    or projection != record["public_projection_records"]
+                    or projection.get("raw_profile_id") != record["raw_profile_id"]
+                    or projection.get("raw_profile_version") != record["raw_profile_version"]
+                    or projection.get("raw_logical_schema_sha256") != record["raw_logical_schema_sha256"]
+                    or receipt.get("body_closure") != record["body_closure"]
+                    or semantic != record["semantic_source"] or readback != record["raw_readback"]
+                    or file_manifest.get("source_identity") != record["source_identity"]
+                    or hashlib.sha256(canonical_retirement_json(receipt.get("verification"))).hexdigest()
+                       != record["independent_verification_sha256"]):
+                raise RuntimeError("retirement proof differs from independently verified catalog lineage")
+            after = pin_path.stat()
+            if ((before.st_dev,before.st_ino,before.st_size,before.st_mtime_ns)
+                    != (after.st_dev,after.st_ino,after.st_size,after.st_mtime_ns)
+                    or pin_manifest_path.read_bytes() != raw_manifest):
+                raise RuntimeError("retirement pin changed while binding catalog proof")
+            existing = connection.execute(
+                "SELECT record_json FROM source_retirement_validations WHERE source_key=? AND generation_sha256=? AND anchor_sha256=? AND pin_path=?",
+                keys,
+            ).fetchone()
+            if existing is not None:
+                if existing[0] != body.decode("utf-8"):
+                    raise RuntimeError("retirement validation is immutable and differs")
+                return json.loads(existing[0])
+            item = original.stat()
+            if (record["original_stat"] != {"device": item.st_dev, "inode": item.st_ino,
+                                           "size_bytes": item.st_size, "mtime_ns": item.st_mtime_ns}
+                    or hashlib.sha256((original.parent / "manifest.json").read_bytes()).hexdigest()
+                       != record["prior_manifest_sha256"]):
+                raise RuntimeError("retirement original changed while binding catalog proof")
+            connection.execute("INSERT INTO source_retirement_validations VALUES(?,?,?,?,?,?)",
+                               (*keys, record["record_sha256"], body.decode("utf-8")))
+        return record
+
+    def source_retirement_validation(self, source_key, generation_sha256, anchor_sha256, pin_path):
+        with self.connect() as connection:
+            validate_retirement_schema(connection)
+            row = connection.execute(
+                "SELECT record_json,record_sha256 FROM source_retirement_validations WHERE source_key=? AND generation_sha256=? AND anchor_sha256=? AND pin_path=?",
+                (source_key,generation_sha256,anchor_sha256,str(pin_path)),
+            ).fetchone()
+        if row is None:
+            return None
+        record = json.loads(row[0])
+        if record.get("record_sha256") != row[1] or retirement_record_digest(record) != row[1]:
+            raise RuntimeError("retirement catalog record checksum differs")
+        return record
 
     def destination_conflict(
         self,

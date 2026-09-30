@@ -336,7 +336,7 @@ def test_catalog_migrates_legacy_source_keys_without_orphaning_references(
             "SELECT source_key, existing_source_key FROM artifact_conflicts"
         ).fetchone()
     assert "remote_fingerprint" in columns
-    assert schema_version == "4"
+    assert schema_version == "6"
     assert key_version == "2"
     assert artifact_key == migrated_key
     assert pin_key == migrated_key

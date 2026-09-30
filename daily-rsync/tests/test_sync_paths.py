@@ -719,7 +719,8 @@ def test_research_archive_uses_online_snapshot_path_and_verifies(
     )
     assert missing["status"] == "FAILED"
     assert missing["archive_coverage"]["missing_dates"] == ["2026-08-04"]
-    manifest = json.loads((local.parent / "manifest.json").read_text(encoding="utf-8"))
+    from daily_rsync.snapshot_manifests import snapshot_manifest_path
+    manifest = json.loads(snapshot_manifest_path(local).read_text(encoding="utf-8"))
     assert manifest["artifact_kind"] == "database_research_archive"
     assert manifest["canonical"] is False
     assert manifest["mode"] == "sim"

@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 from pathlib import Path
 
+from polybot_observability.market_data_source_digest import update_digest as update_market_data_digest
+
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 EPOCH_CATALOG = "research/EPOCHS.json"
@@ -14,9 +16,20 @@ ACTIVE_DATA_CONTRACT = f"{FROZEN_DIRECTORY}/DATA_CONTRACT.md"
 # v7 changes only acquisition scheduling. It deliberately reuses the exact
 # immutable v6 classification registry rather than minting new sport semantics.
 ACTIVE_REGISTRY = "research/frozen-2026-08-28-v6/SPORTS_REGISTRY.json"
-ACTIVE_MANIFEST = f"{FROZEN_DIRECTORY}/MANIFEST.sha256"
+# The research cohort stays v7; only the executable storage adapter has a new
+# source epoch. Historical manifests and preregistration bytes remain unchanged.
+STORAGE_SOURCE_EPOCH = "coconut-historical-shared-raw-v9"
+STORAGE_FROZEN_DIRECTORY = "research/frozen-2026-09-30-historical-shared-raw-v9"
+PREVIOUS_STORAGE_MANIFEST = "research/frozen-2026-09-30-historical-public-bodies-v8/MANIFEST.sha256"
+PREVIOUS_MANIFEST = f"{FROZEN_DIRECTORY}/MANIFEST.sha256"
+ACTIVE_MANIFEST = f"{STORAGE_FROZEN_DIRECTORY}/MANIFEST.sha256"
+ACTIVE_STORAGE_CONTRACT = f"{STORAGE_FROZEN_DIRECTORY}/STORAGE_CONTRACT.md"
 
 SOURCE_PATHS = (
+    ACTIVE_MANIFEST,
+    ACTIVE_STORAGE_CONTRACT,
+    PREVIOUS_MANIFEST,
+    PREVIOUS_STORAGE_MANIFEST,
     "AGENTS.md",
     "pyproject.toml",
     "uv.lock",
@@ -67,6 +80,9 @@ def compute_strategy_source_digest(root: Path = PROJECT_ROOT) -> str:
         digest.update(b"\0")
         digest.update(path.read_bytes())
         digest.update(b"\0")
+    update_market_data_digest(
+        digest, Path(root).resolve().parent / "polybot-observability" / "src" / "polybot_observability"
+    )
     return digest.hexdigest()
 
 

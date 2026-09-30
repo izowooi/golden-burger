@@ -8,6 +8,7 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+from polybot_observability.market_data_sqlite import connect as connect_market_data
 import statistics
 from typing import Any, Iterable, Mapping
 
@@ -81,13 +82,26 @@ def _bin(value: Any, boundaries: tuple[float, ...]) -> str:
 def _open(path: Path) -> sqlite3.Connection:
     if path.is_symlink() or not path.is_file():
         raise ValueError(f"analyzer database is absent or unsafe: {path}")
-    connection = sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)
+    connection = connect_market_data(f"file:{path.resolve()}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
     return connection
 
 
 def _read_rows(connection: sqlite3.Connection, table: str) -> list[dict[str, Any]]:
+    from polybot_observability.market_data_raw_links import (
+        iter_raw_logical_rows,
+        raw_layout_metadata,
+    )
+
+    layout = raw_layout_metadata(connection)
+    if layout is not None and table in layout["tables"]:
+        # A full-table analyzer can verify receipts/records in bounded batches.
+        # SELECT * through the logical view repeats that work for every column.
+        return [
+            {key: value for key, value in row.items() if key != "__rowid__"}
+            for row in iter_raw_logical_rows(connection, table)
+        ]
     return [dict(row) for row in connection.execute(f"SELECT * FROM {table}")]
 
 
@@ -101,6 +115,14 @@ def _read_shard(path: Path) -> dict[str, Any]:
         metadata_row = connection.execute("SELECT * FROM schema_metadata").fetchone()
         if metadata_row is None:
             raise ValueError("analyzer database has no schema metadata")
+        from .db.repository import _schema_sha256,APPLICATION_ID
+        try:
+            actual_schema=_schema_sha256(connection)
+        except RuntimeError as error:
+            raise ValueError('analyzer historical database schema fingerprint differs') from error
+        if (int(connection.execute('PRAGMA application_id').fetchone()[0]) != APPLICATION_ID
+                or str(metadata_row['schema_sha256']) != actual_schema):
+            raise ValueError('analyzer historical database schema fingerprint differs')
         expected_metadata = {
             "data_contract": DATA_CONTRACT,
             "collection_contract": COLLECTION_CONTRACT,

@@ -186,3 +186,164 @@ def test_cleanup_requires_exact_staged_path_and_sha(configured, monkeypatch):
     with pytest.raises(RemoteCommandError):
         client.cleanup_public_payloads("/remote/private.db", "b" * 64)
     assert len(commands) == 1
+
+
+def test_v2_export_can_refresh_observations_without_resending_existing_bodies(
+    configured, monkeypatch
+):
+    hashes = ["a" * 64, "c" * 64]
+    expected = response(configured, hashes)
+    expected["manifest"].update(
+        contract="public-payload-bundle-v2",
+        reference_hashes=hashes,
+        payload_hashes=[],
+        payload_count=0,
+        raw_bytes=0,
+        observation_count=2,
+        index_bytes=200,
+        observation_sha256="d" * 64,
+        observation_after=None,
+        next_observation_after=None,
+        observation_snapshot="per-page-read-snapshot-v1",
+    )
+    calls = []
+
+    def run(command, **kwargs):
+        calls.append(kwargs)
+        return subprocess.CompletedProcess(command, 0, json.dumps(expected), "")
+
+    monkeypatch.setattr("daily_rsync.remote.subprocess.run", run)
+    assert RemoteClient(configured).export_public_payloads(hashes, payload_hashes=[]) == expected
+    assert json.loads(calls[0]["input"]) == {"hashes": hashes, "payload_hashes": []}
+
+
+def test_observation_refresh_rejects_legacy_body_only_attestation(configured, monkeypatch):
+    hashes = ["a" * 64]
+    legacy = response(configured, hashes)
+    monkeypatch.setattr(
+        "daily_rsync.remote.subprocess.run",
+        lambda *a, **k: subprocess.CompletedProcess([], 0, json.dumps(legacy), ""),
+    )
+    with pytest.raises(RemoteCommandError, match="requires bundle v2"):
+        RemoteClient(configured).export_public_payloads(hashes, payload_hashes=hashes)
+
+
+def scalar_response(config, ids, authority, transferred=None):
+    result = response(config, [])
+    hashes = [[record_id, "a" * 64] for record_id in ids]
+    digest = hashlib.sha256(
+        b"".join(json.dumps(row, separators=(",", ":")).encode() + b"\n" for row in hashes)
+    ).hexdigest()
+    result["manifest"] = {
+        "contract": "public-scalar-record-bundle-v1",
+        "status": "VERIFIED",
+        "authority_uuid": authority,
+        "record_ids": ids,
+        "transferred_ids": ids if transferred is None else transferred,
+        "record_hashes": hashes,
+        "record_count": len(ids if transferred is None else transferred),
+        "closure_sha256": digest,
+        "raw_bytes": 100,
+        "file_sha256": "b" * 64,
+        "receipt_after": None,
+        "next_receipt_after": None,
+        "receipt_count": 0,
+        "receipt_sha256": hashlib.sha256(b"").hexdigest(),
+        "index_bytes": 0,
+        "receipt_snapshot": "per-page-read-snapshot-v1",
+    }
+    return result
+
+
+def test_scalar_export_uses_record_ids_and_exact_authority(configured, monkeypatch):
+    authority = "12345678-1234-5678-1234-567812345678"
+    expected = scalar_response(configured, [17, 19], authority, [])
+    calls = []
+
+    def run(command, **options):
+        calls.append((command, options))
+        return subprocess.CompletedProcess(command, 0, json.dumps(expected), "")
+
+    monkeypatch.setattr("daily_rsync.remote.subprocess.run", run)
+    assert (
+        RemoteClient(configured).export_public_scalars(
+            [17, 19], authority_uuid=authority, transferred_ids=[]
+        )
+        == expected
+    )
+    assert shlex.split(calls[0][0][-1])[3] == "export-scalars"
+    assert json.loads(calls[0][1]["input"]) == {
+        "record_ids": [17, 19],
+        "authority_uuid": authority,
+        "transferred_ids": [],
+        "receipt_after": None,
+    }
+
+
+@pytest.mark.parametrize(
+    "damage", ["authority", "record_hash_id", "hash", "record_count", "escape"]
+)
+def test_scalar_response_cannot_change_request_identity(configured, monkeypatch, damage):
+    authority = "12345678-1234-5678-1234-567812345678"
+    result = scalar_response(configured, [1], authority)
+    if damage == "authority":
+        result["manifest"]["authority_uuid"] = "other"
+    elif damage == "record_hash_id":
+        result["manifest"]["record_hashes"][0][0] = True
+    elif damage == "hash":
+        result["manifest"]["closure_sha256"] = "c" * 64
+    elif damage == "record_count":
+        result["manifest"]["record_count"] = True
+    else:
+        result["bundle_path"] = "/outside/payloads.db"
+    monkeypatch.setattr(
+        "daily_rsync.remote.subprocess.run",
+        lambda *a, **k: subprocess.CompletedProcess([], 0, json.dumps(result), ""),
+    )
+    with pytest.raises((RemoteCommandError, ValueError)):
+        RemoteClient(configured).export_public_scalars([1], authority_uuid=authority)
+
+
+def projection_response(config, ids, authority):
+    result = scalar_response(config, ids, authority)
+    manifest = result['manifest']
+    manifest['contract'] = 'public-projection-record-bundle-v1'
+    manifest['record_hashes'] = [[record_id, 'gamma-quote-v1', 'a' * 64] for record_id in ids]
+    manifest['closure_sha256'] = hashlib.sha256(b''.join(
+        json.dumps(row, separators=(',', ':')).encode() + b'\n' for row in manifest['record_hashes']
+    )).hexdigest()
+    return result
+
+
+def test_projection_export_uses_separate_contract_and_kind_bound_hashes(configured, monkeypatch):
+    authority = '12345678-1234-5678-1234-567812345678'
+    expected = projection_response(configured, [17, 19], authority)
+    calls = []
+    def run(command, **options):
+        calls.append((command, options))
+        return subprocess.CompletedProcess(command, 0, json.dumps(expected), '')
+    monkeypatch.setattr('daily_rsync.remote.subprocess.run', run)
+    assert RemoteClient(configured).export_public_projections([17, 19], authority_uuid=authority) == expected
+    assert shlex.split(calls[0][0][-1])[3] == 'export-projections'
+    assert json.loads(calls[0][1]['input'])['record_ids'] == [17, 19]
+
+
+@pytest.mark.parametrize('damage', ['unknown_kind', 'hash_kind_mismatch', 'scalar_contract', 'cursor_kind', 'cursor_id', 'cursor_other_known_kind'])
+def test_projection_export_rejects_wrong_kind_contract_and_cursor(configured, monkeypatch, damage):
+    authority = '12345678-1234-5678-1234-567812345678'
+    response = projection_response(configured, [1], authority)
+    manifest = response['manifest']
+    if damage == 'unknown_kind':
+        manifest['record_hashes'][0][1] = 'private-order-v1'
+    elif damage == 'hash_kind_mismatch':
+        manifest['record_hashes'][0][1] = 'token-quote-v1'
+    elif damage == 'scalar_contract':
+        manifest['contract'] = 'public-scalar-record-bundle-v1'
+    else:
+        manifest['next_receipt_after'] = ['source', 'market_snapshots', 1,
+            'unknown' if damage == 'cursor_kind' else 'token-quote-v1' if damage == 'cursor_other_known_kind' else 'gamma-quote-v1',
+            99 if damage == 'cursor_id' else 1]
+    monkeypatch.setattr('daily_rsync.remote.subprocess.run',
+                        lambda *args, **kwargs: subprocess.CompletedProcess([], 0, json.dumps(response), ''))
+    with pytest.raises((RemoteCommandError, ValueError)):
+        RemoteClient(configured).export_public_projections([1], authority_uuid=authority)

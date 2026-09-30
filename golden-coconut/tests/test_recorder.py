@@ -128,7 +128,11 @@ def test_shared_public_bodies_preserve_export_and_keep_cycle_state_local(tmp_pat
     assert parse_reference(raw.execute('SELECT event_json FROM event_observations LIMIT 1').fetchone()[0])
     assert parse_reference(raw.execute('SELECT book_gzip FROM book_observations LIMIT 1').fetchone()[0])
     assert json.loads(raw.execute('SELECT config_json FROM cycles').fetchone()[0])['job_name']==WHITE_RUNTIME
-    assert json.loads(raw.execute('SELECT fee_json FROM book_observations LIMIT 1').fetchone()[0])['fields']['feeSchedule']['rate']==.03
+    from polybot_observability.market_data_mixed import is_mixed_payload, inspect_mixed_payload
+    fee_marker = raw.execute('SELECT fee_json FROM book_observations LIMIT 1').fetchone()[0]
+    assert is_mixed_payload(fee_marker)
+    assert json.loads(writer.decode_many([fee_marker])[0])['fields']['feeSchedule']['rate']==.03
+    assert all(b'GAMMA_CURRENT' not in fragment for fragment in inspect_mixed_payload(fee_marker, writer)['public_fragments'])
     raw.close()
     rows=list(iter_rows(path,file_sha(path),include_depth=True))
     assert len(rows)==6 and all(row['raw_point_in_time_identity_proven'] for row in rows)

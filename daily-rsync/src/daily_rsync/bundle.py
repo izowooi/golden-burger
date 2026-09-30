@@ -258,6 +258,8 @@ def create_bundle(
                 config, Path(row["local_path"]), strategy=row["strategy"],
                 source_key=row["source_key"], database_sha256=row["local_sha256"],
                 source=row["source"],
+                expected_source_identity={key: row[key] for key in
+                    ("source", "jenkins_job", "strategy", "runtime_job")},
             )
     if not any(
         row["kind"].startswith("database")
@@ -299,6 +301,8 @@ def create_bundle(
             verify_database_closure(
                 config, destination, strategy=row["strategy"], source_key=row["source_key"],
                 database_sha256=row["local_sha256"], descriptor=closure, source=row["source"],
+                expected_source_identity={key: row[key] for key in
+                    ("source", "jenkins_job", "strategy", "runtime_job")},
             )
             if closure is not None:
                 write_closure_descriptor(config, destination, closure)
@@ -360,7 +364,9 @@ def create_bundle(
         "artifacts": records,
         "public_payload_store": (
             str(config.public_store_path)
-            if any(item and item["payload_count"] for item in validated_closures.values()) else None
+            if any(item and (item["payload_count"] or item.get("public_scalar_records") is not None
+                             or item.get("public_projection_records") is not None)
+                   for item in validated_closures.values()) else None
         ),
     }
     (root / "manifest.json").write_text(
