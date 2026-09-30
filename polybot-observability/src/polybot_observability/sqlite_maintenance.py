@@ -539,7 +539,7 @@ def _snapshot_lineage_gaps(connection: sqlite3.Connection) -> dict[str, int]:
 
 
 def _quick_check(connection: sqlite3.Connection) -> None:
-    result = connection.execute("PRAGMA quick_check").fetchone()
+    result = connection.execute("PRAGMA main.quick_check").fetchone()
     if result is None or str(result[0]).lower() != "ok":
         raise RuntimeError(f"SQLite quick_check failed: {result!r}")
 
