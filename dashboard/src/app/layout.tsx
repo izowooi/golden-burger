@@ -30,6 +30,7 @@ export default function RootLayout({ children }: Readonly<{ children: React.Reac
               <Link href="/">개요</Link>
               <Link href="/transactions">24h 거래</Link>
               <Link href="/research">연구</Link>
+              <Link href="/explore">시각화</Link>
               <Link href="/reports">리포트</Link>
             </nav>
             <ThemeToggle />

@@ -196,16 +196,23 @@ def excluded_counts(df: pd.DataFrame) -> dict:
             "live_without_confirmed_buy": int((closed & live & (df["confirmed_buy"].astype(int) == 0)).sum())}
 
 
-def run(paths, variant_ids: list[str], now: int) -> dict:
-    positions = collect(paths, variant_ids)
+def run(paths, variant_ids: list[str], now: int, all_leagues: bool = False) -> dict:
+    """Soccer positions outside MAJOR_SOCCER_LEAGUES are left out by default (analysis scope) and counted in
+    excluded.non_major_soccer_league so they never disappear silently; all_leagues=True keeps them."""
+    raw = collect(paths, variant_ids)
+    positions = {vid: df[C.league_mask(df, all_leagues)] for vid, df in raw.items()}
     out = {"variants": {}, "stake_tiers": tier_stats(all_settled(positions, "live")),
            "stake_tiers_paper": tier_stats(all_settled(positions, "paper"))}
     for vid, df in positions.items():
         live, paper = settled(df, "live"), settled(df, "paper")
+        excluded = excluded_counts(df)
+        dropped = len(raw[vid]) - len(df)
+        if dropped:
+            excluded["non_major_soccer_league"] = int(dropped)
         out["variants"][vid] = {"live": summary(live, now), "paper": summary(paper, now),
                                 "breakdown": breakdown(live if not live.empty else paper),
                                 "open_positions": int(len(open_positions(df))),
-                                "excluded": excluded_counts(df)}
+                                "excluded": excluded}
     return out
 
 

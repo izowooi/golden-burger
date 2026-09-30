@@ -1,7 +1,8 @@
-"""`polylab analyze <calibration|events|dataset|all> [--since] [--until] [--json]`.
+"""`polylab analyze <calibration|events|dataset|explore|all> [--since] [--until] [--json]`.
 
 Results are cached under <research_dir>/ (calibration.json, events.json) so the 5-minute
-publish job and reports read them instead of recomputing.
+publish job and reports read them instead of recomputing. `explore` (dashboard /explore aggregates +
+7-day game browser, <research_dir>/explore/) always covers the full DB and is not part of `all`.
 """
 
 from __future__ import annotations
@@ -40,21 +41,22 @@ def _save(paths, name: str, result: dict) -> Path:
     return p
 
 
-def run(what: str, paths, since: int | None, until: int | None) -> dict:
+def run(what: str, paths, since: int | None, until: int | None, all_leagues: bool = False) -> dict:
     conn = db.core(paths, readonly=True)
     out: dict = {}
     try:
-        stamp = {"generated_at": C.iso(int(time.time())), "since": C.iso(since), "until": C.iso(until)}
+        stamp = {"generated_at": C.iso(int(time.time())), "since": C.iso(since), "until": C.iso(until),
+                 "soccer_leagues": "all" if all_leagues else "major"}
         if what in ("calibration", "all"):
-            out["calibration"] = {**stamp, **calibration.run(conn, since, until)}
+            out["calibration"] = {**stamp, **calibration.run(conn, since, until, all_leagues)}
             _save(paths, "calibration", out["calibration"])
         if what in ("events", "all"):
-            out["events"] = {**stamp, **events.run(conn, since, until)}
+            out["events"] = {**stamp, **events.run(conn, since, until, all_leagues)}
             _save(paths, "events", out["events"])
         if what in ("dataset", "all"):
             now = int(time.time())
             lo = since if since is not None else now - 2 * 86400
-            files = dataset.export(conn, paths, lo, until or now)
+            files = dataset.export(conn, paths, lo, until or now, all_leagues)
             out["dataset"] = {**stamp, "files": [str(f) for f in files]}
     finally:
         conn.close()
@@ -63,10 +65,12 @@ def run(what: str, paths, since: int | None, until: int | None) -> dict:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab analyze")
-    ap.add_argument("what", choices=["calibration", "events", "dataset", "all"])
+    ap.add_argument("what", choices=["calibration", "events", "dataset", "explore", "all"])
     ap.add_argument("--since", help="YYYY-MM-DD, Nd or unix seconds (games starting at/after)")
     ap.add_argument("--until", help="YYYY-MM-DD, Nd or unix seconds")
     ap.add_argument("--json", action="store_true", help="print full JSON result")
+    ap.add_argument("--all-leagues", action="store_true",
+                    help="include every stored soccer league (default: MAJOR_SOCCER_LEAGUES only)")
     args = ap.parse_args(argv)
     try:
         paths = settings.paths()
@@ -76,7 +80,13 @@ def main(argv: list[str] | None = None) -> int:
     if not paths.core_db.exists():
         print(f"analyze: core db missing at {paths.core_db}", file=sys.stderr)
         return 3
-    out = run(args.what, paths, C.parse_since(args.since), C.parse_since(args.until))
+    if args.what == "explore":
+        from polylab.analysis import explore  # noqa: PLC0415
+        res = explore.run(paths)
+        print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else
+              f"explore: {res['sports']} games, {res['browser_games']} browser games in {res['seconds']}s")
+        return 0
+    out = run(args.what, paths, C.parse_since(args.since), C.parse_since(args.until), args.all_leagues)
     if args.json:
         print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
         return 0

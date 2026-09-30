@@ -17,9 +17,14 @@ Polymarket 스포츠 예측시장의 **경기 시간대별 과대/과소 평가(
 
 ## 2. 범위
 
-- 종목: soccer(주요 리그), MLB, NBA, NFL, NHL. Gamma tag: soccer 100350, MLB 100381, NBA 745, NFL 450, NHL 899.
-- 마켓: whole-game moneyline(축구는 home/draw/away)을 1순위로, 볼륨 기준(`min_volume_usd`)을 넘는 totals/spread 등
-  **경기 결과 자체**에 대한 마켓만 2순위로 수집한다. 선수 prop·이색 마켓은 제외한다.
+- 종목: soccer, MLB, NBA, NFL, NHL (복싱·MMA·e-sports·테니스 제외). Gamma tag: soccer 100350, MLB 100381, NBA 745, NFL 450, NHL 899.
+- 축구 대회(`collector/common.py` `MAJOR_SOCCER_LEAGUES`, 대회별 거래량 근거는 `docs/research/api-sources.md`):
+  EPL·La Liga·Bundesliga·Serie A·Ligue 1, MLS, UEFA Champions League·Europa League·Nations League, World Cup·Euro.
+  친선전·예선·기타 리그는 수집하지 않는다(과거 적재분은 DB 에 남지만 분석 기본값에서 제외, `--all-leagues` 로 포함).
+- 마켓: whole-game moneyline(축구는 home/draw/away)이 1순위. 거래량 하한을 넘는 **경기 자체**의 단순 마켓만 추가 수집:
+  축구 합계 골 Over/Under(0.5–3.5, `total`), 양 팀 득점(`btts`), 팀 득점 여부(`team_to_score`), 미국 종목 totals/spreads.
+  선수 prop·코너·카드·정확한 스코어·전후반 마켓은 제외한다.
+- 실거래 대상은 이보다 좁다: 각 변형 yaml 의 `leagues` 와 `min_game_volume_usd`(기본 2만 USDC).
 
 ## 3. 런타임 레이아웃 (Mac mini)
 

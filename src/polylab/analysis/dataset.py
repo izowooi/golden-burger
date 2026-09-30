@@ -25,7 +25,8 @@ FEATURES = ["sport", "league", "event_id", "game_id", "market_id", "condition_id
             "ask_depth_usd", "liquidity", "open_interest", "holder_concentration", "final_result"]
 
 
-def _token_meta(conn: sqlite3.Connection, since: int, until: int) -> pd.DataFrame:
+def _token_meta(conn: sqlite3.Connection, since: int, until: int, all_leagues: bool = False) -> pd.DataFrame:
+    lg_sql, lg_params = C.league_filter_sql("g", all_leagues)
     return C.read_sql(conn, """
         SELECT t.token_id, t.outcome_index, t.outcome_label AS outcome, t.side,
                m.condition_id, m.market_id, m.event_id, m.market_type, m.resolved_outcome_index,
@@ -33,7 +34,7 @@ def _token_meta(conn: sqlite3.Connection, since: int, until: int) -> pd.DataFram
         FROM tokens t JOIN markets m ON m.condition_id = t.condition_id
         JOIN games g ON g.game_key = m.game_key
         WHERE g.start_time < ? AND (g.ended_at IS NULL OR g.ended_at >= ?)
-    """, (until, since - 86400))
+    """ + lg_sql, (until, since - 86400, *lg_params))
 
 
 def _trades_per_minute(conn: sqlite3.Connection, tokens: list[str], since: int, until: int) -> pd.DataFrame:
@@ -93,8 +94,8 @@ def _metrics(conn: sqlite3.Connection, conditions: list[str], until: int) -> pd.
         columns=["condition_id", "ts", "liquidity", "open_interest"])
 
 
-def build(conn: sqlite3.Connection, paths, since: int, until: int) -> pd.DataFrame:
-    meta = _token_meta(conn, since, until)
+def build(conn: sqlite3.Connection, paths, since: int, until: int, all_leagues: bool = False) -> pd.DataFrame:
+    meta = _token_meta(conn, since, until, all_leagues)
     if meta.empty:
         return pd.DataFrame(columns=FEATURES)
     tokens = meta["token_id"].tolist()
@@ -138,7 +139,7 @@ def build(conn: sqlite3.Connection, paths, since: int, until: int) -> pd.DataFra
     return df[FEATURES].reset_index(drop=True)
 
 
-def export(conn: sqlite3.Connection, paths, since: int, until: int) -> list[Path]:
+def export(conn: sqlite3.Connection, paths, since: int, until: int, all_leagues: bool = False) -> list[Path]:
     """Write one parquet per UTC day in [since, until). Returns written files."""
     out_dir = Path(paths.research_dir) / "token_minutes"
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -146,7 +147,7 @@ def export(conn: sqlite3.Connection, paths, since: int, until: int) -> list[Path
     day = since - since % 86400
     while day < until:
         lo, hi = max(day, since), min(day + 86400, until)
-        df = build(conn, paths, lo, hi)
+        df = build(conn, paths, lo, hi, all_leagues)
         if not df.empty:
             name = dt.datetime.fromtimestamp(day, dt.timezone.utc).strftime("%Y-%m-%d")
             path = out_dir / f"date={name}.parquet"

@@ -6,6 +6,7 @@ import pytest
 from polylab import db, settings
 from polylab.analysis import _common as C
 from polylab.analysis import calibration, dataset, events, performance
+from polylab.collector.common import MAJOR_SOCCER_LEAGUES
 
 T0 = 1_790_000_000 // 60 * 60  # game start (UTC, minute aligned)
 
@@ -196,3 +197,47 @@ def test_dataset_export(paths):
     row = df[(df.token_id == "1h") & (df.ts == T0 + 300)].iloc[0]
     assert row["volume_1m"] == 6.0 and row["bid"] == 0.59 and row["final_result"] == 1.0
     assert row["phase"] == "early" and pd.isna(row["probability_change_10s"])
+
+
+# ---- default analysis scope: soccer = MAJOR_SOCCER_LEAGUES (shared with the collector); all_leagues opts out
+def _db(paths):
+    conn = db.core(paths)
+    add_game(conn, "1")                                   # league 'EPL' (major, upper case on purpose)
+    add_game(conn, "2")
+    add_game(conn, "3", sport="nba")
+    conn.execute("UPDATE games SET league='arg' WHERE game_key='2'")    # minor soccer league
+    conn.execute("UPDATE games SET league='nba' WHERE game_key='3'")
+    conn.commit()
+    return conn
+
+
+def test_shared_constant():
+    sql, params = C.league_filter_sql("g")
+    assert set(params) == MAJOR_SOCCER_LEAGUES and "g.sport != 'soccer'" in sql
+    assert C.league_filter_sql("g", all_leagues=True) == ("", [])
+    df = pd.DataFrame({"sport": ["soccer", "soccer", "nba", "soccer"], "league": ["epl", "arg", None, None]})
+    assert C.league_mask(df).tolist() == [True, False, True, True]
+    assert C.league_mask(df, all_leagues=True).all()
+
+
+def test_calibration_events_dataset_default_to_major(paths):
+    conn = _db(paths)
+    assert calibration.run(conn)["games"] == 2
+    assert calibration.run(conn, all_leagues=True)["games"] == 3
+    assert events.run(conn)["events_detected"] == 2
+    assert events.run(conn, all_leagues=True)["events_detected"] == 3
+    games = set(dataset.build(conn, paths, T0, T0 + 3600)["game_id"])
+    assert games == {"1", "3"}
+    assert set(dataset.build(conn, paths, T0, T0 + 3600, all_leagues=True)["game_id"]) == {"1", "2", "3"}
+
+
+def test_performance_minor_league_positions_counted_not_hidden(paths):
+    now = T0 + 10 * 86400
+    _strategy_db(paths, "v2", [{"closed": now - 3600, "pnl": 0.5}, {"closed": now - 7200, "pnl": -1.0}])
+    conn = db.strategy(paths, "v2")
+    conn.execute("UPDATE positions SET league='arg' WHERE position_id='p1'")
+    conn.execute("UPDATE positions SET league='epl' WHERE position_id='p0'")
+    conn.commit()
+    res = performance.run(paths, ["v2"], now)["variants"]["v2"]
+    assert res["live"]["trades"]["all"] == 1 and res["excluded"]["non_major_soccer_league"] == 1
+    assert performance.run(paths, ["v2"], now, all_leagues=True)["variants"]["v2"]["live"]["trades"]["all"] == 2

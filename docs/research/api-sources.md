@@ -87,6 +87,86 @@ Closed moneyline games with a game start between 2026-02-01 and 2026-09-30 (prob
 - `umaResolutionStatus` was `resolved` for all but 2 soccer markets (`proposed`).
 - The fixture is `closed_moneyline_counts.json`.
 
+## Soccer league scope (probed 2026-10-01)
+
+`collector/common.py::MAJOR_SOCCER_LEAGUES` is the one shared constant for collection (discover, backfill) and
+the default analysis filter (`analysis/_common.py::league_filter_sql`, `--all-leagues` opts out). Other leagues
+are no longer collected by default (`POLYLAB_SOCCER_MIN_VOLUME_OTHER` unset = excluded); rows already in
+`core.db` are kept.
+
+Median whole-game moneyline volume (3 Yes/No markets summed) of the latest 4 finished games per competition,
+Gamma `/events/keyset?game_id=` [obs]:
+
+| Code | Competition (Gamma `/series` title) | Median ML volume | In scope |
+|---|---|---|---|
+| `fifwc` | FIFA World Cup (series 11433) | 44.7M | yes |
+| `epl` | Premier League | 1.79M | yes |
+| `ucl` | UEFA Champions League | 1.53M | yes |
+| `unl` | UEFA Nations League (series 11446) | 1.51M | yes |
+| `lal` / `sea` / `bun` / `fl1` | La Liga / Serie A / Bundesliga / Ligue 1 | 0.68M / 0.60M / 0.45M / 0.36M | yes |
+| `uel` | UEFA Europa League | 0.43M | yes |
+| `mls` | MLS | 0.09M | yes |
+| `euc` | European Championship (series 11430) | no 2026 games | yes (same tier as the World Cup) |
+| `mex` / `lib` / `ere` / `fif` / `bra` / `arg` / `col` / `elc` / `afcq` / `por` / `tur` / `conl` | Liga MX / Libertadores / Eredivisie / **FIFA Friendly** (10238) / Brazil / Argentina / … / AFCON qual. / Portugal / Turkey / CONCACAF NL | 0.30M … 0.02M | no |
+
+Qualifiers (`ewq`/`uef` = "UEF Qualifiers" 10243, `ueq` = "UEFA Euro Qualification" 11431), friendlies,
+domestic cups and every other league are out of scope. The live strategies' `params.leagues`
+(`epl, bun, fl1, lal, sea, mls, unl, ucl, uel`) is a subset of the major set.
+
+## Game-level extra markets (probed 2026-10-01)
+
+`GET /sports/market-types` lists ~170 values. Real soccer events (EPL Arsenal–Leeds 2026-10-10, EPL/La Liga/
+MLS/UCL finished games) carry them in child events [obs]:
+
+| Child event (slug suffix) | `sportsMarketType` values seen |
+|---|---|
+| main event | `moneyline` ×3 (`"Will X win on <date>?"`, `"Will X vs. Y end in a draw?"`) |
+| `-more-markets` | `totals` (lines 0.5–8.5, question `"X vs. Y: O/U 2.5"`, outcomes `["Over","Under"]`), `spreads` (±1.5…5.5, outcomes = team names), `both_teams_to_score` (`"X vs. Y: Both Teams to Score"`, Yes/No), `soccer_team_totals` (`"X vs. Y: <Team> O/U 0.5"`, groupItemTitle `"<Team> O/U 0.5"`, Over/Under, lines 0.5–5.5 per team), `first_half_totals`, `second_half_totals`, `both_teams_to_score_first_half`/`_second_half`, `soccer_first_half_team_totals`, `soccer_second_half_team_totals` |
+| `-halftime-result`, `-second-half-result`, `-exact-score`, `-first-to-score`, `-total-corners` | `soccer_halftime_result`, `soccer_second_half_result`, `soccer_exact_score`, `soccer_first_to_score`, corners |
+
+- `soccer_home_team_totals`, `soccer_away_team_totals`, `team_totals_home`/`_away` are listed in
+  `/sports/market-types` but were **not observed** on any soccer event; they are not mapped.
+- Join to the game: the child event's **`parentEventId` = main event id (= `games.game_key`)**. It was present on
+  all 19,430 closed soccer extra markets (2026 season, volume >= 10k) while `events[0].gameId` was **missing on
+  10,049**. Of 5,676 staged major-league rows, 5,655 matched a stored game by `parentEventId` (the rest: game not
+  stored), only 2,540 by `gameId`, and no row had a `gameId` match pointing at a different game. `gameId` is only
+  a fallback. US sports lines sit in the main event (`events[0].id`).
+- `/markets/keyset?game_id=` returned nothing (filter not honoured); `/events/keyset?game_id=` returns the main and
+  child events of open **and** closed games (used post-game).
+- Filters `sports_market_types=both_teams_to_score|soccer_team_totals|totals` with `volume_num_min` work on
+  `/markets/keyset` [obs].
+
+Collected mapping (`common.market_type_of` / `token_rows`, floors per market, current Gamma volume):
+
+| Gamma | `markets.market_type` | `line` | token `side` | Scope / floor |
+|---|---|---|---|---|
+| `totals` | `total` | goals/points | `over` / `under` | soccer lines 0.5, 1.5, 2.5, 3.5 (`POLYLAB_SOCCER_TOTAL_LINES`), >= 10k (`POLYLAB_GOAL_MIN_VOLUME`); US any line >= 50k (`POLYLAB_LINE_MIN_VOLUME`) |
+| `both_teams_to_score` | `btts` | NULL | `yes` / `no` | soccer, >= 10k |
+| `soccer_team_totals` line 0.5 | `team_to_score` | 0.5 | Over = `home`/`away` (the scoring team, like the soccer moneyline Yes token), Under = `no` | soccer, >= 10k |
+| `spreads` | `spread` | handicap | `home` / `away` (outcome team) | US only, >= 50k (soccer spreads dropped) |
+
+Soccer extras are collected only for `MAJOR_SOCCER_LEAGUES`. Median FINAL per-market volume of the latest 4
+finished games per competition [obs]: totals 2.5 — lal 213k, epl 135k, mls 113k, ucl 80k,
+unl 130k, sea 70k, fl1 51k, bun 33k; totals 0.5 — epl 179k, bun 85k, others 2–25k; btts — ucl 97k, epl 43k,
+lal 40k, unl 40k, sea 24k, fl1 18k, bun 17k, uel 15k, mls 5k; team O/U 0.5 (both teams together) — ucl 13k,
+unl 7k, epl 6k, lal 5k, bun 3k, mls 2k, sea 1k. So at the 10k per-market floor **team_to_score is mostly
+absent** except for big games (e.g. Fulham–Man Utd home O/U 0.5 = 10.7k); lower `POLYLAB_GOAL_MIN_VOLUME` to
+widen it. Volumes grow in play: discover sees the current volume, `backfill --recent` re-checks the final
+volume post-game, and `backfill --historical` phase C walks closed extras (own checkpoint
+`backfill.hist.extras.enum.<sport>`, staging table `collector_hist_extras`). Extras store 1-minute prices for
+outcome 0 only (Over / Yes / first team) in backfill; live poll/stream snapshot every token of an active game.
+
+## NBA / NHL season start (probed 2026-09-30 23:00 UTC)
+
+- NBA (tag 745): 12 open moneylines, all **preseason** games 2026-10-03…10-07 in series `nba-2026`, title
+  `"Heat vs. Raptors"` (away first), outcomes = team nicknames. Regular-season games are not listed yet.
+- NHL (tag 899): 102 open moneylines 2026-09-30…10-27 (preseason and regular season share series `nhl-2026`).
+- A scratch discover with a 30-day horizon stored all 12 NBA and 193 NHL games (150 NHL games on/after 10-07,
+  i.e. regular season); every moneyline token got the side
+  implied by `teams[].ordering` and by the slug (`nba-mia-tor` → `tor` home) — including `Utah` (label) vs
+  team name `Mammoth`.
+- Open NBA/NHL totals/spreads were all below the 50k floor (none stored yet).
+
 ## WebSockets
 
 ### CLOB market channel: `wss://ws-subscriptions-clob.polymarket.com/ws/market`

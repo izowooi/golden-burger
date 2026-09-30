@@ -249,3 +249,39 @@ tfoot td { border-top: 2px solid var(--axis); border-bottom: 0; }
 .filters button { cursor: pointer; background: var(--surface-2); }
 .tx-table { table-layout: fixed; min-width: 720px; }
 .tx-table td { overflow: hidden; text-overflow: ellipsis; }
+
+/* ---- /explore ---- */
+:root { --div-pos: #2a78d6; --div-neg: #e34948; --div-mid: #f0efec; --seq-lo: #eef4fc; --seq-hi: #104281; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835; --seq-lo: #1f2630; --seq-hi: #9ec5f4; }
+}
+:root[data-theme="dark"] { --div-pos: #3987e5; --div-neg: #e66767; --div-mid: #383835; --seq-lo: #1f2630; --seq-hi: #9ec5f4; }
+
+.chips { gap: 6px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: 13px;
+  border: 1px solid var(--ring); background: var(--surface); color: var(--ink-2); min-height: 30px;
+}
+.chip:hover { background: var(--surface-2); text-decoration: none; }
+.chip.on { background: var(--ink); color: var(--page); border-color: transparent; }
+.legend.chips { margin: 4px 0 8px; }
+.scope { color: var(--ink-2); font-size: 13px; margin: 4px 0 0; }
+.caption { color: var(--ink-2); font-size: 13px; margin: -4px 0 8px; max-width: 860px; }
+.pos-ink { color: var(--div-pos); }
+.neg-ink { color: var(--div-neg); }
+.explore-legend { align-items: center; }
+.div-scale { gap: 8px !important; }
+.div-bar, .seq-bar { width: 120px !important; height: 10px !important; border-radius: 2px; }
+.div-bar { background: linear-gradient(90deg in oklab, var(--div-neg), var(--div-mid), var(--div-pos)); }
+.seq-bar { background: linear-gradient(90deg in oklab, var(--seq-lo), var(--seq-hi)); }
+.swatch-thin { background: var(--surface-2) !important; border: 1px solid var(--axis); }
+.swatch-dot { width: 6px !important; height: 6px !important; border-radius: 50% !important; background: var(--ink) !important; opacity: 0.7; }
+.legend i.tick { width: 1px; height: 12px; background: var(--muted); border-radius: 0; }
+.chart.heat { min-width: 520px; }
+.chart .tiny { font-size: 10px; }
+.rel-wrap { max-width: 620px; }
+.notes { margin: 0; padding-left: 18px; color: var(--ink-2); font-size: 12px; }
+.notes li { margin-bottom: 4px; }
+.game-pick { min-width: 0; max-width: 100%; flex: 1 1 260px; }
+.game-pick select { width: 100%; max-width: 100%; }
+.chart.mid { min-width: 460px; }

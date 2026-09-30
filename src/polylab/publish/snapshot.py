@@ -194,6 +194,25 @@ def transactions_24h(report: dict) -> list[dict]:
                                                               reverse=True)]
 
 
+def games_24h(report: dict) -> dict:
+    """latest/games_24h.json: the daily report's games section as built by reports.games (same rows)."""
+    return report.get("games") or {"generated_at": report["generated_at"], "window": None, "games": []}
+
+
+def attention_snapshot(reports_dir: Path = REPORTS_DIR) -> dict:
+    """latest/attention.json: the retro's attention inbox (reports/attention.json), open items first."""
+    try:
+        state = json.loads((reports_dir / "attention.json").read_text())
+        items = [i for i in state["items"] if isinstance(i, dict)]
+    except (OSError, ValueError, KeyError, TypeError):
+        state, items = {}, []
+    keys = ("id", "created_at", "updated_at", "severity", "category", "title", "detail", "evidence_ref", "source",
+            "status", "resolved_at", "resolution")
+    return {"generated_at": state.get("generated_at"), "url": state.get("url"),
+            "open": [{k: i.get(k) for k in keys} for i in items if i.get("status") == "open"],
+            "resolved": [{k: i.get(k) for k in keys} for i in items if i.get("status") == "resolved"]}
+
+
 def build_objects(paths, now: int | None = None, use_jenkins: bool = True, variants=None) -> dict[str, dict | list]:
     """{storage path: json object} for the latest/ read model."""
     if variants is None:
@@ -202,6 +221,8 @@ def build_objects(paths, now: int | None = None, use_jenkins: bool = True, varia
     objs: dict[str, dict | list] = {"latest/overview.json": overview(report, paths, variants),
                                     "latest/research.json": research(report, paths),
                                     "latest/transactions_24h.json": transactions_24h(report)}
+    objs["latest/games_24h.json"] = games_24h(report)
+    objs["latest/attention.json"] = attention_snapshot()
     for v in report["variants"]:
         objs[f"latest/strategies/{v['id']}.json"] = strategy_detail(v, report["generated_at"])
     return objs
@@ -266,6 +287,48 @@ def publish(paths, storage: Storage | None, prefix: str = "", out: Path | None =
     return written
 
 
+EXPLORE_INTERVAL = 3600
+
+
+def publish_explore(paths, storage: Storage | None, prefix: str = "", out: Path | None = None,
+                    now: int | None = None, force: bool = False) -> list[str]:
+    """latest/explore/*: recompute the /explore aggregates + game browser at most once per EXPLORE_INTERVAL
+    (gated on the last attempt, so a failing run does not retry every 5 minutes) and upload only files whose
+    content changed since the last upload."""
+    from polylab.analysis import explore  # noqa: PLC0415
+    now = now or int(time.time())
+    state_path = Path(paths.state) / "publish_explore.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    if not force and now - state.get("last_attempt", 0) < EXPLORE_INTERVAL:
+        return []
+    track = storage is not None and not prefix
+    if track:
+        state["last_attempt"] = now
+        state_path.write_text(json.dumps(state))
+    explore.run(paths, now=now)
+    seen = state.get("digests", {}) if track else {}
+    digests, written = {}, []
+    for path, f in explore.cached_files(paths).items():
+        body = f.read_bytes()
+        digests[path] = hashlib.sha256(body).hexdigest()
+        if seen.get(path) == digests[path]:
+            continue
+        if out is not None:
+            dest = out / prefix / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+        if storage is not None:
+            storage.upload(prefix + path, body)
+        written.append(prefix + path)
+    if track:
+        state["digests"] = digests
+        state_path.write_text(json.dumps(state))
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab publish")
     ap.add_argument("--dry-run", action="store_true", help="build only; do not upload")
@@ -289,6 +352,10 @@ def main(argv: list[str] | None = None) -> int:
     t0 = time.time()
     written = publish(paths, storage, prefix=prefix, out=args.out, reports=not args.no_reports,
                       use_jenkins=not args.no_jenkins)
+    try:  # dashboard /explore must never fail the core read model or the health check that follows
+        written += publish_explore(paths, storage, prefix=prefix, out=args.out)
+    except Exception as exc:  # noqa: BLE001
+        print(f"publish: explore skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
     verb = "built" if args.dry_run else "uploaded"
     print(f"publish: {verb} {len(written)} objects in {time.time() - t0:.1f}s")
     return 0

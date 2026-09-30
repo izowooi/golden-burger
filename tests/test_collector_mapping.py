@@ -84,7 +84,11 @@ def test_league_filter_and_env(monkeypatch):
     assert C.soccer_game_included("epl", 5_000, cfg)
     assert not C.soccer_game_included("epl", 10, cfg)
     assert not C.soccer_game_included("col2", 20_000, cfg)          # Primera B (Colombia): minor
-    assert C.soccer_game_included("col2", 150_000, cfg)             # ...unless it trades big
+    assert not C.soccer_game_included("col2", 10**9, cfg)           # minor leagues are out of scope by default
+    assert not C.soccer_game_included("arg", 10**6, cfg) and not C.soccer_game_included("fif", 10**6, cfg)
+    assert C.MAJOR_SOCCER_LEAGUES == {"epl", "lal", "bun", "sea", "fl1", "mls", "ucl", "uel", "fifwc", "euc", "unl"}
+    monkeypatch.setenv("POLYLAB_SOCCER_MIN_VOLUME_OTHER", "100000")
+    assert C.soccer_game_included("col2", 150_000, C.load_config())  # env override re-enables big minor games
     monkeypatch.setenv("POLYLAB_SOCCER_LEAGUES", "+col2")
     monkeypatch.setenv("POLYLAB_SOCCER_MIN_VOLUME_OTHER", "1e9")
     cfg2 = C.load_config()

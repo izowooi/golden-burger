@@ -5,9 +5,13 @@ Sources (probed 2026-09-30, see docs/research/api-sources.md):
    — light payload. For soccer `endDate == gameStartTime`, so the end-date window stays small (+50h: 3 pages, ~2 s);
    US sports use a +10 day window (MLB playoff moneylines carry endDate = start + 7 days).
    We then filter client-side on `gameStartTime`.
-2. Gamma `GET /markets/keyset?...&sports_market_types=totals&sports_market_types=spreads&volume_num_min=<floor>`
-   — only game-level lines that already reached the volume floor (soccer lines live in the child
-   "<game> - More Markets" event; they are joined to the game through `events[0].gameId`).
+2. Gamma `GET /markets/keyset?...&sports_market_types=<extra types>&volume_num_min=<floor>` — the few extra
+   game-level markets that already reached the volume floor (common.extra_market_included):
+   soccer `totals` (lines 0.5-3.5) / `both_teams_to_score` / `soccer_team_totals` line 0.5 (team to score),
+   floor POLYLAB_GOAL_MIN_VOLUME (10k); US `totals` / `spreads`, floor POLYLAB_LINE_MIN_VOLUME (50k).
+   The floor is checked against the CURRENT volume, so a market is picked up by the first run after it crosses
+   it (often in play); `backfill --recent` re-checks final volumes after the game. Soccer lines live in the
+   child "<game> - More Markets" event; they are joined to the game through `events[0].gameId`.
 3. Gamma `GET /events/keyset?id=..` for the main events — teams[].ordering (home/away), gameId, live/ended,
    score (title order), period, elapsed, finishedTimestamp. (`/events/keyset` by start_time is ~32 MB
    per soccer sweep because child events embed every prop; avoided.)
@@ -83,7 +87,7 @@ def discover_sport(conn, sport: str, cfg: C.CollectorConfig, client: Client, ts:
 
     events = {str(e["id"]): e for e in gamma.events_by_ids(sorted(set(by_event) | tracked), client)}
     games_upserted = markets_upserted = skipped_filter = 0
-    game_by_gid: dict[str, tuple[str, C.Teams]] = {}
+    game_by_gid: dict[str, tuple[str, C.Teams]] = {}      # gameId -> (game_key, teams) of games stored this run
     with dbmod.tx(conn):
         for eid, markets in by_event.items():
             ev = events.get(eid)
@@ -102,7 +106,7 @@ def discover_sport(conn, sport: str, cfg: C.CollectorConfig, client: Client, ts:
             if row["polymarket_game_id"]:
                 game_by_gid[row["polymarket_game_id"]] = (eid, teams)
             for m in markets:
-                mt = C.market_type_of(m)
+                mt = C.market_type_of(m, sport)
                 if mt is None:
                     continue
                 C.upsert_market(conn, C.market_row(m, game_key=eid, market_type=mt), ts)
@@ -117,27 +121,33 @@ def discover_sport(conn, sport: str, cfg: C.CollectorConfig, client: Client, ts:
                 if ev.get("gameId") is not None:
                     game_by_gid[str(ev["gameId"])] = (eid, C.teams_of(ev, sport))
 
-    # game-level totals/spreads above the volume floor
+    # extra game-level markets (totals/spreads, soccer btts/team-to-score) above the volume floor
     lines = gamma.markets_keyset({
-        "tag_id": tag, "closed": "false", "sports_market_types": ["totals", "spreads"],
-        "volume_num_min": cfg.line_min_volume,
+        "tag_id": tag, "closed": "false", "sports_market_types": list(C.extra_sports_market_types(sport)),
+        "volume_num_min": C.extra_min_volume(sport, cfg),
     }, client)
-    known_gids = dict(game_by_gid)
-    for r in conn.execute("SELECT game_key, polymarket_game_id FROM games WHERE sport=? AND polymarket_game_id IS NOT NULL "
-                          "AND COALESCE(status,'') NOT IN ('ended','cancelled')", (sport,)):
-        if r["polymarket_game_id"] not in known_gids:
-            known_gids[r["polymarket_game_id"]] = (r["game_key"], None)
+    # join targets: open games of this sport (main event id / gameId); soccer extras only for major competitions
+    teams_now = {k: t for k, t in game_by_gid.values()}
+    teams_by_key: dict[str, C.Teams | None] = {}
+    by_gid: dict[str, str] = {}
+    for r in conn.execute("SELECT game_key, polymarket_game_id, league FROM games WHERE sport=? "
+                          "AND COALESCE(status,'') NOT IN ('ended','cancelled') AND start_time >= ?",
+                          (sport, ts - 2 * 86400)):
+        if sport == "soccer" and (r["league"] or "").lower() not in cfg.soccer_leagues:
+            continue
+        teams_by_key[r["game_key"]] = teams_now.get(r["game_key"])
+        if r["polymarket_game_id"]:
+            by_gid[r["polymarket_game_id"]] = r["game_key"]
     lines_upserted = 0
     with dbmod.tx(conn):
         for m in lines:
-            mt = C.market_type_of(m)
-            ev = (m.get("events") or [{}])[0]
-            gid = str(ev.get("gameId")) if ev.get("gameId") is not None else None
-            if mt not in ("total", "spread") or gid not in known_gids or C.market_volume(m) < cfg.line_min_volume:
+            mt = C.market_type_of(m, sport)
+            game_key = C.extra_game_key(m, teams_by_key, by_gid)
+            if game_key is None or not C.extra_market_included(m, mt, sport, cfg):
                 continue
-            game_key, teams = known_gids[gid]
+            teams = teams_by_key.get(game_key)
             if teams is None:
-                teams = _teams_from_db(conn, game_key, sport)
+                teams = teams_by_key[game_key] = _teams_from_db(conn, game_key, sport)
             C.upsert_market(conn, C.market_row(m, game_key=game_key, market_type=mt), ts)
             C.upsert_tokens(conn, m["conditionId"], C.token_rows(m, mt, teams))
             _metric(conn, m, ts)
@@ -148,12 +158,15 @@ def discover_sport(conn, sport: str, cfg: C.CollectorConfig, client: Client, ts:
 
 
 def _teams_from_db(conn, game_key: str, sport: str) -> C.Teams:
-    r = conn.execute("SELECT title, home_team, away_team FROM games WHERE game_key=?", (game_key,)).fetchone()
+    r = conn.execute("SELECT title, home_team, away_team, meta FROM games WHERE game_key=?", (game_key,)).fetchone()
     ev = {"title": r["title"] if r else None, "teams": []}
-    if r and r["home_team"]:
-        ev["teams"].append({"name": r["home_team"], "ordering": "home"})
-    if r and r["away_team"]:
-        ev["teams"].append({"name": r["away_team"], "ordering": "away"})
+    try:   # game_row keeps teams[].abbreviation in meta.abbr; NFL spread outcomes are abbreviations ("LA", "NYG")
+        abbr = (json.loads(r["meta"]) or {}).get("abbr") or {} if r and r["meta"] else {}
+    except (TypeError, ValueError):
+        abbr = {}
+    for side, col in (("home", "home_team"), ("away", "away_team")):
+        if r and (r[col] or abbr.get(side)):
+            ev["teams"].append({"name": r[col] or abbr.get(side), "abbreviation": abbr.get(side), "ordering": side})
     return C.teams_of(ev, sport)
 
 

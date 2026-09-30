@@ -62,7 +62,8 @@ def stream_heartbeat(paths) -> int | None:
 def collector_status(conn: sqlite3.Connection | None, now: int) -> dict:
     out = {"last_poll_at": None, "last_ws_price_at": None, "last_history_at": None, "ws_last_message_at": None,
            "stream_heartbeat_at": None, "last_game_state_at": None, "live_games": None, "tracked_markets": None,
-           "backfill_progress": {"games_done": None, "games_total": None}, "quality_24h": {}, "checkpoints": {}}
+           "backfill_progress": {"games_done": None, "games_total": None}, "backfill_failed_24h": None,
+           "quality_24h": {}, "checkpoints": {}}
     if conn is None:
         return out
     q = lambda sql, p=(): conn.execute(sql, p).fetchone()  # noqa: E731
@@ -88,6 +89,8 @@ def collector_status(conn: sqlite3.Connection | None, now: int) -> dict:
             "games_done": q("SELECT COUNT(DISTINCT m.game_key) FROM backfill_status b JOIN markets m "
                             "ON m.condition_id=b.condition_id WHERE b.kind='prices' AND b.status IN ('done','empty')")[0],
             "games_total": q("SELECT COUNT(*) FROM games WHERE ended_at IS NOT NULL OR status='ended'")[0]}
+        out["backfill_failed_24h"] = q("SELECT COUNT(*) FROM backfill_status WHERE status='failed' AND updated_at >= ?",
+                                       (now - 86400,))[0]
         out["quality_24h"] = {k: n for k, n in conn.execute(
             "SELECT kind, COUNT(*) FROM quality_events WHERE ts >= ? GROUP BY kind ORDER BY 2 DESC", (now - 86400,))}
         cps = {name: updated for name, updated in conn.execute("SELECT name, updated_at FROM checkpoints")}

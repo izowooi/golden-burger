@@ -7,7 +7,11 @@ Token `side` convention (read by strategies/analysis):
   2-outcome team markets (MLB/NBA/NFL/NHL moneyline, spreads): side = home | away of the outcome team.
   soccer 3-way moneyline = three Yes/No markets: the Yes token's side is home | away | draw (the market's
   subject), the No token's side is `no`. The draw market has market_type `draw`.
-  totals: over | under.  Anything unmatched falls back to yes | no | NULL.
+  totals (market_type `total`, `line` = goals/points): over | under.
+  soccer both-teams-to-score (market_type `btts`): yes | no.
+  soccer team to score (market_type `team_to_score`, Gamma `soccer_team_totals` line 0.5 "<Team> O/U 0.5"):
+    the Over token's side is home | away (the scoring team, like the soccer moneyline Yes token), Under = `no`.
+  Anything unmatched falls back to yes | no | NULL.
 """
 
 from __future__ import annotations
@@ -28,18 +32,17 @@ SPORT_TAGS = {"soccer": 100350, "mlb": 100381, "nba": 745, "nfl": 450, "nhl": 89
 # Gamma /sports `ordering`: which team is listed first in titles, outcomes and the `score` string.
 TITLE_FIRST = {"soccer": "home", "mlb": "away", "nba": "away", "nfl": "away", "nhl": "away"}
 
-# Soccer competitions tracked regardless of volume (codes = Gamma /sports `sport`, also the event slug prefix
-# and teams[].league). Resolved against /series titles on 2026-09-30.
+# Soccer competitions in scope (codes = Gamma /sports `sport`, also the event slug prefix and teams[].league).
+# The single shared constant for collection (discover/backfill) AND the default analysis filter.
+# Evidence (median whole-game moneyline volume of the latest 4 finished games, probed 2026-10-01, api-sources.md):
+# epl 1.79M, ucl 1.53M, unl 1.51M, lal 0.68M, sea 0.60M, bun 0.45M, uel 0.43M, fl1 0.36M, mls 0.09M,
+# fifwc 44.7M (2026 World Cup). euc (Euro) has no 2026 games but is the same tier. Friendlies (fif), qualifiers
+# (ewq/ueq/uef/afcq), Conference League, domestic cups and every other domestic league are out of scope.
 MAJOR_SOCCER_LEAGUES = frozenset({
-    "epl", "lal", "sea", "bun", "fl1",            # big-5 leagues
-    "ucl", "uel", "col",                          # UEFA club comps (col = Europa Conference League)
-    "usc", "cwc",                                 # UEFA Super Cup, Club World Cup
-    "fifwc", "euc", "copaam", "unl", "ueq", "ewq", "uef", "icwq", "fif",   # national teams
-    "ncag", "conl", "afcq",                       # Gold Cup, CONCACAF NL, AFCON qualifiers
-    "lib", "sud",                                 # CONMEBOL club comps
-    "mls", "ere", "por", "bra", "mex", "arg", "tur", "elc", "spl", "jap", "j1100", "kor", "scop",
-    "efa", "efl", "dfb", "cdr", "cde", "itc", "ptc",   # domestic cups
-    "ssc", "isc", "gsc", "ecs",                   # super cups
+    "epl", "lal", "bun", "sea", "fl1",            # Europe top-5
+    "mls",
+    "ucl", "uel",                                 # UEFA Champions League, Europa League
+    "fifwc", "euc", "unl",                        # FIFA World Cup, UEFA Euro, UEFA Nations League
 })
 
 # Minutes after scheduled start we still treat a not-yet-flagged game as possibly running.
@@ -54,8 +57,10 @@ class CollectorConfig:
     sports: tuple[str, ...] = tuple(SPORT_TAGS)
     soccer_leagues: frozenset[str] = MAJOR_SOCCER_LEAGUES
     soccer_min_volume_major: float = 1_000.0      # combined 3-way moneyline volume, allowlisted leagues
-    soccer_min_volume_other: float = 100_000.0    # any other soccer league must reach this
-    line_min_volume: float = 50_000.0             # totals/spreads of the game itself
+    soccer_min_volume_other: float = float("inf")  # other soccer leagues: excluded unless an env override sets a floor
+    line_min_volume: float = 50_000.0             # US sports game totals/spreads (per market)
+    goal_min_volume: float = 10_000.0             # soccer totals / btts / team_to_score (per market)
+    soccer_total_lines: tuple[float, ...] = (0.5, 1.5, 2.5, 3.5)
     lookback_s: int = 6 * 3600
     lookahead_s: int = 120 * 3600                 # discover horizon (pre-game strategies trade up to 120h out)
     poll_lead_s: int = 15 * 60                    # 1-minute poll/stream start this long before kickoff
@@ -75,7 +80,9 @@ def _env_float(name: str, default: float) -> float:
 def load_config() -> CollectorConfig:
     """Defaults above, overridable with env vars (Jenkins / launchd can set them):
     POLYLAB_SPORTS=soccer,mlb  POLYLAB_SOCCER_LEAGUES=epl,lal (or +code to extend)
-    POLYLAB_SOCCER_MIN_VOLUME_MAJOR, POLYLAB_SOCCER_MIN_VOLUME_OTHER, POLYLAB_LINE_MIN_VOLUME."""
+    POLYLAB_SOCCER_MIN_VOLUME_MAJOR, POLYLAB_SOCCER_MIN_VOLUME_OTHER (unset = other leagues excluded),
+    POLYLAB_LINE_MIN_VOLUME (US totals/spreads), POLYLAB_GOAL_MIN_VOLUME (soccer totals/btts/team_to_score),
+    POLYLAB_SOCCER_TOTAL_LINES=0.5,1.5,2.5."""
     sports = tuple(s for s in os.environ.get("POLYLAB_SPORTS", ",".join(SPORT_TAGS)).split(",") if s in SPORT_TAGS)
     leagues = set(MAJOR_SOCCER_LEAGUES)
     raw = os.environ.get("POLYLAB_SOCCER_LEAGUES")
@@ -89,9 +96,18 @@ def load_config() -> CollectorConfig:
         sports=sports or tuple(SPORT_TAGS),
         soccer_leagues=frozenset(leagues),
         soccer_min_volume_major=_env_float("POLYLAB_SOCCER_MIN_VOLUME_MAJOR", 1_000.0),
-        soccer_min_volume_other=_env_float("POLYLAB_SOCCER_MIN_VOLUME_OTHER", 100_000.0),
+        soccer_min_volume_other=_env_float("POLYLAB_SOCCER_MIN_VOLUME_OTHER", float("inf")),
         line_min_volume=_env_float("POLYLAB_LINE_MIN_VOLUME", 50_000.0),
+        goal_min_volume=_env_float("POLYLAB_GOAL_MIN_VOLUME", 10_000.0),
+        soccer_total_lines=_env_lines("POLYLAB_SOCCER_TOTAL_LINES", CollectorConfig.soccer_total_lines),
     )
+
+
+def _env_lines(name: str, default: tuple[float, ...]) -> tuple[float, ...]:
+    try:
+        return tuple(sorted(float(x) for x in os.environ[name].split(",") if x.strip()))
+    except (KeyError, ValueError):
+        return default
 
 
 def now() -> int:
@@ -126,16 +142,61 @@ def is_soccer_draw(m: dict) -> bool:
     return "end in a draw" in q or g.startswith("draw")
 
 
-def market_type_of(m: dict) -> str | None:
-    """moneyline | draw | total | spread for game-level markets; None = out of scope (props, halves, ...)."""
+# Gamma sportsMarketType values of the few game-level markets collected beyond the moneyline (observed on
+# EPL/La Liga/MLS/UCL events 2026-10-01, api-sources.md). Soccer spreads, halves, corners, exact score,
+# player props etc. are out of scope.
+EXTRA_SPORTS_MARKET_TYPES = {
+    "soccer": ("totals", "both_teams_to_score", "soccer_team_totals"),
+    "us": ("totals", "spreads"),
+}
+EXTRA_MARKET_TYPES = ("total", "spread", "btts", "team_to_score")
+
+
+def extra_sports_market_types(sport: str) -> tuple[str, ...]:
+    return EXTRA_SPORTS_MARKET_TYPES["soccer" if sport == "soccer" else "us"]
+
+
+def market_type_of(m: dict, sport: str | None = None) -> str | None:
+    """moneyline | draw | total | spread | btts | team_to_score for game-level markets; None = out of scope."""
     smt = m.get("sportsMarketType")
     if smt == "moneyline":
         return "draw" if is_soccer_draw(m) else "moneyline"
     if smt == "totals":
         return "total"
     if smt == "spreads":
-        return "spread"
+        return None if sport == "soccer" else "spread"
+    if smt == "both_teams_to_score":
+        return "btts"
+    if smt == "soccer_team_totals" and _float(m.get("line")) == 0.5:
+        return "team_to_score"          # "<Team> O/U 0.5": Over == that team scores at least once
     return None
+
+
+def extra_market_included(m: dict, market_type: str | None, sport: str, cfg: "CollectorConfig") -> bool:
+    """Volume floor (current Gamma volume) + line gate for the non-moneyline game markets."""
+    vol = market_volume(m)
+    if sport == "soccer":
+        if market_type == "total":
+            line = _float(m.get("line"))
+            return line is not None and line in cfg.soccer_total_lines and vol >= cfg.goal_min_volume
+        return market_type in ("btts", "team_to_score") and vol >= cfg.goal_min_volume
+    return market_type in ("total", "spread") and vol >= cfg.line_min_volume
+
+
+def extra_min_volume(sport: str, cfg: "CollectorConfig") -> float:
+    return cfg.goal_min_volume if sport == "soccer" else cfg.line_min_volume
+
+
+def extra_game_key(m: dict, known_keys: Iterable[str] | dict, by_game_id: dict[str, str]) -> str | None:
+    """games.game_key of an extra market. Soccer lines sit in the child "<game> - More Markets" event whose
+    `parentEventId` is the main event id (= game_key); `gameId` is missing on about half of the closed child
+    events (observed 2026-10-01), so it is only the last resort. US lines sit in the main event itself."""
+    ev = (m.get("events") or [{}])[0]
+    for k in (ev.get("parentEventId"), ev.get("id")):
+        if k is not None and str(k) in known_keys:
+            return str(k)
+    gid = ev.get("gameId")
+    return by_game_id.get(str(gid)) if gid is not None else None
 
 
 def market_volume(m: dict) -> float:
@@ -243,6 +304,13 @@ def soccer_subject(m: dict) -> str | None:
     return mt.group(1) if mt else None
 
 
+def team_total_subject(m: dict) -> str | None:
+    """'Arsenal FC O/U 0.5' (groupItemTitle) -> 'Arsenal FC'. The question names both teams, so never use it."""
+    g = m.get("groupItemTitle") or ""
+    mt = re.match(r"(.+?)\s+O/U\s+[\d.]+\s*$", g, flags=re.I)
+    return mt.group(1).strip() if mt else None
+
+
 def token_rows(m: dict, market_type: str, teams: Teams) -> list[dict]:
     """[{token_id, outcome_index, outcome_label, side}] aligned with clobTokenIds[i] / outcomes[i]."""
     tokens = [str(t) for t in json_list(m.get("clobTokenIds"))]
@@ -255,6 +323,8 @@ def token_rows(m: dict, market_type: str, teams: Teams) -> list[dict]:
         low = (label or "").lower()
         if market_type == "total" and low in ("over", "under"):
             side = low
+        elif market_type == "team_to_score" and low in ("over", "under"):
+            side = "no" if low == "under" else team_side(team_total_subject(m), teams)
         elif yes_no:
             if low == "no":
                 side = "no"

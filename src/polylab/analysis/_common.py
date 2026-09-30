@@ -13,6 +13,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 
+from polylab.collector.common import MAJOR_SOCCER_LEAGUES
 from polylab.db import connect
 
 SPORTS = ("soccer", "mlb", "nba", "nfl", "nhl")
@@ -40,6 +41,28 @@ PHASE_NOTE = (
 )
 
 KST = dt.timezone(dt.timedelta(hours=9))
+
+LEAGUE_NOTE = ("soccer = major competitions only (" + ", ".join(sorted(MAJOR_SOCCER_LEAGUES))
+               + "); pass all_leagues / --all-leagues to include every stored league")
+
+
+def league_filter_sql(alias: str = "g", all_leagues: bool = False) -> tuple[str, list[str]]:
+    """(' AND <clause>', params) keeping non-soccer rows and soccer rows of MAJOR_SOCCER_LEAGUES — the same set
+    the collector uses. Minor-league rows collected earlier stay in core.db and come back with all_leagues.
+    A NULL league is unknown, not minor, and is kept."""
+    if all_leagues:
+        return "", []
+    leagues = sorted(MAJOR_SOCCER_LEAGUES)
+    return (f" AND ({alias}.sport != 'soccer' OR {alias}.league IS NULL OR LOWER({alias}.league) IN "
+            f"({','.join('?' * len(leagues))}))", leagues)
+
+
+def league_mask(df: pd.DataFrame, all_leagues: bool = False) -> pd.Series:
+    """Row mask for frames with `sport` and `league` columns (same rule as league_filter_sql)."""
+    if all_leagues or df.empty:
+        return pd.Series(True, index=df.index)
+    league = df["league"]
+    return (df["sport"] != "soccer") | league.isna() | league.astype(str).str.lower().isin(MAJOR_SOCCER_LEAGUES)
 
 
 def open_ro(path: Path) -> sqlite3.Connection | None:

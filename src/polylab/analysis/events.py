@@ -196,13 +196,15 @@ def aggregate(reactions: pd.DataFrame) -> tuple[list[dict], list[dict]]:
     return by_minute, by_state
 
 
-def run(conn: sqlite3.Connection, since: int | None = None, until: int | None = None) -> dict:
-    games = C.read_sql(conn, "SELECT game_key, sport, start_time FROM games WHERE 1=1"
-                       + (" AND start_time >= ?" if since is not None else "")
-                       + (" AND start_time < ?" if until is not None else ""),
-                       [x for x in (since, until) if x is not None])
+def run(conn: sqlite3.Connection, since: int | None = None, until: int | None = None,
+        all_leagues: bool = False) -> dict:
+    lg_sql, lg_params = C.league_filter_sql("g", all_leagues)
+    games = C.read_sql(conn, "SELECT g.game_key, g.sport, g.start_time FROM games g WHERE 1=1"
+                       + (" AND g.start_time >= ?" if since is not None else "")
+                       + (" AND g.start_time < ?" if until is not None else "") + lg_sql,
+                       [x for x in (since, until) if x is not None] + lg_params)
     result = {"event_sensitivity": [], "by_score_state": [], "events_detected": 0,
-              "events_measured": 0, "notes": [NOTE]}
+              "events_measured": 0, "notes": [NOTE] + ([] if all_leagues else [C.LEAGUE_NOTE])}
     if games.empty:
         return result
     states = C.game_states(conn, games["game_key"].tolist())

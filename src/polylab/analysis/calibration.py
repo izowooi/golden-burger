@@ -75,8 +75,10 @@ def calibrate(obs: pd.DataFrame, min_n: int = 1) -> tuple[list[dict], list[dict]
 
 
 def load_observations(conn: sqlite3.Connection, since: int | None = None,
-                      until: int | None = None) -> pd.DataFrame:
-    """Resolved whole-game tokens with their first canonical price in each phase."""
+                      until: int | None = None, all_leagues: bool = False) -> pd.DataFrame:
+    """Resolved whole-game tokens with their first canonical price in each phase (soccer: major leagues
+    unless all_leagues)."""
+    lg_sql, lg_params = C.league_filter_sql("g", all_leagues)
     tok = C.read_sql(conn, f"""
         SELECT t.token_id, t.outcome_index, m.resolved_outcome_index, m.resolved_at, m.condition_id,
                m.market_type, g.game_key, g.sport, g.start_time, g.ended_at
@@ -86,7 +88,8 @@ def load_observations(conn: sqlite3.Connection, since: int | None = None,
           AND m.market_type IN ({','.join('?' * len(WHOLE_GAME_TYPES))})
           {"AND g.start_time >= ?" if since is not None else ""}
           {"AND g.start_time < ?" if until is not None else ""}
-    """, list(WHOLE_GAME_TYPES) + [x for x in (since, until) if x is not None])
+          {lg_sql}
+    """, list(WHOLE_GAME_TYPES) + [x for x in (since, until) if x is not None] + lg_params)
     cols = ["token_id", "game_key", "sport", "phase", "ts", "price", "won"]
     if tok.empty:
         return pd.DataFrame(columns=cols)
@@ -108,12 +111,13 @@ def load_observations(conn: sqlite3.Connection, since: int | None = None,
     return df[cols].reset_index(drop=True)
 
 
-def run(conn: sqlite3.Connection, since: int | None = None, until: int | None = None) -> dict:
-    obs = load_observations(conn, since, until)
+def run(conn: sqlite3.Connection, since: int | None = None, until: int | None = None,
+        all_leagues: bool = False) -> dict:
+    obs = load_observations(conn, since, until, all_leagues)
     calibration, brier = calibrate(obs)
     return {"calibration": calibration, "brier": brier, "observations": int(len(obs)),
             "games": int(obs["game_key"].nunique()) if not obs.empty else 0,
-            "notes": [SAMPLING_NOTE, C.PHASE_NOTE]}
+            "notes": [SAMPLING_NOTE, C.PHASE_NOTE] + ([] if all_leagues else [C.LEAGUE_NOTE])}
 
 
 def top_gaps(calibration: list[dict], min_n: int = 30, limit: int = 5) -> list[dict]:
