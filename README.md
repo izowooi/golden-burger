@@ -13,7 +13,7 @@ The system runs unattended on a single Mac mini: a 1-minute collector writes one
 strategy variants trade (or paper-trade) against it, and an AI retro loop reviews results daily/weekly/monthly,
 adjusts parameters inside deterministic guardrails, and publishes reports.
 
-- Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+- Architecture: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) · diagrams [`docs/architecture/`](docs/architecture/README.md) · AI loop [`ai-automation.md`](docs/architecture/ai-automation.md)
 - Strategy variants: [`strategies/`](strategies/) · logic in [`src/polylab/strategies`](src/polylab/strategies)
 - Automated reports: [`reports/`](reports/) · live dashboard: https://poly.zowoo.uk
 - API sources and field provenance: [`docs/research/api-sources.md`](docs/research/api-sources.md)
