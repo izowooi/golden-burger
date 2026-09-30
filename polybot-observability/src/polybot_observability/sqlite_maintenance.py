@@ -850,9 +850,10 @@ def _delete_expired(
             connection, "market_snapshots", "timestamp"
         )
         if snapshot_anchor is not None:
-            connection.execute(
-                "DELETE FROM market_snapshots "
-                "WHERE datetime(timestamp) < datetime(?, ?) "
+            from .market_data_projection_links import delete_snapshot_rows
+            delete_snapshot_rows(
+                connection,
+                "datetime(timestamp) < datetime(?, ?) "
                 "AND id NOT IN (SELECT id FROM _polybot_protected_snapshot_ids)",
                 (snapshot_anchor, modifier),
             )
@@ -970,10 +971,11 @@ def _roll_up_snapshots(
         """
         predicate = "keep_rank > 1"
         parameters = (bucket_seconds, max_timestamp, hot_modifier)
-    connection.execute(
+    from .market_data_projection_links import delete_snapshot_rows
+    delete_snapshot_rows(
+        connection,
         f"""
-        DELETE FROM market_snapshots
-        WHERE id IN (
+        id IN (
             SELECT id FROM (
                 SELECT id, probability, {ranks}
                 FROM market_snapshots
@@ -1061,6 +1063,10 @@ def _compact_connection(
     *,
     activate: bool,
 ) -> dict[str, int]:
+    from .market_data_scalar_links import install_scalar_views
+    install_scalar_views(connection)
+    from .market_data_projection_links import install_projection_views
+    install_projection_views(connection)
     connection.execute("PRAGMA foreign_keys=ON")
     connection.execute("PRAGMA busy_timeout=30000")
     _quick_check(connection)
@@ -1153,7 +1159,7 @@ def _compact_connection(
     except Exception:
         connection.rollback()
         raise
-    connection.execute("PRAGMA optimize")
+    connection.execute("PRAGMA main.optimize")
     _quick_check(connection)
     return {**before, **{f"{key}_after": value for key, value in after.items()}}
 
@@ -1407,13 +1413,14 @@ def _migrate(
         work_path = Path(work_name)
         try:
             _online_backup(path, work_path, reserved_destination=True)
-            connection = sqlite3.connect(work_path, timeout=30)
+            from .market_data_sqlite import connect as resolving_connect
+            connection = resolving_connect(work_path, timeout=30)
             try:
                 # This is a disposable working copy with a verified source
                 # backup, not the live DB.  Avoid a multi-gigabyte rollback
                 # journal during the one-time DELETE, then restore durable
                 # DELETE mode before the atomic replacement.
-                connection.execute("PRAGMA journal_mode=OFF")
+                connection.execute("PRAGMA main.journal_mode=OFF")
                 protected_before = _protected_counts(connection)
                 counts = _compact_connection(
                     connection, policy, requirements, activate=True
@@ -1423,8 +1430,16 @@ def _migrate(
                     raise RuntimeError(
                         "protected evidence count mismatch after migration"
                     )
+            finally:
+                connection.close()
+            # VACUUM rebuilds source indexes internally. Connection-local read
+            # views with those original table names can shadow the rebuild,
+            # even for VACUUM main. Use a fresh raw connection to this verified
+            # disposable work file, with no public attachments or TEMP views.
+            connection = sqlite3.connect(work_path, timeout=30)
+            try:
                 connection.execute("PRAGMA auto_vacuum=INCREMENTAL")
-                connection.execute("VACUUM")
+                connection.execute("VACUUM main")
                 if (
                     str(
                         connection.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
@@ -1582,7 +1597,8 @@ def prepare_database(
         resolved_requirements = requirements or requirements_for(normalized)
         policy = policy_for(normalized, resolved_requirements)
         path.parent.mkdir(parents=True, exist_ok=True)
-        bootstrap = sqlite3.connect(path, timeout=30)
+        from .market_data_sqlite import connect as resolving_connect
+        bootstrap = resolving_connect(path, timeout=30)
         try:
             # Set incremental auto-vacuum before strategy tables exist.  A new
             # DB has nothing to migrate or back up, so activating its immutable
@@ -1635,7 +1651,8 @@ def prepare_database(
             probe.close()
         return _migrate(path, policy, resolved_requirements)
 
-    connection = sqlite3.connect(path, timeout=30)
+    from .market_data_sqlite import connect as resolving_connect
+    connection = resolving_connect(path, timeout=30)
     try:
         row = _state(connection)
         if row is None or int(row["active"] or 0) != 1:

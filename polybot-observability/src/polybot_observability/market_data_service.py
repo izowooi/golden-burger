@@ -24,13 +24,14 @@ import threading
 import time
 
 from .market_data_client import (
-    MAX_FRAME_BYTES, PROTOCOL_VERSION, ProtocolError, ServiceBusyError,
+    MAX_FRAME_BYTES, PROTOCOL_VERSION, SERVICE_CAPABILITIES, ProtocolError, ServiceBusyError,
     ServiceUnavailableError, _decode_payloads, _receive_frame, _send_frame,
 )
 from .market_data_store import (
     MAX_BATCH_ITEMS, MissingPayloadError, Observation, PayloadStore, StoreError,
     StoreLimitError,
 )
+from .market_data_scalars import MissingScalarRecordError, ScalarRecord, ScalarReceipt, ScalarSnapshot
 
 
 @dataclass
@@ -53,6 +54,12 @@ def _error_response(error: Exception) -> dict:
                     "error": "StoreError", "message": "public payload storage operation failed"}
     if isinstance(error, MissingPayloadError):
         response["hashes"] = error.hashes
+    if isinstance(error, MissingScalarRecordError):
+        response["record_ids"] = error.record_ids
+    if type(error).__name__ == "MissingProjectionRecordError":
+        from .market_data_projections import MissingProjectionRecordError
+        if isinstance(error, MissingProjectionRecordError):
+            response["record_ids"] = error.record_ids
     return response
 
 
@@ -301,16 +308,83 @@ class MarketDataService:
             "put_many": {"v", "op", "payloads"},
             "get_many": {"v", "op", "hashes"},
             "append_observations": {"v", "op", "observations"},
+            "put_scalar_snapshots": {"v", "op", "snapshots"},
+            "get_scalar_records": {"v", "op", "record_ids", "authority_uuid"},
+            "import_scalar_records": {"v", "op", "records", "authority_uuid"},
+            "scalar_authority_identity": {"v", "op"},
+            "scalar_authority_role": {"v", "op"},
+            "append_scalar_receipts": {"v", "op", "receipts", "authority_uuid"},
+            "get_scalar_receipts": {"v", "op", "identities", "authority_uuid"},
+            "scalar_stats": {"v", "op"},
+            "put_public_projections": {"v", "op", "projections"},
+            "get_projection_records": {"v", "op", "record_ids", "authority_uuid"},
+            "import_projection_records": {"v", "op", "records", "authority_uuid"},
+            "append_projection_receipts": {"v", "op", "receipts", "authority_uuid"},
+            "get_projection_receipts": {"v", "op", "identities", "authority_uuid"},
+            "get_projection_bound_records": {"v", "op", "identities", "authority_uuid"},
+            "projection_stats": {"v", "op"},
+            "capabilities": {"v", "op"},
             "stats": {"v", "op"},
         }
         if operation not in required or set(message) != required[operation]:
             raise ProtocolError("unsupported public payload operation or fields")
+        if operation == "capabilities":
+            return {"protocol": PROTOCOL_VERSION, "contracts": sorted(SERVICE_CAPABILITIES)}
+        if operation == "projection_stats":
+            return store.projection_stats()
+        if operation == "get_projection_records":
+            return [row.to_wire() for row in store.get_projection_records(message["record_ids"], message["authority_uuid"])]
+        if operation == "get_projection_receipts":
+            return [None if row is None else row.to_wire() for row in store.get_projection_receipts(
+                message["identities"], authority_uuid=message["authority_uuid"])]
+        if operation == "get_projection_bound_records":
+            return [None if pair is None else {"receipt": pair[0].to_wire(), "record": pair[1].to_wire()}
+                    for pair in store.get_projection_bound_pairs(
+                message["identities"], authority_uuid=message["authority_uuid"])]
+        if operation in {"put_public_projections", "import_projection_records", "append_projection_receipts"}:
+            from .market_data_projections import PublicProjection, ProjectionRecord, ProjectionReceipt
+            key, model = {
+                "put_public_projections": ("projections", PublicProjection),
+                "import_projection_records": ("records", ProjectionRecord),
+                "append_projection_receipts": ("receipts", ProjectionReceipt),
+            }[operation]
+            values = message[key]
+            if not isinstance(values, list) or len(values) > MAX_BATCH_ITEMS:
+                raise StoreLimitError("projection batch must be a bounded list")
+            rows = [model.from_wire(value) for value in values]
+            if operation == "put_public_projections":
+                return [ref.to_wire() for ref in store.put_public_projections(rows)]
+            if operation == "import_projection_records":
+                return store.import_projection_records(message["authority_uuid"], rows)
+            return store.append_projection_receipts(rows, authority_uuid=message["authority_uuid"])
         if operation == "put_many":
             return store.put_many(_decode_payloads(message["payloads"]))
         if operation == "get_many":
             return [base64.b64encode(raw).decode("ascii") for raw in store.get_many(message["hashes"])]
         if operation == "stats":
             return store.stats()
+        if operation == "scalar_stats":
+            return store.scalar_stats()
+        if operation == "scalar_authority_identity":
+            return store.scalar_authority_identity()
+        if operation == "scalar_authority_role":
+            return store.scalar_authority_role()
+        if operation == "get_scalar_records":
+            return [item.to_wire() for item in store.get_scalar_records(message["record_ids"], message["authority_uuid"])]
+        if operation == "get_scalar_receipts":
+            return [item.to_wire() if item is not None else None for item in store.get_scalar_receipts(
+                message["identities"], authority_uuid=message["authority_uuid"])]
+        if operation in ("put_scalar_snapshots", "append_scalar_receipts", "import_scalar_records"):
+            key = {"put_scalar_snapshots": "snapshots", "append_scalar_receipts": "receipts", "import_scalar_records": "records"}[operation]
+            values = message[key]
+            if not isinstance(values, list) or len(values) > MAX_BATCH_ITEMS:
+                raise StoreLimitError("scalar batch must be a bounded list")
+            if operation == "put_scalar_snapshots":
+                return [reference.to_wire() for reference in store.put_scalar_snapshots([ScalarSnapshot.from_wire(value) for value in values])]
+            if operation == "import_scalar_records":
+                return store.import_scalar_records(message["authority_uuid"], [ScalarRecord.from_wire(value) for value in values])
+            return store.append_scalar_receipts([ScalarReceipt.from_wire(value) for value in values],
+                                               authority_uuid=message["authority_uuid"])
         values = message["observations"]
         if not isinstance(values, list) or len(values) > MAX_BATCH_ITEMS:
             raise StoreLimitError("observation batch must be a bounded list")
@@ -335,7 +409,9 @@ class MarketDataService:
                     if time.monotonic() >= request.deadline:
                         raise ServiceUnavailableError("request expired before execution")
                     self._check_storage()
-                    if request.message.get("op") in {"put_many", "append_observations"}:
+                    if request.message.get("op") in {"put_many", "append_observations",
+                                                       "put_scalar_snapshots", "append_scalar_receipts", "import_scalar_records",
+                                                       "put_public_projections", "import_projection_records", "append_projection_receipts"}:
                         self._check_write_capacity()
                     result = self._dispatch(store, request.message)
                     request.response = {"v": PROTOCOL_VERSION, "ok": True, "result": result}

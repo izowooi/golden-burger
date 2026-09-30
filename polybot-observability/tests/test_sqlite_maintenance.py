@@ -735,6 +735,42 @@ def test_new_database_can_start_compact_without_migration_flag(tmp_path, monkeyp
         assert payload["policy"]["membership_detail_hours"] == 24.0
 
 
+def test_compaction_vacuum_with_shared_catalog_does_not_rebuild_indices_on_temp_view(tmp_path, monkeypatch):
+    from polybot_observability.market_data_catalog_links import iter_catalog_rows, upsert_shared_catalog
+    from polybot_observability.market_data_refs import PayloadReferences
+    from polybot_observability.market_data_sqlite import connect
+    from polybot_observability.market_data_store import PayloadReader, PayloadStore
+    from test_market_data_catalog_links import make_source, namespace, row
+
+    public = tmp_path / "public.db"
+    database = tmp_path / "catalog-private.db"
+    monkeypatch.setenv("PUBLIC_MARKET_DATA_DB", str(public))
+    monkeypatch.delenv("PUBLIC_MARKET_DATA_SOCKET", raising=False)
+    monkeypatch.setenv("POLYBOT_DB_BACKUP_DIR", str(tmp_path / "backups"))
+    with PayloadStore(public) as writer, PayloadReader(public) as reader:
+        refs = PayloadReferences(reader=reader, writer=writer)
+        connection = connect(database, references=refs)
+        make_source(connection, "golden-blueberry")
+        for original_id in (-7, 0, 99):
+            upsert_shared_catalog(connection, "golden-blueberry", row("golden-blueberry", f"c-{original_id}"),
+                                  namespace=namespace("golden-blueberry"), references=refs,
+                                  original_rowid=original_id)
+        connection.commit()
+        expected = list(iter_catalog_rows(connection, "golden-blueberry", include_rowid=True))
+        connection.close()
+        public_before = writer.projection_stats()
+        report = migrate_database(database, "golden-blueberry")
+        assert report is not None and report.backup_path is not None
+        restored = connect(database, references=refs)
+        try:
+            assert list(iter_catalog_rows(restored, "golden-blueberry", include_rowid=True)) == expected
+            assert restored.execute("SELECT * FROM private_ledger").fetchall() == [(7, 1.25, -43.12)]
+            assert restored.execute("PRAGMA auto_vacuum").fetchone()[0] == 2
+        finally:
+            restored.close()
+        assert writer.projection_stats() == public_before
+
+
 def test_auto_compact_create_does_not_mutate_existing_legacy_database(
     tmp_path, monkeypatch
 ):

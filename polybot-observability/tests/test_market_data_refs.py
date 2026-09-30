@@ -97,3 +97,36 @@ def test_tiny_cache_and_duplicate_columns_preserve_order():
     assert reader.decode_many(encoded) == ['a'*100, 'b', 'a'*100, None]
     assert len(store.reads[-1]) == 2
     assert reader._cached_bytes <= 2
+
+
+def test_migration_body_batch_uses_bounded_durable_transactions(monkeypatch):
+    from polybot_observability import market_data_store
+    from polybot_observability.market_data_refs import externalize_rows
+    class CountedStore(MemoryStore):
+        def __init__(self):super().__init__();self.batches=[]
+        def put_many(self,values):
+            self.batches.append(values)
+            return super().put_many(values)
+    store=CountedStore();codec=PayloadReferences(store,store)
+    monkeypatch.setattr(market_data_store,'MAX_BATCH_BYTES',8)
+    rows=[{'raw_gzip':b'abcd','private_value':n} for n in range(5)]
+    encoded=externalize_rows('golden-coconut','requests',rows,references=codec)
+    assert list(map(len,store.batches))==[2,2,1]
+    assert [row['private_value'] for row in encoded]==list(range(5))
+    assert codec.decode_many([row['raw_gzip'] for row in encoded])==[b'abcd']*5
+
+
+def test_failed_later_batch_never_returns_publishable_local_rows(monkeypatch):
+    from polybot_observability import market_data_store
+    from polybot_observability.market_data_refs import externalize_rows
+    class FailsSecond(MemoryStore):
+        calls=0
+        def put_many(self,values):
+            self.calls+=1
+            if self.calls==2:raise OSError('write failed')
+            return super().put_many(values)
+    store=FailsSecond();codec=PayloadReferences(store,store)
+    monkeypatch.setattr(market_data_store,'MAX_BATCH_BYTES',4)
+    with pytest.raises(OSError,match='write failed'):
+        externalize_rows('golden-coconut','requests',[{'raw_gzip':b'abcd'},{'raw_gzip':b'efgh'}],references=codec)
+    assert len(store.payloads)==1

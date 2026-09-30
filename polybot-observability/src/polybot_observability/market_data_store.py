@@ -138,6 +138,18 @@ class Observation:
     event_id: str | None = None
     token_id: str | None = None
     metadata_json: str = "{}"
+    token_ids: tuple[str, ...] = ()
+    event_ids: tuple[str, ...] = ()
+
+    def subjects(self) -> tuple[tuple[str, str], ...]:
+        pairs = []
+        for kind, values in (("token", self.token_ids), ("event", self.event_ids)):
+            if not isinstance(values, (tuple, list)) or len(values) > 16384:
+                raise StoreLimitError("observation subject list exceeds limit")
+            if any(not isinstance(value, str) or not value or len(value) > 256 for value in values):
+                raise ValueError("public subject identifiers must be bounded strings")
+            pairs.extend((kind, value) for value in values)
+        return tuple(sorted(set(pairs)))
 
     def row(self) -> tuple:
         for value in (self.observer, self.observation_id, self.observed_at, self.kind):
@@ -153,6 +165,7 @@ class Observation:
         metadata = json.loads(self.metadata_json, parse_constant=lambda _: _invalid_json())
         if not isinstance(metadata, dict):
             raise ValueError("observation metadata must be a JSON object")
+        self.subjects()
         return (
             self.observer, self.observation_id, self.observed_at, self.kind,
             self.event_id, self.token_id, self.payload_sha, self.metadata_json,
@@ -170,6 +183,8 @@ class PayloadReader:
         self.path = Path(db_path).expanduser().resolve(strict=True)
         self._connection = sqlite3.connect(f"{self.path.as_uri()}?mode=ro", uri=True)
         self._connection.execute("PRAGMA query_only=ON")
+        self._scalar_state = None
+        self._projection_state = None
         try:
             self._validate_schema()
         except BaseException:
@@ -182,9 +197,70 @@ class PayloadReader:
             or self._connection.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION
         ):
             raise StoreError("unsupported public payload store schema")
+        from .market_data_projections import validate_projection_storage_schema
+        validate_projection_storage_schema(self._connection)
 
     def get_many(self, hashes: list[str]) -> list[bytes]:
         return _get_many(self._connection, hashes)
+
+    def _scalar_access(self):
+        if self._scalar_state is None:
+            from .market_data_scalar_store import ScalarAccess
+            self._scalar_state = ScalarAccess(self._connection)
+        return self._scalar_state
+
+    def scalar_authority_identity(self) -> str:
+        return self._scalar_access().authority()[0]
+
+    def scalar_authority_role(self) -> str:
+        return self._scalar_access().authority()[1]
+
+    def get_scalar_records(self, ids, authority_uuid):
+        return self._scalar_access().get_records(ids, authority_uuid)
+
+    def get_scalar_receipts(self, identities, *, authority_uuid):
+        return self._scalar_access().get_receipts(identities, authority_uuid=authority_uuid)
+
+    def iter_scalar_receipts(self, *, authority_uuid, namespace=None, after=None, limit=1000, record_ids=None):
+        return self._scalar_access().iter_receipts(authority_uuid=authority_uuid, namespace=namespace,
+                                                   after=after, limit=limit, record_ids=record_ids)
+
+    def query_scalar_snapshots(self, condition_id, *, authority_uuid, start=None, end=None, namespace=None, limit=1000):
+        return self._scalar_access().query(condition_id, authority_uuid=authority_uuid, start=start,
+                                           end=end, namespace=namespace, limit=limit)
+
+    def scalar_stats(self):
+        return self._scalar_access().stats()
+
+    def _projection_access(self):
+        if self._projection_state is None:
+            from .market_data_projection_store import ProjectionAccess
+            self._projection_state = ProjectionAccess(self._connection, self._scalar_access())
+        return self._projection_state
+
+    def get_projection_records(self, ids, authority_uuid):
+        return self._projection_access().get_records(ids, authority_uuid)
+
+    def get_projection_receipts(self, identities, *, authority_uuid):
+        return self._projection_access().get_receipts(identities, authority_uuid=authority_uuid)
+
+    def get_projection_bound_records(self, identities, *, authority_uuid):
+        return self._projection_access().get_bound_records(identities, authority_uuid=authority_uuid)
+
+    def get_projection_bound_pairs(self, identities, *, authority_uuid):
+        return self._projection_access().get_bound_pairs(identities, authority_uuid=authority_uuid)
+
+    def iter_projection_receipts(self, *, authority_uuid, namespace=None, origin_table=None, after=None, limit=1000, record_ids=None):
+        return self._projection_access().iter_receipts(authority_uuid=authority_uuid, namespace=namespace,
+            origin_table=origin_table, after=after, limit=limit, record_ids=record_ids)
+
+    def query_projection_records(self, *, authority_uuid, kind=None, condition_id=None, token_id=None,
+                                 start=None, end=None, namespace=None, limit=1000):
+        return self._projection_access().query(authority_uuid=authority_uuid, kind=kind, condition_id=condition_id,
+            token_id=token_id, start=start, end=end, namespace=namespace, limit=limit)
+
+    def projection_stats(self):
+        return self._projection_access().stats()
 
     def stats(self) -> dict[str, int]:
         count, raw, stored = self._connection.execute(
@@ -195,10 +271,50 @@ class PayloadReader:
         return {"payload_count": count, "raw_bytes": raw, "stored_bytes": stored,
                 "observation_count": observations}
 
+    def get_observations(self, identities: list[tuple[str, str]]) -> list[Observation | None]:
+        """Lookup exact receipt identities, retaining input order and missingness.
+
+        This is independent of timestamps, so backfill verification does not
+        lose records that happen to share the same source clock.
+        """
+        if not isinstance(identities,list) or len(identities)>MAX_BATCH_ITEMS:
+            raise StoreLimitError('observation identities must be a bounded list')
+        keys=[]
+        for identity in identities:
+            if (not isinstance(identity,(tuple,list)) or len(identity)!=2
+                    or any(not isinstance(x,str) or not x or len(x)>1024 for x in identity)):
+                raise ValueError('observation lookup requires exact observer and observation_id')
+            keys.append(tuple(identity))
+        unique=list(dict.fromkeys(keys));found={}
+        has_subjects=self._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='observation_subject_sets'"
+        ).fetchone() is not None
+        for offset in range(0,len(unique),400):
+            batch=unique[offset:offset+400]
+            placeholders=','.join('(?,?)' for _ in batch)
+            rows=self._connection.execute(
+                'SELECT observer,observation_id,observed_at,kind,event_id,token_id,payload_sha,metadata_json '
+                f'FROM observations WHERE (observer,observation_id) IN ({placeholders})',
+                [value for pair in batch for value in pair],
+            ).fetchall()
+            for row in rows:
+                subjects=self._connection.execute(
+                    'SELECT m.subject_kind,m.subject_id FROM observation_subject_sets l '
+                    'JOIN public_subject_set_members m ON m.set_sha=l.set_sha '
+                    'WHERE l.observer=? AND l.observation_id=? ORDER BY m.subject_kind,m.subject_id',row[:2]
+                ).fetchall() if has_subjects else ()
+                found[row[:2]]=Observation(
+                    observer=row[0],observation_id=row[1],observed_at=row[2],kind=row[3],
+                    event_id=row[4],token_id=row[5],payload_sha=row[6],metadata_json=row[7],
+                    token_ids=tuple(value for kind,value in subjects if kind=='token'),
+                    event_ids=tuple(value for kind,value in subjects if kind=='event'),
+                )
+        return [found.get(key) for key in keys]
+
     def iter_observations(self, token_id: str | None = None,
                           event_id: str | None = None, start: str | None = None,
                           end: str | None = None, observer: str | None = None,
-                          limit: int = 1000) -> Iterator[Observation]:
+                          limit: int = 1000, *, kind: str | None = None) -> Iterator[Observation]:
         """Bounded receipts in chronological order, in the UTC interval [start,end).
 
         ISO8601 offsets and original timestamp strings are preserved. An exact
@@ -210,12 +326,24 @@ class PayloadReader:
             raise StoreLimitError("observation result limit must be between 1 and 10000")
         conditions = []
         parameters: list = []
-        for column, value in (("token_id", token_id), ("event_id", event_id), ("observer", observer)):
+        has_subjects = self._connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE name='observation_subject_sets'"
+        ).fetchone() is not None
+        for column, value in (("token_id", token_id), ("event_id", event_id), ("observer", observer), ("kind",kind)):
             if value is not None:
                 if not isinstance(value, str) or len(value) > 1024:
                     raise ValueError("observation filters must be bounded strings")
-                conditions.append(f"{column} = ?")
-                parameters.append(value)
+                if has_subjects and column in ("token_id", "event_id"):
+                    conditions.append(
+                        f"(observations.{column} = ? OR EXISTS (SELECT 1 FROM observation_subject_sets links "
+                        "JOIN public_subject_set_members members ON members.set_sha=links.set_sha "
+                        "WHERE links.observer=observations.observer AND links.observation_id=observations.observation_id "
+                        "AND members.subject_kind=? AND members.subject_id=?))"
+                    )
+                    parameters.extend((value, column.removesuffix('_id'), value))
+                else:
+                    conditions.append(f"{column} = ?")
+                    parameters.append(value)
         start_us = _observation_time_us(start) if start is not None else None
         end_us = _observation_time_us(end) if end is not None else None
         if start_us is not None and end_us is not None and start_us > end_us:
@@ -234,9 +362,16 @@ class PayloadReader:
         )
         try:
             for row in cursor:
+                subjects = self._connection.execute(
+                    "SELECT m.subject_kind,m.subject_id FROM observation_subject_sets l "
+                    "JOIN public_subject_set_members m ON m.set_sha=l.set_sha "
+                    "WHERE l.observer=? AND l.observation_id=? ORDER BY m.subject_kind,m.subject_id", row[:2]
+                ).fetchall() if has_subjects else ()
                 yield Observation(observer=row[0], observation_id=row[1], observed_at=row[2],
                                   kind=row[3], event_id=row[4], token_id=row[5],
-                                  payload_sha=row[6], metadata_json=row[7])
+                                  payload_sha=row[6], metadata_json=row[7],
+                                  token_ids=tuple(value for kind,value in subjects if kind=='token'),
+                                  event_ids=tuple(value for kind,value in subjects if kind=='event'))
         finally:
             cursor.close()
 
@@ -255,6 +390,20 @@ class PayloadStore(PayloadReader):
 
     def __init__(self, path: str | Path):
         self.path = Path(path).expanduser().resolve()
+        # Inspect an existing typed format read-only before opening a writer:
+        # even a first schema read on a RW handle could recover a hot journal.
+        # Unsupported development projection formats are never implicit upgrades.
+        if self.path.exists():
+            probe = sqlite3.connect(self.path.as_uri() + "?mode=ro", uri=True)
+            try:
+                if probe.execute("SELECT 1 FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' LIMIT 1").fetchone():
+                    if (probe.execute("PRAGMA application_id").fetchone()[0] != APPLICATION_ID
+                            or probe.execute("PRAGMA user_version").fetchone()[0] != SCHEMA_VERSION):
+                        raise StoreError("unsupported public payload store schema")
+                    from .market_data_projections import validate_projection_storage_schema
+                    validate_projection_storage_schema(probe)
+            finally:
+                probe.close()
         self._connection = sqlite3.connect(self.path, timeout=2.0, isolation_level=None)
         try:
             existing = self._connection.execute(
@@ -287,12 +436,45 @@ class PayloadStore(PayloadReader):
                 "CREATE INDEX IF NOT EXISTS observations_event_time "
                 "ON observations(event_id, observed_at)"
             )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS observations_owner_kind_time "
+                "ON observations(observer, kind, observed_at)"
+            )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS observations_payload_sha "
+                "ON observations(payload_sha, observer, observation_id)"
+            )
+            # One shared subject set for a whole batch, not hundreds of copies
+            # of a receipt. Repeated censuses reuse the same member index.
+            self._connection.execute(
+                "CREATE TABLE IF NOT EXISTS public_subject_sets (set_sha TEXT PRIMARY KEY) WITHOUT ROWID"
+            )
+            self._connection.execute(
+                "CREATE TABLE IF NOT EXISTS public_subject_set_members ("
+                "set_sha TEXT NOT NULL REFERENCES public_subject_sets(set_sha),subject_kind TEXT NOT NULL "
+                "CHECK(subject_kind IN ('token','event')),subject_id TEXT NOT NULL,"
+                "PRIMARY KEY(set_sha,subject_kind,subject_id)) WITHOUT ROWID"
+            )
+            self._connection.execute(
+                "CREATE INDEX IF NOT EXISTS public_subject_lookup "
+                "ON public_subject_set_members(subject_kind,subject_id,set_sha)"
+            )
+            self._connection.execute(
+                "CREATE TABLE IF NOT EXISTS observation_subject_sets ("
+                "observer TEXT NOT NULL,observation_id TEXT NOT NULL,set_sha TEXT NOT NULL "
+                "REFERENCES public_subject_sets(set_sha),PRIMARY KEY(observer,observation_id),"
+                "FOREIGN KEY(observer,observation_id) REFERENCES observations(observer,observation_id)) WITHOUT ROWID"
+            )
             for action in ("UPDATE", "DELETE"):
                 self._connection.execute(
                     f"CREATE TRIGGER IF NOT EXISTS observations_no_{action.lower()} "
                     f"BEFORE {action} ON observations BEGIN "
                     "SELECT RAISE(ABORT, 'observations are append only'); END"
                 )
+            from .market_data_scalars import initialize_scalar_schema
+            self._scalar_state = initialize_scalar_schema(self._connection)
+            from .market_data_projections import initialize_projection_schema
+            self._projection_state = initialize_projection_schema(self._connection, self._scalar_state)
             self._connection.execute(f"PRAGMA application_id={APPLICATION_ID}")
             self._connection.execute(f"PRAGMA user_version={SCHEMA_VERSION}")
             self._connection.execute("COMMIT")
@@ -313,7 +495,9 @@ class PayloadStore(PayloadReader):
                     if _decode(sha, *row) != raw:
                         raise CorruptPayloadError(f"payload hash collision: {sha}")
                     continue
-                compressed = zlib.compress(raw, level=3)
+                # Level 6 reduces large repeated Gamma documents substantially
+                # without changing their bytes or the stored zlib format.
+                compressed = zlib.compress(raw, level=6)
                 codec, body = ("zlib", compressed) if len(compressed) < len(raw) else ("identity", raw)
                 self._connection.execute("INSERT INTO payloads VALUES (?, ?, ?, ?)",
                                          (sha, codec, len(raw), body))
@@ -324,13 +508,33 @@ class PayloadStore(PayloadReader):
             raise
         return hashes
 
+    def put_scalar_snapshots(self, values):
+        return self._scalar_access().put(values)
+
+    def import_scalar_records(self, authority_uuid, records):
+        return self._scalar_access().import_records(authority_uuid, records)
+
+    def append_scalar_receipts(self, values, *, authority_uuid):
+        return self._scalar_access().append_receipts(values, authority_uuid=authority_uuid)
+
+    def put_public_projections(self, values):
+        return self._projection_access().put(values)
+
+    def import_projection_records(self, authority_uuid, records):
+        return self._projection_access().import_records(authority_uuid, records)
+
+    def append_projection_receipts(self, values, *, authority_uuid):
+        return self._projection_access().append_receipts(values, authority_uuid=authority_uuid)
+
     def append_observations(self, observations: list[Observation]) -> None:
         if not isinstance(observations, list) or len(observations) > MAX_BATCH_ITEMS:
             raise StoreLimitError("observation batch must be a bounded list")
         rows = [observation.row() for observation in observations]
         self._connection.execute("BEGIN IMMEDIATE")
         try:
-            for row in rows:
+            for observation,row in zip(observations,rows):
+                subjects = observation.subjects()
+                set_sha = hashlib.sha256(json.dumps(subjects,separators=(',',':')).encode()).hexdigest() if subjects else None
                 existing = self._connection.execute(
                     "SELECT observer, observation_id, observed_at, kind, event_id, token_id, "
                     "payload_sha, metadata_json FROM observations "
@@ -339,12 +543,22 @@ class PayloadStore(PayloadReader):
                 if existing is not None:
                     if existing != row:
                         raise ObservationConflictError("observation idempotency key conflicts")
+                    linked = self._connection.execute(
+                        "SELECT set_sha FROM observation_subject_sets WHERE observer=? AND observation_id=?", row[:2]
+                    ).fetchone()
+                    if (linked[0] if linked else None) != set_sha:
+                        raise ObservationConflictError("observation subject identities conflict")
                     continue
                 if self._connection.execute(
                     "SELECT 1 FROM payloads WHERE sha256=?", (row[6],)
                 ).fetchone() is None:
                     raise MissingPayloadError([row[6]])
                 self._connection.execute("INSERT INTO observations VALUES (?, ?, ?, ?, ?, ?, ?, ?)", row)
+                if set_sha is not None:
+                    if self._connection.execute("SELECT 1 FROM public_subject_sets WHERE set_sha=?", (set_sha,)).fetchone() is None:
+                        self._connection.execute("INSERT INTO public_subject_sets VALUES(?)", (set_sha,))
+                        self._connection.executemany("INSERT INTO public_subject_set_members VALUES(?,?,?)", [(set_sha,*pair) for pair in subjects])
+                    self._connection.execute("INSERT INTO observation_subject_sets VALUES(?,?,?)", (*row[:2],set_sha))
             self._connection.execute("COMMIT")
         except BaseException:
             if self._connection.in_transaction:

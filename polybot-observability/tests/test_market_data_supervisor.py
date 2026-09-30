@@ -51,8 +51,8 @@ def test_reuses_owned_service_and_recovers_only_after_actual_process_exit(root):
 
 def test_probe_timeout_does_not_restart_live_process(root,monkeypatch):
     first=ensure(root)
-    def timeout(self):raise TimeoutError('temporary busy writer')
-    monkeypatch.setattr(StoreClient,'stats',timeout)
+    def timeout(self, hashes):raise TimeoutError('temporary busy writer')
+    monkeypatch.setattr(StoreClient,'get_many',timeout)
     with pytest.raises(TimeoutError,match='busy writer'):
         ensure(root)
     assert json.loads((root/'service-process.json').read_text())['pid']==first['pid']
@@ -72,3 +72,13 @@ def test_missing_root_is_not_created(tmp_path):
     root=tmp_path/'absent'
     with pytest.raises(FileNotFoundError):ensure(root)
     assert not root.exists()
+
+
+def test_health_probe_never_scans_payload_statistics(root, monkeypatch):
+    def expensive_stats(self):
+        raise AssertionError('full DB statistics must not be a health probe')
+    monkeypatch.setattr(StoreClient, 'stats', expensive_stats)
+    first = ensure(root)
+    second = ensure(root)
+    assert first['probe'] == second['probe'] == 'empty_read'
+    assert first['pid'] == second['pid']

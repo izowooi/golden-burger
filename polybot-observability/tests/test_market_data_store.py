@@ -72,6 +72,64 @@ def test_empty_batches_are_noops_and_closed_connections_reject_reads(tmp_path):
         store.stats()
 
 
+def test_batch_receipts_are_searchable_without_duplicate_observations(tmp_path):
+    path = tmp_path / 'batch.db'
+    tokens = tuple(f'token-{index:04}' for index in range(500))
+    with PayloadStore(path) as store:
+        digest = store.put_many([b'one batch response'])[0]
+        first = observation(digest, token_id=None, event_id=None,
+                            token_ids=tokens, event_ids=('event-1', 'event-2'))
+        second = replace(first, observation_id='second', observed_at='2026-09-29T12:01:00Z')
+        store.append_observations([first, second])
+        store.append_observations([first])
+        assert store.stats()['observation_count'] == 2
+        assert store._connection.execute('SELECT COUNT(*) FROM public_subject_sets').fetchone() == (1,)
+        assert store._connection.execute('SELECT COUNT(*) FROM public_subject_set_members').fetchone() == (502,)
+        assert store._connection.execute('SELECT COUNT(*) FROM observation_subject_sets').fetchone() == (2,)
+    with PayloadReader(path) as reader:
+        rows = list(reader.iter_observations(token_id=tokens[-1], event_id='event-2', limit=1))
+        assert rows == [first]
+        assert list(reader.iter_observations(token_id='absent')) == []
+        assert list(reader.iter_observations(token_id=tokens[-1], start='2026-09-29T12:01:00Z')) == [second]
+
+
+def test_subjects_belong_to_receipt_not_reused_response_bytes(tmp_path):
+    with PayloadStore(tmp_path/'subjects.db') as store:
+        digest = store.put_many([b'{}'])[0]
+        a = observation(digest, token_id=None, token_ids=('a',))
+        b = replace(a, observation_id='b', token_ids=('b',))
+        store.append_observations([a,b])
+        assert list(store.iter_observations(token_id='a')) == [a]
+        assert list(store.iter_observations(token_id='b')) == [b]
+        with pytest.raises(ObservationConflictError, match='subject'):
+            store.append_observations([replace(a, token_ids=('a','b'))])
+        assert store.stats()['observation_count'] == 2
+
+
+def test_subject_failure_rolls_back_receipt_and_new_subject_dictionary(tmp_path):
+    with PayloadStore(tmp_path/'atomic-subjects.db') as store:
+        digest = store.put_many([b'batch'])[0]
+        store._connection.execute("CREATE TRIGGER fail_link BEFORE INSERT ON observation_subject_sets BEGIN SELECT RAISE(ABORT,'injected'); END")
+        with pytest.raises(sqlite3.IntegrityError, match='injected'):
+            store.append_observations([observation(digest,token_ids=('t1','t2'))])
+        for table in ('observations','observation_subject_sets','public_subject_sets','public_subject_set_members'):
+            assert store._connection.execute(f'SELECT COUNT(*) FROM {table}').fetchone() == (0,)
+
+
+def test_exact_receipt_lookup_handles_clock_ties_duplicates_and_unknowns(tmp_path):
+    with PayloadStore(tmp_path/'same-clock.db') as store:
+        sha=store.put_many([b'same public payload'])[0]
+        receipts=[observation(sha,observation_id=f'id-{i}',token_ids=(f'token-{i}',)) for i in range(1001)]
+        store.append_observations(receipts)
+        keys=[(item.observer,item.observation_id) for item in reversed(receipts)]
+        assert store.get_observations(keys)==list(reversed(receipts))
+        mixed=[keys[0],('missing','receipt'),keys[0],('other-runtime',keys[0][1])]
+        assert store.get_observations(mixed)==[receipts[-1],None,receipts[-1],None]
+        assert store.get_observations([])==[]
+        with pytest.raises(StoreLimitError):
+            store.get_observations([keys[0]]*1025)
+
+
 def test_committed_payload_survives_process_exit_without_close(tmp_path):
     path = tmp_path / "market.sqlite"
     code = """
@@ -418,3 +476,14 @@ def test_observation_indexes_are_installed_on_reopen_and_queries_stay_readonly(t
         assert reader._connection.execute("PRAGMA query_only").fetchone() == (1,)
         with pytest.raises(sqlite3.OperationalError, match="readonly"):
             reader._connection.execute("CREATE TABLE accidental_write (id INTEGER)")
+
+
+def test_kind_filter_is_applied_before_observation_limit(tmp_path):
+    from dataclasses import replace
+    with PayloadStore(tmp_path/'market.sqlite') as store:
+        digest=store.put_many([b'public'])[0]
+        first=observation(digest)
+        second=replace(first,observation_id='later',kind='apple_public_frame_v2',observed_at='2026-09-29T12:01:00Z')
+        first=replace(first,observed_at='2026-09-29T12:00:00Z')
+        store.append_observations([first,second])
+        assert list(store.iter_observations(kind='apple_public_frame_v2',limit=1))==[second]

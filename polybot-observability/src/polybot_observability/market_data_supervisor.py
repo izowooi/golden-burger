@@ -18,7 +18,7 @@ import subprocess
 import sys
 import time
 
-from .market_data_client import StoreClient
+from .market_data_client import StoreClient, validate_capability_names
 
 
 def _daemon_environment():
@@ -73,9 +73,16 @@ def _atomic_metadata(path, value):
         temporary.unlink(missing_ok=True)
 
 
+def _probe(client):
+    # stats scans every stored payload; liveness must not grow with DB size.
+    if client.get_many([]) != []:
+        raise RuntimeError('invalid public service empty-read response')
+
+
 def ensure_service(*,storage_root: Path,expected_volume_id: str,
                    startup_timeout: float=8.0,min_free_gib: float=50,
-                   max_used_ratio: float=.90):
+                   max_used_ratio: float=.90, required_capabilities=()):
+    required_capabilities = validate_capability_names(required_capabilities)
     root=Path(storage_root).expanduser().absolute()
     if root.resolve(strict=True)!=root or not root.is_dir():
         raise ValueError('public service storage root must already exist without symlinks')
@@ -106,9 +113,13 @@ def ensure_service(*,storage_root: Path,expected_volume_id: str,
         if pid:
             # If this raises, keep the actual process intact. The next build can
             # retry the same process after a transient busy interval.
-            return {'status':'RUNNING','pid':pid,'stats':client.stats()}
+            _probe(client)
+            result = {'status':'RUNNING','pid':pid,'probe':'empty_read'}
+            if required_capabilities:
+                result['capabilities'] = sorted(client.require_capabilities(required_capabilities))
+            return result
         try:
-            client.stats()
+            _probe(client)
         except (FileNotFoundError,ConnectionRefusedError):
             pass
         else:
@@ -129,8 +140,11 @@ def ensure_service(*,storage_root: Path,expected_volume_id: str,
             if process.poll() is not None:
                 raise RuntimeError('public service exited during startup: '+str(process.returncode))
             try:
-                stats=client.stats()
-                return {'status':'STARTED','pid':process.pid,'stats':stats}
+                _probe(client)
+                result = {'status':'STARTED','pid':process.pid,'probe':'empty_read'}
+                if required_capabilities:
+                    result['capabilities'] = sorted(client.require_capabilities(required_capabilities))
+                return result
             except (FileNotFoundError,ConnectionRefusedError,TimeoutError):
                 time.sleep(.05)
         raise TimeoutError('public service is still starting; owned process was preserved')
@@ -145,11 +159,14 @@ def main(argv=None):
     parser.add_argument('--startup-timeout',type=float,default=8.0)
     parser.add_argument('--min-free-gib',type=float,default=50)
     parser.add_argument('--max-used-ratio',type=float,default=.90)
+    parser.add_argument('--require-capability',action='append',default=[],
+                        help='Require a service contract before admitting this build; repeatable')
     args=parser.parse_args(argv)
     print(json.dumps(ensure_service(storage_root=args.storage_root,
                                     expected_volume_id=args.expected_volume_id,
                                     startup_timeout=args.startup_timeout,
-                                    min_free_gib=args.min_free_gib,max_used_ratio=args.max_used_ratio)))
+                                    min_free_gib=args.min_free_gib,max_used_ratio=args.max_used_ratio,
+                                    required_capabilities=args.require_capability)))
     return 0
 
 

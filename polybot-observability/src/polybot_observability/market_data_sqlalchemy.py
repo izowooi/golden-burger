@@ -21,6 +21,7 @@ from .market_data_policy import KNOWN_STRATEGIES, public_columns
 from .market_data_refs import (
     MissingMarketDataConfiguration,
     configured_references,
+    is_external_value,
     parse_reference,
 )
 
@@ -58,11 +59,17 @@ class PublicPayloadType(TypeDecorator):
         return codec.encode_many([value])[0]
 
     def process_result_value(self, value, dialect):
-        if parse_reference(value):
+        if is_external_value(value):
             return configured_references().decode_many([value])[0]
         # ResolvingConnection may already have restored this value. Inlined
         # legacy values, empty bodies and NULL need no I/O or reinterpretation.
         return value
+
+
+class MixedPayloadType(PublicPayloadType):
+    def process_bind_param(self,value,dialect):
+        from .market_data_refs import externalize_row
+        return externalize_row(self.strategy,self.table,{self.column:value})[self.column]
 
 
 def original_public_type(type_: TypeEngine) -> TypeEngine:
@@ -80,9 +87,11 @@ def install_public_types(metadata: MetaData, strategy: str) -> int:
     if strategy not in KNOWN_STRATEGIES:
         raise ValueError(f"unknown market-data strategy: {strategy}")
     configured_references()  # REQUIRED=1 must fail before DB creation/maintenance.
+    from .market_data_mixed import mixed_columns
     selected = []
     for table in metadata.tables.values():
         allowed = public_columns(strategy, table.name)
+        mixed = mixed_columns(strategy,table.name)
         for column in table.columns:
             existing = column.type
             if isinstance(existing, PublicPayloadType):
@@ -90,8 +99,9 @@ def install_public_types(metadata: MetaData, strategy: str) -> int:
                         strategy, table.name, column.name):
                     raise ValueError("SQLAlchemy public payload metadata has a different owner")
                 continue
-            if column.name in allowed:
-                selected.append((column, PublicPayloadType(
+            if column.name in allowed or column.name in mixed:
+                wrapper=MixedPayloadType if column.name in mixed else PublicPayloadType
+                selected.append((column, wrapper(
                     existing, strategy, table.name, column.name,
                 )))
     # Validate all targets before mutating metadata so a bad type cannot leave

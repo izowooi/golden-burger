@@ -51,15 +51,23 @@ def test_private_ledgers_configs_and_decisions_are_never_body_sources(table):
     assert all(not public_columns(s, table) for s in KNOWN_STRATEGIES)
 
 
-def test_named_fee_and_derived_payloads_stay_local():
+def test_derived_fee_and_decision_payloads_stay_local():
     forbidden = {
         "config_json", "receipt_json", "params_json", "fee_json",
-        "fee_schedule_json", "fee_metadata_json", "fee_evidence_json",
+        "fee_evidence_json",
         "depth_metrics_json", "execution_capacity_json", "details_json",
-        "exclusion_counts_json", "classification_evidence_json", "evidence_json",
+        "exclusion_counts_json", "classification_evidence_json",
         "resolution_jump_without_target_json", "trend_prices_json",
     }
     assert all(not (r.columns & forbidden) for r in PUBLIC_COLUMN_RULES)
+    exceptions = {(r.strategy, r.table, column) for r in PUBLIC_COLUMN_RULES
+                  for column in r.columns if column in {"fee_metadata_json", "fee_schedule_json", "evidence_json"}}
+    assert exceptions == {
+        ("golden-black", "market_observations", "fee_schedule_json"),
+        ("golden-pomegranate", "market_observations", "fee_metadata_json"),
+        ("golden-black", "resolution_observations", "evidence_json"),
+        ("golden-coconut", "resolution_observations", "evidence_json"),
+    }
 
 
 @pytest.mark.parametrize("strategy,table,expected", [
@@ -91,7 +99,7 @@ def test_same_table_name_does_not_erase_ownership_boundaries():
     assert not public_columns("golden-plum", "resolution_observations")
     assert not public_columns("golden-watermelon-live", "resolution_observations")
     assert public_columns("golden-coconut", "event_observations") == {
-        "raw_lifecycle_json", "event_json", "clock_json",
+        "raw_lifecycle_json", "event_json", "clock_json", "sport_json",
     }
     assert not public_columns("golden-guava", "event_observations")
 

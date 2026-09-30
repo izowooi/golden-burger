@@ -24,3 +24,22 @@ def test_reader_and_writer_changes_split_source_cohort(tmp_path):
 def test_missing_runtime_file_cannot_claim_same_source(tmp_path):
     with pytest.raises(ValueError,match='missing'):
         update_digest(hashlib.sha256(),tmp_path)
+
+
+@pytest.mark.parametrize('name', [
+    'market_data_raw_profiles.py', 'market_data_raw_links.py', 'market_data_migrate.py',
+    'market_data_private_packets.py', 'market_data_raw_schema_watermelon.py',
+    'market_data_raw_schema_coconut.py',
+    'market_data_raw_schema_pomegranate.py',
+    'market_data_sql_schema.py',
+])
+def test_raw_projection_and_private_ownership_changes_split_source_cohort(tmp_path, name):
+    assert name in MARKET_DATA_SOURCE_FILES
+    for source in MARKET_DATA_SOURCE_FILES:
+        (tmp_path / source).write_text('original\n')
+    before = hashlib.sha256()
+    update_digest(before, tmp_path)
+    (tmp_path / name).write_text('changed storage behavior\n')
+    after = hashlib.sha256()
+    update_digest(after, tmp_path)
+    assert before.hexdigest() != after.hexdigest()

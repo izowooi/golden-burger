@@ -86,7 +86,7 @@ def install_level_views(connection: sqlite3.Connection, *, references=None) -> N
         expressions = []
         for column in columns:
             if column == 'level_id':
-                value = 'b.level_id'
+                value = "CASE WHEN json_type(b.retained_json,'$.__level_id__') IS NOT NULL THEN json_extract(b.retained_json,'$.__level_id__') ELSE b.level_id END"
             elif column == 'snapshot_id':
                 value = 'g.snapshot_id'
             elif column in rule.retained_columns:
@@ -104,7 +104,7 @@ def install_level_views(connection: sqlite3.Connection, *, references=None) -> N
 
 
 def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: str,
-                          rows, *, references=None) -> bool:
+                          rows, *, references=None, preserve_rowid=False) -> bool:
     rule = _rule(strategy, table)
     if rule is None:
         return False
@@ -128,11 +128,24 @@ def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: 
         raise ValueError('public level schema differs from policy')
     groups = defaultdict(list)
     for row in rows:
-        if set(row) != set(columns):
+        if set(row)-({'__rowid__'} if preserve_rowid else set()) != set(columns):
             raise ValueError('shared levels require complete source columns')
         groups[row['snapshot_id']].append(row)
-    insert = (f'INSERT INTO main.{quote_identifier(table)} (' + ','.join(map(quote_identifier, columns)) +
-              ') VALUES (' + ','.join('?' for _ in columns) + ')')
+    insert_columns=(['rowid'] if preserve_rowid else [])+columns
+    insert = (f'INSERT INTO main.{quote_identifier(table)} (' + ','.join(map(quote_identifier, insert_columns)) +
+              ') VALUES (' + ','.join('?' for _ in insert_columns) + ')')
+    if preserve_rowid:
+        # Connection-local B-tree keeps rowid validation bounded for full books;
+        # it participates in the caller savepoint and never changes v1 storage.
+        rowid_table='_public_level_rowids_'+table
+        if not connection.execute("SELECT 1 FROM sqlite_temp_master WHERE type='table' AND name=?",(rowid_table,)).fetchone():
+            if connection.execute(f"SELECT 1 FROM main.{BINDING_TABLE} WHERE table_name=? AND COALESCE(json_type(retained_json,'$.__rowid__'),'null')!='integer' LIMIT 1",(table,)).fetchone():
+                raise ValueError('original level rowid is unknown in existing bindings')
+            connection.execute('CREATE TEMP TABLE '+quote_identifier(rowid_table)+'(original_rowid INTEGER PRIMARY KEY,original_level_id TEXT UNIQUE)')
+            connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+' SELECT rowid,level_id FROM main.'+quote_identifier(table))
+            connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+f" SELECT json_extract(retained_json,'$.__rowid__'),CASE WHEN json_type(retained_json,'$.__level_id__') IS NOT NULL THEN json_extract(retained_json,'$.__level_id__') ELSE level_id END FROM main.{BINDING_TABLE} WHERE table_name=?",(table,))
+        maximum=connection.execute('SELECT MAX(original_rowid) FROM temp.'+quote_identifier(rowid_table)).fetchone()[0]
+        maximum=maximum if maximum is not None else 0
     for snapshot, group in groups.items():
         if not connection.execute(
                 f'SELECT 1 FROM main.{quote_identifier(rule.parent_table)} WHERE snapshot_id=?',
@@ -145,31 +158,49 @@ def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: 
         # bypassed or disabled; no deletion statement is executed.
         connection.execute('SAVEPOINT public_levels_validate')
         try:
-            connection.executemany(insert, [tuple(row[col] for col in columns) for row in group])
+            payload=[]
+            for row in group:
+                if preserve_rowid:
+                    rowid=row.get('__rowid__',maximum+1)
+                    if type(rowid) is not int or not -(1<<63)<=rowid<(1<<63):raise ValueError('unsupported original level rowid')
+                    connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',(rowid,row['level_id']))
+                    maximum=max(maximum,rowid)
+                payload.append(((rowid,) if preserve_rowid else ())+tuple(row[col] for col in columns))
+            connection.executemany(insert,payload)
             normalized = connection.execute(
-                'SELECT ' + ','.join(map(quote_identifier, columns)) +
+                'SELECT ' + ','.join(map(quote_identifier, insert_columns)) +
                 f' FROM main.{quote_identifier(table)} WHERE snapshot_id=? ORDER BY side,level_index', (snapshot,)).fetchall()
-            normalized = [dict(zip(columns, row)) for row in normalized]
+            normalized = [dict(zip((['__rowid__'] if preserve_rowid else [])+columns, row)) for row in normalized]
         finally:
             connection.execute('ROLLBACK TO public_levels_validate')
             connection.execute('RELEASE public_levels_validate')
+        if preserve_rowid:
+            connection.executemany('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',((row['__rowid__'],row['level_id']) for row in normalized))
         public_columns = [column for column in columns if column not in {'level_id','snapshot_id'} and column not in rule.retained_columns]
         public = [{column: row[column] for column in public_columns} for row in normalized]
         serialized = json.dumps(public, sort_keys=True, separators=(',', ':'), allow_nan=False)
         reference = codec.encode_many([serialized])[0]
         cursor = connection.execute(f'INSERT INTO {GROUP_TABLE}(table_name,snapshot_id,body_ref) VALUES(?,?,?)', (table,snapshot,reference))
         group_id = cursor.lastrowid
-        connection.executemany(f'INSERT INTO {BINDING_TABLE} VALUES(?,?,?,?,?)', [
-            (table, row['level_id'], group_id, ordinal,
-             json.dumps({key: row[key] for key in rule.retained_columns}, sort_keys=True, separators=(',', ':')))
-            for ordinal, row in enumerate(normalized)
-        ])
+        for ordinal,row in enumerate(normalized):
+            private={key:row[key] for key in (*rule.retained_columns, *(('__rowid__',) if preserve_rowid else ())) }
+            binding_id=row['level_id']
+            if preserve_rowid and (binding_id is None or connection.execute(
+                    f'SELECT 1 FROM main.{BINDING_TABLE} WHERE table_name=? AND level_id=?',(table,binding_id)).fetchone()):
+                # Original TEXT PRIMARY KEY permits multiple NULLs. The binding
+                # key is internal; exact original identities remain private.
+                private['__level_id__']=binding_id
+                binding_id='__original_level_rowid__:'+str(row['__rowid__'])
+                while connection.execute(f'SELECT 1 FROM main.{BINDING_TABLE} WHERE table_name=? AND level_id=?',(table,binding_id)).fetchone():
+                    binding_id+=':'
+            connection.execute(f'INSERT INTO {BINDING_TABLE} VALUES(?,?,?,?,?)',
+                (table,binding_id,group_id,ordinal,json.dumps(private,sort_keys=True,separators=(',',':'))))
     install_level_views(connection, references=codec)
     return True
 
 
 def insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: str,
-                         rows, *, references=None) -> bool:
+                         rows, *, references=None, preserve_rowid=False) -> bool:
     if _rule(strategy,table) is None:
         return False
     codec=references or configured_references()
@@ -181,10 +212,37 @@ def insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: s
         raise ValueError('shared level publication requires the collector transaction')
     connection.execute('SAVEPOINT publish_public_levels')
     try:
-        handled=_insert_shared_levels(connection,strategy,table,rows,references=codec)
+        handled=_insert_shared_levels(connection,strategy,table,rows,references=codec,preserve_rowid=preserve_rowid)
         connection.execute('RELEASE publish_public_levels')
         return handled
     except BaseException:
         connection.execute('ROLLBACK TO publish_public_levels')
         connection.execute('RELEASE publish_public_levels')
         raise
+
+
+def iter_level_logical_rows(connection, strategy, table, *, references=None, require_rowid=False):
+    """Restore ladder rows ordered by original rowid, without guessing old IDs."""
+    rule=_rule(strategy,table)
+    if rule is None:raise ValueError('unreviewed public level table')
+    columns=[r[1] for r in connection.execute(f'PRAGMA main.table_info({quote_identifier(table)})')]
+    query='SELECT rowid AS __rowid__,'+','.join(map(quote_identifier,columns))+' FROM main.'+quote_identifier(table)
+    if validate_level_layout(connection):
+        codec=references or getattr(connection,'_references',None) or configured_references()
+        connection.create_function('raw_level_body',1,lambda value:codec.decode_many([value])[0])
+        expressions=[]
+        for column in columns:
+            if column == 'level_id':value="CASE WHEN json_type(b.retained_json,'$.__level_id__') IS NOT NULL THEN json_extract(b.retained_json,'$.__level_id__') ELSE b.level_id END"
+            elif column == 'snapshot_id':value='g.snapshot_id'
+            elif column in rule.retained_columns:value=f"json_extract(b.retained_json,'$.{column}')"
+            else:value=f"json_extract(level.value,'$.{column}')"
+            expressions.append(value)
+        query+=(" UNION ALL SELECT json_extract(b.retained_json,'$.__rowid__'),"+','.join(expressions)+
+            f' FROM main.{GROUP_TABLE} g CROSS JOIN json_each(raw_level_body(g.body_ref)) level JOIN main.{BINDING_TABLE} b '+
+            f"ON b.group_id=g.id AND b.ordinal=CAST(level.key AS INTEGER) WHERE g.table_name='{table}' AND b.table_name='{table}'")
+    previous=None
+    for row in connection.execute(query+' ORDER BY __rowid__'):
+        if require_rowid and type(row[0]) is not int:raise ValueError('original level rowid is unknown in legacy bindings')
+        if row[0] is not None and row[0] == previous:raise ValueError('duplicate original level rowid')
+        previous=row[0]
+        yield dict(zip(('__rowid__',*columns),row,strict=True))
