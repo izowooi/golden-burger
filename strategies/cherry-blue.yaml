@@ -1,0 +1,31 @@
+id: cherry-blue
+family: cherry
+hypothesis: "경기 결과 마켓에서 0.80-0.82로 거래되는 YES 토큰은 경기 전/중 실현 확률 대비 과소평가되어 1.0 쪽으로 수렴한다(과거 회고에선 edge 미확인 — 재검증). TP 20%/SL 8%/trailing 15%."
+account: blue
+mode: live
+sports: [soccer, mlb, nba, nfl, nhl]
+stake_usdc: 5
+params:
+  buy_threshold: 0.80
+  sell_threshold: 0.82
+  take_profit_percent: 0.20
+  stop_loss_percent: -0.08
+  trailing_enabled: true
+  trailing_percent: 0.15
+  entry_hours_min: 0.0
+  entry_hours_max: 120.0
+  allow_in_play: true
+  yes_only: true
+  min_liquidity: 125000.0
+  min_volume: 5000.0
+  market_types: [moneyline, draw]
+bounds:
+  buy_threshold: [0.70, 0.88, 0.02]
+  sell_threshold: [0.72, 0.92, 0.02]
+  take_profit_percent: [0.05, 0.25, 0.05]
+  stop_loss_percent: [-0.15, -0.04, 0.02]
+  trailing_percent: [0.05, 0.20, 0.05]
+  entry_hours_max: [24.0, 168.0, 24.0]
+  min_liquidity: [50000.0, 250000.0, 25000.0]
+limits: {max_positions: 10, max_open_usdc: 50, daily_loss_stop_usdc: 20, max_new_per_cycle: 1}
+notes: "golden-cherry Blue(0.80-0.82) 포팅. 5개 종목 경기결과 마켓만. legacy GTC midpoint 대신 FOK taker로 체결(의도적 차이)."
