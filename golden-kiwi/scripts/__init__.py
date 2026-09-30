@@ -1,1 +1,0 @@
-"""Golden Kiwi research utilities."""

@@ -1,1 +1,0 @@
-"""Golden Raspberry operator scripts."""
