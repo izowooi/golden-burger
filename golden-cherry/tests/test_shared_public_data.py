@@ -75,3 +75,27 @@ def test_shadow_source_bytes_and_market_arrays_resolve_but_decisions_remain_loca
         assert parse_reference(raw.execute("SELECT token_ids_json FROM shadow_market_observations LIMIT 1").fetchone()[0])
         assert not parse_reference(raw.execute("SELECT details_json FROM shadow_cell_decisions LIMIT 1").fetchone()[0])
         assert not parse_reference(raw.execute("SELECT config_json FROM shadow_config_versions").fetchone()[0])
+
+
+def test_shadow_restart_after_shared_levels_keeps_main_guards_and_rows(tmp_path, shared_payloads):
+    config = _config(tmp_path)
+    repo = ShadowRepository(config.db_path, config)
+    repo.record_config()
+    repo.record_run_event('restart-source', 'STARTED')
+    stats = ShadowCollector(config, repo, FakeGamma(_markets()), FakeClob(), CollectionDeadline(240)).collect('restart-source', now=NOW)
+    repo.record_run_event('restart-source', 'SUCCEEDED', stats)
+    with repo.connect(read_only=True) as connection:
+        before_schema = schema(connection)
+        before_levels = [tuple(row) for row in connection.execute('SELECT * FROM shadow_book_levels ORDER BY level_id')]
+        before_configs = [tuple(row) for row in connection.execute('SELECT * FROM shadow_config_versions')]
+        before_episodes = [tuple(row) for row in connection.execute('SELECT * FROM shadow_episodes ORDER BY episode_id')]
+        assert connection.execute("SELECT 1 FROM sqlite_temp_master WHERE name='shadow_book_levels' AND type='view'").fetchone()
+    reopened = ShadowRepository(config.db_path, config)
+    with reopened.connect(read_only=True) as connection:
+        assert schema(connection) == before_schema
+        assert [tuple(row) for row in connection.execute('SELECT * FROM shadow_book_levels ORDER BY level_id')] == before_levels
+        assert [tuple(row) for row in connection.execute('SELECT * FROM shadow_config_versions')] == before_configs
+        assert [tuple(row) for row in connection.execute('SELECT * FROM shadow_episodes ORDER BY episode_id')] == before_episodes
+    with reopened.connect() as connection:
+        with pytest.raises(sqlite3.IntegrityError, match='append-only'):
+            connection.execute("UPDATE main.shadow_episodes SET band_id='changed'")

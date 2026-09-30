@@ -430,7 +430,7 @@ class ShadowRepository:
             for operation in ("UPDATE", "DELETE"):
                 trigger = f"{table}_deny_{operation.lower()}"
                 connection.execute(
-                    f"CREATE TRIGGER IF NOT EXISTS {trigger} "
+                    f"CREATE TRIGGER IF NOT EXISTS main.{trigger} "
                     f"BEFORE {operation} ON {table} BEGIN "
                     "SELECT RAISE(ABORT, 'append-only shadow evidence'); END"
                 )
