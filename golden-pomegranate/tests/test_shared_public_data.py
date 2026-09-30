@@ -56,7 +56,8 @@ def test_atomic_census_and_direct_payload_writes_resolve_without_schema_change(t
     with sqlite3.connect(repo.db_path) as raw:
         assert parse_reference(raw.execute("SELECT payload_blob FROM raw_payloads WHERE payload_id=?", (direct_id,)).fetchone()[0])
         row = raw.execute("SELECT outcome_prices_json,fee_metadata_json,parse_quality_json FROM market_observations").fetchone()
-        assert parse_reference(row[0]) and row[1:] == ("{}", "{}")
+        assert parse_reference(row[0]) and parse_reference(row[1]) and row[2] == "{}"
+        assert PayloadReferences(reader=shared_payloads).decode_many([row[1]]) == ["{}"]
         assert not parse_reference(raw.execute("SELECT metadata_json FROM market_metadata_versions").fetchone()[0])
     with repo._read_connect() as c:
         assert schema(c) == before

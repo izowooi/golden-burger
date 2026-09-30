@@ -9,6 +9,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import sqlite3
 from typing import Any, Callable, Iterator
@@ -18,9 +19,19 @@ import zlib
 from ..config import RESEARCH_DATA_CONTRACT, StorageConfig
 from ..utils.retry import canonical_json, utc_now
 
-from polybot_observability.market_data_levels import insert_shared_levels
-from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_levels import insert_shared_levels, validate_level_layout
+from polybot_observability.market_data_refs import configured_references, externalize_row
+from polybot_observability.market_data_index import collector_receipt_context
 from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability.market_data_raw_profiles import POMEGRANATE_PROFILE_ID, raw_profile
+from polybot_observability.market_data_raw_links import (
+    initialize_raw_links,
+    insert_raw_rows,
+    logical_raw_schema_rows,
+    raw_layout_metadata,
+    require_raw_capabilities,
+    validate_raw_source_schema,
+)
 
 
 SCHEMA_VERSION = 4
@@ -586,11 +597,131 @@ class ResearchRepository:
         clock: Callable[[], datetime] | None = None,
         busy_timeout_ms: int = 30_000,
         immutable_reads: bool = False,
+        raw_profile_id: str | None = None,
+        raw_namespace: str | None = None,
+        canonical_db_path: str | Path | None = None,
     ) -> None:
+        if raw_profile_id not in (None, POMEGRANATE_PROFILE_ID):
+            raise ValueError("Pomegranate requires its reviewed research-full-v4 RAW profile")
+        self._raw_profile_id = raw_profile_id or (
+            POMEGRANATE_PROFILE_ID
+            if os.environ.get("PUBLIC_MARKET_DATA_RAW") == "1"
+            else None
+        )
+        self._requested_path = Path(db_path).expanduser().absolute()
         self.db_path = Path(db_path).expanduser().resolve()
+        self._canonical_db_path = (
+            Path(canonical_db_path).expanduser().absolute()
+            if canonical_db_path is not None
+            else self._requested_path.with_name("trades_sim.db")
+        )
+        self._raw_namespace = raw_namespace
         self.clock = clock or (lambda: datetime.now(timezone.utc))
         self.busy_timeout_ms = busy_timeout_ms
         self.immutable_reads = bool(immutable_reads)
+
+    def _runtime_namespace(self, path: Path, *, allow_archive: bool = False) -> str:
+        from polybot_observability.market_data_scalar_links import scalar_namespace
+
+        canonical = self._canonical_db_path
+        path = path.absolute()
+        if (
+            self._requested_path.resolve() != self._requested_path
+            or canonical.resolve() != canonical
+            or canonical.name != "trades_sim.db"
+            or canonical.parent.parent.name != "data"
+            or path.parent != canonical.parent
+            or path.resolve() != path
+        ):
+            raise RuntimeError("Pomegranate RAW requires its canonical data/runtime path")
+        owned_staging = self._raw_namespace is not None and re.fullmatch(
+            r"\.trades_sim\.db\.rotate-\d{4}-\d{2}-\d{2}-[0-9a-f]{32}\.tmp", path.name
+        )
+        archive = allow_archive and re.fullmatch(r"trades_sim_\d{8}\.db", path.name)
+        if path != canonical and not owned_staging and not archive:
+            raise RuntimeError("Pomegranate RAW path is not an active or owned rotation shard")
+        namespace = scalar_namespace(
+            os.environ.get("PUBLIC_MARKET_DATA_SOURCE"),
+            os.environ.get("JOB_NAME"),
+            "golden-pomegranate",
+            canonical.parent.name,
+        )
+        if self._raw_namespace is not None and self._raw_namespace != namespace:
+            raise RuntimeError("Pomegranate RAW explicit namespace differs from runtime owner")
+        return namespace
+
+    def _check_raw_runtime(
+        self, connection: sqlite3.Connection, path: Path, *, write: bool = False
+    ) -> str | None:
+        metadata = raw_layout_metadata(connection)
+        if metadata is None:
+            if write and self._raw_profile_id is not None:
+                profile = raw_profile(POMEGRANATE_PROFILE_ID)
+                tables = {
+                    row[0] for row in connection.execute(
+                        "SELECT name FROM main.sqlite_master WHERE type='table'"
+                    )
+                }
+                if any(
+                    table in tables and connection.execute(
+                        f'SELECT 1 FROM main."{table}" LIMIT 1'
+                    ).fetchone()
+                    for table in profile.tables
+                ):
+                    raise RuntimeError(
+                        "populated Pomegranate RAW source requires explicit offline derivative migration"
+                    )
+                namespace = self._runtime_namespace(path)
+                require_raw_capabilities(
+                    configured_references().writer, profile_id=POMEGRANATE_PROFILE_ID
+                )
+                return namespace
+            return None
+        if metadata["profile_id"] != POMEGRANATE_PROFILE_ID:
+            raise RuntimeError("Pomegranate RAW profile differs from its collection contract")
+        validate_raw_source_schema(connection, profile_id=POMEGRANATE_PROFILE_ID)
+        if self.immutable_reads and not write:
+            # A verified copy retains the originating namespace; its analyst-side
+            # filename and parent directory do not identify a new collector.
+            namespace = metadata["namespace"]
+            owner = json.loads(namespace)
+            if self._requested_path.resolve() != self._requested_path:
+                raise RuntimeError("Pomegranate RAW immutable path cannot be a symlink")
+            if any(
+                os.environ.get(key) is not None and os.environ[key] != owner[field]
+                for key, field in (
+                    ("PUBLIC_MARKET_DATA_SOURCE", "source"), ("JOB_NAME", "jenkins_job")
+                )
+            ) or (self._raw_namespace is not None and self._raw_namespace != namespace):
+                raise RuntimeError("Pomegranate RAW source/job/runtime differs from bound owner")
+        else:
+            namespace = self._runtime_namespace(path, allow_archive=not write)
+        if metadata["namespace"] != namespace:
+            raise RuntimeError("Pomegranate RAW source/job/runtime differs from bound owner")
+        references = configured_references()
+        if (
+            references.reader is None
+            or references.reader.scalar_authority_identity() != metadata["authority_uuid"]
+        ):
+            raise RuntimeError("Pomegranate RAW reader authority differs from bound owner")
+        if write:
+            require_raw_capabilities(references.writer, profile_id=POMEGRANATE_PROFILE_ID)
+            if references.writer.scalar_authority_identity() != metadata["authority_uuid"]:
+                raise RuntimeError("Pomegranate RAW writer authority differs from bound owner")
+        self._raw_profile_id = POMEGRANATE_PROFILE_ID
+        return namespace
+
+    @staticmethod
+    def _logical_schema(connection: sqlite3.Connection) -> list[tuple]:
+        if raw_layout_metadata(connection) is not None:
+            return logical_raw_schema_rows(connection, profile_id=POMEGRANATE_PROFILE_ID)
+        from polybot_observability.market_data_private_packets import validate_private_packets
+
+        auxiliary = validate_level_layout(connection) | validate_private_packets(connection)
+        return [tuple(row) for row in connection.execute(
+            "SELECT type,name,tbl_name,sql FROM main.sqlite_master "
+            "WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type,name,tbl_name"
+        ) if row[1] not in auxiliary]
 
     def _now(self) -> datetime:
         value = self.clock()
@@ -606,11 +737,14 @@ class ResearchRepository:
             self.db_path, timeout=self.busy_timeout_ms / 1000, isolation_level=None
         )
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA journal_mode = WAL")
-        connection.execute("PRAGMA synchronous = FULL")
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
         try:
+            connection._pomegranate_raw_namespace = self._check_raw_runtime(
+                connection, self.db_path, write=True
+            )
+            connection.execute("PRAGMA journal_mode = WAL")
+            connection.execute("PRAGMA synchronous = FULL")
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
             yield connection
         finally:
             connection.close()
@@ -633,10 +767,11 @@ class ResearchRepository:
             uri += "&immutable=1"
         connection = connect_market_data(uri, uri=True, timeout=5, isolation_level=None)
         connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA query_only = ON")
-        connection.execute("PRAGMA foreign_keys = ON")
-        connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
         try:
+            self._check_raw_runtime(connection, path)
+            connection.execute("PRAGMA query_only = ON")
+            connection.execute("PRAGMA foreign_keys = ON")
+            connection.execute(f"PRAGMA busy_timeout = {int(self.busy_timeout_ms)}")
             yield connection
         finally:
             connection.close()
@@ -654,10 +789,12 @@ class ResearchRepository:
     ) -> None:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
-            connection.executescript(SCHEMA)
+            raw_layout = raw_layout_metadata(connection)
+            if raw_layout is None:
+                connection.executescript(SCHEMA)
             # Every fact table is immutable append-only evidence. Corrections are
             # new rows with explicit lineage; UPDATE/DELETE is never provenance.
-            for table in FACT_TABLES:
+            for table in FACT_TABLES if raw_layout is None else ():
                 connection.executescript(
                     f"""
                     CREATE TRIGGER IF NOT EXISTS {table}_append_only_update
@@ -753,6 +890,15 @@ class ResearchRepository:
                 raise RuntimeError(
                     "research shard contract metadata changed within one UTC day; "
                     "use a new job/DB or wait for UTC shard rotation"
+                )
+            if self._raw_profile_id is not None:
+                references = configured_references()
+                initialize_raw_links(
+                    connection,
+                    self._runtime_namespace(self.db_path),
+                    references.writer.scalar_authority_identity(),
+                    references=references,
+                    profile_id=POMEGRANATE_PROFILE_ID,
                 )
             self._insert_many(
                 connection,
@@ -910,32 +1056,17 @@ class ResearchRepository:
     ) -> str:
         exact = bytes(content)
         compressed = zlib.compress(exact, level=6) if store_blob else None
-        stored = externalize_row(
-            "golden-pomegranate", "raw_payloads", {"payload_blob": compressed}
-        )["payload_blob"]
         payload_id = str(uuid4())
+        row = {
+            "payload_id": payload_id, "request_id": request_id, "payload_kind": kind,
+            "content_encoding": "zlib", "payload_sha256": hashlib.sha256(exact).hexdigest(),
+            "uncompressed_bytes": len(exact),
+            "compressed_bytes": len(compressed) if compressed is not None else None,
+            "blob_stored": int(store_blob), "payload_blob": compressed, "recorded_at": utc_now(),
+        }
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
-            connection.execute(
-                """
-                INSERT INTO raw_payloads
-                    (payload_id, request_id, payload_kind, content_encoding,
-                     payload_sha256, uncompressed_bytes, compressed_bytes,
-                     blob_stored, payload_blob, recorded_at)
-                VALUES (?, ?, ?, 'zlib', ?, ?, ?, ?, ?, ?)
-                """,
-                (
-                    payload_id,
-                    request_id,
-                    kind,
-                    hashlib.sha256(exact).hexdigest(),
-                    len(exact),
-                    len(compressed) if compressed is not None else None,
-                    int(store_blob),
-                    stored,
-                    utc_now(),
-                ),
-            )
+            self._insert_many(connection, "raw_payloads", tuple(row), [row])
             connection.commit()
         return payload_id
 
@@ -1282,10 +1413,23 @@ class ResearchRepository:
         or_ignore: bool = False,
     ) -> None:
         rows = [{column: row.get(column) for column in columns} for row in rows]
-        if insert_shared_levels(connection, "golden-pomegranate", table, rows):
+        if insert_raw_rows(
+            connection, "golden-pomegranate", table, rows,
+            namespace=getattr(connection, "_pomegranate_raw_namespace", None),
+            or_ignore=or_ignore,
+            receipt_context=lambda row: collector_receipt_context(
+                "golden-pomegranate", table, row, connection
+            ),
+        ):
+            return
+        if insert_shared_levels(
+            connection, "golden-pomegranate", table, rows,
+            preserve_rowid=raw_layout_metadata(connection) is not None,
+        ):
             return
         materialized = [externalize_row(
-            "golden-pomegranate", table, {column: row.get(column) for column in columns}
+            "golden-pomegranate", table, row,
+            receipt_context=collector_receipt_context("golden-pomegranate", table, row, connection)
         ) for row in rows]
         payload = [tuple(row[column] for column in columns) for row in materialized]
         if not payload:
@@ -1960,6 +2104,12 @@ class ResearchRepository:
             temporary,
             clock=self.clock,
             busy_timeout_ms=self.busy_timeout_ms,
+            raw_profile_id=self._raw_profile_id,
+            raw_namespace=(
+                self._runtime_namespace(self.db_path)
+                if self._raw_profile_id is not None else None
+            ),
+            canonical_db_path=self._canonical_db_path,
         )
         try:
             temporary_repository.initialize(
@@ -2293,13 +2443,19 @@ class ResearchRepository:
                 "storage": inspection,
             }
         with self._read_connect() as connection:
-            tables = {
-                str(row[0])
-                for row in connection.execute(
-                    "SELECT name FROM sqlite_master "
-                    "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-                )
+            logical_schema = self._logical_schema(connection)
+            tables = {row[1] for row in logical_schema if row[0] == "table"}
+            raw_metadata = raw_layout_metadata(connection)
+            table_row_counts = {
+                table: int(connection.execute(
+                    f"SELECT COUNT(*) FROM {self._quoted_identifier(table)}"
+                ).fetchone()[0])
+                for table in sorted(tables)
             }
+            append_only_trigger_count = sum(
+                row[0] == "trigger" and "_append_only_" in row[1]
+                for row in logical_schema
+            )
             counts = {
                 table: int(
                     connection.execute(
@@ -2511,6 +2667,9 @@ class ResearchRepository:
             "latest_complete_market_sweep": latest[0] if latest else None,
             "latest_trade_watermark_epoch": self.latest_trade_watermark(),
             "counts": counts,
+            "table_row_counts": table_row_counts,
+            "append_only_trigger_count": append_only_trigger_count,
+            "shared_raw": raw_metadata,
             "research_runs": {
                 "started": started_count,
                 "terminal": terminal_count,
@@ -2559,9 +2718,10 @@ class ResearchRepository:
                     "SELECT contract_name, schema_version, database_utc_date "
                     "FROM collection_contracts LIMIT 1"
                 ).fetchone()
-                trigger_count = connection.execute(
-                    "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND name LIKE '%_append_only_%'"
-                ).fetchone()[0]
+                trigger_count = sum(
+                    row[0] == "trigger" and "_append_only_" in row[1]
+                    for row in self._logical_schema(connection)
+                )
             database_utc_date = str(contract[2]) if contract else None
             current_utc_date = self._now().date().isoformat()
             rotation_required = bool(
@@ -2607,7 +2767,7 @@ class ResearchRepository:
                 "append_only_trigger_count": trigger_count,
                 "storage": inspection,
             }
-        except sqlite3.Error as error:
+        except (sqlite3.Error, ValueError, RuntimeError) as error:
             return {
                 "healthy": False,
                 "db_path": str(self.db_path),
@@ -2659,13 +2819,8 @@ class ResearchRepository:
                 quick_check = str(
                     connection.execute("PRAGMA quick_check").fetchone()[0]
                 )
-                tables = {
-                    str(row[0])
-                    for row in connection.execute(
-                        "SELECT name FROM sqlite_master "
-                        "WHERE type='table' AND name NOT LIKE 'sqlite_%'"
-                    )
-                }
+                logical_schema = self._logical_schema(connection)
+                tables = {row[1] for row in logical_schema if row[0] == "table"}
                 row_counts = {
                     table: int(
                         connection.execute(
@@ -2674,12 +2829,40 @@ class ResearchRepository:
                     )
                     for table in sorted(tables)
                 }
-                append_only_trigger_count = int(
-                    connection.execute(
-                        "SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' "
-                        "AND name LIKE '%_append_only_%'"
-                    ).fetchone()[0]
+                append_only_trigger_count = sum(
+                    row[0] == "trigger" and "_append_only_" in row[1]
+                    for row in logical_schema
                 )
+                raw_metadata = raw_layout_metadata(connection)
+                if raw_metadata is not None:
+                    from polybot_observability.market_data_bundle import (
+                        reference_closure, verify_closure,
+                    )
+                    from polybot_observability.market_data_projection_closure import (
+                        verify_projection_closure,
+                    )
+
+                    reader = configured_references().reader
+                    entry["shared_dependencies"] = {
+                        "raw_layout": raw_metadata,
+                        "public_bodies": verify_closure(
+                            reader, reference_closure(
+                                path, "golden-pomegranate",
+                                immutable=self.immutable_reads or not wal_has_frames,
+                            )
+                        ),
+                        "public_projections": verify_projection_closure(
+                            reader, path, "golden-pomegranate",
+                            immutable=self.immutable_reads or not wal_has_frames,
+                        ),
+                        "auxiliary_tables": sorted(
+                            row[0] for row in connection.execute(
+                                "SELECT name FROM main.sqlite_master WHERE type='table' "
+                                "AND name NOT LIKE 'sqlite_%'"
+                            ) if row[0] not in tables
+                        ),
+                        "portable_requires_shared_closure": True,
+                    }
                 contract = (
                     connection.execute(
                         "SELECT contract_name, schema_version, database_utc_date, "
@@ -2823,7 +3006,7 @@ class ResearchRepository:
                     and schema_supported
                     and append_only_trigger_count == len(FACT_TABLES) * 2
                 )
-        except (OSError, sqlite3.Error) as error:
+        except (OSError, sqlite3.Error, ValueError, RuntimeError) as error:
             entry.update(
                 {
                     "healthy": False,
@@ -2885,6 +3068,11 @@ class ResearchRepository:
                 )
             ),
         }
+        if "shared_dependencies" in entry:
+            entry["consistency"]["copy_requirement"] += (
+                " Preserve and verify the recorded shared body, projection and receipt "
+                "closure together with this SQLite snapshot."
+            )
         entry["healthy"] = bool(
             entry.get("healthy") and stable and (active or not sidecars)
         )

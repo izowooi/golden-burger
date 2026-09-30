@@ -12,6 +12,9 @@ import statistics
 from typing import Any
 
 from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability import market_data_refs
+from polybot_observability.market_data_raw_links import raw_layout_metadata,verify_raw_dependencies
+from polybot_observability.market_data_bundle import reference_closure,verify_closure
 
 
 def _utc(value: str) -> datetime:
@@ -94,10 +97,18 @@ def _bootstrap_mean_ci(
     return [lower, upper]
 
 
-def analyze_database(path: Path) -> dict[str, Any]:
-    connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
+def analyze_database(path: Path, *, references=None) -> dict[str, Any]:
+    path=Path(path).resolve()
+    references=references if references is not None else market_data_refs.configured_references()
+    connection = connect_market_data(path.as_uri()+'?mode=ro', uri=True,references=references)
     connection.row_factory = sqlite3.Row
     try:
+        metadata=raw_layout_metadata(connection)
+        if metadata is not None:
+            if metadata['strategy']!='golden-black':raise ValueError('not a Black RAW analysis source')
+            verify_raw_dependencies(connection,references=references)
+        hashes=reference_closure(path,'golden-black')
+        if hashes:verify_closure(references.reader,hashes)
         quick_check = connection.execute("PRAGMA quick_check").fetchone()[0]
         rows = connection.execute(
             """

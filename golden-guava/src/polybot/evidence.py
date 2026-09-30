@@ -23,8 +23,12 @@ import re
 import sqlite3
 from urllib.parse import unquote
 
+from polybot_observability import market_data_refs
 from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_index import collector_receipt_context
 from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability.market_data_raw_links import insert_raw_rows, raw_layout_metadata
+from polybot.shared_raw import SharedRawRuntime
 
 
 DATA_CONTRACT = "guava-research-v1"
@@ -288,7 +292,8 @@ class Repository:
     are not. Snapshots may include their own source provenance.
     """
 
-    def __init__(self, path, contract: dict, *, read_only=False, budget=None):
+    def __init__(self, path, contract: dict, *, read_only=False, budget=None,
+                 raw_profile_id=None, raw_namespace=None, references=None):
         contract = _freeze(contract)
         _mapping(contract, _COHORT_KEYS)
         for key in _COHORT_KEYS:
@@ -309,9 +314,17 @@ class Repository:
             _json({key: contract[key] for key in _COHORT_KEYS}).encode("utf-8")
         ).hexdigest()
         self._read_only = bool(read_only)
+        self._references = references or market_data_refs.configured_references()
+        # The original accountless inline route has no public storage configured.
+        # Passing an explicit empty codec to externalize_row means read-only and
+        # would incorrectly reject that existing mode.
+        self._body_references = (self._references if self._references.reader is not None
+                                 or self._references.writer is not None else None)
+        self._shared_raw = SharedRawRuntime(path,self._identity,self._references,
+            profile_id=raw_profile_id,namespace=raw_namespace)
         self.connection = None
         connection = connect_market_data(self.path.as_uri() + ("?mode=ro" if read_only else "?mode=rwc"),
-                                     uri=True, timeout=2, isolation_level=None)
+                                     uri=True, timeout=2, isolation_level=None,references=self._references)
         self.connection = connection
         connection.row_factory = sqlite3.Row
         try:
@@ -322,9 +335,15 @@ class Repository:
             ).fetchall()
             if objects:
                 self._validate_schema(objects)
+                # Refuse populated inline activation or a changed owner before
+                # even changing the existing file's journal configuration.
+                self._shared_raw.check(connection,write=not read_only)
             elif read_only:
                 raise ValueError("missing Guava evidence schema")
             if read_only:
+                if raw_layout_metadata(connection) is not None:
+                    from polybot_observability.market_data_raw_guava_reader import verify_guava_read_closure
+                    verify_guava_read_closure(connection,self.path,references=self._references)
                 connection.execute("PRAGMA query_only=ON")
             else:
                 # One writer and short transactions; DELETE also keeps the
@@ -343,6 +362,11 @@ class Repository:
                             "job_name": self._identity["job_name"], "mode": "sim",
                             "identity_json": _json(self._identity),
                         })
+                        self._shared_raw.initialize(connection)
+                else:
+                    if self._shared_raw.enabled and raw_layout_metadata(connection) is None:
+                        with self._transaction():
+                            self._shared_raw.initialize(connection)
         except BaseException:
             self.close()
             raise
@@ -420,7 +444,16 @@ class Repository:
                 self.connection.set_progress_handler(None, 0)
 
     def _insert(self, table, values):
-        values = externalize_row("golden-guava", table, values)
+        raw_runtime = getattr(self,'_shared_raw',None)
+        namespace = raw_runtime.namespace() if raw_runtime is not None and raw_runtime.enabled else None
+        context = collector_receipt_context("golden-guava", table, values, self.connection,
+            references=getattr(self,'_references',None),namespace=namespace)
+        if insert_raw_rows(self.connection,"golden-guava",table,[values],
+                           references=getattr(self,'_references',None),receipt_context=context,
+                           namespace=namespace):
+            return
+        values = externalize_row("golden-guava", table, values,
+            references=getattr(self,'_body_references',None),receipt_context=context)
         columns = ",".join(values)
         placeholders = ",".join("?" for _ in values)
         self.connection.execute(f"INSERT INTO {table} ({columns}) VALUES ({placeholders})",

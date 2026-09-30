@@ -9,30 +9,21 @@ import pytest
 
 from polybot_observability import market_data_refs, market_data_sqlite, market_data_levels
 from polybot_observability.market_data_refs import PayloadReferences, parse_reference
+from polybot_observability.market_data_store import PayloadStore
 
 
 @pytest.fixture
-def shared_payloads(monkeypatch):
-    class Store:
-        def __init__(self):
-            self.payloads = {}
-
-        def put_many(self, values):
-            hashes = [hashlib.sha256(value).hexdigest() for value in values]
-            self.payloads.update(zip(hashes, values))
-            return hashes
-
-        def get_many(self, hashes):
-            return [self.payloads[digest] for digest in hashes]
-
+def shared_payloads(monkeypatch, tmp_path):
     for key in ("PUBLIC_MARKET_DATA_DB", "PUBLIC_MARKET_DATA_SOCKET", "PUBLIC_MARKET_DATA_REQUIRED"):
         monkeypatch.delenv(key, raising=False)
-    store = Store()
-    codec = PayloadReferences(store, store)
-    monkeypatch.setattr(market_data_refs, "configured_references", lambda: codec)
-    monkeypatch.setattr(market_data_sqlite, "configured_references", lambda: codec)
-    monkeypatch.setattr(market_data_levels, "configured_references", lambda: codec)
-    return store
+    monkeypatch.setenv("PUBLIC_MARKET_DATA_SOURCE", "fixture-source")
+    monkeypatch.setenv("JOB_NAME", "fixture-job")
+    with PayloadStore(tmp_path / "public.db") as store:
+        codec = PayloadReferences(store, store)
+        monkeypatch.setattr(market_data_refs, "configured_references", lambda: codec)
+        monkeypatch.setattr(market_data_sqlite, "configured_references", lambda: codec)
+        monkeypatch.setattr(market_data_levels, "configured_references", lambda: codec)
+        yield store
 
 
 def schema(connection):

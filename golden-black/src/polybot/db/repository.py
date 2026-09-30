@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 import gzip
 import hashlib
 import json
+import os
 from pathlib import Path
 import shutil
 import sqlite3
@@ -15,7 +16,11 @@ from typing import Any, Iterable, Iterator, Mapping
 from uuid import uuid4
 
 from polybot_observability.market_data_levels import insert_shared_levels
-from polybot_observability.market_data_refs import externalize_row
+from polybot_observability.market_data_refs import externalize_row, configured_references
+from polybot_observability.market_data_raw_links import (raw_layout_metadata, validate_raw_layout, validate_raw_source_schema, initialize_raw_links, insert_raw_rows, require_raw_capabilities)
+from polybot_observability.market_data_raw_profiles import BLACK_PROFILE_ID,BLACK_FULL_PROFILE_ID,raw_profile
+from polybot_observability.market_data_scalar_links import _configured_namespace
+from polybot_observability.market_data_index import collector_receipt_context
 from polybot_observability.market_data_sqlite import connect as connect_market_data
 
 
@@ -385,13 +390,37 @@ def _now() -> str:
 
 
 class ResearchRepository:
-    def __init__(self, path: Path, *, busy_timeout_ms: int, data_contract: str) -> None:
+    def __init__(self, path: Path, *, busy_timeout_ms: int, data_contract: str, raw_profile_id=None) -> None:
         self.path = path
         self.busy_timeout_ms = busy_timeout_ms
         self.data_contract = data_contract
+        if raw_profile_id not in (None,BLACK_PROFILE_ID,BLACK_FULL_PROFILE_ID):
+            raise ValueError('unknown Black RAW source profile')
+        self.raw_enabled=raw_profile_id is not None or os.environ.get('PUBLIC_MARKET_DATA_RAW')=='1'
+        self.raw_profile_id=raw_profile_id or BLACK_FULL_PROFILE_ID
+        if self.raw_enabled:
+            require_raw_capabilities(configured_references().writer,profile_id=self.raw_profile_id)
+            if path.exists():
+                before=connect_market_data(path.resolve().as_uri()+'?mode=ro',uri=True)
+                try:
+                    objects=before.execute("SELECT name FROM main.sqlite_master WHERE name NOT LIKE 'sqlite_%'").fetchall()
+                    if objects:
+                        metadata=raw_layout_metadata(before)
+                        if metadata is not None and metadata['profile_id']!=self.raw_profile_id:
+                            raise ValueError('existing Black RAW profile requires explicit offline transition')
+                        validate_raw_source_schema(before,profile_id=self.raw_profile_id)
+                        if metadata is None and any(before.execute(f'SELECT 1 FROM main."{table}" LIMIT 1').fetchone()
+                                for table in raw_profile(self.raw_profile_id).tables):
+                            raise ValueError('populated Black source requires explicit offline derivative migration')
+                    elif (before.execute('PRAGMA application_id').fetchone()[0],before.execute('PRAGMA user_version').fetchone()[0])!=(0,0):
+                        raise ValueError('empty Black database has a foreign application identity')
+                finally:before.close()
         path.parent.mkdir(parents=True, exist_ok=True)
         with self.connect() as connection:
-            connection.executescript(SCHEMA)
+            if raw_layout_metadata(connection) is None:
+                connection.executescript('BEGIN IMMEDIATE;\n'+SCHEMA)
+            else:
+                validate_raw_layout(connection)
             market_columns = {
                 str(row[1])
                 for row in connection.execute(
@@ -413,16 +442,33 @@ class ResearchRepository:
             if actual is None or actual[0] != data_contract:
                 raise RuntimeError(f"database contract mismatch: {actual}")
             for table in APPEND_ONLY_TABLES:
+                metadata=raw_layout_metadata(connection)
+                if metadata is not None and table in raw_profile(metadata['profile_id']).tables:
+                    continue  # Validated main triggers already exist; TEMP views shadow their names.
                 for operation in ("UPDATE", "DELETE"):
                     trigger = f"{table}_forbid_{operation.lower()}"
                     connection.execute(
-                        f"CREATE TRIGGER IF NOT EXISTS {trigger} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only evidence'); END"
+                        f"CREATE TRIGGER IF NOT EXISTS main.{trigger} BEFORE {operation} ON {table} BEGIN SELECT RAISE(ABORT, 'append-only evidence'); END"
                     )
+            if self.raw_enabled and raw_layout_metadata(connection) is None:
+                refs = configured_references()
+                if refs.writer is None:
+                    raise ValueError("RAW pilot requires an authoritative public writer")
+                initialize_raw_links(connection, _configured_namespace(connection, "golden-black"),
+                    refs.writer.scalar_authority_identity(), references=refs,profile_id=self.raw_profile_id)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         connection = connect_market_data(self.path, timeout=self.busy_timeout_ms / 1000)
         connection.row_factory = sqlite3.Row
+        metadata = raw_layout_metadata(connection)
+        if metadata is not None:
+            try:
+                if metadata['namespace'] != _configured_namespace(connection, 'golden-black'):
+                    raise ValueError('RAW active source/job/runtime differs from the bound namespace')
+            except BaseException:
+                connection.close()
+                raise
         connection.execute(f"PRAGMA busy_timeout={self.busy_timeout_ms}")
         connection.execute("PRAGMA journal_mode=WAL")
         connection.execute("PRAGMA synchronous=FULL")
@@ -499,7 +545,10 @@ class ResearchRepository:
 
     @staticmethod
     def _insert(connection: sqlite3.Connection, table: str, row: Mapping[str, Any]) -> None:
-        row = externalize_row("golden-black", table, row)
+        if insert_raw_rows(connection, "golden-black", table, [row]):
+            return
+        row = externalize_row("golden-black", table, row,
+            receipt_context=collector_receipt_context("golden-black", table, row, connection))
         keys = tuple(row)
         connection.execute(
             f"INSERT INTO {table}({','.join(keys)}) VALUES({','.join('?' for _ in keys)})",
@@ -509,7 +558,9 @@ class ResearchRepository:
     @classmethod
     def _insert_many(cls, connection: sqlite3.Connection, table: str, rows: Iterable[Mapping[str, Any]]) -> None:
         rows = list(rows)
-        if insert_shared_levels(connection, "golden-black", table, rows):
+        if insert_raw_rows(connection, "golden-black", table, rows):
+            return
+        if insert_shared_levels(connection, "golden-black", table, rows,preserve_rowid=True):
             return
         for row in rows:
             cls._insert(connection, table, row)

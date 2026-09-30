@@ -20,7 +20,11 @@ from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Iterable
 
-from polybot_observability.market_data_sqlite import connect as connect_market_data
+from polybot_observability import market_data_refs
+from polybot_observability.market_data_sqlite import (
+    connect as connect_market_data,
+    expand_private_values,
+)
 
 SPORTS_SLUG = "sports"
 WINDOW_HOURS = 6.0
@@ -207,6 +211,15 @@ class TradeResult:
 def iter_observations(path: Path) -> Iterable[Observation]:
     connection = connect_market_data(f"file:{path}?mode=ro", uri=True)
     connection.row_factory = sqlite3.Row
+    # Cursor decoding happens after SQL predicates. Resolve the source body
+    # here so LIKE sees the same exact JSON in inline and shared layouts.
+    references = connection._references or market_data_refs.configured_references()
+    connection.create_function(
+        "pomegranate_source_json", 1,
+        lambda value: references.decode_many(
+            expand_private_values(connection, [value])
+        )[0],
+    )
     try:
         rows = connection.execute(
             """
@@ -227,7 +240,7 @@ def iter_observations(path: Path) -> Iterable[Observation]:
               AND m.closed = 0
               AND m.enable_order_book = 1
               AND m.accepting_orders = 1
-              AND m.tags_json LIKE '%"slug":"sports"%'
+              AND pomegranate_source_json(m.tags_json) LIKE '%"slug":"sports"%'
             GROUP BY m.observation_id
             HAVING outcome_count = 2 AND token_0 IS NOT NULL AND token_1 IS NOT NULL
             ORDER BY m.page_received_at, m.condition_id
