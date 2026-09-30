@@ -288,6 +288,10 @@ class Collector:
                             raise t.exception()  # type: ignore[misc]
         finally:
             stop.set()
+            # Feeds blocked in recv() may never observe `stop`; give them a moment, then cancel.
+            _, pending = await asyncio.wait(tasks, timeout=20)
+            for t in pending:
+                t.cancel()
             await asyncio.gather(*tasks, return_exceptions=True)
             self.flush()
             self.heartbeat()
@@ -340,21 +344,25 @@ def heartbeat_info(paths) -> tuple[float | None, dict]:
         return None, {}
 
 
-def acquire_lock(paths, wait: bool = True):
-    """Exclusive flock so only one collector runs; returns the open file (keep it referenced)."""
+def acquire_lock(paths, wait: bool = True, max_wait_s: float | None = None):
+    """Exclusive flock so only one collector runs; returns the open file (keep it referenced).
+
+    With max_wait_s the caller gives up (returns None) instead of queueing forever behind a live daemon.
+    """
     import fcntl
 
     fh = open(paths.state / "stream.lock", "a+")
+    give_up = time.time() + max_wait_s if max_wait_s is not None else None
     while True:
         try:
             fcntl.flock(fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
             return fh
         except BlockingIOError:
-            if not wait:
+            if not wait or (give_up is not None and time.time() >= give_up):
                 fh.close()
                 return None
             log.info("another stream daemon holds %s; waiting", paths.state / "stream.lock")
-            time.sleep(30)
+            time.sleep(15)
 
 
 def spawn_detached(paths) -> int:
@@ -466,7 +474,16 @@ def main(argv: list[str] | None = None) -> int:
         return ensure(p, label=args.label, repo=args.repo, dry_run=args.dry_run, fallback=not args.no_fallback)
     if args.run:
         _file_logging(p)
-        lock = acquire_lock(p, wait=True)
+        lock = acquire_lock(p, wait=True, max_wait_s=55)
+        if lock is None:
+            print(json.dumps({"skipped": "another stream daemon is running"}))
+            return 0
+        if args.duration:
+            # Last-resort exit so a wedged shutdown can never outlive its Jenkins build (orphans behind ssh).
+            import threading
+            killer = threading.Timer(args.duration + 120, lambda: os._exit(3))
+            killer.daemon = True
+            killer.start()
         try:
             col = Collector(p)
             asyncio.run(col.run(args.duration))
