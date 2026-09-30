@@ -1,10 +1,11 @@
 import Link from "next/link";
 
+import { AttentionPanel } from "@/components/attention";
 import { TxTotalsTable } from "@/components/transactions";
 import { Generated, LoadState, ModeBadge, StatusDot, type Health } from "@/components/ui";
 import { ageMinutes, ago, kst, num, pct, signedUsd, tone, usd } from "@/lib/format";
 import { loadJson } from "@/lib/storage";
-import type { Overview, StrategySummary, Transaction } from "@/lib/types";
+import type { Attention, Overview, StrategySummary, Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -17,14 +18,16 @@ function freshness(iso: string | null | undefined, warnMin: number, critMin: num
 const MODE_ORDER: Record<string, number> = { live: 0, paper: 1, off: 2 };
 
 export default async function OverviewPage() {
-  const [res, tx] = await Promise.all([
+  const [res, tx, att] = await Promise.all([
     loadJson<Overview>("latest/overview.json"),
     loadJson<Transaction[]>("latest/transactions_24h.json"),
+    loadJson<Attention>("latest/attention.json"),
   ]);
   return (
     <>
       <h1>개요</h1>
       <p className="sub">시스템 상태 · 포트폴리오 · 전략 성과 (KST)</p>
+      <AttentionPanel result={att} />
       {res.state !== "ok" ? <LoadState result={res} /> : <OverviewBody o={res.data} />}
       <section className="section card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>

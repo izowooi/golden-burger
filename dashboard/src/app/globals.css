@@ -285,3 +285,38 @@ tfoot td { border-top: 2px solid var(--axis); border-bottom: 0; }
 .game-pick { min-width: 0; max-width: 100%; flex: 1 1 260px; }
 .game-pick select { width: 100%; max-width: 100%; }
 .chart.mid { min-width: 460px; }
+
+/* ---- attention inbox (/) ---- */
+.att { margin-bottom: 20px; }
+.att-active { border-color: color-mix(in srgb, var(--warning) 55%, var(--ring)); }
+.att-top { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.att-list { list-style: none; margin: 0; padding: 0; }
+.att-item { padding: 8px 0; border-bottom: 1px solid var(--grid); min-width: 0; }
+.att-item:last-child { border-bottom: 0; }
+.att-head { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+.att-title { overflow-wrap: anywhere; }
+.att-detail { margin: 4px 0 0; color: var(--ink-2); font-size: 13px; overflow-wrap: anywhere; }
+.att-meta { display: flex; gap: 4px 12px; flex-wrap: wrap; color: var(--muted); font-size: 12px; margin-top: 4px; }
+.att-ref { overflow-wrap: anywhere; min-width: 0; }
+.att-gen { font-size: 12px; margin: 8px 0 0; }
+.badge.sev-critical { color: #fff; background: var(--critical); border-color: transparent; }
+.badge.sev-warn { color: #000; background: var(--warning); border-color: transparent; }
+.badge.sev-decide { color: var(--ink); background: color-mix(in srgb, var(--s7) 26%, transparent); border-color: transparent; }
+.badge.sev-info { color: var(--ink-2); }
+
+/* ---- /games ---- */
+.g-league { margin: 14px 0 6px; color: var(--ink-2); font-size: 13px; font-weight: 600; }
+.g-head { display: flex; gap: 6px 10px; flex-wrap: wrap; align-items: baseline; margin-bottom: 6px; }
+.g-title { font-weight: 650; overflow-wrap: anywhere; }
+.g-head .muted { font-size: 12px; }
+.badge.upset { color: #fff; background: var(--critical); border-color: transparent; }
+.badge.swing { color: #000; background: var(--warning); border-color: transparent; }
+.badge.running { color: #fff; background: var(--good); border-color: transparent; }
+.g-table td { vertical-align: middle; }
+.g-table td:first-child { white-space: normal; min-width: 96px; max-width: 180px; overflow-wrap: anywhere; }
+.g-table .won { font-weight: 650; }
+.spark { display: block; overflow: visible; }
+.spark-mid { stroke: var(--grid); stroke-width: 1; }
+.spark-kick { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
+.spark .hit { fill: transparent; }
+.spark-empty { font-size: 12px; }

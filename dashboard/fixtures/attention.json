@@ -1,0 +1,64 @@
+{
+ "generated_at": "2026-09-30T23:00:00Z",
+ "url": "https://github.com/izowooi/golden-burger/blob/main/reports/attention.md",
+ "open": [
+  {
+   "id": "stale_collector",
+   "created_at": "2026-09-30T22:40:00Z",
+   "updated_at": "2026-09-30T23:00:00Z",
+   "severity": "critical",
+   "category": "risk",
+   "title": "수집기 poll 35분 정지",
+   "detail": "polylab-collect 마지막 poll 22:25Z. launchd 상태와 로그 확인 필요.",
+   "evidence_ref": "logs/collector.log",
+   "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "dead_variant:apricot-eco",
+   "created_at": "2026-09-29T00:00:00Z",
+   "updated_at": "2026-10-01T00:00:00Z",
+   "severity": "decide",
+   "category": "decision_needed",
+   "title": "apricot-eco 3일 이상 진입 0건 (대상 경기 41개 있었음)",
+   "detail": "prob_min 0.95가 대상 경기 가격 분포보다 높아 진입 조건을 만족한 적 없음. 기준 완화 또는 off 전환을 결정해야 합니다.",
+   "evidence_ref": "strategies/apricot-eco.yaml,reports/daily/2026-10-01-morning.md",
+   "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "ai:soccer-late-gap",
+   "created_at": "2026-09-30T21:00:00Z",
+   "updated_at": "2026-09-30T21:00:00Z",
+   "severity": "info",
+   "category": "research_finding",
+   "title": "축구 후반 0.85–0.9 구간 과소평가 신호",
+   "detail": "n=412, gap +3.1pp (CI 0.4–5.6pp).",
+   "evidence_ref": "metrics/watermelon-cat.json",
+   "source": "ai",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  }
+ ],
+ "resolved": [
+  {
+   "id": "ai_failed",
+   "created_at": "2026-09-30T18:30:00Z",
+   "updated_at": "2026-09-30T18:30:00Z",
+   "severity": "warn",
+   "category": "risk",
+   "title": "AI 회고 실패: 결정론 리포트만 생성",
+   "detail": "engine timeout",
+   "evidence_ref": "reports/daily/2026-10-01-dawn.md",
+   "source": "rule",
+   "status": "resolved",
+   "resolved_at": "2026-09-30T23:00:00Z",
+   "resolution": "조건 해소 (자동)"
+  }
+ ]
+}

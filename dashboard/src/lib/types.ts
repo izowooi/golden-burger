@@ -275,3 +275,114 @@ export interface ScoreStateRow {
   reversion_10m: Num;
   mean_peak_minute?: Num;
 }
+
+export type AttentionSeverity = "critical" | "warn" | "decide" | "info" | string;
+
+export interface AttentionItem {
+  id: string;
+  created_at: Iso;
+  updated_at: Iso;
+  severity: AttentionSeverity;
+  category: string | null;
+  title: string | null;
+  detail: string | null;
+  evidence_ref: string | null;
+  source: "rule" | "ai" | string | null;
+  status: "open" | "resolved" | string;
+  resolved_at: Iso;
+  resolution: string | null;
+}
+
+export interface Attention {
+  generated_at: Iso;
+  url: string | null;
+  open: AttentionItem[] | null;
+  resolved: AttentionItem[] | null;
+}
+
+export interface GameSwing {
+  delta: Num;
+  from_price: Num;
+  to_price: Num;
+  at: Iso;
+  from_at: Iso;
+  game_minute: Num;
+  period: string | null;
+  elapsed_min: Num;
+  sources: string | null;
+}
+
+export interface Game24hOutcome {
+  side: "home" | "draw" | "away" | string;
+  label: string | null;
+  token_id: string | null;
+  condition_id?: string | null;
+  volume_usd: Num;
+  pre_price: Num;
+  min_price: Num;
+  max_price: Num;
+  final_price: Num;
+  won: boolean | null;
+  in_play_bars: Num;
+  swing_1m: GameSwing | null;
+  swing_10m: GameSwing | null;
+  path: [string, number][] | null;
+}
+
+export interface Game24hEvent {
+  at: string;
+  game_minute: Num;
+  minute_source: string | null;
+  scorer: "home" | "away" | string;
+  home_score: Num;
+  away_score: Num;
+}
+
+export interface Game24h {
+  game_key: string;
+  sport: string;
+  league: string | null;
+  title: string | null;
+  home_team: string | null;
+  away_team: string | null;
+  start_time: Iso;
+  end_of_play: Iso;
+  end_source: "ended_at" | "game_state" | "nominal" | "running" | string | null;
+  status: string | null;
+  home_score: Num;
+  away_score: Num;
+  resolved: boolean | null;
+  result: "home" | "draw" | "away" | string | null;
+  volume_usd: Num;
+  traded: boolean | null;
+  favourite: string | null;
+  favourite_pre_price: Num;
+  upset: boolean | null;
+  notable_swing: boolean | null;
+  max_swing_10m: Num;
+  outcomes: Game24hOutcome[] | null;
+  events: Game24hEvent[] | null;
+}
+
+export interface Games24hSportSummary {
+  sport: string;
+  games: Num;
+  resolved: Num;
+  favourites_resolved: Num;
+  favourite_win_rate: Num;
+  favourite_avg_pre_price: Num;
+  avg_max_swing_10m: Num;
+  upsets: Num;
+  notable_swings: Num;
+}
+
+export interface Games24h {
+  generated_at: Iso;
+  window: { since: Iso; until: Iso } | null;
+  scope?: { sports?: string[] | null; soccer_leagues?: string[] | null; note?: string | null } | null;
+  notable_swing?: Num;
+  excluded_out_of_scope?: Record<string, number> | null;
+  summary_by_sport?: Games24hSportSummary[] | null;
+  games: Game24h[] | null;
+  error?: string | null;
+}
