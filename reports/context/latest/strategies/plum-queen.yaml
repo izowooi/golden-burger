@@ -1,0 +1,32 @@
+id: plum-queen
+family: plum
+hypothesis: "경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm: 축구 SL 0.17(더 넓은 손절), NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교."
+account: queen
+mode: live
+sports: [soccer, nfl]
+stake_usdc: 5
+params:
+  prob_min: 0.70
+  prob_max: 0.73
+  take_profit_price: 0.90
+  stop_loss_delta: 0.17
+  min_leader_margin: 0.005
+  max_entry_spread: 0.05
+  max_stop_spread: 0.10
+  hours_max: 12.0
+  sport_overrides:
+    soccer: {max_source_minute: 60, force_exit_minute: 65}
+    nfl: {take_profit_price: 0.90, stop_loss_delta: 0.12}
+bounds:
+  prob_min: [0.67, 0.80, 0.01]
+  prob_max: [0.69, 0.85, 0.01]
+  take_profit_price: [0.85, 0.97, 0.01]
+  stop_loss_delta: [0.05, 0.20, 0.01]
+  min_leader_margin: [0.0, 0.02, 0.005]
+  max_entry_spread: [0.02, 0.10, 0.01]
+  sport_overrides.soccer.max_source_minute: [45, 80, 5]
+  sport_overrides.soccer.force_exit_minute: [50, 90, 5]
+  sport_overrides.nfl.take_profit_price: [0.85, 0.97, 0.01]
+  sport_overrides.nfl.stop_loss_delta: [0.05, 0.20, 0.01]
+limits: {max_positions: 10, max_open_usdc: 50, daily_loss_stop_usdc: 25, max_new_per_cycle: 5}
+notes: "golden-plum Queen(soccer TP .90/SL .17, nfl TP .90/SL .12) 포팅. 원래 $5."

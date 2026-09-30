@@ -1,0 +1,27 @@
+id: apricot-fruit
+family: apricot
+hypothesis: "MLB 경기 live 후 약 85분 시점의 midpoint 선두팀(ask VWAP 0.90-0.999)은 실현 승률 대비 과소평가된다. B arm: tick 85분 — 진입 시점이 5분 이를 때 가격 민감도와 손실 꼬리가 달라지는지 A와 비교."
+account: fruit
+mode: live
+sports: [mlb]
+stake_usdc: 5
+params:
+  entry_tick_minute: 85
+  tick_window_minutes: 2
+  prob_min: 0.90
+  prob_max: 0.999
+  max_entry_spread: 0.05
+  min_leader_margin: 0.005
+  take_profit_price: 0.90
+  max_exit_spread: 0.10
+  hours_max: 8.0
+bounds:
+  entry_tick_minute: [60, 150, 5]
+  tick_window_minutes: [1, 5, 1]
+  prob_min: [0.80, 0.95, 0.01]
+  prob_max: [0.97, 0.999, 0.005]
+  max_entry_spread: [0.01, 0.10, 0.01]
+  min_leader_margin: [0.0, 0.10, 0.005]
+  take_profit_price: [0.90, 0.99, 0.01]
+limits: {max_positions: 6, max_open_usdc: 30, daily_loss_stop_usdc: 20, max_new_per_cycle: 5}
+notes: "golden-apricot Fruit 포팅. legacy 목표 $15였으나 사용자 규칙으로 $5 시작."

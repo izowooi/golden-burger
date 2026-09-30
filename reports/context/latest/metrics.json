@@ -1,0 +1,1031 @@
+{
+ "totals": {
+  "today": 0.0,
+  "d7": 0.0,
+  "d30": 0.0,
+  "all": 0.0,
+  "tx_24h": 4,
+  "settled_24h": 0,
+  "settled_pnl_24h": 0.0,
+  "open_positions": 4,
+  "unrealized_pnl": -0.2953,
+  "live_variants": 8,
+  "paper_variants": 0
+ },
+ "variants": {
+  "apricot-eco": {
+   "mode": "live",
+   "account": "eco",
+   "stake_usdc": 5.0,
+   "params": {
+    "entry_tick_minute": 90,
+    "tick_window_minutes": 2,
+    "prob_min": 0.9,
+    "prob_max": 0.999,
+    "max_entry_spread": 0.05,
+    "min_leader_margin": 0.005,
+    "take_profit_price": 0.9,
+    "max_exit_spread": 0.1,
+    "hours_max": 8.0
+   },
+   "bounds": {
+    "entry_tick_minute": [
+     60,
+     150,
+     5
+    ],
+    "tick_window_minutes": [
+     1,
+     5,
+     1
+    ],
+    "prob_min": [
+     0.8,
+     0.95,
+     0.01
+    ],
+    "prob_max": [
+     0.97,
+     0.999,
+     0.005
+    ],
+    "max_entry_spread": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "min_leader_margin": [
+     0.0,
+     0.1,
+     0.005
+    ],
+    "take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "apricot-eco v1: 초기 버전 (init)"
+   }
+  },
+  "apricot-fruit": {
+   "mode": "live",
+   "account": "fruit",
+   "stake_usdc": 5.0,
+   "params": {
+    "entry_tick_minute": 85,
+    "tick_window_minutes": 2,
+    "prob_min": 0.9,
+    "prob_max": 0.999,
+    "max_entry_spread": 0.05,
+    "min_leader_margin": 0.005,
+    "take_profit_price": 0.9,
+    "max_exit_spread": 0.1,
+    "hours_max": 8.0
+   },
+   "bounds": {
+    "entry_tick_minute": [
+     60,
+     150,
+     5
+    ],
+    "tick_window_minutes": [
+     1,
+     5,
+     1
+    ],
+    "prob_min": [
+     0.8,
+     0.95,
+     0.01
+    ],
+    "prob_max": [
+     0.97,
+     0.999,
+     0.005
+    ],
+    "max_entry_spread": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "min_leader_margin": [
+     0.0,
+     0.1,
+     0.005
+    ],
+    "take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "apricot-fruit v1: 초기 버전 (init)"
+   }
+  },
+  "cherry-blue": {
+   "mode": "live",
+   "account": "blue",
+   "stake_usdc": 5.0,
+   "params": {
+    "buy_threshold": 0.8,
+    "sell_threshold": 0.82,
+    "take_profit_percent": 0.2,
+    "stop_loss_percent": -0.08,
+    "trailing_enabled": true,
+    "trailing_percent": 0.15,
+    "entry_hours_min": 0.0,
+    "entry_hours_max": 120.0,
+    "allow_in_play": true,
+    "yes_only": true,
+    "min_liquidity": 125000.0,
+    "min_volume": 5000.0,
+    "market_types": [
+     "moneyline",
+     "draw"
+    ]
+   },
+   "bounds": {
+    "buy_threshold": [
+     0.7,
+     0.88,
+     0.02
+    ],
+    "sell_threshold": [
+     0.72,
+     0.92,
+     0.02
+    ],
+    "take_profit_percent": [
+     0.05,
+     0.25,
+     0.05
+    ],
+    "stop_loss_percent": [
+     -0.15,
+     -0.04,
+     0.02
+    ],
+    "trailing_percent": [
+     0.05,
+     0.2,
+     0.05
+    ],
+    "entry_hours_max": [
+     24.0,
+     168.0,
+     24.0
+    ],
+    "min_liquidity": [
+     50000.0,
+     250000.0,
+     25000.0
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "cherry-blue v1: 초기 버전 (init)"
+   }
+  },
+  "cherry-tiger": {
+   "mode": "live",
+   "account": "tiger",
+   "stake_usdc": 5.0,
+   "params": {
+    "buy_threshold": 0.76,
+    "sell_threshold": 0.78,
+    "take_profit_percent": 0.2,
+    "stop_loss_percent": -0.08,
+    "trailing_enabled": true,
+    "trailing_percent": 0.15,
+    "entry_hours_min": 0.0,
+    "entry_hours_max": 120.0,
+    "allow_in_play": true,
+    "yes_only": true,
+    "min_liquidity": 125000.0,
+    "min_volume": 5000.0,
+    "market_types": [
+     "moneyline",
+     "draw"
+    ]
+   },
+   "bounds": {
+    "buy_threshold": [
+     0.7,
+     0.88,
+     0.02
+    ],
+    "sell_threshold": [
+     0.72,
+     0.92,
+     0.02
+    ],
+    "take_profit_percent": [
+     0.05,
+     0.25,
+     0.05
+    ],
+    "stop_loss_percent": [
+     -0.15,
+     -0.04,
+     0.02
+    ],
+    "trailing_percent": [
+     0.05,
+     0.2,
+     0.05
+    ],
+    "entry_hours_max": [
+     24.0,
+     168.0,
+     24.0
+    ],
+    "min_liquidity": [
+     50000.0,
+     250000.0,
+     25000.0
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "cherry-tiger v1: 초기 버전 (init)"
+   }
+  },
+  "plum-king": {
+   "mode": "live",
+   "account": "king",
+   "stake_usdc": 5.0,
+   "params": {
+    "prob_min": 0.7,
+    "prob_max": 0.73,
+    "take_profit_price": 0.9,
+    "stop_loss_delta": 0.12,
+    "min_leader_margin": 0.005,
+    "max_entry_spread": 0.05,
+    "max_stop_spread": 0.1,
+    "hours_max": 12.0,
+    "sport_overrides": {
+     "soccer": {
+      "max_source_minute": 60,
+      "force_exit_minute": 65
+     },
+     "nfl": {
+      "take_profit_price": 0.85
+     }
+    }
+   },
+   "bounds": {
+    "prob_min": [
+     0.67,
+     0.8,
+     0.01
+    ],
+    "prob_max": [
+     0.69,
+     0.85,
+     0.01
+    ],
+    "take_profit_price": [
+     0.85,
+     0.97,
+     0.01
+    ],
+    "stop_loss_delta": [
+     0.05,
+     0.2,
+     0.01
+    ],
+    "min_leader_margin": [
+     0.0,
+     0.02,
+     0.005
+    ],
+    "max_entry_spread": [
+     0.02,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.soccer.max_source_minute": [
+     45,
+     80,
+     5
+    ],
+    "sport_overrides.soccer.force_exit_minute": [
+     50,
+     90,
+     5
+    ],
+    "sport_overrides.nfl.take_profit_price": [
+     0.85,
+     0.97,
+     0.01
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "plum-king v1: 초기 버전 (init)"
+   }
+  },
+  "plum-queen": {
+   "mode": "live",
+   "account": "queen",
+   "stake_usdc": 5.0,
+   "params": {
+    "prob_min": 0.7,
+    "prob_max": 0.73,
+    "take_profit_price": 0.9,
+    "stop_loss_delta": 0.17,
+    "min_leader_margin": 0.005,
+    "max_entry_spread": 0.05,
+    "max_stop_spread": 0.1,
+    "hours_max": 12.0,
+    "sport_overrides": {
+     "soccer": {
+      "max_source_minute": 60,
+      "force_exit_minute": 65
+     },
+     "nfl": {
+      "take_profit_price": 0.9,
+      "stop_loss_delta": 0.12
+     }
+    }
+   },
+   "bounds": {
+    "prob_min": [
+     0.67,
+     0.8,
+     0.01
+    ],
+    "prob_max": [
+     0.69,
+     0.85,
+     0.01
+    ],
+    "take_profit_price": [
+     0.85,
+     0.97,
+     0.01
+    ],
+    "stop_loss_delta": [
+     0.05,
+     0.2,
+     0.01
+    ],
+    "min_leader_margin": [
+     0.0,
+     0.02,
+     0.005
+    ],
+    "max_entry_spread": [
+     0.02,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.soccer.max_source_minute": [
+     45,
+     80,
+     5
+    ],
+    "sport_overrides.soccer.force_exit_minute": [
+     50,
+     90,
+     5
+    ],
+    "sport_overrides.nfl.take_profit_price": [
+     0.85,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_loss_delta": [
+     0.05,
+     0.2,
+     0.01
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "plum-queen v1: 초기 버전 (init)"
+   }
+  },
+  "watermelon-cat": {
+   "mode": "live",
+   "account": "cat",
+   "stake_usdc": 5.0,
+   "params": {
+    "prob_min": 0.92,
+    "prob_max": 0.999,
+    "stop_price": 0.65,
+    "max_entry_drawdown": 0.3,
+    "use_stored_stop": false,
+    "hours_max": 4.0,
+    "max_stop_spread": 0.1,
+    "reentry_cooldown_hours": 720,
+    "sport_overrides": {
+     "nfl": {
+      "prob_min": 0.91,
+      "stop_price": 0.7,
+      "hours_max": 6.0
+     }
+    }
+   },
+   "bounds": {
+    "prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "prob_max": [
+     0.98,
+     0.999,
+     0.005
+    ],
+    "stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "max_entry_drawdown": [
+     0.05,
+     0.5,
+     0.05
+    ],
+    "hours_max": [
+     2.0,
+     6.0,
+     0.5
+    ],
+    "max_stop_spread": [
+     0.03,
+     0.2,
+     0.02
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "sport_overrides.nfl.hours_max": [
+     3.0,
+     9.0,
+     0.5
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "watermelon-cat v1: 초기 버전 (init)"
+   }
+  },
+  "watermelon-dog": {
+   "mode": "live",
+   "account": "dog",
+   "stake_usdc": 5.0,
+   "params": {
+    "prob_min": 0.92,
+    "prob_max": 0.999,
+    "stop_price": 0.6,
+    "max_entry_drawdown": 0.3,
+    "use_stored_stop": true,
+    "hours_max": 4.0,
+    "max_stop_spread": 0.1,
+    "reentry_cooldown_hours": 720,
+    "sport_overrides": {
+     "nfl": {
+      "prob_min": 0.94,
+      "stop_price": 0.7,
+      "hours_max": 6.0
+     }
+    }
+   },
+   "bounds": {
+    "prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "prob_max": [
+     0.98,
+     0.999,
+     0.005
+    ],
+    "stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "max_entry_drawdown": [
+     0.05,
+     0.5,
+     0.05
+    ],
+    "hours_max": [
+     2.0,
+     6.0,
+     0.5
+    ],
+    "max_stop_spread": [
+     0.03,
+     0.2,
+     0.02
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "sport_overrides.nfl.hours_max": [
+     3.0,
+     9.0,
+     0.5
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "live",
+    "reason": "no gate met",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
+   "last_change": {
+    "at": "2026-09-30T16:20:01Z",
+    "summary": "watermelon-dog v1: 초기 버전 (init)"
+   }
+  }
+ },
+ "stake_tiers": [],
+ "research": {
+  "generated_at": "2026-09-30T16:31:28Z",
+  "top_gaps": [],
+  "brier": [],
+  "by_sport_phase": [],
+  "notes": [
+   "calibration unit = one canonical 1-minute price per resolved whole-game token per phase: pre = last bar before start (closing line), in-play phases = first bar in the phase (phase 'all' pools those rows); win = tokens.outcome_index == markets.resolved_outcome_index; 95% Wilson CI; gap = win_rate - mean_price (positive = underpriced). All outcome tokens of a market enter (complementary Yes/No or home/away prices are dependent), so n overstates independent observations and the CI is optimistic",
+   "phase = normalised fraction f of regulation (game_minute / soccer 90, NBA 48, NFL 60, NHL 60, MLB 9 innings; fallback wall-clock elapsed since start_time / soccer 112, NBA 140, NFL 195, NHL 155, MLB 180 min): pre = before start, early f<0.30, mid <0.60, late <0.85, final >=0.85 until game end",
+   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated"
+  ]
+ },
+ "events": {
+  "generated_at": "2026-09-30T16:31:28Z",
+  "measured": 1,
+  "event_sensitivity": [
+   {
+    "sport": "soccer",
+    "event": "goal",
+    "minute_bucket": "15-30",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.199,
+    "median_jump": 0.199,
+    "mean_jump": 0.199,
+    "mean_pre_price": 0.795,
+    "reversion_1m": -0.0105,
+    "reversion_5m": null,
+    "reversion_10m": null,
+    "mean_peak_minute": 1.0
+   }
+  ],
+  "notes": [
+   "calibration unit = one canonical 1-minute price per resolved whole-game token per phase: pre = last bar before start (closing line), in-play phases = first bar in the phase (phase 'all' pools those rows); win = tokens.outcome_index == markets.resolved_outcome_index; 95% Wilson CI; gap = win_rate - mean_price (positive = underpriced). All outcome tokens of a market enter (complementary Yes/No or home/away prices are dependent), so n overstates independent observations and the CI is optimistic",
+   "phase = normalised fraction f of regulation (game_minute / soccer 90, NBA 48, NFL 60, NHL 60, MLB 9 innings; fallback wall-clock elapsed since start_time / soccer 112, NBA 140, NFL 195, NHL 155, MLB 180 min): pre = before start, early f<0.30, mid <0.60, late <0.85, final >=0.85 until game end",
+   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated"
+  ]
+ }
+}
