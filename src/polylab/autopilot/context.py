@@ -1,7 +1,7 @@
 """Retro context packs.
 
 Private pack (<state>/retro/<stamp>-<kind>/): everything the AI engine may read, plus the
-prompt; the engine writes narrative.md + proposal.json back into it.
+prompt; the engine writes narrative.md + proposal.json (+ optional attention.json) back into it.
 Public pack (reports/context/latest/): a small, secret-free subset committed to the repo so
 any reviewer that only sees GitHub can reason about the current state.
 """
@@ -135,7 +135,7 @@ def build_private(report: dict, markdown: str, kind: str, paths, variants, rules
     (d / "backtests.json").write_text(_dump(bt))
     manifest = ["# Context pack", "", f"kind: {kind}, generated_at: {report['generated_at']}", "",
                 "Files (read-only evidence):"] + [f"- {p.relative_to(d)}" for p in sorted(d.rglob("*")) if p.is_file()]
-    manifest += ["", "Write exactly two files here: narrative.md and proposal.json (see the prompt)."]
+    manifest += ["", "Write narrative.md and proposal.json here, plus the optional attention.json (see the prompt)."]
     (d / "MANIFEST.md").write_text("\n".join(manifest) + "\n")
     return d
 

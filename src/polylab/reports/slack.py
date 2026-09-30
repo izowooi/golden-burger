@@ -133,8 +133,12 @@ def report_blocks(report: dict, url: str) -> tuple[str, list[dict]]:
                     f"오늘 {_fmt(pnl.get('today'))} / 누적 {_fmt(pnl.get('all'))}")
     alerts = [a["message"] for a in report.get("alerts", [])][:5]
     changes = [c["summary"] for c in report.get("changes", [])][:5]
-    blocks = [{"type": "header", "text": {"type": "plain_text", "text": title[:150]}},
-              {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+    blocks = [{"type": "header", "text": {"type": "plain_text", "text": title[:150]}}]
+    if report.get("brief"):
+        from polylab.reports.brief import to_mrkdwn  # noqa: PLC0415
+        brief = "*오늘의 브리프*\n" + "\n".join(f"• {to_mrkdwn(b)}" for b in report["brief"])
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": brief[:2900]}})
+    blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}})
     games = games_lines(report)
     if games:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(games)[:2900]}})

@@ -11,7 +11,7 @@
 ## 작업 환경
 
 - 현재 디렉터리가 context pack이다. `MANIFEST.md`를 먼저 읽는다. 도구는 파일 읽기/쓰기뿐이며 이 디렉터리 밖에는 쓰지 않는다.
-- 산출물은 `narrative.md`와 `proposal.json` 두 파일이다.
+- 산출물은 `narrative.md`와 `proposal.json` 두 파일이고, 알릴 것이 있으면 `attention.json`을 추가한다.
 
 ## 근거와 서술 규칙
 
@@ -44,3 +44,39 @@
 
 `change` 형식은 `params` | `stake` | `mode` | `new_variant` | `retire`이며 주간 회고와 같다
 (`bounds.json`의 rules 참고). 변경이 필요 없으면 `changes: []`. JSON 외 텍스트는 넣지 않는다.
+
+## attention.json (선택, 사람에게 알릴 것)
+
+논문 저자는 코드를 읽지 않고 회고만 읽는다. 그가 **알아야 하거나 결정해야 하는 것**만 `attention.json`으로 남긴다.
+시스템이 이미 자동으로 알리는 것(단위 증액·감액, 손실 한도, 킬스위치, AI 실패, validator 거부, 데이터 공백, 디스크,
+진입 0건 변형, paper 변형 표본)은 쓰지 않는다. `attention_open.json`에 이미 있는 항목을 다시 쓰지 않는다(같은 `id`로
+다시 쓰면 갱신으로 처리된다). 쓸 것이 없으면 파일을 만들지 않거나 `items: []`로 둔다.
+
+- 한 회차 최대 3개. 예: 데이터가 기존 가설(변형의 `hypothesis`)과 반대로 나온 경우, 논문 한 문장이 될 만한 연구 발견,
+  저자에게 묻고 싶은 질문(예: 특정 종목 확대 여부).
+- `severity`: `info` | `decide` | `warn` (`critical`은 쓸 수 없다). `category`: `decision_needed` | `risk` |
+  `data_quality` | `research_finding` | `question`.
+- `title` 100자, `detail` 500자 이내의 한국어 평문(마크다운·HTML 없이). 숫자는 파일 값만 쓴다.
+- `evidence_ref`에는 근거 파일 경로(예: `calibration_summary.json`, `metrics/<id>.json`)를 반드시 넣는다. 근거 없는 항목은 버려진다.
+- `id`는 소문자·숫자·하이픈의 안정적인 이름이다(같은 주제는 같은 id).
+
+### 논문에 쓸 수 있는 문장 (주간·월간)
+
+`attention.json`에 `thesis_sentences`를 최대 3개 넣을 수 있다. 리포트에 "AI 초안"으로 표시된다.
+표본 수 `n`(정수)이 30 이상이고 `evidence_ref`가 있는 문장만 실린다. 신뢰구간이 평균 가격을 포함하면 쓰지 않는다.
+학술적 어조, 인과가 아닌 관찰로, 숫자와 95% CI를 문장 안에 넣는다.
+
+```json
+{
+  "schema": "polylab.attention/v1",
+  "items": [
+    {"id": "nfl-favourite-overpriced", "severity": "info", "category": "research_finding",
+     "title": "NFL 0.60–0.70 정배가 실제보다 비싸게 거래됨", "detail": "근거 요약과 숫자",
+     "evidence_ref": ["calibration_summary.json"]}
+  ],
+  "thesis_sentences": [
+    {"text": "NFL 경기 전체 구간에서 가격 0.60–0.70 토큰의 실현 승률은 0.526(95% CI 0.435–0.616)으로 평균 가격 0.645보다 낮았다.",
+     "n": 114, "evidence_ref": "calibration_summary.json"}
+  ]
+}
+```

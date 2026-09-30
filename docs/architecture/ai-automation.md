@@ -39,10 +39,10 @@ sequenceDiagram
     R->>P: 지표·최근 거래·현재 yaml·bounds·백테스트 결과 (비밀값 없음)
     R->>C: prompts/daily.md + context 폴더 (쓰기는 이 폴더만)
     alt claude 성공
-        C-->>R: narrative.md + proposal.json
+        C-->>R: narrative.md + proposal.json (+ attention.json)
     else 실패·시간초과·잘못된 JSON
         R->>X: 같은 프롬프트 (샌드박스, 네트워크 차단)
-        X-->>R: narrative.md + proposal.json
+        X-->>R: narrative.md + proposal.json (+ attention.json)
     end
     opt 주간 회고
         R->>X: 다른 엔진이 1차 제안을 검토 (거부·경고만 가능)
@@ -53,6 +53,7 @@ sequenceDiagram
     alt 테스트 실패
         R->>R: yaml 원복
     end
+    R->>R: attention inbox 갱신 (결정론 규칙 + AI 항목 ≤3) → 오늘의 브리프
     R->>G: reports/·strategies/ 커밋 (계좌 비밀값 정확값 검사 후 push)
     R->>O: 대시보드 JSON 갱신 + Slack 요약
     Note over G,J: 5분 뒤 publish 잡이 git pull → 다음 1분 tick 부터 새 파라미터
@@ -73,6 +74,11 @@ sequenceDiagram
               "values": {"prob_min": 0.93}, "rationale": "…", "evidence": {"n": 34, "roi": 0.012}}]}
 ```
 
+- **출력 (선택)**: `attention.json` — 사람이 알아야 하거나 결정할 것 최대 3개(`items`)와, 주간·월간은 논문 문장 초안
+  (`thesis_sentences`, n ≥ 30·근거 파일 필수). retro 가 스키마·길이·분류를 검증하고 `slack.scrub` 으로 비밀값을 지운다.
+  AI 는 `critical` 을 쓸 수 없고(`warn` 으로 낮춤) 규칙 항목을 건드릴 수 없다(id 앞에 `ai:`). 파일이 없거나 잘못되면
+  AI 항목 없이 진행한다(회고는 실패하지 않음). 이미 열린 항목은 `attention_open.json` 으로 context pack 에 들어간다.
+
 변경 종류: `params`(파라미터) · `stake`(단위 한 단계) · `mode`(live→paper/off 만) · `new_variant`(주간·월간, paper 로만) · `retire`.
 
 ## 4. 안전장치 (validator + 게이트)
@@ -90,7 +96,28 @@ sequenceDiagram
 | 공개 검사 | 커밋·대시보드 업로드 전 계좌 개인키·funder 주소 정확값 대조, 발견 시 중단 |
 | AI 권한 | claude: 파일 도구만(`--permission-mode dontAsk`), 홈 디렉터리 읽기 금지 · codex: `workspace-write` 샌드박스, 네트워크 off |
 
-## 5. 주기별 역할
+## 5. 사람에게 보여 주는 산출물
+
+논문 저자는 코드를 읽지 않고 회고만 읽는다는 전제로, 시스템이 먼저 알려 준다.
+
+| 산출물 | 위치 | 내용 |
+|---|---|---|
+| 오늘의 브리프 | 모든 일일·주간·월간 리포트 맨 위, Slack 메시지 맨 위 | 3~6줄: 지난 회고 이후 live 실현손익·누적, 단위·파라미터 변경(거부 건수), 결정 필요 항목과 `attention.md` 링크, 긴급·경고 항목, 연구 하이라이트 1개(AI 연구 발견 또는 유의한 calibration gap) |
+| 논문에 쓸 수 있는 문장 | 주간·월간 리포트, 브리프 바로 아래 | AI 초안으로 명시. n ≥ 30 과 근거 파일이 있는 문장만, 없으면 절 생략 |
+| attention inbox | `reports/attention.md`(사람용), `reports/attention.json`(상태), 대시보드 `latest/attention.json` | 열린 항목(긴급 > 경고 > 결정 필요 > 참고, 최신 순)과 접힌 "최근 해결"(14일) |
+
+attention 항목의 출처는 두 가지다.
+
+- **자동 규칙 (AI 무관)**: 단위 증액·감액·모드 변경(3일간), 일일 손실 한도·킬스위치, AI 회고 실패·codex 대체·엔진 없음,
+  validator 거부 요약(회고 종류별), 수집 공백·stream stale·잡 실패(`polylab health`), 품질 이벤트 24h 30건 이상·백필 실패,
+  대상 경기가 있었는데 3일 이상 진입 0건인 변형(킬스위치 중엔 생략), 디스크 여유 100GB 미만, paper 변형 표본 수집 중
+  (20건 도달 시 "live 전환 결정 필요"), 주간은 지난 7일 파라미터 변경 목록. 같은 id 는 한 항목으로 합쳐지고, 해당 규칙이
+  평가되는 회고에서 조건이 풀리면 자동으로 "최근 해결"로 이동한다(주간 전용 항목은 일일 회고가 건드리지 않는다).
+- **AI 판단**: 회당 최대 3개(가설과 반대인 데이터, 논문 한 문장감 발견, 저자에게 묻는 질문). 7일간 다시 나오지 않으면 만료.
+
+코드: `src/polylab/autopilot/attention.py`(규칙·검증·병합·렌더), `src/polylab/reports/brief.py`(브리프).
+
+## 6. 주기별 역할
 
 | 회고 | AI 가 보는 것 | 할 수 있는 제안 | 추가 산출물 |
 |---|---|---|---|
@@ -98,9 +125,10 @@ sequenceDiagram
 | 주간 | 7일 성과 + 파라미터 grid 백테스트 | 파라미터·단위·신규 paper 변형·폐기, 다른 엔진의 교차 검토 | `reports/weekly/*.md` |
 | 월간 | 누적 성과, 종목×경기 단계 calibration, 이벤트 민감도, 단위별 안정성 | 구조적 변경 제안 | `docs/research/monthly/YYYY-MM.md` (논문용) |
 
-## 6. 사람이 개입하는 방법
+## 7. 사람이 개입하는 방법
 
 - 전면 중지: Mac mini 에서 `touch /Volumes/t7/polylab/state/KILL` (신규 진입만 중단, 청산·대사는 계속).
 - 특정 변형 중지: `strategies/<id>.yaml` 의 `mode: off` 로 커밋·push → 5분 안에 반영.
 - AI 제안 외부 주입(선택): `autopilot/inbox/*.json` 에 같은 스키마로 커밋 → 다음 회고가 같은 validator 로 처리.
-- 확인: https://poly.zowoo.uk (개요·24h 거래·시각화·연구·리포트), Slack `#polymarket-report`, 저장소 `reports/`·`reports/changes.md`.
+- 확인: https://poly.zowoo.uk (개요·24h 거래·시각화·연구·리포트), Slack `#polymarket-report`, 저장소 `reports/`·`reports/changes.md`,
+  결정할 것은 `reports/attention.md`.

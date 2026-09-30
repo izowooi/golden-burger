@@ -331,13 +331,30 @@ def section_alerts(r: dict) -> list[str]:
     return ["## 경고", "", *[f"- [{a['level']}] {a['message']}" for a in r["alerts"]], ""]
 
 
+def section_brief(r: dict) -> list[str]:
+    """Top-of-report bullets (reports.brief) for a reader who only reads the retros."""
+    if not r.get("brief"):
+        return []
+    return ["## 오늘의 브리프", "", *[f"- {b}" for b in r["brief"]], ""]
+
+
+def section_thesis(r: dict) -> list[str]:
+    """Weekly/monthly only, AI-drafted, omitted unless sentences passed the n/evidence gate in autopilot.attention."""
+    rows = r.get("thesis_sentences") or []
+    if r["kind"] == "daily" or not rows:
+        return []
+    return ["## 논문에 쓸 수 있는 문장 (AI 초안)", "",
+            "AI가 작성한 초안이다. 표본 n과 근거 파일이 있는 문장만 싣지만, 인용 전 원자료로 다시 확인해야 한다.", "",
+            *[f"- {t['text']} (n={t['n']}, 근거 `{t['evidence_ref']}`)" for t in rows], ""]
+
+
 def render(r: dict, narrative: str | None = None, applied: list[dict] | None = None,
            rejected: list[dict] | None = None) -> str:
     lines = [f"# {r['title']}", "",
              f"- 생성: {kst(r['now'], '%Y-%m-%d %H:%M')} KST · commit `{r.get('git_commit') or '–'}` · "
              f"기간 {kst(_ts(r['window']['since']))} ~ {kst(_ts(r['window']['until']))} KST",
              f"- 대시보드: https://poly.zowoo.uk", ""]
-    for section in (section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
+    for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
                     section_open, section_changes,
                     section_alerts, section_health, section_research):
         lines += section(r)

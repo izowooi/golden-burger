@@ -7,9 +7,11 @@
 4. optional external proposals from autopilot/inbox/*.json
 5. validator (bounds, max_step, samples, cooldown, ladder gate, safety-only mode moves)
 6. apply to strategies/*.yaml → pytest → revert on failure
-7. write reports/<kind>/<name>.md, reports/index.json, reports/changes.md, public context pack,
+7. attention inbox (reports/attention.{json,md}: deterministic rule items + at most 3 validated AI items) and the
+   "오늘의 브리프" bullets at the top of the report and the Slack message
+8. write reports/<kind>/<name>.md, reports/index.json, reports/changes.md, public context pack,
    docs/research/monthly/YYYY-MM.md (monthly) → commit/push → publish → Slack
-AI failures never block steps 1, 2 and 5-7.
+AI failures never block steps 1, 2 and 5-8.
 """
 
 from __future__ import annotations
@@ -31,11 +33,12 @@ from polylab import registry, settings
 from polylab.analysis import _common as C
 from polylab.analysis import performance
 from polylab.autopilot import context as ctxpack
-from polylab.autopilot import gitops, monthly
+from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
 from polylab.autopilot.validator import SCHEMA, Context, Decision, Facts, Rules, apply_to_variant, validate
 from polylab.registry import STAKE_LADDER
 from polylab.reports import build as report_build
+from polylab.reports import brief as brief_mod
 from polylab.reports import render, slack
 from polylab.reports.build import KIND_KO
 
@@ -220,7 +223,7 @@ def run_ai(kind: str, cwd: Path, engines: list[Engine], env: Env, timeout: int) 
         if not ok:
             tried.append({"engine": engine.name, "ok": False, "reason": why})
             continue
-        for stale in ("proposal.json", "narrative.md"):
+        for stale in ("proposal.json", "narrative.md", "attention.json"):
             (cwd / stale).unlink(missing_ok=True)
         env.say(f"AI engine {engine.name} running")
         res = engine.run(prompt, cwd, timeout)
@@ -437,6 +440,11 @@ def run_retro(opts: Options, env: Env) -> dict:
                                               env.repo) for v in variants})
     md0 = render.render(report)
     cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest)
+    att_prev = attention.load(env.reports_dir)
+    try:
+        attention.write_context(cwd, att_prev)
+    except OSError as exc:
+        env.say(f"attention context skipped: {exc}")
 
     # AI chain
     ai = {"ran": False, "engine": None, "reason": "비활성(--no-ai)", "tried": [], "proposal": None, "narrative": None}
@@ -492,6 +500,21 @@ def run_retro(opts: Options, env: Env) -> dict:
         rejected += [{**d.as_dict(), "reason": "not applied (--no-apply)"} for d in accepted]
     result["applied"], result["rejected"] = applied, rejected
 
+    # attention inbox + brief: deterministic rules, optional AI items; never blocks the retro
+    att_new = None
+    try:
+        att_new, att_run = attention.update(att_prev, report, kind=kind, now=now, paths=paths, applied=applied,
+                                            rejected=rejected, ai=ai if opts.ai else None, ai_enabled=opts.ai,
+                                            ai_raw=attention.read_ai(cwd) if ai["ran"] else None)
+        report["brief"] = brief_mod.build(report, prev=att_prev.get("last_retro"), applied=applied, rejected=rejected,
+                                          opens=attention.open_items(att_new), ai_items=att_run["ai_items"])
+        report["thesis_sentences"] = att_run["thesis"]
+        for note in att_run["notes"]:
+            env.say(f"attention: {note}")
+    except Exception as exc:
+        env.say(f"attention/brief skipped: {type(exc).__name__}: {exc}")
+        att_new = None
+
     # outputs
     narrative = ai.get("narrative")
     if review_notes or (review and review.get("summary")):
@@ -508,6 +531,11 @@ def run_retro(opts: Options, env: Env) -> dict:
     md_path.write_text(slack.scrub(md))
     rel = f"reports/{kind}/{report['name']}.md"
     update_index(env.reports_dir, report, rel, ai["ran"], ai["engine"])
+    if att_new is not None:
+        try:
+            attention.save(env.reports_dir, att_new)
+        except OSError as exc:
+            env.say(f"attention save failed: {exc}")
     append_changelog(env.reports_dir, report, applied, ai["engine"])
     if kind == "monthly":
         env.research_docs_dir.mkdir(parents=True, exist_ok=True)
