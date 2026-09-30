@@ -1,12 +1,12 @@
 {
- "id": "apricot-dog",
+ "id": "apricot-eco",
  "generated_at": "2026-09-30T14:52:00Z",
  "variant": {
-  "id": "apricot-dog",
+  "id": "apricot-eco",
   "family": "apricot",
   "hypothesis": "NBA 4쿼터 잔여 3분 이하 10점차 이상 리드 팀은 0.95 가격에서도 저평가된다.",
   "mode": "paper",
-  "account": "dog",
+  "account": "eco",
   "sports": [
    "basketball"
   ],
@@ -169,6 +169,7 @@
    "cum_pnl": -8.59
   }
  ],
+ "equity_mode": "paper",
  "open_positions": [],
  "recent_positions": [
   {
@@ -383,13 +384,66 @@
     "key": "2",
     "n": 10,
     "pnl": 0.4,
+    "win_rate": 0.9,
     "roi": 0.02
    },
    {
     "key": "5",
     "n": 30,
     "pnl": 2.0,
+    "win_rate": 0.93,
     "roi": 0.013
+   }
+  ],
+  "by_day": [
+   {
+    "key": "2026-09-30",
+    "n": 2,
+    "pnl": -0.43,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-29",
+    "n": 3,
+    "pnl": -3.44,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-28",
+    "n": 4,
+    "pnl": -4.54,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-27",
+    "n": 2,
+    "pnl": -3.35,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-26",
+    "n": 3,
+    "pnl": -0.48,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-25",
+    "n": 4,
+    "pnl": -3.73,
+    "win_rate": 0.8,
+    "roi": 0.01
+   },
+   {
+    "key": "2026-09-24",
+    "n": 2,
+    "pnl": -0.41,
+    "win_rate": 0.8,
+    "roi": 0.01
    }
   ]
  }

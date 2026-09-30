@@ -131,7 +131,7 @@ h3 { font-size: 14px; margin: 0 0 8px; color: var(--ink-2); font-weight: 600; }
 .tile .meta { color: var(--ink-2); font-size: 12px; margin-top: 2px; }
 .hero { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; }
 
-.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); }
+.status { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--ink-2); white-space: nowrap; }
 .dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; flex: none; }
 .dot.good { background: var(--good); }
 .dot.warning { background: var(--warning); }
@@ -218,7 +218,34 @@ details summary { cursor: pointer; color: var(--ink-2); font-size: 12px; margin-
 .fixture-banner { background: var(--warning); color: #000; text-align: center; font-size: 12px; padding: 3px; }
 
 @media (max-width: 640px) {
+  .topbar-inner { gap: 8px; }
+  .nav { gap: 0; }
+  .nav a { padding: 4px 6px; }
+  .theme-toggle { padding: 4px 8px; }
   h1 { font-size: 19px; }
   .hero { font-size: 26px; }
   .card { padding: 12px; }
 }
+
+.tx-games { display: grid; gap: 12px; }
+.tx-game { border: 1px solid var(--ring); border-radius: 10px; background: var(--surface); padding: 12px 14px; min-width: 0; }
+.tx-game-head { display: flex; gap: 10px; flex-wrap: wrap; align-items: baseline; margin-bottom: 6px; }
+.tx-game-head .muted { font-size: 12px; }
+.tx-variant { border-top: 1px solid var(--grid); padding-top: 8px; margin-top: 8px; }
+.tx-variant-head { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 4px; font-size: 13px; }
+.tx-pos { display: inline-flex; gap: 4px; flex-wrap: wrap; }
+.tx-sum { margin-left: auto; font-weight: 600; font-variant-numeric: tabular-nums; }
+.side { font-size: 12px; font-weight: 600; }
+.side-BUY { color: var(--s1); }
+.side-SELL { color: var(--s2); }
+.side-RESOLVE { color: var(--ink-2); }
+tfoot td { border-top: 2px solid var(--axis); border-bottom: 0; }
+.filters { display: flex; gap: 8px; flex-wrap: wrap; align-items: end; margin-bottom: 12px; }
+.filters label { display: grid; gap: 2px; font-size: 12px; color: var(--muted); }
+.filters select, .filters button {
+  font: inherit; font-size: 13px; padding: 5px 8px; border-radius: 6px; border: 1px solid var(--ring);
+  background: var(--surface); color: var(--ink);
+}
+.filters button { cursor: pointer; background: var(--surface-2); }
+.tx-table { table-layout: fixed; min-width: 720px; }
+.tx-table td { overflow: hidden; text-overflow: ellipsis; }

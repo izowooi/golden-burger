@@ -69,6 +69,8 @@ export interface StrategySummary {
   open_positions: Num;
   open_cost_usdc: Num;
   pnl: Pnl | null;
+  /** Which ledger pnl/trades/win_rate/roi come from. */
+  pnl_mode?: "live" | "paper" | string | null;
   trades: { all: Num; wins: Num; losses: Num } | null;
   win_rate: Num;
   roi: Num;
@@ -111,6 +113,8 @@ export interface StakeEvent {
   from_usdc: Num;
   to_usdc: Num;
   reason: string | null;
+  from_mode?: Mode | null;
+  to_mode?: Mode | null;
   evidence?: Record<string, unknown> | null;
 }
 
@@ -126,6 +130,8 @@ export interface OpenPosition {
   mark_price: Num;
   unrealized_pnl: Num;
   game_minute: Num;
+  status?: string | null;
+  mode?: Mode | null;
 }
 
 export interface ClosedPosition {
@@ -156,12 +162,14 @@ export interface StrategyDetail {
   param_history: ParamVersion[] | null;
   stake_events: StakeEvent[] | null;
   equity_curve: { at: string; cum_pnl: number | null }[] | null;
+  equity_mode?: "live" | "paper" | string | null;
   open_positions: OpenPosition[] | null;
   recent_positions: ClosedPosition[] | null;
   breakdown: {
     by_sport: BreakdownRow[] | null;
     by_entry_minute: BreakdownRow[] | null;
     by_stake: BreakdownRow[] | null;
+    by_day?: BreakdownRow[] | null;
   } | null;
 }
 
@@ -193,11 +201,18 @@ export interface Research {
     event: string;
     minute_bucket: string;
     n: Num;
+    n_isolated?: Num;
     mean_abs_jump: Num;
     median_jump: Num;
+    mean_jump?: Num;
+    mean_pre_price?: Num;
+    reversion_1m?: Num;
     reversion_5m: Num;
     reversion_10m: Num;
+    mean_peak_minute?: Num;
   }[] | null;
+  event_by_score_state?: ScoreStateRow[] | null;
+  analysis_generated_at?: { calibration: Iso; events: Iso } | null;
   stake_tiers: {
     tier_usdc: Num;
     variants: Num;
@@ -217,4 +232,46 @@ export interface ReportEntry {
   title: string;
   path: string;
   ai: boolean | null;
+  engine?: "claude" | "codex" | string | null;
+  generated_at?: Iso;
+}
+
+export type TxSide = "BUY" | "SELL" | "RESOLVE" | string;
+
+export interface Transaction {
+  at: Iso;
+  variant_id: string;
+  account: string | null;
+  mode: Mode | null;
+  sport: string | null;
+  league: string | null;
+  game_title: string | null;
+  outcome: string | null;
+  side: TxSide;
+  price: Num;
+  shares: Num;
+  usdc: Num;
+  fee_usdc: Num;
+  status: string | null;
+  position_id: string | null;
+  position_status: string | null;
+  exit_reason: string | null;
+  realized_pnl: Num;
+}
+
+export interface ScoreStateRow {
+  sport: string;
+  event: string;
+  minute_bucket: string;
+  score_state: "trailing" | "level" | "leading" | string;
+  n: Num;
+  n_isolated?: Num;
+  mean_abs_jump: Num;
+  median_jump?: Num;
+  mean_jump?: Num;
+  mean_pre_price?: Num;
+  reversion_1m?: Num;
+  reversion_5m: Num;
+  reversion_10m: Num;
+  mean_peak_minute?: Num;
 }

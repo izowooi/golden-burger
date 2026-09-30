@@ -3,10 +3,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { EquityChart, InlineBar } from "@/components/charts";
+import { TxGroups, TxLegend, TxTotalsTable } from "@/components/transactions";
 import { Generated, LoadState, ModeBadge } from "@/components/ui";
 import { kst, num, paramValue, pct, signedPct, signedUsd, tone, usd } from "@/lib/format";
 import { loadJson, STRATEGY_ID } from "@/lib/storage";
-import type { BreakdownRow, Overview, ParamVersion, StakeEvent, StrategyDetail, StrategySummary } from "@/lib/types";
+import type { BreakdownRow, Overview, ParamVersion, StakeEvent, StrategyDetail, StrategySummary, Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -20,10 +21,12 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
 export default async function StrategyPage({ params }: Props) {
   const { id } = await params;
   if (!STRATEGY_ID.test(id)) notFound();
-  const [ov, det] = await Promise.all([
+  const [ov, det, tx] = await Promise.all([
     loadJson<Overview>("latest/overview.json"),
     loadJson<StrategyDetail>(`latest/strategies/${id}.json`),
+    loadJson<Transaction[]>("latest/transactions_24h.json"),
   ]);
+  const myTx = tx.state === "ok" && Array.isArray(tx.data) ? tx.data.filter((t) => t.variant_id === id) : [];
   const summary = ov.state === "ok" ? ov.data.strategies?.find((s) => s.id === id) ?? null : null;
   const detail = det.state === "ok" ? det.data : null;
   const variant = detail?.variant ?? null;
@@ -64,6 +67,16 @@ export default async function StrategyPage({ params }: Props) {
       ) : (
         <DetailBody d={det.data} />
       )}
+      <section className="section card">
+        <h2>지난 24시간 거래</h2>
+        {tx.state !== "ok" ? <LoadState result={tx} /> : !myTx.length ? <p className="muted" style={{ margin: 0 }}>지난 24시간 거래 없음</p> : (
+          <>
+            <TxTotalsTable rows={myTx} />
+            <TxLegend />
+            <TxGroups rows={myTx} showVariant={false} />
+          </>
+        )}
+      </section>
       {detail && variant && (
         <section className="section card">
           <details>
@@ -78,8 +91,9 @@ export default async function StrategyPage({ params }: Props) {
 }
 
 function SummaryTiles({ s }: { s: StrategySummary }) {
+  const ledger = s.pnl_mode ? `${s.pnl_mode} 원장` : "";
   const tiles: [string, string, string][] = [
-    ["오늘", signedUsd(s.pnl?.today), tone(s.pnl?.today)],
+    [`오늘 ${ledger}`, signedUsd(s.pnl?.today), tone(s.pnl?.today)],
     ["7일", signedUsd(s.pnl?.d7), tone(s.pnl?.d7)],
     ["30일", signedUsd(s.pnl?.d30), tone(s.pnl?.d30)],
     ["누적", signedUsd(s.pnl?.all), tone(s.pnl?.all)],
@@ -130,7 +144,12 @@ function Timeline({ d }: { d: StrategyDetail }) {
         ) : (
           <li key={i} className="stake">
             <div className="when">{kst(it.at)} · 스테이크 변경</div>
-            <div><strong>{usd(it.e.from_usdc, 0)} → {usd(it.e.to_usdc, 0)}</strong></div>
+            <div>
+              <strong>{usd(it.e.from_usdc, 0)} → {usd(it.e.to_usdc, 0)}</strong>
+              {(it.e.from_mode || it.e.to_mode) && it.e.from_mode !== it.e.to_mode && (
+                <span className="muted"> · {it.e.from_mode ?? "—"} → {it.e.to_mode ?? "—"}</span>
+              )}
+            </div>
             {it.e.reason && <div className="muted" style={{ fontSize: 12 }}>{it.e.reason}</div>}
           </li>
         ),
@@ -139,8 +158,10 @@ function Timeline({ d }: { d: StrategyDetail }) {
   );
 }
 
-function Breakdown({ title, rows, keyLabel, showWin, showRoi }: { title: string; rows: BreakdownRow[] | null | undefined; keyLabel: string; showWin?: boolean; showRoi?: boolean }) {
+function Breakdown({ title, rows, keyLabel }: { title: string; rows: BreakdownRow[] | null | undefined; keyLabel: string }) {
   const list = rows ?? [];
+  const showWin = list.some((r) => r.win_rate !== undefined && r.win_rate !== null);
+  const showRoi = list.some((r) => r.roi !== undefined && r.roi !== null);
   const max = Math.max(0, ...list.map((r) => Math.abs(r.pnl ?? 0)));
   return (
     <div className="card">
@@ -155,8 +176,8 @@ function Breakdown({ title, rows, keyLabel, showWin, showRoi }: { title: string;
                   <td>{r.key}</td>
                   <td className="n">{num(r.n)}</td>
                   <td className={`n ${tone(r.pnl)}`}>{signedUsd(r.pnl)}<InlineBar value={r.pnl} max={max} /></td>
-                  {showWin && <td className="n">{pct(r.win_rate)}</td>}
-                  {showRoi && <td className={`n ${tone(r.roi)}`}>{signedPct(r.roi)}</td>}
+                  {showWin && <td className="n">{pct(r.win_rate ?? null)}</td>}
+                  {showRoi && <td className={`n ${tone(r.roi ?? null)}`}>{signedPct(r.roi ?? null)}</td>}
                 </tr>
               ))}
             </tbody>
@@ -174,7 +195,7 @@ function DetailBody({ d }: { d: StrategyDetail }) {
   return (
     <>
       <section className="section card">
-        <h2>누적 실현 손익</h2>
+        <h2>누적 실현 손익 {d.equity_mode && <span className={`badge ${d.equity_mode}`}>{d.equity_mode} 원장</span>}</h2>
         {curve.length >= 2 ? <EquityChart points={curve} /> : <p className="muted">아직 데이터 없음</p>}
       </section>
 
@@ -188,11 +209,12 @@ function DetailBody({ d }: { d: StrategyDetail }) {
         {!open.length ? <p className="muted">오픈 포지션 없음</p> : (
           <div className="table-wrap">
             <table>
-              <thead><tr><th>진입</th><th>종목</th><th>경기</th><th>결과</th><th className="n">분</th><th className="n">진입가</th><th className="n">현재가</th><th className="n">수량</th><th className="n">원가</th><th className="n">평가손익</th></tr></thead>
+              <thead><tr><th>진입</th><th>상태</th><th>종목</th><th>경기</th><th>결과</th><th className="n">분</th><th className="n">진입가</th><th className="n">현재가</th><th className="n">수량</th><th className="n">원가</th><th className="n">평가손익</th></tr></thead>
               <tbody>
                 {open.map((p, i) => (
                   <tr key={i}>
                     <td className="muted">{kst(p.opened_at)}</td>
+                    <td>{p.mode && <ModeBadge mode={p.mode} />} <span className="muted">{p.status ?? ""}</span></td>
                     <td>{p.sport ?? "—"}{p.league && <span className="muted"> · {p.league}</span>}</td>
                     <td className="wrap">{p.title ?? "—"}</td>
                     <td>{p.outcome ?? "—"}</td>
@@ -237,9 +259,10 @@ function DetailBody({ d }: { d: StrategyDetail }) {
       </section>
 
       <section className="section grid grid-3">
-        <Breakdown title="종목별" rows={d.breakdown?.by_sport} keyLabel="종목" showWin />
+        <Breakdown title="종목별" rows={d.breakdown?.by_sport} keyLabel="종목" />
         <Breakdown title="진입 분(minute)별" rows={d.breakdown?.by_entry_minute} keyLabel="분" />
-        <Breakdown title="스테이크 티어별" rows={d.breakdown?.by_stake} keyLabel="USDC" showRoi />
+        <Breakdown title="스테이크 티어별" rows={d.breakdown?.by_stake} keyLabel="USDC" />
+        <Breakdown title="일자별 (KST)" rows={[...(d.breakdown?.by_day ?? [])].sort((a, b) => b.key.localeCompare(a.key))} keyLabel="날짜" />
       </section>
     </>
   );

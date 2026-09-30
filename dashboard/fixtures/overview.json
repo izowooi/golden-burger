@@ -60,8 +60,8 @@
     "updated_at": "2026-09-30T14:52:00Z"
    },
    {
-    "alias": "dog",
-    "variant_id": "apricot-dog",
+    "alias": "eco",
+    "variant_id": "apricot-eco",
     "cash_usdc": 115.1,
     "positions_value_usdc": 9.6,
     "equity_usdc": 124.7,
@@ -69,7 +69,16 @@
     "updated_at": "2026-09-30T14:52:00Z"
    },
    {
-    "alias": "fox",
+    "alias": "tiger",
+    "variant_id": "cherry-tiger",
+    "cash_usdc": 88.0,
+    "positions_value_usdc": 9.1,
+    "equity_usdc": 97.1,
+    "redeemable_usdc": 0.0,
+    "updated_at": "2026-09-30T14:52:00Z"
+   },
+   {
+    "alias": "king",
     "variant_id": null,
     "cash_usdc": null,
     "positions_value_usdc": null,
@@ -105,6 +114,7 @@
    },
    "open_positions": 2,
    "open_cost_usdc": 10.0,
+   "pnl_mode": "live",
    "pnl": {
     "today": -4.74,
     "d7": -6.41,
@@ -125,11 +135,11 @@
    }
   },
   {
-   "id": "apricot-dog",
+   "id": "apricot-eco",
    "family": "apricot",
    "hypothesis": "NBA 4쿼터 잔여 3분 이하 10점차 이상 리드 팀은 0.95 가격에서도 저평가된다.",
    "mode": "paper",
-   "account": "dog",
+   "account": "eco",
    "sports": [
     "basketball"
    ],
@@ -148,6 +158,7 @@
    },
    "open_positions": 1,
    "open_cost_usdc": 5.0,
+   "pnl_mode": "paper",
    "pnl": {
     "today": -10,
     "d7": -11.52,
@@ -165,7 +176,51 @@
    "last_change": null
   },
   {
-   "id": "plum-fox",
+   "id": "cherry-tiger",
+   "family": "cherry",
+   "hypothesis": "경기 결과 마켓에서 0.76-0.78 YES 토큰은 실현 확률 대비 과소평가되어 수렴한다.",
+   "mode": "live",
+   "account": "tiger",
+   "sports": [
+    "soccer",
+    "nba",
+    "nhl"
+   ],
+   "stake_usdc": 5,
+   "next_stake_usdc": 10,
+   "ladder": {
+    "status": "demote_warning",
+    "trades_at_tier": 12,
+    "needed": 20,
+    "roi_ci_lo": -0.05
+   },
+   "params": {
+    "buy_threshold": 0.76,
+    "sell_threshold": 0.78,
+    "take_profit_percent": 0.2,
+    "stop_loss_percent": -0.08
+   },
+   "open_positions": 2,
+   "open_cost_usdc": 10.0,
+   "pnl_mode": "live",
+   "pnl": {
+    "today": 0.75,
+    "d7": -0.56,
+    "d30": -0.95,
+    "all": -0.95
+   },
+   "trades": {
+    "all": 30,
+    "wins": 28,
+    "losses": 2
+   },
+   "win_rate": 0.9333,
+   "roi": -0.0063,
+   "last_trade_at": "2026-09-30T03:55:00Z",
+   "last_change": null
+  },
+  {
+   "id": "plum-king",
    "family": "plum",
    "hypothesis": "득점 직후 과잉반응 가격을 역방향으로 매수하면 10분 내 되돌림을 얻는다.",
    "mode": "off",
@@ -183,11 +238,12 @@
    },
    "open_positions": 0,
    "open_cost_usdc": null,
+   "pnl_mode": "paper",
    "pnl": {
     "today": null,
-    "d7": -27.32,
-    "d30": -27.32,
-    "all": -27.32
+    "d7": -27.46,
+    "d30": -27.46,
+    "all": -27.46
    },
    "trades": {
     "all": 14,
@@ -195,7 +251,7 @@
     "losses": 6
    },
    "win_rate": 0.5714,
-   "roi": -0.3903,
+   "roi": -0.3923,
    "last_trade_at": "2026-09-30T03:55:00Z",
    "last_change": {
     "at": "2026-09-21T14:55:00Z",

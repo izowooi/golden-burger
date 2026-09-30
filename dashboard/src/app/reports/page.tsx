@@ -37,7 +37,7 @@ export default async function ReportsPage() {
                       <td><span className="badge">{KIND_LABEL[r.kind] ?? r.kind}</span></td>
                       <td className="muted">{r.slot ? SLOT_LABEL[r.slot] ?? r.slot : "—"}</td>
                       <td className="wrap">{href ? <Link href={href}>{r.title}</Link> : r.title}</td>
-                      <td className="muted">{r.ai ? "AI" : "—"}</td>
+                      <td className="muted">{r.ai ? r.engine ?? "AI" : "—"}</td>
                     </tr>
                   );
                 })}

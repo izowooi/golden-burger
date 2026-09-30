@@ -140,47 +140,58 @@ export function ReliabilityDiagram({ buckets, title, domainLo }: { buckets: Reli
 
 /* --------------------------- Event sensitivity ---------------------------- */
 
-export interface SensitivityRow {
-  minute_bucket: string;
-  n: number | null;
-  mean_abs_jump: number | null;
-  reversion_5m: number | null;
-  reversion_10m: number | null;
+export interface SeriesDef {
+  key: string;
+  label: string;
+  color: string;
 }
 
-const SENS_SERIES = [
+export interface GroupRow {
+  bucket: string;
+  n: number | null;
+  values: Record<string, number | null | undefined>;
+}
+
+export const SENS_SERIES: SeriesDef[] = [
   { key: "mean_abs_jump", label: "평균 |점프|", color: "var(--s1)" },
   { key: "reversion_5m", label: "5분 되돌림", color: "var(--s2)" },
   { key: "reversion_10m", label: "10분 되돌림", color: "var(--s3)" },
-] as const;
+];
 
-export function SensitivityLegend() {
+export const STATE_SERIES: SeriesDef[] = [
+  { key: "trailing", label: "뒤짐", color: "var(--s1)" },
+  { key: "level", label: "동점", color: "var(--s2)" },
+  { key: "leading", label: "앞섬", color: "var(--s3)" },
+];
+
+export function Legend({ series }: { series: SeriesDef[] }) {
   return (
     <div className="legend">
-      {SENS_SERIES.map((s) => (
+      {series.map((s) => (
         <span key={s.key}><i style={{ background: s.color }} />{s.label}</span>
       ))}
     </div>
   );
 }
 
-/** Grouped bars per minute bucket; all three measures are in probability points, so one shared axis. */
-export function SensitivityChart({ rows, title }: { rows: SensitivityRow[]; title: string }) {
+/** Grouped bars per minute bucket. Every series shares one unit (probability points), so one axis. */
+export function GroupedBars({ rows, series, title }: { rows: GroupRow[]; series: SeriesDef[]; title: string }) {
   if (!rows.length) return null;
   const W = 360, H = 250, m = { t: 26, r: 8, b: 30, l: 44 };
   const iw = W - m.l - m.r, ih = H - m.t - m.b;
-  const vals = rows.flatMap((r) => SENS_SERIES.map((s) => r[s.key])).filter((v): v is number => v !== null);
+  const vals = rows.flatMap((r) => series.map((s) => r.values[s.key])).filter((v): v is number => typeof v === "number");
+  if (!vals.length) return null;
   let y0 = Math.min(0, ...vals), y1 = Math.max(0, ...vals);
   const tk = ticks(y0, y1, 4);
   y0 = Math.min(y0, tk[0]); y1 = Math.max(y1, tk[tk.length - 1]);
   const y = (v: number) => m.t + ih - ((v - y0) / (y1 - y0 || 1)) * ih;
   const band = iw / rows.length;
   const gap = 2;
-  const bw = Math.min(18, (band * 0.72 - gap * (SENS_SERIES.length - 1)) / SENS_SERIES.length);
-  const groupW = bw * SENS_SERIES.length + gap * (SENS_SERIES.length - 1);
+  const bw = Math.min(18, (band * 0.72 - gap * (series.length - 1)) / series.length);
+  const groupW = bw * series.length + gap * (series.length - 1);
 
   return (
-    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${title} 이벤트 민감도`}>
+    <svg className="chart" viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title}>
       <text className="title" x={m.l} y={14}>{title}</text>
       {tk.map((v) => (
         <g key={v}>
@@ -191,11 +202,11 @@ export function SensitivityChart({ rows, title }: { rows: SensitivityRow[]; titl
       {rows.map((r, i) => {
         const gx = m.l + band * i + (band - groupW) / 2;
         return (
-          <g key={r.minute_bucket}>
-            <text x={m.l + band * i + band / 2} y={H - 10} textAnchor="middle">{r.minute_bucket}′</text>
-            {SENS_SERIES.map((s, j) => {
-              const v = r[s.key];
-              if (v === null) return null;
+          <g key={r.bucket}>
+            <text x={m.l + band * i + band / 2} y={H - 10} textAnchor="middle">{r.bucket}′</text>
+            {series.map((s, j) => {
+              const v = r.values[s.key];
+              if (typeof v !== "number") return null;
               const top = y(Math.max(v, 0)), bot = y(Math.min(v, 0));
               const h = Math.max(1, bot - top);
               const bx = gx + j * (bw + gap);
@@ -203,7 +214,7 @@ export function SensitivityChart({ rows, title }: { rows: SensitivityRow[]; titl
                 <g key={s.key} className="pt">
                   <rect className="mark" x={bx} y={top} width={bw} height={h} rx={Math.min(3, bw / 2)} fill={s.color} />
                   <rect className="hit" x={bx - 1} y={m.t} width={bw + 2} height={ih}>
-                    <title>{`${title} · ${r.minute_bucket}′\n${s.label} ${signedPct(v)} · n=${num(r.n)}`}</title>
+                    <title>{`${title} · ${r.bucket}′\n${s.label} ${signedPct(v)} · n=${num(r.n)}`}</title>
                   </rect>
                 </g>
               );

@@ -1,9 +1,10 @@
 import Link from "next/link";
 
+import { TxTotalsTable } from "@/components/transactions";
 import { Generated, LoadState, ModeBadge, StatusDot, type Health } from "@/components/ui";
 import { ageMinutes, ago, kst, num, pct, signedUsd, tone, usd } from "@/lib/format";
 import { loadJson } from "@/lib/storage";
-import type { Overview, StrategySummary } from "@/lib/types";
+import type { Overview, StrategySummary, Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -16,12 +17,25 @@ function freshness(iso: string | null | undefined, warnMin: number, critMin: num
 const MODE_ORDER: Record<string, number> = { live: 0, paper: 1, off: 2 };
 
 export default async function OverviewPage() {
-  const res = await loadJson<Overview>("latest/overview.json");
+  const [res, tx] = await Promise.all([
+    loadJson<Overview>("latest/overview.json"),
+    loadJson<Transaction[]>("latest/transactions_24h.json"),
+  ]);
   return (
     <>
       <h1>개요</h1>
       <p className="sub">시스템 상태 · 포트폴리오 · 전략 성과 (KST)</p>
       {res.state !== "ok" ? <LoadState result={res} /> : <OverviewBody o={res.data} />}
+      <section className="section card">
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+          <h2>지난 24시간 거래</h2>
+          <Link href="/transactions" style={{ fontSize: 13 }}>경기별 전체 내역 →</Link>
+        </div>
+        {tx.state !== "ok" ? <LoadState result={tx} /> : !Array.isArray(tx.data) || !tx.data.length ? (
+          <p className="muted" style={{ margin: 0 }}>지난 24시간 거래 없음</p>
+        ) : <TxTotalsTable rows={tx.data} compact />}
+      </section>
+      {res.state === "ok" && <Generated at={res.data.generated_at} extra={<> · {ago(res.data.generated_at)} · commit <span className="mono">{res.data.git_commit ?? "—"}</span></>} />}
     </>
   );
 }
@@ -39,7 +53,6 @@ function OverviewBody({ o }: { o: Overview }) {
         {strategies.length ? <StrategyTable rows={strategies} /> : <p className="muted">아직 데이터 없음</p>}
       </section>
       <Alerts o={o} />
-      <Generated at={o.generated_at} extra={<> · {ago(o.generated_at)} · commit <span className="mono">{o.git_commit ?? "—"}</span></>} />
     </>
   );
 }
@@ -179,7 +192,7 @@ function StrategyTable({ rows }: { rows: StrategySummary[] }) {
         <thead>
           <tr>
             <th>전략</th><th>패밀리</th><th>모드</th><th>계정</th><th>종목</th><th>스테이크 / 래더</th>
-            <th className="n">오픈</th><th className="n">오늘</th><th className="n">7일</th><th className="n">30일</th>
+            <th className="n">오픈</th><th className="n" title="pnl_mode 원장 기준">오늘</th><th className="n">7일</th><th className="n">30일</th>
             <th className="n">누적</th><th className="n">승률</th><th>최근 변경</th>
           </tr>
         </thead>
@@ -188,7 +201,10 @@ function StrategyTable({ rows }: { rows: StrategySummary[] }) {
             <tr key={s.id}>
               <td><Link href={`/strategies/${s.id}`}><strong>{s.id}</strong></Link></td>
               <td className="muted">{s.family ?? "—"}</td>
-              <td><ModeBadge mode={s.mode} /></td>
+              <td>
+                <ModeBadge mode={s.mode} />
+                {s.pnl_mode && s.pnl_mode !== s.mode && <span className="muted" style={{ fontSize: 11 }}> {s.pnl_mode} 원장</span>}
+              </td>
               <td>{s.account ?? "—"}</td>
               <td>{s.sports?.length ? s.sports.join(", ") : "—"}</td>
               <td><Ladder s={s} /></td>

@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { InlineBar, ReliabilityDiagram, reliabilityDomainLo, SensitivityChart, SensitivityLegend } from "@/components/charts";
+import { GroupedBars, InlineBar, Legend, ReliabilityDiagram, reliabilityDomainLo, SENS_SERIES, STATE_SERIES } from "@/components/charts";
 import { Generated, LoadState } from "@/components/ui";
 import { kst, num, pct, signedPct, signedUsd, tone, usd } from "@/lib/format";
 import { loadJson } from "@/lib/storage";
@@ -39,6 +39,7 @@ function ResearchBody({ r }: { r: Research }) {
       <Calibration r={r} />
       <Brier r={r} />
       <Sensitivity r={r} />
+      <ScoreState r={r} />
       <StakeTiers r={r} />
       {r.notes?.length ? (
         <section className="section card">
@@ -46,7 +47,10 @@ function ResearchBody({ r }: { r: Research }) {
           <ul style={{ margin: 0, paddingLeft: 18 }}>{r.notes.map((n, i) => <li key={i}>{n}</li>)}</ul>
         </section>
       ) : null}
-      <Generated at={r.generated_at} />
+      <Generated
+        at={r.generated_at}
+        extra={r.analysis_generated_at ? <> · 보정 분석 {kst(r.analysis_generated_at.calibration)} · 이벤트 분석 {kst(r.analysis_generated_at.events)}</> : null}
+      />
     </>
   );
 }
@@ -175,24 +179,35 @@ function Sensitivity({ r }: { r: Research }) {
       </p>
       {!rows.length ? <p className="muted">아직 데이터 없음</p> : (
         <>
-          <SensitivityLegend />
+          <Legend series={SENS_SERIES} />
           <div className="small-multiples">
             {[...groups.entries()].map(([k, list]) => {
               const [sport, event] = k.split("|");
-              return <SensitivityChart key={k} title={`${sport} · ${event}`} rows={[...list].sort((a, b) => bucketStart(a.minute_bucket) - bucketStart(b.minute_bucket))} />;
+              const sorted = [...list].sort((a, b) => bucketStart(a.minute_bucket) - bucketStart(b.minute_bucket));
+              return (
+                <GroupedBars
+                  key={k}
+                  title={`${sport} · ${event}`}
+                  series={SENS_SERIES}
+                  rows={sorted.map((e) => ({ bucket: e.minute_bucket, n: e.n, values: { mean_abs_jump: e.mean_abs_jump, reversion_5m: e.reversion_5m, reversion_10m: e.reversion_10m } }))}
+                />
+              );
             })}
           </div>
           <details>
             <summary>표로 보기</summary>
             <div className="table-wrap">
               <table>
-                <thead><tr><th>종목</th><th>이벤트</th><th>분</th><th className="n">n</th><th className="n">평균 |점프|</th><th className="n">중앙 점프</th><th className="n">5분 되돌림</th><th className="n">10분 되돌림</th></tr></thead>
+                <thead><tr><th>종목</th><th>이벤트</th><th>분</th><th className="n">n</th><th className="n">고립 n</th><th className="n">직전가</th><th className="n">평균 |점프|</th><th className="n">평균 점프</th><th className="n">중앙 점프</th><th className="n">1분</th><th className="n">5분 되돌림</th><th className="n">10분 되돌림</th><th className="n">고점 분</th></tr></thead>
                 <tbody>
                   {rows.map((e, i) => (
                     <tr key={i}>
                       <td>{e.sport}</td><td>{e.event}</td><td>{e.minute_bucket}</td><td className="n">{num(e.n)}</td>
-                      <td className="n">{pct(e.mean_abs_jump)}</td><td className="n">{signedPct(e.median_jump)}</td>
+                      <td className="n">{num(e.n_isolated ?? null)}</td><td className="n">{num(e.mean_pre_price ?? null, 3)}</td>
+                      <td className="n">{pct(e.mean_abs_jump)}</td><td className="n">{signedPct(e.mean_jump ?? null)}</td><td className="n">{signedPct(e.median_jump)}</td>
+                      <td className="n">{signedPct(e.reversion_1m ?? null)}</td>
                       <td className="n">{signedPct(e.reversion_5m)}</td><td className="n">{signedPct(e.reversion_10m)}</td>
+                      <td className="n">{num(e.mean_peak_minute ?? null, 1)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -231,6 +246,57 @@ function StakeTiers({ r }: { r: Research }) {
             </tbody>
           </table>
         </div>
+      )}
+    </section>
+  );
+}
+
+const STATE_LABEL: Record<string, string> = { trailing: "뒤짐", level: "동점", leading: "앞섬" };
+
+function ScoreState({ r }: { r: Research }) {
+  const rows = r.event_by_score_state ?? [];
+  const groups = groupBy(rows, (e) => `${e.sport}|${e.event}`);
+  return (
+    <section className="section card">
+      <h2>득점 직전 스코어 상황별 점프</h2>
+      <p className="sub" style={{ marginBottom: 8 }}>
+        득점한 팀 기준, 득점 직전 스코어 상태(뒤짐·동점·앞섬)별 평균 |점프| (pp). 같은 분 구간 안에서 상태별로 비교한다.
+      </p>
+      {!rows.length ? <p className="muted">아직 데이터 없음</p> : (
+        <>
+          <Legend series={STATE_SERIES} />
+          <div className="small-multiples">
+            {[...groups.entries()].map(([k, list]) => {
+              const [sport, event] = k.split("|");
+              const buckets = groupBy(list, (e) => e.minute_bucket);
+              const gr = [...buckets.entries()]
+                .sort((a, b) => bucketStart(a[0]) - bucketStart(b[0]))
+                .map(([bucket, xs]) => ({
+                  bucket,
+                  n: xs.reduce((acc, x) => acc + (x.n ?? 0), 0),
+                  values: Object.fromEntries(xs.map((x) => [x.score_state, x.mean_abs_jump])),
+                }));
+              return <GroupedBars key={k} title={`${sport} · ${event}`} series={STATE_SERIES} rows={gr} />;
+            })}
+          </div>
+          <details>
+            <summary>표로 보기</summary>
+            <div className="table-wrap">
+              <table>
+                <thead><tr><th>종목</th><th>이벤트</th><th>분</th><th>상태</th><th className="n">n</th><th className="n">평균 |점프|</th><th className="n">평균 점프</th><th className="n">5분 되돌림</th><th className="n">10분 되돌림</th></tr></thead>
+                <tbody>
+                  {rows.map((e, i) => (
+                    <tr key={i}>
+                      <td>{e.sport}</td><td>{e.event}</td><td>{e.minute_bucket}</td><td>{STATE_LABEL[e.score_state] ?? e.score_state}</td>
+                      <td className="n">{num(e.n)}</td><td className="n">{pct(e.mean_abs_jump)}</td><td className="n">{signedPct(e.mean_jump ?? null)}</td>
+                      <td className="n">{signedPct(e.reversion_5m)}</td><td className="n">{signedPct(e.reversion_10m)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        </>
       )}
     </section>
   );
