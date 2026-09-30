@@ -133,6 +133,8 @@ def inspect_snapshot(path, start, end, references=None):
     c.row_factory = sqlite3.Row
     try:
         c.execute("PRAGMA query_only=ON")
+        from polybot_observability.market_data_raw_guava_reader import verify_guava_read_closure
+        verify_guava_read_closure(c,p,references=references,immutable=True)
         contracts = c.execute("SELECT * FROM collection_contracts").fetchall()
         if len(contracts) != 1:
             raise ValueError("expected one collection contract")

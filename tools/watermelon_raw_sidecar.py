@@ -64,10 +64,19 @@ def open_pin(path, expected_sha256, *, references=None):
     conn = market_data_connect(
         path.as_uri() + "?mode=ro&immutable=1", uri=True, references=references
     )
-    conn.row_factory = sqlite3.Row
-    if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
-        conn.close()
-        raise ValueError("pin quick_check failed")
+    try:
+        conn.row_factory = sqlite3.Row
+        if conn.execute("PRAGMA quick_check").fetchone()[0] != "ok":
+            raise ValueError("pin quick_check failed")
+        from polybot_observability.market_data_raw_links import raw_layout_metadata,verify_raw_dependencies
+        from polybot_observability.market_data_bundle import reference_closure,verify_closure
+        if raw_layout_metadata(conn) is not None:verify_raw_dependencies(conn,references=references)
+        hashes=reference_closure(path,'golden-watermelon',immutable=True)
+        if hashes:
+            refs=references or getattr(conn,'_references',None)
+            verify_closure(refs.reader,hashes)
+    except BaseException:
+        conn.close();raise
     return conn
 
 
@@ -79,7 +88,12 @@ def validate_contract(raw, parent_filename):
     rows = raw.execute("SELECT * FROM raw_metadata").fetchall()
     if len(rows) != 1 or rows[0]["contract"] != CONTRACT or rows[0]["parent_filename"] != parent_filename:
         raise ValueError("sidecar contract/parent mismatch")
-    schema = raw.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type,name").fetchall()
+    from polybot_observability.market_data_raw_links import raw_layout_metadata,logical_raw_schema_rows
+    metadata=raw_layout_metadata(raw)
+    if metadata is not None and metadata['profile_id']!=CONTRACT:
+        raise ValueError('sidecar RAW profile mismatch')
+    schema = (logical_raw_schema_rows(raw) if metadata is not None else
+        raw.execute("SELECT type,name,tbl_name,sql FROM sqlite_master WHERE sql IS NOT NULL AND name NOT LIKE 'sqlite_%' ORDER BY type,name").fetchall())
     digest = hashlib.sha256(json.dumps([tuple(r) for r in schema], separators=(",", ":")).encode()).hexdigest()
     if rows[0]["schema_sha256"] != digest:
         raise ValueError("sidecar schema fingerprint mismatch")

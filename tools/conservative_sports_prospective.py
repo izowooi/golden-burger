@@ -24,6 +24,10 @@ from conservative_sports_stop_sensitivity import Stats, paired_result, retarget_
 
 SCHEMA = "prior-frozen-candidates-temporal-followup-v1"
 HISTORY_START = "2026-08-30T00:00:00Z"
+GUAVA_REVISION_RECORD = "docs/retro/guava-public-reader-v1.json"
+GUAVA_FROZEN_FIXTURE = "tools/tests/fixtures/guava_adapter_frozen_2bd35d.py"
+GUAVA_PUBLIC_ADAPTER = "tools/guava_public_replay_adapter.py"
+GUAVA_PACKAGE_ROOT = "polybot-observability/src/polybot_observability"
 
 
 def canonical(value):
@@ -157,14 +161,68 @@ def evaluate_path(path, spec, deltas, models):
     return output
 
 
-def load_guava_adapter(path, expected_sha256):
+def _guava_dependency_paths(root):
+    # The complete package inventory covers imports made lazily during readback.
+    return {"tools/public_market_reader.py", *(
+        p.relative_to(root).as_posix() for p in (root / GUAVA_PACKAGE_ROOT).rglob("*.py"))}
+
+
+def _check_guava_module_paths(root, dependencies):
+    package = root / GUAVA_PACKAGE_ROOT
+    for name, module in tuple(sys.modules.items()):
+        if name != "public_market_reader" and name != "polybot_observability" and not name.startswith("polybot_observability."):
+            continue
+        relative = ("tools/public_market_reader.py" if name == "public_market_reader" else
+                    GUAVA_PACKAGE_ROOT + "/" + ("__init__.py" if name == "polybot_observability" else
+                    name.removeprefix("polybot_observability.").replace(".", "/") + ".py"))
+        if relative not in dependencies or Path(getattr(module, "__file__", "") or "").resolve() != root / relative:
+            raise ValueError("Guava reader dependency module path differs: " + name)
+        if name == "polybot_observability" and list(module.__path__) != [str(package)]:
+            raise ValueError("Guava reader package search path differs")
+
+
+def _review_guava_adapter(path, expected_sha256, actual, review):
+    root = Path(__file__).resolve().parents[1]
+    record_path = root / GUAVA_REVISION_RECORD
+    record_sha = grid.visual.sha256(record_path)
+    if (review.get("frozen_sha256") != expected_sha256 or review.get("approved_sha256") != actual
+            or Path(review.get("path", "")).resolve() != path or not review.get("review_evidence")
+            or review.get("revision_sha256") != record_sha):
+        raise ValueError("Guava adapter changed since candidate freeze; reviewed revision required")
+    record = json.loads(record_path.read_text())
+    if (record.get("schema") != "guava-public-replay-adapter-revision-v1"
+            or record.get("reader_revision") != "guava-public-aware-reader-v1"
+            or record.get("adapter_path") != GUAVA_PUBLIC_ADAPTER or path != root / GUAVA_PUBLIC_ADAPTER
+            or record.get("adapter_sha256") != actual
+            or record.get("frozen_fixture") != GUAVA_FROZEN_FIXTURE
+            or record.get("frozen_sha256") != expected_sha256
+            or grid.visual.sha256(root / GUAVA_FROZEN_FIXTURE) != expected_sha256):
+        raise ValueError("Guava reviewed revision adapter or frozen baseline differs")
+    dependencies = record.get("dependency_sha256", {})
+    if not isinstance(dependencies, dict) or set(dependencies) != _guava_dependency_paths(root):
+        raise ValueError("Guava reviewed reader dependency inventory differs")
+    for relative, expected in dependencies.items():
+        dependency = root / relative
+        if dependency.resolve() != dependency or grid.visual.sha256(dependency) != expected:
+            raise ValueError("Guava reviewed reader dependency hash differs: " + relative)
+    _check_guava_module_paths(root, dependencies)
+    return {**record, "revision_path": GUAVA_REVISION_RECORD, "revision_sha256": record_sha}
+
+
+def load_guava_adapter(path, expected_sha256, review=None):
     path = Path(path).resolve()
-    if grid.visual.sha256(path) != expected_sha256:
-        raise ValueError("Guava adapter changed since candidate freeze")
+    actual = grid.visual.sha256(path)
+    revision = _review_guava_adapter(path, expected_sha256, actual, review or {}) if actual != expected_sha256 else None
     spec = importlib.util.spec_from_file_location("frozen_prospective_guava_adapter", path)
     module = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = module
     spec.loader.exec_module(module)
+    if revision is not None:
+        _check_guava_module_paths(Path(__file__).resolve().parents[1], revision["dependency_sha256"])
+        if (module.FROZEN_SOURCE_SHA256 != expected_sha256
+                or module.READER_REVISION != revision["reader_revision"]):
+            raise ValueError("Guava loaded reader revision differs")
+        module.__guava_revision__ = revision
     return module
 
 
@@ -198,6 +256,8 @@ def run(manifest, sources, output, *, manifest_sha256, guava_adapter=None, white
     write_json(output / "CANDIDATES.json", manifest)
     write_json(output / "SOURCES.json", supplied)
     write_json(output / "DEPENDENCY_APPROVAL.json", dependency_approval or {})
+    if getattr(guava_adapter, "__guava_revision__", None) is not None:
+        write_json(output / "GUAVA_ADAPTER_REVISION.json", guava_adapter.__guava_revision__)
     with gzip.open(output / "event-outcomes.jsonl.gz", "wt") as outcomes, gzip.open(output / "paths.jsonl.gz", "wt") as paths:
         for source in supplied:
             sid = source["id"]
@@ -333,7 +393,8 @@ def main(argv=None):
     args = parser.parse_args(argv)
     approval = json.loads(args.dependency_approval.read_text()) if args.dependency_approval else None
     manifest = read_manifest(args.candidates, args.candidates_sha256, approval)
-    adapter = load_guava_adapter(args.guava_adapter, manifest["reader_support"]["guava"]["sha256"]) if args.guava_adapter else None
+    adapter = load_guava_adapter(args.guava_adapter, manifest["reader_support"]["guava"]["sha256"],
+                                (approval or {}).get("guava_adapter")) if args.guava_adapter else None
     white = None
     if args.white_adapter:
         review = (approval or {}).get("white_adapter", {})
