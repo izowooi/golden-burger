@@ -11,7 +11,8 @@ from __future__ import annotations
 
 from polylab.execution.fees import FeeSchedule, fee_usdc, parse_fee_schedule
 from polylab.marketview import EPS, Book, MarketView
-from polylab.strategies.base import (Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
+from polylab.strategies.base import (
+    game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
                                      band_walk_check, event_traded, floor2, result_tokens)
 
 DEFAULTS = {
@@ -76,6 +77,8 @@ class Apricot(Strategy):
         for sport in self.sports:
             prm = self.p(sport)
             for game in view.live_games(now, [sport], max_age_hours=float(prm["hours_max"])):
+                if not game_in_scope(view, game, prm):
+                    continue
                 if event_traded(ledger, game.game_key):
                     continue
                 tokens = result_tokens(view, game)

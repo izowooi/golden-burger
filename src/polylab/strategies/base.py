@@ -247,3 +247,21 @@ def event_traded(ledger: Ledger, game_key: str | None) -> bool:
 
 def floor2(x: float) -> float:
     return int(x * 100 + 1e-9) / 100.0
+
+
+def game_in_scope(view: MarketView, game: Game, prm: dict) -> bool:
+    """Trading scope, narrower than the research collection scope.
+
+    The collector keeps ~45 soccer competitions for calibration research, but real money only goes
+    into the legacy-approved leagues (`params.leagues`, soccer only) and games whose result markets
+    traded at least `params.min_game_volume_usd` — thin friendlies/qualifiers are excluded.
+    """
+    leagues = prm.get("leagues")
+    if game.sport == "soccer" and leagues and (game.league or "").lower() not in {l.lower() for l in leagues}:
+        return False
+    floor = prm.get("min_game_volume_usd")
+    if floor:
+        vol = sum(m.volume or 0.0 for m in view.markets(game.game_key, types=("moneyline", "draw")))
+        if vol < float(floor):
+            return False
+    return True

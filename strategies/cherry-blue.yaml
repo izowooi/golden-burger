@@ -6,6 +6,7 @@ mode: live
 sports: [soccer, mlb, nba, nfl, nhl]
 stake_usdc: 5
 params:
+  leagues: [epl, bun, fl1, lal, sea, mls, unl, ucl, uel]
   buy_threshold: 0.80
   sell_threshold: 0.82
   take_profit_percent: 0.20

@@ -15,7 +15,7 @@ Spec: docs/strategies/cherry.md. Deliberate deviations:
 from __future__ import annotations
 
 from polylab.marketview import EPS, Book, MarketView
-from polylab.strategies.base import Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy, floor2
+from polylab.strategies.base import game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy, floor2
 
 DEFAULTS = {
     "buy_threshold": 0.80,
@@ -52,6 +52,8 @@ class Cherry(Strategy):
             if prm["allow_in_play"]:
                 games = view.live_games(now, [sport]) + games
             for game in games:
+                if not game_in_scope(view, game, prm):
+                    continue
                 hours_left = (game.start_time - now) / 3600
                 in_play = hours_left <= 0
                 if not in_play and not (prm["entry_hours_min"] - EPS <= hours_left <= prm["entry_hours_max"] + EPS):
