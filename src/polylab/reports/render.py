@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from polylab.reports import games as games_mod
 from polylab.reports.build import KIND_KO, kst
 
 EXIT_KO = {"take_profit": "익절(TP)", "stop_loss": "손절(SL)", "time_exit": "시간청산", "resolution_win": "정산 승",
@@ -53,6 +54,130 @@ def section_summary(r: dict) -> list[str]:
     ])
     lines += ["", "실현손익은 CONFIRMED 체결 + 수수료 + 확인된 정산으로 청산된 live 포지션만 집계한다 "
                   "(paper·평가손익·미확정 제외).", ""]
+    return lines
+
+
+SPORT_KO = {"soccer": "축구", "mlb": "MLB", "nba": "NBA", "nfl": "NFL", "nhl": "NHL"}
+SIDE_KO = {"home": "홈", "draw": "무", "away": "원정"}
+RESULT_KO = {"home": "홈 승", "away": "원정 승", "draw": "무승부"}
+
+
+def _p(v) -> str:
+    return "–" if v is None else f"{v:.2f}"
+
+
+def _swing(s: dict | None, sport: str) -> str:
+    if not s:
+        return "–"
+    return f"{s['delta']:+.2f} ({kst(_ts(s['at']), '%H:%M')}, {games_mod.when(s, sport)})"
+
+
+def _game_result(g: dict) -> str:
+    score = "–" if g["home_score"] is None or g["away_score"] is None else f"{g['home_score']}–{g['away_score']}"
+    if g["result"]:
+        res = RESULT_KO[g["result"]]
+    else:
+        res = "진행중" if g["end_source"] == "running" else "미정산"
+    return f"{score} {res}"
+
+
+def _flags(g: dict) -> str:
+    out = []
+    if g["upset"]:
+        out.append("업셋")
+    if g["notable_swing"]:
+        out.append(f"급변≥{games_mod.NOTABLE_SWING:.2f}")
+    if g["traded"]:
+        out.append("전략거래")
+    return ", ".join(out)
+
+
+def section_games(r: dict) -> list[str]:
+    gm = r.get("games")
+    if gm is None:
+        return []
+    w = gm["window"]
+    lines = ["## 지난 24시간 경기와 확률 움직임", "",
+             f"기간 {kst(_ts(w['since']))} ~ {kst(_ts(w['until']))} KST에 진행·종료된 추적 경기(5개 종목, 축구는 주요 리그 "
+             f"+ 전략이 거래한 경기). 가격 = 1분 canonical(poll_mid > ws_last > history), 확률 = 해당 결과 토큰 가격.", ""]
+    if gm.get("error"):
+        return lines + [f"경기 데이터 없음({gm['error']}).", ""]
+    rows = gm["games"]
+    excluded = gm.get("excluded_out_of_scope") or {}
+    ex_txt = (f" · 범위 밖 축구 제외 {sum(excluded.values())}경기("
+              + ", ".join(f"{k} {n}" for k, n in excluded.items()) + ")") if excluded else ""
+    if not rows:
+        return lines + [f"해당 경기 없음{ex_txt}.", ""]
+    lines += ["### 종목별 요약", ""]
+    lines += _table(["종목", "경기", "정산", "정배 승률 (n)", "정배 평균 경기전가", "평균 최대 10분 스윙", "업셋", "급변"],
+                    [[SPORT_KO.get(s["sport"], s["sport"]), s["games"], s["resolved"],
+                      f"{_pct(s['favourite_win_rate'])} ({s['favourites_resolved']})",
+                      _p(s["favourite_avg_pre_price"]), _p(s["avg_max_swing_10m"]), s["upsets"], s["notable_swings"]]
+                     for s in gm["summary_by_sport"]])
+    lines += ["", "정배 승률 vs 정배 평균 경기전가 = calibration 힌트(승률 > 가격이면 정배 과소평가). 업셋 = 경기전 최고가 "
+                  f"결과가 이기지 못함(축구 무승부 포함). 급변 = 경기 중 10분 내 |Δ| ≥ {gm['notable_swing']:.2f}{ex_txt}.", ""]
+    shown = games_mod.top_games(rows)
+    omitted = len(rows) - len(shown)
+    lines += ["### 경기별 확률 움직임", "",
+              "경기전 = 킥오프 직전 마지막 가격, 경기중 = 킥오프~종료 사이 최저–최고, 최종 = 정산 직전 가격. "
+              "스윙은 경기 중 최대 변화(부호 = 방향), 괄호는 도달 시각(KST)과 경기분·피리어드(없으면 킥오프 후 경과분 +Nm). "
+              "종료 10분 이내 0/1 수렴(결과 확정)은 스윙에서 제외.", ""]
+    for sport in (s["sport"] for s in gm["summary_by_sport"]):
+        leagues = sorted({g["league"] or "–" for g in shown if g["sport"] == sport})
+        for league in leagues:
+            games = [g for g in shown if g["sport"] == sport and (g["league"] or "–") == league]
+            lines += [f"#### {SPORT_KO.get(sport, sport)} · {league}", ""]
+            table = []
+            for g in games:
+                first = True
+                outs = g["outcomes"] or [None]
+                for o in outs:
+                    head = [kst(_ts(g["start_time"])), g["title"], _game_result(g), _flags(g)] if first \
+                        else ["", "", "", ""]
+                    first = False
+                    if o is None:
+                        table.append(head + ["–"] * 6)
+                        continue
+                    mark = " ✓" if o["won"] else ""
+                    table.append(head + [f"{SIDE_KO[o['side']]} {o['label'] or ''}{mark}", _p(o["pre_price"]),
+                                         f"{_p(o['min_price'])}–{_p(o['max_price'])}", _p(o["final_price"]),
+                                         _swing(o["swing_1m"], g["sport"]), _swing(o["swing_10m"], g["sport"])])
+            lines += _table(["킥오프(KST)", "경기", "스코어(홈–원정)·결과", "플래그", "결과 토큰", "경기전", "경기중",
+                             "최종", "최대 1분 Δ", "최대 10분 Δ"], table)
+            lines.append("")
+    if omitted:
+        lines += [f"외 {omitted}경기 생략(업셋·급변·전략거래 우선, 다음 거래량 순 상위 {len(shown)}경기 표시). "
+                  "전체는 대시보드 `latest/games_24h.json`.", ""]
+    return lines
+
+
+def section_strategy_sport(r: dict) -> list[str]:
+    rows = r.get("strategy_sport") or []
+    title = "## 전략 × 종목 손익" + ("" if r["kind"] == "daily" else f" ({KIND_KO[r['kind']]})")
+    lines = [title, ""]
+    if not rows:
+        return lines + ["포지션 없음.", ""]
+
+    def fees(b):
+        return _n(b["fees_usdc"], 4) + (f" (+미확인 {b['fees_unknown']})" if b["fees_unknown"] else "")
+
+    def unreal(x):
+        if not x["open"]:
+            return "–"
+        return _n(x["unrealized_pnl"], sign=True) + (f" (+평가불가 {x['unrealized_unknown']})"
+                                                     if x["unrealized_unknown"] else "")
+    lines += _table(["변형", "모드", "종목", "기간 진입", "기간 정산(승/패)", "기간 실현", "기간 수수료", "누적 정산(승/패)",
+                     "누적 실현", "누적 수수료", "보유", "미실현(별도)"],
+                    [[x["variant_id"], x["mode"], SPORT_KO.get(x["sport"], x["sport"]), x["entries_window"],
+                      f"{x['window']['settled']} ({x['window']['wins']}/{x['window']['losses']})",
+                      _n(x["window"]["realized_pnl"], sign=True), fees(x["window"]),
+                      f"{x['all']['settled']} ({x['all']['wins']}/{x['all']['losses']})",
+                      _n(x["all"]["realized_pnl"], sign=True), fees(x["all"]), x["open"], unreal(x)] for x in rows])
+    live = [x for x in rows if x["mode"] == "live"]
+    lines += ["", f"live 합계: 기간 실현 {_n(sum(x['window']['realized_pnl'] for x in live), sign=True)} USDC, 누적 실현 "
+                  f"{_n(sum(x['all']['realized_pnl'] for x in live), sign=True)} USDC. 실현 = CONFIRMED 체결·확인된 정산으로 "
+                  "청산된 포지션만(paper 행은 paper 원장, live와 합산하지 않음). 수수료 = CONFIRMED/PAPER 체결의 fee "
+                  "(미확인은 0으로 채우지 않고 건수 표기). 미실현은 보유 포지션 평가손익이며 실현에 포함하지 않는다.", ""]
     return lines
 
 
@@ -212,7 +337,8 @@ def render(r: dict, narrative: str | None = None, applied: list[dict] | None = N
              f"- 생성: {kst(r['now'], '%Y-%m-%d %H:%M')} KST · commit `{r.get('git_commit') or '–'}` · "
              f"기간 {kst(_ts(r['window']['since']))} ~ {kst(_ts(r['window']['until']))} KST",
              f"- 대시보드: https://poly.zowoo.uk", ""]
-    for section in (section_summary, section_variants, section_transactions, section_open, section_changes,
+    for section in (section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
+                    section_open, section_changes,
                     section_alerts, section_health, section_research):
         lines += section(r)
     ai = r.get("ai") or {}

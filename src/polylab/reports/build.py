@@ -20,6 +20,7 @@ from polylab import registry, settings
 from polylab.analysis import _common as C
 from polylab.analysis import integrations, performance
 from polylab.ops import health as health_mod
+from polylab.reports import games as games_mod
 
 SLOTS = {"dawn": (3, 30), "morning": (8, 0), "evening": (19, 30)}
 SLOT_KO = {"dawn": "새벽", "morning": "아침", "evening": "저녁"}
@@ -320,7 +321,7 @@ def open_position_rows(v, df: pd.DataFrame, core: CoreLookup, now: int) -> list[
                      "outcome": desc["outcome"], "entry_price": r.get("entry_price"), "shares": shares,
                      "cost_usdc": cost, "mark_price": mark, "unrealized_pnl": unreal,
                      "game_minute": core.game_minute(desc["game_key"]), "status": r["status"],
-                     "position_id": r["position_id"]})
+                     "position_id": r["position_id"], "game_key": desc["game_key"]})
     return rows
 
 
@@ -337,6 +338,91 @@ def recent_position_rows(s: pd.DataFrame, core: CoreLookup, limit: int = 50) -> 
                      "realized_pnl": r.get("realized_pnl"), "stake_usdc": r.get("stake_usdc"),
                      "game_minute_at_entry": r.get("game_minute_at_entry")})
     return rows
+
+
+FEE_SQL = """
+SELECT o.position_id, f.ts, f.fee_usdc, f.status FROM fills f JOIN orders o ON o.intent_id = f.intent_id
+WHERE f.status IN ('CONFIRMED', 'PAPER') AND o.position_id IS NOT NULL
+"""
+
+
+def _money_bucket() -> dict:
+    return {"settled": 0, "wins": 0, "losses": 0, "realized_pnl": 0.0, "fees_usdc": 0.0, "fees_unknown": 0}
+
+
+def strategy_sport_rows(v, paths, df: pd.DataFrame, core: CoreLookup, open_rows: list[dict], since: int,
+                        until: int) -> list[dict]:
+    """Per (mode, sport) money for one variant: window and cumulative realised PnL of settled positions
+    (performance.settled rules), confirmed/paper fill fees (NULL fee = unknown, counted, never 0) and the
+    open positions' mark-to-market shown separately. live and paper rows are never merged."""
+    if df.empty:
+        return []
+    sport_of = {}
+    for r in df[["position_id", "sport", "game_key", "condition_id", "mode"]].to_dict("records"):
+        sport = r.get("sport") or _describe(core, r.get("game_key"), r.get("condition_id"), None)["sport"]
+        sport_of[r["position_id"]] = (r["mode"], sport or "unknown")
+    rows: dict[tuple[str, str], dict] = {}
+
+    def row(mode, sport):
+        return rows.setdefault((mode, sport), {"variant_id": v.id, "mode": mode, "sport": sport,
+                                               "window": _money_bucket(), "all": _money_bucket(),
+                                               "entries_window": 0, "open": 0, "open_cost_usdc": 0.0,
+                                               "unrealized_pnl": 0.0, "unrealized_unknown": 0})
+    for mode in ("live", "paper"):
+        s = performance.settled(df, mode)
+        for r in s.to_dict("records"):
+            pnl = float(r["realized_pnl"])
+            buckets = [row(mode, sport_of[r["position_id"]][1])["all"]]
+            if since <= int(r["closed_at"]) < until:
+                buckets.append(row(mode, sport_of[r["position_id"]][1])["window"])
+            for b in buckets:
+                b["settled"] += 1
+                b["wins" if pnl > 0 else "losses"] += 1
+                b["realized_pnl"] = round(b["realized_pnl"] + pnl, 4)
+    for r in df.to_dict("records"):
+        if r["opened_at"] is not None and since <= int(r["opened_at"]) < until and r["status"] != "pending":
+            row(*sport_of[r["position_id"]])["entries_window"] += 1
+    for f in _strategy_rows(paths, v.id, FEE_SQL):
+        if f["position_id"] not in sport_of:
+            continue
+        x = row(*sport_of[f["position_id"]])
+        for key, inside in (("all", True), ("window", since <= int(f["ts"]) < until)):
+            if not inside:
+                continue
+            if f["fee_usdc"] is None:
+                x[key]["fees_unknown"] += 1
+            else:
+                x[key]["fees_usdc"] = round(x[key]["fees_usdc"] + float(f["fee_usdc"]), 4)
+    for o in open_rows:
+        x = row(*sport_of.get(o["position_id"], (o["mode"], o["sport"] or "unknown")))
+        x["open"] += 1
+        x["open_cost_usdc"] = round(x["open_cost_usdc"] + (o["cost_usdc"] or 0.0), 4)
+        if o["unrealized_pnl"] is None:
+            x["unrealized_unknown"] += 1
+        else:
+            x["unrealized_pnl"] = round(x["unrealized_pnl"] + o["unrealized_pnl"], 4)
+    sport_order = {s: i for i, s in enumerate(C.SPORTS)}
+    return [rows[k] for k in sorted(rows, key=lambda k: (k[0] != "live", sport_order.get(k[1], 99), k[1]))]
+
+
+def best_worst(strategy_sport: list[dict]) -> tuple[dict | None, dict | None]:
+    """Best / worst (variant, mode) by window realised PnL among those that settled something."""
+    agg: dict[tuple[str, str], dict] = {}
+    for r in strategy_sport:
+        if not r["window"]["settled"]:
+            continue
+        a = agg.setdefault((r["variant_id"], r["mode"]), {"variant_id": r["variant_id"], "mode": r["mode"],
+                                                          "settled": 0, "realized_pnl": 0.0})
+        a["settled"] += r["window"]["settled"]
+        a["realized_pnl"] = round(a["realized_pnl"] + r["window"]["realized_pnl"], 4)
+    if not agg:
+        return None, None
+    ranked = sorted(agg.values(), key=lambda a: (-a["realized_pnl"], a["mode"] != "live", a["variant_id"]))
+    return ranked[0], (ranked[-1] if len(ranked) > 1 else None)
+
+
+def traded_game_keys(tx: list[dict], open_rows: list[dict]) -> set[str]:
+    return {t["game_key"] for t in tx if t.get("game_key")} | {o["game_key"] for o in open_rows if o.get("game_key")}
 
 
 def load_variants() -> tuple[list, str | None]:
@@ -363,6 +449,7 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
     if all_changes:
         lc = max(all_changes, key=lambda c: c["at"] or "")
         last_change = {"at": lc["at"], "summary": lc["summary"]}
+    opens = open_position_rows(v, df, core, now)
     return {"id": v.id, "family": v.family, "hypothesis": v.hypothesis, "mode": v.mode, "account": v.account,
             "sports": v.sports, "stake_usdc": v.stake_usdc, "params": v.params, "bounds": v.bounds,
             "limits": v.limits, "yaml": v.to_yaml(), "ladder": ladder_view(v, paths, now),
@@ -370,7 +457,8 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
             "primary_mode": "live" if primary is live else "paper",
             "breakdown": performance.breakdown(primary), "equity_curve": performance.equity_curve(primary),
             "excluded": performance.excluded_counts(df),
-            "open": open_position_rows(v, df, core, now), "recent": recent_position_rows(primary, core),
+            "open": opens, "recent": recent_position_rows(primary, core),
+            "strategy_sport": strategy_sport_rows(v, paths, df, core, opens, since, until),
             "param_history": history, "stake_events": stakes, "changes": changes, "last_change": last_change,
             "_settled_live": live, "_settled_paper": paper}
 
@@ -411,6 +499,10 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
         tx = transactions(paths, variants, core, tx_since, until)
     finally:
         core.close()
+    games = None
+    if kind == "daily":
+        games = games_mod.build(paths, since, until, traded_game_keys(tx, [o for s in states for o in s["open"]]))
+    strategy_sport = [r for s in states for r in s.pop("strategy_sport")]
     settled_live = {s["id"]: s["_settled_live"] for s in states}
     settled_paper = {s["id"]: s["_settled_paper"] for s in states}
     settled_any = {vid: (settled_live[vid] if not settled_live[vid].empty else settled_paper[vid])
@@ -441,6 +533,7 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
             "health": h, "alerts": alerts, "research": research_highlights(paths),
             "stake_tiers": performance.tier_stats(live_rows),
             "changes": sorted([c for s in states for c in s["changes"]], key=lambda c: c["at"] or ""),
+            "games": games, "strategy_sport": strategy_sport,
             "ai": {"ran": False, "reason": None}}
 
 

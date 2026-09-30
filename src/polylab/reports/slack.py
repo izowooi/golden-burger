@@ -12,6 +12,8 @@ import sys
 import requests
 
 from polylab import settings
+from polylab.reports import build
+from polylab.reports import games as games_mod
 
 DASHBOARD_URL = "https://poly.zowoo.uk"
 _SECRET_PATTERNS = (
@@ -80,6 +82,40 @@ def _fmt(v, nd=2, sign=True) -> str:
     return f"{v:+.{nd}f}" if sign else f"{v:.{nd}f}"
 
 
+def games_lines(report: dict) -> list[str]:
+    """3-5 deterministic lines: games, biggest swing, upsets, best/worst variant of the window."""
+    gm = report.get("games")
+    out = []
+    if gm and not gm.get("error"):
+        rows = gm["games"]
+        per = " · ".join(f"{s['sport']} {s['games']}" for s in gm["summary_by_sport"])
+        out.append(f"*24h 경기* {len(rows)}경기" + (f" ({per})" if per else "")
+                   + f" · 업셋 {sum(1 for r in rows if r['upset'])} · 급변 {sum(1 for r in rows if r['notable_swing'])}")
+        top = games_mod.biggest_swing(rows)
+        if top:
+            g, o = top
+            s = o["swing_10m"]
+            out.append(f"*최대 스윙* {g['title']} · {o['label']} {s['from_price']:.2f}→{s['to_price']:.2f} "
+                       f"({s['delta']:+.2f}/10분, {games_mod.when(s, g['sport'])})")
+        upsets = [r for r in rows if r["upset"]]
+        if upsets:
+            fav = {r["game_key"]: next((o for o in r["outcomes"] if o["side"] == r["favourite"]), {}) for r in upsets}
+            items = [f"{r['title']} (정배 {fav[r['game_key']].get('label')} {r['favourite_pre_price']:.2f})"
+                     for r in sorted(upsets, key=lambda r: (-(r["favourite_pre_price"] or 0), r["game_key"]))[:3]]
+            out.append("*업셋* " + "; ".join(items) + (f" 외 {len(upsets) - 3}" if len(upsets) > 3 else ""))
+    best, worst = build.best_worst(report.get("strategy_sport") or [])
+    if best:
+        txt = f"*전략(기간 정산)* 최고 `{best['variant_id']}`{'' if best['mode'] == 'live' else '(paper)'} " \
+              f"{_fmt(best['realized_pnl'])} ({best['settled']}건)"
+        if worst:
+            txt += f" / 최저 `{worst['variant_id']}`{'' if worst['mode'] == 'live' else '(paper)'} " \
+                   f"{_fmt(worst['realized_pnl'])} ({worst['settled']}건)"
+        out.append(txt)
+    elif gm is not None:
+        out.append("*전략(기간 정산)* 정산된 포지션 없음")
+    return out
+
+
 def report_blocks(report: dict, url: str) -> tuple[str, list[dict]]:
     """Short Block Kit summary for a report dict produced by reports.build."""
     title = report["title"]
@@ -99,6 +135,9 @@ def report_blocks(report: dict, url: str) -> tuple[str, list[dict]]:
     changes = [c["summary"] for c in report.get("changes", [])][:5]
     blocks = [{"type": "header", "text": {"type": "plain_text", "text": title[:150]}},
               {"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(lines)}}]
+    games = games_lines(report)
+    if games:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(games)[:2900]}})
     if rows:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "\n".join(rows)[:2900]}})
     if changes:
