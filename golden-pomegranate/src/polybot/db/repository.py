@@ -797,12 +797,12 @@ class ResearchRepository:
             for table in FACT_TABLES if raw_layout is None else ():
                 connection.executescript(
                     f"""
-                    CREATE TRIGGER IF NOT EXISTS {table}_append_only_update
+                    CREATE TRIGGER IF NOT EXISTS main.{table}_append_only_update
                     BEFORE UPDATE ON {table}
                     BEGIN
                         SELECT RAISE(ABORT, 'append-only evidence cannot be updated');
                     END;
-                    CREATE TRIGGER IF NOT EXISTS {table}_append_only_delete
+                    CREATE TRIGGER IF NOT EXISTS main.{table}_append_only_delete
                     BEFORE DELETE ON {table}
                     BEGIN
                         SELECT RAISE(ABORT, 'append-only evidence cannot be deleted');
@@ -2707,6 +2707,18 @@ class ResearchRepository:
                 "db_path": str(self.db_path),
                 "db_exists": False,
                 "parent_writable": writable,
+                "storage": inspection,
+            }
+        if inspection["guard_state"] == "STOP":
+            # The collector is already inadmissible. Do not scan a potentially
+            # large shard before reporting that fixed capacity gate, or claim
+            # that unperformed integrity checks succeeded.
+            return {
+                "healthy": False,
+                "state": "STORAGE_STOP",
+                "db_path": str(self.db_path),
+                "quick_check": None,
+                "reason": "storage guard STOP; integrity checks not run",
                 "storage": inspection,
             }
         try:

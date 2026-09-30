@@ -86,6 +86,24 @@ def test_fresh_raw_runtime_keeps_real_parents_and_source_columns_public(tmp_path
             assert {'best_bid','best_ask','source_timestamp','tick_size'}.isdisjoint(names)
 
 
+def test_body_only_shared_levels_reopen_keeps_original_main_guard_sql(tmp_path, monkeypatch):
+    with PayloadStore(tmp_path/'public.db') as store:
+        config, repo = repository(tmp_path, monkeypatch, shared=store, raw=False)
+        collected(config, repo)
+        with repo.connect() as c:
+            assert raw_layout_metadata(c) is None
+            schema = [tuple(row) for row in c.execute("SELECT type,name,tbl_name,sql FROM main.sqlite_master WHERE sql IS NOT NULL ORDER BY type,name")]
+            levels = [tuple(row) for row in c.execute("SELECT * FROM orderbook_levels ORDER BY level_id")]
+            assert levels and c.execute('SELECT COUNT(*) FROM main.orderbook_levels').fetchone()[0] == 0
+        restarted = ResearchRepository(repo.path, busy_timeout_ms=1000, data_contract=config.trading.data_contract)
+        with restarted.connect() as c:
+            assert [tuple(row) for row in c.execute("SELECT type,name,tbl_name,sql FROM main.sqlite_master WHERE sql IS NOT NULL ORDER BY type,name")] == schema
+            assert [tuple(row) for row in c.execute("SELECT * FROM orderbook_levels ORDER BY level_id")] == levels
+            assert c.execute('PRAGMA foreign_key_check').fetchall() == []
+            with pytest.raises(sqlite3.IntegrityError, match='append-only'):
+                c.execute('DELETE FROM main.market_observations')
+
+
 def test_populated_source_requires_explicit_offline_migration(tmp_path, monkeypatch):
     config, repo = repository(tmp_path, monkeypatch)
     collected(config, repo)

@@ -116,6 +116,29 @@ def test_native_producer_logical_tables_guards_body_and_level_closure(tmp_path, 
         assert status["append_only_trigger_count"] == 46
 
 
+def test_body_only_shared_levels_reopen_preserves_main_guards_and_exact_schema(tmp_path, monkeypatch):
+    with PayloadStore(tmp_path / "public.db") as store:
+        bind(monkeypatch, store, store, raw=False)
+        repository, _, _ = producer(tmp_path)
+        with repository._read_connect() as connection:
+            assert raw_layout_metadata(connection) is None
+            assert connection.execute("SELECT COUNT(*) FROM main.orderbook_levels").fetchone()[0] == 0
+            levels = [tuple(row) for row in connection.execute("SELECT * FROM orderbook_levels ORDER BY level_id")]
+            assert len(levels) == 8
+            schema = repository._logical_schema(connection)
+        restarted = ResearchRepository(repository.db_path, clock=lambda: NOW)
+        restarted.initialize()
+        with restarted._read_connect() as connection:
+            assert restarted._logical_schema(connection) == schema
+            assert [tuple(row) for row in connection.execute("SELECT * FROM orderbook_levels ORDER BY level_id")] == levels
+            assert not connection.execute("PRAGMA foreign_key_check").fetchall()
+        with restarted._connect() as connection:
+            for action in ("UPDATE main.market_sweeps SET run_id=run_id", "DELETE FROM main.market_sweeps"):
+                with pytest.raises(sqlite3.IntegrityError, match="append-only"):
+                    connection.execute(action)
+            assert connection.execute("SELECT COUNT(*) FROM sqlite_master WHERE type='trigger' AND tbl_name='orderbook_levels'").fetchone()[0] == 2
+
+
 def test_native_rotation_preserves_runtime_and_carry_without_new_run(tmp_path, monkeypatch):
     with PayloadStore(tmp_path / "public.db") as store:
         references = bind(monkeypatch, store, store)

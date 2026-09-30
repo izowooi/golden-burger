@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import namedtuple
+from contextlib import contextmanager
 from datetime import datetime, timezone
 import hashlib
 import json
@@ -311,6 +312,33 @@ def test_health_requires_quick_check_wal_full_sync_profile_and_all_append_guards
         connection.execute("DROP TRIGGER market_sweeps_append_only_delete")
     degraded = repository.health()
     assert degraded["healthy"] is False
+
+
+@pytest.mark.parametrize("usage", [
+    DiskUsage(1_000 * GIB, 800 * GIB, 200 * GIB),
+    DiskUsage(500 * GIB, 351 * GIB, 149 * GIB),
+])
+def test_health_reports_storage_stop_before_full_integrity_scan(tmp_path, monkeypatch, usage):
+    repository = _repository(tmp_path, datetime(2026, 8, 6, tzinfo=timezone.utc))
+    monkeypatch.setattr("polybot.db.repository.shutil.disk_usage", lambda _path: usage)
+    statements = []
+    original = repository._read_connect
+
+    @contextmanager
+    def trace_reads(*args, **kwargs):
+        with original(*args, **kwargs) as connection:
+            connection.set_trace_callback(statements.append)
+            yield connection
+
+    monkeypatch.setattr(repository, "_read_connect", trace_reads)
+    before = repository.db_path.read_bytes()
+    result = repository.health()
+    assert result["healthy"] is False and result["state"] == "STORAGE_STOP"
+    assert result["quick_check"] is None
+    assert result["storage"]["guard_state"] == "STOP"
+    assert "integrity checks not run" in result["reason"]
+    assert not any("quick_check" in sql.lower() for sql in statements)
+    assert repository.db_path.read_bytes() == before
 
 
 def test_same_utc_shard_rejects_cadence_or_contract_metadata_change(tmp_path):
