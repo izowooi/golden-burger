@@ -1,0 +1,343 @@
+{
+ "id": "plum-fox",
+ "generated_at": "2026-09-30T14:52:00Z",
+ "variant": {
+  "id": "plum-fox",
+  "family": "plum",
+  "hypothesis": "득점 직후 과잉반응 가격을 역방향으로 매수하면 10분 내 되돌림을 얻는다.",
+  "mode": "off",
+  "account": null,
+  "sports": [
+   "soccer",
+   "hockey"
+  ],
+  "params": {
+   "jump_min": 0.2,
+   "revert_window_m": 10
+  },
+  "stake": {
+   "usdc": null,
+   "ladder": [
+    5,
+    10,
+    20,
+    50
+   ]
+  }
+ },
+ "param_history": [
+  {
+   "version": 1,
+   "at": "2026-09-03T14:55:00Z",
+   "params": {
+    "jump_min": 0.2,
+    "revert_window_m": 10
+   },
+   "stake_usdc": 5,
+   "mode": "paper",
+   "author": "owner",
+   "rationale": "초기 가설 등록"
+  },
+  {
+   "version": 2,
+   "at": "2026-09-15T14:55:00Z",
+   "params": {
+    "jump_min": 0.2,
+    "revert_window_m": 10
+   },
+   "stake_usdc": 5,
+   "mode": "off",
+   "author": "owner",
+   "rationale": "paper 20건 ROI CI 하한 > 0 → live 전환"
+  },
+  {
+   "version": 3,
+   "at": "2026-09-28T11:55:00Z",
+   "params": {
+    "jump_min": 0.2,
+    "revert_window_m": 10
+   },
+   "stake_usdc": null,
+   "mode": "off",
+   "author": "autopilot",
+   "rationale": "0.92–0.93 구간 gap 음수(과대평가) → prob_min 상향"
+  }
+ ],
+ "stake_events": [],
+ "equity_curve": [
+  {
+   "at": "2026-09-24T04:55:00Z",
+   "cum_pnl": 0.41
+  },
+  {
+   "at": "2026-09-24T15:55:00Z",
+   "cum_pnl": 0.71
+  },
+  {
+   "at": "2026-09-25T02:55:00Z",
+   "cum_pnl": 0.97
+  },
+  {
+   "at": "2026-09-25T13:55:00Z",
+   "cum_pnl": -4.03
+  },
+  {
+   "at": "2026-09-26T00:55:00Z",
+   "cum_pnl": -3.61
+  },
+  {
+   "at": "2026-09-26T11:55:00Z",
+   "cum_pnl": -8.61
+  },
+  {
+   "at": "2026-09-26T22:55:00Z",
+   "cum_pnl": -8.43
+  },
+  {
+   "at": "2026-09-27T09:55:00Z",
+   "cum_pnl": -8.01
+  },
+  {
+   "at": "2026-09-27T20:55:00Z",
+   "cum_pnl": -13.01
+  },
+  {
+   "at": "2026-09-28T07:55:00Z",
+   "cum_pnl": -18.01
+  },
+  {
+   "at": "2026-09-28T18:55:00Z",
+   "cum_pnl": -17.61
+  },
+  {
+   "at": "2026-09-29T05:55:00Z",
+   "cum_pnl": -22.61
+  },
+  {
+   "at": "2026-09-29T16:55:00Z",
+   "cum_pnl": -22.32
+  },
+  {
+   "at": "2026-09-30T03:55:00Z",
+   "cum_pnl": -27.32
+  }
+ ],
+ "open_positions": [],
+ "recent_positions": [
+  {
+   "opened_at": "2026-09-30T03:35:00Z",
+   "closed_at": "2026-09-30T03:55:00Z",
+   "sport": "soccer",
+   "title": "Lakers vs Celtics",
+   "outcome": "Yes",
+   "entry_price": 0.933,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-29T16:35:00Z",
+   "closed_at": "2026-09-29T16:55:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.946,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.29,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-29T05:35:00Z",
+   "closed_at": "2026-09-29T05:55:00Z",
+   "sport": "hockey",
+   "title": "PSG vs Lyon",
+   "outcome": "Yes",
+   "entry_price": 0.941,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-28T18:35:00Z",
+   "closed_at": "2026-09-28T18:55:00Z",
+   "sport": "soccer",
+   "title": "Inter vs Milan",
+   "outcome": "Yes",
+   "entry_price": 0.926,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.4,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-28T07:35:00Z",
+   "closed_at": "2026-09-28T07:55:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.924,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-27T20:35:00Z",
+   "closed_at": "2026-09-27T20:55:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.933,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-27T09:35:00Z",
+   "closed_at": "2026-09-27T09:55:00Z",
+   "sport": "soccer",
+   "title": "Rangers vs Bruins",
+   "outcome": "Yes",
+   "entry_price": 0.923,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.42,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-26T22:35:00Z",
+   "closed_at": "2026-09-26T22:55:00Z",
+   "sport": "hockey",
+   "title": "Inter vs Milan",
+   "outcome": "Yes",
+   "entry_price": 0.966,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.18,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-26T11:35:00Z",
+   "closed_at": "2026-09-26T11:55:00Z",
+   "sport": "hockey",
+   "title": "Rangers vs Bruins",
+   "outcome": "Yes",
+   "entry_price": 0.961,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-26T00:35:00Z",
+   "closed_at": "2026-09-26T00:55:00Z",
+   "sport": "soccer",
+   "title": "Inter vs Milan",
+   "outcome": "Yes",
+   "entry_price": 0.922,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.42,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-25T13:35:00Z",
+   "closed_at": "2026-09-25T13:55:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.959,
+   "exit_price": 0.0,
+   "exit_reason": "resolution_loss",
+   "realized_pnl": -5,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-25T02:35:00Z",
+   "closed_at": "2026-09-25T02:55:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.951,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.26,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-24T15:35:00Z",
+   "closed_at": "2026-09-24T15:55:00Z",
+   "sport": "soccer",
+   "title": "Rangers vs Bruins",
+   "outcome": "Yes",
+   "entry_price": 0.943,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.3,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-24T04:35:00Z",
+   "closed_at": "2026-09-24T04:55:00Z",
+   "sport": "hockey",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Yes",
+   "entry_price": 0.925,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.41,
+   "stake_usdc": 5
+  }
+ ],
+ "breakdown": {
+  "by_sport": [
+   {
+    "key": "soccer",
+    "n": 10,
+    "pnl": -17.91,
+    "win_rate": 0.93
+   },
+   {
+    "key": "hockey",
+    "n": 4,
+    "pnl": -9.41,
+    "win_rate": 0.93
+   }
+  ],
+  "by_entry_minute": [
+   {
+    "key": "60-75",
+    "n": 5,
+    "pnl": 0.3
+   },
+   {
+    "key": "75-85",
+    "n": 22,
+    "pnl": 2.1
+   },
+   {
+    "key": "85-90+",
+    "n": 13,
+    "pnl": -1.4
+   }
+  ],
+  "by_stake": [
+   {
+    "key": "2",
+    "n": 10,
+    "pnl": 0.4,
+    "roi": 0.02
+   },
+   {
+    "key": "5",
+    "n": 30,
+    "pnl": 2.0,
+    "roi": 0.013
+   }
+  ]
+ }
+}

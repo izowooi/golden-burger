@@ -1,0 +1,26 @@
+[
+ {
+  "kind": "daily",
+  "date": "2026-09-30",
+  "slot": "evening",
+  "title": "9/30 저녁 회고",
+  "path": "reports/daily/2026-09-30-evening.md",
+  "ai": true
+ },
+ {
+  "kind": "weekly",
+  "date": "2026-09-28",
+  "slot": null,
+  "title": "9월 4주차 주간 회고",
+  "path": "reports/weekly/2026-09-28.md",
+  "ai": true
+ },
+ {
+  "kind": "daily",
+  "date": "2026-09-29",
+  "slot": "morning",
+  "title": "9/29 아침 회고 (파일 없음 테스트)",
+  "path": "reports/daily/2026-09-29-morning.md",
+  "ai": false
+ }
+]

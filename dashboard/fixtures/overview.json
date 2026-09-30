@@ -1,0 +1,218 @@
+{
+ "generated_at": "2026-09-30T14:52:00Z",
+ "git_commit": "abc1234",
+ "system": {
+  "jobs": [
+   {
+    "name": "polylab-tick",
+    "last_run_at": "2026-09-30T14:53:00Z",
+    "last_ok_at": "2026-09-30T14:53:00Z",
+    "status": "ok",
+    "detail": "1분 주기"
+   },
+   {
+    "name": "polylab-publish",
+    "last_run_at": "2026-09-30T14:52:00Z",
+    "last_ok_at": "2026-09-30T14:52:00Z",
+    "status": "ok",
+    "detail": null
+   },
+   {
+    "name": "polylab-backfill",
+    "last_run_at": "2026-09-30T12:55:00Z",
+    "last_ok_at": "2026-09-29T12:55:00Z",
+    "status": "failing",
+    "detail": "Gamma API 429"
+   }
+  ],
+  "collector": {
+   "last_poll_at": "2026-09-30T14:54:00Z",
+   "live_games": 12,
+   "tracked_markets": 40,
+   "ws_last_message_at": "2026-09-30T14:54:40Z",
+   "core_db_mb": 812.5,
+   "books_db_mb": 120.0,
+   "disk_free_gb": 900.1,
+   "backfill_progress": {
+    "games_done": 1200,
+    "games_total": 5000
+   }
+  },
+  "ai": {
+   "last_retro_at": "2026-09-30T08:55:00Z",
+   "last_retro_kind": "daily",
+   "last_retro_ok": true,
+   "proposals_applied_7d": 3
+  }
+ },
+ "portfolio": {
+  "total_equity_usdc": 245.3,
+  "total_cash_usdc": 225.3,
+  "total_positions_value_usdc": 20.0,
+  "accounts": [
+   {
+    "alias": "cat",
+    "variant_id": "watermelon-cat",
+    "cash_usdc": 110.2,
+    "positions_value_usdc": 10.4,
+    "equity_usdc": 120.6,
+    "redeemable_usdc": 0.0,
+    "updated_at": "2026-09-30T14:52:00Z"
+   },
+   {
+    "alias": "dog",
+    "variant_id": "apricot-dog",
+    "cash_usdc": 115.1,
+    "positions_value_usdc": 9.6,
+    "equity_usdc": 124.7,
+    "redeemable_usdc": 5.2,
+    "updated_at": "2026-09-30T14:52:00Z"
+   },
+   {
+    "alias": "fox",
+    "variant_id": null,
+    "cash_usdc": null,
+    "positions_value_usdc": null,
+    "equity_usdc": null,
+    "redeemable_usdc": null,
+    "updated_at": null
+   }
+  ]
+ },
+ "strategies": [
+  {
+   "id": "watermelon-cat",
+   "family": "watermelon",
+   "hypothesis": "후반 75분 이후 0.92 이상 favorite은 시장가보다 실제 승률이 높다(favorite-longshot bias).",
+   "mode": "live",
+   "account": "cat",
+   "sports": [
+    "soccer"
+   ],
+   "stake_usdc": 5,
+   "next_stake_usdc": 10,
+   "ladder": {
+    "status": "promote_ready",
+    "trades_at_tier": 22,
+    "needed": 20,
+    "roi_ci_lo": 0.004
+   },
+   "params": {
+    "prob_min": 0.93,
+    "minute_min": 75,
+    "max_spread": 0.02,
+    "exit": "hold_to_resolution"
+   },
+   "open_positions": 2,
+   "open_cost_usdc": 10.0,
+   "pnl": {
+    "today": -4.74,
+    "d7": -6.41,
+    "d30": -4.77,
+    "all": -4.77
+   },
+   "trades": {
+    "all": 60,
+    "wins": 56,
+    "losses": 4
+   },
+   "win_rate": 0.9333,
+   "roi": -0.0159,
+   "last_trade_at": "2026-09-30T03:55:00Z",
+   "last_change": {
+    "at": "2026-09-28T11:55:00Z",
+    "summary": "prob_min 0.92→0.93 (autopilot)"
+   }
+  },
+  {
+   "id": "apricot-dog",
+   "family": "apricot",
+   "hypothesis": "NBA 4쿼터 잔여 3분 이하 10점차 이상 리드 팀은 0.95 가격에서도 저평가된다.",
+   "mode": "paper",
+   "account": "dog",
+   "sports": [
+    "basketball"
+   ],
+   "stake_usdc": 5,
+   "next_stake_usdc": 10,
+   "ladder": {
+    "status": "hold",
+    "trades_at_tier": 7,
+    "needed": 20,
+    "roi_ci_lo": -0.02
+   },
+   "params": {
+    "prob_min": 0.95,
+    "lead_min": 10,
+    "clock_max_s": 180
+   },
+   "open_positions": 1,
+   "open_cost_usdc": 5.0,
+   "pnl": {
+    "today": -10,
+    "d7": -11.52,
+    "d30": -8.59,
+    "all": -8.59
+   },
+   "trades": {
+    "all": 25,
+    "wins": 22,
+    "losses": 3
+   },
+   "win_rate": 0.88,
+   "roi": -0.0687,
+   "last_trade_at": "2026-09-30T03:55:00Z",
+   "last_change": null
+  },
+  {
+   "id": "plum-fox",
+   "family": "plum",
+   "hypothesis": "득점 직후 과잉반응 가격을 역방향으로 매수하면 10분 내 되돌림을 얻는다.",
+   "mode": "off",
+   "account": null,
+   "sports": [
+    "soccer",
+    "hockey"
+   ],
+   "stake_usdc": null,
+   "next_stake_usdc": null,
+   "ladder": null,
+   "params": {
+    "jump_min": 0.2,
+    "revert_window_m": 10
+   },
+   "open_positions": 0,
+   "open_cost_usdc": null,
+   "pnl": {
+    "today": null,
+    "d7": -27.32,
+    "d30": -27.32,
+    "all": -27.32
+   },
+   "trades": {
+    "all": 14,
+    "wins": 8,
+    "losses": 6
+   },
+   "win_rate": 0.5714,
+   "roi": -0.3903,
+   "last_trade_at": "2026-09-30T03:55:00Z",
+   "last_change": {
+    "at": "2026-09-21T14:55:00Z",
+    "summary": "mode live→off (수동 중지)"
+   }
+  }
+ ],
+ "alerts": [
+  {
+   "level": "error",
+   "at": "2026-09-30T12:55:00Z",
+   "message": "polylab-backfill 26시간째 실패 (Gamma API 429)"
+  },
+  {
+   "level": "warn",
+   "at": "2026-09-30T09:55:00Z",
+   "message": "watermelon-cat 스테이크 승급 조건 충족 — 다음 회고에서 검토"
+  }
+ ]
+}
