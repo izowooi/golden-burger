@@ -8,7 +8,7 @@
   "settled_24h": 0,
   "settled_pnl_24h": 0.0,
   "open_positions": 4,
-  "unrealized_pnl": -0.2953,
+  "unrealized_pnl": 0.9879,
   "live_variants": 8,
   "paper_variants": 0
  },
@@ -18,6 +18,7 @@
    "account": "eco",
    "stake_usdc": 5.0,
    "params": {
+    "min_game_volume_usd": 20000,
     "entry_tick_minute": 90,
     "tick_window_minutes": 2,
     "prob_min": 0.9,
@@ -29,6 +30,11 @@
     "hours_max": 8.0
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "entry_tick_minute": [
      60,
      150,
@@ -119,8 +125,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "apricot-eco v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "apricot-eco v2: +min_game_volume_usd=20000 (registry)"
    }
   },
   "apricot-fruit": {
@@ -128,6 +134,7 @@
    "account": "fruit",
    "stake_usdc": 5.0,
    "params": {
+    "min_game_volume_usd": 20000,
     "entry_tick_minute": 85,
     "tick_window_minutes": 2,
     "prob_min": 0.9,
@@ -139,6 +146,11 @@
     "hours_max": 8.0
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "entry_tick_minute": [
      60,
      150,
@@ -229,8 +241,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "apricot-fruit v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "apricot-fruit v2: +min_game_volume_usd=20000 (registry)"
    }
   },
   "cherry-blue": {
@@ -238,6 +250,17 @@
    "account": "blue",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
     "buy_threshold": 0.8,
     "sell_threshold": 0.82,
     "take_profit_percent": 0.2,
@@ -346,8 +369,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "cherry-blue v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "cherry-blue v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'] (registry)"
    }
   },
   "cherry-tiger": {
@@ -355,6 +378,17 @@
    "account": "tiger",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
     "buy_threshold": 0.76,
     "sell_threshold": 0.78,
     "take_profit_percent": 0.2,
@@ -463,8 +497,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "cherry-tiger v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "cherry-tiger v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'] (registry)"
    }
   },
   "plum-king": {
@@ -472,6 +506,18 @@
    "account": "king",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
+    "min_game_volume_usd": 20000,
     "prob_min": 0.7,
     "prob_max": 0.73,
     "take_profit_price": 0.9,
@@ -491,6 +537,11 @@
     }
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "prob_min": [
      0.67,
      0.8,
@@ -591,8 +642,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "plum-king v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "plum-king v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
    }
   },
   "plum-queen": {
@@ -600,6 +651,18 @@
    "account": "queen",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
+    "min_game_volume_usd": 20000,
     "prob_min": 0.7,
     "prob_max": 0.73,
     "take_profit_price": 0.9,
@@ -620,6 +683,11 @@
     }
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "prob_min": [
      0.67,
      0.8,
@@ -725,8 +793,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "plum-queen v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "plum-queen v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
    }
   },
   "watermelon-cat": {
@@ -734,6 +802,18 @@
    "account": "cat",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
+    "min_game_volume_usd": 20000,
     "prob_min": 0.92,
     "prob_max": 0.999,
     "stop_price": 0.65,
@@ -751,6 +831,11 @@
     }
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "prob_min": [
      0.85,
      0.99,
@@ -855,8 +940,8 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "watermelon-cat v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "watermelon-cat v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
    }
   },
   "watermelon-dog": {
@@ -864,6 +949,18 @@
    "account": "dog",
    "stake_usdc": 5.0,
    "params": {
+    "leagues": [
+     "epl",
+     "bun",
+     "fl1",
+     "lal",
+     "sea",
+     "mls",
+     "unl",
+     "ucl",
+     "uel"
+    ],
+    "min_game_volume_usd": 20000,
     "prob_min": 0.92,
     "prob_max": 0.999,
     "stop_price": 0.6,
@@ -881,6 +978,11 @@
     }
    },
    "bounds": {
+    "min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
     "prob_min": [
      0.85,
      0.99,
@@ -985,17 +1087,3405 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-09-30T16:20:01Z",
-    "summary": "watermelon-dog v1: 초기 버전 (init)"
+    "at": "2026-09-30T16:54:01Z",
+    "summary": "watermelon-dog v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
    }
   }
  },
  "stake_tiers": [],
  "research": {
-  "generated_at": "2026-09-30T16:31:28Z",
-  "top_gaps": [],
-  "brier": [],
-  "by_sport_phase": [],
+  "generated_at": "2026-09-30T18:30:08Z",
+  "top_gaps": [
+   {
+    "sport": "nhl",
+    "phase": "final",
+    "p_lo": 0.3,
+    "p_hi": 0.4,
+    "n": 53,
+    "mean_price": 0.3493,
+    "win_rate": 0.4906,
+    "ci_lo": 0.3612,
+    "ci_hi": 0.6212,
+    "gap": 0.1413,
+    "significant": true
+   },
+   {
+    "sport": "nfl",
+    "phase": "all",
+    "p_lo": 0.6,
+    "p_hi": 0.7,
+    "n": 114,
+    "mean_price": 0.6446,
+    "win_rate": 0.5263,
+    "ci_lo": 0.4353,
+    "ci_hi": 0.6156,
+    "gap": -0.1183,
+    "significant": true
+   },
+   {
+    "sport": "nfl",
+    "phase": "all",
+    "p_lo": 0.3,
+    "p_hi": 0.4,
+    "n": 117,
+    "mean_price": 0.3541,
+    "win_rate": 0.4615,
+    "ci_lo": 0.3739,
+    "ci_hi": 0.5517,
+    "gap": 0.1074,
+    "significant": true
+   },
+   {
+    "sport": "nfl",
+    "phase": "all",
+    "p_lo": 0.1,
+    "p_hi": 0.2,
+    "n": 52,
+    "mean_price": 0.1503,
+    "win_rate": 0.25,
+    "ci_lo": 0.1523,
+    "ci_hi": 0.3821,
+    "gap": 0.0997,
+    "significant": true
+   },
+   {
+    "sport": "nfl",
+    "phase": "all",
+    "p_lo": 0.2,
+    "p_hi": 0.3,
+    "n": 83,
+    "mean_price": 0.2534,
+    "win_rate": 0.3494,
+    "ci_lo": 0.2556,
+    "ci_hi": 0.4566,
+    "gap": 0.096,
+    "significant": true
+   }
+  ],
+  "brier": [
+   {
+    "sport": "mlb",
+    "phase": "pre",
+    "n": 5238,
+    "brier": 0.24376
+   },
+   {
+    "sport": "mlb",
+    "phase": "early",
+    "n": 5196,
+    "brier": 0.24401
+   },
+   {
+    "sport": "mlb",
+    "phase": "mid",
+    "n": 5196,
+    "brier": 0.1931
+   },
+   {
+    "sport": "mlb",
+    "phase": "late",
+    "n": 5196,
+    "brier": 0.1285
+   },
+   {
+    "sport": "mlb",
+    "phase": "final",
+    "n": 4150,
+    "brier": 0.07476
+   },
+   {
+    "sport": "nba",
+    "phase": "pre",
+    "n": 1196,
+    "brier": 0.17542
+   },
+   {
+    "sport": "nba",
+    "phase": "early",
+    "n": 1196,
+    "brier": 0.17543
+   },
+   {
+    "sport": "nba",
+    "phase": "mid",
+    "n": 1198,
+    "brier": 0.15623
+   },
+   {
+    "sport": "nba",
+    "phase": "late",
+    "n": 1194,
+    "brier": 0.12822
+   },
+   {
+    "sport": "nba",
+    "phase": "final",
+    "n": 1192,
+    "brier": 0.09155
+   },
+   {
+    "sport": "nfl",
+    "phase": "pre",
+    "n": 192,
+    "brier": 0.25039
+   },
+   {
+    "sport": "nfl",
+    "phase": "early",
+    "n": 192,
+    "brier": 0.25077
+   },
+   {
+    "sport": "nfl",
+    "phase": "mid",
+    "n": 192,
+    "brier": 0.2302
+   },
+   {
+    "sport": "nfl",
+    "phase": "late",
+    "n": 192,
+    "brier": 0.17188
+   },
+   {
+    "sport": "nfl",
+    "phase": "final",
+    "n": 192,
+    "brier": 0.09243
+   },
+   {
+    "sport": "nhl",
+    "phase": "pre",
+    "n": 1194,
+    "brier": 0.23637
+   },
+   {
+    "sport": "nhl",
+    "phase": "early",
+    "n": 1194,
+    "brier": 0.23648
+   },
+   {
+    "sport": "nhl",
+    "phase": "mid",
+    "n": 1194,
+    "brier": 0.20853
+   },
+   {
+    "sport": "nhl",
+    "phase": "late",
+    "n": 1194,
+    "brier": 0.16889
+   },
+   {
+    "sport": "nhl",
+    "phase": "final",
+    "n": 1188,
+    "brier": 0.13287
+   },
+   {
+    "sport": "soccer",
+    "phase": "pre",
+    "n": 17178,
+    "brier": 0.19417
+   },
+   {
+    "sport": "soccer",
+    "phase": "early",
+    "n": 17103,
+    "brier": 0.19604
+   },
+   {
+    "sport": "soccer",
+    "phase": "mid",
+    "n": 17094,
+    "brier": 0.17402
+   },
+   {
+    "sport": "soccer",
+    "phase": "late",
+    "n": 17083,
+    "brier": 0.15701
+   },
+   {
+    "sport": "soccer",
+    "phase": "final",
+    "n": 17082,
+    "brier": 0.11252
+   }
+  ],
+  "by_sport_phase": [
+   {
+    "sport": "mlb",
+    "phase": "all",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 1761,
+      "mean_price": 0.0173,
+      "win_rate": 0.0153,
+      "ci_lo": 0.0106,
+      "ci_hi": 0.0222,
+      "gap": -0.002
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 878,
+      "mean_price": 0.0734,
+      "win_rate": 0.0683,
+      "ci_lo": 0.0535,
+      "ci_hi": 0.087,
+      "gap": -0.0051
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 1248,
+      "mean_price": 0.1472,
+      "win_rate": 0.1458,
+      "ci_lo": 0.1273,
+      "ci_hi": 0.1665,
+      "gap": -0.0013
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 1171,
+      "mean_price": 0.2513,
+      "win_rate": 0.2553,
+      "ci_lo": 0.2312,
+      "ci_hi": 0.2811,
+      "gap": 0.0041
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 2128,
+      "mean_price": 0.3583,
+      "win_rate": 0.3722,
+      "ci_lo": 0.3519,
+      "ci_hi": 0.3929,
+      "gap": 0.0139
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 5239,
+      "mean_price": 0.4538,
+      "win_rate": 0.4459,
+      "ci_lo": 0.4325,
+      "ci_hi": 0.4594,
+      "gap": -0.0079
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 5326,
+      "mean_price": 0.5447,
+      "win_rate": 0.5528,
+      "ci_lo": 0.5394,
+      "ci_hi": 0.5661,
+      "gap": 0.008
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 2155,
+      "mean_price": 0.6406,
+      "win_rate": 0.626,
+      "ci_lo": 0.6053,
+      "ci_hi": 0.6462,
+      "gap": -0.0146
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 1172,
+      "mean_price": 0.7477,
+      "win_rate": 0.7423,
+      "ci_lo": 0.7165,
+      "ci_hi": 0.7665,
+      "gap": -0.0054
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 1242,
+      "mean_price": 0.8517,
+      "win_rate": 0.8551,
+      "ci_lo": 0.8344,
+      "ci_hi": 0.8736,
+      "gap": 0.0034
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 885,
+      "mean_price": 0.926,
+      "win_rate": 0.9299,
+      "ci_lo": 0.9112,
+      "ci_hi": 0.945,
+      "gap": 0.0039
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 700,
+      "mean_price": 0.9659,
+      "win_rate": 0.9686,
+      "ci_lo": 0.9529,
+      "ci_hi": 0.9792,
+      "gap": 0.0026
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 1071,
+      "mean_price": 0.9933,
+      "win_rate": 0.9953,
+      "ci_lo": 0.9891,
+      "ci_hi": 0.998,
+      "gap": 0.002
+     }
+    ]
+   },
+   {
+    "sport": "mlb",
+    "phase": "pre",
+    "buckets": [
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 61,
+      "mean_price": 0.2742,
+      "win_rate": 0.2787,
+      "ci_lo": 0.1819,
+      "ci_hi": 0.4017,
+      "gap": 0.0045
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 538,
+      "mean_price": 0.3662,
+      "win_rate": 0.381,
+      "ci_lo": 0.341,
+      "ci_hi": 0.4228,
+      "gap": 0.0149
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 2016,
+      "mean_price": 0.455,
+      "win_rate": 0.4474,
+      "ci_lo": 0.4258,
+      "ci_hi": 0.4692,
+      "gap": -0.0076
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 2019,
+      "mean_price": 0.5447,
+      "win_rate": 0.5523,
+      "ci_lo": 0.5305,
+      "ci_hi": 0.5738,
+      "gap": 0.0075
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 540,
+      "mean_price": 0.6335,
+      "win_rate": 0.6185,
+      "ci_lo": 0.5768,
+      "ci_hi": 0.6585,
+      "gap": -0.015
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 62,
+      "mean_price": 0.7254,
+      "win_rate": 0.7258,
+      "ci_lo": 0.6041,
+      "ci_hi": 0.8212,
+      "gap": 0.0004
+     }
+    ]
+   },
+   {
+    "sport": "mlb",
+    "phase": "early",
+    "buckets": [
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 62,
+      "mean_price": 0.2712,
+      "win_rate": 0.2581,
+      "ci_lo": 0.1655,
+      "ci_hi": 0.3788,
+      "gap": -0.0132
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 536,
+      "mean_price": 0.3656,
+      "win_rate": 0.3825,
+      "ci_lo": 0.3423,
+      "ci_hi": 0.4243,
+      "gap": 0.0168
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1971,
+      "mean_price": 0.4548,
+      "win_rate": 0.4526,
+      "ci_lo": 0.4307,
+      "ci_hi": 0.4746,
+      "gap": -0.0023
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 2012,
+      "mean_price": 0.5436,
+      "win_rate": 0.5457,
+      "ci_lo": 0.5239,
+      "ci_hi": 0.5674,
+      "gap": 0.0022
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 553,
+      "mean_price": 0.6334,
+      "win_rate": 0.6166,
+      "ci_lo": 0.5754,
+      "ci_hi": 0.6562,
+      "gap": -0.0168
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 62,
+      "mean_price": 0.7288,
+      "win_rate": 0.7419,
+      "ci_lo": 0.6212,
+      "ci_hi": 0.8345,
+      "gap": 0.0132
+     }
+    ]
+   },
+   {
+    "sport": "mlb",
+    "phase": "mid",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 68,
+      "mean_price": 0.0333,
+      "win_rate": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0535,
+      "gap": -0.0333
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 185,
+      "mean_price": 0.0768,
+      "win_rate": 0.0919,
+      "ci_lo": 0.0582,
+      "ci_hi": 0.1422,
+      "gap": 0.0151
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 431,
+      "mean_price": 0.149,
+      "win_rate": 0.1415,
+      "ci_lo": 0.1118,
+      "ci_hi": 0.1776,
+      "gap": -0.0075
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 521,
+      "mean_price": 0.2517,
+      "win_rate": 0.2649,
+      "ci_lo": 0.2288,
+      "ci_hi": 0.3044,
+      "gap": 0.0132
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 627,
+      "mean_price": 0.3505,
+      "win_rate": 0.362,
+      "ci_lo": 0.3254,
+      "ci_hi": 0.4004,
+      "gap": 0.0115
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 748,
+      "mean_price": 0.4491,
+      "win_rate": 0.4452,
+      "ci_lo": 0.4099,
+      "ci_hi": 0.481,
+      "gap": -0.0039
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 769,
+      "mean_price": 0.5476,
+      "win_rate": 0.554,
+      "ci_lo": 0.5187,
+      "ci_hi": 0.5887,
+      "gap": 0.0064
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 635,
+      "mean_price": 0.6479,
+      "win_rate": 0.6331,
+      "ci_lo": 0.5949,
+      "ci_hi": 0.6697,
+      "gap": -0.0148
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 524,
+      "mean_price": 0.7472,
+      "win_rate": 0.7328,
+      "ci_lo": 0.6933,
+      "ci_hi": 0.7689,
+      "gap": -0.0144
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 425,
+      "mean_price": 0.8493,
+      "win_rate": 0.8588,
+      "ci_lo": 0.8225,
+      "ci_hi": 0.8887,
+      "gap": 0.0095
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 192,
+      "mean_price": 0.9217,
+      "win_rate": 0.9062,
+      "ci_lo": 0.8567,
+      "ci_hi": 0.9399,
+      "gap": -0.0155
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 58,
+      "mean_price": 0.9616,
+      "win_rate": 1.0,
+      "ci_lo": 0.9379,
+      "ci_hi": 1.0,
+      "gap": 0.0384
+     }
+    ]
+   },
+   {
+    "sport": "mlb",
+    "phase": "late",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 598,
+      "mean_price": 0.0239,
+      "win_rate": 0.0251,
+      "ci_lo": 0.0153,
+      "ci_hi": 0.041,
+      "gap": 0.0012
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 422,
+      "mean_price": 0.0737,
+      "win_rate": 0.0664,
+      "ci_lo": 0.0463,
+      "ci_hi": 0.0942,
+      "gap": -0.0073
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 516,
+      "mean_price": 0.1483,
+      "win_rate": 0.1531,
+      "ci_lo": 0.1246,
+      "ci_hi": 0.1867,
+      "gap": 0.0048
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 395,
+      "mean_price": 0.2462,
+      "win_rate": 0.2304,
+      "ci_lo": 0.1916,
+      "ci_hi": 0.2744,
+      "gap": -0.0158
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 318,
+      "mean_price": 0.3492,
+      "win_rate": 0.3396,
+      "ci_lo": 0.2898,
+      "ci_hi": 0.3933,
+      "gap": -0.0096
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 341,
+      "mean_price": 0.4525,
+      "win_rate": 0.4164,
+      "ci_lo": 0.3653,
+      "ci_hi": 0.4694,
+      "gap": -0.0361
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 357,
+      "mean_price": 0.5449,
+      "win_rate": 0.5798,
+      "ci_lo": 0.528,
+      "ci_hi": 0.6299,
+      "gap": 0.0349
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 314,
+      "mean_price": 0.6497,
+      "win_rate": 0.6592,
+      "ci_lo": 0.6052,
+      "ci_hi": 0.7095,
+      "gap": 0.0095
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 393,
+      "mean_price": 0.7527,
+      "win_rate": 0.7659,
+      "ci_lo": 0.7216,
+      "ci_hi": 0.8051,
+      "gap": 0.0132
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 518,
+      "mean_price": 0.8507,
+      "win_rate": 0.8494,
+      "ci_lo": 0.8161,
+      "ci_hi": 0.8776,
+      "gap": -0.0013
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 424,
+      "mean_price": 0.9262,
+      "win_rate": 0.9316,
+      "ci_lo": 0.9035,
+      "ci_hi": 0.952,
+      "gap": 0.0054
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 354,
+      "mean_price": 0.9658,
+      "win_rate": 0.9633,
+      "ci_lo": 0.9382,
+      "ci_hi": 0.9784,
+      "gap": -0.0026
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 246,
+      "mean_price": 0.9905,
+      "win_rate": 0.9919,
+      "ci_lo": 0.9708,
+      "ci_hi": 0.9978,
+      "gap": 0.0013
+     }
+    ]
+   },
+   {
+    "sport": "mlb",
+    "phase": "final",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 1094,
+      "mean_price": 0.0127,
+      "win_rate": 0.011,
+      "ci_lo": 0.0063,
+      "ci_hi": 0.0191,
+      "gap": -0.0017
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 271,
+      "mean_price": 0.0707,
+      "win_rate": 0.0554,
+      "ci_lo": 0.0338,
+      "ci_hi": 0.0893,
+      "gap": -0.0153
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 301,
+      "mean_price": 0.1427,
+      "win_rate": 0.1395,
+      "ci_lo": 0.1049,
+      "ci_hi": 0.1832,
+      "gap": -0.0032
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 132,
+      "mean_price": 0.245,
+      "win_rate": 0.2803,
+      "ci_lo": 0.2107,
+      "ci_hi": 0.3623,
+      "gap": 0.0353
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 109,
+      "mean_price": 0.3547,
+      "win_rate": 0.4312,
+      "ci_lo": 0.3421,
+      "ci_hi": 0.5249,
+      "gap": 0.0765
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 163,
+      "mean_price": 0.4508,
+      "win_rate": 0.411,
+      "ci_lo": 0.3384,
+      "ci_hi": 0.4878,
+      "gap": -0.0397
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 169,
+      "mean_price": 0.5454,
+      "win_rate": 0.5799,
+      "ci_lo": 0.5045,
+      "ci_hi": 0.6517,
+      "gap": 0.0344
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 113,
+      "mean_price": 0.6441,
+      "win_rate": 0.5752,
+      "ci_lo": 0.4831,
+      "ci_hi": 0.6624,
+      "gap": -0.0689
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 131,
+      "mean_price": 0.7544,
+      "win_rate": 0.7176,
+      "ci_lo": 0.6351,
+      "ci_hi": 0.7876,
+      "gap": -0.0368
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 299,
+      "mean_price": 0.8569,
+      "win_rate": 0.8595,
+      "ci_lo": 0.8156,
+      "ci_hi": 0.8944,
+      "gap": 0.0026
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 269,
+      "mean_price": 0.9288,
+      "win_rate": 0.9442,
+      "ci_lo": 0.91,
+      "ci_hi": 0.9659,
+      "gap": 0.0154
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 288,
+      "mean_price": 0.967,
+      "win_rate": 0.9688,
+      "ci_lo": 0.9417,
+      "ci_hi": 0.9835,
+      "gap": 0.0018
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 811,
+      "mean_price": 0.9943,
+      "win_rate": 0.9963,
+      "ci_lo": 0.9892,
+      "ci_hi": 0.9987,
+      "gap": 0.002
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "all",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 452,
+      "mean_price": 0.0163,
+      "win_rate": 0.0066,
+      "ci_lo": 0.0023,
+      "ci_hi": 0.0193,
+      "gap": -0.0096
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 293,
+      "mean_price": 0.0745,
+      "win_rate": 0.041,
+      "ci_lo": 0.0236,
+      "ci_hi": 0.0702,
+      "gap": -0.0336
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 550,
+      "mean_price": 0.1475,
+      "win_rate": 0.1255,
+      "ci_lo": 0.1003,
+      "ci_hi": 0.1558,
+      "gap": -0.0221
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 555,
+      "mean_price": 0.2485,
+      "win_rate": 0.1982,
+      "ci_lo": 0.1672,
+      "ci_hi": 0.2334,
+      "gap": -0.0503
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 578,
+      "mean_price": 0.3481,
+      "win_rate": 0.3651,
+      "ci_lo": 0.3268,
+      "ci_hi": 0.4051,
+      "gap": 0.0169
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 560,
+      "mean_price": 0.4476,
+      "win_rate": 0.4286,
+      "ci_lo": 0.3882,
+      "ci_hi": 0.4699,
+      "gap": -0.019
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 557,
+      "mean_price": 0.5522,
+      "win_rate": 0.5709,
+      "ci_lo": 0.5295,
+      "ci_hi": 0.6114,
+      "gap": 0.0187
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 580,
+      "mean_price": 0.6516,
+      "win_rate": 0.6345,
+      "ci_lo": 0.5945,
+      "ci_hi": 0.6727,
+      "gap": -0.0171
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 553,
+      "mean_price": 0.7512,
+      "win_rate": 0.8011,
+      "ci_lo": 0.7658,
+      "ci_hi": 0.8322,
+      "gap": 0.0499
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 554,
+      "mean_price": 0.8522,
+      "win_rate": 0.8755,
+      "ci_lo": 0.8453,
+      "ci_hi": 0.9004,
+      "gap": 0.0233
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 290,
+      "mean_price": 0.9252,
+      "win_rate": 0.9586,
+      "ci_lo": 0.9291,
+      "ci_hi": 0.9762,
+      "gap": 0.0334
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 170,
+      "mean_price": 0.9665,
+      "win_rate": 0.9882,
+      "ci_lo": 0.9581,
+      "ci_hi": 0.9968,
+      "gap": 0.0217
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 284,
+      "mean_price": 0.9938,
+      "win_rate": 0.9965,
+      "ci_lo": 0.9803,
+      "ci_hi": 0.9994,
+      "gap": 0.0027
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "pre",
+    "buckets": [
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 51,
+      "mean_price": 0.0779,
+      "win_rate": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.07,
+      "gap": -0.0779
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 113,
+      "mean_price": 0.1483,
+      "win_rate": 0.1593,
+      "ci_lo": 0.1032,
+      "ci_hi": 0.2378,
+      "gap": 0.011
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 125,
+      "mean_price": 0.249,
+      "win_rate": 0.168,
+      "ci_lo": 0.1126,
+      "ci_hi": 0.2432,
+      "gap": -0.081
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 144,
+      "mean_price": 0.3473,
+      "win_rate": 0.3611,
+      "ci_lo": 0.2872,
+      "ci_hi": 0.4422,
+      "gap": 0.0139
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 157,
+      "mean_price": 0.4439,
+      "win_rate": 0.4522,
+      "ci_lo": 0.3764,
+      "ci_hi": 0.5303,
+      "gap": 0.0083
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 157,
+      "mean_price": 0.5561,
+      "win_rate": 0.5478,
+      "ci_lo": 0.4697,
+      "ci_hi": 0.6236,
+      "gap": -0.0083
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 144,
+      "mean_price": 0.6527,
+      "win_rate": 0.6389,
+      "ci_lo": 0.5578,
+      "ci_hi": 0.7128,
+      "gap": -0.0139
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 125,
+      "mean_price": 0.751,
+      "win_rate": 0.832,
+      "ci_lo": 0.7568,
+      "ci_hi": 0.8874,
+      "gap": 0.081
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 113,
+      "mean_price": 0.8517,
+      "win_rate": 0.8407,
+      "ci_lo": 0.7622,
+      "ci_hi": 0.8968,
+      "gap": -0.011
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 50,
+      "mean_price": 0.9215,
+      "win_rate": 1.0,
+      "ci_lo": 0.9286,
+      "ci_hi": 1.0,
+      "gap": 0.0785
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "early",
+    "buckets": [
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 53,
+      "mean_price": 0.0773,
+      "win_rate": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0676,
+      "gap": -0.0773
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 113,
+      "mean_price": 0.149,
+      "win_rate": 0.1593,
+      "ci_lo": 0.1032,
+      "ci_hi": 0.2378,
+      "gap": 0.0103
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 124,
+      "mean_price": 0.249,
+      "win_rate": 0.1694,
+      "ci_lo": 0.1135,
+      "ci_hi": 0.2451,
+      "gap": -0.0796
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 144,
+      "mean_price": 0.3469,
+      "win_rate": 0.3611,
+      "ci_lo": 0.2872,
+      "ci_hi": 0.4422,
+      "gap": 0.0142
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 157,
+      "mean_price": 0.4448,
+      "win_rate": 0.4459,
+      "ci_lo": 0.3703,
+      "ci_hi": 0.524,
+      "gap": 0.0011
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 156,
+      "mean_price": 0.555,
+      "win_rate": 0.5513,
+      "ci_lo": 0.4729,
+      "ci_hi": 0.6272,
+      "gap": -0.0037
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 145,
+      "mean_price": 0.6527,
+      "win_rate": 0.6414,
+      "ci_lo": 0.5606,
+      "ci_hi": 0.7149,
+      "gap": -0.0113
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 125,
+      "mean_price": 0.7515,
+      "win_rate": 0.832,
+      "ci_lo": 0.7568,
+      "ci_hi": 0.8874,
+      "gap": 0.0805
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 113,
+      "mean_price": 0.8513,
+      "win_rate": 0.8407,
+      "ci_lo": 0.7622,
+      "ci_hi": 0.8968,
+      "gap": -0.0106
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 52,
+      "mean_price": 0.9225,
+      "win_rate": 1.0,
+      "ci_lo": 0.9312,
+      "ci_hi": 1.0,
+      "gap": 0.0775
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "mid",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 57,
+      "mean_price": 0.0296,
+      "win_rate": 0.0175,
+      "ci_lo": 0.0031,
+      "ci_hi": 0.0929,
+      "gap": -0.0121
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 65,
+      "mean_price": 0.0756,
+      "win_rate": 0.0462,
+      "ci_lo": 0.0158,
+      "ci_hi": 0.1271,
+      "gap": -0.0295
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 106,
+      "mean_price": 0.1495,
+      "win_rate": 0.1132,
+      "ci_lo": 0.066,
+      "ci_hi": 0.1875,
+      "gap": -0.0363
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 140,
+      "mean_price": 0.2498,
+      "win_rate": 0.2214,
+      "ci_lo": 0.1606,
+      "ci_hi": 0.2971,
+      "gap": -0.0284
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 121,
+      "mean_price": 0.35,
+      "win_rate": 0.3719,
+      "ci_lo": 0.291,
+      "ci_hi": 0.4607,
+      "gap": 0.0219
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 110,
+      "mean_price": 0.4514,
+      "win_rate": 0.3818,
+      "ci_lo": 0.2965,
+      "ci_hi": 0.4751,
+      "gap": -0.0696
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 110,
+      "mean_price": 0.5487,
+      "win_rate": 0.6182,
+      "ci_lo": 0.5249,
+      "ci_hi": 0.7035,
+      "gap": 0.0694
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 120,
+      "mean_price": 0.65,
+      "win_rate": 0.625,
+      "ci_lo": 0.5358,
+      "ci_hi": 0.7065,
+      "gap": -0.025
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 138,
+      "mean_price": 0.7487,
+      "win_rate": 0.7754,
+      "ci_lo": 0.6988,
+      "ci_hi": 0.837,
+      "gap": 0.0267
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 109,
+      "mean_price": 0.8488,
+      "win_rate": 0.8899,
+      "ci_lo": 0.8174,
+      "ci_hi": 0.9359,
+      "gap": 0.0411
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 65,
+      "mean_price": 0.9244,
+      "win_rate": 0.9538,
+      "ci_lo": 0.8729,
+      "ci_hi": 0.9842,
+      "gap": 0.0295
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 43,
+      "mean_price": 0.9646,
+      "win_rate": 0.9767,
+      "ci_lo": 0.8794,
+      "ci_hi": 0.9959,
+      "gap": 0.0121
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "late",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 118,
+      "mean_price": 0.0199,
+      "win_rate": 0.0085,
+      "ci_lo": 0.0015,
+      "ci_hi": 0.0464,
+      "gap": -0.0114
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 71,
+      "mean_price": 0.0704,
+      "win_rate": 0.0563,
+      "ci_lo": 0.0221,
+      "ci_hi": 0.1361,
+      "gap": -0.0141
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 128,
+      "mean_price": 0.1453,
+      "win_rate": 0.0938,
+      "ci_lo": 0.0544,
+      "ci_hi": 0.1567,
+      "gap": -0.0516
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 93,
+      "mean_price": 0.2458,
+      "win_rate": 0.2258,
+      "ci_lo": 0.1527,
+      "ci_hi": 0.3207,
+      "gap": -0.02
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 107,
+      "mean_price": 0.3477,
+      "win_rate": 0.3458,
+      "ci_lo": 0.2624,
+      "ci_hi": 0.4398,
+      "gap": -0.0019
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 80,
+      "mean_price": 0.4537,
+      "win_rate": 0.4375,
+      "ci_lo": 0.3341,
+      "ci_hi": 0.5466,
+      "gap": -0.0162
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 79,
+      "mean_price": 0.5456,
+      "win_rate": 0.557,
+      "ci_lo": 0.4473,
+      "ci_hi": 0.6613,
+      "gap": 0.0114
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 108,
+      "mean_price": 0.6519,
+      "win_rate": 0.6574,
+      "ci_lo": 0.5639,
+      "ci_hi": 0.7401,
+      "gap": 0.0056
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 93,
+      "mean_price": 0.7542,
+      "win_rate": 0.7742,
+      "ci_lo": 0.6793,
+      "ci_hi": 0.8473,
+      "gap": 0.02
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 128,
+      "mean_price": 0.8547,
+      "win_rate": 0.9062,
+      "ci_lo": 0.8433,
+      "ci_hi": 0.9456,
+      "gap": 0.0515
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 70,
+      "mean_price": 0.9293,
+      "win_rate": 0.9429,
+      "ci_lo": 0.8621,
+      "ci_hi": 0.9776,
+      "gap": 0.0136
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 53,
+      "mean_price": 0.9667,
+      "win_rate": 1.0,
+      "ci_lo": 0.9324,
+      "ci_hi": 1.0,
+      "gap": 0.0333
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 66,
+      "mean_price": 0.9904,
+      "win_rate": 0.9848,
+      "ci_lo": 0.919,
+      "ci_hi": 0.9973,
+      "gap": -0.0055
+     }
+    ]
+   },
+   {
+    "sport": "nba",
+    "phase": "final",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 262,
+      "mean_price": 0.0106,
+      "win_rate": 0.0038,
+      "ci_lo": 0.0007,
+      "ci_hi": 0.0213,
+      "gap": -0.0068
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 53,
+      "mean_price": 0.0726,
+      "win_rate": 0.0943,
+      "ci_lo": 0.041,
+      "ci_hi": 0.2025,
+      "gap": 0.0217
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 90,
+      "mean_price": 0.1453,
+      "win_rate": 0.1,
+      "ci_lo": 0.0535,
+      "ci_hi": 0.1792,
+      "gap": -0.0453
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 73,
+      "mean_price": 0.2476,
+      "win_rate": 0.2192,
+      "ci_lo": 0.1397,
+      "ci_hi": 0.3268,
+      "gap": -0.0284
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 62,
+      "mean_price": 0.35,
+      "win_rate": 0.4032,
+      "ci_lo": 0.2902,
+      "ci_hi": 0.5275,
+      "gap": 0.0532
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 56,
+      "mean_price": 0.4496,
+      "win_rate": 0.3929,
+      "ci_lo": 0.2758,
+      "ci_hi": 0.5237,
+      "gap": -0.0567
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 55,
+      "mean_price": 0.5496,
+      "win_rate": 0.6182,
+      "ci_lo": 0.4861,
+      "ci_hi": 0.7348,
+      "gap": 0.0686
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 63,
+      "mean_price": 0.649,
+      "win_rate": 0.5873,
+      "ci_lo": 0.4642,
+      "ci_hi": 0.7004,
+      "gap": -0.0617
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 72,
+      "mean_price": 0.752,
+      "win_rate": 0.7778,
+      "ci_lo": 0.6691,
+      "ci_hi": 0.8583,
+      "gap": 0.0258
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 91,
+      "mean_price": 0.8544,
+      "win_rate": 0.9011,
+      "ci_lo": 0.8226,
+      "ci_hi": 0.9471,
+      "gap": 0.0467
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 53,
+      "mean_price": 0.9273,
+      "win_rate": 0.9057,
+      "ci_lo": 0.7975,
+      "ci_hi": 0.959,
+      "gap": -0.0216
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 58,
+      "mean_price": 0.9687,
+      "win_rate": 0.9828,
+      "ci_lo": 0.9086,
+      "ci_hi": 0.997,
+      "gap": 0.0141
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 204,
+      "mean_price": 0.9953,
+      "win_rate": 1.0,
+      "ci_lo": 0.9815,
+      "ci_hi": 1.0,
+      "gap": 0.0047
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "all",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 59,
+      "mean_price": 0.0116,
+      "win_rate": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0611,
+      "gap": -0.0116
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 35,
+      "mean_price": 0.0752,
+      "win_rate": 0.0857,
+      "ci_lo": 0.0296,
+      "ci_hi": 0.2238,
+      "gap": 0.0105
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 52,
+      "mean_price": 0.1503,
+      "win_rate": 0.25,
+      "ci_lo": 0.1523,
+      "ci_hi": 0.3821,
+      "gap": 0.0997
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 83,
+      "mean_price": 0.2534,
+      "win_rate": 0.3494,
+      "ci_lo": 0.2556,
+      "ci_hi": 0.4566,
+      "gap": 0.096
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 117,
+      "mean_price": 0.3541,
+      "win_rate": 0.4615,
+      "ci_lo": 0.3739,
+      "ci_hi": 0.5517,
+      "gap": 0.1074
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 134,
+      "mean_price": 0.4494,
+      "win_rate": 0.4925,
+      "ci_lo": 0.4093,
+      "ci_hi": 0.5762,
+      "gap": 0.0431
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 134,
+      "mean_price": 0.5503,
+      "win_rate": 0.5075,
+      "ci_lo": 0.4238,
+      "ci_hi": 0.5907,
+      "gap": -0.0428
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 114,
+      "mean_price": 0.6446,
+      "win_rate": 0.5263,
+      "ci_lo": 0.4353,
+      "ci_hi": 0.6156,
+      "gap": -0.1183
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 85,
+      "mean_price": 0.7442,
+      "win_rate": 0.6588,
+      "ci_lo": 0.5531,
+      "ci_hi": 0.7508,
+      "gap": -0.0854
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 52,
+      "mean_price": 0.8479,
+      "win_rate": 0.7692,
+      "ci_lo": 0.6387,
+      "ci_hi": 0.8628,
+      "gap": -0.0787
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 36,
+      "mean_price": 0.9242,
+      "win_rate": 0.8889,
+      "ci_lo": 0.7468,
+      "ci_hi": 0.9559,
+      "gap": -0.0353
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 43,
+      "mean_price": 0.9953,
+      "win_rate": 1.0,
+      "ci_lo": 0.918,
+      "ci_hi": 1.0,
+      "gap": 0.0047
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "pre",
+    "buckets": [
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 33,
+      "mean_price": 0.3571,
+      "win_rate": 0.4848,
+      "ci_lo": 0.325,
+      "ci_hi": 0.6478,
+      "gap": 0.1277
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 45,
+      "mean_price": 0.4499,
+      "win_rate": 0.4889,
+      "ci_lo": 0.3496,
+      "ci_hi": 0.63,
+      "gap": 0.039
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 45,
+      "mean_price": 0.5501,
+      "win_rate": 0.5111,
+      "ci_lo": 0.37,
+      "ci_hi": 0.6504,
+      "gap": -0.039
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 33,
+      "mean_price": 0.6429,
+      "win_rate": 0.5152,
+      "ci_lo": 0.3522,
+      "ci_hi": 0.675,
+      "gap": -0.1277
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "early",
+    "buckets": [
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 31,
+      "mean_price": 0.3571,
+      "win_rate": 0.5161,
+      "ci_lo": 0.3484,
+      "ci_hi": 0.6803,
+      "gap": 0.159
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 46,
+      "mean_price": 0.4499,
+      "win_rate": 0.5,
+      "ci_lo": 0.3612,
+      "ci_hi": 0.6388,
+      "gap": 0.0501
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 46,
+      "mean_price": 0.5502,
+      "win_rate": 0.5,
+      "ci_lo": 0.3612,
+      "ci_hi": 0.6388,
+      "gap": -0.0502
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 31,
+      "mean_price": 0.6432,
+      "win_rate": 0.4839,
+      "ci_lo": 0.3197,
+      "ci_hi": 0.6516,
+      "gap": -0.1594
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "mid",
+    "buckets": [
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 24,
+      "mean_price": 0.2644,
+      "win_rate": 0.4167,
+      "ci_lo": 0.2447,
+      "ci_hi": 0.6117,
+      "gap": 0.1523
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 23,
+      "mean_price": 0.3533,
+      "win_rate": 0.5217,
+      "ci_lo": 0.3296,
+      "ci_hi": 0.7076,
+      "gap": 0.1685
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 22,
+      "mean_price": 0.4505,
+      "win_rate": 0.5455,
+      "ci_lo": 0.3466,
+      "ci_hi": 0.7308,
+      "gap": 0.095
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 22,
+      "mean_price": 0.5493,
+      "win_rate": 0.4545,
+      "ci_lo": 0.2692,
+      "ci_hi": 0.6534,
+      "gap": -0.0948
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 23,
+      "mean_price": 0.647,
+      "win_rate": 0.4783,
+      "ci_lo": 0.2924,
+      "ci_hi": 0.6704,
+      "gap": -0.1687
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 24,
+      "mean_price": 0.7356,
+      "win_rate": 0.5833,
+      "ci_lo": 0.3883,
+      "ci_hi": 0.7553,
+      "gap": -0.1523
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "late",
+    "buckets": [
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 22,
+      "mean_price": 0.1407,
+      "win_rate": 0.1364,
+      "ci_lo": 0.0475,
+      "ci_hi": 0.3334,
+      "gap": -0.0043
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 21,
+      "mean_price": 0.2483,
+      "win_rate": 0.381,
+      "ci_lo": 0.2075,
+      "ci_hi": 0.5912,
+      "gap": 0.1326
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 22,
+      "mean_price": 0.7443,
+      "win_rate": 0.6364,
+      "ci_lo": 0.4295,
+      "ci_hi": 0.8027,
+      "gap": -0.108
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 22,
+      "mean_price": 0.8548,
+      "win_rate": 0.9091,
+      "ci_lo": 0.7218,
+      "ci_hi": 0.9747,
+      "gap": 0.0543
+     }
+    ]
+   },
+   {
+    "sport": "nfl",
+    "phase": "final",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 50,
+      "mean_price": 0.0114,
+      "win_rate": 0.0,
+      "ci_lo": 0.0,
+      "ci_hi": 0.0714,
+      "gap": -0.0114
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 36,
+      "mean_price": 0.9963,
+      "win_rate": 1.0,
+      "ci_lo": 0.9036,
+      "ci_hi": 1.0,
+      "gap": 0.0037
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "all",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 215,
+      "mean_price": 0.0227,
+      "win_rate": 0.0279,
+      "ci_lo": 0.0129,
+      "ci_hi": 0.0595,
+      "gap": 0.0052
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 152,
+      "mean_price": 0.0704,
+      "win_rate": 0.0592,
+      "ci_lo": 0.0315,
+      "ci_hi": 0.1087,
+      "gap": -0.0112
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 280,
+      "mean_price": 0.1523,
+      "win_rate": 0.1393,
+      "ci_lo": 0.1036,
+      "ci_hi": 0.1847,
+      "gap": -0.013
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 444,
+      "mean_price": 0.2517,
+      "win_rate": 0.2613,
+      "ci_lo": 0.2226,
+      "ci_hi": 0.304,
+      "gap": 0.0096
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 651,
+      "mean_price": 0.3576,
+      "win_rate": 0.3364,
+      "ci_lo": 0.3012,
+      "ci_hi": 0.3736,
+      "gap": -0.0212
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1231,
+      "mean_price": 0.4515,
+      "win_rate": 0.4703,
+      "ci_lo": 0.4426,
+      "ci_hi": 0.4983,
+      "gap": 0.0188
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 1237,
+      "mean_price": 0.5474,
+      "win_rate": 0.5279,
+      "ci_lo": 0.5,
+      "ci_hi": 0.5556,
+      "gap": -0.0195
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 653,
+      "mean_price": 0.641,
+      "win_rate": 0.6662,
+      "ci_lo": 0.6291,
+      "ci_hi": 0.7013,
+      "gap": 0.0252
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 449,
+      "mean_price": 0.7464,
+      "win_rate": 0.7327,
+      "ci_lo": 0.69,
+      "ci_hi": 0.7716,
+      "gap": -0.0137
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 280,
+      "mean_price": 0.8458,
+      "win_rate": 0.8607,
+      "ci_lo": 0.8153,
+      "ci_hi": 0.8964,
+      "gap": 0.0149
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 153,
+      "mean_price": 0.928,
+      "win_rate": 0.9346,
+      "ci_lo": 0.8839,
+      "ci_hi": 0.9641,
+      "gap": 0.0067
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 123,
+      "mean_price": 0.9653,
+      "win_rate": 0.9593,
+      "ci_lo": 0.9084,
+      "ci_hi": 0.9825,
+      "gap": -0.006
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 96,
+      "mean_price": 0.9916,
+      "win_rate": 0.9896,
+      "ci_lo": 0.9433,
+      "ci_hi": 0.9982,
+      "gap": -0.002
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "pre",
+    "buckets": [
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 51,
+      "mean_price": 0.2694,
+      "win_rate": 0.2353,
+      "ci_lo": 0.14,
+      "ci_hi": 0.3676,
+      "gap": -0.0341
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 164,
+      "mean_price": 0.3651,
+      "win_rate": 0.3415,
+      "ci_lo": 0.2733,
+      "ci_hi": 0.4169,
+      "gap": -0.0237
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 382,
+      "mean_price": 0.4515,
+      "win_rate": 0.4738,
+      "ci_lo": 0.4243,
+      "ci_hi": 0.5239,
+      "gap": 0.0223
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 379,
+      "mean_price": 0.548,
+      "win_rate": 0.5277,
+      "ci_lo": 0.4774,
+      "ci_hi": 0.5774,
+      "gap": -0.0203
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 167,
+      "mean_price": 0.6343,
+      "win_rate": 0.6527,
+      "ci_lo": 0.5778,
+      "ci_hi": 0.7207,
+      "gap": 0.0184
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 51,
+      "mean_price": 0.7306,
+      "win_rate": 0.7647,
+      "ci_lo": 0.6324,
+      "ci_hi": 0.86,
+      "gap": 0.0341
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "early",
+    "buckets": [
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 48,
+      "mean_price": 0.2694,
+      "win_rate": 0.2708,
+      "ci_lo": 0.1657,
+      "ci_hi": 0.41,
+      "gap": 0.0015
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 166,
+      "mean_price": 0.3644,
+      "win_rate": 0.3313,
+      "ci_lo": 0.2642,
+      "ci_hi": 0.406,
+      "gap": -0.0331
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 379,
+      "mean_price": 0.4511,
+      "win_rate": 0.4697,
+      "ci_lo": 0.42,
+      "ci_hi": 0.52,
+      "gap": 0.0185
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 383,
+      "mean_price": 0.5478,
+      "win_rate": 0.53,
+      "ci_lo": 0.48,
+      "ci_hi": 0.5795,
+      "gap": -0.0178
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 168,
+      "mean_price": 0.6346,
+      "win_rate": 0.6607,
+      "ci_lo": 0.5862,
+      "ci_hi": 0.728,
+      "gap": 0.0261
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 50,
+      "mean_price": 0.7308,
+      "win_rate": 0.74,
+      "ci_lo": 0.6045,
+      "ci_hi": 0.8413,
+      "gap": 0.0092
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "mid",
+    "buckets": [
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 73,
+      "mean_price": 0.1549,
+      "win_rate": 0.1644,
+      "ci_lo": 0.0966,
+      "ci_hi": 0.2657,
+      "gap": 0.0095
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 121,
+      "mean_price": 0.2476,
+      "win_rate": 0.2975,
+      "ci_lo": 0.2233,
+      "ci_hi": 0.3842,
+      "gap": 0.0499
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 168,
+      "mean_price": 0.3507,
+      "win_rate": 0.2917,
+      "ci_lo": 0.2282,
+      "ci_hi": 0.3644,
+      "gap": -0.059
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 209,
+      "mean_price": 0.449,
+      "win_rate": 0.4354,
+      "ci_lo": 0.37,
+      "ci_hi": 0.5032,
+      "gap": -0.0136
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 209,
+      "mean_price": 0.5492,
+      "win_rate": 0.555,
+      "ci_lo": 0.4873,
+      "ci_hi": 0.6208,
+      "gap": 0.0058
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 169,
+      "mean_price": 0.6473,
+      "win_rate": 0.7219,
+      "ci_lo": 0.65,
+      "ci_hi": 0.7839,
+      "gap": 0.0746
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 124,
+      "mean_price": 0.7507,
+      "win_rate": 0.6935,
+      "ci_lo": 0.6076,
+      "ci_hi": 0.7679,
+      "gap": -0.0571
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 72,
+      "mean_price": 0.8445,
+      "win_rate": 0.8333,
+      "ci_lo": 0.7309,
+      "ci_hi": 0.902,
+      "gap": -0.0112
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "late",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 60,
+      "mean_price": 0.0278,
+      "win_rate": 0.0333,
+      "ci_lo": 0.0092,
+      "ci_hi": 0.1136,
+      "gap": 0.0055
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 58,
+      "mean_price": 0.0724,
+      "win_rate": 0.069,
+      "ci_lo": 0.0271,
+      "ci_hi": 0.1643,
+      "gap": -0.0034
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 115,
+      "mean_price": 0.1472,
+      "win_rate": 0.1217,
+      "ci_lo": 0.0739,
+      "ci_hi": 0.194,
+      "gap": -0.0254
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 120,
+      "mean_price": 0.2486,
+      "win_rate": 0.2833,
+      "ci_lo": 0.2104,
+      "ci_hi": 0.3697,
+      "gap": 0.0348
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 100,
+      "mean_price": 0.35,
+      "win_rate": 0.33,
+      "ci_lo": 0.2456,
+      "ci_hi": 0.4269,
+      "gap": -0.02
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 141,
+      "mean_price": 0.4519,
+      "win_rate": 0.4894,
+      "ci_lo": 0.4082,
+      "ci_hi": 0.5711,
+      "gap": 0.0375
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 147,
+      "mean_price": 0.5459,
+      "win_rate": 0.5102,
+      "ci_lo": 0.4302,
+      "ci_hi": 0.5897,
+      "gap": -0.0357
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 96,
+      "mean_price": 0.6484,
+      "win_rate": 0.6771,
+      "ci_lo": 0.5783,
+      "ci_hi": 0.7622,
+      "gap": 0.0286
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 123,
+      "mean_price": 0.7485,
+      "win_rate": 0.7073,
+      "ci_lo": 0.6216,
+      "ci_hi": 0.7805,
+      "gap": -0.0412
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 113,
+      "mean_price": 0.8514,
+      "win_rate": 0.8761,
+      "ci_lo": 0.8027,
+      "ci_hi": 0.9247,
+      "gap": 0.0247
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 60,
+      "mean_price": 0.9258,
+      "win_rate": 0.9333,
+      "ci_lo": 0.8407,
+      "ci_hi": 0.9738,
+      "gap": 0.0075
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 44,
+      "mean_price": 0.9654,
+      "win_rate": 0.9545,
+      "ci_lo": 0.8486,
+      "ci_hi": 0.9874,
+      "gap": -0.0109
+     }
+    ]
+   },
+   {
+    "sport": "nhl",
+    "phase": "final",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 146,
+      "mean_price": 0.0199,
+      "win_rate": 0.0274,
+      "ci_lo": 0.0107,
+      "ci_hi": 0.0683,
+      "gap": 0.0075
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 79,
+      "mean_price": 0.0685,
+      "win_rate": 0.038,
+      "ci_lo": 0.013,
+      "ci_hi": 0.1058,
+      "gap": -0.0305
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 92,
+      "mean_price": 0.1568,
+      "win_rate": 0.1413,
+      "ci_lo": 0.0845,
+      "ci_hi": 0.2269,
+      "gap": -0.0155
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 104,
+      "mean_price": 0.2431,
+      "win_rate": 0.2019,
+      "ci_lo": 0.136,
+      "ci_hi": 0.289,
+      "gap": -0.0412
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 53,
+      "mean_price": 0.3493,
+      "win_rate": 0.4906,
+      "ci_lo": 0.3612,
+      "ci_hi": 0.6212,
+      "gap": 0.1413
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 120,
+      "mean_price": 0.4563,
+      "win_rate": 0.5,
+      "ci_lo": 0.4119,
+      "ci_hi": 0.5881,
+      "gap": 0.0437
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 119,
+      "mean_price": 0.5431,
+      "win_rate": 0.4958,
+      "ci_lo": 0.4075,
+      "ci_hi": 0.5843,
+      "gap": -0.0473
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 53,
+      "mean_price": 0.6485,
+      "win_rate": 0.5283,
+      "ci_lo": 0.3966,
+      "ci_hi": 0.6562,
+      "gap": -0.1202
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 101,
+      "mean_price": 0.7542,
+      "win_rate": 0.7921,
+      "ci_lo": 0.703,
+      "ci_hi": 0.8598,
+      "gap": 0.0379
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 95,
+      "mean_price": 0.8401,
+      "win_rate": 0.8632,
+      "ci_lo": 0.7798,
+      "ci_hi": 0.9183,
+      "gap": 0.0231
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 77,
+      "mean_price": 0.9301,
+      "win_rate": 0.9481,
+      "ci_lo": 0.8739,
+      "ci_hi": 0.9796,
+      "gap": 0.0179
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 71,
+      "mean_price": 0.9655,
+      "win_rate": 0.9577,
+      "ci_lo": 0.883,
+      "ci_hi": 0.9855,
+      "gap": -0.0077
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 78,
+      "mean_price": 0.9923,
+      "win_rate": 0.9872,
+      "ci_lo": 0.9309,
+      "ci_hi": 0.9977,
+      "gap": -0.0051
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "all",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 8177,
+      "mean_price": 0.0188,
+      "win_rate": 0.0164,
+      "ci_lo": 0.0139,
+      "ci_hi": 0.0194,
+      "gap": -0.0024
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 4876,
+      "mean_price": 0.0738,
+      "win_rate": 0.071,
+      "ci_lo": 0.0641,
+      "ci_hi": 0.0785,
+      "gap": -0.0029
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 12685,
+      "mean_price": 0.1528,
+      "win_rate": 0.1591,
+      "ci_lo": 0.1528,
+      "ci_hi": 0.1656,
+      "gap": 0.0063
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 20955,
+      "mean_price": 0.2515,
+      "win_rate": 0.2596,
+      "ci_lo": 0.2537,
+      "ci_hi": 0.2655,
+      "gap": 0.008
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 12753,
+      "mean_price": 0.3425,
+      "win_rate": 0.341,
+      "ci_lo": 0.3328,
+      "ci_hi": 0.3493,
+      "gap": -0.0015
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 7256,
+      "mean_price": 0.4453,
+      "win_rate": 0.4369,
+      "ci_lo": 0.4255,
+      "ci_hi": 0.4483,
+      "gap": -0.0084
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 5748,
+      "mean_price": 0.5445,
+      "win_rate": 0.5038,
+      "ci_lo": 0.4909,
+      "ci_hi": 0.5167,
+      "gap": -0.0407
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 4303,
+      "mean_price": 0.6456,
+      "win_rate": 0.6251,
+      "ci_lo": 0.6106,
+      "ci_hi": 0.6395,
+      "gap": -0.0205
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 3161,
+      "mean_price": 0.7472,
+      "win_rate": 0.7381,
+      "ci_lo": 0.7224,
+      "ci_hi": 0.7531,
+      "gap": -0.0092
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 2467,
+      "mean_price": 0.8454,
+      "win_rate": 0.8452,
+      "ci_lo": 0.8303,
+      "ci_hi": 0.8589,
+      "gap": -0.0003
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 1032,
+      "mean_price": 0.9232,
+      "win_rate": 0.9225,
+      "ci_lo": 0.9046,
+      "ci_hi": 0.9373,
+      "gap": -0.0007
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 846,
+      "mean_price": 0.9658,
+      "win_rate": 0.9787,
+      "ci_lo": 0.9666,
+      "ci_hi": 0.9865,
+      "gap": 0.0129
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 1281,
+      "mean_price": 0.9927,
+      "win_rate": 0.9938,
+      "ci_lo": 0.9877,
+      "ci_hi": 0.9968,
+      "gap": 0.0011
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "pre",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 265,
+      "mean_price": 0.029,
+      "win_rate": 0.0113,
+      "ci_lo": 0.0039,
+      "ci_hi": 0.0328,
+      "gap": -0.0176
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 572,
+      "mean_price": 0.0767,
+      "win_rate": 0.0594,
+      "ci_lo": 0.0428,
+      "ci_hi": 0.0819,
+      "gap": -0.0173
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 2483,
+      "mean_price": 0.1571,
+      "win_rate": 0.1671,
+      "ci_lo": 0.153,
+      "ci_hi": 0.1823,
+      "gap": 0.01
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 6044,
+      "mean_price": 0.2539,
+      "win_rate": 0.2657,
+      "ci_lo": 0.2547,
+      "ci_hi": 0.277,
+      "gap": 0.0118
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 3010,
+      "mean_price": 0.3407,
+      "win_rate": 0.3332,
+      "ci_lo": 0.3166,
+      "ci_hi": 0.3503,
+      "gap": -0.0075
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1830,
+      "mean_price": 0.4467,
+      "win_rate": 0.4514,
+      "ci_lo": 0.4287,
+      "ci_hi": 0.4742,
+      "gap": 0.0046
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 1298,
+      "mean_price": 0.5464,
+      "win_rate": 0.5108,
+      "ci_lo": 0.4836,
+      "ci_hi": 0.5379,
+      "gap": -0.0356
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 863,
+      "mean_price": 0.6449,
+      "win_rate": 0.6083,
+      "ci_lo": 0.5754,
+      "ci_hi": 0.6404,
+      "gap": -0.0365
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 478,
+      "mean_price": 0.7449,
+      "win_rate": 0.7385,
+      "ci_lo": 0.6973,
+      "ci_hi": 0.7759,
+      "gap": -0.0064
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 254,
+      "mean_price": 0.8433,
+      "win_rate": 0.8701,
+      "ci_lo": 0.8232,
+      "ci_hi": 0.906,
+      "gap": 0.0268
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 42,
+      "mean_price": 0.9224,
+      "win_rate": 0.9048,
+      "ci_lo": 0.7793,
+      "ci_hi": 0.9623,
+      "gap": -0.0177
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 23,
+      "mean_price": 0.9926,
+      "win_rate": 1.0,
+      "ci_lo": 0.8569,
+      "ci_hi": 1.0,
+      "gap": 0.0074
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "early",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 226,
+      "mean_price": 0.0314,
+      "win_rate": 0.0177,
+      "ci_lo": 0.0069,
+      "ci_hi": 0.0446,
+      "gap": -0.0137
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 547,
+      "mean_price": 0.076,
+      "win_rate": 0.0603,
+      "ci_lo": 0.0433,
+      "ci_hi": 0.0835,
+      "gap": -0.0157
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 2430,
+      "mean_price": 0.156,
+      "win_rate": 0.1741,
+      "ci_lo": 0.1595,
+      "ci_hi": 0.1897,
+      "gap": 0.0181
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 5871,
+      "mean_price": 0.2529,
+      "win_rate": 0.263,
+      "ci_lo": 0.2519,
+      "ci_hi": 0.2744,
+      "gap": 0.0101
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 3001,
+      "mean_price": 0.3404,
+      "win_rate": 0.3332,
+      "ci_lo": 0.3166,
+      "ci_hi": 0.3503,
+      "gap": -0.0072
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1858,
+      "mean_price": 0.4467,
+      "win_rate": 0.436,
+      "ci_lo": 0.4136,
+      "ci_hi": 0.4586,
+      "gap": -0.0108
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 1459,
+      "mean_price": 0.5417,
+      "win_rate": 0.4866,
+      "ci_lo": 0.4611,
+      "ci_hi": 0.5123,
+      "gap": -0.0551
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 909,
+      "mean_price": 0.6435,
+      "win_rate": 0.5952,
+      "ci_lo": 0.5629,
+      "ci_hi": 0.6266,
+      "gap": -0.0483
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 480,
+      "mean_price": 0.7441,
+      "win_rate": 0.7271,
+      "ci_lo": 0.6855,
+      "ci_hi": 0.765,
+      "gap": -0.017
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 254,
+      "mean_price": 0.8412,
+      "win_rate": 0.878,
+      "ci_lo": 0.832,
+      "ci_hi": 0.9127,
+      "gap": 0.0367
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 42,
+      "mean_price": 0.9192,
+      "win_rate": 0.9048,
+      "ci_lo": 0.7793,
+      "ci_hi": 0.9623,
+      "gap": -0.0144
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "mid",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 1139,
+      "mean_price": 0.0234,
+      "win_rate": 0.0325,
+      "ci_lo": 0.0237,
+      "ci_hi": 0.0445,
+      "gap": 0.009
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 1120,
+      "mean_price": 0.0739,
+      "win_rate": 0.0696,
+      "ci_lo": 0.0562,
+      "ci_hi": 0.0861,
+      "gap": -0.0043
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 2638,
+      "mean_price": 0.1507,
+      "win_rate": 0.1562,
+      "ci_lo": 0.1428,
+      "ci_hi": 0.1705,
+      "gap": 0.0054
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 4068,
+      "mean_price": 0.2525,
+      "win_rate": 0.2611,
+      "ci_lo": 0.2478,
+      "ci_hi": 0.2748,
+      "gap": 0.0086
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 3178,
+      "mean_price": 0.3423,
+      "win_rate": 0.349,
+      "ci_lo": 0.3326,
+      "ci_hi": 0.3657,
+      "gap": 0.0067
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1379,
+      "mean_price": 0.4434,
+      "win_rate": 0.4264,
+      "ci_lo": 0.4005,
+      "ci_hi": 0.4527,
+      "gap": -0.017
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 1109,
+      "mean_price": 0.5451,
+      "win_rate": 0.4788,
+      "ci_lo": 0.4495,
+      "ci_hi": 0.5082,
+      "gap": -0.0663
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 840,
+      "mean_price": 0.6476,
+      "win_rate": 0.631,
+      "ci_lo": 0.5978,
+      "ci_hi": 0.6629,
+      "gap": -0.0166
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 653,
+      "mean_price": 0.746,
+      "win_rate": 0.732,
+      "ci_lo": 0.6967,
+      "ci_hi": 0.7645,
+      "gap": -0.014
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 514,
+      "mean_price": 0.8485,
+      "win_rate": 0.8599,
+      "ci_lo": 0.8272,
+      "ci_hi": 0.8873,
+      "gap": 0.0114
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 237,
+      "mean_price": 0.9229,
+      "win_rate": 0.8987,
+      "ci_lo": 0.8537,
+      "ci_hi": 0.931,
+      "gap": -0.0241
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 134,
+      "mean_price": 0.9652,
+      "win_rate": 0.9925,
+      "ci_lo": 0.9589,
+      "ci_hi": 0.9987,
+      "gap": 0.0273
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 85,
+      "mean_price": 0.9907,
+      "win_rate": 1.0,
+      "ci_lo": 0.9568,
+      "ci_hi": 1.0,
+      "gap": 0.0093
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "late",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 2016,
+      "mean_price": 0.0203,
+      "win_rate": 0.0144,
+      "ci_lo": 0.01,
+      "ci_hi": 0.0206,
+      "gap": -0.006
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 1424,
+      "mean_price": 0.073,
+      "win_rate": 0.0744,
+      "ci_lo": 0.0619,
+      "ci_hi": 0.0892,
+      "gap": 0.0014
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 2552,
+      "mean_price": 0.149,
+      "win_rate": 0.1587,
+      "ci_lo": 0.145,
+      "ci_hi": 0.1734,
+      "gap": 0.0097
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 2970,
+      "mean_price": 0.2485,
+      "win_rate": 0.2498,
+      "ci_lo": 0.2346,
+      "ci_hi": 0.2657,
+      "gap": 0.0014
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 2777,
+      "mean_price": 0.3476,
+      "win_rate": 0.3554,
+      "ci_lo": 0.3378,
+      "ci_hi": 0.3734,
+      "gap": 0.0078
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 1572,
+      "mean_price": 0.4405,
+      "win_rate": 0.4319,
+      "ci_lo": 0.4076,
+      "ci_hi": 0.4566,
+      "gap": -0.0086
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 837,
+      "mean_price": 0.542,
+      "win_rate": 0.5054,
+      "ci_lo": 0.4716,
+      "ci_hi": 0.5391,
+      "gap": -0.0367
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 763,
+      "mean_price": 0.6488,
+      "win_rate": 0.6212,
+      "ci_lo": 0.5863,
+      "ci_hi": 0.655,
+      "gap": -0.0276
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 703,
+      "mean_price": 0.7466,
+      "win_rate": 0.7454,
+      "ci_lo": 0.7119,
+      "ci_hi": 0.7762,
+      "gap": -0.0012
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 646,
+      "mean_price": 0.8485,
+      "win_rate": 0.8235,
+      "ci_lo": 0.7922,
+      "ci_hi": 0.851,
+      "gap": -0.025
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 346,
+      "mean_price": 0.9231,
+      "win_rate": 0.9364,
+      "ci_lo": 0.9056,
+      "ci_hi": 0.9576,
+      "gap": 0.0133
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 224,
+      "mean_price": 0.9646,
+      "win_rate": 0.9732,
+      "ci_lo": 0.9428,
+      "ci_hi": 0.9877,
+      "gap": 0.0086
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 253,
+      "mean_price": 0.9915,
+      "win_rate": 0.9921,
+      "ci_lo": 0.9716,
+      "ci_hi": 0.9978,
+      "gap": 0.0006
+     }
+    ]
+   },
+   {
+    "sport": "soccer",
+    "phase": "final",
+    "buckets": [
+     {
+      "p_lo": 0.0,
+      "p_hi": 0.05,
+      "n": 4531,
+      "mean_price": 0.0156,
+      "win_rate": 0.0135,
+      "ci_lo": 0.0105,
+      "ci_hi": 0.0173,
+      "gap": -0.0022
+     },
+     {
+      "p_lo": 0.05,
+      "p_hi": 0.1,
+      "n": 1213,
+      "mean_price": 0.0723,
+      "win_rate": 0.0783,
+      "ci_lo": 0.0645,
+      "ci_hi": 0.0948,
+      "gap": 0.006
+     },
+     {
+      "p_lo": 0.1,
+      "p_hi": 0.2,
+      "n": 2582,
+      "mean_price": 0.1516,
+      "win_rate": 0.1406,
+      "ci_lo": 0.1277,
+      "ci_hi": 0.1545,
+      "gap": -0.011
+     },
+     {
+      "p_lo": 0.2,
+      "p_hi": 0.3,
+      "n": 2002,
+      "mean_price": 0.2429,
+      "win_rate": 0.2423,
+      "ci_lo": 0.224,
+      "ci_hi": 0.2615,
+      "gap": -0.0006
+     },
+     {
+      "p_lo": 0.3,
+      "p_hi": 0.4,
+      "n": 787,
+      "mean_price": 0.341,
+      "win_rate": 0.3177,
+      "ci_lo": 0.2861,
+      "ci_hi": 0.351,
+      "gap": -0.0233
+     },
+     {
+      "p_lo": 0.4,
+      "p_hi": 0.5,
+      "n": 617,
+      "mean_price": 0.4528,
+      "win_rate": 0.4327,
+      "ci_lo": 0.3942,
+      "ci_hi": 0.4721,
+      "gap": -0.0201
+     },
+     {
+      "p_lo": 0.5,
+      "p_hi": 0.6,
+      "n": 1045,
+      "mean_price": 0.5476,
+      "win_rate": 0.5445,
+      "ci_lo": 0.5142,
+      "ci_hi": 0.5745,
+      "gap": -0.0031
+     },
+     {
+      "p_lo": 0.6,
+      "p_hi": 0.7,
+      "n": 928,
+      "mean_price": 0.6441,
+      "win_rate": 0.6681,
+      "ci_lo": 0.6372,
+      "ci_hi": 0.6977,
+      "gap": 0.024
+     },
+     {
+      "p_lo": 0.7,
+      "p_hi": 0.8,
+      "n": 847,
+      "mean_price": 0.7518,
+      "win_rate": 0.7426,
+      "ci_lo": 0.7121,
+      "ci_hi": 0.7709,
+      "gap": -0.0092
+     },
+     {
+      "p_lo": 0.8,
+      "p_hi": 0.9,
+      "n": 799,
+      "mean_price": 0.8429,
+      "win_rate": 0.8348,
+      "ci_lo": 0.8075,
+      "ci_hi": 0.8589,
+      "gap": -0.0081
+     },
+     {
+      "p_lo": 0.9,
+      "p_hi": 0.95,
+      "n": 365,
+      "mean_price": 0.9241,
+      "win_rate": 0.9288,
+      "ci_lo": 0.8977,
+      "ci_hi": 0.9509,
+      "gap": 0.0047
+     },
+     {
+      "p_lo": 0.95,
+      "p_hi": 0.98,
+      "n": 454,
+      "mean_price": 0.9666,
+      "win_rate": 0.9758,
+      "ci_lo": 0.9571,
+      "ci_hi": 0.9864,
+      "gap": 0.0091
+     },
+     {
+      "p_lo": 0.98,
+      "p_hi": 1.0,
+      "n": 912,
+      "mean_price": 0.9932,
+      "win_rate": 0.9934,
+      "ci_lo": 0.9857,
+      "ci_hi": 0.997,
+      "gap": 0.0002
+     }
+    ]
+   }
+  ],
   "notes": [
    "calibration unit = one canonical 1-minute price per resolved whole-game token per phase: pre = last bar before start (closing line), in-play phases = first bar in the phase (phase 'all' pools those rows); win = tokens.outcome_index == markets.resolved_outcome_index; 95% Wilson CI; gap = win_rate - mean_price (positive = underpriced). All outcome tokens of a market enter (complementary Yes/No or home/away prices are dependent), so n overstates independent observations and the CI is optimistic",
    "phase = normalised fraction f of regulation (game_minute / soccer 90, NBA 48, NFL 60, NHL 60, MLB 9 innings; fallback wall-clock elapsed since start_time / soccer 112, NBA 140, NFL 195, NHL 155, MLB 180 min): pre = before start, early f<0.30, mid <0.60, late <0.85, final >=0.85 until game end",
@@ -1003,22 +4493,97 @@
   ]
  },
  "events": {
-  "generated_at": "2026-09-30T16:31:28Z",
-  "measured": 1,
+  "generated_at": "2026-09-30T18:30:55Z",
+  "measured": 6,
   "event_sensitivity": [
+   {
+    "sport": "mlb",
+    "event": "run",
+    "minute_bucket": "0-3",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.065,
+    "median_jump": 0.065,
+    "mean_jump": 0.065,
+    "mean_pre_price": 0.555,
+    "reversion_1m": 0.075,
+    "reversion_5m": -0.025,
+    "reversion_10m": -0.095,
+    "mean_peak_minute": 2.0
+   },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "15-30",
     "n": 1,
     "n_isolated": 1,
-    "mean_abs_jump": 0.199,
-    "median_jump": 0.199,
-    "mean_jump": 0.199,
-    "mean_pre_price": 0.795,
+    "mean_abs_jump": 0.009,
+    "median_jump": 0.009,
+    "mean_jump": 0.009,
+    "mean_pre_price": 0.985,
     "reversion_1m": -0.0105,
+    "reversion_5m": -0.01,
+    "reversion_10m": -0.009,
+    "mean_peak_minute": 1.0
+   },
+   {
+    "sport": "soccer",
+    "event": "goal",
+    "minute_bucket": "30-45",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.05,
+    "median_jump": 0.05,
+    "mean_jump": 0.05,
+    "mean_pre_price": 0.935,
+    "reversion_1m": 0.0035,
+    "reversion_5m": 0.008,
+    "reversion_10m": 0.005,
+    "mean_peak_minute": 7.0
+   },
+   {
+    "sport": "soccer",
+    "event": "goal",
+    "minute_bucket": "45-60",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.0075,
+    "median_jump": 0.0075,
+    "mean_jump": 0.0075,
+    "mean_pre_price": 0.9915,
+    "reversion_1m": 0.0,
+    "reversion_5m": 0.0,
+    "reversion_10m": null,
+    "mean_peak_minute": 1.0
+   },
+   {
+    "sport": "soccer",
+    "event": "goal",
+    "minute_bucket": "60-75",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.0,
+    "median_jump": 0.0,
+    "mean_jump": 0.0,
+    "mean_pre_price": 0.999,
+    "reversion_1m": 0.0,
     "reversion_5m": null,
     "reversion_10m": null,
+    "mean_peak_minute": 2.0
+   },
+   {
+    "sport": "soccer",
+    "event": "goal",
+    "minute_bucket": "90+",
+    "n": 1,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.004,
+    "median_jump": 0.004,
+    "mean_jump": 0.004,
+    "mean_pre_price": 0.9955,
+    "reversion_1m": 0.0,
+    "reversion_5m": 0.0,
+    "reversion_10m": 0.0,
     "mean_peak_minute": 1.0
    }
   ],

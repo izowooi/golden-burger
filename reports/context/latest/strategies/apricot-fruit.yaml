@@ -6,6 +6,7 @@ mode: live
 sports: [mlb]
 stake_usdc: 5
 params:
+  min_game_volume_usd: 20000
   entry_tick_minute: 85
   tick_window_minutes: 2
   prob_min: 0.90
@@ -16,6 +17,7 @@ params:
   max_exit_spread: 0.10
   hours_max: 8.0
 bounds:
+  min_game_volume_usd: [5000, 200000, 10000]
   entry_tick_minute: [60, 150, 5]
   tick_window_minutes: [1, 5, 1]
   prob_min: [0.80, 0.95, 0.01]

@@ -6,6 +6,8 @@ mode: live
 sports: [soccer, nfl]
 stake_usdc: 5
 params:
+  leagues: [epl, bun, fl1, lal, sea, mls, unl, ucl, uel]
+  min_game_volume_usd: 20000
   prob_min: 0.70
   prob_max: 0.73
   take_profit_price: 0.90
@@ -18,6 +20,7 @@ params:
     soccer: {max_source_minute: 60, force_exit_minute: 65}
     nfl: {take_profit_price: 0.90, stop_loss_delta: 0.12}
 bounds:
+  min_game_volume_usd: [5000, 200000, 10000]
   prob_min: [0.67, 0.80, 0.01]
   prob_max: [0.69, 0.85, 0.01]
   take_profit_price: [0.85, 0.97, 0.01]

@@ -6,6 +6,8 @@ mode: live
 sports: [soccer, nfl]
 stake_usdc: 5
 params:
+  leagues: [epl, bun, fl1, lal, sea, mls, unl, ucl, uel]
+  min_game_volume_usd: 20000
   prob_min: 0.92
   prob_max: 0.999
   stop_price: 0.65
@@ -17,6 +19,7 @@ params:
   sport_overrides:
     nfl: {prob_min: 0.91, stop_price: 0.70, hours_max: 6.0}
 bounds:
+  min_game_volume_usd: [5000, 200000, 10000]
   prob_min: [0.85, 0.99, 0.01]
   prob_max: [0.98, 0.999, 0.005]
   stop_price: [0.40, 0.85, 0.05]
