@@ -22,3 +22,13 @@
 
 ## 킬스위치
 - `touch /Volumes/t7/polylab/state/KILL` → 모든 신규 진입 중단(청산·대사는 계속). 해제는 파일 삭제.
+
+## 자동 redeem
+- tick 이 시간당 1회 실행한다(기본 ON, 끄려면 Jenkins 잡 env 또는 셸에 `POLYLAB_AUTO_REDEEM=0`).
+- 대상은 **각 변형의 live 원장이 산 condition 뿐**이다. 레거시·수동 포지션은 건드리지 않는다(사용자가 UI 로 정리).
+- SecureClient 는 항상 기존 funder 지갑(`wallet=`)으로만 만들고, 서명 타입과 지갑 분류가 다르면 거부한다.
+  2026-10-01 cat 계좌로 감독 하 검증(지갑 일치, builder key `~/.polylab/builder/cat.json` 생성).
+
+## 거래 범위
+- 수집기는 연구용으로 넓은 리그를 모으지만, 전략은 `params.leagues`(축구: epl·bun·fl1·lal·sea·mls·unl·ucl·uel)와
+  `min_game_volume_usd`(기본 20,000) 를 통과한 경기만 거래한다.
