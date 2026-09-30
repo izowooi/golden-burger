@@ -4,7 +4,7 @@
   "frozen_sha256": "2bd35d2943de062f160d93cdb0630a33b4b1d05ab39392f2363ec5d0332e3c53",
   "frozen_fixture": "tools/tests/fixtures/guava_adapter_frozen_2bd35d.py",
   "adapter_path": "tools/guava_public_replay_adapter.py",
-  "adapter_sha256": "67ffb6bd0b0d510f8c6255aeb43d0020747e88047cbaee689016d85c73990f11",
+  "adapter_sha256": "e8afa7de9e92a28dc7621b3f77aba17a386ee0a7a092562c86c23ce0e0e16149",
   "raw_profile_id": "guava-research-v1",
   "raw_logical_schema_sha256": "aa7e0b934c394aff8d16d550a3b4e89b56234016a417188076f5e8589bdcb43f",
   "reviewed_changes": [

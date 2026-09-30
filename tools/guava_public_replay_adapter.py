@@ -182,4 +182,3 @@ def _read_source(source,start,end,references):
             events.append(grid.Event(source['id'],cohort,sport,eid,title,config,sorted(groups,key=lambda x:x.time),failures,dict(terminal)))
     if sha(path)!=digest or before!=(path.stat().st_size,path.stat().st_mtime_ns):raise ValueError('pin_changed')
     return events,{'source':source['id'],'path':str(path),'sha256':digest,'stats':dict(stats),'events':len(events),'notes':['Source/Gamma ordering required, no array role inference.','Postgame records retained but open/entry gate requires in-play.','Resolved Gamma one-hot/void with consistent soccer triad; no score payout substitution.']}
-
