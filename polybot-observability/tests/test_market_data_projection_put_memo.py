@@ -120,7 +120,10 @@ def test_full_proof_reserve_falls_back_for_new_blocks(tmp_path,monkeypatch):
         refs=store.put_public_projections(rows[:1024])+store.put_public_projections(rows[1024:])
         desired=frozenset((rows[0].sha256,rows[1024].sha256))
         first_sha=next(sha for sha in desired if sha==rows[0].sha256)
-        reserve=store._projection_state._cache_entry_bytes(('put-proof-state',desired),(),({1:b'x'*32},{first_sha:(1,refs[0])}))+64
+        # Size the reconstructed cold reference used by the dedup loop. A PUT
+        # ACK may share its SHA string with the caller's immutable value cache.
+        cold_ref=store.get_projection_records([refs[0].record_id],refs[0].authority_uuid)[0].reference
+        reserve=store._projection_state._cache_entry_bytes(('put-proof-state',desired),(),({1:b'x'*32},{first_sha:(1,cold_ref)}))+64
         monkeypatch.setattr(backend,'PUT_PROOF_RESERVE_BYTES',reserve)
         access=store._projection_state;original=access._block;calls=[]
         def counted(*args,**kwargs):

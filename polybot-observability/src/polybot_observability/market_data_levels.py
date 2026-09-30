@@ -134,7 +134,37 @@ def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: 
     insert_columns=(['rowid'] if preserve_rowid else [])+columns
     insert = (f'INSERT INTO main.{quote_identifier(table)} (' + ','.join(map(quote_identifier, insert_columns)) +
               ') VALUES (' + ','.join('?' for _ in insert_columns) + ')')
-    if preserve_rowid:
+    native_rowids = preserve_rowid and all('__rowid__' not in row for row in rows)
+    native_ids = {}
+    if native_rowids:
+        # Native appends need only the next ID and incoming-key validation.
+        # Copying every historical physical level into a TEMP B-tree on every
+        # connection turns a small live batch into an unbounded archive scan.
+        # An explicit-ID migration later on this same connection must rebuild
+        # its complete validation set after these native appends.
+        connection.execute('DROP TABLE IF EXISTS temp.'+quote_identifier('_public_level_rowids_'+table))
+        rowid_table='_public_level_native_ids_'+table
+        connection.execute('CREATE TEMP TABLE IF NOT EXISTS '+quote_identifier(rowid_table)+'(original_rowid INTEGER PRIMARY KEY,original_level_id TEXT UNIQUE)')
+        invalid, shared_maximum = connection.execute(
+            f"SELECT MAX(CASE WHEN COALESCE(json_type(retained_json,'$.__rowid__'),'null')!='integer' THEN 1 ELSE 0 END),MAX(json_extract(retained_json,'$.__rowid__')) FROM main.{BINDING_TABLE} WHERE table_name=?",(table,)).fetchone()
+        if invalid:
+            raise ValueError('original level rowid is unknown in existing bindings')
+        maxima=[connection.execute('SELECT MAX(rowid) FROM main.'+quote_identifier(table)).fetchone()[0],
+                shared_maximum,connection.execute('SELECT MAX(original_rowid) FROM temp.'+quote_identifier(rowid_table)).fetchone()[0]]
+        maximum=max(value for value in maxima if value is not None) if any(value is not None for value in maxima) else 0
+        for snapshot, group in groups.items():
+            native_ids[snapshot]=[]
+            for row in group:
+                maximum+=1
+                if maximum >= (1<<63):raise ValueError('unsupported original level rowid')
+                connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',(maximum,row['level_id']))
+                native_ids[snapshot].append(maximum)
+        duplicate=connection.execute(
+            f"SELECT 1 FROM main.{BINDING_TABLE} b JOIN temp.{quote_identifier(rowid_table)} n "
+            "ON n.original_level_id=CASE WHEN json_type(b.retained_json,'$.__level_id__') IS NOT NULL THEN json_extract(b.retained_json,'$.__level_id__') ELSE b.level_id END "
+            "WHERE b.table_name=? AND json_extract(b.retained_json,'$.__rowid__')!=n.original_rowid LIMIT 1",(table,)).fetchone()
+        if duplicate:raise sqlite3.IntegrityError('shared level original ID already exists')
+    elif preserve_rowid:
         # Connection-local B-tree keeps rowid validation bounded for full books;
         # it participates in the caller savepoint and never changes v1 storage.
         rowid_table='_public_level_rowids_'+table
@@ -159,11 +189,11 @@ def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: 
         connection.execute('SAVEPOINT public_levels_validate')
         try:
             payload=[]
-            for row in group:
+            for index,row in enumerate(group):
                 if preserve_rowid:
-                    rowid=row.get('__rowid__',maximum+1)
+                    rowid=native_ids[snapshot][index] if native_rowids else row.get('__rowid__',maximum+1)
                     if type(rowid) is not int or not -(1<<63)<=rowid<(1<<63):raise ValueError('unsupported original level rowid')
-                    connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',(rowid,row['level_id']))
+                    if not native_rowids:connection.execute('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',(rowid,row['level_id']))
                     maximum=max(maximum,rowid)
                 payload.append(((rowid,) if preserve_rowid else ())+tuple(row[col] for col in columns))
             connection.executemany(insert,payload)
@@ -174,7 +204,7 @@ def _insert_shared_levels(connection: sqlite3.Connection, strategy: str, table: 
         finally:
             connection.execute('ROLLBACK TO public_levels_validate')
             connection.execute('RELEASE public_levels_validate')
-        if preserve_rowid:
+        if preserve_rowid and not native_rowids:
             connection.executemany('INSERT INTO temp.'+quote_identifier(rowid_table)+' VALUES(?,?)',((row['__rowid__'],row['level_id']) for row in normalized))
         public_columns = [column for column in columns if column not in {'level_id','snapshot_id'} and column not in rule.retained_columns]
         public = [{column: row[column] for column in public_columns} for row in normalized]

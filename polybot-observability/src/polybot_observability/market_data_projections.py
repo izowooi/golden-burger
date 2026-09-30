@@ -15,7 +15,7 @@ from __future__ import annotations
 import base64
 import binascii
 from dataclasses import dataclass
-from functools import lru_cache
+from functools import cached_property, lru_cache
 import hashlib
 import json
 import math
@@ -307,11 +307,13 @@ class PublicProjection:
     def row(self):
         return self.values
 
-    @property
+    @cached_property
     def raw_bytes(self):
+        # The normalized scalar tuple is immutable. Reusing its byte size and
+        # digest does not reuse the separate mutable SQLite block/index proof.
         return sum(len(_cell(value)) for value in self.values)
 
-    @property
+    @cached_property
     def sha256(self):
         digest = hashlib.sha256(_CONTENT_DOMAIN + projection_schema_sha(self.kind))
         for value in self.values:
