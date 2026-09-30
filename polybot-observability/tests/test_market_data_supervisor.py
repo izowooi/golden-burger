@@ -82,3 +82,44 @@ def test_health_probe_never_scans_payload_statistics(root, monkeypatch):
     second = ensure(root)
     assert first['probe'] == second['probe'] == 'empty_read'
     assert first['pid'] == second['pid']
+
+
+@pytest.mark.parametrize('startup,expected', [(8.0,5.0),(2.0,2.0)])
+def test_health_probe_budget_allows_writer_queue_without_exceeding_startup(root,monkeypatch,startup,expected):
+    seen=[]
+    class Client:
+        def __init__(self,socket,*,timeout):
+            seen.append(timeout)
+        def get_many(self,hashes):
+            assert hashes == []
+            return []
+    monkeypatch.setattr(supervisor,'StoreClient',Client)
+    monkeypatch.setattr(supervisor,'_owned_pid',lambda *args:98765)
+    result=supervisor.ensure_service(storage_root=root,expected_volume_id='fixture-volume',
+        startup_timeout=startup,min_free_gib=0,max_used_ratio=1)
+    assert result == {'status':'RUNNING','pid':98765,'probe':'empty_read'}
+    assert seen == [expected]
+
+
+def test_owned_service_can_reply_after_one_second_of_queue_wait(root,monkeypatch):
+    import socket
+    from concurrent.futures import ThreadPoolExecutor
+    from polybot_observability.market_data_client import _receive_frame, _send_frame, PROTOCOL_VERSION
+
+    monkeypatch.setattr(supervisor,'_owned_pid',lambda *args:98765)
+    with socket.socket(socket.AF_UNIX,socket.SOCK_STREAM) as listener:
+        listener.bind(str(root/'market-data.sock'))
+        listener.listen(1)
+        listener.settimeout(5)
+        def serve():
+            connection,_=listener.accept()
+            with connection:
+                request=_receive_frame(connection,time.monotonic()+5)
+                assert request['op']=='get_many' and request['hashes']==[]
+                time.sleep(1.1)
+                _send_frame(connection,{'v':PROTOCOL_VERSION,'ok':True,'result':[]},time.monotonic()+5)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future=pool.submit(serve)
+            result=ensure(root)
+            future.result(timeout=5)
+    assert result['status']=='RUNNING' and result['pid']==98765

@@ -89,11 +89,11 @@
     "polybot-observability/src/polybot_observability/market_data_sqlalchemy.py": "c644b79f69954652605cf2b1d25676263716847736954077513987cd963b190b",
     "polybot-observability/src/polybot_observability/market_data_sqlite.py": "eb9d555aa28843d6e880552f72804d5cea8c3a8c16e3c3eb3164684b01a9bda3",
     "polybot-observability/src/polybot_observability/market_data_store.py": "d128f25de7e5a5887365f298f2d4476d5ee6fa66c3d87344b0b18f8d5993dd21",
-    "polybot-observability/src/polybot_observability/market_data_supervisor.py": "2779dfad1a59153d813da347fae6a30e51c94d489a10e6a30e9d5d501d8d8b52",
+    "polybot-observability/src/polybot_observability/market_data_supervisor.py": "4e82ed534bf2cf8541d8bbd0e9b41d0520f5cc6c94b864a16f420f1e7c30caa5",
     "polybot-observability/src/polybot_observability/reconciliation_policy.py": "04dd13786b37ebac0cf54a1d23a891ed36d765c4bf5d27e17312a9244bb80952",
     "polybot-observability/src/polybot_observability/retro_audit.py": "70d48238e46c9499d58af8e9d4dd2c4394bdebbd27f1a518b04c1a0f83920ddd",
     "polybot-observability/src/polybot_observability/run_audit.py": "0bc8f416bbf518b5a86f6e3054e51653865529bbaae7b88cdfdb1820bfa4e2db",
-    "polybot-observability/src/polybot_observability/sqlite_maintenance.py": "c95649be431f9b2c795b8ef8d57ff19786e25ca5f4cbae6e9d96133086050f8a",
+    "polybot-observability/src/polybot_observability/sqlite_maintenance.py": "1da40337f4f235ea4fa13bf5283325317ce612e89ed43897812383db967912da",
     "tools/public_market_reader.py": "57fe78372dc3c394d0b7a492244930e89d9adf95f29674f2a464a04bf103c4af"
   },
   "dependency_scope": "Exact Python-file inventory of public_market_reader and polybot_observability, including lazy reader imports; loaded module paths must resolve to this checkout."

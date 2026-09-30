@@ -97,7 +97,8 @@ def ensure_service(*,storage_root: Path,expected_volume_id: str,
         raise ValueError('public service supervision limits are invalid')
     db=root/'public.db';socket=root/'market-data.sock'
     metadata_path=root/'service-process.json'
-    client=StoreClient(socket,timeout=1.0)
+    # The cheap probe still shares the writer queue with admitted public writes.
+    client=StoreClient(socket,timeout=min(5.0,startup_timeout))
     deadline=time.monotonic()+startup_timeout
     lock=os.open(root/'supervisor.lock',os.O_CREAT|os.O_RDWR|os.O_NOFOLLOW,0o600)
     try:
