@@ -50,3 +50,9 @@ jobs:
     timeout_minutes: 120
     pull: true
     command: "uv run --no-sync polylab retro monthly"
+  polylab-llm-forecast:
+    description: "연구(paper 전용, 10:00 KST): 향후 30h 주요 리그 축구 경기의 '0-0 아님' 확률을 LLM(웹 검색 허용)이 예측 → research/llm_forecasts.db(append-only) → Slack top-3. 실거래 없음"
+    cron: "TZ=Asia/Seoul\n0 10 * * *"
+    timeout_minutes: 60
+    pull: true
+    command: "uv run --no-sync polylab forecast daily"

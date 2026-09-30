@@ -59,7 +59,7 @@ class CollectorConfig:
     soccer_min_volume_major: float = 1_000.0      # combined 3-way moneyline volume, allowlisted leagues
     soccer_min_volume_other: float = float("inf")  # other soccer leagues: excluded unless an env override sets a floor
     line_min_volume: float = 50_000.0             # US sports game totals/spreads (per market)
-    goal_min_volume: float = 10_000.0             # soccer totals / btts / team_to_score (per market)
+    goal_min_volume: float = 1_000.0              # soccer totals / btts / team_to_score (per market)
     soccer_total_lines: tuple[float, ...] = (0.5, 1.5, 2.5, 3.5)
     lookback_s: int = 6 * 3600
     lookahead_s: int = 120 * 3600                 # discover horizon (pre-game strategies trade up to 120h out)
@@ -98,7 +98,7 @@ def load_config() -> CollectorConfig:
         soccer_min_volume_major=_env_float("POLYLAB_SOCCER_MIN_VOLUME_MAJOR", 1_000.0),
         soccer_min_volume_other=_env_float("POLYLAB_SOCCER_MIN_VOLUME_OTHER", float("inf")),
         line_min_volume=_env_float("POLYLAB_LINE_MIN_VOLUME", 50_000.0),
-        goal_min_volume=_env_float("POLYLAB_GOAL_MIN_VOLUME", 10_000.0),
+        goal_min_volume=_env_float("POLYLAB_GOAL_MIN_VOLUME", 1_000.0),
         soccer_total_lines=_env_lines("POLYLAB_SOCCER_TOTAL_LINES", CollectorConfig.soccer_total_lines),
     )
 

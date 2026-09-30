@@ -24,11 +24,12 @@ from typing import Callable, Protocol
 from polylab import settings
 
 TOKEN_FILE = "claude_oauth_token"
-FILE_TOOLS = "Read,Write,Edit,Glob,Grep"
+# Grep/Glob are excluded: Grep honoured absolute paths outside the deny list (e.g. ~/.polylab secrets).
+FILE_TOOLS = "Read,Write,Edit"
 # No shell/web, and no reads under $HOME (secrets live in ~/.polylab, ~/.codex, ~/.claude); the context
 # dir sits on /Volumes/t7 so it stays readable.
-ALLOW_TOOLS = "Read,Glob,Grep,Write(./**),Edit(./**)"
-DENY_TOOLS = "Bash,WebFetch,WebSearch,NotebookEdit,Task,Read(~/**),Edit(~/**),Write(~/**)"
+ALLOW_TOOLS = "Read(./**),Write(./**),Edit(./**)"
+DENY_TOOLS = "Bash,Glob,Grep,WebFetch,WebSearch,NotebookEdit,Task,Read(~/**),Edit(~/**),Write(~/**)"
 DEFAULT_TIMEOUT_S = 1200
 CODEX_DISABLED_FEATURES = ("apps", "browser_use", "browser_use_external", "browser_use_full_cdp_access",
                            "computer_use", "image_generation", "in_app_browser", "multi_agent", "hooks")

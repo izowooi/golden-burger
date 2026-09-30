@@ -1,0 +1,624 @@
+"""`polylab forecast <daily|run|resolve|eval>` — LLM vs market: will this soccer match end 0-0? (paper only)
+
+Design and pre-registered metrics: docs/research/llm-forecast-study.md. Once a day (Jenkins
+`polylab-llm-forecast`, 10:00 KST):
+
+1. resolve: fill outcomes for past forecasts from core.db (Total 0.5 resolution first, else the final score).
+2. run: major-league soccer games kicking off in the next ~30h → context dir (games, Polymarket prices, league
+   base rates) → AI engine chain (claude → codex, runner.py sandbox + web search/fetch only) → `forecasts.json`
+   → validated rows appended to `research/llm_forecasts.db` strictly before kickoff.
+3. Slack: one short post with the top-3 (AI prob vs market price) and a paper-only disclaimer.
+
+The research DB is append-only (SQLite triggers abort UPDATE/DELETE). core.db is only ever opened read-only.
+Which forecast counts for a game (eval and the llm_nil paper strategy share `canonical_forecasts`): the forecast
+from the latest successful run created before kickoff. Same-KST-day reruns are refused unless --force (logged).
+"""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import hashlib
+import json
+import math
+import os
+import re
+import sqlite3
+import sys
+import time
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Callable
+
+from polylab import settings
+from polylab.autopilot.runner import ClaudeEngine, CodexEngine, Engine, RunResult
+from polylab.collector.common import MAJOR_SOCCER_LEAGUES
+from polylab.marketview import MarketView, make_book
+
+DB_NAME = "llm_forecasts.db"
+SCHEMA_ID = "polylab.llm_forecast/v1"
+PROMPT_FILE = settings.REPO_ROOT / "prompts" / "llm_forecast.md"
+HORIZON_H = 30.0
+MIN_LEAD_MIN = 20              # games kicking off sooner than this are left out (AI run takes minutes)
+MAX_GAMES = 12
+ENGINE_TIMEOUT_S = 1500
+MAX_SOURCES = 12
+MAX_FACTORS = 8
+TOP_N = 3
+CONFIDENCE = ("low", "medium", "high")
+KST = dt.timezone(dt.timedelta(hours=9))
+DISCLAIMER = "연구용 paper trade(가상 5 USDC)이며 실거래·베팅 권유가 아님."
+
+# claude: Read/Write/Edit + web lookup only. Must NOT reuse runner.DENY_TOOLS (it denies WebSearch/WebFetch and a
+# deny beats an allow). No Bash/Task, no reads or writes under $HOME, writes only under the cwd. Grep/Glob are left
+# out entirely: a canary on the Mac mini (claude 2.1.138, 2026-10-01) showed Grep on an absolute $HOME path ignores
+# the Read(~/**) and Grep(~/**) denies, and with WebFetch/WebSearch that would be an exfiltration channel.
+FORECAST_TOOLS = "Read,Write,Edit,WebSearch,WebFetch"
+FORECAST_ALLOW = "Read,Write(./**),Edit(./**),WebSearch,WebFetch"
+FORECAST_DENY = "Bash,Grep,Glob,NotebookEdit,Task,Read(~/**),Edit(~/**),Write(~/**)"
+
+SCHEMA = (
+    """
+    CREATE TABLE IF NOT EXISTS runs (
+        run_id TEXT PRIMARY KEY,
+        ts INTEGER NOT NULL,                    -- forecasts written at (UTC)
+        kst_date TEXT NOT NULL,
+        engine TEXT,                            -- claude | codex | NULL (failed)
+        model TEXT,
+        prompt_sha TEXT NOT NULL,
+        context_sha TEXT,
+        games INTEGER NOT NULL,                 -- games offered to the AI
+        n_forecasts INTEGER NOT NULL,
+        status TEXT NOT NULL,                   -- ok | failed
+        forced INTEGER NOT NULL DEFAULT 0,      -- same-day rerun with --force
+        detail TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS forecasts (
+        run_id TEXT NOT NULL REFERENCES runs(run_id),
+        game_key TEXT NOT NULL,
+        league TEXT,
+        home_team TEXT,
+        away_team TEXT,
+        kickoff INTEGER NOT NULL,
+        condition_id TEXT,                      -- Total 0.5 market (NULL = none in core.db at forecast time)
+        token_id TEXT,                          -- its Over token
+        market_price_at_forecast REAL,          -- Over 0.5 mid (NULL = no two-sided Over book)
+        market_ask_at_forecast REAL,
+        market_bid_at_forecast REAL,
+        market_source TEXT,                     -- clob_live | stored_book | price_bar
+        draw_price REAL,                        -- context only, never used as "market price"
+        home_price REAL,
+        away_price REAL,
+        ai_prob REAL NOT NULL,                  -- P(not 0-0)
+        ai_p_draw REAL,
+        confidence TEXT,
+        rank INTEGER,                           -- 1..3 in the AI top-3, NULL otherwise
+        factors_json TEXT,
+        sources_json TEXT,
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (run_id, game_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS forecasts_game ON forecasts(game_key, created_at)",
+    """
+    CREATE TABLE IF NOT EXISTS outcomes (
+        game_key TEXT PRIMARY KEY,
+        not_0_0 INTEGER NOT NULL,               -- 1 = at least one goal
+        home_score INTEGER,
+        away_score INTEGER,
+        source TEXT NOT NULL,                   -- total_0_5_resolution | final_score
+        resolved_at INTEGER,
+        recorded_at INTEGER NOT NULL,
+        detail TEXT
+    )
+    """,
+    *[f"CREATE TRIGGER IF NOT EXISTS {t}_no_{op.lower()} BEFORE {op} ON {t} "
+      f"BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END"
+      for t in ("runs", "forecasts", "outcomes") for op in ("UPDATE", "DELETE")],
+)
+
+
+# ---------------------------------------------------------------- research DB
+
+def db_path(paths) -> Path:
+    return Path(paths.research_dir) / DB_NAME
+
+
+def connect(path: Path) -> sqlite3.Connection:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    conn = sqlite3.connect(path, timeout=60)
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA busy_timeout=60000")
+    for stmt in SCHEMA:
+        conn.execute(stmt)
+    conn.commit()
+    return conn
+
+
+def connect_ro(path: Path) -> sqlite3.Connection | None:
+    if not Path(path).exists():
+        return None
+    conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=60)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def kst_date(ts: int) -> str:
+    return dt.datetime.fromtimestamp(ts, KST).strftime("%Y-%m-%d")
+
+
+def kst(ts: int | None, fmt: str = "%m-%d %H:%M") -> str:
+    return dt.datetime.fromtimestamp(ts, KST).strftime(fmt) if ts else "–"
+
+
+def canonical_forecasts(conn: sqlite3.Connection | None, now: int | None = None) -> dict[str, dict]:
+    """game_key -> the forecast that counts: latest successful run created before kickoff (and at or before now).
+
+    Shared by llm_eval and the llm_nil strategy so both use the same pre-registered rule.
+    """
+    if conn is None:
+        return {}
+    now = int(now if now is not None else time.time())
+    rows = conn.execute(
+        "SELECT f.*, r.engine, r.model, r.ts AS run_ts FROM forecasts f JOIN runs r USING(run_id) "
+        "WHERE r.status='ok' AND f.created_at <= ? AND f.created_at < f.kickoff "
+        "ORDER BY f.game_key, f.created_at, f.run_id", (now,)).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        out[r["game_key"]] = dict(r)       # ordered by created_at: the last one wins
+    return out
+
+
+def load_canonical(path: Path, now: int | None = None) -> dict[str, dict]:
+    conn = connect_ro(path)
+    try:
+        return canonical_forecasts(conn, now)
+    finally:
+        if conn is not None:
+            conn.close()
+
+
+# ---------------------------------------------------------------- game selection & prices
+
+@dataclass
+class GameCtx:
+    game_key: str
+    league: str | None
+    home_team: str | None
+    away_team: str | None
+    kickoff: int
+    over_condition: str | None = None
+    over_token: str | None = None
+    tokens: dict[str, str] | None = None      # role (over|draw|home|away) -> token_id
+    volume: float = 0.0
+
+
+def over_token(view: MarketView, game_key: str) -> tuple[str, str] | None:
+    """(condition_id, Over token) of the game's Total 0.5 goals market, if collected."""
+    for m in view.markets(game_key, types=("total",)):
+        if m.line is None or abs(m.line - 0.5) > 1e-9:
+            continue
+        for t in m.tokens:
+            if t.side == "over" or (t.outcome_label or "").strip().lower() == "over":
+                return m.condition_id, t.token_id
+    return None
+
+
+def select_games(view: MarketView, now: int, horizon_h: float = HORIZON_H, max_games: int = MAX_GAMES,
+                 min_lead_min: int = MIN_LEAD_MIN) -> list[GameCtx]:
+    """Major-league soccer games kicking off in (now+lead, now+horizon]. Games with an Over 0.5 token come first,
+    then by result-market volume; the rest still get forecast with draw/moneyline prices as context."""
+    leagues = {x.lower() for x in MAJOR_SOCCER_LEAGUES}
+    out = []
+    for g in view.upcoming_games(now, horizon_h, ["soccer"]):
+        if (g.league or "").lower() not in leagues or g.start_time is None:
+            continue
+        if g.start_time - now < min_lead_min * 60:
+            continue
+        ctx = GameCtx(g.game_key, g.league, g.home_team, g.away_team, int(g.start_time), tokens={})
+        ov = over_token(view, g.game_key)
+        if ov:
+            ctx.over_condition, ctx.over_token = ov
+            ctx.tokens["over"] = ov[1]
+        for m in view.markets(g.game_key, types=("moneyline", "draw")):
+            ctx.volume += m.volume or 0.0
+            for t in m.tokens:
+                if t.side in ("home", "away", "draw"):
+                    ctx.tokens.setdefault(t.side, t.token_id)
+        if not ctx.tokens:
+            continue
+        out.append(ctx)
+    out.sort(key=lambda c: (c.over_token is None, -c.volume, c.kickoff, c.game_key))
+    return out[:max_games]
+
+
+def fetch_live_books(token_ids: list[str]) -> dict[str, dict]:
+    """CLOB public POST /books (read-only, no auth). Best effort: {} on any failure."""
+    if not token_ids:
+        return {}
+    try:
+        from polylab.api import clob_public  # noqa: PLC0415
+        return clob_public.books(token_ids)
+    except Exception as exc:  # network/VPN down -> stored snapshots
+        print(f"forecast: live books unavailable ({type(exc).__name__}); using stored snapshots", file=sys.stderr)
+        return {}
+
+
+def quote(token_id: str, live: dict[str, dict], view: MarketView, now: int) -> dict:
+    """bid/ask/mid of a token: live CLOB book > stored book (<=1h) > canonical price bar (<=3h)."""
+    raw = live.get(token_id)
+    book, source = None, None
+    if raw:
+        book, source = make_book(token_id, now, raw.get("bids") or [], raw.get("asks") or []), "clob_live"
+    if book is None or (book.best_bid is None and book.best_ask is None):
+        book, source = view.book(token_id, now, max_age_s=3600), "stored_book"
+    if book is not None and book.best_bid is not None and book.best_ask is not None and not book.crossed:
+        return {"bid": book.best_bid, "ask": book.best_ask, "mid": round(book.mid, 4), "source": source}
+    p = view.price(token_id, now, max_age_s=3 * 3600)
+    ask = book.best_ask if book is not None else None
+    if p:
+        return {"bid": None, "ask": ask, "mid": round(p[1], 4), "source": "price_bar"}
+    return {"bid": None, "ask": ask, "mid": None, "source": source if ask is not None else None}
+
+
+def league_base_rates(core: sqlite3.Connection, now: int) -> dict[str, dict]:
+    """Per-league finished-game goal stats known before `now` (context for the AI and the Poisson baseline)."""
+    rows = core.execute(
+        "SELECT LOWER(league) AS league, COUNT(*) AS n, AVG(home_score + away_score) AS mean_goals, "
+        "AVG(CASE WHEN home_score + away_score = 0 THEN 1.0 ELSE 0.0 END) AS rate_0_0 FROM games "
+        "WHERE sport='soccer' AND home_score IS NOT NULL AND away_score IS NOT NULL AND ended_at IS NOT NULL "
+        "AND start_time < ? GROUP BY LOWER(league)", (now,)).fetchall()
+    return {r["league"]: {"n": r["n"], "mean_goals": round(r["mean_goals"], 3), "rate_0_0": round(r["rate_0_0"], 4)}
+            for r in rows if r["league"] in MAJOR_SOCCER_LEAGUES}
+
+
+# ---------------------------------------------------------------- context & AI
+
+def build_context(cwd: Path, games: list[GameCtx], quotes: dict[str, dict], base_rates: dict, now: int) -> str:
+    cwd.mkdir(parents=True, exist_ok=True)
+    rows = []
+    for g in games:
+        q = {role: quotes.get(tok) for role, tok in (g.tokens or {}).items()}
+        rows.append({
+            "game_key": g.game_key, "league": g.league, "home_team": g.home_team, "away_team": g.away_team,
+            "kickoff_utc": dt.datetime.fromtimestamp(g.kickoff, dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ"),
+            "kickoff_kst": kst(g.kickoff, "%Y-%m-%d %H:%M"),
+            "polymarket": {
+                "over_0_5_goals": q.get("over") or "no Total 0.5 market collected for this game",
+                "draw_yes": q.get("draw"), "home_win_yes": q.get("home"), "away_win_yes": q.get("away")},
+        })
+    games_json = json.dumps({"generated_at_utc": dt.datetime.fromtimestamp(now, dt.timezone.utc).isoformat(),
+                             "games": rows}, ensure_ascii=False, indent=1)
+    (cwd / "games.json").write_text(games_json)
+    (cwd / "base_rates.json").write_text(json.dumps({
+        "note": "finished games in the polylab DB since 2026-02 (regulation + any extra time as reported by Gamma); "
+                "rate_0_0 = share of 0-0 finals, mean_goals = mean total goals",
+        "leagues": base_rates}, indent=1))
+    (cwd / "MANIFEST.md").write_text(
+        "# LLM 0-0 forecast context\n\n- games.json: games to forecast (prices: bid/ask/mid in USDC = implied prob)\n"
+        "- base_rates.json: league 0-0 base rates from our own finished games\n\n"
+        f"Write forecasts.json here (schema {SCHEMA_ID}, see the prompt). Nothing else is required.\n")
+    return hashlib.sha256(games_json.encode()).hexdigest()[:16]
+
+
+class ForecastClaudeEngine(ClaudeEngine):
+    def command(self) -> list[str]:
+        cmd = ["claude", "-p", "--output-format", "json", "--permission-mode", "dontAsk",
+               "--tools", FORECAST_TOOLS, "--allowedTools", FORECAST_ALLOW, "--disallowedTools", FORECAST_DENY]
+        return cmd + (["--model", self.model] if self.model else [])
+
+
+CODEX_WEB_ENV = "POLYLAB_FORECAST_CODEX_WEB"
+
+
+class ForecastCodexEngine(CodexEngine):
+    """Fallback engine. Web search stays OFF unless POLYLAB_FORECAST_CODEX_WEB=1: the codex sandbox limits writes
+    only and can read ~/.polylab, so untrusted web pages + a live search tool would be an exfiltration channel
+    (a search query never passes slack.scrub). Works when enabled (codex-cli 0.159.2, Mac mini, 2026-10-01)."""
+
+    def __init__(self, *a, web: bool | None = None, **kw):
+        super().__init__(*a, **kw)
+        self.web = os.environ.get(CODEX_WEB_ENV) == "1" if web is None else web
+
+    def command(self, cwd: Path) -> list[str]:
+        cmd = super().command(cwd)
+        return [('web_search="live"' if c == 'web_search="disabled"' else c) for c in cmd] if self.web else cmd
+
+
+def default_chain() -> list[Engine]:
+    return [ForecastClaudeEngine(), ForecastCodexEngine()]
+
+
+_URL = re.compile(r"^https?://[^\s]{3,500}$")
+
+
+def _prob(v: Any) -> float | None:
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return None
+    return x if math.isfinite(x) and 0.0 <= x <= 1.0 else None
+
+
+def _text(v: Any, limit: int = 300) -> str:
+    from polylab.reports.slack import scrub  # noqa: PLC0415
+    return scrub(" ".join(str(v).split()))[:limit]
+
+
+def parse_forecasts(data: Any, allowed: set[str]) -> tuple[list[dict], list[str], list[str]]:
+    """Validate forecasts.json → (per-game rows, ranked top-3 game_keys, problems). Unknown keys are dropped."""
+    problems: list[str] = []
+    if not isinstance(data, dict) or not isinstance(data.get("games"), list):
+        return [], [], ["forecasts.json must be an object with a games list"]
+    rows, seen = [], set()
+    for g in data["games"]:
+        if not isinstance(g, dict):
+            continue
+        key = str(g.get("game_key", ""))
+        if key not in allowed or key in seen:
+            problems.append(f"unknown or duplicate game_key {key[:40]!r}")
+            continue
+        p = _prob(g.get("p_not_0_0"))
+        if p is None:
+            problems.append(f"{key}: p_not_0_0 missing or outside [0,1]")
+            continue
+        seen.add(key)
+        sources = [s.strip() for s in (g.get("sources") or []) if isinstance(s, str) and _URL.match(s.strip())]
+        factors = [_text(f) for f in (g.get("factors") or g.get("key_factors") or []) if str(f).strip()]
+        conf = str(g.get("confidence", "")).lower()
+        rows.append({"game_key": key, "ai_prob": round(p, 4), "ai_p_draw": _prob(g.get("p_draw")),
+                     "confidence": conf if conf in CONFIDENCE else None,
+                     "factors": factors[:MAX_FACTORS], "sources": list(dict.fromkeys(sources))[:MAX_SOURCES]})
+    top = []
+    for k in data.get("top3") or data.get("ranked_top3") or []:
+        k = str(k.get("game_key") if isinstance(k, dict) else k)
+        if k in seen and k not in top:
+            top.append(k)
+    return rows, top[:TOP_N], problems
+
+
+def _model_from_log(cwd: Path, engine: Engine) -> str | None:
+    if getattr(engine, "model", None):
+        return engine.model
+    if engine.name != "claude":
+        return None
+    try:
+        out = (cwd / "claude.log").read_text().split("\n--- stderr ---")[0].strip().splitlines()
+        usage = json.loads(out[-1]).get("modelUsage") or {}
+        return ",".join(sorted(usage)) or None
+    except (OSError, IndexError, json.JSONDecodeError, AttributeError):
+        return None
+
+
+def run_engines(prompt: str, cwd: Path, engines: list[Engine], allowed: set[str], timeout: int) -> dict:
+    tried = []
+    for engine in engines:
+        ok, why = engine.available()
+        if not ok:
+            tried.append({"engine": engine.name, "ok": False, "reason": why})
+            continue
+        (cwd / "forecasts.json").unlink(missing_ok=True)
+        print(f"forecast: engine {engine.name} running", flush=True)
+        res: RunResult = engine.run(prompt, cwd, timeout)
+        try:
+            data = json.loads((cwd / "forecasts.json").read_text())
+        except (OSError, json.JSONDecodeError):
+            data = None
+        rows, top, problems = parse_forecasts(data, allowed) if data is not None else ([], [], ["forecasts.json missing"])
+        if res.ok and rows:
+            tried.append({"engine": engine.name, "ok": True, "problems": problems[:10]})
+            return {"engine": engine.name, "model": _model_from_log(cwd, engine), "rows": rows, "top": top,
+                    "tried": tried}
+        tried.append({"engine": engine.name, "ok": False,
+                      "reason": (res.reason or "; ".join(problems) or "no valid forecasts")[:300]})
+    return {"engine": None, "model": None, "rows": [], "top": [], "tried": tried}
+
+
+# ---------------------------------------------------------------- run
+
+def prompt_text() -> str:
+    return PROMPT_FILE.read_text()
+
+
+def already_ran_today(conn: sqlite3.Connection, now: int) -> bool:
+    return conn.execute("SELECT 1 FROM runs WHERE status='ok' AND kst_date=?", (kst_date(now),)).fetchone() is not None
+
+
+def run_forecast(paths, *, now: int | None = None, force: bool = False, engines: list[Engine] | None = None,
+                 live_books: Callable[[list[str]], dict] = fetch_live_books, timeout: int = ENGINE_TIMEOUT_S,
+                 max_games: int = MAX_GAMES, clock: Callable[[], float] = time.time) -> dict:
+    now = int(now if now is not None else clock())
+    rdb = connect(db_path(paths))
+    try:
+        if already_ran_today(rdb, now) and not force:
+            return {"ok": True, "skipped": f"already forecast for KST {kst_date(now)} (use --force to rerun; logged)"}
+        view = MarketView.open(paths, now)          # read-only core.db / books
+        try:
+            games = select_games(view, now, max_games=max_games)
+            tokens = sorted({t for g in games for t in (g.tokens or {}).values()})
+            live = live_books(tokens)
+            quotes = {t: quote(t, live, view, now) for t in tokens}
+            base_rates = league_base_rates(view.core, now)
+        finally:
+            view.close()
+        prompt = prompt_text()
+        prompt_sha = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+        stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
+        run_id = f"{stamp}-{'forced' if force else 'daily'}"
+        if not games:
+            _insert_run(rdb, run_id, now, None, None, prompt_sha, None, 0, [], "failed", force, {"reason": "no games"})
+            return {"ok": True, "run_id": run_id, "games": 0, "forecasts": 0, "skipped": "no eligible games"}
+        cwd = Path(paths.state) / "forecast" / stamp
+        context_sha = build_context(cwd, games, quotes, base_rates, now)
+        ai: dict = {}
+        try:
+            ai = run_engines(prompt, cwd, engines if engines is not None else default_chain(),
+                             {g.game_key for g in games}, timeout)
+            return _store(rdb, ai, games, quotes, run_id, prompt_sha, context_sha, force, cwd, clock)
+        except Exception as exc:     # an AI run must never vanish silently: log it as a failed run, then raise
+            _insert_run(rdb, run_id, int(clock()), ai.get("engine"), ai.get("model"), prompt_sha, context_sha,
+                        len(games), [], "failed", force,
+                        {"error": f"{type(exc).__name__}: {str(exc)[:300]}", "context_dir": str(cwd)})
+            raise
+    finally:
+        rdb.close()
+
+
+def _store(rdb, ai: dict, games: list[GameCtx], quotes: dict, run_id: str, prompt_sha: str, context_sha: str,
+           force: bool, cwd: Path, clock: Callable[[], float]) -> dict:
+    created = int(clock())
+    by_key = {g.game_key: g for g in games}
+    rank = {k: i + 1 for i, k in enumerate(ai["top"])}
+    rows, late = [], []
+    for r in ai["rows"]:
+        g = by_key[r["game_key"]]
+        if g.kickoff <= created:
+            late.append(g.game_key)         # never store a forecast made at/after kickoff
+            continue
+        q = quotes.get(g.over_token) if g.over_token else None
+        rows.append({
+            "run_id": run_id, "game_key": g.game_key, "league": g.league, "home_team": g.home_team,
+            "away_team": g.away_team, "kickoff": g.kickoff, "condition_id": g.over_condition,
+            "token_id": g.over_token,
+            "market_price_at_forecast": q["mid"] if q and q.get("bid") is not None else None,
+            "market_ask_at_forecast": q.get("ask") if q else None,
+            "market_bid_at_forecast": q.get("bid") if q else None,
+            "market_source": q.get("source") if q else None,
+            "draw_price": (quotes.get((g.tokens or {}).get("draw")) or {}).get("mid"),
+            "home_price": (quotes.get((g.tokens or {}).get("home")) or {}).get("mid"),
+            "away_price": (quotes.get((g.tokens or {}).get("away")) or {}).get("mid"),
+            "ai_prob": r["ai_prob"], "ai_p_draw": r["ai_p_draw"], "confidence": r["confidence"],
+            "rank": rank.get(g.game_key), "factors_json": json.dumps(r["factors"], ensure_ascii=False),
+            "sources_json": json.dumps(r["sources"]), "created_at": created})
+    status = "ok" if rows else "failed"
+    detail = {"tried": ai["tried"], "dropped_after_kickoff": late, "context_dir": str(cwd)}
+    _insert_run(rdb, run_id, created, ai["engine"], ai["model"], prompt_sha, context_sha, len(games), rows,
+                status, force, detail)
+    return {"ok": status == "ok", "run_id": run_id, "engine": ai["engine"], "model": ai["model"],
+            "games": len(games), "forecasts": len(rows), "over_markets": sum(1 for g in games if g.over_token),
+            "dropped_after_kickoff": late, "tried": ai["tried"], "context_dir": str(cwd),
+            "top": [dict(r) for r in sorted((r for r in rows if r["rank"]), key=lambda r: r["rank"])]}
+
+
+def _insert_run(conn, run_id, ts, engine, model, prompt_sha, context_sha, games, rows, status, forced, detail):
+    with conn:
+        conn.execute("INSERT INTO runs(run_id, ts, kst_date, engine, model, prompt_sha, context_sha, games, "
+                     "n_forecasts, status, forced, detail) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                     (run_id, ts, kst_date(ts), engine, model, prompt_sha, context_sha, games, len(rows), status,
+                      int(bool(forced)), json.dumps(detail, ensure_ascii=False, default=str)))
+        for r in rows:
+            cols = list(r)
+            conn.execute(f"INSERT INTO forecasts({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                         [r[c] for c in cols])
+
+
+# ---------------------------------------------------------------- outcomes
+
+FINAL_SCORE_SETTLE_S = 3 * 3600      # a Gamma final score must be this old before it is trusted
+
+
+def resolve_outcomes(paths, now: int | None = None) -> dict:
+    """Append outcomes for forecast games that finished. Total 0.5 resolution first (regulation, as Polymarket
+    settles), else the final score of an ended game. Never overwrites (append-only)."""
+    now = int(now if now is not None else time.time())
+    rdb = connect(db_path(paths))
+    core = connect_ro(paths.core_db)
+    added = {"total_0_5_resolution": 0, "final_score": 0}
+    try:
+        if core is None:
+            return {"ok": False, "error": "core.db missing"}
+        pending = [r[0] for r in rdb.execute(
+            "SELECT DISTINCT game_key FROM forecasts WHERE game_key NOT IN (SELECT game_key FROM outcomes)")]
+        view = MarketView(core)
+        for gk in pending:
+            g = core.execute("SELECT * FROM games WHERE game_key=?", (gk,)).fetchone()
+            if g is None:
+                continue
+            row = None
+            ov = over_token(view, gk)
+            if ov:
+                m = core.execute("SELECT resolved_outcome_index, resolved_at FROM markets WHERE condition_id=?",
+                                 (ov[0],)).fetchone()
+                if m and m["resolved_outcome_index"] is not None:
+                    win = core.execute("SELECT token_id FROM tokens WHERE condition_id=? AND outcome_index=?",
+                                       (ov[0], m["resolved_outcome_index"])).fetchone()
+                    if win is not None:
+                        row = (int(win["token_id"] == ov[1]), "total_0_5_resolution", m["resolved_at"])
+            if row is None and g["ended_at"] and g["ended_at"] <= now - FINAL_SCORE_SETTLE_S \
+                    and g["home_score"] is not None and g["away_score"] is not None and g["status"] != "cancelled":
+                row = (int(g["home_score"] + g["away_score"] > 0), "final_score", g["ended_at"])
+            if row is None:
+                continue
+            detail = {}
+            if g["home_score"] is not None and g["away_score"] is not None:
+                detail["score_consistent"] = int(g["home_score"] + g["away_score"] > 0) == row[0]
+            with rdb:
+                rdb.execute("INSERT OR IGNORE INTO outcomes VALUES(?,?,?,?,?,?,?,?)",
+                            (gk, row[0], g["home_score"], g["away_score"], row[1], row[2], now, json.dumps(detail)))
+            added[row[1]] += 1
+        return {"ok": True, "pending": len(pending), "added": added}
+    finally:
+        rdb.close()
+        if core is not None:
+            core.close()
+
+
+# ---------------------------------------------------------------- slack
+
+def slack_text(result: dict) -> str:
+    date = kst_date(int(time.time()))
+    head = f"[연구·paper] LLM 0-0 예측 {date} ({result.get('engine') or '엔진 없음'})"
+    if not result.get("ok"):
+        return f"{head}: 예측 실패 — {str(result.get('tried') or result.get('skipped') or '')[:200]}"
+    lines = [f"{head}: {result['forecasts']}경기 예측, Over 0.5 시장 {result.get('over_markets', 0)}경기"]
+    for r in result.get("top") or []:
+        mkt = r.get("market_price_at_forecast")
+        mtxt = (f"시장 Over0.5 {mkt:.1%} (edge {(r['ai_prob'] - mkt) * 100:+.1f}%p)" if mkt is not None
+                else "Over0.5 시장가 없음" + (f", 무승부 {r['draw_price']:.0%}" if r.get("draw_price") else ""))
+        n_src = len(json.loads(r.get("sources_json") or "[]"))
+        lines.append(f"{r['rank']}. {r['home_team']} vs {r['away_team']} ({(r['league'] or '').upper()}, "
+                     f"{kst(r['kickoff'])} KST) AI 비-0-0 {r['ai_prob']:.1%} · {mtxt} · 출처 {n_src}")
+    lines.append(DISCLAIMER)
+    return "\n".join(lines)
+
+
+# ---------------------------------------------------------------- CLI
+
+def main(argv: list[str] | None = None) -> int:
+    ap = argparse.ArgumentParser(prog="polylab forecast")
+    ap.add_argument("action", choices=("daily", "run", "resolve", "eval"),
+                    help="daily = resolve + run + Slack (Jenkins polylab-llm-forecast)")
+    ap.add_argument("--force", action="store_true", help="rerun even if today's forecast exists (logged in runs)")
+    ap.add_argument("--no-slack", action="store_true")
+    ap.add_argument("--max-games", type=int, default=MAX_GAMES)
+    ap.add_argument("--timeout", type=int, default=ENGINE_TIMEOUT_S, help="per engine, seconds")
+    ap.add_argument("--since", help="eval: kickoff since (YYYY-MM-DD)")
+    args = ap.parse_args(argv)
+    paths = settings.paths()
+    if args.action == "eval":
+        from polylab.research import llm_eval  # noqa: PLC0415
+        since = int(dt.datetime.fromisoformat(args.since).replace(tzinfo=dt.timezone.utc).timestamp()) \
+            if args.since else None
+        print(json.dumps(llm_eval.evaluate(paths, since=since), ensure_ascii=False, indent=1, default=str))
+        return 0
+    out: dict[str, Any] = {}
+    if args.action in ("daily", "resolve"):
+        out["resolve"] = resolve_outcomes(paths)
+    if args.action in ("daily", "run"):
+        res = run_forecast(paths, force=args.force, timeout=args.timeout, max_games=args.max_games)
+        out["run"] = res
+        text = slack_text(res) if not res.get("skipped") else None
+        if text:
+            out["slack_text"] = text
+            if args.action == "daily" and not args.no_slack:
+                from polylab.reports import slack  # noqa: PLC0415
+                out["slack_posted"] = slack.post(text)
+    print(json.dumps(out, ensure_ascii=False, indent=1, default=str))
+    run = out.get("run") or {}
+    return 0 if (out.get("resolve") or {}).get("ok", True) and run.get("ok", True) else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

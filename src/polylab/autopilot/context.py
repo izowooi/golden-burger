@@ -116,6 +116,8 @@ def build_private(report: dict, markdown: str, kind: str, paths, variants, rules
     (d / "trades_recent.json").write_text(_dump(report["transactions"]))
     (d / "calibration_summary.json").write_text(_dump(calibration_summary(report["research"])))
     (d / "events_summary.json").write_text(_dump(events_summary(report["research"])))
+    if report.get("llm_forecast"):
+        (d / "llm_forecast_eval.json").write_text(_dump(report["llm_forecast"]))  # paper-only side study
     by_id = {v.id: v for v in variants}
     families = set()
     for v in variants:

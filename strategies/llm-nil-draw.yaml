@@ -1,0 +1,22 @@
+id: llm-nil-draw
+family: llm_nil
+hypothesis: "연구용 paper 전용. LLM(웹 검색 허용)이 경기 전 매긴 '0-0 아님' 확률이 Polymarket Total 0.5 Over 가격보다 정확한가? AI 확률 − ask ≥ edge 인 일일 top-k 경기의 Over 0.5 를 킥오프 직전 매수해 정산까지 보유. 설계 docs/research/llm-forecast-study.md."
+account: null
+mode: paper
+sports: [soccer]
+stake_usdc: 5
+params:
+  leagues: [epl, lal, bun, sea, fl1, mls, ucl, uel, fifwc, euc, unl]
+  top_k: 3
+  edge: 0.02
+  max_price: 0.96
+  min_price: 0.5
+  entry_window_minutes: 15
+bounds:
+  top_k: [1, 5, 1]
+  edge: [0.0, 0.1, 0.01]
+  max_price: [0.9, 0.98, 0.01]
+  min_price: [0.5, 0.9, 0.05]
+  entry_window_minutes: [5, 15, 5]
+limits: {max_positions: 6, max_open_usdc: 30, daily_loss_stop_usdc: 15, max_new_per_cycle: 3, max_sells_per_cycle: 0}
+notes: "paper 전용 연구 변형(실거래 금지): llm_nil family 는 mode=live 를 코드에서 거부한다. 20건 도달 attention 의 'live 전환' 안내는 이 변형에 해당하지 않는다. 예측은 Jenkins polylab-llm-forecast(10:00 KST)."

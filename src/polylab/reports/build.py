@@ -534,7 +534,14 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
             "stake_tiers": performance.tier_stats(live_rows),
             "changes": sorted([c for s in states for c in s["changes"]], key=lambda c: c["at"] or ""),
             "games": games, "strategy_sport": strategy_sport,
+            "llm_forecast": _llm_forecast(paths, since, until) if kind != "daily" else None,
             "ai": {"ran": False, "reason": None}}
+
+
+def _llm_forecast(paths, since: int, until: int) -> dict | None:
+    """LLM 0-0 side study (paper only), weekly/monthly; never fails the report."""
+    from polylab.research import llm_eval  # noqa: PLC0415
+    return llm_eval.report_section(paths, since, until)
 
 
 def to_json(report: dict) -> str:

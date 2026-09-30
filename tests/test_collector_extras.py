@@ -88,12 +88,12 @@ def test_volume_floor_and_line_gate():
     _, more = epl_events()
     ms = by_key(more)
     cfg = C.CollectorConfig()
-    assert cfg.goal_min_volume == 10_000 and cfg.soccer_total_lines == (0.5, 1.5, 2.5, 3.5)
+    assert cfg.goal_min_volume == 1_000 and cfg.soccer_total_lines == (0.5, 1.5, 2.5, 3.5)
 
     def inc(key, vol):
         m = dict(ms[key], volumeNum=vol)
         return C.extra_market_included(m, C.market_type_of(m, "soccer"), "soccer", cfg)
-    assert inc(("totals", 0.5, "O/U 0.5"), 10_000) and not inc(("totals", 0.5, "O/U 0.5"), 9_999)
+    assert inc(("totals", 0.5, "O/U 0.5"), 1_000) and not inc(("totals", 0.5, "O/U 0.5"), 999)
     assert not inc(("totals", 4.5, "O/U 4.5"), 10**6)                              # line outside the set
     assert inc(("both_teams_to_score", None, "Both Teams to Score"), 12_000)
     assert inc(("soccer_team_totals", 0.5, "Leeds United FC O/U 0.5"), 12_000)
@@ -148,7 +148,7 @@ def test_discover_stores_major_extras_above_floor(paths):
     main, more = epl_events(volume=50_000.0)
     for m in more["markets"]:
         if m.get("line") == 2.5 and m["sportsMarketType"] == "totals":
-            m["volumeNum"] = 9_000.0                                      # below the 10k floor
+            m["volumeNum"] = 900.0                                        # below the 1k floor
     minor = copy.deepcopy(main)
     minor.update(id="999", slug="col2-aaa-bbb-2026-10-10", gameId=1)
     for t in minor["teams"]:

@@ -348,6 +348,11 @@ def section_thesis(r: dict) -> list[str]:
             *[f"- {t['text']} (n={t['n']}, 근거 `{t['evidence_ref']}`)" for t in rows], ""]
 
 
+def section_llm_forecast(r: dict) -> list[str]:
+    from polylab.research.llm_eval import render_lines  # noqa: PLC0415
+    return render_lines(r.get("llm_forecast"))
+
+
 def render(r: dict, narrative: str | None = None, applied: list[dict] | None = None,
            rejected: list[dict] | None = None) -> str:
     lines = [f"# {r['title']}", "",
@@ -356,7 +361,7 @@ def render(r: dict, narrative: str | None = None, applied: list[dict] | None = N
              f"- 대시보드: https://poly.zowoo.uk", ""]
     for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
                     section_open, section_changes,
-                    section_alerts, section_health, section_research):
+                    section_alerts, section_health, section_research, section_llm_forecast):
         lines += section(r)
     ai = r.get("ai") or {}
     lines += ["## AI 회고", ""]

@@ -47,6 +47,8 @@ QUALITY_KO = {"live_gap": "라이브 경기 중 1분 가격 bar 공백", "poll_g
               "crossed_book": "호가 역전(bid>ask)", "crossed_book_ws": "WS 호가 역전(bid>ask)",
               "discover_failed": "경기 탐색 실패"}
 KIND_KO = {"daily": "일일", "weekly": "주간", "monthly": "월간"}
+# Paper-only research experiments: they trade only when their niche markets exist and may never go live.
+RESEARCH_ONLY = {"llm-nil-draw"}
 MOVE_NOTE = "증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다."
 
 
@@ -226,7 +228,7 @@ def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
     try:
         for v in report["variants"]:
             history = v.get("param_history") or []
-            if v["mode"] == "off" or not history or (history[0].get("ts") or now) > since:
+            if v.get("id") in RESEARCH_ONLY or v["mode"] == "off" or not history or (history[0].get("ts") or now) > since:
                 continue  # off, or younger than DEAD_DAYS
             last_entry = _last_entry(paths, v["id"])
             if last_entry is not None and last_entry >= since:
@@ -256,7 +258,7 @@ def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
 def _paper_items(report: dict, applied: list[dict]) -> list[dict]:
     out = []
     for v in report["variants"]:
-        if v["mode"] != "paper":
+        if v["mode"] != "paper" or v.get("id") in RESEARCH_ONLY:
             continue
         p = v.get("paper") or {}
         n = (p.get("trades") or {}).get("all", 0)

@@ -18,6 +18,7 @@ COMMANDS = {
     "retro": "polylab.autopilot.retro:main",            # report + AI retro + guarded apply + slack
     "publish": "polylab.publish.snapshot:main",         # dashboard JSON -> Supabase Storage
     "health": "polylab.ops.health:main",                # freshness / disk / job checks
+    "forecast": "polylab.research.llm_forecast:main",   # LLM 0-0 forecast study (paper only)
 }
 
 
