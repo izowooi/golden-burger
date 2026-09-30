@@ -1,7 +1,7 @@
-id: cherry-yellow
+id: cherry-tiger
 family: cherry
 hypothesis: "경기 결과 마켓에서 0.76-0.78 YES 토큰은 실현 확률 대비 과소평가되어 수렴한다. B arm(control): 낮은 밴드에서 수렴 폭이 크지만 손실 꼬리도 큰지 Blue와 비교."
-account: yellow
+account: tiger
 mode: live
 sports: [soccer, mlb, nba, nfl, nhl]
 stake_usdc: 5

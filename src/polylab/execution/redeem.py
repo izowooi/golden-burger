@@ -96,7 +96,7 @@ def redeemable_conditions(rows: list[dict]) -> list[str]:
 def redeem_account(alias: str, *, execute: bool, now: int | None = None,
                    positions_fetcher: Callable[[str], list[dict]] | None = None,
                    client_factory: Callable[[Any, str], Any] | None = None,
-                   paths=None, variant_id: str | None = None) -> dict[str, Any]:
+                   paths=None, variant_id: str | None = None, owned_only: bool = True) -> dict[str, Any]:
     from polylab.engine.tick import sanitize
     now = int(now or time.time())
     out: dict[str, Any] = {"alias": alias, "execute": execute, "conditions": [], "done": [], "failed": {}}
@@ -108,6 +108,16 @@ def redeem_account(alias: str, *, execute: bool, now: int | None = None,
     if paths is not None and variant_id:
         from polylab.execution.ledger import open_ledger
         ledger = open_ledger(paths, variant_id)
+    if owned_only:
+        # The owner keeps manual/legacy positions in these wallets and settles them via the UI,
+        # so only conditions this variant's own live ledger bought are ever redeemed.
+        owned = set()
+        if ledger:
+            owned = {r[0] for r in ledger.conn.execute(
+                "SELECT DISTINCT condition_id FROM positions WHERE mode='live'")}
+        out["skipped_unowned"] = len([c for c in conds if c not in owned])
+        conds = [c for c in conds if c in owned]
+        out["conditions"] = conds
     try:
         if not conds or not execute:
             for c in conds:

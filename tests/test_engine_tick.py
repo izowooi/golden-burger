@@ -151,15 +151,13 @@ def test_sanitize_strips_addresses_and_queries():
     assert "aaaa" not in out and "bbbb" not in out and "user=" not in out
 
 
-def test_repo_registry_loads_eight_variants():
-    vs = registry.load_all()
-    ids = {v.id for v in vs}
-    assert {"watermelon-cat", "watermelon-dog", "apricot-eco", "apricot-fruit", "plum-king", "plum-queen",
-            "cherry-blue", "cherry-yellow"} <= ids
+def test_repo_registry_is_valid():
+    # Autopilot promotes stakes and retires variants over time, so only structural invariants are pinned here.
+    vs = registry.load_all(include_off=True)
+    assert vs
     for v in vs:
-        if v.id in ids:
-            assert v.stake_usdc == 5.0 and v.mode in ("live", "paper")
-            assert set(v.limits) >= {"max_positions", "max_open_usdc", "daily_loss_stop_usdc", "max_new_per_cycle"}
+        assert v.stake_usdc in registry.STAKE_LADDER
+        assert set(v.limits) >= {"max_positions", "max_open_usdc", "daily_loss_stop_usdc", "max_new_per_cycle"}
 
 
 def test_live_stop_uses_fresh_clob_book_when_stored_book_is_stale(env, tmp_path):

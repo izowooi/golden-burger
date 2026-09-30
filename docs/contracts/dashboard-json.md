@@ -67,6 +67,29 @@ All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is
 }
 ```
 
+## latest/transactions_24h.json
+Every order/fill/resolution of every variant in the last 24h (newest first). Written by `polylab publish`;
+the daily report's "지난 24시간 거래 내역" section is built from the same rows.
+```json
+[{"at": "2026-10-01T10:12:00Z", "variant_id": "watermelon-cat", "account": "cat", "mode": "live",
+  "sport": "soccer", "league": "EPL", "game_title": "Arsenal vs Chelsea", "outcome": "Arsenal",
+  "side": "BUY", "price": 0.93, "shares": 5.37, "usdc": 5.0, "fee_usdc": 0.0,
+  "status": "CONFIRMED", "position_id": "...", "position_status": "open", "exit_reason": null, "realized_pnl": null}]
+```
+- `side`: `BUY` | `SELL` | `RESOLVE` (resolution payout of a position closed in the window; price = payout per share).
+- `status`: fill status (`CONFIRMED`, `MATCHED`, `MINED`, `FAILED`, `PAPER`), `UNFILLED` (order failed/cancelled with no fill),
+  `QUARANTINED` (position quarantined), `RESOLVED` / `UNSETTLED` for RESOLVE rows, else the upper-cased order status.
+- `realized_pnl` is the position's realised P&L once settled (same value repeated on each row of that position); `null` = not settled.
+- For unfilled orders `price` = limit price, `shares`/`usdc` = requested amounts, `fee_usdc` = null.
+
+## Additive fields (beyond the examples above)
+- overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
+- strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,
+  breakdown rows may carry `win_rate`/`roi`.
+- research.json: `event_by_score_state` (event sensitivity split by scorer's score state trailing|level|leading),
+  `analysis_generated_at`, event rows also carry `n_isolated`, `mean_jump`, `mean_pre_price`, `reversion_1m`, `mean_peak_minute`.
+- reports/index.json entries: `engine` (`claude|codex|null`), `generated_at`.
+
 ## reports
 - `reports/index.json`: `[{"kind": "daily|weekly|monthly", "date": "2026-10-01", "slot": "morning|evening|dawn|null", "title": "...", "path": "reports/daily/2026-10-01-morning.md", "ai": true}]` newest first.
 - `reports/<kind>/<name>.md`: Korean markdown report (deterministic tables + AI narrative + applied changes).
