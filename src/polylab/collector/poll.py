@@ -73,7 +73,8 @@ def run_once(paths, *, client: Client | None = None, ts: int | None = None,
             except Exception as exc:
                 out.update(ok=False, error=f"books: {exc!r}"[:300])
                 books = {}
-            recv = C.now()
+            # Receipt time is wall clock in production; an explicit historical `ts` (replays/tests) is kept as-is.
+            recv = C.now() if abs(C.now() - ts) < 300 else ts
             out["books"], out["bars"] = _store_books(paths, conn, toks, books, recv, q, skip_missing=not out["ok"])
             out["books_db"] = dbmod.year_month(recv)
         _pregame(paths, conn, cfg, client, ts, q, out)
