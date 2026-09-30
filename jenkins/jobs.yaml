@@ -10,43 +10,43 @@ jobs:
     cron: "* * * * *"
     timeout_minutes: 3
     keep_builds: 1500
-    command: "uv run --frozen polylab tick"
+    command: "uv run --no-sync polylab tick"
   polylab-discover:
     description: "10분마다: Gamma 에서 5개 종목 경기·마켓 탐색, 정산 상태 갱신"
     cron: "H/10 * * * *"
-    command: "uv run --frozen polylab discover"
+    command: "uv run --no-sync polylab discover"
   polylab-stream:
     description: "WebSocket 수집 daemon(sports+market). 한 빌드가 최대 59분 실행되고, 끝나거나 죽으면 대기 중인 다음 빌드가 즉시 이어받는다(launchd 는 macOS 가 외장하드 접근을 막아 사용하지 않음)"
     cron: "* * * * *"
     timeout_minutes: 65
     keep_builds: 200
-    command: "uv run --frozen polylab stream --run --duration 3540"
+    command: "uv run --no-sync polylab stream --run --duration 3540"
   polylab-backfill:
     description: "매시: 종료 경기 prices-history·trades·resolution 백필 + 과거 시즌 점진 백필"
     cron: "H * * * *"
     timeout_minutes: 55
-    command: "uv run --frozen polylab backfill --recent && uv run --frozen polylab backfill --historical --budget-minutes 40"
+    command: "uv run --no-sync polylab backfill --recent && uv run --no-sync polylab backfill --historical --budget-minutes 40"
   polylab-publish:
     description: "5분마다: git pull → 대시보드 JSON(Supabase Storage) 갱신 + 상태 점검"
     cron: "H/5 * * * *"
     timeout_minutes: 8
     pull: true
-    command: "uv run --frozen polylab publish && (uv run --frozen polylab health || true)"
+    command: "uv run --no-sync polylab publish; uv run --no-sync polylab health --alert || true"
   polylab-retro-daily:
     description: "일일 회고(새벽 03:30·아침 08:00·저녁 19:30 KST): 리포트 → AI 회고 → 가드레일 적용 → commit/push → Slack"
     cron: "TZ=Asia/Seoul\n30 3 * * *\n0 8 * * *\n30 19 * * *"
     timeout_minutes: 45
     pull: true
-    command: "uv run --frozen polylab retro daily --slot auto"
+    command: "uv run --no-sync polylab retro daily"
   polylab-retro-weekly:
     description: "주간 회고(월 08:30 KST): 백테스트 기반 파라미터 탐색·paper 변형 제안"
     cron: "TZ=Asia/Seoul\n30 8 * * 1"
     timeout_minutes: 90
     pull: true
-    command: "uv run --frozen polylab retro weekly"
+    command: "uv run --no-sync polylab retro weekly"
   polylab-retro-monthly:
     description: "월간 회고(매월 1일 09:00 KST): 논문용 연구 요약 docs/research/monthly"
     cron: "TZ=Asia/Seoul\n0 9 1 * *"
     timeout_minutes: 120
     pull: true
-    command: "uv run --frozen polylab retro monthly"
+    command: "uv run --no-sync polylab retro monthly"

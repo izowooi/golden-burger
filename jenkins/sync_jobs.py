@@ -17,23 +17,30 @@ import yaml
 JENKINS = "http://192.168.50.23:8080"
 RUNTIME = "/Volumes/t7/polylab/repo"
 
-PRELUDE = f"""#!/bin/zsh
-set -euo pipefail
+# macOS TCC blocks processes spawned by the launchd-started Jenkins from opening files on the external
+# volume (open() hangs waiting for a consent prompt nobody sees). sshd has disk access, so every job
+# hops through `ssh polylab-local` (a localhost key in ~/.ssh/config) and runs the script from stdin.
+REMOTE_PRELUDE = f"""set -euo pipefail
 export PATH=/opt/homebrew/bin:$HOME/.local/bin:$PATH
 export PYTHONUNBUFFERED=1
 if [ ! -d /Volumes/t7/polylab ]; then echo "FATAL: /Volumes/t7 not mounted" >&2; exit 2; fi
 cd {RUNTIME}
 """
 
-PULL = """if [ -z "$(git status --porcelain)" ]; then
+PULL = """if [ -z "$(git status --porcelain -- . ':!reports' ':!autopilot')" ]; then
   git pull -q --ff-only || echo "WARN: git pull failed"
   uv sync -q --frozen --extra dev
 fi
 """
 
 
+def shell_script(spec: dict) -> str:
+    body = REMOTE_PRELUDE + (PULL if spec.get("pull") else "") + spec["command"] + "\n"
+    return "#!/bin/zsh\nset -e\nssh polylab-local /bin/zsh -s <<'POLYLAB_EOF'\n" + body + "POLYLAB_EOF\n"
+
+
 def job_xml(name: str, spec: dict, defaults: dict) -> str:
-    script = PRELUDE + (PULL if spec.get("pull") else "") + spec["command"] + "\n"
+    script = shell_script(spec)
     keep = spec.get("keep_builds", defaults["keep_builds"])
     timeout = spec.get("timeout_minutes", defaults["timeout_minutes"])
     return f"""<?xml version='1.1' encoding='UTF-8'?>
@@ -48,7 +55,6 @@ def job_xml(name: str, spec: dict, defaults: dict) -> str:
       </strategy>
     </jenkins.model.BuildDiscarderProperty>
     <org.jenkinsci.plugins.workflow.job.properties.DisableConcurrentBuildsJobProperty/>
-    <hudson.model.ParametersDefinitionProperty><parameterDefinitions/></hudson.model.ParametersDefinitionProperty>
   </properties>
   <scm class="hudson.scm.NullSCM"/>
   <canRoam>true</canRoam>

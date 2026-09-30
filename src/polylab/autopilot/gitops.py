@@ -29,7 +29,7 @@ def pull(repo: Path = settings.REPO_ROOT) -> tuple[bool, str]:
 
 def run_tests(repo: Path = settings.REPO_ROOT, timeout: int = 1200) -> tuple[bool, str]:
     try:
-        r = subprocess.run(["uv", "run", "pytest", "-q"], cwd=repo, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(["uv", "run", "--no-sync", "pytest", "-q"], cwd=repo, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         return False, f"{type(exc).__name__}"
     return r.returncode == 0, (r.stdout + r.stderr)[-600:]
