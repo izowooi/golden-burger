@@ -1,0 +1,56 @@
+{
+ "data": [
+  {
+   "proxy_wallet": "0x0000000000000000000000000000000000000001",
+   "timestamp": 1790779041,
+   "condition_id": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "type": "TRADE",
+   "size": 51.923077,
+   "usdc_size": 24.923077,
+   "transaction_hash": "0xdca16d054a570259c749105108fe9eee6ee1dc7f7eef89e09d52a37f0ebf44e1",
+   "price": 0.4800000008,
+   "token_id": "75657728335317862167743987864066646210811001457479880098540462520215769445771",
+   "side": "BUY",
+   "outcome_index": 1,
+   "title": "Philadelphia Phillies vs. Atlanta Braves",
+   "slug": "mlb-phi-atl-2026-09-30",
+   "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/mlb-f4060398.png",
+   "event_slug": "mlb-phi-atl-2026-09-30",
+   "outcome": "Atlanta Braves",
+   "name": "[REDACTED]",
+   "pseudonym": "[REDACTED]",
+   "bio": "",
+   "profile_image": "",
+   "profile_image_optimized": ""
+  },
+  {
+   "proxy_wallet": "0x0000000000000000000000000000000000000001",
+   "timestamp": 1790778936,
+   "condition_id": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "type": "TRADE",
+   "size": 1.923077,
+   "usdc_size": 0.923077,
+   "transaction_hash": "0x058ace78bd1db079c12eae4264c2c135f7cd1d4e6b01b7277bdfe2b30d36c7a1",
+   "price": 0.4800000208,
+   "token_id": "75657728335317862167743987864066646210811001457479880098540462520215769445771",
+   "side": "BUY",
+   "outcome_index": 1,
+   "title": "Philadelphia Phillies vs. Atlanta Braves",
+   "slug": "mlb-phi-atl-2026-09-30",
+   "icon": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/mlb-f4060398.png",
+   "event_slug": "mlb-phi-atl-2026-09-30",
+   "outcome": "Atlanta Braves",
+   "name": "[REDACTED]",
+   "pseudonym": "[REDACTED]",
+   "bio": "",
+   "profile_image": "",
+   "profile_image_optimized": ""
+  }
+ ],
+ "pagination": {
+  "limit": 2,
+  "offset": 0,
+  "has_more": true,
+  "next_cursor": "eyJkYXRhIjp7InR5cGUiOiJhY3Rpdml0eSIsInBhcmFtcyI6eyJsIjoyLCJ0cyI6MTc5MDc3ODkzNiwic3EiOiI5NDcxNTg2NDAwMDU1MDYyMzAiLCJkIjoyfX0sInNpZyI6ImZhYjA1ZGQ1N2ZiMWY1MjEzZmE5ZDVkYTU4ZmRmNzZjIn0"
+ }
+}

@@ -1,0 +1,19 @@
+{
+ "_note": "EVIDENCE of empty result: 7h window on a market closed 2026-02-08 (~7.7 months old); fine grains expired, server returned empty even with bucket_seconds omitted.",
+ "request": {
+  "url": "https://data-api.polymarket.com/v2/prices-history",
+  "token_id": "77616250122515342024291212123070593809888806984504805553309220477398351837052",
+  "start": 1770487200,
+  "end": 1770512400,
+  "limit": 5
+ },
+ "response": {
+  "data": [],
+  "pagination": {
+   "limit": 5,
+   "offset": 0,
+   "has_more": false,
+   "next_cursor": null
+  }
+ }
+}

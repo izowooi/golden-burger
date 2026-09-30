@@ -106,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"{action:6s} {name}  cron={spec['cron']!r}")
         if not args.apply:
             continue
-        headers = {"Content-Type": "application/xml"}
+        headers = {"Content-Type": "application/xml; charset=utf-8"}
         if name in existing:
             r = s.post(f"{JENKINS}/job/{name}/config.xml", data=xml, headers=headers, timeout=20)
         else:

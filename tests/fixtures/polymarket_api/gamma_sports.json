@@ -1,0 +1,62 @@
+[
+ {
+  "id": 630,
+  "sport": "ufl",
+  "name": "[REDACTED]",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/ufl.png",
+  "resolution": "https://www.theufl.com/",
+  "ordering": "away",
+  "tags": "1,100639,1186,105925",
+  "primaryTagId": 105925,
+  "series": "12553",
+  "createdAt": "2026-08-07T21:41:19.879539Z"
+ },
+ {
+  "id": 642,
+  "sport": "lmp",
+  "name": "[REDACTED]",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/lmp.png",
+  "resolution": "https://www.lmp.mx/",
+  "ordering": "home",
+  "tags": "1,100639,678,105936",
+  "primaryTagId": 105936,
+  "series": "12565",
+  "createdAt": "2026-08-08T00:24:14.02818Z"
+ },
+ {
+  "id": 154,
+  "sport": "cricpakt20cup",
+  "name": "[REDACTED]",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/cricpakt20cup.png",
+  "resolution": "https://www.espncricinfo.com/",
+  "ordering": "home",
+  "tags": "1,100639,517,104074",
+  "primaryTagId": 104074,
+  "series": "11278",
+  "createdAt": "2026-03-03T18:48:37.956378Z"
+ },
+ {
+  "id": 155,
+  "sport": "cricps",
+  "name": "[REDACTED]",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/cricps.png",
+  "resolution": "https://www.espncricinfo.com/",
+  "ordering": "home",
+  "tags": "1,100639,517,104073",
+  "primaryTagId": 104073,
+  "series": "11279",
+  "createdAt": "2026-03-03T18:50:35.18346Z"
+ },
+ {
+  "id": 136,
+  "sport": "cricpsl",
+  "name": "[REDACTED]",
+  "image": "https://polymarket-upload.s3.us-east-2.amazonaws.com/league-icons/cricpsl.png",
+  "resolution": "https://www.espncricinfo.com/",
+  "ordering": "home",
+  "tags": "1,100639,517,103805",
+  "primaryTagId": 103805,
+  "series": "11214",
+  "createdAt": "2026-02-23T16:28:34.15181Z"
+ }
+]

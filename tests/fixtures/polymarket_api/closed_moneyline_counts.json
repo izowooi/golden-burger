@@ -1,0 +1,59 @@
+{
+ "soccer": {
+  "tag": 100350,
+  "pages": 463,
+  "moneyline_markets": 46248,
+  "events_all": 15418,
+  "events_game_since_0201": 15143,
+  "uma": {
+   "resolved": 46246,
+   "proposed": 2
+  },
+  "secs": 63
+ },
+ "mlb": {
+  "tag": 100381,
+  "pages": 27,
+  "moneyline_markets": 2693,
+  "events_all": 2693,
+  "events_game_since_0201": 2693,
+  "uma": {
+   "resolved": 2693
+  },
+  "secs": 12
+ },
+ "nhl": {
+  "tag": 899,
+  "pages": 6,
+  "moneyline_markets": 552,
+  "events_all": 552,
+  "events_game_since_0201": 552,
+  "uma": {
+   "resolved": 552
+  },
+  "secs": 3
+ },
+ "nfl": {
+  "tag": 450,
+  "pages": 2,
+  "moneyline_markets": 139,
+  "events_all": 129,
+  "events_game_since_0201": 99,
+  "uma": {
+   "resolved": 139
+  },
+  "secs": 1
+ },
+ "nba": {
+  "tag": 745,
+  "pages": 8,
+  "moneyline_markets": 734,
+  "events_all": 734,
+  "events_game_since_0201": 619,
+  "uma": {
+   "resolved": 734
+  },
+  "secs": 4
+ },
+ "_method": "GET gamma /markets/keyset?tag_id=<tag>&closed=true&sports_market_types=moneyline&start_date_min=2026-01-10T00:00:00Z&limit=100, follow next_cursor via after_cursor; count distinct events[0].id with gameStartTime date in [2026-02-01, 2026-09-30]. Probed 2026-09-30. NBA/NFL re-run without start_date_min gave identical counts (619/99)."
+}

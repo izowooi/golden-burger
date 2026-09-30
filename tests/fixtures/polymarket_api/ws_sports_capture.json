@@ -1,0 +1,84 @@
+{
+ "url": "wss://sports-api.polymarket.com/ws",
+ "counts": {
+  "msg": 49,
+  "league:cs2": 21,
+  "league:fif": 1,
+  "league:dota2": 3,
+  "league:lol": 2,
+  "league:wta challenger": 2,
+  "league:wta": 1,
+  "league:challenger": 10,
+  "league:cricket": 9
+ },
+ "distinct_games": 22,
+ "secs": 60,
+ "samples": [
+  {
+   "gameId": 1712948,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "CYBERSHOKE Esports",
+   "awayTeam": "CRUISER AURORA",
+   "status": "running",
+   "score": "000-000|0-0|Bo3",
+   "period": "1/3",
+   "live": true,
+   "ended": false
+  },
+  {
+   "gameId": 1712947,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "K27",
+   "awayTeam": "BakS eSports",
+   "status": "running",
+   "score": "000-000|0-0|Bo3",
+   "period": "1/3",
+   "live": true,
+   "ended": false
+  },
+  {
+   "gameId": 1689945,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "Inner Circle Academy",
+   "awayTeam": "Sangal",
+   "status": "running",
+   "score": "000-000|0-1|Bo3",
+   "period": "2/3",
+   "live": true,
+   "ended": false
+  },
+  {
+   "gameId": 1689944,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "ENCE",
+   "awayTeam": "INFURITY Gaming",
+   "status": "running",
+   "score": "000-000|0-1|Bo3",
+   "period": "2/3",
+   "live": true,
+   "ended": false
+  },
+  {
+   "gameId": 1712134,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "EAC Extra",
+   "awayTeam": "ENCE Prospects",
+   "status": "running",
+   "score": "000-000|1-0|Bo3",
+   "period": "2/3",
+   "live": true,
+   "ended": false
+  },
+  {
+   "gameId": 1716598,
+   "leagueAbbreviation": "cs2",
+   "homeTeam": "megoshort",
+   "awayTeam": "eternal premium",
+   "status": "running",
+   "score": "000-000|0-0|Bo3",
+   "period": "1/3",
+   "live": true,
+   "ended": false
+  }
+ ]
+}

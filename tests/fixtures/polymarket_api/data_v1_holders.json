@@ -1,0 +1,64 @@
+[
+ {
+  "token": "15478415082498892138821839489611556442236679978640946393657323972349996059228",
+  "holders": [
+   {
+    "proxyWallet": "0x0000000000000000000000000000000000000001",
+    "bio": "",
+    "asset": "15478415082498892138821839489611556442236679978640946393657323972349996059228",
+    "pseudonym": "[REDACTED]",
+    "amount": 16219.998462,
+    "displayUsernamePublic": true,
+    "outcomeIndex": 0,
+    "name": "[REDACTED]",
+    "profileImage": "",
+    "profileImageOptimized": "",
+    "verified": false
+   },
+   {
+    "proxyWallet": "0x0000000000000000000000000000000000000002",
+    "bio": "",
+    "asset": "15478415082498892138821839489611556442236679978640946393657323972349996059228",
+    "pseudonym": "[REDACTED]",
+    "amount": 9416.26,
+    "displayUsernamePublic": true,
+    "outcomeIndex": 0,
+    "name": "[REDACTED]",
+    "profileImage": "",
+    "profileImageOptimized": "",
+    "verified": false
+   }
+  ]
+ },
+ {
+  "token": "43267357353670694032998379979955141967813178336750676132996239238765659537901",
+  "holders": [
+   {
+    "proxyWallet": "0x0000000000000000000000000000000000000003",
+    "bio": "",
+    "asset": "43267357353670694032998379979955141967813178336750676132996239238765659537901",
+    "pseudonym": "[REDACTED]",
+    "amount": 9.302326,
+    "displayUsernamePublic": true,
+    "outcomeIndex": 1,
+    "name": "[REDACTED]",
+    "profileImage": "",
+    "profileImageOptimized": "",
+    "verified": false
+   },
+   {
+    "proxyWallet": "0x0000000000000000000000000000000000000004",
+    "bio": "",
+    "asset": "43267357353670694032998379979955141967813178336750676132996239238765659537901",
+    "pseudonym": "[REDACTED]",
+    "amount": 7.407408,
+    "displayUsernamePublic": true,
+    "outcomeIndex": 1,
+    "name": "[REDACTED]",
+    "profileImage": "",
+    "profileImageOptimized": "",
+    "verified": false
+   }
+  ]
+ }
+]

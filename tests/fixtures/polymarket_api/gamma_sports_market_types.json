@@ -1,0 +1,31 @@
+{
+ "$schema": "https://gamma-api.polymarket.com/schemas/SportsMarketTypesResponse.json",
+ "marketTypes": [
+  "any_player_rampage",
+  "any_player_ultra_kill",
+  "anytime_touchdowns",
+  "assists",
+  "assists_points_rebounds",
+  "barrack_handicap_match",
+  "barrack_most_2_way_match",
+  "baseball_game_extra_innings",
+  "baseball_player_earned_runs_allowed",
+  "baseball_player_hits",
+  "baseball_player_hits_allowed",
+  "baseball_player_hits_runs_rbis",
+  "baseball_player_home_runs",
+  "baseball_player_outs",
+  "baseball_player_rbis",
+  "baseball_player_stolen_bases",
+  "baseball_player_strikeouts",
+  "baseball_player_total_bases",
+  "baseball_player_walks_allowed",
+  "baseball_team_first_five_spread",
+  "baseball_team_first_five_total",
+  "baseball_team_first_five_winner",
+  "baseball_team_inning1_winner",
+  "baseball_team_inning2_winner",
+  "baseball_team_inning3_winner"
+ ],
+ "_note": "trimmed; full list len=286"
+}

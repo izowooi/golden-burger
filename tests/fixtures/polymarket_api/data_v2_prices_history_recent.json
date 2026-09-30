@@ -1,0 +1,41 @@
+{
+ "request": {
+  "token_id": "15478415082498892138821839489611556442236679978640946393657323972349996059228",
+  "start": 1790439000,
+  "end": 1790457000
+ },
+ "data_head": [
+  {
+   "timestamp": 1790439000,
+   "price": 0.475,
+   "resolution_seconds": 60
+  },
+  {
+   "timestamp": 1790439060,
+   "price": 0.475,
+   "resolution_seconds": 60
+  },
+  {
+   "timestamp": 1790439120,
+   "price": 0.475,
+   "resolution_seconds": 60
+  },
+  {
+   "timestamp": 1790439180,
+   "price": 0.475,
+   "resolution_seconds": 60
+  },
+  {
+   "timestamp": 1790439240,
+   "price": 0.475,
+   "resolution_seconds": 60
+  }
+ ],
+ "n": 272,
+ "pagination": {
+  "limit": 10000,
+  "offset": 0,
+  "has_more": false,
+  "next_cursor": null
+ }
+}

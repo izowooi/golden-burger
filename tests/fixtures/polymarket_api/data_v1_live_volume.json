@@ -1,0 +1,19 @@
+[
+ {
+  "total": 42265185.946402,
+  "markets": [
+   {
+    "market": "0x7279005cdc5f4533b0cf53ce94a6c4fd43039c721ba39a3ad02dddacabd47d93",
+    "value": 2777979.904486
+   },
+   {
+    "market": "0x99b0984b690ad49fb2bdef1d31dc398516d3318740c8595995bd37539d49afce",
+    "value": 2590750.367257
+   },
+   {
+    "market": "0x3e38887e936b8fedd5373852777e7a3e90805affd8139971ebeb4b4956f000f5",
+    "value": 2375936.693773
+   }
+  ]
+ }
+]

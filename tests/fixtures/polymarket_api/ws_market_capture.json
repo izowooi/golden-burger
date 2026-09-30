@@ -1,0 +1,291 @@
+{
+ "subscribe": {
+  "type": "market",
+  "assets_ids": [
+   "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "5781004917794962374548321262587065490067230986417139940687578557421851430412"
+  ],
+  "custom_feature_enabled": true
+ },
+ "counts": {
+  "book": 4,
+  "price_change": 1836,
+  "best_bid_ask": 19,
+  "last_trade_price": 2,
+  "PONG": 5,
+  "new_market": 16
+ },
+ "secs": 60,
+ "samples": [
+  {
+   "market": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "asset_id": "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "timestamp": "1790779105520",
+   "hash": "d4b9b7056e9a985e07c5b88020436483edd0b235",
+   "bids": [
+    {
+     "price": "0.01",
+     "size": "30790.97"
+    },
+    {
+     "price": "0.02",
+     "size": "13205.57"
+    },
+    {
+     "price": "0.03",
+     "size": "1100"
+    }
+   ],
+   "asks": [
+    {
+     "price": "0.99",
+     "size": "30918.44"
+    },
+    {
+     "price": "0.98",
+     "size": "13205.67"
+    },
+    {
+     "price": "0.97",
+     "size": "1100"
+    }
+   ],
+   "tick_size": "0.01",
+   "event_type": "book",
+   "last_trade_price": "0.490"
+  },
+  {
+   "market": "0x4371fe8460664458aa237af61008de0a0cb0ad58804d4df1e5cd7b1333a586d4",
+   "asset_id": "5781004917794962374548321262587065490067230986417139940687578557421851430412",
+   "timestamp": "1790779111945",
+   "hash": "f10f8dbf28d54dc9d07ed492f718a7b9ccadefd8",
+   "bids": [
+    {
+     "price": "0.01",
+     "size": "19210"
+    },
+    {
+     "price": "0.02",
+     "size": "7906"
+    },
+    {
+     "price": "0.03",
+     "size": "5665"
+    }
+   ],
+   "asks": [
+    {
+     "price": "0.99",
+     "size": "15719.01"
+    },
+    {
+     "price": "0.98",
+     "size": "7999.86"
+    },
+    {
+     "price": "0.97",
+     "size": "69.11"
+    }
+   ],
+   "tick_size": "0.01",
+   "event_type": "book",
+   "last_trade_price": "0.860"
+  },
+  {
+   "market": "0x4371fe8460664458aa237af61008de0a0cb0ad58804d4df1e5cd7b1333a586d4",
+   "price_changes": [
+    {
+     "asset_id": "105694063963642561785985168763406142319821152298139524319145565449846491783623",
+     "price": "0.03",
+     "size": "19.11",
+     "side": "BUY",
+     "hash": "5e497992dfb32496f518cd79b992527b94118c55",
+     "best_bid": "0.12",
+     "best_ask": "0.16"
+    },
+    {
+     "asset_id": "5781004917794962374548321262587065490067230986417139940687578557421851430412",
+     "price": "0.97",
+     "size": "19.11",
+     "side": "SELL",
+     "hash": "fa98fec7a3573647b5b5f7d6c8f31b525eb17efc",
+     "best_bid": "0.84",
+     "best_ask": "0.88"
+    }
+   ],
+   "timestamp": "1790779112060",
+   "event_type": "price_change"
+  },
+  {
+   "market": "0x4371fe8460664458aa237af61008de0a0cb0ad58804d4df1e5cd7b1333a586d4",
+   "price_changes": [
+    {
+     "asset_id": "105694063963642561785985168763406142319821152298139524319145565449846491783623",
+     "price": "0.05",
+     "size": "100",
+     "side": "BUY",
+     "hash": "07d4f36107183f35989694d08c817e65c91c5131",
+     "best_bid": "0.12",
+     "best_ask": "0.16"
+    },
+    {
+     "asset_id": "5781004917794962374548321262587065490067230986417139940687578557421851430412",
+     "price": "0.95",
+     "size": "100",
+     "side": "SELL",
+     "hash": "e54917496a7ca73e65511266d1db51c58cf6c393",
+     "best_bid": "0.84",
+     "best_ask": "0.88"
+    }
+   ],
+   "timestamp": "1790779112270",
+   "event_type": "price_change"
+  },
+  {
+   "market": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "asset_id": "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "best_bid": "0.51",
+   "best_ask": "0.52",
+   "spread": "0.01",
+   "timestamp": "1790779116938",
+   "event_type": "best_bid_ask"
+  },
+  {
+   "market": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "asset_id": "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "price": "0.52",
+   "size": "9.615385",
+   "fee_rate_bps": "0",
+   "side": "BUY",
+   "timestamp": "1790779116962",
+   "event_type": "last_trade_price",
+   "transaction_hash": "0x54328e530360e57cae4c070ed15920b26d9144bc7e6416f51f918c3760c57373"
+  },
+  {
+   "market": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "asset_id": "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "best_bid": "0.51",
+   "best_ask": "0.52",
+   "spread": "0.01",
+   "timestamp": "1790779118786",
+   "event_type": "best_bid_ask"
+  },
+  {
+   "market": "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322",
+   "asset_id": "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "price": "0.51",
+   "size": "9.61",
+   "fee_rate_bps": "0",
+   "side": "SELL",
+   "timestamp": "1790779118810",
+   "event_type": "last_trade_price",
+   "transaction_hash": "0x4a21a2911cfcae699e91725b90ef453cf25c01f367588cdd94f0bee3713aeeac"
+  },
+  {
+   "id": "5155500",
+   "question": "Hyperliquid Up or Down - October 1, 10:30AM-10:45AM ET",
+   "market": "0x0fb3565bf6cc002ea02e12f120820f94e041f14508c5aedcf8553bbdf04dc746",
+   "slug": "hype-updown-15m-1790865000",
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Hyperliquid, generated by Chainlink, of th...",
+   "assets_ids": [
+    "67085696194478294197482619059605791589957417333376963741390986049423762345879",
+    "3737825550662185196852827240720185533462758596559562368010707785516514690739"
+   ],
+   "outcomes": [
+    "Up",
+    "Down"
+   ],
+   "event_message": {
+    "id": "1108872",
+    "ticker": "hype-updown-15m-1790865000",
+    "slug": "hype-updown-15m-1790865000",
+    "title": "Hyperliquid Up or Down - October 1, 10:30AM-10:45AM ET",
+    "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of Hyperliquid, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the HYPE/USD TWAP data stream available at https://data.chain.link/streams/hype-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair HYPE/USD, not according to any other sources or spot markets."
+   },
+   "timestamp": "1790779130754",
+   "event_type": "new_market",
+   "tags": [],
+   "condition_id": "0x0fb3565bf6cc002ea02e12f120820f94e041f14508c5aedcf8553bbdf04dc746",
+   "active": false,
+   "clob_token_ids": [
+    "67085696194478294197482619059605791589957417333376963741390986049423762345879",
+    "3737825550662185196852827240720185533462758596559562368010707785516514690739"
+   ],
+   "sports_market_type": "",
+   "line": "",
+   "game_start_time": "",
+   "order_price_min_tick_size": "0.01",
+   "group_item_title": "",
+   "taker_base_fee": "1000",
+   "fees_enabled": true,
+   "fee_schedule": {
+    "exponent": "1",
+    "rate": "0.07",
+    "taker_only": true,
+    "rebate_rate": "0.2"
+   }
+  },
+  {
+   "id": "5155502",
+   "question": "BNB Up or Down - October 1, 10:30AM-10:45AM ET",
+   "market": "0x8c086067a5ab8c59a29eedc394fd3f9c065a856ff70c21929f9b6dd36ba434a0",
+   "slug": "bnb-updown-15m-1790865000",
+   "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of BNB, generated by Chainlink, of the time r...",
+   "assets_ids": [
+    "66556645969525217035195680832754866975926401188157265604827155617749879605306",
+    "75775454293970530406211997503812070236140575369297457478009383216037177461341"
+   ],
+   "outcomes": [
+    "Up",
+    "Down"
+   ],
+   "event_message": {
+    "id": "1108874",
+    "ticker": "bnb-updown-15m-1790865000",
+    "slug": "bnb-updown-15m-1790865000",
+    "title": "BNB Up or Down - October 1, 10:30AM-10:45AM ET",
+    "description": "This market will resolve to \"Up\" if the time-weighted average price (TWAP) of BNB, generated by Chainlink, of the time range specified in the title is greater than or equal to the price at the beginning of that range. Otherwise, it will resolve to \"Down\".\nThe resolution source for this market is information from Chainlink, specifically the BNB/USD TWAP data stream available at https://data.chain.link/streams/bnb-usd-twap-60s-streams.\nPlease note that this market is about the price according to the TWAP Chainlink data stream for the asset pair BNB/USD, not according to any other sources or spot markets."
+   },
+   "timestamp": "1790779135590",
+   "event_type": "new_market",
+   "tags": [],
+   "condition_id": "0x8c086067a5ab8c59a29eedc394fd3f9c065a856ff70c21929f9b6dd36ba434a0",
+   "active": false,
+   "clob_token_ids": [
+    "66556645969525217035195680832754866975926401188157265604827155617749879605306",
+    "75775454293970530406211997503812070236140575369297457478009383216037177461341"
+   ],
+   "sports_market_type": "",
+   "line": "",
+   "game_start_time": "",
+   "order_price_min_tick_size": "0.01",
+   "group_item_title": "",
+   "taker_base_fee": "1000",
+   "fees_enabled": true,
+   "fee_schedule": {
+    "exponent": "1",
+    "rate": "0.07",
+    "taker_only": true,
+    "rebate_rate": "0.2"
+   }
+  }
+ ],
+ "meta": {
+  "markets": [
+   [
+    "Philadelphia Phillies vs. Atlanta Braves",
+    "2026-09-30 18:00:00+00",
+    "0x3c80445e6248383d45606d5c8cde91ffc86f8312fa366b68e62d18d8b5019322"
+   ],
+   [
+    "Will Sri Lanka win on 2026-09-30?",
+    "2026-09-30 13:00:00+00",
+    "0x4371fe8460664458aa237af61008de0a0cb0ad58804d4df1e5cd7b1333a586d4"
+   ]
+  ],
+  "assets": [
+   "8972205192826496295259358569016962048799702758213166878804825674073686454169",
+   "5781004917794962374548321262587065490067230986417139940687578557421851430412"
+  ]
+ }
+}

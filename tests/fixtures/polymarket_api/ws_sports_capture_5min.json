@@ -1,0 +1,194 @@
+{
+ "url": "wss://sports-api.polymarket.com/ws",
+ "secs": 300,
+ "counts": {
+  "msg": 212,
+  "league:dota2": 15,
+  "league:cs2": 101,
+  "league:challenger": 57,
+  "league:wta": 6,
+  "league:fif": 5,
+  "league:wta challenger": 10,
+  "league:cricket": 18
+ },
+ "field_counts": {
+  "gameId": 194,
+  "leagueAbbreviation": 212,
+  "homeTeam": 194,
+  "awayTeam": 194,
+  "status": 194,
+  "score": 212,
+  "period": 212,
+  "live": 212,
+  "ended": 212,
+  "elapsed": 5,
+  "metadataGameId": 18
+ },
+ "distinct_games": 25,
+ "samples_by_league": {
+  "dota2": [
+   {
+    "gameId": 1709073,
+    "leagueAbbreviation": "dota2",
+    "homeTeam": "PARIVISION",
+    "awayTeam": "LGD Gaming",
+    "status": "running",
+    "score": "000-000|0-0|Bo3",
+    "period": "1/3",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 1709073,
+    "leagueAbbreviation": "dota2",
+    "homeTeam": "PARIVISION",
+    "awayTeam": "LGD Gaming",
+    "status": "running",
+    "score": "000-000|0-0|Bo3",
+    "period": "1/3",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "cs2": [
+   {
+    "gameId": 1716599,
+    "leagueAbbreviation": "cs2",
+    "homeTeam": "Morrow Esports",
+    "awayTeam": "Banda LFO",
+    "status": "running",
+    "score": "000-000|1-0|Bo3",
+    "period": "2/3",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 1712947,
+    "leagueAbbreviation": "cs2",
+    "homeTeam": "K27",
+    "awayTeam": "BakS eSports",
+    "status": "running",
+    "score": "000-000|0-0|Bo3",
+    "period": "1/3",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "challenger": [
+   {
+    "gameId": 6340511,
+    "leagueAbbreviation": "challenger",
+    "homeTeam": "Gonzalo Villanueva",
+    "awayTeam": "Juan Carlos Prado",
+    "status": "inprogress",
+    "score": "3-6, 6-3, 4-2",
+    "period": "S3",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 6359632,
+    "leagueAbbreviation": "challenger",
+    "homeTeam": "Gianluca Cadenasso",
+    "awayTeam": "Massimo Giunta",
+    "status": "inprogress",
+    "score": "0-0",
+    "period": "S1",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "wta": [
+   {
+    "gameId": 6352682,
+    "leagueAbbreviation": "wta",
+    "homeTeam": "Anna Bondar",
+    "awayTeam": "Renata Zarazua",
+    "status": "inprogress",
+    "score": "6-6(1-3)",
+    "period": "TB1",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 6352682,
+    "leagueAbbreviation": "wta",
+    "homeTeam": "Anna Bondar",
+    "awayTeam": "Renata Zarazua",
+    "status": "inprogress",
+    "score": "6-6(2-3)",
+    "period": "TB1",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "fif": [
+   {
+    "gameId": 90123081,
+    "leagueAbbreviation": "fif",
+    "homeTeam": "Seychelles",
+    "awayTeam": "Sri Lanka",
+    "status": "InProgress",
+    "score": "0-1",
+    "elapsed": "81",
+    "period": "2H",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 90123081,
+    "leagueAbbreviation": "fif",
+    "homeTeam": "Seychelles",
+    "awayTeam": "Sri Lanka",
+    "status": "InProgress",
+    "score": "0-1",
+    "elapsed": "82",
+    "period": "2H",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "wta challenger": [
+   {
+    "gameId": 6364058,
+    "leagueAbbreviation": "wta challenger",
+    "homeTeam": "Teodora Kostovic",
+    "awayTeam": "Dalma Galfi",
+    "status": "inprogress",
+    "score": "4-6, 7-6(7-1), 3-3",
+    "period": "S3",
+    "live": true,
+    "ended": false
+   },
+   {
+    "gameId": 6364058,
+    "leagueAbbreviation": "wta challenger",
+    "homeTeam": "Teodora Kostovic",
+    "awayTeam": "Dalma Galfi",
+    "status": "inprogress",
+    "score": "4-6, 7-6(7-1), 3-3",
+    "period": "S3",
+    "live": true,
+    "ended": false
+   }
+  ],
+  "cricket": [
+   {
+    "metadataGameId": "id2703195369238564",
+    "leagueAbbreviation": "cricket",
+    "score": "0-211",
+    "period": "Live",
+    "live": true,
+    "ended": false
+   },
+   {
+    "metadataGameId": "id2703195369238564",
+    "leagueAbbreviation": "cricket",
+    "score": "0-208",
+    "period": "Live",
+    "live": true,
+    "ended": false
+   }
+  ]
+ }
+}
