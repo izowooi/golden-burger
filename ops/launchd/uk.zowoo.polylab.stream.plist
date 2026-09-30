@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Template rendered by 'polylab stream ensure' (placeholders: LABEL, UV, REPO, LOGS wrapped in double underscores).
+     Installed into ~/Library/LaunchAgents on the Mac mini. -->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>__LABEL__</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>__UV__</string>
+        <string>run</string>
+        <string>--frozen</string>
+        <string>--project</string>
+        <string>__REPO__</string>
+        <string>polylab</string>
+        <string>stream</string>
+        <string>--run</string>
+    </array>
+    <key>WorkingDirectory</key>
+    <string>__REPO__</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>30</integer>
+    <key>ProcessType</key>
+    <string>Background</string>
+    <key>StandardOutPath</key>
+    <string>__LOGS__/stream.out.log</string>
+    <key>StandardErrorPath</key>
+    <string>__LOGS__/stream.err.log</string>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PYTHONUNBUFFERED</key>
+        <string>1</string>
+    </dict>
+</dict>
+</plist>
