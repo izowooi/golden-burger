@@ -1,12 +1,12 @@
 {
  "schema": "polylab.attention/v1",
- "generated_at": "2026-10-01T00:00:05Z",
+ "generated_at": "2026-10-01T10:31:03Z",
  "url": "https://github.com/izowooi/golden-burger/blob/main/reports/attention.md",
  "last_retro": {
-  "kind": "monthly",
-  "name": "2026-09",
-  "at": "2026-10-01T00:00:05Z",
-  "live_pnl_all": 0.2381
+  "kind": "daily",
+  "name": "2026-10-01-evening",
+  "at": "2026-10-01T10:31:03Z",
+  "live_pnl_all": 0.3341
  },
  "items": [
   {
@@ -28,14 +28,61 @@
   {
    "id": "quality:live_gap",
    "created_at": "2026-10-01T00:00:05Z",
-   "updated_at": "2026-10-01T00:00:05Z",
+   "updated_at": "2026-10-01T10:31:03Z",
    "rule": "quality",
    "severity": "info",
    "category": "data_quality",
-   "title": "데이터 품질 이벤트 live_gap 60건 (24시간)",
+   "title": "데이터 품질 이벤트 live_gap 107건 (24시간)",
    "detail": "라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.",
-   "evidence_ref": "reports/monthly/2026-09.md",
+   "evidence_ref": "reports/daily/2026-10-01-evening.md",
    "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "quality:missing_book",
+   "created_at": "2026-10-01T10:31:03Z",
+   "updated_at": "2026-10-01T10:31:03Z",
+   "rule": "quality",
+   "severity": "info",
+   "category": "data_quality",
+   "title": "데이터 품질 이벤트 missing_book 88건 (24시간)",
+   "detail": "missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.",
+   "evidence_ref": "reports/daily/2026-10-01-evening.md",
+   "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "ai:nhl-final-underdog-gap",
+   "created_at": "2026-10-01T10:31:03Z",
+   "updated_at": "2026-10-01T10:31:03Z",
+   "rule": "ai",
+   "severity": "info",
+   "category": "research_finding",
+   "title": "NHL 경기 막판(final) 0.30–0.40 버킷에서 약자 저평가 +14.1%p로 전체 스포츠 중 gap 1위",
+   "detail": "calibration_summary.json top_gaps 기준: NHL final 구간 0.30–0.40 버킷(n=53), 평균 가격 0.3493, 실현 승률 0.4906, 95% CI [0.3612, 0.6212], gap=+0.1413(유의). 경기 최종 단계(f≥0.85)에서도 약자 저평가가 큰 폭으로 지속된다는 뜻이다. NFL에서도 동일 구간에서 gap+0.1074(유의)가 관찰되어 종목 간 공통 패턴일 수 있다. 현재 watermelon/plum/cherry 변형은 NHL을 커버하지 않는다. 논문 가설 1번(경기 시간 구간별 과대·과소평가)과 직결되는 유의한 발견이며, 특히 '후반에 편향이 더 커지는가'라는 질문에 NHL final 데이터가 긍정적 신호를 줄 수 있다.",
+   "evidence_ref": "calibration_summary.json",
+   "source": "ai",
+   "expires_at": "2026-10-08T10:31:03Z",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "ai:watermelon-entry-minute-null",
+   "created_at": "2026-10-01T10:31:03Z",
+   "updated_at": "2026-10-01T10:31:03Z",
+   "rule": "ai",
+   "severity": "info",
+   "category": "data_quality",
+   "title": "watermelon 계열 실거래 3건 모두 game_minute_at_entry=null — 논문 핵심 변수 미수집",
+   "detail": "trades_recent.json 및 metrics/watermelon-cat.json, metrics/watermelon-dog.json 기준: 오늘 정산된 watermelon 계열 6건(cat 3건·dog 3건) 전부 game_minute_at_entry=null로 기록됐다. 논문 가설 1번(경기 시간 구간별 가격 편향)과 가설 2번(득점 민감도의 시간대별 변화)은 진입 시점의 게임 분 데이터를 반드시 필요로 한다. 이 필드가 null이면 watermelon 거래를 경기 시간 구간에 매핑할 수 없어 연구 분석에서 제외해야 한다. 수집 코드에서 game_minute가 기록되지 않는 이유가 의도적 설계인지 버그인지 확인이 필요하다.",
+   "evidence_ref": "trades_recent.json, metrics/watermelon-cat.json, metrics/watermelon-dog.json",
+   "source": "ai",
+   "expires_at": "2026-10-08T10:31:03Z",
    "status": "open",
    "resolved_at": null,
    "resolution": null
