@@ -1,10 +1,17 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-02 03:31 KST · 열린 항목 10건 (긴급 0 · 경고 1 · 결정 필요 1 · 참고 8)
+갱신 2026-10-02 08:01 KST · 열린 항목 13건 (긴급 0 · 경고 2 · 결정 필요 1 · 참고 10)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
 ## 열린 항목
+
+### [경고] watermelon stop_price 미실행 수치 확인 — Republic of Ireland 0.92→0.17 (13분, 손실 –4.14 USDC)
+
+- 위험 · AI 판단 · 최초 10-02 08:01 · 갱신 10-02 08:01 KST
+- 근거: `trades_recent.json, metrics/watermelon-cat.json, metrics/watermelon-dog.json`
+
+watermelon-cat(stop_price=0.65)·watermelon-dog(stop_price=0.60) 모두 Republic of Ireland vs Austria HOME:YES를 0.92에 진입(20:13 UTC)했으나 13분 후 0.17/0.18에 체결(-4.14/-4.08 USDC). 이론 stop 대비 각각 0.48/0.42 낮게 손절. 같은 날 Malta vs Gibraltar도 실체결이 stop_price 이하(cat: stop 0.65, 체결 0.58 / dog: stop 0.60, 체결 0.53). 1분 주기 Jenkins가 soccer 경기 후반 급격한 득점 이벤트를 포착하지 못하는 패턴이 실거래 2경기 4포지션으로 수치화됐다. 진입 조건 강화 또는 take-profit early 적용 여부 판단 요청.
 
 ### [경고] soccer goal jump 표본 극소(n=1·2) — 논문 핵심 종목 가설 2번 검증 불가
 
@@ -20,19 +27,33 @@ events_summary.json 기준: soccer goal jump 데이터가 0-15분 n=1, 90+분 n=
 
 30일 백테스트(paper replay, 실현 손익 아님): apricot-eco(tick=90) n=121, 손실 0건, ROI=+0.70%; apricot-fruit(tick=85) n=111, 손실 3건(resolution_loss), ROI=-2.00%, MDD=12.27 USDC. apricot-eco 후보 중 tick=85는 ROI=-2.0%로 열위를 재확인. 실거래 표본이 둘 다 0건이므로 현재 rules상 파라미터 변경 조건(min_trades_params=20) 미충족. 실거래 20건 누적 이전에 apricot-fruit를 tick=90으로 조기 조정할지 판단이 필요하다.
 
-### [참고] 데이터 품질 이벤트 live_gap 130건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 150건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-02 03:31 KST
-- 근거: `reports/daily/2026-10-02-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-02 08:01 KST
+- 근거: `reports/daily/2026-10-02-morning.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [참고] 데이터 품질 이벤트 missing_book 88건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-02 03:31 KST
-- 근거: `reports/daily/2026-10-02-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-02 08:01 KST
+- 근거: `reports/daily/2026-10-02-morning.md`
 
 missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] 데이터 품질 이벤트 live_history_mismatch 52건 (24시간)
+
+- 데이터 품질 · 자동 규칙 · 최초 10-02 08:01 · 갱신 10-02 08:01 KST
+- 근거: `reports/daily/2026-10-02-morning.md`
+
+라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] [확인됨] Azerbaijan 0-0 종료 — llm-nil-draw paper 전손, watermelon-dog live 이익, LLM 첫 예측 실패
+
+- 연구 발견 · AI 판단 · 최초 10-02 08:01 · 갱신 10-02 08:01 KST
+- 근거: `trades_recent.json, metrics/llm-nil-draw.json, metrics/watermelon-dog.json`
+
+정산 결과 확인: llm-nil-draw(paper)는 Azerbaijan vs. Liechtenstein Over 0.5를 0.95에 매수했으나 0-0 종료로 resolution_loss(-5.01 USDC paper). watermelon-dog(live)는 같은 경기 DRAW:YES를 0.96에 매수해 resolution_win(+0.20 USDC). LLM의 '득점 있음' 예측이 첫 거래부터 틀렸다. n=1로 LLM 예측 정확도에 대한 결론은 유보하며 표본 누적 후 재검토 필요.
 
 ### [참고] MLB 득점 jump가 이닝 후반으로 갈수록 커지는 패턴 — 가설 2번 방향과 일치
 
