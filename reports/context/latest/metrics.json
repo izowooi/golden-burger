@@ -4,13 +4,13 @@
   "d7": 0.2381,
   "d30": 0.2381,
   "all": 0.2381,
-  "tx_24h": 10,
-  "settled_24h": 5,
-  "settled_pnl_24h": 0.2381,
+  "tx_24h": null,
+  "settled_24h": 0,
+  "settled_pnl_24h": 0,
   "open_positions": 0,
   "unrealized_pnl": 0,
   "live_variants": 8,
-  "paper_variants": 0
+  "paper_variants": 1
  },
  "variants": {
   "apricot-eco": {
@@ -528,6 +528,112 @@
     "at": "2026-09-30T16:54:01Z",
     "summary": "cherry-tiger v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'] (registry)"
    }
+  },
+  "llm-nil-draw": {
+   "mode": "paper",
+   "account": null,
+   "stake_usdc": 5.0,
+   "params": {
+    "leagues": [
+     "epl",
+     "lal",
+     "bun",
+     "sea",
+     "fl1",
+     "mls",
+     "ucl",
+     "uel",
+     "fifwc",
+     "euc",
+     "unl"
+    ],
+    "top_k": 3,
+    "edge": 0.02,
+    "max_price": 0.96,
+    "min_price": 0.5,
+    "entry_window_minutes": 15
+   },
+   "bounds": {
+    "top_k": [
+     1,
+     5,
+     1
+    ],
+    "edge": [
+     0.0,
+     0.1,
+     0.01
+    ],
+    "max_price": [
+     0.9,
+     0.98,
+     0.01
+    ],
+    "min_price": [
+     0.5,
+     0.9,
+     0.05
+    ],
+    "entry_window_minutes": [
+     5,
+     15,
+     5
+    ]
+   },
+   "ladder": {
+    "status": "hold",
+    "action": "hold",
+    "trades_at_tier": 0,
+    "needed": 20,
+    "roi_ci_lo": null,
+    "next_stake_usdc": null,
+    "promote_ok": false,
+    "to_mode": "paper",
+    "reason": "not live",
+    "available": true
+   },
+   "live": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "paper": {
+    "pnl": {
+     "today": 0.0,
+     "d7": 0.0,
+     "d30": 0.0,
+     "all": 0.0
+    },
+    "trades": {
+     "all": 0,
+     "wins": 0,
+     "losses": 0
+    },
+    "win_rate": null,
+    "roi": null,
+    "cost": 0.0,
+    "last_trade_at": null
+   },
+   "breakdown": {
+    "by_sport": [],
+    "by_entry_minute": [],
+    "by_stake": [],
+    "by_day": []
+   },
+   "excluded": {},
+   "last_change": null
   },
   "plum-king": {
    "mode": "live",
@@ -4576,108 +4682,110 @@
   "notes": [
    "calibration unit = one canonical 1-minute price per resolved whole-game token per phase: pre = last bar before start (closing line), in-play phases = first bar in the phase (phase 'all' pools those rows); win = tokens.outcome_index == markets.resolved_outcome_index; 95% Wilson CI; gap = win_rate - mean_price (positive = underpriced). All outcome tokens of a market enter (complementary Yes/No or home/away prices are dependent), so n overstates independent observations and the CI is optimistic",
    "phase = normalised fraction f of regulation (game_minute / soccer 90, NBA 48, NFL 60, NHL 60, MLB 9 innings; fallback wall-clock elapsed since start_time / soccer 112, NBA 140, NFL 195, NHL 155, MLB 180 min): pre = before start, early f<0.30, mid <0.60, late <0.85, final >=0.85 until game end",
-   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated"
+   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated",
+   "soccer = major competitions only (bun, epl, euc, fifwc, fl1, lal, mls, sea, ucl, uel, unl); pass all_leagues / --all-leagues to include every stored league"
   ]
  },
  "events": {
-  "generated_at": "2026-09-30T18:30:55Z",
-  "measured": 6,
+  "generated_at": "2026-10-01T00:00:35Z",
+  "measured": 16,
   "event_sensitivity": [
    {
     "sport": "mlb",
     "event": "run",
     "minute_bucket": "0-3",
-    "n": 1,
-    "n_isolated": 1,
-    "mean_abs_jump": 0.065,
-    "median_jump": 0.065,
-    "mean_jump": 0.065,
+    "n": 7,
+    "n_isolated": 5,
+    "mean_abs_jump": 0.0936,
+    "median_jump": 0.07,
+    "mean_jump": 0.0936,
+    "mean_pre_price": 0.4507,
+    "reversion_1m": 0.0179,
+    "reversion_5m": 0.0114,
+    "reversion_10m": 0.0464,
+    "mean_peak_minute": 7.4286
+   },
+   {
+    "sport": "mlb",
+    "event": "run",
+    "minute_bucket": "3-6",
+    "n": 2,
+    "n_isolated": 2,
+    "mean_abs_jump": 0.125,
+    "median_jump": 0.125,
+    "mean_jump": 0.125,
     "mean_pre_price": 0.555,
-    "reversion_1m": 0.075,
-    "reversion_5m": -0.025,
-    "reversion_10m": -0.095,
+    "reversion_1m": 0.0,
+    "reversion_5m": -0.02,
+    "reversion_10m": 0.005,
+    "mean_peak_minute": 1.5
+   },
+   {
+    "sport": "mlb",
+    "event": "run",
+    "minute_bucket": "6-9",
+    "n": 4,
+    "n_isolated": 2,
+    "mean_abs_jump": 0.1788,
+    "median_jump": 0.165,
+    "mean_jump": 0.1788,
+    "mean_pre_price": 0.4288,
+    "reversion_1m": 0.0525,
+    "reversion_5m": 0.0425,
+    "reversion_10m": -0.0838,
     "mean_peak_minute": 2.0
    },
    {
-    "sport": "soccer",
-    "event": "goal",
-    "minute_bucket": "15-30",
+    "sport": "mlb",
+    "event": "run",
+    "minute_bucket": "9+",
     "n": 1,
     "n_isolated": 1,
-    "mean_abs_jump": 0.009,
-    "median_jump": 0.009,
-    "mean_jump": 0.009,
-    "mean_pre_price": 0.985,
-    "reversion_1m": -0.0105,
-    "reversion_5m": -0.01,
-    "reversion_10m": -0.009,
-    "mean_peak_minute": 1.0
+    "mean_abs_jump": 0.38,
+    "median_jump": 0.38,
+    "mean_jump": 0.38,
+    "mean_pre_price": 0.415,
+    "reversion_1m": 0.0,
+    "reversion_5m": 0.02,
+    "reversion_10m": 0.11,
+    "mean_peak_minute": 10.0
    },
    {
-    "sport": "soccer",
+    "sport": "nhl",
     "event": "goal",
-    "minute_bucket": "30-45",
+    "minute_bucket": "0-20",
     "n": 1,
     "n_isolated": 1,
-    "mean_abs_jump": 0.05,
-    "median_jump": 0.05,
-    "mean_jump": 0.05,
-    "mean_pre_price": 0.935,
-    "reversion_1m": 0.0035,
-    "reversion_5m": 0.008,
-    "reversion_10m": 0.005,
+    "mean_abs_jump": 0.155,
+    "median_jump": 0.155,
+    "mean_jump": 0.155,
+    "mean_pre_price": 0.435,
+    "reversion_1m": 0.005,
+    "reversion_5m": 0.035,
+    "reversion_10m": 0.015,
     "mean_peak_minute": 7.0
    },
    {
     "sport": "soccer",
     "event": "goal",
-    "minute_bucket": "45-60",
-    "n": 1,
-    "n_isolated": 1,
-    "mean_abs_jump": 0.0075,
-    "median_jump": 0.0075,
-    "mean_jump": 0.0075,
-    "mean_pre_price": 0.9915,
-    "reversion_1m": 0.0,
-    "reversion_5m": 0.0,
-    "reversion_10m": null,
-    "mean_peak_minute": 1.0
-   },
-   {
-    "sport": "soccer",
-    "event": "goal",
-    "minute_bucket": "60-75",
+    "minute_bucket": "0-15",
     "n": 1,
     "n_isolated": 1,
     "mean_abs_jump": 0.0,
     "median_jump": 0.0,
     "mean_jump": 0.0,
-    "mean_pre_price": 0.999,
+    "mean_pre_price": 0.715,
     "reversion_1m": 0.0,
-    "reversion_5m": null,
-    "reversion_10m": null,
-    "mean_peak_minute": 2.0
-   },
-   {
-    "sport": "soccer",
-    "event": "goal",
-    "minute_bucket": "90+",
-    "n": 1,
-    "n_isolated": 1,
-    "mean_abs_jump": 0.004,
-    "median_jump": 0.004,
-    "mean_jump": 0.004,
-    "mean_pre_price": 0.9955,
-    "reversion_1m": 0.0,
-    "reversion_5m": 0.0,
-    "reversion_10m": 0.0,
-    "mean_peak_minute": 1.0
+    "reversion_5m": -0.01,
+    "reversion_10m": -0.03,
+    "mean_peak_minute": 0.0
    }
   ],
   "notes": [
    "calibration unit = one canonical 1-minute price per resolved whole-game token per phase: pre = last bar before start (closing line), in-play phases = first bar in the phase (phase 'all' pools those rows); win = tokens.outcome_index == markets.resolved_outcome_index; 95% Wilson CI; gap = win_rate - mean_price (positive = underpriced). All outcome tokens of a market enter (complementary Yes/No or home/away prices are dependent), so n overstates independent observations and the CI is optimistic",
    "phase = normalised fraction f of regulation (game_minute / soccer 90, NBA 48, NFL 60, NHL 60, MLB 9 innings; fallback wall-clock elapsed since start_time / soccer 112, NBA 140, NFL 195, NHL 155, MLB 180 min): pre = before start, early f<0.30, mid <0.60, late <0.85, final >=0.85 until game end",
-   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated"
+   "event = single-side score increase in game_states; token = scoring team's whole-game moneyline token (home/away side, or the 'Yes' token of the team's binary market); jump = p(m+1)-p(m-1); reversion_k = p(m+1+k)-p(m+1) (negative = reverts); 10s/30s deltas null at 1-minute resolution; NBA/NFL events often overlap within a minute, see n_isolated",
+   "soccer = major competitions only (bun, epl, euc, fifwc, fl1, lal, mls, sea, ucl, uel, unl); pass all_leagues / --all-leagues to include every stored league"
   ]
  }
 }

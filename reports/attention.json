@@ -1,0 +1,76 @@
+{
+ "schema": "polylab.attention/v1",
+ "generated_at": "2026-10-01T00:00:05Z",
+ "url": "https://github.com/izowooi/golden-burger/blob/main/reports/attention.md",
+ "last_retro": {
+  "kind": "monthly",
+  "name": "2026-09",
+  "at": "2026-10-01T00:00:05Z",
+  "live_pnl_all": 0.2381
+ },
+ "items": [
+  {
+   "id": "ai:apricot-fruit-tick-inferior",
+   "created_at": "2026-10-01T00:00:05Z",
+   "updated_at": "2026-10-01T00:00:05Z",
+   "rule": "ai",
+   "severity": "decide",
+   "category": "decision_needed",
+   "title": "백테스트에서 apricot-fruit(tick=85)이 apricot-eco(tick=90)보다 ROI 2.7%p 열위 — 파라미터 조정 시점 결정 필요",
+   "detail": "30일 백테스트(paper replay, 실현 손익 아님): apricot-eco(tick=90) n=121, 손실 0건, ROI=+0.70%; apricot-fruit(tick=85) n=111, 손실 3건(resolution_loss), ROI=-2.00%, MDD=12.27 USDC. apricot-eco 후보 중 tick=85는 ROI=-2.0%로 열위를 재확인. 실거래 표본이 둘 다 0건이므로 현재 rules상 파라미터 변경 조건(min_trades_params=20) 미충족. 실거래 20건 누적 이전에 apricot-fruit를 tick=90으로 조기 조정할지 판단이 필요하다.",
+   "evidence_ref": "backtests.json, metrics/apricot-fruit.json, metrics/apricot-eco.json",
+   "source": "ai",
+   "expires_at": "2026-10-08T00:00:05Z",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "quality:live_gap",
+   "created_at": "2026-10-01T00:00:05Z",
+   "updated_at": "2026-10-01T00:00:05Z",
+   "rule": "quality",
+   "severity": "info",
+   "category": "data_quality",
+   "title": "데이터 품질 이벤트 live_gap 60건 (24시간)",
+   "detail": "라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.",
+   "evidence_ref": "reports/monthly/2026-09.md",
+   "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "ai:nfl-longshot-bias",
+   "created_at": "2026-10-01T00:00:05Z",
+   "updated_at": "2026-10-01T00:00:05Z",
+   "rule": "ai",
+   "severity": "info",
+   "category": "research_finding",
+   "title": "NFL 전 구간에서 정배 과대평가·약자 저평가 비대칭 패턴 관찰 (4개 버킷 유의)",
+   "detail": "NFL 전 구간 0.60-0.70 버킷(n=114): 평균 가격 0.6446, 실현 승률 0.5263, 95% CI [0.4353, 0.6156], gap=-0.1183 — 정배 과대평가 유의. 0.30-0.40(n=117): gap=+0.1074, CI [0.3739, 0.5517] — 약자 저평가 유의. 0.20-0.30(n=83, gap=+0.096), 0.10-0.20(n=52, gap=+0.0997)도 유의. 정배 과대평가·약자 저평가가 동시에 관찰되는 비대칭 구조로 favourite-longshot bias 이론에 부합한다. 다중 비교 문제가 있으므로 해석에 주의가 필요하다.",
+   "evidence_ref": "calibration_summary.json",
+   "source": "ai",
+   "expires_at": "2026-10-08T00:00:05Z",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "ai:cherry-tiger-calib-mismatch",
+   "created_at": "2026-10-01T00:00:05Z",
+   "updated_at": "2026-10-01T00:00:05Z",
+   "rule": "ai",
+   "severity": "info",
+   "category": "research_finding",
+   "title": "cherry-tiger 가설(MLB 0.76-0.78 YES 저평가)이 현재 calibration으로 뒷받침되지 않음",
+   "detail": "cherry-tiger 가설: MLB 0.76-0.78 YES 토큰이 실현 확률 대비 저평가되어 1.0으로 수렴. 그러나 MLB 전 구간 0.70-0.80 버킷(n=1172)의 gap=-0.0054, 95% CI [0.7165, 0.7665]로 평균 가격 0.7477을 포함 — 유의하지 않음. 실거래 1건(stop_loss, pnl=-0.7659 USDC)도 가설 방향과 반대 결과이나, n=1로 변형에 대한 결론 자체는 유보한다. 다음 달 표본 누적 이후 calibration 재검토를 권장한다.",
+   "evidence_ref": "calibration_summary.json, metrics/cherry-tiger.json",
+   "source": "ai",
+   "expires_at": "2026-10-08T00:00:05Z",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  }
+ ]
+}
