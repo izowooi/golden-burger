@@ -139,7 +139,7 @@ def test_poll_run_once_writes_books_bars_states(paths):
     assert kinds == ["missing_book"]
     st = conn.execute("SELECT source, period, game_minute, home_score FROM game_states").fetchone()
     assert tuple(st) == ("gamma", "Q3", pytest.approx(30.5), 48)
-    ym = dbmod.year_month(C.now())
+    ym = dbmod.year_month(NOW)
     b = sqlite3.connect(paths.books_db(ym)).execute("SELECT COUNT(*), MIN(imb_l1) FROM book_snapshots").fetchone()
     assert b[0] == 3 and b[1] == pytest.approx((100 - 80) / 180)
     # unchanged gamma state is not rewritten

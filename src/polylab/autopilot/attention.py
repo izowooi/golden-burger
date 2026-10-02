@@ -442,13 +442,58 @@ def merge(state: dict, emitted: list[dict], families: set[str], now: int) -> dic
             "items": open_items({"items": keep}) + resolved_items({"items": keep})}
 
 
+# ------------------------------------------------------------------ owner decisions
+
+DECISIONS_FILE = "decisions.md"
+_DECISION_HEAD = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2})\s*$")
+_DECISION_LINE = re.compile(r"^-\s+`([^`]+)`\s+[—-]+\s+(.+?)\s*$")
+
+
+def load_decisions(reports_dir: Path) -> dict[str, dict]:
+    """Owner answers to attention items, from reports/decisions.md (editable on GitHub):
+
+        ## 2026-10-02
+        - `ai:apricot-fruit-tick-inferior` — 더 나은 파라미터가 있으면 변경
+
+    Later entries for the same id win. Unknown/garbled lines are ignored."""
+    path = reports_dir / DECISIONS_FILE
+    out: dict[str, dict] = {}
+    try:
+        lines = path.read_text().splitlines()
+    except OSError:
+        return out
+    date = None
+    for line in lines:
+        if m := _DECISION_HEAD.match(line.strip()):
+            date = m.group(1)
+        elif (m := _DECISION_LINE.match(line.strip())) and date:
+            out[m.group(1)] = {"date": date, "decision": clean_text(m.group(2), 400)}
+    return out
+
+
+def apply_decisions(state: dict, decisions: dict[str, dict], now: int) -> dict:
+    """An item the owner has answered stays resolved, even if a rule or the AI emits it again."""
+    if not decisions:
+        return state
+    iso = C.iso(now)
+    items = []
+    for i in state.get("items", []):
+        d = decisions.get(i["id"])
+        if d and i.get("status") == "open":
+            i = {**i, "status": "resolved", "resolved_at": iso,
+                 "resolution": f"사용자 결정 ({d['date']}): {d['decision']}"}
+        items.append(i)
+    return {**state, "items": open_items({"items": items}) + resolved_items({"items": items})}
+
+
 def update(state: dict, report: dict, *, kind: str, now: int, paths=None, applied=(), rejected=(),
-           ai: dict | None = None, ai_enabled: bool = True, ai_raw=None) -> tuple[dict, dict]:
+           ai: dict | None = None, ai_enabled: bool = True, ai_raw=None,
+           decisions: dict | None = None) -> tuple[dict, dict]:
     """Returns (new state, run info {ai_items, thesis, notes})."""
     items, fams = rule_items(report, kind=kind, now=now, paths=paths, applied=applied, rejected=rejected, ai=ai,
                              ai_enabled=ai_enabled)
     ai_items, thesis, notes = sanitize_ai(ai_raw, kind)
-    new = merge(state, items + ai_items, fams, now)
+    new = apply_decisions(merge(state, items + ai_items, fams, now), decisions or {}, now)
     new["last_retro"] = {"kind": kind, "name": report["name"], "at": C.iso(now),
                          "live_pnl_all": (report.get("totals") or {}).get("all")}
     return new, {"ai_items": ai_items, "thesis": thesis, "notes": notes}
@@ -460,7 +505,7 @@ def _md_item(i: dict) -> list[str]:
     src = "AI 판단" if i.get("source") == "ai" else "자동 규칙"
     lines = [f"### [{SEVERITY_KO.get(i['severity'], i['severity'])}] {i['title']}", "",
              f"- {CATEGORY_KO.get(i['category'], i['category'])} · {src} · 최초 {_kst(_ts(i.get('created_at')))} · "
-             f"갱신 {_kst(_ts(i.get('updated_at')))} KST"]
+             f"갱신 {_kst(_ts(i.get('updated_at')))} KST · id `{i['id']}`"]
     if i.get("evidence_ref"):
         lines.append(f"- 근거: `{i['evidence_ref']}`")
     if i.get("detail"):
@@ -477,6 +522,8 @@ def render_md(state: dict) -> str:
              "매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, "
              f"**AI 판단** 항목은 {AI_TTL_S // 86400}일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, "
              "`metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.", "",
+             "**답하는 법**: 항목 id 와 결정을 [`reports/decisions.md`](decisions.md) 에 한 줄로 적거나(GitHub 웹 편집 가능) "
+             "Claude 에게 말하면 기록된다. 다음 회고가 그 항목을 '사용자 결정'으로 닫고, AI 는 결정을 전제로 판단한다.", "",
              "## 열린 항목", ""]
     if not opens:
         lines += ["지금 확인하거나 결정할 항목이 없다.", ""]
@@ -497,11 +544,16 @@ def save(reports_dir: Path, state: dict) -> None:
     (reports_dir / "attention.md").write_text(scrub(render_md(state)))
 
 
-def write_context(cwd: Path, state: dict) -> None:
-    """Currently open items for the AI (so it does not repeat them) + a MANIFEST line."""
+def write_context(cwd: Path, state: dict, reports_dir: Path | None = None) -> None:
+    """Currently open items for the AI (so it does not repeat them), the owner's decisions + MANIFEST lines."""
     public = [{k: i.get(k) for k in ("id", "severity", "category", "title", "detail", "evidence_ref", "source")}
               for i in open_items(state)]
     (cwd / "attention_open.json").write_text(scrub(json.dumps(public, ensure_ascii=False, indent=1)))
     manifest = cwd / "MANIFEST.md"
     if manifest.exists():
         manifest.write_text(manifest.read_text() + "- attention_open.json (이미 열린 확인·결정 항목, 같은 내용을 다시 쓰지 않는다)\n")
+    src = (reports_dir / DECISIONS_FILE) if reports_dir else None
+    if src and src.exists():
+        (cwd / DECISIONS_FILE).write_text(scrub(src.read_text()))
+        if manifest.exists():
+            manifest.write_text(manifest.read_text() + "- decisions.md (연구자 결정 기록 — 이미 답한 질문은 다시 묻지 않고, 결정을 전제로 판단한다)\n")

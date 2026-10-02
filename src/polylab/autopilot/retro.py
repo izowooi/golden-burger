@@ -442,7 +442,7 @@ def run_retro(opts: Options, env: Env) -> dict:
     cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest)
     att_prev = attention.load(env.reports_dir)
     try:
-        attention.write_context(cwd, att_prev)
+        attention.write_context(cwd, att_prev, env.reports_dir)
     except OSError as exc:
         env.say(f"attention context skipped: {exc}")
 
@@ -505,7 +505,8 @@ def run_retro(opts: Options, env: Env) -> dict:
     try:
         att_new, att_run = attention.update(att_prev, report, kind=kind, now=now, paths=paths, applied=applied,
                                             rejected=rejected, ai=ai if opts.ai else None, ai_enabled=opts.ai,
-                                            ai_raw=attention.read_ai(cwd) if ai["ran"] else None)
+                                            ai_raw=attention.read_ai(cwd) if ai["ran"] else None,
+                                            decisions=attention.load_decisions(env.reports_dir))
         report["brief"] = brief_mod.build(report, prev=att_prev.get("last_retro"), applied=applied, rejected=rejected,
                                           opens=attention.open_items(att_new), ai_items=att_run["ai_items"])
         report["thesis_sentences"] = att_run["thesis"]

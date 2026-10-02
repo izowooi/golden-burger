@@ -258,3 +258,23 @@ def test_attention_snapshot_matches_contract(tmp_path):
     assert [i["id"] for i in snap["open"]] == ["disk"] and [i["id"] for i in snap["resolved"]] == ["health:poll_stale"]
     assert_shape(contract_examples()["latest/attention.json"], snap)
     assert "reports" not in contract_examples()
+
+
+def test_owner_decisions_resolve_items_and_stay_resolved(tmp_path):
+    from polylab.autopilot import attention as A
+    (tmp_path / "decisions.md").write_text(
+        "# 기록\n\n## 2026-10-02\n- `ai:x` — take-profit early 적용\n- garbage line\n- `ai:y` - 첫 답\n\n## 2026-10-03\n- `ai:y` — 바뀐 답\n")
+    dec = A.load_decisions(tmp_path)
+    assert dec == {"ai:x": {"date": "2026-10-02", "decision": "take-profit early 적용"},
+                   "ai:y": {"date": "2026-10-03", "decision": "바뀐 답"}}
+    now = 1_790_900_000
+    emitted = [{**A.item("ai:x", "ai", "warn", "risk", "t", "d"), "source": "ai"},
+               {**A.item("ai:z", "ai", "info", "question", "t2", "d2"), "source": "ai"}]
+    st = A.apply_decisions(A.merge(A.empty_state(), emitted, set(), now), dec, now)
+    by = {i["id"]: i for i in st["items"]}
+    assert by["ai:x"]["status"] == "resolved" and "사용자 결정 (2026-10-02)" in by["ai:x"]["resolution"]
+    assert by["ai:z"]["status"] == "open"
+    # the AI raising the same id again does not reopen it
+    st2 = A.apply_decisions(A.merge(st, emitted, set(), now + 60), dec, now + 60)
+    assert {i["id"]: i["status"] for i in st2["items"]}["ai:x"] == "resolved"
+    assert A.load_decisions(tmp_path / "missing") == {}
