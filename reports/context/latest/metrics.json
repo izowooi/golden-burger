@@ -1,14 +1,14 @@
 {
  "totals": {
-  "today": -20.0597,
-  "d7": -19.7257,
-  "d30": -19.7257,
-  "all": -19.7257,
-  "tx_24h": 58,
-  "settled_24h": 24,
-  "settled_pnl_24h": -24.9762,
-  "open_positions": 4,
-  "unrealized_pnl": 0.0,
+  "today": -25.3416,
+  "d7": -25.0077,
+  "d30": -25.0077,
+  "all": -25.0077,
+  "tx_24h": 78,
+  "settled_24h": 36,
+  "settled_pnl_24h": -30.3541,
+  "open_positions": 0,
+  "unrealized_pnl": 0,
   "live_variants": 8,
   "paper_variants": 1
  },
@@ -74,9 +74,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 0,
+    "trades_at_tier": 1,
     "needed": 20,
-    "roi_ci_lo": null,
+    "roi_ci_lo": 0.005389943467139939,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -85,20 +85,20 @@
    },
    "live": {
     "pnl": {
-     "today": 0.0,
-     "d7": 0.0,
-     "d30": 0.0,
-     "all": 0.0
+     "today": 0.027,
+     "d7": 0.027,
+     "d30": 0.027,
+     "all": 0.027
     },
     "trades": {
-     "all": 0,
-     "wins": 0,
+     "all": 1,
+     "wins": 1,
      "losses": 0
     },
-    "win_rate": null,
-    "roi": null,
-    "cost": 0.0,
-    "last_trade_at": null
+    "win_rate": 1.0,
+    "roi": 0.0054,
+    "cost": 5.01,
+    "last_trade_at": "2026-10-02T01:46:01Z"
    },
    "paper": {
     "pnl": {
@@ -118,12 +118,48 @@
     "last_trade_at": null
    },
    "breakdown": {
-    "by_sport": [],
-    "by_entry_minute": [],
-    "by_stake": [],
-    "by_day": []
+    "by_sport": [
+     {
+      "key": "mlb",
+      "n": 1,
+      "pnl": 0.027,
+      "win_rate": 1.0,
+      "roi": 0.0054
+     }
+    ],
+    "by_entry_minute": [
+     {
+      "key": "90-105",
+      "n": 1,
+      "pnl": 0.027,
+      "win_rate": 1.0,
+      "roi": 0.0054
+     }
+    ],
+    "by_stake": [
+     {
+      "key": "5",
+      "n": 1,
+      "pnl": 0.027,
+      "win_rate": 1.0,
+      "roi": 0.0054
+     }
+    ],
+    "by_day": [
+     {
+      "key": "2026-10-02",
+      "n": 1,
+      "pnl": 0.027,
+      "win_rate": 1.0,
+      "roi": 0.0054
+     }
+    ]
    },
-   "excluded": {},
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
    "last_change": {
     "at": "2026-09-30T16:54:01Z",
     "summary": "apricot-eco v2: +min_game_volume_usd=20000 (registry)"
@@ -135,7 +171,7 @@
    "stake_usdc": 5.0,
    "params": {
     "min_game_volume_usd": 20000,
-    "entry_tick_minute": 85,
+    "entry_tick_minute": 95,
     "tick_window_minutes": 2,
     "prob_min": 0.9,
     "prob_max": 0.999,
@@ -241,8 +277,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-09-30T16:54:01Z",
-    "summary": "apricot-fruit v2: +min_game_volume_usd=20000 (registry)"
+    "at": "2026-10-02T05:17:04Z",
+    "summary": "apricot-fruit v3: entry_tick_minute 85→95 (registry)"
    }
   },
   "cherry-blue": {
@@ -318,9 +354,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 2,
+    "trades_at_tier": 3,
     "needed": 20,
-    "roi_ci_lo": -0.3059035222914321,
+    "roi_ci_lo": -0.24940368374083133,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -329,20 +365,20 @@
    },
    "live": {
     "pnl": {
-     "today": -0.551,
-     "d7": -0.551,
-     "d30": -0.551,
-     "all": -0.551
+     "today": -1.2369,
+     "d7": -1.2369,
+     "d30": -1.2369,
+     "all": -1.2369
     },
     "trades": {
-     "all": 2,
+     "all": 3,
      "wins": 1,
-     "losses": 1
+     "losses": 2
     },
-    "win_rate": 0.5,
-    "roi": -0.0546,
-    "cost": 10.09,
-    "last_trade_at": "2026-10-01T20:05:05Z"
+    "win_rate": 0.3333,
+    "roi": -0.0818,
+    "cost": 15.12,
+    "last_trade_at": "2026-10-02T01:00:10Z"
    },
    "paper": {
     "pnl": {
@@ -364,6 +400,13 @@
    "breakdown": {
     "by_sport": [
      {
+      "key": "nfl",
+      "n": 1,
+      "pnl": -0.6859,
+      "win_rate": 0.0,
+      "roi": -0.1364
+     },
+     {
       "key": "soccer",
       "n": 2,
       "pnl": -0.551,
@@ -375,19 +418,19 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 2,
-      "pnl": -0.551,
-      "win_rate": 0.5,
-      "roi": -0.0546
+      "n": 3,
+      "pnl": -1.2369,
+      "win_rate": 0.3333,
+      "roi": -0.0818
      }
     ],
     "by_day": [
      {
       "key": "2026-10-02",
-      "n": 2,
-      "pnl": -0.551,
-      "win_rate": 0.5,
-      "roi": -0.0546
+      "n": 3,
+      "pnl": -1.2369,
+      "win_rate": 0.3333,
+      "roi": -0.0818
      }
     ]
    },
@@ -474,9 +517,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 2,
+    "trades_at_tier": 3,
     "needed": 20,
-    "roi_ci_lo": -0.15441391526934597,
+    "roi_ci_lo": -0.19138172094597394,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -485,20 +528,20 @@
    },
    "live": {
     "pnl": {
-     "today": -0.7809,
-     "d7": -1.5469,
-     "d30": -1.5469,
-     "all": -1.5469
+     "today": -1.8375,
+     "d7": -2.6035,
+     "d30": -2.6035,
+     "all": -2.6035
     },
     "trades": {
-     "all": 2,
+     "all": 3,
      "wins": 0,
-     "losses": 2
+     "losses": 3
     },
     "win_rate": 0.0,
-    "roi": -0.153,
-    "cost": 10.11,
-    "last_trade_at": "2026-10-01T19:21:07Z"
+    "roi": -0.1719,
+    "cost": 15.15,
+    "last_trade_at": "2026-10-02T01:01:05Z"
    },
    "paper": {
     "pnl": {
@@ -527,6 +570,13 @@
       "roi": -0.1515
      },
      {
+      "key": "nfl",
+      "n": 1,
+      "pnl": -1.0566,
+      "win_rate": 0.0,
+      "roi": -0.2099
+     },
+     {
       "key": "soccer",
       "n": 1,
       "pnl": -0.7809,
@@ -538,10 +588,10 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 2,
-      "pnl": -1.5469,
+      "n": 3,
+      "pnl": -2.6035,
       "win_rate": 0.0,
-      "roi": -0.153
+      "roi": -0.1719
      }
     ],
     "by_day": [
@@ -554,10 +604,10 @@
      },
      {
       "key": "2026-10-02",
-      "n": 1,
-      "pnl": -0.7809,
+      "n": 2,
+      "pnl": -1.8375,
       "win_rate": 0.0,
-      "roi": -0.1544
+      "roi": -0.1821
      }
     ]
    },
@@ -798,9 +848,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 3,
+    "trades_at_tier": 5,
     "needed": 20,
-    "roi_ci_lo": -0.3419285288678018,
+    "roi_ci_lo": -0.2922480034072646,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -809,20 +859,20 @@
    },
    "live": {
     "pnl": {
-     "today": -4.3178,
-     "d7": -4.3178,
-     "d30": -4.3178,
-     "all": -4.3178
+     "today": -6.4474,
+     "d7": -6.4474,
+     "d30": -6.4474,
+     "all": -6.4474
     },
     "trades": {
-     "all": 3,
+     "all": 5,
      "wins": 0,
-     "losses": 3
+     "losses": 5
     },
     "win_rate": 0.0,
-    "roi": -0.284,
-    "cost": 15.2,
-    "last_trade_at": "2026-10-01T20:11:02Z"
+    "roi": -0.2547,
+    "cost": 25.32,
+    "last_trade_at": "2026-10-02T03:03:03Z"
    },
    "paper": {
     "pnl": {
@@ -844,11 +894,18 @@
    "breakdown": {
     "by_sport": [
      {
-      "key": "soccer",
-      "n": 3,
-      "pnl": -4.3178,
+      "key": "nfl",
+      "n": 1,
+      "pnl": -1.1531,
       "win_rate": 0.0,
-      "roi": -0.284
+      "roi": -0.2286
+     },
+     {
+      "key": "soccer",
+      "n": 4,
+      "pnl": -5.2942,
+      "win_rate": 0.0,
+      "roi": -0.2612
      }
     ],
     "by_entry_minute": [
@@ -858,24 +915,31 @@
       "pnl": -4.3178,
       "win_rate": 0.0,
       "roi": -0.284
+     },
+     {
+      "key": "30-45",
+      "n": 1,
+      "pnl": -0.9765,
+      "win_rate": 0.0,
+      "roi": -0.1927
      }
     ],
     "by_stake": [
      {
       "key": "5",
-      "n": 3,
-      "pnl": -4.3178,
+      "n": 5,
+      "pnl": -6.4474,
       "win_rate": 0.0,
-      "roi": -0.284
+      "roi": -0.2547
      }
     ],
     "by_day": [
      {
       "key": "2026-10-02",
-      "n": 3,
-      "pnl": -4.3178,
+      "n": 5,
+      "pnl": -6.4474,
       "win_rate": 0.0,
-      "roi": -0.284
+      "roi": -0.2547
      }
     ]
    },
@@ -985,9 +1049,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 3,
+    "trades_at_tier": 4,
     "needed": 20,
-    "roi_ci_lo": -0.33294447880875383,
+    "roi_ci_lo": -0.31572801910550063,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -996,20 +1060,20 @@
    },
    "live": {
     "pnl": {
-     "today": -4.5991,
-     "d7": -4.5991,
-     "d30": -4.5991,
-     "all": -4.5991
+     "today": -5.6816,
+     "d7": -5.6816,
+     "d30": -5.6816,
+     "all": -5.6816
     },
     "trades": {
-     "all": 3,
+     "all": 4,
      "wins": 0,
-     "losses": 3
+     "losses": 4
     },
     "win_rate": 0.0,
-    "roi": -0.3025,
-    "cost": 15.2,
-    "last_trade_at": "2026-10-01T20:11:02Z"
+    "roi": -0.2806,
+    "cost": 20.25,
+    "last_trade_at": "2026-10-02T01:07:02Z"
    },
    "paper": {
     "pnl": {
@@ -1031,6 +1095,13 @@
    "breakdown": {
     "by_sport": [
      {
+      "key": "nfl",
+      "n": 1,
+      "pnl": -1.0825,
+      "win_rate": 0.0,
+      "roi": -0.2146
+     },
+     {
       "key": "soccer",
       "n": 3,
       "pnl": -4.5991,
@@ -1050,19 +1121,19 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 3,
-      "pnl": -4.5991,
+      "n": 4,
+      "pnl": -5.6816,
       "win_rate": 0.0,
-      "roi": -0.3025
+      "roi": -0.2806
      }
     ],
     "by_day": [
      {
       "key": "2026-10-02",
-      "n": 3,
-      "pnl": -4.5991,
+      "n": 4,
+      "pnl": -5.6816,
       "win_rate": 0.0,
-      "roi": -0.3025
+      "roi": -0.2806
      }
     ]
    },
@@ -1093,7 +1164,7 @@
      "uel"
     ],
     "min_game_volume_usd": 20000,
-    "prob_min": 0.92,
+    "prob_min": 0.93,
     "prob_max": 0.999,
     "stop_price": 0.65,
     "max_entry_drawdown": 0.3,
@@ -1101,6 +1172,8 @@
     "hours_max": 4.0,
     "max_stop_spread": 0.1,
     "reentry_cooldown_hours": 720,
+    "take_profit_delta": 0.02,
+    "take_profit_cap": 0.99,
     "sport_overrides": {
      "nfl": {
       "prob_min": 0.91,
@@ -1145,6 +1218,16 @@
      0.2,
      0.02
     ],
+    "take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "take_profit_cap": [
+     0.97,
+     0.995,
+     0.005
+    ],
     "sport_overrides.nfl.prob_min": [
      0.85,
      0.99,
@@ -1162,11 +1245,11 @@
     ]
    },
    "ladder": {
-    "status": "hold",
+    "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 8,
+    "trades_at_tier": 12,
     "needed": 20,
-    "roi_ci_lo": -0.26550559658593825,
+    "roi_ci_lo": -0.1970745624590203,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -1175,20 +1258,20 @@
    },
    "live": {
     "pnl": {
-     "today": -5.0489,
-     "d7": -4.4841,
-     "d30": -4.4841,
-     "all": -4.4841
+     "today": -6.1939,
+     "d7": -5.6292,
+     "d30": -5.6292,
+     "all": -5.6292
     },
     "trades": {
-     "all": 8,
-     "wins": 6,
-     "losses": 2
+     "all": 12,
+     "wins": 9,
+     "losses": 3
     },
     "win_rate": 0.75,
-    "roi": -0.1118,
-    "cost": 40.12,
-    "last_trade_at": "2026-10-01T22:52:01Z"
+    "roi": -0.0936,
+    "cost": 60.16,
+    "last_trade_at": "2026-10-02T04:15:07Z"
    },
    "paper": {
     "pnl": {
@@ -1210,21 +1293,28 @@
    "breakdown": {
     "by_sport": [
      {
+      "key": "nfl",
+      "n": 1,
+      "pnl": -1.8272,
+      "win_rate": 0.0,
+      "roi": -0.3647
+     },
+     {
       "key": "soccer",
-      "n": 8,
-      "pnl": -4.4841,
-      "win_rate": 0.75,
-      "roi": -0.1118
+      "n": 11,
+      "pnl": -3.802,
+      "win_rate": 0.8182,
+      "roi": -0.0689
      }
     ],
     "by_entry_minute": [],
     "by_stake": [
      {
       "key": "5",
-      "n": 8,
-      "pnl": -4.4841,
+      "n": 12,
+      "pnl": -5.6292,
       "win_rate": 0.75,
-      "roi": -0.1118
+      "roi": -0.0936
      }
     ],
     "by_day": [
@@ -1237,10 +1327,10 @@
      },
      {
       "key": "2026-10-02",
-      "n": 5,
-      "pnl": -5.0489,
-      "win_rate": 0.6,
-      "roi": -0.2012
+      "n": 9,
+      "pnl": -6.1939,
+      "win_rate": 0.6667,
+      "roi": -0.1372
      }
     ]
    },
@@ -1250,8 +1340,8 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-09-30T16:54:01Z",
-    "summary": "watermelon-cat v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
+    "at": "2026-10-02T05:17:04Z",
+    "summary": "watermelon-cat v3: prob_min 0.92→0.93, +take_profit_cap=0.99, +take_profit_delta=0.02 (registry)"
    }
   },
   "watermelon-dog": {
@@ -1271,7 +1361,7 @@
      "uel"
     ],
     "min_game_volume_usd": 20000,
-    "prob_min": 0.92,
+    "prob_min": 0.93,
     "prob_max": 0.999,
     "stop_price": 0.6,
     "max_entry_drawdown": 0.3,
@@ -1279,6 +1369,8 @@
     "hours_max": 4.0,
     "max_stop_spread": 0.1,
     "reentry_cooldown_hours": 720,
+    "take_profit_delta": 0.04,
+    "take_profit_cap": 0.99,
     "sport_overrides": {
      "nfl": {
       "prob_min": 0.94,
@@ -1323,6 +1415,16 @@
      0.2,
      0.02
     ],
+    "take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "take_profit_cap": [
+     0.97,
+     0.995,
+     0.005
+    ],
     "sport_overrides.nfl.prob_min": [
      0.85,
      0.99,
@@ -1342,9 +1444,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 10,
+    "trades_at_tier": 14,
     "needed": 20,
-    "roi_ci_lo": -0.20896428809153839,
+    "roi_ci_lo": -0.14018978732936643,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -1353,20 +1455,20 @@
    },
    "live": {
     "pnl": {
-     "today": -4.762,
-     "d7": -4.2268,
-     "d30": -4.2268,
-     "all": -4.2268
+     "today": -3.9713,
+     "d7": -3.4361,
+     "d30": -3.4361,
+     "all": -3.4361
     },
     "trades": {
-     "all": 10,
-     "wins": 8,
+     "all": 14,
+     "wins": 12,
      "losses": 2
     },
-    "win_rate": 0.8,
-    "roi": -0.0843,
-    "cost": 50.14,
-    "last_trade_at": "2026-10-01T22:52:01Z"
+    "win_rate": 0.8571,
+    "roi": -0.049,
+    "cost": 70.18,
+    "last_trade_at": "2026-10-02T04:15:07Z"
    },
    "paper": {
     "pnl": {
@@ -1388,21 +1490,28 @@
    "breakdown": {
     "by_sport": [
      {
+      "key": "nfl",
+      "n": 1,
+      "pnl": 0.099,
+      "win_rate": 1.0,
+      "roi": 0.0198
+     },
+     {
       "key": "soccer",
-      "n": 10,
-      "pnl": -4.2268,
-      "win_rate": 0.8,
-      "roi": -0.0843
+      "n": 13,
+      "pnl": -3.5352,
+      "win_rate": 0.8462,
+      "roi": -0.0542
      }
     ],
     "by_entry_minute": [],
     "by_stake": [
      {
       "key": "5",
-      "n": 10,
-      "pnl": -4.2268,
-      "win_rate": 0.8,
-      "roi": -0.0843
+      "n": 14,
+      "pnl": -3.4361,
+      "win_rate": 0.8571,
+      "roi": -0.049
      }
     ],
     "by_day": [
@@ -1415,10 +1524,10 @@
      },
      {
       "key": "2026-10-02",
-      "n": 7,
-      "pnl": -4.762,
-      "win_rate": 0.7143,
-      "roi": -0.1356
+      "n": 11,
+      "pnl": -3.9713,
+      "win_rate": 0.8182,
+      "roi": -0.072
      }
     ]
    },
@@ -1428,21 +1537,21 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-09-30T16:54:01Z",
-    "summary": "watermelon-dog v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry)"
+    "at": "2026-10-02T05:17:04Z",
+    "summary": "watermelon-dog v3: prob_min 0.92→0.93, +take_profit_cap=0.99, +take_profit_delta=0.04 (registry)"
    }
   }
  },
  "stake_tiers": [
   {
    "tier_usdc": 5.0,
-   "variants": 6,
-   "trades": 28,
-   "pnl": -19.7257,
-   "roi": -0.14,
-   "pnl_std": 1.3344,
-   "max_drawdown": 23.0847,
-   "sharpe_like": -0.5262
+   "variants": 7,
+   "trades": 42,
+   "pnl": -25.0076,
+   "roi": -0.1184,
+   "pnl_std": 1.1678,
+   "max_drawdown": 26.7189,
+   "sharpe_like": -0.5082
   }
  ],
  "research": {
