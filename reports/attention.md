@@ -1,12 +1,26 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-03 03:30 KST · 열린 항목 17건 (긴급 0 · 경고 0 · 결정 필요 2 · 참고 15)
+갱신 2026-10-03 08:00 KST · 열린 항목 20건 (긴급 0 · 경고 2 · 결정 필요 2 · 참고 16)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
 **답하는 법**: 항목 id 와 결정을 [`reports/decisions.md`](decisions.md) 에 한 줄로 적거나(GitHub 웹 편집 가능) Claude 에게 말하면 기록된다. 다음 회고가 그 항목을 '사용자 결정'으로 닫고, AI 는 결정을 전제로 판단한다.
 
 ## 열린 항목
+
+### [경고] plum-king 자동 변경: mode live→paper
+
+- 시스템 변경 · 자동 규칙 · 최초 10-03 08:00 · 갱신 10-03 08:00 KST · id `stake:plum-king:1790982004`
+- 근거: `strategies/plum-king.yaml`
+
+10-03 08:00 KST 적용(ai:claude). 사유: 1분 주기 Jenkins가 급락을 따라잡지 못해 실체결 손절가가 설계값(entry-SL_delta=0.61) 대비 −0.15 낮은 0.46에서 체결(Ukraine vs NI, trades_recent.json). Ireland·Seattle에서도 동일 패턴 반복. 절대가격 TP(0.9) 구조가 연구자 결정(조기 익절 우선)과 부합하지 않음. n=8로 통계…. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
+
+### [경고] plum-queen 자동 변경: mode live→paper
+
+- 시스템 변경 · 자동 규칙 · 최초 10-03 08:00 · 갱신 10-03 08:00 KST · id `stake:plum-queen:1790982004`
+- 근거: `strategies/plum-queen.yaml`
+
+10-03 08:00 KST 적용(ai:claude). 사유: 동일 Ukraine vs NI 경기에서 SL delta 0.17(king 0.12보다 넓음)이 오히려 급락 구간에서 더 깊게 물려 실체결가 0.45(설계 0.56 대비 −0.11). SL을 넓게 잡는 설계가 1분 주기 집행 불능 문제를 악화시킴을 확인. n=7로 통계 결론 불가이나 운영 위험이 동일하게 존재.. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
 
 ### [결정 필요] NFL 실거래 유지 여부 결정 필요 — 오늘 5개 변형 NFL 전패, watermelon-dog만 +0.10 USDC
 
@@ -22,26 +36,33 @@
 
 2026-10-02 watermelon 파라미터 grid 에서 NFL 은 익절 유무·진입가 하한과 관계없이 모든 조건에서 손실이었다. 다만 NFL 거래가 모두 후반 표본에 몰려 전·후반 교차검증이 불가능했고, 축구용 진입가 하한을 그대로 써서 NFL 전용 최적화는 하지 않았다. 선택지: (1) NFL 을 실거래에서 빼고 paper 로만 관찰 (2) 유지하며 표본을 더 모음 (3) NFL 전용 파라미터 탐색 후 결정. 답은 reports/decisions.md 에 manual:nfl-scope 로.
 
-### [참고] 데이터 품질 이벤트 live_gap 228건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 219건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-03 03:30 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-03-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-03 08:00 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-03-morning.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [참고] 데이터 품질 이벤트 missing_book 34건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-03 03:30 KST · id `quality:missing_book`
-- 근거: `reports/daily/2026-10-03-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-03 08:00 KST · id `quality:missing_book`
+- 근거: `reports/daily/2026-10-03-morning.md`
 
 missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 67건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 54건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-02 08:01 · 갱신 10-03 03:30 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-03-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-02 08:01 · 갱신 10-03 08:00 KST · id `quality:live_history_mismatch`
+- 근거: `reports/daily/2026-10-03-morning.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] watermelon 축구 동시 진입 7건 비교: dog TP delta 0.04가 cat 0.02보다 일관되게 높은 매도가 달성
+
+- 연구 발견 · AI 판단 · 최초 10-03 08:00 · 갱신 10-03 08:00 KST · id `ai:ai-watermelon-soccer-tp-delta-comparison`
+- 근거: `trades_recent.json, metrics/watermelon-cat.json, metrics/watermelon-dog.json`
+
+오늘 UNL 경기에서 cat과 dog이 동일 종목에 동시 진입한 6건의 매도 가격 비교(trades_recent.json): Kazakhstan 0.99 vs 0.97(+0.02), Latvia 0.999 vs 0.971(+0.028), Bosnia DRAW 0.99 vs 0.96(+0.03), Belgium Türkiye 0.995 vs 0.97(+0.025), Hungary 0.99 vs 0.98(+0.01), Poland Romania 동일(0.98). 6건 중 5건에서 dog이 cat보다 높게 매도했다. 24h 실현 PnL: dog +2.77 USDC vs cat +0.05 USDC. TP delta 차이(0.04 vs 0.02) 외에 stop_price(0.60 vs 0.65) 차이도 있어 TP delta만의 효과 분리는 불가하나, TP 발동 경로에서 dog이 더 높은 수렴 가격을 달성하는 패턴이 A/B 설계 의도에 부합한다. n=6으로 결론 불가하나 논문 가설 3번(st…
 
 ### [참고] plum 축구 정방향 포지션 2건이 stop_loss로 청산 — Ireland HOME:NO, Seattle DRAW:NO
 
