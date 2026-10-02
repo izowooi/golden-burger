@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-02 19:30 KST · 열린 항목 14건 (긴급 0 · 경고 0 · 결정 필요 2 · 참고 12)
+갱신 2026-10-03 03:30 KST · 열린 항목 17건 (긴급 0 · 경고 0 · 결정 필요 2 · 참고 15)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -22,26 +22,47 @@
 
 2026-10-02 watermelon 파라미터 grid 에서 NFL 은 익절 유무·진입가 하한과 관계없이 모든 조건에서 손실이었다. 다만 NFL 거래가 모두 후반 표본에 몰려 전·후반 교차검증이 불가능했고, 축구용 진입가 하한을 그대로 써서 NFL 전용 최적화는 하지 않았다. 선택지: (1) NFL 을 실거래에서 빼고 paper 로만 관찰 (2) 유지하며 표본을 더 모음 (3) NFL 전용 파라미터 탐색 후 결정. 답은 reports/decisions.md 에 manual:nfl-scope 로.
 
-### [참고] 데이터 품질 이벤트 live_gap 219건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 228건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-02 19:30 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-02-evening.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-03 03:30 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-03-dawn.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [참고] 데이터 품질 이벤트 missing_book 34건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-02 19:30 KST · id `quality:missing_book`
-- 근거: `reports/daily/2026-10-02-evening.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 19:31 · 갱신 10-03 03:30 KST · id `quality:missing_book`
+- 근거: `reports/daily/2026-10-03-dawn.md`
 
 missing_book. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 68건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 67건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-02 08:01 · 갱신 10-02 19:30 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-02-evening.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-02 08:01 · 갱신 10-03 03:30 KST · id `quality:live_history_mismatch`
+- 근거: `reports/daily/2026-10-03-dawn.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
+
+### [참고] plum 축구 정방향 포지션 2건이 stop_loss로 청산 — Ireland HOME:NO, Seattle DRAW:NO
+
+- 연구 발견 · AI 판단 · 최초 10-03 03:30 · 갱신 10-03 03:30 KST · id `ai:ai-plum-soccer-stop-loss-correct`
+- 근거: `trades_recent.json, metrics/plum-king.json, decisions.md`
+
+plum-king Ireland HOME:NO(entry 0.73, stop 0.48, pnl -1.87 USDC): 경기 2-2 무승부로 HOME:NO 정산 승 방향이었으나 경기 중 급등락에 stop_loss 발동. Seattle Sounders DRAW:NO(game_minute 44.05, entry 0.73, stop 0.61, pnl -0.98 USDC): 경기 2-1 홈 승으로 DRAW:NO 정산 승 방향이었으나 동일 이유로 청산. 두 건 모두 최종 결과와 같은 방향 포지션이 손절로 청산됐다. 2026-10-02 결정('모든 전략 조기 익절 우선')이 plum에도 적용 가능한지 검토 — 현재 plum은 가격 기반 TP(take_profit_price=0.9)를 쓰며, watermelon처럼 delta 기반 TP로 전환하거나 TP 가격을 낮춰 조기 청산하는 방향이 고려 대상이다. 표본 2건으로 결론 불가, 방향성 신호.
+
+### [참고] watermelon game_minute_at_entry — take_profit 경로에서 정상 기록 확인, stop_loss·resolution 경로는 여전히 NaN
+
+- 데이터 품질 · AI 판단 · 최초 10-03 03:30 · 갱신 10-03 03:30 KST · id `ai:ai-ai-watermelon-entry-minute-null`
+- 근거: `metrics/watermelon-cat.json, metrics/watermelon-dog.json`
+
+오늘 watermelon-cat take_profit 청산 3건(44.3·56.05·90.88분)과 watermelon-dog take_profit 청산 3건(56.03·44.3·90.88분)에서 game_minute_at_entry가 정상 기록됐다. 반면 stop_loss 청산(Ireland·Malta·Steelers) 및 resolution_win 경로(Germany·Wales 등) 과거 전 건은 NaN. 버그가 take_profit 트리거가 아닌 종료 경로에 국한됨을 확인. 수정 범위가 stop_loss 발동 시각 및 resolution 처리 시 진입 기록 로직으로 좁혀졌다. 논문 핵심 변수(진입 경기 시각)는 TP 청산 표본에서만 사용 가능한 상태.
+
+### [참고] watermelon A/B arm — 동일 NFL 경기에서 cat -1.83 USDC·dog +0.10 USDC
+
+- 연구 발견 · AI 판단 · 최초 10-03 03:30 · 갱신 10-03 03:30 KST · id `ai:ai-watermelon-nfl-arm-divergence`
+- 근거: `trades_recent.json, metrics/watermelon-cat.json, metrics/watermelon-dog.json`
+
+Steelers vs. Browns(Browns 27-24 승): watermelon-cat(NFL prob_min=0.91)은 Browns를 0.93에 진입했다가 Q4 변동성으로 0.60에 stop_loss(-1.82716085 USDC). watermelon-dog(NFL prob_min=0.94)은 같은 경기에서 Browns를 0.98에 진입해 정산 승 +0.09904 USDC. cat의 낮은 진입 기준이 결말이 불확실한 Q4 구간에서 더 일찍 진입하게 했고, dog은 더 높은 기준 덕에 사실상 확정된 시점에 진입했다. 두 arm이 동일 종목·경기에서 반대 결과를 낸 첫 사례. n=1로 NFL 진입 기준에 대한 결론은 불가하나 open 상태인 NFL 범위 결정(ai:manual-nfl-scope)에 참고할 수 있다.
 
 ### [참고] plum-king Ireland HOME:NO — 올바른 방향 포지션이 막판 급락 손절로 청산 (실결과 2-2 무승부 = HOME:NO 정산 승)
 
