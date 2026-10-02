@@ -32,9 +32,11 @@ from polylab.marketview import MarketView
 from polylab.risk.caps import CapState, check_entry, clamp_stake, kill_switch_active, utc_day_start
 from polylab.strategies import build
 from polylab.strategies.base import EntryIntent, ExitIntent, floor2
+from polylab.strategies.plum import source_minute
 
 JOB_NAME = "polylab-tick"
 DEFAULT_SELLS_PER_CYCLE = 10
+ENTRY_STATE_MAX_AGE_S = 1800              # game_states are written on change only (MLB innings can idle long)
 PERSISTED_SKIPS = {"rapid_jump"}          # permanent exclusions strategies must remember
 
 _ADDR = re.compile(r"(?:0x)?[0-9a-fA-F]{40,}")
@@ -87,6 +89,25 @@ class BookOverlay:
 
     def __getattr__(self, name):
         return getattr(self._view, name)
+
+
+def entry_game_minute(view: MarketView, game_key: str | None, sport: str | None, now: int) -> float | None:
+    """Game minute from the as-of game_states row, for intents that do not carry their own.
+
+    Soccer advances a running 1H/2H clock by the state's age (plum.source_minute); other sports
+    use the stored game_minute. Missing, stale, scheduled-only or ended states give None.
+    """
+    if not game_key:
+        return None
+    state = view.game_state(game_key, now)
+    if state is None or now - state.ts > ENTRY_STATE_MAX_AGE_S or state.ended:
+        return None
+    if (state.status or "").lower() in ("scheduled", "ended", "cancelled") or state.live is False:
+        return None
+    if sport == "soccer":
+        minute = source_minute(state, now, ENTRY_STATE_MAX_AGE_S)
+        return None if minute is None else round(minute, 2)
+    return None if state.game_minute is None else float(state.game_minute)
 
 
 # ---------------------------------------------------------------- executors
@@ -315,6 +336,8 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
                                     intent.condition_id, intent.game_key, feats)
                     res.skip(f"recheck:{check.reason}")
                     continue
+                if intent.game_minute is None:      # never overwrite a strategy's own clock (apricot: since tick0)
+                    intent.game_minute = entry_game_minute(view, intent.game_key, intent.sport, now)
                 ledger.decision(cycle, now, "enter", intent.reason, intent.token_id, intent.condition_id,
                                 intent.game_key, feats)
                 caps.new_this_cycle += 1

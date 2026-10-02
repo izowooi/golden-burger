@@ -123,6 +123,103 @@ def test_watermelon_stop_trigger_and_confirm(env):
     assert s.exit_signals(env.view(now + 60), now + 60, p) is None
 
 
+def _wm_tp_env(env, fee=None):
+    env.us_game("g", "nfl", T0)
+    if fee is not None:
+        env.core.execute("UPDATE markets SET fee_schedule=? WHERE condition_id='c-g'", (fee,))
+        env.core.commit()
+    return Watermelon({}, None)
+
+
+FEE_V3 = '{"feeSchedule": {"exponent": 1, "rate": 0.05, "takerOnly": true}, "feesEnabled": true}'
+TP_RULES = {"stop_price": 0.65, "max_entry_drawdown": 0.30, "take_profit_delta": 0.02, "take_profit_cap": 0.99}
+
+
+def test_watermelon_entry_freezes_tp_rules(env):
+    now = T0 + 3600
+    env.us_game("g", "nfl", T0)
+    level_book(env, "g-h", now - 5, 0.94, 0.95)
+    s = Watermelon({"hours_max": 6, "take_profit_delta": 0.03, "take_profit_cap": 0.985}, variant("watermelon", ["nfl"]))
+    [it] = s.entry_signals(env.view(now), now, Ledger())
+    assert it.exit_rules["take_profit_delta"] == 0.03 and it.exit_rules["take_profit_cap"] == 0.985
+    legacy = Watermelon({"hours_max": 6}, variant("watermelon", ["nfl"]))
+    [it] = legacy.entry_signals(env.view(now), now, Ledger())
+    assert it.exit_rules["take_profit_delta"] is None                  # default: hold to resolution
+
+
+def test_watermelon_tp_threshold_boundary_and_priority(env):
+    s = _wm_tp_env(env, FEE_V3)
+    now = T0 + 3600
+    p = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.92, shares=5.41, cost_usdc=5.0,
+            exit_rules=dict(TP_RULES))
+    assert s.tp_threshold(p) == pytest.approx(0.94)
+    level_book(env, "g-h", now, 0.939, 0.95)
+    assert s.exit_signals(env.view(now), now, p) is None                # 0.939 < 0.94: hold
+    level_book(env, "g-h", now + 60, 0.94, 0.95)
+    it = s.exit_signals(env.view(now + 60), now + 60, p)
+    assert it and it.kind == "take_profit" and it.shares == 5.41 and it.min_price == pytest.approx(0.94)
+    fresh = make_book("g-h", now + 60, [(0.94, 1000)], [(0.95, 1000)])
+    assert s.confirm_exit(p, it, fresh).ok
+    dropped = make_book("g-h", now + 60, [(0.93, 1000)], [(0.95, 1000)])
+    assert s.confirm_exit(p, it, dropped).reason == "below_tp"
+    # TP has priority but a crash still reaches the unchanged stop
+    level_book(env, "g-h", now + 120, 0.60, 0.62)
+    it = s.exit_signals(env.view(now + 120), now + 120, p)
+    assert it and it.kind == "stop_loss"
+
+
+def test_watermelon_tp_cap_binds(env):
+    s = _wm_tp_env(env, FEE_V3)
+    now = T0 + 3600
+    p = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.98, shares=5.1, cost_usdc=5.0,
+            exit_rules={**TP_RULES, "take_profit_delta": 0.03})
+    assert s.tp_threshold(p) == pytest.approx(0.99)                     # min(1.01, cap .99)
+    level_book(env, "g-h", now, 0.985, 0.995)
+    assert s.exit_signals(env.view(now), now, p) is None
+    level_book(env, "g-h", now + 60, 0.99, 0.995)
+    assert s.exit_signals(env.view(now + 60), now + 60, p).kind == "take_profit"
+
+
+def test_watermelon_tp_rejected_when_fee_negative_or_unknown(env):
+    s = _wm_tp_env(env, FEE_V3)
+    now = T0 + 3600
+    tiny = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.92, shares=5.41, cost_usdc=5.0,
+               exit_rules={**TP_RULES, "take_profit_delta": 0.001})
+    level_book(env, "g-h", now, 0.921, 0.93)
+    # 5.41 * .921 = 4.983 minus the .05 sell fee is below the 5.0 cost (buy fee included): no TP
+    assert s.exit_signals(env.view(now), now, tiny) is None
+    env.core.execute("UPDATE markets SET fee_schedule=NULL WHERE condition_id='c-g'")
+    env.core.commit()
+    p = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.92, shares=5.41, cost_usdc=5.0,
+            exit_rules=dict(TP_RULES))
+    level_book(env, "g-h", now + 60, 0.97, 0.98)
+    assert s.exit_signals(env.view(now + 60), now + 60, p) is None      # fee unknown: never TP
+    level_book(env, "g-h", now + 120, 0.60, 0.62)
+    assert s.exit_signals(env.view(now + 120), now + 120, p).kind == "stop_loss"
+
+
+def test_watermelon_tp_needs_full_holding_depth(env):
+    s = _wm_tp_env(env, FEE_V3)
+    now = T0 + 3600
+    p = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.92, shares=5.41, cost_usdc=5.0,
+            exit_rules=dict(TP_RULES))
+    env.book("g-h", now, [(0.97, 2.0), (0.80, 100.0)], [(0.98, 100.0)])
+    assert s.exit_signals(env.view(now), now, p) is None                # vwap of full 5.41 < .94; above stop
+    env.book("g-h", now + 60, [(0.97, 2.0)], [(0.98, 100.0)])
+    assert s.exit_signals(env.view(now + 60), now + 60, p) is None      # cannot sell the whole holding
+    env.book("g-h", now + 120, [(0.97, 6.0)], [(0.98, 100.0)])
+    assert s.exit_signals(env.view(now + 120), now + 120, p).kind == "take_profit"
+
+
+def test_watermelon_legacy_rules_never_take_profit(env):
+    s = _wm_tp_env(env, FEE_V3)
+    now = T0 + 3600
+    p = pos(token_id="g-h", condition_id="c-g", sport="nfl", entry_price=0.92, shares=5.41, cost_usdc=5.0,
+            exit_rules={"stop_price": 0.65, "max_entry_drawdown": 0.30})
+    level_book(env, "g-h", now, 0.99, 0.995)
+    assert s.tp_threshold(p) is None and s.exit_signals(env.view(now), now, p) is None
+
+
 # ---------------------------------------------------------------- apricot
 
 def test_apricot_tick_window(env):

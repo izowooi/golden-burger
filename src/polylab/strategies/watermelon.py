@@ -1,5 +1,11 @@
-"""Watermelon: buy in-play near-certain winners (exact-$5 ask VWAP in [prob_min, prob_max])
-and hold to resolution; the only exit is a catastrophe stop on the displayed best bid.
+"""Watermelon: buy in-play near-certain winners (exact-$5 ask VWAP in [prob_min, prob_max]).
+Exits, in priority order:
+1. early take-profit (optional, `take_profit_delta`): sell the whole holding once its bid VWAP is
+   >= min(entry_vwap + delta, take_profit_cap) and the sale is net-positive after buy+sell fees.
+   Added 2026-10-02 because the 1-minute cadence cannot execute stops in late-game collapses
+   (live stops filled 0.42-0.48 below stop_price); banking the edge early caps that exposure.
+2. catastrophe stop on the displayed best bid (unchanged legacy logic);
+otherwise hold to resolution.
 
 Spec: docs/strategies/watermelon.md. Port notes:
 - The Gamma/league classifier lives in the collector; here "eligible" = a live game whose
@@ -11,10 +17,11 @@ Spec: docs/strategies/watermelon.md. Port notes:
 
 from __future__ import annotations
 
+from polylab.execution.fees import FeeSchedule, parse_fee_schedule
 from polylab.marketview import EPS, Book, MarketView
 from polylab.strategies.base import (
     game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
-                                     band_walk_check, floor2, result_tokens)
+                                     band_walk_check, floor2, net_positive_tp_check, result_tokens)
 
 DEFAULTS = {
     "prob_min": 0.92,
@@ -27,6 +34,8 @@ DEFAULTS = {
     "max_stop_spread": 0.10,
     "reentry_cooldown_hours": 720,
     "book_max_age_s": 120,
+    "take_profit_delta": None,          # None = hold to resolution (legacy behaviour)
+    "take_profit_cap": 0.99,
 }
 
 
@@ -99,6 +108,8 @@ class Watermelon(Strategy):
                         "use_stored_stop": bool(prm["use_stored_stop"]),
                         "stop_price_at_entry": entry_stop_price(prm["stop_price"], w.vwap, prm["max_entry_drawdown"]),
                         "max_stop_spread": prm["max_stop_spread"],
+                        "take_profit_delta": prm["take_profit_delta"],
+                        "take_profit_cap": prm["take_profit_cap"],
                     },
                     context_tokens=[rt.token_id],
                     features={"in_play_hours": round(in_play_h, 4), "baseline_vwap": w.vwap,
@@ -122,12 +133,31 @@ class Watermelon(Strategy):
         return entry_stop_price(float(r.get("stop_price", DEFAULTS["stop_price"])), float(position.entry_price or 0),
                                 float(r.get("max_entry_drawdown", DEFAULTS["max_entry_drawdown"])))
 
+    def tp_threshold(self, position: PositionView) -> float | None:
+        """min(entry_vwap + delta, cap) from the rules frozen at entry; None = TP disabled."""
+        r = position.exit_rules
+        delta = r.get("take_profit_delta")
+        if delta is None or position.entry_price is None:
+            return None
+        cap = float(r.get("take_profit_cap") if r.get("take_profit_cap") is not None else DEFAULTS["take_profit_cap"])
+        return round(min(float(position.entry_price) + float(delta), cap), 6)
+
     def exit_signals(self, view: MarketView, now: int, position: PositionView) -> ExitIntent | None:
         if position.status != "open" or not position.shares:
             return None
         book = view.book(position.token_id, now, max_age_s=int(self.p(position.sport)["book_max_age_s"]))
         if book is None or book.best_bid is None:
             return None
+        tp = self.tp_threshold(position)
+        if tp is not None:
+            m = view.market(position.condition_id)
+            sched = parse_fee_schedule(m.fee_schedule) if m else None
+            c = net_positive_tp_check(position, book, tp, sched)
+            if c.ok:
+                return ExitIntent(position.position_id, "take_profit", c.shares, tp,
+                                  f"full-holding bid vwap {c.walk_vwap:.4f} >= tp {tp} net-positive",
+                                  {"vwap": c.walk_vwap, "tp": tp, "fee_schedule": sched.__dict__ if sched else None})
+            # any TP failure (depth, fee unknown, not net-positive) falls through to the stop
         stop = self.stop_level(position)
         if book.best_bid > stop:
             return None
@@ -139,6 +169,14 @@ class Watermelon(Strategy):
                           {"best_bid": book.best_bid, "stop": stop})
 
     def confirm_exit(self, position: PositionView, intent: ExitIntent, book: Book | None) -> Check:
+        if intent.kind == "take_profit":
+            if book is None or book.best_bid is None:
+                return Check(False, "no_bids")
+            tp = self.tp_threshold(position)
+            if tp is None:
+                return Check(False, "tp_disabled")
+            sched_raw = intent.features.get("fee_schedule")
+            return net_positive_tp_check(position, book, tp, FeeSchedule(**sched_raw) if sched_raw else None)
         if book is None or book.best_bid is None:
             return Check(False, "no_bids")
         stop = self.stop_level(position)

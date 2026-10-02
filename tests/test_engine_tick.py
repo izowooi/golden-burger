@@ -185,3 +185,34 @@ def test_live_stop_uses_fresh_clob_book_when_stored_book_is_stale(env, tmp_path)
     assert p["status"] == "closing" and p["exit_reason"] == "stop_loss"
     conn = db.strategy(env.paths, "wm-live")
     assert "maker_address" not in json.dumps([dict(r) for r in conn.execute("SELECT response FROM orders")])
+
+
+def test_entry_records_game_minute_from_game_state(env, tmp_path):
+    reg = tmp_path / "reg"
+    write_variant(reg, "wm-paper", "watermelon", "paper", ["nfl"], {"hours_max": 6})
+    now = T0 + 3600
+    level_book(env, "g-h", now - 10, 0.94, 0.95)
+    env.state("g", now - 300, "Q3", "07:30", minute=37.5)
+    assert run(env.paths, registry_dir=reg, poll=False, now=now)["ok"]
+    [p] = positions(env, "wm-paper")
+    assert p["game_minute_at_entry"] == 37.5
+
+
+def test_entry_game_minute_null_without_fresh_live_state(env, tmp_path):
+    from polylab.engine.tick import entry_game_minute
+    reg = tmp_path / "reg"
+    write_variant(reg, "wm-paper", "watermelon", "paper", ["nfl"], {"hours_max": 6})
+    now = T0 + 3600
+    level_book(env, "g-h", now - 10, 0.94, 0.95)
+    assert run(env.paths, registry_dir=reg, poll=False, now=now)["ok"]
+    [p] = positions(env, "wm-paper")
+    assert p["game_minute_at_entry"] is None                 # no game_states row: stays null, never guessed
+    env.state("g", now - 3 * 3600, "Q1", "01:00", minute=1.0)
+    assert entry_game_minute(env.view(now), "g", "nfl", now) is None          # stale (> 30 min)
+    env.core.execute("INSERT INTO game_states(game_key, ts, received_at, source, status, live, game_minute) "
+                     "VALUES('g', ?, ?, 'gamma', 'scheduled', 0, NULL)", (now - 60, now - 60))
+    env.core.commit()
+    assert entry_game_minute(env.view(now), "g", "nfl", now) is None          # scheduled-only state
+    env.soccer_game("s", T0)
+    env.state("s", now - 120, "2H", "60", minute=60.0)
+    assert entry_game_minute(env.view(now), "s", "soccer", now) == pytest.approx(62.0)   # running clock advanced

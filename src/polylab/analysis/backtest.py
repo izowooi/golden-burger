@@ -11,9 +11,11 @@ Deterministic: same DB + args -> same JSON (ids are not part of the output).
 
 Output JSON: {"variant", "range": {from, to}, "params", "step_s", "spread", "books": bool,
   "summary": {n, wins, losses, pnl, cost, roi, win_rate, max_dd, avg_entry, fee_unknown_trades,
-              open_at_end, unfilled, by_exit_reason, by_sport},
+              open_at_end, unfilled, by_exit_reason, by_sport, avg_hold_min, p05_return},
   "trades": [{opened_at, closed_at, sport, game_key, token_id, outcome, entry_price, shares, cost,
-              exit_reason, exit_price, pnl}]}
+              exit_reason, exit_price, pnl, hold_min}]}
+Holding time of a resolution exit ends at the market's resolved_at (the final settlement pass
+stamps closed_at far in the future); p05_return is the 5% quantile of per-trade pnl/cost.
 """
 
 from __future__ import annotations
@@ -89,6 +91,26 @@ def max_drawdown(pnls: list[float]) -> float:
     return dd
 
 
+def hold_minutes(row: dict, resolved_at: int | None) -> float | None:
+    if row.get("closed_at") is None or row.get("opened_at") is None:
+        return None
+    end = row["closed_at"]
+    if (row.get("exit_reason") or "").startswith("resolution") and resolved_at is not None:
+        end = min(end, resolved_at)
+    return round(max(0, end - row["opened_at"]) / 60.0, 2)
+
+
+def quantile(xs: list[float], q: float) -> float | None:
+    """Linear-interpolated quantile (numpy 'linear'), stdlib only."""
+    if not xs:
+        return None
+    v = sorted(xs)
+    pos = (len(v) - 1) * q
+    lo = int(pos)
+    hi = min(lo + 1, len(v) - 1)
+    return v[lo] + (v[hi] - v[lo]) * (pos - lo)
+
+
 def summarize(rows: list[dict]) -> dict[str, Any]:
     settled = [r for r in rows if r["status"] in ("closed", "resolved") and r["realized_pnl"] is not None]
     settled.sort(key=lambda r: (r["closed_at"], r["opened_at"], r["token_id"]))
@@ -117,6 +139,10 @@ def summarize(rows: list[dict]) -> dict[str, Any]:
         "unfilled": sum(1 for r in rows if r["status"] == "unfilled"),
         "by_exit_reason": dict(sorted(by_reason.items())),
         "by_sport": dict(sorted(by_sport.items())),
+        "avg_hold_min": (round(sum(h) / len(h), 2) if (h := [r["hold_min"] for r in settled
+                                                          if r.get("hold_min") is not None]) else None),
+        "p05_return": (round(q, 6) if (q := quantile([r["realized_pnl"] / r["cost_usdc"] for r in settled
+                                                       if r["cost_usdc"]], 0.05)) is not None else None),
     }
 
 
@@ -143,13 +169,16 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
         settle_resolutions(ledger, MarketView(core, shards, historical=False), end + 365 * DAY, "paper")
         rows = [dict(r) for r in ledger.positions("paper")]
         ledger.conn.close()
+    for r in rows:
+        m = view.market(r["condition_id"])
+        r["hold_min"] = hold_minutes(r, m.resolved_at if m else None)
     view.close()
     trades = [{
         "opened_at": r["opened_at"], "closed_at": r["closed_at"], "sport": r["sport"], "game_key": r["game_key"],
         "token_id": r["token_id"], "outcome": r["outcome_label"], "entry_price": r["entry_price"],
         "shares": r["shares"] if r["status"] in ("open", "pending") else None, "cost": r["cost_usdc"],
         "status": r["status"], "exit_reason": r["exit_reason"], "exit_price": r["exit_price"],
-        "pnl": r["realized_pnl"],
+        "pnl": r["realized_pnl"], "hold_min": r["hold_min"],
     } for r in sorted(rows, key=lambda r: (r["opened_at"], r["token_id"])) if r["status"] != "unfilled"]
     return {
         "variant": variant.id, "family": variant.family,

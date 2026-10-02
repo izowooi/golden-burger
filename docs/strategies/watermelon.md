@@ -326,3 +326,10 @@ Holdings are processed every cycle in `bot.py:218-301`, via `execute_sell` (`tra
 - AGENTS.md (soccer Cat 0.91), config.yaml (`prob_min 0.91`, `stop_price 0.70`) and STRATEGY/AGENTS "-$10 kill switch" are stale versus code (0.92, 0.65/0.60, $300). The code is authoritative.
 - Resolution is applied only when the holding's book walk fails or the stop lifecycle is not OPEN. A resolved market that still shows a bid above the stop is not closed until the book disappears. Replicate this, or decide explicitly to poll resolution every cycle.
 - `score/elapsed/period` are archived but unused. A port could add a game-clock feature, but that would be a new strategy variant, not a faithful port.
+
+## 2026-10-02 변경: take-profit early (연구자 결정)
+
+- 보유 중 전체 수량의 bid VWAP 가 `min(진입 VWAP + take_profit_delta, take_profit_cap)` 이상이고 매수·매도 수수료를 뺀 손익이 양수면 전량 FOK 매도한다. 손절보다 먼저 검사한다.
+- 진입 시점의 TP 값이 포지션에 고정된다(기존 포지션은 정산까지 보유).
+- cat: delta 0.02, dog: delta 0.04, 공통 cap 0.99, prob_min 0.93, `max_sells_per_cycle` 5.
+- 근거: 1분 주기로는 막판 급락에서 손절이 체결되지 않음(아일랜드 0.92→0.17). 백테스트(합성 호가)는 TP 가 보유 대비 ROI 약 1%p 낮다고 보지만, 합성 호가는 손절 체결을 과대평가하므로 실거래 A/B 로 검증한다. 상세 `docs/research/backtests/2026-10-02-watermelon-tp-apricot.md`.

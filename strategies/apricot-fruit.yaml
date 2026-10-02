@@ -1,13 +1,13 @@
 id: apricot-fruit
 family: apricot
-hypothesis: "MLB 경기 live 후 약 85분 시점의 midpoint 선두팀(ask VWAP 0.90-0.999)은 실현 승률 대비 과소평가된다. B arm: tick 85분 — 진입 시점이 5분 이를 때 가격 민감도와 손실 꼬리가 달라지는지 A와 비교."
+hypothesis: "MLB 경기 live 후 약 95분 시점의 midpoint 선두팀(ask VWAP 0.90-0.999)은 실현 승률 대비 과소평가된다. B arm: tick 95분(2026-10-02 85→95) — 진입 시점이 5분 늦을 때 가격 민감도와 손실 꼬리가 A(tick 90)와 달라지는지 비교."
 account: fruit
 mode: live
 sports: [mlb]
 stake_usdc: 5
 params:
   min_game_volume_usd: 20000
-  entry_tick_minute: 85
+  entry_tick_minute: 95
   tick_window_minutes: 2
   prob_min: 0.90
   prob_max: 0.999
@@ -26,4 +26,4 @@ bounds:
   min_leader_margin: [0.0, 0.10, 0.005]
   take_profit_price: [0.90, 0.99, 0.01]
 limits: {max_positions: 6, max_open_usdc: 30, daily_loss_stop_usdc: 20, max_new_per_cycle: 5}
-notes: "golden-apricot Fruit 포팅. legacy 목표 $15였으나 사용자 규칙으로 $5 시작."
+notes: "golden-apricot Fruit 포팅. legacy 목표 $15였으나 사용자 규칙으로 $5 시작. 2026-10-02 사람 변경: entry_tick_minute 85→95(백테스트 2026-03-01~10-01 MLB 전체, docs/research/backtests/2026-10-02-watermelon-tp-apricot.md). tick 95 는 tick 80/85/90 대비 prob_min·TP 모든 조합에서 양 반기 모두 나았고(28 조합 중 27), 100-120 대비로는 섞였다(21 조합 중 12 에서 양 반기 우위). 이 셀(tick95/pm0.90/TP0.90) ROI -0.61%(H1 -0.61% / H2 -0.61%), 현재값(tick85) -1.59%(-1.16% / -1.97%). 개선이지 확인된 edge 가 아니다(어떤 셀도 H2 양수 아님). TP 0.99 는 평균 +1.1%p 더 좋았지만 이득이 H1(fee 0.03 체제)에 몰리고 H2 에선 prob_min ±0.02 에 따라 부호가 바뀌어 보류. tick 2 step(max_step 5) 변경은 의도적 사람 override. eco(tick 90)와 A/B 처치는 진입 tick 하나로 유지. MLB 포스트시즌만 남아 실거래 증거는 2027 시즌 전까지 얇다."

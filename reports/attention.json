@@ -1,6 +1,6 @@
 {
  "schema": "polylab.attention/v1",
- "generated_at": "2026-10-01T23:01:03Z",
+ "generated_at": "2026-10-02T05:11:22Z",
  "url": "https://github.com/izowooi/golden-burger/blob/main/reports/attention.md",
  "last_retro": {
   "kind": "daily",
@@ -9,6 +9,21 @@
   "live_pnl_all": -19.7257
  },
  "items": [
+  {
+   "id": "manual:nfl-scope",
+   "rule": "manual",
+   "severity": "decide",
+   "category": "decision_needed",
+   "title": "NFL 을 watermelon·plum 실거래 범위에 계속 둘지 결정 필요 (백테스트 전 조건 손실)",
+   "detail": "2026-10-02 watermelon 파라미터 grid 에서 NFL 은 익절 유무·진입가 하한과 관계없이 모든 조건에서 손실이었다. 다만 NFL 거래가 모두 후반 표본에 몰려 전·후반 교차검증이 불가능했고, 축구용 진입가 하한을 그대로 써서 NFL 전용 최적화는 하지 않았다. 선택지: (1) NFL 을 실거래에서 빼고 paper 로만 관찰 (2) 유지하며 표본을 더 모음 (3) NFL 전용 파라미터 탐색 후 결정. 답은 reports/decisions.md 에 manual:nfl-scope 로.",
+   "evidence_ref": "docs/research/backtests/2026-10-02-watermelon-tp-apricot.md",
+   "source": "rule",
+   "created_at": "2026-10-02T05:11:22Z",
+   "updated_at": "2026-10-02T05:11:22Z",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
   {
    "id": "quality:live_gap",
    "created_at": "2026-10-01T00:00:05Z",

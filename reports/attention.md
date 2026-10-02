@@ -1,12 +1,19 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-02 08:01 KST · 열린 항목 10건 (긴급 0 · 경고 0 · 결정 필요 0 · 참고 10)
+갱신 2026-10-02 14:11 KST · 열린 항목 11건 (긴급 0 · 경고 0 · 결정 필요 1 · 참고 10)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
 **답하는 법**: 항목 id 와 결정을 [`reports/decisions.md`](decisions.md) 에 한 줄로 적거나(GitHub 웹 편집 가능) Claude 에게 말하면 기록된다. 다음 회고가 그 항목을 '사용자 결정'으로 닫고, AI 는 결정을 전제로 판단한다.
 
 ## 열린 항목
+
+### [결정 필요] NFL 을 watermelon·plum 실거래 범위에 계속 둘지 결정 필요 (백테스트 전 조건 손실)
+
+- 결정 · 자동 규칙 · 최초 10-02 14:11 · 갱신 10-02 14:11 KST · id `manual:nfl-scope`
+- 근거: `docs/research/backtests/2026-10-02-watermelon-tp-apricot.md`
+
+2026-10-02 watermelon 파라미터 grid 에서 NFL 은 익절 유무·진입가 하한과 관계없이 모든 조건에서 손실이었다. 다만 NFL 거래가 모두 후반 표본에 몰려 전·후반 교차검증이 불가능했고, 축구용 진입가 하한을 그대로 써서 NFL 전용 최적화는 하지 않았다. 선택지: (1) NFL 을 실거래에서 빼고 paper 로만 관찰 (2) 유지하며 표본을 더 모음 (3) NFL 전용 파라미터 탐색 후 결정. 답은 reports/decisions.md 에 manual:nfl-scope 로.
 
 ### [참고] 데이터 품질 이벤트 live_gap 150건 (24시간)
 

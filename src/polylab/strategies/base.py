@@ -16,6 +16,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from typing import Any
 
+from polylab.execution.fees import fee_usdc
 from polylab.marketview import Book, Game, Market, MarketView, Token, EPS
 
 OPEN_STATUSES = ("pending", "open", "closing", "quarantined")
@@ -155,6 +156,29 @@ def band_walk_check(book: Book | None, notional: float, lo: float, hi: float,
         return Check(False, "vwap_outside_band", w.vwap, w.limit_price, w.shares)
     if w.shares + EPS < min_shares:
         return Check(False, "below_min_order_size", w.vwap, w.limit_price, w.shares)
+    return Check(True, "ok", w.vwap, w.limit_price, w.shares)
+
+
+def net_positive_tp_check(position: PositionView, book: Book, threshold: float, fee_schedule) -> Check:
+    """Full-holding take-profit gate shared by strategies.
+
+    OK only when the whole confirmed holding walks the bids at a VWAP >= threshold AND the
+    proceeds after the sell fee exceed the confirmed cost (which already includes the buy fee).
+    An unknown fee schedule never passes (fees are not assumed zero).
+    """
+    shares = floor2(position.shares or 0)
+    if shares <= 0 or position.cost_usdc is None:
+        return Check(False, "no_confirmed_holding")
+    w = book.walk_sell(shares)
+    if not w.ok:
+        return Check(False, "insufficient_bid_depth")
+    if w.vwap + EPS < threshold:
+        return Check(False, "below_tp")
+    sell_fee = fee_usdc(fee_schedule, w.shares, w.vwap)
+    if sell_fee is None:
+        return Check(False, "fee_schedule_unknown")
+    if not (w.usd - sell_fee > position.cost_usdc + 1e-9):
+        return Check(False, "not_net_positive")
     return Check(True, "ok", w.vwap, w.limit_price, w.shares)
 
 

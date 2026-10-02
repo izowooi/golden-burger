@@ -9,11 +9,11 @@ Spec: docs/strategies/apricot.md. tick0 comes from the shared recorder's book sn
 
 from __future__ import annotations
 
-from polylab.execution.fees import FeeSchedule, fee_usdc, parse_fee_schedule
+from polylab.execution.fees import FeeSchedule, parse_fee_schedule
 from polylab.marketview import EPS, Book, MarketView
 from polylab.strategies.base import (
     game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
-                                     band_walk_check, event_traded, floor2, result_tokens)
+                                     band_walk_check, event_traded, net_positive_tp_check, result_tokens)
 
 DEFAULTS = {
     "entry_tick_minute": 90,
@@ -134,20 +134,7 @@ class Apricot(Strategy):
     # ------------------------------------------------------------ exits
     def _tp_check(self, position: PositionView, book: Book, fee_schedule) -> Check:
         tp = float(position.exit_rules.get("take_profit_price", DEFAULTS["take_profit_price"]))
-        shares = floor2(position.shares or 0)
-        if shares <= 0 or position.cost_usdc is None:
-            return Check(False, "no_confirmed_holding")
-        w = book.walk_sell(shares)
-        if not w.ok:
-            return Check(False, "insufficient_bid_depth")
-        if w.vwap + EPS < tp:
-            return Check(False, "below_tp")
-        sell_fee = fee_usdc(fee_schedule, w.shares, w.vwap)
-        if sell_fee is None:
-            return Check(False, "fee_schedule_unknown")
-        if not (w.usd - sell_fee > position.cost_usdc + 1e-9):
-            return Check(False, "not_net_positive")
-        return Check(True, "ok", w.vwap, w.limit_price, w.shares)
+        return net_positive_tp_check(position, book, tp, fee_schedule)
 
     def exit_signals(self, view: MarketView, now: int, position: PositionView) -> ExitIntent | None:
         if position.status != "open":

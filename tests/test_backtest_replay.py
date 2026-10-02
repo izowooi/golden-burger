@@ -79,3 +79,32 @@ def test_active_steps_skip_dead_time(tmp_path):
     steps = active_steps(env.core, wm_variant(), T0, T0 + 3 * 86400, 60)
     assert steps[0] == T0 + 86400 and len(steps) == 7 * 60
     assert summarize([])["n"] == 0
+
+
+def test_backtest_take_profit_exit_and_hold_minutes(tmp_path):
+    env = Env(tmp_path / "root")
+    env.us_game("g", "nfl", T0, status="ended", ended_at=T0 + 4 * 3600)
+    env.core.execute("UPDATE markets SET fee_schedule='{\"feesEnabled\": false}'")
+    for m in range(0, 180):
+        price = 0.80 if m < 60 else (0.94 if m < 90 else (0.97 if m < 100 else 0.30))
+        env.bar("g-h", T0 + m * 60, price, source="history")
+        env.bar("g-a", T0 + m * 60, 1 - price, source="history")
+    env.resolve("c-g", 1, T0 + 5 * 3600)                      # the favourite collapses and loses
+    hold = backtest(env.paths, wm_variant(), T0, T0 + 86400, step=60)
+    [t] = hold["trades"]
+    assert t["exit_reason"] == "stop_loss"
+    out = backtest(env.paths, wm_variant(take_profit_delta=0.02), T0, T0 + 86400, step=60)
+    [t] = out["trades"]
+    assert t["exit_reason"] == "take_profit" and t["pnl"] > 0
+    assert t["exit_price"] == pytest.approx(0.965) and t["closed_at"] == T0 + 90 * 60
+    assert t["hold_min"] == 30.0 and out["summary"]["avg_hold_min"] == 30.0
+    assert out["summary"]["by_exit_reason"] == {"take_profit": 1}
+
+
+def test_backtest_resolution_hold_ends_at_resolved_at(tmp_path):
+    env = Env(tmp_path / "root")
+    _history(env)
+    out = backtest(env.paths, wm_variant(), T0 - 3600, T0 + 24 * 3600, step=60, spread=0.01)
+    [t] = out["trades"]
+    assert t["hold_min"] == pytest.approx((5 * 3600 - 3600) / 60)   # opened T0+1h, resolved T0+5h
+    assert out["summary"]["p05_return"] == pytest.approx(t["pnl"] / t["cost"], rel=1e-6)
