@@ -27,8 +27,6 @@ export function EquityChart({ points }: { points: { at: string; cum_pnl: number 
     .sort((a, b) => a.t - b.t);
   if (data.length < 2) return null;
 
-  const W = 960, H = 300, m = { t: 14, r: 16, b: 28, l: 64 };
-  const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const t0 = data[0].t, t1 = data[data.length - 1].t;
   const ys = data.map((d) => d.y);
   let y0 = Math.min(0, ...ys), y1 = Math.max(0, ...ys);
@@ -36,6 +34,9 @@ export function EquityChart({ points }: { points: { at: string; cum_pnl: number 
   y0 -= pad; y1 += pad;
   const yt = ticks(y0, y1, 5);
   y0 = Math.min(y0, yt[0]); y1 = Math.max(y1, yt[yt.length - 1]);
+  // Left margin grows with the widest tick label so large balances (e.g. −$4,000.00) are not clipped.
+  const W = 960, H = 300, m = { t: 14, r: 16, b: 28, l: Math.max(64, 16 + 7.5 * Math.max(...yt.map((v) => signedUsd(v).length))) };
+  const iw = W - m.l - m.r, ih = H - m.t - m.b;
   const x = (t: number) => m.l + ((t - t0) / (t1 - t0 || 1)) * iw;
   const y = (v: number) => m.t + ih - ((v - y0) / (y1 - y0)) * ih;
   const path = data.map((d, i) => `${i ? "L" : "M"}${x(d.t).toFixed(1)},${y(d.y).toFixed(1)}`).join("");

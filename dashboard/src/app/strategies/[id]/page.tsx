@@ -6,8 +6,9 @@ import { EquityChart, InlineBar } from "@/components/charts";
 import { TxGroups, TxLegend, TxTotalsTable } from "@/components/transactions";
 import { Generated, LoadState, ModeBadge } from "@/components/ui";
 import { kst, num, paramValue, pct, signedPct, signedUsd, tone, usd } from "@/lib/format";
+import { exitLabel, exitRuleSummary, isTrack1 } from "@/lib/labels";
 import { loadJson, STRATEGY_ID } from "@/lib/storage";
-import type { BreakdownRow, Overview, ParamVersion, StakeEvent, StrategyDetail, StrategySummary, Transaction } from "@/lib/types";
+import type { BreakdownRow, ClosedPosition, Overview, ParamVersion, StakeEvent, StrategyDetail, StrategySummary, Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -38,11 +39,13 @@ export default async function StrategyPage({ params }: Props) {
       <p className="sub" style={{ margin: "16px 0 0" }}><Link href="/">← 개요</Link></p>
       <h1 style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
         {id} {summary && <ModeBadge mode={summary.mode} />}
+        {isTrack1(summary?.family) && <span className="badge track">트랙 1</span>}
       </h1>
       <p className="sub">
         {summary ? <>{summary.family ?? "—"} · 계정 {summary.account ?? "—"} · {summary.sports?.join(", ") || "—"} · 스테이크 {usd(summary.stake_usdc, 0)}</> : "개요에 없는 전략"}
       </p>
 
+      {exitRuleSummary(params_) && <p className="sub" style={{ marginTop: -12 }}>청산 규칙: <strong>{exitRuleSummary(params_)}</strong></p>}
       {summary && <SummaryTiles s={summary} />}
 
       <section className="section grid grid-2">
@@ -247,7 +250,7 @@ function DetailBody({ d }: { d: StrategyDetail }) {
                     <td>{p.outcome ?? "—"}</td>
                     <td className="n">{num(p.entry_price, 3)}</td>
                     <td className="n">{num(p.exit_price, 3)}</td>
-                    <td className="muted">{p.exit_reason ?? "—"}</td>
+                    <td title={p.exit_reason ?? undefined}>{exitLabel(p.exit_reason)}</td>
                     <td className="n">{usd(p.stake_usdc, 0)}</td>
                     <td className={`n ${tone(p.realized_pnl)}`}>{signedUsd(p.realized_pnl)}</td>
                   </tr>
@@ -257,6 +260,8 @@ function DetailBody({ d }: { d: StrategyDetail }) {
           </div>
         )}
       </section>
+
+      <ExitReasons rows={closed} />
 
       <section className="section grid grid-3">
         <Breakdown title="종목별" rows={d.breakdown?.by_sport} keyLabel="종목" />
@@ -268,3 +273,36 @@ function DetailBody({ d }: { d: StrategyDetail }) {
   );
 }
 
+
+function ExitReasons({ rows }: { rows: ClosedPosition[] }) {
+  const withReason = rows.filter((p) => p.exit_reason);
+  if (!withReason.length) return null;
+  const groups = new Map<string, { n: number; pnl: number; pnlN: number }>();
+  for (const p of withReason) {
+    const g = groups.get(p.exit_reason!) ?? { n: 0, pnl: 0, pnlN: 0 };
+    g.n += 1;
+    if (p.realized_pnl !== null) { g.pnl += p.realized_pnl; g.pnlN += 1; }
+    groups.set(p.exit_reason!, g);
+  }
+  const list = [...groups.entries()].sort((a, b) => b[1].n - a[1].n);
+  return (
+    <section className="section card">
+      <h2>청산 사유별 (최근 청산 {withReason.length}건)</h2>
+      <div className="table-wrap">
+        <table>
+          <thead><tr><th>사유</th><th className="n">건수</th><th className="n">비중</th><th className="n">실현손익 합</th></tr></thead>
+          <tbody>
+            {list.map(([k, g]) => (
+              <tr key={k}>
+                <td title={k}>{exitLabel(k)}</td>
+                <td className="n">{num(g.n)}</td>
+                <td className="n">{pct(g.n / withReason.length)}</td>
+                <td className={`n ${tone(g.pnlN ? g.pnl : null)}`}>{signedUsd(g.pnlN ? g.pnl : null)}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}

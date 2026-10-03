@@ -267,6 +267,10 @@ label/alias only; wallet addresses are never stored in the ledgers and are on th
   attention rule (`drawdown_pct` = all realised / bankroll). `trades_24h` also carries `RESOLVE` rows (price = payout/share).
 - `trades_24h`/`settled_24h` hold the publish window (last 24h). Without any ledger every list is empty and `totals` is `null`.
 
+Additional keys (2026-10-04): `positions` — every recorded position of every watched account (same row shape as
+`open_positions`, incl. `result`, `realized_pnl`, `closed_at`, `track2`, `implied_p00_at_entry`), newest `opened_at`
+first; `predictions` — all-time `manual/predictions` join (`{rows, unmatched, predictions}` as in the weekly report) or `null`.
+
 ## Additive fields (beyond the examples above)
 - overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,

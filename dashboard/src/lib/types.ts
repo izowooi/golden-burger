@@ -386,3 +386,118 @@ export interface Games24h {
   games: Game24h[] | null;
   error?: string | null;
 }
+
+// latest/manual.json — Track 2 watch-only manual bets. Accounts appear by label only (never addresses).
+export type ManualResult =
+  | "open" | "closed_sell" | "resolved_win" | "resolved_loss" | "resolved_split" | "redeemed" | "quarantined" | string;
+
+export interface ManualMoney {
+  realized_pnl: Pnl | null;
+  settled: Num;
+  wins: Num;
+  losses: Num;
+  sold: Num;
+  win_rate: Num;
+  roi: Num;
+  cost_settled: Num;
+  open: Num;
+  open_cost_usdc: Num;
+  unrealized_pnl: Num;
+  unrealized_unknown: Num;
+  fees_usdc: Num;
+  fees_unknown: Num;
+}
+
+export interface ManualAccount {
+  account: string;
+  since: Iso;
+  last_sync_at: Iso;
+  bankroll_usdc: Num;
+  bankroll_first_seen_at: Iso;
+  all_realized_pnl: Num;
+  drawdown_pct: Num;
+  credits_usdc: Record<string, number> | null;
+  track2: ManualMoney | null;
+}
+
+export interface ManualPosition {
+  account: string;
+  position_id: string;
+  sport: string | null;
+  league: string | null;
+  game: string | null;
+  kickoff: Iso;
+  market: string | null;
+  market_type: string | null;
+  line: Num;
+  side: string | null;
+  outcome: string | null;
+  track2: boolean;
+  opened_at: Iso;
+  closed_at: Iso;
+  entry_price: Num;
+  shares: Num;
+  stake_usdc: Num;
+  entry_fee_usdc: Num;
+  result: ManualResult | null;
+  proceeds_usdc: Num;
+  realized_pnl: Num;
+  mark_price: Num;
+  unrealized_pnl: Num;
+  implied_p00_at_entry: Num;
+  link_source: string | null;
+  quarantine_reason: string | null;
+}
+
+export interface ManualTrade {
+  at: Iso;
+  account: string;
+  position_id: string;
+  sport: string | null;
+  league: string | null;
+  game: string | null;
+  kickoff: Iso;
+  market: string | null;
+  track2: boolean;
+  side: TxSide;
+  price: Num;
+  shares: Num;
+  usdc: Num;
+  fee_usdc: Num;
+  result: ManualResult | null;
+  realized_pnl: Num;
+}
+
+export interface ManualPredictionRow {
+  file_date: string;
+  game: string | null;
+  engine: string | null;
+  ai_p00: Num;
+  rank: Num;
+  market_p00_at_entry: Num;
+  market: string | null;
+  result: ManualResult | null;
+  zero_zero: boolean | null;
+  realized_pnl: Num;
+  position_id: string | null;
+}
+
+export interface Manual {
+  generated_at: Iso;
+  accounts: ManualAccount[] | null;
+  totals: ManualMoney | null;
+  by_stake: { band: string; n: Num; pnl: Num; cost: Num; roi: Num; wins: Num; losses: Num; win_rate: Num }[] | null;
+  trades_24h: ManualTrade[] | null;
+  open_positions: ManualPosition[] | null;
+  settled_24h: ManualPosition[] | null;
+  /** Additive: every position (open + settled) since each account's SINCE. Absent → only open + 24h settled exist. */
+  positions?: ManualPosition[] | null;
+  /** Additive: AI 0:0 predictions matched to Track 2 positions. */
+  predictions?: {
+    rows: ManualPredictionRow[] | null;
+    unmatched: { file_date: string; game: string | null; engine: string | null; p00: Num; rank: Num }[] | null;
+    predictions: Num;
+  } | null;
+  other: { settled: Num; realized_pnl: Num; open: Num } | null;
+  quarantined: Num;
+}

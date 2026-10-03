@@ -257,6 +257,54 @@
     "at": "2026-09-21T14:55:00Z",
     "summary": "mode live→off (수동 중지)"
    }
+  },
+  {
+   "id": "goal-over-all",
+   "family": "goal_over",
+   "hypothesis": "기준선: 주요 리그 축구 전 경기 Total 0.5 Over 를 킥오프 3일→5분 전 0.50–0.985 에 기계적 매수.",
+   "mode": "live",
+   "account": "lion",
+   "sports": [
+    "soccer"
+   ],
+   "stake_usdc": 5.0,
+   "next_stake_usdc": null,
+   "ladder": {
+    "status": "hold",
+    "trades_at_tier": 3,
+    "needed": 20,
+    "roi_ci_lo": null
+   },
+   "params": {
+    "price_min": 0.5,
+    "price_max": 0.985,
+    "take_profit_price": null,
+    "stop_loss_price": null,
+    "take_profit_pct": 0.02,
+    "stop_loss_pct": 0.1,
+    "hold_above_price": 0.99
+   },
+   "open_positions": 5,
+   "open_cost_usdc": 25.06,
+   "pnl": {
+    "today": 0.1,
+    "d7": -0.32,
+    "d30": -0.32,
+    "all": -0.32
+   },
+   "pnl_mode": "live",
+   "trades": {
+    "all": 3,
+    "wins": 2,
+    "losses": 1
+   },
+   "win_rate": 0.6667,
+   "roi": -0.021,
+   "last_trade_at": "2026-09-30T13:00:00Z",
+   "last_change": {
+    "at": "2026-09-30T12:00:00Z",
+    "summary": "goal-over-all v3: take_profit_pct 0.02, stop_loss_pct 0.1, hold_above_price 0.99"
+   }
   }
  ],
  "alerts": [

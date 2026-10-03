@@ -320,3 +320,25 @@ tfoot td { border-top: 2px solid var(--axis); border-bottom: 0; }
 .spark-kick { stroke: var(--axis); stroke-width: 1; stroke-dasharray: 3 3; }
 .spark .hit { fill: transparent; }
 .spark-empty { font-size: 12px; }
+
+/* /manual */
+.tabs { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 14px; }
+.tabs a {
+  padding: 4px 12px; border-radius: 999px; border: 1px solid var(--ring); color: var(--ink-2);
+  background: var(--surface); font-size: 13px;
+}
+.tabs a.on { background: var(--ink); color: var(--page); border-color: transparent; }
+.tabs a:hover { text-decoration: none; }
+.note {
+  margin: 16px 0 0; padding: 10px 14px; border-radius: 10px; font-size: 13px; color: var(--ink-2);
+  background: var(--surface-2); border: 1px solid var(--ring);
+}
+.loss-note { margin: 0 0 10px; font-size: 13px; color: var(--neg); }
+tr.big-loss td { background: color-mix(in srgb, var(--neg) 10%, transparent); }
+tr.big-loss td:first-child { box-shadow: inset 3px 0 0 var(--neg); }
+.badge.res-win { color: var(--ink); background: color-mix(in srgb, var(--good) 26%, transparent); border-color: transparent; }
+.badge.res-loss { color: #fff; background: var(--neg); border-color: transparent; }
+.badge.res-sold { color: var(--ink); background: color-mix(in srgb, var(--s4) 26%, transparent); border-color: transparent; }
+.badge.res-open { color: var(--ink); background: color-mix(in srgb, var(--s1) 20%, transparent); border-color: transparent; }
+.badge.track { color: var(--ink); background: color-mix(in srgb, var(--s7) 20%, transparent); border-color: transparent; }
+.exit-rule { font-size: 12px; color: var(--ink-2); margin-top: 2px; }

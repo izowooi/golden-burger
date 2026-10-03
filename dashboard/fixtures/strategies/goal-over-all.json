@@ -1,0 +1,78 @@
+{
+ "id": "goal-over-all",
+ "generated_at": "2026-09-30T14:52:00Z",
+ "variant": {
+  "id": "goal-over-all",
+  "params": {
+   "price_min": 0.5,
+   "price_max": 0.985,
+   "take_profit_price": null,
+   "stop_loss_price": null,
+   "take_profit_pct": 0.02,
+   "stop_loss_pct": 0.1,
+   "hold_above_price": 0.99
+  }
+ },
+ "param_history": [],
+ "stake_events": [],
+ "equity_curve": [
+  {
+   "at": "2026-09-29T20:00:00Z",
+   "cum_pnl": 0.1
+  },
+  {
+   "at": "2026-09-30T08:00:00Z",
+   "cum_pnl": -0.42
+  },
+  {
+   "at": "2026-09-30T13:00:00Z",
+   "cum_pnl": -0.32
+  }
+ ],
+ "equity_mode": "live",
+ "open_positions": [],
+ "recent_positions": [
+  {
+   "opened_at": "2026-09-30T10:00:00Z",
+   "closed_at": "2026-09-30T13:00:00Z",
+   "sport": "soccer",
+   "title": "Arsenal vs Chelsea",
+   "outcome": "Over 0.5",
+   "entry_price": 0.93,
+   "exit_price": 0.949,
+   "exit_reason": "take_profit",
+   "realized_pnl": 0.1,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-30T06:00:00Z",
+   "closed_at": "2026-09-30T08:00:00Z",
+   "sport": "soccer",
+   "title": "Lyon vs Nice",
+   "outcome": "Over 0.5",
+   "entry_price": 0.95,
+   "exit_price": 0.85,
+   "exit_reason": "stop_loss",
+   "realized_pnl": -0.52,
+   "stake_usdc": 5
+  },
+  {
+   "opened_at": "2026-09-29T15:00:00Z",
+   "closed_at": "2026-09-29T20:00:00Z",
+   "sport": "soccer",
+   "title": "Roma vs Lazio",
+   "outcome": "Over 0.5",
+   "entry_price": 0.96,
+   "exit_price": 1.0,
+   "exit_reason": "resolution_win",
+   "realized_pnl": 0.1,
+   "stake_usdc": 5
+  }
+ ],
+ "breakdown": {
+  "by_sport": [],
+  "by_entry_minute": [],
+  "by_stake": [],
+  "by_day": []
+ }
+}

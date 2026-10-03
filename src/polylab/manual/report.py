@@ -209,7 +209,7 @@ def report_section(paths, since: int, until: int, kind: str, now: int) -> dict |
         return None
     rows_accounts, trades, opens_out, settled_out, all_settled, t2_positions, alerts = [], [], [], [], [], [], []
     quarantined, other = 0, {"settled": 0, "realized_pnl": 0.0, "open": 0}
-    all_open, all_fills = [], []
+    all_open, all_fills, positions_all = [], [], []
     for acct in accounts:
         df = acct["positions"]
         s_all = settled(df)
@@ -260,6 +260,7 @@ def report_section(paths, since: int, until: int, kind: str, now: int) -> dict |
         t2_positions += [{**r, "alias": acct["alias"]} for r in df[df["track2"] == 1].to_dict("records")] \
             if not df.empty else []
         alerts += _alerts(acct, df, s_all, now)
+        positions_all += [_pos_row(acct, r) for r in df.to_dict("records")] if not df.empty else []
     total2 = _track2(pd.concat(all_settled, ignore_index=True)) if all_settled else pd.DataFrame()
     open2 = _track2(pd.concat(all_open, ignore_index=True)) if all_open else pd.DataFrame()
     section = {"generated_at": C.iso(now), "window": {"since": C.iso(since), "until": C.iso(until)},
@@ -269,7 +270,10 @@ def report_section(paths, since: int, until: int, kind: str, now: int) -> dict |
                "trades": sorted(trades, key=lambda t: t["at"] or "", reverse=True),
                "open_positions": sorted(opens_out, key=lambda o: o["opened_at"] or ""),
                "settled_in_window": sorted(settled_out, key=lambda o: o["closed_at"] or "", reverse=True),
-               "alerts": alerts, "predictions": None}
+               "alerts": alerts, "predictions": None,
+               # full history for the dashboard (/manual): every position, newest first, + all-time AI predictions
+               "positions_all": sorted(positions_all, key=lambda o: o["opened_at"] or "", reverse=True),
+               "predictions_all": prediction_table(paths, t2_positions, 0, until)}
     if kind != "daily":
         section["predictions"] = prediction_table(paths, t2_positions, since, until)
     return section
@@ -412,11 +416,13 @@ def snapshot(section: dict | None, generated_at: str) -> dict:
     """latest/manual.json (docs/contracts/dashboard-json.md)."""
     if not section:
         return {"generated_at": generated_at, "accounts": [], "totals": None, "by_stake": [], "trades_24h": [],
-                "open_positions": [], "settled_24h": [], "other": None, "quarantined": 0}
+                "open_positions": [], "settled_24h": [], "other": None, "quarantined": 0, "positions": [],
+                "predictions": None}
     return {"generated_at": generated_at, "accounts": section["accounts"], "totals": section["totals"],
             "by_stake": section["by_stake"], "trades_24h": section["trades"],
             "open_positions": section["open_positions"], "settled_24h": section["settled_in_window"],
-            "other": section["other"], "quarantined": section["quarantined"]}
+            "other": section["other"], "quarantined": section["quarantined"],
+            "positions": section.get("positions_all") or [], "predictions": section.get("predictions_all")}
 
 
 def attention_items(report: dict, report_ref: str) -> list[dict]:

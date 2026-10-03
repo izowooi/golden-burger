@@ -3,9 +3,10 @@ import Link from "next/link";
 import { AttentionPanel } from "@/components/attention";
 import { TxTotalsTable } from "@/components/transactions";
 import { Generated, LoadState, ModeBadge, StatusDot, type Health } from "@/components/ui";
-import { ageMinutes, ago, kst, num, pct, signedUsd, tone, usd } from "@/lib/format";
-import { loadJson } from "@/lib/storage";
-import type { Attention, Overview, StrategySummary, Transaction } from "@/lib/types";
+import { ageMinutes, ago, kst, num, pct, signedPct, signedUsd, tone, usd } from "@/lib/format";
+import { exitRuleSummary, isTrack1 } from "@/lib/labels";
+import { loadJson, type Loaded } from "@/lib/storage";
+import type { Attention, Manual, Overview, StrategySummary, Transaction } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
@@ -18,10 +19,11 @@ function freshness(iso: string | null | undefined, warnMin: number, critMin: num
 const MODE_ORDER: Record<string, number> = { live: 0, paper: 1, off: 2 };
 
 export default async function OverviewPage() {
-  const [res, tx, att] = await Promise.all([
+  const [res, tx, att, man] = await Promise.all([
     loadJson<Overview>("latest/overview.json"),
     loadJson<Transaction[]>("latest/transactions_24h.json"),
     loadJson<Attention>("latest/attention.json"),
+    loadJson<Manual>("latest/manual.json"),
   ]);
   return (
     <>
@@ -29,6 +31,7 @@ export default async function OverviewPage() {
       <p className="sub">시스템 상태 · 포트폴리오 · 전략 성과 (KST)</p>
       <AttentionPanel result={att} />
       {res.state !== "ok" ? <LoadState result={res} /> : <OverviewBody o={res.data} />}
+      <ManualCard result={man} />
       <section className="section card">
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
           <h2>지난 24시간 거래</h2>
@@ -202,7 +205,11 @@ function StrategyTable({ rows }: { rows: StrategySummary[] }) {
         <tbody>
           {rows.map((s) => (
             <tr key={s.id}>
-              <td><Link href={`/strategies/${s.id}`}><strong>{s.id}</strong></Link></td>
+              <td>
+                <Link href={`/strategies/${s.id}`}><strong>{s.id}</strong></Link>
+                {isTrack1(s.family) && <> <span className="badge track">트랙 1</span></>}
+                {exitRuleSummary(s.params) && <div className="exit-rule">{exitRuleSummary(s.params)}</div>}
+              </td>
               <td className="muted">{s.family ?? "—"}</td>
               <td>
                 <ModeBadge mode={s.mode} />
@@ -249,6 +256,34 @@ function Alerts({ o }: { o: Overview }) {
             <span>{a.message}</span>
           </div>
         ))
+      )}
+    </section>
+  );
+}
+
+function ManualCard({ result }: { result: Loaded<Manual> }) {
+  const t = result.state === "ok" ? result.data.totals : null;
+  const n = result.state === "ok" ? result.data.accounts?.length ?? 0 : 0;
+  return (
+    <section className="section card">
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, flexWrap: "wrap" }}>
+        <h2>트랙 2 수동 베팅</h2>
+        <Link href="/manual" style={{ fontSize: 13 }}>계좌별 전체 내역 →</Link>
+      </div>
+      {result.state !== "ok" ? <LoadState result={result} /> : !t ? (
+        <p className="muted" style={{ margin: 0 }}>수동 기록 없음</p>
+      ) : (
+        <div style={{ display: "flex", gap: "8px 24px", flexWrap: "wrap", alignItems: "baseline" }}>
+          <div>
+            <span className="muted">실현 </span>
+            <strong className={tone(t.realized_pnl?.all)} style={{ fontSize: 18 }}>{signedUsd(t.realized_pnl?.all)}</strong>
+          </div>
+          <div><span className="muted">ROI </span><span className={tone(t.roi)}>{signedPct(t.roi)}</span></div>
+          <div><span className="muted">승률 </span>{pct(t.win_rate)} <span className="muted">({num(t.wins)}승 {num(t.losses)}패 · 매도 {num(t.sold)})</span></div>
+          <div><span className="muted">보유 </span>{num(t.open)}건 · {usd(t.open_cost_usdc)}</div>
+          <div><span className="muted">평가 </span><span className={tone(t.unrealized_pnl)}>{signedUsd(t.unrealized_pnl)}</span></div>
+          <div className="muted">계좌 {n}개</div>
+        </div>
       )}
     </section>
   );
