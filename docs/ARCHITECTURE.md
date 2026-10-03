@@ -126,3 +126,11 @@ bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액
 validator 가 bounds·max_step·최소 표본·cooldown 을 강제하고 통과분만 yaml 에 반영, 테스트 후 commit/push.
 주간 회고는 paper 변형 생성과 백테스트, 월간 회고는 논문용 연구 요약(docs/research/monthly)을 만든다.
 AI 가 실패해도 결정론 리포트와 ladder 는 동작한다.
+
+## 8. 0:0 회피 연구 (투 트랙, 2026-10-03)
+
+- **트랙 1 (자동, 5 USDC, AI 재귀 개선)**: `goal-over-all`(주요 리그 모든 경기 Over 0.5 를 킥오프 60→5분 전 가격 범위 안에서 기계적 매수)과
+  `llm-nil-consensus`(매일 10:00 Claude·ChatGPT 가 같은 질문으로 각자 모든 경기 P(0:0)를 예측 → 합의 top-3 중 시장 대비 우위가 있으면 매수).
+  비교군 `llm-nil-draw`(Claude 단독, paper). 예측은 `research/llm_forecasts.db` 에 킥오프 전 append-only 로 기록. 설계 `docs/research/llm-forecast-study.md`.
+- **트랙 2 (수동, 연구자 직접 베팅)**: 키 없이 공개 지갑 주소(`~/.polylab/watch.env`)만으로 15분마다 체결·정산을 가져와
+  `data/manual/<alias>.db` 에 손익을 기록(`polylab manual sync`). 연구자 AI 스킬의 예측은 `manual/predictions/` 표로 선택 기록.

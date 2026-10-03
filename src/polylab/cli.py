@@ -19,6 +19,7 @@ COMMANDS = {
     "publish": "polylab.publish.snapshot:main",         # dashboard JSON -> Supabase Storage
     "health": "polylab.ops.health:main",                # freshness / disk / job checks
     "forecast": "polylab.research.llm_forecast:main",   # LLM 0-0 forecast study (paper only)
+    "manual": "polylab.manual.cli:main",                # watch-only ledger of manual Track 2 bets (sync)
 }
 
 

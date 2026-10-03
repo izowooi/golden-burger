@@ -213,6 +213,15 @@ def attention_snapshot(reports_dir: Path = REPORTS_DIR) -> dict:
             "resolved": [{k: i.get(k) for k in keys} for i in items if i.get("status") == "resolved"]}
 
 
+def manual_snapshot(report: dict) -> dict:
+    """latest/manual.json: Track 2 manual-bet ledgers (aliases/labels only; addresses never reach the ledgers)."""
+    from polylab.manual.report import snapshot  # noqa: PLC0415
+    sec = report.get("manual")
+    if sec and sec.get("error"):
+        return {**snapshot(None, report["generated_at"]), "error": sec["error"]}
+    return snapshot(sec, report["generated_at"])
+
+
 def build_objects(paths, now: int | None = None, use_jenkins: bool = True, variants=None) -> dict[str, dict | list]:
     """{storage path: json object} for the latest/ read model."""
     if variants is None:
@@ -223,6 +232,7 @@ def build_objects(paths, now: int | None = None, use_jenkins: bool = True, varia
                                     "latest/transactions_24h.json": transactions_24h(report)}
     objs["latest/games_24h.json"] = games_24h(report)
     objs["latest/attention.json"] = attention_snapshot()
+    objs["latest/manual.json"] = manual_snapshot(report)
     for v in report["variants"]:
         objs[f"latest/strategies/{v['id']}.json"] = strategy_detail(v, report["generated_at"])
     return objs

@@ -7,7 +7,9 @@ instead of silently writing to the internal disk (the old system filled it up).
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -139,3 +141,64 @@ def account_aliases() -> list[str]:
     env = load_env_file(SECRETS_DIR / "accounts.env")
     return sorted({k.split("__")[0].removeprefix("POLYBOT_").lower()
                    for k in env if k.endswith("__POLYMARKET_PRIVATE_KEY")})
+
+
+WATCH_FILE = "watch.env"
+_WATCH_ALIAS = re.compile(r"^[a-z0-9_]{1,32}$")
+_WATCH_ADDRESS = re.compile(r"^0x[0-9a-fA-F]{40}$")
+RESERVED_WATCH_ALIASES = frozenset({"predictions"})
+
+
+@dataclass(frozen=True)
+class WatchAccount:
+    """A public wallet watched read-only (manual Track 2 bets). No key: the system can never trade it.
+
+    The address is still treated like a secret (public repo / dashboard show the alias or label only)."""
+    alias: str
+    address: str
+    label: str | None = None
+    since: int | None = None            # ingest activity at or after this unix time (None = full history)
+    bankroll_usdc: float | None = None  # optional, for the -10% attention rule (unknown = rule off)
+
+    def __repr__(self) -> str:
+        return f"WatchAccount(alias={self.alias!r}, address=***, label={self.label!r})"
+
+    @property
+    def display(self) -> str:
+        return self.label or self.alias
+
+
+def _watch_since(value: str | None) -> int | None:
+    if not value:
+        return None
+    try:
+        return int(datetime.strptime(value[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+    except ValueError:
+        return None
+
+
+def watch_accounts() -> list[WatchAccount]:
+    """`~/.polylab/watch.env`: WATCH_<ALIAS>__ADDRESS=0x.. (+ __LABEL, __SINCE=YYYY-MM-DD, __BANKROLL_USDC).
+
+    Invalid aliases/addresses are skipped (never echoed)."""
+    env = load_env_file(SECRETS_DIR / WATCH_FILE)
+    out = []
+    for key, address in sorted(env.items()):
+        if not key.startswith("WATCH_") or not key.endswith("__ADDRESS"):
+            continue
+        prefix = key.removesuffix("ADDRESS")
+        alias = prefix.removeprefix("WATCH_").removesuffix("__").lower()
+        if not _WATCH_ALIAS.match(alias) or alias in RESERVED_WATCH_ALIASES or not _WATCH_ADDRESS.match(address):
+            continue
+        try:
+            bankroll = float(env[prefix + "BANKROLL_USDC"]) if env.get(prefix + "BANKROLL_USDC") else None
+        except ValueError:
+            bankroll = None
+        out.append(WatchAccount(alias=alias, address=address, label=env.get(prefix + "LABEL") or None,
+                                since=_watch_since(env.get(prefix + "SINCE")),
+                                bankroll_usdc=bankroll if bankroll and bankroll > 0 else None))
+    return out
+
+
+def watch_addresses() -> list[str]:
+    return [w.address for w in watch_accounts()]

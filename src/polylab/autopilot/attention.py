@@ -118,7 +118,7 @@ def resolved_items(state: dict) -> list[dict]:
 # ------------------------------------------------------------------ deterministic rules
 
 def _families(kind: str, ai_enabled: bool) -> set[str]:
-    fams = {"stake", "health", "disk", "quality", "backfill", "dead_variant", "paper", f"rejected:{kind}"}
+    fams = {"stake", "health", "disk", "quality", "backfill", "dead_variant", "paper", f"rejected:{kind}", "manual"}
     if ai_enabled:
         fams.add("ai_engine")
     if kind == "weekly":
@@ -327,6 +327,15 @@ def _params_7d_items(report: dict, report_ref: str) -> list[dict]:
                  "; ".join(lines) + more, report_ref)]
 
 
+def _manual_items(report: dict, report_ref: str) -> list[dict]:
+    """Track 2 manual bets: resolved losses (3-day lookback) and the -10% bankroll drawdown (manual/report.py)."""
+    if (report.get("manual") or {}).get("error"):
+        return []
+    from polylab.manual.report import attention_items  # noqa: PLC0415
+    return [{**i, "title": clean_text(i["title"], TITLE_MAX), "detail": clean_text(i["detail"], DETAIL_MAX)}
+            for i in attention_items(report, report_ref)]
+
+
 def rule_items(report: dict, *, kind: str, now: int, paths=None, applied=(), rejected=(), ai: dict | None = None,
                ai_enabled: bool = True) -> tuple[list[dict], set[str]]:
     """(items, evaluated families). A family missing from the set keeps its items untouched this run."""
@@ -337,11 +346,15 @@ def rule_items(report: dict, *, kind: str, now: int, paths=None, applied=(), rej
     items += _health_items(report, ref) + _disk_items(report, ref) + _quality_items(report, ref)
     items += _dead_variant_items(report, paths, now) + _paper_items(report, list(applied))
     items += _rejected_items(kind, list(rejected), ref)
+    items += _manual_items(report, ref)
     if ai_enabled and ai is not None:
         items += _ai_engine_items(ai, ref)
     if kind == "weekly":
         items += _params_7d_items(report, ref)
-    return items, _families(kind, ai_enabled and ai is not None)
+    families = _families(kind, ai_enabled and ai is not None)
+    if (report.get("manual") or {}).get("error"):
+        families.discard("manual")          # a failed read must not auto-resolve open manual items
+    return items, families
 
 
 # ------------------------------------------------------------------ AI items

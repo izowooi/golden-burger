@@ -63,7 +63,7 @@ class CollectorConfig:
     soccer_total_lines: tuple[float, ...] = (0.5, 1.5, 2.5, 3.5)
     lookback_s: int = 6 * 3600
     lookahead_s: int = 120 * 3600                 # discover horizon (pre-game strategies trade up to 120h out)
-    poll_lead_s: int = 15 * 60                    # 1-minute poll/stream start this long before kickoff
+    poll_lead_s: int = 60 * 60                    # 1-minute poll/stream start this long before kickoff (goal-over enters up to 60 min pre-game)
     pregame_horizon_s: int = 120 * 3600           # low-frequency pre-game snapshots for games starting within
     pregame_every_s: int = 600                    # ... at most once per 10 minutes (poll.run_once throttle)
     history_since: int = 1769904000               # 2026-02-01T00:00:00Z

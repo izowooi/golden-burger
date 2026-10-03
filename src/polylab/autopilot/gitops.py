@@ -41,10 +41,13 @@ def last_commit_ts(path: Path, repo: Path = settings.REPO_ROOT) -> int | None:
 
 
 def secret_values() -> list[str]:
-    """Exact private keys and funder addresses from ~/.polylab/accounts.env (lower-case, no 0x)."""
+    """Exact private keys and funder addresses from ~/.polylab/accounts.env plus the watch-only wallet
+    addresses from ~/.polylab/watch.env (manual Track 2; shown by alias only). Lower-case, no 0x."""
     env = settings.load_env_file(settings.SECRETS_DIR / "accounts.env")
-    return sorted({v.lower().removeprefix("0x") for k, v in env.items()
-                   if k.endswith(("__POLYMARKET_PRIVATE_KEY", "__POLYMARKET_FUNDER_ADDRESS")) and len(v) >= 40})
+    values = {v.lower().removeprefix("0x") for k, v in env.items()
+              if k.endswith(("__POLYMARKET_PRIVATE_KEY", "__POLYMARKET_FUNDER_ADDRESS")) and len(v) >= 40}
+    values |= {a.lower().removeprefix("0x") for a in settings.watch_addresses()}
+    return sorted(values)
 
 
 def staged_secret_hits(repo: Path, paths: tuple[str, ...] | list[str]) -> int:

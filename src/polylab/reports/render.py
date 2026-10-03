@@ -353,6 +353,15 @@ def section_llm_forecast(r: dict) -> list[str]:
     return render_lines(r.get("llm_forecast"))
 
 
+def section_manual(r: dict) -> list[str]:
+    """Track 2 manual AI bets (src/polylab/manual/report.py)."""
+    sec = r.get("manual")
+    if sec and sec.get("error"):
+        return ["## 수동 AI 베팅 (트랙 2)", "", f"집계 실패: {sec['error']}", ""]
+    from polylab.manual.report import render_lines as manual_lines  # noqa: PLC0415
+    return manual_lines(sec, r["kind"])
+
+
 def render(r: dict, narrative: str | None = None, applied: list[dict] | None = None,
            rejected: list[dict] | None = None) -> str:
     lines = [f"# {r['title']}", "",
@@ -360,7 +369,7 @@ def render(r: dict, narrative: str | None = None, applied: list[dict] | None = N
              f"기간 {kst(_ts(r['window']['since']))} ~ {kst(_ts(r['window']['until']))} KST",
              f"- 대시보드: https://poly.zowoo.uk", ""]
     for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
-                    section_open, section_changes,
+                    section_open, section_manual, section_changes,
                     section_alerts, section_health, section_research, section_llm_forecast):
         lines += section(r)
     ai = r.get("ai") or {}

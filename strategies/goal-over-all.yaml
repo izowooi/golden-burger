@@ -1,0 +1,30 @@
+id: goal-over-all
+family: goal_over
+hypothesis: "기준선(buy-everything): 주요 리그 축구 전 경기의 Total 0.5 Over('한 골이라도 나온다')를 킥오프 60→5분 전 실행가(전체 호가 walk) 0.50–0.985 이면 기계적으로 매수해 정산까지 보유하면 수수료 후 손익이 0 근처인가(시장 효율성). AI 선별(llm-nil-draw·llm-nil-consensus)이 이 기준선보다 나은지 비교한다. 설계 docs/research/llm-forecast-study.md."
+account: null
+mode: paper
+sports: [soccer]
+stake_usdc: 5
+params:
+  leagues: [epl, lal, bun, sea, fl1, mls, ucl, uel, fifwc, euc, unl]
+  entry_minutes_before_max: 60
+  entry_minutes_before_min: 5
+  price_min: 0.5
+  price_max: 0.985
+  take_profit_price: null
+  stop_loss_price: null
+  max_stop_spread: 0.1
+  allow_in_play: false
+  in_play_max_minutes: 30
+  book_max_age_s: 120
+bounds:
+  entry_minutes_before_max: [15, 120, 15]
+  entry_minutes_before_min: [1, 14, 2]
+  price_min: [0.5, 0.95, 0.05]
+  price_max: [0.9, 0.99, 0.005]
+  take_profit_price: [0.95, 0.999, 0.01]
+  stop_loss_price: [0.2, 0.8, 0.05]
+  max_stop_spread: [0.03, 0.2, 0.02]
+  in_play_max_minutes: [5, 45, 5]
+limits: {max_positions: 30, max_open_usdc: 150, daily_loss_stop_usdc: 30, max_new_per_cycle: 10, max_sells_per_cycle: 10}
+notes: "2026-10-03 thesis owner 결정(track 1): 계좌 지정 전까지 paper. live 전환은 한 줄 변경(mode: live + account: <alias>)이며 사람만 한다. Over 0.5 는 골이 나는 순간 사실상 정산(bid ~0.99+)되므로 take_profit_price 를 0.99 근처로 켜면 추가 수익보다 정산·redeem 전에 자본을 몇 시간 일찍 회수하는 효과다. 수집기는 2026-10-03 부터 킥오프 60분 전부터 1분 수집하므로 60→5 창이 그대로 적용된다(book_max_age_s 120). TP/SL 은 null(보유-만기); autopilot 은 bounds 안에서 켤 수 있으나 null 로 되돌리는 것은 사람만."

@@ -1,17 +1,25 @@
-"""`polylab forecast <daily|run|resolve|eval>` — LLM vs market: will this soccer match end 0-0? (paper only)
+"""`polylab forecast <daily|run|resolve|eval>` — AI cross-check: will this soccer match end 0-0?
 
 Design and pre-registered metrics: docs/research/llm-forecast-study.md. Once a day (Jenkins
 `polylab-llm-forecast`, 10:00 KST):
 
 1. resolve: fill outcomes for past forecasts from core.db (Total 0.5 resolution first, else the final score).
-2. run: major-league soccer games kicking off in the next ~30h → context dir (games, Polymarket prices, league
-   base rates) → AI engine chain (claude → codex, runner.py sandbox + web search/fetch only) → `forecasts.json`
-   → validated rows appended to `research/llm_forecasts.db` strictly before kickoff.
-3. Slack: one short post with the top-3 (AI prob vs market price) and a paper-only disclaimer.
+2. run (one batch): major-league soccer games kicking off in the next ~30h → one context (games, Polymarket prices,
+   league base rates) copied into a separate dir per engine → BOTH engines independently, in parallel, same prompt:
+   Claude (`claude -p`, web search/fetch) and ChatGPT (`codex exec`, web search off unless
+   POLYLAB_FORECAST_CODEX_WEB=1) → each engine's validated rows appended as its own run (`<batch>-claude`,
+   `<batch>-codex`) strictly before kickoff. No fallback: a failed engine is a failed run.
+3. consensus (pre-registered, `compute_consensus`): only when both engines succeeded. Per game both forecast:
+   P(0-0) = mean of the two engines' P(0-0); qualifies only if both engines ranked it in their own top-5; consensus
+   rank = qualified games by that mean, lowest first. One engine failed → the batch's consensus is recorded `empty`.
+4. Slack: consensus top-3 with both AI probabilities, market implied P(0-0) = 1 - Over 0.5 ask, and the
+   llm-nil-consensus paper/live status.
 
 The research DB is append-only (SQLite triggers abort UPDATE/DELETE). core.db is only ever opened read-only.
-Which forecast counts for a game (eval and the llm_nil paper strategy share `canonical_forecasts`): the forecast
-from the latest successful run created before kickoff. Same-KST-day reruns are refused unless --force (logged).
+Which forecast counts for a game (eval and llm_nil share these rules): per engine, the forecast from the latest
+successful run of that engine created before kickoff (`canonical_forecasts(engine=...)`); for the consensus, the row
+from the latest `ok` consensus batch that contains the game, created before kickoff (`canonical_consensus`). An
+`empty` batch does not revoke an earlier batch's row. Same-KST-day reruns are refused unless --force (logged).
 """
 
 from __future__ import annotations
@@ -26,6 +34,7 @@ import re
 import sqlite3
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
@@ -40,14 +49,19 @@ SCHEMA_ID = "polylab.llm_forecast/v1"
 PROMPT_FILE = settings.REPO_ROOT / "prompts" / "llm_forecast.md"
 HORIZON_H = 30.0
 MIN_LEAD_MIN = 20              # games kicking off sooner than this are left out (AI run takes minutes)
-MAX_GAMES = 12
+MAX_GAMES = 30                 # "all candidate games"; both engines run in parallel inside the 60-min Jenkins budget
 ENGINE_TIMEOUT_S = 1500
 MAX_SOURCES = 12
 MAX_FACTORS = 8
-TOP_N = 3
+TOP_N = 5                      # each engine's own ranked list (consensus qualification uses top-5)
+ENGINES = ("claude", "codex")  # codex = ChatGPT (codex CLI)
+ENGINE_LABEL = {"claude": "Claude", "codex": "ChatGPT"}
+CONSENSUS_RULE = {"aggregate": "mean_p00", "order": "lowest_p00_first", "qualify": "both_engines_top5",
+                  "qualify_top": TOP_N, "picks": 3, "engines": list(ENGINES), "on_engine_failure": "empty"}
+CONSENSUS_VARIANT = "llm-nil-consensus"
 CONFIDENCE = ("low", "medium", "high")
 KST = dt.timezone(dt.timedelta(hours=9))
-DISCLAIMER = "연구용 paper trade(가상 5 USDC)이며 실거래·베팅 권유가 아님."
+DISCLAIMER = "연구 기록이며 베팅 권유가 아님."
 
 # claude: Read/Write/Edit + web lookup only. Must NOT reuse runner.DENY_TOOLS (it denies WebSearch/WebFetch and a
 # deny beats an allow). No Bash/Task, no reads or writes under $HOME, writes only under the cwd. Grep/Glob are left
@@ -103,6 +117,46 @@ SCHEMA = (
     """,
     "CREATE INDEX IF NOT EXISTS forecasts_game ON forecasts(game_key, created_at)",
     """
+    CREATE TABLE IF NOT EXISTS consensus_batches (
+        batch_id TEXT PRIMARY KEY,              -- <stamp>-daily|forced; engine runs are <batch_id>-<engine>
+        ts INTEGER NOT NULL,
+        kst_date TEXT NOT NULL,
+        status TEXT NOT NULL,                   -- ok | empty (an engine failed / no games)
+        rule_json TEXT NOT NULL,                -- CONSENSUS_RULE at the time (pre-registered)
+        claude_run_id TEXT,
+        codex_run_id TEXT,
+        n_games INTEGER NOT NULL,               -- games both engines forecast before kickoff
+        n_qualified INTEGER NOT NULL,
+        forced INTEGER NOT NULL DEFAULT 0,
+        detail TEXT
+    )
+    """,
+    """
+    CREATE TABLE IF NOT EXISTS consensus (
+        batch_id TEXT NOT NULL REFERENCES consensus_batches(batch_id),
+        game_key TEXT NOT NULL,
+        league TEXT,
+        home_team TEXT,
+        away_team TEXT,
+        kickoff INTEGER NOT NULL,
+        condition_id TEXT,
+        token_id TEXT,
+        p00_claude REAL NOT NULL,               -- P(0-0) = 1 - p_not_0_0
+        p00_codex REAL NOT NULL,
+        p00_consensus REAL NOT NULL,            -- mean of the two
+        rank_claude INTEGER,                    -- the engine's own top-5 rank (NULL = outside)
+        rank_codex INTEGER,
+        qualifies INTEGER NOT NULL,             -- both ranks within top-5
+        consensus_rank INTEGER,                 -- 1.. among qualified games (NULL = not qualified)
+        market_price_at_forecast REAL,          -- Over 0.5 mid
+        market_ask_at_forecast REAL,
+        market_implied_p00 REAL,                -- 1 - Over 0.5 ask
+        created_at INTEGER NOT NULL,
+        PRIMARY KEY (batch_id, game_key)
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS consensus_game ON consensus(game_key, created_at)",
+    """
     CREATE TABLE IF NOT EXISTS outcomes (
         game_key TEXT PRIMARY KEY,
         not_0_0 INTEGER NOT NULL,               -- 1 = at least one goal
@@ -116,7 +170,7 @@ SCHEMA = (
     """,
     *[f"CREATE TRIGGER IF NOT EXISTS {t}_no_{op.lower()} BEFORE {op} ON {t} "
       f"BEGIN SELECT RAISE(ABORT, '{t} is append-only'); END"
-      for t in ("runs", "forecasts", "outcomes") for op in ("UPDATE", "DELETE")],
+      for t in ("runs", "forecasts", "outcomes", "consensus_batches", "consensus") for op in ("UPDATE", "DELETE")],
 )
 
 
@@ -153,31 +207,59 @@ def kst(ts: int | None, fmt: str = "%m-%d %H:%M") -> str:
     return dt.datetime.fromtimestamp(ts, KST).strftime(fmt) if ts else "–"
 
 
-def canonical_forecasts(conn: sqlite3.Connection | None, now: int | None = None) -> dict[str, dict]:
-    """game_key -> the forecast that counts: latest successful run created before kickoff (and at or before now).
-
-    Shared by llm_eval and the llm_nil strategy so both use the same pre-registered rule.
+def canonical_forecasts(conn: sqlite3.Connection | None, now: int | None = None,
+                        engine: str | None = None) -> dict[str, dict]:
+    """game_key -> the forecast that counts: latest successful run (of `engine`, or any engine when None) created
+    before kickoff (and at or before now). Shared by llm_eval and llm_nil so both use the same pre-registered rule.
     """
     if conn is None:
         return {}
     now = int(now if now is not None else time.time())
     rows = conn.execute(
         "SELECT f.*, r.engine, r.model, r.ts AS run_ts FROM forecasts f JOIN runs r USING(run_id) "
-        "WHERE r.status='ok' AND f.created_at <= ? AND f.created_at < f.kickoff "
-        "ORDER BY f.game_key, f.created_at, f.run_id", (now,)).fetchall()
+        "WHERE r.status='ok' AND f.created_at <= ? AND f.created_at < f.kickoff AND (? IS NULL OR r.engine = ?) "
+        "ORDER BY f.game_key, f.created_at, f.run_id", (now, engine, engine)).fetchall()
     out: dict[str, dict] = {}
     for r in rows:
         out[r["game_key"]] = dict(r)       # ordered by created_at: the last one wins
     return out
 
 
-def load_canonical(path: Path, now: int | None = None) -> dict[str, dict]:
+def load_canonical(path: Path, now: int | None = None, engine: str | None = None) -> dict[str, dict]:
     conn = connect_ro(path)
     try:
-        return canonical_forecasts(conn, now)
+        return canonical_forecasts(conn, now, engine)
     finally:
         if conn is not None:
             conn.close()
+
+
+def canonical_consensus(conn: sqlite3.Connection | None, now: int | None = None) -> dict[str, dict]:
+    """game_key -> consensus row from the latest `ok` batch containing the game, created before kickoff and at or
+    before now. `empty` batches have no rows, so they never revoke an earlier batch's row."""
+    if conn is None:
+        return {}
+    now = int(now if now is not None else time.time())
+    try:
+        rows = conn.execute(
+            "SELECT c.* FROM consensus c JOIN consensus_batches b USING(batch_id) WHERE b.status='ok' "
+            "AND c.created_at <= ? AND c.created_at < c.kickoff ORDER BY c.game_key, c.created_at, c.batch_id",
+            (now,)).fetchall()
+    except sqlite3.OperationalError:       # research DB from before the consensus tables (read-only open)
+        return {}
+    return {r["game_key"]: dict(r) for r in rows}
+
+
+def load_consensus_forecasts(path: Path, now: int | None = None) -> dict[str, dict]:
+    """Consensus in the llm_nil forecast shape: rank = consensus rank, ai_prob = 1 - consensus P(0-0)."""
+    conn = connect_ro(path)
+    try:
+        cons = canonical_consensus(conn, now)
+    finally:
+        if conn is not None:
+            conn.close()
+    return {gk: {**c, "rank": c["consensus_rank"], "ai_prob": round(1 - c["p00_consensus"], 6),
+                 "run_id": c["batch_id"]} for gk, c in cons.items()}
 
 
 # ---------------------------------------------------------------- game selection & prices
@@ -314,7 +396,7 @@ CODEX_WEB_ENV = "POLYLAB_FORECAST_CODEX_WEB"
 
 
 class ForecastCodexEngine(CodexEngine):
-    """Fallback engine. Web search stays OFF unless POLYLAB_FORECAST_CODEX_WEB=1: the codex sandbox limits writes
+    """ChatGPT engine (runs alongside Claude, not as a fallback). Web search stays OFF unless POLYLAB_FORECAST_CODEX_WEB=1: the codex sandbox limits writes
     only and can read ~/.polylab, so untrusted web pages + a live search tool would be an exfiltration channel
     (a search query never passes slack.scrub). Works when enabled (codex-cli 0.159.2, Mac mini, 2026-10-01)."""
 
@@ -327,7 +409,7 @@ class ForecastCodexEngine(CodexEngine):
         return [('web_search="live"' if c == 'web_search="disabled"' else c) for c in cmd] if self.web else cmd
 
 
-def default_chain() -> list[Engine]:
+def default_engines() -> list[Engine]:
     return [ForecastClaudeEngine(), ForecastCodexEngine()]
 
 
@@ -372,7 +454,7 @@ def parse_forecasts(data: Any, allowed: set[str]) -> tuple[list[dict], list[str]
                      "confidence": conf if conf in CONFIDENCE else None,
                      "factors": factors[:MAX_FACTORS], "sources": list(dict.fromkeys(sources))[:MAX_SOURCES]})
     top = []
-    for k in data.get("top3") or data.get("ranked_top3") or []:
+    for k in data.get("top5") or data.get("top3") or data.get("ranked_top3") or []:
         k = str(k.get("game_key") if isinstance(k, dict) else k)
         if k in seen and k not in top:
             top.append(k)
@@ -392,28 +474,31 @@ def _model_from_log(cwd: Path, engine: Engine) -> str | None:
         return None
 
 
-def run_engines(prompt: str, cwd: Path, engines: list[Engine], allowed: set[str], timeout: int) -> dict:
-    tried = []
-    for engine in engines:
-        ok, why = engine.available()
-        if not ok:
-            tried.append({"engine": engine.name, "ok": False, "reason": why})
-            continue
-        (cwd / "forecasts.json").unlink(missing_ok=True)
-        print(f"forecast: engine {engine.name} running", flush=True)
-        res: RunResult = engine.run(prompt, cwd, timeout)
-        try:
-            data = json.loads((cwd / "forecasts.json").read_text())
-        except (OSError, json.JSONDecodeError):
-            data = None
-        rows, top, problems = parse_forecasts(data, allowed) if data is not None else ([], [], ["forecasts.json missing"])
-        if res.ok and rows:
-            tried.append({"engine": engine.name, "ok": True, "problems": problems[:10]})
-            return {"engine": engine.name, "model": _model_from_log(cwd, engine), "rows": rows, "top": top,
-                    "tried": tried}
-        tried.append({"engine": engine.name, "ok": False,
-                      "reason": (res.reason or "; ".join(problems) or "no valid forecasts")[:300]})
-    return {"engine": None, "model": None, "rows": [], "top": [], "tried": tried}
+def run_engine(engine: Engine, prompt: str, cwd: Path, allowed: set[str], timeout: int,
+               clock: Callable[[], float] = time.time) -> dict:
+    """One engine, one context dir; no fallback. `finished_at` is when its forecasts became final."""
+    out = {"engine": engine.name, "model": None, "rows": [], "top": [], "ok": False, "problems": [],
+           "top_derived": False}
+    ok, why = engine.available()
+    if not ok:
+        return {**out, "reason": why, "finished_at": int(clock())}
+    (cwd / "forecasts.json").unlink(missing_ok=True)
+    print(f"forecast: engine {engine.name} running", flush=True)
+    res: RunResult = engine.run(prompt, cwd, timeout)
+    finished = int(clock())
+    try:
+        data = json.loads((cwd / "forecasts.json").read_text())
+    except (OSError, json.JSONDecodeError):
+        data = None
+    rows, top, problems = parse_forecasts(data, allowed) if data is not None else ([], [], ["forecasts.json missing"])
+    if not (res.ok and rows):
+        return {**out, "finished_at": finished, "problems": problems[:10],
+                "reason": (res.reason or "; ".join(problems) or "no valid forecasts")[:300]}
+    derived = not top
+    if derived:      # no usable ranked list: rank by the engine's own probabilities (documented fallback)
+        top = [r["game_key"] for r in sorted(rows, key=lambda r: (-r["ai_prob"], r["game_key"]))][:TOP_N]
+    return {**out, "ok": True, "model": _model_from_log(cwd, engine), "rows": rows, "top": top,
+            "problems": problems[:10], "top_derived": derived, "finished_at": finished}
 
 
 # ---------------------------------------------------------------- run
@@ -430,6 +515,10 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
                  live_books: Callable[[list[str]], dict] = fetch_live_books, timeout: int = ENGINE_TIMEOUT_S,
                  max_games: int = MAX_GAMES, clock: Callable[[], float] = time.time) -> dict:
     now = int(now if now is not None else clock())
+    engines = list(engines if engines is not None else default_engines())
+    names = [e.name for e in engines]
+    if len(set(names)) != len(names):
+        raise ValueError(f"duplicate engine names {names}")
     rdb = connect(db_path(paths))
     try:
         if already_ran_today(rdb, now) and not force:
@@ -446,29 +535,49 @@ def run_forecast(paths, *, now: int | None = None, force: bool = False, engines:
         prompt = prompt_text()
         prompt_sha = hashlib.sha256(prompt.encode()).hexdigest()[:16]
         stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime(now))
-        run_id = f"{stamp}-{'forced' if force else 'daily'}"
+        batch_id = f"{stamp}-{'forced' if force else 'daily'}"
         if not games:
-            _insert_run(rdb, run_id, now, None, None, prompt_sha, None, 0, [], "failed", force, {"reason": "no games"})
-            return {"ok": True, "run_id": run_id, "games": 0, "forecasts": 0, "skipped": "no eligible games"}
-        cwd = Path(paths.state) / "forecast" / stamp
-        context_sha = build_context(cwd, games, quotes, base_rates, now)
-        ai: dict = {}
+            for n in names:
+                _insert_run(rdb, f"{batch_id}-{n}", now, n, None, prompt_sha, None, 0, [], "failed", force,
+                            {"reason": "no games"})
+            _insert_consensus(rdb, batch_id, now, "empty", {}, [], force, {"reason": "no games"})
+            return {"ok": True, "batch_id": batch_id, "games": 0, "forecasts": 0, "skipped": "no eligible games",
+                    "consensus": {"status": "empty", "reason": "no games", "picks": []}}
+        base = Path(paths.state) / "forecast" / stamp
+        shas = {n: build_context(base / n, games, quotes, base_rates, now) for n in names}
+        context_sha = shas[names[0]]
+        allowed = {g.game_key for g in games}
+        stored: dict[str, dict] = {}
         try:
-            ai = run_engines(prompt, cwd, engines if engines is not None else default_chain(),
-                             {g.game_key for g in games}, timeout)
-            return _store(rdb, ai, games, quotes, run_id, prompt_sha, context_sha, force, cwd, clock)
-        except Exception as exc:     # an AI run must never vanish silently: log it as a failed run, then raise
-            _insert_run(rdb, run_id, int(clock()), ai.get("engine"), ai.get("model"), prompt_sha, context_sha,
-                        len(games), [], "failed", force,
-                        {"error": f"{type(exc).__name__}: {str(exc)[:300]}", "context_dir": str(cwd)})
+            with ThreadPoolExecutor(max_workers=len(engines)) as ex:      # independent: own cwd, same prompt/context
+                futs = {e.name: ex.submit(run_engine, e, prompt, base / e.name, allowed, timeout, clock)
+                        for e in engines}
+                results = {n: f.result() for n, f in futs.items()}
+            for n in names:                                                # all DB writes on this thread
+                stored[n] = _store_engine(rdb, results[n], games, quotes, f"{batch_id}-{n}", prompt_sha,
+                                          context_sha, force, base / n)
+            cons = _store_consensus(rdb, batch_id, stored, games, force, clock)
+        except Exception as exc:     # an AI run must never vanish silently: log failed runs, then raise
+            err = {"error": f"{type(exc).__name__}: {str(exc)[:300]}", "context_dir": str(base)}
+            for n in names:
+                if n not in stored:
+                    _insert_run(rdb, f"{batch_id}-{n}", int(clock()), n, None, prompt_sha, context_sha, len(games),
+                                [], "failed", force, err)
+            if not rdb.execute("SELECT 1 FROM consensus_batches WHERE batch_id=?", (batch_id,)).fetchone():
+                _insert_consensus(rdb, batch_id, int(clock()), "empty", {}, [], force, err)
             raise
+        ok_engines = [n for n in names if stored[n]["ok"]]
+        return {"ok": bool(ok_engines), "batch_id": batch_id, "games": len(games),
+                "over_markets": sum(1 for g in games if g.over_token), "context_dir": str(base),
+                "context_sha": context_sha, "context_shas_equal": len(set(shas.values())) == 1,
+                "forecasts": sum(s["n"] for s in stored.values()), "engines": stored, "consensus": cons}
     finally:
         rdb.close()
 
 
-def _store(rdb, ai: dict, games: list[GameCtx], quotes: dict, run_id: str, prompt_sha: str, context_sha: str,
-           force: bool, cwd: Path, clock: Callable[[], float]) -> dict:
-    created = int(clock())
+def _store_engine(rdb, ai: dict, games: list[GameCtx], quotes: dict, run_id: str, prompt_sha: str, context_sha: str,
+                  force: bool, cwd: Path) -> dict:
+    created = int(ai["finished_at"])
     by_key = {g.game_key: g for g in games}
     rank = {k: i + 1 for i, k in enumerate(ai["top"])}
     rows, late = [], []
@@ -493,13 +602,76 @@ def _store(rdb, ai: dict, games: list[GameCtx], quotes: dict, run_id: str, promp
             "rank": rank.get(g.game_key), "factors_json": json.dumps(r["factors"], ensure_ascii=False),
             "sources_json": json.dumps(r["sources"]), "created_at": created})
     status = "ok" if rows else "failed"
-    detail = {"tried": ai["tried"], "dropped_after_kickoff": late, "context_dir": str(cwd)}
+    detail = {"problems": ai.get("problems"), "reason": ai.get("reason"), "top_derived": ai.get("top_derived"),
+              "dropped_after_kickoff": late, "context_dir": str(cwd)}
     _insert_run(rdb, run_id, created, ai["engine"], ai["model"], prompt_sha, context_sha, len(games), rows,
                 status, force, detail)
-    return {"ok": status == "ok", "run_id": run_id, "engine": ai["engine"], "model": ai["model"],
-            "games": len(games), "forecasts": len(rows), "over_markets": sum(1 for g in games if g.over_token),
-            "dropped_after_kickoff": late, "tried": ai["tried"], "context_dir": str(cwd),
+    return {"ok": status == "ok", "run_id": run_id, "engine": ai["engine"], "model": ai["model"], "n": len(rows),
+            "created_at": created, "reason": ai.get("reason") if status != "ok" else None,
+            "dropped_after_kickoff": late, "rows": rows,
             "top": [dict(r) for r in sorted((r for r in rows if r["rank"]), key=lambda r: r["rank"])]}
+
+
+def compute_consensus(claude_rows: list[dict], codex_rows: list[dict], created: int,
+                      rule: dict = CONSENSUS_RULE) -> list[dict]:
+    """Pre-registered consensus (docs/research/llm-forecast-study.md §3). Inputs are the stored forecast rows of each
+    engine (ai_prob = P(not 0-0), rank = the engine's own top-5 rank). Only games both engines forecast and that
+    kick off after `created`. P(0-0) = mean of the two; qualifies iff both ranks <= qualify_top; consensus rank =
+    qualified games ordered by (P(0-0) asc, worse of the two ranks, kickoff, game_key)."""
+    top = int(rule["qualify_top"])
+    other = {r["game_key"]: r for r in codex_rows}
+    out = []
+    for a in claude_rows:
+        b = other.get(a["game_key"])
+        if b is None or a["kickoff"] <= created:
+            continue
+        pa, pb = round(1 - a["ai_prob"], 6), round(1 - b["ai_prob"], 6)
+        ra, rb = a.get("rank"), b.get("rank")
+        ask = a.get("market_ask_at_forecast")
+        out.append({"game_key": a["game_key"], "league": a["league"], "home_team": a["home_team"],
+                    "away_team": a["away_team"], "kickoff": a["kickoff"], "condition_id": a["condition_id"],
+                    "token_id": a["token_id"], "p00_claude": pa, "p00_codex": pb,
+                    "p00_consensus": round((pa + pb) / 2, 6), "rank_claude": ra, "rank_codex": rb,
+                    "qualifies": int(bool(ra and rb and ra <= top and rb <= top)), "consensus_rank": None,
+                    "market_price_at_forecast": a.get("market_price_at_forecast"),
+                    "market_ask_at_forecast": ask,
+                    "market_implied_p00": round(1 - ask, 6) if ask is not None else None, "created_at": created})
+    q = sorted((r for r in out if r["qualifies"]),
+               key=lambda r: (r["p00_consensus"], max(r["rank_claude"], r["rank_codex"]), r["kickoff"], r["game_key"]))
+    for i, r in enumerate(q):
+        r["consensus_rank"] = i + 1
+    return sorted(out, key=lambda r: (r["consensus_rank"] is None, r["consensus_rank"] or 0, r["p00_consensus"],
+                                      r["game_key"]))
+
+
+def _store_consensus(rdb, batch_id: str, stored: dict[str, dict], games: list[GameCtx], force: bool,
+                     clock: Callable[[], float]) -> dict:
+    created = int(clock())
+    failed = [n for n in ENGINES if not (stored.get(n) or {}).get("ok")]
+    if failed:
+        reason = "; ".join(f"{ENGINE_LABEL.get(n, n)} 실패: {((stored.get(n) or {}).get('reason') or 'not run')[:120]}"
+                           for n in failed)
+        _insert_consensus(rdb, batch_id, created, "empty", stored, [], force, {"reason": reason})
+        return {"status": "empty", "reason": reason, "picks": [], "rows": []}
+    rows = compute_consensus(stored["claude"]["rows"], stored["codex"]["rows"], created)
+    _insert_consensus(rdb, batch_id, created, "ok", stored, rows, force, {})
+    picks = [r for r in rows if r["consensus_rank"] and r["consensus_rank"] <= int(CONSENSUS_RULE["picks"])]
+    return {"status": "ok", "n_games": len(rows), "n_qualified": sum(r["qualifies"] for r in rows),
+            "picks": picks, "rows": rows}
+
+
+def _insert_consensus(conn, batch_id, ts, status, stored, rows, forced, detail):
+    with conn:
+        conn.execute("INSERT INTO consensus_batches(batch_id, ts, kst_date, status, rule_json, claude_run_id, "
+                     "codex_run_id, n_games, n_qualified, forced, detail) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
+                     (batch_id, ts, kst_date(ts), status, json.dumps(CONSENSUS_RULE, sort_keys=True),
+                      (stored.get("claude") or {}).get("run_id"), (stored.get("codex") or {}).get("run_id"),
+                      len(rows), sum(r["qualifies"] for r in rows), int(bool(forced)),
+                      json.dumps(detail, ensure_ascii=False, default=str)))
+        for r in rows:
+            cols = ["batch_id", *r]
+            conn.execute(f"INSERT INTO consensus({','.join(cols)}) VALUES({','.join('?' * len(cols))})",
+                         [batch_id, *r.values()])
 
 
 def _insert_run(conn, run_id, ts, engine, model, prompt_sha, context_sha, games, rows, status, forced, detail):
@@ -567,19 +739,48 @@ def resolve_outcomes(paths, now: int | None = None) -> dict:
 
 # ---------------------------------------------------------------- slack
 
-def slack_text(result: dict) -> str:
-    date = kst_date(int(time.time()))
-    head = f"[연구·paper] LLM 0-0 예측 {date} ({result.get('engine') or '엔진 없음'})"
-    if not result.get("ok"):
-        return f"{head}: 예측 실패 — {str(result.get('tried') or result.get('skipped') or '')[:200]}"
-    lines = [f"{head}: {result['forecasts']}경기 예측, Over 0.5 시장 {result.get('over_markets', 0)}경기"]
-    for r in result.get("top") or []:
-        mkt = r.get("market_price_at_forecast")
-        mtxt = (f"시장 Over0.5 {mkt:.1%} (edge {(r['ai_prob'] - mkt) * 100:+.1f}%p)" if mkt is not None
-                else "Over0.5 시장가 없음" + (f", 무승부 {r['draw_price']:.0%}" if r.get("draw_price") else ""))
-        n_src = len(json.loads(r.get("sources_json") or "[]"))
-        lines.append(f"{r['rank']}. {r['home_team']} vs {r['away_team']} ({(r['league'] or '').upper()}, "
-                     f"{kst(r['kickoff'])} KST) AI 비-0-0 {r['ai_prob']:.1%} · {mtxt} · 출처 {n_src}")
+def consensus_variant_status(registry_dir: Path | None = None) -> str:
+    """'live' | 'paper' | 'off' | 'absent' for llm-nil-consensus (read from strategies/*.yaml)."""
+    try:
+        from polylab.registry import REGISTRY_DIR, load_variant  # noqa: PLC0415
+        return load_variant((registry_dir or REGISTRY_DIR) / f"{CONSENSUS_VARIANT}.yaml").mode
+    except Exception:
+        return "absent"
+
+
+def _pct(v: float | None) -> str:
+    return "–" if v is None else f"{v:.1%}"
+
+
+def slack_text(result: dict, status: str | None = None, now: int | None = None) -> str:
+    date = kst_date(int(now if now is not None else time.time()))
+    status = status or consensus_variant_status()
+    head = f"[연구] AI 교차검증 0:0 예측 {date}"
+    if not result.get("ok") and not result.get("engines"):
+        return f"{head}: 예측 실패 — {str(result.get('error') or result.get('skipped') or '')[:200]}"
+    eng = result.get("engines") or {}
+    parts = []
+    for n in ENGINES:
+        e = eng.get(n) or {}
+        parts.append(f"{ENGINE_LABEL[n]} {e['n']}경기" if e.get("ok") else f"{ENGINE_LABEL[n]} 실패")
+    lines = [f"{head}: {' · '.join(parts)} · Over 0.5 시장 {result.get('over_markets', 0)}경기"]
+    cons = result.get("consensus") or {}
+    if cons.get("status") != "ok":
+        lines.append(f"합의 없음(규칙상 비움): {str(cons.get('reason') or '')[:200]}")
+    elif not cons.get("picks"):
+        lines.append(f"합의 후보 없음: 두 AI 모두 top-5 에 넣은 경기가 없음 (공동 예측 {cons.get('n_games', 0)}경기)")
+    else:
+        lines.append("합의 top-3 (두 AI 모두 top-5, 평균 P(0:0) 낮은 순):")
+        for r in cons["picks"]:
+            ask = r.get("market_ask_at_forecast")
+            mtxt = (f"시장 내재 {_pct(r['market_implied_p00'])} (1−Over ask {ask:.3f})" if ask is not None
+                    else "Over 0.5 시장가 없음")
+            lines.append(f"{r['consensus_rank']}. {r['home_team']} vs {r['away_team']} "
+                         f"({(r['league'] or '').upper()}, {kst(r['kickoff'])} KST) P(0:0) Claude "
+                         f"{_pct(r['p00_claude'])} · ChatGPT {_pct(r['p00_codex'])} · 합의 {_pct(r['p00_consensus'])}"
+                         f" · {mtxt}")
+    mode = {"live": "실거래(live)", "paper": "paper(가상)", "off": "꺼짐"}.get(status, "미등록")
+    lines.append(f"{CONSENSUS_VARIANT}: {mode} · 대조군 llm-nil-draw(Claude 단독): paper · 기준선 goal-over-all")
     lines.append(DISCLAIMER)
     return "\n".join(lines)
 
@@ -609,6 +810,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.action in ("daily", "run"):
         res = run_forecast(paths, force=args.force, timeout=args.timeout, max_games=args.max_games)
         out["run"] = res
+        for e in (res.get("engines") or {}).values():
+            e.pop("rows", None)                     # full rows live in the research DB; keep the log readable
         text = slack_text(res) if not res.get("skipped") else None
         if text:
             out["slack_text"] = text

@@ -535,6 +535,7 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
             "changes": sorted([c for s in states for c in s["changes"]], key=lambda c: c["at"] or ""),
             "games": games, "strategy_sport": strategy_sport,
             "llm_forecast": _llm_forecast(paths, since, until) if kind != "daily" else None,
+            "manual": _manual(paths, since, until, kind, now),
             "ai": {"ran": False, "reason": None}}
 
 
@@ -542,6 +543,15 @@ def _llm_forecast(paths, since: int, until: int) -> dict | None:
     """LLM 0-0 side study (paper only), weekly/monthly; never fails the report."""
     from polylab.research import llm_eval  # noqa: PLC0415
     return llm_eval.report_section(paths, since, until)
+
+
+def _manual(paths, since: int, until: int, kind: str, now: int) -> dict | None:
+    """Track 2 manual-bet ledgers (watch-only, read-only here); never fails the report."""
+    try:
+        from polylab.manual import report as manual_report  # noqa: PLC0415
+        return manual_report.report_section(paths, since, until, kind, now)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"[:300]}
 
 
 def to_json(report: dict) -> str:

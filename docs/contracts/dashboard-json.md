@@ -221,6 +221,52 @@ on GitHub (`url`). Empty lists before the first retro that writes the inbox.
 - `evidence_ref`: comma-separated repo paths (rule) or AI context-pack paths such as `metrics/<id>.json` (public copy:
   `reports/context/latest/`). Text is scrubbed and uses account aliases only.
 
+## latest/manual.json
+Track 2: the thesis owner's manual bets, recorded watch-only from public wallet addresses (`~/.polylab/watch.env`,
+no key) by `polylab manual sync` into `<data>/manual/<alias>.db`; built by `src/polylab/manual/report.py`
+(`snapshot.manual_snapshot`, same object as the daily report's "수동 AI 베팅 (트랙 2)" section). Accounts appear by
+label/alias only; wallet addresses are never stored in the ledgers and are on the publish secret list.
+```json
+{"generated_at": "2026-10-01T00:00:00Z",
+ "accounts": [{"account": "트랙2-A", "since": "2026-09-28T00:00:00Z", "last_sync_at": "...", "bankroll_usdc": 1000.0,
+               "bankroll_first_seen_at": "...", "all_realized_pnl": 41.9, "drawdown_pct": 0.042,
+               "credits_usdc": {"MAKER_REBATE": 0.5},
+               "track2": {"realized_pnl": {"today": 0.0, "d7": 41.9, "d30": 41.9, "all": 41.9}, "settled": 2, "wins": 2,
+                          "losses": 0, "sold": 0, "win_rate": 1.0, "roi": 0.033, "cost_settled": 1263.9, "open": 1,
+                          "open_cost_usdc": 100.4, "unrealized_pnl": 1.2, "unrealized_unknown": 0, "fees_usdc": 3.1,
+                          "fees_unknown": 0}}],
+ "totals": {"realized_pnl": {"today": 0.0, "d7": 41.9, "d30": 41.9, "all": 41.9}, "settled": 2, "wins": 2, "losses": 0,
+            "sold": 0, "win_rate": 1.0, "roi": 0.033, "cost_settled": 1263.9, "open": 1, "open_cost_usdc": 100.4,
+            "unrealized_pnl": 1.2, "unrealized_unknown": 0, "fees_usdc": 3.1, "fees_unknown": 0},
+ "by_stake": [{"band": "600+", "n": 1, "pnl": 38.1, "cost": 761.9, "roi": 0.05, "wins": 1, "losses": 0, "win_rate": 1.0}],
+ "trades_24h": [{"at": "...", "account": "트랙2-A", "position_id": "wolf:3f2a9c01d4", "sport": "soccer", "league": "unl",
+                 "game": "Greece vs. Netherlands", "kickoff": "...", "market": "O/U 0.5 Over", "track2": true,
+                 "side": "BUY", "price": 0.95, "shares": 800.0, "usdc": 761.9, "fee_usdc": 1.9,
+                 "result": "redeemed", "realized_pnl": 38.1}],
+ "open_positions": [{"account": "트랙2-A", "position_id": "...", "sport": "soccer", "league": "fif", "game": "Wales vs. Iceland",
+                     "kickoff": "...", "market": "O/U 0.5 Over", "market_type": "total", "line": 0.5, "side": "over",
+                     "outcome": "Over", "track2": true, "opened_at": "...", "closed_at": null, "entry_price": 0.92,
+                     "shares": 100.0, "stake_usdc": 92.37, "entry_fee_usdc": 0.37, "result": "open",
+                     "proceeds_usdc": null, "realized_pnl": null, "mark_price": 0.95, "unrealized_pnl": 2.63,
+                     "implied_p00_at_entry": 0.08, "link_source": "gamma", "quarantine_reason": null}],
+ "settled_24h": [{"account": "트랙2-A", "game": "Greece vs. Netherlands", "result": "redeemed", "realized_pnl": 38.1}],
+ "other": {"settled": 2, "realized_pnl": 1.12, "open": 0},
+ "quarantined": 0}
+```
+- One position per (account, outcome token). Money: `stake_usdc` = actual USDC spent (BUY `usdc_size`, taker fee
+  included); `proceeds_usdc` = SELL cash (net of fee) + REDEEM cash or remaining shares × confirmed payout;
+  `realized_pnl` = proceeds − stake only when fully settled, else `null`. `fee_usdc` = `|size×price − usdc_size|`,
+  `null` when implausible (unknown, never 0). `unrealized_pnl` uses the Data API `/v2/positions` mark, shown separately.
+- `result`: `open | closed_sell | resolved_win | resolved_loss | resolved_split | redeemed | quarantined`. Win rate =
+  (`resolved_win`+`redeemed`) / (+`resolved_loss`); `sold` = closed by sale before resolution.
+- `track2: true` = linked to a sports game (core.db, else Gamma market lookup); `totals`/`by_stake` cover Track 2 only;
+  non-game positions are summarised in `other`. `quarantined` (SPLIT/MERGE/CONVERSION or fills outside the
+  `SINCE` window) are excluded from money and counted.
+- `implied_p00_at_entry` = market P(0-0) for total-goals 0.5 bets (1 − Over entry price, or the Under price).
+- `bankroll_usdc` = optional `WATCH_<ALIAS>__BANKROLL_USDC`, frozen when first seen; `null` disables the −10%
+  attention rule (`drawdown_pct` = all realised / bankroll). `trades_24h` also carries `RESOLVE` rows (price = payout/share).
+- `trades_24h`/`settled_24h` hold the publish window (last 24h). Without any ledger every list is empty and `totals` is `null`.
+
 ## Additive fields (beyond the examples above)
 - overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,

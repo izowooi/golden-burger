@@ -1,4 +1,5 @@
-"""LLM 0-0 study: game selection, fake-engine run, append-only research DB, outcomes, eval, strategy (no network)."""
+"""AI 0-0 study: game selection, dual fake-engine run, append-only research DB, outcomes, eval, strategy (no network).
+Consensus-specific tests live in test_llm_consensus.py."""
 
 from __future__ import annotations
 
@@ -47,6 +48,10 @@ def good_payload(games):
             "top3": [g["game_key"] for g in games][:2] + ["bogus"]}
 
 
+def pair(claude_payload=good_payload, codex_payload=good_payload, **kw):
+    return [FakeEngine("claude", payload=claude_payload, **kw), FakeEngine("codex", payload=codex_payload, **kw)]
+
+
 def world(tmp_path):
     env = Env(tmp_path / "rt")
     k1 = NOW + 5 * 3600
@@ -85,16 +90,22 @@ def run(env, engines, **kw):
 
 def test_selection_and_run_stores_validated_forecasts(tmp_path):
     env = world(tmp_path)
-    eng = FakeEngine(payload=good_payload)
-    res = run(env, [eng])
-    assert res["ok"] and res["engine"] == "claude" and res["model"] == "fake-model"
-    assert res["games"] == 2 and res["forecasts"] == 2 and res["over_markets"] == 1
-    games = json.loads((tmp_path / "rt/state/forecast").glob("*/games.json").__next__().read_text())["games"]
+    engines = pair()
+    res = run(env, engines)
+    assert res["ok"] and res["games"] == 2 and res["over_markets"] == 1 and res["forecasts"] == 4
+    assert res["context_shas_equal"] and engines[0].prompts == engines[1].prompts       # same prompt, same context
+    for n in ("claude", "codex"):
+        e = res["engines"][n]
+        assert e["ok"] and e["run_id"] == f"{res['batch_id']}-{n}" and e["model"] == "fake-model" and e["n"] == 2
+    base = tmp_path / "rt/state/forecast"
+    dirs = sorted(p.parent.name for p in base.glob("*/*/games.json"))
+    assert dirs == ["claude", "codex"]                                                 # independent cwd per engine
+    games = json.loads(next(base.glob("*/claude/games.json")).read_text())["games"]
     assert [g["game_key"] for g in games] == ["g1", "g2"]            # Over-market game first; fif/far/near excluded
     assert games[1]["polymarket"]["over_0_5_goals"].startswith("no Total 0.5")
     conn = sqlite3.connect(lf.db_path(env.paths))
     conn.row_factory = sqlite3.Row
-    rows = {r["game_key"]: dict(r) for r in conn.execute("SELECT * FROM forecasts")}
+    rows = {r["game_key"]: dict(r) for r in conn.execute("SELECT * FROM forecasts WHERE run_id LIKE '%-claude'")}
     g1, g2 = rows["g1"], rows["g2"]
     assert g1["token_id"] == "ov1" and g1["market_price_at_forecast"] == pytest.approx(0.93)
     assert g1["market_ask_at_forecast"] == 0.94 and g1["market_source"] == "clob_live" and g1["rank"] == 1
@@ -104,59 +115,91 @@ def test_selection_and_run_stores_validated_forecasts(tmp_path):
     # no Over market -> nullable market columns, draw price only as context from the stored book
     assert g2["token_id"] is None and g2["market_price_at_forecast"] is None and g2["draw_price"] == pytest.approx(0.28)
     assert g2["rank"] == 2 and all(r["created_at"] < r["kickoff"] for r in rows.values())
-    run_row = conn.execute("SELECT * FROM runs").fetchone()
-    assert run_row["status"] == "ok" and run_row["n_forecasts"] == 2 and run_row["prompt_sha"]
+    runs = {r["engine"]: dict(r) for r in conn.execute("SELECT * FROM runs")}
+    assert set(runs) == {"claude", "codex"} and all(r["status"] == "ok" and r["n_forecasts"] == 2 for r in runs.values())
+    assert runs["claude"]["context_sha"] == runs["codex"]["context_sha"] and runs["claude"]["prompt_sha"]
+    b = dict(conn.execute("SELECT * FROM consensus_batches").fetchone())
+    assert b["status"] == "ok" and b["n_games"] == 2 and b["claude_run_id"].endswith("-claude")
+    assert json.loads(b["rule_json"]) == json.loads(json.dumps(lf.CONSENSUS_RULE, sort_keys=True))
 
 
 def test_research_db_is_append_only_and_same_day_rerun_refused(tmp_path):
     env = world(tmp_path)
-    run(env, [FakeEngine(payload=good_payload)])
-    again = run(env, [FakeEngine(payload=good_payload)])
+    run(env, pair())
+    again = run(env, pair())
     assert again["skipped"].startswith("already forecast")
     conn = sqlite3.connect(lf.db_path(env.paths))
     for sql in ("UPDATE forecasts SET ai_prob=0.5", "DELETE FROM forecasts", "UPDATE runs SET status='x'",
-                "DELETE FROM runs"):
+                "DELETE FROM runs", "UPDATE consensus SET p00_consensus=0", "DELETE FROM consensus",
+                "UPDATE consensus_batches SET status='ok'", "DELETE FROM consensus_batches"):
         with pytest.raises(sqlite3.IntegrityError, match="append-only"):
             conn.execute(sql)
 
 
 def test_forced_rerun_is_logged_and_becomes_canonical(tmp_path):
     env = world(tmp_path)
-    run(env, [FakeEngine(payload=good_payload)])
-    res = lf.run_forecast(env.paths, now=NOW + 3600, force=True, live_books=lambda t: {},
-                          engines=[FakeEngine(payload=lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.9}],
-                                                                  "top3": ["g1"]})],
+    run(env, pair())
+    one = lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.9}], "top3": ["g1"]}  # noqa: E731
+    res = lf.run_forecast(env.paths, now=NOW + 3600, force=True, live_books=lambda t: {}, engines=pair(one, one),
                           clock=lambda: NOW + 3700)
-    assert res["ok"] and res["run_id"].endswith("forced")
+    assert res["ok"] and res["batch_id"].endswith("forced")
     conn = sqlite3.connect(lf.db_path(env.paths))
     conn.row_factory = sqlite3.Row
-    assert conn.execute("SELECT SUM(forced) FROM runs").fetchone()[0] == 1
-    canon = lf.canonical_forecasts(conn, NOW + 4000)
+    assert conn.execute("SELECT SUM(forced) FROM runs").fetchone()[0] == 2
+    canon = lf.canonical_forecasts(conn, NOW + 4000, engine="claude")
     assert canon["g1"]["ai_prob"] == 0.9 and canon["g2"]["ai_prob"] == pytest.approx(0.94)
-    assert lf.canonical_forecasts(conn, NOW + 200)["g1"]["ai_prob"] == 0.95     # as-of: the later run is unseen
+    assert lf.canonical_forecasts(conn, NOW + 200, engine="claude")["g1"]["ai_prob"] == 0.95   # later run unseen
 
 
-def test_engine_fallback_and_failure_recorded(tmp_path):
+def test_canonical_is_per_engine(tmp_path):
     env = world(tmp_path)
-    bad = FakeEngine("claude", payload="not json")
-    codex = FakeEngine("codex", payload=good_payload)
-    res = run(env, [bad, codex])
-    assert res["engine"] == "codex" and res["tried"][0]["ok"] is False
+    import time as _t
+    t0 = _t.monotonic()
+
+    class Slow(FakeEngine):     # codex finishes later: without the engine filter it would win "latest run"
+        def run(self, prompt, cwd, timeout):
+            _t.sleep(0.3)
+            return super().run(prompt, cwd, timeout)
+
+    lo = lambda gs: {"games": [{"game_key": g["game_key"], "p_not_0_0": 0.80} for g in gs]}  # noqa: E731
+    res = lf.run_forecast(env.paths, now=NOW, live_books=lambda t: LIVE,
+                          clock=lambda: NOW + 60 + int((_t.monotonic() - t0) * 100),
+                          engines=[FakeEngine("claude", payload=good_payload), Slow("codex", payload=lo)])
+    assert res["engines"]["codex"]["created_at"] > res["engines"]["claude"]["created_at"]
+    conn = sqlite3.connect(lf.db_path(env.paths))
+    conn.row_factory = sqlite3.Row
+    assert lf.canonical_forecasts(conn, NOW + 999, engine="claude")["g1"]["ai_prob"] == 0.95
+    assert lf.canonical_forecasts(conn, NOW + 999, engine="codex")["g1"]["ai_prob"] == 0.80
+
+
+def test_engine_failure_is_recorded_without_fallback(tmp_path):
+    env = world(tmp_path)
+    res = run(env, pair(claude_payload=good_payload, codex_payload="not json"))
+    assert res["ok"] and res["engines"]["claude"]["ok"] and not res["engines"]["codex"]["ok"]
+    assert res["consensus"]["status"] == "empty" and "ChatGPT 실패" in res["consensus"]["reason"]
+    conn = sqlite3.connect(lf.db_path(env.paths))
+    assert dict(conn.execute("SELECT engine, status FROM runs").fetchall()) == {"claude": "ok", "codex": "failed"}
+    assert conn.execute("SELECT status FROM consensus_batches").fetchone()[0] == "empty"
+    assert conn.execute("SELECT COUNT(*) FROM consensus").fetchone()[0] == 0
     env2 = world(tmp_path / "b")
     res2 = run(env2, [FakeEngine(payload=None, ok=False), FakeEngine("codex", available=False)])
     assert not res2["ok"] and res2["forecasts"] == 0
     conn = sqlite3.connect(lf.db_path(env2.paths))
-    assert conn.execute("SELECT status FROM runs").fetchone()[0] == "failed"
+    assert {r[0] for r in conn.execute("SELECT status FROM runs")} == {"failed"}
     assert not lf.already_ran_today(conn, NOW)                           # a failed run does not block the day
 
 
 def test_forecast_after_kickoff_is_never_stored(tmp_path):
     env = world(tmp_path)
-    res = run(env, [FakeEngine(payload=good_payload)], clock=lambda: NOW + 6 * 3600)   # AI finished after g1 kickoff
-    assert res["dropped_after_kickoff"] == ["g1"] and res["forecasts"] == 1
+    res = run(env, pair(), clock=lambda: NOW + 6 * 3600)   # AI finished after g1 kickoff
+    assert res["engines"]["claude"]["dropped_after_kickoff"] == ["g1"] and res["forecasts"] == 2
+    assert [r["game_key"] for r in res["consensus"]["rows"]] == ["g2"]
 
 
 def test_parse_forecasts_rejects_bad_values():
+    rows, top, _ = lf.parse_forecasts({"games": [{"game_key": k, "p_not_0_0": 0.9} for k in "abcdefg"],
+                                       "top5": list("gfedcba")}, set("abcdefg"))
+    assert top == list("gfedc")                                           # top-5 list kept, truncated at 5
     rows, top, problems = lf.parse_forecasts({"games": [{"game_key": "a", "p_not_0_0": 1.4},
                                                         {"game_key": "b", "p_not_0_0": "0.9"}], "top3": ["a", "b"]},
                                              {"a", "b"})
@@ -191,15 +234,18 @@ def test_crash_after_ai_is_recorded_as_failed_run(tmp_path, monkeypatch):
 
     monkeypatch.setattr(lf, "parse_forecasts", boom)
     with pytest.raises(RuntimeError):
-        run(env, [FakeEngine(payload=good_payload)])
+        run(env, pair())
     conn = sqlite3.connect(lf.db_path(env.paths))
-    status, detail = conn.execute("SELECT status, detail FROM runs").fetchone()
-    assert status == "failed" and "parser exploded" in detail
+    rows = conn.execute("SELECT status, detail FROM runs").fetchall()
+    assert len(rows) == 2 and all(st == "failed" and "parser exploded" in d for st, d in rows)
+    assert conn.execute("SELECT status FROM consensus_batches").fetchone()[0] == "empty"
 
 
 def test_resolve_outcomes_and_eval(tmp_path):
     env = world(tmp_path)
-    run(env, [FakeEngine(payload=good_payload)])
+    cx = lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.90}, {"game_key": "g2", "p_not_0_0": 0.92}],  # noqa
+                     "top5": ["g2", "g1"]}
+    run(env, pair(good_payload, cx))
     later = NOW + 30 * 3600
     env.resolve("ou1", 1, NOW + 8 * 3600)                     # Under won -> 0-0
     env.core.execute("UPDATE games SET status='ended', home_score=2, away_score=1, ended_at=? WHERE game_key='g2'",
@@ -212,19 +258,27 @@ def test_resolve_outcomes_and_eval(tmp_path):
     with pytest.raises(sqlite3.IntegrityError):
         conn.execute("UPDATE outcomes SET not_0_0=1")
     ev = llm_eval.evaluate(env.paths, now=later)
-    assert ev["resolved_games"] == 2 and ev["with_market_price"] == 1
-    a = ev["all_games"]
-    # g1: ai .95, y=0 ; g2: ai .94, y=1
-    assert a["ai"]["brier"] == pytest.approx(round((0.95 ** 2 + 0.06 ** 2) / 2, 5))
-    assert ev["market_subset"]["market"]["brier"] == pytest.approx(0.93 ** 2, abs=1e-4)
+    assert ev["resolved_games"] == 2 and ev["forecast_games"] == 2
+    cl, cxe, j = ev["engines"]["claude"], ev["engines"]["codex"], ev["joint"]
+    # g1: claude .95 / codex .90, y=0 ; g2: claude .94 / codex .92, y=1
+    assert cl["scores"]["brier"] == pytest.approx(round((0.95 ** 2 + 0.06 ** 2) / 2, 5))
+    assert cxe["scores"]["brier"] == pytest.approx(round((0.90 ** 2 + 0.08 ** 2) / 2, 5))
+    assert j["n"] == 2 and j["consensus"]["brier"] == pytest.approx(round((0.925 ** 2 + 0.07 ** 2) / 2, 5))
+    assert cl["market_subset"]["market"]["brier"] == pytest.approx(0.93 ** 2, abs=1e-4)
+    assert j["market_subset"]["n"] == 1 and j["claude_minus_codex_brier"]["n"] == 2
     # poisson falls back to the documented constant (only 3 finished epl games < MIN_LEAGUE_N)
     import math
-    assert a["poisson"]["brier"] == pytest.approx(
+    assert cl["poisson"]["brier"] == pytest.approx(
         round(((1 - math.exp(-2.75)) ** 2 + math.exp(-2.75) ** 2) / 2, 5))
-    assert ev["top3_paper"]["n"] == 1 and ev["top3_paper"]["pnl"] == -5.0     # g1 bought at .94 ask, lost
+    assert cl["top3"]["n"] == 2 and cl["top3"]["priced"] == 1 and cl["top3"]["pnl"] == -5.0   # g1 at .94, lost
+    assert cl["top3"]["rate_0_0"] == 0.5
+    assert j["consensus_top3"]["n"] == 2 and j["consensus_top3"]["pnl"] == -5.0
+    assert ev["consensus_batches"] == {"total": 1, "ok": 1, "empty": 0}
+    assert ev["strategies"]["llm-nil-draw"] == {"available": False}
     sec = llm_eval.report_section(env.paths, NOW, later)
     lines = llm_eval.render_lines(sec)
-    assert lines[0].startswith("## LLM vs 시장") and any("paper" in ln for ln in lines)
+    assert lines[0] == "## AI 교차검증 0:0 연구" and any("ChatGPT" in ln and "합의" in ln for ln in lines)
+    assert any("CONFIRMED" in ln for ln in lines)
 
 
 def test_calibration_and_scores_helpers():
@@ -236,15 +290,24 @@ def test_calibration_and_scores_helpers():
     assert llm_eval.evaluate(SimpleNamespace(research_dir="/nonexistent", core_db="/nonexistent"))["available"] is False
 
 
-def test_slack_text_top3_and_disclaimer():
-    res = {"ok": True, "engine": "claude", "forecasts": 2, "over_markets": 1,
-           "top": [{"rank": 1, "home_team": "Arsenal", "away_team": "Chelsea", "league": "epl", "kickoff": NOW,
-                    "ai_prob": 0.95, "market_price_at_forecast": 0.93, "sources_json": '["https://a"]'},
-                   {"rank": 2, "home_team": "X", "away_team": "Y", "league": "mls", "kickoff": NOW, "ai_prob": 0.94,
-                    "market_price_at_forecast": None, "draw_price": 0.28, "sources_json": "[]"}]}
-    text = lf.slack_text(res)
-    assert "AI 비-0-0 95.0%" in text and "시장 Over0.5 93.0%" in text and "+2.0%p" in text
-    assert "Over0.5 시장가 없음, 무승부 28%" in text and text.endswith(lf.DISCLAIMER)
+def test_slack_text_consensus_top3_and_status(tmp_path):
+    pick = {"consensus_rank": 1, "home_team": "Arsenal", "away_team": "Chelsea", "league": "epl", "kickoff": NOW,
+            "p00_claude": 0.05, "p00_codex": 0.07, "p00_consensus": 0.06, "market_ask_at_forecast": 0.92,
+            "market_implied_p00": 0.08}
+    res = {"ok": True, "over_markets": 1, "engines": {"claude": {"ok": True, "n": 2}, "codex": {"ok": True, "n": 2}},
+           "consensus": {"status": "ok", "picks": [pick, {**pick, "consensus_rank": 2, "market_ask_at_forecast": None,
+                                                          "market_implied_p00": None}]}}
+    text = lf.slack_text(res, status="paper", now=NOW)
+    assert "Claude 2경기 · ChatGPT 2경기" in text and "P(0:0) Claude 5.0% · ChatGPT 7.0% · 합의 6.0%" in text
+    assert "시장 내재 8.0% (1−Over ask 0.920)" in text and "Over 0.5 시장가 없음" in text
+    assert "llm-nil-consensus: paper(가상)" in text and text.endswith(lf.DISCLAIMER)
+    assert "실거래(live)" in lf.slack_text(res, status="live", now=NOW)
+    empty = {**res, "engines": {"claude": {"ok": True, "n": 2}, "codex": {"ok": False}},
+             "consensus": {"status": "empty", "reason": "ChatGPT 실패: boom", "picks": []}}
+    t2 = lf.slack_text(empty, status="paper", now=NOW)
+    assert "ChatGPT 실패" in t2 and "합의 없음" in t2
+    assert lf.consensus_variant_status() in ("paper", "live")             # strategies/llm-nil-consensus.yaml
+    assert lf.consensus_variant_status(tmp_path) == "absent"
 
 
 # ---------------------------------------------------------------- strategy
@@ -275,7 +338,9 @@ def test_llm_nil_enters_over_with_edge_before_kickoff(tmp_path):
     i = intents[0]
     assert i.max_price == pytest.approx(0.94) and i.features["edge"] == pytest.approx(0.03)
     assert not any(k == "g2" for k, _ in s.skips)                         # g2 kicks off in 20h: not yet
-    assert s.exit_signals(view, now, None) is None
+    held = PositionView("p", "open", "ov1", "ou1", "g1", "soccer", now - 60, 0.93, 5.3, 5.0,
+                        exit_rules=i.exit_rules)
+    assert i.exit_rules["hold_to_resolution"] and s.exit_signals(view, now, held) is None
     books = {"ov1": view.book("ov1", now)}
     assert s.confirm_entry(i, books, 5.0).ok
     # already traded -> no re-entry
@@ -305,8 +370,20 @@ def test_llm_nil_gates(tmp_path):
 def test_llm_nil_refuses_live_and_default_source_is_safe(tmp_path, monkeypatch):
     with pytest.raises(ValueError, match="paper-only"):
         build(SimpleNamespace(id="x", family="llm_nil", sports=["soccer"], params={}, mode="live"))
+    with pytest.raises(ValueError, match="paper-only"):
+        build(SimpleNamespace(id="llm-nil-draw", family="llm_nil", sports=["soccer"], params={}, mode="live"))
+    with pytest.raises(ValueError, match="paper-only"):          # an autopilot clone with source=consensus
+        build(SimpleNamespace(id="llm-nil-consensus-v2", family="llm_nil", sports=["soccer"],
+                              params={"source": "consensus"}, mode="live"))
+    with pytest.raises(ValueError, match="paper-only"):          # the allowed id, but not on the consensus source
+        build(SimpleNamespace(id="llm-nil-consensus", family="llm_nil", sports=["soccer"], params={}, mode="live"))
+    ok = build(SimpleNamespace(id="llm-nil-consensus", family="llm_nil", sports=["soccer"],
+                               params={"source": "consensus"}, mode="live"))
+    assert isinstance(ok, LlmNil)
+    with pytest.raises(ValueError, match="unknown source"):
+        build(SimpleNamespace(id="x", family="llm_nil", sports=["soccer"], params={"source": "gpt"}, mode="paper"))
     monkeypatch.setenv("POLYLAB_ROOT", str(tmp_path / "empty"))
-    assert LlmNil.forecast_source(NOW) == {}
+    assert LlmNil.forecast_source(NOW) == {} and LlmNil.forecast_source(NOW, "consensus") == {}
 
 
 def test_llm_nil_skips_game_without_over_market(tmp_path):
@@ -328,7 +405,8 @@ def test_tick_paper_end_to_end_then_resolution(tmp_path, monkeypatch):
     monkeypatch.setenv("POLYLAB_ROOT", str(env.paths.root))
     env.core.execute("UPDATE markets SET fee_schedule='{\"feesEnabled\": false}'")
     env.core.commit()
-    run(env, [FakeEngine(payload=lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.97}], "top3": ["g1"]})])
+    only_g1 = lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.97}], "top3": ["g1"]}  # noqa: E731
+    run(env, pair(only_g1, lambda gs: {"games": [{"game_key": "g1", "p_not_0_0": 0.50}], "top3": ["g1"]}))
     reg = tmp_path / "reg"
     reg.mkdir()
     real = yaml.safe_load(open("strategies/llm-nil-draw.yaml"))
@@ -345,4 +423,5 @@ def test_tick_paper_end_to_end_then_resolution(tmp_path, monkeypatch):
     tick(env.paths, registry_dir=reg, poll=False, now=NOW + 8 * 3600)
     pos = dict(db.strategy(env.paths, "llm-nil-draw").execute("SELECT * FROM positions").fetchone())
     assert pos["status"] == "resolved" and pos["realized_pnl"] == pytest.approx(5 / 0.93 - 5, abs=1e-3)
-    assert llm_eval.evaluate(env.paths, now=NOW + 9 * 3600)["strategy_paper"]["settled"] == 1
+    led = llm_eval.evaluate(env.paths, now=NOW + 9 * 3600)["strategies"]["llm-nil-draw"]
+    assert led["paper"]["settled"] == 1 and led["live"]["settled"] == 0   # codex said .50: Claude-only source

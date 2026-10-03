@@ -51,8 +51,13 @@ jobs:
     pull: true
     command: "uv run --no-sync polylab retro monthly"
   polylab-llm-forecast:
-    description: "연구(paper 전용, 10:00 KST): 향후 30h 주요 리그 축구 경기의 '0-0 아님' 확률을 LLM(웹 검색 허용)이 예측 → research/llm_forecasts.db(append-only) → Slack top-3. 실거래 없음"
+    description: "AI 교차검증(10:00 KST): 향후 30h 주요 리그 축구 경기의 0:0 확률을 Claude·ChatGPT 가 각각 예측 → research/llm_forecasts.db(append-only) → 합의 top-3 를 Slack 으로. llm-nil-consensus 가 합의 top-3 를 매수(계좌 지정 전에는 paper)"
     cron: "TZ=Asia/Seoul\n0 10 * * *"
     timeout_minutes: 60
     pull: true
     command: "uv run --no-sync polylab forecast daily"
+  polylab-manual-sync:
+    description: "15분마다: 연구자 수동 베팅(트랙 2) 공개 지갑 주소(~/.polylab/watch.env, 키 없음)의 Data API 체결·포지션 → data/manual/<alias>.db, manual/predictions 파싱"
+    cron: "H/15 * * * *"
+    timeout_minutes: 10
+    command: "uv run --no-sync polylab manual sync"

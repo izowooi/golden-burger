@@ -5,6 +5,7 @@ from __future__ import annotations
 from polylab.strategies.apricot import Apricot
 from polylab.strategies.base import Strategy
 from polylab.strategies.cherry import Cherry
+from polylab.strategies.goal_over import GoalOver
 from polylab.strategies.llm_nil import LlmNil
 from polylab.strategies.plum import Plum
 from polylab.strategies.watermelon import Watermelon
@@ -15,6 +16,7 @@ FAMILIES: dict[str, type[Strategy]] = {
     "plum": Plum,
     "cherry": Cherry,
     "llm_nil": LlmNil,
+    "goal_over": GoalOver,
 }
 
 
