@@ -15,3 +15,6 @@ AI 는 이 결정을 전제로 판단한다(같은 질문을 다시 하지 않�
 - `ai:manual-nfl-scope` — NFL 실거래를 폐기한다. 데이터가 충분히 쌓여 수익이 나는 전략과 파라미터가 확보될 때까지 잠정 중단한다.
 - `manual:nfl-scope` — NFL 을 watermelon·plum 실거래 범위에서 제외한다. NFL 전용 전략이나 기존 전략의 NFL 전용 분기 로직이 생기기 전까지 실거래하지 않는다.
 - `policy:us-sports` — NBA·NHL(·NFL)은 수익을 내는 전략과 파라미터가 확인될 때까지 수집과 paper 시뮬레이션만 한다(`watermelon-us-paper`, `plum-us-paper`, `cherry-us-paper`). live 전환은 연구자만 결정한다.
+
+## 2026-10-04
+- `track1:goal-over-all-live` — goal-over-all 을 lion 계좌로 실거래(5 USDC) 시작한다. 진입은 킥오프 3일 전부터 5분 전까지만(한 달 전 같은 이른 매수는 하지 않는다).

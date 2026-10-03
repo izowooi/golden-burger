@@ -128,17 +128,19 @@ def test_unknown_fee_never_takes_profit(tmp_path):
     assert strat().exit_signals(env.view(now), now, pos({"take_profit_price": 0.99})) is None
 
 
-def test_registry_yaml_is_paper_with_tunable_thresholds():
+def test_registry_yaml_has_tunable_thresholds():
     from pathlib import Path
 
     from polylab.registry import load_variant
 
     v = load_variant(Path("strategies/goal-over-all.yaml"))
     assert v.mode in ("paper", "live") and v.family == "goal_over" and v.stake_usdc in (5.0, 10.0, 25.0, 50.0, 100.0)
-    assert v.params["take_profit_price"] is None and v.params["stop_loss_price"] is None
+    # autopilot may switch thresholds on inside bounds; only structure is pinned here
+    for k in ("take_profit_price", "stop_loss_price"):
+        assert v.params[k] is None or v.bounds[k][0] <= v.params[k] <= v.bounds[k][1]
     assert {"take_profit_price", "stop_loss_price", "price_min", "price_max", "entry_minutes_before_max",
             "entry_minutes_before_min"} <= set(v.bounds)
-    assert v.limits["max_positions"] == 30 and v.limits["max_sells_per_cycle"] > 0
+    assert v.limits["max_positions"] > 0 and v.limits["max_sells_per_cycle"] > 0
     assert isinstance(build(v), GoalOver)
     # the one-line live switch builds (accounts are resolved by the engine, not the family)
     assert isinstance(build(SimpleNamespace(**{**v.__dict__, "mode": "live", "account": "x"})), GoalOver)

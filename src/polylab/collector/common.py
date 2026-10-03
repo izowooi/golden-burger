@@ -686,13 +686,15 @@ def active_tokens(conn: sqlite3.Connection, ts: int, lead_s: int = 15 * 60) -> l
 
 
 def pregame_tokens(conn: sqlite3.Connection, ts: int, lead_s: int, horizon_s: int) -> list[sqlite3.Row]:
-    """Moneyline/draw tokens (both outcomes) of open markets whose game starts in (ts+lead, ts+horizon]
-    and is not live yet — the low-frequency pre-game set (the <=lead window is covered every minute)."""
+    """Moneyline/draw tokens (both outcomes) — plus soccer Total 0.5 tokens, which goal-over-all buys up to 3 days
+    pre-game — of open markets whose game starts in (ts+lead, ts+horizon] and is not live yet: the low-frequency
+    pre-game set (the <=lead window is covered every minute)."""
     return conn.execute(
         """
         SELECT t.token_id, t.condition_id, t.side, m.market_type, m.game_key, g.sport, g.status, g.start_time
         FROM games g
-        JOIN markets m ON m.game_key = g.game_key AND m.closed = 0 AND m.market_type IN ('moneyline', 'draw')
+        JOIN markets m ON m.game_key = g.game_key AND m.closed = 0
+             AND (m.market_type IN ('moneyline', 'draw') OR (m.market_type = 'total' AND m.line = 0.5))
         JOIN tokens t ON t.condition_id = m.condition_id
         WHERE COALESCE(g.status, 'scheduled') = 'scheduled' AND g.ended_at IS NULL
           AND g.start_time > :lo AND g.start_time <= :hi
