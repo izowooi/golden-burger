@@ -159,6 +159,7 @@ class WatchAccount:
     label: str | None = None
     since: int | None = None            # ingest activity at or after this unix time (None = full history)
     bankroll_usdc: float | None = None  # optional, for the -10% attention rule (unknown = rule off)
+    markets: tuple[str, ...] | None = None  # optional Track 2 market_type filter, e.g. ("total",) for O/U-only bets
 
     def __repr__(self) -> str:
         return f"WatchAccount(alias={self.alias!r}, address=***, label={self.label!r})"
@@ -178,7 +179,7 @@ def _watch_since(value: str | None) -> int | None:
 
 
 def watch_accounts() -> list[WatchAccount]:
-    """`~/.polylab/watch.env`: WATCH_<ALIAS>__ADDRESS=0x.. (+ __LABEL, __SINCE=YYYY-MM-DD, __BANKROLL_USDC).
+    """`~/.polylab/watch.env`: WATCH_<ALIAS>__ADDRESS=0x.. (+ __LABEL, __SINCE=YYYY-MM-DD, __BANKROLL_USDC, __MARKETS=total,btts).
 
     Invalid aliases/addresses are skipped (never echoed)."""
     env = load_env_file(SECRETS_DIR / WATCH_FILE)
@@ -196,7 +197,9 @@ def watch_accounts() -> list[WatchAccount]:
             bankroll = None
         out.append(WatchAccount(alias=alias, address=address, label=env.get(prefix + "LABEL") or None,
                                 since=_watch_since(env.get(prefix + "SINCE")),
-                                bankroll_usdc=bankroll if bankroll and bankroll > 0 else None))
+                                bankroll_usdc=bankroll if bankroll and bankroll > 0 else None,
+                                markets=tuple(m.strip().lower() for m in (env.get(prefix + "MARKETS") or "").split(",")
+                                              if m.strip()) or None))
     return out
 
 

@@ -334,6 +334,11 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
             counts[meta["result"]] += 1
             _write_position(conn, position, meta, p, now)
         set_meta(conn, "unattributed_redeems", unattributed)   # tokenless REDEEM matching no held position
+        # Accounts shared with old bots (e.g. red) keep only the owner's chosen market types in Track 2 scope.
+        markets = [m for m in (get_meta(conn, "markets") or "").split(",") if m]
+        if markets:
+            conn.execute(f"UPDATE position_meta SET track2=0 WHERE COALESCE(market_type,'') NOT IN "
+                         f"({','.join('?' * len(markets))})", markets)
     return counts
 
 

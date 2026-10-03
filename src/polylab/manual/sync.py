@@ -210,6 +210,7 @@ def sync_account(acct: settings.WatchAccount, paths, client: Client | None = Non
     try:
         ledger.set_meta(conn, "alias", acct.alias)
         ledger.set_meta(conn, "label", acct.label)
+        ledger.set_meta(conn, "markets", ",".join(acct.markets) if acct.markets else "")
         ledger.set_meta(conn, "since", since)
         if acct.bankroll_usdc is not None and ledger.get_meta(conn, "bankroll_usdc") is None:
             ledger.set_meta(conn, "bankroll_usdc", acct.bankroll_usdc)        # frozen at first sight

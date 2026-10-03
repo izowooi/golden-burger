@@ -248,3 +248,11 @@ def test_watch_accounts_config(tmp_path, monkeypatch):
     assert w.label == "트랙2-A" and w.bankroll_usdc == 1000.0 and w.since == 1790553600 and w.display == "트랙2-A"
     assert ADDR not in repr(w)
     assert settings.watch_addresses() == [ADDR]
+
+
+def test_watch_markets_filter_parsed(tmp_path, monkeypatch):
+    from polylab import settings
+    (tmp_path / "watch.env").write_text("WATCH_RED__ADDRESS=0x" + "ab" * 20 + "\nWATCH_RED__MARKETS=total, BTTS\n")
+    monkeypatch.setattr(settings, "SECRETS_DIR", tmp_path)
+    (acct,) = settings.watch_accounts()
+    assert acct.alias == "red" and acct.markets == ("total", "btts")
