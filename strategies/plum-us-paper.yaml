@@ -1,0 +1,84 @@
+id: plum-us-paper
+family: plum
+hypothesis: 미국 종목 경기 중 유일한 선두 토큰이 0.70-0.73 일 때 선두 유지·상승을 과소평가하는가. 실거래 전 paper 검증용.
+account: null
+mode: paper
+sports:
+- nfl
+- nba
+- nhl
+stake_usdc: 5.0
+params:
+  leagues:
+  - epl
+  - bun
+  - fl1
+  - lal
+  - sea
+  - mls
+  - unl
+  - ucl
+  - uel
+  min_game_volume_usd: 20000
+  prob_min: 0.7
+  prob_max: 0.73
+  take_profit_price: 0.9
+  stop_loss_delta: 0.12
+  min_leader_margin: 0.005
+  max_entry_spread: 0.05
+  max_stop_spread: 0.1
+  hours_max: 12.0
+  sport_overrides:
+    soccer:
+      max_source_minute: 60
+      force_exit_minute: 65
+    nfl:
+      take_profit_price: 0.85
+bounds:
+  min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  prob_min:
+  - 0.67
+  - 0.8
+  - 0.01
+  prob_max:
+  - 0.69
+  - 0.85
+  - 0.01
+  take_profit_price:
+  - 0.85
+  - 0.97
+  - 0.01
+  stop_loss_delta:
+  - 0.05
+  - 0.2
+  - 0.01
+  min_leader_margin:
+  - 0.0
+  - 0.02
+  - 0.005
+  max_entry_spread:
+  - 0.02
+  - 0.1
+  - 0.01
+  sport_overrides.soccer.max_source_minute:
+  - 45
+  - 80
+  - 5
+  sport_overrides.soccer.force_exit_minute:
+  - 50
+  - 90
+  - 5
+  sport_overrides.nfl.take_profit_price:
+  - 0.85
+  - 0.97
+  - 0.01
+limits:
+  max_positions: 10
+  max_open_usdc: 50
+  daily_loss_stop_usdc: 25
+  max_new_per_cycle: 5
+notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. plum-king
+  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다.'

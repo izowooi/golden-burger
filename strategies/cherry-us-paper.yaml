@@ -1,12 +1,13 @@
-id: cherry-blue
+id: cherry-us-paper
 family: cherry
-hypothesis: 경기 결과 마켓에서 0.80-0.82로 거래되는 YES 토큰은 경기 전/중 실현 확률 대비 과소평가되어 1.0 쪽으로 수렴한다(과거
-  회고에선 edge 미확인 — 재검증). TP 20%/SL 8%/trailing 15%.
-account: blue
-mode: live
+hypothesis: 미국 종목 결과 마켓에서 0.80-0.82 YES 토큰이 정산 전에 1.0 으로 수렴하는 경향이 있는가. 실거래 전 paper
+  검증용.
+account: null
+mode: paper
 sports:
-- soccer
-- mlb
+- nfl
+- nba
+- nhl
 stake_usdc: 5.0
 params:
   leagues:
@@ -68,5 +69,5 @@ limits:
   max_open_usdc: 50
   daily_loss_stop_usdc: 20
   max_new_per_cycle: 1
-notes: 'golden-cherry Blue(0.80-0.82) 포팅. 5개 종목 경기결과 마켓만. legacy GTC midpoint 대신 FOK
-  taker로 체결(의도적 차이). | 2026-10-03 연구자 결정: NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만).'
+notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. cherry-blue
+  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다.'

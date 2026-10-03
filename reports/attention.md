@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-03 08:00 KST · 열린 항목 20건 (긴급 0 · 경고 2 · 결정 필요 2 · 참고 16)
+갱신 2026-10-03 08:00 KST · 열린 항목 18건 (긴급 0 · 경고 2 · 결정 필요 0 · 참고 16)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -21,20 +21,6 @@
 - 근거: `strategies/plum-queen.yaml`
 
 10-03 08:00 KST 적용(ai:claude). 사유: 동일 Ukraine vs NI 경기에서 SL delta 0.17(king 0.12보다 넓음)이 오히려 급락 구간에서 더 깊게 물려 실체결가 0.45(설계 0.56 대비 −0.11). SL을 넓게 잡는 설계가 1분 주기 집행 불능 문제를 악화시킴을 확인. n=7로 통계 결론 불가이나 운영 위험이 동일하게 존재.. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
-
-### [결정 필요] NFL 실거래 유지 여부 결정 필요 — 오늘 5개 변형 NFL 전패, watermelon-dog만 +0.10 USDC
-
-- 결정 · AI 판단 · 최초 10-02 19:30 · 갱신 10-02 19:30 KST · id `ai:manual-nfl-scope`
-- 근거: `trades_recent.json, calibration_summary.json, metrics/plum-king.json`
-
-오늘 NFL Steelers vs Browns: plum-king -1.15, plum-queen -1.08, cherry-tiger -1.06, cherry-blue -0.69, watermelon-cat -1.83 전패. watermelon-dog만 Browns 0.98 진입 정산 승 +0.10. 5/6 변형 NFL 전패. calibration_summary.json NFL 0.60-0.70 버킷(n=114) gap=-0.12(유의, 과대평가) — plum 진입 범위(0.70-0.73)와 인접해 해당 가격대도 과대평가 구간일 가능성 있음. 표본 1-5건으로 통계적 결론 불가하나 방향은 일관되게 부정적. 선택지: (1) NFL을 paper 전환 (2) NFL 유지하며 표본 추가 (3) NFL 전용 파라미터 탐색.
-
-### [결정 필요] NFL 을 watermelon·plum 실거래 범위에 계속 둘지 결정 필요 (백테스트 전 조건 손실)
-
-- 결정 · 자동 규칙 · 최초 10-02 14:11 · 갱신 10-02 14:11 KST · id `manual:nfl-scope`
-- 근거: `docs/research/backtests/2026-10-02-watermelon-tp-apricot.md`
-
-2026-10-02 watermelon 파라미터 grid 에서 NFL 은 익절 유무·진입가 하한과 관계없이 모든 조건에서 손실이었다. 다만 NFL 거래가 모두 후반 표본에 몰려 전·후반 교차검증이 불가능했고, 축구용 진입가 하한을 그대로 써서 NFL 전용 최적화는 하지 않았다. 선택지: (1) NFL 을 실거래에서 빼고 paper 로만 관찰 (2) 유지하며 표본을 더 모음 (3) NFL 전용 파라미터 탐색 후 결정. 답은 reports/decisions.md 에 manual:nfl-scope 로.
 
 ### [참고] 데이터 품질 이벤트 live_gap 219건 (24시간)
 
@@ -151,8 +137,10 @@ cherry-tiger 가설: MLB 0.76-0.78 YES 토큰이 실현 확률 대비 저평가�
 ## 최근 해결
 
 <details>
-<summary>최근 14일 해결 3건</summary>
+<summary>최근 14일 해결 5건</summary>
 
+- **NFL 실거래 유지 여부 결정 필요 — 오늘 5개 변형 NFL 전패, watermelon-dog만 +0.10 USDC** — 사용자 결정 (2026-10-03): NFL 실거래를 폐기한다. 데이터가 충분히 쌓여 수익이 나는 전략과 파라미터가 확보될 때까지 잠정 중단한다. (10-03 13:58 KST)
+- **NFL 을 watermelon·plum 실거래 범위에 계속 둘지 결정 필요 (백테스트 전 조건 손실)** — 사용자 결정 (2026-10-03): NFL 을 watermelon·plum 실거래 범위에서 제외한다. NFL 전용 전략이나 기존 전략의 NFL 전용 분기 로직이 생기기 전까지 실거래하지 않는다. (10-03 13:58 KST)
 - **watermelon stop_price 미실행 수치 확인 — Republic of Ireland 0.92→0.17 (13분, 손실 –4.14 USDC)** — 사용자 결정 (2026-10-02): take-profit early 를 적용한다. 진입 조건 강화보다 조기 익절을 우선한다. 1분 주기로는 경기 막판 급락에서 손절이 체결되지 않으므로(아일랜드 0.92→0.17, 13분) 막판까지 보유하지 않는다. (10-02 09:25 KST)
 - **soccer goal jump 표본 극소(n=1·2) — 논문 핵심 종목 가설 2번 검증 불가** — 사용자 결정 (2026-10-02): 현재 축적 속도로 축구의 경기 시간 구간별 득점 민감도 분석이 어렵다는 데 동의한다. 이 가설의 논문상 역할은 "막판 변동성이 커서 손절이 무력하므로 전략은 경기 막판까지 들고 가지 않고 조기 익절해야 한다"는 실거래 수익화 논리의 근거다. 과대/과소 평가를 증명해도 급락에는 손절로 대응할 수 없다는 점이 핵심이다. (10-02 09:25 KST)
 - **백테스트에서 apricot-fruit(tick=85)이 apricot-eco(tick=90)보다 ROI 2.7%p 열위 — 파라미터 조정 시점 결정 필요** — 사용자 결정 (2026-10-02): 백테스트로 더 좋은 파라미터가 확인되면 그 값으로 변경한다(실거래 20건 대기 없이 조기 조정 허용). (10-02 09:25 KST)

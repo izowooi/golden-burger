@@ -1,37 +1,102 @@
 id: watermelon-dog
 family: watermelon
-hypothesis: "경기 중 실행가 0.92+ 승자 토큰은 실현 승률보다 싸다(상단 favourite-longshot bias; 2026-10-02~ 진입 하한 0.93). B arm: 손절 바닥 0.60(사실상 entry-0.30)으로 느슨한 손절이 보유-만기 대비 손익을 개선하는지 A와 비교. 2026-10-02~ early TP delta 0.04(A arm 0.02와 TP 수준 비교)."
+hypothesis: '경기 중 실행가 0.92+ 승자 토큰은 실현 승률보다 싸다(상단 favourite-longshot bias; 2026-10-02~
+  진입 하한 0.93). B arm: 손절 바닥 0.60(사실상 entry-0.30)으로 느슨한 손절이 보유-만기 대비 손익을 개선하는지 A와 비교.
+  2026-10-02~ early TP delta 0.04(A arm 0.02와 TP 수준 비교).'
 account: dog
 mode: live
-sports: [soccer, nfl]
-stake_usdc: 5
+sports:
+- soccer
+stake_usdc: 5.0
 params:
-  leagues: [epl, bun, fl1, lal, sea, mls, unl, ucl, uel]
+  leagues:
+  - epl
+  - bun
+  - fl1
+  - lal
+  - sea
+  - mls
+  - unl
+  - ucl
+  - uel
   min_game_volume_usd: 20000
   prob_min: 0.93
   prob_max: 0.999
-  stop_price: 0.60
-  max_entry_drawdown: 0.30
+  stop_price: 0.6
+  max_entry_drawdown: 0.3
   use_stored_stop: true
   hours_max: 4.0
-  max_stop_spread: 0.10
+  max_stop_spread: 0.1
   reentry_cooldown_hours: 720
   take_profit_delta: 0.04
   take_profit_cap: 0.99
   sport_overrides:
-    nfl: {prob_min: 0.94, stop_price: 0.70, hours_max: 6.0}
+    nfl:
+      prob_min: 0.94
+      stop_price: 0.7
+      hours_max: 6.0
 bounds:
-  min_game_volume_usd: [5000, 200000, 10000]
-  prob_min: [0.85, 0.99, 0.01]
-  prob_max: [0.98, 0.999, 0.005]
-  stop_price: [0.40, 0.85, 0.05]
-  max_entry_drawdown: [0.05, 0.50, 0.05]
-  hours_max: [2.0, 6.0, 0.5]
-  max_stop_spread: [0.03, 0.20, 0.02]
-  take_profit_delta: [0.01, 0.10, 0.01]
-  take_profit_cap: [0.97, 0.995, 0.005]
-  sport_overrides.nfl.prob_min: [0.85, 0.99, 0.01]
-  sport_overrides.nfl.stop_price: [0.40, 0.85, 0.05]
-  sport_overrides.nfl.hours_max: [3.0, 9.0, 0.5]
-limits: {max_positions: 20, max_open_usdc: 100, daily_loss_stop_usdc: 30, max_new_per_cycle: 5, max_sells_per_cycle: 5}
-notes: "golden-watermelon-live Dog(soccer 0.92/0.60 stored stop, nfl 0.94/0.70) 포팅. 원래 $5. 2026-10-02 사람 결정(thesis owner): 1분 주기로 후반 붕괴 손절이 실행되지 않아(Ireland 0.92→0.18) take-profit early 도입. TP=min(entry_vwap+delta, cap) full-holding bid VWAP·수수료 후 순이익일 때만, stop보다 우선. A/B arm B: delta 0.04(백테스트 TP 셀 중 ROI 비용 최소권, 꼬리 두꺼움) vs cat 0.02. soccer prob_min 0.92→0.93(max_step 이내). 백테스트(06-04~10-01, docs/research/backtests/2026-10-02-watermelon-tp-apricot.md)는 TP가 모든 셀·양 반기에서 보유-만기보다 ROI 약 0.8-2.1%p(pm0.93 에서 약 1.1%p) 나빴다(synthetic 1분 호가, 깊이 없음) — 실거래 손절 slippage가 이를 뒤집는지 검증하는 실험. 되돌리기: take_profit_delta: null(사람만). max_sells_per_cycle 1→5: TP 동시 체결이 다른 포지션 손절을 밀지 않게. stop 0.60 stored vs cat 0.65는 백테스트상 차이가 작아(ROI ±0.1%p) TP A/B의 작은 교란으로 남는다."
+  min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  prob_min:
+  - 0.85
+  - 0.99
+  - 0.01
+  prob_max:
+  - 0.98
+  - 0.999
+  - 0.005
+  stop_price:
+  - 0.4
+  - 0.85
+  - 0.05
+  max_entry_drawdown:
+  - 0.05
+  - 0.5
+  - 0.05
+  hours_max:
+  - 2.0
+  - 6.0
+  - 0.5
+  max_stop_spread:
+  - 0.03
+  - 0.2
+  - 0.02
+  take_profit_delta:
+  - 0.01
+  - 0.1
+  - 0.01
+  take_profit_cap:
+  - 0.97
+  - 0.995
+  - 0.005
+  sport_overrides.nfl.prob_min:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.nfl.stop_price:
+  - 0.4
+  - 0.85
+  - 0.05
+  sport_overrides.nfl.hours_max:
+  - 3.0
+  - 9.0
+  - 0.5
+limits:
+  max_positions: 20
+  max_open_usdc: 100
+  daily_loss_stop_usdc: 30
+  max_new_per_cycle: 5
+  max_sells_per_cycle: 5
+notes: 'golden-watermelon-live Dog(soccer 0.92/0.60 stored stop, nfl 0.94/0.70) 포팅.
+  원래 $5. 2026-10-02 사람 결정(thesis owner): 1분 주기로 후반 붕괴 손절이 실행되지 않아(Ireland 0.92→0.18)
+  take-profit early 도입. TP=min(entry_vwap+delta, cap) full-holding bid VWAP·수수료 후
+  순이익일 때만, stop보다 우선. A/B arm B: delta 0.04(백테스트 TP 셀 중 ROI 비용 최소권, 꼬리 두꺼움) vs cat
+  0.02. soccer prob_min 0.92→0.93(max_step 이내). 백테스트(06-04~10-01, docs/research/backtests/2026-10-02-watermelon-tp-apricot.md)는
+  TP가 모든 셀·양 반기에서 보유-만기보다 ROI 약 0.8-2.1%p(pm0.93 에서 약 1.1%p) 나빴다(synthetic 1분 호가,
+  깊이 없음) — 실거래 손절 slippage가 이를 뒤집는지 검증하는 실험. 되돌리기: take_profit_delta: null(사람만). max_sells_per_cycle
+  1→5: TP 동시 체결이 다른 포지션 손절을 밀지 않게. stop 0.60 stored vs cat 0.65는 백테스트상 차이가 작아(ROI
+  ±0.1%p) TP A/B의 작은 교란으로 남는다. | 2026-10-03 연구자 결정: NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper
+  시뮬레이션만).'
