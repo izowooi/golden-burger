@@ -165,3 +165,34 @@ def test_tick_paper_end_to_end(tmp_path):
     tick(env.paths, registry_dir=reg, poll=False, now=KICK + 2 * 3600)
     row = dict(db.strategy(env.paths, "goal-over-all").execute("SELECT * FROM positions").fetchone())
     assert row["status"] == "resolved" and row["realized_pnl"] == pytest.approx(5 / 0.93 - 5, abs=1e-3)
+
+
+def test_pct_take_profit_stop_loss_and_hold_above(tmp_path):
+    env, _ = world(tmp_path)
+    s = strat()
+    rules = {"take_profit_pct": 0.02, "stop_loss_pct": 0.10, "hold_above_price": 0.99}
+    now = KICK + 600
+    # +2% over a 0.93 entry (target 0.9486) and still below 0.99 -> take profit
+    env.book("ov1", now - 20, [(0.96, 500)], [(0.965, 500)])
+    p = pos(rules)
+    ex = s.exit_signals(env.view(now), now, p)
+    assert ex.kind == "take_profit" and s.confirm_exit(p, ex, env.view(now).book("ov1", now)).ok
+    # a goal pushes the bid to 0.995 -> hold to resolution, neither TP nor SL
+    t2 = now + 60
+    env.book("ov1", t2 - 10, [(0.995, 500)], [(0.997, 500)])
+    assert s.exit_signals(env.view(t2), t2, p) is None
+    assert s.confirm_exit(p, ex, env.view(t2).book("ov1", t2)).reason == "hold_above_price"
+    # +1% only -> nothing
+    t3 = t2 + 60
+    env.book("ov1", t3 - 10, [(0.94, 500)], [(0.945, 500)])
+    assert s.exit_signals(env.view(t3), t3, p) is None
+    # -10% (0.93 -> 0.837) -> stop loss
+    t4 = t3 + 60
+    env.book("ov1", t4 - 10, [(0.83, 500)], [(0.86, 500)])
+    ex = s.exit_signals(env.view(t4), t4, p)
+    assert ex.kind == "stop_loss" and s.confirm_exit(p, ex, env.view(t4).book("ov1", t4)).ok
+    # entry 0.975: +2% target is above 0.99, so TP can never fire before the hold zone
+    hi = pos(rules, entry=0.975, shares=5.13, cost=5.0)
+    t5 = t4 + 60
+    env.book("ov1", t5 - 10, [(0.989, 500)], [(0.99, 500)])
+    assert s.exit_signals(env.view(t5), t5, hi) is None

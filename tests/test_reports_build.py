@@ -146,3 +146,17 @@ def test_slack_post_prefers_bot_then_webhook(monkeypatch):
     monkeypatch.setattr(slack.requests, "post", fake_post)
     ok = slack.post("hi", env={"SLACK_BOT_TOKEN": "x", "SLACK_CHANNEL_ID": "C1", "SLACK_WEBHOOK_URL": "https://h"})
     assert ok and calls == ["https://slack.com/api/chat.postMessage", "https://h"]
+
+
+def test_exit_breakdown_counts_window_and_all_time():
+    import pandas as pd
+    from polylab.reports.build import exit_breakdown
+    df = pd.DataFrame([
+        {"exit_reason": "take_profit", "closed_at": 100, "realized_pnl": 0.1},
+        {"exit_reason": "take_profit", "closed_at": 300, "realized_pnl": 0.12},
+        {"exit_reason": "stop_loss", "closed_at": 310, "realized_pnl": -0.5},
+    ])
+    rows = {r["exit_reason"]: r for r in exit_breakdown(df, 200, 400)}
+    assert rows["take_profit"]["n_all"] == 2 and rows["take_profit"]["n_window"] == 1
+    assert abs(rows["take_profit"]["pnl_window"] - 0.12) < 1e-9 and rows["stop_loss"]["pnl_all"] == -0.5
+    assert exit_breakdown(pd.DataFrame(), 0, 1) == []

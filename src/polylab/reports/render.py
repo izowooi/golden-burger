@@ -181,6 +181,22 @@ def section_strategy_sport(r: dict) -> list[str]:
     return lines
 
 
+EXIT_KO = {"take_profit": "익절", "stop_loss": "손절", "resolution_win": "정산 승", "resolution_loss": "정산 패",
+           "time_exit": "시간 청산", "manual": "수동", "unknown": "미상"}
+
+
+def section_exits(r: dict) -> list[str]:
+    rows = []
+    for v in r.get("variants", []):
+        for e in v.get("exits") or []:
+            rows.append([f"`{v['id']}`", v.get("primary_mode", v["mode"]), EXIT_KO.get(e["exit_reason"], e["exit_reason"]),
+                         e["n_window"], _n(e["pnl_window"], sign=True), e["n_all"], _n(e["pnl_all"], sign=True)])
+    if not rows:
+        return []
+    return ["## 청산 사유별 집계", "", "익절·손절 기준이 실제로 몇 번, 얼마의 손익으로 작동했는지 (정산 완료분만).", "",
+            *_table(["변형", "원장", "청산 사유", "기간 건수", "기간 손익", "누적 건수", "누적 손익"], rows), ""]
+
+
 def section_variants(r: dict) -> list[str]:
     lines = ["## 전략 변형 현황", ""]
     rows = []
@@ -368,7 +384,7 @@ def render(r: dict, narrative: str | None = None, applied: list[dict] | None = N
              f"- 생성: {kst(r['now'], '%Y-%m-%d %H:%M')} KST · commit `{r.get('git_commit') or '–'}` · "
              f"기간 {kst(_ts(r['window']['since']))} ~ {kst(_ts(r['window']['until']))} KST",
              f"- 대시보드: https://poly.zowoo.uk", ""]
-    for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_variants, section_transactions,
+    for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_exits, section_variants, section_transactions,
                     section_open, section_manual, section_changes,
                     section_alerts, section_health, section_research, section_llm_forecast):
         lines += section(r)

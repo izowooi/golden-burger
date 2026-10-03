@@ -38,6 +38,9 @@ DEFAULTS = {
     "price_max": 0.985,
     "take_profit_price": None,          # None = off (hold to resolution)
     "stop_loss_price": None,            # None = off
+    "take_profit_pct": None,            # e.g. 0.02: sell once the exit is +2% over the confirmed entry VWAP
+    "stop_loss_pct": None,              # e.g. 0.10: sell once the best bid is 10% below the entry VWAP
+    "hold_above_price": None,           # e.g. 0.99: at/above this bid neither TP nor SL fires (ride to resolution)
     "max_stop_spread": 0.10,
     "allow_in_play": False,
     "in_play_max_minutes": 30,
@@ -61,20 +64,38 @@ def over_0_5(view: MarketView, game_key: str) -> tuple[str, str] | None:
 
 def threshold_exit_rules(prm: dict) -> dict:
     tp, sl = prm.get("take_profit_price"), prm.get("stop_loss_price")
-    return {"hold_to_resolution": tp is None and sl is None, "take_profit_price": tp, "stop_loss_price": sl,
-            "max_stop_spread": prm.get("max_stop_spread", DEFAULTS["max_stop_spread"])}
+    tpp, slp, hold = prm.get("take_profit_pct"), prm.get("stop_loss_pct"), prm.get("hold_above_price")
+    return {"hold_to_resolution": tp is None and sl is None and tpp is None and slp is None,
+            "take_profit_price": tp, "stop_loss_price": sl, "take_profit_pct": tpp, "stop_loss_pct": slp,
+            "hold_above_price": hold, "max_stop_spread": prm.get("max_stop_spread", DEFAULTS["max_stop_spread"])}
+
+
+def effective_thresholds(position: PositionView) -> tuple[float | None, float | None, float | None]:
+    """(tp_price, sl_price, hold_above) for this position: relative rules resolve against the confirmed entry VWAP;
+    an absolute price wins when both are set."""
+    r = position.exit_rules or {}
+    tp, sl = r.get("take_profit_price"), r.get("stop_loss_price")
+    entry = position.entry_price
+    if tp is None and r.get("take_profit_pct") is not None and entry:
+        tp = round(entry * (1 + float(r["take_profit_pct"])), 6)
+    if sl is None and r.get("stop_loss_pct") is not None and entry:
+        sl = round(entry * (1 - float(r["stop_loss_pct"])), 6)
+    hold = r.get("hold_above_price")
+    return (float(tp) if tp is not None else None, float(sl) if sl is not None else None,
+            float(hold) if hold is not None else None)
 
 
 def threshold_exit(view: MarketView, now: int, position: PositionView, book_max_age_s: int) -> ExitIntent | None:
     """TP (net-positive full-holding bid VWAP >= take_profit_price) first, then stop (best bid <= stop_loss_price)."""
-    r = position.exit_rules or {}
-    tp, sl = r.get("take_profit_price"), r.get("stop_loss_price")
+    tp, sl, hold = effective_thresholds(position)
     if (tp is None and sl is None) or position.status != "open" or not position.shares:
         return None
     book = view.book(position.token_id, now, max_age_s=book_max_age_s)
     if book is None or book.best_bid is None:
         return None
-    if tp is not None:
+    if hold is not None and book.best_bid >= hold - EPS:
+        return None  # near-certain (e.g. a goal already scored for Over 0.5): ride to resolution
+    if tp is not None and (hold is None or tp < hold - EPS):
         m = view.market(position.condition_id)
         sched = parse_fee_schedule(m.fee_schedule) if m else None
         c = net_positive_tp_check(position, book, float(tp), sched)
@@ -92,15 +113,16 @@ def threshold_exit(view: MarketView, now: int, position: PositionView, book_max_
 
 def threshold_confirm_exit(position: PositionView, intent: ExitIntent, book: Book | None) -> Check:
     r = position.exit_rules or {}
+    tp, sl, hold = effective_thresholds(position)
     if book is None or book.best_bid is None:
         return Check(False, "no_bids")
+    if hold is not None and book.best_bid >= hold - EPS:
+        return Check(False, "hold_above_price")
     if intent.kind == "take_profit":
-        tp = r.get("take_profit_price")
         if tp is None:
             return Check(False, "tp_disabled")
         raw = intent.features.get("fee_schedule")
         return net_positive_tp_check(position, book, float(tp), FeeSchedule(**raw) if raw else None)
-    sl = r.get("stop_loss_price")
     if sl is None:
         return Check(False, "stop_disabled")
     if book.best_bid > float(sl) + EPS:

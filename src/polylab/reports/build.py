@@ -456,11 +456,26 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
             "live": performance.summary(live, now), "paper": performance.summary(paper, now),
             "primary_mode": "live" if primary is live else "paper",
             "breakdown": performance.breakdown(primary), "equity_curve": performance.equity_curve(primary),
+            "exits": exit_breakdown(primary, since, until),
             "excluded": performance.excluded_counts(df),
             "open": opens, "recent": recent_position_rows(primary, core),
             "strategy_sport": strategy_sport_rows(v, paths, df, core, opens, since, until),
             "param_history": history, "stake_events": stakes, "changes": changes, "last_change": last_change,
             "_settled_live": live, "_settled_paper": paper}
+
+
+def exit_breakdown(df: pd.DataFrame, since: int, until: int) -> list[dict]:
+    """Settled positions by exit reason (take_profit / stop_loss / resolution_win / ...), window and all time."""
+    if df is None or df.empty or "exit_reason" not in df:
+        return []
+    out = []
+    for reason, g in df.groupby(df["exit_reason"].fillna("unknown")):
+        w = g[(g["closed_at"] >= since) & (g["closed_at"] < until)] if "closed_at" in g else g.iloc[0:0]
+        pnl = g["realized_pnl"].dropna() if "realized_pnl" in g else pd.Series(dtype=float)
+        wp = w["realized_pnl"].dropna() if "realized_pnl" in w else pd.Series(dtype=float)
+        out.append({"exit_reason": reason, "n_all": int(len(g)), "pnl_all": float(pnl.sum()) if len(pnl) else None,
+                    "n_window": int(len(w)), "pnl_window": float(wp.sum()) if len(wp) else None})
+    return sorted(out, key=lambda r: -r["n_all"])
 
 
 def research_highlights(paths) -> dict:
