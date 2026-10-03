@@ -1,9 +1,9 @@
 {
- "generated_at": "2026-10-03T10:30:04Z",
- "git_commit": "b06ec51",
+ "generated_at": "2026-10-03T18:30:03Z",
+ "git_commit": "e53883c",
  "kind": "daily",
- "slot": "evening",
- "name": "2026-10-03-evening",
+ "slot": "dawn",
+ "name": "2026-10-04-dawn",
  "proposal_schema": "polylab.proposal/v1",
  "engine": "claude",
  "ai": true,

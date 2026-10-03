@@ -1,0 +1,36 @@
+id: goal-over-all
+family: goal_over
+hypothesis: "기준선(buy-everything): 주요 리그 축구 전 경기의 Total 0.5 Over('한 골이라도 나온다')를 킥오프 3일(4320분)→5분 전 실행가(전체 호가 walk) 0.50–0.985 이면 기계적으로 매수해 정산까지 보유하면 수수료 후 손익이 0 근처인가(시장 효율성). AI 선별(llm-nil-draw·llm-nil-consensus)이 이 기준선보다 나은지 비교한다. 설계 docs/research/llm-forecast-study.md."
+account: lion
+mode: live
+sports: [soccer]
+stake_usdc: 5
+params:
+  leagues: [epl, lal, bun, sea, fl1, mls, ucl, uel, fifwc, euc, unl]
+  entry_minutes_before_max: 4320
+  entry_minutes_before_min: 5
+  price_min: 0.5
+  price_max: 0.985
+  take_profit_price: null
+  stop_loss_price: null
+  take_profit_pct: 0.02
+  stop_loss_pct: 0.1
+  hold_above_price: 0.99
+  max_stop_spread: 0.1
+  allow_in_play: false
+  in_play_max_minutes: 30
+  book_max_age_s: 900
+bounds:
+  entry_minutes_before_max: [60, 4320, 720]
+  entry_minutes_before_min: [1, 14, 2]
+  price_min: [0.5, 0.95, 0.05]
+  price_max: [0.9, 0.99, 0.005]
+  take_profit_price: [0.95, 0.999, 0.01]
+  stop_loss_price: [0.2, 0.8, 0.05]
+  take_profit_pct: [0.01, 0.1, 0.01]
+  stop_loss_pct: [0.05, 0.3, 0.05]
+  hold_above_price: [0.97, 0.995, 0.005]
+  max_stop_spread: [0.03, 0.2, 0.02]
+  in_play_max_minutes: [5, 45, 5]
+limits: {max_positions: 50, max_open_usdc: 260, daily_loss_stop_usdc: 30, max_new_per_cycle: 10, max_sells_per_cycle: 10}
+notes: "2026-10-04 연구자 결정: 진입가 대비 +2% 면 익절, -10% 면 손절하고 그 경기에는 다시 들어가지 않는다. 매도 호가가 0.99 이상이면(사실상 골이 난 상태) 익절·손절 없이 정산까지 보유한다. lion 계좌로 실거래(5 USDC). 진입 창은 킥오프 3일 전부터 5분 전까지(한 달 전 같은 너무 이른 매수는 하지 않음). 경기 전 Over 0.5 호가는 10분 간격으로 수집되므로 신호용 호가 허용 나이는 15분(book_max_age_s 900), 주문 직전에는 실시간 호가로 다시 확인한다. 3일 보유 중첩을 감안해 동시 보유 50건·묶인 금액 260 USDC 상한(잔고 약 303). TP/SL 은 null(정산까지 보유); autopilot 은 bounds 안에서 켤 수 있으나 null 로 되돌리는 것은 사람만."
