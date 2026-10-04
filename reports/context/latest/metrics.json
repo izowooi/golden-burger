@@ -4,11 +4,11 @@
   "d7": -25.7528,
   "d30": -25.7528,
   "all": -25.7528,
-  "tx_24h": 58,
-  "settled_24h": 24,
-  "settled_pnl_24h": 1.898,
-  "open_positions": 2,
-  "unrealized_pnl": 0.0,
+  "tx_24h": 109,
+  "settled_24h": 48,
+  "settled_pnl_24h": -2.1252,
+  "open_positions": 6,
+  "unrealized_pnl": -0.3506,
   "live_variants": 7,
   "paper_variants": 7
  },
@@ -1703,11 +1703,11 @@
     ]
    },
    "ladder": {
-    "status": "hold",
+    "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 0,
+    "trades_at_tier": 10,
     "needed": 20,
-    "roi_ci_lo": null,
+    "roi_ci_lo": -0.20001906818115978,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -1733,28 +1733,85 @@
    },
    "paper": {
     "pnl": {
-     "today": 0.0,
-     "d7": 0.0,
-     "d30": 0.0,
-     "all": 0.0
+     "today": -3.522,
+     "d7": -3.522,
+     "d30": -3.522,
+     "all": -3.522
     },
     "trades": {
-     "all": 0,
-     "wins": 0,
-     "losses": 0
+     "all": 10,
+     "wins": 5,
+     "losses": 5
     },
-    "win_rate": null,
-    "roi": null,
-    "cost": 0.0,
-    "last_trade_at": null
+    "win_rate": 0.5,
+    "roi": -0.0695,
+    "cost": 50.71,
+    "last_trade_at": "2026-10-04T04:22:03Z"
    },
    "breakdown": {
-    "by_sport": [],
-    "by_entry_minute": [],
-    "by_stake": [],
-    "by_day": []
+    "by_sport": [
+     {
+      "key": "nba",
+      "n": 1,
+      "pnl": 1.0577,
+      "win_rate": 1.0,
+      "roi": 0.2087
+     },
+     {
+      "key": "nhl",
+      "n": 9,
+      "pnl": -4.5797,
+      "win_rate": 0.4444,
+      "roi": -0.1004
+     }
+    ],
+    "by_entry_minute": [
+     {
+      "key": "0-15",
+      "n": 3,
+      "pnl": 1.0628,
+      "win_rate": 0.6667,
+      "roi": 0.0699
+     },
+     {
+      "key": "15-30",
+      "n": 2,
+      "pnl": -0.2781,
+      "win_rate": 0.5,
+      "roi": -0.0274
+     },
+     {
+      "key": "30-45",
+      "n": 4,
+      "pnl": -5.3644,
+      "win_rate": 0.25,
+      "roi": -0.2644
+     }
+    ],
+    "by_stake": [
+     {
+      "key": "5",
+      "n": 10,
+      "pnl": -3.522,
+      "win_rate": 0.5,
+      "roi": -0.0695
+     }
+    ],
+    "by_day": [
+     {
+      "key": "2026-10-04",
+      "n": 10,
+      "pnl": -3.522,
+      "win_rate": 0.5,
+      "roi": -0.0695
+     }
+    ]
    },
-   "excluded": {},
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
    "last_change": {
     "at": "2026-10-03T05:02:03Z",
     "summary": "plum-us-paper v1: 초기 버전 (init)"
@@ -2366,11 +2423,11 @@
     ]
    },
    "ladder": {
-    "status": "hold",
+    "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 0,
+    "trades_at_tier": 14,
     "needed": 20,
-    "roi_ci_lo": null,
+    "roi_ci_lo": -0.04796034994628263,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -2396,28 +2453,99 @@
    },
    "paper": {
     "pnl": {
-     "today": 0.0,
-     "d7": 0.0,
-     "d30": 0.0,
-     "all": 0.0
+     "today": -0.5012,
+     "d7": -0.5012,
+     "d30": -0.5012,
+     "all": -0.5012
     },
     "trades": {
-     "all": 0,
-     "wins": 0,
-     "losses": 0
+     "all": 14,
+     "wins": 13,
+     "losses": 1
     },
-    "win_rate": null,
-    "roi": null,
-    "cost": 0.0,
-    "last_trade_at": null
+    "win_rate": 0.9286,
+    "roi": -0.0071,
+    "cost": 70.18,
+    "last_trade_at": "2026-10-04T04:57:02Z"
    },
    "breakdown": {
-    "by_sport": [],
-    "by_entry_minute": [],
-    "by_stake": [],
-    "by_day": []
+    "by_sport": [
+     {
+      "key": "nba",
+      "n": 1,
+      "pnl": 0.1274,
+      "win_rate": 1.0,
+      "roi": 0.0254
+     },
+     {
+      "key": "nhl",
+      "n": 13,
+      "pnl": -0.6286,
+      "win_rate": 0.9231,
+      "roi": -0.0096
+     }
+    ],
+    "by_entry_minute": [
+     {
+      "key": "0-15",
+      "n": 1,
+      "pnl": 0.0712,
+      "win_rate": 1.0,
+      "roi": 0.0142
+     },
+     {
+      "key": "15-30",
+      "n": 1,
+      "pnl": 0.1274,
+      "win_rate": 1.0,
+      "roi": 0.0254
+     },
+     {
+      "key": "30-45",
+      "n": 4,
+      "pnl": -2.0047,
+      "win_rate": 0.75,
+      "roi": -0.0999
+     },
+     {
+      "key": "45-60",
+      "n": 7,
+      "pnl": 1.2633,
+      "win_rate": 1.0,
+      "roi": 0.036
+     },
+     {
+      "key": "60-75",
+      "n": 1,
+      "pnl": 0.0415,
+      "win_rate": 1.0,
+      "roi": 0.0083
+     }
+    ],
+    "by_stake": [
+     {
+      "key": "5",
+      "n": 14,
+      "pnl": -0.5012,
+      "win_rate": 0.9286,
+      "roi": -0.0071
+     }
+    ],
+    "by_day": [
+     {
+      "key": "2026-10-04",
+      "n": 14,
+      "pnl": -0.5012,
+      "win_rate": 0.9286,
+      "roi": -0.0071
+     }
+    ]
    },
-   "excluded": {},
+   "excluded": {
+    "quarantined": 0,
+    "closed_without_pnl": 0,
+    "live_without_confirmed_buy": 0
+   },
    "last_change": {
     "at": "2026-10-03T05:02:03Z",
     "summary": "watermelon-us-paper v1: 초기 버전 (init)"

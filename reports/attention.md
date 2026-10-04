@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-04 08:00 KST · 열린 항목 34건 (긴급 0 · 경고 3 · 결정 필요 4 · 참고 27)
+갱신 2026-10-04 19:31 KST · 열린 항목 34건 (긴급 0 · 경고 3 · 결정 필요 4 · 참고 27)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -10,8 +10,8 @@
 
 ### [경고] 수동 베팅 누적 실현 -8,538.77 USDC: bankroll의 -85.4% (수동 AI 베팅 (red, 메인))
 
-- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 08:00 KST · id `manual_drawdown:red`
-- 근거: `reports/daily/2026-10-04-morning.md`
+- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 19:31 KST · id `manual_drawdown:red`
+- 근거: `reports/daily/2026-10-04-evening.md`
 
 계좌 수동 AI 베팅 (red, 메인) 실현손익이 처음 기록된 bankroll 10,000.00 USDC의 −10% 아래로 내려갔다. 베팅 금액·선택 기준 점검 권장.
 
@@ -29,12 +29,12 @@
 
 10-03 08:00 KST 자동 적용. 사유: ai:claude: mode live→paper. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
 
-### [결정 필요] apricot-fruit 3일 이상 진입 0건 (대상 경기 9개 있었음)
+### [결정 필요] apricot-fruit 3일 이상 진입 0건 (대상 경기 8개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 08:00 KST · id `dead_variant:apricot-fruit`
+- 결정 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 19:31 KST · id `dead_variant:apricot-fruit`
 - 근거: `strategies/apricot-fruit.yaml`
 
-진입 기록 없음. 같은 기간 대상 종목(mlb) 경기는 9개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. 조건 완화(주간 AI 검토) 또는 폐기(retire) 여부를 판단해야 한다.
+진입 기록 없음. 같은 기간 대상 종목(mlb) 경기는 8개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. 조건 완화(주간 AI 검토) 또는 폐기(retire) 여부를 판단해야 한다.
 
 ### [결정 필요] cherry-tiger n=6(이전 3건): 오늘 2건 이익 포함, 누적 ROI -8.53% — paper 전환 여부 재확인
 
@@ -57,33 +57,47 @@ plum-king·queen이 paper 모드로 전환됐으나 paper 거래가 0건. 현재
 
 cherry-tiger 실거래 3건(soccer 1, MLB 1, NFL 1) 모두 stop_loss 청산, ROI -17.19%, 총손익 -2.60 USDC. 현재 1건 open 중(Switzerland vs Slovenia YES entry 0.77, mark 0.765, unrealized -0.09 USDC). calibration_summary.json 기준 MLB 0.70-0.80 버킷 gap=-0.0054(유의하지 않음)으로 가설(0.76-0.78 YES 토큰 저평가)이 calibration에서 지지되지 않는다. n=3으로 우연과 구분 불가이나, 가설과 실결과가 모두 같은 방향(불리)임을 감안할 때 paper 전환을 고려할지 연구자의 판단이 필요하다. 결정이 없으면 현 live 모드 유지한다.
 
-### [참고] 데이터 품질 이벤트 live_gap 167건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 197건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-04 08:00 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-04-morning.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-04 19:31 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-04-evening.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 51건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 88건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 08:00 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-04-morning.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 19:31 KST · id `quality:live_history_mismatch`
+- 근거: `reports/daily/2026-10-04-evening.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [참고] 수동 베팅 정산 패: 수동 AI 베팅 (red, 메인) · Israel vs. Kosovo O/U 0.5 Over -565.69
 
-- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 08:00 KST · id `manual_loss:red:e944ae23d5`
-- 근거: `reports/daily/2026-10-04-morning.md`
+- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 19:31 KST · id `manual_loss:red:e944ae23d5`
+- 근거: `reports/daily/2026-10-04-evening.md`
 
 10-02 07:44 KST 정산. 트랙 2 기록용 알림(결정 불필요).
 
 ### [참고] 수동 베팅 정산 패: 수동 AI 베팅 (red, 메인) · Korea Republic vs. Venezuela O/U 0.5 Over -3,544.96
 
-- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 08:00 KST · id `manual_loss:red:10fc507120`
-- 근거: `reports/daily/2026-10-04-morning.md`
+- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-04 19:31 KST · id `manual_loss:red:10fc507120`
+- 근거: `reports/daily/2026-10-04-evening.md`
 
 10-02 23:54 KST 정산. 트랙 2 기록용 알림(결정 불필요).
+
+### [참고] paper 변형 plum-us-paper 증거 수집 중 (10/20건)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-04 19:31 KST · id `paper:plum-us-paper`
+- 근거: `strategies/plum-us-paper.yaml`
+
+가설: 미국 종목 경기 중 유일한 선두 토큰이 0.70-0.73 일 때 선두 유지·상승을 과소평가하는가. 실거래 전 paper 검증용.. paper 정산 10건, ROI -7.0%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
+
+### [참고] paper 변형 watermelon-us-paper 증거 수집 중 (14/20건)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-04 19:31 KST · id `paper:watermelon-us-paper`
+- 근거: `strategies/watermelon-us-paper.yaml`
+
+가설: 미국 종목(NFL·NBA·NHL) 경기 중 0.93+ 정배 토큰이 실현 승률보다 싸게 거래되는가(조기 익절 포함). 실거래 전 paper 검증용.. paper 정산 14건, ROI -0.7%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
 
 ### [참고] watermelon A/B 누적 갱신: dog ROI -0.06%(32건) vs cat ROI -2.30%(30건), 격차 3.37 USDC로 확대
 
@@ -133,20 +147,6 @@ events_summary.json 기준 축구 득점 mean_abs_jump: 0-15분(n=10, 0.0915), 1
 - 근거: `strategies/cherry-us-paper.yaml`
 
 가설: 미국 종목 결과 마켓에서 0.80-0.82 YES 토큰이 정산 전에 1.0 으로 수렴하는 경향이 있는가. 실거래 전 paper 검증용.. paper 정산 0건, ROI –(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
-
-### [참고] paper 변형 plum-us-paper 증거 수집 중 (0/20건)
-
-- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-03 19:30 KST · id `paper:plum-us-paper`
-- 근거: `strategies/plum-us-paper.yaml`
-
-가설: 미국 종목 경기 중 유일한 선두 토큰이 0.70-0.73 일 때 선두 유지·상승을 과소평가하는가. 실거래 전 paper 검증용.. paper 정산 0건, ROI –(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
-
-### [참고] paper 변형 watermelon-us-paper 증거 수집 중 (0/20건)
-
-- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-03 19:30 KST · id `paper:watermelon-us-paper`
-- 근거: `strategies/watermelon-us-paper.yaml`
-
-가설: 미국 종목(NFL·NBA·NHL) 경기 중 0.93+ 정배 토큰이 실현 승률보다 싸게 거래되는가(조기 익절 포함). 실거래 전 paper 검증용.. paper 정산 0건, ROI –(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
 
 ### [참고] watermelon A/B arm 누적 갱신: dog TP delta 0.04가 cat 0.02보다 일관되게 높은 성과 (24/22건)
 
