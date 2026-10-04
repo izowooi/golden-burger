@@ -68,12 +68,12 @@ def test_no_ledgers_is_empty(tmp_path, monkeypatch):
 
 def test_attention_loss_and_drawdown(world):  # noqa: F811
     paths, acct = world
-    acct = settings.WatchAccount(alias="owner", address=ADDR, label="연구자A", bankroll_usdc=500.0)
+    acct = settings.WatchAccount(alias="owner", address=ADDR, label="연구자A", bankroll_usdc=600.0)
     synced(paths, acct)
     sec = report.report_section(paths, NOW - 86400, NOW, "daily", NOW + 3600)
     ids = [a["id"] for a in sec["alerts"]]
     assert sum(i.startswith("manual_loss:") for i in ids) == 2
-    # realised -50.81 + 1.12 > -50 (10% of 500)? -49.69 -> no drawdown item yet
+    # Track 2 realised -50.81 (the +1.12 non-game bet is excluded) > -60 (10% of 600) -> no drawdown item yet
     assert not any(i.startswith("manual_drawdown") for i in ids)
     acct2 = settings.WatchAccount(alias="other", address=ADDR, bankroll_usdc=300.0)
     synced(paths, acct2)

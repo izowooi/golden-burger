@@ -190,7 +190,8 @@ def _alerts(acct: dict, df: pd.DataFrame, s_all: pd.DataFrame, now: int) -> list
                         "market": _market(r), "realized_pnl": _r(r["realized_pnl"]),
                         "closed_at": C.iso(int(r["closed_at"]))})
     bank = acct["bankroll_usdc"]
-    total = float(s_all["realized_pnl"].sum()) if not s_all.empty else 0.0
+    # the bankroll rule is about the owner's Track 2 bets only; legacy bot trades on a shared wallet don't count
+    total = float(t2["realized_pnl"].sum()) if not t2.empty else 0.0
     if bank and total <= DRAWDOWN_PCT * bank:
         out.append({"id": f"manual_drawdown:{acct['alias']}", "severity": "warn",
                     "account": acct["label"] or acct["alias"], "realized_pnl": _r(total), "bankroll_usdc": bank,
