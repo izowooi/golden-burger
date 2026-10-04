@@ -1,7 +1,7 @@
 id: cherry-blue
 family: cherry
-hypothesis: 경기 결과 마켓에서 0.80-0.82로 거래되는 YES 토큰은 경기 전/중 실현 확률 대비 과소평가되어 1.0 쪽으로 수렴한다(과거
-  회고에선 edge 미확인 — 재검증). TP 20%/SL 8%/trailing 15%.
+hypothesis: '경기 결과 마켓에서 이미 0.90-0.95 인 YES favourite(경기 전 72h 이내 또는 킥오프 후 60분 이내)은 남은 불확실성이 해소되며 1.0 쪽으로
+  수렴한다. A arm: 진입가 +0.03 에 전량 익절(빠른 회수·얇은 꼬리). 손절·트레일링 없음, 매도호가 0.99 이상이면 정산까지 보유.'
 account: blue
 mode: live
 sports:
@@ -19,15 +19,19 @@ params:
   - unl
   - ucl
   - uel
-  buy_threshold: 0.8
-  sell_threshold: 0.82
-  take_profit_percent: 0.2
-  stop_loss_percent: -0.08
-  trailing_enabled: true
+  buy_threshold: 0.9
+  sell_threshold: 0.95
+  take_profit_delta: 0.03
+  take_profit_price: null
+  hold_above_price: 0.99
+  take_profit_percent: null
+  stop_loss_percent: null
+  trailing_enabled: false
   trailing_percent: 0.15
   entry_hours_min: 0.0
-  entry_hours_max: 120.0
+  entry_hours_max: 72.0
   allow_in_play: true
+  in_play_max_minutes: 60
   yes_only: true
   min_liquidity: 125000.0
   min_volume: 5000.0
@@ -36,29 +40,33 @@ params:
   - draw
 bounds:
   buy_threshold:
-  - 0.7
-  - 0.88
-  - 0.02
+  - 0.85
+  - 0.94
+  - 0.01
   sell_threshold:
-  - 0.72
-  - 0.92
-  - 0.02
-  take_profit_percent:
-  - 0.05
-  - 0.25
-  - 0.05
-  stop_loss_percent:
-  - -0.15
-  - -0.04
-  - 0.02
-  trailing_percent:
-  - 0.05
-  - 0.2
-  - 0.05
+  - 0.9
+  - 0.97
+  - 0.01
+  take_profit_delta:
+  - 0.01
+  - 0.08
+  - 0.01
+  take_profit_price:
+  - 0.95
+  - 0.985
+  - 0.005
+  hold_above_price:
+  - 0.98
+  - 0.995
+  - 0.005
   entry_hours_max:
   - 24.0
-  - 168.0
+  - 120.0
   - 24.0
+  in_play_max_minutes:
+  - 30
+  - 120
+  - 15
   min_liquidity:
   - 50000.0
   - 250000.0
@@ -68,5 +76,9 @@ limits:
   max_open_usdc: 50
   daily_loss_stop_usdc: 20
   max_new_per_cycle: 1
-notes: 'golden-cherry Blue(0.80-0.82) 포팅. 5개 종목 경기결과 마켓만. legacy GTC midpoint 대신 FOK
-  taker로 체결(의도적 차이). | 2026-10-03 연구자 결정: NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만).'
+notes: 'golden-cherry Blue(0.80-0.82) 포팅. 5개 종목 경기결과 마켓만. legacy GTC midpoint 대신 FOK taker로 체결(의도적 차이).
+  | 2026-10-03 연구자 결정: NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만). | 2026-10-04 연구자 결정·백테스트(docs/research/backtests/2026-10-04-cherry-plum.md):
+  0.80-0.82/TP+20%/SL-8%/trailing 은 수수료·스프레드·1분 주기 손절 미끄러짐으로 구조적 손실 → 밴드 0.90-0.95, 진입 창 경기 전 72h + 킥오프
+  후 60분, 절대 익절 +0.03(수수료 후 순이익일 때만 전량), 0.99 이상 보유, 손절·트레일링·상대 TP 끔. 백테스트도 edge 를 입증하지 못했다(분할 표본 ±1%p
+  이내). A/B 는 tiger(고정 0.98 매도)와 청산 방식만 다르다. SL·trailing·상대 TP 는 bounds 에서 뺐으므로 다시 켜는 것은 사람만. 이전 포지션은 진입
+  시 고정된 규칙을 유지한다.'

@@ -23,6 +23,8 @@ params:
   prob_min: 0.7
   prob_max: 0.73
   take_profit_price: 0.9
+  take_profit_delta: null
+  hold_above_price: null
   stop_loss_delta: 0.12
   min_leader_margin: 0.005
   max_entry_spread: 0.05
@@ -51,6 +53,14 @@ bounds:
   - 0.85
   - 0.97
   - 0.01
+  take_profit_delta:
+  - 0.01
+  - 0.15
+  - 0.01
+  hold_above_price:
+  - 0.98
+  - 0.995
+  - 0.005
   stop_loss_delta:
   - 0.05
   - 0.2
@@ -80,5 +90,7 @@ limits:
   max_open_usdc: 50
   daily_loss_stop_usdc: 25
   max_new_per_cycle: 5
-notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. plum-king
-  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다.'
+notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. plum-king 의 현재 파라미터에서 출발. live
+  전환은 연구자만 결정한다. | 2026-10-04 연구자 결정 B(delta 조기 익절 paper 테스트)는 plum-king·queen 에 적용했다. 미국 종목 백테스트에선 delta
+  가 손해였다(보유 기준 +0.51% → +0.03 −1.28%, +0.05 −1.03%; NBA·NFL 악화) — 그래서 이 변형은 take_profit_delta·hold_above_price
+  를 null(기존 TP 가격)로 두고 bounds 만 열었다. 근거 docs/research/backtests/2026-10-04-cherry-plum.md.'

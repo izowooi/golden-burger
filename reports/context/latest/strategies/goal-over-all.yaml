@@ -13,7 +13,8 @@ params:
   price_max: 0.985
   take_profit_price: null
   stop_loss_price: null
-  take_profit_pct: 0.02
+  take_profit_delta: 0.02
+  take_profit_pct: null
   stop_loss_pct: 0.1
   hold_above_price: 0.99
   max_stop_spread: 0.1
@@ -27,10 +28,11 @@ bounds:
   price_max: [0.9, 0.99, 0.005]
   take_profit_price: [0.95, 0.999, 0.01]
   stop_loss_price: [0.2, 0.8, 0.05]
+  take_profit_delta: [0.01, 0.06, 0.01]
   take_profit_pct: [0.01, 0.1, 0.01]
   stop_loss_pct: [0.05, 0.3, 0.05]
   hold_above_price: [0.97, 0.995, 0.005]
   max_stop_spread: [0.03, 0.2, 0.02]
   in_play_max_minutes: [5, 45, 5]
 limits: {max_positions: 50, max_open_usdc: 260, daily_loss_stop_usdc: 30, max_new_per_cycle: 10, max_sells_per_cycle: 10}
-notes: "2026-10-04 연구자 결정: 진입가 대비 +2% 면 익절, -10% 면 손절하고 그 경기에는 다시 들어가지 않는다. 매도 호가가 0.99 이상이면(사실상 골이 난 상태) 익절·손절 없이 정산까지 보유한다. lion 계좌로 실거래(5 USDC). 진입 창은 킥오프 3일 전부터 5분 전까지(한 달 전 같은 너무 이른 매수는 하지 않음). 경기 전 Over 0.5 호가는 10분 간격으로 수집되므로 신호용 호가 허용 나이는 15분(book_max_age_s 900), 주문 직전에는 실시간 호가로 다시 확인한다. 3일 보유 중첩을 감안해 동시 보유 50건·묶인 금액 260 USDC 상한(잔고 약 303). TP/SL 은 null(정산까지 보유); autopilot 은 bounds 안에서 켤 수 있으나 null 로 되돌리는 것은 사람만."
+notes: "2026-10-04 연구자 결정: 진입가 +0.02(2센트, 예: 0.95→0.97) 이상이면 익절, -10% 면 손절하고 그 경기에는 다시 들어가지 않는다. 매도 호가가 0.99 이상이면(사실상 골이 난 상태) 익절·손절 없이 정산까지 보유한다. lion 계좌로 실거래(5 USDC). 진입 창은 킥오프 3일 전부터 5분 전까지(한 달 전 같은 너무 이른 매수는 하지 않음). 경기 전 Over 0.5 호가는 10분 간격으로 수집되므로 신호용 호가 허용 나이는 15분(book_max_age_s 900), 주문 직전에는 실시간 호가로 다시 확인한다. 3일 보유 중첩을 감안해 동시 보유 50건·묶인 금액 260 USDC 상한(잔고 약 303). 청산 기준(익절 +0.02·손절 −10%·0.99 이상 보유)은 연구자 고정값이라 autopilot validator 가 변경을 거부한다. 바꿀 근거가 있으면 attention 으로 제안만 한다. 진입 가격·시간 범위는 autopilot 조정 대상."
