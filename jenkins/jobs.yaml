@@ -41,7 +41,7 @@ jobs:
   polylab-retro-weekly:
     description: "주간 회고(월 08:30 KST): 백테스트 기반 파라미터 탐색·paper 변형 제안"
     cron: "TZ=Asia/Seoul\n30 8 * * 1"
-    timeout_minutes: 90
+    timeout_minutes: 150
     pull: true
     command: "uv run --no-sync polylab retro weekly"
   polylab-retro-monthly:

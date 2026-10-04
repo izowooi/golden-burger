@@ -3,6 +3,13 @@ books) when its exact-$5 ask VWAP is in a narrow band (.70-.73). Exits: absolute
 (partial slice allowed, every consumed bid >= TP), stop at best bid <= entry - delta, and
 (soccer) a forced full exit at source minute >= force_exit_minute. Otherwise hold.
 
+Early take-profit (optional, added 2026-10-04 by owner decision B): with `take_profit_delta` set,
+the TP becomes a full-holding sale once the bid VWAP of the whole holding is
+>= min(entry_vwap + delta, take_profit_price) and the sale is net-positive after buy+sell fees
+(base.net_positive_tp_check; unknown fee never passes). It replaces the partial-slice TP.
+`hold_above_price` (optional): best bid at/above it -> no exit at all (TP, stop or forced), ride
+to resolution. Positions without these keys keep the legacy rules.
+
 Spec: docs/strategies/plum.md. Rules are frozen per position at entry (exit_rules).
 """
 
@@ -10,16 +17,19 @@ from __future__ import annotations
 
 import re
 
+from polylab.execution.fees import FeeSchedule, parse_fee_schedule
 from polylab.marketview import EPS, Book, GameState, MarketView
 from polylab.strategies.apricot import pick_leader
 from polylab.strategies.base import (
     game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
-                                     band_walk_check, event_traded, floor2, result_tokens)
+                                     band_walk_check, event_traded, floor2, net_positive_tp_check, result_tokens)
 
 DEFAULTS = {
     "prob_min": 0.70,
     "prob_max": 0.73,
     "take_profit_price": 0.90,
+    "take_profit_delta": None,       # absolute early TP over the entry VWAP (full holding, net of fees)
+    "hold_above_price": None,        # e.g. 0.99: best bid at/above -> hold to resolution
     "stop_loss_delta": 0.12,
     "max_source_minute": None,       # soccer override: 60
     "force_exit_minute": None,       # soccer override: 65
@@ -173,6 +183,8 @@ class Plum(Strategy):
                     reason=f"leader {rt.label} vwap {feat['vwap']:.4f} margin {feat['margin']:.3f}",
                     exit_rules={
                         "take_profit_price": prm["take_profit_price"],
+                        "take_profit_delta": prm["take_profit_delta"],
+                        "hold_above_price": prm["hold_above_price"],
                         "stop_loss_delta": prm["stop_loss_delta"],
                         "force_exit_minute": prm["force_exit_minute"],
                         "stop_price_at_entry": round(max(0.01, feat["vwap"] - prm["stop_loss_delta"]), 6),
@@ -198,21 +210,45 @@ class Plum(Strategy):
         return band_walk_check(ctx[leader], notional_usdc, prm["prob_min"], prm["prob_max"], self.min_order_shares)
 
     # ------------------------------------------------------------ exits
-    def _plan(self, position: PositionView, book: Book, minute: float | None) -> ExitIntent | None:
+    @staticmethod
+    def delta_tp(position: PositionView) -> float | None:
+        """Early-TP threshold min(entry + take_profit_delta, take_profit_price); None = legacy TP."""
+        r = position.exit_rules or {}
+        if r.get("take_profit_delta") is None or not position.entry_price:
+            return None
+        tp = float(position.entry_price) + float(r["take_profit_delta"])
+        if r.get("take_profit_price") is not None:
+            tp = min(tp, float(r["take_profit_price"]))
+        return round(tp, 6)
+
+    def _plan(self, position: PositionView, book: Book, minute: float | None,
+              fee_schedule: FeeSchedule | None = None) -> ExitIntent | None:
         r = position.exit_rules
         shares = floor2(position.shares or 0)
         if shares <= 0 or book.best_bid is None:
             return None
+        hold = r.get("hold_above_price")
+        if hold is not None and book.best_bid >= float(hold) - EPS:
+            return None
         entry = position.entry_price or 0.0
         trigger = max(0.01, entry - float(r.get("stop_loss_delta", DEFAULTS["stop_loss_delta"])))
         tp = float(r.get("take_profit_price", DEFAULTS["take_profit_price"]))
+        early = self.delta_tp(position)
         force = r.get("force_exit_minute")
         due = force is not None and minute is not None and minute >= float(force) - EPS
         feats = {"best_bid": book.best_bid, "trigger": trigger, "minute": minute}
         if not due:
-            n = tp_slice(book.bids, position.shares or 0, tp, self.min_order_shares)
-            if n > 0:
-                return ExitIntent(position.position_id, "take_profit", n, tp, f"{n} shares bid >= {tp}", feats)
+            if early is not None:
+                c = net_positive_tp_check(position, book, early, fee_schedule)
+                if c.ok:
+                    return ExitIntent(position.position_id, "take_profit", c.shares, early,
+                                      f"full-holding bid vwap {c.walk_vwap:.4f} >= entry+delta {early} net-positive",
+                                      {**feats, "vwap": c.walk_vwap, "tp": early, "delta_tp": True,
+                                       "fee_schedule": fee_schedule.__dict__ if fee_schedule else None})
+            else:
+                n = tp_slice(book.bids, position.shares or 0, tp, self.min_order_shares)
+                if n > 0:
+                    return ExitIntent(position.position_id, "take_profit", n, tp, f"{n} shares bid >= {tp}", feats)
             if book.best_bid <= trigger + EPS:
                 return ExitIntent(position.position_id, "stop_loss", shares, 0.001,
                                   f"best_bid {book.best_bid} <= trigger {trigger:.4f}", feats)
@@ -230,11 +266,24 @@ class Plum(Strategy):
         if position.exit_rules.get("force_exit_minute") is not None and position.game_key:
             minute = source_minute(view.game_state(position.game_key, now), now,
                                    int(position.exit_rules.get("state_max_age_s", DEFAULTS["state_max_age_s"])))
-        return self._plan(position, book, minute)
+        sched = None
+        if self.delta_tp(position) is not None:
+            m = view.market(position.condition_id)
+            sched = parse_fee_schedule(m.fee_schedule) if m else None
+        return self._plan(position, book, minute, sched)
 
     def confirm_exit(self, position: PositionView, intent: ExitIntent, book: Book | None) -> Check:
         if book is None or book.best_bid is None:
             return Check(False, "no_bids")
+        hold = (position.exit_rules or {}).get("hold_above_price")
+        if hold is not None and book.best_bid >= float(hold) - EPS:
+            return Check(False, "hold_above_price")
+        if intent.kind == "take_profit" and intent.features.get("delta_tp"):
+            tp = self.delta_tp(position)
+            if tp is None:
+                return Check(False, "tp_disabled")
+            raw = intent.features.get("fee_schedule")
+            return net_positive_tp_check(position, book, tp, FeeSchedule(**raw) if raw else None)
         spread = book.spread
         if spread is None or spread > float(position.exit_rules.get("max_stop_spread", 0.10)) + EPS:
             return Check(False, "exit_spread_too_wide")

@@ -5,7 +5,9 @@
 3. private context pack → AI engine chain: claude -p → codex exec → none
    (weekly: the other engine reviews the primary proposal and may only veto changes)
 4. optional external proposals from autopilot/inbox/*.json
-5. validator (bounds, max_step, samples, cooldown, ladder gate, safety-only mode moves)
+5. validator (bounds, max_step, samples, cooldown, ladder gate, safety-only mode moves); a params change
+   without enough live trades (or up to 2x max_step) needs a backtest the retro runs itself for exactly
+   the proposed values vs the current params (weekly; daily only for idle variants)
 6. apply to strategies/*.yaml → pytest → revert on failure
 7. attention inbox (reports/attention.{json,md}: deterministic rule items + at most 3 validated AI items) and the
    "오늘의 브리프" bullets at the top of the report and the Slack message
@@ -17,10 +19,12 @@ AI failures never block steps 1, 2 and 5-8.
 from __future__ import annotations
 
 import argparse
+import copy
 import datetime as dt
 import json
 import os
 import shutil
+import subprocess
 import sys
 import tempfile
 import time
@@ -35,7 +39,8 @@ from polylab.analysis import performance
 from polylab.autopilot import context as ctxpack
 from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
-from polylab.autopilot.validator import SCHEMA, Context, Decision, Facts, Rules, apply_to_variant, validate
+from polylab.autopilot.validator import (SCHEMA, Context, Decision, Facts, Rules, apply_to_variant,
+                                        backtest_candidates, evidence_key, set_path, validate)
 from polylab.registry import STAKE_LADDER
 from polylab.reports import build as report_build
 from polylab.reports import brief as brief_mod
@@ -61,6 +66,46 @@ class Options:
     ai_timeout: int = 1200
 
 
+def run_backtests(jobs: list[tuple[object, dict]], start: int, end: int, timeout_s: float) -> list[dict]:
+    """Replay each (variant, params override) with `polylab.analysis.backtest` in parallel subprocesses
+    (hard timeout; same POLYLAB_ROOT). Returns full result dicts (with trades) or {"error": ...}."""
+    day = lambda ts: time.strftime("%Y-%m-%d", time.gmtime(ts))  # noqa: E731
+    results: list[dict] = []
+    with tempfile.TemporaryDirectory(prefix="polylab-retune-") as tmp:
+        procs = []
+        for i, (variant, params) in enumerate(jobs):
+            d = Path(tmp) / str(i)
+            d.mkdir()
+            registry.save_variant(copy.deepcopy(variant), d)
+            nested: dict = {}
+            for k, val in (params or {}).items():
+                set_path(nested, k, val)
+            out, err = d / "out.json", d / "stderr.txt"
+            cmd = [sys.executable, "-m", "polylab.analysis.backtest", "--variant-file", str(d / f"{variant.id}.yaml"),
+                   "--from", day(start), "--to", day(end), "--out", str(out)]
+            if nested:
+                cmd += ["--params", json.dumps(nested)]
+            with err.open("w") as fh:
+                procs.append((subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=fh), out, err))
+        deadline = time.time() + timeout_s
+        for proc, out, err in procs:
+            try:
+                proc.wait(timeout=max(1.0, deadline - time.time()))
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                results.append({"error": f"timeout after {timeout_s:.0f}s"})
+                continue
+            if proc.returncode != 0:
+                results.append({"error": f"exit {proc.returncode}: {err.read_text()[-200:]}"})
+                continue
+            try:
+                results.append(json.loads(out.read_text()))
+            except (OSError, json.JSONDecodeError) as exc:
+                results.append({"error": f"unreadable backtest output: {exc}"})
+    return results
+
+
 @dataclass
 class Env:
     """Injectable locations and side effects (tests replace these)."""
@@ -76,6 +121,7 @@ class Env:
     run_tests: Callable[[Path], tuple[bool, str]] = gitops.run_tests
     commit: Callable[..., tuple[bool, str]] = gitops.commit_and_push
     pull: Callable[[Path], tuple[bool, str]] = gitops.pull
+    backtest: Callable[..., list[dict]] = run_backtests
     publish: Callable | None = None
     post_slack: Callable | None = None
     use_jenkins: bool = True
@@ -192,6 +238,89 @@ def record_stake_events(applied: list[dict], vctx_before: dict, paths, now: int)
             conn.commit()
         finally:
             conn.close()
+
+
+# ------------------------------------------------------------------ backtest-backed retune evidence
+
+def _arm_stats(trades: list[dict]) -> dict:
+    from polylab.analysis.backtest import max_drawdown  # noqa: PLC0415
+    settled = sorted((t for t in trades if t.get("pnl") is not None and t.get("status") in ("closed", "resolved")),
+                     key=lambda t: (t.get("closed_at") or 0, t.get("opened_at") or 0, t.get("token_id") or ""))
+    cost = sum(t.get("cost") or 0.0 for t in settled)
+    pnl = sum(t["pnl"] for t in settled)
+    return {"n": len(settled), "pnl": round(pnl, 6), "roi": round(pnl / cost, 6) if cost else None,
+            "max_dd": round(max_drawdown([t["pnl"] for t in settled]), 6)}
+
+
+def split_evidence(current: dict, proposed: dict, start: int, end: int) -> dict:
+    """Both arms split at one entry time: the median entry of the current arm (else of the proposed arm,
+    else the window midpoint), so each half holds about half of the baseline's trades."""
+    if current.get("error") or proposed.get("error"):
+        return {"error": current.get("error") or proposed.get("error"), "range": [start, end]}
+    cur_t, new_t = current.get("trades") or [], proposed.get("trades") or []
+    opens = sorted(t["opened_at"] for t in (cur_t if len(cur_t) >= 2 else new_t) if t.get("opened_at") is not None)
+    split = opens[len(opens) // 2] if len(opens) >= 2 else (start + end) // 2
+    ev = {"range": [start, end], "split_ts": split}
+    for name, trades in (("current", cur_t), ("proposed", new_t)):
+        arm = _arm_stats(trades)
+        arm["halves"] = [_arm_stats([t for t in trades if (t.get("opened_at") or 0) < split]),
+                         _arm_stats([t for t in trades if (t.get("opened_at") or 0) >= split])]
+        ev[name] = arm
+    return ev
+
+
+def backtest_evidence(proposals: list[dict], vctx: Context, rules: Rules, env: Env, now: int,
+                      retro_started: float | None = None) -> list[str]:
+    """Run current-vs-proposed replays for params changes that only lack backtest evidence and store the
+    result in vctx.backtests (the validator reads only this, never numbers written in the proposal).
+    Time is bounded by the evidence budget and by a soft deadline on the whole retro's wall time, so a
+    slow replay cannot push apply/pytest/commit past the Jenkins timeout; a skipped run means rejection."""
+    notes: list[str] = []
+    if not rules.backtest_retune:
+        return notes
+    todo, seen = [], set()
+    for prop in proposals:
+        for vid, params in backtest_candidates(prop, vctx, rules):
+            key = evidence_key(vid, params)
+            if key not in seen and key not in vctx.backtests:
+                seen.add(key)
+                todo.append((vid, params, key))
+    end = now - now % 86400  # completed UTC days only
+    start = end - rules.backtest_lookback_days * 86400
+    t0 = time.time()
+    started = retro_started if retro_started is not None else t0
+    for i, (vid, params, key) in enumerate(todo):
+        left = min(rules.backtest_budget_s - (time.time() - t0),
+                   rules.backtest_soft_deadline_s - (time.time() - started))
+        if i >= rules.backtest_max_runs or left < 60:
+            notes.append(f"backtest skipped for {vid} (max {rules.backtest_max_runs} runs / time budget)")
+            continue
+        variant = vctx.variants[vid]
+        env.say(f"backtest retune evidence {vid} {params} ({rules.backtest_lookback_days}d, ≤{left:.0f}s)")
+        try:
+            current, proposed = env.backtest([(variant, {}), (variant, params)], start, end, left)
+            ev = split_evidence(current, proposed, start, end)
+        except Exception as exc:
+            ev = {"error": f"{type(exc).__name__}: {exc}"[:300], "range": [start, end]}
+        ev["params"] = params
+        vctx.backtests[key] = ev
+        notes.append(f"backtest {vid}: " + ("error " + str(ev["error"]) if ev.get("error") else
+                                            f"current n={ev['current']['n']} roi={ev['current']['roi']} / "
+                                            f"proposed n={ev['proposed']['n']} roi={ev['proposed']['roi']}"))
+    return notes
+
+
+def _evidence_lines(ev: dict) -> list[str]:
+    def pct(x):
+        return "–" if x is None else f"{x * 100:+.2f}%"
+    rng = f"{C.iso(ev['range'][0])[:10]}~{C.iso(ev['range'][1])[:10]}, split {C.iso(ev['split_ts'])[:10]}"
+    out = [f"  - 백테스트 근거(retro 가 직접 재생, paper replay·실손익 아님): {rng}"]
+    for arm in ("current", "proposed"):
+        a = ev[arm]
+        h1, h2 = a["halves"]
+        out.append(f"  - {arm}: n {a['n']} ROI {pct(a['roi'])} MDD {a['max_dd']:.2f} · "
+                   f"H1 n {h1['n']} ROI {pct(h1['roi'])} · H2 n {h2['n']} ROI {pct(h2['roi'])}")
+    return out
 
 
 # ------------------------------------------------------------------ AI
@@ -350,7 +479,8 @@ def apply_decisions(accepted: list[Decision], vctx: Context, env: Env) -> tuple[
             new.path = env.registry_dir / f"{new.id}.yaml"
             staged_vars[new.id] = new
             applied.append({"variant_id": new.id, "change": d.change["change"], "summary": d.summary,
-                            "source": d.source, "rationale": d.change.get("rationale"), "new": new})
+                            "source": d.source, "rationale": d.change.get("rationale"), "new": new,
+                            **({"backtest": d.backtest} if d.backtest else {})})
         _check_staged(stage)
         originals: dict[Path, str | None] = {}
         for vid in {a["variant_id"] for a in applied}:
@@ -378,8 +508,11 @@ def append_changelog(reports_dir: Path, report: dict, applied: list[dict], engin
     body = old[len(head):] if old.startswith(head) else old
     entry = [f"## {report_build.kst(report['now'], '%Y-%m-%d %H:%M')} KST · {KIND_KO[report['kind']]} "
              f"{report['name']} · engine {engine or 'none'}", ""]
-    entry += [f"- `{a['variant_id']}` {a['change']}: {a['summary']} ({a['source']})"
-              + (f" — {slack.scrub(a['rationale'])[:300]}" if a.get("rationale") else "") for a in applied]
+    for a in applied:
+        entry.append(f"- `{a['variant_id']}` {a['change']}: {a['summary']} ({a['source']})"
+                     + (f" — {slack.scrub(a['rationale'])[:300]}" if a.get("rationale") else ""))
+        if a.get("backtest"):
+            entry += _evidence_lines(a["backtest"])
     path.write_text(head + "\n".join(entry) + "\n\n" + body)
 
 
@@ -416,7 +549,8 @@ def refresh_analysis(paths, kind: str, slot: str | None, env: Env) -> None:
 
 def run_retro(opts: Options, env: Env) -> dict:
     paths = env.paths
-    now = opts.now or int(time.time())
+    wall_start = time.time()
+    now = opts.now or int(wall_start)
     kind = opts.kind
     slot = (opts.slot or report_build.infer_slot(now)) if kind == "daily" else None
     stamp = dt.datetime.fromtimestamp(now, dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -438,8 +572,14 @@ def run_retro(opts: Options, env: Env) -> dict:
                    known_aliases=set(settings.account_aliases()),
                    facts={v.id: variant_facts(v, paths, next(s["ladder"] for s in report["variants"] if s["id"] == v.id),
                                               env.repo) for v in variants})
+    idle = set(attention.idle_variants(report, paths, now)) if rules.backtest_retune else set()
+    for vid in idle & set(vctx.facts):
+        vctx.facts[vid].idle = True
+    eligible = sorted(v.id for v in variants if v.mode != "off" and rules.backtest_retune
+                      and (not rules.backtest_idle_only or v.id in idle))
     md0 = render.render(report)
-    cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest)
+    cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest,
+                                retune_eligible=eligible)
     att_prev = attention.load(env.reports_dir)
     try:
         attention.write_context(cwd, att_prev, env.reports_dir)
@@ -462,11 +602,15 @@ def run_retro(opts: Options, env: Env) -> dict:
         result["error"] = f"AI 실패: {ai.get('reason')}"
 
     # validate: ladder first (not counted), then AI, then inbox
+    inbox = load_inbox(env.inbox_dir)
+    if opts.backtest:  # evidence for backtest-backed retunes is computed here, before any validation
+        for note in backtest_evidence([p for p in [proposal, *(d for _, d in inbox)] if p], vctx, rules, env, now,
+                                      retro_started=wall_start):
+            env.say(note)
     state = {"count": 0, "touched": set(), "new_variants": 0}
     decisions = validate(ladder_changes(report), vctx, rules, "ladder", state)
     if proposal:
         decisions += validate(proposal, vctx, rules, f"ai:{ai['engine']}", state)
-    inbox = load_inbox(env.inbox_dir)
     inbox_decisions: dict[str, list[Decision]] = {}
     for path, data in inbox:
         ds = validate(data, vctx, rules, f"inbox:{path.name}", state) if data is not None else \

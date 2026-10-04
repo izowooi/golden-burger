@@ -86,7 +86,8 @@ sequenceDiagram
 | 규칙 | 값 |
 |---|---|
 | 파라미터 | yaml `bounds` 의 [min, max] 안, 한 번에 `max_step` 이하 |
-| 최소 표본 | 현재 파라미터로 정산 20건 이상 |
+| 최소 표본 | 현재 파라미터로 정산 20건 이상. 예외: **백테스트 근거 재조정** — retro 가 제안 값과 현재 값을 직접 재생(최근 120일, 현재 arm 진입 시각 중앙값으로 두 반기)해 제안 n ≥ 40(반기 ≥ 10), 두 반기 ROI 모두 현재 이상, MDD ≤ 현재×1.2 일 때만 허용. 한 단계 max_step 의 2배까지. 주간은 모든 변형(회당 2건 재생), 일일은 대상 경기가 있었는데 3일 이상 진입 0건인 변형만(1건). AI 가 proposal 에 적은 수치는 판정에 쓰지 않고, 근거는 `reports/changes.md` 에 기록 |
+| 연구자 고정값 | `reports/decisions.md` 로 연구자가 정한 값(예: goal-over-all 청산 +0.02/−10%/0.99 보유)은 validator `OWNER_FIXED_PARAMS` 로 거부, attention 으로만 제안 |
 | cooldown | 같은 변형의 파라미터·단위 변경 후 3일 |
 | 단위 | ladder(5·10·25·50·100) 한 단계씩, **증액은 결정론 게이트 통과 시에만**, 감액은 항상 허용, 상한 100 |
 | 모드 | AI 는 live 로 올릴 수 없음(live→paper/off, paper→off 만) |

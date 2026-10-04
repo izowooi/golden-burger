@@ -196,3 +196,72 @@ def test_commit_aborts_when_account_secret_is_staged(tmp_path, monkeypatch):
     (repo / "reports" / "r.md").write_text("clean\n")
     ok, msg = gitops.commit_and_push("x", push=False, repo=repo, paths=("reports",))
     assert ok, msg
+
+
+def fake_trades(n, pnl_fn, start=NOW - 100 * 86400):
+    return [{"opened_at": start + i * 3600, "closed_at": start + i * 3600 + 600, "token_id": f"t{i}",
+             "status": "resolved", "cost": 5.0, "pnl": pnl_fn(i)} for i in range(n)]
+
+
+def test_weekly_backtest_backed_retune_without_live_trades(tmp_path, monkeypatch):
+    paths, reg, env, calls = setup(tmp_path, monkeypatch, n_settled=3)  # 3 < min_trades_params
+    runs = []
+
+    def fake_backtest(jobs, start, end, timeout):
+        runs.append([(v.id, p) for v, p in jobs])
+        assert end - start == 120 * 86400 and timeout > 0
+        return [{"trades": fake_trades(60, lambda i: 0.05 if i % 10 else -1.0)},   # current: ROI -1%
+                {"trades": fake_trades(50, lambda i: 0.06 if i % 12 else -1.0)}]   # proposed: better both halves
+
+    env.backtest = fake_backtest
+    prop = {**PARAM_PROPOSAL, "changes": [{**PARAM_PROPOSAL["changes"][0], "evidence": {"roi": 9.9}}]}
+    env.engines = lambda: [FakeEngine("claude", proposal=prop), FakeEngine("codex", available=False)]
+    res = retro.run_retro(opts("weekly"), env)
+    assert runs == [[("watermelon-cat", {}), ("watermelon-cat", {"prob_min": 0.93})]]
+    assert [a["variant_id"] for a in res["applied"]] == ["watermelon-cat"], res["rejected"]
+    assert yaml.safe_load((reg / "watermelon-cat.yaml").read_text())["params"]["prob_min"] == 0.93
+    changes = (env.reports_dir / "changes.md").read_text()
+    assert "[backtest: n 60→50" in changes and "백테스트 근거" in changes and "H2 n 20" in changes
+
+
+def test_backtest_backed_retune_rejected_when_replay_worse_or_daily_not_idle(tmp_path, monkeypatch):
+    paths, reg, env, calls = setup(tmp_path, monkeypatch, n_settled=3)
+    env.backtest = lambda jobs, start, end, timeout: [
+        {"trades": fake_trades(60, lambda i: 0.05 if i % 10 else -1.0)},
+        {"trades": fake_trades(50, lambda i: 0.05 if i < 25 else (-1.0 if i % 5 == 0 else 0.05))}]
+    env.engines = lambda: [FakeEngine("claude", proposal=PARAM_PROPOSAL), FakeEngine("codex", available=False)]
+    res = retro.run_retro(opts("weekly"), env)
+    assert not res["applied"] and any("backtest gate failed" in r["reason"] for r in res["rejected"])
+    assert yaml.safe_load((reg / "watermelon-cat.yaml").read_text())["params"]["prob_min"] == 0.92
+
+    env.backtest = lambda *a: (_ for _ in ()).throw(AssertionError("daily must not replay non-idle variants"))
+    res = retro.run_retro(opts("daily"), env)
+    assert not res["applied"] and any("idle" in r["reason"] for r in res["rejected"])
+
+
+def test_split_evidence_uses_one_split_for_both_arms():
+    cur = {"trades": fake_trades(4, lambda i: 1.0)}
+    new = {"trades": fake_trades(2, lambda i: -1.0, start=NOW - 100 * 86400 + 3 * 3600)}
+    ev = retro.split_evidence(cur, new, NOW - 120 * 86400, NOW)
+    assert ev["split_ts"] == NOW - 100 * 86400 + 2 * 3600
+    assert [h["n"] for h in ev["current"]["halves"]] == [2, 2]
+    assert [h["n"] for h in ev["proposed"]["halves"]] == [0, 2] and ev["proposed"]["halves"][0]["roi"] is None
+    assert retro.split_evidence({"error": "timeout"}, new, 0, 1)["error"] == "timeout"
+
+
+def test_backtest_evidence_skipped_past_soft_deadline_and_change_rejected(tmp_path, monkeypatch):
+    import time as _time
+
+    from polylab.autopilot.validator import Context, Facts, Rules, validate
+    from polylab.registry import load_all
+
+    paths, reg, env, calls = setup(tmp_path, monkeypatch, n_settled=3)
+    env.backtest = lambda *a: (_ for _ in ()).throw(AssertionError("must not replay past the soft deadline"))
+    variants = {v.id: v for v in load_all(reg, include_off=True)}
+    vctx = Context(variants=variants, facts={vid: Facts(trades_at_version=3) for vid in variants}, now=NOW)
+    rules = Rules.for_kind("weekly")
+    late = _time.time() - rules.backtest_soft_deadline_s + 30  # less than a minute left
+    notes = retro.backtest_evidence([PARAM_PROPOSAL], vctx, rules, env, NOW, retro_started=late)
+    assert notes and "time budget" in notes[0] and not vctx.backtests
+    (d,) = validate(PARAM_PROPOSAL, vctx, rules)
+    assert not d.accepted and "no retro-run backtest" in d.reason

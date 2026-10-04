@@ -217,14 +217,16 @@ def _last_entry(paths, vid: str) -> int | None:
         conn.close()
 
 
-def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
+def idle_variants(report: dict, paths, now: int) -> dict[str, tuple[int | None, int]]:
+    """{variant_id: (last_entry_ts, target_games)} for variants with 0 entries for DEAD_DAYS although
+    games of their sports (and soccer leagues) were played. Also gates the daily backtest-backed retune."""
     if (report.get("health") or {}).get("kill_switch") or paths is None:
-        return []  # with the kill switch on every variant legitimately has 0 entries
+        return {}  # with the kill switch on every variant legitimately has 0 entries
     since = now - DEAD_DAYS * 86400
     core = C.open_ro(paths.core_db)
     if core is None:
-        return []
-    out = []
+        return {}
+    out: dict[str, tuple[int | None, int]] = {}
     try:
         for v in report["variants"]:
             history = v.get("param_history") or []
@@ -242,16 +244,24 @@ def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
                     sql += f" AND LOWER(league) IN ({','.join('?' * len(leagues))})"
                     args += leagues
                 games += core.execute(sql, args).fetchone()[0]
-            if not games:
-                continue
-            last = f"마지막 진입 {_kst(last_entry)} KST" if last_entry else "진입 기록 없음"
-            out.append(item(f"dead_variant:{v['id']}", "dead_variant", "decide", "decision_needed",
-                            f"{v['id']} {DEAD_DAYS}일 이상 진입 0건 (대상 경기 {games}개 있었음)",
-                            f"{last}. 같은 기간 대상 종목({', '.join(v.get('sports') or [])}) 경기는 {games}개였다. 진입 조건이 "
-                            "지나치게 엄격하거나 버그일 수 있다. 조건 완화(주간 AI 검토) 또는 폐기(retire) 여부를 판단해야 한다.",
-                            f"strategies/{v['id']}.yaml"))
+            if games:
+                out[v["id"]] = (last_entry, games)
     finally:
         core.close()
+    return out
+
+
+def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
+    out = []
+    sports = {v["id"]: v.get("sports") or [] for v in report["variants"]}
+    for vid, (last_entry, games) in idle_variants(report, paths, now).items():
+        last = f"마지막 진입 {_kst(last_entry)} KST" if last_entry else "진입 기록 없음"
+        out.append(item(f"dead_variant:{vid}", "dead_variant", "decide", "decision_needed",
+                        f"{vid} {DEAD_DAYS}일 이상 진입 0건 (대상 경기 {games}개 있었음)",
+                        f"{last}. 같은 기간 대상 종목({', '.join(sports.get(vid, []))}) 경기는 {games}개였다. 진입 조건이 "
+                        "지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 "
+                        "재생해 검증), 폐기(retire) 여부를 판단해야 한다.",
+                        f"strategies/{vid}.yaml"))
     return out
 
 

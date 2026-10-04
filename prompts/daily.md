@@ -23,10 +23,23 @@
 
 - Jenkins 실행 주기는 1분이다. 경기 후반의 급변을 1분 간격으로는 잡지 못하므로 **후반 stop-loss는 신뢰할 수 없다**.
   손절 폭을 조이는 제안보다, **작은 이익에서 일찍 청산(take-profit early)** 하고 진입 조건을 더 엄격히 하는 방향을 우선한다.
-- 변경은 작고 점진적으로 한다. 한 번에 변형당 하나, 파라미터는 `bounds.json`의 max_step 이내로 한다.
+- 변경은 작고 점진적으로 한다. 한 번에 변형당 하나, 파라미터는 `bounds.json`의 max_step 이내로 한다(아래 백테스트 근거 재조정만 2배까지).
 - 변경하지 않는 것도 좋은 결정이다. 근거가 약하면 `changes: []`로 둔다.
 - stake 증액은 결정론 ladder(`metrics/*.json`의 `ladder.promote_ok`)가 통과한 경우에만 제안할 수 있다. 감액과 live→paper 전환은 언제든 가능하다.
 - 새 변형 생성은 일일 회고에서 하지 않는다(주간 회고 몫).
+
+## 백테스트 근거 재조정 (진입 0건 변형만)
+
+- `bounds.json` 의 `backtest_retune_eligible` 에 있는 변형(대상 경기가 있었는데 3일 이상 진입 0건)은 실거래 20건이 없어도
+  `params` 변경을 제안할 수 있다. 진입 조건이 지나치게 엄격한지 보고, 조금 완화하거나 진입 시점을 옮기는 값을 제안한다.
+- 숫자는 당신이 증명하지 않는다. retro 가 제안 값과 현재 값을 직접 재생(최근 `rules.backtest_lookback_days` 일, 진입 시각 기준
+  두 반기)해서 **제안 n ≥ `backtest_min_n`, 두 반기 모두 ROI 가 현재 이상, MDD 가 현재의 1.2배 이하**일 때만 통과시킨다.
+  `evidence` 에 쓴 수치는 판정에 쓰이지 않는다. 한 단계는 `max_step` 의 2배까지, bounds·cooldown 은 그대로 적용된다.
+- 일일 회고는 회당 1건만 재생한다. 가장 가능성 높은 값 하나만 제안한다. A/B 두 arm(예: apricot-eco·fruit)은 처치 변수 하나만
+  다르게 유지한다.
+- 연구자가 `decisions.md` 에서 직접 정한 값은 바꾸지 않는다. 예: 2026-10-04 goal-over-all 청산 기준(진입가 +0.02 익절,
+  −10% 손절, 매도 호가 0.99 이상이면 정산까지 보유 — `take_profit_delta`·`stop_loss_pct`·`hold_above_price`).
+  `bounds.json` 의 `owner_fixed_params` 에 있는 값은 validator 가 거부한다. 근거가 충분하면 attention(`decide`)으로 먼저 제안한다.
 
 ## narrative.md (한국어, 600~1200자 내외)
 

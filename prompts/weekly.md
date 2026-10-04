@@ -22,7 +22,7 @@
 ## 운영 철학
 
 - 1분 cadence 때문에 경기 후반 stop-loss는 믿을 수 없다. **손절을 조이기보다 이익 조기 확정(take-profit early)과 엄격한 진입**을 우선한다.
-- 작고 점진적인 변경만 한다. 파라미터는 max_step 이내, 변형당 하나씩.
+- 작고 점진적인 변경만 한다. 파라미터는 max_step 이내(아래 백테스트 근거 재조정만 2배까지), 변형당 하나씩.
 - stake 증액은 `ladder.promote_ok == true`일 때만 가능하다. 감액과 live→paper 전환은 언제든 가능하다.
 
 ## 주간 추가 과제: 새 paper 변형
@@ -31,6 +31,20 @@
 - 논문 질문에 답하는 데 도움이 되는 **새 paper 변형**을 최대 2개 제안할 수 있다. 예: 특정 종목·경기 구간의 calibration gap을 겨냥하거나, 득점 직후 과잉반응 뒤 되돌림을 겨냥하는 변형.
 - 새 변형은 항상 paper, stake 5, 기존 변형(`based_on`)의 family와 bounds를 상속하고, 파라미터는 그 bounds 안에 있어야 한다.
 - 4주 이상 개선이 없는 paper 변형은 `retire`를 제안할 수 있다.
+
+## 백테스트 근거 재조정 (드물게 거래하거나 성과가 나쁜 변형)
+
+- 실거래 20건 미만이라 `params` 를 못 바꾸던 변형(거의 진입하지 않는 변형, 성과가 나쁜데 표본이 모이지 않는 변형)도
+  주간 회고에서는 `params` 변경을 제안할 수 있다. 한 단계는 `max_step` 의 2배까지, bounds·cooldown 은 그대로다.
+- retro 가 제안 값과 현재 값을 직접 재생(최근 `rules.backtest_lookback_days` 일, 진입 시각 중앙값으로 두 반기)해서
+  **제안 n ≥ `backtest_min_n`(반기마다 `backtest_min_half_n` 이상), 두 반기 모두 ROI 가 현재 이상, MDD 가 현재의 1.2배 이하**일 때만
+  통과시킨다. `evidence` 에 쓴 수치는 판정에 쓰이지 않으니 과장할 이유가 없다. 근거와 결과는 `reports/changes.md` 에 남는다.
+- 재생은 회당 `backtest_max_runs` 건뿐이다. `backtests.json` 의 ±step grid 에서 현재보다 나았던 방향을 우선한다.
+- A/B 두 arm(예: apricot-eco tick 90 · apricot-fruit tick 95)은 처치 변수 하나만 다르게 유지한다. 공통 변수(prob_min, TP 등)는 두 arm 에
+  같은 값을 제안하거나 둘 다 그대로 둔다.
+- 연구자가 `decisions.md` 에서 직접 정한 값은 바꾸지 않는다. 예: 2026-10-04 goal-over-all 청산 기준(진입가 +0.02 익절,
+  −10% 손절, 매도 호가 0.99 이상이면 정산까지 보유 — `take_profit_delta`·`stop_loss_pct`·`hold_above_price`).
+  `bounds.json` 의 `owner_fixed_params` 에 있는 값은 validator 가 거부한다. 근거가 충분하면 attention(`decide`)으로 먼저 제안한다.
 
 ## narrative.md (한국어, 1000~2000자)
 

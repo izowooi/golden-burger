@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import copy
 import datetime as dt
+import json
 import math
 import re
 from dataclasses import dataclass, field
@@ -37,6 +38,13 @@ SAFE_MODE_TRANSITIONS = {("live", "paper"), ("live", "off"), ("paper", "off")}
 NEW_VARIANT_KEYS = {"based_on", "family", "hypothesis", "sports", "params", "account", "limits", "notes"}
 DAY = 86400
 
+# Values the owner fixed in reports/decisions.md. The AI may raise them via attention, never change them.
+OWNER_FIXED_PARAMS: dict[str, frozenset[str]] = {
+    # 2026-10-04 `track1:goal-over-exit-rules`: +0.02 take-profit, -10% stop, hold at bid >= 0.99
+    "goal-over-all": frozenset({"take_profit_delta", "stop_loss_pct", "hold_above_price", "take_profit_price",
+                                "stop_loss_price", "take_profit_pct"}),
+}
+
 
 @dataclass(frozen=True)
 class Rules:
@@ -49,14 +57,28 @@ class Rules:
     max_paper_variants: int = 12
     inbox_max_age_s: int = 2 * DAY
     default_step_fraction: float = 0.10  # max_step when bounds give only [min, max]
+    # Backtest-backed retune: a params change without min_trades_params live trades (or up to
+    # backtest_max_step_mult x max_step) passes only on a backtest the retro itself ran for exactly
+    # these values vs the current params, split in two halves by entry time.
+    backtest_retune: bool = False
+    backtest_idle_only: bool = False     # daily: only variants with 0 entries for 3+ days despite target games
+    backtest_min_n: int = 40             # proposed trades over the whole window
+    backtest_min_half_n: int = 10        # proposed trades in each half
+    backtest_max_step_mult: float = 2.0
+    backtest_mdd_tolerance: float = 0.20  # proposed max drawdown <= current x 1.2
+    backtest_lookback_days: int = 120
+    backtest_max_runs: int = 1           # proposals backtested per retro (each = current + proposed replay)
+    backtest_budget_s: int = 900
+    backtest_soft_deadline_s: int = 1800  # no replay starts/continues past this much retro wall time (Jenkins timeout)
 
     @classmethod
     def for_kind(cls, kind: str) -> "Rules":
         if kind == "weekly":
-            return cls(max_changes=5, allow_new_variants=True)
+            return cls(max_changes=5, allow_new_variants=True, backtest_retune=True, backtest_max_runs=2,
+                       backtest_budget_s=1800, backtest_soft_deadline_s=3600)
         if kind == "monthly":
             return cls(max_changes=4, allow_new_variants=True, max_new_variants=1)
-        return cls()
+        return cls(backtest_retune=True, backtest_idle_only=True)
 
     def as_dict(self) -> dict:
         return {k: getattr(self, k) for k in self.__dataclass_fields__}
@@ -69,6 +91,7 @@ class Facts:
     last_param_change_ts: int | None = None
     last_stake_change_ts: int | None = None
     promote_ok: bool | None = None       # deterministic ladder gate (polylab.risk); None = unavailable
+    idle: bool = False                   # 0 entries for 3+ days although target games were played
 
 
 @dataclass
@@ -78,6 +101,9 @@ class Context:
     now: int
     families: set[str] = field(default_factory=set)
     known_aliases: set[str] = field(default_factory=set)
+    # evidence_key(variant_id, values) -> evidence computed by the retro (never taken from the proposal)
+    backtests: dict[str, dict] = field(default_factory=dict)
+    fixed_params: dict[str, frozenset[str]] = field(default_factory=lambda: dict(OWNER_FIXED_PARAMS))
 
 
 @dataclass
@@ -87,15 +113,23 @@ class Decision:
     accepted: bool
     reason: str = ""
     summary: str = ""
+    backtest: dict | None = None         # retro-run evidence when the backtest-backed path was used
 
     def as_dict(self) -> dict:
-        return {"variant_id": self.change.get("variant_id"), "change": self.change.get("change"),
-                "values": self.change.get("values"), "rationale": self.change.get("rationale"),
-                "source": self.source, "accepted": self.accepted, "reason": self.reason, "summary": self.summary}
+        out = {"variant_id": self.change.get("variant_id"), "change": self.change.get("change"),
+               "values": self.change.get("values"), "rationale": self.change.get("rationale"),
+               "source": self.source, "accepted": self.accepted, "reason": self.reason, "summary": self.summary}
+        if self.backtest is not None:
+            out["backtest"] = self.backtest
+        return out
 
 
 class Reject(Exception):
     pass
+
+
+class NeedsBacktest(Reject):
+    """Everything else passed; only retro-run backtest evidence for these exact values is missing."""
 
 
 _MISSING = object()
@@ -143,7 +177,8 @@ def _step(bound: list, rules: Rules) -> float:
     return (float(bound[1]) - float(bound[0])) * rules.default_step_fraction
 
 
-def _check_params(new: dict, current: dict, bounds: dict, rules: Rules, relative: bool) -> list[str]:
+def _check_params(new: dict, current: dict, bounds: dict, rules: Rules, relative: bool,
+                  step_mult: float = 1.0) -> list[str]:
     parts = []
     if not isinstance(new, dict) or not new:
         raise Reject("values must be a non-empty object of params")
@@ -162,12 +197,71 @@ def _check_params(new: dict, current: dict, bounds: dict, rules: Rules, relative
         if not lo - 1e-12 <= float(value) <= hi + 1e-12:
             raise Reject(f"param {name}={value} outside bounds [{lo:g}, {hi:g}]")
         if relative and _num(old):
-            if abs(float(value) - float(old)) > _step(bound, rules) + 1e-9:
-                raise Reject(f"param {name} step {abs(float(value) - float(old)):g} > max_step {_step(bound, rules):g}")
+            limit = _step(bound, rules) * step_mult
+            if abs(float(value) - float(old)) > limit + 1e-9:
+                raise Reject(f"param {name} step {abs(float(value) - float(old)):g} > "
+                             f"{'' if step_mult == 1 else f'{step_mult:g}x '}max_step {_step(bound, rules):g}")
             if float(value) == float(old):
                 raise Reject(f"param {name} unchanged")
         parts.append(f"{name} {old}→{value}")
     return parts
+
+
+def evidence_key(variant_id: str, values: dict) -> str:
+    """Canonical key binding retro-run backtest evidence to exact proposed values."""
+    norm = {k: (float(v) if _num(v) else v) for k, v in (values or {}).items()}
+    return f"{variant_id}|{json.dumps(norm, sort_keys=True)}"
+
+
+def needs_backtest(ch: dict, ctx: Context, rules: Rules) -> bool:
+    """A params change that the plain rules would refuse for sample size or step size only."""
+    if not isinstance(ch, dict) or ch.get("change") != "params" or not isinstance(ch.get("values"), dict):
+        return False
+    v = ctx.variants.get(ch.get("variant_id"))
+    if v is None:
+        return False
+    if ctx.facts.get(v.id, Facts()).trades_at_version < rules.min_trades_params:
+        return True
+    new = ch["values"].get("params", ch["values"])
+    if not isinstance(new, dict):
+        return False
+    for name, value in new.items():
+        bound, old = v.bounds.get(name), get_path(v.params, name)
+        if isinstance(bound, (list, tuple)) and len(bound) >= 2 and _num(value) and _num(old) and \
+                all(_num(b) for b in bound[:2]) and abs(float(value) - float(old)) > _step(bound, rules) + 1e-9:
+            return True
+    return False
+
+
+def _pct(x) -> str:
+    return "–" if x is None else f"{x * 100:+.2f}%"
+
+
+def backtest_gate(ev: dict, rules: Rules, stake_usdc: float) -> tuple[bool, str]:
+    """Deterministic acceptance of retro-run evidence:
+    {"current"|"proposed": {"n", "roi", "max_dd", "halves": [{"n", "roi", "max_dd"}, {...}]}, ...}.
+    A current arm with no trades in a half counts as ROI 0 (it made nothing); a proposed half must trade."""
+    if not isinstance(ev, dict) or ev.get("error"):
+        return False, f"backtest error: {(ev or {}).get('error') if isinstance(ev, dict) else 'invalid'}"
+    cur, new = ev.get("current") or {}, ev.get("proposed") or {}
+    if len(cur.get("halves") or []) != 2 or len(new.get("halves") or []) != 2:
+        return False, "evidence must have two halves per arm"
+    n = int(new.get("n") or 0)
+    if n < rules.backtest_min_n:
+        return False, f"proposed n={n} < {rules.backtest_min_n}"
+    for i, (c, p) in enumerate(zip(cur["halves"], new["halves"]), 1):
+        if p.get("roi") is None or int(p.get("n") or 0) < rules.backtest_min_half_n:
+            return False, f"H{i} proposed n={p.get('n') or 0} < {rules.backtest_min_half_n}"
+        base = c.get("roi") if c.get("roi") is not None else 0.0
+        if p["roi"] + 1e-12 < base:
+            return False, f"H{i} ROI {_pct(p['roi'])} < current {_pct(c.get('roi'))}"
+    cur_dd, new_dd = float(cur.get("max_dd") or 0.0), float(new.get("max_dd") or 0.0)
+    allowed = cur_dd * (1 + rules.backtest_mdd_tolerance) if cur_dd > 0 else float(stake_usdc)
+    if new_dd > allowed + 1e-9:
+        return False, f"MDD {new_dd:.2f} > allowed {allowed:.2f} (current {cur_dd:.2f})"
+    halves = " / ".join(f"H{i} {_pct(p['roi'])} vs {_pct(c.get('roi'))}"
+                        for i, (c, p) in enumerate(zip(cur["halves"], new["halves"]), 1))
+    return True, f"n {cur.get('n') or 0}→{n}, {halves}, MDD {cur_dd:.2f}→{new_dd:.2f}"
 
 
 def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict) -> str:
@@ -201,11 +295,32 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
     if kind == "params":
         if v.mode == "off":
             raise Reject("variant is off")
-        if f.trades_at_version < rules.min_trades_params:
-            raise Reject(f"only {f.trades_at_version} settled trades at current params (< {rules.min_trades_params})")
+        new = values.get("params", values)
+        fixed = sorted(set(new) & set(ctx.fixed_params.get(vid, ()))) if isinstance(new, dict) else []
+        if fixed:
+            raise Reject(f"owner-fixed params {fixed} (reports/decisions.md): propose via attention instead")
         if f.last_param_change_ts and ctx.now - f.last_param_change_ts < rules.cooldown_params_s:
             raise Reject(f"param cooldown: last change {(ctx.now - f.last_param_change_ts) / 3600:.0f}h ago")
-        return ", ".join(_check_params(values.get("params", values), v.params, v.bounds, rules, relative=True))
+        few = f.trades_at_version < rules.min_trades_params
+        eligible = rules.backtest_retune and (f.idle or not rules.backtest_idle_only)
+        if not few and (not eligible or not needs_backtest(ch, ctx, rules)):
+            return ", ".join(_check_params(new, v.params, v.bounds, rules, relative=True))
+        why = (f"only {f.trades_at_version} settled trades at current params (< {rules.min_trades_params})" if few
+               else "step > max_step")
+        if not rules.backtest_retune:
+            raise Reject(why)
+        if not eligible:
+            raise Reject(f"{why}; backtest-backed retune in this retro only for idle variants")
+        parts = _check_params(new, v.params, v.bounds, rules, relative=True, step_mult=rules.backtest_max_step_mult)
+        ev = ctx.backtests.get(evidence_key(vid, new))
+        if ev is None:
+            raise NeedsBacktest(f"{why}; no retro-run backtest for these exact values "
+                                "(AI-stated evidence is not accepted)")
+        ok, verdict = backtest_gate(ev, rules, v.stake_usdc)
+        if not ok:
+            raise Reject(f"{why}; backtest gate failed: {verdict}")
+        state["backtest"] = ev
+        return ", ".join(parts) + f" [backtest: {verdict}]"
 
     if kind == "stake":
         if set(values) != {"stake_usdc"} or not _num(values["stake_usdc"]):
@@ -284,6 +399,22 @@ def _validate_new(vid: str, values: dict, ctx: Context, rules: Rules, state: dic
     return f"new paper variant from {base.id} ({', '.join(f'{k}={v}' for k, v in params.items()) or 'same params'})"
 
 
+def backtest_candidates(proposal: Any, ctx: Context, rules: Rules) -> list[tuple[str, dict]]:
+    """(variant_id, params) of changes that would pass if the retro's own backtest evidence existed.
+    Dry run: budget/one-per-variant are not consumed here."""
+    out: list[tuple[str, dict]] = []
+    if not isinstance(proposal, dict) or not isinstance(proposal.get("changes"), list):
+        return out
+    for ch in proposal["changes"]:
+        try:
+            _validate_one(ch, ctx, rules, "dry-run", {"count": 0, "touched": set(), "new_variants": 0})
+        except NeedsBacktest:
+            out.append((ch["variant_id"], dict(ch["values"].get("params", ch["values"]))))
+        except Reject:
+            continue
+    return out
+
+
 def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
              state: dict | None = None) -> list[Decision]:
     """Validate every change. `state` carries budget/touched across several proposals in one retro."""
@@ -301,6 +432,7 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
     out = []
     for ch in proposal["changes"]:
         counted = source != "ladder"
+        state.pop("backtest", None)
         try:
             if counted and state["count"] >= rules.max_changes:
                 raise Reject(f"max {rules.max_changes} changes per retro")
@@ -312,7 +444,7 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
         state["count"] += 1 if counted else 0
         if ch["change"] == "new_variant":
             state["new_variants"] += 1
-        out.append(Decision(ch, source, True, "", summary))
+        out.append(Decision(ch, source, True, "", summary, backtest=state.pop("backtest", None)))
     return out
 
 

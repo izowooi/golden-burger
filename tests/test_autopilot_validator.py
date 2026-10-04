@@ -139,3 +139,112 @@ def test_stake_change_scales_absolute_limits_and_new_variant_ignores_ai_limits()
     nv = change("new_variant", {"based_on": "wm-cat", "limits": {"max_open_usdc": 99999}}, vid="wm-n")
     (d,) = one([nv], c, rules=Rules.for_kind("weekly"))
     assert apply_to_variant(d, c).limits["max_open_usdc"] == 100.0
+
+
+# ------------------------------------------------------------ backtest-backed retune
+
+from polylab.autopilot.validator import backtest_candidates, backtest_gate, evidence_key  # noqa: E402
+
+
+def arm(n, roi, dd, halves):
+    return {"n": n, "roi": roi, "max_dd": dd, "halves": [{"n": h[0], "roi": h[1], "max_dd": 0.0} for h in halves]}
+
+
+def evidence(cur=None, new=None):
+    return {"range": [NOW - 120 * DAY, NOW], "split_ts": NOW - 60 * DAY,
+            "current": cur or arm(60, -0.010, 10.0, [(30, -0.010), (30, -0.010)]),
+            "proposed": new or arm(50, -0.002, 9.0, [(25, -0.004), (25, 0.001)])}
+
+
+def bt_ctx(trades=0, idle=False, last_change=NOW - 5 * DAY, ev=None, values=None):
+    c = ctx(facts={"wm-cat": Facts(trades_at_version=trades, last_param_change_ts=last_change, idle=idle)})
+    if ev is not None:
+        c.backtests[evidence_key("wm-cat", values or {"prob_min": 0.93})] = ev
+    return c
+
+
+WEEKLY = Rules.for_kind("weekly")
+
+
+def test_backtest_path_accepts_only_retro_evidence_for_exact_values():
+    ch = change("params", {"prob_min": 0.93})
+    ch["evidence"] = {"n": 400, "roi": 0.05, "both_halves_better": True}  # AI-asserted numbers are ignored
+    (d,) = one([ch], bt_ctx(), rules=WEEKLY)
+    assert not d.accepted and "no retro-run backtest" in d.reason
+    (d,) = one([ch], bt_ctx(ev=evidence(), values={"prob_min": 0.94}), rules=WEEKLY)  # evidence for other values
+    assert not d.accepted and "no retro-run backtest" in d.reason
+    (d,) = one([ch], bt_ctx(ev=evidence()), rules=WEEKLY)
+    assert d.accepted, d.reason
+    assert "backtest:" in d.summary and d.backtest["proposed"]["n"] == 50
+    assert d.as_dict()["backtest"]["split_ts"] == NOW - 60 * DAY
+    # int/float spelling of the same value maps to the same evidence
+    assert evidence_key("x", {"a": 95}) == evidence_key("x", {"a": 95.0})
+
+
+def test_backtest_path_disabled_without_retune_rules_and_daily_only_for_idle():
+    ch = change("params", {"prob_min": 0.93})
+    assert "settled trades" in one([ch], bt_ctx(ev=evidence()), rules=Rules.for_kind("monthly"))[0].reason
+    daily = Rules.for_kind("daily")
+    (d,) = one([ch], bt_ctx(ev=evidence()), rules=daily)
+    assert not d.accepted and "idle" in d.reason
+    assert one([ch], bt_ctx(ev=evidence(), idle=True), rules=daily)[0].accepted
+
+
+def test_backtest_path_allows_up_to_twice_max_step():
+    # enough live trades: a 1-step change needs no backtest, 2 steps need one, 3 steps never pass
+    assert one([change("params", {"prob_min": 0.93})], bt_ctx(trades=30), rules=WEEKLY)[0].accepted
+    two = change("params", {"prob_min": 0.94})
+    assert "no retro-run backtest" in one([two], bt_ctx(trades=30), rules=WEEKLY)[0].reason
+    assert "max_step" in one([two], bt_ctx(trades=30), rules=Rules())[0].reason  # plain path unchanged
+    c = bt_ctx(trades=30, ev=evidence(), values={"prob_min": 0.94})
+    assert one([two], c, rules=WEEKLY)[0].accepted
+    three = change("params", {"prob_min": 0.95})
+    c = bt_ctx(trades=30, ev=evidence(), values={"prob_min": 0.95})
+    assert "2x max_step" in one([three], c, rules=WEEKLY)[0].reason
+
+
+def test_backtest_gate_rules():
+    r = WEEKLY
+    assert backtest_gate(evidence(), r, 5.0)[0]
+    assert "n=39" in backtest_gate(evidence(new=arm(39, 0.01, 1.0, [(20, 0.01), (19, 0.01)])), r, 5.0)[1]
+    worse_h2 = arm(50, 0.0, 9.0, [(25, 0.01), (25, -0.02)])
+    assert "H2 ROI" in backtest_gate(evidence(new=worse_h2), r, 5.0)[1]
+    empty_half = arm(50, 0.01, 1.0, [(50, 0.01), (0, None)])
+    assert "H2 proposed n=0" in backtest_gate(evidence(new=empty_half), r, 5.0)[1]
+    thin_half = arm(50, 0.01, 1.0, [(45, 0.01), (5, 0.02)])
+    assert "H2 proposed n=5" in backtest_gate(evidence(new=thin_half), r, 5.0)[1]
+    deeper = arm(50, 0.0, 12.5, [(25, 0.0), (25, 0.0)])  # MDD 12.5 > 10 x 1.2
+    assert "MDD" in backtest_gate(evidence(new=deeper), r, 5.0)[1]
+    assert backtest_gate(evidence(new=arm(50, 0.0, 12.0, [(25, 0.0), (25, 0.0)])), r, 5.0)[0]
+    # a current arm that never trades: its ROI counts as 0 and its MDD 0 allows one stake of drawdown
+    idle_cur = arm(0, None, 0.0, [(0, None), (0, None)])
+    assert backtest_gate(evidence(cur=idle_cur, new=arm(45, 0.004, 5.0, [(20, 0.002), (25, 0.006)])), r, 5.0)[0]
+    assert "H1 ROI" in backtest_gate(evidence(cur=idle_cur, new=arm(45, 0.0, 1.0, [(20, -0.001), (25, 0.01)])),
+                                     r, 5.0)[1]
+    assert "MDD" in backtest_gate(evidence(cur=idle_cur, new=arm(45, 0.01, 5.5, [(20, 0.01), (25, 0.01)])), r, 5.0)[1]
+    assert not backtest_gate({"error": "timeout"}, r, 5.0)[0]
+    assert not backtest_gate({"current": {}, "proposed": {}}, r, 5.0)[0]
+
+
+def test_backtest_path_respects_cooldown_bounds_and_owner_fixed_params():
+    ch = change("params", {"prob_min": 0.93})
+    assert "cooldown" in one([ch], bt_ctx(ev=evidence(), last_change=NOW - DAY), rules=WEEKLY)[0].reason
+    out = change("params", {"prob_min": 0.99})
+    assert "outside bounds" in one([out], bt_ctx(ev=evidence(), values={"prob_min": 0.99}), rules=WEEKLY)[0].reason
+    v = variant("goal-over-all", account="cat")
+    v.params["stop_loss_pct"] = 0.1
+    v.bounds["stop_loss_pct"] = [0.05, 0.3, 0.05]
+    c = ctx(v, facts={"goal-over-all": Facts(trades_at_version=99)})
+    (d,) = one([change("params", {"stop_loss_pct": 0.15}, vid="goal-over-all")], c, rules=WEEKLY)
+    assert not d.accepted and "owner-fixed" in d.reason
+    assert one([change("params", {"prob_min": 0.93}, vid="goal-over-all")], c, rules=WEEKLY)[0].accepted
+
+
+def test_backtest_candidates_lists_only_changes_missing_evidence():
+    c = bt_ctx()
+    prop = {"changes": [change("params", {"prob_min": 0.93}), change("params", {"prob_min": 0.99}),
+                        change("retire", {})]}
+    assert backtest_candidates(prop, c, WEEKLY) == [("wm-cat", {"prob_min": 0.93})]
+    assert backtest_candidates(prop, c, Rules.for_kind("daily")) == []  # not idle
+    c.backtests[evidence_key("wm-cat", {"prob_min": 0.93})] = evidence()
+    assert backtest_candidates(prop, c, WEEKLY) == []

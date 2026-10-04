@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-04 19:31 KST · 열린 항목 34건 (긴급 0 · 경고 3 · 결정 필요 4 · 참고 27)
+갱신 2026-10-04 19:31 KST · 열린 항목 30건 (긴급 0 · 경고 3 · 결정 필요 1 · 참고 26)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -35,27 +35,6 @@
 - 근거: `strategies/apricot-fruit.yaml`
 
 진입 기록 없음. 같은 기간 대상 종목(mlb) 경기는 8개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. 조건 완화(주간 AI 검토) 또는 폐기(retire) 여부를 판단해야 한다.
-
-### [결정 필요] cherry-tiger n=6(이전 3건): 오늘 2건 이익 포함, 누적 ROI -8.53% — paper 전환 여부 재확인
-
-- 질문 · AI 판단 · 최초 10-04 08:00 · 갱신 10-04 08:00 KST · id `ai:ai-ai-cherry-tiger-calib-mismatch`
-- 근거: `metrics/cherry-tiger.json, metrics/cherry-blue.json`
-
-cherry-tiger 누적 6건(이전 3건): 오늘 Croatia soccer TP +0.889 USDC·MLB Chicago TP +0.957 USDC 이익, Switzerland soccer SL -1.829 USDC 손실 추가. 누적 win_rate 0.333, ROI -8.53%, 총손익 -2.586 USDC. 종목별로는 MLB 2건 ROI +1.9%(1승1패), soccer 3건 ROI -11.3%(1승2패), NFL 1건 ROI -21.0%(0승1패). cherry-blue(0.80-0.82 밴드)는 5건 ROI -9.64%로 동일 부진. MLB 2건은 cherry 가설 방향과 어느 정도 부합하나 n=6으로 결론 불가. live 운영 지속 또는 paper 전환 여부를 연구자가 결정해야 한다.
-
-### [결정 필요] plum paper 전환 완료 — paper 단계 운영 방향 결정 필요
-
-- 결정 · AI 판단 · 최초 10-03 19:30 · 갱신 10-03 19:30 KST · id `ai:plum-paper-next-step`
-- 근거: `metrics/plum-king.json, metrics/plum-queen.json, decisions.md`
-
-plum-king·queen이 paper 모드로 전환됐으나 paper 거래가 0건. 현재 파라미터(take_profit_price=0.9, stop_loss_delta=0.12/0.17)는 live 실패 원인과 같다. 연구자 결정(2026-10-02: 조기 익절 우선)에 따르면 절대가격 TP(0.9)보다 delta 기반 조기 TP가 바람직하지만, 현재 파라미터를 바꾸지 않으면 paper에서도 동일한 stop_loss 손실 패턴이 반복된다. 선택지: (A) 현재 파라미터 그대로 paper에서 베이스라인 데이터를 쌓는다; (B) delta 기반 TP로 파라미터를 수정해 조기 익절 설계를 paper에서 테스트한다. 방향을 알려 주시면 다음 주간 회고에서 반영하겠다.
-
-### [결정 필요] cherry-tiger 실거래 3건 모두 손실·1건 open 중 — paper 전환 고려 여부
-
-- 질문 · AI 판단 · 최초 10-03 19:30 · 갱신 10-03 19:30 KST · id `ai:ai-cherry-tiger-calib-mismatch`
-- 근거: `metrics/cherry-tiger.json, calibration_summary.json`
-
-cherry-tiger 실거래 3건(soccer 1, MLB 1, NFL 1) 모두 stop_loss 청산, ROI -17.19%, 총손익 -2.60 USDC. 현재 1건 open 중(Switzerland vs Slovenia YES entry 0.77, mark 0.765, unrealized -0.09 USDC). calibration_summary.json 기준 MLB 0.70-0.80 버킷 gap=-0.0054(유의하지 않음)으로 가설(0.76-0.78 YES 토큰 저평가)이 calibration에서 지지되지 않는다. n=3으로 우연과 구분 불가이나, 가설과 실결과가 모두 같은 방향(불리)임을 감안할 때 paper 전환을 고려할지 연구자의 판단이 필요하다. 결정이 없으면 현 live 모드 유지한다.
 
 ### [참고] 데이터 품질 이벤트 live_gap 197건 (24시간)
 
@@ -239,18 +218,15 @@ trades_recent.json 및 metrics/watermelon-cat.json, metrics/watermelon-dog.json 
 
 NFL 전 구간 0.60-0.70 버킷(n=114): 평균 가격 0.6446, 실현 승률 0.5263, 95% CI [0.4353, 0.6156], gap=-0.1183 — 정배 과대평가 유의. 0.30-0.40(n=117): gap=+0.1074, CI [0.3739, 0.5517] — 약자 저평가 유의. 0.20-0.30(n=83, gap=+0.096), 0.10-0.20(n=52, gap=+0.0997)도 유의. 정배 과대평가·약자 저평가가 동시에 관찰되는 비대칭 구조로 favourite-longshot bias 이론에 부합한다. 다중 비교 문제가 있으므로 해석에 주의가 필요하다.
 
-### [참고] cherry-tiger 가설(MLB 0.76-0.78 YES 저평가)이 현재 calibration으로 뒷받침되지 않음
-
-- 연구 발견 · AI 판단 · 최초 10-01 09:00 · 갱신 10-01 09:00 KST · id `ai:cherry-tiger-calib-mismatch`
-- 근거: `calibration_summary.json, metrics/cherry-tiger.json`
-
-cherry-tiger 가설: MLB 0.76-0.78 YES 토큰이 실현 확률 대비 저평가되어 1.0으로 수렴. 그러나 MLB 전 구간 0.70-0.80 버킷(n=1172)의 gap=-0.0054, 95% CI [0.7165, 0.7665]로 평균 가격 0.7477을 포함 — 유의하지 않음. 실거래 1건(stop_loss, pnl=-0.7659 USDC)도 가설 방향과 반대 결과이나, n=1로 변형에 대한 결론 자체는 유보한다. 다음 달 표본 누적 이후 calibration 재검토를 권장한다.
-
 ## 최근 해결
 
 <details>
-<summary>최근 14일 해결 6건</summary>
+<summary>최근 14일 해결 10건</summary>
 
+- **cherry-tiger n=6(이전 3건): 오늘 2건 이익 포함, 누적 ROI -8.53% — paper 전환 여부 재확인** — 사용자 결정 (2026-10-04): cherry-tiger·blue 는 paper 로 내리지 않고 live(5 USDC) 를 유지하되 전략을 재설계한다. 실거래 11건(손절 8·익절 3, tiger ROI −8.5%·blue −9.6%)과 8개월 백테스트 모두 옛 설정(0.76–0.82 밴드, TP +20%·SL −8%·trailing 15%)이 수수료·스프레드·1분 주기 손절 미끄러짐 때문에 구조적으로 손해임을 보였다. 새 설정: YES 0.90–0.95 진입, 진입 창은 경기 전 72시간 + 킥오프 후 60분, 손절·trailing·상대 TP 끔, 매도 호가 0.99 이상이면 정산까지 보유, 익절은 수수료 후 순이익일 때만 전량 — blue 는 진입가 +0.03, tiger 는 고정 0.98(청산 방식만 다른 A/B). min_liqui… (10-05 00:06 KST)
+- **plum paper 전환 완료 — paper 단계 운영 방향 결정 필요** — 사용자 결정 (2026-10-04): B 로 결정: delta 기반 조기 익절을 paper 에서 테스트한다. plum-king·plum-queen 에 `take_profit_delta` 0.03(진입가 +0.03 이상이면 보유 전량을 수수료 후 순이익일 때만 매도)과 `hold_above_price` 0.99(매도 호가 0.99 이상이면 정산까지 보유)를 적용하고 mode 는 paper 그대로 둔다. 손절폭 A/B(king 0.12 vs queen 0.17)는 유지한다. NFL 과 plum-us-paper 는 백테스트에서 delta 가 오히려 손해라 기존 TP 가격을 유지한다(bounds 만 열어 둠). 백테스트상 plum 은 모든 설정이 약 −2% 로 delta 는 손실을 줄일 뿐이므로 paper 20건 후 재평가한다. 근거 `docs/re… (10-05 00:06 KST)
+- **cherry-tiger 실거래 3건 모두 손실·1건 open 중 — paper 전환 고려 여부** — 사용자 결정 (2026-10-04): 위 `ai:ai-ai-cherry-tiger-calib-mismatch` 결정과 같다(paper 전환 대신 live 유지·재설계). (10-05 00:06 KST)
+- **cherry-tiger 가설(MLB 0.76-0.78 YES 저평가)이 현재 calibration으로 뒷받침되지 않음** — 사용자 결정 (2026-10-04): 0.76–0.78 밴드 가설은 폐기한다(실현 승률 ≈ 가격, calibration 근거 없음). cherry 는 0.90–0.95 favourite 수렴 가설로 바꿔 검증한다(위 결정). (10-05 00:06 KST)
 - **데이터 품질 이벤트 missing_book 34건 (24시간)** — 조건 해소 (자동) (10-03 19:30 KST)
 - **NFL 실거래 유지 여부 결정 필요 — 오늘 5개 변형 NFL 전패, watermelon-dog만 +0.10 USDC** — 사용자 결정 (2026-10-03): NFL 실거래를 폐기한다. 데이터가 충분히 쌓여 수익이 나는 전략과 파라미터가 확보될 때까지 잠정 중단한다. (10-03 13:58 KST)
 - **NFL 을 watermelon·plum 실거래 범위에 계속 둘지 결정 필요 (백테스트 전 조건 손실)** — 사용자 결정 (2026-10-03): NFL 을 watermelon·plum 실거래 범위에서 제외한다. NFL 전용 전략이나 기존 전략의 NFL 전용 분기 로직이 생기기 전까지 실거래하지 않는다. (10-03 13:58 KST)
