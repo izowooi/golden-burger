@@ -284,6 +284,23 @@ def implied_p00(market_type: str | None, line: float | None, side: str | None, e
     return None
 
 
+def apply_market_filter(conn, markets: list[str]) -> None:
+    """Keep only the owner's chosen markets in Track 2. Entries are a market_type ("total") or
+    market_type@line ("total@0.5": the 0:0 study bets only); empty list = no filter."""
+    if not markets:
+        return
+    keep, params = [], []
+    for m in markets:
+        mt, _, line = m.partition("@")
+        if line:
+            keep.append("(market_type = ? AND ABS(COALESCE(line, -1) - ?) < 1e-9)")
+            params += [mt, float(line)]
+        else:
+            keep.append("market_type = ?")
+            params.append(mt)
+    conn.execute(f"UPDATE position_meta SET track2=0 WHERE market_type IS NULL OR NOT ({' OR '.join(keep)})", params)
+
+
 def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
     """Recompute orders/fills/positions/position_meta from stored activity (idempotent, one transaction)."""
     links = load_links(conn)
@@ -335,10 +352,7 @@ def rebuild(conn, alias: str, since: int | None, now: int) -> dict:
             _write_position(conn, position, meta, p, now)
         set_meta(conn, "unattributed_redeems", unattributed)   # tokenless REDEEM matching no held position
         # Accounts shared with old bots (e.g. red) keep only the owner's chosen market types in Track 2 scope.
-        markets = [m for m in (get_meta(conn, "markets") or "").split(",") if m]
-        if markets:
-            conn.execute(f"UPDATE position_meta SET track2=0 WHERE COALESCE(market_type,'') NOT IN "
-                         f"({','.join('?' * len(markets))})", markets)
+        apply_market_filter(conn, [m for m in (get_meta(conn, "markets") or "").split(",") if m])
     return counts
 
 

@@ -38,6 +38,7 @@ DEFAULTS = {
     "price_max": 0.985,
     "take_profit_price": None,          # None = off (hold to resolution)
     "stop_loss_price": None,            # None = off
+    "take_profit_delta": None,          # e.g. 0.02: sell once the exit is entry VWAP + 0.02 (absolute price points)
     "take_profit_pct": None,            # e.g. 0.02: sell once the exit is +2% over the confirmed entry VWAP
     "stop_loss_pct": None,              # e.g. 0.10: sell once the best bid is 10% below the entry VWAP
     "hold_above_price": None,           # e.g. 0.99: at/above this bid neither TP nor SL fires (ride to resolution)
@@ -65,8 +66,10 @@ def over_0_5(view: MarketView, game_key: str) -> tuple[str, str] | None:
 def threshold_exit_rules(prm: dict) -> dict:
     tp, sl = prm.get("take_profit_price"), prm.get("stop_loss_price")
     tpp, slp, hold = prm.get("take_profit_pct"), prm.get("stop_loss_pct"), prm.get("hold_above_price")
-    return {"hold_to_resolution": tp is None and sl is None and tpp is None and slp is None,
-            "take_profit_price": tp, "stop_loss_price": sl, "take_profit_pct": tpp, "stop_loss_pct": slp,
+    tpd = prm.get("take_profit_delta")
+    return {"hold_to_resolution": tp is None and sl is None and tpp is None and slp is None and tpd is None,
+            "take_profit_price": tp, "stop_loss_price": sl, "take_profit_delta": tpd,
+            "take_profit_pct": tpp, "stop_loss_pct": slp,
             "hold_above_price": hold, "max_stop_spread": prm.get("max_stop_spread", DEFAULTS["max_stop_spread"])}
 
 
@@ -76,6 +79,8 @@ def effective_thresholds(position: PositionView) -> tuple[float | None, float | 
     r = position.exit_rules or {}
     tp, sl = r.get("take_profit_price"), r.get("stop_loss_price")
     entry = position.entry_price
+    if tp is None and r.get("take_profit_delta") is not None and entry:
+        tp = round(entry + float(r["take_profit_delta"]), 6)
     if tp is None and r.get("take_profit_pct") is not None and entry:
         tp = round(entry * (1 + float(r["take_profit_pct"])), 6)
     if sl is None and r.get("stop_loss_pct") is not None and entry:

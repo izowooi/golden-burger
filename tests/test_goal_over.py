@@ -196,3 +196,19 @@ def test_pct_take_profit_stop_loss_and_hold_above(tmp_path):
     t5 = t4 + 60
     env.book("ov1", t5 - 10, [(0.989, 500)], [(0.99, 500)])
     assert s.exit_signals(env.view(t5), t5, hi) is None
+
+
+def test_absolute_take_profit_delta(tmp_path):
+    env, _ = world(tmp_path)
+    s = strat()
+    rules = {"take_profit_delta": 0.02, "stop_loss_pct": 0.10, "hold_above_price": 0.99}
+    now = KICK - 3600
+    env.book("ov1", now - 20, [(0.965, 500)], [(0.97, 500)])
+    assert s.exit_signals(env.view(now), now, pos(rules, entry=0.95, shares=5.26, cost=5.0)) is None  # 0.965 < 0.97
+    t2 = now + 60
+    env.book("ov1", t2 - 10, [(0.97, 500)], [(0.975, 500)])
+    ex = s.exit_signals(env.view(t2), t2, pos(rules, entry=0.95, shares=5.26, cost=5.0))
+    assert ex is not None and ex.kind == "take_profit"                                                  # 0.95 -> 0.97
+    # 0.97 entry: target 0.99 sits in the hold zone -> held to resolution; 0.98 likewise
+    for entry in (0.97, 0.98):
+        assert s.exit_signals(env.view(t2), t2, pos(rules, entry=entry, shares=5.1, cost=5.0)) is None

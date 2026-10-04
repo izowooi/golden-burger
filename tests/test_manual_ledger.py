@@ -256,3 +256,16 @@ def test_watch_markets_filter_parsed(tmp_path, monkeypatch):
     monkeypatch.setattr(settings, "SECRETS_DIR", tmp_path)
     (acct,) = settings.watch_accounts()
     assert acct.alias == "red" and acct.markets == ("total", "btts")
+
+
+def test_markets_filter_supports_line(tmp_path):
+    from polylab.manual import ledger
+    conn = ledger.open_db(tmp_path / "m.db")
+    conn.executemany("INSERT INTO position_meta(position_id, alias, result, track2, market_type, line, updated_at) "
+                     "VALUES (?,?,?,?,?,?,0)", [("a", "red", "open", 1, "total", 0.5), ("b", "red", "open", 1, "total", 1.5),
+                                               ("c", "red", "open", 1, "moneyline", None)])
+    ledger.apply_market_filter(conn, ["total@0.5"])
+    assert dict(conn.execute("SELECT position_id, track2 FROM position_meta").fetchall()) == {"a": 1, "b": 0, "c": 0}
+    conn.execute("UPDATE position_meta SET track2=1")
+    ledger.apply_market_filter(conn, ["total"])
+    assert dict(conn.execute("SELECT position_id, track2 FROM position_meta").fetchall()) == {"a": 1, "b": 1, "c": 0}
