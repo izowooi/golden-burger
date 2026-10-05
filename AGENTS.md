@@ -13,6 +13,7 @@ Polymarket 스포츠(soccer·MLB·NBA·NFL·NHL) 가격이 경기 시간대별�
 
 | 작업 | 자료 |
 |---|---|
+| **새 세션 시작 시 먼저** | `docs/PROJECT_STATE.md`(현재 상태·목적·전략표), `reports/decisions.md`, `reports/attention.md` |
 | 전체 구조·잡·데이터 흐름 | `docs/ARCHITECTURE.md` |
 | 전략 변형(파라미터·단위·계좌·모드) | `strategies/*.yaml` (유일한 진실), 로직 `src/polylab/strategies/` |
 | 전략 원 명세(레거시 포팅) | `docs/strategies/*.md` |
