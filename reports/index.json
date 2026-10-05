@@ -1,5 +1,15 @@
 [
  {
+  "kind": "daily",
+  "date": "2026-10-05",
+  "slot": "evening",
+  "title": "polylab 일일 리포트 2026-10-05 저녁 (19:30 KST)",
+  "path": "reports/daily/2026-10-05-evening.md",
+  "ai": true,
+  "engine": "claude",
+  "generated_at": "2026-10-05T10:31:03Z"
+ },
+ {
   "kind": "weekly",
   "date": "2026-10-05",
   "slot": null,

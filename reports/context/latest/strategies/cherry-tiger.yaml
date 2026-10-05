@@ -1,84 +1,74 @@
 id: cherry-tiger
 family: cherry
-hypothesis: '경기 결과 마켓에서 이미 0.90-0.95 인 YES favourite(경기 전 72h 이내 또는 킥오프 후 60분 이내)은 1.0 쪽으로 수렴한다. B arm:
-  고정 매도가 0.98 익절(owner 가 기억하는 옛 설정 ''0.92 매수 → 0.98 매도'' 검증). 손절·트레일링 없음, 매도호가 0.99 이상이면 정산까지 보유.'
+hypothesis: 'B arm: 백테스트(2026-02~10, 9.6만 마켓)에서 카테고리별로 H1 으로 고른 셀 중 live 문턱(n≥60,
+  두 반기 ≥0)을 넘은 유일한 조합 — esports(e스포츠) 마켓에서 종료 36–60시간 전 앞선 결과가 0.94–0.96 이면 정산까지 보유.
+  8만여 셀·11개 카테고리 탐색 뒤 고른 값이라 우연일 수 있어 paper 로 표본 밖 검증한다.'
 account: tiger
-mode: live
+mode: paper
 sports:
 - soccer
-- mlb
 stake_usdc: 5.0
 params:
-  leagues:
-  - epl
-  - bun
-  - fl1
-  - lal
-  - sea
-  - mls
-  - unl
-  - ucl
-  - uel
-  buy_threshold: 0.9
-  sell_threshold: 0.95
+  hours_to_end_min: 36.0
+  hours_to_end_max: 60.0
+  min_listed_hours: 72.0
+  entry_min: 0.94
+  entry_max: 0.96
+  take_profit_price: null
   take_profit_delta: null
-  take_profit_price: 0.98
   hold_above_price: 0.99
-  take_profit_percent: null
-  stop_loss_percent: null
-  trailing_enabled: false
-  trailing_percent: 0.15
-  entry_hours_min: 0.0
-  entry_hours_max: 72.0
-  allow_in_play: true
-  in_play_max_minutes: 60
-  yes_only: true
-  min_liquidity: 125000.0
-  min_volume: 5000.0
-  market_types:
-  - moneyline
-  - draw
+  time_exit_hours_before_end: null
+  min_volume: 10000.0
+  min_liquidity: 0.0
+  categories:
+  - esports
+  exclude_categories: []
+  include_core_sports: true
 bounds:
-  buy_threshold:
+  hours_to_end_min:
+  - 0.0
+  - 72.0
+  - 12.0
+  hours_to_end_max:
+  - 24.0
+  - 96.0
+  - 12.0
+  entry_min:
   - 0.85
   - 0.94
   - 0.01
-  sell_threshold:
+  entry_max:
   - 0.9
   - 0.97
   - 0.01
-  take_profit_delta:
-  - 0.01
-  - 0.08
-  - 0.01
   take_profit_price:
   - 0.95
-  - 0.985
-  - 0.005
+  - 0.99
+  - 0.01
+  take_profit_delta:
+  - 0.02
+  - 0.05
+  - 0.01
   hold_above_price:
   - 0.98
   - 0.995
   - 0.005
-  entry_hours_max:
+  time_exit_hours_before_end:
+  - 0.0
   - 24.0
-  - 120.0
-  - 24.0
-  in_play_max_minutes:
-  - 30
-  - 120
-  - 15
-  min_liquidity:
-  - 50000.0
-  - 250000.0
-  - 25000.0
+  - 12.0
+  min_volume:
+  - 10000.0
+  - 100000.0
+  - 15000.0
 limits:
   max_positions: 10
   max_open_usdc: 50
   daily_loss_stop_usdc: 20
   max_new_per_cycle: 1
-notes: 'golden-cherry Yellow(0.76-0.78) 포팅. 5개 종목 경기결과 마켓만. FOK taker 체결(의도적 차이). | 2026-10-03 연구자 결정:
-  NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만). | 2026-10-04 연구자 결정·백테스트(docs/research/backtests/2026-10-04-cherry-plum.md):
-  0.76-0.78/TP+20%/SL-8%/trailing 은 수수료·스프레드·1분 주기 손절 미끄러짐으로 구조적 손실 → 밴드 0.90-0.95, 진입 창 경기 전 72h + 킥오프
-  후 60분, 고정 매도가 0.98(수수료 후 순이익일 때만 전량), 0.99 이상 보유, 손절·트레일링·상대 TP 끔. 백테스트도 edge 를 입증하지 못했다(분할 표본 ±1%p
-  이내). A/B 는 blue(진입가+0.03)와 청산 방식만 다르다. SL·trailing·상대 TP 는 bounds 에서 뺐으므로 다시 켜는 것은 사람만. 이전 포지션은 진입 시
-  고정된 규칙을 유지한다.'
+notes: '2026-10-05 연구자 결정 cherry:back-to-basics 적용(코드 strategies/cherry.py, 데이터 data/general).
+  백테스트(docs/research/backtests/2026-10-05-cherry-basics.md): 전체 8만1548 셀 중 두 반기 모두
+  0 이상인 셀이 0개(현재 taker 수수료·측정 스프레드). esports 만 따로 보면 이 셀이 n=105(이벤트 86), ROI +3.8%,
+  H1 +4.7% / H2 +1.7%, 95% CI [+1.5, +4.8]% 였지만 다중 비교 뒤 고른 값이고 스프레드 2배에서 CI 가 0 을
+  포함해 paper. A/B: blue 는 연구자 원안(전 카테고리 48–72h, 0.90–0.95, 0.95 매도). 2026-10-05 이전
+  포지션은 진입 시 고정된 옛 규칙을 유지한다.'

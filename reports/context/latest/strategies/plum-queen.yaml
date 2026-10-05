@@ -1,12 +1,22 @@
 id: plum-queen
 family: plum
-hypothesis: '경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm: 축구 SL 0.17(더 넓은 손절),
-  NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교.'
+hypothesis: '경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm:
+  축구 SL 0.17(더 넓은 손절), NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교.'
 account: queen
 mode: paper
 sports:
-- soccer
-- nfl
+  soccer:
+    mode: paper
+    stake_usdc: 5.0
+  nfl:
+    mode: paper
+    stake_usdc: 5.0
+  nba:
+    mode: paper
+    stake_usdc: 5.0
+  nhl:
+    mode: paper
+    stake_usdc: 5.0
 stake_usdc: 5.0
 params:
   leagues:
@@ -38,6 +48,22 @@ params:
       take_profit_price: 0.9
       stop_loss_delta: 0.12
       take_profit_delta: null
+    nba:
+      prob_min: 0.7
+      prob_max: 0.73
+      take_profit_price: 0.9
+      take_profit_delta: null
+      hold_above_price: null
+      stop_loss_delta: 0.17
+      max_wall_minute: 60
+    nhl:
+      prob_min: 0.7
+      prob_max: 0.73
+      take_profit_price: 0.85
+      take_profit_delta: null
+      hold_above_price: null
+      stop_loss_delta: 0.17
+      max_wall_minute: 120
 bounds:
   min_game_volume_usd:
   - 5000
@@ -95,13 +121,66 @@ bounds:
   - 0.01
   - 0.15
   - 0.01
+  sport_overrides.nba.prob_min:
+  - 0.6
+  - 0.8
+  - 0.01
+  sport_overrides.nba.prob_max:
+  - 0.62
+  - 0.85
+  - 0.01
+  sport_overrides.nba.take_profit_price:
+  - 0.8
+  - 0.97
+  - 0.01
+  sport_overrides.nba.take_profit_delta:
+  - 0.01
+  - 0.15
+  - 0.01
+  sport_overrides.nba.stop_loss_delta:
+  - 0.05
+  - 0.25
+  - 0.01
+  sport_overrides.nba.max_wall_minute:
+  - 30
+  - 180
+  - 30
+  sport_overrides.nhl.prob_min:
+  - 0.6
+  - 0.8
+  - 0.01
+  sport_overrides.nhl.prob_max:
+  - 0.62
+  - 0.85
+  - 0.01
+  sport_overrides.nhl.take_profit_price:
+  - 0.8
+  - 0.97
+  - 0.01
+  sport_overrides.nhl.take_profit_delta:
+  - 0.01
+  - 0.15
+  - 0.01
+  sport_overrides.nhl.stop_loss_delta:
+  - 0.05
+  - 0.25
+  - 0.01
+  sport_overrides.nhl.max_wall_minute:
+  - 30
+  - 180
+  - 30
 limits:
   max_positions: 10
   max_open_usdc: 50
   daily_loss_stop_usdc: 25
   max_new_per_cycle: 5
-notes: 'golden-plum Queen(soccer TP .90/SL .17, nfl TP .90/SL .12) 포팅. 원래 $5. | 2026-10-04 연구자 결정 B(`ai:plum-paper-next-step`):
-  delta 기반 조기 익절을 paper 에서 테스트한다. take_profit_delta 0.03(진입가 +0.03 이상에서 보유 전량을 bid VWAP 로, 수수료 후 순이익일
-  때만 매도; partial slice TP 대체), hold_above_price 0.99(매도 호가 0.99 이상이면 TP·손절·65분 강제청산 없이 정산까지 보유). 백테스트(docs/research/backtests/2026-10-04-cherry-plum.md):
-  모든 셀이 약 −2% 로 음수이고 delta 는 soccer 손실만 줄였다(delta 가 작을수록 덜 나쁨: king +0.02 −1.35%·+0.03 −1.61%, 차이는 노이즈 수준이라 두 arm 모두 +0.03). NFL 은 delta 가 더 나빠서 sport_overrides.nfl.take_profit_delta
-  를 null(기존 TP 가격 유지)로 둔다. A/B 축은 기존 손절폭(king 0.12 vs queen 0.17) 그대로.'
+notes: 'golden-plum Queen(soccer TP .90/SL .17, nfl TP .90/SL .12) 포팅. 원래 $5. | 2026-10-04
+  연구자 결정 B(`ai:plum-paper-next-step`): delta 기반 조기 익절을 paper 에서 테스트한다. take_profit_delta
+  0.03(진입가 +0.03 이상에서 보유 전량을 bid VWAP 로, 수수료 후 순이익일 때만 매도; partial slice TP 대체), hold_above_price
+  0.99(매도 호가 0.99 이상이면 TP·손절·65분 강제청산 없이 정산까지 보유). 백테스트(docs/research/backtests/2026-10-04-cherry-plum.md):
+  모든 셀이 약 −2% 로 음수이고 delta 는 soccer 손실만 줄였다(delta 가 작을수록 덜 나쁨: king +0.02 −1.35%·+0.03
+  −1.61%, 차이는 노이즈 수준이라 두 arm 모두 +0.03). NFL 은 delta 가 더 나빠서 sport_overrides.nfl.take_profit_delta
+  를 null(기존 TP 가격 유지)로 둔다. A/B 축은 기존 손절폭(king 0.12 vs queen 0.17) 그대로. | 2026-10-05
+  연구자 결정 `sports3:per-sport`: 종목별 mode·단위·파라미터. 근거 docs/research/backtests/2026-10-05-per-sport-nba-nhl.md.
+  NBA paper(SL 0.17 셀은 통과했지만 이웃 셀 강건성 미달: 4/9). soccer·NFL·NHL paper. A/B 축(손절폭 0.12
+  vs 0.17) 유지.'
