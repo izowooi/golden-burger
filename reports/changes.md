@@ -2,6 +2,11 @@
 
 최신이 위. autopilot(validator 통과분)과 결정론 ladder가 기록한다.
 
+## 2026-10-06 08:00 KST · 일일 2026-10-06-morning · engine claude
+
+- `watermelon-cat` mode: [soccer] mode live→paper (ladder) — ladder: 45 trades at floor with cumulative loss
+- `watermelon-dog` mode: [soccer] mode live→paper (ladder) — ladder: 45 trades at floor with cumulative loss
+
 ## 2026-10-03 08:00 KST · 일일 2026-10-03-morning · engine claude
 
 - `plum-king` mode: mode live→paper (ai:claude) — 1분 주기 Jenkins가 급락을 따라잡지 못해 실체결 손절가가 설계값(entry-SL_delta=0.61) 대비 −0.15 낮은 0.46에서 체결(Ukraine vs NI, trades_recent.json). Ireland·Seattle에서도 동일 패턴 반복. 절대가격 TP(0.9) 구조가 연구자 결정(조기 익절 우선)과 부합하지 않음. n=8로 통계 결론 불가이나 운영 위험 누적, paper 전환 후 가설 재설계 권장.

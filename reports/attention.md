@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-06 03:30 KST · 열린 항목 38건 (긴급 0 · 경고 3 · 결정 필요 4 · 참고 31)
+갱신 2026-10-06 08:00 KST · 열린 항목 43건 (긴급 0 · 경고 5 · 결정 필요 8 · 참고 30)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -8,12 +8,26 @@
 
 ## 열린 항목
 
-### [경고] 수동 베팅 누적 실현 -3,734.74 USDC: bankroll의 -37.4% (수동 AI 베팅 (red, 메인))
+### [경고] 수동 베팅 누적 실현 -3,691.08 USDC: bankroll의 -36.9% (수동 AI 베팅 (red, 메인))
 
-- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 03:30 KST · id `manual_drawdown:red`
-- 근거: `reports/daily/2026-10-06-dawn.md`
+- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 08:00 KST · id `manual_drawdown:red`
+- 근거: `reports/daily/2026-10-06-morning.md`
 
 계좌 수동 AI 베팅 (red, 메인) 실현손익이 처음 기록된 bankroll 10,000.00 USDC의 −10% 아래로 내려갔다. 베팅 금액·선택 기준 점검 권장.
+
+### [경고] watermelon-cat 자동 변경: [soccer] mode live→paper
+
+- 시스템 변경 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `stake:watermelon-cat:1791241204`
+- 근거: `strategies/watermelon-cat.yaml`
+
+10-06 08:00 KST 적용(ladder). 사유: ladder: 45 trades at floor with cumulative loss. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
+
+### [경고] watermelon-dog 자동 변경: [soccer] mode live→paper
+
+- 시스템 변경 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `stake:watermelon-dog:1791241204`
+- 근거: `strategies/watermelon-dog.yaml`
+
+10-06 08:00 KST 적용(ladder). 사유: ladder: 45 trades at floor with cumulative loss. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
 
 ### [경고] plum-king 단위 모드 변경: 5→5 USDC, 모드 live→paper
 
@@ -29,19 +43,47 @@
 
 10-03 08:00 KST 자동 적용. 사유: ai:claude: mode live→paper. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
 
-### [결정 필요] apricot-fruit 3일 이상 진입 0건 (대상 경기 46개 있었음)
+### [결정 필요] apricot-fruit 3일 이상 진입 0건 (대상 경기 49개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 03:30 KST · id `dead_variant:apricot-fruit`
+- 결정 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 08:00 KST · id `dead_variant:apricot-fruit`
 - 근거: `strategies/apricot-fruit.yaml`
 
-진입 기록 없음. 같은 기간 대상 종목(mlb, nba, nhl, nfl) 경기는 46개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+진입 기록 없음. 같은 기간 대상 종목(mlb, nba, nhl, nfl) 경기는 49개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
 
-### [결정 필요] apricot-eco 3일 이상 진입 0건 (대상 경기 46개 있었음)
+### [결정 필요] apricot-eco 3일 이상 진입 0건 (대상 경기 49개 있었음)
 
-- 결정 · 자동 규칙 · 최초 10-05 19:31 · 갱신 10-06 03:30 KST · id `dead_variant:apricot-eco`
+- 결정 · 자동 규칙 · 최초 10-05 19:31 · 갱신 10-06 08:00 KST · id `dead_variant:apricot-eco`
 - 근거: `strategies/apricot-eco.yaml`
 
-마지막 진입 10-02 10:30 KST. 같은 기간 대상 종목(mlb, nba, nhl, nfl) 경기는 46개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+마지막 진입 10-02 10:30 KST. 같은 기간 대상 종목(mlb, nba, nhl, nfl) 경기는 49개였다. 진입 조건이 지나치게 엄격하거나 버그일 수 있다. AI 회고가 백테스트 근거로 조건을 다시 맞추거나(retro 가 직접 재생해 검증), 폐기(retire) 여부를 판단해야 한다.
+
+### [결정 필요] paper 변형 plum-king 표본 21건 도달: live 전환 결정 필요
+
+- 결정 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `paper_ready:plum-king`
+- 근거: `strategies/plum-king.yaml`
+
+paper 정산 21건, 승률 47.6%, ROI -3.0%(paper 원장). live 전환은 사람만 할 수 있다: strategies/plum-king.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
+
+### [결정 필요] paper 변형 plum-queen 표본 21건 도달: live 전환 결정 필요
+
+- 결정 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `paper_ready:plum-queen`
+- 근거: `strategies/plum-queen.yaml`
+
+paper 정산 21건, 승률 47.6%, ROI -2.0%(paper 원장). live 전환은 사람만 할 수 있다: strategies/plum-queen.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
+
+### [결정 필요] NFL apricot 자동 승격이 구조적으로 불가 — 120일 n≥40 조건 vs NFL 시즌 경기 수 23-39건
+
+- 결정 · AI 판단 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `ai:ai-nfl-apricot-promotion-gate-gap`
+- 근거: `decisions.md, metrics/apricot-eco.json, bounds.json`
+
+decisions.md 2026-10-06 sports3:us-all-applied에 따르면 apricot-eco NFL은 R1-R7 백테스트를 통과(103건 재생, ROI +2.76%, 두 반기·세 시즌 양수)해 자동 승격 게이트의 첫 후보다. 그러나 NFL 시즌당 경기 수가 약 40-50건이어서 최근 120일(backtest_lookback_days) 재생이 2025-26 시즌 어느 주에도 n≥40에 닿지 않는다(23-39건). 현재 게이트 규칙으로는 NFL만 자동 전환이 사실상 불가능하다. NFL 한정으로 lookback 창을 늘리거나(예: 180-240일), n 기준을 조정하거나, 연구자가 직접 전환 여부를 결정하는 방식 중 하나가 필요하다. 게이트 기준 변경은 rules.promotion_replay 설정과 validator에 영향을 미치므로 연구자 결정이 선행되어야 한다.
+
+### [결정 필요] goal-over-all maker 주문 24시간 전체: 152건 중 126건 미체결(83%) — 기준선 연구 표본 편향 위험
+
+- 결정 · AI 판단 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `ai:ai-ai-goal-over-all-maker-fill-rate`
+- 근거: `report.json, metrics/goal-over-all.json, decisions.md`
+
+2026-10-05T05:12 maker 방식 전환 후 24시간 전체 집계(report.json): tx 152건 중 unfilled 126건(83% 미체결). 킥오프 전 지정가 주문이 시장 호가에 닿지 않아 대부분 취소되는 것으로 보인다. goal-over-all의 핵심 가설은 주요 리그 Over 0.5를 기계적으로 전수 매수해 시장 효율성(ROI ≈ 0)을 확인하는 것이다. 83% 미체결은 체결된 경기만 분석 대상이 되는 선택 편향을 만들어 기준선 가설 검증을 왜곡한다. 체결 가능한 경기(호가 낮은 경기)만 포함되면 Over 0.5 win_rate 추정치가 편향될 수 있다. maker 유지, taker로 복귀, 또는 maker 체결 실패 시 즉시 taker 폴백 방식 중 결정이 필요하다.
 
 ### [결정 필요] goal-over-all 누적 stop_loss 6건 전부 방향 옳은 경기 — stop_loss_pct 재검토 필요
 
@@ -57,33 +99,26 @@
 
 오늘 Malta/Andorra(진입 0.88 → stop 0.79, −0.59 USDC), Kosovo/Austria(0.94 → 0.84, −0.59 USDC), Azerbaijan/Lithuania(0.88 → 0.79, −0.59 USDC) 3건 stop_loss 발동. 세 경기 모두 watermelon-cat이 88.15분·93.05분·92.73분에 take_profit 달성해 최종 득점 확인. 이전 Belarus/San Marino(진입 0.968 → 0.832, −0.75 USDC)도 동일 패턴이었음. 누적 7건 중 4건 stop_loss, 최소 3건이 방향 옳은 경기에서 프리게임 가격 하락으로 발동됐다. allow_in_play=false 전략에서 stop_loss_pct=10%는 킥오프 전 시장 변동(−10%)으로 조기 청산 후 경기 자체를 놓치게 만드는 구조다. stop_loss_pct 확대 또는 프리게임 구간 비활성화 여부를 결정해 주시기 바랍니다. 이 파라미터는…
 
-### [참고] 데이터 품질 이벤트 live_gap 265건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 183건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-06 03:30 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-06-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-06 08:00 KST · id `quality:live_gap`
+- 근거: `reports/daily/2026-10-06-morning.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 139건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 123건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 03:30 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-06-dawn.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-06 08:00 KST · id `quality:live_history_mismatch`
+- 근거: `reports/daily/2026-10-06-morning.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] paper 변형 plum-queen 증거 수집 중 (16/20건)
+### [참고] 일일 회고 제안 2건 거부됨 (validator)
 
-- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-06 03:30 KST · id `paper:plum-queen`
-- 근거: `strategies/plum-queen.yaml`
+- 시스템 변경 · 자동 규칙 · 최초 10-06 08:00 · 갱신 10-06 08:00 KST · id `rejected:daily`
+- 근거: `reports/daily/2026-10-06-morning.md`
 
-가설: 경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm: 축구 SL 0.17(더 넓은 손절), NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교.. paper 정산 16건, ROI 1.7%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다; 종목별 변형의 paper 종목은 결정론 승격 게이트가 자동 전환).
-
-### [참고] paper 변형 plum-king 증거 수집 중 (16/20건)
-
-- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-06 03:30 KST · id `paper:plum-king`
-- 근거: `strategies/plum-king.yaml`
-
-가설: 경기 중 유일한 midpoint 선두 토큰이 ask VWAP 0.70-0.73에 있을 때 시장은 선두 유지·상승 확률을 과소평가한다(favourite continuation). 축구는 60분 이전 진입·65분 강제청산. A arm: SL 0.12, NFL TP 0.85.. paper 정산 16건, ROI -0.7%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다; 종목별 변형의 paper 종목은 결정론 승격 게이트가 자동 전환).
+안전 규칙(표본·cooldown·bounds·ladder)에 걸린 제안은 적용하지 않는다: `watermelon-cat` mode: only one change per variant (per sport) per retro (ai:claude); `watermelon-dog` mode: only one change per variant (per sport) per retro (ai:claude)
 
 ### [참고] paper 변형 apricot-eco 증거 수집 중 (0/20건)
 
@@ -277,8 +312,10 @@ NFL 전 구간 0.60-0.70 버킷(n=114): 평균 가격 0.6446, 실현 승률 0.52
 ## 최근 해결
 
 <details>
-<summary>최근 14일 해결 18건</summary>
+<summary>최근 14일 해결 20건</summary>
 
+- **paper 변형 plum-queen 증거 수집 중 (16/20건)** — 조건 해소 (자동) (10-06 08:00 KST)
+- **paper 변형 plum-king 증거 수집 중 (16/20건)** — 조건 해소 (자동) (10-06 08:00 KST)
 - **NFL 자동 실거래 전환 기준: 최근 120일 재생 40건을 시즌 단위로 바꿀지 결정 필요** — 조건 해소 (자동) (10-06 03:30 KST)
 - **paper 변형 plum-us-paper 표본 27건 도달: live 전환 결정 필요** — 조건 해소 (자동) (10-06 03:30 KST)
 - **paper 변형 watermelon-us-paper 표본 31건 도달: live 전환 결정 필요** — 조건 해소 (자동) (10-06 03:30 KST)
