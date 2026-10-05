@@ -61,3 +61,14 @@ jobs:
     cron: "H/15 * * * *"
     timeout_minutes: 10
     command: "uv run --no-sync polylab manual sync"
+  polylab-ou05:
+    description: "1분마다: 축구 O/U 0.5 전 시장(모든 리그) Over·Under 양쪽 호가(L1 bid/ask/size/last) → data/ou05/YYYY-MM.db. 변화 시 또는 10분마다 1행. tick 과 분리(전형 1–2초). 설계 docs/research/ou05-overround-study.md"
+    cron: "* * * * *"
+    timeout_minutes: 2
+    keep_builds: 1500
+    command: "uv run --no-sync polylab ou05 poll"
+  polylab-ou05-discover:
+    description: "매시: Gamma 에서 열린 축구 O/U 0.5 시장 전부를 생성 시점부터 등록(킥오프 갱신), 종료·정산·최종 스코어 반영 → 이어서 과거 중간가 백필(2026-02-01~, 주요 리그 우선, 25분 예산, 재개 가능) → 대시보드 /ou05 집계(analyze ou05, 업로드는 polylab-publish)"
+    cron: "H * * * *"
+    timeout_minutes: 40
+    command: "rc=0; uv run --no-sync polylab ou05 discover || rc=$?; uv run --no-sync polylab ou05 backfill --budget-minutes 25 || rc=$?; uv run --no-sync polylab analyze ou05 --no-export || rc=$?; exit $rc"

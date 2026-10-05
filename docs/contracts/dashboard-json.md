@@ -271,6 +271,69 @@ Additional keys (2026-10-04): `positions` — every recorded position of every w
 `open_positions`, incl. `result`, `realized_pnl`, `closed_at`, `track2`, `implied_p00_at_entry`), newest `opened_at`
 first; `predictions` — all-time `manual/predictions` join (`{rows, unmatched, predictions}` as in the weekly report) or `null`.
 
+## latest/ou05/summary.json
+Soccer O/U 0.5 market-life study (`docs/research/ou05-overround-study.md`), computed by `polylab analyze ou05`
+(`src/polylab/analysis/ou05.py`, end of the hourly `polylab-ou05-discover` job) into `<research_dir>/ou05/latest/`;
+`polylab publish` (`publish_ou05`) only uploads changed files from there and never computes. Source = `data/ou05/` only
+(all soccer leagues).
+```json
+{"generated_at": "2026-10-05T02:00:00Z",
+ "scope": {"markets": 1400, "open": 932, "resolved": 464, "poll_rows": 2053, "history_rows": 781964,
+           "from": "2026-07-03T17:18:00Z", "to": "2026-10-05T01:37:00Z"},
+ "bin": 0.005, "heartbeat_s": 600,
+ "bands": [{"key": "d30p", "label": "30일+ 전", "kind": "pre"}, {"key": "ip0", "label": "킥오프 0–15′", "kind": "inplay"}],
+ "tiers": [{"key": "all", "label": "전체"}, {"key": "major", "label": "주요 리그"}, {"key": "vol_ge_10k", "label": "거래량 ≥ 1만"}],
+ "overround": [{"band": "h1", "tier": "major", "markets": 8, "minutes": 83, "rows": 120, "two_sided_share": 1.0,
+                "sum_ask": {"p10": 1.01, "p25": 1.01, "p50": 1.02, "p75": 1.02, "p90": 1.02},
+                "sum_bid": {"p10": 0.98, "p25": 0.98, "p50": 0.98, "p75": 0.99, "p90": 0.99},
+                "spread": {"p10": 0.01, "p25": 0.01, "p50": 0.02, "p75": 0.02, "p90": 0.02}}],
+ "distribution": {"edges": [1.0, 1.01, 2.0], "series": [{"tier": "all", "phase": "pre|last24h|inplay", "markets": 900,
+                  "minutes": 9000, "shares": [0.0, 0.3, 0.1]}]},
+ "leagues": [{"league": "epl", "tier": "major", "markets": 15, "volume_median": 0.0, "minutes": 165,
+              "pre": {"p25": 1.01, "p50": 1.02, "p75": 1.12}, "last1h": null, "inplay": null}],
+ "volume_relation": {"basis": "...", "markets": 30, "spearman_volume": -0.39, "spearman_liquidity": -0.5,
+                     "rows": [{"metric": "volume|liquidity", "lo": 0, "hi": 100, "markets": 27, "p25": 1.02, "p50": 1.02, "p75": 1.03}]},
+ "calibration": [{"band": "h1", "tier": "all|major|other", "n": 54, "n_poll": 0, "mean_over": 0.93, "over_rate": 0.85,
+                  "ci_lo": 0.73, "ci_hi": 0.92, "gap": -0.08, "nil_rate": 0.15}],
+ "quality": {"ou05_poll_gap": {"events_7d": 1, "last_at": "..."}},
+ "notes": ["..."]}
+```
+- `sum_ask = over_ask + under_ask` (level 1), `sum_bid = over_bid + under_bid`, `spread = over_ask − over_bid`. The two books
+  are mirrors (`under_ask = 1 − over_bid`), so `sum_ask − 1 = spread` and `sum_bid = 1 − spread`.
+- Quantiles are **time-weighted** (row weight = seconds to the market's next row capped at `heartbeat_s`; 60 when the next
+  row is more than `heartbeat_s` + 180 s later) over
+  poll rows only, from `bin`-wide histograms. Quantile objects are `null` when a band has no two-sided quote.
+- `bands`: pre-kickoff (`d30p,d14,d7,d3,d1,h6,h1,m15,m0`) then wall-clock minutes since kickoff
+  (`ip0…ip120`, `post` ≥ 180′), from the registry's latest kickoff. `tiers`: `all|major|other|vol_ge_10k|vol_1k_10k|vol_lt_1k`.
+- `distribution.series[].shares[i]`: time share in bucket i of `[<edges[0]], [edges[0],edges[1]) … [≥edges[-1]]`
+  (length `len(edges)+1`).
+- `calibration`: resolved markets, one observation per (market, band) = time-weighted Over price (poll mid when the Over
+  spread ≤ 0.10, else history mid; a history mid of exactly 0.5 = empty-book placeholder, dropped); `gap = over_rate − mean_over` (> 0 Over under-priced); `nil_rate` = 0:0 share.
+
+## latest/ou05/markets_index.json
+```json
+{"generated_at": "...", "max_points": 400,
+ "markets": [{"condition_id": "0x…64 hex", "league": "epl", "title": "Leeds United FC vs Newcastle United FC", "major": true,
+              "created_at": "...", "game_start": "...", "closed_at": "...", "closed": true, "resolved_over": true,
+              "final_score": "2-1", "volume": 53075.6, "liquidity": 1200.0, "rows": 2900, "poll_rows": 0,
+              "from": "...", "to": "..."}]}
+```
+At most 120 markets with stored rows: open markets kicking off within −6 h…+7 d (top 50 by volume) plus markets that
+kicked off in the last 30 days (resolved first, by volume); newest kickoff first.
+
+## latest/ou05/markets/<condition_id>.json
+`condition_id` matches `^0x[0-9a-f]{64}$`. No `generated_at`, so unchanged markets are not re-uploaded.
+```json
+{"condition_id": "0x…", "league": "epl", "title": "...", "major": true, "created_at": "...", "game_start": "...",
+ "closed_at": null, "closed": false, "resolved_over": null, "final_score": null, "volume": 12000.0, "liquidity": 3000.0,
+ "goals": [{"at": "...", "scorer": "home", "home_score": 1, "away_score": 0}],
+ "columns": ["at", "over_bid", "over_ask", "under_bid", "under_ask", "sum_ask_max", "over_mid", "src"],
+ "points": [["2026-10-05T01:00:00Z", 0.93, 0.99, 0.01, 0.07, 1.06, 0.96, "p"]]}
+```
+- `points`: the whole stored life (history + poll), ≤ `max_points` equal time bins, last row per bin; `sum_ask_max` = the
+  bin's largest sum_ask. `src` `p` = poll row (bid/ask known), `h` = history row (only `over_mid`; others `null`).
+- `goals`: score increases from core.db `game_states` (only games the main collector tracks, since 2026-09-30); else `[]`.
+
 ## Additive fields (beyond the examples above)
 - overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,

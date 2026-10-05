@@ -339,6 +339,41 @@ def publish_explore(paths, storage: Storage | None, prefix: str = "", out: Path 
     return written
 
 
+def publish_ou05(paths, storage: Storage | None, prefix: str = "", out: Path | None = None) -> list[str]:
+    """latest/ou05/*: upload the O/U 0.5 study files that `polylab analyze ou05` (hourly, end of the
+    polylab-ou05-discover job) left under <research_dir>/ou05/latest. Upload only — never computes, so a growing
+    data/ou05 cannot slow the 5-minute publish job or the health check after it. Only files whose content changed
+    since the last upload are sent (digests in state/publish_ou05.json); a no-op until the cache exists."""
+    from polylab.analysis import ou05  # noqa: PLC0415
+    files = ou05.cached_files(paths)
+    if not files:
+        return []
+    state_path = Path(paths.state) / "publish_ou05.json"
+    try:
+        state = json.loads(state_path.read_text())
+    except (OSError, json.JSONDecodeError):
+        state = {}
+    track = storage is not None and not prefix
+    seen = state.get("digests", {}) if track else {}
+    digests, written = {}, []
+    for path, f in files.items():
+        body = f.read_bytes()
+        digests[path] = hashlib.sha256(body).hexdigest()
+        if seen.get(path) == digests[path]:
+            continue
+        if out is not None:
+            dest = out / prefix / path
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(body)
+        if storage is not None:
+            storage.upload(prefix + path, body)
+        written.append(prefix + path)
+    if track:
+        state["digests"] = digests
+        state_path.write_text(json.dumps(state))
+    return written
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab publish")
     ap.add_argument("--dry-run", action="store_true", help="build only; do not upload")
@@ -366,6 +401,10 @@ def main(argv: list[str] | None = None) -> int:
         written += publish_explore(paths, storage, prefix=prefix, out=args.out)
     except Exception as exc:  # noqa: BLE001
         print(f"publish: explore skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
+    try:  # the O/U 0.5 study page is optional too
+        written += publish_ou05(paths, storage, prefix=prefix, out=args.out)
+    except Exception as exc:  # noqa: BLE001
+        print(f"publish: ou05 skipped: {type(exc).__name__}: {exc}", file=sys.stderr)
     verb = "built" if args.dry_run else "uploaded"
     print(f"publish: {verb} {len(written)} objects in {time.time() - t0:.1f}s")
     return 0

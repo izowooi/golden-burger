@@ -1,8 +1,10 @@
-"""`polylab analyze <calibration|events|dataset|explore|all> [--since] [--until] [--json]`.
+"""`polylab analyze <calibration|events|dataset|explore|ou05|all> [--since] [--until] [--json]`.
 
 Results are cached under <research_dir>/ (calibration.json, events.json) so the 5-minute
 publish job and reports read them instead of recomputing. `explore` (dashboard /explore aggregates +
 7-day game browser, <research_dir>/explore/) always covers the full DB and is not part of `all`.
+`ou05` (soccer O/U 0.5 market-life study, analysis/ou05.py) reads data/ou05/ and also exports the raw minute
+series to parquet under <research_dir>/ou05/parquet (`--no-export` skips that); not part of `all`.
 """
 
 from __future__ import annotations
@@ -65,18 +67,26 @@ def run(what: str, paths, since: int | None, until: int | None, all_leagues: boo
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab analyze")
-    ap.add_argument("what", choices=["calibration", "events", "dataset", "explore", "all"])
+    ap.add_argument("what", choices=["calibration", "events", "dataset", "explore", "ou05", "all"])
     ap.add_argument("--since", help="YYYY-MM-DD, Nd or unix seconds (games starting at/after)")
     ap.add_argument("--until", help="YYYY-MM-DD, Nd or unix seconds")
     ap.add_argument("--json", action="store_true", help="print full JSON result")
     ap.add_argument("--all-leagues", action="store_true",
                     help="include every stored soccer league (default: MAJOR_SOCCER_LEAGUES only)")
+    ap.add_argument("--no-export", action="store_true", help="ou05: skip the parquet export")
     args = ap.parse_args(argv)
     try:
         paths = settings.paths()
     except settings.StorageUnavailable as exc:
         print(f"analyze: {exc}", file=sys.stderr)
         return 3
+    if args.what == "ou05":
+        from polylab.analysis import ou05  # noqa: PLC0415
+        res = ou05.run(paths, export=not args.no_export)
+        print(json.dumps(res, ensure_ascii=False, indent=1) if args.json else
+              f"ou05: {res['markets']} markets, {res['poll_rows']} poll / {res['history_rows']} history rows, "
+              f"{res['browser_markets']} browser markets, {len(res.get('parquet', []))} parquet in {res['seconds']}s")
+        return 0
     if not paths.core_db.exists():
         print(f"analyze: core db missing at {paths.core_db}", file=sys.stderr)
         return 3
