@@ -1,6 +1,6 @@
 # polylab 확인·결정 목록 (attention inbox)
 
-갱신 2026-10-05 08:00 KST · 열린 항목 31건 (긴급 0 · 경고 3 · 결정 필요 5 · 참고 23)
+갱신 2026-10-05 08:30 KST · 열린 항목 34건 (긴급 0 · 경고 3 · 결정 필요 5 · 참고 26)
 
 매 회고(일일 3회·주간·월간)가 자동으로 갱신한다. **자동 규칙** 항목은 조건이 풀리면 스스로 '최근 해결'로 옮겨지고, **AI 판단** 항목은 7일 동안 다시 나오지 않으면 만료된다. 근거 경로는 이 저장소 기준이며, `metrics/…` 같은 경로는 AI context pack(공개 사본 `reports/context/latest/`)을 가리킨다.
 
@@ -10,8 +10,8 @@
 
 ### [경고] 수동 베팅 누적 실현 -3,734.74 USDC: bankroll의 -37.4% (수동 AI 베팅 (red, 메인))
 
-- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:00 KST · id `manual_drawdown:red`
-- 근거: `reports/daily/2026-10-05-morning.md`
+- 위험 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:30 KST · id `manual_drawdown:red`
+- 근거: `reports/weekly/2026-W40.md`
 
 계좌 수동 AI 베팅 (red, 메인) 실현손익이 처음 기록된 bankroll 10,000.00 USDC의 −10% 아래로 내려갔다. 베팅 금액·선택 기준 점검 권장.
 
@@ -29,19 +29,19 @@
 
 10-03 08:00 KST 자동 적용. 사유: ai:claude: mode live→paper. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.
 
-### [결정 필요] paper 변형 plum-us-paper 표본 21건 도달: live 전환 결정 필요
+### [결정 필요] paper 변형 plum-us-paper 표본 22건 도달: live 전환 결정 필요
 
-- 결정 · 자동 규칙 · 최초 10-05 08:00 · 갱신 10-05 08:00 KST · id `paper_ready:plum-us-paper`
+- 결정 · 자동 규칙 · 최초 10-05 08:00 · 갱신 10-05 08:30 KST · id `paper_ready:plum-us-paper`
 - 근거: `strategies/plum-us-paper.yaml`
 
-paper 정산 21건, 승률 47.6%, ROI -3.6%(paper 원장). live 전환은 사람만 할 수 있다: strategies/plum-us-paper.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
+paper 정산 22건, 승률 45.5%, ROI -4.4%(paper 원장). live 전환은 사람만 할 수 있다: strategies/plum-us-paper.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
 
-### [결정 필요] paper 변형 watermelon-us-paper 표본 24건 도달: live 전환 결정 필요
+### [결정 필요] paper 변형 watermelon-us-paper 표본 25건 도달: live 전환 결정 필요
 
-- 결정 · 자동 규칙 · 최초 10-05 08:00 · 갱신 10-05 08:00 KST · id `paper_ready:watermelon-us-paper`
+- 결정 · 자동 규칙 · 최초 10-05 08:00 · 갱신 10-05 08:30 KST · id `paper_ready:watermelon-us-paper`
 - 근거: `strategies/watermelon-us-paper.yaml`
 
-paper 정산 24건, 승률 87.5%, ROI -2.3%(paper 원장). live 전환은 사람만 할 수 있다: strategies/watermelon-us-paper.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
+paper 정산 25건, 승률 88.0%, ROI -2.1%(paper 원장). live 전환은 사람만 할 수 있다: strategies/watermelon-us-paper.yaml 의 mode 를 live 로, 계좌 alias 를 지정해 커밋한다. 아니면 그대로 두거나 retire 한다.
 
 ### [결정 필요] goal-over-all 누적 stop_loss 6건 전부 방향 옳은 경기 — stop_loss_pct 재검토 필요
 
@@ -64,26 +64,54 @@ paper 정산 24건, 승률 87.5%, ROI -2.3%(paper 원장). live 전환은 사람
 
 오늘 Malta/Andorra(진입 0.88 → stop 0.79, −0.59 USDC), Kosovo/Austria(0.94 → 0.84, −0.59 USDC), Azerbaijan/Lithuania(0.88 → 0.79, −0.59 USDC) 3건 stop_loss 발동. 세 경기 모두 watermelon-cat이 88.15분·93.05분·92.73분에 take_profit 달성해 최종 득점 확인. 이전 Belarus/San Marino(진입 0.968 → 0.832, −0.75 USDC)도 동일 패턴이었음. 누적 7건 중 4건 stop_loss, 최소 3건이 방향 옳은 경기에서 프리게임 가격 하락으로 발동됐다. allow_in_play=false 전략에서 stop_loss_pct=10%는 킥오프 전 시장 변동(−10%)으로 조기 청산 후 경기 자체를 놓치게 만드는 구조다. stop_loss_pct 확대 또는 프리게임 구간 비활성화 여부를 결정해 주시기 바랍니다. 이 파라미터는…
 
-### [참고] 데이터 품질 이벤트 live_gap 256건 (24시간)
+### [참고] 데이터 품질 이벤트 live_gap 263건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-05 08:00 KST · id `quality:live_gap`
-- 근거: `reports/daily/2026-10-05-morning.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-01 09:00 · 갱신 10-05 08:30 KST · id `quality:live_gap`
+- 근거: `reports/weekly/2026-W40.md`
 
 라이브 경기 중 1분 가격 bar 공백. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
-### [참고] 데이터 품질 이벤트 live_history_mismatch 149건 (24시간)
+### [참고] 데이터 품질 이벤트 live_history_mismatch 151건 (24시간)
 
-- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:00 KST · id `quality:live_history_mismatch`
-- 근거: `reports/daily/2026-10-05-morning.md`
+- 데이터 품질 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:30 KST · id `quality:live_history_mismatch`
+- 근거: `reports/weekly/2026-W40.md`
 
 라이브 가격과 history 가격 5c 이상 불일치. 해당 구간은 연구 표본에서 빠지며 양끝 가격으로 보간하지 않는다. 300건 이상이면 경고로 올린다.
 
 ### [참고] 수동 베팅 정산 패: 수동 AI 베팅 (red, 메인) · Korea Republic vs. Venezuela O/U 0.5 Over -3,544.96
 
-- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:00 KST · id `manual_loss:red:10fc507120`
-- 근거: `reports/daily/2026-10-05-morning.md`
+- 연구 발견 · 자동 규칙 · 최초 10-04 03:30 · 갱신 10-05 08:30 KST · id `manual_loss:red:10fc507120`
+- 근거: `reports/weekly/2026-W40.md`
 
 10-02 23:54 KST 정산. 트랙 2 기록용 알림(결정 불필요).
+
+### [참고] paper 변형 plum-queen 증거 수집 중 (15/20건)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-05 08:30 KST · id `paper:plum-queen`
+- 근거: `strategies/plum-queen.yaml`
+
+가설: 경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm: 축구 SL 0.17(더 넓은 손절), NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교.. paper 정산 15건, ROI 3.0%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
+
+### [참고] 주간 회고 제안 1건 거부됨 (validator)
+
+- 시스템 변경 · 자동 규칙 · 최초 10-05 08:30 · 갱신 10-05 08:30 KST · id `rejected:weekly`
+- 근거: `reports/weekly/2026-W40.md`
+
+안전 규칙(표본·cooldown·bounds·ladder)에 걸린 제안은 적용하지 않는다: `watermelon-hawk` new_variant: second opinion (codex) 거부: proposal.json의 values.params.stop_price=0.70은 기반 변형의 0.65(metrics/watermelon-cat.json 및 boun… (review)
+
+### [참고] 지난 7일 파라미터 변경 23건
+
+- 시스템 변경 · 자동 규칙 · 최초 10-05 08:30 · 갱신 10-05 08:30 KST · id `params_7d`
+- 근거: `reports/weekly/2026-W40.md`
+
+10-01 01:54 apricot-eco v2: +min_game_volume_usd=20000 (registry); 10-01 01:54 apricot-fruit v2: +min_game_volume_usd=20000 (registry); 10-01 01:54 cherry-blue v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'] (registry); 10-01 01:54 cherry-tiger v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'] (registry); 10-01 01:54 plum-king v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry); 10-01 01:54 plum-queen v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry); 10-01 01:54 watermelon-cat v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry); 10-01 01:54 watermelon-dog v2: +leagues=['epl', 'bun', 'fl1', 'lal', 'sea', 'mls', 'unl', 'ucl', 'uel'], +min_game_volume_usd=20000 (registry); 10-02 14:17 apricot-fruit v3: entry_tick_minute 85→95 (registry); 10-02 14:17 watermelon-cat v3: prob_min 0.92→0.93, +take_profit_cap=0.99, +take_profit_delta=0.02 (registry) 외 13건.
+
+### [참고] watermelon A/B 누적 갱신(n=38/38): dog ROI +0.62% vs cat ROI -1.24%, 격차 3.55 USDC — 이번 주 확대 미미
+
+- 연구 발견 · AI 판단 · 최초 10-05 08:30 · 갱신 10-05 08:30 KST · id `ai:ai-ai-ai-ai-watermelon-soccer-tp-delta-c`
+- 근거: `metrics/watermelon-dog.json, metrics/watermelon-cat.json`
+
+누적 live 결과(metrics 기준): dog 38건 PnL +1.19 USDC ROI +0.62%, cat 38건 PnL -2.36 USDC ROI -1.24%, 격차 3.55 USDC. 이전 항목(n=33/34, 격차 3.52 USDC)에서 +0.03 USDC 확대에 그쳤다. 이번 주 추가 PnL: dog +0.81 USDC(4건), cat +0.78 USDC(5건)으로 TP delta 0.04 우위가 UNL 집중 주(전주)에 비해 크지 않았다. 격차가 수렴 중인지 확인이 필요한 시점. take_profit_delta 0.04(dog) vs 0.02(cat) 외 stop_price(0.60 vs 0.65)·use_stored_stop 차이도 있어 TP delta만의 효과 분리는 불가. 두 변형 모두 쿨다운 중(~10-05 05:17)이라 이번 회고에서 변경 없음.
 
 ### [참고] paper 변형 plum-king 증거 수집 중 (15/20건)
 
@@ -91,13 +119,6 @@ paper 정산 24건, 승률 87.5%, ROI -2.3%(paper 원장). live 전환은 사람
 - 근거: `strategies/plum-king.yaml`
 
 가설: 경기 중 유일한 midpoint 선두 토큰이 ask VWAP 0.70-0.73에 있을 때 시장은 선두 유지·상승 확률을 과소평가한다(favourite continuation). 축구는 60분 이전 진입·65분 강제청산. A arm: SL 0.12, NFL TP 0.85.. paper 정산 15건, ROI 0.5%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
-
-### [참고] paper 변형 plum-queen 증거 수집 중 (14/20건)
-
-- 시스템 변경 · 자동 규칙 · 최초 10-03 19:30 · 갱신 10-05 08:00 KST · id `paper:plum-queen`
-- 근거: `strategies/plum-queen.yaml`
-
-가설: 경기 중 유일한 midpoint 선두 토큰(ask VWAP 0.70-0.73)은 선두 지속 확률이 과소평가된다. B arm: 축구 SL 0.17(더 넓은 손절), NFL TP 0.90 — 손절폭/익절가가 시간대별 가격 변동성에 맞는지 A와 비교.. paper 정산 14건, ROI 1.2%(paper 원장, 실손익 아님). 20건이 모이면 live 전환 여부를 사람이 결정한다(AI는 live로 올릴 수 없다).
 
 ### [참고] paper 변형 cherry-us-paper 증거 수집 중 (3/20건)
 
