@@ -178,6 +178,10 @@ def extra_market_included(m: dict, market_type: str | None, sport: str, cfg: "Co
     if sport == "soccer":
         if market_type == "total":
             line = _float(m.get("line"))
+            if line == 0.5:
+                # O/U 0.5 is the 0:0 study market (goal-over-all buys it up to 3 days pre-game, when volume is
+                # still tiny), so it is always collected for in-scope (major) games regardless of volume.
+                return True
             return line is not None and line in cfg.soccer_total_lines and vol >= cfg.goal_min_volume
         return market_type in ("btts", "team_to_score") and vol >= cfg.goal_min_volume
     return market_type in ("total", "spread") and vol >= cfg.line_min_volume

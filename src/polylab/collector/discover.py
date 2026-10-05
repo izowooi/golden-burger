@@ -124,7 +124,9 @@ def discover_sport(conn, sport: str, cfg: C.CollectorConfig, client: Client, ts:
     # extra game-level markets (totals/spreads, soccer btts/team-to-score) above the volume floor
     lines = gamma.markets_keyset({
         "tag_id": tag, "closed": "false", "sports_market_types": list(C.extra_sports_market_types(sport)),
-        "volume_num_min": C.extra_min_volume(sport, cfg),
+        # soccer: no server-side floor so tiny pre-game O/U 0.5 markets arrive; include_extra() applies the
+        # volume floor to every other line/type locally
+        "volume_num_min": 0 if sport == "soccer" else C.extra_min_volume(sport, cfg),
     }, client)
     # join targets: open games of this sport (main event id / gameId); soccer extras only for major competitions
     teams_now = {k: t for k, t in game_by_gid.values()}

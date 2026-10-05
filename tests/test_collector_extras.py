@@ -93,7 +93,8 @@ def test_volume_floor_and_line_gate():
     def inc(key, vol):
         m = dict(ms[key], volumeNum=vol)
         return C.extra_market_included(m, C.market_type_of(m, "soccer"), "soccer", cfg)
-    assert inc(("totals", 0.5, "O/U 0.5"), 1_000) and not inc(("totals", 0.5, "O/U 0.5"), 999)
+    assert inc(("totals", 0.5, "O/U 0.5"), 0)                                     # 0:0 study line: no volume floor
+    assert inc(("totals", 2.5, "O/U 2.5"), 1_000) and not inc(("totals", 2.5, "O/U 2.5"), 999)
     assert not inc(("totals", 4.5, "O/U 4.5"), 10**6)                              # line outside the set
     assert inc(("both_teams_to_score", None, "Both Teams to Score"), 12_000)
     assert inc(("soccer_team_totals", 0.5, "Leeds United FC O/U 0.5"), 12_000)
