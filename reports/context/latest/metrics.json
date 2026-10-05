@@ -1,16 +1,16 @@
 {
  "totals": {
-  "today": -0.7255,
-  "d7": -26.7008,
-  "d30": -26.7008,
-  "all": -26.7008,
-  "tx_24h": 236,
-  "settled_24h": 59,
-  "settled_pnl_24h": -12.521,
+  "today": -10.3345,
+  "d7": -37.0354,
+  "d30": -37.0354,
+  "all": -37.0354,
+  "tx_24h": 250,
+  "settled_24h": 47,
+  "settled_pnl_24h": -20.8682,
   "open_positions": 15,
   "unrealized_pnl": NaN,
   "live_variants": 3,
-  "paper_variants": 10
+  "paper_variants": 8
  },
  "variants": {
   "apricot-eco": {
@@ -30,18 +30,40 @@
     "hours_max": 8.0,
     "sport_overrides": {
      "nba": {
+      "entry_tick_minute": 150,
+      "prob_min": 0.94,
+      "prob_max": 0.97,
+      "take_profit_price": 0.96,
+      "stop_loss_delta": null,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     },
+     "nhl": {
       "entry_tick_minute": 50,
       "prob_min": 0.94,
       "prob_max": 0.99,
       "take_profit_price": 0.96,
-      "hours_max": 5.0
+      "stop_loss_delta": null,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
      },
-     "nhl": {
-      "entry_tick_minute": 140,
-      "prob_min": 0.94,
+     "mlb": {
+      "entry_tick_minute": 60,
+      "prob_min": 0.92,
       "prob_max": 0.99,
       "take_profit_price": 0.96,
-      "hours_max": 5.0
+      "stop_loss_delta": null,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 100000
+     },
+     "nfl": {
+      "entry_tick_minute": 190,
+      "prob_min": 0.8,
+      "prob_max": 0.99,
+      "take_profit_price": 0.96,
+      "stop_loss_delta": null,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -88,7 +110,7 @@
     ],
     "sport_overrides.nba.entry_tick_minute": [
      30,
-     170,
+     240,
      10
     ],
     "sport_overrides.nba.prob_min": [
@@ -108,7 +130,7 @@
     ],
     "sport_overrides.nhl.entry_tick_minute": [
      30,
-     170,
+     240,
      10
     ],
     "sport_overrides.nhl.prob_min": [
@@ -125,6 +147,86 @@
      0.9,
      0.99,
      0.01
+    ],
+    "sport_overrides.mlb.entry_tick_minute": [
+     30,
+     240,
+     10
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.mlb.prob_max": [
+     0.95,
+     0.999,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.entry_tick_minute": [
+     30,
+     240,
+     10
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.nfl.prob_max": [
+     0.95,
+     0.999,
+     0.01
+    ],
+    "sport_overrides.nfl.take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
@@ -217,8 +319,8 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "apricot-eco v4: +sport_overrides={'nba': {'entry_tick_minute': 50, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 140, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "apricot-eco v5: sport_overrides {'nba': {'entry_tick_minute': 50, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 140, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}}→{'mlb': {'entry_tick_minute': 60, 'hours_max': 6.0, 'min_game_volume_usd': 100000, 'prob_max': 0.99, 'prob_min': 0.92, 'stop_loss_delta': None, 'take_profit_price': 0.96}, 'nba': {'entry_tick_minute': 150, 'hours_max': 5.0, 'min_game_volume_usd': 20000, 'prob_max': 0.97, 'prob_min': 0.94, 'stop_loss_delta': None, 'take_profit_price': 0.96}, 'nfl': {'entry_tick_minute': 190, 'hours_max': 6.0, 'min_game_volume_usd': 20000, 'prob_max': 0.99, 'prob_min': 0.8, 'stop_loss_delta': None, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 50, 'hours_max': 5.0, 'min_game_volume_usd': 20000, 'prob_max': 0.99, 'prob_min': 0.94, 'stop_loss_delta': None, 'take_profit_price': 0.96}} (registry)"
    }
   },
   "apricot-fruit": {
@@ -238,18 +340,40 @@
     "hours_max": 8.0,
     "sport_overrides": {
      "nba": {
-      "entry_tick_minute": 80,
-      "prob_min": 0.94,
-      "prob_max": 0.99,
+      "entry_tick_minute": 30,
+      "prob_min": 0.9,
+      "prob_max": 0.97,
       "take_profit_price": 0.96,
-      "hours_max": 5.0
+      "stop_loss_delta": 0.3,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
      },
      "nhl": {
-      "entry_tick_minute": 100,
+      "entry_tick_minute": 50,
       "prob_min": 0.94,
       "prob_max": 0.99,
       "take_profit_price": 0.96,
-      "hours_max": 5.0
+      "stop_loss_delta": 0.3,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
+     },
+     "mlb": {
+      "entry_tick_minute": 100,
+      "prob_min": 0.88,
+      "prob_max": 0.99,
+      "take_profit_price": 0.96,
+      "stop_loss_delta": 0.3,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
+     },
+     "nfl": {
+      "entry_tick_minute": 200,
+      "prob_min": 0.8,
+      "prob_max": 0.99,
+      "take_profit_price": 0.96,
+      "stop_loss_delta": 0.3,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -296,7 +420,7 @@
     ],
     "sport_overrides.nba.entry_tick_minute": [
      30,
-     170,
+     240,
      10
     ],
     "sport_overrides.nba.prob_min": [
@@ -316,7 +440,7 @@
     ],
     "sport_overrides.nhl.entry_tick_minute": [
      30,
-     170,
+     240,
      10
     ],
     "sport_overrides.nhl.prob_min": [
@@ -333,6 +457,86 @@
      0.9,
      0.99,
      0.01
+    ],
+    "sport_overrides.mlb.entry_tick_minute": [
+     30,
+     240,
+     10
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.mlb.prob_max": [
+     0.95,
+     0.999,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.entry_tick_minute": [
+     30,
+     240,
+     10
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.nfl.prob_max": [
+     0.95,
+     0.999,
+     0.01
+    ],
+    "sport_overrides.nfl.take_profit_price": [
+     0.9,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_loss_delta": [
+     0.05,
+     0.4,
+     0.05
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
@@ -389,8 +593,8 @@
    },
    "excluded": {},
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "apricot-fruit v5: +sport_overrides={'nba': {'entry_tick_minute': 80, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 100, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "apricot-fruit v6: sport_overrides {'nba': {'entry_tick_minute': 80, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 100, 'hours_max': 5.0, 'prob_max': 0.99, 'prob_min': 0.94, 'take_profit_price': 0.96}}→{'mlb': {'entry_tick_minute': 100, 'hours_max': 6.0, 'min_game_volume_usd': 20000, 'prob_max': 0.99, 'prob_min': 0.88, 'stop_loss_delta': 0.3, 'take_profit_price': 0.96}, 'nba': {'entry_tick_minute': 30, 'hours_max': 5.0, 'min_game_volume_usd': 20000, 'prob_max': 0.97, 'prob_min': 0.9, 'stop_loss_delta': 0.3, 'take_profit_price': 0.96}, 'nfl': {'entry_tick_minute': 200, 'hours_max': 6.0, 'min_game_volume_usd': 20000, 'prob_max': 0.99, 'prob_min': 0.8, 'stop_loss_delta': 0.3, 'take_profit_price': 0.96}, 'nhl': {'entry_tick_minute': 50, 'hours_max': 5.0, 'min_game_volume_usd': 20000, 'prob_max': 0.99, 'prob_min': 0.94, 'stop_loss_delta': 0.3, 'take_profit_price': 0.96}} (registry)"
    }
   },
   "cherry-blue": {
@@ -463,9 +667,9 @@
    "ladder": {
     "status": "hold",
     "action": "hold",
-    "trades_at_tier": 1,
+    "trades_at_tier": 2,
     "needed": 20,
-    "roi_ci_lo": 0.015416832867969682,
+    "roi_ci_lo": 0.00023318385650224216,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "paper",
@@ -474,7 +678,7 @@
    },
    "live": {
     "pnl": {
-     "today": -0.6593,
+     "today": 0.0,
      "d7": -3.0902,
      "d30": -3.0902,
      "all": -3.0902
@@ -491,23 +695,30 @@
    },
    "paper": {
     "pnl": {
-     "today": 0.0773,
-     "d7": 0.0773,
-     "d30": 0.0773,
-     "all": 0.0773
+     "today": 0.0012,
+     "d7": 0.0785,
+     "d30": 0.0785,
+     "all": 0.0785
     },
     "trades": {
-     "all": 1,
-     "wins": 1,
+     "all": 2,
+     "wins": 2,
      "losses": 0
     },
     "win_rate": 1.0,
-    "roi": 0.0154,
-    "cost": 5.01,
-    "last_trade_at": "2026-10-05T05:28:04Z"
+    "roi": 0.0078,
+    "cost": 10.03,
+    "last_trade_at": "2026-10-05T17:29:02Z"
    },
    "breakdown": {
     "by_sport": [
+     {
+      "key": "crypto",
+      "n": 1,
+      "pnl": 0.0012,
+      "win_rate": 1.0,
+      "roi": 0.0002
+     },
      {
       "key": "politics",
       "n": 1,
@@ -520,10 +731,10 @@
     "by_stake": [
      {
       "key": "5",
-      "n": 1,
-      "pnl": 0.0773,
+      "n": 2,
+      "pnl": 0.0785,
       "win_rate": 1.0,
-      "roi": 0.0154
+      "roi": 0.0078
      }
     ],
     "by_day": [
@@ -533,6 +744,13 @@
       "pnl": 0.0773,
       "win_rate": 1.0,
       "roi": 0.0154
+     },
+     {
+      "key": "2026-10-06",
+      "n": 1,
+      "pnl": 0.0012,
+      "win_rate": 1.0,
+      "roi": 0.0002
      }
     ]
    },
@@ -838,7 +1056,7 @@
    },
    "paper": {
     "pnl": {
-     "today": -1.3643,
+     "today": 0.0,
      "d7": -1.3643,
      "d30": -1.3643,
      "all": -1.3643
@@ -1017,9 +1235,9 @@
    "ladder": {
     "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 11,
+    "trades_at_tier": 12,
     "needed": 20,
-    "roi_ci_lo": -0.07857198995800951,
+    "roi_ci_lo": -0.08439016720294767,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -1028,20 +1246,20 @@
    },
    "live": {
     "pnl": {
-     "today": -2.0899,
-     "d7": -2.5256,
-     "d30": -2.5256,
-     "all": -2.5256
+     "today": -0.6478,
+     "d7": -3.1734,
+     "d30": -3.1734,
+     "all": -3.1734
     },
     "trades": {
-     "all": 11,
+     "all": 12,
      "wins": 5,
-     "losses": 6
+     "losses": 7
     },
-    "win_rate": 0.4545,
-    "roi": -0.0458,
-    "cost": 55.17,
-    "last_trade_at": "2026-10-04T22:51:07Z"
+    "win_rate": 0.4167,
+    "roi": -0.0527,
+    "cost": 60.17,
+    "last_trade_at": "2026-10-05T16:45:02Z"
    },
    "paper": {
     "pnl": {
@@ -1064,20 +1282,20 @@
     "by_sport": [
      {
       "key": "soccer",
-      "n": 11,
-      "pnl": -2.5256,
-      "win_rate": 0.4545,
-      "roi": -0.0458
+      "n": 12,
+      "pnl": -3.1734,
+      "win_rate": 0.4167,
+      "roi": -0.0527
      }
     ],
     "by_entry_minute": [],
     "by_stake": [
      {
       "key": "5",
-      "n": 11,
-      "pnl": -2.5256,
-      "win_rate": 0.4545,
-      "roi": -0.0458
+      "n": 12,
+      "pnl": -3.1734,
+      "win_rate": 0.4167,
+      "roi": -0.0527
      }
     ],
     "by_day": [
@@ -1094,6 +1312,13 @@
       "pnl": -2.0899,
       "win_rate": 0.3333,
       "roi": -0.0695
+     },
+     {
+      "key": "2026-10-06",
+      "n": 1,
+      "pnl": -0.6478,
+      "win_rate": 0.0,
+      "roi": -0.1297
      }
     ]
    },
@@ -1405,26 +1630,52 @@
       "force_exit_minute": 65
      },
      "nfl": {
+      "prob_min": 0.75,
+      "prob_max": 0.78,
       "take_profit_price": 0.85,
-      "take_profit_delta": null
+      "take_profit_delta": 0.03,
+      "hold_above_price": null,
+      "stop_loss_delta": 0.08,
+      "max_wall_minute": 90,
+      "min_wall_minute": 45,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 100000
      },
      "nba": {
-      "prob_min": 0.7,
-      "prob_max": 0.73,
-      "take_profit_price": 0.9,
+      "prob_min": 0.8,
+      "prob_max": 0.83,
+      "take_profit_price": 0.95,
       "take_profit_delta": null,
       "hold_above_price": null,
       "stop_loss_delta": 0.12,
-      "max_wall_minute": 60
+      "max_wall_minute": 120,
+      "min_wall_minute": 30,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
      },
      "nhl": {
-      "prob_min": 0.7,
-      "prob_max": 0.73,
-      "take_profit_price": 0.85,
+      "prob_min": 0.8,
+      "prob_max": 0.83,
+      "take_profit_price": 0.95,
       "take_profit_delta": null,
       "hold_above_price": null,
       "stop_loss_delta": 0.12,
-      "max_wall_minute": 120
+      "max_wall_minute": null,
+      "min_wall_minute": 30,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 100000
+     },
+     "mlb": {
+      "prob_min": 0.75,
+      "prob_max": 0.78,
+      "take_profit_price": 0.95,
+      "take_profit_delta": null,
+      "hold_above_price": null,
+      "stop_loss_delta": 0.12,
+      "max_wall_minute": 120,
+      "min_wall_minute": 30,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -1485,7 +1736,7 @@
      5
     ],
     "sport_overrides.nfl.take_profit_price": [
-     0.85,
+     0.8,
      0.97,
      0.01
     ],
@@ -1496,12 +1747,12 @@
     ],
     "sport_overrides.nba.prob_min": [
      0.6,
-     0.8,
+     0.85,
      0.01
     ],
     "sport_overrides.nba.prob_max": [
      0.62,
-     0.85,
+     0.86,
      0.01
     ],
     "sport_overrides.nba.take_profit_price": [
@@ -1516,22 +1767,22 @@
     ],
     "sport_overrides.nba.stop_loss_delta": [
      0.05,
-     0.25,
+     0.3,
      0.01
     ],
     "sport_overrides.nba.max_wall_minute": [
      30,
-     180,
+     240,
      30
     ],
     "sport_overrides.nhl.prob_min": [
      0.6,
-     0.8,
+     0.85,
      0.01
     ],
     "sport_overrides.nhl.prob_max": [
      0.62,
-     0.85,
+     0.86,
      0.01
     ],
     "sport_overrides.nhl.take_profit_price": [
@@ -1546,13 +1797,103 @@
     ],
     "sport_overrides.nhl.stop_loss_delta": [
      0.05,
-     0.25,
+     0.3,
      0.01
     ],
     "sport_overrides.nhl.max_wall_minute": [
      30,
-     180,
+     240,
      30
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.6,
+     0.85,
+     0.01
+    ],
+    "sport_overrides.mlb.prob_max": [
+     0.62,
+     0.86,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_price": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_delta": [
+     0.01,
+     0.15,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_loss_delta": [
+     0.05,
+     0.3,
+     0.01
+    ],
+    "sport_overrides.mlb.max_wall_minute": [
+     30,
+     240,
+     30
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.6,
+     0.85,
+     0.01
+    ],
+    "sport_overrides.nfl.prob_max": [
+     0.62,
+     0.86,
+     0.01
+    ],
+    "sport_overrides.nfl.stop_loss_delta": [
+     0.05,
+     0.3,
+     0.01
+    ],
+    "sport_overrides.nfl.max_wall_minute": [
+     30,
+     240,
+     30
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
@@ -1586,7 +1927,7 @@
    },
    "paper": {
     "pnl": {
-     "today": -1.1783,
+     "today": 0.0,
      "d7": -0.5322,
      "d30": -0.5322,
      "all": -0.5322
@@ -1680,8 +2021,8 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "plum-king v5: sport_overrides {'nfl': {'take_profit_delta': None, 'take_profit_price': 0.85}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}}→{'nba': {'hold_above_price': None, 'max_wall_minute': 60, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nfl': {'take_profit_delta': None, 'take_profit_price': 0.85}, 'nhl': {'hold_above_price': None, 'max_wall_minute': 120, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.85}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "plum-king v6: sport_overrides {'nba': {'hold_above_price': None, 'max_wall_minute': 60, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nfl': {'take_profit_delta': None, 'take_profit_price': 0.85}, 'nhl': {'hold_above_price': None, 'max_wall_minute': 120, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.85}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}}→{'mlb': {'hold_above_price': None, 'hours_max': 6.0, 'max_wall_minute': 120, 'min_game_volume_usd': 20000, 'min_wall_minute': 30, 'prob_max': 0.78, 'prob_min': 0.75, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'nba': {'hold_above_price': None, 'hours_max': 5.0, 'max_wall_minute': 120, 'min_game_volume_usd': 20000, 'min_wall_minute': 30, 'prob_max': 0.83, 'prob_min': 0.8, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'nfl': {'hold_above_price': None, 'hours_max': 6.0, 'max_wall_minute': 90, 'min_game_volume_usd': 100000, 'min_wall_minute': 45, 'prob_max': 0.78, 'prob_min': 0.75, 'stop_loss_delta': 0.08, 'take_profit_delta': 0.03, 'take_profit_price': 0.85}, 'nhl': {'hold_above_price': None, 'hours_max': 5.0, 'max_wall_minute': None, 'min_game_volume_usd': 100000, 'min_wall_minute': 30, 'prob_max': 0.83, 'prob_min': 0.8, 'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}} (registry)"
    }
   },
   "plum-queen": {
@@ -1717,27 +2058,52 @@
       "force_exit_minute": 65
      },
      "nfl": {
-      "take_profit_price": 0.9,
-      "stop_loss_delta": 0.12,
-      "take_profit_delta": null
+      "prob_min": 0.65,
+      "prob_max": 0.68,
+      "take_profit_price": 0.95,
+      "take_profit_delta": null,
+      "hold_above_price": null,
+      "stop_loss_delta": 0.25,
+      "max_wall_minute": 90,
+      "min_wall_minute": 45,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 100000
      },
      "nba": {
-      "prob_min": 0.7,
-      "prob_max": 0.73,
-      "take_profit_price": 0.9,
+      "prob_min": 0.8,
+      "prob_max": 0.83,
+      "take_profit_price": 0.95,
       "take_profit_delta": null,
       "hold_above_price": null,
-      "stop_loss_delta": 0.17,
-      "max_wall_minute": 60
+      "stop_loss_delta": 0.25,
+      "max_wall_minute": 120,
+      "min_wall_minute": 30,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 20000
      },
      "nhl": {
-      "prob_min": 0.7,
-      "prob_max": 0.73,
-      "take_profit_price": 0.85,
+      "prob_min": 0.8,
+      "prob_max": 0.83,
+      "take_profit_price": 0.95,
       "take_profit_delta": null,
       "hold_above_price": null,
-      "stop_loss_delta": 0.17,
-      "max_wall_minute": 120
+      "stop_loss_delta": 0.25,
+      "max_wall_minute": null,
+      "min_wall_minute": 30,
+      "hours_max": 5.0,
+      "min_game_volume_usd": 100000
+     },
+     "mlb": {
+      "prob_min": 0.8,
+      "prob_max": 0.83,
+      "take_profit_price": 0.95,
+      "take_profit_delta": null,
+      "hold_above_price": null,
+      "stop_loss_delta": 0.25,
+      "max_wall_minute": null,
+      "min_wall_minute": 30,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -1798,13 +2164,13 @@
      5
     ],
     "sport_overrides.nfl.take_profit_price": [
-     0.85,
+     0.8,
      0.97,
      0.01
     ],
     "sport_overrides.nfl.stop_loss_delta": [
      0.05,
-     0.2,
+     0.3,
      0.01
     ],
     "sport_overrides.nfl.take_profit_delta": [
@@ -1814,12 +2180,12 @@
     ],
     "sport_overrides.nba.prob_min": [
      0.6,
-     0.8,
+     0.85,
      0.01
     ],
     "sport_overrides.nba.prob_max": [
      0.62,
-     0.85,
+     0.86,
      0.01
     ],
     "sport_overrides.nba.take_profit_price": [
@@ -1834,22 +2200,22 @@
     ],
     "sport_overrides.nba.stop_loss_delta": [
      0.05,
-     0.25,
+     0.3,
      0.01
     ],
     "sport_overrides.nba.max_wall_minute": [
      30,
-     180,
+     240,
      30
     ],
     "sport_overrides.nhl.prob_min": [
      0.6,
-     0.8,
+     0.85,
      0.01
     ],
     "sport_overrides.nhl.prob_max": [
      0.62,
-     0.85,
+     0.86,
      0.01
     ],
     "sport_overrides.nhl.take_profit_price": [
@@ -1864,13 +2230,98 @@
     ],
     "sport_overrides.nhl.stop_loss_delta": [
      0.05,
-     0.25,
+     0.3,
      0.01
     ],
     "sport_overrides.nhl.max_wall_minute": [
      30,
-     180,
+     240,
      30
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.6,
+     0.85,
+     0.01
+    ],
+    "sport_overrides.mlb.prob_max": [
+     0.62,
+     0.86,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_price": [
+     0.8,
+     0.97,
+     0.01
+    ],
+    "sport_overrides.mlb.take_profit_delta": [
+     0.01,
+     0.15,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_loss_delta": [
+     0.05,
+     0.3,
+     0.01
+    ],
+    "sport_overrides.mlb.max_wall_minute": [
+     30,
+     240,
+     30
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.prob_min": [
+     0.6,
+     0.85,
+     0.01
+    ],
+    "sport_overrides.nfl.prob_max": [
+     0.62,
+     0.86,
+     0.01
+    ],
+    "sport_overrides.nfl.max_wall_minute": [
+     30,
+     240,
+     30
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     0,
+     120,
+     15
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
@@ -1904,7 +2355,7 @@
    },
    "paper": {
     "pnl": {
-     "today": 0.7185,
+     "today": 0.0,
      "d7": 1.3646,
      "d30": 1.3646,
      "all": 1.3646
@@ -1998,12 +2449,12 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "plum-queen v5: sport_overrides {'nfl': {'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}}→{'nba': {'hold_above_price': None, 'max_wall_minute': 60, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.17, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nfl': {'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nhl': {'hold_above_price': None, 'max_wall_minute': 120, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.17, 'take_profit_delta': None, 'take_profit_price': 0.85}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "plum-queen v6: sport_overrides {'nba': {'hold_above_price': None, 'max_wall_minute': 60, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.17, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nfl': {'stop_loss_delta': 0.12, 'take_profit_delta': None, 'take_profit_price': 0.9}, 'nhl': {'hold_above_price': None, 'max_wall_minute': 120, 'prob_max': 0.73, 'prob_min': 0.7, 'stop_loss_delta': 0.17, 'take_profit_delta': None, 'take_profit_price': 0.85}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}}→{'mlb': {'hold_above_price': None, 'hours_max': 6.0, 'max_wall_minute': None, 'min_game_volume_usd': 20000, 'min_wall_minute': 30, 'prob_max': 0.83, 'prob_min': 0.8, 'stop_loss_delta': 0.25, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'nba': {'hold_above_price': None, 'hours_max': 5.0, 'max_wall_minute': 120, 'min_game_volume_usd': 20000, 'min_wall_minute': 30, 'prob_max': 0.83, 'prob_min': 0.8, 'stop_loss_delta': 0.25, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'nfl': {'hold_above_price': None, 'hours_max': 6.0, 'max_wall_minute': 90, 'min_game_volume_usd': 100000, 'min_wall_minute': 45, 'prob_max': 0.68, 'prob_min': 0.65, 'stop_loss_delta': 0.25, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'nhl': {'hold_above_price': None, 'hours_max': 5.0, 'max_wall_minute': None, 'min_game_volume_usd': 100000, 'min_wall_minute': 30, 'prob_max': 0.83, 'prob_min': 0.8, 'stop_loss_delta': 0.25, 'take_profit_delta': None, 'take_profit_price': 0.95}, 'soccer': {'force_exit_minute': 65, 'max_source_minute': 60}} (registry)"
    }
   },
   "plum-us-paper": {
-   "mode": "paper",
+   "mode": "off",
    "account": null,
    "stake_usdc": 5.0,
    "params": {
@@ -2102,14 +2553,14 @@
     ]
    },
    "ladder": {
-    "status": "demote_warning",
+    "status": "hold",
     "action": "hold",
-    "trades_at_tier": 27,
+    "trades_at_tier": 0,
     "needed": 20,
-    "roi_ci_lo": -0.15423339237834477,
+    "roi_ci_lo": null,
     "next_stake_usdc": null,
     "promote_ok": false,
-    "to_mode": "paper",
+    "to_mode": "off",
     "reason": "not live",
     "available": true
    },
@@ -2132,7 +2583,7 @@
    },
    "paper": {
     "pnl": {
-     "today": -8.7477,
+     "today": 0.0,
      "d7": -12.2697,
      "d30": -12.2697,
      "all": -12.2697
@@ -2259,21 +2710,36 @@
     "take_profit_cap": 0.99,
     "sport_overrides": {
      "nfl": {
-      "prob_min": 0.91,
-      "stop_price": 0.7,
-      "hours_max": 6.0
+      "prob_min": 0.97,
+      "stop_price": 0.65,
+      "take_profit_delta": null,
+      "min_wall_minute": 180,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 100000
      },
      "nba": {
-      "prob_min": 0.87,
-      "stop_price": 0.7,
+      "prob_min": 0.94,
+      "stop_price": 0.6,
+      "take_profit_delta": null,
+      "min_wall_minute": 120,
       "hours_max": 5.0,
-      "take_profit_delta": null
+      "min_game_volume_usd": 100000
      },
      "nhl": {
-      "prob_min": 0.87,
-      "stop_price": 0.75,
+      "prob_min": 0.97,
+      "stop_price": 0.65,
+      "take_profit_delta": null,
+      "min_wall_minute": 120,
       "hours_max": 5.0,
-      "take_profit_delta": null
+      "min_game_volume_usd": 100000
+     },
+     "mlb": {
+      "prob_min": 0.97,
+      "stop_price": 0.7,
+      "take_profit_delta": null,
+      "min_wall_minute": 150,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -2377,14 +2843,99 @@
      0.01,
      0.1,
      0.01
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "sport_overrides.mlb.hours_max": [
+     3.0,
+     9.0,
+     0.5
+    ],
+    "sport_overrides.mlb.take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.mlb.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nba.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nhl.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nfl.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
-    "status": "hold",
+    "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 37,
+    "trades_at_tier": 39,
     "needed": 20,
-    "roi_ci_lo": -0.03797668551577582,
+    "roi_ci_lo": -0.07245752608281499,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -2393,20 +2944,20 @@
    },
    "live": {
     "pnl": {
-     "today": 1.0326,
-     "d7": -2.3599,
-     "d30": -2.3599,
-     "all": -2.3599
+     "today": -4.8194,
+     "d7": -7.1793,
+     "d30": -7.1793,
+     "all": -7.1793
     },
     "trades": {
-     "all": 38,
-     "wins": 35,
-     "losses": 3
+     "all": 40,
+     "wins": 36,
+     "losses": 4
     },
-    "win_rate": 0.9211,
-    "roi": -0.0124,
-    "cost": 190.53,
-    "last_trade_at": "2026-10-04T20:43:02Z"
+    "win_rate": 0.9,
+    "roi": -0.0358,
+    "cost": 200.54,
+    "last_trade_at": "2026-10-05T17:55:07Z"
    },
    "paper": {
     "pnl": {
@@ -2436,10 +2987,10 @@
      },
      {
       "key": "soccer",
-      "n": 37,
-      "pnl": -0.5328,
-      "win_rate": 0.9459,
-      "roi": -0.0029
+      "n": 39,
+      "pnl": -5.3521,
+      "win_rate": 0.9231,
+      "roi": -0.0274
      }
     ],
     "by_entry_minute": [
@@ -2480,19 +3031,19 @@
      },
      {
       "key": "90-105",
-      "n": 11,
-      "pnl": 1.6162,
-      "win_rate": 1.0,
-      "roi": 0.0293
+      "n": 13,
+      "pnl": -3.2032,
+      "win_rate": 0.9231,
+      "roi": -0.0491
      }
     ],
     "by_stake": [
      {
       "key": "5",
-      "n": 38,
-      "pnl": -2.3599,
-      "win_rate": 0.9211,
-      "roi": -0.0124
+      "n": 40,
+      "pnl": -7.1793,
+      "win_rate": 0.9,
+      "roi": -0.0358
      }
     ],
     "by_day": [
@@ -2530,6 +3081,13 @@
       "pnl": 1.0326,
       "win_rate": 1.0,
       "roi": 0.0294
+     },
+     {
+      "key": "2026-10-06",
+      "n": 2,
+      "pnl": -4.8194,
+      "win_rate": 0.5,
+      "roi": -0.4813
      }
     ]
    },
@@ -2539,8 +3097,8 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "watermelon-cat v4: sport_overrides {'nfl': {'hours_max': 6.0, 'prob_min': 0.91, 'stop_price': 0.7}}→{'nba': {'hours_max': 5.0, 'prob_min': 0.87, 'stop_price': 0.7, 'take_profit_delta': None}, 'nfl': {'hours_max': 6.0, 'prob_min': 0.91, 'stop_price': 0.7}, 'nhl': {'hours_max': 5.0, 'prob_min': 0.87, 'stop_price': 0.75, 'take_profit_delta': None}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "watermelon-cat v6: sport_overrides {'nba': {'hours_max': 5.0, 'prob_min': 0.87, 'stop_price': 0.7, 'take_profit_delta': None}, 'nfl': {'hours_max': 6.0, 'prob_min': 0.91, 'stop_price': 0.7}, 'nhl': {'hours_max': 5.0, 'prob_min': 0.87, 'stop_price': 0.75, 'take_profit_delta': None}}→{'mlb': {'hours_max': 6.0, 'min_game_volume_usd': 20000, 'min_wall_minute': 150, 'prob_min': 0.97, 'stop_price': 0.7, 'take_profit_delta': None}, 'nba': {'hours_max': 5.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 120, 'prob_min': 0.94, 'stop_price': 0.6, 'take_profit_delta': None}, 'nfl': {'hours_max': 6.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 180, 'prob_min': 0.97, 'stop_price': 0.65, 'take_profit_delta': None}, 'nhl': {'hours_max': 5.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 120, 'prob_min': 0.97, 'stop_price': 0.65, 'take_profit_delta': None}} (registry)"
    }
   },
   "watermelon-dog": {
@@ -2572,21 +3130,36 @@
     "take_profit_cap": 0.99,
     "sport_overrides": {
      "nfl": {
-      "prob_min": 0.94,
+      "prob_min": 0.96,
       "stop_price": 0.7,
-      "hours_max": 6.0
+      "take_profit_delta": 0.01,
+      "min_wall_minute": 180,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 100000
      },
      "nba": {
-      "prob_min": 0.96,
+      "prob_min": 0.95,
       "stop_price": 0.7,
+      "take_profit_delta": 0.01,
+      "min_wall_minute": 120,
       "hours_max": 5.0,
-      "take_profit_delta": null
+      "min_game_volume_usd": 100000
      },
      "nhl": {
-      "prob_min": 0.96,
-      "stop_price": 0.75,
+      "prob_min": 0.97,
+      "stop_price": 0.65,
+      "take_profit_delta": 0.01,
+      "min_wall_minute": 120,
       "hours_max": 5.0,
-      "take_profit_delta": null
+      "min_game_volume_usd": 100000
+     },
+     "mlb": {
+      "prob_min": 0.97,
+      "stop_price": 0.7,
+      "take_profit_delta": 0.03,
+      "min_wall_minute": 150,
+      "hours_max": 6.0,
+      "min_game_volume_usd": 20000
      }
     }
    },
@@ -2690,14 +3263,99 @@
      0.01,
      0.1,
      0.01
+    ],
+    "sport_overrides.mlb.prob_min": [
+     0.85,
+     0.99,
+     0.01
+    ],
+    "sport_overrides.mlb.stop_price": [
+     0.4,
+     0.85,
+     0.05
+    ],
+    "sport_overrides.mlb.hours_max": [
+     3.0,
+     9.0,
+     0.5
+    ],
+    "sport_overrides.mlb.take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.mlb.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.mlb.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.mlb.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nba.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nba.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nba.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nhl.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nhl.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nhl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
+    ],
+    "sport_overrides.nfl.take_profit_delta": [
+     0.01,
+     0.1,
+     0.01
+    ],
+    "sport_overrides.nfl.min_wall_minute": [
+     0,
+     240,
+     30
+    ],
+    "sport_overrides.nfl.max_wall_minute": [
+     30,
+     300,
+     30
+    ],
+    "sport_overrides.nfl.min_game_volume_usd": [
+     5000,
+     200000,
+     10000
     ]
    },
    "ladder": {
-    "status": "hold",
+    "status": "demote_warning",
     "action": "hold",
-    "trades_at_tier": 37,
+    "trades_at_tier": 39,
     "needed": 20,
-    "roi_ci_lo": -0.02641241372339516,
+    "roi_ci_lo": -0.06480544446570446,
     "next_stake_usdc": null,
     "promote_ok": false,
     "to_mode": "live",
@@ -2706,20 +3364,20 @@
    },
    "live": {
     "pnl": {
-     "today": 0.9911,
-     "d7": 1.1891,
-     "d30": 1.1891,
-     "all": 1.1891
+     "today": -4.8673,
+     "d7": -3.6783,
+     "d30": -3.6783,
+     "all": -3.6783
     },
     "trades": {
-     "all": 38,
-     "wins": 36,
-     "losses": 2
+     "all": 40,
+     "wins": 37,
+     "losses": 3
     },
-    "win_rate": 0.9474,
-    "roi": 0.0062,
-    "cost": 190.51,
-    "last_trade_at": "2026-10-04T20:40:07Z"
+    "win_rate": 0.925,
+    "roi": -0.0183,
+    "cost": 200.52,
+    "last_trade_at": "2026-10-05T17:55:07Z"
    },
    "paper": {
     "pnl": {
@@ -2749,10 +3407,10 @@
      },
      {
       "key": "soccer",
-      "n": 37,
-      "pnl": 1.09,
-      "win_rate": 0.9459,
-      "roi": 0.0059
+      "n": 39,
+      "pnl": -3.7773,
+      "win_rate": 0.9231,
+      "roi": -0.0193
      }
     ],
     "by_entry_minute": [
@@ -2793,19 +3451,19 @@
      },
      {
       "key": "90-105",
-      "n": 9,
-      "pnl": 1.8717,
-      "win_rate": 1.0,
-      "roi": 0.0415
+      "n": 11,
+      "pnl": -2.9956,
+      "win_rate": 0.9091,
+      "roi": -0.0543
      }
     ],
     "by_stake": [
      {
       "key": "5",
-      "n": 38,
-      "pnl": 1.1891,
-      "win_rate": 0.9474,
-      "roi": 0.0062
+      "n": 40,
+      "pnl": -3.6783,
+      "win_rate": 0.925,
+      "roi": -0.0183
      }
     ],
     "by_day": [
@@ -2843,6 +3501,13 @@
       "pnl": 0.9911,
       "win_rate": 1.0,
       "roi": 0.0395
+     },
+     {
+      "key": "2026-10-06",
+      "n": 2,
+      "pnl": -4.8673,
+      "win_rate": 0.5,
+      "roi": -0.4862
      }
     ]
    },
@@ -2852,12 +3517,12 @@
     "live_without_confirmed_buy": 0
    },
    "last_change": {
-    "at": "2026-10-05T04:42:01Z",
-    "summary": "watermelon-dog v4: sport_overrides {'nfl': {'hours_max': 6.0, 'prob_min': 0.94, 'stop_price': 0.7}}→{'nba': {'hours_max': 5.0, 'prob_min': 0.96, 'stop_price': 0.7, 'take_profit_delta': None}, 'nfl': {'hours_max': 6.0, 'prob_min': 0.94, 'stop_price': 0.7}, 'nhl': {'hours_max': 5.0, 'prob_min': 0.96, 'stop_price': 0.75, 'take_profit_delta': None}} (registry)"
+    "at": "2026-10-05T17:17:03Z",
+    "summary": "watermelon-dog v6: sport_overrides {'nba': {'hours_max': 5.0, 'prob_min': 0.96, 'stop_price': 0.7, 'take_profit_delta': None}, 'nfl': {'hours_max': 6.0, 'prob_min': 0.94, 'stop_price': 0.7}, 'nhl': {'hours_max': 5.0, 'prob_min': 0.96, 'stop_price': 0.75, 'take_profit_delta': None}}→{'mlb': {'hours_max': 6.0, 'min_game_volume_usd': 20000, 'min_wall_minute': 150, 'prob_min': 0.97, 'stop_price': 0.7, 'take_profit_delta': 0.03}, 'nba': {'hours_max': 5.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 120, 'prob_min': 0.95, 'stop_price': 0.7, 'take_profit_delta': 0.01}, 'nfl': {'hours_max': 6.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 180, 'prob_min': 0.96, 'stop_price': 0.7, 'take_profit_delta': 0.01}, 'nhl': {'hours_max': 5.0, 'min_game_volume_usd': 100000, 'min_wall_minute': 120, 'prob_min': 0.97, 'stop_price': 0.65, 'take_profit_delta': 0.01}} (registry)"
    }
   },
   "watermelon-us-paper": {
-   "mode": "paper",
+   "mode": "off",
    "account": null,
    "stake_usdc": 5.0,
    "params": {
@@ -2954,14 +3619,14 @@
     ]
    },
    "ladder": {
-    "status": "demote_warning",
+    "status": "hold",
     "action": "hold",
-    "trades_at_tier": 31,
+    "trades_at_tier": 0,
     "needed": 20,
-    "roi_ci_lo": -0.04091364999882209,
+    "roi_ci_lo": null,
     "next_stake_usdc": null,
     "promote_ok": false,
-    "to_mode": "paper",
+    "to_mode": "off",
     "reason": "not live",
     "available": true
    },
@@ -2984,7 +3649,7 @@
    },
    "paper": {
     "pnl": {
-     "today": -1.461,
+     "today": 0.0,
      "d7": -1.9622,
      "d30": -1.9622,
      "all": -1.9622
@@ -3101,12 +3766,12 @@
   {
    "tier_usdc": 5.0,
    "variants": 8,
-   "trades": 115,
-   "pnl": -26.7008,
-   "roi": -0.0462,
-   "pnl_std": 0.8713,
-   "max_drawdown": 31.4315,
-   "sharpe_like": -0.2655
+   "trades": 120,
+   "pnl": -37.0353,
+   "roi": -0.0614,
+   "pnl_std": 1.0431,
+   "max_drawdown": 38.1237,
+   "sharpe_like": -0.295
   }
  ],
  "research": {
@@ -6510,53 +7175,53 @@
   ]
  },
  "events": {
-  "generated_at": "2026-10-04T23:30:35Z",
-  "measured": 621,
+  "generated_at": "2026-10-05T18:31:04Z",
+  "measured": 777,
   "event_sensitivity": [
    {
     "sport": "mlb",
     "event": "run",
     "minute_bucket": "0-3",
-    "n": 15,
-    "n_isolated": 11,
-    "mean_abs_jump": 0.095,
-    "median_jump": 0.09,
-    "mean_jump": 0.0937,
-    "mean_pre_price": 0.5297,
-    "reversion_1m": 0.005,
-    "reversion_5m": 0.0033,
-    "reversion_10m": 0.0067,
-    "mean_peak_minute": 6.7333
+    "n": 16,
+    "n_isolated": 12,
+    "mean_abs_jump": 0.0913,
+    "median_jump": 0.08,
+    "mean_jump": 0.09,
+    "mean_pre_price": 0.5194,
+    "reversion_1m": 0.0044,
+    "reversion_5m": 0.0041,
+    "reversion_10m": 0.0103,
+    "mean_peak_minute": 6.3125
    },
    {
     "sport": "mlb",
     "event": "run",
     "minute_bucket": "3-6",
-    "n": 20,
-    "n_isolated": 17,
-    "mean_abs_jump": 0.1047,
+    "n": 22,
+    "n_isolated": 19,
+    "mean_abs_jump": 0.1013,
     "median_jump": 0.11,
-    "mean_jump": 0.1047,
-    "mean_pre_price": 0.6024,
-    "reversion_1m": -0.0003,
-    "reversion_5m": -0.013,
-    "reversion_10m": -0.0248,
-    "mean_peak_minute": 2.9
+    "mean_jump": 0.1013,
+    "mean_pre_price": 0.5942,
+    "reversion_1m": 0.0011,
+    "reversion_5m": -0.0105,
+    "reversion_10m": -0.0317,
+    "mean_peak_minute": 2.9545
    },
    {
     "sport": "mlb",
     "event": "run",
     "minute_bucket": "6-9",
-    "n": 14,
-    "n_isolated": 12,
-    "mean_abs_jump": 0.1531,
+    "n": 16,
+    "n_isolated": 14,
+    "mean_abs_jump": 0.1456,
     "median_jump": 0.0775,
-    "mean_jump": 0.1524,
-    "mean_pre_price": 0.4466,
-    "reversion_1m": 0.0087,
-    "reversion_5m": -0.0086,
-    "reversion_10m": -0.05,
-    "mean_peak_minute": 2.7143
+    "mean_jump": 0.1449,
+    "mean_pre_price": 0.4293,
+    "reversion_1m": 0.0078,
+    "reversion_5m": -0.0097,
+    "reversion_10m": -0.0369,
+    "mean_peak_minute": 3.1875
    },
    {
     "sport": "mlb",
@@ -6577,121 +7242,121 @@
     "sport": "nba",
     "event": "score",
     "minute_bucket": "0-12",
-    "n": 70,
+    "n": 87,
     "n_isolated": 0,
-    "mean_abs_jump": 0.0391,
+    "mean_abs_jump": 0.0406,
     "median_jump": 0.025,
-    "mean_jump": 0.0201,
-    "mean_pre_price": 0.5053,
-    "reversion_1m": 0.0064,
-    "reversion_5m": 0.013,
-    "reversion_10m": 0.0082,
-    "mean_peak_minute": 4.1714
+    "mean_jump": 0.0198,
+    "mean_pre_price": 0.5039,
+    "reversion_1m": 0.0044,
+    "reversion_5m": 0.0097,
+    "reversion_10m": 0.0108,
+    "mean_peak_minute": 5.2874
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "12-24",
-    "n": 23,
+    "n": 65,
     "n_isolated": 0,
-    "mean_abs_jump": 0.0196,
-    "median_jump": 0.01,
-    "mean_jump": 0.0074,
-    "mean_pre_price": 0.5404,
-    "reversion_1m": -0.0017,
-    "reversion_5m": 0.0076,
-    "reversion_10m": 0.005,
-    "mean_peak_minute": 3.3043
+    "mean_abs_jump": 0.0409,
+    "median_jump": 0.015,
+    "mean_jump": 0.0185,
+    "mean_pre_price": 0.5132,
+    "reversion_1m": 0.0011,
+    "reversion_5m": 0.0115,
+    "reversion_10m": 0.0063,
+    "mean_peak_minute": 4.8308
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "24-36",
-    "n": 16,
-    "n_isolated": 1,
-    "mean_abs_jump": 0.0297,
-    "median_jump": 0.025,
-    "mean_jump": 0.0203,
-    "mean_pre_price": 0.3872,
-    "reversion_1m": 0.0003,
-    "reversion_5m": -0.0025,
-    "reversion_10m": 0.002,
-    "mean_peak_minute": 5.125
+    "n": 40,
+    "n_isolated": 4,
+    "mean_abs_jump": 0.0444,
+    "median_jump": 0.0325,
+    "mean_jump": 0.0326,
+    "mean_pre_price": 0.427,
+    "reversion_1m": 0.0046,
+    "reversion_5m": 0.0009,
+    "reversion_10m": 0.0005,
+    "mean_peak_minute": 5.525
    },
    {
     "sport": "nba",
     "event": "score",
     "minute_bucket": "36-48",
-    "n": 9,
-    "n_isolated": 0,
-    "mean_abs_jump": 0.0123,
-    "median_jump": 0.0035,
-    "mean_jump": 0.0074,
-    "mean_pre_price": 0.6554,
-    "reversion_1m": -0.0002,
-    "reversion_5m": 0.0012,
-    "reversion_10m": 0.0017,
-    "mean_peak_minute": 4.4444
+    "n": 37,
+    "n_isolated": 1,
+    "mean_abs_jump": 0.0596,
+    "median_jump": 0.01,
+    "mean_jump": 0.0384,
+    "mean_pre_price": 0.5229,
+    "reversion_1m": 0.0153,
+    "reversion_5m": 0.0107,
+    "reversion_10m": 0.0281,
+    "mean_peak_minute": 5.1622
    },
    {
     "sport": "nfl",
     "event": "score",
     "minute_bucket": "0-15",
-    "n": 29,
-    "n_isolated": 17,
-    "mean_abs_jump": 0.0333,
+    "n": 32,
+    "n_isolated": 18,
+    "mean_abs_jump": 0.0325,
     "median_jump": 0.02,
-    "mean_jump": 0.0205,
-    "mean_pre_price": 0.5512,
-    "reversion_1m": 0.0009,
-    "reversion_5m": -0.0057,
-    "reversion_10m": -0.0083,
-    "mean_peak_minute": 5.0
+    "mean_jump": 0.02,
+    "mean_pre_price": 0.5477,
+    "reversion_1m": 0.0005,
+    "reversion_5m": -0.0089,
+    "reversion_10m": -0.0103,
+    "mean_peak_minute": 4.9688
    },
    {
     "sport": "nfl",
     "event": "score",
     "minute_bucket": "15-30",
-    "n": 44,
-    "n_isolated": 20,
-    "mean_abs_jump": 0.0302,
-    "median_jump": 0.02,
-    "mean_jump": 0.0241,
-    "mean_pre_price": 0.6097,
-    "reversion_1m": -0.002,
-    "reversion_5m": 0.0031,
-    "reversion_10m": 0.0086,
-    "mean_peak_minute": 5.8182
+    "n": 49,
+    "n_isolated": 23,
+    "mean_abs_jump": 0.0291,
+    "median_jump": 0.01,
+    "mean_jump": 0.0228,
+    "mean_pre_price": 0.6022,
+    "reversion_1m": -0.0019,
+    "reversion_5m": -0.0008,
+    "reversion_10m": -0.0004,
+    "mean_peak_minute": 5.2653
    },
    {
     "sport": "nfl",
     "event": "score",
     "minute_bucket": "30-45",
-    "n": 45,
-    "n_isolated": 21,
-    "mean_abs_jump": 0.024,
+    "n": 49,
+    "n_isolated": 25,
+    "mean_abs_jump": 0.0232,
     "median_jump": 0.01,
-    "mean_jump": 0.0221,
-    "mean_pre_price": 0.5341,
-    "reversion_1m": 0.0002,
-    "reversion_5m": -0.0013,
-    "reversion_10m": -0.0066,
-    "mean_peak_minute": 4.4889
+    "mean_jump": 0.0213,
+    "mean_pre_price": 0.5368,
+    "reversion_1m": 0.0003,
+    "reversion_5m": -0.0031,
+    "reversion_10m": -0.0085,
+    "mean_peak_minute": 4.1633
    },
    {
     "sport": "nfl",
     "event": "score",
     "minute_bucket": "45-60",
-    "n": 48,
-    "n_isolated": 20,
-    "mean_abs_jump": 0.0506,
+    "n": 51,
+    "n_isolated": 23,
+    "mean_abs_jump": 0.0482,
     "median_jump": 0.01,
-    "mean_jump": 0.036,
-    "mean_pre_price": 0.5406,
+    "mean_jump": 0.0335,
+    "mean_pre_price": 0.5308,
     "reversion_1m": 0.004,
-    "reversion_5m": -0.0032,
-    "reversion_10m": -0.0101,
-    "mean_peak_minute": 4.3542
+    "reversion_5m": -0.0029,
+    "reversion_10m": -0.0049,
+    "mean_peak_minute": 4.9608
    },
    {
     "sport": "nfl",
@@ -6712,61 +7377,61 @@
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "0-20",
-    "n": 61,
-    "n_isolated": 49,
-    "mean_abs_jump": 0.1065,
-    "median_jump": 0.12,
-    "mean_jump": 0.103,
-    "mean_pre_price": 0.5911,
-    "reversion_1m": 0.0002,
-    "reversion_5m": 0.0081,
-    "reversion_10m": 0.018,
-    "mean_peak_minute": 5.0492
+    "n": 67,
+    "n_isolated": 53,
+    "mean_abs_jump": 0.1028,
+    "median_jump": 0.115,
+    "mean_jump": 0.0944,
+    "mean_pre_price": 0.5969,
+    "reversion_1m": -0.0001,
+    "reversion_5m": 0.0095,
+    "reversion_10m": 0.0204,
+    "mean_peak_minute": 4.9403
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "20-40",
-    "n": 68,
-    "n_isolated": 53,
-    "mean_abs_jump": 0.0588,
+    "n": 76,
+    "n_isolated": 59,
+    "mean_abs_jump": 0.0655,
     "median_jump": 0.0188,
-    "mean_jump": 0.0504,
-    "mean_pre_price": 0.6202,
-    "reversion_1m": 0.0018,
-    "reversion_5m": 0.0071,
-    "reversion_10m": 0.0127,
-    "mean_peak_minute": 4.4118
+    "mean_jump": 0.0534,
+    "mean_pre_price": 0.6221,
+    "reversion_1m": 0.0,
+    "reversion_5m": 0.0051,
+    "reversion_10m": 0.0119,
+    "mean_peak_minute": 4.6053
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "40-60",
-    "n": 57,
-    "n_isolated": 47,
-    "mean_abs_jump": 0.0734,
-    "median_jump": 0.007,
-    "mean_jump": 0.0687,
-    "mean_pre_price": 0.5796,
-    "reversion_1m": 0.0,
-    "reversion_5m": -0.0056,
-    "reversion_10m": -0.0062,
-    "mean_peak_minute": 3.9825
+    "n": 64,
+    "n_isolated": 52,
+    "mean_abs_jump": 0.0723,
+    "median_jump": 0.0077,
+    "mean_jump": 0.0676,
+    "mean_pre_price": 0.5773,
+    "reversion_1m": 0.0005,
+    "reversion_5m": -0.005,
+    "reversion_10m": -0.0086,
+    "mean_peak_minute": 3.875
    },
    {
     "sport": "nhl",
     "event": "goal",
     "minute_bucket": "60+",
-    "n": 5,
-    "n_isolated": 5,
-    "mean_abs_jump": 0.0665,
-    "median_jump": 0.0015,
-    "mean_jump": 0.0665,
-    "mean_pre_price": 0.9302,
-    "reversion_1m": 0.0027,
-    "reversion_5m": 0.0028,
-    "reversion_10m": 0.0028,
-    "mean_peak_minute": 1.4
+    "n": 6,
+    "n_isolated": 6,
+    "mean_abs_jump": 0.1353,
+    "median_jump": 0.0033,
+    "mean_jump": 0.1353,
+    "mean_pre_price": 0.8618,
+    "reversion_1m": 0.0023,
+    "reversion_5m": 0.0024,
+    "reversion_10m": 0.0024,
+    "mean_peak_minute": 1.6667
    },
    {
     "sport": "soccer",
@@ -6817,31 +7482,31 @@
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "45-60",
-    "n": 18,
-    "n_isolated": 16,
-    "mean_abs_jump": 0.0747,
-    "median_jump": 0.025,
-    "mean_jump": 0.0736,
-    "mean_pre_price": 0.6761,
-    "reversion_1m": 0.0017,
-    "reversion_5m": 0.001,
-    "reversion_10m": -0.02,
-    "mean_peak_minute": 4.3889
+    "n": 19,
+    "n_isolated": 17,
+    "mean_abs_jump": 0.09,
+    "median_jump": 0.03,
+    "mean_jump": 0.089,
+    "mean_pre_price": 0.6455,
+    "reversion_1m": 0.0008,
+    "reversion_5m": 0.0012,
+    "reversion_10m": -0.0144,
+    "mean_peak_minute": 4.6316
    },
    {
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "60-75",
-    "n": 22,
-    "n_isolated": 20,
-    "mean_abs_jump": 0.0595,
-    "median_jump": 0.0143,
-    "mean_jump": 0.057,
-    "mean_pre_price": 0.574,
+    "n": 23,
+    "n_isolated": 21,
+    "mean_abs_jump": 0.0588,
+    "median_jump": 0.0155,
+    "mean_jump": 0.0565,
+    "mean_pre_price": 0.5638,
     "reversion_1m": -0.0008,
-    "reversion_5m": 0.0094,
-    "reversion_10m": 0.0041,
-    "mean_peak_minute": 4.7727
+    "reversion_5m": 0.009,
+    "reversion_10m": -0.0004,
+    "mean_peak_minute": 4.6957
    },
    {
     "sport": "soccer",
@@ -6862,16 +7527,16 @@
     "sport": "soccer",
     "event": "goal",
     "minute_bucket": "90+",
-    "n": 6,
-    "n_isolated": 6,
-    "mean_abs_jump": 0.0104,
-    "median_jump": 0.0073,
-    "mean_jump": 0.0103,
-    "mean_pre_price": 0.9786,
-    "reversion_1m": 0.0029,
-    "reversion_5m": 0.0103,
-    "reversion_10m": 0.0107,
-    "mean_peak_minute": 4.3333
+    "n": 7,
+    "n_isolated": 7,
+    "mean_abs_jump": 0.0109,
+    "median_jump": 0.008,
+    "mean_jump": 0.0108,
+    "mean_pre_price": 0.9795,
+    "reversion_1m": 0.0026,
+    "reversion_5m": 0.0089,
+    "reversion_10m": 0.0092,
+    "mean_peak_minute": 4.0
    }
   ],
   "notes": [

@@ -1,20 +1,38 @@
 id: apricot-eco
 family: apricot
-hypothesis: 'MLB 경기가 live 된 뒤 약 90분(tick0 기준) 시점의 midpoint 선두팀(ask VWAP 0.89-0.999)은
-  경기 후반 실현 승률 대비 과소평가된다. A arm: tick 90분. 2026-10-05~ NBA·NHL 도 같은 가설(벽시계 tick: NBA
-  50분, NHL 140분).'
+hypothesis: '경기 후반(tick0 이후 벽시계 분)의 midpoint 선두팀은 남은 시간 대비 과소평가되어, 끝나기 전 작은 이익(TP ≤ 0.96)으로 조기 청산할 수 있다. 종목마다 진입 시각·밴드·TP
+  가 다르다(2026-10-06: NFL 190분, NBA 150분, NHL 50분, MLB 60분 등). A arm: 손절 없음.'
 account: eco
 mode: live
 sports:
   mlb:
     mode: paper
     stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
   nba:
     mode: paper
     stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
   nhl:
     mode: paper
     stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+  nfl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
 stake_usdc: 5
 params:
   min_game_volume_usd: 20000
@@ -29,17 +47,37 @@ params:
   hours_max: 8.0
   sport_overrides:
     nba:
+      entry_tick_minute: 150
+      prob_min: 0.94
+      prob_max: 0.97
+      take_profit_price: 0.96
+      stop_loss_delta: null
+      hours_max: 5.0
+      min_game_volume_usd: 20000
+    nhl:
       entry_tick_minute: 50
       prob_min: 0.94
       prob_max: 0.99
       take_profit_price: 0.96
+      stop_loss_delta: null
       hours_max: 5.0
-    nhl:
-      entry_tick_minute: 140
-      prob_min: 0.94
+      min_game_volume_usd: 20000
+    mlb:
+      entry_tick_minute: 60
+      prob_min: 0.92
       prob_max: 0.99
       take_profit_price: 0.96
-      hours_max: 5.0
+      stop_loss_delta: null
+      hours_max: 6.0
+      min_game_volume_usd: 100000
+    nfl:
+      entry_tick_minute: 190
+      prob_min: 0.8
+      prob_max: 0.99
+      take_profit_price: 0.96
+      stop_loss_delta: null
+      hours_max: 6.0
+      min_game_volume_usd: 20000
 bounds:
   min_game_volume_usd:
   - 5000
@@ -75,7 +113,7 @@ bounds:
   - 0.01
   sport_overrides.nba.entry_tick_minute:
   - 30
-  - 170
+  - 240
   - 10
   sport_overrides.nba.prob_min:
   - 0.8
@@ -91,7 +129,7 @@ bounds:
   - 0.01
   sport_overrides.nhl.entry_tick_minute:
   - 30
-  - 170
+  - 240
   - 10
   sport_overrides.nhl.prob_min:
   - 0.8
@@ -105,17 +143,82 @@ bounds:
   - 0.9
   - 0.99
   - 0.01
+  sport_overrides.mlb.entry_tick_minute:
+  - 30
+  - 240
+  - 10
+  sport_overrides.mlb.prob_min:
+  - 0.8
+  - 0.97
+  - 0.01
+  sport_overrides.mlb.prob_max:
+  - 0.95
+  - 0.999
+  - 0.01
+  sport_overrides.mlb.take_profit_price:
+  - 0.9
+  - 0.99
+  - 0.01
+  sport_overrides.mlb.stop_loss_delta:
+  - 0.05
+  - 0.4
+  - 0.05
+  sport_overrides.mlb.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nba.stop_loss_delta:
+  - 0.05
+  - 0.4
+  - 0.05
+  sport_overrides.nba.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nhl.stop_loss_delta:
+  - 0.05
+  - 0.4
+  - 0.05
+  sport_overrides.nhl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nfl.entry_tick_minute:
+  - 30
+  - 240
+  - 10
+  sport_overrides.nfl.prob_min:
+  - 0.8
+  - 0.97
+  - 0.01
+  sport_overrides.nfl.prob_max:
+  - 0.95
+  - 0.999
+  - 0.01
+  sport_overrides.nfl.take_profit_price:
+  - 0.9
+  - 0.99
+  - 0.01
+  sport_overrides.nfl.stop_loss_delta:
+  - 0.05
+  - 0.4
+  - 0.05
+  sport_overrides.nfl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
 limits:
   max_positions: 6
   max_open_usdc: 30
   daily_loss_stop_usdc: 20
   max_new_per_cycle: 5
-notes: 'golden-apricot Eco 포팅. legacy 목표 $15(15/10/5 ladder)였으나 사용자 규칙으로 $5 시작. 2026-10-04
-  사람 변경(백테스트 근거, docs/research/backtests/2026-10-04-apricot-retune.md): prob_min 0.90→0.89,
-  take_profit_price 0.90→0.92 (fruit 와 같은 공통값, A/B 처치는 tick 90 vs 95 하나로 유지). 엔진 재생
-  2026-03-01~10-04 ROI -1.33%→-0.93%(H1 -1.30→-1.17 / H2 -1.35→-0.71), MDD 57.7→48.6.
-  여전히 음수, 확인된 edge 아님. | 2026-10-05 연구자 결정 `sports3:per-sport`: 종목별 mode·단위·파라미터.
-  근거 docs/research/backtests/2026-10-05-per-sport-nba-nhl.md. MLB live→paper: 조기 익절(TP≤0.96)
-  범위에서 두 반기 모두 0 이상인 셀이 하나도 없다(TP 0.98-0.99 만 일부 양수, 이웃 셀이 무너져 운). NBA·NHL 도 paper:
-  통과 셀은 정산 손실 0건일 때만 양수라 손실 1건(−5 USDC)이면 반기 손익이 음수가 된다. 계좌 유지(master live): 남은 live
-  포지션 청산·대사용.'
+notes: 'golden-apricot Eco 포팅. legacy 목표 $15(15/10/5 ladder)였으나 사용자 규칙으로 $5 시작. 2026-10-04 사람 변경(백테스트 근거, docs/research/backtests/2026-10-04-apricot-retune.md):
+  prob_min 0.90→0.89, take_profit_price 0.90→0.92 (fruit 와 같은 공통값, A/B 처치는 tick 90 vs 95 하나로 유지). 엔진 재생 2026-03-01~10-04 ROI
+  -1.33%→-0.93%(H1 -1.30→-1.17 / H2 -1.35→-0.71), MDD 57.7→48.6. 여전히 음수, 확인된 edge 아님. | 2026-10-05 연구자 결정 `sports3:per-sport`:
+  종목별 mode·단위·파라미터. 근거 docs/research/backtests/2026-10-05-per-sport-nba-nhl.md. MLB live→paper: 조기 익절(TP≤0.96) 범위에서 두 반기 모두
+  0 이상인 셀이 하나도 없다(TP 0.98-0.99 만 일부 양수, 이웃 셀이 무너져 운). NBA·NHL 도 paper: 통과 셀은 정산 손실 0건일 때만 양수라 손실 1건(−5 USDC)이면 반기 손익이 음수가
+  된다. 계좌 유지(master live): 남은 live 포지션 청산·대사용. | 2026-10-06 연구자 결정 `sports3:us-all`: MLB·NBA·NHL·NFL 모두 종목별 설정(전부 paper, 5
+  USDC). 2024-04~2026-10 grid (종목당 3,744–7,200셀, 현재 수수료 0.05). NFL 은 사전 등록 규칙 1–6을 통과한 셀이 18개(tick 190 일대, 엔진 재생 n=103 +2.76%)지만
+  연구자 지시대로 paper 로 시작한다(결정론 승격 게이트가 paper 30건 후 판단). NBA·NHL·MLB 는 강건한 셀이 없다. 손절 없음 arm 값: nfl n=101 ROI +2.64% (H1 +1.81
+  / H2 +3.77); nba n=143 ROI +0.85% (H1 +0.54 / H2 +1.08); nhl n=52 ROI +0.83% (H1 +0.74 / H2 +0.96); mlb n=289 ROI +0.16%
+  (H1 +0.04 / H2 +0.30). 근거 docs/research/backtests/2026-10-06-us-sports.md.'
