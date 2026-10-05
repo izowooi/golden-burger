@@ -206,6 +206,25 @@ def sports_cell(v: dict) -> str:
                     for d in v.get("sports_detail") or [])
 
 
+def section_execution(r: dict) -> list[str]:
+    """Maker (fee-free resting order) execution per variant×mode; omitted when no variant ever rested an order."""
+    rows = []
+    for v in r["variants"]:
+        for mode, e in sorted((v.get("execution") or {}).items()):
+            rows.append([v["id"], mode, e["entries"], e["entries_active"], _pct(e["fill_rate"]),
+                         "–" if e["avg_wait_min"] is None else f"{e['avg_wait_min']:g}분",
+                         e["maker_fills"], _n(e["maker_fee_usdc"], 4), _n(e["taker_fee_est_usdc"], 4),
+                         _n(e["fees_saved_usdc"], 4), f"{e['tp_filled']}/{e['tp_orders']}"])
+    if not rows:
+        return []
+    return ["", "### 지정가(maker) 주문 체결", "",
+            "체결률 = 끝난 지정가 진입 중 한 주라도 체결된 비율. 대기 = 첫 주문부터 첫 체결까지. 수수료 절감 = 같은 체결을 "
+            "taker 로 했을 때의 추정 수수료 − 실제(거래소가 maker 로 보고한 체결만 0). paper 는 호가가 우리 가격을 "
+            "관통할 때만 체결로 본 보수적 시뮬레이션이다.", "",
+            *_table(["변형", "모드", "진입 주문", "대기 중", "체결률", "평균 대기", "maker 체결", "실수수료$",
+                     "taker 추정$", "절감$", "익절 체결/주문"], rows)]
+
+
 def section_variants(r: dict) -> list[str]:
     lines = ["## 전략 변형 현황", ""]
     rows = []
@@ -234,6 +253,7 @@ def section_variants(r: dict) -> list[str]:
                 srows.append([v["id"], d["sport"], d["mode"], f"{d['stake_usdc']:g}", d.get("trades", 0),
                               _n(d.get("pnl"), sign=True), _pct(d.get("roi")), lad_txt])
         lines += _table(["변형", "종목", "모드", "단위$", "정산", "손익", "ROI", "ladder"], srows)
+    lines += section_execution(r)
     lines += ["", "### 파라미터", ""]
     for v in r["variants"]:
         params = ", ".join(f"{k}={val}" for k, val in sorted(v["params"].items()))
@@ -407,6 +427,61 @@ def section_thesis(r: dict) -> list[str]:
             *[f"- {t['text']} (n={t['n']}, 근거 `{t['evidence_ref']}`)" for t in rows], ""]
 
 
+VERDICT_KO = {"supports": "가설 지지", "contradicts": "가설과 반대", "inconclusive": "불확실",
+              "insufficient": "표본 부족"}
+DIRECTION_KO = {"up": "킥오프로 갈수록 커짐", "down": "킥오프로 갈수록 작아짐", "flat": "뚜렷한 변화 없음"}
+TIER_KO = {"all": "전체", "major": "주요 리그", "other": "기타 리그"}
+
+
+def _ci(ci, sign: bool = True) -> str:
+    if not ci or ci[0] is None:
+        return "–"
+    return f"{ci[0]:+.3f}~{ci[1]:+.3f}" if sign else f"{ci[0]:.3f}~{ci[1]:.3f}"
+
+
+def section_ou05_lifecycle(r: dict) -> list[str]:
+    """Weekly/monthly: the Over 0.5 overpricing curve by time to kickoff (analysis.ou05.lifecycle)."""
+    if r["kind"] == "daily":
+        return []
+    lc = r.get("ou05_lifecycle")
+    head = ["## 0.5 Over 생애 과대평가", "",
+            "연구자 가설(2026-10-05): 마켓은 열린 직후 혼돈, 약 하루 뒤 안정, 이후 킥오프까지 Over 과대평가가 커진다 → "
+            "과대평가가 작을 때 사서 클 때 판다. 과대평가 = 평균 Over 가격 − 실제 Over 비율(양수 = Over 가 비싸다).", ""]
+    if not lc:
+        return head + ["집계 없음(`polylab analyze ou05` 결과가 아직 없다).", ""]
+    if lc.get("error"):
+        return head + [f"집계 실패: {lc['error']}", ""]
+    ds = lc.get("data_status") or {}
+    sc = lc.get("scope") or {}
+    lines = head + [f"- 근거: 정산 시장 {_esc(sc.get('resolved'))}개, poll 행 {_esc(sc.get('poll_rows'))}, "
+                    f"과거 중간가 행 {_esc(sc.get('history_rows'))} (집계 {lc.get('generated_at') or '–'})"]
+    if ds.get("thin"):
+        lines.append(f"- **데이터가 아직 얇다**: {ds.get('note')}")
+    for c in lc.get("checks") or []:
+        if c.get("verdict") == "insufficient":
+            lines.append(f"- {TIER_KO.get(c['tier'], c['tier'])}: {VERDICT_KO['insufficient']}")
+            continue
+        lines.append(f"- {TIER_KO.get(c['tier'], c['tier'])}: {VERDICT_KO.get(c['verdict'], c['verdict'])} — "
+                     f"{c['early_band']} {c['early_overpricing']:+.3f} → {c['late_band']} {c['late_overpricing']:+.3f} "
+                     f"({DIRECTION_KO.get(c.get('direction'), '')}), 가장 쌈 {c['cheapest_band']}·가장 비쌈 "
+                     f"{c['dearest_band']}, 가격 근거 {'/'.join(c.get('price_basis') or [])}")
+    for tier in ("all", "major"):
+        rows = [b for b in lc.get("bands") or [] if b["tier"] == tier]
+        if not rows:
+            continue
+        lines += ["", f"### {TIER_KO[tier]}", ""]
+        lines += _table(["킥오프까지", "정산 n", "평균 Over", "실제 Over (95% CI)", "과대평가 (95% CI)", "스프레드 p50",
+                         "가격 근거"],
+                        [[b["label"], b["n"], _n(b["mean_over"], 3),
+                          "–" if b["over_rate"] is None else f"{b['over_rate']:.3f} ({_ci(b['over_rate_ci'], False)})",
+                          "–" if b["overpricing"] is None else f"{b['overpricing']:+.3f} ({_ci(b['overpricing_ci'])})",
+                          _n(b["spread_p50"], 3), b["price_basis"]] for b in rows])
+    lines += ["", "(상장 후 경과 시간별 혼돈→안정은 이 표로 직접 측정하지 않는다. 같은 시장이 여러 구간에 반복되므로 "
+              "구간 간 CI 비교는 대략적 신호다. 결정론 집계이며 AI 회고가 goal-over-all 진입 창·익절 폭 제안의 근거로 쓴다.)",
+              ""]
+    return lines
+
+
 def section_llm_forecast(r: dict) -> list[str]:
     from polylab.research.llm_eval import render_lines  # noqa: PLC0415
     return render_lines(r.get("llm_forecast"))
@@ -429,7 +504,7 @@ def render(r: dict, narrative: str | None = None, applied: list[dict] | None = N
              f"- 대시보드: https://poly.zowoo.uk", ""]
     for section in (section_brief, section_thesis, section_summary, section_games, section_strategy_sport, section_exits, section_variants, section_transactions,
                     section_open, section_manual, section_changes,
-                    section_alerts, section_health, section_research, section_llm_forecast):
+                    section_alerts, section_health, section_research, section_ou05_lifecycle, section_llm_forecast):
         lines += section(r)
     ai = r.get("ai") or {}
     lines += ["## AI 회고", ""]

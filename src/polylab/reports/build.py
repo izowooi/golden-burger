@@ -460,6 +460,59 @@ def sports_detail(v, paths, now: int, df: pd.DataFrame) -> list[dict]:
     return out
 
 
+MAKER_ENTRY_SQL = """
+SELECT o.position_id, o.mode, MIN(o.created_at) AS first_post, COUNT(*) AS orders,
+       SUM(CASE WHEN o.status IN ('intent','resting','cancel_requested','unknown') THEN 1 ELSE 0 END) AS active,
+       (SELECT MIN(COALESCE(f.match_ts, f.ts)) FROM fills f JOIN orders o2 ON o2.intent_id = f.intent_id
+        WHERE o2.position_id = o.position_id AND o2.order_type = 'GTC' AND o2.side = 'BUY') AS first_fill
+FROM orders o WHERE o.order_type = 'GTC' AND o.side = 'BUY' AND o.status != 'failed' GROUP BY o.position_id, o.mode
+"""
+MAKER_FILLS_SQL = """
+SELECT o.mode, o.side, f.liquidity, COUNT(*) AS n, SUM(f.shares) AS shares, SUM(f.fee_usdc) AS fee,
+       SUM(f.taker_fee_est) AS taker_est, SUM(CASE WHEN f.fee_usdc IS NULL OR f.taker_fee_est IS NULL THEN 1 ELSE 0 END)
+       AS unknown
+FROM fills f JOIN orders o ON o.intent_id = f.intent_id WHERE o.order_type = 'GTC' GROUP BY o.mode, o.side, f.liquidity
+"""
+MAKER_TP_SQL = """
+SELECT mode, COUNT(*) AS orders, SUM(CASE WHEN COALESCE(filled_shares, 0) > 0 THEN 1 ELSE 0 END) AS filled,
+       SUM(CASE WHEN status IN ('intent','resting','cancel_requested','unknown') THEN 1 ELSE 0 END) AS active
+FROM orders WHERE order_type = 'GTC' AND side = 'SELL' AND status != 'failed' GROUP BY mode
+"""
+
+
+def execution_stats(paths, vid: str) -> dict | None:
+    """Maker-order execution per mode (additive `execution`, 2026-10-05 `fees:maker-preferred`): entry fill rate
+    over finished maker entries, average wait to the first fill, venue-reported maker fees vs the taker fee the
+    same fills would have paid. None when the variant never rested an order."""
+    entries = _strategy_rows(paths, vid, MAKER_ENTRY_SQL)
+    fills = _strategy_rows(paths, vid, MAKER_FILLS_SQL)
+    tps = _strategy_rows(paths, vid, MAKER_TP_SQL)
+    if not entries and not tps:
+        return None
+    out = {}
+    for mode in sorted({r["mode"] for r in entries} | {r["mode"] for r in tps}):
+        e = [r for r in entries if r["mode"] == mode]
+        done = [r for r in e if not r["active"]]
+        filled = [r for r in done if r["first_fill"] is not None]
+        waits = [(r["first_fill"] - r["first_post"]) / 60 for r in e if r["first_fill"] is not None]
+        f = [r for r in fills if r["mode"] == mode]
+        mk = [r for r in f if r["liquidity"] == "maker"]
+        fee = sum(r["fee"] or 0 for r in mk)
+        est = sum(r["taker_est"] or 0 for r in mk)
+        tp = next((r for r in tps if r["mode"] == mode), {})
+        out[mode] = {"entries": len(e), "entries_active": len(e) - len(done), "entries_filled": len(filled),
+                     "fill_rate": round(len(filled) / len(done), 4) if done else None,
+                     "avg_wait_min": round(sum(waits) / len(waits), 1) if waits else None,
+                     "maker_fills": int(sum(r["n"] for r in mk)), "taker_role_fills": int(sum(
+                         r["n"] for r in f if r["liquidity"] == "taker")),
+                     "maker_fee_usdc": round(fee, 6), "taker_fee_est_usdc": round(est, 6),
+                     "fees_saved_usdc": round(est - fee, 6),
+                     "fee_unknown_fills": int(sum(r["unknown"] or 0 for r in f)),
+                     "tp_orders": int(tp.get("orders") or 0), "tp_filled": int(tp.get("filled") or 0),
+                     "tp_active": int(tp.get("active") or 0)}
+    return out
+
+
 def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) -> dict:
     df = performance.load_variant_positions(paths.strategy_db(v.id))
     live, paper = performance.settled(df, "live"), performance.settled(df, "paper")
@@ -487,7 +540,18 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
             "open": opens, "recent": recent_position_rows(primary, core),
             "strategy_sport": strategy_sport_rows(v, paths, df, core, opens, since, until),
             "param_history": history, "stake_events": stakes, "changes": changes, "last_change": last_change,
+            "order_style": _order_styles(v), "execution": execution_stats(paths, v.id),
             "_settled_live": live, "_settled_paper": paper}
+
+
+def _order_styles(v) -> dict:
+    """{sport: taker|maker} from params (+ sport_overrides)."""
+    out = {}
+    for sport in v.sports or [None]:
+        prm = registry.effective_params(v.params, sport) if sport else v.params
+        style = str(prm.get("order_style") or "taker").lower()
+        out[sport or "all"] = style if style in ("taker", "maker") else "taker"
+    return out
 
 
 def exit_breakdown(df: pd.DataFrame, since: int, until: int) -> list[dict]:
@@ -576,6 +640,7 @@ def build(kind: str, paths, now: int | None = None, slot: str | None = None, use
             "changes": sorted([c for s in states for c in s["changes"]], key=lambda c: c["at"] or ""),
             "games": games, "strategy_sport": strategy_sport,
             "llm_forecast": _llm_forecast(paths, since, until) if kind != "daily" else None,
+            "ou05_lifecycle": _ou05_lifecycle(paths) if kind != "daily" else None,
             "manual": _manual(paths, since, until, kind, now),
             "ai": {"ran": False, "reason": None}}
 
@@ -584,6 +649,15 @@ def _llm_forecast(paths, since: int, until: int) -> dict | None:
     """LLM 0-0 side study (paper only), weekly/monthly; never fails the report."""
     from polylab.research import llm_eval  # noqa: PLC0415
     return llm_eval.report_section(paths, since, until)
+
+
+def _ou05_lifecycle(paths) -> dict | None:
+    """O/U 0.5 lifecycle curve (weekly/monthly section + retro context); never fails the report."""
+    try:
+        from polylab.analysis import ou05  # noqa: PLC0415
+        return ou05.lifecycle_cached(paths)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"[:300]}
 
 
 def _manual(paths, since: int, until: int, kind: str, now: int) -> dict | None:

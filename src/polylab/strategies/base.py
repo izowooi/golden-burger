@@ -21,6 +21,16 @@ from polylab.marketview import Book, Game, Market, MarketView, Token, EPS
 
 OPEN_STATUSES = ("pending", "open", "closing", "quarantined")
 
+# Execution style (2026-10-05 `fees:maker-preferred`, engine side in polylab.execution.maker). Any variant may set
+# these in `params` (per sport via `sport_overrides`); execution only — no effect on signals or exit_rules.
+EXECUTION_DEFAULTS = {
+    "order_style": "taker",              # taker = FOK (fee) | maker = resting GTC post-only (fee-free when hit)
+    "maker_ttl_minutes": 60,             # a resting entry is cancelled and re-quoted after this long
+    "maker_reprice_ticks": 2,            # ... or when the target drifted more than this many ticks (>= 0.01 always)
+    "maker_price_rule": "improve",       # improve = min(best_bid + tick, best_ask - tick) | join = best_bid
+    "maker_entry_cutoff_minutes": 5,     # pre-game entries stop resting this long before kickoff
+}
+
 
 @dataclass
 class PositionView:
@@ -114,6 +124,34 @@ class Strategy:
 
     def skip(self, key: str, reason: str) -> None:
         self.skips.append((key, reason))
+
+    # --- execution style (maker orders)
+    def execution(self, sport: str | None = None) -> dict[str, Any]:
+        prm = self.p(sport)
+        return {k: prm.get(k, d) if prm.get(k) is not None else d for k, d in EXECUTION_DEFAULTS.items()}
+
+    def order_style(self, sport: str | None = None) -> str:
+        style = str(self.execution(sport)["order_style"]).lower()
+        return style if style in ("taker", "maker") else "taker"
+
+    def maker_entry_open(self, view: MarketView, now: int, position: PositionView) -> bool:
+        """May the resting entry of `position` keep resting? Default: the market still trades and, for an entry
+        placed before kickoff, kickoff is more than `maker_entry_cutoff_minutes` away (in-play entries rely on TTL)."""
+        market = view.market(position.condition_id)
+        if market is None or not view.is_tradable(market, now):
+            return False
+        game = view.game(position.game_key) if position.game_key else None
+        if game is None or game.start_time is None or position.opened_at >= game.start_time:
+            return True
+        cutoff = float(self.execution(position.sport)["maker_entry_cutoff_minutes"]) * 60
+        return now < game.start_time - cutoff
+
+    def maker_tp_price(self, position: PositionView) -> float | None:
+        """Price to rest the take-profit SELL at, or None (no resting TP: the taker exit path applies)."""
+        return None
+
+    def maker_tp_allowed(self, view: MarketView, now: int, position: PositionView) -> bool:
+        return True
 
     # --- interface
     def entry_signals(self, view: MarketView, now: int, ledger: Ledger) -> list[EntryIntent]:

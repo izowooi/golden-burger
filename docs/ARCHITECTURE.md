@@ -54,7 +54,7 @@ src/polylab/
   api/                    # gamma.py, clob_public.py, data_api.py, ws_sports.py, ws_market.py (출처 주석 필수)
   collector/              # discover, poll(1분 가격+호가), stream daemon(WS), backfill(prices-history, trades), resolve
   strategies/             # base.py + watermelon.py, apricot.py, plum.py, cherry.py (순수 로직, IO 없음)
-  execution/              # accounts, clob trading client(FOK), reconcile(CONFIRMED), paper broker, redeem
+  execution/              # accounts, clob trading client(FOK + GTC post-only), reconcile(CONFIRMED), maker(지정가 수명주기), paper broker, redeem
   engine/                 # tick: 전략 실행 루프(스냅샷→signal→risk→execution→ledger)
   risk/                   # stake ladder, caps, kill switch
   analysis/               # calibration, event study(sensitivity by game minute), strategy perf, stake-tier stats, backtest
@@ -131,6 +131,18 @@ bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액
 validator 가 bounds·max_step·최소 표본·cooldown 을 강제하고 통과분만 yaml 에 반영, 테스트 후 commit/push.
 주간 회고는 paper 변형 생성과 백테스트, 월간 회고는 논문용 연구 요약(docs/research/monthly)을 만든다.
 AI 가 실패해도 결정론 리포트와 ladder 는 동작한다.
+
+**주문 방식 (2026-10-05 `fees:maker-preferred`)**: 변형(종목별 `sport_overrides` 가능) 파라미터 `order_style: taker|maker`.
+taker(기본)는 FOK 시장가(스포츠 taker 수수료 ≈ 0.05·p(1−p)/주). maker 는 `execution/maker.py`: 진입은 호가 안쪽 한 틱
+(min(best_bid+tick, best_ask−tick), 우리 주문은 호가에서 빼고 계산)에 GTC post-only BUY 를 걸고, 매 tick CONFIRMED 체결만
+반영, 진입 창 종료(킥오프 `maker_entry_cutoff_minutes` 전)·킬스위치·시장 종료 시 취소, `maker_ttl_minutes`·`maker_reprice_ticks`
+(최소 0.01) 초과 시 취소 후 재호가. 진입 주문이 끝나야 포지션이 open(체결분) 또는 unfilled. 익절은 open 포지션이 TP 가격에 post-only SELL 을
+걸고(goal_over 는 킥오프 전까지만, 킥오프에 취소 — 경기 중 골 급등을 싸게 팔지 않고 0.99 보유 규칙을 따름), 손절은 걸린
+익절을 먼저 취소(거래소 확인)하고 남은 수량을 taker 로 판다. 수수료 0 은 거래소가 우리 주문을 trade 의 `maker_orders` 로
+보고하고 수수료표가 taker-only 일 때만, 모르면 미반영. 취소는 주문 id 로만(계좌 공유 대비), live 레그마다 계좌의 미체결
+주문을 대사(id 없는 intent 채택·우리 고아 주문 취소·남의 주문은 집계만). off 변형도 걸린 주문이 끝날 때까지 진입 없는
+레그가 돈다. paper 는 실제(합성 아님) 호가가 우리 가격을 관통할 때만 체결로 본다. 리포트·대시보드 `execution`(체결률·
+평균 대기·taker 대비 절감 수수료). 백테스트는 maker 변형을 taker 체결로 대리 재생(`fill_model: taker_proxy`).
 
 ## 8. 0:0 회피 연구 (투 트랙, 2026-10-03)
 

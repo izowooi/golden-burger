@@ -62,7 +62,11 @@ sequenceDiagram
 ## 3. AI 에게 주는 것과 받는 것
 
 - **입력 (context pack, `state/retro/<ts>/`)**: `MANIFEST.md`, 리포트 JSON, 변형별 성과(`metrics/*.json`), 최근 CONFIRMED 거래,
-  calibration·이벤트 분석 요약, 현재 `strategies/*.yaml` 과 탐색 경계(bounds), (주간) 파라미터 grid 백테스트 결과.
+  calibration·이벤트 분석 요약, 현재 `strategies/*.yaml` 과 탐색 경계(bounds), (주간) 파라미터 grid 백테스트 결과,
+  (주간·월간) `ou05_lifecycle.json` — O/U 0.5 마켓의 킥오프까지 남은 시간 구간×리그 등급별 스프레드·Over 과대평가(평균 가격 −
+  실제 Over 비율, 95% CI)·가격 근거(poll/history)·결정론 판정. 주간 AI 는 이것으로 연구자 가설 `hypothesis:ou05-lifecycle` 을
+  검증하고, 근거가 있으면 goal-over-all `entry_minutes_before_max/min`·`take_profit_delta` 변경을 제안한다(validator·백테스트
+  게이트 적용, maker 변형은 taker 체결 대리 재생). 같은 곡선이 주간·월간 리포트의 "0.5 Over 생애 과대평가" 절이다.
   계좌는 alias 로만 나오고 키·지갑 주소는 없다. 공개용 사본은 `reports/context/latest/`.
 - **지시 (prompts)**: 근거는 CONFIRMED 체결과 확인된 정산만, 표본 20건 미만이면 결론 금지, 논문 3개 질문과 연결,
   사용자 운영 철학(1분 주기라 후반 손절은 믿을 수 없음 → 진입을 엄격히, 작은 이익에서 일찍 청산).

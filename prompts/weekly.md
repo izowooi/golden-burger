@@ -42,9 +42,32 @@
 - 재생은 회당 `backtest_max_runs` 건뿐이다. `backtests.json` 의 ±step grid 에서 현재보다 나았던 방향을 우선한다.
 - A/B 두 arm(예: apricot-eco tick 90 · apricot-fruit tick 95)은 처치 변수 하나만 다르게 유지한다. 공통 변수(prob_min, TP 등)는 두 arm 에
   같은 값을 제안하거나 둘 다 그대로 둔다.
-- 연구자가 `decisions.md` 에서 직접 정한 값은 바꾸지 않는다. 예: 2026-10-04 goal-over-all 청산 기준(진입가 +0.02 익절,
-  −10% 손절, 매도 호가 0.99 이상이면 정산까지 보유 — `take_profit_delta`·`stop_loss_pct`·`hold_above_price`).
+- 연구자가 `decisions.md` 에서 직접 정한 값은 바꾸지 않는다. 예: 2026-10-04 goal-over-all 청산 기준 중 −10% 손절과
+  매도 호가 0.99 이상 정산 보유(`stop_loss_pct`·`hold_above_price`). 익절 +0.02(`take_profit_delta`)는 2026-10-05
+  결정(`track1:goal-over-tp-tunable`)으로 조정 대상이다(bounds·표본·백테스트 게이트 적용).
   `bounds.json` 의 `owner_fixed_params` 에 있는 값은 validator 가 거부한다. 근거가 충분하면 attention(`decide`)으로 먼저 제안한다.
+- 주문 방식(`order_style: taker|maker`, maker = 수수료 없는 지정가)은 연구자가 정한다. bounds 가 없어 제안할 수 없다.
+  `metrics/<id>.json` 의 `execution`(maker 체결률·평균 대기·수수료 절감)은 성과 해석에 쓴다. maker 진입은 가격이 우리
+  지정가를 지나갈 때만 체결되므로(역선택) 체결된 표본이 덜 유리할 수 있다는 점을 함께 본다.
+
+## O/U 0.5 생애 가설 → goal-over-all 진입 시점 (주간 과제)
+
+연구자 가설(`hypothesis:ou05-lifecycle`, 2026-10-05): Total 0.5 마켓은 열린 직후 혼돈이 크고 약 하루 뒤 안정되며, 이후
+킥오프까지 Over 과대평가가 커진다. 과대평가가 작을 때 사서 클 때 파는 것이 유리하다.
+
+- `ou05_lifecycle.json` 을 읽는다. 킥오프까지 남은 시간 구간(`bands`)×리그 등급(all·major·other)별 스프레드 중앙값,
+  정산 표본 n, 평균 Over 가격, 실제 Over 비율(95% CI), `overpricing` = 평균 가격 − 실제 비율(양수 = Over 과대평가)과 CI,
+  `price_basis`(poll_mid = 실시간 호가 중간가 / history_mid = 과거 중간가), 결정론 판정 `checks` 가 있다.
+- narrative 에 가설을 **검증**한다: 지지 / 반대 / 불확실 중 하나와 숫자(구간·n·CI). 가설과 반대로 나오면 그대로 쓴다.
+  `data_status.thin` 이 true 이거나 `price_basis` 가 history_mid 뿐이면 "실시간 호가가 얇아 결론 보류"로 쓰고, 과거 중간가
+  (킥오프 수일 전에는 스프레드가 넓어 체결가가 아님)만으로 진입 창을 크게 옮기지 않는다. 상장 후 경과 시간별 혼돈은 이
+  파일로 직접 측정되지 않는다(`not_measured`).
+- 근거가 있으면 goal-over-all 의 `entry_minutes_before_max`·`entry_minutes_before_min`(과대평가가 작은 구간에서 사도록)과
+  `take_profit_delta`(과대평가가 커지는 폭만큼 팔도록)를 `params` 변경으로 제안할 수 있다. 일반 규칙(bounds·max_step·
+  cooldown·`min_trades_params`)을 따르고, 표본이 부족하면 백테스트 근거 재조정(아래 규칙, retro 가 직접 재생해 두 반기 ROI·
+  MDD 로 판정)으로만 통과한다. validator 가 최종 판정한다. 한 회차에 이 변형 하나의 값 하나만 바꾼다.
+- 백테스트는 저장된 호가로 재생하므로 킥오프 수일 전 Over 0.5 호가가 없던 기간은 진입이 적게 잡힌다. 백테스트 n 이 작으면
+  제안하지 말고 attention(`research_finding` 또는 `decide`)으로 곡선과 함께 알린다.
 
 ## narrative.md (한국어, 1000~2000자)
 

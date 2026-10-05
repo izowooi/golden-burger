@@ -117,6 +117,9 @@ def build_private(report: dict, markdown: str, kind: str, paths, variants, rules
     (d / "trades_recent.json").write_text(_dump(report["transactions"]))
     (d / "calibration_summary.json").write_text(_dump(calibration_summary(report["research"])))
     (d / "events_summary.json").write_text(_dump(events_summary(report["research"])))
+    if kind != "daily":   # O/U 0.5 lifecycle curve: evidence for goal-over-all entry window / TP delta proposals
+        (d / "ou05_lifecycle.json").write_text(_dump(report.get("ou05_lifecycle") or
+                                                     {"available": False, "note": "polylab analyze ou05 결과 없음"}))
     if report.get("llm_forecast"):
         (d / "llm_forecast_eval.json").write_text(_dump(report["llm_forecast"]))  # paper-only side study
     by_id = {v.id: v for v in variants}

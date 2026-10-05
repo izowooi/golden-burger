@@ -155,6 +155,7 @@ def test_tick_paper_end_to_end(tmp_path):
     reg.mkdir()
     real = yaml.safe_load(open("strategies/goal-over-all.yaml"))
     real["params"]["leagues"] = LEAGUES
+    real["params"]["order_style"] = "taker"          # FOK path; maker lifecycle: tests/test_maker_orders.py
     real.update(mode="paper", account=None, stake_usdc=5.0)
     (reg / "goal-over-all.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))
     out = tick(env.paths, registry_dir=reg, poll=False, now=now)

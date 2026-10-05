@@ -33,6 +33,26 @@ EXTRA_SCHEMA = (
     "CREATE INDEX IF NOT EXISTS fills_intent ON fills(intent_id)",
 )
 
+# additive columns (maker orders, 2026-10-05 `fees:maker-preferred`); added once per DB by open_ledger
+EXTRA_COLUMNS = (
+    ("orders", "purpose", "TEXT"),            # entry | take_profit | exit (NULL on pre-maker rows)
+    ("orders", "post_only", "INTEGER"),
+    ("orders", "filled_shares", "REAL"),      # CONFIRMED shares recorded so far (maker orders fill in pieces)
+    ("orders", "filled_usdc", "REAL"),
+    ("orders", "cancel_reason", "TEXT"),      # kill_switch | window_closed | ttl | reprice | kickoff | stop_loss | ...
+    ("fills", "liquidity", "TEXT"),           # maker | taker as REPORTED by the venue (paper: simulated)
+    ("fills", "taker_fee_est", "REAL"),       # fee the same fill would have paid as taker (fees-saved metric)
+    ("fills", "match_ts", "INTEGER"),         # venue match time (paper: the book ts that crossed)
+)
+MAKER_ACTIVE = ("intent", "resting", "cancel_requested", "unknown")
+
+
+def _ensure_columns(conn: sqlite3.Connection) -> None:
+    for table, col, typ in EXTRA_COLUMNS:
+        have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+        if col not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {col} {typ}")
+
 
 def _j(v: Any) -> str | None:
     return None if v is None else json.dumps(v, default=str, sort_keys=True)
@@ -44,6 +64,7 @@ class StrategyLedger:
         self.strategy_id = strategy_id
         for stmt in EXTRA_SCHEMA:
             conn.execute(stmt)
+        _ensure_columns(conn)
         conn.commit()
         from polylab.risk.ladder import ensure_sport_column  # noqa: PLC0415
         ensure_sport_column(conn)
@@ -123,6 +144,20 @@ class StrategyLedger:
                           cost_usdc=round(cost, 8), entry_fee_usdc=fee,
                           **({"notes": "fee_unknown"} if fee is None else {}))
 
+    def add_buy_fill(self, position_id: str, shares: float, usd_ex_fee: float, fee: float | None) -> None:
+        """One more CONFIRMED piece of a maker entry: shares/cost/fee accumulate, entry_price = VWAP ex fee.
+        The position stays in its current status (pending while the entry order rests)."""
+        pos = self.position(position_id)
+        old_sh = float(pos["shares"] or 0)
+        old_usd = old_sh * float(pos["entry_price"] or 0)
+        new_sh = old_sh + shares
+        fee_total = None if fee is None or (old_sh > 0 and pos["entry_fee_usdc"] is None) \
+            else float(pos["entry_fee_usdc"] or 0) + fee
+        cost = float(pos["cost_usdc"] or 0) + usd_ex_fee + (fee or 0.0)
+        self.set_position(position_id, shares=round(new_sh, 6), entry_price=round((old_usd + usd_ex_fee) / new_sh, 8),
+                          cost_usdc=round(cost, 8), entry_fee_usdc=fee_total,
+                          **({"notes": "fee_unknown"} if fee_total is None else {}))
+
     def apply_sell(self, position_id: str, shares: float, proceeds_gross: float, fee: float | None, kind: str,
                    now: int, settlement: str) -> None:
         pos = self.position(position_id)
@@ -163,14 +198,14 @@ class StrategyLedger:
     def record_intent(self, *, position_id: str, mode: str, side: str, token_id: str, condition_id: str | None,
                       now: int, usdc_amount: float | None = None, shares: float | None = None,
                       limit_price: float | None = None, expected_avg_price: float | None = None,
-                      order_type: str = "FOK") -> str:
+                      order_type: str = "FOK", purpose: str | None = None, post_only: bool | None = None) -> str:
         intent_id = uuid.uuid4().hex
         self.conn.execute(
             "INSERT INTO orders(intent_id, position_id, created_at, mode, side, token_id, condition_id, order_type, "
-            "usdc_amount, shares, limit_price, expected_avg_price, status, updated_at) "
-            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'intent', ?)",
+            "usdc_amount, shares, limit_price, expected_avg_price, status, updated_at, purpose, post_only) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?,?,?, 'intent', ?,?,?)",
             (intent_id, position_id, now, mode, side, token_id, condition_id, order_type, usdc_amount, shares,
-             limit_price, expected_avg_price, now))
+             limit_price, expected_avg_price, now, purpose, None if post_only is None else int(post_only)))
         self.conn.commit()   # durable before POST
         return intent_id
 
@@ -191,21 +226,44 @@ class StrategyLedger:
         return self.conn.execute("SELECT * FROM orders WHERE intent_id=?", (intent_id,)).fetchone()
 
     def pending_orders(self, mode: str) -> list[sqlite3.Row]:
+        """FOK/FAK orders awaiting reconciliation (GTC maker orders have their own lifecycle: maker_orders)."""
         return self.conn.execute(
-            "SELECT * FROM orders WHERE mode=? AND status IN ('intent','posted','matched','unknown') ORDER BY created_at",
-            (mode,)).fetchall()
+            "SELECT * FROM orders WHERE mode=? AND order_type != 'GTC' "
+            "AND status IN ('intent','posted','matched','unknown') ORDER BY created_at", (mode,)).fetchall()
+
+    def maker_orders(self, mode: str | None = None, active: bool = True) -> list[sqlite3.Row]:
+        st = MAKER_ACTIVE
+        sql = "SELECT * FROM orders WHERE order_type='GTC'" + \
+            (f" AND status IN ({','.join('?' * len(st))})" if active else "") + (" AND mode=?" if mode else "")
+        args = (*(st if active else ()), *((mode,) if mode else ()))
+        return self.conn.execute(sql + " ORDER BY created_at", args).fetchall()
+
+    def note_maker_fill(self, intent_id: str, shares: float, usd: float, now: int) -> None:
+        self.conn.execute("UPDATE orders SET filled_shares=COALESCE(filled_shares,0)+?, "
+                          "filled_usdc=COALESCE(filled_usdc,0)+?, updated_at=? WHERE intent_id=?",
+                          (shares, usd, now, intent_id))
+        self.conn.commit()
+
+    def set_order_fields(self, intent_id: str, now: int, **fields) -> None:
+        cols = ", ".join(f"{k}=?" for k in fields)
+        self.conn.execute(f"UPDATE orders SET {cols}, updated_at=? WHERE intent_id=?", (*fields.values(), now, intent_id))
+        self.conn.commit()
 
     def blocked_token_sides(self, mode: str) -> set[tuple[str, str]]:
-        """token×side with an unresolved submission: no new order until reconciled."""
+        """token×side with an unresolved submission or a resting maker order: no new order until resolved."""
         rows = self.conn.execute(
-            "SELECT token_id, side FROM orders WHERE mode=? AND status IN ('intent','unknown')", (mode,)).fetchall()
+            "SELECT token_id, side FROM orders WHERE mode=? AND (status IN ('intent','unknown') "
+            "OR (order_type='GTC' AND status IN ('resting','cancel_requested')))", (mode,)).fetchall()
         return {(r["token_id"], r["side"]) for r in rows}
 
     def record_fill(self, *, fill_id: str, intent_id: str, ts: int, side: str, price: float, shares: float,
-                    fee_usdc: float | None, status: str, raw: Any = None) -> bool:
+                    fee_usdc: float | None, status: str, raw: Any = None, liquidity: str | None = None,
+                    taker_fee_est: float | None = None, match_ts: int | None = None) -> bool:
         cur = self.conn.execute(
-            "INSERT OR IGNORE INTO fills(fill_id, intent_id, ts, side, price, shares, fee_usdc, status, raw) "
-            "VALUES(?,?,?,?,?,?,?,?,?)", (fill_id, intent_id, ts, side, price, shares, fee_usdc, status, _j(raw)))
+            "INSERT OR IGNORE INTO fills(fill_id, intent_id, ts, side, price, shares, fee_usdc, status, raw, liquidity, "
+            "taker_fee_est, match_ts) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+            (fill_id, intent_id, ts, side, price, shares, fee_usdc, status, _j(raw), liquidity, taker_fee_est,
+             match_ts))
         self.conn.commit()
         return cur.rowcount > 0
 
@@ -221,8 +279,10 @@ class StrategyLedger:
 
     def open_exposure(self, mode: str, sport: str | None = None) -> tuple[int, float]:
         """(open position count, open cost incl. pending stake) for caps; optionally one sport only."""
+        # a pending position may hold a partial maker fill AND a resting remainder: reserve the full stake
         r = self.conn.execute(
-            "SELECT COUNT(*) n, COALESCE(SUM(COALESCE(cost_usdc, stake_usdc)), 0) c FROM positions "
+            "SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN status='pending' THEN MAX(COALESCE(cost_usdc, 0), stake_usdc) "
+            "ELSE COALESCE(cost_usdc, stake_usdc) END), 0) c FROM positions "
             "WHERE mode=? AND status IN ('pending','open','closing','quarantined')"
             + (" AND sport=?" if sport else ""), (mode, sport) if sport else (mode,)).fetchone()
         return int(r["n"]), float(r["c"])

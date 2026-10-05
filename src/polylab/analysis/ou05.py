@@ -460,6 +460,8 @@ def summary(paths, now: int) -> tuple[dict, pd.DataFrame]:
         scope["poll_rows"] = int(by["rows"].get("poll", 0))
         scope["history_rows"] = int(by["rows"].get("history", 0))
         scope["from"], scope["to"] = C.iso(by["lo"].min()), C.iso(by["hi"].max())
+        if "poll" in by.index:      # live quote coverage (additive): lifecycle export judges data thinness by it
+            scope["poll_from"], scope["poll_to"] = C.iso(by.loc["poll", "lo"]), C.iso(by.loc["poll", "hi"])
     obj = {
         "generated_at": C.iso(now), "scope": scope, "bin": BIN, "heartbeat_s": HEARTBEAT_S,
         "bands": [{"key": k, "label": lbl, "kind": kind} for k, lbl, kind, _, _ in BANDS],
@@ -485,6 +487,112 @@ NOTES = [
     "보정(calibration): 정산된 시장만, 구간별 시간가중 Over 가격(스프레드 ≤ 0.10 인 poll 중간가, 없으면 과거 중간가) vs 실제 Over 비율. nil_rate = 0:0 비율.",
     "과거 중간가가 정확히 0.500 인 분은 빈 호가창(0.01/0.99)의 자리표시로 보고 가격에서 뺀다. 그래도 킥오프 수일 전 구간은 호가가 얇아 과거 중간가가 실제 확률과 거리가 멀 수 있다(스프레드를 알 수 없음).",
 ]
+
+
+# ------------------------------------------------------------------ lifecycle export (retro context / weekly report)
+
+LIFECYCLE_TIERS = ("all", "major", "other")
+THIN_POLL_DAYS = 14
+THIN_BAND_N = 30
+
+
+def _days(a: str | None, b: str | None) -> float | None:
+    import datetime as dt  # noqa: PLC0415
+    if not a or not b:
+        return None
+    ta, tb = (dt.datetime.fromisoformat(x.replace("Z", "+00:00")) for x in (a, b))
+    return round((tb - ta).total_seconds() / 86400, 1)
+
+
+def lifecycle(obj: dict) -> dict:
+    """Compact pre-kickoff lifecycle curve of Total 0.5 markets from a `summary()` object (owner hypothesis
+    2026-10-05 `hypothesis:ou05-lifecycle`: chaotic after listing, stable after ~1 day, Over overpricing grows to
+    kickoff -> buy when small, sell when large).
+
+    Per hours-to-kickoff band x league tier: median Over spread / sum_ask (poll quotes, time-weighted), resolved
+    markets n, mean Over price, realised Over rate (Wilson 95% CI), overpricing = mean Over price − realised rate
+    with its CI [mean − ci_hi, mean − ci_lo] (positive = Over overpriced), and which price it rests on
+    (`poll_mid` executable-ish quotes vs `history_mid` prices-history midpoints, which days out sit inside very
+    wide spreads and are not executable)."""
+    scope = obj.get("scope") or {}
+    ovr = {(r["band"], r["tier"]): r for r in obj.get("overround") or []}
+    cal = {(r["band"], r["tier"]): r for r in obj.get("calibration") or []}
+    labels = {b["key"]: b["label"] for b in obj.get("bands") or []} or {k: lbl for k, lbl, *_ in BANDS}
+    rows = []
+    for tier in LIFECYCLE_TIERS:
+        for band in PRE_KEYS:
+            o, c = ovr.get((band, tier)) or {}, cal.get((band, tier)) or {}
+            if not o and not c:
+                continue
+            n, n_poll = int(c.get("n") or 0), int(c.get("n_poll") or 0)
+            mean, rate = c.get("mean_over"), c.get("over_rate")
+            op = None if mean is None or rate is None else round(mean - rate, 4)
+            op_ci = None if op is None or c.get("ci_lo") is None else \
+                [round(mean - c["ci_hi"], 4), round(mean - c["ci_lo"], 4)]
+            rows.append({"band": band, "label": labels.get(band, band), "tier": tier,
+                         "quote_markets": o.get("markets"), "quote_minutes": o.get("minutes"),
+                         "spread_p50": (o.get("spread") or {}).get("p50"),
+                         "sum_ask_p50": (o.get("sum_ask") or {}).get("p50"),
+                         "two_sided_share": o.get("two_sided_share"),
+                         "n": n, "n_poll": n_poll, "mean_over": mean, "over_rate": rate,
+                         "over_rate_ci": [c.get("ci_lo"), c.get("ci_hi")] if c else None,
+                         "overpricing": op, "overpricing_ci": op_ci,
+                         "price_basis": "none" if not n else ("poll_mid" if n_poll == n else
+                                                              "history_mid" if n_poll == 0 else "mixed")})
+    poll_days = _days(scope.get("poll_from"), scope.get("poll_to"))
+    poll_ok = [r for r in rows if r["tier"] == "all" and r["n_poll"] >= THIN_BAND_N]
+    thin = (poll_days or 0) < THIN_POLL_DAYS or not poll_ok
+    return {"schema": "polylab.ou05_lifecycle/v1", "generated_at": obj.get("generated_at"),
+            "source": "research/ou05/latest/summary.json (polylab analyze ou05)",
+            "scope": {k: scope.get(k) for k in ("markets", "resolved", "poll_rows", "history_rows", "from", "to",
+                                                "poll_from", "poll_to")} | {"poll_days": poll_days},
+            "data_status": {"thin": thin, "poll_bands_with_n30": len(poll_ok),
+                            "note": (f"실시간 호가(poll) 표본이 "
+                                     f"{f'{poll_days:g}일' if poll_days is not None else '수일(기간 미상)'}·정산 "
+                                     f"n≥{THIN_BAND_N} 구간 {len(poll_ok)}개뿐이라 얇다. 과대평가는 대부분 과거 "
+                                     "중간가(prices-history) 기준이며, 킥오프 수일 전 중간가는 스프레드가 넓어 "
+                                     "실제 체결가가 아니다." if thin else
+                                     "실시간 호가 표본이 충분하다(poll 중간가 기준 구간 포함).")},
+            "bands": rows, "checks": lifecycle_checks(rows),
+            "not_measured": ["상장 후 경과 시간(hours since listing)별 혼돈→안정 가설은 이 집계로 직접 측정하지 "
+                             "않는다(밴드는 킥오프까지 남은 시간). 스프레드 중앙값의 구간별 변화를 대리 지표로만 본다."],
+            "notes": ["overpricing = 평균 Over 가격 − 실제 Over 비율. 양수 = Over 과대평가(비싸다).",
+                      "같은 시장들이 여러 구간에 반복 등장하므로 구간 간 CI 비교는 독립 검정이 아니다(대략적 신호).",
+                      "spread/sum_ask 는 poll 행만, 가격은 poll 중간가(스프레드 ≤ 0.10) 없으면 과거 중간가."]}
+
+
+def lifecycle_checks(rows: list[dict]) -> list[dict]:
+    """Deterministic reading of the curve per tier: does overpricing grow from ~1-3 days out to the last 15 min?"""
+    out = []
+    for tier in LIFECYCLE_TIERS:
+        by = {r["band"]: r for r in rows if r["tier"] == tier and r["n"] >= THIN_BAND_N and r["overpricing_ci"]}
+        early = next((by[b] for b in ("d1", "d3") if b in by), None)
+        late = next((by[b] for b in ("m0", "m15", "h1") if b in by), None)
+        if early is None or late is None:
+            out.append({"tier": tier, "verdict": "insufficient", "detail": "비교할 구간 표본(n≥30)이 없다"})
+            continue
+        diff = round(late["overpricing"] - early["overpricing"], 4)
+        disjoint_up = late["overpricing_ci"][0] > early["overpricing_ci"][1]
+        disjoint_down = late["overpricing_ci"][1] < early["overpricing_ci"][0]
+        # supports: overpricing clearly larger near kickoff AND positive there; contradicts: clearly smaller
+        verdict = "supports" if disjoint_up and late["overpricing"] > 0 else \
+            "contradicts" if disjoint_down else "inconclusive"
+        cands = sorted(by.values(), key=lambda r: r["overpricing"])
+        out.append({"tier": tier, "verdict": verdict,
+                    "direction": "up" if disjoint_up else "down" if disjoint_down else "flat",
+                    "early_band": early["band"], "late_band": late["band"],
+                    "early_overpricing": early["overpricing"], "late_overpricing": late["overpricing"],
+                    "change": diff, "cheapest_band": cands[0]["band"], "dearest_band": cands[-1]["band"],
+                    "price_basis": sorted({early["price_basis"], late["price_basis"]})})
+    return out
+
+
+def lifecycle_cached(paths) -> dict | None:
+    """Lifecycle export from the cached summary.json (None if `polylab analyze ou05` never ran)."""
+    f = cache_dir(paths) / "summary.json"
+    if not f.exists():
+        return None
+    return lifecycle(json.loads(f.read_text()))
 
 
 def cache_dir(paths) -> Path:
@@ -551,7 +659,7 @@ def cached_files(paths) -> dict[str, Path]:
     return {f"latest/ou05/{p.relative_to(root).as_posix()}": p for p in sorted(root.rglob("*.json"))}
 
 
-__all__ = ["run", "cached_files", "summary", "BANDS", "TIERS", "history_weights"]
+__all__ = ["run", "cached_files", "summary", "BANDS", "TIERS", "history_weights", "lifecycle", "lifecycle_cached"]
 
 
 def history_weights(ts: np.ndarray) -> np.ndarray:

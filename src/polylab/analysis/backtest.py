@@ -14,6 +14,13 @@ Output JSON: {"variant", "range": {from, to}, "params", "step_s", "spread", "boo
               open_at_end, unfilled, by_exit_reason, by_sport, avg_hold_min, p05_return},
   "trades": [{opened_at, closed_at, sport, game_key, token_id, outcome, entry_price, shares, cost,
               exit_reason, exit_price, pnl, hold_min}]}
+Maker variants (`order_style: maker`): stored pre-game books are sparse (10-min polls, mostly synthetic further out)
+and the paper maker simulation never fills on synthetic books, so a faithful maker replay is nearly always n=0.
+`--fill-model auto` (default) therefore replays maker variants with TAKER fills as a proxy (output
+`fill_model: "taker_proxy"`; fees are charged, so it is pessimistic on cost and optimistic on fill rate) — enough to
+compare current vs proposed entry window / TP params; `--fill-model maker` runs the conservative maker simulation.
+goal_over pre-game entry windows (`entry_minutes_before_max`) are simulated at a coarse >= 10-minute step (book
+cadence); in-game windows keep `--step`.
 Holding time of a resolution exit ends at the market's resolved_at (the final settlement pass
 stamps closed_at far in the future); p05_return is the 5% quantile of per-trade pnl/cost.
 """
@@ -51,21 +58,39 @@ def _merge(base: dict, over: dict) -> dict:
     return out
 
 
+PRE_GAME_STEP_S = 600
+
+
 def active_steps(core: sqlite3.Connection, variant, start: int, end: int, step: int) -> list[int]:
     """Minutes worth simulating: around games of the variant's sports (skips dead time)."""
     params = variant.params
     pre_h = float(params.get("entry_hours_max", 0)) if variant.family == "cherry" else 0.0
+    if variant.family == "goal_over":       # pre-game window at book cadence, the game itself at `step`
+        pre_h = float(params.get("entry_minutes_before_max", 0) or 0) / 60.0
+        coarse = _windows(core, variant, start, end, pre_h, 0.0, pre_only=True)
+        fine = set(_steps(_windows(core, variant, start, end, 0.0, pre_h), start, end, step))
+        return sorted(fine | set(_steps(coarse, start, end, max(step, PRE_GAME_STEP_S))))
+    return _steps(_windows(core, variant, start, end, pre_h, pre_h), start, end, step)
+
+
+def _windows(core, variant, start: int, end: int, pre_h: float, lookahead_h: float,
+             pre_only: bool = False) -> list[list[int]]:
+    params = variant.params
     sports = variant.sports or list(DEFAULT_MAX_IN_PLAY_HOURS)
     if getattr(variant, "per_sport", False):
         sports = [s for s in sports if variant.sport_mode(s) != "off"] or sports
     rows = core.execute(
         f"SELECT sport, start_time FROM games WHERE sport IN ({','.join('?' * len(sports))}) "
-        "AND start_time BETWEEN ? AND ?", (*sports, start - 2 * DAY, end + int(pre_h * 3600) + DAY)).fetchall()
+        "AND start_time BETWEEN ? AND ?",
+        (*sports, start - 2 * DAY, end + int(max(pre_h, lookahead_h) * 3600) + DAY)).fetchall()
     windows = []
     for r in rows:
         age_h = float((params.get("sport_overrides") or {}).get(r["sport"], {}).get(
             "hours_max", params.get("hours_max", DEFAULT_MAX_IN_PLAY_HOURS.get(r["sport"], 6.0))))
-        windows.append((r["start_time"] - int(pre_h * 3600), r["start_time"] + int((age_h + 1) * 3600)))
+        if pre_only:
+            windows.append((r["start_time"] - int(pre_h * 3600), r["start_time"]))
+        else:
+            windows.append((r["start_time"] - int(pre_h * 3600), r["start_time"] + int((age_h + 1) * 3600)))
     windows.sort()
     merged: list[list[int]] = []
     for a, b in windows:
@@ -73,6 +98,10 @@ def active_steps(core: sqlite3.Connection, variant, start: int, end: int, step: 
             merged[-1][1] = max(merged[-1][1], b)
         else:
             merged.append([a, b])
+    return merged
+
+
+def _steps(merged: list[list[int]], start: int, end: int, step: int) -> list[int]:
     steps = []
     for a, b in merged:
         t = max(a, start)
@@ -148,7 +177,22 @@ def summarize(rows: list[dict]) -> dict[str, Any]:
     }
 
 
-def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: float = 0.01) -> dict[str, Any]:
+def _as_taker(variant) -> bool:
+    """Switch a maker variant's simulation copy to taker fills (in place). True if anything was maker."""
+    params = copy.deepcopy(variant.params)
+    hit = str(params.get("order_style") or "").lower() == "maker"
+    if hit:
+        params["order_style"] = "taker"
+    for over in (params.get("sport_overrides") or {}).values():
+        if isinstance(over, dict) and str(over.get("order_style") or "").lower() == "maker":
+            over["order_style"] = "taker"
+            hit = True
+    variant.params = params
+    return hit
+
+
+def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: float = 0.01,
+             fill_model: str = "auto") -> dict[str, Any]:
     from polylab.engine.tick import run_variant           # engine imports stay local: engine is the heavier module
     from polylab.execution.ledger import open_ledger
     from polylab.execution.reconcile import settle_resolutions
@@ -160,6 +204,9 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
     view = MarketView(core, shards, historical=True, synthetic_spread=spread)
     sim_variant = copy.copy(variant)
     sim_variant.mode = "paper"
+    used_fill = "as_configured"
+    if fill_model in ("auto", "taker") and _as_taker(sim_variant):
+        used_fill = "taker_proxy"
     # per-sport variants: simulate every sport that is not off, whatever its live/paper mode
     sports = ([s for s in variant.sports if sim_variant.sport_mode(s) != "off"]
               if getattr(variant, "per_sport", False) else None)
@@ -188,7 +235,7 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
     return {
         "variant": variant.id, "family": variant.family,
         "range": {"from": start, "to": end}, "params": variant.params, "stake_usdc": variant.stake_usdc,
-        "step_s": step, "spread": spread, "books": bool(shards),
+        "step_s": step, "spread": spread, "books": bool(shards), "fill_model": used_fill,
         "summary": summarize(rows), "errors": errors, "trades": trades,
     }
 
@@ -203,6 +250,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--step", type=int, default=None, help="seconds between simulated cycles (default 60; cherry 300)")
     ap.add_argument("--spread", type=float, default=0.01, help="synthetic spread when no stored book exists")
     ap.add_argument("--out", help="write JSON here instead of stdout")
+    ap.add_argument("--fill-model", choices=("auto", "maker", "taker"), default="auto",
+                    help="auto/taker: maker variants replay with taker fills (proxy); maker: conservative maker sim")
     args = ap.parse_args(argv)
 
     if args.variant_file:
@@ -217,7 +266,7 @@ def main(argv: list[str] | None = None) -> int:
         variant.params = _merge(variant.params, json.loads(args.params))
     step = args.step or (300 if variant.family == "cherry" else 60)
     result = backtest(settings.paths(), variant, _parse_day(args.start), _parse_day(args.end),
-                      step=step, spread=args.spread)
+                      step=step, spread=args.spread, fill_model=args.fill_model)
     text = json.dumps(result, indent=1, sort_keys=True, default=str)
     if args.out:
         Path(args.out).write_text(text)

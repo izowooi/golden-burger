@@ -271,6 +271,30 @@ Rate limits come from the docs, `api-reference/rate-limits`. They are Cloudflare
   - v2 `/v2/positions` has `status` (`REDEEMABLE` for winners, `REDEEMABLE_LOST` for losers) plus `redeemable` and `mergeable`. The sample `status=REDEEMABLE` rows had `current_price: 1.0`, `redeemable: true` and `mergeable: true|false`.
   - Fixture: `data_v2_positions_redeemable.json`.
 
+## Maker orders: GTC post-only, cancel, open orders (verified 2026-10-05)
+
+Read from the installed `py-clob-client-v2` **1.2.0** source [sdk] and one supervised live order on account alias `lion`
+(2026-10-05, Mac mini) [obs]. Used by `src/polylab/execution/{clob,maker}.py`.
+
+| Item | Fact | Source |
+|---|---|---|
+| Limit order | `ClobClient.create_order(OrderArgs(token_id, price, size, side, expiration=0))` (`OrderArgs` = `OrderArgsV2`). `price_valid`: `tick <= price <= 1 - tick`, else `PolyException`. Rounding `ROUNDING_CONFIG[tick]`: size 2 dp; price dp by tick (0.01 → 2, 0.001 → 3). BUY: `takerAmount` = shares, `makerAmount` = shares × price (USDC); SELL the reverse | [sdk] `client.py`, `order_builder/builder.py` |
+| Post | `post_order(order, order_type=OrderType.GTC, post_only=False, defer_exec=False)` → `POST /order` with body `{"order", "owner", "orderType", "deferExec", "postOnly"}`. **`post_only` with FOK/FAK raises `ValueError`** (client side). `create_and_post_order(args, options, order_type=GTC, post_only=False)` is the one-call form | [sdk] |
+| Post-only GTC response | `{"success": true, "status": "live", "orderID": "0x…", "errorMsg": ""}` for a BUY far below the best bid | [obs] |
+| Order state | `get_order(id)` → `GET /data/order/{id}`: `status` `LIVE` while resting, `CANCELED` after a cancel; `size_matched`, `original_size`, `price` (strings), `order_type` `GTC`, `associate_trades` | [obs][sdk] |
+| Open orders | `get_open_orders(OpenOrderParams(id, market, asset_id), only_first_page=False)` → `GET /data/orders` (cursor pages until `LTE=`). Listing without a filter showed **only LIVE** orders; with `id=` the cancelled order was still returned 2 s after the cancel (so a filtered lookup is not proof of liveness — use `get_order` status) | [obs][sdk] |
+| Cancel | `cancel_orders([id, …])` → `DELETE /orders`, response `{"canceled": [id], "not_canceled": {}}`; `get_order` showed `CANCELED` 2 s later. Also `cancel_order(OrderPayload(orderID))`, `cancel_all()`, `cancel_market_orders(OrderMarketCancelParams(market, asset_id))` — **polylab never uses the last two** (several variants may share an account) | [obs][sdk] |
+| Tick size | `get_tick_size(token)` → `/tick-size` `minimum_tick_size`, or `get_clob_market_info` `mts`. TickSize ∈ {0.1, 0.01, 0.005, 0.0025, 0.001, 0.0001}. The probed soccer Over 0.5 market (best bid 0.97) had tick **0.001** | [sdk][obs] |
+| Min order size | `/book` `min_order_size` (`"5"` shares on soccer O/U) and `get_clob_market_info` `mos` (5). polylab reads the `/book` value | [obs] |
+| `get_clob_market_info(condition_id)` keys | `ao, aot, c, cbos, fd, gst, ibce, mbf, mos, mts, r, sd, t, tbf, v`. `fd` `{"r": 0.05, "e": 1, "to": true}` = taker-only fee rate 0.05 × p(1−p). `cbos: true` on the soccer O/U market — read as "clear book on start" (SDK dataclass `clear_book_on_start`): the venue clears resting orders at game start. Treated as a backstop only; polylab cancels its own entries 5 min before kickoff and resting TPs at kickoff | [obs][sdk] |
+| Maker / taker role of a fill | Trade objects (`get_trades`) carry `taker_order_id`, `maker_orders[{order_id, matched_amount, price, …}]` and `trader_side` (`MAKER`/`TAKER`). polylab books a fill as maker only when its order id is in `maker_orders` (and `trader_side`, if present, agrees). Maker fee 0 follows from the taker-only schedule; an unknown schedule leaves the fill unbooked | [sdk][docs] |
+| Rebates | Maker rebates are paid out-of-band (not on trade objects); not visible per fill, so not booked | [docs] |
+
+Supervised verification (2026-10-05 05:03:56 UTC, created_at 1791176636): post-only GTC BUY 8.59 @ 0.582 (≈ 5.00 USDC)
+on a LaLiga Over 0.5 token (`asset_id` 220694…288866, best bid 0.97 / ask 0.99, kickoff ≈ 131 h away) → `success`/`live`
+→ `get_order` `LIVE`, `get_open_orders(id)` 1 row → `cancel_orders` `canceled: [id]` → `get_order` `CANCELED`,
+`size_matched` 0. No fill, no position.
+
 ## Not available / caveats
 
 - CLOB `/prices-history` has no tick-level (per-trade) series and no historical order-book depth. Old markets return 404 from `/book`. For fills, use Data API trades.

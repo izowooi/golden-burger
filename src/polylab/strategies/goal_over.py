@@ -17,6 +17,13 @@ Book freshness: the collector polls Total 0.5 books every minute only from 15 mi
 pre-game snapshots further out cover moneyline/draw only. With book_max_age_s=120 a 60->5 window is therefore
 effectively 15->5 until the collector polls goal markets earlier.
 
+Execution (`order_style`, base.EXECUTION_DEFAULTS; engine polylab.execution.maker): with `maker` the entry rests a
+post-only BUY inside the spread until `entry_minutes_before_min` before kickoff, and an open position rests its
+take-profit SELL at entry + take_profit_delta (absolute / pct rules alike) — only BEFORE kickoff and only when the
+target is below hold_above_price. At kickoff the resting TP is cancelled: in play the Over 0.5 bid only reaches the
+target on a goal, which the hold rule rides to resolution, so a resting sell there would sell the goal jump cheap.
+In play the existing taker TP/SL checks apply unchanged; a stop-loss always cancels the resting TP first.
+
 In-play entry (allow_in_play, default off): only within in_play_max_minutes after the scheduled start and only
 when a fresh game_state (<= state_max_age_s) shows 0-0 and the game is live, so a stale pre-goal book cannot
 produce a phantom fill.
@@ -210,6 +217,30 @@ class GoalOver(Strategy):
 
     def exit_signals(self, view: MarketView, now: int, position: PositionView) -> ExitIntent | None:
         return threshold_exit(view, now, position, int(self.p(position.sport)["book_max_age_s"]))
+
+    # --- maker hooks
+    def maker_entry_open(self, view: MarketView, now: int, position: PositionView) -> bool:
+        if not super().maker_entry_open(view, now, position):
+            return False
+        game = view.game(position.game_key) if position.game_key else None
+        if game is None or game.start_time is None:
+            return False
+        if game.start_time <= now:          # in-play entries are taker-only for this family
+            return False
+        return game.start_time - now >= float(self.p(position.sport)["entry_minutes_before_min"]) * 60
+
+    def maker_tp_price(self, position: PositionView) -> float | None:
+        tp, _sl, hold = effective_thresholds(position)
+        if tp is None or (hold is not None and tp >= hold - EPS) or not (0 < tp < 1):
+            return None
+        return tp
+
+    def maker_tp_allowed(self, view: MarketView, now: int, position: PositionView) -> bool:
+        game = view.game(position.game_key) if position.game_key else None
+        if game is None or game.start_time is None or now >= game.start_time:
+            return False
+        state = view.game_state(game.game_key, now)
+        return not (state is not None and (state.live or state.ended))
 
     def confirm_exit(self, position: PositionView, intent: ExitIntent, book: Book | None) -> Check:
         return threshold_confirm_exit(position, intent, book)

@@ -37,8 +37,9 @@
   `evidence` 에 쓴 수치는 판정에 쓰이지 않는다. 한 단계는 `max_step` 의 2배까지, bounds·cooldown 은 그대로 적용된다.
 - 일일 회고는 회당 1건만 재생한다. 가장 가능성 높은 값 하나만 제안한다. A/B 두 arm(예: apricot-eco·fruit)은 처치 변수 하나만
   다르게 유지한다.
-- 연구자가 `decisions.md` 에서 직접 정한 값은 바꾸지 않는다. 예: 2026-10-04 goal-over-all 청산 기준(진입가 +0.02 익절,
-  −10% 손절, 매도 호가 0.99 이상이면 정산까지 보유 — `take_profit_delta`·`stop_loss_pct`·`hold_above_price`).
+- 연구자가 `decisions.md` 에서 직접 고정한 값은 바꾸지 않는다. 예: goal-over-all 의 −10% 손절과 매도 호가 0.99 이상
+  정산 보유(`stop_loss_pct`·`hold_above_price`). 익절 +0.02(`take_profit_delta`)는 2026-10-05 부터 고정값이 아니므로
+  근거(백테스트·표본 게이트)가 있으면 조정을 제안할 수 있다.
   `bounds.json` 의 `owner_fixed_params` 에 있는 값은 validator 가 거부한다. 근거가 충분하면 attention(`decide`)으로 먼저 제안한다.
 
 ## narrative.md (한국어, 600~1200자 내외)

@@ -350,6 +350,13 @@ kicked off in the last 30 days (resolved first, by volume); newest kickoff first
   variant (effective mode = stricter of the yaml master `mode` and the sport's own). `ladder` is per (variant, sport) for
   per-sport variants and `null` for legacy list-form variants (their ladder is the variant-level `ladder`). For per-sport
   variants the top-level `mode` is the most permissive sport mode and `stake_usdc`/`ladder` are those of the first live sport.
+- overview `strategies[].order_style` and `strategies[].execution` (2026-10-05, owner decision `fees:maker-preferred`):
+  `order_style` = `{"<sport>|all": "taker|maker"}` from params (+ `sport_overrides`). `execution` = `null` (never rested an
+  order) or per mode `{"live"|"paper": {"entries", "entries_active", "entries_filled", "fill_rate" (filled / finished maker
+  entries, null if none finished), "avg_wait_min" (first post -> first fill), "maker_fills", "taker_role_fills",
+  "maker_fee_usdc", "taker_fee_est_usdc", "fees_saved_usdc" (taker estimate − actual, venue-reported maker fills only),
+  "fee_unknown_fills", "tp_orders", "tp_filled", "tp_active"}}`. Paper numbers come from the conservative trade-through
+  simulation (execution/maker.py).
 - strategies/<id>.json `stake_events[].sport`: the sport a stake/mode move applied to (`null` = whole variant).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,
   breakdown rows may carry `win_rate`/`roi`.

@@ -78,7 +78,7 @@ class FakeClient:
         maker = int(args.size * 100) * 10000
         return FakeSigned(makerAmount=maker, takerAmount=int(maker * args.price), args=args)
 
-    def post_order(self, signed, order_type):
+    def post_order(self, signed, order_type, post_only=False, defer_exec=False):
         if self.post_exc:
             raise self.post_exc
         self.posted.append(signed)
