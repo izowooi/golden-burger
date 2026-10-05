@@ -40,9 +40,9 @@ DAY = 86400
 
 # Values the owner fixed in reports/decisions.md. The AI may raise them via attention, never change them.
 OWNER_FIXED_PARAMS: dict[str, frozenset[str]] = {
-    # 2026-10-04 `track1:goal-over-exit-rules`: +0.02 take-profit, -10% stop, hold at bid >= 0.99
-    "goal-over-all": frozenset({"take_profit_delta", "stop_loss_pct", "hold_above_price", "take_profit_price",
-                                "stop_loss_price", "take_profit_pct"}),
+    # 2026-10-04 `track1:goal-over-exit-rules`: -10% stop and hold at bid >= 0.99 stay owner-fixed.
+    # 2026-10-05: the +0.02 take-profit is NOT owner-fixed — autopilot may retune it (backtest/sample gates apply).
+    "goal-over-all": frozenset({"stop_loss_pct", "hold_above_price", "stop_loss_price"}),
 }
 
 
