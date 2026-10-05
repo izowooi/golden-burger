@@ -2,7 +2,7 @@ id: plum-us-paper
 family: plum
 hypothesis: NFL 경기 중 유일한 선두 토큰이 0.70-0.73 일 때 선두 유지·상승을 과소평가하는가. 실거래 전 paper 검증용.
 account: null
-mode: paper
+mode: 'off'
 sports:
 - nfl
 stake_usdc: 5.0
@@ -88,9 +88,8 @@ limits:
   max_open_usdc: 50
   daily_loss_stop_usdc: 25
   max_new_per_cycle: 5
-notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. plum-king
-  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다. | 2026-10-04 연구자 결정 B(delta 조기 익절 paper 테스트)는
-  plum-king·queen 에 적용했다. 미국 종목 백테스트에선 delta 가 손해였다(보유 기준 +0.51% → +0.03 −1.28%, +0.05
-  −1.03%; NBA·NFL 악화) — 그래서 이 변형은 take_profit_delta·hold_above_price 를 null(기존 TP
-  가격)로 두고 bounds 만 열었다. 근거 docs/research/backtests/2026-10-04-cherry-plum.md. | 2026-10-05:
-  NBA·NHL 은 plum-king·queen 의 종목별 설정으로 옮겼다. 이 변형은 NFL paper 만.'
+notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. plum-king 의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다. | 2026-10-04
+  연구자 결정 B(delta 조기 익절 paper 테스트)는 plum-king·queen 에 적용했다. 미국 종목 백테스트에선 delta 가 손해였다(보유 기준 +0.51% → +0.03 −1.28%, +0.05 −1.03%;
+  NBA·NFL 악화) — 그래서 이 변형은 take_profit_delta·hold_above_price 를 null(기존 TP 가격)로 두고 bounds 만 열었다. 근거 docs/research/backtests/2026-10-04-cherry-plum.md.
+  | 2026-10-05: NBA·NHL 은 plum-king·queen 의 종목별 설정으로 옮겼다. 이 변형은 NFL paper 만. | 2026-10-06: NFL 을 plum-king·queen 의 종목별 설정(paper)으로
+  옮기고 이 변형은 끈다(mode off, 열린 포지션 없음 확인, 원장은 보존). 연구자 결정 `sports3:us-all`.'

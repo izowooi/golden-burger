@@ -11,7 +11,7 @@ Jenkins 가 정해진 시각에 `polylab retro <kind>` 를 실행하면, 코드�
 | 주체 | 하는 일 | 할 수 없는 일 |
 |---|---|---|
 | Jenkins (시계) | 03:30·08:00·19:30 일일, 월 08:30 주간, 1일 09:00 월간에 retro 실행. 놓친 회차는 다음 회차가 마지막 성공 시점부터 묶어서 처리 | 판단 |
-| 결정론 코드 | 리포트 작성, 단위 ladder 판정·적용, context pack 생성, 검증, 테스트, 커밋, 게시, Slack | 새 가설 세우기 |
+| 결정론 코드 | 리포트 작성, 단위 ladder 판정·적용, paper→live 승격 게이트(2026-10-06), context pack 생성, 검증, 테스트, 커밋, 게시, Slack | 새 가설 세우기 |
 | AI (claude → codex) | context pack 을 읽고 `narrative.md`(서술 회고)와 `proposal.json`(변경 제안) 작성 | 명령 실행·네트워크·git·저장소 쓰기·실거래 설정 직접 변경 |
 | validator | 제안을 규칙으로 걸러 통과분만 yaml 로 | 규칙 밖 변경 허용 |
 | 사람 | 대시보드·Slack·`reports/` 확인, 필요 시 킬스위치나 yaml 직접 수정 | (선택) |
@@ -83,7 +83,7 @@ sequenceDiagram
   AI 는 `critical` 을 쓸 수 없고(`warn` 으로 낮춤) 규칙 항목을 건드릴 수 없다(id 앞에 `ai:`). 파일이 없거나 잘못되면
   AI 항목 없이 진행한다(회고는 실패하지 않음). 이미 열린 항목은 `attention_open.json` 으로 context pack 에 들어간다.
 
-변경 종류: `params`(파라미터) · `stake`(단위 한 단계) · `mode`(live→paper/off 만) · `new_variant`(주간·월간, paper 로만) · `retire`.
+변경 종류: `params`(파라미터) · `stake`(단위 한 단계) · `mode`(AI 는 live→paper/off 만; paper→live 는 결정론 승격 게이트 전용) · `new_variant`(주간·월간, paper 로만) · `retire`.
 
 ## 4. 안전장치 (validator + 게이트)
 
@@ -94,7 +94,8 @@ sequenceDiagram
 | 연구자 고정값 | `reports/decisions.md` 로 연구자가 정한 값(예: goal-over-all 청산 +0.02/−10%/0.99 보유)은 validator `OWNER_FIXED_PARAMS` 로 거부, attention 으로만 제안 |
 | cooldown | 같은 변형의 파라미터·단위 변경 후 3일 |
 | 단위 | ladder(5·10·25·50·100) 한 단계씩, **증액은 결정론 게이트 통과 시에만**, 감액은 항상 허용, 상한 100 |
-| 모드 | AI 는 live 로 올릴 수 없음(live→paper/off, paper→off 만) |
+| 모드 | AI 는 live 로 올릴 수 없음(live→paper/off, paper→off 만). paper→live 는 retro 의 결정론 승격 게이트(`risk/promotion.py`)만: 출처 `promotion` + 이번 회고가 계산한 게이트 근거(`Context.promotions`)가 있을 때만 validator 가 받는다(2026-10-06) |
+| 자동 실거래 전환 | 종목별 변형의 paper 종목: 계좌·프리시즌·`live_from`·3일 cooldown, 현재 파라미터 paper 정산 ≥ 30(마지막 단위·모드 이벤트 이후), paper ROI 80% bootstrap 하한 > 0, 두 반기 손익 ≥ 0, retro 가 직접 돌린 최근 120일 재생 n ≥ 40·ROI ≥ 0 → 5 USDC live. paper 판정은 매 회고, 재생은 주간 회고(회당 1건, 시간 예산 초과·오류 시 전환 없음). 상태는 context `promotion.json`, 기록은 stake_events·changes.md·attention |
 | 종목별 변형 | yaml `sports` 가 종목별 매핑이면 제안에 `"sport"` 를 쓴다. params 는 `sport_overrides.<종목>.*`, stake·mode 는 그 종목만. params·stake 는 종목 필수. 표본·cooldown·ladder 는 종목별(2026-10-05) |
 | 신규 변형 | paper·5 USDC 로만, 기반 변형의 bounds·limits 상속 |
 | 회당 변경 수 | 일일 2 · 주간 5 · 월간 4, 변형당 1건 |
@@ -114,7 +115,7 @@ sequenceDiagram
 
 attention 항목의 출처는 두 가지다.
 
-- **자동 규칙 (AI 무관)**: 단위 증액·감액·모드 변경(3일간), 일일 손실 한도·킬스위치, AI 회고 실패·codex 대체·엔진 없음,
+- **자동 규칙 (AI 무관)**: 단위 증액·감액·모드 변경(3일간, paper→live 는 참고 "자동 실거래 전환"), 승격 게이트의 paper 조건을 통과하고 재생만 남은 종목("자동 실거래 전환 대기"), 일일 손실 한도·킬스위치, AI 회고 실패·codex 대체·엔진 없음,
   validator 거부 요약(회고 종류별), 수집 공백·stream stale·잡 실패(`polylab health`), 품질 이벤트 24h 30건 이상·백필 실패,
   대상 경기가 있었는데 3일 이상 진입 0건인 변형(킬스위치 중엔 생략), 디스크 여유 100GB 미만, paper 변형 표본 수집 중
   (20건 도달 시 "live 전환 결정 필요"), 주간은 지난 7일 파라미터 변경 목록. 같은 id 는 한 항목으로 합쳐지고, 해당 규칙이

@@ -111,7 +111,7 @@ limits: {max_positions: 20, max_open_usdc: 300, daily_loss_stop_usdc: 50}
 | polylab-tick | 매 1분 | 1분 poll(가격·호가) → 전략 청산·진입·대사, 시간당 1회 자동 redeem(원장 소유분만) |
 | polylab-discover | 10분 | 5개 종목 경기·마켓 탐색(120h 앞까지), 정산 확인 |
 | polylab-stream | 상시 | sports+market WebSocket daemon, 빌드당 59분·끝나면 즉시 다음 빌드가 이어받음 |
-| polylab-backfill | 매시 | 종료 경기 prices-history·체결·정산 백필 + 2026-02 이후 과거 경기 점진 백필 |
+| polylab-backfill | 매시 | 종료 경기 prices-history·체결·정산 백필 + 과거 경기 점진 백필(축구·MLB·추가 마켓 2026-02~, NBA·NHL·NFL moneyline 2024-01~) |
 | polylab-publish | 5분 | git pull → 대시보드 JSON(Supabase Storage) → `health --alert`(상태 변화 시만 Slack) |
 | polylab-general / -general-discover | 1분 / 10분 | 전 카테고리 종료 4일 이내 마켓 호가(data/general) / 등록·정산 + 과거 가격 백필 |
 | polylab-storage-compact | 매월 3일 04:00 | 지난 달 shard VACUUM(삭제 없음). 데이터 증가 예산(월 50GB, 상한 100GB)은 `polylab health` 가 5분마다 점검 |
@@ -126,9 +126,18 @@ bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액
 최근 20건 순손익 < 0 이고 ROI 하한 < 0 이면 한 단계 감액. 5에서 40건 이상 누적 손실이면 paper 로 강등.
 단위 변경 후 최소 3일 cooldown.
 
+**자동 실거래 전환 (결정론 승격 게이트, 2026-10-06 `sports3:auto-promotion`)**: 종목별 변형의 paper 종목은 `risk/promotion.py` 게이트를
+통과하면 retro 가 5 USDC live 로 올린다. 조건(모두): 계좌 있음, 종목 자체 mode paper, `live_from` 이 지났고 프리시즌 창 밖
+(NFL 8/1–9/3, NBA 10/1–10/20, NHL 9/15–10/6, MLB 2/15–3/25), 마지막 파라미터·단위·모드 변경 후 3일, 현재 파라미터 paper 정산 ≥ 30
+(마지막 단위·모드 이벤트 이후 진입분만), paper 거래당 ROI 80% bootstrap 하한 > 0, 진입 시각 중앙값으로 나눈 두 반기 손익 ≥ 0,
+그리고 retro 가 직접 돌린 최근 120일 재생(그 종목만, 현재 파라미터) n ≥ 40·ROI ≥ 0. 가벼운 paper 판정은 모든 회고가, 재생은 주간 회고만
+(회당 1건) 한다. 기록: `stake_events`(paper→live, 게이트 근거), `reports/changes.md`, attention 참고 항목 "자동 실거래 전환".
+AI 는 여전히 live 로 올릴 수 없다(validator 가 `promotion` 출처 + 게이트 근거만 허용). live→paper 강등은 위 ladder 규칙 그대로.
+
 **AI 회고 루프**: `polylab retro <daily|weekly|monthly>` 가 결정론 지표(context pack)를 만들고, Mac mini 의
 `claude -p`(CLAUDE_CODE_OAUTH_TOKEN) 가 서술 회고 + `proposal.json`(파라미터 변경/신규 paper 변형/폐기)을 작성한다.
 validator 가 bounds·max_step·최소 표본·cooldown 을 강제하고 통과분만 yaml 에 반영, 테스트 후 commit/push.
+live 전환은 AI 가 아니라 위 결정론 승격 게이트만 한다.
 주간 회고는 paper 변형 생성과 백테스트, 월간 회고는 논문용 연구 요약(docs/research/monthly)을 만든다.
 AI 가 실패해도 결정론 리포트와 ladder 는 동작한다.
 

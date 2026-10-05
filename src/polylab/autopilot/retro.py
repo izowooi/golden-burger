@@ -1,7 +1,8 @@
 """`polylab retro <daily|weekly|monthly> [--slot] [--no-ai] [--no-apply] [--no-push] [--no-publish] [--no-slack]`
 
 1. deterministic report (window = since the last successful retro of this kind, catch-up after downtime)
-2. deterministic ladder decisions (polylab.risk gate) as stake/mode changes
+2. deterministic ladder decisions (polylab.risk gate) as stake/mode changes, and the deterministic paper→live
+   promotion gate per (variant, sport) (polylab.risk.promotion; the 120-day replay runs in weekly retros only)
 3. private context pack → AI engine chain: claude -p → codex exec → none
    (weekly: the other engine reviews the primary proposal and may only veto changes)
 4. optional external proposals from autopilot/inbox/*.json
@@ -40,8 +41,8 @@ from polylab.analysis.integrations import sport_of_params as integrations_sport
 from polylab.autopilot import context as ctxpack
 from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
-from polylab.autopilot.validator import (SCHEMA, Context, Decision, Facts, Rules, apply_to_variant,
-                                        backtest_candidates, evidence_key, set_path, validate)
+from polylab.autopilot.validator import (PROMOTION_SOURCE, SCHEMA, Context, Decision, Facts, Rules, apply_to_variant,
+                                        backtest_candidates, evidence_key, promotion_key, set_path, validate)
 from polylab.registry import STAKE_LADDER
 from polylab.reports import build as report_build
 from polylab.reports import brief as brief_mod
@@ -275,13 +276,105 @@ def record_stake_events(applied: list[dict], vctx_before: dict, paths, now: int)
                 vals = (old.sport_stake(sport), new.sport_stake(sport), old.sport_mode(sport), new.sport_mode(sport))
             else:
                 vals = (old.stake_usdc, new.stake_usdc, old.mode, new.mode)
+            evidence = {"rationale": a.get("rationale")}
+            if a["source"] == PROMOTION_SOURCE:
+                evidence["gate"] = a.get("evidence")
             conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence, sport) "
                          "VALUES(?,?,?,?,?,?,?,?)", (now, *vals, f"{a['source']}: {a['summary']}"[:500],
-                                                     json.dumps({"rationale": a.get("rationale")}, ensure_ascii=False),
-                                                     sport))
+                                                     json.dumps(evidence, ensure_ascii=False, default=str), sport))
             conn.commit()
         finally:
             conn.close()
+
+
+# ------------------------------------------------------------------ paper→live promotion gate
+
+def promotion_sample(v, sport: str, paths) -> tuple[list, int | None]:
+    """(settled paper trades of `sport` on its current param epoch opened after its last stake/mode event and
+    outside the preseason window (the backtests that chose the params excluded preseason games),
+    last change ts = max(param epoch start, last stake/mode event))."""
+    from polylab.risk.promotion import PaperTrade, in_preseason  # noqa: PLC0415
+    df = performance.load_variant_positions(paths.strategy_db(v.id))
+    sub = df[df["sport"] == sport] if not df.empty and "sport" in df else df
+    s = performance.settled(sub, "paper")
+    history = report_build.param_history(paths, v.id)
+    last_param = None
+    if history:
+        eff = [registry.effective_params(h["params"] or {}, sport) for h in history]
+        i = len(history) - 1
+        while i > 0 and eff[i - 1] == eff[-1]:
+            i -= 1
+        last_param = history[i]["ts"] if i > 0 else None
+        if not s.empty:
+            s = s[s["param_version"].isin({h["version"] for h in history[i:]})]
+    own = [x["ts"] for x in report_build.stake_events(paths, v.id)
+           if x["ts"] and x.get("sport") in (None, sport) and x.get("from_usdc") is not None]
+    last_stake = max(own, default=None)
+    if last_stake is not None and not s.empty:
+        s = s[s["opened_at"] >= last_stake]
+    trades = [PaperTrade(int(r["opened_at"]), int(r["closed_at"]), float(r["realized_pnl"]), float(r["cost_usdc"] or 0))
+              for _, r in s.iterrows() if not in_preseason(sport, int(r["opened_at"]))]
+    changes = [t for t in (last_param, last_stake) if t is not None]
+    return trades, (max(changes) if changes else None)
+
+
+def _replay_summary(result: dict, start: int, end: int) -> dict:
+    if result.get("error"):
+        return {"error": result["error"], "range": [start, end]}
+    arm = _arm_stats(result.get("trades") or [])
+    return {"n": arm["n"], "roi": arm["roi"], "pnl": arm["pnl"], "max_dd": arm["max_dd"], "range": [start, end]}
+
+
+def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
+                    retro_started: float | None = None) -> tuple[list, dict]:
+    """Evaluate the deterministic promotion gate for every paper sport of every per-sport variant.
+    Returns (gates, proposal). Passing gates are stored in vctx.promotions (the validator reads only
+    those) and become "mode → live" changes with source "promotion"."""
+    from polylab.risk import promotion  # noqa: PLC0415
+    gates, runs = [], 0
+    t0 = time.time()
+    started = retro_started if retro_started is not None else t0
+    end = now - now % 86400
+    start = end - promotion.BACKTEST_LOOKBACK_DAYS * 86400
+    for v in variants:
+        if not v.per_sport or v.mode == "off":
+            continue
+        for sport in v.sports:
+            if (v.sport_settings.get(sport) or {}).get("mode", v.mode) != "paper":
+                continue
+            try:
+                trades, last_change = promotion_sample(v, sport, env.paths)
+            except Exception as exc:   # an unreadable ledger never promotes
+                env.say(f"promotion sample {v.id}/{sport} failed: {type(exc).__name__}: {exc}")
+                continue
+            gate = promotion.evaluate(v, sport, trades, now, last_change)
+            if gate.needs_backtest and rules.promotion_replay:
+                left = min(rules.promotion_budget_s - (time.time() - t0),
+                           rules.backtest_soft_deadline_s - (time.time() - started))
+                if runs >= rules.promotion_max_runs or left < 60:
+                    gate.reason += f" (replay skipped: max {rules.promotion_max_runs} per retro / time budget)"
+                else:
+                    runs += 1
+                    sim = copy.deepcopy(v)
+                    sim.sports = [sport]
+                    sim.sport_settings = {k: c for k, c in sim.sport_settings.items() if k == sport}
+                    env.say(f"promotion replay {v.id}/{sport} ({promotion.BACKTEST_LOOKBACK_DAYS}d, ≤{left:.0f}s)")
+                    try:
+                        result = env.backtest([(sim, {})], start, end, left)[0]
+                    except Exception as exc:
+                        result = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+                    gate = promotion.evaluate(v, sport, trades, now, last_change,
+                                              backtest=_replay_summary(result, start, end))
+            gates.append(gate)
+    changes = []
+    for g in gates:
+        if not g.ok:
+            continue
+        vctx.promotions[promotion_key(g.variant_id, g.sport)] = {"ok": True, **g.as_dict()}
+        changes.append({"variant_id": g.variant_id, "change": "mode", "sport": g.sport, "values": {"mode": "live"},
+                        "rationale": f"자동 실거래 전환(결정론 승격 게이트): {g.reason}",
+                        "evidence": g.evidence})
+    return gates, {"schema": SCHEMA, "summary": "deterministic promotion gate", "changes": changes}
 
 
 # ------------------------------------------------------------------ backtest-backed retune evidence
@@ -530,6 +623,7 @@ def apply_decisions(accepted: list[Decision], vctx: Context, env: Env) -> tuple[
             applied.append({"variant_id": new.id, "change": d.change["change"], "summary": d.summary,
                             **({"sport": d.change["sport"]} if d.change.get("sport") else {}),
                             "source": d.source, "rationale": d.change.get("rationale"), "new": new,
+                            **({"evidence": d.change.get("evidence")} if d.source == PROMOTION_SOURCE else {}),
                             **({"backtest": d.backtest} if d.backtest else {})})
         _check_staged(stage)
         originals: dict[Path, str | None] = {}
@@ -631,6 +725,15 @@ def run_retro(opts: Options, env: Env) -> dict:
     md0 = render.render(report)
     cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest,
                                 retune_eligible=eligible)
+    promo_gates, promo_proposal = promotion_gates(variants, vctx, rules, env, now, retro_started=wall_start)
+    report["promotion"] = [g.as_dict() for g in promo_gates]
+    try:
+        (cwd / "promotion.json").write_text(json.dumps(report["promotion"], ensure_ascii=False, indent=1, default=str))
+        with (cwd / "MANIFEST.md").open("a") as fh:
+            fh.write("- `promotion.json`: 결정론 paper→live 승격 게이트의 (변형, 종목)별 stage·사유·paper 지표 "
+                     "(AI 는 live 로 올릴 수 없다; 게이트만 전환)\n")
+    except OSError as exc:
+        env.say(f"promotion context skipped: {exc}")
     att_prev = attention.load(env.reports_dir)
     try:
         attention.write_context(cwd, att_prev, env.reports_dir)
@@ -660,6 +763,7 @@ def run_retro(opts: Options, env: Env) -> dict:
             env.say(note)
     state = {"count": 0, "touched": set(), "new_variants": 0}
     decisions = validate(ladder_changes(report), vctx, rules, "ladder", state)
+    decisions += validate(promo_proposal, vctx, rules, PROMOTION_SOURCE, state)
     if proposal:
         decisions += validate(proposal, vctx, rules, f"ai:{ai['engine']}", state)
     inbox_decisions: dict[str, list[Decision]] = {}

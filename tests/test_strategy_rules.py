@@ -364,3 +364,49 @@ def test_cherry_exit_chain():
     assert s.decide(p, 0.96, 0.96)[0] == "take_profit"
     assert s.decide(p, 0.80, 0.95)[0] == "trailing_stop"           # .80 < .95*.85=.8075
     assert s.decide(p, 0.85, 0.90) is None
+
+
+# ---------------------------------------------------------------- 2026-10-06 per-sport timing / apricot stop
+
+def test_watermelon_wall_minute_window_us_only(env):
+    env.us_game("w", "nba", T0)
+    s = Watermelon({"prob_min": 0.90, "hours_max": 5, "min_wall_minute": 60, "max_wall_minute": 120},
+                   variant("watermelon", ["nba"]))
+    for minute, expect in ((59, 0), (60, 1), (120, 1), (121, 0)):
+        now = T0 + minute * 60
+        level_book(env, "w-h", now - 10, 0.93, 0.94)
+        level_book(env, "w-a", now - 10, 0.05, 0.06)
+        assert len(s.entry_signals(env.view(now), now, Ledger())) == expect, minute
+
+
+def test_plum_min_wall_minute(env):
+    env.us_game("p", "nhl", T0)
+    s = Plum({"min_wall_minute": 30, "max_wall_minute": 120}, variant("plum", ["nhl"]))
+    for minute, expect in ((29, 0), (30, 1), (121, 0)):
+        now = T0 + minute * 60
+        level_book(env, "p-h", now - 10, 0.70, 0.71)
+        level_book(env, "p-a", now - 10, 0.28, 0.29)
+        assert len(s.entry_signals(env.view(now), now, Ledger())) == expect, minute
+
+
+def test_apricot_optional_stop_loss(env):
+    env.us_game("m", "nba", T0)
+    env.core.execute("UPDATE markets SET fee_schedule=? WHERE condition_id='c-m'", ('{"feesEnabled": false}',))
+    env.core.commit()
+    now = T0 + 7200
+    s = Apricot({}, None)
+    legacy = pos(token_id="m-h", condition_id="c-m", entry_price=0.92, shares=5.43, cost_usdc=5.0,
+                 exit_rules={"take_profit_price": 0.96})
+    level_book(env, "m-h", now, 0.70, 0.71)
+    assert s.exit_signals(env.view(now), now, legacy) is None       # no stop configured: hold
+    p = pos(token_id="m-h", condition_id="c-m", entry_price=0.92, shares=5.43, cost_usdc=5.0,
+            exit_rules={"take_profit_price": 0.96, "max_exit_spread": 0.10, "stop_loss_delta": 0.20})
+    level_book(env, "m-h", now, 0.73, 0.74)
+    assert s.exit_signals(env.view(now), now, p) is None            # 0.73 > trigger 0.72
+    level_book(env, "m-h", now + 60, 0.72, 0.73)
+    it = s.exit_signals(env.view(now + 60), now + 60, p)
+    assert it and it.kind == "stop_loss" and it.shares == 5.43
+    book = make_book("m-h", now + 60, [(0.72, 100)], [(0.73, 100)])
+    assert s.confirm_exit(p, it, book).ok
+    assert s.confirm_exit(p, it, make_book("m-h", now + 60, [(0.80, 100)], [(0.81, 100)])).reason == "recovered_above_stop"
+    assert s.confirm_exit(p, it, make_book("m-h", now + 60, [(0.60, 100)], [(0.75, 100)])).reason == "exit_spread_too_wide"

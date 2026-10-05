@@ -19,7 +19,9 @@ proposal.json (schema "polylab.proposal/v1"):
 Per-sport variants (yaml `sports:` mapping, 2026-10-05) take an optional "sport" on params / stake /
 mode changes: params become `sport_overrides.<sport>.<name>` (bounds: that dotted key, else the base
 name), stake and mode move only that sport. On per-sport variants params and stake changes must
-name a sport. Nothing ever moves to live (human only).
+name a sport. paper→live is accepted only from source "promotion" (the retro's deterministic gate,
+polylab.risk.promotion, 2026-10-06) with passing gate evidence the retro stored in Context.promotions;
+AI and inbox proposals can never move anything to live.
 """
 
 from __future__ import annotations
@@ -40,6 +42,8 @@ CHANGE_KEYS = {"variant_id", "change", "values", "rationale", "evidence", "sport
 SPORTS = ("soccer", "mlb", "nba", "nfl", "nhl")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 SAFE_MODE_TRANSITIONS = {("live", "paper"), ("live", "off"), ("paper", "off")}
+PROMOTION_SOURCE = "promotion"           # only the retro's deterministic gate uses it (never AI / inbox)
+UNCOUNTED_SOURCES = ("ladder", PROMOTION_SOURCE)
 NEW_VARIANT_KEYS = {"based_on", "family", "hypothesis", "sports", "params", "account", "limits", "notes"}
 DAY = 86400
 
@@ -75,12 +79,17 @@ class Rules:
     backtest_max_runs: int = 1           # proposals backtested per retro (each = current + proposed replay)
     backtest_budget_s: int = 900
     backtest_soft_deadline_s: int = 1800  # no replay starts/continues past this much retro wall time (Jenkins timeout)
+    # Deterministic paper→live promotion gate (polylab.risk.promotion): every retro evaluates the cheap paper
+    # checks; only retros with promotion_replay run the 120-day replay (weekly: 150-min Jenkins timeout).
+    promotion_replay: bool = False
+    promotion_max_runs: int = 1
+    promotion_budget_s: int = 1800
 
     @classmethod
     def for_kind(cls, kind: str) -> "Rules":
         if kind == "weekly":
             return cls(max_changes=5, allow_new_variants=True, backtest_retune=True, backtest_max_runs=2,
-                       backtest_budget_s=1800, backtest_soft_deadline_s=3600)
+                       backtest_budget_s=1800, backtest_soft_deadline_s=3600, promotion_replay=True)
         if kind == "monthly":
             return cls(max_changes=4, allow_new_variants=True, max_new_variants=1)
         return cls(backtest_retune=True, backtest_idle_only=True)
@@ -110,6 +119,8 @@ class Context:
     # evidence_key(variant_id, values) -> evidence computed by the retro (never taken from the proposal)
     backtests: dict[str, dict] = field(default_factory=dict)
     fixed_params: dict[str, frozenset[str]] = field(default_factory=lambda: dict(OWNER_FIXED_PARAMS))
+    # promotion_key(variant_id, sport) -> passing gate evidence computed by the retro (polylab.risk.promotion)
+    promotions: dict[str, dict] = field(default_factory=dict)
 
 
 @dataclass
@@ -212,6 +223,10 @@ def _check_params(new: dict, current: dict, bounds: dict, rules: Rules, relative
                 raise Reject(f"param {name} unchanged")
         parts.append(f"{name} {old}→{value}")
     return parts
+
+
+def promotion_key(variant_id: str, sport: str | None) -> str:
+    return f"{variant_id}|{sport}"
 
 
 def evidence_key(variant_id: str, values: dict) -> str:
@@ -332,7 +347,7 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         raise Reject(f"unknown change type {kind!r}")
     if not isinstance(values, dict):
         raise Reject("values must be an object")
-    if source != "ladder" and (not isinstance(ch.get("rationale"), str) or not ch["rationale"].strip()):
+    if source not in UNCOUNTED_SOURCES and (not isinstance(ch.get("rationale"), str) or not ch["rationale"].strip()):
         raise Reject("rationale required")
     if "evidence" in ch and not isinstance(ch["evidence"], (dict, list, str)):
         raise Reject("evidence must be an object")
@@ -416,9 +431,20 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         if set(values) != {"mode"}:
             raise Reject("mode values must be {mode: paper|off}")
         target = values["mode"]
-        cur = v.sport_mode(sport) if sport else v.mode
+        cur = v.sport_mode(sport, ctx.now) if sport else v.mode
+        if target == "live":
+            if source != PROMOTION_SOURCE:
+                raise Reject(f"{where}mode {cur}→live not allowed: only the deterministic promotion gate (never AI/inbox)")
+            if not sport or not v.per_sport:
+                raise Reject("promotion is per (variant, sport) of a per-sport variant")
+            gate = ctx.promotions.get(promotion_key(vid, sport))
+            if not isinstance(gate, dict) or gate.get("ok") is not True:
+                raise Reject(f"{where}no passing promotion-gate evidence computed by this retro")
+            if cur != "paper":
+                raise Reject(f"{where}mode {cur}→live: only paper sports are promoted")
+            return f"{where}mode paper→live (자동 실거래 전환, 단위 5 USDC)"
         if (cur, target) not in SAFE_MODE_TRANSITIONS:
-            raise Reject(f"{where}mode {cur}→{target} not allowed (only toward safety; live needs a human)")
+            raise Reject(f"{where}mode {cur}→{target} not allowed (only toward safety; live only via the promotion gate)")
         return f"{where}mode {cur}→{target}"
 
     if kind == "retire":
@@ -500,7 +526,7 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
                 [Decision({}, source, False, "stale proposal")]
     out = []
     for ch in proposal["changes"]:
-        counted = source != "ladder"
+        counted = source not in UNCOUNTED_SOURCES
         state.pop("backtest", None)
         if isinstance(ch, dict) and ch.get("sport") is None:
             ch = {k: v for k, v in ch.items() if k != "sport"}
@@ -567,6 +593,14 @@ def apply_to_variant(decision: Decision, ctx: Context) -> Variant:
             if _num(v.limits.get(key)):
                 v.limits[key] = round(float(v.limits[key]) * ratio, 2)
         v.stake_usdc = new
+    elif kind == "mode" and sport and values["mode"] == "live":    # promotion gate only (validated above)
+        cfg = v.sport_settings.setdefault(sport, {})
+        cfg["mode"] = "live"
+        cfg["stake_usdc"] = MIN_STAKE_USDC
+        if v.mode == "paper":       # master switch must allow live; other sports keep their own (paper/off) mode
+            for s in v.sports:
+                v.sport_settings.setdefault(s, {}).setdefault("mode", "paper")
+            v.mode = "live"
     elif kind == "mode" and sport:
         v.sport_settings.setdefault(sport, {})["mode"] = values["mode"]
     elif kind == "mode":

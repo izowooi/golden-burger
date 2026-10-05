@@ -35,8 +35,8 @@
 
 | 변형 | 계좌 | 요지 | 상태 |
 |---|---|---|---|
-| watermelon-cat / dog | cat / dog | 경기 중 고확률 favourite, 조기 익절 | 축구 live, NBA live(2026-10-21 정규시즌부터), 그 외 종목 paper |
-| apricot-eco / fruit | eco / fruit | 경기 후반 선두 | 근거 부족으로 paper (MLB 포함) |
+| watermelon-cat / dog | cat / dog | 경기 중 고확률 favourite, 조기 익절 | 축구 live, 그 외 종목 paper (NBA 는 두 시즌 백테스트로 우위 없음 → 10-21 live 취소) |
+| apricot-eco / fruit | eco / fruit | 경기 후반 선두 | 전 종목 paper. NFL(시작 ~190분 뒤 선두 0.80–0.99, 0.96 익절)만 백테스트 통과(+2.76%, 103건) |
 | plum-king / queen | king / queen | 중간대 선두 추세, +0.03 조기 익절 | paper |
 | cherry-blue / tiger | blue / tiger | 초기 개념: 종료 ~3일 전 0.9 매수→0.95 매도(전 카테고리) | paper (8만 조합 중 우위 없음) |
 | goal-over-all | lion | 주요 리그 축구 Over 0.5 를 킥오프 3일 전~5분 전 지정가 매수, +0.02 익절(AI 조정 가능)·−10% 손절·0.99 보유 | live 5 USDC, maker 주문 |
@@ -44,9 +44,11 @@
 | 수동 트랙 2 | red(메인)·wolf·eagle | 연구자 직접 베팅(AI 스킬), 공개 주소로 기록만 | O/U 0.5 만 집계 |
 
 - 모든 변형은 5 USDC 에서 시작, 종목별 단위 ladder 로 증감(최대 100). 종목별 mode·단위·파라미터가 따로 있다.
-- 2026-10-06 진행 중: NBA·NHL·NFL 과거 데이터 확장 백필, 3 전략 종목별 재최적화, paper→live 자동 전환 게이트(결정론).
+- 2026-10-06: NBA·NHL·NFL 과거 데이터를 2024 시즌까지 확장(NBA 3,030·NHL 2,600·NFL 808경기), 3 전략 종목별 재최적화, paper→live 자동 전환 게이트(결정론, `risk/promotion.py`) 도입.
 
 ## 이어서 할 일 / 열린 문제
+
+- NFL 은 시즌당 진입 경기가 적어 자동 전환 게이트의 '최근 120일 재생 40건' 조건을 못 넘는다 → 연구자 결정 대기(`manual:nfl-promotion-window`).
 
 - O/U 0.5 생애 곡선: 2~3주 실시간 축적 후 판정(예비: 합 평균 7일+ 1.50 → 6~24시간 1.01).
 - watermelon NBA 첫 20건의 실제 손절 체결가로 합성 호가 백테스트 낙관 여부 확인.

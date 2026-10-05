@@ -2,7 +2,8 @@
 minute [tick, tick+window] after tick0 (first
 minute both team books were executable while live), buy the unique midpoint leader if its
 exact-$5 ask VWAP is in [prob_min, prob_max]. Exit at the first full-holding bid VWAP >= TP
-that is net-positive after fees; otherwise hold to resolution.
+that is net-positive after fees; otherwise hold to resolution. Optional stop (2026-10-06, default off):
+`stop_loss_delta` sells the whole holding once the best bid <= entry VWAP - delta (frozen in exit_rules).
 
 Spec: docs/strategies/apricot.md. tick0 comes from the shared recorder's book snapshots
 (MarketView.tick0), so it is no longer runtime-local and both arms share it.
@@ -14,7 +15,7 @@ from polylab.execution.fees import FeeSchedule, parse_fee_schedule
 from polylab.marketview import EPS, Book, MarketView
 from polylab.strategies.base import (
     game_in_scope, Check, EntryIntent, ExitIntent, Ledger, PositionView, Strategy,
-                                     band_walk_check, event_traded, net_positive_tp_check, result_tokens)
+                                     band_walk_check, event_traded, floor2, net_positive_tp_check, result_tokens)
 
 DEFAULTS = {
     "entry_tick_minute": 90,
@@ -34,6 +35,7 @@ DEFAULTS = {
     # [entry_game_minute, +tick_window_minutes]; without a fresh state it falls back to the wall tick.
     "entry_game_minute": None,
     "game_state_max_age_s": 600,
+    "stop_loss_delta": None,             # None = no stop (legacy): hold to TP or resolution
 }
 
 
@@ -134,7 +136,8 @@ class Apricot(Strategy):
                     signal_price=feat["vwap"], min_price=prm["prob_min"], max_price=prm["prob_max"],
                     reason=f"tick {minute:.1f}m ({clock}) leader vwap {feat['vwap']:.4f}",
                     exit_rules={"take_profit_price": prm["take_profit_price"],
-                                "max_exit_spread": prm["max_exit_spread"]},
+                                "max_exit_spread": prm["max_exit_spread"],
+                                "stop_loss_delta": prm["stop_loss_delta"]},
                     context_tokens=ids, game_minute=minute,
                     features={"source_minute": round(minute, 3), "clock": clock, "tick0": tick0, **feat, "kind": rt.kind,
                               "labels": labels},
@@ -169,11 +172,26 @@ class Apricot(Strategy):
         sched = parse_fee_schedule(m.fee_schedule) if m else None
         c = self._tp_check(position, book, sched)
         if not c.ok:
-            return None
+            trigger = self.stop_trigger(position)
+            if trigger is None or book.best_bid is None or book.best_bid > trigger + EPS:
+                return None
+            shares = floor2(position.shares or 0)
+            if shares <= 0:
+                return None
+            return ExitIntent(position.position_id, "stop_loss", shares, 0.001,
+                              f"best_bid {book.best_bid} <= trigger {trigger:.4f}",
+                              {"best_bid": book.best_bid, "trigger": trigger})
         return ExitIntent(position.position_id, "take_profit", c.shares,
                           float(position.exit_rules.get("take_profit_price", DEFAULTS["take_profit_price"])),
                           f"full-holding bid vwap {c.walk_vwap:.4f} net-positive",
                           {"vwap": c.walk_vwap, "fee_schedule": sched.__dict__ if sched else None})
+
+    @staticmethod
+    def stop_trigger(position: PositionView) -> float | None:
+        delta = (position.exit_rules or {}).get("stop_loss_delta")
+        if delta is None or not position.entry_price:
+            return None
+        return round(max(0.01, float(position.entry_price) - float(delta)), 6)
 
     def confirm_exit(self, position: PositionView, intent: ExitIntent, book: Book | None) -> Check:
         if book is None or book.best_bid is None:
@@ -181,6 +199,14 @@ class Apricot(Strategy):
         spread = book.spread
         if spread is None or spread > float(position.exit_rules.get("max_exit_spread", 0.10)) + EPS:
             return Check(False, "exit_spread_too_wide")
+        if intent.kind == "stop_loss":
+            trigger = self.stop_trigger(position)
+            if trigger is None or book.best_bid > trigger + EPS:
+                return Check(False, "recovered_above_stop")
+            w = book.walk_sell(intent.shares)
+            if not w.ok or not (0 < w.limit_price < 1):
+                return Check(False, "insufficient_bid_depth")
+            return Check(True, "ok", w.vwap, w.limit_price, w.shares)
         sched_raw = intent.features.get("fee_schedule")
         sched = FeeSchedule(**sched_raw) if sched_raw else None
         return self._tp_check(position, book, sched)

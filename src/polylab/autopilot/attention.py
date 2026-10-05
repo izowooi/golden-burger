@@ -50,6 +50,9 @@ KIND_KO = {"daily": "일일", "weekly": "주간", "monthly": "월간"}
 # Paper-only research experiments: they trade only when their niche markets exist and may never go live.
 RESEARCH_ONLY = {"llm-nil-draw"}
 MOVE_NOTE = "증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다."
+PROMOTE_NOTE = ("결정론 승격 게이트(paper 정산 30건 이상·ROI 80% 하한 > 0·두 반기 ≥ 0·최근 120일 재생 n ≥ 40·ROI ≥ 0, "
+                "계좌·프리시즌·3일 cooldown, 2026-10-06 연구자 결정)를 통과해 5 USDC 로 자동 전환됐다. AI 는 live 로 올릴 수 없다. "
+                "되돌리기는 ladder(손실 시 paper 강등) 또는 yaml mode 수정.")
 
 
 # ------------------------------------------------------------------ helpers
@@ -118,7 +121,8 @@ def resolved_items(state: dict) -> list[dict]:
 # ------------------------------------------------------------------ deterministic rules
 
 def _families(kind: str, ai_enabled: bool) -> set[str]:
-    fams = {"stake", "health", "disk", "quality", "backfill", "dead_variant", "paper", f"rejected:{kind}", "manual"}
+    fams = {"stake", "health", "disk", "quality", "backfill", "dead_variant", "paper", f"rejected:{kind}", "manual",
+            "promotion"}
     if ai_enabled:
         fams.add("ai_engine")
     if kind == "weekly":
@@ -133,6 +137,12 @@ def _stake_items(report: dict, applied: list[dict], now: int) -> list[dict]:
             if ev.get("from_usdc") is None or not ev.get("ts") or now - ev["ts"] > STAKE_LOOKBACK_S:
                 continue  # init rows and old moves
             f, t, fm, tm = ev.get("from_usdc"), ev.get("to_usdc"), ev.get("from_mode"), ev.get("to_mode")
+            if fm == "paper" and tm == "live":
+                sp = f" {ev['sport']}" if ev.get("sport") else ""
+                out.append(item(f"stake:{v['id']}:{ev['ts']}", "stake", "info", "system_change",
+                                f"자동 실거래 전환: {v['id']}{sp} paper→live {_usd(t)} USDC",
+                                f"{_kst(ev['ts'])} KST 자동 적용. {PROMOTE_NOTE}", f"strategies/{v['id']}.yaml"))
+                continue
             up = (t or 0) > (f or 0) and fm == tm
             mode = f", 모드 {fm}→{tm}" if fm != tm else ""
             verb = "증액" if up else ("감액" if (t or 0) < (f or 0) else "모드 변경")
@@ -143,6 +153,12 @@ def _stake_items(report: dict, applied: list[dict], now: int) -> list[dict]:
     seen = {i["id"] for i in out}
     for a in applied:  # this run's moves (their stake_events rows carry ts=now, so ids match next run)
         if a.get("change") not in ("stake", "mode", "retire") or f"stake:{a['variant_id']}:{now}" in seen:
+            continue
+        if a.get("source") == "promotion":
+            out.append(item(f"stake:{a['variant_id']}:{now}", "stake", "info", "system_change",
+                            f"자동 실거래 전환: {a['variant_id']} {a.get('sport') or ''} paper→live 5 USDC".replace("  ", " "),
+                            f"{_kst(now)} KST 적용. {clean_text(a.get('rationale') or '', 300)}. {PROMOTE_NOTE}",
+                            f"strategies/{a['variant_id']}.yaml"))
             continue
         m = re.search(r"stake ([\d.]+)→([\d.]+)", a.get("summary") or "")
         up = a["change"] == "stake" and m is not None and float(m.group(2)) > float(m.group(1))
@@ -283,7 +299,8 @@ def _paper_items(report: dict, applied: list[dict]) -> list[dict]:
                             f"paper 변형 {v['id']} 증거 수집 중 ({n}/{PAPER_MIN_TRADES}건)",
                             f"가설: {clean_text(v.get('hypothesis') or '–', 200)}. paper 정산 {n}건, ROI {_pct(p.get('roi'))}"
                             f"(paper 원장, 실손익 아님). {PAPER_MIN_TRADES}건이 모이면 live 전환 여부를 사람이 결정한다"
-                            "(AI는 live로 올릴 수 없다).", f"strategies/{v['id']}.yaml"))
+                            "(AI는 live로 올릴 수 없다; 종목별 변형의 paper 종목은 결정론 승격 게이트가 자동 전환).",
+                            f"strategies/{v['id']}.yaml"))
         else:
             out.append(item(f"paper_ready:{v['id']}", "paper", "decide", "decision_needed",
                             f"paper 변형 {v['id']} 표본 {n}건 도달: live 전환 결정 필요",
@@ -297,6 +314,23 @@ def _paper_items(report: dict, applied: list[dict]) -> list[dict]:
                             f"새 paper 변형 {vid} 생성: 증거 수집 시작 (0/{PAPER_MIN_TRADES}건)",
                             f"{clean_text(a.get('summary') or '', 200)}. 근거: {clean_text(a.get('rationale') or '–', 200)}",
                             f"strategies/{vid}.yaml"))
+    return out
+
+
+def _promotion_items(report: dict) -> list[dict]:
+    """(variant, sport) whose paper checks passed but which are still waiting for the gate's 120-day replay
+    (weekly retro) or failed only there. Promoted ones are reported by _stake_items."""
+    out = []
+    for g in report.get("promotion") or []:
+        if g.get("ok") or g.get("stage") != "backtest":
+            continue
+        p = (g.get("evidence") or {}).get("paper") or {}
+        out.append(item(f"promotion:{g['variant_id']}:{g['sport']}", "promotion", "info", "system_change",
+                        f"자동 실거래 전환 대기: {g['variant_id']} {g['sport']} (paper 게이트 통과)",
+                        f"paper 정산 {p.get('n')}건, ROI {_pct(p.get('roi'))}, 80% 하한 {_pct(p.get('roi_ci_lo'))}"
+                        f"(paper 원장, 실손익 아님). 남은 조건: {clean_text(g.get('reason') or '–', 200)}. "
+                        "주간 회고가 최근 120일 재생(n ≥ 40, ROI ≥ 0)을 직접 돌려 통과하면 5 USDC 로 자동 전환한다.",
+                        f"strategies/{g['variant_id']}.yaml"))
     return out
 
 
@@ -361,6 +395,7 @@ def rule_items(report: dict, *, kind: str, now: int, paths=None, applied=(), rej
         return items + _health_items(report, ref), {"stake", "health"}
     items += _health_items(report, ref) + _disk_items(report, ref) + _quality_items(report, ref)
     items += _dead_variant_items(report, paths, now) + _paper_items(report, list(applied))
+    items += _promotion_items(report)
     items += _rejected_items(kind, list(rejected), ref)
     items += _manual_items(report, ref)
     if ai_enabled and ai is not None:

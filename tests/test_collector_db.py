@@ -327,3 +327,16 @@ def test_recent_backfill_open_window_is_partial(paths):
     st = dict(conn.execute("SELECT kind, status FROM backfill_status WHERE kind IN ('prices','trades')").fetchall())
     assert st == {"prices": "done", "trades": "empty"}
     assert backfill.recent_games(conn, NOW + 3700) == []
+
+
+def test_us_moneyline_history_reaches_back_further_than_soccer_and_extras():
+    """2026-10-06: NBA/NHL/NFL moneyline history from 2024-01 (1-minute prices exist from NBA 2024-04, NFL 2024-09,
+    NHL 2024-12); soccer/MLB and every extras walk keep 2026-02-01 so their checkpoints are not restarted."""
+    cfg = C.CollectorConfig()
+    assert {s: C.moneyline_history_since(s, cfg) for s in ("nba", "nhl", "nfl")} == dict.fromkeys(("nba", "nhl", "nfl"),
+                                                                                                    1704067200)
+    assert C.moneyline_history_since("soccer", cfg) == C.moneyline_history_since("mlb", cfg) == 1769904000
+    # the soccer/MLB/extras query (and so their checkpoint) is byte-identical to the pre-change one
+    assert backfill.enum_params("soccer", cfg.history_since)["start_date_min"] == "2026-01-02T00:00:00Z"
+    assert backfill.enum_params("nba", C.moneyline_history_since("nba", cfg))["start_date_min"] == "2023-12-02T00:00:00Z"
+    assert backfill.extras_enum_params("nba", cfg.history_since, cfg)["start_date_min"] == "2026-01-02T00:00:00Z"

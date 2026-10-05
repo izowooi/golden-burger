@@ -15,7 +15,9 @@
     floor too late for discover. Extras get 1-minute prices for outcome 0 only (Over / Yes / first team; the
     complement is ~1-p) and no public_trades walk (trades stay moneyline/draw: compact).
 --game KEY: the same for one game regardless of age/status.
---historical: closed games since --since (default 2026-02-01), resumable and budgeted:
+--historical: closed games since --since (default: 2026-02-01 for soccer/MLB and every extras walk, 2024-01-01 for the
+  NBA/NHL/NFL moneyline walk = common.moneyline_history_since; an explicit --since applies to every walk), resumable
+  and budgeted (POLYLAB_SPORTS=nba,nhl,nfl limits a run to some sports):
   phase A enumerates Gamma `GET /markets/keyset?tag_id&closed=true&sports_market_types=moneyline` per sport
     (cursor + the exact query params checkpointed; a param change restarts the walk) into the staging table
     `collector_hist_markets` (created here; core.db, additive);
@@ -607,7 +609,8 @@ def process_extras(conn, cfg: C.CollectorConfig, client: Client, ts: int, deadli
 
 
 def run_historical(conn, cfg: C.CollectorConfig, client: Client, ts: int, budget_s: float, since: int,
-                   workers: int = 4) -> dict:
+                   workers: int = 4, moneyline_since: dict[str, int] | None = None) -> dict:
+    """`since` bounds the extras walk (and the moneyline walk of sports missing from `moneyline_since`)."""
     ensure_hist_schema(conn)
     with dbmod.tx(conn):   # games whose price fetch failed last run get one more try per run
         conn.execute("UPDATE collector_hist_markets SET processed=0 WHERE processed=3")
@@ -621,7 +624,7 @@ def run_historical(conn, cfg: C.CollectorConfig, client: Client, ts: int, budget
     for sport in cfg.sports:
         if time.time() > enum_deadline:
             break
-        st = enumerate_sport(conn, sport, since, client, enum_deadline)
+        st = enumerate_sport(conn, sport, (moneyline_since or {}).get(sport, since), client, enum_deadline)
         enum[sport] = {k: st.get(k) for k in ("pages", "staged", "done")}
     extras_start = deadline - budget_s * EXTRAS_BUDGET_SHARE
     stats = process_events(conn, cfg, client, ts, extras_start, workers=workers)
@@ -657,7 +660,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--recent", action="store_true", help="games ended in the last 48h")
     ap.add_argument("--historical", action="store_true", help="closed games since --since (moneyline 1-min prices)")
     ap.add_argument("--budget-minutes", type=float, default=10.0)
-    ap.add_argument("--since", default="2026-02-01")
+    ap.add_argument("--since", default=None,
+                    help="YYYY-MM-DD for every walk (default: per sport, see common.moneyline_history_since)")
     ap.add_argument("--game", help="backfill one game_key (recent-style)")
     ap.add_argument("--workers", type=int, default=4)
     ap.add_argument("--no-trades", action="store_true")
@@ -671,7 +675,12 @@ def main(argv: list[str] | None = None) -> int:
     client = default_client()
     cfg = C.load_config()
     ts = C.now()
-    since = int(datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+    if args.since:
+        since = int(datetime.strptime(args.since, "%Y-%m-%d").replace(tzinfo=timezone.utc).timestamp())
+        ml_since = {s: since for s in cfg.sports}
+    else:
+        since = cfg.history_since
+        ml_since = {s: C.moneyline_history_since(s, cfg) for s in cfg.sports}
     run_id = C.job_start(conn, "backfill")
     summary: dict = {}
     ok = True
@@ -683,7 +692,8 @@ def main(argv: list[str] | None = None) -> int:
                                            trades=not args.no_trades)
         if args.historical:
             left = max(30.0, budget - (time.time() - t0))
-            summary["historical"] = run_historical(conn, cfg, client, ts, left, since, workers=args.workers)
+            summary["historical"] = run_historical(conn, cfg, client, ts, left, since, workers=args.workers,
+                                                   moneyline_since=ml_since)
     except Exception as exc:
         ok = False
         summary["error"] = repr(exc)[:500]

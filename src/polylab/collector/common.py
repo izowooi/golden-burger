@@ -67,7 +67,19 @@ class CollectorConfig:
     pregame_horizon_s: int = 120 * 3600           # low-frequency pre-game snapshots for games starting within
     pregame_every_s: int = 600                    # ... at most once per 10 minutes (poll.run_once throttle)
     history_since: int = 1769904000               # 2026-02-01T00:00:00Z
+    # US moneyline history goes back further (2026-10-06 owner request: NBA/NHL/NFL per-sport tuning needs more than
+    # one half-season). Probed 2026-10-06: Gamma game moneylines with 1-minute prices-history exist from NBA 2024-04,
+    # NFL 2024-09, NHL 2025-01 (nothing earlier under sports_market_types=moneyline). Extras keep history_since.
+    us_moneyline_history_since: int = 1704067200  # 2024-01-01T00:00:00Z
     extra: dict[str, Any] = field(default_factory=dict)
+
+
+US_SPORTS = ("nba", "nhl", "nfl")
+
+
+def moneyline_history_since(sport: str, cfg: "CollectorConfig") -> int:
+    """Start of the historical moneyline walk for a sport (US sports reach back further than soccer/MLB)."""
+    return cfg.us_moneyline_history_since if sport in US_SPORTS else cfg.history_since
 
 
 def _env_float(name: str, default: float) -> float:

@@ -10,7 +10,8 @@ the TP becomes a full-holding sale once the bid VWAP of the whole holding is
 `hold_above_price` (optional): best bid at/above it -> no exit at all (TP, stop or forced), ride
 to resolution. Positions without these keys keep the legacy rules.
 `max_wall_minute` (optional, US sports, 2026-10-05): entries only within this many wall-clock minutes
-of the scheduled start (backtests have no historical NBA/NHL game clock, so wall clock it is).
+of the scheduled start (backtests have no historical NBA/NHL game clock, so wall clock it is);
+`min_wall_minute` (2026-10-06): and not before this many.
 
 Spec: docs/strategies/plum.md. Rules are frozen per position at entry (exit_rules).
 """
@@ -36,6 +37,7 @@ DEFAULTS = {
     "max_source_minute": None,       # soccer override: 60
     "force_exit_minute": None,       # soccer override: 65
     "max_wall_minute": None,         # non-soccer: no entry later than this many minutes after scheduled start
+    "min_wall_minute": None,         # non-soccer: no entry earlier than this many minutes after scheduled start
     "min_leader_margin": 0.005,
     "max_entry_spread": 0.05,
     "max_stop_spread": 0.10,
@@ -159,6 +161,9 @@ class Plum(Strategy):
                     continue
                 if sport != "soccer" and prm["max_wall_minute"] is not None and game.start_time is not None \
                         and (now - game.start_time) / 60.0 > float(prm["max_wall_minute"]) + EPS:
+                    continue
+                if sport != "soccer" and prm["min_wall_minute"] is not None and game.start_time is not None \
+                        and (now - game.start_time) / 60.0 < float(prm["min_wall_minute"]) - EPS:
                     continue
                 tokens = result_tokens(view, game, include_no=True)
                 expected = 6 if sport == "soccer" else 2

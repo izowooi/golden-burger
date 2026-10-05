@@ -77,14 +77,17 @@ def test_effective_params_merge_sport_overrides():
 
 def test_repo_per_sport_variants_cover_nba_nhl_and_nfl_never_live():
     vs = {v.id: v for v in registry.load_all(include_off=True)}
+    # 2026-10-06 `sports3:us-all`: every family variant covers MLB/NBA/NHL/NFL per sport, all US sports start paper
     for vid in ("watermelon-cat", "watermelon-dog", "apricot-eco", "apricot-fruit", "plum-king", "plum-queen"):
         v = vs[vid]
-        assert v.per_sport and {"nba", "nhl"} <= set(v.sports), vid
+        assert v.per_sport and {"mlb", "nba", "nhl", "nfl"} <= set(v.sports), vid
         assert all(v.sport_stake(s) == 5.0 for s in v.sports), vid
+        assert all((v.sport_settings[s] or {}).get("mode") == "paper" for s in ("mlb", "nba", "nhl", "nfl")), vid
+        assert not any((v.sport_settings[s] or {}).get("live_from") for s in v.sports), vid
     for v in vs.values():
         assert v.sport_mode("nfl") != "live" or "nfl" not in v.sports, v.id
-    # one sport is never covered twice by a watermelon/plum paper variant
-    assert vs["watermelon-us-paper"].sports == ["nfl"] and vs["plum-us-paper"].sports == ["nfl"]
+    # NFL moved into the family variants: the NFL-only paper variants are off
+    assert vs["watermelon-us-paper"].mode == "off" and vs["plum-us-paper"].mode == "off"
 
 
 # ------------------------------------------------------------------ engine
@@ -309,7 +312,7 @@ def test_validator_sport_stake_and_mode(tmp_path):
     assert v.sport_mode("nba") == "paper" and v.sport_mode("soccer") == "live" and v.mode == "live"
     to_live = _one(ctx, {"variant_id": "wm", "sport": "nhl", "change": "mode", "values": {"mode": "live"},
                          "rationale": "r"})
-    assert not to_live.accepted and "live needs a human" in to_live.reason
+    assert not to_live.accepted and "only the deterministic promotion gate" in to_live.reason
     no_sport = _one(ctx, {"variant_id": "wm", "change": "stake", "values": {"stake_usdc": 10}, "rationale": "r"})
     assert not no_sport.accepted and "name the sport" in no_sport.reason
 
@@ -358,10 +361,12 @@ def test_strategy_param_overrides_reach_us_sports():
     from polylab.strategies import build  # noqa: PLC0415
     v = next(v for v in registry.load_all(include_off=True) if v.id == "plum-king")
     s = build(v)
-    assert s.p("nba")["max_wall_minute"] == 60 and s.p("nba")["take_profit_delta"] is None
-    assert s.p("soccer")["take_profit_delta"] == 0.03
+    assert s.p("nba")["max_wall_minute"] == 120 and s.p("nba")["min_wall_minute"] == 30
+    assert s.p("nba")["take_profit_delta"] is None and s.p("nba")["hold_above_price"] is None
+    assert s.p("soccer")["take_profit_delta"] == 0.03 and s.p("soccer")["hold_above_price"] == 0.99
     a = build(next(v for v in registry.load_all(include_off=True) if v.id == "apricot-eco"))
-    assert a.p("nba")["entry_tick_minute"] == 50 and a.p("mlb")["entry_tick_minute"] == 90
+    assert a.p("nfl")["entry_tick_minute"] == 190 and a.p("mlb")["entry_tick_minute"] == 60
+    assert a.p("nfl")["stop_loss_delta"] is None and a.p("mlb")["min_game_volume_usd"] == 100000
     assert a.p("nba")["entry_game_minute"] is None          # wall clock: the only replayable clock
     assert json.dumps(a.p("nhl"))
 

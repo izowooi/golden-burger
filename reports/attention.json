@@ -1,6 +1,6 @@
 {
  "schema": "polylab.attention/v1",
- "generated_at": "2026-10-05T10:31:03Z",
+ "generated_at": "2026-10-05T17:13:22Z",
  "url": "https://github.com/izowooi/golden-burger/blob/main/reports/attention.md",
  "last_retro": {
   "kind": "daily",
@@ -65,6 +65,21 @@
    "detail": "10-03 08:00 KST 자동 적용. 사유: ai:claude: mode live→paper. 증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다.",
    "evidence_ref": "strategies/plum-queen.yaml",
    "source": "rule",
+   "status": "open",
+   "resolved_at": null,
+   "resolution": null
+  },
+  {
+   "id": "manual:nfl-promotion-window",
+   "rule": "manual",
+   "severity": "decide",
+   "category": "decision_needed",
+   "title": "NFL 자동 실거래 전환 기준: 최근 120일 재생 40건을 시즌 단위로 바꿀지 결정 필요",
+   "detail": "apricot NFL 은 백테스트(103건, +2.76%, 세 시즌 모두 양수)를 통과했지만 NFL 은 시즌당 진입 경기가 40~50건뿐이라, 자동 전환 게이트의 '최근 120일 재생 40건 이상' 조건을 어느 주에도 넘지 못한다(23~39건). 선택지: (1) NFL 등 경기 수가 적은 종목은 재생 기간을 '최근 365일/직전 시즌 전체'로 넓힌다 (2) 지금 규칙 유지(NFL 은 사실상 수동 전환만) (3) NFL 만 최소 건수를 낮춘다. 답은 reports/decisions.md 에 manual:nfl-promotion-window 로.",
+   "evidence_ref": "docs/research/backtests/2026-10-06-us-sports.md",
+   "source": "rule",
+   "created_at": "2026-10-05T17:13:22Z",
+   "updated_at": "2026-10-05T17:13:22Z",
    "status": "open",
    "resolved_at": null,
    "resolution": null

@@ -69,7 +69,10 @@
 - 종목별 변형(`bounds.json` 의 `variants.<id>.per_sport: true`, yaml `sports:` 가 종목→{mode, stake_usdc} 매핑)은
   `"sport": "nba"` 처럼 종목을 지정한다. `params` 는 그 종목의 `sport_overrides.<종목>.<이름>` 으로 들어가고(경계는
   그 dotted 키, 없으면 기본 이름), `stake`·`mode` 는 그 종목만 바꾼다. 종목별 변형의 `params`·`stake` 는 `sport` 가 필수다.
-  표본·cooldown·ladder 는 종목별로 센다. 어떤 종목도 live 로 올릴 수 없다(live 는 사람만).
+  표본·cooldown·ladder 는 종목별로 센다. AI 는 어떤 종목도 live 로 올릴 수 없다(제안해도 validator 가 거부).
+  paper→live 는 retro 의 결정론 승격 게이트만 한다(2026-10-06 연구자 결정 `sports3:auto-promotion`): 현재 파라미터 paper
+  정산 ≥ 30, paper ROI 80% bootstrap 하한 > 0, 두 반기 ≥ 0, 최근 120일 재생 n ≥ 40·ROI ≥ 0, 계좌·프리시즌·live_from·3일
+  cooldown. 상태는 context 의 `promotion.json`(종목별 stage·사유). 게이트 기준을 바꾸자는 제안은 attention 으로만 한다.
 - `bounds.json`의 `rules`를 확인한다. max_changes, 최소 표본, cooldown을 어긴 제안은 validator가 거부한다.
 - JSON 외 텍스트나 주석은 넣지 않는다.
 
@@ -103,4 +106,6 @@
 
 - context 의 `decisions.md` 는 연구자가 직접 내린 결정이다. 이미 답한 질문을 다시 묻지 않고, 결정과 충돌하는 제안을 하지 않는다.
 - 2026-10-02 결정: 모든 전략은 경기 막판까지 보유하기보다 **조기 익절(take-profit early)** 을 우선한다. 막판 급락 구간에서 1분 주기 손절은 체결되지 않는다는 실거래 증거가 있다.
-- 2026-10-03 결정: NFL·NBA·NHL 은 실거래하지 않는다. 수집과 paper 시뮬레이션(`*-us-paper` 변형)만 하며, 미국 종목을 live 변형의 sports 에 추가하는 제안을 하지 않는다. 미국 종목 paper 성과가 충분하면 attention 으로 연구자에게 근거와 함께 알린다.
+- 2026-10-06 결정(`sports3:us-all`, 10-03 `policy:us-sports`·`manual:nfl-scope` 대체): watermelon·apricot·plum 의 모든 변형이
+  NBA·NHL·NFL 을 종목별 설정(진입 기준·시간대·TP/SL·거래량 하한·단위)으로 함께 다룬다. NFL 은 paper 로 시작하고, 미국 종목의
+  paper→live 는 결정론 승격 게이트만 한다(위 규칙). 종목별 파라미터 조정은 bounds 안에서 종목을 지정해 제안한다.

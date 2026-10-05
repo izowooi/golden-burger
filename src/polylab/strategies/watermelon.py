@@ -6,6 +6,8 @@ Exits, in priority order:
    (live stops filled 0.42-0.48 below stop_price); banking the edge early caps that exposure.
 2. catastrophe stop on the displayed best bid (unchanged legacy logic);
 otherwise hold to resolution.
+Entry timing (optional, non-soccer, 2026-10-06): `min_wall_minute` / `max_wall_minute` restrict entries to that
+many wall-clock minutes after the scheduled start (historical NBA/NHL/NFL have no game clock, so wall clock it is).
 
 Spec: docs/strategies/watermelon.md. Port notes:
 - The Gamma/league classifier lives in the collector; here "eligible" = a live game whose
@@ -36,6 +38,8 @@ DEFAULTS = {
     "book_max_age_s": 120,
     "take_profit_delta": None,          # None = hold to resolution (legacy behaviour)
     "take_profit_cap": 0.99,
+    "min_wall_minute": None,            # non-soccer: no entry earlier than this many minutes after scheduled start
+    "max_wall_minute": None,            # non-soccer: no entry later than this
 }
 
 
@@ -72,6 +76,12 @@ class Watermelon(Strategy):
             for game in view.live_games(now, [sport], max_age_hours=float(prm["hours_max"])):
                 if not game_in_scope(view, game, prm):
                     continue
+                if sport != "soccer" and game.start_time is not None:
+                    wall = (now - game.start_time) / 60.0
+                    if prm["min_wall_minute"] is not None and wall < float(prm["min_wall_minute"]) - EPS:
+                        continue
+                    if prm["max_wall_minute"] is not None and wall > float(prm["max_wall_minute"]) + EPS:
+                        continue
                 tokens = result_tokens(view, game, include_no=False)
                 if tokens is None:
                     self.skip(game.game_key, "result_set_incomplete")

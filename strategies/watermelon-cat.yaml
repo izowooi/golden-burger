@@ -1,17 +1,22 @@
 id: watermelon-cat
 family: watermelon
-hypothesis: '경기 중 실행가(정확히 $5 ask VWAP) 0.92+ 승자 토큰은 실현 승률보다 싸게 거래된다(상단 favourite-longshot
-  bias; 2026-10-02~ 진입 하한 0.93). 경기 후반으로 갈수록 과소평가가 커지는지 검증. A arm: 절대 손절 바닥 0.65 +
-  early TP delta 0.02(2026-10-02~, B arm 0.04와 TP 수준 비교).'
+hypothesis: '경기 중 실행가(정확히 $5 ask VWAP) 0.92+ 승자 토큰은 실현 승률보다 싸게 거래된다(상단 favourite-longshot bias; 2026-10-02~ 진입 하한 0.93). 경기
+  후반으로 갈수록 과소평가가 커지는지 검증. A arm: 절대 손절 바닥 0.65 + early TP delta 0.02(2026-10-02~, B arm 0.04와 TP 수준 비교).'
 account: cat
 mode: live
 sports:
   soccer:
     mode: live
     stake_usdc: 5.0
+  mlb:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
   nba:
-    mode: live
-    live_from: '2026-10-21'
+    mode: paper
     stake_usdc: 5.0
     limits:
       max_positions: 10
@@ -20,6 +25,17 @@ sports:
   nhl:
     mode: paper
     stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+  nfl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
 stake_usdc: 5.0
 params:
   leagues:
@@ -45,19 +61,33 @@ params:
   take_profit_cap: 0.99
   sport_overrides:
     nfl:
-      prob_min: 0.91
-      stop_price: 0.7
+      prob_min: 0.97
+      stop_price: 0.65
+      take_profit_delta: null
+      min_wall_minute: 180
       hours_max: 6.0
+      min_game_volume_usd: 100000
     nba:
-      prob_min: 0.87
-      stop_price: 0.7
-      hours_max: 5.0
+      prob_min: 0.94
+      stop_price: 0.6
       take_profit_delta: null
+      min_wall_minute: 120
+      hours_max: 5.0
+      min_game_volume_usd: 100000
     nhl:
-      prob_min: 0.87
-      stop_price: 0.75
-      hours_max: 5.0
+      prob_min: 0.97
+      stop_price: 0.65
       take_profit_delta: null
+      min_wall_minute: 120
+      hours_max: 5.0
+      min_game_volume_usd: 100000
+    mlb:
+      prob_min: 0.97
+      stop_price: 0.7
+      take_profit_delta: null
+      min_wall_minute: 150
+      hours_max: 6.0
+      min_game_volume_usd: 20000
 bounds:
   min_game_volume_usd:
   - 5000
@@ -139,22 +169,91 @@ bounds:
   - 0.01
   - 0.1
   - 0.01
+  sport_overrides.mlb.prob_min:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.mlb.stop_price:
+  - 0.4
+  - 0.85
+  - 0.05
+  sport_overrides.mlb.hours_max:
+  - 3.0
+  - 9.0
+  - 0.5
+  sport_overrides.mlb.take_profit_delta:
+  - 0.01
+  - 0.1
+  - 0.01
+  sport_overrides.mlb.min_wall_minute:
+  - 0
+  - 240
+  - 30
+  sport_overrides.mlb.max_wall_minute:
+  - 30
+  - 300
+  - 30
+  sport_overrides.mlb.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nba.min_wall_minute:
+  - 0
+  - 240
+  - 30
+  sport_overrides.nba.max_wall_minute:
+  - 30
+  - 300
+  - 30
+  sport_overrides.nba.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nhl.min_wall_minute:
+  - 0
+  - 240
+  - 30
+  sport_overrides.nhl.max_wall_minute:
+  - 30
+  - 300
+  - 30
+  sport_overrides.nhl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nfl.take_profit_delta:
+  - 0.01
+  - 0.1
+  - 0.01
+  sport_overrides.nfl.min_wall_minute:
+  - 0
+  - 240
+  - 30
+  sport_overrides.nfl.max_wall_minute:
+  - 30
+  - 300
+  - 30
+  sport_overrides.nfl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
 limits:
   max_positions: 20
   max_open_usdc: 100
   daily_loss_stop_usdc: 30
   max_new_per_cycle: 5
   max_sells_per_cycle: 5
-notes: 'golden-watermelon-live Cat(soccer 0.92/0.65, nfl 0.91/0.70) 포팅. MLB는 legacy
-  close-only라 제외. 원래 $5. 2026-10-02 사람 결정(thesis owner): 1분 주기로 후반 붕괴 손절이 실행되지 않아(Ireland
-  0.92→0.17, 손절 체결이 stop보다 0.42-0.48 낮음) take-profit early 도입. TP=min(entry_vwap+delta,
-  cap) full-holding bid VWAP·수수료 후 순이익일 때만, stop보다 우선. A/B arm A: delta 0.02(짧은 보유·가장
-  얇은 꼬리) vs dog 0.04. soccer prob_min 0.92→0.93(max_step 이내). 백테스트(06-04~10-01, docs/research/backtests/2026-10-02-watermelon-tp-apricot.md)는
-  TP가 모든 셀·양 반기에서 보유-만기보다 ROI 약 0.8-2.1%p(pm0.93 에서 약 1.1%p) 나빴다(synthetic 1분 호가,
-  깊이 없음) — 실거래 손절 slippage가 이를 뒤집는지 검증하는 실험. 되돌리기: take_profit_delta: null(사람만, validator는
-  null 설정 불가). max_sells_per_cycle 1→5: TP 동시 체결이 붕괴 중인 다른 포지션의 손절을 다음 분으로 밀지 않게.
-  | 2026-10-03 연구자 결정: NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만). | 2026-10-05 연구자
-  결정 `sports3:per-sport`: 종목별 mode·단위·파라미터. 근거 docs/research/backtests/2026-10-05-per-sport-nba-nhl.md.
-  soccer 값·live 유지. NBA live 5 USDC(A(cat): NBA 진입 0.87, 손절 0.70, 조기 익절 없음=정산 보유:
-  NBA 백테스트에서 조기 익절 셀은 모두 강건하지 않았다), NBA 전용 한도 max_open 50. NHL paper(강건한 양수 셀 없음).
-  NFL 은 실거래 제외(sports 에 없음, override 는 기록용).'
+notes: 'golden-watermelon-live Cat(soccer 0.92/0.65, nfl 0.91/0.70) 포팅. MLB는 legacy close-only라 제외. 원래 $5. 2026-10-02 사람 결정(thesis
+  owner): 1분 주기로 후반 붕괴 손절이 실행되지 않아(Ireland 0.92→0.17, 손절 체결이 stop보다 0.42-0.48 낮음) take-profit early 도입. TP=min(entry_vwap+delta,
+  cap) full-holding bid VWAP·수수료 후 순이익일 때만, stop보다 우선. A/B arm A: delta 0.02(짧은 보유·가장 얇은 꼬리) vs dog 0.04. soccer prob_min
+  0.92→0.93(max_step 이내). 백테스트(06-04~10-01, docs/research/backtests/2026-10-02-watermelon-tp-apricot.md)는 TP가 모든 셀·양 반기에서
+  보유-만기보다 ROI 약 0.8-2.1%p(pm0.93 에서 약 1.1%p) 나빴다(synthetic 1분 호가, 깊이 없음) — 실거래 손절 slippage가 이를 뒤집는지 검증하는 실험. 되돌리기: take_profit_delta:
+  null(사람만, validator는 null 설정 불가). max_sells_per_cycle 1→5: TP 동시 체결이 붕괴 중인 다른 포지션의 손절을 다음 분으로 밀지 않게. | 2026-10-03 연구자 결정:
+  NFL·NBA·NHL 은 실거래 범위에서 제외(수집·paper 시뮬레이션만). | 2026-10-05 연구자 결정 `sports3:per-sport`: 종목별 mode·단위·파라미터. 근거 docs/research/backtests/2026-10-05-per-sport-nba-nhl.md.
+  soccer 값·live 유지. NBA live 5 USDC(A(cat): NBA 진입 0.87, 손절 0.70, 조기 익절 없음=정산 보유: NBA 백테스트에서 조기 익절 셀은 모두 강건하지 않았다), NBA 전용
+  한도 max_open 50. NHL paper(강건한 양수 셀 없음). NFL 은 실거래 제외(sports 에 없음, override 는 기록용). | 2026-10-06 연구자 결정 `sports3:us-all`:
+  미국 종목·MLB 를 모두 이 변형의 종목별 설정으로(전부 paper, 5 USDC). NBA live(10-21 예정)를 취소하고 paper 로 되돌렸다: 2024-04~2026-10 두 시즌 grid(3,850셀,
+  현재 수수료 0.05)에서 규칙1(n≥40·전체·두 반기 ≥ 0) 통과 셀이 NBA·NHL·NFL·MLB 모두 0개, 10-05 NBA 값(0.87/0.70)은 2025-11~12 엔진 재생 −1.73%(479건).
+  paper 값은 사전 등록 규칙(이웃 포함 ROI 최고)으로 고른 정산 보유 arm: nba n=2302 ROI -0.45% (H1 -0.59 / H2 -0.33); nhl n=1500 ROI -0.57% (H1 -0.54
+  / H2 -0.57); nfl n=457 ROI -0.60% (H1 -0.83 / H2 -0.44); mlb n=1937 ROI -0.05% (H1 -0.31 / H2 +0.20). min_wall_minute=경기
+  예정 시작 후 진입 하한(벽시계), min_game_volume_usd 는 최종 거래량(백테스트에선 look-ahead). live 전환은 결정론 승격 게이트만. 근거 docs/research/backtests/2026-10-06-us-sports.md.'
