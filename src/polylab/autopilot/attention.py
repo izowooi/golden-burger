@@ -164,6 +164,12 @@ def _health_items(report: dict, report_ref: str) -> list[dict]:
             out.append(item("kill_switch", "health", "critical", "risk", "킬스위치 활성: 모든 신규 진입 중단",
                             "state/KILL 파일(또는 POLYLAB_KILL)이 켜져 있다. 청산·대사는 계속된다. 의도한 중지가 아니면 "
                             "Mac mini 에서 파일을 지워야 거래가 재개된다.", report_ref))
+        elif key == "storage_budget":
+            out.append(item("storage_budget", "health", p["level"], "risk", clean_text(p["message"], TITLE_MAX),
+                            "연구자 결정(storage:budget): 데이터 증가는 월 50GB 이내, 최대 100GB. 30일 예측은 최근 7일 증가로 "
+                            "계산하며 첫 주에는 일회성 백필이 섞일 수 있다. 줄이는 손잡이: raw WebSocket 보관 모드"
+                            "(POLYLAB_RAW_MARKET), general 수집 5분 주기(POLYLAB_GENERAL_POLL_EVERY=5), "
+                            "`polylab storage compact --apply`(지난 달 shard VACUUM).", report_ref))
         elif key.startswith("loss_stop:"):
             vid = key.split(":", 1)[1]
             out.append(item(f"loss_stop:{vid}", "health", "warn", "risk", f"{vid} 일일 손실 한도 도달",

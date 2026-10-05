@@ -44,6 +44,7 @@
 
 `change` 형식은 `params` | `stake` | `mode` | `new_variant` | `retire`이며 주간 회고와 같다
 (`bounds.json`의 rules 참고). 변경이 필요 없으면 `changes: []`. JSON 외 텍스트는 넣지 않는다.
+종목별 변형은 `"sport"` 를 지정한다(주간 회고 프롬프트와 같은 규칙).
 
 ## attention.json (선택, 사람에게 알릴 것)
 

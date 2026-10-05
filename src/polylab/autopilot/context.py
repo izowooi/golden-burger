@@ -27,9 +27,10 @@ def _dump(obj) -> str:
 
 
 def variant_metrics(v: dict) -> dict:
-    return {k: v[k] for k in ("id", "family", "hypothesis", "mode", "account", "sports", "stake_usdc", "params",
+    return {k: v.get(k) for k in ("id", "family", "hypothesis", "mode", "account", "sports", "stake_usdc", "params",
                               "bounds", "limits", "ladder", "live", "paper", "primary_mode", "breakdown", "excluded",
-                              "open", "param_history", "stake_events", "last_change")} | {"recent": v["recent"][:50]}
+                              "open", "param_history", "stake_events", "last_change", "per_sport",
+                              "sports_detail")} | {"recent": v["recent"][:50]}
 
 
 def calibration_summary(research: dict) -> dict:
@@ -129,7 +130,11 @@ def build_private(report: dict, markdown: str, kind: str, paths, variants, rules
         if src.exists():
             shutil.copy(src, d / "docs" / src.name)
     bounds = {"stake_ladder": list(STAKE_LADDER), "max_stake_usdc": MAX_STAKE_USDC, "rules": rules.as_dict(),
-              "variants": {v.id: {"mode": v.mode, "stake_usdc": v.stake_usdc, "params": v.params, "bounds": v.bounds}
+              "variants": {v.id: {"mode": v.mode, "stake_usdc": v.stake_usdc, "params": v.params, "bounds": v.bounds,
+                                  # per-sport variants: changes name a "sport"; each sport has its own mode/stake/ladder
+                                  "per_sport": v.per_sport,
+                                  "sports": {s: {"mode": v.sport_mode(s), "stake_usdc": v.sport_stake(s)}
+                                             for s in v.sports}}
                            for v in variants},
               "proposal_schema": SCHEMA,
               # params changes these variants may get without min_trades_params live trades, if the retro's own

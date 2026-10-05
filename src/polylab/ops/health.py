@@ -202,7 +202,17 @@ def gather(paths, now: int | None = None, use_jenkins: bool = True) -> dict:
     return {"now": now, "collector": coll, "jobs": merged_jobs(core_jobs, jenkins, now),
             "jenkins_reachable": jenkins is not None, "kill_switch": ks,
             "core_db_mb": _file_mb(paths.core_db), "books_db_mb": _dir_mb(paths.books_dir),
-            "strategies_db_mb": _dir_mb(paths.strategies_dir), "disk_free_gb": disk_free_gb}
+            "strategies_db_mb": _dir_mb(paths.strategies_dir), "disk_free_gb": disk_free_gb,
+            "storage": storage_status(paths, now)}
+
+
+def storage_status(paths, now: int) -> dict | None:
+    """Data growth budget (ops/storage.py); never fails the health check."""
+    try:
+        from polylab.ops import storage  # noqa: PLC0415
+        return storage.status(paths, now)
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"{type(exc).__name__}: {exc}"[:200]}
 
 
 # ------------------------------------------------------------------ checks
@@ -248,6 +258,13 @@ def checks(h: dict, paths=None) -> list[dict]:
         add("disk", "critical", f"외장 디스크 여유 {free}GB (< {DISK_CRIT_GB:g}GB)")
     elif free is not None and free < DISK_WARN_GB:
         add("disk", "warn", f"외장 디스크 여유 {free}GB (< {DISK_WARN_GB:g}GB)")
+    st = h.get("storage") or {}
+    proj = st.get("projected_30d_gb")
+    if st.get("level") in ("warn", "critical") and proj is not None:
+        top = sorted(((n, r.get("gb_30d") or 0) for n, r in (st.get("areas") or {}).items()), key=lambda x: -x[1])[:2]
+        add("storage_budget", st["level"],
+            f"데이터 증가 예상 {proj:g}GB/월 (예산 {st.get('budget_warn_gb', 50):g}, 상한 {st.get('budget_crit_gb', 100):g}) "
+            f"— 주요: " + ", ".join(f"{n} {v:g}GB" for n, v in top))
     live = coll.get("live_games") or 0
     poll_age = _age(now, coll.get("last_poll_at"))
     if live > 0 and (poll_age is None or poll_age > POLL_STALE_S):

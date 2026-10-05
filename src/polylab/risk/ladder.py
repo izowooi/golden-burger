@@ -6,6 +6,8 @@ Promote one step (5→10→25→50→100) when, at the current tier since the la
 Demote one step when the last 20 settled trades have net P&L < 0 and their ROI lower
 bound < 0. At the floor (5) with >= 40 trades and cumulative loss at that tier -> paper.
 Any change needs >= 3 days since the last stake event. Pure: returns decision + evidence.
+Per-sport variants run this per (variant, sport): trades and stake events of that sport only
+(legacy stake events without a sport count for every sport).
 """
 
 from __future__ import annotations
@@ -128,20 +130,43 @@ def status_label(d: LadderDecision) -> str:
     return "hold"
 
 
-def evaluate_ledger(conn, stake_usdc: float, mode: str, now: int) -> LadderDecision:
-    """Convenience: read settled trades + last stake event from a strategy DB connection."""
+def has_sport_column(conn) -> bool:
+    return any(r[1] == "sport" for r in conn.execute("PRAGMA table_info(stake_events)"))
+
+
+def ensure_sport_column(conn) -> None:
+    """Additive migration for ledgers created before per-sport stakes (2026-10-05)."""
+    if not has_sport_column(conn):
+        conn.execute("ALTER TABLE stake_events ADD COLUMN sport TEXT")
+        conn.commit()
+
+
+def last_stake_change(conn, sport: str | None = None) -> int | None:
+    """Latest stake event; for a sport, its own events plus legacy variant-wide (sport NULL) events."""
+    if sport and has_sport_column(conn):
+        return conn.execute("SELECT MAX(ts) FROM stake_events WHERE sport IS NULL OR sport=?", (sport,)).fetchone()[0]
+    return conn.execute("SELECT MAX(ts) FROM stake_events").fetchone()[0]
+
+
+def evaluate_ledger(conn, stake_usdc: float, mode: str, now: int, sport: str | None = None) -> LadderDecision:
+    """Convenience: read settled trades + last stake event from a strategy DB connection.
+    With `sport`, only that sport's trades and stake events count (per-sport ladder)."""
     rows = conn.execute(
         "SELECT closed_at, realized_pnl, cost_usdc, stake_usdc FROM positions WHERE mode=? "
-        "AND status IN ('closed','resolved') AND realized_pnl IS NOT NULL", (mode,)).fetchall()
+        "AND status IN ('closed','resolved') AND realized_pnl IS NOT NULL" + (" AND sport=?" if sport else ""),
+        (mode, sport) if sport else (mode,)).fetchall()
     trades = [SettledTrade(int(r[0]), float(r[1]), float(r[2] or 0), float(r[3])) for r in rows]
-    last = conn.execute("SELECT MAX(ts) FROM stake_events").fetchone()[0]
-    return evaluate(stake_usdc, mode, trades, now, last)
+    d = evaluate(stake_usdc, mode, trades, now, last_stake_change(conn, sport))
+    if sport:
+        d.evidence["sport"] = sport
+    return d
 
 
-def record_decision(conn, d: LadderDecision, now: int) -> None:
+def record_decision(conn, d: LadderDecision, now: int, sport: str | None = None) -> None:
     if not d.changed:
         return
-    conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence) "
-                 "VALUES(?,?,?,?,?,?,?)", (now, d.from_usdc, d.to_usdc, d.from_mode, d.to_mode,
-                                           f"{d.action}: {d.reason}", json.dumps(d.evidence, default=str)))
+    ensure_sport_column(conn)
+    conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence, sport) "
+                 "VALUES(?,?,?,?,?,?,?,?)", (now, d.from_usdc, d.to_usdc, d.from_mode, d.to_mode,
+                                             f"{d.action}: {d.reason}", json.dumps(d.evidence, default=str), sport))
     conn.commit()

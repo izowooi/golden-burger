@@ -62,6 +62,7 @@ def git_commit() -> str | None:
 class VariantResult:
     variant_id: str
     mode: str
+    sports: list | None = None           # entry sports of this leg (per-sport variants)
     ok: bool = True
     error: str | None = None
     reconciled: dict = field(default_factory=dict)
@@ -236,16 +237,30 @@ class LiveExecutor:
 
 # ---------------------------------------------------------------- one variant
 
+def leg_stake(variant, sports: list[str] | None) -> float:
+    """Stake recorded on the leg's param version: the largest per-sport stake of the leg."""
+    if not getattr(variant, "per_sport", False):
+        return variant.stake_usdc
+    return max((variant.sport_stake(s) for s in (sports if sports is not None else variant.sports)),
+               default=variant.stake_usdc)
+
+
 def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_run: bool = False,
                 clob_factory: Callable[[Any], Any] | None = None, kill: bool = False,
-                commit: str | None = None) -> VariantResult:
+                commit: str | None = None, sports: list[str] | None = None) -> VariantResult:
+    """One leg of a variant in one mode. `sports` restricts entries (None = every variant sport);
+    exits, reconciliation and settlement always cover every open position of that mode."""
     res = VariantResult(variant.id, mode)
+    if sports is not None:
+        res.sports = list(sports)
     ledger = open_ledger(paths, variant.id)
-    pv = ledger.ensure_param_version(variant.params, variant.stake_usdc, mode, now, commit)
+    pv = ledger.ensure_param_version(variant.params, leg_stake(variant, sports), mode, now, commit)
     cycle = ledger.start_cycle(now, pv)
     orders = 0
     try:
         strategy = build(variant)
+        if sports is not None:
+            strategy.sports = list(sports)
         if mode == "live":
             try:
                 creds = settings.account_credentials(variant.account)
@@ -309,20 +324,34 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
         else:
             n_open, open_usdc = ledger.open_exposure(mode)
             caps = CapState(n_open, open_usdc, ledger.realized_since(mode, utc_day_start(now)))
-            stake = clamp_stake(variant.stake_usdc)
-            intents = strategy.entry_signals(view, now, ledger.view(mode, now))
+            sport_caps: dict[str, CapState] = {}
+            intents = [] if sports is not None and not sports else strategy.entry_signals(view, now, ledger.view(mode, now))
             res.candidates = len(intents)
             for key, reason in strategy.skips:
                 res.skip(reason)
                 if reason in PERSISTED_SKIPS:
                     ledger.decision(cycle, now, "skip", reason, condition_id=key)
             for intent in intents:
+                stake = clamp_stake(variant.sport_stake(intent.sport) if hasattr(variant, "sport_stake")
+                                    else variant.stake_usdc)
                 cap = check_entry(variant.limits, caps, stake)
                 if not cap.ok:
                     ledger.decision(cycle, now, "skip", f"cap:{cap.reason}", intent.token_id, intent.condition_id,
                                     intent.game_key)
                     res.skip(cap.reason)
                     break
+                slim = variant.sport_limits(intent.sport) if hasattr(variant, "sport_limits") else {}
+                if slim:
+                    if intent.sport not in sport_caps:
+                        n_s, usd_s = ledger.open_exposure(mode, intent.sport)
+                        sport_caps[intent.sport] = CapState(n_s, usd_s, ledger.realized_since(
+                            mode, utc_day_start(now), intent.sport))
+                    scap = check_entry(slim, sport_caps[intent.sport], stake)
+                    if not scap.ok:
+                        ledger.decision(cycle, now, "skip", f"cap:{intent.sport}:{scap.reason}", intent.token_id,
+                                        intent.condition_id, intent.game_key)
+                        res.skip(f"{intent.sport}:{scap.reason}")
+                        continue
                 if (intent.token_id, "BUY") in blocked:
                     res.skip("token_side_blocked")
                     continue
@@ -341,6 +370,8 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
                 ledger.decision(cycle, now, "enter", intent.reason, intent.token_id, intent.condition_id,
                                 intent.game_key, feats)
                 caps.new_this_cycle += 1
+                if intent.sport in sport_caps:
+                    sport_caps[intent.sport].new_this_cycle += 1
                 if dry_run:
                     continue
                 pid = ledger.open_position(intent, mode, pv, stake, now)
@@ -349,8 +380,10 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
                 if status in ("filled", "confirmed"):
                     res.entries += 1
                 if status not in ("no_post", "unfilled", "failed", "cancelled"):
-                    caps.open_positions += 1      # pending/unknown outcomes reserve capacity too
-                    caps.open_usdc += stake
+                    for c in (caps, sport_caps.get(intent.sport)):
+                        if c is not None:
+                            c.open_positions += 1      # pending/unknown outcomes reserve capacity too
+                            c.open_usdc += stake
         ledger.finish_cycle(cycle, int(time.time()), True, res.candidates, orders)
     except Exception as e:
         res.ok = False
@@ -362,6 +395,51 @@ def run_variant(paths, variant, view: MarketView, now: int, *, mode: str, dry_ru
 
 
 # ---------------------------------------------------------------- job
+
+def _has_open(paths, variant_id: str, mode: str) -> bool:
+    """Open/pending positions of `mode` in the variant ledger (read-only; no DB -> False)."""
+    path = paths.strategy_db(variant_id)
+    if not Path(path).exists():
+        return False
+    import sqlite3  # noqa: PLC0415
+    try:
+        conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True, timeout=30)
+        try:
+            return conn.execute("SELECT 1 FROM positions WHERE mode=? AND status IN "
+                                "('pending','open','closing','quarantined') LIMIT 1", (mode,)).fetchone() is not None
+        finally:
+            conn.close()
+    except Exception:
+        return True   # cannot tell: run the leg so exits/reconciliation are never silently skipped
+
+
+def plan_legs(paths, variant, paper_all: bool) -> list[tuple[str, list[str] | None]]:
+    """(mode, entry sports) legs for one tick.
+
+    Legacy list-form variants: one leg at the master mode with every sport (unchanged behaviour).
+    Per-sport variants: a live leg for live sports and a paper leg for paper sports. A mode with no
+    entry sports still runs (entries none) while it holds open positions, so a sport moved
+    live->paper keeps reconciling, settling and exiting its live positions on the same account.
+    """
+    if not getattr(variant, "per_sport", False):
+        return [("paper" if paper_all or variant.mode == "paper" else "live", None)]
+    active = [s for s in variant.sports if variant.sport_mode(s) != "off"]
+    if paper_all:
+        groups = {"paper": active}
+    else:
+        groups = {"live": [s for s in active if variant.sport_mode(s) == "live"],
+                  "paper": [s for s in active if variant.sport_mode(s) == "paper"]}
+    legs = []
+    for mode in ("live", "paper"):
+        sports = groups.get(mode, [])
+        if sports:
+            legs.append((mode, sports))
+        elif mode == "live" and not paper_all and variant.account and _has_open(paths, variant.id, "live"):
+            legs.append(("live", []))
+        elif mode == "paper" and _has_open(paths, variant.id, "paper"):
+            legs.append(("paper", []))
+    return legs
+
 
 def _poll(paths) -> dict:
     try:
@@ -407,13 +485,13 @@ def run(paths, *, only: str | None = None, paper_all: bool = False, dry_run: boo
         results = []
         try:
             for v in variants:
-                mode = "paper" if paper_all or v.mode == "paper" else "live"
-                try:
-                    r = run_variant(paths, v, view, now, mode=mode, dry_run=dry_run, clob_factory=clob_factory,
-                                    kill=kill, commit=commit)
-                except Exception as e:  # ledger open failure etc.
-                    r = VariantResult(v.id, mode, ok=False, error=sanitize(f"{type(e).__name__}: {e}"))
-                results.append(r.__dict__)
+                for mode, sports in plan_legs(paths, v, paper_all):
+                    try:
+                        r = run_variant(paths, v, view, now, mode=mode, dry_run=dry_run, clob_factory=clob_factory,
+                                        kill=kill, commit=commit, sports=sports)
+                    except Exception as e:  # ledger open failure etc.
+                        r = VariantResult(v.id, mode, sports, ok=False, error=sanitize(f"{type(e).__name__}: {e}"))
+                    results.append(r.__dict__)
         finally:
             view.close()
         summary["variants"] = results

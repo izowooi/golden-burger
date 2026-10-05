@@ -1,5 +1,15 @@
 # Golden Cherry — porting spec (Resolution Momentum)
 
+> **2026-10-05 현행 설계 (back to basics, 연구자 결정 `cherry:back-to-basics`).** cherry 는 다시 전 카테고리 전략이다.
+> 거래량(·유동성) 하한을 넘는 마켓 중 기준 종료 시각(`general.store.end_ref`: 경기 마켓은 킥오프+3h, 나머지는 Gamma
+> `endDate`)까지 `hours_to_end_min`–`hours_to_end_max` 시간 남았고, 종료 `min_listed_hours`(72h) 전부터 상장돼 있던
+> 마켓에서 **앞선 쪽(≥0.5) 결과**가 [entry_min, entry_max] 이면 마켓당 한 번 FOK taker 로 산다. 청산은 절대 매도가
+> 또는 진입가+delta(수수료 후 순이익일 때만 전량), 선택적 0.99 이상 보유, 선택적 종료 X시간 전 시간 청산, 손절·trailing
+> 없음. 데이터는 `data/general/`(`polylab general discover|poll|backfill`, core.db 가 추적하는 5개 종목 경기 마켓은
+> core 에서 읽는다). 코드 `src/polylab/strategies/cherry.py`, 백테스트 `src/polylab/analysis/cherry_basics.py`,
+> 결과·채택값 `docs/research/backtests/2026-10-05-cherry-basics.md`. 아래 본문은 레거시 포팅 명세(역사 기록)이며
+> 2026-10-05 이전 포지션의 고정 청산 규칙만 여전히 이를 따른다.
+
 Everything below is per source at `a21db7c` (golden-cherry tracked tree is clean at that commit).
 Paths are relative to `golden-cherry/` unless prefixed. Live values come from the 2026-09-13
 preregistration and the local-only Jenkins inventory, not from source. Before treating them as

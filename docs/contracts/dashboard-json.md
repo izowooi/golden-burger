@@ -13,7 +13,9 @@ All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is
   "system": {
     "jobs": [{"name": "polylab-tick", "last_run_at": "...", "last_ok_at": "...", "status": "ok|failing|stale", "detail": "..."}],
     "collector": {"last_poll_at": "...", "live_games": 12, "tracked_markets": 40, "ws_last_message_at": "...",
-                   "core_db_mb": 812.5, "books_db_mb": 120.0, "disk_free_gb": 900.1, "backfill_progress": {"games_done": 1200, "games_total": 5000}},
+                   "core_db_mb": 812.5, "books_db_mb": 120.0, "disk_free_gb": 900.1, "backfill_progress": {"games_done": 1200, "games_total": 5000},
+                   "storage": {"projected_30d_gb": 21.4, "level": "ok|warn|critical|null", "budget_warn_gb": 50, "budget_crit_gb": 100,
+                               "total_gb_now": 15.2, "areas": {"raw": {"gb_now": 7.0, "gb_per_day": 0.12, "gb_30d": 3.6, "method": "raw_dated_dirs|samples|insufficient"}}}},
     "ai": {"last_retro_at": "...", "last_retro_kind": "daily", "last_retro_ok": true, "proposals_applied_7d": 3}
   },
   "portfolio": {
@@ -34,6 +36,12 @@ All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is
   "alerts": [{"level": "warn|error", "at": "...", "message": "..."}]
 }
 ```
+
+- `system.collector.storage` (additive, 2026-10-05, `polylab health` → ops/storage.py): data growth budget. `areas` keys
+  core, books, raw, ou05, general, strategies, manual, research; `gb_30d` = 7-day growth × 30 (raw from dated directories,
+  the rest from hourly size samples; null until a day of samples exists). `level` warn > 50 GB/month, critical > 100.
+  null when the measurement failed.
+
 
 ## latest/strategies/<id>.json
 ```json
@@ -336,6 +344,13 @@ kicked off in the last 30 days (resolved first, by volume); newest kickoff first
 
 ## Additive fields (beyond the examples above)
 - overview `strategies[].pnl_mode`: `live|paper` — which ledger `pnl`/`trades`/`win_rate`/`roi` come from (paper variants report paper ledgers).
+- overview `strategies[].per_sport` (bool) and `strategies[].sports_detail[]` (2026-10-05, owner decision `sports3:per-sport`):
+  `{"sport": "nba", "mode": "live|paper|off", "stake_usdc": 5, "trades": 12, "pnl": 0.4, "roi": 0.01,
+  "next_stake_usdc": null, "ladder": {"status", "trades_at_tier", "needed", "roi_ci_lo"} | null}` — one row per sport of the
+  variant (effective mode = stricter of the yaml master `mode` and the sport's own). `ladder` is per (variant, sport) for
+  per-sport variants and `null` for legacy list-form variants (their ladder is the variant-level `ladder`). For per-sport
+  variants the top-level `mode` is the most permissive sport mode and `stake_usdc`/`ladder` are those of the first live sport.
+- strategies/<id>.json `stake_events[].sport`: the sport a stake/mode move applied to (`null` = whole variant).
 - strategies/<id>.json: `equity_mode`, `breakdown.by_day`, `stake_events[].from_mode/to_mode`, `open_positions[].status/mode`,
   breakdown rows may carry `win_rate`/`roi`.
 - research.json: `event_by_score_state` (event sensitivity split by scorer's score state trailing|level|leading),

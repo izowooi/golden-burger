@@ -341,3 +341,13 @@ Keep these fixed (execution safety, not alpha): stop slippage .05, stop spread .
 - TP/SL are frozen per trade. A config change must never rewrite open trades.
 - Classifier DRIFT is a global entry kill-switch for the cycle.
 - A post-game book with a stray 0.001 bid must not trigger a stop. This is why the Gamma live + CLOB OPEN preflight gates every SELL.
+
+## 2026-10-05 종목별 설정 (연구자 결정 `sports3:per-sport`)
+
+- 종목 soccer·NFL·NBA·NHL, 종목마다 mode·단위(5 USDC)·ladder 가 따로다.
+- 모든 종목 paper. NBA 는 밴드 0.70–0.73, TP 가격 0.90, 조기 익절 없음, `max_wall_minute` 60(예정 시작 60분 안에만 진입), king SL 0.12 /
+  queen 0.17. 저장 수수료로는 king NBA 가 +2.20%(두 반기 양수)였지만 현재 수수료(sports_fees_v3 0.05)로는 H1 −1.15% 로 실패했다
+  (0.72 근처 매수·매도는 회당 약 1–1.4% 수수료). v3 에서는 NBA·NHL 모두 두 반기 양수 조합이 없다.
+- NHL: 두 arm paper(TP 0.85, 120분 마감). soccer·NFL: paper 유지.
+- `max_wall_minute`(새 파라미터): 축구 외 종목에서 예정 시작 후 이 분이 지나면 진입하지 않는다. 마감이 없으면 NBA H1 이 0 이 된다.
+- 근거 `docs/research/backtests/2026-10-05-per-sport-nba-nhl.md`.

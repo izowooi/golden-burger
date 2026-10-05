@@ -105,9 +105,28 @@ def strategy_summary(v: dict) -> dict:
             "ladder": {"status": lad.get("status"), "trades_at_tier": lad.get("trades_at_tier"),
                        "needed": lad.get("needed"), "roi_ci_lo": lad.get("roi_ci_lo")},
             "params": v["params"], "open_positions": len(v["open"]),
+            # additive 2026-10-05: per-sport mode / stake / ladder (null ladder = variant-level, legacy list form)
+            "per_sport": bool(v.get("per_sport")),
+            "sports_detail": [{"sport": d["sport"], "mode": d["mode"], "stake_usdc": d["stake_usdc"],
+                               "trades": d.get("trades"), "pnl": d.get("pnl"), "roi": d.get("roi"),
+                               "next_stake_usdc": (d.get("ladder") or {}).get("next_stake_usdc"),
+                               "ladder": None if d.get("ladder") is None else
+                               {k: d["ladder"].get(k) for k in ("status", "trades_at_tier", "needed", "roi_ci_lo")}}
+                              for d in v.get("sports_detail") or []],
             "open_cost_usdc": round(sum(o["cost_usdc"] or 0 for o in v["open"]), 4),
             "pnl": s["pnl"], "pnl_mode": v["primary_mode"], "trades": s["trades"], "win_rate": s["win_rate"],
             "roi": s["roi"], "last_trade_at": s["last_trade_at"], "last_change": v["last_change"]}
+
+
+def storage_summary(st: dict | None) -> dict | None:
+    """Additive overview.system.collector.storage (docs/contracts/dashboard-json.md)."""
+    if not st or st.get("error"):
+        return None
+    return {"projected_30d_gb": st.get("projected_30d_gb"), "level": st.get("level"),
+            "budget_warn_gb": st.get("budget_warn_gb"), "budget_crit_gb": st.get("budget_crit_gb"),
+            "total_gb_now": st.get("total_gb_now"),
+            "areas": {n: {k: r.get(k) for k in ("gb_now", "gb_per_day", "gb_30d", "method")}
+                      for n, r in (st.get("areas") or {}).items()}}
 
 
 def overview(report: dict, paths, variants) -> dict:
@@ -123,6 +142,7 @@ def overview(report: dict, paths, variants) -> dict:
                           "ws_last_message_at": C.iso(c.get("ws_last_message_at")),
                           "core_db_mb": h.get("core_db_mb"), "books_db_mb": h.get("books_db_mb"),
                           "disk_free_gb": h.get("disk_free_gb"),
+                          "storage": storage_summary(h.get("storage")),
                           "backfill_progress": c.get("backfill_progress") or {"games_done": None, "games_total": None}},
             "ai": _ai_status(paths, report["now"]),
         },
@@ -136,7 +156,8 @@ def strategy_detail(v: dict, generated_at: str) -> dict:
     return {"id": v["id"], "generated_at": generated_at, "variant": v["yaml"],
             "param_history": [{k: p[k] for k in ("version", "at", "params", "stake_usdc", "mode", "author", "rationale")}
                               for p in v["param_history"]],
-            "stake_events": [{k: s[k] for k in ("at", "from_usdc", "to_usdc", "from_mode", "to_mode", "reason", "evidence")}
+            "stake_events": [{k: s.get(k) for k in ("at", "from_usdc", "to_usdc", "from_mode", "to_mode", "reason",
+                                                     "evidence", "sport")}
                              for s in v["stake_events"]],
             "equity_curve": v["equity_curve"], "equity_mode": v["primary_mode"],
             "open_positions": [{k: o[k] for k in ("opened_at", "sport", "league", "title", "outcome", "entry_price",

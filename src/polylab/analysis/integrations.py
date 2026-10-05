@@ -45,11 +45,12 @@ NULL_LADDER = {"status": None, "action": None, "trades_at_tier": None, "needed":
                "available": False}
 
 
-def ladder_status(variant, paths, now: int | None = None) -> dict:
+def ladder_status(variant, paths, now: int | None = None, sport: str | None = None) -> dict:
     """Deterministic ladder view from polylab.risk.ladder (evaluate_ledger + status_label).
 
     `promote_ok` is True only when the gate says promote now (cooldown included). Any error or a
     missing module yields nulls, which the validator treats as "no promotion" (fail closed).
+    With `sport` (per-sport variants) the ladder uses that sport's stake, mode, trades and events.
     """
     try:
         from polylab.risk import ladder  # noqa: PLC0415
@@ -63,7 +64,11 @@ def ladder_status(variant, paths, now: int | None = None) -> dict:
     try:
         conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True, timeout=30)
         try:
-            d = ladder.evaluate_ledger(conn, float(variant.stake_usdc), variant.mode, now or int(time.time()))
+            if sport:
+                d = ladder.evaluate_ledger(conn, float(variant.sport_stake(sport)), variant.sport_mode(sport),
+                                           now or int(time.time()), sport=sport)
+            else:
+                d = ladder.evaluate_ledger(conn, float(variant.stake_usdc), variant.mode, now or int(time.time()))
         finally:
             conn.close()
     except Exception as exc:
@@ -73,7 +78,8 @@ def ladder_status(variant, paths, now: int | None = None) -> dict:
             "needed": ev.get("needed"), "roi_ci_lo": ev.get("tier_roi_ci_lo"),
             "next_stake_usdc": d.to_usdc if d.action in ("promote", "demote") else None,
             "promote_ok": d.action == "promote", "demote": d.action in ("demote", "paper"),
-            "to_mode": d.to_mode, "reason": d.reason, "evidence": ev, "decision": d, "available": True}
+            "to_mode": d.to_mode, "reason": d.reason, "evidence": ev, "decision": d, "available": True,
+            "sport": sport}
 
 
 def account_balances(variants) -> list[dict] | None:
@@ -99,6 +105,14 @@ def backtest_available() -> bool:
     return _find(BACKTEST_ENTRY_POINTS) is not None
 
 
+def sport_of_params(params: dict) -> str | None:
+    """The single sport a params change targets (`sport_overrides.<sport>.*` keys only), else None."""
+    sports = {k.split(".")[1] for k in params if k.startswith("sport_overrides.") and k.count(".") >= 2}
+    if len(sports) == 1 and all(k.startswith("sport_overrides.") for k in params):
+        return sports.pop()
+    return None
+
+
 def backtest(variant, params: dict, paths, since: int, until: int | None = None) -> dict | None:
     """Summary of polylab.analysis.backtest.backtest for `variant` with `params` (trades dropped)."""
     fn = _find(BACKTEST_ENTRY_POINTS)
@@ -109,6 +123,9 @@ def backtest(variant, params: dict, paths, since: int, until: int | None = None)
     from polylab.autopilot.validator import set_path  # noqa: PLC0415
     v = copy.copy(variant)
     v.params = copy.deepcopy(variant.params)
+    sport = sport_of_params(params)
+    if sport and sport in (variant.sports or []):
+        v.sports = [sport]          # a sport-targeted retune replays only that sport
     for k, val in params.items():  # dotted keys address nested overrides
         set_path(v.params, k, val)
     try:

@@ -45,21 +45,25 @@ class StrategyLedger:
         for stmt in EXTRA_SCHEMA:
             conn.execute(stmt)
         conn.commit()
+        from polylab.risk.ladder import ensure_sport_column  # noqa: PLC0415
+        ensure_sport_column(conn)
 
     # ------------------------------------------------------------ params / cycles
     def ensure_param_version(self, params: dict, stake_usdc: float, mode: str, now: int,
                              git_commit: str | None = None, author: str = "registry",
                              rationale: str | None = None) -> int:
         blob = json.dumps(params, sort_keys=True, default=str)
-        r = self.conn.execute("SELECT version, params, stake_usdc, mode FROM param_versions "
-                              "ORDER BY version DESC LIMIT 1").fetchone()
-        if r and r["params"] == blob and float(r["stake_usdc"]) == float(stake_usdc) and r["mode"] == mode:
+        # per mode: a per-sport variant runs a live and a paper leg in the same minute
+        r = self.conn.execute("SELECT version, params, stake_usdc, mode FROM param_versions WHERE mode=? "
+                              "ORDER BY version DESC LIMIT 1", (mode,)).fetchone()
+        if r and r["params"] == blob and float(r["stake_usdc"]) == float(stake_usdc):
             return int(r["version"])
-        version = (int(r["version"]) + 1) if r else 1
+        last = self.conn.execute("SELECT MAX(version) FROM param_versions").fetchone()[0]
+        version = (int(last) + 1) if last is not None else 1
         self.conn.execute(
             "INSERT INTO param_versions(version, created_at, params, stake_usdc, mode, git_commit, author, rationale) "
             "VALUES(?,?,?,?,?,?,?,?)", (version, now, blob, stake_usdc, mode, git_commit,
-                                        "init" if r is None else author, rationale))
+                                        "init" if last is None else author, rationale))
         self.conn.commit()
         return version
 
@@ -215,17 +219,19 @@ class StrategyLedger:
             "AND condition_id IS NOT NULL")}
         return Ledger([row_to_view(r) for r in rows], blocked)
 
-    def open_exposure(self, mode: str) -> tuple[int, float]:
-        """(open position count, open cost incl. pending stake) for caps."""
+    def open_exposure(self, mode: str, sport: str | None = None) -> tuple[int, float]:
+        """(open position count, open cost incl. pending stake) for caps; optionally one sport only."""
         r = self.conn.execute(
             "SELECT COUNT(*) n, COALESCE(SUM(COALESCE(cost_usdc, stake_usdc)), 0) c FROM positions "
-            "WHERE mode=? AND status IN ('pending','open','closing','quarantined')", (mode,)).fetchone()
+            "WHERE mode=? AND status IN ('pending','open','closing','quarantined')"
+            + (" AND sport=?" if sport else ""), (mode, sport) if sport else (mode,)).fetchone()
         return int(r["n"]), float(r["c"])
 
-    def realized_since(self, mode: str, since: int) -> float:
+    def realized_since(self, mode: str, since: int, sport: str | None = None) -> float:
         r = self.conn.execute(
             "SELECT COALESCE(SUM(realized_pnl), 0) FROM positions WHERE mode=? AND closed_at >= ? "
-            "AND realized_pnl IS NOT NULL", (mode, since)).fetchone()
+            "AND realized_pnl IS NOT NULL" + (" AND sport=?" if sport else ""),
+            (mode, since, sport) if sport else (mode, since)).fetchone()
         return float(r[0])
 
     def settled_trades(self, mode: str) -> list[sqlite3.Row]:

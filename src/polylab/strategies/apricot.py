@@ -1,4 +1,5 @@
-"""Apricot: late-game MLB favourite. At source minute [tick, tick+window] after tick0 (first
+"""Apricot: late-game favourite (MLB, NBA, NHL; per-sport params in sport_overrides). At wall-clock
+minute [tick, tick+window] after tick0 (first
 minute both team books were executable while live), buy the unique midpoint leader if its
 exact-$5 ask VWAP is in [prob_min, prob_max]. Exit at the first full-holding bid VWAP >= TP
 that is net-positive after fees; otherwise hold to resolution.
@@ -27,6 +28,12 @@ DEFAULTS = {
     "hours_max": 8.0,
     "baseline_usdc": 5.0,
     "book_max_age_s": 120,
+    # Opt-in sport clock (2026-10-05). None = wall-clock minutes since tick0 (the only clock the
+    # NBA/NHL/MLB history can replay, so every validated setting uses it). When set, a fresh live
+    # game state's elapsed game minute (NBA 0-48, NHL 0-60 + OT, MLB unsupported) decides the window
+    # [entry_game_minute, +tick_window_minutes]; without a fresh state it falls back to the wall tick.
+    "entry_game_minute": None,
+    "game_state_max_age_s": 600,
 }
 
 
@@ -43,6 +50,18 @@ class Apricot(Strategy):
 
     def p(self, sport=None):
         return {**DEFAULTS, **super().p(sport)}
+
+    @staticmethod
+    def _game_minute(view: MarketView, game_key: str, now: int, prm: dict) -> float | None:
+        """Elapsed game minute from a fresh live game state, only when `entry_game_minute` is set."""
+        if prm.get("entry_game_minute") is None:
+            return None
+        st = view.game_state(game_key, now)
+        if st is None or st.game_minute is None or now - st.ts > int(prm["game_state_max_age_s"]) or st.ended:
+            return None
+        if st.live is False or (st.status or "").lower() in ("scheduled", "ended", "cancelled"):
+            return None
+        return float(st.game_minute)
 
     def _event_books(self, view: MarketView, now: int, token_ids: list[str], max_age: int) -> dict[str, Book] | None:
         books = {}
@@ -92,7 +111,11 @@ class Apricot(Strategy):
                 if tick0 is None:
                     continue
                 minute = (now - tick0) / 60.0
+                clock = "wall"
                 tick = float(prm["entry_tick_minute"])
+                gm = self._game_minute(view, game.game_key, now, prm)
+                if gm is not None:
+                    minute, tick, clock = gm, float(prm["entry_game_minute"]), "game"
                 if not (tick - EPS <= minute <= tick + float(prm["tick_window_minutes"]) + EPS):
                     continue
                 books = self._event_books(view, now, ids, int(prm["book_max_age_s"]))
@@ -109,11 +132,11 @@ class Apricot(Strategy):
                     token_id=leader, condition_id=rt.market.condition_id, game_key=game.game_key, sport=sport,
                     league=game.league, outcome_label=rt.token.outcome_label or rt.kind,
                     signal_price=feat["vwap"], min_price=prm["prob_min"], max_price=prm["prob_max"],
-                    reason=f"tick {minute:.1f}m leader vwap {feat['vwap']:.4f}",
+                    reason=f"tick {minute:.1f}m ({clock}) leader vwap {feat['vwap']:.4f}",
                     exit_rules={"take_profit_price": prm["take_profit_price"],
                                 "max_exit_spread": prm["max_exit_spread"]},
                     context_tokens=ids, game_minute=minute,
-                    features={"source_minute": round(minute, 3), "tick0": tick0, **feat, "kind": rt.kind,
+                    features={"source_minute": round(minute, 3), "clock": clock, "tick0": tick0, **feat, "kind": rt.kind,
                               "labels": labels},
                     priority=(minute, game.game_key)))
         intents.sort(key=lambda i: i.priority)

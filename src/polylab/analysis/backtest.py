@@ -56,6 +56,8 @@ def active_steps(core: sqlite3.Connection, variant, start: int, end: int, step: 
     params = variant.params
     pre_h = float(params.get("entry_hours_max", 0)) if variant.family == "cherry" else 0.0
     sports = variant.sports or list(DEFAULT_MAX_IN_PLAY_HOURS)
+    if getattr(variant, "per_sport", False):
+        sports = [s for s in sports if variant.sport_mode(s) != "off"] or sports
     rows = core.execute(
         f"SELECT sport, start_time FROM games WHERE sport IN ({','.join('?' * len(sports))}) "
         "AND start_time BETWEEN ? AND ?", (*sports, start - 2 * DAY, end + int(pre_h * 3600) + DAY)).fetchall()
@@ -158,11 +160,14 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
     view = MarketView(core, shards, historical=True, synthetic_spread=spread)
     sim_variant = copy.copy(variant)
     sim_variant.mode = "paper"
+    # per-sport variants: simulate every sport that is not off, whatever its live/paper mode
+    sports = ([s for s in variant.sports if sim_variant.sport_mode(s) != "off"]
+              if getattr(variant, "per_sport", False) else None)
     with tempfile.TemporaryDirectory(prefix="polylab-bt-") as tmp:
         sim_paths = settings.Paths(Path(tmp)).ensure()
         errors: dict[str, int] = {}
-        for t in active_steps(core, variant, start, end, step):
-            res = run_variant(sim_paths, sim_variant, view, t, mode="paper", kill=False)
+        for t in active_steps(core, sim_variant, start, end, step):
+            res = run_variant(sim_paths, sim_variant, view, t, mode="paper", kill=False, sports=sports)
             if not res.ok:
                 errors[res.error or "?"] = errors.get(res.error or "?", 0) + 1
         ledger = open_ledger(sim_paths, variant.id)

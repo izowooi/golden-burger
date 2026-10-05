@@ -71,6 +71,10 @@
 ```
 
 - `change`: `params` | `stake` | `mode` | `new_variant` | `retire`. 새 변형 id는 소문자·숫자·하이픈만 쓰고 기존 id와 겹치지 않는다.
+- 종목별 변형(`bounds.json` 의 `variants.<id>.per_sport: true`, yaml `sports:` 가 종목→{mode, stake_usdc} 매핑)은
+  `"sport": "nba"` 처럼 종목을 지정한다. `params` 는 그 종목의 `sport_overrides.<종목>.<이름>` 으로 들어가고(경계는
+  그 dotted 키, 없으면 기본 이름), `stake`·`mode` 는 그 종목만 바꾼다. 종목별 변형의 `params`·`stake` 는 `sport` 가 필수다.
+  표본·cooldown·ladder 는 종목별로 센다. 어떤 종목도 live 로 올릴 수 없다(live 는 사람만).
 - `bounds.json`의 `rules`(max_changes, min_trades_params, cooldown)를 지킨다. JSON 외 텍스트는 넣지 않는다.
 
 ## attention.json (선택, 사람에게 알릴 것)

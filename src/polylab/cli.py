@@ -21,6 +21,8 @@ COMMANDS = {
     "forecast": "polylab.research.llm_forecast:main",   # LLM 0-0 forecast study (paper only)
     "manual": "polylab.manual.cli:main",                # watch-only ledger of manual Track 2 bets (sync)
     "ou05": "polylab.ou05.cli:main",                    # soccer O/U 0.5 market-life quotes (discover/poll/backfill)
+    "general": "polylab.general.cli:main",              # near-resolution markets of every category (cherry)
+    "storage": "polylab.ops.storage:main",              # data growth budget + closed-shard VACUUM
 }
 
 

@@ -355,30 +355,6 @@ def test_plum_exit_priority_and_time_exit():
 
 # ---------------------------------------------------------------- cherry
 
-def test_cherry_entry_band_timing_and_rapid_jump(env):
-    now = T0
-    env.us_game("pre", "nba", now + 100 * 3600)
-    env.bar("pre-h", now - 60, 0.81)
-    level_book(env, "pre-h", now - 30, 0.805, 0.815)
-    env.us_game("far", "nba", now + 130 * 3600)                   # > 120 h
-    env.bar("far-h", now - 60, 0.81)
-    level_book(env, "far-h", now - 30, 0.805, 0.815)
-    env.us_game("jump", "nba", now + 10 * 3600)
-    env.bar("jump-h", now - 60, 0.82)
-    level_book(env, "jump-h", now - 30, 0.84, 0.86)               # mid .85 > .82
-    env.us_game("lowliq", "nba", now + 10 * 3600)
-    env.core.execute("UPDATE markets SET liquidity=1000 WHERE game_key='lowliq'")
-    env.core.commit()
-    env.bar("lowliq-h", now - 60, 0.81)
-    level_book(env, "lowliq-h", now - 30, 0.805, 0.815)
-    s = Cherry({"buy_threshold": 0.80, "sell_threshold": 0.82}, variant("cherry", ["nba"]))
-    out = s.entry_signals(env.view(now), now, Ledger())
-    assert [i.game_key for i in out] == ["pre"]
-    assert ("c-jump", "rapid_jump") in s.skips
-    assert s.entry_signals(env.view(now), now, Ledger(blocked_conditions={"c-pre"})) == []
-    assert s.entry_signals(env.view(now), now, Ledger([pos(condition_id="c-pre", status="unfilled")])) == []
-
-
 def test_cherry_exit_chain():
     s = Cherry({}, None)
     rules = {"take_profit_percent": 0.20, "stop_loss_percent": -0.08, "trailing_enabled": True,

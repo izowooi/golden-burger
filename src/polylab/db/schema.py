@@ -306,7 +306,8 @@ STRATEGY_SCHEMA = (
         from_mode TEXT,
         to_mode TEXT,
         reason TEXT NOT NULL,
-        evidence TEXT                           -- json of the gate statistics
+        evidence TEXT,                          -- json of the gate statistics
+        sport TEXT                              -- per-sport stake/mode move; NULL = whole variant
     )
     """,
 )

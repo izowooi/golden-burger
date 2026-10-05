@@ -34,7 +34,9 @@ Polymarket 스포츠 예측시장의 **경기 시간대별 과대/과소 평가(
   data/
     core.db              # 중앙 공용 DB (경기·마켓·토큰·1분 가격·게임상태·정산·체크포인트)
     books/YYYY-MM.db     # 호가 스냅샷(top-10 levels, zlib) 월별 shard
-    raw/YYYY-MM-DD/*.jsonl.gz   # WebSocket 원본 (sports/market), 일별 gzip
+    raw/YYYY-MM-DD/*.jsonl.gz   # WebSocket 원본 (sports/market), 일별 gzip. market 은 기본 lean(price_change 제외, POLYLAB_RAW_MARKET)
+    general/registry.db  # 전 카테고리 종료 임박 마켓(cherry): 등록·카테고리·end_ref·거래량 이력·정산 (2026-10-05~)
+    general/YYYY-MM.db   # 그 YES 토큰 L1 호가(poll, 변화 시+10분) + 과거 prices-history(백필, 5분)
     strategies/<strategy_id>.db # 전략별 원장
     research/            # parquet/csv export, 분석 산출물
   logs/
@@ -93,9 +95,10 @@ id: watermelon-cat            # 변형 id = 원장 DB 이름
 family: watermelon            # src/polylab/strategies/<family>.py
 hypothesis: "in-play .92+ favourites are underpriced vs realized win rate"
 account: cat                  # ~/.polylab/accounts.env 의 POLYBOT_CAT__* 로 해석
-mode: live                    # live | paper | off
-sports: [soccer, nfl]
-stake_usdc: 5                 # ladder 5→10→25→50→100 (registry.STAKE_LADDER)
+mode: live                    # live | paper | off (마스터 스위치: 종목 mode 보다 엄격한 쪽이 적용)
+sports: [soccer, nfl]         # 목록(모든 종목이 mode·stake_usdc 공유) 또는 종목별 매핑(2026-10-05~):
+# sports: {soccer: {mode: live, stake_usdc: 5}, nba: {mode: paper, stake_usdc: 5, limits: {max_open_usdc: 50}}}
+stake_usdc: 5                 # ladder 5→10→25→50→100 (registry.STAKE_LADDER), 종목별 매핑이면 종목마다
 params: {...}                 # 현재 값
 bounds: {param: [min, max, max_step]}   # autopilot 탐색 경계
 limits: {max_positions: 20, max_open_usdc: 300, daily_loss_stop_usdc: 50}
@@ -110,13 +113,15 @@ limits: {max_positions: 20, max_open_usdc: 300, daily_loss_stop_usdc: 50}
 | polylab-stream | 상시 | sports+market WebSocket daemon, 빌드당 59분·끝나면 즉시 다음 빌드가 이어받음 |
 | polylab-backfill | 매시 | 종료 경기 prices-history·체결·정산 백필 + 2026-02 이후 과거 경기 점진 백필 |
 | polylab-publish | 5분 | git pull → 대시보드 JSON(Supabase Storage) → `health --alert`(상태 변화 시만 Slack) |
+| polylab-general / -general-discover | 1분 / 10분 | 전 카테고리 종료 4일 이내 마켓 호가(data/general) / 등록·정산 + 과거 가격 백필 |
+| polylab-storage-compact | 매월 3일 04:00 | 지난 달 shard VACUUM(삭제 없음). 데이터 증가 예산(월 50GB, 상한 100GB)은 `polylab health` 가 5분마다 점검 |
 | polylab-retro-daily | 03:30, 08:00, 19:30 | 결정론 리포트 → claude(→codex) 회고 → validator → commit/push → publish → Slack |
 | polylab-retro-weekly | 월 08:30 | + 백테스트 grid·paper 변형 제안·codex second opinion |
 | polylab-retro-monthly | 매월 1일 09:00 | + 논문용 월간 연구 요약 docs/research/monthly |
 
 모든 잡은 macOS TCC 때문에 `ssh polylab-local` 을 거쳐 실행된다(`docs/ops/macmini-runbook.md`).
 
-**Stake ladder (결정론)**: 모든 변형은 5 USDC에서 시작. 현 단위에서 정산 거래 ≥ 20, 순손익 > 0, 거래당 ROI의
+**Stake ladder (결정론)**: 모든 변형은 5 USDC에서 시작(종목별 매핑 변형은 (변형, 종목)마다 따로 판정·적용). 현 단위에서 정산 거래 ≥ 20, 순손익 > 0, 거래당 ROI의
 bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액(5→10→25→50→100, 상한 100).
 최근 20건 순손익 < 0 이고 ROI 하한 < 0 이면 한 단계 감액. 5에서 40건 이상 누적 손실이면 paper 로 강등.
 단위 변경 후 최소 3일 cooldown.

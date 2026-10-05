@@ -43,27 +43,6 @@ def _fee(env, cond="c-g", raw=FEE_V3):
 
 # ---------------------------------------------------------------- cherry
 
-def test_cherry_entry_freezes_new_rules_and_in_play_window(env):
-    now = T0
-    env.us_game("ip", "mlb", now - 50 * 60)                       # 50 min in play
-    env.bar("ip-h", now - 60, 0.92)
-    level_book(env, "ip-h", now - 30, 0.915, 0.925)
-    env.us_game("late", "mlb", now - 90 * 60)                     # 90 min in play: outside 60
-    env.bar("late-h", now - 60, 0.92)
-    level_book(env, "late-h", now - 30, 0.915, 0.925)
-    env.us_game("pre", "mlb", now + 80 * 3600)                    # > 72 h pre-game
-    env.bar("pre-h", now - 60, 0.92)
-    level_book(env, "pre-h", now - 30, 0.915, 0.925)
-    s = Cherry({"buy_threshold": 0.90, "sell_threshold": 0.95, "entry_hours_max": 72, "in_play_max_minutes": 60,
-                "take_profit_delta": 0.03, "hold_above_price": 0.99, "stop_loss_percent": None,
-                "take_profit_percent": None, "trailing_enabled": False}, variant("cherry", ["mlb"]))
-    [it] = s.entry_signals(env.view(now), now, Ledger())
-    assert it.game_key == "ip" and it.features["in_play"]
-    r = it.exit_rules
-    assert r["take_profit_delta"] == 0.03 and r["hold_above_price"] == 0.99
-    assert r["stop_loss_percent"] is None and r["take_profit_percent"] is None and r["trailing_enabled"] is False
-
-
 def test_cherry_absolute_tp_threshold_and_net_positive(env):
     env.us_game("g", "mlb", T0)
     _fee(env)

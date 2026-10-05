@@ -91,6 +91,7 @@ sequenceDiagram
 | cooldown | 같은 변형의 파라미터·단위 변경 후 3일 |
 | 단위 | ladder(5·10·25·50·100) 한 단계씩, **증액은 결정론 게이트 통과 시에만**, 감액은 항상 허용, 상한 100 |
 | 모드 | AI 는 live 로 올릴 수 없음(live→paper/off, paper→off 만) |
+| 종목별 변형 | yaml `sports` 가 종목별 매핑이면 제안에 `"sport"` 를 쓴다. params 는 `sport_overrides.<종목>.*`, stake·mode 는 그 종목만. params·stake 는 종목 필수. 표본·cooldown·ladder 는 종목별(2026-10-05) |
 | 신규 변형 | paper·5 USDC 로만, 기반 변형의 bounds·limits 상속 |
 | 회당 변경 수 | 일일 2 · 주간 5 · 월간 4, 변형당 1건 |
 | 테스트 게이트 | 적용 후 전체 pytest 실패 시 원복 |

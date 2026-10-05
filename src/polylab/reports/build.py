@@ -175,8 +175,7 @@ def param_history(paths, vid: str) -> list[dict]:
 
 
 def stake_events(paths, vid: str) -> list[dict]:
-    rows = _strategy_rows(paths, vid, "SELECT ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence "
-                                      "FROM stake_events ORDER BY ts")
+    rows = _strategy_rows(paths, vid, "SELECT * FROM stake_events ORDER BY ts")  # `sport` only on newer ledgers
     out = []
     for r in rows:
         try:
@@ -184,7 +183,8 @@ def stake_events(paths, vid: str) -> list[dict]:
         except json.JSONDecodeError:
             ev = {}
         out.append({"at": C.iso(r["ts"]), "ts": r["ts"], "from_usdc": r["from_usdc"], "to_usdc": r["to_usdc"],
-                    "from_mode": r["from_mode"], "to_mode": r["to_mode"], "reason": r["reason"], "evidence": ev})
+                    "from_mode": r["from_mode"], "to_mode": r["to_mode"], "reason": r["reason"], "evidence": ev,
+                    "sport": r.get("sport")})
     return out
 
 
@@ -209,8 +209,9 @@ def changes_in_window(vid: str, history: list[dict], stakes: list[dict], since: 
     for s in stakes:
         if since <= (s["ts"] or 0) < until:
             mode = f", {s['from_mode']}→{s['to_mode']}" if s["from_mode"] != s["to_mode"] else ""
+            who = f"{vid}[{s['sport']}]" if s.get("sport") else vid
             out.append({"at": s["at"], "variant_id": vid, "type": "stake",
-                        "summary": f"{vid} stake {s['from_usdc']}→{s['to_usdc']} USDC{mode}", "rationale": s["reason"]})
+                        "summary": f"{who} stake {s['from_usdc']}→{s['to_usdc']} USDC{mode}", "rationale": s["reason"]})
     return out
 
 
@@ -432,16 +433,39 @@ def load_variants() -> tuple[list, str | None]:
         return [], f"registry: {exc}"
 
 
-def ladder_view(v, paths, now: int | None = None) -> dict:
-    lad = integrations.ladder_status(v, paths, now)
+def ladder_view(v, paths, now: int | None = None, sport: str | None = None) -> dict:
+    lad = integrations.ladder_status(v, paths, now, sport=sport)
     return {k: lad.get(k) for k in ("status", "action", "trades_at_tier", "needed", "roi_ci_lo", "next_stake_usdc",
                                      "promote_ok", "to_mode", "reason", "available")}
+
+
+def sports_detail(v, paths, now: int, df: pd.DataFrame) -> list[dict]:
+    """Per-sport mode / stake / ladder (dashboard contract `sports_detail`, additive 2026-10-05).
+
+    Per-sport variants get one ladder per sport (that sport's trades and stake events); legacy
+    list-form variants share the variant-level ladder, so their rows carry `ladder: null`."""
+    out = []
+    for sport in v.sports:
+        mode = v.sport_mode(sport)
+        sub = df[df["sport"] == sport] if df is not None and not df.empty and "sport" in df else None
+        settled = performance.settled(sub, mode if mode != "off" else "paper") if sub is not None else None
+        n = int(len(settled)) if settled is not None else 0
+        pnl = float(settled["realized_pnl"].sum()) if n else 0.0
+        cost = float(settled["cost_usdc"].sum()) if n and "cost_usdc" in settled else 0.0
+        out.append({"sport": sport, "mode": mode, "stake_usdc": v.sport_stake(sport),
+                    "params": registry.effective_params(v.params, sport),
+                    "limits": v.sport_limits(sport) or None,
+                    "trades": n, "pnl": round(pnl, 4), "roi": round(pnl / cost, 6) if cost else None,
+                    "ladder": ladder_view(v, paths, now, sport) if v.per_sport else None})
+    return out
 
 
 def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) -> dict:
     df = performance.load_variant_positions(paths.strategy_db(v.id))
     live, paper = performance.settled(df, "live"), performance.settled(df, "paper")
-    primary = live if v.mode == "live" or paper.empty else paper
+    primary = live if v.effective_mode == "live" or paper.empty else paper
+    detail = sports_detail(v, paths, now, df)
+    head = next((d for d in detail if d["sport"] == v.primary_sport()), None) if v.per_sport else None
     history, stakes = param_history(paths, v.id), stake_events(paths, v.id)
     changes = changes_in_window(v.id, history, stakes, since, until)
     last_change = None
@@ -450,9 +474,11 @@ def variant_state(v, paths, core: CoreLookup, now: int, since: int, until: int) 
         lc = max(all_changes, key=lambda c: c["at"] or "")
         last_change = {"at": lc["at"], "summary": lc["summary"]}
     opens = open_position_rows(v, df, core, now)
-    return {"id": v.id, "family": v.family, "hypothesis": v.hypothesis, "mode": v.mode, "account": v.account,
-            "sports": v.sports, "stake_usdc": v.stake_usdc, "params": v.params, "bounds": v.bounds,
-            "limits": v.limits, "yaml": v.to_yaml(), "ladder": ladder_view(v, paths, now),
+    return {"id": v.id, "family": v.family, "hypothesis": v.hypothesis, "mode": v.effective_mode,
+            "master_mode": v.mode, "account": v.account, "per_sport": v.per_sport, "sports_detail": detail,
+            "sports": v.sports, "stake_usdc": head["stake_usdc"] if head else v.stake_usdc,
+            "params": v.params, "bounds": v.bounds, "limits": v.limits, "yaml": v.to_yaml(),
+            "ladder": head["ladder"] if head else ladder_view(v, paths, now),
             "live": performance.summary(live, now), "paper": performance.summary(paper, now),
             "primary_mode": "live" if primary is live else "paper",
             "breakdown": performance.breakdown(primary), "equity_curve": performance.equity_curve(primary),

@@ -72,3 +72,19 @@ jobs:
     cron: "H * * * *"
     timeout_minutes: 40
     command: "rc=0; uv run --no-sync polylab ou05 discover || rc=$?; uv run --no-sync polylab ou05 backfill --budget-minutes 25 || rc=$?; uv run --no-sync polylab analyze ou05 --no-export || rc=$?; exit $rc"
+  polylab-general:
+    description: "1분마다: 종료(end_ref)까지 4일 이내인 전 카테고리 마켓(general, core.db 미추적분)의 YES 토큰 L1 호가 → data/general/YYYY-MM.db. 변화 시 또는 10분마다 1행. 예산 초과 시 POLYLAB_GENERAL_POLL_EVERY=5 로 5분 주기(단 paper 체결은 180초 신선도라 대부분 미체결). cherry 진입·청산의 데이터"
+    cron: "* * * * *"
+    timeout_minutes: 2
+    keep_builds: 1500
+    command: "uv run --no-sync polylab general poll"
+  polylab-general-discover:
+    description: "10분마다: Gamma 전 카테고리에서 end_ref 4일 이내·거래량 5천+ 마켓 등록(volume/liquidity 이력), 종료·정산 반영 → 이어서 종료 마켓 과거 가격 백필(2026-02-01~, 거래량 1만+, 종료 전 4.5일, 5분 fidelity, 6분 예산, 재개 가능)"
+    cron: "H/10 * * * *"
+    timeout_minutes: 9
+    command: "rc=0; uv run --no-sync polylab general discover || rc=$?; uv run --no-sync polylab general backfill --budget-minutes 6 || rc=$?; exit $rc"
+  polylab-storage-compact:
+    description: "매월 3일 04:00 KST: 지난 달 이전 shard(books/ou05/general) 중 하루 이상 쓰기가 없는 것을 VACUUM(삭제 없음). 증가 예산 점검은 polylab health 가 5분마다"
+    cron: "TZ=Asia/Seoul\n0 4 3 * *"
+    timeout_minutes: 60
+    command: "uv run --no-sync polylab storage compact --apply"

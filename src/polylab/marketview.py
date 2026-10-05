@@ -200,13 +200,15 @@ class MarketView:
 
     def __init__(self, core: sqlite3.Connection, books: list[sqlite3.Connection] | None = None,
                  historical: bool = False, synthetic_spread: float | None = None,
-                 synthetic_depth_usd: float = 1e6):
+                 synthetic_depth_usd: float = 1e6, general=None):
         self.core = core
         self.books = books or []
         self.historical = historical
         self.synthetic_spread = synthetic_spread
         self.synthetic_depth_usd = synthetic_depth_usd
         self._markets_cache: dict[str, list[Market]] = {}
+        # data/general (polylab.general.view.GeneralView): consulted only on a core.db miss (cherry's markets)
+        self.general = general
 
     # -- construction
     @classmethod
@@ -215,6 +217,9 @@ class MarketView:
         core = _ro(paths.core_db)
         if core is None:
             raise FileNotFoundError(f"core db missing: {paths.core_db}")
+        if "general" not in kw:
+            from polylab.general.view import GeneralView  # noqa: PLC0415
+            kw["general"] = GeneralView.open(paths, now, historical=bool(kw.get("historical")))
         return cls(core, _open_book_shards(paths, now), **kw)
 
     def close(self) -> None:
@@ -223,6 +228,8 @@ class MarketView:
                 c.close()
             except Exception:
                 pass
+        if self.general is not None:
+            self.general.close()
 
     # -- games
     def game(self, game_key: str) -> Game | None:
@@ -296,7 +303,7 @@ class MarketView:
     def market(self, condition_id: str) -> Market | None:
         r = self.core.execute("SELECT game_key FROM markets WHERE condition_id=?", (condition_id,)).fetchone()
         if not r:
-            return None
+            return self.general_market(condition_id)
         if r["game_key"] is None:
             return None
         for m in self.markets(r["game_key"]):
@@ -306,12 +313,30 @@ class MarketView:
 
     def token_market(self, token_id: str) -> Market | None:
         r = self.core.execute("SELECT condition_id FROM tokens WHERE token_id=?", (token_id,)).fetchone()
+        if r is None and self.general is not None:
+            t = self.general.token(token_id)
+            if t is not None:
+                g = self.general.registry.execute("SELECT condition_id FROM gen_markets WHERE id=?", (t[0],)).fetchone()
+                return self.general_market(g[0]) if g else None
         return self.market(r["condition_id"]) if r else None
+
+    def general_market(self, condition_id: str) -> Market | None:
+        """A data/general market as a core-shaped Market (game_key None, market_type 'general'), core miss only."""
+        g = self.general.market(condition_id) if self.general is not None else None
+        if g is None:
+            return None
+        labels = list(g.outcomes) + [None, None]
+        return Market(g.condition_id, None, "general", g.question, None, None, g.volume, g.liquidity, g.fee_json,
+                      g.neg_risk, g.closed, g.resolved_index, g.closed_at,
+                      (Token(g.yes_token, g.condition_id, 0, labels[0], "yes"),
+                       Token(g.no_token, g.condition_id, 1, labels[1], "no")))
 
     def resolution(self, condition_id: str, now: int) -> int | None:
         """Winning outcome index if the market was resolved at or before `now`."""
         r = self.core.execute(
             "SELECT resolved_outcome_index, resolved_at FROM markets WHERE condition_id=?", (condition_id,)).fetchone()
+        if r is None and self.general is not None:
+            return self.general.resolution(condition_id, now)
         if not r or r["resolved_outcome_index"] is None:
             return None
         if r["resolved_at"] is None:
@@ -330,7 +355,7 @@ class MarketView:
             "SELECT ts, source, price FROM price_bars WHERE token_id=? AND ts<=? ORDER BY ts DESC LIMIT 6",
             (token_id, now)).fetchall()
         if not rows:
-            return None
+            return self.general.price(token_id, now, max_age_s) if self.general is not None else None
         top = rows[0]["ts"]
         best = min((r for r in rows if r["ts"] == top), key=lambda r: PRICE_SOURCE_PRIORITY.get(r["source"], 9))
         if max_age_s is not None and now - top > max_age_s:
@@ -341,6 +366,8 @@ class MarketView:
         rows = self.core.execute(
             "SELECT ts, source, price FROM price_bars WHERE token_id=? AND ts>=? AND ts<=? ORDER BY ts",
             (token_id, since, until)).fetchall()
+        if not rows and self.general is not None:
+            return self.general.price_bars(token_id, since, until)
         best: dict[int, tuple[int, float]] = {}
         for r in rows:
             pri = PRICE_SOURCE_PRIORITY.get(r["source"], 9)
@@ -365,6 +392,10 @@ class MarketView:
         if best is not None and (max_age_s is None or now - best["ts"] <= max_age_s):
             bids, asks = decode_levels(best["levels_z"])
             return make_book(token_id, best["ts"], bids, asks, best["source"])
+        if best is None and self.general is not None:
+            l1 = self.general.l1(token_id, now, max_age_s)
+            if l1 is not None:
+                return make_book(token_id, l1[0], l1[1], l1[2], "general_l1")
         if self.synthetic_spread is None:
             return None
         p = self.price(token_id, now, max_age_s=max_age_s if max_age_s is not None else None)

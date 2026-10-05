@@ -197,6 +197,15 @@ def section_exits(r: dict) -> list[str]:
             *_table(["변형", "원장", "청산 사유", "기간 건수", "기간 손익", "누적 건수", "누적 손익"], rows), ""]
 
 
+def sports_cell(v: dict) -> str:
+    """`soccer(L5)·nba(L5)·nhl(P5)` for per-sport variants, the plain sport list otherwise."""
+    if not v.get("per_sport"):
+        return ",".join(v["sports"])
+    tag = {"live": "L", "paper": "P", "off": "off"}
+    return "·".join(f"{d['sport']}({tag.get(d['mode'], d['mode'])}{d['stake_usdc']:g})"
+                    for d in v.get("sports_detail") or [])
+
+
 def section_variants(r: dict) -> list[str]:
     lines = ["## 전략 변형 현황", ""]
     rows = []
@@ -206,13 +215,26 @@ def section_variants(r: dict) -> list[str]:
         lad_txt = "–" if lad.get("status") is None else \
             f"{lad['status']} ({_esc(lad.get('trades_at_tier'))}/{_esc(lad.get('needed'))}, ROI하한 {_n(lad.get('roi_ci_lo'), 3)})"
         rows.append([v["id"], v["mode"], f"{v['stake_usdc']:g}", v.get("account") or "–",
-                     ",".join(v["sports"]), _n(s["pnl"]["today"], sign=True), _n(s["pnl"]["d7"], sign=True),
+                     sports_cell(v), _n(s["pnl"]["today"], sign=True), _n(s["pnl"]["d7"], sign=True),
                      _n(s["pnl"]["d30"], sign=True), _n(s["pnl"]["all"], sign=True),
                      f"{s['trades']['all']} ({s['trades']['wins']}/{s['trades']['losses']})", _pct(s["win_rate"]),
                      _pct(s["roi"]), len(v["open"]), lad_txt])
     lines += _table(["변형", "모드", "단위$", "계좌", "종목", "오늘", "7일", "30일", "누적", "거래(승/패)", "승률",
                      "ROI", "보유", "ladder"], rows)
-    lines += ["", "(paper 변형의 손익은 paper 원장 기준이며 실손익이 아니다.)", "", "### 파라미터", ""]
+    lines += ["", "(paper 변형의 손익은 paper 원장 기준이며 실손익이 아니다. 종목 칸 L=live, P=paper, off=중지, 숫자=단위$.)"]
+    per_sport = [v for v in r["variants"] if v.get("per_sport")]
+    if per_sport:
+        lines += ["", "### 종목별 모드·단위·ladder", ""]
+        srows = []
+        for v in per_sport:
+            for d in v.get("sports_detail") or []:
+                lad = d.get("ladder") or {}
+                lad_txt = "–" if lad.get("status") is None else \
+                    f"{lad['status']} ({_esc(lad.get('trades_at_tier'))}/{_esc(lad.get('needed'))})"
+                srows.append([v["id"], d["sport"], d["mode"], f"{d['stake_usdc']:g}", d.get("trades", 0),
+                              _n(d.get("pnl"), sign=True), _pct(d.get("roi")), lad_txt])
+        lines += _table(["변형", "종목", "모드", "단위$", "정산", "손익", "ROI", "ladder"], srows)
+    lines += ["", "### 파라미터", ""]
     for v in r["variants"]:
         params = ", ".join(f"{k}={val}" for k, val in sorted(v["params"].items()))
         lines.append(f"- `{v['id']}` ({v['family']}): {params or '–'}")
@@ -276,6 +298,26 @@ def section_open(r: dict) -> list[str]:
     return lines + [""]
 
 
+STORAGE_LEVEL_KO = {"ok": "예산 안", "warn": "경고(> 50GB/월)", "critical": "상한 초과(> 100GB/월)"}
+
+
+def storage_lines(st: dict | None) -> list[str]:
+    """Data growth budget (ops/storage.py): 30-day projection per area from the last 7 days."""
+    if not st or st.get("error"):
+        return [f"- 데이터 증가 예산: 측정 실패 ({_esc((st or {}).get('error'))})"] if st else []
+    areas = st.get("areas") or {}
+    parts = [f"{n} {r['gb_30d']:g}" for n, r in sorted(areas.items(), key=lambda x: -(x[1].get("gb_30d") or 0))
+             if r.get("gb_30d")]
+    proj = st.get("projected_30d_gb")
+    head = (f"- 데이터 증가 예상 {proj:g}GB/월 ({STORAGE_LEVEL_KO.get(st.get('level'), '-')}, 현재 총 "
+            f"{st.get('total_gb_now')}GB)" if proj is not None else
+            f"- 데이터 증가 예상: 측정 중(표본 1일 미만), 현재 총 {st.get('total_gb_now')}GB")
+    out = [head + (": " + ", ".join(parts) + " GB" if parts else "")]
+    if st.get("unmeasured_areas"):
+        out.append("  - 아직 증가율을 모르는 영역: " + ", ".join(st["unmeasured_areas"]))
+    return out
+
+
 def section_health(r: dict) -> list[str]:
     h = r["health"]
     c = h.get("collector") or {}
@@ -295,6 +337,7 @@ def section_health(r: dict) -> list[str]:
               f"books {_esc(h.get('books_db_mb'))}MB, 전략 DB {_esc(h.get('strategies_db_mb'))}MB"]
     q = c.get("quality_24h") or {}
     lines.append("- 품질 이벤트(24h): " + (", ".join(f"{k} {n}" for k, n in q.items()) if q else "없음"))
+    lines += storage_lines(h.get("storage"))
     jobs = h.get("jobs") or []
     if jobs:
         lines += ["", *_table(["잡", "상태", "마지막 실행", "마지막 성공", "연속 실패"],

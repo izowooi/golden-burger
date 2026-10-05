@@ -7,7 +7,10 @@
           * raw frames -> paths.raw_dir/YYYY-MM-DD/{market,sports}-HH.jsonl.gz, one line per frame
             {"received_at": <ms>, "raw": <frame json>}, appended as a new gzip member every ~15 s
             (a crash loses at most the unflushed buffer; the files stay valid multi-member gzip).
-            `new_market` broadcasts (unrelated markets) are not stored.
+            `new_market` broadcasts (unrelated markets) are not stored. Archive mode env POLYLAB_RAW_MARKET:
+            `lean` (default since 2026-10-05, storage budget): market frames without `price_change` events
+            (~95 % of the bytes: 1.6 GB/day mean, 3.3 GB on 2026-10-04); `full` = every frame; `off` = no market
+            archive. Processing (bars, quality) never depends on the mode; sports frames are always archived.
           * price_bars source='ws_last': last trade price per token per minute (exchange timestamp minute).
           * game_states source='ws_sports' whenever status/period/elapsed/score/live/ended changes;
             games.status/score/ended_at kept current.
@@ -49,6 +52,27 @@ TEMPLATE = REPO_ROOT / "ops" / "launchd" / f"{LABEL}.plist"
 PROD_ROOT = Path("/Volumes/t7/polylab")
 UV = "/Users/jongwoopark/.local/bin/uv"
 HEARTBEAT_STALE_S = 180
+RAW_MARKET_MODES = ("lean", "full", "off")
+LEAN_DROP_EVENTS = {"price_change"}
+
+
+def raw_market_mode() -> str:
+    mode = os.environ.get("POLYLAB_RAW_MARKET", "lean").strip().lower()
+    return mode if mode in RAW_MARKET_MODES else "lean"
+
+
+def archive_text(text: str, events: list[dict], mode: str) -> str | None:
+    """The market frame as archived under `mode` (None = not archived)."""
+    if mode == "off":
+        return None
+    if mode == "full":
+        return text
+    kept = [ev for ev in events if ev.get("event_type") not in LEAN_DROP_EVENTS]
+    if not kept:
+        return None
+    if len(kept) == len(events):
+        return text
+    return json.dumps(kept[0] if len(kept) == 1 else kept, separators=(",", ":"))
 FLUSH_EVERY_S = 15
 HEARTBEAT_EVERY_S = 10
 WS_GAP_S = 180
@@ -89,6 +113,7 @@ class Collector:
         self.paths = paths
         self.cfg = cfg or C.load_config()
         self.raw = {"market": RawWriter(paths.raw_dir, "market"), "sports": RawWriter(paths.raw_dir, "sports")}
+        self.raw_market_mode = raw_market_mode()
         self.bars: dict[tuple[str, int], tuple[float, int]] = {}
         self.states: list[tuple] = []
         self.game_updates: dict[str, dict] = {}
@@ -164,7 +189,10 @@ class Collector:
                 if m["crossed"]:
                     self.q.add("crossed_book_ws", ev["asset_id"], (m["best_bid"] or 0) - (m["best_ask"] or 0))
         if keep:
-            self.raw["market"].add(received_ms, text)
+            kept = [ev for ev in events if ev.get("event_type") != "new_market"]
+            archived = archive_text(text, kept, self.raw_market_mode)
+            if archived is not None:
+                self.raw["market"].add(received_ms, archived)
 
     def on_sports(self, text: str, received_ms: int) -> None:
         frames = ws_sports.parse_frame(text)

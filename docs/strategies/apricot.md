@@ -352,3 +352,14 @@ Everything else below is **suggested** and must be re-registered as a new cohort
 - The tick0 clock comes from the bot's own complete-snapshot history. A clean port must persist per-cycle, per-token snapshots, or at least the first complete-pair timestamp per event, before evaluating entry in the same cycle. The snapshot write happens before the scan (`bot.py` order: snapshots → Phase 1 exits → Phase 2 scan).
 - Entry-episode states make "one attempt per token" idempotent across crashes. They mark the queue as `QUEUED_NO_POST` before any POST (`bot.py:314-327`).
 - The economic guard uses confirmed/ledger truth only. Wallet cash flows are excluded.
+
+## 2026-10-05 종목별 설정과 MLB paper 전환
+
+- 대상 종목 MLB·NBA·NHL, 모두 **paper** 5 USDC(yaml `sports` 종목별 매핑, 파라미터 `sport_overrides.<종목>`).
+- tick 은 모든 종목에서 **벽시계**(tick0 = 두 팀 호가가 처음 실행 가능해진 분, 사실상 예정 시작) 이후 분이다. NBA·NHL 과거 경기 시계가
+  없어 이것만 백테스트할 수 있다. `entry_game_minute`(경기 시계 tick, NBA 0–48·NHL 0–60분)는 opt-in 으로만 있고 기본 null 이다.
+- NBA: prob_min 0.94, prob_max 0.99, TP 0.96, eco tick 50 / fruit tick 80. NHL: 같은 값, eco tick 140 / fruit tick 100.
+- MLB live→paper: 조기 익절(TP ≤ 0.96) 범위에서 두 반기 모두 0 이상인 조합이 없다. NBA·NHL 통과 조합은 정산 손실 0건일 때뿐이라
+  손실 1건이면 반기 손익이 음수가 된다. 손절이 없는 구조의 −100% 꼬리가 문제다(새 가설 필요).
+- 계좌 eco·fruit 와 마스터 `mode: live` 는 남은 live 포지션 정리용으로 유지한다.
+- 근거 `docs/research/backtests/2026-10-05-per-sport-nba-nhl.md`.

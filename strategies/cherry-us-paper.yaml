@@ -3,7 +3,7 @@ family: cherry
 hypothesis: 미국 종목 결과 마켓에서 0.80-0.82 YES 토큰이 정산 전에 1.0 으로 수렴하는 경향이 있는가. 실거래 전 paper
   검증용.
 account: null
-mode: paper
+mode: 'off'
 sports:
 - nfl
 - nba
@@ -70,4 +70,6 @@ limits:
   daily_loss_stop_usdc: 20
   max_new_per_cycle: 1
 notes: '2026-10-03 연구자 결정: 미국 종목은 수익 전략·파라미터가 확인될 때까지 수집과 paper 시뮬레이션만. cherry-blue
-  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다.'
+  의 현재 파라미터에서 출발. live 전환은 연구자만 결정한다. | 2026-10-05 은퇴(mode off): cherry 가 전 카테고리 전략(cherry:back-to-basics)으로
+  바뀌어 미국 종목 결과 마켓은 cherry-blue·tiger 의 범위(sports 카테고리)에 흡수됐다. 옛 0.80-0.82 밴드 파라미터는
+  새 cherry 코드가 읽지 않는다. 원장은 보존.'

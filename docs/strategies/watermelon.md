@@ -333,3 +333,14 @@ Holdings are processed every cycle in `bot.py:218-301`, via `execute_sell` (`tra
 - 진입 시점의 TP 값이 포지션에 고정된다(기존 포지션은 정산까지 보유).
 - cat: delta 0.02, dog: delta 0.04, 공통 cap 0.99, prob_min 0.93, `max_sells_per_cycle` 5.
 - 근거: 1분 주기로는 막판 급락에서 손절이 체결되지 않음(아일랜드 0.92→0.17). 백테스트(합성 호가)는 TP 가 보유 대비 ROI 약 1%p 낮다고 보지만, 합성 호가는 손절 체결을 과대평가하므로 실거래 A/B 로 검증한다. 상세 `docs/research/backtests/2026-10-02-watermelon-tp-apricot.md`.
+
+## 2026-10-05 종목별 설정 (연구자 결정 `sports3:per-sport`)
+
+- yaml `sports` 가 종목별 매핑이다. 종목마다 mode·단위(5 USDC 시작)·ladder 가 따로이고, 파라미터는 `sport_overrides.<종목>`.
+- soccer: 기존 값·live 그대로(조기 익절 cat 0.02 / dog 0.04).
+- NBA: **live**. cat prob_min 0.87, dog 0.96, 손절 0.70, `take_profit_delta: null`(조기 익절 없음 — NBA 백테스트에서 조기 익절 셀은 강건하지
+  않았다), hours_max 5, NBA 전용 한도(동시 10건·보유 50·일일 손실 15 USDC). 현재 수수료(0.05) 엔진 재생 cat +1.02%·dog +0.89%(두 반기 양수).
+  배포되면 10월 NBA 프리시즌 경기부터 진입한다(프리시즌 표본은 3경기뿐).
+- NHL: paper(cat 0.87 / dog 0.96, 손절 0.75, 익절 없음) — 강건한 양수 조합 없음.
+- 위험: 합성 호가 기준이다. 15분 최악 가격으로 손절을 다시 매기면 음수로 뒤집힌다. 첫 실거래 손절 체결가를 확인할 것.
+- 근거 `docs/research/backtests/2026-10-05-per-sport-nba-nhl.md`.

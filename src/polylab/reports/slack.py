@@ -14,6 +14,7 @@ import requests
 from polylab import settings
 from polylab.reports import build
 from polylab.reports import games as games_mod
+from polylab.reports.render import sports_cell
 
 DASHBOARD_URL = "https://poly.zowoo.uk"
 _SECRET_PATTERNS = (
@@ -129,7 +130,8 @@ def report_blocks(report: dict, url: str) -> tuple[str, list[dict]]:
         if v["mode"] == "off":
             continue
         pnl = v["live"]["pnl"] if v["mode"] == "live" else v["paper"]["pnl"]
-        rows.append(f"`{v['id']}` {v['mode']} {v['stake_usdc']:g}$ ({v.get('account') or '-'}) "
+        head = f"[{sports_cell(v)}]" if v.get("per_sport") else f"{v['mode']} {v['stake_usdc']:g}$"
+        rows.append(f"`{v['id']}` {head} ({v.get('account') or '-'}) "
                     f"오늘 {_fmt(pnl.get('today'))} / 누적 {_fmt(pnl.get('all'))}")
     alerts = [a["message"] for a in report.get("alerts", [])][:5]
     changes = [c["summary"] for c in report.get("changes", [])][:5]

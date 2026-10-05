@@ -16,6 +16,10 @@ proposal.json (schema "polylab.proposal/v1"):
     {"variant_id": "...", "change": "retire", "values": {}, ...}
   ]
 }
+Per-sport variants (yaml `sports:` mapping, 2026-10-05) take an optional "sport" on params / stake /
+mode changes: params become `sport_overrides.<sport>.<name>` (bounds: that dotted key, else the base
+name), stake and mode move only that sport. On per-sport variants params and stake changes must
+name a sport. Nothing ever moves to live (human only).
 """
 
 from __future__ import annotations
@@ -32,7 +36,8 @@ from polylab.registry import MAX_STAKE_USDC, MIN_STAKE_USDC, STAKE_LADDER, Varia
 
 SCHEMA = "polylab.proposal/v1"
 CHANGE_TYPES = ("params", "stake", "mode", "new_variant", "retire")
-CHANGE_KEYS = {"variant_id", "change", "values", "rationale", "evidence"}
+CHANGE_KEYS = {"variant_id", "change", "values", "rationale", "evidence", "sport"}
+SPORTS = ("soccer", "mlb", "nba", "nfl", "nhl")
 ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{1,62}$")
 SAFE_MODE_TRANSITIONS = {("live", "paper"), ("live", "off"), ("paper", "off")}
 NEW_VARIANT_KEYS = {"based_on", "family", "hypothesis", "sports", "params", "account", "limits", "notes"}
@@ -92,6 +97,7 @@ class Facts:
     last_stake_change_ts: int | None = None
     promote_ok: bool | None = None       # deterministic ladder gate (polylab.risk); None = unavailable
     idle: bool = False                   # 0 entries for 3+ days although target games were played
+    by_sport: dict[str, "Facts"] = field(default_factory=dict)   # per-sport variants only
 
 
 @dataclass
@@ -117,6 +123,7 @@ class Decision:
 
     def as_dict(self) -> dict:
         out = {"variant_id": self.change.get("variant_id"), "change": self.change.get("change"),
+               **({"sport": self.change["sport"]} if self.change.get("sport") else {}),
                "values": self.change.get("values"), "rationale": self.change.get("rationale"),
                "source": self.source, "accepted": self.accepted, "reason": self.reason, "summary": self.summary}
         if self.backtest is not None:
@@ -213,6 +220,51 @@ def evidence_key(variant_id: str, values: dict) -> str:
     return f"{variant_id}|{json.dumps(norm, sort_keys=True)}"
 
 
+def resolve_params(ch: dict, v: Variant) -> tuple[dict, dict, dict]:
+    """(values, bounds, current params) of a params change, with a sport-targeted change mapped onto
+    `sport_overrides.<sport>.<name>`: bounds from that dotted key, else the base name; the current value
+    is the sport's effective one (override if present, else base)."""
+    new = ch["values"].get("params", ch["values"])
+    sport = ch.get("sport")
+    if not sport or not isinstance(new, dict):
+        return new, v.bounds, v.params
+    prefix = f"sport_overrides.{sport}."
+    values, bounds, current = {}, dict(v.bounds), copy.deepcopy(v.params)
+    for name, value in new.items():
+        if name.startswith("sport_overrides."):
+            if not name.startswith(prefix):
+                raise Reject(f"param {name} targets another sport than {sport}")
+            base = name[len(prefix):]
+        else:
+            base = name
+        key = prefix + base
+        values[key] = value
+        if key not in bounds and base in v.bounds:
+            bounds[key] = v.bounds[base]
+        absent = object()
+        if get_path(current, key, absent) is absent and get_path(v.params, base, absent) is not absent:
+            set_path(current, key, copy.deepcopy(get_path(v.params, base)))
+    return values, bounds, current
+
+
+def _dotted_sport(ch: dict) -> str | None:
+    """The sport of a params change whose keys are all `sport_overrides.<one sport>.*`."""
+    vals = ch.get("values") if ch.get("change") == "params" else None
+    vals = vals.get("params", vals) if isinstance(vals, dict) else None
+    if not isinstance(vals, dict) or not vals:
+        return None
+    sports = {k.split(".")[1] for k in vals if isinstance(k, str) and k.startswith("sport_overrides.") and k.count(".") >= 2}
+    if len(sports) == 1 and all(isinstance(k, str) and k.startswith("sport_overrides.") for k in vals):
+        return sports.pop()
+    return None
+
+
+def change_facts(ch: dict, ctx: Context) -> Facts:
+    f = ctx.facts.get(ch.get("variant_id"), Facts())
+    sport = ch.get("sport")
+    return f.by_sport.get(sport, Facts()) if sport else f
+
+
 def needs_backtest(ch: dict, ctx: Context, rules: Rules) -> bool:
     """A params change that the plain rules would refuse for sample size or step size only."""
     if not isinstance(ch, dict) or ch.get("change") != "params" or not isinstance(ch.get("values"), dict):
@@ -220,13 +272,16 @@ def needs_backtest(ch: dict, ctx: Context, rules: Rules) -> bool:
     v = ctx.variants.get(ch.get("variant_id"))
     if v is None:
         return False
-    if ctx.facts.get(v.id, Facts()).trades_at_version < rules.min_trades_params:
+    if change_facts(ch, ctx).trades_at_version < rules.min_trades_params:
         return True
-    new = ch["values"].get("params", ch["values"])
+    try:
+        new, bounds, current = resolve_params(ch, v)
+    except Reject:
+        return False
     if not isinstance(new, dict):
         return False
     for name, value in new.items():
-        bound, old = v.bounds.get(name), get_path(v.params, name)
+        bound, old = bounds.get(name), get_path(current, name)
         if isinstance(bound, (list, tuple)) and len(bound) >= 2 and _num(value) and _num(old) and \
                 all(_num(b) for b in bound[:2]) and abs(float(value) - float(old)) > _step(bound, rules) + 1e-9:
             return True
@@ -281,8 +336,12 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         raise Reject("rationale required")
     if "evidence" in ch and not isinstance(ch["evidence"], (dict, list, str)):
         raise Reject("evidence must be an object")
-    if vid in state["touched"]:
-        raise Reject("only one change per variant per retro")
+    sport = ch.get("sport")
+    if sport is not None and (kind not in ("params", "stake", "mode") or sport not in SPORTS):
+        raise Reject("sport is allowed only on params/stake/mode changes and must be one of " + "/".join(SPORTS))
+    if vid in state["touched"] or (vid, sport) in state["touched"] or \
+            (sport is None and any(isinstance(t, tuple) and t[0] == vid for t in state["touched"])):
+        raise Reject("only one change per variant (per sport) per retro")
 
     if kind == "new_variant":
         return _validate_new(vid, values, ctx, rules, state)
@@ -290,13 +349,21 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
     v = ctx.variants.get(vid)
     if v is None:
         raise Reject(f"unknown variant {vid}")
-    f = ctx.facts.get(vid, Facts())
+    if sport is not None and sport not in v.sports:
+        raise Reject(f"variant {vid} does not cover {sport}")
+    if sport is not None and kind in ("stake", "mode") and not v.per_sport:
+        raise Reject("per-sport stake/mode needs a per-sport variant (yaml sports mapping)")
+    if sport is None and kind in ("params", "stake") and v.per_sport:
+        raise Reject(f"{vid} has per-sport settings: name the sport for a {kind} change")
+    f = change_facts(ch, ctx)
+    where = f"[{sport}] " if sport else ""
 
     if kind == "params":
-        if v.mode == "off":
-            raise Reject("variant is off")
-        new = values.get("params", values)
-        fixed = sorted(set(new) & set(ctx.fixed_params.get(vid, ()))) if isinstance(new, dict) else []
+        if v.mode == "off" or (sport and v.sport_mode(sport) == "off"):
+            raise Reject("variant is off" if not sport else f"{sport} is off")
+        raw = values.get("params", values)
+        new, bounds, current = resolve_params(ch, v)
+        fixed = sorted(set(raw) & set(ctx.fixed_params.get(vid, ()))) if isinstance(raw, dict) else []
         if fixed:
             raise Reject(f"owner-fixed params {fixed} (reports/decisions.md): propose via attention instead")
         if f.last_param_change_ts and ctx.now - f.last_param_change_ts < rules.cooldown_params_s:
@@ -304,53 +371,55 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         few = f.trades_at_version < rules.min_trades_params
         eligible = rules.backtest_retune and (f.idle or not rules.backtest_idle_only)
         if not few and (not eligible or not needs_backtest(ch, ctx, rules)):
-            return ", ".join(_check_params(new, v.params, v.bounds, rules, relative=True))
+            return where + ", ".join(_check_params(new, current, bounds, rules, relative=True))
         why = (f"only {f.trades_at_version} settled trades at current params (< {rules.min_trades_params})" if few
                else "step > max_step")
         if not rules.backtest_retune:
             raise Reject(why)
         if not eligible:
             raise Reject(f"{why}; backtest-backed retune in this retro only for idle variants")
-        parts = _check_params(new, v.params, v.bounds, rules, relative=True, step_mult=rules.backtest_max_step_mult)
+        parts = _check_params(new, current, bounds, rules, relative=True, step_mult=rules.backtest_max_step_mult)
         ev = ctx.backtests.get(evidence_key(vid, new))
         if ev is None:
             raise NeedsBacktest(f"{why}; no retro-run backtest for these exact values "
                                 "(AI-stated evidence is not accepted)")
-        ok, verdict = backtest_gate(ev, rules, v.stake_usdc)
+        ok, verdict = backtest_gate(ev, rules, v.sport_stake(sport))
         if not ok:
             raise Reject(f"{why}; backtest gate failed: {verdict}")
         state["backtest"] = ev
-        return ", ".join(parts) + f" [backtest: {verdict}]"
+        return where + ", ".join(parts) + f" [backtest: {verdict}]"
 
     if kind == "stake":
         if set(values) != {"stake_usdc"} or not _num(values["stake_usdc"]):
             raise Reject("stake values must be {stake_usdc: number}")
         new = float(values["stake_usdc"])
+        cur = v.sport_stake(sport)
         if new > MAX_STAKE_USDC or new not in STAKE_LADDER:
             raise Reject(f"stake {new:g} not on ladder {STAKE_LADDER}")
-        if v.stake_usdc not in STAKE_LADDER:
+        if cur not in STAKE_LADDER:
             raise Reject("current stake not on ladder")
-        step = STAKE_LADDER.index(new) - STAKE_LADDER.index(v.stake_usdc)
+        step = STAKE_LADDER.index(new) - STAKE_LADDER.index(cur)
         if step == 0:
             raise Reject("stake unchanged")
         if abs(step) != 1:
             raise Reject("stake may move only one ladder step")
         if step > 0:
-            if v.mode != "live":
-                raise Reject("stake promotion only for live variants")
+            if v.sport_mode(sport) != "live":
+                raise Reject("stake promotion only for live variants" + (f" ({sport} is not live)" if sport else ""))
             if f.promote_ok is not True:
                 raise Reject("ladder gate not passed (or polylab.risk unavailable): promotion refused")
             if f.last_stake_change_ts and ctx.now - f.last_stake_change_ts < rules.cooldown_stake_s:
                 raise Reject(f"stake cooldown: last change {(ctx.now - f.last_stake_change_ts) / 3600:.0f}h ago")
-        return f"stake {v.stake_usdc:g}→{new:g} USDC"
+        return f"{where}stake {cur:g}→{new:g} USDC"
 
     if kind == "mode":
         if set(values) != {"mode"}:
             raise Reject("mode values must be {mode: paper|off}")
         target = values["mode"]
-        if (v.mode, target) not in SAFE_MODE_TRANSITIONS:
-            raise Reject(f"mode {v.mode}→{target} not allowed (only toward safety; live needs a human)")
-        return f"mode {v.mode}→{target}"
+        cur = v.sport_mode(sport) if sport else v.mode
+        if (cur, target) not in SAFE_MODE_TRANSITIONS:
+            raise Reject(f"{where}mode {cur}→{target} not allowed (only toward safety; live needs a human)")
+        return f"{where}mode {cur}→{target}"
 
     if kind == "retire":
         if v.mode == "off":
@@ -409,7 +478,7 @@ def backtest_candidates(proposal: Any, ctx: Context, rules: Rules) -> list[tuple
         try:
             _validate_one(ch, ctx, rules, "dry-run", {"count": 0, "touched": set(), "new_variants": 0})
         except NeedsBacktest:
-            out.append((ch["variant_id"], dict(ch["values"].get("params", ch["values"]))))
+            out.append((ch["variant_id"], dict(resolve_params(ch, ctx.variants[ch["variant_id"]])[0])))
         except Reject:
             continue
     return out
@@ -433,6 +502,12 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
     for ch in proposal["changes"]:
         counted = source != "ladder"
         state.pop("backtest", None)
+        if isinstance(ch, dict) and ch.get("sport") is None:
+            ch = {k: v for k, v in ch.items() if k != "sport"}
+            target = ctx.variants.get(ch.get("variant_id"))
+            inferred = _dotted_sport(ch) if target is not None and target.per_sport else None
+            if inferred:   # per-sport variant: `sport_overrides.<sport>.<name>` keys name the sport themselves
+                ch["sport"] = inferred
         try:
             if counted and state["count"] >= rules.max_changes:
                 raise Reject(f"max {rules.max_changes} changes per retro")
@@ -440,7 +515,7 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
         except Reject as exc:
             out.append(Decision(ch if isinstance(ch, dict) else {}, source, False, str(exc)))
             continue
-        state["touched"].add(ch["variant_id"])
+        state["touched"].add((ch["variant_id"], ch["sport"]) if ch.get("sport") else ch["variant_id"])
         state["count"] += 1 if counted else 0
         if ch["change"] == "new_variant":
             state["new_variants"] += 1
@@ -467,9 +542,24 @@ def apply_to_variant(decision: Decision, ctx: Context) -> Variant:
                        stake_usdc=MIN_STAKE_USDC, params=params, bounds=copy.deepcopy(base.bounds), limits=limits,
                        notes=(values.get("notes") or f"autopilot paper variant from {base.id}"))
     v = copy.deepcopy(ctx.variants[vid])
+    sport = ch.get("sport")
     if kind == "params":
-        for k, val in values.get("params", values).items():
+        for k, val in resolve_params(ch, v)[0].items():
             set_path(v.params, k, val)
+    elif kind == "stake" and sport:
+        new = float(values["stake_usdc"])
+        active = [s for s in v.sports if v.sport_mode(s) != "off"] or v.sports
+        old_max = max(v.sport_stake(s) for s in active)
+        cfg = v.sport_settings.setdefault(sport, {})
+        ratio_sport = new / v.sport_stake(sport)
+        cfg["stake_usdc"] = new
+        for key in SCALED_LIMITS:                   # the sport's own caps follow its tier
+            if _num((cfg.get("limits") or {}).get(key)):
+                cfg["limits"][key] = round(float(cfg["limits"][key]) * ratio_sport, 2)
+        ratio = max(v.sport_stake(s) for s in active) / old_max
+        for key in SCALED_LIMITS:                   # variant caps follow the largest sport tier
+            if _num(v.limits.get(key)):
+                v.limits[key] = round(float(v.limits[key]) * ratio, 2)
     elif kind == "stake":
         new = float(values["stake_usdc"])
         ratio = new / float(v.stake_usdc) if v.stake_usdc else 1.0
@@ -477,6 +567,8 @@ def apply_to_variant(decision: Decision, ctx: Context) -> Variant:
             if _num(v.limits.get(key)):
                 v.limits[key] = round(float(v.limits[key]) * ratio, 2)
         v.stake_usdc = new
+    elif kind == "mode" and sport:
+        v.sport_settings.setdefault(sport, {})["mode"] = values["mode"]
     elif kind == "mode":
         v.mode = values["mode"]
     elif kind == "retire":

@@ -36,6 +36,7 @@ from typing import Callable
 from polylab import registry, settings
 from polylab.analysis import _common as C
 from polylab.analysis import performance
+from polylab.analysis.integrations import sport_of_params as integrations_sport
 from polylab.autopilot import context as ctxpack
 from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
@@ -168,7 +169,7 @@ def record_state(paths, kind: str, now: int, result: dict) -> None:
 
 # ------------------------------------------------------------------ facts & ladder
 
-def variant_facts(v, paths, ladder: dict, repo: Path) -> Facts:
+def variant_facts(v, paths, ladder: dict, repo: Path, sport_ladders: dict | None = None) -> Facts:
     """Sample size and cooldown clocks. param_versions also bumps on stake/mode changes, so the
     "current params" epoch starts at the first version whose params equal the latest params."""
     df = performance.load_variant_positions(paths.strategy_db(v.id))
@@ -188,27 +189,64 @@ def variant_facts(v, paths, ladder: dict, repo: Path) -> Facts:
             s = s[s["param_version"].isin(versions)]
     if last_param is None and v.path:
         last_param = gitops.last_commit_ts(Path(v.path), repo) if not history else None
-    return Facts(trades_at_version=int(len(s)), last_param_change_ts=last_param,
-                 last_stake_change_ts=max((x["ts"] for x in stakes if x["ts"]), default=None),
-                 promote_ok=ladder.get("promote_ok"))
+    facts = Facts(trades_at_version=int(len(s)), last_param_change_ts=last_param,
+                  last_stake_change_ts=max((x["ts"] for x in stakes if x["ts"]), default=None),
+                  promote_ok=ladder.get("promote_ok"))
+    if v.per_sport:
+        facts.by_sport = sport_facts(v, df, history, stakes, sport_ladders or {})
+    return facts
+
+
+def sport_facts(v, df, history: list[dict], stakes: list[dict], ladders: dict) -> dict[str, Facts]:
+    """Per-sport sample size and clocks. A sport's "current params" epoch starts at the first ledger
+    version whose effective params for that sport (base + sport_overrides.<sport>) equal the latest,
+    so adding another sport's overrides does not reset this sport's sample or cooldown."""
+    out: dict[str, Facts] = {}
+    for sport in v.sports:
+        mode = v.sport_mode(sport)
+        sub = df[df["sport"] == sport] if not df.empty and "sport" in df else df
+        s = performance.settled(sub, "live" if mode == "live" else "paper")
+        last_param = None
+        if history:
+            eff = [registry.effective_params(h["params"] or {}, sport) for h in history]
+            i = len(history) - 1
+            while i > 0 and eff[i - 1] == eff[-1]:
+                i -= 1
+            last_param = history[i]["ts"] if i > 0 else None
+            if not s.empty:
+                s = s[s["param_version"].isin({h["version"] for h in history[i:]})]
+        own = [x["ts"] for x in stakes if x["ts"] and x.get("sport") in (None, sport)]
+        out[sport] = Facts(trades_at_version=int(len(s)), last_param_change_ts=last_param,
+                           last_stake_change_ts=max(own, default=None),
+                           promote_ok=(ladders.get(sport) or {}).get("promote_ok"))
+    return out
+
+
+def _rv(report: dict, vid: str) -> dict:
+    return next(s for s in report["variants"] if s["id"] == vid)
 
 
 def ladder_changes(report: dict) -> dict:
     """Deterministic ladder moves from polylab.risk.ladder (no AI involved)."""
     changes = []
     for v in report["variants"]:
-        lad = v["ladder"]
-        action = lad.get("action")
-        if not lad.get("available") or v["mode"] != "live" or action in (None, "hold"):
-            continue
-        evidence = {k: lad.get(k) for k in ("status", "trades_at_tier", "roi_ci_lo", "reason")}
-        if action == "paper":
-            changes.append({"variant_id": v["id"], "change": "mode", "values": {"mode": "paper"},
-                            "rationale": f"ladder: {lad.get('reason')}", "evidence": evidence})
-        elif action in ("promote", "demote") and lad.get("next_stake_usdc") is not None:
-            changes.append({"variant_id": v["id"], "change": "stake",
-                            "values": {"stake_usdc": float(lad["next_stake_usdc"])},
-                            "rationale": f"ladder {action}: {lad.get('reason')}", "evidence": evidence})
+        if v.get("per_sport"):   # one ladder per (variant, sport)
+            rows = [(d["ladder"] or {}, d["mode"], d["sport"]) for d in v.get("sports_detail") or []]
+        else:
+            rows = [(v["ladder"], v["mode"], None)]
+        for lad, mode, sport in rows:
+            action = lad.get("action")
+            if not lad.get("available") or mode != "live" or action in (None, "hold"):
+                continue
+            evidence = {k: lad.get(k) for k in ("status", "trades_at_tier", "roi_ci_lo", "reason")}
+            extra = {"sport": sport} if sport else {}
+            if action == "paper":
+                changes.append({"variant_id": v["id"], "change": "mode", "values": {"mode": "paper"}, **extra,
+                                "rationale": f"ladder: {lad.get('reason')}", "evidence": evidence})
+            elif action in ("promote", "demote") and lad.get("next_stake_usdc") is not None:
+                changes.append({"variant_id": v["id"], "change": "stake", **extra,
+                                "values": {"stake_usdc": float(lad["next_stake_usdc"])},
+                                "rationale": f"ladder {action}: {lad.get('reason')}", "evidence": evidence})
     return {"schema": SCHEMA, "summary": "deterministic ladder", "changes": changes}
 
 
@@ -222,19 +260,25 @@ def record_stake_events(applied: list[dict], vctx_before: dict, paths, now: int)
         if old is None:
             continue
         conn = db.strategy(paths, a["variant_id"])
+        sport = a.get("sport")
         try:
+            from polylab.risk import ladder  # noqa: PLC0415
             if a["source"] == "ladder":
                 from polylab.analysis import integrations  # noqa: PLC0415
-                from polylab.risk import ladder  # noqa: PLC0415
-                lad = integrations.ladder_status(old, paths, now)
+                lad = integrations.ladder_status(old, paths, now, sport=sport)
                 if lad.get("decision") is not None:
-                    ladder.record_decision(conn, lad["decision"], now)
+                    ladder.record_decision(conn, lad["decision"], now, sport=sport)
                     continue
             new = a["new"]
-            conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence) "
-                         "VALUES(?,?,?,?,?,?,?)", (now, old.stake_usdc, new.stake_usdc, old.mode, new.mode,
-                                                   f"{a['source']}: {a['summary']}"[:500],
-                                                   json.dumps({"rationale": a.get("rationale")}, ensure_ascii=False)))
+            ladder.ensure_sport_column(conn)
+            if sport:
+                vals = (old.sport_stake(sport), new.sport_stake(sport), old.sport_mode(sport), new.sport_mode(sport))
+            else:
+                vals = (old.stake_usdc, new.stake_usdc, old.mode, new.mode)
+            conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence, sport) "
+                         "VALUES(?,?,?,?,?,?,?,?)", (now, *vals, f"{a['source']}: {a['summary']}"[:500],
+                                                     json.dumps({"rationale": a.get("rationale")}, ensure_ascii=False),
+                                                     sport))
             conn.commit()
         finally:
             conn.close()
@@ -296,6 +340,11 @@ def backtest_evidence(proposals: list[dict], vctx: Context, rules: Rules, env: E
             notes.append(f"backtest skipped for {vid} (max {rules.backtest_max_runs} runs / time budget)")
             continue
         variant = vctx.variants[vid]
+        sport = integrations_sport(params)
+        if sport and sport in variant.sports:   # a sport-targeted retune replays only that sport
+            variant = copy.deepcopy(variant)
+            variant.sports = [sport]
+            variant.sport_settings = {k: v for k, v in variant.sport_settings.items() if k == sport}
         env.say(f"backtest retune evidence {vid} {params} ({rules.backtest_lookback_days}d, ≤{left:.0f}s)")
         try:
             current, proposed = env.backtest([(variant, {}), (variant, params)], start, end, left)
@@ -479,6 +528,7 @@ def apply_decisions(accepted: list[Decision], vctx: Context, env: Env) -> tuple[
             new.path = env.registry_dir / f"{new.id}.yaml"
             staged_vars[new.id] = new
             applied.append({"variant_id": new.id, "change": d.change["change"], "summary": d.summary,
+                            **({"sport": d.change["sport"]} if d.change.get("sport") else {}),
                             "source": d.source, "rationale": d.change.get("rationale"), "new": new,
                             **({"backtest": d.backtest} if d.backtest else {})})
         _check_staged(stage)
@@ -570,8 +620,9 @@ def run_retro(opts: Options, env: Env) -> dict:
     rules = Rules.for_kind(kind)
     vctx = Context(variants={v.id: v for v in variants}, now=now, families={v.family for v in variants},
                    known_aliases=set(settings.account_aliases()),
-                   facts={v.id: variant_facts(v, paths, next(s["ladder"] for s in report["variants"] if s["id"] == v.id),
-                                              env.repo) for v in variants})
+                   facts={v.id: variant_facts(v, paths, _rv(report, v.id)["ladder"], env.repo,
+                                              {d["sport"]: d["ladder"] for d in _rv(report, v.id).get("sports_detail") or []
+                                               if d.get("ladder")}) for v in variants})
     idle = set(attention.idle_variants(report, paths, now)) if rules.backtest_retune else set()
     for vid in idle & set(vctx.facts):
         vctx.facts[vid].idle = True
