@@ -75,17 +75,15 @@ def test_effective_params_merge_sport_overrides():
     assert registry.effective_params(params, "soccer") == {"prob_min": 0.93}
 
 
-def test_repo_per_sport_variants_cover_nba_nhl_and_nfl_never_live():
+def test_repo_per_sport_variants_cover_us_sports():
     vs = {v.id: v for v in registry.load_all(include_off=True)}
-    # 2026-10-06 `sports3:us-all`: every family variant covers MLB/NBA/NHL/NFL per sport, all US sports start paper
+    # Structure only: modes and stakes move over time (ladder, promotion gate, owner decisions such as
+    # 2026-10-06 apricot:nfl-live), so they are not pinned here.
     for vid in ("watermelon-cat", "watermelon-dog", "apricot-eco", "apricot-fruit", "plum-king", "plum-queen"):
         v = vs[vid]
         assert v.per_sport and {"mlb", "nba", "nhl", "nfl"} <= set(v.sports), vid
-        assert all(v.sport_stake(s) == 5.0 for s in v.sports), vid
-        assert all((v.sport_settings[s] or {}).get("mode") == "paper" for s in ("mlb", "nba", "nhl", "nfl")), vid
-        assert not any((v.sport_settings[s] or {}).get("live_from") for s in v.sports), vid
-    for v in vs.values():
-        assert v.sport_mode("nfl") != "live" or "nfl" not in v.sports, v.id
+        assert all(v.sport_stake(s) in registry.STAKE_LADDER for s in v.sports), vid
+        assert all(v.sport_mode(s) in registry.MODES for s in v.sports), vid
     # NFL moved into the family variants: the NFL-only paper variants are off
     assert vs["watermelon-us-paper"].mode == "off" and vs["plum-us-paper"].mode == "off"
 
