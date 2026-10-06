@@ -27,7 +27,7 @@ sports:
       max_open_usdc: 50
       daily_loss_stop_usdc: 15
   nfl:
-    mode: paper
+    mode: live
     stake_usdc: 5.0
     limits:
       max_positions: 10
