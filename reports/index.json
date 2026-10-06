@@ -2,6 +2,16 @@
  {
   "kind": "daily",
   "date": "2026-10-06",
+  "slot": "evening",
+  "title": "polylab 일일 리포트 2026-10-06 저녁 (19:30 KST)",
+  "path": "reports/daily/2026-10-06-evening.md",
+  "ai": true,
+  "engine": "claude",
+  "generated_at": "2026-10-06T10:30:03Z"
+ },
+ {
+  "kind": "daily",
+  "date": "2026-10-06",
   "slot": "morning",
   "title": "polylab 일일 리포트 2026-10-06 아침 (08:00 KST)",
   "path": "reports/daily/2026-10-06-morning.md",
