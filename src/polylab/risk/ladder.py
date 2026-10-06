@@ -1,6 +1,6 @@
 """Deterministic stake ladder (docs/ARCHITECTURE.md §7).
 
-Promote one step (5→10→25→50→100) when, at the current tier since the last change:
+Promote one step (5→10→25→50→100; frozen at 5 since 2026-10-06, see below) when, at the current tier since the last change:
   settled trades >= 20, net P&L > 0, bootstrap 80% lower bound of per-trade ROI > 0,
   and max drawdown < tier × 6.
 Demote one step when the last 20 settled trades have net P&L < 0 and their ROI lower
@@ -8,6 +8,9 @@ bound < 0. At the floor (5) with >= 40 trades and cumulative loss at that tier -
 Any change needs >= 3 days since the last stake event. Pure: returns decision + evidence.
 Per-sport variants run this per (variant, sport): trades and stake events of that sport only
 (legacy stake events without a sport count for every sport).
+Stake freeze (owner 2026-10-06 `stake:freeze-5`): every variant stays at 5 USDC; scale-up will be studied separately
+in paper later. While `STAKE_FREEZE_USDC` is set no promotion above it is ever proposed (`promote_ready` is never shown);
+demotion and floor->paper stay unchanged. The validator rejects any stake above it too.
 """
 
 from __future__ import annotations
@@ -26,6 +29,12 @@ COOLDOWN_S = 3 * 86400
 BOOTSTRAP_N = 2000
 BOOTSTRAP_SEED = 20261001
 LOWER_Q = 0.10          # "80% lower bound" = lower end of the two-sided 80% bootstrap interval
+STAKE_FREEZE_USDC: float | None = 5.0   # owner 2026-10-06 `stake:freeze-5`; None = ladder up to LADDER[-1]
+
+
+def frozen_above(stake_usdc: float) -> bool:
+    """True when the freeze forbids the next ladder step above `stake_usdc`."""
+    return STAKE_FREEZE_USDC is not None and _step(stake_usdc, +1) > STAKE_FREEZE_USDC + 1e-9
 
 
 @dataclass(frozen=True)
@@ -115,6 +124,10 @@ def evaluate(stake_usdc: float, mode: str, trades: Sequence[SettledTrade], now: 
                               "last 20 net negative and ROI lower bound < 0", ev)
     if (len(tier) >= MIN_TRADES_PROMOTE and ev["tier_pnl"] > 0 and (ev["tier_roi_ci_lo"] or 0) > 0
             and ev["tier_max_drawdown"] < ev["dd_limit"] and stake_usdc < LADDER[-1]):
+        if frozen_above(stake_usdc):
+            ev["stake_freeze_usdc"] = STAKE_FREEZE_USDC
+            hold.reason = f"tier gates passed but stake frozen at {STAKE_FREEZE_USDC:g} USDC"
+            return hold
         return LadderDecision("promote", stake_usdc, _step(stake_usdc, +1), mode, mode,
                               "tier gates passed", ev)
     return hold
@@ -123,7 +136,7 @@ def evaluate(stake_usdc: float, mode: str, trades: Sequence[SettledTrade], now: 
 def status_label(d: LadderDecision) -> str:
     """Dashboard `ladder.status`: hold | promote_ready | demote_warning."""
     if d.action == "promote" or (d.reason == "cooldown" and d.evidence.get("trades_at_tier", 0) >= MIN_TRADES_PROMOTE
-                                 and (d.evidence.get("tier_roi_ci_lo") or 0) > 0):
+                                 and (d.evidence.get("tier_roi_ci_lo") or 0) > 0 and not frozen_above(d.from_usdc)):
         return "promote_ready"
     if d.action in ("demote", "paper") or (d.evidence.get("recent_pnl", 0) < 0 and d.evidence.get("recent_n", 0) >= 10):
         return "demote_warning"

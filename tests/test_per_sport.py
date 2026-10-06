@@ -204,6 +204,7 @@ def _ledger_with_trades(paths, vid, sport_trades: dict, now: int):
     return lg.conn
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_ladder_is_evaluated_per_sport(tmp_path):
     paths = settings.Paths(tmp_path / "root").ensure()
     now = T0
@@ -289,6 +290,7 @@ def test_validator_sport_params_map_to_overrides(tmp_path):
     assert dotted.accepted and dotted.change["sport"] == "nba", dotted.reason
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_validator_sport_stake_and_mode(tmp_path):
     ctx = _ctx(tmp_path, soccer_promote=True)
     up = _one(ctx, {"variant_id": "wm", "sport": "soccer", "change": "stake", "values": {"stake_usdc": 10},
@@ -316,6 +318,7 @@ def test_validator_sport_stake_and_mode(tmp_path):
     assert not no_sport.accepted and "name the sport" in no_sport.reason
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_validator_one_change_per_variant_sport(tmp_path):
     ctx = _ctx(tmp_path, soccer_promote=True)
     ds = validate({"changes": [
@@ -326,6 +329,7 @@ def test_validator_one_change_per_variant_sport(tmp_path):
     assert [d.accepted for d in ds] == [True, True, False, False]
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_validator_legacy_variant_rejects_sport_stake(tmp_path):
     v = registry.load_variant(write(tmp_path, "legacy", {"mode": "live", "account": "cat"}))
     ctx = Context({"legacy": v}, {"legacy": Facts(trades_at_version=30, promote_ok=True)}, now=T0)

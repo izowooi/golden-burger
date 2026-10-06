@@ -464,6 +464,10 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         if abs(step) != 1:
             raise Reject("stake may move only one ladder step")
         if step > 0:
+            from polylab.risk import ladder as _ladder  # noqa: PLC0415
+            if _ladder.STAKE_FREEZE_USDC is not None and new > _ladder.STAKE_FREEZE_USDC + 1e-9:
+                raise Reject(f"stake freeze: no stake above {_ladder.STAKE_FREEZE_USDC:g} USDC "
+                             "(owner 2026-10-06 stake:freeze-5)")
             if v.sport_mode(sport) != "live":
                 raise Reject("stake promotion only for live variants" + (f" ({sport} is not live)" if sport else ""))
             if f.promote_ok is not True:

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+
 from polylab.risk.caps import CapState, check_entry, kill_switch_active
 from polylab.risk.ladder import COOLDOWN_S, SettledTrade, bootstrap_lower, evaluate, max_drawdown, status_label
 
@@ -10,6 +12,7 @@ def trades(pnls, stake=5.0, start=NOW - 10 * 86400):
     return [SettledTrade(start + i * 600, p, stake, stake) for i, p in enumerate(pnls)]
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_promote_needs_20_trades_positive_ci_and_small_dd():
     assert evaluate(5, "live", trades([0.3] * 19), NOW, None).action == "hold"
     d = evaluate(5, "live", trades([0.3] * 20), NOW, None)
@@ -18,12 +21,14 @@ def test_promote_needs_20_trades_positive_ci_and_small_dd():
     assert evaluate(5, "live", trades(noisy), NOW, None).action == "hold"
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_drawdown_gate_blocks_promotion():
     pnls = [2.0] * 30 + [-31.0] + [2.0] * 10                  # dd 31 >= 5*6
     d = evaluate(5, "live", trades(pnls), NOW, None)
     assert d.action == "hold" and d.evidence["tier_max_drawdown"] >= 30
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_cooldown_and_tier_counting():
     last = NOW - COOLDOWN_S + 60
     assert evaluate(5, "live", trades([0.3] * 30), NOW, last).reason == "cooldown"
@@ -59,3 +64,14 @@ def test_caps_and_kill_switch(tmp_path, monkeypatch):
     assert not kill_switch_active(tmp_path)
     (tmp_path / "KILL").touch()
     assert kill_switch_active(tmp_path)
+
+
+def test_stake_freeze_blocks_promotion_but_keeps_demotion():
+    """Owner 2026-10-06 `stake:freeze-5`: no tier above 5 USDC, demotion and floor->paper unchanged."""
+    d = evaluate(5, "live", trades([0.3] * 30), NOW, None)
+    assert d.action == "hold" and "frozen" in d.reason and d.evidence["stake_freeze_usdc"] == 5.0
+    assert status_label(d) == "hold"
+    cooling = evaluate(5, "live", trades([0.3] * 30), NOW, NOW - COOLDOWN_S + 60)
+    assert cooling.reason == "cooldown" and status_label(cooling) == "hold"   # no promote_ready while frozen
+    assert evaluate(25, "live", trades([-0.5] * 20, stake=25.0), NOW, None).action == "demote"
+    assert evaluate(5, "live", trades([-0.1] * 40), NOW, None).action == "paper"

@@ -49,7 +49,8 @@ QUALITY_KO = {"live_gap": "라이브 경기 중 1분 가격 bar 공백", "poll_g
 KIND_KO = {"daily": "일일", "weekly": "주간", "monthly": "월간"}
 # Paper-only research experiments: they trade only when their niche markets exist and may never go live.
 RESEARCH_ONLY = {"llm-nil-draw"}
-MOVE_NOTE = "증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다."
+MOVE_NOTE = ("증액은 2026-10-06 연구자 결정(stake:freeze-5)으로 동결(모든 변형 5 USDC), 감액·paper 전환은 손실이나 표본 규칙으로 "
+             "자동 적용된다.")
 PROMOTE_NOTE = ("결정론 승격 게이트(paper 정산 30건 이상·ROI 80% 하한 > 0·두 반기 ≥ 0·최근 120일 재생 n ≥ 40·ROI ≥ 0, "
                 "NFL 등 경기 수가 적은 종목은 paper 15건·직전 365일 재생 n ≥ 20, 계좌·프리시즌·3일 cooldown, 2026-10-06 연구자 결정) "
                 "또는 AI 제안 + retro 직접 재생 근거(promotion:ai-direct)로 5 USDC 실거래 전환됐다. "
@@ -126,7 +127,7 @@ def resolved_items(state: dict) -> list[dict]:
 
 def _families(kind: str, ai_enabled: bool) -> set[str]:
     fams = {"stake", "health", "disk", "quality", "backfill", "dead_variant", "paper", f"rejected:{kind}", "manual",
-            "promotion"}
+            "promotion", "reminder"}
     if ai_enabled:
         fams.add("ai_engine")
     if kind == "weekly":
@@ -447,6 +448,13 @@ def _manual_items(report: dict, report_ref: str) -> list[dict]:
             for i in attention_items(report, report_ref)]
 
 
+def _reminder_items(report: dict, now: int, report_ref: str) -> list[dict]:
+    """Dated owner reminders and account requests (polylab.reports.reminders)."""
+    from polylab.reports.reminders import due  # noqa: PLC0415
+    return [item(r["id"], "reminder", r["severity"], "decision_needed", clean_text(r["title"], TITLE_MAX),
+                 clean_text(r["detail"], DETAIL_MAX), report_ref) for r in due(report, now)]
+
+
 def rule_items(report: dict, *, kind: str, now: int, paths=None, applied=(), rejected=(), ai: dict | None = None,
                ai_enabled: bool = True) -> tuple[list[dict], set[str]]:
     """(items, evaluated families). A family missing from the set keeps its items untouched this run."""
@@ -457,6 +465,7 @@ def rule_items(report: dict, *, kind: str, now: int, paths=None, applied=(), rej
     items += _health_items(report, ref) + _disk_items(report, ref) + _quality_items(report, ref)
     items += _dead_variant_items(report, paths, now) + _paper_items(report, list(applied))
     items += _promotion_items(report)
+    items += _reminder_items(report, now, ref)
     items += _rejected_items(kind, list(rejected), ref)
     items += _manual_items(report, ref)
     if ai_enabled and ai is not None:

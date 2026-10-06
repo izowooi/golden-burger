@@ -53,7 +53,7 @@ src/polylab/
   db/                     # sqlite 연결, 스키마(core/books/strategy), 마이그레이션
   api/                    # gamma.py, clob_public.py, data_api.py, ws_sports.py, ws_market.py (출처 주석 필수)
   collector/              # discover, poll(1분 가격+호가), stream daemon(WS), backfill(prices-history, trades), resolve
-  strategies/             # base.py + watermelon.py, apricot.py, plum.py, cherry.py (순수 로직, IO 없음)
+  strategies/             # base.py + watermelon.py, apricot.py, plum.py, cherry.py, late_leader.py 등 (순수 로직, IO 없음)
   execution/              # accounts, clob trading client(FOK + GTC post-only), reconcile(CONFIRMED), maker(지정가 수명주기), paper broker, redeem
   engine/                 # tick: 전략 실행 루프(스냅샷→signal→risk→execution→ledger)
   risk/                   # stake ladder, caps, kill switch
@@ -122,7 +122,8 @@ limits: {max_positions: 20, max_open_usdc: 300, daily_loss_stop_usdc: 50}
 모든 잡은 macOS TCC 때문에 `ssh polylab-local` 을 거쳐 실행된다(`docs/ops/macmini-runbook.md`).
 
 **Stake ladder (결정론)**: 모든 변형은 5 USDC에서 시작(종목별 매핑 변형은 (변형, 종목)마다 따로 판정·적용). 현 단위에서 정산 거래 ≥ 20, 순손익 > 0, 거래당 ROI의
-bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액(5→10→25→50→100, 상한 100).
+bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액(5→10→25→50→100, 상한 100). **2026-10-06 부터 동결**(`stake:freeze-5`,
+`risk/ladder.py` `STAKE_FREEZE_USDC = 5`): 증액은 제안되지 않고 validator 가 5 초과를 거부한다. 감액·paper 강등은 그대로.
 최근 20건 순손익 < 0 이고 ROI 하한 < 0 이면 한 단계 감액. 5에서 40건 이상 누적 손실이면 paper 로 강등.
 단위 변경 후 최소 3일 cooldown.
 

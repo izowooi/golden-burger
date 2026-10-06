@@ -35,7 +35,7 @@ Polymarket 스포츠(soccer·MLB·NBA·NFL·NHL) 가격이 경기 시간대별�
 ## 규칙
 
 - 실손익은 CONFIRMED fill·fee·확인된 resolution 만. 미확정·unknown fee 는 0 으로 채우지 않는다.
-- 모든 변형은 5 USDC 에서 시작, `src/polylab/risk` ladder 게이트로만 증액(최대 100). 킬스위치 `/Volumes/t7/polylab/state/KILL`.
+- 모든 변형은 5 USDC 고정(2026-10-06 `stake:freeze-5`: ladder 증액 동결, validator 가 5 초과 거부; 감액·paper 강등은 유지). 킬스위치 `/Volumes/t7/polylab/state/KILL`.
 - AI 회고(`polylab retro`)는 validator 를 통과한 yaml 변경만 커밋한다. 사람이 직접 바꿀 때도 yaml 과 bounds 를 함께 갱신한다.
 - 공용 Polymarket 데이터는 `core.db`/`books/` 한 곳에만 쓴다. 전략은 자기 `strategies/<id>.db` 에만 쓴다.
 - 최종 응답 직전 L1 의 local-only `task-summaries/YYYY/MM/` 기록을 남긴다.

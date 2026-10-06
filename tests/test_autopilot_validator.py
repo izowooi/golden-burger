@@ -1,3 +1,5 @@
+import pytest
+
 from polylab.autopilot.validator import Context, Facts, Rules, apply_to_variant, validate
 from polylab.registry import Variant
 
@@ -48,6 +50,7 @@ def test_min_sample_and_cooldown():
     assert "cooldown" in one([change("params", {"prob_min": 0.93})], c)[0].reason
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_stake_jump_without_gate_rejected_and_demotion_allowed():
     assert "gate" in one([change("stake", {"stake_usdc": 10})])[0].reason
     c = ctx(variant(stake=10.0))
@@ -60,6 +63,7 @@ def test_stake_jump_without_gate_rejected_and_demotion_allowed():
     assert one([change("stake", {"stake_usdc": 10})], c)[0].accepted
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_gate_passed_but_cooldown_blocks_promotion():
     c = ctx(facts={"wm-cat": Facts(promote_ok=True, last_stake_change_ts=NOW - DAY)})
     assert "cooldown" in one([change("stake", {"stake_usdc": 10})], c)[0].reason
@@ -265,3 +269,12 @@ def test_backtest_gate_low_frequency_sport_rule():
     c.sample_rules[promotion_key("wm-cat", "nfl")] = nfl
     assert min_trades_for({"variant_id": "wm-cat", "sport": "nfl"}, c, WEEKLY) == 15
     assert min_trades_for({"variant_id": "wm-cat", "sport": "nba"}, c, WEEKLY) == 20
+
+
+def test_stake_freeze_rejects_any_stake_above_5():
+    c = ctx(facts={"wm-cat": Facts(promote_ok=True, last_stake_change_ts=NOW - 5 * DAY)})
+    d = one([change("stake", {"stake_usdc": 10})], c)[0]
+    assert not d.accepted and "stake freeze" in d.reason
+    # demotion toward 5 stays allowed
+    c = ctx(variant(stake=25.0), facts={"wm-cat": Facts(last_stake_change_ts=NOW - 60, promote_ok=None)})
+    assert one([change("stake", {"stake_usdc": 10})], c)[0].accepted

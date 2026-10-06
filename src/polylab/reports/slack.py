@@ -150,6 +150,10 @@ def report_blocks(report: dict, url: str) -> tuple[str, list[dict]]:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*변경*\n" + "\n".join(changes)}})
     if alerts:
         blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": "*경고*\n" + "\n".join(alerts)}})
+    from polylab.reports.reminders import due  # noqa: PLC0415
+    notes = [f"{r['title']}: {r['detail']}" for r in due(report, int(report.get("now") or 0)) if r["slack"]]
+    if notes:
+        blocks.append({"type": "section", "text": {"type": "mrkdwn", "text": ("*알림*\n" + "\n".join(notes))[:2900]}})
     ai = report.get("ai") or {}
     ai_line = "AI 회고 포함" if ai.get("ran") else f"AI 회고 생략({ai.get('reason') or '결정론 리포트만'})"
     blocks.append({"type": "context", "elements": [{"type": "mrkdwn", "text": f"{ai_line} · <{url}|리포트 보기>"}]})

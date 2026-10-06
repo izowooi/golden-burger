@@ -411,9 +411,12 @@ def section_changes(r: dict) -> list[str]:
 
 
 def section_alerts(r: dict) -> list[str]:
+    from polylab.reports.reminders import due  # noqa: PLC0415
+    notes = [n for n in due(r, int(r.get("now") or 0)) if n["slack"]]
+    out = ["## 알림", "", *[f"- {_esc(n['title'])}: {_esc(n['detail'])}" for n in notes], ""] if notes else []
     if not r["alerts"]:
-        return []
-    return ["## 경고", "", *[f"- [{a['level']}] {a['message']}" for a in r["alerts"]], ""]
+        return out
+    return ["## 경고", "", *[f"- [{a['level']}] {a['message']}" for a in r["alerts"]], "", *out]
 
 
 def section_brief(r: dict) -> list[str]:

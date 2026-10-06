@@ -25,7 +25,7 @@
   손절 폭을 조이는 제안보다, **작은 이익에서 일찍 청산(take-profit early)** 하고 진입 조건을 더 엄격히 하는 방향을 우선한다.
 - 변경은 작고 점진적으로 한다. 한 번에 변형당 하나, 파라미터는 `bounds.json`의 max_step 이내로 한다(아래 백테스트 근거 재조정만 2배까지).
 - 변경하지 않는 것도 좋은 결정이다. 근거가 약하면 `changes: []`로 둔다.
-- stake 증액은 결정론 ladder(`metrics/*.json`의 `ladder.promote_ok`)가 통과한 경우에만 제안할 수 있다. 감액과 live→paper 전환은 언제든 가능하다.
+- **단위 동결(2026-10-06 연구자 결정 `stake:freeze-5`)**: 모든 변형·종목은 5 USDC 로 고정한다. ladder 증액은 꺼져 있고 validator 가 5 초과 stake 를 거부하므로 증액을 제안하지 않는다(단위별 확대는 나중에 별도 paper 연구). 감액과 live→paper 전환은 그대로 가능하다.
 - 새 변형 생성은 일일 회고에서 하지 않는다(주간 회고 몫).
 
 ## 백테스트 근거 재조정 (진입 0건 변형·종목만)
@@ -122,3 +122,4 @@
   paper→live 는 결정론 승격 게이트 또는 retro 직접 재생 근거가 있는 AI 제안으로 한다(위 규칙, 2026-10-06 `promotion:ai-direct`).
   종목별 파라미터 조정은 bounds 안에서 종목을 지정해 제안한다. 경기 수가 적은 종목(NFL 등)은 최소 건수가 낮고 재생 기간이
   직전 시즌 전체(365일)다(`manual:nfl-promotion-window`).
+- 2026-10-06 저녁 결정(`hypothesis:late-leader`): 새 가설 **막판 선두 수렴**(family `late_leader`, 변형 `late-leader-paper`, 계좌 없음·paper). 무승부 없는 승패 마켓(NBA·NHL·NFL·MLB)에서 경기 전 정배 가격 ≤ X 인 경기의 선두가 경과(예정 시작 후 벽시계 분) ≥ T 이후 Y 를 아래에서 위로 넘으면 사서 Z 에 판다. 역사 검정(docs/research/hypothesis-late-leader-convergence.md): 경기 대부분 구간의 선두는 가격대로 calibration 되어 있고(언제든 0.80 교차→0.96 은 전 종목 음수), 양수는 종목 정규 길이 끝 무렵(NFL T≈170, NHL T≈160)의 선두에서만 나온다 — apricot 막판 가설과 겹친다(NFL 진입 경기의 약 37%). 회고는 이 변형의 종목별 T·Y·Z·X 를 bounds 안에서 재조정할 수 있고(`sport` 지정), live 는 계좌가 생긴 뒤 기존 게이트로만 5 USDC 로 한다(엔진 재생까지 통과한 후보는 NFL 하나, NHL 은 재생 n 39 로 미달).

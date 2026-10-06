@@ -1,5 +1,7 @@
 import json
 
+import pytest
+
 import yaml
 from test_reports_build import NOW, make_world
 
@@ -96,7 +98,7 @@ def test_invalid_proposal_falls_through_and_out_of_bounds_rejected(tmp_path, mon
     env.engines = lambda: [FakeEngine("claude", proposal="{broken"), FakeEngine("codex", proposal=bad)]
     res = retro.run_retro(opts(), env)
     assert res["engine"] == "codex" and not res["applied"]
-    assert any("gate" in r["reason"] for r in res["rejected"])
+    assert any("stake freeze" in r["reason"] for r in res["rejected"])   # owner 2026-10-06 `stake:freeze-5`
     assert yaml.safe_load((reg / "watermelon-cat.yaml").read_text())["stake_usdc"] == 5.0
 
 
@@ -160,6 +162,7 @@ def test_monthly_writes_research_doc(tmp_path, monkeypatch):
     assert "## 2. Calibration" in doc and "해석 본문" in doc and "## 6. 한계" in doc
 
 
+@pytest.mark.usefixtures("unfrozen_ladder")
 def test_deterministic_ladder_promotion_recorded(tmp_path, monkeypatch):
     paths, reg, env, calls = setup(tmp_path, monkeypatch)
     s = db.strategy(paths, "watermelon-cat")

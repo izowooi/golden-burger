@@ -1,0 +1,207 @@
+id: late-leader-paper
+family: late_leader
+hypothesis: '막판 선두 수렴(연구자 2026-10-06 저녁): 무승부 없는 승패 마켓에서 경기 전 정배 가격 ≤ X 인 경기의 선두가
+  경과 시간 ≥ T 이후 Y 를 아래에서 위로 넘으면, 남은 시간 대비 역전 확률이 가격보다 작아 1.0 쪽으로 수렴한다 — Y 에 사서 Z 에서
+  조기 익절. (T, Y) 는 종목별 역전 확률 표로 고른다. 근거·사전 등록 docs/research/hypothesis-late-leader-convergence.md.'
+account: null
+mode: paper
+sports:
+  nba:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+  nhl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+  nfl:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+  mlb:
+    mode: paper
+    stake_usdc: 5.0
+    limits:
+      max_positions: 10
+      max_open_usdc: 50
+      daily_loss_stop_usdc: 15
+stake_usdc: 5.0
+params:
+  min_game_volume_usd: 20000
+  min_wall_minute: 0
+  max_wall_minute: null
+  trigger_price: 0.8
+  max_entry_premium: 0.03
+  require_cross: true
+  pregame_max: 0.9
+  pregame_scope: game
+  pregame_window_minutes: 60
+  take_profit_price: 0.96
+  stop_loss_delta: null
+  max_entry_spread: 0.05
+  max_exit_spread: 0.1
+  hours_max: 6.0
+  sport_overrides:
+    nfl:
+      min_wall_minute: 170
+      trigger_price: 0.88
+      take_profit_price: 0.98
+      pregame_max: 0.7
+      pregame_scope: game
+      stop_loss_delta: null
+      hours_max: 6.0
+      min_game_volume_usd: 20000
+    nhl:
+      min_wall_minute: 160
+      trigger_price: 0.8
+      take_profit_price: 0.98
+      pregame_max: 0.6
+      pregame_scope: game
+      stop_loss_delta: null
+      hours_max: 5.0
+      min_game_volume_usd: 20000
+    nba:
+      min_wall_minute: 150
+      trigger_price: 0.9
+      take_profit_price: 0.98
+      pregame_max: 0.6
+      pregame_scope: game
+      stop_loss_delta: null
+      hours_max: 5.0
+      min_game_volume_usd: 20000
+    mlb:
+      min_wall_minute: 190
+      trigger_price: 0.75
+      take_profit_price: 0.9
+      pregame_max: 0.6
+      pregame_scope: game
+      stop_loss_delta: null
+      hours_max: 6.0
+      min_game_volume_usd: 20000
+bounds:
+  max_entry_premium:
+  - 0.01
+  - 0.06
+  - 0.01
+  max_entry_spread:
+  - 0.01
+  - 0.1
+  - 0.01
+  sport_overrides.nfl.min_wall_minute:
+  - 0
+  - 240
+  - 10
+  sport_overrides.nfl.trigger_price:
+  - 0.65
+  - 0.95
+  - 0.01
+  sport_overrides.nfl.take_profit_price:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.nfl.pregame_max:
+  - 0.5
+  - 0.9
+  - 0.05
+  sport_overrides.nfl.stop_loss_delta:
+  - 0.05
+  - 0.5
+  - 0.05
+  sport_overrides.nfl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nhl.min_wall_minute:
+  - 0
+  - 240
+  - 10
+  sport_overrides.nhl.trigger_price:
+  - 0.65
+  - 0.95
+  - 0.01
+  sport_overrides.nhl.take_profit_price:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.nhl.pregame_max:
+  - 0.5
+  - 0.9
+  - 0.05
+  sport_overrides.nhl.stop_loss_delta:
+  - 0.05
+  - 0.5
+  - 0.05
+  sport_overrides.nhl.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.nba.min_wall_minute:
+  - 0
+  - 240
+  - 10
+  sport_overrides.nba.trigger_price:
+  - 0.65
+  - 0.95
+  - 0.01
+  sport_overrides.nba.take_profit_price:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.nba.pregame_max:
+  - 0.5
+  - 0.9
+  - 0.05
+  sport_overrides.nba.stop_loss_delta:
+  - 0.05
+  - 0.5
+  - 0.05
+  sport_overrides.nba.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+  sport_overrides.mlb.min_wall_minute:
+  - 0
+  - 240
+  - 10
+  sport_overrides.mlb.trigger_price:
+  - 0.65
+  - 0.95
+  - 0.01
+  sport_overrides.mlb.take_profit_price:
+  - 0.85
+  - 0.99
+  - 0.01
+  sport_overrides.mlb.pregame_max:
+  - 0.5
+  - 0.9
+  - 0.05
+  sport_overrides.mlb.stop_loss_delta:
+  - 0.05
+  - 0.5
+  - 0.05
+  sport_overrides.mlb.min_game_volume_usd:
+  - 5000
+  - 200000
+  - 10000
+limits:
+  max_positions: 12
+  max_open_usdc: 60
+  daily_loss_stop_usdc: 20
+  max_new_per_cycle: 5
+notes: '2026-10-06 연구자 피드백으로 신설(paper, 5 USDC 고정, 계좌 없음 — 자금 있는 여유 계좌가 없어 attention
+  으로 요청). grid 8,694셀×4종목(현재 수수료 0.05, R1–R6 사전 등록) 선택 규칙: R1–R6 통과 + X ≤ 0.9(연구자
+  제외 조건) + 조기 익절(Z 있음) 중 이웃 포함 ROI 최고. NFL T170/Y0.88/Z0.98/X0.70 n=107 +6.5%(H1 +5.8/H2
+  +7.2), NHL T160/Y0.80/Z0.98/X0.60 n=41 +14.2%(H1 +20.4/H2 +10.3), NBA T150/Y0.90/Z0.98/X0.60
+  n=67 +4.2%(다중 비교 점검 음수 — 약함), MLB T190/Y0.75/Z0.90/X0.60 n=57 +6.8%(한 시즌, 이웃 포함
+  +0.1% — 약함). 엔진 재생(정규시즌, R7) NFL 105건 +6.27%·NHL 39건 +13.92%·NBA 67건 +4.10%·MLB
+  59건 +6.96%. 단순 규칙 ''언제든 0.80 교차 매수→0.96 매도''는 전 종목 음수(NFL −2.9%, NHL −2.4%, NBA
+  −3.4%, MLB −3.0%). NFL 은 apricot-eco NFL 과 진입 경기 37% 겹침. 근거 docs/research/hypothesis-late-leader-convergence.md.'
