@@ -306,7 +306,8 @@ def test_slack_text_consensus_top3_and_status(tmp_path):
              "consensus": {"status": "empty", "reason": "ChatGPT 실패: boom", "picks": []}}
     t2 = lf.slack_text(empty, status="paper", now=NOW)
     assert "ChatGPT 실패" in t2 and "합의 없음" in t2
-    assert lf.consensus_variant_status() in ("paper", "live")             # strategies/llm-nil-consensus.yaml
+    # strategies/llm-nil-consensus.yaml: the mode is tunable (owner / AI retire), only its shape is pinned
+    assert lf.consensus_variant_status() in ("paper", "live", "off")
     assert lf.consensus_variant_status(tmp_path) == "absent"
 
 
@@ -410,6 +411,8 @@ def test_tick_paper_end_to_end_then_resolution(tmp_path, monkeypatch):
     reg = tmp_path / "reg"
     reg.mkdir()
     real = yaml.safe_load(open("strategies/llm-nil-draw.yaml"))
+    real.update(mode="paper", account=None)
+    real["params"].update(top_k=3, edge=0.02, max_price=0.96, min_price=0.5, entry_window_minutes=15)  # tunable
     (reg / "llm-nil-draw.yaml").write_text(yaml.safe_dump(real))
     now = NOW + 5 * 3600 - 300
     env.book("ov1", now - 20, [(0.92, 500)], [(0.93, 500)])

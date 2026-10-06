@@ -82,10 +82,15 @@ def test_validator_live_only_from_promotion_source_with_evidence(tmp_path):
     # no evidence: even the promotion source is refused
     d = validate({"changes": [ch]}, ctx, Rules(), "promotion")[0]
     assert not d.accepted and "no passing promotion-gate evidence" in d.reason
-    ctx.promotions[promotion_key("wm", "nba")] = {"ok": True}
-    for source in ("ai:claude", "inbox:x.json", "ladder"):
+    for source in ("ai:claude", "inbox:x.json"):     # AI/inbox without retro-run evidence: replay needed
         d = validate({"changes": [ch]}, ctx, Rules(), source)[0]
-        assert not d.accepted and "only the deterministic promotion gate" in d.reason, source
+        assert not d.accepted and "needs the retro's own replay" in d.reason, source
+    ctx.promotions[promotion_key("wm", "nba")] = {"ok": True}
+    d = validate({"changes": [ch]}, ctx, Rules(), "ladder")[0]
+    assert not d.accepted and "not allowed from source ladder" in d.reason
+    for source in ("ai:claude", "inbox:x.json"):     # the deterministic gate's evidence also backs an AI proposal
+        d = validate({"changes": [ch]}, ctx, Rules(), source)[0]
+        assert d.accepted and d.gate == {"ok": True}, (source, d.reason)
     d = validate({"changes": [ch]}, ctx, Rules(), "promotion")[0]
     assert d.accepted, d.reason
     new = apply_to_variant(d, ctx)
@@ -167,17 +172,91 @@ def test_demoted_sport_needs_fresh_paper_record(tmp_path, monkeypatch):
     assert not [a for a in res["applied"] if a["source"] == "promotion"]
 
 
-def test_ai_cannot_promote_even_with_a_proposal(tmp_path, monkeypatch):
+LIVE_PROP = {"schema": "polylab.proposal/v1", "summary": "go live",
+             "changes": [{"variant_id": "watermelon-cat", "sport": "nba", "change": "mode", "values": {"mode": "live"},
+                          "rationale": "looks good", "evidence": {"n": 999, "roi": 0.5}}]}
+
+
+def test_ai_direct_live_with_retro_run_replay(tmp_path, monkeypatch):
+    """2026-10-06 `promotion:ai-direct`: the AI may propose paper→live; the daily retro replays the sport itself."""
     paths, reg, env, calls, s = _per_sport_world(tmp_path, monkeypatch, n_paper=5)
-    prop = {"schema": "polylab.proposal/v1", "summary": "go live",
-            "changes": [{"variant_id": "watermelon-cat", "sport": "nba", "change": "mode", "values": {"mode": "live"},
-                         "rationale": "looks good"}]}
-    env.engines = lambda: [FakeEngine("claude", proposal=prop)]
-    env.backtest = lambda jobs, start, end, timeout: [{"trades": fake_trades(50, lambda i: 0.2)}]
-    res = retro.run_retro(opts("weekly"), env)
-    assert not res["applied"]
-    assert any("only the deterministic promotion gate" in r["reason"] for r in res["rejected"])
+    env.engines = lambda: [FakeEngine("claude", proposal=LIVE_PROP)]
+    runs = []
+
+    def fake_backtest(jobs, start, end, timeout):
+        runs.append([(v.id, v.sports, p) for v, p in jobs])
+        return [{"trades": fake_trades(50, lambda i: 0.2)}]
+
+    env.backtest = fake_backtest
+    res = retro.run_retro(opts("daily"), env)
+    assert runs == [[("watermelon-cat", ["nba"], {})]]
+    live = [a for a in res["applied"] if a["change"] == "mode"]
+    assert len(live) == 1 and live[0]["source"] == "ai:claude" and "AI 실거래 전환" in live[0]["summary"], res
+    d = yaml.safe_load((reg / "watermelon-cat.yaml").read_text())
+    assert d["sports"]["nba"] == {"mode": "live", "stake_usdc": 5.0}
+    ev = s.execute("SELECT to_mode, evidence FROM stake_events WHERE sport='nba'").fetchall()
+    gate = json.loads(ev[-1][1])["gate"]
+    assert ev[-1][0] == "live" and gate["evidence"]["path"] == "ai-direct" and gate["evidence"]["backtest"]["n"] == 50
+    assert gate["evidence"]["backtest"]["n"] != 999          # the AI's own numbers are never the evidence
+
+
+def test_ai_direct_live_refused_on_failing_replay_or_contradicting_paper(tmp_path, monkeypatch):
+    paths, reg, env, calls, s = _per_sport_world(tmp_path, monkeypatch, n_paper=5)
+    env.engines = lambda: [FakeEngine("claude", proposal=LIVE_PROP)]
+    # second half of the replay loses: the owner's per-sport rule needs both halves >= 0
+    env.backtest = lambda jobs, start, end, timeout: [{"trades": fake_trades(50, lambda i: 0.3 if i < 25 else -0.1)}]
+    res = retro.run_retro(opts("daily"), env)
+    assert not [a for a in res["applied"] if a["change"] == "mode"]
+    assert any("H2" in r["reason"] for r in res["rejected"]), res["rejected"]
     assert yaml.safe_load((reg / "watermelon-cat.yaml").read_text())["sports"]["nba"]["mode"] == "paper"
+    # paper sample significantly negative: refused before any replay
+    paths, reg, env, calls, s = _per_sport_world(tmp_path / "b", monkeypatch, n_paper=12, pnl=lambda i: -0.4)
+    env.engines = lambda: [FakeEngine("claude", proposal=LIVE_PROP)]
+    env.backtest = lambda *a: (_ for _ in ()).throw(AssertionError("contradicting paper must not replay"))
+    res = retro.run_retro(opts("daily"), env)
+    assert any("paper sample contradicts" in r["reason"] for r in res["rejected"]), res["rejected"]
+
+
+def test_direct_gate_rules():
+    from polylab.risk.promotion import evaluate_direct, sample_rule
+    v = registry.Variant(id="wm", family="watermelon", hypothesis="h", account="cat", mode="live",
+                         sports=["nba", "nfl"], stake_usdc=5.0, params={}, bounds={}, limits={},
+                         sport_settings={"nba": {"mode": "paper"}, "nfl": {"mode": "paper"}})
+    half = lambda n, r: {"n": n, "roi": r}   # noqa: E731
+    ok_bt = {"n": 40, "roi": 0.01, "halves": [half(20, 0.0), half(20, 0.02)]}
+    assert evaluate_direct(v, "nba", [], NOW, None, ok_bt).ok              # 0 paper trades never contradict
+    assert not evaluate_direct(v, "nba", [], NOW, None, {**ok_bt, "n": 39}).ok
+    # NFL (low-frequency): n >= 20 over 365 days, halves >= 5
+    nfl = sample_rule("nfl")
+    assert (nfl.lookback_days, nfl.backtest_min_n, nfl.paper_min_trades) == (365, 20, 15)
+    small = {"n": 22, "roi": 0.02, "halves": [half(11, 0.01), half(11, 0.03)]}
+    assert evaluate_direct(v, "nfl", [], NOW, None, small, nfl).ok
+    assert not evaluate_direct(v, "nba", [], NOW, None, small).ok
+    # paper: 4 losing trades are not enough to contradict, 12 are
+    assert evaluate_direct(v, "nba", _trades(4, lambda i: -0.5), NOW, None, ok_bt).ok
+    bad = evaluate_direct(v, "nba", _trades(12, lambda i: -0.5), NOW, None, ok_bt)
+    assert not bad.ok and bad.stage == "paper"
+    assert "cooldown" in evaluate_direct(v, "nba", [], NOW, NOW - DAY, ok_bt).reason
+
+
+def test_sample_rule_low_frequency_and_off_season():
+    from polylab.risk.promotion import sample_rule
+    assert sample_rule("nfl").low_frequency                       # static config
+    assert sample_rule("nba", 400, 1300).lookback_days == 120     # in season: defaults
+    off = sample_rule("nba", 12, 1300)                            # off-season: window grows, minimums stay
+    assert off.lookback_days == 365 and off.backtest_min_n == 40 and not off.low_frequency
+    rare = sample_rule("mlb", 30, 150)                            # < 60 games / 120 days on average
+    assert rare.low_frequency and rare.backtest_min_n == 20 and rare.paper_min_trades == 15
+    assert sample_rule("nhl", 0, 0).lookback_days == 120          # no data at all: defaults
+
+
+def test_low_frequency_promotion_uses_smaller_sample(tmp_path):
+    v = _variant(tmp_path)
+    nfl = promotion.sample_rule("nfl")
+    g = promotion.evaluate(v, "nfl", _trades(16), NOW, None, rule=nfl)
+    assert g.needs_backtest, g.reason                             # 16 >= 15 paper trades
+    assert promotion.evaluate(v, "nfl", _trades(16), NOW, None, backtest={"n": 22, "roi": 0.01}, rule=nfl).ok
+    assert not promotion.evaluate(v, "nba", _trades(16), NOW, None).needs_backtest   # NBA still needs 30
 
 
 def test_preseason_paper_trades_do_not_count(tmp_path, monkeypatch):
@@ -188,3 +267,49 @@ def test_preseason_paper_trades_do_not_count(tmp_path, monkeypatch):
     s.execute("UPDATE positions SET opened_at = 1_791_000_000, closed_at = 1_791_003_000 WHERE sport='nba'")
     s.commit()
     assert retro.promotion_sample(v, "nba", paths)[0] == []
+
+
+def test_ai_direct_live_record_contradicts_after_ladder_demotion(tmp_path, monkeypatch):
+    """A sport demoted by the ladder for live losses keeps its live record in the AI-direct contradiction check."""
+    paths, reg, env, calls, s = _per_sport_world(tmp_path, monkeypatch, n_paper=0)
+    for i in range(12):
+        closed = NOW - 5 * DAY - i * 7200
+        s.execute("INSERT INTO positions(position_id, mode, param_version, stake_usdc, sport, league, game_key,"
+                  " condition_id, token_id, outcome_label, opened_at, entry_price, shares, cost_usdc, status,"
+                  " closed_at, exit_reason, exit_price, proceeds_usdc, realized_pnl, settlement)"
+                  " VALUES(?, 'live', 2, 5, 'nba', 'nba', 'gn', 'cn', 'tn', 'Team', ?, 0.9, 5.5, 5.0, 'resolved',"
+                  " ?, 'resolution_loss', 0.0, 3.0, -2.0, 'resolution')", (f"lv{i}", closed - 3000, closed))
+        s.execute("INSERT INTO orders(intent_id, position_id, created_at, mode, side, token_id, order_type, status,"
+                  " updated_at) VALUES(?, ?, ?, 'live', 'BUY', 'tn', 'FOK', 'confirmed', ?)",
+                  (f"lvo{i}", f"lv{i}", closed - 3000, closed - 3000))
+        s.execute("INSERT INTO fills(fill_id, intent_id, ts, side, price, shares, fee_usdc, status)"
+                  " VALUES(?, ?, ?, 'BUY', 0.9, 5.5, 0.0, 'CONFIRMED')", (f"lvf{i}", f"lvo{i}", closed - 3000))
+    s.commit()
+    env.engines = lambda: [FakeEngine("claude", proposal=LIVE_PROP)]
+    env.backtest = lambda *a: (_ for _ in ()).throw(AssertionError("a contradicted sport must not replay"))
+    res = retro.run_retro(opts("daily"), env)
+    assert any("contradicts" in r["reason"] for r in res["rejected"]), res["rejected"]
+
+
+def test_ai_direct_refused_for_owner_blocked_variant_and_unconfigured_alias(tmp_path):
+    v = _variant(tmp_path, mode="paper", sports={"nba": {"mode": "paper"}})
+    ctx = _ctx(v)
+    ch = {"variant_id": "wm", "sport": "nba", "change": "mode", "values": {"mode": "live"}, "rationale": "r"}
+    ctx.live_evidence[promotion_key("wm", "nba")] = {"ok": True, "reason": "replay ok"}
+    assert validate({"changes": [ch]}, ctx, Rules(), "ai:claude")[0].accepted
+    ctx.known_aliases = {"dog"}                                          # 'cat' is not configured
+    d = validate({"changes": [ch]}, ctx, Rules(), "ai:claude")[0]
+    assert not d.accepted and "not configured" in d.reason
+    ctx.promotions[promotion_key("wm", "nba")] = {"ok": True}
+    assert not validate({"changes": [ch]}, ctx, Rules(), "promotion")[0].accepted
+    # plum-king/queen (owner 2026-10-06): no AI-direct live, the deterministic gate stays allowed
+    from polylab.autopilot import validator as val
+    pv = _variant(tmp_path, mode="paper", sports={"nba": {"mode": "paper"}})
+    pv.id = "plum-king"
+    pctx = Context({"plum-king": pv}, {"plum-king": Facts(by_sport={"nba": Facts()})}, now=NOW)
+    pch = {**ch, "variant_id": "plum-king"}
+    pctx.live_evidence[promotion_key("plum-king", "nba")] = {"ok": True, "reason": "replay ok"}
+    d = validate({"changes": [pch]}, pctx, Rules(), "ai:claude")[0]
+    assert not d.accepted and "owner decision" in d.reason and "plum-king" in val.OWNER_NO_DIRECT_LIVE
+    pctx.promotions[promotion_key("plum-king", "nba")] = {"ok": True}
+    assert validate({"changes": [pch]}, pctx, Rules(), "promotion")[0].accepted

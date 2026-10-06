@@ -51,8 +51,12 @@ KIND_KO = {"daily": "일일", "weekly": "주간", "monthly": "월간"}
 RESEARCH_ONLY = {"llm-nil-draw"}
 MOVE_NOTE = "증액은 결정론 ladder 게이트를 통과했을 때만, 감액·paper 전환은 손실이나 표본 규칙으로 자동 적용된다."
 PROMOTE_NOTE = ("결정론 승격 게이트(paper 정산 30건 이상·ROI 80% 하한 > 0·두 반기 ≥ 0·최근 120일 재생 n ≥ 40·ROI ≥ 0, "
-                "계좌·프리시즌·3일 cooldown, 2026-10-06 연구자 결정)를 통과해 5 USDC 로 자동 전환됐다. AI 는 live 로 올릴 수 없다. "
+                "NFL 등 경기 수가 적은 종목은 paper 15건·직전 365일 재생 n ≥ 20, 계좌·프리시즌·3일 cooldown, 2026-10-06 연구자 결정) "
+                "또는 AI 제안 + retro 직접 재생 근거(promotion:ai-direct)로 5 USDC 실거래 전환됐다. "
                 "되돌리기는 ladder(손실 시 paper 강등) 또는 yaml mode 수정.")
+LIVE_HOW = ("live 전환: 종목별 변형은 결정론 승격 게이트가 자동으로, 또는 AI 회고가 제안하면 retro 가 직접 돌린 재생"
+            "(종목별 최소 건수·전체와 두 반기 ROI ≥ 0)과 paper 표본(유의하게 음수가 아님)이 통과할 때만 (변형, 종목)을 5 USDC 로 "
+            "전환한다(2026-10-06 promotion:ai-direct). 연구자가 yaml 로 직접 바꿀 수도 있다.")
 
 
 # ------------------------------------------------------------------ helpers
@@ -154,9 +158,10 @@ def _stake_items(report: dict, applied: list[dict], now: int) -> list[dict]:
     for a in applied:  # this run's moves (their stake_events rows carry ts=now, so ids match next run)
         if a.get("change") not in ("stake", "mode", "retire") or f"stake:{a['variant_id']}:{now}" in seen:
             continue
-        if a.get("source") == "promotion":
+        if a.get("source") == "promotion" or (a.get("change") == "mode" and "paper→live" in (a.get("summary") or "")):
+            who = "자동 실거래 전환" if a.get("source") == "promotion" else "AI 실거래 전환"
             out.append(item(f"stake:{a['variant_id']}:{now}", "stake", "info", "system_change",
-                            f"자동 실거래 전환: {a['variant_id']} {a.get('sport') or ''} paper→live 5 USDC".replace("  ", " "),
+                            f"{who}: {a['variant_id']} {a.get('sport') or ''} paper→live 5 USDC".replace("  ", " "),
                             f"{_kst(now)} KST 적용. {clean_text(a.get('rationale') or '', 300)}. {PROMOTE_NOTE}",
                             f"strategies/{a['variant_id']}.yaml"))
             continue
@@ -182,8 +187,8 @@ def _health_items(report: dict, report_ref: str) -> list[dict]:
                             "Mac mini 에서 파일을 지워야 거래가 재개된다.", report_ref))
         elif key == "storage_budget":
             out.append(item("storage_budget", "health", p["level"], "risk", clean_text(p["message"], TITLE_MAX),
-                            "연구자 결정(storage:budget): 데이터 증가는 월 50GB 이내, 최대 100GB. 30일 예측은 최근 7일 증가로 "
-                            "계산하며 첫 주에는 일회성 백필이 섞일 수 있다. 줄이는 손잡이: raw WebSocket 보관 모드"
+                            "연구자 결정(storage:budget): 데이터 증가는 월 50GB 이내, 최대 100GB. 30일 예측은 최근 7일의 일별 증가 "
+                            "중앙값(정상 상태)이며, 알려진 일회성 백필 날과 수집 설정 변경 전 날은 빼고 따로 보고한다. 줄이는 손잡이: raw WebSocket 보관 모드"
                             "(POLYLAB_RAW_MARKET), general 수집 5분 주기(POLYLAB_GENERAL_POLL_EVERY=5), "
                             "`polylab storage compact --apply`(지난 달 shard VACUUM).", report_ref))
         elif key.startswith("loss_stop:"):
@@ -239,6 +244,60 @@ def _last_entry(paths, vid: str) -> int | None:
         conn.close()
 
 
+def _last_entry_sport(paths, vid: str, sport: str) -> int | None:
+    conn = C.open_ro(paths.strategy_db(vid))
+    if conn is None:
+        return None
+    try:
+        return conn.execute("SELECT MAX(opened_at) FROM positions WHERE status != 'pending' AND sport = ?",
+                            (sport,)).fetchone()[0]
+    except Exception:
+        return None
+    finally:
+        conn.close()
+
+
+def idle_sports(report: dict, paths, now: int) -> dict[str, dict[str, tuple[int | None, int]]]:
+    """Per-sport variants: {variant_id: {sport: (last_entry_ts, target_games)}} for each non-off sport with 0 entries
+    of that sport for DEAD_DAYS although regular-season games of it (soccer: its leagues) were played. Gates the daily
+    backtest-backed retune per (variant, sport): sport-targeted params changes read the sport's own facts."""
+    if (report.get("health") or {}).get("kill_switch") or paths is None:
+        return {}
+    from polylab.risk.promotion import in_preseason  # noqa: PLC0415
+    since = now - DEAD_DAYS * 86400
+    core = C.open_ro(paths.core_db)
+    if core is None:
+        return {}
+    out: dict[str, dict[str, tuple[int | None, int]]] = {}
+    try:
+        for v in report["variants"]:
+            history = v.get("param_history") or []
+            if not v.get("per_sport") or v.get("id") in RESEARCH_ONLY or v["mode"] == "off" or not history \
+                    or (history[0].get("ts") or now) > since:
+                continue
+            params = v.get("params") or {}
+            for d in v.get("sports_detail") or []:
+                sport = d.get("sport")
+                if not sport or d.get("mode") == "off":
+                    continue
+                last = _last_entry_sport(paths, v["id"], sport)
+                if last is not None and last >= since:
+                    continue
+                over = (params.get("sport_overrides") or {}).get(sport) or {}
+                leagues = [str(x).lower() for x in (over.get("leagues", params.get("leagues")) or [])]
+                sql = "SELECT start_time FROM games WHERE sport=? AND start_time BETWEEN ? AND ?"
+                args: list = [sport, since, now]
+                if leagues and sport == "soccer":
+                    sql += f" AND LOWER(league) IN ({','.join('?' * len(leagues))})"
+                    args += leagues
+                games = sum(1 for (ts,) in core.execute(sql, args) if ts is not None and not in_preseason(sport, int(ts)))
+                if games:
+                    out.setdefault(v["id"], {})[sport] = (last, games)
+    finally:
+        core.close()
+    return out
+
+
 def idle_variants(report: dict, paths, now: int) -> dict[str, tuple[int | None, int]]:
     """{variant_id: (last_entry_ts, target_games)} for variants with 0 entries for DEAD_DAYS although
     games of their sports (and soccer leagues) were played. Also gates the daily backtest-backed retune."""
@@ -276,8 +335,11 @@ def idle_variants(report: dict, paths, now: int) -> dict[str, tuple[int | None, 
 def _dead_variant_items(report: dict, paths, now: int) -> list[dict]:
     out = []
     sports = {v["id"]: v.get("sports") or [] for v in report["variants"]}
+    per_sport = idle_sports(report, paths, now)
     for vid, (last_entry, games) in idle_variants(report, paths, now).items():
         last = f"마지막 진입 {_kst(last_entry)} KST" if last_entry else "진입 기록 없음"
+        if per_sport.get(vid):
+            last += ". 종목별 진입 0건(정규시즌 경기 수): " + ", ".join(f"{s} {g}" for s, (_, g) in sorted(per_sport[vid].items()))
         out.append(item(f"dead_variant:{vid}", "dead_variant", "decide", "decision_needed",
                         f"{vid} {DEAD_DAYS}일 이상 진입 0건 (대상 경기 {games}개 있었음)",
                         f"{last}. 같은 기간 대상 종목({', '.join(sports.get(vid, []))}) 경기는 {games}개였다. 진입 조건이 "
@@ -298,15 +360,13 @@ def _paper_items(report: dict, applied: list[dict]) -> list[dict]:
             out.append(item(f"paper:{v['id']}", "paper", "info", "system_change",
                             f"paper 변형 {v['id']} 증거 수집 중 ({n}/{PAPER_MIN_TRADES}건)",
                             f"가설: {clean_text(v.get('hypothesis') or '–', 200)}. paper 정산 {n}건, ROI {_pct(p.get('roi'))}"
-                            f"(paper 원장, 실손익 아님). {PAPER_MIN_TRADES}건이 모이면 live 전환 여부를 사람이 결정한다"
-                            "(AI는 live로 올릴 수 없다; 종목별 변형의 paper 종목은 결정론 승격 게이트가 자동 전환).",
+                            f"(paper 원장, 실손익 아님). {LIVE_HOW}",
                             f"strategies/{v['id']}.yaml"))
         else:
             out.append(item(f"paper_ready:{v['id']}", "paper", "decide", "decision_needed",
                             f"paper 변형 {v['id']} 표본 {n}건 도달: live 전환 결정 필요",
                             f"paper 정산 {n}건, 승률 {_pct(p.get('win_rate'))}, ROI {_pct(p.get('roi'))}(paper 원장). "
-                            f"live 전환은 사람만 할 수 있다: strategies/{v['id']}.yaml 의 mode 를 live 로, 계좌 alias 를 "
-                            "지정해 커밋한다. 아니면 그대로 두거나 retire 한다.", f"strategies/{v['id']}.yaml"))
+                            f"{LIVE_HOW} 아니면 그대로 두거나 retire 한다.", f"strategies/{v['id']}.yaml"))
     for a in applied:
         if a.get("change") == "new_variant":
             vid = a["variant_id"]
@@ -329,7 +389,8 @@ def _promotion_items(report: dict) -> list[dict]:
                         f"자동 실거래 전환 대기: {g['variant_id']} {g['sport']} (paper 게이트 통과)",
                         f"paper 정산 {p.get('n')}건, ROI {_pct(p.get('roi'))}, 80% 하한 {_pct(p.get('roi_ci_lo'))}"
                         f"(paper 원장, 실손익 아님). 남은 조건: {clean_text(g.get('reason') or '–', 200)}. "
-                        "주간 회고가 최근 120일 재생(n ≥ 40, ROI ≥ 0)을 직접 돌려 통과하면 5 USDC 로 자동 전환한다.",
+                        "주간 회고가 종목 규칙의 재생(기본 최근 120일 n ≥ 40, NFL 등은 직전 365일 n ≥ 20; ROI ≥ 0)을 "
+                        "직접 돌려 통과하면 5 USDC 로 자동 전환한다.",
                         f"strategies/{g['variant_id']}.yaml"))
     return out
 

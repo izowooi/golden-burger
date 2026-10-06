@@ -262,9 +262,11 @@ def checks(h: dict, paths=None) -> list[dict]:
     proj = st.get("projected_30d_gb")
     if st.get("level") in ("warn", "critical") and proj is not None:
         top = sorted(((n, r.get("gb_30d") or 0) for n, r in (st.get("areas") or {}).items()), key=lambda x: -x[1])[:2]
+        one = st.get("one_time_gb") or 0
         add("storage_budget", st["level"],
-            f"데이터 증가 예상 {proj:g}GB/월 (예산 {st.get('budget_warn_gb', 50):g}, 상한 {st.get('budget_crit_gb', 100):g}) "
-            f"— 주요: " + ", ".join(f"{n} {v:g}GB" for n, v in top))
+            f"데이터 증가 예상(정상 상태) {proj:g}GB/월 (예산 {st.get('budget_warn_gb', 50):g}, 상한 {st.get('budget_crit_gb', 100):g}) "
+            f"— 주요: " + ", ".join(f"{n} {v:g}GB" for n, v in top)
+            + (f"; 일회성 백필 {one:g}GB 별도" if one else ""))
     live = coll.get("live_games") or 0
     poll_age = _age(now, coll.get("last_poll_at"))
     if live > 0 and (poll_age is None or poll_age > POLL_STALE_S):

@@ -21,6 +21,9 @@ and the paper maker simulation never fills on synthetic books, so a faithful mak
 compare current vs proposed entry window / TP params; `--fill-model maker` runs the conservative maker simulation.
 goal_over pre-game entry windows (`entry_minutes_before_max`) are simulated at a coarse >= 10-minute step (book
 cadence); in-game windows keep `--step`.
+`--fee-rate R` replaces every market's stored fee schedule with the taker schedule rate R (exponent 1, taker-only):
+2024–25 markets were mostly fee-free, so gate evidence (promotion, AI live, retune) is replayed at the current sports
+schedule (`CURRENT_SPORTS_FEE_RATE`, sports_fees_v3) instead of the historical one.
 Holding time of a resolution exit ends at the market's resolved_at (the final settlement pass
 stamps closed_at far in the future); p05_return is the 5% quantile of per-trade pnl/cost.
 """
@@ -59,6 +62,7 @@ def _merge(base: dict, over: dict) -> dict:
 
 
 PRE_GAME_STEP_S = 600
+CURRENT_SPORTS_FEE_RATE = 0.05   # sports_fees_v3 taker rate (exponent 1, taker-only), used for gate evidence replays
 
 
 def active_steps(core: sqlite3.Connection, variant, start: int, end: int, step: int) -> list[int]:
@@ -192,7 +196,7 @@ def _as_taker(variant) -> bool:
 
 
 def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: float = 0.01,
-             fill_model: str = "auto") -> dict[str, Any]:
+             fill_model: str = "auto", fee_rate: float | None = None) -> dict[str, Any]:
     from polylab.engine.tick import run_variant           # engine imports stay local: engine is the heavier module
     from polylab.execution.ledger import open_ledger
     from polylab.execution.reconcile import settle_resolutions
@@ -202,6 +206,9 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
         raise FileNotFoundError(f"core db missing: {paths.core_db}")
     shards = book_shards_for_range(paths, start, end)
     view = MarketView(core, shards, historical=True, synthetic_spread=spread)
+    if fee_rate is not None:
+        from polylab.execution.fees import FeeSchedule  # noqa: PLC0415
+        view.fee_override = FeeSchedule(float(fee_rate), 1.0, True, f"override_{fee_rate:g}")
     sim_variant = copy.copy(variant)
     sim_variant.mode = "paper"
     used_fill = "as_configured"
@@ -235,14 +242,14 @@ def backtest(paths, variant, start: int, end: int, *, step: int = 60, spread: fl
     return {
         "variant": variant.id, "family": variant.family,
         "range": {"from": start, "to": end}, "params": variant.params, "stake_usdc": variant.stake_usdc,
-        "step_s": step, "spread": spread, "books": bool(shards), "fill_model": used_fill,
+        "step_s": step, "spread": spread, "books": bool(shards), "fill_model": used_fill, "fee_rate": fee_rate,
         "summary": summarize(rows), "errors": errors, "trades": trades,
     }
 
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(prog="polylab backtest")
-    ap.add_argument("--variant", required=True, help="variant id in strategies/ (or use --variant-file)")
+    ap.add_argument("--variant", help="variant id in strategies/ (or use --variant-file)")
     ap.add_argument("--variant-file", help="YAML of a proposed variant (overrides --variant lookup)")
     ap.add_argument("--from", dest="start", required=True, help="YYYY-MM-DD (UTC, inclusive)")
     ap.add_argument("--to", dest="end", required=True, help="YYYY-MM-DD (UTC, exclusive)")
@@ -252,7 +259,11 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", help="write JSON here instead of stdout")
     ap.add_argument("--fill-model", choices=("auto", "maker", "taker"), default="auto",
                     help="auto/taker: maker variants replay with taker fills (proxy); maker: conservative maker sim")
+    ap.add_argument("--fee-rate", type=float, default=None,
+                    help="force this taker fee rate on every market (default: stored schedules)")
     args = ap.parse_args(argv)
+    if not args.variant and not args.variant_file:   # the retro passes only --variant-file (staged proposal yaml)
+        ap.error("one of --variant / --variant-file is required")
 
     if args.variant_file:
         variant = registry.load_variant(Path(args.variant_file))
@@ -266,7 +277,7 @@ def main(argv: list[str] | None = None) -> int:
         variant.params = _merge(variant.params, json.loads(args.params))
     step = args.step or (300 if variant.family == "cherry" else 60)
     result = backtest(settings.paths(), variant, _parse_day(args.start), _parse_day(args.end),
-                      step=step, spread=args.spread, fill_model=args.fill_model)
+                      step=step, spread=args.spread, fill_model=args.fill_model, fee_rate=args.fee_rate)
     text = json.dumps(result, indent=1, sort_keys=True, default=str)
     if args.out:
         Path(args.out).write_text(text)

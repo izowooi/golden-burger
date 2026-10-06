@@ -154,6 +154,10 @@ def test_tick_paper_end_to_end(tmp_path):
     reg = tmp_path / "reg"
     reg.mkdir()
     real = yaml.safe_load(open("strategies/goal-over-all.yaml"))
+    # tunable values (AI retro / owner) are fixed here so a yaml retune cannot break this test
+    real["params"].update(entry_minutes_before_max=4320, entry_minutes_before_min=5, price_min=0.5, price_max=0.985,
+                          take_profit_price=None, stop_loss_price=None, take_profit_delta=0.02, take_profit_pct=None,
+                          maker_ttl_minutes=60, maker_reprice_ticks=2)
     real["params"]["leagues"] = LEAGUES
     real["params"]["order_style"] = "taker"          # FOK path; maker lifecycle: tests/test_maker_orders.py
     real.update(mode="paper", account=None, stake_usdc=5.0)

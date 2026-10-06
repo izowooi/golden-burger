@@ -19,9 +19,13 @@ proposal.json (schema "polylab.proposal/v1"):
 Per-sport variants (yaml `sports:` mapping, 2026-10-05) take an optional "sport" on params / stake /
 mode changes: params become `sport_overrides.<sport>.<name>` (bounds: that dotted key, else the base
 name), stake and mode move only that sport. On per-sport variants params and stake changes must
-name a sport. paper→live is accepted only from source "promotion" (the retro's deterministic gate,
-polylab.risk.promotion, 2026-10-06) with passing gate evidence the retro stored in Context.promotions;
-AI and inbox proposals can never move anything to live.
+name a sport. paper→live (per (variant, sport) of a per-sport variant, 5 USDC) is accepted from source
+"promotion" (the retro's deterministic gate, polylab.risk.promotion, 2026-10-06) with passing gate evidence in
+Context.promotions, and — owner decision 2026-10-06 `promotion:ai-direct` — from an AI / inbox proposal only when
+the retro itself computed passing evidence for that (variant, sport): the deterministic gate (Context.promotions)
+or its own replay checked by promotion.evaluate_direct (Context.live_evidence). Numbers written in a proposal are
+never used. Sample minimums and replay windows are per sport (Context.sample_rules, promotion.sample_rule:
+low-frequency sports such as NFL use smaller minimums and a 365-day window).
 """
 
 from __future__ import annotations
@@ -54,6 +58,14 @@ OWNER_FIXED_PARAMS: dict[str, frozenset[str]] = {
     "goal-over-all": frozenset({"stop_loss_pct", "hold_above_price", "stop_loss_price"}),
 }
 
+# Variants the owner kept off the AI-direct live path (reports/decisions.md). The deterministic promotion gate
+# (>= 30 out-of-sample paper trades with an 80% lower bound > 0) may still promote them.
+OWNER_NO_DIRECT_LIVE: dict[str, str] = {
+    # 2026-10-06 `paper_ready:plum-king/queen`: no live at paper ROI -3.0%; the new NFL cell is an in-sample backtest
+    "plum-king": "2026-10-06 paper_ready:plum-king",
+    "plum-queen": "2026-10-06 paper_ready:plum-queen",
+}
+
 
 @dataclass(frozen=True)
 class Rules:
@@ -84,6 +96,9 @@ class Rules:
     promotion_replay: bool = False
     promotion_max_runs: int = 1
     promotion_budget_s: int = 1800
+    # AI-direct paper→live (2026-10-06 `promotion:ai-direct`): replays the retro runs for AI/inbox live proposals
+    live_evidence_max_runs: int = 1
+    live_evidence_budget_s: int = 1500
 
     @classmethod
     def for_kind(cls, kind: str) -> "Rules":
@@ -121,6 +136,10 @@ class Context:
     fixed_params: dict[str, frozenset[str]] = field(default_factory=lambda: dict(OWNER_FIXED_PARAMS))
     # promotion_key(variant_id, sport) -> passing gate evidence computed by the retro (polylab.risk.promotion)
     promotions: dict[str, dict] = field(default_factory=dict)
+    # promotion_key(variant_id, sport) -> retro-run AI-direct live evidence (promotion.evaluate_direct, pass or fail)
+    live_evidence: dict[str, dict] = field(default_factory=dict)
+    # promotion_key(variant_id, sport) -> promotion.SampleRule (per-sport minimums / replay window); absent = defaults
+    sample_rules: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -131,6 +150,7 @@ class Decision:
     reason: str = ""
     summary: str = ""
     backtest: dict | None = None         # retro-run evidence when the backtest-backed path was used
+    gate: dict | None = None             # retro-run live evidence when an AI/inbox paper→live passed
 
     def as_dict(self) -> dict:
         out = {"variant_id": self.change.get("variant_id"), "change": self.change.get("change"),
@@ -139,6 +159,8 @@ class Decision:
                "source": self.source, "accepted": self.accepted, "reason": self.reason, "summary": self.summary}
         if self.backtest is not None:
             out["backtest"] = self.backtest
+        if self.gate is not None:
+            out["gate"] = self.gate
         return out
 
 
@@ -148,6 +170,10 @@ class Reject(Exception):
 
 class NeedsBacktest(Reject):
     """Everything else passed; only retro-run backtest evidence for these exact values is missing."""
+
+
+class NeedsLiveEvidence(Reject):
+    """An AI/inbox paper→live proposal that the retro has not replayed yet."""
 
 
 _MISSING = object()
@@ -274,6 +300,17 @@ def _dotted_sport(ch: dict) -> str | None:
     return None
 
 
+def sample_rule_of(ch: dict, ctx: Context):
+    """The per-sport SampleRule of a change (None: variant-level defaults from Rules)."""
+    sport = ch.get("sport") if isinstance(ch, dict) else None
+    return ctx.sample_rules.get(promotion_key(ch.get("variant_id"), sport)) if sport else None
+
+
+def min_trades_for(ch: dict, ctx: Context, rules: Rules) -> int:
+    rule = sample_rule_of(ch, ctx)
+    return min(rules.min_trades_params, rule.params_min_trades) if rule is not None else rules.min_trades_params
+
+
 def change_facts(ch: dict, ctx: Context) -> Facts:
     f = ctx.facts.get(ch.get("variant_id"), Facts())
     sport = ch.get("sport")
@@ -287,7 +324,7 @@ def needs_backtest(ch: dict, ctx: Context, rules: Rules) -> bool:
     v = ctx.variants.get(ch.get("variant_id"))
     if v is None:
         return False
-    if change_facts(ch, ctx).trades_at_version < rules.min_trades_params:
+    if change_facts(ch, ctx).trades_at_version < min_trades_for(ch, ctx, rules):
         return True
     try:
         new, bounds, current = resolve_params(ch, v)
@@ -307,21 +344,28 @@ def _pct(x) -> str:
     return "–" if x is None else f"{x * 100:+.2f}%"
 
 
-def backtest_gate(ev: dict, rules: Rules, stake_usdc: float) -> tuple[bool, str]:
+def backtest_gate(ev: dict, rules: Rules, stake_usdc: float, rule=None) -> tuple[bool, str]:
     """Deterministic acceptance of retro-run evidence:
     {"current"|"proposed": {"n", "roi", "max_dd", "halves": [{"n", "roi", "max_dd"}, {...}]}, ...}.
-    A current arm with no trades in a half counts as ROI 0 (it made nothing); a proposed half must trade."""
+    A current arm with no trades in a half counts as ROI 0 (it made nothing); a proposed half must trade.
+    `rule` (promotion.SampleRule of the sport): its minimums apply and the evidence window must match it."""
     if not isinstance(ev, dict) or ev.get("error"):
         return False, f"backtest error: {(ev or {}).get('error') if isinstance(ev, dict) else 'invalid'}"
+    min_n = rule.backtest_min_n if rule is not None else rules.backtest_min_n
+    min_half = rule.backtest_min_half_n if rule is not None else rules.backtest_min_half_n
+    if rule is not None and isinstance(ev.get("range"), (list, tuple)) and len(ev["range"]) == 2:
+        days = round((ev["range"][1] - ev["range"][0]) / DAY)
+        if days != rule.lookback_days:
+            return False, f"evidence window {days}d != {rule.sport} rule {rule.lookback_days}d"
     cur, new = ev.get("current") or {}, ev.get("proposed") or {}
     if len(cur.get("halves") or []) != 2 or len(new.get("halves") or []) != 2:
         return False, "evidence must have two halves per arm"
     n = int(new.get("n") or 0)
-    if n < rules.backtest_min_n:
-        return False, f"proposed n={n} < {rules.backtest_min_n}"
+    if n < min_n:
+        return False, f"proposed n={n} < {min_n}"
     for i, (c, p) in enumerate(zip(cur["halves"], new["halves"]), 1):
-        if p.get("roi") is None or int(p.get("n") or 0) < rules.backtest_min_half_n:
-            return False, f"H{i} proposed n={p.get('n') or 0} < {rules.backtest_min_half_n}"
+        if p.get("roi") is None or int(p.get("n") or 0) < min_half:
+            return False, f"H{i} proposed n={p.get('n') or 0} < {min_half}"
         base = c.get("roi") if c.get("roi") is not None else 0.0
         if p["roi"] + 1e-12 < base:
             return False, f"H{i} ROI {_pct(p['roi'])} < current {_pct(c.get('roi'))}"
@@ -383,11 +427,12 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
             raise Reject(f"owner-fixed params {fixed} (reports/decisions.md): propose via attention instead")
         if f.last_param_change_ts and ctx.now - f.last_param_change_ts < rules.cooldown_params_s:
             raise Reject(f"param cooldown: last change {(ctx.now - f.last_param_change_ts) / 3600:.0f}h ago")
-        few = f.trades_at_version < rules.min_trades_params
+        min_trades = min_trades_for(ch, ctx, rules)
+        few = f.trades_at_version < min_trades
         eligible = rules.backtest_retune and (f.idle or not rules.backtest_idle_only)
         if not few and (not eligible or not needs_backtest(ch, ctx, rules)):
             return where + ", ".join(_check_params(new, current, bounds, rules, relative=True))
-        why = (f"only {f.trades_at_version} settled trades at current params (< {rules.min_trades_params})" if few
+        why = (f"only {f.trades_at_version} settled trades at current params (< {min_trades})" if few
                else "step > max_step")
         if not rules.backtest_retune:
             raise Reject(why)
@@ -398,7 +443,7 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
         if ev is None:
             raise NeedsBacktest(f"{why}; no retro-run backtest for these exact values "
                                 "(AI-stated evidence is not accepted)")
-        ok, verdict = backtest_gate(ev, rules, v.sport_stake(sport))
+        ok, verdict = backtest_gate(ev, rules, v.sport_stake(sport), sample_rule_of(ch, ctx))
         if not ok:
             raise Reject(f"{why}; backtest gate failed: {verdict}")
         state["backtest"] = ev
@@ -429,20 +474,40 @@ def _validate_one(ch: dict, ctx: Context, rules: Rules, source: str, state: dict
 
     if kind == "mode":
         if set(values) != {"mode"}:
-            raise Reject("mode values must be {mode: paper|off}")
+            raise Reject("mode values must be {mode: live|paper|off}")
         target = values["mode"]
         cur = v.sport_mode(sport, ctx.now) if sport else v.mode
         if target == "live":
-            if source != PROMOTION_SOURCE:
-                raise Reject(f"{where}mode {cur}→live not allowed: only the deterministic promotion gate (never AI/inbox)")
+            direct = source == "ai" or source.startswith(("ai:", "inbox:"))
+            if source != PROMOTION_SOURCE and not direct:
+                raise Reject(f"{where}mode {cur}→live not allowed from source {source}")
             if not sport or not v.per_sport:
-                raise Reject("promotion is per (variant, sport) of a per-sport variant")
-            gate = ctx.promotions.get(promotion_key(vid, sport))
-            if not isinstance(gate, dict) or gate.get("ok") is not True:
-                raise Reject(f"{where}no passing promotion-gate evidence computed by this retro")
+                raise Reject(f"{where}mode {cur}→live not allowed: promotion is per (variant, sport) of a per-sport variant")
             if cur != "paper":
                 raise Reject(f"{where}mode {cur}→live: only paper sports are promoted")
-            return f"{where}mode paper→live (자동 실거래 전환, 단위 5 USDC)"
+            if ctx.known_aliases and v.account not in ctx.known_aliases:
+                raise Reject(f"{where}mode paper→live: account alias {v.account!r} is not configured")
+            key = promotion_key(vid, sport)
+            gate = ctx.promotions.get(key)
+            if source == PROMOTION_SOURCE:
+                if not isinstance(gate, dict) or gate.get("ok") is not True:
+                    raise Reject(f"{where}no passing promotion-gate evidence computed by this retro")
+                return f"{where}mode paper→live (자동 실거래 전환, 단위 5 USDC)"
+            # AI-direct (2026-10-06 `promotion:ai-direct`): only the retro's own evidence, never proposal numbers
+            if vid in OWNER_NO_DIRECT_LIVE:
+                raise Reject(f"{where}mode paper→live by AI refused: owner decision {OWNER_NO_DIRECT_LIVE[vid]} "
+                             "(only the deterministic promotion gate on new paper trades)")
+            if isinstance(gate, dict) and gate.get("ok") is True:
+                state["gate"] = gate
+                return f"{where}mode paper→live (AI 실거래 전환, 결정론 게이트 근거, 단위 5 USDC)"
+            direct_ev = ctx.live_evidence.get(key)
+            if direct_ev is None:
+                raise NeedsLiveEvidence(f"{where}mode paper→live needs the retro's own replay for this sport "
+                                        "(AI-stated evidence is not accepted)")
+            if direct_ev.get("ok") is not True:
+                raise Reject(f"{where}mode paper→live refused: {direct_ev.get('stage')}: {direct_ev.get('reason')}")
+            state["gate"] = direct_ev
+            return f"{where}mode paper→live (AI 실거래 전환, 단위 5 USDC) [근거: {direct_ev.get('reason')}]"
         if (cur, target) not in SAFE_MODE_TRANSITIONS:
             raise Reject(f"{where}mode {cur}→{target} not allowed (only toward safety; live only via the promotion gate)")
         return f"{where}mode {cur}→{target}"
@@ -510,6 +575,22 @@ def backtest_candidates(proposal: Any, ctx: Context, rules: Rules) -> list[tuple
     return out
 
 
+def live_candidates(proposal: Any, ctx: Context, rules: Rules, source: str = "ai:dry-run") -> list[tuple[str, str]]:
+    """(variant_id, sport) of AI/inbox paper→live changes that only lack the retro's own live evidence."""
+    out: list[tuple[str, str]] = []
+    if not isinstance(proposal, dict) or not isinstance(proposal.get("changes"), list):
+        return out
+    for ch in proposal["changes"]:
+        try:
+            _validate_one(ch, ctx, rules, source, {"count": 0, "touched": set(), "new_variants": 0})
+        except NeedsLiveEvidence:
+            if (ch["variant_id"], ch["sport"]) not in out:
+                out.append((ch["variant_id"], ch["sport"]))
+        except Reject:
+            continue
+    return out
+
+
 def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
              state: dict | None = None) -> list[Decision]:
     """Validate every change. `state` carries budget/touched across several proposals in one retro."""
@@ -528,6 +609,7 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
     for ch in proposal["changes"]:
         counted = source not in UNCOUNTED_SOURCES
         state.pop("backtest", None)
+        state.pop("gate", None)
         if isinstance(ch, dict) and ch.get("sport") is None:
             ch = {k: v for k, v in ch.items() if k != "sport"}
             target = ctx.variants.get(ch.get("variant_id"))
@@ -545,7 +627,8 @@ def validate(proposal: Any, ctx: Context, rules: Rules, source: str = "ai",
         state["count"] += 1 if counted else 0
         if ch["change"] == "new_variant":
             state["new_variants"] += 1
-        out.append(Decision(ch, source, True, "", summary, backtest=state.pop("backtest", None)))
+        out.append(Decision(ch, source, True, "", summary, backtest=state.pop("backtest", None),
+                            gate=state.pop("gate", None)))
     return out
 
 

@@ -83,19 +83,21 @@ sequenceDiagram
   AI 는 `critical` 을 쓸 수 없고(`warn` 으로 낮춤) 규칙 항목을 건드릴 수 없다(id 앞에 `ai:`). 파일이 없거나 잘못되면
   AI 항목 없이 진행한다(회고는 실패하지 않음). 이미 열린 항목은 `attention_open.json` 으로 context pack 에 들어간다.
 
-변경 종류: `params`(파라미터) · `stake`(단위 한 단계) · `mode`(AI 는 live→paper/off 만; paper→live 는 결정론 승격 게이트 전용) · `new_variant`(주간·월간, paper 로만) · `retire`.
+변경 종류: `params`(파라미터) · `stake`(단위 한 단계) · `mode`(live→paper/off 는 언제든; paper→live 는 종목별 변형의 한 종목만, 결정론 승격 게이트 또는 retro 가 직접 돌린 재생 근거가 있을 때 — 2026-10-06 `promotion:ai-direct`) · `new_variant`(주간·월간, paper 로만) · `retire`.
 
 ## 4. 안전장치 (validator + 게이트)
 
 | 규칙 | 값 |
 |---|---|
 | 파라미터 | yaml `bounds` 의 [min, max] 안, 한 번에 `max_step` 이하 |
-| 최소 표본 | 현재 파라미터로 정산 20건 이상. 예외: **백테스트 근거 재조정** — retro 가 제안 값과 현재 값을 직접 재생(최근 120일, 현재 arm 진입 시각 중앙값으로 두 반기)해 제안 n ≥ 40(반기 ≥ 10), 두 반기 ROI 모두 현재 이상, MDD ≤ 현재×1.2 일 때만 허용. 한 단계 max_step 의 2배까지. 주간은 모든 변형(회당 2건 재생), 일일은 대상 경기가 있었는데 3일 이상 진입 0건인 변형만(1건). AI 가 proposal 에 적은 수치는 판정에 쓰지 않고, 근거는 `reports/changes.md` 에 기록 |
+| 최소 표본 | 현재 파라미터로 정산 20건 이상(NFL 등 경기 수가 적은 종목 15건). 예외: **백테스트 근거 재조정** — retro 가 제안 값과 현재 값을 직접 재생(종목 규칙의 기간, 현재 수수료 0.05, 현재 arm 진입 시각 중앙값으로 두 반기)해 제안 n ≥ 40(반기 ≥ 10; NFL 등 20·5), 두 반기 ROI 모두 현재 이상, MDD ≤ 현재×1.2 일 때만 허용. 한 단계 max_step 의 2배까지. 주간은 모든 변형(회당 2건 재생), 일일은 대상 경기가 있었는데 3일 이상 진입 0건인 변형만(종목별 변형은 그 종목의 정규시즌 경기·진입으로 판정, 1건). AI 가 proposal 에 적은 수치는 판정에 쓰지 않고, 근거는 `reports/changes.md` 에 기록 |
+| 종목 규칙 | `risk/promotion.py` `sample_rule`(2026-10-06 `manual:nfl-promotion-window`): 기본 재생 120일·n ≥ 40·반기 ≥ 10·paper ≥ 30. **경기 수가 적은 종목**(설정 `LOW_FREQUENCY_SPORTS` = nfl, 또는 직전 365일 경기가 120일당 60경기 미만) 재생 365일(직전 시즌 전체)·n ≥ 20·반기 ≥ 5·paper ≥ 15. 최근 120일 정규시즌 경기가 60경기 미만인 비시즌 종목은 최소 건수는 그대로 두고 재생만 365일. 승격 게이트·AI 실거래 전환·재조정이 모두 같은 규칙을 쓰고, 근거에 규칙과 기간이 남는다 |
 | 연구자 고정값 | `reports/decisions.md` 로 연구자가 정한 값(예: goal-over-all 청산 +0.02/−10%/0.99 보유)은 validator `OWNER_FIXED_PARAMS` 로 거부, attention 으로만 제안 |
 | cooldown | 같은 변형의 파라미터·단위 변경 후 3일 |
 | 단위 | ladder(5·10·25·50·100) 한 단계씩, **증액은 결정론 게이트 통과 시에만**, 감액은 항상 허용, 상한 100 |
-| 모드 | AI 는 live 로 올릴 수 없음(live→paper/off, paper→off 만). paper→live 는 retro 의 결정론 승격 게이트(`risk/promotion.py`)만: 출처 `promotion` + 이번 회고가 계산한 게이트 근거(`Context.promotions`)가 있을 때만 validator 가 받는다(2026-10-06) |
-| 자동 실거래 전환 | 종목별 변형의 paper 종목: 계좌·프리시즌·`live_from`·3일 cooldown, 현재 파라미터 paper 정산 ≥ 30(마지막 단위·모드 이벤트 이후), paper ROI 80% bootstrap 하한 > 0, 두 반기 손익 ≥ 0, retro 가 직접 돌린 최근 120일 재생 n ≥ 40·ROI ≥ 0 → 5 USDC live. paper 판정은 매 회고, 재생은 주간 회고(회당 1건, 시간 예산 초과·오류 시 전환 없음). 상태는 context `promotion.json`, 기록은 stake_events·changes.md·attention |
+| 모드 | live→paper/off, paper→off 는 언제든. paper→live 는 종목별 변형의 (변형, 종목)만, 5 USDC: (a) retro 의 결정론 승격 게이트(출처 `promotion`, `Context.promotions`), 또는 (b) **AI·inbox 제안**(2026-10-06 `promotion:ai-direct`) — retro 가 그 종목을 현재 파라미터·현재 수수료로 직접 재생해(`promotion.evaluate_direct`, 회당 1건, 시간 예산 안) n ≥ 종목 최소, 전체·두 반기 ROI ≥ 0(반기 n ≥ 종목 최소), 관측 표본(마지막 단위·모드 변경 이후 paper + 현재 파라미터 live 체결 — ladder 강등 종목은 live 손실 기록이 남는다)이 유의하게 음수가 아님(ROI 80% bootstrap 상한 ≥ 0, 5건 미만은 반대 근거 아님), 계좌·프리시즌·`live_from`·3일 cooldown 을 통과할 때만(`Context.live_evidence`). 같은 회고에서 결정론 게이트를 통과한 종목이면 그 근거로도 받는다. 계좌 alias 는 설정(`accounts.env`)에 있어야 한다. plum-king·queen 은 연구자 결정(2026-10-06 `paper_ready:plum-*`)으로 AI 경로에서 제외(validator `OWNER_NO_DIRECT_LIVE`, 결정론 게이트만). AI 가 적은 수치는 쓰지 않고, 근거는 stake_events·changes.md·attention("AI 실거래 전환")에 남는다 |
+| 자동 실거래 전환 | 종목별 변형의 paper 종목: 계좌·프리시즌·`live_from`·3일 cooldown, 현재 파라미터 paper 정산 ≥ 30(마지막 단위·모드 이벤트 이후; NFL 등 15), paper ROI 80% bootstrap 하한 > 0, 두 반기 손익 ≥ 0, retro 가 직접 돌린 재생(종목 규칙 기간: 기본 최근 120일, NFL 등 365일; 현재 수수료) n ≥ 40(NFL 등 20)·ROI ≥ 0 → 5 USDC live. paper 판정은 매 회고, 재생은 주간 회고(회당 1건, 시간 예산 초과·오류 시 전환 없음). 상태는 context `promotion.json`(규칙 포함), 기록은 stake_events·changes.md·attention |
+| 재생 수수료 | retro 가 돌리는 모든 스포츠 재생(재조정·승격·AI 실거래 근거)은 `polylab backtest --fee-rate 0.05`(현재 sports_fees_v3)로 모든 마켓에 현재 taker 수수료를 강제한다(2024–25 마켓은 대부분 무료였다). cherry(일반 카테고리)는 저장된 schedule. 2026-10-06 수정: 그 전까지 retro 재생은 CLI 가 `--variant` 를 필수로 요구해 모두 exit 2 로 실패했다(테스트가 재생을 mock 해서 드러나지 않음, 지금은 실제 subprocess 테스트가 있다) |
 | 종목별 변형 | yaml `sports` 가 종목별 매핑이면 제안에 `"sport"` 를 쓴다. params 는 `sport_overrides.<종목>.*`, stake·mode 는 그 종목만. params·stake 는 종목 필수. 표본·cooldown·ladder 는 종목별(2026-10-05) |
 | 신규 변형 | paper·5 USDC 로만, 기반 변형의 bounds·limits 상속 |
 | 회당 변경 수 | 일일 2 · 주간 5 · 월간 4, 변형당 1건 |
@@ -115,7 +117,7 @@ sequenceDiagram
 
 attention 항목의 출처는 두 가지다.
 
-- **자동 규칙 (AI 무관)**: 단위 증액·감액·모드 변경(3일간, paper→live 는 참고 "자동 실거래 전환"), 승격 게이트의 paper 조건을 통과하고 재생만 남은 종목("자동 실거래 전환 대기"), 일일 손실 한도·킬스위치, AI 회고 실패·codex 대체·엔진 없음,
+- **자동 규칙 (AI 무관)**: 단위 증액·감액·모드 변경(3일간, paper→live 는 참고 "자동 실거래 전환"·"AI 실거래 전환"), 승격 게이트의 paper 조건을 통과하고 재생만 남은 종목("자동 실거래 전환 대기"), 일일 손실 한도·킬스위치, AI 회고 실패·codex 대체·엔진 없음,
   validator 거부 요약(회고 종류별), 수집 공백·stream stale·잡 실패(`polylab health`), 품질 이벤트 24h 30건 이상·백필 실패,
   대상 경기가 있었는데 3일 이상 진입 0건인 변형(킬스위치 중엔 생략), 디스크 여유 100GB 미만, paper 변형 표본 수집 중
   (20건 도달 시 "live 전환 결정 필요"), 주간은 지난 7일 파라미터 변경 목록. 같은 id 는 한 항목으로 합쳐지고, 해당 규칙이

@@ -69,11 +69,11 @@ params:
       take_profit_price: 0.95
       take_profit_delta: null
       hold_above_price: null
-      stop_loss_delta: 0.25
-      max_wall_minute: 90
-      min_wall_minute: 45
+      stop_loss_delta: 0.65
+      max_wall_minute: 120
+      min_wall_minute: 60
       hours_max: 6.0
-      min_game_volume_usd: 100000
+      min_game_volume_usd: 20000
     nba:
       prob_min: 0.8
       prob_max: 0.83
@@ -158,7 +158,7 @@ bounds:
   - 0.01
   sport_overrides.nfl.stop_loss_delta:
   - 0.05
-  - 0.3
+  - 0.65
   - 0.01
   sport_overrides.nfl.take_profit_delta:
   - 0.01
@@ -295,4 +295,4 @@ notes: 'golden-plum Queen(soccer TP .90/SL .17, nfl TP .90/SL .12) 포팅. 원�
   MLB 추가, NBA·NHL·NFL·MLB 종목별 설정(전부 paper). 2024-04~2026-10 grid (4,032셀, 현재 수수료 0.05)에서 규칙1 통과 셀이 어느 종목에도 없다(모두 약 −1.5~−2.5%):
   미국 종목·MLB 에서 plum 의 우위는 확인되지 않는다. paper 값(손절 ≥ 0.17 arm 중 이웃 포함 ROI 최고): nba n=1751 ROI -1.75% (H1 -1.90 / H2 -1.60); nhl
   n=1100 ROI -1.99% (H1 -2.15 / H2 -1.93); nfl n=316 ROI -1.48% (H1 -2.48 / H2 -0.72); mlb n=1986 ROI -2.22% (H1 -2.32 / H2
-  -2.12). 근거 docs/research/backtests/2026-10-06-us-sports.md.'
+  -2.12). 근거 docs/research/backtests/2026-10-06-us-sports.md. | 2026-10-06 양수 조건 탐색(`paper_ready:plum-queen`, 88,680셀): NFL 0.65–0.68·시작 60–120분·0.95 익절·손절 없음(stop_loss_delta 0.65 ≈ 없음)·거래량 2만+ 가 R1–R7 통과(349건 +4.82%, 엔진 345건 +5.24%; 다중 비교 점검은 약함) → paper out-of-sample 시험. live 는 새 paper 표본으로만. 근거 docs/research/backtests/2026-10-06-plum-positive-search.md.'

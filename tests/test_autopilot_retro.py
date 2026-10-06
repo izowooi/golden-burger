@@ -265,3 +265,32 @@ def test_backtest_evidence_skipped_past_soft_deadline_and_change_rejected(tmp_pa
     assert notes and "time budget" in notes[0] and not vctx.backtests
     (d,) = validate(PARAM_PROPOSAL, vctx, rules)
     assert not d.accepted and "no retro-run backtest" in d.reason
+
+
+def test_daily_retune_reaches_idle_sport_of_per_sport_variant(tmp_path, monkeypatch):
+    """Per-sport variants name a sport on params changes, so the daily idle-only retune must read the sport's own
+    idle flag (bug before 2026-10-06: only the variant-level flag was set and the replay never ran)."""
+    paths, reg, env, calls = setup(tmp_path, monkeypatch, n_settled=3)
+    d = yaml.safe_load((reg / "watermelon-cat.yaml").read_text())
+    d["sports"] = {"soccer": {"mode": "live", "stake_usdc": 5.0}}
+    (reg / "watermelon-cat.yaml").write_text(yaml.safe_dump(d, sort_keys=False))
+    s = db.strategy(paths, "watermelon-cat")
+    s.execute("DELETE FROM positions")
+    s.commit()
+    runs = []
+
+    def fake_backtest(jobs, start, end, timeout):
+        runs.append([(v.id, v.sports, p) for v, p in jobs])
+        return [{"trades": fake_trades(60, lambda i: 0.05 if i % 10 else -1.0)},
+                {"trades": fake_trades(50, lambda i: 0.06 if i % 12 else -1.0)}]
+
+    env.backtest = fake_backtest
+    prop = {"schema": "polylab.proposal/v1", "summary": "loosen entry",
+            "changes": [{"variant_id": "watermelon-cat", "sport": "soccer", "change": "params",
+                         "values": {"prob_min": 0.90}, "rationale": "idle"}]}
+    env.engines = lambda: [FakeEngine("claude", proposal=prop), FakeEngine("codex", available=False)]
+    res = retro.run_retro(opts("daily"), env)
+    assert runs == [[("watermelon-cat", ["soccer"], {}),
+                     ("watermelon-cat", ["soccer"], {"sport_overrides.soccer.prob_min": 0.90})]], res["rejected"]
+    assert [a["variant_id"] for a in res["applied"]] == ["watermelon-cat"], res["rejected"]
+    assert yaml.safe_load((reg / "watermelon-cat.yaml").read_text())["params"]["sport_overrides"]["soccer"]["prob_min"] == 0.90

@@ -36,8 +36,9 @@
 
 - 실거래 20건 미만이라 `params` 를 못 바꾸던 변형(거의 진입하지 않는 변형, 성과가 나쁜데 표본이 모이지 않는 변형)도
   주간 회고에서는 `params` 변경을 제안할 수 있다. 한 단계는 `max_step` 의 2배까지, bounds·cooldown 은 그대로다.
-- retro 가 제안 값과 현재 값을 직접 재생(최근 `rules.backtest_lookback_days` 일, 진입 시각 중앙값으로 두 반기)해서
-  **제안 n ≥ `backtest_min_n`(반기마다 `backtest_min_half_n` 이상), 두 반기 모두 ROI 가 현재 이상, MDD 가 현재의 1.2배 이하**일 때만
+- retro 가 제안 값과 현재 값을 직접 재생(종목 규칙의 기간: 기본 최근 `rules.backtest_lookback_days` 일, 비시즌·NFL 등 경기 수가
+  적은 종목은 365일, 현재 수수료, 진입 시각 중앙값으로 두 반기)해서 **제안 n ≥ 종목 최소(기본 `backtest_min_n`, NFL 등 20;
+  반기마다 `backtest_min_half_n`, NFL 등 5 이상), 두 반기 모두 ROI 가 현재 이상, MDD 가 현재의 1.2배 이하**일 때만
   통과시킨다. `evidence` 에 쓴 수치는 판정에 쓰이지 않으니 과장할 이유가 없다. 근거와 결과는 `reports/changes.md` 에 남는다.
 - 재생은 회당 `backtest_max_runs` 건뿐이다. `backtests.json` 의 ±step grid 에서 현재보다 나았던 방향을 우선한다.
 - A/B 두 arm(예: apricot-eco tick 90 · apricot-fruit tick 95)은 처치 변수 하나만 다르게 유지한다. 공통 변수(prob_min, TP 등)는 두 arm 에
@@ -97,10 +98,19 @@
 - 종목별 변형(`bounds.json` 의 `variants.<id>.per_sport: true`, yaml `sports:` 가 종목→{mode, stake_usdc} 매핑)은
   `"sport": "nba"` 처럼 종목을 지정한다. `params` 는 그 종목의 `sport_overrides.<종목>.<이름>` 으로 들어가고(경계는
   그 dotted 키, 없으면 기본 이름), `stake`·`mode` 는 그 종목만 바꾼다. 종목별 변형의 `params`·`stake` 는 `sport` 가 필수다.
-  표본·cooldown·ladder 는 종목별로 센다. AI 는 어떤 종목도 live 로 올릴 수 없다(제안해도 validator 가 거부).
-  paper→live 는 retro 의 결정론 승격 게이트만 한다(2026-10-06 연구자 결정 `sports3:auto-promotion`): 현재 파라미터 paper
-  정산 ≥ 30, paper ROI 80% bootstrap 하한 > 0, 두 반기 ≥ 0, 최근 120일 재생 n ≥ 40·ROI ≥ 0, 계좌·프리시즌·live_from·3일
-  cooldown. 상태는 context 의 `promotion.json`(종목별 stage·사유). 게이트 기준을 바꾸자는 제안은 attention 으로만 한다.
+  표본·cooldown·ladder 는 종목별로 센다.
+- **paper→live (2026-10-06 연구자 결정 `promotion:ai-direct`)**: 근거가 있으면 AI 도 종목별 변형의 한 종목을 live 로 올리자고
+  제안할 수 있다: `{"variant_id": "<id>", "sport": "<종목>", "change": "mode", "values": {"mode": "live"}, "rationale": "..."}`.
+  숫자는 당신이 증명하지 않는다. retro 가 그 종목만 현재 파라미터·현재 수수료(0.05)로 직접 재생하고(`promotion.json` 의
+  `evidence.rule.lookback_days` 일: 기본 120일, 비시즌이면 365일, NFL 등 경기 수가 적은 종목은 직전 365일) **n ≥ 종목 최소
+  (기본 40, NFL 등 20), 전체와 두 반기 ROI ≥ 0, 반기 n ≥ 종목 최소(10, NFL 등 5)**, 그리고 관측 표본(마지막 단위·모드 변경 이후 paper + 현재
+  파라미터의 live 체결)이 유의하게 음수가 아닐 때(ROI 80% bootstrap 상한 ≥ 0; 5건 미만은 반대 근거로 보지 않음)만 통과시킨다.
+  ladder 가 live 손실로 paper 로 내린 종목은 그 live 기록 때문에 대개 다시 올릴 수 없다. 결정론 승격 게이트(`sports3:auto-promotion`:
+  paper ≥ 30(NFL 등 15)·ROI 80% 하한 > 0·두 반기 ≥ 0·재생 n ≥ 40(NFL 등 20)·ROI ≥ 0)를 이미 통과한 종목도 같은 결과다.
+  계좌가 있어야 하고, 프리시즌·`live_from`·3일 cooldown 을 지키며, 전환은 항상 5 USDC 다. 재생은 회당 1건이므로 가장 근거가
+  강한 (변형, 종목) 하나만 제안한다. `evidence` 에 쓴 수치는 판정에 쓰지 않는다. 연구자 결정과 충돌하는 조합은
+  제안하지 않는다(decisions.md). plum-king·queen 은 2026-10-06 연구자 결정으로 AI 실거래 제안이 막혀 있다(validator 거부;
+  새 paper 표본으로 결정론 게이트만 전환할 수 있다).
 - `bounds.json`의 `rules`(max_changes, min_trades_params, cooldown)를 지킨다. JSON 외 텍스트는 넣지 않는다.
 
 ## attention.json (선택, 사람에게 알릴 것)
@@ -145,4 +155,6 @@
 - 2026-10-02 결정: 모든 전략은 경기 막판까지 보유하기보다 **조기 익절(take-profit early)** 을 우선한다. 막판 급락 구간에서 1분 주기 손절은 체결되지 않는다는 실거래 증거가 있다.
 - 2026-10-06 결정(`sports3:us-all`, 10-03 `policy:us-sports`·`manual:nfl-scope` 대체): watermelon·apricot·plum 의 모든 변형이
   NBA·NHL·NFL 을 종목별 설정(진입 기준·시간대·TP/SL·거래량 하한·단위)으로 함께 다룬다. NFL 은 paper 로 시작하고, 미국 종목의
-  paper→live 는 결정론 승격 게이트만 한다(위 규칙). 종목별 파라미터 조정은 bounds 안에서 종목을 지정해 제안한다.
+  paper→live 는 결정론 승격 게이트 또는 retro 직접 재생 근거가 있는 AI 제안으로 한다(위 규칙, 2026-10-06 `promotion:ai-direct`).
+  종목별 파라미터 조정은 bounds 안에서 종목을 지정해 제안한다. 경기 수가 적은 종목(NFL 등)은 최소 건수가 낮고 재생 기간이
+  직전 시즌 전체(365일)다(`manual:nfl-promotion-window`).

@@ -248,3 +248,20 @@ def test_backtest_candidates_lists_only_changes_missing_evidence():
     assert backtest_candidates(prop, c, Rules.for_kind("daily")) == []  # not idle
     c.backtests[evidence_key("wm-cat", {"prob_min": 0.93})] = evidence()
     assert backtest_candidates(prop, c, WEEKLY) == []
+
+
+def test_backtest_gate_low_frequency_sport_rule():
+    """2026-10-06 `manual:nfl-promotion-window`: NFL retunes need n >= 20 (halves >= 5) over a 365-day replay."""
+    from polylab.risk.promotion import sample_rule
+    nfl = sample_rule("nfl")
+    small = arm(22, 0.01, 1.0, [(11, 0.01), (11, 0.01)])
+    year = {**evidence(new=small), "range": [NOW - 365 * DAY, NOW]}
+    assert not backtest_gate(year, WEEKLY, 5.0)[0]                     # default rule: n=22 < 40
+    assert backtest_gate(year, WEEKLY, 5.0, nfl)[0]
+    assert "window 120d" in backtest_gate(evidence(new=small), WEEKLY, 5.0, nfl)[1]   # 120-day evidence refused
+    c = bt_ctx(trades=16, ev=year)
+    c.facts["wm-cat"].by_sport["nfl"] = Facts(trades_at_version=16, last_param_change_ts=NOW - 5 * DAY)
+    from polylab.autopilot.validator import min_trades_for, promotion_key
+    c.sample_rules[promotion_key("wm-cat", "nfl")] = nfl
+    assert min_trades_for({"variant_id": "wm-cat", "sport": "nfl"}, c, WEEKLY) == 15
+    assert min_trades_for({"variant_id": "wm-cat", "sport": "nba"}, c, WEEKLY) == 20

@@ -15,7 +15,10 @@ All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is
     "collector": {"last_poll_at": "...", "live_games": 12, "tracked_markets": 40, "ws_last_message_at": "...",
                    "core_db_mb": 812.5, "books_db_mb": 120.0, "disk_free_gb": 900.1, "backfill_progress": {"games_done": 1200, "games_total": 5000},
                    "storage": {"projected_30d_gb": 21.4, "level": "ok|warn|critical|null", "budget_warn_gb": 50, "budget_crit_gb": 100,
-                               "total_gb_now": 15.2, "areas": {"raw": {"gb_now": 7.0, "gb_per_day": 0.12, "gb_30d": 3.6, "method": "raw_dated_dirs|samples|insufficient"}}}},
+                               "total_gb_now": 15.2, "steady_30d_gb": 5.7, "one_time_gb": 1.7, "naive_projected_30d_gb": 81.7,
+                               "one_time_events": [{"area": "core", "day": "2026-10-05", "kind": "backfill", "note": "..."}],
+                               "areas": {"raw": {"gb_now": 7.0, "gb_per_day": 0.03, "gb_30d": 0.8, "method": "raw_dated_dirs_daily_median|raw_dated_dirs_partial_day|samples_daily_median|samples_partial_day|naive_samples|naive_raw_dated_dirs|insufficient",
+                                                 "one_time_gb": 0.0, "naive_gb_30d": 36.4, "steady_days": 1}}}},
     "ai": {"last_retro_at": "...", "last_retro_kind": "daily", "last_retro_ok": true, "proposals_applied_7d": 3}
   },
   "portfolio": {
@@ -40,7 +43,12 @@ All times are ISO-8601 UTC strings (`...Z`); the dashboard renders KST. Money is
 - `system.collector.storage` (additive, 2026-10-05, `polylab health` → ops/storage.py): data growth budget. `areas` keys
   core, books, raw, ou05, general, strategies, manual, research; `gb_30d` = 7-day growth × 30 (raw from dated directories,
   the rest from hourly size samples; null until a day of samples exists). `level` warn > 50 GB/month, critical > 100.
-  null when the measurement failed.
+  null when the measurement failed. 2026-10-06 (additive): `gb_per_day`/`gb_30d`/`projected_30d_gb`/`level` are the
+  **steady state** = median daily rate of the last 7 days (today's partial day included, >= 6 h coverage), excluding days
+  with a known one-time event of the area (backfills) and days up to the area's last collection config change (raw lean
+  mode 2026-10-05); `steady_30d_gb` = `projected_30d_gb`; `one_time_gb` = growth of the excluded backfill days above the
+  steady rate (reported separately, not projected); `naive_projected_30d_gb` / `areas.*.naive_gb_30d` = the old 7-day
+  mean; `steady_days` = days behind the median (1 = provisional).
 
 
 ## latest/strategies/<id>.json

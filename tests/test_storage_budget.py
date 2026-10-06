@@ -26,7 +26,8 @@ def write(path, n):
     path.write_bytes(b"x" * n)
 
 
-def test_raw_dated_dirs_and_samples_growth(paths):
+def test_raw_dated_dirs_and_samples_growth(paths, monkeypatch):
+    monkeypatch.setattr(storage, "CONFIG_CHANGES", {})
     for i in range(1, 8):
         day = time.strftime("%Y-%m-%d", time.gmtime(NOW - i * DAY))
         write(paths.raw_dir / day / "market-00.jsonl.gz", 2_000_000_000 if i == 1 else 1_000_000_000)
@@ -35,11 +36,15 @@ def test_raw_dated_dirs_and_samples_growth(paths):
     samples = [{"ts": NOW - 7 * DAY, "sizes": base}]
     (paths.state / "storage_samples.json").write_text(json.dumps(samples))
     write(paths.data / "core.db", 1_700_000_000)                    # +0.7 GB in 7 days
-    st = storage.status(paths, NOW)
+    st = storage.status(paths, NOW, events=[])
     raw = st["areas"]["raw"]
-    assert raw["method"] == "raw_dated_dirs" and raw["gb_per_day"] == pytest.approx(8 / 7, abs=1e-3)
-    assert st["areas"]["core"]["method"] == "samples" and st["areas"]["core"]["gb_30d"] == pytest.approx(3.0)
-    assert st["projected_30d_gb"] == pytest.approx(round(8 / 7 * 30 + 3.0, 2), abs=0.05)
+    # steady state = median day (1 GB), the 2 GB day does not move it; the old 7-day mean stays as naive_*
+    assert raw["method"] == "raw_dated_dirs_daily_median" and raw["gb_per_day"] == pytest.approx(1.0, abs=1e-3)
+    assert raw["naive_gb_per_day"] == pytest.approx(8 / 7, abs=1e-3)
+    # two samples 7 days apart give no per-day coverage: core falls back to the labelled naive mean
+    assert st["areas"]["core"]["method"] == "naive_samples" and st["areas"]["core"]["gb_30d"] == pytest.approx(3.0)
+    assert st["projected_30d_gb"] == pytest.approx(30.0 + 3.0, abs=0.05)
+    assert st["naive_projected_30d_gb"] == pytest.approx(round(8 / 7 * 30 + 3.0, 2), abs=0.05)
     assert st["level"] == "ok"
     # a fresh sample was recorded, at most hourly
     assert len(storage.load_samples(paths)) == 2
@@ -107,3 +112,31 @@ def test_raw_mode_env(monkeypatch):
     assert stream.raw_market_mode() == "full"
     monkeypatch.setenv("POLYLAB_RAW_MARKET", "bogus")
     assert stream.raw_market_mode() == "lean"
+
+
+def test_steady_state_excludes_backfill_days_and_pre_lean_raw(paths):
+    """The 2026-10-06 situation: core/general backfills on 10-05, raw lean switch on 10-05 (10-04 was 3.2 GB)."""
+    now = NOW + DAY + 11 * 3600                                  # 2026-10-06 11:00 UTC
+    for day, gb in (("2026-10-03", 0.66), ("2026-10-04", 3.2), ("2026-10-05", 0.6)):
+        write(paths.raw_dir / day / "market-00.jsonl.gz", int(gb * 1e9))
+    write(paths.raw_dir / "2026-10-06" / "market-00.jsonl.gz", 14_000_000)   # lean: 14 MB in 11 h
+    samples, core, general = [], 2.6e9, 0.0
+    for h in range(0, 30 * 3600 + 1, 3600):                      # hourly samples 10-05 05:00 .. 10-06 11:00
+        ts = NOW + 5 * 3600 + h
+        hour = h // 3600
+        core += 2.4e6 + (640e6 if hour == 9 else 0)              # 10-05 14:00 backfill burst
+        general += 1.2e6 + (1.07e9 if hour == 1 else 0)          # 10-05 06:00 backfill
+        samples.append({"ts": ts, "sizes": {"core": int(core), "general": int(general)}})
+    (paths.state / "storage_samples.json").write_text(json.dumps(samples))
+    events = [{"area": "core", "day": "2026-10-05", "kind": "backfill", "note": "us"},
+              {"area": "general", "day": "2026-10-05", "kind": "backfill", "note": "general"}]
+    st = storage.status(paths, now, write=False, events=events)
+    raw, c, g = st["areas"]["raw"], st["areas"]["core"], st["areas"]["general"]
+    assert raw["gb_per_day"] == pytest.approx(0.014 * 24 / 11, rel=0.01) and raw["method"].endswith("_partial_day")
+    assert c["gb_per_day"] == pytest.approx(2.4e6 * 24 / 1e9, rel=0.02) and c["steady_days"] == 1
+    assert g["gb_per_day"] == pytest.approx(1.2e6 * 24 / 1e9, rel=0.02)
+    assert st["one_time_gb"] == pytest.approx(0.64 + 1.07, abs=0.02)
+    assert st["projected_30d_gb"] < 5 < st["naive_projected_30d_gb"]
+    assert st["level"] == "ok"
+    days = {d["day"]: d for d in raw["days"]}
+    assert days["2026-10-04"]["excluded"].startswith("config") and "excluded" not in days["2026-10-06"]

@@ -27,7 +27,7 @@
 - 모든 Jenkins 잡은 macOS TCC 때문에 `ssh polylab-local` 경유로 실행(`docs/ops/macmini-runbook.md`). `brew services restart jenkins` 금지.
 - 주요 잡: tick(1분, 수집+전략), stream(WS), discover(10분), backfill(매시), publish(5분, git pull 포함), ou05(1분)/ou05-discover(매시),
   general(1분, cherry 용 일반 마켓)/general-discover, manual-sync(15분, 수동 베팅 기록), llm-forecast(10:00), retro daily(03:30·08:00·19:30)/weekly(월 08:30)/monthly(1일 09:00), storage-compact(매월).
-- 저장 예산: 월 50GB 이내(최대 100GB). `polylab health` 가 영역별 30일 증가를 예측해 경고.
+- 저장 예산: 월 50GB 이내(최대 100GB). `polylab health` 가 영역별 정상 상태 증가(최근 7일 일별 중앙값, 백필 날·수집 설정 변경 전 날 제외)로 30일을 예측해 경고하고, 일회성 백필은 따로 보고한다. 2026-10-06 실측 정상 상태 약 5.7GB/월(일회성 백필 1.7GB 별도).
 - AI 회고: Claude(`claude -p`) → 실패 시 Codex → 결정론. 제안은 validator·테스트 게이트를 통과해야 적용, 커밋 전 비밀값 정확값 검사.
 - 연구자 결정은 `reports/decisions.md` 가 원본. AI 는 이를 전제로 판단하고, attention 항목에 대한 답도 여기 기록된다.
 
@@ -35,25 +35,30 @@
 
 | 변형 | 계좌 | 요지 | 상태 |
 |---|---|---|---|
-| watermelon-cat / dog | cat / dog | 경기 중 고확률 favourite, 조기 익절 | 축구 live, 그 외 종목 paper (NBA 는 두 시즌 백테스트로 우위 없음 → 10-21 live 취소) |
-| apricot-eco / fruit | eco / fruit | 경기 후반 선두 | 전 종목 paper. NFL(시작 ~190분 뒤 선두 0.80–0.99, 0.96 익절)만 백테스트 통과(+2.76%, 103건) |
-| plum-king / queen | king / queen | 중간대 선두 추세, +0.03 조기 익절 | paper |
+| watermelon-cat / dog | cat / dog | 경기 중 고확률 favourite, 조기 익절 | 전 종목 paper(축구는 10-06 08:00 ladder 가 누적 손실로 live→paper 강등; NBA 는 두 시즌 백테스트로 우위 없음 → 10-21 live 취소) |
+| apricot-eco / fruit | eco / fruit | 경기 후반 선두 | **eco NFL live 5 USDC**(10-06 연구자 결정, 시작 ~190분 뒤 선두 0.80–0.99, 0.96 익절, 백테스트 +2.76%·103건). fruit NFL(손절 arm)과 나머지 종목 paper |
+| plum-king / queen | king / queen | 중간대 선두 추세, +0.03 조기 익절 | paper (paper ROI −3.0%·−0.9%, 연구자: live 금지, AI 실거래 경로 제외). 10-06 양수 탐색 88,680셀: NBA·NHL·MLB 없음. NFL 0.65–0.68·시작 60–120분·0.95 익절 셀(R1–R7 통과, 349건 +4.82%)을 paper 시험 중(queen 손절 없음, king 0.12). 축구 정산 보유 후보는 조기 익절 결정과 충돌해 보류 |
 | cherry-blue / tiger | blue / tiger | 초기 개념: 종료 ~3일 전 0.9 매수→0.95 매도(전 카테고리) | paper (8만 조합 중 우위 없음) |
 | goal-over-all | lion | 주요 리그 축구 Over 0.5 를 킥오프 3일 전~5분 전 지정가 매수, +0.02 익절(AI 조정 가능)·−10% 손절·0.99 보유 | live 5 USDC, maker 주문 |
 | llm-nil-consensus / llm-nil-draw | – | Claude·ChatGPT 0:0 예측 합의 top-3 Over 0.5 | paper |
 | 수동 트랙 2 | red(메인)·wolf·eagle | 연구자 직접 베팅(AI 스킬), 공개 주소로 기록만 | O/U 0.5 만 집계 |
 
 - 모든 변형은 5 USDC 에서 시작, 종목별 단위 ladder 로 증감(최대 100). 종목별 mode·단위·파라미터가 따로 있다.
+- paper→live: 결정론 승격 게이트(`risk/promotion.py`) 또는 AI 제안 + retro 직접 재생 근거(2026-10-06 `promotion:ai-direct`). 종목 규칙
+  `sample_rule`: 기본 재생 120일·n ≥ 40·paper ≥ 30, NFL 등 경기 수가 적은 종목 365일·n ≥ 20·paper ≥ 15, 비시즌은 365일 창.
+  retro 재생은 모두 현재 수수료 0.05 강제. **2026-10-06 이전 retro 재생은 CLI 버그로 모두 실패했었다**(재조정·승격 증거가 한 번도 실제로 만들어지지 않음).
 - 2026-10-06: NBA·NHL·NFL 과거 데이터를 2024 시즌까지 확장(NBA 3,030·NHL 2,600·NFL 808경기), 3 전략 종목별 재최적화, paper→live 자동 전환 게이트(결정론, `risk/promotion.py`) 도입.
 
 ## 이어서 할 일 / 열린 문제
 
-- NFL 은 시즌당 진입 경기가 적어 자동 전환 게이트의 '최근 120일 재생 40건' 조건을 못 넘는다 → 연구자 결정 대기(`manual:nfl-promotion-window`).
+- (해결 10-06) NFL 자동 전환 창: NFL 은 직전 365일·n ≥ 20·paper ≥ 15 로 낮췄다(`manual:nfl-promotion-window`).
 
+- plum: NFL 후보 셀 paper out-of-sample 시험(다중 비교에 약함, 시즌당 약 120건). 축구 정산 보유 후보는 10-02 조기 익절 결정과 충돌 → 연구자 판단 대기(문서 5절).
+- 저장 예측 정상 상태 표본이 1일뿐이다(raw lean 은 10-06 부분 일). 1주 뒤 5.7GB/월 잠정치를 재확인.
 - O/U 0.5 생애 곡선: 2~3주 실시간 축적 후 판정(예비: 합 평균 7일+ 1.50 → 6~24시간 1.01).
 - watermelon NBA 첫 20건의 실제 손절 체결가로 합성 호가 백테스트 낙관 여부 확인.
 - 지정가(maker) 주문의 체결률·역선택 관찰 후 cherry 등 다른 전략 적용 검토.
-- apricot: 손절 없는 구조의 꼬리 손실 → 새 가설 필요.
+- apricot: 손절 없는 구조의 꼬리 손실 → 새 가설 필요. 10-06 진입 0건 재조정 후보 28개(MLB·NFL) 통과 0건 — 진입 0건은 경기 수 문제.
 
 ## 세션 운영 규칙 (AI 용)
 

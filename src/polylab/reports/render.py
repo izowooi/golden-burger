@@ -329,10 +329,16 @@ def storage_lines(st: dict | None) -> list[str]:
     parts = [f"{n} {r['gb_30d']:g}" for n, r in sorted(areas.items(), key=lambda x: -(x[1].get("gb_30d") or 0))
              if r.get("gb_30d")]
     proj = st.get("projected_30d_gb")
-    head = (f"- 데이터 증가 예상 {proj:g}GB/월 ({STORAGE_LEVEL_KO.get(st.get('level'), '-')}, 현재 총 "
+    head = (f"- 데이터 증가 예상(정상 상태, 최근 7일 일별 중앙값) {proj:g}GB/월 ({STORAGE_LEVEL_KO.get(st.get('level'), '-')}, 현재 총 "
             f"{st.get('total_gb_now')}GB)" if proj is not None else
             f"- 데이터 증가 예상: 측정 중(표본 1일 미만), 현재 총 {st.get('total_gb_now')}GB")
     out = [head + (": " + ", ".join(parts) + " GB" if parts else "")]
+    if st.get("one_time_gb"):
+        notes = "; ".join(f"{e.get('day')} {e.get('area')} {e.get('note') or e.get('kind')}"
+                          for e in st.get("one_time_events") or [])
+        out.append(f"  - 일회성 증가(백필, 예측 제외) {st['one_time_gb']:g}GB" + (f": {_esc(notes)}" if notes else ""))
+    if st.get("naive_projected_30d_gb") is not None and st.get("naive_projected_30d_gb") != proj:
+        out.append(f"  - 참고: 단순 7일 평균 예측 {st['naive_projected_30d_gb']:g}GB/월(백필·설정 변경 전 날 포함)")
     if st.get("unmeasured_areas"):
         out.append("  - 아직 증가율을 모르는 영역: " + ", ".join(st["unmeasured_areas"]))
     return out

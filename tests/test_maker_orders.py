@@ -100,6 +100,10 @@ def live(tmp_path, monkeypatch):
     reg = tmp_path / "reg"
     reg.mkdir()
     real = yaml.safe_load(open("strategies/goal-over-all.yaml"))
+    # tunable values (AI retro / owner) are fixed here so a yaml retune cannot break this test
+    real["params"].update(entry_minutes_before_max=4320, entry_minutes_before_min=5, price_min=0.5, price_max=0.985,
+                          take_profit_price=None, stop_loss_price=None, take_profit_delta=0.02, take_profit_pct=None,
+                          maker_ttl_minutes=60, maker_reprice_ticks=2)
     real["params"].update(leagues=LEAGUES, order_style="maker", book_max_age_s=900)
     real.update(mode="live", account="cat", stake_usdc=5.0)
     (reg / "goal-over-all.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))
@@ -392,6 +396,10 @@ def test_paper_tick_end_to_end_maker(tmp_path, monkeypatch):
     reg = tmp_path / "reg"
     reg.mkdir()
     real = yaml.safe_load(open("strategies/goal-over-all.yaml"))
+    # tunable values (AI retro / owner) are fixed here so a yaml retune cannot break this test
+    real["params"].update(entry_minutes_before_max=4320, entry_minutes_before_min=5, price_min=0.5, price_max=0.985,
+                          take_profit_price=None, stop_loss_price=None, take_profit_delta=0.02, take_profit_pct=None,
+                          maker_ttl_minutes=60, maker_reprice_ticks=2)
     real["params"].update(leagues=LEAGUES, order_style="maker")
     real.update(mode="paper", account=None, stake_usdc=5.0)
     (reg / "goal-over-all.yaml").write_text(yaml.safe_dump(real, allow_unicode=True))

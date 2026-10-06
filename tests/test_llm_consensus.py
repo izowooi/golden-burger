@@ -131,6 +131,8 @@ def test_tick_consensus_paper_end_to_end(tmp_path, monkeypatch):
     real = yaml.safe_load(open("strategies/llm-nil-consensus.yaml"))
     assert real["params"]["source"] == "consensus"
     real.update(mode="paper", account=None)          # the real yaml may be switched live by the owner
+    real["params"].update(top_k=3, edge=0.0, max_price=0.985, min_price=0.5, entry_window_minutes=15,
+                          take_profit_price=None, stop_loss_price=None)   # tunable: fixed for this test
     (reg / "llm-nil-consensus.yaml").write_text(yaml.safe_dump(real))
     now = NOW + 5 * 3600 - 300
     env.book("ov1", now - 20, [(0.92, 500)], [(0.93, 500)])              # implied .07 - consensus .05 >= 0

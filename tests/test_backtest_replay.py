@@ -108,3 +108,34 @@ def test_backtest_resolution_hold_ends_at_resolved_at(tmp_path):
     [t] = out["trades"]
     assert t["hold_min"] == pytest.approx((5 * 3600 - 3600) / 60)   # opened T0+1h, resolved T0+5h
     assert out["summary"]["p05_return"] == pytest.approx(t["pnl"] / t["cost"], rel=1e-6)
+
+
+def test_backtest_fee_rate_override_charges_current_schedule(tmp_path):
+    env = Env(tmp_path / "root")
+    _history(env)
+    free = backtest(env.paths, wm_variant(), T0 - 3600, T0 + 24 * 3600, step=60, spread=0.01)
+    paid = backtest(env.paths, wm_variant(), T0 - 3600, T0 + 24 * 3600, step=60, spread=0.01, fee_rate=0.05)
+    assert paid["fee_rate"] == 0.05 and free["fee_rate"] is None
+    assert paid["trades"][0]["pnl"] < free["trades"][0]["pnl"]       # taker fee on the entry fill
+
+
+def test_retro_run_backtests_subprocess_end_to_end(tmp_path, monkeypatch):
+    """The retro's replay path (real subprocess, --variant-file only). Before 2026-10-06 the CLI required --variant
+    too, so every retro-run replay (retune, promotion) exited 2; the retro tests had mocked env.backtest."""
+    import calendar
+
+    from polylab import registry
+    from polylab.autopilot import retro
+    env = Env(tmp_path / "root")
+    _history(env)
+    env.core.commit()
+    monkeypatch.setenv("POLYLAB_ROOT", str(env.paths.root))
+    yml = tmp_path / "wm-bt.yaml"
+    yml.write_text(json.dumps({"id": "wm-bt", "family": "watermelon", "hypothesis": "h", "mode": "paper",
+                               "sports": ["nfl"], "stake_usdc": 5, "params": {"hours_max": 6}}))
+    v = registry.load_variant(yml)
+    day0 = calendar.timegm(__import__("time").gmtime(T0)[:3] + (0, 0, 0))
+    cur, high = retro.run_backtests([(v, {}), (v, {"prob_min": 0.99})], day0 - 86400, day0 + 2 * 86400, 120)
+    assert not cur.get("error"), cur.get("error")
+    assert len(cur["trades"]) == 1 and cur["fee_rate"] == retro.CURRENT_SPORTS_FEE_RATE
+    assert not high.get("error") and high["trades"] == []

@@ -127,7 +127,11 @@ def storage_summary(st: dict | None) -> dict | None:
     return {"projected_30d_gb": st.get("projected_30d_gb"), "level": st.get("level"),
             "budget_warn_gb": st.get("budget_warn_gb"), "budget_crit_gb": st.get("budget_crit_gb"),
             "total_gb_now": st.get("total_gb_now"),
-            "areas": {n: {k: r.get(k) for k in ("gb_now", "gb_per_day", "gb_30d", "method")}
+            "steady_30d_gb": st.get("steady_30d_gb"), "one_time_gb": st.get("one_time_gb"),
+            "naive_projected_30d_gb": st.get("naive_projected_30d_gb"),
+            "one_time_events": st.get("one_time_events") or [],
+            "areas": {n: {k: r.get(k) for k in ("gb_now", "gb_per_day", "gb_30d", "method", "one_time_gb",
+                                                  "naive_gb_30d", "steady_days")}
                       for n, r in (st.get("areas") or {}).items()}}
 
 

@@ -8,7 +8,9 @@
 4. optional external proposals from autopilot/inbox/*.json
 5. validator (bounds, max_step, samples, cooldown, ladder gate, safety-only mode moves); a params change
    without enough live trades (or up to 2x max_step) needs a backtest the retro runs itself for exactly
-   the proposed values vs the current params (weekly; daily only for idle variants)
+   the proposed values vs the current params (weekly; daily only for idle (variant, sport)s); an AI paper→live
+   proposal needs the retro's own replay of that sport (promotion.evaluate_direct, 2026-10-06 `promotion:ai-direct`).
+   Sample minimums and replay windows are per sport (promotion.sample_rule; NFL etc. 365 days)
 6. apply to strategies/*.yaml → pytest → revert on failure
 7. attention inbox (reports/attention.{json,md}: deterministic rule items + at most 3 validated AI items) and the
    "오늘의 브리프" bullets at the top of the report and the Slack message
@@ -42,7 +44,8 @@ from polylab.autopilot import context as ctxpack
 from polylab.autopilot import attention, gitops, monthly
 from polylab.autopilot.runner import Engine, default_chain
 from polylab.autopilot.validator import (PROMOTION_SOURCE, SCHEMA, Context, Decision, Facts, Rules, apply_to_variant,
-                                        backtest_candidates, evidence_key, promotion_key, set_path, validate)
+                                        backtest_candidates, evidence_key, live_candidates, promotion_key, set_path,
+                                        validate)
 from polylab.registry import STAKE_LADDER
 from polylab.reports import build as report_build
 from polylab.reports import brief as brief_mod
@@ -50,6 +53,7 @@ from polylab.reports import render, slack
 from polylab.reports.build import KIND_KO
 
 CATCHUP_MAX_S = {"daily": 3 * 86400, "weekly": 21 * 86400, "monthly": 0}
+CURRENT_SPORTS_FEE_RATE = 0.05   # = polylab.analysis.backtest.CURRENT_SPORTS_FEE_RATE (sports_fees_v3)
 NARRATIVE_MAX_CHARS = 20_000
 
 
@@ -85,6 +89,8 @@ def run_backtests(jobs: list[tuple[object, dict]], start: int, end: int, timeout
             out, err = d / "out.json", d / "stderr.txt"
             cmd = [sys.executable, "-m", "polylab.analysis.backtest", "--variant-file", str(d / f"{variant.id}.yaml"),
                    "--from", day(start), "--to", day(end), "--out", str(out)]
+            if variant.family != "cherry":   # sports markets: gate evidence at the current fee schedule
+                cmd += ["--fee-rate", str(CURRENT_SPORTS_FEE_RATE)]
             if nested:
                 cmd += ["--params", json.dumps(nested)]
             with err.open("w") as fh:
@@ -277,8 +283,8 @@ def record_stake_events(applied: list[dict], vctx_before: dict, paths, now: int)
             else:
                 vals = (old.stake_usdc, new.stake_usdc, old.mode, new.mode)
             evidence = {"rationale": a.get("rationale")}
-            if a["source"] == PROMOTION_SOURCE:
-                evidence["gate"] = a.get("evidence")
+            if a["source"] == PROMOTION_SOURCE or (a["change"] == "mode" and a.get("evidence") is not None):
+                evidence["gate"] = a.get("evidence")     # retro-computed (never the AI's own numbers)
             conn.execute("INSERT INTO stake_events(ts, from_usdc, to_usdc, from_mode, to_mode, reason, evidence, sport) "
                          "VALUES(?,?,?,?,?,?,?,?)", (now, *vals, f"{a['source']}: {a['summary']}"[:500],
                                                      json.dumps(evidence, ensure_ascii=False, default=str), sport))
@@ -318,11 +324,109 @@ def promotion_sample(v, sport: str, paths) -> tuple[list, int | None]:
     return trades, (max(changes) if changes else None)
 
 
+def live_epoch_trades(v, sport: str, paths) -> list:
+    """Settled LIVE trades of `sport` on its current param epoch (AI-direct: a sport the ladder just demoted for live
+    losses must not be re-promoted on a backtest alone — its live record joins the contradiction check)."""
+    from polylab.risk.promotion import PaperTrade  # noqa: PLC0415
+    df = performance.load_variant_positions(paths.strategy_db(v.id))
+    sub = df[df["sport"] == sport] if not df.empty and "sport" in df else df
+    s = performance.settled(sub, "live")
+    history = report_build.param_history(paths, v.id)
+    if history and not s.empty:
+        eff = [registry.effective_params(h["params"] or {}, sport) for h in history]
+        i = len(history) - 1
+        while i > 0 and eff[i - 1] == eff[-1]:
+            i -= 1
+        s = s[s["param_version"].isin({h["version"] for h in history[i:]})]
+    return [PaperTrade(int(r["opened_at"]), int(r["closed_at"]), float(r["realized_pnl"]), float(r["cost_usdc"] or 0))
+            for _, r in s.iterrows()]
+
+
 def _replay_summary(result: dict, start: int, end: int) -> dict:
+    """Replay arm stats plus both halves split at the median entry (AI-direct live evidence uses the halves)."""
     if result.get("error"):
         return {"error": result["error"], "range": [start, end]}
-    arm = _arm_stats(result.get("trades") or [])
-    return {"n": arm["n"], "roi": arm["roi"], "pnl": arm["pnl"], "max_dd": arm["max_dd"], "range": [start, end]}
+    trades = result.get("trades") or []
+    arm = _arm_stats(trades)
+    opens = sorted(t["opened_at"] for t in trades if t.get("opened_at") is not None)
+    split = opens[len(opens) // 2] if len(opens) >= 2 else (start + end) // 2
+    halves = [_arm_stats([t for t in trades if (t.get("opened_at") or 0) < split]),
+              _arm_stats([t for t in trades if (t.get("opened_at") or 0) >= split])]
+    return {"n": arm["n"], "roi": arm["roi"], "pnl": arm["pnl"], "max_dd": arm["max_dd"], "range": [start, end],
+            "split_ts": split, "halves": halves, "fee_rate": result.get("fee_rate")}
+
+
+def sample_rules(variants, paths, now: int) -> dict:
+    """promotion_key(variant, sport) -> promotion.SampleRule from core.db game counts (league scope of soccer)."""
+    from polylab.risk import promotion  # noqa: PLC0415
+    out: dict = {}
+    end = now - now % 86400
+    core = C.open_ro(paths.core_db) if Path(paths.core_db).exists() else None
+    try:
+        for v in variants:
+            if not v.per_sport:
+                continue
+            for sport in v.sports:
+                leagues = registry.effective_params(v.params or {}, sport).get("leagues")
+                try:
+                    out[promotion_key(v.id, sport)] = promotion.rule_for(core, sport, end, leagues)
+                except Exception:   # unreadable core: static config only
+                    out[promotion_key(v.id, sport)] = promotion.sample_rule(sport)
+    finally:
+        if core is not None:
+            core.close()
+    return out
+
+
+def live_evidence(proposals: list[tuple[str, dict]], vctx: Context, rules: Rules, env: Env, now: int,
+                  retro_started: float | None = None) -> list[str]:
+    """AI/inbox paper→live proposals (2026-10-06 `promotion:ai-direct`): the retro replays the sport itself at current
+    params / current fees over the sport's window and stores promotion.evaluate_direct in vctx.live_evidence (the
+    validator reads only that). Bounded like the other replays; a skipped run means rejection."""
+    from polylab.risk import promotion  # noqa: PLC0415
+    notes: list[str] = []
+    todo: list[tuple[str, str]] = []
+    for source, prop in proposals:
+        for pair in live_candidates(prop, vctx, rules, source):
+            if pair not in todo and promotion_key(*pair) not in vctx.live_evidence:
+                todo.append(pair)
+    t0 = time.time()
+    started = retro_started if retro_started is not None else t0
+    end = now - now % 86400
+    runs = 0
+    for vid, sport in todo:
+        v = vctx.variants[vid]
+        rule = vctx.sample_rules.get(promotion_key(vid, sport)) or promotion.sample_rule(sport)
+        start = end - rule.lookback_days * 86400
+        try:
+            trades, last_change = promotion_sample(v, sport, env.paths)
+            trades = trades + live_epoch_trades(v, sport, env.paths)   # observed record at current params
+        except Exception as exc:
+            notes.append(f"live evidence {vid}/{sport}: paper sample failed: {exc}")
+            continue
+        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, None, rule)
+        if gate.stage in ("eligibility", "paper"):
+            vctx.live_evidence[promotion_key(vid, sport)] = {**gate.as_dict()}
+            notes.append(f"live evidence {vid}/{sport}: {gate.stage}: {gate.reason}")
+            continue
+        left = min(rules.live_evidence_budget_s - (time.time() - t0),
+                   rules.backtest_soft_deadline_s - (time.time() - started))
+        if runs >= rules.live_evidence_max_runs or left < 60:
+            notes.append(f"live evidence skipped for {vid}/{sport} (max {rules.live_evidence_max_runs} / time budget)")
+            continue
+        runs += 1
+        sim = copy.deepcopy(v)
+        sim.sports = [sport]
+        sim.sport_settings = {k: c for k, c in sim.sport_settings.items() if k == sport}
+        env.say(f"live evidence replay {vid}/{sport} ({rule.lookback_days}d, ≤{left:.0f}s)")
+        try:
+            result = env.backtest([(sim, {})], start, end, left)[0]
+        except Exception as exc:
+            result = {"error": f"{type(exc).__name__}: {exc}"[:300]}
+        gate = promotion.evaluate_direct(v, sport, trades, now, last_change, _replay_summary(result, start, end), rule)
+        vctx.live_evidence[promotion_key(vid, sport)] = {**gate.as_dict()}
+        notes.append(f"live evidence {vid}/{sport}: {'pass' if gate.ok else 'fail'}: {gate.reason}")
+    return notes
 
 
 def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
@@ -335,19 +439,20 @@ def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
     t0 = time.time()
     started = retro_started if retro_started is not None else t0
     end = now - now % 86400
-    start = end - promotion.BACKTEST_LOOKBACK_DAYS * 86400
     for v in variants:
         if not v.per_sport or v.mode == "off":
             continue
         for sport in v.sports:
             if (v.sport_settings.get(sport) or {}).get("mode", v.mode) != "paper":
                 continue
+            rule = vctx.sample_rules.get(promotion_key(v.id, sport)) or promotion.sample_rule(sport)
+            start = end - rule.lookback_days * 86400
             try:
                 trades, last_change = promotion_sample(v, sport, env.paths)
             except Exception as exc:   # an unreadable ledger never promotes
                 env.say(f"promotion sample {v.id}/{sport} failed: {type(exc).__name__}: {exc}")
                 continue
-            gate = promotion.evaluate(v, sport, trades, now, last_change)
+            gate = promotion.evaluate(v, sport, trades, now, last_change, rule=rule)
             if gate.needs_backtest and rules.promotion_replay:
                 left = min(rules.promotion_budget_s - (time.time() - t0),
                            rules.backtest_soft_deadline_s - (time.time() - started))
@@ -358,13 +463,13 @@ def promotion_gates(variants, vctx: Context, rules: Rules, env: Env, now: int,
                     sim = copy.deepcopy(v)
                     sim.sports = [sport]
                     sim.sport_settings = {k: c for k, c in sim.sport_settings.items() if k == sport}
-                    env.say(f"promotion replay {v.id}/{sport} ({promotion.BACKTEST_LOOKBACK_DAYS}d, ≤{left:.0f}s)")
+                    env.say(f"promotion replay {v.id}/{sport} ({rule.lookback_days}d, ≤{left:.0f}s)")
                     try:
                         result = env.backtest([(sim, {})], start, end, left)[0]
                     except Exception as exc:
                         result = {"error": f"{type(exc).__name__}: {exc}"[:300]}
                     gate = promotion.evaluate(v, sport, trades, now, last_change,
-                                              backtest=_replay_summary(result, start, end))
+                                              backtest=_replay_summary(result, start, end), rule=rule)
             gates.append(gate)
     changes = []
     for g in gates:
@@ -423,10 +528,12 @@ def backtest_evidence(proposals: list[dict], vctx: Context, rules: Rules, env: E
                 seen.add(key)
                 todo.append((vid, params, key))
     end = now - now % 86400  # completed UTC days only
-    start = end - rules.backtest_lookback_days * 86400
     t0 = time.time()
     started = retro_started if retro_started is not None else t0
     for i, (vid, params, key) in enumerate(todo):
+        rule = vctx.sample_rules.get(promotion_key(vid, integrations_sport(params)))
+        lookback = rule.lookback_days if rule is not None else rules.backtest_lookback_days
+        start = end - lookback * 86400
         left = min(rules.backtest_budget_s - (time.time() - t0),
                    rules.backtest_soft_deadline_s - (time.time() - started))
         if i >= rules.backtest_max_runs or left < 60:
@@ -438,7 +545,7 @@ def backtest_evidence(proposals: list[dict], vctx: Context, rules: Rules, env: E
             variant = copy.deepcopy(variant)
             variant.sports = [sport]
             variant.sport_settings = {k: v for k, v in variant.sport_settings.items() if k == sport}
-        env.say(f"backtest retune evidence {vid} {params} ({rules.backtest_lookback_days}d, ≤{left:.0f}s)")
+        env.say(f"backtest retune evidence {vid} {params} ({lookback}d, ≤{left:.0f}s)")
         try:
             current, proposed = env.backtest([(variant, {}), (variant, params)], start, end, left)
             ev = split_evidence(current, proposed, start, end)
@@ -623,7 +730,8 @@ def apply_decisions(accepted: list[Decision], vctx: Context, env: Env) -> tuple[
             applied.append({"variant_id": new.id, "change": d.change["change"], "summary": d.summary,
                             **({"sport": d.change["sport"]} if d.change.get("sport") else {}),
                             "source": d.source, "rationale": d.change.get("rationale"), "new": new,
-                            **({"evidence": d.change.get("evidence")} if d.source == PROMOTION_SOURCE else {}),
+                            **({"evidence": d.gate} if d.gate is not None else
+                               {"evidence": d.change.get("evidence")} if d.source == PROMOTION_SOURCE else {}),
                             **({"backtest": d.backtest} if d.backtest else {})})
         _check_staged(stage)
         originals: dict[Path, str | None] = {}
@@ -717,11 +825,21 @@ def run_retro(opts: Options, env: Env) -> dict:
                    facts={v.id: variant_facts(v, paths, _rv(report, v.id)["ladder"], env.repo,
                                               {d["sport"]: d["ladder"] for d in _rv(report, v.id).get("sports_detail") or []
                                                if d.get("ladder")}) for v in variants})
+    vctx.sample_rules = sample_rules(variants, paths, now)
     idle = set(attention.idle_variants(report, paths, now)) if rules.backtest_retune else set()
+    idle_sp = attention.idle_sports(report, paths, now) if rules.backtest_retune else {}
     for vid in idle & set(vctx.facts):
         vctx.facts[vid].idle = True
-    eligible = sorted(v.id for v in variants if v.mode != "off" and rules.backtest_retune
+    for vid, sports in idle_sp.items():     # sport-targeted params changes read the sport's own facts
+        if vid in vctx.facts:
+            vctx.facts[vid].idle = True
+            for sport in sports:
+                vctx.facts[vid].by_sport.setdefault(sport, Facts()).idle = True
+    eligible = sorted(v.id for v in variants if v.mode != "off" and rules.backtest_retune and not v.per_sport
                       and (not rules.backtest_idle_only or v.id in idle))
+    eligible += sorted(f"{v.id}:{s}" for v in variants if v.mode != "off" and rules.backtest_retune and v.per_sport
+                       for s in v.sports if v.sport_mode(s) != "off"
+                       and (not rules.backtest_idle_only or s in idle_sp.get(v.id, {})))
     md0 = render.render(report)
     cwd = ctxpack.build_private(report, md0, kind, paths, variants, rules, stamp, run_backtests=opts.backtest,
                                 retune_eligible=eligible)
@@ -730,8 +848,8 @@ def run_retro(opts: Options, env: Env) -> dict:
     try:
         (cwd / "promotion.json").write_text(json.dumps(report["promotion"], ensure_ascii=False, indent=1, default=str))
         with (cwd / "MANIFEST.md").open("a") as fh:
-            fh.write("- `promotion.json`: 결정론 paper→live 승격 게이트의 (변형, 종목)별 stage·사유·paper 지표 "
-                     "(AI 는 live 로 올릴 수 없다; 게이트만 전환)\n")
+            fh.write("- `promotion.json`: 결정론 paper→live 승격 게이트의 (변형, 종목)별 stage·사유·paper 지표·종목 규칙"
+                     "(rule: 최소 건수·재생 기간). AI 도 근거가 있으면 mode live 를 제안할 수 있다(retro 가 직접 재생해 판정)\n")
     except OSError as exc:
         env.say(f"promotion context skipped: {exc}")
     att_prev = attention.load(env.reports_dir)
@@ -760,6 +878,10 @@ def run_retro(opts: Options, env: Env) -> dict:
     if opts.backtest:  # evidence for backtest-backed retunes is computed here, before any validation
         for note in backtest_evidence([p for p in [proposal, *(d for _, d in inbox)] if p], vctx, rules, env, now,
                                       retro_started=wall_start):
+            env.say(note)
+        live_props = ([(f"ai:{ai['engine']}", proposal)] if proposal else []) + \
+            [(f"inbox:{path.name}", d) for path, d in inbox if d]
+        for note in live_evidence(live_props, vctx, rules, env, now, retro_started=wall_start):
             env.say(note)
     state = {"count": 0, "touched": set(), "new_variants": 0}
     decisions = validate(ladder_changes(report), vctx, rules, "ladder", state)

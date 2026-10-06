@@ -130,9 +130,14 @@ bootstrap 80% 하한 > 0, 최대 낙폭 < 현 단위×6 이면 한 단계 증액
 통과하면 retro 가 5 USDC live 로 올린다. 조건(모두): 계좌 있음, 종목 자체 mode paper, `live_from` 이 지났고 프리시즌 창 밖
 (NFL 8/1–9/3, NBA 10/1–10/20, NHL 9/15–10/6, MLB 2/15–3/25), 마지막 파라미터·단위·모드 변경 후 3일, 현재 파라미터 paper 정산 ≥ 30
 (마지막 단위·모드 이벤트 이후 진입분만), paper 거래당 ROI 80% bootstrap 하한 > 0, 진입 시각 중앙값으로 나눈 두 반기 손익 ≥ 0,
-그리고 retro 가 직접 돌린 최근 120일 재생(그 종목만, 현재 파라미터) n ≥ 40·ROI ≥ 0. 가벼운 paper 판정은 모든 회고가, 재생은 주간 회고만
-(회당 1건) 한다. 기록: `stake_events`(paper→live, 게이트 근거), `reports/changes.md`, attention 참고 항목 "자동 실거래 전환".
-AI 는 여전히 live 로 올릴 수 없다(validator 가 `promotion` 출처 + 게이트 근거만 허용). live→paper 강등은 위 ladder 규칙 그대로.
+그리고 retro 가 직접 돌린 재생(그 종목만, 현재 파라미터, 현재 수수료 0.05, 종목 규칙 기간) n ≥ 40·ROI ≥ 0. 가벼운 paper 판정은 모든
+회고가, 재생은 주간 회고만(회당 1건) 한다. 종목 규칙(`sample_rule`, 2026-10-06 `manual:nfl-promotion-window`): 기본 최근 120일,
+NFL 등 경기 수가 적은 종목은 직전 365일·n ≥ 20·paper ≥ 15, 비시즌 종목은 창만 365일. 기록: `stake_events`(paper→live, 게이트 근거),
+`reports/changes.md`, attention 참고 항목 "자동 실거래 전환".
+**AI 실거래 전환(2026-10-06 `promotion:ai-direct`)**: AI·inbox 도 (변형, 종목) paper→live 를 제안할 수 있고, retro 가 그 종목을 직접
+재생해(`promotion.evaluate_direct`) n ≥ 종목 최소·전체와 두 반기 ROI ≥ 0, 관측 표본(paper + 현재 파라미터 live)이 유의하게 음수가
+아니며 위와 같은 계좌·프리시즌·cooldown 을 만족할 때만 validator 가 받는다(AI 가 적은 수치는 쓰지 않음). plum-king·queen 은 연구자 결정으로
+이 경로에서 제외(결정론 게이트만). live→paper 강등은 위 ladder 규칙 그대로.
 
 **AI 회고 루프**: `polylab retro <daily|weekly|monthly>` 가 결정론 지표(context pack)를 만들고, Mac mini 의
 `claude -p`(CLAUDE_CODE_OAUTH_TOKEN) 가 서술 회고 + `proposal.json`(파라미터 변경/신규 paper 변형/폐기)을 작성한다.

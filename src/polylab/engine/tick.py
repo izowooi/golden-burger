@@ -135,6 +135,9 @@ class PaperExecutor:
         return self.view.book(token_id, now, max_age_s=180)
 
     def fee(self, condition_id: str) -> FeeSchedule | None:
+        override = getattr(self.view, "fee_override", None)   # backtest --fee-rate (gate evidence at current fees)
+        if override is not None:
+            return override
         m = self.view.market(condition_id)
         return parse_fee_schedule(m.fee_schedule) if m else None
 
